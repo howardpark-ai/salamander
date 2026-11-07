@@ -3,7 +3,7 @@
 # must not ship with out-of-date help. The text sala prints about itself is kept as a tracked snapshot,
 # tests/help-snapshot.txt, and this suite regenerates it and diffs: a change to a command's shape, words or output that
 # touches the help shows up as a diff in the PR, and one that should have touched it but did not is caught by the
-# model review (.github/scripts/help-review.sh) reading the same diff.
+# builder's own pre-merge review reading the same diff.
 #
 # What the snapshot holds (sala's help is one comment block at the top of bin/salamander, so there is one top-level text,
 # and only some verbs answer `--help` or a wrong call with a usage of their own):
@@ -20,7 +20,7 @@
 #
 # Usage: bash tests/help-snapshot.sh              the suite: regenerate, diff against the snapshot (exit 1 on drift)
 #        bash tests/help-snapshot.sh --update     rewrite the snapshot (then commit it: its diff is the release note's what-changed line)
-#        bash tests/help-snapshot.sh --generate   print the regenerated text (what help-review.sh and skills-flags.sh read)
+#        bash tests/help-snapshot.sh --generate   print the regenerated text (what skills-flags.sh reads)
 # Env:   HELP_SNAPSHOT_ROOT  the checkout whose bin/salamander is run (default: this one; the drift tests use a copy)
 #        HELP_SNAPSHOT_FILE  the snapshot (default: tests/help-snapshot.txt of this checkout)
 set -u
