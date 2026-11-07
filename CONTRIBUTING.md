@@ -29,7 +29,8 @@ does not have.
    command on the coordinator machine, `~/salamander/release.sh <pr>`. That
    runs detached (a transient user unit, `salamander-release-<pr>`): it checks the PR is open and mergeable and that the
    production checkout has not drifted, waits for the PR's checks (a job the change did not need reports as skipped,
-   which counts as a verdict; a pass is still needed), merges with `gh pr merge --merge --delete-branch`,
+   which counts as a verdict; a pass is still needed), merges with `gh pr merge --merge --delete-branch --admin`
+   (`--admin` because a ruleset limits who may update branches, which makes a plain merge refused client-side; the required checks still apply to it),
    runs `deploy.sh` in the production checkout, and reports once to `projects/salamander` as a `[release]` message:
    green with the PR, the commit and what changed, or red with the step that failed and the log. Just before a green message the
    live release is also reported to stackshot (`client.py released --pr <PR url> --sha <merge commit>`), which settles the items whose
@@ -49,7 +50,7 @@ does not have.
    soon as its tests are green, without waiting for anything else.
 
 A PR passes the required checks (*main is protected at GitHub*, above) by running the tests workflow, and a job the change does not need reports as skipped, which counts as passed.
-`release.sh` merges the PR on GitHub's side (`gh pr merge`) once its checks pass.
+`release.sh` merges the PR on GitHub's side (`gh pr merge --admin`; the required checks still apply to it) once its checks pass.
 
 ## What a deploy does
 
