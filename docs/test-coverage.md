@@ -3372,7 +3372,7 @@ own lane); the answer holding no prompt, reply or tool text, in memory or in the
 answer with an error in words and never the exception's text).
 
 `test_usage_ui.py` (headless Chromium, else skipped), at 1280 px and 390 px through the real app over fake transcripts: the markup and both files with the cache-busting version, the hash in `app.js`; the tab
-opening on its link with Report first, Explorer and Digest saying they are coming next, the arrow keys wrapping; a read when the tab opens and on Reload and none from any other tab; the total
+opening on its link with Report first, Explorer and Digest both built (neither says it is coming next), the arrow keys wrapping; a read when the tab opens and on Reload and none from any other tab; the total
 and its "billed" line, the lane cards' words, the grouping by each of Day, Lane, Model, Project, Agent and Folder (each adding up to the total, the chart's title following), no token word on the
 page; a name from the registry staying text; a tap on a lane card filtering the total and the table with a chip that clears it, a table row, a day and a key name each filtering and Clear all
 emptying them, the table's sort flipping on a second tap, a week switch asking again and showing that week's figures with the filters cleared, a failed read keeping the last figures with a note;
@@ -3383,8 +3383,30 @@ Changed: `test_search_ui.py`, `test_schedules.py`, `test_machines.py` and `test_
 bar of a phone holding four tabs); the Machines keyboard test now reaches Usage analysis before it wraps.
 
 Not covered, and why: the real transcripts of a production machine and their cold scan time (measured by hand once on the build box, not asserted: it depends on the machine), a real quota answer
-(the weekly reset is given by the test), a physical phone (the width is emulated), the price table's truth (the table is spend.py's; `PRICES_AS_OF` is a marker a person sets), and Explorer,
-which is not built yet (the Digest is below).
+(the weekly reset is given by the test), a physical phone (the width is emulated), the price table's truth (the table is spend.py's; `PRICES_AS_OF` is a marker a person sets), and the other two views (each has its own section below).
+
+### `web/tests/test_usage_explorer.py` (new, 11) and `web/tests/test_usage_explorer_ui.py` (new, 19): the Usage analysis tab's Explorer view (Sat Nov 7th 2026)
+
+What it is: the Explorer view compares any two things side by side and lists the replies behind a row (`web/README.md`, *Usage analysis*; `usage.py` `reply_list`, `GET /api/usage/replies`,
+`static/usage-explorer.js`, `static/usage-explorer.css`). Kept because the owner reads dollars off it, so a wrong answer costs two sides that do not add up to the Report, an A swapped with a B,
+a filter that narrows one side and not the other, a break-down whose rows do not sum to the side, a tap whose replies are not those of that row and side, a list that is not capped or does not say
+how many there are in all, a flat-plan figure that counts as billed or lacks its *not billed*, a prompt or token count leaving a transcript or reaching the page, a view that reads the server while
+it is not on screen, markup built from a name, and, on a phone, a page that scrolls sideways or a control too small to hit. Every transcript, registry and state file is a fake in a temporary folder.
+
+`test_usage_explorer.py` (no browser): the replies of a week newest first with KST times and their dollars adding up to the rows of the Report; a filter on each of day, lane, model, project, agent
+and folder; the cap and `limit` with the total and dollars of everything that matched; the weeks and a reply counted once; a model with no price at $0; no text and no token count in a record; a second
+count opening no transcript; the route (a bad `week` or `limit` a 400, a repeated name as alternatives); `pending` after a restart until a count has run; a failed count answering with an error in words.
+
+`test_usage_explorer_ui.py` (headless Chromium, else skipped), at 1280 px and 390 px: the markup, the two files and the hook into `usage.js`; the view opening from the views control, reading once and
+nothing while another view is on screen; the default comparison (the two costliest lanes, the flat plan *not billed*, billed per use, the change of B against A, the Report's notes, no token word);
+each of Model and Agent compared with both sides adding up to their columns; the compared dimension leaving the break-down and the filters; Day choosing the two latest days; A and B changed and a
+*none* side; a Where filter narrowing both sides and *Clear filters*; Week compared and the week filter; a tap on a row listing the replies for A and for B (newest first, dollars, *not billed*) and
+closing on a second tap; the list capped at 200 with its total; a failed read of the replies and a retry; a failed read of the usage keeping the last figures; the table's sort; a registry name staying
+text; Reload; no console error; no sideways scroll, the two side cards side by side and every control 44 px on a phone. Set `SALA_USAGE_SHOTS` to leave a screenshot of each width.
+
+Changed: `test_usage_ui.py` asserts Explorer is built (it no longer says *coming next*).
+
+Not covered, and why: the real transcripts of a production machine (the counts are the Report's), a physical phone (the width is emulated), and how the wording reads to a person (by eye).
 
 ### `web/tests/test_usage_digest.py` (new, 31) and `web/tests/test_usage_digest_ui.py` (new, 9): the Usage analysis tab's Digest view (Sat Nov 7th 2026)
 

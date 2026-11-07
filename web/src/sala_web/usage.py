@@ -32,11 +32,18 @@ opened; one that grew is read from where it stopped; a file replaced or shrunk i
 usage-scan.json (saved when a scan found something new, at most every SAVE_EVERY seconds, and at the end of a first scan). The
 answer is served at once from the last good one and refreshed in a thread once it is TTL old (swr.py, the lane cards' way);
 with no answer yet it is {"pending": true} and the page asks again.
+
+THE REPLIES (Explorer's drill-down). `GET /api/usage/replies?week=&<dimension>=<value>…` lists the single replies behind a filter, newest first, capped
+(REPLIES_CAP) with the count and the dollars of ALL that match. It reads no transcript: the count that makes the rows above also leaves, in the scan holder,
+one small record per reply (its epoch ms, the index of its row key and its dollars), so a drill-down is a pass over memory. Time, lane, model, project,
+agent and folder only: still no prompt, reply text or token count. After a restart the rows are served at once from usage-answer.json while the
+replies are not yet there: the endpoint then answers {"pending": true} and makes the next count due, as the first request of a fresh server does.
 """
 
 from __future__ import annotations
 
 import asyncio
+import heapq
 import json
 import os
 import re
@@ -64,6 +71,9 @@ WEEK_S = 7 * 86400
 KST = timezone(timedelta(hours=9))
 TZ_NAME, TZ_LABEL = "Asia/Seoul", "KST"
 UNNAMED = "(unnamed)"
+REPLIES_CAP = 200       # a drill-down names this many replies at most (the newest); the answer says how many there are in all
+REPLY_FIELDS = ["time", "day", "lane", "model", "project", "agent", "folder", "usd"]   # the order of a reply; time = KST 'YYYY-MM-DDTHH:MM:SS'
+REPLY_DIMS = ("day", "lane", "model", "project", "agent", "folder")   # what a drill-down can filter on (a row key's columns after the week)
 FIELDS = ["day", "lane", "model", "project", "agent", "folder", "usd", "replies", "tokens"]   # the order of a row; tokens = [input, cache write 5m, cache write 1h, cache read, output]
 WEEKLY_LABEL = Q.limit_label({"kind": "weekly_all"})   # the quota answer's name for the all-models weekly limit
 
@@ -398,6 +408,8 @@ def compute(settings, live: list, lane_rows: list[dict], lane_names: list[dict],
     elapsed = now - starts[0]
     same_prev = 0.0   # week 1's dollars over the same hours that week 0 has run so far
     names: dict[str, tuple[str, str]] = {}
+    key_ids: dict[tuple, int] = {}   # row key -> its index; and one (ms, key index, dollars) per reply: the drill-down's records (module docstring)
+    recs: list[tuple] = []
     for (sid, fixed, folder), ms, model, tok in merged.values():
         t = ms / 1000.0
         wk = 0 if t >= starts[0] else 1 if t >= starts[1] else 2 if t >= starts[2] else -1
@@ -421,6 +433,10 @@ def compute(settings, live: list, lane_rows: list[dict], lane_names: list[dict],
             agent = facts.shown.get(sid) or UNNAMED
             nm = names[sid] = (agent, project_of(agent, scopes))
         key = (wk, day_of(t), lane, model, nm[1], nm[0], folder)
+        kid = key_ids.get(key)
+        if kid is None:
+            kid = key_ids[key] = len(key_ids)
+        recs.append((ms, kid, usd))
         a = agg.get(key)
         if a is None:
             a = agg[key] = [0.0, 0, [0, 0, 0, 0, 0]]
@@ -456,6 +472,7 @@ def compute(settings, live: list, lane_rows: list[dict], lane_names: list[dict],
             quotas[lane] = {"percent": lim["percent"], "resetsAt": int(r_at)}
     out_lanes = [{"code": c, "label": v["label"], "billing": v["billing"], "flat": c in flat, "known": v["known"], "quota": quotas.get(c)}
                  for c, v in sorted(lanes.items(), key=lambda kv: (kv[0] not in seen, kv[0]))]
+    holder["replies"] = {"generated": int(now), "keys": list(key_ids), "recs": recs}   # replaced whole, never changed in place: the endpoint reads it from another thread
     return {
         "tz": TZ_NAME, "tzLabel": TZ_LABEL, "resetKnown": known, "generated": int(now),
         "anchor": int(bounds[0][1]) if known else None,
@@ -487,6 +504,28 @@ def select_week(state: dict, week: int) -> dict:
     return out
 
 
+def reply_list(store: dict, week: int, where: dict[str, list[str]], limit: int = REPLIES_CAP) -> dict:
+    """The replies of one week that match `where` ({dimension: [accepted values]}; a dimension not named matches anything, several values of one
+    dimension are alternatives), newest first, at most `limit` of them. `total` and `usd` count every match, so a capped list says what it leaves out."""
+    limit = max(1, min(int(limit), REPLIES_CAP))
+    keys = store["keys"]
+    col = {d: i + 1 for i, d in enumerate(REPLY_DIMS)}   # a row key is (week, day, lane, model, project, agent, folder)
+    want = {d: set(v) for d, v in where.items() if d in col and v}
+    ok = {i for i, k in enumerate(keys) if k[0] == week and all(k[col[d]] in vs for d, vs in want.items())}
+    total, usd, hits = 0, 0.0, []
+    for r in store["recs"]:
+        if r[1] in ok:
+            total += 1
+            usd += r[2]
+            hits.append(r)
+    rows = []
+    for ms, kid, v in heapq.nlargest(limit, hits, key=lambda r: r[0]):
+        k = keys[kid]
+        rows.append([datetime.fromtimestamp(ms / 1000, KST).strftime("%Y-%m-%dT%H:%M:%S"), k[1], k[2], k[3], k[4], k[5], k[6], round(v, 6)])
+    return {"week": week, "generated": store["generated"], "tz": TZ_NAME, "tzLabel": TZ_LABEL, "fields": REPLY_FIELDS, "total": total, "usd": round(usd, 4),
+            "shown": len(rows), "capped": total > len(rows), "cap": REPLIES_CAP, "rows": rows}
+
+
 class UsageCache:
     """The usage answer for all three weeks, served at once from the last good one (memory, and a file in the state dir so a restart has it) and
     refreshed in a thread once it is TTL old (swr.py). With no answer yet it is {"pending": true}. A failure keeps the last answer and adds
@@ -507,6 +546,20 @@ class UsageCache:
             self._swr.expire()
         out = self._swr.serve(self._refresh)
         return select_week(out, week) if not out.get("pending") else {**{k: v for k, v in out.items() if k not in ("rows",)}, "week": week, "rows": []}
+
+    async def replies(self, week: int, where: dict[str, list[str]], limit: int = REPLIES_CAP) -> dict:
+        """The replies behind a filter (`reply_list`). They need the count's own records: with none yet (a fresh server, or a restart that served the saved
+        rows) the answer is {"pending": true} and a count is made due; a failed count with nothing to read is {"error": …}. The pass over the records runs in a thread."""
+        out = self._swr.serve(self._refresh)
+        store = self._holder.get("replies")
+        if store is None:
+            if out.get("error"):
+                return {"week": week, "error": out["error"], "rows": []}
+            if not self._swr.running:
+                self._swr.expire()
+                self._swr.serve(self._refresh)
+            return {"pending": True, "week": week, "rows": []}
+        return await asyncio.to_thread(reply_list, store, week, where, limit)
 
     async def _refresh(self) -> dict:
         try:

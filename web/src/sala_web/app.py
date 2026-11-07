@@ -70,6 +70,12 @@ none itself):
                                   from the cached count above (no second scan): {"week", "now", "generated", "tz", "tzLabel", "resetKnown", "scope" (only this
                                   machine's sessions are counted), "range" {startKst, endKst, end, current} | null, "sentences": [...]}; "pending" (no sentences) before the
                                   first count, "refreshing" and "error" as /api/usage; ?fresh=1 as above; a bad week is a 400
+  GET  /api/usage/replies?week=<0|1|2>&<dimension>=<value>…   Explorer's drill-down (usage.py): the single replies behind a filter of that week, newest first, at most
+                                  `cap` (200; ?limit=<n> asks for fewer): {"week", "generated", "tz", "tzLabel", "fields": ["time" (KST), "day", "lane", "model",
+                                  "project", "agent", "folder", "usd"], "rows": [[…]], "total" (every reply that matches), "usd" (their dollars), "shown", "capped", "cap"}.
+                                  A dimension (day, lane, model, project, agent, folder) may be given once or several times (alternatives); one not given matches anything.
+                                  Read from the records the last count left in memory, no transcript is opened; "pending" until the first count has landed (also right after a
+                                  restart, which makes a count due), "error" in plain words when there is none and the count failed; a week other than 0 to 2 is a 400
   GET  /api/schedules             every scheduled job on this machine, from the last reading of systemd and cron (schedules.py; served at once and read
                                   again in the background once it is 30 s old, swr.py: "fetchedAt" (epoch ms), "refreshing", "pending" before the first
                                   reading, "error" when a read failed and the last stays; ?fresh=1 makes it due now; memory only, no database): {"generated", "timezone" (SALA_TZ, "" = local), "tzLabel", "timers":
@@ -727,6 +733,20 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if week not in range(USG.WEEKS):
             return JSONResponse({"error": "week must be 0, 1 or 2"}, status_code=400, headers={"Cache-Control": "no-store"})
         return JSONResponse(USGD.answer(usage.get(week, fresh=request.query_params.get("fresh") == "1")), headers={"Cache-Control": "no-store"})
+
+    async def get_usage_replies(request: Request) -> Response:
+        # Explorer's drill-down (usage.py, reply_list): the single replies behind a filter, newest first, capped, from the records the last count left in memory
+        # (no transcript is opened); ?week=0|1|2, then any of day, lane, model, project, agent, folder, each once or several times (alternatives), ?limit=<n> up to the cap
+        q = request.query_params
+        try:
+            week = int(q.get("week", "0"))
+            limit = int(q.get("limit", str(USG.REPLIES_CAP)))
+        except ValueError:
+            week, limit = -1, 0
+        if week not in range(USG.WEEKS) or limit < 1:
+            return JSONResponse({"error": "week must be 0, 1 or 2 and limit a positive number"}, status_code=400, headers={"Cache-Control": "no-store"})
+        where = {d: q.getlist(d) for d in USG.REPLY_DIMS if q.getlist(d)}
+        return JSONResponse(await usage.replies(week, where, limit), headers={"Cache-Control": "no-store"})
 
     schedules = SCH.SchedulesCache()
 
@@ -1781,6 +1801,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/api/machines", get_machines),
         Route("/api/usage", get_usage),
         Route("/api/usage/digest", get_usage_digest),
+        Route("/api/usage/replies", get_usage_replies),
         Route("/api/search", get_search),
         Route("/api/lanes/{lane}", get_lane),
         Route("/api/board-items", get_board_items),
