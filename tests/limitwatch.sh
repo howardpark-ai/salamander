@@ -321,6 +321,41 @@ SALA_NOTIFY_CMD= "$SALA" alert "x" >/dev/null 2>&1; rc=$?
 [ "$rc" = 3 ] && ok "no notify command: exit 3" || bad "rc=$rc"
 SALA_NOTIFY_CMD='exit 7' "$SALA" alert "x" >/dev/null 2>&1; rc=$?
 [ "$rc" = 1 ] && ok "a failing notify command: exit 1" || bad "rc=$rc"
+# --help / -h: the usage, exit 0, nothing posted, no alert log line, and no notify command needed. The notify command here is a stub
+# that writes to $POSTS (a file in the suite's temporary HOME); a real channel is never configured in this suite.
+ALOGF="$HOME/.claude/salamander-alert.log"
+for flag in --help -h; do
+    : > "$POSTS"; : > "$ALOGF"
+    out=$("$SALA" alert "$flag" 2>"$HOME/alert.err"); rc=$?
+    [ "$rc" = 0 ] && [[ $out == "usage: salamander alert "* ]] && [[ $out == *"exit: 0 posted · 1 the notify command failed · 2 usage · 3 no notify command configured"* ]] \
+        && [ ! -s "$POSTS" ] && [ ! -s "$ALOGF" ] && [ ! -s "$HOME/alert.err" ] \
+        && ok "alert $flag: the usage on stdout, exit 0, nothing posted, no log line" || bad "alert $flag rc=$rc out=$out posts=$(<"$POSTS") log=$(<"$ALOGF")"
+    : > "$ALOGF"
+    out=$(env -u SALA_NOTIFY_CMD -u SALA_WATCH_NOTIFY_CMD "$SALA" alert "$flag" 2>&1); rc=$?
+    [ "$rc" = 0 ] && [[ $out == "usage: salamander alert "* ]] && [ ! -s "$ALOGF" ] \
+        && ok "alert $flag with no notify command configured: the usage, exit 0, no log line" || bad "alert $flag (none configured) rc=$rc out=$out log=$(<"$ALOGF")"
+    : > "$POSTS"
+    "$SALA" alert "$flag" "a line" >/dev/null 2>&1; rc=$?
+    [ "$rc" = 0 ] && [ ! -s "$POSTS" ] && ok "alert $flag with more arguments: still the usage, nothing posted" || bad "alert $flag + args rc=$rc posts=$(<"$POSTS")"
+done
+# no arguments or an empty headline: the short usage line, exit 2 (as before)
+out=$("$SALA" alert 2>&1 >/dev/null); rc=$?
+[ "$rc" = 2 ] && [ "$out" = 'usage: salamander alert "<headline>" ["<line>"…]' ] && ok "alert with no argument: the usage line on stderr, exit 2" || bad "rc=$rc out=$out"
+# -- ends option handling: the next argument is the headline, even if it is --help or starts with -
+: > "$POSTS"; : > "$ALOGF"; "$SALA" alert -- "-5 slots missed" "a line" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(head -1 "$POSTS")" = "⚠️ *-5 slots missed*" ] && grep -q '^    • a line' "$POSTS" && grep -q 'exit 0: ⚠️ \*-5 slots missed\*' "$ALOGF" \
+    && ok "alert -- <headline starting with ->: posted, exit 0, logged" || bad "rc=$rc: $(<"$POSTS")"
+: > "$POSTS"; "$SALA" alert -- --help >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(head -1 "$POSTS")" = "⚠️ *--help*" ] && ok "alert -- --help: the headline is --help, posted" || bad "rc=$rc: $(<"$POSTS")"
+"$SALA" alert -- >/dev/null 2>&1; rc=$?
+[ "$rc" = 2 ] && ok "alert -- with no headline: exit 2" || bad "rc=$rc"
+# only the exact words are options, and only as the first argument
+: > "$POSTS"; "$SALA" alert "-h failed" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(head -1 "$POSTS")" = "⚠️ *-h failed*" ] && ok "a headline that starts with -h but is more: posted as before" || bad "rc=$rc: $(<"$POSTS")"
+: > "$POSTS"; "$SALA" alert "--helpful" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(head -1 "$POSTS")" = "⚠️ *--helpful*" ] && ok "a headline that starts with --help but is more: posted as before" || bad "rc=$rc: $(<"$POSTS")"
+: > "$POSTS"; "$SALA" alert "the job" "--help" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(head -1 "$POSTS")" = "⚠️ *the job*" ] && grep -q '^    • --help' "$POSTS" && ok "--help as a later argument is a line, posted" || bad "rc=$rc: $(<"$POSTS")"
 
 echo "== an api pane relaunched with normal records from another login in its tail; the api lane out of credit: nobody lifted"
 tmux kill-session -t sala-test-a; sleep 0.3                                  # a's api success at T is no part of this

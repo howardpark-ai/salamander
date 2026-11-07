@@ -774,7 +774,7 @@ watch itself, a long-running unit or one outside sala's names); both knobs off d
 checked because the owner reads them to plan; the rest of the posts' wording is not. `sala alert`: posted in the shape, its exit
 codes, which a calling check reads, and a URL in the headline: after the closing `*` with none beside it (Slack took the `*`
 into the link), two URLs in order, a URL inside or glued to a `*` moved out, a `*` headline with a clear URL and a headline with
-no URL left as before.
+no URL left as before. `sala alert --help` and `-h` (the first argument only): the usage on stdout, exit 0, nothing posted, no alert log line and no notify command needed, also with more arguments; `--` first lets a headline start with `-` (even `--help`) and posts it, with no headline after it exit 2; `-h failed`, `--helpful` and a later `--help` are still headlines or lines and post as before; the usage line and exit 2 for no argument.
 
 With the lanes (which lane each pane is on, and exactly which limit is hit), the suite was rewritten around seven panes on three
 lanes, read from each fake's environment as production reads /proc. What a first draft of the post got wrong is what the checks
