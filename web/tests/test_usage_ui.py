@@ -152,7 +152,7 @@ def test_the_tab_opens_on_its_link_with_the_report_first_and_the_other_two_views
     assert "coming next" in browser.evaluate('document.querySelector("#us-v-explorer").textContent')
     click(browser, '#us-views [data-v="digest"]')
     assert browser.evaluate('[document.querySelector("#us-v-report").hidden, document.querySelector("#us-v-explorer").hidden, document.querySelector("#us-v-digest").hidden]') == [True, True, False]
-    assert "coming next" in browser.evaluate('document.querySelector("#us-v-digest").textContent')
+    assert "coming next" not in browser.evaluate('document.querySelector("#us-v-digest").textContent')   # the Digest is built (test_usage_digest_ui.py)
     browser.evaluate("""document.querySelector("#us-views").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); ''""")   # Digest → Report: the arrows wrap
     wait(browser, 'document.querySelector("#us-v-report").hidden === false', "ArrowRight wraps to Report")
     assert [v[1] for v in shown(browser)["views"]] == ["true", "false", "false"]
