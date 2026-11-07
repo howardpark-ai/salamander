@@ -34,5 +34,8 @@ case "${1:-}" in
     *) set -- add "$@" ;;
 esac
 export SALA_STATE_DIR
+# the config file is sourced (common.sh), so a `NAME=value` line there is a shell variable, not part of the environment lib/mockup.py reads: export the
+# three settings it takes (a no-op for one that is unset; the systemd service has only PATH in its environment, so the config is its only source)
+export SALA_MOCKUP_KEEP_DAYS SALA_MOCKUP_MAX_BYTES SALA_MOCKUP_REFERENCES
 SALA_MOCKUP_TEMPLATE=$(session_url_template); export SALA_MOCKUP_TEMPLATE
 exec python3 -I -S "$SALA_ROOT/lib/mockup.py" "$@"
