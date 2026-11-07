@@ -4,7 +4,7 @@ tools/pin-colortool), sala's own wiring (static/colortool-sala.js), and the butt
 What a wrong answer costs: a pinned copy that was edited by hand or drifted from its sha file (the next pin would silently undo a local fix); a
 script missing from one of the pages (the main page, /v2/, the full-size terminal), or loaded twice; a stored look that flashes on first paint
 because it is applied after the body; a floating button back in the corner, or one that sits over the composer; a panel that does not fit a phone
-or cannot be scrolled; a Fields fold that starts open or forgets whether it was left open; a Reset or "Live now" that leaves an inline property behind (the shifted surfaces, the disabled pair's opacity, the
+or cannot be scrolled; a Fields fold that starts open or forgets whether it was left open; a Reset or the Original orange theme preset that leaves an inline property behind (the shifted surfaces, the disabled pair's opacity, the
 status-bar color); a look stored by the earlier try-out (a flat map of the 14 keys under `sala-colortry`) that stops loading; the light theme
 recolored by a dark pick; a saved list that breaks the panel when stackshot is away, or a token or sender label in the browser.
 
@@ -60,11 +60,17 @@ SHIPPED_TOKENS = {"labbg": "--label-bg", "labfg": "--label-fg", "labbd": "--labe
 
 # the earlier try-out's stored look: a flat map of #rrggbb under "sala-colortry"
 OLD_LOOK = {"bg": "#1f1f21", "link": "#ffa057", "solid": "#c96442", "labbg": "#462100", "disbg": "#2a2a2c"}
-# "Radix" without its neutrals (they equal the shipped values)
+# the preset the tool shipped before version 3 ("Radix"), without its neutrals (they equal the shipped values): no longer a preset, but a
+# combination saved or stored from it must keep applying, so it stays here as stored data
 RADIX = {"link": "#ffa057", "solid": "#f76b15", "onsolid": "#ffffff", "labbg": "#462100", "labfg": "#ffa057", "labbd": "#462100",
          "disbg": "#2a2a2c", "disfg": "#a3a29d"}
 # what the tool stores for it: no field equal to what it would be unset (the label text follows the link color)
 RADIX_STORED = {k: v for k, v in RADIX.items() if k != "labfg"}
+# the pinned tool's "Sky" preset without its neutrals, and what the tool stores for it
+SKY = {"link": "#7cb7ff", "solid": "#2a6fd0", "onsolid": "#ffffff", "labbg": "#14283f", "labfg": "#7cb7ff", "labbd": "#14283f",
+       "disbg": "#2a2a2c", "disfg": "#a3a29d"}
+SKY_STORED = {k: v for k, v in SKY.items() if k not in ("labfg", "onsolid")}
+PRESET_NAMES = ["Original orange theme", "Sky", "Mint", "Violet", "Rose"]
 
 
 def rgb(h: str) -> list[int]:
@@ -543,8 +549,8 @@ SHIPPED_DARK = {"bg": "#161617", "card": "#1f1f21", "fg": "#ececea", "mut": "#a3
 
 @pytest.mark.parametrize("name,path", PAGES)
 def test_the_shipped_dark_look_is_the_saved_combination_on_every_page_with_nothing_set(served, browser, name, path):
-    """Live now / the shipped value of all 14 keys, read by the panel's cfg: the combination exactly, on the main page, /v2 and the terminal page
-    (which has no palette of its own and answers from the wiring's fallback table). The pinned preset Old orange is untouched (its own values)."""
+    """The original orange theme / the shipped value of all 14 keys, read by the panel's cfg: the combination exactly, on the main page, /v2 and the terminal page
+    (which has no palette of its own and answers from the wiring's fallback table). The first preset of the pinned tool is the empty combination: it is what the page ships."""
     go(browser, served["url"] + path, button=name != "terminal", ready="document.readyState === 'complete'")
     ship = browser.evaluate("SalaColors.cfg.shipped()")
     assert {k: ship[k] for k in SHIPPED_DARK} == SHIPPED_DARK, ship
@@ -596,14 +602,14 @@ def test_a_preset_a_field_and_the_card_set_inline_properties_on_html_and_the_loo
     go(browser, served["url"] + path)
     assert all(v == "" for v in inline(browser).values()) and stored(browser) is None
     open_panel(browser)
-    preset(browser, "radix")
+    preset(browser, "sky")
     want = {v: "" for v in OWN_VARS}
-    for k, val in RADIX_STORED.items():
+    for k, val in SKY_STORED.items():
         for v in VARS[k]:
             want[v] = val
     want.update({"--dis-bg": "#2a2a2c", "--dis-fg": "#a3a29d", "--dis-op": "1"})           # the disabled pair goes with its opacity
     assert inline(browser) == want
-    assert json.loads(stored(browser)) == RADIX_STORED                                     # a flat map of #rrggbb, only the fields that differ from the unset value
+    assert json.loads(stored(browser)) == SKY_STORED                                       # a flat map of #rrggbb, only the fields that differ from the unset value
     # a field typed in: its variables and no others; the card moves the four surfaces that follow it by the same step
     type_hex(browser, "card", "#202022")
     got = inline(browser)
@@ -614,24 +620,24 @@ def test_a_preset_a_field_and_the_card_set_inline_properties_on_html_and_the_loo
     type_hex(browser, "bg", "#1a1a1b")
     assert meta(browser) == "#1a1a1b" and browser.evaluate("document.querySelector('meta[name=theme-color][media*=light]').content") == THEMES["light"]["--bg"]
     assert browser.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(26, 26, 27)"
-    assert json.loads(stored(browser)) == {**RADIX_STORED, "bg": "#1a1a1b", "card": "#202022"}
+    assert json.loads(stored(browser)) == {**SKY_STORED, "bg": "#1a1a1b", "card": "#202022"}
     before = inline(browser)
     reload(browser)
     assert inline(browser) == before and meta(browser) == "#1a1a1b"                          # applied again, before the panel is opened
     assert browser.evaluate("document.getElementById('ct-pop').hidden") is True
 
 
-@pytest.mark.parametrize("how", ["Reset", "Live now"])
+@pytest.mark.parametrize("how", ["Reset", "Original orange theme"])
 def test_reset_and_live_now_remove_every_inline_property_and_put_the_status_bar_color_back(served, browser, how):
     go(browser, served["url"] + "/")
     open_panel(browser)
-    preset(browser, "two")
+    preset(browser, "sky")
     type_hex(browser, "card", "#202022")
     type_hex(browser, "bg", "#1a1a1b")
     type_hex(browser, "disbg", "#334455")
     got = inline(browser)
     assert got["--dis-op"] == "1" and got["--code-bg"] != "" and got["--user-bubble"] != "" and meta(browser) == "#1a1a1b", got
-    assert sum(1 for v in got.values() if v) >= 12      # (Two oranges' label fill and text equal the shipped ones now, so they are not stored)
+    assert sum(1 for v in got.values() if v) >= 12      # (Sky's label text and the white text on its fill equal what an unset one gives, so they are not stored)
     click(browser, "#ct-reset" if how == "Reset" else ".ct-preset[data-p=live]")
     assert all(v == "" for v in inline(browser).values()), inline(browser)                   # including --dis-op and the four shifted surfaces
     left = browser.evaluate("(() => { const s = document.documentElement.style, out = []; for (let i = 0; i < s.length; i++) out.push(s[i]); return out; })()")
@@ -651,7 +657,7 @@ def test_the_idle_send_button_is_exactly_the_disabled_pair_with_no_fade_while_a_
     shipped = ["1", css_rgb(SHIPPED_LABELS["disbg"]), css_rgb(SHIPPED_LABELS["disfg"])]
     assert browser.evaluate(SEND_DISABLED) == shipped                  # as shipped: the pair at full opacity, no fade
     open_panel(browser)
-    preset(browser, "two")
+    preset(browser, "sky")
     type_hex(browser, "disbg", "#334455")
     assert browser.evaluate(SEND_DISABLED) == ["1", css_rgb("#334455"), css_rgb(inline(browser)["--dis-fg"])]
     click(browser, "#ct-reset")
@@ -679,6 +685,32 @@ def test_a_look_stored_by_the_earlier_try_out_is_applied_in_the_head_before_the_
     assert at_body["meta"][1] == "#1f1f21" and at_body["hasButton"] is False, at_body     # the status-bar color too, and the button comes later
     assert browser.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(31, 31, 33)"
     assert json.loads(stored(browser)) == OLD_LOOK                                          # read, not rewritten
+
+
+def test_the_panel_lists_the_presets_of_the_pinned_tool_and_the_first_keeps_its_id(served, browser):
+    go(browser, served["url"] + "/")
+    open_panel(browser)
+    got = browser.evaluate("[...document.querySelectorAll('.ct-preset')].map((b) => [b.dataset.p, b.dataset.n])")
+    assert [n for _, n in got] == PRESET_NAMES and got[0][0] == "live", got
+    assert browser.evaluate("document.getElementById('ct-cur').textContent") == "Now: Original orange theme"
+
+
+def test_no_preset_of_the_pinned_tool_draws_a_contrast_note_in_sala_s_page(served, browser):
+    # the tool's own gate (its "warn" pairs and limits) run on each preset's fields with sala's dark neutrals, as the panel does when a preset is picked
+    go(browser, served["url"] + "/")
+    got = browser.evaluate("""(() => { const e = ColorTool.engine(SalaColors.cfg), out = {};
+      for (const [id, name, p] of e.PRESETS) { const s = e.norm(p); out[id] = e.warn(e.resolve(s), s).map((w) => w.k + ' ' + w.t); }
+      return out; })()""")
+    assert list(got) == ["live", "sky", "mint", "violet", "rose"], got
+    assert got == {k: [] for k in got}, got
+
+
+def test_a_combination_stored_before_the_presets_changed_is_a_map_of_fields_and_still_applies(served, browser):
+    # the stored look is the fields themselves, never a preset id: the old Radix values apply although the preset is gone from the tool
+    go(browser, served["url"] + "/", script="localStorage.setItem('sala-colortry', %s);" % json.dumps(json.dumps(RADIX_STORED)))
+    got = inline(browser)
+    assert got["--accent-solid"] == "#f76b15" and got["--accent-on-solid"] == "#ffffff" and got["--label-bg"] == "#462100" and got["--dis-op"] == "1", got
+    assert json.loads(stored(browser)) == RADIX_STORED
 
 
 def test_the_light_theme_is_left_as_shipped_and_the_button_follows_the_theme_in_effect(served, browser):
@@ -769,7 +801,7 @@ def test_a_pick_goes_nowhere_but_this_browser_and_a_save_carries_no_token_or_sen
     open_panel(browser)
     wait(browser, "document.getElementById('ct-save')", "no saved list box")
     browser.events.clear()
-    preset(browser, "radix")
+    preset(browser, "sky")
     type_hex(browser, "link", "#ee9455")
     browser.evaluate("document.getElementById('ct-name').value = 'Mine'; document.getElementById('ct-save').click(); ''")
     wait(browser, "document.getElementById('ct-n-saved').textContent.startsWith('Saved')", "the save was not answered")
@@ -782,7 +814,7 @@ def test_a_pick_goes_nowhere_but_this_browser_and_a_save_carries_no_token_or_sen
         if r in mine:
             assert set(json.loads(r["postData"])) == {"name", "values"}
         else:
-            assert not re.search(r"ee9455|f76b15|sala-colortry", blob, re.I), blob
+            assert not re.search(r"ee9455|2a6fd0|sala-colortry", blob, re.I), blob
 
 
 @pytest.fixture(params=["standby", "down", "no-setup"])
@@ -810,8 +842,8 @@ def test_the_panel_works_with_the_saved_list_unavailable(unavailable, served, br
     assert len(note) > 10 and not re.search(r"fake-|Bearer|127\.0\.0\.1", note), note      # a sentence, with no token and no address in it
     assert browser.evaluate("document.querySelectorAll('#ct-list .ct-use').length") == 0
     # everything else works: a preset, a field, Reset
-    preset(browser, "radix")
-    assert inline(browser)["--accent-solid"] == "#f76b15"
+    preset(browser, "sky")
+    assert inline(browser)["--accent-solid"] == "#2a6fd0"
     type_hex(browser, "fg", "#dddddd")
     assert inline(browser)["--text"] == "#dddddd"
     click(browser, "#ct-reset")
