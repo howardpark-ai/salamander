@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 38
+contract-version: 39
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -259,6 +259,8 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   (no model call), read from the same cached count. The answer is `week`, `now`, `generated`, `tz`, `tzLabel`, `resetKnown`, `scope`, `range` and `sentences`, with `pending`, `refreshing` and `error` as the first
   route has them. `GET /api/usage` is unchanged. Nothing is asked of stackshot, Anthropic or AWS.
 
+- **39** — Sat Nov 7th 2026. Interface 32 (sala-web's Usage analysis) gains `GET /api/usage/replies`: the replies behind a selection (week, and any of day, lane, model, project, agent, folder), newest first, at most 200 with the number there are in all, each as time (KST), day, lane, model, project, agent, folder and dollars. Added for the Explorer view; the existing route is unchanged. Nothing of stackshot changed.
+
 ## How each entry reads
 
 - **Direction**: `sala → stackshot` means sala writes or calls and stackshot reads or answers; `stackshot → sala` the
@@ -308,7 +310,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 | 29 | Fleet-op end event (`client.py event --kind fleet_op`, from `op_finish`) | sala → stackshot | stable from version 29 | `tests/op.sh` (a fake client that logs the calls) |
 | 30 | Machines tab files (`site/versions.json`, `clients/fleet/<letter>/machine.json` in stackshot's state folder) | stackshot → sala web | unstable (stackshot's own render inputs, no stated file contract on its side) | `web/tests/test_machines.py`, `test_machines_ui.py` (made-up files) |
 | 31 | sala-web saved color combinations (`GET /client/colors/combos`, `POST /client/colors/combos`, `POST /client/colors/combos/delete`) | sala web → stackshot | stable from version 33 (permanent) | `web/tests/test_colors_combos.py`, `test_colortool_wiring.py` (a fake stackshot) |
-| 32 | sala-web usage analysis (`GET /api/usage?week=0\|1\|2`, optional `&fresh=1`; the Digest's `GET /api/usage/digest` with the same query) | sala web → the page it serves (or any reader of the route) | unstable (the Report and the Digest views; Explorer will read the same rows) | `web/tests/test_usage.py`, `test_usage_ui.py`, `test_usage_digest.py`, `test_usage_digest_ui.py` (fake transcripts) |
+| 32 | sala-web usage analysis (`GET /api/usage?week=0\|1\|2`, optional `&fresh=1`; the Digest's `GET /api/usage/digest` with the same query; Explorer's `GET /api/usage/replies`) | sala web → the page it serves (or any reader of the route) | unstable (the Report, Explorer and Digest views; `GET /api/usage/digest` added in 38, `GET /api/usage/replies` in 39) | `web/tests/test_usage.py`, `test_usage_ui.py`, `test_usage_explorer.py`, `test_usage_explorer_ui.py`, `test_usage_digest.py`, `test_usage_digest_ui.py` (fake transcripts) |
 
 ## 1. Heartbeat fleet store
 
@@ -986,9 +988,13 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   `tz`, `tzLabel`, `resetKnown`, `scope` (the words that only this machine's sessions are counted), `range` (`startKst`, `endKst`, `end`, `current`, or null before the first count) and `sentences` (a list of 1 to 7 plain
   sentences of English, dollars only, dates like `Sat Nov 7th`, written by templates over the same rows: no model call). `pending: true` with no sentences before the first count; `refreshing` and `error` as the route above.
   The same words come from the pure function `usage_digest.digest(answer)` over one week's `GET /api/usage` answer, so a scheduled job can deliver them.
-- **Owners**: sala `web/src/sala_web/usage.py`, `usage_digest.py` (the sentences), `spend.py` (the one price table and `PRICES_AS_OF`), `app.py` (the routes), `static/usage.js`, `static/usage-digest.js`.
+  `GET /api/usage/replies?week=<0|1|2>&limit=<1..200>&<dimension>=<value>…` (added in version 39; `day`, `lane`, `model`, `project`, `agent`, `folder` filter, a name repeated is a list of alternatives; a bad `week` or
+  `limit` is a 400 `{error}`) lists the replies behind a selection, newest first: `week`, `generated`, `tz`, `tzLabel`, `fields` (`time` KST `YYYY-MM-DDTHH:MM:SS`, `day`, `lane`, `model`, `project`, `agent`, `folder`,
+  `usd`), `total` and `usd` of all that matched, `shown`, `capped`, `cap` (200), `rows` (arrays in the order of `fields`). It is computed from the same cached count (nothing is read again), is
+  `{pending: true}` until a count has run after a restart, and carries no text and no token count.
+- **Owners**: sala `web/src/sala_web/usage.py`, `usage_digest.py` (the sentences), `spend.py` (the one price table and `PRICES_AS_OF`), `app.py` (the routes), `static/usage.js`, `static/usage-digest.js`, `static/usage-explorer.js`.
 - **Absent or changed**: a key that is added is ignored by a reader that does not know it; `fields` says the row layout, so a reader should index by it. A change to a key or to a row's layout bumps the version.
-- **Test**: `web/tests/test_usage.py` (the data layer and the route), `test_usage_ui.py` (the page over the route), `test_usage_digest.py` (the sentences and the Digest route), `test_usage_digest_ui.py` (the Digest in a browser).
+- **Test**: `web/tests/test_usage.py` (the data layer and the route), `test_usage_ui.py` (the page over the route), `test_usage_digest.py` (the sentences and the Digest route), `test_usage_digest_ui.py` (the Digest in a browser), `test_usage_explorer.py` (the replies list and route), `test_usage_explorer_ui.py` (Explorer over both routes).
 - **Stable**: unstable (first release).
 
 ## Not an interface, but a name

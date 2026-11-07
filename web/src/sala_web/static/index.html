@@ -84,6 +84,7 @@
 <link rel="stylesheet" href="static/machines.css?v={{v}}">
 <link rel="stylesheet" href="static/usage.css?v={{v}}">
 <link rel="stylesheet" href="static/usage-digest.css?v={{v}}">
+<link rel="stylesheet" href="static/usage-explorer.css?v={{v}}">
 <link rel="stylesheet" href="static/search.css?v={{v}}">
 <link rel="stylesheet" href="static/termclip.css?v={{v}}">
 <!-- the color tool: stackshot's shared file, pinned byte for byte (colortool.js, with its sha256 beside it), then sala's own wiring, which applies the stored
@@ -285,7 +286,7 @@
           <div id="mc-upd" class="mc-upd"></div>
         </div>
         <!-- the Usage analysis tab (#usage): what the Claude Code replies on this machine cost, at list prices (usage.py, api/usage). Three views over one data
-             layer: Report (built), Explorer (coming next) and Digest (built: usage-digest.js, usage_digest.py). usage.js fills it; it reads when the tab opens, on a change of week and on Reload (usage.css) -->
+             layer: Report, Explorer and Digest (all built: usage.js, usage-explorer.js, usage-digest.js, usage_digest.py). usage.js fills it; it reads when the tab opens, on a change of week and on Reload (usage.css) -->
         <div id="ov-usage" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-usage">
           <div id="us-views" class="us-seg us-views" role="tablist" aria-label="Usage analysis views"></div>
           <div id="us-note" class="us-note" role="status"></div>
@@ -303,7 +304,18 @@
             </div>
             <div id="us-tip" class="us-tip"></div>
           </div>
-          <div id="us-v-explorer" role="tabpanel" aria-labelledby="us-vt-explorer" hidden><p class="us-soon"></p></div>
+          <!-- Explorer: any two things side by side, down to a single reply (usage-explorer.js, usage-explorer.css; api/usage and api/usage/replies) -->
+          <div id="us-v-explorer" role="tabpanel" aria-labelledby="us-vt-explorer" hidden>
+            <div id="ex-note" class="us-note" role="status"></div>
+            <div id="ex-ctl" class="ex-ctl"></div>
+            <div id="ex-body" hidden>
+              <div id="ex-sides" class="ex-sides"></div>
+              <div class="us-tw"><table class="us-t ex-t" id="ex-table"><thead><tr id="ex-thead"></tr></thead><tbody id="ex-tbody"></tbody></table></div>
+              <div id="ex-replies" class="us-card ex-rep" hidden></div>
+              <div id="ex-notes" class="us-notes"></div>
+              <div id="ex-upd" class="us-upd"></div>
+            </div>
+          </div>
           <div id="us-v-digest" role="tabpanel" aria-labelledby="us-vt-digest" hidden>
             <div class="us-wk"><div id="us-dg-weeks" class="us-seg" role="group" aria-label="Week"></div><div id="us-dg-range" class="us-range"></div></div>
             <div id="us-dg-body" hidden>
@@ -557,6 +569,7 @@
 <script src="static/schedules.js?v={{v}}"></script>
 <script src="static/machines.js?v={{v}}"></script>
 <script src="static/usage.js?v={{v}}"></script>
+<script src="static/usage-explorer.js?v={{v}}"></script>
 <script src="static/usage-digest.js?v={{v}}"></script>
 <script src="static/search.js?v={{v}}"></script>
 <script src="static/app.js?v={{v}}"></script>

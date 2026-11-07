@@ -1,5 +1,5 @@
 """The Overview's Usage analysis tab in a browser (static/usage.js, usage.css, the tab and panel in index.html, app.js's tab routing), at a phone's
-width (390) and a desktop's (1280): the tab shell with its three views, and the Report view over a made-up set of transcripts (the page reads the real
+width (390) and a desktop's (1280): the tab shell with its three views (Explorer has its own file, test_usage_explorer_ui.py), and the Report view over a made-up set of transcripts (the page reads the real
 api/usage, which counts fake transcripts and a fake registry written to the test's temporary folder; nothing reaches Anthropic or AWS and no real
 transcript of this box is read: conftest.py points the second login's folders at none).
 
@@ -142,14 +142,14 @@ def test_the_markup_has_the_tab_after_machines_its_panel_its_files_and_the_hash_
     assert "usageHash" in js and "usage.start()" in js and "usage.stop()" in js and '"usage"' in js
 
 
-def test_the_tab_opens_on_its_link_with_the_report_first_and_the_other_two_views_say_they_are_next(served, browser):
+def test_the_tab_opens_on_its_link_with_the_report_first_explorer_and_digest_built(served, browser):
     open_tab(served, browser, DESKTOP)
     m = shown(browser)
     assert m["tab"] == "usage" and m["hash"] == "#usage"
     assert m["views"] == [["Report", "true"], ["Explorer", "false"], ["Digest", "false"]]
     click(browser, '#us-views [data-v="explorer"]')
     assert browser.evaluate('[document.querySelector("#us-v-report").hidden, document.querySelector("#us-v-explorer").hidden, document.querySelector("#us-v-digest").hidden]') == [True, False, True]
-    assert "coming next" in browser.evaluate('document.querySelector("#us-v-explorer").textContent')
+    assert "coming next" not in browser.evaluate('document.querySelector("#us-v-explorer").textContent')      # Explorer is built (test_usage_explorer_ui.py)
     click(browser, '#us-views [data-v="digest"]')
     assert browser.evaluate('[document.querySelector("#us-v-report").hidden, document.querySelector("#us-v-explorer").hidden, document.querySelector("#us-v-digest").hidden]') == [True, True, False]
     assert "coming next" not in browser.evaluate('document.querySelector("#us-v-digest").textContent')   # the Digest is built (test_usage_digest_ui.py)

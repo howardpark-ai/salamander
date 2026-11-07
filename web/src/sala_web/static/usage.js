@@ -1,6 +1,6 @@
 "use strict";
 /* The Overview's Usage analysis tab (#usage): what the Claude Code replies on this machine cost, at list prices, as api/usage reports them (usage.py).
-   One data layer, three views: Report (this file), Explorer (coming next: a note and nothing else yet) and Digest (usage-digest.js: the week in a few plain sentences).
+   One data layer, three views: Report (this file), Explorer (usage-explorer.js, which registers itself here) and Digest (usage-digest.js: the week in a few plain sentences).
    Report: a week picker (a week runs from one weekly reset of the subscription lane to the next), the total, one card per lane, a Group by control, the
    filter chips, a stacked chart by day and a sortable table with share bars. A tap on a lane card, a table row, a legend name or a day filters everything
    to it. The page shows DOLLARS only; the server keeps tokens on each row and this file never reads them.
@@ -12,7 +12,6 @@ const usage = (() => {
 const WORDS = {
   weeks: ["This week", "Previous week", "2 weeks ago"],
   views: [["report", "Report"], ["explorer", "Explorer"], ["digest", "Digest"]],
-  soon: { explorer: "Explorer is coming next: any two things side by side, down to a single reply." },
   group: "GROUP BY",
   dims: [["day", "Day"], ["lane", "Lane"], ["model", "Model"], ["project", "Project"], ["agent", "Agent"], ["folder", "Folder"]],
   total: (billed, n) => `at list prices · about ${usd(billed)} billed · ${n.toLocaleString("en-US")} replies`,
@@ -34,6 +33,7 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 const TOP = 6;          // the stack names this many groups and the rest is "Other"
 const POLL_MS = 3000, POLL_MAX = 40;
 
+const views = {};   // view id -> { show(), hide() }, registered by the file that builds that view
 const uc = { data: {}, week: 0, group: "lane", f: {}, sort: "cost", dir: -1, view: "report", active: false, seq: 0, timer: 0, tries: 0, error: "", pending: false, ago: 0, resize: 0, bound: false };
 const $u = (sel) => document.querySelector("#ov-usage " + sel);
 
@@ -308,6 +308,7 @@ function render() {
   note.classList.toggle("error", !!(uc.error || (d && d.error)));
   renderViews();
   if (uc.view === "digest") usageDigest.show(digestContext()); else usageDigest.hide();   // usage-digest.js: the Digest view
+  for (const [id, v] of Object.entries(views)) { if (id === uc.view) v.show(); else v.hide(); }   // a view built in its own file (usage-explorer.js): shown when it is the one on screen
   if (uc.view !== "report") return;
   renderWeeks(d);
   const body = $u("#us-body");
@@ -376,7 +377,6 @@ function bind() {
     render();
     $u("#us-vt-" + uc.view).focus();
   });
-  for (const [id, text] of Object.entries(WORDS.soon)) $u("#us-v-" + id).querySelector(".us-soon").textContent = text;
   document.getElementById("us-reload").addEventListener("click", () => { uc.error = ""; uc.tries = 0; load({ fresh: true }); usageDigest.reload(); });
   window.addEventListener("resize", () => {
     if (!uc.active) return;
@@ -400,6 +400,9 @@ function stop() {
   clearInterval(uc.ageTimer);
   usageDigest.hide();
   tip(null);
+  for (const v of Object.values(views)) v.hide();
 }
-return { start, stop, untilText, agoText, fmtDay, usd };
+/* what a view built in its own file shares with this one: the words (one place), the formatters and the lane colour */
+const kit = { WORDS, MON, WD, esc, ord, fmtDay, fmtDayShort, usd, pct, agoText, untilText, laneColor };
+return { start, stop, untilText, agoText, fmtDay, usd, kit, registerView: (id, v) => { views[id] = v; } };
 })();
