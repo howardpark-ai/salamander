@@ -141,7 +141,7 @@ def test_the_markup_has_the_box_in_the_sidebar_the_page_of_its_own_and_no_overvi
     from sala_web.app import STATIC
     index = (STATIC / "index.html").read_text()
     tabs = re.findall(r'<a id="ov-tab-(\w+)" class="ov-tab" role="tab" href="#(\w+)"', index)
-    assert tabs == [("sessions", "sessions"), ("schedules", "schedules"), ("machines", "machines")]                  # the Overview's Search tab is gone
+    assert tabs == [("sessions", "sessions"), ("schedules", "schedules"), ("machines", "machines"), ("usage", "usage")]                  # the Overview's Search tab is gone
     assert "ov-search" not in index and "ov-tab-search" not in index and 'id="se-q"' not in index
     side = index[index.index('<aside id="sidebar">'):index.index("</aside>")]
     # the box is at the top of the sidebar: just under its header, before the views and the session list; it has no filters
@@ -404,18 +404,18 @@ def test_a_snippet_is_text_never_markup(served, browser):
     assert xss[0]["marks"] == ["zebra"]
 
 
-def test_the_overview_has_three_tabs_and_an_old_search_link_opens_the_page(served, browser):
+def test_the_overview_has_four_tabs_and_an_old_search_link_opens_the_page(served, browser):
     open_page(served, browser, "#sessions")
     got = browser.evaluate("""(() => ({ tabs: [...document.querySelectorAll("#overview-pane .ov-tab")].map((t) => t.getAttribute("href")),
       panels: [...document.querySelectorAll("#overview-pane .ov-panel")].map((p) => p.id) }))()""")
-    assert got == {"tabs": ["#sessions", "#schedules", "#machines"], "panels": ["ov-agents", "ov-schedules", "ov-machines"]}, got
+    assert got == {"tabs": ["#sessions", "#schedules", "#machines", "#usage"], "panels": ["ov-agents", "ov-schedules", "ov-machines", "ov-usage"]}, got
     seen = []
-    for _ in range(3):
+    for _ in range(4):
         browser.evaluate("""document.querySelector('#overview-pane .ov-tab[aria-selected="true"]').dispatchEvent(
           new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))""")
         wait(browser, 'location.hash !== %s' % json.dumps(seen[-1] if seen else "#sessions"), "the tab changes")
         seen.append(browser.evaluate("location.hash"))
-    assert seen == ["#schedules", "#machines", "#sessions"]                                                # the arrows walk three tabs and wrap
+    assert seen == ["#schedules", "#machines", "#usage", "#sessions"]                                      # the arrows walk four tabs and wrap
     # an old #search link (the tab it was) opens the Search page, which asks for a query and searches nothing
     browser.evaluate('go("#search")')
     wait(browser, 'document.body.classList.contains("search-open")', "the Search page")

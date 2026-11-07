@@ -173,6 +173,14 @@ def no_real_stackshot_state(tmp_path, monkeypatch):
     monkeypatch.setenv("SALA_WEB_MACHINE_FOLLOW_STATE", str(tmp_path / "no-machine-follow"))
 
 
+@pytest.fixture(autouse=True)
+def no_real_login_dirs(monkeypatch):
+    """The Usage analysis tab (usage.py) reads the second login's transcripts too, from sessions.LANE_DIRS, which is built on the real home
+    directory: count none of them, so no test reads this machine's transcripts. A test of the tab sets `usage._login_dirs` itself."""
+    from sala_web import usage as USG
+    monkeypatch.setattr(USG, "_login_dirs", lambda: {})
+
+
 @pytest.fixture
 def served(tmp_path, monkeypatch, request):
     """{"url", "settings", "name"}: the app on 127.0.0.1:<free port>, the fake session NAME with SAMPLE_TRANSCRIPT.
