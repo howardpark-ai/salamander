@@ -112,6 +112,87 @@ def test_a_malformed_machine_view_has_no_alerts_and_does_not_stop_the_card():
     assert M.card_alerts({"updates": [{"what": "x", "ok": False, "at": "not a time"}]}, 0.0)[0]["tip"] == "x update failed at an unknown time: no reason given"
 
 
+# ── a box's stackshot checkout is judged by where the box is ─────────────────
+SC_OLD, SC_NEW = "c" * 40, "d" * 40
+CK_FAILED = {"what": "stackshot checkout", "ok": False, "at": "2026-11-06T00:00:00Z", "reason": "the server's commit is not on origin",
+             "from": SC_OLD[:12], "to": SC_NEW[:12]}
+
+
+def test_a_failed_checkout_attempt_is_red_only_while_the_box_is_elsewhere_and_clears_when_its_commit_matches_the_servers():
+    elsewhere = {"updates": [CK_FAILED], "stackshot": SC_OLD}
+    assert M.machine_alerts(elsewhere, SC_NEW)[1] == [CK_FAILED]                              # the box is elsewhere: red
+    at_server = {**elsewhere, "stackshot": SC_NEW}
+    assert M.machine_alerts(at_server, SC_NEW) == (None, [])                                  # the box got to the server's commit another way: clear, nothing re-run
+    assert M.machine_alerts({**elsewhere, "stackshot": SC_NEW.upper()}, SC_NEW)[1] == []      # case does not matter
+    assert M.machine_alerts(at_server, SC_OLD)[1] == [CK_FAILED]                              # the server moved on: red again until the box catches up
+    assert M.machine_alerts(elsewhere, "")[1] == [CK_FAILED]                                  # the server's commit unknown: the last attempt decides
+    assert M.machine_alerts(elsewhere)[1] == [CK_FAILED]                                      # the server argument is optional
+    assert M.machine_alerts({"updates": [CK_FAILED]}, SC_NEW)[1] == [CK_FAILED]              # the box reports no commit: the last attempt decides
+    assert M.machine_alerts({"updates": [CK_FAILED], "stackshot": ["x"]}, SC_NEW)[1] == [CK_FAILED]   # a malformed commit is no commit
+    assert M.machine_alerts({"stackshot": SC_NEW, "updates": [dict(CK_FAILED, ok=True)]}, SC_NEW)[1] == []
+    assert M.machine_alerts({"stackshot": SC_NEW, "updates": []}, SC_NEW) == (None, [])      # no attempt, nothing to drop
+
+
+def test_only_the_checkout_is_judged_by_commit_other_packages_and_the_setup_run_keep_their_last_attempt():
+    other = {"what": "stackshot puller", "ok": False, "at": "2026-11-06T00:00:00Z", "reason": "x", "from": "5", "to": "6"}
+    m = {"stackshot": SC_NEW, "updates": [CK_FAILED, other], "setup": {"ok": False, "step": 2, "at": "2026-11-06T00:00:00Z", "reason": "r"}}
+    setup, ups = M.machine_alerts(m, SC_NEW)
+    assert setup is not None and ups == [other]
+
+
+def test_a_reload_failure_of_the_commit_the_box_runs_now_stays_red_and_an_older_one_clears_with_the_match():
+    reload_here = dict(CK_FAILED, reason="reload failed: the new code did not start")       # `to` is the commit the box is at now
+    assert M.machine_alerts({"stackshot": SC_NEW, "updates": [reload_here]}, SC_NEW)[1] == [reload_here]   # at the server's commit but not running it: red
+    older = dict(reload_here, to=SC_OLD[:12])
+    assert M.machine_alerts({"stackshot": SC_NEW, "updates": [older]}, SC_NEW)[1] == []     # the failed reload was of an older commit: clear
+    assert M.machine_alerts({"stackshot": SC_OLD, "updates": [older]}, SC_NEW)[1] == [older]   # not at the server's commit: red either way
+
+
+def test_the_servers_commit_is_read_from_the_advertised_commit_file_and_anything_else_is_unknown(tmp_path):
+    f = tmp_path / "clients" / "advertised-commit"
+    assert M.server_commit(tmp_path) == "" and M.server_commit(None) == ""                   # no file
+    f.parent.mkdir()
+    f.write_text(SC_NEW + "\n")
+    assert M.server_commit(tmp_path) == SC_NEW
+    f.write_text(SC_NEW.upper() + "\n")
+    assert M.server_commit(tmp_path) == SC_NEW
+    for bad in ("", "not a commit\n", SC_NEW[:12] + "\n", SC_NEW + "\n" + SC_NEW + "\n", SC_NEW + "x\n", "z" * 40 + "\n"):
+        f.write_text(bad)
+        assert M.server_commit(tmp_path) == "", bad
+    f.write_bytes(b"\xff\xfe\x00")
+    assert M.server_commit(tmp_path) == ""                                                    # not text
+    f.write_text("a" * 5000)
+    assert M.server_commit(tmp_path) == ""                                                    # oversized
+
+
+def test_the_card_goes_red_and_clears_by_itself_as_the_boxes_commit_and_the_servers_meet_and_the_tab_only_reads():
+    with world(now=1793775000.0) as w:
+        mj = w.state / "clients" / "fleet" / "c" / "machine.json"
+        adv = w.state / "clients" / "advertised-commit"
+        mj.parent.mkdir(parents=True, exist_ok=True)
+
+        def write(box_commit, server, updates=(CK_FAILED,)):
+            mj.write_text(json.dumps({"letter": "c", "fleet": "gamma-box", "stackshot": box_commit, "updates": list(updates)}))
+            if server is None:
+                adv.unlink(missing_ok=True)
+            else:
+                adv.write_text(server + "\n")
+            return card(collect(w), "gamma-box")
+
+        red = write(SC_OLD, SC_NEW)
+        assert red["alert"] is True and [(a["kind"], a["detail"]) for a in red["alerts"]] == [("update", "stackshot checkout " + SC_NEW[:12])]
+        assert "is not on origin" in red["alerts"][0]["tip"]
+        green = write(SC_NEW, SC_NEW)
+        assert green["alert"] is False and green["alerts"] == []                               # the failed attempt is still on record; the card no longer shows it
+        assert write(SC_NEW, SC_OLD)["alert"] is True                                           # the server moved on
+        assert write(SC_NEW, None)["alert"] is True                                             # no advertised-commit file: the last attempt decides
+        assert write(SC_NEW, SC_NEW, [dict(CK_FAILED, reason="reload failed: boom")])["alert"] is True
+        before = sorted(str(p.relative_to(w.root)) + str(p.stat().st_mtime_ns) for p in w.root.rglob("*") if p.is_file())
+        collect(w)
+        after = sorted(str(p.relative_to(w.root)) + str(p.stat().st_mtime_ns) for p in w.root.rglob("*") if p.is_file())
+        assert before == after                                                                  # read-only, as the rest of the tab
+
+
 # ── how a machine stays current ──────────────────────────────────────────────
 def test_the_last_line_is_read_from_the_follow_list_and_its_records_never_written_into_the_app():
     with world() as w:

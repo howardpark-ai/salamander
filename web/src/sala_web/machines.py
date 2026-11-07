@@ -7,7 +7,10 @@ Sources (all read-only; a missing or unreadable one makes the tab say "no readin
   site/versions.json              <stackshot state>/site/versions.json: the packages (name, installed, latest, state, machines,
                                   machine_state) and the machines read over ssh (ssh_hosts). The card rows come from it.
   clients/fleet/<letter>/machine.json   <stackshot state>/clients/fleet/<letter>/machine.json: the fleet machine's name, its last setup
-                                  run (setup) and update attempts (updates). A failed one is a line inside its card.
+                                  run (setup), update attempts (updates) and the commit its stackshot checkout is at (stackshot). A
+                                  failed one is a line inside its card.
+  clients/advertised-commit       <stackshot state>/clients/advertised-commit: the commit stackshot's server tells every box to follow
+                                  (40 hex characters). Absent or unreadable: the server's commit is unknown.
   fleet-names.tsv                 stackshot.toml [paths] fleet_names: os hostname, fleet name, board letter, tab-separated.
   stackshot.toml                  [fleet] publisher_letter (the machine that runs stackshot), [machines_panel] ssh_hosts (machines with
                                   no fleet letter), [paths] state / fleet_names; the Settings fields name where each file is (config.py).
@@ -23,7 +26,11 @@ The order and the merge are stackshot's own, written again from its code so that
            and the fleet's row once it does not (stackshot render.py fleet_card). A package with no per-machine versions shows
            under the publisher only.
   alerts   a failed setup run, and every package whose latest update attempt failed, become a line in the card and mark it
-           (stackshot render.py machine_alerts).
+           (stackshot render.py machine_alerts). The failed attempt to update a box's own stackshot checkout ("stackshot checkout") is
+           judged by where the box is, not by that attempt alone: while the commit the box reports equals the server's commit the
+           attempt is dropped, so the card is red only while the box is elsewhere and clears itself when the two match. The exception
+           is a "reload failed" attempt whose target is the commit the box runs now (the new code did not load): that stays red. With
+           either commit unknown the last attempt decides, as for every other package.
   follow   the card's last line, from data: the coordinator "the machine the others follow", a machine listed in machines.toml "follows
            <run_on> · last HH:MM" (its record's at_epoch, in the SALA_TZ zone), any other "updates itself".
 
@@ -52,6 +59,9 @@ TEXT_MAX = 300
 UNKNOWN_FOLLOW = "update source not read"   # machine-follow's list could not be read: nobody can say how the machine stays current
 PUBLISHER_FOLLOW = "the machine the others follow"
 SELF_FOLLOW = "updates itself"
+CHECKOUT_WHAT = "stackshot checkout"   # the `what` of a box's attempt to update its own stackshot checkout (stackshot's puller)
+ADVERTISED_COMMIT = ("clients", "advertised-commit")
+_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 # ---- reading ---------------------------------------------------------------------------------------------------------
@@ -260,14 +270,37 @@ def card_rows(letter: str, publisher: str, host: dict | None, packages: list[dic
     return merged or list(p.values())
 
 
-def machine_alerts(m: dict) -> tuple[dict | None, list[dict]]:
+def server_commit(state: Path | None) -> str:
+    """The commit stackshot's server tells the boxes to follow, from `clients/advertised-commit` in its state folder; "" when the file is
+    missing, unreadable or does not hold one commit (then a card's checkout is judged by its last attempt alone, as before)."""
+    if state is None:
+        return ""
+    try:
+        if state.joinpath(*ADVERTISED_COMMIT).stat().st_size > 1024:
+            return ""
+        v = state.joinpath(*ADVERTISED_COMMIT).read_text(encoding="utf-8").strip().lower()
+    except (OSError, ValueError):
+        return ""
+    return v if _SHA.fullmatch(v) else ""
+
+
+def machine_alerts(m: dict, server: str = "") -> tuple[dict | None, list[dict]]:
     """A machine view's last setup run when it failed, and each package's latest update attempt when it failed (the last one listed
-    for a package wins; an absent or malformed list is none)."""
+    for a package wins; an absent or malformed list is none). The box's own stackshot checkout is judged by where it is: when the view
+    holds the box's checkout commit (`stackshot`) and the server's commit `server` is known, the failed attempt shows only while the two
+    differ, and it is dropped the moment they match, except a failed reload of that very commit (reason "reload failed...", `to` the
+    first 12 characters of the box's commit: the code there does not load). With either unknown the last attempt decides."""
     s = m.get("setup") if isinstance(m.get("setup"), dict) else None
     latest: dict[str, dict] = {}
     for u in m.get("updates") if isinstance(m.get("updates"), list) else []:
         if isinstance(u, dict) and _text(u.get("what")):
             latest[_text(u["what"])] = u
+    here, want = _text(m.get("stackshot")).lower(), _text(server).lower()
+    ck = latest.get(CHECKOUT_WHAT)
+    if here and want and here == want and ck is not None:
+        reload_of_here = _text(ck.get("reason"), TEXT_MAX).startswith("reload failed") and _text(ck.get("to")) == here[:12]
+        if not reload_of_here:
+            latest.pop(CHECKOUT_WHAT)
     return (s if s and s.get("ok") is False else None), [u for u in latest.values() if u.get("ok") is False]
 
 
@@ -280,9 +313,9 @@ def _reason(v: Any) -> str:
     return SCH.redact(_text(v, TEXT_MAX)) or "no reason given"
 
 
-def card_alerts(m: dict, now: float) -> list[dict]:
+def card_alerts(m: dict, now: float, server: str = "") -> list[dict]:
     """The failure lines of a card: {kind: setup | update, detail, tip}; the tip carries the reason, the line a few words."""
-    setup, updates = machine_alerts(m)
+    setup, updates = machine_alerts(m, server)
     out: list[dict] = []
     if setup:
         step = _text(setup.get("step")) or "?"
@@ -325,10 +358,11 @@ def machines_section(s: Settings, toml: dict, now: float, order: list[tuple[str,
         if isinstance(h, dict) and _text(h.get("name")):
             hosts.setdefault(_text(h["name"]), h)
     follow = _toml(s.follow_machines_file)
+    server = server_commit(s.stackshot_state)
     cards = []
     for name, letter in order:
         m = _json(s.stackshot_state / "clients" / "fleet" / letter / "machine.json") if letter else None
-        alerts = card_alerts(m, now) if isinstance(m, dict) else []
+        alerts = card_alerts(m, now, server) if isinstance(m, dict) else []
         cards.append({"name": name, "alert": bool(alerts), "rows": card_rows(letter, publisher, hosts.get(name), packages),
                       "alerts": alerts, "follow": follow_line(name, publisher_name, follow, s.follow_state_dir)})
     return {"ok": True, "reason": "", "ts": _mtime(s.stackshot_state / "site" / "versions.json"), "cards": cards}

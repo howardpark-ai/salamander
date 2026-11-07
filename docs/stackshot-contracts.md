@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 39
+contract-version: 40
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -261,6 +261,13 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 
 - **39** — Sat Nov 7th 2026. Interface 32 (sala-web's Usage analysis) gains `GET /api/usage/replies`: the replies behind a selection (week, and any of day, lane, model, project, agent, folder), newest first, at most 200 with the number there are in all, each as time (KST), day, lane, model, project, agent, folder and dollars. Added for the Explorer view; the existing route is unchanged. Nothing of stackshot changed.
 
+- **40** — Sat Nov 7th 2026. Interface 30 (Machines tab files): sala-web now also reads the `stackshot` key of `clients/fleet/<letter>/machine.json` (the commit the box's stackshot
+  checkout is at) and a new file, `clients/advertised-commit` in stackshot's state folder (the commit the server tells the boxes to follow: 40 hex characters, one line), and a card judges
+  a box's failed `stackshot checkout` attempt by where the box is: the attempt is dropped while the two commits are equal (except a `reload failed` attempt whose `to` is the first 12
+  characters of the box's commit), so the card is red only while the box is elsewhere and clears itself when they match; with either commit unknown (key or file absent, unreadable or not
+  one commit) the last attempt decides, as before. This follows stackshot's change to the same rule (its `machine_alerts(m, server)`). sala has no puller of its own, so the repository
+  address the server now publishes in the poll's answer (`repo`) and the box-side moves are not sala's; nothing sala sends changed. Unknown keys are still ignored.
+
 ## How each entry reads
 
 - **Direction**: `sala → stackshot` means sala writes or calls and stackshot reads or answers; `stackshot → sala` the
@@ -308,7 +315,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 | 27 | CI-run files (`ci-runs/<owner>__<repo>.json`, `salamander ci-runs`) | sala → stackshot | stable from version 20 | `tests/cipoll.sh` |
 | 28 | Lane names (`salamander lane names [--json]`, `$SALA_STATE_DIR/lane-names.json`) | sala → stackshot | stable from version 27 | `tests/lane-subscription-codes.sh` |
 | 29 | Fleet-op end event (`client.py event --kind fleet_op`, from `op_finish`) | sala → stackshot | stable from version 29 | `tests/op.sh` (a fake client that logs the calls) |
-| 30 | Machines tab files (`site/versions.json`, `clients/fleet/<letter>/machine.json` in stackshot's state folder) | stackshot → sala web | unstable (stackshot's own render inputs, no stated file contract on its side) | `web/tests/test_machines.py`, `test_machines_ui.py` (made-up files) |
+| 30 | Machines tab files (`site/versions.json`, `clients/fleet/<letter>/machine.json`, `clients/advertised-commit` in stackshot's state folder) | stackshot → sala web | unstable (stackshot's own render inputs, no stated file contract on its side) | `web/tests/test_machines.py`, `test_machines_ui.py` (made-up files) |
 | 31 | sala-web saved color combinations (`GET /client/colors/combos`, `POST /client/colors/combos`, `POST /client/colors/combos/delete`) | sala web → stackshot | stable from version 33 (permanent) | `web/tests/test_colors_combos.py`, `test_colortool_wiring.py` (a fake stackshot) |
 | 32 | sala-web usage analysis (`GET /api/usage?week=0\|1\|2`, optional `&fresh=1`; the Digest's `GET /api/usage/digest` with the same query; Explorer's `GET /api/usage/replies`) | sala web → the page it serves (or any reader of the route) | unstable (the Report, Explorer and Digest views; `GET /api/usage/digest` added in 38, `GET /api/usage/replies` in 39) | `web/tests/test_usage.py`, `test_usage_ui.py`, `test_usage_explorer.py`, `test_usage_explorer_ui.py`, `test_usage_digest.py`, `test_usage_digest_ui.py` (fake transcripts) |
 
@@ -944,12 +951,15 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Direction**: stackshot → sala web (files stackshot writes; sala-web reads them, read-only, at each request of `GET /api/machines`).
 - **Mechanism**: under stackshot's state folder (`SALA_WEB_STACKSHOT_STATE`, else `[paths] state` in `stackshot.toml`, else `$XDG_STATE_HOME/stackshot`):
   `site/versions.json` (`packages: [{name, installed, latest, state, machines: {<letter>: version}, machine_state: {<letter>: text}, hosts}]`, `ssh_hosts:
-  [{name, reachable, checked, packages: {<package>: version}}]`) and `clients/fleet/<letter>/machine.json` (`setup: {ok, step, at, reason}`, `updates: [{what, ok, at, reason, from, to}]`). Also read:
+  [{name, reachable, checked, packages: {<package>: version}}]`) and `clients/fleet/<letter>/machine.json` (`setup: {ok, step, at, reason}`, `updates: [{what, ok, at, reason, from, to}]`, `stackshot`: the box's checkout commit, since version 40) and
+  `clients/advertised-commit` (the commit the server tells the boxes to follow: one 40-hex line, since version 40). The card drops a failed `stackshot checkout` attempt while `stackshot` equals the
+  advertised commit, unless the attempt's reason starts `reload failed` and its `to` is the first 12 characters of `stackshot`; with either commit missing the last attempt decides. Also read:
   the fleet names TSV (interface 16), `[fleet] publisher_letter` and `[machines_panel] ssh_hosts` in `stackshot.toml`, and a machines list (`machines.toml`) and
   per-host `<host>.json` (`at_epoch`) kept in a host config repo and under `$XDG_STATE_HOME`. A file over 4 MB is not read. sala-web reads no runner file (version 36).
-- **Owners**: sala `web/src/sala_web/machines.py` (`collect`), `config.py`. stackshot `fleet.py`, `ui/render.py` (`fleet_card`, `machine_alerts`), whose merge
-  rules `machines.py` reproduces.
-- **Absent or changed**: a missing, unreadable or oversized `site/versions.json` makes the tab say "No reading yet" (never an error). A key
+- **Owners**: sala `web/src/sala_web/machines.py` (`collect`), `config.py`. stackshot `fleet.py`, `ui/render.py` (`fleet_card`, `machine_alerts`, `server_commit`), `clients.py` (`_advertise`, which writes `advertised-commit`), whose merge
+  and alert rules `machines.py` reproduces.
+- **Absent or changed**: a missing, unreadable or oversized `site/versions.json` makes the tab say "No reading yet" (never an error). A missing, unreadable or malformed `clients/advertised-commit` (or a view without `stackshot`)
+  is "commit unknown": the card then shows the last attempt, as before version 40. A key
   that changes meaning is read wrongly until `machines.py` follows; unknown keys are ignored.
 - **Test**: `web/tests/test_machines.py`, `test_machines_ui.py` (made-up files in a temporary folder).
 - **Stable**: unstable. These are stackshot's own render inputs with no file contract on its side; the listing is the first record of them.
