@@ -2731,17 +2731,13 @@ string) is not seen, and the suite does not claim otherwise.
 
 A quick (side) session in the sidebar and the overview, grouped by its side record: a fork under its origin's current group (and, with the origin gone, the project the record kept; a fork of a fork up the chain), a discuss session under its item's project, no role, the `side` marker on its entry; no record, an origin on no page, no origin, no project, a loop of forks and a junk file all stay Unregistered; a session stackshot knows keeps its own project and role; the overview rows group the same way; both endpoints read the record from `SALA_WEB_SALA_STATE`. Not checked: a real fork (the records here are written by the test in the format of `lib/spawn.sh` `side_record`).
 
-### `tests/help-snapshot.sh`, `tests/skills-flags.sh` and `tests/help-gates.sh`: new, 1 + 1 + 56 (Tue Oct 27th 2026)
+### `tests/help-snapshot.sh`, `tests/skills-flags.sh` and `tests/help-gates.sh`: new, 1 + 1 + 21 (Tue Oct 27th 2026)
 
-The help-text gates (tokenless gates plus a model check): a sala release must not ship with out-of-date help
+The help-text gates (tokenless gates): a sala release must not ship with out-of-date help
 or skills text. Outside the rule's letter on purpose ("no tests for wording"): these are not tests of what the help says but
-gates that hold when it changes, and `help-gates.sh` tests the gates, each on a deliberate drift. (Tue Oct 27th 2026: check 3
-  no longer uses the bedrock lane's credential and the `claude` CLI; it signs in with an AWS profile named by `ANTHROPIC_AWS_PROFILE` (no default),
-  through `.github/scripts/help_review_call.py`, and its tests use a fake call command. Sat Oct 31st 2026: the call goes to Amazon
-  Bedrock (Haiku 5.5, the global inference profile `global.anthropic.claude-haiku-5-5`, InvokeModel signed as service `bedrock`) in place
-  of Claude Platform on AWS, so no workspace id is needed or tested. Sat Nov 7th 2026: in CI the sign-in is GitHub's OIDC token exchanged for the credentials of the
-  role in the repository secret `SALA_REVIEW_AWS_ROLE` (the job runs only when the variable `SALA_REVIEW_ENABLED` is `true`, and is skipped on a fork's pull request), so keys with a session token in the
-  environment are the CI path and the profile is only for a run by hand; one test added for those variables, the no-sign-in skip now names the secret `SALA_REVIEW_AWS_ROLE`.)
+gates that hold when it changes, and `help-gates.sh` tests the gates, each on a deliberate drift. (Sat Nov 7th 2026: the
+model check that once stood beside them, a pull request job calling a model on a CLI-touching diff, is removed with its
+script, its tests and its CI job; no check on a pull request calls a model or signs in to AWS.)
 - `help-snapshot.sh` (check 1) is one check: `sala --help` and the usage of each verb that has a safe help call (`PROBES` in the
   file), run in a clean environment, against the committed `tests/help-snapshot.txt`. Drift fails with the unified diff and
   `bash tests/help-snapshot.sh --update`. The verbs with no help path of their own are listed in the snapshot, not failed.
@@ -2753,20 +2749,7 @@ gates that hold when it changes, and `help-gates.sh` tests the gates, each on a 
   a verb's own usage edited (restore) is caught in its section, a missing root fails; (2) fixture skills: a good mention
   passes, an unmentioned flag only WARNs, a stale flag and a removed verb FAIL with `file:line`, prose, pipes and quoted words
   are not read, no skills directory SKIPs (`SKILLS_DIR` set to a missing directory, unset, and unset with a plugin copy under
-  `~/.claude/plugins/synced` that stays unread), `SKILLS_DIR` is the one directory read, and the real regenerated help rejects a stale `sala lane` flag and accepts real ones; (3) a throwaway
-  repo and a fake call command (`SALA_REVIEW_CALL`, no network, no uv): ok, ok in a code fence, not ok (exit 1, the reason and the
-  fix printed, the `::error` annotation on Actions), garbage / no `ok` field (skip, no retry), nothing, a failing call (its last
-  stderr line shown) and too slow (tried twice, then skip), a call that fails once and answers on the retry, a docs-only change, an
-  empty diff and an unresolvable range (no call), no workspace id anywhere (the review still runs), the `review-ci` fixture profile missing, and neither keys nor a profile (a skip saying there is no AWS sign-in and naming the secret `SALA_REVIEW_AWS_ROLE`) (another lane's profile
-  present, no file at all, another `ANTHROPIC_AWS_PROFILE`), uv missing on the PATH (each a skip naming the cause, no call), keys in
-  the runner's environment (also with `AWS_SESSION_TOKEN` and `AWS_REGION`, as the OIDC step leaves them: the call keeps the token and gets the region) or the profile in `~/.aws/config` alone (enough), the model override, the call's variables (profile,
-  region (`ANTHROPIC_AWS_REGION`, else `AWS_REGION`, else `AWS_DEFAULT_REGION`; the helper has no default region and fails when none is set), the Bedrock model id, HTTP timeout; no workspace id, no Bedrock flag), the job-summary line for a skip, a pass, a fail, a no-op and a skip after a
-  failed call (and nothing written with no `GITHUB_STEP_SUMMARY`), no secret value in the output or the summary, `--dry-run`
-  printing the prompt and calling nothing, a large diff cut at the cap; and the real helper `help_review_call.py`, stdlib part
-  only: it needs no workspace id and refuses an empty prompt before any network.
-Not checked: the real model's verdicts and the real signed call (no network in the tests; the request shape was checked once by hand
-against a patched `urlopen`), the CI profile and `uv run --locked --script` on the
-runner, `tests.yml`'s `help-review` job (it runs only on a pull request).
+  `~/.claude/plugins/synced` that stays unread), `SKILLS_DIR` is the one directory read, and the real regenerated help rejects a stale `sala lane` flag and accepts real ones.
 
 ### `tests/flags.sh` (new, Wed Oct 28th 2026)
 

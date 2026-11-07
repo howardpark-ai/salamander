@@ -166,7 +166,7 @@ without raising the minimum here, in the README and in that check. On macOS that
 | `tests/ci.sh` | the CI gate's helpers (`.github/scripts/`, Wed Oct 14th 2026, Tue Oct 27th 2026): `changed.sh` against a throwaway repo with a suite map of its own (a sala change naming its suites, the CI's own files with and without `web/`, `web/` created, a web-only change, both, docs: no suite and `sala=false`, `web/` removed, an empty diff, no range: `sala=`, `web=` and `suites=` exactly); `tests/suitemap.sh --select` against another (a suite file, a mapped file, a full file, comments only in a full file, comments beside a code line, a changed shebang, a mode change, docs, an unmapped file, a changed suite / full / none / text line, a deleted mapped file, `.github/`, `web/`, a union that is every suite, no range, no map) and `--check` (clean; a missing, duplicate and extra suite line, an unmapped file, a stale file, a bad text name, a none file on a suite's line, a `firstline` suite excepted); `tested.sh` against a `gh` stub serving canned JSON (the PR's run with the artifact for this tree skips; another tree, another job, no run, a direct push, a PR not merged as this commit, an unmerged one, each API call failing: a run; two specs; the runs asked for are the head's, the event's, successful ones) | seconds |
 | `tests/help-snapshot.sh` | check 1 of the help-text gates: `sala --help` and each verb's own usage, regenerated in a clean environment, against the committed `tests/help-snapshot.txt`; drift fails with the diff and `--update` as the fix | seconds |
 | `tests/skills-flags.sh` | check 2: the verbs and flags the skills repository's files name exist in the regenerated help (`.github/scripts/skills-flags.py`); FAIL for a stale one with `file:line`, WARN for a flag no skill names; SKIP (exit 0) with no skills directory | seconds |
-| `tests/help-gates.sh` | the gates' own tests, each on a deliberate drift: the snapshot on an edited copy of the tree, the skills check on fixture skills, `.github/scripts/help-review.sh` (check 3) against a fake call command (`SALA_REVIEW_CALL`; ok / not ok / garbage / nothing / a failing call / retry / too slow, no sign-in at all, the OIDC step's variables with a session token, the job-summary lines, no CLI change, `--dry-run`) and the helper `help_review_call.py` up to the network | ~10 s |
+| `tests/help-gates.sh` | the gates' own tests, each on a deliberate drift: the snapshot on an edited copy of the tree and the skills check on fixture skills | ~10 s |
 | `tests/cleantext.sh` | the clean-text check (`.github/scripts/clean_text.py`, *Clean commit and PR text* below) against throwaway repos: each rule (a board id of both shapes; a name, a host and a domain, as made-up lines of the deny data; a word of `CLEAN_TEXT_DENY`) in the branch, title, body and commit messages; the allowed forms (a bare `#123`, the repository's own org name, a session URL, a Co-Authored-By line) passing; the secret unset, empty and set; a merge commit skipped; the output never carrying a body; exit 2 on a call it cannot answer; `--local` | seconds |
 | `tests/cipoll.sh` | the CI-run poller and its reader (`lib/cipoll.py`, `lib/cipoll.sh`, `lib/ci-repos`, `systemd/sala-cipoll.service`, `docs/ci-runs.md`) in a locked temporary HOME against a fake `gh` (ETag / 304, raw errors by ask number): the file written atomically with the eleven fields and a bumped `updated` on a 304, never torn under 60 rewrites, an error keeping the old file byte for byte and backing off by doubling to a cap, a rate limit waiting for its reset before any repo is read, no token in the log, the repo list (live, default, per-box), `salamander ci-runs`' exit codes (fresh 0, no file 3, stale 4, unreadable 5, usage 2) | ~15 s |
 | `tests/neutral-defaults.sh` | the neutral defaults, with no config and with a config of made-up values (`lib/common.sh`, `lib/settings-apply.sh`, `lib/spawn.sh` `side_write_mandate`, `lib/ci-repos`, `lib/unit-repos.tsv`, `lib/unitjob.py`, `config.example`) in a locked temporary HOME: `SALA_JOB_LANE` at its neutral default, `SALA_SETTINGS_APPLY` off, `SALA_SETTINGS_STEPS` and `SALA_SETTINGS_INPUTS` empty, the bedrock and aws-platform lanes saying the AWS profile is not set, the lane field table naming no person or company, no session link template and no board address, the CI poller and unit jobs naming no owner, and each setting documented in `config.example` | ~3 s |
@@ -348,7 +348,7 @@ notice and the other rules still run: ask for the list and put it in the file on
 ## Help and skills text
 
 A sala release must not ship with out-of-date help or skills text. The rule: **a PR that changes a sala command's shape,
-words or output carries, in the same PR, the CLI's help and messages and the matching skills change** in the skills repository. Three checks hold it:
+words or output carries, in the same PR, the CLI's help and messages and the matching skills change** in the skills repository. Two checks hold it:
 
 1. **The help snapshot** (`tests/help-snapshot.sh`, a suite): `sala --help` and the usage each verb prints for its documented
    help call (`PROBES` in the file; a verb whose `--help` would run the verb is not probed, and is listed in the snapshot
@@ -358,25 +358,8 @@ words or output carries, in the same PR, the CLI's help and messages and the mat
 2. **Skills name only what exists** (`tests/skills-flags.sh`, a suite): every `sala <verb> --flag` the skills repository's files name,
    inside backticks or a code block, must exist in the regenerated help. The skills are read from `$SKILLS_DIR`; a machine without it skips with a message
    and exits 0. FAIL names the skill file and line; a flag in the help that no skill mentions is a WARN only.
-3. **A model reads the diff** (`.github/scripts/help-review.sh`, the `help-review` job of `tests.yml`, pull requests only):
-   when the PR touches `bin/salamander` or `lib/`, one Haiku-class call (`SALA_REVIEW_MODEL`, default
-   `global.anthropic.claude-haiku-5-5`, Haiku 5.5 through the global inference profile) on Amazon Bedrock reads the CLI diff, the
-   snapshot diff, the skills lines that name sala and the PR description, and answers `{ok, reason}`; `ok: false` fails the job
-   with the reason. The call is an AWS sign-in on Amazon Bedrock, not a lane. In CI the job signs in
-   keylessly with GitHub's OIDC token (`aws-actions/configure-aws-credentials`, on a GitHub-hosted runner): the repository secret
-   `SALA_REVIEW_AWS_ROLE` (a secret because the role ARN holds the AWS account number, which a public run log must not show) is an IAM role ARN trusted for this repository's `pull_request` OIDC tokens and allowed `bedrock:InvokeModel` on the Haiku 5.5
-   inference profile only, and the variable `SALA_REVIEW_AWS_REGION` is the Bedrock region; the step leaves `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
-   `AWS_SESSION_TOKEN` and `AWS_REGION` in the job's environment. The job runs only when the repository variable `SALA_REVIEW_ENABLED` is `true` (a secret cannot be read in a job-level `if`) and the pull request is from this
-   repository; otherwise, and on a pull request from a fork (a fork never gets the token), it is skipped, green. A failed sign-in step is a warning, not a red job, and the review then skips, green, with the reason in the job summary. By hand the script takes
-   those variables, or an AWS profile named by `ANTHROPIC_AWS_PROFILE` in `~/.aws`. The request is signed with botocore SigV4 (service `bedrock`) by
-   `.github/scripts/help_review_call.py` (a uv script with its lock, run as `uv run --locked --script`; no `claude` CLI and no
-   boto3 is needed) as a POST to `https://bedrock-runtime.<region>.amazonaws.com/model/<model id>/invoke` with the Anthropic
-   Messages body (`anthropic_version: bedrock-2023-05-31`). No workspace id is needed. Environment: `ANTHROPIC_AWS_PROFILE`
-   (no default: used only when no keys are in the environment; with neither, the review skips and says so) and `ANTHROPIC_AWS_REGION`, else `AWS_REGION`, else `AWS_DEFAULT_REGION` (no default: with none of the three set the call fails saying so and the review skips); the names are historical, kept to avoid churn. It is
-   bounded (120 s, one retry, the diff cut at 60 KB), prints no key, and **skips with a message, green,** when the keys and
-   the profile are missing, the answer cannot be parsed, or there is no answer; every skip and every verdict is also one line in
-   the job summary (`$GITHUB_STEP_SUMMARY`). `--dry-run` prints the prompt. Name the skills change in the PR
-   description: the skills live in another repository, and that sentence is what the reviewer reads.
+
+No pull request check calls a model: the builder's own pre-merge reviewer reads the help text of a change to `bin/salamander` or `lib/`.
 
 A skill reaches a session's pane only at its restart or `/reload-plugins` (the skills repository is a plugin, loaded at start): merging
 the skills change does not change a running pane, and the release note names the skill so the maintainer can say which panes
@@ -384,12 +367,10 @@ need either. Change the skills in the skills repository in the same release as t
 
 ## CI
 
-CI runs on GitHub's hosted runners: every Linux job (`tests.yml`'s `changes`, `suites`, `web-shard`, `web` and `help-review`,
+CI runs on GitHub's hosted runners: every Linux job (`tests.yml`'s `changes`, `suites`, `web-shard` and `web`,
 `clean-text.yml`'s `clean-text`, `smoke.yml`'s `smoke-linux`) has `runs-on: ubuntu-latest` and `smoke-macos` has `macos-latest`, so a fork's pull
 request and an outside contributor's run CI with nothing to configure. The suites are written against Ubuntu 26.04's tmux 3.6
-(`hosted-setup.sh` warns on another). A hosted runner runs two suites per CPU at once, not all of them. `help-review` runs only when
-the repository variable `SALA_REVIEW_ENABLED` is `true` and the pull request comes from this repository (see *A model reads the diff* above), and does its work only for a
-change to `bin/salamander` or `lib/`.
+(`hosted-setup.sh` warns on another). A hosted runner runs two suites per CPU at once, not all of them.
 
 A hosted runner is a bare image, so a job that needs tools asks the local action `.github/actions/hosted-tools` (every step asks
 `runner.environment`). It installs, per job:
@@ -400,7 +381,6 @@ A hosted runner is a bare image, so a job that needs tools asks the local action
 | `suites` | Python 3.14 (`actions/setup-python`), uv (`astral-sh/setup-uv`, its cache keyed on `web/uv.lock`), tmux and lsof (apt), then `uv sync --frozen` in `web/` for `tests/neutral-install.sh`'s offline web check |
 | `web-shard` (each of the four shards; the `web` gate installs nothing) | Python 3.14, uv, tmux (apt), ttyd 1.7.7 (the release's static binary, its sha256 pinned in `.github/scripts/hosted-setup.sh`), and a check that the image's Google Chrome is there (a missing browser fails the job; the page tests would otherwise skip and read as a pass) |
 | `smoke-linux` | tmux and lsof |
-| `help-review` | nothing; it already sets up uv, and runs only when the repository variable `SALA_REVIEW_ENABLED` is `true` and the pull request comes from this repository (otherwise the job is skipped) (*Help and skills text*, check 3) |
 
 `.github/scripts/hosted-setup.sh <tmux|lsof|ttyd|chrome>...` does the installing and exits 0 at once unless the runner sets
 `RUNNER_ENVIRONMENT=github-hosted`. A pull request from a fork runs with a read-only token and no secrets but can read repository
