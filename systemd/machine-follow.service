@@ -7,7 +7,7 @@
 # file names as run_on: the script refuses (exit 64) on any other, so link this family on the coordinator machine only.
 [Unit]
 Description=Start the follow of every machine the coordinator machine drives that is due
-X-Model-Lane=none
+X-Model-Lane=bogus-lane
 X-Project=sala/salamander
 
 [Service]
