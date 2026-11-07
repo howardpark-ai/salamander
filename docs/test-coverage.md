@@ -3175,7 +3175,7 @@ Not checked: a real ssh probe or step, a real systemd run (the units are read as
 owner's, outside this repository, so the largest `timeout_minutes` against the template's `TimeoutStartSec` is checked here against a made-up 150 minutes only), the step scripts
 (they live beside the data file), and the web UI's reading of the records.
 
-### `web/tests/test_machines.py` (new, 34; 22 since Sat Nov 7th 2026) and `web/tests/test_machines_ui.py` (new, 11; 10 since Sat Nov 7th 2026): the Overview's Machines tab (Wed Nov 4th 2026)
+### `web/tests/test_machines.py` (new, 34; 22 since Sat Nov 7th 2026; 27 since the checkout rule below) and `web/tests/test_machines_ui.py` (new, 11; 10 since Sat Nov 7th 2026): the Overview's Machines tab (Wed Nov 4th 2026)
 
 What it is: the third Overview tab shows the version each machine runs (`web/README.md`, *Machines*; `machines.py`, `GET /api/machines`,
 `static/machines.js`, `static/machines.css`). It reads stackshot's state files, the fleet names file and machine-follow's list and records, read-only, when the tab opens and
@@ -3187,7 +3187,10 @@ a temporary folder that is locked (flock) while the test runs and removed in `fi
 `test_machines.py` (no browser): the order (the publisher, then the fleet by letter, then the ssh hosts, no name twice, a name only in one list still shown, the fleet's own name
 beating the names file); the rows (latest, update, offline and unknown by the numbers and the puller's state; an ssh host that answers wins, one that does not lets the fleet's
 row win and only fills the packages the fleet does not know; a host that never answered is one offline row); the alerts (a failed setup, the latest attempt of each package
-only, a secret-looking `NAME=value` in a reason starred, a malformed machine view with none); the last line (every kind, an unreadable list, `run_on`, a name that could
+only, a secret-looking `NAME=value` in a reason starred, a malformed machine view with none); a box's own `stackshot checkout` judged by where it is (five tests added, Sat Nov 7th 2026: the failed attempt red while the box's
+commit differs from the server's and gone when they match, upper case and a malformed or absent box commit, the server moving on turning it red again, the server's commit unknown so the last attempt decides, another package's failed attempt and the setup run
+unchanged, a `reload failed` attempt of the commit the box runs now staying red while one of an older commit clears, the server's commit read from `clients/advertised-commit` and every other content of that file, an oversized one and a missing one meaning unknown, and the whole card
+going red and clear by itself over made-up files in the locked temporary fleet, the tab writing nothing). Kept because a card that stays red after the box has caught up costs the owner a hand fix that is not needed, and one that goes green while the new code does not load hides a broken box; the last line (every kind, an unreadable list, `run_on`, a name that could
 escape the state folder not read); degrading (a missing versions file, nothing configured, a file over the size cap, each making the tab "no reading", the footer
 blank); the answer holding no token, session id or path and no `runners` key; the footer's age, the versions file's own time; the route (200 and `no-store` even with nothing to read, GET only, nothing written); the settings' derivation from `stackshot.toml`
 and the environment; and the page wiring (the tab, the panel, both files with the cache-busting version, the hash in `app.js`) with every `machines.css` rule scoped to the panel.
