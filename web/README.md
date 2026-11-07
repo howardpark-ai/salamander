@@ -1557,6 +1557,17 @@ What open browser windows see:
   The header carries a Reload of its own (an icon in the bar, a row in its ⋯ menu once the session name needs the room, *The header* above),
   always there, because the installed app has no browser bar to reload from; it takes the same path as the banner's button, the draft stored first, and a plain reload
   brings the current build (the static files are served `no-cache` and the worker never caches).
+- **A static file that failed to load** is asked for again by the page itself, with no reload. A request a phone's network drops never reaches
+  the server, and a stylesheet or script that fails is skipped without a word (the side panel's search box came up unstyled, with no
+  Colors button, until a reload). `index.html` opens its head with a small inline script (so it hears every failure, whatever fails after it):
+  a failed `static/*.css` or `static/*.js` of the page, or at load a stylesheet that has no sheet, or the color tool's two scripts with no tool
+  (`ColorTool`, `SalaColors`), gets a copy of its element put where it stood (the cascade order holds, and a copy never lands after the v2
+  layer's `<style>`) with a cache-busting `&r=<time>`, 0.3 s, 0.6 s, 0.9 s and 1.2 s after each failure: at most 4 tries per file, then it stops
+  (a file that is really gone costs 5 requests, not a loop). The checks run at the page's `load` and again 4 s and 12 s after the markup was
+  read; a file that loaded is never asked for twice. A recovered color tool starts its own button (`SalaColors.init()`, which the end of the
+  body had skipped; it is safe to call twice). Only the main page does this: `terminal.html` has no panel. `tests/test_asset_recovery.py`
+  stages the failure (aborted and 404, on `/` and `/v2/`) and holds that the file comes back, the box is styled, the button is drawn once,
+  and nothing reloads.
 - **During a restart** the SSE stream ends (uvicorn ends streams at once on SIGTERM and gives an in-flight send up to
   8 s), the page shows a quiet "Reconnecting…" in the header if the gap lasts past 800 ms, and EventSource reconnects
   after 1 s (the server sends `retry: 1000`; if the browser gives up, the page reopens the stream, backing off to
