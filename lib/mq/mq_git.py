@@ -11,7 +11,16 @@ class GitError(Exception):
     pass
 
 
+class IdentityError(GitError):
+    """The merge commits would carry no identity, or a person's global one (Git.identity_problem)."""
+
+
 REMOTE_OPS = ("clone", "fetch", "ls-remote", "push")
+# The git verbs that never write a commit run with no identity, so a refused identity does not stop `mq doctor` from reading the clone. Every other verb
+# (commit, merge, cherry-pick, …) needs a safe identity, so a verb added later is held back until it is listed here on purpose.
+NO_IDENT = ("add", "branch", "clone", "diff", "fetch", "ls-remote", "merge-base", "merge-tree", "push", "remote", "reset", "rev-parse", "show", "update-ref", "worktree")
+REFUSAL = ("refusing to make merge commits: %s. Set git_name and git_email in the host file "
+           "($XDG_CONFIG_HOME/mergequeue/<owner>__<repo>.toml) to an identity made for the queue (docs/mq.md, Configuration)")
 
 
 class Git:
@@ -19,15 +28,56 @@ class Git:
         self.work = work
         self.remote = remote
         self.only_push = only_push       # replay: the one branch prefix a push or a delete may name (queue/practice/); None = any
-        self.ident = []
-        n, e = name or self._cfg("user.name") or "mergequeue", email or self._cfg("user.email") or "mergequeue@localhost"
-        self.ident = ["-c", "user.name=" + n, "-c", "user.email=" + e, "-c", "commit.gpgsign=false", "-c", "merge.autoStash=false"]
+        self.name, self.email = name or "", email or ""      # the host file's git_name and git_email; they win over everything below
+        self._ident = None               # the identity's -c options, once a safe identity has resolved
         self.env = dict(os.environ, GIT_TERMINAL_PROMPT="0", LC_ALL="C")
 
-    @staticmethod
-    def _cfg(key):
-        r = subprocess.run(["git", "config", "--get", key], capture_output=True, text=True)
+    def _cfg(self, key, where=None):
+        """`git config --get key` in the work clone (where = None; "" while the clone is not there, since git would then read the global file) or in the global files (where = "global")."""
+        if where == "global":
+            args = ["git", "config", "--global", "--get", key]
+        elif os.path.isdir(os.path.join(self.work, ".git")):
+            args = ["git", "-C", self.work, "config", "--get", key]
+        else:
+            return ""
+        try:
+            r = subprocess.run(args, capture_output=True, text=True, env=self.env, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
         return r.stdout.strip() if r.returncode == 0 else ""
+
+    def identity(self):
+        """→ (name, email, [what is wrong]). The host file's git_name and git_email win. A key it leaves unset is read from the WORK CLONE (`git -C <clone> config --get`), which
+        carries the repo's own identity (its local config, or an includeIf rule of the global file), never from the caller's folder, where only a person's global file would answer.
+        A value that came from the clone and equals the global one is refused, and so is an empty one: there is no fallback identity. The remote is not asked whether the repo is
+        public (that would be a network call of its own), so the rule holds for every remote."""
+        out, bad = [], []
+        for key, explicit, hostkey in (("user.name", self.name, "git_name"), ("user.email", self.email, "git_email")):
+            val = explicit or self._cfg(key)
+            if not val:
+                bad.append("%s is not set (the host file's %s is unset and the work clone has none of its own)" % (key, hostkey))
+            elif not explicit and val == self._cfg(key, "global"):
+                bad.append("the work clone's %s is the global git %s of the user the queue runs as, not one made for the queue" % (key, key))
+            out.append(val)
+        return out[0], out[1], bad
+
+    def identity_problem(self):
+        """→ the refusal text when the merge commits would have no safe identity, else None. None as well while the work clone is not there yet and the host file leaves a key
+        unset: the question is asked again once the clone exists (and by the first commit)."""
+        if (not self.name or not self.email) and not os.path.isdir(os.path.join(self.work, ".git")):
+            return None
+        bad = self.identity()[2]
+        return REFUSAL % "; ".join(bad) if bad else None
+
+    @property
+    def ident(self):
+        """The -c options of a commit-making command; raises IdentityError instead of falling back to some identity. Kept once resolved."""
+        if self._ident is None:
+            n, e, bad = self.identity()
+            if bad:
+                raise IdentityError(REFUSAL % "; ".join(bad))
+            self._ident = ["-c", "user.name=" + n, "-c", "user.email=" + e]
+        return self._ident
 
     def run(self, args, cwd=None, check=True, timeout=300, counts=None, input=None):
         """git <args> in cwd (default: the work clone) → CompletedProcess (text). A remote operation is added to counts."""
@@ -36,7 +86,8 @@ class Git:
                 if args and args[0] == op:
                     counts[op] = counts.get(op, 0) + 1
         try:
-            r = subprocess.run(["git"] + self.ident + list(args), cwd=cwd or self.work, capture_output=True, text=True,
+            ident = [] if args and args[0] in NO_IDENT else self.ident
+            r = subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "merge.autoStash=false"] + ident + list(args), cwd=cwd or self.work, capture_output=True, text=True,
                                timeout=timeout, env=self.env, input=input)
         except subprocess.TimeoutExpired:
             raise GitError("git %s: timed out after %ds" % (" ".join(args[:2]), timeout))

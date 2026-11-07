@@ -395,6 +395,11 @@ def cmd_doctor(argv):
     else:
         import mq_git
         git = mq_git.Git(clone, host["remote"], host["git_name"], host["git_email"])
+        why = git.identity_problem()
+        if why:
+            line("FAIL", why)
+        else:
+            line("ok", "merge commit identity: git_name / git_email of the host file, or the work clone's own (never the global one)")
         if rp:
             cfg = rp["rules"]
             line("ok", "repo config: the rules of the replay file (origin/main's .github/mergequeue.toml is not read)")
