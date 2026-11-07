@@ -1086,7 +1086,7 @@ def test_a_schedules_link_opens_the_overview_on_the_schedules_tab(served, browse
                schedules: vis("#ov-schedules"), agents: vis("#ov-agents"), side: document.querySelectorAll("#side-sched").length,
                cards: vis("#q-cards") }; })()""")
     assert m["overview"] and m["tab"] == "schedules" and m["schedules"] and not m["agents"] and m["side"] == 0, m
-    assert m["sel"] == [["ov-tab-sessions", "false"], ["ov-tab-schedules", "true"], ["ov-tab-machines", "false"]] and m["cards"], m   # the lane cards stay on top of every tab
+    assert m["sel"] == [["ov-tab-sessions", "false"], ["ov-tab-schedules", "true"], ["ov-tab-machines", "false"], ["ov-tab-usage", "false"]] and m["cards"], m   # the lane cards stay on top of every tab
     assert browser.evaluate("location.hash") == "#schedules"
     # the Agents tab is the other link; its panel comes back and the Schedules one goes
     browser.evaluate("document.querySelector('#ov-tab-sessions').click(); ''")

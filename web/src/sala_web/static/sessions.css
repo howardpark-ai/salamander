@@ -214,8 +214,8 @@ body.lane-open #overview-pane .sp:not(.ld) { display: none; }
 #overview-pane #ld-usage .q-card { max-width: 480px; }
 #overview-pane #ld-table th { padding: 8px 12px; }
 
-/* the Overview's three tabs: Agents (#sessions), Schedules (#schedules) and Machines (#machines). The pane's data-tab (app.js setOverviewTab) shows
-   one panel; the tab bar is a row of links, the open one underlined, with Reload at the right end on the Schedules and Machines tabs (each its own button; the Agents
+/* the Overview's four tabs: Agents (#sessions), Schedules (#schedules), Machines (#machines) and Usage analysis (#usage). The pane's data-tab (app.js setOverviewTab) shows
+   one panel; the tab bar is a row of links, the open one underlined, with Reload at the right end on the Schedules, Machines and Usage tabs (each its own button; the Agents
    tab updates live and keeps the head's own Reload) */
 #overview-pane .ov-bar { display: flex; align-items: flex-end; gap: 8px 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
 #overview-pane .ov-tabs { display: flex; gap: 4px; min-width: 0; }
@@ -227,12 +227,13 @@ body.lane-open #overview-pane .sp:not(.ld) { display: none; }
 #overview-pane .ov-n { font-size: 12px; font-weight: 500; color: var(--faint); font-variant-numeric: proportional-nums; }
 #overview-pane .ov-n:empty { display: none; }
 #overview-pane .ov-reload { margin: 0 0 6px auto; display: none; }
-#overview-pane[data-tab="schedules"] #sc-reload, #overview-pane[data-tab="machines"] #mc-reload { display: inline-flex; }
-#overview-pane:is([data-tab="schedules"], [data-tab="machines"]) #ov-agents { display: none; }
+#overview-pane[data-tab="schedules"] #sc-reload, #overview-pane[data-tab="machines"] #mc-reload, #overview-pane[data-tab="usage"] #us-reload { display: inline-flex; }
+#overview-pane:is([data-tab="schedules"], [data-tab="machines"], [data-tab="usage"]) #ov-agents { display: none; }
 #overview-pane:not([data-tab="schedules"]) #ov-schedules { display: none; }
 #overview-pane:not([data-tab="machines"]) #ov-machines { display: none; }
+#overview-pane:not([data-tab="usage"]) #ov-usage { display: none; }
 /* the head's count and Reload speak for the Agents table: on the Schedules tab its own line and Reload take their place */
-#overview-pane:is([data-tab="schedules"], [data-tab="machines"]) :is(#sp-count, #sp-reload) { display: none; }
+#overview-pane:is([data-tab="schedules"], [data-tab="machines"], [data-tab="usage"]) :is(#sp-count, #sp-reload) { display: none; }
 
 /* the phone's chip strip: the lane cards folded into one line of chips that opens on a tap; wider screens show the cards */
 #overview-pane .q-strip { display: none; }
@@ -252,7 +253,12 @@ body.lane-open #overview-pane .sp:not(.ld) { display: none; }
   #overview-pane .ov-tabs { flex: 1 1 auto; }
   #overview-pane .ov-tab { flex: 1 1 0; justify-content: center; min-height: 44px; align-items: center; }
   #overview-pane .ov-reload { margin-bottom: 4px; }
-  /* three tabs and a worded Reload do not fit 390px: the Machines tab's Reload is its icon alone (its aria-label and title say what it does) */
-  #overview-pane #mc-reload { min-width: 44px; min-height: 44px; padding: 0; justify-content: center; }
-  #overview-pane #mc-reload .ov-rl { display: none; }
+  /* four tabs and a worded Reload do not fit 390px: the Machines and Usage tabs' Reload is its icon alone (its aria-label and title say what it does), and the
+     Usage tab's name takes two short lines ("Usage" over "analysis") */
+  #overview-pane :is(#mc-reload, #us-reload) { min-width: 44px; min-height: 44px; padding: 0; justify-content: center; }
+  #overview-pane :is(#mc-reload, #us-reload) .ov-rl { display: none; }
+  #overview-pane .ov-tl { display: block; text-align: center; line-height: 1.15; white-space: normal; }
+  #overview-pane .ov-bar { gap: 4px; }
+  #overview-pane .ov-tabs { gap: 2px; }
+  #overview-pane .ov-tab { padding: 8px 6px; gap: 4px; font-size: 14px; }
 }

@@ -1,0 +1,142 @@
+/* The Overview's Usage analysis tab (index.html's #ov-usage): what the Claude Code replies on this machine cost at list prices. Colours and fonts come from
+   style.css's variables; every rule is scoped to #ov-usage, so none of it can reach the other tabs, the chat or the sidebar. The one thing this file adds
+   is a series palette for the chart and the share bars (--us-s0 .. --us-s7, --us-sx for "Other") and the model families' colours, with a dark set.
+   The layout follows the width of the panel itself (a container query), not the window's: below 640px the lane cards stack, the table drops its Share,
+   Replies and $ / reply columns, and every control is a 44px target. A phone is 390px and the page never scrolls sideways. */
+#ov-usage {
+  container: uspanel / inline-size; display: grid; gap: 12px; align-content: start; min-width: 0;
+  --us-s0: #ad4608; --us-s1: #2563eb; --us-s2: #0f766e; --us-s3: #7c3aed; --us-s4: #be185d; --us-s5: #a16207; --us-s6: #2e8b57; --us-s7: #0e7490; --us-sx: #9c9b96;
+  --us-fam-fable: #be185d; --us-fam-opus: #6d28d9; --us-fam-sonnet: #1d4ed8; --us-fam-haiku: #166534;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) #ov-usage {
+    --us-s0: #f0a06a; --us-s1: #60a5fa; --us-s2: #2dd4bf; --us-s3: #c4b5fd; --us-s4: #f472b6; --us-s5: #e3b341; --us-s6: #6fcf97; --us-s7: #67e8f9; --us-sx: #6b6a66;
+    --us-fam-fable: #f9a8d4; --us-fam-opus: #c4b5fd; --us-fam-sonnet: #93c5fd; --us-fam-haiku: #86efac;
+  }
+}
+:root[data-theme="dark"] #ov-usage {
+  --us-s0: #f0a06a; --us-s1: #60a5fa; --us-s2: #2dd4bf; --us-s3: #c4b5fd; --us-s4: #f472b6; --us-s5: #e3b341; --us-s6: #6fcf97; --us-s7: #67e8f9; --us-sx: #6b6a66;
+  --us-fam-fable: #f9a8d4; --us-fam-opus: #c4b5fd; --us-fam-sonnet: #93c5fd; --us-fam-haiku: #86efac;
+}
+#ov-usage [hidden] { display: none; }
+#ov-usage :is(#us-v-report, #us-body):not([hidden]) { display: grid; gap: 12px; align-content: start; min-width: 0; }
+#ov-usage button { font: inherit; color: inherit; }
+#ov-usage button:focus-visible, #ov-usage summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#ov-usage .us-note { font-size: 13px; color: var(--muted); margin: 0; }
+#ov-usage .us-note:empty { display: none; }
+#ov-usage .us-note.error { color: var(--error); }
+#ov-usage .us-num { font-variant-numeric: tabular-nums; }
+#ov-usage .us-faint { color: var(--faint); }
+
+/* the views: Report, Explorer, Digest (a segmented control) */
+#ov-usage .us-seg { display: inline-flex; gap: 2px; background: var(--side-bg); border: 1px solid var(--border); border-radius: 8px; padding: 2px; max-width: 100%; overflow-x: auto; }
+#ov-usage .us-seg button { background: none; border: 0; min-height: 32px; line-height: 1; padding: 0 12px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--muted); white-space: nowrap; }
+#ov-usage .us-seg button:is([aria-pressed="true"], [aria-selected="true"]) { background: var(--panel); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+#ov-usage .us-seg button:hover { color: var(--text); }
+#ov-usage .us-views { justify-self: start; }
+#ov-usage .us-soon { margin: 0; padding: 24px 16px; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 15px; text-align: center; }
+
+/* the week picker, its range and the hero total */
+#ov-usage .us-wk { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; }
+#ov-usage .us-range { font-size: 13px; color: var(--muted); }
+#ov-usage .us-card { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 12px 16px; min-width: 0; }
+#ov-usage .us-hero { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 24px; }
+#ov-usage .us-big { font-size: 40px; font-weight: 600; line-height: 1.1; }
+#ov-usage .us-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+#ov-usage .us-flt { font-size: 12px; font-weight: 600; color: var(--link); margin-left: 8px; }
+#ov-usage .us-delta { font-size: 13px; font-weight: 600; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border); }
+#ov-usage .us-delta.up { color: var(--busy); }
+#ov-usage .us-delta.down { color: var(--state-active); }
+
+/* the lane cards (a tap filters) */
+#ov-usage .us-lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 232px), 1fr)); gap: 8px; }
+#ov-usage .us-lane { cursor: pointer; text-align: left; padding: 12px 16px; --lane: var(--accent); }
+#ov-usage .us-lane:hover { background: var(--hover); }
+#ov-usage .us-lane[aria-pressed="true"] { border-color: var(--lane); box-shadow: 0 0 0 1px var(--lane) inset; }
+#ov-usage .us-lane .us-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+#ov-usage .us-lane .us-pct { margin-left: auto; font-size: 12px; color: var(--faint); }
+#ov-usage .us-lane .us-amt { font-size: 22px; font-weight: 600; }
+#ov-usage .us-lane .us-sm { font-size: 12px; color: var(--faint); margin-top: 8px; }
+#ov-usage .us-lane .us-sm b { color: var(--muted); font-weight: 600; }
+#ov-usage .us-pill { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap;
+  color: var(--lane); border: 1px solid color-mix(in srgb, var(--lane) 60%, transparent); background: color-mix(in srgb, var(--lane) 12%, transparent); }
+#ov-usage .us-bar { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
+#ov-usage .us-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--c, var(--accent)); }
+#ov-usage .us-lane .us-bar { margin-top: 8px; --c: var(--lane); }
+
+/* group by, the filter chips */
+#ov-usage .us-ctl { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+#ov-usage .us-lbl { font-size: 12px; font-weight: 600; color: var(--muted); }
+#ov-usage .us-fil { display: flex; flex-wrap: wrap; gap: 8px; }
+#ov-usage .us-fil:empty { display: none; }
+#ov-usage .us-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px 0 12px; border-radius: 999px; cursor: pointer; font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); color: var(--text); }
+#ov-usage .us-chip b { font-weight: 600; }
+#ov-usage .us-chip i { font-style: normal; opacity: .8; font-size: 15px; line-height: 1; padding: 0 4px; }
+#ov-usage .us-chip.us-clear { background: none; border-color: var(--border); color: var(--muted); padding: 0 12px; }
+
+/* the daily chart */
+#ov-usage .us-chart { padding-bottom: 12px; }
+#ov-usage .us-ctitle { margin: 0 0 4px; }
+#ov-usage .us-plot svg { display: block; touch-action: manipulation; max-width: 100%; }
+#ov-usage .us-plot rect[data-d] { cursor: pointer; }
+#ov-usage .us-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+#ov-usage .us-legend span { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+#ov-usage .us-legend span:hover { color: var(--text); }
+#ov-usage .us-dot { display: inline-block; width: 8px; height: 8px; border-radius: 4px; flex: none; }
+#ov-usage .us-read { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 20px; }
+#ov-usage .us-read b { color: var(--text); font-weight: 600; }
+#ov-usage .us-tip { position: fixed; z-index: 9; pointer-events: none; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-size: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .35); display: none; max-width: 240px; }
+#ov-usage .us-tip div { white-space: nowrap; }
+
+/* the table */
+#ov-usage .us-tw { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+#ov-usage .us-t { width: 100%; border-collapse: collapse; font-size: 15px; }
+#ov-usage .us-t th, #ov-usage .us-t td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+#ov-usage .us-t tbody tr:last-child td { border-bottom: 0; }
+#ov-usage .us-t tbody tr:hover { background: var(--hover); }
+#ov-usage .us-t th { background: var(--side-bg); font-size: 12px; font-weight: 600; color: var(--muted); padding: 0; }
+#ov-usage .us-t th button { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 4px; width: 100%; padding: 8px 12px; cursor: pointer; }
+#ov-usage .us-t th button:hover { color: var(--text); }
+#ov-usage .us-t th button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#ov-usage .us-t th[aria-sort="descending"] button::after { content: "\25BE"; }
+#ov-usage .us-t th[aria-sort="ascending"] button::after { content: "\25B4"; }
+#ov-usage .us-t th:not([aria-sort="none"]) button { color: var(--text); }
+#ov-usage .us-t .r { text-align: right; }
+#ov-usage .us-t th.r button { justify-content: flex-end; }
+#ov-usage .us-t tr.us-pick { cursor: pointer; }
+#ov-usage .us-t tr.us-on { background: var(--selected); }
+#ov-usage .us-t td.us-nm { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+#ov-usage .us-t td.us-nm .us-dot { margin-right: 8px; }
+#ov-usage .us-sharec { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+#ov-usage .us-sharec .us-bar { flex: 1; height: 8px; }
+#ov-usage .us-sharec span { font-size: 12px; color: var(--faint); width: 40px; text-align: right; }
+#ov-usage .us-empty { color: var(--faint); text-align: center; padding: 24px; }
+
+/* the notes under the report */
+#ov-usage .us-notes { font-size: 12px; color: var(--faint); line-height: 1.5; display: grid; gap: 4px; }
+#ov-usage .us-notes p { margin: 0; }
+#ov-usage .us-notes b { color: var(--muted); font-weight: 600; }
+#ov-usage .us-notes details { margin-top: 4px; }
+#ov-usage .us-notes summary { cursor: pointer; color: var(--muted); }
+#ov-usage .us-pw { overflow-x: auto; }
+#ov-usage .us-prices { border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+#ov-usage .us-prices th, #ov-usage .us-prices td { padding: 4px 12px 4px 0; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#ov-usage .us-prices th:first-child, #ov-usage .us-prices td:first-child { text-align: left; }
+#ov-usage .us-prices th { color: var(--muted); font-weight: 600; }
+#ov-usage .us-upd { font-size: 12px; color: var(--faint); text-align: right; }
+
+/* a narrow panel (a phone, or a window with the sidebar open at half width): the table keeps the group, the cost and the (narrow) share; every control is a 44px target */
+@container uspanel (max-width: 640px) {
+  #ov-usage .us-big { font-size: 34px; }
+  #ov-usage .us-hide-s { display: none; }
+  #ov-usage .us-sharec { min-width: 72px; }
+  #ov-usage .us-seg button { min-height: 44px; padding: 0 12px; }
+  #ov-usage .us-chip { min-height: 44px; }
+  #ov-usage .us-legend span { min-height: 44px; }
+  #ov-usage .us-t th button { min-height: 44px; }
+  #ov-usage .us-t td { padding-top: 12px; padding-bottom: 12px; }
+  #ov-usage .us-t td.us-nm { max-width: 56vw; }
+  #ov-usage .us-notes summary { display: flex; align-items: center; min-height: 44px; }
+}

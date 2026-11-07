@@ -56,6 +56,16 @@ none itself):
                                   refreshed in a thread every 5 minutes and kept in state_dir/spend-aws.json (swr.py; the
                                   per-file read cache is spend-scan.json, the live lane sightings spend-lanes.json); "pending"
                                   until the first count lands, "error" in plain words when it cannot be counted
+  GET  /api/usage?week=<0|1|2>    the Overview's Usage analysis tab (usage.py): what the Claude Code replies on THIS machine cost, at list prices, over one weekly
+                                  range (0 = the running week, 1 and 2 = seven days back each; a week runs from one weekly reset of the subscription lane to the
+                                  next), counted from the transcripts under ~/.claude/projects and each second login's folder, subagents included (no AWS or Anthropic
+                                  call): {"week", "tz", "tzLabel" (KST), "resetKnown", "generated", "anchor", "weeks": [{id, start, end, startKst, endKst, days, current,
+                                  total, billed, replies}], "lanes": [{code, label, billing, flat, known, quota: {percent, resetsAt} | null}], "fields": ["day", "lane",
+                                  "model", "project", "agent", "folder", "usd", "replies", "tokens"], "rows": [[...one value per field...]] (tokens = [input, cache
+                                  write 5m, cache write 1h, cache read, output], kept on record, never shown), "sameHours", "unpriced", "prices": {asOf, unit, models}}.
+                                  No message text, prompt or secret. The last answer at once, refreshed in a thread once a minute and kept in state_dir/usage-answer.json
+                                  (the per-file read cache is usage-scan.json; swr.py); "pending" until the first count lands, "refreshing", "error" in plain
+                                  words when it cannot be counted; ?fresh=1 (the Reload button) makes it due now
   GET  /api/schedules             every scheduled job on this machine, from the last reading of systemd and cron (schedules.py; served at once and read
                                   again in the background once it is 30 s old, swr.py: "fetchedAt" (epoch ms), "refreshing", "pending" before the first
                                   reading, "error" when a read failed and the last stays; ?fresh=1 makes it due now; memory only, no database): {"generated", "timezone" (SALA_TZ, "" = local), "tzLabel", "timers":
@@ -249,6 +259,7 @@ from . import tz as TZ
 from . import tmuxio as T
 from . import transcript as TR
 from . import unread as UR
+from . import usage as USG
 from .v2.layer import V2Layer, V2Prefix
 from .config import SHELL_SESSION, Settings, brand_suffix, help_session, owner_name
 
@@ -506,6 +517,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
         rows = LN.parse_table(out)
         return {lane: r["status"] != "not set up" for lane in SPD.LANES if (r := LN.record_of(rows, lane))}
 
+    async def lane_table() -> list[dict]:
+        """sala's lane table rows (`sala lane --json`), [] when it cannot be read: the Usage analysis tab's billed-or-flat flag per lane."""
+        rc, out, _err = await SP.run([*SP.resolve_cmd(settings.sala_cmd), "lane", "--json"], LN.TIMEOUT)
+        return LN.parse_table(out) if rc == 0 else []
+
     async def run_lane_names() -> str | None:
         """`sala lane names --json`: its output, None when sala did not print it (no such command yet, a failure, a timeout)."""
         try:
@@ -518,6 +534,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     # the aws-platform and bedrock lanes' month-to-date spend, counted from the transcripts (spend.py)
     spend = SPD.SpendCache(settings, lambda: S.read_live_sessions(settings), lane_configured)
+    # the Usage analysis tab (usage.py): every reply on this machine at list prices, by week, day, lane, model, project, agent and folder
+    usage = USG.UsageCache(settings, lambda: S.read_live_sessions(settings), lane_table, lane_names.rows,
+                           lambda: quota.get(dormant_lanes()))
     # the board items of every live session: one round of client-API reads a minute, served from the cache
     board = B.BoardCache(settings.stackshot_token, settings.stackshot_url, settings.stackshot_web,
                          settings.state_dir / "board-items.json")
@@ -681,6 +700,17 @@ def create_app(settings: Settings | None = None) -> Starlette:
         lanes += [{"lane": lane, "dormant": dormant[lane]} for lane in SPD.LANES if lane in dormant and lane not in have]
         out["lanes"] = lanes
         return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+    async def get_usage(request: Request) -> Response:
+        # the Usage analysis tab (usage.py): the last count at once, a fresh one in a thread once it is a minute old (swr.py, the lane cards'
+        # way); ?week=0|1|2 picks the range, ?fresh=1 (the Reload button) makes the count due now
+        try:
+            week = int(request.query_params.get("week", "0"))
+        except ValueError:
+            week = -1
+        if week not in range(USG.WEEKS):
+            return JSONResponse({"error": "week must be 0, 1 or 2"}, status_code=400, headers={"Cache-Control": "no-store"})
+        return JSONResponse(usage.get(week, fresh=request.query_params.get("fresh") == "1"), headers={"Cache-Control": "no-store"})
 
     schedules = SCH.SchedulesCache()
 
@@ -1733,6 +1763,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/api/spend", get_spend),
         Route("/api/schedules", get_schedules),
         Route("/api/machines", get_machines),
+        Route("/api/usage", get_usage),
         Route("/api/search", get_search),
         Route("/api/lanes/{lane}", get_lane),
         Route("/api/board-items", get_board_items),
@@ -1784,6 +1815,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
     app.state.quota = quota
     app.state.credit = credit
     app.state.spend = spend
+    app.state.usage = usage
     app.state.board = board
     app.state.foryou = foryou
     app.state.schedules = schedules

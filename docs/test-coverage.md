@@ -3348,3 +3348,40 @@ New (`test_colortool_wiring.py`): the two style.css blocks (the dark media query
 and the count and the faded Send are drawn as before; the computed colors of a count, a front badge, a search hit's front tag (text, fill, outline) and of every disabled solid button present (Send, Create session, Start quick session) on `/` and `/v2/`. New (`test_theme_contrast.py`): the label pair (6.76:1) and the disabled pair (5.60:1) hold 4.5:1, the label text is the app's one orange, the light theme sets none of the tokens.
 Changed: the "stylesheets read the variables with a fallback" test lets the two shipped blocks (and only them) declare the six names; the label and disabled rows of the panel show the combination while shipped, and follow the others as before once a field they follow is set; the disabled Send is the grey pair at opacity 1 as shipped, after Reset and without the script, and a field typed in or a preset moves it; "Two oranges" now stores fewer
 properties (its label fill and text equal the shipped ones); `test_unread_count.py`: the dark count is `#f0a06a` on `#3a2619` (the light one is unchanged). Not covered, and why: how the combination looks to a person (by eye).
+
+### `web/tests/test_usage.py` (new, 30) and `web/tests/test_usage_ui.py` (new, 18): the Overview's Usage analysis tab (Sat Nov 7th 2026)
+
+What it is: the fourth Overview tab shows what this machine's Claude Code replies cost at list prices, by week, day, lane, model, project, agent and folder (`web/README.md`,
+*Usage analysis*; `usage.py`, `GET /api/usage`, `static/usage.js`, `static/usage.css`). Part one builds the data layer, the tab and the Report view. Kept because the owner reads a
+dollar figure off it, so a wrong answer costs a total that is too high (a streamed reply or a forked history counted twice, a second login's linked folder counted twice) or too low (a
+subagent's usage left out, a reply in the wrong week), a week that does not run from one weekly reset to the next, a day that is not a KST day, a model with no price counted as $0 without a
+word, a re-read of every transcript on every refresh, a prompt or reply leaving a transcript, a filter that leaves the total or the table unfiltered, a token count on a page of dollars, and, on a
+phone, a page that scrolls sideways or a control too small to hit. Every transcript, registry and state file is a fake in a temporary folder (pytest's `tmp_path`, removed when the test ends); the
+fake logins' folders and the sala command point at nothing (`conftest.py` gets an autouse fixture, `no_real_login_dirs`, so no test counts this machine's own transcripts); nothing asks
+Anthropic or AWS.
+
+`test_usage.py` (no browser): the weeks (a reset ahead, one that has passed rolled forward by whole weeks, a far one rolled back, none known: seven-day windows ending now; the days a week
+touches, one that ends at KST midnight not counting that day); the KST day boundary; the project from the agent name (a scope, a name with no scope, none configured, unnamed); the folder
+(the first `cwd`, a worktree counted as its repository, the home directory as `~`, the folder name when a transcript names no `cwd`); the price of a reply from the table by the numbers, the two
+cache-write tiers on their own prices, a streamed reply and a forked history counted once with the largest counts, a subagent counted for its session, an unknown session as `(unnamed)`,
+the lane of a session and `billed` leaving out the flat plan (with and without sala's lane table), the three weeks and the replies before and after them, a reply at KST midnight, a model
+with no price listed and costing nothing, the last saved anchor standing in for a missing reset, a reset with fractions of a second as one boundary, the same-hours comparison; the
+cache (a second count opens no transcript, a grown one reads only the added bytes, a half-written line read once complete, a replaced file read again, the saved file making a new
+process read nothing, a window moved back rebuilding it, a transcript outside the window not opened, a second login's folder that links to the first counted once and a separate one on its
+own lane); the answer holding no prompt, reply or tool text, in memory or in the saved cache; the endpoint (the week asked for, its rows and fields, a bad `week` a 400, a failed count keeping the last
+answer with an error in words and never the exception's text).
+
+`test_usage_ui.py` (headless Chromium, else skipped), at 1280 px and 390 px through the real app over fake transcripts: the markup and both files with the cache-busting version, the hash in `app.js`; the tab
+opening on its link with Report first, Explorer and Digest saying they are coming next, the arrow keys wrapping; a read when the tab opens and on Reload and none from any other tab; the total
+and its "billed" line, the lane cards' words, the grouping by each of Day, Lane, Model, Project, Agent and Folder (each adding up to the total, the chart's title following), no token word on the
+page; a name from the registry staying text; a tap on a lane card filtering the total and the table with a chip that clears it, a table row, a day and a key name each filtering and Clear all
+emptying them, the table's sort flipping on a second tap, a week switch asking again and showing that week's figures with the filters cleared, a failed read keeping the last figures with a note;
+no console error or uncaught exception anywhere (the check itself was shown to catch both); no sideways scroll, four tabs and the icon-only Reload in one bar and every control at least 44 px on a
+phone, one lane card to a line and the table keeping its name and cost columns there, all five columns on a desktop. Set `SALA_USAGE_SHOTS` to leave a screenshot of each width.
+
+Changed: `test_search_ui.py`, `test_schedules.py`, `test_machines.py` and `test_machines_ui.py` follow the fourth tab (the tab list, the panels, the arrow keys walking four tabs and wrapping, the tab
+bar of a phone holding four tabs); the Machines keyboard test now reaches Usage analysis before it wraps.
+
+Not covered, and why: the real transcripts of a production machine and their cold scan time (measured by hand once on the build box, not asserted: it depends on the machine), a real quota answer
+(the weekly reset is given by the test), a physical phone (the width is emulated), the price table's truth (the table is spend.py's; `PRICES_AS_OF` is a marker a person sets), and Explorer and
+Digest, which are not built yet.

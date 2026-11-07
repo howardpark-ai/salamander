@@ -88,7 +88,7 @@ def test_the_machines_tab_shows_the_cards_and_the_age_and_has_no_control_in_it(s
     with fleet(served, monkeypatch):
         open_tab(served, browser, DESKTOP)
         m = browser.evaluate(SHOWN)
-    assert m["tab"] == "machines" and m["selected"] == [["ov-tab-sessions", "false"], ["ov-tab-schedules", "false"], ["ov-tab-machines", "true"]], m
+    assert m["tab"] == "machines" and m["selected"] == [["ov-tab-sessions", "false"], ["ov-tab-schedules", "false"], ["ov-tab-machines", "true"], ["ov-tab-usage", "false"]], m
     assert m["count"] == "6" and [c["name"] for c in m["cards"]] == ["alpha-box", "beta-box", "gamma-box", "delta-box", "eps-host", "zeta-host"]
     by = {c["name"]: c for c in m["cards"]}
     assert by["alpha-box"]["rows"] == [["claude code", "2.1.5", "latest ✓"], ["gbrain", "0.5.0", "→ 0.6.0"]] and by["alpha-box"]["last"] == "the machine the others follow"
@@ -119,7 +119,7 @@ def test_the_layout_is_three_columns_of_cards_on_a_desktop_and_one_on_a_phone_an
                    tabs: [...document.querySelectorAll(".ov-tab")].map((a) => Math.round(a.getBoundingClientRect().width)), bar: [document.querySelector(".ov-bar").scrollWidth, document.querySelector(".ov-bar").clientWidth] }; })()""")
     assert m["doc"] <= m["vw"] and m["body"] <= m["vw"] + 1 and m["pane"] <= m["paneClient"] and m["panel"] <= m["panelClient"], m   # no sideways scroll
     assert m["over"] == [], m["over"]
-    assert m["bar"][0] <= m["bar"][1], m                                                                                      # three tabs and the Reload fit the bar
+    assert m["bar"][0] <= m["bar"][1], m                                                                                      # four tabs and the Reload fit the bar
     assert m["cardCols"] == cols, m
     assert m["cardsAcross"] == (2 if cols == 3 else 6), m                                                                      # six cards: two rows of three on a desktop, one to a line on a phone
     if SHOTS:
@@ -127,7 +127,7 @@ def test_the_layout_is_three_columns_of_cards_on_a_desktop_and_one_on_a_phone_an
     screenshot(browser, f"machines-{size['width']}.png")
 
 
-def test_a_phone_shows_the_three_tabs_and_the_reload_in_one_bar_each_tab_a_comfortable_target(served, browser, monkeypatch):
+def test_a_phone_shows_the_four_tabs_and_the_reload_in_one_bar_each_tab_a_comfortable_target(served, browser, monkeypatch):
     with fleet(served, monkeypatch):
         open_tab(served, browser, PHONE)
         m = browser.evaluate("""(() => ({ tabs: [...document.querySelectorAll(".ov-tab")].map((a) => { const r = a.getBoundingClientRect(); return [a.textContent.trim(), Math.round(r.width), Math.round(r.height)]; }),
@@ -135,7 +135,7 @@ def test_a_phone_shows_the_three_tabs_and_the_reload_in_one_bar_each_tab_a_comfo
           lastRight: Math.round(document.querySelector("#ov-tab-machines").getBoundingClientRect().right),
           clipped: [...document.querySelectorAll(".ov-tab")].filter((a) => a.scrollWidth > a.clientWidth + 1).map((a) => a.id),
           vw: document.documentElement.clientWidth }))()""")
-    assert [t[0] for t in m["tabs"]] == ["Agents 1", "Schedules", "Machines 6"], m
+    assert [t[0] for t in m["tabs"]] == ["Agents 1", "Schedules", "Machines 6", "Usage analysis"], m
     assert all(t[2] >= 44 for t in m["tabs"]) and m["reload"][0] + m["reload"][1] <= m["vw"] and m["reload"][2] == "none", m   # the Schedules tab's own Reload is hidden here
     assert m["lastRight"] <= m["reload"][0] and m["clipped"] == [] and m["reload"][1] >= 44, m                              # the Reload sits beside the last tab, never over its count
 
@@ -168,7 +168,11 @@ def test_the_keyboard_reaches_the_tab_and_back_leaves_it(served, browser, monkey
         wait(browser, f'document.querySelectorAll("{CARD}").length === 6', "the cards")
         assert browser.evaluate("document.activeElement && document.activeElement.id") == "ov-tab-machines"
         browser.evaluate("document.querySelector('#overview-pane .ov-tabs').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); ''")
+        wait(browser, 'location.hash === "#usage"', "ArrowRight from Machines reaches Usage analysis, the last tab")
+        browser.evaluate("document.querySelector('#overview-pane .ov-tabs').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); ''")
         wait(browser, 'location.hash === "#sessions"', "ArrowRight from the last tab wraps to Agents")
+        browser.evaluate("history.back(); ''")
+        wait(browser, 'location.hash === "#usage"', "Back returns to the Usage analysis tab")
         browser.evaluate("history.back(); ''")
         wait(browser, 'location.hash === "#machines"', "Back returns to the Machines tab")
         assert browser.evaluate("document.querySelector('#overview-pane').dataset.tab") == "machines"

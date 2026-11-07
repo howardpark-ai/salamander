@@ -82,6 +82,7 @@
 <link rel="stylesheet" href="static/sessions.css?v={{v}}">
 <link rel="stylesheet" href="static/schedules.css?v={{v}}">
 <link rel="stylesheet" href="static/machines.css?v={{v}}">
+<link rel="stylesheet" href="static/usage.css?v={{v}}">
 <link rel="stylesheet" href="static/search.css?v={{v}}">
 <link rel="stylesheet" href="static/termclip.css?v={{v}}">
 <!-- the color tool: stackshot's shared file, pinned byte for byte (colortool.js, with its sha256 beside it), then sala's own wiring, which applies the stored
@@ -198,16 +199,18 @@
           <div id="q-cards" class="q-cards"></div>
           <div id="q-note" class="q-note" role="status"></div>
         </section>
-        <!-- the three tabs of the Overview: Agents (#sessions, the default), Schedules (#schedules) and Machines (#machines). They are links, so
-             Back, a reload and a shared link reach a tab; app.js sets data-tab on the pane and starts or stops the Schedules and Machines readings -->
+        <!-- the four tabs of the Overview: Agents (#sessions, the default), Schedules (#schedules), Machines (#machines) and Usage analysis (#usage). They are links, so
+             Back, a reload and a shared link reach a tab; app.js sets data-tab on the pane and starts or stops the Schedules, Machines and Usage readings -->
         <div class="ov-bar">
           <div class="ov-tabs" role="tablist" aria-label="Overview">
             <a id="ov-tab-sessions" class="ov-tab" role="tab" href="#sessions" aria-selected="true" aria-controls="ov-agents">Agents <span id="ov-n-agents" class="ov-n"></span></a>
             <a id="ov-tab-schedules" class="ov-tab" role="tab" href="#schedules" aria-selected="false" aria-controls="ov-schedules" tabindex="-1">Schedules <span id="ov-n-schedules" class="ov-n"></span></a>
             <a id="ov-tab-machines" class="ov-tab" role="tab" href="#machines" aria-selected="false" aria-controls="ov-machines" tabindex="-1">Machines <span id="ov-n-machines" class="ov-n"></span></a>
+            <a id="ov-tab-usage" class="ov-tab" role="tab" href="#usage" aria-selected="false" aria-controls="ov-usage" tabindex="-1"><span class="ov-tl">Usage analysis</span></a>
           </div>
           <button id="sc-reload" class="sp-btn ov-reload" type="button" aria-label="Read the schedules again" title="Read again"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M16.2 10a6.2 6.2 0 1 1-1.9-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 2.8v4.2h-4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload</button>
           <button id="mc-reload" class="sp-btn ov-reload" type="button" aria-label="Read the machines again" title="Read again"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M16.2 10a6.2 6.2 0 1 1-1.9-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 2.8v4.2h-4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="ov-rl">Reload</span></button>
+          <button id="us-reload" class="sp-btn ov-reload" type="button" aria-label="Count the usage again" title="Count again"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M16.2 10a6.2 6.2 0 1 1-1.9-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 2.8v4.2h-4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="ov-rl">Reload</span></button>
         </div>
         <div id="ov-agents" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-sessions">
           <div id="sp-note" class="sp-note" role="status"></div>
@@ -279,6 +282,28 @@
             <div id="mc-grid" class="mc-grid"></div>
           </section>
           <div id="mc-upd" class="mc-upd"></div>
+        </div>
+        <!-- the Usage analysis tab (#usage): what the Claude Code replies on this machine cost, at list prices (usage.py, api/usage). Three views over one data
+             layer: Report (built), Explorer and Digest (coming next). usage.js fills it; it reads when the tab opens, on a change of week and on Reload (usage.css) -->
+        <div id="ov-usage" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-usage">
+          <div id="us-views" class="us-seg us-views" role="tablist" aria-label="Usage analysis views"></div>
+          <div id="us-note" class="us-note" role="status"></div>
+          <div id="us-v-report" role="tabpanel" aria-labelledby="us-vt-report">
+            <div class="us-wk"><div id="us-weeks" class="us-seg" role="group" aria-label="Week"></div><div id="us-range" class="us-range"></div></div>
+            <div id="us-body" hidden>
+              <div id="us-hero" class="us-card us-hero"></div>
+              <div id="us-lanes" class="us-lanes"></div>
+              <div class="us-ctl"><span id="us-glbl" class="us-lbl"></span><div id="us-group" class="us-seg" role="group" aria-label="Group by"></div></div>
+              <div id="us-filters" class="us-fil" aria-live="polite"></div>
+              <div class="us-card us-chart"><div id="us-ctitle" class="us-lbl us-ctitle"></div><div id="us-plot" class="us-plot"></div><div id="us-legend" class="us-legend"></div><div id="us-read" class="us-read"></div></div>
+              <div class="us-tw"><table class="us-t" id="us-table"><thead><tr id="us-thead"></tr></thead><tbody id="us-tbody"></tbody></table></div>
+              <div id="us-notes" class="us-notes"></div>
+              <div id="us-upd" class="us-upd"></div>
+            </div>
+            <div id="us-tip" class="us-tip"></div>
+          </div>
+          <div id="us-v-explorer" role="tabpanel" aria-labelledby="us-vt-explorer" hidden><p class="us-soon"></p></div>
+          <div id="us-v-digest" role="tabpanel" aria-labelledby="us-vt-digest" hidden><p class="us-soon"></p></div>
         </div>
       </div>
       <!-- a lane's details page (#lane=<id>): the same pane, shown instead of the view above while body has
@@ -523,6 +548,7 @@
 <script src="static/sessions.js?v={{v}}"></script>
 <script src="static/schedules.js?v={{v}}"></script>
 <script src="static/machines.js?v={{v}}"></script>
+<script src="static/usage.js?v={{v}}"></script>
 <script src="static/search.js?v={{v}}"></script>
 <script src="static/app.js?v={{v}}"></script>
 <!-- the color tool's button, in the side panel (#side-colors): colortool.js and colortool-sala.js are in the head, which applied the stored look before the first paint -->

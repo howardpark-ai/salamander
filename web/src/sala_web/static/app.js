@@ -1864,8 +1864,9 @@ const schedulesHash = (h = location.hash) => h === "#schedules";        // the O
 // #search?q=…: the Search results page, a page of its own (search.js); the query and the filters are in the address
 const searchHash = (h = location.hash) => h === "#search" || h.startsWith("#search?");
 const machinesHash = (h = location.hash) => h === "#machines";              // the Overview's Machines tab
-const overviewHash = () => location.hash === "#sessions" || schedulesHash() || machinesHash();   // any of the Overview's three tabs
-const TAB_HASH = { sessions: "#sessions", schedules: "#schedules", machines: "#machines" };    // each tab's link
+const usageHash = (h = location.hash) => h === "#usage";                    // the Overview's Usage analysis tab
+const overviewHash = () => location.hash === "#sessions" || schedulesHash() || machinesHash() || usageHash();   // any of the Overview's four tabs
+const TAB_HASH = { sessions: "#sessions", schedules: "#schedules", machines: "#machines", usage: "#usage" };    // each tab's link
 // #lane=<id>: a lane's details page, a view of the Overview's pane; null for any other hash
 function laneHashId(h = location.hash) {
   const m = /^#lane=([^&]*)$/.exec(h);
@@ -1889,8 +1890,8 @@ function route() {
   else if (overviewFamily()) {
     if (!document.body.classList.contains("overview-open")) showOverview();
     overview.showLane(laneHashId());  // a lane's details page, or (null) the Overview itself
-    // #schedules and #machines open the Overview on their tabs
-    setOverviewTab(laneHashId() !== null ? "sessions" : schedulesHash() ? "schedules" : machinesHash() ? "machines" : "sessions");
+    // #schedules, #machines and #usage open the Overview on their tabs
+    setOverviewTab(laneHashId() !== null ? "sessions" : schedulesHash() ? "schedules" : machinesHash() ? "machines" : usageHash() ? "usage" : "sessions");
     setOverviewTitle();
   } else selectSession(hashName());
   if (overviewHash() || hashName()) rememberView(location.hash);
@@ -2131,11 +2132,11 @@ function setOverviewTitle() {
   setTitle(t);
   $("#title .name").textContent = t;
 }
-/* the Overview's three tabs: "sessions" (Agents, #sessions), "schedules" (#schedules) and "machines" (#machines). The pane's data-tab shows the
-   one panel (sessions.css); the Schedules and Machines tabs read their api when they open, and again on their Reload, never by themselves, so
-   schedules.start() / machines.start() run on the change to the tab only and .stop() on any change away (the Overview closing included).
+/* the Overview's four tabs: "sessions" (Agents, #sessions), "schedules" (#schedules), "machines" (#machines) and "usage" (Usage analysis, #usage). The pane's data-tab shows the
+   one panel (sessions.css); the Schedules, Machines and Usage tabs read their api when they open, and again on their Reload, never by themselves, so
+   schedules.start() / machines.start() / usage.start() run on the change to the tab only and .stop() on any change away (the Overview closing included).
    Search is not a tab: it is the sidebar's box and a page of its own (search.js) */
-const OV_TABS = ["sessions", "schedules", "machines"];
+const OV_TABS = ["sessions", "schedules", "machines", "usage"];
 let overviewTab = "sessions";
 function setOverviewTab(tab) {
   const was = overviewTab;
@@ -2149,6 +2150,7 @@ function setOverviewTab(tab) {
   if (tab === was) return;
   if (tab === "schedules") schedules.start(); else if (was === "schedules") schedules.stop();
   if (tab === "machines") machines.start(); else if (was === "machines") machines.stop();
+  if (tab === "usage") usage.start(); else if (was === "usage") usage.stop();
 }
 // arrow keys move between the tabs, as a tab list does (each is a link: Back, a reload and a shared link reach it)
 $("#overview-pane .ov-tabs").addEventListener("keydown", (e) => {

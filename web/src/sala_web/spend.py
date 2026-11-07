@@ -72,6 +72,9 @@ PRICES = {
     "claude-haiku-5-5": (0.1, 0.125, 0.2, 0.01, 0.5),
     "claude-haiku-4-5": (1, 1.25, 2, 0.10, 5),
 }
+# The marker the Usage analysis tab prints beside the prices ("as of"). It says when the table was last read against the published price
+# page: whoever checks the prices, or changes a row above, sets it in the same commit. It is not a verification date by itself.
+PRICES_AS_OF = "2026-11-07"
 
 _REGION = re.compile(r"^(?:global|us|eu|apac|jp|au|us-gov)\.")
 _PROVIDER = re.compile(r"^anthropic\.")
