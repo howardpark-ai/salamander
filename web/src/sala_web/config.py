@@ -267,6 +267,11 @@ class Settings:
         return self.state_dir / "uploads"
 
     @property
+    def mockups_dir(self) -> Path:
+        """Where `sala mockup add` keeps its numbered pages (<sala state>/mockups); read-only here (mockup.py)."""
+        return self.sala_state_dir / "mockups"
+
+    @property
     def mandates_dir(self) -> Path:
         return self.state_dir / "mandates"
 
