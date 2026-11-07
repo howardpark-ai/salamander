@@ -95,4 +95,6 @@ A command that prints nothing readable but exits 0 means nothing is linked. The 
 | `SALA_MOCKUP_MAX_BYTES` | `1073741824` (1 GB) | the folder's size cap; a named constant in `lib/mockup.py` (`CAP_BYTES_DEFAULT`) |
 | `SALA_MOCKUP_REFERENCES` | unset | how the pass learns which pages are linked (above) |
 
+All three are read from `~/.config/salamander/config` (a plain `NAME=value` line) or from the environment; a line in the config wins over the environment, as for every sala setting. The daily `sala-mockup-clean.service` has only `PATH` in its environment, so for it the config file is the one source.
+
 Tests: `tests/mockup.sh` (numbering, atomic counter, refusals, both cleanup rules with a stub reader and fake sizes and ages, the unit files) and `web/tests/test_mockup.py` (the route, its headers, a real headless browser).

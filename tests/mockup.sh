@@ -10,6 +10,7 @@
 #   cap       the 1 GB rule (here a small cap, fake sizes and ages, the clock injected): oldest first, a linked page last, an unlinked young page before a
 #             linked old one, stopping as soon as the folder is under the cap, the age rule running first, the cap's own unconfigured case, a folder still
 #             over with only linked pages left going down to the last one, --max-bytes and SALA_MOCKUP_MAX_BYTES, the 1 GB default
+#   config    SALA_MOCKUP_REFERENCES / _KEEP_DAYS / _MAX_BYTES set in the config file only (not the environment), as under the daily service
 #   units     the daily timer and its service (lane, project, ExecStart)
 # Usage: bash tests/mockup.sh   (exit 0 = pass; a few seconds)
 set -u
@@ -193,6 +194,22 @@ reset; mkpage 1 100 0
 $S clean 2>&1 | grep -q '1073741824' && ok "the default cap shows in the pass's output" || bad "default cap not shown"
 SALA_MOCKUP_MAX_BYTES=abc $S clean >/dev/null 2>&1; [ $? = 1 ] && ok "a bad SALA_MOCKUP_MAX_BYTES is refused" || bad "bad cap env"
 $S clean --max-bytes >/dev/null 2>&1; [ $? = 2 ] && ok "--max-bytes without a value is a usage error" || bad "--max-bytes usage"
+
+# -- the three settings from the config file alone ------------------------------------------------------------------------------------------
+# The config is sourced by the shell (common.sh): a `NAME=value` line there is not in the environment unless lib/mockup.sh exports it. The daily
+# service has only PATH in its environment, so here none of the three is in the environment (the unset at the top) and each comes from SALA_CONFIG.
+printf 'SALA_MOCKUP_REFERENCES="%s"\n' "$T/refs" > "$T/cfg-ref"
+printf 'SALA_MOCKUP_REFERENCES=none\nSALA_MOCKUP_KEEP_DAYS=10\n' > "$T/cfg-days"
+printf 'SALA_MOCKUP_REFERENCES=none\nSALA_MOCKUP_MAX_BYTES=1000\n' > "$T/cfg-cap"
+reset; mkpage 1 100 30; mkpage 2 100 1; mkpage 3 100 30; printf '3\n' > "$T/linked"
+out=$(SALA_CONFIG="$T/cfg-ref" $S clean 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(pages)" = "2 3 " ] && ! echo "$out" | grep -q 'is not set' && ok "config file only: SALA_MOCKUP_REFERENCES (a command) reaches the pass: an old linked page stays, an old unlinked one goes" || bad "config REFERENCES: rc=$rc pages=[$(pages)] $out"
+reset; mkpage 1 100 30; mkpage 2 100 9
+SALA_CONFIG="$T/cfg-days" $S clean >/dev/null 2>&1; [ "$(pages)" = "2 " ] && ok "config file only: SALA_MOCKUP_KEEP_DAYS=10 keeps a 9-day-old page and drops a 30-day-old one" || bad "config KEEP_DAYS: [$(pages)]"
+reset; for n in 1 2 3 4 5; do mkpage $n 300 $((6 - n)); done
+SALA_CONFIG="$T/cfg-cap" $S clean >/dev/null 2>&1; [ "$(pages)" = "3 4 5 " ] && ok "config file only: SALA_MOCKUP_MAX_BYTES=1000 caps the folder, oldest first" || bad "config MAX_BYTES: [$(pages)]"
+reset; mkpage 1 100 30
+out=$(SALA_CONFIG="$T/cfg-ref" $S clean --dry-run 2>&1); [ "$(pages)" = "1 " ] && echo "$out" | grep -q 'would delete 1' && ok "config file only: --dry-run sees the setting too and deletes nothing" || bad "config dry-run: $out"
 
 # -- the daily unit ------------------------------------------------------------------------------------------------------------------------
 svc=$ROOT/systemd/sala-mockup-clean.service; tm=$ROOT/systemd/sala-mockup-clean.timer
