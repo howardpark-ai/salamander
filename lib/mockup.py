@@ -8,7 +8,8 @@ next number and prints https://<sala's address>/mockup/<n>; sala-web serves it b
   add FILE|-        store an HTML file (a path, or - for stdin) under the next number; prints the page's URL (stdout), nothing else
   list [--json]     the stored pages: number, size, age, URL
   remove N          delete one page (its number stays used)
-  clean [--dry-run] [--days N]   delete the pages older than N days (default SALA_MOCKUP_KEEP_DAYS, 7) unless an open board item links them
+  clean [--dry-run] [--days N] [--max-bytes N]   delete the pages older than N days (default SALA_MOCKUP_KEEP_DAYS, 7) unless an open board item
+                    links them, then keep the folder under N bytes (default SALA_MOCKUP_MAX_BYTES, 1 GB = 1073741824): oldest page first, linked pages last
 
 Storage: <state>/mockups/ (state = SALA_STATE_DIR, else $XDG_STATE_HOME/salamander), mode 700; <n>.html and `counter`, mode 600. The CLI is the only
 writer; sala-web only reads. A number is taken under an exclusive lock on <dir>/.lock: the counter is raised and saved (write, fsync, rename)
@@ -19,11 +20,14 @@ UTF-8 or holds a NUL byte (a mockup is text; the response says charset=utf-8, so
 Address: the origin (scheme and host) of SALA_SESSION_URL, the link template sala already uses for a session's web link. Without it the path
 (/mockup/<n>) is printed and a note on stderr says what to prefix it with.
 
-Cleanup (`clean`, run daily by sala-mockup-clean.timer): a page is deleted when it is older than the keep time (its file's mtime, set when it was stored)
-and no open board item links it. Which pages the board links is read by a command the host names in SALA_MOCKUP_REFERENCES, because no
-supported read of the board gives a script the text of its items without a model call:
-  unset or empty   nothing is deleted: the pass keeps every page and says why (a host that has not said how to read the board loses nothing)
-  none             no board item links a page: age alone decides (an explicit choice)
+Cleanup (`clean`, run daily by sala-mockup-clean.timer) applies two rules, in this order:
+  1. a page is deleted when it is older than the keep time (its file's mtime, set when it was stored) and no open board item links it;
+  2. when the folder (every file in it) still holds more than the cap, pages are deleted oldest first (mtime, then number) until it is under the cap;
+     a page an open board item links goes last, and only when every unlinked page is already gone and the folder is still over.
+Which pages the board links is read by a command the host names in SALA_MOCKUP_REFERENCES, because no supported read of the board gives a script
+the text of its items without a model call:
+  unset or empty   nothing is deleted by either rule: the pass keeps every page and says why (a host that has not said how to read the board loses nothing)
+  none             no board item links a page: age and size alone decide (an explicit choice)
   <a command>      run without a shell (60 s); every `/mockup/<n>` in its output is a page an open item still links; a command that fails, times
                    out or prints nothing readable keeps every page (exit 1), because deleting on a failed read would lose a page somebody reads
 Tests: SALA_MOCKUP_DIR (the folder), SALA_MOCKUP_NOW (the clock, epoch seconds), SALA_MOCKUP_TEMPLATE (the link template; the shell wrapper passes SALA_SESSION_URL's value).
@@ -42,6 +46,7 @@ from urllib.parse import urlsplit
 
 MAX_BYTES = 5 * 1024 * 1024          # one page (the response is read whole, and a mockup that big is a mistake)
 KEEP_DAYS_DEFAULT = 7
+CAP_BYTES_DEFAULT = 1024 ** 3        # the folder's size limit: 1 GB (SALA_MOCKUP_MAX_BYTES, clean --max-bytes)
 REF_TIMEOUT_S = 60
 REF_MAX_BYTES = 8 * 1024 * 1024
 TMP_MAX_AGE_S = 86400                # a half-written page older than this is a crash's leftover
@@ -266,14 +271,30 @@ def referenced(spec: str) -> set:
     return {int(m) for m in REF_RE.findall(r.stdout.decode("utf-8", "replace"))}
 
 
-def clean(d: str, t: float, keep_days: float, spec: str, dry_run: bool = False, say=print) -> int:
-    """One cleanup pass at time t. Returns the exit status. `spec` is SALA_MOCKUP_REFERENCES's value (see the module text)."""
+def folder_bytes(d: str) -> int:
+    """What the folder holds: every regular file in it (pages, the counter, a half-written page)."""
+    total = 0
+    try:
+        for e in os.scandir(d):
+            try:
+                if e.is_file(follow_symlinks=False):
+                    total += e.stat(follow_symlinks=False).st_size
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return total
+
+
+def clean(d: str, t: float, keep_days: float, spec: str, cap: int = CAP_BYTES_DEFAULT, dry_run: bool = False, say=print) -> int:
+    """One cleanup pass at time t. Returns the exit status. `spec` is SALA_MOCKUP_REFERENCES's value, `cap` the folder's size limit in bytes
+    (see the module text for the two rules and their order)."""
     cutoff = t - keep_days * 86400
-    old = []
+    pages = {}                                   # number -> (mtime, size)
     for n in page_numbers(d):
         try:
-            if os.stat(os.path.join(d, "%d.html" % n)).st_mtime < cutoff:
-                old.append(n)
+            st = os.stat(os.path.join(d, "%d.html" % n))
+            pages[n] = (st.st_mtime, st.st_size)
         except OSError:
             pass
     # a crash's leftovers: a temporary page older than a day
@@ -284,57 +305,84 @@ def clean(d: str, t: float, keep_days: float, spec: str, dry_run: bool = False, 
                 os.unlink(p)
     except OSError:
         pass
-    if not old:
-        say("mockup clean: no page is older than %g days; nothing to do" % keep_days)
+    old = sorted(n for n, (m, _) in pages.items() if m < cutoff)
+    total = folder_bytes(d)
+    over = total > cap
+    if not old and not over:
+        say("mockup clean: no page is older than %g days and the folder holds %d of %d bytes; nothing to do" % (keep_days, total, cap))
         return 0
     if not spec.strip():
-        say("mockup clean: kept all %d page(s) older than %g days (%s): SALA_MOCKUP_REFERENCES is not set, so there is no way to tell which an open board item still links. "
-            "Set it to a command that prints the board's open items (every /mockup/<n> in its output is kept), or to none to delete by age alone"
-            % (len(old), keep_days, ", ".join(map(str, old))))
+        say("mockup clean: kept all %d page(s): SALA_MOCKUP_REFERENCES is not set, so there is no way to tell which an open board item still links. "
+            "%s%sSet it to a command that prints the board's open items (every /mockup/<n> in its output is kept), or to none to treat no page as linked"
+            % (len(pages),
+               ("%d older than %g days (%s). " % (len(old), keep_days, ", ".join(map(str, old)))) if old else "",
+               ("The folder holds %d bytes, over the %d byte cap. " % (total, cap)) if over else ""))
         return 0
     try:
         keep = referenced(spec)
     except Refused as e:
-        say("mockup clean: kept all %d page(s) older than %g days: %s" % (len(old), keep_days, e))
+        say("mockup clean: kept all %d page(s): %s" % (len(pages), e))
         return 1
-    gone = []
-    with Locked(d):
-        for n in old:
-            if n in keep:
-                say("mockup clean: kept %d: an open board item links it" % n)
-                continue
-            if dry_run:
-                say("mockup clean: would delete %d" % n)
-                gone.append(n)
-                continue
+    gone, left = [], dict(pages)
+
+    def drop(n: int, why: str) -> None:
+        nonlocal total
+        if dry_run:
+            say("mockup clean: would delete %d (%s)" % (n, why))
+        else:
             try:
                 os.unlink(os.path.join(d, "%d.html" % n))
-                gone.append(n)
-                say("mockup clean: deleted %d" % n)
             except FileNotFoundError:
                 pass
             except OSError as e:
                 say("mockup clean: could not delete %d: %s" % (n, e.strerror or e))
-    say("mockup clean: %s %d of %d page(s) older than %g days" % ("would delete" if dry_run else "deleted", len(gone), len(old), keep_days))
+                return
+            say("mockup clean: deleted %d (%s)" % (n, why))
+        total -= left.pop(n)[1]
+        gone.append(n)
+
+    with Locked(d):
+        # rule 1: older than the keep time, unless an open board item links it
+        for n in old:
+            if n in keep:
+                say("mockup clean: kept %d: an open board item links it" % n)
+            else:
+                drop(n, "older than %g days" % keep_days)
+        # rule 2: over the cap, oldest first; a page an open board item links goes last, and only if every other page is gone and it is still over
+        if total > cap:
+            order = sorted(left, key=lambda n: (n in keep, left[n][0], n))
+            for n in order:
+                if total <= cap:
+                    break
+                drop(n, "folder over its %d byte cap%s" % (cap, ", linked by an open board item: last resort" if n in keep else ""))
+            if total > cap:
+                say("mockup clean: the folder still holds %d bytes, over the %d byte cap, with no page left to delete" % (total, cap))
+    say("mockup clean: %s %d page(s); %d page(s), %d bytes left (cap %d)" % ("would delete" if dry_run else "deleted", len(gone), len(left), total, cap))
     return 0
 
 
 def cmd_clean(args: list) -> int:
-    dry, days = False, None
+    form = "clean [--dry-run] [--days N] [--max-bytes N]"
+    dry, days, cap = False, None, None
     i = 0
     while i < len(args):
         if args[i] == "--dry-run":
             dry = True
-        elif args[i] == "--days" and i + 1 < len(args):
+        elif args[i] in ("--days", "--max-bytes") and i + 1 < len(args):
+            flag = args[i]
             i += 1
             try:
-                days = float(args[i])
+                v = float(args[i])
             except ValueError:
-                raise Usage("clean [--dry-run] [--days N]")
-            if days < 0:
-                raise Usage("clean [--dry-run] [--days N]")
+                raise Usage(form)
+            if v < 0:
+                raise Usage(form)
+            if flag == "--days":
+                days = v
+            else:
+                cap = int(v)
         else:
-            raise Usage("clean [--dry-run] [--days N]")
+            raise Usage(form)
         i += 1
     if days is None:
         try:
@@ -343,18 +391,25 @@ def cmd_clean(args: list) -> int:
             raise Refused("SALA_MOCKUP_KEEP_DAYS is not a number")
         if days < 0:
             raise Refused("SALA_MOCKUP_KEEP_DAYS is negative")
+    if cap is None:
+        try:
+            cap = int(float(os.environ.get("SALA_MOCKUP_MAX_BYTES", "") or CAP_BYTES_DEFAULT))
+        except ValueError:
+            raise Refused("SALA_MOCKUP_MAX_BYTES is not a number")
+        if cap < 0:
+            raise Refused("SALA_MOCKUP_MAX_BYTES is negative")
     d = mockup_dir()
     if not os.path.isdir(d):
         print("mockup clean: no mockup folder yet; nothing to do")
         return 0
-    return clean(d, now(), days, os.environ.get("SALA_MOCKUP_REFERENCES", ""), dry)
+    return clean(d, now(), days, os.environ.get("SALA_MOCKUP_REFERENCES", ""), cap, dry)
 
 
 USAGE = {
     "add": "add FILE|-",
     "list": "list [--json]",
     "remove": "remove N",
-    "clean": "clean [--dry-run] [--days N]",
+    "clean": "clean [--dry-run] [--days N] [--max-bytes N]",
 }
 
 

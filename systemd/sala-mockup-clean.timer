@@ -1,0 +1,10 @@
+[Unit]
+Description=Mockup pages cleanup, daily (timer)
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 UTC
+Persistent=true
+Unit=sala-mockup-clean.service
+
+[Install]
+WantedBy=timers.target

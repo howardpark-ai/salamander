@@ -168,8 +168,9 @@
 #   salamander mockup add FILE|-       store an HTML file as the next numbered page and print its address, https://<sala's address>/mockup/<n>: sala-web
 #                                      serves it behind the same sign-in, in a sandbox (the page's scripts and styles run; no sala API, cookies or network); a session
 #                                      without the Artifact tool hands a reader the link (lib/mockup.sh, lib/mockup.py, docs/mockup.md); `sala mockup FILE` is the same
-#   salamander mockup list [--json] | remove N | clean [--dry-run] [--days N]   the stored pages · delete one · the daily pass (sala-mockup-clean.timer):
-#                                      pages older than SALA_MOCKUP_KEEP_DAYS (7) that no open board item links (SALA_MOCKUP_REFERENCES says how to tell; unset keeps all)
+#   salamander mockup list [--json] | remove N | clean [--dry-run] [--days N] [--max-bytes N]   the stored pages · delete one · the daily pass (sala-mockup-clean.timer):
+#                                      pages older than SALA_MOCKUP_KEEP_DAYS (7) that no open board item links, then the oldest first until the folder is under
+#                                      SALA_MOCKUP_MAX_BYTES (1 GB), linked pages last (SALA_MOCKUP_REFERENCES says how to tell what is linked; unset keeps all)
 #   salamander config            print the effective configuration
 #
 # Config: ~/.config/salamander/config (sourced bash; see config.example).

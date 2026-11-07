@@ -1,0 +1,13 @@
+[Unit]
+Description=Mockup pages cleanup: delete pages older than 7 days that no open board item links, then keep the folder under 1 GB, oldest first
+# Runs no model call: `sala mockup clean` (lib/mockup.py, docs/mockup.md). Which pages the board links comes from SALA_MOCKUP_REFERENCES in the host's
+# ~/.config/salamander/config; unset, the pass keeps every page and says why in the journal. Written as `sala job add` writes a unit
+# (the script is the installed salamander command).
+X-Model-Lane=none
+X-Project=sala/salamander
+X-Model-Note=no model call
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/salamander mockup clean

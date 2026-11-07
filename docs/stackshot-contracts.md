@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 41
+contract-version: 42
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -274,6 +274,11 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   keeper's message carries the same command. The exit codes (3 not listed, 4 `NO-PAGE:`, 1 cannot tell) and what a spawn of a listed name does are unchanged. sala-web's `block` field of its
   `not-listed` answer follows the new marker. Nothing stackshot reads or sends changed; sala still never runs the command.
 
+- **42** — Sat Nov 7th 2026. New interface 33: sala's mockup pages. `sala mockup add FILE` stores an HTML page under the next number in sala's state folder and `GET /mockup/<n>` on sala-web serves it
+  (inside the site's existing sign-in, in a sandbox), so a session without the Artifact tool hands a reader a link; a daily pass (`sala mockup clean`, `sala-mockup-clean.timer`) deletes pages over 7 days old
+  and keeps the folder under 1 GB. The pass asks the host, through the command named in `SALA_MOCKUP_REFERENCES`, which pages an open board item links; no stackshot route or client call is added, and
+  with the setting unset the pass deletes nothing. Nothing of stackshot changed.
+
 ## How each entry reads
 
 - **Direction**: `sala → stackshot` means sala writes or calls and stackshot reads or answers; `stackshot → sala` the
@@ -324,6 +329,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 | 30 | Machines tab files (`site/versions.json`, `clients/fleet/<letter>/machine.json`, `clients/advertised-commit` in stackshot's state folder) | stackshot → sala web | unstable (stackshot's own render inputs, no stated file contract on its side) | `web/tests/test_machines.py`, `test_machines_ui.py` (made-up files) |
 | 31 | sala-web saved color combinations (`GET /client/colors/combos`, `POST /client/colors/combos`, `POST /client/colors/combos/delete`) | sala web → stackshot | stable from version 33 (permanent) | `web/tests/test_colors_combos.py`, `test_colortool_wiring.py` (a fake stackshot) |
 | 32 | sala-web usage analysis (`GET /api/usage?week=0\|1\|2`, optional `&fresh=1`; the Digest's `GET /api/usage/digest` with the same query; Explorer's `GET /api/usage/replies`) | sala web → the page it serves (or any reader of the route) | unstable (the Report, Explorer and Digest views; `GET /api/usage/digest` added in 38, `GET /api/usage/replies` in 39) | `web/tests/test_usage.py`, `test_usage_ui.py`, `test_usage_explorer.py`, `test_usage_explorer_ui.py`, `test_usage_digest.py`, `test_usage_digest_ui.py` (fake transcripts) |
+| 33 | sala mockup pages (`sala mockup add\|list\|remove\|clean`, `GET /mockup/<n>`, the `SALA_MOCKUP_REFERENCES` command) | sala → the host's board reader (a command the host names) | unstable (first release) | `tests/mockup.sh`, `web/tests/test_mockup.py` (a stub reader, a real headless browser) |
 
 ## 1. Heartbeat fleet store
 
@@ -1013,6 +1019,19 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Owners**: sala `web/src/sala_web/usage.py`, `usage_digest.py` (the sentences), `spend.py` (the one price table and `PRICES_AS_OF`), `app.py` (the routes), `static/usage.js`, `static/usage-digest.js`, `static/usage-explorer.js`.
 - **Absent or changed**: a key that is added is ignored by a reader that does not know it; `fields` says the row layout, so a reader should index by it. A change to a key or to a row's layout bumps the version.
 - **Test**: `web/tests/test_usage.py` (the data layer and the route), `test_usage_ui.py` (the page over the route), `test_usage_digest.py` (the sentences and the Digest route), `test_usage_digest_ui.py` (the Digest in a browser), `test_usage_explorer.py` (the replies list and route), `test_usage_explorer_ui.py` (Explorer over both routes).
+- **Stable**: unstable (first release).
+
+## 33. sala mockup pages
+
+- **Direction**: sala → the host's board reader. `sala mockup clean` runs the command named in `SALA_MOCKUP_REFERENCES` (no shell, 60 s) and reads its output. Nothing is sent to stackshot and no stackshot route or client verb is used by sala itself. Added in version 42.
+- **Mechanism**: pages are files, `<state>/mockups/<n>.html` (mode 600, folder 700) plus `counter`, written only by `sala mockup add` and read by sala-web's `GET /mockup/<n>`. The cleanup pass deletes a page older than 7 days
+  (`SALA_MOCKUP_KEEP_DAYS`) unless an open board item links it, then, if the folder holds more than 1 GB (`SALA_MOCKUP_MAX_BYTES`, 1073741824), deletes the oldest pages first, linked pages last. "Linked" is
+  every `/mockup/<n>` in the output of the reference command (exit 0 needed); `none` means nothing is linked; unset or empty means the pass keeps every page and says why (exit 0); a command that fails keeps every page (exit 1).
+  No supported read of the board gives a script the text of an item's description without a model call (the brief lists subjects, `get items` has no description, the item facts hold status only),
+  so the host supplies the command; the contract asks stackshot for nothing.
+- **Owners**: sala `lib/mockup.py`, `lib/mockup.sh`, `web/src/sala_web/mockup.py`, `app.py` (the route), `systemd/sala-mockup-clean.{service,timer}`.
+- **Absent or changed**: with no reference command nothing is deleted; a change to the reference line's form, the folder layout or the route's headers bumps the version.
+- **Test**: `tests/mockup.sh` (numbering, refusals, both cleanup rules with a stub reader and fake sizes and ages), `web/tests/test_mockup.py` (the route, its headers and a real headless browser).
 - **Stable**: unstable (first release).
 
 ## Not an interface, but a name

@@ -8,7 +8,7 @@
 //
 // /mockup/<n> (a page `sala mockup add` stored, served in a sandbox, mockup.py) is left alone for the same reason: with no fetch handler the
 // worker never sees that request, and a sandboxed page has an opaque origin, which no worker controls. If a fetch handler is ever added it must
-// return at once for a path that starts with /mockup/ (no respondWith, no cache, no navigation fallback); tests/test_mockup.py holds the worker to both.
+// return at once for a path that starts with /mockup/ (no respondWith, no cache, no navigation fallback); web/tests/test_mockup.py holds the worker to both.
 //
 // install and activate stay: skipWaiting and clients.claim make this worker take over every open client at once, so a
 // device that still holds the old pass-through worker drops it at its next /sw.js check (the bytes differ, so the

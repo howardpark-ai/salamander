@@ -6,7 +6,7 @@ usage: sala mockup add FILE|-
        sala mockup FILE            (the same as add; a file called add, list, remove or clean is written ./add …)
        sala mockup list [--json]
        sala mockup remove N
-       sala mockup clean [--dry-run] [--days N]
+       sala mockup clean [--dry-run] [--days N] [--max-bytes N]
 
   add     stores an HTML file (a path, or - for stdin) under the next number and prints the page's address, https://<sala's address>/mockup/<n>, on
           stdout and nothing else (so $(sala mockup add page.html) is the link). sala-web serves it behind the same sign-in as the rest of the site, in a
@@ -18,10 +18,12 @@ usage: sala mockup add FILE|-
           Pages are stored under $SALA_STATE_DIR/mockups (mode 700), on this machine only.
   list    the stored pages: number, size, age, address (--json: the same as an array).
   remove  delete one page now (its number stays used).
-  clean   the daily pass (sala-mockup-clean.timer): delete the pages older than --days (default SALA_MOCKUP_KEEP_DAYS, 7) that no open board item
-          links. SALA_MOCKUP_REFERENCES says how to tell: unset = keep every page and say why; none = nobody links a page, age decides; otherwise a command
-          (run without a shell) whose output holds the open items' text: every /mockup/<n> in it is kept. A command that fails keeps every page (exit 1).
-          --dry-run deletes nothing.
+  clean   the daily pass (sala-mockup-clean.timer), two rules in this order: delete the pages older than --days (default SALA_MOCKUP_KEEP_DAYS, 7) that
+          no open board item links; then, if the folder still holds more than --max-bytes (default SALA_MOCKUP_MAX_BYTES, 1 GB = 1073741824), delete
+          the oldest pages first, a page an open board item links last (only when every other page is gone and it is still over).
+          SALA_MOCKUP_REFERENCES says how to tell what is linked: unset = keep every page (both rules) and say why; none = nobody links a page;
+          otherwise a command (run without a shell) whose output holds the open items' text: every /mockup/<n> in it counts as linked. A command
+          that fails keeps every page (exit 1). --dry-run deletes nothing.
 USAGE
 }
 case "${1:-}" in
