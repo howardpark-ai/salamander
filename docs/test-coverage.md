@@ -216,6 +216,16 @@ in `test_back_button.py` (the sheet over the drawer) are its guard, and the row 
 tests that used `work-demo-main` on a project that has agents wait for `work-demo-pink` (sala picks a random free word; the stand-in `sala` of these tests always answers the first free one of pink, plum, reed, rust, which is test-only) and the add-agent
 step that comes first. Not covered, and why: any physical phone (the 320, 390 and 1280 px layouts are measured in the harness only).
 
+### `tests/spawn.sh` and `web/tests/test_new_session.py`: an unlisted project agent is refused with the register command, not a page edit (Sat Nov 7th 2026)
+
+`spawn --project` used to refuse a name not on the project's agents map with `ADD-TO-PAGE: <key>` and the YAML to add to the page, which no longer
+reaches any reader once a project has a record in stackshot. It now prints `REGISTER: <key>` and stackshot's `post project-agent` command, and the
+keeper's message carries the same command. `tests/spawn.sh` (the existing not-listed checks rewritten, +5 checks): stdout is exactly the marker and the
+command; the refusal and the keeper's message hold no `ADD-TO-PAGE`, no `agents:` block and no "add the line"; the role is cut from the -main agent the record gives
+(`--role scout`, `--role main2`) and is `<role>` when there is none; a mandate with a quote, a dollar sign and a backtick is escaped so the shell reads the original back; a plain
+spawn of an unlisted name prints the command with `--front|--back`; the queue prints the marker and command again unindented at exit 3; a spawn that
+exits 3 at run time says only the keeper can register the agent. `test_new_session.py` follows the new marker in `block`. Not covered: running the command (sala never runs it).
+
 ### The page's palette moved to stackshot's: `web/tests/test_theme_contrast.py` new, 126; four files changed (Wed Nov 4th 2026)
 
 The page's colours were a warm grey with an orange accent; they are stackshot's now (a blue accent, `#fafaf8` and `#161617` pages), with the front badge and the
@@ -1422,12 +1432,7 @@ is not front or back, a back agent without a mandate, a name outside sala's rule
 characters; 48 passes), a key outside a page key's shape, an empty `--mandate`, `--brief` of no such file (a file only),
 `--lane nope`, `--effort huge`. The page: missing → exit 4 with `NO-PAGE: <key>` at column 0 and the pointer to a session that can write pages (nothing in sala writes to the page store), nobody messaged; `resolve` or `agent-listed` unable to tell, or no
 `pages.py` anywhere → refused (exit 1), while a plain spawn with no `pages.py` passes as before (`agent_unlisted` fails
-open: the two rules side by side). Not listed → exit 3, the refusal on stderr and the `ADD-TO-PAGE: <key>` block on stdout
-in the pages' shape (`agents:` then `  <name>: <mandate>` for front; `agents:` / `  background:` / `    <name>: …` for back),
-the mandate line the first non-blank line with its heading's `#` stripped, cut to 70 characters (a non-ASCII line at 70 characters, never mid-character), double-quoted for a `: ` inside or a leading dash and plain otherwise (the exact value
-the keeper pastes; pages.py's frontmatter reader takes it back whole); the keeper asked by one stackshot message to the
-page key with sender `sala spawn` and the block inside, the same name not again within the hour, each further name once,
-who heard and the owner's words (`SALA_OP_FROM`, `SALA_OP_WORDS`) in the text; no message with `SALA_SPAWN_REGISTER` configured
+open: the two rules side by side). Not listed → exit 3, the refusal on stderr and, on stdout, `REGISTER: <key>` and the one `post project-agent` command that registers the agent (project, name, `--role` cut from the project's -main agent when the record gives one and `<role>` otherwise, `--front` or `--back`, the mandate's first non-blank line with its heading's `#` stripped, cut to 70 characters (a non-ASCII line at 70 characters, never mid-character), double-quoted for a shell with `\`, `"`, `$` and a backtick escaped, `"<one line>"` when there is none); no `ADD-TO-PAGE`, no YAML block and no instruction to edit the page anywhere in the refusal or the keeper's message; the keeper asked by one stackshot message to the page key with sender `sala spawn` and the same command inside, the same name not again within the hour, each further name once, who heard and the owner's words (`SALA_OP_FROM`, `SALA_OP_WORDS`) in the text; no message with `SALA_SPAWN_REGISTER` configured
 (registration is the hook's) or with `SALA_SPAWN_ASK_CMD` set empty, both logged; a name listed on another page and pages.py's
 "no project page for this name: nothing to check" (exit 0; a refusal naming `(steward …` instead of `(the page whose …` is read too) both count as not on this page; `SALA_AGENT_CHECK=off` makes no
 call and says so. Listed: the dry run prints the plan and makes no session, writes no pane-map row, no lane row (`--lane subscription-1 --dry-run` says "recorded" and writes nothing), calls no hook; no NAME with `--project` takes the suggested name; a tmux

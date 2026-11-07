@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 40
+contract-version: 41
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -268,6 +268,12 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   one commit) the last attempt decides, as before. This follows stackshot's change to the same rule (its `machine_alerts(m, server)`). sala has no puller of its own, so the repository
   address the server now publishes in the poll's answer (`repo`) and the box-side moves are not sala's; nothing sala sends changed. Unknown keys are still ignored.
 
+- **41** — Sat Nov 7th 2026. Interfaces 7 and 20 (the agent check and the project record): the exit-3 refusal of `spawn --project` (a name not on the project's agents map) no longer
+  tells anyone to add a line to the page's `agents:` map, which reaches no reader once a project has a record. Its stdout is now the marker `REGISTER: <key>` and under it stackshot's
+  `client.py post project-agent <key> <name> --role <part of the name after the project's name> --front|--back --mandate "<one line>"` command (the `ADD-TO-PAGE: <key>` marker and its YAML are gone), and the
+  keeper's message carries the same command. The exit codes (3 not listed, 4 `NO-PAGE:`, 1 cannot tell) and what a spawn of a listed name does are unchanged. sala-web's `block` field of its
+  `not-listed` answer follows the new marker. Nothing stackshot reads or sends changed; sala still never runs the command.
+
 ## How each entry reads
 
 - **Direction**: `sala → stackshot` means sala writes or calls and stackshot reads or answers; `stackshot → sala` the
@@ -460,7 +466,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Owners**: sala `lib/common.sh:592` `agent_unlisted` (plain spawn and rename: fail-open, only exit 3 refuses, 10 s
   timeout), `:611` `agent_check_script`, `:631` `page_exists` (15 s), `:640` `agent_listed_on` (15 s; only the
   `listed on <this key>: ` line counts); `lib/spawn.sh:245-275` (a project spawn: exit 4 `NO-PAGE: <key>`, exit 3
-  `ADD-TO-PAGE` block, `die` on "cannot tell"). stackshot `pages.py:324` `agent_listed`, `:1359-1364` `main`
+  `REGISTER:` line and register command, `die` on "cannot tell"). stackshot `pages.py:324` `agent_listed`, `:1359-1364` `main`
   (`agent-listed`, `resolve`).
 - **Absent or changed**: a plain `spawn`/`rename` with no `pages.py` proceeds (fail-open). `spawn --project` with neither a
   usable project record nor `pages.py` (or `pages.py` without the brain mirror) **refuses** ("cannot tell") unless
@@ -704,8 +710,10 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   `SALA_PROJECT_RECORD_MAX_AGE` (600 s) old, and the project key is in it. Then, for `spawn --project K NAME --role R`: the
   name on the project's agents map and `front` agreeing with `R` is **listed** (an agent with `page_owed` counts as listed:
   its registration is the point; the dry run says the line is owed); the name absent is **not listed** (exit 3, the
-  `ADD-TO-PAGE` block, the keeper asked as before, the project's main agent and the `post project-agent` register command
-  named in the text only; a spawn never calls it, `sala rename` of a side session does, since version 14); the name present with the other `front` is refused with exit 1 and the
+  `REGISTER: <key>` line and, under it, the `post project-agent` register command with the project, the name, the role (the
+  part of the name after the project's name, from the project's main agent; `<role>` when the record gives none),
+  `--front` or `--back` and the mandate's first line (`"<one line>"` when the spawn had none); no instruction to edit the
+  page's agents map, which reaches no reader once a project has a record; the keeper asked as before, with that command; a spawn never calls it, `sala rename` of a side session does, since version 14); the name present with the other `front` is refused with exit 1 and the
   record's role. For `agent_unlisted` (plain spawn, rename) only a listing matters: a name on any project's map is not
   unlisted and `pages.py` is not asked. Anything else the record cannot answer (file missing or unreadable, another schema,
   stale, no such project) falls back to interface 7 unchanged, with its exit codes and its "cannot tell" refusal.

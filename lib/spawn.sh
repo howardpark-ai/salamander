@@ -49,10 +49,11 @@
 #   · the page exists (`pages.py resolve`): missing → exit 4 with `NO-PAGE: <key>` on stdout — a new project's page is made
 #     by a session with gbrain (the project's -main or the board's main session), never here (nothing in sala writes to gbrain);
 #   · the name is on THAT page's agents map (`pages.py agent-listed`, its `listed on <key>:` line): not → exit 3, the
-#     refusal on stderr and, on stdout, the marker line `ADD-TO-PAGE: <key>` followed by the exact YAML to add (the shape
-#     the pages carry: `agents:` / `  <name>: <mandate>` for front, `agents:` / `  background:` / `    <name>: <mandate>`
-#     for back, the mandate's first line cut to 70 characters), so the web form can show "not listed on the project page
-#     yet" with the line; and the page's keeper is asked once (spawn_ask_keeper): one stackshot message to the page key
+#     refusal on stderr naming the register command and, on stdout, the marker line `REGISTER: <key>` followed by that
+#     command (stackshot's `client.py post project-agent <key> <name> --role <part of the name after the project's name>
+#     --front|--back --mandate "<first line>"`; an agent registered there is on the project's map and a page edit to the
+#     map reaches no reader once a project has a record, so the page is never the thing to edit), so the web form can show
+#     "not listed on the project yet" with the command; and the page's keeper is asked once (spawn_ask_keeper): one stackshot message to the page key
 #     (`client.py message <key> …`, SALA_SPAWN_ASK_CMD; the tests stub it), at most once per name per SALA_SPAWN_ASK_EVERY,
 #     and never when SALA_SPAWN_REGISTER is configured (registration is the hook's then). Both "cannot tell" answers (no
 #     brain here, no pages.py, a timeout) refuse with exit 1 and say so. THE ONE COMMAND THAT NEEDS STACKSHOT:
@@ -395,43 +396,38 @@ mandate_line() {  # → the mandate's first non-blank line, one line, a heading'
     s=$(printf '%s' "$s" | tr '\r\n\t' '   ' | sed 's/^ *#* *//; s/  */ /g; s/ $//')
     python3 -c 'import sys; print(sys.argv[1][:70])' "$s" 2>/dev/null || printf '%s\n' "${s:0:70}"   # characters, not bytes: a Korean line is cut whole
 }
-yaml_value() {  # <text> → a YAML scalar pages.py's frontmatter reader takes back whole: plain when it may be, else double-quoted (an inner " becomes ')
-    local v="$1"
-    case "$v" in
-        ''|*': '*|*' #'*|*:) printf '"%s"\n' "$(printf '%s' "$v" | tr '"' "'")" ;;                       # a mapping or comment inside, a trailing colon
-        -*|'?'*|','*|'['*|']'*|'{'*|'}'*|'#'*|'&'*|'*'*|'!'*|'|'*|'>'*|"'"*|'"'*|'%'*|'@'*|'`'*) printf '"%s"\n' "$(printf '%s' "$v" | tr '"' "'")" ;;   # a YAML indicator first
-        *) printf '%s\n' "$v" ;;
-    esac
+shell_dq() {  # <text> → the text double-quoted for a shell (backslash, ", $ and ` escaped)
+    printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"$`]/\\&/g')"
 }
-add_to_page_block() {  # <page key> <role> <name> <mandate line> → the marker line and the YAML to add, the shape the pages carry (stdout: the web form reads it)
-    echo "ADD-TO-PAGE: $1"
-    echo "agents:"
-    if [ "$2" = back ]; then echo "  background:"; echo "    $3: $(yaml_value "$4")"; else echo "  $3: $(yaml_value "$4")"; fi
+register_cmd() {  # <page key> <front|back, or empty for either> <name> <mandate line> <the project's -main agent, or empty> → stackshot's register command (words only: sala never runs it)
+    local key=$1 r=$2 name=$3 line=$4 pmain=${5:-} role='<role>' pre flag
+    pre=${pmain%-main}   # the project's name is its -main agent's without -main; the role is the part of NAME after it
+    if [ -n "$pmain" ] && [ "$pre" != "$pmain" ] && [ "${name#"$pre"-}" != "$name" ] && [ -n "${name#"$pre"-}" ]; then role=${name#"$pre"-}; fi
+    case "$r" in front) flag=--front ;; back) flag=--back ;; *) flag='--front|--back' ;; esac
+    printf 'python3 ~/stackshot/client.py post project-agent %s %s --role %s %s --mandate %s' "$key" "$name" "$role" "$flag" "$([ -n "$line" ] && shell_dq "$line" || echo '"<one line>"')"
 }
-register_hint() {  # <page key> <role> → the stackshot register path, in words only (sala never calls it: stackshot's project record then lists the name and a spawn goes ahead before the page's line is written)
-    printf '%s' "Or register the agent with stackshot first (python3 ~/stackshot/client.py post project-agent $1 $NAME --role <role> --$([ "$2" = back ] && echo back || echo front) --mandate \"<one line>\"): its project record then lists the name, and the page's line stays owed."
-}
-spawn_ask_keeper() {  # <page key> <mandate line> <what pages.py said> — one stackshot message to the page's keeper, detached; never when a register hook owns registration
+spawn_ask_keeper() {  # <page key> <mandate line> <what pages.py said> <the register command> — one stackshot message to the page's keeper, detached; never when a register hook owns registration
     local stamp="$SALA_STATE_DIR/spawn-asked/$NAME" now last text role="${ROLE:-front}"
     if [ -n "${SALA_SPAWN_REGISTER:-}" ]; then spawn_log "ask: not sent for $1 — SALA_SPAWN_REGISTER is configured, so registration is the hook's"; return 0; fi
     [ -n "$SALA_SPAWN_ASK_CMD" ] || { spawn_log "ask: not sent for $1 — SALA_SPAWN_ASK_CMD is empty"; return 0; }
     now=$(date +%s); _mkparent "$stamp"; last=$(cat "$stamp" 2>/dev/null || echo 0)
     if [ $((now - ${last:-0})) -lt "$SALA_SPAWN_ASK_EVERY" ] 2>/dev/null; then
         spawn_log "ask: not sent again for $1 (asked at $(local_human "$last"), within $SALA_SPAWN_ASK_EVERY s)"
-        echo "   (the page's keeper was asked for the line at $(local_human "$last") already; not again within $(( SALA_SPAWN_ASK_EVERY / 60 )) min)" >&2; return 0
+        echo "   (the page's keeper was asked to register it at $(local_human "$last") already; not again within $(( SALA_SPAWN_ASK_EVERY / 60 )) min)" >&2; return 0
     fi
     echo "$now" > "$stamp"
-    text="[sala spawn] A new $role agent '$NAME' of $1 was asked for${SALA_OP_FROM:+ by $SALA_OP_FROM}${SALA_OP_WORDS:+ (\"$SALA_OP_WORDS\")}, but the name is not on the page's agents map yet ($3). Please add this to $1, then the spawn runs again (sala op spawn $NAME --project $1 --role $role${2:+ --mandate <the mandate>} --from <you> --words \"<${SALA_OWNER_NAME}'s words>\"):"$'\n'"$(add_to_page_block "$1" "$role" "$NAME" "${2:-<mandate>}" | tail -n +2)"$'\n'"$(register_hint "$1" "$role")"$'\n'"(Automatic salamander message from sala spawn; nothing to reply to.)"
+    text="[sala spawn] A new $role agent '$NAME' of $1 was asked for${SALA_OP_FROM:+ by $SALA_OP_FROM}${SALA_OP_WORDS:+ (\"$SALA_OP_WORDS\")}, but the name is not on the page's agents map yet ($3). Please register it with stackshot, then the spawn runs again (sala op spawn $NAME --project $1 --role $role${2:+ --mandate <the mandate>} --from <you> --words \"<${SALA_OWNER_NAME}'s words>\"):"$'\n'"$4"$'\n'"(Automatic salamander message from sala spawn; nothing to reply to.)"
     ( setsid timeout --kill-after=10 150 sh -c "$SALA_SPAWN_ASK_CMD \"\$@\"" spawn-ask "$1" "$text" --sender "sala spawn" </dev/null >> "$SPAWN_LOG" 2>&1 & )
-    spawn_log "ask: the keeper of $1 asked for the line ($SALA_SPAWN_ASK_CMD, to $1)"
-    echo "   the page's keeper was asked for the line in one stackshot message (to $1)" >&2
+    spawn_log "ask: the keeper of $1 asked to register it ($SALA_SPAWN_ASK_CMD, to $1)"
+    echo "   the page's keeper was asked to register it in one stackshot message (to $1)" >&2
 }
-refuse_unlisted() {  # <page key> <role> <what pages.py said> — the refusal (stderr), the marker block (stdout), the keeper asked, exit 3
-    local line; line=$(mandate_line)
-    echo "✗ '$NAME' is not on the agents map of $1 ($3): a project agent's line is on its hub page before the session is made (the page is the record). Add the line below to $1, then spawn again. $(register_hint "$1" "$2")" >&2
-    add_to_page_block "$1" "$2" "$NAME" "${line:-<mandate>}"
+refuse_unlisted() {  # <page key> <role> <what pages.py said> [the project's -main agent] — the refusal (stderr), the marker and the register command (stdout), the keeper asked, exit 3
+    local line cmd; line=$(mandate_line); cmd=$(register_cmd "$1" "$2" "$NAME" "$line" "${4:-}")
+    echo "✗ '$NAME' is not on the agents map of $1 ($3): a project agent is registered with stackshot before its session is made. Register it, then spawn again: $cmd" >&2
+    echo "REGISTER: $1"
+    echo "$cmd"
     spawn_log "refused: not listed on $1 ($3)"
-    spawn_ask_keeper "$1" "$line" "$3"
+    spawn_ask_keeper "$1" "$line" "$3" "$cmd"
     exit 3
 }
 spawn_register() {  # the register hook (the header), once the session is up and mapped; never changes the exit status
@@ -504,7 +500,7 @@ elif [ -n "$PROJECT" ]; then
         rec=$(project_record_agent "$PROJECT" "$NAME" "$ROLE"); rrc=$?
         case "$rrc" in
             0) LISTED=$(sed -n 1p <<< "$rec"); spawn_log "project record: '$NAME' is listed on $PROJECT ($ROLE)" ;;
-            3) pmain=$(sed -n 2p <<< "$rec"); refuse_unlisted "$PROJECT" "$ROLE" "$(sed -n 1p <<< "$rec")${pmain:+; main agent: $pmain}" ;;
+            3) pmain=$(sed -n 2p <<< "$rec"); refuse_unlisted "$PROJECT" "$ROLE" "$(sed -n 1p <<< "$rec")${pmain:+; main agent: $pmain}" "$pmain" ;;
             5) spawn_log "refused: $rec"; die "$rec — a spawn takes the role the record gives: --role $([ "$ROLE" = front ] && echo back || echo front) (or change the page's line first)" ;;
             *) spawn_log "project record: no answer ($rec); asking pages.py"
                why=$(page_exists "$PROJECT"); rc=$?
@@ -528,8 +524,9 @@ else
         echo "✗ $why" >&2
         if [ -n "$hub" ]; then   # the page pages.py named: the block as for a project spawn, the role unknown here
             line=$(mandate_line)
-            echo "   (the line below assumes a front agent — a background agent's goes under background:; --project $hub --role front|back says which)" >&2
-            add_to_page_block "$hub" front "$NAME" "${line:-<mandate>}"
+            echo "   (register it with stackshot first; the command below leaves the role open: --front for a front agent, --back for a background one; --project $hub --role front|back says which)" >&2
+            echo "REGISTER: $hub"
+            register_cmd "$hub" "" "$NAME" "$line" ""; echo
         fi
         spawn_log "refused: $why"
         exit 3

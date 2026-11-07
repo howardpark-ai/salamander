@@ -7,8 +7,8 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      (--brief FILE and --prompt TEXT: the mandate's older names, kept as aliases; --lane L records the lane too; a bare spawn from a Claude session records it on the throwaway's row, spawned_by: that session may later retire it with no words; every bare spawn also writes the throwaway tag, throwaway=1, on the row: any session may retire a tagged row with no words, between turns)
                                      (--fork UUID is a resume: like a recycle or revive it passes the user settings' permissions.defaultMode as --permission-mode)
   salamander spawn  NAME --project <page key> --role front|back [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
-                                     a project agent's session (lib/spawn.sh): the name must be on the page's agents map first —
-                                     not there: exit 3 and `ADD-TO-PAGE: <key>` + the YAML line to add (the keeper asked once); no such page: exit 4
+                                     a project agent's session (lib/spawn.sh): the name must be registered with stackshot (on the project's agents map) first —
+                                     not there: exit 3 and `REGISTER: <key>` + stackshot's `post project-agent` command to run (the keeper asked once); no such page: exit 4
                                      and `NO-PAGE: <key>`; a back agent needs a mandate and starts on it unasked, in the directory SALA_BACK_CWD names (refused when this machine lacks it), else in $HOME when it is unset (--cwd wins); SALA_SPAWN_REGISTER runs after
   salamander spawn  --suggest-name --project <page key> --role front|back [--prefix P] [--new]   a free name, never a taken one: <prefix>-main only for a
                                      front agent of a project with no agent yet (the record says so, or --new: no page yet), else <prefix>-<random word>;
@@ -88,7 +88,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      model <model> [--effort <level>] <session>…|--clear <session>… (several sessions in ONE operation, ONE result notice) or the single-session <session> <model> [--effort <level>]|<session> --clear · provision [--only STEPS] [HOST…] · spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT]
                                      [--lane L] | spawn NAME --side (--fork-of AGENT | --project KEY --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] (a side conversation)
                                      (a TEXT mandate goes to ~/.local/state/salamander/mandates/<id>-NAME.md; a name not
-                                     on the page refuses with exit 3 and the ADD-TO-PAGE: block) (a reboot is not queued: the owner runs `sala reboot --go` in the web UI's Shell;
+                                     on the page refuses with exit 3 and the REGISTER: line and command) (a reboot is not queued: the owner runs `sala reboot --go` in the web UI's Shell;
                                      SALA_OP_REBOOT off by default, unsupported until a confirmation path is built); the verb's dry run first, refused
                                      before anything is queued; one Slack post, one inbox line and one stackshot event (client.py event --kind fleet_op) per result; --stdin: the words on stdin
   salamander op --plan <verb> [args…] | --list | --status <id> | --cancel <id>   the plan alone · the queue · one record · drop a queued one
@@ -280,7 +280,7 @@ verbs:
                                             the model (opus|sonnet|haiku|fable|claude-…) and effort (low|medium|high|xhigh|max) the sessions run on from now: each switched in place when idle with an empty input box, else relaunched (the relaunches together, in one sweep); ONE result notice for the lot, a line per session; a first word that is a model = the many-session form, else the session comes first (one session); --clear drops the records
   provision [--only STEP[,STEP…]] [HOST…]
   spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
-                                            a project agent's session; the name must be on the page's agents map (the plan checks; exit 3 + ADD-TO-PAGE: when not); a back agent starts in the background brief's directory unless --cwd
+                                            a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd
   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
                                             a side conversation (NAME contains -side-; sala spawn --suggest-name --side … suggests one): a fork of AGENT, or a fresh session about the item; on no agents map
   reboot                                    not queued: the owner runs `sala reboot --go` in the web UI's Shell (SALA_OP_REBOOT: off by default, unsupported until a confirmation path is built)

@@ -307,7 +307,7 @@ A project is a page on the board with a name. sala names a session after it: `<s
 
 - Create the project page on the board first. [The board guide](https://github.com/howardpark-ai/stackshot/blob/main/docs/board-alone-guide.md) shows how (its section "Adding a project").
 - Ask sala for a free name: `sala spawn --suggest-name --project projects/budget --role front`. It prints a name that is not taken, such as `work-budget-tide` (the default scope, the project, a word).
-- Spawn the session with `sala spawn NAME --project projects/budget --role front`. The name must be on the page's `agents:` line first. If it is not, sala exits with `ADD-TO-PAGE:` and the line to add.
+- Spawn the session with `sala spawn NAME --project projects/budget --role front`. The name must be registered with stackshot first. If it is not, sala exits with 3 and prints `REGISTER:` and the `post project-agent` command that registers it.
 
 ## 5. Lanes and other options
 

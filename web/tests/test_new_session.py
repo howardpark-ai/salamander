@@ -133,14 +133,11 @@ if mode == "exit3":
     print("plan for spawn %s:" % name)
     print("   ✓ page %s exists" % project)
     print("   ✗ %s is not on the page's agents map" % name)
-    print("   ADD-TO-PAGE: %s" % project)
-    print("   agents:")
+    print("   REGISTER: %s" % project)
     sys.stderr.write("✗ refused: the plan for spawn %s did not pass (exit 3) — nothing queued\n" % name)
-    sys.stderr.write("   the page's keeper was asked for the line in one stackshot message (to %s)\n" % project)
-    print("ADD-TO-PAGE: %s" % project)
-    print("agents:")
-    print("  %s:" % ("background" if role == "back" else "front"))
-    print("    %s: <one line: what this agent is for>   # \"quoted\" & <tagged>" % name)
+    sys.stderr.write("   the page's keeper was asked to register it in one stackshot message (to %s)\n" % project)
+    print("REGISTER: %s" % project)
+    print("python3 ~/stackshot/client.py post project-agent %s %s --role main %s --mandate \"<one line>\"   # \"quoted\" & <tagged>" % (project, name, "--back" if role == "back" else "--front"))
     sys.exit(3)
 if mode == "exit4":
     print("plan for spawn %s:" % name)
@@ -420,9 +417,10 @@ def test_what_the_queue_answers_reaches_the_page_as_it_is(env, monkeypatch):
     d = r.json()
     assert d["ok"] is False and d["code"] == "not-listed" and d["page"] == "projects/gamma-harbor" and d["name"] == "gamma-harbor-main"
     # the block: from the unindented marker line to the end, exactly (the indented copy in the plan is not it)
-    assert d["block"] == ("ADD-TO-PAGE: projects/gamma-harbor\nagents:\n  front:\n"
-                          "    gamma-harbor-main: <one line: what this agent is for>   # \"quoted\" & <tagged>")
-    assert d["keeper"] == "the page's keeper was asked for the line in one stackshot message (to projects/gamma-harbor)"
+    assert d["block"] == ("REGISTER: projects/gamma-harbor\n"
+                          "python3 ~/stackshot/client.py post project-agent projects/gamma-harbor gamma-harbor-main --role main --front --mandate \"<one line>\"   # \"quoted\" & <tagged>")
+    assert "ADD-TO-PAGE" not in d["block"] and "agents:" not in d["block"]
+    assert d["keeper"] == "the page's keeper was asked to register it in one stackshot message (to projects/gamma-harbor)"
     assert "✗ refused" in d["error"] and "not on the page's agents map" in d["error"]
     s.mode("exit4")
     d = c.post("/api/spawn", json=body).json()

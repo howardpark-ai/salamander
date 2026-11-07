@@ -399,7 +399,7 @@ Expected: `401`, `401`, `0`. Any other first or second line means a route is ope
 | T7 | `sala question file` or a filed question fails and names `SALA_DEFAULT_SCOPE` | Neither `SALA_DEFAULT_SCOPE` nor `SALA_SCOPES` is set | Set one (step 4). The filing is refused before anything is sent |
 | T8 | The board refuses a question's subject | The scope is not one of the board's `[subject] prefixes` | Make the two lists equal (step 4) |
 | T9 | `sala spawn` says a lane is not ready | The lane has no credentials | Use `subscription-1`, or set the lane up. Do not set up Bedrock just to silence this |
-| T10 | `spawn --project` says `cannot tell`, exits 3 (`ADD-TO-PAGE:`) or 4 (`NO-PAGE:`) | No board, no such page, or the name is not on the page's `agents:` map | Install the board; create the page; add the line. `SALA_AGENT_CHECK=off` is the only bypass |
+| T10 | `spawn --project` says `cannot tell`, exits 3 (`REGISTER:`) or 4 (`NO-PAGE:`) | No board, no such page, or the name is not registered with stackshot | Install the board; create the page; run the `post project-agent` command that exit 3 prints. `SALA_AGENT_CHECK=off` is the only bypass |
 | T11 | `spawn` refuses a name | It is the shell session's name (`SALA_SHELL_SESSION`) or invalid | Pick another name |
 | T12 | The lane fallback alert says "not moved automatically" | The fallback lane is `bedrock` and it is not ready | Expected on a neutral install. `SALA_LANE_FALLBACK_AUTO=off` stops the attempt |
 | T13 | `sala watch --check` is not healthy | See its line. `tmux server is down` just means no session has been started yet | Read it; it names the cause. Start the first session (step 6) |
