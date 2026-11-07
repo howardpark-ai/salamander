@@ -1301,6 +1301,30 @@ the prefix middleware on http and websocket scopes with cookies and headers unto
 Search results and the New session page: no sideways scroll, a column of at most 920 px on a wide screen, no error logged, the monospace font
 loaded, no manifest and no worker registered). What they do not cover is in `docs/test-coverage.md`.
 
+## Mockup pages
+
+`GET /mockup/<n>` serves an HTML page that `sala mockup add FILE` stored (salamander's `lib/mockup.py`, [docs/mockup.md](../docs/mockup.md)), so a session that cannot publish an Artifact hands a reader
+a link instead of a picture. The pages are files under `<sala state>/mockups/<n>.html` (mode 600, folder 700); sala-web only reads them (`mockup.py`, `Settings.mockups_dir`), opens a page without following a link,
+serves a regular file of at most 5 MiB only, and answers 404 for a number with no page, for one that is not written as a plain number, and for a folder that does not exist yet. It is `text/html; charset=utf-8`; a page that is not
+UTF-8 (put there by hand, the CLI refuses it) is a 415, and any method but GET and HEAD a 405 with `Allow`. Behind `/v2/` it is the same route.
+
+There is no sign-in of its own: sala-web has none and the proxy in front of the site is the sign-in ([web-proxy.md](../docs/web-proxy.md)); the route is served by the same app, so it is inside that sign-in.
+
+Every response under `/mockup/` (a page, a 404, a 405) carries the sandbox headers, because a stored page is someone's HTML at the terminal's address:
+
+```
+Content-Security-Policy: sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:;
+  img-src data:; media-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+Cache-Control: private, no-cache
+```
+
+`sandbox allow-scripts` without `allow-same-origin` gives the page an opaque origin (`self.origin` is `"null"`; `document.cookie` and `localStorage` throw `SecurityError`), so a script in the page cannot read or call sala's API;
+`connect-src 'none'` closes `fetch`, XHR, WebSocket and beacons as well. Inline scripts and styles, `data:` images and Google Fonts work. The service worker has no fetch handler, so it never touches `/mockup/`.
+`tests/test_mockup.py` checks the route and the headers and drives a real headless Chromium through a page that tries to reach the API, read the cookie and open a socket, and renders the page at a 390 px phone width.
+A page should carry `<meta name="viewport" content="width=device-width, initial-scale=1">`; the server sends the file as it is and changes nothing in it.
+
 ## Install as an app
 
 The page is an installable web app (on Android Chrome it installs as an app, not as a shortcut). What makes it one:
@@ -1455,6 +1479,7 @@ accepted when its `Origin` matches the Host it came in on. `tests/test_hosts.py`
 | Live sessions | `~/.claude/sessions/<pid>.json`; entries whose pid is gone (or reused, by `procStart`) are skipped. **One row per session, also for a conversation moved into a background job** (the CLI's "← for agents" view): the pane's claude stays as a viewer (`status` always `shell`, `parkedJobId` = the job's short id) and a second row, `kind` `bg` with that `jobId`, holds the live conversation under the same name. They are folded (`sessions.py` `read_live_sessions`, `job_row`): the pane's row carries the identity (name, tmux, pid), its status is the job's (working / idle / needs input), its `sessionId` is the job's (the transcript, the model and the spend are read from the live conversation), and the job's row is not listed. `/api/sessions` and the Overview carry `parkedJob` (the job id) on such a row only; the Overview's status cell shows the job's status and, beside it, `in background job eeeeeeee`, and the sidebar row's tooltip says the same. A job with no viewer row (the pane's claude gone) stays listed as its own session. `tests/test_parked_sessions.py` |
 | Roles, projects | `python3 $SALA_STACKSHOT_DIR/client.py get roles` (`~/stackshot` when unset; empty = no stackshot: no command, `rolesError` says so), cached 30 s; on failure the last good answer is kept |
 | Board items | stackshot's client API, `GET <client.url>/client/items?key=<session name>` with the bearer token from `$XDG_CONFIG_HOME/stackshot/client.token`, one read per live session a minute, the last good answer kept per session (*Board items*) |
+| Mockup pages | `$SALA_STATE_DIR/mockups/<n>.html` (default `~/.local/state/salamander/mockups/`), written by `sala mockup add`, read at each request; nothing is cached or listed |
 | Transcript | `~/.claude/projects/<cwd, every non-alphanumeric char as ->/<sessionId>.jsonl`, falling back to a glob on the sessionId |
 | For you (no page reads it now) | stackshot's client API with the same token and address: `GET <client.url>/client/for-you` (the list and the flags, one read a minute), and on a tap `POST /client/for-you/seen` and `POST /client/items/<key>/watch`, always with the label `sala-web`; kept in memory only; `docs/stackshot-contracts.md`, interface 22 (*For you*) |
 | Projects (the New session form) | stackshot's client API with the same token and address as the board items: `GET <client.url>/client/projects?scope=…[&q=…]` (the scope's listed projects, and with `q` its hidden matches), and on Create `POST /client/project` (a new project and its page), `/client/project-list` and `/client/project-agent`, always with the label `sala-web`; these are `client.py get projects` and `post project`, `post project-list`, `post project-agent`; `docs/stackshot-contracts.md`, interface 21 |
@@ -1682,6 +1707,7 @@ part of `web/`.
 | `GET /` | the page |
 | `GET /manifest.webmanifest` | the web app manifest (*Install as an app*), `application/manifest+json` |
 | `GET /sw.js` | the service worker, at the root so its scope is the whole site; `text/javascript`, never cached |
+| `GET /mockup/<n>` | a mockup page `sala mockup add` stored (*Mockup pages*); `text/html; charset=utf-8`, 404 for an unknown number, the sandbox headers on every response |
 | `GET /sessions` | redirects to `/#sessions`, the Overview |
 | `GET /api/config` | `terminalUrl`, the build `version` and the `commit`, `shellSession` (sala's `SALA_SHELL_SESSION`, default `sala-shell`), `host` (this machine's short hostname) and the time zone every time in the page is shown in: `timezone` (`SALA_TZ`, `""` = the viewer's own zone), `tzLabel` (the zone's abbreviation now: IST, CEST, UTC) and `tzOffsetMin` (its UTC offset in minutes now) |
 | `GET /api/sessions` | live sessions as `scopes` → project `groups` → `sessions` (front agents first; a role other than front or back sorts after them); `Unregistered` last; also `groups`, the same projects as a flat list; every session carries `agentId` (sala's permanent id for the agent, from the registry `sessions.json`: the key of the saved order; absent when the registry has no row) and `aliases` (the names the agent had, only with `agentId` and when it has any), and `unread_count` (an integer, 0 to 10: the replies written since the owner last opened it, front agents only; 10 means 10 or more and the page shows 9+) and `unread` (`unread_count > 0`) (*The unread reply count*, *Sidebar*) |

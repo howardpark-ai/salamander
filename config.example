@@ -322,6 +322,12 @@
                                  #   the fleet, never by a session (lib/settings-apply.sh; `sala settings-apply` shows the state). Default off: nothing
                                  #   read or written; 1, on, yes or true (any case) turns it on (it needs a machine spec checkout: SALA_SETTINGS_SPEC_DIR, below)
 #SALA_JOB_LANE=subscription-1    # the lane a scheduled job (`sala job`) runs on when it names none: default subscription-1 (max still works), the login lane every install has
+#SALA_MOCKUP_KEEP_DAYS=7         # `sala mockup clean` (the daily sala-mockup-clean.timer, docs/mockup.md): a mockup page older than this many days is deleted unless an
+                                 #   open board item links it
+#SALA_MOCKUP_MAX_BYTES=1073741824   # ... then, while the mockup folder holds more than this (1 GB), the oldest pages go first, pages an open board item links last
+#SALA_MOCKUP_REFERENCES=         # how the pass tells which pages an open board item links. Unset or empty (the default): it deletes NOTHING (neither rule) and says why.
+                                 #   `none` = no page is linked, age and size decide. Otherwise a command line (run without a shell, 60 s): every /mockup/<n> in its output
+                                 #   counts as linked; a command that fails keeps every page (exit 1)
 #SALA_JOB_GITHUB=                # the GitHub owner/repo a unit job (docs/units.md) reports to when its row names none; empty = no gap post (the
                                  #   rows come from ~/.config/salamander/unit-repos.tsv, else the tracked lib/unit-repos.tsv, which is only comments)
 #SALA_UNIT_PROJECT_MAP=          # space-separated from=to pairs: a unit's X-Project= value is shown (and checked) as another project, e.g. "sala/salamander=team/ops"

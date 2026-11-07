@@ -15,6 +15,10 @@ none itself):
   GET  /terminal                  the full-size terminal: ttyd's page in a frame filling the window, ?arg=<tmux session> (static/terminal.html)
   GET  /manifest.webmanifest      the web app manifest (the page is installable as an app; static/manifest.webmanifest)
   GET  /sw.js                     the service worker, at the root so its scope is the whole site (static/sw.js)
+  GET  /mockup/<n>                a page `sala mockup add` stored under that number (mockup.py; 404 for any other address under /mockup), as
+                                  text/html; charset=utf-8 in a sandbox: every answer under /mockup carries a Content-Security-Policy
+                                  `sandbox allow-scripts` (an opaque origin: no cookies, no sala API) with connect-src 'none', nosniff and
+                                  Referrer-Policy no-referrer; read-only, behind the same sign-in as the rest of the site (the proxy's)
   GET  /api/config                settings the page needs (terminal URL prefix, the title-bar suffix, the scopes) and the build version
   GET  /sessions                  redirects to /#sessions (the overview was its own page before it moved into /)
   GET  /api/sessions              live sessions grouped by project; each carries "unread_count" (the replies a front
@@ -255,6 +259,7 @@ from . import lanenames as LNM
 from . import lanes as LN
 from . import lanestate as LS
 from . import machines as MCH
+from . import mockup as MK
 from . import projpick as PP
 from . import quota as Q
 from . import schedules as SCH
@@ -637,6 +642,22 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # At the root, not under /static/: a service worker controls only what is under the path it is served
         # from. No-cache: the browser re-reads it on every check, so a changed worker takes over at the next load.
         return FileResponse(STATIC / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+    async def mockup_page(request: Request) -> Response:
+        # A page `sala mockup add` stored, served at the terminal's own address, so EVERY answer here (a page, a 404, a 405) carries the
+        # sandbox headers of mockup.py. Read-only; the sign-in is the proxy's, as for every route. "n" is the number as written in the address.
+        if request.method not in ("GET", "HEAD"):
+            return Response("method not allowed", status_code=405, media_type="text/plain",
+                            headers={**MK.HEADERS, "Allow": "GET, HEAD"})
+        raw = request.path_params.get("n", "")
+        body = await run_in_threadpool(MK.read_page, settings.mockups_dir, raw)
+        if body is None:
+            return Response("no such mockup", status_code=404, media_type="text/plain", headers=MK.HEADERS)
+        try:
+            text = body.decode("utf-8")
+        except UnicodeDecodeError:   # the CLI only stores UTF-8; a file put there by hand that is not is not served as if it were
+            return Response("this mockup is not UTF-8 text", status_code=415, media_type="text/plain", headers=MK.HEADERS)
+        return HTMLResponse(text, headers=MK.HEADERS)   # text/html; charset=utf-8
 
     async def config(request: Request) -> Response:
         # shellSession and host name the Shell drawer (sala's SALA_SHELL_SESSION and this machine); timezone (SALA_TZ, "" = the
@@ -1789,6 +1810,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/terminal", terminal_page),
         Route("/manifest.webmanifest", manifest),
         Route("/sw.js", service_worker),
+        # everything under /mockup (any method, any depth) is answered by mockup_page, so no answer of this prefix lacks the sandbox headers
+        Route("/mockup/{n:path}", mockup_page, methods=MK.METHODS),
+        Route("/mockup", mockup_page, methods=MK.METHODS),
         Route("/api/config", config),
         Route("/sessions", sessions_page),
         Route("/api/sessions", list_sessions),
