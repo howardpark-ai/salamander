@@ -1,0 +1,21 @@
+[Unit]
+Description=sala briefing — Morning Email Summary, lean run: posts the morning email summary to #briefing (summary-lean.sh --post; without --post the script writes lean/YYYYMMDD.txt in its log directory and posts nothing; contrib/briefing/summary-lean.sh)
+# The digest's claude runs on the bedrock lane: ExecStart goes through `salamander lane exec bedrock --`, which sets the lane's environment from sala's lane config. BRIEFING_BACKEND=cli skips the Agent SDK try,
+# BRIEFING_CLAUDE_CONFIG_DIR= (empty) names no other login, and the key and workspace header are unset.
+X-Model-Lane=bedrock
+X-Project=sala/salamander
+# X-Model-Lane note: BRIEFING_CLAUDE_CONFIG_DIR=<dir> would put the run on the login in that directory (a second login's);
+# The lane's variables (CLAUDE_CODE_USE_BEDROCK, AWS_*, the pinned models) come from `salamander lane exec bedrock`, not from this file.
+
+[Service]
+Type=oneshot
+# no Agent SDK try: summary-lean.sh calls `claude -p` itself (no tools, its own system prompt), not lib.sh's run_claude, so the API key's credit
+# is not used here; bedrock, through `salamander lane exec`.
+Environment=BRIEFING_BACKEND=cli
+Environment=BRIEFING_CLAUDE_CONFIG_DIR=
+# the script appends its own output to cron.log in its log directory (lib.sh: BRIEFING_CRON_LOG; BRIEFING_LOGDIR, the sala config's line)
+Environment=BRIEFING_CRON_LOG=1
+UnsetEnvironment=ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS
+# this is the posting digest: --post delivers like summary.sh (the script's default writes a file and posts nothing). See
+# contrib/briefing/README.md, "The lean summary".
+ExecStart=%h/.local/bin/salamander lane exec bedrock -- %h/salamander/contrib/briefing/summary-lean.sh --post

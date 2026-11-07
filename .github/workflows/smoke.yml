@@ -1,0 +1,43 @@
+# Smoke on demand (Actions > smoke > Run workflow): the Linux leg on GitHub's hosted `ubuntu-latest`, the macOS leg on GitHub's
+# macos-latest.
+# NO PUSH TRIGGER. The Linux leg ran tests/smoke.sh and tests/phases.sh on every push of every
+# branch and of main, and tests.yml's `suites` job runs both whenever a change touches the files they open (tests/suites.map)
+# and always on a push to main, so the push run only repeated them. With it went the tested-tree artifact and main's
+# tested.sh skip for this leg; tests.yml keeps its own.
+name: smoke
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: scratch goes to the runner's temp folder
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # the runner context is not available in a job-level env, so this is a step
+      - uses: actions/checkout@v4
+      - name: on a GitHub-hosted runner only, set the bare image up (tmux, lsof)
+        uses: ./.github/actions/hosted-tools
+        with:
+          tools: tmux lsof
+      - name: tmux
+        run: tmux -V; which lsof || true
+      - name: smoke test (helpers + read-only commands against a fake claude)
+        run: bash tests/smoke.sh
+      - name: the sweep's three phases against fake panes
+        run: bash tests/phases.sh
+  smoke-macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: tmux
+        run: |
+          brew install tmux
+          tmux -V; which lsof || true
+      - name: smoke test (helpers + read-only commands against a fake claude)
+        run: bash tests/smoke.sh
+      - name: the sweep's three phases against fake panes
+        run: bash tests/phases.sh

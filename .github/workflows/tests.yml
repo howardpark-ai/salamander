@@ -1,0 +1,288 @@
+# The suites, on every pull request and on main (CONTRIBUTING.md). Each runs in an isolated HOME on a private tmux socket
+# against the compiled fake claude (tests/fake-claude.c): no real session, no network. The releaser merges a PR only when
+# this is green. smoke.yml carries the on-demand macOS leg.
+#
+# Runs on GitHub's hosted runners (`ubuntu-latest`). A hosted runner is a bare image, so each job that needs tools calls the
+# local action `.github/actions/hosted-tools` (Python 3.14, uv, tmux, lsof, ttyd 1.7.7, a Chrome check). CONTRIBUTING.md, *CI*.
+#
+# Three things keep the runs small:
+# - `changes` sorts what the change touches (.github/scripts/changed.sh): `suites` runs only when a suite has to run, `web`
+#   (the web app's pytest, in four `web-shard` jobs gathered by the gate job `web`) only when something under web/ did. A job
+#   that is not needed reports "skipped", which release.sh's check gate reads as a verdict; a workflow kept from running
+#   by `on: paths` would report nothing, and the gate would wait on it. Job names stay: release.sh reads them, and `web`
+#   stays the name of the one check for the web tests.
+# - On a push to main, each job first asks whether it already passed on exactly this tree in the PR's own run
+#   (.github/scripts/tested.sh; the PR run records the tree it tested as the name of an artifact) and, when so, says why
+#   and skips its steps; the job still reports success. A direct push to main, or main having moved between the check
+#   and the merge, runs everything.
+# - A pull request runs only the suites that open the files it changes. tests/suites.map lists, per suite, the
+#   tracked files it opened when it ran under strace; `changes` first runs `tests/suitemap.sh --check` (a suite without a line, a
+#   tracked file no line or glob covers, a line naming a file that is gone: the job and so the PR fail) and changed.sh then
+#   names the suites in its `suites` output (`all`, or the names; a docs-only change names none and the job is skipped). A
+#   PUSH TO MAIN ALWAYS RUNS THE FULL SET whenever the job runs, so a miss in the map is caught there. The tested tree is
+#   recorded only by a PR that ran the full set, so main's tested.sh skip never trusts a subset. smoke.yml no longer runs on a
+#   push: its two suites, smoke and phases, are in this job's set.
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:   # tested.sh reads the runs and artifacts (actions) and the PR behind a merge commit (pull-requests); nothing here writes
+  contents: read
+  actions: read
+  pull-requests: read
+env:
+  GH_TOKEN: ${{ github.token }}
+# Every push to main shares one group, so a newer main push replaces the older runs still queued behind the running one
+# (several main runs once queued up, each testing a commit the
+# newest push already contained). GitHub keeps one running and one pending run per group: the running one finishes
+# (cancel-in-progress: false) and a newer pending run cancels the older pending one. The cancelled runs' commits are still
+# tested: the `changes` job starts a main run's range at the last green main run, not at `before`. Anything that is not a
+# push to main (every pull request) gets a group of its own run id, so PR runs are never grouped or cancelled.
+concurrency:
+  group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'tests-main' || format('tests-run-{0}', github.run_id) }}
+  cancel-in-progress: false
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    outputs:
+      sala: ${{ steps.paths.outputs.sala }}
+      web: ${{ steps.paths.outputs.web }}
+      suites: ${{ steps.paths.outputs.suites }}   # `all`, the suite names to run (space-separated), or empty
+    steps:
+      - name: scratch goes to the runner's temp folder
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # the runner context is not available in a job-level env, so this is a step
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the diff needs its other end: the merge commit's first parent on a PR, the last green main run's head on a push
+      - name: tests/suites.map is honest (git and bash only, a second; every suite has its line, every file is covered or named)
+        run: bash tests/suitemap.sh --check
+      - id: paths
+        name: what the change touches (a PR, its merge commit against main; a push, from the last green main run to HEAD; .github/scripts/changed.sh)
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            # the checkout is GitHub's merge of the PR into main (refs/pull/N/merge): its first parent is main as merged
+            # against; anything else (no merge commit, another head) is read as "everything changed"
+            if [ "$(git rev-parse -q --verify HEAD^2 2>/dev/null)" = "$PR_HEAD" ]; then from=HEAD^1; else from=none; fi; to=HEAD
+          else
+            # A push to main: the range starts at the head of the last SUCCESSFUL tests.yml push run on main, not at `before`
+            # The concurrency group above cancels older pending main runs, so the newest
+            # run's before..after covers only its own push; without this a cancelled run's commits would go untested
+            # whenever the newest push alone needs no suites (a web-only push). The current run is in progress, so it is
+            # never its own answer. Any doubt (API error, no green run, a sha not in the checkout or not an ancestor of
+            # HEAD) is `none`, which changed.sh reads as everything changed: a full run.
+            from=none; why="no green main run found"
+            if last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null) && [ -n "$last" ]; then
+              if git cat-file -e "$last^{commit}" 2>/dev/null && git merge-base --is-ancestor "$last" HEAD 2>/dev/null; then
+                from="$last"; why="last green main run"
+              else
+                why="last green main run $last is not in the checkout or not an ancestor of HEAD"
+              fi
+            else
+              why="the API gave no answer for the last green main run"
+            fi
+            echo "push range from: $from ($why)"; to=HEAD
+          fi
+          .github/scripts/changed.sh "$from" "$to" | tee -a "$GITHUB_OUTPUT"
+  suites:
+    needs: changes
+    if: needs.changes.outputs.sala == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: scratch goes to the runner's temp folder
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # the runner context is not available in a job-level env, so this is a step
+      - uses: actions/checkout@v4
+      - id: tested
+        name: on main only, already passed on exactly this tree in the PR's run? (.github/scripts/tested.sh says why)
+        if: github.event_name == 'push'
+        run: if .github/scripts/tested.sh tests.yml/suites@pull_request; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi
+      - name: on a GitHub-hosted runner only, set the bare image up (Python 3.14, uv, tmux, lsof)
+        if: steps.tested.outputs.skip != 'true'
+        uses: ./.github/actions/hosted-tools
+        with:
+          tools: tmux lsof
+          python: "3.14"
+          uv: "true"
+      - name: on a GitHub-hosted runner only, web/.venv for tests/neutral-install.sh (its web check runs offline from a warm uv cache, which a bare runner has not)
+        if: runner.environment == 'github-hosted' && steps.tested.outputs.skip != 'true'
+        run: if [ -f web/pyproject.toml ]; then cd web && uv sync --frozen; fi
+      - name: what the suites need (tmux; cc for the fake claude; python3; lsof and flock for the process and lock helpers)
+        if: steps.tested.outputs.skip != 'true'
+        run: |
+          for t in tmux cc python3 flock lsof setsid; do command -v "$t" >/dev/null || { echo "missing on the runner: $t"; exit 1; }; done
+          tmux -V; cc --version | head -1; python3 --version; command -v flock lsof
+      - name: the suites, side by side (a PR, the suites its change reaches; a push to main, every tests/*.sh, a new suite by its file alone)
+        if: steps.tested.outputs.skip != 'true'
+        env:
+          EVENT: ${{ github.event_name }}
+          SUITES: ${{ needs.changes.outputs.suites }}   # `all`, or names from tests/suitemap.sh --select: words, split below
+        run: |
+          # main always runs the full set: a suite the PR's map missed fails here, after the merge, instead of never
+          # A hosted runner has two or four CPUs: every suite at once (run.sh's default) starved the timing checks
+          # (a first hosted trial failed eight suites on clocks and waits alone), so a hosted runner runs two suites per CPU at a time
+          j=(); if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then j=(-j "$(( $(nproc) * 2 ))"); echo "hosted runner: at most ${j[1]} suites at once"; fi
+          if [ "$EVENT" = pull_request ] && [ -n "$SUITES" ] && [ "$SUITES" != all ]; then
+              echo "suites for this change: $SUITES"; bash tests/run.sh "${j[@]}" $SUITES
+          else
+              echo "every suite"; bash tests/run.sh "${j[@]}"
+          fi
+      # The tested tree, recorded for the push to main (tested.sh): the artifact's name carries it, and the step runs
+      # only when every step above passed. 7 days is more than a PR waits between its check and its merge; a stale one
+      # cannot match a tree that moved on. Only a PR that ran the FULL set records it: a subset passing says
+      # nothing about the suites it left out, and main's skip would trust it.
+      - id: tree
+        name: record the tested tree (an artifact named tested-suites-<tree sha>; a PR that ran every suite only)
+        if: github.event_name == 'pull_request' && needs.changes.outputs.suites == 'all'
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}'); echo "name=tested-suites-$tree" >> "$GITHUB_OUTPUT"
+          echo "suites passed on tree $tree (commit $(git rev-parse HEAD))" | tee "$RUNNER_TEMP/tested-suites.txt"
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true   # a failed upload only means main tests again; it never fails a green job
+        if: github.event_name == 'pull_request' && needs.changes.outputs.suites == 'all'
+        with:
+          name: ${{ steps.tree.outputs.name }}
+          path: ${{ runner.temp }}/tested-suites.txt
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: error
+      - name: remove the tested-tree marker (the upload has its own copy)
+        if: always()
+        run: rm -f "$RUNNER_TEMP/tested-suites.txt"
+  web-shard:
+    # The web app under web/: its own pytest, the way its README runs it, in four shards that run side by side (the serial
+    # job took about 71 minutes on a two-CPU hosted runner for 2152 tests, too near the timeout). Each shard runs its share of the
+    # test files serially (.github/scripts/web-shard.sh deals them out by size, so a new file is picked up by its name); no
+    # pytest-xdist, because parallel workers in one job gave load-dependent failures in the browser tests. The check every
+    # consumer reads is the `web` job below, which gathers the shards. Inert until web/ exists (changed.sh says web=false
+    # without web/pyproject.toml).
+    name: web-shard (${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false   # every shard reports, so one red shard does not hide another's failures
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: scratch goes to the runner's temp folder
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # the runner context is not available in a job-level env, so this is a step
+      - uses: actions/checkout@v4
+      - id: tested
+        name: on main only, already passed on exactly this tree in the PR's run? (.github/scripts/tested.sh says why)
+        if: github.event_name == 'push'
+        run: if .github/scripts/tested.sh tests.yml/web@pull_request; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi   # the artifact is recorded by the `web` job below, once every shard passed
+      - name: on a GitHub-hosted runner only, set the bare image up (Python 3.14, uv, tmux, ttyd 1.7.7, and a check that Chrome is there)
+        if: steps.tested.outputs.skip != 'true'
+        uses: ./.github/actions/hosted-tools
+        with:
+          tools: tmux ttyd chrome
+          python: "3.14"
+          uv: "true"
+      - name: what the web app needs (uv; node for the syntax check of its scripts)
+        if: steps.tested.outputs.skip != 'true'
+        run: |
+          for t in uv node; do command -v "$t" >/dev/null || { echo "missing on the runner: $t"; exit 1; }; done
+          uv --version; node --version
+      - name: uv sync --frozen (the lockfile as committed)
+        if: steps.tested.outputs.skip != 'true'
+        working-directory: web
+        run: uv sync --frozen
+      - name: pytest over this shard's test files
+        if: steps.tested.outputs.skip != 'true'
+        working-directory: web
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}   # the length of the matrix above
+        run: |
+          files=$(../.github/scripts/web-shard.sh "$SHARD" "$SHARDS")
+          echo "shard $SHARD of $SHARDS: $(echo "$files" | wc -l) test files"
+          uv run --frozen pytest $files
+      - name: node --check over the app's scripts under src/ (vendored files left out; shard 1 only, the check is the same in every shard)
+        if: steps.tested.outputs.skip != 'true' && matrix.shard == 1
+        working-directory: web
+        run: find src -name '*.js' -not -path '*/vendor/*' -not -path '*/node_modules/*' -print0 | xargs -0 -r -n1 node --check
+  web:
+    # The gate over web-shard: the check named `web` that release.sh, the merge queue and any required-check rule read, and the
+    # job that records the tested tree. It passes only when every shard passed. When `changes` says the web tests are not needed,
+    # the shards and this job are skipped together, which release.sh reads as a verdict. On a push to main whose tree already
+    # passed in the PR's run, the shards skip their steps and pass, so this job passes too.
+    needs: [changes, web-shard]
+    if: always() && needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: every web-shard job passed
+        env:
+          SHARDS_RESULT: ${{ needs.web-shard.result }}
+        run: '[ "$SHARDS_RESULT" = success ] || { echo "the web-shard jobs ended as $SHARDS_RESULT"; exit 1; }'
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+      - id: tree
+        name: record the tested tree (an artifact named tested-web-<tree sha>; a PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}'); echo "name=tested-web-$tree" >> "$GITHUB_OUTPUT"
+          echo "web passed on tree $tree (commit $(git rev-parse HEAD))" | tee "$RUNNER_TEMP/tested-web.txt"
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true   # a failed upload only means main tests again; it never fails a green job
+        if: github.event_name == 'pull_request'
+        with:
+          name: ${{ steps.tree.outputs.name }}
+          path: ${{ runner.temp }}/tested-web.txt
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: error
+      - name: remove the tested-tree marker (the upload has its own copy)
+        if: always()
+        run: rm -f "$RUNNER_TEMP/tested-web.txt"
+  help-review:
+    # Check 3 of the help-text gates: on a pull request that changes bin/salamander or lib/, one small-model call reads
+    # the CLI diff, the help-snapshot diff and the skills plugin's text and fails the job when a command's shape, words or output
+    # changed with neither the help nor the skills (.github/scripts/help-review.sh). Checks 1 and 2 are suites (tests/help-snapshot.sh,
+    # tests/skills-flags.sh), run by `suites` with the rest. The call is Amazon Bedrock (Haiku 5.5 through the global inference profile,
+    # SigV4, .github/scripts/help_review_call.py, a uv script with its lock; no lane and no `claude` CLI), signed in keylessly with
+    # GitHub's OIDC token: the step below exchanges the job's token for the credentials of the IAM role named by the repository SECRET
+    # SALA_REVIEW_AWS_ROLE (a secret, not a variable, because the role ARN holds the AWS account number and a step's `with:` values print in a
+    # public run log; a role trusted for this repository's pull_request tokens and allowed bedrock:InvokeModel on the review model's
+    # inference profile only), in the region of the variable SALA_REVIEW_AWS_REGION. A secret cannot be read in a job-level `if`, so the
+    # job runs only when the variable SALA_REVIEW_ENABLED is `true` and the pull request is from this repository (a fork never gets the
+    # token); otherwise it is SKIPPED, green. A failed sign-in step is a warning, and the review then skips, green, with the
+    # reason in the job summary; no key is ever printed. Not run on a push to main (the PR's run was the review).
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.sala == 'true' && github.event.pull_request.head.repo.full_name == github.repository && vars.SALA_REVIEW_ENABLED == 'true'
+    permissions:
+      contents: read
+      id-token: write   # the OIDC token configure-aws-credentials exchanges for the role's credentials; this job only, and a fork's pull request is kept out by the `if` above
+    runs-on: ubuntu-latest   # a short job (one call, 120 s at most)
+    timeout-minutes: 70
+    steps:
+      - name: scratch goes to the runner's temp folder
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # the runner context is not available in a job-level env, so this is a step
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the diff needs the merge commit's first parent
+      - uses: astral-sh/setup-uv@v5   # the call is a uv script (uv run --locked --script), as stackshot's tool-text-model job runs its own
+        with:
+          python-version: "3.14"
+          enable-cache: false   # setup-uv turns its cache on by itself on a hosted runner and then fails the job's end when the cache folder is empty, as here (nothing is installed)
+      - name: sign in to AWS through GitHub's OIDC token
+        continue-on-error: true   # a wrong role ARN or trust policy is a warning, and the review below skips, green, for want of credentials; never a red PR
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd   # v6.3.0, pinned by commit
+        with:
+          role-to-assume: ${{ secrets.SALA_REVIEW_AWS_ROLE }}   # the repository secret, so the ARN (it holds the account number) is masked in the log
+          mask-aws-account-id: true   # also masks the account number wherever the action or a later step would print it
+          aws-region: ${{ vars.SALA_REVIEW_AWS_REGION }}   # required: the call has no default region
+          role-session-name: help-review-${{ github.run_id }}
+          role-duration-seconds: 900
+      - name: model review of a CLI-touching change (a skip, with the reason, when there is no AWS sign-in)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}   # the credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) and the region (AWS_REGION) come from the step above through the job's environment
+        run: |
+          if [ "$(git rev-parse -q --verify HEAD^2 2>/dev/null)" = "${{ github.event.pull_request.head.sha }}" ]; then from=HEAD^1; else from=origin/main; fi
+          .github/scripts/help-review.sh "$from" HEAD

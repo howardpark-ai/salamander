@@ -1,0 +1,18 @@
+[Unit]
+Description=sala briefing — Defunct Address Queue to Slack #briefing (contrib/briefing/defunct.sh)
+# The digest's claude runs on the bedrock lane: ExecStart goes through `salamander lane exec bedrock --`, which sets the lane's environment from sala's lane config. The turn goes first through the Agent SDK on the API key
+# while the key has credit (lib/api_credit.py's shared record, sdk_run.py), then `claude -p` on this lane;
+# BRIEFING_CLAUDE_CONFIG_DIR= (empty) names no other login, and the key and workspace header are unset from the environment (sdk_run.py reads the key from its file).
+X-Model-Lane=bedrock
+X-Project=sala/salamander
+# X-Model-Lane note: BRIEFING_CLAUDE_CONFIG_DIR=<dir> would put the run on the login in that directory (a second login's);
+# The lane's variables (CLAUDE_CODE_USE_BEDROCK, AWS_*, the pinned models) come from `salamander lane exec bedrock`, not from this file.
+
+[Service]
+Type=oneshot
+# The key is tried while it has credit; a refusal puts the record that skips it for 6 hours (BRIEFING_BACKEND=cli would skip the try).
+Environment=BRIEFING_CLAUDE_CONFIG_DIR=
+# the script appends its own output to cron.log in its log directory (lib.sh: BRIEFING_CRON_LOG; BRIEFING_LOGDIR, the sala config's line)
+Environment=BRIEFING_CRON_LOG=1
+UnsetEnvironment=ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS
+ExecStart=%h/.local/bin/salamander lane exec bedrock -- %h/salamander/contrib/briefing/defunct.sh

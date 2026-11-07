@@ -1,0 +1,444 @@
+### sala --help (exit 0)
+salamander — the operator for Claude Code across your machines (fleet: versions, heartbeat, master, cues,
+remote /provision) and, on the box that hosts them, named long-lived sessions in tmux that survive reboots
+and CLI updates, resumed by transcript UUID, reachable from Remote Control.
+
+  salamander spawn  [NAME] [--mandate FILE|TEXT [--no-confirm]] [--cwd DIR] [--lane L] [--model M] [--effort E] [--fork UUID] [--master] [--dry-run]
+                                     (--brief FILE and --prompt TEXT: the mandate's older names, kept as aliases; --lane L records the lane too; a bare spawn from a Claude session records it on the throwaway's row, spawned_by: that session may later retire it with no words; every bare spawn also writes the throwaway tag, throwaway=1, on the row: any session may retire a tagged row with no words, between turns)
+                                     (--fork UUID is a resume: like a recycle or revive it passes the user settings' permissions.defaultMode as --permission-mode)
+  salamander spawn  NAME --project <page key> --role front|back [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
+                                     a project agent's session (lib/spawn.sh): the name must be on the page's agents map first —
+                                     not there: exit 3 and `ADD-TO-PAGE: <key>` + the YAML line to add (the keeper asked once); no such page: exit 4
+                                     and `NO-PAGE: <key>`; a back agent needs a mandate and starts on it unasked, in the directory SALA_BACK_CWD names (refused when this machine lacks it), else in $HOME when it is unset (--cwd wins); SALA_SPAWN_REGISTER runs after
+  salamander spawn  --suggest-name --project <page key> --role front|back [--prefix P] [--new]   a free name, never a taken one: <prefix>-main only for a
+                                     front agent of a project with no agent yet (the record says so, or --new: no page yet), else <prefix>-<random word>;
+                                     the prefix is --prefix, else the project record's, else the page-name convention (<scope>-<slug>, the scopes SALA_SCOPES)
+  salamander spawn  NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
+                                     a side conversation (lib/spawn.sh, docs/side-sessions.md): a short-lived session started in one step, on no
+                                     agents map, named <agent or project prefix>-side-<word><nn>: a fork of a running agent's conversation, or a fresh
+                                     session scoped to an item's project page that reads the item and the involved agents' transcript excerpts;
+                                     no quiet watch, no auto-retire, no cap — it retires only on the owner's word, and only once `side done` ran
+  salamander spawn  --suggest-name --side (--fork-of AGENT | --project <page key>)   the side session's name (<prefix>-side-<word><nn>)
+  salamander spawn  --list
+  salamander recycle [--update] [--force] [--not-master]   relaunch every pane, this one included, from one detached driver
+                                     (driven from the master session only — other panes hand the cue over; --not-master overrides)
+                                     (--update: `claude update` first — the two halves of "recycle")
+                                     (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
+                                     (every relaunch — recycle, revive, unpark, restore — passes the user settings' permissions.defaultMode as --permission-mode, because a resumed session otherwise keeps the mode its transcript recorded)
+  salamander recycle --when-idle [--from NAME] [--change REF] "<reason>" | --list | --cancel [ID]   any session: ask for a recycle; it
+                                     only records the request — `watch` runs the recycle at its next run, each busy pane once idle (lib/recycle-request.sh); --change REF (a commit sha or pr<N>) holds it until that change is in the checkout
+  salamander revive [--dry-run] [--force] [--only NAME] [--lane-default] [--rescue] | --save-map | --map-history | --self [--dry-run] [--rescue]
+                                     (--rescue, with --only or --self: a stale background-task row — the exit dialog, the Stop hook's record or the
+                                     mod listing work while no child process runs under the claude — no longer holds the pane)
+  salamander rc     [--ensure|--start|--status|--restart|--stop|--archive ID…]   (the Remote Control server; retired)
+  salamander map    [--write PATH]
+  salamander update [HOST…|--fleet] [--check]   CLI update: here (= recycle --update --force), named hosts over ssh, or the whole fleet then here
+  salamander provision [--check] [HOST…]  the spec's script steps on every box (the others in parallel, this box last, then a recycle); HOST… = just those, no recycle
+  salamander provision --only STEP[,STEP…] [--check] [HOST…]   just those steps on every box (or HOST…): the apply, then their check; no CLI update, no recycle
+  salamander provision --settle <set> <host> <step> ok|gave ["<note>"] · --waiting <set> <host> <step> "<text>" · --sets   a provision set's leftovers (the master)
+  salamander retire <tmux-session>|--id <conversation-id> [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items] [--dry-run]
+                                     end a Claude session for good (exit · kill · unmap · snapshot · archive); the exact tmux session name, or --id for a session known by its conversation; --self ends the session the command runs in (queue it: sala op retire NAME --self; its own running turn is not counted busy); --force is gone
+  salamander close-shell <tmux-session> [--busy] [--dry-run]   close a session whose panes run no Claude (kill · unmap · snapshot)
+  salamander forget-row <name> [--dry-run]   drop a pane-map row whose tmux session is gone (and its lane and model rows)
+  salamander rename OLD NEW [--dry-run]           rename a live pane end to end (/rename · tmux · map · master · notes · heartbeat; renames OLD's entry on its project's page via stackshot if the page does not list NEW)
+  salamander sessions [--all] [--json] | --check [--dry-run] | --migrate [--dry-run]   the session registry (phases 1 and 2; docs/session-registry.md):
+                                     one row per session with an id that outlives a rename; read-only listing, --check repairs a kill between the
+                                     pane map's write and the registry's, --migrate makes the rows of the pane map once (--dry-run first)
+  salamander sessions record <id|name> --transcript <claude session id> --why clear|resume|start [--machine X]
+                                     a fresh start of a session: the conversation joins the row's list, once (a repeat is a no-op); an unknown
+                                     session is an error, nothing written; SALA_SESSIONS=off writes nothing
+  salamander sessions transcript <ref> [--json]   read-only: where a session's conversations are on disk, the current one first, then the
+                                     earlier ones (the registry's list), with each file's path; the way a side session finds an agent's transcripts
+  salamander sessions tag <id|name> [--project <page key>] [--role front|back] [--project-key <page key>] [--dry-run]
+                                     fill project/role of an existing live row (a row spawn --project --role did not make); only the given
+                                     fields change; a retired row, an unknown session or a bad role is an error, nothing written
+  salamander sessions resolve <ref> [--live] [--json]   phase 3, read-only: the row a session id (or 8+ char prefix), transcript id, name, alias or
+                                     role:<project>/<role> names; exit 0 found, 1 none, 2 ambiguous (candidates listed, nothing picked)
+  salamander side done [--name NAME] [--item board#N] [--item-updated EPOCH|ISO] [--summary FILE|TEXT|-] [--summary-to NAME|projects/SLUG] [--dry-run]
+                                     a side session's write-up gate (lib/side.sh), run by the session itself before it ends: the marker retire asks for
+                                     is written only when the board item changed since the start, the project page has a timeline line from the session,
+                                     and the summary was sent (by sala, through stackshot's client) to the origin agent or the project's -main
+  salamander adopt NAME                           put a live session made by hand (outside spawn) into the pane map
+  salamander restore NAME… | --missing            recreate a session from its pane-map row (tmux session in its cwd, then resumed by uuid)
+  salamander follow                               resident watcher of the session registry (sala-follow.service): follows hand renames
+  salamander snapshot [--now]        event-driven tmux-resurrect save (tmux hooks + Claude SessionStart hook)
+  salamander watch [--check]         the watchdog, from a timer: the operation queue, the automatic update, relaunch and recycle, the
+                                     watches below and the post-boot report; a master session (SALA_MASTER), if one is set, kept alive and bridged
+  salamander watch --limit | --signin | --net   only the usage-limit watch, only the lane sign-in watch, or only the network-stop wake (lib/watch.sh)
+  salamander watch --stuck [--dry-run]   only the stuck-question watch: a pane stopped on a terminal-only question posted once, with its sala-web link
+  salamander watch --questions       only the parked-question sweep (lib/watch.sh question_sweep_tick)
+  salamander watch --unit-gaps       only the unit-gap pass (lib/watch.sh unit_gaps_tick): same as `job check --post`
+  salamander watch --sets [--dry-run]   only the flag rule over the open recycle sets (lib/watch.sh sets_tick): --dry-run prints what it would settle, writes nothing
+  salamander watch --back-lanes [--dry-run]   only the back agents' lane rule (lib/watch.sh back_lane_run; OFF unless SALA_BACK_LANE_RULE=on): --dry-run prints what it would queue, queues and writes nothing
+  salamander watch --continued       only the continued-in follow (lib/continuedin.sh cont_tick): a pane that moved to a new transcript id keeps its row
+  salamander watch --wrapup [--dry-run]   only the idle wrap-up and clear of background agents (lib/wrapup.sh; OFF by default, runs only with SALA_IDLE_WRAPUP=on): idle SALA_IDLE_WRAPUP_MIN..SALA_IDLE_WRAPUP_MAX_AGE (50..58) min; --dry-run prints what it would type, writes nothing
+  salamander watch --settings        only the settings-apply tick: a changed spec → the settings steps on the boxes behind it (lib/settings-apply.sh)
+  salamander settings-apply [--check|--run] [HOST…]   the spec's Claude Code settings steps, applied by sala and never by a session:
+                                     no flag = the state; --check prints what it would apply; --run (the unit sala-auto-settings) applies and logs
+  salamander heartbeat [--no-push|--dry-run|--check]   sweep every box over ssh: liveness, CLI version, live sessions → the fleet live store (timer)
+  salamander ready [--clear|--list]  from inside a session, as the turn's last call: I may be relaunched now (recycle's fast path)
+  salamander unpark NAME [--dry-run]  bring a conversation parked by "← for agents" back into its pane (see lib/unpark.sh)
+  salamander master [--name|--json|--set NAME|--unset]  the master session (SALA_MASTER): is it live; --set designates one; --unset ends it
+                                     (the operation queue replaces it: nothing healed or bridged, the post-boot report to Slack)
+  salamander cue [--from NAME] [--after "<next>"] [--dry-run] "<words>"  hand an operator cue ("recycle claude") to the master; --after leaves a note;
+                                     no master → the pointer to `salamander op` and exit 1, nothing delivered
+  salamander op <verb> [args…] --from NAME --words "<the owner's words>"   queue a fleet operation for `watch` to run with no model (lib/op.sh):
+                                     recycle [--update] [--force] · update [HOST…|--fleet] · revive [--only NAME]… [--force] ·
+                                     retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items] (a side session: refused until `side done` wrote its marker; --skip-writeup the one bypass; NO --words only for a throwaway: a row with the throwaway tag a bare spawn sets, by any session between turns; a row without the tag, by its spawner, by the master or any session when NAME is a scratch-*, *-check-*, *-test-* or *-probe-* name (any session: and no live spawner); never with a bypass flag, --keep-web or --id, and only when the project record confirms NAME is on no agents map) · close-shell NAME [--busy] · forget-row NAME · rename OLD NEW · lane <lane> <session>…|<lane> --all|default <lane>|fallback <lane> ·
+                                     model <model> [--effort <level>] <session>…|--clear <session>… (several sessions in ONE operation, ONE result notice) or the single-session <session> <model> [--effort <level>]|<session> --clear · provision [--only STEPS] [HOST…] · spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT]
+                                     [--lane L] | spawn NAME --side (--fork-of AGENT | --project KEY --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] (a side conversation)
+                                     (a TEXT mandate goes to ~/.local/state/salamander/mandates/<id>-NAME.md; a name not
+                                     on the page refuses with exit 3 and the ADD-TO-PAGE: block) (a reboot is not queued: the owner runs `sala reboot --go` in the web UI's Shell;
+                                     SALA_OP_REBOOT off by default, unsupported until a confirmation path is built); the verb's dry run first, refused
+                                     before anything is queued; one Slack post, one inbox line and one stackshot event (client.py event --kind fleet_op) per result; --stdin: the words on stdin
+  salamander op --plan <verb> [args…] | --list | --status <id> | --cancel <id>   the plan alone · the queue · one record · drop a queued one
+  salamander watch --ops             only the operation queue (what `op` kicks after a tick already running)
+  salamander reboot --dry-run|--go|--status|--resume   clean reboot: pause inbound, drain, flush + stop services, reboot (docs/reboot-contract.md)
+  salamander note "<next step>" | --done [<id>] | --clear | --list [--archived]     leave this pane its next step, handed back after
+                                     its next relaunch (reboot, recycle, revive) until `--done <id>` marks it handled (--clear: the same as --done)
+  salamander notice add "<text>" --from NAME [--until WHEN] | list [--json] | drop ID   a one-time line every LIVE session sees at its next tool call or prompt,
+                                     with no relaunch (lib/notice.sh; README, "Telling every session something"): one line of at most 400 characters, shown once per
+                                     session as "[sala notice <id> from NAME] <text>", several due at once in one block, oldest first; a session that started after
+                                     the notice skips it; --until an epoch, a span (90m, 12h, 7d) or an ISO 8601 time (default 7 days); add prints the id and how many live
+                                     sessions it reaches, list how many had it and how many are still due, drop withdraws it for the sessions not yet reached
+  salamander lane [<lane> <session>…|<lane> --all|default <lane>] [--dry-run] [--rescue]   which account or key each pane's claude runs on
+                                     (subscription-1 (shown as Ultra; max still works) · api · subscription-2 (shown as Team; team still works) · bedrock (the AWS profile SALA_LANE_BEDROCK_PROFILE names) · aws-platform (Claude Platform on AWS); sdk, an alias of api with client claude-agent-sdk), the switch (recorded, then relaunched on it, resumed; a recycle
+                                     keeps it) and the default for new sessions; no argument: the table (lib/lane.sh)
+  salamander lane names [--json] [--write]   each lane's code, display name and old words (one line per lane: code, display, aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current; lib/lane.sh)
+  salamander lane fallback <lane> [--dry-run]   the dormant lane's sessions (the master by the rescue, last), its default and, at run time, its jobs move to the lane's fallback
+                                     (SALA_LANE_FALLBACK: subscription-1, subscription-2, aws-platform, api, sdk → bedrock; bedrock → subscription-1; one hop; used only if itself active and ready); a Fable session lands on opus;
+                                     lane dormant <lane> and sala's own watch queue it by themselves (--no-fallback: not now); nothing moves back by itself: the table's HOME column, salamander lane <home> <session> (lib/lane.sh)
+  salamander lane --migrate [--dry-run]   rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files once; idempotent, backups kept (lib/lane.sh)
+  salamander lane --rescue <lane> [--dry-run] [--force]   another session moves the master (SALA_MASTER) off a lane that is out (its usage
+                                     gone or its account dead, by sala's own watches); refused while the lane looks fine
+  salamander sdk-pane <uuid> [<session>] [--model M] [--effort E]   the sdk lane's pane program, the line resume_cmd types in place
+                                     of `claude --resume`: the Agent SDK on the API credit, until a call is refused (lib/sdk-pane.sh)
+  salamander model [<session> <model> [--effort <level>] | <session> --clear | <model> [--effort <level>] <session>… | --clear <session>…] [--dry-run] [--not-master]   the model and effort a
+                                     session is relaunched on, ahead of its transcript's: recorded, then relaunched on them (resumed;
+                                     every later relaunch keeps them); --clear: the transcript decides again; no argument: the table (lib/model.sh).
+                                     A first word that is a model (opus, sonnet, haiku, fable, claude-…) means several sessions at once:
+                                     all checked first, one lock, the relaunches in one sweep, one summary with a RESULT line per session
+  salamander feedback mark | stop | drain PANE [SID]   auto-send Claude-drafted feedback (hooks; see lib/feedback.sh)
+  salamander hook stop | post-tool   Claude Code settings hooks (Stop, PostToolUse; matcher "*"): the busy check's exact record of
+                                     in-flight work, and the line telling a session a relaunch waits for it (lib/hook.sh)
+  salamander hook prompt             UserPromptSubmit hook (no matcher): the `sala notice` lines this session has not been shown yet, as
+                                     additionalContext at its next prompt; post-tool delivers them after a tool call too (lib/hook.sh, lib/notice.py)
+  salamander hook pre-tool           PreToolUse hook (matcher "Bash"): deny a reboot, CLI update, tmux kill-* on the fleet's server
+                                     or kill of a claude process typed outside sala; the master's pane is exempt (lib/guard.py)
+  salamander hook session-start     SessionStart hook (matcher "*"): records the pane's fresh conversation in the session registry (clear · resume ·
+                                     startup; not compact), by SALA_SESSION_ID or the tmux session name; always exit 0, prints nothing (lib/hook.sh)
+  salamander hook subagent-stop     SubagentStop hook (matcher "*"): after a subagent handed back, SIGTERM the background shells it
+                                     started and left running under the pane's claude, each logged; exit 0 always (lib/hook.sh, lib/holders.py)
+  salamander hook permission-request   PermissionRequest hook (matcher "*"): approve a permission prompt at once; print nothing (the dialog
+                                     stays, and the instant alert D fires) for a question to a person, the settings / CLAUDE.md / rulebook / hooks
+                                     surface, credentials, plan mode; exit 0 always; SALA_PERMISSION_APPROVE=off (lib/hook.sh, lib/permissions.py)
+  salamander hook notify [--dry-run]   Notification hook (matcher "permission_prompt|elicitation_dialog|elicitation_url_dialog"): the instant
+                                     alert for a pane stopped on a dialog, once per question, beside the stuck watch's 90 s post (lib/hook.sh)
+  salamander question run [--cwd D] [--label T] [--model M] [--json] PROMPT… [-- claude args…]   a background `claude -p` run that parks on an
+                                     AskUserQuestion instead of hanging: the question is filed, the run waits (exit 10) (lib/question.sh)
+  salamander resume-answer QID [--answer TEXT|--answer-file F|--decline [WHY]] [--free-text] [--dry-run]   the owner's answer in, the parked run
+                                     resumed with it; no answer (or none yet from the answer seam: the board's decision by default) → it stays parked, exit 3
+  salamander question list | show QID | sweep | file QID   the open questions · one · answer-and-resume every one with an answer · (re)file one
+  salamander reauth NAME             any session: the sign-in link for the claude.ai NAME connector, for the owner (lib/reauth.sh)
+  salamander reauth NAME --done [--from ME] [--dry-run]   once signed in: check it, then cue the forced recycle to the master
+                                     (no master: print the `sala op recycle --force … --words` line to queue it, exit 0)
+  salamander alert "<headline>" ["<line>"…]   post an alert the way sala's own go (Slack, no Claude turn; for checks run
+                                     from a systemd unit — lib/alert.sh); exit 0 posted, 1 post failed, 3 no notify command;
+                                     a URL in the headline is moved after the bold: ⚠️ *text* → URL
+  salamander job add NAME --repo REPO --script PATH --schedule S… --description "…" --lane LANE [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
+                                     a scheduled job as a systemd service + timer kept in git (lib/job.sh, docs/units.md): the two files go into the
+                                     repo's unit folder with Description= and X-Model-Lane=, are linked into ~/.config/systemd/user and enabled; prints the git
+                                     status and the commit steps (a repo with flow main: straight to main; flow pr: branch + pull request from a worktree, --checkout);
+                                     --scope system prints the root command, sala never uses sudo; no model call
+  salamander job list | remove NAME [--checkout DIR] | relink NAME   our timers (repo, schedule, lane, in git) · disable and delete one · after its PR deployed
+  salamander job check [--post] [--quiet]   the unit-gap pass (sala-unit-gaps.path, the watch tick): a timer of ours with no Description=, no X-Model-Lane=
+                                     or not in git is opened once as a board item (client.py post job-gap open; stackshot moves it by the builder of
+                                     the repo that owns its script) and closed when it is fixed (post job-gap clear)
+  salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
+                                     the GitHub Actions runs of a repo, read from the file the CI-run poller keeps (no GitHub call): the JSON on
+                                     stdout, cut to a head commit with --sha; exit 3 = no file for that repo, 4 = older than --max-age (default 120 s):
+                                     read GitHub yourself then (lib/cipoll.sh, lib/cipoll.py, docs/ci-runs.md)
+  salamander ci-poll           the resident CI-run poller (sala-cipoll.service): one conditional `gh api -i` read of each repo in ~/.config/salamander/ci-repos
+                                     (the tracked lib/ci-repos lists none) every SALA_CIPOLL_INTERVAL s (60), one atomic file per repo under ~/.local/state/salamander/ci-runs/
+  salamander mq add N… | status [--json] | drop N | pause | resume | wait N [--timeout S] | doctor   [--repo OWNER/NAME]
+                                     our own merge queue for a repo without GitHub's (lib/mq.sh, lib/mq/, docs/mq.md): PRs wait in a line, each one is
+                                     an entry stacked on the entry ahead, pushed as a queue/main/g<seq> branch and tested at once, a failed one is failed alone. Host file mode = "shadow" tests and writes
+                                     the verdict down, merging nothing; mode = "on" merges; off is the default. `mq --help` has the rest; `mq drive` is internal
+  salamander config            print the effective configuration
+
+### sala lane --help (exit 0)
+usage: salamander lane                                         the table (default lane; the lane fields; each session: recorded lane, running lane)
+       salamander lane --list | --json                           the lane fields alone: provider, client, org, billing, plan, account, credential, region, status
+       salamander lane names [--json] [--write]                  each lane's code, display name and old words (one line each: code TAB display TAB aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current)
+       salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed
+       salamander lane exec <lane> -- COMMAND [ARG…]             run COMMAND on the lane (a unit's ExecStart): the lane's environment; every other lane's variables are unset, subscription-1 too (never blanked)
+       salamander lane <lane> <session>… [--dry-run] [--not-master] [--rescue]   record + relaunch those sessions on the lane (one already on it: left alone)
+       salamander lane <lane> --all      [--dry-run] [--not-master]   every session and the default: one recycle --force
+       salamander lane default <lane>    [--dry-run] [--not-master]   the default alone (applied at each session's next relaunch)
+       salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   mark a lane dormant by hand (nothing is moved onto it); its sessions, default and jobs are queued onto its fallback unless --no-fallback or SALA_LANE_FALLBACK_AUTO=off
+       salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback (subscription-1=bedrock subscription-2=bedrock aws-platform=bedrock api=bedrock sdk=bedrock bedrock=subscription-1); --dry-run prints the moves; exit 4: no usable fallback
+       salamander lane active <lane>     [--dry-run]                  mark a lane active again (the only way back for api and sdk)
+       salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)
+       salamander lane --rescue <lane>   [--dry-run] [--force]        move the master (SALA_MASTER) off a lane that is out, from another session
+  the background agents' lane rule (SALA_BACK_LANE_RULE=on) moves them by this switch; see: salamander watch --back-lanes --dry-run
+  lanes: subscription-1 api subscription-2 sdk bedrock aws-platform  (subscription-1, shown as Ultra: the login in ~/.claude · api: the key file · subscription-2, shown as Team: a second login in its own config directory · sdk: api's key through the Agent SDK (client claude-agent-sdk), while the key has credit (a refusal switches it off for 6 hours) · bedrock: Claude on Amazon Bedrock through the AWS profile (none named: SALA_LANE_BEDROCK_PROFILE), not set up yet · aws-platform: Claude Platform on AWS through the AWS profile (none named: SALA_LANE_AWSPLATFORM_PROFILE) and a workspace id, not set up yet)
+  --rescue on a switch: a stale background-task row (the exit dialog, the Stop hook's record, the mod) no longer holds a pane with no child process under its claude
+
+### sala model --help (exit 0)
+usage: salamander model                                                       the table (each recorded session: record, launched with, last turn)
+       salamander model <session> <model> [--effort <level>] [--dry-run] [--not-master]   record + switch it in place (idle, empty input box) or relaunch it (already on them: left alone)
+       salamander model <session> <model> [--effort <level>] --record-only [--dry-run] [--not-master]   record alone, no relaunch (it holds at the next one)
+       salamander model <session> --clear [--dry-run] [--not-master]          drop the record (the transcript decides at the next relaunch)
+       salamander model <model> [--effort <level>] <session>… [--dry-run] [--not-master]   the same for several sessions at once: one lock, one sweep for the relaunches, one summary (the first word a model = this shape)
+       salamander model --clear <session> <session>… [--dry-run] [--not-master]   drop the records of several sessions
+  models: opus sonnet haiku fable, or a full model id (claude-…) · efforts: low medium high xhigh max
+
+### sala reauth --help (exit 0)
+
+  salamander reauth NAME                               print the sign-in link for "claude.ai NAME", for the calling
+                                                       session to hand to the owner in its final message; any session
+  salamander reauth NAME --done [--from ME] [--dry-run]   once the owner has signed in: check the connector, then cue the forced
+                                                       recycle through the master (--dry-run: print the cue, send nothing);
+                                                       no master: print the `sala op recycle --force` line to queue it, exit 0
+
+### sala question --help (exit 0)
+Dispatched by bin/salamander as `salamander question …` and `salamander resume-answer`.
+
+  salamander question run [--cwd DIR] [--label TEXT] [--model M] [--json] [PROMPT… | < prompt] [-- claude args…]
+                          start `claude -p` the way a parkable run needs (below) and print its result text; exit 0 finished,
+                          10 parked on a question (the line says its id and the command that answers it), 1 failed
+  salamander resume-answer QID [--answer TEXT | --answer-file FILE|- | --decline [WHY]] [--free-text] [--dry-run] [-- claude args…]
+                          the owner's answer in, the run on: validate the words against the parked call, then `claude -p --resume`
+                          with the hook returning allow + the answer. No answer given → the answer seam (SALA_QUESTION_ANSWER_CMD);
+                          none yet → exit 3 and the run stays parked, nothing run, nothing granted. Exit 0 finished · 10 parked
+                          again (another question) · 3 no answer yet · 4 the words do not fit (the options are printed) · 2 no
+                          such question · 1 the run failed (the answer is kept; run it again to retry)
+  salamander question list | show QID | sweep | file QID
+                          the open questions · one record · every parked question that has an item and an answer seam is asked
+                          for its answer and resumed if it has one (the watch tick runs it, below, every SALA_QUESTION_SWEEP_EVERY seconds while a question is open) · (re)file one (what the
+                          hook runs; also for one whose filing failed)
+
+### sala resume-answer --help (exit 1)
+✗ usage: salamander resume-answer QID [--answer TEXT | --answer-file FILE|- | --decline [WHY]] [--free-text] [--dry-run] [-- claude args…]
+
+### sala recycle --help (exit 0)
+  salamander recycle [--update] [--force] [--not-master]   relaunch every pane, this one included, from one detached driver
+                                     (driven from the master session only — other panes hand the cue over; --not-master overrides)
+                                     (--update: `claude update` first — the two halves of "recycle")
+                                     (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
+
+### sala recycle --when-idle --help (exit 0)
+
+  salamander recycle --when-idle [--from NAME] [--change REF] "<reason>"   record a request; any session may run it
+      (--change REF: the change it waits for, a commit sha or pr<N>, optionally <repo>:REF; nothing is recycled until it is in the checkout)
+  salamander recycle --when-idle --list                      the open requests
+  salamander recycle --when-idle --cancel [ID]               drop one request, or all of them
+
+### sala revive --help (exit 0)
+usage: salamander revive [--dry-run] [--force] [--only NAME] [--lane-default] [--rescue] | --save-map | --map-history | --self [--dry-run] [--rescue]
+  (no option) every pane on an older CLI · --force: every idle pane · --only NAME: just that session
+  every plan says "lane: <runs on now> → <relaunched on>"; a pane with no lane row that runs on another lane than the default is refused
+  (salamander lane <lane> <session> records it; --lane-default accepts the default) · --dry-run: the verdicts, nothing relaunched or written
+  a pane skipped for a passing reason (a turn running, a background child) is retried every 5 min for up to 120 min, then deferred (watch relaunches it once it is free); one that said ready but is held by background shells only is deferred at once
+  --rescue (with --only or --self): a stale background-task row — the exit dialog, the Stop hook's record or the mod listing work while NO child process runs under the claude — no longer holds the pane: the dialog is confirmed
+
+### sala op --help (exit 0)
+  salamander op <verb> [args…] --from NAME --words "<the owner's words>" queue one operation (the verbs below)
+  salamander op <verb> [args…] --from NAME --stdin                      the words on stdin (a pane on another box, over ssh)
+  salamander op retire NAME --from YOU                                  NO words: only for a throwaway (tagged at spawn: any session; untagged: its spawner, the master or anyone, a throwaway's name; never a bypass flag, --keep-web or --id)
+  salamander op revive --only NAME… --item board#N --from YOU           NO words: a reason on the record instead (--why "<one line>" for --item; --force allowed): one or more live Claude sessions, never the master or YOU, never a sweep, --rescue or --lane-default
+  salamander op --plan <verb> [args…]                                   the plan alone: the verb's dry run, nothing queued
+  salamander op --list                                                  the queue (and what it is doing)
+  salamander op --status <id>                                           one operation's record, queued or archived
+  salamander op --cancel <id>                                           drop a queued one (a running one cannot be dropped)
+  salamander op --run <id> · --settle <id> <set> · --stuck <id>         (internal) the unit's runner; the waiter for a set; the stuck handler
+  salamander watch --ops                                                (lib/watch.sh) the queue alone, what `op` kicks
+verbs:
+  recycle [--update] [--force]              "recycle claude" = recycle --update --force
+  update [HOST…|--fleet]                    this box (= recycle --update --force), named fleet hosts, or the fleet then this box
+  revive [--only NAME]… [--force]           bring a session back (--only), or every pane on an older CLI. Needs the owner's words, EXCEPT
+                                            `revive --only NAME [--only NAME]… [--force] --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
+                                            every NAME is a live Claude session of the registry that is neither the master nor YOU, and YOU is the session whose pane holds the call by process ancestry
+                                            (not TMUX_PANE; a Claude Code exe, not a name; SALA_OP_REASON_FROM, empty = any session, limits who); never a sweep (no --only), --rescue, --lane-default or any other flag.
+                                            --item is a format check only (board#N): sala does not ask the board whether the item exists. The runner checks it all again before it relaunches anything
+  retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
+                                            ends a Claude session for good: NAME is the exact tmux session name, --id names it by conversation id; a side session only after `side done` (--skip-writeup the bypass); --busy retires a pane that is not idle; --self the session this call runs in; --leave-items a session that moves open board items (asked of stackshot first); --force is refused. Needs the owner's words, EXCEPT
+                                            a throwaway: `retire NAME --from YOU` with no --words, accepted only when NAME's registry row has no project, no role,
+                                            no side flag, NAME is on no project's agents map and is neither the master nor YOU, and the row carries the throwaway tag (a bare
+                                            `sala spawn` writes it): then any session may end it, between turns (a pane mid-turn is refused: retire's own idle check, never --busy).
+                                            A row without the tag (made before it) keeps the older rule: YOU is NAME's spawner, or the master (NAME a throwaway's name:
+                                            scratch-*, *-check-*, *-test-*, *-probe-*), or any session when NAME has no live spawner and a throwaway's name;
+                                            never with a bypass flag, --keep-web or --id (add --words for those); for every door but the spawner's the project record (else pages.py agent-listed)
+                                            must confirm NAME is on no agents map, and with no answer the retire is refused;
+                                            YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name), and every process in NAME's panes carries the row's id (or none does, one is Claude Code, NAME is a throwaway's name and a fresh answer says it is unlisted); the runner checks it again before it ends anything
+  close-shell NAME [--busy]                 ends a tmux session whose panes run no Claude (exact name; refused for the master's own run outside the queue, the RC session and the caller's own session; --busy for a shell still running something). Needs the owner's words
+  forget-row NAME                           drops a pane-map row (and its lane and model rows) whose tmux session is gone. Needs the owner's words
+  rename OLD NEW
+  lane <lane> <session>… | <lane> --all | default <lane> | fallback <lane>
+                                            fallback <lane>: the dormant lane's sessions, default and jobs move to its fallback lane (SALA_LANE_FALLBACK), ONE notice with a line per session and any model change; the watch queues it by itself the moment a lane turns dormant; nothing moves back unless a person says so
+  model <model> [--effort <level>] <session>… | --clear <session>… | <session> <model> [--effort <level>] | <session> --clear
+                                            the model (opus|sonnet|haiku|fable|claude-…) and effort (low|medium|high|xhigh|max) the sessions run on from now: each switched in place when idle with an empty input box, else relaunched (the relaunches together, in one sweep); ONE result notice for the lot, a line per session; a first word that is a model = the many-session form, else the session comes first (one session); --clear drops the records
+  provision [--only STEP[,STEP…]] [HOST…]
+  spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
+                                            a project agent's session; the name must be on the page's agents map (the plan checks; exit 3 + ADD-TO-PAGE: when not); a back agent starts in the background brief's directory unless --cwd
+  spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
+                                            a side conversation (NAME contains -side-; sala spawn --suggest-name --side … suggests one): a fork of AGENT, or a fresh session about the item; on no agents map
+  reboot                                    not queued: the owner runs `sala reboot --go` in the web UI's Shell (SALA_OP_REBOOT: off by default, unsupported until a confirmation path is built)
+
+### sala restore --help (exit 0)
+usage: salamander restore NAME… | --missing
+
+### sala note --help (exit 1)
+✗ usage: salamander note "<next step>" | --done [<id>] | --list [--archived]
+
+### sala notice --help (exit 0)
+usage: sala notice add "<text>" --from <sender> [--until <when>]
+       sala notice list [--json]
+       sala notice drop <id>
+
+  add     appends a notice: one line of at most 400 characters (no newline or tab). Every live session gets it once, as
+          "[sala notice <id> from <sender>] <text>", at its next tool call or prompt, with no relaunch; several due at once come in
+          one block, oldest first. A session whose conversation started after the notice was created skips it (it loaded the
+          current rules and memory at its start). --from is required: your own session name. --until: when it expires, an
+          epoch, a span (90m, 12h, 7d) or an ISO 8601 time (no zone = UTC); default 7 days. Prints the id and how many live
+          sessions it will reach.
+  list    the active notices, each with how many live sessions have had it (or started after it) and how many are still due.
+  drop    withdraws a notice: a session not yet reached never gets it.
+  Delivery needs the hooks `hook post-tool` (PostToolUse, already registered) and `hook prompt` (UserPromptSubmit; README,
+  "Telling every session something"). Notices live in $SALA_STATE_DIR/notices.tsv; the expired ones are pruned on add and on a watch tick.
+
+### sala sdk-pane --help (exit 2)
+usage: salamander sdk-pane <uuid> [<session>|-] [--model <model>] [--effort <level>]
+
+### sala rc --help (exit 0)
+sessions can be minted on this box from claude.ai / the mobile app without an SSH hop.
+
+Every pane already registers its own Remote Control session, but a pane can only be created
+FROM the box. `claude remote-control` lists the box on claude.ai under Remote Control ("alpha / box-a, N of 32
+sessions"; the API calls it an environment) so the app can mint
+sessions into. Those are headless children of the server (`claude --print --sdk-url …`), not
+panes, and differ in three ways this file absorbs:
+  - not covered by tmux-resurrect / `revive`;
+  - no reconnection record in their transcript, so a plain `claude --resume` of one forks a
+    TWIN on the same transcript (two writers, one file) — elevate with `spawn --fork` instead;
+  - the server exits after ~10 min without network; its sessions come back only within ~4 h
+    of a stop — hence the restart loop (--run).
+
+  rc [--ensure]      start the loop if not running (idempotent; honours the --stop marker)
+  rc --start         clear the marker, then --ensure
+  rc --status        server state + served sessions
+  rc --restart       SIGINT the server; the loop relaunches on the CURRENT binary (what
+                     `revive` does after a CLI update)
+  rc --stop          stop loop + tmux session, leave a marker so revive sweeps skip it
+  rc --archive ID…   archive claude.ai sessions by web id (session_… / cse_…) via the endpoint
+                     (refused for a session a live pane is bridged to); --unarchive ID… undoes it
+                     the CLI itself uses (POST /v1/code/sessions/<id>/archive, OAuth bearer from
+                     ~/.claude/.credentials.json — never printed). UNOFFICIAL: non-200 → do it on claude.ai.
+  rc --run           (internal) the loop, inside the pane
+
+Env pins (emergency only; leave unset so served sessions follow settings.json like every pane):
+  RC_MODEL → ANTHROPIC_MODEL   RC_EFFORT → CLAUDE_CODE_EFFORT_LEVEL (hard override, also blocks
+  the effort control on claude.ai for that session)   RC_CAPACITY / RC_NAME / RC_RESTART_DELAY
+
+### sala settings-apply --help (exit 0)
+  salamander settings-apply                   the state: the spec fingerprint, each box's last apply, what is behind
+  salamander settings-apply --check [HOST…]   the check alone, printed: what it would apply where; records and posts nothing
+  salamander settings-apply --run [HOST…]     (the unit sala-auto-settings; by hand in the web UI's Shell) check, then apply where the
+                                              check found drift, then log the changes; no HOST = this box and SALA_FLEET_HOSTS
+  salamander watch --settings                 the tick alone (settings_tick, below)
+
+### sala side --help (exit 1)
+✗ unknown side command '--help' — usage: salamander side done [--name NAME] [--item board#N] [--item-updated EPOCH|ISO] [--summary FILE|TEXT|-] [--summary-to NAME|projects/SLUG] [--dry-run]
+
+### sala sessions --help (exit 1)
+✗ usage: salamander sessions [--all] [--json] | --check [--dry-run] | --migrate [--dry-run] | transcript <ref> [--json] | record <id|name> --transcript T --why clear|resume|start | tag <id|name> [--project P] [--role front|back] | resolve <ref> [--live] [--json]
+
+### sala job --help (exit 0)
+usage: sala job add NAME --repo REPO --script PATH --schedule SCHEDULE [--schedule SCHEDULE …] --description "…" --lane LANE
+                    --project PROJECT [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
+       sala job list
+       sala job set-project NAME PROJECT [--checkout DIR] [--quiet]
+       sala job remove NAME [--checkout DIR]
+       sala job relink NAME
+       sala job check [--post] [--quiet]
+
+  add     writes NAME.service and NAME.timer into REPO's unit folder (the repo table's user_dir, e.g. ops/NAME/systemd/; salamander: systemd/), with
+          Description=, X-Model-Lane= and X-Project= in the service's [Unit]; links them into ~/.config/systemd/user, daemon-reload, enable --now.
+          --scope system only writes the files and prints the root command (sala never uses sudo). It prints the git status and the
+          exact commit steps and commits nothing: a repo with flow main commits straight to main; salamander (and any repo with flow pr) goes by branch
+          and pull request, from a worktree given as --checkout. A repo with no unit folder (stackshot renders its units from templates)
+          is refused with the reason. Refused too: a missing or invalid --description, --lane or --project, an unknown REPO, a --script that is
+          not a file, a taken NAME. LANE: subscription-1 | bedrock | aws-platform | api | subscription-2 | sdk | none (max and team still work) (the model lane the script runs on;
+          none = no model call). PROJECT: scope/project, written as the Agents table's Project column shows it (team/demo, team/web-app,
+          alpha/site, team/docs); it is the job's category on the Overview's Schedules tab. SCHEDULE: an OnCalendar expression ("*-*-* 03:00:00 UTC", "daily") or OnBootSec=5min /
+          OnUnitActiveSec=1h (repeat --schedule for several). --note: a few words shown beside the lane (X-Model-Note=).
+  list    our timers (not a package's): name, repo, schedule, lane, project, whether the unit files are in git.
+  set-project  writes X-Project=PROJECT into a job's service file in git (replaces the line, or adds it after X-Model-Lane=) and prints what to
+          commit (--quiet: not that); a flow-pr repo (salamander) needs the worktree as --checkout. A system-scope job (its unit file in /etc/systemd/system links to the git file) is edited the same way, with no root. A unit rendered from a template (stackshot's) is refused: edit the template.
+  remove  disable and stop the timer, unlink the files, delete them from the repo checkout; prints what to commit.
+  relink  once a pull request that added a job is deployed, point its links at the production checkout.
+  check   the gap watcher's pass: our timers with no Description=, no X-Model-Lane=, no X-Project= or not in git. --post opens each gap as one board
+          item (client.py post job-gap open, once per timer and gap; its mover is the builder of the repo that owns the script)
+          and closes the item when the gap is fixed (post job-gap clear); it also runs from the sala-unit-gaps.path unit and
+          from the sala-watch tick.
+
+### sala ci-runs --help (exit 0)
+usage: salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
+       salamander ci-poll
+
+  ci-runs  the GitHub Actions runs of <owner/repo> from the file the poller keeps (~/.local/state/salamander/ci-runs/<owner>__<repo>.json,
+           format in docs/ci-runs.md): the file's JSON on stdout ({"repo","updated","updated_iso","runs":[…]}), the runs cut to those whose head
+           commit starts with SHA (7 or more characters) when --sha is given (none: "runs":[], exit 0), or one tab-separated line a run with --text.
+           No GitHub call is made. Exit 0 = the file is fresh; 3 = no file for that repo (the poller does not poll it, or has not run);
+           4 = the file is older than --max-age seconds (default 120; 0 = no limit), the poller is not keeping it fresh; 5 = unreadable;
+           2 = usage. On 3 and 4 nothing is printed on stdout and the reason on stderr: read GitHub yourself.
+  ci-poll  the resident poller (sala-cipoll.service): every SALA_CIPOLL_INTERVAL s (60) one conditional read (ETag; a 304 is free) of
+           repos/<repo>/actions/runs?per_page=30 for each repo in ~/.config/salamander/ci-repos (else lib/ci-repos, which lists none), one atomic file per repo.
+           A GitHub error keeps the old file and backs off (doubling to SALA_CIPOLL_BACKOFF_MAX s, 600; a rate limit waits for its reset).
+
+### sala mq --help (exit 0)
+usage: salamander mq add N… [--flag recycle] [--repo OWNER/NAME]
+       salamander mq status [--json] [--repo OWNER/NAME]
+       salamander mq drop N [--repo OWNER/NAME]
+       salamander mq pause [--reason TEXT] [--repo OWNER/NAME]
+       salamander mq resume [--repo OWNER/NAME]
+       salamander mq wait N [--timeout SECS] [--repo OWNER/NAME]
+       salamander mq doctor [--repo OWNER/NAME]
+       salamander mq drive --repo OWNER/NAME        (internal: the driver, started for you)
+
+A queue for the pull requests of a repo that has no GitHub merge queue. It works as GitHub's does: one entry per PR, each stacked on the entry ahead of it (main + PRs 1..k) and
+pushed as queue/main/g<seq>, all tested at once (up to inflight_max, six when the rules do not say) by the required check (default `suites`), merged strictly in line order. An entry that
+fails is failed alone and the entries behind it are rebuilt on the one ahead of it (`status` shows "(on gN)" for a stacked entry). A PR whose own checks failed (`pr_required`, default
+every check on its head) or that conflicts with main is refused when it joins and again before its verdict counts: "refused: a check failed: <name>=fail" / "refused: conflicts with main",
+the wait exit 1. A repo's release script uses it the same way: `mq add N`, then `mq wait N`. The rules keys of the removed group mode are retired: `group_max` and `bisect` are ignored with a
+warning (delete the line), `queue_mode = "group"` blocks the queue until the line is deleted; `queue_mode = "chain"` is accepted. --repo defaults to the
+GitHub origin of the current folder. State: $XDG_STATE_HOME/mergequeue/<owner>__<repo>/ (queue.json, groups/g<seq>.json, events.log).
+
+  Modes (host file $XDG_CONFIG_HOME/mergequeue/<owner>__<repo>.toml, `mode = "off" | "shadow" | "on"`; absent = off). SHADOW builds and tests entries and writes the verdict
+  down, with what it WOULD have merged in the journal (`would_merge`); it merges nothing, sets no status and comments on nothing.
+  `on` merges (a passed entry goes to main as a fast-forward, never forced; a commit status and one comment on a failure) and is open: `mode = "on"` in the host file makes the driver merge. `off` stays the default and the instant fallback.
+  Rules of the repo: .github/mergequeue.toml, read from origin/main (base, required, pr_required, queue_prefix, inflight_max, suites, on_conflict, …).
+
+  add     put PRs in the line, in order (a PR already in it is left where it is); starts the driver, a transient user unit mq-<owner>__<repo>
+          (mq-<owner>__<repo>-<run>-<case> with a replay file; systemd-run --user), when none is running. The driver exits when the line is empty and nothing is in flight.
+  status  the line, the entries in flight (phase, branch, head, members) and the PRs that finished lately; --json is the same as one object.
+          A "REPLAY:" line says a replay file is in use.
+  drop    take a PR out of the line (a PR whose entry is in flight stays in that entry's tree until the driver ends the entry, which is never merged with it; the entries behind it are rebuilt without it).
+  wait    block until PR N is settled, reading the state file (no GitHub call). Exit 0 = merged, 1 = ejected, failed or dropped (the reason on
+          stderr), 2 = gave up (--timeout), not in the line, or the queue is blocked, 3 = tested in shadow mode: its entry passed, nothing was merged,
+          4 = replay with ci = "skip": the entry was built, nothing was pushed or tested (never read it as a pass).
+  pause   no entry starts and nothing is pushed to main; entries in flight finish testing and wait. resume goes on (and starts the driver).
+  doctor  checks the host file, the tools, the state files, the driver and its lock, the repo config as last fetched, queue branches and worktrees
+          that no live entry owns (one git ls-remote, of the queue's own queue_prefix only). Exit 0 = all ok, 1 = a problem, each named with the fix.
+
+  Replay (stackshot's `mq replay`, on practice branches of the same repo). The host key `replay = "/abs/path/replay.json"` makes the queue take its RULES (the keys of
+  .github/mergequeue.toml, same checks) and the facts of each PR (state, draft, head sha, branch, owner, checks) from that file instead of origin/main and GitHub, so a PR that
+  is already merged can join; no GraphQL call. Each head is fetched by its sha. SHADOW ONLY: `mode = "on"` is refused, nothing is merged, set as a status or commented, and no push
+  goes outside queue/practice/. rules.base must start with practice/ and rules.queue_prefix with queue/practice/, else the queue is blocked. The file: {"version": 1, "run": R, "case": C,
+  "ci": "real" | "skip", "rules": {...}, "prs": {"<N>": {"state", "draft", "head", "branch", "owner", "checks": {name: pass|fail|pending|cancel}}}}; an unknown key or a bad value is refused
+  with the message. ci "skip" ends an entry after it is built (no push, no CI): the PRs are "tested (CI not run)", `mq wait` exit 4. docs/mq.md has the schema.
+
+Every GitHub call an entry makes is counted in its record (gh_calls, salamander_calls) and journaled; in the normal case an entry costs one GraphQL
+read for the build, one for the recheck before its verdict counts, and the check-runs reads of its head, none while the CI-run poller's file shows the run going. Git over the remote is not a GitHub API call.
+
+### verbs with no help path of their own (listed, not probed; their usage is the sala --help text above): adopt alert ci-poll close-shell config cue feedback follow forget-row heartbeat hook map master provision ready reboot rename retire snapshot spawn unpark update watch

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS equivalent of systemd/sala-watch.timer: `salamander watch` every 2 min.
+     Install: cp launchd/ai.salamander.watch.plist ~/Library/LaunchAgents/ && launchctl load -w ~/Library/LaunchAgents/ai.salamander.watch.plist
+     Replace USER. Not yet exercised on a Mac (no host); the helpers it relies on are ps/lsof-based and verified on Linux. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.salamander.watch</string>
+  <key>ProgramArguments</key><array><string>/Users/USER/.local/bin/salamander</string><string>watch</string></array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/Users/USER/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>StartInterval</key><integer>120</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/USER/.claude/salamander-watch.out</string>
+  <key>StandardErrorPath</key><string>/Users/USER/.claude/salamander-watch.out</string>
+</dict></plist>

@@ -1,0 +1,35 @@
+name: hosted-tools
+description: >-
+  Sets a bare GitHub-hosted Ubuntu runner up for a job (Python, uv, tmux, lsof, ttyd, a Chrome check). Every step asks
+  runner.environment, so a job calls this unconditionally. CONTRIBUTING.md, *CI*.
+inputs:
+  tools:
+    description: "Space-separated tools for .github/scripts/hosted-setup.sh: tmux, lsof, ttyd, chrome. Empty: none."
+    default: ""
+  python:
+    description: "A Python version for actions/setup-python (python3 on PATH). Empty: the image's own."
+    default: ""
+  uv:
+    description: "'true': astral-sh/setup-uv, with its cache keyed on web/uv.lock."
+    default: "false"
+  uv-python:
+    description: "The Python uv uses when `uv` is 'true' (UV_PYTHON)."
+    default: "3.14"
+runs:
+  using: composite
+  steps:
+    - if: runner.environment == 'github-hosted' && inputs.python != ''
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python }}
+    - if: runner.environment == 'github-hosted' && inputs.uv == 'true'
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: ${{ inputs.uv-python }}
+        enable-cache: true
+        cache-dependency-glob: web/uv.lock
+    - if: runner.environment == 'github-hosted' && inputs.tools != ''
+      shell: bash
+      env:
+        TOOLS: ${{ inputs.tools }}
+      run: bash "$GITHUB_ACTION_PATH/../../scripts/hosted-setup.sh" $TOOLS

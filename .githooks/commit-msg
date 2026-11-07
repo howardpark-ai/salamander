@@ -1,0 +1,7 @@
+#!/bin/sh
+# Refuses a commit message that carries the owner's private data (CONTRIBUTING.md, "Clean commit and PR text"), then runs the
+# machine's global commit-msg hook when there is one (chain-global). Enabled with `git config core.hooksPath .githooks`. CI runs
+# the same check on the PR and catches what `git commit --no-verify` skips.
+d=$(dirname "$0")
+python3 -I "$d/../.github/scripts/clean_text.py" --message-file "$1" || exit $?
+exec sh "$d/chain-global" commit-msg "$@"

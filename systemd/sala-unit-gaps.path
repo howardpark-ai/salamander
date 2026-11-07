@@ -1,0 +1,18 @@
+[Unit]
+Description=salamander unit gaps — run the unit-gap check when a systemd unit file is added, removed or changed
+# Watches the user unit folder, and /etc/systemd/system read only (a system unit file is never written by sala). The check is
+# sala-unit-gaps.service (sala job check --post).
+
+[Path]
+PathChanged=%h/.config/systemd/user
+PathChanged=/etc/systemd/system
+Unit=sala-unit-gaps.service
+# A burst of unit writes (a job add writes four files, a deploy or provision relinks a dozen) fires PathChanged= once per write. The service
+# waits 5 s before it checks (ExecStartPre=/bin/sleep 5), so one burst is one run, and the path unit starts nothing while that run is active.
+# The limit still has to hold what gets through: a burst of unit writes once tripped the old limit (2 starts in
+# 30 s) and the path unit went to failed (trigger-limit-hit), dead until restarted. So 20 starts in 60 s: a burst that size is still one or two runs.
+TriggerLimitIntervalSec=60s
+TriggerLimitBurst=20
+
+[Install]
+WantedBy=paths.target

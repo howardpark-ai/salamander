@@ -1,0 +1,19 @@
+# One trigger for every machine the coordinator machine drives (the data file, machines.toml: docs/units.md, "machine-follow"); the dispatcher
+# (machine-follow.service) starts machine-follow@<hostname>.service only for the machines whose followed things changed. The union of
+# what the machines follow: a deploy fast-forwards ~/stackshot or ~/salamander's main (no change to either repo's deploy.sh; a packed ref
+# (git gc) is written loose again by the next fast-forward), a gbrain install (the weekly run's or a hand install) rewrites the bun
+# global lockfile (several times: the service settles first), the CLI update repoints ~/.local/bin/claude. machine-follow.timer catches a miss.
+# The unit names have no sala- prefix on purpose: linking these files over older links of the
+# same names leaves one dispatcher, never two. Link and enable by hand on the coordinator machine only (docs/units.md).
+[Unit]
+Description=A deploy, a gbrain install or a CLI update on the coordinator machine: the machines it drives follow
+
+[Path]
+PathChanged=%h/stackshot/.git/refs/heads/main
+PathChanged=%h/salamander/.git/refs/heads/main
+PathChanged=%h/.bun/install/global/bun.lock
+PathChanged=%h/.local/bin/claude
+Unit=machine-follow.service
+
+[Install]
+WantedBy=paths.target

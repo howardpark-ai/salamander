@@ -1,0 +1,19 @@
+# One machine's follow, the instance name being its full hostname from the data file (machine-follow@<hostname>.service). Started by the
+# dispatcher, machine-follow.service, with `systemctl --user start --no-block`; never enabled (no [Install]). Each instance runs alone, so a long
+# step never holds up another machine's. The unit names have no sala- prefix on purpose (see machine-follow.path). Link it on the coordinator
+# machine only; the script refuses (exit 64) on any other host.
+[Unit]
+Description=Bring %i to the versions the coordinator machine runs
+X-Model-Lane=none
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 %h/salamander/lib/machine-follow.py --host %i
+# machine-follow.py kills the step at its own timeout_minutes (the data file: a quick machine and a slow one, the slow one's = the
+# release lock wait + one update + margin) after a settle wait of up to 10 min. This stays above the largest of them plus the
+# settle wait, with margin. A test keeps it so.
+TimeoutStartSec=3h

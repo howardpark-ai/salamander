@@ -1,0 +1,10 @@
+❯ what changed in the last commit?
+
+● I'll look at the log first.
+
+✻ Working… (4s · esc to interrupt)
+
+────── demo-builder ──────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt

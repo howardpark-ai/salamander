@@ -1,0 +1,16 @@
+[Unit]
+Description=salamander ci-poll — the one resident poller of GitHub Actions runs for the repos builders wait on: a conditional gh api read per repo every minute, one json file per repo under ~/.local/state/salamander/ci-runs
+# Runs no model call: `gh api -i` with ETags (lib/cipoll.py; the repo list is ~/.config/salamander/ci-repos, else lib/ci-repos). A resident service, so
+# `sala job add` (timers only) does not make it; it follows sala-follow.service: the file lives in systemd/ and is linked by hand (docs/units.md).
+X-Model-Lane=none
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/salamander ci-poll
+Restart=always
+# 30 s, not 5: a poller that crashes at once would otherwise spend a full unconditional read per repo every restart
+RestartSec=30
+
+[Install]
+WantedBy=default.target

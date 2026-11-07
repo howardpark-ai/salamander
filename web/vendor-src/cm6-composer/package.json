@@ -1,0 +1,19 @@
+{
+  "name": "cm6-composer",
+  "version": "0.2.0",
+  "private": true,
+  "description": "CodeMirror 6 bundled as one classic script for sala's composer. Source of web/src/sala_web/static/vendor/cm6-composer.min.js; see README.md.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --minify --format=iife --global-name=cm6Composer --target=es2020 --charset=utf8 --legal-comments=none --banner:js=\"$(cat banner.txt)\" --outfile=dist/cm6-composer.min.js"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Nothing of this repo's own: runs the machine's global pre-merge-commit hook when there is one (chain-global), because
+# `core.hooksPath .githooks` would otherwise hide it.
+exec sh "$(dirname "$0")/chain-global" pre-merge-commit "$@"

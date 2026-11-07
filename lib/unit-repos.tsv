@@ -1,0 +1,21 @@
+# lib/unit-repos.tsv — the neutral default of the table of repos that hold the unit files of scheduled jobs, for `sala job` (lib/unitjob.py; docs/units.md).
+# It lists no repo. Put your repos in ~/.config/salamander/unit-repos.tsv (one line per repo, same columns); that file replaces this one on a box that
+# has it (SALA_JOB_REPOS names another file and wins over both).
+# One line per repo, TAB-separated. Read by `sala job add|list|remove|relink` (where to write a unit, which git flow to print) and by the
+# unit-gap watcher (`sala job check`, the sala-unit-gaps.path unit and the sala-watch tick): the owner of a gap is the repo that holds the
+# unit's script; the watcher opens the gap as a board item (client.py post job-gap open ... --repo <github>) and stackshot sets the item's
+# mover to the builder of that repo's project.
+# columns:
+#   repo      the name given to --repo
+#   checkout  the production checkout on this box (~ is the home directory)
+#   user_dir  where user-scope unit files go, relative to the checkout; {name} is the job name; - = sala does not write units into this repo
+#   system_dir  the same for system-scope unit files (sala never installs them: it prints the root command); - = none
+#   flow      main = commits straight to main; pr = a branch in a worktree and a pull request (--checkout names the worktree)
+#   project   the stackshot project page key of the repo
+#   builder   the project's background builder: the mover of a unit gap's item (stackshot sets it from the project page; `sala job check` shows it)
+#   note      one sentence printed with the git steps, or the reason user_dir is -
+#   github    the repo's GitHub owner/name, the --repo of `client.py post job-gap open`; stackshot refuses a repo it does not list with a 400.
+#             Empty = the SALA_JOB_GITHUB setting; with that empty too, the gap is not posted to the board.
+# The line whose repo is * is the owner of a gap whose script is in none of the repos above (the box's general fleet work).
+# A new repo is one more line here; no code changes. Example (columns separated by TABs):
+# example-app	~/example-app	ops/{name}/systemd	-	main	team/example-app	example-app-builder	a note printed with the git steps	alice/example-app

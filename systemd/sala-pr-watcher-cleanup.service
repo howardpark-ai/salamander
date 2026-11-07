@@ -1,0 +1,13 @@
+[Unit]
+Description=PR-watcher cleanup — delete the finished one-time scheduled tasks that cloud sessions leave on the Claude account to watch a pull request
+# Runs no model call: lib/pr_watcher_cleanup.py lists the account's scheduled tasks (the sign-in the CLI keeps; GET /v1/code/triggers), reads a pull
+# request's state with `gh api`, asks a live creator once (stackshot's client.py message) and deletes a done task (DELETE /v1/code/triggers/<id>).
+# State and log: ~/.local/state/salamander/pr-watcher-cleanup/ (docs/units.md). Written as `sala job add` writes a unit; the script is stdlib-only, so it runs
+# under `python3 -I` directly instead of through `uv run --script`.
+X-Model-Lane=none
+X-Project=sala/salamander
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 -I %h/salamander/lib/pr_watcher_cleanup.py

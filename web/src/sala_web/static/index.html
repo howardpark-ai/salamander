@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover: the installed app draws to the screen's edges (under Android's gesture bar); what sits there
+     pads itself with env(safe-area-inset-*) in style.css -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="light dark">
+<meta name="sala-web-version" content="{{build}}">
+<title>sala</title>
+<!-- installable as an app (the manifest, the icons, sw.js registered by app.js). use-credentials: the manifest is
+     fetched with the Cloudflare Access cookie; without it the fetch gets the login redirect and Chrome sees none.
+     theme-color: the page background of the theme in use (style.css --bg), one meta per colour scheme, so the status
+     bar and the strip behind the gesture bar of the installed app are dark in dark mode (on Android a white strip
+     showed at the bottom); the manifest's one theme_color (the dark one: a light splash was
+     the same light strip) shows on the splash screen only -->
+<link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
+<meta name="theme-color" content="#fafaf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161617" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="static/icons/apple-touch-icon.png">
+<!-- the tab icon is stackshot's recipe (its dark tile and orange stroke, the same heavy line) drawn as sala's >_ glyph; the PNG icons match (tools/make_icons.py) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f1f21'/%3E%3Cpath d='M9 11l6 5-6 5M18 22h6' stroke='%23f0a06a' stroke-width='4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<!-- code only: a monospace with tall lowercase letters, so code at 90% matches the text; same on every device -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/jetbrains-mono@5.3.0/index.min.css">
+<link rel="stylesheet" href="static/style.css?v={{v}}">
+<link rel="stylesheet" href="static/sessions.css?v={{v}}">
+<link rel="stylesheet" href="static/schedules.css?v={{v}}">
+<link rel="stylesheet" href="static/machines.css?v={{v}}">
+<link rel="stylesheet" href="static/search.css?v={{v}}">
+<link rel="stylesheet" href="static/termclip.css?v={{v}}">
+<!-- the color tool: stackshot's shared file, pinned byte for byte (colortool.js, with its sha256 beside it), then sala's own wiring, which applies the stored
+     look here in the head so the first paint already has it (no flash). After the stylesheets: it reads their colors. The button is started at the end of the body -->
+<script src="static/colortool.js?v={{v}}"></script>
+<script src="static/colortool-sala.js?v={{v}}"></script>
+<script src="static/vendor/marked.min.js?v={{v}}"></script>
+<script src="static/vendor/purify.min.js?v={{v}}"></script>
+<script src="static/vendor/cm6-composer.min.js?v={{v}}"></script>
+</head>
+<body>
+<div id="app">
+  <!-- wide screens: the sidebar is closed on every load and slides over the page; this strip along the left edge
+       and the toggle (#side-open, below) open it while the pointer is on them (app.js, "the sidebar on a wide screen"). The toggle
+       and the header just below (.side-head) are drawn as one fixed block at the top left in every state -->
+  <div id="side-edge" aria-hidden="true"></div>
+  <aside id="sidebar">
+    <div class="side-head">
+      <!-- fixed at the top left on a wide screen, in the drawer's top on a phone. The app's icon (the installed app's, static/icons) and the name as one line: decorative, a fixed size so
+           nothing shifts while it loads; the page <title> and the manifest keep the name "sala" -->
+      <span class="brand-line"><img class="brand-icon" src="static/icons/icon-192.png" width="20" height="20" alt=""><span class="brand">{{brand}}</span></span>
+      <button id="side-close" class="icon-btn only-narrow" aria-label="Close session list">&times;</button>
+    </div>
+    <!-- the search box, at the top of the sidebar on every page (the drawer's top on a phone): Enter opens the Search results page
+         with the box's defaults (the last 6 hours, front agents, messages); Ctrl+K, or "/" outside a text field, puts the cursor here and
+         Escape leaves (app.js, "the sidebar's search box") -->
+    <form id="side-search" class="side-search" role="search" autocomplete="off">
+      <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12.4 12.4l4.1 4.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <input id="side-q" type="search" name="q" maxlength="200" placeholder="Search" aria-label="Search the transcripts" aria-keyshortcuts="Control+K /" title="Search the transcripts (Ctrl+K or /)" enterkeyhint="search" spellcheck="false" autocapitalize="off">
+    </form>
+    <!-- above the session list, like claude.ai's entries above recent chats: New session first (the form that
+         queues `sala op spawn`, a page of its own in the main area at #new; app.js "new session"), then the
+         overview, which opens in the main area -->
+    <nav class="side-top" aria-label="Views">
+      <a id="side-new" class="sess side-ovw side-new" href="#new" title="Start a new session of a project through sala's queue"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 6.5v7M6.5 10h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="label">New session</span></a>
+      <a id="side-ovw" class="sess side-ovw" href="#sessions" title="Every live session, account usage and API spend"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.8 8h14.4M2.8 12.2h14.4M8 8v8.2" stroke="currentColor" stroke-width="1.5"/></svg><span class="label">Overview</span></a>
+    </nav>
+    <nav id="session-list" aria-label="Sessions"></nav>
+    <label class="toggle"><input type="checkbox" id="show-back" title="Also show background agents"> Show all sessions</label>
+    <div id="side-note" class="side-note"></div>
+    <!-- the color tool's button (colortool.js draws it here, last in the panel); no other code rebuilds this element -->
+    <div id="side-colors" class="side-colors"></div>
+  </aside>
+  <div id="scrim" class="only-narrow"></div>
+  <main id="main">
+    <div id="update-banner" class="banner" role="status" hidden>
+      <span>sala was updated.</span>
+      <button id="reload-btn" type="button">Reload</button>
+    </div>
+    <header id="top">
+      <!-- the sidebar's toggle: fixed at the top left on a wide screen (over the title bar and the sidebar, never moving), in the bar on a phone -->
+      <button id="side-open" class="icon-btn" aria-label="Show session list" aria-controls="sidebar" aria-expanded="false" title="Show sidebar"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7.5 3.8v12.4" stroke="currentColor" stroke-width="1.5"/></svg></button>
+      <!-- the title bar: a three-column grid,
+           the session name (.who: the status dot and the name, nothing else) in the middle, centred in the bar; everything
+           else in the one cluster at the right (.top-end), in this order: the status badge (working /
+           needs input: the dynamic one, so it stays visible), Reload as an icon, then the ⋯ button. The static facts of the
+           session (role, lane, the tmux name) and the Chat / Terminal switch are in the ⋯ menu (#top-tools), the thinking
+           toggle under them. The name never gives way while anything else is still in the bar: the Shell button, then Reload,
+           then the status badge leave for the ⋯ menu, one at a time, as the name needs the room (app.js, "header: the name
+           first"); on a narrow phone that is all three. -->
+      <div id="title"><span class="who"><span class="dot"></span><span class="name">Select a session</span></span><div id="top-end" class="top-end"><span id="conn" class="conn" role="status" hidden>Reconnecting…</span><span id="top-status" class="top-status"></span>
+      <!-- the installed app has no browser bar: a reload of its own, always here (the banner's shows only for a new
+           build); it keeps the composer's draft as the banner's button does. Icon only in the bar (the label is its
+           aria-label and tooltip); a row with the word in the ⋯ menu when it has folded there (style.css) -->
+      <button id="menu-reload" class="menu-item" type="button" aria-label="Reload the page" title="Reload the page"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M16.2 10a6.2 6.2 0 1 1-1.9-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 2.8v4.2h-4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <!-- the Shell button: at the right end of the cluster on every page (the Overview and the New session page too);
+           opens the shell drawer under the page (#shell-drawer below). It sits before the ⋯ button here and is drawn after it (style.css,
+           order), so Tab from the ⋯ button goes into its menu, which follows it. Its word is dropped on a phone, the icon stays.
+           It is the first item of the header fold: where the name does not fit it moves into the ⋯ menu as a "Shell"
+           row, the same button and the same handler (app.js "header: the name first"; style.css, .top-tools .shell-btn) -->
+      <button id="shell-btn" class="shell-btn" type="button" aria-label="Shell" aria-expanded="false" aria-controls="shell-drawer" title="Shell (Ctrl+`)"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/><path d="M6 8l3 2.5L6 13M11 13h3"/></svg><span class="shell-label">Shell</span></button>
+      <!-- always shown; the menu under it holds the session's facts, the view switch and the thinking toggle, and what left the bar -->
+      <button id="top-menu-btn" class="icon-btn" aria-label="View options" aria-expanded="false" aria-controls="top-tools"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="4.5" cy="10" r="1.6" fill="currentColor"/><circle cx="10" cy="10" r="1.6" fill="currentColor"/><circle cx="15.5" cy="10" r="1.6" fill="currentColor"/></svg></button>
+      </div></div>
+      <div id="top-tools" class="top-tools" aria-label="View options">
+        <!-- Session: the static facts, in their badge colours (app.js updateHeader fills the rows: Role, Lane, tmux when it
+             differs from the name); the status badge joins them here when it has folded out of the bar -->
+        <section id="menu-session" class="menu-sec" aria-labelledby="menu-session-h">
+          <h3 id="menu-session-h" class="menu-head">Session</h3>
+          <div id="top-session" class="menu-rows"></div>
+        </section>
+        <!-- View: Chat / Terminal as a segmented control (two buttons, the open one aria-pressed), the thinking toggle
+             under it (in the menu at every width; the fold never moves it) -->
+        <section id="menu-view" class="menu-sec" aria-labelledby="menu-view-h">
+          <h3 id="menu-view-h" class="menu-head">View</h3>
+          <div class="tabs" role="group" aria-label="View">
+            <button type="button" data-tab="chat" class="tab active" aria-pressed="true">Chat</button>
+            <button type="button" data-tab="terminal" class="tab" aria-pressed="false">Terminal</button>
+          </div>
+          <label class="toggle top-toggle" title="Show thinking, tool calls and their results in the chat"><input type="checkbox" id="show-tools"> Thinking &amp; tool calls</label>
+        </section>
+      </div>
+    </header>
+    <section id="chat-pane" class="pane active">
+      <div id="chat"><div class="empty">Pick a session on the left.</div></div>
+    </section>
+    <section id="terminal-pane" class="pane"></section>
+    <!-- the sessions overview (#sessions): sessions.js fills it and polls only while it is shown -->
+    <section id="overview-pane" class="pane" aria-label="Overview">
+      <div class="sp">
+        <div class="sp-head">
+          <span id="sp-count" class="sp-count"></span>
+          <!-- the header's view options are hidden here, so the overview carries its own Reload (same reloadPage) and
+               the way to the session that builds sala, as two chips -->
+          <div class="sp-actions">
+            <button id="sp-reload" class="sp-btn" type="button" aria-label="Reload the page" title="Reload"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M16.2 10a6.2 6.2 0 1 1-1.9-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 2.8v4.2h-4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload</button>
+            <!--help--><a id="sp-help" class="sp-btn sp-help" href="#s={{help}}" title="Open {{help}}, the session that looks after sala's web UI: ask it for help or changes here"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.9 7.9a2.2 2.2 0 1 1 3.1 2c-.6.3-1 .8-1 1.5v.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="14.4" r="1.05" fill="currentColor"/></svg>Get Help</a><!--/help-->
+          </div>
+        </div>
+        <section id="quota" class="q" aria-label="Account usage and API spend">
+          <!-- a phone folds the lane cards into this one strip: the lanes in a line of chips, a tap opens the cards;
+               wider screens hide it and show the cards -->
+          <button id="q-strip" class="q-strip" type="button" aria-expanded="false" aria-controls="q-cards" title="Show the lane cards"><span id="q-chips" class="q-chips"></span><span class="q-chev" aria-hidden="true"></span></button>
+          <div id="q-cards" class="q-cards"></div>
+          <div id="q-note" class="q-note" role="status"></div>
+        </section>
+        <!-- the three tabs of the Overview: Agents (#sessions, the default), Schedules (#schedules) and Machines (#machines). They are links, so
+             Back, a reload and a shared link reach a tab; app.js sets data-tab on the pane and starts or stops the Schedules and Machines readings -->
+        <div class="ov-bar">
+          <div class="ov-tabs" role="tablist" aria-label="Overview">
+            <a id="ov-tab-sessions" class="ov-tab" role="tab" href="#sessions" aria-selected="true" aria-controls="ov-agents">Agents <span id="ov-n-agents" class="ov-n"></span></a>
+            <a id="ov-tab-schedules" class="ov-tab" role="tab" href="#schedules" aria-selected="false" aria-controls="ov-schedules" tabindex="-1">Schedules <span id="ov-n-schedules" class="ov-n"></span></a>
+            <a id="ov-tab-machines" class="ov-tab" role="tab" href="#machines" aria-selected="false" aria-controls="ov-machines" tabindex="-1">Machines <span id="ov-n-machines" class="ov-n"></span></a>
+          </div>
+          <button id="sc-reload" class="sp-btn ov-reload" type="button" aria-label="Read the schedules again" title="Read again"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M16.2 10a6.2 6.2 0 1 1-1.9-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 2.8v4.2h-4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload</button>
+          <button id="mc-reload" class="sp-btn ov-reload" type="button" aria-label="Read the machines again" title="Read again"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M16.2 10a6.2 6.2 0 1 1-1.9-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 2.8v4.2h-4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="ov-rl">Reload</span></button>
+        </div>
+        <div id="ov-agents" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-sessions">
+          <div id="sp-note" class="sp-note" role="status"></div>
+          <div class="sp-wrap">
+            <table id="sp-table">
+              <thead>
+                <tr>
+                  <th data-key="name" aria-sort="none"><button type="button">Agent</button></th>
+                  <th data-key="project" aria-sort="none"><button type="button">Project</button></th>
+                  <th data-key="role" aria-sort="none"><button type="button">Role</button></th>
+                  <th data-key="status" aria-sort="none"><button type="button">Status</button></th>
+                  <th data-key="model" aria-sort="none"><button type="button">Model</button></th>
+                  <th data-key="effort" aria-sort="none"><button type="button">Effort</button></th>
+                  <th data-key="lane" aria-sort="none"><button type="button">Lane</button></th>
+                </tr>
+              </thead>
+              <tbody><tr><td colspan="7" class="sp-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- the Schedules tab (#schedules, one sortable table): every timer and cron line on this machine, read
+             live from systemd and cron (api/schedules; the jobs that are ours, not the package-shipped ones); schedules.js fills it.
+             It reads once when the tab opens and again on Reload, never by itself. One table: a heading sorts, again reverses; the
+             Category is the job's own X-Project=. On a phone the rows are cards and the sort menu sits above them (schedules.css) -->
+        <div id="ov-schedules" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-schedules">
+          <div class="sc-head">
+            <span id="sc-count" class="sc-count"></span>
+            <label class="toggle sc-toggle"><input type="checkbox" id="sc-flagged"> Flagged only</label>
+          </div>
+          <div id="sc-note" class="sc-note" role="status"></div>
+          <div id="sc-scope-note" class="sc-note"></div>
+          <div class="sc-sortmenu">
+            <label class="sc-sortlabel" for="sc-sortsel">Sort by</label>
+            <select id="sc-sortsel" class="sc-sortsel"></select>
+            <button id="sc-sortdir" class="sc-sortdir" type="button" aria-label="Reverse the sort" title="Reverse the sort"></button>
+          </div>
+          <div id="sc-timers" class="sp-wrap sc-wrap">
+            <table id="sc-table" class="sc-table">
+              <thead>
+                <tr>
+                  <th data-key="name" aria-sort="none"><button type="button">Job</button></th>
+                  <th data-key="category" aria-sort="none"><button type="button">Category</button></th>
+                  <th data-key="desc" aria-sort="none"><button type="button">What it does</button></th>
+                  <th data-key="next" aria-sort="none"><button type="button" title="Sorts by the next run">When</button></th>
+                  <th data-key="lane" aria-sort="none"><button type="button">Lane</button></th>
+                </tr>
+              </thead>
+              <tbody id="sc-body"><tr><td colspan="5" class="sc-empty">Reading the timers…</td></tr></tbody>
+            </table>
+          </div>
+          <section id="sc-cron-sec" class="sc-sec" aria-labelledby="sc-h-cron" hidden>
+            <h2 id="sc-h-cron" class="sc-h">Cron lines</h2>
+            <p id="sc-cron-none" class="sc-note">No crontab lines.</p>
+            <div class="sc-wrap sc-cronwrap">
+              <table id="sc-cron-table" class="sc-simple">
+                <thead><tr><th><span>Schedule</span></th><th><span>Command</span></th><th><span>Flags</span></th></tr></thead>
+                <tbody id="sc-cron"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+        <!-- the Machines tab (#machines): the machines with their versions; machines.js fills it from api/machines (stackshot's last
+             reading, nothing is asked of GitHub). It reads when the tab opens and on Reload (machines.css) -->
+        <div id="ov-machines" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-machines">
+          <div id="mc-note" class="mc-note" role="status"></div>
+          <section class="mc-sec" aria-labelledby="mc-h-machines">
+            <h2 id="mc-h-machines" class="mc-h">Machines</h2>
+            <p id="mc-none" class="mc-none" hidden></p>
+            <div id="mc-grid" class="mc-grid"></div>
+          </section>
+          <div id="mc-upd" class="mc-upd"></div>
+        </div>
+      </div>
+      <!-- a lane's details page (#lane=<id>): the same pane, shown instead of the view above while body has
+           lane-open; sessions.js fills it from the answers the cards use and from api/lanes/<id> -->
+      <div id="ld" class="sp ld" aria-label="Lane details">
+        <div class="sp-head">
+          <a id="ld-back" class="sp-btn" href="#sessions" aria-label="Back to the Overview" title="Back to the Overview"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Back</a>
+          <span id="ld-title" class="ld-title"></span>
+          <span id="ld-count" class="sp-count"></span>
+          <div class="sp-actions">
+            <button id="ld-reload" class="sp-btn" type="button" aria-label="Reload the page" title="Reload"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M16.2 10a6.2 6.2 0 1 1-1.9-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 2.8v4.2h-4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Reload</button>
+          </div>
+        </div>
+        <div id="ld-note" class="sp-note" role="status"></div>
+        <div id="ld-line" class="ld-line"></div>
+        <div class="ld-top">
+          <section class="ld-sec" aria-labelledby="ld-h-record"><h2 id="ld-h-record" class="ld-h">Record</h2><div id="ld-record"></div></section>
+          <section class="ld-sec" aria-labelledby="ld-h-usage"><h2 id="ld-h-usage" class="ld-h">Usage</h2><div id="ld-usage" class="q-cards"></div></section>
+        </div>
+        <section class="ld-sec" aria-labelledby="ld-h-sessions"><h2 id="ld-h-sessions" class="ld-h">Sessions on this lane</h2>
+          <div class="sp-wrap">
+            <table id="ld-table">
+              <thead><tr><th>Session</th><th>Project</th><th>Role</th><th>Status</th><th>Model</th><th>Effort</th><th>Lane</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+    <!-- the Search results page (#search?q=…&hours=…&front=…): a page of its own in the main area, opened by Enter in the sidebar's
+         search box (#side-search). The query and every filter are in the address, so a reload, Back and a shared link open the same
+         search; the query box at its top and every filter run it again and rewrite the address in place (search.js, api/search). The number beside
+         each box is what that box adds to the answer, given the other group's boxes -->
+    <section id="search-pane" class="pane" aria-label="Search">
+      <div id="se-page" class="sp se-page">
+        <form id="se-form" class="se-controls" aria-label="Search filters" autocomplete="off">
+          <!-- the query, the sidebar box's twin: prefilled from the address; Enter searches again with the filters below (search.js) -->
+          <div class="se-q">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12.4 12.4l4.1 4.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input id="se-query" type="search" name="q" maxlength="200" placeholder="Search" aria-label="Search the transcripts" enterkeyhint="search" spellcheck="false" autocapitalize="off">
+          </div>
+          <div class="se-row" id="se-range" role="group" aria-label="When"><b>When</b>
+            <button type="button" class="se-chip" data-hours="1" aria-pressed="false">1 h</button>
+            <button type="button" class="se-chip" data-hours="6" aria-pressed="true">6 h</button>
+            <button type="button" class="se-chip" data-hours="24" aria-pressed="false">24 h</button>
+            <button type="button" class="se-chip" data-hours="72" aria-pressed="false">3 days</button>
+            <button type="button" class="se-chip" data-hours="168" aria-pressed="false">7 days</button>
+            <button type="button" class="se-chip" data-hours="dates" aria-pressed="false" aria-controls="se-dates">Pick dates…</button>
+          </div>
+          <div class="se-row se-dates" id="se-dates" hidden>
+            <label>From <input type="datetime-local" id="se-from" aria-label="From"></label>
+            <label>To <input type="datetime-local" id="se-to" aria-label="To"></label>
+            <span id="se-zone" class="se-zone"></span>
+          </div>
+          <div class="se-row" role="group" aria-label="Agents"><b>Agents</b>
+            <label><input type="checkbox" id="se-front" data-box="front" checked> Front agents <small></small></label>
+            <label><input type="checkbox" id="se-back" data-box="back"> Background agents <small></small></label>
+            <label><input type="checkbox" id="se-sub" data-box="sub"> Their subagents <small></small></label>
+            <label><input type="checkbox" id="se-unknown" data-box="unknown"> Role unknown <small></small></label>
+          </div>
+          <div class="se-row" role="group" aria-label="Content"><b>Content</b>
+            <label><input type="checkbox" id="se-messages" data-box="messages" checked> Messages <small></small></label>
+            <label><input type="checkbox" id="se-tools" data-box="tools"> Tool calls <small></small></label>
+            <label><input type="checkbox" id="se-output" data-box="output"> Tool output <small></small></label>
+            <label><input type="checkbox" id="se-thinking" data-box="thinking"> Thinking <small></small></label>
+          </div>
+          <div id="se-think-note" class="se-note" hidden>Claude Code saves the text of only about 6% of thinking blocks; the rest are stored without it. This box can only find what was saved.</div>
+        </form>
+        <div id="se-summary" class="se-summary" role="status"></div>
+        <ol id="se-hits" class="se-hits"></ol>
+        <button id="se-more" class="se-more" type="button" hidden></button>
+      </div>
+    </section>
+    <!-- the New session page (#new): a view of the
+         main area like the Overview, with a link of its own, so Back, a reload and a shared link reach it (app.js, "new
+         session" and "selection, hash, history"). It queues `sala op spawn` through POST api/spawn and makes nothing itself.
+         At the very top, the same on both forms: the switch "New session | Quick session", built like the scope
+         chips; it is outside the two forms, so it never moves when one is swapped for the other. Then one centered column
+         (about 760 px; full width on a phone), top to bottom: the scope (the configured scopes, then all) and one box over stackshot's
+         project list (api/spawn/projects; a header row, Project and Description; typing filters the listed projects, the scope's
+         hidden matches follow under a divider, "+ New project" is last, every project's title is shown whole; the list is six
+         rows tall and scrolls inside itself, and its corner drags it taller; once a project is picked the box folds to one line
+         with an arrow that opens it again), the role, the name (suggested by api/spawn/suggest, never a name that is taken, or
+         the page-name rule for a new project, and editable), the mandate (a plain textarea: a Korean IME needs the browser's
+         own Enter and Tab), lane, model and effort folded away (each a choice, "use default (<what it is>)" first), Create,
+         and what Create did (the steps, the link to the session). Create makes or lists the project and adds the agent to it
+         before the spawn. An ordinary create at 1280 x 800 needs no scrolling; a phone scrolls -->
+    <section id="new-pane" class="pane" aria-label="New session" tabindex="-1">
+      <nav id="np-switch" class="np-switch" aria-label="Kind of session">
+        <div class="np-col">
+          <div class="ns-scopes np-seg">
+            <a id="np-new" class="ns-chip" href="#new" aria-current="page">New session</a>
+            <a id="np-quick" class="ns-chip" href="#side=" title="A quick talk about a board item, or a fork of a running session">Quick session</a>
+          </div>
+        </div>
+      </nav>
+      <form id="ns-form" class="np ns-form" novalidate autocomplete="off">
+        <div class="np-col">
+          <div class="ns-field ns-scopefield">
+            <span id="ns-scope-label" class="ns-label">Scope</span>
+            <div id="ns-scopes" class="ns-scopes" role="radiogroup" aria-labelledby="ns-scope-label"></div>
+          </div>
+          <div class="ns-field ns-projfield">
+            <label for="ns-filter">Project</label>
+            <!-- once a project is picked the box below folds to this one line (the arrow opens and closes it) -->
+            <button id="ns-summary" class="ns-sum" type="button" aria-expanded="true" aria-controls="ns-projpanel" title="Show the project list" hidden></button>
+            <div id="ns-projpanel" class="ns-panel">
+              <input id="ns-filter" type="search" placeholder="Type to filter, or the name of a new project" aria-controls="ns-projects" autocapitalize="off" spellcheck="false">
+              <div id="ns-head" class="ns-head"><span class="ns-hk">Project</span><span class="ns-ht">Description <span class="ns-hint only-wide">drag the list's lower right corner to make it taller</span></span></div>
+              <div id="ns-projects" class="ns-list" role="listbox" aria-label="Projects" aria-busy="true" tabindex="-1"></div>
+            </div>
+            <div id="ns-picked" class="ns-note" role="status"></div>
+          </div>
+          <fieldset class="ns-field ns-role">
+            <legend>Role</legend>
+            <label class="ns-radio"><input type="radio" name="ns-role" value="front" checked> front <span class="ns-hint">a session {{owner}} talks to</span></label>
+            <label class="ns-radio"><input type="radio" name="ns-role" value="back"> back <span class="ns-hint">a background agent, unattended</span></label>
+          </fieldset>
+          <div class="ns-field">
+            <label for="ns-name">Name <span id="ns-name-hint" class="ns-hint">suggested by sala, never one that exists; lowercase letters, digits and dashes</span></label>
+            <input id="ns-name" type="text" autocapitalize="off" spellcheck="false" maxlength="48" aria-describedby="ns-name-hint ns-name-err">
+            <div id="ns-name-err" class="ns-err" role="alert"></div>
+          </div>
+          <div class="ns-field">
+            <label for="ns-mandate">Mandate <span id="ns-mandate-hint" class="ns-hint">optional for a front agent</span></label>
+            <textarea id="ns-mandate" rows="2" placeholder="What this session is for, in its own words. The session reads it at its first prompt." aria-describedby="ns-mandate-hint ns-mandate-err"></textarea>
+            <div id="ns-mandate-err" class="ns-err" role="alert"></div>
+          </div>
+          <details class="ns-more">
+            <summary>Lane, model, effort <span class="ns-hint">use default = what a new session follows now</span></summary>
+            <div class="ns-grid">
+              <label>Lane <select id="ns-lane"><option value="">use default</option></select></label>
+              <label>Model <select id="ns-model"><option value="">use default</option></select>
+                <input id="ns-model-other" type="text" placeholder="a model id, e.g. claude-opus-5" autocapitalize="off" spellcheck="false" maxlength="64" aria-label="Model id" hidden></label>
+              <label>Effort <select id="ns-effort"><option value="">use default</option></select></label>
+            </div>
+          </details>
+          <div class="ns-foot">
+            <div class="ns-actions">
+              <button id="ns-submit" class="ns-submit" type="submit" disabled>Create session</button>
+              <span id="ns-pending" class="ns-hint" hidden>Working…</span>
+            </div>
+            <div id="ns-status" class="ns-status" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+      </form>
+      <!-- A QUICK SESSION (called a side conversation inside sala; docs/side-sessions.md): the same page and the same queue
+           (api/spawn), another form. A board item and a session to fork are two optional fields, each a picker built like the
+           project box (the open items and the running sessions the page knows, a search box, a typed id accepted too); one of the
+           two is needed. The Discuss link #side=<id> opens it with the item chosen (its project and owner looked up), the link
+           #side=from:<name> with the session. A blank name is the suggested one. -->
+      <form id="sd-form" class="np ns-form" novalidate autocomplete="off">
+        <div class="np-col">
+          <p class="ns-hint sd-lead">A short talk, started in one step. Pick a board item, a running session to fork, or both.</p>
+          <div class="ns-field">
+            <label id="sd-item-label">Board item <span class="ns-hint">optional: a fresh session about the item, on its project's page</span></label>
+            <div id="sd-item-pick" class="ns-pick" aria-labelledby="sd-item-label"></div>
+            <input id="sd-item" type="hidden">
+          </div>
+          <div id="sd-item-extra" class="sd-block" hidden>
+            <div class="ns-field">
+              <label for="sd-project">Project <span class="ns-hint">the item's project page; filled in from the item</span></label>
+              <input id="sd-project" type="text" list="sd-projects" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="projects/&lt;slug&gt;">
+              <datalist id="sd-projects"></datalist>
+            </div>
+            <div class="ns-field">
+              <label for="sd-agents">Agents involved <span class="ns-hint">optional, comma-separated; the session reads only the transcript excerpts it needs from them</span></label>
+              <input id="sd-agents" type="text" autocapitalize="off" spellcheck="false" maxlength="300">
+            </div>
+          </div>
+          <div class="ns-field">
+            <label id="sd-fork-label">Session to fork <span class="ns-hint">optional: continues that running session's conversation</span></label>
+            <div id="sd-fork-pick" class="ns-pick" aria-labelledby="sd-fork-label"></div>
+            <input id="sd-fork" type="hidden">
+          </div>
+          <div id="sd-note" class="ns-note" role="status"></div>
+          <div id="sd-need" class="ns-hint" role="status"></div>
+          <div class="ns-field">
+            <label for="sd-name">Name <span class="ns-hint">blank = suggested by sala (&lt;prefix&gt;-side-&lt;word&gt;&lt;nn&gt;)</span></label>
+            <input id="sd-name" type="text" autocapitalize="off" spellcheck="false" maxlength="48" aria-describedby="sd-name-err">
+            <div id="sd-name-err" class="ns-err" role="alert"></div>
+          </div>
+          <div class="ns-field">
+            <label for="sd-mandate">What to talk about <span class="ns-hint">optional; appended to the session's own brief</span></label>
+            <textarea id="sd-mandate" rows="3"></textarea>
+          </div>
+          <div class="ns-foot">
+            <div class="ns-actions">
+              <button id="sd-submit" class="ns-submit" type="submit" disabled>Start quick session</button>
+              <span id="sd-pending" class="ns-hint" hidden>Working…</span>
+            </div>
+            <div id="sd-status" class="ns-status" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+      </form>
+    </section>
+    <footer id="composer">
+      <button id="jump" class="jump" type="button" aria-label="Jump to the latest message" hidden>&#8595;</button>
+      <div id="chips"></div>
+      <div id="send-status" role="status"></div>
+      <div class="compose-row">
+        <!-- attach: a phone has no paste or drop for files; the input takes any file, an image stays a thumbnail -->
+        <button id="attach" class="attach-btn" type="button" aria-label="Attach files" title="Attach files"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M13.5 6.5l-6 6a1.75 1.75 0 0 0 2.5 2.5l6.5-6.5a3.5 3.5 0 0 0-5-5l-6.5 6.5a5.25 5.25 0 0 0 7.5 7.5l5.5-5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <input id="file-input" type="file" multiple hidden>
+        <!-- the composer is CodeMirror 6 (vendor/cm6-composer.min.js), mounted here by app.js: its editable is a
+             contenteditable="true" with id="input", which is what a phone keyboard offers its image insertion to (it inserts
+             an image only into an editor that declares image types; Chrome on Android does that for a contenteditable, not
+             for a textarea); app.js keeps it plain text (the dot drawn for a list marker is not text) -->
+        <div id="composer-editor"></div>
+        <button id="send" class="send-btn" aria-label="Send"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 16V4M5 9l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+      <div id="model-line" class="model-line" hidden></div>
+    </footer>
+    <!-- the shell drawer: a small console under the page, a bottom sheet over it on a phone. A ttyd frame on
+         /tty/?arg=<shell session>, loaded the first time it opens (app.js, "the shell drawer"); closing it hides it and the
+         shell keeps running. The key row is the phone's: Esc, Tab, Ctrl, arrows and Ctrl+C that a soft keyboard lacks -->
+    <section id="shell-drawer" class="shell-drawer" aria-label="Shell" hidden>
+      <div id="shell-handle" class="shell-handle" role="separator" aria-orientation="horizontal" aria-label="Resize the shell" tabindex="0"><span></span></div>
+      <div class="shell-head">
+        <span class="shell-title">Shell</span>
+        <span id="shell-chip" class="shell-chip"></span>
+        <span id="shell-note" class="shell-note" role="status"></span>
+        <a id="shell-full" class="shell-full" href="terminal" target="_blank" rel="noopener">Open full size</a>
+        <button id="shell-close" class="shell-close" type="button" title="Close (the shell keeps running)" aria-label="Close the shell"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8l5 5 5-5"/></svg><span class="shell-close-word">Close</span></button>
+      </div>
+      <div id="shell-term" class="shell-term"></div>
+      <div id="shell-keys" class="shell-keys" role="toolbar" aria-label="Terminal keys">
+        <button type="button" data-key="Escape">Esc</button>
+        <button type="button" data-key="Tab">Tab</button>
+        <button type="button" id="shell-ctrl" data-key="ctrl" aria-pressed="false">Ctrl</button>
+        <button type="button" data-key="Up" aria-label="Up">&uarr;</button>
+        <button type="button" data-key="Down" aria-label="Down">&darr;</button>
+        <button type="button" data-key="C-c">Ctrl+C</button>
+      </div>
+    </section>
+  </main>
+  <div id="shell-scrim" class="shell-scrim"></div>
+</div>
+<div id="drop-hint">Drop files to attach</div>
+<script src="static/shared.js?v={{v}}"></script>
+<script src="static/termclip.js?v={{v}}"></script>
+<script src="static/sessions.js?v={{v}}"></script>
+<script src="static/schedules.js?v={{v}}"></script>
+<script src="static/machines.js?v={{v}}"></script>
+<script src="static/search.js?v={{v}}"></script>
+<script src="static/app.js?v={{v}}"></script>
+<!-- the color tool's button, in the side panel (#side-colors): colortool.js and colortool-sala.js are in the head, which applied the stored look before the first paint -->
+<script>if (window.SalaColors) SalaColors.init();</script>
+</body>
+</html>

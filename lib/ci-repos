@@ -1,0 +1,5 @@
+# lib/ci-repos — the repos the CI-run poller (sala-cipoll.service, `salamander ci-poll`) reads, one owner/name a line (# starts a comment).
+# This is the neutral default and lists no repo, so a fresh install polls nothing. Put the repos to poll in ~/.config/salamander/ci-repos
+# (one owner/name a line, for example alice/example-app); that file replaces this one on a box that has it. The poller reads the list
+# every pass, so a line added is polled from the next pass with no restart. Each repo costs one GitHub read a minute, a 304 (nothing changed)
+# not counted. The builders of a project wait on its runs through `salamander ci-runs`; docs/ci-runs.md.

@@ -1,0 +1,9 @@
+[Unit]
+Description=sala briefing — release watcher daily at 06:30 UTC
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,33 @@
+[Unit]
+Description=ttyd browser terminal behind the sala-web web UI (the Terminal tab and the Shell drawer, served at /tty/)
+Documentation=https://github.com/tsl0922/ttyd
+# sala-web's Terminal tab and Shell drawer load an iframe of /tty/?arg=<tmux session> from the same host as the app. This unit is
+# the program behind /tty/. ttyd has no login of its own, so it listens on a UNIX socket in the user's runtime directory (0700),
+# never on a TCP port: a loopback port would hand a shell of this user to every local user. The HTTPS proxy with a login that
+# sits in front of the app and of /tty/ is set up in docs/web-proxy.md, and it is the only way in.
+
+[Service]
+Type=simple
+# %t/sala-web-ttyd is this unit's own directory: not %t/sala-web, which belongs to sala-web.socket (stopping this unit would delete
+# that directory, and the web UI's socket with it)
+RuntimeDirectory=sala-web-ttyd
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+# ttyd is looked for at /usr/bin/ttyd (Debian and Ubuntu's package). Another path: `systemctl --user edit sala-web-ttyd.service`,
+# an empty `ExecStart=` line, then the full line again with the path.
+# --base-path /tty       the page, its scripts and its websocket live under /tty/, as sala-web's default SALA_WEB_TERMINAL_URL expects
+# --url-arg              /tty/?arg=<tmux session> passes the session name to the command below as its argument
+# --check-origin         a websocket is accepted only from a page of the same host, so the proxy must pass the Host header on (Caddy
+#                        and cloudflared do)
+# --writable             keystrokes reach the pane (without it the terminal is read-only)
+# The command is run once per browser tab; it attaches to an existing tmux session and never creates one on a bad name.
+# ExecStart runs sala-web-ttyd-attach from the checkout that web/contrib belongs to: install.sh --web rewrites %h/salamander to
+# the checkout's real path, so a checkout elsewhere needs no edit.
+ExecStart=/usr/bin/ttyd --interface %t/sala-web-ttyd/ttyd.sock --base-path /tty --writable --url-arg --check-origin \
+  --client-option titleFixed=tmux --cwd %h %h/salamander/web/contrib/sala-web-ttyd-attach
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=salamander heartbeat — publish this machine's CLI version and live sessions
+# Runs no model call: it reads the registry, runs `claude --version` (lib/heartbeat.sh) and pushes JSON files with git.
+X-Model-Lane=none
+X-Project=sala/salamander
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/salamander heartbeat

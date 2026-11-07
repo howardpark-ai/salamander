@@ -1,0 +1,12 @@
+#!/bin/sh
+# Refuses a push whose branch name or new commit messages carry the owner's private data (CONTRIBUTING.md, "Clean commit and PR
+# text"), then runs the machine's global pre-push hook when there is one (chain-global). Git hands over the remote's name in $1,
+# its url in $2 and one `<local ref> <local sha> <remote ref> <remote sha>` line per ref on stdin; stdin is read once into a
+# temporary file and replayed to each, and the first one to fail ends the run. Enabled with `git config core.hooksPath .githooks`.
+# CI runs the same check on the PR and catches what `git push --no-verify` skips.
+d=$(dirname "$0")
+tmp=$(mktemp "${TMPDIR:-/tmp}/githooks-pre-push.XXXXXX") || exit 1
+trap 'rm -f "$tmp"' EXIT
+cat > "$tmp"
+python3 -I "$d/../.github/scripts/clean_text.py" --push "$1" < "$tmp" || exit $?
+sh "$d/chain-global" pre-push "$@" < "$tmp"

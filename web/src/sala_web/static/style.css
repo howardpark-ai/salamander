@@ -1,0 +1,928 @@
+/* The palette is stackshot's (the board's --bg, --fg, --acc, --call, --warn, --ok ...), under sala's own token names, so the
+   two pages read as one product. Text tokens hold WCAG AA (4.5:1) on every surface they sit on, in both themes
+   (test_theme_contrast.py measures them from this file). Three values differ from stackshot's own on purpose, for that
+   reason, all in the light theme but --faint: --muted and --faint (stackshot's grey measures 4.4:1 on a selected row and
+   3.4:1 as faint text; dark --faint 4.3:1), and --busy, --warn and --call (8% deeper: their text on their own 12% tint and on a hovered row was 4.0 to 4.2:1).
+   The accent and the links are orange (since Wed Nov 4th 2026), one orange for the whole app:
+   #ad4608 in the light theme, #f0a06a in the dark one, the same as the app icons' own (--accent, --link, --call and --role-front-text all take it). */
+:root {
+  --bg: #fafaf8;
+  --side-bg: #fafaf8;
+  --panel: #ffffff;
+  --text: #1a1918;
+  --muted: #666561;
+  --faint: #6e6d69;
+  --border: #e4e2dc;
+  --accent: #ad4608;
+  --accent-text: #ffffff;
+  /* the accent as the colour of text (links, a hover): the same orange as the fill, which holds 4.5:1 as text on every surface */
+  --link: #ad4608;
+  --user-bubble: #f0efeb;
+  --code-bg: #f4f3ef;
+  --hover: #f0efeb;
+  --selected: #e9e8e3;
+  --busy: #876208;
+  --idle: #2e8b57;
+  --other: #9c9b96;
+  --waiting: #b42323;
+  /* the text on a --waiting fill (the red unread-for-you chips) */
+  --waiting-text: #ffffff;
+  --error: #b42323;
+  --error-bg: #f9e1e1;
+  /* stackshot's orange (its --call) and amber (its --warn): the front badge and the metered lane keep their orange, the same
+     value as the accent's in both themes (one orange in the whole app) */
+  --call: #ad4608;
+  --warn: #876208;
+  /* one colour per account lane (metered is --call); team's teal stays clear of --idle's green. Unchanged by the palette move */
+  --lane-subscription-1: #2563eb;
+  --lane-subscription-2: #0f766e;
+  --lane-sdk: #7c3aed;
+  --lane-bedrock: #be185d;
+  --lane-aws-platform: #a16207;
+  /* the front / background badges in the title bar: front is --call's orange, background a violet; the fill is the colour
+     at 12% over the page (front) or 20% (background), the text the orange itself (front) or a deeper / lighter step of the violet, 4.5:1 or better on its own fill in both */
+  --role-front-text: #ad4608;
+  --role-back: #8250df;
+  --role-back-text: #6b3fa0;
+  /* the green of a state's text (a lane's "active" pill, an idle runner, "latest"): --idle's dot green is under 4.5:1 as text on the light page */
+  --state-active: #17613a;
+  /* Latin first, then Pretendard for Hangul everywhere */
+  /* one typeface for all text: Pretendard covers Korean and Latin alike; code keeps --mono */
+  --font: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, "Pretendard Variable", Pretendard, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161617;
+    --side-bg: #161617;
+    --panel: #1f1f21;
+    --text: #ececea;
+    --muted: #a3a29d;
+    --faint: #929190;
+    --border: #2c2c2e;
+    --accent: #f0a06a;
+    --accent-text: #1f1f21;
+    --link: #f0a06a;
+    --user-bubble: #2a2a2c;
+    --code-bg: #1f1f21;
+    --hover: #232325;
+    --selected: #2c2c2e;
+    --busy: #e3b341;
+    --idle: #6fcf97;
+    --other: #6b6a66;
+    --waiting: #ff7b7b;
+    --waiting-text: #1f1f21;
+    --error: #ff7b7b;
+    --error-bg: #3d1c1c;
+    --call: #f0a06a;
+    --warn: #e3b341;
+    --lane-subscription-1: #60a5fa;
+    --lane-subscription-2: #2dd4bf;
+    --lane-sdk: #a78bfa;
+    --lane-bedrock: #f472b6;
+    --lane-aws-platform: #facc15;
+    --state-active: #8fe0b0;
+    --role-front-text: #f0a06a;
+    --role-back: #bc8cff;
+    --role-back-text: #c9aef5;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161617; --side-bg: #161617; --panel: #1f1f21; --text: #ececea; --muted: #a3a29d; --faint: #929190;
+  --border: #2c2c2e; --accent: #f0a06a; --accent-text: #1f1f21; --link: #f0a06a; --user-bubble: #2a2a2c; --code-bg: #1f1f21; --hover: #232325;
+  --selected: #2c2c2e; --busy: #e3b341; --idle: #6fcf97; --other: #6b6a66; --waiting: #ff7b7b; --waiting-text: #1f1f21;
+  --error: #ff7b7b; --error-bg: #3d1c1c; --call: #f0a06a; --warn: #e3b341;
+  --lane-subscription-1: #60a5fa; --lane-subscription-2: #2dd4bf; --lane-sdk: #a78bfa;
+  --lane-bedrock: #f472b6; --lane-aws-platform: #facc15; --state-active: #8fe0b0;
+  --role-front-text: #f0a06a; --role-back: #bc8cff; --role-back-text: #c9aef5;
+  color-scheme: dark;
+}
+/* The dark theme's small labels and disabled buttons, as shipped (the shipped dark look, the default because it keeps the one orange and gives labels and disabled buttons a quiet pair of their own):
+   a label (the unread count, the front badge, the "max" effort tag, a search hit's front tag) is the orange on a deep brown fill, #f0a06a on #3a2619 with an outline of the
+   fill's own color (none to see), and a disabled solid button (Send, Create session, Start quick session) is a flat grey, #a3a29d on #2a2a2c at full opacity. They are kept apart from the
+   token blocks above because the light theme has no such tokens: it keeps the stylesheets' fallbacks (the solid orange fill with its text, the faded button). The color tool reads
+   these six as the shipped values of its small-label and disabled fields (colortool-sala.js) and, once a field is set, overrides them inline. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --label-bg: #3a2619; --label-fg: #f0a06a; --label-bd: #3a2619; --dis-bg: #2a2a2c; --dis-fg: #a3a29d; --dis-op: 1; }
+}
+:root[data-theme="dark"] { --label-bg: #3a2619; --label-fg: #f0a06a; --label-bd: #3a2619; --dis-bg: #2a2a2c; --dis-fg: #a3a29d; --dis-op: 1; }
+
+* { box-sizing: border-box; }
+/* the canvas too (what shows behind an overscroll, under the gesture bar, while the keyboard resizes the view): the
+   page colour of the theme in use, never a light strip on a dark screen (seen in the installed app) */
+html, body { height: 100%; margin: 0; background: var(--bg); }
+/* the browser's own radios, checkboxes and ranges (the New session form's Role) take the accent, not the browser's default blue */
+html { accent-color: var(--accent); }
+body { color: var(--text); font: 15px/1.55 var(--font); overflow: hidden; }
+button { font: inherit; color: inherit; }
+
+/* as tall as what is on the screen: --app-h is the visual viewport's height, set on <html> by app.js (its "shell's
+   height" section: on Android Chrome the layout viewport, which 100dvh measures, can stay taller than the visible part
+   after the keyboard closes, and the composer's lower half sat under the screen's edge); 100dvh without a script */
+#app { display: flex; height: var(--app-h, 100dvh); }
+
+/* sidebar */
+/* the safe-area insets (viewport-fit=cover in index.html): the status bar's and the gesture bar's room, 0 where there
+   is none; the sidebar reaches both edges, #main the top, the composer the bottom */
+#sidebar { width: 280px; flex: none; background: var(--side-bg); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; min-height: 0;
+  padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+.side-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; }
+/* the icon and "salamander : <suffix>" on one line, in a drawer, a pinned sidebar and a peeking one */
+.brand-line { display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.brand-icon { width: 20px; height: 20px; flex: none; border-radius: 5px; }
+.brand { font-size: 14px; font-weight: 600; letter-spacing: .01em; white-space: nowrap; }   /* 14px: "salamander : <suffix>" must fit the peeking header, 200 px wide */
+#session-list { flex: 1; overflow-y: auto; padding: 4px 8px 12px; position: relative; }
+/* the views above the session list (the sessions overview), as claude.ai's entries above recent chats: a session row
+   with an icon for the dot; it stays put while the list scrolls */
+.side-top { flex: none; padding: 0 8px 4px; }
+.sess.side-ovw { padding-left: 8px; gap: 10px; }
+.side-ovw svg { flex: none; color: var(--muted); }
+.side-ovw.selected svg { color: var(--text); }
+.scope { margin-top: 12px; }
+.scope:first-child { margin-top: 4px; }
+.scope-body { padding-left: 0; }
+.group { margin-top: 4px; }
+.group-title, .scope-title { display: flex; align-items: center; gap: 2px; padding: 4px 8px 4px 8px; border-radius: 6px;
+  cursor: grab; user-select: none; -webkit-user-select: none; }
+/* with a mouse a drag on a header reorders; on a touch screen a swipe scrolls the list and there is no reorder */
+@media (pointer: fine) { .group-title, .scope-title { touch-action: none; } }
+@media (pointer: coarse) { .group-title .handle, .scope-title .handle { display: none; } }
+.scope-title { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: .02em; }
+.group-title { font-size: 12px; font-weight: 600; color: var(--muted); }
+.group-title .t, .scope-title .t { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group-title .handle, .scope-title .handle { flex: none; width: 12px; font-size: 11px; letter-spacing: -3px;
+  color: var(--faint); opacity: 0; transition: opacity .12s; }
+.chev { flex: none; width: 14px; height: 14px; margin-left: 4px; color: var(--faint); transition: transform .12s; }
+.chev.folded { transform: rotate(-90deg); }
+.group-title .dot, .scope-title .dot { margin-left: 4px; }
+.group-title .handle, .scope-title .handle { margin-left: auto; }
+.group-title:hover, .scope-title:hover { background: var(--hover); }
+.group-title:hover .handle, .scope-title:hover .handle { opacity: 1; }
+.group-title:focus-visible, .scope-title:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.has-selected { background: var(--selected); color: var(--text); }
+@media (hover: none) {
+  .group-title .handle, .scope-title .handle { opacity: .55; }
+  .group-title:hover, .scope-title:hover { background: none; }
+  .has-selected:hover { background: var(--selected); }
+}
+.group.dragging, .scope.dragging, .sess.dragging { background: var(--panel); border-radius: 10px; outline: 1px dashed var(--accent);
+  box-shadow: 0 6px 18px rgba(0,0,0,.16); position: relative; z-index: 2; }
+.drop-line { position: absolute; left: 8px; right: 8px; height: 2px; border-radius: 1px; background: var(--accent);
+  pointer-events: none; z-index: 3; }
+.drop-line[hidden] { display: none; }
+body.reordering, body.reordering * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+body.reordering .sess:not(.dragging) { pointer-events: none; }
+.sess { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0;
+  padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; color: inherit; text-decoration: none; box-sizing: border-box; }
+.sess:hover { background: var(--hover); }
+.sess.selected { background: var(--selected); }
+/* the selected row is the darkest surface text sits on; the faint step of text would be under 4.5:1 there, so it reads as --muted */
+.sess.selected, .has-selected { --faint: var(--muted); }
+/* three levels, each indented: scope (8px) > project (20px) > session (32px) */
+.scope-title { padding-left: 8px; }
+.group-title { padding-left: 20px; }
+.group > .sess { padding-left: 32px; }
+.scope.flat .sess { padding-left: 20px; }
+.sess .label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sess .role { font-size: 11px; color: var(--faint); }
+/* the unread reply count (which replaced the board count and the New chip on the rows): the replies a front agent has written
+   since the owner opened it, a filled orange pill at the row's far right end (the row's ⋯ is left of it, so the count never moves),
+   or on a folded project or scope header the total of the sessions inside. In the light theme the accent-text colour on the accent, as the primary buttons are; in the dark theme the shipped small label
+   (--label-bg, --label-fg, --label-bd above: the orange on a deep brown). 18px tall,
+   under the row's line height, so a row or header keeps its height whether it has one or not */
+.ucount { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px;
+  font-size: 11px; font-weight: 600; line-height: 1; box-sizing: border-box; background: var(--label-bg, var(--accent-solid, var(--accent))); color: var(--label-fg, var(--accent-on-solid, var(--accent-text)));
+  box-shadow: inset 0 0 0 1px var(--label-bd, transparent); }
+.group-title .ucount, .scope-title .ucount { margin-left: 4px; }
+/* the row's ⋯ menu button (Fork), left of the count: shown on hover or focus and on the open session's row; on a touch screen only on
+   the open one. 18px tall like .ucount, under the row's 21.7px content line (14px at the body's 1.55 line height): it appears
+   on hover, so a taller one made the hovered row grow and every row below it shift (test_sidebar_no_twitch.py).
+   The ::before widens the tap target to about 40px without taking room */
+.sess-more { position: relative; flex: none; display: none; align-items: center; justify-content: center; min-width: 22px; height: 18px;
+  border-radius: 6px; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.sess-more::before { content: ""; position: absolute; inset: -11px -4px; }
+.sess:hover .sess-more, .sess:focus-within .sess-more, .sess.selected .sess-more, .sess-more[aria-expanded="true"] { display: inline-flex; }
+@media (pointer: coarse) and (hover: none) { .sess:hover:not(.selected) .sess-more:not([aria-expanded="true"]) { display: none; } }
+.sess-more:hover, .sess-more[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.sess-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row-menu { position: fixed; z-index: 60; min-width: 220px; max-width: calc(100vw - 16px); padding: 4px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+.row-menu-item { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; border-radius: 7px; color: var(--text); text-decoration: none; min-height: 40px; box-sizing: border-box; justify-content: center; }
+.row-menu-item:hover, .row-menu-item:focus-visible { background: var(--hover); outline: none; }
+.row-menu-item .hint { font-size: 12px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--other); flex: none; display: inline-block; }
+.dot.busy { background: var(--busy); box-shadow: 0 0 0 3px color-mix(in srgb, var(--busy) 25%, transparent); }
+.dot.idle { background: var(--idle); }
+/* shell: the turn is over but a background shell still runs (Claude Code counts it as working); waiting: a prompt needs an answer */
+.dot.shell { background: transparent; box-shadow: inset 0 0 0 2px var(--busy); }
+.dot.waiting { background: var(--waiting); box-shadow: 0 0 0 3px color-mix(in srgb, var(--waiting) 25%, transparent); }
+.toggle { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border);
+  font-size: 13px; color: var(--muted); cursor: pointer; }
+.side-note { font-size: 12px; color: var(--faint); padding: 0 16px 10px; }
+.side-note:empty { display: none; }
+/* the color tool's button (colortool.js draws it into #side-colors): last in the panel, under "Show all sessions"; nothing shows in the light theme, where the tool draws nothing */
+.side-colors { display: none; }
+.side-colors:has(.ct:not([hidden])) { display: block; flex: none; padding: 8px 16px 10px; border-top: 1px solid var(--border); }
+
+/* main */
+#main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; padding-top: env(safe-area-inset-top); }
+#top { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+/* the title bar (index.html, the lighter view): a grid of three columns across the WHOLE WINDOW's width. The name (.who: the dot
+   and the name, nothing else) is the middle one; the cluster at the right end (.top-end: the status badge, Reload as an
+   icon, the ⋯ button) is in the third. The two side tracks are equal while the name fits, so its centre is the centre of the window, which
+   is also the bar's centre (on a phone, and with the sidebar docked: the name stays put when the sidebar opens
+   or closes; a docked sidebar pulls the title's left edge back under it, see the desktop block below). The left track is at least
+   max(--lead, --cl): --lead is the room the fixed toggle and brand block keep at the left (296 px on a desktop, the toggle's on a phone),
+   --cl the cluster's width (set by layoutHeader() in app.js from the cluster it measured), so the cluster can never push the name
+   off-centre to the left; the right track is at least --cl only (on a phone also --lead-sym, the toggle's room, so the phone's name never moves),
+   so where the sidebar's block is the tighter side (a narrow desktop window) the name moves right only as far as it must to clear it. When it does not fit at all the middle track shrinks and the name is cut with an
+   ellipsis. The fold (app.js) takes Reload and the badge into the menu first to give it room. The chips and the controls keep their
+   width, in the bar whole or in the menu */
+#title { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(max(var(--lead, 0px), var(--cl, 0px)), 1fr) auto minmax(max(var(--lead-sym, 0px), var(--cl, 0px)), 1fr); column-gap: 12px; align-items: center; height: 32px; line-height: 1; }
+#title .who { grid-column: 2; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.top-end { grid-column: 3; justify-self: end; display: flex; align-items: center; gap: 10px; }
+#title .dot { align-self: center; flex: none; }
+#title .name { flex: 0 1 auto; min-width: 0; font-size: 16px; line-height: 20px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#top-status { flex: none; display: flex; align-items: center; gap: 6px; line-height: 1; font-size: 12px; color: var(--faint); }
+#top-status:empty { display: none; }
+#title .crumb { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
+/* the ⋯ menu (the lighter view): the Session section on top (Role, Lane and the tmux name as rows, the badges in their
+   colours; the status badge joins it as a row when it has folded out of the bar), the View section under it (Chat / Terminal as a
+   segmented control, then the thinking toggle), and Reload last, a row with its word, when it has folded here. Open it under the button */
+#top-menu-btn { display: inline-flex; align-items: center; height: 32px; }
+#top-menu-btn[hidden] { display: none; }
+.top-tools { display: none; position: absolute; z-index: 25; top: calc(100% + 4px); right: 16px; flex-direction: column;
+  align-items: stretch; gap: 12px; padding: 12px; min-width: 220px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+body.top-menu-open .top-tools { display: flex; }
+.menu-sec { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.menu-sec + .menu-sec { padding-top: 12px; border-top: 1px solid var(--border); }
+.menu-head { margin: 0; font-size: 11px; line-height: 1; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); }
+.menu-rows { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.srow, .top-tools #top-status { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 28px; font-size: 13px; line-height: 1; color: var(--muted); }
+.top-tools #top-status::before { content: "Status"; }
+.top-tools #top-status:empty { display: none; }
+#menu-session:not(:has(.srow)):not(:has(#top-status:not(:empty))) { display: none; }   /* nothing to list (no session): no heading either */
+#menu-session:not(:has(.srow)):not(:has(#top-status:not(:empty))) + .menu-sec { padding-top: 0; border-top: 0; }
+.top-tools .tabs { justify-content: stretch; }
+.top-tools .tab { flex: 1; height: 32px; }
+.top-tools .menu-item { min-height: 44px; height: auto; justify-content: flex-start; padding: 0 4px; }
+.top-tools #menu-reload::after { content: "Reload"; }   /* the word is only drawn in the menu: in the bar the button is the icon (its name is the aria-label) */
+#top .pill { flex: none; display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--text) 30%, transparent); background: var(--hover); color: var(--text); font-weight: 500; white-space: nowrap; }
+#top .pill.busy { color: var(--busy); border-color: color-mix(in srgb, var(--busy) 60%, transparent); background: color-mix(in srgb, var(--busy) 12%, transparent); }
+#top .pill.waiting { color: var(--waiting); border-color: color-mix(in srgb, var(--waiting) 60%, transparent); background: color-mix(in srgb, var(--waiting) 12%, transparent); }
+/* each lane in its own colour (--lane, set below); metered keeps its orange (--call, a step off the accent's in the light theme, the same value in the dark): billed per use, so it stands out. "other" stays plain */
+#top .pill:is(.lane-api, .lane-sdk, .lane-subscription-1, .lane-subscription-2, .lane-max, .lane-team, .lane-bedrock, .lane-aws-platform, .lane-awsplatform) { color: var(--lane); border-color: color-mix(in srgb, var(--lane) 60%, transparent); background: color-mix(in srgb, var(--lane) 12%, transparent); }
+.lane-api { --lane: var(--call); }
+.lane-sdk { --lane: var(--lane-sdk); }
+.lane-subscription-1, .lane-max { --lane: var(--lane-subscription-1); }   /* .lane-max: the old code of the lane (renamed to subscription-1), kept for a cached page or an answer that carries it */
+.lane-subscription-2, .lane-team { --lane: var(--lane-subscription-2); }   /* .lane-team: the old code of subscription-2 */
+.lane-bedrock { --lane: var(--lane-bedrock); }
+.lane-aws-platform, .lane-awsplatform { --lane: var(--lane-aws-platform); }   /* the old name of the lane still draws, for a cached page or an answer that carries it */
+/* front and background in their own colours, so which one a session is reads at a glance: front --call's orange,
+   background a violet; a tinted fill, the colour as the border, a deeper/lighter step of it as the text (--role-*-text) */
+#top .pill.role-front { color: var(--label-fg, var(--role-front-text)); border-color: var(--label-bd, color-mix(in srgb, var(--accent-solid, var(--call)) 70%, transparent)); background: var(--label-bg, color-mix(in srgb, var(--accent-solid, var(--call)) 12%, var(--bg))); font-weight: 600; }
+#top .pill.role-background { color: var(--role-back-text); border-color: color-mix(in srgb, var(--role-back) 70%, transparent); background: color-mix(in srgb, var(--role-back) 20%, var(--bg)); font-weight: 600; }
+#top .pill.mono { font-family: var(--mono); font-size: 11px; }
+/* "Reconnecting…" while the server restarts: quiet, not an error */
+.conn { flex: none; align-self: center; font-size: 12px; color: var(--muted); padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--panel); white-space: nowrap; }
+.conn[hidden] { display: none; }
+/* "sala was updated. Reload": a thin non-blocking strip above the header */
+.banner { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; padding: 6px 16px;
+  font-size: 13px; color: var(--text); background: color-mix(in srgb, var(--accent-solid, var(--accent)) 14%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-solid, var(--accent)) 35%, var(--border)); }
+.banner[hidden] { display: none; }
+.banner button { font: inherit; font-size: 13px; font-weight: 600; padding: 3px 12px; border-radius: 8px; cursor: pointer;
+  border: 0; background: var(--accent-solid, var(--accent)); color: var(--accent-on-solid, var(--accent-text)); }
+.banner button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+body.hide-tools details.fold.tool, body.hide-tools details.fold.thinking { display: none; }
+body.hide-tools .msg.tools-only { display: none; }
+.top-toggle { flex: none; height: 32px; border-top: 0; padding: 0; line-height: 1; font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+/* an action in the view options (Reload): a quiet button beside the toggle and the tabs; a touch-sized row in the ⋯ menu */
+.menu-item { flex: none; height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: none; line-height: 1; font-size: 13px;
+  color: var(--muted); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.menu-item:hover { background: var(--hover); color: var(--text); }
+.menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.menu-item svg { display: block; }
+#top-end > #menu-reload { width: 32px; padding: 0; justify-content: center; }   /* icon only in the bar */
+.tabs { display: flex; gap: 2px; background: var(--side-bg); border: 1px solid var(--border); border-radius: 10px; padding: 2px; flex: none; }
+.tab { background: none; border: 0; height: 26px; line-height: 1; padding: 0 12px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }
+.tab.active { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }   /* shadows and scrims are black at a low alpha on purpose: neutral on both palettes */
+.icon-btn { background: none; border: 0; font-size: 20px; line-height: 1; padding: 4px 8px; cursor: pointer; color: var(--muted); border-radius: 6px; }
+.icon-btn:hover { background: var(--hover); }
+
+.pane { display: none; flex: 1; min-height: 0; }
+.pane.active { display: flex; }
+#chat-pane { overflow-y: auto; overflow-x: hidden; align-items: flex-start; }  /* no stretch: #chat grows with its content, so its bottom padding comes after the last message */
+#chat { width: 100%; max-width: 820px; margin: 0 auto; padding: 20px 16px 48px; }
+.top-toggle input { margin: 0; }
+#side-open { height: 32px; display: inline-flex; align-items: center; }
+/* the session is working: a small spinner under the last message */
+.inflight { padding: 4px 0 0; line-height: 0; }
+.spinner { display: inline-block; width: 16px; height: 16px; border-radius: 50%; animation: spin .8s linear infinite;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+/* the Overview (#sessions, with its Schedules tab #schedules) takes the main area: no session tabs, view options or composer */
+#overview-pane { overflow-y: auto; overflow-x: hidden; }
+body.overview-open #chat-pane, body.overview-open #terminal-pane, body.overview-open #composer,
+body.overview-open #menu-reload, body.overview-open #top-tools, body.overview-open #top-menu-btn, body.overview-open #title .dot { display: none; }
+body.overview-open #overview-pane { display: block; }
+/* the New session page (#new) takes the main area the same way; the form inside is its one scroller (.np) */
+body.new-open #chat-pane, body.new-open #terminal-pane, body.new-open #composer, body.new-open #overview-pane,
+body.new-open #menu-reload, body.new-open #top-tools, body.new-open #top-menu-btn, body.new-open #title .dot { display: none; }
+body.new-open #new-pane { display: flex; flex-direction: column; }   /* the switch on top, the form (its own scroller) under it */
+/* a quick session (called a side conversation inside sala): its form takes the page's place under #side=…, the New session form otherwise */
+#sd-form { display: none; }
+body.side-mode #ns-form { display: none; }
+body.side-mode #sd-form { display: block; }
+.sd-block { display: flex; flex-direction: column; gap: 14px; }
+.sd-block[hidden] { display: none; }
+.sd-lead { margin: 0; }
+#new-pane { overflow: hidden; outline: none; }
+#terminal-pane iframe { flex: 1; border: 0; width: 100%; height: 100%; background: #000; }   /* the Terminal and Shell stay black, as a terminal is */
+.empty { color: var(--faint); text-align: center; padding: 48px 0; }
+/* the line at the top of the chat that loads older messages (app.js: olderReset); empty while idle, a small note while a page
+   loads, a marker at the transcript's start; one height in all three, so its text never moves the messages */
+#chat > .older { color: var(--faint); font-size: 12px; text-align: center; height: 28px; line-height: 20px; overflow: hidden; }
+#chat > .older.at-start { border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+/* its twin at the bottom of a chat opened far back (a Search result; app.js: openAround), which loads newer messages until the live end */
+#chat > .newer { color: var(--faint); font-size: 12px; text-align: center; height: 28px; line-height: 20px; overflow: hidden; }
+
+/* messages */
+.msg { margin: 6px 0; }
+.msg.user { display: flex; flex-direction: column; align-items: flex-end; }
+/* nothing in a message is wider than the chat: a child of the right-aligned column takes its content's width, so a
+   pill whose one-line label was wider than the phone hung out past the left edge, where #chat-pane cuts it off
+   (a long message overflowed the chat to the left on Android Chrome). A long unbroken token (a path, a
+   URL, a hash) wraps anywhere, a code block too (.md pre: wrapped on screen) */
+.msg > * { max-width: 100%; min-width: 0; }
+.msg.user .bubble { background: var(--user-bubble); border-radius: 14px; padding: 8px 14px; max-width: 85%;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.user + .msg.assistant, .msg.assistant + .msg.user { margin-top: 18px; }
+.cmd { font: 13px var(--mono); color: var(--muted); background: var(--code-bg); border-radius: 6px; padding: 2px 8px;
+  overflow-wrap: anywhere; }
+/* the live block of a running ! command: the pane's text under the command's line, with a Stop button */
+.live-bang { border: 1px solid var(--border); border-radius: 8px; background: var(--code-bg); padding: 6px 10px; margin: 6px 0;
+  align-self: stretch; }
+.live-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+.live-stop { font-size: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 2px 12px;
+  color: inherit; cursor: pointer; }
+.live-stop:hover:not(:disabled) { background: var(--hover); }
+.live-stop:disabled { opacity: .5; cursor: default; }
+.live-out { font: 12.5px/1.45 var(--mono); margin: 6px 0 0; max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.live-note { font-size: 12px; color: var(--faint); margin-top: 4px; }
+.live-note.err { color: var(--error); }
+.md { overflow-wrap: anywhere; }
+.md th, .md td { overflow-wrap: normal; word-break: keep-all; }  /* 'anywhere' let tables squeeze a column to one letter */
+.msg.assistant .md { font-size: 16px; line-height: 1.65; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 .7em; }
+.md pre { background: var(--code-bg); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font: 13px/1.45 var(--mono); }
+/* a code block wraps on screen instead of scrolling (a scrolling code block is difficult to read). CSS only: the wrap is not in the text, so the copy button (it copies the block's raw textContent,
+   app.js md()) and a hand selection give the source unchanged; real newlines still break lines. 'anywhere' breaks a
+   token with no space (a URL, a hash). The right padding keeps the first line's text clear of the corner copy button
+   (.code-copy, 28px wide at rest, inset 11px); overflow-x stays 'auto' only as a net, nothing normally overflows. */
+.md pre, .md pre code { white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }
+.md pre { padding-right: 44px; }
+/* inline code: family and size only (the `font` shorthand also reset line-height, so the box sat off the text's line);
+   90% of the text, as on claude.ai: JetBrains Mono's tall lowercase (0.55 em) then sits level with Pretendard's (0.53) */
+.md code { font-family: var(--mono); font-size: .9em; line-height: 1; vertical-align: baseline; background: var(--code-bg);
+  border-radius: 4px; padding: .15em .4em; }
+.md pre code { font-size: inherit; line-height: inherit; background: none; padding: 0; }  /* in a block: the pre's 13px, not 90% of it */
+.md .codebox { position: relative; margin: 0 0 .7em; }
+.md .codebox > pre { margin: 0; }
+/* the copy button: a fixed height (pressed, "Copied" does not grow it) and one inset for its top and its right, half the
+   space a one-line block (.md pre: 10px padding twice, one 13px x 1.45 line) leaves around it, so it is centred on a
+   one-line block and sits evenly in the corner of a taller one (was top/right 5px: "too close to the top", Wed Oct 14th) */
+.code-copy { --cc-h: 23px; --cc-inset: calc((20px + 13px * 1.45 - var(--cc-h)) / 2);
+  position: absolute; top: var(--cc-inset); right: var(--cc-inset); height: var(--cc-h); display: inline-flex;
+  align-items: center; gap: 4px; border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+  border-radius: 6px; padding: 0 6px; font-size: 12px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .12s; }
+.code-copy:hover { color: var(--text); background: var(--hover); }
+.codebox:hover .code-copy, .code-copy:focus-visible, .code-copy.done { opacity: 1; }
+@media (hover: none) { .code-copy { opacity: .8; } }
+.md table { border-collapse: collapse; display: block; overflow-x: auto; margin: .5em 0; }
+.md img { max-width: 100%; height: auto; }
+.md th, .md td { border: 1px solid var(--border); padding: 4px 8px; }
+/* links: the accent and an underline everywhere text is shown, markdown or verbatim (a prompt bubble, a message from
+   another session, a tool result), so they read as links on the dark theme too; one DOMPurify stripped (javascript:)
+   has no href and looks like text */
+.md a[href], .bubble a[href], details.fold pre a[href] { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
+.md a:not([href]) { color: inherit; text-decoration: none; }
+.md blockquote { margin: .5em 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--muted); }
+/* a reply's footer (replyNodes in app.js, splitFooter in shared.js: the Write-up, Board and Page notes a session
+   leaves last): 0.85 of the reply's 16px in --muted (AA at that size: 5.1:1 light, 6.1:1 dark; --faint
+   would be 2.8:1), under a thin rule when a body precedes it (.ruled), none when the footer is the whole reply. Each
+   note is a block of its own with a small gap, no top margins (a list under "Board:" sits close to it). Links keep the
+   accent. A link on one line gets 3px of extra tap height above and below its text from an invisible ::after box (position
+   absolute, inset -3px 0). A link that wraps (app.js markWrappedLinks puts .wrapped on it) has no extra area beyond its
+   text, on any of its lines: its ::after is off, because that box is one rectangle from the first line's left edge to the
+   last line's right edge, partial or empty for a wrapped link, and its own text, two lines or more, is the target. There is no
+   vertical padding: padding on an inline box put the link's text a device pixel off the footer text's row at a fractional
+   browser zoom on Windows Chrome, so the text stays on the footer baseline. The link stays a plain inline box (an
+   inline-block would not break between lines and moved a long link, and the words around it, onto rows of their own) */
+.msg.assistant .md.footer { font-size: calc(16px * .85); color: var(--muted); }
+.msg.assistant .md.footer.ruled { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.md.footer > * { margin-top: 0; }
+.md.footer > :not(:last-child) { margin-bottom: .4em; }
+.md.footer a[href] { position: relative; }
+.md.footer a[href]::after { content: ""; position: absolute; inset: -3px 0; }
+.md.footer a[href].wrapped::after { display: none; }
+/* the closing paragraph after a footer (the ask the rulebook puts last; replyNodes' tail): body text, a gap, no rule */
+.msg.assistant .md.tail { margin-top: 10px; }
+
+details.fold { margin: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+details.fold > summary { cursor: pointer; list-style: none; padding: 5px 10px; font-size: 13px; color: var(--muted);
+  display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before { content: "\25B8"; color: var(--faint); flex: none; }
+details.fold[open] > summary::before { content: "\25BE"; }
+/* the name keeps its width and the summary takes the rest, cut with an ellipsis; a name wider than the line (an MCP
+   tool's, mcp__plugin_…__notion-check-mcp-next-steps) wraps instead of pushing the summary off the screen */
+details.fold > summary b { color: var(--text); font-weight: 600; flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+details.fold > summary .sum { flex: 1 1 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-family: var(--mono); font-size: 12px; }
+/* a notice pill's label (a task notification's summary, "message from <session>") wraps: all of it is read on a phone */
+details.notice > summary .sum { white-space: normal; overflow-wrap: anywhere; }
+details.fold .body { padding: 6px 10px 10px; border-top: 1px solid var(--border); }
+details.fold pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.45 var(--mono); max-height: 480px; overflow-y: auto; }
+details.fold .result { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+details.fold .result.err pre { color: var(--error); }
+details.tool.err > summary b { color: var(--error); }
+details.thinking > summary { font-style: italic; }
+details.notice { background: transparent; }
+/* the output of a finished ! command: open under its "! cmd" line, a small header "Output · N lines" with a Fold
+   button, the first 12 lines and a "Show all N lines" button. Same border, radius and code surface as the live block it
+   replaces (.live-bang); it is a column child, so .msg > * keeps it inside the chat width at phone width. */
+.bang-out { border: 1px solid var(--border); border-radius: 8px; background: var(--code-bg); margin: 4px 0; align-self: stretch; }
+.bang-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 6px 3px 10px;
+  font-size: 12px; color: var(--muted); }
+.bang-fold, .bang-more { font: inherit; font-size: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 2px 12px; color: inherit; cursor: pointer; }
+.bang-fold::before { content: "\25BE"; color: var(--faint); margin-right: 6px; }  /* the label stays "Fold output"; the arrow shows the state */
+.bang-fold[aria-expanded="false"]::before { content: "\25B8"; }
+.bang-fold:hover, .bang-more:hover { background: var(--hover); }
+.bang-fold:focus-visible, .bang-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bang-body { padding: 0 10px 8px; }
+.bang-body[hidden] { display: none; }
+.bang-body pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.45 var(--mono); max-height: 480px; overflow-y: auto; }
+.bang-none { color: var(--faint); font-style: italic; }
+.bang-more { margin-top: 6px; }
+@media (pointer: coarse) { .bang-fold, .bang-more { min-height: 36px; padding: 4px 14px; } }
+.trunc { color: var(--faint); font-size: 12px; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+.thumb { max-width: 220px; max-height: 160px; border-radius: 8px; border: 1px solid var(--border); cursor: zoom-in; display: block; }
+/* an image the session sent (SendUserFile): wider than a thumbnail, never wider than the column; the box keeps a height
+   while the lazy image loads */
+.sent { margin: 4px 0; max-width: 100%; }
+.sent a { display: block; width: fit-content; max-width: 100%; }
+.sent-img { display: block; max-width: min(100%, 480px); max-height: 60vh; min-width: 96px; min-height: 72px; object-fit: contain;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--panel); cursor: zoom-in; }
+.sent figcaption { margin-top: 4px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.sent-missing { font-size: 12px; color: var(--faint); border: 1px dashed var(--border); border-radius: 8px; padding: 6px 10px; overflow-wrap: anywhere; }
+/* an image a reply names in its markdown by a path on this machine (localImage in app.js): the sent image's size rules, inside
+   the reply's text; a refusal is one muted line where the image would be */
+.md-local { display: block; margin: 6px 0; max-width: 100%; }
+.md-local a { display: block; width: fit-content; max-width: 100%; }
+.md-local-img { display: block; max-width: min(100%, 480px); max-height: 60vh; min-width: 96px; min-height: 72px; object-fit: contain;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--panel); cursor: zoom-in; }
+.md-local-cap { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.md-local-missing { display: block; font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
+.md-local-missing + .md-local-cap { margin-top: 2px; }
+.ts { font-size: 11px; color: var(--faint); margin: 2px 4px; }
+
+/* copy button under a message: on hover with a mouse, always on touch */
+.actions { display: flex; margin-top: 2px; min-height: 26px; }
+.msg.user .actions { justify-content: flex-end; }
+.stamp { align-self: center; font-size: 12px; color: var(--faint); padding: 0 6px; opacity: 0; transition: opacity .12s; white-space: nowrap; }
+.msg:hover .stamp { opacity: 1; }
+@media (hover: none) { .stamp { opacity: .7; } }
+.copy-btn { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; border-radius: 6px;
+  padding: 4px 6px; color: var(--faint); cursor: pointer; font-size: 12px; opacity: 0; transition: opacity .12s; }
+.copy-btn:hover { background: var(--hover); color: var(--text); }
+.msg:hover .copy-btn, .copy-btn:focus-visible, .copy-btn.done { opacity: 1; }
+@media (hover: none) { .copy-btn { opacity: .7; } }
+
+/* a message sent from this page that the transcript does not show yet */
+.msg.local.sending .bubble, .msg.local.sent .bubble, .msg.local.sending .thumbs, .msg.local.sent .thumbs { opacity: .6; }
+.msg.local.failed .bubble { outline: 1px solid var(--error); }
+.msg.local .note { font-size: 12px; color: var(--faint); margin-top: 3px; }
+.msg.local .note.err { color: var(--error); max-width: 85%; text-align: right; overflow-wrap: anywhere; }
+.note-actions { display: flex; gap: 6px; margin-top: 4px; }
+.note-actions button { font-size: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 2px 10px; cursor: pointer; }
+.note-actions button:hover { background: var(--hover); }
+
+/* composer */
+#composer { position: relative; border-top: 1px solid var(--border); padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--bg); }
+#composer > .jump { position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%); margin: 0;
+  max-width: none; z-index: 5; min-width: 36px; height: 36px; padding: 0 12px; border-radius: 18px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 14px; cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0,0,0,.14); white-space: nowrap; }
+#composer > .jump.wide { font-size: 13px; }
+#composer > .jump:hover { background: var(--hover); }
+#composer > .jump[hidden] { display: none; }
+#composer > * { max-width: 820px; margin-left: auto; margin-right: auto; }
+.compose-row { display: flex; align-items: flex-end; gap: 8px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 6px 6px 6px 8px; }
+/* attach: a 44px touch target drawn as the row's 30px (negative margins keep the row at one line), the icon centred. The
+   button itself paints nothing: its hover highlight and focus ring are a centred 30px square with 8px radius (the send
+   button's size and radius) drawn by ::before behind the icon (isolation makes the button the stacking context, so the
+   z-index: -1 square stays above the row's background), so they stay inside the row's border and rounded corner instead of
+   the 44px box spilling over them */
+.attach-btn { position: relative; isolation: isolate; flex: none; width: 44px; height: 44px; margin: -7px -4px -7px -6px; border: 0;
+  border-radius: 10px; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center;
+  justify-content: center; padding: 0; }
+.attach-btn::before { content: ""; position: absolute; z-index: -1; top: 50%; left: 50%; width: 30px; height: 30px;
+  margin: -15px 0 0 -15px; border-radius: 8px; background: none; pointer-events: none; }
+.attach-btn:hover { color: var(--text); }
+.attach-btn:hover::before { background: var(--hover); }
+@media (hover: none) { .attach-btn:hover { color: var(--muted); } .attach-btn:hover::before { background: none; } }  /* a tap leaves no stuck hover */
+.attach-btn:focus-visible { outline: none; }
+.attach-btn:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 0; }
+.attach-btn:disabled { opacity: .45; cursor: default; }
+.attach-btn.busy { color: var(--accent); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .attach-btn.busy { animation: none; } }
+.compose-row:focus-within { border-color: var(--faint); }
+/* the composer is CodeMirror 6 (see index.html, app.js, vendor/cm6-composer.min.js): #composer-editor is its mount and fills
+   the row; the editor's own theme (the bundle's entry.js) gives it 22px lines with 4px above and below (one line = the send
+   button's 30px, so the text sits centred), growth up to 40vh and a scroll past that, as the textarea did, the app's colours,
+   and the drawn list markers. #input is its contenteditable */
+#composer-editor { flex: 1; min-width: 0; }
+/* CodeMirror styles its editable `-webkit-user-modify: read-write-plaintext-only`; the composer keeps the plain "read-write" of
+   contenteditable="true" it always had, which is what a phone keyboard's image insertion needs (app.js, composer) */
+#input.cm-content[contenteditable="true"] { -webkit-user-modify: read-write; }
+/* a list item's marker in the composer, the disc of a bullet and the number of a numbered item, is drawn in the text's own colour
+   (it was dim before). The bundle's theme gives them
+   --muted (vendor-src/cm6-composer/entry.js); its rules carry a generated class in front, so these name #composer to outrank them
+   without a rebuild of the bundle. Both themes: --text is the theme's text colour */
+#composer .cm-li-mark { color: var(--text); }
+#composer .cm-li-bullet::before { background-color: var(--text); }
+.send-btn { flex: none; width: 30px; height: 30px; border-radius: 8px; border: 0; background: var(--accent-solid, var(--accent));
+  color: var(--accent-on-solid, var(--accent-text)); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.model-line { margin-top: 6px; padding: 0 4px; font-size: 13px; color: var(--text); text-align: right; }
+.model-line[hidden] { display: none; }
+/* the idle Send: in the light theme the solid button faded to .45; in the dark theme --dis-bg, --dis-fg and --dis-op (1) are set above and the button is exactly those two colors, no fade on top (the color tool sets them too when a disabled field is picked) */
+.send-btn:disabled { opacity: var(--dis-op, .45); background: var(--dis-bg, var(--accent-solid, var(--accent))); color: var(--dis-fg, var(--accent-on-solid, var(--accent-text))); cursor: default; }
+#chips { display: flex; flex-wrap: wrap; gap: 8px; }
+#chips:not(:empty) { margin-bottom: 8px; }
+.chip { position: relative; width: 64px; height: 64px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--panel); }
+.chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.chip.uploading img { opacity: .4; }
+.chip button { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 50%; border: 0;
+  background: rgba(0,0,0,.6); color: #fff; font-size: 13px; line-height: 20px; padding: 0; cursor: pointer; }   /* white on a black disc over a photo: palette-neutral on purpose */
+/* a file that is not an image, in the composer's chips and in a sent bubble */
+.chip.file { width: auto; min-width: 150px; max-width: 240px; height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 32px 0 10px; }
+.chip.file .fc-icon { flex: none; color: var(--muted); }
+.fc-text { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.fc-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-meta { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: var(--accent); transition: width .15s linear; }
+.chip.file:not(.uploading) .fc-bar { display: none; }
+.chip.file button { top: 50%; right: 6px; transform: translateY(-50%); }
+.chip.file.failed { border-color: var(--error); }
+.chip.file.failed .fc-meta { color: var(--error); }
+@media (prefers-reduced-motion: reduce) { .fc-bar { transition: none; } }
+.sent-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+.sent-file { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 6px 10px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--panel); font-size: 13px; }
+.sent-file .fc-icon { flex: none; color: var(--muted); }
+.sf-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-size { flex: none; font-size: 11px; color: var(--muted); }
+.msg.local.sending .sent-files, .msg.local.sent .sent-files { opacity: .6; }
+#send-status { font-size: 13px; }
+#send-status:not(:empty) { margin-bottom: 8px; padding: 6px 10px; border-radius: 8px; }
+#send-status.error { color: var(--error); background: var(--error-bg); }
+#send-status.ok { color: var(--muted); }
+
+/* the New session page (a full page, not a pop-up): the form is the page's one scroller and holds ONE centered column, about 760 px wide
+   (full width with side padding on a phone). The project list is six rows tall by default and scrolls inside itself; its
+   bottom-right corner drags it taller (resize: vertical) and the height is kept in the browser (app.js, "sala.ns.list-h").
+   So an ordinary create at 1280 x 800 needs no scrolling: Create, the steps and the Open button stay on the screen, and a
+   phone, which has the same column, scrolls. Every text here holds AA contrast in both themes: labels and values in --text,
+   hints in --muted on the panel (5.1:1 light, 6:1 dark), errors in --error, the primary button --bg on --text (the accent
+   on white is 3.9:1, so not for text), the session link --text on the panel */
+.side-new:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ns-form { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; padding: 16px 24px 20px; margin: 0; }
+.np-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; max-width: 760px; margin: 0 auto; }
+/* six 40 px rows (and the list's own padding and border) by default; dragged taller from the corner, never under three rows
+   or past the screen. overflow: auto is what puts the handle on a box; the rows keep their own scroll inside */
+.ns-projfield .ns-list { box-sizing: border-box; height: 250px; min-height: 130px; max-height: max(130px, calc(var(--app-h, 100dvh) - 120px)); resize: vertical; overflow: auto; }
+.ns-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ns-field > label, .ns-field > .ns-label, .ns-role legend, .ns-grid > label, .ns-more > summary { font-size: 13px; font-weight: 600; color: var(--text); }
+.ns-hint { font-size: 12px; font-weight: 400; color: var(--muted); }
+.ns-form input[type="text"], .ns-form input[type="search"], .ns-form textarea, .ns-form select {
+  font: inherit; font-size: 14px; line-height: 1.4; color: var(--text); background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; min-height: 40px; width: 100%; min-width: 0; box-sizing: border-box; margin: 0; }
+.ns-form textarea { resize: vertical; min-height: 80px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ns-form input:focus-visible, .ns-form textarea:focus-visible, .ns-form select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* the project pages: a scrolling list of 40px rows under the filter box; the picked one in the selected tone */
+.ns-list { overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 4px; }
+.ns-opt { display: flex; align-items: flex-start; gap: 4px 12px; width: 100%; min-height: 40px; padding: 6px 10px; border: 0; border-radius: 6px;
+  background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.ns-opt:hover { background: var(--hover); }
+.ns-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ns-opt[aria-selected="true"] { background: var(--selected); font-weight: 600; }
+/* the name column is narrow and fixed (the header row above the list uses the same width, so the two line up); the description takes the rest */
+.ns-form { --ns-name-w: 8.5rem; }
+.ns-opt .ns-key { flex: 0 0 var(--ns-name-w); min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 13px; padding-top: 2px; }
+.ns-opt .ns-title { flex: 1 1 0; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: 12px; line-height: 1.4; color: var(--muted); padding-top: 2px; }   /* the description whole: no clamp, no ellipsis */
+.ns-opt[aria-selected="true"] .ns-title { color: var(--text); font-weight: 400; }   /* muted on the selected tone is under 4.5:1 in light */
+.ns-opt.ns-new .ns-key { font-family: var(--font); font-style: italic; }
+.ns-empty { padding: 10px; font-size: 13px; color: var(--muted); }
+.ns-hintrow { padding: 6px 10px 10px; font-size: 12px; color: var(--muted); }
+.ns-opt .ns-scope-tag { flex: 0 0 auto; font-size: 11px; color: var(--muted); }   /* which scope the row is in, under the all chip */
+.ns-opt[aria-selected="true"] .ns-scope-tag { color: var(--text); }
+.ns-role { display: block; border: 0; padding: 0; margin: 0; min-width: 0; }   /* the two radios side by side, the legend above */
+.ns-role .ns-radio { display: inline-flex; margin-right: 24px; }
+.ns-role legend { padding: 0; margin-bottom: 4px; }
+.ns-radio { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 14px; color: var(--text); cursor: pointer; }
+.ns-radio input { margin: 0; width: 18px; height: 18px; flex: none; }
+/* the scope chips (a radio group of 40px buttons), the divider before the hidden pages, the disabled new-project row */
+.ns-scopes { display: flex; gap: 8px; flex-wrap: wrap; }
+.ns-chip { min-height: 40px; padding: 0 16px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+.ns-chip:hover { background: var(--hover); }
+.ns-chip[aria-checked="true"], .ns-chip[aria-current="page"] { background: var(--selected); font-weight: 600; border-color: var(--text); }
+.ns-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a.ns-chip { display: inline-flex; align-items: center; text-decoration: none; }
+/* the switch at the top of the page, "New session | Quick session": the scope chips' look, joined into one control; the same
+   on both forms, outside them, so it stays where it is when the form changes */
+.np-switch { flex: none; padding: 12px 24px 0; box-sizing: border-box; min-width: 0; }
+.np-seg { gap: 0; flex-wrap: nowrap; }
+.np-seg .ns-chip { flex: 1 1 0; justify-content: center; min-width: 0; border-radius: 0; white-space: nowrap; }
+.np-seg .ns-chip + .ns-chip { margin-left: -1px; }
+.np-seg .ns-chip:first-child { border-radius: 999px 0 0 999px; }
+.np-seg .ns-chip:last-child { border-radius: 0 999px 999px 0; }
+.np-seg .ns-chip[aria-current="page"] { position: relative; z-index: 1; }
+@media (min-width: 761px) { .np-seg .ns-chip { min-height: 36px; } .np-seg { max-width: 340px; } }
+@media (max-width: 760px) { .np-switch { padding: 12px 16px 0; } }
+/* the project box (and the pickers of the quick session): a header row over the list, a one-line summary that the arrow opens and closes */
+.ns-head { display: flex; gap: 4px 12px; padding: 0 15px; margin-top: 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.ns-head .ns-hk { flex: 0 0 var(--ns-name-w); min-width: 0; }
+.ns-head .ns-ht { flex: 1 1 0; min-width: 0; }
+.ns-head .ns-ht .ns-hint { font-weight: 400; margin-left: 6px; }
+.ns-panel { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ns-panel[hidden], .ns-sum[hidden] { display: none; }
+.ns-sum { display: flex; align-items: center; gap: 4px 12px; width: 100%; box-sizing: border-box; min-height: 40px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; min-width: 0; }
+.ns-sum:hover { background: var(--hover); }
+.ns-sum:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ns-sum::before { content: "\25B8"; color: var(--faint); flex: none; width: 1em; }   /* the arrow: closed */
+.ns-sum[aria-expanded="true"]::before { content: "\25BE"; }                            /* open */
+.ns-sum .ns-key { flex: 0 0 calc(var(--ns-name-w) - 1em - 12px); min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 13px; }
+.ns-sum .ns-title { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.ns-sum .ns-none { flex: 1 1 0; color: var(--muted); font-size: 13px; }
+.ns-pick { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ns-pickrow { display: flex; gap: 8px; align-items: stretch; min-width: 0; }
+.ns-pickrow .ns-sum { flex: 1 1 0; }
+.ns-clear { flex: none; width: 40px; min-height: 40px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+.ns-clear:hover { background: var(--hover); }
+.ns-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ns-clear[hidden] { display: none; }
+.ns-pick .ns-list { box-sizing: border-box; max-height: 240px; }
+.ns-reason { font-weight: 600; }
+.ns-divider { margin: 6px 6px 2px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+.ns-opt:disabled { cursor: default; }
+.ns-opt:disabled .ns-key { color: var(--muted); }   /* a row that cannot be picked reads quieter, still above 4.5:1 */
+.ns-opt:disabled:hover { background: transparent; }
+.ns-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ns-step { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.ns-step-state { flex: none; color: var(--muted); }
+.ns-step.active .ns-step-label, .ns-step.done .ns-step-label { font-weight: 600; }
+.ns-step.failed .ns-step-label, .ns-step.failed .ns-step-state { color: var(--error); }
+.ns-err { font-size: 12px; color: var(--error); }
+.ns-err:empty { display: none; }
+.ns-note { font-size: 13px; color: var(--text); background: var(--code-bg); border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; }
+.ns-note:empty { display: none; }
+.ns-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.ns-grid > label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ns-more > summary { cursor: pointer; padding: 4px 0; list-style: none; display: flex; align-items: baseline; gap: 8px; }
+.ns-more > summary::-webkit-details-marker { display: none; }
+.ns-more > summary::before { content: "\25B8"; color: var(--faint); flex: none; }
+.ns-more[open] > summary::before { content: "\25BE"; }
+.ns-more[open] > summary { margin-bottom: 8px; }
+.ns-foot { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ns-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ns-submit { min-height: 44px; padding: 0 18px; border: 0; border-radius: 10px; background: var(--text); color: var(--bg); font-weight: 600; font-size: 14px; cursor: pointer; }
+.ns-submit:hover { filter: brightness(1.15); }
+.ns-submit:disabled { opacity: var(--dis-op, .45); background: var(--dis-bg, var(--text)); color: var(--dis-fg, var(--bg)); cursor: default; }
+.ns-submit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* what Create is doing and what the queue answered: the state line, the steps with their states in words, the queue's own
+   text in a <pre> (shown as text, never markup), and the link to the session once it is in the list */
+.ns-status { font-size: 14px; color: var(--text); display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+.ns-status:empty { display: none; }
+.ns-state { font-weight: 600; }
+.ns-state.failed { color: var(--error); }
+.ns-status p { margin: 0; }
+.ns-pre { position: relative; }
+.ns-pre pre { margin: 0; padding: 10px 12px; background: var(--code-bg); color: var(--text); border-radius: 8px; font: 13px/1.45 var(--mono);
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }
+.ns-link { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--panel); color: var(--text); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; align-self: flex-start; max-width: 100%; }
+.ns-link:hover { background: var(--hover); }
+.ns-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ns-link .ns-key { font-family: var(--mono); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a queued session's progress: Start's button while it works, the line of steps with the current one marked in
+   words and aria-current (never colour alone), the seconds so far, the operation id small and last, and the Open button at Ready,
+   styled as the primary button (.ns-submit) and larger than the text around it */
+.ns-spin { display: inline-block; width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .ns-spin { animation-duration: 2.4s; } }
+.ns-progress { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 6px; font-size: 13px; }
+.ns-prog { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); }
+.ns-prog + .ns-prog::before { content: "\2192"; margin-left: -4px; margin-right: 2px; color: var(--faint); }
+.ns-prog.done { color: var(--text); }
+.ns-prog.current { color: var(--text); font-weight: 600; border-color: var(--text); border-width: 2px; padding: 2px 9px; }
+.ns-prog-state { font-size: 12px; font-weight: 400; }
+.ns-prog.current .ns-prog-state::before { content: "\25B8 "; }
+.ns-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+.ns-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; }
+.ns-status .ns-op { font-size: 11px; font-family: var(--mono); color: var(--muted); }
+.ns-status .ns-result { overflow-wrap: anywhere; }
+.ns-link.ns-open { min-height: 48px; padding: 0 22px; border: 0; border-radius: 10px; background: var(--text); color: var(--bg); font-size: 16px; text-decoration: none; }
+.ns-link.ns-open:hover { background: var(--text); filter: brightness(1.15); }
+.ns-link.ns-open .ns-key { font-size: 15px; }
+/* a desktop window: tighter rows and a Role on one line, so the fields of an ordinary create and Create itself fit 1280 x 800;
+   the foot (Create, what it did, the Open button) stays at the bottom edge of the page once the steps are on it, the fields
+   scrolling under it, so the steps and the link are never out of sight */
+@media (min-width: 761px) {
+  .ns-form { padding: 10px 24px 0; }
+  .np-col { gap: 10px; }
+  .np-switch { padding-top: 10px; }
+  /* the list's own header row (Project | Description) names the box, so its label is read by screen readers and not drawn (room for the switch at the top) */
+  .ns-projfield > label[for="ns-filter"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ns-form textarea#ns-mandate { min-height: 56px; }
+  .ns-scopefield { flex-direction: row; align-items: center; gap: 14px; }   /* the label beside the chips, not over them */
+  .ns-form input[type="text"], .ns-form input[type="search"], .ns-form select { min-height: 36px; padding-top: 6px; padding-bottom: 6px; }
+  .ns-role legend { float: left; margin: 0 20px 0 0; line-height: 30px; }
+  .ns-radio { min-height: 30px; }
+  .ns-foot { position: sticky; bottom: 0; z-index: 1; background: var(--bg); padding: 10px 0 12px; border-top: 1px solid var(--border);
+    max-height: calc(var(--app-h, 100dvh) * .45); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+}
+@media (max-width: 760px) {   /* a phone: the same column at full width with side padding; the page scrolls */
+  .ns-form { padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); }
+}
+@media (max-width: 520px) { .ns-form { --ns-name-w: 6.5rem; } }   /* a narrow name column on a phone; the description keeps the rest */
+
+#drop-hint { display: none; position: fixed; inset: 0; background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 3px dashed var(--accent); align-items: center; justify-content: center; font-size: 18px; z-index: 50; pointer-events: none; }
+body.dragging #drop-hint { display: flex; }
+
+.only-narrow { display: none; }
+.icon-btn svg { display: block; }
+/* wide screens: the sidebar is closed on every load. The pointer on the strip along the left edge or on the
+   toggle PEEKS it (body.side-peek, app.js): it slides over the page, the title bar included, and leaving takes it away. A click on
+   the toggle PINS it (body.side-pin) and it DOCKS: it sits beside the page in the flow, so the title bar and the chat move right and
+   stay whole, nothing behind them, until the next click closes it. The peek is the pinned sidebar (same width, rows, scroll and
+   border) drawn over the page, with a light shadow to show that it overlays.
+   The toggle and the header (the icon and "salamander : <suffix>", .side-head) are ONE fixed block at the top left, like Notion's and
+   Claude desktop's: both are position: fixed, above the title bar and the sidebar, at the same place and size whether the sidebar is
+   closed, peeking or pinned. That is why the sidebar closes by `left`, not by a transform: a transformed sidebar would
+   take its fixed header along. The sidebar keeps the block's row free at its top (its padding-top); the title bar keeps the room
+   too while the sidebar is not docked (padding-left), and docked it starts beside the sidebar. --banner-h (app.js) is the update
+   banner's height, which pushes the title bar down, so the block follows it. A keyboard user's focus peeks it too (:focus-visible,
+   which a mouse click on a row does not leave) */
+@media (min-width: 761px) {
+  :root { --top-h: 54px; --side-fixed-w: 280px;   /* the sidebar's width */ --banner-h: 0px; --fixed-top: calc(env(safe-area-inset-top) + var(--banner-h)); }
+  /* the title bar spans the whole header (no side padding: the name is centred in the bar); --lead is the room at the left that
+     the fixed block is over, and a peek covers 280 px: the bar's content starts where a docked bar's does; the cluster keeps 16 px at the right */
+  #top { min-height: var(--top-h); padding-left: 0; padding-right: 0; --lead: calc(var(--side-fixed-w) + 16px); }
+  /* a docked sidebar: the bar starts beside it, so the title grid is pulled back under it by the sidebar's width and spans the whole window
+     again; --lead (above, in window coordinates) keeps the name clear of the sidebar, and the name's centre is the window's centre in the
+     closed, peeking and docked states alike. The part under the sidebar is empty: it lets the pointer through to it */
+  body.side-pin #title { margin-left: calc(-1 * var(--side-fixed-w)); pointer-events: none; }
+  body.side-pin #title > * { pointer-events: auto; }
+  .top-end { padding-right: 16px; }
+  #side-edge { position: fixed; z-index: 29; left: 0; top: 0; bottom: 0; width: 8px; }
+  #sidebar { position: fixed; z-index: 30; inset: 0 auto auto -280px; height: var(--app-h, 100dvh);
+    padding-top: calc(var(--fixed-top) + var(--top-h)); transition: left .18s ease; }
+  body.side-peek #sidebar, #sidebar:has(:focus-visible) { left: 0; box-shadow: 4px 0 24px rgba(0, 0, 0, .16); }
+  body.side-pin #sidebar, body.side-pin #sidebar:has(:focus-visible) { position: static; z-index: auto; height: auto; box-shadow: none; transition: none; }
+  body.side-pin #side-edge { display: none; }   /* nothing to peek: it is open */
+  /* the one fixed block: the toggle, then the icon and the name. The header is transparent (it takes the sidebar's colour, or the
+     title bar's, from what is under it) and lets the pointer through: the toggle is what peeks and pins */
+  #side-open { position: fixed; z-index: 32; left: 8px; top: calc(var(--fixed-top) + (var(--top-h) - 32px) / 2); }
+  .side-head { position: fixed; z-index: 31; left: 0; top: var(--fixed-top); height: var(--top-h); width: var(--side-fixed-w);
+    padding: 0 8px 0 52px; justify-content: flex-start; pointer-events: none; }   /* no close button on a wide screen */
+}
+@media (min-width: 761px) and (prefers-reduced-motion: reduce) { #sidebar { transition: none; } }
+@media (max-width: 760px) { #side-edge { display: none; } }
+@media (max-width: 760px) {
+  .only-narrow { display: inline-block; }
+  .only-wide { display: none; }
+  /* its height as #app's (the visible part of the screen), not the layout viewport's (bottom: 0 would be that) */
+  #sidebar { position: fixed; z-index: 30; inset: 0 auto auto 0; height: var(--app-h, 100dvh); width: min(300px, 85vw);
+    transform: translateX(-100%); transition: transform .18s ease; }
+  body.side-open #sidebar { transform: none; }
+  #scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 20; }
+  body.side-open #scrim { display: block; }
+  /* the title bar spans the whole header on a phone too (the name is centred on the bar): the sidebar toggle is out of the
+     row, drawn over the bar's left end, and --lead is the room it keeps (12 px, its 34 px, 8 px); the cluster keeps 12 px at the right */
+  #top { padding: 8px 0; gap: 8px; --lead: 54px; --lead-sym: 54px; }   /* --lead-sym: the right track keeps the toggle's room too, so the name stays centred */
+  #title { column-gap: 8px; }   /* 4 px more for the name at 320 px, where every pixel of the middle track counts */
+  #side-open { position: absolute; z-index: 2; left: 12px; top: 8px; }
+  .top-end { padding-right: 12px; }
+  .top-tools { right: 8px; }
+  #chat { padding: 14px 16px 20px; }
+  #composer { padding-left: 12px; padding-right: 12px; }
+  .msg.user .bubble { max-width: 92%; }
+}
+/* a narrow phone (under 400 px): centred, the name got at most the room
+   between two equal side tracks (about 129 px on a 360 px phone, which cut a long name by 28 px). Here the
+   name starts right after the toggle and has all the room up to the cluster; the title's columns are the toggle's room (--lead less the
+   column gap, so the name starts one gap after the toggle's right edge), the name's (what is left), the cluster's. Still too long, it is
+   cut with an ellipsis, as before. At 400 px and wider the three-column centred grid above is untouched. The query is the exact
+   complement of `(min-width: 400px)`, not `(max-width: 399px)`: under browser zoom the viewport is fractional in CSS px, and
+   399.01 to 399.99 px matched neither, so the page got the centred layout at a width the phone layout was meant for. (The Level 3
+   `not all and` form, not the range `(width < 400px)`, which a browser older than Chrome 104 / Safari 16.4 would drop.) */
+@media not all and (min-width: 400px) {
+  #title { grid-template-columns: calc(var(--lead) - 8px) minmax(0, 1fr) auto; }
+  /* the header's fold (app.js nameFits) measures the name on the centred grid, so the same items stay in the bar as at 400 px:
+     this is the centred template, the same text as the base `#title` rule near the top of this file (a test holds the two
+     equal), not the phone's template on the line above */
+  #title.fold-centred { grid-template-columns: minmax(max(var(--lead, 0px), var(--cl, 0px)), 1fr) auto minmax(max(var(--lead-sym, 0px), var(--cl, 0px)), 1fr); }
+}
+
+/* ---------- the shell drawer ----------
+   A small console under the page: the Shell button at the right end of the title bar (every page) opens it, a ttyd frame on
+   /tty/?arg=<shell session> (app.js, "the shell drawer"). On a wide screen it is the last child of #main, so the composer (or the
+   Overview, or the New session page) sits above it and the page gives up exactly its height; the handle at its top drags the
+   height (kept in api/prefs as shellHeight, --shell-h here). On a phone it is a bottom sheet over the page with a dim
+   backdrop, about 60% of the visible height, and the key row under the terminal has the keys a soft keyboard lacks. */
+.shell-btn { order: 1; position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; line-height: 1;
+  cursor: pointer; white-space: nowrap; }
+.shell-btn svg { display: block; flex: none; }
+.shell-btn:hover { background: var(--hover); color: var(--text); }
+.shell-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.shell-btn[aria-expanded="true"] { border-color: var(--accent-solid, var(--accent)); background: color-mix(in srgb, var(--accent-solid, var(--accent)) 16%, var(--bg)); color: color-mix(in srgb, var(--accent) 55%, var(--text)); }
+.shell-drawer { position: relative; flex: none; display: flex; flex-direction: column; height: var(--shell-h, 300px); min-height: 0;
+  border-top: 1px solid var(--border); background: var(--side-bg); }
+.shell-drawer[hidden] { display: none; }
+.shell-handle { flex: none; height: 14px; display: flex; align-items: center; justify-content: center; cursor: ns-resize; touch-action: none; }
+.shell-handle span { display: block; width: 44px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 24%, transparent); }
+.shell-handle:hover span, .shell-handle:focus-visible span, body.shell-dragging .shell-handle span { background: var(--accent); }
+.shell-handle:focus-visible { outline: none; }
+.shell-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 0 8px 6px 14px; font-size: 12px; line-height: 1; color: var(--muted); }
+.shell-title { font-weight: 600; color: var(--text); }
+.shell-chip { padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); font-family: var(--mono); font-size: 11px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.shell-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--error); }
+.shell-note:empty { display: none; }
+.shell-full { margin-left: auto; flex: none; color: var(--muted); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.shell-full:hover { color: var(--text); }
+.shell-close { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px;
+  background: none; color: var(--muted); cursor: pointer; }
+.shell-close:hover { background: var(--hover); color: var(--text); }
+.shell-close:focus-visible, .shell-full:focus-visible, .shell-keys button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.shell-close svg { display: block; }
+.shell-close-word { display: none; }
+.shell-term { flex: 1; min-height: 0; display: flex; background: #000; }   /* black on purpose, as the Terminal */
+.shell-term iframe { flex: 1; border: 0; width: 100%; height: 100%; background: #000; }
+.shell-term .empty { margin: auto; color: #aaa; font-size: 13px; padding: 0 16px; text-align: center; }   /* grey on the Shell's black, in either theme */
+body.shell-dragging { user-select: none; cursor: ns-resize; }
+body.shell-dragging .shell-term iframe { pointer-events: none; }
+.shell-keys, .shell-scrim { display: none; }
+@media (max-width: 760px) {
+  /* the button is a 44 px square tap target; its negative margins keep the bar's height and give the cluster only 26 px of width (its
+     box starts where the ⋯ button ends and runs 8 px into the bar's padding), so the name keeps what room it can; the box drawn is the ::before */
+  .shell-btn { width: 44px; height: 44px; padding: 0; margin: -6px -8px -6px -10px; border: 0; border-radius: 0; background: none; isolation: isolate; }
+  .shell-btn::before { content: ""; position: absolute; z-index: -1; inset: 5px; border-radius: 8px; border: 1px solid var(--border); }
+  .shell-btn:hover { background: none; }
+  .shell-btn:hover::before { background: var(--hover); }
+  .shell-btn[aria-expanded="true"] { background: none; }
+  .shell-btn[aria-expanded="true"]::before { border-color: var(--accent-solid, var(--accent)); background: color-mix(in srgb, var(--accent-solid, var(--accent)) 16%, var(--bg)); }
+  .shell-label { display: none; }
+  .shell-scrim { position: fixed; inset: 0; z-index: 34; background: rgba(0,0,0,.45); }
+  body.shell-open .shell-scrim { display: block; }
+  /* a bottom sheet at the visible bottom of the screen (--app-h is the visual viewport's height, see fitShell in app.js) */
+  .shell-drawer { position: fixed; left: 0; right: 0; bottom: calc(100dvh - var(--app-h, 100dvh)); z-index: 35; height: calc(var(--app-h, 100dvh) * .6);
+    border-radius: 16px 16px 0 0; box-shadow: 0 -8px 28px rgba(0,0,0,.28); padding-bottom: env(safe-area-inset-bottom); overflow: hidden; }
+  .shell-handle { height: 20px; cursor: default; }
+  .shell-head { padding: 0 6px 4px 16px; }
+  .shell-chip { flex: 0 1 auto; }
+  .shell-full { display: none; }
+  .shell-close { width: auto; min-height: 44px; margin-left: auto; padding: 0 12px; font-size: 14px; color: var(--text); }
+  .shell-close svg { display: none; }
+  .shell-close-word { display: inline; }
+  .shell-keys { display: flex; flex: none; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); background: var(--side-bg); }
+  .shell-keys button { flex: 1 1 44px; min-width: 44px; height: 40px; padding: 0 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text);
+    font-family: var(--mono); font-size: 13px; line-height: 1; cursor: pointer; touch-action: manipulation; }
+  .shell-keys button:active { background: var(--hover); }
+  .shell-keys button[aria-pressed="true"] { border-color: var(--accent-solid, var(--accent)); background: color-mix(in srgb, var(--accent-solid, var(--accent)) 22%, var(--panel)); color: color-mix(in srgb, var(--accent) 55%, var(--text)); }
+}
+/* the Shell button folded into the ⋯ menu (app.js layoutHeader): the same button, a row like Reload's with its icon and its word, at
+   any width (these come after the phone block above and are more specific, so they undo its square tap target, the drawn box and the hidden word).
+   Open, it is the accent's colour, as the bar's button is in its box */
+.top-tools .shell-btn { order: 0; width: auto; height: auto; min-height: 44px; margin: 0; padding: 0 4px; border: 0; border-radius: 8px; background: none;
+  justify-content: flex-start; gap: 6px; }
+.top-tools .shell-btn::before { display: none; }
+.top-tools .shell-btn:hover { background: var(--hover); color: var(--text); }
+.top-tools .shell-btn:focus-visible { outline-offset: -2px; }
+.top-tools .shell-btn[aria-expanded="true"] { background: none; color: color-mix(in srgb, var(--accent) 55%, var(--text)); }
+.top-tools .shell-label { display: inline; }

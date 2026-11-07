@@ -1,0 +1,25 @@
+[Unit]
+Description=Web UI for the Claude Code sessions in tmux
+Documentation=file:%h/salamander/web/README.md
+# The socket is sala-web.socket's (systemd socket activation): systemd holds it across restarts, so a deploy's
+# restart queues requests in the kernel backlog instead of the proxy in front finding the origin down.
+Requires=sala-web.socket
+After=sala-web.socket
+
+[Service]
+Type=simple
+# no RuntimeDirectory=: it would delete %t/sala-web, and with it the socket, whenever the service stops
+UMask=0077
+# tmux and python3 (for stackshot's client.py) must be on PATH
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+# the listening socket arrives as fd 3 (LISTEN_FDS); --socket is used only for a manual run.
+# web/ of the salamander checkout (install.sh --web writes this checkout's path here); the app's static files are served from it
+ExecStart=%h/salamander/web/.venv/bin/sala-web
+# uvicorn ends open streams at once and lets an in-flight send finish (8 s at most); this is the backstop
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

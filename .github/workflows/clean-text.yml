@@ -1,0 +1,39 @@
+# Clean commit and PR text (CONTRIBUTING.md): the branch name, the PR title, the PR body and every commit message of a pull request
+# carry none of the owner's private data (board ids, names, hosts, machine and session names). The rule and its
+# patterns are in .github/scripts/clean_text.py; the machine and session names are not in this repository, they are read from the
+# repository SECRET CLEAN_TEXT_DENY (one case-insensitive regex per line, newline-separated only), and the rule is skipped, with a notice, when it is unset or empty
+# (a fork's pull request gets no secrets). It is a secret and not a variable because the runner prints a step's env values in the log header and masks only secrets.
+#
+# Its own workflow, not a job of tests.yml: it must run when only the title or the body is edited (`edited`), and a run of the whole
+# suites on every title edit would waste the runs. The job name is the check name release.sh reads, like tests.yml's: a pass
+# is needed, a failure stops the release. The check on the PR's head commit is replaced by the newest run of the same name, so an
+# edit that fixes the text turns a red check green without a push. Pull requests only; a push to main is not scanned (the PR was).
+#
+# The job reads text and runs one python3 script, with no install (python3 is on every image). The PR title and body reach the script through `env:`, never interpolated into the shell
+# script, so a title cannot inject a command.
+name: clean-text
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+permissions:
+  contents: read
+jobs:
+  clean-text:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: scratch goes to the runner's temp folder
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # as tests.yml's jobs
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the commits of base..head are read from the history
+      - name: no private data in the branch name, title, body or commit messages (.github/scripts/clean_text.py)
+        env:
+          CLEAN_TEXT_BRANCH: ${{ github.event.pull_request.head.ref }}
+          CLEAN_TEXT_TITLE: ${{ github.event.pull_request.title }}
+          CLEAN_TEXT_BODY: ${{ github.event.pull_request.body }}
+          CLEAN_TEXT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          CLEAN_TEXT_BASE: ${{ github.event.pull_request.base.sha }}
+          CLEAN_TEXT_HEAD: ${{ github.event.pull_request.head.sha }}
+          CLEAN_TEXT_DENY: ${{ secrets.CLEAN_TEXT_DENY }}
+        run: python3 -I .github/scripts/clean_text.py

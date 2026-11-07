@@ -1,0 +1,403 @@
+# ~/.config/salamander/config — sourced by bash. Every line optional.
+#SALA_CONTINUED_IN=on             # off = no continued-in follow (a pane that moved to a new transcript id keeps its pane map and session registry row); SALA_CONTINUED_TAIL=262144 bytes read from the end of a transcript (a record pushed further out is repaired only by write_sidecar at a recycle), SALA_CONTINUED_HOPS=8 chain length
+#SALA_RC_SESSION=claude-rc        # tmux session that hosts `claude remote-control`
+#SALA_SHELL_SESSION=sala-shell   # tmux session of the web UI's shell drawer (not a Claude session: sala leaves it alone). Default sala-shell; the web app reads this same line and tells the page the name
+#SALA_RC_NAME=rc-scratch          # the server's pre-created session title
+#SALA_RC_CAPACITY=32              # served sessions (CLI default)
+#SALA_RC_RESTART_DELAY=30         # seconds between server relaunches
+#SALA_TZ=                         # an IANA zone, e.g. Europe/Berlin: the zone of every time sala writes (spawn names, logs) and of every time the web UI shows, labelled with the zone's own abbreviation (CEST, EST). Unset or empty = this machine's local time (and the viewer's own zone in the web UI). The briefings (contrib/briefing) have their own zone, BRIEFING_TZ below, and do not follow it
+#SALA_LOG_DIR=~/.claude           # revive/rc logs, rc stop marker
+#SALA_RESURRECT_DIR=~/.local/share/tmux/resurrect   # tmux-resurrect saves (a symlink to the pane map stays here since Tue Oct 6th 2026)
+#SALA_SIDECAR=~/.local/state/salamander/pane-map.tsv   # the pane map (session → conversation, name, cwd; a ledger, see the README); its log, freeze files and map-history/ sit beside it
+#SALA_SESSIONS=write              # the session registry (phases 1 and 2; docs/session-registry.md): sessions.json beside the pane map, one row per session with an id
+                                 #   of its own, written after every pane-map write, by spawn (SALA_SESSION_ID) and by the SessionStart hook; read by nothing yet. write (default) |
+                                 #   off (writes nothing, spawn exports no id, `sessions record` is a no-op; revert = off or delete the file) | read (reserved; acts as write). No other knob
+#SALA_CLAUDE=                     # claude launcher; default: first `claude` on PATH
+#SALA_SPAWN_PREFIX=scratch        # auto-generated name prefix: <prefix>-<YYYYMMDD>-<word>
+#SALA_SHELL_SETTLE=1              # spawn: seconds after the launch line's Enter before it looks for ble.sh's "-- MULTILINE --" banner (a stuck line) and sends C-j once
+#SALA_BACK_CWD=                   # where a background agent (spawn --role back) starts when --cwd is not given: the directory whose CLAUDE.md is the background brief (e.g. ~/my-repo/roles/background). Default: unset, so $HOME; set but missing on this machine, the spawn is refused (--cwd still wins)
+#SALA_SCOPES=                     # the scopes sessions are named by (<scope>-<project>-…), space-separated and quoted, e.g. SALA_SCOPES="work home". Default: empty (none). spawn --suggest-name builds <scope>-<slug> from them for a page the project record does not know; the web UI uses these too, and stackshot's own [project_scopes] order only when SALA_SCOPES is empty or unset (a non-empty SALA_SCOPES wins, order and default included; the file's own `default` applies only when the list comes from the file)
+#SALA_DEFAULT_SCOPE=              # the scope a page outside every scope's directory is named in. Default: empty = the first of SALA_SCOPES
+#SALA_BRAND_SUFFIX=               # web UI: what follows "salamander" in its title bar ("salamander : <suffix>", at most 40 characters; quote a value with spaces). Default: empty = "salamander" alone
+#SALA_HELP_SESSION=               # web UI: the session the overview's "Get Help" chip opens (a session name, e.g. the one that looks after sala's web UI). Default: empty = the page shows no such chip
+#SALA_OWNER_NAME=               # what runtime text calls the person running this machine ("the owner's words", "waiting for the owner's answer"). Default: "the owner". It is also the name inside the `[for <name>]` first line of a message to a front agent, which stackshot builds from its own [instance] owner: set the two to the same value or leave both unset
+#SALA_SPAWN_REGISTER=             # a project agent's register hook (`spawn NAME --project <page key> --role front|back`, lib/spawn.sh):
+                                 #   run by `sh -c` once the session is up and mapped, with the name, page key, role and mandate file path as $1..$4
+                                 #   (write it as `~/bin/register-agent "$@"` to receive them) and as SALA_SPAWN_NAME, SALA_SPAWN_PROJECT,
+                                 #   SALA_SPAWN_ROLE, SALA_SPAWN_MANDATE_FILE, plus SALA_SPAWN_MANDATE_LINE, SALA_SPAWN_UUID, SALA_SPAWN_LANE; its
+                                 #   output goes to ~/.claude/salamander-spawn.log; a failure or a hang (60 s) is one ⚠ line, never the exit status.
+                                 #   Unset (the default): a no-op that logs `spawn-register: no hook configured` — the page's agents line, written
+                                 #   by its keeper, is the registration. While it is set, no message asks a keeper for an unlisted name (below)
+#SALA_STACKSHOT_DIR=~/stackshot   # where stackshot's checkout is: the one place the default stackshot commands below come from (pages.py,
+                                 #   client.py: the spawn keeper ask, the side-session commands, the parked-question board scripts, release.sh, sala-web's roles).
+                                 #   Unset: ~/stackshot, as before. Set EMPTY on a box with no stackshot: every one of those defaults is empty at once. The
+                                 #   explicit knobs (SALA_AGENT_CHECK_SCRIPT, SALA_SPAWN_ASK_CMD, SALA_SIDE_*_CMD, SALA_STACKSHOT_CLIENT, STACKSHOT_CLIENT,
+                                 #   SALA_WEB_ROLES_CMD) win over it. release.sh and sala-web read the environment only, not this file
+#SALA_SPAWN_ASK_CMD="python3 ~/stackshot/client.py message"   # the stackshot message that asks a page's keeper for an unlisted name's agents line
+                                 #   (default: `python3 $SALA_STACKSHOT_DIR/client.py message`; `<cmd> <page key> <text> --sender "sala spawn"`, detached, 150 s); set it empty to never ask
+#SALA_SPAWN_ASK_EVERY=3600        # seconds before the same name's keeper is asked again (the stamp: ~/.local/state/salamander/spawn-asked/<name>)
+#SALA_AGENT_NAME_MAX=48           # a project agent's name: lowercase letters, digits and dashes, no dash at either end, at most this many characters
+#SALA_PAGE_DIRS="projects"       # the page directories a --project key may start with, space-separated and quoted (stackshot.toml [pages] dirs on
+                                 #   this instance, e.g. SALA_PAGE_DIRS="projects ops"). Default: projects. The web UI reads this line too (after
+                                 #   SALA_WEB_PAGE_DIRS and stackshot's own [pages] dirs)
+#SALA_BRAIN_DIR=                 # the brain mirror on this box: a checkout of the pages (<dir>/<slug>.md), read only. `side done` looks for the
+                                 #   session's timeline line there; the web UI lists the projects of the new-session form from it (after SALA_WEB_BRAIN_DIR
+                                 #   and stackshot's own [paths] brain). Unset or empty (the default): no mirror, so `side done` asks stackshot's client
+                                 #   for the page's last change instead and the web UI's project list is empty with that reason
+#SALA_AGENT_CHECK=on              # the agents-map checks through stackshot's pages.py (a project spawn: `resolve` and `agent-listed`, never fail-open;
+                                 #   a plain spawn or rename: `agent-listed`, fail-open); off: skipped (the suites, a box with no brain)
+#SALA_AGENT_CHECK_SCRIPT=~/stackshot/pages.py   # where pages.py is (default: $SALA_STACKSHOT_DIR/pages.py; the suites point it at a stub). `spawn --project` is
+                                 #   the one command that needs stackshot (its project record or this script) and the brain mirror: with neither it refuses
+                                 #   ("cannot tell"), by design, and SALA_AGENT_CHECK=off is the only bypass
+#SALA_SNAPSHOT_CMD=              # `snapshot` runs this instead of save.sh directly, e.g. systemctl --user start --no-block tmux-resurrect-save.service
+#SALA_SNAPSHOT_DELAY=4            # seconds `snapshot` waits to coalesce a burst of events into one save
+#SALA_MASTER=                     # optional: a tmux session `salamander watch` keeps alive + bridged (a dedicated operator session). The
+                                 #   operation queue replaces it (`sala op`, SALA_OP_* below): with none, a Claude session's raw
+                                 #   fleet verb is refused and pointed to `sala op`, `sala cue` points there too, and the post-boot report
+                                 #   goes to Slack. `salamander master --set NAME` writes it, `--unset` comments it out
+#SALA_PSET_TARGET=                # optional: a session name (a front agent, e.g. my-project-main) that hears a provision set's items addressed to the owner
+                                 #   when NO master is configured (SALA_MASTER unset): the same text the master would get, with
+                                 #   `[for <owner name>]` on its first line so a front agent's pane takes it, into its inbox as `sala cue` delivers. A
+                                 #   configured master always wins, even one that is briefly down (its items stay pending, retried every watch
+                                 #   tick; the target is never told). The target not live, or its push failing: the Slack post as before (the
+                                 #   items count as told).
+                                 #   Unset (the default) = exactly the behaviour without the knob
+#SALA_WATCH_COOLDOWN=600          # seconds before watch repeats the same heal
+#SALA_MODEL_INPLACE=on           # `sala model`: an idle pane with an empty input box is switched with /model and /effort typed into it (its conversation
+                                 #   process kept, the lane's saved default in settings.json put back); off = always relaunch. SALA_MODEL_INPLACE_WAIT=20 (seconds a typed
+                                 #   command has to show its "Set …" line), SALA_MODEL_INPLACE_SETTLE=1 (seconds before the saved default is put back), SALA_MODEL_INPLACE_ASKER_WAIT=90
+                                 #   (seconds the queue's runner waits for the asking session to end its turn)
+#SALA_NO_RELAUNCH=               # tmux sessions managed outside sala, space-separated, e.g. "pane-a": no recycle, revive, restore or reboot
+                                 #   restore relaunches them (they say so and are never counted as skipped); a stopgap
+#SALA_LANE_API_KEY_FILE=~/.config/anthropic/api-key          # lanes (`sala lane`; lib/common.sh "lanes"): subscription-1 · subscription-2 · api · bedrock · aws-platform (the first two were called max and team: the old words are still read as them), the
+                                 #   account or key a pane's claude runs on. api: the key file, read by the PANE'S shell at launch ($(cat <file>)
+                                 #   on the typed line — sala never holds or logs the value); 0600, an absolute path with no shell-special characters
+#SALA_LANE_API_WORKSPACE_FILE=~/.config/anthropic/workspace-id   # api: the anthropic-workspace-id header's value (an identity-linked key bills to
+                                 #   that workspace); optional — absent, no header (a classic workspace key)
+#SALA_LANE_API_MCP_CONFIG=~/.config/claude-lanes/api-mcp.json   # api: `--mcp-config` this file when it exists (the stand-ins for the claude.ai
+                                 #   connectors, which a key has no login for: the portal, GitHub); empty = never
+#SALA_LANE_TEAM_DIR=~/.claude-team                           # subscription-2: CLAUDE_CONFIG_DIR of the second claude.ai login (a seat-based login; the variable keeps its name), signed in there once by hand
+#API_CREDIT_RETRY_S=21600                                    # (environment, not this file) how long after the API key's credit refused a call (the shared record
+                                 #   ${XDG_STATE_HOME:-~/.local/state}/api-credit/state.json, README "The sdk lane") the key is not tried again; the briefings and the sdk lane share it
+                                 #   sdk (an alias of api with client claude-agent-sdk, and the next two settings are that client's): the api lane's key through the Agent SDK, which the API credit pays for while
+                                 #   it lasts; the pane runs `salamander sdk-pane` (lib/sdk-pane.sh, contrib/sdk-pane/driver.py) in place of claude. While the
+                                 #   record holds a fresh refusal a session recorded on sdk is relaunched on subscription-1 (the row stays until `sala lane subscription-1 <session>`)
+#SALA_LANE_SDK_PIN=claude-agent-sdk==0.2.165                 # sdk: the SDK `uv run --with` fetches for the driver (pinned to a smoke-tested version)
+#SALA_LANE_SDK_CMD=                                          # sdk: the driver's interpreter in place of `uv run --quiet --no-project --with <pin> python -I` (the tests' stub)
+                                 #   sdk reuses SALA_LANE_API_KEY_FILE, SALA_LANE_API_WORKSPACE_FILE and SALA_LANE_API_MCP_CONFIG (the last one required: an SDK
+                                 #   session has no claude.ai connector). A turn the credit refuses puts the pane back on subscription-1 at once, with one post.
+                                 #   Which lane each session runs on and the default for new ones are STATE, not config: ~/.local/state/salamander/
+                                 #   lanes.tsv and lane-default, written by `sala lane` (nothing recorded = subscription-1, the launch line as before)
+                                 #   Likewise a session's compact window (`claude --autocompact`): ~/.local/state/salamander/compact.tsv, one
+                                 #   <tmux session>\t<tokens, 100000-1000000> row each, seeded by install.sh from contrib/compact.tsv, edited by hand
+#SALA_LANE_MAX_SUBSCRIPTION=max                              # (subscription-1; Anthropic's plan name, not the lane's) the account behind each login lane (lib/common.sh lane_expect): what `claude auth status
+#SALA_LANE_MAX_ORG=                                          #   --json` must report for the lane's directory — its subscriptionType and, where set, its orgName. The
+#SALA_LANE_TEAM_SUBSCRIPTION=team                            # (subscription-2)  sign-in watch (SALA_SIGNIN_ALERT, below) alerts when a lane reports otherwise: a /login typed in one
+#SALA_LANE_TEAM_ORG=example-org                              #   pane re-signs its whole lane. Empty org (the default) = any
+#SALA_LANE_<ID>_<FIELD>=         # THE LANE FIELDS (`sala lane --list`, `--json`; lib/common.sh "THE LANE FIELDS"): what each lane is, the same fields for every
+                                 #   provider. <ID> is the lane's name in capitals with no hyphen (a hyphen cannot be in a variable name): SUBSCRIPTION1, SUBSCRIPTION2, API, BEDROCK or AWSPLATFORM (the first two lanes were called max and team: their variables SALA_LANE_MAX_* and SALA_LANE_TEAM_* still work; the aws-platform lane, which was
+                                 #   earlier called awsplatform: its variables kept their names, and the old lane name is still read as the new one everywhere); <FIELD> one of LABEL PROVIDER CLIENT ORG PROJECT BILLING PAYMENT PLAN ACCOUNT CREDENTIAL REGION STATUS —
+                                 #   unset, the built-in table holds (subscription-1: anthropic, claude-code, subscription, no plan stated, active; subscription-2: subscription, no plan stated, inactive; api: usage,
+                                 #   prepaid, org unconfirmed, inactive; bedrock: amazon-bedrock, usage, postpaid, no region until you set one, active when it can launch else not set up; aws-platform: anthropic, usage, postpaid, no region until you set one, the same). provider: anthropic openai google google-vertex
+                                 #   amazon-bedrock azure; client: claude-code claude-agent-sdk codex gemini-cli; billing: subscription|usage (usage: payment prepaid|postpaid; subscription:
+                                 #   plan max_5x max_20x team_standard team_premium chatgpt_plus chatgpt_pro chatgpt_business google_ai_pro google_ai_ultra); status: active|inactive|not set up.
+                                 #   Descriptive only: a value changes what `sala lane --list` says, never how a pane launches (bedrock's and aws-platform's REGION are the exception: it is the launch's AWS_REGION). Examples:
+#SALA_LANE_SUBSCRIPTION1_LABEL=Ultra                             # THE DISPLAY NAME of a lane, set once and read by everything sala shows (its messages, --help, sala-web, pane titles, the briefing, Slack posts; `sala lane names` prints the table, stackshot reads it from $SALA_STATE_DIR/lane-names.json). Defaults: subscription-1 Ultra, subscription-2 Team, api API, bedrock Bedrock, aws-platform Claude Platform on AWS; SALA_LANE_SUBSCRIPTION2_LABEL etc. change the others
+#SALA_LANE_API_ORG=example-org                                  # api: the organization the Console shows (default "unconfirmed")
+#SALA_LANE_API_PROJECT=                                      # api: the workspace id (optional; the workspace-id file above is what the launch uses)
+#SALA_LANE_BEDROCK_REGION=us-east-1                          # bedrock: the AWS region of the pane's launch line (AWS_REGION) and the region field. NO default: empty = the lane is not set up
+#SALA_LANE_BEDROCK_PROFILE=example-bedrock                 # bedrock: the AWS profile (AWS_PROFILE); NO default: empty = the lane is not set up. The lane is ready when ~/.aws/credentials has this [section] header
+                                 #   (only the header line is looked for; no value is read or shown) — add it with your key-entry script. A profile name containing "admin" is refused
+#SALA_LANE_BEDROCK_PREFIX=global                             # bedrock: ANTHROPIC_BEDROCK_REGION_PREFIX (us eu apac jp au global)
+#SALA_LANE_BEDROCK_OPUS_MODEL=global.anthropic.claude-opus-5-5       # bedrock: the pinned models (ANTHROPIC_DEFAULT_*_MODEL), global inference-profile ids. Opus 5.5 is
+#SALA_LANE_BEDROCK_SONNET_MODEL=global.anthropic.claude-sonnet-5-5   #   the id Claude Code's Bedrock page gives; Sonnet and Haiku 5.5 are the same pattern on the base ids
+#SALA_LANE_BEDROCK_HAIKU_MODEL=global.anthropic.claude-haiku-5-5     #   Anthropic's Bedrock table lists — unverified until a first launch: set these two if Bedrock refuses one
+#SALA_LANE_BEDROCK_CREDENTIALS_FILE=~/.aws/credentials       # bedrock: where the profile's header is looked for (tests point it elsewhere)
+                                 #   bedrock's status is DERIVED (active while the lane can launch, else not set up); SALA_LANE_BEDROCK_STATUS still overrides it
+#SALA_LANE_AWSPLATFORM_WORKSPACE_ID=wrkspc_01EXAMPLE  # aws-platform (Claude Platform on AWS, a service of its own beside Bedrock): the workspace id (ANTHROPIC_AWS_WORKSPACE_ID), wrkspc_ plus
+                                 #   letters, digits or underscores. Not a secret, and EMPTY until the workspace exists: the lane is refused while it is, with that said. Also the lane's `project` field
+#SALA_LANE_AWSPLATFORM_PROFILE=example-bedrock             # aws-platform: the AWS profile (AWS_PROFILE); NO default: empty = the lane is not set up (name the same profile as bedrock's if both use one). Ready when ~/.aws/credentials has this [section]
+                                 #   header (only the header line is looked for; no value is read or shown). A profile name containing "admin" is refused
+#SALA_LANE_AWSPLATFORM_REGION=us-east-1                      # aws-platform: AWS_REGION of the pane's launch line (the endpoint is aws-external-anthropic.<region>.api.aws) and the region field. NO default: empty = the lane is not set up
+#SALA_LANE_AWSPLATFORM_OPUS_MODEL=claude-opus-5-5            # aws-platform: the pinned models (ANTHROPIC_DEFAULT_*_MODEL), the PLAIN Claude API ids (the doc: same ids as the direct API).
+#SALA_LANE_AWSPLATFORM_SONNET_MODEL=claude-sonnet-5-5        #   Confirmed: Opus 5.5 = claude-opus-5-5 (the installed CLI's own model table for this provider; the doc page names Opus 5.5 but prints no id).
+#SALA_LANE_AWSPLATFORM_HAIKU_MODEL=claude-haiku-5-5          #   BY PATTERN: Sonnet 5.5 and Haiku 5.5 (the CLI's built-ins for this provider are claude-sonnet-4-6 and claude-haiku-4-5; the doc's examples are
+                                 #   claude-sonnet-5 and claude-haiku-4-5). Unverified until a first launch: set these two if the workspace refuses one
+#SALA_LANE_AWSPLATFORM_CREDENTIALS_FILE=~/.aws/credentials   # aws-platform: where the profile's header is looked for (tests point it elsewhere)
+#SALA_LANE_FALLBACK="subscription-1=bedrock subscription-2=bedrock aws-platform=bedrock api=bedrock sdk=bedrock bedrock=subscription-1"
+                                 # THE LANE FALLBACK: where a lane's sessions, default and jobs go when it is dormant (this is the default map).
+                                 #   "<lane>=<fallback>" pairs, ONE hop; a lane with no pair, or <lane>=none, has no fallback. The fallback is used only if it is itself active
+                                 #   and ready (not dormant, lane_check passes, nothing out); else nothing moves and one alert line says why. Nothing moves back by itself
+#SALA_LANE_FALLBACK_AUTO=on      # on: the watch's own detection and `sala lane dormant` queue the move, and a job (sala lane exec) whose lane is dormant runs on the fallback;
+                                 #   off: none of that (`sala lane fallback <lane>`, a person's form, still works)
+#SALA_FALLBACK_NO_FABLE=bedrock  # the lanes a Fable session cannot run on (bedrock: 400 "data retention mode"); a Fable session moved onto one runs on SALA_FALLBACK_FABLE_MODEL
+#SALA_FALLBACK_FABLE_MODEL=opus  # (opus = Opus 5.5 on bedrock); the override is recorded in models.tsv and moving back restores nothing
+#SALA_BACK_LANE_RULE=off         # THE BACK AGENTS' LANE RULE (README, *The back agents' lane rule*). off (the default): nothing is read or moved. on: the watch keeps the background
+                                 #   agents (registry rows with role back; never front agents, side sessions or jobs) off the home lane near its weekly limit, in three steps:
+                                 #   1. the home lane's "This week" limit reaches SALA_BACK_LANE_THRESHOLD percent → they move to the second lane;
+                                 #   2. a pane on the second lane is stopped on its cap (the limit watch's record) → they move to the third lane;
+                                 #   3. the home lane's weekly window resets (a fresh reading, a later window, under the threshold) → they all move home, wherever they are.
+                                 #   Each move is a queued `sala op lane … --from sala-watch --words "$SALA_BACK_LANE_WORDS"`; each step fires once per weekly window. A reading
+                                 #   that failed, is older than SALA_BACK_LANE_MAX_AGE, has no "This week" percent or whose window is over moves nobody; neither does a dormant home lane.
+                                 #   A background agent spawned while they stand off home launches on the rule's lane. `sala watch --back-lanes --dry-run` shows what a pass would do.
+#SALA_BACK_LANE_ORDER="subscription-1 aws-platform bedrock"   # home, second, third (lane ids; two lanes make a rule with no step 2). The home lane's usage must be read by sala-web
+#SALA_BACK_LANE_THRESHOLD=90     # percent of the home lane's "This week" limit (the model-scoped weekly limits, "Fable this week", are never read)
+#SALA_BACK_LANE_MAX_AGE=1800     # seconds: the saved usage answer (sala-web's quota-<lane>.json) must be newer than this, or nobody moves
+#SALA_BACK_LANE_REFRESH_URL=     # sala-web refreshes that answer only when something asks its /api/quota, so with nobody on the page it goes stale. A pass that finds it missing or older than
+                                 #   half SALA_BACK_LANE_MAX_AGE first asks the local sala-web with a plain GET (curl, 5 s) and reads the file again; the token stays in the web app and a failed
+                                 #   call just leaves the reading stale. Empty = sala-web's socket (SALA_WEB_SOCKET, else $XDG_RUNTIME_DIR/sala-web/sala-web.sock); or a socket path, or an
+                                 #   http(s) base URL (/api/quota is added); `off` = never ask
+#SALA_BACK_LANE_REFRESH_EVERY=120   # seconds between two asks
+#SALA_BACK_LANE_REFRESH_WAIT=10     # seconds to wait for the refreshed file after the GET (sala-web refreshes in the background)
+#SALA_BACK_LANE_WORDS="the standing rule, quoted"   # the words the queued operations carry (and the operation's one post repeats); the default describes the rule
+#SALA_BACK_LANE_STATE=           # the rule's state file (default: back-lane.state in the state directory): the lane they stand on and, per step, the window it fired in
+                                 #   aws-platform's status is DERIVED like bedrock's; its launch line starts with `env -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_FOUNDRY -u ANTHROPIC_AWS_API_KEY`
+#SALA_RETRY_EVERY=300           # recycle: retry transiently skipped panes (busy, just idle, draft) this often …
+#SALA_RETRY_WINDOW=7200          # … for this long, then defer (not give up) whoever is still pending
+#SALA_HOLD_SETTLE=3              # revive: seconds between holding the stackshot inbox of every pane of a sweep (or of the master's pane) and the first /exit; a line handed out just before the hold is a turn by then, which the check before the /exit sees
+#SALA_SELF_WAIT=900              # revive --self: how long its worker waits for the invoking pane to go idle, and again after the hold and again for a turn started after the idle check (so up to three times this); a pane still busy is handed to the retry worker
+#SALA_RECYCLE_GATHER=600         # recycle flags: a flag raised from the board, a --when-idle request or the CLI update while the job is unfinished waits until this
+                                 #   many seconds pass with no newer flag … (0 = off; `sala op recycle` never waits)
+#SALA_RECYCLE_GATHER_MAX=1800    # … and never longer than this after the first flag gathered, then the job resets once (0 = off)
+#SALA_RECYCLE_REST=1800          # a pane relaunched less than this long ago (its registry startedAt) is not relaunched again for a routine flag until the rest ends (0 = off)
+#SALA_SET_QUIET_AFTER=172800     # the one-time reconcile of old open recycle sets (`sala watch --sets`) closes a set older than this without a post
+#SALA_LATER_RETELL=3600         # watch, the deferred list (panes a recycle set aside, held by background shells or a turn): a pane still held this long
+                                 #   since it was set aside (or since it was last told) is told again, the way the recycle first told it: the waiting flag, and its
+                                 #   line pushed into the idle session (stop your background watches with TaskStop, leave `sala note`s, run `sala ready`) …
+#SALA_LATER_RETELL_MAX=3         # … at most this many times
+#SALA_LATER_LIMIT=10800          # … and held this long (3 h) it is named in ONE post to the usual notify path: the pane, claude's and sala's versions, how long, and
+                                 #   the commands holding it (the Stop hook's record, else its child processes; scrubbed, cut). Nothing is relaunched or given up
+                                 #   earlier than before; the 8-day drop of the list stands
+#SALA_RESUME_GAP=1              # recycle: seconds between one pane's resume and the next (typed least-recently-active first)
+#SALA_SWEEP_JOBS=12             # recycle: panes checked / closed / verified at once
+#SALA_LOCK_WAIT=0                # revive: seconds to wait for the recycle lock before refusing (the boot hook and update --auto wait 600)
+#SALA_READY_WAIT=90              # after `salamander ready` wakes a pending recycle, how long to wait for that turn to end
+#SALA_READY_TTL=3600             # a ready marker older than this is ignored
+#SALA_RELAUNCH_WAITING_TEXT=      # the line `salamander hook post-tool` gives a session a relaunch waits for, once per relaunch; <what> becomes
+                                 #   the relaunch's kind: recycle · reboot of <host> · CLI update relaunch · provision relaunch · automatic relaunch.
+                                 #   Default: the owner's wording, in lib/common.sh
+#SALA_BOOT_GRACE=900             # watch: post-boot report waits this long after boot for revive's summary …
+#SALA_BOOT_DEADLINE=1800         # … and this long for an idle master, then delivers anyway (no live master → notify)
+#SALA_BOOT_AUDIT=                # what the master checks after a boot, e.g. "failed units, key services, dmesg"
+#SALA_AUTO_UPDATE=on             # watch: update the CLI on its own, at once, when npm has a newer one (every box); this box's panes on an
+                                 #   older version than the installed CLI are relaunched at once (`recycle`, those panes only; a busy one once idle)
+#SALA_AUTO_RECYCLE=on            # watch: at once, run the recycle the master's "recycle claude" would (recycle --update --force) when board
+                                 #   items wait for one or a session ran `sala recycle --when-idle "<reason>"`; at most one an hour
+#SALA_RECYCLE_WANTED_CMD="python3 ~/stackshot/client.py recycle-wanted"   # open board items on this box waiting for a recycle:
+                                 #   prints a count, then optionally ids; asked at most every 10 min, 20 s timeout; empty/non-numeric/failed = 0
+                                 #   a token may be `<id>@<epoch>~<ref>`: the flag's time and the change it waits for (a commit sha or pr<N>, `<repo>:` optional)
+#SALA_RECYCLE_REF_REPOS=         # "name=path name=path": the checkouts for a change written <name>:REF; no name, `salamander` and `sala` mean this one.
+                                 #   A flag that names a change is held (one log line) until it is in that checkout's HEAD; one sala cannot check counts as live
+#SALA_RECYCLE_REF_WAIT=86400     # a flag is held for its change at most this long after it was raised (0 = a named change is ignored)
+#SALA_RECYCLE_REF_SLACK=300      # a pane started within this long of the change landing (the deploy runs after the merge) does not count as carrying it
+#SALA_LIMIT_ALERT=on            # watch, per pane and per lane: one post for the panes newly stopped by a usage limit (their last turn ended
+                                 #   on the limit error), a line per lane and limit; one when panes work again, with the
+                                 #   reason (moved to another lane, the reset, lifted early); a pane-less claude -p run on the limit named by
+                                 #   what started it (its systemd user unit, else its folder); no Claude turn, no API call
+#SALA_LIMIT_RESUME=on            # watch: at a pane's lift, tell it (idle, still on the error) why and to handle its last incoming message
+                                 #   (through its messaging socket); when the last stopped pane lifts, re-run sala's oneshot units that failed meanwhile
+#SALA_LIMIT_CONFIRM=600          # seconds a pane's newest record must have been the limit error before it counts as stopped
+#SALA_LIMIT_RESUME_FOR=3600      # seconds after a lift a pane busy then is still told once it is idle
+#SALA_LIMIT_LOOKBACK=259200      # only transcripts written in this many seconds are read
+#SALA_OWN_UNIT_PREFIXES=sala-,salamander-   # the user-unit name prefixes the limit watch counts as sala's own oneshots (a headless run is named by the unit that started it), comma-separated
+#SALA_NET_WAKE=on              # watch: a pane whose last turn ended on "Can't reach the API server" (DNS down, EAI_AGAIN) is sent ONE message
+                                 #   through its messaging socket once api.anthropic.com resolves and the pane is idle, once per episode; nothing is typed into the pane
+#SALA_NET_HOST=api.anthropic.com # the name that has to resolve (getent hosts) before a stopped pane is woken
+#SALA_NET_DNS_WAIT=5             # seconds that lookup may take
+#SALA_NET_LOOKBACK=259200        # an error older than this many seconds is no stop (the transcript's last error time)
+#SALA_IDLE_WRAPUP=off           # watch (lib/wrapup.sh): OFF by default (the CLI's own compaction is the limit); on|1|yes|true turns it on. When on, a background agent (role back in the session registry; never a front agent, a side
+                                 #   session, the master or an sdk-lane pane) idle for SALA_IDLE_WRAPUP_MIN minutes is sent one marked message ("sala: you have
+                                 #   been idle 50 minutes; your conversation is cleared after this turn. Write anything only you know to your items and pages
+                                 #   ..., then reply done."); when that turn is over sala types /clear. Skipped, tried next tick: mid-turn, text in the input
+                                 #   box, a dialog, a background command/task/subagent/scheduled job, parked. Never twice with no turn between. Before turning it on, delete the wrap.* keys from ~/.claude/salamander-watch.state.
+#SALA_IDLE_WRAPUP_MIN=50         # minutes a background agent must have been idle (0 or off turns the whole step off; 50 keeps ahead of the prompt cache's hour)
+#SALA_IDLE_WRAPUP_MAX_AGE=58     # minutes of idleness after which the prompt cache is cold: a pane idle longer is left alone (no wrap-up, no clear, one log line), so a wrap-up turn never reloads the conversation uncached; also holds for a retry. 0 or off = no upper bound
+#SALA_IDLE_WRAPUP_MAX=3          # panes acted on (a wrap-up typed or a /clear typed) per watch tick
+#SALA_WRAPUP_START_WAIT=300      # seconds a typed wrap-up may produce no turn before it is dropped
+#SALA_WRAPUP_RETRY=1800          # seconds a pane whose wrap-up produced no turn is left alone before a retry (a pane whose /clear was not taken in SALA_CLEAR_TRIES is left alone until its conversation has a new turn)
+#SALA_CLEAR_WAIT=20              # seconds to wait for the registry row to show the new conversation after /clear
+#SALA_CLEAR_TRIES=3              # /clear is typed this many times before the pane is recorded as failed (no second wrap-up until a new turn)
+#SALA_CLEAR_CONTEXT=on           # hook session-start, source clear: one line telling a cleared background agent who it is and where its mandate is. off = nothing printed
+#SALA_SIGNIN_ALERT=on            # watch, per lane: one post when a lane is signed in to another account than SALA_LANE_<LANE>_SUBSCRIPTION /
+                                 #   _ORG say (subscription-1 in ~/.claude, subscription-2 in its directory: `claude auth status --json`, no API key in its
+                                 #   environment) or the api lane's key is refused (401/403) or its file is gone; one when it is right again. Posted
+                                 #   once per change (again only after a return to good or a change to another wrong state); an unreadable look
+                                 #   neither alerts nor clears. The fix in the post: `CLAUDE_CONFIG_DIR=<dir> claude auth login --claudeai` in the
+                                 #   web UI's Shell (the link it prints, then the code pasted back with Shift+Insert), never /login in a pane; one pane to another account: `sala lane <lane> <session>`. No Claude turn
+#SALA_SIGNIN_EVERY=300           # seconds between two looks at the login lanes (each is one `claude auth status`, a CLI start)
+#SALA_LANE_REVIVE_EVERY=86400    # a login lane (subscription-1, subscription-2) the watch set dormant is looked at again this often, with the sign-in check above, and
+                                 #   comes back by itself when it is right. The api lane never does: `sala lane active api`
+#SALA_WEB_STATE_DIR=             # sala-web's state directory, where the watch reads its saved usage answers (quota-<lane>.json; a 403 'refused' is the seat-based lane's signal) and the web UI keeps them. Default $XDG_STATE_HOME/sala-web
+#SALA_WEB_SOCKET=                # the web UI's socket path: install.sh --web writes it as sala-web.socket's ListenStream=, so an instance can pin it. Default $XDG_RUNTIME_DIR/sala-web/sala-web.sock
+#SALA_SIGNIN_API_EVERY=3600      # seconds between two API requests for the api lane's key: one of max_tokens 1 to SALA_SIGNIN_API_MODEL, the
+                                 #   key and the workspace id read from the lane's files by the request itself (never on a command line). A 400
+                                 #   (the credit used up) is a key the API accepted, not a sign-in change; 429, 5xx and no network decide nothing
+#SALA_SIGNIN_API_MODEL=           # the model that one-token request names (~24 requests a day). Unset: the newest haiku the API lists
+                                 #   (one tiny GET /v1/models before each request; when that listing fails, the pinned claude-haiku-5-5 as
+                                 #   the fallback, and a 401/403 from it is the key refused). Set: that model, used as is, no listing
+#SALA_SIGNIN_API_URL=https://api.anthropic.com/v1/messages   # where it goes (the tests point it at a stub)
+#SALA_STUCK_POST=on              # watch, per pane: one post when a pane has stopped on a terminal-only question (a permission
+                                 #   dialog, the read-outside-the-working-folder prompt, a menu: what pane_prompt reads as a prompt) — the
+                                 #   session, the dialog's text (secrets masked, ~200 chars) and its sala-web link (SALA_SESSION_URL). Once per
+                                 #   session per question: again only for another question, or after the prompt went and came back. No
+                                 #   Claude turn. `sala watch --stuck` runs it alone, `--stuck --dry-run` prints what it would post. off or 0 = never
+#SALA_STUCK_CONFIRM=90           # seconds a question must have been on the screen before it is posted (the timer's second tick)
+#SALA_STUCK_RETRIES=2            # a post the notify command refused is tried again on this many later ticks, then given up for that question
+#SALA_STUCK_INSTANT=on           # the Notification hook (`sala hook notify`; docs/stuck-question-recovery.md): the same post at once, about 6 s
+                                 #   after a dialog shows, instead of at the watch's 90 s tick; through the watch's own post path and state, so the 90 s post
+                                 #   does not repeat it. Needs the hook in settings.json (matcher permission_prompt|elicitation_dialog|elicitation_url_dialog).
+                                 #   off or 0 = the hook does nothing. SALA_STUCK_POST=off turns it off too
+#SALA_SUBAGENT_CLEANUP=on        # the SubagentStop hook (`sala hook subagent-stop`): once a subagent has handed back, SIGTERM the background shells
+                                 #   it started and left running under the pane's claude (they hold the pane's relaunch for as long as they run), each one
+                                 #   logged in ~/.claude/salamander-subagent.log. Needs the hook in settings.json (SubagentStop, matcher "*"). off or 0 = nothing
+#SALA_PERMISSION_APPROVE=on      # the PermissionRequest hook (`sala hook permission-request`; docs/permission-hook.md): approve a permission prompt at once and
+                                 #   leave the dialog (and the instant alert D) for a question to a person, the settings / CLAUDE.md / rulebook / hooks surface,
+                                 #   credentials and plan mode. Needs the hook in settings.json (PermissionRequest, matcher "*"); every decision is one line
+                                 #   in ~/.claude/salamander-permission.log. off or 0 = every prompt is left to the dialog
+#SALA_STUCK_INSTANT_TYPES="permission_prompt elicitation_dialog elicitation_url_dialog"   # the Notification types it alerts on
+#SALA_STUCK_INSTANT_TIMEOUT=15   # seconds the hook gives the notify command (a hook must not hold a turn)
+#SALA_DEFER_TOOLS="AskUserQuestion"   # `sala question run`: the tools a background `claude -p` run parks instead of answering itself. Add a tool
+                                 #   ("AskUserQuestion Bash") to have every call of it parked for a yes or no; PreToolUse fires before the permission check,
+                                 #   so it cannot park only the calls that would prompt
+#SALA_STACKSHOT_CLIENT=~/stackshot/client.py   # stackshot's shell client (default $SALA_STACKSHOT_DIR/client.py). While SALA_QUESTION_FILE_CMD / _ANSWER_CMD are unset and this file
+                                 #   exists, a parked question is filed on the board (`client.py post question`) and the owner's answer is read back
+                                 #   (`client.py get answer`) by contrib/question-board-file.sh / -answer.sh. Not there: the post through the notify command
+#SALA_QUESTION_PROJECT=                       # the project page a filed question belongs to (its front agent owns the item), e.g. projects/example. NO default: empty = a parked question is not filed on the board (the setting is named in the log)
+#SALA_QUESTION_FILE_CMD=         # the seam that files a parked question (sh -c; the question on stdin, SALA_QUESTION_ID / _SESSION / _LABEL / _RESUME and
+                                 #   SALA_STATE_DIR in the environment; the first word of its first stdout line is kept as the item id; non-zero = not filed,
+                                 #   tried again by `sala question sweep`). Unset: the board script above when the client exists, else a post through the
+                                 #   notify command. `off`: never the board script (the post path)
+#SALA_QUESTION_ANSWER_CMD=       # the seam that reads the owner's answer back (SALA_QUESTION_ID / _ITEM / _SESSION and SALA_STATE_DIR in the environment; the
+                                 #   answer on stdout; empty or non-zero = not yet). `sala question sweep` resumes every parked question that has one. Unset:
+                                 #   the board script when the client exists, else `sala resume-answer QID --answer TEXT` is the only way in. `off`: that
+#SALA_QUESTION_FILE_TRIES=3      # failed filings of one parked question in a row (the hook's own try counts, a timeout is one) before ONE post through the
+                                 #   notify command says the board did not take it, with the reason; the sweep keeps trying to file it. 1 = at the first failure
+#SALA_QUESTION_SWEEP_EVERY=60    # watch: at most this often (seconds), while a parked question is open, `sala question sweep` as its own unit
+                                 #   (sala-auto-qsweep): files again what failed and resumes every run the owner has decided. No open question: nothing is
+                                 #   called. 0 or off disables it (then run `sala question sweep` yourself)
+#SALA_QUESTION_SWEEP_TIMEOUT=1800   # the sweep unit's RuntimeMaxSec (a resume can take minutes)
+#SALA_UNIT_GAPS=on               # the watch tick's unit-gap pass (`sala job check --post`, docs/units.md): a timer of ours with no Description=, no
+                                 #   X-Model-Lane= or not in git is opened once as a board item (mover: the builder of the repo that owns its script) and closed when fixed. off stops the tick's pass
+                                 #   (sala-unit-gaps.path still runs it when a unit file changes)
+#SALA_OP_QUEUE=on                # watch: the operation queue (`sala op <verb> … --from NAME --words "…"`, lib/op.sh): the oldest queued
+                                 #   operation started as its own sala-op-<id> unit, one at a time, under the recycle lock; one Slack post and one
+                                 #   inbox line per result. off: markers are taken and kept, nothing starts them until it is on
+#SALA_OP_REBOOT=off              # a reboot is not queued: the owner runs `sala reboot --go` himself. `sala op reboot` (= reboot --go) is refused
+                                 #   while this is off, its default; on is unsupported until a confirmation path is built
+#SALA_OP_LOCK_WAIT=600           # seconds the runner waits for a relaunch that already holds the recycle lock before the operation is stuck
+#SALA_OP_SWEEP_WAIT=1800         # seconds the runner gives a relaunch verb's sweep (recycle, revive, update's local leg, a lane switch) to free the lock
+#SALA_OP_SETTLE_WAIT=            # seconds the waiter gives a set with panes still outstanding (a retry worker, the deferred list) before the
+                                 #   operation is stuck; default SALA_RETRY_WINDOW + 900
+#SALA_OP_STUCK=on                # a stuck operation gets one `claude -p` (never a second, never another route): on the subscription-1 lane, default permission
+                                 #   mode (no bypass flag), the tools below, SALA_OP_STUCK_TURNS turns and SALA_OP_STUCK_TIME seconds; off: stuck is posted as is
+#SALA_OP_STUCK_TURNS=25          # its --max-turns
+#SALA_OP_STUCK_TIME=1200         # its wall clock, seconds (timeout; killed 30 s after)
+#SALA_OP_HELPER_TOOLS="Bash(sala:*),Bash(salamander:*),Bash(tmux list-panes:*),Bash(tmux list-sessions:*),Bash(tmux display:*),Bash(tmux capture-pane:*),Bash(tail:*),Bash(cat:*),Bash(ls:*),Bash(ps:*),Bash(grep:*),Read,Grep,Glob"
+                                 #   its --allowedTools: sala's verbs and read-only looks, nothing else
+#SALA_OP_HELPER_CWD=~            # where it runs
+#SALA_OP_CLAUDE=                 # the command it runs as; empty = SALA_CLAUDE (the tests set a stub, so no suite calls the API)
+#SALA_WATCH_NOTIFY_CMD=           # e.g. a Slack webhook helper reading the message on stdin
+                                 #   (also `sala alert "<headline>" "<line>"…` from a check run without Claude)
+#SALA_FLEET_HOSTS=                # ssh aliases `salamander update --fleet` also updates, e.g. "laptop desktop"
+#SALA_FLEET_TIMEOUT=8             # seconds before a host counts as offline (skipped, not failed)
+#SALA_POST_UPDATE_CMD=            # run after ANY CLI update attempt (recycle --update, update --fleet, provision), e.g. bump a version dashboard
+#SALA_POST_RECYCLE_CMD=           # run at the end of every recycle and clean reboot of THIS box, and again (same STARTED) when a retry worker or watch later relaunches a pane that recycle skipped (not a revive --only of its own, not dry runs), detached (sh -c), output in the log; never changes the result.
+                                  # It sees SALA_RECYCLE_KIND=recycle|reboot, SALA_RECYCLE_STARTED=<epoch>, SALA_RECYCLE_RESULT=ok|partial, SALA_RECYCLE_SKIPPED="<tmux sessions still not relaunched>". e.g.:
+#SALA_POST_RECYCLE_CMD="python3 ~/stackshot/client.py recycled"   # stackshot clears the waits-for-recycle field
+#SALA_HEARTBEAT_STATE_DIR=~/.local/state/salamander/fleet   # LIVE store the consumer reads: <dir>/<letter>/{machine,sessions}.json, rewritten on change
+#SALA_HEARTBEAT_GIT=full         # also into SALA_HEARTBEAT_REPO: full · master (only this box's master record) · off
+#SALA_HEARTBEAT_REPO=             # optional: also commit the store into this git checkout (empty = off)
+#SALA_HEARTBEAT_DIR=              # store path inside that repo; files land in <dir>/<letter>/{machine,sessions}.json
+#SALA_FLEET_NAMES=~/fleet-names.tsv   # TSV: <os hostname>\t<fleet name>\t<letter>; or set SALA_HEARTBEAT_LETTER / SALA_HEARTBEAT_NAME
+#SALA_HEARTBEAT_NAME=             # this machine's fleet name (the heartbeat's; else from SALA_FLEET_NAMES, else the hostname). The briefings
+                                 #   (contrib/briefing) name this machine by it in their posts ("Details: <log> on <name>", "<name> runs <version>")
+                                 #   and drop a CLAUDE.md echo line "On <name> (…" from a digest. Unset or empty: the hostname
+#SALA_HEARTBEAT_STALE=1800        # `heartbeat --check` fails when the last one is older than this (seconds)
+#SALA_SESSION_URL='https://sala.example.com/#s={name}'   # the link of a session on THIS box: the heartbeat's url for its own rows and
+                                 #   the rename notice. {name} = the session's name, percent-encoded as encodeURIComponent does.
+                                 #   Unset or empty (the default): the claude.ai Remote Control link of a bridged session, none for an unbridged one.
+                                 #   Set it to the address of a web UI that opens a session by name (sala-web, the web package) to link that instead.
+                                 #   Other boxes' rows keep theirs
+#SALA_SETTINGS_APPLY=off         # watch: a Claude Code settings change that lands in the machine spec is applied by sala, on this box and
+                                 #   the fleet, never by a session (lib/settings-apply.sh; `sala settings-apply` shows the state). Default off: nothing
+                                 #   read or written; 1, on, yes or true (any case) turns it on (it needs a machine spec checkout: SALA_SETTINGS_SPEC_DIR, below)
+#SALA_JOB_LANE=subscription-1    # the lane a scheduled job (`sala job`) runs on when it names none: default subscription-1 (max still works), the login lane every install has
+#SALA_JOB_GITHUB=                # the GitHub owner/repo a unit job (docs/units.md) reports to when its row names none; empty = no gap post (the
+                                 #   rows come from ~/.config/salamander/unit-repos.tsv, else the tracked lib/unit-repos.tsv, which is only comments)
+#SALA_UNIT_PROJECT_MAP=          # space-separated from=to pairs: a unit's X-Project= value is shown (and checked) as another project, e.g. "sala/salamander=team/ops"
+                                 #   makes the units sala ships (X-Project=sala/salamander, copied byte for byte) show under team/ops in `sala job list`, the gap
+                                 #   check and the web Overview's Schedules tab. A pair with no = or an empty side is ignored. Unset or empty (the default): no mapping
+#SALA_STACKSHOT_WEB=             # the board's web address (e.g. https://board.example.com): a side session's mandate links its item as
+                                 #   <address>/items/<n>. Empty (the default): the mandate names the item's id and says to read it with the board connector.
+                                 #   The briefings' posts link a board id there too (<address>/items/<id>); empty: the id stays plain
+# The repos the CI poller watches are not a setting here but a file: ~/.config/salamander/ci-repos, one owner/name per line, `#` comments (docs/ci-runs.md).
+# Without it the tracked lib/ci-repos applies, which lists none, so a fresh install polls nothing and the poller's log says so.
+# Unit-job rows (docs/units.md) likewise come from ~/.config/salamander/unit-repos.tsv when it exists, else the tracked lib/unit-repos.tsv.
+# The web UI's Schedules tab also takes that table's checkouts as known repos (with ~/salamander and ~/stackshot) when it looks for a copied unit's git source.
+#SALA_BACKFILL_MAP=              # the map contrib/backfill-job-projects.sh gives the existing jobs their X-Project= from: a file of lines
+                                 #   `scope/project: job job …`, plus an optional `rendered: job …` line (units another repo renders from a template).
+                                 #   Unset or empty (the default): no map, the script does nothing
+#SALA_MACHINE_FOLLOW_MACHINES=   # the data file of machine-follow (lib/machine-follow.py, docs/units.md): `run_on` (the host it runs on) and one
+                                 #   [machines.<hostname>] entry per machine it keeps level with this one. The data is yours, not sala's, so it lives outside this
+                                 #   repository. The units carry no sala environment: the script reads this line from this file as text (a leading ~ or $HOME is
+                                 #   understood). Unset or empty (the default): ~/.config/salamander/machine-follow.toml; a missing file is one line and exit 2
+#SALA_SETTINGS_STEPS=           # the settings-class steps of the spec's provision scripts that the service runs (`provision --only`), space-separated. Empty (the default):
+                                 #   no step, so the tick and the run apply nothing; set it together with SALA_SETTINGS_SPEC_DIR and SALA_SETTINGS_INPUTS. Example (steps your own
+                                 #   provision scripts list; sala names none of them): SALA_SETTINGS_STEPS="settings deny-rules guard-hook"
+                                 #   Name only steps that merge settings or tighten them (a hooks or env merge, deny entries); a step that would loosen a permission stays your own.
+                                 #   The words for the posts go in ~/.config/salamander/step-words.tsv (step name<TAB>words, the
+                                 #   columns of the tracked lib/step-words.tsv; a row there wins over the tracked one; without a row a post shows the step's name)
+#SALA_SETTINGS_SPEC_DIR=         # the spec checkout the fingerprint reads, e.g. ~/spec-repo (kept current by that repo's own sync); the log
+                                 #   and the posts name the spec's commit by its checkout's folder name. Unset or empty (the default): no spec, nothing to apply
+#SALA_SETTINGS_INPUTS=          # the files the fingerprint covers, space-separated, relative to SALA_SETTINGS_SPEC_DIR (a missing one is skipped; none → nothing to apply).
+                                 #   Empty (the default): no input, so nothing to apply. Example: SALA_SETTINGS_INPUTS="SPEC.md spec/common.md scripts/steps.sh"
+#SALA_SETTINGS_RETRY=3600        # seconds before a box that failed is tried again
+#SALA_SETTINGS_STALE=86400       # seconds after a spec change before a box still behind it is posted (once per fingerprint)
+#SALA_SETTINGS_LOG=~/.claude/salamander-settings-apply.log   # the log: one line per box and run, then one per settings key changed
+# The briefings (contrib/briefing) read these lines too, and SALA_STACKSHOT_WEB above (never sourcing this file: nothing is
+# expanded, except that a path starting with ~ or $HOME is the caller's home); the environment wins when it sets them, empty included.
+#BRIEFING_GMAIL_CONNECTOR=       # the one word that names the mailbox's Google Workspace connector, as claude.ai shows it ("Google Workspace <word>"):
+                                 #   the digests read Gmail with mcp__claude_ai_Google_Workspace_<word>__*, or through the MCP portal with its
+                                 #   g<word, lower case>_* reads; the read guard (guard.py) allows only those. Unset or empty (the default): no digest
+                                 #   runs (summary, defunct and the lean summary write one cron.log line and exit 0), and the guard allows no Gmail read
+#BRIEFING_LEAN_CLIENT_NAME=      # the name the lean summary's fetch gives itself to the portal (MCP clientInfo; its User-Agent is <name>/1).
+                                 #   Unset or empty: sala-briefing-lean
+#BRIEFING_LOGDIR=                # the briefings' logs (each run's stream-json, cron.log, lean/). Unset or empty: ~/.local/state/sala-briefing
+                                 #   ($XDG_STATE_HOME/sala-briefing). The units append their output to cron.log here (BRIEFING_CRON_LOG=1), naming no path
+#BRIEFING_OLD_LOGDIR=            # an older log directory whose files are carried over to BRIEFING_LOGDIR on the next run (plain files, nothing
+                                 #   overwritten). Unset or empty (the default): none
+#BRIEFING_WEBHOOK_FILE=          # the file holding the Slack incoming-webhook URL (secret; mode 600). Unset or empty: ~/.config/sala-briefing/slack-webhook
+#BRIEFING_BRAIN_REPO=            # the GitHub repo (name, under the repository owner) of the pages: a page key a post names (a SALA_PAGE_DIRS dir,
+                                 #   people/ or companies/) links to its .md there. Unset or empty (the default): page keys stay plain
+#BRIEFING_ISSUE_REPOS=           # the repos whose `<repo>#N` a post links to an issue, space-separated and quoted. Unset or empty: salamander stackshot
+#BRIEFING_GITHUB_BASE=           # the GitHub account the posts' repo links point into, as a URL ending in the account (e.g. https://github.com/example-org;
+                                 #   a trailing / is fine). The page links (BRIEFING_BRAIN_REPO), the `<repo>#N` issue links (BRIEFING_ISSUE_REPOS; also
+                                 #   written `<account>/<repo>#N`) and the commit links (BRIEFING_COMMIT_REPOS) are built on it. Unset or empty (the
+                                 #   default): none of them links, the page keys, `<repo>#N` and commit ids stay plain text
+#RELEASE_WATCH_CLI_OWNER=        # release-watch.sh: the session a new Claude Code CLI release is relayed to when sala has no master. Unset or empty
+                                 #   (the default): the release is posted and nobody is pinged
+#RELEASE_WATCH_UBUNTU_SESSION=   # release-watch.sh: the session an open Ubuntu LTS upgrade path is relayed to. Unset or empty: posted only
+#RELEASE_WATCH_UBUNTU_PAGE=      # release-watch.sh: the project page (a page key) with the LTS upgrade plan, named in the post and the relay.
+                                 #   Unset or empty: no page is named
+#BRIEFING_BOARD_DIR=             # the board's data directory (board-data/<letter>/<n>.json): a board id a digest names links to the board
+                                 #   (at SALA_STACKSHOT_WEB). Empty or missing, here or there (the default): no board links
+#BRIEFING_COMMIT_REPOS=          # space-separated name=path pairs, quoted, e.g. BRIEFING_COMMIT_REPOS="salamander=~/salamander": a commit a
+                                 #   digest names links to the first repo that has it. Empty (the default): no commit links
+#BRIEFING_GMAIL_ACCOUNT=         # the Gmail address the mail summaries read (e.g. alex@example.com): a digest's `open` link opens that account
+                                 #   (authuser=) and the login notices name it. Empty (the default): the links open the first signed-in account
+                                 #   (mail/u/0) and the notices say "the Gmail account"
+#BRIEFING_LEAN_PORTAL_URL=       # the MCP portal's address the lean summary reads Gmail through (e.g. https://mcp-portal.example.com/mcp).
+                                 #   Empty (the default): the serverUrl of Claude Code's login entry for the portal; neither: the lean summary
+                                 #   posts its "failed" notice and sends nothing
+#BRIEFING_TZ=UTC                 # the time zone the digests show their times in (an IANA name such as Europe/Paris, or UTC). Unset, empty or not a
+                                 #   plain zone name: UTC. Independent of SALA_TZ above; the timers' own OnCalendar lines carry their zone themselves
+#BRIEFING_WATCHLIST=             # the companies and topics a Google Alert must be about to count in the mail summary (prompt slot {{WATCHLIST}}),
+                                 #   comma-separated, e.g. "Example Corp, drip irrigation". Unset or empty (the default): the prompts say "none configured"
+#BRIEFING_LOW_PRIORITY_SENDERS=  # senders and kinds of mail that stay low-priority in the mail summary unless they are a security, billing or legal
+                                 #   issue (prompt slot {{LOW_PRIORITY_SENDERS}}), comma-separated, e.g. "news@example.com, weekly newsletters".
+                                 #   Unset or empty (the default): "none configured"
+#BRIEFING_FORWARD_LABEL=         # the Gmail label of the defunct-address queue (prompt slot {{FORWARD_LABEL}}): one plain word, letters, digits, dot,
+                                 #   underscore, dash or slash. Unset or empty (the default): that digest is off (defunct.sh writes one cron.log line and exits 0)
+#SALA_BRIEFING_MODEL=sonnet      # the model the briefing digests call (contrib/briefing/lib.sh). Read from the environment of the digest's unit, not from this file. Default: sonnet
+#                                 The web UI's other variables are all named SALA_WEB_<NAME> (SALA_WEB_ROLES_CMD, SALA_WEB_PAGE_DIRS, SALA_WEB_BRAIN_DIR, SALA_WEB_TMUX_SOCKET,
+#                                 SALA_WEB_TERMINAL_URL, SALA_WEB_STACKSHOT_WEB, SALA_WEB_STACKSHOT_STATE, ...): web/README.md lists each one

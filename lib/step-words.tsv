@@ -1,0 +1,6 @@
+# step name<TAB>the plain words a Slack post uses for it (provision's fleet post and its set posts; lib/provision.sh, common.sh step_word).
+# A step with no row here (or in the box's own ~/.config/salamander/step-words.tsv, read first) is shown under its own name. Examples:
+repo	repo
+settings	settings
+demo-step	what a demo step does
+deny-rules	deny entries

@@ -1,0 +1,16 @@
+[Unit]
+Description=salamander watch — keeps the fleet alive: revives panes whose claude died, runs the operation queue, the automatic update and recycle, the post-boot report
+# The tick itself makes no model call. The ones it can start: the stuck-operation helper (one `claude -p` per stuck op, SALA_OP_STUCK=on,
+# lib/op.sh op_helper) and the
+# parked-question sweep (`claude -p --resume`, lib/question.sh qs_claude). Both run on the SALA_JOB_LANE lane (default bedrock): job_env_args puts the lane's environment on that one claude only, never on the watch itself (a pane it relaunches must not inherit it).
+X-Model-Lane=bedrock
+X-Project=sala/salamander
+X-Model-Note=+ api key check when an api/sdk session runs
+# X-Model-Lane note: SALA_OP_STUCK=off removes the helper. The lane sign-in watch (SALA_SIGNIN_ALERT, default on) also sends one
+# max_tokens=1 Messages API request an hour with the api lane's key, only while a session's row or the default is api or sdk
+# (lib/watch.sh sw_api_probe); it is a key check, not a session.
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/salamander watch

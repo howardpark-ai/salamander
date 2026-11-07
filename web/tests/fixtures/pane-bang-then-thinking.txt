@@ -1,0 +1,10 @@
+! sudo apt update
+  ⎿  All packages are up to date.
+     +14 lines (ctrl+o to expand)
+
+✻ Thinking… (2s · esc to interrupt)
+
+────── demo-builder ──────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt

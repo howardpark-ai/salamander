@@ -1,0 +1,14 @@
+● Bash(echo hi)
+  ⎿  hi
+
+! sudo apt update
+  ⎿  Hit:1 http://archive.ubuntu.com/ubuntu resolute InRelease
+     Get:2 http://archive.ubuntu.com/ubuntu resolute-updates InRelease [126 kB]
+     Reading package lists...
+     Building dependency tree...
+     +14 lines (18s)
+     (ctrl+b ctrl+b (twice) to run in background)
+────── demo-builder ──────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt

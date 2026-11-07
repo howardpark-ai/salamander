@@ -1,0 +1,13 @@
+[Unit]
+Description=salamander unit gaps — open a board item for each timer of ours with no Description=, no X-Model-Lane= or not in git, and close it when fixed
+# Runs no model call: `sala job check --post` (lib/unitjob.py) reads the unit folders, and for a new gap opens one board item
+# (client.py post job-gap open; stackshot moves it by the builder of the repo that owns the timer's script), closed when the gap is. Started by sala-unit-gaps.path when a unit file is added,
+# removed or changed; sala-watch's tick runs the same pass every 2 min (SALA_UNIT_GAPS=off turns that off).
+X-Model-Lane=none
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Debounce: wait for a burst of unit writes to end, so the one run sees all of it (see the TriggerLimit comment in sala-unit-gaps.path).
+ExecStartPre=/bin/sleep 5
+ExecStart=%h/.local/bin/salamander job check --post --quiet

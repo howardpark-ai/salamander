@@ -1,0 +1,22 @@
+[38;5;231m⏺[39m I'll read the config to check the port.
+
+[38;5;246m  1. First, the service file[39m
+[38;5;246m  2. Then the socket unit[39m
+
+[38;5;174m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [1m[38;5;174mRead outside the working directories[0m
+
+    /etc/hostname
+
+  Auto mode and the sandbox read outside the working directories without asking.
+
+  Allow this read outside the working directories?
+  [38;5;153m❯[39m [38;5;246m1. [39m[38;5;153mYes, and keep allowing any reads outside the working directories[39m
+    [38;5;246m2. [39mNo, and block reads outside the working directories from now on
+    [38;5;246m3. [39mNo, and ask again next time
+    [38;5;246m4. [39mYes, but ask again next time
+
+  [38;5;246mEsc to cancel · Tab to amend[39m
+
+
+

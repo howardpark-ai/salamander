@@ -1,0 +1,11 @@
+● Bash(echo hi)
+  ⎿  hi
+
+! sudo apt update
+  ⎿  All packages are up to date.
+     +14 lines (ctrl+o to expand)
+
+────── demo-builder ──────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────
+  ? for shortcuts

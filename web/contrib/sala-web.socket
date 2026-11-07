@@ -1,0 +1,17 @@
+[Unit]
+Description=Listening socket of the web UI (held by systemd, so restarts of sala-web.service drop no requests)
+Documentation=file:%h/salamander/web/README.md
+
+[Socket]
+# A UNIX socket in the user's runtime dir, not a loopback TCP port: the web UI has no login of its own and its send endpoint
+# types into Claude panes, so a login must sit in front of it (docs/web-proxy.md). The proxy, running as this user, reaches it at
+# $XDG_RUNTIME_DIR/sala-web/sala-web.sock.
+ListenStream=%t/sala-web/sala-web.sock
+SocketMode=0600
+DirectoryMode=0700
+Accept=no
+# connections that arrive while the service restarts wait here
+Backlog=128
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,20 @@
+# The dispatcher of machine-follow (lib/machine-follow.py; the data file, machines.toml: docs/units.md). Started by machine-follow.path (a deploy,
+# an install or a CLI update) and machine-follow.timer (every 10 min). It works out which machines are due and starts
+# machine-follow@<hostname>.service for each with `systemctl --user start --no-block`, leaving an instance that is still running alone, then
+# exits: so a long step (a machine that waits up to 90 min for gbrain's release lock) never holds up another machine's (a stackshot deploy
+# reaches a fast machine within minutes). The unit names have no sala- prefix on purpose: linking these files over older links of the
+# same names leaves one dispatcher, never two. It runs only on the host the data
+# file names as run_on: the script refuses (exit 64) on any other, so link this family on the coordinator machine only.
+[Unit]
+Description=Start the follow of every machine the coordinator machine drives that is due
+X-Model-Lane=none
+X-Project=sala/salamander
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 %h/salamander/lib/machine-follow.py
+# a few git calls and a few systemctl calls
+TimeoutStartSec=5min

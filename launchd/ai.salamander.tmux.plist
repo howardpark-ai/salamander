@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS equivalent of the systemd user unit that starts the tmux server at login (tmux-continuum's
+     @continuum-boot then restores the layout and the post-restore hook runs `salamander revive`).
+     Install: cp launchd/ai.salamander.tmux.plist ~/Library/LaunchAgents/ && launchctl load -w ~/Library/LaunchAgents/ai.salamander.tmux.plist
+     Replace USER and the tmux path (`which tmux`). Not yet exercised on a Mac. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.salamander.tmux</string>
+  <key>ProgramArguments</key><array><string>/opt/homebrew/bin/tmux</string><string>new-session</string><string>-d</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><false/>
+</dict></plist>

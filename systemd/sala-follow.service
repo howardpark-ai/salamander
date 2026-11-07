@@ -1,0 +1,14 @@
+[Unit]
+Description=salamander follow — resident watcher of the Claude Code session registry (hand renames, …)
+# Runs no model call: it watches ~/.claude/sessions and runs `sala rename --sync` (lib/follow.py, lib/follow.sh).
+X-Model-Lane=none
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/salamander follow
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

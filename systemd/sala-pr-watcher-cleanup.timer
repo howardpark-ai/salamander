@@ -1,0 +1,10 @@
+[Unit]
+Description=PR-watcher cleanup every 30 min (timer)
+
+[Timer]
+OnCalendar=*:0/30
+Persistent=true
+Unit=sala-pr-watcher-cleanup.service
+
+[Install]
+WantedBy=timers.target

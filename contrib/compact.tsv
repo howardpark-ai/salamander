@@ -1,0 +1,5 @@
+# compact.tsv — the compact window of a session: <tmux session><TAB><tokens>, tokens a whole number from 100000 to 1000000.
+# install.sh copies this file to ~/.local/state/salamander/compact.tsv when that is absent; from then on the live file is edited
+# by hand and read at every launch line (resume_cmd, spawn): `claude --autocompact <tokens>`. A session with no row, or a bad
+# row, gets no flag, so the project setting applies (background agents: 200k, the background agents' folder).
+# A session that needs a window of its own gets one by adding a row to the live file; none ships by default.

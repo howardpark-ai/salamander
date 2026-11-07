@@ -1,0 +1,8 @@
+/*!
+ * cm6-composer: CodeMirror 6 bundled for sala's composer.
+ * @codemirror/state 6.7.6, @codemirror/view 6.43.13, @codemirror/commands 6.11.1 and their dependencies (@codemirror/language;
+ * @lezer/common, highlight, lr; style-mod, w3c-keyname, crelt, @marijn/find-cluster-break).
+ * Copyright (C) 2018-2026 by Marijn Haverbeke <marijn@haverbeke.berlin> and others.
+ * MIT License: the full text is web/vendor-src/cm6-composer/LICENSE in the salamander repository, with the recipe
+ * (entry.js, package.json, package-lock.json, README.md) that reproduces this file. https://codemirror.net
+ */

@@ -1,0 +1,12 @@
+# The fallback for machine-follow.path, and the refresh a machine whose catch_up_minutes is just under the tick gets on every tick (the timer
+# is every 10 min; 9 so a tick that starts a little early still counts as due); a machine with a daily catch-up runs here once a day
+# or after a gbrain change. The unit names have no sala- prefix on purpose (see machine-follow.path). Coordinator machine only.
+[Unit]
+Description=Every 10 min: the machines the coordinator machine drives follow what it runs
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,19 @@
+! ls
+  ⎿  README.md
+     web
+
+❯ now run the build
+
+● Run the build
+  ⎿  $ sleep 60
+     line 1
+     line 2
+     line 3
+     line 4
+     +14 lines (18s)
+     (ctrl+b ctrl+b (twice) to run in background)
+
+────── demo-builder ──────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt

@@ -1,0 +1,7 @@
+{
+  "name": "sala",
+  "version": "0.1.0",
+  "author": { "name": "salamander" },
+  "description": "salamander's in-session helper: answers sala's exit, rename and draft requests from inside the pane's claude, so sala no longer types or scrapes the screen for them",
+  "types": "./types/index.d.ts"
+}
