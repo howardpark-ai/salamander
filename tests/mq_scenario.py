@@ -31,6 +31,9 @@ makes "all entries are testing at once" a state the test waits for instead of a 
 Group mode is gone (`sc_chain_config`, `sc_retired_keys`, `sc_legacy_group_state`): `queue_mode = "chain"` is silent, `group_max` and `bisect` are ignored with a warning that names the fix,
 `queue_mode = "group"` blocks the queue and names the fix, and the state a group-mode driver left on disk (a multi-PR record, the parent and halves of a bisect, a merge whose push had happened)
 does not wedge the queue after the upgrade.
+The merge commit identity (`sc_identity`): in a throwaway HOME whose global git config holds a fake person, the commits carry the work clone's own identity (an includeIf rule) or the host file's git_name
+and git_email, never the global one; with only the global identity, or nothing, resolving, the queue is blocked with a refusal that names git_name and git_email (journal, `mq wait`, `mq doctor`), no traceback.
+The other scenarios get an identity for the work clone from GIT_CONFIG_COUNT in the World's environment.
 Not covered (later): the rerun of a flaky check, the sweep of stale queue branches, the push-run poller file.
 
     bash tests/mq.sh  (runs this file)  → exit 0 / 1"""
@@ -244,6 +247,8 @@ class World:
             os.makedirs(p)
         self.env = dict(BASE_ENV, HOME=self.home, XDG_STATE_HOME=self.state, XDG_CONFIG_HOME=self.cfg, FAKE_DIR=self.fake,
                         PATH=BIN + os.pathsep + BASE_ENV.get("PATH", "/usr/bin:/bin"), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+                        GIT_CONFIG_COUNT="2", GIT_CONFIG_KEY_0="user.name", GIT_CONFIG_VALUE_0="Queue Test",       # an identity the work clone resolves (the queue refuses to commit without one);
+                        GIT_CONFIG_KEY_1="user.email", GIT_CONFIG_VALUE_1="queue@example.invalid",                 # the identity scenarios (sc_identity_*) build their own environment
                         GIT_AUTHOR_NAME="Dana", GIT_AUTHOR_EMAIL="dana@example.com", GIT_COMMITTER_NAME="Dana", GIT_COMMITTER_EMAIL="dana@example.com",
                         MQ_TICK_SECS="0.02", MQ_POLL_SECS="0.02", MQ_BACKOFF_SECS="0", MQ_WAIT_SLEEP="0.02", MQ_MAX_FAILS="3", MQ_WAIT_CAP_SECS="40")
         self.git(self.d, "init", "-q", "--bare", "-b", "main", self.origin)
@@ -2178,6 +2183,116 @@ def sc_legacy_group_state():
     check("C: no queue branch or worktree is left", w.branches() == ["main"] and live_worktrees(w) == [], (w.branches(), live_worktrees(w)))
 
 
+def identity_env(w, global_cfg=False, include_clone=False):
+    """w.env as a real machine has it: no identity in the environment, a throwaway HOME whose .gitconfig is the "global" one (a fake person's, never a real one) and, when
+    include_clone is set, an includeIf rule that gives the work clone a neutral identity, as the repo's own rules do on a real machine."""
+    env = {k: v for k, v in w.env.items() if not k.startswith(("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GIT_AUTHOR_", "GIT_COMMITTER_", "GIT_CONFIG_GLOBAL"))}
+    gc = os.path.join(w.home, ".gitconfig")
+    if os.path.exists(gc):
+        os.unlink(gc)
+    text = "[user]\n\tname = Example Person\n\temail = person@example.invalid\n" if global_cfg else ""
+    if include_clone:
+        neutral = os.path.join(w.d, "neutral.gitconfig")
+        with open(neutral, "w") as f:
+            f.write("[user]\n\tname = Queue Neutral\n\temail = neutral@example.invalid\n")
+        text += '[includeIf "gitdir:%s/"]\n\tpath = %s\n' % (os.path.join(w.sdir(), "work"), neutral)
+    if text:
+        with open(gc, "w") as f:
+            f.write(text)
+    return env
+
+
+def queue_branch_idents(w, branch="queue/main/g1"):
+    """The author and committer (name <email>) of the newest commit of the entry's branch on origin, or a note when the branch is not there."""
+    if branch not in w.branches():
+        return "(no branch)"
+    return w.git(w.origin, "log", "-1", "--format=%an <%ae>|%cn <%ce>", "refs/heads/" + branch)
+
+
+def sc_identity():
+    """The merge commits never carry the global git identity (a person's own): the host file's git_name / git_email win, a key left unset is read from the work clone, and the queue
+    refuses (naming git_name and git_email) when the result is empty or is the global one. The "global" identity here is a fake person's in a throwaway HOME."""
+    import mq_git
+    REFUSED = "refusing to make merge commits"
+
+    # (a) a global identity is set, the host file has no identity keys, the work clone gets a neutral identity of its own (an includeIf rule): the commits carry the clone's
+    w = World("ident-a", ci_mode="going:1")
+    w.pr(1, {"a.py": "1\n"})
+    w.env = identity_env(w, global_cfg=True, include_clone=True)
+    w.mq("add", "1")
+    d = w.drive(env={"MQ_CRASH_AT": "pushed"})
+    ids = queue_branch_idents(w)
+    check("identity (a): the entry's merge commit carries the work clone's identity, author and committer", ids == "Queue Neutral <neutral@example.invalid>|Queue Neutral <neutral@example.invalid>", (ids, d.stderr[-300:]))
+    check("identity (a): the global identity is on no commit of the branch", "queue/main/g1" in w.branches() and "Example Person" not in w.git(w.origin, "log", "--format=%an %ae %cn %ce", "refs/heads/queue/main/g1"))
+    check("identity (a): the queue is not blocked", not w.queue().get("blocked"), w.queue().get("blocked"))
+
+    # (b) the same, but the clone has no identity of its own: only the global one resolves → refused, naming both host keys, nothing built or pushed, no traceback
+    w = World("ident-b", ci_mode="going:1")
+    w.pr(1, {"a.py": "1\n"})
+    w.env = identity_env(w, global_cfg=True)
+    w.mq("add", "1")
+    d = w.drive()
+    blocked = (w.queue().get("blocked") or {}).get("reason", "")
+    check("identity (b): the driver ends cleanly, with no traceback", d.returncode == 0 and "Traceback" not in d.stderr, (d.returncode, d.stderr[-300:]))
+    check("identity (b): the queue is blocked with the refusal, which names git_name and git_email", REFUSED in blocked and "git_name" in blocked and "git_email" in blocked, blocked)
+    check("identity (b): the refusal says the clone's value is the global identity, and does not print the person's name or email", "global git user.name" in blocked and "global git user.email" in blocked and
+          "Example Person" not in blocked and "person@example.invalid" not in blocked, blocked)
+    check("identity (b): the refusal is in the journal and nothing was pushed", [e["reason"] for e in w.events("blocked")] == [blocked] and w.branches() == ["main"], (w.events("blocked"), w.branches()))
+    check("identity (b): the PR is still waiting, not ejected", w.entry(1)["state"] == "waiting", w.entry(1))
+    r = w.mq("wait", "1", "--timeout", "1")
+    check("identity (b): `mq wait` says the queue is blocked, exit 2", r.returncode == 2 and REFUSED in r.stderr, (r.returncode, r.stderr))
+    r = w.mq("doctor")
+    check("identity (b): `mq doctor` prints the same message as an error line, exit 1, no traceback", r.returncode == 1 and "FAIL" in r.stdout and REFUSED in r.stdout and "git_name" in r.stdout and "git_email" in r.stdout and
+          "Traceback" not in r.stderr, (r.returncode, r.stdout[-500:], r.stderr[-300:]))
+
+    # (c) the host file's keys win (same world: only the global identity resolves for the clone; the block lifts at the next start)
+    w.host_mode("shadow", 'git_name = "Host Named"\ngit_email = "host@example.invalid"\n')
+    r = w.mq("doctor")
+    check("identity (c): with the host keys set, `mq doctor` has no identity error (the old block is still named, as a warning, until the queue starts again)",
+          "FAIL" not in r.stdout and "merge commit identity" in r.stdout, r.stdout)
+    d = w.drive(env={"MQ_CRASH_AT": "pushed"})
+    ids = queue_branch_idents(w)
+    check("identity (c): the commits carry the host file's identity, never the global one", ids == "Host Named <host@example.invalid>|Host Named <host@example.invalid>", (ids, d.stderr[-300:]))
+    check("identity (c): the block is cleared", not w.queue().get("blocked"), w.queue().get("blocked"))
+
+    # (c2) the host file's keys win over a neutral clone identity too
+    w = World("ident-c2", ci_mode="going:1", host_extra='git_name = "Host Named"\ngit_email = "host@example.invalid"\n')
+    w.pr(1, {"a.py": "1\n"})
+    w.env = identity_env(w, global_cfg=True, include_clone=True)
+    w.mq("add", "1")
+    w.drive(env={"MQ_CRASH_AT": "pushed"})
+    ids = queue_branch_idents(w)
+    check("identity (c2): the host file's identity wins over the work clone's", ids == "Host Named <host@example.invalid>|Host Named <host@example.invalid>", ids)
+
+    # (d) nothing resolves at all (no global identity, no clone identity, no host keys) → refused; with one host key set, the other is named
+    w = World("ident-d", ci_mode="going:1")
+    w.pr(1, {"a.py": "1\n"})
+    w.env = identity_env(w)
+    w.mq("add", "1")
+    d = w.drive()
+    blocked = (w.queue().get("blocked") or {}).get("reason", "")
+    check("identity (d): nothing resolves → refused, naming git_name and git_email, no fallback identity used", REFUSED in blocked and "git_name" in blocked and "git_email" in blocked and "user.name is not set" in blocked and
+          "user.email is not set" in blocked and w.branches() == ["main"] and "Traceback" not in d.stderr, (blocked, w.branches(), d.stderr[-300:]))
+    w.host_mode("shadow", 'git_name = "Host Named"\n')
+    d = w.drive()
+    blocked = (w.queue().get("blocked") or {}).get("reason", "")
+    check("identity (d): with only git_name set the refusal is about the email", REFUSED in blocked and "user.email is not set" in blocked and "user.name is not set" not in blocked, blocked)
+    r = w.mq("doctor")
+    check("identity (d): `mq doctor` says the same", r.returncode == 1 and "user.email is not set" in r.stdout and "Traceback" not in r.stderr, (r.stdout[-400:], r.stderr[-300:]))
+
+    # the class itself: no clone yet and a key unset → no verdict yet (the clone is asked once it exists); both keys set → fine with no clone; a commit verb with no identity raises
+    nowhere = os.path.join(T, "ident-none", "work")
+    check("identity (unit): no clone yet and keys unset → no verdict yet", mq_git.Git(nowhere, "x").identity_problem() is None)
+    check("identity (unit): both host keys set → no problem, even with no clone", mq_git.Git(nowhere, "x", "A Name", "a@example.invalid").identity_problem() is None)
+    try:
+        mq_git.Git(nowhere, "x").run(["commit", "-m", "x"], cwd=T)
+        raised = False
+    except mq_git.IdentityError as e:
+        raised = REFUSED in str(e) and "git_name" in str(e) and "git_email" in str(e)
+    check("identity (unit): a commit with no safe identity raises IdentityError naming both host keys", raised)
+    check("identity (unit): IdentityError is a GitError, so no caller lets it through as a crash", issubclass(mq_git.IdentityError, mq_git.GitError))
+
+
 SCENARIOS = [sc_state_files, sc_entry_passes, sc_etag_without_poller, sc_failing_entry, sc_lone_pr_and_rerun, sc_conflicts, sc_snapshot_hook, sc_graphql_ejections,
              sc_pr_checks_refuse, sc_conflict_after_main_moves,
              sc_head_moved, sc_config_inflight, sc_invalid_config_blocks, sc_gh_failures, sc_no_verdict_in_time, sc_crash_recovery, sc_code_reexec, sc_driver_lock, sc_driver_start_race, sc_drop,
@@ -2185,7 +2300,7 @@ SCENARIOS = [sc_state_files, sc_entry_passes, sc_etag_without_poller, sc_failing
              sc_pause_resume, sc_push_failure_pauses, sc_status_best_effort, sc_conflict_on_notifies, sc_rebuild_limit,
              sc_replay_facts_from_file, sc_replay_missing_and_ejected, sc_replay_guard_blocks, sc_replay_bad_file, sc_replay_mode, sc_replay_never_writes, sc_replay_unit_name,
              sc_replay_ci_skip, sc_replay_doctor,
-             sc_chain_config, sc_retired_keys, sc_chain_in_order, sc_chain_middle_fails, sc_chain_first_fails, sc_chain_conflict_ahead, sc_chain_drop, sc_chain_inflight, sc_chain_shadow, sc_legacy_group_state]
+             sc_chain_config, sc_retired_keys, sc_chain_in_order, sc_chain_middle_fails, sc_chain_first_fails, sc_chain_conflict_ahead, sc_chain_drop, sc_chain_inflight, sc_chain_shadow, sc_legacy_group_state, sc_identity]
 
 
 def main():

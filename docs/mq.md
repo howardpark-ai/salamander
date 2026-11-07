@@ -281,7 +281,7 @@ design's three codes: a caller must never read "tested in shadow" as "merged".
 | `mode` | `off` (default; also when there is no file), `shadow`, `on` (the driver merges; open since `ON_OPEN` became `True`) |
 | `remote` | where the clone fetches from and pushes to (default `git@github.com:<owner>/<repo>.git`; the push needs a key that may create `queue/**` branches) |
 | `clone` | the work clone (default `<state>/work`) |
-| `git_name`, `git_email` | the identity of the merge commits (default: git's own, else `mergequeue`) |
+| `git_name`, `git_email` | the identity of the merge commits. A key left unset is read from the work clone (`git -C <clone> config --get user.name` / `user.email`: the clone's own config, or an `includeIf` rule that gives it the repo's identity), never from the global git config of the user the queue runs as. The queue **refuses to start** when the name or the email comes out empty, or when a value that came from the clone equals the global one, which is a person's own (*Merge commit identity*). There is no `mergequeue` fallback |
 | `deploy_lock` | a lock file the merge push `flock`s (the same file the repo's release script takes for a deploy) |
 | `deploy_hook` | read and checked; the release script's step uses it (*later*) |
 | `replay` | an absolute path to a replay file (*Replay*): the rules and the PR facts come from it; shadow only |
@@ -314,6 +314,19 @@ An unknown key is a warning (journaled, shown by `mq doctor`), a bad value is an
 
 The default of `inflight_max` was 2 when no `queue_mode` was named (group mode) and was already 6 in a chain: a file that named neither now gets 6. In a replay file's `rules` the two retired keys are accepted without an error, so replay files written
 before the removal still run.
+
+**Merge commit identity.** The queue's merge commits carry the host file's `git_name` and `git_email`. A key left unset is read from the work clone with `git -C <clone> config --get user.name` (or `user.email`), so a clone that has its own identity (a local config, or an `includeIf` rule of the user's global file that matches the clone's folder) commits as that identity. The queue never reads the identity from the folder it runs in and never falls back to a made-up one: a push to a public repo carries the commit's name and email for good, and the global git config of the user the queue runs as is a person's own. The queue therefore **refuses to start** when
+
+- the name or the email comes out empty (the host file leaves the key unset and the work clone has none of its own), or
+- a value that came from the work clone equals the global `user.name` / `user.email` (`git config --global`): either one matching a non-empty global value is enough. A value set in the host file is never compared, because writing it there is a choice.
+
+Public or private is not asked: telling them apart takes a network call of its own, so the refusal applies to every remote. The refusal blocks the queue, as an invalid repo file does: the driver ends, `mq status` and `mq wait` show it, `mq doctor` prints it as a `FAIL` line, and nothing is built or committed. Its text is
+
+```
+refusing to make merge commits: <why>. Set git_name and git_email in the host file ($XDG_CONFIG_HOME/mergequeue/<owner>__<repo>.toml) to an identity made for the queue (docs/mq.md, Configuration)
+```
+
+where `<why>` is `user.name is not set (the host file's git_name is unset and the work clone has none of its own)`, the same for `user.email` and `git_email`, or `the work clone's user.name is the global git user.name of the user the queue runs as, not one made for the queue` (and the same for `user.email`). The fix is the two host keys; the next `mq add` or `mq resume` looks again. Commands that write no commit (fetch, push, ls-remote, show, `mq doctor`'s reads) need no identity.
 
 ## Replay
 
@@ -453,6 +466,8 @@ variables too (`MQ_TICK_SECS`, `MQ_POLL_SECS`, `MQ_WAIT_CAP_SECS`, `MQ_MAX_FAILS
 keeps every entry's check running until it is removed: how the chain scenarios (`sc_chain_*`) get "all entries testing at once" as a state to wait for. The replay scenarios (`sc_replay_*`) add a practice branch on the bare origin, heads that no branch holds, and a `pre-receive` hook
 on the origin that logs every ref a push touches: they assert that nothing but `queue/practice/` entry branches is ever pushed or deleted, and that no status, comment or GraphQL call is made. The removal of group mode is covered by
 `sc_chain_config` and `sc_retired_keys` (the retired keys, `queue_mode = "group"`) and `sc_legacy_group_state` (records an older version left on disk: a two-PR group in testing, a bisect with its halves, a merge whose push had happened, a finished group).
+
+`sc_identity` covers the merge commit identity (*Configuration*): in a throwaway `HOME` whose global git config holds a fake person, the commits of an entry carry the work clone's own identity (given by an `includeIf` rule) or the host file's, never the global one, and a queue with only the global identity, or none, to use is blocked with the refusal, in the journal, in `mq wait` and as a `FAIL` line of `mq doctor`. The other scenarios give the work clone an identity through `GIT_CONFIG_COUNT` in the environment.
 
 ## Migration, in small steps, each reversible
 

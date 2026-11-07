@@ -291,8 +291,20 @@ class Driver:
             pass
 
     # ---- one pass ----
+    def identity_refused(self):
+        """True when the merge commits would carry no safe identity (mq_git.Git.identity_problem): the queue is blocked with the refusal text, which names the host keys git_name and
+        git_email, and nothing is built or committed. Blocked like an invalid repo config: the driver ends, and the next `mq add` or `mq resume` looks again."""
+        why = self.git.identity_problem()
+        if why is None:
+            return False
+        if not self.blocked_now:
+            self.block(why)
+        return True
+
     def pass_once(self):
         self.refresh_host()
+        if self.can_start() and self.identity_refused():
+            return False
         progressed = False
         q, groups = self.snapshot()
         for g in groups:
@@ -348,6 +360,8 @@ class Driver:
             self.start_not_before = time.time() + self.backoff * self.start_fails
             return False
         self.start_fails = 0
+        if self.identity_refused():            # the clone is there now; before it was, the host file's two keys were the only thing to ask
+            return False
         if rp is not None:
             cfg, warns = {k: (list(v) if isinstance(v, list) else v) for k, v in rp["rules"].items()}, []      # the rules of the replay file, not origin/main's
         else:

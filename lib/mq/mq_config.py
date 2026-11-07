@@ -4,7 +4,9 @@ Host config, $XDG_CONFIG_HOME/mergequeue/<owner>__<repo>.toml (this machine's se
     mode = "off" | "shadow" | "on"     default off. "on" is open: the driver merges for it (ON_OPEN is True; with False, `mq add` refuses "on"). "off" is the default and the instant fallback.
     remote = "git@github.com:owner/name.git"   where the work clone fetches from and pushes to (default: that, built from the repo name)
     clone = "/path"                    the work clone (default: <state>/work)
-    git_name, git_email                the identity of the merge commits (default: git's own, else "mergequeue")
+    git_name, git_email                the identity of the merge commits. A key left unset is read from the WORK CLONE (`git -C <clone> config`: its own config or an includeIf rule,
+                                       the repo's identity), never from the global git config. The queue REFUSES to start when a name or an email is empty, or when one that came
+                                       from the clone equals the global one (a person's own): set git_name and git_email here. There is no "mergequeue" fallback.
     deploy_lock = "/path"              a file the merge push flocks (the repo's deploy lock) so a push and a deploy never overlap; deploy_hook is read and checked only
     replay = "/abs/path/replay.json"   rules and PR facts from that file instead of origin/main and GitHub; shadow only (lib/mq/mq_replay.py, docs/mq.md "Replay")
 
