@@ -66,6 +66,10 @@ none itself):
                                   No message text, prompt or secret. The last answer at once, refreshed in a thread once a minute and kept in state_dir/usage-answer.json
                                   (the per-file read cache is usage-scan.json; swr.py); "pending" until the first count lands, "refreshing", "error" in plain
                                   words when it cannot be counted; ?fresh=1 (the Reload button) makes it due now
+  GET  /api/usage/digest?week=<0|1|2>   the Usage analysis tab's Digest view (usage_digest.py): the same week in 1 to 7 plain sentences written by code (no model call)
+                                  from the cached count above (no second scan): {"week", "now", "generated", "tz", "tzLabel", "resetKnown", "scope" (only this
+                                  machine's sessions are counted), "range" {startKst, endKst, end, current} | null, "sentences": [...]}; "pending" (no sentences) before the
+                                  first count, "refreshing" and "error" as /api/usage; ?fresh=1 as above; a bad week is a 400
   GET  /api/schedules             every scheduled job on this machine, from the last reading of systemd and cron (schedules.py; served at once and read
                                   again in the background once it is 30 s old, swr.py: "fetchedAt" (epoch ms), "refreshing", "pending" before the first
                                   reading, "error" when a read failed and the last stays; ?fresh=1 makes it due now; memory only, no database): {"generated", "timezone" (SALA_TZ, "" = local), "tzLabel", "timers":
@@ -260,6 +264,7 @@ from . import tmuxio as T
 from . import transcript as TR
 from . import unread as UR
 from . import usage as USG
+from . import usage_digest as USGD
 from .v2.layer import V2Layer, V2Prefix
 from .config import SHELL_SESSION, Settings, brand_suffix, help_session, owner_name
 
@@ -711,6 +716,17 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if week not in range(USG.WEEKS):
             return JSONResponse({"error": "week must be 0, 1 or 2"}, status_code=400, headers={"Cache-Control": "no-store"})
         return JSONResponse(usage.get(week, fresh=request.query_params.get("fresh") == "1"), headers={"Cache-Control": "no-store"})
+
+    async def get_usage_digest(request: Request) -> Response:
+        # the Usage analysis tab's Digest view (usage_digest.py): the week in a few plain sentences written by code from the same cached count as
+        # /api/usage (no second scan; "pending" before the first count, "refreshing" while a newer one runs); ?week=0|1|2 and ?fresh=1 as /api/usage
+        try:
+            week = int(request.query_params.get("week", "0"))
+        except ValueError:
+            week = -1
+        if week not in range(USG.WEEKS):
+            return JSONResponse({"error": "week must be 0, 1 or 2"}, status_code=400, headers={"Cache-Control": "no-store"})
+        return JSONResponse(USGD.answer(usage.get(week, fresh=request.query_params.get("fresh") == "1")), headers={"Cache-Control": "no-store"})
 
     schedules = SCH.SchedulesCache()
 
@@ -1764,6 +1780,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/api/schedules", get_schedules),
         Route("/api/machines", get_machines),
         Route("/api/usage", get_usage),
+        Route("/api/usage/digest", get_usage_digest),
         Route("/api/search", get_search),
         Route("/api/lanes/{lane}", get_lane),
         Route("/api/board-items", get_board_items),

@@ -3383,5 +3383,35 @@ Changed: `test_search_ui.py`, `test_schedules.py`, `test_machines.py` and `test_
 bar of a phone holding four tabs); the Machines keyboard test now reaches Usage analysis before it wraps.
 
 Not covered, and why: the real transcripts of a production machine and their cold scan time (measured by hand once on the build box, not asserted: it depends on the machine), a real quota answer
-(the weekly reset is given by the test), a physical phone (the width is emulated), the price table's truth (the table is spend.py's; `PRICES_AS_OF` is a marker a person sets), and Explorer and
-Digest, which are not built yet.
+(the weekly reset is given by the test), a physical phone (the width is emulated), the price table's truth (the table is spend.py's; `PRICES_AS_OF` is a marker a person sets), and Explorer,
+which is not built yet (the Digest is below).
+
+### `web/tests/test_usage_digest.py` (new, 31) and `web/tests/test_usage_digest_ui.py` (new, 9): the Usage analysis tab's Digest view (Sat Nov 7th 2026)
+
+What it is: the Digest is the week in a few plain sentences, written by code from the rows the Report already counts (`web/README.md`, *Usage analysis*; `usage_digest.py`, `GET /api/usage/digest`,
+`static/usage-digest.js`, `static/usage-digest.css`). Kept because the owner reads a sentence as a fact, so a wrong answer is a sentence that says a figure the Report does not (a total, a billed share, a busiest
+day or a top name that differs from the table), flat-plan dollars described as billed, a comparison the wrong way round or against the wrong hours, a limit shown for a week that is over, a literal `NaN`,
+`undefined` or `None` or an ISO date in a sentence, a token count where dollars belong, a week with no replies or with no earlier week that breaks instead of saying so, words that change with the order of the rows
+(a scheduled job would deliver a different report each time), a model call or a second transcript scan behind the route, and wording that drifts from the Report's own. The sentences are a pure function over
+made-up answers; the route runs over fake transcripts in a temporary folder (`World` of `test_usage.py`), nothing asks Anthropic or AWS and no real sala runs.
+
+`test_usage_digest.py` (no browser): the running week's seven sentences word for word (total and billed, busiest day, lane, model, project and agent, the same-hours comparison, the weekly limit with its reset in
+KST); a closed week (named by its days, compared with the week before it, no limit sentence); the oldest week saying there is no earlier week; a drop reading "down", a change under a percent reading "about the
+same", a week before with no spend or with nothing counted said plainly; the limit for the running week only, only for a flat-plan lane that has it, two lanes in one sentence; a week with no replies; replies on a
+model with no price (no division by zero); only flat-plan spend ("none of it was billed", "all of it" on one lane, model and day); only per-use spend ("all of it was billed"), a tie going to the earlier day;
+sessions with no name said in words; no known weekly reset (the last seven days and the ones before); a singular reply and a thousand with its comma; "all of it" only when it is all, and "over 99%" for a share
+that rounds to the whole; no placeholder, ISO date, bracket or token word in any sentence of nine kinds of week, never more than seven sentences; the same words whatever the order of the rows; odd input (rows too short,
+a number that is not one, lanes that are not objects) saying less and never raising; the date, time, money and model words by the numbers (every ordinal, 12 AM and PM); the module importing only `re`, `datetime`
+and `__future__` (no model, no network, no file); the flat-plan, per-use and machines words equal to the ones in `static/usage.js`; the route (the sentences are those of the Report's own count, one scan for
+both routes, a bad `week` a 400, no text of a transcript and no token word); the pending answer with no sentences; a failed count keeping the last sentences with the error in words.
+
+`test_usage_digest_ui.py` (headless Chromium, else skipped), through the real app over fake transcripts: the panel and both files with the cache-busting version, loaded after `usage.js` and before `app.js`; the
+Digest's sentences, bold amounts (nothing else bold), week picker, range, machines note and no "coming next", token, `undefined` or `NaN`; a read only when the Digest is on screen (none while the Report is, one on opening,
+one on a change of week, one on Reload with `fresh=1`, none on leaving, one again on coming back), the week being one for both views; a name like `<img onerror=…>` in a sentence staying text; a failed read keeping the last
+sentences with a note; at 1280 px and 390 px, dark and light: no sideways scroll, text of 16 px that stands out of its card in both themes, the card inside its gutters, every control a 44 px target on a phone. Set
+`SALA_USAGE_SHOTS` to leave a screenshot of each width and theme.
+
+Changed: `test_usage_ui.py` no longer expects the Digest to say it is coming next.
+
+Not covered, and why: this box's real transcripts and a real quota answer (checked by hand once, against a copy of the real quota file, not asserted: the figures depend on the machine), a physical phone (the width is
+emulated), and how the wording reads to a person (by eye).

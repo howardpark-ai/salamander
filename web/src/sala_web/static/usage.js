@@ -1,6 +1,6 @@
 "use strict";
 /* The Overview's Usage analysis tab (#usage): what the Claude Code replies on this machine cost, at list prices, as api/usage reports them (usage.py).
-   One data layer, three views: Report (this file), Explorer and Digest (coming next: they show a note and nothing else yet).
+   One data layer, three views: Report (this file), Explorer (coming next: a note and nothing else yet) and Digest (usage-digest.js: the week in a few plain sentences).
    Report: a week picker (a week runs from one weekly reset of the subscription lane to the next), the total, one card per lane, a Group by control, the
    filter chips, a stacked chart by day and a sortable table with share bars. A tap on a lane card, a table row, a legend name or a day filters everything
    to it. The page shows DOLLARS only; the server keeps tokens on each row and this file never reads them.
@@ -12,7 +12,7 @@ const usage = (() => {
 const WORDS = {
   weeks: ["This week", "Previous week", "2 weeks ago"],
   views: [["report", "Report"], ["explorer", "Explorer"], ["digest", "Digest"]],
-  soon: { explorer: "Explorer is coming next: any two things side by side, down to a single reply.", digest: "Digest is coming next: the week in a few plain sentences." },
+  soon: { explorer: "Explorer is coming next: any two things side by side, down to a single reply." },
   group: "GROUP BY",
   dims: [["day", "Day"], ["lane", "Lane"], ["model", "Model"], ["project", "Project"], ["agent", "Agent"], ["folder", "Folder"]],
   total: (billed, n) => `at list prices · about ${usd(billed)} billed · ${n.toLocaleString("en-US")} replies`,
@@ -285,6 +285,15 @@ function showAge() {
   f.textContent = d && d.generated ? "counted " + agoText(serverNow(d) - d.generated) : "";
 }
 
+/* what the Digest view (usage-digest.js) shares with the Report: the week, the words, the formatters and the note line */
+function digestContext() {
+  return {
+    week: uc.week, words: WORDS, fmtDay, untilText, agoText,
+    onWeek: (w) => { uc.week = w; uc.f = {}; uc.tries = 0; render(); load(); },   // one week for both views
+    setNote: (text, isError) => { const n = $u("#us-note"); n.textContent = text; n.classList.toggle("error", !!isError); },
+  };
+}
+
 /* ---------- the whole tab ---------- */
 function renderViews() {
   const box = $u("#us-views");
@@ -298,6 +307,7 @@ function render() {
   note.textContent = uc.error || (d && d.error) || (uc.pending && !d ? WORDS.pending : "");
   note.classList.toggle("error", !!(uc.error || (d && d.error)));
   renderViews();
+  if (uc.view === "digest") usageDigest.show(digestContext()); else usageDigest.hide();   // usage-digest.js: the Digest view
   if (uc.view !== "report") return;
   renderWeeks(d);
   const body = $u("#us-body");
@@ -366,8 +376,8 @@ function bind() {
     render();
     $u("#us-vt-" + uc.view).focus();
   });
-  for (const [id] of WORDS.views) if (id !== "report") $u("#us-v-" + id).querySelector(".us-soon").textContent = WORDS.soon[id];
-  document.getElementById("us-reload").addEventListener("click", () => { uc.error = ""; uc.tries = 0; load({ fresh: true }); });
+  for (const [id, text] of Object.entries(WORDS.soon)) $u("#us-v-" + id).querySelector(".us-soon").textContent = text;
+  document.getElementById("us-reload").addEventListener("click", () => { uc.error = ""; uc.tries = 0; load({ fresh: true }); usageDigest.reload(); });
   window.addEventListener("resize", () => {
     if (!uc.active) return;
     clearTimeout(uc.resize);
@@ -388,6 +398,7 @@ function stop() {
   uc.active = false;
   clearTimeout(uc.timer);
   clearInterval(uc.ageTimer);
+  usageDigest.hide();
   tip(null);
 }
 return { start, stop, untilText, agoText, fmtDay, usd };

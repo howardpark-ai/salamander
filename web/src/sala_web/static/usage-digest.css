@@ -1,0 +1,8 @@
+/* The Digest view of the Overview's Usage analysis tab (#us-v-digest in index.html, usage-digest.js): the week in a few plain sentences. Scoped to #ov-usage like
+   usage.css, whose variables, week picker (.us-wk, .us-seg, .us-range), card (.us-card) and narrow-panel rules it reuses; this file adds only the sentences' card. */
+#ov-usage #us-v-digest:not([hidden]), #ov-usage #us-dg-body:not([hidden]) { display: grid; gap: 12px; align-content: start; min-width: 0; }
+#ov-usage .us-dg-card { display: grid; gap: 12px; padding: 16px; }
+#ov-usage .us-dg-text { display: grid; gap: 12px; }
+#ov-usage .us-dg-text p { margin: 0; font-size: 16px; line-height: 1.55; overflow-wrap: anywhere; }
+#ov-usage .us-dg-text b { font-weight: 600; font-variant-numeric: tabular-nums; }
+#ov-usage .us-dg-scope { margin: 0; font-size: 12px; color: var(--faint); line-height: 1.5; }
