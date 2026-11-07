@@ -22,7 +22,7 @@ reads it at its first prompt, after the operation has ended, so the file stays (
 spawn the queue refuses leaves no file.
 
 What the queue answers (its exit code, lib/op.sh and lib/spawn.sh): 0 queued, `queued op <id>: …` on stdout; 3 the name
-is not on the project page's agents map, the refusal on stderr and the exact YAML to add on stdout from the `ADD-TO-PAGE:
+is not on the project's agents map, the refusal on stderr and stackshot's register command on stdout from the `REGISTER:
 <key>` line to the end (the page's keeper was asked once by a stackshot message, said on stderr); 4 no such page,
 `NO-PAGE: <key>`; 1 or 2 refused (a name already live, a shape, a lane that cannot launch), the reason on stderr and in
 the plan's lines marked ✗. The page shows each as it is (text, never markup).
@@ -448,7 +448,7 @@ def parse_result(rc: int, stdout: str, stderr: str, r: SpawnRequest) -> tuple[in
     if rc == 3:
         keeper = next((l.strip() for l in stderr.splitlines() if "keeper was asked" in l), None)
         return 409, {"ok": False, "code": "not-listed", "page": r.project, "name": r.name, "role": r.role,
-                     "block": _block(stdout, "ADD-TO-PAGE"), "keeper": keeper, "error": _refusal(stdout, stderr, rc)}
+                     "block": _block(stdout, "REGISTER"), "keeper": keeper, "error": _refusal(stdout, stderr, rc)}
     if rc == 4:
         return 409, {"ok": False, "code": "no-page", "page": r.project, "error": _refusal(stdout, stderr, rc)}
     return 409, {"ok": False, "code": "refused", "error": _refusal(stdout, stderr, rc), "exit": rc}

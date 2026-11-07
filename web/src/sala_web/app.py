@@ -203,7 +203,7 @@ none itself):
                                   {"side": true, "fork_of" | "project" + "item" + "agents"?, "name"?: blank = suggested, ...}) -> `sala op spawn …
                                   --from sala-web --words "<name>, via the sala web form: …"`, an argv list, the mandate as
                                   a file under state_dir/mandates/; 202 {"op"} when queued, 409 with "code" not-listed (the
-                                  ADD-TO-PAGE block), no-page or refused (the queue's reason), 400 for a shape the backend
+                                  REGISTER line and register command), no-page or refused (the queue's reason), 400 for a shape the backend
                                   would refuse too. The one write to sala: the form is the only way this app makes a session
   GET  /api/spawn/status          ?op=<id> -> the queued operation's state from sala's own marker (queued, running, waiting,
                                   done, stuck, …) and its result line; while it is queued, also what it waits behind

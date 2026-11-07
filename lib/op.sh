@@ -68,8 +68,8 @@
 #                                             digits, dashes, ≤48), the page key's shape, the role, a mandate for a back agent, the
 #                                             lane; the plan is `spawn … --dry-run`, which asks stackshot's pages.py whether the
 #                                             page exists and lists the name — a name not on the page refuses the operation with
-#                                             exit 3 and the `ADD-TO-PAGE:` block printed unindented after the refusal (exit 4 and
-#                                             `NO-PAGE:` for a page that does not exist), so the web layer can show the line to add.
+#                                             exit 3 and the `REGISTER:` line with stackshot's register command printed unindented after the refusal (exit 4 and
+#                                             `NO-PAGE:` for a page that does not exist), so the web layer can show the command.
 #                                             THE MANDATE'S TRANSPORT: a TEXT mandate (--mandate or --prompt) is written at queue
 #                                             time to $SALA_STATE_DIR/mandates/<id>-<name>.md and the marker carries that path as
 #                                             the argument (an arg= line holds one line; a mandate's newlines, quotes, non-ASCII text
@@ -77,7 +77,7 @@
 #                                             passed as it is. The file is never moved with the marker: the session reads it at
 #                                             its first prompt, after the operation has ended. A refused or cancelled operation's
 #                                             file is removed. At run time a spawn that exits 3 or 4 is stuck with no claude -p
-#                                             (only the page's keeper can add the line).
+#                                             (only the page's keeper can register the agent).
 #   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
 #                                             a side conversation (lib/spawn.sh A SIDE SESSION, docs/side-sessions.md): a
 #                                             short-lived session on no page's agents map, a fork of a running agent's conversation
@@ -582,7 +582,7 @@ op_shapes() {
                                             the model (opus|sonnet|haiku|fable|claude-…) and effort (low|medium|high|xhigh|max) the sessions run on from now: each switched in place when idle with an empty input box, else relaunched (the relaunches together, in one sweep); ONE result notice for the lot, a line per session; a first word that is a model = the many-session form, else the session comes first (one session); --clear drops the records
   provision [--only STEP[,STEP…]] [HOST…]
   spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
-                                            a project agent's session; the name must be on the page's agents map (the plan checks; exit 3 + ADD-TO-PAGE: when not); a back agent starts in the background brief's directory unless --cwd
+                                            a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd
   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
                                             a side conversation (NAME contains -side-; sala spawn --suggest-name --side … suggests one): a fork of AGENT, or a fresh session about the item; on no agents map
   reboot                                    not queued: the owner runs `sala reboot --go` in the web UI's Shell (SALA_OP_REBOOT: off by default, unsupported until a confirmation path is built)
@@ -810,7 +810,7 @@ op_shape() {
         if [ -n "$side" ]; then
             OP_PLAN_NOTE="a side conversation, on no agents map ($([ -n "$forkof" ] && echo "a fork of $forkof's live conversation" || echo "a fresh session about $item of $project")): the dry run finds the agent to fork or the project's page, and checks the name is not live and the lane can launch; the session is made at run time and retires only on ${SALA_OWNER_NAME}'s word, once it ran \`sala side done\`"
         else
-        OP_PLAN_NOTE="a new $role agent of $project: the dry run checks that the page exists and lists the name (a name not on the page refuses the operation: exit 3 and the ADD-TO-PAGE: block), that the name is not live and that the lane can launch; the session is made at run time"
+        OP_PLAN_NOTE="a new $role agent of $project: the dry run checks that the page exists and lists the name (a name not on the page refuses the operation: exit 3 and the REGISTER: line with stackshot's register command), that the name is not live and that the lane can launch; the session is made at run time"
         fi ;;
     reboot)
         [ $# -eq 0 ] || { op_bad "reboot takes no argument (it is reboot --go, the clean reboot protocol)"; return 1; }
@@ -1004,8 +1004,8 @@ op_main() {
         if [ "$rc" != 0 ]; then
             [ -n "$OP_MANDATE_FILE" ] && rm -f "$OP_MANDATE_FILE"
             echo "✗ refused: the plan (salamander ${OP_PLAN[*]}) did not pass (exit $rc) — nothing queued" >&2
-            case "$verb:$rc" in spawn:3|spawn:4)   # the web layer reads the marker block (lib/spawn.sh): once more, unindented, and the verb's own exit code
-                printf '%s\n' "$out" | sed -n '/^\(ADD-TO-PAGE\|NO-PAGE\): /,$p'; return "$rc" ;; esac
+            case "$verb:$rc" in spawn:3|spawn:4)   # the web layer reads the marker and the command (lib/spawn.sh): once more, unindented, and the verb's own exit code
+                printf '%s\n' "$out" | sed -n '/^\(REGISTER\|NO-PAGE\): /,$p'; return "$rc" ;; esac
             return 1
         fi
     fi
@@ -1264,7 +1264,7 @@ op_run() {  # <id> — the unit's main process
         fi
     fi
     if [ "$verb" = spawn ] && { [ "$rc" = 3 ] || [ "$rc" = 4 ]; }; then   # not on the page (3) or no page (4): only the page's keeper can change that, no claude -p
-        op_finish "$id" stuck "salamander ${OP_RUN[*]} exited $rc: $(op_out_tail "$id" 4) (no claude -p: only the page's keeper can add the line; once it is there, say the words again)"; return 0
+        op_finish "$id" stuck "salamander ${OP_RUN[*]} exited $rc: $(op_out_tail "$id" 4) (no claude -p: only the page's keeper can register the agent; once it is registered, say the words again)"; return 0
     fi
     [ "$rc" = 0 ] || { op_stuck "$id" "$(op_run_words) exited $rc: $(op_out_tail "$id" 3)"; return 0; }
     if [ "$OP_LOCK" = own ]; then

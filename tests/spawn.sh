@@ -4,15 +4,15 @@
 # [--mandate FILE|TEXT] [--lane L]`, the one path a web request or `sala op spawn` takes to make a project agent's session.
 # What is checked guards a session from being made wrong or unregistered, never the wording of a line: the argument matrix
 # refused before anything is asked or made; a missing page (exit 4, `NO-PAGE:`), a "cannot tell" (refused, never fail-open,
-# unlike a plain spawn, which keeps its fail-open) and a name not on THAT page's agents map (exit 3, the `ADD-TO-PAGE:` block
-# in the shape the pages carry — front top-level, back under `background:`, the mandate's first line cut to 70 characters and
-# quoted when YAML needs it — the page's keeper asked once by one stackshot message, not again within the hour, and never
-# when a register hook owns registration); a name already live refused with no message; `--dry-run` making, recording and
+# unlike a plain spawn, which keeps its fail-open) and a name not on THAT page's agents map (exit 3, the `REGISTER:` line and the
+# `post project-agent` command with the name, the role, front or back and the mandate's first line cut to 70 characters and
+# shell-quoted, never an `ADD-TO-PAGE:` block or a page edit — the page's keeper asked once by one stackshot message carrying
+# the same command, not again within the hour, and never when a register hook owns registration); a name already live refused with no message; `--dry-run` making, recording and
 # calling nothing; the real spawn of a front agent (the orientation line typed with the marker and the absolute path, waiting
 # for a confirmation) and of a back agent (starting on it; nobody confirms), the lane row recorded for `--lane`, the register
 # hook's arguments and environment, a hook that fails leaving the spawn done; through the queue: the shape refusals with
 # nothing queued and no mandate file left, the plan, a TEXT mandate written to its file at queue time (newlines, quotes,
-# Japanese, a leading dash kept as bytes) and a FILE passed as it is, a refusal at queue time (exit 3, the block unindented,
+# Japanese, a leading dash kept as bytes) and a FILE passed as it is, a refusal at queue time (exit 3, the register command unindented,
 # nothing queued, the keeper asked with who heard and the owner's words), the end to end (queued → the unit → the session up reading
 # its file → done, the file kept), a conflict on one name, and a line removed between the queue and the run → stuck with no
 # claude -p; and, for the side conversation (`spawn NAME --side`), the queue's side: its shape refused at queue time, the plan, the marker's
@@ -136,7 +136,8 @@ sessions() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -v '^kee
 fakeenv() { tmux set-environment -g FAKE_SESSION_ID "$1"; tmux set-environment -g FAKE_NAME "$2"; }   # what the next spawned fake claude registers as
 list() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$HOME/listed.txt"; }   # <page key> <name> <mandate>: the stub's agents map
 unlist() { sed -i "/\t$1\t/d" "$HOME/listed.txt"; }
-blockval() { awk -v p="$1" 'index($0, p) == 1 {print substr($0, length(p)+1); exit}' <<< "$2"; }   # <"    name: "> <output> → the YAML value
+cmdline() { grep -m1 '^python3 ~/stackshot/client.py post project-agent ' <<< "$1"; }   # <output> → the register command, the stdout line at column 0 (the refusal's own copy on stderr is not at column 0)
+noaddpage() { ! grep -qE 'ADD-TO-PAGE|^agents:|^ +background:|Add the line|add the line|Please add this' <<< "$1"; }   # <text> → true when it holds no page-edit instruction or YAML block
 touch "$HOME/pages/projects/foo.md" "$HOME/pages/projects/demo-docs.md" "$HOME/pages/example/ops.md"
 tmux new-session -d -s keep-alive   # the server the spawns land on, with the fake's environment
 tmux set-environment -g FAKE_LOG "$FAKE_LOG"; tmux set-environment -g FAKE_TYPED_LOG "$TYPED"
@@ -187,36 +188,39 @@ OUT=$(SALA_STACKSHOT_DIR= "$SALA" spawn gamma-foo-main --project projects/foo --
 [ "$RC" = "$BASE_RC" ] && ok "an explicit SALA_AGENT_CHECK_SCRIPT wins over an empty directory" || bad "explicit: rc=$RC (want $BASE_RC) — $OUT"
 rm -rf "$HOME/ss" "$HOME/stackshot"
 
-echo "== not listed: exit 3, the ADD-TO-PAGE block in the pages' shape, the keeper asked once by one message and not again within the hour"
+echo "== not listed: exit 3, the register command (no page edit), the keeper asked once by one message and not again within the hour"
 run gamma-foo-main --project projects/foo --role front --dry-run
 [ "$RC" = 3 ] && has "$OUT" "'gamma-foo-main' is not on the agents map of projects/foo" && ok "a front agent not listed: exit 3" || bad "unlisted front: rc=$RC — $OUT"
-[ "$(sed -n '/^ADD-TO-PAGE: /,$p' <<< "$OUT" | grep -v '^   ' | paste -sd'|' -)" = "ADD-TO-PAGE: projects/foo|agents:|  gamma-foo-main: <mandate>" ] && ok "the block: ADD-TO-PAGE: projects/foo / agents: / a top-level entry with <mandate>" || bad "block: $OUT"
+[ "$(sed -n '/^REGISTER: /,$p' <<< "$OUT" | grep -v '^   ' | paste -sd'|' -)" = 'REGISTER: projects/foo|python3 ~/stackshot/client.py post project-agent projects/foo gamma-foo-main --role <role> --front --mandate "<one line>"' ] && ok "stdout: REGISTER: projects/foo, then the post project-agent command (project, name, role, --front, the mandate placeholder)" || bad "block: $OUT"
+noaddpage "$OUT" && has "$OUT" "Register it, then spawn again: python3 ~/stackshot/client.py post project-agent projects/foo gamma-foo-main" && ok "the refusal names only the register command: no ADD-TO-PAGE, no YAML block, no instruction to edit the page" || bad "page edit in the refusal: $OUT"
 waitask gamma-foo-main && A=$(ask gamma-foo-main) && [ "$(sed -n 1p <<< "$A")" = "projects/foo" ] && grep -q -- '^--sender$' <<< "$A" && grep -qx 'sala spawn' <<< "$A" \
-    && has "$A" "A new front agent 'gamma-foo-main' of projects/foo was asked for" && [ "$(grep -A1 -x 'agents:' <<< "$A" | tail -1)" = "  gamma-foo-main: <mandate>" ] && ok "one stackshot message to the page key, sender 'sala spawn', the block inside" || bad "ask: $(slurp "$ASKS")"
+    && has "$A" "A new front agent 'gamma-foo-main' of projects/foo was asked for" && [ "$(cmdline "$A")" = 'python3 ~/stackshot/client.py post project-agent projects/foo gamma-foo-main --role <role> --front --mandate "<one line>"' ] && noaddpage "$A" && ok "one stackshot message to the page key, sender 'sala spawn', the register command inside and no page edit" || bad "ask: $(slurp "$ASKS")"
 run gamma-foo-main --project projects/foo --role front --dry-run
 [ "$RC" = 3 ] && has "$OUT" "not again within 60 min" && sleep 1 && [ "$(nask gamma-foo-main)" = 1 ] && ok "the same name again: refused again, the keeper not asked again" || bad "second: rc=$RC asks=$(nask gamma-foo-main) — $OUT"
 L77="Title: $(printf '%*s' 70 '' | tr ' ' x)"
 run gamma-foo-worker --project projects/foo --role back --mandate "# $L77"$'\n'"second line" --dry-run
-[ "$RC" = 3 ] && [ "$(sed -n '/^ADD-TO-PAGE: /,$p' <<< "$OUT" | grep -v '^   ' | sed -n 1,3p | paste -sd'|' -)" = "ADD-TO-PAGE: projects/foo|agents:|  background:" ] && grep -q '^    gamma-foo-worker: ' <<< "$OUT" && ok "a back agent: the entry under background:" || bad "back block: $OUT"
-[ "$(blockval '    gamma-foo-worker: ' "$OUT")" = "\"${L77:0:70}\"" ] && ok "the mandate line: the heading's # stripped, cut to 70 characters, double-quoted for its ': '" || bad "value: '$(blockval '    gamma-foo-worker: ' "$OUT")'"
-waitask gamma-foo-worker && has "$(ask gamma-foo-worker)" "--mandate <the mandate>" && [ "$(grep -A2 -x 'agents:' <<< "$(ask gamma-foo-worker)" | tail -1)" = "    gamma-foo-worker: \"${L77:0:70}\"" ] && ok "a second name: its own message with its block, the mandate's place in the words to say" || bad "worker ask: $(ask gamma-foo-worker)"
+[ "$RC" = 3 ] && [ "$(sed -n '/^REGISTER: /,$p' <<< "$OUT" | grep -v '^   ' | sed -n 1p)" = "REGISTER: projects/foo" ] && cmdline "$OUT" | grep -q -- ' gamma-foo-worker --role <role> --back --mandate ' && noaddpage "$OUT" && ok "a back agent: the command says --back" || bad "back block: $OUT"
+[ "$(cmdline "$OUT")" = "python3 ~/stackshot/client.py post project-agent projects/foo gamma-foo-worker --role <role> --back --mandate \"${L77:0:70}\"" ] && ok "the mandate line: the heading's # stripped, cut to 70 characters, double-quoted as the command's --mandate" || bad "value: '$(cmdline "$OUT")'"
+waitask gamma-foo-worker && has "$(ask gamma-foo-worker)" "--mandate <the mandate>" && [ "$(cmdline "$(ask gamma-foo-worker)")" = "python3 ~/stackshot/client.py post project-agent projects/foo gamma-foo-worker --role <role> --back --mandate \"${L77:0:70}\"" ] && ok "a second name: its own message with its command, the mandate's place in the words to say" || bad "worker ask: $(ask gamma-foo-worker)"
 K75=$(python3 -c 'print("あ"*75)')
 run gamma-foo-k --project projects/foo --role back --mandate "$K75" --dry-run
-V=$(blockval '    gamma-foo-k: ' "$OUT"); [ "$RC" = 3 ] && [ "$(python3 -c 'import sys; print(len(sys.argv[1]))' "$V")" = 70 ] && [ "$V" = "${K75:0:70}" ] && ok "a Japanese line is cut at 70 characters, never mid-character" || bad "korean: '$V'"
-run gamma-foo-d --project projects/foo --role back --mandate "- a list item" --dry-run; [ "$(blockval '    gamma-foo-d: ' "$OUT")" = '"- a list item"' ] && ok "a leading dash: quoted (a YAML indicator)" || bad "dash: $OUT"
-run gamma-foo-p --project projects/foo --role back --mandate "watch the queue" --dry-run; [ "$(blockval '    gamma-foo-p: ' "$OUT")" = 'watch the queue' ] && ok "a plain line: unquoted" || bad "plain: $OUT"
+V=$(cmdline "$OUT" | sed 's/.* --mandate "\(.*\)"$/\1/'); [ "$RC" = 3 ] && [ "$(python3 -c 'import sys; print(len(sys.argv[1]))' "$V")" = 70 ] && [ "$V" = "${K75:0:70}" ] && ok "a Japanese line is cut at 70 characters, never mid-character" || bad "korean: '$V'"
+run gamma-foo-d --project projects/foo --role back --mandate "- a list item" --dry-run; [ "$(cmdline "$OUT" | sed 's/.* --mandate //')" = '"- a list item"' ] && ok "a leading dash: kept inside the quotes" || bad "dash: $OUT"
+run gamma-foo-p --project projects/foo --role back --mandate "watch the queue" --dry-run; [ "$(cmdline "$OUT" | sed 's/.* --mandate //')" = '"watch the queue"' ] && ok "a plain line: in double quotes" || bad "plain: $OUT"
+run gamma-foo-q --project projects/foo --role back --mandate 'say "hi" to $HOME and `id`' --dry-run
+Q=$(cmdline "$OUT" | sed 's/.* --mandate //'); [ "$RC" = 3 ] && [ "$Q" = '"say \"hi\" to \$HOME and \`id\`"' ] && [ "$(eval "printf %s $Q")" = 'say "hi" to $HOME and `id`' ] && ok "a quote, a dollar sign and a backtick in the mandate: escaped, the shell reads the original back and runs nothing" || bad "shell-special: '$Q'"
 waitask gamma-foo-k && waitask gamma-foo-d && waitask gamma-foo-p && [ "$(nask gamma-foo-k)$(nask gamma-foo-d)$(nask gamma-foo-p)" = 111 ] && ok "each name asked for once" || bad "asks: k=$(nask gamma-foo-k) d=$(nask gamma-foo-d) p=$(nask gamma-foo-p)"
 SALA_OP_FROM=sala-test-h SALA_OP_WORDS="make a scout" run gamma-foo-scout --project projects/foo --role back --mandate "scout" --dry-run
 waitask gamma-foo-scout && has "$(ask gamma-foo-scout)" "was asked for by sala-test-h (\"make a scout\")" && ok "who heard and the owner's words (SALA_OP_FROM, SALA_OP_WORDS) are in the message" || bad "from/words: $(ask gamma-foo-scout)"
 SALA_SPAWN_REGISTER="$HOME/fake-register \"\$@\"" run gamma-foo-hooked --project projects/foo --role front --dry-run
-[ "$RC" = 3 ] && has "$OUT" "ADD-TO-PAGE: projects/foo" && sleep 1 && [ "$(nask gamma-foo-hooked)" = 0 ] && grep -q "ask: not sent for projects/foo — SALA_SPAWN_REGISTER is configured" "$SPAWNLOG" && ok "with a register hook configured: refused with the block, nobody asked (registration is the hook's), logged" || bad "hook+unlisted: rc=$RC asks=$(nask gamma-foo-hooked) — $OUT"
+[ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && sleep 1 && [ "$(nask gamma-foo-hooked)" = 0 ] && grep -q "ask: not sent for projects/foo — SALA_SPAWN_REGISTER is configured" "$SPAWNLOG" && ok "with a register hook configured: refused with the command, nobody asked (registration is the hook's), logged" || bad "hook+unlisted: rc=$RC asks=$(nask gamma-foo-hooked) — $OUT"
 SALA_SPAWN_ASK_CMD= run gamma-foo-quiet --project projects/foo --role front --dry-run
 [ "$RC" = 3 ] && sleep 1 && [ "$(nask gamma-foo-quiet)" = 0 ] && grep -q "spawn gamma-foo-quiet: ask: not sent for projects/foo — SALA_SPAWN_ASK_CMD is empty" "$SPAWNLOG" && ok "SALA_SPAWN_ASK_CMD set empty: refused, nobody asked, logged" || bad "ask cmd empty: rc=$RC asks=$(nask gamma-foo-quiet) — $(grep gamma-foo-quiet "$SPAWNLOG")"
 list projects/bar gamma-foo-main "another page's agent"
-run gamma-foo-main --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "ADD-TO-PAGE: projects/foo" && ok "listed on another page (projects/bar): not on this one — refused with the block" || bad "other page: rc=$RC — $OUT"
+run gamma-foo-main --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && ok "listed on another page (projects/bar): not on this one — refused with the command" || bad "other page: rc=$RC — $OUT"
 unlist gamma-foo-main
-run orphan-x --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "nothing to check" && has "$OUT" "ADD-TO-PAGE: projects/foo" && waitask orphan-x && ok "pages.py's 'no project page for this name: nothing to check' (exit 0): not on this page — refused with the block, the keeper asked" || bad "orphan: rc=$RC — $OUT"
-run oldorphan-x --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "nothing to check" && has "$OUT" "ADD-TO-PAGE: projects/foo" && waitask oldorphan-x && ok "the old 'no steward page … nothing to check' (exit 0) still counts as not on this page" || bad "old orphan: rc=$RC — $OUT"
+run orphan-x --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "nothing to check" && has "$OUT" "REGISTER: projects/foo" && waitask orphan-x && ok "pages.py's 'no project page for this name: nothing to check' (exit 0): not on this page — refused with the command, the keeper asked" || bad "orphan: rc=$RC — $OUT"
+run oldorphan-x --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "nothing to check" && has "$OUT" "REGISTER: projects/foo" && waitask oldorphan-x && ok "the old 'no steward page … nothing to check' (exit 0) still counts as not on this page" || bad "old orphan: rc=$RC — $OUT"
 [ -z "$(sessions)" ] && [ ! -f "$HOME/reg-args.txt" ] && [ ! -r "$SALA_LANES" ] && ok "none of the refusals made a session, called the hook or wrote a lane row" || bad "sessions: $(sessions) reg: $(slurp "$HOME/reg-args.txt")"
 n=$(pcalls); SALA_AGENT_CHECK=off run gamma-foo-main --project projects/foo --role front --dry-run
 [ "$RC" = 0 ] && [ "$(pcalls)" = "$n" ] && has "$OUT" "not checked (SALA_AGENT_CHECK=off)" && ok "SALA_AGENT_CHECK=off: no pages.py call, the dry run says so" || bad "check off: rc=$RC calls=$(pcalls) — $OUT"
@@ -408,11 +412,11 @@ enq --plan spawn gamma-foo-plan --project projects/foo --role front --mandate $'
 [ "$RC" = 0 ] && has "$OUT" "plan: salamander spawn gamma-foo-plan --project projects/foo --role front --mandate" && has "$OUT" "[dry-run] would spawn 'gamma-foo-plan'" && has "$OUT" "mandate: the text typed as the first message: line one" && has "$OUT" "plan only: nothing queued" && [ "$(nmandates)" = 0 ] && [ "$(queued)" = 0 ] \
     && ok "--plan: the dry run shown with the mandate's first line, nothing queued, no file written" || bad "--plan: rc=$RC — $OUT"
 
-echo "== the queue, a refusal at queue time: not listed → exit 3 with the block unindented, nothing queued, no file, the keeper asked with who heard and the owner's words; no page → exit 4"
+echo "== the queue, a refusal at queue time: not listed → exit 3 with the register command unindented, nothing queued, no file, the keeper asked with who heard and the owner's words; no page → exit 4"
 enq spawn gamma-foo-new --project projects/foo --role back --mandate "new work" --from sala-test-h --words "make gamma-foo-new"
-[ "$RC" = 3 ] && has "$OUT" "did not pass (exit 3) — nothing queued" && grep -qx 'ADD-TO-PAGE: projects/foo' <<< "$OUT" && grep -qx '    gamma-foo-new: new work' <<< "$OUT" && ok "exit 3, the ADD-TO-PAGE block once more at column 0 (the web layer reads it)" || bad "unlisted at queue: rc=$RC — $OUT"
+[ "$RC" = 3 ] && has "$OUT" "did not pass (exit 3) — nothing queued" && grep -qx 'REGISTER: projects/foo' <<< "$OUT" && grep -qxF 'python3 ~/stackshot/client.py post project-agent projects/foo gamma-foo-new --role <role> --back --mandate "new work"' <<< "$OUT" && noaddpage "$OUT" && ok "exit 3, the REGISTER: line and the command once more at column 0 (the web layer reads it), no ADD-TO-PAGE" || bad "unlisted at queue: rc=$RC — $OUT"
 [ "$(queued)" = 0 ] && [ "$(nmandates)" = 0 ] && ok "nothing queued, the mandate file removed" || bad "left: $(ls "$OPS" "$MANDATES" 2>/dev/null)"
-waitask gamma-foo-new && has "$(ask gamma-foo-new)" "was asked for by sala-test-h (\"make gamma-foo-new\")" && [ "$(grep -A2 -x 'agents:' <<< "$(ask gamma-foo-new)" | tail -1)" = "    gamma-foo-new: new work" ] && ok "the keeper asked: who heard, the owner's words, the block" || bad "ask: $(ask gamma-foo-new)"
+waitask gamma-foo-new && has "$(ask gamma-foo-new)" "was asked for by sala-test-h (\"make gamma-foo-new\")" && [ "$(cmdline "$(ask gamma-foo-new)")" = 'python3 ~/stackshot/client.py post project-agent projects/foo gamma-foo-new --role <role> --back --mandate "new work"' ] && ok "the keeper asked: who heard, the owner's words, the register command" || bad "ask: $(ask gamma-foo-new)"
 enq spawn gamma-nope-main --project projects/nope --role front --from t --words w
 [ "$RC" = 4 ] && grep -qx 'NO-PAGE: projects/nope' <<< "$OUT" && [ "$(queued)" = 0 ] && ok "no page at queue time: exit 4, NO-PAGE: at column 0, nothing queued" || bad "no page at queue: rc=$RC — $OUT"
 
@@ -460,7 +464,7 @@ enq spawn gamma-foo-late --project projects/foo --role back --mandate "late work
 [ "$RC" = 0 ] && [ -n "$ID" ] && ok "queued op $ID (listed at queue time)" || bad "late enqueue: rc=$RC — $OUT"
 unlist gamma-foo-late
 tick; waitfor "[ -f '$DONE/$ID.op' ]" 120
-[ "$(mval "$ID" state)" = stuck ] && has "$(mval "$ID" result)" "exited 3" && has "$(mval "$ID" result)" "no claude -p: only the page's keeper can add the line" && ok "stuck: exited 3, the result says only the keeper can add the line" || bad "late: $(cat "$OPS/$ID.op" "$DONE/$ID.op" 2>/dev/null)"
+[ "$(mval "$ID" state)" = stuck ] && has "$(mval "$ID" result)" "exited 3" && has "$(mval "$ID" result)" "no claude -p: only the page's keeper can register the agent" && ok "stuck: exited 3, the result says only the keeper can register the agent" || bad "late: $(cat "$OPS/$ID.op" "$DONE/$ID.op" 2>/dev/null)"
 [ "$(runs)" = 0 ] && [ -z "$(mval "$ID" helper)" ] && ! tmux has-session -t =gamma-foo-late 2>/dev/null && ok "no claude -p, no session made" || bad "runs=$(runs) sessions: $(sessions)"
 waitask gamma-foo-late && has "$(ask gamma-foo-late)" "was asked for by sala-test-h (\"spawn late\")" && ok "the keeper asked from the unit, with who heard and the owner's words (SALA_OP_FROM, SALA_OP_WORDS exported by the runner)" || bad "late ask: $(ask gamma-foo-late)"
 [ "$(nposts 'sala op: spawn gamma-foo-late')" = 1 ] && has "$(<"$POSTS")" "🚨" && ok "one 🚨 post" || bad "posts: $(<"$POSTS")"
@@ -528,9 +532,14 @@ run gamma-rec-worker --project projects/foo --role front --dry-run
 run gamma-rec-owed --project projects/foo --role front --dry-run
 [ "$RC" = 0 ] && has "$OUT" "registered, line owed (the page's line is still owed: registered through client.py post project-agent)" && [ "$(ncalls)" = 0 ] && ok "page_owed: true (registered through post project-agent): listed, the dry run says the page's line is owed" || bad "page_owed: rc=$RC — $OUT"
 run gamma-bar-main --project projects/foo --role front --dry-run
-[ "$RC" = 3 ] && has "$OUT" "'gamma-bar-main' is not on the agents map of projects/foo" && has "$OUT" "main agent: gamma-rec-main" && has "$OUT" "ADD-TO-PAGE: projects/foo" && [ "$(ncalls)" = 0 ] && ok "another project's agent: not listed on this one - exit 3, ADD-TO-PAGE, the project's -main agent named, pages.py not called" || bad "unlisted: rc=$RC calls=$(ncalls) — $OUT"
-has "$OUT" "client.py post project-agent projects/foo gamma-bar-main --role <role> --front" && ok "the refusal names stackshot's register path (post project-agent) in words" || bad "register hint: $OUT"
-waitask gamma-bar-main && A=$(ask gamma-bar-main) && has "$A" "client.py post project-agent projects/foo gamma-bar-main --role <role> --front --mandate" && [ "$(grep -A1 -x 'agents:' <<< "$A" | tail -1)" = "  gamma-bar-main: <mandate>" ] && ok "the keeper's message carries the block and the register path (words only)" || bad "ask text: $A"
+[ "$RC" = 3 ] && has "$OUT" "'gamma-bar-main' is not on the agents map of projects/foo" && has "$OUT" "main agent: gamma-rec-main" && has "$OUT" "REGISTER: projects/foo" && noaddpage "$OUT" && [ "$(ncalls)" = 0 ] && ok "another project's agent: not listed on this one - exit 3, REGISTER, the project's -main agent named, pages.py not called" || bad "unlisted: rc=$RC calls=$(ncalls) — $OUT"
+has "$OUT" "client.py post project-agent projects/foo gamma-bar-main --role <role> --front" && ok "the refusal names stackshot's register command (post project-agent)" || bad "register hint: $OUT"
+# the role is the part of the name after the project's name, cut by the -main agent the record gives (gamma-rec-main gives gamma-rec-)
+run gamma-rec-scout --project projects/foo --role back --mandate "scout the queue" --dry-run
+[ "$RC" = 3 ] && [ "$(cmdline "$OUT")" = 'python3 ~/stackshot/client.py post project-agent projects/foo gamma-rec-scout --role scout --back --mandate "scout the queue"' ] && [ "$(sed -n '/^REGISTER: /,$p' <<< "$OUT" | grep -v '^   ' | grep -c .)" = 2 ] && noaddpage "$OUT" && ok "an unlisted back agent of a project with a -main agent: the command carries --role scout (the part after gamma-rec-), --back and the mandate; stdout is the two lines only" || bad "role cut: rc=$RC — $OUT"
+run gamma-rec-main2 --project projects/foo --role front --dry-run
+[ "$RC" = 3 ] && [ "$(cmdline "$OUT")" = 'python3 ~/stackshot/client.py post project-agent projects/foo gamma-rec-main2 --role main2 --front --mandate "<one line>"' ] && ok "a front agent with no mandate: --role cut the same way, the mandate placeholder" || bad "role cut front: rc=$RC — $OUT"
+waitask gamma-bar-main && A=$(ask gamma-bar-main) && has "$A" "client.py post project-agent projects/foo gamma-bar-main --role <role> --front --mandate" && noaddpage "$A" && ok "the keeper's message carries the register command (words only) and no page edit" || bad "ask text: $A"
 list projects/foo gamma-rec-pages "listed on the page only"
 : > "$HOME/pages-calls.txt"; run gamma-rec-pages --project projects/foo --role front --dry-run
 [ "$RC" = 3 ] && [ "$(ncalls)" = 0 ] && ok "the project is in the record: the record wins over a pages.py that lists the name (no fallback for an unlisted name)" || bad "record wins: rc=$RC calls=$(<"$HOME/pages-calls.txt") — $OUT"
@@ -585,8 +594,8 @@ run gamma-rec-worker --dry-run; [ "$RC" = 0 ] && has "$OUT" "[dry-run] would spa
 agent_unlisted gamma-rec-owed >/dev/null; rc=$?; [ "$rc" = 1 ] && ok "a name registered through post project-agent (page line owed): not unlisted" || bad "owed: rc=$rc"
 agent_unlisted gamma-foo-zzz >/dev/null; rc=$?; [ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && ok "not in the record: pages.py is asked and its exit 3 refuses, as before" || bad "unlisted: rc=$rc calls=$(ncalls)"
 # a plain spawn of an unlisted name finds the page in pages.py's refusal, in the current wording and in the one before Fri Oct 16th 2026
-run gamma-foo-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "ADD-TO-PAGE: projects/foo" && ok "a plain spawn of an unlisted name: the page is read from the current refusal wording" || bad "plain unlisted: rc=$RC — $OUT"
-run oldfmt-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "ADD-TO-PAGE: projects/foo" && ok "a plain spawn of an unlisted name: the page is read from the old '(steward …' wording too" || bad "plain unlisted, old wording: rc=$RC — $OUT"
+run gamma-foo-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && has "$OUT" "post project-agent projects/foo gamma-foo-zzz --role <role> --front|--back --mandate" && noaddpage "$OUT" && ok "a plain spawn of an unlisted name: the page is read from the current refusal wording" || bad "plain unlisted: rc=$RC — $OUT"
+run oldfmt-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && ok "a plain spawn of an unlisted name: the page is read from the old '(steward …' wording too" || bad "plain unlisted, old wording: rc=$RC — $OUT"
 rm -f "$SALA_PROJECT_RECORD"; agent_unlisted gamma-rec-worker >/dev/null; rc=$?; [ "$rc" = 0 ] && ok "no record: pages.py's answer is used (it does not list the name)" || bad "no record: rc=$rc"
 unset SALA_PROJECT_RECORD
 
