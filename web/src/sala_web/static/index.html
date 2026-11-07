@@ -8,6 +8,61 @@
 <meta name="color-scheme" content="light dark">
 <meta name="sala-web-version" content="{{build}}">
 <title>sala</title>
+<!-- a static file that does not load must not leave the page half made. On a mobile network a request is sometimes dropped (the server never
+     sees it), and a stylesheet or script that fails is skipped without a word: the side panel's search box came up unstyled and the Colors
+     button was missing until a reload. This small script, first in the head so that it hears every failure, asks again for the page's own
+     static files when one fails or is found not to have loaded (a stylesheet with no sheet; the color tool's two scripts with no tool).
+     The copy takes the failed one's place in the head (so the cascade order holds) with a cache-busting "&r=", up to 4 tries per file, 0.3 s
+     apart and growing, and then it stops. The checks run when the page has loaded and again 4 s and 12 s after the markup was read; a file
+     that loaded is left alone. The color tool's button is started by the script at the end of the body, so a recovered tool starts it here
+     (SalaColors.init is safe to call twice) -->
+<script>
+(function () {
+  var MAX = 4, tries = {}, fixed = false;
+  function url(el) { return el.getAttribute(el.tagName === "LINK" ? "href" : "src") || ""; }
+  function ours(el) { return /^static\/[^\/]+\.(css|js)\b/.test(url(el)); }
+  /* ask again for el, a failed original or a failed copy of one: a new copy goes in front of the original */
+  function again(el) {
+    var o = el._orig || el, k = url(o).replace(/&r=\d+/, "");
+    if (o._busy || (tries[k] = (tries[k] || 0) + 1) > MAX) return;
+    o._busy = true;
+    setTimeout(function () {
+      var css = o.tagName === "LINK", n = document.createElement(o.tagName);
+      n._orig = o;
+      if (css) n.rel = "stylesheet";
+      n.onload = function () { o._busy = false; n._orig = null; fixed = fixed || !css; if (o.parentNode) o.remove(); check(); };   /* the copy is now the one that stands */
+      n.setAttribute(css ? "href" : "src", k + "&r=" + Date.now());
+      o.parentNode.insertBefore(n, o);
+    }, 300 * tries[k]);
+  }
+  /* the capture phase: a resource error does not bubble. A failed copy goes, and its original is asked about again */
+  window.addEventListener("error", function (e) {
+    var t = e.target;
+    if (!t || (t.tagName !== "LINK" && t.tagName !== "SCRIPT") || (!t._orig && !ours(t))) return;
+    if (t._orig) { t._orig._busy = false; t.remove(); }
+    again(t);
+  }, true);
+  function script(file) { return document.querySelector('script[src^="static/' + file + '"]'); }
+  function colors() {
+    var tool = script("colortool.js"), wire = script("colortool-sala.js");
+    if (!tool || !wire) return;
+    if (!window.ColorTool) again(tool);
+    else if (!window.SalaColors) again(wire);
+    else if (fixed && document.getElementById("side-colors")) { fixed = false; SalaColors.init(); }
+  }
+  /* once the page has loaded every file has finished, loaded or failed: a stylesheet with no sheet failed. `late` (the 12 s check) does not wait for the load */
+  function check(late) {
+    if (document.readyState !== "complete" && late !== true) return;
+    Array.prototype.forEach.call(document.querySelectorAll('link[rel="stylesheet"]'), function (l) { if (ours(l) && !l.sheet) again(l); });
+    colors();
+  }
+  addEventListener("load", function () { check(); });
+  addEventListener("DOMContentLoaded", function () {
+    setTimeout(function () { check(); }, 4000);
+    setTimeout(function () { check(true); }, 12000);
+  });
+})();
+</script>
 <!-- installable as an app (the manifest, the icons, sw.js registered by app.js). use-credentials: the manifest is
      fetched with the Cloudflare Access cookie; without it the fetch gets the login redirect and Chrome sees none.
      theme-color: the page background of the theme in use (style.css --bg), one meta per colour scheme, so the status
