@@ -1,6 +1,11 @@
 # lib/alert.sh — post an alert to the owner the way sala's own alerts go, for a check that runs without Claude.
 #
 #   salamander alert "<headline>" ["<line>"…]
+#   salamander alert --help | -h          print the usage and exit 0: nothing is posted or logged, no notify command is needed
+#   salamander alert -- "<headline>" …    `--` as the first argument ends option handling, so a headline may start with `-`
+#
+# Only the exact words `--help` and `-h`, as the FIRST argument, are options; any other first argument (a headline that starts
+# with `-` included, such as "-h failed" or "--helpful") is the headline and posts as before.
 #
 # ALERTS THAT NEED NO CLAUDE TURN: a usage limit can stop every API call, and then no alert reaches
 # the owner, because every alert path went through a Claude session blocked the same way. sala's posts do not (sala_post →
@@ -17,6 +22,25 @@
 # Exit: 0 posted · 1 the notify command failed · 2 usage · 3 no notify command configured. One line per call in
 # salamander-alert.log (headline and exit code).
 ALOG="$SALA_LOG_DIR/salamander-alert.log"
+alert_usage() {
+    cat <<'USAGE'
+usage: salamander alert "<headline>" ["<line>"…]
+       salamander alert --help | -h
+       salamander alert -- "<headline>" ["<line>"…]
+
+Post an alert the way sala's own alerts go (SALA_NOTIFY_CMD / SALA_WATCH_NOTIFY_CMD), for a check that runs without
+Claude, such as a systemd user unit. The headline is posted in bold behind a warning sign, then one bullet per line.
+A URL in the headline stays outside the bold: "⚠️ *text* → URL".
+--help and -h (as the first argument) print this text and exit 0, posting and logging nothing. `--` as the first
+argument ends option handling: the next argument is the headline, even if it starts with `-`.
+
+exit: 0 posted · 1 the notify command failed · 2 usage · 3 no notify command configured
+USAGE
+}
+case "${1:-}" in
+    --help|-h) alert_usage; exit 0 ;;
+    --) shift ;;
+esac
 [ -n "${1:-}" ] || { echo 'usage: salamander alert "<headline>" ["<line>"…]' >&2; exit 2; }
 head="$1"; shift
 # alert_headline <headline> → the headline as posted, in $head (the rules are in the header). Suffixes are matched whole, never

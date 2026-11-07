@@ -143,8 +143,9 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander reauth NAME --done [--from ME] [--dry-run]   once signed in: check it, then cue the forced recycle to the master
                                      (no master: print the `sala op recycle --force … --words` line to queue it, exit 0)
   salamander alert "<headline>" ["<line>"…]   post an alert the way sala's own go (Slack, no Claude turn; for checks run
-                                     from a systemd unit — lib/alert.sh); exit 0 posted, 1 post failed, 3 no notify command;
+                                     from a systemd unit — lib/alert.sh); exit 0 posted, 1 post failed, 2 usage, 3 no notify command;
                                      a URL in the headline is moved after the bold: ⚠️ *text* → URL
+  salamander alert --help | -h | -- "<headline>"   the usage (exit 0, posts nothing) · `--` first lets a headline start with `-`
   salamander job add NAME --repo REPO --script PATH --schedule S… --description "…" --lane LANE [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
                                      a scheduled job as a systemd service + timer kept in git (lib/job.sh, docs/units.md): the two files go into the
                                      repo's unit folder with Description= and X-Model-Lane=, are linked into ~/.config/systemd/user and enabled; prints the git
@@ -441,4 +442,17 @@ GitHub origin of the current folder. State: $XDG_STATE_HOME/mergequeue/<owner>__
 Every GitHub call an entry makes is counted in its record (gh_calls, salamander_calls) and journaled; in the normal case an entry costs one GraphQL
 read for the build, one for the recheck before its verdict counts, and the check-runs reads of its head, none while the CI-run poller's file shows the run going. Git over the remote is not a GitHub API call.
 
-### verbs with no help path of their own (listed, not probed; their usage is the sala --help text above): adopt alert ci-poll close-shell config cue feedback follow forget-row heartbeat hook map master provision ready reboot rename retire snapshot spawn unpark update watch
+### sala alert --help (exit 0)
+usage: salamander alert "<headline>" ["<line>"…]
+       salamander alert --help | -h
+       salamander alert -- "<headline>" ["<line>"…]
+
+Post an alert the way sala's own alerts go (SALA_NOTIFY_CMD / SALA_WATCH_NOTIFY_CMD), for a check that runs without
+Claude, such as a systemd user unit. The headline is posted in bold behind a warning sign, then one bullet per line.
+A URL in the headline stays outside the bold: "⚠️ *text* → URL".
+--help and -h (as the first argument) print this text and exit 0, posting and logging nothing. `--` as the first
+argument ends option handling: the next argument is the headline, even if it starts with `-`.
+
+exit: 0 posted · 1 the notify command failed · 2 usage · 3 no notify command configured
+
+### verbs with no help path of their own (listed, not probed; their usage is the sala --help text above): adopt ci-poll close-shell config cue feedback follow forget-row heartbeat hook map master provision ready reboot rename retire snapshot spawn unpark update watch

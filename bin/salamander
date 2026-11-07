@@ -143,8 +143,9 @@
 #   salamander reauth NAME --done [--from ME] [--dry-run]   once signed in: check it, then cue the forced recycle to the master
 #                                      (no master: print the `sala op recycle --force … --words` line to queue it, exit 0)
 #   salamander alert "<headline>" ["<line>"…]   post an alert the way sala's own go (Slack, no Claude turn; for checks run
-#                                      from a systemd unit — lib/alert.sh); exit 0 posted, 1 post failed, 3 no notify command;
+#                                      from a systemd unit — lib/alert.sh); exit 0 posted, 1 post failed, 2 usage, 3 no notify command;
 #                                      a URL in the headline is moved after the bold: ⚠️ *text* → URL
+#   salamander alert --help | -h | -- "<headline>"   the usage (exit 0, posts nothing) · `--` first lets a headline start with `-`
 #   salamander job add NAME --repo REPO --script PATH --schedule S… --description "…" --lane LANE [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
 #                                      a scheduled job as a systemd service + timer kept in git (lib/job.sh, docs/units.md): the two files go into the
 #                                      repo's unit folder with Description= and X-Model-Lane=, are linked into ~/.config/systemd/user and enabled; prints the git
