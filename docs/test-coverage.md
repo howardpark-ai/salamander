@@ -1145,7 +1145,7 @@ recycle-lock wait (unchanged, and a web-only deploy waits through it like any ot
 session's feet: a wrong verdict deploys a main whose own checks failed, or merges a PR twice. `release.sh --run` against a
 copy in a throwaway checkout, with a fake `gh` serving canned JSON, a fake `deploy.sh`, `systemd-run` and stackshot client
 that only log (no network, no real merge, unit or message; the waits shortened by `SALA_RELEASE_POLL`/`_WAIT`/`_GRACE`). An
-open PR is merged and then deployed as before. An already merged PR runs no `gh pr merge`, waits through a pending check run
+open PR is merged (with `gh pr merge ... --merge --delete-branch --admin`, the flag pinned) and then deployed as before. An already merged PR runs no `gh pr merge`, waits through a pending check run
 on main's merge commit, deploys when all passed and sends one message that says it was already merged; a failing or cancelled
 check on main exits 1 with no deploy. No check run on main's commit goes on after the grace only when `gh run list` finds no
 workflow run either; a listed run keeps the wait going to its end. `--merged` refuses an open PR; a drifted checkout stops

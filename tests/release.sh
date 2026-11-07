@@ -126,7 +126,7 @@ PASS3=("changes:completed:success" "suites:completed:success" "web:completed:ski
 echo "== an open PR: merged, then deployed (as before)"
 reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"
 release --run 12
-[ "$rc" = 0 ] && called "gh pr merge 12 --repo o/r --merge --delete-branch" && called "^deploy.sh $" && [[ "$(msgs)" == *"[release] PR #12 merged and deployed — Fix the thing"* ]] && [[ "$(msgs)" != *"already merged"* ]] \
+[ "$rc" = 0 ] && called "gh pr merge 12 --repo o/r --merge --delete-branch --admin" && called "^deploy.sh $" && [[ "$(msgs)" == *"[release] PR #12 merged and deployed — Fix the thing"* ]] && [[ "$(msgs)" != *"already merged"* ]] \
     && ok "open: gh pr merge ran, then deploy.sh, one plain 'merged and deployed' message" || bad "open: rc=$rc calls=$(calls) msgs=$(msgs) $out"
 called "gh api repos/o/r/pulls/12 " && called "gh api repos/o/r/commits/$SHA/check-runs" && [ ! -e "$FAKE_DIR/bad" ] \
     && ok "open: the PR's head commit and that commit's check runs are read through gh api (no gh pr checks)" || bad "open: calls=$(calls) bad=$(cat "$FAKE_DIR/bad" 2>/dev/null)"
