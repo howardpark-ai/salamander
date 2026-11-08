@@ -52,6 +52,9 @@
 #   salamander sessions tag <id|name> [--project <page key>] [--role front|back] [--project-key <page key>] [--dry-run]
 #                                      fill project/role of an existing live row (a row spawn --project --role did not make); only the given
 #                                      fields change; a retired row, an unknown session or a bad role is an error, nothing written
+#   salamander sessions tag --auto [<id|name>] [--dry-run]   the backfill: every live row with no role (or the one named) gets its project and
+#                                      role from stackshot's project record (a top-level entry of the agents map is front, one under background: is
+#                                      back); a role already on a row is never overwritten; --dry-run prints what it would write; the watch runs it each tick
 #   salamander sessions resolve <ref> [--live] [--json]   phase 3, read-only: the row a session id (or 8+ char prefix), transcript id, name, alias or
 #                                      role:<project>/<role> names; exit 0 found, 1 none, 2 ambiguous (candidates listed, nothing picked)
 #   salamander side done [--name NAME] [--item board#N] [--item-updated EPOCH|ISO] [--summary FILE|TEXT|-] [--summary-to NAME|projects/SLUG] [--dry-run]

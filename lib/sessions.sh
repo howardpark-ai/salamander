@@ -32,6 +32,14 @@
 #                                               --project-key P is the same field under that name. A bad --role, a retired row, an unknown session or
 #                                               no field: the reason on stderr, exit 1, nothing written. --dry-run reads only. SALA_SESSIONS=off: exit 1,
 #                                               nothing written. One `tag` line in sessions.log. Afterwards `resolve role:<project>/<role>` finds the row
+#   salamander sessions tag --auto [<id|name>] [--dry-run]
+#                                               the backfill: every live row with NO role (or the one named) gets its project and role from stackshot's
+#                                               project record (docs/stackshot-contracts.md, interface 20: a top-level entry of a project's agents map is
+#                                               front, one under background: is back). A role already on a row is never overwritten; a row the record
+#                                               does not list (a throwaway, a scratch or a side session) is left, with the reason; a row that was tagged
+#                                               throwaway and is listed stops being one. Idempotent. --dry-run prints what it would write and writes
+#                                               nothing. Exit 0 done (or nothing to do), 3 the one named session is on no agents map, 4 the record cannot
+#                                               answer (missing, stale or unreadable: nothing written). The watch runs it on every tick, so no one has to
 #
 #   salamander sessions transcript <ref> [--json]
 #                                               read-only: where a session's conversations are on disk. <ref> as for resolve (a live row
@@ -88,16 +96,22 @@ if [ "${1:-}" = record ]; then
     sessions_record "$target" "$tr_id" "$why" "$mach"; exit $?
 fi
 if [ "${1:-}" = tag ]; then
-    shift; target=""; targs=(); tdry=0
-    tusage="usage: salamander sessions tag <id|name> [--project <page key>] [--role front|back] [--project-key <page key>] [--dry-run]"
+    shift; target=""; targs=(); tdry=0; tauto=0
+    tusage="usage: salamander sessions tag <id|name> [--project <page key>] [--role front|back] [--project-key <page key>] [--dry-run] | tag --auto [<id|name>] [--dry-run]"
     while [ $# -gt 0 ]; do
         case "$1" in
             --project|--role|--project-key) [ $# -ge 2 ] || die "$1 needs a value"; targs+=("$1" "$2"); shift 2 ;;
             --dry-run) targs+=(--dry-run); tdry=1; shift ;;
+            --auto) tauto=1; shift ;;
             -*) die "unknown option for sessions tag: $1" ;;
             *) [ -z "$target" ] || die "$tusage"; target="$1"; shift ;;
         esac
     done
+    if [ "$tauto" = 1 ]; then   # the roles come from stackshot's project record: no field is typed, one session or every live row with no role
+        [ "${#targs[@]}" -eq "$tdry" ] || die "sessions tag --auto takes no --project, --role or --project-key: the project record gives them"
+        sessions_on || die "SALA_SESSIONS=off: the registry is not maintained here, nothing written (set SALA_SESSIONS=write in the config first)"
+        sessions_tag ${target:+"$target"} --auto ${targs[@]+"${targs[@]}"}; exit $?   # the session first: sessions.py's positional list ends at the first option
+    fi
     [ -n "$target" ] || die "$tusage"
     [ "${#targs[@]}" -gt "$tdry" ] || die "sessions tag needs --project, --role or --project-key"
     sessions_on || die "SALA_SESSIONS=off: the registry is not maintained here, nothing written (set SALA_SESSIONS=write in the config first)"
@@ -111,7 +125,7 @@ for a in "$@"; do
         --dry-run) DRY=1 ;;
         --all) ALL=--all ;;
         --json) JSON=--json ;;
-        *) die "usage: salamander sessions [--all] [--json] | --check [--dry-run] | --migrate [--dry-run] | transcript <ref> [--json] | record <id|name> --transcript T --why clear|resume|start | tag <id|name> [--project P] [--role front|back] | resolve <ref> [--live] [--json]" ;;
+        *) die "usage: salamander sessions [--all] [--json] | --check [--dry-run] | --migrate [--dry-run] | transcript <ref> [--json] | record <id|name> --transcript T --why clear|resume|start | tag <id|name> [--project P] [--role front|back] | tag --auto [<id|name>] [--dry-run] | resolve <ref> [--live] [--json]" ;;
     esac
 done
 [ "$MODE" = list ] || [ -z "$ALL$JSON" ] || die "--all and --json are for the listing"

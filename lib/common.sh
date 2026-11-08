@@ -2818,10 +2818,24 @@ sessions_record() {  # <id|name> <claude session id> <clear|resume|start> [machi
     ( if command -v flock >/dev/null 2>&1; then flock -w 10 6 || { echo "the pane map's lock is held (another write hung?) - nothing recorded" >&2; exit 1; }; fi
       sessions_py record "$1" --transcript "$2" --why "$3" ${4:+--tmachine "$4"} ) 6>>"$SALA_SIDECAR.lock"
 }
-sessions_tag() {  # <id|name> [--project P] [--role R] [--project-key P] [--dry-run] — fill project/role of a live row; sessions_py's status. A dry run only reads: no lock
-    case " $* " in *" --dry-run "*) sessions_py tag "$@"; return $? ;; esac
+sessions_tag() {  # <id|name> [--project P] [--role R] [--project-key P] [--dry-run] | --auto [<id|name>] [--dry-run] — fill project/role of a live row; sessions_py's status. A dry run only reads: no lock
+    local ra=(); case " $* " in *" --auto "*) ra=(--record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE");; esac   # --auto: the roles come from stackshot's project record
+    case " $* " in *" --dry-run "*) sessions_py tag "$@" ${ra[@]+"${ra[@]}"}; return $? ;; esac
     ( if command -v flock >/dev/null 2>&1; then flock -w 10 6 || { echo "the pane map's lock is held (another write hung?) - nothing written" >&2; exit 1; }; fi
-      sessions_py tag "$@" ) 6>>"$SALA_SIDECAR.lock"
+      sessions_py tag "$@" ${ra[@]+"${ra[@]}"} ) 6>>"$SALA_SIDECAR.lock"
+}
+# sessions_fill_roles: every live row with no role gets its project and role from stackshot's project record (the agents map; lib/sessions.py
+# `tag --auto`), so a session that no `spawn --project --role` made (the one-time import, an adopted pane, a bare spawn of a listed name)
+# still counts for what reads roles (the back agents' lane rule, the published registry). A role already on a row is never touched. The
+# watch runs it every tick. A record that cannot answer (rc 4: missing, stale, unreadable) writes nothing and says nothing; any other
+# failure is one line in sessions.log. ALWAYS returns 0: a tick never stops on it.
+sessions_fill_roles() {
+    sessions_on || return 0
+    [ -r "$SALA_SESSIONS_FILE" ] && [ -r "$SALA_PROJECT_RECORD" ] || return 0
+    local out rc=0
+    out=$(sessions_tag --auto 2>&1) || rc=$?
+    case "$rc" in 0|4) ;; *) sessions_note "tag --auto failed (exit $rc): $(printf '%s' "$out" | tr '\n\t' '  ' | cut -c1-300)";; esac
+    return 0
 }
 sessions_record_soft() {  # sessions_record for a caller that must not be disturbed (unpark): its output captured, a failure one line in sessions.log, ALWAYS 0
     local out
@@ -3880,15 +3894,10 @@ for p in panes.values():
     [ -n "$best" ] && { echo "$best"; return 0; }
     return 1
 }
-back_lane_names() {  # → the live back agents, one per line: a registry row with role back and no side, whose tmux session exists
+back_lane_names() {  # → the live back agents, one per line: a registry row with role back and no side, whose tmux session exists; a row with no role counts by what the project record's agents map says of it (lib/sessions.py back-names)
     sessions_on && [ -r "$SALA_SESSIONS_FILE" ] || return 0
     local s names
-    names=$(python3 -I -S -c 'import json, sys
-try: d = json.load(open(sys.argv[1]))
-except Exception: sys.exit(0)
-rows = d.get("sessions") if isinstance(d, dict) else None
-for r in (rows.values() if isinstance(rows, dict) else []):
-    if isinstance(r, dict) and r.get("state") == "live" and r.get("role") == "back" and not r.get("side") and r.get("name"): print(r["name"])' "$SALA_SESSIONS_FILE" 2>/dev/null)
+    names=$(sessions_py back-names --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" 2>/dev/null)
     while IFS= read -r s; do [ -n "$s" ] && tmux has-session -t "=$s" 2>/dev/null && echo "$s"; done <<< "$names"
     return 0
 }
