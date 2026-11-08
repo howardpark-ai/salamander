@@ -317,7 +317,10 @@ b"
 sq_row_open sala-test-argchk s.argchk %9 "   "; rc=$?
 [ "$rc" = 0 ] && grep -q 'stuck: terminal-prompt open failed (exit 1): usage:' "$WLOG" && ok "an empty question: refused by the client, logged, never fatal" || bad "rc $rc; log: $(tail -2 "$WLOG")"
 # the REAL client.py's own argument parser against sala's arguments, with its network call (post) replaced; skipped where stackshot is not on this box
-REALC="${SALA_REAL_STACKSHOT_CLIENT:-$(getent passwd "$EUID" | cut -d: -f6)/stackshot/client.py}"
+# (the package path, else the root path of a checkout from before the package: there the file is the program itself; in a new checkout the root file is a forwarder, which
+# would swap the module this test patches)
+SSHOME="$(getent passwd "$EUID" | cut -d: -f6)/stackshot"
+if [ -f "$SSHOME/stackshot/fleet/client.py" ]; then REALC="${SALA_REAL_STACKSHOT_CLIENT:-$SSHOME/stackshot/fleet/client.py}"; else REALC="${SALA_REAL_STACKSHOT_CLIENT:-$SSHOME/client.py}"; fi
 if [ -f "$REALC" ] && python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'; then
     cat > "$FC/real.py" <<'PY'
 import importlib.util, json, os, sys
