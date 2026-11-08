@@ -2080,6 +2080,17 @@ relaunch_what() {  # <kind> → the words the waiting line calls it
 relaunch_text() {  # <what words> [claude-pid] → the line the hook gives the session; with the pid, the holders of the pane appended
     printf '%s\n' "${SALA_RELAUNCH_WAITING_TEXT//<what>/$1}" 2>/dev/null   # (silent when the reader has left)
     [ -n "${2:-}" ] && holders_block "$2" "Still running under this pane right now, <n> that the relaunch will cut or that hold it:" "$SALA_HOLDERS_HOWTO"
+    [ -n "${2:-}" ] && subagents_block "$2"
+    return 0
+}
+# subagents_block <claude-pid> → what a running subagent means for the relaunch, one line each; nothing when none run. A subagent is
+# never cut by a relaunch that waits for it, and a shell or a task it started is no excuse to cut it: the exit is refused until it ends.
+subagents_block() {
+    local l n=0 out=""
+    while IFS= read -r l; do [ -n "$l" ] && { out+="  $l"$'\n'; n=$((n + 1)); }; done < <(subagent_holders "$1")
+    [ "$n" -gt 0 ] || return 0
+    { printf 'Holding the relaunch: %s running in this session (sala never cuts a running subagent; the relaunch follows once it ends):\n%s' "$(plural "$n" subagent)" "$out"
+      printf '%s\n' "End one you do not need from this session (TaskStop <its id> when the CLI lists it, or let it finish); a subagent no task list shows ends only with its work."; } 2>/dev/null
     return 0
 }
 waiting_raise() {  # <uuid> <kind> <set id> [owner pid] — raised again for the same set it keeps its "told"; a new set tells the session again
@@ -2256,7 +2267,7 @@ hold_bullet() {
     case "$why" in
         "parked in background job"*) return 1;;
         *"registry says 'shell'"*|*"a background task is running"*|*"background work in flight"*|*"background work is running"*|*"background agent or task wrote"*) kind=tasks;;
-        *"registry says '"*|*"a turn is running"*) kind=busy;;
+        *"registry says '"*|*"a turn is running"*|*"a subagent is running"*) kind=busy;;
         *) return 1;;
     esac
     if [ -n "$pid" ] && [ "$pid" != 0 ]; then
@@ -2302,6 +2313,38 @@ _ancestor_pids() {  # → this shell and every process above it, one pid per lin
         echo "$p"; np=""; { read -r _a _b _c np _ < "/proc/$p/stat"; } 2>/dev/null || :; p=$np
     done
 }
+# THE SUBAGENTS THE IDLE CHECK COULD NOT SEE. A subagent is no child process of the claude and may write nothing for many
+# minutes (it waits on a long tool call), so the registry, the children and the 2-minute scratch test all read the pane as
+# idle while the session's in-session mod (mod/hooks/register.ts) refuses the /exit for it. The transcript of every subagent
+# the CLI starts is a file, <projects>/<slug>/<uuid>/subagents/agent-<id>.jsonl, with an <id>.meta.json beside it whose
+# "finished" field is written when it ends. One that is not finished, was written since this claude started (an older one belonged
+# to a process that is gone: a resume leaves its files behind) and for less than SALA_SUBAGENT_STALE s (default 6 h; a subagent
+# that crashed never writes "finished") is running. Same definition as the mod's, so the two cannot disagree for long.
+: "${SALA_SUBAGENT_STALE:=21600}"
+# subagent_holders <claude-pid> [uuid] → one line per running subagent ("<type>: <description> (quiet <n> min)"), nothing when none
+subagent_holders() {
+    local sid="${2:-}" cwd d f m body age lim et mt type desc
+    [ -n "$sid" ] || registry_field_r sid "$1" sessionId; [ -n "$sid" ] || return 0
+    cwd=$(proc_cwd "$1") || return 0; [ -n "$cwd" ] || return 0
+    d="$SALA_PROJECTS/$(slug_for_cwd "$cwd")/$sid/subagents"; [ -d "$d" ] || return 0
+    # how long this claude has run: the registry row's startedAt (ms), else the process's own age
+    lim=$SALA_SUBAGENT_STALE; registry_field_r et "$1" startedAt; _now_r age
+    if [[ $et =~ ^[0-9]+$ ]]; then et=$(( age - et / 1000 )); else et=$(proc_etime "$1" 2>/dev/null || echo 0); fi
+    [ "$et" -gt 0 ] 2>/dev/null && [ "$et" -lt "$lim" ] && lim=$et
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        m=${f%.jsonl}.meta.json; [ -r "$m" ] || continue   # no meta: not one the CLI registered; the 2-minute scratch test sees a fresh one
+        body=$(<"$m"); [[ $body =~ \"finished\"[[:space:]]*:[[:space:]]*true ]] && continue
+        type=""; desc=""
+        [[ $body =~ \"agentType\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]] && type=${BASH_REMATCH[1]}
+        [[ $body =~ \"description\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]] && desc=${BASH_REMATCH[1]}
+        age="over 6 h"
+        for mt in 1 5 15 60 180 360; do [ -n "$(find "$f" -mmin -"$mt" -print -quit 2>/dev/null)" ] && { age="under $mt min"; break; }; done
+        printf 'subagent %s%s (last wrote %s ago)\n' "${type:-?}" "${desc:+: ${desc:0:80}}" "$age"
+    done < <(find "$d" -maxdepth 1 -name 'agent-*.jsonl' -mmin -"$(( lim / 60 + 1 ))" -print 2>/dev/null | sort)
+}
+# subagents_why <claude-pid> [uuid] → "a subagent is running: <one>; <two>" when subagent_holders finds any, else nothing
+subagents_why() { local l s=""; while IFS= read -r l; do [ -n "$l" ] && s+="${s:+; }$l"; done < <(subagent_holders "$@"); [ -z "$s" ] || echo "a subagent is running: $s"; }
 is_idle_reason() {
     local st stamp age sid d hs hl jp jwhy
     registry_field_r st "$1" status; [ -n "$st" ] || { echo "no registry status for pid $1 — cannot confirm idle"; return; }
@@ -2325,7 +2368,9 @@ is_idle_reason() {
     if [ "$own_turn" = 0 ]; then
         _stamp_age_r age "$stamp"
         [ "$age" -ge "$SALA_IDLE_SETTLE" ] || { echo "idle for only ${age}s (a just-queued turn may not have flipped the registry yet)"; return; }
-        registry_field_r sid "$1" sessionId; [ -n "$sid" ] && ready_for "$sid" && return   # the session said ready: its call
+        # the session said ready: its call, for shells and tasks. A running subagent is not its to cut: the in-session mod refuses the exit for it
+        # (subagent_holders), so it is named here, the pane is held, and the retry that follows is not a loop that cannot end
+        registry_field_r sid "$1" sessionId; [ -n "$sid" ] && ready_for "$sid" && { subagents_why "$1" "$sid"; return 0; }
     else registry_field_r sid "$1" sessionId; fi
     local kids; _children_r kids "$1"
     if [ -n "$kids" ]; then
@@ -2347,7 +2392,7 @@ is_idle_reason() {
     # the live readings below (a child, a scratch file written in the last 2 min) still hold. A relaunch without the flag
     # trusts the record as before.
     if [ -n "$sid" ]; then   # as lists, never a bare call: a caller under `set -e` (tests/smoke.sh) must survive busy_state's 2
-        hs=$(busy_state "$1" "$sid" "$stamp") && { if [ "${SALA_RESCUE:-0}" = 1 ] && [ -z "$(work_children "$1")" ]; then hs=""; else echo "$hs"; return 0; fi; } || case $? in 1) return 0;; esac
+        hs=$(busy_state "$1" "$sid" "$stamp") && { if [ "${SALA_RESCUE:-0}" = 1 ] && [ -z "$(work_children "$1")" ]; then hs=""; else echo "$hs"; return 0; fi; } || case $? in 1) [ "$own_turn" = 1 ] || subagents_why "$1" "$sid"; return 0;; esac   # a record with nothing in flight lists no subagent
     fi
     if [ "$own_turn" = 1 ]; then kids=$(work_children "$1" | { grep -vxF -f <(_ancestor_pids) || :; } | tr '\n' ' ')   # the call's own way up is not work in flight
     else kids=$(work_children "$1" | tr '\n' ' '); fi   # a plugin's MCP server is not work in flight (work_children)
@@ -2356,6 +2401,7 @@ is_idle_reason() {
         while IFS= read -r d; do
             [ -d "$d" ] && [ -n "$(find "$d" -type f -mmin -2 -print -quit 2>/dev/null)" ] && { echo "a background agent or task wrote to $(basename "$d") in the last 2 min"; return 0; }
         done < <(session_scratch_dirs "$1" "$sid")
+        subagents_why "$1" "$sid"   # a subagent that is quiet for longer than that (the transcript's own record, subagent_holders)
     fi
     return 0   # idle: the status is 0 on every path, so a caller under `set -e` may capture the reason
 }
@@ -2369,15 +2415,16 @@ is_idle() {  # <claude-pid> → 0 idle · 1 busy · 2 unknown. Unknown is NEVER 
     registry_field_r stamp "$1" statusUpdatedAt
     _stamp_age_r age "$stamp"
     [ "$age" -ge "$SALA_IDLE_SETTLE" ] || return 1
-    registry_field_r sid "$1" sessionId; [ -n "$sid" ] && ready_for "$sid" && return 0
+    registry_field_r sid "$1" sessionId; [ -n "$sid" ] && ready_for "$sid" && { [ -z "$(subagent_holders "$1" "$sid")" ]; return; }
     _children_r kids "$1"   # (never a failing status: a caller under `set -e`, tests/smoke.sh, must survive "no children")
     if [ -n "$kids" ]; then local parked; registry_field_r parked "$1" parkedJobId; [ -n "$parked" ] && [ "$parked" != null ] && return 1; fi   # parked: as in is_idle_reason
-    if [ -n "$sid" ]; then busy_state "$1" "$sid" "$stamp" >/dev/null && return 1 || case $? in 1) return 0;; esac; fi
+    if [ -n "$sid" ]; then busy_state "$1" "$sid" "$stamp" >/dev/null && return 1 || case $? in 1) [ -z "$(subagent_holders "$1" "$sid")" ]; return;; esac; fi
     [ -z "$(work_children "$1")" ] || return 1   # a plugin's MCP server is not work in flight (work_children)
     if [ -n "$sid" ]; then
         while IFS= read -r d; do
             [ -d "$d" ] && [ -n "$(find "$d" -type f -mmin -2 -print -quit 2>/dev/null)" ] && return 1
         done < <(session_scratch_dirs "$1" "$sid")
+        [ -z "$(subagent_holders "$1" "$sid")" ] || return 1
     fi
     return 0
 }
@@ -4645,7 +4692,7 @@ mod_request() {
 _mod_who() { local n; n=$(tmux display -p -t "$1" '#{session_name}' 2>/dev/null); echo "${n:-$1}"; }   # <pane> → its session name
 # pane_exit <pane> <claude-pid> → 0 /exit is on its way (the mod took it, or it was typed) · 2 refused: background work is
 # running · 3 refused: a draft is in the composer (its text on stdout) · 4 refused: a turn is running (an /exit run then
-# reaches the model as a prompt) · 1 the keys did not take it. Process death is the caller's to verify, as it always was
+# reaches the model as a prompt; what holds it on stdout, when the mod names it) · 1 the keys did not take it. Process death is the caller's to verify, as it always was
 # (exit_wait).
 # THE SDK LANE'S PANE (lib/sdk-pane.sh, contrib/sdk-pane/driver.py): the mod is asked as for any pane, and its
 # gates hold (a draft in the box, a turn, work in flight), but the /exit it runs on "ok" ends nothing in a CLI the Agent
@@ -4654,7 +4701,7 @@ _mod_who() { local n; n=$(tmux display -p -t "$1" '#{session_name}' 2>/dev/null)
 # pane sat at the driver's empty box). That pane leaves through the box: /exit typed there makes the driver disconnect,
 # which ends the CLI, then the driver and the wrapper, and the pane is back at its shell.
 pane_exit() {
-    local out rc reason scr
+    local out rc reason scr h
     # the screen first: a draft it shows counts even when the mod's prompt box is empty (see pane_draft)
     scr=$(pane_draft_screen "$1"); [ -n "$scr" ] && ! printf '%s' "$scr" | grep -Eq "$SALA_OWN_RESIDUE" && { mod_log "exit $(_mod_who "$1") not sent (the screen shows a draft)"; printf '%s\n' "$scr"; return 3; }
     mod_request "$2" exit; rc=$?; out="$MOD_REPLY"
@@ -4683,7 +4730,15 @@ pane_exit() {
                 # confirms it under the same flag and the same test. A live child keeps the refusal.
                 elif [ "${SALA_RESCUE:-0}" = 1 ] && [ -z "$(work_children "$2")" ]; then MOD_WHY="rescue: the mod refused for background work ($(mod_reply_field "$out" tasks)), but no child process runs under the claude — a stale task row"
                 else mod_log "exit $(_mod_who "$1") via mod (refused: background work)"; return 2; fi ;;
-            turn) mod_log "exit $(_mod_who "$1") via mod (refused: a turn is running)"; return 4 ;;
+            turn)
+                # the mod names what holds it (a mod from this release on; an older one sends no "holders"): printed for the caller, who puts it in its
+                # skip line. An older mod's list is the one that can hold a turn that ended unseen; after SALA_STALE_TURN_AFTER refusals (close_pane
+                # sets SALA_STALE_TURN_OK) with nothing named, and while sala's own check (the registry, the Stop record, the children, the
+                # subagents' transcripts) still reads the pane as idle, the exit goes by keys: the CLI's exit dialog guards what runs
+                h=$(mod_reply_field "$out" holders)
+                if [ -z "$h" ] && [ "${SALA_STALE_TURN_OK:-0}" = 1 ] && [ -z "$(is_idle_reason "$2")" ]; then
+                    MOD_WHY="the mod refused for a turn it could not name, ${SALA_STALE_TURN_N:-several} times, while the registry, the Stop record, the child processes and the subagent transcripts all read the pane as idle (a mod loaded before its turn list was reconciled)"
+                else mod_log "exit $(_mod_who "$1") via mod (refused: a turn is running${h:+; held by $h})"; printf '%s\n' "$h"; return 4; fi ;;
             draft) scr=$(mod_reply_field "$out" text | tr '\n' ' ' | sed 's/[[:space:]]*$//')
                    # a command sala itself left in the box is no one's draft: the keys path clears it and types /exit
                    if ! printf '%s' "$scr" | grep -Eq "$SALA_OWN_RESIDUE"; then mod_log "exit $(_mod_who "$1") via mod (refused: a draft)"; printf '%s\n' "$scr"; return 3; fi
@@ -4694,6 +4749,49 @@ pane_exit() {
     proc_alive "$2" || { mod_log "exit $(_mod_who "$1") not sent (the claude is gone)"; return 0; }
     mod_log "exit $(_mod_who "$1") via keys ($MOD_WHY)"
     tui_send "$1" "/exit"
+}
+# THE REFUSAL MEMORY. An exit the mod refused for a turn used to leave no trace: the retry worker, then the deferred list, tried again
+# and said the same thing at every tick. refused/<uuid> is one line, "<count>\t<first at>\t<last at>\t<why>", written by close_pane
+# (lib/revive.sh) each time the exit is refused for a turn, read by it, by watch's deferred list and by `sala ready`, and removed when
+# the pane relaunches. It is how many times the same refusal came, since when, and for what.
+SALA_REFUSED_DIR="$SALA_STATE_DIR/refused"
+: "${SALA_STALE_TURN_AFTER:=3}"   # refusals for a turn the mod cannot name before the exit goes by keys while sala's own check reads the pane as idle
+# refusal_note <uuid> <why> → the count after this one, on stdout
+refusal_note() {
+    local f="$SALA_REFUSED_DIR/$1" n=0 first last now; _now_r now; first=$now
+    [ -n "${1:-}" ] || { echo 0; return 0; }
+    mkdir -p "$SALA_REFUSED_DIR" 2>/dev/null
+    [ -r "$f" ] && IFS=$'\t' read -r n first last _ < "$f"
+    case "$n" in ''|*[!0-9]*) n=0; first=$now;; esac
+    n=$((n + 1)); printf '%s\t%s\t%s\t%s\n' "$n" "${first:-$now}" "$now" "${2//$'\t'/ }" > "$f.t.${BASHPID:-$$}" && mv -f "$f.t.${BASHPID:-$$}" "$f"
+    echo "$n"
+}
+# refusal_get <var> <uuid> → "<count>\t<first>\t<last>\t<why>" in <var>, empty when none
+refusal_get() { local _r=""; [ -n "${2:-}" ] && [ -r "$SALA_REFUSED_DIR/$2" ] && { IFS= read -r _r < "$SALA_REFUSED_DIR/$2"; } 2>/dev/null; printf -v "$1" '%s' "$_r"; }
+refusal_clear() { [ -n "${1:-}" ] && rm -f "$SALA_REFUSED_DIR/$1" "$SALA_REFUSED_DIR/$1.said" 2>/dev/null; return 0; }
+refusal_prune() { [ -d "$SALA_REFUSED_DIR" ] && find "$SALA_REFUSED_DIR" -maxdepth 1 -type f -mtime +9 -delete 2>/dev/null; return 0; }   # watch: the memory of sessions long gone
+# deferred_row_for <claude-pid> → the deferred list's row for the pane this claude runs in (matched by the pid the row was written
+# with, else by the tmux session the pane belongs to), nothing when the pane is not on the list. The list is a recycle's own
+# waiting: a pane on it is waited for whatever its sets say (a set gives a pane up after SALA_LATER_LIMIT; the row does not).
+deferred_row_for() {
+    local row="" s
+    [ -s "$SALA_DEFERRED" ] || return 0
+    row=$(awk -F'\t' -v p="${1:-x}" '$4 == p && p != 0 {print; exit}' "$SALA_DEFERRED")
+    if [ -z "$row" ] && [ -n "${TMUX_PANE:-}" ]; then
+        s=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
+        [ -n "$s" ] && row=$(awk -F'\t' -v s="$s" '$1 == s {print; exit}' "$SALA_DEFERRED")
+    fi
+    printf '%s\n' "$row" | grep .
+    return 0
+}
+# mod_hold <claude-pid> → 0 and one line on stdout ("a turn is running: <what holds it>") when the in-session mod says a turn is running
+# and names it (the `busy` probe: the gates of an exit, nothing run); 1 for every other answer: free, no mod, a mod that does not know the
+# probe, or one that names no holder. What a sweep and the deferred list ask before they try an exit that would be refused.
+mod_hold() {
+    local rc=0 h; mod_request "$1" busy || rc=$?
+    [ "$rc" = 1 ] && [ "$(mod_reply_field "$MOD_REPLY" reason)" = turn ] || return 1
+    h=$(mod_reply_field "$MOD_REPLY" holders); [ -n "$h" ] || return 1
+    printf 'a turn is running: %s\n' "$h"
 }
 # mod_refused_watch_only <reply json> <claude-pid> → 0 when a background refusal lists only monitors, as many as this stretch's
 # busy record has artifact watches, and the record has nothing else in flight (busy_state 1)

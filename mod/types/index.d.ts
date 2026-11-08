@@ -10,8 +10,8 @@ declare module 'claude-code' {
       bg: BgTask[]
       // the session id the presence stamp was last written for
       stamped: string
-      // the ids of the turns running now, from turn.start to turn.complete (main loop and subagents alike)
-      turns: string[]
+      // the turns running now, from turn.start to turn.complete (main loop and subagents alike): the turn id and, for an agent loop, its agent id
+      turns: { id: string; agent?: string }[]
     }
   }
 }

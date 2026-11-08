@@ -56,6 +56,23 @@ recycles was counted back in only one and the other set stayed open. Now:
   `SALA_RECYCLE_FLAG_AT` are both the flag's `t0`; `SALA_RECYCLE_SKIPPED` names the panes the flag did not get back (none for a
   full clear). A pane that never goes idle cannot hold a flag forever: past `SALA_LATER_LIMIT` (3 h) on the deferred list the flag
   is cleared partly and the hook fires with that pane in skipped.
+- **One idea of busy** (the recycle's idle check, the in-session mod and `watch` agree on what holds a pane). The mod refuses an exit
+  while a turn runs, and a subagent is one: it is no child process of the claude, no task list of the session may show it, and it can
+  write nothing for many minutes. So the idle check also reads the subagents' own transcripts
+  (`<projects>/<slug>/<uuid>/subagents/agent-<id>.jsonl`, with a `.meta.json` that says `"finished"` once the subagent ends): one that is
+  not finished, was written since this claude started and not longer ago than `SALA_SUBAGENT_STALE` (6 h) is running. It holds the pane,
+  also one that said `sala ready` (a ready word covers shells and tasks; a running subagent is never cut), and the skip line, the
+  relaunch notice and `sala ready` name it and say it ends with its work. The mod's `busy` probe (the gates of an exit with nothing run)
+  is asked before an exit is tried, so a turn it names is said once with its holder, and the pane's inbox is not held and released for an
+  exit that would be refused. `watch` does the same for the deferred list: one log line when the holder changes, never one per tick, and
+  a try that is skipped again starts no retry worker of its own (the list is the retry).
+- **A refusal the mod cannot explain** (a mod loaded before its turn list was reconciled names no holder and does not know the probe): every
+  refusal for a turn is counted per session (`refused/<uuid>` under the state directory). After `SALA_STALE_TURN_AFTER` (3) of them, while the
+  registry, the Stop hook's record, the child processes and the subagents' transcripts all read the pane as idle, the next try goes by
+  keys, logged as such; the CLI's own exit dialog still guards what it lists. Tries after that thin out to one in 10 min, then one in
+  30 min, and a session's own `sala ready` is tried at once. The memory goes with the relaunch.
+- **A pane on the deferred list is waiting**, whatever its sets say: a set gives a pane up after `SALA_LATER_LIMIT`, the deferred row does
+  not, and `sala ready` reads the row (not only a retry worker) when it says whether a relaunch is waiting.
 - **Gathering and rest**: a flag raised from the board, a `--when-idle` request or the CLI's auto-update
   while the job is unfinished does not reset it at once. Flags gather until `SALA_RECYCLE_GATHER` (10 min) pass with no new one,
   never more than `SALA_RECYCLE_GATHER_MAX` (30 min) after the first, then the job resets ONCE (one short 🔄 post says it is

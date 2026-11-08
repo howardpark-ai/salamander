@@ -1670,18 +1670,29 @@ auto_recycle() {
 # for the hook to speak through), at most SALA_LATER_RETELL_MAX (3) times; held for SALA_LATER_LIMIT (3 h), one post names it,
 # its versions, how long, and the commands holding it. Nothing here relaunches or gives up a pane: the relaunch and the
 # 8-day drop are above and below, as they were. The state lives in the row, so a pane that leaves the list clears it.
-later_clear() { [ "${told_n:-0}" -gt 0 ] && waiting_clear "$uuid"; return 0; }   # the flag it raised comes down with the row
+later_clear() { [ "${told_n:-0}" -gt 0 ] && waiting_clear "$uuid"; refusal_clear "$uuid"; return 0; }   # the flag it raised and the refusal memory (common.sh) go with the row
+# held_say: what holds a pane on the list, in the log ONCE per change (the digits left out of the comparison: an age that ticks up is no change)
+# and never again at every tick; the same words are in the retell and the limit post
+held_say() {
+    local f="$SALA_REFUSED_DIR/$uuid.said" prev=""
+    [ -n "$uuid" ] || return 0
+    [ -r "$f" ] && { IFS= read -r prev < "$f"; } 2>/dev/null
+    [ "$prev" = "${held//[0-9]/}" ] && return 0
+    mkdir -p "$SALA_REFUSED_DIR" 2>/dev/null; printf '%s\n' "${held//[0-9]/}" > "$f"
+    wlog "deferred: $sess held — $held"
+}
 later_words() { local h=$(($1 / 3600)) m=$(( ($1 % 3600) / 60 )); if [ "$h" -gt 0 ]; then echo "$h h$([ "$m" -gt 0 ] && echo " $m min")"; else echo "$m min"; fi; }
 later_held() {  # in deferred_revive: the pane is held now; told again when due, one post at the limit
-    local held_for=$((now - ${since:-0})) base=$told_at what sock st cmds b=() rev line
+    local held_for=$((now - ${since:-0})) base=$told_at what sock st cmds b=() rev line hnote
     [ "$base" -gt "${since:-0}" ] || base=${since:-0}
     if [ "$told_n" -lt "$SALA_LATER_RETELL_MAX" ] && [ $((now - base)) -ge "$SALA_LATER_RETELL" ] && [ -n "$uuid" ]; then
         rm -f "$SALA_WAITING_DIR/$uuid.told"
         waiting_raise "$uuid" "$(relaunch_kind "$(set_val "$dset" why 2>/dev/null)")" "$dset" "$c"   # owner: the claude itself, so the flag lives until that process ends
         what=$(waiting_what "$uuid"); sock=$(session_socket "$c"); st=$(registry_field "$c" status)
+        hnote=""; [ -z "$held" ] || hnote=$'\n'"What holds it, as sala reads it: ${held:0:300}"
         # a session held by shells is idle: no tool call, so the hook never speaks. The line goes in as a message; a turn running
         # now is left to the hook, which says it at the next call
-        if [ "$st" != busy ] && [ -n "$sock" ] && session_push "$sock" "$(relaunch_text "${what:-recycle}" "$c")" 2>/dev/null; then waiting_told "$uuid"; fi
+        if [ "$st" != busy ] && [ -n "$sock" ] && session_push "$sock" "$(relaunch_text "${what:-recycle}" "$c")$hnote" 2>/dev/null; then waiting_told "$uuid"; fi
         told_n=$((told_n + 1)); told_at=$now
         wlog "deferred: $sess held $(later_words "$held_for") — told again ($told_n of $SALA_LATER_RETELL_MAX): $held"
     fi
@@ -1690,7 +1701,8 @@ later_held() {  # in deferred_revive: the pane is held now; told again when due,
         b+=("held for $(later_words "$held_for") since $(local_human "$since"): $(printf '%s' "$held" | scrub_text | cut -c1-240)")
         b+=("claude $(proc_version "$c")${rev:+, sala $rev}; told again $told_n time(s)")
         while IFS= read -r line; do [ -n "$line" ] && b+=("holding it: $line"); done <<< "$cmds"
-        [ -n "$cmds" ] || b+=("no command could be read (the Stop hook's record has none for this stretch and no child process runs)")
+        while IFS= read -r line; do [ -n "$line" ] && b+=("holding it: $line"); done < <(subagent_holders "$c" "$uuid")
+        [ -n "$cmds" ] || case "$held" in "a turn is running"*|"a subagent is running"*) ;; *) b+=("no command could be read (the Stop hook's record has none for this stretch and no child process runs)");; esac
         b+=("sala relaunches it once it is free; to free it sooner, end what holds it in the pane")
         sala_post "⚠️ *$sess not relaunched after $(later_words "$held_for")*" "${b[@]}"
         posted_at=$now; wlog "deferred: $sess held $(later_words "$held_for") — limit post sent"
@@ -1708,7 +1720,7 @@ later_held() {  # in deferred_revive: the pane is held now; told again when due,
 # now, its relaunch post carries the set's label and count and may close the set, and the 8-day drop is a give-up of it.
 deferred_revive() {
     [ -s "$SALA_DEFERRED" ] || return 0
-    local cur sess since why opid force dset told_at told_n posted_at uuid held pp c nc ver keep=() now row; cur=$(basename "$(readlink -f "$SALA_CLAUDE")"); now=$(date +%s)
+    local cur sess since why opid force dset told_at told_n posted_at uuid held pp c nc ver keep=() now row rf rn rl gap; cur=$(basename "$(readlink -f "$SALA_CLAUDE")"); now=$(date +%s)
     dres() { set_has "$dset" && set_resolve "$dset" "$@"; }   # <ok|gave> <bullet> → 0 when the pane's set took it
     later_row() { row="$sess"$'\t'"$since"$'\t'"$why"$'\t'"${opid:-0}"$'\t'"${force:-0}"$'\t'"${dset:--}"$'\t'"$told_at"$'\t'"$told_n"$'\t'"$posted_at"; }
     while IFS=$'\t' read -r sess since why opid force dset told_at told_n posted_at; do
@@ -1731,13 +1743,22 @@ deferred_revive() {
             continue
         fi
         held=$(is_idle_reason "$c")
-        if [ -n "$held" ]; then later_held; keep+=("$row"); continue; fi
+        # the in-session mod's own answer (common.sh, mod_hold): a turn it names holds the pane, said once, and no exit is tried against it
+        [ -n "$held" ] || held=$(mod_hold "$c" || true)
+        if [ -n "$held" ]; then held_say; later_held; keep+=("$row"); continue; fi
         # a pane the retry window deferred for an unsubmitted draft is idle to is_idle_reason: not relaunched while
         # the draft stands, and not tried again on every tick (each try would start a retry worker)
         if [ -n "$(pane_draft "$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_id}' 2>/dev/null | head -1)" "$c")" ]; then keep+=("$row"); continue; fi
-        wlog "deferred: $sess is free now — revive --only$( [ "${force:-0}" = 1 ] && echo ' --force')"
-        # SALA_SET: a pane this relaunch leaves to a retry worker stays in its set
-        SALA_SET="$dset" "$SALA_BIN" revive --only "$sess" $( [ "${force:-0}" = 1 ] && echo --force ) </dev/null >> "$WLOG" 2>&1   # stdin is the list being read
+        # A FREE PANE THE EXIT KEEPS FAILING FOR (the refusal memory, common.sh): every failed try (close_pane's refusals, and the tries
+        # that went by keys once the mod's turn list was not believed) is counted, and the tries thin out: every tick for the first
+        # SALA_STALE_TURN_AFTER, then one in 10 min, then one in 30 min, until the pane relaunches or the 8-day drop above
+        refusal_get rf "$uuid"; IFS=$'\t' read -r rn _ rl _ <<< "$rf"; : "${rn:=0}" "${rl:=0}"
+        gap=0; [ "$rn" -gt $((SALA_STALE_TURN_AFTER * 2)) ] && gap=1800 || { [ "$rn" -gt "$SALA_STALE_TURN_AFTER" ] && gap=600; }
+        if [ "$gap" -gt 0 ] && [ $((now - rl)) -lt "$gap" ] && ! { [ -n "$uuid" ] && ready_for "$uuid"; }; then keep+=("$row"); continue; fi   # a session's own `ready` is tried at once
+        wlog "deferred: $sess is free now — revive --only$( [ "${force:-0}" = 1 ] && echo ' --force')$( [ "$rn" -gt 0 ] && echo " (try $((rn + 1)))")"
+        # SALA_SET: a pane this relaunch leaves to a retry worker stays in its set. SALA_DEFERRED_TRY: this list is the retry, so a try
+        # that is skipped again starts no retry worker of its own (each one used to: a worker every tick for the same pane)
+        SALA_DEFERRED_TRY=1 SALA_SET="$dset" "$SALA_BIN" revive --only "$sess" $( [ "${force:-0}" = 1 ] && echo --force ) </dev/null >> "$WLOG" 2>&1   # stdin is the list being read
         nc=$(claude_pid_under "$pp")
         if [ -n "$nc" ] && [ "$nc" != "$c" ]; then
             later_clear; wlog "deferred: $sess relaunched"
@@ -1754,7 +1775,7 @@ deferred_revive() {
 [ "$CHECK_ONLY" = 1 ] || bare_tick   # every mapped pane at a bare shell for SALA_BARE_GRACE is revived (lib/barepane.sh)
 [ "$CHECK_ONLY" = 1 ] || wrapup_tick   # runs only when SALA_IDLE_WRAPUP=on (off by default): a background agent idle for SALA_IDLE_WRAPUP_MIN is asked to wrap up, then cleared (lib/wrapup.sh)
 [ "$CHECK_ONLY" = 1 ] || set_prune   # recycle sets: closed ones after 3 days, any after 9 (common.sh)
-[ "$CHECK_ONLY" = 1 ] || { waiting_prune; busy_prune; }   # relaunch-waiting flags whose owner is gone; busy records of sessions long gone
+[ "$CHECK_ONLY" = 1 ] || { waiting_prune; busy_prune; refusal_prune; }   # relaunch-waiting flags whose owner is gone; busy records of sessions long gone
 [ "$CHECK_ONLY" = 1 ] || inbox_release_stale   # a relaunch that died left its pane's inbox held: free it after 10 min
 # UNMAPPED SESSIONS (the map is a ledger — common.sh): a live claude in a tmux session the pane map
 # does not know (started by hand, outside spawn; or a spawn whose row never landed) is reported once — a log line and

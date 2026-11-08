@@ -1,7 +1,7 @@
 // `claude plugin test mod`: the mod's requests against the engine's own chain, the world beneath mocked (files in a map,
 // mv as a rename in that map, the prompt box, the commands run).
 import { expect, mock, test } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { AgentInfo, On } from 'claude-code'
 
 const DIR = '/run/user/test/sala/mod'
 
@@ -9,11 +9,19 @@ type World = {
   files: Map<string, string>
   commands: { command: string; args: string }[]
   draft: string
+  agents: AgentInfo[]
   replied: (reqid: string) => Promise<Record<string, unknown>>
 }
 
+const agent = (id: string, status: AgentInfo['status'], type = 'general-purpose', description = 'a task'): AgentInfo => ({
+  id,
+  status,
+  type,
+  description,
+})
+
 function world(on: On, sessionId = 'S1'): World {
-  const w: World = { files: new Map(), commands: [], draft: '', replied: async () => ({}) }
+  const w: World = { files: new Map(), commands: [], draft: '', agents: [], replied: async () => ({}) }
   const waiters = new Map<string, (v: Record<string, unknown>) => void>()
   mock.env(on, { XDG_RUNTIME_DIR: '/run/user/test', HOME: '/home/t' })
   on('session.id', () => ({ value: sessionId }))
@@ -37,6 +45,7 @@ function world(on: On, sessionId = 'S1'): World {
     if (cmd === 'rm') w.files.delete(e.argv[2] ?? '')
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
+  on('agent.list', () => ({ value: w.agents }))
   on('classic.Stop', () => ({}))
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
@@ -94,16 +103,22 @@ test('exit: refused over a draft, refused while a background shell runs, else an
 test('exit: refused while a turn runs (a subagent turn too), answered ok once every turn has completed', async ($, on) => {
   const w = world(on)
   const done = (turnId: string) => ({ answer: '', durationMs: 1, isAborted: false, reason: 'answer' as const, turnId })
+  w.agents = [agent('a1', 'running', 'builder', 'Build the package move')]
   await $.turn.start({ text: 'a message from a peer', turnId: 'T1' })
-  await $.turn.start({ text: '', turnId: 'A1' })
+  await $.turn.start({ text: '', turnId: 'A1', agentId: 'a1' })
   let reply = w.replied('t1')
   await $.session.receive(peer('[sala-mod] exit t1'))
-  expect(await reply).toEqual({ reqid: 't1', ok: false, reason: 'turn' })
+  expect(await reply).toEqual({
+    reqid: 't1',
+    ok: false,
+    reason: 'turn',
+    holders: 'the main loop; subagent builder: Build the package move',
+  })
 
   await $.turn.complete(done('T1'))
   reply = w.replied('t2')
   await $.session.receive(peer('[sala-mod] exit t2'))
-  expect(await reply).toEqual({ reqid: 't2', ok: false, reason: 'turn' })
+  expect(await reply).toEqual({ reqid: 't2', ok: false, reason: 'turn', holders: 'subagent builder: Build the package move' })
 
   await $.turn.complete({ ...done('A1'), agentId: 'a1' })
   reply = w.replied('t3')
@@ -137,16 +152,65 @@ test('exit: a turn that never completed does not outlive the main loop stopping 
   await exited
 })
 
-test('exit: a stop with a background task in flight leaves the running turns alone', async ($, on) => {
+const SHELL = { id: 't1', type: 'shell', status: 'running', description: 'sleep', command: 'sleep 600' }
+
+test('exit: a stop with a shell attached leaves a running subagent turn alone, and names it', async ($, on) => {
   const w = world(on)
-  await $.turn.start({ text: '', turnId: 'A2' })
-  await $.classic.Stop({
-    stop_hook_active: false,
-    background_tasks: [{ id: 't1', type: 'shell', status: 'running', description: 'sleep', command: 'sleep 600' }],
-  })
+  w.agents = [agent('a2', 'running', 'builder', 'Build the release')]
+  await $.turn.start({ text: '', turnId: 'A2', agentId: 'a2' })
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [SHELL] })
   const reply = w.replied('z2')
   await $.session.receive(peer('[sala-mod] exit z2'))
-  expect(await reply).toEqual({ reqid: 'z2', ok: false, reason: 'turn' })
+  expect(await reply).toEqual({ reqid: 'z2', ok: false, reason: 'turn', holders: 'subagent builder: Build the release' })
+})
+
+test('exit: a stop with a shell attached drops a main-loop turn that never completed (the shell never lets "nothing in flight" come)', async ($, on) => {
+  const w = world(on)
+  await $.turn.start({ text: '', turnId: 'T3' })
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [SHELL] })
+  const reply = w.replied('z3')
+  await $.session.receive(peer('[sala-mod] exit z3'))
+  // the turn is gone; what refuses is the shell itself
+  expect(await reply).toEqual({ reqid: 'z3', ok: false, reason: 'background', tasks: ['shell running'] })
+})
+
+test('exit: an agent turn the engine lists as ended does not refuse; one it does not list does', async ($, on) => {
+  const w = world(on)
+  w.agents = [agent('a4', 'killed', 'builder', 'Interrupted build')]
+  await $.turn.start({ text: '', turnId: 'A4', agentId: 'a4' })
+  await $.turn.start({ text: '', turnId: 'A5', agentId: 'a5' })
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [SHELL] })
+  let reply = w.replied('z4')
+  await $.session.receive(peer('[sala-mod] exit z4'))
+  // a4 ended (killed); a5 is in no list (its task dropped) and may still run: kept, named by its id
+  expect(await reply).toEqual({ reqid: 'z4', ok: false, reason: 'turn', holders: 'subagent a5' })
+
+  w.agents = [agent('a4', 'killed'), agent('a5', 'completed')]
+  reply = w.replied('z5')
+  await $.session.receive(peer('[sala-mod] exit z5'))
+  expect(await reply).toEqual({ reqid: 'z5', ok: false, reason: 'background', tasks: ['shell running'] })
+})
+
+test('busy: the exit gates with nothing exited and the draft not read', async ($, on) => {
+  const w = world(on)
+  w.draft = 'unsent words'
+  w.agents = [agent('a6', 'running', 'general-purpose', 'Review a PR')]
+  await $.turn.start({ text: '', turnId: 'A6', agentId: 'a6' })
+  let reply = w.replied('b1')
+  await $.session.receive(peer('[sala-mod] busy b1'))
+  expect(await reply).toEqual({ reqid: 'b1', ok: false, reason: 'turn', holders: 'subagent general-purpose: Review a PR' })
+
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, reason: 'answer' as const, turnId: 'A6', agentId: 'a6' })
+  // a draft is no busy: only a turn or background work is
+  reply = w.replied('b2')
+  await $.session.receive(peer('[sala-mod] busy b2'))
+  expect(await reply).toEqual({ reqid: 'b2', ok: true })
+  expect(w.commands.filter(c => c.command === 'exit').length).toBe(0)
+
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [SHELL] })
+  reply = w.replied('b3')
+  await $.session.receive(peer('[sala-mod] busy b3'))
+  expect(await reply).toEqual({ reqid: 'b3', ok: false, reason: 'background', tasks: ['shell running'] })
 })
 
 // the description of the watch Claude Code arms by itself on publish (register.ts ARTIFACT_WATCH), and every

@@ -367,6 +367,7 @@ Type the commands in the last column in the web UI's Shell (without the web UI, 
 | `install.sh` says `missing: claude` | Claude Code is not installed for this user | Install it, then run `install.sh` again |
 | `settings.json` warnings after step 3 | A hook is missing or the file is not valid JSON | Compare with step 3; check with `python3 -m json.tool ~/.claude/settings.json` |
 | `sala spawn` says the lane is not ready | The lane you named has no credentials | Use the default `subscription-1`, or set the lane up (section 5) |
+| A session ran `sala ready` and was not relaunched | A subagent it started is still running. sala never cuts a running subagent: `sala ready` names it, and the relaunch follows within minutes after it ends | Let the subagent finish, or stop it from that session. `sala watch` logs one line naming what holds the pane, not one per check |
 | Filing a question fails and names `SALA_DEFAULT_SCOPE` | No scope is set | Set `SALA_SCOPES` or `SALA_DEFAULT_SCOPE` (step 4) |
 | The board refuses a question's subject | The scope is not one of the board's subject prefixes | Make the two lists match (step 4) |
 | Filing a question fails with `lists no front agent` | The project page has no `agents:` entry, or the board's registry has not refreshed yet | Add a front agent to the page's `agents:`, then wait up to 10 minutes or refresh the registry at once (step 9) |

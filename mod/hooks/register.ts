@@ -4,7 +4,11 @@
 //
 //   [sala-mod] exit <reqid>           refused while a draft sits in the prompt box, a turn is running or background
 //                                     work is in flight (an artifact watch is none, whatever its label),
-//                                     else answered ok and then /exit run as if typed
+//                                     else answered ok and then /exit run as if typed. A refusal for a turn names what
+//                                     runs, in `holders` ("subagent <type>: <description>", "the main loop")
+//   [sala-mod] busy <reqid>           the same two gates (a turn, background work), nothing exited and the draft not
+//                                     read: ok when the session could be left now, else the refusal an exit would give.
+//                                     sala asks it before it tries a relaunch, so its idle check and this one agree
 //   [sala-mod] rename <reqid> <name>  /rename <name> run as if typed, answered once it has run
 //   [sala-mod] draft <reqid>          the prompt box's text
 //
@@ -27,6 +31,8 @@ const MARK = '[sala-mod] '
 const BG = { plugin: 'sala', key: 'bg' } as const
 const STAMPED = { plugin: 'sala', key: 'stamped' } as const
 const TURNS = { plugin: 'sala', key: 'turns' } as const
+// an agent loop that has ended for good: its turns are not running, whatever turn.complete did or did not say
+const AGENT_ENDED = new Set(['completed', 'failed', 'killed'])
 const REQID = /^[A-Za-z0-9_-]{1,64}$/
 // a background task in one of these states has ended; any other status (running, pending, one this build does not
 // name yet) counts as in flight, so an unknown word refuses the exit rather than letting /exit stop the work
@@ -44,7 +50,8 @@ const ENDED = new Set(['completed', 'failed', 'killed', 'stopped', 'cancelled', 
 // The shell side keeps the same wording in lib/common.sh (SALA_ARTIFACT_WATCH_DESC).
 const ARTIFACT_WATCH = /^live updates for artifact (https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+) \((?:auto-armed on publish|attached via \/artifacts|watch requested|resume requested|re-armed on session resume|presence while editing via MCP|watch requested; auto-replies since stopped)\)$/
 
-type Reply = { reqid: string; ok: boolean; reason?: string; text?: string; tasks?: string[] }
+type Turn = { id: string; agent?: string }
+type Reply = { reqid: string; ok: boolean; reason?: string; text?: string; tasks?: string[]; holders?: string }
 
 async function runDir($: EngineInterface): Promise<string> {
   const xdg = await $.env.get('XDG_RUNTIME_DIR')
@@ -88,10 +95,44 @@ function artifactWatch(t: { type?: unknown; description?: unknown }): string | u
 }
 
 // the turns running now (turn.start to turn.complete): an /exit run mid-turn is not run as a command, the CLI hands it
-// to the turn as a queued prompt and the model reads it as text
-async function turns($: EngineInterface): Promise<string[]> {
+// to the turn as a queued prompt and the model reads it as text. Each entry is the turn and, for a subagent's or
+// teammate's loop, its agent id (absent for the main loop)
+async function turns($: EngineInterface): Promise<Turn[]> {
   const { value = [] } = await $.state.get(TURNS)
   return value
+}
+
+// the turns still running, after a turn that never completed has been taken off the list. An agent loop the engine's own
+// list shows as ended for good (completed, failed, killed) has no running turn, whatever its turn.complete said; one the
+// list does not show (its task dropped) is kept, since sala never cuts a subagent it cannot see end. `stopped`: the main
+// loop has just stopped, so no main-loop turn runs (a Stop with other work attached still ends the turn that made it)
+async function settle($: EngineInterface, stopped: boolean): Promise<Turn[]> {
+  const list = await $.agent.list().catch(() => undefined)
+  const ended = new Set((list ?? []).filter(a => AGENT_ENDED.has(a.status)).map(a => a.id))
+  const kept = (await turns($)).filter(t => (t.agent === undefined ? !stopped : !ended.has(t.agent)))
+  await $.state.set(TURNS, kept).catch(() => undefined)
+  return kept
+}
+
+// what the running turns are, in words for a person: the main loop, and each agent by its type and description
+async function holders($: EngineInterface, running: Turn[]): Promise<string> {
+  const list = (await $.agent.list().catch(() => undefined)) ?? []
+  const names: string[] = []
+  if (running.some(t => t.agent === undefined)) names.push('the main loop')
+  for (const id of new Set(running.flatMap(t => (t.agent === undefined ? [] : [t.agent])))) {
+    const a = list.find(x => x.id === id)
+    names.push(a === undefined ? `subagent ${id}` : `subagent ${a.type}: ${a.description}`.slice(0, 160))
+  }
+  return names.join('; ')
+}
+
+// the two gates an exit and a busy probe both go through: a turn running, background work in flight
+async function gate($: EngineInterface, reqid: string): Promise<Reply | undefined> {
+  const running = await settle($, false)
+  if (running.length > 0) return { reqid, ok: false, reason: 'turn', holders: await holders($, running) }
+  const busy = await inFlight($)
+  if (busy.length > 0) return { reqid, ok: false, reason: 'background', tasks: busy.map(t => `${t.type} ${t.status}`) }
+  return undefined
 }
 
 async function handle($: EngineInterface, verb: string, reqid: string, arg: string): Promise<void> {
@@ -99,15 +140,16 @@ async function handle($: EngineInterface, verb: string, reqid: string, arg: stri
     case 'exit': {
       const { text } = await $.prompt.read()
       if (text.trim() !== '') return reply($, { reqid, ok: false, reason: 'draft', text })
-      if ((await turns($)).length > 0) return reply($, { reqid, ok: false, reason: 'turn' })
-      const busy = await inFlight($)
-      if (busy.length > 0) {
-        return reply($, { reqid, ok: false, reason: 'background', tasks: busy.map(t => `${t.type} ${t.status}`) })
-      }
+      const refused = await gate($, reqid)
+      if (refused !== undefined) return reply($, refused)
       // answered before the exit runs: once /exit has run there is no process left to answer
       await reply($, { reqid, ok: true })
       void $.command.run({ command: 'exit' }).catch(() => undefined)
       return
+    }
+    case 'busy': {
+      // what an exit would be refused for, with nothing exited and the box not read
+      return reply($, (await gate($, reqid)) ?? { reqid, ok: true })
     }
     case 'rename': {
       if (arg === '') return reply($, { reqid, ok: false, reason: 'usage' })
@@ -157,10 +199,13 @@ export const register: Register = on => {
       return watch === undefined ? { type: t.type, status: t.status } : { type: t.type, status: t.status, watch }
     })
     await $.state.set(BG, tasks).catch(() => undefined)
-    // the main loop has just stopped and nothing is in flight behind it (a background subagent would be on the list
-    // above): no turn is running, so one still on the list lost its turn.complete (a turn folded into another, an
-    // interrupted subagent) and would refuse every /exit until the next session start
+    // the main loop has just stopped: no main-loop turn runs, so one still on the list lost its turn.complete (a turn
+    // folded into another) and would refuse every /exit until the next session start. With nothing in flight behind it
+    // (a background subagent would be on the list above) no agent turn runs either. With a shell or a watch attached
+    // at every stop, which is how a session that chains subagents and CI watches always ends its turns, "nothing in
+    // flight" never comes: the agent turns are then judged by the engine's own list (settle)
     if ((await inFlight($)).length === 0) await $.state.set(TURNS, []).catch(() => undefined)
+    else await settle($, true)
     const { value: stamped } = await $.state.get(STAMPED)
     if (stamped !== (await $.session.id())) void stamp($).catch(() => undefined)
     return next(e)
@@ -169,11 +214,12 @@ export const register: Register = on => {
   // which turns are running, the main loop's and any subagent's: the exit request refuses while one is
   on('turn.start', async ($, e, next) => {
     const started = await next(e)
-    await $.state.set(TURNS, [...(await turns($)), e.turnId]).catch(() => undefined)
+    const turn: Turn = e.agentId === undefined ? { id: e.turnId } : { id: e.turnId, agent: e.agentId }
+    await $.state.set(TURNS, [...(await turns($)), turn]).catch(() => undefined)
     return started
   }).catch(($, e, next) => next(e))
   on('turn.complete', async ($, e, next) => {
-    await $.state.set(TURNS, (await turns($)).filter(t => t !== e.turnId)).catch(() => undefined)
+    await $.state.set(TURNS, (await turns($)).filter(t => t.id !== e.turnId)).catch(() => undefined)
     return next(e)
   }).catch(($, e, next) => next(e))
 
