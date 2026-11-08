@@ -157,6 +157,10 @@ export const register: Register = on => {
       return watch === undefined ? { type: t.type, status: t.status } : { type: t.type, status: t.status, watch }
     })
     await $.state.set(BG, tasks).catch(() => undefined)
+    // the main loop has just stopped and nothing is in flight behind it (a background subagent would be on the list
+    // above): no turn is running, so one still on the list lost its turn.complete (a turn folded into another, an
+    // interrupted subagent) and would refuse every /exit until the next session start
+    if ((await inFlight($)).length === 0) await $.state.set(TURNS, []).catch(() => undefined)
     const { value: stamped } = await $.state.get(STAMPED)
     if (stamped !== (await $.session.id())) void stamp($).catch(() => undefined)
     return next(e)

@@ -54,6 +54,7 @@ pane map's bytes are the same with the registry on, off or broken (`tests/sessio
 - `sala sessions [--all] [--json]`: the listing, read-only (`--all` adds retired rows).
 - `sala sessions record <id|name> --transcript <claude-session-id> --why clear|resume|start [--machine X]`: phase 2, below.
 - `sala sessions tag <id|name> [--project <page key>] [--role front|back] [--project-key <page key>] [--dry-run]`: fills `project` and `role` of an existing live row, below.
+- `sala sessions tag --auto [<id|name>] [--dry-run]`: fills `project` and `role` of every live row with none from stackshot's project record, below.
 - `sala sessions --migrate [--dry-run]`: once, a row for every pane-map row that has none (lane, model, effort from the tables,
   aliases from `salamander-renames.jsonl`, `transcripts[0]` with `why: import`). Run `--dry-run` first and compare its
   `would mint` lines with the pane map; a name that already has a live row is skipped, so it is safe to repeat.
@@ -223,6 +224,26 @@ imported by `--migrate`, a spawn without the flags) kept both `null`, and `resol
   `resolve role:<project>/<role>` is ambiguous (exit 2) until one of the two is retagged or retired. Nothing is picked or moved for you.
 - Afterwards `sala sessions resolve role:projects/demo-docs/front`-style references work for the row, and the next heartbeat publishes the
   fields (`project`, `project_key`, `role`). No contract change: the file's keys and the role vocabulary are as they were.
+
+### The roles filled from the project record: `sala sessions tag --auto`
+
+`sala sessions tag --auto [<id|name>] [--dry-run]` fills `project` and `role` of a live row that has none, from the same source of truth
+the spawn checks already read: stackshot's project record (interface 20, `SALA_PROJECT_RECORD`, no older than
+`SALA_PROJECT_RECORD_MAX_AGE`). A name under a project's top-level agents is a front agent of that project, one under its `background:`
+agents a back agent. No new source, no guessing from a name.
+
+- **Without a name** it goes through every live row with no role and prints one line per row (`would tag` / `tagged`, or `left NAME (id8): <reason>`) and a
+  summary. **With a name** it handles that row alone: exit 0 (tagged, or already has a role: nothing is changed), 3 (the record does not list it), 1 (a
+  retired row or an unknown name).
+- **A row is left, with its reason, when** it is a side session (a side session is on no agents map), it is on no project's map, it is on the maps of several
+  projects, or its row already names another project than the record does. A retired project in the record is skipped.
+- **A role already on a row is never overwritten**, and a row with a project but no role is given the role from the record only when the project agrees.
+  A row given a project and a role loses its throwaway tag, as with `tag --project/--role`.
+- **The record cannot answer** (missing, older than the max age, not JSON, another schema): exit 4 with the reason on stderr and nothing written.
+- `--dry-run` writes nothing (no file, no log line). Same write path as `tag` (the pane map's lock, the atomic save, one `tag` line per row in `sessions.log`).
+- Callers: the watchdog tick runs it for every row with no role (the quiet form, best effort), and a bare `sala spawn` runs it for the new name before it
+  marks the row a throwaway, so a name the record lists becomes that project's agent. The registry reader `back-names` (`lib/sessions.py`, no command of its own) is the read-only list the back agents' lane
+  rule counts from: the rows whose stored role is `back`, or with no stored role whose record role is `back` (a record that cannot answer leaves the stored roles alone).
 
 ## Phase 2: an explicit signal for a fresh start
 

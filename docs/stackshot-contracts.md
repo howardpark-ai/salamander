@@ -723,8 +723,11 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   record's role. For `agent_unlisted` (plain spawn, rename) only a listing matters: a name on any project's map is not
   unlisted and `pages.py` is not asked. Anything else the record cannot answer (file missing or unreadable, another schema,
   stale, no such project) falls back to interface 7 unchanged, with its exit codes and its "cannot tell" refusal.
+  The same reading rule gives a live session with no role its role (`sala sessions tag --auto`, `back-names`; the
+  back agents' lane rule counts from it): a name on exactly one non-retired project's map is that project's agent, `front`
+  true a front agent and false a back agent; a name on no map or on several is left alone. No new field or meaning.
 - **Owners**: sala `lib/common.sh` `project_record_agent`, `lib/spawn.sh` (the check before `page_exists`),
-  `agent_unlisted`. stackshot `projects.py` (`build`, `sync`, `_record`).
+  `agent_unlisted`, `lib/sessions.py` `load_record` / `derive_role` (the role fill). stackshot `projects.py` (`build`, `sync`, `_record`).
 - **Absent or changed**: no file, an old file or another schema: pages.py answers (interface 7). A stackshot that adds fields is
   harmless (sala reads `front`, `mandate_line`, `page_owed` and the names only). A change of the three meanings above, or of
   the schema number, needs this document's bump and a sala change first. The record lags the page by up to its refresh

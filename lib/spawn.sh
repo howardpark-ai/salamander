@@ -651,8 +651,12 @@ if [ -n "${ruuid:-}" ]; then ledger_write add "$NAME" "$ruuid" "$NAME" "$CWD" &&
 LANE_ROW=""
 if [ -n "$LANE_OPT" ]; then lane_write "$NAME" "$LANE_OPT" && LANE_ROW=1; fi   # the explicit lane is intent: every later relaunch keeps it
 if [ -n "$PROJECT" ] && [ -n "$MAPPED" ]; then sessions_set "$NAME" "project=$PROJECT" "role=$ROLE"; fi   # the session registry's row (phase 1): never fails the spawn
-if [ -z "$PROJECT" ] && [ "$SIDE" = 0 ] && [ "$MASTER" = 0 ] && [ -n "$MAPPED" ]; then   # a throwaway: its row carries the throwaway tag and records the Claude session that started it (common.sh, A THROWAWAY'S SPAWNER)
-    SPAWNER=$(spawn_caller); sessions_set "$NAME" "throwaway=1" ${SPAWNER:+"spawned_by=$SPAWNER"}
+if [ -z "$PROJECT" ] && [ "$SIDE" = 0 ] && [ "$MASTER" = 0 ] && [ -n "$MAPPED" ]; then
+    # a bare spawn of a name a project lists (its agents map, through stackshot's project record) is that project's agent: its row takes the project and
+    # role from the record (sessions.py tag --auto), so the back agents' lane rule and the published registry count it. Any other bare spawn is a
+    # throwaway: its row carries the throwaway tag and records the Claude session that started it (common.sh, A THROWAWAY'S SPAWNER)
+    if sessions_on && sessions_tag "$NAME" --auto >/dev/null 2>&1; then :
+    else SPAWNER=$(spawn_caller); sessions_set "$NAME" "throwaway=1" ${SPAWNER:+"spawned_by=$SPAWNER"}; fi
 fi
 SIDE_REC=""; if [ "$SIDE" = 1 ]; then side_record && SIDE_REC=1; fi   # the side record (the retire gate) and the row's side fields
 

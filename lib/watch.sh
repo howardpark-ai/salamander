@@ -1250,7 +1250,7 @@ back_lane_run() {  # [--dry-run]
     done <<< "$out"
     return 0
 }
-[ "$BACKLANES_ONLY" = 1 ] && { back_lane_run "${2:-}"; exit 0; }   # `sala watch --back-lanes [--dry-run]`
+[ "$BACKLANES_ONLY" = 1 ] && { [ "${2:-}" = --dry-run ] || sessions_fill_roles; back_lane_run "${2:-}"; exit 0; }   # `sala watch --back-lanes [--dry-run]` (a real pass tags the rows with no role first; a dry run writes nothing, the rule reads the record for those rows itself)
 [ "$WRAPUP_ONLY" = 1 ] && { [ "${2:-}" = --dry-run ] && WRAP_DRY=1; wrapup_tick; exit 0; }   # `sala watch --wrapup [--dry-run]`
 [ "$SETS_ONLY" = 1 ] && { sets_tick "${2:-}"; exit 0; }   # `sala watch --sets [--dry-run]`
 [ "$CONT_ONLY" = 1 ] && { cont_tick; exit 0; }   # `sala watch --continued`
@@ -1279,6 +1279,7 @@ lane_names_tick() {
 [ "$CHECK_ONLY" = 1 ] || net_tick   # the same: no master; tmux down reads as no panes
 [ "$CHECK_ONLY" = 1 ] || signin_tick   # the same: no master, no tmux
 [ "$CHECK_ONLY" = 1 ] || ld_post_tick   # the same: the one post of a dormant lane's episode (the dormant record's signals)
+[ "$CHECK_ONLY" = 1 ] || sessions_fill_roles   # the same: every live row with no role takes the one the project record gives it (common.sh sessions_fill_roles); no tmux, no master, a record that cannot answer changes nothing
 [ "$CHECK_ONLY" = 1 ] || back_lane_run   # the same: the back agents' lane rule (off unless SALA_BACK_LANE_RULE=on); reads the limit and quota state just written, queues before the queue runs
 [ "$CHECK_ONLY" = 1 ] || lane_names_tick   # the same: lane-names.json (stackshot reads it); a tick that finds nothing changed starts no process for it
 [ "$CHECK_ONLY" = 1 ] || stuck_tick   # the same: no master; tmux down reads as no panes

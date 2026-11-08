@@ -2818,10 +2818,24 @@ sessions_record() {  # <id|name> <claude session id> <clear|resume|start> [machi
     ( if command -v flock >/dev/null 2>&1; then flock -w 10 6 || { echo "the pane map's lock is held (another write hung?) - nothing recorded" >&2; exit 1; }; fi
       sessions_py record "$1" --transcript "$2" --why "$3" ${4:+--tmachine "$4"} ) 6>>"$SALA_SIDECAR.lock"
 }
-sessions_tag() {  # <id|name> [--project P] [--role R] [--project-key P] [--dry-run] — fill project/role of a live row; sessions_py's status. A dry run only reads: no lock
-    case " $* " in *" --dry-run "*) sessions_py tag "$@"; return $? ;; esac
+sessions_tag() {  # <id|name> [--project P] [--role R] [--project-key P] [--dry-run] | --auto [<id|name>] [--dry-run] — fill project/role of a live row; sessions_py's status. A dry run only reads: no lock
+    local ra=(); case " $* " in *" --auto "*) ra=(--record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE");; esac   # --auto: the roles come from stackshot's project record
+    case " $* " in *" --dry-run "*) sessions_py tag "$@" ${ra[@]+"${ra[@]}"}; return $? ;; esac
     ( if command -v flock >/dev/null 2>&1; then flock -w 10 6 || { echo "the pane map's lock is held (another write hung?) - nothing written" >&2; exit 1; }; fi
-      sessions_py tag "$@" ) 6>>"$SALA_SIDECAR.lock"
+      sessions_py tag "$@" ${ra[@]+"${ra[@]}"} ) 6>>"$SALA_SIDECAR.lock"
+}
+# sessions_fill_roles: every live row with no role gets its project and role from stackshot's project record (the agents map; lib/sessions.py
+# `tag --auto`), so a session that no `spawn --project --role` made (the one-time import, an adopted pane, a bare spawn of a listed name)
+# still counts for what reads roles (the back agents' lane rule, the published registry). A role already on a row is never touched. The
+# watch runs it every tick. A record that cannot answer (rc 4: missing, stale, unreadable) writes nothing and says nothing; any other
+# failure is one line in sessions.log. ALWAYS returns 0: a tick never stops on it.
+sessions_fill_roles() {
+    sessions_on || return 0
+    [ -r "$SALA_SESSIONS_FILE" ] && [ -r "$SALA_PROJECT_RECORD" ] || return 0
+    local out rc=0
+    out=$(sessions_tag --auto 2>&1) || rc=$?
+    case "$rc" in 0|4) ;; *) sessions_note "tag --auto failed (exit $rc): $(printf '%s' "$out" | tr '\n\t' '  ' | cut -c1-300)";; esac
+    return 0
 }
 sessions_record_soft() {  # sessions_record for a caller that must not be disturbed (unpark): its output captured, a failure one line in sessions.log, ALWAYS 0
     local out
@@ -3714,7 +3728,9 @@ lane_fallback_auto() {
     lane_log fallback "$l" "dormant → queued the move onto $fb (op ${id:-?}, ${2:-hand})"
 }
 # THE BACK AGENTS' LANE RULE (lib/watch.sh `back_lane_tick`, lib/spawn.sh, `sala watch --back-lanes`).
-# A standing rule for the BACKGROUND agents (registry rows with role back, never a side session) that keeps them off a login lane
+# A standing rule for the BACKGROUND agents (registry rows with role back, or with no role that stackshot's project record lists on a
+# project's background: map (lib/sessions.py `back-names`; the watch writes that role onto the row each tick, `sessions tag --auto`); never a
+# side session) that keeps them off a login lane
 # near its weekly limit, in three steps over an ordered list of lanes (SALA_BACK_LANE_ORDER, first = home):
 #   1. the home lane's "This week" limit reaches SALA_BACK_LANE_THRESHOLD percent       → the back agents move to the second lane;
 #   2. a pane running on the second lane is stopped on its cap (the limit watch's state) → they move to the third;
@@ -3738,7 +3754,9 @@ lane_fallback_auto() {
 # a back agent on another lane (api, subscription-2) is left where it is, as is a Fable session when the target is in SALA_FALLBACK_NO_FABLE
 # (it would fail there; one notice says so). The target must be active and ready; else nothing moves and one notice says why, once per window.
 # A back agent SPAWNED while the rule has them off home lands on the rule's lane (spawn.sh, back_lane_spawn_lane). A failed, missing, stale or
-# expired reading, or a dormant home lane, moves nobody.
+# expired reading, or a dormant home lane, moves nobody. THE CATCH-UP (`back_lane_catchup`): a step fires once per window, so while the rule
+# has the agents off home a pass that finds one still on the wrong side (it had no role, or no pane, when the step fired) moves it to the rule's
+# lane, once per step (state key `queued`: <lane>|<window>|<names>).
 : "${SALA_BACK_LANE_RULE:=off}"
 : "${SALA_BACK_LANE_ORDER:=subscription-1 aws-platform bedrock}"
 : "${SALA_BACK_LANE_THRESHOLD:=90}"
@@ -3880,15 +3898,10 @@ for p in panes.values():
     [ -n "$best" ] && { echo "$best"; return 0; }
     return 1
 }
-back_lane_names() {  # → the live back agents, one per line: a registry row with role back and no side, whose tmux session exists
+back_lane_names() {  # → the live back agents, one per line: a registry row with role back and no side, whose tmux session exists; a row with no role counts by what the project record's agents map says of it (lib/sessions.py back-names)
     sessions_on && [ -r "$SALA_SESSIONS_FILE" ] || return 0
     local s names
-    names=$(python3 -I -S -c 'import json, sys
-try: d = json.load(open(sys.argv[1]))
-except Exception: sys.exit(0)
-rows = d.get("sessions") if isinstance(d, dict) else None
-for r in (rows.values() if isinstance(rows, dict) else []):
-    if isinstance(r, dict) and r.get("state") == "live" and r.get("role") == "back" and not r.get("side") and r.get("name"): print(r["name"])' "$SALA_SESSIONS_FILE" 2>/dev/null)
+    names=$(sessions_py back-names --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" 2>/dev/null)
     while IFS= read -r s; do [ -n "$s" ] && tmux has-session -t "=$s" 2>/dev/null && echo "$s"; done <<< "$names"
     return 0
 }
@@ -3907,9 +3920,33 @@ back_lane_movers() {
 }
 # back_lane_same_window <key> <recorded> → 0 when the two window keys name the same weekly window (the endpoint's reset time moves by fractions of a second)
 back_lane_same_window() { [ -n "$1" ] && [ -n "$2" ] && [ "$1" -lt $(( $2 + 3600 )) ] && [ "$1" -gt $(( $2 - 3600 )) ]; }
-back_lane_commit() {  # <step> <target> <window key> <target's place> — the rule's state after a step; a step home clears the way out
+back_lane_commit() {  # <step> <target> <window key> <target's place> [<the names queued, space-separated>] — the rule's state after a step; a step home clears the way out
     back_lane_put lane "$2"; back_lane_put moved_at "$(printf '%(%s)T' -1)"; back_lane_put "f$4" "$3"; back_lane_put blocked ""
-    if [ "$1" = 3 ]; then back_lane_put window ""; elif [ "$1" = 1 ]; then back_lane_put window "$3"; fi
+    if [ "$1" = 3 ]; then back_lane_put window ""; back_lane_put queued ""; else
+        [ "$1" != 1 ] || back_lane_put window "$3"
+        local nm=${5:-}; back_lane_put queued "$2|$3|${nm// /,}"   # who the rule has queued onto this lane in this window: the catch-up below never queues a name twice
+    fi
+}
+# THE CATCH-UP: a back agent that is on the wrong side of the rule's lane while the rule holds the back agents off home (one the step found no role for,
+# a pane spawned or tagged since, a name that was not live when the step fired) is queued onto the rule's lane at the next pass, once per window: the
+# state's `queued` (<lane>|<window key>|<names>) keeps the names already queued in this window, so a pane the move could not close yet (a busy one,
+# retried by the operation itself) is not queued again. A state with no `queued` (written before the catch-up) queues every back agent still home once.
+# back_lane_catchup <cur> <dry 0|1> → prints a `moved:` / `would:` line when it queues (or would), nothing otherwise
+back_lane_catchup() {
+    local cur=$1 dry=$2 q ql qw qn w0 n out id late=()
+    w0=$(back_lane_get window); [ -n "$w0" ] || return 0
+    q=$(back_lane_get queued); ql=${q%%|*}; qw=${q#*|}; qn=${qw#*|}; qw=${qw%%|*}
+    [ "$q" = "$ql" ] && { qw=""; qn=""; }   # no `queued` yet, or one with no separator
+    { [ "$ql" = "$cur" ] && back_lane_same_window "$qw" "$w0"; } || qn=""
+    back_lane_movers "$cur" || return 0
+    for n in ${BL_MOVE[@]+"${BL_MOVE[@]}"}; do case ",$qn," in *",$n,"*) ;; *) late+=("$n");; esac; done
+    [ "${#late[@]}" -gt 0 ] || return 0
+    if [ "$dry" = 1 ]; then echo "would: catch-up: sala op lane $cur ${late[*]} --from sala-watch --words \"…\" (the back agent(s) the rule's move has not queued yet; a dry run writes and queues nothing)"; return 0; fi
+    out=$("$SALA_BIN" op lane "$cur" "${late[@]}" --from sala-watch --words "$SALA_BACK_LANE_WORDS" 2>&1) || { echo "blocked: catch-up not queued: $(printf '%s' "$out" | tail -1)"; return 0; }
+    id=$(printf '%s\n' "$out" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)
+    back_lane_put queued "$cur|$w0|${qn:+$qn,}$(IFS=,; echo "${late[*]}")"
+    lane_log backlane "$cur" "catch-up: ${#late[@]} back agent(s) queued onto $cur (op ${id:-?})"
+    echo "moved: catch-up: ${#late[@]} back agent(s) the rule had not moved (${late[*]}) to the $(lane_shown "$cur") lane, op ${id:-?} queued"
 }
 # back_lane_tick [--dry-run] → one pass of the rule; prints one line per outcome, "<tag>: <text>" (the watch logs them; `notice:` lines are posted):
 #   idle (nothing to do, with why when a reading was refused) · moved (the operation queued) · advanced (state moved, nobody to move) ·
@@ -3946,10 +3983,10 @@ back_lane_tick() {
             target=${BL_ORDER[1]}; stp=1; key=$win; why="the $(lane_shown "$home") lane's weekly limit is at $pct% (threshold $SALA_BACK_LANE_THRESHOLD%, it resets $(back_lane_when "$rst"))"
         fi
     fi
-    [ -n "$target" ] || { echo "idle: the back agents stay on the $(lane_shown "$cur") lane${pct:+ ($(lane_shown "$home") at $pct%)}"; return 0; }
+    [ -n "$target" ] || { echo "idle: the back agents stay on the $(lane_shown "$cur") lane${pct:+ ($(lane_shown "$home") at $pct%)}"; [ "$ci" -gt 0 ] && back_lane_catchup "$cur" "$dry"; return 0; }
     # once per window: the step's own record (f<place of the target>) holds the window it fired for
     ti=$(back_lane_idx "$target"); f=$(back_lane_get "f$ti")
-    if back_lane_same_window "$key" "$f"; then echo "idle: step $stp already fired in this weekly window"; return 0; fi
+    if back_lane_same_window "$key" "$f"; then echo "idle: step $stp already fired in this weekly window"; [ "$ci" -gt 0 ] && back_lane_catchup "$cur" "$dry"; return 0; fi
     # the target must work: active and ready; else one notice per window and step, no move, the state unchanged
     if lane_dormant "$target" || ! out=$(lane_check "$target"); then
         out=${out:-the lane is dormant}
@@ -3962,7 +3999,7 @@ back_lane_tick() {
     back_lane_movers "$target"
     if [ "${#BL_MOVE[@]}" -eq 0 ]; then
         if [ "$dry" = 1 ]; then echo "would: step $stp ($why): the rule's lane becomes the $(lane_shown "$target") lane; no back agent to move"; return 0; fi
-        back_lane_commit "$stp" "$target" "$key" "$ti"
+        back_lane_commit "$stp" "$target" "$key" "$ti" ""
         echo "advanced: step $stp ($why): the rule's lane is now the $(lane_shown "$target") lane; no back agent needed moving${BL_STAY[*]:+; Fable stays: ${BL_STAY[*]}}"
         return 0
     fi
@@ -3976,7 +4013,7 @@ back_lane_tick() {
         else echo "blocked: step $stp not queued: $(printf '%s' "$out" | tail -1)"; fi
         return 0; }
     id=$(printf '%s\n' "$out" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)
-    back_lane_commit "$stp" "$target" "$key" "$ti"
+    back_lane_commit "$stp" "$target" "$key" "$ti" "${BL_MOVE[*]}"
     lane_log backlane "$target" "step $stp: ${#BL_MOVE[@]} back agent(s) queued onto $target (op ${id:-?}): $why"
     echo "moved: step $stp ($why): ${#BL_MOVE[@]} back agent(s) to the $(lane_shown "$target") lane, op ${id:-?} queued (the operation posts once when it is done)"
     [ "${#BL_STAY[@]}" -eq 0 ] || echo "notice: ${#BL_STAY[@]} Fable back agent(s) did not move to the $(lane_shown "$target") lane (it cannot run Fable): ${BL_STAY[*]}"

@@ -28,6 +28,15 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
                                                                              a retired row, an unknown SESSION or a bad role is an error (exit 1,
                                                                              nothing written). The row has no separate project_key (the published
                                                                              file derives it from project), so --project-key P sets project
+  tag --auto [SESSION] [--record F] [--record-max-age S] [--dry-run]
+                                                                             give every live row with no role (or the one named) its project and role
+                                                                             from stackshot's project record (the agents map: a top-level entry is front,
+                                                                             one under background: is back); a role already on a row is never touched; a
+                                                                             name the record does not list is left, with the reason. Exit 0 done, 3 the
+                                                                             one named session is on no agents map, 4 the record cannot answer (missing,
+                                                                             stale, unreadable: nothing written)
+  back-names [--record F] [--record-max-age S]                               read-only: the live background agents' names, one per line (a row with
+                                                                             no role counts by what the record says of it)
   list [--all] [--json]                                                      the registry, read-only
   resolve REF [--live] [--json]                                              phase 3, read-only: REF is a session id (or a unique prefix of 8+
                                                                              characters), a transcript id, a name, an alias or role:<project>/<role>.
@@ -380,28 +389,151 @@ def cmd_tag(R, a):
     row = find_session(R, a.args[0])
     if row.get("state") != "live":
         raise RegistryError("session '%s' (%s) is retired: a retired row is not tagged" % (row.get("name"), row["id"]))
-    ch = []
-    for k, v in (("project", proj), ("role", role)):
-        if v is not None and row.get(k) != v:
-            ch.append("%s %s -> %s" % (k, row.get(k), v))
-            if not a.dry_run:
-                row[k] = v
-    if row.get("throwaway") and ch:   # a tagged row that gets a project or a role is no throwaway any more
-        ch.append("throwaway %s -> None" % row["throwaway"])
-        if not a.dry_run:
-            row["throwaway"] = None
+    ch = apply_tag(R, row, proj, role, a.dry_run)
     if not ch:
         print("sessions tag: %s (%s) already has that: nothing changed" % (row["name"], row["id"][:8]))
         return
     print("sessions tag: %s %s (%s): %s" % ("would tag" if a.dry_run else "tagged", row["name"], row["id"][:8], "; ".join(ch)))
-    if not a.dry_run:
-        R.dirty = True
-        R.note("tag", row["name"], row["id"], "; ".join(ch))
     p2, r2 = proj or row.get("project"), role or row.get("role")
     if p2 and r2:
         same = [x["name"] for x in R.rows.values() if x is not row and x.get("state") == "live" and x.get("project") == p2 and x.get("role") == r2]
         if same:
             print("note: %s also fills role:%s/%s, so resolving it is ambiguous until one of them is retagged" % (", ".join(same), p2, r2))
+
+
+def apply_tag(R, row, proj, role, dry_run):
+    """Write project and/or role into a live row (never called for a field that is None); a tagged row is no throwaway any more. Returns the
+    list of changes made (or, in a dry run, that would be made); a dry run changes nothing, not even the log buffer."""
+    ch = []
+    for k, v in (("project", proj), ("role", role)):
+        if v is not None and row.get(k) != v:
+            ch.append("%s %s -> %s" % (k, row.get(k), v))
+            if not dry_run:
+                row[k] = v
+    if row.get("throwaway") and ch:
+        ch.append("throwaway %s -> None" % row["throwaway"])
+        if not dry_run:
+            row["throwaway"] = None
+    if ch and not dry_run:
+        R.dirty = True
+        R.note("tag", row["name"], row["id"], "; ".join(ch))
+    return ch
+
+
+# -- the role of a row nobody tagged: derived from stackshot's project record (docs/stackshot-contracts.md, interface 20) ---------------
+# A row that `spawn --project --role` did not make (the one-time import of the pane map, an adopted pane, a bare spawn of a name a project
+# lists) has no role. Which role a session fills is not sala's to decide: the project's agents map says it, and stackshot publishes the
+# map in projects.json (a top-level entry is a front agent, one under `background:` a back agent). `tag --auto` and `back-names` read
+# it with the reading rule of interface 20: schema 1, written at most RECORD_MAX_AGE seconds ago; else they answer nothing.
+RECORD_MAX_AGE = 600
+
+
+class RecordUnavailable(Exception):
+    pass
+
+
+def load_record(path, max_age):
+    """name -> [(project page key, front)] for every agent of every live project in the project record; RecordUnavailable with the reason."""
+    if not path:
+        raise RecordUnavailable("no project record is configured")
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        if not isinstance(d, dict) or d.get("schema") != 1:
+            raise RecordUnavailable("the project record %s is not schema 1" % path)
+        gen = datetime.datetime.fromisoformat(str(d["generated"]).replace("Z", "+00:00")).timestamp()
+        age = datetime.datetime.now(datetime.timezone.utc).timestamp() - gen
+        if age > max_age or age < -60:
+            raise RecordUnavailable("the project record %s is stale (written %d s ago)" % (path, age))
+        projects = d["projects"]
+        if not isinstance(projects, dict):
+            raise RecordUnavailable("the project record %s has no projects" % path)
+    except RecordUnavailable:
+        raise
+    except OSError as e:
+        raise RecordUnavailable("no project record at %s (%s)" % (path, e.strerror or e))
+    except Exception as e:
+        raise RecordUnavailable("the project record %s is unreadable (%s)" % (path, e))
+    out = {}
+    for p in projects.values():
+        if not isinstance(p, dict) or p.get("retired") is True or not isinstance(p.get("key"), str) or not isinstance(p.get("agents"), dict):
+            continue
+        for name, ag in p["agents"].items():
+            if isinstance(ag, dict) and isinstance(ag.get("front"), bool):
+                out.setdefault(name, []).append((p["key"], ag["front"]))
+    return out
+
+
+def derive_role(row, rec):
+    """(project, role, None) for a live row with no role that the record lists on exactly one project, else (None, None, why it is left)."""
+    if row.get("side"):
+        return None, None, "a side session is on no agents map"
+    hits = rec.get(row.get("name"))
+    if not hits:
+        return None, None, "on no project's agents map"
+    if len(hits) > 1:
+        return None, None, "on the agents maps of several projects (%s)" % ", ".join(sorted(h[0] for h in hits))
+    key, front = hits[0]
+    if row.get("project") and row["project"] != key:
+        return None, None, "its row says project %s, the record lists it on %s" % (row["project"], key)
+    return key, "front" if front else "back", None
+
+
+def cmd_tag_auto(R, a):
+    """`tag --auto [SESSION]`: give every live row that has no role (or the one named) its project and role from the project record. A role
+    already on a row is never touched; a row the record does not list (a throwaway, a scratch session, a side session) is left, with the
+    reason. Idempotent. Exit 0 done (or nothing to do), 1 an error, 3 the one named session is on no agents map, 4 the record cannot answer
+    (missing, stale, unreadable: nothing is written)."""
+    if a.project is not None or a.role is not None or a.project_key is not None:
+        raise RegistryError("tag --auto takes no --project, --role or --project-key: the project record gives them")
+    if len(a.args) > 1:
+        raise RegistryError("tag --auto takes at most one session id or name")
+    try:
+        rec = load_record(a.record, a.record_max_age)
+    except RecordUnavailable as e:
+        print("sessions tag --auto: %s: nothing written" % e, file=sys.stderr)
+        return 4
+    if a.args:
+        row = find_session(R, a.args[0])
+        if row.get("state") != "live":
+            raise RegistryError("session '%s' (%s) is retired: a retired row is not tagged" % (row.get("name"), row["id"]))
+        if row.get("role"):
+            print("sessions tag --auto: %s (%s) already has role %s: nothing changed" % (row["name"], row["id"][:8], row["role"]))
+            return 0
+        rows = [row]
+    else:
+        rows = sorted((r for r in R.rows.values() if r.get("state") == "live" and not r.get("role")), key=lambda r: r.get("name") or "")
+    done = left = 0
+    for row in rows:
+        proj, role, why = derive_role(row, rec)
+        if role is None:
+            left += 1
+            print("sessions tag --auto: left %s (%s): %s" % (row["name"], row["id"][:8], why))
+            continue
+        ch = apply_tag(R, row, proj, role, a.dry_run)
+        done += 1
+        print("sessions tag --auto: %s %s (%s): %s" % ("would tag" if a.dry_run else "tagged", row["name"], row["id"][:8], "; ".join(ch)))
+    if a.args:
+        return 0 if done else 3
+    print("sessions tag --auto: %d live row(s) without a role: %d %s, %d left" % (len(rows), done, "would be tagged" if a.dry_run else "tagged", left))
+    return 0
+
+
+def cmd_back_names(R, a):
+    """Read-only: the names of the live background agents, one per line: a live row that is no side session and whose role is back, the role
+    of a row with none read from the project record (what `tag --auto` would write), so a row not yet tagged still counts. A record that
+    cannot answer leaves the rows with their stored roles only."""
+    try:
+        rec = load_record(a.record, a.record_max_age)
+    except RecordUnavailable:
+        rec = {}
+    for r in sorted(R.rows.values(), key=lambda r: r.get("name") or ""):
+        if r.get("state") != "live" or r.get("side") or not r.get("name"):
+            continue
+        role = r.get("role") or derive_role(r, rec)[1]
+        if role == "back":
+            print(r["name"])
+    return 0
 
 
 # -- phase 3: the published file and the resolver (both read-only) ------------------------------------------------------
@@ -751,7 +883,7 @@ def main():
     p.add_argument("--keep", type=int, default=30)
     p.add_argument("--caller", default="")
     p.add_argument("--machine", default="")
-    p.add_argument("cmd", choices=["dual", "set", "prepare", "abandon", "record", "tag", "list", "resolve", "transcript", "migrate", "check", "relane"])
+    p.add_argument("cmd", choices=["dual", "set", "prepare", "abandon", "record", "tag", "list", "resolve", "transcript", "back-names", "migrate", "check", "relane"])
     p.add_argument("args", nargs="*")
     p.add_argument("--lane"); p.add_argument("--model"); p.add_argument("--effort")
     p.add_argument("--transcript"); p.add_argument("--why"); p.add_argument("--tmachine", default="")
@@ -759,13 +891,14 @@ def main():
     p.add_argument("--live", action="store_true"); p.add_argument("--projects", default="")
     p.add_argument("--project"); p.add_argument("--role"); p.add_argument("--project-key", dest="project_key")
     p.add_argument("--dry-run", action="store_true", dest="dry_run")
+    p.add_argument("--auto", action="store_true"); p.add_argument("--record", default=""); p.add_argument("--record-max-age", type=int, default=RECORD_MAX_AGE, dest="record_max_age")
     p.add_argument("--map"); p.add_argument("--lanes", default=""); p.add_argument("--models", default=""); p.add_argument("--renames", default="")
     a = p.parse_args()
     R = Registry(a)
     rc = 0
-    if a.cmd in ("resolve", "transcript"):  # read-only to the letter: not even an error line in sessions.log
+    if a.cmd in ("resolve", "transcript", "back-names"):  # read-only to the letter: not even an error line in sessions.log
         try:
-            return (cmd_resolve if a.cmd == "resolve" else cmd_transcript)(R.load(), a)
+            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names}[a.cmd](R.load(), a)
         except Exception as e:
             print("sessions %s: %s" % (a.cmd, e), file=sys.stderr)
             return 1
@@ -782,7 +915,10 @@ def main():
         elif a.cmd == "record":
             cmd_record(R, a)
         elif a.cmd == "tag":
-            cmd_tag(R, a)
+            if a.auto:
+                rc = cmd_tag_auto(R, a)
+            else:
+                cmd_tag(R, a)
         elif a.cmd == "list":
             cmd_list(R, a)
         elif a.cmd == "migrate":
