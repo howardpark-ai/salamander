@@ -245,6 +245,16 @@ LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-la
 - **Who.** The live background agents: registry rows with role `back` and no side session, with a tmux session, not the master and
   not `SALA_NO_RELAUNCH`. A front agent, a side session, a job (`lane exec`, `sala job`) and the default lane are never touched, and a
   background agent on a lane outside the order (api, subscription-2) is left where it is.
+- **A row with no role** (an imported or adopted one, a bare spawn) counts by stackshot's project record, the source `spawn --project`
+  already checks (interface 20: a name under a project's `background:` agents is a background agent, a top-level one a front agent):
+  the rule reads it at every pass (the registry reader `back-names`), and the watchdog writes it onto the row at every tick (`sessions tag --auto`),
+  as a bare spawn does for a name the record lists. A name on no map, on two maps, or whose row names another project is left as it is,
+  and a stale or missing record changes nothing: the rows with a stored role are still counted. A role already on a row is never
+  overwritten. To fill the registry at once: `sala sessions tag --auto --dry-run` (what it would do), then `sala sessions tag --auto`.
+- **The catch-up.** A step fires once per weekly window, so an agent the earlier pass did not take (it had no role then, or its pane
+  was not up) would stay on the home lane until the next window. While the rule has the agents off home, every pass that finds one
+  of them still on a lane it should have left moves it with the rule's lane (a plain `sala op lane`, like the step) and notes the
+  names in the state file (`queued`), so a name is asked once per step.
 - **The order.** `SALA_BACK_LANE_ORDER="subscription-1 aws-platform bedrock"`: home, second, third.
 - **Step 1, off home.** The home lane's "This week" limit (sala-web's saved usage answer, `quota-<lane>.json`; the model-scoped weekly
   limits, "Fable this week", are never read) reaches `SALA_BACK_LANE_THRESHOLD` (90) percent: the background agents move to the second lane.

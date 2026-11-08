@@ -92,7 +92,7 @@ import datetime, json, sys
 age = 2 * 86400 if sys.argv[2] == "stale" else 0
 when = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=age)).strftime("%Y-%m-%dT%H:%M:%SZ")
 json.dump({"schema": 1, "generated": when, "projects": {"prj_example": {"id": "prj_example", "key": "projects/test", "keeper": "x",
-    "agents": {"test-main": {"front": True, "role": "main", "mandate_line": "main"}, "sala-test-mapped": {"front": False, "role": "builder", "mandate_line": "builds"}}}},
+    "agents": {"test-main": {"front": True, "role": "main", "mandate_line": "main"}, "sala-test-mapped": {"front": False, "role": "builder", "mandate_line": "builds"}, "sala-test-listed": {"front": True, "role": "main", "mandate_line": "main"}}}},
     "by_key": {"projects/test": "prj_example"}}, open(sys.argv[1], "w"))
 PY
         ;;
@@ -423,9 +423,15 @@ out=$(spawn sala-test-projnos "$(uuid 104)"); sessions_set sala-test-projnos pro
 refuse "a no-spawner row with a project and a throwaway name (the name alone is never enough)" "is a project agent, not a throwaway" "$PO" retire sala-test-projnos --from sala-test-owner
 out=$(spawn sala-test-sidenos "$(uuid 105)"); sessions_set sala-test-sidenos side=1
 refuse "a no-spawner side session with a throwaway name" "is a side session" "$PO" retire sala-test-sidenos --from sala-test-owner
+record_set missing   # (the row below stands in for one made before the record listed the name: a spawn under a record that lists it would write its project and role)
 out=$(spawn sala-test-mapped "$(uuid 106)")
 record_set fresh   # (the base record again: it lists sala-test-mapped on projects/test)
 refuse "a row with no project that is on a project's agents map (stackshot's record)" "is on a project's agents map" "$PO" retire sala-test-mapped --from sala-test-owner
+# a bare spawn of a name the record lists is that project's agent: the row gets its project and role from the record (sessions tag --auto) and no throwaway tag
+out=$(TAGGED=1 spawn sala-test-listed "$(uuid 107)")
+[ "$(rowq sala-test-listed project)" = projects/test ] && [ "$(rowq sala-test-listed role)" = front ] && [ -z "$(rowq sala-test-listed throwaway)" ] \
+    && ok "a bare spawn of a name the record lists takes its project and role from it, and is no throwaway" \
+    || bad "bare spawn of a listed name: project='$(rowq sala-test-listed project)' role='$(rowq sala-test-listed role)' throwaway='$(rowq sala-test-listed throwaway)'"
 enq_as "$PO" retire sala-test-nospawn --from sala-test-owner
 [ "$RC" = 0 ] && [ -n "$ID" ] && ok "with the record present, a name it does not list is still ended" || bad "record present, unlisted name: rc=$RC — $OUT"
 dropall

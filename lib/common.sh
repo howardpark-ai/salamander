@@ -3728,7 +3728,9 @@ lane_fallback_auto() {
     lane_log fallback "$l" "dormant → queued the move onto $fb (op ${id:-?}, ${2:-hand})"
 }
 # THE BACK AGENTS' LANE RULE (lib/watch.sh `back_lane_tick`, lib/spawn.sh, `sala watch --back-lanes`).
-# A standing rule for the BACKGROUND agents (registry rows with role back, never a side session) that keeps them off a login lane
+# A standing rule for the BACKGROUND agents (registry rows with role back, or with no role that stackshot's project record lists on a
+# project's background: map (lib/sessions.py `back-names`; the watch writes that role onto the row each tick, `sessions tag --auto`); never a
+# side session) that keeps them off a login lane
 # near its weekly limit, in three steps over an ordered list of lanes (SALA_BACK_LANE_ORDER, first = home):
 #   1. the home lane's "This week" limit reaches SALA_BACK_LANE_THRESHOLD percent       → the back agents move to the second lane;
 #   2. a pane running on the second lane is stopped on its cap (the limit watch's state) → they move to the third;
@@ -3752,7 +3754,9 @@ lane_fallback_auto() {
 # a back agent on another lane (api, subscription-2) is left where it is, as is a Fable session when the target is in SALA_FALLBACK_NO_FABLE
 # (it would fail there; one notice says so). The target must be active and ready; else nothing moves and one notice says why, once per window.
 # A back agent SPAWNED while the rule has them off home lands on the rule's lane (spawn.sh, back_lane_spawn_lane). A failed, missing, stale or
-# expired reading, or a dormant home lane, moves nobody.
+# expired reading, or a dormant home lane, moves nobody. THE CATCH-UP (`back_lane_catchup`): a step fires once per window, so while the rule
+# has the agents off home a pass that finds one still on the wrong side (it had no role, or no pane, when the step fired) moves it to the rule's
+# lane, once per step (state key `queued`: <lane>|<window>|<names>).
 : "${SALA_BACK_LANE_RULE:=off}"
 : "${SALA_BACK_LANE_ORDER:=subscription-1 aws-platform bedrock}"
 : "${SALA_BACK_LANE_THRESHOLD:=90}"
