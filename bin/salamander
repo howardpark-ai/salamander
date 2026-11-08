@@ -79,7 +79,7 @@
 #   salamander settings-apply [--check|--run] [HOST…]   the spec's Claude Code settings steps, applied by sala and never by a session:
 #                                      no flag = the state; --check prints what it would apply; --run (the unit sala-auto-settings) applies and logs
 #   salamander heartbeat [--no-push|--dry-run|--check]   sweep every box over ssh: liveness, CLI version, live sessions → the fleet live store (timer)
-#   salamander ready [--clear|--list]  from inside a session, as the turn's last call: I may be relaunched now (recycle's fast path)
+#   salamander ready [--clear|--list]  from inside a session, as the turn's last call: I may be relaunched now (recycle's fast path; shells may be cut, a running subagent never is: it is named and the relaunch waits for it; a pane on the deferred list counts as waiting)
 #   salamander unpark NAME [--dry-run]  bring a conversation parked by "← for agents" back into its pane (see lib/unpark.sh)
 #   salamander master [--name|--json|--set NAME|--unset]  the master session (SALA_MASTER): is it live; --set designates one; --unset ends it
 #                                      (the operation queue replaces it: nothing healed or bridged, the post-boot report to Slack)

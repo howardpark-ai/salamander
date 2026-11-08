@@ -90,7 +90,7 @@ LOG="$SALA_LOG_DIR/salamander-revive.log"
 RETRY_WHAT="${SALA_RETRY_WHAT:-Recycle}"   # the kind of a set a worker started by hand (no SALA_SET) makes for itself
 pane_exists() { tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -qxF "$1"; }
 # transient_skip <skip line> → 0 when the reason clears by itself (worth retrying)
-transient_skip() { case "$1" in *"registry says"*|*"idle for only"*|*"background task is running"*|*"background work in flight"*|*"background agent or task wrote"*|*"no registry status"*|*"unsubmitted text"*|*"did not take /exit"*|*"a turn is running"*|*"resting until"*) return 0;; *) return 1;; esac; }
+transient_skip() { case "$1" in *"registry says"*|*"idle for only"*|*"background task is running"*|*"background work in flight"*|*"background agent or task wrote"*|*"no registry status"*|*"unsubmitted text"*|*"did not take /exit"*|*"a turn is running"*|*"a subagent is running"*|*"resting until"*) return 0;; *) return 1;; esac; }
 # rest_applies → 0 when this run relaunches for a ROUTINE flag, so a pane that started less than SALA_RECYCLE_REST ago waits (common.sh,
 # recycle_rest_left): a recycle's sweep, or a retry worker's re-run of a recycle's pane, unless the flag came from the owner's
 # words (`sala op recycle`, src op-recycle). A direct revive, a lane or model switch and the reboot are explicit relaunches: no rest.
@@ -411,7 +411,8 @@ while [ $# -gt 0 ]; do
                    echo "  (no option) every pane on an older CLI · --force: every idle pane · --only NAME: just that session"
                    echo "  every plan says \"lane: <runs on now> → <relaunched on>\"; a pane with no lane row that runs on another lane than the default is refused"
                    echo "  (salamander lane <lane> <session> records it; --lane-default accepts the default) · --dry-run: the verdicts, nothing relaunched or written"
-                   echo "  a pane skipped for a passing reason (a turn running, a background child) is retried every $((SALA_RETRY_EVERY/60)) min for up to $((SALA_RETRY_WINDOW/60)) min, then deferred (watch relaunches it once it is free); one that said ready but is held by background shells only is deferred at once"
+                   echo "  a pane skipped for a passing reason (a turn running, a background child, a running subagent) is retried every $((SALA_RETRY_EVERY/60)) min for up to $((SALA_RETRY_WINDOW/60)) min, then deferred (watch relaunches it once it is free); one that said ready but is held by background shells only is deferred at once"
+                   echo "  a running subagent is never cut: it holds the pane until it ends, the skip line and watch's one log line name it, and the in-session mod's own answer (the busy probe) is asked before an exit is tried; an exit the mod refuses for a turn it cannot name, with every other check idle, goes by keys after $SALA_STALE_TURN_AFTER refusals, then the tries thin out (10 min, then 30 min)"
                    echo "  --rescue (with --only or --self): a stale background-task row — the exit dialog, the Stop hook's record or the mod listing work while NO child process runs under the claude — no longer holds the pane: the dialog is confirmed"
                    exit 0 ;;
         *) die "unknown option: $1 (see: salamander revive --help)" ;;
@@ -673,7 +674,7 @@ if [ "$SELF_WORKER" = 1 ]; then
     if [ -n "$why" ]; then inbox_release "$uuid" "$hname"; self_handoff "$why — it was not idle once its inbox was held"; fi
     draft=$(pane_exit "$SELF_PANE" "$cpid"); rc=$?   # the mod first, else /exit typed (lib/common.sh)
     for ((i=0; rc==4 && i<SALA_SELF_WAIT; i+=5)); do [ $((i % 60)) -eq 0 ] && inbox_touch "$uuid" "$hname"; sleep 5; draft=$(pane_exit "$SELF_PANE" "$cpid"); rc=$?; done   # a turn started after the idle check: wait it out
-    [ "$rc" = 4 ] && wabort "a turn is still running after $((SALA_SELF_WAIT/60)) min — /exit not sent, the session stays on its version"
+    [ "$rc" = 4 ] && wabort "a turn is still running after $((SALA_SELF_WAIT/60)) min${draft:+ (held by $draft)} — /exit not sent, the session stays on its version"
     [ "$rc" = 2 ] && wabort "background work is running (a shell, monitor or subagent), which /exit would stop — /exit not sent, the session stays on its version"
     [ "$rc" = 3 ] && wabort "unsubmitted text is sitting at the prompt: \"$draft\" — /exit not sent, the session stays on its version"
     [ "$rc" = 0 ] || wabort "the pane did not take /exit (composer not empty, or the Enter was dropped twice)"
@@ -805,6 +806,9 @@ check_pane() {
         lane_plan "$sess" "$cpid" || { SKIPPED+=("$label: not relaunched — $LANE_WHY ($LANE_LINE)"); return; }
         why=$(is_idle_reason "$cpid")
         [ -n "$why" ] && { skip "$label: $why"; return; }
+        # the in-session mod's own answer, asked before the exit is: a turn it names (a subagent the registry, the children and the transcripts
+        # could not show) holds the pane, said once here with its holder, and the pane's inbox is never held and released for an exit that is refused
+        why=$(mod_hold "$cpid") && { refusal_note "$(registry_field "$cpid" sessionId)" "$why" >/dev/null; skip "$label: $why — left on $ver"; return; }
         # the rescue passed over the Stop hook's record (common.sh, is_idle_reason): said here, so the log shows what was read as stale
         if [ "$RESCUE" = 1 ] && why=$(busy_state "$cpid" "$(registry_field "$cpid" sessionId)" 2>/dev/null) && [ -n "$why" ]; then
             emit ECHO "$label: rescue — $why; no child process runs under the claude, so the record is read as stale and passed over (--rescue)"
@@ -866,14 +870,21 @@ close_pane() {
         esac
         rc=0
     else
-    # the mod first (it refuses over a draft or background work itself), else /exit typed as before (lib/common.sh pane_exit)
-    draft=$(pane_exit "$pane" "$cpid" 2>/dev/null); rc=$?
+    # the mod first (it refuses over a draft or background work itself), else /exit typed as before (lib/common.sh pane_exit).
+    # A mod that has refused this pane's exit for a turn it could not name SALA_STALE_TURN_AFTER times (the refusal memory, common.sh) is
+    # no longer believed while sala's own idle check agrees the pane is idle: pane_exit then goes by keys
+    local rn=""; refusal_get rn "$uuid"; rn=${rn%%$'\t'*}
+    if [ "${rn:-0}" -ge "$SALA_STALE_TURN_AFTER" ] 2>/dev/null; then
+        refusal_note "$uuid" "the exit went by keys after $rn refusals for a turn the mod could not name" >/dev/null   # counted, so the next try waits its gap (watch)
+        draft=$(SALA_STALE_TURN_OK=1 SALA_STALE_TURN_N="$rn" pane_exit "$pane" "$cpid" 2>/dev/null); rc=$?
+    else draft=$(pane_exit "$pane" "$cpid" 2>/dev/null); rc=$?; fi
     fi
     case "$rc" in
         0) ;;
         2) inbox_release "$uuid" "$hname"; SKIPPED+=("$label: background work is running (a shell, monitor or subagent), which /exit would stop — /exit not sent, left on $ver; sala relaunches it once that work is done"); return ;;
         3) inbox_release "$uuid" "$hname"; skip "$label: unsubmitted text at the prompt (\"$draft\") — /exit would run over it and lose it; submit or clear it, then rerun"; return ;;
-        4) inbox_release "$uuid" "$hname"; skip "$label: a turn is running (it started after the idle check) — /exit not sent, left on $ver"; return ;;
+        4) inbox_release "$uuid" "$hname"; refusal_note "$uuid" "a turn is running${draft:+: $draft}" >/dev/null
+           skip "$label: a turn is running (it started after the idle check${draft:+; held by $draft}) — /exit not sent, left on $ver"; return ;;
         *) inbox_release "$uuid" "$hname"; skip "$label: the pane did not take /exit (composer not empty, or the Enter was dropped twice)"; return ;;
     esac
     ready_clear "$uuid"; waiting_clear "$uuid"   # the relaunch consumes the ready marker and takes the waiting flag down
@@ -900,7 +911,7 @@ verify_pane() {
     fi
     if [ "$kind" = claude ]; then
         inbox_release "$uuid" "$hname" wait
-        newver=$(proc_version "$RESUMED_PID")
+        newver=$(proc_version "$RESUMED_PID"); refusal_clear "$uuid"   # a relaunch ends the refusal memory (common.sh)
         UPDATED+=("$label: $ver → $newver$(lane_note "${label%:*}")")   # the lane named when it is not subscription-1 (common.sh, lanes)
         # a recurring job is carried across the recycle (the resume re-arms it), and the session is told once, in one line, to move it
         local rec np sock; rec=$(scheduled_jobs 0 "$uuid" | awk -F'\t' '$2=="recurring" {printf "%s (%s), ", $1, $4}')
@@ -1047,7 +1058,7 @@ if [ "$DRY" = 0 ]; then
     [ "$ndef" -gt 0 ] && notes+=("sala relaunches the $ndef holding background work once that work is done")
 fi
 START_WORKER=0
-if [ "$DRY" = 0 ] && [ -z "${SALA_RETRY_WORKER:-}" ] && [ "$SELF_WORKER" = 0 ] && [ ${#RETRY[@]} -gt 0 ] \
+if [ "$DRY" = 0 ] && [ -z "${SALA_RETRY_WORKER:-}" ] && [ -z "${SALA_DEFERRED_TRY:-}" ] && [ "$SELF_WORKER" = 0 ] && [ ${#RETRY[@]} -gt 0 ] \
    && { [ -n "${SALA_RECYCLE:-}" ] || [ -n "$ONLY" ]; }; then
     START_WORKER=1; notes+=("sala retries ${#RETRY[@]} of them every $((SALA_RETRY_EVERY/60)) min for up to $(dur_words "$SALA_RETRY_WINDOW")")
 fi

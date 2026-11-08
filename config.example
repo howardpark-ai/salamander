@@ -168,6 +168,12 @@
 #SALA_LATER_LIMIT=10800          # … and held this long (3 h) it is named in ONE post to the usual notify path: the pane, claude's and sala's versions, how long, and
                                  #   the commands holding it (the Stop hook's record, else its child processes; scrubbed, cut). Nothing is relaunched or given up
                                  #   earlier than before; the 8-day drop of the list stands
+#SALA_SUBAGENT_STALE=21600      # recycle, watch, `sala ready`: a subagent whose transcript is not marked finished, written since this claude started and not
+                                 #   longer ago than this (6 h) is running: it holds the pane and is never cut. It is named in the skip line, in watch's one log line
+                                 #   and in `sala ready`. A subagent that crashed (it never writes "finished") stops counting after this
+#SALA_STALE_TURN_AFTER=3         # watch, recycle: the in-session mod refused the exit this many times for a turn it cannot name (a mod loaded before its turn list
+                                 #   was reconciled), the registry, the Stop record, the children and the subagents all read the pane as idle: the next try goes by
+                                 #   keys, logged so. Tries after that thin out: one in 10 min, then one in 30 min, until the pane relaunches (the 8-day drop stands)
 #SALA_RESUME_GAP=1              # recycle: seconds between one pane's resume and the next (typed least-recently-active first)
 #SALA_SWEEP_JOBS=12             # recycle: panes checked / closed / verified at once
 #SALA_LOCK_WAIT=0                # revive: seconds to wait for the recycle lock before refusing (the boot hook and update --auto wait 600)

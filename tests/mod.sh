@@ -5,7 +5,7 @@
 # and explained), a stamp older than the process, an old protocol version, the state-dir fallback when XDG_RUNTIME_DIR is
 # unset, no messaging socket, no reply (rc 4 within SALA_MOD_WAIT); pane_draft: either the mod or the screen counts, the
 # mod's text first, the screen alone when the mod does not answer; pane_exit: background → 2, a draft → 3 with its text,
-# a running turn → 4,
+# a running turn → 4 (what holds it on stdout, when the mod names it; mod_hold, the `busy` probe, says it as a skip reason),
 # no mod → /exit typed; pane_rename: through the mod, the keys when it does not answer; the log line per request.
 # The launch line: mod_env_prefix appends the mod's folder to what the pane's shell already has, is empty when switched
 # off or the path needs quoting; `sala spawn` and a `revive --only` resume start claude with it (the fake logs its env);
@@ -80,10 +80,11 @@ def serve(c):
     if m == "silent": return
     out = {"reqid": req, "ok": True}
     if verb == "draft": out["text"] = box
-    elif verb == "exit":
+    elif verb in ("exit", "busy"):   # `busy` is the exit's gates with nothing run
         if box: out = {"reqid": req, "ok": False, "reason": "draft", "text": box}
         elif m == "background": out = {"reqid": req, "ok": False, "reason": "background", "tasks": ["shell running"]}
         elif m == "turn": out = {"reqid": req, "ok": False, "reason": "turn"}
+        elif m == "named": out = {"reqid": req, "ok": False, "reason": "turn", "holders": "subagent builder: Build the package move"}   # a mod from this release names what holds it
         elif m == "bgwatch": out = {"reqid": req, "ok": False, "reason": "background", "tasks": ["monitor running"]}   # an older mod
     # the reply goes beside the stamp, as the mod writes both in its one directory
     d = next((x for x in run.split(":") if os.path.exists(os.path.join(x, sid + ".json"))), run.split(":")[0])
@@ -205,6 +206,16 @@ pane_exit "$PANE" "$C" >/dev/null; rc=$?
 echo turn > "$MODE"; : > "$SALA_MOD_LOG"
 pane_exit "$PANE" "$C" >/dev/null; rc=$?
 [ "$rc" = 4 ] && grep -q "exit sala-test-m via mod (refused: a turn is running)" "$SALA_MOD_LOG" && ok "a running turn: rc 4, logged, no /exit typed" || bad "turn: rc=$rc $(<"$SALA_MOD_LOG")"
+echo named > "$MODE"; : > "$SALA_MOD_LOG"
+out=$(pane_exit "$PANE" "$C"); rc=$?
+[ "$rc" = 4 ] && [ "$out" = "subagent builder: Build the package move" ] && grep -q "exit sala-test-m via mod (refused: a turn is running; held by subagent builder: Build the package move)" "$SALA_MOD_LOG" \
+    && ok "a turn the mod names: rc 4, the holder on stdout and in the log" || bad "named turn: rc=$rc out='$out' $(<"$SALA_MOD_LOG")"
+out=$(mod_hold "$C"); rc=$?
+[ "$rc" = 0 ] && [ "$out" = "a turn is running: subagent builder: Build the package move" ] && ok "mod_hold (the busy probe): the same holder, as a skip reason" || bad "mod_hold named: rc=$rc '$out'"
+echo turn > "$MODE"; mod_hold "$C" >/dev/null; rc=$?
+[ "$rc" = 1 ] && ok "mod_hold: a turn the mod cannot name is no holder (sala's own checks and the refusal memory take it from there)" || bad "mod_hold unnamed: rc=$rc"
+echo ok > "$MODE"; mod_hold "$C" >/dev/null; rc=$?
+[ "$rc" = 1 ] && ok "mod_hold: a free pane is no holder" || bad "mod_hold free: rc=$rc"
 echo "draft:not sent yet" > "$MODE"
 out=$(pane_exit "$PANE" "$C"); rc=$?
 [ "$rc" = 3 ] && [ "$out" = "not sent yet" ] && ok "a draft: rc 3, its text on stdout" || bad "draft: rc=$rc out='$out'"

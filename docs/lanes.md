@@ -28,7 +28,7 @@ through `resume_cmd` — so a recycle brings an api-lane pane back on the api la
 `config.example`.
 
 `sala lane` is the only thing that writes the state, and it relaunches through the machinery every relaunch uses, with
-its guards (a busy pane deferred and retried, `SALA_NO_RELAUNCH` left alone, the invoking pane last, one driver at a time,
+its guards (a busy pane deferred and retried, a running subagent never cut (it holds the move until it ends and is named in the skip line and in `watch`'s one log line; docs/recycle.md, "One idea of busy"), `SALA_NO_RELAUNCH` left alone, the invoking pane last, one driver at a time,
 the master's pane when a Claude session asks): `sala lane <lane> <session>…` records, then `revive --force --only …` and
 `revive --self` for the invoking pane; `sala lane <lane> --all` records every session and the default, then `recycle
 --force` (a relaunch of every pane is a recycle, and the board hears of it as one); `sala lane default <lane>` only sets
