@@ -19,6 +19,12 @@
 #     first by a plain GET (a stub curl; the fake "sala-web" puts a fresh file in place): fresh, the step fires; the call fails or writes nothing, it stays stale
 #     and nobody moves; asked at most every SALA_BACK_LANE_REFRESH_EVERY; no GET for a young reading, a dormant home lane or URL=off; the default is sala-web's
 #     socket; --dry-run says it would refresh and asks nobody. The suite never reaches a real socket.
+#   NO ROLE: a registry row with no role counts as a back agent when the project record (stackshot's projects.json) lists it under background:
+#     (a front-listed row, an unlisted one, a side session and a row whose stored role says otherwise do not; no or a stale record: nobody extra);
+#     a real `watch --back-lanes` pass writes those roles into the registry, its dry run writes nothing.
+#   CATCH-UP: while the back agents are off home, one that is still on the wrong side (spawned or tagged after the step, not live then) is queued onto
+#     the rule's lane at the next pass, once per window (the state's queued list), never twice; a state without the list queues those still home once;
+#     step 3 clears the list; nothing at home.
 #   SPAWN: a back agent spawned while the rule has them off home takes the rule's lane (back_lane_spawn_lane; `spawn --dry-run` says so).
 #   DRY RUN: `watch --back-lanes --dry-run` prints what each step would do and queues and writes nothing.
 # Isolated HOME in a temp folder (locked while the suite runs, removed at the end). Usage: bash tests/backlane.sh   (exit 0 = pass; a few seconds)
@@ -37,7 +43,7 @@ mkdir -p "$HOME/.claude" "$HOME/.aws" "$XDG_STATE_HOME/salamander" "$T/web" "$T/
 printf '[example-bedrock]\naws_access_key_id = dummy\naws_secret_access_key = dummy\n' > "$HOME/.aws/credentials"
 printf '#!/bin/sh\nexit 0\n' > "$T/fakebin/claude"; chmod +x "$T/fakebin/claude"
 export SALA_CLAUDE="$T/fakebin/claude" SALA_LANE_AWSPLATFORM_WORKSPACE_ID=wrkspc_01EXAMPLE
-export SALA_WEB_STATE_DIR="$T/web" SALA_LIMIT_STATE="$T/limit.json" SALA_OWNER_NAME=Rowan
+export SALA_WEB_STATE_DIR="$T/web" SALA_LIMIT_STATE="$T/limit.json" SALA_OWNER_NAME=Rowan SALA_PROJECT_RECORD="$T/projects.json"   # no project record unless a case writes one
 # the refresh asks the local sala-web: off for every case but its own section, and never the real socket
 export SALA_BACK_LANE_REFRESH_URL=off SALA_BACK_LANE_REFRESH_WAIT=1 XDG_RUNTIME_DIR="$T/run" PATH="$T/fakebin:$PATH"
 unset SALA_WEB_SOCKET
@@ -270,6 +276,70 @@ sp lr-back-x --project projects/foo --role back --mandate "a mandate" --model fa
 drv 'back_lane_put lane subscription-1' >/dev/null
 sp lr-back-x --project projects/foo --role back --mandate "a mandate" --dry-run
 [ "$RC" = 0 ] && ! has "$OUT" "lane rule" && ok "with the back agents home: the default lane, no note" || bad "spawn home: rc=$RC $OUT"
+
+echo "== a back agent with no role in the registry counts by the project record's agents map"
+# rl-back (listed under background:), rl-front (listed as front), rl-none (listed nowhere), rl-side (a side session) and rl-old (a stored role: front, though the record lists it
+# as background) have no role in the registry, as the rows of the one-time import had none; the record is stackshot's projects.json (interface 20)
+rec() {  # [generated epoch] → the record file
+    python3 -I -S - "$SALA_PROJECT_RECORD" "$(iso "${1:-$NOW}")" <<'PY'
+import json, sys
+ag = lambda front: {"front": front, "role": "x", "mandate_line": "m"}
+json.dump({"schema": 1, "generated": sys.argv[2], "by_key": {}, "projects": {"prj_t1": {"id": "prj_t1", "key": "projects/x", "retired": False, "agents": {
+    "rl-back": ag(False), "rl-late": ag(False), "rl-front": ag(True), "rl-side": ag(False), "rl-old": ag(False)}}}}, open(sys.argv[1], "w"))
+PY
+}
+regrl() {
+    reg
+    python3 -I -S - "$SESSIONS" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); rows = d["sessions"]
+for n, role, side in (("rl-back", None, None), ("rl-front", None, None), ("rl-none", None, None), ("rl-side", None, "fork"), ("rl-old", "front", None)):
+    rows[n] = {"id": n, "name": n, "state": "live", "role": role, "side": side, "project": None, "created": n}
+json.dump(d, open(sys.argv[1], "w"))
+PY
+    printf '%s\n' rl-back rl-front rl-none rl-side rl-old >> "$FAKE_LIVE"
+    printf 'rl-back\tsubscription-1\nrl-front\tsubscription-1\nrl-none\tsubscription-1\nrl-side\tsubscription-1\nrl-old\tsubscription-1\n' >> "$FAKE_LANES"
+}
+rm -f "$SALA_PROJECT_RECORD"
+regrl; quota 95 $W1; out=$(tick)
+[ "$(ops)" = 1 ] && [ "$(op_names | tr ' ' '\n' | sort | paste -sd' ')" = "back-a back-b back-fab" ] && ok "with no project record, a row with no role moves nobody (as before)" || bad "no record: ops=$(ops) names=$(op_names)"
+regrl; quota 95 $W1; rec $((NOW - 3600)); out=$(tick)
+[ "$(op_names | tr ' ' '\n' | sort | paste -sd' ')" = "back-a back-b back-fab" ] && ok "a stale project record (an hour old) is not read" || bad "stale record: names=$(op_names)"
+regrl; quota 95 $W1; rec; out=$(tick)
+[ "$(ops)" = 1 ] && [ "$(op_names | tr ' ' '\n' | sort | paste -sd' ')" = "back-a back-b back-fab rl-back" ] && ok "step 1 carries the row with no role that the record lists under background: (rl-back), and no other row with none" || bad "record: ops=$(ops) names=$(op_names)"
+case "$(op_names)" in *rl-front*|*rl-none*|*rl-side*|*rl-old*) bad "a front, unlisted, side or role-holding row moved: $(op_names)";; *) ok "a front-listed row, an unlisted one, a side session and a row whose stored role is front stay (a stored role is never overridden)";; esac
+regrl; quota 95 $W1; rec; cp "$SESSIONS" "$T/sessions.before"; out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
+has "$out" "would: step 1" && has "$out" "rl-back" && [ "$(ops)" = 0 ] && same_file "$SESSIONS" "$T/sessions.before" && ok "the dry run lists rl-back and writes nothing (the registry is as it was)" || bad "dry run: $out"
+regrl; quota 95 $W1; rec; out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" SALA_BIN="$T/fakebin/salamander" bash "$ROOT/bin/salamander" watch --back-lanes 2>&1)
+role=$(python3 -I -S -c 'import json,sys; r=json.load(open(sys.argv[1]))["sessions"]; print(r["rl-back"]["role"], r["rl-front"]["role"], r["rl-none"]["role"], r["rl-side"]["role"], r["rl-old"]["role"], r["rl-back"]["project"])' "$SESSIONS")
+[ "$role" = "back front None None front projects/x" ] && ok "a real watch --back-lanes pass also writes the roles the record gives (rl-back back, rl-front front; rl-none, rl-side and the stored front left)" || bad "roles after the pass: $role"
+
+echo "== the catch-up: a back agent the rule's move did not take goes at the next pass, once per window"
+regrl; quota 95 $W1; rec; tick >/dev/null
+[ "$(ops)" = 1 ] && [ "$(lane_of rl-back)" = aws-platform ] || bad "setup for the catch-up: ops=$(ops)"
+q1=$(drv 'back_lane_get queued')
+case "$q1" in "aws-platform|"*"|back-a,back-b,back-fab,rl-back") ok "step 1 records who it queued, in the state (<lane>|<window>|<names>)";; *) bad "queued: $q1";; esac
+out=$(tick); [ "$(ops)" = 1 ] && has "$out" "idle:" && ok "a repeat pass: nobody is on the wrong side, nothing queued" || bad "no stragglers: ops=$(ops) $out"
+python3 -I -S - "$SESSIONS" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["sessions"]["back-late"] = {"id": "back-late", "name": "back-late", "state": "live", "role": "back", "side": None, "project": "projects/x", "created": "z"}; json.dump(d, open(sys.argv[1], "w"))
+PY
+echo back-late >> "$FAKE_LIVE"; printf 'back-late\tsubscription-1\n' >> "$FAKE_LANES"
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
+has "$out" "would: catch-up: sala op lane aws-platform back-late " && [ "$(ops)" = 1 ] && ok "a back agent still at home after the move: the dry run says it would queue it, and queues nothing" || bad "catch-up dry run: ops=$(ops) $out"
+out=$(tick)
+[ "$(ops)" = 2 ] && has "$out" "moved: catch-up" && case "$(tail -1 "$FAKE_OPLOG")" in "op|lane|aws-platform|back-late|--from|sala-watch|--words|$RULE_WORDS|") true;; *) false;; esac && ok "the next pass queues exactly that agent onto the rule's lane, with the rule's words" || bad "catch-up: ops=$(ops) $out :: $(tail -1 "$FAKE_OPLOG")"
+case "$(drv 'back_lane_get queued')" in *"|back-a,back-b,back-fab,rl-back,back-late") ok "its name joins the window's queued list";; *) bad "queued after: $(drv 'back_lane_get queued')";; esac
+printf 'back-late\tsubscription-1\n' > "$T/lanes.back"; grep -v '^back-late	' "$FAKE_LANES" > "$T/lanes.t"; cat "$T/lanes.t" "$T/lanes.back" > "$FAKE_LANES"   # the pane could not be closed: still at home
+out=$(tick); [ "$(ops)" = 2 ] && has "$out" "idle:" && ok "a pane that stays at home is not queued a second time in the same window (the operation retries it itself)" || bad "twice: ops=$(ops) $out"
+drv 'back_lane_put queued ""' >/dev/null; out=$(tick)
+[ "$(ops)" = 3 ] && has "$out" "moved: catch-up" && ok "a state with no queued list (written before the catch-up): the back agents still at home are queued once" || bad "legacy state: ops=$(ops) $out"
+case "$(tail -1 "$FAKE_OPLOG")" in *"|back-late|"*) case "$(tail -1 "$FAKE_OPLOG")" in *back-a*|*back-b*|*rl-back*|*front-a*) bad "legacy catch-up carried a pane already moved: $(tail -1 "$FAKE_OPLOG")";; *) ok "and only the one still at home";; esac;; *) bad "legacy argv: $(tail -1 "$FAKE_OPLOG")";; esac
+regrl; quota 95 $W1; rec; tick >/dev/null; drv "back_lane_put moved_at $M" >/dev/null; quota 10 $W2; tick >/dev/null
+[ "$(drv 'back_lane_get queued')" = "" ] && ok "step 3 (the way home) clears the queued list" || bad "after step 3: $(drv 'back_lane_get queued')"
+regrl; quota 50 $W1; rec; n=$(ops)
+out=$(tick)
+[ "$(ops)" = "$n" ] && ! has "$out" "catch-up" && ok "the back agents at home (the rule's lane is home): no catch-up" || bad "no catch-up at home: $out"
 
 echo "== the watch's dry run"
 reg; quota 95 $W1

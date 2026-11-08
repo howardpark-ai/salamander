@@ -3916,9 +3916,33 @@ back_lane_movers() {
 }
 # back_lane_same_window <key> <recorded> → 0 when the two window keys name the same weekly window (the endpoint's reset time moves by fractions of a second)
 back_lane_same_window() { [ -n "$1" ] && [ -n "$2" ] && [ "$1" -lt $(( $2 + 3600 )) ] && [ "$1" -gt $(( $2 - 3600 )) ]; }
-back_lane_commit() {  # <step> <target> <window key> <target's place> — the rule's state after a step; a step home clears the way out
+back_lane_commit() {  # <step> <target> <window key> <target's place> [<the names queued, space-separated>] — the rule's state after a step; a step home clears the way out
     back_lane_put lane "$2"; back_lane_put moved_at "$(printf '%(%s)T' -1)"; back_lane_put "f$4" "$3"; back_lane_put blocked ""
-    if [ "$1" = 3 ]; then back_lane_put window ""; elif [ "$1" = 1 ]; then back_lane_put window "$3"; fi
+    if [ "$1" = 3 ]; then back_lane_put window ""; back_lane_put queued ""; else
+        [ "$1" != 1 ] || back_lane_put window "$3"
+        local nm=${5:-}; back_lane_put queued "$2|$3|${nm// /,}"   # who the rule has queued onto this lane in this window: the catch-up below never queues a name twice
+    fi
+}
+# THE CATCH-UP: a back agent that is on the wrong side of the rule's lane while the rule holds the back agents off home (one the step found no role for,
+# a pane spawned or tagged since, a name that was not live when the step fired) is queued onto the rule's lane at the next pass, once per window: the
+# state's `queued` (<lane>|<window key>|<names>) keeps the names already queued in this window, so a pane the move could not close yet (a busy one,
+# retried by the operation itself) is not queued again. A state with no `queued` (written before the catch-up) queues every back agent still home once.
+# back_lane_catchup <cur> <dry 0|1> → prints a `moved:` / `would:` line when it queues (or would), nothing otherwise
+back_lane_catchup() {
+    local cur=$1 dry=$2 q ql qw qn w0 n out id late=()
+    w0=$(back_lane_get window); [ -n "$w0" ] || return 0
+    q=$(back_lane_get queued); ql=${q%%|*}; qw=${q#*|}; qn=${qw#*|}; qw=${qw%%|*}
+    [ "$q" = "$ql" ] && { qw=""; qn=""; }   # no `queued` yet, or one with no separator
+    { [ "$ql" = "$cur" ] && back_lane_same_window "$qw" "$w0"; } || qn=""
+    back_lane_movers "$cur" || return 0
+    for n in ${BL_MOVE[@]+"${BL_MOVE[@]}"}; do case ",$qn," in *",$n,"*) ;; *) late+=("$n");; esac; done
+    [ "${#late[@]}" -gt 0 ] || return 0
+    if [ "$dry" = 1 ]; then echo "would: catch-up: sala op lane $cur ${late[*]} --from sala-watch --words \"…\" (the back agent(s) the rule's move has not queued yet; a dry run writes and queues nothing)"; return 0; fi
+    out=$("$SALA_BIN" op lane "$cur" "${late[@]}" --from sala-watch --words "$SALA_BACK_LANE_WORDS" 2>&1) || { echo "blocked: catch-up not queued: $(printf '%s' "$out" | tail -1)"; return 0; }
+    id=$(printf '%s\n' "$out" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)
+    back_lane_put queued "$cur|$w0|${qn:+$qn,}$(IFS=,; echo "${late[*]}")"
+    lane_log backlane "$cur" "catch-up: ${#late[@]} back agent(s) queued onto $cur (op ${id:-?})"
+    echo "moved: catch-up: ${#late[@]} back agent(s) the rule had not moved (${late[*]}) to the $(lane_shown "$cur") lane, op ${id:-?} queued"
 }
 # back_lane_tick [--dry-run] → one pass of the rule; prints one line per outcome, "<tag>: <text>" (the watch logs them; `notice:` lines are posted):
 #   idle (nothing to do, with why when a reading was refused) · moved (the operation queued) · advanced (state moved, nobody to move) ·
@@ -3955,10 +3979,10 @@ back_lane_tick() {
             target=${BL_ORDER[1]}; stp=1; key=$win; why="the $(lane_shown "$home") lane's weekly limit is at $pct% (threshold $SALA_BACK_LANE_THRESHOLD%, it resets $(back_lane_when "$rst"))"
         fi
     fi
-    [ -n "$target" ] || { echo "idle: the back agents stay on the $(lane_shown "$cur") lane${pct:+ ($(lane_shown "$home") at $pct%)}"; return 0; }
+    [ -n "$target" ] || { echo "idle: the back agents stay on the $(lane_shown "$cur") lane${pct:+ ($(lane_shown "$home") at $pct%)}"; [ "$ci" -gt 0 ] && back_lane_catchup "$cur" "$dry"; return 0; }
     # once per window: the step's own record (f<place of the target>) holds the window it fired for
     ti=$(back_lane_idx "$target"); f=$(back_lane_get "f$ti")
-    if back_lane_same_window "$key" "$f"; then echo "idle: step $stp already fired in this weekly window"; return 0; fi
+    if back_lane_same_window "$key" "$f"; then echo "idle: step $stp already fired in this weekly window"; [ "$ci" -gt 0 ] && back_lane_catchup "$cur" "$dry"; return 0; fi
     # the target must work: active and ready; else one notice per window and step, no move, the state unchanged
     if lane_dormant "$target" || ! out=$(lane_check "$target"); then
         out=${out:-the lane is dormant}
@@ -3971,7 +3995,7 @@ back_lane_tick() {
     back_lane_movers "$target"
     if [ "${#BL_MOVE[@]}" -eq 0 ]; then
         if [ "$dry" = 1 ]; then echo "would: step $stp ($why): the rule's lane becomes the $(lane_shown "$target") lane; no back agent to move"; return 0; fi
-        back_lane_commit "$stp" "$target" "$key" "$ti"
+        back_lane_commit "$stp" "$target" "$key" "$ti" ""
         echo "advanced: step $stp ($why): the rule's lane is now the $(lane_shown "$target") lane; no back agent needed moving${BL_STAY[*]:+; Fable stays: ${BL_STAY[*]}}"
         return 0
     fi
@@ -3985,7 +4009,7 @@ back_lane_tick() {
         else echo "blocked: step $stp not queued: $(printf '%s' "$out" | tail -1)"; fi
         return 0; }
     id=$(printf '%s\n' "$out" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)
-    back_lane_commit "$stp" "$target" "$key" "$ti"
+    back_lane_commit "$stp" "$target" "$key" "$ti" "${BL_MOVE[*]}"
     lane_log backlane "$target" "step $stp: ${#BL_MOVE[@]} back agent(s) queued onto $target (op ${id:-?}): $why"
     echo "moved: step $stp ($why): ${#BL_MOVE[@]} back agent(s) to the $(lane_shown "$target") lane, op ${id:-?} queued (the operation posts once when it is done)"
     [ "${#BL_STAY[@]}" -eq 0 ] || echo "notice: ${#BL_STAY[@]} Fable back agent(s) did not move to the $(lane_shown "$target") lane (it cannot run Fable): ${BL_STAY[*]}"
