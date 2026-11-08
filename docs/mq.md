@@ -394,6 +394,8 @@ mq, the failing PR got a failure status and one comment, and every `queue/main/g
 
 ## Using the queue for another repo
 
+(A repository can also carry both queues at once, GitHub's and this one, and switch between them with the host file and one ruleset: `docs/merge-queues.md`.)
+
 A repository goes on `mq` with two small files, a few lines in its workflow and a hand-over in its release script; nothing in `lib/mq/` changes (Migration, 7). The worked example is stackshot, which runs with mode `on`.
 
 **1. The host file**, on the machine that runs the queue: `$XDG_CONFIG_HOME/mergequeue/<owner>__<repo>.toml` (`~/.config/mergequeue/…` when unset), one per repository, never in the repo. No file is mode `off`. A key that is not in the table of *Configuration* (host file), or a `mode` that is not `off`, `shadow` or `on`, is an error and the queue does nothing until it is fixed. stackshot's, `howardpark-ai__stackshot.toml`:
@@ -480,4 +482,5 @@ on the origin that logs every ref a push touches: they assert that nothing but `
 5. **Flipped: `on` is open (`ON_OPEN` is `True`).** The old path is kept for a while behind `mode = off` as the instant fallback.
 6. Delete the old catch-up code and keep one path.
 7. Other repositories adopt mq: their `required` list and workflow edits are the only new things.
-8. Where a repository gets GitHub's queue: swap the trigger to `merge_group`, set `mode = off`, keep mq for repositories that cannot have it.
+8. Where a repository gets GitHub's queue: add the `merge_group` trigger (keep the `queue/**` push trigger, so either queue works), set `mode = off` while GitHub's queue is the one in use, keep mq for repositories that cannot have it.
+   salamander does this: `docs/merge-queues.md` has the switch, the switch back and the proofs.
