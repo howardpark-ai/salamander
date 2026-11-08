@@ -477,7 +477,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Absent or changed**: a plain `spawn`/`rename` with no `pages.py` proceeds (fail-open). `spawn --project` with neither a
   usable project record nor `pages.py` (or `pages.py` without the brain mirror) **refuses** ("cannot tell") unless
   `SALA_AGENT_CHECK=off`: the one hard dependency in sala's CLI, now needed only when the record is
-  missing, stale, unreadable or lacks the project. It is kept fail-closed on purpose: the README and the header of `lib/spawn.sh` name `spawn --project` as the one command that needs stackshot and the brain
+  missing, stale, unreadable or lacks the project. It is kept fail-closed on purpose: `docs/running-without-stackshot.md` and the header of `lib/spawn.sh` name `spawn --project` as the one command that needs stackshot and the brain
   mirror, and no abstraction over the check is built until a box without stackshot has to make project spawns.
 - **Test**: `tests/spawn.sh` (a stub `pages.py` through `SALA_AGENT_CHECK_SCRIPT`; the project record section for the order
   of the two sources).
@@ -823,7 +823,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   `publish(force_versions=True)`: refresh the latest-available versions of the claude-code npm package and other tracked releases,
   then re-render and publish the board). stackshot accepts `--host` and `host` and ignores them (installed
   versions come from the heartbeat store); the command's output is discarded and only its exit status is read.
-- **Owners**: sala `lib/common.sh` `post_update_hook`, `SALA_POST_UPDATE_CMD` (and the older `SALA_FLEET_POST_CMD`); `README.md`
+- **Owners**: sala `lib/common.sh` `post_update_hook`, `SALA_POST_UPDATE_CMD` (and the older `SALA_FLEET_POST_CMD`); `docs/notices-and-hooks.md`
   "Hooks out". stackshot `publish.py` `bump()` and the CLI's `bump` verb, `server.py` `stackshot_bump_versions`
   (tool `bump_versions`).
 - **Absent or changed**: `SALA_POST_UPDATE_CMD` unset: the hook does nothing beyond the heartbeat. The command failing

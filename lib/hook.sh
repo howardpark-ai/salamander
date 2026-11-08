@@ -9,7 +9,7 @@
 #                               under $SALA_WAITING_DIR, raised by a recycle's retry worker or the reboot drain), tell it
 #                               once, as hookSpecificOutput.additionalContext — the relaunch_text line (common.sh); and the sala
 #                               notices not shown to this session yet (`sala notice`, lib/notice.sh), in the same block
-#   salamander hook prompt      UserPromptSubmit hook (matcher none; "Telling every session something" in the README): the notices
+#   salamander hook prompt      UserPromptSubmit hook (matcher none; "Telling every session something" in docs/notices-and-hooks.md): the notices
 #                               not shown to this session yet, as additionalContext, at its next prompt; nothing else
 #   salamander hook pre-tool    PreToolUse hook (matcher "Bash"): deny a command that would relaunch or update the fleet
 #                               outside sala — reboot, a CLI update, tmux kill-* on the fleet's server or a window/pane put into another session, kill/pkill of a claude

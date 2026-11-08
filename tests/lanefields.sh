@@ -170,7 +170,7 @@ bad_rows=$(awk -F'\t' 'NF != 2 || $1 == "" || $2 !~ /^[a-z0-9-]+$/' "$SALA_LANES
 printf 'bogus\n' > "$SALA_LANE_DEFAULT_FILE"; [ "$(lane_default)" = subscription-1 ] && ok "a default file saying an unknown word reads as subscription-1 (the unknown-word fallback), the file untouched" || bad "default: $(lane_default)"; [ "$(<"$SALA_LANE_DEFAULT_FILE")" = bogus ] || bad "default file rewritten"
 
 echo "== the registry, the web app and the docs"
-for f in README.md config.example; do grep -q 'THE LANE FIELDS\|Lane fields\|lane --list' "$ROOT/$f" && ok "$f documents the lane fields" || bad "$f does not mention the lane fields"; done
+for f in docs/lanes.md config.example; do grep -q 'THE LANE FIELDS\|Lane fields\|lane --list' "$ROOT/$f" && ok "$f documents the lane fields" || bad "$f does not mention the lane fields"; done
 
 [ "$fail" = 0 ] && echo "lanefields: pass" || echo "lanefields: FAIL"
 exit $fail

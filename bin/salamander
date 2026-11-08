@@ -97,7 +97,7 @@
 #   salamander note "<next step>" | --done [<id>] | --clear | --list [--archived]     leave this pane its next step, handed back after
 #                                      its next relaunch (reboot, recycle, revive) until `--done <id>` marks it handled (--clear: the same as --done)
 #   salamander notice add "<text>" --from NAME [--until WHEN] | list [--json] | drop ID   a one-time line every LIVE session sees at its next tool call or prompt,
-#                                      with no relaunch (lib/notice.sh; README, "Telling every session something"): one line of at most 400 characters, shown once per
+#                                      with no relaunch (lib/notice.sh; docs/notices-and-hooks.md, "Telling every session something"): one line of at most 400 characters, shown once per
 #                                      session as "[sala notice <id> from NAME] <text>", several due at once in one block, oldest first; a session that started after
 #                                      the notice skips it; --until an epoch, a span (90m, 12h, 7d) or an ISO 8601 time (default 7 days); add prints the id and how many live
 #                                      sessions it reaches, list how many had it and how many are still due, drop withdraws it for the sessions not yet reached
