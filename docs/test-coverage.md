@@ -1181,6 +1181,14 @@ client's lines in the log as `items of PR #n: …`; an already merged PR passes 
 all (`STACKSHOT_CLIENT` and `SALA_STACKSHOT_DIR` empty: nothing sent, one `stackshot not configured` line) leave the release green; a failed deploy, in either mode, and a failing check never call `released`; with
 GitHub naming no merge commit the PR's first-parent merge in the checkout is used, and with neither the log says so and nothing is sent. Not checked: a real transient unit, the real `gh` and `deploy.sh`, the real client.
 
+GitHub's merge queue (Sun Nov 8th 2026, 21 more checks, 81 in all; the fake `gh api` now answers `graphql` and the head-branch delete): with `main`'s merge queue on, an open PR is put in the queue pinned to its head
+commit (the `enqueuePullRequest` call is the only merge call; `gh pr merge` is never run), the release waits until the PR reads MERGED, deploys from the merge commit GitHub names and says "through GitHub's merge queue"
+in its message, and deletes the head branch best effort (not a fork's; a refused delete does not fail the release). A PR removed from the queue fails the release with the reason GitHub gives and nothing is merged or deployed;
+one that never shows in the queue, one closed while it waits and one still queued when the wait ends each fail with their own line (the last one names `release.sh --merged <pr>`); an entry that disappears and a PR that then reads MERGED
+is merged. `--merged` after the wait never asks the queue. An enqueue call that errors but leaves the PR queued or merged is carried on; one that really refuses fails with GitHub's message. With no queue on `main`
+the direct `gh pr merge --admin` path runs as before; `SALA_RELEASE_MERGE=direct` never asks GitHub about the queue, `=queue` fails when there is none, a GraphQL answer that cannot be read fails the merge step (not a guess), and any other
+value exits 2. Not checked: GitHub's real queue (the proof is a throwaway PR, `docs/merge-queues.md`).
+
 ### `tests/cipoll.sh`: new, 51 (Wed Oct 28th 2026)
 
 The CI-run poller and its reader (`lib/cipoll.py`, `lib/cipoll.sh`, `lib/ci-repos`, `systemd/sala-cipoll.service`, `docs/ci-runs.md`). Kept because release.sh and

@@ -7,7 +7,7 @@ Nobody commits to `main` directly; nobody works in the production checkout.
 ## main is protected at GitHub
 
 Branch protection on `main` requires the status checks `changes`, `suites` and `web`, administrators included. It does not require a PR and is not strict (a PR need not be up to date with `main`),
-so GitHub refuses a push of a commit those checks have not passed on. The rule that nobody commits to `main` directly is otherwise held by convention, and by `deploy.sh`'s drift check,
+so GitHub refuses a push of a commit those checks have not passed on. A fourth job, `gate`, fails unless the three passed or were skipped; it is what the sala merge queue requires (*Two merge queues*, below). The rule that nobody commits to `main` directly is otherwise held by convention, and by `deploy.sh`'s drift check,
 which refuses to deploy a production checkout that has local changes, is off `main`, or carries commits `origin/main`
 does not have.
 
@@ -29,8 +29,9 @@ does not have.
    command on the coordinator machine, `~/salamander/release.sh <pr>`. That
    runs detached (a transient user unit, `salamander-release-<pr>`): it checks the PR is open and mergeable and that the
    production checkout has not drifted, waits for the PR's checks (a job the change did not need reports as skipped,
-   which counts as a verdict; a pass is still needed), merges with `gh pr merge --merge --delete-branch --admin`
-   (`--admin` because a ruleset limits who may update branches, which makes a plain merge refused client-side; the required checks still apply to it),
+   which counts as a verdict; a pass is still needed), merges, either with `gh pr merge --merge --delete-branch --admin`
+   (`--admin` because a ruleset limits who may update branches, which makes a plain merge refused client-side; the required checks still apply to it)
+   or, when GitHub's merge queue is on for `main`, by putting the PR in that queue and waiting until GitHub has merged it (`docs/merge-queues.md`),
    runs `deploy.sh` in the production checkout, and reports once to `projects/salamander` as a `[release]` message:
    green with the PR, the commit and what changed, or red with the step that failed and the log. Just before a green message the
    live release is also reported to stackshot (`client.py released --pr <PR url> --sha <merge commit>`), which settles the items whose
@@ -50,7 +51,13 @@ does not have.
    soon as its tests are green, without waiting for anything else.
 
 A PR passes the required checks (*main is protected at GitHub*, above) by running the tests workflow, and a job the change does not need reports as skipped, which counts as passed.
-`release.sh` merges the PR on GitHub's side (`gh pr merge --admin`; the required checks still apply to it) once its checks pass.
+`release.sh` merges the PR on GitHub's side once its checks pass: `gh pr merge --admin` (the required checks still apply to it), or the PR is put in GitHub's merge queue when `main` has one.
+
+## Two merge queues
+
+A PR can also merge through a queue that tests it on top of `main` (and of the entries ahead of it) before `main` moves: GitHub's merge queue, or `sala mq` (`docs/mq.md`). The tests workflow runs for an entry of either one
+(a `merge_group` event, or a push to `queue/**`) with the same job selection as a PR, plus `gate` for the sala queue to require. `.github/mergequeue.toml` holds the sala queue's rules. Which way a PR goes in, how to switch
+and what stays out of the repo (the rulesets, the host file) is in `docs/merge-queues.md`; `SALA_RELEASE_MERGE=direct` makes `release.sh` skip the queue question and merge as before.
 
 ## What a deploy does
 
@@ -369,7 +376,7 @@ need either. Change the skills in the skills repository in the same release as t
 
 ## CI
 
-CI runs on GitHub's hosted runners: every Linux job (`tests.yml`'s `changes`, `suites`, `web-shard` and `web`,
+CI runs on GitHub's hosted runners: every Linux job (`tests.yml`'s `changes`, `suites`, `web-shard`, `web` and `gate`,
 `clean-text.yml`'s `clean-text`, `smoke.yml`'s `smoke-linux`) has `runs-on: ubuntu-latest` and `smoke-macos` has `macos-latest`, so a fork's pull
 request and an outside contributor's run CI with nothing to configure. The suites are written against Ubuntu 26.04's tmux 3.6
 (`hosted-setup.sh` warns on another). A hosted runner runs two suites per CPU at once, not all of them.
@@ -401,7 +408,9 @@ Several things keep CI small:
   *skipped* (the shards and `web` together), which `release.sh` reads as a verdict (a workflow kept from running by `on: paths` would report nothing,
   and the gate would wait on it); the job names (`changes`, `suites`, `web`) are what it reads, and a `web-shard` check
   that fails fails the PR on its own too. `release.sh` merges
-  only when a check passed and none failed or is pending.
+  only when a check passed and none failed or is pending. `gate` (needs `changes`, `suites` and `web`; runs always) fails unless each of them passed or was skipped: one name for "everything this run needed passed",
+  which the sala merge queue can require because it reads a skipped check as failed. The workflow also runs on `merge_group` (GitHub's queue) and on a push to `queue/**` (the sala queue) with the PR's selection:
+  the change is judged against the base of the queue entry (`merge_group.base_sha`) or against `main` (a `queue/**` push), not against the last green main run, and `tested.sh` records and reads only on `main`.
 - **Which suites a PR runs (Tue Oct 27th 2026).** A PR runs the suites that open the files it changes; a
   push to `main` always runs every suite, so a file the selection missed is caught there. `tests/suites.map` records,
   per suite, the tracked files it opened when it ran (measured under `strace`, never written by hand); `bash tests/suitemap.sh

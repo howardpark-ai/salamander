@@ -47,9 +47,23 @@ case "$1 $2" in
     "pr merge") exit 0 ;;
 esac
 if [ "$1" = api ]; then   # gh api <path> -i [-H "If-None-Match: <etag>"]: headers, a blank line, the body; a matching ETag answers 304 and exit 1, as gh does
-    path="$2"; inm=
+    path="$2"; inm=; allargs="$*"
     while [ $# -gt 0 ]; do [ "$1" = -H ] && inm="${2#If-None-Match: }"; shift; done
+    if [ "$path" = graphql ]; then   # GitHub's merge queue: main's queue (mq: 1 or 0), the enqueue mutation, the PR's state and queue entry (gq.<n>.json, the n-th read or the last), the removal reason
+        [ -e "$FAKE_DIR/gqfail" ] && { echo "gh: HTTP 502" >&2; exit 1; }
+        case "$allargs" in
+            *"mergeQueue(branch"*) echo "{\"data\":{\"repository\":{\"mergeQueue\":$([ "$(cat "$FAKE_DIR/mq" 2>/dev/null)" = 1 ] && echo '{"id":"MQ_1"}' || echo null),\"pullRequest\":{\"id\":\"PR_node_1\"}}}}"; exit 0 ;;
+            *"enqueuePullRequest"*) if [ -e "$FAKE_DIR/enqfail" ]; then echo '{"errors":[{"message":"Required status check missing"}]}'; echo "gh: GraphQL error" >&2; exit 1; fi
+                                    echo '{"data":{"enqueuePullRequest":{"mergeQueueEntry":{"state":"QUEUED","position":1}}}}'; exit 0 ;;
+            *"REMOVED_FROM_MERGE_QUEUE_EVENT"*) cat "$FAKE_DIR/reason.json" 2>/dev/null || echo '{"data":{"repository":{"pullRequest":{"timelineItems":{"nodes":[]}}}}}'; exit 0 ;;
+            *"mergeQueueEntry{state position}"*) n=$(( $(cat "$FAKE_DIR/gq.count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$FAKE_DIR/gq.count"
+                                    while [ "$n" -gt 0 ] && [ ! -f "$FAKE_DIR/gq.$n.json" ]; do n=$((n - 1)); done
+                                    cat "$FAKE_DIR/gq.$n.json"; exit 0 ;;
+        esac
+        echo "unexpected graphql: $allargs" >> "$FAKE_DIR/bad"; exit 1
+    fi
     case "$path" in
+        */git/refs/heads/*) [ -e "$FAKE_DIR/delfail" ] && exit 1; exit 0 ;;   # the head branch deleted after a queue merge (the call is logged above)
         */pulls/*) k=pr ;;
         */check-runs*) k=cr ;;
         */actions/runs*) k=wr ;;
@@ -397,6 +411,90 @@ reset; view OPEN MERGEABLE null; prhead 1 "$SHA"
 cruns_t 1 "clean-text|completed|success|$NEW|3" "suites|completed|failure|$OLD|1"
 release --run 65
 [ "$rc" = 1 ] && ! called "pr merge" && [[ "$out" == *"suites=fail"* ]] && ok "a failed run of a different check is not superseded by another check's newer pass" || bad "other check: rc=$rc $out"
+
+echo "== GitHub's merge queue on main: the PR is put in the queue, GitHub merges it, the merge commit is deployed"
+# mq=1 in the fake's folder: main has a merge queue. gq <n> <STATE> <merge oid|-> [entry state] [position] → the n-th read of the PR (the last one repeats)
+gq() { printf '{"data":{"repository":{"pullRequest":{"state":"%s","mergeCommit":%s,"mergeQueueEntry":%s}}}}\n' "$2" "$([ "$3" = - ] && echo null || echo "{\"oid\":\"$3\"}")" "$([ -n "${4:-}" ] && echo "{\"state\":\"$4\",\"position\":${5:-1}}" || echo null)" > "$FAKE_DIR/gq.$1.json"; }
+mqon() { echo 1 > "$FAKE_DIR/mq"; }
+QSHA=76543210fedcba9876543210fedcba9876543210
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 OPEN - QUEUED 1; gq 2 OPEN - AWAITING_CHECKS 1; gq 3 MERGED "$QSHA"
+release --run 80
+[ "$rc" = 0 ] && ! called "pr merge" && called "^deploy.sh $" && [ ! -e "$FAKE_DIR/bad" ] && called "enqueuePullRequest" && called "-f id=PR_node_1" && called "-f h=$SHA" \
+    && ok "queue on: the PR is enqueued with the node id and pinned to the head the checks passed on (expectedHeadOid), no gh pr merge, deployed after GitHub merged it" || bad "queue on: rc=$rc calls=$(calls) bad=$(cat "$FAKE_DIR/bad" 2>/dev/null) $out"
+[[ "$out" == *"enqueued: the merge queue accepted the head 0123456"* ]] && [[ "$out" == *"in the merge queue (QUEUED position 1)"* ]] && [[ "$out" == *"merged by GitHub's merge queue as 7654321"* ]] \
+    && ok "queue on: the log says enqueued, where the PR is in the queue, and the merge commit GitHub made" || bad "queue log: $out"
+[ "$(released_of)" = "--pr https://github.com/o/r/pull/80 --sha $QSHA" ] && [[ "$(msgs)" == *"[release] PR #80 merged and deployed through GitHub's merge queue — Fix the thing"* ]] \
+    && ok "queue on: stackshot is told the merge commit GitHub made (no extra read), and the message says it went through the merge queue" || bad "queue report: released=$(released_of) msgs=$(msgs)"
+called "gh api repos/o/r/git/refs/heads/b -X DELETE" && [[ "$out" == *"deleted the head branch b"* ]] && ok "queue on: the head branch is deleted after the merge, as --delete-branch does" || bad "queue branch: calls=$(calls) $out"
+! called "commits/$QSHA/check-runs" && ok "queue on: no wait on main's check runs (the entry's checks were the merge group's)" || bad "queue waited on main: $(calls)"
+# the branch of a fork is never deleted; a refused delete is only a log line
+reset; mqon; printf '{"state":"OPEN","mergeable":"MERGEABLE","title":"Fix the thing","headRefName":"b","isCrossRepository":true,"mergeCommit":null}\n' > "$FAKE_DIR/view.json"; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 MERGED "$QSHA"
+release --run 80
+[ "$rc" = 0 ] && ! called "-X DELETE" && called "^deploy.sh $" && ok "a PR from a fork: merged by the queue, deployed, its branch not touched" || bad "fork: rc=$rc calls=$(calls) $out"
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 MERGED "$QSHA"; : > "$FAKE_DIR/delfail"
+release --run 80
+[ "$rc" = 0 ] && called "^deploy.sh $" && [[ "$out" == *"head branch b not deleted"* ]] && ok "a refused branch delete: one log line, the release goes on" || bad "delfail: rc=$rc $out"
+
+echo "== GitHub's merge queue: a PR the queue removes, closes or keeps"
+# removed after it was seen: believed on the second look without the entry, with GitHub's reason from the timeline
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 OPEN - QUEUED 1; gq 2 OPEN -
+echo '{"data":{"repository":{"pullRequest":{"timelineItems":{"nodes":[{"reason":"FAILED_CHECKS","createdAt":"2099-01-01T00:00:00Z"}]}}}}}' > "$FAKE_DIR/reason.json"
+release --run 81
+[ "$rc" = 1 ] && ! called "^deploy.sh $" && ! called "pr merge" && ! called "-X DELETE" \
+    && [[ "$(msgs)" == *"[release] PR #81 FAILED at merge queue: removed from the merge queue: the merge group failed its required checks; nothing was merged or deployed"* ]] \
+    && ok "removed from the queue: exit 1, the reason GitHub gave in the message, nothing deployed or deleted" || bad "removed: rc=$rc calls=$(calls) msgs=$(msgs) $out"
+# an entry that never showed: three looks
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 OPEN -
+release --run 82
+[ "$rc" = 1 ] && ! called "^deploy.sh $" && [[ "$(msgs)" == *"FAILED at merge queue: the PR did not show in the merge queue after the enqueue call and is not merged; nothing was merged or deployed"* ]] \
+    && ok "an entry that never shows: failed after three looks, nothing deployed" || bad "never showed: rc=$rc msgs=$(msgs) $out"
+# a PR merged a moment after its entry was gone is merged, not removed
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 OPEN - QUEUED 1; gq 2 OPEN -; gq 3 MERGED "$QSHA"
+release --run 83
+[ "$rc" = 0 ] && called "^deploy.sh $" && ok "the entry gone for one look and then MERGED: carried on and deployed" || bad "vanish then merged: rc=$rc msgs=$(msgs) $out"
+# closed while waiting
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 CLOSED -
+release --run 84
+[ "$rc" = 1 ] && ! called "^deploy.sh $" && [[ "$(msgs)" == *"FAILED at pr state: the PR was closed while it waited for the merge queue"* ]] && ok "closed while waiting: failed at pr state" || bad "closed: rc=$rc msgs=$(msgs) $out"
+# still in the queue at the end of the wait: it may merge later; --merged deploys it
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 OPEN - QUEUED 1
+SALA_RELEASE_QUEUE_WAIT=2 release --run 85
+[ "$rc" = 1 ] && ! called "^deploy.sh $" && [[ "$(msgs)" == *"FAILED at merge queue: still in the queue or not merged 0 min after the enqueue"* ]] && [[ "$(msgs)" == *"release.sh --merged 85 deploys it"* ]] \
+    && ok "still queued at the end of the wait: failed, nothing deployed, the message names release.sh --merged" || bad "queue wait: rc=$rc msgs=$(msgs) $out"
+# GitHub merged it after all: the merged mode deploys it, no queue call at all
+reset; mqon; view MERGED "" "{\"oid\":\"$QSHA\"}"; cruns 1 "${PASS3[@]}"
+release --run --merged 85
+[ "$rc" = 0 ] && called "^deploy.sh $" && ! called "graphql" && ok "an already merged PR is deployed as before and never asks GitHub about the queue" || bad "merged after the wait: rc=$rc calls=$(calls) $out"
+
+echo "== GitHub's merge queue: the enqueue call"
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 OPEN -; : > "$FAKE_DIR/enqfail"
+release --run 86
+[ "$rc" = 1 ] && ! called "^deploy.sh $" && [[ "$(msgs)" == *"FAILED at merge: the merge queue refused the PR: Required status check missing"* ]] && ok "the enqueue refused and the PR not in the queue: failed with GitHub's message" || bad "enq refused: rc=$rc msgs=$(msgs) $out"
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 OPEN - QUEUED 2; gq 2 MERGED "$QSHA"; : > "$FAKE_DIR/enqfail"
+release --run 86
+[ "$rc" = 0 ] && called "^deploy.sh $" && [[ "$out" == *"the enqueue call errored (Required status check missing) but the PR is OPEN, in the merge queue (QUEUED position 2): carrying on"* ]] \
+    && ok "the enqueue errored but the PR is in the queue already (an earlier run, a 504): carried on and deployed" || bad "enq errored, queued: rc=$rc msgs=$(msgs) $out"
+
+echo "== the way back and the switch: no queue on main, SALA_RELEASE_MERGE"
+reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"
+release --run 87
+[ "$rc" = 0 ] && called "gh pr merge 87 --repo o/r --merge --delete-branch --admin" && ! called "enqueuePullRequest" && called "mergeQueue(branch" && [[ "$(msgs)" != *"merge queue"* ]] \
+    && ok "no merge queue on main (the ruleset is off): merged at once with --admin, as before, the queue never entered" || bad "no queue: rc=$rc calls=$(calls) msgs=$(msgs) $out"
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"
+SALA_RELEASE_MERGE=direct release --run 88
+[ "$rc" = 0 ] && called "gh pr merge 88 --repo o/r --merge --delete-branch --admin" && ! called "graphql" && ok "SALA_RELEASE_MERGE=direct: GitHub is not asked about the queue, the PR is merged at once" || bad "direct: rc=$rc calls=$(calls) $out"
+reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"
+SALA_RELEASE_MERGE=queue release --run 89
+[ "$rc" = 1 ] && ! called "pr merge" && ! called "^deploy.sh $" && [[ "$(msgs)" == *"FAILED at merge queue: SALA_RELEASE_MERGE=queue, and main has no merge queue"* ]] && ok "SALA_RELEASE_MERGE=queue with no queue on main: failed, nothing merged" || bad "queue-only: rc=$rc msgs=$(msgs) $out"
+reset; mqon; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; gq 1 MERGED "$QSHA"
+SALA_RELEASE_MERGE=queue release --run 89
+[ "$rc" = 0 ] && ! called "pr merge" && called "^deploy.sh $" && ok "SALA_RELEASE_MERGE=queue with a queue on main: the queue path" || bad "queue-only ok: rc=$rc $out"
+reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; : > "$FAKE_DIR/gqfail"
+release --run 90
+[ "$rc" = 1 ] && ! called "pr merge" && ! called "^deploy.sh $" && [[ "$(msgs)" == *"FAILED at merge: GitHub's answer about main's merge queue and the PR cannot be read"* ]] && [[ "$(msgs)" == *"SALA_RELEASE_MERGE=direct merges at once"* ]] \
+    && ok "GitHub's queue answer unreadable: failed before any merge, the message names the direct switch" || bad "gq unreadable: rc=$rc msgs=$(msgs) $out"
+out=$(SALA_RELEASE_MERGE=sideways bash "$CO/release.sh" --status 2>&1); rc=$?
+[ "$rc" = 2 ] && [[ "$out" == *"SALA_RELEASE_MERGE is 'sideways': auto, direct or queue"* ]] && ok "a bad SALA_RELEASE_MERGE: exit 2 with the three values" || bad "bad mode: rc=$rc $out"
 
 echo "== the start: a transient unit that runs the steps (systemd-run is a fake; nothing starts)"
 reset; release 20

@@ -22,11 +22,23 @@
 #   PUSH TO MAIN ALWAYS RUNS THE FULL SET whenever the job runs, so a miss in the map is caught there. The tested tree is
 #   recorded only by a PR that ran the full set, so main's tested.sh skip never trusts a subset. smoke.yml no longer runs on a
 #   push: its two suites, smoke and phases, are in this job's set.
+#
+# TWO MERGE QUEUES (docs/merge-queues.md). GitHub's merge queue and sala's own (`salamander mq`) both test an entry on a branch of their own and merge it only when the checks pass on that branch, so this
+# file runs for an entry on either, and the job names stay what they are on a PR (`changes`, `suites`, `web`).
+# - GitHub's: the event is `merge_group` (types: checks_requested), on the branch `gh-readonly-queue/main/pr-<n>-<sha>`. That branch is NOT in the `push` list below (the event is the trigger; both would run every entry twice).
+#   The checkout is the entry's head (`github.sha` is `github.event.merge_group.head_sha`) and `github.event.merge_group.base_sha` is the entry's parent, so `changes` reads the entry's own change as base_sha..HEAD. A check that never
+#   reports makes the queue wait until its timeout, so every required job (`changes`, `suites`, `web`) reports on this event, a skipped one included.
+# - sala's: a push to `queue/**` (main plus the PRs ahead plus this one). Its change is everything since main (the merge base with origin/main).
+# Both get a pull request's run, not main's: `suites` runs the suites the change reaches (tests/suites.map), `web` the web tests when web/ changed. What they do not do: record the tested tree (the PR's run does) and skip on it
+# (tested.sh is for main only). A push to main still runs every suite after the merge, and catches a suite the selection missed. `gate` is the one job that always runs and fails only when `changes`, `suites` or `web` failed or was
+# cancelled (skipped counts as passing); it is the check `.github/mergequeue.toml` names for sala's queue, which reads a skipped job as not passed.
 name: tests
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'queue/**']   # queue/** : sala's merge queue (`salamander mq`) tests each entry on a branch of that name; see TWO MERGE QUEUES above
+  merge_group:             # GitHub's merge queue: an entry's run is a pull request's (the selection); not in `push` (that would run it twice)
+    types: [checks_requested]
 permissions:   # tested.sh reads the runs and artifacts (actions) and the PR behind a merge commit (pull-requests); nothing here writes
   contents: read
   actions: read
@@ -63,8 +75,17 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
-          if [ "$EVENT" = pull_request ]; then
+          if [ "$EVENT" = merge_group ]; then
+            # GitHub's merge-queue entry: the checkout is the entry's head, and base_sha is its parent (main, or the entry ahead), so the entry's own change is base_sha..HEAD
+            from="$MG_BASE"; to=HEAD
+          elif [ "$EVENT" = push ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            # a push to a queue/** branch (sala's merge queue): main plus the PRs ahead plus this one; the change is everything since the merge base with main (any doubt is `none`: everything)
+            from=$(git merge-base HEAD origin/main 2>/dev/null) || from=none
+            [ -n "$from" ] || from=none
+            to=HEAD
+          elif [ "$EVENT" = pull_request ]; then
             # the checkout is GitHub's merge of the PR into main (refs/pull/N/merge): its first parent is main as merged
             # against; anything else (no merge commit, another head) is read as "everything changed"
             if [ "$(git rev-parse -q --verify HEAD^2 2>/dev/null)" = "$PR_HEAD" ]; then from=HEAD^1; else from=none; fi; to=HEAD
@@ -99,7 +120,7 @@ jobs:
       - uses: actions/checkout@v4
       - id: tested
         name: on main only, already passed on exactly this tree in the PR's run? (.github/scripts/tested.sh says why)
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: if .github/scripts/tested.sh tests.yml/suites@pull_request; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi
       - name: on a GitHub-hosted runner only, set the bare image up (Python 3.14, uv, tmux, lsof)
         if: steps.tested.outputs.skip != 'true'
@@ -116,17 +137,17 @@ jobs:
         run: |
           for t in tmux cc python3 flock lsof setsid; do command -v "$t" >/dev/null || { echo "missing on the runner: $t"; exit 1; }; done
           tmux -V; cc --version | head -1; python3 --version; command -v flock lsof
-      - name: the suites, side by side (a PR, the suites its change reaches; a push to main, every tests/*.sh, a new suite by its file alone)
+      - name: the suites, side by side (a PR or a merge-queue entry, the suites its change reaches; a push to main, every tests/*.sh, a new suite by its file alone)
         if: steps.tested.outputs.skip != 'true'
         env:
-          EVENT: ${{ github.event_name }}
+          ON_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}   # a PR, a GitHub merge-queue entry and a queue/** push run the selection; main runs everything
           SUITES: ${{ needs.changes.outputs.suites }}   # `all`, or names from tests/suitemap.sh --select: words, split below
         run: |
           # main always runs the full set: a suite the PR's map missed fails here, after the merge, instead of never
           # A hosted runner has two or four CPUs: every suite at once (run.sh's default) starved the timing checks
           # (a first hosted trial failed eight suites on clocks and waits alone), so a hosted runner runs two suites per CPU at a time
           j=(); if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then j=(-j "$(( $(nproc) * 2 ))"); echo "hosted runner: at most ${j[1]} suites at once"; fi
-          if [ "$EVENT" = pull_request ] && [ -n "$SUITES" ] && [ "$SUITES" != all ]; then
+          if [ "$ON_MAIN" != true ] && [ -n "$SUITES" ] && [ "$SUITES" != all ]; then
               echo "suites for this change: $SUITES"; bash tests/run.sh "${j[@]}" $SUITES
           else
               echo "every suite"; bash tests/run.sh "${j[@]}"
@@ -175,7 +196,7 @@ jobs:
       - uses: actions/checkout@v4
       - id: tested
         name: on main only, already passed on exactly this tree in the PR's run? (.github/scripts/tested.sh says why)
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: if .github/scripts/tested.sh tests.yml/web@pull_request; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi   # the artifact is recorded by the `web` job below, once every shard passed
       - name: on a GitHub-hosted runner only, set the bare image up (Python 3.14, uv, tmux, ttyd 1.7.7, and a check that Chrome is there)
         if: steps.tested.outputs.skip != 'true'
@@ -241,3 +262,20 @@ jobs:
       - name: remove the tested-tree marker (the upload has its own copy)
         if: always()
         run: rm -f "$RUNNER_TEMP/tested-web.txt"
+  gate:
+    # The one job that always runs on every event, and the check sala's merge queue reads (.github/mergequeue.toml `required`): that queue judges a check completed without `success` as failed, and `suites` and `web`
+    # are skipped when a change does not need them. Fails when `changes`, `suites` or `web` failed or was cancelled; success and skipped pass. Not a required check of the branch rule or of GitHub's queue (those name
+    # `changes`, `suites` and `web` themselves).
+    needs: [changes, suites, web]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: changes, suites and web each passed or were not needed
+        env:
+          RESULTS: changes=${{ needs.changes.result }} suites=${{ needs.suites.result }} web=${{ needs.web.result }}
+        run: |
+          echo "$RESULTS"
+          for r in $RESULTS; do
+            case "${r#*=}" in success|skipped) ;; *) echo "not passed: $r"; exit 1 ;; esac
+          done

@@ -1,0 +1,14 @@
+# The rules of `salamander mq` (sala's own merge queue) for this repository. Read by the queue from origin/main's tip at the start of every entry, never from a PR: a change to this file takes effect once it is on main
+# (docs/mq.md, "Using the queue for another repo"). The host file that switches the queue on (mode off | shadow | on) is not here; it lives on the machine that runs the queue (docs/merge-queues.md).
+# GitHub's own merge queue (a branch ruleset) does not read this file: it requires the checks named in the ruleset.
+
+base = "main"
+queue_mode = "chain"            # the only mode; may be left out
+queue_prefix = "queue/main/"    # tests.yml triggers on queue/**
+
+# `gate` is the job of tests.yml that always runs on a queue push and fails only when `changes`, `suites` or `web` failed. `suites` and `web` are skipped when a change does not need them, and mq reads a
+# check that completed without `success` as failed, so it cannot name them.
+required = ["gate"]
+
+# What a queue run tests, passed on to the workflow, which decides: "select" runs the suites the entry's change reaches (as a pull request's run does); main's full run after the merge catches a suite the selection missed.
+suites = "select"
