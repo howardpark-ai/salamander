@@ -28,12 +28,12 @@ Use one queue at a time. With GitHub's queue active, keep the host file at `off`
 
 ## What stays outside the repository
 
-Two rulesets and a host file. Ruleset ids are those of `howardpark-ai/salamander`.
+Two rulesets and a host file. Ruleset ids are those of the repository the commands below were run against; `<owner>/<repo>` stands for it in them.
 
 **The queue ruleset** (created `disabled`; `bypass_actors` is empty on purpose: nobody, administrators included, merges around the queue). Required checks are the three that branch protection requires:
 
 ```
-gh api repos/howardpark-ai/salamander/rulesets -X POST --input - <<'JSON'
+gh api repos/<owner>/<repo>/rulesets -X POST --input - <<'JSON'
 {
   "name": "main merge queue",
   "target": "branch",
@@ -65,7 +65,7 @@ JSON
 `gh-readonly-queue/…` branches and fast-forwards `main` as itself, which no bypass list names, so those two refs are excluded (the pattern has two stars because the branch name has two slashes after the prefix):
 
 ```
-gh api repos/howardpark-ai/salamander/rulesets/26763160 -X PUT --input - <<'JSON'
+gh api repos/<owner>/<repo>/rulesets/26763160 -X PUT --input - <<'JSON'
 {
   "name": "bot-only-pushes",
   "target": "branch",
@@ -84,11 +84,11 @@ JSON
 
 While the queue ruleset is active, its `merge_queue` rule is what keeps everyone from pushing to `main`, so excluding `main` here opens nothing. If the queue ruleset is ever disabled, put `refs/heads/main` back out of `exclude` first.
 
-**The sala queue's host file**, `~/.config/mergequeue/howardpark-ai__salamander.toml` on the machine that runs it. No file means `off`. To run a shadow pass:
+**The sala queue's host file**, `~/.config/mergequeue/<owner>__<repo>.toml` on the machine that runs it. No file means `off`. To run a shadow pass:
 
 ```
 mode = "shadow"
-remote = "https://github.com/howardpark-ai/salamander.git"
+remote = "https://github.com/<owner>/<repo>.git"
 git_name = "salamander contributors"
 git_email = "noreply@example.invalid"
 ```
@@ -100,9 +100,9 @@ git_email = "noreply@example.invalid"
 Order matters: a required check that never reports stalls the queue.
 
 1. The PR that adds the workflow trigger, `gate`, the rules file and `release.sh` support merges first, the direct way (`release.sh <pr>`).
-2. Create the queue ruleset `disabled` (above). Read it back: `gh api repos/howardpark-ai/salamander/rulesets`.
+2. Create the queue ruleset `disabled` (above). Read it back: `gh api repos/<owner>/<repo>/rulesets`.
 3. Edit `bot-only-pushes` (above). Read it back.
-4. Enable: `gh api repos/howardpark-ai/salamander/rulesets/<queue ruleset id> -X PUT -F enforcement=active`.
+4. Enable: `gh api repos/<owner>/<repo>/rulesets/<queue ruleset id> -X PUT -F enforcement=active`.
 5. Prove it (below). From then on `release.sh <pr>` enqueues by itself.
 
 Administration permission on the repository is needed for steps 2 to 4. `gh pr merge --admin` cannot merge while the queue ruleset is active (there is no bypass), which is why `release.sh` has the queue path.
@@ -120,14 +120,14 @@ For `sala mq`: set `mode = "on"` in the host file with GitHub's queue disabled (
 
 **GitHub's queue.** A throwaway docs-only PR (so `suites` and `web` are skipped and `gate` passes at once): `release.sh <pr>`. Expected: a `merge_group` run on a `gh-readonly-queue/main/pr-<n>-<sha>` branch,
 its `changes`, `suites`, `web` and `gate` checks, the PR MERGED, the head branch deleted, `deploy.sh` run, one `[release]` message saying it merged "through GitHub's merge queue".
-`gh api repos/howardpark-ai/salamander/rulesets` and `gh run list --event merge_group` show the state.
+`gh api repos/<owner>/<repo>/rulesets` and `gh run list --event merge_group` show the state.
 
 **`sala mq` in shadow.** With the host file at `mode = "shadow"` and GitHub's queue disabled:
 
 ```
-salamander mq doctor --repo howardpark-ai/salamander      # exit 0
-salamander mq add <pr> --repo howardpark-ai/salamander
-salamander mq wait <pr> --timeout 1800 --repo howardpark-ai/salamander   # exit 3: tested in shadow, nothing merged
+salamander mq doctor --repo <owner>/<repo>      # exit 0
+salamander mq add <pr> --repo <owner>/<repo>
+salamander mq wait <pr> --timeout 1800 --repo <owner>/<repo>   # exit 3: tested in shadow, nothing merged
 ```
 
 Then set the mode back to `off`. Exit codes of `mq wait`: 0 merged, 1 failed, 2 gave up, 3 tested in shadow, 4 replay skip.
@@ -139,4 +139,4 @@ Then set the mode back to `off`. Exit codes of `mq wait`: 0 merged, 1 failed, 2 
 - Branch protection on `main` stays (`changes`, `suites`, `web`, administrators included), so the required checks apply to the queue's ref and to `main` both.
 - `merge_group.base_sha` is `main`'s head for an entry at the front of the queue; for an entry stacked on another it may be the entry ahead. Either only changes which suites are selected, never whether a required check reports.
 - Only GitHub's queue and `sala mq` write `gh-readonly-queue/…` and `queue/…` branches; neither is a branch to work on.
-- GitHub's merge queue was proven on Sun Nov 8th 2026: a lone PR went through `release.sh` and merged through the queue (board#1057).
+- GitHub's merge queue was proven on Sun Nov 8th 2026: a lone PR went through `release.sh` and merged through the queue.
