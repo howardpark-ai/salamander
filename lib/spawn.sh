@@ -141,7 +141,8 @@ if d.get('tmux'): print('%-24s %-10s %s%s' % (d.get('name','?'), d.get('version'
     exit 0
 fi
 
-: "${SALA_SPAWN_ASK_CMD=${SALA_STACKSHOT_DIR:+python3 $SALA_STACKSHOT_DIR/client.py message}}"    # the stackshot message that asks a page's keeper for an unlisted name's line (unset: this default, none without SALA_STACKSHOT_DIR; set empty: never asked)
+stackshot_prog_r _SPAWN_CLIENT "${SALA_STACKSHOT_DIR-}" client   # lib/stackshot-path.sh: the package path of stackshot's client, else the root path of an older checkout
+: "${SALA_SPAWN_ASK_CMD=${SALA_STACKSHOT_DIR:+python3 $_SPAWN_CLIENT message}}"    # the stackshot message that asks a page's keeper for an unlisted name's line (unset: this default, none without SALA_STACKSHOT_DIR; set empty: never asked)
 : "${SALA_SPAWN_ASK_EVERY:=3600}"                                       # seconds before the same name's keeper is asked again
 SPAWN_LOG="$SALA_LOG_DIR/salamander-spawn.log"
 spawn_log() { mkdir -p "$SALA_LOG_DIR" 2>/dev/null; echo "[$(date -Is)] spawn ${NAME:-?}: $*" >> "$SPAWN_LOG" 2>/dev/null || true; }
@@ -400,11 +401,12 @@ shell_dq() {  # <text> → the text double-quoted for a shell (backslash, ", $ a
     printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"$`]/\\&/g')"
 }
 register_cmd() {  # <page key> <front|back, or empty for either> <name> <mandate line> <the project's -main agent, or empty> → stackshot's register command (words only: sala never runs it)
-    local key=$1 r=$2 name=$3 line=$4 pmain=${5:-} role='<role>' pre flag
+    local key=$1 r=$2 name=$3 line=$4 pmain=${5:-} role='<role>' pre flag rel
+    stackshot_rel_r rel "${SALA_STACKSHOT_DIR:-$HOME/stackshot}" client   # the client's path below the checkout, as this box has it (lib/stackshot-path.sh)
     pre=${pmain%-main}   # the project's name is its -main agent's without -main; the role is the part of NAME after it
     if [ -n "$pmain" ] && [ "$pre" != "$pmain" ] && [ "${name#"$pre"-}" != "$name" ] && [ -n "${name#"$pre"-}" ]; then role=${name#"$pre"-}; fi
     case "$r" in front) flag=--front ;; back) flag=--back ;; *) flag='--front|--back' ;; esac
-    printf 'python3 ~/stackshot/client.py post project-agent %s %s --role %s %s --mandate %s' "$key" "$name" "$role" "$flag" "$([ -n "$line" ] && shell_dq "$line" || echo '"<one line>"')"
+    printf 'python3 ~/stackshot/%s post project-agent %s %s --role %s %s --mandate %s' "$rel" "$key" "$name" "$role" "$flag" "$([ -n "$line" ] && shell_dq "$line" || echo '"<one line>"')"
 }
 spawn_ask_keeper() {  # <page key> <mandate line> <what pages.py said> <the register command> — one stackshot message to the page's keeper, detached; never when a register hook owns registration
     local stamp="$SALA_STATE_DIR/spawn-asked/$NAME" now last text role="${ROLE:-front}"

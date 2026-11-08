@@ -221,13 +221,13 @@ Good result: `tmux source-file ~/.tmux.conf` prints nothing. After a reboot, `sa
 
 Skip this step until the board is running. Follow the [board guide](https://github.com/howardpark-ai/stackshot/blob/main/docs/board-alone-guide.md) first. It puts the board in `~/stackshot`.
 
-sala finds the board's tools through one setting, `SALA_STACKSHOT_DIR`. Its default is `~/stackshot`, so a board in that folder needs no setting.
+sala finds the board's tools through one setting, `SALA_STACKSHOT_DIR`. Its default is `~/stackshot`, so a board in that folder needs no setting. The tools sit at stackshot's package paths below it (`stackshot/fleet/client.py`); a board checkout from before that package keeps `client.py` in its root, and sala uses it there while it is the only one.
 
 Then turn on the two board lines in `~/.config/salamander/config`:
 
 ```bash
-SALA_RECYCLE_WANTED_CMD="python3 ~/stackshot/client.py recycle-wanted"
-SALA_POST_RECYCLE_CMD="python3 ~/stackshot/client.py recycled"
+SALA_RECYCLE_WANTED_CMD="python3 ~/stackshot/stackshot/fleet/client.py recycle-wanted"
+SALA_POST_RECYCLE_CMD="python3 ~/stackshot/stackshot/fleet/client.py recycled"
 SALA_QUESTION_PROJECT="projects/getting-started"
 SALA_STACKSHOT_WEB="https://board.example.com"
 ```
@@ -236,9 +236,9 @@ SALA_STACKSHOT_WEB="https://board.example.com"
 - `SALA_QUESTION_PROJECT` is the project page a filed question belongs to. It has no default: with it empty, a parked question is not filed on the board and the log names the setting. Name a page of your own.
 - `SALA_STACKSHOT_WEB` is the board's public address. It makes the links in a session's brief and in the web UI.
 
-The project page named in `SALA_QUESTION_PROJECT` must list at least one front agent under `agents:` in its frontmatter, for example `agents:` followed by an indented line `alex-main: talks to Alex about this project`. Without one, the board refuses a filed question with `lists no front agent`. The board reads the pages through a registry that it refreshes by itself after a write and at least every 10 minutes, so an edit takes effect within 10 minutes. To refresh it at once, run `STACKSHOT_CONFIG=~/.config/stackshot/stackshot.toml python3 ~/stackshot/pages.py registry`.
+The project page named in `SALA_QUESTION_PROJECT` must list at least one front agent under `agents:` in its frontmatter, for example `agents:` followed by an indented line `alex-main: talks to Alex about this project`. Without one, the board refuses a filed question with `lists no front agent`. The board reads the pages through a registry that it refreshes by itself after a write and at least every 10 minutes, so an edit takes effect within 10 minutes. To refresh it at once, run `STACKSHOT_CONFIG=~/.config/stackshot/stackshot.toml python3 ~/stackshot/stackshot/projects/pages.py registry`.
 
-Good result: `python3 ~/stackshot/client.py recycle-wanted` prints a number (`0` when nothing waits), `python3 ~/stackshot/client.py recycled` prints that no item waits for a recycle, and `sala question file <id>` (for a question a session parked) creates an item on the board. The install check ran all three against a board on its own port.
+Good result: `python3 ~/stackshot/stackshot/fleet/client.py recycle-wanted` prints a number (`0` when nothing waits), `python3 ~/stackshot/stackshot/fleet/client.py recycled` prints that no item waits for a recycle, and `sala question file <id>` (for a question a session parked) creates an item on the board. The install check ran all three against a board on its own port.
 
 **Without a board**, leave step 9 out and set `SALA_STACKSHOT_DIR=""` (empty). Every board command then stays empty at once. One command still refuses: `sala spawn NAME --project <page> --role front|back` checks the board's project record and refuses when it cannot. `SALA_AGENT_CHECK=off` turns that check off for every spawn. Plain `sala spawn` needs neither.
 

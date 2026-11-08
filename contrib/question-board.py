@@ -10,7 +10,7 @@ when those are unset and the client exists (docs/stuck-question-recovery.md).
   answer   SALA_QUESTION_ID and SALA_QUESTION_ITEM in the environment. Reads `client.py get answer <item>` and prints the owner's answer
            only when it is a DECISION (never a comment) and fits the parked call; otherwise nothing and exit 1 ("not yet").
 
-Settings: SALA_STACKSHOT_CLIENT (default SALA_STACKSHOT_DIR/client.py; ~/stackshot/client.py when that is unset, no client when it is empty), SALA_QUESTION_PROJECT (the project page the item belongs to; no default, the filer refuses with none), SALA_QUESTION_SCOPE (the subject bracket; lib/question.sh sets it from SALA_DEFAULT_SCOPE).
+Settings: SALA_STACKSHOT_CLIENT (default stackshot/fleet/client.py under SALA_STACKSHOT_DIR, client.py there on a checkout from before stackshot's package; ~/stackshot when that is unset, no client when it is empty), SALA_QUESTION_PROJECT (the project page the item belongs to; no default, the filer refuses with none), SALA_QUESTION_SCOPE (the subject bracket; lib/question.sh sets it from SALA_DEFAULT_SCOPE).
 Needs SALA_STATE_DIR in the environment (lib/question.sh sets it) to find the parked record; without it the XDG default is used.
 
 What the board takes, and how the item is shaped for it (checked against stackshot's server.py and render.py):
@@ -56,13 +56,20 @@ def load_record(qid):
         return {}
 
 
+def stackshot_client_in(d):
+    """The client under stackshot's checkout <d>: stackshot/fleet/client.py, or client.py in the root of a checkout from before the
+    package (stackshot leaves a forwarder there until Sun Nov 22nd 2026; lib/stackshot-path.sh is the shell side of this)."""
+    new = os.path.join(d, "stackshot", "fleet", "client.py")
+    old = os.path.join(d, "client.py")
+    return old if os.path.isfile(old) and not os.path.isfile(new) else new
+
 def client_path():
-    if os.environ.get("SALA_STACKSHOT_CLIENT"):
+    if os.environ.get("SALA_STACKSHOT_CLIENT"):   # a setting that names the file wins over the probe
         return os.environ["SALA_STACKSHOT_CLIENT"]
     d = os.environ.get("SALA_STACKSHOT_DIR")   # unset: ~/stackshot; set empty: this box has no stackshot
     if d is None:
         d = os.path.join(os.path.expanduser("~"), "stackshot")
-    return os.path.join(d, "client.py") if d else ""
+    return stackshot_client_in(d) if d else ""
 
 
 def run_client(args, stdin_text=None, timeout=50):

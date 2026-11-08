@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 42
+contract-version: 43
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -279,6 +279,15 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   and keeps the folder under 1 GB. The pass asks the host, through the command named in `SALA_MOCKUP_REFERENCES`, which pages an open board item links; no stackshot route or client call is added, and
   with the setting unset the pass deletes nothing. Nothing of stackshot changed.
 
+- **43** — Mon Nov 9th 2026. Every interface that names a stackshot program by path (the post-recycle hook, recycle-wanted, the agents-map checks, the spawn keeper ask, the release report, sala-web roles, the parked-question seams, the CLI update hook, project agent retire, the terminal-prompt row, the unit-gap item, the fleet-op end event, the side-session commands): stackshot moved its programs from the root of its checkout into a package,
+  and leaves a forwarder at each old root path until Sun Nov 22nd 2026. sala's defaults follow: the client is `stackshot/fleet/client.py` under `SALA_STACKSHOT_DIR` (was `client.py`), the agents-map script
+  `stackshot/projects/pages.py` (was `pages.py`), the update hook's example `stackshot/web/publish.py bump` (was `publish.py`), and the mockup pass's example `stackshot/tools/open_item_text.py` (was
+  `tools/open_item_text.py`). One helper per language finds them (`lib/stackshot-path.sh`; a small function in each Python module that needs it): the package path when that file exists, else the old
+  root path when only that one does (a checkout from before the package), else the package path. A setting that names the file or the command itself (`SALA_STACKSHOT_CLIENT`, `STACKSHOT_CLIENT`,
+  `SALA_AGENT_CHECK_SCRIPT`, `SALA_SPAWN_ASK_CMD`, `SALA_SIDE_*_CMD`, `SALA_POST_UPDATE_CMD`, `SALA_POST_RECYCLE_CMD`, `SALA_RECYCLE_WANTED_CMD`, `SALA_MOCKUP_REFERENCES`, `SALA_WEB_ROLES_CMD`) is used as written and
+  never probed, so a config line naming an old root path works until its forwarder goes. The register command that `spawn --project` prints names the client's path as this box has it. Nothing
+  stackshot reads or sends changed.
+
 ## How each entry reads
 
 - **Direction**: `sala → stackshot` means sala writes or calls and stackshot reads or answers; `stackshot → sala` the
@@ -405,14 +414,14 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 ## 4. Post-recycle hook
 
 - **Direction**: sala → stackshot (CLI).
-- **Mechanism**: `SALA_POST_RECYCLE_CMD` (unset by default; a machine running stackshot sets `python3 ~/stackshot/client.py recycled`,
+- **Mechanism**: `SALA_POST_RECYCLE_CMD` (unset by default; a machine running stackshot sets `python3 ~/stackshot/stackshot/fleet/client.py recycled`,
   `config.example:139-141`), run detached with `sh -c` ONCE PER CLEARED FLAG (version 19): a recycle's flag clears when every
   live pane has relaunched since the flag's time, or partly when a pane is held past `SALA_LATER_LIMIT`; a clean reboot calls it
   once. Environment it sees: `SALA_RECYCLE_KIND=recycle|reboot`, `SALA_RECYCLE_STARTED=<epoch>` and
   `SALA_RECYCLE_FLAG_AT=<epoch>` (the flag's time, the same number), `SALA_RECYCLE_RESULT=ok|partial` (ok iff nothing skipped),
   `SALA_RECYCLE_SKIPPED="<tmux sessions the flag did not get back, space-separated>"`. Example for a partial clear:
   `SALA_RECYCLE_KIND=recycle SALA_RECYCLE_STARTED=1790000000 SALA_RECYCLE_FLAG_AT=1790000000 SALA_RECYCLE_RESULT=partial
-  SALA_RECYCLE_SKIPPED="scratch-1" python3 ~/stackshot/client.py recycled`. sala parses one output line,
+  SALA_RECYCLE_SKIPPED="scratch-1" python3 ~/stackshot/stackshot/fleet/client.py recycled`. sala parses one output line,
   `… no longer wait for a recycle (<ids>)`, into `$SALA_STATE_DIR/recycle-cleared/<epoch>-<pid>.ids` when the command
   exits 0 and the watchdog holds served ids.
 - **Owners**: sala `lib/common.sh:1526-1569` `post_recycle_hook`. stackshot `client.py:145` `recycled()` (reads the four
@@ -430,7 +439,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 ## 5. Recycle-wanted
 
 - **Direction**: stackshot → sala (sala asks).
-- **Mechanism**: `SALA_RECYCLE_WANTED_CMD` (unset by default; a machine running stackshot sets `python3 ~/stackshot/client.py recycle-wanted`,
+- **Mechanism**: `SALA_RECYCLE_WANTED_CMD` (unset by default; a machine running stackshot sets `python3 ~/stackshot/stackshot/fleet/client.py recycle-wanted`,
   `config.example:77`), `sh -c`, 20 s timeout, cached 10 min in the watch state. Output: `<count> <id> <id> …` on one line;
   a non-numeric first token counts as 0. From version 30 each id may carry two optional suffixes, `<id>[@<epoch>][~<ref>]`
   (sala already reads `@<epoch>`: a changed epoch makes the same id a new flag): `@<epoch>` is the flag's time
@@ -466,7 +475,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Mechanism**: `python3 <pages.py> resolve <key>` prints `<key> True|False|None`, exit 0 only for True;
   `python3 <pages.py> agent-listed <name>` exits 0 listed or nothing to check (with a `listed on <key>: <mandate>` line
   when listed), 3 not listed, 2 cannot tell ("cannot tell: no brain mirror on this machine"). The script:
-  `SALA_AGENT_CHECK_SCRIPT`, else `$SALA_STACKSHOT_DIR/pages.py` (`~/stackshot/pages.py` when the knob is unset; none when it is
+  `SALA_AGENT_CHECK_SCRIPT`, else `$SALA_STACKSHOT_DIR/stackshot/projects/pages.py` (`~/stackshot/stackshot/projects/pages.py` when the knob is unset; none when it is
   empty). The frozen-copy fallback (a copy of `pages.py` in a host config repo) was dropped in version 11. Knobs `SALA_AGENT_CHECK=on|off`,
   `SALA_PAGE_DIRS` (default `projects`; mirrors stackshot.toml `[pages] dirs`).
 - **Owners**: sala `lib/common.sh:592` `agent_unlisted` (plain spawn and rename: fail-open, only exit 3 refuses, 10 s
@@ -486,7 +495,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 ## 8. Spawn keeper ask
 
 - **Direction**: sala → stackshot (CLI message).
-- **Mechanism**: `SALA_SPAWN_ASK_CMD` (unset → `python3 $SALA_STACKSHOT_DIR/client.py message`, `~/stackshot` when that is unset, none when it
+- **Mechanism**: `SALA_SPAWN_ASK_CMD` (unset → `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py message`, `~/stackshot` when that is unset, none when it
   is empty; set empty → never asked),
   run as `<cmd> <page key> <text> --sender "sala spawn"`, detached, 150 s timeout, at most once per
   `SALA_SPAWN_ASK_EVERY` (3600 s) per name (stamp `$SALA_STATE_DIR/spawn-asked/<name>`). The text starts `[sala spawn] …`
@@ -502,7 +511,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 ## 9. Release report
 
 - **Direction**: sala → stackshot (CLI message).
-- **Mechanism**: `release.sh` `CLIENT="${STACKSHOT_CLIENT:-$SALA_STACKSHOT_DIR/client.py}"` (`~/stackshot` when the knob is unset;
+- **Mechanism**: `release.sh` `CLIENT="${STACKSHOT_CLIENT:-$SALA_STACKSHOT_DIR/stackshot/fleet/client.py}"` (`~/stackshot` when the knob is unset;
   empty: no client, the message is only logged; from the environment, the script reads no config), `tell()` runs
   `python3 "$CLIENT" message <project page key> "<text>" --sender release`; texts
   `[release] PR #N merged and deployed — <title> — main at <sha>; changed: …` and `[release] PR #N FAILED at <step>: …`.
@@ -549,7 +558,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 ## 11. sala-web roles
 
 - **Direction**: sala's web app → stackshot (CLI).
-- **Mechanism**: `SALA_WEB_ROLES_CMD` (default `python3 $SALA_STACKSHOT_DIR/client.py get roles`: `~/stackshot` when `SALA_STACKSHOT_DIR` is
+- **Mechanism**: `SALA_WEB_ROLES_CMD` (default `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles`: `~/stackshot` when `SALA_STACKSHOT_DIR` is
   unset in sala-web's environment, no command when it is empty, `config.py` `_roles_cmd`), every
   `roles_ttl` 30 s; expects JSON `{"sessions": {<name>: {"role", "project"}}}`.
 - **Owners**: sala `web/src/sala_web/sessions.py:377` `RolesCache`. stackshot `client.py:107` `get("roles")` →
@@ -662,7 +671,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 
 - **Direction**: sala → stackshot (CLI), a file call and a read call.
 - **Mechanism**: `SALA_QUESTION_FILE_CMD` / `SALA_QUESTION_ANSWER_CMD`, whose default (unset, and the client exists at
-  `SALA_STACKSHOT_CLIENT`, default `$SALA_STACKSHOT_DIR/client.py`: `~/stackshot/client.py` when that is unset, none when it is empty) is `contrib/question-board-file.sh` / `-answer.sh`. File:
+  `SALA_STACKSHOT_CLIENT`, default `$SALA_STACKSHOT_DIR/stackshot/fleet/client.py`: `~/stackshot/stackshot/fleet/client.py` when that is unset, none when it is empty) is `contrib/question-board-file.sh` / `-answer.sh`. File:
   `client.py post question --project <SALA_QUESTION_PROJECT, no default> --subject "[<scope>] <label>: <question>" (the scope: SALA_DEFAULT_SCOPE, else the first of SALA_SCOPES, else no bracket)
   --request-id <question id> --ask "Decide: … · Recommend: … · Stakes: … · By: …" [--option "<label>=<line>" …]
   [--recommended <label>] --sender <label>`, the question text on stdin (at most 5 lines and 8,000 characters; sala cuts it
@@ -820,7 +829,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   go in the environment, `SALA_UPDATE_HOSTS` (space-separated) and `SALA_UPDATE_HOST` (set only when exactly one), and the
   command may use them to scope its own check. Before the command runs, sala runs the heartbeat once (when
   `SALA_HEARTBEAT_STATE_DIR` or `SALA_HEARTBEAT_REPO` is set and a host was touched) so that the installed versions are in the
-  store (interface 1) before the lookup. A typical setting is `python3 ~/stackshot/publish.py bump` (host config in
+  store (interface 1) before the lookup. A typical setting is `python3 ~/stackshot/stackshot/web/publish.py bump` (host config in
   `~/.config/salamander/config`, not in this repo; `config.example` leaves it empty). sala does not call stackshot's MCP tool by
   that name: `publish.py bump [--host <fleet name>]` is the same action as the `bump_versions` tool (`bump()` →
   `publish(force_versions=True)`: refresh the latest-available versions of the claude-code npm package and other tracked releases,
@@ -839,7 +848,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 
 - **Direction**: sala → stackshot (a CLI call sala runs from the machine that drives; stackshot answers over its own HTTP route). Added in version 16.
 - **Mechanism**: `python3 <client.py> post project-agent-retire <project> <name> --sender sala-retire` (`retire_drop_agent`, `lib/common.sh`;
-  called at the end of `lib/retire.sh`; the client is `stackshot_client`: `SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/client.py`). Run under
+  called at the end of `lib/retire.sh`; the client is `stackshot_client`: `SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/stackshot/fleet/client.py`). Run under
   `timeout 90` with stdin `/dev/null` (version 25; 45 before: stackshot now reads and writes the page, which takes longer than the one read it used to make), once per successful retire (not in `--dry-run`, which
   only says "would tell stackshot …"). `<project>` is the hub page key (`projects/<slug>`, `infra/<slug>`): the session's registry row `project`
   (`retire_project_of`, read before the retire marks the row retired), else a side session's record `project`, else its origin agent's, else the
@@ -874,7 +883,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 
 ## 24. Terminal-prompt "Your move" row
 
-- **Direction**: sala → stackshot (CLI, from the machine that drives, `python3 <client.py> post terminal-prompt …`; `client.py` is found by `stackshot_client`: `SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/client.py`).
+- **Direction**: sala → stackshot (CLI, from the machine that drives, `python3 <client.py> post terminal-prompt …`; `client.py` is found by `stackshot_client`: `SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/stackshot/fleet/client.py`).
 - **Mechanism**: `post terminal-prompt open --session <name> --question=<text> --sender sala-stuck`: exit 0 prints the item id; exit 1 prints
   the reason on stderr; a second open for the same session updates the question. `<text>` is the post's own summary (`sq_read`, border lines
   dropped), whitespace folded to one line, at most 200 characters, passed as `--question=<text>` so a text starting with `-` is no option.
@@ -892,7 +901,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 
 ## 26. Unit-gap item
 
-- **Direction**: sala → stackshot (CLI, from the machine that drives, `client.py post job-gap`; `client.py` is found as for interface 18: `SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/client.py`, `~/stackshot/client.py` when that is unset).
+- **Direction**: sala → stackshot (CLI, from the machine that drives, `client.py post job-gap`; `client.py` is found as for interface 18: `SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/stackshot/fleet/client.py`, `~/stackshot/stackshot/fleet/client.py` when that is unset).
 - **Mechanism**: for a new gap, `client.py post job-gap open <timer> <code> --repo <owner/name> --detail "<one line, at most 600 characters>" --sender sala-unit-gaps`
   (two-argument options only: `--repo X`, never `--repo=X`); exit 0 prints the item id. `<code>` is one of `no-description`, `no-lane`, `bad-lane`, `no-project`, `not-git`,
   `git-differs`; `<timer>` is the unit's name (`x.timer`). `--repo` is the last column of the repo table (`~/.config/salamander/unit-repos.tsv`, else `lib/unit-repos.tsv`) for the repo that holds the timer's script
@@ -949,7 +958,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Direction**: sala → stackshot (sala calls the client; stackshot wakes the items whose event wait the report ends).
 - **Mechanism**: `python3 <client.py> event --kind fleet_op --verb <verb> --machine <full hostname> --sessions <N> --result ok|partial|failed --text "<one line>"`,
   run by `op_event` (`lib/op.sh`) as the last act of `op_finish`, with `timeout $SALA_OP_EVENT_TIMEOUT` (30 s), stdin closed, no lock held. The client is
-  `stackshot_client` (`SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/client.py`). `--verb` is the op's verb (recycle, update, revive, retire,
+  `stackshot_client` (`SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/stackshot/fleet/client.py`). `--verb` is the op's verb (recycle, update, revive, retire,
   close-shell, forget-row, rename, lane, model, provision, spawn, reboot). `--machine` is the box that ran the op, or the one host an `update` / `provision`
   names. `--sessions` is the sessions the op covered: those it names when more than one (a lane or model batch, `revive --only` several), else the relaunch
   set's total (a recycle, an update, a whole-fleet provision), else 1 for a verb on one session, else 0. `--result`: `ok` = done and nothing failed or

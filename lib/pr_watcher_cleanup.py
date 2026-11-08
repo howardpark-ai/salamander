@@ -386,14 +386,21 @@ def session_info_for(api):
     return info
 
 
+def stackshot_client_in(d):
+    """The client under stackshot's checkout <d>: stackshot/fleet/client.py, or client.py in the root of a checkout from before the
+    package (stackshot leaves a forwarder there until Sun Nov 22nd 2026; lib/stackshot-path.sh is the shell side of this)."""
+    new = os.path.join(d, "stackshot", "fleet", "client.py")
+    old = os.path.join(d, "client.py")
+    return old if os.path.isfile(old) and not os.path.isfile(new) else new
+
 def stackshot_client():
-    c = os.environ.get("SALA_STACKSHOT_CLIENT")
+    c = os.environ.get("SALA_STACKSHOT_CLIENT")   # a setting that names the file wins over the probe
     if c:
         return c
     d = os.environ.get("SALA_STACKSHOT_DIR")
     if d is None:
         d = os.path.join(os.path.expanduser("~"), "stackshot")
-    return os.path.join(d, "client.py") if d else ""
+    return stackshot_client_in(d) if d else ""
 
 
 def ask_via_client(sid, text):

@@ -106,7 +106,7 @@ printf '#!/bin/bash\nexit 3\n' > "$HOME/bin/systemctl"   # no unit is active
 chmod +x "$HOME/bin/gh" "$HOME/bin/systemd-run" "$HOME/bin/systemctl"
 
 # the production checkout stand-in: a copy of release.sh next to a deploy.sh that only logs
-CO="$HOME/co"; mkdir -p "$CO/lib"; cp "$ROOT/release.sh" "$CO/release.sh"; cp "$ROOT/lib/cipoll.py" "$CO/lib/cipoll.py"
+CO="$HOME/co"; mkdir -p "$CO/lib"; cp "$ROOT/release.sh" "$CO/release.sh"; cp "$ROOT/lib/cipoll.py" "$CO/lib/cipoll.py"; cp "$ROOT/lib/stackshot-path.sh" "$CO/lib/stackshot-path.sh"
 cat > "$CO/deploy.sh" <<'FAKE'
 #!/bin/bash
 echo "deploy.sh $*" >> "$FAKE_DIR/calls"
@@ -224,6 +224,16 @@ reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; echo "$
 out=$(STACKSHOT_CLIENT= bash "$CO/release.sh" --run 12 2>&1); rc=$?
 [ "$rc" = 0 ] && called "^deploy.sh $" && [ ! -e "$FAKE_DIR/all" ] && [ "$(printf '%s\n' "$out" | grep -c 'stackshot not configured: live release not reported')" = 1 ] && [[ "$out" == *"message not sent: [release] PR #12 merged and deployed"* ]] \
     && ok "no client (STACKSHOT_CLIENT and SALA_STACKSHOT_DIR empty): nothing sent, one 'stackshot not configured' line, the release goes on" || bad "no client: rc=$rc all=$(cat "$FAKE_DIR/all" 2>/dev/null) $out"
+# the client from the stackshot checkout (STACKSHOT_CLIENT unset): the package path of a new checkout, the root path of an old one, the package path when both are there
+for lay in new old both; do
+    SST="$HOME/sstree-$lay"; rm -rf "$SST"; mkdir -p "$SST/stackshot/fleet"
+    case "$lay" in new|both) cp "$HOME/client.py" "$SST/stackshot/fleet/client.py" ;; esac
+    case "$lay" in old) cp "$HOME/client.py" "$SST/client.py" ;; both) printf 'import sys; sys.exit(9)\n' > "$SST/client.py" ;; esac   # the old root file of "both" is a forwarder: it must not be the one called
+    reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; echo "$MSHA" > "$FAKE_DIR/mergeoid"
+    out=$(env -u STACKSHOT_CLIENT SALA_STACKSHOT_DIR="$SST" bash "$CO/release.sh" --run 12 2>&1); rc=$?
+    [ "$rc" = 0 ] && [ "$(released_of)" = "--pr https://github.com/o/r/pull/12 --sha $MSHA" ] \
+        && ok "SALA_STACKSHOT_DIR with a $lay checkout: the release was reported through the client the probe found" || bad "dir $lay: rc=$rc released=$(released_of) $out"
+done
 # a failed release never reports
 reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; echo "$MSHA" > "$FAKE_DIR/mergeoid"; export FAKE_DEPLOY_FAIL=1
 release --run 12

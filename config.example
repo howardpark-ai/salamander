@@ -28,13 +28,15 @@
                                  #   output goes to ~/.claude/salamander-spawn.log; a failure or a hang (60 s) is one ⚠ line, never the exit status.
                                  #   Unset (the default): a no-op that logs `spawn-register: no hook configured` — the page's agents line, written
                                  #   by its keeper, is the registration. While it is set, no message asks a keeper for an unlisted name (below)
-#SALA_STACKSHOT_DIR=~/stackshot   # where stackshot's checkout is: the one place the default stackshot commands below come from (pages.py,
-                                 #   client.py: the spawn keeper ask, the side-session commands, the parked-question board scripts, release.sh, sala-web's roles).
+#SALA_STACKSHOT_DIR=~/stackshot   # where stackshot's checkout is: the one place the default stackshot commands below come from (stackshot/projects/pages.py,
+                                 #   stackshot/fleet/client.py: the spawn keeper ask, the side-session commands, the parked-question board scripts, release.sh, sala-web's roles).
+                                 #   A checkout from before stackshot moved its programs into a package has them in its root (pages.py, client.py): while that file is
+                                 #   all the checkout has, the default is the root path (lib/stackshot-path.sh); the package path wins whenever both exist.
                                  #   Unset: ~/stackshot, as before. Set EMPTY on a box with no stackshot: every one of those defaults is empty at once. The
                                  #   explicit knobs (SALA_AGENT_CHECK_SCRIPT, SALA_SPAWN_ASK_CMD, SALA_SIDE_*_CMD, SALA_STACKSHOT_CLIENT, STACKSHOT_CLIENT,
                                  #   SALA_WEB_ROLES_CMD) win over it. release.sh and sala-web read the environment only, not this file
-#SALA_SPAWN_ASK_CMD="python3 ~/stackshot/client.py message"   # the stackshot message that asks a page's keeper for an unlisted name's agents line
-                                 #   (default: `python3 $SALA_STACKSHOT_DIR/client.py message`; `<cmd> <page key> <text> --sender "sala spawn"`, detached, 150 s); set it empty to never ask
+#SALA_SPAWN_ASK_CMD="python3 ~/stackshot/stackshot/fleet/client.py message"   # the stackshot message that asks a page's keeper for an unlisted name's agents line
+                                 #   (default: `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py message`; `<cmd> <page key> <text> --sender "sala spawn"`, detached, 150 s); set it empty to never ask
 #SALA_SPAWN_ASK_EVERY=3600        # seconds before the same name's keeper is asked again (the stamp: ~/.local/state/salamander/spawn-asked/<name>)
 #SALA_AGENT_NAME_MAX=48           # a project agent's name: lowercase letters, digits and dashes, no dash at either end, at most this many characters
 #SALA_PAGE_DIRS="projects"       # the page directories a --project key may start with, space-separated and quoted (stackshot.toml [pages] dirs on
@@ -46,7 +48,7 @@
                                  #   for the page's last change instead and the web UI's project list is empty with that reason
 #SALA_AGENT_CHECK=on              # the agents-map checks through stackshot's pages.py (a project spawn: `resolve` and `agent-listed`, never fail-open;
                                  #   a plain spawn or rename: `agent-listed`, fail-open); off: skipped (the suites, a box with no brain)
-#SALA_AGENT_CHECK_SCRIPT=~/stackshot/pages.py   # where pages.py is (default: $SALA_STACKSHOT_DIR/pages.py; the suites point it at a stub). `spawn --project` is
+#SALA_AGENT_CHECK_SCRIPT=~/stackshot/stackshot/projects/pages.py   # where pages.py is (default: $SALA_STACKSHOT_DIR/stackshot/projects/pages.py; the suites point it at a stub). `spawn --project` is
                                  #   the one command that needs stackshot (its project record or this script) and the brain mirror: with neither it refuses
                                  #   ("cannot tell"), by design, and SALA_AGENT_CHECK=off is the only bypass
 #SALA_SNAPSHOT_CMD=              # `snapshot` runs this instead of save.sh directly, e.g. systemctl --user start --no-block tmux-resurrect-save.service
@@ -189,7 +191,7 @@
                                  #   older version than the installed CLI are relaunched at once (`recycle`, those panes only; a busy one once idle)
 #SALA_AUTO_RECYCLE=on            # watch: at once, run the recycle the master's "recycle claude" would (recycle --update --force) when board
                                  #   items wait for one or a session ran `sala recycle --when-idle "<reason>"`; at most one an hour
-#SALA_RECYCLE_WANTED_CMD="python3 ~/stackshot/client.py recycle-wanted"   # open board items on this box waiting for a recycle:
+#SALA_RECYCLE_WANTED_CMD="python3 ~/stackshot/stackshot/fleet/client.py recycle-wanted"   # open board items on this box waiting for a recycle:
                                  #   prints a count, then optionally ids; asked at most every 10 min, 20 s timeout; empty/non-numeric/failed = 0
                                  #   a token may be `<id>@<epoch>~<ref>`: the flag's time and the change it waits for (a commit sha or pr<N>, `<repo>:` optional)
 #SALA_RECYCLE_REF_REPOS=         # "name=path name=path": the checkouts for a change written <name>:REF; no name, `salamander` and `sala` mean this one.
@@ -265,7 +267,7 @@
 #SALA_DEFER_TOOLS="AskUserQuestion"   # `sala question run`: the tools a background `claude -p` run parks instead of answering itself. Add a tool
                                  #   ("AskUserQuestion Bash") to have every call of it parked for a yes or no; PreToolUse fires before the permission check,
                                  #   so it cannot park only the calls that would prompt
-#SALA_STACKSHOT_CLIENT=~/stackshot/client.py   # stackshot's shell client (default $SALA_STACKSHOT_DIR/client.py). While SALA_QUESTION_FILE_CMD / _ANSWER_CMD are unset and this file
+#SALA_STACKSHOT_CLIENT=~/stackshot/stackshot/fleet/client.py   # stackshot's shell client (default $SALA_STACKSHOT_DIR/stackshot/fleet/client.py). While SALA_QUESTION_FILE_CMD / _ANSWER_CMD are unset and this file
                                  #   exists, a parked question is filed on the board (`client.py post question`) and the owner's answer is read back
                                  #   (`client.py get answer`) by contrib/question-board-file.sh / -answer.sh. Not there: the post through the notify command
 #SALA_QUESTION_PROJECT=                       # the project page a filed question belongs to (its front agent owns the item), e.g. projects/example. NO default: empty = a parked question is not filed on the board (the setting is named in the log)
@@ -307,9 +309,10 @@
 #SALA_FLEET_HOSTS=                # ssh aliases `salamander update --fleet` also updates, e.g. "laptop desktop"
 #SALA_FLEET_TIMEOUT=8             # seconds before a host counts as offline (skipped, not failed)
 #SALA_POST_UPDATE_CMD=            # run after ANY CLI update attempt (recycle --update, update --fleet, provision), e.g. bump a version dashboard
+#SALA_POST_UPDATE_CMD="python3 ~/stackshot/stackshot/web/publish.py bump"   # stackshot refreshes its latest-available versions (a command named here is run as written, never probed)
 #SALA_POST_RECYCLE_CMD=           # run at the end of every recycle and clean reboot of THIS box, and again (same STARTED) when a retry worker or watch later relaunches a pane that recycle skipped (not a revive --only of its own, not dry runs), detached (sh -c), output in the log; never changes the result.
                                   # It sees SALA_RECYCLE_KIND=recycle|reboot, SALA_RECYCLE_STARTED=<epoch>, SALA_RECYCLE_RESULT=ok|partial, SALA_RECYCLE_SKIPPED="<tmux sessions still not relaunched>". e.g.:
-#SALA_POST_RECYCLE_CMD="python3 ~/stackshot/client.py recycled"   # stackshot clears the waits-for-recycle field
+#SALA_POST_RECYCLE_CMD="python3 ~/stackshot/stackshot/fleet/client.py recycled"   # stackshot clears the waits-for-recycle field
 #SALA_HEARTBEAT_STATE_DIR=~/.local/state/salamander/fleet   # LIVE store the consumer reads: <dir>/<letter>/{machine,sessions}.json, rewritten on change
 #SALA_HEARTBEAT_GIT=full         # also into SALA_HEARTBEAT_REPO: full · master (only this box's master record) · off
 #SALA_HEARTBEAT_REPO=             # optional: also commit the store into this git checkout (empty = off)
@@ -334,6 +337,7 @@
 #SALA_MOCKUP_REFERENCES=         # how the pass tells which pages an open board item links. Unset or empty (the default): it deletes NOTHING (neither rule) and says why.
                                  #   `none` = no page is linked, age and size decide. Otherwise a command line (run without a shell, 60 s): every /mockup/<n> in its output
                                  #   counts as linked; a command that fails keeps every page (exit 1)
+#SALA_MOCKUP_REFERENCES="python3 $HOME/stackshot/stackshot/tools/open_item_text.py --links"   # e.g. stackshot's open-item text, one /mockup/<n> per link (no shell runs it: write the home folder out, as $HOME here) (a command named here is run as written, never probed)
 #SALA_JOB_GITHUB=                # the GitHub owner/repo a unit job (docs/units.md) reports to when its row names none; empty = no gap post (the
                                  #   rows come from ~/.config/salamander/unit-repos.tsv, else the tracked lib/unit-repos.tsv, which is only comments)
 #SALA_UNIT_PROJECT_MAP=          # space-separated from=to pairs: a unit's X-Project= value is shown (and checked) as another project, e.g. "sala/salamander=team/ops"

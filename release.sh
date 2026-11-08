@@ -50,10 +50,12 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 REPO="$(git remote get-url origin | sed -E 's#(git@github.com:|https://github.com/|ssh://git@github.com/)##; s#\.git$##')"
 LOGDIR="${XDG_STATE_HOME:-$HOME/.local/state}/salamander/releases"; mkdir -p "$LOGDIR"
-# stackshot's client: STACKSHOT_CLIENT, else SALA_STACKSHOT_DIR/client.py (from the environment only: this script reads no config;
+# stackshot's client: STACKSHOT_CLIENT, else stackshot/fleet/client.py under SALA_STACKSHOT_DIR (client.py there on an older checkout: lib/stackshot-path.sh; from the environment only: this script reads no config;
 # unset: ~/stackshot; set empty: no stackshot, nothing is sent and each message is only logged)
 SS_DIR="${SALA_STACKSHOT_DIR-$HOME/stackshot}"
-CLIENT="${STACKSHOT_CLIENT:-${SS_DIR:+$SS_DIR/client.py}}"
+. "$HERE/lib/stackshot-path.sh"
+stackshot_prog_r _SS_CLIENT "$SS_DIR" client
+CLIENT="${STACKSHOT_CLIENT:-$_SS_CLIENT}"
 WAIT_CHECKS="${SALA_RELEASE_WAIT:-2700}"   # 45 min: a runner may queue jobs, and a PR's suites can queue behind other PRs' and smoke runs
 POLL="${SALA_RELEASE_POLL:-60}"      # seconds between two looks at the checks (was 20; every look is GitHub REST calls from the owner's 5,000 an hour, shared by every tool and agent on the box)
 GH_CACHE="$LOGDIR/gh-cache"          # the checks reads below, kept per url (body + ETag) and shared by every release on this box

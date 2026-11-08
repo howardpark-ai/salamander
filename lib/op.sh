@@ -1457,7 +1457,7 @@ op_event() {  # <id> <done|stuck> <n named> <nf failed or skipped among them> <l
         [ "$nh" = 1 ] && machine=$host
     fi
     txt="sala op $line: $st — $res"; txt=$(op_one_line "$txt"); command -v scrub_text >/dev/null 2>&1 && txt=$(printf '%s' "$txt" | scrub_text); txt=${txt:0:230}
-    c=$(stackshot_client) || { op_log "op $id: no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/client.py), so the end of the $verb operation was not reported"; return 0; }
+    c=$(stackshot_client) || { op_log "op $id: no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/stackshot/fleet/client.py), so the end of the $verb operation was not reported"; return 0; }
     out=$(timeout --kill-after=5 "$SALA_OP_EVENT_TIMEOUT" python3 "$c" event --kind fleet_op --verb "$verb" --machine "$machine" --sessions "$total" --result "$result" --text "$txt" 9>&- </dev/null 2>&1); rc=$?
     out=$(op_one_line "$out"); out=${out:0:300}
     if [ "$rc" = 0 ]; then op_log "op $id: reported to stackshot: fleet_op $verb on $machine, $total sessions, $result${out:+ ($out)}"

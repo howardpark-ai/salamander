@@ -14,7 +14,7 @@ the address reaches a page, a log or an error text):
   POST /client/project-agent              {project, name, role, front, mandate, sender}: the agent added to the project
 
 These are the same calls as `client.py get projects`, `post project`, `post project-list` and `post project-agent`
-(~/stackshot/client.py), made over HTTP the way board.py reads the items. The one sender label is `sala-web`: stackshot lets
+(~/stackshot/stackshot/fleet/client.py), made over HTTP the way board.py reads the items. The one sender label is `sala-web`: stackshot lets
 the label that made or listed a project within the hour add its first agents, since the form has no session of its own.
 
 Every value is checked here against the shapes stackshot checks, so a bad one is a 400 here and never a request; nothing is

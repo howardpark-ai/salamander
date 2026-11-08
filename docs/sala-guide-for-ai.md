@@ -19,7 +19,7 @@ Done when all of these hold:
 5. The user's first session shows in `sala spawn --list` (step 6).
 6. If the user wants the watchdog: `systemctl --user list-timers sala-watch.timer` shows a next run (step 7).
 7. If the user wants the web UI: both `curl` checks of step 11 print `401`, and `ss` shows no TCP listener (step 11).
-8. If the user has a board: step 9 is done, and `python3 ~/stackshot/client.py recycle-wanted` prints a number.
+8. If the user has a board: step 9 is done, and `python3 ~/stackshot/stackshot/fleet/client.py recycle-wanted` prints a number.
 
 Steps 7 to 11 are optional. Ask the user which ones they want before you start (hand-off H0).
 
@@ -87,8 +87,8 @@ Match the board when there is one:
 
 | Key | Value |
 |---|---|
-| `SALA_RECYCLE_WANTED_CMD` | `python3 ~/stackshot/client.py recycle-wanted` |
-| `SALA_POST_RECYCLE_CMD` | `python3 ~/stackshot/client.py recycled` |
+| `SALA_RECYCLE_WANTED_CMD` | `python3 ~/stackshot/stackshot/fleet/client.py recycle-wanted` |
+| `SALA_POST_RECYCLE_CMD` | `python3 ~/stackshot/stackshot/fleet/client.py recycled` |
 | `SALA_QUESTION_PROJECT` | a project page that exists on the board, e.g. `projects/getting-started`. It has no default: empty, the filer refuses and the log names `SALA_QUESTION_PROJECT` |
 | `SALA_STACKSHOT_WEB` | the board's public HTTPS address, no trailing slash |
 
@@ -296,21 +296,21 @@ Expected: no line names `claude`. Do not run `tmux source-file` while the user i
 
 ### Step 9. Link the board (optional, needs a running board)
 
-Precondition: the board runs and `~/stackshot/client.py` exists. If not, STOP and point the user at the board guides (top of this file); do this step when they are done. Then:
+Precondition: the board runs and `~/stackshot/stackshot/fleet/client.py` exists (a board checkout from before stackshot's package has `~/stackshot/client.py` instead: use that path in the lines below). If not, STOP and point the user at the board guides (top of this file); do this step when they are done. Then:
 
 ```bash
-test -f ~/stackshot/client.py && echo present
+test -f ~/stackshot/stackshot/fleet/client.py && echo present
 cat >> ~/.config/salamander/config <<'EOF'
-SALA_RECYCLE_WANTED_CMD="python3 ~/stackshot/client.py recycle-wanted"
-SALA_POST_RECYCLE_CMD="python3 ~/stackshot/client.py recycled"
+SALA_RECYCLE_WANTED_CMD="python3 ~/stackshot/stackshot/fleet/client.py recycle-wanted"
+SALA_POST_RECYCLE_CMD="python3 ~/stackshot/stackshot/fleet/client.py recycled"
 SALA_QUESTION_PROJECT="projects/getting-started"
 SALA_STACKSHOT_WEB="https://board.example.com"
 EOF
-python3 ~/stackshot/client.py recycle-wanted
+python3 ~/stackshot/stackshot/fleet/client.py recycle-wanted
 ```
 
-Use the user's own project page and address. Check that the page exists on the board and that its frontmatter has an `agents:` map with at least one entry (the first is the front agent), for example `agents:` then an indented `alex-main: talks to Alex about this project`; `sala question file` is refused with a 409 `lists no front agent` otherwise (T27). The board reads a registry built from the pages. It refreshes by itself after a write and at least every 10 minutes, so an edit takes effect within 10 minutes. To refresh it at once, run `STACKSHOT_CONFIG=~/.config/stackshot/stackshot.toml python3 ~/stackshot/pages.py registry`. Expected: `present`, then a number (`0` is fine).
-Also run `python3 ~/stackshot/client.py recycled`. Expected: a line saying that no item waits for a recycle, exit 0. Checked on a clean account against a board on its own port: `present`, `0`, the `recycled` line, and a parked question filed with `sala question file <id>` (the record then shows its board item).
+Use the user's own project page and address. Check that the page exists on the board and that its frontmatter has an `agents:` map with at least one entry (the first is the front agent), for example `agents:` then an indented `alex-main: talks to Alex about this project`; `sala question file` is refused with a 409 `lists no front agent` otherwise (T27). The board reads a registry built from the pages. It refreshes by itself after a write and at least every 10 minutes, so an edit takes effect within 10 minutes. To refresh it at once, run `STACKSHOT_CONFIG=~/.config/stackshot/stackshot.toml python3 ~/stackshot/stackshot/projects/pages.py registry`. Expected: `present`, then a number (`0` is fine).
+Also run `python3 ~/stackshot/stackshot/fleet/client.py recycled`. Expected: a line saying that no item waits for a recycle, exit 0. Checked on a clean account against a board on its own port: `present`, `0`, the `recycled` line, and a parked question filed with `sala question file <id>` (the record then shows its board item).
 Check the scopes against the board's prefixes (step 4). Expected: every scope has a matching prefix.
 
 No board: write `SALA_STACKSHOT_DIR=""` instead, and skip the four lines. Tell the user that `spawn --project` will refuse.

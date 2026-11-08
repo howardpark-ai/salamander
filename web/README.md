@@ -1477,7 +1477,7 @@ accepted when its `Origin` matches the Host it came in on. `tests/test_hosts.py`
 | What | Where |
 |---|---|
 | Live sessions | `~/.claude/sessions/<pid>.json`; entries whose pid is gone (or reused, by `procStart`) are skipped. **One row per session, also for a conversation moved into a background job** (the CLI's "← for agents" view): the pane's claude stays as a viewer (`status` always `shell`, `parkedJobId` = the job's short id) and a second row, `kind` `bg` with that `jobId`, holds the live conversation under the same name. They are folded (`sessions.py` `read_live_sessions`, `job_row`): the pane's row carries the identity (name, tmux, pid), its status is the job's (working / idle / needs input), its `sessionId` is the job's (the transcript, the model and the spend are read from the live conversation), and the job's row is not listed. `/api/sessions` and the Overview carry `parkedJob` (the job id) on such a row only; the Overview's status cell shows the job's status and, beside it, `in background job eeeeeeee`, and the sidebar row's tooltip says the same. A job with no viewer row (the pane's claude gone) stays listed as its own session. `tests/test_parked_sessions.py` |
-| Roles, projects | `python3 $SALA_STACKSHOT_DIR/client.py get roles` (`~/stackshot` when unset; empty = no stackshot: no command, `rolesError` says so), cached 30 s; on failure the last good answer is kept |
+| Roles, projects | `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles` (`~/stackshot` when unset; empty = no stackshot: no command, `rolesError` says so), cached 30 s; on failure the last good answer is kept |
 | Board items | stackshot's client API, `GET <client.url>/client/items?key=<session name>` with the bearer token from `$XDG_CONFIG_HOME/stackshot/client.token`, one read per live session a minute, the last good answer kept per session (*Board items*) |
 | Mockup pages | `$SALA_STATE_DIR/mockups/<n>.html` (default `~/.local/state/salamander/mockups/`), written by `sala mockup add`, read at each request; nothing is cached or listed |
 | Transcript | `~/.claude/projects/<cwd, every non-alphanumeric char as ->/<sessionId>.jsonl`, falling back to a glob on the sessionId |
@@ -1521,7 +1521,7 @@ Settings (environment):
 | `SALA_WEB_TTYD_SOCKET` | `$XDG_RUNTIME_DIR/sala-web-ttyd/ttyd.sock`: where `sala-web-ttyd.service` listens; only the old ttyd path's link points at it |
 | `SALA_WEB_CLAUDE_DIR` | `~/.claude` |
 | `SALA_WEB_TMUX_SOCKET` (or `--tmux-socket`) | empty = the default tmux server; tests use a private `-L` name |
-| `SALA_WEB_ROLES_CMD` | `python3 $SALA_STACKSHOT_DIR/client.py get roles` |
+| `SALA_WEB_ROLES_CMD` | `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles` (`$SALA_STACKSHOT_DIR/client.py` on a checkout from before stackshot's package) |
 | `SALA_STACKSHOT_DIR` | `~/stackshot`: where stackshot's checkout is, sala's one knob for it (`config.example`). Read from the environment here, not from sala's config file, so a unit that needs another path sets it in its own `Environment=`. Set empty on a machine with no stackshot: no roles command |
 | `SALA_WEB_SALA_MODELS` | `$XDG_STATE_HOME/salamander/models.tsv` (sala's model record; missing or unreadable = none) |
 | `SALA_WEB_TERMINAL_URL` | `/tty/?arg=` (ttyd on the same host, `--base-path /tty`; the tmux session name is appended) |

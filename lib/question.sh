@@ -35,7 +35,7 @@
 #                             Its first stdout line is the board item id, kept in the record. Exit non-zero: not filed, kept retryable.
 #   SALA_QUESTION_ANSWER_CMD  reads the owner's answer. SALA_QUESTION_ID, SALA_QUESTION_ITEM, SALA_QUESTION_SESSION and SALA_STATE_DIR in the
 #                             environment; the answer on stdout; empty or a non-zero exit means "not yet".
-#   Unset (or empty) and the stackshot client exists (SALA_STACKSHOT_CLIENT, default SALA_STACKSHOT_DIR/client.py, ~/stackshot/client.py unset): the board scripts above run.
+#   Unset (or empty) and the stackshot client exists (SALA_STACKSHOT_CLIENT, default stackshot/fleet/client.py under SALA_STACKSHOT_DIR, client.py there on an older checkout; ~/stackshot when unset): the board scripts above run.
 #   Unset and no client: the file seam is a post through the notify command (SALA_NOTIFY_CMD / SALA_WATCH_NOTIFY_CMD, the stuck watch's
 #   path) and only `resume-answer --answer` supplies an answer. `off` turns a seam off the same way (no board scripts even with a client).
 . "$SALA_ROOT/lib/stuck.sh"   # sq_send: the post path the stuck watch uses
@@ -79,7 +79,7 @@ _qs_dirs() {  # the state, question and log folders (private: 0700 on the questi
 qs_seam() {  # <FILE|ANSWER> → the seam's command on stdout, nothing when there is none: the setting; unset/empty → the board script when the client exists; off → none
     local v w; eval "v=\${SALA_QUESTION_${1}_CMD:-}"
     case "$v" in off) return 0 ;; '') ;; *) printf '%s\n' "$v"; return 0 ;; esac
-    local c="${SALA_STACKSHOT_CLIENT:-${SALA_STACKSHOT_DIR:+$SALA_STACKSHOT_DIR/client.py}}"; [ -n "$c" ] && [ -f "$c" ] || return 0
+    local c; c=$(stackshot_client) || return 0   # SALA_STACKSHOT_CLIENT, else the client under SALA_STACKSHOT_DIR (common.sh); none: no board seam
     w=${1,,}; printf "'%s'\n" "$SALA_ROOT/contrib/question-board-$w.sh"
 }
 # _qs_seam_argv <command> → QS_SEAM, the words to run it with: the default seam is one quoted path (qs_seam), run as it is; any other setting is shell text

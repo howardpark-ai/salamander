@@ -67,7 +67,13 @@ n=$(posts); out=$(SALA_STACKSHOT_DIR= par "$DEFAULT_IN" nodir); Q1c=$(qid_of "$o
 [ -n "$Q1c" ] && [ "$(rec "$Q1c" filed)" = post ] && [ "$(posts)" = $((n + 1)) ] && ok "SALA_STACKSHOT_DIR empty: no client, the post path even with ~/stackshot/client.py there" || bad "empty dir: filed '$(rec "$Q1c" filed)', $(posts) posts: $out"
 mkdir -p "$HOME/ssdir"; cp "$HOME/fc/client.py" "$HOME/ssdir/client.py"; chmod +x "$HOME/ssdir/client.py"
 out=$(SALA_STACKSHOT_DIR="$HOME/ssdir" par "$DEFAULT_IN" otherdir); Q1d=$(qid_of "$out")
-[ "$(rec "$Q1d" filed)" = seam ] && ok "SALA_STACKSHOT_DIR=<dir>: the client is <dir>/client.py" || bad "dir: filed '$(rec "$Q1d" filed)': $out"
+[ "$(rec "$Q1d" filed)" = seam ] && ok "SALA_STACKSHOT_DIR=<dir> with a checkout from before stackshot's package: the client is <dir>/client.py" || bad "dir: filed '$(rec "$Q1d" filed)': $out"
+mkdir -p "$HOME/ssnew/stackshot/fleet"; cp "$HOME/fc/client.py" "$HOME/ssnew/stackshot/fleet/client.py"; chmod +x "$HOME/ssnew/stackshot/fleet/client.py"
+out=$(SALA_STACKSHOT_DIR="$HOME/ssnew" par "$DEFAULT_IN" newdir); Q1e=$(qid_of "$out")
+[ "$(rec "$Q1e" filed)" = seam ] && ok "SALA_STACKSHOT_DIR=<dir> with the package: the client is <dir>/stackshot/fleet/client.py" || bad "new dir: filed '$(rec "$Q1e" filed)': $out"
+mkdir -p "$HOME/ssboth/stackshot/fleet"; cp "$HOME/fc/client.py" "$HOME/ssboth/stackshot/fleet/client.py"; chmod +x "$HOME/ssboth/stackshot/fleet/client.py"; printf '#!/bin/sh\nexit 9\n' > "$HOME/ssboth/client.py"; chmod +x "$HOME/ssboth/client.py"
+out=$(SALA_STACKSHOT_DIR="$HOME/ssboth" par "$DEFAULT_IN" bothdir); Q1f=$(qid_of "$out")
+[ "$(rec "$Q1f" filed)" = seam ] && ok "both layouts: the package's client answers, not the root file" || bad "both dir: filed '$(rec "$Q1f" filed)': $out"
 rm -rf "$HOME/stackshot" "$HOME/ssdir"; export SALA_STACKSHOT_CLIENT="$HOME/fc/client.py"
 cat > "$HOME/filer.sh" <<EOF
 #!/bin/sh
