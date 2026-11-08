@@ -283,19 +283,20 @@ echo "== the tracked defaults carry no owner address, and every setting is docum
 if deny_have; then
     # the owner's web address, AWS profile, account, session and machine names are the deny source's lines, never written here; only file names are printed
     hits=$(cd "$ROOT" && grep -rIl --exclude-dir=.git --exclude-dir=tests --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=docs --exclude=README.md --exclude=CONTRIBUTING.md --exclude=clean_text.py -e '' lib bin systemd .github config.example install.sh 2>/dev/null | sort | deny_files)
-    hits2=$(cd "$ROOT" && grep -rIl --exclude-dir=.git --exclude-dir=tests --exclude-dir=node_modules --exclude-dir=.venv -e '' lib bin systemd web/src web/contrib config.example install.sh README.md web/README.md 2>/dev/null | sort | deny_files)
+    hits2=$(cd "$ROOT" && grep -rIl --exclude-dir=.git --exclude-dir=tests --exclude-dir=node_modules --exclude-dir=.venv -e '' lib bin systemd web/src web/contrib config.example install.sh README.md docs/overview.md docs/install.md docs/subcommands.md docs/design-notes.md docs/notices-and-hooks.md docs/recycle.md docs/lanes.md docs/models.md docs/heartbeat-store.md docs/running-without-stackshot.md docs/setup-notes.md web/README.md 2>/dev/null | sort | deny_files)
     [ -z "$hits2" ] && ok "no deny-source hit in the code, units, docs or config.example" || bad "deny-source hits in: $(echo $hits2)"
     [ -z "$hits" ] && ok "no deny-source hit (owner web address, AWS profile, machine or session name) in lib/, bin/, systemd/, .github/, config.example, install.sh" || bad "deny-source hits in: $(echo $hits)"
-    # README.md and config.example name no owner: no owner address, no AWS profile, account, org or reseller
-    for f in README.md config.example; do
+    # README.md, the docs pages the README's old sections moved to, and config.example name no owner: no owner address, no AWS profile, account, org or reseller
+    for f in README.md docs/overview.md docs/install.md docs/subcommands.md docs/design-notes.md docs/notices-and-hooks.md docs/recycle.md docs/lanes.md docs/models.md docs/heartbeat-store.md docs/running-without-stackshot.md docs/setup-notes.md config.example; do
         n=$(deny_count "$ROOT/$f"); [ "$n" = 0 ] && ok "$f has no deny-source hit" || bad "$f has $n deny-source hit lines: $(deny_at "$ROOT/$f")"
     done
 fi
 for s in SALA_JOB_LANE SALA_SETTINGS_APPLY SALA_JOB_GITHUB SALA_UNIT_PROJECT_MAP SALA_STACKSHOT_WEB SALA_SESSION_URL SALA_SHELL_SESSION SALA_TZ SALA_BACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_OWNER_NAME SALA_LANE_BEDROCK_PROFILE SALA_LANE_AWSPLATFORM_PROFILE SALA_LANE_TEAM_ORG ci-repos unit-repos.tsv; do
     grep -q -- "$s" "$ROOT/config.example" && ok "config.example documents $s" || bad "config.example does not mention $s"
 done
-grep -q -- SALA_LANE_BEDROCK_PROFILE "$ROOT/README.md" && grep -q -- SALA_LANE_TEAM_ORG "$ROOT/README.md" && ok "README.md documents the profile and organization settings" || bad "README.md misses the profile or organization setting"
-grep -q -- SALA_OWNER_NAME "$ROOT/README.md" && ok "README.md documents SALA_OWNER_NAME" || bad "README.md does not mention SALA_OWNER_NAME"
+# the README keeps no settings: its old Lanes section is docs/lanes.md and the section with SALA_OWNER_NAME is docs/recycle.md
+grep -q -- SALA_LANE_BEDROCK_PROFILE "$ROOT/docs/lanes.md" && grep -q -- SALA_LANE_TEAM_ORG "$ROOT/docs/lanes.md" && ok "docs/lanes.md documents the profile and organization settings" || bad "docs/lanes.md misses the profile or organization setting"
+grep -q -- SALA_OWNER_NAME "$ROOT/docs/recycle.md" && ok "docs/recycle.md documents SALA_OWNER_NAME" || bad "docs/recycle.md does not mention SALA_OWNER_NAME"
 
 echo "== the owner's name is cleaned once, and reaches every helper from the config alone"
 # a name with a double quote, a dollar sign, a backtick and a command substitution: common.sh keeps letters, digits, space . _ ' - only

@@ -97,7 +97,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander note "<next step>" | --done [<id>] | --clear | --list [--archived]     leave this pane its next step, handed back after
                                      its next relaunch (reboot, recycle, revive) until `--done <id>` marks it handled (--clear: the same as --done)
   salamander notice add "<text>" --from NAME [--until WHEN] | list [--json] | drop ID   a one-time line every LIVE session sees at its next tool call or prompt,
-                                     with no relaunch (lib/notice.sh; README, "Telling every session something"): one line of at most 400 characters, shown once per
+                                     with no relaunch (lib/notice.sh; docs/notices-and-hooks.md, "Telling every session something"): one line of at most 400 characters, shown once per
                                      session as "[sala notice <id> from NAME] <text>", several due at once in one block, oldest first; a session that started after
                                      the notice skips it; --until an epoch, a span (90m, 12h, 7d) or an ISO 8601 time (default 7 days); add prints the id and how many live
                                      sessions it reaches, list how many had it and how many are still due, drop withdraws it for the sessions not yet reached
@@ -311,7 +311,7 @@ usage: sala notice add "<text>" --from <sender> [--until <when>]
           sessions it will reach.
   list    the active notices, each with how many live sessions have had it (or started after it) and how many are still due.
   drop    withdraws a notice: a session not yet reached never gets it.
-  Delivery needs the hooks `hook post-tool` (PostToolUse, already registered) and `hook prompt` (UserPromptSubmit; README,
+  Delivery needs the hooks `hook post-tool` (PostToolUse, already registered) and `hook prompt` (UserPromptSubmit; docs/notices-and-hooks.md,
   "Telling every session something"). Notices live in $SALA_STATE_DIR/notices.tsv; the expired ones are pruned on add and on a watch tick.
 
 ### sala sdk-pane --help (exit 2)

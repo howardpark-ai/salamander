@@ -60,7 +60,7 @@ So a hook's `status` should exit 3 only when the service is really stopped, not 
 ## The pane map during a reboot
 
 sala's record of which conversation lives in which tmux session is the pane map (`~/.local/state/salamander/pane-map.tsv`:
-tmux session, uuid, name, cwd), a ledger only honored paths change — see the README's design note. For a reboot it is also the
+tmux session, uuid, name, cwd), a ledger only honored paths change — see the design note in [design-notes.md](design-notes.md). For a reboot it is also the
 **roster**: at the pause step `sala reboot` freezes it (a copy of its rows next to it, with the owner pid, boot id,
 reason and time). While the freeze stands no `spawn`, `rename`, `retire`, `unpark` or `adopt` goes through (each refuses
 up front and says so), and a conversation switch observed in a live pane is deferred and applied when the freeze is

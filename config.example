@@ -8,7 +8,7 @@
 #SALA_TZ=                         # an IANA zone, e.g. Europe/Berlin: the zone of every time sala writes (spawn names, logs) and of every time the web UI shows, labelled with the zone's own abbreviation (CEST, EST). Unset or empty = this machine's local time (and the viewer's own zone in the web UI). The briefings (contrib/briefing) have their own zone, BRIEFING_TZ below, and do not follow it
 #SALA_LOG_DIR=~/.claude           # revive/rc logs, rc stop marker
 #SALA_RESURRECT_DIR=~/.local/share/tmux/resurrect   # tmux-resurrect saves (a symlink to the pane map stays here since Tue Oct 6th 2026)
-#SALA_SIDECAR=~/.local/state/salamander/pane-map.tsv   # the pane map (session → conversation, name, cwd; a ledger, see the README); its log, freeze files and map-history/ sit beside it
+#SALA_SIDECAR=~/.local/state/salamander/pane-map.tsv   # the pane map (session → conversation, name, cwd; a ledger, see docs/design-notes.md); its log, freeze files and map-history/ sit beside it
 #SALA_SESSIONS=write              # the session registry (phases 1 and 2; docs/session-registry.md): sessions.json beside the pane map, one row per session with an id
                                  #   of its own, written after every pane-map write, by spawn (SALA_SESSION_ID) and by the SessionStart hook; read by nothing yet. write (default) |
                                  #   off (writes nothing, spawn exports no id, `sessions record` is a no-op; revert = off or delete the file) | read (reserved; acts as write). No other knob
@@ -78,7 +78,7 @@
                                  #   connectors, which a key has no login for: the portal, GitHub); empty = never
 #SALA_LANE_TEAM_DIR=~/.claude-team                           # subscription-2: CLAUDE_CONFIG_DIR of the second claude.ai login (a seat-based login; the variable keeps its name), signed in there once by hand
 #API_CREDIT_RETRY_S=21600                                    # (environment, not this file) how long after the API key's credit refused a call (the shared record
-                                 #   ${XDG_STATE_HOME:-~/.local/state}/api-credit/state.json, README "The sdk lane") the key is not tried again; the briefings and the sdk lane share it
+                                 #   ${XDG_STATE_HOME:-~/.local/state}/api-credit/state.json, docs/lanes.md "The sdk lane") the key is not tried again; the briefings and the sdk lane share it
                                  #   sdk (an alias of api with client claude-agent-sdk, and the next two settings are that client's): the api lane's key through the Agent SDK, which the API credit pays for while
                                  #   it lasts; the pane runs `salamander sdk-pane` (lib/sdk-pane.sh, contrib/sdk-pane/driver.py) in place of claude. While the
                                  #   record holds a fresh refusal a session recorded on sdk is relaunched on subscription-1 (the row stays until `sala lane subscription-1 <session>`)
@@ -132,7 +132,7 @@
                                  #   off: none of that (`sala lane fallback <lane>`, a person's form, still works)
 #SALA_FALLBACK_NO_FABLE=bedrock  # the lanes a Fable session cannot run on (bedrock: 400 "data retention mode"); a Fable session moved onto one runs on SALA_FALLBACK_FABLE_MODEL
 #SALA_FALLBACK_FABLE_MODEL=opus  # (opus = Opus 5.5 on bedrock); the override is recorded in models.tsv and moving back restores nothing
-#SALA_BACK_LANE_RULE=off         # THE BACK AGENTS' LANE RULE (README, *The back agents' lane rule*). off (the default): nothing is read or moved. on: the watch keeps the background
+#SALA_BACK_LANE_RULE=off         # THE BACK AGENTS' LANE RULE (docs/lanes.md, *The back agents' lane rule*). off (the default): nothing is read or moved. on: the watch keeps the background
                                  #   agents (registry rows with role back; never front agents, side sessions or jobs) off the home lane near its weekly limit, in three steps:
                                  #   1. the home lane's "This week" limit reaches SALA_BACK_LANE_THRESHOLD percent → they move to the second lane;
                                  #   2. a pane on the second lane is stopped on its cap (the limit watch's record) → they move to the third lane;

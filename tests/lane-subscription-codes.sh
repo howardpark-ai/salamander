@@ -274,7 +274,7 @@ hits=$(cd "$ROOT" && grep -n -w -e 'Max' -e 'Team lane' -e 'team lane' -e 'max l
 cfg=$(cd "$ROOT" && grep -n -E '"(Ultra)"|=Ultra|:-Ultra|Ultra\)' $files 2>/dev/null | grep -v -E '^[^:]*:[0-9]+:[[:space:]]*(#|//)')
 n_ultra=$(grep -c . <<< "$cfg"); only_table=1; while IFS= read -r l; do [ -z "$l" ] && continue; grep -q -e 'lib/common.sh' -e 'lib/lanewords.py' <<< "$l" || only_table=0; done <<< "$cfg"
 [ "$only_table" = 1 ] && ok "\"Ultra\" is spelled only where the lane-fields table defines it (lib/common.sh) and in the Python twin's no-file fallback (lib/lanewords.py), not in any message or UI file" || { bad "Ultra is spelled outside the table:"; echo "$cfg" | cut -c1-200 | sed 's/^/        /'; }
-doc=$(cd "$ROOT" && grep -n 'Ultra' README.md config.example | head -3 | wc -l); [ "$doc" -gt 0 ] && ok "README.md and config.example document the setting" || bad "the setting is not documented"
+doc=$(cd "$ROOT" && grep -n 'Ultra' config.example | head -3 | wc -l); [ "$doc" -gt 0 ] && ok "config.example documents the setting" || bad "the setting is not documented"
 
 [ "$fail" = 0 ] && echo "lane-subscription-codes: pass" || echo "lane-subscription-codes: FAIL"
 exit "$fail"

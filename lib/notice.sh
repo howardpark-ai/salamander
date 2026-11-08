@@ -14,7 +14,7 @@ usage: sala notice add "<text>" --from <sender> [--until <when>]
           sessions it will reach.
   list    the active notices, each with how many live sessions have had it (or started after it) and how many are still due.
   drop    withdraws a notice: a session not yet reached never gets it.
-  Delivery needs the hooks `hook post-tool` (PostToolUse, already registered) and `hook prompt` (UserPromptSubmit; README,
+  Delivery needs the hooks `hook post-tool` (PostToolUse, already registered) and `hook prompt` (UserPromptSubmit; docs/notices-and-hooks.md,
   "Telling every session something"). Notices live in $SALA_STATE_DIR/notices.tsv; the expired ones are pruned on add and on a watch tick.
 USAGE
 }
