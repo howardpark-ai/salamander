@@ -66,7 +66,7 @@ nlog() { local n=0 l; [ -r "$2" ] || { echo 0; return; }; while IFS= read -r l |
 
 echo "== 1. a running subagent is seen, also for a session that said ready"
 U1=$(uuid 51); U2=$(uuid 52)
-fake "while [ ! -e $HOME/go1 ]; do sleep 0.2; done; \"$SALA\" ready > $HOME/ready1.txt 2>&1; wait" "$U1"; K1=$FP
+fake "while [ ! -e $HOME/go1 ]; do sleep 0.2; done; \"$SALA\" ready > $HOME/ready1.txt 2>&1; : > $HOME/ready1.done; wait" "$U1"; K1=$FP
 mkdir -p "$SALA_READY_DIR"; date +%s > "$SALA_READY_DIR/$U1"
 [ -z "$(is_idle_reason "$K1")" ] && is_idle "$K1" && ok "said ready, no subagent: idle (as before)" || bad "baseline: '$(is_idle_reason "$K1")'"
 mksub "$U1" s1 builder "Build the package move"
@@ -84,7 +84,8 @@ mksub "$U1" s1 builder "Build the package move"
 n=$(relaunch_text recycle "$K1"); has "$n" "Holding the relaunch: 1 subagent running in this session" && has "$n" "subagent builder: Build the package move" \
     && has "$n" "sala never cuts a running subagent" && ok "the relaunch notice names it and says it is not cut" || bad "notice: $n"
 bash -c 'trap : USR1; while :; do sleep 1; done' & WK=$!; PIDS+=("$WK"); echo "$WK" > "$HOME/.claude/salamander-retry.$WK.pid"   # a pending recycle's retry worker, so ready_wake succeeds
-: > "$HOME/go1"; waitfor '[ -s "$HOME/ready1.txt" ]' 20
+# wait for the `sala ready` process to exit (its .done marker), not for the file's first byte: it writes the holder block, then the ready: line
+: > "$HOME/go1"; waitfor '[ -e "$HOME/ready1.done" ]' 20
 r=$(slurp "$HOME/ready1.txt")
 has "$r" "Holding the relaunch: 1 subagent running in this session" && has "$r" "subagent builder: Build the package move" \
     && has "$r" "ready: t ($U1) — held by the subagent(s) above; the relaunch follows within minutes after they end, not when this turn does" \
@@ -93,14 +94,14 @@ kill "$WK" 2>/dev/null; rm -f "$HOME/.claude/salamander-retry.$WK.pid"
 
 echo "== 3. sala ready sees a pane on the deferred list as waiting"
 rm -f "$(subdir "$U1")"/agent-s1.*; rm -f "$SALA_DEFERRED"
-fake "while [ ! -e $HOME/go2 ]; do sleep 0.2; done; \"$SALA\" ready > $HOME/ready2.txt 2>&1; wait" "$U2"
-: > "$HOME/go2"; waitfor '[ -s "$HOME/ready2.txt" ]' 20; r=$(slurp "$HOME/ready2.txt")
+fake "while [ ! -e $HOME/go2 ]; do sleep 0.2; done; \"$SALA\" ready > $HOME/ready2.txt 2>&1; : > $HOME/ready2.done; wait" "$U2"
+: > "$HOME/go2"; waitfor '[ -e "$HOME/ready2.done" ]' 20; r=$(slurp "$HOME/ready2.txt")
 has "$r" "no recycle is waiting right now" && ok "nothing waiting, nothing on the list: the old line" || bad "ready, no row: $r"
 U3=$(uuid 53)
-fake "while [ ! -e $HOME/go3 ]; do sleep 0.2; done; \"$SALA\" ready > $HOME/ready3.txt 2>&1; wait" "$U3"; K3=$FP
+fake "while [ ! -e $HOME/go3 ]; do sleep 0.2; done; \"$SALA\" ready > $HOME/ready3.txt 2>&1; : > $HOME/ready3.done; wait" "$U3"; K3=$FP
 # held 4 h: past SALA_LATER_LIMIT, the limit post sent, the recycle's sets gave the pane up (set_giveup_pane) — and watch still means to relaunch it
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' sala-test-x "$(( $(date +%s) - 14400 ))" "background work is running" "$K3" 1 - 0 3 "$(date +%s)" > "$SALA_DEFERRED"
-: > "$HOME/go3"; waitfor '[ -s "$HOME/ready3.txt" ]' 20; r=$(slurp "$HOME/ready3.txt")
+: > "$HOME/go3"; waitfor '[ -e "$HOME/ready3.done" ]' 20; r=$(slurp "$HOME/ready3.txt")
 has "$r" "this pane is on the deferred list since" && ! has "$r" "no recycle is waiting right now" && ok "a pane on the deferred list is waiting, whatever its sets said" || bad "ready, row: $r"
 rm -f "$SALA_DEFERRED"
 
