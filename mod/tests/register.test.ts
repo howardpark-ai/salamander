@@ -123,6 +123,32 @@ test('exit: a turn a crashed process left open does not outlive a session start'
   expect(await reply).toEqual({ reqid: 's1', ok: true })
 })
 
+test('exit: a turn that never completed does not outlive the main loop stopping with nothing in flight', async ($, on) => {
+  const w = world(on)
+  await $.turn.start({ text: '', turnId: 'T1' })
+  await $.turn.start({ text: '', turnId: 'A1' })
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, reason: 'answer' as const, turnId: 'T1' })
+  // A1 never completes; the main loop stops with no background task
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+  const reply = w.replied('z1')
+  const exited = w.replied('cmd:exit')
+  await $.session.receive(peer('[sala-mod] exit z1'))
+  expect(await reply).toEqual({ reqid: 'z1', ok: true })
+  await exited
+})
+
+test('exit: a stop with a background task in flight leaves the running turns alone', async ($, on) => {
+  const w = world(on)
+  await $.turn.start({ text: '', turnId: 'A2' })
+  await $.classic.Stop({
+    stop_hook_active: false,
+    background_tasks: [{ id: 't1', type: 'shell', status: 'running', description: 'sleep', command: 'sleep 600' }],
+  })
+  const reply = w.replied('z2')
+  await $.session.receive(peer('[sala-mod] exit z2'))
+  expect(await reply).toEqual({ reqid: 'z2', ok: false, reason: 'turn' })
+})
+
 // the description of the watch Claude Code arms by itself on publish (register.ts ARTIFACT_WATCH), and every
 // label 2.1.296 writes for an artifact watch (zjt)
 const WATCH_URL = 'https://claude.ai/artifact/EXAMPLEARTIFACTID'
