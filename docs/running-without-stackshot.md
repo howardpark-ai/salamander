@@ -8,7 +8,10 @@ message marker, the inbox hold, the post-recycle hook, recycle-wanted, the spawn
 sala-web's board items and roles. With stackshot on the box, two lines in the config turn the board half on
 (`SALA_POST_RECYCLE_CMD`, `SALA_RECYCLE_WANTED_CMD`, `config.example`). Where stackshot's checkout is comes from one knob,
 `SALA_STACKSHOT_DIR` (unset: `~/stackshot`, as every default was before; set empty on a box with no stackshot, and each default
-command that names `pages.py` or `client.py` is empty at once; the explicit knobs still win; `config.example`). What needs
+command that names `pages.py` or `client.py` is empty at once; the explicit knobs still win; `config.example`). Inside that folder the
+programs are at stackshot's package paths (`stackshot/fleet/client.py`, `stackshot/projects/pages.py`; the update hook's example is
+`stackshot/web/publish.py bump`, the mockup pass's `stackshot/tools/open_item_text.py --links`); a checkout from before the package keeps them
+in its root (`client.py`, `pages.py`), and sala's defaults use that path while it is the only one there (`lib/stackshot-path.sh`). What needs
 stackshot today: `spawn --project` is **the one command that needs stackshot and a local mirror of the pages**: its page and agents-map checks
 read stackshot's project record, then `pages.py` (with the local mirror of the pages behind it) when the record cannot answer, and the spawn is
 refused when neither can. That refusal is by design and stays fail-closed (the web form and the queue run it unattended, and a

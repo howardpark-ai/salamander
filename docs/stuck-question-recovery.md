@@ -97,7 +97,7 @@ Filing the question and reading the owner's answer are two seams, each one comma
 
 | setting | does | unset |
 |---|---|---|
-| `SALA_QUESTION_FILE_CMD` | files the question. The text (secrets masked) is on stdin; `SALA_QUESTION_ID`, `SALA_QUESTION_SESSION`, `SALA_QUESTION_LABEL`, `SALA_QUESTION_RESUME` and `SALA_STATE_DIR` are in the environment; the first word of its first stdout line is kept as the item id; non-zero = not filed | `contrib/question-board-file.sh` when stackshot's client exists (`SALA_STACKSHOT_CLIENT`, default `~/stackshot/client.py`); with no client, a post through the notify command (the watch's path), `filed: post` |
+| `SALA_QUESTION_FILE_CMD` | files the question. The text (secrets masked) is on stdin; `SALA_QUESTION_ID`, `SALA_QUESTION_SESSION`, `SALA_QUESTION_LABEL`, `SALA_QUESTION_RESUME` and `SALA_STATE_DIR` are in the environment; the first word of its first stdout line is kept as the item id; non-zero = not filed | `contrib/question-board-file.sh` when stackshot's client exists (`SALA_STACKSHOT_CLIENT`, default `~/stackshot/stackshot/fleet/client.py`); with no client, a post through the notify command (the watch's path), `filed: post` |
 | `SALA_QUESTION_ANSWER_CMD` | reads the owner's answer; `SALA_QUESTION_ID`, `SALA_QUESTION_ITEM`, `SALA_QUESTION_SESSION`, `SALA_STATE_DIR` in the environment; the answer on stdout, empty or non-zero = not yet | `contrib/question-board-answer.sh` when the client exists; otherwise only `resume-answer --answer` supplies it |
 
 An explicit setting wins; `off` turns a seam off (the post path / no board read) even where the client exists.

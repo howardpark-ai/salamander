@@ -77,7 +77,7 @@ sq_compose() {
 : "${SALA_STUCK_SENDER:=sala-stuck}"
 sq_row_run() {  # <open|clear> <client args…> → 0 when stackshot took the call; its answer goes to the sala log, never to the notice
     local verb=$1 c out rc; shift
-    c=$(stackshot_client) || { sq_log "stuck: terminal-prompt $verb: no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/client.py)"; return 1; }
+    c=$(stackshot_client) || { sq_log "stuck: terminal-prompt $verb: no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/stackshot/fleet/client.py)"; return 1; }
     out=$(timeout "${SALA_STUCK_ROW_TIMEOUT:-10}" python3 "$c" post terminal-prompt "$verb" "$@" --sender "$SALA_STUCK_SENDER" 2>&1 </dev/null); rc=$?
     out=${out//$'\n'/ }; out=${out:0:300}
     if [ "$rc" = 0 ]; then sq_log "stuck: terminal-prompt $verb ok${out:+: $out}"; return 0; fi

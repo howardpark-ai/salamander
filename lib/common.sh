@@ -1147,8 +1147,9 @@ agent_unlisted() {
 # not a hub, 422, 502, [0] stackshot not reached) is a refusal: nothing renamed. SALA_RENAME_SENDER overrides the label.
 : "${SALA_RENAME_SENDER:=sala-rename}"
 : "${SALA_RENAME_MARK:=$SALA_STATE_DIR/rename-listed.tsv}"   # epoch TAB OLD TAB NEW: the renames sala started on a page (kept 3 days)
-stackshot_client() {  # → the path of stackshot's client.py (SALA_STACKSHOT_CLIENT, else SALA_STACKSHOT_DIR/client.py), or 1 with nothing
-    local c="${SALA_STACKSHOT_CLIENT:-${SALA_STACKSHOT_DIR:+$SALA_STACKSHOT_DIR/client.py}}"
+stackshot_client() {  # → the path of stackshot's client (SALA_STACKSHOT_CLIENT, else stackshot/fleet/client.py under SALA_STACKSHOT_DIR, or client.py there on an older checkout), or 1 with nothing
+    local c="${SALA_STACKSHOT_CLIENT:-}"
+    [ -n "$c" ] || stackshot_prog_r c "${SALA_STACKSHOT_DIR:-}" client
     [ -n "$c" ] && [ -f "$c" ] || return 1
     echo "$c"
 }
@@ -1169,7 +1170,7 @@ rename_list_plan() {
 # rename_list_run <OLD> <NEW> → rc 0: RL_RESULT ("renamed" | "already renamed") and RL_DETAIL (side, role and line the server answered) · rc 1: RL_WHY, nothing renamed
 rename_list_run() {
     local old=$1 new=$2 c rc parsed; RL_RESULT="" RL_DETAIL="" RL_WHY=""
-    c=$(stackshot_client) || { RL_WHY="no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/client.py)"; return 1; }
+    c=$(stackshot_client) || { RL_WHY="no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/stackshot/fleet/client.py)"; return 1; }
     RL_OUT=$(timeout 330 python3 "$c" post project-agent-rename "$RL_HUB" "$old" "$new" --sender "$SALA_RENAME_SENDER" 2>&1 </dev/null); rc=$?
     if [ "$rc" = 124 ]; then   # the outcome is unknown: remembered, so that running the rename again recognizes it
         rename_mark_add "$old" "$new"
@@ -1293,7 +1294,7 @@ retire_open_items() {  # <session> [<conversation id>] → 0 none · 1 some (RET
     local cmd="$SALA_RETIRE_ITEMS_CMD" c key out rc ids="" parsed
     RETIRE_ITEMS=""; RETIRE_ITEMS_WHY=""
     if [ -z "$cmd" ]; then
-        c=$(stackshot_client) || { RETIRE_ITEMS_WHY="no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/client.py), so sala cannot ask what '$1' moves"; return 2; }
+        c=$(stackshot_client) || { RETIRE_ITEMS_WHY="no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/stackshot/fleet/client.py), so sala cannot ask what '$1' moves"; return 2; }
         cmd="python3 $c get items"
     fi
     for key in "$1" ${2:+"$2"}; do
@@ -1352,7 +1353,7 @@ rename_side_plan() {
 }
 rename_side_run() {  # <NEW> → lists what rename_side_plan planned: rc 0 (RL_OUT: stackshot's note) · rc 1 (RL_WHY: why not; nothing renamed)
     local c rc; RL_OUT=""
-    c=$(stackshot_client) || { RL_WHY="no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/client.py)"; return 1; }
+    c=$(stackshot_client) || { RL_WHY="no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/stackshot/fleet/client.py)"; return 1; }
     RL_OUT=$(timeout 45 python3 "$c" post project-agent "$RL_HUB" "$1" --role "$RL_ROLE" --front --mandate "$RL_LINE" --sender "$SALA_RENAME_LIST_SENDER" 2>&1 </dev/null); rc=$?
     [ "$rc" = 0 ] && return 0
     [ "$rc" != 124 ] || RL_OUT="stackshot did not answer within 45 s (the call is safe to repeat)"
@@ -1404,9 +1405,13 @@ side_is() { [ -f "$(side_file "$1")" ]; }   # <session> → 0 when it is a side 
 # Unset: ~/stackshot, as every default was before. Set EMPTY: this box has no stackshot, and each of those defaults is empty at once
 # (the fail-open paths take their "unset" branch; a project spawn says it cannot tell). An explicit knob (SALA_AGENT_CHECK_SCRIPT,
 # SALA_SPAWN_ASK_CMD, SALA_SIDE_*_CMD, SALA_STACKSHOT_CLIENT, STACKSHOT_CLIENT, SALA_WEB_ROLES_CMD) still wins over the directory.
+# Where a program is inside that directory is lib/stackshot-path.sh's one answer (stackshot's package path, else the old root path of a
+# checkout from before the package); every default below and in spawn.sh, side.sh and release.sh asks it.
+. "${BASH_SOURCE[0]%/*}/stackshot-path.sh"
 : "${SALA_STACKSHOT_DIR=$HOME/stackshot}"
-agent_check_script() {  # → the path of stackshot's pages.py (SALA_AGENT_CHECK_SCRIPT, else SALA_STACKSHOT_DIR/pages.py), or 1 with nothing
-    local py="${SALA_AGENT_CHECK_SCRIPT:-${SALA_STACKSHOT_DIR:+$SALA_STACKSHOT_DIR/pages.py}}"
+agent_check_script() {  # → the path of stackshot's pages.py (SALA_AGENT_CHECK_SCRIPT, else stackshot/projects/pages.py under SALA_STACKSHOT_DIR, or pages.py there on an older checkout), or 1 with nothing
+    local py="${SALA_AGENT_CHECK_SCRIPT:-}"
+    [ -n "$py" ] || stackshot_prog_r py "${SALA_STACKSHOT_DIR:-}" pages
     [ -n "$py" ] && [ -f "$py" ] || return 1
     echo "$py"
 }
@@ -1425,7 +1430,7 @@ page_key_ok() {  # <key> → 0 when it has a hub page key's shape: <dir>/<slug>[
     return 0
 }
 page_exists() {  # <key> → 0 the page exists · 1 no such page · 2 cannot tell (no pages.py or brain here, a python error, a timeout), the why on stdout
-    local py out rc; py=$(agent_check_script) || { echo "no pages.py on this box (SALA_AGENT_CHECK_SCRIPT, SALA_STACKSHOT_DIR/pages.py)"; return 2; }
+    local py out rc; py=$(agent_check_script) || { echo "no pages.py on this box (SALA_AGENT_CHECK_SCRIPT, SALA_STACKSHOT_DIR/stackshot/projects/pages.py)"; return 2; }
     out=$(timeout 15 python3 "$py" resolve "$1" 2>&1); rc=$?   # prints "<key> True|False|None", exit 0 only for True
     case "$rc:${out##* }" in
         0:True) return 0 ;;
@@ -1437,7 +1442,7 @@ agent_listed_on() {  # <name> <page key> → 0 listed on that page (its mandate 
     # pages.py agent-listed maps the name to a page by itself and exits 0 for a listed name AND for one it has nothing to check
     # ("no project page for this name: nothing to check"; before Fri Oct 16th 2026 "no steward page …"), so only its `listed on <this key>: …`
     # line counts here; a name listed on another page, or one pages.py calls a project's own name, is not on this page either (the coordinator's note, Thu Oct 15th 2026)
-    local py out rc line _l; py=$(agent_check_script) || { echo "no pages.py on this box (SALA_AGENT_CHECK_SCRIPT, SALA_STACKSHOT_DIR/pages.py)"; return 2; }
+    local py out rc line _l; py=$(agent_check_script) || { echo "no pages.py on this box (SALA_AGENT_CHECK_SCRIPT, SALA_STACKSHOT_DIR/stackshot/projects/pages.py)"; return 2; }
     out=$(timeout 15 python3 "$py" agent-listed "$1" 2>&1); rc=$?
     case "$rc" in
         0) line=""; while IFS= read -r _l; do [[ $_l == *"listed on $2: "* ]] && { line=$_l; break; }; done <<< "$out"   # grep -m1 -F

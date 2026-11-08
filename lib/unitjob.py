@@ -417,13 +417,20 @@ def find_gaps(repos):
 
 # ---- check: the watcher -------------------------------------------------------------------------------------------------------------
 
+def stackshot_client_in(d):
+    """The client under stackshot's checkout <d>: stackshot/fleet/client.py, or client.py in the root of a checkout from before the
+    package (stackshot leaves a forwarder there until Sun Nov 22nd 2026; lib/stackshot-path.sh is the shell side of this)."""
+    new = os.path.join(d, "stackshot", "fleet", "client.py")
+    old = os.path.join(d, "client.py")
+    return old if os.path.isfile(old) and not os.path.isfile(new) else new
+
 def client_path():
-    if os.environ.get("SALA_STACKSHOT_CLIENT"):
+    if os.environ.get("SALA_STACKSHOT_CLIENT"):   # a setting that names the file wins over the probe
         return os.environ["SALA_STACKSHOT_CLIENT"]
     d = os.environ.get("SALA_STACKSHOT_DIR")   # unset: ~/stackshot; set empty: this box has no stackshot (question-board.py)
     if d is None:
         d = os.path.join(HOME, "stackshot")
-    return os.path.join(d, "client.py") if d else ""
+    return stackshot_client_in(d) if d else ""
 
 
 def gap_fix(g):

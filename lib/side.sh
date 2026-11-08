@@ -25,9 +25,10 @@
 # The commands (stackshot's client, one per knob, so the tests stub them): SALA_SIDE_ITEMS_CMD <agent> · SALA_SIDE_PAGE_TS_CMD <page key> ·
 # SALA_SIDE_MSG_CMD <to> - --sender <name> (the text on stdin); empty = the check or the send is not possible and fails with that said.
 
-: "${SALA_SIDE_ITEMS_CMD=${SALA_STACKSHOT_DIR:+python3 $SALA_STACKSHOT_DIR/client.py get items}}"        # → the agent's open items as JSON ({"items": [{"shown": "board#N", "updated": epoch, …}]})
-: "${SALA_SIDE_PAGE_TS_CMD=${SALA_STACKSHOT_DIR:+python3 $SALA_STACKSHOT_DIR/client.py get page-ts}}"    # → {"key": …, "ts": epoch} (the fallback when the brain mirror is not here)
-: "${SALA_SIDE_MSG_CMD=${SALA_STACKSHOT_DIR:+python3 $SALA_STACKSHOT_DIR/client.py message}}"            # → delivers the message; exit 0 delivered
+stackshot_prog_r _SIDE_CLIENT "${SALA_STACKSHOT_DIR-}" client   # the client under the stackshot checkout: its package path, else the root path of an older checkout (lib/stackshot-path.sh)
+: "${SALA_SIDE_ITEMS_CMD=${SALA_STACKSHOT_DIR:+python3 $_SIDE_CLIENT get items}}"        # → the agent's open items as JSON ({"items": [{"shown": "board#N", "updated": epoch, …}]})
+: "${SALA_SIDE_PAGE_TS_CMD=${SALA_STACKSHOT_DIR:+python3 $_SIDE_CLIENT get page-ts}}"    # → {"key": …, "ts": epoch} (the fallback when the brain mirror is not here)
+: "${SALA_SIDE_MSG_CMD=${SALA_STACKSHOT_DIR:+python3 $_SIDE_CLIENT message}}"            # → delivers the message; exit 0 delivered
 : "${SALA_BRAIN_DIR:=}"                                                      # the brain mirror (read only here); empty (the default) = none on this box
 : "${SALA_SIDE_TIMEOUT:=30}"                                                  # seconds for each of those commands but the message's
 : "${SALA_SIDE_MSG_TIMEOUT:=150}"                                             # the message is delivered before the server answers (client.py: up to 130 s)

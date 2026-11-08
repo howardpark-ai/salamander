@@ -84,8 +84,17 @@ def _config_home() -> Path:
     return Path(v) if v else Path.home() / ".config"
 
 
+def _stackshot_client_in(d: Path) -> Path:
+    """The client under stackshot's checkout <d>: stackshot/fleet/client.py, or client.py in the root of a checkout from before the
+    package (stackshot leaves a forwarder there until Sun Nov 22nd 2026; lib/stackshot-path.sh is the shell side of this)."""
+    new = d / "stackshot" / "fleet" / "client.py"
+    old = d / "client.py"
+    return old if old.is_file() and not new.is_file() else new
+
+
 def _roles_cmd() -> list[str]:
-    """The roles command: SALA_WEB_ROLES_CMD, else `python3 <stackshot dir>/client.py get roles`. The directory is sala's knob
+    """The roles command: SALA_WEB_ROLES_CMD, else `python3 <stackshot dir>/stackshot/fleet/client.py get roles`
+    (`<stackshot dir>/client.py` on a checkout from before stackshot's package). The directory is sala's knob
     SALA_STACKSHOT_DIR (read from the environment, as every setting here): unset it is ~/stackshot, the same default
     every other stackshot command in sala uses; set empty there is no stackshot on this box and no command (the overview then
     says so in rolesError and shows the sessions without roles)."""
@@ -95,7 +104,7 @@ def _roles_cmd() -> list[str]:
     d = os.environ.get("SALA_STACKSHOT_DIR")
     if d is None:
         d = str(Path.home() / "stackshot")
-    return ["python3", str(Path(d).expanduser() / "client.py"), "get", "roles"] if d else []
+    return ["python3", str(_stackshot_client_in(Path(d).expanduser())), "get", "roles"] if d else []
 
 
 def _state_home() -> Path:
