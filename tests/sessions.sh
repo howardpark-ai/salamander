@@ -582,4 +582,96 @@ out=$(SALA_SESSIONS=off "$SALA" sessions tag tage --role front 2>&1); rc=$?
 t0=$(date +%s); out=$("$SALA" sessions tag tage --role front 2>&1); rc=$?; t1=$(date +%s); wait "$H"
 [ "$rc" = 0 ] && [ "$((t1 - t0))" -ge 2 ] && [ "$(q tage role)" = '"front"' ] && ok "tag waits for the pane map's lock, then lands ($((t1 - t0)) s)" || bad "lock: rc=$rc $((t1 - t0)) s $out"
 
+echo "== phase 5: sessions tag --auto gives a row with no role its project and role from the project record"
+# the record (stackshot's projects.json, schema 1): proj-a lists ba (background), fa, tw, mm and dd (front), ex and late (background);
+# proj-b lists dd too (so dd is on two maps); proj-old is retired and lists gone. The rows below are the registry's.
+REC="$HOME/projects.json"
+mkrec() {  # <generated ISO Z> [schema] → the record file
+    python3 - "$REC" "$1" "${2:-1}" <<'PY'
+import json, sys
+path, gen, schema = sys.argv[1], sys.argv[2], int(sys.argv[3])
+ag = lambda front: {"front": front, "role": "x", "mandate_line": "m"}
+json.dump({"schema": schema, "generated": gen, "by_key": {}, "projects": {
+    "prj_t1": {"id": "prj_t1", "key": "projects/proj-a", "retired": False, "agents": {"ba": ag(False), "fa": ag(True), "tw": ag(True), "mm": ag(True), "dd": ag(True), "ex": ag(False)}},
+    "prj_t2": {"id": "prj_t2", "key": "projects/proj-b", "retired": False, "agents": {"dd": ag(False)}},
+    "prj_t3": {"id": "prj_t3", "key": "projects/proj-old", "retired": True, "agents": {"gone": ag(False)}}}}, open(path, "w"))
+PY
+}
+addrec() {  # <name> <front true|false> → the name joins proj-a's agents map
+    python3 - "$REC" "$1" "$2" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["projects"]["prj_t1"]["agents"][sys.argv[2]] = {"front": sys.argv[3] == "true", "role": "x", "mandate_line": "m"}; json.dump(d, open(sys.argv[1], "w"))
+PY
+}
+isonow() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+export SALA_PROJECT_RECORD="$REC"
+i=0
+for n in ba fa nl tw dd mm ex gone ro sd; do i=$((i + 1)); ledger_write add "$n" "44444444-0000-4000-8000-0000000000$(printf %02d $i)" "$n" "$HOME/wa-$n" >/dev/null 2>&1; done
+"$SALA" sessions tag ro --role front >/dev/null 2>&1                                  # ro has a role already: front, though the record will list it as back
+sessions_set tw throwaway=1 spawned_by=somebody >/dev/null 2>&1                       # tw is a bare spawn's row that the record lists
+sessions_set sd side=1 >/dev/null 2>&1                                                # sd is a side session
+sessions_set mm project=projects/elsewhere >/dev/null 2>&1                            # mm says another project than the record does
+ledger_write retire ex >/dev/null 2>&1                                                # ex is listed, but retired
+mkrec "$(isonow)"; addrec ro false
+cp "$REG" "$HOME/reg.before"; : > "$RLOG"
+out=$("$SALA" sessions tag --auto --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "would tag ba .*project None -> projects/proj-a; role None -> back" && echo "$out" | grep -q "would tag fa .*role None -> front" && same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "--auto --dry-run says what it would write and writes nothing (file and log unchanged)" || bad "auto dry run: rc=$rc $out"
+echo "$out" | grep -q "left nl .*on no project's agents map" && echo "$out" | grep -q "left sd .*side session" && echo "$out" | grep -q "left dd .*several projects" && echo "$out" | grep -q "left mm .*projects/elsewhere" && echo "$out" | grep -q "left gone .*no project" && ok "a row the record does not list, a side session, a name on two maps, a row of another project and a retired project's agent are left, each with its reason" || bad "left lines: $out"
+echo "$out" | grep -q " ro (" && bad "a row that has a role is not looked at: $out" || ok "a row with a role is not listed at all"
+out=$("$SALA" sessions tag --auto 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(q ba role)" = '"back"' ] && [ "$(q ba project)" = '"projects/proj-a"' ] && [ "$(q fa role)" = '"front"' ] && [ "$(q tw role)" = '"front"' ] && ok "--auto writes project and role (ba back, fa and tw front)" || bad "auto: rc=$rc $out :: $(q ba role) $(q fa role) $(q tw role)"
+[ "$(q tw throwaway)" = null ] && ok "a listed row that was tagged throwaway stops being one" || bad "throwaway: $(q tw throwaway)"
+[ "$(q ro role)" = '"front"' ] && [ "$(q ro project)" = null ] && ok "a role already on a row is never overwritten (ro stays front although the record says back)" || bad "ro: $(q ro role) $(q ro project)"
+[ "$(q nl role)" = null ] && [ "$(q sd role)" = null ] && [ "$(q dd role)" = null ] && [ "$(q mm role)" = null ] && [ "$(q mm project)" = '"projects/elsewhere"' ] && [ "$(q gone role)" = null ] && [ "$(q ex role)" = null ] && ok "the rows that were left have no role and kept their fields" || bad "left rows: nl=$(q nl role) sd=$(q sd role) dd=$(q dd role) mm=$(q mm role)"
+grep -q "$(printf 'tag\tba\t')" "$RLOG" && ok "one tag line per row in sessions.log" || bad "log: $(<"$RLOG")"
+cp "$REG" "$HOME/reg.before"; : > "$RLOG"
+out=$("$SALA" sessions tag --auto 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q ": 0 tagged" && same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "a second run changes nothing (byte-identical, no log line): idempotent" || bad "repeat: rc=$rc $out"
+out=$("$SALA" sessions tag --auto ba 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "already has role back" && ok "--auto NAME on a row that has a role: nothing changed, exit 0" || bad "named, tagged: rc=$rc $out"
+out=$("$SALA" sessions tag --auto nl 2>&1); rc=$?
+[ "$rc" = 3 ] && echo "$out" | grep -q "left nl" && ok "--auto NAME on a session no agents map lists: exit 3" || bad "named, not listed: rc=$rc $out"
+ledger_write add late "44444444-0000-4000-8000-000000000091" late "$HOME/wa-late" >/dev/null 2>&1; addrec late false
+out=$("$SALA" sessions tag --auto late 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(q late role)" = '"back"' ] && ok "--auto NAME tags that one row" || bad "named: rc=$rc $out"
+ledger_write add late2 "44444444-0000-4000-8000-000000000092" late2 "$HOME/wa-late2" >/dev/null 2>&1; cp "$REG" "$HOME/reg.before"; : > "$RLOG"
+for how in missing stale garbage schema; do
+    case "$how" in
+        missing) rm -f "$REC" ;;
+        stale) mkrec "$(date -u -d '-20 minutes' +%Y-%m-%dT%H:%M:%SZ)" ;;
+        garbage) echo '{"schema": 1, "generated": ' > "$REC" ;;
+        schema) mkrec "$(isonow)" 2 ;;
+    esac
+    out=$("$SALA" sessions tag --auto 2>&1); rc=$?; dry=$("$SALA" sessions tag --auto --dry-run 2>&1); rcd=$?
+    [ "$rc" = 4 ] && [ "$rcd" = 4 ] && same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "a $how project record: exit 4, nothing written, no log line" || bad "$how record: rc=$rc/$rcd $out"
+done
+mkrec "$(isonow)"; addrec late false
+for badargs in "--auto --role back" "--auto --project projects/x" "--auto ba late" "--auto --project-key projects/x"; do
+    out=$("$SALA" sessions tag $badargs 2>&1); rc=$?
+    [ "$rc" != 0 ] && same_file "$REG" "$HOME/reg.before" && ok "tag $badargs: refused, nothing written" || bad "tag $badargs: rc=$rc $out"
+done
+out=$("$SALA" sessions tag --auto ex 2>&1); rc=$?
+[ "$rc" != 0 ] && echo "$out" | grep -q "no session" && ok "a retired row is not tagged" || bad "retired: rc=$rc $out"
+out=$(SALA_SESSIONS=off "$SALA" sessions tag --auto 2>&1); rc=$?
+[ "$rc" != 0 ] && echo "$out" | grep -q "SALA_SESSIONS=off" && same_file "$REG" "$HOME/reg.before" && ok "SALA_SESSIONS=off: --auto refuses, nothing written" || bad "off: rc=$rc $out"
+
+echo "== phase 5: the rule's reader counts a row with no role by the record; the watch's fill"
+n=$(sessions_py back-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
+[ "$n" = "ba late tagm" ] && ok "back-names: a stored role back (tagm, from phase 4) and a record-listed back; no front, no side session, no unlisted, no retired row" || bad "back-names: '$n'"
+cp "$REG" "$HOME/reg.before"; : > "$RLOG"
+sessions_py back-names --record "$REC" --record-max-age 600 >/dev/null 2>&1
+same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "back-names is read-only (file and log unchanged)" || bad "back-names wrote"
+addrec late2 false; n=$(sessions_py back-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
+[ "$n" = "ba late late2 tagm" ] && [ "$(q late2 role)" = null ] && ok "a row with no role counts by what the record says of it, before anything is written" || bad "back-names, untagged: '$n' role=$(q late2 role)"
+rm -f "$REC"; n=$(sessions_py back-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
+[ "$n" = "ba late tagm" ] && ok "with no record the stored roles alone count" || bad "back-names, no record: '$n'"
+: > "$RLOG"; cp "$REG" "$HOME/reg.before"; sessions_fill_roles; rc=$?
+[ "$rc" = 0 ] && same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "the watch's fill with no record: returns 0 and says nothing" || bad "fill, no record: rc=$rc"
+mkrec "$(isonow)"; addrec late false; sessions_fill_roles; rc=$?
+[ "$rc" = 0 ] && [ "$(q late2 role)" = null ] && ok "the fill leaves a row the record does not list" || bad "fill, late2: rc=$rc $(q late2 role)"
+addrec late2 false; sessions_fill_roles; rc=$?
+[ "$rc" = 0 ] && [ "$(q late2 role)" = '"back"' ] && [ "$(q late2 project)" = '"projects/proj-a"' ] && ok "the watch's fill (sessions_fill_roles) tags a row once the record lists it" || bad "fill: rc=$rc $(q late2 role)"
+cp "$REG" "$HOME/reg.before"; SALA_SESSIONS=off sessions_fill_roles; rc=$?
+[ "$rc" = 0 ] && same_file "$REG" "$HOME/reg.before" && ok "SALA_SESSIONS=off: the fill does nothing and returns 0" || bad "fill off: rc=$rc"
+
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }
