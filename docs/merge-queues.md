@@ -139,3 +139,4 @@ Then set the mode back to `off`. Exit codes of `mq wait`: 0 merged, 1 failed, 2 
 - Branch protection on `main` stays (`changes`, `suites`, `web`, administrators included), so the required checks apply to the queue's ref and to `main` both.
 - `merge_group.base_sha` is `main`'s head for an entry at the front of the queue; for an entry stacked on another it may be the entry ahead. Either only changes which suites are selected, never whether a required check reports.
 - Only GitHub's queue and `sala mq` write `gh-readonly-queue/…` and `queue/…` branches; neither is a branch to work on.
+- GitHub's merge queue was proven on Sun Nov 8th 2026: a lone PR went through `release.sh` and merged through the queue (board#1057).
