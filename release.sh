@@ -20,6 +20,13 @@
 #                                 The live release is also reported to stackshot (`client.py released --pr <PR url> --sha <merge commit>`, just
 #                                 before that message), which settles the items whose step is `release PR #N`; stackshot refuses it until its
 #                                 server accepts this repo (then it is only logged), and it never fails the release.
+#   Step 4 has two ways, chosen by what GitHub says about main (SALA_RELEASE_MERGE: auto, the default; direct; queue). With NO merge queue on main
+#   (the ruleset is off or disabled) the PR is merged at once as above. With GitHub's merge queue ON, `gh pr merge` cannot merge it (it asks for auto-merge,
+#   which this repository does not allow): the PR is put in the queue (GraphQL enqueuePullRequest, pinned to the head the checks passed on), the release waits
+#   for GitHub to merge it (SALA_RELEASE_QUEUE_WAIT s, 7200 by default; the queue tests the entry on its own branch with tests.yml's merge_group run), deletes the
+#   branch, and deploys the merge commit GitHub made. A PR the queue removes, closes or leaves waiting fails the release at "merge queue", nothing deployed (a PR
+#   that merges after the wait gave up is deployed by `release.sh --merged <pr>`). `direct` never asks GitHub and always merges at once (--admin); `queue` fails
+#   when main has no queue. docs/merge-queues.md.
 #   An already merged PR (state MERGED at step 1) skips the mergeable test and step 4, and step 3 waits instead for the check
 #   runs on the PR's merge commit on main (`gh api repos/<repo>/commits/<sha>/check-runs`, the same 45 min; all must
 #   pass, a failing one stops the release before the deploy). When none show up it waits a 2 min grace, then goes on only if
@@ -53,6 +60,9 @@ GH_CACHE="$LOGDIR/gh-cache"          # the checks reads below, kept per url (bod
 GH_TTL="${SALA_RELEASE_GH_TTL:-$POLL}"   # seconds a read is reused before GitHub is asked again: the poll interval, so a url is read at most once per interval however many releases wait on it (0 = never reuse; the tests set it)
 GRACE="${SALA_RELEASE_GRACE:-120}"   # an already merged PR: how long main's commit may show no check run before "no workflow ran" is believed
 CIFILE_MAX_AGE="${SALA_RELEASE_CIFILE_MAX_AGE:-120}"   # how old the CI-run poller's file (<state>/ci-runs/<owner>__<repo>.json) may be and still be believed about a run that is going; 0 = never use it
+MERGE_MODE="${SALA_RELEASE_MERGE:-auto}"   # step 4: auto (ask GitHub whether main has a merge queue), direct (never ask: always `gh pr merge --admin`), queue (the queue or a failure)
+QUEUE_WAIT="${SALA_RELEASE_QUEUE_WAIT:-7200}"   # seconds a PR may stay in GitHub's merge queue before the release gives up waiting (an entry's checks time out well before)
+case "$MERGE_MODE" in auto|direct|queue) ;; *) echo "SALA_RELEASE_MERGE is '$MERGE_MODE': auto, direct or queue" >&2; exit 2 ;; esac
 # ci_file_pending <sha>: exit 0 (and one line on stdout) when the poller's file for this repo is fresh and shows a workflow run of <sha> that has not completed; any other case (no file, stale, no run of the sha, all completed, no poller code in this checkout) exit 1: ask GitHub
 ci_file_pending() { [ -f "$HERE/lib/cipoll.py" ] && python3 -I "$HERE/lib/cipoll.py" pending "$REPO" "$1" --max-age "$CIFILE_MAX_AGE" 2>/dev/null; }
 
@@ -123,6 +133,86 @@ report_live() {
     return 0
 }
 
+# ---- GitHub's merge queue (step 4). release.sh puts the PR in (the enqueuePullRequest mutation) and only reads the queue's state; it never takes a PR out of it.
+# The three reads are GraphQL, one call each, from the same hourly budget as the rest; none is cached.
+# ghq_target <pr>: $gq_mq = 1 when main has a merge queue (the ruleset is on), 0 when not; $gq_prid = the PR's node id. 1 when GitHub's answer cannot be read.
+ghq_target() {
+    local out
+    out="$(gh api graphql -f query='query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){mergeQueue(branch:"main"){id} pullRequest(number:$p){id}}}' \
+        -f o="${REPO%%/*}" -f n="${REPO##*/}" -F p="$1" 2>/dev/null)" || return 1
+    out="$(echo "$out" | python3 -c '
+import json, sys
+try:
+    r = json.load(sys.stdin)["data"]["repository"]
+    print(1 if r.get("mergeQueue") else 0, r["pullRequest"]["id"])
+except Exception: sys.exit(1)' 2>/dev/null)" || return 1
+    read -r gq_mq gq_prid <<< "$out"
+    [[ "$gq_mq" =~ ^[01]$ ]] && [ -n "$gq_prid" ] || { gq_mq=""; return 1; }
+}
+# ghq_read <pr>: $gq_state (OPEN | MERGED | CLOSED), $gq_oid (the merge commit, "" until there is one), $gq_entry ("" when the PR is not in the queue, else "<STATE> position <n>"). 1 when the answer cannot be read.
+ghq_read() {
+    local out es ep
+    out="$(gh api graphql -f query='query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){state mergeCommit{oid} mergeQueueEntry{state position}}}}' \
+        -f o="${REPO%%/*}" -f n="${REPO##*/}" -F p="$1" 2>/dev/null)" || return 1
+    out="$(echo "$out" | python3 -c '
+import json, sys
+try:
+    p = json.load(sys.stdin)["data"]["repository"]["pullRequest"]
+    e = p.get("mergeQueueEntry") or {}
+    pos = e.get("position")
+    print(p["state"], (p.get("mergeCommit") or {}).get("oid") or "-", e.get("state") or "-", "-" if pos is None else pos)
+except Exception: sys.exit(1)' 2>/dev/null)" || return 1
+    read -r gq_state gq_oid es ep <<< "$out"
+    [ -n "$gq_state" ] || return 1
+    [ "$gq_oid" != "-" ] || gq_oid=""
+    if [ "$es" = "-" ] || [ -z "$es" ]; then gq_entry=""; else gq_entry="$es position $ep"; fi
+}
+# ghq_reason <pr> <epoch>: the reason GitHub gave for the PR's latest removal from the queue (the timeline's RemovedFromMergeQueueEvent) dated at or after <epoch> (an older one belongs to an earlier enqueue) into $gq_reason;
+# 1 when there is none yet or it cannot be read. A word a log waiter looks for (" FAILED ", " done: ") is softened.
+ghq_reason() {
+    local out
+    out="$(gh api graphql -f query='query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){timelineItems(last:10,itemTypes:[REMOVED_FROM_MERGE_QUEUE_EVENT]){nodes{... on RemovedFromMergeQueueEvent{reason createdAt}}}}}}' \
+        -f o="${REPO%%/*}" -f n="${REPO##*/}" -F p="$1" 2>/dev/null)" || return 1
+    gq_reason="$(echo "$out" | SINCE="${2:-0}" python3 -c '
+import json, os, sys, datetime
+since = int(os.environ["SINCE"])
+try: nodes = [x for x in json.load(sys.stdin)["data"]["repository"]["pullRequest"]["timelineItems"]["nodes"] if x]
+except Exception: sys.exit(1)
+def epoch(x):
+    try: return int(datetime.datetime.fromisoformat(x["createdAt"].replace("Z", "+00:00")).timestamp())
+    except Exception: return -1
+nodes = sorted((n for n in nodes if epoch(n) >= since), key=epoch)
+if not nodes: sys.exit(1)
+WORDS = {"failed_checks": "the merge group failed its required checks", "merge_conflict": "a merge conflict with main", "manual": "removed from the queue by hand",
+         "branch_protection_failure": "branch protection failed for the merge group"}
+raw = " ".join((nodes[-1].get("reason") or "no reason given").split())[:300]
+print(WORDS.get(raw.lower(), raw).replace(" FAILED ", " failed ").replace(" done: ", " done "))' 2>/dev/null)" || return 1
+}
+# wait_queue <pr> <epoch of the enqueue call>: reads the PR every POLL s until it is MERGED (0, the merge commit in $merge_sha), or has left the queue without merging (1, the reason in $removed_why), or is CLOSED (2), or
+# QUEUE_WAIT s have passed (3). GitHub shows a new entry a moment late and a merged PR a moment after its entry is gone, so "left the queue" is believed on the second look after the entry was seen,
+# and "never showed" on the third look without it. A look that cannot be read is waited out like a pending one.
+wait_queue() {
+    local waited=0 seen=0 absent=0 said=-1
+    while :; do
+        if ghq_read "$1"; then
+            case "$gq_state" in
+                MERGED) if [ -n "$gq_oid" ]; then merge_sha="$gq_oid"; return 0; fi ;;
+                CLOSED) return 2 ;;
+            esac
+            if [ -n "$gq_entry" ]; then seen=1; absent=0; else absent=$((absent + 1)); fi
+            if [ "$gq_state" = OPEN ] && [ -z "$gq_entry" ] && [ "$absent" -ge $((seen ? 2 : 3)) ]; then
+                if ghq_reason "$1" "$2"; then removed_why="removed from the merge queue: $gq_reason"
+                elif [ "$seen" = 1 ]; then removed_why="left the merge queue, and GitHub's timeline gives no reason"
+                else removed_why="the PR did not show in the merge queue after the enqueue call and is not merged"; fi
+                return 1
+            fi
+            if [ -n "$gq_entry" ] && { [ "$said" -lt 0 ] || [ $((waited - said)) -ge 300 ]; }; then said=$waited; say "in the merge queue ($gq_entry): $((waited/60)) min since the enqueue, up to $((QUEUE_WAIT/60)) min"; fi
+        fi
+        [ "$waited" -lt "$QUEUE_WAIT" ] || return 3
+        sleep "$POLL"; waited=$((waited + POLL))
+    done
+}
+
 run() {
     local pr="$1" want_merged="${2:-}" log="$LOGDIR/pr-$1.log" title sha changed live_sha
     exec > >(tee -a "$log") 2>&1
@@ -131,7 +221,7 @@ run() {
     # UNKNOWN is GitHub still computing mergeability (right after another merge to main): ask again, up to 2 min
     local view tries=0
     while :; do
-        view="$(gh pr view "$pr" --repo "$REPO" --json state,mergeable,title,headRefName,mergeCommit 2>&1)" || fail "pr view" "$(echo "$view" | tail -1)"
+        view="$(gh pr view "$pr" --repo "$REPO" --json state,mergeable,title,headRefName,isCrossRepository,mergeCommit 2>&1)" || fail "pr view" "$(echo "$view" | tail -1)"
         echo "$view" | grep -q '"state":"OPEN"' && echo "$view" | grep -q '"mergeable":"UNKNOWN"' && [ "$tries" -lt 12 ] || break
         tries=$((tries + 1)); sleep 10
     done
@@ -139,7 +229,7 @@ run() {
     local state mergeable; state="$(echo "$view" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')"; mergeable="$(echo "$view" | python3 -c 'import json,sys; print(json.load(sys.stdin)["mergeable"])')"
     # MERGED: somebody merged it already (by hand, a merge helper), so main moved and the production checkout may not have
     # followed. The merge is skipped and the checks that matter are the ones on main's merge commit.
-    local mode=open merge_sha= msha= what=checks
+    local mode=open merge_sha= msha= what=checks via=direct via_note= branch= removed_why=
     if [ "$state" = MERGED ]; then
         mode=merged
         merge_sha="$(echo "$view" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("mergeCommit") or {}).get("oid") or "")')"
@@ -226,10 +316,58 @@ except Exception: print("?")')"
     if [ "$mode" = merged ]; then
         say "PR #$pr was already merged (main's commit $msha); no merge, on to the deploy"
     else
-        # --admin: a ruleset limits who may update branches, so GitHub reports the PR as BLOCKED and gh refuses a plain merge client-side.
-        # It does not skip the required checks (administrators are not exempt from them): a failing or unfinished one still refuses it.
-        out="$(gh pr merge "$pr" --repo "$REPO" --merge --delete-branch --admin 2>&1)" || fail "merge" "$(echo "$out" | tail -1)"
-        say "merged"
+        # 4. How the PR goes in is decided by what GitHub says about main: a merge queue on it (its ruleset is on) -> the PR is put in the queue and GitHub merges it once the entry's checks pass; none (no
+        # such ruleset, or it is disabled) -> merged at once. SALA_RELEASE_MERGE=direct never asks (the way back with no API call), =queue refuses the direct merge.
+        via=direct
+        if [ "$MERGE_MODE" != direct ]; then
+            local tries; gq_mq=""; gq_prid=""
+            for tries in 1 2 3; do ghq_target "$pr" && break; [ $tries = 3 ] || sleep "$((POLL < 10 ? POLL : 10))"; done
+            [ -n "$gq_mq" ] || fail "merge" "GitHub's answer about main's merge queue and the PR cannot be read, so it is not known whether the PR is put in the queue or merged at once (SALA_RELEASE_MERGE=direct merges at once)"
+            [ "$gq_mq" = 1 ] && via=queue
+            [ "$MERGE_MODE" != queue ] || [ "$via" = queue ] || fail "merge queue" "SALA_RELEASE_MERGE=queue, and main has no merge queue (the ruleset is off or disabled)"
+        fi
+        if [ "$via" = queue ]; then
+            local enq_epoch enq_ok=0 enq_err rcq
+            enq_epoch="$(date +%s)"
+            if out="$(gh api graphql -f query='mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{state position}}}' -f id="$gq_prid" -f h="$head_sha" 2>&1)" \
+               && echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if not d.get("errors") and (d.get("data") or {}).get("enqueuePullRequest") else 1)' 2>/dev/null; then
+                enq_ok=1; say "enqueued: the merge queue accepted the head ${head_sha:0:7}"
+            else
+                # the call can error after the PR was queued or merged (a 504, a PR queued already by an earlier run of this release): read it once more before believing the error
+                enq_err="$(echo "$out" | python3 -c '
+import json, sys
+lines = [l for l in sys.stdin.read().splitlines() if l.strip()]
+msgs = []
+for l in lines:
+    try: msgs += [e.get("message", "") for e in (json.loads(l).get("errors") or [])]
+    except Exception: pass
+print("; ".join(m for m in msgs if m) or (lines[-1] if lines else "no answer"))' 2>/dev/null)"
+                if ghq_read "$pr" && { [ "$gq_state" = MERGED ] || [ -n "$gq_entry" ]; }; then
+                    enq_ok=1; say "the enqueue call errored ($enq_err) but the PR is ${gq_state}${gq_entry:+, in the merge queue ($gq_entry)}: carrying on"
+                else fail "merge" "the merge queue refused the PR: $enq_err"; fi
+            fi
+            [ "$enq_ok" = 1 ] || fail "merge" "the enqueue call gave no answer"
+            wait_queue "$pr" "$enq_epoch"; rcq=$?
+            case "$rcq" in
+                0) ;;
+                1) fail "merge queue" "$removed_why; nothing was merged or deployed" ;;
+                2) fail "pr state" "the PR was closed while it waited for the merge queue" ;;
+                *) fail "merge queue" "still in the queue or not merged $((QUEUE_WAIT/60)) min after the enqueue, which is as long as this release waits; if GitHub merges it later, release.sh --merged $pr deploys it" ;;
+            esac
+            msha="${merge_sha:0:7}"; via_note=" through GitHub's merge queue"
+            say "merged by GitHub's merge queue as $msha (the entry's checks ran on that commit); on to the deploy"
+            # the head branch, as `gh pr merge --delete-branch` removes it: best effort, and never a branch of a fork
+            if [ "$(echo "$view" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("isCrossRepository") and "fork" or "")')" != fork ]; then
+                branch="$(echo "$view" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headRefName") or "")')"
+                if [ -n "$branch" ] && gh api "repos/$REPO/git/refs/heads/$branch" -X DELETE >/dev/null 2>&1; then say "deleted the head branch $branch"
+                else say "head branch ${branch:-?} not deleted (GitHub refused, or it is gone)"; fi
+            fi
+        else
+            # --admin: a ruleset limits who may update branches, so GitHub reports the PR as BLOCKED and gh refuses a plain merge client-side.
+            # It does not skip the required checks (administrators are not exempt from them): a failing or unfinished one still refuses it.
+            out="$(gh pr merge "$pr" --repo "$REPO" --merge --delete-branch --admin 2>&1)" || fail "merge" "$(echo "$out" | tail -1)"
+            say "merged"
+        fi
     fi
     out="$(SALA_DEPLOY_LOCK_WAIT=900 ./deploy.sh 2>&1)"; local rc=$?; echo "$out"
     sha="$(git rev-parse --short HEAD)"
@@ -244,7 +382,7 @@ except Exception: print("?")')"
         [ -n "$live_sha" ] || live_sha="$(git -C "$HERE" log --first-parent --merges --format=%H --grep "Merge pull request #$pr from" -n1 2>/dev/null)"
     fi
     if [ -n "$live_sha" ]; then report_live "$pr" "$live_sha"; else say "live release not reported to stackshot: neither GitHub nor this checkout names the merge commit of PR #$pr"; fi
-    tell "[release] PR #$pr merged and deployed$([ "$mode" = merged ] && echo " (it was already merged; the checks on main passed)") — $title — main at $sha; changed: $changed · log $log"
+    tell "[release] PR #$pr merged and deployed$via_note$([ "$mode" = merged ] && echo " (it was already merged; the checks on main passed)") — $title — main at $sha; changed: $changed · log $log"
 }
 
 case "${1:-}" in
@@ -258,7 +396,7 @@ case "${1:-}" in
         case "$st" in active|activating|deactivating) ;; *) st=finished ;; esac
         echo "unit salamander-release-$pr: $st"
         tail -n 15 "$LOGDIR/pr-$pr.log" 2>/dev/null ;;
-    ''|-h|--help) sed -n '2,27p' "$0"; exit 2 ;;
+    ''|-h|--help) sed -n '2,34p' "$0"; exit 2 ;;
     *)
         flag=; [ "$1" = --merged ] && { flag=--merged; shift; }
         pr="${1:-}"; [[ "$pr" =~ ^[0-9]+$ ]] || { echo "usage: release.sh [--merged] <pr> | --status [pr] | --run [--merged] <pr>" >&2; exit 2; }
