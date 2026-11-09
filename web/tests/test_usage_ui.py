@@ -70,12 +70,13 @@ def warm(served: dict) -> None:
     for _ in range(100):
         with urllib.request.urlopen(served["url"] + "/api/usage?week=0" + fresh) as r:
             d = json.load(r)
+        fresh = ""
         if d.get("noCount"):
             fresh = "&fresh=1"
         elif not d.get("pending") and not d.get("refreshing"):
             return
         time.sleep(0.1)
-    raise AssertionError("the count never finished")
+    raise AssertionError(f"the count never finished: { {k: d.get(k) for k in ('noCount', 'pending', 'refreshing', 'error', 'stale')} }")
 
 
 def open_tab(served, browser, size: dict, hash_: str = "#usage", ready: bool = True) -> None:
