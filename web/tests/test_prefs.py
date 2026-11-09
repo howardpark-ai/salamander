@@ -10,8 +10,8 @@ from sala_web import app as A
 from sala_web.app import create_app
 from sala_web.config import Settings
 
-DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [], "laneOrder": [], "showAll": False, "showTools": False,
-            "shellHeight": 300}
+DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [], "laneOrder": [], "showAll": False, "unreadOnly": False,
+            "showTools": False, "shellHeight": 300}
 
 
 @pytest.fixture
@@ -68,6 +68,18 @@ def test_the_order_of_sessions_is_kept_like_the_groups(env):
         assert c.put("/api/prefs", json=bad).status_code == 400, bad
 
 
+def test_the_unread_filter_is_kept_like_show_all_sessions(env):
+    """The Unread entry's on/off is a pref of the server's, so the phone and the desktop agree and a reload keeps it; off by default."""
+    c = env["client"]
+    assert c.get("/api/prefs").json()["unreadOnly"] is False
+    assert c.put("/api/prefs", json={"unreadOnly": True}).json()["unreadOnly"] is True
+    assert c.put("/api/prefs", json={"showAll": True}).status_code == 200      # another key leaves it alone
+    assert c.get("/api/prefs").json()["unreadOnly"] is True
+    assert json.loads(env["file"].read_text())["unreadOnly"] is True
+    assert c.put("/api/prefs", json={"unreadOnly": "yes"}).status_code == 400
+    assert c.get("/api/prefs").json()["unreadOnly"] is True
+
+
 def test_the_shell_drawer_height_is_kept_like_the_lane_order(env):
     """Decision: the Shell drawer's height follows the user across browsers, so it is a pref, a whole
     number of pixels; the page keeps it inside the window. Default 300."""
@@ -92,6 +104,7 @@ def test_the_shell_drawer_height_is_kept_like_the_lane_order(env):
     {"groupOrder": ["a" * 513]},
     {"groupOrder": [f"g{i}" for i in range(A.PREFS_MAX_GROUPS + 1)]},
     {"showAll": "yes"},
+    {"unreadOnly": 1},
     {"scopeOrder": "gamma"},
     {"collapsed": [None]},
     {"theme": "dark"},
