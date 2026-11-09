@@ -296,7 +296,7 @@ class CDP:
 
     def touch(self, on: bool = True) -> None:
         """A touch screen: `(pointer: coarse)` matches (the look's 44 px controls) and `(hover: none)`; set on the open page, live."""
-        self.send("Emulation.setTouchEmulationEnabled", {"enabled": on, "maxTouchPoints": 1 if on else 0})
+        self.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 1} if on else {"enabled": False})
 
     def evaluate(self, expression: str, timeout_ms: int = 25000):
         """The value of a JS expression on the page; a promise is awaited."""
