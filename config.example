@@ -235,6 +235,7 @@
 #SALA_SIGNIN_EVERY=300           # seconds between two looks at the login lanes (each is one `claude auth status`, a CLI start)
 #SALA_LANE_REVIVE_EVERY=86400    # a login lane (subscription-1, subscription-2) the watch set dormant is looked at again this often, with the sign-in check above, and
                                  #   comes back by itself when it is right. The api lane never does: `sala lane active api`
+#SALA_CUT_WAIT=40               # the lane fallback of a lane held by a monthly usage cap sends a pane that is mid-turn one Escape, then waits up to this many seconds for it to be idle before it is relaunched
 #SALA_WEB_STATE_DIR=             # sala-web's state directory, where the watch reads its saved usage answers (quota-<lane>.json; a 403 'refused' is the seat-based lane's signal) and the web UI keeps them. Default $XDG_STATE_HOME/sala-web
 #SALA_WEB_SOCKET=                # the web UI's socket path: install.sh --web writes it as sala-web.socket's ListenStream=, so an instance can pin it. Default $XDG_RUNTIME_DIR/sala-web/sala-web.sock
 #SALA_SIGNIN_API_EVERY=3600      # seconds between two API requests for the api lane's key: one of max_tokens 1 to SALA_SIGNIN_API_MODEL, the

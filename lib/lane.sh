@@ -18,7 +18,8 @@
 #                                                                   (SALA_LANE_FALLBACK_AUTO) the sessions on it are also queued onto its fallback (below); --no-fallback records only
 #   salamander lane fallback <lane> [--dry-run]                     THE LANE FALLBACK: move everything on a DORMANT lane — its sessions (the master by the rescue
 #                                                                   route), the default if it was the default, and the jobs from then on — to the lane SALA_LANE_FALLBACK names for it,
-#                                                                   when that lane is active and ready; --dry-run prints the moves. Exit 4: no usable fallback
+#                                                                   when that lane is active and ready; --dry-run prints the moves. Exit 4: no usable fallback. For a lane held by a monthly usage
+#                                                                   cap a pane that is mid-turn is first sent ONE Escape (pane_cut_turn, SALA_CUT_WAIT) so it can be relaunched
 #   salamander lane active <lane>   [--dry-run]                     mark it active again (the only way back for the API lane, api and sdk)
 #   salamander lane --migrate         [--dry-run]                   THE RENAME'S MIGRATION: rewrite the old name of a renamed lane (awsplatform → aws-platform) in lanes.tsv,
 #                                                                   lane-default, lane-state.tsv and the session registry, once (idempotent, atomic, a backup beside each file;
@@ -69,7 +70,7 @@
 # each session, each model change, the default). `lane fallback` itself does the move: every session whose running lane is the dead
 # one (recorded on it, or on "(default)" while the default is that lane) is recorded on the fallback — its home (the lane it left)
 # in lane-home.tsv — and relaunched through the ordinary switch (`lane <fallback> <session>…`: a busy pane is deferred to the retry
-# worker and relaunched when idle, never interrupted), the master last by the rescue route (`lane --rescue <fallback>`); a Fable
+# worker and relaunched when idle, never interrupted — except on a lane held by a monthly usage cap, where a pane mid-turn is a retry loop that never goes idle and gets ONE Escape first, pane_cut_turn), the master last by the rescue route (`lane --rescue <fallback>`); a Fable
 # session moving onto bedrock is recorded on Opus (models.tsv) in the same move; the default lane follows. "Stay": nothing moves a
 # session back when the lane is active again; `salamander lane <home> <session>` does and clears its home. A job (`lane exec`) whose
 # lane is dormant runs on the fallback for as long as it is, with one line on stderr. One hop; no usable fallback → nothing moves
@@ -103,7 +104,7 @@ usage() {
     echo "       salamander lane pin <session> <lane>   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a move that names it still moves it"
     echo "       salamander lane unpin <session>        take the pin off (bulk moves take the session again)"
     echo "       salamander lane pins                   the pinned sessions and the lane each is held on (the list: \$SALA_LANE_PINS, a TSV: session TAB lane)"
-    echo "       salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   mark a lane dormant by hand (nothing is moved onto it); its sessions, default and jobs are queued onto its fallback unless --no-fallback or SALA_LANE_FALLBACK_AUTO=off"
+    echo "       salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   mark a lane dormant by hand (nothing is moved onto it); its sessions, default and jobs are queued onto its fallback unless --no-fallback or SALA_LANE_FALLBACK_AUTO=off (the watch also marks a lane dormant itself, until the regain time, for a monthly usage cap)"
     echo "       salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback ($SALA_LANE_FALLBACK); a pinned session stays and is listed; --dry-run prints the moves; exit 4: no usable fallback"
     echo "       salamander lane active <lane>     [--dry-run]                  mark a lane active again (the only way back for api and sdk)"
     echo "       salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)"

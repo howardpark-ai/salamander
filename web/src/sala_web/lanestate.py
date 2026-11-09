@@ -1,10 +1,11 @@
 """The dormant record, read-only (salamander lib/common.sh, "THE DORMANT RECORD").
 
 sala keeps one record per lane, active or dormant, in `lane-state.tsv` beside its other state: one row per lane that ever
-changed state, `lane TAB state TAB reason TAB since (ISO, UTC) TAB posted TAB by`, keyed by the lane's id (sdk is the api
+changed state, `lane TAB state TAB reason TAB since (ISO, UTC) TAB posted TAB by [TAB until (ISO, UTC)]`, keyed by the lane's id (sdk is the api
 lane's alias and is read as api). An absent row, or no file, is active. This app only reads it: a dormant lane's Overview
 card is one line and makes no usage check, and the New session form does not offer the lane. The file is sala's; nothing
-here writes it, and an unreadable or odd line is skipped, which reads as active.
+here writes it, and an unreadable or odd line is skipped, which reads as active. The seventh column, `until`, is set only by a monthly usage cap
+(when the provider says access returns); this reader takes its columns by position and does not use it.
 """
 
 from __future__ import annotations

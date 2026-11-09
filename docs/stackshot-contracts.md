@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 44
+contract-version: 45
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -292,6 +292,10 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   (it was `{pending: true, ...}`, which now means a Reload's count is running). The drill-down's records are saved with every count (`usage-replies.json` in sala-web's state directory), so `/api/usage/replies`
   answers at once after a restart. Nothing stackshot reads or sends changed.
 
+- **45** — Mon Nov 9th 2026. Interface 12 (lanes and limit state): the `lim` of a `panes` entry of `salamander-limit.json` gains a value, `monthly`, for a pane stopped on a monthly usage cap
+  (a 429 whose text says the account crossed its monthly usage threshold and when access returns); its `reset` is that time. `lane` is the lane the pane runs on, as for the login lanes' kinds. Additive: a reader
+  that treats `lim` as an opaque word is unaffected. sala also marks such a lane dormant until that time (the seventh `until` column of its own `lane-state.tsv`, which stackshot does not read) and moves its sessions to the lane's fallback.
+
 ## How each entry reads
 
 - **Direction**: `sala → stackshot` means sala writes or calls and stackshot reads or answers; `stackshot → sala` the
@@ -578,7 +582,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Mechanism**: `stackshot.example.toml:310` `lanes_file = "~/.local/state/salamander/lanes.tsv"` (`<session>\t<lane>` rows;
   `lane-default` beside it; `subscription-1` when neither; a row written before version 27 may carry an older lane word, read as the lane's current code: interface 28) for its `lane <session> <lane>` done check (stackshot renamed it from
   `sala_lane`; the old name is still accepted on stored items); `:313`
-  `limit_file = "~/.claude/salamander-limit.json"` whose `panes` map (transcript uuid → `{s, lane, lim, since, reset}`; version 35 adds `rlane`, the lane the pane runs on)
+  `limit_file = "~/.claude/salamander-limit.json"` whose `panes` map (transcript uuid → `{s, lane, lim, since, reset}`; version 35 adds `rlane`, the lane the pane runs on; version 45 adds the `lim` value `monthly`)
   tells it which panes sala's limit watch stopped. A third file is read from the same directory as `lanes_file`:
   `lane-signin.state`, below.
 - **`lane-signin.state`**: `$SALA_STATE_DIR/lane-signin.state` (`SALA_SIGNIN_STATE`), beside `lanes.tsv`. sala's sign-in watch
