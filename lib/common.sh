@@ -3420,8 +3420,8 @@ lane_default() { local l; _lane_default_r l; printf '%s\n' "$l"; }
 _lane_row_raw_r() { printf -v "$1" %s ""; [ -n "${2:-}" ] && [ -r "$SALA_LANES" ] && _tsv_col_r "$1" "$SALA_LANES" "$2" 2; return 0; }   # <var> <session> → the word in its row as the file holds it (an old name stays old)
 _lane_row_r() { _lane_row_raw_r "$1" "${2:-}"; _lane_norm_r "$1" "${!1}"; return 0; }   # <var> <session> → its own lane in <var> (the current name of a renamed lane; a row written before the rename still says awsplatform)
 lane_row() { local _l; _lane_row_r _l "${1:-}"; [ -n "$_l" ] && printf '%s\n' "$_l"; return 0; }   # <session> → its own lane, or nothing
-_lane_for_session_r() { local _fl; _lane_row_r _fl "${2:-}"; if lane_known "$_fl"; then _lane_effective_r "$1" "$_fl"; else _lane_default_r "$1"; fi; }   # <var> <session>
-lane_for_session() { local l; _lane_for_session_r l "${1:-}"; printf '%s\n' "$l"; }   # <session> → the lane it launches on (its row, else the default; no session → the default; an sdk row after the window → subscription-1)
+_lane_for_session_r() { local _fl; _lane_row_r _fl "${2:-}"; lane_known "$_fl" || _lane_pin_lane_r _fl "${2:-}"; if lane_known "$_fl"; then _lane_effective_r "$1" "$_fl"; else _lane_default_r "$1"; fi; }   # <var> <session>: its row, else its pin's lane (THE PINNED SESSIONS), else the default
+lane_for_session() { local l; _lane_for_session_r l "${1:-}"; printf '%s\n' "$l"; }   # <session> → the lane it launches on (its row, else its pin's lane, else the default; no session → the default; an sdk row after the window → subscription-1)
 lane_dir() { local _n; _lane_norm_r _n "${1:-}"; case "$_n" in subscription-2) echo "$SALA_LANE_TEAM_DIR";; esac; }   # <lane> → its config directory (subscription-2's: SALA_LANE_TEAM_DIR keeps its name)
 lane_rc() { local _n; _lane_norm_r _n "${1:-subscription-1}"; case "$_n" in api|sdk|bedrock|aws-platform) return 1;; esac; return 0; }   # <lane> → 0 when a claude on it can have a Remote Control bridge (a claude.ai login behind it)
 lane_plain_path() { case "$1" in ''|*[!A-Za-z0-9/._~+-]*) return 1;; esac; return 0; }   # typed into a shell unquoted: mod_env_prefix's test
@@ -3688,13 +3688,57 @@ _lane_del() {  # <session>
 _lane_mv() { local l; l=$(lane_row "$1"); [ -n "$l" ] || return 0; _lane_del "$1" && _lane_put "$2" "$l"; }   # <old> <new>
 lane_write() { local l; lane_known "${2:-}" || return 1; _lane_norm_r l "$2"; _lane_locked _lane_put "$1" "$l" || return $?; sessions_set "$1" "lane=$l"; }   # <session> <lane> (the registry row copies it once the table's lock is released)
 lane_drop() { lane_home_clear "$1"; [ -r "$SALA_LANES" ] || return 0; _lane_locked _lane_del "$1"; }         # <session> — retire (its lane fallback home record goes too)
-lane_rename() { lane_home_rename "$1" "$2"; [ -r "$SALA_LANES" ] || return 0; _lane_locked _lane_mv "$1" "$2"; }   # <old> <new> — rename (the home record with it)
+lane_rename() { lane_home_rename "$1" "$2"; lane_pin_rename "$1" "$2"; [ -r "$SALA_LANES" ] || return 0; _lane_locked _lane_mv "$1" "$2"; }   # <old> <new> — rename (the home record with it)
 lane_set_default() {  # <lane>
     lane_known "${1:-}" || return 1; local new old raw t="$SALA_LANE_DEFAULT_FILE.t.$$"; _lane_norm_r new "$1"; old=$(lane_default)
     raw=""; { IFS= read -r raw < "$SALA_LANE_DEFAULT_FILE"; } 2>/dev/null; raw=${raw//[$' \t\r']/}; [ "$old" = "$new" ] && [ "$raw" = "$new" ] && return 0   # an old name in the file is rewritten, not "already"
     mkdir -p "$SALA_STATE_DIR" 2>/dev/null; printf '%s\n' "$new" > "$t" && mv -f "$t" "$SALA_LANE_DEFAULT_FILE" || { rm -f "$t"; return 1; }
     [ "$old" = "$new" ] || lane_log default - "$old → $new"
 }
+# THE PINNED SESSIONS. A pinned session is held out of every BULK lane move: it stays on its lane unless a move NAMES it
+# (`salamander lane <lane> <session>`). The list is a plain TSV, one "<session>\t<lane>" row per pinned session, in the state dir
+# beside lanes.tsv (SALA_LANE_PINS overrides the path); a line starting with # is a comment. It ships absent, so nothing is pinned
+# until the operator pins one (`salamander lane pin <session> <lane>`, `lane unpin <session>`, `lane pins`, or by editing the file).
+# The lane in a row is the lane the session is held on: a session with no row of its own in lanes.tsv launches there, not on the
+# default, so a change of the default never re-homes it. A row in lanes.tsv (an explicit move) still wins over the pin.
+#
+# FOR A MOVER THAT PICKS SESSIONS ITSELF (the switch's --all, `lane default`, `lane fallback`, the back agents' rule; and any automatic
+# mover added later, such as a fallback onto another lane when a lane runs out): call these, never re-implement the test.
+#   lane_is_pinned <session>          rc 0 when the session is pinned
+#   lane_pin_of <session>             the lane it is pinned to (stdout; nothing when it is not pinned)
+#   pinned_skip_note <session>        "skipped (pinned to <lane>): <session>" on stdout, rc 0; rc 1 and nothing for an unpinned session
+#   lane_pins_split <session>…        sets PIN_MOVE (the unpinned ones, in order) and PIN_SKIP (the pinned ones); the mover moves PIN_MOVE
+#                                     and prints pinned_skip_note for each of PIN_SKIP, in its dry run too
+# A move that names the session (`lane <lane> <session>`) does not call these to skip it; it says pinned_moving_note once and moves.
+: "${SALA_LANE_PINS:=$SALA_STATE_DIR/lane-pins.tsv}"
+_lane_pin_row_r() { printf -v "$1" %s ""; case "${2:-}" in ""|"#"*) return 0;; esac; [ -r "$SALA_LANE_PINS" ] && _tsv_row_r "$1" "$SALA_LANE_PINS" "$2"; return 0; }   # <var> <session> → its row, or nothing
+_lane_pin_raw_r() { local _row; printf -v "$1" %s ""; _lane_pin_row_r _row "${2:-}"; [ -n "$_row" ] || return 0; if [[ $_row == *$'\t'* ]]; then _row=${_row#*$'\t'}; else _row=""; fi; _row=${_row%%$'\t'*}; _row=${_row//[$' \r']/}; _lane_norm_r _row "$_row"; printf -v "$1" %s "${_row:-?}"; }   # <var> <session> → the pinned lane ("?" for a row naming none), nothing when not pinned
+_lane_pin_lane_r() { local _p; printf -v "$1" %s ""; _lane_pin_raw_r _p "${2:-}"; if lane_known "$_p"; then printf -v "$1" %s "$_p"; fi; return 0; }   # <var> <session> → the pinned lane when it is a lane sala knows (the one a launch may use), else nothing
+lane_pin_of() { local _p; _lane_pin_raw_r _p "${1:-}"; [ -z "$_p" ] || printf '%s\n' "$_p"; return 0; }
+lane_is_pinned() { local _p; _lane_pin_raw_r _p "${1:-}"; [ -n "$_p" ]; }
+pinned_skip_note() { local p; p=$(lane_pin_of "${1:-}"); [ -n "$p" ] || return 1; printf 'skipped (pinned to %s): %s\n' "$p" "$1"; }
+pinned_moving_note() { local p; p=$(lane_pin_of "${1:-}"); [ -n "$p" ] || return 1; printf 'pinned to %s, moving as asked: %s\n' "$p" "$1"; }
+PIN_MOVE=(); PIN_SKIP=()
+lane_pins_split() { PIN_MOVE=(); PIN_SKIP=(); local s; for s in "$@"; do if lane_is_pinned "$s"; then PIN_SKIP+=("$s"); else PIN_MOVE+=("$s"); fi; done; return 0; }
+_lane_pin_locked() {
+    mkdir -p "$(dirname -- "$SALA_LANE_PINS")" 2>/dev/null
+    command -v flock >/dev/null 2>&1 || { "$@"; return; }
+    ( flock -w 30 3 || { echo "lanes: the pin list's lock is held — not written" >&2; exit 1; }; "$@" ) 3>>"$SALA_LANE_PINS.lock"
+}
+_lane_pin_put() {  # <session> <lane>: replace the session's row (comments and other rows kept)
+    local f="$SALA_LANE_PINS" t="$SALA_LANE_PINS.t.${BASHPID:-$$}"
+    { [ -r "$f" ] && awk -F'\t' -v s="$1" '$1!=s' "$f"; printf '%s\t%s\n' "$1" "$2"; } > "$t" && mv -f "$t" "$f" || { rm -f "$t"; echo "lanes: could not write $f" >&2; return 1; }
+    lane_log pin "$1" "pinned to $2"
+}
+_lane_pin_del() {  # <session>
+    local f="$SALA_LANE_PINS" t="$SALA_LANE_PINS.t.${BASHPID:-$$}"; lane_is_pinned "$1" || return 0
+    awk -F'\t' -v s="$1" '$1!=s' "$f" > "$t" && mv -f "$t" "$f" || { rm -f "$t"; return 1; }
+    lane_log unpin "$1" "pin removed"
+}
+_lane_pin_mv() { local l; l=$(lane_pin_of "$1"); [ -n "$l" ] || return 0; _lane_pin_del "$1" && _lane_pin_put "$2" "$l"; }   # <old> <new>
+lane_pin_set() { lane_known "${2:-}" || return 1; local l; _lane_norm_r l "$2"; _lane_pin_locked _lane_pin_put "$1" "$l"; }   # <session> <lane>
+lane_pin_clear() { [ -r "$SALA_LANE_PINS" ] || return 0; _lane_pin_locked _lane_pin_del "$1"; }   # <session>
+lane_pin_rename() { [ -r "$SALA_LANE_PINS" ] || return 0; _lane_pin_locked _lane_pin_mv "$1" "$2"; }   # <old> <new> — a renamed session stays pinned
 # THE AUTOMATIC LANE FALLBACK. A dead lane needs a mechanism that moves its sessions to a live fallback lane
 # on its own; they stay there until the operator or a session moves them back. The dormant record (lane-state.tsv, "THE DORMANT RECORD" above) says a lane is dead; this block
 # says where its sessions, its default and its jobs go, and keeps where they came from.
@@ -3788,6 +3832,8 @@ lane_fallback_auto() {
 #   2. a pane running on the second lane is stopped on its cap (the limit watch's state) → they move to the third;
 #   3. the home lane's weekly limit resets (a fresh reading in a new window, under the threshold) → all of them move home.
 # Front agents, jobs (`lane exec`, `sala job`), SALA_LANE_FALLBACK and the dormant record are not part of it. OFF by default.
+# A PINNED session (THE PINNED SESSIONS above) is never moved by it: back_lane_movers puts it in BL_PINNED and every outcome line that moves
+# (or would move) agents ends with back_lane_pinned_note, "; skipped (pinned to <lane>): <session>", in the dry run too.
 #   SALA_BACK_LANE_RULE       off (default) · on
 #   SALA_BACK_LANE_ORDER      "<home> <second> <third>" lane ids (an old word works); two lanes make a rule with no step 2
 #   SALA_BACK_LANE_THRESHOLD  percent of the home lane's "This week" limit (kind weekly_all), default 90; the model-scoped weekly
@@ -3957,14 +4003,19 @@ back_lane_names() {  # → the live back agents, one per line: a registry row wi
     while IFS= read -r s; do [ -n "$s" ] && tmux has-session -t "=$s" 2>/dev/null && echo "$s"; done <<< "$names"
     return 0
 }
-# back_lane_movers <target lane> → BL_MOVE (who goes) and BL_STAY (a Fable session the target cannot run); the rule above says who counts
-BL_MOVE=(); BL_STAY=()
+# back_lane_movers <target lane> → BL_MOVE (who goes), BL_STAY (a Fable session the target cannot run) and BL_PINNED (a pinned session the
+# move would otherwise have taken: held out, THE PINNED SESSIONS above); the rule above says who counts
+BL_MOVE=(); BL_STAY=(); BL_PINNED=()
+back_lane_pinned_note() {  # → "; skipped (pinned to <lane>): <session>; …" for BL_PINNED, nothing when none
+    local s o=""; for s in ${BL_PINNED[@]+"${BL_PINNED[@]}"}; do o="$o; $(pinned_skip_note "$s")"; done; printf '%s' "$o"
+}
 back_lane_movers() {
-    BL_MOVE=(); BL_STAY=(); local t ti s e ei; back_lane_order || return 1; t=$(lane_state_id "$1") || return 1; ti=$(back_lane_idx "$t") || return 1
+    BL_MOVE=(); BL_STAY=(); BL_PINNED=(); local t ti s e ei; back_lane_order || return 1; t=$(lane_state_id "$1") || return 1; ti=$(back_lane_idx "$t") || return 1
     while IFS= read -r s; do
         [ -n "$s" ] || continue; no_relaunch "$s" && continue; [ "$s" = "${SALA_MASTER:-}" ] && continue
         e=$(lane_for_session "$s"); ei=$(back_lane_idx "$e") || continue            # a lane outside the order is not the rule's
         if [ "$ti" -eq 0 ]; then [ "$ei" -gt 0 ] || continue; else [ "$ei" -lt "$ti" ] || continue; fi
+        if lane_is_pinned "$s"; then BL_PINNED+=("$s"); continue; fi                 # held out of a bulk move (THE PINNED SESSIONS)
         case " $SALA_FALLBACK_NO_FABLE " in *" $t "*) if session_on_fable "$s"; then BL_STAY+=("$s"); continue; fi;; esac
         BL_MOVE+=("$s")
     done < <(back_lane_names)
@@ -3993,12 +4044,12 @@ back_lane_catchup() {
     back_lane_movers "$cur" || return 0
     for n in ${BL_MOVE[@]+"${BL_MOVE[@]}"}; do case ",$qn," in *",$n,"*) ;; *) late+=("$n");; esac; done
     [ "${#late[@]}" -gt 0 ] || return 0
-    if [ "$dry" = 1 ]; then echo "would: catch-up: sala op lane $cur ${late[*]} --from sala-watch --words \"…\" (the back agent(s) the rule's move has not queued yet; a dry run writes and queues nothing)"; return 0; fi
+    if [ "$dry" = 1 ]; then echo "would: catch-up: sala op lane $cur ${late[*]} --from sala-watch --words \"…\" (the back agent(s) the rule's move has not queued yet; a dry run writes and queues nothing)$(back_lane_pinned_note)"; return 0; fi
     out=$("$SALA_BIN" op lane "$cur" "${late[@]}" --from sala-watch --words "$SALA_BACK_LANE_WORDS" 2>&1) || { echo "blocked: catch-up not queued: $(printf '%s' "$out" | tail -1)"; return 0; }
     id=$(printf '%s\n' "$out" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)
     back_lane_put queued "$cur|$w0|${qn:+$qn,}$(IFS=,; echo "${late[*]}")"
     lane_log backlane "$cur" "catch-up: ${#late[@]} back agent(s) queued onto $cur (op ${id:-?})"
-    echo "moved: catch-up: ${#late[@]} back agent(s) the rule had not moved (${late[*]}) to the $(lane_shown "$cur") lane, op ${id:-?} queued"
+    echo "moved: catch-up: ${#late[@]} back agent(s) the rule had not moved (${late[*]}) to the $(lane_shown "$cur") lane, op ${id:-?} queued$(back_lane_pinned_note)"
 }
 # back_lane_tick [--dry-run] → one pass of the rule; prints one line per outcome, "<tag>: <text>" (the watch logs them; `notice:` lines are posted):
 #   idle (nothing to do, with why when a reading was refused) · moved (the operation queued) · advanced (state moved, nobody to move) ·
@@ -4050,13 +4101,13 @@ back_lane_tick() {
     fi
     back_lane_movers "$target"
     if [ "${#BL_MOVE[@]}" -eq 0 ]; then
-        if [ "$dry" = 1 ]; then echo "would: step $stp ($why): the rule's lane becomes the $(lane_shown "$target") lane; no back agent to move"; return 0; fi
+        if [ "$dry" = 1 ]; then echo "would: step $stp ($why): the rule's lane becomes the $(lane_shown "$target") lane; no back agent to move$(back_lane_pinned_note)"; return 0; fi
         back_lane_commit "$stp" "$target" "$key" "$ti" ""
-        echo "advanced: step $stp ($why): the rule's lane is now the $(lane_shown "$target") lane; no back agent needed moving${BL_STAY[*]:+; Fable stays: ${BL_STAY[*]}}"
+        echo "advanced: step $stp ($why): the rule's lane is now the $(lane_shown "$target") lane; no back agent needed moving${BL_STAY[*]:+; Fable stays: ${BL_STAY[*]}}$(back_lane_pinned_note)"
         return 0
     fi
     if [ "$dry" = 1 ]; then
-        echo "would: step $stp ($why): sala op lane $target ${BL_MOVE[*]} --from sala-watch --words \"…\"; then the rule's lane is the $(lane_shown "$target") lane (a dry run writes and queues nothing)${BL_STAY[*]:+; Fable stays (the $(lane_shown "$target") lane cannot run it): ${BL_STAY[*]}}"
+        echo "would: step $stp ($why): sala op lane $target ${BL_MOVE[*]} --from sala-watch --words \"…\"; then the rule's lane is the $(lane_shown "$target") lane (a dry run writes and queues nothing)${BL_STAY[*]:+; Fable stays (the $(lane_shown "$target") lane cannot run it): ${BL_STAY[*]}}$(back_lane_pinned_note)"
         return 0
     fi
     out=$("$SALA_BIN" op lane "$target" "${BL_MOVE[@]}" --from sala-watch --words "$SALA_BACK_LANE_WORDS" 2>&1) || {
@@ -4067,7 +4118,7 @@ back_lane_tick() {
     id=$(printf '%s\n' "$out" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)
     back_lane_commit "$stp" "$target" "$key" "$ti" "${BL_MOVE[*]}"
     lane_log backlane "$target" "step $stp: ${#BL_MOVE[@]} back agent(s) queued onto $target (op ${id:-?}): $why"
-    echo "moved: step $stp ($why): ${#BL_MOVE[@]} back agent(s) to the $(lane_shown "$target") lane, op ${id:-?} queued (the operation posts once when it is done)"
+    echo "moved: step $stp ($why): ${#BL_MOVE[@]} back agent(s) to the $(lane_shown "$target") lane, op ${id:-?} queued (the operation posts once when it is done)$(back_lane_pinned_note)"
     [ "${#BL_STAY[@]}" -eq 0 ] || echo "notice: ${#BL_STAY[@]} Fable back agent(s) did not move to the $(lane_shown "$target") lane (it cannot run Fable): ${BL_STAY[*]}"
     return 0
 }

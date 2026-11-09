@@ -237,13 +237,36 @@ and stay there until the owner or a session moves them back. Code: `lib/common.s
   the master last, the default, the jobs) and writes, queues and relaunches nothing. `sala lane fallback <lane>` is the real form
   for a person (it needs the lane to be dormant; exit 4: no usable fallback, nothing recorded).
 
+## Pinned sessions
+A session can be pinned to a lane. A pinned session is held out of every **bulk** lane move; only a move that names it moves it.
+Code: `lib/common.sh` ("THE PINNED SESSIONS"), `lib/lane.sh` (`lane pin`, `lane unpin`, `lane pins`); test `tests/lanepins.sh`.
+
+- **The list** is a plain TSV, `lane-pins.tsv` in the state directory beside `lanes.tsv` (`SALA_LANE_PINS` names another path): one
+  `<session>` TAB `<lane>` row per pinned session; a line starting with `#` is a comment. It ships absent, so nothing is pinned until
+  the owner pins a session. Manage it with `sala lane pin <session> <lane>`, `sala lane unpin <session>` and `sala lane pins`, or edit the file.
+  Pinning writes only the list: no pane is touched or relaunched. A renamed session keeps its pin.
+- **What a pin does.** The lane in the row is the lane the session is held on. A session with no row of its own in `lanes.tsv` launches on its
+  pin's lane instead of the default, so a change of the default never re-homes it; a row of its own (an explicit move) wins over the pin.
+- **The bulk moves that skip it:** `sala lane <lane> --all`, `sala lane default <lane>`, `sala lane fallback <lane>` (and so the move a
+  dormant lane queues), and the back agents' rule (`watch --back-lanes`, its queued move and its catch-up). Each lists what it left out, in its
+  dry run too, one line per session: `skipped (pinned to <lane>): <session>` (the back agents' rule appends them to its outcome line; the fallback's
+  operation post carries them as `stays on <lane> (pinned to <lane>)`). Exit status is unchanged. `lane <lane> --all` is one `recycle --force`,
+  which relaunches every pane: a pinned one comes back on its own lane (its row, else its pin's lane), not on the new one.
+- **A named move moves it:** `sala lane <lane> <session>` (and `--rescue`) moves a pinned session as asked and says once,
+  `pinned to <lane>, moving as asked: <session>`. The pin stays on the list: unpin it, or pin it to the new lane, if it should be held there.
+- **For a mover added later.** Any code that picks sessions to move on its own calls the helpers in `lib/common.sh` instead of testing the
+  list itself: `lane_is_pinned <session>`, `lane_pin_of <session>`, `pinned_skip_note <session>` (prints the skip line) and
+  `lane_pins_split <session>…` (sets `PIN_MOVE` and `PIN_SKIP`).
+- **Not covered:** a session that moves itself (the sdk lane's pane going back to subscription-1 when the API credit refuses a call) and a
+  new session spawned under a pinned name (it takes the default or `--lane` as any spawn does).
+
 ## The back agents' lane rule
 Thu Nov 5th 2026. A standing rule for the background agents that keeps them off a login lane near its weekly limit, and brings them
 home when the limit resets. **Off by default** (`SALA_BACK_LANE_RULE=off`: nothing is read or moved). Code: `lib/common.sh` ("THE BACK AGENTS'
 LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-lanes`), `lib/spawn.sh`; test `tests/backlane.sh`.
 
-- **Who.** The live background agents: registry rows with role `back` and no side session, with a tmux session, not the master and
-  not `SALA_NO_RELAUNCH`. A front agent, a side session, a job (`lane exec`, `sala job`) and the default lane are never touched, and a
+- **Who.** The live background agents: registry rows with role `back` and no side session, with a tmux session, not the master,
+  not `SALA_NO_RELAUNCH` and not pinned (*Pinned sessions*; a pinned one is listed as `skipped (pinned to <lane>): <session>` on the outcome line). A front agent, a side session, a job (`lane exec`, `sala job`) and the default lane are never touched, and a
   background agent on a lane outside the order (api, subscription-2) is left where it is.
 - **A row with no role** (an imported or adopted one, a bare spawn) counts by stackshot's project record, the source `spawn --project`
   already checks (interface 20: a name under a project's `background:` agents is a background agent, a top-level one a front agent):

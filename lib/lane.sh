@@ -7,8 +7,12 @@
 #   salamander lane <lane> <session>… [--dry-run] [--not-master]    record the lane for those sessions, then relaunch them on it (resumed,
 #                                                                   same conversation); one already running on it is left alone
 #   salamander lane <lane> --all      [--dry-run] [--not-master]    every session sala relaunches, and the default for new ones: one recycle
+#                                                                   (a PINNED session is skipped and listed: "skipped (pinned to <lane>): <session>")
 #   salamander lane default <lane>    [--dry-run] [--not-master]    the default alone: sessions without a lane of their own take it at their
 #                                                                   next relaunch; nothing relaunched now
+#   salamander lane pin <session> <lane> | unpin <session> | pins  THE PINNED SESSIONS (common.sh): a pinned session is held out of every bulk move — --all,
+#                                                                   the default's change, the fallback, the back agents' rule — and listed as skipped in each one's output, dry runs
+#                                                                   too; only a move that names it (`lane <lane> <session>`) moves it, saying "pinned to <lane>, moving as asked"
 #   salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   THE DORMANT RECORD: mark a lane dormant by hand (nothing can run on it for
 #                                                                   now); the record is common.sh's, the watch keeps it. Held until `lane active`. With the lane fallback on
 #                                                                   (SALA_LANE_FALLBACK_AUTO) the sessions on it are also queued onto its fallback (below); --no-fallback records only
@@ -94,10 +98,13 @@ usage() {
     echo "       salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed"
     echo "       salamander lane exec <lane> -- COMMAND [ARG…]             run COMMAND on the lane (a unit's ExecStart): the lane's environment; every other lane's variables are unset, subscription-1 too (never blanked)"
     echo "       salamander lane <lane> <session>… [--dry-run] [--not-master] [--rescue]   record + relaunch those sessions on the lane (one already on it: left alone)"
-    echo "       salamander lane <lane> --all      [--dry-run] [--not-master]   every session and the default: one recycle --force"
-    echo "       salamander lane default <lane>    [--dry-run] [--not-master]   the default alone (applied at each session's next relaunch)"
+    echo "       salamander lane <lane> --all      [--dry-run] [--not-master]   every session and the default: one recycle --force (a pinned session is skipped and listed)"
+    echo "       salamander lane default <lane>    [--dry-run] [--not-master]   the default alone (applied at each session's next relaunch; a pinned session keeps its pin's lane and is listed)"
+    echo "       salamander lane pin <session> <lane>   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a move that names it still moves it"
+    echo "       salamander lane unpin <session>        take the pin off (bulk moves take the session again)"
+    echo "       salamander lane pins                   the pinned sessions and the lane each is held on (the list: \$SALA_LANE_PINS, a TSV: session TAB lane)"
     echo "       salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   mark a lane dormant by hand (nothing is moved onto it); its sessions, default and jobs are queued onto its fallback unless --no-fallback or SALA_LANE_FALLBACK_AUTO=off"
-    echo "       salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback ($SALA_LANE_FALLBACK); --dry-run prints the moves; exit 4: no usable fallback"
+    echo "       salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback ($SALA_LANE_FALLBACK); a pinned session stays and is listed; --dry-run prints the moves; exit 4: no usable fallback"
     echo "       salamander lane active <lane>     [--dry-run]                  mark a lane active again (the only way back for api and sdk)"
     echo "       salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)"
     echo "       salamander lane --rescue <lane>   [--dry-run] [--force]        move the master (SALA_MASTER) off a lane that is out, from another session"
@@ -111,6 +118,29 @@ usage() {
 # record nothing, relaunch nothing and take no lock. `exec` starts CMD without the variables that would pick another provider or login
 # or belong to another lane (lane_job_unset: unset, never blanked, for subscription-1 too), then with the lane's own, and fails, running nothing,
 # where the lane is not ready; no value of a secret passes here. `env subscription-1` prints nothing (stdout stays machine-readable); a terminal gets one stderr line.
+# THE PINNED SESSIONS (common.sh): `lane pin <session> <lane>`, `lane unpin <session>`, `lane pins`. Only the list is written: no pane is touched,
+# nothing is relaunched, so this is no fleet operation and takes no queue.
+case "${1:-}" in
+    pins) shift; [ $# -eq 0 ] || die "usage: salamander lane pins   (the pinned sessions and the lane each is held on; the file: $SALA_LANE_PINS)"
+          pn=0; if [ -r "$SALA_LANE_PINS" ]; then
+              while IFS=$'\t' read -r ps pl _ || [ -n "$ps" ]; do
+                  case "$ps" in ''|'#'*) continue;; esac
+                  _lane_norm_r pl "${pl//[$' \r']/}"; printf '%-30s %s\n' "$ps" "${pl:-?}"; pn=$((pn+1))
+              done < "$SALA_LANE_PINS"
+          fi
+          [ "$pn" -gt 0 ] || echo "(no session is pinned: $SALA_LANE_PINS is absent or empty)"
+          exit 0 ;;
+    pin) shift; [ $# -eq 2 ] || die "usage: salamander lane pin <session> <lane>   (hold the session out of every bulk lane move; its lane is <lane>; one of: $SALA_LANES_KNOWN)"
+         case "$1" in ''|-*|'#'*|*[[:space:]:]*) die "invalid session name '$1'";; esac
+         lane_known "$2" || die "unknown lane '$2' (one of: $SALA_LANES_KNOWN)"
+         lane_pin_set "$1" "$2" || die "could not write the pin list ($SALA_LANE_PINS)"
+         echo "pinned: $1 to the $(lane_pin_of "$1") lane — skipped by every bulk lane move (lane <lane> --all, lane default, lane fallback, the back agents' rule); only a move that names it moves it. Undo: salamander lane unpin $1"
+         exit 0 ;;
+    unpin) shift; [ $# -eq 1 ] || die "usage: salamander lane unpin <session>"
+           if ! lane_is_pinned "$1"; then echo "$1 is not pinned — nothing written"; exit 0; fi
+           lane_pin_clear "$1" || die "could not write the pin list ($SALA_LANE_PINS)"
+           echo "unpinned: $1 — bulk lane moves take it again"; exit 0 ;;
+esac
 case "${1:-}" in
     names) shift; NJ=0; NW=0
            for a in "$@"; do case "$a" in --json) NJ=1;; --write) NW=1;; *) die "usage: salamander lane names [--json] [--write]   (each lane's code, display name and old words; --write also keeps $SALA_STATE_DIR/lane-names.json current)";; esac; done
@@ -158,7 +188,7 @@ fi
 case "${1:-}" in
     '') [ "$ALL" = 0 ] || die "--all needs a lane: salamander lane <lane> --all"; [ "$RESCUE" = 0 ] || die "--rescue needs a lane: salamander lane --rescue <lane>"; MODE=show
         if [ "$LIST" = 1 ] || [ "$JSON" = 1 ]; then MODE=list; fi ;;
-    default) MODE=default; LANE="${2:-}"; [ -n "$LANE" ] || die "usage: salamander lane default <lane>   (one of: $SALA_LANES_KNOWN)"
+    default) PINSK=(); MODE=default; LANE="${2:-}"; [ -n "$LANE" ] || die "usage: salamander lane default <lane>   (one of: $SALA_LANES_KNOWN)"
              [ $# -le 2 ] || die "lane default takes one lane, nothing else"; [ "$ALL" = 0 ] || die "lane default takes no --all"; [ "$RESCUE" = 0 ] || die "lane default takes no --rescue" ;;
     fallback) MODE=fallback; LANE="${2:-}"; [ -n "$LANE" ] || die "usage: salamander lane fallback <lane> [--dry-run]   (the dormant lane whose sessions, default and jobs move to its fallback; one of: $SALA_LANES_KNOWN)"
              [ $# -le 2 ] || die "lane fallback takes one lane, nothing else"
@@ -261,6 +291,7 @@ if [ "$MODE" = show ]; then
         lane_dormant "$eff" && note="${note:+$note; }the $(lane_label "$(lane_state_id "$eff")") lane is dormant ($(lane_dormant_since_words "$eff")): it stays where it is, moving it is your call"
         [ "$rec" = sdk ] && ! sdk_window_open && note="${note:+$note; }$(sdk_closed_why): an sdk row launches on subscription-1 until then (salamander lane subscription-1 $s clears the row)"
         [ -n "$rec" ] && ! lane_known "$rec" && note="${note:+$note; }⚠ the recorded lane '$rec' is not a lane: a relaunch uses the default, $eff; the row is left as it is (salamander lane <lane> $s replaces it)"
+        pn=$(lane_pin_of "$s"); [ -z "$pn" ] || note="${note:+$note; }pinned to $pn: held out of every bulk lane move (salamander lane unpin $s)"
         hm=$(lane_home "$s"); [ "$hm" = "$(lane_state_id "$eff")" ] || [ "$hm" = "$eff" ] && hm=""   # the home shows only while the session sits elsewhere (the lane fallback moved it; nothing moves it back by itself)
         [ -n "$hm" ] && note="${note:+$note; }moved off $hm by the lane fallback — back: salamander lane $hm $s"
         [ -n "$hm" ] && anyhome=1
@@ -336,10 +367,11 @@ if [ "$MODE" = fallback ]; then
     if ! fb=$(lane_fallback_pick "$L"); then echo "no fallback move: $fb — nothing moved, nothing recorded" >&2; exit 4; fi
     FBN=$(lane_label "$fb")
     M="${SALA_MASTER:-}"
-    MV_LIVE=(); MV_DEAD=(); MV_MASTER=""; STAYS=(); PLAN_ON=(); declare -A CHG=() PREV=()
+    MV_LIVE=(); MV_DEAD=(); MV_MASTER=""; STAYS=(); PINSK=(); PLAN_ON=(); declare -A CHG=() PREV=()
     while IFS= read -r s; do
         [ -n "$s" ] || continue
         if no_relaunch "$s"; then STAYS+=("$s"); continue; fi
+        if lane_is_pinned "$s"; then PINSK+=("$s"); continue; fi   # held out of a bulk move (common.sh, THE PINNED SESSIONS)
         PLAN_ON+=("$s"); CHG[$s]=$(lane_fallback_model_change "$s" "$fb")   # read now: once the override is written the session no longer reads as Fable
         if [ -n "${CHG[$s]}" ]; then PREV[$s]=$(model_row "$s"); PREV[$s]=${PREV[$s]%%$'\t'*}; fi
         if [ -n "$M" ] && [ "$s" = "$M" ] && tmux has-session -t "=$s" 2>/dev/null; then MV_MASTER="$s"
@@ -353,9 +385,10 @@ if [ "$MODE" = fallback ]; then
         echo "  $s: $L → $fb$([ -n "$chg" ] && echo ", model ${chg%%$'\t'*} → ${chg#*$'\t'} (${FBN} cannot run ${chg%%$'\t'*})")$([ "$s" = "$MV_MASTER" ] && echo " — the master: by the rescue, last")$(case " ${MV_DEAD[*]-} " in *" $s "*) echo " — no tmux session: recorded only, a restore brings it back on $fb";; esac)"
     done
     for s in ${STAYS[@]+"${STAYS[@]}"}; do echo "  $(no_relaunch_line "$s") — stays where it is"; done
+    for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
     [ "$DFLT" = 1 ] && echo "  default lane: $L → $fb (was $L; new sessions and every session without a lane of its own)"
     echo "  jobs: a sala job whose lane is $L runs on $fb while $L is dormant (salamander lane exec resolves it at run time; no unit file is rewritten)"
-    if [ "${#PLAN_ON[@]}" -eq 0 ] && [ "$DFLT" = 0 ]; then echo "nothing is on the $(lane_label "$L") lane and it is not the default: nothing to move"; exit 0; fi
+    if [ "${#PLAN_ON[@]}" -eq 0 ] && [ "$DFLT" = 0 ]; then echo "nothing is on the $(lane_label "$L") lane and it is not the default$([ "${#PINSK[@]}" -gt 0 ] && echo ", bar the pinned ones above"): nothing to move"; exit 0; fi
     if [ "$DRY" = 1 ]; then echo "[dry-run] would record each one's home ($L) and model change, switch the default if it was $L, then: salamander lane $fb <sessions>…$([ -n "$MV_MASTER" ] && echo "; salamander lane --rescue $fb (the master $MV_MASTER)"); nothing written"; exit 0; fi
     ops_guard lane "$L" $NOTMASTER
     if recycle_locked; then recycle_refuse; fi   # the nested switch takes the lock itself: stand aside now rather than half-way
@@ -382,6 +415,7 @@ if [ "$MODE" = fallback ]; then
     done
     [ "$DFLT" = 1 ] && echo "RESULT default lane: $L → $fb"
     for s in ${STAYS[@]+"${STAYS[@]}"}; do echo "RESULT $s: stays on $L (managed outside sala)"; done
+    for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "RESULT $s: stays on $L (pinned to $(lane_pin_of "$s"))"; done
     lane_log fallback "$L" "moved ${#PLAN_ON[@]} session(s)$([ "$DFLT" = 1 ] && echo " and the default") to $fb (rc $rc)"
     # the last line is the operation's result (lib/op.sh keeps the RESULT lines above as the notice's bullets)
     echo "the $(lane_label "$L") lane is dormant: $(plural "${#PLAN_ON[@]}" session)$([ "$DFLT" = 1 ] && echo " and the default") moved to the $FBN lane; they stay there until moved back (salamander lane $L <session>)"
@@ -432,16 +466,18 @@ if [ "$MODE" = default ]; then
     why=$(lane_check "$LANE") || die "$why"
     old=$(lane_default)
     [ "$old" = "$LANE" ] && { echo "default lane: $LANE (already)"; exit 0; }
-    n=0; for s in $(lane_sessions); do [ -z "$(lane_row "$s")" ] && n=$((n+1)); done
+    n=0; for s in $(lane_sessions); do [ -z "$(lane_row "$s")" ] || continue; if lane_is_pinned "$s"; then PINSK+=("$s"); else n=$((n+1)); fi; done   # a pinned session keeps its pin's lane when the default changes
     # --dry-run writes nothing (Wed Oct 14th 2026, the master session: `sala lane default api --dry-run` wrote the default
     # lane — this block never looked at DRY and went straight to lane_set_default)
     if [ "$DRY" = 1 ]; then
         echo "[dry-run] would set the default lane: $LANE (was $old) — $n session(s) without a lane of their own would take it at their next relaunch; nothing recorded"
+        for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
         exit 0
     fi
     lane_set_default "$LANE" || die "could not write the default lane ($SALA_LANE_DEFAULT_FILE)"
     [ "$(lane_home "(default)")" != "$LANE" ] || lane_home_clear "(default)"   # back on the lane the fallback moved it off
     echo "default lane: $LANE (was $old) — $n session(s) without a lane of their own take it at their next relaunch; nothing relaunched now"
+    for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
     echo "  to relaunch them onto it now: salamander lane $LANE <session>…, or salamander lane $LANE --all"
     exit 0
 fi
@@ -450,10 +486,10 @@ fi
 [ "$ALL" = 1 ] && [ ${#SESS[@]} -gt 0 ] && die "either --all or session names, not both"
 [ "$ALL" = 1 ] || [ ${#SESS[@]} -gt 0 ] || die "which sessions? salamander lane $LANE <session>…, or salamander lane $LANE --all"
 why=$(lane_check "$LANE") || die "$why — nothing recorded, nothing relaunched"   # before anything is touched (the header above)
-OUTSIDE=()
+OUTSIDE=(); PINSK=()   # OUTSIDE: managed outside sala; PINSK: pinned, held out of a bulk move (common.sh, THE PINNED SESSIONS)
 if [ "$ALL" = 1 ]; then
     all=(); while IFS= read -r s; do [ -n "$s" ] && all+=("$s"); done < <(lane_sessions)
-    for s in ${all[@]+"${all[@]}"}; do if no_relaunch "$s"; then OUTSIDE+=("$s"); else SESS+=("$s"); fi; done
+    for s in ${all[@]+"${all[@]}"}; do if no_relaunch "$s"; then OUTSIDE+=("$s"); elif lane_is_pinned "$s"; then PINSK+=("$s"); else SESS+=("$s"); fi; done
 else
     seen=(); for s in "${SESS[@]}"; do
         case "$s" in ''|-*|*[[:space:]:]*) die "invalid session name '$s'";; esac
@@ -495,6 +531,8 @@ for s in ${SESS[@]+"${SESS[@]}"}; do
     echo "  $s: ${rec:-$(lane_default) (the default)} → $LANE$( [ "$run" != "$LANE" ] && [ "$run" != "-" ] && echo " (runs on $run now)")$( [ "$s" = "$ME" ] && echo " — this command's own pane: relaunched last, once it is idle")"
 done
 for s in ${OUTSIDE[@]+"${OUTSIDE[@]}"}; do echo "  $(no_relaunch_line "$s") — no lane recorded"; done
+for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
+if [ "$ALL" = 0 ]; then for s in "${SESS[@]}"; do pm=$(pinned_moving_note "$s") && echo "  $pm"; done; fi   # a move that names a pinned session moves it, and says so once
 if [ "$DRY" = 1 ]; then
     if [ $((${#TODO[@]} + SELF)) -eq 0 ]; then echo "[dry-run] every session already runs on the $(lane_shown "$LANE") lane — nothing would be relaunched"; exit 0; fi
     if [ "$ALL" = 1 ]; then echo "[dry-run] would record the lane for ${#SESS[@]} session(s) and the default, then: salamander recycle --force (the relaunch verdicts, pane by pane)"; sweep=()
