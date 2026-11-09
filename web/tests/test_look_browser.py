@@ -144,6 +144,7 @@ TOUCH_SIZES = """(() => {
 
 
 def test_controls_are_44_px_under_a_finger_and_32_px_under_a_mouse(served, browser):
+    # (the composer's Send is the one exception under a finger: drawn 30 px with a 44 px tap area, test_composer_touch_row.py)
     prepare(served)
     browser.open(f"{served['url']}/#s={NAME}")
     settle(browser, "document.querySelectorAll('#chat .msg').length > 0", "the chat was not drawn")
@@ -151,4 +152,4 @@ def test_controls_are_44_px_under_a_finger_and_32_px_under_a_mouse(served, brows
     assert not mouse["coarse"] and mouse["ctl"] == "32px" and mouse["send"] == [32, 32], mouse
     browser.touch()
     finger = browser.evaluate(TOUCH_SIZES)
-    assert finger["coarse"] and finger["ctl"] == "44px" and finger["send"] == [44, 44] and finger["shell"][1] >= 44, finger
+    assert finger["coarse"] and finger["ctl"] == "44px" and finger["send"] == [30, 30] and finger["shell"][1] >= 44, finger
