@@ -2055,6 +2055,20 @@ the "no usable fallback" line); a queued move whose fallback went dormant meanwh
 helper; queue-time refusals (no usable fallback, unknown lane, extra words). Not covered: a real Bedrock launch, a real
 `systemd-run` unit, a real Slack post, the live `claude auth status` of a lane with no subscription.
 
+### `tests/monthlycap.sh`: new (Mon Nov 9th 2026)
+The monthly usage cap (docs/lanes.md, *The dormant record* and *The lane fallback*). The event is staged: a sanitized 429 fixture
+(`tests/fixtures/limit-monthly.jsonl`) is written into the transcripts of two panes on the Team lane, one of them worded and spaced differently. Fakes
+only: the compiled fake claude on `sala-test-*` panes in a private tmux server (`tmux -L sala-monthlycap-<pid> -f /dev/null`, isolated HOME, locked and
+removed on exit), `systemd-run` and `systemctl` stubs, Slack a file. Covered: the lane goes dormant by signal until the regain time the text names
+(the seventh column, read back as an epoch), no other lane touched, ONE operation queued from sala-watch; with the move still queued, repeated ticks post
+nothing, queue nothing more and push nothing to the panes of the dormant lane (a success record after the error included); the move end to end
+(both panes recorded and relaunched on bedrock, a session already on bedrock and a session of another lane not relaunched, the mid-turn pane cut by an
+Escape and then moved, the idle pane sent none, the home record); ONE post for the episode naming the lane, the cap, the day access returns and the
+fallback, none more over five further ticks, no "working again" post, a moved pane told at most once; the regain time passing (the record's `until`
+set to the past) brings the lane back from the record alone; with `SALA_LANE_FALLBACK_AUTO=off` the one dormant post says when access returns. The
+Escape is checked by a negative control: with the cut disabled the same suite fails on the mid-turn pane. `tests/fake-claude.c` gains `FAKE_ESC_IDLE=1`
+(an Esc in the composer turns a busy registry row idle). Not covered: a real provider 429, a real Escape in a real CLI's retry loop.
+
 ### `tests/lanedormant.sh` and `web/tests/test_lane_dormant.py`: new (Thu Oct 22nd 2026)
 The dormant record (docs/lanes.md, *The dormant record*). `lanedormant.sh` (about 100 checks, ~45 s): the record (absent is active, one
 row per lane, set once with the first reason and since standing, sdk read as api, a lane id from the table needs nothing, the

@@ -177,7 +177,8 @@ the command. The interface is in `docs/stackshot-contracts.md`.
 ## The dormant record
 One record per lane, active or dormant, with a reason and since: plain shell, no
 Claude turn. `lane-state.tsv` in the state directory beside `lanes.tsv`: `lane`, `state` (`active`|`dormant`), `reason`, `since`
-(ISO, UTC), `posted` (when the episode's one post went out), `by` (`signal` or `hand`); keyed by the lane id from the lane table
+(ISO, UTC), `posted` (when the episode's one post went out), `by` (`signal` or `hand`), `until` (ISO, UTC: when the provider says access
+returns, set only by a monthly usage cap; empty otherwise, and a six-field row reads as empty); keyed by the lane id from the lane table
 (`sdk` is `api`'s word), so a new lane needs nothing here. No row, or no file, is active. Written under its own `flock`, a temp
 file and `mv` (as `lanes.tsv` is), one `lanes.log` line per change (`dormant`, `active`). The watch keeps it, from detections it
 already makes (no new network call, never a test call to find out whether a lane works):
@@ -187,8 +188,19 @@ already makes (no new network call, never a test call to find out whether a lane
 | `subscription-2` | the sign-in watch's verdict is wrong (not signed in, no subscription, another subscription or organization: "no seat"), or sala-web's saved usage answer says `refused` (HTTP 403, newer than the lane's last change) | by itself, at the daily look (`SALA_LANE_REVIVE_EVERY`, 86400 s): the sign-in check the watch makes anyway is right again; a line in the watch log |
 | `subscription-1` | the same verdict is wrong: the login no longer reports the subscription it expects (the configured plan) | the same |
 | `api` (and `sdk`) | the limit watch has a pane stopped on "Credit balance is too low" (the record it already reads); since = that stop's first error | only `sala lane active api` |
+| any lane | the limit watch has a pane stopped on a **monthly usage cap**: a 429 whose text says the account crossed its monthly usage threshold and "You will regain access on <date> at <time> UTC" (the wording and spacing are matched loosely; a cap text with no date is not one); since = that stop's first error, `until` = the time the text names | by itself, when that time passes (`ld_cap_expire`, from the record alone: no probe, no test call; a line in the watch log); `sala lane active <lane>` earlier |
 
-A lane set by hand (`sala lane dormant <lane> [--reason …]`) is held until `sala lane active <lane>`. While a lane is dormant:
+A lane set by hand (`sala lane dormant <lane> [--reason …]`) is held until `sala lane active <lane>`.
+
+**A monthly usage cap** is the one stop no retry can end before a known time, so the limit watch treats it as a dormant lane and not as a passing
+rate limit (`lib/watch.sh`, *THE MONTHLY CAP*; fixture `tests/fixtures/limit-monthly.jsonl`; test `tests/monthlycap.sh`). The lane is marked dormant
+until the regain time through the same function every other signal uses, which starts the lane fallback below like any dormant lane. While the
+lane is held until that time, the limit watch lifts nothing, tells no pane on it to "handle your last message" (the turn it started would only meet
+the same error again) and posts no "lane working again". The episode has ONE post: the fallback operation's notice (the lane, the day access
+returns, the fallback lane, the sessions moved), or the dormant post when nothing can move. A pane that has moved off the lane is told once, on the
+lane it moved to, as after any move. Before the regain time passes, nothing is polled.
+
+While a lane is dormant:
 the web Overview card keeps its head (the lane pill and plan name) with one line under it (`No seat since <date>`, with a Dormant chip beside `Details ›`) and asks nothing; spawn's picker (the CLI's
 list of lanes, the web form) leaves it out and `spawn --lane <lane>` is refused, as is a spawn whose default lane is dormant;
 `sala lane <lane> <session>`, `lane <lane> --all`, `lane default <lane>` and the rescue refuse to move onto it in plain words;
@@ -216,7 +228,12 @@ and stay there until the owner or a session moves them back. Code: `lib/common.s
   result notice. A lane that was already dormant before this shipped is not moved on its own: `sala lane fallback <lane>`.
 - **The move.** Every session whose running lane is the dead one (recorded on it, or on "(default)" while the default is
   that lane) is recorded on the fallback and relaunched at its next idle moment through the ordinary switch
-  (`lane <fallback> <sessions…>`: `revive --force --only`, never a pane mid-turn). The master (`SALA_MASTER`) moves last, by
+  (`lane <fallback> <sessions…>`: `revive --force --only`, never a pane mid-turn). The one exception is a lane held by a monthly usage cap:
+  every request on it is refused until the regain time, so a pane mid-turn there is a retry loop that never goes idle and the idle-aware
+  relaunch would skip it for ever. For that lane only, the fallback first sends such a pane ONE Escape (`pane_cut_turn` in `lib/lane.sh`: what the
+  user would press to interrupt a turn) and waits up to `SALA_CUT_WAIT` seconds (40) for it to be idle, then relaunches it as any other. The
+  Escape goes only to a pane whose registry status is `busy` with no background task under it, no dialog on screen and no unsent text in its
+  box; nothing is typed, and a pane that is left as it is stays on the ordinary rule (relaunched when idle). The master (`SALA_MASTER`) moves last, by
   the rescue (`lane --rescue`), once the first sweep has let go of the recycle lock. If the default lane is the dead one,
   it switches too. A session of any other lane is left alone.
 - **The model.** A session on a Fable model moved onto bedrock runs `opus` (Opus 5.5) there, because Fable fails on bedrock

@@ -189,6 +189,16 @@ provision_sets_tick() {
 #    (server_error, authentication_failed, a parse failure) is neither a stop nor a normal record. A NORMAL record is an
 #    assistant record that is no API error and not from the "<synthetic>" model; its message.model says which model
 #    answered (a success of that model is what lifts one model's limit).
+#  - THE MONTHLY CAP (fixture tests/fixtures/limit-monthly.jsonl): a 429 whose text says the account crossed its MONTHLY usage
+#    threshold and when it regains access ("… monthly API usage threshold … You will regain access on 2099-01-01 at 00:00 UTC."; the
+#    stable phrases are "monthly", "usage threshold" and "regain access on <date> at <time> UTC", in any wording or spacing between
+#    them). It is matched by its text first, whatever error key the record carries, and without the date it is not one (nothing
+#    could end it: the older rules apply). Unlike a passing rate limit it is NO WAIT-AND-SEE: kind "monthly", the reset the regain
+#    time, a stop as soon as the scan sees it (no SALA_LIMIT_CONFIRM), on the lane the error was hit on (the process's lane, as a login
+#    limit's). A stop of this kind posts nothing itself: it sets its lane DORMANT until the regain time (ld_cap_tick, THE DORMANT
+#    RECORD'S SIGNALS below), which queues the lane fallback and its one notice. Nothing lifts it, tells a pane or posts "working again"
+#    while the lane is held (the scan is given the held lanes: CAPPED); a pane that moved off the lane is still lifted "moved" and told to
+#    go on, without a line in a post. The regain time passing brings the lane back (ld_cap_expire), and the stop then lifts as any other.
 #  - THE LANE OF AN ERROR COMES FROM THE ERROR, never from the lane running when the watch first sees it: panes relaunched
 #    from the api lane onto a login lane can still have a billing_error in their tails; if the watch dropped their api stop while
 #    they had no claude process mid-relaunch, it would see the old records on the login lane and post a stop there that is not
@@ -293,26 +303,33 @@ IFS= read -r -d '' LW_PY <<'PYL' || :   # (a read, not $(cat <<…): no cat proc
 import glob, json, os, re, subprocess, sys, time
 from datetime import datetime, timezone
 SP, RD, STF = os.environ["SP"], os.environ["RD"], os.environ["STF"]
-LB = int(os.environ.get("LB") or 259200); CONFIRM = int(os.environ.get("CONFIRM") or 600)
+LB = int(os.environ.get("LB") or 259200); CONFIRM = int(os.environ.get("CONFIRM") or 600); CAPPED = set((os.environ.get("CAPPED") or "").split())   # CAPPED: the lanes the dormant record holds until a regain time (a monthly cap)
 now = int(time.time()); TAIL = 262144; HTAIL = 16384; cache = {}; HOME = os.path.expanduser("~")
 def ep(ts):
     try: return int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp())
     except Exception: return 0
-REGAIN = re.compile(r"regain access on (\d{4}-\d{2}-\d{2}) at (\d{1,2}):(\d{2}) UTC", re.I)
+REGAIN = re.compile(r"regain\s+access\s+(?:on\s+)?(\d{4}-\d{2}-\d{2})\s+at\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*UTC", re.I)
 def regain(text):  # "… You will regain access on 2099-01-01 at 00:00 UTC." → its epoch, 0 when absent
     m = REGAIN.search(text)
     try: return int(datetime.strptime("%s %s:%s" % m.groups(), "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc).timestamp()) if m else 0
     except Exception: return 0
+# THE MONTHLY CAP (the header): the 429 says the account crossed its MONTHLY usage threshold and when access returns. The stable
+# phrases are "monthly", "usage threshold" and "regain access on <date> at <time> UTC", whatever the words or spacing between them
+MONTHLY = re.compile(r"\bmonthly\b.{0,120}?\busage\s+threshold\b|\busage\s+threshold\b.{0,120}?\bmonthly\b", re.I | re.S)
+def monthly(text):  # the text of a monthly-cap 429 → the epoch access returns; 0 when the text is no such error (a cap without its date is not one: nothing could end it)
+    return regain(text) if MONTHLY.search(text) else 0
 def kind(o):  # → None | ("ok", 0, "", model) | ("err", reset, limit, "")
     if o.get("type") != "assistant": return None
     msg = o.get("message") or {}
     if o.get("isApiErrorMessage"):
         q = o.get("quotaLimits") or {}; rl = ((o.get("apiErrorParams") or {}).get("rate_limit_info") or {}); ae = o.get("apiError")
+        text = " ".join(str(c.get("text", "")) for c in (msg.get("content") or []) if isinstance(c, dict)) + " " + str(o.get("errorDetails") or "")
+        mr = monthly(text)
+        if mr: return ("err", mr, "monthly", "")   # first: whatever error key or quota record the CLI wrote beside it, the text is what says the cap and its date
         if ae == "usage_limit_reached" or (not ae and q.get("status") == "rejected"):
             try: r = int(q.get("resetsAt") or rl.get("resetsAt") or 0)
             except Exception: r = 0
             return ("err", r, str(q.get("rateLimitType") or rl.get("rateLimitType") or "usage"), "")
-        text = " ".join(str(c.get("text", "")) for c in (msg.get("content") or []) if isinstance(c, dict)) + " " + str(o.get("errorDetails") or "")
         if "specified workspace api usage limits" in text.lower(): return ("err", regain(text), "workspace", "")   # (the header)
         if o.get("error") == "billing_error" or "credit balance" in text.lower(): return ("err", 0, "credit", "")   # error "billing_error", "Credit balance is too low" (the header)
         if ae: return None   # model_requires_usage_credits: one model's credits, another model works; any other named kind
@@ -346,6 +363,7 @@ def fam(lim):  # the model a limit names ("seven_day_opus" → "opus"), "" when 
 # the login lane the pane runs on; on an api-lane process some login lane's ("login"). lw_limit keeps the same API_KINDS.
 API_KINDS = ("rate", "credit", "workspace")
 def err_lane(lim, lane, seen_lane):
+    if lim == "monthly": return seen_lane or lane   # a cap on whichever lane's account it was hit on (the lane the process ran on when it wrote the error, else the one it runs on)
     if lim in API_KINDS: return "api"
     if seen_lane and seen_lane != "api": return seen_lane
     return lane if lane != "api" else "login"
@@ -455,6 +473,7 @@ for u in sorted(panes, key=lambda x: panes[x]["since"]):
         lm = laneok.get(i["lane"] + "|" + fam(p["lim"]), 0)   # the lane's newest success (this run's tails and earlier runs')
         if lm <= i["errat"]: continue
         t, tell, why = lm, 1, ("reset" if p["reset"] and now >= p["reset"] and lm >= p["reset"] else "lifted")
+    if p["lim"] == "monthly" and p["lane"] in CAPPED and why != "moved": continue   # THE MONTHLY CAP (the header): its lane is dormant until the regain time, so nothing lifts, posts or tells a pane on it; a pane that moved off the lane is lifted
     print("lift", i["s"], i["pid"], u, i["err"] or "-", t, why, i["lane"], p["lane"], p["lim"], p["since"], p["reset"], tell)
     if tell: done[u] = {"e": i["err"], "at": now}
     del panes[u]; lifted = True
@@ -472,10 +491,11 @@ for u, i in sorted(live.items(), key=lambda x: x[1]["since"]):
     if i["elane"] != i["lane"]: t, why = now, "moved"
     elif i["errat"] < i["pst"] and lm > i["errat"]: t, why = lm, ("reset" if i["reset"] and lm >= i["reset"] else "lifted")
     else: t, why = 0, ""
+    if why and why != "moved" and i["lim"] == "monthly" and i["elane"] in CAPPED: continue   # the monthly cap again (above): a pane on a capped lane is neither lifted nor stopped anew
     if why:
         print("lift", i["s"], i["pid"], u, i["err"], t, why, i["lane"], i["elane"], i["lim"], i["since"], i["reset"], 1)
         done[u] = {"e": i["err"], "at": now}; continue
-    if now - i["since"] < CONFIRM: continue
+    if now - i["since"] < CONFIRM and i["lim"] != "monthly": continue   # (a monthly cap is no passing error: it names its own end, so it is a stop at once)
     panes[u] = {"s": i["s"], "since": i["since"], "reset": i["reset"], "lane": i["elane"], "lim": i["lim"], "e": i["err"], "rlane": i["lane"]}   # rlane: the lane the pane RUNS on ("lane" is the error's: an API kind is always the api lane's); the back agents' lane rule asks which lane's cap a pane stopped on (back_lane_stopped)
     episode = min(episode or i["since"], i["since"])
     print("stop", i["s"], i["elane"], i["lim"], i["reset"], i["since"])
@@ -575,9 +595,13 @@ with open(tmp, "w") as f: json.dump({"panes": panes, "done": done, "seen": seen,
 os.replace(tmp, STF)
 PYL
 LW_PY=${LW_PY%$'\n'}
+lw_capped() {  # → the lanes the dormant record holds until a regain time (a monthly cap), space-separated; pure shell, nothing when none (the usual tick)
+    local l o=""; [ -r "$SALA_LANE_STATE" ] || return 0
+    for l in $SALA_LANES_KNOWN; do lane_dormant_capped "$l" && o="$o$l "; done; echo "${o% }"
+}
 lw_scan() {  # panes on stdin; RELAUNCH=1 while a relaunch holds the recycle lock (a stopped pane with no claude process this tick keeps its stop)
     SP="$SALA_PROJECTS" RD="$SALA_REG_DIR" STF="$LW_STATE" LB="$SALA_LIMIT_LOOKBACK" CONFIRM="$SALA_LIMIT_CONFIRM" PSTART="${SALA_LIMIT_PSTART:-}" OWN_PREFIXES="${SALA_OWN_UNIT_PREFIXES:-sala-,salamander-}" \
-        RELAUNCH="$(recycle_locked && echo 1 || echo 0)" python3 -c "$LW_PY"; }
+        CAPPED="$(lw_capped)" RELAUNCH="$(recycle_locked && echo 1 || echo 0)" python3 -c "$LW_PY"; }
 lw_names() { local o; o=$(printf "%s, " "${@:1:20}"); o=${o%, }; [ $# -gt 20 ] && o="$o and $(( $# - 20 )) more"; echo "$o"; }   # <name…> → "a, b, c" (twenty at most)
 lw_units() {  # <since epoch> → each of sala's oneshot units that failed at or after it, reset and started; its name on stdout
     local u ts
@@ -592,7 +616,10 @@ lw_units() {  # <since epoch> → each of sala's oneshot units that failed at or
         else wlog "limit: $u failed during the stop, but resetting or starting it failed"; fi
     done
 }
-lw_tell() {  # <session> <pid> <stop since> <why> <lane it runs on> → told | busy | unreached
+lw_tell() {  # <session> <pid> <stop since> <why> <lane it runs on> → told | busy | unreached | dormant
+    # a pane on a lane held until its regain time (a monthly cap, THE MONTHLY CAP above) is not told to handle its last message: the lane cannot take it, and
+    # the turn it started would only meet the same error again; it is told on the lane it moves to, or once the lane is back
+    if lane_dormant_capped "${5:-}"; then wlog "limit: $1 not told to handle its last message: the ${5:-} lane is held until its regain time"; echo dormant; return; fi
     is_idle "$2" || { echo busy; return; }
     local sock; sock=$(session_socket "$2")
     if [ -n "$sock" ] && session_push "$sock" "[sala] Your lane${5:+ ($5)} works again: $4. Your last turn ended on the usage-limit error (stopped since $(lw_when "$3")): re-read your last incoming message and handle it now." 2>/dev/null; then
@@ -614,7 +641,7 @@ limit_tick() {
     ( flock -n 8 || exit 0; lw_locked ) 8>>"$SALA_LOG_DIR/salamander-limit.lock"
 }
 lw_locked() {
-    local now out l t s pid u e why lane elane lim since res r n=0 b=() keep=() told=() busy=() unr=() went=() units=() k kinds=() lanes=() cwd lift_at=0
+    local now out l t s pid u e why lane elane lim since res r n=0 b=() keep=() told=() busy=() unr=() went=() units=() k kinds=() lanes=() cwd lift_at=0 quiet
     local -A gsince=() gnames=() gcount=()
     _now_r now
     out=$(lw_panes | lw_scan) || { wlog "limit: the transcript scan failed"; return 0; }
@@ -628,6 +655,7 @@ lw_locked() {
     done <<< "$out"
     lift_txt=${lift_txt%$'\n'}; stop_txt=${stop_txt%$'\n'}; head_txt=${head_txt%$'\n'}
     ld_limit_tick   # the API credit used up sets the api lane dormant (the dormant record's signals, above)
+    ld_cap_tick     # so does a monthly usage cap, until its regain time (THE MONTHLY CAP, above)
     # the panes still to be told from an earlier lift: told once idle, while still on that error, until their time is up
     if [ -s "$LW_RESUME" ] && [ "$SALA_LIMIT_RESUME" = on ]; then
         while IFS='|' read -r u e t since why lane; do
@@ -635,23 +663,33 @@ lw_locked() {
             l=""; while read -r c1 c2 c3 c4 c5 _; do if [ "$c1" = cur ] && [ "$c2" = "$u" ] && [ "$c5" = "$e" ]; then l="$c3 $c4"; break; fi; done <<< "$cur_txt"; [ -n "$l" ] || continue   # gone or went on
             read -r pid s <<< "$l"
             if recycle_locked; then keep+=("$u|$e|$t|$since|$why|$lane"); continue; fi
-            case "$(lw_tell "$s" "$pid" "$since" "$why" "$lane")" in told) ;; *) keep+=("$u|$e|$t|$since|$why|$lane");; esac
+            case "$(lw_tell "$s" "$pid" "$since" "$why" "$lane")" in told|dormant) ;; *) keep+=("$u|$e|$t|$since|$why|$lane");; esac   # (a pane on a capped lane is dropped from the list, not kept to be tried again)
         done < "$LW_RESUME"
         printf '%s\n' ${keep[@]+"${keep[@]}"} | grep . > "$LW_RESUME.tmp"; mv -f "$LW_RESUME.tmp" "$LW_RESUME"
     fi
     # the panes lifted this run: one post, a line per reason (by lane and limit), after telling the ones still on the error
     while read -r _ s pid u e t why lane elane lim since r tell; do
         [ -n "$s" ] || continue   # (an empty list is one empty line for a here-string)
-        n=$((n + 1)); [ "$t" -gt "$lift_at" ] && lift_at=$t
-        _ls=$(lane_shown "$lane"); case " ${lanes[*]-} " in *" $_ls "*) ;; *) lanes+=("$_ls");; esac   # the lanes they work on now (by display name), for the headline
-        k="$elane|$lim"; gsince[$k]=$(( ${gsince[$k]:-$since} < since ? ${gsince[$k]:-$since} : since )); gcount[$k]=$(( ${gcount[$k]:-0} + 1 ))
-        case "$why" in moved) k="moved|$lane|||";; reset) k="reset||$elane|$lim|$r";; *) k="lifted||$elane|$lim|";; esac
-        case " ${kinds[*]-} " in *" $k "*) ;; *) kinds+=("$k");; esac; gnames[$k]="${gnames[$k]:-} $s"
-        if [ "$tell" = 0 ]; then went+=("$s"); continue; fi
+        # a pane moved off a lane held by a monthly cap is told to go on (below) but is no line of a "working again" post: the lane did not
+        # come back, and the one notice of the move onto the fallback lane (lib/op.sh) already said where the panes went
+        quiet=0; [ "$lim" = monthly ] && [ "$why" = moved ] && quiet=1
+        if [ "$quiet" = 0 ]; then
+            n=$((n + 1)); [ "$t" -gt "$lift_at" ] && lift_at=$t
+            _ls=$(lane_shown "$lane"); case " ${lanes[*]-} " in *" $_ls "*) ;; *) lanes+=("$_ls");; esac   # the lanes they work on now (by display name), for the headline
+            k="$elane|$lim"; gsince[$k]=$(( ${gsince[$k]:-$since} < since ? ${gsince[$k]:-$since} : since )); gcount[$k]=$(( ${gcount[$k]:-0} + 1 ))
+            case "$why" in moved) k="moved|$lane|||";; reset) k="reset||$elane|$lim|$r";; *) k="lifted||$elane|$lim|";; esac
+            case " ${kinds[*]-} " in *" $k "*) ;; *) kinds+=("$k");; esac; gnames[$k]="${gnames[$k]:-} $s"
+        fi
+        if [ "$tell" = 0 ]; then [ "$quiet" = 1 ] || went+=("$s"); continue; fi
         [ "$SALA_LIMIT_RESUME" = on ] || continue
         why=$(lw_why "$why" "$lane" "$elane" "$lim" "$r")
         if recycle_locked; then res=busy; else res=$(lw_tell "$s" "$pid" "$since" "$why" "$lane"); fi   # a running recycle: as busy
-        case "$res" in told) told+=("$s");; busy) busy+=("$s"); echo "$u|$e|$((now + SALA_LIMIT_RESUME_FOR))|$since|$why|$lane" >> "$LW_RESUME";; *) unr+=("$s");; esac
+        case "$res" in
+            told) [ "$quiet" = 1 ] || told+=("$s");;
+            busy) [ "$quiet" = 1 ] || busy+=("$s"); echo "$u|$e|$((now + SALA_LIMIT_RESUME_FOR))|$since|$why|$lane" >> "$LW_RESUME";;
+            dormant) ;;
+            *) [ "$quiet" = 1 ] || unr+=("$s");;
+        esac
     done <<< "$lift_txt"
     if [ "$n" -gt 0 ]; then
         b=()
@@ -681,6 +719,7 @@ lw_locked() {
     n=0; gsince=(); gnames=(); kinds=(); lanes=(); b=()
     while read -r _ s lane lim r since; do
         [ -n "$s" ] || continue
+        [ "$lim" = monthly ] && continue   # a monthly cap sets its lane dormant (ld_cap_tick) and the one post of that is the move onto the fallback lane's notice, or the dormant post: never a stop post beside them
         k="$lane|$lim|$r"; gsince[$k]=$(( ${gsince[$k]:-$since} < since ? ${gsince[$k]:-$since} : since )); gnames[$k]="${gnames[$k]:-} $s"; n=$((n + 1))
         l=$(lw_limit "$lane" "$lim"); case " ${kinds[*]-} " in *" $l "*) ;; *) kinds+=("$l");; esac
         _ls=$(lane_shown "$lane"); case " ${lanes[*]-} " in *" $_ls "*) ;; *) lanes+=("$_ls");; esac
@@ -781,6 +820,9 @@ nw_locked() {
 #  - API and SDK (one key, one record: the api lane): the limit watch's state has a pane stopped on the API credit ("Credit
 #    balance is too low", kind credit — the record the scan already reads); since = the pane's first error of the stop. A key
 #    refused (401/403) is the sign-in watch's alert and is not a signal here.
+#  - ANY LANE, MONTHLY CAP: the limit watch has a pane stopped on a monthly usage cap (kind monthly, THE MONTHLY CAP above): that pane's lane is dormant
+#    with the reason "monthly API usage cap", since = the stop's first error and the error's regain time as the record's until column. It
+#    comes back BY ITSELF when that time passes (ld_cap_expire, every tick, from the record alone); a lane set by hand never does.
 # Each signal sets the lane dormant ONCE (lane_dormant_set is a no-op on a lane already dormant, so the reason and since of the
 # first stand), with by=signal. COMING BACK: a login lane (subscription-1, subscription-2) set by a signal is looked at again once a day
 # (SALA_LANE_REVIVE_EVERY) with the sign-in check the watch makes anyway (free): right -> active, one line in the log. A lane set
@@ -801,8 +843,8 @@ ld_fallback() {  # <lane> — the lane went dormant just now: queue its sessions
     esac   # 2: nothing is on the lane (the post waits for a session) · 3: SALA_LANE_FALLBACK_AUTO is off (the post says moving is up to the operator)
     return 0
 }
-ld_signal() {  # <lane> <reason> <since epoch> <what was seen> -> the lane dormant, logged once
-    lane_dormant_set "$1" "$2" signal "$3"
+ld_signal() {  # <lane> <reason> <since epoch> <what was seen> [until epoch] -> the lane dormant (until that time, when one is given), logged once
+    lane_dormant_set "$1" "$2" signal "$3" "${5:-0}"
     case $? in 0) wlog "lanes: the $1 lane is dormant — $2 ($4)"
         case "$1" in subscription-1|subscription-2) sw_set "$1.revived" "";; esac   # a new episode: its first daily look is a day after it began
         ld_fallback "$1";;
@@ -866,11 +908,54 @@ if s: print(min(s))' "$LW_STATE" 2>/dev/null)
     [ "$since" -gt "${c:-0}" ] || return 0
     ld_signal api "credit used up" "$since" "the limit watch has a pane stopped on \"Credit balance is too low\""
 }
+# THE MONTHLY CAP: a pane the limit watch has stopped on a 429 that says the account crossed its monthly usage threshold (kind monthly: the scan's
+# state holds its lane, the first error of the stop, and the time the error says access returns). The lane goes dormant until that time, once,
+# and that starts the lane fallback like any dormant lane (ld_signal → ld_fallback). Nothing is polled and no test call is made to find out
+# whether the cap has ended: the error names the time, and ld_cap_expire brings the lane back then.
+ld_cap_tick() {
+    local st="" l lane regain since c now; { IFS= read -r -d '' st < "$LW_STATE"; } 2>/dev/null || :
+    [[ $st == *monthly* ]] || return 0   # the scan's state names no monthly stop: python3 would print nothing (one start per tick saved)
+    _now_r now
+    while read -r lane regain since; do
+        [ -n "$lane" ] || continue
+        l=$(lane_state_id "$lane") || continue   # a stop whose lane is no lane (a run on no lane) has none to hold
+        [ "$regain" -gt "$now" ] 2>/dev/null || continue   # access is back already: an old stop, not a cap in force
+        lane_dormant "$l" && continue
+        # a stop that began before the lane was last set active (the regain time passed, or `sala lane active`) is the old episode, still in the state
+        # until its panes are lifted: not a new signal, or the lane would be dormant again one tick after it was brought back
+        c=$(lane_state_field "$l" 4); c=${c:+$(lane_iso_epoch "$c")}
+        [ "$since" -gt "${c:-0}" ] 2>/dev/null || continue
+        ld_signal "$l" "monthly API usage cap" "$since" "the limit watch has a pane stopped on the account's monthly usage threshold; access returns $(lw_when "$regain")" "$regain"
+    done < <(python3 -c 'import json, sys
+try: panes = json.load(open(sys.argv[1])).get("panes") or {}
+except Exception: sys.exit()
+best = {}
+for p in panes.values():
+    if not isinstance(p, dict) or p.get("lim") != "monthly": continue
+    lane, since, reset = str(p.get("lane") or ""), int(p.get("since") or 0), int(p.get("reset") or 0)
+    if lane and (lane not in best or since < best[lane][0]): best[lane] = (since, reset)
+for lane, (since, reset) in sorted(best.items()): print(lane, reset, since)' "$LW_STATE" 2>/dev/null)
+}
+# the regain time passed: a lane held by a cap (a dormant record with an until time, set by the watch) is active again, one line in the log. Free:
+# the record is read as a file, no look at the lane is made. A lane set by hand keeps its hold (`sala lane active`), a cap that is still on
+# is found again by the next error (a new stop, a new regain time).
+ld_cap_expire() {
+    [ -r "$SALA_LANE_STATE" ] || return 0
+    local l u now; _now_r now
+    for l in $SALA_LANES_KNOWN; do
+        lane_dormant "$l" || continue
+        [ "$(lane_state_field "$l" 6)" = signal ] || continue
+        u=$(lane_dormant_until "$l"); [ -n "$u" ] && [ "$now" -ge "$u" ] || continue
+        lane_dormant_clear "$l" "the monthly usage cap's regain time passed ($(lw_when "$u"))" && wlog "lanes: the $l lane is active again — the regain time of its monthly usage cap passed ($(lw_when "$u"))"
+    done
+    return 0
+}
 # THE ONE POST of a dormant episode: sessions are still recorded on the lane. Claimed in the record first (so two ticks never both
 # post), then sent through the watch's notify; no sessions on it, no post, and the episode stays unposted until some are.
 ld_post_tick() {
     [ -r "$SALA_LANE_STATE" ] || return 0
-    local l label why since n names line f2 todo="" nofb
+    ld_cap_expire   # first: a lane whose monthly cap has ended is active again before anything is said about it
+    local l label why since capend n names line f2 todo="" nofb
     # the dormant lanes not yet posted (state dormant, posted column empty), read by the shell: the awk that listed them was a process per tick
     while IFS= read -r line || [ -n "$line" ]; do
         line=${line//$'\t'/$'\x01'}; IFS=$'\x01' read -r l f2 _ _ f5 _ <<< "$line"; _lane_norm_r l "$l"
@@ -882,6 +967,7 @@ ld_post_tick() {
         [ "$n" -gt 0 ] || continue
         lane_dormant_claim_post "$l" || continue
         label=$(lane_label "$l"); why=$(lane_state_field "$l" 3); since=$(lane_day "$(lane_state_field "$l" 4)")
+        capend=$(lane_dormant_until "$l"); [ -z "$capend" ] || since="$since, access returns $(lw_when "$capend")"   # a monthly cap names when
         # the lane fallback's one alert line when it moves nothing (lane_fallback_auto said why in this process, else the same check now)
         nofb="${LD_NOFB[$l]:-}"; if [ -z "$nofb" ] && [ "${SALA_LANE_FALLBACK_AUTO:-on}" != off ]; then nofb=$(lane_fallback_pick "$l") && nofb=""; fi
         wlog "lanes: posting the dormant $l lane: $(plural "$n" session) still on it"

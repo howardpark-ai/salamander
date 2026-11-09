@@ -18,7 +18,8 @@
 #                                                                   (SALA_LANE_FALLBACK_AUTO) the sessions on it are also queued onto its fallback (below); --no-fallback records only
 #   salamander lane fallback <lane> [--dry-run]                     THE LANE FALLBACK: move everything on a DORMANT lane — its sessions (the master by the rescue
 #                                                                   route), the default if it was the default, and the jobs from then on — to the lane SALA_LANE_FALLBACK names for it,
-#                                                                   when that lane is active and ready; --dry-run prints the moves. Exit 4: no usable fallback
+#                                                                   when that lane is active and ready; --dry-run prints the moves. Exit 4: no usable fallback. For a lane held by a monthly usage
+#                                                                   cap a pane that is mid-turn is first sent ONE Escape (pane_cut_turn, SALA_CUT_WAIT) so it can be relaunched
 #   salamander lane active <lane>   [--dry-run]                     mark it active again (the only way back for the API lane, api and sdk)
 #   salamander lane --migrate         [--dry-run]                   THE RENAME'S MIGRATION: rewrite the old name of a renamed lane (awsplatform → aws-platform) in lanes.tsv,
 #                                                                   lane-default, lane-state.tsv and the session registry, once (idempotent, atomic, a backup beside each file;
@@ -69,7 +70,7 @@
 # each session, each model change, the default). `lane fallback` itself does the move: every session whose running lane is the dead
 # one (recorded on it, or on "(default)" while the default is that lane) is recorded on the fallback — its home (the lane it left)
 # in lane-home.tsv — and relaunched through the ordinary switch (`lane <fallback> <session>…`: a busy pane is deferred to the retry
-# worker and relaunched when idle, never interrupted), the master last by the rescue route (`lane --rescue <fallback>`); a Fable
+# worker and relaunched when idle, never interrupted — except on a lane held by a monthly usage cap, where a pane mid-turn is a retry loop that never goes idle and gets ONE Escape first, pane_cut_turn), the master last by the rescue route (`lane --rescue <fallback>`); a Fable
 # session moving onto bedrock is recorded on Opus (models.tsv) in the same move; the default lane follows. "Stay": nothing moves a
 # session back when the lane is active again; `salamander lane <home> <session>` does and clears its home. A job (`lane exec`) whose
 # lane is dormant runs on the fallback for as long as it is, with one line on stderr. One hop; no usable fallback → nothing moves
@@ -103,7 +104,7 @@ usage() {
     echo "       salamander lane pin <session> <lane>   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a move that names it still moves it"
     echo "       salamander lane unpin <session>        take the pin off (bulk moves take the session again)"
     echo "       salamander lane pins                   the pinned sessions and the lane each is held on (the list: \$SALA_LANE_PINS, a TSV: session TAB lane)"
-    echo "       salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   mark a lane dormant by hand (nothing is moved onto it); its sessions, default and jobs are queued onto its fallback unless --no-fallback or SALA_LANE_FALLBACK_AUTO=off"
+    echo "       salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   mark a lane dormant by hand (nothing is moved onto it); its sessions, default and jobs are queued onto its fallback unless --no-fallback or SALA_LANE_FALLBACK_AUTO=off (the watch also marks a lane dormant itself, until the regain time, for a monthly usage cap)"
     echo "       salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback ($SALA_LANE_FALLBACK); a pinned session stays and is listed; --dry-run prints the moves; exit 4: no usable fallback"
     echo "       salamander lane active <lane>     [--dry-run]                  mark a lane active again (the only way back for api and sdk)"
     echo "       salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)"
@@ -216,6 +217,35 @@ session_cpid() { local pp; tmux has-session -t "=$1" 2>/dev/null || return 1; pp
 # running_lane <session> → the lane its claude runs on (proc_lane): subscription-1 · api · subscription-2 · sdk · other (a config directory sala
 # does not know) · ? (unreadable); "-" when no claude runs there (a shell pane, or no tmux session)
 running_lane() { local c; c=$(session_cpid "$1") || { echo "-"; return; }; proc_lane "$c"; }
+# pane_cut_turn <session> → 0 when the pane is idle afterwards (it was, or an Escape ended its turn), 1 when it is left as it is.
+# THE CUT, used only by the fallback of a lane that a MONTHLY USAGE CAP stopped (lane_dormant_capped): every request on that lane is refused
+# until the provider's regain time, so a pane mid-turn there is a retry loop that never ends and never goes idle, and the idle-aware
+# relaunch (`revive --force`) would skip it as busy for ever. One Escape (the key that interrupts a running turn, as the user would press
+# it) ends the turn; then the pane is polled for up to SALA_CUT_WAIT seconds until is_idle_reason is empty (the registry's idle settle
+# included), and the ordinary relaunch takes it from there. Sent ONLY to a pane whose registry status is exactly "busy" (a dialog is
+# "waiting", a background shell is "shell": both are left alone) with no work child process under its claude, no dialog on the
+# screen (pane_prompt) and no unsent text in its box (pane_draft): an Escape would dismiss a dialog, and one sent while text is there
+# is not ours to guess. Nothing is typed. A pane that does not come to rest is left to the relaunch's own verdict (skipped as busy).
+: "${SALA_CUT_WAIT:=40}"
+pane_cut_turn() {
+    local s="$1" cpid pane st i
+    cpid=$(session_cpid "$s") || return 1
+    [ -n "$cpid" ] || return 1
+    [ -z "$(is_idle_reason "$cpid")" ] && return 0
+    registry_field_r st "$cpid" status
+    [ "$st" = busy ] || return 1
+    [ -z "$(work_children "$cpid")" ] || return 1
+    pane=$(tmux list-panes -t "$(tmux_win_t "$s")" -F '#{pane_id}' 2>/dev/null | head -1)
+    [ -n "$pane" ] || return 1
+    pane_prompt "$pane" && return 1
+    [ -z "$(pane_draft "$pane" "$cpid")" ] || return 1
+    tmux send-keys -t "$pane" Escape 2>/dev/null || return 1
+    for ((i=0; i<SALA_CUT_WAIT; i+=2)); do
+        sleep 2
+        [ -z "$(is_idle_reason "$cpid")" ] && return 0
+    done
+    return 1
+}
 
 # ── the lane fields (common.sh "THE LANE FIELDS") ──────────────────
 # lane_list_table → the rows of lane_fields_tsv under a header, columns aligned; an empty field is "-", billing carries its payment
@@ -404,6 +434,13 @@ if [ "$MODE" = fallback ]; then
     fi
     rc=0
     for s in ${MV_DEAD[@]+"${MV_DEAD[@]}"}; do lane_write "$s" "$fb" || { echo "⚠ could not record the lane for $s" >&2; rc=1; }; done
+    # a lane a monthly usage cap stopped: a pane mid-turn there is a retry loop that never goes idle, so the ordinary (idle-aware) relaunch
+    # would skip it for ever. Its turn is cut first (pane_cut_turn, above), the master's too; every other dormant lane keeps the idle-aware move.
+    if lane_dormant_capped "$L"; then
+        for s in ${MV_LIVE[@]+"${MV_LIVE[@]}"} ${MV_MASTER:+"$MV_MASTER"}; do
+            if pane_cut_turn "$s"; then :; else echo "  $s: its turn could not be cut (not busy on its own, a dialog, a draft or a background task): it is relaunched when it is idle" >&2; fi
+        done
+    fi
     if [ ${#MV_LIVE[@]} -gt 0 ]; then "$SALA_BIN" lane "$fb" "${MV_LIVE[@]}" $NOTMASTER || rc=$?; fi
     if [ -n "$MV_MASTER" ]; then
         # the sessions' relaunch runs on as a detached driver that holds the recycle lock; the master's rescue takes it next, so wait for it to be freed
@@ -418,7 +455,7 @@ if [ "$MODE" = fallback ]; then
     for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "RESULT $s: stays on $L (pinned to $(lane_pin_of "$s"))"; done
     lane_log fallback "$L" "moved ${#PLAN_ON[@]} session(s)$([ "$DFLT" = 1 ] && echo " and the default") to $fb (rc $rc)"
     # the last line is the operation's result (lib/op.sh keeps the RESULT lines above as the notice's bullets)
-    echo "the $(lane_label "$L") lane is dormant: $(plural "${#PLAN_ON[@]}" session)$([ "$DFLT" = 1 ] && echo " and the default") moved to the $FBN lane; they stay there until moved back (salamander lane $L <session>)"
+    echo "the $(lane_label "$L") lane is dormant$(lane_dormant_capped "$L" && echo " (monthly usage cap, $(lane_dormant_since_words "$L" | sed 's/^.*access returns/access returns/'))"): $(plural "${#PLAN_ON[@]}" session)$([ "$DFLT" = 1 ] && echo " and the default") moved to the $FBN lane; they stay there until moved back (salamander lane $L <session>)"
     exit "$rc"
 fi
 # a dormant lane is not moved onto (the header): refused before anything is recorded or relaunched — the rescue and the default included

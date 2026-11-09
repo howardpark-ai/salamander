@@ -16,7 +16,8 @@
  * the fake is about to show its ❯ prompt and that file exists and is not empty, it shows the file's text instead — a
  * permission dialog, a menu, as the test wrote it — and waits for ONE key, as the CLI's dialogs hold the pane; any key clears
  * the screen and the loop looks at the file again: rewritten, the new dialog shows; removed, the ❯ prompt is back) ·
- * FAKE_IDLE_AGE=<secs> (the registry row's statusUpdatedAt is that old at start; default 60) · FAKE_TURN_MS=<ms> (a typed
+ * FAKE_ESC_IDLE=1 (the composer reads raw keys, as under FAKE_MODEL_MODE, and an Esc turns a busy registry row idle with a fresh stamp,
+ * as the CLI's Esc ends a running turn; one "esc <uuid> <epoch.micros>" line in FAKE_LOG) · FAKE_IDLE_AGE=<secs> (the registry row's statusUpdatedAt is that old at start; default 60) · FAKE_TURN_MS=<ms> (a typed
  * message that is not a slash command is a turn: the row says busy for that long, then idle with a fresh stamp; unset, a message changes
  * nothing, as before) · FAKE_NO_CLEAR=1 (a /clear is typed and logged and nothing changes) · `/clear` (probed on 2.1.312: the SAME registry row, same pid, name and nameSource kept, gets a NEW
  * sessionId and a fresh idle stamp; the screen is cleared; one "clear <new uuid> <epoch.micros>" line in FAKE_LOG). */
@@ -98,13 +99,22 @@ static void stdin_gone(const char *where) {
 /* composer_line: with FAKE_MODEL_MODE set the fake edits its line itself, as the CLI's composer does (the kernel's line discipline
  * would take an Escape into the text and echo "^["): Esc is ignored, Ctrl-U clears the line, Backspace erases one character, Enter
  * ends it. 1 = a line in buf (with its newline), 0 = the input is gone. */
+static void write_row(const char *sid, const char *status, long stamp_s);
+static const char *g_cursid;   /* the uuid the composer's Esc handling (FAKE_ESC_IDLE) writes the registry row for */
 static int composer_line(char *buf, size_t sz) {
     struct termios old, raw; int have = tcgetattr(0, &old) == 0; size_t n = 0; unsigned char c;
     if (have) { raw = old; raw.c_lflag &= ~(ICANON | ECHO); raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0; tcsetattr(0, TCSANOW, &raw); }
     for (;;) {
         if (read(0, &c, 1) != 1) { stdin_gone("the composer"); if (have) tcsetattr(0, TCSANOW, &old); return 0; }
         if (c == '\r' || c == '\n') { fputs("\n", stdout); fflush(stdout); buf[n++] = '\n'; buf[n] = 0; break; }
-        if (c == 0x1b) continue;
+        if (c == 0x1b) {   /* FAKE_ESC_IDLE=1: an Esc ends the running turn, as the CLI's does (a busy registry row goes idle with a fresh stamp) */
+            if (getenv("FAKE_ESC_IDLE") && g_cursid) {
+                const char *el = getenv("FAKE_LOG"); FILE *f = el ? fopen(el, "a") : NULL;
+                if (f) { struct timeval tv; gettimeofday(&tv, NULL); fprintf(f, "esc %s %ld.%06ld\n", g_cursid, (long)tv.tv_sec, (long)tv.tv_usec); fclose(f); }
+                write_row(g_cursid, "idle", (long)time(NULL));
+            }
+            continue;
+        }
         if (c == 0x15) { n = 0; fputs("\r\033[K\xe2\x9d\xaf ", stdout); fflush(stdout); continue; }
         if ((c == 0x7f || c == 8) && n) { n--; fputs("\b \b", stdout); fflush(stdout); continue; }
         if (c >= 0x20 && n + 2 < sz) { buf[n++] = (char)c; fputc(c, stdout); fflush(stdout); }
@@ -237,7 +247,8 @@ int main(int argc, char **argv) {
          * on the echo's last row, "❯ /salamander/salamander/mod" /tmp/…/claude", which tui_send reads as someone's unsent draft and
          * refuses to type onto. The real CLI draws its own box; it never shares a row with what the shell left. */
         fputs("\r\033[K\xe2\x9d\xaf ", stdout); fflush(stdout);
-        if (getenv("FAKE_MODEL_MODE")) { if (!composer_line(line, sizeof line)) { for (;;) pause(); } }   /* a composer of its own (above) */
+        g_cursid = sid;
+        if (getenv("FAKE_MODEL_MODE") || getenv("FAKE_ESC_IDLE")) { if (!composer_line(line, sizeof line)) { for (;;) pause(); } }   /* a composer of its own (above) */
         else if (!fgets(line, sizeof line, stdin)) { stdin_gone("fgets"); for (;;) pause(); }   /* no tty: idle forever, as before (saying why on stderr) */
         { const char *tl = getenv("FAKE_TYPED_LOG"); FILE *t = tl ? fopen(tl, "a") : NULL;   /* FAKE_TYPED_LOG: the line as typed */
           if (t) { size_t n = strlen(line); if (n && line[n - 1] == '\n') n--; fprintf(t, "%s %.*s\n", sid, (int)n, line); fclose(t); } }

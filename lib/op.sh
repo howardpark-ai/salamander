@@ -577,7 +577,7 @@ op_shapes() {
   forget-row NAME                           drops a pane-map row (and its lane and model rows) whose tmux session is gone. Needs the owner's words
   rename OLD NEW
   lane <lane> <session>… | <lane> --all | default <lane> | fallback <lane>
-                                            fallback <lane>: the dormant lane's sessions, default and jobs move to its fallback lane (SALA_LANE_FALLBACK), ONE notice with a line per session and any model change; the watch queues it by itself the moment a lane turns dormant; nothing moves back unless a person says so
+                                            fallback <lane>: the dormant lane's sessions, default and jobs move to its fallback lane (SALA_LANE_FALLBACK), ONE notice with a line per session and any model change; the watch queues it by itself the moment a lane turns dormant (a monthly usage cap included, until the regain time; a pane mid-turn on such a lane gets one Escape first); nothing moves back unless a person says so
   model <model> [--effort <level>] <session>… | --clear <session>… | <session> <model> [--effort <level>] | <session> --clear
                                             the model (opus|sonnet|haiku|fable|claude-…) and effort (low|medium|high|xhigh|max) the sessions run on from now: each switched in place when idle with an empty input box, else relaunched (the relaunches together, in one sweep); ONE result notice for the lot, a line per session; a first word that is a model = the many-session form, else the session comes first (one session); --clear drops the records
   provision [--only STEP[,STEP…]] [HOST…]
