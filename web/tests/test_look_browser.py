@@ -4,7 +4,7 @@ Nothing in the text tests (test_look_scale.py, test_look_redirect.py) proves tha
 width and each page this opens / and checks: the document is no wider than the window (no sideways scroll), on a wide screen the content
 column is at most 920 px, nothing is logged as an error (console, uncaught exceptions, failed requests), the D2Coding face loads from the
 address the page names, the page links its manifest and registers its service worker (the installed app stays installable), and the tab
-says sala.
+title carries no trial mark.
 
 What a wrong answer costs: a page that scrolls sideways on a phone, a column wider than the others, a font that 404s, a script error on a
 screen drawn without one, or an app that can no longer be installed. NOT covered (docs/test-coverage.md): a real phone's browser and the
@@ -125,7 +125,7 @@ def test_each_page_fits_the_window_draws_its_column_loads_the_code_face_and_logs
         })()""" % json.dumps(col))
         seen.append((name, facts))
         assert facts["path"] == "/", (name, facts)
-        assert facts["title"].startswith("sala"), (name, facts)
+        assert facts["title"] and "v2" not in facts["title"].lower(), (name, facts)   # the app sets the title per view; the page's own is "sala" (test_look_scale.py)
         assert facts["scroll"] <= facts["inner"], f"{name} at {width}px scrolls sideways: {facts}"
         if width >= 1024:
             assert facts["col"] is not None and facts["col"] <= 920, f"{name} at {width}px: the column is {facts['col']}px"

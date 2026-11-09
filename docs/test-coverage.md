@@ -229,7 +229,7 @@ comes after every stylesheet link, the manifest link and the worker registration
 query, GET and HEAD, a POST answered 405, `/v2x` a 404, no `/v2` left in the page or in a static file; the manifest, the worker script, the code face and its licence served.
 `test_look_browser.py` (5, one headless Chromium at 390, 768, 1024 and 1440 px): the Agents, Schedules and Machines tabs, a chat, Search results and the New session page each
 drawn on `/`, no sideways scroll, the column at most 920 px on a wide screen, no console error, uncaught exception or failed request, the code face `loaded`, the manifest link and
-one registered worker, the tab titled "sala"; and controls 32 px under a mouse and 44 px under a finger. `conftest.py` gains `CDP.touch()` (touch emulation makes the pointer
+one registered worker, a tab title with no trial mark; and controls 32 px under a mouse and 44 px under a finger. `conftest.py` gains `CDP.touch()` (touch emulation makes the pointer
 coarse), which the tests that check a touch size now use.
 Removed with the layer: `test_v2_design.py` (15), `test_v2_layer.py` (29), `test_v2_browser.py` (4), the v2 prefix test in `test_mockup.py`, and the `/v2/` variants of
 `test_asset_recovery.py`, `test_colortool_wiring.py`, `test_unread_filter.py` and `test_board_items_ui.py`. The earlier entries about `/v2/` below stay as the record of that time.
