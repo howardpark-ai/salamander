@@ -262,7 +262,7 @@ class CDP:
         self.w, self.r = os.fdopen(w_in, "wb", 0), os.fdopen(r_out, "rb", 0)
         self.seq = 0
         self.buf = b""
-        self.events: list[dict] = []   # DevTools events (messages with no id), kept for a test that reads them (test_v2_browser.py)
+        self.events: list[dict] = []   # DevTools events (messages with no id), kept for a test that reads them (test_look_browser.py)
         self.session = None
         self.width, self.height = width, height
         tid = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]
@@ -293,6 +293,10 @@ class CDP:
         if dark:
             self.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": "dark"}]})
         self.send("Page.navigate", {"url": url})
+
+    def touch(self, on: bool = True) -> None:
+        """A touch screen: `(pointer: coarse)` matches (the look's 44 px controls) and `(hover: none)`; set on the open page, live."""
+        self.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 1} if on else {"enabled": False})
 
     def evaluate(self, expression: str, timeout_ms: int = 25000):
         """The value of a JS expression on the page; a promise is awaited."""

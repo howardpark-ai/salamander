@@ -345,19 +345,19 @@ def test_the_footer_renders_apart_from_the_body(served, browser):
     c = by_case(got)
     body_links = [a for a in c["none"]["mds"][0]["links"] if a["href"]]
     body_size = c["none"]["mds"][0]["fontSize"]
-    assert body_size == 16 and body_links, c["none"]
+    assert body_size == 15 and body_links, c["none"]   # the look's 15 px reading size
     for name in ("writeup", "block", "oneline", "listed", "pages", "code"):
         m = c[name]
         assert len(m["mds"]) == 2 and m["mdCount"] == 2, (name, [d["cls"] for d in m["mds"]])
         body, foot = m["mds"]
         assert body["cls"] == "md" and foot["cls"] == "md footer ruled", name
-        assert body["fontSize"] == body_size and foot["fontSize"] < body_size and abs(foot["fontSize"] - 0.85 * body_size) <= 0.2, (name, foot["fontSize"])
+        assert body["fontSize"] == body_size and foot["fontSize"] < body_size and abs(foot["fontSize"] - 0.85 * body_size) <= 0.3, (name, foot["fontSize"])   # 0.85 x 15 = 12.75, snapped to the look's 13 px step
         # dimmed with the --muted token on the page's background, AA at this size; under a 1px rule in the border token
         assert foot["color"] == got["muted"] and foot["color"] != body["color"], (name, foot["color"], got["muted"])
         assert foot["bg"] and contrast(foot["color"], foot["bg"]) >= 4.5, (name, foot["color"], foot["bg"])
         assert foot["borderTop"] == "1px solid " + got["rule"], (name, foot["borderTop"], got["rule"])
         assert body["borderTop"].startswith("0px"), (name, body["borderTop"])
-        assert foot["box"]["top"] >= body["box"]["bottom"] + 9, (name, body["box"], foot["box"])  # the margin above the rule
+        assert foot["box"]["top"] >= body["box"]["bottom"] + 7, (name, body["box"], foot["box"])  # the margin above the rule (8 px on the look's grid, was 10)
         assert m["copyBtn"], name
     # one block per note, each on its own line: Board (then its list), Page, Write-up; four Page notes four blocks
     tags = lambda f: [b["tag"] for b in f["blocks"]]  # noqa: E731
@@ -368,13 +368,13 @@ def test_the_footer_renders_apart_from_the_body(served, browser):
     for a, b in zip(pages["blocks"], pages["blocks"][1:]):
         assert b["box"]["top"] >= a["box"]["bottom"] - 0.5, (a, b)
     assert tags(footer_of(c["writeup"])) == ["P"] and tags(footer_of(c["oneline"])) == ["P"]
-    # links inside: anchors in the accent, underlined, tappable where they are, no smaller a target than a body link's
+    # links inside: anchors in the accent (not underlined, in the look), tappable where they are, no smaller a target than a body link's
     for name, want in (("block", [f"{WEB}/items/26", f"{WEB}/items/88"]), ("listed", [f"{WEB}/items/26"]), ("pages", [LONG_URL])):
         f = footer_of(c[name])
         assert [a["href"] for a in f["links"]] == want, (name, f["links"])
         for a in f["links"]:
             assert a["target"] == "_blank" and a["rel"] == "noopener noreferrer", a
-            assert a["color"] == body_links[0]["color"] and a["color"] != f["color"] and "underline" in a["deco"], (name, a, f["color"])
+            assert a["color"] == body_links[0]["color"] and a["color"] != f["color"] and "underline" not in a["deco"], (name, a, f["color"])   # the look marks a link by its accent colour alone
             assert a["hit"], (name, a)
             assert_footer_link_target(name, a, body_links)
     # the whole reply a footer: dimmed and small, but no rule above and nothing else in the message
@@ -395,7 +395,7 @@ def test_the_footer_renders_apart_from_the_body(served, browser):
         m = c[name]
         assert [d["cls"] for d in m["mds"]] == ["md", "md footer ruled", "md tail"] and m["mdCount"] == 3, (name, [d["cls"] for d in m["mds"]])
         body, foot, tail = m["mds"]
-        assert body["box"]["bottom"] + 9 <= foot["box"]["top"] and foot["box"]["bottom"] + 9 <= tail["box"]["top"], (name, body["box"], foot["box"], tail["box"])
+        assert body["box"]["bottom"] + 7 <= foot["box"]["top"] and foot["box"]["bottom"] + 7 <= tail["box"]["top"], (name, body["box"], foot["box"], tail["box"])
         assert foot["fontSize"] < body_size and foot["color"] == got["muted"], (name, foot)
         assert tail["fontSize"] == body_size and tail["color"] == body_color and tail["borderTop"].startswith("0px"), (name, tail)
         assert tags(tail) == ["P"] and tail["blocks"][0]["text"][:2] in ("Dr", "To"), tail["blocks"]

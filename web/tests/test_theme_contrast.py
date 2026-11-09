@@ -204,7 +204,6 @@ def test_the_tab_icons_are_stackshots_tile_and_orange():
 
 # --- one orange in the whole app: no other orange left in any page file ---------------------------------------------------
 
-V2 = STATIC.parent / "v2"
 TOOLS = STATIC.parent.parent.parent / "tools"
 ORANGES = {"#ad4608", "#f0a06a"}             # the light theme's orange, the dark theme's (which is also the app icons' own)
 ICON_ORANGE = "#f0a06a"                      # the app icons' own colour: the same value as the dark theme's orange, set in the inline tab icons and in make_icons.py
@@ -224,10 +223,9 @@ _ICON_LINK = re.compile(r'<link rel="icon" href="data:image/svg\+xml,[^"]+">')
 
 
 def _page_files():
-    for d in (STATIC, V2):
-        for f in sorted(d.iterdir()):
-            if f.suffix in (".css", ".html", ".js", ".py") and f.name != "timing-debug.js":
-                yield f
+    for f in sorted(STATIC.iterdir()):
+        if f.suffix in (".css", ".html", ".js", ".py") and f.name != "timing-debug.js":
+            yield f
 
 
 def _oranges_in(text: str):

@@ -540,6 +540,7 @@ def test_stackshot_being_down_is_said_for_the_list_and_for_create(sala, served, 
 def test_the_scope_and_the_box_fit_a_phone_and_a_desktop_and_a_long_refusal_never_scrolls_sideways(sala, served, browser):
     sala.ss.agent_reply = (403, {"error": "retired or hidden: " + "a very long reason " * 30 + "x" * 200})
     open_form(browser, served, width=390, height=844, scope="gamma")
+    browser.touch()   # the 40 px sizes below are touch sizes: the look draws controls 32 px under a mouse, 44 px under a thumb
     type_filter(browser, "kayak")
     wait_order(browser, ["--divider--", "projects/gamma-old-kayak", "__new__"])
     pick(browser, "projects/gamma-old-kayak")
@@ -563,6 +564,7 @@ def test_the_all_chip_and_the_scope_tags_fit_a_phone_and_a_desktop(sala, served,
     sala.ss.rows.append(FS.row("projects/beta-a-project-with-a-very-long-page-name-for-the-tag-to-squeeze", "A project with a very long title as well " * 3, "beta"))
     sala.ss.rows.append(FS.row("projects/gamma-a-project-with-a-very-long-page-name-for-the-tag-to-squeeze", "Twin of the long one", "gamma"))   # the same name in another scope: its tag shows
     open_form(browser, served, width=390, height=844, scope="all")
+    browser.touch()   # the 40 px sizes below are touch sizes: the look draws controls 32 px under a mouse, 44 px under a thumb
     for width, height in ((320, 700), (390, 844), (1280, 800)):
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": width <= 760})
         browser.evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))")

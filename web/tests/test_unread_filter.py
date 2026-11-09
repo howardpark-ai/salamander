@@ -8,8 +8,8 @@ pref, kept by the server like "Show all sessions", so the phone and the desktop 
 
 What a wrong answer costs: an unread reply hidden behind a folded heading or a background agent's row, a row that vanishes under the
 pointer the moment its replies count as read, folds that are lost or changed by looking at the filter, a total that disagrees with
-the rows, or a filter that is forgotten on reload. The pure rules run in node; the page is a headless Chromium on `/` and on `/v2/`
-(the same app, drawn by the v2 layer), at a phone's width and at a desktop's. api/sessions is a stub, api/prefs the app's own."""
+the rows, or a filter that is forgotten on reload. The pure rules run in node; the page is a headless Chromium on `/`
+at a phone's width and at a desktop's. api/sessions is a stub, api/prefs the app's own."""
 
 from __future__ import annotations
 
@@ -91,7 +91,6 @@ ENTRY = """(() => { const b = document.querySelector('#side-unread'), c = b.quer
   return { top, pressed: b.getAttribute('aria-pressed'), label: b.querySelector('.label').textContent, selected: b.classList.contains('selected'),
            count: c ? c.textContent : null, countLabel: c ? c.getAttribute('aria-label') : null, tag: b.tagName,
            empty: [...document.querySelectorAll('#session-list .empty')].map((e) => e.textContent) }; })()"""
-VIEWS = [pytest.param("", id="v1"), pytest.param("/v2", id="v2")]
 WIDTHS = [pytest.param(390, id="phone"), pytest.param(1280, id="desktop")]
 SIDE_IN = "document.getElementById('sidebar').getBoundingClientRect().left === 0"
 
@@ -107,12 +106,12 @@ def get_prefs(served) -> dict:
         return json.load(r)
 
 
-def open_panel(browser, served, base: str, width: int, unread=None, hash_="#sessions") -> None:
-    """The page at `base` ("" or "/v2") with the side panel open, drawn from the stub."""
+def open_panel(browser, served, width: int, unread=None, hash_="#sessions") -> None:
+    """The page with the side panel open, drawn from the stub."""
     browser.send("Page.enable")
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": SESS % json.dumps(UNREAD if unread is None else unread)})
     browser.width, browser.height = width, 844 if width < 700 else 800
-    url = f"{served['url']}{base}/{hash_}"
+    url = f"{served['url']}/{hash_}"
     if width < 700:
         browser.open(url, dark=True)                                      # a phone: the drawer
     else:                                                                 # a desktop that hovers: the sidebar pinned open
@@ -144,10 +143,9 @@ def wait_rows(browser, want: list, secs: float = 6.0) -> list:
 
 
 @pytest.mark.parametrize("width", WIDTHS)
-@pytest.mark.parametrize("base", VIEWS)
-def test_the_entry_sits_under_overview_with_the_total_and_a_tap_filters_the_list(served, browser, base, width):
+def test_the_entry_sits_under_overview_with_the_total_and_a_tap_filters_the_list(served, browser, width):
     put_prefs(served, {"collapsed": ["projects/gamma"], "showAll": True})                    # the gamma project is folded; background agents are shown
-    open_panel(browser, served, base, width)
+    open_panel(browser, served, width)
     e = browser.evaluate(ENTRY)
     assert e["top"] == ["side-new", "side-ovw", "side-unread"] and e["tag"] == "BUTTON", e   # under Overview, a toggle and not a link
     assert (e["pressed"], e["label"], e["selected"], e["count"]) == ("false", "Unread", False, "6"), e
@@ -176,10 +174,9 @@ def test_the_entry_sits_under_overview_with_the_total_and_a_tap_filters_the_list
     assert get_prefs(served)["collapsed"] == ["projects/gamma"]
 
 
-@pytest.mark.parametrize("base", VIEWS)
-def test_the_choice_is_kept_by_the_server_and_survives_a_reload(served, browser, base):
+def test_the_choice_is_kept_by_the_server_and_survives_a_reload(served, browser):
     assert get_prefs(served)["unreadOnly"] is False
-    open_panel(browser, served, base, 390)
+    open_panel(browser, served, 390)
     tap_unread(browser)
     for _ in range(50):                                                                       # the save is asynchronous
         if get_prefs(served)["unreadOnly"]:
@@ -199,10 +196,9 @@ def test_the_choice_is_kept_by_the_server_and_survives_a_reload(served, browser,
     assert browser.evaluate(ENTRY)["pressed"] == "false" and "example-alpha-ui" in browser.evaluate(ROWS)
 
 
-@pytest.mark.parametrize("base", VIEWS)
-def test_the_open_agent_stays_until_the_owner_leaves_it_and_is_not_counted(served, browser, base):
+def test_the_open_agent_stays_until_the_owner_leaves_it_and_is_not_counted(served, browser):
     put_prefs(served, {"unreadOnly": True})
-    open_panel(browser, served, base, 1280, hash_="#s=example-alpha-main")
+    open_panel(browser, served, 1280, hash_="#s=example-alpha-main")
     # opened: its replies are read (the stub's api/read), yet its row stays, without a count; the total no longer holds its 2
     wait_rows(browser, ["example-alpha-main", "example-beta-main", "example-gamma-main"])
     poll(browser)
@@ -221,10 +217,9 @@ def test_the_open_agent_stays_until_the_owner_leaves_it_and_is_not_counted(serve
     assert browser.evaluate(ENTRY)["count"] == "4"
 
 
-@pytest.mark.parametrize("base", VIEWS)
-def test_nothing_unread_says_so_and_a_background_agent_never_shows(served, browser, base):
+def test_nothing_unread_says_so_and_a_background_agent_never_shows(served, browser):
     put_prefs(served, {"unreadOnly": True, "showAll": True})
-    open_panel(browser, served, base, 390, unread={})
+    open_panel(browser, served, 390, unread={})
     assert wait_rows(browser, []) == []
     e = browser.evaluate(ENTRY)
     assert e["empty"] == ["Nothing unread"] and e["count"] is None and e["pressed"] == "true", e   # no count chip at zero
@@ -249,9 +244,8 @@ def test_nothing_unread_says_so_and_a_background_agent_never_shows(served, brows
     assert browser.evaluate(ENTRY)["empty"] == []
 
 
-@pytest.mark.parametrize("base", VIEWS)
-def test_the_total_follows_the_rows_and_reads_9_plus_above_nine(served, browser, base):
-    open_panel(browser, served, base, 390, unread={"example-alpha-main": 7, "example-beta-main": 4})
+def test_the_total_follows_the_rows_and_reads_9_plus_above_nine(served, browser):
+    open_panel(browser, served, 390, unread={"example-alpha-main": 7, "example-beta-main": 4})
     assert browser.evaluate(ENTRY)["count"] == "9+"
     assert browser.evaluate(ENTRY)["countLabel"] == "More than 9 unread replies in all agents"
     browser.evaluate("window.__unread['example-beta-main'] = 0; window.__unread['example-alpha-main'] = 1; ''")

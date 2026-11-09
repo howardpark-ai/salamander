@@ -2713,7 +2713,7 @@ if (window.visualViewport) {
 
 /* ---------- copy ---------- */
 const ICON_COPY = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
-const ICON_CHECK = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const ICON_CHECK = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 // "5 min ago" on hover (relTime is in shared.js: the Overview cards' last line uses it too); the exact time (SALA_TZ zone, with its label) in the tooltip; refreshed every 30 s
 const ZONE_FMT = zoneFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const zoneWhen = (t) => ZONE_FMT.format(t) + " " + zoneLabel(new Date(t));   // "Thu, Oct 22, 09:05 UTC": the SALA_TZ zone and its own label

@@ -145,13 +145,6 @@ def test_nothing_but_get_and_head_is_allowed_and_nothing_is_written(env, method)
     assert sorted(os.listdir(env["root"])) == before
 
 
-def test_the_v2_prefix_serves_the_same_page_with_the_same_headers(env):
-    store(env["root"], 1)
-    r = env["client"].get("/v2/mockup/1")
-    assert r.status_code == 200 and r.content == PAGE.encode("utf-8")
-    check_sandbox_headers(r)
-
-
 # -- the sign-in -----------------------------------------------------------------------------------------------------------------------
 
 

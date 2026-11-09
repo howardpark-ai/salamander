@@ -48,7 +48,7 @@
   }
   function shippedOf(name) { return toHex(getComputedStyle(root).getPropertyValue(name)) || FALLBACK[name] || null; }
 
-  /* the terminal page has no palette of its own (it is black whatever the system says); the main page and /v2/ follow sala's rule: light when
+  /* the terminal page has no palette of its own (it is black whatever the system says); the main page follows sala's rule: light when
      data-theme="light", or, with no data-theme, when the system prefers light */
   function isDark() {
     var t = root.getAttribute("data-theme");
@@ -116,10 +116,10 @@
      (the title bar's badge, the overview's effort tag): the same declarations as style.css and sessions.css, held equal by the wiring test. */
   var CSS = [
     ":root{--card:var(--panel);--line:var(--border);--fg:var(--text);--mut:var(--muted);--ibd:var(--faint);--ifill:var(--bg)}",
-    ".ct-prev .pill{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;border:1px solid color-mix(in srgb, var(--text) 30%, transparent);background:var(--hover);color:var(--text);font-weight:500;white-space:nowrap}",
+    ".ct-prev .pill{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;border:1px solid color-mix(in srgb, var(--text) 30%, transparent);background:var(--hover);color:var(--text);font-weight:500;white-space:nowrap}",
     ".ct-prev .pill.role-front{color:var(--label-fg, var(--role-front-text));border-color:var(--label-bd, color-mix(in srgb, var(--accent-solid, var(--call)) 70%, transparent));background:var(--label-bg, color-mix(in srgb, var(--accent-solid, var(--call)) 12%, var(--bg)));font-weight:600}",
     ".ct-prev{--eff-max-bg:var(--label-bg, var(--accent-solid, var(--accent)));--eff-max-text:var(--label-fg, var(--accent-on-solid, var(--accent-text)))}",
-    ".ct-prev .sp-tag{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:5px;font-size:12px;font-weight:500;line-height:1}",
+    ".ct-prev .sp-tag{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:4px;font-size:12px;font-weight:500;line-height:1}",
     ".ct-prev .sp-eff.eff-max{color:var(--eff-max-text);background:var(--eff-max-bg);box-shadow:inset 0 0 0 1px var(--label-bd, transparent)}"
   ].join("\n");
 

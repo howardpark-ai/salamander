@@ -6,25 +6,25 @@
 #ov-machines .mc-note:empty { display: none; }
 #ov-machines .mc-note.error { color: var(--error); }
 #ov-machines .mc-sec { display: grid; gap: 12px; min-width: 0; }
-#ov-machines .mc-h { font-size: 14px; font-weight: 650; margin: 0; }
+#ov-machines .mc-h { font-size: 15px; font-weight: 600; margin: 0; }
 #ov-machines .mc-none { margin: 0; font-size: 13px; color: var(--faint); }
 #ov-machines [hidden] { display: none; }
 
 /* the machine cards */
-#ov-machines .mc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-#ov-machines .mc-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: grid; align-content: start; gap: 3px; min-width: 0; }
+#ov-machines .mc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+#ov-machines .mc-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; display: grid; align-content: start; gap: 4px; min-width: 0; }
 #ov-machines .mc-card.mc-bad { border-color: var(--error); }
-#ov-machines .mc-name { font-size: 14px; overflow-wrap: anywhere; }
-#ov-machines .mc-vr { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; gap: 6px; font-size: 12.5px; align-items: baseline; }
+#ov-machines .mc-name { font-size: 15px; overflow-wrap: anywhere; }
+#ov-machines .mc-vr { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto; gap: 8px; font-size: 12px; align-items: baseline; }
 #ov-machines .mc-pk { color: var(--muted); overflow-wrap: anywhere; }
-#ov-machines .mc-vv { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+#ov-machines .mc-vv { font-size: 12px; overflow-wrap: anywhere; }
 #ov-machines .mc-vs { white-space: nowrap; }
 #ov-machines .mc-vs-latest { color: var(--state-active); font-weight: 600; }
 #ov-machines .mc-vs-update { color: var(--call); font-weight: 600; }
 #ov-machines .mc-vs-offline, #ov-machines .mc-vs-unknown { color: var(--faint); }
-#ov-machines .mc-fail { font-size: 12.5px; cursor: help; overflow-wrap: anywhere; }
+#ov-machines .mc-fail { font-size: 12px; cursor: help; overflow-wrap: anywhere; }
 #ov-machines .mc-failw { color: var(--error); font-weight: 600; }
-#ov-machines .mc-fl { font-size: 12px; color: var(--faint); margin-top: 3px; }
+#ov-machines .mc-fl { font-size: 12px; color: var(--faint); margin-top: 4px; }
 
 #ov-machines .mc-upd { font-size: 12px; color: var(--faint); text-align: right; }
 

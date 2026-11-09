@@ -414,7 +414,7 @@ def test_the_api_lane_with_no_admin_key_is_not_configured(world, page, browser):
     assert api["chips"] == ["not configured"] and api["chipLeftOfDetails"], api
 
 
-def test_the_unconfigured_chip_is_an_outline_and_the_dormant_chip_is_filled(world, page, browser):
+def test_the_unconfigured_chip_is_unfilled_and_the_dormant_chip_is_filled(world, page, browser):
     record(world["rec"], ("api", "dormant", "credit used up", FRI, "", "signal"))
     (world["tmp"] / "claude-team" / ".credentials.json").unlink()
     open_overview(browser, page())
@@ -423,7 +423,7 @@ def test_the_unconfigured_chip_is_an_outline_and_the_dormant_chip_is_filled(worl
       return { un: { border: s('unconfigured').borderTopWidth, style: s('unconfigured').borderTopStyle, bg: s('unconfigured').backgroundColor,
                      dot: document.querySelectorAll('#q-cards .lane-chip-dot').length },
                dor: { bg: s('dormant').backgroundColor } }; })()""")
-    assert got["un"]["style"] == "solid" and got["un"]["border"] == "1px" and got["un"]["bg"] == "rgba(0, 0, 0, 0)" and got["un"]["dot"] == 0, got
+    assert got["un"]["style"] == "none" and got["un"]["border"] == "0px" and got["un"]["bg"] == "rgba(0, 0, 0, 0)" and got["un"]["dot"] == 0, got
     assert got["dor"]["bg"] != "rgba(0, 0, 0, 0)", got
 
 

@@ -139,11 +139,12 @@ def test_model_and_effort_cells(served, browser):
     assert len({(m["color"], m["bg"]) for m in opus}) == 1, opus
     others = {(cells[n]["model"]["color"], cells[n]["model"]["bg"]) for n in ("s-high", "s-max", "s-medium", "s-odd")}
     assert len(others) == 4 and opus[0]["color"] not in {c for c, _ in others}, others
-    # effort: one class per level, an unknown level neutral; shades deepen from low to max
+    # effort: one class per level, an unknown level neutral; one tint for the levels and max solid
     eff = {cells[n]["effortText"]: cells[n]["effort"] for n in cells if cells[n]["effort"]}
     assert {k: re.search(r"\beff-(\w+)", v["cls"]).group(1) for k, v in eff.items()} == {
         "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max", "turbo": "other"}
-    assert len({eff[k]["bg"] for k in ("low", "medium", "high", "xhigh", "max")}) == 5
+    # the look draws every level in one tint and max alone solid (the words say the level): two fills, max the odd one
+    assert len({eff[k]["bg"] for k in ("low", "medium", "high", "xhigh")}) == 1 and eff["max"]["bg"] != eff["low"]["bg"]
 
 
 def test_default_model_and_effort_are_labelled_as_the_default(served, browser):
@@ -224,8 +225,8 @@ def test_no_sideways_page_scroll_at_phone_and_desktop_width(served, browser):
     open_overview(served, browser)
     phone = browser.evaluate(MEASURE)
     check_no_page_overflow(phone, 390)
-    # at a phone's width the table scrolls inside its box, never the page
-    assert phone["overflowX"] == "auto" and phone["wrapScroll"] > phone["wrapClient"], phone
+    # at a phone's width the look draws a row per agent (the header row is gone), so nothing scrolls, neither the page nor the box
+    assert phone["wrapScroll"] <= phone["wrapClient"], phone
     browser.send("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False})
     wide = browser.evaluate(MEASURE)
     check_no_page_overflow(wide, 1280)

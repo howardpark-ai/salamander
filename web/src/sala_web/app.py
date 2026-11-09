@@ -9,9 +9,8 @@ none itself):
   GET  /                          the page (/?arg=<tmux session> redirects to /terminal); #s=<name> opens a
                                   session, #sessions the sessions overview (every live session's role, status, model
                                   and lane, with account usage and API spend above them)
-  GET  /v2/                       the page again as sala UI v2 (a layer over the v1 files, rendered at request time: sala_web/v2/); /v2 redirects
-                                  to it, /v2/static/ serves the v1 static tree with the stylesheets and app.js rewritten, and any other
-                                  /v2/<path> is the request for /<path> (v2/layer.py)
+  GET  /v2, /v2/<path>            a temporary redirect (307) to /, the query kept and the path dropped: the new look was tried at /v2/ before it became
+                                  the page, and old bookmarks and the installed app's older link land on /; dropped later
   GET  /terminal                  the full-size terminal: ttyd's page in a frame filling the window, ?arg=<tmux session> (static/terminal.html)
   GET  /manifest.webmanifest      the web app manifest (the page is installable as an app; static/manifest.webmanifest)
   GET  /sw.js                     the service worker, at the root so its scope is the whole site (static/sw.js)
@@ -246,7 +245,6 @@ from urllib.parse import urlsplit
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
-from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
@@ -278,7 +276,6 @@ from . import transcript as TR
 from . import unread as UR
 from . import usage as USG
 from . import usage_digest as USGD
-from .v2.layer import V2Layer, V2Prefix
 from .config import SHELL_SESSION, Settings, brand_suffix, help_session, owner_name
 
 STATIC = Path(__file__).parent / "static"
@@ -598,15 +595,14 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return RedirectResponse("/terminal?" + request.url.query, status_code=302)
         return _page("index.html")
 
-    async def v2_root(request: Request) -> Response:
-        # /v2 -> /v2/ (relative, so it holds under whatever path prefix a proxy adds), the query kept
-        return RedirectResponse("v2/" + ("?" + request.url.query if request.url.query else ""), status_code=302)
-
-    async def v2_index(request: Request) -> Response:
-        # the same page as / (same rendering, same fields) from the v2 layer's template; /v2/?arg= keeps the old terminal links working too
-        if "arg" in request.query_params:
-            return RedirectResponse("/terminal?" + request.url.query, status_code=302)
-        return _page("index.html", v2.index_template)
+    async def v2_moved(request: Request) -> Response:
+        # /v2 was where the new look was tried before it became the page: an old bookmark and the installed app's older link land on /.
+        # Temporary (the address is dropped later), relative so it holds under whatever path prefix a proxy adds, the query kept and the
+        # path not (/v2/x -> /; /?arg= then goes on to /terminal as it always did). One "../" for each directory the request is under:
+        # /v2 -> ./, /v2/ and /v2/x -> ../, /v2/a/b -> ../../
+        path = request.url.path
+        up = "../" * (1 + path[len("/v2/"):].count("/")) if path.startswith("/v2/") else "./"
+        return RedirectResponse(up + ("?" + request.url.query if request.url.query else ""), status_code=307)
 
     async def terminal_page(request: Request) -> Response:
         # the full-size terminal (the Shell drawer's "Open full size", the old /?arg= links): ttyd's page in a frame that fills the
@@ -614,12 +610,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # "/" (the proxy sends only /tty to ttyd, everything else here), and ?arg=<tmux session> is read by the page, not here.
         return _page("terminal.html")
 
-    def _page(name: str, template=None) -> Response:
+    def _page(name: str) -> Response:
         # the title bar's text is in the served page (paintBrand only repaints it), so a reload shows no flash of the bare name.
-        # `template` is the page's text where it is not the file as it lies (the /v2 layer's: v1's index.html rewritten)
         suffix = brand_suffix()
         brand = htmllib.escape("salamander : " + suffix if suffix else "salamander")
-        html = ((template() if template else (STATIC / name).read_text()).replace("{{build}}", build_version()).replace("{{v}}", _asset_version())
+        html = ((STATIC / name).read_text().replace("{{build}}", build_version()).replace("{{v}}", _asset_version())
                 .replace("{{brand}}", brand).replace("{{owner}}", htmllib.escape(owner_name())))
         # the overview's Get Help chip opens the session SALA_HELP_SESSION names; with none set the chip is not in the page
         help_ = help_session()
@@ -1803,12 +1798,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
         SP.prune_mandates(settings.mandates_dir, UPLOAD_MAX_AGE_DAYS)  # a spawned session read its mandate long ago
 
     static_app = RevalidatedStatic(directory=STATIC)
-    v2 = V2Layer(STATIC, static_app)   # sala_web/v2: the v2 look as a layer over the v1 sources, served at /v2
     routes = [
         Route("/", index),
-        Route("/v2", v2_root),
-        Route("/v2/", v2_index),
-        Route("/v2/static/{path:path}", v2.static_file),
+        Route("/v2", v2_moved, methods=["GET", "HEAD"]),
+        Route("/v2/{rest:path}", v2_moved, methods=["GET", "HEAD"]),   # a temporary redirect to / (v2_moved)
         Route("/terminal", terminal_page),
         Route("/manifest.webmanifest", manifest),
         Route("/sw.js", service_worker),
@@ -1872,7 +1865,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         yield
         shutting_down.set()
 
-    app = Starlette(routes=routes, lifespan=lifespan, middleware=[Middleware(V2Prefix)])   # V2Prefix: any other /v2/<path> is <path>
+    app = Starlette(routes=routes, lifespan=lifespan)
     app.state.settings = settings
     app.state.shutting_down = shutting_down
     app.state.build_version = build_version

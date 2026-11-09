@@ -2,7 +2,7 @@
 tools/pin-colortool), sala's own wiring (static/colortool-sala.js), and the button at the bottom of the side panel (#side-colors in index.html).
 
 What a wrong answer costs: a pinned copy that was edited by hand or drifted from its sha file (the next pin would silently undo a local fix); a
-script missing from one of the pages (the main page, /v2/, the full-size terminal), or loaded twice; a stored look that flashes on first paint
+script missing from one of the pages (the main page, the full-size terminal), or loaded twice; a stored look that flashes on first paint
 because it is applied after the body; a floating button back in the corner, or one that sits over the composer; a panel that does not fit a phone
 or cannot be scrolled; a Fields fold that starts open or forgets whether it was left open; a Reset or the Original orange theme preset that leaves an inline property behind (the shifted surfaces, the disabled pair's opacity, the
 status-bar color); a look stored by the earlier try-out (a flat map of the 14 keys under `sala-colortry`) that stops loading; the light theme
@@ -41,7 +41,7 @@ PIN = STATIC.parent.parent.parent / "tools" / "pin-colortool"
 SRC = '<script src="static/%s?v={{v}}"></script>'
 INIT = "<script>if (window.SalaColors) SalaColors.init();</script>"
 
-PAGES = [("main", "/"), ("v2", "/v2/"), ("terminal", "/terminal?arg=x")]
+PAGES = [("main", "/"), ("terminal", "/terminal?arg=x")]
 CHAT = f"#s={NAME}"
 READY_CHAT = "typeof state !== 'undefined' && state.byName.has(%s) && document.querySelectorAll('#chat .msg').length > 0" % json.dumps(NAME)
 
@@ -143,10 +143,10 @@ def test_pin_colortool_copies_the_file_verbatim_writes_the_sha_and_refuses_a_fil
     assert (pin.STATIC / "colortool.js.sha256").read_text() == SHA.read_text()
 
 
-def test_the_scripts_are_served_at_both_addresses(client):
+def test_the_scripts_are_served(client):
     for name, path in (("colortool.js", TOOL), ("colortool-sala.js", WIRING)):
-        a, b = client.get("/static/" + name), client.get("/v2/static/" + name)
-        assert a.status_code == b.status_code == 200 and a.content == b.content == path.read_bytes(), name
+        a = client.get("/static/" + name)
+        assert a.status_code == 200 and a.content == path.read_bytes(), name
         assert "javascript" in a.headers["content-type"], name
 
 
@@ -165,7 +165,7 @@ def test_each_page_loads_the_tool_then_the_wiring_once_and_only_the_main_pages_s
     # the start call is the last script of the body, after the app's own
     body = (STATIC / "index.html").read_text(encoding="utf-8").split("</head>", 1)[1]
     assert body.rstrip().endswith(INIT + "\n</body>\n</html>") and body.index("static/app.js") < body.index(INIT)
-    served = {"main": client.get("/").text, "v2": client.get("/v2/").text, "terminal": client.get("/terminal?arg=x").text}
+    served = {"main": client.get("/").text, "terminal": client.get("/terminal?arg=x").text}
     for what, page in served.items():
         assert len(re.findall(r'<script src="static/colortool\.js\?v=\d+"></script>', page)) == 1, what
         assert len(re.findall(r'<script src="static/colortool-sala\.js\?v=\d+"></script>', page)) == 1, what
@@ -173,7 +173,7 @@ def test_each_page_loads_the_tool_then_the_wiring_once_and_only_the_main_pages_s
     # the mount: the last thing in the side panel, under "Show all sessions" and the note, and nothing else in the page
     side = served["main"].split('<aside id="sidebar">', 1)[1].split("</aside>", 1)[0]
     assert re.findall(r'id="([\w-]+)"', side)[-3:] == ["show-back", "side-note", "side-colors"]
-    assert served["main"].count('id="side-colors"') == 1 and served["v2"].count('id="side-colors"') == 1
+    assert served["main"].count('id="side-colors"') == 1
     assert 'id="side-colors"' not in served["terminal"]
 
 
@@ -281,16 +281,18 @@ def test_the_dark_theme_ships_the_small_label_and_disabled_tokens_in_two_blocks_
 
 def test_the_stylesheets_read_the_variables_with_a_fallback_so_nothing_changes_without_the_tool():
     seen = {n: 0 for n in ("--accent-solid", "--accent-on-solid", "--label-bg", "--label-fg", "--label-bd", "--dis-bg", "--dis-fg", "--dis-op")}
-    css_files = sorted(STATIC.glob("*.css")) + [STATIC.parent / "v2" / "extra.css"]
-    for f in css_files:
-        text = f.read_text(encoding="utf-8")
+    # the stylesheets and the page's own `<style id="look">` (the look's rules, at the end of index.html's head)
+    index = (STATIC / "index.html").read_text(encoding="utf-8")
+    look = index.split('<style id="look">', 1)[1].split("</style>", 1)[0]
+    sheets = [(f.name, f.read_text(encoding="utf-8")) for f in sorted(STATIC.glob("*.css"))] + [("index.html (look)", look)]
+    for fname, text in sheets:
         for name in seen:
             for m in re.finditer(r"var\(%s(.)" % re.escape(name), text):
                 seen[name] += 1
-                assert m.group(1) == ",", (f.name, name, "is read without a fallback")
-            if f.name == "style.css":        # the dark theme's shipped look is declared in the two blocks checked below, nowhere else
+                assert m.group(1) == ",", (fname, name, "is read without a fallback")
+            if fname == "style.css":        # the dark theme's shipped look is declared in the two blocks checked below, nowhere else
                 text = SHIPPED_BLOCK.sub("", text)
-            assert not re.search(r"(?<![\w(])%s\s*:" % re.escape(name), text), (f.name, name, "is declared by a stylesheet: only the tool sets it")
+            assert not re.search(r"(?<![\w(])%s\s*:" % re.escape(name), text), (fname, name, "is declared by a stylesheet: only the tool sets it")
     assert all(seen.values()), seen
     css = (STATIC / "style.css").read_text(encoding="utf-8")
     assert (".send-btn:disabled { opacity: var(--dis-op, .45); background: var(--dis-bg, var(--accent-solid, var(--accent)));"
@@ -411,10 +413,9 @@ GEOMETRY = """(() => {
 
 
 @pytest.mark.parametrize("width,height", [(360, 740), (1280, 800)])
-@pytest.mark.parametrize("path", ["/", "/v2/"])
-def test_the_button_sits_last_in_the_side_panel_and_the_panel_opens_upward_fits_and_scrolls(fake, served, browser, width, height, path):
+def test_the_button_sits_last_in_the_side_panel_and_the_panel_opens_upward_fits_and_scrolls(fake, served, browser, width, height):
     fake.combos = [combo("An evening look with a rather long name", full(RADIX), "c1"), combo("Warm", full(RADIX), "c2")]
-    go(browser, served["url"] + path + CHAT, width=width, height=height, ready=READY_CHAT)
+    go(browser, served["url"] + "/" + CHAT, width=width, height=height, ready=READY_CHAT)
     open_side(browser, width)
     g = browser.evaluate(GEOMETRY)
     assert g["buttons"] == 1 and g["inSidebar"] and g["btnPosition"] not in ("fixed", "absolute"), g          # one button, in the panel, in the flow
@@ -549,7 +550,7 @@ SHIPPED_DARK = {"bg": "#161617", "card": "#1f1f21", "fg": "#ececea", "mut": "#a3
 
 @pytest.mark.parametrize("name,path", PAGES)
 def test_the_shipped_dark_look_is_the_saved_combination_on_every_page_with_nothing_set(served, browser, name, path):
-    """The original orange theme / the shipped value of all 14 keys, read by the panel's cfg: the combination exactly, on the main page, /v2 and the terminal page
+    """The original orange theme / the shipped value of all 14 keys, read by the panel's cfg: the combination exactly, on the main page and the terminal page
     (which has no palette of its own and answers from the wiring's fallback table). The first preset of the pinned tool is the empty combination: it is what the page ships."""
     go(browser, served["url"] + path, button=name != "terminal", ready="document.readyState === 'complete'")
     ship = browser.evaluate("SalaColors.cfg.shipped()")
@@ -571,11 +572,10 @@ def test_the_shipped_look_in_the_light_theme_is_still_worked_out_from_the_solid_
     assert probe["send"] == ["0.45", css_rgb(light["--accent"]), css_rgb(light["--accent-text"])], probe
 
 
-@pytest.mark.parametrize("path", ["/", "/v2/"])
-def test_the_dark_page_draws_the_shipped_labels_and_disabled_buttons(served, browser, path):
+def test_the_dark_page_draws_the_shipped_labels_and_disabled_buttons(served, browser):
     """The computed colors, not only the tokens: the unread count, the front badge (title bar) and a search hit's front tag are #f0a06a on #3a2619 with an
     outline of #3a2619; the disabled Send, Create session and Start quick session are #a3a29d on #2a2a2c at full opacity; links, solid buttons stay #f0a06a."""
-    go(browser, served["url"] + path, ready="document.readyState === 'complete'")
+    go(browser, served["url"] + "/", ready="document.readyState === 'complete'")
     got = browser.evaluate("""(() => {
       const mk = (parent, tag, cls) => { const e = document.createElement(tag); e.className = cls; e.textContent = 'x'; parent.appendChild(e); return e; };
       const top = document.getElementById('top') || document.body, sr = mk(document.body, 'div', 'x'); sr.id = 'search-pane';
@@ -588,8 +588,8 @@ def test_the_dark_page_draws_the_shipped_labels_and_disabled_buttons(served, bro
       return out; })()""")
     orange, fill, grey_bg, grey_fg = css_rgb("#f0a06a"), css_rgb("#3a2619"), css_rgb("#2a2a2c"), css_rgb("#a3a29d")
     assert got["ucount"][:2] == [orange, fill] and fill in got["ucount"][3], got["ucount"]
-    # (the /v2 badge has no border at all, `border: 0`: nothing to color)
-    assert got["front"][:3] == [orange, fill, fill if path == "/" else None], got["front"]
+    # (the badge is a tinted tag with no border at all, `border: 0`: nothing to color)
+    assert got["front"][:3] == [orange, fill, None], got["front"]
     assert got["hit"][:3] == [orange, fill, fill], got["hit"]
     seen = [k for k in got if k.startswith(("#", "."))]
     assert "#composer .send-btn" in seen, seen
@@ -597,7 +597,7 @@ def test_the_dark_page_draws_the_shipped_labels_and_disabled_buttons(served, bro
         assert got[k] == [grey_fg, grey_bg, "1"], (k, got[k])
 
 
-@pytest.mark.parametrize("name,path", PAGES[:2])
+@pytest.mark.parametrize("name,path", PAGES[:1])
 def test_a_preset_a_field_and_the_card_set_inline_properties_on_html_and_the_look_is_stored_and_survives_a_reload(served, browser, name, path):
     go(browser, served["url"] + path)
     assert all(v == "" for v in inline(browser).values()) and stored(browser) is None

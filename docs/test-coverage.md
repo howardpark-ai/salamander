@@ -216,6 +216,38 @@ in `test_back_button.py` (the sheet over the drawer) are its guard, and the row 
 tests that used `work-demo-main` on a project that has agents wait for `work-demo-pink` (sala picks a random free word; the stand-in `sala` of these tests always answers the first free one of pink, plum, reed, rust, which is test-only) and the add-agent
 step that comes first. Not covered, and why: any physical phone (the 320, 390 and 1280 px layouts are measured in the harness only).
 
+### The new look is the page at `/`, `/v2` redirects: `web/tests/test_look_scale.py` new, 12; `test_look_redirect.py` new, 16; `test_look_browser.py` new, 5; the v2 tests (48) removed; 24 files re-baselined (Mon Nov 9th 2026)
+
+The look that was tried at `/v2/` as a layer over the page (a pass over the stylesheets, `index.html` and `app.js` at request time) is now the source in `static/`, and the layer is
+gone. `/v2`, `/v2/` and every path under it (GET and HEAD) answer a temporary redirect (307) to `/`, relative, with the query kept and the path dropped. The manifest link and the
+worker registration stay, so the installed app is unchanged. A wrong answer is a stylesheet or a rule off the scale again after the next change, a look style that lands before a
+stylesheet and loses the cascade, a page that lost its manifest or its worker, a redirect that goes to `/x` instead of `/`, that drops the query (an old `/v2/?arg=` terminal
+link) or that breaks under a proxy path prefix, a code face that does not load, a page that scrolls sideways or logs an error on a phone or a wide screen.
+`test_look_scale.py` (12, pure text): the scale (12, 13, 15, 17, 22 px, 16 px on form fields), two weights (500 on tags), no letter-spacing or capitals, the code face on code and
+terminal rules only and no other code face named, spacing on the 4 px grid, two corner radii, one 920 px column, the icons on the 24 grid with a 2 px stroke, one look style that
+comes after every stylesheet link, the manifest link and the worker registration present. `test_look_redirect.py` (16, HTTP): the redirect for each path shape, its target,
+query, GET and HEAD, a POST answered 405, `/v2x` a 404, no `/v2` left in the page or in a static file; the manifest, the worker script, the code face and its licence served.
+`test_look_browser.py` (5, one headless Chromium at 390, 768, 1024 and 1440 px): the Agents, Schedules and Machines tabs, a chat, Search results and the New session page each
+drawn on `/`, no sideways scroll, the column at most 920 px on a wide screen, no console error, uncaught exception or failed request, the code face `loaded`, the manifest link and
+one registered worker, a tab title with no trial mark; and controls 32 px under a mouse and 44 px under a finger. `conftest.py` gains `CDP.touch()` (touch emulation makes the pointer
+coarse), which the tests that check a touch size now use.
+Removed with the layer: `test_v2_design.py` (15), `test_v2_layer.py` (29), `test_v2_browser.py` (4), the v2 prefix test in `test_mockup.py`, and the `/v2/` variants of
+`test_asset_recovery.py`, `test_colortool_wiring.py`, `test_unread_filter.py` and `test_board_items_ui.py`. The earlier entries about `/v2/` below stay as the record of that time.
+Re-baselined (the number changed with the look, not a regression): reading text 15 px (was 16) and the header's name 15 px, so a 20-character name no longer needs Shell folded at
+360 px (`test_header_fold.py` uses a 13- and a 26-character name, `test_header_layout.py` the name's 154 px); the reply footer 13 px with 8 px above its rule; the unread count 12 px
+with 8 px corners and padding; the brand 15 px; 8 px corners on chips and the shell drawer (was 16); tags and chips without an outline (the unconfigured lane chip is plain grey
+words) and weight 500 on tags; links in the accent colour without an underline (`test_chat_links.py`, `test_reply_footer.py`); one tint for the effort levels with max solid; the
+Agents table a row per agent on a phone (no sideways scroll in its box); controls 32 px under a mouse and 44 px under a finger (the tests that read a touch size turn touch emulation
+on); the send button 32 px so the composer rows are 50 px, not 44.
+Fixed in the source while re-baselining, because the old number was still right: the code-copy button's inset (computed for a 10 px padding, the padding is 8 px); the color tool's
+preview rules mirroring the pill and tag padding; the Agents-on-a-phone rule that matched every table in the pane and made the lane page's sessions table scroll the whole pane
+sideways (it matches the Agents table only); the lane cards' rows (three cards to a row are 288 px wide: the label and the percent on one line with the bar under, so the widest
+reset text is not cut), the card head's 4 px gaps (the metered card's head ran 7 px out of the card), the checked scope chip tinted like the other selected chips, and the Overview
+tabs' 4 px side padding on a phone (the fourth tab overlapped Reload by 4 px).
+Not covered, and why: a physical phone's browser, status bar and the installed app (none can be driven from this box); live data (long names, a full fleet, a populated board: the
+stubs are small); the Quick session and lane pages in `test_look_browser.py` (they call sala's CLI, which tests do not run; the lane page has its own tests); that the page looks right
+(judged by eye from screenshots at 390 and 1280 px against the page at `/v2/` before the switch, there is no pixel test).
+
 ### `tests/spawn.sh` and `web/tests/test_new_session.py`: an unlisted project agent is refused with the register command, not a page edit (Sat Nov 7th 2026)
 
 `spawn --project` used to refuse a name not on the project's agents map with `ADD-TO-PAGE: <key>` and the YAML to add to the page, which no longer

@@ -151,7 +151,7 @@ def test_at_ready_open_is_the_primary_button_with_the_focus(sala, served, browse
     o = g["open"]
     assert o and o["tag"] == "A" and o["href"] == "#s=" + FORMS[p]["name"], g
     assert o["bg"] == g["primaryBg"], g                               # the primary style: the enabled primary button's fill (the disabled Start is grey)
-    assert o["size"] > g["stateSize"] and o["size"] > g["btnSize"] and o["h"] >= 44, g   # larger than the text around it
+    assert o["size"] >= g["stateSize"] and o["size"] >= g["btnSize"] and o["h"] >= 44, g   # as large as the text around it (the look has one reading size, 15 px; the fill and the 44 px height carry the emphasis)
     assert o["focused"], g                                            # so Enter opens it
     key(browser, "Enter", "Enter", 13, "\r")
     assert wait_for(browser, f"location.hash === '#s={FORMS[p]['name']}'", 5.0), snap(browser, p)

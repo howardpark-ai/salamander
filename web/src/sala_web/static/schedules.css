@@ -3,29 +3,29 @@
    or the composer. One table: Job | Category | What it does | When | Lane (When: the schedule, the next and the last run, three lines); a heading sorts it and a second
    click reverses (the arrow shows which). On a phone the rows become cards with a Category chip and the sort menu above them does the
    headings' work, so the page never scrolls sideways. */
-#ov-schedules .sc-head { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin-bottom: 12px; }
+#ov-schedules .sc-head { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; margin-bottom: 12px; }
 #ov-schedules .sc-count { font-size: 13px; color: var(--muted); min-width: 0; flex: 1 1 260px; }
 /* the shared .toggle (the sidebar's "Show all sessions") carries a border-top and side padding as a footer row; here it sits in the header, so neither */
 #ov-schedules .sc-toggle { margin: 0; padding: 0; border-top: 0; }
 #ov-schedules .sc-note { font-size: 13px; color: var(--muted); margin: 0; }
-#ov-schedules .sc-note:not(:empty) { margin-bottom: 10px; }
+#ov-schedules .sc-note:not(:empty) { margin-bottom: 8px; }
 #ov-schedules .sc-note.error { color: var(--error); }
 #ov-schedules .sc-muted { color: var(--faint); }
 #ov-schedules .sc-unset { font-style: italic; font-size: 12px; }   /* a unit with no X-Model-Lane: never a chip, never the word "none" */
 
 /* the sort menu: phone only (a wide screen sorts by the headings) */
-#ov-schedules .sc-sortmenu { display: none; align-items: center; gap: 8px; margin-bottom: 10px; }
+#ov-schedules .sc-sortmenu { display: none; align-items: center; gap: 8px; margin-bottom: 8px; }
 #ov-schedules .sc-sortlabel { font-size: 13px; color: var(--muted); }
-#ov-schedules .sc-sortsel { flex: 1 1 auto; min-width: 0; height: 40px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--border);
-  border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 14px; }
+#ov-schedules .sc-sortsel { flex: 1 1 auto; min-width: 0; height: 40px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; font-size: 15px; }
 #ov-schedules .sc-sortdir { flex: none; box-sizing: border-box; width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--panel); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
 #ov-schedules .sc-sortdir:hover { background: var(--hover); }
 #ov-schedules :is(.sc-sortsel, .sc-sortdir):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* the table: the headings are buttons, the sorted one is dark with an arrow */
-#ov-schedules .sc-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-#ov-schedules .sc-table th, #ov-schedules .sc-table td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--border); min-width: 0; }
+#ov-schedules .sc-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+#ov-schedules .sc-table th, #ov-schedules .sc-table td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--border); min-width: 0; }
 #ov-schedules .sc-table tbody tr:last-child td { border-bottom: 0; }
 #ov-schedules .sc-table tbody tr.sc-row:hover { background: var(--hover); }
 #ov-schedules .sc-table tbody tr.sc-flagged td:first-child { box-shadow: inset 3px 0 0 var(--busy); }
@@ -40,7 +40,7 @@
 /* the columns: the description takes the width; a job's name breaks at its hyphens only (never inside a word, so the column is as wide as
    the name's longest segment, no wider than it needs); in When the next and last lines keep one line and the schedule words may wrap */
 #ov-schedules .sc-c-desc { min-width: 220px; }
-#ov-schedules .sc-name { font-size: 14px; font-weight: 600; overflow-wrap: normal; word-break: normal; }
+#ov-schedules .sc-name { font-size: 15px; font-weight: 600; overflow-wrap: normal; word-break: normal; }
 #ov-schedules .sc-c-when { min-width: 170px; }
 #ov-schedules .sc-when-plain { overflow-wrap: break-word; }   /* the schedule in plain words; the raw On… lines are its tooltip */
 #ov-schedules :is(.sc-when-next, .sc-when-last) { white-space: nowrap; }
@@ -68,15 +68,15 @@
 /* the crontab lines under the table: a plain table (a card a line on a phone) */
 #ov-schedules .sc-sec { margin-top: 24px; }
 #ov-schedules .sc-sec[hidden] { display: none; }
-#ov-schedules .sc-h { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
+#ov-schedules .sc-h { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
 #ov-schedules .sc-wrap { overflow-x: auto; }
-#ov-schedules .sc-simple { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+#ov-schedules .sc-simple { width: 100%; border-collapse: collapse; font-size: 15px; }
 #ov-schedules .sc-simple th, #ov-schedules .sc-simple td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--border); min-width: 0; }
 #ov-schedules .sc-simple tbody tr:last-child td { border-bottom: 0; }
 #ov-schedules .sc-simple th { background: var(--side-bg); font-size: 12px; font-weight: 600; color: var(--muted); padding: 0; white-space: nowrap; }
 #ov-schedules .sc-simple th > span { display: block; padding: 8px 12px; }
-#ov-schedules .sc-cronwrap { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
-#ov-schedules .sc-cmd, #ov-schedules .sc-sched { font-family: var(--mono, ui-monospace, "JetBrains Mono Variable", monospace); font-size: 12.5px; overflow-wrap: break-word; }
+#ov-schedules .sc-cronwrap { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+#ov-schedules .sc-cmd, #ov-schedules .sc-sched { font-size: 12px; overflow-wrap: break-word; }
 #ov-schedules #sc-cron-table[hidden] { display: none; }
 #ov-schedules .sc-cronwrap:has(#sc-cron-table[hidden]) { display: none; }
 
@@ -86,11 +86,11 @@
   #ov-schedules .sc-wrap { border: 0; background: none; overflow: visible; }
   #ov-schedules :is(.sc-table, .sc-simple), #ov-schedules :is(.sc-table, .sc-simple) :is(tbody, tr, td) { display: block; }
   #ov-schedules :is(.sc-table, .sc-simple) thead { display: none; }
-  #ov-schedules :is(.sc-table, .sc-simple) tbody tr { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); margin-bottom: 10px; padding: 8px 0; }
+  #ov-schedules :is(.sc-table, .sc-simple) tbody tr { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); margin-bottom: 8px; padding: 8px 0; }
   #ov-schedules :is(.sc-table, .sc-simple) tbody tr.sc-flagged { border-left: 3px solid var(--busy); }
   #ov-schedules .sc-table tbody tr.sc-flagged td:first-child { box-shadow: none; }
-  #ov-schedules :is(.sc-table, .sc-simple) td { border-bottom: 0; padding: 3px 12px; white-space: normal; min-width: 0; }
-  #ov-schedules .sc-simple td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  #ov-schedules :is(.sc-table, .sc-simple) td { border-bottom: 0; padding: 4px 12px; white-space: normal; min-width: 0; }
+  #ov-schedules .sc-simple td[data-label]::before { content: attr(data-label); display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
   /* a job card: the name and its Category chip lead, then what it does, the three When lines (labelled once) and the lane */
   #ov-schedules .sc-table td.sc-c-name { padding-top: 2px; }
   #ov-schedules .sc-table td[data-label]::before { content: attr(data-label) ": "; font-size: 12px; font-weight: 600; color: var(--muted); }

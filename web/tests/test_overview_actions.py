@@ -68,7 +68,7 @@ def check_chips(m: dict, vw: int) -> None:
     assert m["docScroll"] <= vw and m["paneScroll"] <= m["paneClient"], m
     for k in ("reload", "help"):
         c = m[k]
-        assert c["inHead"] and c["svg"] and c["border"] >= 1 and c["radius"] >= 12, (k, c)
+        assert c["inHead"] and c["svg"] and c["border"] >= 1 and c["radius"] >= 8, (k, c)   # a chip with the look's 8 px corners
         assert 0 <= c["left"] and c["right"] <= vw, (k, c)
     assert m["reload"]["text"] == "Reload" and m["help"]["text"] == "Get Help", m
     assert m["help"]["href"] == "#s=help-session" and "help-session" in m["help"]["title"], m
@@ -79,6 +79,7 @@ def check_chips(m: dict, vw: int) -> None:
 def test_overview_reload_and_get_help_in_the_browser(served, browser):
     browser.open(f"{served['url']}/#sessions")
     assert wait_overview(browser)
+    browser.touch()   # a phone is a finger: the look draws controls 44 px under it and 32 px under a mouse
     phone = browser.evaluate(MEASURE)
     check_chips(phone, 390)
     assert phone["reload"]["h"] >= 40 and phone["help"]["h"] >= 40, phone  # touch-sized on a phone
@@ -92,7 +93,8 @@ def test_overview_reload_and_get_help_in_the_browser(served, browser):
     got = browser.evaluate("""new Promise((res) => setTimeout(() => res({ hash: location.hash,
       open: document.body.classList.contains("overview-open") }), 300))""")
     assert got == {"hash": "#s=help-session", "open": False}, got
-    # a wide screen: the same two chips at the head's right end
+    # a wide screen: the same two chips at the head's right end, under a mouse
+    browser.touch(False)
     browser.send("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False})
     browser.evaluate("location.hash = '#sessions'; ''")
     assert wait_overview(browser)

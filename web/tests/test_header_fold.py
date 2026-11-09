@@ -298,9 +298,9 @@ def test_the_thinking_toggle_is_in_the_menu_at_every_width(served, browser):
     assert json.loads(browser.evaluate("JSON.stringify(state.prefs)"))["showTools"] is True
 
 
-# at 360 px with no status badge the bar leaves the name about eight characters beside Shell: "beta" fits with everything in the bar,
-# "board-main" needs Shell gone only, "gamma-harbor-shelves" Reload gone as well (the fold order, Shell first)
-PHONE_NAMES = (("beta", []), ("board-main", ["shell"]), ("gamma-harbor-shelves", ["shell", "reload"]))   # 4, 10 and 20 characters
+# at 360 px with no status badge the bar leaves the name about a dozen characters beside Shell: "beta" fits with everything in the bar,
+# "board-main-qa" needs Shell gone only, "gamma-harbor-shelves-annex" Reload gone as well (the fold order, Shell first)
+PHONE_NAMES = (("beta", []), ("board-main-qa", ["shell"]), ("gamma-harbor-shelves-annex", ["shell", "reload"]))   # 4, 13 and 26 characters
 # the name with Shell put back into the bar, measured with the page's own nameFits(), then the layout restored
 SHELL_BACK_IN_BAR = """(() => { const end = document.querySelector("#top-end");
   end.insertBefore(titleBar.shell, document.querySelector("#top-menu-btn"));

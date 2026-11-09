@@ -1,25 +1,25 @@
 /* the sessions overview (index.html's #overview-pane); colours and fonts come from style.css's variables. Every rule is
    scoped to #overview-pane, so none of it can reach the chat, the sidebar or the composer. */
-#overview-pane .sp { max-width: 1100px; margin: 0 auto; padding: 16px 16px 48px; }
+#overview-pane .sp { max-width: 920px; margin: 0 auto; padding: 16px 16px 48px; }
 #overview-pane .sp-head { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 12px; }
 #overview-pane .sp-count { font-size: 13px; color: var(--faint); min-width: 0; }
 /* Reload and Get Help: chips at the head's right end, bordered like the header's tabs and pills */
 #overview-pane .sp-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-#overview-pane .sp-btn { flex: none; box-sizing: border-box; height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--border);
+#overview-pane .sp-btn { flex: none; box-sizing: border-box; height: 32px; padding: 0 12px 0 8px; border: 1px solid var(--border);
   border-radius: 999px; background: var(--panel); color: var(--muted); font: inherit; font-size: 13px; line-height: 1;
-  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; text-decoration: none; }
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap; text-decoration: none; }
 #overview-pane .sp-btn:hover { background: var(--hover); color: var(--text); border-color: color-mix(in srgb, var(--text) 30%, transparent); }
 #overview-pane .sp-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #overview-pane .sp-btn svg { display: block; flex: none; }
 /* a phone: touch-sized chips */
-@media (max-width: 760px) { #overview-pane .sp-btn { height: 40px; padding: 0 14px 0 12px; } }
+@media (max-width: 760px) { #overview-pane .sp-btn { height: 40px; padding: 0 16px 0 12px; } }
 #overview-pane .sp-note { font-size: 13px; color: var(--muted); }
-#overview-pane .sp-note:not(:empty) { margin-bottom: 10px; }
+#overview-pane .sp-note:not(:empty) { margin-bottom: 8px; }
 #overview-pane .sp-note.error { color: var(--error); }
 /* phone width: the table scrolls inside this box, never the page */
-#overview-pane .sp-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
-#overview-pane :is(#sp-table, #ld-table) { width: 100%; border-collapse: collapse; font-size: 14px; white-space: nowrap; }
-#overview-pane :is(#sp-table, #ld-table) th, #overview-pane :is(#sp-table, #ld-table) td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--border); }
+#overview-pane .sp-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+#overview-pane :is(#sp-table, #ld-table) { width: 100%; border-collapse: collapse; font-size: 15px; white-space: nowrap; }
+#overview-pane :is(#sp-table, #ld-table) th, #overview-pane :is(#sp-table, #ld-table) td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 #overview-pane :is(#sp-table, #ld-table) tbody tr:last-child td { border-bottom: 0; }
 #overview-pane :is(#sp-table, #ld-table) tbody tr:hover { background: var(--hover); }
 #overview-pane :is(#sp-table, #ld-table) th { background: var(--side-bg); font-size: 12px; font-weight: 600; color: var(--muted); padding: 0; }
@@ -31,11 +31,11 @@
 #overview-pane #sp-table th[aria-sort="ascending"] button::after { content: "\25B4"; }
 #overview-pane #sp-table th[aria-sort="descending"] button::after { content: "\25BE"; }
 #overview-pane #sp-table th[aria-sort="ascending"] button, #overview-pane #sp-table th[aria-sort="descending"] button { color: var(--text); }
-#overview-pane :is(#sp-table, #ld-table) a { color: var(--text); font-weight: 500; text-decoration: none; }
+#overview-pane :is(#sp-table, #ld-table) a { color: var(--text); font-weight: 400; text-decoration: none; }
 #overview-pane :is(#sp-table, #ld-table) a:hover { color: var(--link); text-decoration: underline; }
 #overview-pane .sp-muted { color: var(--faint); }
 #overview-pane .sp-warn { color: var(--busy); }
-#overview-pane .sp-status { display: inline-flex; align-items: center; gap: 6px; }
+#overview-pane .sp-status { display: inline-flex; align-items: center; gap: 8px; }
 #overview-pane .sp-status.working { color: var(--busy); }
 #overview-pane .sp-status.waiting { color: var(--waiting); }
 #overview-pane .sp-pill { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 12px;
@@ -59,8 +59,8 @@
 :root[data-theme="dark"] #overview-pane { --fam-fable: #f9a8d4; --fam-opus: #c4b5fd; --fam-sonnet: #93c5fd;
   --fam-haiku: #86efac; --fam-other: var(--muted); --eff-max-bg: var(--label-bg, var(--accent-solid, var(--accent))); --eff-max-text: var(--label-fg, var(--accent-on-solid, var(--accent-text)));
   --eff-xhigh-pct: 46%; }
-#overview-pane .sp-model { display: inline-flex; align-items: center; gap: 6px; }
-#overview-pane .sp-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 5px; font-size: 12px;
+#overview-pane .sp-model { display: inline-flex; align-items: center; gap: 8px; }
+#overview-pane .sp-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 4px; font-size: 12px;
   font-weight: 500; line-height: 1; }
 #overview-pane .sp-tag[class*="fam-"] { color: var(--fam); background: color-mix(in srgb, var(--fam) 12%, var(--panel));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fam) 28%, transparent); }
@@ -86,7 +86,7 @@
    to a row): the widest head (the API card's two pills, the chip and "Details ›") and a quota row (label, bar, percent) still fit in
    one line each at that width */
 #overview-pane .q-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 312px), 1fr)); gap: 12px; }
-#overview-pane .q-card { min-width: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 10px 14px 12px; }
+#overview-pane .q-card { min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 8px 16px 12px; }
 /* the head is one line at any width (a card whose head broke onto two lines looked bad): the pills, the chip and "Details ›" keep their size and
    the one text that can give way, the plan name, is cut with an ellipsis when the card is too narrow */
 #overview-pane .q-head { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; margin-bottom: 4px; }
@@ -103,7 +103,7 @@
    holds the row: 164 + 67 for "100% used" + 16 + 35) */
 #overview-pane .q-err.q-soft { color: var(--muted); }
 #overview-pane .q-row { display: grid; grid-template-columns: 164px minmax(32px, 1fr) auto; grid-template-areas: "name bar pct";
-  align-items: center; gap: 4px 8px; padding: 6px 0 0; }
+  align-items: center; gap: 4px 8px; padding: 8px 0 0; }
 #overview-pane .q-row > :nth-child(1) { grid-area: name; }
 #overview-pane .q-row > .q-bar { grid-area: bar; }
 #overview-pane .q-row > .q-pct { grid-area: pct; }
@@ -111,34 +111,34 @@
 @media (max-width: 520px) {
   #overview-pane .q-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name pct" "bar bar"; column-gap: 12px; }
 }
-#overview-pane .q-name { font-size: 14px; font-weight: 500; white-space: nowrap; }
+#overview-pane .q-name { font-size: 15px; font-weight: 400; white-space: nowrap; }
 #overview-pane .q-reset { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #overview-pane .q-bar { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
 #overview-pane .q-fill { height: 100%; border-radius: inherit; background: var(--lane, var(--accent)); }
 #overview-pane .q-row.warning .q-fill { background: var(--busy); }
 #overview-pane .q-row.bad .q-fill { background: var(--error); }
 #overview-pane .q-pct { font-size: 13px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
-#overview-pane .q-note { font-size: 12px; color: var(--faint); margin-top: 6px; }
+#overview-pane .q-note { font-size: 12px; color: var(--faint); margin-top: 8px; }
 #overview-pane .q-note.error { color: var(--error); }
 #overview-pane .q-note:empty { display: none; }   /* the line is only for an error */
 /* the card's handle, at the head's left end: drag it, or focus it and press the arrow keys. A 22px-wide, 28px-tall target
    (the head's own height stays that of its pills), the dots quiet until hovered or focused; touch-action none lets a finger drag */
 #overview-pane .q-grip { all: unset; box-sizing: border-box; flex: none; width: 22px; height: 28px; margin: -4px 0; display: inline-flex;
-  align-items: center; justify-content: center; cursor: grab; color: var(--faint); font-size: 14px; letter-spacing: -2px; line-height: 1;
-  touch-action: none; user-select: none; border-radius: 6px; }
+  align-items: center; justify-content: center; cursor: grab; color: var(--faint); font-size: 15px; line-height: 1;
+  touch-action: none; user-select: none; border-radius: 8px; }
 #overview-pane .q-grip:hover { color: var(--text); }
 #overview-pane .q-grip:active { cursor: grabbing; }
 #overview-pane .q-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--text); }
 #overview-pane .q-card.q-dragging { opacity: .5; }
 
 /* the API spend card (metered and sdk lanes: one key), in the same grid: two figures on one row, a short footnote */
-#overview-pane .c-figs { display: flex; flex-wrap: wrap; gap: 4px 24px; padding-top: 6px; }
+#overview-pane .c-figs { display: flex; flex-wrap: wrap; gap: 4px 24px; padding-top: 8px; }
 #overview-pane .c-fig { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 #overview-pane .c-k { font-size: 13px; color: var(--muted); white-space: nowrap; }
 /* a lone figure is set in proportional digits: tabular ones give a narrow "1" a full-width slot and read as gaps in "$3.11". Tabular digits stay
    where numbers line up in a column (.q-pct, .s-usd, .s-share) */
-#overview-pane .c-v { font-size: 16px; font-weight: 600; font-variant-numeric: proportional-nums; white-space: nowrap; }
-#overview-pane .c-line { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
+#overview-pane .c-v { font-size: 15px; font-weight: 600; font-variant-numeric: proportional-nums; white-space: nowrap; }
+#overview-pane .c-line { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.45; overflow-wrap: anywhere; }
 #overview-pane .c-line.c-warn { color: var(--busy); }
 /* the footnote stays one line (cut with an ellipsis, the whole text on hover), so the card keeps one height */
 #overview-pane .c-foot { color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -148,15 +148,15 @@
    the API card's, then the models and the sessions as rows of a name, an amount and a share, every one on one line. A name
    gives way with an ellipsis only when the session's own name is longer than the card (its whole name is the tooltip) */
 #overview-pane .s-est { color: var(--muted); }
-#overview-pane .s-list { margin-top: 10px; }
+#overview-pane .s-list { margin-top: 8px; }
 #overview-pane .s-h { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 2px; white-space: nowrap; }
-#overview-pane .s-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; align-items: baseline; gap: 0 12px; padding: 3px 0; font-size: 14px; }
+#overview-pane .s-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; align-items: baseline; gap: 0 12px; padding: 4px 0; font-size: 15px; }
 #overview-pane .s-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#overview-pane .s-name a { color: var(--text); font-weight: 500; text-decoration: none; }
+#overview-pane .s-name a { color: var(--text); font-weight: 400; text-decoration: none; }
 #overview-pane .s-name a:hover { color: var(--link); text-decoration: underline; }
 #overview-pane .s-usd { white-space: nowrap; font-variant-numeric: tabular-nums; text-align: right; }
 #overview-pane .s-share { white-space: nowrap; font-variant-numeric: tabular-nums; text-align: right; font-size: 13px; color: var(--muted); }
-#overview-pane .s-more { display: inline-block; margin-top: 2px; font-size: 13px; font-weight: 500; color: var(--lane, var(--accent)); text-decoration: none; white-space: nowrap; }
+#overview-pane .s-more { display: inline-block; margin-top: 2px; font-size: 13px; font-weight: 400; color: var(--lane, var(--accent)); text-decoration: none; white-space: nowrap; }
 #overview-pane .s-more:hover { text-decoration: underline; }
 
 /* a card with no answer yet (a first start): its rows drawn quietly, at the size the answer will take */
@@ -164,20 +164,20 @@
 /* the card's last line: "updated 7 min ago", or "as of 3 hours ago" while its refreshes fail; the note above it is
    under the figures (the dormant reason gets the gap the head's margin gave it when it sat under the head) */
 #overview-pane .q-card { display: flex; flex-direction: column; }   /* the grid gives the cards of a row one height */
-#overview-pane .q-dormant-line { margin-top: 6px; }
+#overview-pane .q-dormant-line { margin-top: 8px; }
 /* the first of the card's closing lines (warnings, notes, updated line; sessions.js pinEnd) takes the free room above it, so the
    closing lines of the cards in a row sit at the bottom on one level, the note right above the time */
-#overview-pane .q-end { margin-top: auto; padding-top: 6px; }
+#overview-pane .q-end { margin-top: auto; padding-top: 8px; }
 
 /* the link to Console billing, at the right end of the API card's header on the lane's details page only (that card has no chip and no "Details ›", so the link takes the auto margin itself) */
-#overview-pane .c-bill { margin-left: auto; font-weight: 500; color: var(--lane); text-decoration: none; white-space: nowrap; }
+#overview-pane .c-bill { margin-left: auto; font-weight: 400; color: var(--lane); text-decoration: none; white-space: nowrap; }
 #overview-pane .c-bill:hover { text-decoration: underline; }
 
 /* the head's right end: the lane's status chip and "Details ›" side by side; the pair never
    wraps or shrinks (the head is one line) and takes the auto margin. The ::before widens the tap. The chip is a pill like the lane label (12px); it, the label and "Details ›" (13px, line
    height 18px) sit on one baseline in every state and at every width, whichever font is loaded (the pill and "Details" had not lined up; test_lane_chip_baseline.py) */
-#overview-pane .q-head-end { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; white-space: nowrap; }
-#overview-pane .q-details { position: relative; font-size: 13px; line-height: 18px; font-weight: 500;
+#overview-pane .q-head-end { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; white-space: nowrap; }
+#overview-pane .q-details { position: relative; font-size: 13px; line-height: 18px; font-weight: 400;
   color: var(--text); text-decoration: none; white-space: nowrap; }   /* plain text colour, not the lane's */
 #overview-pane .q-details::before { content: ""; position: absolute; inset: -10px -8px; }
 #overview-pane .q-details:hover { text-decoration: underline; }
@@ -198,16 +198,16 @@
 #overview-pane .ld { display: none; }
 body.lane-open #overview-pane .ld { display: block; }
 body.lane-open #overview-pane .sp:not(.ld) { display: none; }
-#overview-pane .ld-title { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; min-width: 0; }
+#overview-pane .ld-title { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; min-width: 0; }
 #overview-pane .ld-name { overflow-wrap: anywhere; }
 #overview-pane .ld-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 0 16px; align-items: start; }   /* Record and Usage side by side on a wide screen, stacked on a phone */
 #overview-pane .ld-sec { margin-bottom: 16px; min-width: 0; }
-#overview-pane .ld-h { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
-#overview-pane #ld-record { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 12px 16px; }
+#overview-pane .ld-h { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+#overview-pane #ld-record { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 12px 16px; }
 #overview-pane .ld-line { font-size: 13px; color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }   /* the note under the head of a lane that is not active */
 #overview-pane .ld-line:not(:empty) { margin-bottom: 12px; }
 #overview-pane .ld-none { font-size: 13px; color: var(--muted); }
-#overview-pane .ld-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0; font-size: 14px; }
+#overview-pane .ld-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; margin: 0; font-size: 15px; }
 #overview-pane .ld-dl dt { color: var(--muted); font-size: 13px; }
 #overview-pane .ld-dl dd { margin: 0; overflow-wrap: anywhere; }
 #overview-pane #ld-usage { display: block; }
@@ -217,16 +217,16 @@ body.lane-open #overview-pane .sp:not(.ld) { display: none; }
 /* the Overview's four tabs: Agents (#sessions), Schedules (#schedules), Machines (#machines) and Usage analysis (#usage). The pane's data-tab (app.js setOverviewTab) shows
    one panel; the tab bar is a row of links, the open one underlined, with Reload at the right end on the Schedules, Machines and Usage tabs (each its own button; the Agents
    tab updates live and keeps the head's own Reload) */
-#overview-pane .ov-bar { display: flex; align-items: flex-end; gap: 8px 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+#overview-pane .ov-bar { display: flex; align-items: flex-end; gap: 8px 12px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
 #overview-pane .ov-tabs { display: flex; gap: 4px; min-width: 0; }
-#overview-pane .ov-tab { display: inline-flex; align-items: baseline; gap: 6px; padding: 8px 12px; margin-bottom: -1px; border-bottom: 2px solid transparent;
-  color: var(--muted); font-size: 15px; font-weight: 500; text-decoration: none; white-space: nowrap; }
+#overview-pane .ov-tab { display: inline-flex; align-items: baseline; gap: 8px; padding: 8px 12px; margin-bottom: -1px; border-bottom: 2px solid transparent;
+  color: var(--muted); font-size: 15px; font-weight: 400; text-decoration: none; white-space: nowrap; }
 #overview-pane .ov-tab:hover { color: var(--text); }
-#overview-pane .ov-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 650; }
-#overview-pane .ov-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
-#overview-pane .ov-n { font-size: 12px; font-weight: 500; color: var(--faint); font-variant-numeric: proportional-nums; }
+#overview-pane .ov-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+#overview-pane .ov-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
+#overview-pane .ov-n { font-size: 12px; font-weight: 400; color: var(--faint); font-variant-numeric: proportional-nums; }
 #overview-pane .ov-n:empty { display: none; }
-#overview-pane .ov-reload { margin: 0 0 6px auto; display: none; }
+#overview-pane .ov-reload { margin: 0 0 8px auto; display: none; }
 #overview-pane[data-tab="schedules"] #sc-reload, #overview-pane[data-tab="machines"] #mc-reload, #overview-pane[data-tab="usage"] #us-reload { display: inline-flex; }
 #overview-pane:is([data-tab="schedules"], [data-tab="machines"], [data-tab="usage"]) #ov-agents { display: none; }
 #overview-pane:not([data-tab="schedules"]) #ov-schedules { display: none; }
@@ -238,17 +238,17 @@ body.lane-open #overview-pane .sp:not(.ld) { display: none; }
 /* the phone's chip strip: the lane cards folded into one line of chips that opens on a tap; wider screens show the cards */
 #overview-pane .q-strip { display: none; }
 @media (max-width: 760px) {
-  #overview-pane .q-strip { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 12px;
-    border: 1px solid var(--border); border-radius: 10px; background: var(--panel); cursor: pointer; }
+  #overview-pane .q-strip { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 12px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--panel); cursor: pointer; }
   #overview-pane .q-strip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  #overview-pane .q-chips { display: flex; flex: 1 1 auto; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  #overview-pane .q-chips { display: flex; flex: 1 1 auto; gap: 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   #overview-pane .q-chips::-webkit-scrollbar { display: none; }
-  #overview-pane .q-chip { flex: none; display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 500;
+  #overview-pane .q-chip { flex: none; display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 500;
     white-space: nowrap; font-variant-numeric: proportional-nums; border: 1px solid color-mix(in srgb, var(--text) 30%, transparent); background: var(--hover); color: var(--text); }
   #overview-pane .q-chev { flex: none; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translateY(-2px) rotate(45deg); transition: transform .15s; }
   #overview-pane .q.q-open .q-chev { transform: translateY(2px) rotate(-135deg); }
   #overview-pane .q:not(.q-open) .q-cards { display: none; }
-  #overview-pane .q.q-open .q-cards { margin-top: 10px; }
+  #overview-pane .q.q-open .q-cards { margin-top: 8px; }
   /* the tab bar fills the width: each tab takes half */
   #overview-pane .ov-tabs { flex: 1 1 auto; }
   #overview-pane .ov-tab { flex: 1 1 0; justify-content: center; min-height: 44px; align-items: center; }
@@ -260,5 +260,5 @@ body.lane-open #overview-pane .sp:not(.ld) { display: none; }
   #overview-pane .ov-tl { display: block; text-align: center; line-height: 1.15; white-space: normal; }
   #overview-pane .ov-bar { gap: 4px; }
   #overview-pane .ov-tabs { gap: 2px; }
-  #overview-pane .ov-tab { padding: 8px 6px; gap: 4px; font-size: 14px; }
+  #overview-pane .ov-tab { padding: 8px 4px; gap: 4px; font-size: 15px; }
 }

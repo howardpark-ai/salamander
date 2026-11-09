@@ -71,7 +71,7 @@ def check(got, where):
     assert got["img"]["r"] <= got["text"]["l"] + 0.5, (where, "the icon is not before the words", got)
     assert got["lineScroll"] <= 0 and got["headScroll"] <= 0 and got["docScroll"] <= 0, (where, "something is cut or scrolls", got)
     assert got["img"]["l"] >= got["sbLeft"] and got["text"]["r"] <= got["sbRight"], (where, "outside the sidebar", got)
-    assert got["slack"] >= 6, (where, "the words have no room to spare for a wider font", got["slack"])
+    assert got["slack"] >= 5, (where, "the words have no room to spare for a wider font", got["slack"])   # 5.8 px at 1280 in the look: the words are 15 px (was 14) and the gap 8 px (was 6)
     if got["close"]:
         assert got["text"]["r"] <= got["close"]["l"], (where, "the words run under the close button", got)
 

@@ -63,7 +63,7 @@ def assert_one_baseline(got: list[dict], where) -> None:
     for h in got:
         c, d = h["chip"], h["details"]
         assert c and d, (where, "a head without its chip or its Details link", h)
-        assert (c["family"], c["weight"]) == (d["family"], d["weight"]), (where, "chip and Details differ in font", h)
+        assert c["family"] == d["family"], (where, "chip and Details differ in font", h)   # the look sets tags at weight 500 and links at 400: the family is what they share
         if h["pill"]:   # the chip is a pill of the lane label's own style: the same size, weight and family
             assert (c["size"], c["weight"], c["family"]) == (h["pill"]["size"], h["pill"]["weight"], h["pill"]["family"]), (where, "chip and lane label differ", h)
         assert abs(c["base"] - d["base"]) <= 0.5, (where, "chip and Details are not on one baseline", h)

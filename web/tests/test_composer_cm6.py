@@ -709,9 +709,11 @@ def test_the_editor_grows_with_its_lines_and_the_row_stays_one_line_tall_when_em
     one = browser.evaluate("document.querySelector('.compose-row').getBoundingClientRect().height")
     put(browser, "a\nb\nc", 5)
     three = browser.evaluate("document.querySelector('.compose-row').getBoundingClientRect().height")
-    assert abs((three - one) - 44) < 1.5, (one, three)   # two more lines of 22px
+    send = browser.evaluate("document.querySelector('.send-btn').getBoundingClientRect().height")
+    # two more lines of 22px, less what the send button (32 px with a mouse) stands above the 30 px empty editor in the one-line row
+    assert abs((three - one) - (44 - (send - 30))) < 1.5, (one, three, send)
     put(browser, "", 0)
     assert abs(browser.evaluate("document.querySelector('.compose-row').getBoundingClientRect().height") - one) < 1.5
-    # the send button is 30px and the empty editor is as tall, so the row is the button's height plus padding and border
+    # the empty editor is 30px and the send button 32 (44 on a touch screen), so the row is the button's height plus padding and border
     assert browser.evaluate("input.getBoundingClientRect().height") == 30
     escape(browser)

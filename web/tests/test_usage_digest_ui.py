@@ -135,6 +135,8 @@ def test_a_failed_read_keeps_the_last_sentences_and_says_so(served, browser):
 @pytest.mark.parametrize("size,name", [(DESKTOP, "desktop"), (PHONE, "phone")])
 def test_the_layout_never_scrolls_sideways_a_phone_has_44px_targets_and_both_themes_read(served, browser, size, name, dark):
     open_digest(served, browser, size, dark=dark)
+    if name == "phone":
+        browser.touch()   # the 44 px targets are the touch size: the look draws controls 32 px under a mouse
     m = browser.evaluate("""(() => { const vw = document.documentElement.clientWidth, r = (n) => n.getBoundingClientRect();
       const over = [...document.querySelectorAll("#us-v-digest *")].filter((n) => r(n).right > vw + 0.5 && n.getClientRects().length && !n.closest(".us-seg")).map((n) => n.className || n.tagName);
       const small = [...document.querySelectorAll("#us-v-digest button, #us-views button, #us-reload")].filter((n) => n.getClientRects().length && r(n).height < 43.5).map((n) => (n.id || n.className || n.tagName) + ":" + Math.round(r(n).height));
@@ -145,7 +147,7 @@ def test_the_layout_never_scrolls_sideways_a_phone_has_44px_targets_and_both_the
                text: lum(cs.color), page: lum(getComputedStyle(document.querySelector(".us-dg-card")).backgroundColor), dark: matchMedia("(prefers-color-scheme: dark)").matches }; })()""")
     assert m["doc"] <= m["vw"] and m["body"] <= m["vw"] + 1 and m["pane"] <= m["paneClient"], m      # no sideways scroll
     assert m["over"] == [], m["over"]
-    assert m["font"] == "16px" and m["cardLeft"] >= 0 and m["cardRight"] <= m["vw"], m
+    assert m["font"] == "15px" and m["cardLeft"] >= 0 and m["cardRight"] <= m["vw"], m
     assert m["dark"] is dark and abs(m["text"] - m["page"]) > 0.4, m                                 # the text stands out of its card in both themes
     if name == "phone":
         assert m["small"] == [], m["small"]                                                         # every control a comfortable target
