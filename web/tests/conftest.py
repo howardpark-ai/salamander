@@ -262,7 +262,7 @@ class CDP:
         self.w, self.r = os.fdopen(w_in, "wb", 0), os.fdopen(r_out, "rb", 0)
         self.seq = 0
         self.buf = b""
-        self.events: list[dict] = []   # DevTools events (messages with no id), kept for a test that reads them (test_v2_browser.py)
+        self.events: list[dict] = []   # DevTools events (messages with no id), kept for a test that reads them (test_look_browser.py)
         self.session = None
         self.width, self.height = width, height
         tid = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]

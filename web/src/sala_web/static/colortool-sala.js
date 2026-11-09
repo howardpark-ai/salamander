@@ -48,7 +48,7 @@
   }
   function shippedOf(name) { return toHex(getComputedStyle(root).getPropertyValue(name)) || FALLBACK[name] || null; }
 
-  /* the terminal page has no palette of its own (it is black whatever the system says); the main page and /v2/ follow sala's rule: light when
+  /* the terminal page has no palette of its own (it is black whatever the system says); the main page follows sala's rule: light when
      data-theme="light", or, with no data-theme, when the system prefers light */
   function isDark() {
     var t = root.getAttribute("data-theme");

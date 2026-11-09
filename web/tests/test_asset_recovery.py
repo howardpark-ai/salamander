@@ -5,9 +5,9 @@ came up unstyled (search.css) and the Colors button was missing (colortool.js) u
 failed, a copy placed where the failed one stood, with a cache-busting `&r=`, up to 4 tries per file, then stops.
 
 What a wrong answer costs: a half-made page that stays half-made; a retry that loops for ever against a file that is really gone; a copy added at the
-end of the head, which would win the cascade over the v2 layer's own rules; a second color button; a page that asks again for files that loaded.
+end of the head, which would win the cascade over the page's own `<style id="look">`; a second color button; a page that asks again for files that loaded.
 
-For each of the three files (search.css, termclip.css, colortool.js) and the wiring script beside the last, on `/` and `/v2/` at a phone's width, the
+For each of the three files (search.css, termclip.css, colortool.js) and the wiring script beside the last, on `/` at a phone's width, the
 first request fails (the request aborted, or a 404) and the second goes through: the file comes back, the search box is styled, the Colors button is
 drawn and a marker set on the window survives (nothing reloaded). A file that always fails is asked for 5 times in all and then left alone, and the
 page still works; a page whose files all load makes no retry. Requests are held and answered by the test through DevTools' Fetch domain.
@@ -101,11 +101,10 @@ def open_page(browser, url: str, gate: Gate) -> None:
 
 
 @pytest.mark.parametrize("mode", ["abort", "404"])
-@pytest.mark.parametrize("path", ["/", "/v2/"])
 @pytest.mark.parametrize("name", list(EFFECT))
-def test_a_file_that_failed_once_comes_back_by_itself_and_is_applied_with_no_reload(served, browser, name, path, mode):
+def test_a_file_that_failed_once_comes_back_by_itself_and_is_applied_with_no_reload(served, browser, name, mode):
     gate = Gate(browser, {name: 1}, mode)
-    open_page(browser, served["url"] + path + CHAT, gate)
+    open_page(browser, served["url"] + "/" + CHAT, gate)
     browser.evaluate("window.__still_here = 1; ''")                                    # a reload would lose it
     gate.until(EFFECT[name], f"{name}: not in effect after its first request failed ({mode}); asked for {gate.seen[name]}")
     gate.until(BUTTON, "the Colors button was not drawn")
@@ -113,14 +112,14 @@ def test_a_file_that_failed_once_comes_back_by_itself_and_is_applied_with_no_rel
     assert browser.evaluate("window.__still_here") == 1, "the page was reloaded"
     assert len(gate.seen[name]) == 2 and len(gate.retries(name)) == 1, gate.seen[name]   # asked for again once, with the cache-busting copy
     assert browser.evaluate("document.querySelectorAll('#side-colors .ct-btn').length") == 1, "more than one Colors button"
-    # the copy stands where the failed one stood: nothing of the page's own is left after the v2 layer's <style> (v2) or the wiring's scripts (v1)
+    # the copy stands where the failed one stood: nothing of the page's own is left after the `<style id="look">` (css) or the wiring's scripts (js)
     kind = "script" if name.endswith(".js") else "link"
     assert browser.evaluate("document.querySelectorAll('%s[%s*=\"%s\"]').length"
                             % (kind, "src" if kind == "script" else "href", name)) == 1, "the failed element was left in the head"
     if name.endswith(".css"):
         assert browser.evaluate("(() => { const l = [...document.head.children]; const me = l.findIndex((e) => (e.getAttribute('href') || '').includes(%r));"
-                                " const ex = l.findIndex((e) => e.id === 'v2-extra');"
-                                " return me >= 0 && (ex < 0 || me < ex); })()" % name) is True, "the copy is after the v2 layer's rules"
+                                " const ex = l.findIndex((e) => e.id === 'look');"
+                                " return me >= 0 && ex >= 0 && me < ex; })()" % name) is True, "the copy is after the look's rules"
 
 
 def test_a_file_that_always_fails_is_asked_for_a_bounded_number_of_times_and_the_page_still_works(served, browser):

@@ -2,9 +2,9 @@
 
 The page used to show a session's open board items in three places: an item count button in the session's title bar, the
 items sheet that button opened, and a red count on the Agents table's Session cell that opened the same sheet. All three were
-removed, because open items are read on the board, not on this page. What is held here: the page's markup, script and stylesheets, and the v2 layer over them,
+removed, because open items are read on the board, not on this page. What is held here: the page's markup, script and stylesheets
 carry no trace of them; with a board that answers items for the open session, the title bar has no such button, the page
-has no sheet and no scrim, the Agents table has no count (at / and at /v2/); the sidebar rows still carry no board count (the
+has no sheet and no scrim, the Agents table has no count; the sidebar rows still carry no board count (the
 unread reply count is there); and the one reader of the data that stays, the New session page's board item picker, still lists the
 items of the live sessions. The page still asks for the board once a minute (the picker's data). The server side
 (api/board-items, board.py) is untouched: test_board_items.py.
@@ -23,7 +23,6 @@ import time
 import pytest
 
 from sala_web.app import STATIC
-from sala_web.v2 import design
 from test_composer_attach import WAIT_READY
 from test_overview_columns import row
 
@@ -146,19 +145,13 @@ GONE_JS = ["board-chip", "board-sheet", "board-scrim", "fillBoardChip", "updateB
 
 
 def sources() -> dict:
-    """Every file the page loads that could carry the removed pieces, as text, and the same files after the v2 pass."""
+    """Every file the page loads that could carry the removed pieces, as text."""
     names = ["index.html", "app.js", "sessions.js", "shared.js", "style.css", "sessions.css", "search.css", "machines.css", "schedules.css", "termclip.css"]
-    v1 = {n: (STATIC / n).read_text(encoding="utf-8") for n in names}
-    v2 = {"v2 " + n: (design.html(t) if n.endswith(".html") else design.js(t) if n == "app.js" else design.css(t) if n.endswith(".css") else t)
-          for n, t in v1.items()}
-    v2["v2 extra.css"] = design.EXTRA
-    return {**v1, **v2}
+    return {n: (STATIC / n).read_text(encoding="utf-8") for n in names}   # index.html carries the look's inline <style>
 
 
-def test_the_sources_and_the_v2_pass_carry_no_item_count_button_sheet_or_count():
-    design._missed.clear()
+def test_the_sources_carry_no_item_count_button_sheet_or_count():
     src = sources()
-    assert not design._missed, f"the v2 pass lost an anchor: {sorted(design._missed)}"
     for name, text in src.items():
         if name.endswith("html"):
             assert not [w for w in GONE_MARKUP if w in text], (name, [w for w in GONE_MARKUP if w in text])
@@ -201,10 +194,9 @@ AGENTS = """(() => ({
   sheet: !!document.getElementById("board-sheet"), docScroll: document.documentElement.scrollWidth, vw: innerWidth }))()"""
 
 
-@pytest.mark.parametrize("prefix", ["", "v2/"], ids=["sala", "v2"])
-def test_a_session_with_open_items_has_no_button_in_the_title_bar_and_the_agents_table_has_no_count(served, browser, prefix):
+def test_a_session_with_open_items_has_no_button_in_the_title_bar_and_the_agents_table_has_no_count(served, browser):
     # the board answers items for the open session (three, one of them waiting on the owner): the page holds them, and draws none of them
-    open_page(browser, served, f"{prefix}#s={FAKE}", width=1280, height=800)
+    open_page(browser, served, f"#s={FAKE}", width=1280, height=800)
     assert browser.evaluate(WAIT_READY)
     assert browser.evaluate(WAIT_BOARD)
     time.sleep(0.5)   # a late repaint would still draw one

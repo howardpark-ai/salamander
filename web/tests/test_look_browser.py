@@ -1,18 +1,17 @@
-"""/v2/ in a headless Chromium at 390, 768, 1024 and 1440 px: every page the stubs can reach, drawn by the v2 layer.
+"""The page at / in a headless Chromium at 390, 768, 1024 and 1440 px: every page the stubs can reach, in the page's look.
 
-The layer rewrites v1's stylesheets, page and script at request time; nothing in the text tests (test_v2_design.py, test_v2_layer.py)
-proves that the result still draws a page that fits and loads. For each width and each page this opens /v2/ and checks: the
-document is no wider than the window (no sideways scroll), on a wide screen the content column is at most 920 px, nothing is
-logged as an error (console, uncaught exceptions, failed requests), the D2Coding face loads from the address the page names, the page
-has no manifest and no service worker registration (so the installed app is untouched), and the tab says v2.
+Nothing in the text tests (test_look_scale.py, test_look_redirect.py) proves that the look still draws a page that fits and loads. For each
+width and each page this opens / and checks: the document is no wider than the window (no sideways scroll), on a wide screen the content
+column is at most 920 px, nothing is logged as an error (console, uncaught exceptions, failed requests), the D2Coding face loads from the
+address the page names, the page links its manifest and registers its service worker (the installed app stays installable), and the tab
+says sala.
 
-What a wrong answer costs: a v2 page that scrolls sideways on a phone, a column wider than the others, a font that 404s, a script
-error on a screen v1 draws without one, or a second installed app. NOT covered (docs/test-coverage.md): coarse-pointer sizes
-(44 px controls: a headless page cannot emulate `pointer: coarse` through this driver), a real phone's browser, and live data
-(long names, many agents, a real board).
+What a wrong answer costs: a page that scrolls sideways on a phone, a column wider than the others, a font that 404s, a script error on a
+screen drawn without one, or an app that can no longer be installed. NOT covered (docs/test-coverage.md): a real phone's browser and the
+installed app, and live data (long names, many agents, a real board).
 
 Pages: the Overview's Agents, Schedules and Machines tabs, a chat, Search results, the New session page and the Quick session page.
-Stubs: api/schedules (as test_search_ui.py) and the project list of the New session page (stackshot is not run); the page's two CDN stylesheets are blocked, so the run needs no network. The Quick session and lane pages are left out: they call sala's CLI, which tests do not run.
+Stubs: api/schedules (as test_search_ui.py) and the project list of the New session page (stackshot is not run); the page's CDN stylesheet is blocked, so the run needs no network. The Quick session and lane pages are left out: they call sala's CLI, which tests do not run.
 """
 
 from __future__ import annotations
@@ -52,7 +51,7 @@ def prepare(served) -> None:
     st.mkdir(parents=True, exist_ok=True)
     (st / "sessions.json").write_text(json.dumps({"schema": 1, "sessions": {ROW: {
         "id": ROW, "name": NAME, "role": "front", "state": "live", "transcripts": [{"id": SID, "why": "add"}]}}}))
-    line = {"type": "assistant", "uuid": "a-v2", "timestamp": now_iso(), "message": {"role": "assistant", "content": [{"type": "text", "text": "the zebra answer, in v2"}]}}
+    line = {"type": "assistant", "uuid": "a-look", "timestamp": now_iso(), "message": {"role": "assistant", "content": [{"type": "text", "text": "the zebra answer, in the look"}]}}
     with open(transcript_file(served), "a", encoding="utf-8") as f:
         f.write(json.dumps(line) + "\n")
 
@@ -100,15 +99,15 @@ def test_each_page_fits_the_window_draws_its_column_loads_the_code_face_and_logs
     browser.send("Log.enable")
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": STUB})
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": "window.open = () => null;"})
-    # the page links two external stylesheets (the text face, the old code face's CDN): blocked, so the run needs no network and the
-    # entries it logs for them are told apart below
+    # the page links one external stylesheet (the text face's CDN): blocked, so the run needs no network and the
+    # entry it logs for it is told apart below
     browser.send("Network.enable")
     browser.send("Network.setBlockedURLs", {"urls": ["https://cdn.jsdelivr.net/*"]})
     browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": width <= 760})
     seen = []
     for name, hash_, ready, col in PAGES:
         browser.send("Page.navigate", {"url": "about:blank"})
-        browser.send("Page.navigate", {"url": f"{served['url']}/v2/{hash_}"})
+        browser.send("Page.navigate", {"url": f"{served['url']}/{hash_}"})
         settle(browser, "typeof state !== 'undefined' && state.byName.has(%s)" % json.dumps(NAME), f"{name}: the app did not start at {width}px")
         settle(browser, ready, f"{name}: the page was not drawn at {width}px")
         facts = browser.evaluate("""(async () => {
@@ -120,18 +119,36 @@ def test_each_page_fits_the_window_draws_its_column_loads_the_code_face_and_logs
             col: col ? Math.round(col.getBoundingClientRect().width) : null,
             faces: faces.map((f) => f.status),
             manifest: !!document.querySelector('link[rel=manifest]'),
-            workers: (await navigator.serviceWorker.getRegistrations()).length,
+            workers: await (async () => { for (let i = 0; i < 50; i++) { const n = (await navigator.serviceWorker.getRegistrations()).length; if (n) return n; await new Promise((r) => setTimeout(r, 100)); } return 0; })(),
             path: location.pathname,
           };
         })()""" % json.dumps(col))
         seen.append((name, facts))
-        assert facts["path"] == "/v2/", (name, facts)
-        assert facts["title"].startswith("v2 · "), (name, facts)
+        assert facts["path"] == "/", (name, facts)
+        assert facts["title"].startswith("sala"), (name, facts)
         assert facts["scroll"] <= facts["inner"], f"{name} at {width}px scrolls sideways: {facts}"
         if width >= 1024:
             assert facts["col"] is not None and facts["col"] <= 920, f"{name} at {width}px: the column is {facts['col']}px"
         assert facts["faces"] == ["loaded"], f"{name}: the D2Coding face did not load: {facts}"
-        assert not facts["manifest"] and facts["workers"] == 0, (name, facts)
+        assert facts["manifest"] and facts["workers"] == 1, (name, facts)
         errs = errors_of(browser)
         assert not errs, f"{name} at {width}px logged errors: {errs}"
     assert len(seen) == len(PAGES)
+
+
+TOUCH_SIZES = """(() => {
+  const q = (s) => document.querySelector(s), box = (s) => { const r = q(s).getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+  return { coarse: matchMedia("(pointer: coarse)").matches, ctl: getComputedStyle(document.documentElement).getPropertyValue("--ctl").trim(),
+           send: box(".send-btn"), shell: box("#shell-btn") };
+})()"""
+
+
+def test_controls_are_44_px_under_a_finger_and_32_px_under_a_mouse(served, browser):
+    prepare(served)
+    browser.open(f"{served['url']}/#s={NAME}")
+    settle(browser, "document.querySelectorAll('#chat .msg').length > 0", "the chat was not drawn")
+    mouse = browser.evaluate(TOUCH_SIZES)
+    assert not mouse["coarse"] and mouse["ctl"] == "32px" and mouse["send"] == [32, 32], mouse
+    browser.touch()
+    finger = browser.evaluate(TOUCH_SIZES)
+    assert finger["coarse"] and finger["ctl"] == "44px" and finger["send"] == [44, 44] and finger["shell"][1] >= 44, finger
