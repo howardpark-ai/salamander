@@ -4,8 +4,9 @@
    Report: a week picker (a week runs from one weekly reset of the subscription lane to the next), the total, one card per lane, a Group by control, the
    filter chips, a stacked chart by day and a sortable table with share bars. A tap on a lane card, a table row, a legend name or a day filters everything
    to it. The page shows DOLLARS only; the server keeps tokens on each row and this file never reads them.
-   The tab asks api/usage when it opens, on a change of week and on Reload. The server answers at once from its last count: "pending" until the first count
-   lands (about a minute on a machine with a long history), "refreshing" while a newer one runs; the tab asks again a few seconds later in both cases.
+   The tab asks api/usage when it opens, on a change of week and on Reload. A visit never starts a count: the server answers at once from its last saved
+   count (made by the daily job, or by a Reload), "noCount" when none was made yet (the tab says so; Reload makes one), "pending" or "refreshing" while a
+   Reload's count runs (about a minute on a machine with a long history); the tab asks again a few seconds later in those two cases.
    `el` and `apiFetch` come from app.js and `modelLabel` from shared.js (used at call time). Everything else stays in this closure. */
 const usage = (() => {
 /* ---------- the words on the page, in one place ---------- */
@@ -22,6 +23,7 @@ const WORDS = {
   howTo: "How to read this: every figure is what the replies would cost at list prices. Tap a lane card, a day, a name in the key or a table row to filter everything to it; tap again to clear. Group by changes the stack and the table.",
   resets: "resets in", closed: "closed", unknownReset: "the weekly reset time is not known: the last seven days",
   pending: "Counting the replies on this machine… the first count can take a minute.",
+  noCount: "No count yet. The replies are counted once a day; Reload counts them now.",
   tapDay: "Tap a day to filter everything below to it.", clearDay: "Tap the bar again to clear.",
   nothing: "Nothing in this selection.", filtered: "filtered", allLanes: "all lanes",
   sameHours: "same hours of the previous week", weekBefore: "the week before",
@@ -34,7 +36,7 @@ const TOP = 6;          // the stack names this many groups and the rest is "Oth
 const POLL_MS = 3000, POLL_MAX = 40;
 
 const views = {};   // view id -> { show(), hide() }, registered by the file that builds that view
-const uc = { data: {}, week: 0, group: "lane", f: {}, sort: "cost", dir: -1, view: "report", active: false, seq: 0, timer: 0, tries: 0, error: "", pending: false, ago: 0, resize: 0, bound: false };
+const uc = { data: {}, week: 0, group: "lane", f: {}, sort: "cost", dir: -1, view: "report", active: false, seq: 0, timer: 0, tries: 0, error: "", pending: false, noCount: false, ago: 0, resize: 0, bound: false };
 const $u = (sel) => document.querySelector("#ov-usage " + sel);
 
 /* ---------- formatting ---------- */
@@ -304,7 +306,7 @@ function render() {
   const note = $u("#us-note");
   if (!note) return;
   const d = D();
-  note.textContent = uc.error || (d && d.error) || (uc.pending && !d ? WORDS.pending : "");
+  note.textContent = uc.error || (d && d.error) || (uc.pending && !d ? WORDS.pending : uc.noCount && !d ? WORDS.noCount : "");
   note.classList.toggle("error", !!(uc.error || (d && d.error)));
   renderViews();
   if (uc.view === "digest") usageDigest.show(digestContext()); else usageDigest.hide();   // usage-digest.js: the Digest view
@@ -336,6 +338,7 @@ async function load({ fresh = false } = {}) {
     if (seq !== uc.seq) return;
     uc.error = "";
     uc.pending = !!d.pending;
+    uc.noCount = !!d.noCount;
     if (!d.pending && Array.isArray(d.weeks) && d.weeks.length) {
       if (fresh) uc.data = {};   // a new count: the other weeks cached from the old one are asked for again when they are opened
       uc.data[week] = d; uc.ago = performance.now();

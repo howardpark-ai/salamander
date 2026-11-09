@@ -9,7 +9,7 @@
 const usageDigest = (() => {
 const POLL_MS = 3000, POLL_MAX = 40;
 const WORDS = { title: "THE WEEK IN A FEW SENTENCES", none: "No digest could be written for this week yet.", counted: "counted" };
-const ud = { week: 0, data: {}, seq: 0, timer: 0, tries: 0, error: "", pending: false, ago: 0, shown: false, bound: false, ctx: null, ageTimer: 0 };
+const ud = { week: 0, data: {}, seq: 0, timer: 0, tries: 0, error: "", pending: false, noCount: false, ago: 0, shown: false, bound: false, ctx: null, ageTimer: 0 };
 const $d = (sel) => document.querySelector("#ov-usage #us-v-digest " + sel);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const serverNow = (d) => (d.now || Date.now() / 1000) + (performance.now() - ud.ago) / 1000;   // the server's clock moved on by the time since the answer
@@ -38,7 +38,7 @@ function render() {
   $d("#us-dg-weeks").innerHTML = w.weeks.map((l, i) => `<button type="button" data-w="${i}" aria-pressed="${i === ud.week}">${esc(l)}</button>`).join("");
   $d("#us-dg-range").textContent = d ? rangeText(d) : "";
   const err = ud.error || (d && d.error) || "";
-  ud.ctx.setNote(err || (ud.pending && !d ? w.pending : ""), !!err);
+  ud.ctx.setNote(err || (ud.pending && !d ? w.pending : ud.noCount && !d ? w.noCount : ""), !!err);
   const body = $d("#us-dg-body");
   body.hidden = !d;
   if (!d) return;
@@ -58,6 +58,7 @@ async function load({ fresh = false } = {}) {
     if (seq !== ud.seq) return;
     ud.error = "";
     ud.pending = !!d.pending;
+    ud.noCount = !!d.noCount;
     if (!d.pending && Array.isArray(d.sentences)) { ud.data[week] = d; ud.ago = performance.now(); }
     if (d.pending || d.refreshing) {   // a count is running: ask again in a moment (a bounded number of times)
       if (ud.tries++ < POLL_MAX && ud.shown) ud.timer = setTimeout(() => load(), POLL_MS);

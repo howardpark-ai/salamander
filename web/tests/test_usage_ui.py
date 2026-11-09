@@ -64,14 +64,19 @@ def fake_replies(served: dict):
 
 
 def warm(served: dict) -> None:
-    """The first count of a fresh server is "pending" and the page asks again in 3 s: have it ready, so a test does not wait for that."""
+    """A fresh server has no count (a visit makes none: the daily job and the tab's Reload do): make one the way Reload does (`fresh=1`) and wait
+    for it, so the page opens on figures."""
+    fresh = ""
     for _ in range(100):
-        with urllib.request.urlopen(served["url"] + "/api/usage?week=0") as r:
+        with urllib.request.urlopen(served["url"] + "/api/usage?week=0" + fresh) as r:
             d = json.load(r)
-        if not d.get("pending") and not d.get("refreshing"):
+        fresh = ""
+        if d.get("noCount"):
+            fresh = "&fresh=1"
+        elif not d.get("pending") and not d.get("refreshing"):
             return
         time.sleep(0.1)
-    raise AssertionError("the count never finished")
+    raise AssertionError(f"the count never finished: { {k: d.get(k) for k in ('noCount', 'pending', 'refreshing', 'error', 'stale')} }")
 
 
 def open_tab(served, browser, size: dict, hash_: str = "#usage", ready: bool = True) -> None:

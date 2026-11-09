@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 43
+contract-version: 44
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -287,6 +287,10 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   `SALA_AGENT_CHECK_SCRIPT`, `SALA_SPAWN_ASK_CMD`, `SALA_SIDE_*_CMD`, `SALA_POST_UPDATE_CMD`, `SALA_POST_RECYCLE_CMD`, `SALA_RECYCLE_WANTED_CMD`, `SALA_MOCKUP_REFERENCES`, `SALA_WEB_ROLES_CMD`) is used as written and
   never probed, so a config line naming an old root path works until its forwarder goes. The register command that `spawn --project` prints names the client's path as this box has it. Nothing
   stackshot reads or sends changed.
+- **44** — Mon Nov 9th 2026. Interface 32 (sala-web's Usage analysis, `GET /api/usage`, `/api/usage/digest`, `/api/usage/replies`): a visit no longer starts a count. The count is a job of its own once a day
+  (`web/contrib/sala-web-usage-count`) plus the tab's `?fresh=1` (Reload), and the routes serve the last saved count whatever its age. A new value of the answer: with no count made yet it is `{noCount: true, ...}`
+  (it was `{pending: true, ...}`, which now means a Reload's count is running). The drill-down's records are saved with every count (`usage-replies.json` in sala-web's state directory), so `/api/usage/replies`
+  answers at once after a restart. Nothing stackshot reads or sends changed.
 
 ## How each entry reads
 
@@ -1014,20 +1018,20 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 ## 32. sala-web usage analysis
 
 - **Direction**: sala web → the page it serves (the Overview's Usage analysis tab); any other reader of the route is the same. No stackshot, Anthropic or AWS call is made. Added in version 37.
-- **Mechanism**: `GET /api/usage?week=<0|1|2>` (default 0; anything else is 400 `{error}`), `?fresh=1` makes the next count due now. JSON, `Cache-Control: no-store`. The answer: `week`, `now` (epoch
+- **Mechanism**: `GET /api/usage?week=<0|1|2>` (default 0; anything else is 400 `{error}`), `?fresh=1` (the tab's Reload) starts a count; nothing else does (the count is a daily job's, version 44). JSON, `Cache-Control: no-store`. The answer: `week`, `now` (epoch
   seconds, the server's clock), `tz` and `tzLabel` (always Asia/Seoul, KST: the days are KST whatever the page's zone), `resetKnown` and `anchor` (the weekly reset the weeks hang on, epoch s), `generated`,
   `weeks` (all three: `id`, `start`, `end`, `startKst`, `endKst`, `days`, `current`, `total`, `billed`, `replies`), `lanes` (`code`, `label`, `billing` `subscription`|`usage`, `flat`, `known`, `quota`
   `{percent, resetsAt}` of the weekly limit or null), `fields` (the order of a row), `rows` (the rows of the week asked for, arrays: `day`, `lane`, `model`, `project`, `agent`, `folder`, `usd`, `replies`,
-  `tokens` `[input, cache write 5m, cache write 1h, cache read, output]`), `sameHours` (week 0 only), `unpriced` (`[{model, replies}]`) and `prices` (`asOf`, `unit`, `models`). With no count yet the answer is
-  `{pending: true, ...}` and the reader asks again; a failed count keeps the last answer and adds `error` in plain words. It carries names, counts and dollars: no prompt, reply or tool text.
+  `tokens` `[input, cache write 5m, cache write 1h, cache read, output]`), `sameHours` (week 0 only), `unpriced` (`[{model, replies}]`) and `prices` (`asOf`, `unit`, `models`). With no count made yet the answer is
+  `{noCount: true, ...}` (version 44; `{pending: true, ...}` while a Reload's count runs, and the reader asks again); a failed count keeps the last answer and adds `error` in plain words. It carries names, counts and dollars: no prompt, reply or tool text.
 - **The Digest route** (added in version 38): `GET /api/usage/digest?week=<0|1|2>` (default 0; anything else is 400 `{error}`; `?fresh=1` as above). JSON, `Cache-Control: no-store`. The answer: `week`, `now`, `generated`,
   `tz`, `tzLabel`, `resetKnown`, `scope` (the words that only this machine's sessions are counted), `range` (`startKst`, `endKst`, `end`, `current`, or null before the first count) and `sentences` (a list of 1 to 7 plain
-  sentences of English, dollars only, dates like `Sat Nov 7th`, written by templates over the same rows: no model call). `pending: true` with no sentences before the first count; `refreshing` and `error` as the route above.
+  sentences of English, dollars only, dates like `Sat Nov 7th`, written by templates over the same rows: no model call). `noCount: true` with no sentences before the first count; `pending`, `refreshing` and `error` as the route above.
   The same words come from the pure function `usage_digest.digest(answer)` over one week's `GET /api/usage` answer, so a scheduled job can deliver them.
   `GET /api/usage/replies?week=<0|1|2>&limit=<1..200>&<dimension>=<value>…` (added in version 39; `day`, `lane`, `model`, `project`, `agent`, `folder` filter, a name repeated is a list of alternatives; a bad `week` or
   `limit` is a 400 `{error}`) lists the replies behind a selection, newest first: `week`, `generated`, `tz`, `tzLabel`, `fields` (`time` KST `YYYY-MM-DDTHH:MM:SS`, `day`, `lane`, `model`, `project`, `agent`, `folder`,
-  `usd`), `total` and `usd` of all that matched, `shown`, `capped`, `cap` (200), `rows` (arrays in the order of `fields`). It is computed from the same cached count (nothing is read again), is
-  `{pending: true}` until a count has run after a restart, and carries no text and no token count.
+  `usd`), `total` and `usd` of all that matched, `shown`, `capped`, `cap` (200), `rows` (arrays in the order of `fields`). It is computed from the same saved count (the records every count saves; nothing is read again), is
+  `{noCount: true}` until a count has saved them, `{pending: true}` while a Reload's count runs, and carries no text and no token count.
 - **Owners**: sala `web/src/sala_web/usage.py`, `usage_digest.py` (the sentences), `spend.py` (the one price table and `PRICES_AS_OF`), `app.py` (the routes), `static/usage.js`, `static/usage-digest.js`, `static/usage-explorer.js`.
 - **Absent or changed**: a key that is added is ignored by a reader that does not know it; `fields` says the row layout, so a reader should index by it. A change to a key or to a row's layout bumps the version.
 - **Test**: `web/tests/test_usage.py` (the data layer and the route), `test_usage_ui.py` (the page over the route), `test_usage_digest.py` (the sentences and the Digest route), `test_usage_digest_ui.py` (the Digest in a browser), `test_usage_explorer.py` (the replies list and route), `test_usage_explorer_ui.py` (Explorer over both routes).

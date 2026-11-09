@@ -379,10 +379,18 @@ def fresh_times():
 
 
 def get_usage(c, query="week=0", tries=100):
+    """The week's answer once a count has been made. A visit makes none (test_usage_count.py), so an answer of "noCount" is followed by one Reload
+    (`fresh=1`, what the tab's Reload button asks), then the count is waited for."""
+    reloaded = False
     for _ in range(tries):
-        r = c.get(f"/api/usage?{query}")
+        r = c.get(f"/api/usage?{query}" + ("&fresh=1" if reloaded == "now" else ""))
         assert r.status_code == 200, r.text
         d = r.json()
+        if reloaded == "now":
+            reloaded = True
+        elif d.get("noCount") and not reloaded:
+            reloaded = "now"
+            continue
         if not d.get("pending") and not d.get("refreshing"):
             return d
         time.sleep(0.1)
@@ -396,7 +404,7 @@ def test_the_endpoint_serves_a_week_at_once_with_its_rows_and_never_a_text_of_a_
                  reply("m2", "claude-sonnet-5-5", eight_days_ago, out=200_000), mtime=time.time())
     with TestClient(create_app(w.settings)) as c:
         first = c.get("/api/usage?week=0").json()
-        assert first.get("pending") or first["weeks"], first                                  # at once: the answer, or "pending" the page asks again on
+        assert first.get("noCount") and not first.get("pending") and not first["rows"], first   # at once, and no count made by looking
         d0 = get_usage(c, "week=0")
         d1 = get_usage(c, "week=1")
         bad = [c.get(f"/api/usage?week={x}") for x in ("3", "-1", "x")]

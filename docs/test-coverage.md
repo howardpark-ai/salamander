@@ -3460,6 +3460,29 @@ Changed: `test_usage_ui.py` no longer expects the Digest to say it is coming nex
 Not covered, and why: this box's real transcripts and a real quota answer (checked by hand once, against a copy of the real quota file, not asserted: the figures depend on the machine), a physical phone (the width is
 emulated), and how the wording reads to a person (by eye).
 
+### `web/tests/test_usage_count.py` (new, 13): when the Usage analysis count is made (Mon Nov 9th 2026)
+
+What it is: the Usage analysis count is a job of its own once a day (`web/contrib/sala-web-usage-count`, `usage_job.py`) plus the tab's Reload, and never a visit (`web/README.md`, *Usage analysis*,
+*When it counts*; `usage.py` `UsageCache`, `swr.py` `peek`, `start`, `refresh_now`, `reload`). Kept because a count reads every recent transcript, so a wrong build costs: a visit (the tab, the Explorer, the
+Digest) that starts a count and leaves the page polling for the minute it runs, a Reload that blocks the server or starts a second count beside one that runs, a restarted app that counts again instead of serving what the
+last count saved (the rows and the drill-down's replies), a daily job whose count the app does not pick up until its next restart, a job that exits 0 after a failed count or replaces the last saved count with nothing, and a tab
+with no count that polls for ever or says nothing. Every transcript, registry and state file is a fake in `tmp_path`; the job runs as the real command in a subprocess with an empty `PATH`, a private `HOME` and `TMUX_TMPDIR`
+(no tmux, no sala), nothing asks Anthropic or AWS.
+
+Covered: a visit of every kind (three weeks, the digest, the drill-down, again after a pause) starting no count (the counter stays 0) and answering `noCount` with no rows and no `pending`; a saved count a month old served as it
+is, with no count; Reload counting once in a thread however often it is pressed (a held count, a second Reload and the digest and drill-down joining it as `pending`, the server answering within a second meanwhile) and a failed
+Reload keeping the last count with the error in words and no secret; a fresh server with a saved count serving the rows, the digest and the replies without counting; the job command counting and saving the three files (names,
+counts and dollars only, no secret), a server that never counted serving them, a server that is running picking up the job's newer count and replies with no restart and no count of its own, a second run reading only what grew
+(the scan cache saved by the first), a failing count exiting 1 with one plain line and leaving all three saved files byte for byte as they were, a failing first count leaving none, the command line taking no argument (exit 2), the
+wrapper script executable and running the job in the web environment (skipped without `web/.venv`); the saved quota read and nothing asked (`QuotaCache.saved`); `peek` starting nothing, `start` and `refresh_now` never running two, `reload`
+reading a newer file and leaving a running refresh alone.
+
+Changed: `test_usage.py`, `test_usage_explorer.py`, `test_usage_digest.py` and `test_usage_ui.py` make their count with a Reload (`fresh=1`) where they used to rely on a visit; the explorer's restart test now expects the saved replies
+served at once, and a new one the answer of a state directory from before the replies file (`noCount`); the digest tests add the `noCount` answer.
+
+Not covered, and why: the timer itself (a unit written by `sala job add` when the job is registered, and tested there), the app and the job counting at the very same moment (each writes its files by rename, so a reader sees a whole
+file; the later count wins), and this box's real transcripts (the figures depend on the machine).
+
 ### The color tool is pinned at version 3: `web/tests/test_colortool_wiring.py` +3 tests, 9 changed (Sat Nov 7th 2026)
 
 The pinned `static/colortool.js` moves from version 2 to version 3, taken verbatim with `web/tools/pin-colortool` (its sha256 file rewritten by the tool). The presets are now the Original orange theme (id `live`, the empty combination: what the page ships), Sky, Mint, Violet and Rose; the earlier Old orange, Two oranges, Radix and Primer are gone from the tool.
