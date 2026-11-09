@@ -107,6 +107,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander lane [<lane> <session>…|<lane> --all|default <lane>] [--dry-run] [--rescue]   which account or key each pane's claude runs on
                                      (subscription-1 (shown as Ultra; max still works) · api · subscription-2 (shown as Team; team still works) · bedrock (the AWS profile SALA_LANE_BEDROCK_PROFILE names) · aws-platform (Claude Platform on AWS); sdk, an alias of api with client claude-agent-sdk), the switch (recorded, then relaunched on it, resumed; a recycle
                                      keeps it) and the default for new sessions; no argument: the table (lib/lane.sh)
+  salamander lane pin <session> <lane> | unpin <session> | pins   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a bulk move lists it as skipped, a move that names it still moves it (lib/lane.sh)
   salamander lane names [--json] [--write]   each lane's code, display name and old words (one line per lane: code, display, aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current; lib/lane.sh)
   salamander lane fallback <lane> [--dry-run]   the dormant lane's sessions (the master by the rescue, last), its default and, at run time, its jobs move to the lane's fallback
                                      (SALA_LANE_FALLBACK: subscription-1, subscription-2, aws-platform, api, sdk → bedrock; bedrock → subscription-1; one hop; used only if itself active and ready); a Fable session lands on opus;
@@ -183,10 +184,13 @@ usage: salamander lane                                         the table (defaul
        salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed
        salamander lane exec <lane> -- COMMAND [ARG…]             run COMMAND on the lane (a unit's ExecStart): the lane's environment; every other lane's variables are unset, subscription-1 too (never blanked)
        salamander lane <lane> <session>… [--dry-run] [--not-master] [--rescue]   record + relaunch those sessions on the lane (one already on it: left alone)
-       salamander lane <lane> --all      [--dry-run] [--not-master]   every session and the default: one recycle --force
-       salamander lane default <lane>    [--dry-run] [--not-master]   the default alone (applied at each session's next relaunch)
+       salamander lane <lane> --all      [--dry-run] [--not-master]   every session and the default: one recycle --force (a pinned session is skipped and listed)
+       salamander lane default <lane>    [--dry-run] [--not-master]   the default alone (applied at each session's next relaunch; a pinned session keeps its pin's lane and is listed)
+       salamander lane pin <session> <lane>   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a move that names it still moves it
+       salamander lane unpin <session>        take the pin off (bulk moves take the session again)
+       salamander lane pins                   the pinned sessions and the lane each is held on (the list: $SALA_LANE_PINS, a TSV: session TAB lane)
        salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   mark a lane dormant by hand (nothing is moved onto it); its sessions, default and jobs are queued onto its fallback unless --no-fallback or SALA_LANE_FALLBACK_AUTO=off
-       salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback (subscription-1=bedrock subscription-2=bedrock aws-platform=bedrock api=bedrock sdk=bedrock bedrock=subscription-1); --dry-run prints the moves; exit 4: no usable fallback
+       salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback (subscription-1=bedrock subscription-2=bedrock aws-platform=bedrock api=bedrock sdk=bedrock bedrock=subscription-1); a pinned session stays and is listed; --dry-run prints the moves; exit 4: no usable fallback
        salamander lane active <lane>     [--dry-run]                  mark a lane active again (the only way back for api and sdk)
        salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)
        salamander lane --rescue <lane>   [--dry-run] [--force]        move the master (SALA_MASTER) off a lane that is out, from another session

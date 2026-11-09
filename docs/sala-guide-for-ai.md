@@ -437,6 +437,7 @@ sala retire NAME                       # end a Claude session for good (writes);
 sala revive --dry-run                  # what a revive would do
 sala recycle --dry-run                 # what a recycle would do; without --dry-run it relaunches every pane when idle
 sala lane --list                       # the lanes and their state; sala lane names: each lane's code and display name
+sala lane pins                         # sessions pinned to a lane (held out of every bulk lane move); pin <session> <lane> / unpin <session> change the list
 sala watch --back-lanes --dry-run      # what the back agents' lane rule would do now; queues and writes nothing
 sala config                            # the effective settings
 sala job list                          # scheduled jobs of ours

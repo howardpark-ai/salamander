@@ -60,6 +60,7 @@ suite lane-subscription-codes config.example lib/adopt.sh lib/alert.sh lib/api_c
 suite lanedormant lib/barepane.sh lib/continuedin.sh lib/lane.sh lib/op.sh lib/settings-apply.sh lib/spawn.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh tests/fixtures/limit-billing.jsonl
 suite lanefallback lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/lane.sh lib/op.sh lib/revive.sh lib/sessions.py lib/settings-apply.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
 suite lanefields config.example docs/lanes.md lib/lane.sh lib/sessions.py lib/spawn.sh
+suite lanepins lib/feedback.sh lib/lane.sh lib/revive.sh lib/sessions.py
 suite lanes lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/lane.sh lib/note.sh lib/op.sh lib/recycle-request.sh lib/rename.sh lib/retire.sh lib/revive.sh lib/sessions.py lib/settings-apply.sh lib/snapshot.sh lib/spawn.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
 suite lanes-revive lib/feedback.sh lib/revive.sh lib/sessions.py
 suite laterlist lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/holders.py lib/note.sh lib/op.sh lib/recycle-request.sh lib/rename.sh lib/revive.sh lib/settings-apply.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh

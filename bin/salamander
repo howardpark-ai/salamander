@@ -107,6 +107,7 @@
 #   salamander lane [<lane> <session>…|<lane> --all|default <lane>] [--dry-run] [--rescue]   which account or key each pane's claude runs on
 #                                      (subscription-1 (shown as Ultra; max still works) · api · subscription-2 (shown as Team; team still works) · bedrock (the AWS profile SALA_LANE_BEDROCK_PROFILE names) · aws-platform (Claude Platform on AWS); sdk, an alias of api with client claude-agent-sdk), the switch (recorded, then relaunched on it, resumed; a recycle
 #                                      keeps it) and the default for new sessions; no argument: the table (lib/lane.sh)
+#   salamander lane pin <session> <lane> | unpin <session> | pins   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a bulk move lists it as skipped, a move that names it still moves it (lib/lane.sh)
 #   salamander lane names [--json] [--write]   each lane's code, display name and old words (one line per lane: code, display, aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current; lib/lane.sh)
 #   salamander lane fallback <lane> [--dry-run]   the dormant lane's sessions (the master by the rescue, last), its default and, at run time, its jobs move to the lane's fallback
 #                                      (SALA_LANE_FALLBACK: subscription-1, subscription-2, aws-platform, api, sdk → bedrock; bedrock → subscription-1; one hop; used only if itself active and ready); a Fable session lands on opus;
