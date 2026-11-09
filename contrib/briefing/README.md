@@ -196,8 +196,14 @@ To run one now: `systemctl --user start sala-briefing-summary-lean.service`. The
 To have sala's notices use this webhook, set this in `~/.config/salamander/config`:
 
 ```
-SALA_WATCH_NOTIFY_CMD='bash -c ". ~/salamander/contrib/briefing/lib.sh; post_slack \"$(cat)\" >/dev/null"'
+SALA_WATCH_NOTIFY_CMD=~/salamander/contrib/briefing/post-stdin.sh
 ```
+
+`post-stdin.sh` reads the notice on stdin and hands it to `post_slack` as one argument, so the text is only ever data. Do not
+write the command as a `bash -c "… post_slack \"$(cat)\" …"` string: the shell that runs the notify command expands `$(cat)`
+inside the double quotes and splices the notice into the inner script, so a backtick or `$( )` in a notice (an alert that quotes a
+command to run, say) is run as a command. If you need an inline command, keep the script in single quotes and read stdin
+inside it: `bash -c '. ~/salamander/contrib/briefing/lib.sh; post_slack "$(cat)" >/dev/null'`.
 
 ## Dry run of the release watcher
 

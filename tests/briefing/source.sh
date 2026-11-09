@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lib.sh is sourced by the three scripts and by sala's SALA_WATCH_NOTIFY_CMD (`bash -c ". <dir>/lib.sh; post_slack …"`):
+# lib.sh is sourced by the three scripts and by post-stdin.sh, sala's SALA_WATCH_NOTIFY_CMD:
 # it must source from any directory and through a symlink, find its own directory, and never exit the caller.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); D=$ROOT/contrib/briefing
