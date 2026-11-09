@@ -5,7 +5,7 @@ Held here, in a headless Chromium when one is installed (conftest.py: `browser`)
 the real sala (the stand-in of test_lane_details.py) or calls Anthropic:
 - the Status section and its card are gone (no `#ld-status`, no "Status" heading) on every lane's page;
 - the pill is the Overview card's own (`laneChip`: classes `sp-pill lane-chip lane-chip-<state>`, drawn in the lane label's box):
-  "active" green, "dormant" grey, "not configured" a grey outline, placed right after the lane's name ("ultra lane")
+  "active" green, "dormant" grey, "not configured" plain grey words with no fill or outline, placed right after the lane's name ("ultra lane")
   and before "N live sessions";
 - a dormant or not-configured lane has its note as one plain line under the head (no box, no border, no fill); an active lane has
   no line; when sala could not read its record there is no pill (it would say a state nobody told the page) and the
@@ -61,7 +61,7 @@ def test_the_pill_sits_in_the_head_after_the_lane_name_and_before_the_session_co
     assert abs((r["chip"]["top"] + r["chip"]["bottom"]) / 2 - (r["name"]["top"] + r["name"]["bottom"]) / 2) < 3, r
 
 
-def test_the_pill_is_the_overview_cards_pill_style_active_green_dormant_grey_not_configured_a_grey_outline(stub_sala, world, page, browser):
+def test_the_pill_is_the_overview_cards_pill_style_active_green_dormant_grey_not_configured_plain_grey_words(stub_sala, world, page, browser):
     record(world["rec"], ("subscription-2", "dormant", "no seat", SINCE, "", "signal"))
     seen = {}
     for lane, state, ready in (("subscription-1", "active", "true"), ("subscription-2", "dormant", "document.querySelector('#ld-title .lane-chip-dormant')"),
@@ -79,7 +79,7 @@ def test_the_pill_is_the_overview_cards_pill_style_active_green_dormant_grey_not
     for state in ("dormant", "not configured"):
         r, g, b, _ = seen[state]["ink"]
         assert max(r, g, b) - min(r, g, b) <= 24, (state, seen[state])
-    assert seen["dormant"]["fillA"] > 0 and seen["not configured"]["fillA"] == 0 and seen["not configured"]["bw"] == "1px", seen
+    assert seen["dormant"]["fillA"] > 0 and seen["not configured"]["fillA"] == 0 and seen["not configured"]["bw"] == "0px", seen   # the look draws no outlines: plain grey words, no fill
 
 
 @pytest.mark.parametrize("width", [1280, 390])

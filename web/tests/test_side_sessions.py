@@ -267,7 +267,7 @@ def test_the_switch_is_at_the_top_of_both_forms_and_there_are_no_loose_links(sal
       return { curBg: cs(cur).backgroundColor, onBg: cs(on).backgroundColor, otherBg: cs(other).backgroundColor, offBg: cs(off).backgroundColor, curColor: cs(cur).color, onColor: cs(on).color,
                h: [cur, other, on, off].map((e) => Math.round(e.getBoundingClientRect().height)) }; })()""")
     assert got["curBg"] == got["onBg"] and got["curColor"] == got["onColor"] and got["otherBg"] == got["offBg"] and got["curBg"] != got["otherBg"], got
-    assert min(got["h"]) >= 36 and max(got["h"]) - min(got["h"]) <= 4, got   # a thumb-sized chip (the scope chips are 40 px, these 36 on a desktop to keep the form on one screen)
+    assert min(got["h"]) >= 32 and max(got["h"]) - min(got["h"]) <= 4, got   # the look's control height under a mouse (32 px; 44 px under a thumb); these 36 on a desktop to keep the form on one screen
 
 
 def test_the_item_and_the_fork_are_both_optional_and_independent(sala, served, browser):

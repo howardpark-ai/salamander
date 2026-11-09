@@ -320,6 +320,8 @@ def test_a_failed_read_keeps_the_last_figures_and_says_so(served, browser):
 @pytest.mark.parametrize("size,name", [(DESKTOP, "desktop"), (PHONE, "phone")])
 def test_the_layout_never_scrolls_sideways_and_a_phone_has_44px_targets_and_four_tabs_in_one_bar(served, browser, size, name):
     open_tab(served, browser, size)
+    if name == "phone":
+        browser.touch()   # the 44 px targets are the touch size: the look draws controls 32 px under a mouse
     for g in ("agent", "folder", "model", "day", "lane"):                                       # the widest names are the likeliest to push the page
         click(browser, f'#us-group [data-g="{g}"]')
     m = browser.evaluate("""(() => { const vw = document.documentElement.clientWidth, r = (n) => n.getBoundingClientRect();

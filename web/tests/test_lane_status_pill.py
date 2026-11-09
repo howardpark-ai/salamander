@@ -6,7 +6,7 @@ extreme answers of test_lane_cards_nowrap.py: every chip state, the bedrock and 
 - the chip carries the lane label's own class family (`sp-pill`) and draws like it: the same size, weight, family, height,
   radius and border width as the label beside it;
 - every lane label and every chip says its words in lower case ("bedrock", "aws-platform", "active", "dormant", "not configured");
-- "active" is green, "dormant" a tinted grey, "not configured" a grey outline with no fill, and each holds WCAG AA (4.5:1)
+- "active" is green, "dormant" a tinted grey, "not configured" plain grey words (no fill, no outline), and each holds WCAG AA (4.5:1)
   against what is under it in both themes;
 - the head stays on one row and the chip sits left of "Details ›" at both widths (the baseline itself: test_lane_chip_baseline.py).
 """
@@ -76,7 +76,7 @@ def check_heads(got, where):
         elif state == "dormant":
             assert max(r, g, b) - min(r, g, b) <= 24 and h["fill"][3] > 0, (where, "dormant is not a tinted grey", h)
         else:
-            assert max(r, g, b) - min(r, g, b) <= 24 and h["fill"][3] == 0 and h["chip"]["bw"] == "1px", (where, "not configured is not a grey outline", h)
+            assert max(r, g, b) - min(r, g, b) <= 24 and h["fill"][3] == 0 and h["chip"]["bw"] == "0px", (where, "not configured is not plain grey text (the look draws no outline)", h)
     assert states == {"active", "dormant", "unconfigured"}, (where, states)
 
 

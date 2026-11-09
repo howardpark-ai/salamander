@@ -515,8 +515,8 @@ def test_the_count_is_on_a_front_row_only_at_its_far_right_and_reads_9_plus(sala
       const accent = getComputedStyle(p).backgroundColor, accentText = getComputedStyle(p).color; p.remove();
       return { h: r.height, w: r.width, color: cs.color, bg: cs.backgroundColor, accent, accentText, fs: cs.fontSize, fw: cs.fontWeight, radius: cs.borderTopLeftRadius,
                pl: cs.paddingLeft, pr: cs.paddingRight, minw: cs.minWidth, gap: row.right - r.right }; })()""")
-    assert st["h"] == 18 and st["w"] >= 20 and st["minw"] == "20px" and st["fs"] == "11px" and st["fw"] == "600", st
-    assert st["radius"] == "9px" and st["pl"] == "6px" and st["pr"] == "6px", st
+    assert st["h"] == 18 and st["w"] >= 20 and st["minw"] == "20px" and st["fs"] == "12px" and st["fw"] == "600", st   # 12 px: the look's smallest step (was 11)
+    assert st["radius"] == "8px" and st["pl"] == "8px" and st["pr"] == "8px", st   # the look's 8 px corner and 4 px grid padding (were 9 and 6)
     # the dark theme's shipped small label (the shipped dark look): the one orange on a deep brown fill; the accent is still the page's orange
     assert (st["color"], st["bg"]) == ("rgb(240, 160, 106)", "rgb(58, 38, 25)") and st["color"] == st["accent"], st
     assert st["gap"] < 16, st                                                          # at the right end

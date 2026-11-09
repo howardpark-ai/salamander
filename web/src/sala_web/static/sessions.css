@@ -260,5 +260,5 @@ body.lane-open #overview-pane .sp:not(.ld) { display: none; }
   #overview-pane .ov-tl { display: block; text-align: center; line-height: 1.15; white-space: normal; }
   #overview-pane .ov-bar { gap: 4px; }
   #overview-pane .ov-tabs { gap: 2px; }
-  #overview-pane .ov-tab { padding: 8px 8px; gap: 4px; font-size: 15px; }
+  #overview-pane .ov-tab { padding: 8px 6px; gap: 4px; font-size: 15px; }
 }

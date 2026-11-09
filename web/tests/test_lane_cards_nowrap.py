@@ -241,7 +241,7 @@ def test_a_lane_details_page_keeps_every_label_on_one_line(world, page, browser,
     assert browser.evaluate("document.querySelectorAll('#ld-usage .lane-chip').length") == 0              # none in the card
     # the title above it holds too
     assert browser.evaluate("(() => { const t = document.getElementById('ld-title'); const r = document.createRange(); r.selectNodeContents(t);"
-                            " const rs = [...r.getClientRects()].filter((x) => x.width > 0); return rs.every((x) => Math.abs(x.top - rs[0].top) < 3); })()")
+                            " const rs = [...r.getClientRects()].filter((x) => x.width > 0); return rs.every((x) => Math.abs((x.top + x.bottom) / 2 - (rs[0].top + rs[0].bottom) / 2) < 3); })()")   # one row: the centres line up (the pill is 20 px in a taller line)
 
 
 def test_the_details_page_card_with_a_dormant_api_lane_stays_one_line_too(world, page, browser):

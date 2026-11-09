@@ -68,7 +68,7 @@ def check_chips(m: dict, vw: int) -> None:
     assert m["docScroll"] <= vw and m["paneScroll"] <= m["paneClient"], m
     for k in ("reload", "help"):
         c = m[k]
-        assert c["inHead"] and c["svg"] and c["border"] >= 1 and c["radius"] >= 12, (k, c)
+        assert c["inHead"] and c["svg"] and c["border"] >= 1 and c["radius"] >= 8, (k, c)   # a chip with the look's 8 px corners
         assert 0 <= c["left"] and c["right"] <= vw, (k, c)
     assert m["reload"]["text"] == "Reload" and m["help"]["text"] == "Get Help", m
     assert m["help"]["href"] == "#s=help-session" and "help-session" in m["help"]["title"], m

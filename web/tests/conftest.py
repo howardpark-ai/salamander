@@ -294,6 +294,10 @@ class CDP:
             self.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": "dark"}]})
         self.send("Page.navigate", {"url": url})
 
+    def touch(self, on: bool = True) -> None:
+        """A touch screen: `(pointer: coarse)` matches (the look's 44 px controls) and `(hover: none)`; set on the open page, live."""
+        self.send("Emulation.setTouchEmulationEnabled", {"enabled": on, "maxTouchPoints": 1 if on else 0})
+
     def evaluate(self, expression: str, timeout_ms: int = 25000):
         """The value of a JS expression on the page; a promise is awaited."""
         r = self.send("Runtime.evaluate", {"expression": expression, "awaitPromise": True, "returnByValue": True,

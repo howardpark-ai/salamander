@@ -133,7 +133,7 @@ def test_links_render_and_are_tappable_at_390px(served, browser):
                 continue
             assert a["href"].startswith("http"), a
             assert a["target"] == "_blank" and a["rel"] == "noopener noreferrer", a
-            # visible on the dark theme and big enough to tap: the accent colour, underlined, a text line tall (the
-            # inline box of a fold's 12 px monospace is about 14 px, of a reply's 16 px text about 19 px)
-            assert a["color"] != m["textColor"] and "underline" in a["deco"], a
+            # visible on the dark theme and big enough to tap: the accent colour (no underline until the pointer is over it, as
+            # on stackshot), a text line tall (the inline box of a fold's 12 px monospace is about 14 px, of a reply's text about 19 px)
+            assert a["color"] != m["textColor"] and "underline" not in a["deco"], a
             assert a["h"] >= 12 and a["w"] > 0, a

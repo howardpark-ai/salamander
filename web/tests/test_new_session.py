@@ -743,6 +743,8 @@ def test_the_scopes_the_one_box_the_role_and_the_suggested_name(sala, served, br
     # the form opens on the scope of the open session (example); the chips are stackshot's three, 40px buttons; the box lists
     # the scope's listed projects sorted by key and ends with the new-project row, which waits for a name to be typed
     g = open_form(browser, served, scope=None)
+    browser.touch()   # the 40 px buttons and rows are the touch sizes: the look makes controls 32 px under a mouse and 44 px under a thumb
+    g = ns(browser)
     assert [(s["scope"], s["on"]) for s in g["scopes"]] == [("beta", "false"), ("gamma", "false"), ("example", "true"), ("all", "false")] and all(s["h"] >= 40 for s in g["scopes"]), g
     assert g["order"] == ["projects/demo", "projects/stackshot", "__new__"] and g["disabledRows"] == ["__new__"], g
     assert sala.ss.calls("/client/projects")[0]["query"] == {"scope": "example"}

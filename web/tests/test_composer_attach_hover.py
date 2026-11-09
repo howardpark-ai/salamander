@@ -91,9 +91,11 @@ def mouse(browser, x: float, y: float) -> None:
 def test_the_hover_is_a_30px_square_inside_the_row(served, browser):
     desktop(browser, served)
     idle = browser.evaluate(BOXES)
-    # the hit area and the one-line row are as before
+    # the hit area is as before; the one-line row is the send button (32 px with a mouse, 44 on a touch screen) plus the row's 8 px
+    # padding twice and its border: the paperclip's negative margins keep its 44 px box inside that line
     assert (idle["btn"]["w"], idle["btn"]["h"]) == (44, 44), idle
-    assert idle["row"]["h"] == 44, idle
+    send = browser.evaluate("document.querySelector('.send-btn').getBoundingClientRect().height")
+    assert idle["row"]["h"] == send + 18, (send, idle)
     assert not idle["matchesHover"] and idle["hl"]["bg"] in TRANSPARENT, idle  # nothing painted at rest
     c = browser.evaluate(CENTRE)
     hover_over(browser, c["x"], c["y"])
@@ -118,7 +120,7 @@ def test_the_hover_is_a_30px_square_inside_the_row(served, browser):
     assert hl["left"] >= inner["left"] and hl["right"] <= inner["right"], (hl, inner)
     assert hl["top"] >= inner["top"] and hl["bottom"] <= inner["bottom"], (hl, inner)
     # the button is still the same 44x44 and the row the same line while hovered
-    assert (btn["w"], btn["h"]) == (44, 44) and on["row"]["h"] == 44, on
+    assert (btn["w"], btn["h"]) == (44, 44) and on["row"]["h"] == idle["row"]["h"], on
     # leaving it clears the highlight
     mouse(browser, 640, 400)
     for _ in range(40):  # the engine drops :hover a moment after the move, as it set it

@@ -588,8 +588,8 @@ def test_the_dark_page_draws_the_shipped_labels_and_disabled_buttons(served, bro
       return out; })()""")
     orange, fill, grey_bg, grey_fg = css_rgb("#f0a06a"), css_rgb("#3a2619"), css_rgb("#2a2a2c"), css_rgb("#a3a29d")
     assert got["ucount"][:2] == [orange, fill] and fill in got["ucount"][3], got["ucount"]
-    # (the /v2 badge has no border at all, `border: 0`: nothing to color)
-    assert got["front"][:3] == [orange, fill, fill if path == "/" else None], got["front"]
+    # (the badge is a tinted tag with no border at all, `border: 0`: nothing to color)
+    assert got["front"][:3] == [orange, fill, None], got["front"]
     assert got["hit"][:3] == [orange, fill, fill], got["hit"]
     seen = [k for k in got if k.startswith(("#", "."))]
     assert "#composer .send-btn" in seen, seen

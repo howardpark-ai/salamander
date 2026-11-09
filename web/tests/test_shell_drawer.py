@@ -144,6 +144,7 @@ def test_the_markup_has_the_button_and_the_drawer():
 
 def test_the_button_is_on_every_page_and_nothing_loads_before_it_is_used(chat, fake):
     b = chat
+    b.touch()   # a phone: the 44 px square is the touch size (a mouse gets the look's 32 px)
     for hash_ in (f"#s={NAME}", "#sessions", "#new"):
         b.evaluate("location.hash = %s; ''" % json.dumps(hash_))
         settle(b)
@@ -165,7 +166,7 @@ def test_a_phone_opens_a_sheet_with_a_frame_and_closes_it_without_losing_the_she
     assert 0.55 * s["vh"] <= s["drawer"]["h"] <= 0.65 * s["vh"], s                      # about 60% of the screen
     assert abs(s["drawer"]["b"] - s["vh"]) <= 1 and s["drawer"]["l"] == 0 and s["drawer"]["r"] == s["vw"]   # a sheet at the bottom edge
     radius = b.evaluate("getComputedStyle(document.querySelector('#shell-drawer')).borderTopLeftRadius")
-    assert radius == "16px"
+    assert radius == "8px"   # the look's largest corner (was 16 px)
     close = b.evaluate("(() => { const r = document.querySelector('#shell-close').getBoundingClientRect(); return { h: r.height, w: r.width, text: document.querySelector('#shell-close').textContent.trim() }; })()")
     assert close["h"] >= 44 and close["text"] == "Close", close
     assert b.evaluate("document.querySelector('.shell-chip').textContent") == HOST + " · " + SESSION
@@ -439,6 +440,7 @@ def test_the_shell_button_stays_in_the_bar_where_there_is_no_menu(chat, fake):
     """The Overview and the New session page hide the ⋯ button and its menu, so the button must not fold into it there (it
     would be out of reach): at a width that folds it on a session, it stays in the bar on those pages."""
     b = chat
+    b.touch()   # a phone: the bar holds the 44 px touch square
     phone(b, 320)
     assert b.evaluate(FOLDED)["inMenu"]
     for hash_ in ("#sessions", "#new"):

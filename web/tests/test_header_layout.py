@@ -213,7 +213,7 @@ def test_at_360_px_the_name_has_about_234_px_not_129(served, browser):
     assert 228 <= got["name"]["box"]["w"] <= 240 and got["name"]["cut"], got["name"]
 
 
-STACKSHOT = {"name": "demo-builder-wren42", "role": "front", "lane": "subscription-1", "status": "busy"}   # 156.8 px at 16 px 600: whole at 360 px left-aligned (181 px of room), cut centred (129)
+STACKSHOT = {"name": "demo-builder-wren42", "role": "front", "lane": "subscription-1", "status": "busy"}   # 154 px at 15 px 600: whole at 360 px left-aligned (181 px of room), cut centred (129)
 
 PLACE = r"""
 (() => {
@@ -238,11 +238,11 @@ def open_stackshot(browser, served, width: int) -> dict:
 
 
 def assert_left_and_whole(got: dict) -> None:
-    """Under 400 px: the name starts one gap after the toggle (not centred), is whole (157 px of the 181 it has), and the fold is the
+    """Under 400 px: the name starts one gap after the toggle (not centred), is whole (154 px of the 181 it has), and the fold is the
     centred bar's (the ⋯ button stays, the other three folded)."""
     assert not got["centredClass"], got
     assert got["whoLeft"] - got["toggleRight"] <= 8.5, got   # the block starts one gap after the button; centred, it would start about 100 px further right
-    assert not got["cut"] and got["clientWidth"] >= got["scrollWidth"] >= 156, got
+    assert not got["cut"] and got["clientWidth"] >= got["scrollWidth"] >= 153, got
     assert got["folded"] == 3 and got["inBar"] == ["top-menu-btn"], got
 
 
