@@ -455,6 +455,22 @@ session, so a count on a session you are not in can take up to 10 s to appear, a
 goes away on this device at its next poll, or when the page comes back into view. Opening or leaving a session posts even
 when the page's last poll showed it read, since a reply may have landed since. `tests/test_unread_count.py`
 
+**The Unread entry** sits under Overview (`#side-unread`, a button: a filter icon, "Unread" and the count pill). The pill is the total of the counts the
+rows show (the same `unread_count`, so the open session's replies and every background agent's are not in it; above 9 it reads 9+; none at zero).
+A tap turns **Unread only** on and the entry reads "Unread only" and takes the selected look (`aria-pressed` carries the state); a second tap turns it off. The
+drawer stays open on a phone: the entry opens no page. While it is on, the list holds only the agents with an unread reply, under their project
+and scope headings, and these rules apply:
+
+- **The open agent stays** in the list until the owner leaves it, though opening it read its replies (without that its row would vanish under the pointer). It shows no count.
+- **Headings read as open**: a folded project or scope is drawn open so an unread reply is never behind a fold. The saved folds (`collapsed`) are not changed (a tap
+  on a heading does nothing while the filter is on), so each one comes back when the filter is turned off.
+- **Background agents never show**, even with "Show all sessions" on, because they never have a count (an open one stays, like any open agent).
+- **Nothing unread** reads "Nothing unread" in the list (under the open agent's row, when one is open).
+
+The on/off is the pref `unreadOnly` (*Preferences*, below), kept on the server like "Show all sessions", so the phone and the desktop agree and a reload keeps it. The rules are
+pure functions in `shared.js` (`unreadOfSession`, `unreadTotal`, `unreadKept`, between the `<unread-words>` markers) that `app.js` calls and
+`tests/test_unread_filter.py` runs in node; the same file drives a headless Chromium over `/` and `/v2/`, at a phone's and a desktop's width.
+
 Above the list, **Overview** opens in the main area in place of a session (`#sessions`; a session is
 `#s=<name>`; what Back, Forward and a reload do with them is under *Back*): every live session's project, role, status, model and lane
 in a sortable table, each account lane's usage limits and one **API (metered)** card above it: what the API key
@@ -1772,6 +1788,7 @@ directory, fsync, rename) under a lock, mode 0600.
 | `collapsed` | folded headers: project keys, and scope keys as `scope:<key>` |
 | `laneOrder` | the Overview's lane card ids (`subscription-1`, `subscription-2`, `api`, `aws-platform`, `bedrock`; an old `max` or `team` in a saved order reads as the new code) in the order the owner dragged them; a lane not in it follows the listed ones in the default order (active, dormant, not configured), an id with no card now is ignored |
 | `showAll` | the "Show all sessions" toggle (background agents) |
+| `unreadOnly` | the Unread entry's filter (*The Unread entry*): only the agents with an unread reply, plus the open one; false by default |
 | `shellHeight` | the shell drawer's height in pixels, an integer from 120 to 4000, default 300 (*The shell drawer*) |
 
 The lists hold strings, at most 500 each. Entries not listed follow in the default order; entries that are gone
