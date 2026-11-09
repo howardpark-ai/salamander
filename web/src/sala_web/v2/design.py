@@ -141,6 +141,7 @@ ICONS = [
     ("M10 6.5v7M6.5 10h7", '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>'),                                    # new session
     ("M2.8 8h14.4M2.8 12.2h14.4M8 8v8.2", '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/>'),  # overview
     ("M7.5 3.8v12.4", '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>'),                                # sidebar
+    ("M3 5.5h14M5.5 10h9M8 14.5h4", '<path d="M3 6h18M6 12h12M10 18h4"/>'),                                                # unread filter
     ("M16.2 10a6.2 6.2 0 1 1-1.9-4.5", '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>'),  # reload
     ("M6 8l3 2.5L6 13M11 13h3", '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>'),       # shell
     ("M7.9 7.9a2.2 2.2 0 1 1 3.1 2", '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.7 2.4c-.8.4-1.2 1-1.2 1.8v.3"/><path d="M12 17h.01"/>'),  # help

@@ -57,7 +57,7 @@ const state = {
   es: null,             // EventSource
   defaultScope: "",     // the scope a new project starts in (api/config)
   scopes: [],           // this box's scopes (api/config) and other, each with its project groups; Unregistered last
-  prefs: { scopeOrder: [], groupOrder: [], sessionOrder: [], collapsed: [], laneOrder: [], showAll: false, showTools: false, shellHeight: 300 },  // server-side (api/prefs): follows the owner
+  prefs: { scopeOrder: [], groupOrder: [], sessionOrder: [], collapsed: [], laneOrder: [], showAll: false, unreadOnly: false, showTools: false, shellHeight: 300 },  // server-side (api/prefs): follows the owner
   prefsNote: "",
   tab: "chat",
   terminalUrl: "/tty/?arg=",
@@ -274,7 +274,10 @@ async function loadSessions() {
 
 // background agents work out of the owner's sight: hidden unless the toggle is on (or one is selected)
 const HIDDEN_ROLES = new Set(["back"]);
-const visibleSessions = (g) => orderedSessions(g).filter((s) => state.prefs.showAll || !HIDDEN_ROLES.has(s.role) || s.name === state.selected);
+const visibleSessions = (g) => {
+  const shown = orderedSessions(g).filter((s) => state.prefs.showAll || !HIDDEN_ROLES.has(s.role) || s.name === state.selected);
+  return state.prefs.unreadOnly ? unreadKept(shown, state.selected) : shown;   // "Unread only": the Unread entry, below
+};
 
 /* ---------- the unread reply count (which replaced the "New" chip) ----------
    A front agent's row carries a filled orange count at its right end: the replies it has written since the owner last opened it.
@@ -283,9 +286,15 @@ const visibleSessions = (g) => orderedSessions(g).filter((s) => state.prefs.show
    after the read marker kept in state_dir/read-state.json, so the phone and the desktop agree, at most 10 a session) and
    sends `unread_count` with every session. The open session never shows one: opening it, and any reply that lands while it
    is open and the page is in view, moves its marker up to its latest reply (POST api/read; the server takes the time from the
-   transcript). Background agents never get a count (the server sends them 0). */
+   transcript). Background agents never get a count (the server sends them 0).
+
+   The Unread entry under Overview shows the total of those counts and, tapped, turns the "Unread only" filter on (tap again: off): the
+   list then holds only the agents with an unread reply, under their project and scope headings, plus the open one until the owner
+   leaves it. Headings read as open while it is on (the saved fold list is not touched, so the folds come back when it is off), and a
+   list with nothing unread says "Nothing unread". Background agents have no count, so they are not in it. The choice is the
+   `unreadOnly` pref, kept like "Show all sessions" (one setting for the phone and the desktop). */
 const UNREAD_SHOWN_MAX = 9;
-const unreadOf = (s) => (s.role === "front" && s.name !== state.selected ? (Number.isInteger(s.unread_count) ? s.unread_count : s.unread ? 1 : 0) : 0);
+const unreadOf = (s) => unreadOfSession(s, state.selected);   // shared.js, which the tests also run in node
 const unreadChip = (n, label) => el("span", { class: "ucount", role: "img", "aria-label": label, title: label, text: n > UNREAD_SHOWN_MAX ? UNREAD_SHOWN_MAX + "+" : String(n) });
 const unreadLabel = (n, where) => (n > UNREAD_SHOWN_MAX ? `More than ${UNREAD_SHOWN_MAX} unread replies` : plural(n, "unread reply", "unread replies")) + (where ? ` in ${where}` : "");
 const marking = new Set();
@@ -302,6 +311,19 @@ function markRead(name, { force = false } = {}) {
     .catch(() => { s.unread = was.unread; s.unread_count = was.count; })   // not saved: the next poll tells the truth
     .finally(() => { marking.delete(name); renderSidebar(); });
 }
+
+// the Unread entry (index.html #side-unread): the total of the counts, and whether the filter is on; renderSidebar draws it, and every change of a count passes through that
+function paintUnreadEntry() {
+  const b = $("#side-unread"), on = !!state.prefs.unreadOnly;
+  b.classList.toggle("selected", on);
+  b.setAttribute("aria-pressed", String(on));
+  b.querySelector(".label").textContent = on ? "Unread only" : "Unread";
+  b.title = on ? "Showing only agents with unread replies: tap to show all" : "Show only agents with unread replies";
+  const n = unreadTotal(liveSessions(), state.selected), old = b.querySelector(".ucount");
+  if (old) old.remove();
+  if (n) b.append(unreadChip(n, unreadLabel(n, "all agents")));
+}
+$("#side-unread").addEventListener("click", () => { savePrefs({ unreadOnly: !state.prefs.unreadOnly }); renderSidebar(); });
 
 // the saved order first; entries not in it keep the server's order after them (so Unregistered stays last unless moved)
 function inOrder(items, saved, keyOf = (x) => x.key) {
@@ -354,7 +376,9 @@ function sessionOrderWith(cur, g, visibleNew) {
 const orderedScopes = () => inOrder(state.scopes, state.prefs.scopeOrder);
 const orderedGroups = (sc) => inOrder(sc.groups, state.prefs.groupOrder);
 const isCollapsed = (k) => (state.prefs.collapsed || []).includes(k);
+const isFolded = (k) => !state.prefs.unreadOnly && isCollapsed(k);   // while the filter is on every heading reads as open
 function toggleCollapsed(k) {
+  if (state.prefs.unreadOnly) return;   // a fold now would change the saved list with nothing to show for it
   saveList("collapsed", (cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
   renderSidebar();
 }
@@ -375,7 +399,7 @@ function chevron(collapsed) {
 function header(cls, ckey, title, tip, collapsed, sessions) {
   const busy = collapsed && sessions.some((s) => s.status === "busy");
   const sel = collapsed && sessions.some((s) => s.name === state.selected);
-  const h = el("div", { class: cls + (sel ? " has-selected" : ""), title: tip + " (click to fold, drag to reorder)",
+  const h = el("div", { class: cls + (sel ? " has-selected" : ""), title: tip + (state.prefs.unreadOnly ? " (open while only unread agents show; drag to reorder)" : " (click to fold, drag to reorder)"),
                         role: "button", tabindex: "0", "aria-expanded": String(!collapsed), "data-ckey": ckey },
     el("span", { class: "t", text: title }),
     chevron(collapsed),  // right after the label, like claude.ai
@@ -476,7 +500,7 @@ function renderSidebar() {
     const groups = orderedGroups(sc).map((g) => ({ g, shown: visibleSessions(g) })).filter((x) => x.shown.length);
     if (!groups.length) continue;
     const sKey = "scope:" + sc.key;
-    const folded = isCollapsed(sKey);
+    const folded = isFolded(sKey);
     const all = groups.flatMap((x) => x.shown);
     const body = el("div", { class: "scope-body" });
     if (folded) {
@@ -486,7 +510,7 @@ function renderSidebar() {
       for (const s of groups[0].shown) body.append(sessRow(s));
     } else {
       for (const { g, shown } of groups) {
-        const c = isCollapsed(g.key);
+        const c = isFolded(g.key);
         const box = el("div", { class: "group", "data-key": g.key }, header("group-title", g.key, g.title, g.key, c, shown));
         for (const s of c ? shown.filter((x) => x.name === state.selected) : shown) box.append(sessRow(s));
         body.append(box);
@@ -495,8 +519,11 @@ function renderSidebar() {
     nav.append(el("div", { class: "scope" + (sc.flat ? " flat" : ""), "data-key": sc.key },
       header("scope-title", sKey, sc.title, sc.flat ? "Sessions with no project" : "Scope: " + sc.key, folded, all), body));
   }
-  if (!nav.children.length) nav.append(el("div", { class: "empty", text: "No live sessions." }));
+  // the filter on and nothing unread (the open agent, if any, is the one row above): the line says so
+  if (state.prefs.unreadOnly && !unreadTotal(liveSessions(), state.selected)) nav.append(el("div", { class: "empty", role: "status", text: "Nothing unread" }));
+  else if (!nav.children.length) nav.append(el("div", { class: "empty", text: "No live sessions." }));
   nav.scrollTop = keepTop;
+  paintUnreadEntry();
   if (rowMenu && !rowButton(rowMenu.name)) closeRowMenu();  // its session is gone (or folded away): the menu goes with it
   if (!listPainted) {  // the first paint of the list: after the next frame has been drawn (timing, above)
     listPainted = true;
