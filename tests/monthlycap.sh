@@ -14,7 +14,8 @@
 #     handle its last message (the retry loop's restart).
 #   THE MOVE: the fixture sessions move to the fallback lane (the lane map's, not a name in the code); a session already on the
 #     fallback stays (not relaunched); a session of another lane stays; a pane that is MID-TURN (busy for ever, a retry loop) is moved
-#     too, its turn cut by one Escape (pane_cut_turn), a pane that was idle gets no Escape.
+#     too, its turn cut by one Escape (pane_cut_turn), a pane that was idle gets no Escape; a PINNED session on the capped lane (also mid-turn)
+#     is neither cut nor moved and is listed as skipped (pinned), in the plan and in the operation's log.
 #   ONE POST: exactly one post across the whole episode, naming the lane, the regain day and the fallback; more ticks after the move add none.
 #   THE END: the regain time passing brings the lane back by itself (the record alone, no probe); no post of its own.
 #   NO FALLBACK: with the automatic move off, the episode's one post says when access returns and that moving is the operator's call;
@@ -108,22 +109,23 @@ pushed() { local n; n=$(grep -c "^$1 " "$FAKE_SOCK_LOG" 2>/dev/null); echo "${n:
 escs() { local n; n=$(grep -c "^esc $1 " "$FAKE_LOG" 2>/dev/null); echo "${n:-0}"; }             # the Escapes the fake got
 NOW=$(date +%s); R=$(( NOW / 60 * 60 + 2 * 86400 ))   # the regain time: a whole minute, two days ahead
 RISO=$(date -u -d "@$R" +%Y-%m-%dT%H:%M:%SZ)
-UA=$(uuid 1); UB=$(uuid 2); UC=$(uuid 3); UK=$(uuid 4)
+UA=$(uuid 1); UB=$(uuid 2); UC=$(uuid 3); UK=$(uuid 4); UP=$(uuid 5)
 
 echo "== setup: a (Team, idle), b (Team, mid-turn for ever), c (already on bedrock), k (Ultra); the Team lane is the one the cap hits"
-mk a "$UA" -e CLAUDE_CONFIG_DIR="$TEAM"; mk b "$UB" -e CLAUDE_CONFIG_DIR="$TEAM"; mk c "$UC" -e CLAUDE_CODE_USE_BEDROCK=1; mk k "$UK"
-fake_up sala-test-a sala-test-b sala-test-c sala-test-k || exit 1
-lane_write sala-test-a subscription-2; lane_write sala-test-b subscription-2; lane_write sala-test-c bedrock; lane_write sala-test-k subscription-1
+mk a "$UA" -e CLAUDE_CONFIG_DIR="$TEAM"; mk b "$UB" -e CLAUDE_CONFIG_DIR="$TEAM"; mk c "$UC" -e CLAUDE_CODE_USE_BEDROCK=1; mk k "$UK"; mk p "$UP" -e CLAUDE_CONFIG_DIR="$TEAM"
+fake_up sala-test-a sala-test-b sala-test-c sala-test-k sala-test-p || exit 1
+lane_write sala-test-a subscription-2; lane_write sala-test-b subscription-2; lane_write sala-test-c bedrock; lane_write sala-test-k subscription-1; lane_write sala-test-p subscription-2
+"$SALA" lane pin sala-test-p subscription-2 >/dev/null 2>&1   # p is pinned to the capped lane: a bulk move (the fallback) must leave it alone
 [ "$(proc_lane "$(cpid a)")|$(proc_lane "$(cpid b)")|$(proc_lane "$(cpid c)")|$(proc_lane "$(cpid k)")" = "subscription-2|subscription-2|bedrock|subscription-1" ] \
     && ok "a and b run on subscription-2, c on bedrock, k on subscription-1" || bad "lanes: $(proc_lane "$(cpid a)") $(proc_lane "$(cpid b)") $(proc_lane "$(cpid c)") $(proc_lane "$(cpid k)")"
-set_reg_status "$(cpid b)" busy   # b is in the retry loop: the registry says busy and nothing ends it but an Escape
+set_reg_status "$(cpid p)" busy; set_reg_status "$(cpid b)" busy   # b is in the retry loop: the registry says busy and nothing ends it but an Escape
 [ -n "$(is_idle_reason "$(cpid b)")" ] && [ -z "$(is_idle_reason "$(cpid a)")" ] && ok "b reads as busy, a as idle (the idle-aware relaunch would skip b)" || bad "idle reasons: b '$(is_idle_reason "$(cpid b)")' a '$(is_idle_reason "$(cpid a)")'"
 [ "$(lane_fallback_of subscription-2)" = bedrock ] && ok "the Team lane's fallback (the lane map) is bedrock" || bad "fallback: $(lane_fallback_of subscription-2)"
 
 echo "== the event: a and b's last turns ended on the monthly-cap 429 (b's text worded and spaced differently); the move is queued but not yet run"
 touch "$HOME/norun"
-for u in $UA $UB $UC $UK; do user_rec "$u" $((NOW-900)); done
-cap_rec "$UA" $((NOW-600)) "$R"; cap_rec "$UB" $((NOW-590)) "$R" variant
+for u in $UA $UB $UC $UK $UP; do user_rec "$u" $((NOW-900)); done
+cap_rec "$UA" $((NOW-600)) "$R"; cap_rec "$UP" $((NOW-595)) "$R"; cap_rec "$UB" $((NOW-590)) "$R" variant
 lw
 [ "$(f subscription-2 2)|$(f subscription-2 6)" = "dormant|signal" ] && ok "the watch marks the Team lane dormant, by signal (no SALA_LIMIT_CONFIRM wait)" || bad "record: $(slurp "$REC")"
 [ "$(f subscription-2 7)" = "$RISO" ] && ok "dormant until the regain time the text names ($RISO, the seventh column), the variant's text included" || bad "until column '$(f subscription-2 7)', expected $RISO: $(slurp "$REC")"
@@ -137,15 +139,18 @@ echo "== while the move waits: more ticks post nothing, queue nothing more, and 
 lw; lw; lw
 [ "$(nposts '')" = 0 ] && ok "no post over four ticks (the move's own notice will be the one)" || bad "posts: $(nposts ''): $(<"$POSTS")"
 [ "$(queued)" = 1 ] && ok "still ONE operation" || bad "queued: $(queued)"
-[ "$(pushed "$UA")$(pushed "$UB")" = 00 ] && [ "$(told "$UA")$(told "$UB")" = 00 ] && ok "nothing pushed to a or b: the lifter does not poke the dormant lane's panes" || bad "pushed a $(pushed "$UA") b $(pushed "$UB"): $(grep -E "^($UA|$UB) " "$FAKE_SOCK_LOG" 2>/dev/null)"
+[ "$(pushed "$UA")$(pushed "$UB")$(pushed "$UP")" = 000 ] && [ "$(told "$UA")$(told "$UB")" = 00 ] && ok "nothing pushed to a or b: the lifter does not poke the dormant lane's panes" || bad "pushed a $(pushed "$UA") b $(pushed "$UB"): $(grep -E "^($UA|$UB) " "$FAKE_SOCK_LOG" 2>/dev/null)"
 # a success after the error on the dormant lane (a stray answer) still does not lift or poke a pane while the lane is held
 user_rec "$UA" $((NOW-300)); printf '{"type":"assistant","uuid":"%s","timestamp":"%s","cwd":"%s","message":{"model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"done"}]},"sessionId":"%s"}\n' "$(rid)" "$(iso $((NOW-290)))" "$HOME/work" "$UA" >> "$P/$UA.jsonl"
 lw; lw
 [ "$(pushed "$UA")$(pushed "$UB")" = 00 ] && [ "$(nposts '')" = 0 ] && ok "a success record after the error: still no poke, no post" || bad "after a success: pushed a $(pushed "$UA") b $(pushed "$UB"), posts $(nposts '')"
 
+out=$("$SALA" lane fallback subscription-2 --dry-run 2>&1)
+has "$out" "skipped (pinned to subscription-2): sala-test-p" && ! has "$out" "sala-test-p: subscription-2 →" && has "$out" "sala-test-b: subscription-2 → bedrock" && ok "the plan lists the pinned session p as skipped and plans a and b" || bad "plan: $out"
+
 echo "== the move, end to end through the queue"
 rm -f "$HOME/norun"
-sa=$(starts "$UA"); sb=$(starts "$UB"); sc=$(starts "$UC"); sk=$(starts "$UK")
+sp=$(starts "$UP"); sa=$(starts "$UA"); sb=$(starts "$UB"); sc=$(starts "$UC"); sk=$(starts "$UK")
 tick
 waitfor "[ -f '$DONE/$W1.op' ]" 480 && ok "the operation ran and was archived" || bad "op: $(cat "$OPS/$W1.op" "$DONE/$W1.op" 2>/dev/null) / $(tail -12 "$HOME/.claude/salamander-op-$W1.log" 2>/dev/null)"
 [ "$(mval "$W1" state)" = done ] && ok "state done" || bad "state $(mval "$W1" state): $(mval "$W1" result)"
@@ -156,6 +161,8 @@ waitfor "[ \"\$(proc_lane \"\$(cpid a)\")\" = bedrock ] && [ \"\$(proc_lane \"\$
 [ "$(escs "$UB")" -ge 1 ] && [ "$(starts "$UB")" -gt "$sb" ] && ok "b, mid-turn, was moved: its turn cut by an Escape, then relaunched on bedrock" || bad "b: escapes $(escs "$UB"), starts $(starts "$UB")/$sb"
 [ "$(escs "$UA")" = 0 ] && [ "$(starts "$UA")" -gt "$sa" ] && ok "a, idle, was relaunched with no Escape sent to it" || bad "a: escapes $(escs "$UA"), starts $(starts "$UA")/$sa"
 [ "$(starts "$UC")" = "$sc" ] && [ "$(escs "$UC")" = 0 ] && ok "c, already on the fallback lane, was not relaunched or touched" || bad "c: starts $(starts "$UC")/$sc escapes $(escs "$UC")"
+[ "$(lane_row sala-test-p)" = subscription-2 ] && [ "$(starts "$UP")" = "$sp" ] && [ "$(escs "$UP")" = 0 ] && [ -n "$(is_idle_reason "$(cpid p)")" ] && ok "p, pinned and mid-turn on the capped lane, was neither cut nor moved nor relaunched" || bad "p: row $(lane_row sala-test-p), starts $(starts "$UP")/$sp, escapes $(escs "$UP")"
+grep -rqF "skipped (pinned to subscription-2): sala-test-p" "$HOME/.claude/salamander-op-$W1.log" 2>/dev/null && ok "the operation's log lists p as skipped (pinned)" || bad "op log: $(tail -12 "$HOME/.claude/salamander-op-$W1.log" 2>/dev/null)"
 [ "$(starts "$UK")" = "$sk" ] && [ "$(escs "$UK")" = 0 ] && ok "k, on another lane, was not relaunched or touched" || bad "k: starts $(starts "$UK")/$sk"
 [ "$(awk -F'\t' '$1=="sala-test-a" {print $2}' "$SALA_LANE_HOME" 2>/dev/null)" = subscription-2 ] && ok "the home record says a came from subscription-2 (the way back is the ordinary one)" || bad "home: $(cat "$SALA_LANE_HOME" 2>/dev/null)"
 
@@ -170,6 +177,8 @@ lw; lw; lw; tick; lw
 lane_dormant subscription-2 && [ "$(lane_dormant_until subscription-2)" = "$R" ] && ok "the lane stays dormant until the regain time" || bad "record: $(slurp "$REC")"
 
 echo "== the regain time passes: the lane is active again by itself, from the record alone, with no post of its own"
+# p (pinned, so still on the lane) is ended first: with it gone, the only stop left in the state is over, and nothing lifts at the end
+$T kill-session -t sala-test-p 2>/dev/null; lw
 awk -F'\t' -v OFS='\t' -v u="$(date -u -d "@$((NOW-5))" +%Y-%m-%dT%H:%M:%SZ)" '$1=="subscription-2" {$7=u} {print}' "$REC" > "$REC.new" && mv -f "$REC.new" "$REC"
 lw
 ! lane_dormant subscription-2 && ok "the Team lane is active again once the regain time has passed" || bad "still dormant: $(slurp "$REC")"
