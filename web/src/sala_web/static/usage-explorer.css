@@ -6,16 +6,16 @@
 #ov-usage .ex-ctl { display: grid; gap: 12px; min-width: 0; }
 #ov-usage .ex-row { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
 #ov-usage .ex-wrap { flex-wrap: wrap; overflow: visible; }
-#ov-usage .ex-badge { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 12px; flex: none; font-style: normal;
-  font-size: 12px; font-weight: 700; color: var(--sc); border: 1px solid color-mix(in srgb, var(--sc) 70%, transparent); background: color-mix(in srgb, var(--sc) 14%, transparent); }
-#ov-usage .ex-badge.ex-sm { width: 20px; height: 20px; border-radius: 10px; font-size: 11px; }
+#ov-usage .ex-badge { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 8px; flex: none; font-style: normal;
+  font-size: 12px; font-weight: 600; color: var(--sc); border: 1px solid color-mix(in srgb, var(--sc) 70%, transparent); background: color-mix(in srgb, var(--sc) 14%, transparent); }
+#ov-usage .ex-badge.ex-sm { width: 20px; height: 20px; border-radius: 8px; font-size: 12px; }
 
 /* A and B, and the filters: selects in the page's own look */
 #ov-usage .ex-ab { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 #ov-usage .ex-pick { display: flex; align-items: center; gap: 8px; min-width: 0; }
 #ov-usage .ex-fgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 8px; }
 #ov-usage .ex-f { display: grid; gap: 4px; min-width: 0; }
-#ov-usage .ex-ctl select { font: inherit; font-size: 14px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; min-height: 36px;
+#ov-usage .ex-ctl select { font: inherit; font-size: 15px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; min-height: 36px;
   padding: 0 8px; width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 #ov-usage .ex-pick select { flex: 1; }
 #ov-usage .ex-ctl select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -26,7 +26,7 @@
 #ov-usage .ex-side { border-top: 3px solid var(--sc); display: grid; gap: 4px; align-content: start; }
 #ov-usage .ex-sh { display: flex; align-items: center; gap: 8px; min-width: 0; }
 #ov-usage .ex-sn { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-#ov-usage .ex-amt { font-size: 28px; font-weight: 600; line-height: 1.15; }
+#ov-usage .ex-amt { font-size: 22px; font-weight: 600; line-height: 1.15; }
 #ov-usage .ex-side .us-sub { margin-top: 0; }
 #ov-usage .ex-lane { margin-top: 4px; }
 #ov-usage .ex-delta { margin-top: 4px; font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
@@ -45,7 +45,7 @@
 #ov-usage .ex-d.down { color: var(--state-active); }
 #ov-usage .ex-t th button { gap: 4px; }
 #ov-usage .ex-t tr.us-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-#ov-usage .ex-nb { font-size: 11px; font-weight: 600; color: var(--faint); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; white-space: nowrap; }
+#ov-usage .ex-nb { font-size: 12px; font-weight: 600; color: var(--faint); border: 1px solid var(--border); border-radius: 999px; padding: 0 8px; white-space: nowrap; }
 
 /* the replies behind a row */
 #ov-usage .ex-rep { display: grid; gap: 8px; }
@@ -57,16 +57,16 @@
 #ov-usage .ex-rsum b { color: var(--text); font-weight: 600; }
 #ov-usage .ex-rmsg { margin: 0; font-size: 13px; color: var(--muted); }
 #ov-usage .ex-rmsg.error { color: var(--error); }
-#ov-usage .ex-rt { font-size: 14px; }
+#ov-usage .ex-rt { font-size: 15px; }
 #ov-usage .ex-rt th { padding: 8px 12px; }
 #ov-usage .ex-rt td.ex-ag { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 #ov-usage .ex-tshort { display: none; }
 
 /* a narrow panel (a phone): two sides still side by side, A and B stacked over their names, targets of 44px */
 @container uspanel (max-width: 640px) {
-  #ov-usage .ex-amt { font-size: 24px; }
+  #ov-usage .ex-amt { font-size: 22px; }
   #ov-usage .ex-ctl select { min-height: 44px; font-size: 16px; }
-  #ov-usage .ex-pick .ex-badge { width: 20px; height: 20px; border-radius: 10px; font-size: 11px; }
+  #ov-usage .ex-pick .ex-badge { width: 20px; height: 20px; border-radius: 8px; font-size: 12px; }
   #ov-usage .ex-pick { gap: 4px; }
   #ov-usage .ex-side { padding: 12px; }
   #ov-usage .ex-t td.us-nm { max-width: 38vw; }

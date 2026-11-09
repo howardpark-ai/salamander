@@ -41,7 +41,7 @@
 #ov-usage .us-range { font-size: 13px; color: var(--muted); }
 #ov-usage .us-card { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 12px 16px; min-width: 0; }
 #ov-usage .us-hero { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 24px; }
-#ov-usage .us-big { font-size: 40px; font-weight: 600; line-height: 1.1; }
+#ov-usage .us-big { font-size: 22px; font-weight: 600; line-height: 1.1; }
 #ov-usage .us-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
 #ov-usage .us-flt { font-size: 12px; font-weight: 600; color: var(--link); margin-left: 8px; }
 #ov-usage .us-delta { font-size: 13px; font-weight: 600; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border); }
@@ -129,7 +129,7 @@
 
 /* a narrow panel (a phone, or a window with the sidebar open at half width): the table keeps the group, the cost and the (narrow) share; every control is a 44px target */
 @container uspanel (max-width: 640px) {
-  #ov-usage .us-big { font-size: 34px; }
+  #ov-usage .us-big { font-size: 22px; }
   #ov-usage .us-hide-s { display: none; }
   #ov-usage .us-sharec { min-width: 72px; }
   #ov-usage .us-seg button { min-height: 44px; padding: 0 12px; }

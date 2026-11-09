@@ -5,10 +5,10 @@
    over a snippet with the matched words marked. */
 
 /* the box: one line at the top of the sidebar, under its header; a magnifier inside at the left */
-.side-search { flex: none; position: relative; margin: 0 8px 6px; }
+.side-search { flex: none; position: relative; margin: 0 8px 8px; }
 .side-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
-.side-search input { display: block; width: 100%; box-sizing: border-box; height: 34px; padding: 0 10px 0 32px; border: 1px solid var(--border); border-radius: 8px;
-  background: var(--panel); color: var(--text); font: inherit; font-size: 14px; }
+.side-search input { display: block; width: 100%; box-sizing: border-box; height: 34px; padding: 0 8px 0 32px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: 15px; }
 .side-search input::placeholder { color: var(--faint); }
 .side-search input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 @media (max-width: 760px) { .side-search input { height: 44px; font-size: 16px; } }   /* a tap target; 16px: no zoom on focus on iOS */
@@ -18,56 +18,56 @@
 body.search-open #chat-pane, body.search-open #terminal-pane, body.search-open #composer, body.search-open #overview-pane,
 body.search-open #menu-reload, body.search-open #top-tools, body.search-open #top-menu-btn, body.search-open #title .dot { display: none; }
 body.search-open #search-pane { display: block; }
-#search-pane .se-page { max-width: 980px; margin: 0 auto; padding: 16px 16px 48px; }
-#search-pane .se-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+#search-pane .se-page { max-width: 920px; margin: 0 auto; padding: 16px 16px 48px; }
+#search-pane .se-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 /* the page's own query box: the sidebar box's look, the full width of the page (a phone included) */
 #search-pane .se-q { position: relative; }
 #search-pane .se-q svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
-#search-pane .se-q input { display: block; width: 100%; box-sizing: border-box; height: 34px; padding: 0 10px 0 32px; border: 1px solid var(--border); border-radius: 8px;
-  background: var(--panel); color: var(--text); font: inherit; font-size: 14px; }
+#search-pane .se-q input { display: block; width: 100%; box-sizing: border-box; height: 34px; padding: 0 8px 0 32px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: 15px; }
 #search-pane .se-q input::placeholder { color: var(--faint); }
 #search-pane .se-q input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 #search-pane [hidden] { display: none !important; }          /* .se-row sets display:flex, which beats the hidden attribute */
-#search-pane .se-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; font-size: 13.5px; }
+#search-pane .se-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; font-size: 15px; }
 #search-pane .se-row > b { flex: none; min-width: 62px; color: var(--muted); font-weight: 600; }
-#search-pane .se-row label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+#search-pane .se-row label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 #search-pane .se-row label small { color: var(--faint); font-size: 12px; font-variant-numeric: proportional-nums; }
 #search-pane .se-row label small:empty { display: none; }
-#search-pane .se-chip { font: inherit; font-size: 13px; padding: 3px 11px; border: 1px solid var(--border); border-radius: 999px; background: transparent;
+#search-pane .se-chip { font: inherit; font-size: 13px; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px; background: transparent;
   color: var(--muted); cursor: pointer; }
 #search-pane .se-chip:hover { background: var(--hover); }
 #search-pane .se-chip[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
 #search-pane .se-chip:focus-visible, #search-pane .se-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #search-pane .se-dates input { height: 32px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
-  color: var(--text); font: inherit; font-size: 13.5px; }
+  color: var(--text); font: inherit; font-size: 15px; }
 #search-pane .se-zone { color: var(--faint); font-size: 12px; }
-#search-pane .se-note { font-size: 12.5px; color: var(--muted); }
-#search-pane .se-summary { padding: 9px 2px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--border); }
+#search-pane .se-note { font-size: 12px; color: var(--muted); }
+#search-pane .se-summary { padding: 8px 2px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--border); }
 #search-pane .se-summary:empty { display: none; }
 #search-pane .se-summary.error { color: var(--error); }
 #search-pane .se-summary .se-warn { color: var(--text); font-weight: 600; }
 
 #search-pane .se-hits { list-style: none; margin: 0; padding: 0; }
-#search-pane .se-hit { padding: 10px 2px; border-bottom: 1px solid var(--border); }
+#search-pane .se-hit { padding: 8px 2px; border-bottom: 1px solid var(--border); }
 #search-pane .se-hit.open { cursor: pointer; }
 #search-pane .se-hit.open:hover { background: var(--hover); }
 #search-pane .se-hit a.se-link { display: block; color: inherit; text-decoration: none; }
 #search-pane .se-hit a.se-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-#search-pane .se-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; font-size: 12.5px; margin-bottom: 3px; }
+#search-pane .se-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; margin-bottom: 4px; }
 #search-pane .se-t { color: var(--muted); font-variant-numeric: tabular-nums; }
 #search-pane .se-name { font-weight: 600; overflow-wrap: anywhere; }
-#search-pane .se-role { font-size: 11px; padding: 0 6px; border-radius: 5px; border: 1px solid transparent; }
+#search-pane .se-role { font-size: 12px; padding: 0 8px; border-radius: 4px; border: 1px solid transparent; }
 #search-pane .se-role.front { color: var(--label-fg, var(--role-front-text)); border-color: var(--label-bd, transparent); background: var(--label-bg, color-mix(in srgb, var(--accent-solid, var(--call)) 12%, var(--bg))); }
 #search-pane .se-role.back { color: var(--role-back-text); background: color-mix(in srgb, var(--role-back) 20%, var(--bg)); }
 #search-pane .se-role.unknown { color: var(--muted); border-color: var(--border); }
 #search-pane .se-sub { color: var(--muted); }
-#search-pane .se-gone { color: var(--faint); font-size: 11.5px; }
+#search-pane .se-gone { color: var(--faint); font-size: 12px; }
 #search-pane .se-kind { margin-left: auto; color: var(--faint); }
 #search-pane .se-x { font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
-#search-pane .se-x.code { font-family: var(--mono); font-size: 12.3px; }
+#search-pane .se-x.code { font-family: var(--mono); font-size: 12px; }
 #search-pane .se-x mark { background: color-mix(in srgb, var(--warn) 35%, transparent); color: inherit; padding: 0 1px; border-radius: 2px; }
-#search-pane .se-more { display: block; width: 100%; margin: 6px 0 0; padding: 10px; border: 0; background: transparent; color: var(--link); font: inherit;
-  font-size: 13.5px; font-weight: 600; cursor: pointer; }
+#search-pane .se-more { display: block; width: 100%; margin: 8px 0 0; padding: 8px; border: 0; background: transparent; color: var(--link); font: inherit;
+  font-size: 15px; font-weight: 600; cursor: pointer; }
 #search-pane .se-more:hover { background: var(--hover); }
 
 /* the entry a result opened in the chat */
@@ -76,6 +76,6 @@ body.search-open #search-pane { display: block; }
 @media (max-width: 760px) {
   #search-pane .se-q input { height: 44px; font-size: 16px; }
   #search-pane .se-row > b { min-width: 100%; }
-  #search-pane .se-chip { padding: 6px 12px; }
+  #search-pane .se-chip { padding: 8px 12px; }
   #search-pane .se-kind { margin-left: 0; }
 }
