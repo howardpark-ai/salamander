@@ -1,0 +1,8 @@
+[Unit]
+Description=Usage analysis count: count what this machine's Claude Code replies cost at list prices and save it where sala-web reads it
+X-Model-Lane=none
+X-Project=sala/salamander
+
+[Service]
+Type=oneshot
+ExecStart=%h/salamander/web/contrib/sala-web-usage-count
