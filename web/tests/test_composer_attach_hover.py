@@ -91,7 +91,7 @@ def mouse(browser, x: float, y: float) -> None:
 def test_the_hover_is_a_30px_square_inside_the_row(served, browser):
     desktop(browser, served)
     idle = browser.evaluate(BOXES)
-    # the hit area is as before; the one-line row is the send button (32 px with a mouse, 44 on a touch screen) plus the row's 8 px
+    # the hit area is as before; the one-line row is the send button (32 px with a mouse) plus the row's 8 px
     # padding twice and its border: the paperclip's negative margins keep its 44 px box inside that line
     assert (idle["btn"]["w"], idle["btn"]["h"]) == (44, 44), idle
     send = browser.evaluate("document.querySelector('.send-btn').getBoundingClientRect().height")

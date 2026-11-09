@@ -1281,7 +1281,7 @@ one row per agent, and controls are 44 px (32 px with a mouse).
   hairlines and stay), radii of 4 or 8 px (a pill and 2 px stay), and the 920 px column. A new rule is written that way too.
 - `static/index.html` ends its `<head>` with one `<style id="look">`, after every stylesheet link, so it wins the cascade. It holds the
   `@font-face` for the code face and what a rule on the scale cannot make: the two button levels, the tinted tags, the link rule, the
-  orange, the 32 and 44 px controls (`--ctl`, by pointer), lane cards three to a row, Agents as rows on a phone, the scroll gutter. The page's
+  orange, the 32 and 44 px controls (`--ctl`, by pointer; the composer's Send is the exception under a finger: drawn 30 px with a 44 px tap area that takes no room, so the one-line row stays 48 px), lane cards three to a row, Agents as rows on a phone, the scroll gutter. The page's
   inline icons are drawn on the 24 grid, and `app.js` draws its check mark at the same 2 px stroke.
 - `static/fonts/D2Coding-Regular.woff2` is the code face; `OFL.txt` beside it is its licence (the SIL Open Font License 1.1), which
   travels with the font.

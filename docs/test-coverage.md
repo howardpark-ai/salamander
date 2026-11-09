@@ -248,6 +248,15 @@ Not covered, and why: a physical phone's browser, status bar and the installed a
 stubs are small); the Quick session and lane pages in `test_look_browser.py` (they call sala's CLI, which tests do not run; the lane page has its own tests); that the page looks right
 (judged by eye from screenshots at 390 and 1280 px against the page at `/v2/` before the switch, there is no pixel test).
 
+### `web/tests/test_composer_touch_row.py` new, 2: the one-line composer row stays 48 px on a phone (Mon Nov 9th 2026)
+
+The look sized the composer's Send button by `--ctl`, which is 44 px under a finger, so the one-line row grew from 48 px to 62 px on a phone. The button is now drawn at
+30 px under a finger and reaches its 44 px tap area with an `::after` box that takes no room in the row, the way the paperclip's negative margins give it 44 px. A wrong answer is
+a row that grows again (a Send sized by `--ctl`, or a tap area made by padding or margin), a tap area under 44 px, or a Send that changed size with a mouse.
+Held in a headless Chromium at 412 px with touch emulation: the row 48 px, the button drawn 30 x 30, the `::after` box 44 x 44, a point just inside each edge of that square landing on
+the button and a point just outside it not, the Shell button still at least 44 px; and at 1280 px with a mouse: the row 50 px, the button 32 x 32, no `::after` box.
+`test_look_browser.py` now expects a drawn 30 px Send under a finger (it expected 44). Not covered, and why: a physical phone's touch handling (the tap area is read from the layout and a hit test, not from a real finger).
+
 ### `tests/spawn.sh` and `web/tests/test_new_session.py`: an unlisted project agent is refused with the register command, not a page edit (Sat Nov 7th 2026)
 
 `spawn --project` used to refuse a name not on the project's agents map with `ADD-TO-PAGE: <key>` and the YAML to add to the page, which no longer
