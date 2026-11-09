@@ -67,13 +67,15 @@ none itself):
                                   total, billed, replies}], "lanes": [{code, label, billing, flat, known, quota: {percent, resetsAt} | null}], "fields": ["day", "lane",
                                   "model", "project", "agent", "folder", "usd", "replies", "tokens"], "rows": [[...one value per field...]] (tokens = [input, cache
                                   write 5m, cache write 1h, cache read, output], kept on record, never shown), "sameHours", "unpriced", "prices": {asOf, unit, models}}.
-                                  No message text, prompt or secret. The last answer at once, refreshed in a thread once a minute and kept in state_dir/usage-answer.json
-                                  (the per-file read cache is usage-scan.json; swr.py); "pending" until the first count lands, "refreshing", "error" in plain
-                                  words when it cannot be counted; ?fresh=1 (the Reload button) makes it due now
+                                  No message text, prompt or secret. The last saved count at once: a visit never counts. The count is a job of its own, once a day
+                                  (contrib/sala-web-usage-count, usage_job.py), saved in state_dir/usage-answer.json (the drill-down's records in usage-replies.json,
+                                  the per-file read cache in usage-scan.json) and read in again here when the job has written a newer one; ?fresh=1 (the Reload
+                                  button) starts one more, in a thread. "noCount" when none was made yet, "pending" and "refreshing" while a Reload's count runs,
+                                  "error" in plain words when a count failed (the last count stays)
   GET  /api/usage/digest?week=<0|1|2>   the Usage analysis tab's Digest view (usage_digest.py): the same week in 1 to 7 plain sentences written by code (no model call)
                                   from the cached count above (no second scan): {"week", "now", "generated", "tz", "tzLabel", "resetKnown", "scope" (only this
                                   machine's sessions are counted), "range" {startKst, endKst, end, current} | null, "sentences": [...]}; "pending" (no sentences) before the
-                                  first count, "refreshing" and "error" as /api/usage; ?fresh=1 as above; a bad week is a 400
+                                  first count, "noCount", "refreshing" and "error" as /api/usage; ?fresh=1 as above; a bad week is a 400
   GET  /api/usage/replies?week=<0|1|2>&<dimension>=<value>…   Explorer's drill-down (usage.py): the single replies behind a filter of that week, newest first, at most
                                   `cap` (200; ?limit=<n> asks for fewer): {"week", "generated", "tz", "tzLabel", "fields": ["time" (KST), "day", "lane", "model",
                                   "project", "agent", "folder", "usd"], "rows": [[…]], "total" (every reply that matches), "usd" (their dollars), "shown", "capped", "cap"}.
@@ -734,8 +736,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
     async def get_usage(request: Request) -> Response:
-        # the Usage analysis tab (usage.py): the last count at once, a fresh one in a thread once it is a minute old (swr.py, the lane cards'
-        # way); ?week=0|1|2 picks the range, ?fresh=1 (the Reload button) makes the count due now
+        # the Usage analysis tab (usage.py): the last saved count at once, whoever asks and however old it is (the daily job, usage_job.py, counts);
+        # only ?fresh=1 (the Reload button) starts a count, in a thread; ?week=0|1|2 picks the range
         try:
             week = int(request.query_params.get("week", "0"))
         except ValueError:
@@ -745,8 +747,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         return JSONResponse(usage.get(week, fresh=request.query_params.get("fresh") == "1"), headers={"Cache-Control": "no-store"})
 
     async def get_usage_digest(request: Request) -> Response:
-        # the Usage analysis tab's Digest view (usage_digest.py): the week in a few plain sentences written by code from the same cached count as
-        # /api/usage (no second scan; "pending" before the first count, "refreshing" while a newer one runs); ?week=0|1|2 and ?fresh=1 as /api/usage
+        # the Usage analysis tab's Digest view (usage_digest.py): the week in a few plain sentences written by code from the same saved count as
+        # /api/usage (no second scan; "noCount" before the first count, "pending" and "refreshing" while a Reload's count runs); ?week=0|1|2 and ?fresh=1 as /api/usage
         try:
             week = int(request.query_params.get("week", "0"))
         except ValueError:

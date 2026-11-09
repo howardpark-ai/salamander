@@ -122,10 +122,17 @@ def test_a_second_count_replaces_the_records_whole_and_reads_no_transcript(w, mo
 
 # ── the endpoint ─────────────────────────────────────────────────────────────
 def replies_of(c, query="week=0", tries=100):
+    """The replies once a count has been made: a visit makes none, so a "noCount" answer is followed by one Reload (`fresh=1` on the usage route,
+    what the tab's Reload button asks), then the count is waited for."""
+    reloaded = False
     for _ in range(tries):
         r = c.get(f"/api/usage/replies?{query}")
         assert r.status_code == 200, r.text
         d = r.json()
+        if d.get("noCount") and not reloaded:
+            reloaded = True
+            get_usage(c, "week=0")
+            continue
         if not d.get("pending"):
             return d
         time.sleep(0.1)
@@ -139,7 +146,7 @@ def test_the_endpoint_lists_the_replies_behind_a_filter_and_they_add_up_to_the_r
                  reply("m2", "claude-sonnet-5-5", eight_days_ago, out=200_000), mtime=time.time())
     with TestClient(create_app(w.settings)) as c:
         first = c.get("/api/usage/replies?week=0").json()
-        assert first.get("pending") or first["rows"], first                                         # at once: the list, or "pending" the page asks again on
+        assert first.get("noCount") and not first.get("pending") and first["rows"] == [], first      # at once, and no count made by looking
         d0 = replies_of(c, "week=0&lane=subscription-1")
         d1 = replies_of(c, "week=1")
         rep = get_usage(c, "week=0")
@@ -165,20 +172,35 @@ def test_the_endpoint_filters_on_repeated_names_as_alternatives_and_ignores_name
     assert both["total"] == 2 and one["total"] == 1 and one["rows"][0][3] == "claude-opus-5"
 
 
-def test_after_a_restart_the_saved_rows_are_served_at_once_and_the_replies_are_pending_until_a_count_makes_them(w):
+def test_after_a_restart_the_saved_rows_and_the_saved_replies_are_served_at_once_and_nothing_is_counted(w, monkeypatch):
     one_hour_ago, _ = fresh_times()
     w.registry("example-alpha-build", A)
     w.transcript(A, reply("m1", "claude-sonnet-5-5", one_hour_ago, out=100_000), mtime=time.time())
     with TestClient(create_app(w.settings)) as c:
         get_usage(c, "week=0")
-        assert replies_of(c)["total"] == 1                                                         # the first server counted: its replies are there
+        before = replies_of(c)
+        assert before["total"] == 1                                                                # the first server counted: its replies are there
+    assert (w.state / "usage-replies.json").is_file()                                              # and saved them
+    monkeypatch.setattr(U, "compute", lambda *a, **k: (_ for _ in ()).throw(AssertionError("a visit counted")))
     with TestClient(create_app(w.settings)) as c:                                                  # a new process, the state dir as it was left
         rows = c.get("/api/usage?week=0").json()
         assert not rows.get("pending") and rows["weeks"][0]["total"] == pytest.approx(1)           # the saved answer, at once
-        first = c.get("/api/usage/replies?week=0").json()
-        assert first.get("pending") and first["rows"] == []                                        # no records in this process yet: pending, never an empty list
-        got = replies_of(c)
-    assert got["total"] == 1 and got["usd"] == pytest.approx(1.0)
+        got = c.get("/api/usage/replies?week=0").json()                                            # the saved records, read from their file: no wait, no count
+    assert got == before
+
+
+def test_an_answer_saved_before_the_replies_file_existed_says_no_count_for_the_replies_and_counts_nothing(w, monkeypatch):
+    one_hour_ago, _ = fresh_times()
+    w.registry("example-alpha-build", A)
+    w.transcript(A, reply("m1", "claude-sonnet-5-5", one_hour_ago, out=100_000), mtime=time.time())
+    with TestClient(create_app(w.settings)) as c:
+        get_usage(c, "week=0")
+    (w.state / "usage-replies.json").unlink()                                                      # what an older version left: rows, and no records
+    monkeypatch.setattr(U, "compute", lambda *a, **k: (_ for _ in ()).throw(AssertionError("a visit counted")))
+    with TestClient(create_app(w.settings)) as c:
+        assert c.get("/api/usage?week=0").json()["weeks"][0]["total"] == pytest.approx(1)
+        got = c.get("/api/usage/replies?week=0").json()
+    assert got == {"noCount": True, "week": 0, "rows": []}
 
 
 def test_with_no_records_and_a_failed_count_the_endpoint_says_so_in_words_and_not_pending_forever(w, monkeypatch):
@@ -189,7 +211,8 @@ def test_with_no_records_and_a_failed_count_the_endpoint_says_so_in_words_and_no
 
     monkeypatch.setattr(U, "compute", boom)
     with TestClient(create_app(w.settings)) as c:
-        c.get("/api/usage/replies?week=0")
+        assert c.get("/api/usage/replies?week=0").json()["noCount"] is True                         # a visit: no records, no count
+        c.get("/api/usage?week=0&fresh=1")                                                          # the Reload that counts, and fails
         for _ in range(100):
             d = c.get("/api/usage/replies?week=0").json()
             if d.get("error"):

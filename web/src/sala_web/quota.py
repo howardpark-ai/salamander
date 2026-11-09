@@ -197,6 +197,12 @@ class QuotaCache:
         return [self._dormant(lane, dormant[lane]) if lane in dormant
                 else self._swr[lane].serve(lambda lane=lane: self._refresh(lane)) for lane in self.lanes]
 
+    def saved(self, dormant: dict[str, dict] | None = None) -> list[dict]:
+        """Each lane's last saved answer as `get` would serve it, and nothing asked: no sign-in is read and no refresh started (for the
+        Usage analysis job, which needs only the weekly reset the lane cards last saw; a dormant lane is its head without the plan)."""
+        dormant = dormant or {}
+        return [{"lane": lane, "dormant": dormant[lane]} if lane in dormant else dict(self._swr[lane].state) for lane in self.lanes]
+
     def _dormant(self, lane: str, d: dict) -> dict:
         out = {"lane": lane, "dormant": d}
         plan = read_plan(self.lanes[lane])

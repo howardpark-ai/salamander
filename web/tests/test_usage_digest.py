@@ -247,10 +247,17 @@ def world(tmp_path, monkeypatch):
 
 
 def digest_of(c, query="week=0", tries=100):
+    """The digest once a count has been made: a visit makes none, so a "noCount" answer is followed by one Reload (`fresh=1`)."""
+    reloaded = False
     for _ in range(tries):
-        r = c.get(f"/api/usage/digest?{query}")
+        r = c.get(f"/api/usage/digest?{query}" + ("&fresh=1" if reloaded == "now" else ""))
         assert r.status_code == 200, r.text
         d = r.json()
+        if reloaded == "now":
+            reloaded = True
+        elif d.get("noCount") and not reloaded:
+            reloaded = "now"
+            continue
         if not d.get("pending") and not d.get("refreshing"):
             return d
         time.sleep(0.1)
@@ -267,7 +274,7 @@ def test_the_route_writes_the_sentences_of_the_report_s_own_count_with_one_scan_
     monkeypatch.setattr(U, "compute", lambda *a, **k: counts.append(1) or real(*a, **k))
     with TestClient(create_app(world.settings)) as c:
         first = c.get("/api/usage/digest?week=0").json()
-        assert first.get("pending") and first["sentences"] == [] or first["sentences"], first        # at once: sentences, or "pending" the page asks again on
+        assert first.get("noCount") and not first.get("pending") and first["sentences"] == [], first   # at once, and no count made by looking
         d0 = digest_of(c, "week=0")
         d1 = digest_of(c, "week=1")
         report = c.get("/api/usage?week=0").json()
@@ -282,7 +289,12 @@ def test_the_route_writes_the_sentences_of_the_report_s_own_count_with_one_scan_
     assert SECRET not in json.dumps([d0, d1]) and "token" not in json.dumps(d0["sentences"]).lower()
 
 
-def test_before_the_first_count_the_answer_is_pending_with_no_sentences():
+def test_before_any_count_the_answer_says_so_with_no_sentences():
+    out = G.answer({"noCount": True, "week": 2, "weeks": [], "rows": []})
+    assert out["noCount"] is True and "pending" not in out and out["sentences"] == [] and out["week"] == 2 and out["range"] is None
+
+
+def test_while_a_reloads_count_runs_the_answer_is_pending_with_no_sentences():
     out = G.answer({"pending": True, "week": 1, "weeks": [], "rows": []})
     assert out["pending"] is True and out["sentences"] == [] and out["week"] == 1 and out["range"] is None and out["scope"] == G.SCOPE
 

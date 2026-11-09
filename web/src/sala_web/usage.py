@@ -29,20 +29,24 @@ No prompt, reply text, tool input or secret leaves a transcript: the answer hold
 KEEPING IT CHEAP. Per transcript the cache holds the inode, the size and mtime last seen, the offset after its last complete line, its
 first `cwd` and its replies in the window as {message id: [epoch ms, model, five token counts]}. A file whose size and mtime are as they were is not
 opened; one that grew is read from where it stopped; a file replaced or shrunk is read again. The cache lives in memory and in
-usage-scan.json (saved when a scan found something new, at most every SAVE_EVERY seconds, and at the end of a first scan). The
-answer is served at once from the last good one and refreshed in a thread once it is TTL old (swr.py, the lane cards' way);
-with no answer yet it is {"pending": true} and the page asks again.
+usage-scan.json (saved after every count). WHEN IT COUNTS: a visit to the tab never starts a count. The count is the job of its own schedule,
+once a day (`python -m sala_web.usage_job`, usage_job.py, which counts and saves usage-answer.json, usage-replies.json and usage-scan.json
+and exits non-zero when the count failed), and the tab's Reload (`?fresh=1`) makes one more, in a thread, through the same code. The app serves the
+last saved answer at once (swr.py `peek`), and reads a file again when the job has written a newer one. With no count made yet the answer is
+{"noCount": true} (the tab says so and offers Reload); while a Reload's count runs it is {"pending": true} and the page asks again.
 
 THE REPLIES (Explorer's drill-down). `GET /api/usage/replies?week=&<dimension>=<value>…` lists the single replies behind a filter, newest first, capped
 (REPLIES_CAP) with the count and the dollars of ALL that match. It reads no transcript: the count that makes the rows above also leaves, in the scan holder,
 one small record per reply (its epoch ms, the index of its row key and its dollars), so a drill-down is a pass over memory. Time, lane, model, project,
-agent and folder only: still no prompt, reply text or token count. After a restart the rows are served at once from usage-answer.json while the
-replies are not yet there: the endpoint then answers {"pending": true} and makes the next count due, as the first request of a fresh server does.
+agent and folder only: still no prompt, reply text or token count. Every count also saves those records (usage-replies.json), so after a restart, or
+when the daily job has counted, the app reads them from that file on the first drill-down and counts nothing; with no such file yet (no count made, or
+one from before the file existed) the endpoint answers {"noCount": true}.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import heapq
 import json
 import os
@@ -60,10 +64,11 @@ from . import sessions as S
 from . import spend as SPD
 from . import swr as SWR
 
-TTL = 60.0              # one count a minute, however many pages ask
+TTL = 86400.0           # swr.py's bookkeeping only: nothing serves this answer by its age (`peek`), a count is the daily job's or a Reload's
 ERROR_RETRY = 60.0
 SCAN_VERSION = 1
-SAVE_EVERY = 600.0      # the scan cache is written at most this often (it is tens of MB); a scan that read a lot also saves at its end
+REPLIES_VERSION = 1
+SAVE_EVERY = 600.0      # compute() writes the scan cache at most this often (it is tens of MB); the count then saves it at its end (UsageCache._persist)
 MAX_RECORDS = 1_000_000  # replies kept; more is an error on the tab, not a slow crash
 WEEKS = 3
 READ_MARGIN = 3600.0    # seconds the transcript read reaches back of the oldest week
@@ -526,10 +531,35 @@ def reply_list(store: dict, week: int, where: dict[str, list[str]], limit: int =
             "shown": len(rows), "capped": total > len(rows), "cap": REPLIES_CAP, "rows": rows}
 
 
+REPLIES_FILE = "usage-replies.json"   # in the state dir: the drill-down's records of the last count
+
+
+def file_stamp(path: Path) -> int | None:
+    """When a file was last written, in ns (the change that says another process wrote it); None when it is not there."""
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def read_replies(path: Path) -> dict | None:
+    """The records a count saved ({"generated", "keys", "recs"}, as `compute` leaves them in memory); None for a file that is no such document."""
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not (isinstance(doc, dict) and doc.get("v") == REPLIES_VERSION and isinstance(doc.get("generated"), int)
+            and isinstance(doc.get("keys"), list) and isinstance(doc.get("recs"), list)):
+        return None
+    return {"generated": doc["generated"], "keys": doc["keys"], "recs": doc["recs"]}
+
+
 class UsageCache:
-    """The usage answer for all three weeks, served at once from the last good one (memory, and a file in the state dir so a restart has it) and
-    refreshed in a thread once it is TTL old (swr.py). With no answer yet it is {"pending": true}. A failure keeps the last answer and adds
-    `error` in plain words. The file holds names, counts and dollars only."""
+    """The usage answer for all three weeks: the last saved count, served at once (memory, and a file in the state dir that a restart and the daily job's
+    newer count are read from). Nothing here counts because the answer is old or because someone looks: a count is made by the daily job
+    (usage_job.py, the same `count` below) and by `get(fresh=True)`, the tab's Reload, in a thread. With no count made yet the answer is
+    {"noCount": true}; while a Reload's count runs, {"pending": true}. A failed count keeps the last answer and adds `error` in plain words.
+    The files hold names, counts and dollars only."""
 
     def __init__(self, settings, live: Callable[[], list], lane_table: Callable[[], Awaitable[list]],
                  lane_names: Callable[[], Awaitable[list]], quota: Callable[[], Awaitable[list]]):
@@ -538,28 +568,77 @@ class UsageCache:
         self.live, self.lane_table, self.lane_names, self.quota = live, lane_table, lane_names, quota
         self._holder: dict = {"path": sd / "usage-scan.json"}   # {"scan": the ScanCache once built}; only the count's thread touches it
         self.observed_path = sd / "spend-lanes.json"   # spend.py's sightings of live processes' lanes; read only here
+        self.replies_path = sd / REPLIES_FILE
         self._swr = SWR.Revalidating(sd / "usage-answer.json", TTL, ERROR_RETRY, {"weeks": [], "rows": [], "lanes": []},
                                      valid=lambda d: isinstance(d.get("weeks"), list) and isinstance(d.get("rows"), list))
+        self._answer_seen = file_stamp(self._swr.path)   # the answer file as last read or written here: another stamp is a count another process made
+        self._replies_seen: int | None = None            # the replies file the records in memory came from
+
+    def _adopt(self) -> None:
+        """A newer answer file, written by the daily job, is read in (a few KB to a few hundred KB; a stat when nothing changed)."""
+        stamp = file_stamp(self._swr.path)
+        if stamp is not None and stamp != self._answer_seen and not self._swr.running:
+            self._answer_seen = stamp
+            self._swr.reload()
 
     def get(self, week: int = 0, fresh: bool = False) -> dict:
-        if fresh and not self._swr.running:
-            self._swr.expire()
-        out = self._swr.serve(self._refresh)
-        return select_week(out, week) if not out.get("pending") else {**{k: v for k, v in out.items() if k not in ("rows",)}, "week": week, "rows": []}
+        """The last count's answer for one week, at once. `fresh` (the tab's Reload) starts a count unless one runs; nothing else does."""
+        self._adopt()
+        if fresh:
+            self._swr.start(self._refresh)
+        out = self._swr.peek()
+        if not out.get("pending"):
+            return select_week(out, week)
+        out = {k: v for k, v in out.items() if k != "rows"}
+        if not out.get("refreshing"):   # nothing counted yet and no count running: not "pending" (the page would poll for ever), but no count
+            out.pop("pending")
+            out["noCount"] = True
+        return {**out, "week": week, "rows": []}
+
+    async def count(self) -> str | None:
+        """One count now, waited for (the daily job's; a Reload's runs the same `_refresh` in the background). None when it counted and saved,
+        else the failure in plain words; the last saved answer is then left as it was."""
+        await self._swr.refresh_now(self._refresh)
+        return self._swr.state.get("error")
 
     async def replies(self, week: int, where: dict[str, list[str]], limit: int = REPLIES_CAP) -> dict:
-        """The replies behind a filter (`reply_list`). They need the count's own records: with none yet (a fresh server, or a restart that served the saved
-        rows) the answer is {"pending": true} and a count is made due; a failed count with nothing to read is {"error": …}. The pass over the records runs in a thread."""
-        out = self._swr.serve(self._refresh)
-        store = self._holder.get("replies")
+        """The replies behind a filter (`reply_list`), from the records of the last count: the ones in memory, or else the file the count saved (read in
+        again when a newer one is there). It starts no count: with no records yet the answer is {"noCount": true} ({"pending": true} while a Reload's count
+        runs, {"error": …} when a count failed with nothing to read). The pass over the records runs in a thread."""
+        self._adopt()
+        store = await self._records()
         if store is None:
+            out = self._swr.peek()
+            if out.get("refreshing"):
+                return {"pending": True, "week": week, "rows": []}
             if out.get("error"):
                 return {"week": week, "error": out["error"], "rows": []}
-            if not self._swr.running:
-                self._swr.expire()
-                self._swr.serve(self._refresh)
-            return {"pending": True, "week": week, "rows": []}
+            return {"noCount": True, "week": week, "rows": []}
         return await asyncio.to_thread(reply_list, store, week, where, limit)
+
+    async def _records(self) -> dict | None:
+        """The drill-down's records: the held ones, replaced by the saved file when that is another one than they came from."""
+        stamp = file_stamp(self.replies_path)
+        held = self._holder.get("replies")
+        if stamp is not None and stamp != self._replies_seen and not self._swr.running:
+            got = await asyncio.to_thread(read_replies, self.replies_path)
+            if got is not None and self._holder.get("replies") is held:   # a count that ended meanwhile keeps its own
+                self._holder["replies"] = held = got
+                self._replies_seen = stamp
+        return held
+
+    def _persist(self) -> None:
+        """What a count leaves for the next process: the scan cache (a count is rare now, so not held back by SAVE_EVERY) and the drill-down's records.
+        The records go first: a reader that finds the new answer then finds records at least as new. A write that fails leaves the old file."""
+        scan = self._holder.get("scan")
+        if scan is not None:
+            scan.save(force=True)
+        store = self._holder.get("replies")
+        if store is not None:
+            with contextlib.suppress(OSError):
+                SWR.write_atomic(self.replies_path, {"v": REPLIES_VERSION, "generated": store["generated"], "keys": store["keys"],
+                                                     "recs": [[ms, kid, round(usd, 8)] for ms, kid, usd in store["recs"]]})
+                self._replies_seen = file_stamp(self.replies_path)
 
     async def _refresh(self) -> dict:
         try:
@@ -573,8 +652,10 @@ class UsageCache:
             quota = await safe(self.quota, [])
             live = await asyncio.to_thread(self.live)
             anchor = self._swr.state.get("anchor")
-            return await asyncio.to_thread(compute, self.settings, live, rows, names, quota, time.time(), self._holder,
-                                           self.observed_path, anchor if isinstance(anchor, (int, float)) else None)
+            got = await asyncio.to_thread(compute, self.settings, live, rows, names, quota, time.time(), self._holder,
+                                          self.observed_path, anchor if isinstance(anchor, (int, float)) else None)
+            await asyncio.to_thread(self._persist)
+            return got
         except SPD.SpendError as e:
             raise SWR.Failed(str(e)) from None
         except Exception as e:  # never str(e): an unexpected error could carry anything

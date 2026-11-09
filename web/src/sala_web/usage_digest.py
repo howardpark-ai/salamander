@@ -3,8 +3,8 @@
 `digest(answer)` is a pure function: it takes one week's answer of `UsageCache.get(week)` (the same dict `GET /api/usage?week=<n>` serves: `weeks`,
 `lanes`, `rows`, `sameHours`, `resetKnown`) and returns a list of 1 to 7 sentences. Templates over the rows, no model call, no clock and no file
 read, so a scheduled job can call it later to deliver the report at the weekly reset, and the same rows always give the same words. `answer(week_answer)` wraps
-it for `GET /api/usage/digest?week=<0|1|2>`; the count underneath is the Report's own (one transcript scan, the last answer served at once and
-refreshed in a thread, "pending" before the first count), so this module reads nothing.
+it for `GET /api/usage/digest?week=<0|1|2>`; the count underneath is the Report's own (one transcript scan, the last saved answer served at once;
+saved by the daily count job or a Reload, "noCount" before the first count), so this module reads nothing.
 
 What the sentences say, in order (a sentence with nothing to say is left out): the total at list prices and how much of it was billed; the busiest
 day; the lane that took the largest share; the model; the project and the agent; how the week compares with the one before (the running week is
@@ -246,7 +246,7 @@ def digest(answer: dict) -> list[str]:
 
 def answer(week_answer: dict) -> dict:
     """The body of `GET /api/usage/digest?week=<n>`: the sentences for the week `UsageCache.get(n)` returned, with what the page needs around them.
-    Before the first count there are no sentences and `pending` is true (the page asks again); a count that failed keeps the last sentences and
+    Before the first count there are no sentences and `noCount` is true (`pending` while a Reload's count runs: the page asks again); a count that failed keeps the last sentences and
     carries the `error` in plain words, as the Report's does."""
     a = week_answer if isinstance(week_answer, dict) else {}
     weeks = a.get("weeks") if isinstance(a.get("weeks"), list) else []
@@ -255,8 +255,8 @@ def answer(week_answer: dict) -> dict:
     out = {"week": week, "now": a.get("now"), "generated": a.get("generated"), "tz": a.get("tz"), "tzLabel": a.get("tzLabel"),
            "resetKnown": a.get("resetKnown"), "scope": SCOPE,
            "range": {"startKst": w.get("startKst"), "endKst": w.get("endKst"), "end": w.get("end"), "current": bool(w.get("current"))} if w else None,
-           "sentences": [] if a.get("pending") else digest(a)}
-    for k in ("pending", "refreshing", "error"):
+           "sentences": [] if a.get("pending") or a.get("noCount") else digest(a)}
+    for k in ("pending", "noCount", "refreshing", "error"):
         if a.get(k):
             out[k] = a[k]
     return out

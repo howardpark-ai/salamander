@@ -29,7 +29,7 @@ const BY_DEFAULTS = ["model", "lane", "project", "agent", "day", "folder"];
 const POLL_MS = 3000, POLL_MAX = 40;
 const SIDE_COLOR = { a: "var(--us-s0)", b: "var(--us-s1)" };
 
-const ex = { active: false, bound: false, seq: 0, timer: 0, tries: 0, ago: 0, error: "", pending: false, data: {}, rows: [],
+const ex = { active: false, bound: false, seq: 0, timer: 0, tries: 0, ago: 0, error: "", pending: false, noCount: false, data: {}, rows: [],
   cmp: "lane", a: undefined, b: undefined, by: "model", f: { week: "0" }, sort: "t", dir: -1, pick: null, side: "a", focus: "",
   rep: { seq: 0, status: "", data: null, tries: 0, timer: 0 }, ageTimer: 0 };
 const $x = (sel) => document.querySelector("#us-v-explorer " + sel);
@@ -206,6 +206,8 @@ async function loadReplies() {
     if (d.pending) {   // the count behind the replies is not ready (a fresh server): ask again in a moment, a bounded number of times
       R.status = "loading";
       if (R.tries++ < POLL_MAX && ex.active) R.timer = setTimeout(() => loadReplies(), POLL_MS);
+    } else if (d.noCount) {   // no count has been made yet (the replies come from a count's saved records): say so, Reload makes one
+      R.tries = 0; R.data = { error: W.noCount }; R.status = "error";
     } else {
       R.tries = 0; R.data = d; R.status = d.error ? "error" : "ok";
     }
@@ -255,7 +257,7 @@ function showAge() {
 function render() {
   if (!ex.active) return;
   const note = $x("#ex-note"), d = firstData();
-  const msg = ex.error || (d && d.error) || (ex.pending && !d ? W.pending : "");
+  const msg = ex.error || (d && d.error) || (ex.pending && !d ? W.pending : ex.noCount && !d ? W.noCount : "");
   note.textContent = msg;
   note.classList.toggle("error", !!(ex.error || (d && d.error)));
   if (d) defaults();
@@ -287,6 +289,7 @@ async function load({ fresh = false } = {}) {
     if (seq !== ex.seq) return;
     ex.error = "";
     ex.pending = got.some(([, d]) => d.pending);
+    ex.noCount = got.some(([, d]) => d.noCount);
     if (fresh) ex.data = {};   // a new count: the weeks cached from the old one are asked for again when they are needed
     for (const [w, d] of got) if (!d.pending && Array.isArray(d.weeks) && d.weeks.length) { ex.data[w] = d; ex.ago = performance.now(); }
     rebuildRows();

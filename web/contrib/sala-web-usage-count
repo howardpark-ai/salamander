@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# sala-web-usage-count: the Overview's Usage analysis count as a job of its own (README, Usage analysis; src/sala_web/usage_job.py).
+# A timer runs this once a day. It counts what this machine's Claude Code replies cost and saves the result in sala-web's state directory, where the
+# app reads it: opening the tab never counts. Exit 0 = counted and saved; 1 = the count failed (the last saved count stays; one line on stderr);
+# no model call, nothing asked of Anthropic or AWS. It uses the web app's own virtual environment (web/.venv, as sala-web.service does).
+set -eu
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+export PYTHONUNBUFFERED=1
+here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+exec "$here/../.venv/bin/python" -m sala_web.usage_job "$@"

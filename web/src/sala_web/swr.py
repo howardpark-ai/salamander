@@ -63,6 +63,7 @@ class Revalidating:
         self._next = 0.0  # monotonic time from which a refresh is due
         self._fails = 0   # backing-off failures in a row; a success resets it
         self._task: asyncio.Task | None = None
+        self._valid = valid
         self._load(valid)
 
     def _load(self, valid) -> None:
@@ -101,12 +102,32 @@ class Revalidating:
 
     def serve(self, refresh: Callable[[], Awaitable[dict]]) -> dict:
         """The answer now; a background refresh started when one is due and none runs."""
-        if time.monotonic() >= self._next and not self.running:
-            self._task = asyncio.get_running_loop().create_task(self._run(refresh))
+        if time.monotonic() >= self._next:
+            self.start(refresh)
+        return self.peek()
+
+    def peek(self) -> dict:
+        """The answer now, and no refresh started whatever its age (for an answer a scheduled job makes, which a visit never refreshes)."""
         out = dict(self.state)
         if self.running:
             out["refreshing"] = True
         return out
+
+    def start(self, refresh: Callable[[], Awaitable[dict]]) -> None:
+        """A background refresh started now; none when one already runs (never two at once)."""
+        if not self.running:
+            self._task = asyncio.get_running_loop().create_task(self._run(refresh))
+
+    async def refresh_now(self, refresh: Callable[[], Awaitable[dict]]) -> None:
+        """One refresh started now and waited for (or the one that already runs). A failure stays on the answer as ever and is not raised here."""
+        self.start(refresh)
+        await asyncio.wait([self._task])
+
+    def reload(self) -> None:
+        """Read the answer file again, because another process wrote a newer one. A refresh running here is left alone, and a file that
+        holds no usable answer changes nothing."""
+        if not self.running:
+            self._load(self._valid)
 
     def expire(self) -> None:
         """Make the answer due now: the next `serve` starts a refresh (a refresh already running is left to finish)."""
