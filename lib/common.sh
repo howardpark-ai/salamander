@@ -4190,7 +4190,8 @@ lane_migrate() {  # [--dry-run] → 0; prints what it found and did
 # lane's id from the lane table (a new lane, bedrock later, needs nothing here; sdk is api's alias, lane_canonical):
 #   lane TAB state (active|dormant) TAB reason TAB since (ISO, UTC) TAB posted (ISO of the one post this dormant episode
 #   made, empty until then) TAB by (signal: kept by the watch, revived by it; hand: set with `sala lane dormant`, held until
-#   `sala lane active`)
+#   `sala lane active`) TAB until (ISO, UTC: when the provider says access returns, set by a monthly usage cap; empty for every
+#   other reason; a row written before the column existed has six fields and reads as empty)
 # An absent row, or a missing file, is ACTIVE. Written as lanes.tsv is: one editor at a time (flock on fd 3, its own lock
 # file), a temp file next to the table, mv over it; a change is one line in lanes.log (op dormant | active). While a lane is
 # dormant: the web Overview card is one line and makes no usage check; spawn's picker (the CLI's list, the web form) hides
@@ -4251,9 +4252,18 @@ lane_names_write() {  # → writes $SALA_STATE_DIR/lane-names.json atomically (a
     if [ -r "$_f" ] && cmp -s "$_t" "$_f"; then rm -f -- "$_t"; echo unchanged; return 0; fi
     chmod 644 "$_t" 2>/dev/null; mv -f -- "$_t" "$_f" || { rm -f -- "$_t"; return 1; }; echo written
 }
-lane_dormant_since_words() {  # <lane> → "no seat since Wed Jan 7th" (the reason, then the day; just "since …" with no reason)
-    local r s; r=$(lane_state_field "$1" 3); s=$(lane_state_field "$1" 4)
-    echo "${r:+$r }since $(lane_day "${s:-1970-01-01T00:00:00Z}")"
+lane_dormant_until() {  # <lane> → the epoch the dormant record says access returns (its until column), nothing when it names none
+    local u; u=$(lane_state_field "$1" 7); [ -n "$u" ] || return 0
+    u=$(lane_iso_epoch "$u"); [ "${u:-0}" -gt 0 ] 2>/dev/null && echo "$u"
+    return 0
+}
+lane_dormant_capped() {  # <lane> → 0 when it is dormant with a regain time still ahead (a monthly usage cap: nothing can work on it before then)
+    local u; lane_dormant "$1" || return 1; u=$(lane_dormant_until "$1"); [ -n "$u" ] && [ "$u" -gt "$(date +%s)" ]
+}
+lane_dormant_since_words() {  # <lane> → "no seat since Wed Jan 7th" (the reason, then the day; just "since …" with no reason); with a regain time: "…, access returns Tue Dec 1st 09:00"
+    local r s u w=""; r=$(lane_state_field "$1" 3); s=$(lane_state_field "$1" 4); u=$(lane_dormant_until "$1")
+    if [ -n "$u" ]; then _when_r w "$u"; w=", access returns $w"; fi
+    echo "${r:+$r }since $(lane_day "${s:-1970-01-01T00:00:00Z}")$w"
 }
 lane_dormant_words() { echo "$(lane_label "$(lane_state_id "$1")"): dormant, $(lane_dormant_since_words "$1")"; }   # <lane> → "Team: dormant, no seat since Wed Jan 7th"
 # lane_dormant_refusal <lane> → 0 with the plain refusal on stdout when the lane is dormant (a move onto it is refused); 1 when it is not
@@ -4294,21 +4304,24 @@ _lane_state_locked() {
     command -v flock >/dev/null 2>&1 || { "$@"; return; }
     ( flock -w 30 3 || { echo "lanes: the dormant record's lock is held — not written" >&2; exit 1; }; "$@" ) 3>>"$SALA_LANE_STATE.lock"
 }
-_lane_state_put() {  # <lane> <state> <reason> <since iso> <posted iso> <by>: replace the lane's row
+_lane_state_put() {  # <lane> <state> <reason> <since iso> <posted iso> <by> [until iso]: replace the lane's row (the until column is written only when given)
     local f="$SALA_LANE_STATE" t="$SALA_LANE_STATE.t.${BASHPID:-$$}"
-    { [ -r "$f" ] && awk -F'\t' -v OFS='\t' -v l="$1" '{ if ($1 == "awsplatform") $1 = "aws-platform"; else if ($1 == "max") $1 = "subscription-1"; else if ($1 == "team") $1 = "subscription-2" } $1!=l' "$f"; printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6"; } | LC_ALL=C sort > "$t" \
+    { [ -r "$f" ] && awk -F'\t' -v OFS='\t' -v l="$1" '{ if ($1 == "awsplatform") $1 = "aws-platform"; else if ($1 == "max") $1 = "subscription-1"; else if ($1 == "team") $1 = "subscription-2" } $1!=l' "$f"; printf '%s\t%s\t%s\t%s\t%s\t%s' "$1" "$2" "$3" "$4" "$5" "$6"; [ -z "${7:-}" ] || printf '\t%s' "$7"; printf '\n'; } | LC_ALL=C sort > "$t" \
         && mv -f "$t" "$f" || { rm -f "$t"; echo "lanes: could not write $f" >&2; return 1; }
 }
 _lane_state_clean() { printf '%s' "$1" | tr '\t\r\n' '   ' | sed 's/  */ /g; s/^ //; s/ $//'; }
-_lane_dormant_set() {  # <lane> <reason> <by> <since epoch> → 0 set now, 3 it was dormant already (nothing changes), 1 not written
+_lane_dormant_set() {  # <lane> <reason> <by> <since epoch> [until epoch] → 0 set now, 3 it was dormant already (nothing changes), 1 not written
     lane_dormant "$1" && return 3
-    _lane_state_put "$1" dormant "$(_lane_state_clean "$2")" "$(lane_iso "$4")" "" "$3" || return 1
-    lane_log dormant "$1" "active → dormant: $(_lane_state_clean "$2") (by $3)"
+    local u=""; [ "${5:-0}" -gt 0 ] 2>/dev/null && u=$(lane_iso "$5")
+    _lane_state_put "$1" dormant "$(_lane_state_clean "$2")" "$(lane_iso "$4")" "" "$3" "$u" || return 1
+    lane_log dormant "$1" "active → dormant: $(_lane_state_clean "$2") (by $3${u:+, until $u})"
 }
-# lane_dormant_set <lane> <reason> <signal|hand> [since epoch] → 0 when this call made it dormant, 3 when it already was
+# lane_dormant_set <lane> <reason> <signal|hand> [since epoch] [until epoch] → 0 when this call made it dormant, 3 when it already was.
+# <until epoch> is when the provider says access returns (a monthly usage cap, THE MONTHLY CAP in lib/watch.sh): kept in the record's
+# until column, said wherever the lane's dormancy is said, and read by the watch to bring the lane back at that time
 lane_dormant_set() {
     local l; l=$(lane_state_id "${1:-}") || return 1
-    _lane_state_locked _lane_dormant_set "$l" "${2:-}" "${3:-hand}" "${4:-$(date +%s)}"
+    _lane_state_locked _lane_dormant_set "$l" "${2:-}" "${3:-hand}" "${4:-$(date +%s)}" "${5:-0}"
 }
 _lane_dormant_clear() {  # <lane> <why> → 0 cleared, 3 it was not dormant
     lane_dormant "$1" || return 3
@@ -4320,7 +4333,7 @@ lane_dormant_clear() { local l; l=$(lane_state_id "${1:-}") || return 1; _lane_s
 _lane_dormant_claim() {  # <lane> → 0 when this call claimed the dormant episode's one post, 3 when it was posted already (or the lane is not dormant)
     lane_dormant "$1" || return 3
     [ -z "$(lane_state_field "$1" 5)" ] || return 3
-    _lane_state_put "$1" dormant "$(lane_state_field "$1" 3)" "$(lane_state_field "$1" 4)" "$(lane_iso "$(date +%s)")" "$(lane_state_field "$1" 6)"
+    _lane_state_put "$1" dormant "$(lane_state_field "$1" 3)" "$(lane_state_field "$1" 4)" "$(lane_iso "$(date +%s)")" "$(lane_state_field "$1" 6)" "$(lane_state_field "$1" 7)"
 }
 lane_dormant_claim_post() { local l; l=$(lane_state_id "${1:-}") || return 1; _lane_state_locked _lane_dormant_claim "$l"; }   # <lane>
 # THE LIMITS' NAMES (the limit watch, lib/watch.sh; here since the rescue reads them too), one phrase per sentence a limit
@@ -4333,9 +4346,9 @@ lane_dormant_claim_post() { local l; l=$(lane_state_id "${1:-}") || return 1; _l
 # "API credit ran out", "API workspace spending limit" (the stop headline's list, and the watch's frames)
 lw_limit() {
     local who what m
-    case "$2" in rate|credit|workspace) who=API;; *) case "$(lane_norm "$1")" in subscription-1|subscription-2) who=$(lane_label "$1");; ''|-|api|sdk|login) who="";; *) who=$(lane_norm "$1");; esac;; esac
+    case "$2" in rate|credit|workspace|monthly) who=API;; *) case "$(lane_norm "$1")" in subscription-1|subscription-2) who=$(lane_label "$1");; ''|-|api|sdk|login) who="";; *) who=$(lane_norm "$1");; esac;; esac
     case "$2" in
-        rate) what="rate limit";; credit) what="credit ran out";; workspace) what="workspace spending limit";;
+        rate) what="rate limit";; credit) what="credit ran out";; workspace) what="workspace spending limit";; monthly) what="monthly usage cap";;
         seven_day) what="weekly limit";; five_hour) what="5-hour limit";;
         seven_day_*|five_hour_*) m=${2#*_*_}; _u0=${m:0:1}; m="${_u0^^}${m:1}"
             case "$2" in seven_day_*) what="$m weekly limit";; *) what="$m 5-hour limit";; esac ;;
