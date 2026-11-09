@@ -300,7 +300,7 @@ What you see once you are in (`web/README.md` has every detail):
 - **New session** is a form that queues a project session (`sala op spawn`) and asks the board for the project, so it needs the board (step 9).
 - **Looks.** The page follows your browser's light or dark setting. The dark look is one orange (`#f0a06a`) on the neutral greys. Small labels (an unread count, the front-agent badge, the `max` effort tag) are that orange on a deep brown (`#3a2619`), and a disabled solid button (Send, Create session) is a flat grey (`#a3a29d` on `#2a2a2c`) at full opacity. The light look keeps its own orange and fades a disabled button.
 - **Colors.** In the dark look only, a **Colors** button at the bottom of the sidebar opens a panel for trying other colors: presets (the first is what the page ships), saved combinations, and behind a **Fields** button the 14 color fields. A pick stays in this browser; **Reset** puts the shipped look back. The saved combinations are one list kept on the board: without a board the panel says the list is unavailable, and everything else in it works.
-- **A preview of the next look.** `https://your-name.example.com/v2/` is the same app drawn with the board's look (it types into live sessions, the same as `/`). The normal address is unchanged.
+- **The board's look.** The page is drawn with the board's look: one type scale, two font weights, a 4 px grid, one orange, a monospace face for code, and a column of at most 920 px. `https://your-name.example.com/v2/`, where this look was first tried, redirects to `/` for a while (it will be dropped later), so an old bookmark still lands on the page.
 
 ## 4. Adding a project
 

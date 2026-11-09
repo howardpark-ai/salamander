@@ -469,7 +469,7 @@ and scope headings, and these rules apply:
 
 The on/off is the pref `unreadOnly` (*Preferences*, below), kept on the server like "Show all sessions", so the phone and the desktop agree and a reload keeps it. The rules are
 pure functions in `shared.js` (`unreadOfSession`, `unreadTotal`, `unreadKept`, between the `<unread-words>` markers) that `app.js` calls and
-`tests/test_unread_filter.py` runs in node; the same file drives a headless Chromium over `/` and `/v2/`, at a phone's and a desktop's width.
+`tests/test_unread_filter.py` runs in node; the same file drives a headless Chromium over `/`, at a phone's and a desktop's width.
 
 Above the list, **Overview** opens in the main area in place of a session (`#sessions`; a session is
 `#s=<name>`; what Back, Forward and a reload do with them is under *Back*): every live session's project, role, status, model and lane
@@ -1213,7 +1213,7 @@ and never edits: its sha256 is in `static/colortool.js.sha256`, and `tests/test_
 (it copies `~/stackshot/shared/colortool.js`, or the path given as its argument, and rewrites the sha file), then run that test. Sala's own part is `static/colortool-sala.js`: the settings
 the tool is given (which variables each field sets, how the shipped look is read, the preview of sala's buttons and labels, the panel's note and example hex) and the one call that applies the stored look in the head. A field that follows others (the three label fields and the disabled pair) shows sala's own shipped value while none of the fields it follows is set, and is worked out from the live ones once one is; the panel says "shipped" or "follows the others" beside it. The tool runs the wiring's `onApply` hook in the light theme too, with nothing to apply; the hook then only puts the dark `theme-color` meta back and returns.
 Load order: `index.html` and `terminal.html` load `colortool.js` and then `colortool-sala.js` in the head (the stored look is applied before the first paint); only the end of
-`index.html`'s body starts the button (`SalaColors.init()`, so `/v2/` gets it through the same page); the terminal page applies the look and has no button. The owners are `colors.py`
+`index.html`'s body starts the button (`SalaColors.init()`); the terminal page applies the look and has no button. The owners are `colors.py`
 and `app.py` (the saved list's three routes), `colortool-sala.js` and the pinned `colortool.js`.
 
 | Field (panel label) | Variables it sets |
@@ -1235,7 +1235,7 @@ and `app.py` (the saved list's three routes), `colortool-sala.js` and the pinned
 The stylesheets read every new name with a fallback (`var(--accent-solid, var(--accent))`, `var(--label-bd, transparent)`, `var(--dis-op, .45)`), so without the script nothing changes.
 **Disabled buttons**: the idle Send button (`.send-btn:disabled`) was the solid fill faded to 45% opacity, which turns it brown. In the dark theme it now ships as `--dis-bg` and `--dis-fg` at opacity 1
 (`--dis-op`), `#2a2a2c` and `#a3a29d` (*The shipped dark look*, below); in the light theme, where those tokens are not set, it is still the faded solid. With the script's variables set it is exactly the colors it was given. The two other solid buttons that fade by opacity, Create session and Start quick session
-(`.ns-submit:disabled`, and `#ns-submit`, `#sd-submit` in `/v2`), take the same pair; the paperclip and the Stop button of a running `!` command are not solid buttons and are left alone.
+(`.ns-submit:disabled`, and `#ns-submit`, `#sd-submit` in the page's `look` style), take the same pair; the paperclip and the Stop button of a running `!` command are not solid buttons and are left alone.
 Setting either disabled field sets both (the other from the shipped look).
 
 **The shipped dark look.** The dark theme ships one saved combination as its default, because it keeps the one orange and gives the small labels and the disabled buttons a quiet pair of their own. Its 14 values:
@@ -1266,71 +1266,50 @@ before the tool was pinned keeps loading; a flat map of `#rrggbb`, only the fiel
 the tool makes is to `api/colors/combos`. The cfg also restores the dark `theme-color` meta on Reset, the Original orange theme preset and the light theme. On the terminal page the page stays black and a pick reaches only the Copy
 offer. Tests: `tests/test_colortool_wiring.py`, `tests/test_colors_combos.py`.
 
-## /v2
+## The look
 
-**sala UI v2 is served at `/v2/`, next to the unchanged page at `/`.** It is the same app (same sessions, same composer, same
-data and the same API: whatever is done in /v2 is done for real, a message sent there is typed into the pane) drawn with
-stackshot's look: one type scale (12, 13, 15, 17 and 22 px; 16 px stays on form fields), two weights (400 and 600, 500 on tags),
-sentence case, a 4 px grid, 4 and 8 px corners, one 920 px column, a monospace font for code, stackshot's icons, two button levels, tinted
-tags without an outline, links without an underline until hover, and the orange accent (`#f0a06a` dark, `#ad4608` light). On a
-phone the Agents table is one row per agent, and controls are 44 px (32 px with a mouse).
+**The page is drawn with stackshot's look**: one type scale (12, 13, 15, 17 and 22 px; 16 px stays on form fields, since a smaller
+field makes iOS zoom the page when it takes focus), two weights (400 and 600, 500 on tags), sentence case, a 4 px grid, 4 and 8 px
+corners, one 920 px column, D2Coding for code, stackshot's icons (a 24 grid, a 2 px round stroke), two button levels, tinted tags without
+an outline, links without an underline until hover, and the orange accent (`#f0a06a` dark, `#ad4608` light). On a phone the Agents table is
+one row per agent, and controls are 44 px (32 px with a mouse).
 
-**It is a layer over the live v1 sources, not a copy of them.** The package `sala_web/v2/` rewrites v1's stylesheets, `index.html`
-and `app.js` when they are asked for and caches the result by the source file's mtime (and the pass's own). So v1 work that lands
-while v2 is being tried (a new rule, a new button) shows in /v2 by itself, already on the v2 scale, and there is no second set of
-files to keep in step. The layer is:
+**Where it lives.** It is in the sources, not applied on top of them:
 
-- `v2/design.py`, the pass. `css()` goes rule by rule over a stylesheet: font sizes onto the scale, weights, no letter-spacing or
-  uppercase, the monospace face on code and terminal rules only (the v2 monospace font in place of the page's own), padding, margin and gap onto the
-  4 px grid, radii to 4 or 8 px, the 820, 980 and 1100 px column limits to 920 px. `html()` redraws sala's inline icons on stackshot's 24 grid
-  (2 px stroke, round ends; the same shapes as stackshot where it has one, the same strokes where it has none), drops the manifest link,
-  marks the title and adds the face and the additions. `js()` does the same for the icon `app.js` draws, the title (`v2 · ` before every
-  title `setTitle` sets, so a v2 tab is told from a v1 tab), the copy confirmation's check at the common 2 px stroke, and the service
-  worker registration.
-- `v2/extra.css`, what a rule-by-rule pass cannot make: the two button levels, the tinted tags, the link rule, the orange, the 32 and 44 px
-  controls (`--ctl`, by pointer), lane cards three to a row, Agents as rows on a phone, the scroll gutter. It is added once, in a `<style>`
-  at the end of the page's `<head>`, after every stylesheet link.
-- `v2/layer.py`, the serving. `/v2` redirects to `/v2/`. `/v2/` is `index.html` through the same rendering as `/` (the `{{brand}}`,
-  `{{v}}` and `{{owner}}` fields). `/v2/static/<file>.css` (not `vendor/`) and `/v2/static/app.js` are the pass's output; the font is
-  `/v2/static/fonts/<monospace font>.woff2` (with `OFL.txt` beside it: the font's licence, the SIL Open Font License 1.1, travels with
-  the font); every other `/v2/static/` file is v1's own. **Any other `/v2/<path>` is the request for `/<path>`**: the page's addresses
-  are relative (`api/...`, the event streams, `sw.js`, `terminal`), so from `/v2/` they arrive as `/v2/api/...`, and a small ASGI
-  middleware drops the prefix before routing (http and websocket alike; headers, cookies, the query and the body are untouched).
-  Static answers carry `Cache-Control: no-cache` and an ETag, as v1's static files do.
-- A pass that raises is logged once (per file) and the v1 file is served as it is: a bug in the layer costs the look, never the page.
-  A pass that no longer finds its anchor in a v1 file (the page changed shape) leaves that part as v1 had it and logs the miss once;
-  `tests/test_v2_design.py` fails on a miss, so it is seen in CI.
+- `static/*.css` (not `vendor/`) are written on the scale: the five sizes, the two weights, no letter-spacing or uppercase, the monospace
+  face on code and terminal rules only (`--mono` leads with D2Coding), padding, margin and gap on the 4 px grid (2 px and under are
+  hairlines and stay), radii of 4 or 8 px (a pill and 2 px stay), and the 920 px column. A new rule is written that way too.
+- `static/index.html` ends its `<head>` with one `<style id="look">`, after every stylesheet link, so it wins the cascade. It holds the
+  `@font-face` for the code face and what a rule on the scale cannot make: the two button levels, the tinted tags, the link rule, the
+  orange, the 32 and 44 px controls (`--ctl`, by pointer), lane cards three to a row, Agents as rows on a phone, the scroll gutter. The page's
+  inline icons are drawn on the 24 grid, and `app.js` draws its check mark at the same 2 px stroke.
+- `static/fonts/D2Coding-Regular.woff2` is the code face; `OFL.txt` beside it is its licence (the SIL Open Font License 1.1), which
+  travels with the font.
 
-**What /v2 does not touch.** `/` and `/static/` are byte for byte what they were (a test holds it). The v2 page has **no manifest link
-and registers no service worker**, so Chrome offers no second install and the installed app's worker stays v1's (the worker has no fetch
-handler, so it does nothing to /v2 pages that open under its scope). **Not restyled:** the Terminal view's own page (`/v2/terminal` is
-`terminal.html` as v1 serves it) and the contents of the Shell drawer and the Terminal tab (ttyd's page in a frame: the frame's chrome
-goes through the pass, what it shows does not). The `/tty/` address is absolute and unchanged.
+**Not drawn in this look:** the Terminal view's own page (`/terminal` is `terminal.html`) and the contents of the Shell drawer and the
+Terminal tab (ttyd's page in a frame: the frame's chrome follows the look, what it shows does not). The `/tty/` address is absolute.
 
-**How to try it.** Open `<the address>/v2/` in a second tab (its title starts with `v2 · `); on a phone, a browser tab, not the installed
-app. Settings (theme, the saved agent order, read markers) are shared with v1 because the API is the same.
+**The installed app is unchanged.** The page links `manifest.webmanifest` (`start_url` and `scope` are `./`, so the app opens at `/`) and
+`app.js` registers `/sw.js`, as before; the worker has no fetch handler (*Install as an app* below).
 
-**How the switch-over will go** (a later step, its own PR, not this one). The layer's output is committed as the source: the pass is
-run over `static/` (each stylesheet, `app.js`, and `index.html` as `V2Layer.index_template()` gives it, its `{{...}}` fields intact),
-the manifest link and the worker registration are put back in the swapped page, the tests that pin v1's numbers are re-baselined to the
-v2 scale, and then `v2/` and its three routes are deleted (`/v2/` redirects to `/` for a while). Until then v1 stays the source and
-v2 follows it.
+**`/v2` redirects to `/` for a while.** The look was first tried at `/v2/`. `/v2`, `/v2/` and every path under it (GET and HEAD) answer a
+temporary redirect (307) to `/`, with the query kept and nothing of the path: `/v2/x` goes to `/`, not to `/x`. This is for old bookmarks
+and for the installed app's older link; it is dropped later, and nothing else refers to `/v2`.
 
-**Tests.** `tests/test_v2_design.py` (pure text: the output of the pass over every stylesheet holds the scale, the weights, no
-letter-spacing, no uppercase, the monospace face on code only, the grid, the two radii and one column width; the page and `app.js`
-passes find their anchors; every inline icon is on the 24 grid), `tests/test_v2_layer.py` (HTTP: v1 byte for byte, the redirect, the page and
-its marks, no manifest, no worker, stylesheets as CSS, the font and its licence, the APIs, the event stream and writes under the prefix,
-the prefix middleware on http and websocket scopes with cookies and headers untouched, a failing pass falling back to v1, the cache) and
-`tests/test_v2_browser.py` (a headless Chromium at 390, 768, 1024 and 1440 px over the Agents, Schedules and Machines tabs, a chat,
-Search results and the New session page: no sideways scroll, a column of at most 920 px on a wide screen, no error logged, the monospace font
-loaded, no manifest and no worker registered). What they do not cover is in `docs/test-coverage.md`.
+**Tests.** `tests/test_look_scale.py` (pure text: every stylesheet holds the scale, the weights, no letter-spacing, no uppercase, the
+monospace face on code only, the grid, the two radii and one column width; the page keeps its manifest link and its one `look` style
+after every stylesheet link; every inline icon is on the 24 grid), `tests/test_look_redirect.py` (HTTP: `/v2` and what is under it
+redirect to `/` with the query, the manifest, the worker and the font with its licence are served) and `tests/test_look_browser.py` (a
+headless Chromium at 390, 768, 1024 and 1440 px over the Agents, Schedules and Machines tabs, a chat, Search results and the New session
+page: no sideways scroll, a column of at most 920 px on a wide screen, no error logged, the monospace font loaded, the manifest linked and
+the worker registered). What they do not cover is in `docs/test-coverage.md`.
 
 ## Mockup pages
 
 `GET /mockup/<n>` serves an HTML page that `sala mockup add FILE` stored (salamander's `lib/mockup.py`, [docs/mockup.md](../docs/mockup.md)), so a session that cannot publish an Artifact hands a reader
 a link instead of a picture. The pages are files under `<sala state>/mockups/<n>.html` (mode 600, folder 700); sala-web only reads them (`mockup.py`, `Settings.mockups_dir`), opens a page without following a link,
 serves a regular file of at most 5 MiB only, and answers 404 for a number with no page, for one that is not written as a plain number, and for a folder that does not exist yet. It is `text/html; charset=utf-8`; a page that is not
-UTF-8 (put there by hand, the CLI refuses it) is a 415, and any method but GET and HEAD a 405 with `Allow`. Behind `/v2/` it is the same route.
+UTF-8 (put there by hand, the CLI refuses it) is a 415, and any method but GET and HEAD a 405 with `Allow`.
 
 There is no sign-in of its own: sala-web has none and the proxy in front of the site is the sign-in ([web-proxy.md](../docs/web-proxy.md)); the route is served by the same app, so it is inside that sign-in.
 
@@ -1671,12 +1650,12 @@ What open browser windows see:
   the server, and a stylesheet or script that fails is skipped without a word (the side panel's search box came up unstyled, with no
   Colors button, until a reload). `index.html` opens its head with a small inline script (so it hears every failure, whatever fails after it):
   a failed `static/*.css` or `static/*.js` of the page, or at load a stylesheet that has no sheet, or the color tool's two scripts with no tool
-  (`ColorTool`, `SalaColors`), gets a copy of its element put where it stood (the cascade order holds, and a copy never lands after the v2
-  layer's `<style>`) with a cache-busting `&r=<time>`, 0.3 s, 0.6 s, 0.9 s and 1.2 s after each failure: at most 4 tries per file, then it stops
+  (`ColorTool`, `SalaColors`), gets a copy of its element put where it stood (the cascade order holds, and a copy never lands after the look's
+  `<style>`) with a cache-busting `&r=<time>`, 0.3 s, 0.6 s, 0.9 s and 1.2 s after each failure: at most 4 tries per file, then it stops
   (a file that is really gone costs 5 requests, not a loop). The checks run at the page's `load` and again 4 s and 12 s after the markup was
   read; a file that loaded is never asked for twice. A recovered color tool starts its own button (`SalaColors.init()`, which the end of the
   body had skipped; it is safe to call twice). Only the main page does this: `terminal.html` has no panel. `tests/test_asset_recovery.py`
-  stages the failure (aborted and 404, on `/` and `/v2/`) and holds that the file comes back, the box is styled, the button is drawn once,
+  stages the failure (aborted and 404) and holds that the file comes back, the box is styled, the button is drawn once,
   and nothing reloads.
 - **During a restart** the SSE stream ends (uvicorn ends streams at once on SIGTERM and gives an in-flight send up to
   8 s), the page shows a quiet "Reconnecting…" in the header if the gap lasts past 800 ms, and EventSource reconnects

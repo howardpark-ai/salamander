@@ -41,7 +41,7 @@ page's number is never given again. A page is written under a temporary name and
 
 ## How it is served
 
-`GET /mockup/<n>` on sala-web (also under `/v2/`), `text/html; charset=utf-8`, 404 for a number with no page. There is no sign-in of its own: sala-web has none, the
+`GET /mockup/<n>` on sala-web, `text/html; charset=utf-8`, 404 for a number with no page. There is no sign-in of its own: sala-web has none, the
 proxy in front of the site is the sign-in ([web-proxy.md](web-proxy.md)), and this route is served by the same app, so it is behind the same sign-in as everything else.
 
 A stored page is somebody's HTML at the address of the terminal, so every response under `/mockup/` (a page, a 404, a 405) carries:
