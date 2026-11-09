@@ -1507,8 +1507,11 @@ PY
 # Every post leaves through sala_send_post: each bare board#N becomes a link to its item (lib/boardlinks.sh, the one
 # implementation the briefings' post_slack runs too; SALA_STACKSHOT_WEB unset: the text goes as it is).
 _bl=${BASH_SOURCE[0]}; [[ $_bl == */* ]] || _bl=./$_bl; . "${_bl%/*}/boardlinks.sh"; unset _bl   # beside this file, no process
-sala_send_post() {   # <cmd>  — stdin, board ids linked, into the notify command; its exit code
-    sala_board_links "${SALA_STACKSHOT_WEB:-}" | sh -c "$1"
+# The message reaches the notify command only on its stdin, as data: the command string is the owner's config and nothing of the message
+# is ever put into it. The command is bounded (SALA_NOTIFY_TIMEOUT s, 60 by default, killed 5 s later): a post that hangs must not hold
+# the watch's tick, which also does the revives, the queue runs and the recycles.
+sala_send_post() {   # <cmd>  — stdin, board ids linked, into the notify command; its exit code (124 = it ran out of time)
+    sala_board_links "${SALA_STACKSHOT_WEB:-}" | timeout -k 5 "${SALA_NOTIFY_TIMEOUT:-60}" sh -c "$1"
 }
 sala_notify_raw() {   # the message exactly as given (a formatted post that must start with its own header)
     local cmd="${SALA_NOTIFY_CMD:-${SALA_WATCH_NOTIFY_CMD:-}}"

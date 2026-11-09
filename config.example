@@ -305,8 +305,11 @@
                                  #   its --allowedTools: sala's verbs and read-only looks, nothing else
 #SALA_OP_HELPER_CWD=~            # where it runs
 #SALA_OP_CLAUDE=                 # the command it runs as; empty = SALA_CLAUDE (the tests set a stub, so no suite calls the API)
-#SALA_WATCH_NOTIFY_CMD=           # e.g. a Slack webhook helper reading the message on stdin
+#SALA_WATCH_NOTIFY_CMD=           # e.g. a Slack webhook helper reading the message on stdin (run with `sh -c`). The message is data on stdin only:
+                                 #   never expand it into the command string (no `bash -c "… $(cat) …"`: the text would be parsed as shell and a
+                                 #   backtick or $( ) in a notice would run); contrib/briefing/post-stdin.sh is a ready one for the Slack webhook.
                                  #   (also `sala alert "<headline>" "<line>"…` from a check run without Claude)
+#SALA_NOTIFY_TIMEOUT=60           # seconds a post may take before its command is stopped (killed 5 s later), so a hung one cannot hold the watch
 #SALA_FLEET_HOSTS=                # ssh aliases `salamander update --fleet` also updates, e.g. "laptop desktop"
 #SALA_FLEET_TIMEOUT=8             # seconds before a host counts as offline (skipped, not failed)
 #SALA_POST_UPDATE_CMD=            # run after ANY CLI update attempt (recycle --update, update --fleet, provision), e.g. bump a version dashboard

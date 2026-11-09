@@ -13,7 +13,7 @@
 #
 # Lives in salamander at contrib/briefing/; run by the sala-briefing-* systemd user
 # timers (contrib/briefing/systemd/). Also sourced by sala's
-# SALA_WATCH_NOTIFY_CMD (`bash -c ". <dir>/lib.sh; post_slack ..."`), so it
+# SALA_WATCH_NOTIFY_CMD (post-stdin.sh, which sources it and posts stdin), so it
 # only defines things and never exits: safe to source from bash in any
 # directory and through a symlink (bash only: it reads BASH_SOURCE).
 set -u

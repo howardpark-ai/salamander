@@ -59,7 +59,7 @@ print(hashlib.sha1(scrub("\n".join(lines)).encode()).hexdigest()[:16] + "\t" + s
 sq_send() {  # <headline> [bullet…] → the notify command's exit code (sala_post swallows it; a failed post is retried here), 3 with none configured
     local cmd="${SALA_NOTIFY_CMD:-${SALA_WATCH_NOTIFY_CMD:-}}"
     [ -n "$cmd" ] || return 3
-    sala_post_text "$@" | sala_board_links "${SALA_STACKSHOT_WEB:-}" | ${SQ_SEND_TIMEOUT:+timeout "$SQ_SEND_TIMEOUT"} sh -c "$cmd" >/dev/null 2>&1   # SQ_SEND_TIMEOUT: set by the hook, which must not hold a turn
+    sala_post_text "$@" | sala_board_links "${SALA_STACKSHOT_WEB:-}" | timeout -k 5 "${SQ_SEND_TIMEOUT:-${SALA_NOTIFY_TIMEOUT:-60}}" sh -c "$cmd" >/dev/null 2>&1   # SQ_SEND_TIMEOUT: set by the hook, which must not hold a turn; else the bound of every post
 }
 sq_log() { if declare -F wlog >/dev/null 2>&1; then wlog "$@"; else echo "[$(date -Is)] $*" >> "${WLOG:-$SALA_LOG_DIR/salamander-watch.log}"; fi; }   # the watch's own log, from the hook too
 # sq_compose <session> <claude pid> <summary> → SQ_HL and SQ_B (the post's headline and bullets): the one wording of the 90 s
