@@ -191,3 +191,35 @@ def test_a_choice_saved_on_the_server_is_the_language_from_the_first_paint(serve
     assert browser.evaluate(WAIT_READY)
     assert wait_until(browser, "document.querySelector('#side-new .label') && /[" + chr(0xAC00) + "-" + chr(0xD7A3) + "]/.test(document.querySelector('#side-new .label').textContent)")
     assert browser.evaluate("document.querySelector('.side-lang [data-lang=ko]').getAttribute('aria-pressed')") == "true"
+
+
+SNAP = """(() => { const out = []; for (const e of document.querySelectorAll('*')) {
+  for (const [a, t] of [['data-i18n', 'text'], ['data-i18n-title', 'title'], ['data-i18n-aria-label', 'aria-label'],
+                        ['data-i18n-placeholder', 'placeholder'], ['data-i18n-word', 'data-word']]) {
+    if (e.hasAttribute(a)) out.push([(e.id || e.className || e.tagName) + ' ' + a, t === 'text' ? e.textContent : e.getAttribute(t)]);
+  } } return out; })()"""
+VIEWS = {"chat": "0", "shell": "document.querySelector('#shell-btn').click()", "overview": "location.hash = '#sessions'",
+         "schedules": "location.hash = '#schedules'", "new": "location.hash = '#new'", "search": "location.hash = '#search'"}
+
+
+def test_the_markup_apply_never_overwrites_a_text_that_script_painted(served, browser):
+    """The first apply of the markup runs when the document finishes loading; the header's name, the shell button's tooltip (the host
+    arrives with api/config) and the like are painted by script. If such an element carried data-i18n*, whichever ran second would win.
+    So an element that script paints has no data-i18n* in the markup, and a fresh apply must change nothing on any view."""
+    open_page(served, browser)
+    assert wait_until(browser, "typeof state !== 'undefined' && state.host")
+    host = browser.evaluate("state.host")
+    for lang in ("en", "ko"):
+        if lang == "ko":
+            choose(browser, "ko")
+        for view, js in VIEWS.items():
+            browser.evaluate(js + "; ''")
+            browser.evaluate("new Promise((r) => setTimeout(r, 400))")
+            before = browser.evaluate(SNAP)
+            browser.evaluate("SalaI18n.apply(document)")
+            after = browser.evaluate(SNAP)
+            changed = [(b[0], b[1], a[1]) for b, a in zip(before, after) if b[1] != a[1]]
+            assert not changed, f"{lang}/{view}: a fresh apply overwrote script-painted text: {changed}"
+        tip = browser.evaluate("document.querySelector('#shell-btn').title")
+        assert host in tip and tip.endswith(" (Ctrl+`)"), (lang, tip)
+        assert (lang == "en") == tip.startswith("Shell on "), (lang, tip)

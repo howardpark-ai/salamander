@@ -260,7 +260,7 @@ Held in a headless Chromium with the banner shown, dark then light (the theme se
 solid 2 px outline. The test fails on the old stylesheet. Not covered, and why: a color-tool theme with custom values (the tokens it sets are the same ones read here, and its wiring has
 its own tests in `test_colortool_wiring.py`), and how the strip looks to the eye (colors and contrast are computed, not seen).
 
-### The page in Korean or English: `web/tests/test_i18n.py` new, 14; `test_i18n_browser.py` new, 6; `i18n_node.py` helper; 18 files changed (Tue Nov 10th 2026)
+### The page in Korean or English: `web/tests/test_i18n.py` new, 14; `test_i18n_browser.py` new, 7; `i18n_node.py` helper; 18 files changed (Tue Nov 10th 2026)
 
 The page's words now come from two tables (`static/i18n-en.js`, every key; `static/i18n-ko.js`, Korean only, every character written
 as a `\u` escape) through `tl()` and the `data-i18n` attributes, and a KO/EN control at the foot of the session list switches them
@@ -283,7 +283,11 @@ language the page does not have refused with nothing changed, the three script f
 the sidebar, the composer's hint and the buttons, sets `lang="ko"`, saves it on the server and keeps it over a reload; the chat's
 text and a half-typed composer message are the same after the switch and a tap on EN restores every English word; the age on a
 message and the date in its tooltip change language; the New session form keeps what was typed in it and rewords its labels and
-placeholder; a choice saved on the server is the language at the first paint.
+placeholder; a choice saved on the server is the language at the first paint (recorded by a script that runs before the page's own); a
+fresh apply of the markup changes nothing on any view in either language, so no element that script paints (the header's name, the
+shell button's tooltip with the host from `api/config`, the sort button's label, the project list's fold button) carries a
+`data-i18n*` attribute that the first apply could write over the script's text. The tests wait for the navigation to commit
+before they read the page.
 Existing tests changed (18 files, no English word changed): the ones that pinned the page's markup now carry the `data-i18n*` attributes in
 what they pin (`test_composer_attach.py`, `test_header_fold.py`, `test_header_menu.py`, `test_name.py`, `test_new_session.py`,
 `test_overview_actions.py`, `test_overview_columns.py`, `test_reload_menu.py`, `test_schedules.py`, `test_shell_drawer.py`,

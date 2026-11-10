@@ -3851,8 +3851,11 @@ const shellTitle = () => (state.host ? tl("app.shell.titleOn", { host: state.hos
 function paintShellNames() {
   $("#shell-full").href = "terminal?arg=" + encodeURIComponent(state.shellSession);   // the full-size page (terminal.html), not ttyd's bare page: it carries the clipboard code
   $("#shell-chip").textContent = (state.host ? state.host + " \u00b7 " : "") + state.shellSession;
-  shellBtn.title = shellTitle() + " (Ctrl+`)";
+  paintShellTip();
 }
+// the button's tooltip is painted by script (the host arrives with api/config), so its markup carries no data-i18n-title: the
+// first apply of the markup could otherwise put the generic one back over the host's
+function paintShellTip() { shellBtn.title = state.host ? tl("app.shell.titleOn", { host: state.host }) + " (Ctrl+`)" : tl("ui.hdr.shellTip"); }
 
 function setShell(open, remember = true) {
   shell.open = open;
@@ -4001,6 +4004,11 @@ SalaI18n.onChange(() => {
   const frame = shellHost.querySelector("iframe");
   if (frame) frame.title = shellTitle();
 });
+
+// text that script paints over the markup (the header's name, the shell button's tooltip) has no data-i18n in the markup, so it is
+// worded here in the page's language at start; a language change repaints it through the onChange hooks above
+retitle();
+paintShellTip();
 
 (async function init() {
   perfMark("init", { controlled: !!(navigator.serviceWorker && navigator.serviceWorker.controller), hash: location.hash.slice(0, 40) });

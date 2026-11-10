@@ -1237,6 +1237,10 @@ as `\u` escapes, and use it as `tl("key", {name: ...})` in a script or `data-i18
 between the tags. `tests/test_i18n.py` fails for a key used and not in the English table, a key in the English table that nothing uses,
 a Korean key missing, empty or left in English, different placeholders, or markup whose words differ from the table. A text a script
 builds once and keeps in the page (an element made by a script) uses `...tx("key")` for its attributes, so a switch can reword it.
+An element whose text or attribute script paints from data that arrives later (the header's name, the shell button's tooltip) carries
+no `data-i18n*` in the markup: the markup is applied once when the document has loaded, and that apply would otherwise write the
+generic words over the script's. Such a text is worded in script at start and again from `SalaI18n.onChange`; a test applies the markup
+afresh on every view and fails if anything changes.
 
 **Adding a language.** Another table file (`i18n-xx.js`, with a plural rule in `PLURAL` in `i18n.js` and a `LOCALE` entry), the code in
 the `PREFS_LANGS` list in `app.py`, a button in the `.side-lang` group, and the same coverage test over the new table.

@@ -223,7 +223,7 @@
            toggle under them. The name never gives way while anything else is still in the bar: the Shell button, then Reload,
            then the status badge leave for the ⋯ menu, one at a time, as the name needs the room (app.js, "header: the name
            first"); on a narrow phone that is all three. -->
-      <div id="title"><span class="who"><span class="dot"></span><span class="name" data-i18n="ui.hdr.selectSession">Select a session</span></span><div id="top-end" class="top-end"><span id="conn" class="conn" role="status" hidden data-i18n="ui.hdr.reconnecting">Reconnecting…</span><span id="top-status" class="top-status" data-word="Status" data-i18n-word="common.status"></span>
+      <div id="title"><span class="who"><span class="dot"></span><span class="name">Select a session</span></span><div id="top-end" class="top-end"><span id="conn" class="conn" role="status" hidden data-i18n="ui.hdr.reconnecting">Reconnecting…</span><span id="top-status" class="top-status" data-word="Status" data-i18n-word="common.status"></span>
       <!-- the installed app has no browser bar: a reload of its own, always here (the banner's shows only for a new
            build); it keeps the composer's draft as the banner's button does. Icon only in the bar (the label is its
            aria-label and tooltip); a row with the word in the ⋯ menu when it has folded there (style.css) -->
@@ -233,7 +233,7 @@
            order), so Tab from the ⋯ button goes into its menu, which follows it. Its word is dropped on a phone, the icon stays.
            It is the first item of the header fold: where the name does not fit it moves into the ⋯ menu as a "Shell"
            row, the same button and the same handler (app.js "header: the name first"; style.css, .top-tools .shell-btn) -->
-      <button id="shell-btn" class="shell-btn" type="button" aria-label="Shell" data-i18n-aria-label="common.shell" aria-expanded="false" aria-controls="shell-drawer" title="Shell (Ctrl+`)" data-i18n-title="ui.hdr.shellTip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg><span class="shell-label" data-i18n="common.shell">Shell</span></button>
+      <button id="shell-btn" class="shell-btn" type="button" aria-label="Shell" data-i18n-aria-label="common.shell" aria-expanded="false" aria-controls="shell-drawer" title="Shell (Ctrl+`)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg><span class="shell-label" data-i18n="common.shell">Shell</span></button>
       <!-- always shown; the menu under it holds the session's facts, the view switch and the thinking toggle, and what left the bar -->
       <button id="top-menu-btn" class="icon-btn" aria-label="View options" data-i18n-aria-label="ui.hdr.viewOptions" aria-expanded="false" aria-controls="top-tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg></button>
       </div></div>
@@ -325,7 +325,7 @@
           <div class="sc-sortmenu">
             <label class="sc-sortlabel" for="sc-sortsel" data-i18n="ui.sc.sortBy">Sort by</label>
             <select id="sc-sortsel" class="sc-sortsel"></select>
-            <button id="sc-sortdir" class="sc-sortdir" type="button" aria-label="Reverse the sort" data-i18n-aria-label="ui.sc.reverse" title="Reverse the sort" data-i18n-title="ui.sc.reverse"></button>
+            <button id="sc-sortdir" class="sc-sortdir" type="button" aria-label="Reverse the sort" title="Reverse the sort" data-i18n-title="ui.sc.reverse"></button>
           </div>
           <div id="sc-timers" class="sp-wrap sc-wrap">
             <table id="sc-table" class="sc-table">
@@ -507,7 +507,7 @@
           <div class="ns-field ns-projfield">
             <label for="ns-filter" data-i18n="ui.col.project">Project</label>
             <!-- once a project is picked the box below folds to this one line (the arrow opens and closes it) -->
-            <button id="ns-summary" class="ns-sum" type="button" aria-expanded="true" aria-controls="ns-projpanel" title="Show the project list" data-i18n-title="ui.ns.showProjects" hidden></button>
+            <button id="ns-summary" class="ns-sum" type="button" aria-expanded="true" aria-controls="ns-projpanel" title="Show the project list" hidden></button>
             <div id="ns-projpanel" class="ns-panel">
               <input id="ns-filter" type="search" placeholder="Type to filter, or the name of a new project" data-i18n-placeholder="ui.ns.filterPh" aria-controls="ns-projects" autocapitalize="off" spellcheck="false">
               <div id="ns-head" class="ns-head"><span class="ns-hk" data-i18n="ui.ns.colProject">Project</span><span class="ns-ht"><span data-i18n="ui.ns.description">Description</span> <span class="ns-hint only-wide" data-i18n="ui.ns.dragHint">drag the list's lower right corner to make it taller</span></span></div>
