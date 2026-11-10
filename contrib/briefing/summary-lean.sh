@@ -15,6 +15,7 @@
 # The delivery guard stays: a digest exists only if gmail_fetch.py really read Gmail (its meta file counts the reads); a
 # failed or refused read is a loud notice, never a digest.
 . "$(_s=${BASH_SOURCE[0]}; [ -L "$_s" ] && _s=$(readlink -f "$_s"); [[ $_s == */* ]] || _s=./$_s; cd -P "${_s%/*}" && pwd -P)/lib.sh"   # sets BRIEFING_DIR (no dirname/readlink process unless the script is a symlink)
+BRIEFING_CHANNEL="${BRIEFING_CHANNEL:-reports}"   # this job posts to the reports channel; BRIEFING_CHANNEL in the unit environment names another (README.md, Slack channels)
 
 POST=0
 [ "${BRIEFING_LEAN_POST-}" = 1 ] && POST=1

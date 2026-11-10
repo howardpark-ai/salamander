@@ -428,7 +428,24 @@ PY
 # post becomes a link to its item at SALA_STACKSHOT_WEB. Missing (a copy of contrib/briefing alone): the text goes as it is.
 if [ -r "$BRIEFING_DIR/../../lib/boardlinks.sh" ]; then . "$BRIEFING_DIR/../../lib/boardlinks.sh"; else sala_board_links() { cat; }; fi
 
-# post_slack <text>  — posts slack_text <text>, then slack_links and sala_board_links, to the webhook. With BRIEFING_THREAD_TS set (reply.sh),
+# briefing_webhook_file  — prints the webhook file a post goes to. A post may name a channel (a short name matching [a-z0-9-]+):
+# BRIEFING_CHANNEL, else SALA_NOTIFY_CHANNEL (sala's notify command gets it from `salamander alert --channel`). The channel's own
+# file is BRIEFING_WEBHOOK_FILE_<NAME> (NAME = the channel in capitals, dashes turned into underscores; the environment, else the
+# sala config), used only when that file exists and holds something. No channel, a name that does not match, the setting unset or
+# empty, or its file missing or blank: the default WEBHOOK_FILE, so a webhook that is not there yet loses no post.
+briefing_webhook_file() {
+  local ch=${BRIEFING_CHANNEL:-${SALA_NOTIFY_CHANNEL:-}} var f
+  if [[ $ch =~ ^[a-z0-9-]+$ ]]; then
+    var=${ch^^}; var=BRIEFING_WEBHOOK_FILE_${var//-/_}
+    [ -n "${_BCFG[$var]+x}" ] || _bcfg_load "$var"
+    f=$(_bhome "$(_bcfg "$var")")
+    if [ -n "$f" ] && grep -q '[^[:space:]]' "$f" 2>/dev/null; then printf '%s' "$f"; return 0; fi
+  fi
+  printf '%s' "$WEBHOOK_FILE"
+}
+
+# post_slack <text>  — posts slack_text <text>, then slack_links and sala_board_links, to the webhook (briefing_webhook_file: the
+# default one, or the channel's). With BRIEFING_THREAD_TS set (reply.sh),
 # the post is a reply in that message's thread: the payload gains "thread_ts", which incoming webhooks honour (checked
 # live). Unset or empty, the payload is the same as before. With BRIEFING_NO_POST set and non-empty (a test
 # run by hand) the finished text goes to $LOGDIR/would-post.log instead and the webhook is never read.
@@ -438,7 +455,7 @@ post_slack() {
   linked=$(slack_links "$text") && [ -n "$linked" ] && text=$linked   # nor a linker failure: the unlinked text goes
   linked=$(printf '%s\n' "$text" | sala_board_links "$(briefing_setting SALA_STACKSHOT_WEB)") && [ -n "$linked" ] && text=$linked   # each bare board#N: a link to its item
   if [ -n "${BRIEFING_NO_POST-}" ]; then printf '%s\n' "$text" >> "$LOGDIR/would-post.log"; echo "not posted (BRIEFING_NO_POST)"; return 0; fi
-  python3 - "$text" "$(cat "$WEBHOOK_FILE")" "${BRIEFING_THREAD_TS-}" <<'PY'
+  python3 - "$text" "$(cat "$(briefing_webhook_file)")" "${BRIEFING_THREAD_TS-}" <<'PY'
 import json,sys,urllib.request
 text,url,ts=sys.argv[1],sys.argv[2],sys.argv[3]
 payload={"text":text,"unfurl_links":False,"unfurl_media":False}
