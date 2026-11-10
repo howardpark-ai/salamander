@@ -225,6 +225,7 @@ def test_the_footer_words():
         pytest.skip("no node on PATH")
     src = (Path(__file__).resolve().parents[1] / "src" / "sala_web" / "static" / "machines.js").read_text()
     body = src[src.index("function agoText("):src.index("/* ---------- the machine cards")]
-    js = body + "\nconsole.log(JSON.stringify([agoText(0), agoText(59), agoText(240), agoText(3599), agoText(3 * 3600), agoText(47 * 3600), agoText(3 * 86400)]));"
+    from i18n_node import prelude
+    js = prelude("en") + body + "\nconsole.log(JSON.stringify([agoText(0), agoText(59), agoText(240), agoText(3599), agoText(3 * 3600), agoText(47 * 3600), agoText(3 * 86400)]));"
     out = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=30, check=True).stdout
     assert json.loads(out) == ["1 min ago", "1 min ago", "4 min ago", "59 min ago", "3 h ago", "47 h ago", "3 d ago"]

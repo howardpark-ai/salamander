@@ -185,7 +185,7 @@ none itself):
                                   the text into the pane, then Enter (with a dialog
                                   open: an option number or "esc" is sent as that one key)
   GET  /api/prefs                 the page's saved preferences (scopeOrder, groupOrder, sessionOrder, collapsed,
-                                  laneOrder, showAll, unreadOnly, showTools, shellHeight)
+                                  laneOrder, showAll, unreadOnly, showTools, shellHeight, lang)
   PUT  /api/prefs                 merge the given keys into them (state_dir/prefs.json, written atomically)
   POST /api/shell/open            make sure the Shell drawer's tmux session (SALA_SHELL_SESSION, default sala-shell) exists (a plain login bash in ~)
   POST /api/shell/keys            {"key"}: one key of the drawer's key row into the shell session, from a fixed list of key names
@@ -298,9 +298,10 @@ DUP_WINDOW = 20.0  # seconds: an identical send to the same pane inside this is 
 PREFS_MAX_BYTES = 64 * 1024
 PREFS_MAX_GROUPS = 500
 PREFS_DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [],
-                  "laneOrder": [], "showAll": False, "unreadOnly": False, "showTools": False, "shellHeight": 300}
+                  "laneOrder": [], "showAll": False, "unreadOnly": False, "showTools": False, "shellHeight": 300, "lang": "en"}
 PREFS_LISTS = ("scopeOrder", "groupOrder", "sessionOrder", "collapsed", "laneOrder")
 PREFS_BOOLS = ("showAll", "unreadOnly", "showTools")
+PREFS_LANGS = ("en", "ko")        # the interface languages (static/i18n.js); English is the default
 SHELL_HEIGHT_RANGE = (120, 4000)   # px, the Shell drawer's height on a wide screen; the page keeps it inside the window
 SSE_RETRY_MS = 1000           # EventSource reconnect delay after the stream drops (a restart)
 LIVE_EVERY = 0.7              # seconds between two captures of a pane that runs a `!` command (the stream's "live" event: one tick of its 0.75 s loop)
@@ -469,6 +470,10 @@ def _validate_prefs(body: object) -> dict | str:
         if isinstance(h, bool) or not isinstance(h, int) or not SHELL_HEIGHT_RANGE[0] <= h <= SHELL_HEIGHT_RANGE[1]:
             return f"shellHeight must be a whole number from {SHELL_HEIGHT_RANGE[0]} to {SHELL_HEIGHT_RANGE[1]}"
         out["shellHeight"] = h
+    if "lang" in body:
+        if body["lang"] not in PREFS_LANGS:
+            return f"lang must be one of {', '.join(PREFS_LANGS)}"
+        out["lang"] = body["lang"]
     return out
 
 
@@ -615,7 +620,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         suffix = brand_suffix()
         brand = htmllib.escape("salamander : " + suffix if suffix else "salamander")
         html = ((STATIC / name).read_text().replace("{{build}}", build_version()).replace("{{v}}", _asset_version())
-                .replace("{{brand}}", brand).replace("{{owner}}", htmllib.escape(owner_name())))
+                .replace("{{brand}}", brand).replace("{{owner}}", htmllib.escape(owner_name()))
+                .replace("{{lang}}", _read_prefs(prefs_path)["lang"]))   # the saved language is in the served page: no flash of the other
         # the overview's Get Help chip opens the session SALA_HELP_SESSION names; with none set the chip is not in the page
         help_ = help_session()
         html = (html.replace("{{help}}", htmllib.escape(help_)) if help_

@@ -66,10 +66,10 @@ function offerTerminalCopy(frame, text) {
   if (!host || !frame.isConnected) return;
   host.querySelector(".term-copy-offer")?.remove();
   const note = document.createElement("span");
-  note.textContent = "Selection not copied: the drag took too long for the browser";
+  note.textContent = tl("term.copyOffer");
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.textContent = "Copy";
+  btn.textContent = tl("common.copy");
   const box = document.createElement("div");
   box.className = "term-copy-offer";
   box.setAttribute("role", "status");
@@ -87,7 +87,7 @@ function offerTerminalCopy(frame, text) {
   if (doc) doc.addEventListener("keydown", gone, true);
   btn.addEventListener("click", async () => {
     const ok = await copyText(text);
-    note.textContent = ok ? "Copied" : "Copy failed";
+    note.textContent = tl(ok ? "term.copied" : "term.copyFailed");
     btn.remove();
     setTimeout(gone, 1600);
   });

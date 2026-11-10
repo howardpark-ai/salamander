@@ -57,7 +57,7 @@ const state = {
   es: null,             // EventSource
   defaultScope: "",     // the scope a new project starts in (api/config)
   scopes: [],           // this box's scopes (api/config) and other, each with its project groups; Unregistered last
-  prefs: { scopeOrder: [], groupOrder: [], sessionOrder: [], collapsed: [], laneOrder: [], showAll: false, unreadOnly: false, showTools: false, shellHeight: 300 },  // server-side (api/prefs): follows the owner
+  prefs: { scopeOrder: [], groupOrder: [], sessionOrder: [], collapsed: [], laneOrder: [], showAll: false, unreadOnly: false, showTools: false, shellHeight: 300, lang: "en" },  // server-side (api/prefs): follows the owner
   prefsNote: "",
   tab: "chat",
   terminalUrl: "/tty/?arg=",
@@ -107,15 +107,15 @@ function localImage(img, url) {
   const caption = (img.getAttribute("alt") || "").trim();
   const box = el("span", { class: "md-local" });
   const note = (why) => {
-    box.replaceChildren(el("span", { class: "md-local-missing", text: "image not shown: " + why }));
+    box.replaceChildren(el("span", { class: "md-local-missing", text: tl("app.img.notShown", { why }) }));
     if (caption) box.append(el("span", { class: "md-local-cap", text: caption }));
   };
-  if (!url) { note("the reply does not name this image"); return box; }
-  const pic = el("img", { class: "md-local-img", src: url, alt: caption || "image", loading: "lazy", decoding: "async" });
-  box.append(el("a", { href: url, target: "_blank", rel: "noopener", title: "Open the full image" }, pic));
+  if (!url) { note(tl("app.img.noName")); return box; }
+  const pic = el("img", { class: "md-local-img", src: url, alt: caption || tl("app.img.alt"), loading: "lazy", decoding: "async" });
+  box.append(el("a", { href: url, target: "_blank", rel: "noopener", title: tl("app.img.open") }, pic));
   if (caption) box.append(el("span", { class: "md-local-cap", text: caption }));
   pic.addEventListener("error", async () => {
-    let why = "the file could not be loaded";
+    let why = tl("app.img.loadFail");
     try {
       const r = await fetch(url);
       if (!r.ok) why = ((await r.json()).error) || why;
@@ -195,6 +195,7 @@ async function loadPrefs() {
     const r = await apiFetch("api/prefs", { cache: "no-store" });
     if (r.ok) Object.assign(state.prefs, await r.json());
   } catch { /* defaults */ }
+  SalaI18n.setLang(state.prefs.lang);   // the server holds the choice: another device may have changed it since this page was served
 }
 async function savePrefs(patch) {
   Object.assign(state.prefs, patch);
@@ -204,7 +205,7 @@ async function savePrefs(patch) {
     if (!r.ok || !d.ok) throw new Error(d.error || r.statusText);
     state.prefsNote = "";
   } catch (e) {
-    state.prefsNote = "Could not save the setting: " + e.message;
+    state.prefsNote = () => tl("app.prefs.saveFailed", { msg: e.message });
   }
   showSideNote();
 }
@@ -225,7 +226,7 @@ async function saveList(key, compute) {
     if (!r.ok || !Array.isArray(d[key])) throw new Error(r.statusText || "no such list");
     cur = d[key];
   } catch (e) {
-    state.prefsNote = "Could not save the setting: the saved settings could not be read (" + (e && e.message || e) + ").";
+    state.prefsNote = () => tl("app.prefs.readFailed", { msg: e && e.message || e });
     showSideNote();
     return false;
   }
@@ -239,7 +240,7 @@ async function saveList(key, compute) {
 
 /* ---------- sidebar ---------- */
 let rolesNote = "";
-function showSideNote() { $("#side-note").textContent = [rolesNote, state.prefsNote].filter(Boolean).join(" "); }
+function showSideNote() { $("#side-note").textContent = [rolesNote, state.prefsNote].map((x) => (typeof x === "function" ? x() : x)).filter(Boolean).join(" "); }
 
 async function loadSessions() {
   let data;
@@ -250,7 +251,7 @@ async function loadSessions() {
     perfMark("sessions:response", { status: r.status });
   } catch (e) {
     perfMark("sessions:error", { msg: String(e && e.message || e).slice(0, 120) });
-    rolesNote = "Could not load sessions."; showSideNote();
+    rolesNote = () => tl("app.roles.loadFail"); showSideNote();
     setConn("api", true);
     return;
   }
@@ -259,7 +260,7 @@ async function loadSessions() {
   migrateSessionOrder();
   state.byName = new Map();
   for (const sc of state.scopes) for (const g of sc.groups) for (const s of g.sessions) state.byName.set(s.name, s);
-  rolesNote = data.rolesError ? "Roles unavailable; grouping may be stale." : ""; showSideNote();
+  rolesNote = data.rolesError ? () => tl("app.roles.unavailable") : ""; showSideNote();
   renderSidebar();
   nsOwnSeen(); sdOwnSeen();   // a session one of the two forms just queued may be in the list now
   perfMark("sessions:rendered", { count: state.byName.size });
@@ -297,7 +298,10 @@ const visibleSessions = (g) => {
 const UNREAD_SHOWN_MAX = 9;
 const unreadOf = (s) => unreadOfSession(s, state.selected);   // shared.js, which the tests also run in node
 const unreadChip = (n, label) => el("span", { class: "ucount", role: "img", "aria-label": label, title: label, text: n > UNREAD_SHOWN_MAX ? UNREAD_SHOWN_MAX + "+" : String(n) });
-const unreadLabel = (n, where) => (n > UNREAD_SHOWN_MAX ? `More than ${UNREAD_SHOWN_MAX} unread replies` : plural(n, "unread reply", "unread replies")) + (where ? ` in ${where}` : "");
+const unreadLabel = (n, where) => {
+  const what = n > UNREAD_SHOWN_MAX ? tl("app.unread.more", { max: UNREAD_SHOWN_MAX }) : tl("app.unread.count", { n });
+  return where ? tl("app.unread.in", { what, where }) : what;
+};
 const marking = new Set();
 // `force` is for opening and leaving a session: the local count only reflects the last 10 s poll, so a reply that
 // landed since is not in it, and skipping the post would leave that reply counted after the owner read it. The server never
@@ -318,11 +322,11 @@ function paintUnreadEntry() {
   const b = $("#side-unread"), on = !!state.prefs.unreadOnly;
   b.classList.toggle("selected", on);
   b.setAttribute("aria-pressed", String(on));
-  b.querySelector(".label").textContent = on ? "Unread only" : "Unread";
-  b.title = on ? "Showing only agents with unread replies: tap to show all" : "Show only agents with unread replies";
+  b.querySelector(".label").textContent = tl(on ? "app.unread.only" : "ui.side.unread");
+  b.title = tl(on ? "app.unread.tipOn" : "ui.side.unreadTip");
   const n = unreadTotal(liveSessions(), state.selected), old = b.querySelector(".ucount");
   if (old) old.remove();
-  if (n) b.append(unreadChip(n, unreadLabel(n, "all agents")));
+  if (n) b.append(unreadChip(n, unreadLabel(n, tl("app.unread.allAgents"))));
 }
 $("#side-unread").addEventListener("click", () => { savePrefs({ unreadOnly: !state.prefs.unreadOnly }); renderSidebar(); });
 
@@ -400,11 +404,11 @@ function chevron(collapsed) {
 function header(cls, ckey, title, tip, collapsed, sessions) {
   const busy = collapsed && sessions.some((s) => s.status === "busy");
   const sel = collapsed && sessions.some((s) => s.name === state.selected);
-  const h = el("div", { class: cls + (sel ? " has-selected" : ""), title: tip + (state.prefs.unreadOnly ? " (open while only unread agents show; drag to reorder)" : " (click to fold, drag to reorder)"),
+  const h = el("div", { class: cls + (sel ? " has-selected" : ""), title: tl(state.prefs.unreadOnly ? "app.grp.tipOpen" : "app.grp.tipFold", { tip }),
                         role: "button", tabindex: "0", "aria-expanded": String(!collapsed), "data-ckey": ckey },
     el("span", { class: "t", text: title }),
     chevron(collapsed),  // right after the label, like claude.ai
-    busy ? el("span", { class: "dot busy", title: "A session in here is busy" }) : null,
+    busy ? el("span", { class: "dot busy", title: tl("app.grp.busy") }) : null,
     collapsed ? (() => { const n = sessions.reduce((t, x) => t + unreadOf(x), 0); return n ? unreadChip(n, unreadLabel(n, title)) : null; })() : null,
     el("span", { class: "handle", "aria-hidden": "true", text: "⋮⋮" }));
   h.addEventListener("pointerdown", (e) => dragStart(e, h));
@@ -418,7 +422,7 @@ function sessRow(s) {
   return el("a", {
     class: "sess" + (s.name === state.selected ? " selected" : ""),
     href: "#s=" + encodeURIComponent(s.name),
-    title: `${s.name} · ${s.status}${s.role ? " · " + s.role : ""}${s.parkedJob ? " · in background job " + s.parkedJob : ""}`,
+    title: `${s.name} · ${s.status}${s.role ? " · " + s.role : ""}${s.parkedJob ? " · " + tl("app.sess.bgJob", { job: s.parkedJob }) : ""}`,
     "data-key": s.name, "data-okey": sessKey(s), draggable: "false",
     onclick: (e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) setDrawer(false); },  // hidden now; its history entry goes with the navigation (go)
     // a press that moves reorders it within its project; one that does not is the link's click
@@ -437,12 +441,12 @@ function sessRow(s) {
    sdk lane's, which has no transcript to continue) has none. A quick session itself can be forked, as lib/spawn.sh allows
    (the new name is cut at the earlier -side-). */
 const canFork = (s) => !!(s && s.tmuxSession && s.lane !== "sdk");
-const rowMenuItems = (s) => [canFork(s) ? { label: "Fork", hint: "A quick session that continues this session's conversation", href: "#side=from:" + s.name } : null].filter(Boolean);
+const rowMenuItems = (s) => [canFork(s) ? { label: tl("app.sess.fork"), hint: tl("app.sess.forkHint"), href: "#side=from:" + s.name } : null].filter(Boolean);
 let rowMenu = null;  // {name, node}
 function rowMenuBtn(s) {
   if (!rowMenuItems(s).length) return null;
   const b = el("span", { class: "sess-more", role: "button", tabindex: "0", "aria-haspopup": "menu", "aria-expanded": String(!!rowMenu && rowMenu.name === s.name),
-                         "aria-label": `Actions for ${s.name}`, title: "Fork this session…", text: "⋯" });
+                         "aria-label": tl("app.sess.actions", { name: s.name }), title: tl("app.sess.forkTip"), text: "⋯" });
   const open_ = (e) => { e.preventDefault(); e.stopPropagation(); if (rowMenu && rowMenu.name === s.name) closeRowMenu(true); else openRowMenu(s, b, e.type === "keydown"); };
   b.addEventListener("pointerdown", (e) => e.stopPropagation());  // not the start of a drag-reorder
   b.addEventListener("click", open_);
@@ -474,7 +478,7 @@ function rowMenuKey(e) {
 }
 function openRowMenu(s, btn, byKey) {
   closeRowMenu();
-  const node = el("div", { class: "row-menu", role: "menu", "aria-label": `Actions for ${s.name}` },
+  const node = el("div", { class: "row-menu", role: "menu", "aria-label": tl("app.sess.actions", { name: s.name }) },
     ...rowMenuItems(s).map((it) => el("a", { class: "row-menu-item", role: "menuitem", href: it.href, title: it.hint,
       onclick: () => { closeRowMenu(); setDrawer(false); } }, el("span", { text: it.label }), el("span", { class: "hint", text: it.hint }))));
   document.body.append(node);
@@ -518,11 +522,11 @@ function renderSidebar() {
       }
     }
     nav.append(el("div", { class: "scope" + (sc.flat ? " flat" : ""), "data-key": sc.key },
-      header("scope-title", sKey, sc.title, sc.flat ? "Sessions with no project" : "Scope: " + sc.key, folded, all), body));
+      header("scope-title", sKey, sc.title, sc.flat ? tl("app.scope.noProject") : tl("app.scope.tip", { key: sc.key }), folded, all), body));
   }
   // the filter on and nothing unread (the open agent, if any, is the one row above): the line says so
-  if (state.prefs.unreadOnly && !unreadTotal(liveSessions(), state.selected)) nav.append(el("div", { class: "empty", role: "status", text: "Nothing unread" }));
-  else if (!nav.children.length) nav.append(el("div", { class: "empty", text: "No live sessions." }));
+  if (state.prefs.unreadOnly && !unreadTotal(liveSessions(), state.selected)) nav.append(el("div", { class: "empty", role: "status", text: tl("app.unread.none") }));
+  else if (!nav.children.length) nav.append(el("div", { class: "empty", text: tl("app.sess.none") }));
   nav.scrollTop = keepTop;
   paintUnreadEntry();
   if (rowMenu && !rowButton(rowMenu.name)) closeRowMenu();  // its session is gone (or folded away): the menu goes with it
@@ -759,13 +763,13 @@ function updateHeader(s) {
   // role, its lane, and the tmux name only when it differs (the session name already says scope and project). The status
   // badge may sit in that section's row list (folded), so the rows are replaced, not the whole list
   titleBar.status.replaceChildren(...[
-    s.status === "busy" ? el("span", { class: "pill busy", text: "working" }) : null,
-    s.status === "waiting" ? el("span", { class: "pill waiting", text: "needs input" }) : null].filter(Boolean));  // replaceChildren(null) would print "null"
+    s.status === "busy" ? el("span", { class: "pill busy", text: tl("app.hdr.working") }) : null,
+    s.status === "waiting" ? el("span", { class: "pill waiting", text: tl("app.hdr.needsInput") }) : null].filter(Boolean));  // replaceChildren(null) would print "null"
   titleBar.session.querySelectorAll(".srow").forEach((r) => r.remove());
   titleBar.session.prepend(...[
-    s.role ? sessionRow("Role", el("span", { class: "pill role-" + s.role, text: s.role })) : null,
-    s.lane ? sessionRow("Lane", el("span", { class: "pill lane-" + laneNorm(s.lane), title: "the account this session runs on (sala lane)", text: laneLabel(s.lane) })) : null,
-    s.tmuxSession && s.tmuxSession !== s.name ? sessionRow("tmux", el("span", { class: "pill mono", title: "tmux session", text: s.tmuxSession })) : null].filter(Boolean));
+    s.role ? sessionRow(tl("common.role"), el("span", { class: "pill role-" + s.role, text: s.role })) : null,
+    s.lane ? sessionRow(tl("common.lane"), el("span", { class: "pill lane-" + laneNorm(s.lane), title: tl("app.hdr.laneTip"), text: laneLabel(s.lane) })) : null,
+    s.tmuxSession && s.tmuxSession !== s.name ? sessionRow("tmux", el("span", { class: "pill mono", title: tl("app.hdr.tmuxTip"), text: s.tmuxSession })) : null].filter(Boolean));
   setTitle(s.name);
   layoutHeader();
   updateInflight();
@@ -775,7 +779,7 @@ function updateInflight() {
   const chat = $("#chat");
   let n = chat.querySelector(":scope > .inflight");
   if (!(state.current && state.current.status === "busy") || ahead.active) { if (n) n.remove(); return; }   // far back: it shows at the live end
-  if (!n) n = el("div", { class: "inflight", role: "status", title: "Working", "aria-label": "Working" }, el("span", { class: "spinner" }));
+  if (!n) n = el("div", { class: "inflight", role: "status", title: tl("app.working"), "aria-label": tl("app.working") }, el("span", { class: "spinner" }));
   if (chat.lastElementChild !== n) chat.append(n);
 }
 
@@ -807,7 +811,6 @@ async function loadBoard() {
   if (d.refreshing && d.pending && board.follow++ < BOARD_FOLLOW_MAX) setTimeout(loadBoard, BOARD_FOLLOW_MS);
   else if (!d.refreshing) board.follow = 0;
 }
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // A popover a mouse opens by hovering its trigger (after IN ms) and closes OUT ms after the pointer has left both the trigger
 // and the popover; a click on the trigger while it is open that way pins it (it stays after the pointer leaves), and a second
@@ -872,7 +875,6 @@ const NS_JOB_POLL_MS = 2000, NS_JOB_MAX_MS = 330000;      // a new project's pag
 const NS_RECORD_WAITS = [4000, 4000, 6000];               // waits before the spawn is asked again when stackshot's record has not caught up
 const NS_QUERY_MS = 250;                                  // typing settles this long before the hidden matches are asked for
 const NS_ALL = "all";                                     // the last chip: every scope's projects together (a view; a project is made in a real scope)
-const NS_HIDDEN_LABEL = "existing pages, not listed";
 const ns = { dups: new Set(), options: null, optionsAt: 0, scopes: [], scope: null, listed: {}, listedAt: {}, hiddenRows: [], hiddenScope: "",
              listError: null, loading: false, listSeq: 0, qTimer: null, picked: null, pickedNew: false, nameEdited: false, suggestSeq: 0,
              pending: false, result: null, track: null, tick: null, open: false, from: null, done: new Set(), refs: new Map(), folded: false,
@@ -946,7 +948,7 @@ async function nsLoadOptions(force = false) {
 // each is "use default (<what it is now>)": the value a session with nothing chosen follows (the options' `defaults`: sala's
 // default lane, settings.json's model and effort), and "use default" alone when the server could not read it.
 function nsDefaultLabel(value, label) {
-  return value ? `use default (${label ? label(value) : value})` : "use default";
+  return value ? tl("app.ns.useDefaultOf", { value: label ? label(value) : value }) : tl("ui.ns.useDefault");
 }
 function nsFillFixed() {
   const o = ns.options, d = o.defaults || {};
@@ -956,7 +958,7 @@ function nsFillFixed() {
     sel.value = values.includes(keep) || (extra && keep === NS_OTHER) ? keep : "";
   };
   fill(nsEl.lane, o.lanes || [], d.lane, (v) => laneLabel(v));
-  fill(nsEl.model, o.models || [], d.model, null, [el("option", { value: NS_OTHER, text: "other… (a model id)" })]);
+  fill(nsEl.model, o.models || [], d.model, null, [el("option", { value: NS_OTHER, text: tl("app.ns.otherModel") })]);
   fill(nsEl.effort, o.efforts || [], d.effort);
   nsEl.modelOther.hidden = nsEl.model.value !== NS_OTHER;
   nsEl.name.maxLength = o.nameMax || 48;
@@ -966,7 +968,7 @@ function nsFillFixed() {
 function nsRenderScopes() {
   nsEl.scopes.replaceChildren(...[...ns.scopes, NS_ALL].map((s) => {
     const on = s === ns.scope;
-    const b = el("button", { class: "ns-chip", type: "button", role: "radio", "aria-checked": String(on), "data-scope": s, text: s });
+    const b = el("button", { class: "ns-chip", type: "button", role: "radio", "aria-checked": String(on), "data-scope": s, text: s === NS_ALL ? tl("app.ns.all") : s });
     b.addEventListener("click", () => nsSetScope(s));
     return b;
   }));
@@ -1000,7 +1002,7 @@ async function nsLoadProjects() {
     if (Array.isArray(d.scopes) && d.scopes.length && d.scopes.join() !== ns.scopes.join()) { ns.scopes = d.scopes; nsRenderScopes(); }
   } catch (e) {
     if (seq !== ns.listSeq) return;
-    ns.listError = "Could not read the project list: " + (e.message || e);
+    ns.listError = () => tl("app.ns.listError", { msg: e.message || e });
   }
   ns.loading = false;
   nsRenderProjects();
@@ -1056,16 +1058,16 @@ function nsRenderProjects() {
   if (ns.pickedNew && nsNewDraft().key && keys.has(nsNewDraft().key)) ns.pickedNew = false;   // the typed name is a project that exists: it is that one
   const rows = listed.map((p) => nsOption(p));
   if (!rows.length && !hidden.length) {
-    const text = ns.listError ? ns.listError : ns.loading && !ns.listed[ns.scope] ? "Reading the project list…"
-      : q ? "No listed project matches." : "No listed project in this scope yet.";
+    const text = ns.listError ? ns.listError() : ns.loading && !ns.listed[ns.scope] ? tl("app.ns.reading")
+      : q ? tl("app.ns.noMatch") : tl("app.ns.noneInScope");
     rows.push(el("div", { class: "ns-empty", text }));
   }
-  if (hidden.length) rows.push(el("div", { class: "ns-divider", role: "separator", text: NS_HIDDEN_LABEL }), ...hidden.map((p) => nsOption(p)));
+  if (hidden.length) rows.push(el("div", { class: "ns-divider", role: "separator", text: tl("app.ns.hidden") }), ...hidden.map((p) => nsOption(p)));
   const d = nsNewDraft();
   if (ns.scope === NS_ALL) {   // a project is made in one scope: under "all" there is no new-project row, only a word when the text matches nothing
-    if (d.text && !listed.length && !hidden.length) rows.push(el("div", { class: "ns-hintrow", "data-key": "__hint__", text: "pick a scope to make a new project" }));
-  } else if (!d.slug) rows.push(nsNewOption("+ New project…", "type its name in the box above", true));
-  else if (!keys.has(d.key)) rows.push(nsNewOption(`+ New project "${d.text}"`, nsNameOf(d.key, ns.scope), false));
+    if (d.text && !listed.length && !hidden.length) rows.push(el("div", { class: "ns-hintrow", "data-key": "__hint__", text: tl("app.ns.pickScope") }));
+  } else if (!d.slug) rows.push(nsNewOption(tl("app.ns.newProject"), tl("app.ns.newProjectSub"), true));
+  else if (!keys.has(d.key)) rows.push(nsNewOption(tl("app.ns.newNamed", { text: d.text }), nsNameOf(d.key, ns.scope), false));
   nsEl.list.replaceChildren(...rows);
   nsRenderFold();
   nsPickedNote();
@@ -1078,11 +1080,11 @@ function nsRenderFold() {
   const folded = !!sel && ns.folded;
   nsEl.panel.hidden = folded;
   nsEl.summary.setAttribute("aria-expanded", String(!folded));
-  nsEl.summary.title = folded ? "Show the project list" : "Fold the project list";
+  nsEl.summary.title = tl(folded ? "ui.ns.showProjects" : "app.ns.foldProjects");
   if (!sel) { nsEl.summary.replaceChildren(); return; }
   const name = sel.kind === "new" ? `+ ${nsNameOf(sel.key, sel.scope)}` : nsNameOf(sel.key, sel.scope);
-  const desc = sel.kind === "new" ? "new project" : sel.title && sel.title.trim().toLowerCase() !== name.toLowerCase() ? sel.title : "";
-  nsEl.summary.setAttribute("aria-label", `Project ${name}${desc ? ": " + desc : ""}. ${folded ? "Show" : "Fold"} the project list`);
+  const desc = sel.kind === "new" ? tl("app.ns.newTag") : sel.title && sel.title.trim().toLowerCase() !== name.toLowerCase() ? sel.title : "";
+  nsEl.summary.setAttribute("aria-label", tl(folded ? "app.ns.sumShow" : "app.ns.sumFold", { what: name + (desc ? ": " + desc : "") }));
   nsEl.summary.replaceChildren(...[el("span", { class: "ns-key", text: name }), desc ? el("span", { class: "ns-title", text: desc }) : null].filter(Boolean));  // replaceChildren(null) would print "null"
 }
 function nsFold(on, focus) {
@@ -1104,7 +1106,7 @@ function nsOption(p) {
 }
 function nsNewOption(label, sub, inert) {
   const b = el("button", { class: "ns-opt ns-new", type: "button", role: "option", "aria-selected": String(ns.pickedNew && !inert), "data-key": "__new__", disabled: inert,
-                           title: inert ? "Type the new project's name in the box above" : "Make this project and its page" },
+                           title: inert ? tl("app.ns.newInertTip") : tl("app.ns.newTip") },
     el("span", { class: "ns-key", text: label }), el("span", { class: "ns-title", text: sub }));
   if (!inert) b.addEventListener("click", () => nsPickNew());
   return b;
@@ -1202,25 +1204,25 @@ function nsAgentLine(mandate, sel, kind) {   // kind: front or back
 function nsPlan(sel, name) {
   const steps = [];
   const has = Object.prototype.hasOwnProperty.call(sel.agents, name);
-  if (sel.kind === "new" || ns.done.has("make:" + sel.key)) steps.push({ id: "make", label: "Make the project page" });   // made by an earlier try of this form: shown done
-  else if (!has && (sel.kind === "hidden" || !Object.keys(sel.agents).length)) steps.push({ id: "list", label: sel.kind === "hidden" ? "List the project again" : "Confirm the project is listed" });
-  if (!has) steps.push({ id: "agent", label: `Add ${name} to the project` });
-  steps.push({ id: "spawn", label: "Start the session" });
+  if (sel.kind === "new" || ns.done.has("make:" + sel.key)) steps.push({ id: "make", label: () => tl("app.ns.step.make") });   // made by an earlier try of this form: shown done
+  else if (!has && (sel.kind === "hidden" || !Object.keys(sel.agents).length)) steps.push({ id: "list", label: () => tl(sel.kind === "hidden" ? "app.ns.step.relist" : "app.ns.step.confirm") });
+  if (!has) steps.push({ id: "agent", label: () => tl("app.ns.step.agent", { name }) });
+  steps.push({ id: "spawn", label: () => tl("app.ns.step.spawn") });
   return steps.map((s) => ({ ...s, state: "todo" }));
 }
 function nsPickedNote() {
-  const sel = nsSelection(), name = nsEl.name.value.trim() || "the agent";
+  const sel = nsSelection(), name = nsEl.name.value.trim() || tl("app.ns.theAgent");
   let t = "";
-  if (ns.pickedNew && !sel) t = "A project name needs letters or digits (a to z, 0 to 9).";
+  if (ns.pickedNew && !sel) t = tl("app.ns.needLetters");
   else if (sel) {
     const plan = nsPlan(sel, nsEl.name.value.trim()).map((s) => s.id);
     const parts = [];
     const pname = nsNameOf(sel.key, sel.scope);
-    if (plan.includes("make")) parts.push(`make ${pname} (${sel.scope}; its page is written through gbrain and can take a few minutes)`);
-    if (plan.includes("list")) parts.push(sel.kind === "hidden" ? `list ${pname} again` : "");
-    if (plan.includes("agent")) parts.push(`add ${name} to it`);
+    if (plan.includes("make")) parts.push(tl("app.ns.do.make", { pname, scope: sel.scope }));
+    if (plan.includes("list")) parts.push(sel.kind === "hidden" ? tl("app.ns.do.list", { pname }) : "");
+    if (plan.includes("agent")) parts.push(tl("app.ns.do.agent", { name }));
     const todo = parts.filter(Boolean);
-    t = todo.length ? `Create will ${todo.join(", ")}, then start the session.` : "";
+    t = todo.length ? tl("app.ns.willDo", { todo: todo.join(", ") }) : "";
   }
   nsEl.picked.textContent = t;
 }
@@ -1230,14 +1232,14 @@ function nsValidate() {
   const nameMax = o.nameMax || 48, mandateMax = o.mandateMax || 20480;
   const name = nsEl.name.value.trim(), role = nsRole(), mandate = nsEl.mandate.value;
   const nameErr = name && (!NS_NAME_RE.test(name) || name.length > nameMax)
-    ? `Lowercase letters, digits and dashes, no dash at either end, at most ${nameMax} characters.`
-    : name && state.byName.has(name) ? `A session called ${name} is running already. Pick another name.` : "";
+    ? tl("app.ns.nameRule", { max: nameMax })
+    : name && state.byName.has(name) ? tl("app.ns.nameTaken", { name }) : "";
   nsEl.nameErr.textContent = nameErr;
   const bytes = utf8Len(mandate);
-  const mandateErr = bytes > mandateMax ? `The mandate is over ${Math.round(mandateMax / 1024)} KB (${Math.round(bytes / 1024)} KB).`
-    : role === "back" && !mandate.trim() ? "A background agent needs a mandate: it reads it at its first prompt, and nobody briefs it." : "";
+  const mandateErr = bytes > mandateMax ? tl("app.ns.mandateOver", { max: Math.round(mandateMax / 1024), have: Math.round(bytes / 1024) })
+    : role === "back" && !mandate.trim() ? tl("app.ns.mandateNeeded") : "";
   nsEl.mandateErr.textContent = mandateErr;
-  nsEl.mandateHint.textContent = role === "back" ? "required for a background agent" : "optional for a front agent";
+  nsEl.mandateHint.textContent = tl(role === "back" ? "app.ns.mandateReq" : "ui.ns.mandateHint");
   nsPickedNote();
   nsEl.modelOther.hidden = nsEl.model.value !== NS_OTHER;
   const modelOk = nsEl.model.value !== NS_OTHER || (nsEl.modelOther.value.trim() !== "" && NS_MODEL_RE.test(nsEl.modelOther.value.trim()));
@@ -1252,7 +1254,7 @@ const nsPost = async (url, body) => {   // fetch, not apiFetch: none of these is
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     return { status: r.status, d: await r.json().catch(() => ({})) };
   } catch (err) {
-    return { status: 0, d: { ok: false, code: "unreachable", error: "Could not reach sala: " + (err && err.message || err) } };
+    return { status: 0, d: { ok: false, code: "unreachable", error: tl("app.ns.unreachable", { msg: err && err.message || err }) } };
   }
 };
 // the page asks about the job that makes the project until it is done; a poll that fails is asked again (a phone that slept)
@@ -1264,25 +1266,25 @@ async function nsWaitJob(job, step) {
     try {
       const r = await fetch(`api/spawn/project/job?id=${encodeURIComponent(job)}`, { cache: "no-store" });
       const d = await r.json().catch(() => null);
-      if (r.status === 404) return { status: 404, d: { ok: false, code: "lost", error: (d && d.error) || "The job is gone." } };
+      if (r.status === 404) return { status: 404, d: { ok: false, code: "lost", error: (d && d.error) || tl("app.ns.jobGone") } };
       if (r.ok && d && d.state === "done") return { status: d.status, d: d.result || {} };
     } catch { /* asked again */ }
   }
-  return { status: 0, d: { ok: false, code: "timeout", error: "stackshot did not finish the page within five minutes." } };
+  return { status: 0, d: { ok: false, code: "timeout", error: tl("app.ns.jobTimeout") } };
 }
 // a refusal in plain words, by the step it came from
 function nsWords(id, d, status, sel, name) {
   const code = d.code || "";
-  if (id === "make" && code === "exists") return `${sel.key} exists already. Type its name in the box and pick it from the list, then Create.`;
-  if (id === "make" && code === "in-progress") return `${sel.key} is being made right now by another request. Wait a minute, then type its name in the box to look for it, or Create again.`;
-  if (id === "make" && code === "gbrain") return "gbrain did not take the new page, and nothing else was recorded. Create again to retry.";
-  if (id === "make" && (code === "lost" || code === "timeout")) return `${d.error} The project may exist now: type its name in the box to look for it. Create again continues if it does not.`;
-  if (id === "agent" && code === "not-allowed") return `${sel.key} is retired or hidden, so stackshot will not add an agent to it. Pick another project.`;
-  if (id === "agent" && code === "exists") return `stackshot would not take ${name} as an agent of ${sel.key} (its reason is above). Change the name, then Create again.`;
-  if (id === "spawn" && code === "not-listed") return `sala's check does not see ${name} on the project yet. Create again in a minute.`;
-  if (id === "spawn" && code === "no-page") return `sala does not see the page ${d.page || sel.key} yet. Create again in a minute.`;
-  if (id === "spawn" && code === "busy") return "Another session is being queued. Create again in a moment.";
-  if (code === "config" || code === "unreachable" || code === "refused") return d.error || "stackshot could not be reached.";
+  if (id === "make" && code === "exists") return tl("app.ns.w.exists", { key: sel.key });
+  if (id === "make" && code === "in-progress") return tl("app.ns.w.inProgress", { key: sel.key });
+  if (id === "make" && code === "gbrain") return tl("app.ns.w.gbrain");
+  if (id === "make" && (code === "lost" || code === "timeout")) return tl("app.ns.w.lost", { error: d.error });
+  if (id === "agent" && code === "not-allowed") return tl("app.ns.w.notAllowed", { key: sel.key });
+  if (id === "agent" && code === "exists") return tl("app.ns.w.agentExists", { name, key: sel.key });
+  if (id === "spawn" && code === "not-listed") return tl("app.ns.w.notListed", { name });
+  if (id === "spawn" && code === "no-page") return tl("app.ns.w.noPage", { page: d.page || sel.key });
+  if (id === "spawn" && code === "busy") return tl("app.ns.w.busy");
+  if (code === "config" || code === "unreachable" || code === "refused") return d.error || tl("app.ns.w.config");
   return d.error || `HTTP ${status}`;
 }
 async function nsSubmit(e) {
@@ -1304,7 +1306,7 @@ async function nsSubmit(e) {
   try {
     await nsRun(sel, body, res);
   } catch (err) {
-    if (!(err instanceof NsStop)) ns.result = { kind: "failed", name, steps: res.steps, error: String(err && err.message || err), words: "Something went wrong in this page. The start may already be queued: look in the session list before creating it again." };
+    if (!(err instanceof NsStop)) ns.result = { kind: "failed", name, steps: res.steps, error: String(err && err.message || err), words: () => tl("app.ns.wentWrong") };
   }
   clearInterval(ns.tick); ns.tick = null;
   ns.pending = false;
@@ -1316,7 +1318,7 @@ async function nsRun(sel, body, res) {
   const step = (id) => res.steps.find((s) => s.id === id);
   const stop = (id, d, status) => {
     step(id).state = "failed";
-    ns.result = { kind: "failed", name: body.name, steps: res.steps, failedStep: id, words: nsWords(id, d, status, sel, body.name), error: String(d.error || `HTTP ${status}`) };
+    ns.result = { kind: "failed", name: body.name, steps: res.steps, failedStep: id, words: () => nsWords(id, d, status, sel, body.name), error: String(d.error || `HTTP ${status}`) };
     throw new NsStop();
   };
   const begin = (id) => { step(id).state = "active"; step(id).since = Date.now(); nsRenderStatus(); };
@@ -1375,7 +1377,7 @@ async function nsRun(sel, body, res) {
     }
     if (["not-listed", "no-page"].includes(out.d.code) && record() && tries < NS_RECORD_WAITS.length) {
       step("spawn").state = "waiting";
-      res.wait = "sala's check has not seen the change yet; asking again.";
+      res.wait = () => tl("app.ns.waitAgain");
       nsRenderStatus();
       await sleep(NS_RECORD_WAITS[tries]);
       continue;
@@ -1435,12 +1437,12 @@ async function nsTrack() {
 // at (a word and aria-current, never a colour alone); the seconds so far and what a start usually takes; the operation id
 // small and last; at Ready the Open button is the main thing, focused. There is no step for loading the conversation: the
 // sessions list carries no sign of it (a row exists as soon as claude runs), so none is shown rather than a made-up one.
-const NS_STEPS = [["queued", "Queued"], ["starting", "Starting the session"], ["ready", "Ready"]];
-const NS_USUALLY = "Usually 30 seconds to a minute; a few minutes if sala has other work queued first.";
+const NS_STEPS = [["queued", "app.ns.st.queued"], ["starting", "app.ns.st.starting"], ["ready", "app.ns.st.ready"]];
+const nsUsually = () => tl("app.ns.usually");
 const nsBusyOf = (res) => !!res && res.kind === "queued" && (res.state === "queued" || res.state === "starting");
 function nsSeconds(ms) {
   const t = Math.max(0, Math.round(ms / 1000));
-  return t < 60 ? `${t} s` : `${Math.floor(t / 60)} min ${t % 60} s`;
+  return t < 60 ? tl("app.ns.sec", { n: t }) : tl("app.ns.minSec", { m: Math.floor(t / 60), s: t % 60 });
 }
 // Start's button while its work is on: disabled, a spinner and "Starting…" (the idle label comes back on its own)
 function nsBusyButton(btn, busy) {
@@ -1448,28 +1450,28 @@ function nsBusyButton(btn, busy) {
   btn.setAttribute("aria-busy", String(busy));
   if (busy) {
     btn.dataset.idle = btn.textContent;
-    btn.replaceChildren(el("span", { class: "ns-spin", "aria-hidden": "true" }), document.createTextNode("Starting…"));
+    btn.replaceChildren(el("span", { class: "ns-spin", "aria-hidden": "true" }), document.createTextNode(tl("app.ns.starting")));
   } else btn.replaceChildren(document.createTextNode(btn.dataset.idle || btn.textContent));
 }
 // who a twice-failed start is reported to: the session SALA_HELP_SESSION names (the Get Help chip's, which the server puts
 // in the page only when it is set); none set, the words name no session
 function tellHelp() {
   const a = document.getElementById("sp-help"), h = a ? decodeURIComponent((a.getAttribute("href") || "").replace(/^#s=/, "")) : "";
-  return h ? "tell " + h : "tell whoever looks after sala on this machine";
+  return h ? tl("app.ns.tell", { who: h }) : tl("app.ns.tellDefault");
 }
 function nsProgressList(res) {
   const at = Math.max(0, NS_STEPS.findIndex(([id]) => id === (res.state === "failed" || res.state === "late" ? res.reached || "queued" : res.state)));
   const stopped = res.state === "failed" || res.state === "late";
-  return el("ol", { class: "ns-progress", "aria-label": "Progress" }, ...NS_STEPS.map(([, label], i) => {
-    const word = i < at || (i === at && res.state === "ready") ? "done" : i === at ? (res.state === "failed" ? "stopped here" : res.state === "late" ? "still waiting" : "now")
-      : stopped && res.state === "failed" ? "not reached" : "next";
+  return el("ol", { class: "ns-progress", "aria-label": tl("app.ns.progress") }, ...NS_STEPS.map(([, label], i) => {
+    const word = tl(i < at || (i === at && res.state === "ready") ? "app.ns.pr.done" : i === at ? (res.state === "failed" ? "app.ns.pr.stopped" : res.state === "late" ? "app.ns.pr.waiting" : "app.ns.pr.now")
+      : stopped && res.state === "failed" ? "app.ns.pr.notReached" : "app.ns.pr.next");
     const attrs = { class: "ns-prog" + (i === at ? " current" : "") + (i < at || (i === at && res.state === "ready") ? " done" : "") };
     if (i === at) attrs["aria-current"] = "step";
-    return el("li", attrs, el("span", { class: "ns-prog-label", text: label }), el("span", { class: "ns-prog-state", text: word }));
+    return el("li", attrs, el("span", { class: "ns-prog-label", text: tl(label) }), el("span", { class: "ns-prog-state", text: word }));
   }));
 }
 function nsElapsedText(res) {
-  return res.doneAt && res.state === "ready" ? `Took ${nsSeconds(res.doneAt - res.since)}.` : `${nsSeconds(Date.now() - res.since)} so far. ${NS_USUALLY}`;
+  return res.doneAt && res.state === "ready" ? tl("app.ns.took", { t: nsSeconds(res.doneAt - res.since) }) : tl("app.ns.soFar", { t: nsSeconds(Date.now() - res.since), usually: nsUsually() });
 }
 // the seconds change in place once a second, so a screen reader is not read the whole status again each time
 function nsElapsedTick(res, host, current) {
@@ -1485,25 +1487,25 @@ function nsElapsedTick(res, host, current) {
 // what both forms show for a session that is queued: the same words; opts: steps (the create's own steps), about (what it is), note
 function nsQueuedKids(res, opts) {
   const kids = [], failed = res.state === "failed";
-  const headline = { queued: "Queued", starting: "Starting the session", ready: "Ready", failed: "Did not start", late: "Still going" }[res.state] || res.state;
-  const state = el("div", { class: "ns-state " + (failed ? "failed" : res.state), text: `${res.name}: ${headline}` });
+  const headline = { queued: "app.ns.st.queued", starting: "app.ns.st.starting", ready: "app.ns.st.ready", failed: "app.ns.st.failed", late: "app.ns.st.late" }[res.state];
+  const state = el("div", { class: "ns-state " + (failed ? "failed" : res.state), text: `${res.name}: ${headline ? tl(headline) : res.state}` });
   if (res.state === "ready") {
     // a plain in-page link: the click goes through go() ("selection, hash, history"), which closes the
     // drawer by its history entry before it opens the session. Beside the headline: the main thing on the screen
     kids.push(el("div", { class: "ns-top" }, state,
-      el("a", { class: "ns-link ns-open", href: "#s=" + encodeURIComponent(res.name) }, document.createTextNode("Open "), el("span", { class: "ns-key", text: res.name }))));
+      el("a", { class: "ns-link ns-open", href: "#s=" + encodeURIComponent(res.name) }, document.createTextNode(tl("app.ns.open") + " "), el("span", { class: "ns-key", text: res.name }))));
   } else kids.push(state);
   kids.push(nsProgressList(res));
   if (opts.steps) kids.push(opts.steps);
   if (res.state === "queued" || res.state === "starting") kids.push(el("p", { text: nsWaitText(res.state === "starting" ? "running" : res.opState, res.behindLine) }));
-  else if (failed) kids.push(el("p", { text: "The session did not start. Try again; if it fails twice, " + tellHelp() + "." }),
-    el("p", { class: "ns-hint ns-result", text: `Result: ${res.opState}: ${res.opResult || "no result line"}. sala posts the result in Slack too.` }));
+  else if (failed) kids.push(el("p", { text: tl("app.ns.notStarted", { tell: tellHelp() }) }),
+    el("p", { class: "ns-hint ns-result", text: tl("app.ns.result", { state: res.opState, result: res.opResult || tl("app.ns.noResult") }) }));
   else if (res.state === "late") kids.push(el("p", { text: nsLateText(res.opState) }));
   if (opts.note) kids.push(opts.note);
   const meta = [];
   if (opts.about) meta.push(el("p", { class: "ns-hint ns-about", text: opts.about }));
   if (nsBusyOf(res) || res.state === "ready") meta.push(el("p", { class: "ns-hint ns-elapsed", "aria-live": "off", text: nsElapsedText(res) }));
-  meta.push(el("p", { class: "ns-hint ns-op", text: `Operation ${res.op}` }));
+  meta.push(el("p", { class: "ns-hint ns-op", text: tl("app.ns.op", { op: res.op }) }));
   kids.push(el("div", { class: "ns-meta" }, ...meta));
   return kids;
 }
@@ -1519,11 +1521,11 @@ function nsFocusOpen(host, res) {
 // the steps of a create with more than the spawn in it, each with its state in words (never a colour alone)
 function nsStepsList(steps) {
   if (!steps || steps.length < 2) return null;
-  const words = { todo: "waiting", active: "working", done: "done", failed: "failed", waiting: "asking again" };
+  const words = { todo: "app.ns.sw.todo", active: "app.ns.sw.active", done: "app.ns.pr.done", failed: "app.ns.sw.failed", waiting: "app.ns.sw.waiting" };
   return el("ol", { class: "ns-steps" }, ...steps.map((s) => {
-    let label = s.label;
-    if (s.id === "make" && s.state === "active") label = `Making the project page, which can take a few minutes (${Math.max(0, Math.round((Date.now() - (s.since || Date.now())) / 1000))} s)`;
-    return el("li", { class: "ns-step " + s.state }, el("span", { class: "ns-step-label", text: label }), el("span", { class: "ns-step-state", text: words[s.state] || s.state }));
+    let label = typeof s.label === "function" ? s.label() : s.label;
+    if (s.id === "make" && s.state === "active") label = tl("app.ns.step.making", { n: Math.max(0, Math.round((Date.now() - (s.since || Date.now())) / 1000)) });
+    return el("li", { class: "ns-step " + s.state }, el("span", { class: "ns-step-label", text: label }), el("span", { class: "ns-step-state", text: words[s.state] ? tl(words[s.state]) : s.state }));
   }));
 }
 function nsRenderStatus() {
@@ -1531,22 +1533,23 @@ function nsRenderStatus() {
   const line = (cls, text) => el("div", { class: "ns-state " + cls, text });
   if (!res) { nsEl.status.replaceChildren(); return; }
   if (res.kind === "working") {
-    kids.push(line("pending", `${res.name}: working…`), nsStepsList(res.steps) || el("p", { class: "ns-hint", text: "Asking sala to queue the session…" }));
-    if (res.wait) kids.push(el("p", { class: "ns-hint", text: res.wait }));
+    kids.push(line("pending", tl("app.ns.nameWorking", { name: res.name })), nsStepsList(res.steps) || el("p", { class: "ns-hint", text: tl("app.ns.asking") }));
+    if (res.wait) kids.push(el("p", { class: "ns-hint", text: typeof res.wait === "function" ? res.wait() : res.wait }));
   } else if (res.kind === "queued") {
     kids.push(...nsQueuedKids(res, {
       steps: nsStepsList(res.steps),
-      about: `A ${res.role} agent of ${res.project}.`,
-      note: res.pageOwed ? el("p", { class: "ns-hint", text: "The agent's line on the project page is recorded with stackshot, which keeps it until the page lists it." }) : null,
+      about: tl("app.ns.about", { role: res.role, project: res.project }),
+      note: res.pageOwed ? el("p", { class: "ns-hint", text: tl("app.ns.pageOwed") }) : null,
     }));
     nsElapsedTick(res, nsEl.status, () => ns.result);
   } else if (res.kind === "failed") {
     // the refusal first and whole, in the server's own words (a failed create must show why), then what to do about it
     const who = res.failedStep && res.failedStep !== "spawn" ? "stackshot" : "sala";
-    kids.push(line("failed", `${res.name ? res.name + ": " : ""}${res.failedStep === "spawn" || !res.failedStep ? "not queued" : "stopped"}`), nsStepsList(res.steps),
-              el("p", { class: "ns-reason", text: `Why: ${who} answered` }), el("div", { class: "ns-pre" }, el("pre", { class: "ns-why", text: res.error })),
-              res.words && res.words !== res.error ? el("p", { text: res.words }) : null);
-    if (res.steps && res.steps.some((s) => s.state === "done") && res.steps.length > 1) kids.push(el("p", { class: "ns-hint", text: "Create again to go on from the failed step; the steps that are done are not repeated." }));
+    const words = typeof res.words === "function" ? res.words() : res.words;
+    kids.push(line("failed", `${res.name ? res.name + ": " : ""}${tl(res.failedStep === "spawn" || !res.failedStep ? "app.ns.notQueued" : "app.ns.stopped")}`), nsStepsList(res.steps),
+              el("p", { class: "ns-reason", text: tl("app.ns.why", { who }) }), el("div", { class: "ns-pre" }, el("pre", { class: "ns-why", text: res.error })),
+              words && words !== res.error ? el("p", { text: words }) : null);
+    if (res.steps && res.steps.some((s) => s.state === "done") && res.steps.length > 1) kids.push(el("p", { class: "ns-hint", text: tl("app.ns.again") }));
   }
   nsEl.status.replaceChildren(...kids.filter(Boolean));
   nsOwnSeen();
@@ -1565,6 +1568,17 @@ function nsShow() {
   Promise.all([nsLoadOptions(), stale ? nsLoadProjects() : (nsRenderProjects(), null)]);
   (narrow() ? nsEl.pane : nsEl.filter).focus({ preventScroll: true });   // no keyboard pops up on a phone until a field is tapped
 }
+SalaI18n.onChange(() => {
+  sdSetNote(sdNote);
+  if (sdEl.submit.getAttribute("aria-busy") === "true") sdEl.submit.removeAttribute("aria-busy");
+  sdValidate();
+  sdRenderStatus();
+  if (ns.options) nsFillFixed();
+  if (ns.scope) { nsRenderScopes(); nsRenderProjects(); }
+  if (nsEl.submit.getAttribute("aria-busy") === "true") nsEl.submit.removeAttribute("aria-busy");
+  nsValidate();
+  nsRenderStatus();
+});
 function nsHide() { ns.open = false; }
 
 /* QUICK SESSIONS (called side conversations inside sala and in the API: `side`, `fork_of`, `item`; docs/side-sessions.md;
@@ -1589,6 +1603,8 @@ const sdEl = { form: $("#sd-form"), item: $("#sd-item"), project: $("#sd-project
   name: $("#sd-name"), nameErr: $("#sd-name-err"), mandate: $("#sd-mandate"), submit: $("#sd-submit"), pending: $("#sd-pending"),
   status: $("#sd-status"), note: $("#sd-note"), need: $("#sd-need"), extra: $("#sd-item-extra"),
   projects: $("#sd-projects"), itemPick: $("#sd-item-pick"), forkPick: $("#sd-fork-pick") };
+let sdNote = null;
+function sdSetNote(fn) { sdNote = fn; sdEl.note.textContent = fn ? fn() : ""; }
 const sd = { applied: null, pending: false, result: null, track: null, tick: null, nameEdited: false, suggestSeq: 0, lookupSeq: 0 };
 const sdItemId = () => sdEl.item.value.trim();
 const sdForkName = () => sdEl.fork.value.trim();
@@ -1611,29 +1627,34 @@ function sdParse(h) {
 function nsPicker(host, cfg) {
   const st = { key: "", row: null, open: false };
   const sum = el("button", { class: "ns-sum", type: "button", "aria-expanded": "false", "aria-haspopup": "listbox" });
-  const clear = el("button", { class: "ns-clear", type: "button", hidden: true, title: `Clear the ${cfg.noun}`, "aria-label": `Clear the ${cfg.noun}`, text: "×" });
-  const search = el("input", { type: "search", placeholder: cfg.placeholder, "aria-label": `Search the ${cfg.noun}s`, autocapitalize: "off", spellcheck: "false" });
-  const list = el("div", { class: "ns-list", role: "listbox", "aria-label": cfg.noun + "s", tabindex: "-1" });
-  const panel = el("div", { class: "ns-panel", hidden: true }, search,
-    el("div", { class: "ns-head" }, el("span", { class: "ns-hk", text: cfg.head[0] }), el("span", { class: "ns-ht", text: cfg.head[1] })), list);
+  const clear = el("button", { class: "ns-clear", type: "button", hidden: true, text: "×" });
+  const search = el("input", { type: "search", autocapitalize: "off", spellcheck: "false" });
+  const list = el("div", { class: "ns-list", role: "listbox", tabindex: "-1" });
+  const hk = el("span", { class: "ns-hk" }), ht = el("span", { class: "ns-ht" });
+  const panel = el("div", { class: "ns-panel", hidden: true }, search, el("div", { class: "ns-head" }, hk, ht), list);
   host.replaceChildren(el("div", { class: "ns-pickrow" }, sum, clear), panel);
   const opt = (r, typed) => el("button", { class: "ns-opt" + (typed ? " ns-new" : ""), type: "button", role: "option", "aria-selected": String(r.key === st.key), "data-key": r.key,
                                            onclick: () => choose(r) },
     el("span", { class: "ns-key", text: r.name }), r.desc ? el("span", { class: "ns-title", text: r.desc }) : null);
   function render() {
+    const noun = tl(cfg.noun), nouns = tl(cfg.nouns);
+    clear.title = tl("app.pick.clear", { noun }); clear.setAttribute("aria-label", clear.title);
+    search.placeholder = tl(cfg.placeholder); search.setAttribute("aria-label", tl("app.pick.search", { nouns }));
+    list.setAttribute("aria-label", nouns);
+    hk.textContent = tl(cfg.head[0]); ht.textContent = tl(cfg.head[1]);
     const q = search.value.trim(), all = cfg.rows();
     const hit = all.filter((r) => !q || [r.key, r.name, r.desc].some((x) => (x || "").toLowerCase().includes(q.toLowerCase())));
     const typed = q && !all.some((r) => r.key === q) ? cfg.typed(q) : null;
     const rows = hit.map((r) => opt(r, false));
     if (typed) rows.push(opt(typed, true));
-    if (!rows.length) rows.push(el("div", { class: "ns-empty", text: q ? cfg.noMatch : cfg.empty }));
+    if (!rows.length) rows.push(el("div", { class: "ns-empty", text: tl(q ? cfg.noMatch : cfg.empty) }));
     list.replaceChildren(...rows);
     panel.hidden = !st.open;
     sum.setAttribute("aria-expanded", String(st.open));
-    sum.title = st.open ? `Fold the ${cfg.noun} list` : `Show the ${cfg.noun} list`;
+    sum.title = tl(st.open ? "app.pick.fold" : "app.pick.show", { noun });
     const r = st.key ? st.row || { key: st.key, name: st.key, desc: "" } : null;
-    sum.setAttribute("aria-label", r ? `${cfg.noun}: ${r.name}${r.desc ? ", " + r.desc : ""}. ${st.open ? "Fold" : "Show"} the list` : `${cfg.noun}: ${cfg.none}. Show the list`);
-    sum.replaceChildren(...(r ? [el("span", { class: "ns-key", text: r.name }), r.desc ? el("span", { class: "ns-title", text: r.desc }) : null].filter(Boolean) : [el("span", { class: "ns-none", text: cfg.none })]));
+    sum.setAttribute("aria-label", r ? tl(st.open ? "app.pick.sumFold" : "app.pick.sumShow", { noun, what: r.name + (r.desc ? ", " + r.desc : "") }) : tl("app.pick.sumNone", { noun, none: tl(cfg.none) }));
+    sum.replaceChildren(...(r ? [el("span", { class: "ns-key", text: r.name }), r.desc ? el("span", { class: "ns-title", text: r.desc }) : null].filter(Boolean) : [el("span", { class: "ns-none", text: tl(cfg.none) })]));
     clear.hidden = !r;
   }
   function choose(r) {
@@ -1651,6 +1672,7 @@ function nsPicker(host, cfg) {
     const first = list.querySelector(".ns-opt");
     if (first) first.click();
   });
+  SalaI18n.onChange(render);
   render();
   return {
     get value() { return st.key; },
@@ -1679,18 +1701,18 @@ function sdSessionRows() {
     .map((s) => ({ key: s.name, name: s.name, desc: [s.project, s.role, s.status].filter(Boolean).join(" · ") }));
 }
 const sdItemPick = nsPicker(sdEl.itemPick, {
-  noun: "board item", none: "none chosen (optional)", placeholder: "Search the open items, or type an id such as board#9001", head: ["Item", "Subject (owner)"],
-  empty: "No open board items of the running sessions are known yet. Type an id above.", noMatch: "No open item matches. A full id can be used as typed.",
-  rows: sdItemRows, typed: (t) => (SD_ITEM_RE.test(t) ? { key: t, name: t, desc: "use this id as typed" } : null),
+  noun: "app.pick.item.noun", nouns: "app.pick.item.nouns", none: "app.pick.none", placeholder: "app.pick.item.ph", head: ["app.pick.item.hk", "app.pick.item.ht"],
+  empty: "app.pick.item.empty", noMatch: "app.pick.item.noMatch",
+  rows: sdItemRows, typed: (t) => (SD_ITEM_RE.test(t) ? { key: t, name: t, desc: tl("app.pick.item.typed") } : null),
   onChange: (key) => sdChanged("item", key) });
 const sdForkPick = nsPicker(sdEl.forkPick, {
-  noun: "session", none: "none chosen (optional)", placeholder: "Search the running sessions", head: ["Session", "Project · role · state"],
-  empty: "No running session is listed.", noMatch: "No running session matches.",
-  rows: sdSessionRows, typed: (t) => (SD_NAME_RE.test(t) && t.length <= 48 ? { key: t, name: t, desc: "use this name as typed" } : null),
+  noun: "app.pick.session.noun", nouns: "app.pick.session.nouns", none: "app.pick.none", placeholder: "app.pick.session.ph", head: ["common.session", "app.pick.session.ht"],
+  empty: "app.pick.session.empty", noMatch: "app.pick.session.noMatch",
+  rows: sdSessionRows, typed: (t) => (SD_NAME_RE.test(t) && t.length <= 48 ? { key: t, name: t, desc: tl("app.pick.session.typed") } : null),
   onChange: (key) => sdChanged("fork", key) });
 // the user chose (or cleared) one of the two: the name is suggested again, an item is looked up
 function sdChanged(which, key) {
-  if (which === "item") { sdEl.item.value = key; sdEl.project.value = ""; sdEl.agents.value = ""; sdEl.note.textContent = ""; }
+  if (which === "item") { sdEl.item.value = key; sdEl.project.value = ""; sdEl.agents.value = ""; sdSetNote(null); }
   else sdEl.fork.value = key;
   sdEl.name.value = ""; sd.nameEdited = false;
   sdValidate();
@@ -1700,7 +1722,7 @@ function sdChanged(which, key) {
 function sdMode() {
   const on = sideHash();
   document.body.classList.toggle("side-mode", on);
-  const t = on ? "Quick session" : "New session";
+  const t = tl(on ? "ui.ns.quick" : "ui.newSession");
   setTitle(t);
   $("#title .name").textContent = t;
   for (const [id, current] of [["#np-new", !on], ["#np-quick", on]]) {   // the switch at the top of the page, the same on both forms
@@ -1714,7 +1736,7 @@ function sdMode() {
 }
 async function sdApply(p) {
   sdEl.name.value = ""; sd.nameEdited = false;
-  sdEl.note.textContent = "";
+  sdSetNote(null);
   sdEl.item.value = p.kind === "item" ? p.item || "" : "";
   sdEl.fork.value = p.kind === "fork" ? p.from || "" : "";
   sdEl.project.value = p.kind === "item" ? p.project || "" : "";
@@ -1735,17 +1757,17 @@ async function sdFillLists() {
 async function sdLookup() {
   const seq = ++sd.lookupSeq, id = sdItemId();
   if (!SD_ITEM_RE.test(id)) return;
-  sdEl.note.textContent = `Looking up ${id}…`;
+  sdSetNote(() => tl("app.sd.looking", { id }));
   try {
     const r = await apiFetch(`api/spawn/item?id=${encodeURIComponent(id)}`, { cache: "no-store" });
     const d = await r.json().catch(() => ({}));
     if (seq !== sd.lookupSeq) return;
-    if (!r.ok || !d.ok) { sdEl.note.textContent = `${id}: ${d.error || "HTTP " + r.status}. Fill in the project by hand.`; sdValidate(); return; }
+    if (!r.ok || !d.ok) { sdSetNote(() => tl("app.sd.lookFail", { id, why: d.error || "HTTP " + r.status })); sdValidate(); return; }
     if (!sdEl.project.value.trim() && d.project) sdEl.project.value = d.project;
     if (!sdEl.agents.value.trim() && d.owner) sdEl.agents.value = d.owner;
-    sdEl.note.textContent = `${d.item || id}${d.status && d.status !== "open" ? " (" + d.status + ")" : ""}: project ${d.project || "unknown"}${d.owner ? ", owner " + d.owner : ""}.`;
+    sdSetNote(() => tl("app.sd.found", { item: (d.item || id) + (d.status && d.status !== "open" ? " (" + d.status + ")" : ""), project: d.project || tl("app.sd.unknown"), owner: d.owner ? tl("app.sd.owner", { owner: d.owner }) : "" }));
   } catch (e) {
-    if (seq === sd.lookupSeq) sdEl.note.textContent = `Could not look up ${id}. Fill in the project by hand.`;
+    if (seq === sd.lookupSeq) sdSetNote(() => tl("app.sd.lookErr", { id }));
   }
   sdValidate();
 }
@@ -1768,17 +1790,17 @@ async function sdSuggest() {
 // what the form still needs, in words: one of the two fields is needed (the backend's rule), a board item alone needs its project
 function sdNeed() {
   const item = sdItemId(), fork = sdForkName();
-  if (!item && !fork) return "Pick a board item, a session to fork, or both. sala needs one of them to know what the talk is about.";
-  if (item && !SD_ITEM_RE.test(item)) return "That is not a board item id as the board shows it (board#N, sN).";
-  if (fork && !SD_NAME_RE.test(fork)) return "That is not a session name.";
-  if (!fork && !SD_PROJECT_RE.test(sdEl.project.value.trim())) return "A board item without a session to fork needs its project page: fill it in below.";
+  if (!item && !fork) return tl("app.sd.needOne");
+  if (item && !SD_ITEM_RE.test(item)) return tl("app.sd.badItem");
+  if (fork && !SD_NAME_RE.test(fork)) return tl("app.sd.badName");
+  if (!fork && !SD_PROJECT_RE.test(sdEl.project.value.trim())) return tl("app.sd.needProject");
   return "";
 }
 function sdValidate() {
   const name = sdEl.name.value.trim();
   let err = "";
-  if (name && (!SD_NAME_RE.test(name) || !name.includes("-side-") || name.length > 48)) err = "Lowercase letters, digits and dashes, with -side- in it, at most 48 characters; or leave it blank.";
-  else if (name && state.byName.has(name)) err = `A session called ${name} is running already. Pick another name, or leave it blank.`;
+  if (name && (!SD_NAME_RE.test(name) || !name.includes("-side-") || name.length > 48)) err = tl("app.sd.nameRule");
+  else if (name && state.byName.has(name)) err = tl("app.sd.nameTaken", { name });
   sdEl.nameErr.textContent = err;
   sdEl.extra.hidden = !(sdItemId() && !sdForkName());   // the project and the agents belong to an item without a fork
   const need = sdNeed();
@@ -1834,9 +1856,9 @@ async function sdTrack() {
 function sdRenderStatus() {
   const res = sd.result, kids = [], line = (cls, text) => el("div", { class: "ns-state " + cls, text });
   if (!res) { sdEl.status.replaceChildren(); return; }
-  if (res.kind === "working") kids.push(line("pending", "Asking sala to queue the quick session…"));
-  else if (res.kind === "failed") kids.push(line("failed", "Not started"), el("p", { text: "The quick session was not started. Check the reason below, then try again; if it fails twice, " + tellHelp() + "." }),
-    el("p", { class: "ns-hint ns-reason", text: "Why: sala answered" }), el("div", { class: "ns-pre" }, el("pre", { class: "ns-why", text: res.error })));
+  if (res.kind === "working") kids.push(line("pending", tl("app.sd.asking")));
+  else if (res.kind === "failed") kids.push(line("failed", tl("app.sd.notStarted")), el("p", { text: tl("app.sd.failedHelp", { tell: tellHelp() }) }),
+    el("p", { class: "ns-hint ns-reason", text: tl("app.ns.why", { who: "sala" }) }), el("div", { class: "ns-pre" }, el("pre", { class: "ns-why", text: res.error })));
   else {
     kids.push(...nsQueuedKids(res, {}));
     nsElapsedTick(res, sdEl.status, () => sd.result);
@@ -2110,7 +2132,7 @@ function leaveSession() {
   state.modelInfo = null; updateModelLine();
   state.termLoadedFor = null;
   $("#terminal-pane").replaceChildren();
-  $("#chat").replaceChildren(el("div", { class: "empty", text: "Pick a session on the left." }));
+  $("#chat").replaceChildren(el("div", { class: "empty", text: tl("app.pickSession"), "data-i18n": "app.pickSession" }));
 }
 function showOverview() {
   perfMark("overview");
@@ -2119,8 +2141,8 @@ function showOverview() {
   setSearchPage(false);
   setOverview(true);
   renderSidebar();
-  setTitle("Overview");
-  $("#title .name").textContent = "Overview";
+  setTitle(tl("common.overview"));
+  $("#title .name").textContent = tl("common.overview");
   clearHeaderBadges();
   layoutHeader();
   updateJump();
@@ -2135,8 +2157,8 @@ function showNewPage() {
   setSearchPage(false);
   setNewPage(true);
   renderSidebar();
-  setTitle("New session");
-  $("#title .name").textContent = "New session";
+  setTitle(tl("ui.newSession"));
+  $("#title .name").textContent = tl("ui.newSession");
   clearHeaderBadges();
   layoutHeader();
   updateJump();
@@ -2153,8 +2175,8 @@ function showSearchPage() {
     setNewPage(false);
     setSearchPage(true);
     renderSidebar();
-    setTitle("Search");
-    $("#title .name").textContent = "Search";
+    setTitle(tl("common.search"));
+    $("#title .name").textContent = tl("common.search");
     clearHeaderBadges();
       layoutHeader();
     updateJump();
@@ -2180,8 +2202,29 @@ function setNewPage(on) {
   else { $("#side-new").removeAttribute("aria-current"); nsHide(); document.body.classList.remove("side-mode"); }
 }
 // the header's name and the tab's title: "Overview", or "Lane <label>" on a lane's details page
+// a language change: the title and name of the view that is open, in the new language
+function retitle() {
+  const on = (c) => document.body.classList.contains(c);
+  if (on("overview-open")) setOverviewTitle();
+  else if (on("new-open")) sdMode();
+  else if (on("search-open")) { setTitle(tl("common.search")); $("#title .name").textContent = tl("common.search"); }
+  else if (state.current && state.selected) updateHeader(state.current);
+  else {
+    setTitle(state.selected || "sala");
+    $("#title .name").textContent = state.selected ? tl("app.notRunning", { name: state.selected }) : tl("ui.hdr.selectSession");
+    layoutHeader();
+  }
+}
+SalaI18n.onChange(retitle);
+SalaI18n.onChange(() => {
+  if (statusFn) $("#send-status").textContent = statusFn();
+  const live = $("#live-bang .live-note");
+  if (live && live._fn) live.textContent = live._fn();
+  olderLine(); newerLine(); updateJump();
+  for (const p of state.pending) redrawPending(p);
+});
 function setOverviewTitle() {
-  const id = overview.laneId(), t = id === null ? "Overview" : "Lane " + laneLabel(id);
+  const id = overview.laneId(), t = id === null ? tl("common.overview") : tl("app.laneTitle", { name: laneLabel(id) });
   setTitle(t);
   $("#title .name").textContent = t;
 }
@@ -2247,18 +2290,18 @@ function selectSession(name, { force = false } = {}) {
   if (!s) {
     state.current = null;
     setTitle(name || "sala");
-    $("#title .name").textContent = name ? name + " (not running)" : "Select a session";
+    $("#title .name").textContent = name ? tl("app.notRunning", { name }) : tl("ui.hdr.selectSession");
     clearHeaderBadges();
       $("#title .dot").className = "dot";
     layoutHeader();
     // a session link that outlived its session (an old bookmark, a stale launch view): the way out is a link, not Back
-    chat.replaceChildren(name ? el("div", { class: "empty" }, "That session is not live. ", el("a", { href: "#sessions", text: "Open the Overview" }))
-                              : el("div", { class: "empty", text: "Pick a session on the left." }));
+    chat.replaceChildren(name ? el("div", { class: "empty" }, el("span", { text: tl("app.notLive"), "data-i18n": "app.notLive" }), " ", el("a", { href: "#sessions", text: tl("app.openOverview"), "data-i18n": "app.openOverview" }))
+                              : el("div", { class: "empty", text: tl("app.pickSession"), "data-i18n": "app.pickSession" }));
     updateJump();
     return;
   }
   updateHeader(s);
-  chat.replaceChildren(el("div", { class: "empty", text: "Loading transcript…" }));
+  chat.replaceChildren(el("div", { class: "empty", text: tl("app.loadingTranscript"), "data-i18n": "app.loadingTranscript" }));
   updateJump();
   if (state.tab === "terminal") loadTerminal(); // otherwise the iframe loads on first open of the tab
   openStream(s);
@@ -2339,7 +2382,7 @@ function openStream(s, { resume = false } = {}) {
     perfMark("stream:gone");
     es.close();
     if (state.es === es) { state.es = null; setConn("sse", false); }
-    setStatus("The session ended.", "error");
+    setStatus(() => tl("app.st.ended"), "error");
     loadSessions();
   });
 }
@@ -2355,7 +2398,7 @@ function showTail(s, d, resumed, t0 = performance.now(), bytes = 0) {
   for (const m of d.messages) renderMessage(m, { into: frag, tools });
   chat.replaceChildren(frag);
   for (const p of state.pending) if (p.session === s.name) chat.append(p.node);  // not in the transcript yet
-  if (!chat.children.length) chat.append(el("div", { class: "empty", text: d.note || "No messages yet." }));
+  if (!chat.children.length) chat.append(el("div", { class: "empty", ...(d.note ? { text: d.note } : tx("app.noMessages")) }));
   olderReset(d.messages.length ? s.pid : null, d);  // the line at the top that loads older messages as it comes into view
   updateInflight();
   if (!resumed) { chatScroll.pinned = true; chatScroll.unseen = false; }
@@ -2415,11 +2458,9 @@ function focusEntry(chat) {
   if (m && !m.classList.contains("msg")) m = null;
   if (!m) {
     const s = state.current;
-    setStatus(f.session && s && s.sessionId && s.sessionId !== f.session
-      ? "That entry is from an earlier conversation of this session (before a /clear); the chat shows the current one."
+    setStatus(() => tl(f.session && s && s.sessionId && s.sessionId !== f.session ? "app.st.earlier"
       : ahead.active   // opened around the entry (openAround): the chat is where the entry was, it just does not show it
-        ? "That entry is not shown in this chat; it opens where it was."
-        : "That entry is not in this chat; it opens at the latest messages.", "");
+        ? "app.st.notShown" : "app.st.notIn"), "");
     return;
   }
   chatScroll.pinned = false;
@@ -2461,7 +2502,7 @@ function updateJump() {
   const b = $("#jump");
   const show = state.tab === "chat" && !!state.current && !chatScroll.pinned && (ahead.active || distFromBottom() > NEAR_BOTTOM);
   b.hidden = !show;
-  b.textContent = chatScroll.unseen ? "↓ New messages" : "↓";
+  b.textContent = chatScroll.unseen ? tl("app.jump.new") : "↓";
   b.classList.toggle("wide", chatScroll.unseen);
 }
 pane().addEventListener("scroll", () => {
@@ -2510,8 +2551,8 @@ const olderObs = new IntersectionObserver((es) => {
 function olderLine() {
   const n = $("#chat > .older");
   if (!n) return;
-  n.textContent = older.loading ? "Loading older messages…" : older.start ? "Start of this conversation"
-    : older.failed ? "Could not load older messages. Scroll up to try again." : "";
+  n.textContent = older.loading ? tl("app.older.loading") : older.start ? tl("app.older.start")
+    : older.failed ? tl("app.older.failed") : "";
   n.classList.toggle("at-start", older.start && !older.loading);
 }
 // pid null: no history to page (no messages, no session); d: the reset's {before, start}
@@ -2597,7 +2638,7 @@ function aheadStop() {
 }
 function newerLine() {
   const n = $("#chat > .newer");
-  if (n) n.textContent = ahead.loading ? "Loading newer messages…" : ahead.failed ? "Could not load newer messages. Scroll down to try again." : "";
+  if (n) n.textContent = ahead.loading ? tl("app.newer.loading") : ahead.failed ? tl("app.newer.failed") : "";
 }
 function noteModel(msgs) {
   for (const m of msgs) if (m.role === "assistant" && m.model) state.modelInfo = { model: m.model, effort: m.effort || "" };
@@ -2610,7 +2651,7 @@ async function openAround(s, f, d) {
   Object.assign(ahead, { active: true, pid: s.pid, sid: d.session.sessionId, after: null, loading: true, failed: false, buffer: d.messages.slice(), live: null });
   const chat = $("#chat");
   olderReset(null);
-  chat.replaceChildren(el("div", { class: "empty", text: "Loading the conversation at that entry…" }));
+  chat.replaceChildren(el("div", { class: "empty", ...tx("app.loadingAround") }));
   chatScroll.pinned = false; chatScroll.unseen = false;
   noteModel(d.messages);   // the composer's model is the live end's, not the page's
   updateInflight(); updateJump();
@@ -2625,7 +2666,7 @@ async function openAround(s, f, d) {
     const tail = ahead.buffer;
     aheadStop();
     showTail(s, { ...d, messages: tail }, false);
-    setStatus("Could not load the conversation at that entry; the chat shows its latest messages.", "error");
+    setStatus(() => tl("app.st.aroundFail"), "error");
     return;
   }
   const frag = document.createDocumentFragment();
@@ -2741,28 +2782,33 @@ if (window.visualViewport) {
 const ICON_COPY = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
 const ICON_CHECK = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 // "5 min ago" on hover (relTime is in shared.js: the Overview cards' last line uses it too); the exact time (SALA_TZ zone, with its label) in the tooltip; refreshed every 30 s
-const ZONE_FMT = zoneFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+const ZONE_FMT = zoneFormat(() => SalaI18n.locale(), { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const zoneWhen = (t) => ZONE_FMT.format(t) + " " + zoneLabel(new Date(t));   // "Thu, Oct 22, 09:05 UTC": the SALA_TZ zone and its own label
 function stamp(ts) {
   const t = typeof ts === "number" ? ts : Date.parse(ts || "");
   if (Number.isNaN(t)) return null;
   return el("span", { class: "stamp", "data-t": String(t), title: zoneWhen(t), text: relTime(t) });
 }
-setInterval(() => {
+function tickStamps() {
   document.querySelectorAll(".stamp[data-t]").forEach((e) => { e.textContent = relTime(+e.dataset.t); });
   // the Overview cards' last line (sessions.js updatedFoot) ages on this same tick
   document.querySelectorAll(".c-updated[data-t]").forEach((e) => { e.textContent = agoLine(+e.dataset.t, +e.dataset.stale); });
-}, 30000);
-function copyBar(text, ts) { return el("div", { class: "actions" }, stamp(ts), copyButton(text, "copy-btn", "Copy message")); }
+}
+setInterval(tickStamps, 30000);
+SalaI18n.onChange(() => {
+  document.querySelectorAll(".stamp[data-t]").forEach((e) => { e.title = zoneWhen(+e.dataset.t); });
+  tickStamps();
+});
+function copyBar(text, ts) { return el("div", { class: "actions" }, stamp(ts), copyButton(text, "copy-btn", "app.copyMsg")); }
 // the icon parsed once and cloned: an innerHTML parse per button was a visible slice of a long history's render
 const svgNode = (svg) => { const t = document.createElement("template"); t.innerHTML = svg; return t.content.firstElementChild; };
 const COPY_ICON = svgNode(ICON_COPY);
-function copyButton(text, cls, label = "Copy") {
-  const b = el("button", { class: cls, type: "button", title: "Copy", "aria-label": label });
+function copyButton(text, cls, label = "common.copy") {
+  const b = el("button", { class: cls, type: "button", ...tx("common.copy", null, "title"), ...tx(label, null, "aria-label") });
   b.append(COPY_ICON.cloneNode(true));
   b.addEventListener("click", async () => {
     const ok = await copyText(text);
-    b.innerHTML = ok ? ICON_CHECK + "<span>Copied</span>" : "<span>Copy failed</span>";
+    b.innerHTML = ok ? ICON_CHECK + "<span>" + tl("app.copied") + "</span>" : "<span>" + tl("app.copyFailed") + "</span>";
     b.classList.add("done");
     clearTimeout(b._t);
     b._t = setTimeout(() => { b.innerHTML = ICON_COPY; b.classList.remove("done"); }, 1600);
@@ -2787,10 +2833,10 @@ function bangOutput(b) {
   const n = all.length;
   const id = "bang-out-" + (++bangSeq);
   // the text is a keyboard-scrollable region (tabindex 0, named); an empty output has nothing to scroll
-  const out = el("pre", n ? { tabindex: "0", "aria-label": "Command output text" } : {}, ...(n ? linkNodes(n > BANG_LINES ? all.slice(0, BANG_LINES).join("\n") : text) : [el("span", { class: "bang-none", text: "(no output)" })]));
+  const out = el("pre", n ? { tabindex: "0", ...tx("app.bang.text", null, "aria-label") } : {}, ...(n ? linkNodes(n > BANG_LINES ? all.slice(0, BANG_LINES).join("\n") : text) : [el("span", { class: "bang-none", ...tx("app.noOutput") })]));
   const body = el("div", { class: "bang-body", id }, out);
   if (n > BANG_LINES) {
-    const more = el("button", { type: "button", class: "bang-more", text: `Show all ${n} lines`, onclick: () => {
+    const more = el("button", { type: "button", class: "bang-more", ...tx("app.bang.more", { n }), onclick: () => {
       out.replaceChildren(...linkNodes(text));
       foldBtn.focus();  // this button is about to go: focus moves to the Fold button, not to the page body
       more.remove();
@@ -2800,30 +2846,30 @@ function bangOutput(b) {
   const note = truncNote(b);
   if (note) body.append(note);
   // the label stays "Fold output"; aria-expanded carries the state (the arrow in the CSS shows it to the eye)
-  const foldBtn = el("button", { type: "button", class: "bang-fold", text: "Fold output", "aria-expanded": "true", "aria-controls": id });
+  const foldBtn = el("button", { type: "button", class: "bang-fold", ...tx("app.bang.fold"), "aria-expanded": "true", "aria-controls": id });
   foldBtn.addEventListener("click", () => {
     const open = foldBtn.getAttribute("aria-expanded") !== "true";
     foldBtn.setAttribute("aria-expanded", open ? "true" : "false");
     body.hidden = !open;
   });
-  return el("div", { class: "bang-out", role: "group", "aria-label": "Command output" },
-    el("div", { class: "bang-head" }, el("span", { class: "bang-title", text: `Output · ${n} ${n === 1 ? "line" : "lines"}` }), foldBtn),
+  return el("div", { class: "bang-out", role: "group", ...tx("app.bang.out", null, "aria-label") },
+    el("div", { class: "bang-head" }, el("span", { class: "bang-title", ...tx("app.bang.title", { n }) }), foldBtn),
     body);
 }
-const truncNote = (b) => (b.truncated ? el("div", { class: "trunc", text: "(truncated)" }) : null);
+const truncNote = (b) => (b.truncated ? el("div", { class: "trunc", ...tx("app.truncated") }) : null);
 function thumbs(urls) {
   if (!urls || !urls.length) return null;
   // not lazy: images settle while the view is still pinned to the bottom, instead of shifting it later
   return el("div", { class: "thumbs" }, ...urls.map((u) =>
-    el("a", { href: u, target: "_blank", rel: "noopener" }, el("img", { class: "thumb", src: u, alt: "image" }))));
+    el("a", { href: u, target: "_blank", rel: "noopener" }, el("img", { class: "thumb", src: u, alt: tl("app.img.alt") }))));
 }
 // An image the session sent with SendUserFile, inline in its reply: lazy (a long history does not fetch every image at
 // once; a placeholder keeps the height until it loads, and the pinned view follows the resize), tap to open the full
 // image in a new tab, the caption under it. A file that is gone, too large or not served shows its name instead.
 function sentImage(b) {
-  const img = el("img", { class: "sent-img", src: b.url, alt: b.caption || b.name || "image sent by the session", loading: "lazy", decoding: "async" });
-  const fig = el("figure", { class: "sent" }, el("a", { href: b.url, target: "_blank", rel: "noopener", title: "Open the full image" }, img));
-  img.addEventListener("error", () => fig.replaceChildren(el("div", { class: "sent-missing", text: "Image not available: " + (b.name || "file") })), { once: true });
+  const img = el("img", { class: "sent-img", src: b.url, alt: b.caption || b.name || tl("app.img.sentAlt"), loading: "lazy", decoding: "async" });
+  const fig = el("figure", { class: "sent" }, el("a", { href: b.url, target: "_blank", rel: "noopener", title: tl("app.img.open") }, img));
+  img.addEventListener("error", () => fig.replaceChildren(el("div", { class: "sent-missing", text: tl("app.img.missing", { name: b.name || tl("app.img.file") }) })), { once: true });
   if (b.caption) fig.append(el("figcaption", { text: b.caption }));
   return fig;
 }
@@ -2847,13 +2893,13 @@ function applyLive(d) {
   if (!box) {
     box = el("div", { id: "live-bang", class: "live-bang" },
       el("div", { class: "live-head" },
-        el("span", { class: "live-label", text: "Running in the terminal" }),
-        el("button", { type: "button", class: "live-stop", text: "Stop", onclick: stopLive })),
+        el("span", { class: "live-label", ...tx("app.live.label") }),
+        el("button", { type: "button", class: "live-stop", ...tx("app.live.stop"), onclick: stopLive })),
       el("pre", { class: "live-out" }),
       el("div", { class: "live-note", hidden: true }));
   }
   const out = $(".live-out", box);
-  const text = d.text || "(no output yet)";
+  const text = d.text || tl("app.live.none");
   if (out.textContent !== text) { out.textContent = text; out.scrollTop = out.scrollHeight; }
   box.title = d.command ? "! " + d.command : "";
   if (box.parentNode !== chat || box.nextElementSibling) chat.append(box);  // always the last thing in the chat
@@ -2864,7 +2910,8 @@ function liveNote(text, isErr) {
   const n = $("#live-bang .live-note");
   if (!n) return;
   n.hidden = !text;
-  n.textContent = text || "";
+  n._fn = typeof text === "function" ? text : null;
+  n.textContent = (n._fn ? n._fn() : text) || "";
   n.className = "live-note" + (isErr ? " err" : "");
 }
 async function stopLive(ev) {
@@ -2872,14 +2919,14 @@ async function stopLive(ev) {
   const s = state.byName.get(state.selected);
   if (!s) return;
   btn.disabled = true;
-  liveNote("Stopping…");
+  liveNote(() => tl("app.live.stopping"));
   try {
     const r = await fetch(`api/s/${s.pid}/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     const j = await r.json().catch(() => ({}));
-    if (r.ok) liveNote("Stop sent (" + (j.sent || []).map((k) => (k === "C-c" ? "Ctrl-C" : k)).join(", ") + "). Waiting for the command to end.");
-    else liveNote(j.error || `Stop failed (${r.status})`, true);
+    if (r.ok) liveNote(() => tl("app.live.sent", { keys: (j.sent || []).map((k) => (k === "C-c" ? "Ctrl-C" : k)).join(", ") }));
+    else liveNote(() => j.error || tl("app.live.failed", { status: r.status }), true);
   } catch (e) {
-    liveNote("Could not reach the server: " + (e && e.message ? e.message : e), true);
+    liveNote(() => tl("app.live.unreachable", { msg: e && e.message ? e.message : e }), true);
   }
   setTimeout(() => { btn.disabled = false; }, 2000);
 }
@@ -2923,7 +2970,7 @@ function renderMessage(m, { live = false, into = null, tools = null, older = fal
         box.append(bangOutput(b));
         break;
       case "thinking":
-        box.append(fold("thinking", [el("span", { text: "Thinking" })], [md(b.text)]));
+        box.append(fold("thinking", [el("span", { ...tx("app.thinking") })], [md(b.text)]));
         break;
       case "tool_use": {
         const d = fold("tool", [el("b", { text: b.name }), el("span", { class: "sum", text: b.summary || "" })],
@@ -2933,13 +2980,13 @@ function renderMessage(m, { live = false, into = null, tools = null, older = fal
         break;
       }
       case "tool_result": {
-        const res = el("div", { class: "result" + (b.isError ? " err" : "") }, linkedPre(b.text || "(no output)"), truncNote(b), thumbs(b.images));
+        const res = el("div", { class: "result" + (b.isError ? " err" : "") }, linkedPre(b.text || tl("app.noOutput")), truncNote(b), thumbs(b.images));
         const target = b.toolUseId && ((tools && tools.get(b.toolUseId)) || host.querySelector(`details.tool[data-tool-id="${CSS.escape(b.toolUseId)}"]`));
         if (target) {
           $(".result-slot", target).replaceChildren(res);
           if (b.isError) target.classList.add("err");
         } else {
-          box.append(fold("tool" + (b.isError ? " err" : ""), [el("b", { text: "Tool result" })], [res]));
+          box.append(fold("tool" + (b.isError ? " err" : ""), [el("b", { ...tx("app.toolResult") })], [res]));
         }
         break;
       }
@@ -3023,15 +3070,15 @@ function pendingNode(p) {
     el("div", { class: "sent-file", title: im.file.name }, fileIcon(), el("span", { class: "sf-name", text: im.file.name }),
       el("span", { class: "sf-size", text: humanSize(im.file.size) })))));
   if (p.text.trim()) box.append(el("div", { class: "bubble" }, ...linkNodes(p.text)));
-  if (p.status === "sending") box.append(el("div", { class: "note", text: "Sending…" }));
-  else if (p.status === "sent" && p.late) box.append(el("div", { class: "note", text: "Sent: not in the transcript yet. A shell command is not sent twice; check the Terminal tab." }));
-  else if (p.status === "queued") box.append(el("div", { class: "note", text: "Queued: not in the transcript yet" }));
+  if (p.status === "sending") box.append(el("div", { class: "note", text: tl("app.pend.sending") }));
+  else if (p.status === "sent" && p.late) box.append(el("div", { class: "note", text: tl("app.pend.late") }));
+  else if (p.status === "queued") box.append(el("div", { class: "note", text: tl("app.pend.queued") }));
   else if (p.status === "failed") {
-    box.append(el("div", { class: "note err", text: "Not sent: " + p.error }),
+    box.append(el("div", { class: "note err", text: tl("app.pend.notSent", { error: p.error }) }),
       el("div", { class: "note-actions" },
         // no Retry for a shell command: the failed request may have reached the pane, and a second send would run it twice
-        ...(isBang(p.text) ? [] : [el("button", { type: "button", text: "Retry", onclick: () => retryPending(p) })]),
-        el("button", { type: "button", text: "Edit", onclick: () => editPending(p) })));
+        ...(isBang(p.text) ? [] : [el("button", { type: "button", text: tl("app.pend.retry"), onclick: () => retryPending(p) })]),
+        el("button", { type: "button", text: tl("app.pend.edit"), onclick: () => editPending(p) })));
   }
   box.append(copyBar(p.text, p.sentAt));
   return box;
@@ -3046,7 +3093,7 @@ async function deliver(p) {
   const s = state.byName.get(p.session);
   state.sending = true; refreshSendButton();
   try {
-    if (!s) throw new Error("the session is not live");
+    if (!s) throw new Error(tl("app.pend.notLive"));
     const r = await fetch(`api/s/${s.pid}/send`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: p.text, uploads: p.images.map((im) => im.name) }),
@@ -3055,17 +3102,17 @@ async function deliver(p) {
     if (r.status === 409 && d.duplicate) {  // the server already pasted this exact message moments ago: drop the copy
       p.merged = true; clearTimeout(p.timer); state.pending = state.pending.filter((x) => x !== p);
       if (p.node) p.node.remove();
-      setStatus("That message was already sent a moment ago; not sent twice.", "ok");
+      setStatus(() => tl("app.st.dup"), "ok");
       return;
     }
     if (!r.ok || !d.ok) throw new Error(d.error || r.statusText);
     if (d.dialogAnswer) {  // a keypress answering a dialog: it never shows in the transcript, so no bubble waits for it
       dropPending(p);
-      setStatus(d.dialogAnswer === "Escape" ? "Closed the dialog (Esc)." : `Answered the dialog with ${d.dialogAnswer}.`, "ok");
+      setStatus(() => (d.dialogAnswer === "Escape" ? tl("app.st.dialogEsc") : tl("app.st.dialogKey", { key: d.dialogAnswer })), "ok");
       return;
     }
     if (d.imagesPasted && d.imagesAttached < d.imagesPasted) {
-      setStatus(`${d.imagesAttached} of ${d.imagesPasted} images showed as attached in the pane.`, "error");
+      setStatus(() => tl("app.st.imgPartial", { have: d.imagesAttached, total: d.imagesPasted }), "error");
     }
     if (p.merged) return;
     p.status = "sent"; redrawPending(p);
@@ -3076,7 +3123,7 @@ async function deliver(p) {
     }, QUEUED_AFTER_MS);
   } catch (e) {
     if (p.merged) return;
-    p.status = "failed"; p.error = e.message || "unknown error"; redrawPending(p);
+    p.status = "failed"; p.error = e.message || tl("app.pend.unknown"); redrawPending(p);
   } finally {
     state.sending = false; refreshSendButton();
   }
@@ -3116,10 +3163,10 @@ function setTab(tab) {
 function loadTerminal() {
   const s = state.current;
   const host = $("#terminal-pane");
-  if (!s) { host.replaceChildren(el("div", { class: "empty", text: "Pick a session first." })); return; }
+  if (!s) { host.replaceChildren(el("div", { class: "empty", ...tx("app.pickFirst") })); return; }
   if (state.termLoadedFor === s.tmuxSession && host.querySelector("iframe")) return;
   state.termLoadedFor = s.tmuxSession;
-  const frame = el("iframe", { src: state.terminalUrl + encodeURIComponent(s.tmuxSession), title: "Terminal for " + s.name, allow: "clipboard-read; clipboard-write" });
+  const frame = el("iframe", { src: state.terminalUrl + encodeURIComponent(s.tmuxSession), title: tl("term.frameTitleFor", { name: s.name }), allow: "clipboard-read; clipboard-write" });
   host.replaceChildren(frame);
   hookTerminalClipboard(frame);
 }
@@ -3142,11 +3189,11 @@ function loadTerminal() {
 // document is the text that is sent, byte for byte.
 const touchMode = window.matchMedia("(pointer: coarse) and (hover: none)");
 // the long placeholder wraps on a phone; there the short one. Wide and in touch mode (a tablet): Enter is a new line there.
-const placeholderFor = () => (window.matchMedia("(max-width: 760px)").matches ? "Message the session"
-  : touchMode.matches ? "Message the session (Enter adds a line, tap Send)" : "Message the session (Enter sends, Shift+Enter for a new line)");
+const placeholderFor = () => tl(window.matchMedia("(max-width: 760px)").matches ? "app.composer.label"
+  : touchMode.matches ? "app.composer.phTouch" : "app.composer.phKeys");
 watchForInsertedImages($("#composer-editor"));
 const composer = cm6Composer.createEditor($("#composer-editor"), {
-  id: "input", label: "Message the session", placeholder: placeholderFor(),
+  id: "input", label: tl("app.composer.label"), placeholder: placeholderFor(),
   // Enter sends on a desktop, and Shift+Enter is a new line. In touch mode, a phone or a tablet typing on its on-screen
   // keyboard (`(pointer: coarse) and (hover: none)`), Enter is a new line and only the Send button or Ctrl/Cmd+Enter sends,
   // as in the Claude app: an on-screen keyboard has no Shift to hold with Enter (Shift+Enter did not give a new line
@@ -3162,6 +3209,13 @@ const composer = cm6Composer.createEditor($("#composer-editor"), {
   extensions: [composerImageHandlers()],
 });
 const input = composer.contentDOM;   // the editable, #input
+SalaI18n.onChange(() => {   // the words around the draft change; the draft itself is not touched
+  input.setAttribute("aria-label", tl("app.composer.label"));
+  setPlaceholder();
+  renderChips();
+  const frame = $("#terminal-pane iframe");
+  if (frame && state.current) frame.title = tl("term.frameTitleFor", { name: state.current.name });
+});
 const getText = () => composer.state.doc.toString();
 // the text replaced as a textarea's value= does: no change event, no undo step (the history starts over), the caret at the end
 function setText(v) { cm6Composer.resetDoc(composer, v); }
@@ -3171,7 +3225,8 @@ function selectOffsets(start, end, backward = false) {
   composer.dispatch({ selection: backward ? { anchor: b, head: a } : { anchor: a, head: b } });
 }
 function focusEnd() { composer.focus(); const n = getText().length; selectOffsets(n, n); composer.dispatch({ effects: cm6Composer.EditorView.scrollIntoView(n) }); }  // as a textarea's value= leaves the caret
-function setStatus(msg, kind) { const n = $("#send-status"); n.textContent = msg; n.className = kind || ""; }
+let statusFn = null;
+function setStatus(msg, kind) { const n = $("#send-status"); statusFn = typeof msg === "function" ? msg : null; n.textContent = statusFn ? statusFn() : msg; n.className = kind || ""; }
 function clearStatus() { setStatus("", ""); }
 function refreshSendButton() {
   const uploading = state.uploads.some((u) => u.uploading);
@@ -3187,8 +3242,8 @@ function renderChips() {
   const box = $("#chips");
   box.replaceChildren(...state.uploads.map((u) => u.kind === "file" ? fileChip(u) :
     el("div", { class: "chip" + (u.uploading ? " uploading" : ""), title: u.error || "" },
-      el("img", { src: u.url, alt: "attached image" }),
-      el("button", { "aria-label": "Remove image", text: "×", onclick: () => removeUpload(u.id) }))));
+      el("img", { src: u.url, alt: tl("app.up.attached") }),
+      el("button", { ...tx("app.up.removeImage", null, "aria-label"), text: "×", onclick: () => removeUpload(u.id) }))));
   refreshSendButton();
 }
 // A file that is not an image: a chip with a generic file icon, its name, and under it its size, the
@@ -3218,16 +3273,16 @@ function fileIcon() {
 function paintFileChip(u) {
   if (!u.metaEl || !u.metaEl.isConnected) return;
   const pct = u.size ? Math.min(100, Math.floor(100 * (u.loaded || 0) / u.size)) : 0;
-  u.metaEl.textContent = u.error ? "Failed: " + u.error : u.uploading ? `Uploading ${pct}% of ${humanSize(u.size)}` : humanSize(u.size);
+  u.metaEl.textContent = u.error ? tl("app.up.failedMeta", { error: u.error }) : u.uploading ? tl("app.up.progress", { pct, size: humanSize(u.size) }) : humanSize(u.size);
   u.barEl.style.width = (u.uploading ? pct : 0) + "%";
 }
 function fileChip(u) {
   u.metaEl = el("span", { class: "fc-meta" });
   u.barEl = el("span", { class: "fc-bar" });
   const chip = el("div", { class: "chip file" + (u.uploading ? " uploading" : "") + (u.error ? " failed" : ""), role: "group",
-                           "aria-label": "Attached file " + u.fileName, title: u.error ? u.fileName + ": " + u.error : u.fileName },
+                           ...tx("app.up.file", { name: u.fileName }, "aria-label"), title: u.error ? u.fileName + ": " + u.error : u.fileName },
     fileIcon(), el("span", { class: "fc-text" }, el("span", { class: "fc-name", text: u.fileName }), u.metaEl), u.barEl,
-    el("button", { type: "button", "aria-label": "Remove " + u.fileName, text: "×", onclick: () => removeUpload(u.id) }));
+    el("button", { type: "button", ...tx("app.up.remove", { name: u.fileName }, "aria-label"), text: "×", onclick: () => removeUpload(u.id) }));
   queueMicrotask(() => paintFileChip(u));  // the nodes are in the page once renderChips has put them there
   return chip;
 }
@@ -3241,7 +3296,7 @@ function removeUpload(id) {
 let uploadSeq = 0;
 async function addImage(file) {
   if (!file || !/^image\/(png|jpeg|gif|webp)$/.test(file.type)) {
-    setStatus(`Not attached: ${file ? file.type || "unknown type" : "no file"} (png, jpeg, gif or webp only).`, "error");
+    setStatus(() => tl("app.up.notAttached", { what: file ? file.type || tl("app.up.unknownType") : tl("app.up.noFile") }), "error");
     return;
   }
   const u = { id: ++uploadSeq, url: URL.createObjectURL(file), uploading: true, name: null };
@@ -3253,7 +3308,7 @@ async function addImage(file) {
     if (!r.ok || !d.ok) throw new Error(d.error || r.statusText);
     u.name = d.name;
   } catch (e) {
-    setStatus("Image upload failed: " + e.message, "error");
+    setStatus(() => tl("app.up.imgFailed", { msg: e.message }), "error");
     state.uploads = state.uploads.filter((x) => x !== u);
   }
   u.uploading = false;
@@ -3278,12 +3333,12 @@ function addFile(file) {
   const u = { id: ++uploadSeq, kind: "file", fileName: attachmentName(file), size: file.size, loaded: 0, uploading: true, name: null, error: "" };
   state.uploads.push(u);
   const fail = (msg) => {
-    u.uploading = false; u.error = msg; u.xhr = null;
-    setStatus(`Upload failed: ${u.fileName}: ${msg}`, "error");
+    u.uploading = false; u.error = typeof msg === "function" ? msg() : msg; u.xhr = null;
+    setStatus(() => tl("app.up.failed", { name: u.fileName, msg: typeof msg === "function" ? msg() : msg }), "error");
     renderChips();
   };
   renderChips();
-  if (file.size > MAX_FILE_BYTES) { fail(`too large (${humanSize(file.size)}; the limit is ${humanSize(MAX_FILE_BYTES)})`); return Promise.resolve(); }
+  if (file.size > MAX_FILE_BYTES) { fail(() => tl("app.up.tooLarge", { size: humanSize(file.size), max: humanSize(MAX_FILE_BYTES) })); return Promise.resolve(); }
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     u.xhr = xhr;
@@ -3297,7 +3352,7 @@ function addFile(file) {
       else fail(d.error || xhr.statusText || "HTTP " + xhr.status);
       resolve();
     };
-    xhr.onerror = () => { fail("the connection was lost"); resolve(); };
+    xhr.onerror = () => { fail(() => tl("app.up.lost")); resolve(); };
     xhr.onabort = () => resolve();
     xhr.send(file);
   });
@@ -3314,7 +3369,7 @@ async function addAttachment(file) {
 
 function send() {
   const s = state.current;
-  if (!s) { setStatus("Pick a session first.", "error"); return; }
+  if (!s) { setStatus(() => tl("app.pickFirst"), "error"); return; }
   if (state.sending || state.uploads.some((u) => u.uploading)) return;
   const text = getText();
   const ups = state.uploads.filter((u) => u.name);
@@ -3442,7 +3497,7 @@ async function liftImage(img) {
     if (fromEarlierLink(3, file)) return;  // the paste or beforeinput of this gesture attached it already
     await addImage(file);
   } catch (e) {
-    setStatus("Could not read the inserted image: " + (e.message || e), "error");
+    setStatus(() => tl("app.up.readFailed", { msg: e.message || e }), "error");
   }
 }
 // An <img> the browser puts into the editable is lifted out into a chip. The observer is made, and watches the editor's
@@ -3624,8 +3679,8 @@ function sideApply() {
   document.body.classList.toggle("side-pin", side.pin);
   const btn = $("#side-open"), shown = side.peek || side.pin;
   btn.setAttribute("aria-expanded", String(shown));
-  btn.setAttribute("aria-label", shown ? "Hide session list" : "Show session list");
-  btn.title = shown ? "Hide sidebar" : "Show sidebar";
+  btn.setAttribute("aria-label", tl(shown ? "app.side.hideList" : "ui.hdr.showList"));
+  btn.title = tl(shown ? "app.side.hideSidebar" : "ui.hdr.showSidebar");
 }
 function sidePeek() {
   clearTimeout(side.timer);
@@ -3770,16 +3825,16 @@ async function ensureShellFrame() {
     if (!r.ok || !d.ok) throw new Error(d.error || r.statusText);
     created = !!d.created;
     session = d.session;   // the session the server made or found: the frame attaches to that one
-    if (!session) throw new Error("the server did not name the shell session");
+    if (!session) throw new Error(tl("app.shell.noName"));
   } catch (e) {
-    if (!shellHost.querySelector("iframe")) shellHost.replaceChildren(el("div", { class: "empty", text: "Could not start the shell: " + e.message }));
-    else shellNote("Could not check the shell: " + e.message);
+    if (!shellHost.querySelector("iframe")) shellHost.replaceChildren(el("div", { class: "empty", text: tl("app.shell.startFail", { msg: e.message }) }));
+    else shellNote(tl("app.shell.checkFail", { msg: e.message }));
     return;
   }
   if (!shell.open || seq !== shell.seq) return;   // closed again (or opened again) while the server answered
   shellNote("");
   if (!created && shellHost.querySelector("iframe")) return;
-  const frame = el("iframe", { src: state.terminalUrl + encodeURIComponent(session), title: "Shell" + (state.host ? " on " + state.host : ""), allow: "clipboard-read; clipboard-write" });
+  const frame = el("iframe", { src: state.terminalUrl + encodeURIComponent(session), title: shellTitle(), allow: "clipboard-read; clipboard-write" });
   shellHost.replaceChildren(frame);
   hookTerminalClipboard(frame);
   frame.addEventListener("load", () => hookShellCtrl(frame));
@@ -3792,11 +3847,15 @@ async function ensureShellFrame() {
 
 /* the names the server told (api/config: this machine's short hostname and sala's SALA_SHELL_SESSION) on the button, the chip and the
    full-size link; painted when the config arrives and again when the drawer opens */
+const shellTitle = () => (state.host ? tl("app.shell.titleOn", { host: state.host }) : tl("common.shell"));
 function paintShellNames() {
   $("#shell-full").href = "terminal?arg=" + encodeURIComponent(state.shellSession);   // the full-size page (terminal.html), not ttyd's bare page: it carries the clipboard code
   $("#shell-chip").textContent = (state.host ? state.host + " \u00b7 " : "") + state.shellSession;
-  shellBtn.title = "Shell" + (state.host ? " on " + state.host : "") + " (Ctrl+`)";
+  paintShellTip();
 }
+// the button's tooltip is painted by script (the host arrives with api/config), so its markup carries no data-i18n-title: the
+// first apply of the markup could otherwise put the generic one back over the host's
+function paintShellTip() { shellBtn.title = state.host ? tl("app.shell.titleOn", { host: state.host }) + " (Ctrl+`)" : tl("ui.hdr.shellTip"); }
 
 function setShell(open, remember = true) {
   shell.open = open;
@@ -3882,7 +3941,7 @@ async function sendShellKey(key) {
       throw new Error(d.error || r.statusText);
     }
   } catch (e) {
-    shellNote("Key not sent: " + e.message);
+    shellNote(tl("app.shell.keyFail", { msg: e.message }));
   }
 }
 // a tap on a key must not take the focus from the terminal (the soft keyboard would close): the press itself is cancelled, the click still fires
@@ -3926,6 +3985,30 @@ function paintBrand(suffix) {
   const el = document.querySelector(".brand");
   if (el) el.textContent = suffix ? "salamander : " + suffix : "salamander";
 }
+
+// the language control at the foot of the session list: the choice is kept on the server with the other settings, and the page is
+// served in it (<html lang>), so a reload starts in it with no flash of the other
+for (const b of document.querySelectorAll(".side-lang [data-lang]")) {
+  b.addEventListener("click", () => {
+    const next = SalaI18n.norm(b.dataset.lang);
+    if (next === SalaI18n.lang) return;
+    SalaI18n.setLang(next);
+    savePrefs({ lang: next });
+  });
+}
+SalaI18n.onChange(() => {
+  renderSidebar();
+  showSideNote();
+  sideApply();
+  paintShellNames();
+  const frame = shellHost.querySelector("iframe");
+  if (frame) frame.title = shellTitle();
+});
+
+// text that script paints over the markup (the header's name, the shell button's tooltip) has no data-i18n in the markup, so it is
+// worded here in the page's language at start; a language change repaints it through the onChange hooks above
+retitle();
+paintShellTip();
 
 (async function init() {
   perfMark("init", { controlled: !!(navigator.serviceWorker && navigator.serviceWorker.controller), hash: location.hash.slice(0, 40) });

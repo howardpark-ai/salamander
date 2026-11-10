@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from sala_web.app import STATIC
+from i18n_node import prelude
 from test_credit import wait_for  # noqa: F401
 from test_lane_dormant import FRI, SINCE, TOKEN, open_overview, page, record, world  # noqa: F401  (fixtures)
 
@@ -279,7 +280,7 @@ def test_reason_text_says_the_reason_once_without_its_who_and_day():
     start = JS.index("const REASON_WORDS")
     end = JS.index("function dormantLine")
     cap = re.search(r"^const capFirst = .*$", JS, re.M).group(0)
-    script = cap + "\n" + JS[start:end] + f"\nconsole.log(JSON.stringify({json.dumps([r for r, _ in REASONS])}.map(reasonText)));"
+    script = prelude("en") + cap + "\n" + JS[start:end] + f"\nconsole.log(JSON.stringify({json.dumps([r for r, _ in REASONS])}.map(reasonText)));"
     out = json.loads(subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True, timeout=30).stdout)
     assert out == [want for _, want in REASONS]
 
@@ -293,7 +294,7 @@ def test_dormant_line_joins_the_reason_and_the_day():
     cap = re.search(r"^const capFirst = .*$", JS, re.M).group(0)
     cases = [{"reason": "No credit on the API key (Alex, Tue Jan 6th)", "since": FRI}, {"reason": "credit used up", "since": FRI},
              {"reason": "", "since": FRI}, {"reason": "usage check refused (hand)", "since": ""}, {"reason": "", "since": ""}]
-    script = (ZONE_JS + cap + "\n" + dayw + "\n" + JS[start:end2] +
+    script = (prelude("en") + ZONE_JS + cap + "\n" + dayw + "\n" + JS[start:end2] +
               f"\nconsole.log(JSON.stringify({json.dumps(cases)}.map(dormantLine)));")
     out = json.loads(subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True, timeout=30).stdout)
     assert out == ["No credit on the API key since Tue Jan 6th", "No credit on the API key since Tue Jan 6th",

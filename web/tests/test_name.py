@@ -30,7 +30,7 @@ def test_the_page_names_the_app_sala(client):
     html = client.get("/").text
     assert "<title>sala</title>" in html
     assert '<span class="brand">salamander</span>' in html   # the sidebar's header, served with its text (no suffix set); the name elsewhere stays sala
-    assert "<span>sala was updated.</span>" in html
+    assert '<span data-i18n="ui.banner.updated">sala was updated.</span>' in html
     # nothing the page shows says sala-web: the text between tags and the attributes a user can read
     shown = " ".join(re.findall(r">([^<]*)<", html)) + " " + " ".join(NAME_ATTRS.findall(html))
     assert "sala-web" not in shown.lower() and "salaweb" not in shown.lower(), shown

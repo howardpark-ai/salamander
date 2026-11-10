@@ -12,18 +12,25 @@
    answer says `refreshing` (load, below) and draws the new reading when it lands. On a phone the rows are cards (schedules.css) and a sort menu above them does the heading's work.
    `el`, `apiFetch` and `laneLabel` come from app.js and shared.js (used at call time). Everything else stays in this closure. */
 const schedules = (() => {
-const FLAG_WORDS = { failed: "failed", "no-service": "no service", "not-git": "not in git", "git-differs": "differs from git", "no-lane": "no lane", "bad-lane": "bad lane", "no-project": "no project", cron: "cron" };
-const COLUMNS = [["name", "Job"], ["category", "Category"], ["desc", "What it does"], ["next", "When"], ["lane", "Lane"]];   // the headings
-const SORT_OPTIONS = [["name", "Job"], ["category", "Category"], ["desc", "What it does"], ["next", "Next run"], ["last", "Last run"], ["lane", "Lane"]];   // the phone's sort menu
+/* the flag chips' words: a code the page does not know shows as the code itself */
+const FLAG_KEYS = { failed: "app.ns.sw.failed", "no-service": "sch.flag.noService", "not-git": "sch.flag.notGit", "git-differs": "sch.flag.gitDiffers", "no-lane": "sch.flag.noLane", "bad-lane": "sch.flag.badLane", "no-project": "sch.flag.noProject", cron: "sch.flag.cron" };
+const flagWord = (code) => (Object.hasOwn(FLAG_KEYS, code) ? tl(FLAG_KEYS[code]) : code);
+const COLUMN_COUNT = 5;   // Job | Category | What it does | When | Lane (the headings are the page's static markup)
+const SORT_OPTIONS = [["name", "ui.sc.job"], ["category", "ui.sc.category"], ["desc", "ui.sc.whatItDoes"], ["next", "sch.sort.next"], ["last", "sch.sort.last"], ["lane", "common.lane"]];   // the phone's sort menu
 const DEFAULT_KEY = "category";
-const sc = { data: null, error: "", flaggedOnly: false, active: false, seq: 0, key: DEFAULT_KEY, dir: 1, timer: 0, tries: 0 };
+const sc = { data: null, error: null, flaggedOnly: false, active: false, seq: 0, key: DEFAULT_KEY, dir: 1, timer: 0, tries: 0 };
 const $in = (sel) => document.querySelector("#ov-schedules " + sel);
+/* an error is kept as its key and values, not as text, so it is worded again when the language changes; `status` is an HTTP status the
+   page words itself, `error` a text from the server or the browser, shown as it is */
+const errOf = (key, vars) => ({ key, vars: vars || {} });
+const errText = (er) => (er ? tl(er.key, er.vars.status ? { ...er.vars, error: tl("common.serverAnswered", { status: er.vars.status }) } : er.vars) : "");
+const sameErr = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /* one chip a code (a job whose two unit files are both loose gets one "not in git", not two); the reasons are the tooltip */
 function chips(flags) {
   const byCode = new Map();
   for (const f of flags) byCode.set(f.code, [...(byCode.get(f.code) || []), f.text]);
-  return [...byCode].map(([code, texts]) => el("span", { class: "sc-chip sc-" + code, title: texts.join("\n"), text: FLAG_WORDS[code] || code }));
+  return [...byCode].map(([code, texts]) => el("span", { class: "sc-chip sc-" + code, title: texts.join("\n"), text: flagWord(code) }));
 }
 
 /* a run time for a row, as the API writes it in the SALA_TZ zone with the day counted there ("today 08:45", "tomorrow 08:45",
@@ -44,11 +51,11 @@ function whenCell(t) {
   const raw = (t.schedule || []).join("\n");
   const r = t.result || {};
   const line = (cls, label, ...kids) => el("div", { class: "sc-when-" + cls }, el("span", { class: "sc-when-k", text: label }), " ", ...kids);
-  const last = [t.last ? runTime(t.last) : el("span", { class: "sc-res-never", text: (r.state === "never" && r.text) || "not yet run since boot" })];
+  const last = [t.last ? runTime(t.last) : el("span", { class: "sc-res-never", text: (r.state === "never" && r.text) || tl("sch.when.never") })];
   if (r.state === "failed" || r.state === "running") last.push(el("div", { class: "sc-res-" + r.state, text: r.text || r.state }));
-  return [el("div", { class: "sc-when-plain sc-plain", title: raw || null, text: t.plain || raw || "no schedule" }),
-          line("next", "next", t.next ? runTime(t.next) : el("span", { class: "sc-muted", text: "none" })),
-          line("last", "last", ...last)];
+  return [el("div", { class: "sc-when-plain sc-plain", title: raw || null, text: t.plain || raw || tl("sch.when.noSchedule") }),
+          line("next", tl("app.ns.pr.next"), t.next ? runTime(t.next) : el("span", { class: "sc-muted", text: tl("ov.common.none") })),
+          line("last", tl("sch.when.last"), ...last)];
 }
 
 /* the value `none` (X-Model-Lane=none: the job makes no model call) is an outlined chip; a unit with no X-Model-Lane at all reads
@@ -57,9 +64,9 @@ function laneChip(t) {
   const note = t.lane_note || null;
   if (t.lane && !t.flags.some((f) => f.code === "bad-lane")) {
     const label = laneLabel(t.lane);
-    return el("span", { class: "sc-lane lane-" + t.lane, text: label, title: [label + (t.lane === "none" ? " (declared: no model call)" : ""), note].filter(Boolean).join("\n") });
+    return el("span", { class: "sc-lane lane-" + t.lane, text: label, title: [t.lane === "none" ? tl("sch.lane.noModelCall", { lane: label }) : label, note].filter(Boolean).join("\n") });
   }
-  return t.lane ? el("span", { class: "sc-lane", text: t.lane, title: t.lane }) : el("span", { class: "sc-muted sc-unset", text: "not set" });
+  return t.lane ? el("span", { class: "sc-lane", text: t.lane, title: t.lane }) : el("span", { class: "sc-muted sc-unset", text: tl("ov.row.notSet") });
 }
 
 /* ---------- sorting ---------- */
@@ -104,17 +111,17 @@ function jobRow(t) {
   const tr = el("tr", { class: "sc-row" + (flagged ? " sc-flagged" : ""), "data-job": t.name });
   tr.append(
     cell("name", "", el("div", { class: "sc-name", title: path || null }, ...nameParts(jobName(t)))),
-    cell("cat", "", t.project ? el("span", { class: "sc-cat", title: "X-Project=" + t.project, text: t.project }) : el("span", { class: "sc-muted sc-nocat", title: "No X-Project= on this job's unit file", text: "—" })),
+    cell("cat", "", t.project ? el("span", { class: "sc-cat", title: "X-Project=" + t.project, text: t.project }) : el("span", { class: "sc-muted sc-nocat", title: tl("sch.cat.noneTip"), text: "—" })),
     cell("desc", "", desc ? el("div", { class: "sc-desctext", text: desc }) : null, flagged ? el("div", { class: "sc-chips" }, ...chips(t.flags)) : null),
-    cell("when", "When", ...whenCell(t)),
+    cell("when", tl("ui.sc.when"), ...whenCell(t)),
     cell("lane", "", laneChip(t)));
   return tr;
 }
 function cronRow(c) {
   const tr = el("tr", { class: "sc-flagged" });
-  tr.append(el("td", { "data-label": "Schedule" }, el("span", { class: "sc-sched", text: c.schedule })),
-            el("td", { "data-label": "Command" }, el("span", { class: "sc-cmd", text: c.command })),
-            el("td", { "data-label": "Flags" }, el("div", { class: "sc-chips" }, ...chips(c.flags))));
+  tr.append(el("td", { "data-label": tl("ui.sc.schedule") }, el("span", { class: "sc-sched", text: c.schedule })),
+            el("td", { "data-label": tl("ui.sc.command") }, el("span", { class: "sc-cmd", text: c.command })),
+            el("td", { "data-label": tl("ui.sc.flags") }, el("div", { class: "sc-chips" }, ...chips(c.flags))));
   return tr;
 }
 
@@ -126,7 +133,7 @@ function showSort() {
   const sel = $in("#sc-sortsel"), dir = $in("#sc-sortdir");
   sel.value = sc.key;
   dir.textContent = sc.dir > 0 ? "▲" : "▼";
-  dir.setAttribute("aria-label", sc.dir > 0 ? "Ascending: press to reverse" : "Descending: press to reverse");
+  dir.setAttribute("aria-label", tl(sc.dir > 0 ? "sch.sort.asc" : "sch.sort.desc"));
 }
 
 function render() {
@@ -135,10 +142,10 @@ function render() {
   showSort();
   const d = sc.data;
   const note = $in("#sc-note");
-  note.textContent = sc.error;
+  note.textContent = errText(sc.error);
   note.classList.toggle("error", !!sc.error);
   if (!d) {
-    $in("#sc-count").textContent = sc.error ? "" : "Reading the timers…";
+    $in("#sc-count").textContent = sc.error ? "" : tl("ui.sc.reading");
     body.replaceChildren();
     $in("#sc-cron").replaceChildren();
     $in("#sc-cron-sec").hidden = true;
@@ -147,18 +154,18 @@ function render() {
   const c = d.counts;
   document.getElementById("ov-n-schedules").textContent = String(c.timers);   // the tab's count
   const list = sortJobs(d.timers.filter((t) => !sc.flaggedOnly || t.flags.length), sc.key, sc.dir);
-  const parts = [`${c.timers} job${c.timers === 1 ? "" : "s"}`, `${c.cron} cron line${c.cron === 1 ? "" : "s"}`, `${c.flagged} flagged`];
-  const why = Object.entries(c.byReason).map(([k, n]) => `${n} ${FLAG_WORDS[k] || k}`);
-  $in("#sc-count").textContent = parts.join(" · ") + (why.length ? " (" + why.join(", ") + ")" : "") + (d.generated ? " · read " + d.generated.text : "")
-    + " · click a heading to sort, again to reverse";
+  const parts = [tl("sch.count.jobs", { n: c.timers }), tl("sch.count.cron", { n: c.cron }), tl("sch.count.flagged", { n: c.flagged })];
+  const why = Object.entries(c.byReason).map(([k, n]) => tl("sch.count.reason", { n, reason: flagWord(k) }));
+  $in("#sc-count").textContent = parts.join(" · ") + (why.length ? " (" + why.join(", ") + ")" : "") + (d.generated ? " · " + tl("sch.count.read", { when: d.generated.text }) : "")
+    + " · " + tl("sch.count.hint");
   const notes = [];
-  if (c.packaged) notes.push(`${c.packaged} packaged system timer${c.packaged === 1 ? "" : "s"} hidden.`);
-  if (d.scopes && d.scopes.system === false) notes.push("System timers are not readable without sudo and are left out.");
+  if (c.packaged) notes.push(tl("sch.note.packaged", { n: c.packaged }));
+  if (d.scopes && d.scopes.system === false) notes.push(tl("sch.note.system"));
   $in("#sc-scope-note").textContent = notes.join(" ");
   body.replaceChildren(...list.map(jobRow));
   if (!list.length) {
-    const tr = el("tr"), td = el("td", { class: "sc-empty", text: sc.flaggedOnly ? "Nothing is flagged." : "No timers." });
-    td.colSpan = COLUMNS.length;
+    const tr = el("tr"), td = el("td", { class: "sc-empty", text: tl(sc.flaggedOnly ? "sch.empty.flagged" : "sch.empty.none") });
+    td.colSpan = COLUMN_COUNT;
     tr.append(td);
     body.append(tr);
   }
@@ -182,32 +189,37 @@ async function load(fresh = false, follow = false) {
   let again = false, redraw = true;
   try {
     const r = await apiFetch("api/schedules" + (fresh ? "?fresh=1" : ""), { cache: "no-store" }, { tries: 2 });
-    if (!r.ok) throw new Error("the server answered " + r.status);
+    if (!r.ok) throw Object.assign(new Error("the server answered " + r.status), { status: r.status });
     const d = await r.json();
     if (seq !== sc.seq) return;
     again = !!d.refreshing;
     const have = !d.pending;   // else the server has no reading yet: the placeholder stays
-    const failed = d.error ? (have ? "Could not read the schedules just now; showing the reading from " + (d.generated ? d.generated.text : "earlier") + "."
-                                   : "Could not read the schedules: " + d.error) : "";
-    redraw = (have && (!sc.data || !d.fetchedAt || sc.data.fetchedAt !== d.fetchedAt)) || failed !== sc.error;
+    const failed = d.error ? (have ? (d.generated ? errOf("sch.err.stale", { when: d.generated.text }) : errOf("sch.err.staleNoTime"))
+                                   : errOf("sch.err.read", { error: d.error })) : null;
+    redraw = (have && (!sc.data || !d.fetchedAt || sc.data.fetchedAt !== d.fetchedAt)) || !sameErr(failed, sc.error);
     if (have) sc.data = d;
     sc.error = failed;
   } catch (e) {
     if (seq !== sc.seq) return;
-    sc.error = "Could not read the schedules: " + (e && e.message ? e.message : e);   // the last answer stays on screen
+    sc.error = e && e.status ? errOf("sch.err.read", { status: e.status }) : errOf("sch.err.read", { error: e && e.message ? e.message : String(e) });   // the last answer stays on screen
   }
   if (sc.active && redraw) render();
   if (again && sc.active && sc.tries++ < FOLLOW_MAX) sc.timer = setTimeout(() => load(false, true), FOLLOW_MS);
 }
 let bound = false;
+function fillSortOptions() {
+  const sel = $in("#sc-sortsel");
+  sel.replaceChildren(...SORT_OPTIONS.map(([k, key]) => el("option", { value: k, text: tl(key) })));
+  sel.value = sc.key;
+}
 function bind() {
   if (bound || !$in("#sc-body")) return;
   bound = true;
   $in("#sc-flagged").addEventListener("change", (e) => { sc.flaggedOnly = e.target.checked; render(); });
-  document.getElementById("sc-reload").addEventListener("click", () => { sc.error = ""; load(true); });
+  document.getElementById("sc-reload").addEventListener("click", () => { sc.error = null; load(true); });
   for (const th of document.querySelectorAll("#sc-table th")) th.querySelector("button").addEventListener("click", () => pick(th.dataset.key));
   const sel = $in("#sc-sortsel");
-  sel.replaceChildren(...SORT_OPTIONS.map(([k, label]) => el("option", { value: k, text: label })));
+  fillSortOptions();
   sel.addEventListener("change", () => { sc.key = sel.value; sc.dir = 1; render(); });
   $in("#sc-sortdir").addEventListener("click", () => { sc.dir = -sc.dir; render(); });
 }
@@ -223,5 +235,7 @@ function stop() {
   sc.active = false;
   clearTimeout(sc.timer);
 }
+/* the language changed: the options and the table are drawn again from the reading this page holds (no request) */
+SalaI18n.onChange(() => { if (bound) { fillSortOptions(); render(); } });
 return { start, stop, sortJobs };
 })();

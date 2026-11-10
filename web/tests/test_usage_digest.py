@@ -234,8 +234,11 @@ def test_the_module_imports_nothing_that_could_call_a_model_or_read_a_file():
 
 def test_the_wording_shared_with_the_report_is_the_reports_own():
     js = (STATIC / "usage.js").read_text()
-    assert G.FLAT in js and G.PER_USE in js and G.SCOPE in js, "usage_digest.py's FLAT, PER_USE and SCOPE must be the words of usage.js's WORDS block"
-    assert re.search(r'weeks: \["This week", "Previous week", "2 weeks ago"\]', js)
+    en = (STATIC / "i18n-en.js").read_text()   # the Report's words are in the English table, which usage.js's WORDS block reads
+    assert G.FLAT in en and G.PER_USE in en and G.SCOPE in en, "usage_digest.py's FLAT, PER_USE and SCOPE must be the words of the Report's keys in i18n-en.js"
+    assert '"us.flatLane"' in js and '"us.billedLane"' in js and '"us.machines"' in js
+    assert re.search(r'weeks\(\) \{ return \[tl\("us.week.this"\), tl\("us.week.prev"\), tl\("us.week.prev2"\)\]', js)
+    assert '"us.week.this": "This week"' in en and '"us.week.prev": "Previous week"' in en and '"us.week.prev2": "2 weeks ago"' in en
 
 
 # ── the route ────────────────────────────────────────────────────────────────

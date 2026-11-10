@@ -20,8 +20,8 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64  # the server stores bytes; it does no
 def test_composer_has_the_attach_control():
     # the chooser takes any file, multiple, hidden behind a named button
     assert '<input id="file-input" type="file" multiple hidden>' in INDEX
-    assert '<button id="attach" class="attach-btn" type="button" aria-label="Attach files"' in INDEX
-    assert '<div id="drop-hint">Drop files to attach</div>' in INDEX
+    assert '<button id="attach" class="attach-btn" type="button" aria-label="Attach files" data-i18n-aria-label="ui.cmp.attach"' in INDEX
+    assert '<div id="drop-hint" data-i18n="ui.cmp.drop">Drop files to attach</div>' in INDEX
 
 
 WAIT_READY = """

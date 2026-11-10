@@ -11,19 +11,21 @@
 const usageExplorer = (() => {
 const K = usage.kit, W = K.WORDS, esc = K.esc, usd = K.usd, fmtDay = K.fmtDay;
 /* ---------- the words that are this view's own ---------- */
+/* each entry is read when it is drawn, so the words follow the interface language */
 const X = {
-  compare: "COMPARE", breakdown: "BREAK DOWN BY", where: "WHERE", none: "none", any: (l) => "Any " + l.toLowerCase(), clear: "Clear filters",
-  notBilled: "not billed", vs: "vs", change: "Change", replies: "REPLIES", side: { a: "A", b: "B" },
-  nothingSide: "Nothing to compare: pick a value.", noReplies: "No replies in this selection.", loadingReplies: "Reading the replies…",
-  showing: (n, all) => `the newest ${n.toLocaleString("en-US")} of ${all.toLocaleString("en-US")}`, tapRow: "Tap a row to see the replies behind it.",
-  howTo: "How to read this: pick what to compare (two lanes, two models, two days, two weeks…) and A and B; break both down by another dimension; narrow both with Where. "
-    + "A tap on a row lists the replies behind it, newest first. Every figure is what the replies would cost at list prices.",
-  cols: { k: "", a: "A", b: "B", d: "Change", ra: "A replies", rb: "B replies" },
-  rep: { time: "Time", model: "Model", lane: "Lane", cost: "Cost", agent: "Agent" },
+  get compare() { return tl("usx.compare"); }, get breakdown() { return tl("usx.breakdown"); }, get where() { return tl("usx.where"); },
+  get none() { return tl("ov.common.none"); }, any: (l) => tl("usx.any", { dim: l.toLowerCase() }), get clear() { return tl("usx.clear"); },
+  get notBilled() { return tl("usx.notBilled"); }, get change() { return tl("usx.change"); }, get replies() { return tl("usx.replies"); }, side: { a: "A", b: "B" },
+  get nothingSide() { return tl("usx.nothingSide"); }, get noReplies() { return tl("usx.noReplies"); }, get loadingReplies() { return tl("usx.loadingReplies"); },
+  showing: (n, all) => tl("usx.showing", { n: SalaI18n.number(n), all: SalaI18n.number(all) }), get tapRow() { return tl("usx.tapRow"); },
+  get howTo() { return tl("usx.howTo"); },
+  get cols() { return { k: "", a: "A", b: "B", d: tl("usx.change"), ra: tl("usx.cols.ra"), rb: tl("usx.cols.rb") }; },
+  get rep() { return { time: tl("usx.rep.time"), model: tl("common.model"), lane: tl("common.lane"), cost: tl("us.col.cost"), agent: tl("ui.col.agent") }; },
 };
-const DIMS = [["week", "Week"], ...W.dims];             // the dimensions a figure can be split, filtered or compared by
-const TXT = (d) => DIMS.find((x) => x[0] === d)[1];
-const FILTER_DIMS = W.dims.map((d) => d[0]);              // what the replies route filters on (the week goes in its own parameter)
+const DIMS = () => [["week", tl("ui.us.week")], ...W.dims];             // the dimensions a figure can be split, filtered or compared by
+const TXT = (d) => DIMS().find((x) => x[0] === d)[1];
+const FILTER_DIMS = K.DIM_IDS;             // what the replies route filters on (the week goes in its own parameter)
+const ALL_DIMS = ["week", ...FILTER_DIMS];
 const COLUMN = { week: 0, day: 1, lane: 2, model: 3, project: 4, agent: 5, folder: 6, usd: 7, replies: 8 };   // a row here: [week, ...api/usage's row without its tokens]
 const BY_DEFAULTS = ["model", "lane", "project", "agent", "day", "folder"];
 const POLL_MS = 3000, POLL_MAX = 40;
@@ -55,7 +57,7 @@ function rebuildRows() {
 /* the rows every filter lets through, except the one of dimension `skip`; the week is a filter too unless it is what is compared */
 function scope(skip) {
   return ex.rows.filter((r) => {
-    for (const d of DIMS.map((x) => x[0])) {
+    for (const d of ALL_DIMS) {
       if (d === skip || d === ex.cmp) continue;
       const v = ex.f[d];
       if (v !== undefined && v !== "" && get(d, r) !== v) return false;
@@ -120,19 +122,19 @@ function renderControls(d) {
     return `<label class="ex-pick"><span class="ex-badge" style="--sc:${SIDE_COLOR[side]}">${X.side[side]}</span><select id="ex-s${side}" data-fid="ex-s${side}" data-s="${side}" aria-label="${esc(X.side[side] + ": " + TXT(ex.cmp))}">`
       + `<option value=""${cur === "" ? " selected" : ""}>— ${X.none}</option>${optionList(ex.cmp, rs, cur)}</select></label>`;
   };
-  const dims = DIMS.filter(([id]) => id !== ex.cmp);
+  const dims = DIMS().filter(([id]) => id !== ex.cmp);
   const sel = (dim) => {
     const cur = ex.f[dim] === undefined ? "" : ex.f[dim];
     const any = dim === "week" ? "" : `<option value=""${cur === "" ? " selected" : ""}>${esc(X.any(TXT(dim)))}</option>`;
     return `<label class="ex-f"><span class="us-lbl">${esc(TXT(dim).toUpperCase())}</span><select id="ex-f-${dim}" data-fid="ex-f-${dim}" data-f="${dim}">${any}${optionList(dim, scope(dim), cur)}</select></label>`;
   };
-  const filtering = DIMS.some(([id]) => id !== "week" && id !== ex.cmp && ex.f[id]);
+  const filtering = FILTER_DIMS.some((id) => id !== ex.cmp && ex.f[id]);
   let range = "";
   if (d && ex.cmp !== "week") {
     const wk = (ex.data[+ex.f.week] || d).weeks[+ex.f.week];
-    if (wk) range = weekRange(d, wk) + (!d.resetKnown ? ` · ${W.unknownReset}` : wk.current ? ` · ${W.resets} ${K.untilText(wk.end - serverNow(d))}` : ` · ${W.closed}`);
+    if (wk) range = weekRange(d, wk) + (!d.resetKnown ? ` · ${W.unknownReset}` : wk.current ? ` · ${W.resetsIn(K.untilText(wk.end - serverNow(d)))}` : ` · ${W.closed}`);
   }
-  $x("#ex-ctl").innerHTML = `<div class="ex-row"><span class="us-lbl">${X.compare}</span>${seg("ex-cmp", X.compare, DIMS, ex.cmp, "c")}</div>`
+  $x("#ex-ctl").innerHTML = `<div class="ex-row"><span class="us-lbl">${X.compare}</span>${seg("ex-cmp", X.compare, DIMS(), ex.cmp, "c")}</div>`
     + `<div class="ex-ab">${picker("a")}${picker("b")}</div>`
     + `<div class="ex-row"><span class="us-lbl">${X.breakdown}</span>${seg("ex-by", X.breakdown, W.dims.filter(([id]) => id !== ex.cmp), ex.by, "b")}</div>`
     + `<div class="ex-row ex-wh"><span class="us-lbl">${X.where}</span>${filtering ? `<button type="button" class="us-chip us-clear" data-fid="ex-clear" data-clear="1">${X.clear}</button>` : ""}</div>`
@@ -148,7 +150,7 @@ function sideCard(side, rs, other) {
   let delta = "";
   if (side === "b" && other && other.n) {
     const dl = other.t ? (t / other.t - 1) * 100 : null;
-    delta = `<div class="ex-delta">${dl === null ? "" : `<span class="us-delta ${dl > 0 ? "up" : "down"}">${dl > 0 ? "+" : ""}${dl.toFixed(0)}%</span> `}<span class="us-faint">${X.vs} ${X.side.a} (${esc(signed(t - other.t))})</span></div>`;
+    delta = `<div class="ex-delta">${dl === null ? "" : `<span class="us-delta ${dl > 0 ? "up" : "down"}">${dl > 0 ? "+" : ""}${dl.toFixed(0)}%</span> `}<span class="us-faint">${esc(tl("us.vs", { what: X.side.a, amount: signed(t - other.t) }))}</span></div>`;
   }
   return `<div class="us-card ex-side" style="--sc:${color}" data-side="${side}"><div class="ex-sh"><span class="ex-badge" style="--sc:${color}">${X.side[side]}</span>`
     + `<span class="ex-sn" title="${esc(nameOf(ex.cmp, v))}">${esc(nameOf(ex.cmp, v))}</span></div>`
@@ -177,8 +179,8 @@ function renderTable(rsA, rsB) {
     return `<tr class="us-pick ex-pick-row${on ? " us-on" : ""}" data-k="${esc(r.k)}" tabindex="0"><td class="us-nm"><span class="ex-nm">${esc(nameOf(ex.by, r.k))}</span>`
       + `${ex.by === "lane" && flat.has(r.k) ? ` <span class="ex-nb">${X.notBilled}</span>` : ""}`
       + `<div class="ex-pair"><i class="ex-ba" style="width:${r.a.cost / mx * 100}%"></i><i class="ex-bb" style="width:${r.b.cost / mx * 100}%"></i></div></td>`
-      + `<td class="r us-num"><b>${usd(r.a.cost)}</b><div class="ex-m us-hide-s">${r.a.msgs.toLocaleString("en-US")}</div></td>`
-      + `<td class="r us-num"><b>${usd(r.b.cost)}</b><div class="ex-m us-hide-s">${r.b.msgs.toLocaleString("en-US")}</div></td>`
+      + `<td class="r us-num"><b>${usd(r.a.cost)}</b><div class="ex-m us-hide-s">${SalaI18n.number(r.a.msgs)}</div></td>`
+      + `<td class="r us-num"><b>${usd(r.b.cost)}</b><div class="ex-m us-hide-s">${SalaI18n.number(r.b.msgs)}</div></td>`
       + `<td class="r us-num ex-d ${r.d > 0.005 ? "up" : r.d < -0.005 ? "down" : ""}">${esc(signed(r.d))}<div class="ex-m us-hide-s">${pct === null ? "" : (pct > 0 ? "+" : "") + pct.toFixed(0) + "%"}</div></td></tr>`;
   }).join("") || `<tr><td colspan="4" class="us-empty">${W.nothing}</td></tr>`;
 }
@@ -200,20 +202,20 @@ async function loadReplies() {
   renderReplies();
   try {
     const r = await apiFetch("api/usage/replies?" + replyParams(), { cache: "no-store" }, { tries: 2 });
-    if (!r.ok) throw new Error("the server answered " + r.status);
+    if (!r.ok) throw K.httpErr(r);
     const d = await r.json();
     if (seq !== R.seq) return;
     if (d.pending) {   // the count behind the replies is not ready (a fresh server): ask again in a moment, a bounded number of times
       R.status = "loading";
       if (R.tries++ < POLL_MAX && ex.active) R.timer = setTimeout(() => loadReplies(), POLL_MS);
     } else if (d.noCount) {   // no count has been made yet (the replies come from a count's saved records): say so, Reload makes one
-      R.tries = 0; R.data = { error: W.noCount }; R.status = "error";
+      R.tries = 0; R.data = { local: () => W.noCount }; R.status = "error";
     } else {
       R.tries = 0; R.data = d; R.status = d.error ? "error" : "ok";
     }
   } catch (e) {
     if (seq !== R.seq) return;
-    R.status = "error"; R.data = { error: "Could not read the replies: " + (e && e.message ? e.message : e) };
+    R.status = "error"; R.data = { local: K.errOf("usx.err.replies", e) };
   }
   if (ex.active) renderReplies();
 }
@@ -227,10 +229,10 @@ function renderReplies() {
   };
   let body = "";
   if (R.status === "loading" && !R.data) body = `<p class="ex-rmsg">${X.loadingReplies}</p>`;
-  else if (R.status === "error" || (R.data && R.data.error)) body = `<p class="ex-rmsg error">${esc((R.data && R.data.error) || "Could not read the replies.")}</p>`;
+  else if (R.status === "error" || (R.data && (R.data.error || R.data.local))) body = `<p class="ex-rmsg error">${esc((R.data && (R.data.local ? R.data.local() : R.data.error)) || tl("usx.err.repliesShort"))}</p>`;
   else if (R.data) {
     const d = R.data, flat = flatSet();
-    const head = `<div class="ex-rsum"><b class="us-num">${d.total.toLocaleString("en-US")}</b> replies · <b class="us-num">${usd(d.usd)}</b>${d.capped ? ` · ${esc(X.showing(d.shown, d.total))}` : ""}</div>`;
+    const head = `<div class="ex-rsum">${tl("usx.sum", { count: `<b class="us-num">${SalaI18n.number(d.total)}</b>`, amount: `<b class="us-num">${usd(d.usd)}</b>` })}${d.capped ? ` · ${esc(X.showing(d.shown, d.total))}` : ""}</div>`;
     const rows = d.rows.map((r) => {
       const [time, day, lane, model, , agent] = r;
       return `<tr><td class="ex-t1"><span class="ex-tfull">${esc(fmtDay(day))}</span><span class="ex-tshort">${esc(K.fmtDayShort(day))}</span> ${esc(time.slice(11))}</td>`
@@ -240,24 +242,24 @@ function renderReplies() {
     body = head + (d.rows.length ? `<div class="us-tw"><table class="us-t ex-rt"><thead><tr><th>${X.rep.time}</th><th>${X.rep.model}</th><th>${X.rep.lane}</th><th class="us-hide-s">${X.rep.agent}</th><th class="r">${X.rep.cost}</th></tr></thead><tbody>${rows}</tbody></table></div>`
       : `<p class="ex-rmsg">${X.noReplies}</p>`);
   }
-  box.innerHTML = `<div class="ex-rh"><span class="us-lbl">${X.replies} · ${esc(TXT(ex.by).toUpperCase())}: <b>${esc(nameOf(ex.by, ex.pick))}</b></span>`
-    + `<div class="us-seg ex-wrap" role="group" aria-label="Replies of">${sideBtn("a")}${sideBtn("b")}</div></div>${body}`;
+  box.innerHTML = `<div class="ex-rh"><span class="us-lbl">${esc(tl("usx.repliesBy", { dim: TXT(ex.by).toUpperCase() }))} <b>${esc(nameOf(ex.by, ex.pick))}</b></span>`
+    + `<div class="us-seg ex-wrap" role="group" aria-label="${esc(tl("usx.repliesOf"))}">${sideBtn("a")}${sideBtn("b")}</div></div>${body}`;
 }
 
 /* ---------- the whole view ---------- */
 function renderNotes(d) {
   const p = d.prices || {};
-  const un = (d.unpriced || []).length ? `<p>${d.unpriced.reduce((s, x) => s + x.replies, 0).toLocaleString("en-US")} replies on a model with no list price are counted as $0: ${esc(d.unpriced.map((x) => x.model).join(", "))}.</p>` : "";
-  $x("#ex-notes").innerHTML = `<p>${esc(X.howTo)}</p><p>${esc(W.machines)}</p><p>${esc(W.prices)}${p.asOf ? ` As of ${esc(p.asOf)}.` : ""}</p>${un}`;
+  const un = (d.unpriced || []).length ? `<p>${esc(tl("us.unpriced", { count: SalaI18n.number(d.unpriced.reduce((s, x) => s + x.replies, 0)), models: d.unpriced.map((x) => x.model).join(", ") }))}</p>` : "";
+  $x("#ex-notes").innerHTML = `<p>${esc(X.howTo)}</p><p>${esc(W.machines)}</p><p>${esc(W.prices)}${p.asOf ? " " + esc(tl("us.asOf", { date: p.asOf })) : ""}</p>${un}`;
 }
 function showAge() {
   const f = $x("#ex-upd"), d = firstData();
-  if (f) f.textContent = d && d.generated ? "counted " + K.agoText(serverNow(d) - d.generated) : "";
+  if (f) f.textContent = d && d.generated ? tl("us.counted", { when: K.agoText(serverNow(d) - d.generated) }) : "";
 }
 function render() {
   if (!ex.active) return;
   const note = $x("#ex-note"), d = firstData();
-  const msg = ex.error || (d && d.error) || (ex.pending && !d ? W.pending : ex.noCount && !d ? W.noCount : "");
+  const msg = K.errStr(ex.error) || (d && d.error) || (ex.pending && !d ? W.pending : ex.noCount && !d ? W.noCount : "");
   note.textContent = msg;
   note.classList.toggle("error", !!(ex.error || (d && d.error)));
   if (d) defaults();
@@ -283,7 +285,7 @@ async function load({ fresh = false } = {}) {
   try {
     const got = await Promise.all(weeks.map(async (w, i) => {
       const r = await apiFetch(`api/usage?week=${w}${fresh && i === 0 ? "&fresh=1" : ""}`, { cache: "no-store" }, { tries: 2 });
-      if (!r.ok) throw new Error("the server answered " + r.status);
+      if (!r.ok) throw K.httpErr(r);
       return [w, await r.json()];
     }));
     if (seq !== ex.seq) return;
@@ -298,7 +300,7 @@ async function load({ fresh = false } = {}) {
     } else ex.tries = 0;
   } catch (e) {
     if (seq !== ex.seq) return;
-    ex.error = "Could not read the usage: " + (e && e.message ? e.message : e);   // the last figures stay on screen
+    ex.error = K.errOf("us.err.read", e);   // the last figures stay on screen
   }
   render();
 }
@@ -380,5 +382,6 @@ function hide() {
   clearInterval(ex.ageTimer);
 }
 usage.registerView("explorer", { show, hide });
+SalaI18n.onChange(() => { if (ex.active) render(); });   // the language changed: the view is drawn again from the data it holds (the choices stay)
 return { show, hide };
 })();

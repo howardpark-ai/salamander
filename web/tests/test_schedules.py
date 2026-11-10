@@ -956,7 +956,7 @@ def test_the_table_has_the_five_columns_in_order_and_no_groups():
     from sala_web.app import STATIC
     html = (STATIC / "index.html").read_text()
     table = html[html.index('<table id="sc-table"'):html.index("</table>", html.index('<table id="sc-table"'))]
-    heads = re.findall(r'<th data-key="(\w+)" aria-sort="none"><button type="button"(?: title="[^"]*")?>([^<]+)</button></th>', table)
+    heads = re.findall(r'<th data-key="(\w+)" aria-sort="none"><button type="button"(?: title="[^"]*")?(?: data-i18n-title="[\w.]+")?(?: data-i18n="[\w.]+")?>([^<]+)</button></th>', table)
     assert heads == [("name", "Job"), ("category", "Category"), ("desc", "What it does"), ("next", "When"), ("lane", "Lane")], heads   # When sorts by the next run
     assert "sc-group" not in html and "sc-fold" not in html
 
@@ -983,8 +983,8 @@ def test_the_missing_lane_is_never_shown_as_the_value_none():
     from sala_web.app import STATIC
     js = (STATIC / "schedules.js").read_text()
     css = (STATIC / "schedules.css").read_text()
-    assert '"not set"' in js and "sc-muted sc-unset" in js
-    assert "(declared: no model call)" in js
+    assert '"ov.row.notSet"' in js and "sc-muted sc-unset" in js
+    assert '"sch.lane.noModelCall"' in js
     assert ".sc-unset { font-style: italic;" in css
 
 

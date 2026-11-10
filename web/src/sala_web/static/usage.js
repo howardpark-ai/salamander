@@ -10,25 +10,31 @@
    `el` and `apiFetch` come from app.js and `modelLabel` from shared.js (used at call time). Everything else stays in this closure. */
 const usage = (() => {
 /* ---------- the words on the page, in one place ---------- */
+const DIM_IDS = ["day", "lane", "model", "project", "agent", "folder"];
+const dimLabel = (id) => id === "day" ? tl("us.dim.day") : id === "lane" ? tl("common.lane") : id === "model" ? tl("common.model")
+  : id === "project" ? tl("ui.col.project") : id === "agent" ? tl("ui.col.agent") : tl("us.dim.folder");
+/* each entry is read when it is drawn (a getter or a function), so the words follow the interface language; the Explorer and the Digest read them too */
+const MARK = "\u0001";   // stands in for the weekly-limit figure in the flat-lane line until it is made bold
 const WORDS = {
-  weeks: ["This week", "Previous week", "2 weeks ago"],
-  views: [["report", "Report"], ["explorer", "Explorer"], ["digest", "Digest"]],
-  group: "GROUP BY",
-  dims: [["day", "Day"], ["lane", "Lane"], ["model", "Model"], ["project", "Project"], ["agent", "Agent"], ["folder", "Folder"]],
-  total: (billed, n) => `at list prices · about ${usd(billed)} billed · ${n.toLocaleString("en-US")} replies`,
-  flatLane: (pct) => "flat plan, not billed · at list prices" + (pct == null ? "" : ` · ${pct}% of weekly limit used`),
-  billedLane: "billed per use (estimate)",
-  machines: "Other machines are not counted: only this machine's sessions.",
-  prices: "Prices are list prices per million tokens, copied from sala's price table.",
-  howTo: "How to read this: every figure is what the replies would cost at list prices. Tap a lane card, a day, a name in the key or a table row to filter everything to it; tap again to clear. Group by changes the stack and the table.",
-  resets: "resets in", closed: "closed", unknownReset: "the weekly reset time is not known: the last seven days",
-  pending: "Counting the replies on this machine… the first count can take a minute.",
-  noCount: "No count yet. The replies are counted once a day; Reload counts them now.",
-  tapDay: "Tap a day to filter everything below to it.", clearDay: "Tap the bar again to clear.",
-  nothing: "Nothing in this selection.", filtered: "filtered", allLanes: "all lanes",
-  sameHours: "same hours of the previous week", weekBefore: "the week before",
-  cols: { k: "", share: "Share", cost: "Cost", msgs: "Replies", per: "$ / reply" },
-  costBy: "COST BY DAY", stackedBy: ", STACKED BY ", clearAll: "Clear all", other: "Other",
+  get weeks() { return [tl("us.week.this"), tl("us.week.prev"), tl("us.week.prev2")]; },
+  get views() { return [["report", tl("us.view.report")], ["explorer", tl("us.view.explorer")], ["digest", tl("us.view.digest")]]; },
+  get group() { return tl("us.groupBy"); },
+  get dims() { return DIM_IDS.map((id) => [id, dimLabel(id)]); },
+  total: (billed, n) => tl("us.total", { billed: usd(billed), count: SalaI18n.number(n) }),
+  flatLane: (pct) => (pct == null ? tl("us.flatLane") : tl("us.flatLane.pct", { pct })),
+  get billedLane() { return tl("us.billedLane"); },
+  get machines() { return tl("us.machines"); },
+  get prices() { return tl("us.prices"); },
+  get howTo() { return tl("us.howTo"); },
+  resetsIn: (when) => tl("us.resetsIn", { when }), get closed() { return tl("us.closed"); }, get unknownReset() { return tl("us.unknownReset"); },
+  get pending() { return tl("us.pending"); },
+  get noCount() { return tl("us.noCount"); },
+  get tapDay() { return tl("us.tapDay"); }, get clearDay() { return tl("us.clearDay"); },
+  get nothing() { return tl("us.nothing"); }, get filtered() { return tl("us.filtered"); }, get allLanes() { return tl("us.allLanes"); },
+  get sameHours() { return tl("us.sameHours"); }, get weekBefore() { return tl("us.weekBefore"); },
+  get cols() { return { k: "", share: tl("us.col.share"), cost: tl("us.col.cost"), msgs: tl("us.col.replies"), per: tl("us.col.perReply") }; },
+  get costBy() { return tl("us.costBy"); }, costByStacked: (dim) => tl("us.costBy.stacked", { dim }),
+  get clearAll() { return tl("us.clearAll"); }, get other() { return tl("us.other"); },
 };
 const F = { day: 0, lane: 1, model: 2, project: 3, agent: 4, folder: 5, usd: 6, replies: 7 };   // the row layout of api/usage (its "fields" says the same)
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -43,20 +49,26 @@ const $u = (sel) => document.querySelector("#ov-usage " + sel);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const ord = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
 function dparts(d) { const x = new Date(d + "T00:00:00Z"); return { wd: WD[x.getUTCDay()], mon: MON[x.getUTCMonth()], d: x.getUTCDate() }; }
-const fmtDay = (d) => { const p = dparts(d); return `${p.wd} ${p.mon} ${ord(p.d)}`; };
-const fmtDayShort = (d) => { const p = dparts(d); return `${p.wd} ${p.d}`; };
-const usd = (v) => v >= 100 ? "$" + Math.round(v).toLocaleString("en-US") : "$" + v.toFixed(2);
+const dayIntl = (d, opts) => new Intl.DateTimeFormat(SalaI18n.locale(), { timeZone: "UTC", ...opts }).format(new Date(d + "T00:00:00Z"));   // the day names of a language other than English
+const fmtDay = (d) => { if (SalaI18n.lang !== "en") return dayIntl(d, { weekday: "short", month: "short", day: "numeric" }); const p = dparts(d); return `${p.wd} ${p.mon} ${ord(p.d)}`; };
+const fmtDayShort = (d) => { if (SalaI18n.lang !== "en") return dayIntl(d, { weekday: "short", day: "numeric" }); const p = dparts(d); return `${p.wd} ${p.d}`; };
+const fmtDayNarrow = (d) => { if (SalaI18n.lang !== "en") return dayIntl(d, { day: "numeric" }); const p = dparts(d); return `${p.wd.slice(0, 2)} ${p.d}`; };
+const usd = (v) => v >= 100 ? "$" + SalaI18n.number(Math.round(v)) : "$" + v.toFixed(2);
 const usdK = (v) => v >= 10000 ? "$" + (v / 1000).toFixed(0) + "k" : v >= 1000 ? "$" + (v / 1000).toFixed(1) + "k" : "$" + Math.round(v);
 const pct = (v) => (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + "%";
 function untilText(sec) {
   const m = Math.max(0, Math.floor(sec / 60)), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
-  return d ? `${d}d ${h}h` : h ? `${h}h ${m % 60}m` : `${m}m`;
+  return d ? tl("us.until.dh", { d, h }) : h ? tl("us.until.hm", { h, m: m % 60 }) : tl("us.until.m", { m });
 }
 function agoText(s) {
   const m = Math.max(1, Math.floor(s / 60));
-  return m < 60 ? m + " min ago" : m < 48 * 60 ? Math.floor(m / 60) + " h ago" : Math.floor(m / 1440) + " d ago";
+  return m < 60 ? tl("time.min", { n: m }) : m < 48 * 60 ? tl("mc.ago.hour", { n: Math.floor(m / 60) }) : tl("mc.ago.day", { n: Math.floor(m / 1440) });
 }
 const serverNow = (d) => (d.now || Date.now() / 1000) + (performance.now() - uc.ago) / 1000;   // the server's clock moved on by the time since the answer: this page's own clock is not trusted
+/* a failed read: kept as a function that makes its text when it is shown, so it follows the interface language */
+function httpErr(r) { const e = new Error("the server answered " + r.status); e.status = r.status; return e; }
+const errOf = (key, e) => () => tl(key, { error: e && e.status ? tl("common.serverAnswered", { status: e.status }) : e && e.message ? e.message : e });
+const errStr = (x) => (typeof x === "function" ? x() : x || "");
 const kstDay = (epoch) => new Date((epoch + 9 * 3600) * 1000).toISOString().slice(0, 10);   // the server's days are KST, a fixed +9 h
 
 /* ---------- the data of the week on screen ---------- */
@@ -84,7 +96,7 @@ function colorOf(dim, k, i) {
 function rowsFor(skipDim) {
   const d = D();
   if (!d) return [];
-  return d.rows.filter((r) => WORDS.dims.every(([id]) => id === skipDim || !uc.f[id] || !uc.f[id].size || uc.f[id].has(getters[id](r))));
+  return d.rows.filter((r) => DIM_IDS.every((id) => id === skipDim || !uc.f[id] || !uc.f[id].size || uc.f[id].has(getters[id](r))));
 }
 function agg(rs, dim) {
   const m = new Map(), g = getters[dim];
@@ -102,7 +114,7 @@ function toggleFilter(dim, k) {
   const s = uc.f[dim] || (uc.f[dim] = new Set());
   if (s.has(k)) s.delete(k); else s.add(k);
 }
-const activeFilters = () => WORDS.dims.flatMap(([id]) => [...(uc.f[id] || [])].map((k) => [id, k]));
+const activeFilters = () => DIM_IDS.flatMap((id) => [...(uc.f[id] || [])].map((k) => [id, k]));
 
 /* the stack of the chart: the top groups and Other, per day */
 function trend(rs, dim, n) {
@@ -110,7 +122,7 @@ function trend(rs, dim, n) {
   if (dim === "day") {
     const by = {};
     for (const r of rs) by[r[F.day]] = (by[r[F.day]] || 0) + r[F.usd];
-    return { days, keys: ["Total"], val: (d) => ({ Total: by[d] || 0 }), cols: { Total: "var(--accent)" }, label: { Total: "Total" } };
+    return { days, keys: ["Total"], val: (d) => ({ Total: by[d] || 0 }), cols: { Total: "var(--accent)" }, label: { Total: tl("common.total") } };
   }
   const top = agg(rs, dim).map((a) => a.k), keys = top.slice(0, n), other = top.length > n, by = {};
   for (const r of rs) {
@@ -157,9 +169,9 @@ function drawTrend(host, T, opts) {
     s += `<line x1="${L}" x2="${w - R}" y1="${yy}" y2="${yy}" stroke="var(--border)" stroke-width="1"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end" font-size="12" fill="var(--faint)">${usdK(v)}</text>`;
   }
   days.forEach((d, i) => {
-    const x = L + i * bw, sel = opts.sel === d, fut = d > today, p = dparts(d);
+    const x = L + i * bw, sel = opts.sel === d, fut = d > today;
     if (sel) s += `<rect x="${x}" y="${Tp}" width="${bw}" height="${ph}" fill="var(--text)" opacity=".07"/>`;
-    s += `<text x="${x + bw / 2}" y="${h - 6}" text-anchor="middle" font-size="12" fill="${sel ? "var(--text)" : fut ? "var(--faint)" : "var(--muted)"}" opacity="${fut ? .6 : 1}">${bw < 46 ? p.wd.slice(0, 2) + " " + p.d : fmtDayShort(d)}</text>`;
+    s += `<text x="${x + bw / 2}" y="${h - 6}" text-anchor="middle" font-size="12" fill="${sel ? "var(--text)" : fut ? "var(--faint)" : "var(--muted)"}" opacity="${fut ? .6 : 1}">${bw < 46 ? fmtDayNarrow(d) : fmtDayShort(d)}</text>`;
     let acc = 0;
     const bx = x + bw * .16, bww = bw * .68;
     for (const k of T.keys) {
@@ -197,7 +209,7 @@ function heroDelta(d, T0, filt) {
   else if (uc.week === 1 && d.weeks[2]) cmp = [d.weeks[2].total, WORDS.weekBefore];
   if (!cmp || !cmp[0]) return "";
   const dl = (T0 / cmp[0] - 1) * 100;
-  return `<span class="us-delta ${dl > 0 ? "up" : "down"}">${dl > 0 ? "+" : ""}${dl.toFixed(0)}%</span> <span class="us-faint" style="font-size:12px">vs ${esc(cmp[1])} (${usd(cmp[0])})</span>`;
+  return `<span class="us-delta ${dl > 0 ? "up" : "down"}">${dl > 0 ? "+" : ""}${dl.toFixed(0)}%</span> <span class="us-faint" style="font-size:12px">${esc(tl("us.vs", { what: cmp[1], amount: usd(cmp[0]) }))}</span>`;
 }
 function renderWeeks(d) {
   const box = $u("#us-weeks");
@@ -207,7 +219,7 @@ function renderWeeks(d) {
   if (w) {
     r = weekRange(w);
     if (!d.resetKnown) r += ` · ${WORDS.unknownReset}`;
-    else if (w.current) r += ` · ${WORDS.resets} ${untilText(w.end - serverNow(d))}`;
+    else if (w.current) r += ` · ${WORDS.resetsIn(untilText(w.end - serverNow(d)))}`;
     else r += ` · ${WORDS.closed}`;
   }
   $u("#us-range").textContent = r;
@@ -225,20 +237,19 @@ function renderLanes(d) {
     return `<button type="button" class="us-card us-lane" data-k="${esc(a.k)}" aria-pressed="${sel}" style="--lane:${laneColor(a.k)}">`
       + `<div class="us-top"><span class="us-pill">${esc(laneName(a.k))}</span><span class="us-pct">${pct(a.cost / lt * 100)}</span></div>`
       + `<div class="us-amt us-num">${usd(a.cost)}</div><div class="us-bar"><i style="width:${a.cost / lt * 100}%"></i></div>`
-      + `<div class="us-sm">${info.flat ? esc(WORDS.flatLane(q)).replace(/(\d+)% of weekly/, "<b>$1%</b> of weekly") : esc(WORDS.billedLane)}</div></button>`;
+      + `<div class="us-sm">${info.flat ? esc(WORDS.flatLane(q == null ? null : MARK)).replace(MARK, `<b>${q}%</b>`) : esc(WORDS.billedLane)}</div></button>`;
   }).join("");
   for (const b of $u("#us-lanes").querySelectorAll(".us-lane")) b.addEventListener("click", () => { toggleFilter("lane", b.dataset.k); render(); });
 }
 function renderFilters() {
   const fl = activeFilters();
-  $u("#us-filters").innerHTML = fl.map(([dm, k]) => `<button type="button" class="us-chip" data-d="${dm}" data-k="${esc(k)}"><span>${esc(WORDS.dims.find((x) => x[0] === dm)[1])}: <b>${esc(nameOf(dm, k))}</b></span><i aria-hidden="true">×</i></button>`).join("")
+  $u("#us-filters").innerHTML = fl.map(([dm, k]) => `<button type="button" class="us-chip" data-d="${dm}" data-k="${esc(k)}"><span>${esc(label(dm))}: <b>${esc(nameOf(dm, k))}</b></span><i aria-hidden="true">×</i></button>`).join("")
     + (fl.length > 1 ? `<button type="button" class="us-chip us-clear" data-all="1">${WORDS.clearAll}</button>` : "");
   for (const c of $u("#us-filters").querySelectorAll(".us-chip")) c.addEventListener("click", () => { if (c.dataset.all) uc.f = {}; else toggleFilter(c.dataset.d, c.dataset.k); render(); });
 }
 function renderChart(d) {
   const cr = rowsFor("day"), T = trend(cr, uc.group, TOP), selDay = uc.f.day && [...uc.f.day][0];
-  const label = WORDS.dims.find((x) => x[0] === uc.group)[1];
-  $u("#us-ctitle").textContent = WORDS.costBy + (uc.group === "day" ? "" : WORDS.stackedBy + label.toUpperCase());
+  $u("#us-ctitle").textContent = uc.group === "day" ? WORDS.costBy : WORDS.costByStacked(label(uc.group).toUpperCase());
   drawTrend($u("#us-plot"), T, { sel: selDay, onPick: (dy) => { uc.f.day = new Set(dy ? [dy] : []); render(); } });
   drawLegend($u("#us-legend"), T, (k) => { if (k !== WORDS.other && uc.group !== "day") { toggleFilter(uc.group, k); render(); } });
   const read = $u("#us-read");
@@ -265,32 +276,32 @@ function renderTable(rs) {
     const on = !!(uc.f[uc.group] && uc.f[uc.group].has(a.k)), c = colorOf(uc.group, a.k, i);
     return `<tr class="us-pick${on ? " us-on" : ""}" data-k="${esc(a.k)}"><td class="us-nm"><span class="us-dot" style="background:${c}"></span>${esc(nameOf(uc.group, a.k))}</td>`
       + `<td class="us-hide-s"><div class="us-sharec"><div class="us-bar"><i style="width:${a.cost / mx * 100}%;--c:${c}"></i></div><span class="us-num">${pct(a.cost / (T0 || 1) * 100)}</span></div></td>`
-      + `<td class="r us-num"><b>${usd(a.cost)}</b></td><td class="r us-num us-hide-s">${a.msgs.toLocaleString("en-US")}</td><td class="r us-num us-hide-s us-faint">${usd(a.msgs ? a.cost / a.msgs : 0)}</td></tr>`;
+      + `<td class="r us-num"><b>${usd(a.cost)}</b></td><td class="r us-num us-hide-s">${SalaI18n.number(a.msgs)}</td><td class="r us-num us-hide-s us-faint">${usd(a.msgs ? a.cost / a.msgs : 0)}</td></tr>`;
   }).join("") || `<tr><td colspan="5" class="us-empty">${WORDS.nothing}</td></tr>`;
   for (const tr of $u("#us-tbody").querySelectorAll("tr[data-k]")) tr.addEventListener("click", () => { toggleFilter(uc.group, tr.dataset.k); render(); });
 }
-const label = (dim) => WORDS.dims.find((x) => x[0] === dim)[1];
+function label(dim) { return dimLabel(dim); }
 function renderNotes(d) {
   const p = d.prices || {}, models = Object.entries(p.models || {});
   const table = models.length
-    ? `<details><summary>Price table</summary><div class="us-pw"><table class="us-prices"><thead><tr><th>Model</th><th>Input</th><th>Cache write 5m</th><th>Cache write 1h</th><th>Cache read</th><th>Output</th></tr></thead><tbody>`
+    ? `<details><summary>${esc(tl("us.prices.table"))}</summary><div class="us-pw"><table class="us-prices"><thead><tr><th>${esc(tl("common.model"))}</th><th>${esc(tl("common.input"))}</th><th>${esc(tl("us.prices.cacheWrite5m"))}</th><th>${esc(tl("us.prices.cacheWrite1h"))}</th><th>${esc(tl("us.prices.cacheRead"))}</th><th>${esc(tl("common.output"))}</th></tr></thead><tbody>`
       + models.map(([m, r]) => `<tr><td>${esc(modelLabel(m))}</td><td>${r.input}</td><td>${r.cacheWrite5m}</td><td>${r.cacheWrite1h}</td><td>${r.cacheRead}</td><td>${r.output}</td></tr>`).join("")
       + `</tbody></table></div></details>` : "";
   const un = (d.unpriced || []).length
-    ? `<p>${d.unpriced.reduce((s, x) => s + x.replies, 0).toLocaleString("en-US")} replies on a model with no list price are counted as $0: ${esc(d.unpriced.map((x) => x.model).join(", "))}.</p>` : "";
+    ? `<p>${esc(tl("us.unpriced", { count: SalaI18n.number(d.unpriced.reduce((s, x) => s + x.replies, 0)), models: d.unpriced.map((x) => x.model).join(", ") }))}</p>` : "";
   $u("#us-notes").innerHTML = `<p>${esc(WORDS.howTo)}</p><p>${esc(WORDS.machines)}</p>`
-    + `<p>${esc(WORDS.prices)}${p.asOf ? ` As of ${esc(p.asOf)}.` : ""}</p>${un}${table}`;
+    + `<p>${esc(WORDS.prices)}${p.asOf ? " " + esc(tl("us.asOf", { date: p.asOf })) : ""}</p>${un}${table}`;
 }
 function showAge() {
   const f = $u("#us-upd"), d = D();
   if (!f) return;
-  f.textContent = d && d.generated ? "counted " + agoText(serverNow(d) - d.generated) : "";
+  f.textContent = d && d.generated ? tl("us.counted", { when: agoText(serverNow(d) - d.generated) }) : "";
 }
 
 /* what the Digest view (usage-digest.js) shares with the Report: the week, the words, the formatters and the note line */
 function digestContext() {
   return {
-    week: uc.week, words: WORDS, fmtDay, untilText, agoText,
+    week: uc.week, words: WORDS, fmtDay, untilText, agoText, errOf, errStr, httpErr,
     onWeek: (w) => { uc.week = w; uc.f = {}; uc.tries = 0; render(); load(); },   // one week for both views
     setNote: (text, isError) => { const n = $u("#us-note"); n.textContent = text; n.classList.toggle("error", !!isError); },
   };
@@ -306,7 +317,7 @@ function render() {
   const note = $u("#us-note");
   if (!note) return;
   const d = D();
-  note.textContent = uc.error || (d && d.error) || (uc.pending && !d ? WORDS.pending : uc.noCount && !d ? WORDS.noCount : "");
+  note.textContent = errStr(uc.error) || (d && d.error) || (uc.pending && !d ? WORDS.pending : uc.noCount && !d ? WORDS.noCount : "");
   note.classList.toggle("error", !!(uc.error || (d && d.error)));
   renderViews();
   if (uc.view === "digest") usageDigest.show(digestContext()); else usageDigest.hide();   // usage-digest.js: the Digest view
@@ -333,7 +344,7 @@ async function load({ fresh = false } = {}) {
   clearTimeout(uc.timer);
   try {
     const r = await apiFetch(`api/usage?week=${week}${fresh ? "&fresh=1" : ""}`, { cache: "no-store" }, { tries: 2 });
-    if (!r.ok) throw new Error("the server answered " + r.status);
+    if (!r.ok) throw httpErr(r);
     const d = await r.json();
     if (seq !== uc.seq) return;
     uc.error = "";
@@ -348,15 +359,18 @@ async function load({ fresh = false } = {}) {
     } else uc.tries = 0;
   } catch (e) {
     if (seq !== uc.seq) return;
-    uc.error = "Could not read the usage: " + (e && e.message ? e.message : e);   // the last answer stays on screen
+    uc.error = errOf("us.err.read", e);   // the last answer stays on screen
   }
   if (uc.active) render();
+}
+function paintGroup() {   // the Group by control: its label and one button per dimension
+  $u("#us-glbl").textContent = WORDS.group;
+  $u("#us-group").innerHTML = WORDS.dims.map(([id, l]) => `<button type="button" data-g="${id}" aria-pressed="${id === uc.group}">${esc(l)}</button>`).join("");
 }
 function bind() {
   if (uc.bound || !$u("#us-views")) return;
   uc.bound = true;
-  $u("#us-glbl").textContent = WORDS.group;
-  $u("#us-group").innerHTML = WORDS.dims.map(([id, l]) => `<button type="button" data-g="${id}" aria-pressed="${id === uc.group}">${esc(l)}</button>`).join("");
+  paintGroup();
   $u("#us-group").addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (b) { uc.group = b.dataset.g; render(); }
@@ -406,6 +420,7 @@ function stop() {
   for (const v of Object.values(views)) v.hide();
 }
 /* what a view built in its own file shares with this one: the words (one place), the formatters and the lane colour */
-const kit = { WORDS, MON, WD, esc, ord, fmtDay, fmtDayShort, usd, pct, agoText, untilText, laneColor };
+const kit = { WORDS, MON, WD, esc, ord, fmtDay, fmtDayShort, usd, pct, agoText, untilText, laneColor, errOf, errStr, httpErr, DIM_IDS };
+SalaI18n.onChange(() => { if (uc.bound) paintGroup(); if (uc.active) render(); });   // the language changed: the static pieces and the whole tab are drawn again from the data held
 return { start, stop, untilText, agoText, fmtDay, usd, kit, registerView: (id, v) => { views[id] = v; } };
 })();

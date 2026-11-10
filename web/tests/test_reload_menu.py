@@ -22,14 +22,14 @@ INDEX = (STATIC / "index.html").read_text()
 def test_the_header_has_a_reload_icon():
     """Since the lighter view (Tue Oct 27th 2026) Reload is an icon in the bar: no text label, its name is the
     aria-label and the tooltip."""
-    assert '<button id="menu-reload" class="menu-item" type="button" aria-label="Reload the page" title="Reload the page"><svg' in INDEX
+    assert '<button id="menu-reload" class="menu-item" type="button" data-word="Reload" data-i18n-word="common.reload" aria-label="Reload the page" data-i18n-aria-label="ui.hdr.reloadPage" title="Reload the page" data-i18n-title="ui.hdr.reloadPage"><svg' in INDEX
     button = INDEX[INDEX.index('<button id="menu-reload"'):]
     button = button[:button.index("</button>")]
     assert button.endswith("</svg>"), button   # nothing after the icon: no word
     # in the title bar's cluster (#top-end), right before the ⋯ button, not behind a condition; it moves into the ⋯ menu
     # (#top-tools) when the session name needs the room, as a row with the word (style.css, ::after), see test_header_fold.py
     assert INDEX.index('id="top-end"') < INDEX.index('id="menu-reload"') < INDEX.index('id="top-menu-btn"') < INDEX.index('id="top-tools"') < INDEX.index("</header>")
-    assert '.top-tools #menu-reload::after { content: "Reload"; }' in (STATIC / "style.css").read_text()
+    assert '.top-tools #menu-reload::after { content: attr(data-word); }' in (STATIC / "style.css").read_text()
     js = (STATIC / "app.js").read_text()
     # the draft is stored before the page goes (the mark names the reload's cause: test_timing_debug.py)
     assert 'function reloadPage(cause) { perfMark("reload", { cause: cause || "unknown" }); saveDraft(); location.reload(); }' in js

@@ -19,9 +19,9 @@ def test_the_overview_head_has_reload_and_get_help():
     head = INDEX[INDEX.index('<div class="sp-head">'):INDEX.index('<section id="quota"')]
     assert '<button id="sp-reload" class="sp-btn" type="button" aria-label="Reload the page"' in head
     # the file holds the chip with the session placeholder, inside markers the server drops when SALA_HELP_SESSION is unset
-    assert re.search(r'<!--help--><a id="sp-help" class="sp-btn sp-help" href="#s=\{\{help\}\}" title="[^"]*\{\{help\}\}[^"]*"><svg ', head)
+    assert re.search(r'<!--help--><a id="sp-help" class="sp-btn sp-help" href="#s=\{\{help\}\}" title="[^"]*\{\{help\}\}[^"]*" data-i18n-title="ui.ov.helpTip" data-i18n-arg="\{\{help\}\}"><svg ', head)
     assert head.index("<!--help-->") < head.index('id="sp-help"') < head.index("<!--/help-->")
-    assert ">Get Help</a>" in head and head.index('id="sp-reload"') < head.index('id="sp-help"')
+    assert ">Get Help</span></a>" in head and head.index('id="sp-reload"') < head.index('id="sp-help"')
     assert "Ask demo-web" not in INDEX and "sp-ask" not in INDEX
     # every id in the page once: the overview's Reload is not a second #menu-reload or #reload-btn
     ids = re.findall(r'\sid="([^"]+)"', INDEX)

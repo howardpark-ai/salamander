@@ -1194,6 +1194,57 @@ only**: the server keeps the token counts on each row and the page never shows t
 Code: `usage.py`, `usage_job.py` with its script `contrib/sala-web-usage-count`, `swr.py` (`peek`, `start`, `refresh_now`, `reload`), `GET /api/usage`, `GET /api/usage/replies`, `static/usage.js`, `static/usage.css`, the tab and panels in `static/index.html`, the tab routing in `static/app.js`; Explorer: `static/usage-explorer.js`, `static/usage-explorer.css`; the Digest: `usage_digest.py`, `GET /api/usage/digest`, `static/usage-digest.js`, `static/usage-digest.css`.
 Tests: `tests/test_usage.py` (the data layer over fake transcripts in a temporary folder), `tests/test_usage_count.py` (when it counts: a visit never, Reload once, the job command, a restart), `tests/test_usage_ui.py` (headless Chromium at 1280 px and 390 px); `tests/test_usage_explorer.py` (the replies list and route), `tests/test_usage_explorer_ui.py` (Explorer in Chromium); `tests/test_usage_digest.py` (the sentences and the route), `tests/test_usage_digest_ui.py` (the Digest in a browser, both widths, both themes).
 
+## The language
+
+The page is in English by default and has a Korean version, chosen with the **KO / EN** control at the foot of the session list
+(beside the color control, in `#side-foot`). Only the page's own words are translated: the buttons, labels, hints, headings,
+tooltips, the status and error lines the page itself words, relative ages ("5 min ago") and the dates in tooltips. Never
+translated: the chat (messages, tool names and output, the thinking and terminal text), session, project and machine names, paths and
+commands, and any text the server sends through (a queue note, an error reason from sala or stackshot, the Usage digest's
+sentences, the plan and lane names); those show as sent.
+
+**Where the choice lives.** On the server, as the pref **`lang`** (`en` or `ko`, *Preferences* below), like the other settings, so the
+phone and the desktop agree. The page is served already in it: `index.html` and `terminal.html` carry `<html lang="{{lang}}">`, which the
+server fills from the saved pref, so a reload paints the right language from the first frame and nothing is kept in `localStorage`. A
+tap on a language switches the page at once, without a reload and without losing anything typed, and saves the pref; the page also
+reads the pref when it loads, so a change made on another device is taken up.
+
+**The pieces** (all under `static/`):
+
+- `i18n-en.js` sets `window.SALA_I18N_EN`, the English table: dotted key to text, the source of truth for every key. A text with a
+  count has two entries, `<key>.one` and `<key>.other`; a value is filled in from `{name}` placeholders.
+- `i18n-ko.js` sets `window.SALA_I18N_KO`, the Korean table, with the same keys and placeholders. It is the only file with Korean in it,
+  and every Korean character in it is written as a `\uXXXX` escape (no other committed file holds a Hangul character; a test
+  checks that, read as bytes). A text with a count needs only `<key>.other`, since Korean has the one plural form. A key it lacks
+  shows in English.
+- `i18n.js` is the lookup, loaded before every other script: `tl(key, vars)` returns the text in the active language (the active
+  language's table, else English, else the key itself), `SalaI18n.apply(root)` words the `data-i18n*` attributes of the markup,
+  `tx(key, vars, kind)` returns the attributes of a node a script builds (so the node can be reworded in place), `SalaI18n.setLang`,
+  `SalaI18n.onChange(fn)` for a script that keeps text of its own, and `SalaI18n.locale()` for dates and numbers (`en-US` or `ko-KR`).
+  Dates keep the configured zone (`SALA_TZ`, `shared.js` `zoneFormat`); only the wording of weekday, month and the zone label follows
+  the language.
+- The markup says its words in English and names the key: `data-i18n="key"` for the text, `data-i18n-title`, `-placeholder`
+  and `-aria-label` for those attributes (`data-i18n-arg` for the one `{arg}` a few texts take). A word a style rule draws
+  (`content: attr(data-word)`, the Status and Reload rows of the header menu) is set with `data-i18n-word`, which fills `data-word`.
+
+**Changing the language redraws, it does not reload.** Text the page stored for later (a status line, a note under a form) is stored
+as a function that words itself when it is drawn, and each part of the page that builds text from held data (the sidebar, the
+Overview, Schedules, Machines, Search, Usage, the forms, the composer's hint, the chips, the header pills) registers with
+`SalaI18n.onChange` and draws again from what it holds. The chat's text is not touched.
+
+**Adding a string.** Add the key to `i18n-en.js` (and `<key>.one`/`<key>.other` if it has a count), the Korean text to `i18n-ko.js`
+as `\u` escapes, and use it as `tl("key", {name: ...})` in a script or `data-i18n="key"` in the markup, with the English words
+between the tags. `tests/test_i18n.py` fails for a key used and not in the English table, a key in the English table that nothing uses,
+a Korean key missing, empty or left in English, different placeholders, or markup whose words differ from the table. A text a script
+builds once and keeps in the page (an element made by a script) uses `...tx("key")` for its attributes, so a switch can reword it.
+An element whose text or attribute script paints from data that arrives later (the header's name, the shell button's tooltip) carries
+no `data-i18n*` in the markup: the markup is applied once when the document has loaded, and that apply would otherwise write the
+generic words over the script's. Such a text is worded in script at start and again from `SalaI18n.onChange`; a test applies the markup
+afresh on every view and fails if anything changes.
+
+**Adding a language.** Another table file (`i18n-xx.js`, with a plural rule in `PLURAL` in `i18n.js` and a `LOCALE` entry), the code in
+the `PREFS_LANGS` list in `app.py`, a button in the `.side-lang` group, and the same coverage test over the new table.
+
 ## The palette
 
 The colours are stackshot's, under sala's own custom properties in `static/style.css` (a light block, a `prefers-color-scheme: dark` block and a
@@ -1795,6 +1846,7 @@ directory, fsync, rename) under a lock, mode 0600.
 | `showAll` | the "Show all sessions" toggle (background agents) |
 | `unreadOnly` | the Unread entry's filter (*The Unread entry*): only the agents with an unread reply, plus the open one; false by default |
 | `shellHeight` | the shell drawer's height in pixels, an integer from 120 to 4000, default 300 (*The shell drawer*) |
+| `lang` | the interface language, `en` (default) or `ko` (*The language*); anything else is refused with a 400 and changes nothing |
 
 The lists hold strings, at most 500 each. Entries not listed follow in the default order; entries that are gone
 stay in the list in case they come back.

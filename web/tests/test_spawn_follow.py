@@ -21,6 +21,7 @@ import subprocess
 
 import pytest
 
+from i18n_node import prelude
 from sala_web import spawn as SP
 from sala_web.app import STATIC
 from test_new_session import env, sala  # noqa: F401  (fixtures)
@@ -105,6 +106,7 @@ def follow(script: list[dict]) -> list[dict]:
     {"at": seconds since Start, "op": the status answer, "listed": whether the name is in the list}; the result per entry is the
     form's state, whether it ended, and the lines the form shows."""
     prog = f"""
+{prelude()}
 {SHARED_JS}
 let now = 1000000; Date.now = () => now;
 const state = {{ byName: new Set() }};

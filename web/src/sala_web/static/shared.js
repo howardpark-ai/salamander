@@ -55,12 +55,13 @@ function applyZone(c) {
   zone.offsetMin = c && typeof c.tzOffsetMin === "number" ? c.tzOffsetMin : null;
 }
 function zoneFormat(locale, opts) {
-  let made = null, madeFor = null;
+  let made = null, madeFor = null, madeLoc = null;
   const get = () => {
-    if (!made || madeFor !== zone.name) {
-      try { made = new Intl.DateTimeFormat(locale, zone.name ? { ...opts, timeZone: zone.name } : opts); }
-      catch { made = new Intl.DateTimeFormat(locale, opts); }   // a name this browser does not know: the viewer's zone
-      madeFor = zone.name;
+    const loc = typeof locale === "function" ? locale() : locale;   // a function: the locale follows the interface language
+    if (!made || madeFor !== zone.name || madeLoc !== loc) {
+      try { made = new Intl.DateTimeFormat(loc, zone.name ? { ...opts, timeZone: zone.name } : opts); }
+      catch { made = new Intl.DateTimeFormat(loc, opts); }   // a name this browser does not know: the viewer's zone
+      madeFor = zone.name; madeLoc = loc;
     }
     return made;
   };
@@ -76,13 +77,13 @@ function zoneLabel(d) {
 // "5 min ago" for a time t (epoch ms): the chat's message stamps (app.js) and the Overview cards' last line (sessions.js updatedFoot)
 function relTime(t) {
   const s = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (s < 45) return "just now";
-  const m = Math.round(s / 60); if (m < 60) return m + " min ago";
-  const h = Math.round(m / 60); if (h < 24) return h + (h === 1 ? " hour ago" : " hours ago");
-  const d = Math.round(h / 24); return d + (d === 1 ? " day ago" : " days ago");
+  if (s < 45) return tl("time.now");
+  const m = Math.round(s / 60); if (m < 60) return tl("time.min", { n: m });
+  const h = Math.round(m / 60); if (h < 24) return tl("time.hour", { n: h });
+  return tl("time.day", { n: Math.round(h / 24) });
 }
-// a card's last line: "updated 7 min ago"; "as of 3 hours ago" once the answer is older than staleMs (its refreshes are failing)
-const agoLine = (t, staleMs) => (Date.now() - t > staleMs ? "as of " : "updated ") + relTime(t);
+
+const agoLine = (t, staleMs) => tl(Date.now() - t > staleMs ? "age.asOf" : "age.updated", { when: relTime(t) });
 
 // whether the block of lines directly above line i (up to the previous blank or fence line) is plain prose: not a fence
 // line itself, no indented line and no list item in it, so the line is not a sibling item of a list whose last item
@@ -333,11 +334,10 @@ function nsVerdict(opState, listed, ageMs, doneMs) {
 // the line under the headline while the start waits (no reload advice: the form's state is lost on a reload, and the operation
 // goes on whatever the page does)
 function nsWaitText(opState, behindLine) {
-  if (nsOpPhase(opState) === "queued") return behindLine || "sala has the request and starts it within a few seconds.";
-  return "sala is starting the session. The Open button appears here when it is ready.";
+  if (nsOpPhase(opState) === "queued") return behindLine || tl("shared.ns.queued");
+  return tl("shared.ns.starting");
 }
 // the 30-minute cap: the start is not missing, it is still going
 function nsLateText(opState) {
-  const what = nsOpPhase(opState) === "queued" ? "queued" : "running";
-  return `The start is still ${what} in sala's queue after 30 minutes. This page has stopped asking; sala posts the result in Slack when it ends.`;
+  return tl(nsOpPhase(opState) === "queued" ? "shared.ns.lateQueued" : "shared.ns.lateRunning");
 }
