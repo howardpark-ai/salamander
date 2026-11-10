@@ -1510,8 +1510,14 @@ _bl=${BASH_SOURCE[0]}; [[ $_bl == */* ]] || _bl=./$_bl; . "${_bl%/*}/boardlinks.
 # The message reaches the notify command only on its stdin, as data: the command string is the owner's config and nothing of the message
 # is ever put into it. The command is bounded (SALA_NOTIFY_TIMEOUT s, 60 by default, killed 5 s later): a post that hangs must not hold
 # the watch's tick, which also does the revives, the queue runs and the recycles.
-sala_send_post() {   # <cmd>  — stdin, board ids linked, into the notify command; its exit code (124 = it ran out of time)
-    sala_board_links "${SALA_STACKSHOT_WEB:-}" | timeout -k 5 "${SALA_NOTIFY_TIMEOUT:-60}" sh -c "$1"
+# A post may name a Slack channel (`sala alert --channel`): the optional second argument reaches the command as SALA_NOTIFY_CHANNEL in its
+# environment, for this one call; without one the variable is unset for the command, so sala's own posts never carry a channel.
+sala_send_post() {   # <cmd> [<channel>]  — stdin, board ids linked, into the notify command; its exit code (124 = it ran out of time)
+    local ch="${2:-}"
+    sala_board_links "${SALA_STACKSHOT_WEB:-}" | {
+        if [ -n "$ch" ]; then export SALA_NOTIFY_CHANNEL="$ch"; else unset SALA_NOTIFY_CHANNEL; fi
+        timeout -k 5 "${SALA_NOTIFY_TIMEOUT:-60}" sh -c "$1"
+    }
 }
 sala_notify_raw() {   # the message exactly as given (a formatted post that must start with its own header)
     local cmd="${SALA_NOTIFY_CMD:-${SALA_WATCH_NOTIFY_CMD:-}}"

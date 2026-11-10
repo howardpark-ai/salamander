@@ -327,7 +327,7 @@ ALOGF="$HOME/.claude/salamander-alert.log"
 for flag in --help -h; do
     : > "$POSTS"; : > "$ALOGF"
     out=$("$SALA" alert "$flag" 2>"$HOME/alert.err"); rc=$?
-    [ "$rc" = 0 ] && [[ $out == "usage: salamander alert "* ]] && [[ $out == *"exit: 0 posted · 1 the notify command failed · 2 usage · 3 no notify command configured"* ]] \
+    [ "$rc" = 0 ] && [[ $out == "usage: salamander alert "* ]] && [[ $out == *"exit: 0 posted · 1 the notify command failed · 2 usage (a channel name that is not [a-z0-9-]+ included) · 3 no notify command configured"* ]] \
         && [ ! -s "$POSTS" ] && [ ! -s "$ALOGF" ] && [ ! -s "$HOME/alert.err" ] \
         && ok "alert $flag: the usage on stdout, exit 0, nothing posted, no log line" || bad "alert $flag rc=$rc out=$out posts=$(<"$POSTS") log=$(<"$ALOGF")"
     : > "$ALOGF"
@@ -340,7 +340,7 @@ for flag in --help -h; do
 done
 # no arguments or an empty headline: the short usage line, exit 2 (as before)
 out=$("$SALA" alert 2>&1 >/dev/null); rc=$?
-[ "$rc" = 2 ] && [ "$out" = 'usage: salamander alert "<headline>" ["<line>"…]' ] && ok "alert with no argument: the usage line on stderr, exit 2" || bad "rc=$rc out=$out"
+[ "$rc" = 2 ] && [ "$out" = 'usage: salamander alert [--channel <name>] "<headline>" ["<line>"…]' ] && ok "alert with no argument: the usage line on stderr, exit 2" || bad "rc=$rc out=$out"
 # -- ends option handling: the next argument is the headline, even if it is --help or starts with -
 : > "$POSTS"; : > "$ALOGF"; "$SALA" alert -- "-5 slots missed" "a line" >/dev/null 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(head -1 "$POSTS")" = "⚠️ *-5 slots missed*" ] && grep -q '^    • a line' "$POSTS" && grep -q 'exit 0: ⚠️ \*-5 slots missed\*' "$ALOGF" \

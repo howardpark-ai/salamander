@@ -308,7 +308,10 @@
 #SALA_WATCH_NOTIFY_CMD=           # e.g. a Slack webhook helper reading the message on stdin (run with `sh -c`). The message is data on stdin only:
                                  #   never expand it into the command string (no `bash -c "… $(cat) …"`: the text would be parsed as shell and a
                                  #   backtick or $( ) in a notice would run); contrib/briefing/post-stdin.sh is a ready one for the Slack webhook.
-                                 #   (also `sala alert "<headline>" "<line>"…` from a check run without Claude)
+                                 #   (also `sala alert "<headline>" "<line>"…` from a check run without Claude; `sala alert --channel NAME …` names a
+                                 #   channel, a short [a-z0-9-]+ name, and the command then finds SALA_NOTIFY_CHANNEL=NAME in its environment for
+                                 #   that call (unset for every other post: sala's own notices name no channel). A command may ignore it;
+                                 #   post-stdin.sh sends the post to BRIEFING_WEBHOOK_FILE_<NAME>, below)
 #SALA_NOTIFY_TIMEOUT=60           # seconds a post may take before its command is stopped (killed 5 s later), so a hung one cannot hold the watch
 #SALA_FLEET_HOSTS=                # ssh aliases `salamander update --fleet` also updates, e.g. "laptop desktop"
 #SALA_FLEET_TIMEOUT=8             # seconds before a host counts as offline (skipped, not failed)
@@ -387,6 +390,12 @@
 #BRIEFING_OLD_LOGDIR=            # an older log directory whose files are carried over to BRIEFING_LOGDIR on the next run (plain files, nothing
                                  #   overwritten). Unset or empty (the default): none
 #BRIEFING_WEBHOOK_FILE=          # the file holding the Slack incoming-webhook URL (secret; mode 600). Unset or empty: ~/.config/sala-briefing/slack-webhook
+#BRIEFING_WEBHOOK_FILE_REPORTS=  # a named channel's own webhook file (a webhook belongs to one Slack channel). NAME is the channel name in capitals with
+                                 #   dashes turned into underscores: `reports` -> BRIEFING_WEBHOOK_FILE_REPORTS, `stack-ops` -> BRIEFING_WEBHOOK_FILE_STACK_OPS.
+                                 #   A post goes to a channel when BRIEFING_CHANNEL (a job's setting) or SALA_NOTIFY_CHANNEL (`sala alert --channel`) names it.
+                                 #   The briefing jobs (the digests, the release alert, reply.sh) post to `reports` unless BRIEFING_CHANNEL says otherwise.
+                                 #   Setting unset or empty, or its file missing or blank: the post goes to BRIEFING_WEBHOOK_FILE, so nothing is lost while
+                                 #   a new webhook is not there yet. sala's own notices (recycles, limits, updates, reboots, watch alerts) name no channel and keep the default webhook
 #BRIEFING_BRAIN_REPO=            # the GitHub repo (name, under the repository owner) of the pages: a page key a post names (a SALA_PAGE_DIRS dir,
                                  #   people/ or companies/) links to its .md there. Unset or empty (the default): page keys stay plain
 #BRIEFING_ISSUE_REPOS=           # the repos whose `<repo>#N` a post links to an issue, space-separated and quoted. Unset or empty: salamander stackshot

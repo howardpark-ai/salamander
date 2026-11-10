@@ -4,6 +4,7 @@
 # not the NO_REPLY token. Daily (sala-briefing-release.timer).
 # Lives in salamander contrib/briefing/.
 . "$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/lib.sh"   # sets BRIEFING_DIR
+BRIEFING_CHANNEL="${BRIEFING_CHANNEL:-reports}"   # this job posts to the reports channel; BRIEFING_CHANNEL in the unit environment names another (README.md, Slack channels)
 OUT=$("$BRIEFING_DIR/release-watch.sh" 2>"$LOGDIR/release-watch.err"); RC=$?
 if [ -n "$OUT" ] && [ "$OUT" != "NO_REPLY" ]; then post_slack "$OUT" >/dev/null; fi
 if [ $RC -ne 0 ]; then

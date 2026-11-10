@@ -1,11 +1,16 @@
 # lib/alert.sh — post an alert to the owner the way sala's own alerts go, for a check that runs without Claude.
 #
-#   salamander alert "<headline>" ["<line>"…]
+#   salamander alert [--channel <name>] "<headline>" ["<line>"…]
 #   salamander alert --help | -h          print the usage and exit 0: nothing is posted or logged, no notify command is needed
-#   salamander alert -- "<headline>" …    `--` as the first argument ends option handling, so a headline may start with `-`
+#   salamander alert [--channel <name>] -- "<headline>" …    `--` ends option handling, so a headline may start with `-`
 #
-# Only the exact words `--help` and `-h`, as the FIRST argument, are options; any other first argument (a headline that starts
-# with `-` included, such as "-h failed" or "--helpful") is the headline and posts as before.
+# Options are read only before the headline: `--channel <name>` (or `--channel=<name>`) and `--`. `--help` and `-h` are options only
+# as the FIRST argument; any other word that is not one of these (a headline that starts with `-` included, such as "-h failed" or
+# "--helpful") is the headline and posts as before.
+# A CHANNEL is a short name matching [a-z0-9-]+ (anything else is a usage error, exit 2, and nothing is posted). It reaches the
+# notify command as SALA_NOTIFY_CHANNEL=<name> in the command's environment for this one call; without --channel the variable is
+# unset. What a channel means is the notify command's business: contrib/briefing/post-stdin.sh sends the post to the Slack webhook
+# the config names for it (BRIEFING_WEBHOOK_FILE_<NAME>) and to the default webhook when there is none.
 #
 # ALERTS THAT NEED NO CLAUDE TURN: a usage limit can stop every API call, and then no alert reaches
 # the owner, because every alert path went through a Claude session blocked the same way. sala's posts do not (sala_post →
@@ -24,24 +29,39 @@
 ALOG="$SALA_LOG_DIR/salamander-alert.log"
 alert_usage() {
     cat <<'USAGE'
-usage: salamander alert "<headline>" ["<line>"…]
+usage: salamander alert [--channel <name>] "<headline>" ["<line>"…]
        salamander alert --help | -h
-       salamander alert -- "<headline>" ["<line>"…]
+       salamander alert [--channel <name>] -- "<headline>" ["<line>"…]
 
 Post an alert the way sala's own alerts go (SALA_NOTIFY_CMD / SALA_WATCH_NOTIFY_CMD), for a check that runs without
 Claude, such as a systemd user unit. The headline is posted in bold behind a warning sign, then one bullet per line.
 A URL in the headline stays outside the bold: "⚠️ *text* → URL".
---help and -h (as the first argument) print this text and exit 0, posting and logging nothing. `--` as the first
-argument ends option handling: the next argument is the headline, even if it starts with `-`.
+--channel <name> (also --channel=<name>) names a channel, [a-z0-9-]+ (for example reports): the notify command gets it as
+SALA_NOTIFY_CHANNEL=<name> in its environment, and the text is the same. Without it the variable is unset. Options are
+read only before the headline.
+--help and -h (as the first argument) print this text and exit 0, posting and logging nothing. `--` ends option handling:
+the next argument is the headline, even if it starts with `-`.
 
-exit: 0 posted · 1 the notify command failed · 2 usage · 3 no notify command configured
+exit: 0 posted · 1 the notify command failed · 2 usage (a channel name that is not [a-z0-9-]+ included) · 3 no notify command configured
 USAGE
 }
 case "${1:-}" in
     --help|-h) alert_usage; exit 0 ;;
-    --) shift ;;
 esac
-[ -n "${1:-}" ] || { echo 'usage: salamander alert "<headline>" ["<line>"…]' >&2; exit 2; }
+chan=""; chan_given=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --channel) [ $# -ge 2 ] || { echo "salamander alert: --channel needs a name" >&2; exit 2; }; chan="$2"; chan_given=1; shift 2 ;;
+        --channel=*) chan="${1#--channel=}"; chan_given=1; shift ;;
+        --) shift; break ;;
+        *) break ;;
+    esac
+done
+# the class is spelled out: a range such as a-z can match accented letters in some locales
+if [ "$chan_given" = 1 ] && ! [[ $chan =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]+$ ]]; then
+    echo "salamander alert: the channel name is lowercase letters, digits and dashes ([a-z0-9-]+), got '$chan'" >&2; exit 2
+fi
+[ -n "${1:-}" ] || { echo 'usage: salamander alert [--channel <name>] "<headline>" ["<line>"…]' >&2; exit 2; }
 head="$1"; shift
 # alert_headline <headline> → the headline as posted, in $head (the rules are in the header). Suffixes are matched whole, never
 # with ${x%?}: a unit may run in the C locale, where ? is one byte of a multibyte dash.
@@ -77,7 +97,7 @@ if [ -z "$cmd" ]; then
     echo "[$(date -Is)] not posted (no SALA_NOTIFY_CMD / SALA_WATCH_NOTIFY_CMD): $head" >> "$ALOG"
     echo "salamander alert: no notify command configured (SALA_WATCH_NOTIFY_CMD in $SALA_CONFIG)" >&2; exit 3
 fi
-sala_post_text "$head" "$@" | sala_send_post "$cmd" >/dev/null 2>&1; rc=$?
-echo "[$(date -Is)] exit $rc: $head" >> "$ALOG"
+sala_post_text "$head" "$@" | sala_send_post "$cmd" "$chan" >/dev/null 2>&1; rc=$?
+echo "[$(date -Is)] exit $rc${chan:+ (channel $chan)}: $head" >> "$ALOG"
 [ "$rc" = 0 ] || { echo "salamander alert: the notify command failed (exit $rc)" >&2; exit 1; }
 exit 0

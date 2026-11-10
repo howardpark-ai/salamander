@@ -3,6 +3,7 @@
 # forwards here), classified, read only (sala-briefing-defunct.timer). No label set: no digest.
 # Lives in salamander contrib/briefing/.
 . "$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/lib.sh"   # sets BRIEFING_DIR
+BRIEFING_CHANNEL="${BRIEFING_CHANNEL:-reports}"   # this job posts to the reports channel; BRIEFING_CHANNEL in the unit environment names another (README.md, Slack channels)
 briefing_need_connector defunct || exit 0
 briefing_need_label defunct || exit 0
 PROMPT="$(briefing_prompt "$BRIEFING_DIR/defunct.prompt.md")
