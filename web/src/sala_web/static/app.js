@@ -261,6 +261,7 @@ async function loadSessions() {
   for (const sc of state.scopes) for (const g of sc.groups) for (const s of g.sessions) state.byName.set(s.name, s);
   rolesNote = data.rolesError ? "Roles unavailable; grouping may be stale." : ""; showSideNote();
   renderSidebar();
+  nsOwnSeen(); sdOwnSeen();   // a session one of the two forms just queued may be in the list now
   perfMark("sessions:rendered", { count: state.byName.size });
   // a reply that arrived while the owner has this session open (and is looking at the page) is read as it lands
   if (state.selected && !document.hidden) markRead(state.selected);
@@ -875,7 +876,7 @@ const NS_HIDDEN_LABEL = "existing pages, not listed";
 const ns = { dups: new Set(), options: null, optionsAt: 0, scopes: [], scope: null, listed: {}, listedAt: {}, hiddenRows: [], hiddenScope: "",
              listError: null, loading: false, listSeq: 0, qTimer: null, picked: null, pickedNew: false, nameEdited: false, suggestSeq: 0,
              pending: false, result: null, track: null, tick: null, open: false, from: null, done: new Set(), refs: new Map(), folded: false,
-             afterCreate: false };   // afterCreate: the name was emptied by a finished create; the list's reload does not suggest another
+             afterCreate: false };   // afterCreate: the name was emptied once the created session showed in the list; reading the project list again does not suggest another
 const nsEl = {
   pane: $("#new-pane"), btn: $("#side-new"), form: $("#ns-form"),
   scopes: $("#ns-scopes"), filter: $("#ns-filter"), list: $("#ns-projects"), picked: $("#ns-picked"), name: $("#ns-name"),
@@ -1308,10 +1309,6 @@ async function nsSubmit(e) {
   clearInterval(ns.tick); ns.tick = null;
   ns.pending = false;
   nsEl.pending.hidden = true;
-  if (ns.result && ns.result.kind === "queued") {   // the session is queued: its name is taken, so the field is emptied (never on a failure: the name stays for the retry)
-    ns.suggestSeq++; ns.nameEdited = false; ns.afterCreate = true;   // no suggestion in flight or from a reload of the list refills it
-    nsEl.name.value = "";
-  }
   nsRenderStatus();
   nsValidate();
 }
@@ -1385,6 +1382,18 @@ async function nsRun(sel, body, res) {
     }
     stop("spawn", out.d, out.status);
   }
+}
+// The session this form queued is in the sessions list (or its start reads Ready): it owns its name now, so the field is emptied and
+// "running already" is never said of it. Only while the field still holds that name (the person may have typed another), once per
+// result, and never earlier: a queued start that fails leaves the name for a retry. No suggestion refills the field afterwards.
+function nsOwnSeen() {
+  const res = ns.result;
+  if (!res || res.kind !== "queued" || res.ownSeen || !(state.byName.has(res.name) || res.state === "ready")) return;
+  res.ownSeen = true;
+  if (nsEl.name.value.trim() !== res.name) return;
+  ns.suggestSeq++; ns.nameEdited = false; ns.afterCreate = true;
+  nsEl.name.value = "";
+  nsValidate();
 }
 function nsStopTrack() { if (ns.track) { clearTimeout(ns.track); ns.track = null; } }
 // The form follows the operation to its end: queued → starting (the marker running or waiting) → ready (done, with
@@ -1540,6 +1549,7 @@ function nsRenderStatus() {
     if (res.steps && res.steps.some((s) => s.state === "done") && res.steps.length > 1) kids.push(el("p", { class: "ns-hint", text: "Create again to go on from the failed step; the steps that are done are not repeated." }));
   }
   nsEl.status.replaceChildren(...kids.filter(Boolean));
+  nsOwnSeen();
   if (res.kind === "queued") nsFocusOpen(nsEl.status, res);
   if (nsEl.submit.getAttribute("aria-busy") !== String(nsBusyOf(res) || ns.pending)) nsValidate();   // Start's button follows the session's progress
 }
@@ -1797,14 +1807,21 @@ async function sdSubmit(e) {
   const out = await nsPost("api/spawn", body);
   if (out.status === 202 && out.d.ok) {
     sd.result = { kind: "queued", op: out.d.op, name: out.d.name, since: Date.now(), state: "queued", opState: "", opResult: "" };
-    sd.suggestSeq++; sd.nameEdited = false;   // the session is queued: its name is taken, so the field is emptied (a failure keeps it); no suggestion in flight refills it
-    sdEl.name.value = "";
     sdTrack();
   } else {
     sd.result = { kind: "failed", error: String(out.d.error || `HTTP ${out.status}`) };
   }
   sd.pending = false; sdEl.pending.hidden = true;
   sdRenderStatus(); sdValidate();
+}
+function sdOwnSeen() {   // as nsOwnSeen, for the quick session form
+  const res = sd.result;
+  if (!res || res.kind !== "queued" || res.ownSeen || !(state.byName.has(res.name) || res.state === "ready")) return;
+  res.ownSeen = true;
+  if (sdEl.name.value.trim() !== res.name) return;
+  sd.suggestSeq++; sd.nameEdited = false;
+  sdEl.name.value = "";
+  sdValidate();
 }
 function sdStopTrack() { if (sd.track) { clearTimeout(sd.track); sd.track = null; } }
 async function sdTrack() {
@@ -1825,6 +1842,7 @@ function sdRenderStatus() {
     nsElapsedTick(res, sdEl.status, () => sd.result);
   }
   sdEl.status.replaceChildren(...kids);
+  sdOwnSeen();
   if (res.kind === "queued") nsFocusOpen(sdEl.status, res);
   if (sdEl.submit.getAttribute("aria-busy") !== String(nsBusyOf(res) || sd.pending)) sdValidate();   // Start's button follows the session's progress
 }

@@ -1,27 +1,30 @@
-"""A finished create empties the name field of the New session and Quick session pages, so neither calls its own new session a clash.
+"""The name field of the New session and Quick session pages is emptied when the session they created shows in the sessions list,
+so neither page calls its own new session a clash.
 
 After a successful Create (or Start) the new session reaches the sessions list the page keeps while the name field still held
 its name, and the name check answered "A session called <name> is running already. Pick another name." for the session the page
-itself had queued, which reads as a clash. Now a create that is queued empties the name field (the result line and the Open
-button stay as they are): with no name there is nothing to warn about and the button is off. A failed create keeps the typed name
-so the person can retry. Nothing refills the field on its own afterwards: a reload of the project list, which suggests a name
-when the field is empty, skips it until the person picks a project, changes the role or types in the box again.
+itself had queued, which reads as a clash. Now the page empties the name field at the moment it sees the created session in its
+list (or the start reads Ready, whichever comes first), and only while the field still holds that name (a different name the person
+typed meanwhile stays). The result line and the Open button stay as they are; on New session, Create is off for want of a name.
+Before that moment the field keeps the typed name, because a queued start can still fail and the retry must find the name in place:
+a refused create, and a start that ends without the session, keep the name and leave Create usable. Nothing refills the field
+afterwards: reading the project list again, which suggests a name when the field is empty, skips it until the person picks a
+project, changes the role or types in the box again.
 
 What a wrong answer costs: a warning under the name of a session that started fine (the person thinks it failed or that a second
-one exists and starts it again), a field that fills itself again with another name next to the finished result (a second click
-queues a second session nobody asked for), a name lost after a refusal (the retry starts from nothing), or a fix that switches
-the running-already warning off for every name. Every check guards one of those.
+one exists and starts it again), a field emptied too early (a queued start that then fails leaves nothing to retry with), a field
+that fills itself again with another name beside the finished result (a second click queues a second session nobody asked for), a
+name lost after a refusal, or a fix that switches the running-already warning off for every name. Every check guards one of those.
 
 Held here, in a headless Chromium, through each page's own submit against the stand-in sala of test_new_session.py:
-- New session: Create, the operation running, the session in the list, the Ready link shown; then the name field and its error
-  text are empty, the result line and the Open link are still there and Create is off; a reload of the project list leaves the
-  field empty; typing the name of another running session shows the running-already warning and keeps Create off; a fresh name
-  enables Create;
-- New session, a refused create: the typed name stays, the refusal is shown, Create can be pressed again;
-- the same two for Quick session, with Start and its own wording (a blank name is valid there, sala suggests one, so Start stays
+- New session: Create; while the start is queued and running, and the session is not in the list, the field keeps the name and
+  has no error text; once the session is in the list the field and its error text are empty, the result line and the Open link
+  are shown and Create is off; the project list read again leaves the field empty; typing the name of another running session
+  shows the running-already warning and keeps Create off; a fresh name enables Create and the result stays;
+- New session, a refused create, and a start that ends without the session: the typed name stays and Create can be pressed again;
+- the same for Quick session, with Start and its own wording (a blank name is valid there, sala suggests one, so Start stays
   available for another quick session; the checks are that the field and its error text are empty and the result stays).
-Not held: what the page does when the session list never shows the name (test_new_session.py, a spawn that ends without the
-session)."""
+Not held: a real phone's keyboard."""
 
 from __future__ import annotations
 
@@ -41,6 +44,7 @@ def test_new_session_empties_the_name_after_a_create_and_warns_for_another_runni
     click(browser, "#ns-submit")
     wait_state(browser, "gamma-harbor-pink: queued")
     sala.marker("running")
+    wait_state(browser, "gamma-harbor-pink: starting")
     browser.evaluate("window.__names = ['gamma-harbor-pink', " + json.dumps(OTHER) + "]; loadSessions(); ''")
     g = wait_state(browser, "gamma-harbor-pink: ready")
     assert browser.evaluate("state.byName.has('gamma-harbor-pink') && state.byName.has(" + json.dumps(OTHER) + ")")   # the session is in the list
@@ -63,20 +67,45 @@ def test_new_session_empties_the_name_after_a_create_and_warns_for_another_runni
     assert g["state"] == "gamma-harbor-pink: Ready" and g["link"] == "#s=gamma-harbor-pink", g       # the result stays while a new name is typed
 
 
-def test_new_session_has_an_empty_name_from_the_moment_the_create_is_queued(sala, served, browser):
-    """The session lands in the list after this (starting, then ready): the field is empty throughout, so nothing is warned."""
+def test_new_session_keeps_the_name_while_queued_and_empties_it_when_the_session_is_in_the_list(sala, served, browser):
     open_form(browser, served)
     pick(browser, "projects/gamma-harbor")
     assert wait_for(browser, "document.querySelector('#ns-name').value === 'gamma-harbor-pink'")
     click(browser, "#ns-submit")
     g = wait_state(browser, "gamma-harbor-pink: queued")
-    assert g["name"] == "" and g["nameErr"] == "" and g["submitDisabled"], g
+    assert g["name"] == "gamma-harbor-pink" and g["nameErr"] == "" and g["submitDisabled"], g      # queued: the name stays, the start is working
     sala.marker("running")
-    wait_state(browser, "gamma-harbor-pink: starting")
+    g = wait_state(browser, "gamma-harbor-pink: starting")
+    assert g["name"] == "gamma-harbor-pink" and g["nameErr"] == "" and g["submitDisabled"], g
     browser.evaluate("window.__names = ['gamma-harbor-pink']; loadSessions(); ''")
-    assert wait_for(browser, "state.byName.has('gamma-harbor-pink')", 10.0)
+    assert wait_for(browser, "state.byName.has('gamma-harbor-pink') && document.querySelector('#ns-name').value === ''", 10.0), ns(browser)
     g = wait_state(browser, "gamma-harbor-pink: ready")
-    assert g["name"] == "" and g["nameErr"] == "" and g["submitDisabled"], g
+    assert g["name"] == "" and g["nameErr"] == "" and g["submitDisabled"] and g["link"] == "#s=gamma-harbor-pink", g
+
+
+def test_new_session_leaves_a_different_name_the_person_typed_meanwhile(sala, served, browser):
+    open_form(browser, served)
+    pick(browser, "projects/gamma-harbor")
+    assert wait_for(browser, "document.querySelector('#ns-name').value === 'gamma-harbor-pink'")
+    click(browser, "#ns-submit")
+    wait_state(browser, "gamma-harbor-pink: queued")
+    set_value(browser, "#ns-name", "gamma-harbor-next")          # the next session's name, typed while the first one starts
+    sala.marker("running")
+    browser.evaluate("window.__names = ['gamma-harbor-pink']; loadSessions(); ''")
+    g = wait_state(browser, "gamma-harbor-pink: ready")
+    assert g["name"] == "gamma-harbor-next" and g["nameErr"] == "", g
+
+
+def test_new_session_keeps_the_name_when_the_start_ends_without_the_session(sala, served, browser):
+    open_form(browser, served)
+    pick(browser, "projects/gamma-harbor")
+    assert wait_for(browser, "document.querySelector('#ns-name').value === 'gamma-harbor-pink'")
+    click(browser, "#ns-submit")
+    wait_state(browser, "gamma-harbor-pink: queued")
+    sala.marker("stuck", "stopped by the test", done=True)
+    assert wait_for(browser, "(document.querySelector('#ns-status .ns-state') || {}).textContent?.endsWith('Did not start')", 15.0), ns(browser)
+    g = ns(browser)
+    assert g["name"] == "gamma-harbor-pink" and g["nameErr"] == "" and not g["submitDisabled"], g       # usable for a retry
 
 
 def test_new_session_keeps_the_typed_name_when_the_create_is_refused(sala, served, browser):
@@ -92,7 +121,7 @@ def test_new_session_keeps_the_typed_name_when_the_create_is_refused(sala, serve
     sala.mode("ok")
     click(browser, "#ns-submit")
     g = wait_state(browser, "gamma-harbor-mine: queued")
-    assert g["name"] == "" and g["submitDisabled"], g
+    assert g["name"] == "gamma-harbor-mine" and g["submitDisabled"], g
     assert [(r["argv"][2], r["mode"]) for r in sala.spawns()] == [("gamma-harbor-mine", "refuse"), ("gamma-harbor-mine", "ok")]   # the same name, asked twice
 
 
@@ -114,6 +143,8 @@ def test_quick_session_empties_the_name_after_a_start_and_warns_for_another_runn
     name = open_quick(browser, served)
     click(browser, "#sd-submit")
     assert wait_for(browser, "(document.querySelector('#sd-status .ns-state') || {}).textContent?.includes('Queued')", 10.0)
+    g = browser.evaluate(QUICK)
+    assert g["name"] == name and g["err"] == "" and g["disabled"], g          # queued: the name stays until the session is in the list
     sala.marker("running")
     other = "demo-side-other1"
     browser.evaluate("window.__names = [" + json.dumps(name) + ", " + json.dumps(other) + "]; loadSessions(); ''")
@@ -139,3 +170,13 @@ def test_quick_session_keeps_the_typed_name_when_the_start_is_refused(sala, serv
     assert wait_for(browser, "(document.querySelector('#sd-status .ns-state') || {}).textContent === 'Not started'", 10.0), browser.evaluate(QUICK)
     g = browser.evaluate(QUICK)
     assert g["name"] == "demo-side-mine1" and g["err"] == "" and not g["disabled"], g
+
+
+def test_quick_session_keeps_the_name_when_the_start_ends_without_the_session(sala, served, browser):
+    name = open_quick(browser, served)
+    click(browser, "#sd-submit")
+    assert wait_for(browser, "(document.querySelector('#sd-status .ns-state') || {}).textContent?.includes('Queued')", 10.0)
+    sala.marker("stuck", "stopped by the test", done=True)
+    assert wait_for(browser, "(document.querySelector('#sd-status .ns-state') || {}).textContent?.endsWith('Did not start')", 15.0), browser.evaluate(QUICK)
+    g = browser.evaluate(QUICK)
+    assert g["name"] == name and g["err"] == "" and not g["disabled"], g
