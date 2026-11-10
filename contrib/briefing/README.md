@@ -84,12 +84,14 @@ other briefing lines), and nothing is sourced. Each is optional.
 | `BRIEFING_WATCHLIST` | The companies and topics a Google Alert must be about to count in the mail summary, comma-separated (for example `Example Corp, drip irrigation`); fills `{{WATCHLIST}}` in the two summary prompts. | the prompts read `none configured` |
 | `BRIEFING_LOW_PRIORITY_SENDERS` | Senders and kinds of mail that stay low-priority in the mail summary unless they are a security, billing or legal issue, comma-separated (for example `news@example.com, weekly newsletters`); fills `{{LOW_PRIORITY_SENDERS}}` in the two summary prompts. | `none configured` |
 | `BRIEFING_FORWARD_LABEL` | The Gmail label of the defunct-address queue, one plain word (letters, digits, `.`, `_`, `-`, `/`); fills `{{FORWARD_LABEL}}` in the defunct prompt. | the defunct job is off (one `cron.log` line, exit 0) |
+| `BRIEFING_CHANNEL` | The Slack channel a post goes to (*Slack channels*, below): a name matching `[a-z0-9-]+` whose webhook file is `BRIEFING_WEBHOOK_FILE_<NAME>`. The jobs default it to `reports`; set it in a unit's environment to move one job. | the jobs use `reports`; a script that sets none (`post-stdin.sh`) uses `SALA_NOTIFY_CHANNEL`, else the default webhook |
 
 ## Where secrets, logs and state live (outside the repo)
 
 | what | path |
 |---|---|
 | Slack incoming-webhook URL (secret; mode 600, never in git) | `BRIEFING_WEBHOOK_FILE`, default `~/.config/sala-briefing/slack-webhook` |
+| a named channel's own webhook URL (secret; mode 600), see *Slack channels* | `BRIEFING_WEBHOOK_FILE_<NAME>`, no default (unset: the default webhook) |
 | logs: each run's stream-json `<job>.<YYYYMMDD>.jsonl` and `.err`, `release-watch.err`, and `cron.log` (the timers' stdout and stderr, appended by the script itself under `BRIEFING_CRON_LOG=1`) | `BRIEFING_LOGDIR`, default `~/.local/state/sala-briefing/` |
 | an older log directory, `BRIEFING_OLD_LOGDIR` (unset: none): `lib.sh`'s `migrate_old_logdir` carries its files over the first time a briefing script runs (plain files, `mv -n`, nothing overwritten; a name present in both stays in the old directory, named on one `cron.log` line; the old directory is removed once empty). `lib.sh` creates the log directory itself | |
 | release watcher state: `notified/<product>` (last tag announced), `deferred/<product>` (a parked tag) | `~/.release-watch/` |
@@ -204,6 +206,42 @@ write the command as a `bash -c "… post_slack \"$(cat)\" …"` string: the she
 inside the double quotes and splices the notice into the inner script, so a backtick or `$( )` in a notice (an alert that quotes a
 command to run, say) is run as a command. If you need an inline command, keep the script in single quotes and read stdin
 inside it: `bash -c '. ~/salamander/contrib/briefing/lib.sh; post_slack "$(cat)" >/dev/null'`.
+
+## Slack channels
+
+A Slack incoming webhook belongs to one channel, so posts are split across channels by giving a named channel its own
+webhook file. A channel is a short name of lowercase letters, digits and dashes (`[a-z0-9-]+`, for example `reports` or
+`stack-ops`). In `~/.config/salamander/config`:
+
+```
+BRIEFING_WEBHOOK_FILE=~/.config/sala-briefing/slack-webhook            # the default webhook
+BRIEFING_WEBHOOK_FILE_REPORTS=~/.config/sala-briefing/webhook-reports  # the reports channel's own
+BRIEFING_WEBHOOK_FILE_STACK_OPS=~/.config/sala-briefing/webhook-ops    # a channel named stack-ops
+```
+
+The setting's name is `BRIEFING_WEBHOOK_FILE_` and the channel name in capitals with its dashes turned into underscores.
+Like the default one, each file holds one URL (secret; mode 600, never in git). The environment overrides the config line.
+
+**Fallback.** When the channel's setting is unset or empty, or its file does not exist or is blank, the post goes to the
+default webhook (`BRIEFING_WEBHOOK_FILE`) as before, so nothing is lost while a new webhook is not there yet.
+
+**Which channel a post goes to** (`post_slack`, `lib.sh`): the channel named by `BRIEFING_CHANNEL`, else by
+`SALA_NOTIFY_CHANNEL`, else none (the default webhook).
+
+- The briefing jobs (the digests `summary-lean.sh`, `summary.sh` and `defunct.sh`, the release alert `release-alert.sh`, and
+  `reply.sh`, whose thread reply must land in the channel of the post it answers) post to `reports`, and so do their own
+  failure notices. A job's unit can name another channel with `Environment=BRIEFING_CHANNEL=<name>` (a drop-in);
+  `BRIEFING_WEBHOOK_FILE_REPORTS` then decides where `reports` goes.
+- `salamander alert --channel <name> "<headline>" ["<line>"…]` (also `--channel=<name>`, before the headline) posts through
+  sala's notify command with `SALA_NOTIFY_CHANNEL=<name>` in the command's environment for that one call, and with the same
+  text. With `post-stdin.sh` as the notify command it reaches `post_slack`, which picks the channel's webhook. A name outside
+  `[a-z0-9-]+` is a usage error (exit 2) and nothing is posted.
+- sala's own notices (recycles, lane limits, CLI updates, reboots, the watch's alerts) name no channel and keep the default
+  webhook. `SALA_NOTIFY_CHANNEL` is not set for them.
+
+**For a custom notify command:** `SALA_NOTIFY_CHANNEL` is the channel name when `salamander alert --channel` made the post and is
+not set otherwise. Read the notice from stdin as always; use the variable only to choose a destination, and treat it as data
+(its value matches `[a-z0-9-]+`).
 
 ## Dry run of the release watcher
 
