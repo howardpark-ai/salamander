@@ -248,6 +248,25 @@ Not covered, and why: a physical phone's browser, status bar and the installed a
 stubs are small); the Quick session and lane pages in `test_look_browser.py` (they call sala's CLI, which tests do not run; the lane page has its own tests); that the page looks right
 (judged by eye from screenshots at 390 and 1280 px against the page at `/v2/` before the switch, there is no pixel test).
 
+### `web/tests/test_new_session_created_name.py` new, 8: the name field is emptied when the created session shows in the list (Tue Nov 10th 2026)
+
+After Create (or Start) succeeded the session reached the page's list while the name field still held its name, and the name check
+answered "A session called <name> is running already. Pick another name." for the session the page itself had queued. Both pages now
+empty the name field when they see the created session in their list (or the start reads Ready), if the field still holds that name;
+the result line and the Open button stay, Create is off for want of a name, and nothing refills the field by itself (reading the
+project list again skips its suggestion). Until then the typed name stays, because a queued start can still fail. A wrong answer is
+the warning back under a session that started fine, a field emptied too early (a queued start that then fails has no name to retry
+with, the first version of this change), a field that refills with another name beside the finished result, a different name the
+person typed meanwhile wiped, or a fix that switches the running-already warning off for every name.
+Held in a headless Chromium through each page's own submit against the stand-in sala: New session, Create, queued and starting
+(the field keeps the name, no error text, Create off), the session in the list and the Ready link (the field and its error text are
+empty, the result line and Open link shown, Create off, a click on it queues nothing); the project list read again leaves the field
+empty; another running session's name typed afterwards shows the warning and keeps Create off; a fresh name enables Create and the
+result stays; a different name typed while the start runs is left alone; a refused create, and a start that ends without the session,
+keep the name with Create usable (the retry is queued under the same name). Quick session: the success test (the name kept while
+queued, empty once listed, the result and link shown; a blank name is valid there, so Start stays available) and a start that ends
+without the session keeps its name; a refused start keeps it too. Not covered: a real phone's keyboard.
+
 ### `web/tests/test_composer_touch_row.py` new, 2: the one-line composer row stays 48 px on a phone (Mon Nov 9th 2026)
 
 The look sized the composer's Send button by `--ctl`, which is 44 px under a finger, so the one-line row grew from 48 px to 62 px on a phone. The button is now drawn at
