@@ -57,7 +57,8 @@ while [ $# -gt 0 ]; do
         *) break ;;
     esac
 done
-if [ "$chan_given" = 1 ] && ! [[ $chan =~ ^[a-z0-9-]+$ ]]; then
+# the class is spelled out: a range such as a-z can match accented letters in some locales
+if [ "$chan_given" = 1 ] && ! [[ $chan =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]+$ ]]; then
     echo "salamander alert: the channel name is lowercase letters, digits and dashes ([a-z0-9-]+), got '$chan'" >&2; exit 2
 fi
 [ -n "${1:-}" ] || { echo 'usage: salamander alert [--channel <name>] "<headline>" ["<line>"…]' >&2; exit 2; }

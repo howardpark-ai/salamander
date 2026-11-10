@@ -84,7 +84,7 @@ other briefing lines), and nothing is sourced. Each is optional.
 | `BRIEFING_WATCHLIST` | The companies and topics a Google Alert must be about to count in the mail summary, comma-separated (for example `Example Corp, drip irrigation`); fills `{{WATCHLIST}}` in the two summary prompts. | the prompts read `none configured` |
 | `BRIEFING_LOW_PRIORITY_SENDERS` | Senders and kinds of mail that stay low-priority in the mail summary unless they are a security, billing or legal issue, comma-separated (for example `news@example.com, weekly newsletters`); fills `{{LOW_PRIORITY_SENDERS}}` in the two summary prompts. | `none configured` |
 | `BRIEFING_FORWARD_LABEL` | The Gmail label of the defunct-address queue, one plain word (letters, digits, `.`, `_`, `-`, `/`); fills `{{FORWARD_LABEL}}` in the defunct prompt. | the defunct job is off (one `cron.log` line, exit 0) |
-| `BRIEFING_CHANNEL` | The Slack channel a post goes to (*Slack channels*, below): a name matching `[a-z0-9-]+` whose webhook file is `BRIEFING_WEBHOOK_FILE_<NAME>`. The jobs default it to `reports`; set it in a unit's environment to move one job. | the jobs use `reports`; a script that sets none (`post-stdin.sh`) uses `SALA_NOTIFY_CHANNEL`, else the default webhook |
+| `BRIEFING_CHANNEL` | The Slack channel a post goes to, read from the environment only (not the config; *Slack channels*, below): a name matching `[a-z0-9-]+` whose webhook file is `BRIEFING_WEBHOOK_FILE_<NAME>`. The jobs default it to `reports`; set it in a unit's environment to move one job. | the jobs use `reports`; a script that sets none (`post-stdin.sh`) uses `SALA_NOTIFY_CHANNEL`, else the default webhook |
 
 ## Where secrets, logs and state live (outside the repo)
 

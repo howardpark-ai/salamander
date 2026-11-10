@@ -435,7 +435,7 @@ if [ -r "$BRIEFING_DIR/../../lib/boardlinks.sh" ]; then . "$BRIEFING_DIR/../../l
 # empty, or its file missing or blank: the default WEBHOOK_FILE, so a webhook that is not there yet loses no post.
 briefing_webhook_file() {
   local ch=${BRIEFING_CHANNEL:-${SALA_NOTIFY_CHANNEL:-}} var f
-  if [[ $ch =~ ^[a-z0-9-]+$ ]]; then
+  if [[ $ch =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]+$ ]]; then   # spelled out: a-z can match accented letters in some locales
     var=${ch^^}; var=BRIEFING_WEBHOOK_FILE_${var//-/_}
     [ -n "${_BCFG[$var]+x}" ] || _bcfg_load "$var"
     f=$(_bhome "$(_bcfg "$var")")
