@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.request
 
 from conftest import NAME
@@ -55,8 +56,23 @@ def wait_until(browser, expr: str, timeout_ms: int = 8000):
     }})(); }})""")
 
 
+def settle(browser, url: str, timeout_s: float = 20.0) -> None:
+    """Wait until the navigation to `url` has committed and its document has parsed. Page.navigate returns before the new document is
+    attached, so an evaluate straight after browser.open can run in the old (blank) document, or raise because that document went away."""
+    end = time.monotonic() + timeout_s
+    while time.monotonic() < end:
+        try:
+            if browser.evaluate(f"location.href.startsWith({json.dumps(url)}) && !!document.documentElement && document.readyState !== 'loading'"):
+                return
+        except RuntimeError:
+            pass   # the old document went away under the call: ask the new one
+        time.sleep(0.05)
+    raise AssertionError(f"the page at {url} did not load in {timeout_s} s")
+
+
 def open_page(served, browser, frag: str = "") -> None:
     browser.open(f"{served['url']}/#s={NAME}{frag}")
+    settle(browser, served["url"])
     assert browser.evaluate(WAIT_READY)
     # the language is applied by the page's scripts; its control is wired once app.js has run
     assert wait_until(browser, "typeof SalaI18n !== 'undefined' && document.querySelector('.side-lang [data-lang]')")
@@ -160,9 +176,18 @@ def test_a_choice_saved_on_the_server_is_the_language_from_the_first_paint(serve
                                  headers={"content-type": "application/json"})
     with urllib.request.urlopen(req) as r:
         assert json.load(r)["ok"]
+    # a script that runs before the page's own: it records the lang attribute when the server's <html> is inserted and at every change
+    # after, so what the server wrote is held even though the page's scripts (which set the same language) run later
+    browser.send("Page.enable")
+    browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": """
+      window.__langs = [];
+      new MutationObserver(() => { const h = document.documentElement; if (h) window.__langs.push(h.lang); })
+        .observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['lang'] });"""})
     browser.open(f"{served['url']}/#s={NAME}")
-    # before any script of the page has changed anything: the attribute the server wrote
-    assert browser.evaluate("document.documentElement.lang") == "ko"
+    settle(browser, served["url"])
+    langs = browser.evaluate("window.__langs")
+    assert langs and langs[0] == "ko", f"the first document the server sent was not in Korean: {langs}"
+    assert set(langs) == {"ko"}, f"the page showed another language before it settled: {langs}"
     assert browser.evaluate(WAIT_READY)
     assert wait_until(browser, "document.querySelector('#side-new .label') && /[" + chr(0xAC00) + "-" + chr(0xD7A3) + "]/.test(document.querySelector('#side-new .label').textContent)")
     assert browser.evaluate("document.querySelector('.side-lang [data-lang=ko]').getAttribute('aria-pressed')") == "true"
