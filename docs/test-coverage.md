@@ -248,6 +248,18 @@ Not covered, and why: a physical phone's browser, status bar and the installed a
 stubs are small); the Quick session and lane pages in `test_look_browser.py` (they call sala's CLI, which tests do not run; the lane page has its own tests); that the page looks right
 (judged by eye from screenshots at 390 and 1280 px against the page at `/v2/` before the switch, there is no pixel test).
 
+### `web/tests/test_update_banner_look.py` new, 2: the update strip is the card gray and Reload the solid accent, in both themes (Tue Nov 10th 2026)
+
+The "sala was updated. Reload" strip mixed the orange accent 14% into the page background, which comes out brown on the dark theme, and its Reload was an outlined button. The strip
+now takes the card gray (`--panel`, with a `--border` hairline) and Reload is the solid accent button, so the color follows both themes and the color tool. A wrong answer is a strip
+tinted by the accent again (or any color other than the card gray), a Reload that is outlined or a different orange from the accent, text under 4.5:1 on either, a strip that grew past
+one thin line, or a lost keyboard focus ring.
+Held in a headless Chromium with the banner shown, dark then light (the theme set on the page): the strip's computed background equals `var(--panel)` as a probe element draws it, is neutral
+(channels within 4 of each other) and differs from the old color-mix; the hairline is `--border`; Reload's background is `--accent-solid` (else `--accent`) and its text `--accent-on-solid`
+(else `--accent-text`), with no border and weight 600; both text pairs hold 4.5:1 or better; the strip is under 64 px tall with `role="status"`; Reload focused after a key press shows a
+solid 2 px outline. The test fails on the old stylesheet. Not covered, and why: a color-tool theme with custom values (the tokens it sets are the same ones read here, and its wiring has
+its own tests in `test_colortool_wiring.py`), and how the strip looks to the eye (colors and contrast are computed, not seen).
+
 ### `web/tests/test_new_session_created_name.py` new, 8: the name field is emptied when the created session shows in the list (Tue Nov 10th 2026)
 
 After Create (or Start) succeeded the session reached the page's list while the name field still held its name, and the name check

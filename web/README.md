@@ -1236,7 +1236,7 @@ and `app.py` (the saved list's three routes), `colortool-sala.js` and the pinned
 | `line` Lines | `--border` |
 | `ibd` Button outlines | `--faint` |
 | `link` Text and links | `--link`, `--call`, `--accent`, `--role-front-text`, `--acc` (the orange that is text or a stroke) |
-| `solid` Solid fills | `--accent-solid` (the primary buttons; the tints that selected chips, the banner and the front badge mix from it) |
+| `solid` Solid fills | `--accent-solid` (the primary buttons, Reload on the update strip included; the tints that selected chips and the front badge mix from it) |
 | `onsolid` Text on solid fills | `--accent-on-solid` |
 | `labbg` Small label fill | `--label-bg`: the unread count, the "max" effort tag, the front badge |
 | `labfg` Small label text | `--label-fg`: the same three |
@@ -1292,7 +1292,7 @@ one row per agent, and controls are 44 px (32 px with a mouse).
   hairlines and stay), radii of 4 or 8 px (a pill and 2 px stay), and the 920 px column. A new rule is written that way too.
 - `static/index.html` ends its `<head>` with one `<style id="look">`, after every stylesheet link, so it wins the cascade. It holds the
   `@font-face` for the code face and what a rule on the scale cannot make: the two button levels, the tinted tags, the link rule, the
-  orange, the 32 and 44 px controls (`--ctl`, by pointer; the composer's Send is the exception under a finger: drawn 30 px with a 44 px tap area that takes no room, so the one-line row stays 48 px), lane cards three to a row, Agents as rows on a phone, the scroll gutter. The page's
+  orange, the update strip's Reload as a solid main button, the 32 and 44 px controls (`--ctl`, by pointer; the composer's Send is the exception under a finger: drawn 30 px with a 44 px tap area that takes no room, so the one-line row stays 48 px), lane cards three to a row, Agents as rows on a phone, the scroll gutter. The page's
   inline icons are drawn on the 24 grid, and `app.js` draws its check mark at the same 2 px stroke.
 - `static/fonts/D2Coding-Regular.woff2` is the code face; `OFL.txt` beside it is its licence (the SIL Open Font License 1.1), which
   travels with the font.
@@ -1314,6 +1314,13 @@ redirect to `/` with the query, the manifest, the worker and the font with its l
 headless Chromium at 390, 768, 1024 and 1440 px over the Agents, Schedules and Machines tabs, a chat, Search results and the New session
 page: no sideways scroll, a column of at most 920 px on a wide screen, no error logged, the monospace font loaded, the manifest linked and
 the worker registered). What they do not cover is in `docs/test-coverage.md`.
+
+**The update strip.** "sala was updated. Reload" (`#update-banner`, `.banner` in `style.css`) is a thin strip above the header. It takes the card gray
+(`--panel`) with a `--border` hairline under it, so it follows the dark and the light theme and the color tool, and carries no orange
+of its own; it used to mix the accent 14% into the background, which came out brown on the dark theme. Reload (`#reload-btn`, drawn in
+the `look` style) is the solid accent button (`--accent-solid`, else `--accent`, with `--accent-on-solid`), so the eye goes there; it keeps
+the 2 px focus outline for a keyboard. `tests/test_update_banner_look.py` holds the colors, the contrast (4.5:1 or better) and the strip's
+height in both themes.
 
 ## Mockup pages
 
