@@ -106,10 +106,10 @@ def open_overview(served, browser, dark: bool = True) -> None:
 
 
 def test_the_table_has_an_effort_column_right_after_model():
-    keys = re.findall(r'<th data-key="(\w+)" aria-sort="none"><button type="button">(\w+)</button></th>', INDEX.split('id="ov-schedules"')[0])   # the Agents tab's table; the Schedules tab has its own
+    keys = re.findall(r'<th data-key="(\w+)" aria-sort="none"><button type="button"(?: data-i18n="[\w.]+")?>(\w+)</button></th>', INDEX.split('id="ov-schedules"')[0])   # the Agents tab's table; the Schedules tab has its own
     assert keys == [("name", "Agent"), ("project", "Project"), ("role", "Role"), ("status", "Status"),
                     ("model", "Model"), ("effort", "Effort"), ("lane", "Lane")], keys
-    assert '<td colspan="7" class="sp-empty">' in INDEX
+    assert '<td colspan="7" class="sp-empty"' in INDEX
     js = (STATIC / "sessions.js").read_text()
     assert "c.colSpan = 7;" in js and '" @ "' not in js   # the effort is no longer glued to the model
 

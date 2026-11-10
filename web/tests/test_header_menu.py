@@ -64,8 +64,8 @@ def test_the_menu_markup_is_session_then_view_then_the_toggle():
     # the switch: two real buttons in a labelled group, each with its pressed state (not a div, not a link)
     tabs = menu[menu.index('class="tabs"'):menu.index("</div>", menu.index('class="tabs"'))]
     assert 'role="group" aria-label="View"' in tabs
-    assert '<button type="button" data-tab="chat" class="tab active" aria-pressed="true">Chat</button>' in tabs
-    assert '<button type="button" data-tab="terminal" class="tab" aria-pressed="false">Terminal</button>' in tabs
+    assert '<button type="button" data-tab="chat" class="tab active" aria-pressed="true" data-i18n="ui.hdr.chat">Chat</button>' in tabs
+    assert '<button type="button" data-tab="terminal" class="tab" aria-pressed="false" data-i18n="ui.hdr.terminal">Terminal</button>' in tabs
     # and none of it is in the bar
     bar = INDEX[INDEX.index('id="title"'):INDEX.index('id="top-tools"')]
     assert "Chat" not in bar and "Terminal" not in bar and "role-" not in bar and "lane-" not in bar

@@ -11,7 +11,7 @@ from sala_web.app import create_app
 from sala_web.config import Settings
 
 DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [], "laneOrder": [], "showAll": False, "unreadOnly": False,
-            "showTools": False, "shellHeight": 300}
+            "showTools": False, "shellHeight": 300, "lang": "en"}
 
 
 @pytest.fixture
@@ -94,6 +94,21 @@ def test_the_shell_drawer_height_is_kept_like_the_lane_order(env):
                 {"shellHeight": 119}, {"shellHeight": 4001}, {"shellHeight": -300}, {"shellHeight": [300]}):
         assert c.put("/api/prefs", json=bad).status_code == 400, bad
     assert c.get("/api/prefs").json()["shellHeight"] == 420
+
+
+def test_the_interface_language_is_kept_and_named_in_the_served_page(env):
+    """The language follows the person across browsers, so it is a pref: "en" (the default) or "ko". The served page names it in
+    <html lang>, so the first paint is already in it; anything else is refused and a damaged saved value reads as English."""
+    c = env["client"]
+    assert c.get("/api/prefs").json()["lang"] == "en" and '<html lang="en">' in c.get("/").text
+    r = c.put("/api/prefs", json={"lang": "ko"})
+    assert r.status_code == 200 and r.json()["lang"] == "ko"
+    assert json.loads(env["file"].read_text())["lang"] == "ko" and '<html lang="ko">' in c.get("/").text
+    for bad in ({"lang": "fr"}, {"lang": ""}, {"lang": None}, {"lang": True}, {"lang": ["ko"]}):
+        assert c.put("/api/prefs", json=bad).status_code == 400, bad
+    assert c.get("/api/prefs").json()["lang"] == "ko"
+    env["file"].write_text(json.dumps({"lang": "xx"}))
+    assert c.get("/api/prefs").json()["lang"] == "en" and '<html lang="en">' in c.get("/").text
 
 
 @pytest.mark.parametrize("body", [

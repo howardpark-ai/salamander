@@ -8,7 +8,7 @@
    machines note, the pending note, "resets in"), `fmtDay`, `untilText`, `agoText`. `el` and `apiFetch` come from app.js (used at call time). */
 const usageDigest = (() => {
 const POLL_MS = 3000, POLL_MAX = 40;
-const WORDS = { title: "THE WEEK IN A FEW SENTENCES", none: "No digest could be written for this week yet.", counted: "counted" };
+const WORDS = { get title() { return tl("usd.title"); }, get none() { return tl("usd.none"); } };
 const ud = { week: 0, data: {}, seq: 0, timer: 0, tries: 0, error: "", pending: false, noCount: false, ago: 0, shown: false, bound: false, ctx: null, ageTimer: 0 };
 const $d = (sel) => document.querySelector("#ov-usage #us-v-digest " + sel);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -24,20 +24,20 @@ function rangeText(d) {
   const f = (s) => `${ud.ctx.fmtDay(s.slice(0, 10))} ${s.slice(11, 16)}`;
   let t = `${f(r.startKst)} – ${f(r.endKst)} ${d.tzLabel || "KST"}`;
   if (!d.resetKnown) t += ` · ${w.unknownReset}`;
-  else if (r.current) t += ` · ${w.resets} ${ud.ctx.untilText(r.end - serverNow(d))}`;
+  else if (r.current) t += ` · ${w.resetsIn(ud.ctx.untilText(r.end - serverNow(d)))}`;
   else t += ` · ${w.closed}`;
   return t;
 }
 function showAge() {
   const f = $d("#us-dg-upd"), d = D();
-  if (f) f.textContent = d && d.generated ? `${WORDS.counted} ${ud.ctx.agoText(serverNow(d) - d.generated)}` : "";
+  if (f) f.textContent = d && d.generated ? tl("us.counted", { when: ud.ctx.agoText(serverNow(d) - d.generated) }) : "";
 }
 function render() {
   if (!ud.ctx || !$d("#us-dg-weeks")) return;
   const d = D(), w = ud.ctx.words;
   $d("#us-dg-weeks").innerHTML = w.weeks.map((l, i) => `<button type="button" data-w="${i}" aria-pressed="${i === ud.week}">${esc(l)}</button>`).join("");
   $d("#us-dg-range").textContent = d ? rangeText(d) : "";
-  const err = ud.error || (d && d.error) || "";
+  const err = ud.ctx.errStr(ud.error) || (d && d.error) || "";
   ud.ctx.setNote(err || (ud.pending && !d ? w.pending : ud.noCount && !d ? w.noCount : ""), !!err);
   const body = $d("#us-dg-body");
   body.hidden = !d;
@@ -53,7 +53,7 @@ async function load({ fresh = false } = {}) {
   clearTimeout(ud.timer);
   try {
     const r = await apiFetch(`api/usage/digest?week=${week}${fresh ? "&fresh=1" : ""}`, { cache: "no-store" }, { tries: 2 });
-    if (!r.ok) throw new Error("the server answered " + r.status);
+    if (!r.ok) throw ud.ctx.httpErr(r);
     const d = await r.json();
     if (seq !== ud.seq) return;
     ud.error = "";
@@ -65,7 +65,7 @@ async function load({ fresh = false } = {}) {
     } else ud.tries = 0;
   } catch (e) {
     if (seq !== ud.seq) return;
-    ud.error = "Could not read the digest: " + (e && e.message ? e.message : e);   // the last sentences stay on screen
+    ud.error = ud.ctx.errOf("usd.err.read", e);   // the last sentences stay on screen
   }
   if (ud.shown) render();
 }
@@ -103,5 +103,6 @@ function reload() {
   ud.error = ""; ud.tries = 0;
   load({ fresh: true });
 }
+SalaI18n.onChange(() => { if (ud.shown) render(); });   // the language changed: the view is drawn again from the digest it holds (the sentences are the server's, in English)
 return { show, hide, reload };
 })();

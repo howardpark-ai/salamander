@@ -127,10 +127,10 @@ def test_the_markup_has_the_button_and_the_drawer():
     btn = end[end.index('<button id="shell-btn"'):]
     btn = btn[:btn.index("</button>")]
     assert 'aria-expanded="false"' in btn and 'aria-controls="shell-drawer"' in btn and 'title="Shell (Ctrl+`)"' in btn
-    assert 'class="shell-label">Shell<' in btn
-    assert '<section id="shell-drawer" class="shell-drawer" aria-label="Shell" hidden>' in INDEX
-    assert 'href="terminal" target="_blank" rel="noopener">Open full size</a>' in INDEX     # the session is added from api/config
-    assert 'title="Close (the shell keeps running)"' in INDEX
+    assert 'class="shell-label" data-i18n="common.shell">Shell<' in btn
+    assert '<section id="shell-drawer" class="shell-drawer" aria-label="Shell" data-i18n-aria-label="common.shell" hidden>' in INDEX
+    assert 'href="terminal" target="_blank" rel="noopener" data-i18n="ui.shell.full">Open full size</a>' in INDEX     # the session is added from api/config
+    assert 'title="Close (the shell keeps running)" data-i18n-title="ui.shell.closeTip"' in INDEX
     assert 'id="shell-chip"' in INDEX and "owner-shell" not in INDEX and "Shell on " not in INDEX   # no owner's name, and no machine named in the markup
     keys = INDEX[INDEX.index('id="shell-keys"'):]
     keys = keys[:keys.index("</div>")]

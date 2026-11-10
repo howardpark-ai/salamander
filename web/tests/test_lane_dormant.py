@@ -370,7 +370,9 @@ def test_the_chip_words_the_page_reads_are_the_servers_own_words():
     js = (Path(__file__).resolve().parent.parent / "src" / "sala_web" / "static" / "sessions.js").read_text()
     words = json.loads(js.split("const NOT_CONFIGURED_WORDS = ", 1)[1].split(";", 1)[0])
     assert words == [Q.NO_SIGN_IN, CR.NO_KEY]
-    assert '"not configured"' in js and '"Not set up"' not in js and 'active: "active"' in js and 'dormant: "dormant"' in js
+    en = (Path(__file__).resolve().parent.parent / "src" / "sala_web" / "static" / "i18n-en.js").read_text()
+    assert '"ov.chip.unconfigured": "not configured"' in en and '"Not set up"' not in js and ': "Not set up"' not in en
+    assert '"ov.chip.active": "active"' in en and '"ov.chip.dormant": "dormant"' in en
 
 
 def test_a_working_lane_has_a_green_active_pill_left_of_details(world, page, browser):

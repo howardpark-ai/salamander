@@ -524,7 +524,7 @@ def test_the_markup_and_the_rules_the_code_keeps():
     assert re.search(r'<a id="side-new"[^>]*href="#new"', top) and "aria-haspopup" not in top and "new-sheet" not in INDEX   # a link to a page of its own, no dialog
     assert re.search(r'<section id="new-pane" class="pane"', INDEX) and 'new-scrim' not in INDEX and 'new-sheet' not in APP_JS
     assert '<form id="ns-form" class="np ns-form" novalidate' in INDEX
-    assert '<textarea id="ns-mandate"' in INDEX and '<button id="ns-submit" class="ns-submit" type="submit" disabled>' in INDEX
+    assert '<textarea id="ns-mandate"' in INDEX and '<button id="ns-submit" class="ns-submit" type="submit" disabled data-i18n="ui.ns.create">' in INDEX
     assert re.search(r'<input type="radio" name="ns-role" value="front" checked>', INDEX)
     section = APP_JS[APP_JS.index("/* ---------- new session"):APP_JS.index("/* ---------- selection, hash")]
     assert ".innerHTML" not in section and "insertAdjacentHTML" not in section   # the queue's words are shown as text only

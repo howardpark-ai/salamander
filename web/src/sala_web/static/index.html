@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{lang}}">
 <head>
 <meta charset="utf-8">
 <!-- viewport-fit=cover: the installed app draws to the screen's edges (under Android's gesture bar); what sits there
@@ -178,39 +178,43 @@
       <!-- fixed at the top left on a wide screen, in the drawer's top on a phone. The app's icon (the installed app's, static/icons) and the name as one line: decorative, a fixed size so
            nothing shifts while it loads; the page <title> and the manifest keep the name "sala" -->
       <span class="brand-line"><img class="brand-icon" src="static/icons/icon-192.png" width="20" height="20" alt=""><span class="brand">{{brand}}</span></span>
-      <button id="side-close" class="icon-btn only-narrow" aria-label="Close session list">&times;</button>
+      <button id="side-close" class="icon-btn only-narrow" aria-label="Close session list" data-i18n-aria-label="ui.side.close">&times;</button>
     </div>
     <!-- the search box, at the top of the sidebar on every page (the drawer's top on a phone): Enter opens the Search results page
          with the box's defaults (the last 6 hours, front agents, messages); Ctrl+K, or "/" outside a text field, puts the cursor here and
          Escape leaves (app.js, "the sidebar's search box") -->
     <form id="side-search" class="side-search" role="search" autocomplete="off">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-      <input id="side-q" type="search" name="q" maxlength="200" placeholder="Search" aria-label="Search the transcripts" aria-keyshortcuts="Control+K /" title="Search the transcripts (Ctrl+K or /)" enterkeyhint="search" spellcheck="false" autocapitalize="off">
+      <input id="side-q" type="search" name="q" maxlength="200" placeholder="Search" data-i18n-placeholder="common.search" aria-label="Search the transcripts" data-i18n-aria-label="ui.side.searchLabel" aria-keyshortcuts="Control+K /" title="Search the transcripts (Ctrl+K or /)" data-i18n-title="ui.side.searchTip" enterkeyhint="search" spellcheck="false" autocapitalize="off">
     </form>
     <!-- above the session list, like claude.ai's entries above recent chats: New session first (the form that
          queues `sala op spawn`, a page of its own in the main area at #new; app.js "new session"), then the
          overview, which opens in the main area -->
-    <nav class="side-top" aria-label="Views">
-      <a id="side-new" class="sess side-ovw side-new" href="#new" title="Start a new session of a project through sala's queue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg><span class="label">New session</span></a>
-      <a id="side-ovw" class="sess side-ovw" href="#sessions" title="Every live session, account usage and API spend"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/></svg><span class="label">Overview</span></a>
+    <nav class="side-top" aria-label="Views" data-i18n-aria-label="ui.side.views">
+      <a id="side-new" class="sess side-ovw side-new" href="#new" title="Start a new session of a project through sala's queue" data-i18n-title="ui.side.newTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg><span class="label" data-i18n="ui.newSession">New session</span></a>
+      <a id="side-ovw" class="sess side-ovw" href="#sessions" title="Every live session, account usage and API spend" data-i18n-title="ui.side.ovwTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/></svg><span class="label" data-i18n="common.overview">Overview</span></a>
       <!-- the Unread filter: the total of the unread reply counts; a tap turns "Unread only" on (the session list then holds only the agents with an unread reply), a second tap turns it off. A toggle, not a view: it opens no page (app.js "the unread reply count") -->
-      <button id="side-unread" type="button" class="sess side-ovw side-unread" aria-pressed="false" title="Show only agents with unread replies"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M6 12h12M10 18h4"/></svg><span class="label">Unread</span></button>
+      <button id="side-unread" type="button" class="sess side-ovw side-unread" aria-pressed="false" title="Show only agents with unread replies" data-i18n-title="ui.side.unreadTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M6 12h12M10 18h4"/></svg><span class="label" data-i18n="ui.side.unread">Unread</span></button>
     </nav>
-    <nav id="session-list" aria-label="Sessions"></nav>
-    <label class="toggle"><input type="checkbox" id="show-back" title="Also show background agents"> Show all sessions</label>
+    <nav id="session-list" aria-label="Sessions" data-i18n-aria-label="ui.side.sessions"></nav>
+    <label class="toggle"><input type="checkbox" id="show-back" title="Also show background agents" data-i18n-title="ui.side.showAllTip"> <span data-i18n="ui.side.showAll">Show all sessions</span></label>
     <div id="side-note" class="side-note"></div>
-    <!-- the color tool's button (colortool.js draws it here, last in the panel); no other code rebuilds this element -->
-    <div id="side-colors" class="side-colors"></div>
+    <!-- the foot of the panel: the color tool's button (colortool.js draws it into #side-colors; no other code rebuilds that element) and, at the
+         right, the language switch (static/i18n.js; app.js saves the choice in the prefs). The foot is the last thing in the panel -->
+    <div id="side-foot" class="side-foot">
+      <div id="side-colors" class="side-colors"></div>
+      <div class="side-lang" role="group" aria-label="Language" data-i18n-aria-label="side.lang"><button type="button" data-lang="ko" aria-pressed="false">KO</button><button type="button" data-lang="en" aria-pressed="true">EN</button></div>
+    </div>
   </aside>
   <div id="scrim" class="only-narrow"></div>
   <main id="main">
     <div id="update-banner" class="banner" role="status" hidden>
-      <span>sala was updated.</span>
-      <button id="reload-btn" type="button">Reload</button>
+      <span data-i18n="ui.banner.updated">sala was updated.</span>
+      <button id="reload-btn" type="button" data-i18n="common.reload">Reload</button>
     </div>
     <header id="top">
       <!-- the sidebar's toggle: fixed at the top left on a wide screen (over the title bar and the sidebar, never moving), in the bar on a phone -->
-      <button id="side-open" class="icon-btn" aria-label="Show session list" aria-controls="sidebar" aria-expanded="false" title="Show sidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+      <button id="side-open" class="icon-btn" aria-label="Show session list" data-i18n-aria-label="ui.hdr.showList" aria-controls="sidebar" aria-expanded="false" title="Show sidebar" data-i18n-title="ui.hdr.showSidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
       <!-- the title bar: a three-column grid,
            the session name (.who: the status dot and the name, nothing else) in the middle, centred in the bar; everything
            else in the one cluster at the right (.top-end), in this order: the status badge (working /
@@ -219,74 +223,74 @@
            toggle under them. The name never gives way while anything else is still in the bar: the Shell button, then Reload,
            then the status badge leave for the ⋯ menu, one at a time, as the name needs the room (app.js, "header: the name
            first"); on a narrow phone that is all three. -->
-      <div id="title"><span class="who"><span class="dot"></span><span class="name">Select a session</span></span><div id="top-end" class="top-end"><span id="conn" class="conn" role="status" hidden>Reconnecting…</span><span id="top-status" class="top-status"></span>
+      <div id="title"><span class="who"><span class="dot"></span><span class="name" data-i18n="ui.hdr.selectSession">Select a session</span></span><div id="top-end" class="top-end"><span id="conn" class="conn" role="status" hidden data-i18n="ui.hdr.reconnecting">Reconnecting…</span><span id="top-status" class="top-status" data-word="Status" data-i18n-word="common.status"></span>
       <!-- the installed app has no browser bar: a reload of its own, always here (the banner's shows only for a new
            build); it keeps the composer's draft as the banner's button does. Icon only in the bar (the label is its
            aria-label and tooltip); a row with the word in the ⋯ menu when it has folded there (style.css) -->
-      <button id="menu-reload" class="menu-item" type="button" aria-label="Reload the page" title="Reload the page"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
+      <button id="menu-reload" class="menu-item" type="button" data-word="Reload" data-i18n-word="common.reload" aria-label="Reload the page" data-i18n-aria-label="ui.hdr.reloadPage" title="Reload the page" data-i18n-title="ui.hdr.reloadPage"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
       <!-- the Shell button: at the right end of the cluster on every page (the Overview and the New session page too);
            opens the shell drawer under the page (#shell-drawer below). It sits before the ⋯ button here and is drawn after it (style.css,
            order), so Tab from the ⋯ button goes into its menu, which follows it. Its word is dropped on a phone, the icon stays.
            It is the first item of the header fold: where the name does not fit it moves into the ⋯ menu as a "Shell"
            row, the same button and the same handler (app.js "header: the name first"; style.css, .top-tools .shell-btn) -->
-      <button id="shell-btn" class="shell-btn" type="button" aria-label="Shell" aria-expanded="false" aria-controls="shell-drawer" title="Shell (Ctrl+`)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg><span class="shell-label">Shell</span></button>
+      <button id="shell-btn" class="shell-btn" type="button" aria-label="Shell" data-i18n-aria-label="common.shell" aria-expanded="false" aria-controls="shell-drawer" title="Shell (Ctrl+`)" data-i18n-title="ui.hdr.shellTip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg><span class="shell-label" data-i18n="common.shell">Shell</span></button>
       <!-- always shown; the menu under it holds the session's facts, the view switch and the thinking toggle, and what left the bar -->
-      <button id="top-menu-btn" class="icon-btn" aria-label="View options" aria-expanded="false" aria-controls="top-tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg></button>
+      <button id="top-menu-btn" class="icon-btn" aria-label="View options" data-i18n-aria-label="ui.hdr.viewOptions" aria-expanded="false" aria-controls="top-tools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg></button>
       </div></div>
-      <div id="top-tools" class="top-tools" aria-label="View options">
+      <div id="top-tools" class="top-tools" aria-label="View options" data-i18n-aria-label="ui.hdr.viewOptions">
         <!-- Session: the static facts, in their badge colours (app.js updateHeader fills the rows: Role, Lane, tmux when it
              differs from the name); the status badge joins them here when it has folded out of the bar -->
         <section id="menu-session" class="menu-sec" aria-labelledby="menu-session-h">
-          <h3 id="menu-session-h" class="menu-head">Session</h3>
+          <h3 id="menu-session-h" class="menu-head" data-i18n="common.session">Session</h3>
           <div id="top-session" class="menu-rows"></div>
         </section>
         <!-- View: Chat / Terminal as a segmented control (two buttons, the open one aria-pressed), the thinking toggle
              under it (in the menu at every width; the fold never moves it) -->
         <section id="menu-view" class="menu-sec" aria-labelledby="menu-view-h">
-          <h3 id="menu-view-h" class="menu-head">View</h3>
-          <div class="tabs" role="group" aria-label="View">
-            <button type="button" data-tab="chat" class="tab active" aria-pressed="true">Chat</button>
-            <button type="button" data-tab="terminal" class="tab" aria-pressed="false">Terminal</button>
+          <h3 id="menu-view-h" class="menu-head" data-i18n="ui.hdr.view">View</h3>
+          <div class="tabs" role="group" aria-label="View" data-i18n-aria-label="ui.hdr.view">
+            <button type="button" data-tab="chat" class="tab active" aria-pressed="true" data-i18n="ui.hdr.chat">Chat</button>
+            <button type="button" data-tab="terminal" class="tab" aria-pressed="false" data-i18n="ui.hdr.terminal">Terminal</button>
           </div>
-          <label class="toggle top-toggle" title="Show thinking, tool calls and their results in the chat"><input type="checkbox" id="show-tools"> Thinking &amp; tool calls</label>
+          <label class="toggle top-toggle" title="Show thinking, tool calls and their results in the chat" data-i18n-title="ui.hdr.toolsTip"><input type="checkbox" id="show-tools"> <span data-i18n="ui.hdr.tools">Thinking &amp; tool calls</span></label>
         </section>
       </div>
     </header>
     <section id="chat-pane" class="pane active">
-      <div id="chat"><div class="empty">Pick a session on the left.</div></div>
+      <div id="chat"><div class="empty" data-i18n="ui.chat.pick">Pick a session on the left.</div></div>
     </section>
     <section id="terminal-pane" class="pane"></section>
     <!-- the sessions overview (#sessions): sessions.js fills it and polls only while it is shown -->
-    <section id="overview-pane" class="pane" aria-label="Overview">
+    <section id="overview-pane" class="pane" aria-label="Overview" data-i18n-aria-label="common.overview">
       <div class="sp">
         <div class="sp-head">
           <span id="sp-count" class="sp-count"></span>
           <!-- the header's view options are hidden here, so the overview carries its own Reload (same reloadPage) and
                the way to the session that builds sala, as two chips -->
           <div class="sp-actions">
-            <button id="sp-reload" class="sp-btn" type="button" aria-label="Reload the page" title="Reload"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>Reload</button>
-            <!--help--><a id="sp-help" class="sp-btn sp-help" href="#s={{help}}" title="Open {{help}}, the session that looks after sala's web UI: ask it for help or changes here"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.7 2.4c-.8.4-1.2 1-1.2 1.8v.3"/><path d="M12 17h.01"/></svg>Get Help</a><!--/help-->
+            <button id="sp-reload" class="sp-btn" type="button" aria-label="Reload the page" data-i18n-aria-label="ui.hdr.reloadPage" title="Reload" data-i18n-title="common.reload"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span data-i18n="common.reload">Reload</span></button>
+            <!--help--><a id="sp-help" class="sp-btn sp-help" href="#s={{help}}" title="Open {{help}}, the session that looks after sala's web UI: ask it for help or changes here" data-i18n-title="ui.ov.helpTip" data-i18n-arg="{{help}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.7 2.4c-.8.4-1.2 1-1.2 1.8v.3"/><path d="M12 17h.01"/></svg><span data-i18n="ui.ov.getHelp">Get Help</span></a><!--/help-->
           </div>
         </div>
-        <section id="quota" class="q" aria-label="Account usage and API spend">
+        <section id="quota" class="q" aria-label="Account usage and API spend" data-i18n-aria-label="ui.ov.quotaLabel">
           <!-- a phone folds the lane cards into this one strip: the lanes in a line of chips, a tap opens the cards;
                wider screens hide it and show the cards -->
-          <button id="q-strip" class="q-strip" type="button" aria-expanded="false" aria-controls="q-cards" title="Show the lane cards"><span id="q-chips" class="q-chips"></span><span class="q-chev" aria-hidden="true"></span></button>
+          <button id="q-strip" class="q-strip" type="button" aria-expanded="false" aria-controls="q-cards" title="Show the lane cards" data-i18n-title="ui.ov.laneCards"><span id="q-chips" class="q-chips"></span><span class="q-chev" aria-hidden="true"></span></button>
           <div id="q-cards" class="q-cards"></div>
           <div id="q-note" class="q-note" role="status"></div>
         </section>
         <!-- the four tabs of the Overview: Agents (#sessions, the default), Schedules (#schedules), Machines (#machines) and Usage analysis (#usage). They are links, so
              Back, a reload and a shared link reach a tab; app.js sets data-tab on the pane and starts or stops the Schedules, Machines and Usage readings -->
         <div class="ov-bar">
-          <div class="ov-tabs" role="tablist" aria-label="Overview">
-            <a id="ov-tab-sessions" class="ov-tab" role="tab" href="#sessions" aria-selected="true" aria-controls="ov-agents">Agents <span id="ov-n-agents" class="ov-n"></span></a>
-            <a id="ov-tab-schedules" class="ov-tab" role="tab" href="#schedules" aria-selected="false" aria-controls="ov-schedules" tabindex="-1">Schedules <span id="ov-n-schedules" class="ov-n"></span></a>
-            <a id="ov-tab-machines" class="ov-tab" role="tab" href="#machines" aria-selected="false" aria-controls="ov-machines" tabindex="-1">Machines <span id="ov-n-machines" class="ov-n"></span></a>
-            <a id="ov-tab-usage" class="ov-tab" role="tab" href="#usage" aria-selected="false" aria-controls="ov-usage" tabindex="-1"><span class="ov-tl">Usage analysis</span></a>
+          <div class="ov-tabs" role="tablist" aria-label="Overview" data-i18n-aria-label="common.overview">
+            <a id="ov-tab-sessions" class="ov-tab" role="tab" href="#sessions" aria-selected="true" aria-controls="ov-agents"><span data-i18n="ui.ov.agents">Agents</span> <span id="ov-n-agents" class="ov-n"></span></a>
+            <a id="ov-tab-schedules" class="ov-tab" role="tab" href="#schedules" aria-selected="false" aria-controls="ov-schedules" tabindex="-1"><span data-i18n="ui.ov.schedules">Schedules</span> <span id="ov-n-schedules" class="ov-n"></span></a>
+            <a id="ov-tab-machines" class="ov-tab" role="tab" href="#machines" aria-selected="false" aria-controls="ov-machines" tabindex="-1"><span data-i18n="common.machines">Machines</span> <span id="ov-n-machines" class="ov-n"></span></a>
+            <a id="ov-tab-usage" class="ov-tab" role="tab" href="#usage" aria-selected="false" aria-controls="ov-usage" tabindex="-1"><span class="ov-tl" data-i18n="ui.ov.usage">Usage analysis</span></a>
           </div>
-          <button id="sc-reload" class="sp-btn ov-reload" type="button" aria-label="Read the schedules again" title="Read again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>Reload</button>
-          <button id="mc-reload" class="sp-btn ov-reload" type="button" aria-label="Read the machines again" title="Read again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span class="ov-rl">Reload</span></button>
-          <button id="us-reload" class="sp-btn ov-reload" type="button" aria-label="Count the usage again" title="Count again"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span class="ov-rl">Reload</span></button>
+          <button id="sc-reload" class="sp-btn ov-reload" type="button" aria-label="Read the schedules again" data-i18n-aria-label="ui.ov.scReload" title="Read again" data-i18n-title="ui.ov.readAgain"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span data-i18n="common.reload">Reload</span></button>
+          <button id="mc-reload" class="sp-btn ov-reload" type="button" aria-label="Read the machines again" data-i18n-aria-label="ui.ov.mcReload" title="Read again" data-i18n-title="ui.ov.readAgain"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span class="ov-rl" data-i18n="common.reload">Reload</span></button>
+          <button id="us-reload" class="sp-btn ov-reload" type="button" aria-label="Count the usage again" data-i18n-aria-label="ui.ov.usReload" title="Count again" data-i18n-title="ui.ov.countAgain"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span class="ov-rl" data-i18n="common.reload">Reload</span></button>
         </div>
         <div id="ov-agents" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-sessions">
           <div id="sp-note" class="sp-note" role="status"></div>
@@ -294,16 +298,16 @@
             <table id="sp-table">
               <thead>
                 <tr>
-                  <th data-key="name" aria-sort="none"><button type="button">Agent</button></th>
-                  <th data-key="project" aria-sort="none"><button type="button">Project</button></th>
-                  <th data-key="role" aria-sort="none"><button type="button">Role</button></th>
-                  <th data-key="status" aria-sort="none"><button type="button">Status</button></th>
-                  <th data-key="model" aria-sort="none"><button type="button">Model</button></th>
-                  <th data-key="effort" aria-sort="none"><button type="button">Effort</button></th>
-                  <th data-key="lane" aria-sort="none"><button type="button">Lane</button></th>
+                  <th data-key="name" aria-sort="none"><button type="button" data-i18n="ui.col.agent">Agent</button></th>
+                  <th data-key="project" aria-sort="none"><button type="button" data-i18n="ui.col.project">Project</button></th>
+                  <th data-key="role" aria-sort="none"><button type="button" data-i18n="common.role">Role</button></th>
+                  <th data-key="status" aria-sort="none"><button type="button" data-i18n="common.status">Status</button></th>
+                  <th data-key="model" aria-sort="none"><button type="button" data-i18n="common.model">Model</button></th>
+                  <th data-key="effort" aria-sort="none"><button type="button" data-i18n="common.effort">Effort</button></th>
+                  <th data-key="lane" aria-sort="none"><button type="button" data-i18n="common.lane">Lane</button></th>
                 </tr>
               </thead>
-              <tbody><tr><td colspan="7" class="sp-empty">Loading…</td></tr></tbody>
+              <tbody><tr><td colspan="7" class="sp-empty" data-i18n="common.loading">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -314,35 +318,35 @@
         <div id="ov-schedules" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-schedules">
           <div class="sc-head">
             <span id="sc-count" class="sc-count"></span>
-            <label class="toggle sc-toggle"><input type="checkbox" id="sc-flagged"> Flagged only</label>
+            <label class="toggle sc-toggle"><input type="checkbox" id="sc-flagged"> <span data-i18n="ui.sc.flaggedOnly">Flagged only</span></label>
           </div>
           <div id="sc-note" class="sc-note" role="status"></div>
           <div id="sc-scope-note" class="sc-note"></div>
           <div class="sc-sortmenu">
-            <label class="sc-sortlabel" for="sc-sortsel">Sort by</label>
+            <label class="sc-sortlabel" for="sc-sortsel" data-i18n="ui.sc.sortBy">Sort by</label>
             <select id="sc-sortsel" class="sc-sortsel"></select>
-            <button id="sc-sortdir" class="sc-sortdir" type="button" aria-label="Reverse the sort" title="Reverse the sort"></button>
+            <button id="sc-sortdir" class="sc-sortdir" type="button" aria-label="Reverse the sort" data-i18n-aria-label="ui.sc.reverse" title="Reverse the sort" data-i18n-title="ui.sc.reverse"></button>
           </div>
           <div id="sc-timers" class="sp-wrap sc-wrap">
             <table id="sc-table" class="sc-table">
               <thead>
                 <tr>
-                  <th data-key="name" aria-sort="none"><button type="button">Job</button></th>
-                  <th data-key="category" aria-sort="none"><button type="button">Category</button></th>
-                  <th data-key="desc" aria-sort="none"><button type="button">What it does</button></th>
-                  <th data-key="next" aria-sort="none"><button type="button" title="Sorts by the next run">When</button></th>
-                  <th data-key="lane" aria-sort="none"><button type="button">Lane</button></th>
+                  <th data-key="name" aria-sort="none"><button type="button" data-i18n="ui.sc.job">Job</button></th>
+                  <th data-key="category" aria-sort="none"><button type="button" data-i18n="ui.sc.category">Category</button></th>
+                  <th data-key="desc" aria-sort="none"><button type="button" data-i18n="ui.sc.whatItDoes">What it does</button></th>
+                  <th data-key="next" aria-sort="none"><button type="button" title="Sorts by the next run" data-i18n-title="ui.sc.whenTip" data-i18n="ui.sc.when">When</button></th>
+                  <th data-key="lane" aria-sort="none"><button type="button" data-i18n="common.lane">Lane</button></th>
                 </tr>
               </thead>
-              <tbody id="sc-body"><tr><td colspan="5" class="sc-empty">Reading the timers…</td></tr></tbody>
+              <tbody id="sc-body"><tr><td colspan="5" class="sc-empty" data-i18n="ui.sc.reading">Reading the timers…</td></tr></tbody>
             </table>
           </div>
           <section id="sc-cron-sec" class="sc-sec" aria-labelledby="sc-h-cron" hidden>
-            <h2 id="sc-h-cron" class="sc-h">Cron lines</h2>
-            <p id="sc-cron-none" class="sc-note">No crontab lines.</p>
+            <h2 id="sc-h-cron" class="sc-h" data-i18n="ui.sc.cronLines">Cron lines</h2>
+            <p id="sc-cron-none" class="sc-note" data-i18n="ui.sc.noCron">No crontab lines.</p>
             <div class="sc-wrap sc-cronwrap">
               <table id="sc-cron-table" class="sc-simple">
-                <thead><tr><th><span>Schedule</span></th><th><span>Command</span></th><th><span>Flags</span></th></tr></thead>
+                <thead><tr><th><span data-i18n="ui.sc.schedule">Schedule</span></th><th><span data-i18n="ui.sc.command">Command</span></th><th><span data-i18n="ui.sc.flags">Flags</span></th></tr></thead>
                 <tbody id="sc-cron"></tbody>
               </table>
             </div>
@@ -353,7 +357,7 @@
         <div id="ov-machines" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-machines">
           <div id="mc-note" class="mc-note" role="status"></div>
           <section class="mc-sec" aria-labelledby="mc-h-machines">
-            <h2 id="mc-h-machines" class="mc-h">Machines</h2>
+            <h2 id="mc-h-machines" class="mc-h" data-i18n="common.machines">Machines</h2>
             <p id="mc-none" class="mc-none" hidden></p>
             <div id="mc-grid" class="mc-grid"></div>
           </section>
@@ -362,14 +366,14 @@
         <!-- the Usage analysis tab (#usage): what the Claude Code replies on this machine cost, at list prices (usage.py, api/usage). Three views over one data
              layer: Report, Explorer and Digest (all built: usage.js, usage-explorer.js, usage-digest.js, usage_digest.py). usage.js fills it; it reads when the tab opens, on a change of week and on Reload (usage.css) -->
         <div id="ov-usage" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-usage">
-          <div id="us-views" class="us-seg us-views" role="tablist" aria-label="Usage analysis views"></div>
+          <div id="us-views" class="us-seg us-views" role="tablist" aria-label="Usage analysis views" data-i18n-aria-label="ui.us.views"></div>
           <div id="us-note" class="us-note" role="status"></div>
           <div id="us-v-report" role="tabpanel" aria-labelledby="us-vt-report">
-            <div class="us-wk"><div id="us-weeks" class="us-seg" role="group" aria-label="Week"></div><div id="us-range" class="us-range"></div></div>
+            <div class="us-wk"><div id="us-weeks" class="us-seg" role="group" aria-label="Week" data-i18n-aria-label="ui.us.week"></div><div id="us-range" class="us-range"></div></div>
             <div id="us-body" hidden>
               <div id="us-hero" class="us-card us-hero"></div>
               <div id="us-lanes" class="us-lanes"></div>
-              <div class="us-ctl"><span id="us-glbl" class="us-lbl"></span><div id="us-group" class="us-seg" role="group" aria-label="Group by"></div></div>
+              <div class="us-ctl"><span id="us-glbl" class="us-lbl"></span><div id="us-group" class="us-seg" role="group" aria-label="Group by" data-i18n-aria-label="ui.us.groupBy"></div></div>
               <div id="us-filters" class="us-fil" aria-live="polite"></div>
               <div class="us-card us-chart"><div id="us-ctitle" class="us-lbl us-ctitle"></div><div id="us-plot" class="us-plot"></div><div id="us-legend" class="us-legend"></div><div id="us-read" class="us-read"></div></div>
               <div class="us-tw"><table class="us-t" id="us-table"><thead><tr id="us-thead"></tr></thead><tbody id="us-tbody"></tbody></table></div>
@@ -391,7 +395,7 @@
             </div>
           </div>
           <div id="us-v-digest" role="tabpanel" aria-labelledby="us-vt-digest" hidden>
-            <div class="us-wk"><div id="us-dg-weeks" class="us-seg" role="group" aria-label="Week"></div><div id="us-dg-range" class="us-range"></div></div>
+            <div class="us-wk"><div id="us-dg-weeks" class="us-seg" role="group" aria-label="Week" data-i18n-aria-label="ui.us.week"></div><div id="us-dg-range" class="us-range"></div></div>
             <div id="us-dg-body" hidden>
               <div class="us-card us-dg-card"><div id="us-dg-title" class="us-lbl"></div><div id="us-dg-text" class="us-dg-text"></div></div>
               <p id="us-dg-scope" class="us-dg-scope"></p>
@@ -402,25 +406,25 @@
       </div>
       <!-- a lane's details page (#lane=<id>): the same pane, shown instead of the view above while body has
            lane-open; sessions.js fills it from the answers the cards use and from api/lanes/<id> -->
-      <div id="ld" class="sp ld" aria-label="Lane details">
+      <div id="ld" class="sp ld" aria-label="Lane details" data-i18n-aria-label="ui.ld.label">
         <div class="sp-head">
-          <a id="ld-back" class="sp-btn" href="#sessions" aria-label="Back to the Overview" title="Back to the Overview"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Back</a>
+          <a id="ld-back" class="sp-btn" href="#sessions" aria-label="Back to the Overview" data-i18n-aria-label="ui.ld.backTip" title="Back to the Overview" data-i18n-title="ui.ld.backTip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span data-i18n="ui.ld.back">Back</span></a>
           <span id="ld-title" class="ld-title"></span>
           <span id="ld-count" class="sp-count"></span>
           <div class="sp-actions">
-            <button id="ld-reload" class="sp-btn" type="button" aria-label="Reload the page" title="Reload"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>Reload</button>
+            <button id="ld-reload" class="sp-btn" type="button" aria-label="Reload the page" data-i18n-aria-label="ui.hdr.reloadPage" title="Reload" data-i18n-title="common.reload"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span data-i18n="common.reload">Reload</span></button>
           </div>
         </div>
         <div id="ld-note" class="sp-note" role="status"></div>
         <div id="ld-line" class="ld-line"></div>
         <div class="ld-top">
-          <section class="ld-sec" aria-labelledby="ld-h-record"><h2 id="ld-h-record" class="ld-h">Record</h2><div id="ld-record"></div></section>
-          <section class="ld-sec" aria-labelledby="ld-h-usage"><h2 id="ld-h-usage" class="ld-h">Usage</h2><div id="ld-usage" class="q-cards"></div></section>
+          <section class="ld-sec" aria-labelledby="ld-h-record"><h2 id="ld-h-record" class="ld-h" data-i18n="ui.ld.record">Record</h2><div id="ld-record"></div></section>
+          <section class="ld-sec" aria-labelledby="ld-h-usage"><h2 id="ld-h-usage" class="ld-h" data-i18n="ui.ld.usage">Usage</h2><div id="ld-usage" class="q-cards"></div></section>
         </div>
-        <section class="ld-sec" aria-labelledby="ld-h-sessions"><h2 id="ld-h-sessions" class="ld-h">Sessions on this lane</h2>
+        <section class="ld-sec" aria-labelledby="ld-h-sessions"><h2 id="ld-h-sessions" class="ld-h" data-i18n="ui.ld.sessions">Sessions on this lane</h2>
           <div class="sp-wrap">
             <table id="ld-table">
-              <thead><tr><th>Session</th><th>Project</th><th>Role</th><th>Status</th><th>Model</th><th>Effort</th><th>Lane</th></tr></thead>
+              <thead><tr><th data-i18n="common.session">Session</th><th data-i18n="ui.col.project">Project</th><th data-i18n="common.role">Role</th><th data-i18n="common.status">Status</th><th data-i18n="common.model">Model</th><th data-i18n="common.effort">Effort</th><th data-i18n="common.lane">Lane</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -431,40 +435,40 @@
          search box (#side-search). The query and every filter are in the address, so a reload, Back and a shared link open the same
          search; the query box at its top and every filter run it again and rewrite the address in place (search.js, api/search). The number beside
          each box is what that box adds to the answer, given the other group's boxes -->
-    <section id="search-pane" class="pane" aria-label="Search">
+    <section id="search-pane" class="pane" aria-label="Search" data-i18n-aria-label="common.search">
       <div id="se-page" class="sp se-page">
-        <form id="se-form" class="se-controls" aria-label="Search filters" autocomplete="off">
+        <form id="se-form" class="se-controls" aria-label="Search filters" data-i18n-aria-label="ui.se.filters" autocomplete="off">
           <!-- the query, the sidebar box's twin: prefilled from the address; Enter searches again with the filters below (search.js) -->
           <div class="se-q">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-            <input id="se-query" type="search" name="q" maxlength="200" placeholder="Search" aria-label="Search the transcripts" enterkeyhint="search" spellcheck="false" autocapitalize="off">
+            <input id="se-query" type="search" name="q" maxlength="200" placeholder="Search" data-i18n-placeholder="common.search" aria-label="Search the transcripts" data-i18n-aria-label="ui.side.searchLabel" enterkeyhint="search" spellcheck="false" autocapitalize="off">
           </div>
-          <div class="se-row" id="se-range" role="group" aria-label="When"><b>When</b>
-            <button type="button" class="se-chip" data-hours="1" aria-pressed="false">1 h</button>
-            <button type="button" class="se-chip" data-hours="6" aria-pressed="true">6 h</button>
-            <button type="button" class="se-chip" data-hours="24" aria-pressed="false">24 h</button>
-            <button type="button" class="se-chip" data-hours="72" aria-pressed="false">3 days</button>
-            <button type="button" class="se-chip" data-hours="168" aria-pressed="false">7 days</button>
-            <button type="button" class="se-chip" data-hours="dates" aria-pressed="false" aria-controls="se-dates">Pick dates…</button>
+          <div class="se-row" id="se-range" role="group" aria-label="When" data-i18n-aria-label="ui.se.when"><b data-i18n="ui.se.when">When</b>
+            <button type="button" class="se-chip" data-hours="1" aria-pressed="false" data-i18n="ui.se.h1">1 h</button>
+            <button type="button" class="se-chip" data-hours="6" aria-pressed="true" data-i18n="ui.se.h6">6 h</button>
+            <button type="button" class="se-chip" data-hours="24" aria-pressed="false" data-i18n="ui.se.h24">24 h</button>
+            <button type="button" class="se-chip" data-hours="72" aria-pressed="false" data-i18n="ui.se.d3">3 days</button>
+            <button type="button" class="se-chip" data-hours="168" aria-pressed="false" data-i18n="ui.se.d7">7 days</button>
+            <button type="button" class="se-chip" data-hours="dates" aria-pressed="false" aria-controls="se-dates" data-i18n="ui.se.pickDates">Pick dates…</button>
           </div>
           <div class="se-row se-dates" id="se-dates" hidden>
-            <label>From <input type="datetime-local" id="se-from" aria-label="From"></label>
-            <label>To <input type="datetime-local" id="se-to" aria-label="To"></label>
+            <label><span data-i18n="ui.se.from">From</span> <input type="datetime-local" id="se-from" aria-label="From" data-i18n-aria-label="ui.se.from"></label>
+            <label><span data-i18n="ui.se.to">To</span> <input type="datetime-local" id="se-to" aria-label="To" data-i18n-aria-label="ui.se.to"></label>
             <span id="se-zone" class="se-zone"></span>
           </div>
-          <div class="se-row" role="group" aria-label="Agents"><b>Agents</b>
-            <label><input type="checkbox" id="se-front" data-box="front" checked> Front agents <small></small></label>
-            <label><input type="checkbox" id="se-back" data-box="back"> Background agents <small></small></label>
-            <label><input type="checkbox" id="se-sub" data-box="sub"> Their subagents <small></small></label>
-            <label><input type="checkbox" id="se-unknown" data-box="unknown"> Role unknown <small></small></label>
+          <div class="se-row" role="group" aria-label="Agents" data-i18n-aria-label="ui.ov.agents"><b data-i18n="ui.se.agents">Agents</b>
+            <label><input type="checkbox" id="se-front" data-box="front" checked> <span data-i18n="ui.se.front">Front agents</span> <small></small></label>
+            <label><input type="checkbox" id="se-back" data-box="back"> <span data-i18n="ui.se.back">Background agents</span> <small></small></label>
+            <label><input type="checkbox" id="se-sub" data-box="sub"> <span data-i18n="ui.se.sub">Their subagents</span> <small></small></label>
+            <label><input type="checkbox" id="se-unknown" data-box="unknown"> <span data-i18n="ui.se.unknown">Role unknown</span> <small></small></label>
           </div>
-          <div class="se-row" role="group" aria-label="Content"><b>Content</b>
-            <label><input type="checkbox" id="se-messages" data-box="messages" checked> Messages <small></small></label>
-            <label><input type="checkbox" id="se-tools" data-box="tools"> Tool calls <small></small></label>
-            <label><input type="checkbox" id="se-output" data-box="output"> Tool output <small></small></label>
-            <label><input type="checkbox" id="se-thinking" data-box="thinking"> Thinking <small></small></label>
+          <div class="se-row" role="group" aria-label="Content" data-i18n-aria-label="ui.se.content"><b data-i18n="ui.se.content">Content</b>
+            <label><input type="checkbox" id="se-messages" data-box="messages" checked> <span data-i18n="ui.se.messages">Messages</span> <small></small></label>
+            <label><input type="checkbox" id="se-tools" data-box="tools"> <span data-i18n="ui.se.tools">Tool calls</span> <small></small></label>
+            <label><input type="checkbox" id="se-output" data-box="output"> <span data-i18n="ui.se.output">Tool output</span> <small></small></label>
+            <label><input type="checkbox" id="se-thinking" data-box="thinking"> <span data-i18n="ui.se.thinking">Thinking</span> <small></small></label>
           </div>
-          <div id="se-think-note" class="se-note" hidden>Claude Code saves the text of only about 6% of thinking blocks; the rest are stored without it. This box can only find what was saved.</div>
+          <div id="se-think-note" class="se-note" hidden data-i18n="ui.se.thinkNote">Claude Code saves the text of only about 6% of thinking blocks; the rest are stored without it. This box can only find what was saved.</div>
         </form>
         <div id="se-summary" class="se-summary" role="status"></div>
         <ol id="se-hits" class="se-hits"></ol>
@@ -485,60 +489,60 @@
          own Enter and Tab), lane, model and effort folded away (each a choice, "use default (<what it is>)" first), Create,
          and what Create did (the steps, the link to the session). Create makes or lists the project and adds the agent to it
          before the spawn. An ordinary create at 1280 x 800 needs no scrolling; a phone scrolls -->
-    <section id="new-pane" class="pane" aria-label="New session" tabindex="-1">
-      <nav id="np-switch" class="np-switch" aria-label="Kind of session">
+    <section id="new-pane" class="pane" aria-label="New session" data-i18n-aria-label="ui.newSession" tabindex="-1">
+      <nav id="np-switch" class="np-switch" aria-label="Kind of session" data-i18n-aria-label="ui.ns.kind">
         <div class="np-col">
           <div class="ns-scopes np-seg">
-            <a id="np-new" class="ns-chip" href="#new" aria-current="page">New session</a>
-            <a id="np-quick" class="ns-chip" href="#side=" title="A quick talk about a board item, or a fork of a running session">Quick session</a>
+            <a id="np-new" class="ns-chip" href="#new" aria-current="page" data-i18n="ui.newSession">New session</a>
+            <a id="np-quick" class="ns-chip" href="#side=" title="A quick talk about a board item, or a fork of a running session" data-i18n-title="ui.ns.quickTip" data-i18n="ui.ns.quick">Quick session</a>
           </div>
         </div>
       </nav>
       <form id="ns-form" class="np ns-form" novalidate autocomplete="off">
         <div class="np-col">
           <div class="ns-field ns-scopefield">
-            <span id="ns-scope-label" class="ns-label">Scope</span>
+            <span id="ns-scope-label" class="ns-label" data-i18n="ui.ns.scope">Scope</span>
             <div id="ns-scopes" class="ns-scopes" role="radiogroup" aria-labelledby="ns-scope-label"></div>
           </div>
           <div class="ns-field ns-projfield">
-            <label for="ns-filter">Project</label>
+            <label for="ns-filter" data-i18n="ui.col.project">Project</label>
             <!-- once a project is picked the box below folds to this one line (the arrow opens and closes it) -->
-            <button id="ns-summary" class="ns-sum" type="button" aria-expanded="true" aria-controls="ns-projpanel" title="Show the project list" hidden></button>
+            <button id="ns-summary" class="ns-sum" type="button" aria-expanded="true" aria-controls="ns-projpanel" title="Show the project list" data-i18n-title="ui.ns.showProjects" hidden></button>
             <div id="ns-projpanel" class="ns-panel">
-              <input id="ns-filter" type="search" placeholder="Type to filter, or the name of a new project" aria-controls="ns-projects" autocapitalize="off" spellcheck="false">
-              <div id="ns-head" class="ns-head"><span class="ns-hk">Project</span><span class="ns-ht">Description <span class="ns-hint only-wide">drag the list's lower right corner to make it taller</span></span></div>
-              <div id="ns-projects" class="ns-list" role="listbox" aria-label="Projects" aria-busy="true" tabindex="-1"></div>
+              <input id="ns-filter" type="search" placeholder="Type to filter, or the name of a new project" data-i18n-placeholder="ui.ns.filterPh" aria-controls="ns-projects" autocapitalize="off" spellcheck="false">
+              <div id="ns-head" class="ns-head"><span class="ns-hk" data-i18n="ui.ns.colProject">Project</span><span class="ns-ht"><span data-i18n="ui.ns.description">Description</span> <span class="ns-hint only-wide" data-i18n="ui.ns.dragHint">drag the list's lower right corner to make it taller</span></span></div>
+              <div id="ns-projects" class="ns-list" role="listbox" aria-label="Projects" data-i18n-aria-label="ui.ns.projectsLabel" aria-busy="true" tabindex="-1"></div>
             </div>
             <div id="ns-picked" class="ns-note" role="status"></div>
           </div>
           <fieldset class="ns-field ns-role">
-            <legend>Role</legend>
-            <label class="ns-radio"><input type="radio" name="ns-role" value="front" checked> front <span class="ns-hint">a session {{owner}} talks to</span></label>
-            <label class="ns-radio"><input type="radio" name="ns-role" value="back"> back <span class="ns-hint">a background agent, unattended</span></label>
+            <legend data-i18n="common.role">Role</legend>
+            <label class="ns-radio"><input type="radio" name="ns-role" value="front" checked> front <span class="ns-hint" data-i18n="ui.ns.frontHint" data-i18n-arg="{{owner}}">a session {{owner}} talks to</span></label>
+            <label class="ns-radio"><input type="radio" name="ns-role" value="back"> back <span class="ns-hint" data-i18n="ui.ns.backHint">a background agent, unattended</span></label>
           </fieldset>
           <div class="ns-field">
-            <label for="ns-name">Name <span id="ns-name-hint" class="ns-hint">suggested by sala, never one that exists; lowercase letters, digits and dashes</span></label>
+            <label for="ns-name"><span data-i18n="ui.ns.name">Name</span> <span id="ns-name-hint" class="ns-hint" data-i18n="ui.ns.nameHint">suggested by sala, never one that exists; lowercase letters, digits and dashes</span></label>
             <input id="ns-name" type="text" autocapitalize="off" spellcheck="false" maxlength="48" aria-describedby="ns-name-hint ns-name-err">
             <div id="ns-name-err" class="ns-err" role="alert"></div>
           </div>
           <div class="ns-field">
-            <label for="ns-mandate">Mandate <span id="ns-mandate-hint" class="ns-hint">optional for a front agent</span></label>
-            <textarea id="ns-mandate" rows="2" placeholder="What this session is for, in its own words. The session reads it at its first prompt." aria-describedby="ns-mandate-hint ns-mandate-err"></textarea>
+            <label for="ns-mandate"><span data-i18n="ui.ns.mandate">Mandate</span> <span id="ns-mandate-hint" class="ns-hint" data-i18n="ui.ns.mandateHint">optional for a front agent</span></label>
+            <textarea id="ns-mandate" rows="2" placeholder="What this session is for, in its own words. The session reads it at its first prompt." data-i18n-placeholder="ui.ns.mandatePh" aria-describedby="ns-mandate-hint ns-mandate-err"></textarea>
             <div id="ns-mandate-err" class="ns-err" role="alert"></div>
           </div>
           <details class="ns-more">
-            <summary>Lane, model, effort <span class="ns-hint">use default = what a new session follows now</span></summary>
+            <summary><span data-i18n="ui.ns.more">Lane, model, effort</span> <span class="ns-hint" data-i18n="ui.ns.defaultHint">use default = what a new session follows now</span></summary>
             <div class="ns-grid">
-              <label>Lane <select id="ns-lane"><option value="">use default</option></select></label>
-              <label>Model <select id="ns-model"><option value="">use default</option></select>
-                <input id="ns-model-other" type="text" placeholder="a model id, e.g. claude-opus-5" autocapitalize="off" spellcheck="false" maxlength="64" aria-label="Model id" hidden></label>
-              <label>Effort <select id="ns-effort"><option value="">use default</option></select></label>
+              <label><span data-i18n="common.lane">Lane</span> <select id="ns-lane"><option value="" data-i18n="ui.ns.useDefault">use default</option></select></label>
+              <label><span data-i18n="common.model">Model</span> <select id="ns-model"><option value="" data-i18n="ui.ns.useDefault">use default</option></select>
+                <input id="ns-model-other" type="text" placeholder="a model id, e.g. claude-opus-5" data-i18n-placeholder="ui.ns.modelPh" autocapitalize="off" spellcheck="false" maxlength="64" aria-label="Model id" data-i18n-aria-label="ui.ns.modelId" hidden></label>
+              <label><span data-i18n="common.effort">Effort</span> <select id="ns-effort"><option value="" data-i18n="ui.ns.useDefault">use default</option></select></label>
             </div>
           </details>
           <div class="ns-foot">
             <div class="ns-actions">
-              <button id="ns-submit" class="ns-submit" type="submit" disabled>Create session</button>
-              <span id="ns-pending" class="ns-hint" hidden>Working…</span>
+              <button id="ns-submit" class="ns-submit" type="submit" disabled data-i18n="ui.ns.create">Create session</button>
+              <span id="ns-pending" class="ns-hint" hidden data-i18n="ui.ns.working">Working…</span>
             </div>
             <div id="ns-status" class="ns-status" role="status" aria-live="polite"></div>
           </div>
@@ -551,43 +555,43 @@
            #side=from:<name> with the session. A blank name is the suggested one. -->
       <form id="sd-form" class="np ns-form" novalidate autocomplete="off">
         <div class="np-col">
-          <p class="ns-hint sd-lead">A short talk, started in one step. Pick a board item, a running session to fork, or both.</p>
+          <p class="ns-hint sd-lead" data-i18n="ui.sd.lead">A short talk, started in one step. Pick a board item, a running session to fork, or both.</p>
           <div class="ns-field">
-            <label id="sd-item-label">Board item <span class="ns-hint">optional: a fresh session about the item, on its project's page</span></label>
+            <label id="sd-item-label"><span data-i18n="ui.sd.item">Board item</span> <span class="ns-hint" data-i18n="ui.sd.itemHint">optional: a fresh session about the item, on its project's page</span></label>
             <div id="sd-item-pick" class="ns-pick" aria-labelledby="sd-item-label"></div>
             <input id="sd-item" type="hidden">
           </div>
           <div id="sd-item-extra" class="sd-block" hidden>
             <div class="ns-field">
-              <label for="sd-project">Project <span class="ns-hint">the item's project page; filled in from the item</span></label>
+              <label for="sd-project"><span data-i18n="ui.col.project">Project</span> <span class="ns-hint" data-i18n="ui.sd.projectHint">the item's project page; filled in from the item</span></label>
               <input id="sd-project" type="text" list="sd-projects" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="projects/&lt;slug&gt;">
               <datalist id="sd-projects"></datalist>
             </div>
             <div class="ns-field">
-              <label for="sd-agents">Agents involved <span class="ns-hint">optional, comma-separated; the session reads only the transcript excerpts it needs from them</span></label>
+              <label for="sd-agents"><span data-i18n="ui.sd.agents">Agents involved</span> <span class="ns-hint" data-i18n="ui.sd.agentsHint">optional, comma-separated; the session reads only the transcript excerpts it needs from them</span></label>
               <input id="sd-agents" type="text" autocapitalize="off" spellcheck="false" maxlength="300">
             </div>
           </div>
           <div class="ns-field">
-            <label id="sd-fork-label">Session to fork <span class="ns-hint">optional: continues that running session's conversation</span></label>
+            <label id="sd-fork-label"><span data-i18n="ui.sd.fork">Session to fork</span> <span class="ns-hint" data-i18n="ui.sd.forkHint">optional: continues that running session's conversation</span></label>
             <div id="sd-fork-pick" class="ns-pick" aria-labelledby="sd-fork-label"></div>
             <input id="sd-fork" type="hidden">
           </div>
           <div id="sd-note" class="ns-note" role="status"></div>
           <div id="sd-need" class="ns-hint" role="status"></div>
           <div class="ns-field">
-            <label for="sd-name">Name <span class="ns-hint">blank = suggested by sala (&lt;prefix&gt;-side-&lt;word&gt;&lt;nn&gt;)</span></label>
+            <label for="sd-name"><span data-i18n="ui.ns.name">Name</span> <span class="ns-hint" data-i18n="ui.sd.nameHint">blank = suggested by sala (&lt;prefix&gt;-side-&lt;word&gt;&lt;nn&gt;)</span></label>
             <input id="sd-name" type="text" autocapitalize="off" spellcheck="false" maxlength="48" aria-describedby="sd-name-err">
             <div id="sd-name-err" class="ns-err" role="alert"></div>
           </div>
           <div class="ns-field">
-            <label for="sd-mandate">What to talk about <span class="ns-hint">optional; appended to the session's own brief</span></label>
+            <label for="sd-mandate"><span data-i18n="ui.sd.topic">What to talk about</span> <span class="ns-hint" data-i18n="ui.sd.topicHint">optional; appended to the session's own brief</span></label>
             <textarea id="sd-mandate" rows="3"></textarea>
           </div>
           <div class="ns-foot">
             <div class="ns-actions">
-              <button id="sd-submit" class="ns-submit" type="submit" disabled>Start quick session</button>
-              <span id="sd-pending" class="ns-hint" hidden>Working…</span>
+              <button id="sd-submit" class="ns-submit" type="submit" disabled data-i18n="ui.sd.start">Start quick session</button>
+              <span id="sd-pending" class="ns-hint" hidden data-i18n="ui.ns.working">Working…</span>
             </div>
             <div id="sd-status" class="ns-status" role="status" aria-live="polite"></div>
           </div>
@@ -595,48 +599,51 @@
       </form>
     </section>
     <footer id="composer">
-      <button id="jump" class="jump" type="button" aria-label="Jump to the latest message" hidden>&#8595;</button>
+      <button id="jump" class="jump" type="button" aria-label="Jump to the latest message" data-i18n-aria-label="ui.chat.jump" hidden>&#8595;</button>
       <div id="chips"></div>
       <div id="send-status" role="status"></div>
       <div class="compose-row">
         <!-- attach: a phone has no paste or drop for files; the input takes any file, an image stays a thumbnail -->
-        <button id="attach" class="attach-btn" type="button" aria-label="Attach files" title="Attach files"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 8l-7 7a2 2 0 0 0 3 3l7.5-7.5a4 4 0 0 0-6-6L6 12a6 6 0 0 0 8.5 8.5l6-6"/></svg></button>
+        <button id="attach" class="attach-btn" type="button" aria-label="Attach files" data-i18n-aria-label="ui.cmp.attach" title="Attach files" data-i18n-title="ui.cmp.attach"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 8l-7 7a2 2 0 0 0 3 3l7.5-7.5a4 4 0 0 0-6-6L6 12a6 6 0 0 0 8.5 8.5l6-6"/></svg></button>
         <input id="file-input" type="file" multiple hidden>
         <!-- the composer is CodeMirror 6 (vendor/cm6-composer.min.js), mounted here by app.js: its editable is a
              contenteditable="true" with id="input", which is what a phone keyboard offers its image insertion to (it inserts
              an image only into an editor that declares image types; Chrome on Android does that for a contenteditable, not
              for a textarea); app.js keeps it plain text (the dot drawn for a list marker is not text) -->
         <div id="composer-editor"></div>
-        <button id="send" class="send-btn" aria-label="Send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20V4M6 10l6-6 6 6"/></svg></button>
+        <button id="send" class="send-btn" aria-label="Send" data-i18n-aria-label="common.send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20V4M6 10l6-6 6 6"/></svg></button>
       </div>
       <div id="model-line" class="model-line" hidden></div>
     </footer>
     <!-- the shell drawer: a small console under the page, a bottom sheet over it on a phone. A ttyd frame on
          /tty/?arg=<shell session>, loaded the first time it opens (app.js, "the shell drawer"); closing it hides it and the
          shell keeps running. The key row is the phone's: Esc, Tab, Ctrl, arrows and Ctrl+C that a soft keyboard lacks -->
-    <section id="shell-drawer" class="shell-drawer" aria-label="Shell" hidden>
-      <div id="shell-handle" class="shell-handle" role="separator" aria-orientation="horizontal" aria-label="Resize the shell" tabindex="0"><span></span></div>
+    <section id="shell-drawer" class="shell-drawer" aria-label="Shell" data-i18n-aria-label="common.shell" hidden>
+      <div id="shell-handle" class="shell-handle" role="separator" aria-orientation="horizontal" aria-label="Resize the shell" data-i18n-aria-label="ui.shell.resize" tabindex="0"><span></span></div>
       <div class="shell-head">
-        <span class="shell-title">Shell</span>
+        <span class="shell-title" data-i18n="common.shell">Shell</span>
         <span id="shell-chip" class="shell-chip"></span>
         <span id="shell-note" class="shell-note" role="status"></span>
-        <a id="shell-full" class="shell-full" href="terminal" target="_blank" rel="noopener">Open full size</a>
-        <button id="shell-close" class="shell-close" type="button" title="Close (the shell keeps running)" aria-label="Close the shell"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><span class="shell-close-word">Close</span></button>
+        <a id="shell-full" class="shell-full" href="terminal" target="_blank" rel="noopener" data-i18n="ui.shell.full">Open full size</a>
+        <button id="shell-close" class="shell-close" type="button" title="Close (the shell keeps running)" data-i18n-title="ui.shell.closeTip" aria-label="Close the shell" data-i18n-aria-label="ui.shell.closeLabel"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><span class="shell-close-word" data-i18n="common.close">Close</span></button>
       </div>
       <div id="shell-term" class="shell-term"></div>
-      <div id="shell-keys" class="shell-keys" role="toolbar" aria-label="Terminal keys">
+      <div id="shell-keys" class="shell-keys" role="toolbar" aria-label="Terminal keys" data-i18n-aria-label="ui.shell.keys">
         <button type="button" data-key="Escape">Esc</button>
         <button type="button" data-key="Tab">Tab</button>
         <button type="button" id="shell-ctrl" data-key="ctrl" aria-pressed="false">Ctrl</button>
-        <button type="button" data-key="Up" aria-label="Up">&uarr;</button>
-        <button type="button" data-key="Down" aria-label="Down">&darr;</button>
+        <button type="button" data-key="Up" aria-label="Up" data-i18n-aria-label="ui.shell.up">&uarr;</button>
+        <button type="button" data-key="Down" aria-label="Down" data-i18n-aria-label="ui.shell.down">&darr;</button>
         <button type="button" data-key="C-c">Ctrl+C</button>
       </div>
     </section>
   </main>
   <div id="shell-scrim" class="shell-scrim"></div>
 </div>
-<div id="drop-hint">Drop files to attach</div>
+<div id="drop-hint" data-i18n="ui.cmp.drop">Drop files to attach</div>
+<script src="static/i18n-en.js?v={{v}}"></script>
+<script src="static/i18n-ko.js?v={{v}}"></script>
+<script src="static/i18n.js?v={{v}}"></script>
 <script src="static/shared.js?v={{v}}"></script>
 <script src="static/termclip.js?v={{v}}"></script>
 <script src="static/sessions.js?v={{v}}"></script>

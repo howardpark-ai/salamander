@@ -12,7 +12,7 @@
   if (arg) document.title = arg;
   const frame = document.createElement("iframe");
   frame.src = base + encodeURIComponent(arg);
-  frame.title = arg ? "Terminal for " + arg : "Terminal";
+  frame.title = arg ? tl("term.frameTitleFor", { name: arg }) : tl("ui.hdr.terminal");
   frame.allow = "clipboard-read; clipboard-write";
   document.getElementById("term-full").append(frame);
   hookTerminalClipboard(frame);

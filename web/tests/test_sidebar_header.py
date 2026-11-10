@@ -58,7 +58,7 @@ def test_the_markup_has_the_icon_and_the_words_and_the_name_stays_sala(tmp_path)
     assert '<img class="brand-icon" src="static/icons/icon-192.png" width="20" height="20" alt="">' in html
     assert f'<span class="brand">{TEXT}</span>' in html and "{{brand}}" not in html           # the full text is in the served page (no flash); app.js repaints it from api/config
     assert c.get("/api/config").json()["brand"] == SUFFIX
-    assert "<title>sala</title>" in html and "<span>sala was updated.</span>" in html          # the page's name and the banner keep "sala"
+    assert "<title>sala</title>" in html and '<span data-i18n="ui.banner.updated">sala was updated.</span>' in html          # the page's name and the banner keep "sala"
     assert c.get("/manifest.webmanifest").json()["name"] == "sala"
     assert c.get("/static/icons/icon-192.png").status_code == 200                              # the file the header and the installed app share
 

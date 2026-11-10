@@ -26,12 +26,15 @@ const BOXES = ["front", "back", "sub", "unknown", "messages", "tools", "output",
 const DEFAULT_ON = new Set(["front", "messages"]);   // a search started from the box: front agents' messages
 const DEFAULT_HOURS = "6";                           // ... of the last 6 hours (an address that names its hours keeps them)
 const HOURS = ["1", "6", "24", "72", "168"];
-const ROLE_WORD = { front: "front", back: "background", unknown: "role unknown" };
-const KIND_WORD = { messages: "message", tools: "tool call", output: "tool output", thinking: "thinking" };
-const PRESET_WORD = { 1: "1 h", 6: "6 h", 24: "24 h", 72: "3 days", 168: "7 days" };
-const se = { hours: DEFAULT_HOURS, ran: null, hash: "", data: null, shown: PAGE, seq: 0, ctl: null, error: "" };
+const ROLE_WORD = { front: "srch.role.front", back: "srch.role.back", unknown: "srch.role.unknown" };
+const KIND_WORD = { messages: "srch.kind.messages", tools: "srch.kind.tools", output: "srch.kind.output", thinking: "srch.kind.thinking" };
+const PRESET_WORD = { 1: "ui.se.h1", 6: "ui.se.h6", 24: "ui.se.h24", 72: "ui.se.d3", 168: "ui.se.d7" };
+/* error: what failed, as { status, detail } (an HTTP status the page words itself, or a text from the server or the browser, shown as it is);
+   msg: the page's own line while there is no answer ({ key, cls }). Both are worded when drawn, so a language change words them again. */
+const se = { hours: DEFAULT_HOURS, ran: null, hash: "", data: null, shown: PAGE, seq: 0, ctl: null, error: null, msg: null };
 const $in = (sel) => document.querySelector("#search-pane " + sel);
-const num = (n) => Number(n).toLocaleString("en-US");
+const num = (n) => SalaI18n.number(Number(n));
+const errText = (er) => tl("srch.err.failed", { error: er.status ? tl("common.serverAnswered", { status: er.status }) : er.detail });
 
 /* ---------- the address: #search?<the api/search parameters> ---------- */
 function params(f) {
@@ -79,21 +82,22 @@ async function run(f) {
   se.hash = hashOf(f);
   if (se.ctl) { se.ctl.abort(); se.ctl = null; }
   const seq = ++se.seq;
-  se.data = null; se.error = "";
-  if (!f.q) { render(); say("Type something in the search box above.", "error"); return; }
-  if (f.hours === "dates" && !f.from) { render(); say("Pick a From date and time (the To is optional).", "error"); return; }
+  se.data = null; se.error = null;
+  if (!f.q) { se.msg = { key: "srch.msg.type", cls: "error" }; render(); return; }
+  if (f.hours === "dates" && !f.from) { se.msg = { key: "srch.msg.pickFrom", cls: "error" }; render(); return; }
   const ctl = se.ctl = new AbortController();
+  se.msg = { key: "srch.msg.searching", cls: "" };
   render();
-  say("Searching…", "");
   try {
     const r = await apiFetch("api/search?" + params(f), { cache: "no-store", signal: ctl.signal }, { tries: 1 });
     const d = await r.json().catch(() => ({}));
     if (seq !== se.seq) return;
-    if (!r.ok) throw new Error(d.error || "the server answered " + r.status);
-    se.data = d; se.shown = PAGE;
+    if (!r.ok) throw d.error ? new Error(d.error) : Object.assign(new Error("the server answered " + r.status), { status: r.status });
+    se.data = d; se.shown = PAGE; se.msg = null;
   } catch (e) {
     if (seq !== se.seq || (e && e.name === "AbortError")) return;
-    se.error = "The search failed: " + (e && e.message ? e.message : e);
+    se.error = { status: e && e.status, detail: e && e.message ? e.message : String(e) };
+    se.msg = null;
   }
   se.ctl = null;
   render();
@@ -134,18 +138,18 @@ function snippetNodes(parts) {
 
 function hitRow(h) {
   const live = state.byName.has(h.name);
-  const kind = (h.kind === "tools" && h.tool ? KIND_WORD.tools + " · " + h.tool : KIND_WORD[h.kind] || h.kind);
+  const kind = (h.kind === "tools" && h.tool ? tl(KIND_WORD.tools) + " · " + h.tool : KIND_WORD[h.kind] ? tl(KIND_WORD[h.kind]) : h.kind);
   const meta = el("div", { class: "se-meta" },
     el("span", { class: "se-t", title: h.at || null, text: h.when || "" }),
     el("span", { class: "se-name", text: h.name }),
-    el("span", { class: "se-role " + h.role, text: ROLE_WORD[h.role] || h.role }),
-    h.sub ? el("span", { class: "se-sub", text: "› subagent" }) : null,
-    live ? null : el("span", { class: "se-gone", text: "not running" }),
+    el("span", { class: "se-role " + h.role, text: ROLE_WORD[h.role] ? tl(ROLE_WORD[h.role]) : h.role }),
+    h.sub ? el("span", { class: "se-sub", text: tl("srch.hit.sub") }) : null,
+    live ? null : el("span", { class: "se-gone", text: tl("srch.hit.gone") }),
     el("span", { class: "se-kind", text: kind }));
   const body = el("div", { class: "se-x" + (h.kind === "tools" ? " code" : "") }, ...snippetNodes(h.snippet));
   const li = el("li", { class: "se-hit" + (live ? " open" : ""), "data-agent": h.agent });
   if (!live) { li.append(meta, body); return li; }
-  const a = el("a", { class: "se-link", href: "#s=" + encodeURIComponent(h.name), title: "Open " + h.name + "'s chat at this entry" }, meta, body);
+  const a = el("a", { class: "se-link", href: "#s=" + encodeURIComponent(h.name), title: tl("srch.hit.open", { name: h.name }) }, meta, body);
   a.addEventListener("click", (e) => {
     if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
@@ -168,22 +172,23 @@ function drawCounts() {
 }
 
 function summaryLine(d) {
-  const range = se.ran.hours === "dates" ? d.fromText + " to " + d.toText : (PRESET_WORD[se.ran.hours] || se.ran.hours + " h") + " to " + d.toText;
+  const from = se.ran.hours === "dates" ? d.fromText : PRESET_WORD[se.ran.hours] ? tl(PRESET_WORD[se.ran.hours]) : tl("srch.preset.hours", { n: se.ran.hours });
+  const range = tl("srch.range", { from, to: d.toText });
   const secs = d.elapsedMs < 950 ? (d.elapsedMs / 1000).toFixed(1) : String(Math.round(d.elapsedMs / 100) / 10);
   const n = d.matches;
-  return `${num(n)} ${n === 1 ? "match" : "matches"} for “${se.ran.q}”, newest first · ${range} · searched in ${secs} s`;
+  return tl("srch.summary", { n, count: num(n), q: se.ran.q, range, secs });
 }
 
 /* what a search that found nothing can say: which unticked box has matches */
 function emptyHint(d) {
   const off = [];
-  const names = { front: "Front agents", back: "Background agents", sub: "Their subagents", unknown: "Role unknown",
-                  messages: "Messages", tools: "Tool calls", output: "Tool output", thinking: "Thinking" };
+  const names = { front: tl("ui.se.front"), back: tl("ui.se.back"), sub: tl("ui.se.sub"), unknown: tl("ui.se.unknown"),
+                  messages: tl("ui.se.messages"), tools: tl("ui.se.tools"), output: tl("ui.se.output"), thinking: tl("ui.se.thinking") };
   for (const b of BOXES) {
     const n = b in d.counts.agents ? d.counts.agents[b] : d.counts.content[b];
     if (!se.ran.boxes[b] && n > 0) off.push(`${names[b]} (${num(n)})`);
   }
-  return off.length ? " Unticked boxes hold more: " + off.join(", ") + "." : "";
+  return off.length ? " " + tl("srch.hint.more", { list: off.join(", ") }) : "";
 }
 
 function render() {
@@ -193,19 +198,20 @@ function render() {
   const d = se.data;
   if (!d) {
     list.replaceChildren(); more.hidden = true;
-    if (se.error) say(se.error, "error");
+    if (se.error) say(errText(se.error), "error");
+    else if (se.msg) say(tl(se.msg.key), se.msg.cls);
     return;
   }
   sum.className = "se-summary";
   sum.replaceChildren(summaryLine(d));
-  if (!d.matches) sum.append(" No matches." + emptyHint(d));
-  if (d.capped) sum.append(el("div", { class: "se-warn", text: `Showing the newest ${num(d.shown)} of ${num(d.matches)} matches; narrow the range or add a word to see the rest.` }));
-  if (d.timedOut) sum.append(el("div", { class: "se-warn", text: `Stopped after ${num(d.deadlineS)} s: only the newest part of the range was read. Narrow the range.` }));
+  if (!d.matches) sum.append(" " + tl("srch.none") + emptyHint(d));
+  if (d.capped) sum.append(el("div", { class: "se-warn", text: tl("srch.capped", { shown: num(d.shown), matches: num(d.matches) }) }));
+  if (d.timedOut) sum.append(el("div", { class: "se-warn", text: tl("srch.timedOut", { secs: num(d.deadlineS) }) }));
   const rows = d.results.slice(0, se.shown).map(hitRow);
   list.replaceChildren(...rows);
   const left = d.results.length - rows.length;
   more.hidden = left <= 0;
-  if (left > 0) more.textContent = "Show " + Math.min(PAGE, left) + " more";
+  if (left > 0) more.textContent = tl("srch.more", { n: Math.min(PAGE, left) });
 }
 
 /* ---------- the filters ---------- */
@@ -213,7 +219,7 @@ function setRange(h) {
   se.hours = h;
   for (const c of document.querySelectorAll("#search-pane #se-range .se-chip")) c.setAttribute("aria-pressed", String(c.dataset.hours === h));
   $in("#se-dates").hidden = h !== "dates";
-  if (h === "dates") $in("#se-zone").textContent = zone.label ? "in " + zone.label : "";
+  if (h === "dates") $in("#se-zone").textContent = zone.label ? tl("srch.inZone", { zone: zone.label }) : "";
 }
 
 let bound = false;
@@ -242,6 +248,8 @@ function show(h) {
   if (hashOf(f) === se.hash && (se.data || se.error || se.ctl)) { render(); return; }
   run(f);
 }
+/* the language changed: the page is worded again from the answer it holds (no new search); the typed query and filters are not touched */
+SalaI18n.onChange(() => { if (bound) { setRange(se.hours); render(); } });
 function hide() {
   if (se.ctl) { se.ctl.abort(); se.ctl = null; se.hash = ""; }   // a search cut short is not kept: the page asks again when it comes back
 }

@@ -165,7 +165,7 @@ def test_the_header_markup_and_styles():
         < INDEX.index('id="top-menu-btn"') < INDEX.index('id="top-tools"') < INDEX.index("</header>")
     assert 'id="board-chip"' not in INDEX and "bchip" not in INDEX + CSS   # the item count button is gone
     assert 'id="top-bar"' not in INDEX and "top-bar" not in CSS   # Chat/Terminal and Reload are no longer a bar of their own
-    assert 'id="top-menu-btn" class="icon-btn" aria-label="View options" aria-expanded="false" aria-controls="top-tools">' in INDEX
+    assert 'id="top-menu-btn" class="icon-btn" aria-label="View options" data-i18n-aria-label="ui.hdr.viewOptions" aria-expanded="false" aria-controls="top-tools">' in INDEX
     bar = INDEX[INDEX.index('id="title"'):INDEX.index('id="top-tools"')]
     menu = INDEX[INDEX.index('id="top-tools"'):INDEX.index("</header>")]
     assert 'class="tabs"' not in bar and 'id="show-tools"' not in bar and 'class="pill' not in bar   # nothing static in the bar

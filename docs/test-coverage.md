@@ -260,6 +260,41 @@ Held in a headless Chromium with the banner shown, dark then light (the theme se
 solid 2 px outline. The test fails on the old stylesheet. Not covered, and why: a color-tool theme with custom values (the tokens it sets are the same ones read here, and its wiring has
 its own tests in `test_colortool_wiring.py`), and how the strip looks to the eye (colors and contrast are computed, not seen).
 
+### The page in Korean or English: `web/tests/test_i18n.py` new, 14; `test_i18n_browser.py` new, 6; `i18n_node.py` helper; 18 files changed (Tue Nov 10th 2026)
+
+The page's words now come from two tables (`static/i18n-en.js`, every key; `static/i18n-ko.js`, Korean only, every character written
+as a `\u` escape) through `tl()` and the `data-i18n` attributes, and a KO/EN control at the foot of the session list switches them
+(*The language*, in `web/README.md`). A wrong answer is a key a script names that no table has (the page then shows the key), a
+Korean table that lost a key or kept English in one, a placeholder dropped from one language so a name or a count goes missing, the
+markup's English drifting from its table (the words a person sees before the scripts run), a Hangul character committed anywhere but
+the one Korean file, a page that flashes English before it turns Korean, a switch that wipes a half-typed message or translates the
+chat, or a saved choice that does not survive a reload.
+
+`test_i18n.py` holds, without a browser: every key the page files name (`tl`, `tx`, the `data-i18n*` attributes) is in the English
+table and every English key is named somewhere; the Korean table has every key (the one plural form for a count), none empty, none
+left as the English (the few words both languages keep are listed), the same `{name}` placeholders as the English; a key with a
+count has both English forms; the markup's text, titles, placeholders and aria labels equal the English table's words for the key
+they name (`index.html` and `terminal.html`); the script order the lookup needs; Korean text only in `i18n-ko.js`, which is ASCII,
+and no Hangul byte in the shipped source, the docs or the new test files; the lookup run in node (placeholders, plural forms, the
+fallback from Korean to English to the key itself, an unknown language read as English); relative ages and the "updated" line and
+the queued-start wait words in both languages; both pages served with the saved language in `<html lang>` and no `{{lang}}` left, a
+language the page does not have refused with nothing changed, the three script files served.
+`test_i18n_browser.py` holds, in a headless Chromium: the page starts in English with the control showing EN; a tap on KO rewords
+the sidebar, the composer's hint and the buttons, sets `lang="ko"`, saves it on the server and keeps it over a reload; the chat's
+text and a half-typed composer message are the same after the switch and a tap on EN restores every English word; the age on a
+message and the date in its tooltip change language; the New session form keeps what was typed in it and rewords its labels and
+placeholder; a choice saved on the server is the language at the first paint.
+Existing tests changed (18 files, no English word changed): the ones that pinned the page's markup now carry the `data-i18n*` attributes in
+what they pin (`test_composer_attach.py`, `test_header_fold.py`, `test_header_menu.py`, `test_name.py`, `test_new_session.py`,
+`test_overview_actions.py`, `test_overview_columns.py`, `test_reload_menu.py`, `test_schedules.py`, `test_shell_drawer.py`,
+`test_sidebar_header.py`); the ones that pinned a wording inside a script look for the key and the English table's text
+(`test_lane_dormant.py`, `test_usage_digest.py`, `test_schedules.py`); the ones that cut a function out of `shared.js`, `machines.js` or
+`sessions.js` and run it in node put `i18n_node.prelude()` in front, the English table and the lookup (`test_spawn_follow.py`,
+`test_machines_ui.py`, `test_lane_cards_nowrap.py`); `test_colortool_wiring.py` (the colors control now sits in `#side-foot` beside the
+language control); `test_prefs.py` (the `lang` pref and its refusals).
+Not covered: that the Korean wording reads well (a person checks that), the strings sala itself sends (a queue note, an error text,
+a quota label: shown as sent), the color tool's own text (a pinned shared file, English), a real phone's keyboard.
+
 ### `web/tests/test_new_session_created_name.py` new, 8: the name field is emptied when the created session shows in the list (Tue Nov 10th 2026)
 
 After Create (or Start) succeeded the session reached the page's list while the name field still held its name, and the name check

@@ -172,7 +172,7 @@ def test_each_page_loads_the_tool_then_the_wiring_once_and_only_the_main_pages_s
         assert page.count(INIT) == (0 if what == "terminal" else 1), what
     # the mount: the last thing in the side panel, under "Show all sessions" and the note, and nothing else in the page
     side = served["main"].split('<aside id="sidebar">', 1)[1].split("</aside>", 1)[0]
-    assert re.findall(r'id="([\w-]+)"', side)[-3:] == ["show-back", "side-note", "side-colors"]
+    assert re.findall(r'id="([\w-]+)"', side)[-3:] == ["side-note", "side-foot", "side-colors"]   # the color control sits in the foot, beside the language control
     assert served["main"].count('id="side-colors"') == 1
     assert 'id="side-colors"' not in served["terminal"]
 
@@ -420,7 +420,7 @@ def test_the_button_sits_last_in_the_side_panel_and_the_panel_opens_upward_fits_
     g = browser.evaluate(GEOMETRY)
     assert g["buttons"] == 1 and g["inSidebar"] and g["btnPosition"] not in ("fixed", "absolute"), g          # one button, in the panel, in the flow
     assert g["fixed"] == [], f"a fixed element of the tool is on the page before the panel is opened: {g['fixed']}"      # no floating corner button
-    assert g["last"] == "side-colors", g
+    assert g["last"] == "side-foot", g   # the foot holds the color control and the language control
     assert g["btn"]["t"] >= g["toggle"]["b"] - 0.5, ("the button is not under 'Show all sessions'", g)
     assert g["colors"]["b"] >= g["side"]["b"] - 1 and g["btn"]["b"] <= g["side"]["b"], ("not at the very bottom of the panel", g)     # pinned at the bottom
     assert g["btn"]["l"] >= g["side"]["l"] and g["btn"]["r"] <= g["side"]["r"], g
