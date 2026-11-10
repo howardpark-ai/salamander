@@ -821,11 +821,13 @@ project page, the lane must be able to launch, one live session per name). What 
   agent of a project in the lists it holds) or a `-main` for a project that has agents, and picks a word itself if sala cannot be asked.
   "Create will add <name> to it" names the same name. It stays until the owner edits it; checked as the backend
   checks it (lowercase letters, digits and dashes, no dash at either end, 48 characters at most), the error inline, and a name of a
-  running session is refused in the form. **The name the page has just created is the one exception to that warning**: once Create
-  has queued a session, that exact name is no clash (the session is in the list by then, and "running already" would read as if
-  something had gone wrong), so it shows no error text, and Create stays disabled for it (it cannot be sent twice). The first edit
-  of the name drops this, and the ordinary checks apply again: another running session's name shows the warning, a fresh name
-  enables Create (`ns.created` in `app.js`; `test_new_session_created_name.py`).
+  running session is refused in the form. **A create that is queued empties the name field**, so the page never calls its own new session a clash
+  (the session is in the list a moment later, and "running already" under its name would read as if something had gone wrong).
+  The result line and the Open button stay as they are, Create is off for want of a name, and nothing fills the field again by
+  itself (a reload of the project list skips the suggestion; picking a project, changing the role or typing in the box asks for
+  one on purpose). A create that fails keeps the typed name for the retry. Typing a name afterwards works as usual, the
+  running-already warning for another running session's name included (`nsSubmit` in `app.js`;
+  `test_new_session_created_name.py`).
 - **Mandate**: a plain textarea, no key of it intercepted (Enter is a new line, Tab leaves the box; an IME's
   keys are its own). Optional for a front agent, required for a back one (nobody briefs a background agent). 20 KB.
 - **Lane, model, effort** fold away under *Lane, model, effort*; the first choice of each is **use default (<value>)** with the
@@ -928,9 +930,9 @@ in the form, in a box of its own.
   menu in the sidebar is this link.
 
 Start shows the queued operation and, once the session is in the list, a link to it, as the New session form does. Nothing is
-logged; a refusal is text. A name typed for the quick session follows the same rule as the New session form's: once Start has
-queued it, that exact name shows no "running already" text and Start stays disabled for it until the name is edited
-(`sd.created`).
+logged; a refusal is text. Like the New session form, a start that is queued empties the name field (the result line and the Open
+link stay), so its check cannot call the session just started a clash; a blank name is valid here (sala suggests one), so Start
+stays available. A start that fails keeps the typed name.
 
 ## Schedules
 

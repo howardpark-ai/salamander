@@ -248,20 +248,22 @@ Not covered, and why: a physical phone's browser, status bar and the installed a
 stubs are small); the Quick session and lane pages in `test_look_browser.py` (they call sala's CLI, which tests do not run; the lane page has its own tests); that the page looks right
 (judged by eye from screenshots at 390 and 1280 px against the page at `/v2/` before the switch, there is no pixel test).
 
-### `web/tests/test_new_session_created_name.py` new, 3: a page never calls the session it just created a clash (Tue Nov 10th 2026)
+### `web/tests/test_new_session_created_name.py` new, 5: a finished create empties the name field (Tue Nov 10th 2026)
 
 After Create (or Start) succeeded the session reached the page's list while the name field still held its name, and the name check
-answered "A session called <name> is running already. Pick another name." for the session the page itself had queued. The pages now
-remember the name they queued (`ns.created`, `sd.created`): that exact name shows no error text and the button stays disabled, and
-the first edit of the name drops the memory. A wrong answer is the warning back under a session that started fine, a button left
-enabled for the created name (the same name queued twice), or a fix that switches the running-already warning off for every name.
+answered "A session called <name> is running already. Pick another name." for the session the page itself had queued. A queued
+create now empties the name field on both pages (the result line and the Open button stay; Create is off for want of a name; nothing
+refills the field by itself, the list's reload skipping its suggestion), and a failed create keeps the typed name. A wrong answer is
+the warning back under a session that started fine, a field that refills with another name beside the finished result, a name lost
+after a refusal, or a fix that switches the running-already warning off for every name.
 Held in a headless Chromium through each page's own submit against the stand-in sala: New session, Create, the operation running,
-the session in the list and the Ready link; then the name error is empty and Create disabled, a click on it queues nothing (one
-spawn recorded); another running session's name shows the warning and keeps Create disabled; a fresh name enables Create; the created
-name typed again is an ordinary edit and shows the warning. A second test reads the error between "starting" and "ready", the
-moment the session lands in the list. The Quick session test does the same with Start and its own wording. Not covered: a created
-name whose session ends later (the name has to be edited before it can be sent again), and what the page does when the session never
-appears (`test_new_session.py`).
+the session in the list and the Ready link; then the field and its error text are empty, the result line and the Open link are still
+shown, Create is off and a click on it queues nothing; the project list read again leaves the field empty; another running session's
+name typed afterwards shows the warning and keeps Create off; a fresh name enables Create and the result stays. A second test reads
+the field from the moment the create is queued through starting to ready. A third refuses the create: the typed name stays, Create
+can be pressed again, and the retry is queued under the same name. Quick session: the same success test (the field empty, the result
+and link shown; a blank name is valid there, so Start stays available) and a refused start that keeps the typed name. Not covered: a
+real phone's keyboard, and the session list never showing the name (`test_new_session.py`).
 
 ### `web/tests/test_composer_touch_row.py` new, 2: the one-line composer row stays 48 px on a phone (Mon Nov 9th 2026)
 

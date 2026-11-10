@@ -875,7 +875,7 @@ const NS_HIDDEN_LABEL = "existing pages, not listed";
 const ns = { dups: new Set(), options: null, optionsAt: 0, scopes: [], scope: null, listed: {}, listedAt: {}, hiddenRows: [], hiddenScope: "",
              listError: null, loading: false, listSeq: 0, qTimer: null, picked: null, pickedNew: false, nameEdited: false, suggestSeq: 0,
              pending: false, result: null, track: null, tick: null, open: false, from: null, done: new Set(), refs: new Map(), folded: false,
-             created: null };   // created: the name this page queued last; it is no clash and cannot be sent again, until the name changes
+             afterCreate: false };   // afterCreate: the name was emptied by a finished create; the list's reload does not suggest another
 const nsEl = {
   pane: $("#new-pane"), btn: $("#side-new"), form: $("#ns-form"),
   scopes: $("#ns-scopes"), filter: $("#ns-filter"), list: $("#ns-projects"), picked: $("#ns-picked"), name: $("#ns-name"),
@@ -1003,7 +1003,7 @@ async function nsLoadProjects() {
   }
   ns.loading = false;
   nsRenderProjects();
-  if (!nsEl.name.value) nsSuggest();
+  if (!nsEl.name.value && !ns.afterCreate) nsSuggest();
   nsValidate();
 }
 // what the box shows: the listed rows that hold the typed text, then the hidden matches stackshot sent for it
@@ -1162,6 +1162,7 @@ function nsLocalName(prefix, role, hasAgents, known) {
   return "";
 }
 async function nsSuggest() {
+  ns.afterCreate = false;   // a pick, a role change or typing in the box asks for a name on purpose
   const sel = nsSelection();
   if (!sel || ns.nameEdited) return;
   const seq = ++ns.suggestSeq, role = nsRole(), prefix = nsPrefixOf(sel), known = nsKnownNames(sel), hasAgents = Object.keys(sel.agents || {}).length > 0;
@@ -1227,11 +1228,9 @@ function nsValidate() {
   const o = ns.options || {};
   const nameMax = o.nameMax || 48, mandateMax = o.mandateMax || 20480;
   const name = nsEl.name.value.trim(), role = nsRole(), mandate = nsEl.mandate.value;
-  if (ns.created && name !== ns.created) ns.created = null;   // the name was changed: the ordinary checks apply again
-  const own = !!ns.created;   // the session this page just queued: its name is taken, but it is no clash to warn about
   const nameErr = name && (!NS_NAME_RE.test(name) || name.length > nameMax)
     ? `Lowercase letters, digits and dashes, no dash at either end, at most ${nameMax} characters.`
-    : name && !own && state.byName.has(name) ? `A session called ${name} is running already. Pick another name.` : "";
+    : name && state.byName.has(name) ? `A session called ${name} is running already. Pick another name.` : "";
   nsEl.nameErr.textContent = nameErr;
   const bytes = utf8Len(mandate);
   const mandateErr = bytes > mandateMax ? `The mandate is over ${Math.round(mandateMax / 1024)} KB (${Math.round(bytes / 1024)} KB).`
@@ -1242,7 +1241,7 @@ function nsValidate() {
   nsEl.modelOther.hidden = nsEl.model.value !== NS_OTHER;
   const modelOk = nsEl.model.value !== NS_OTHER || (nsEl.modelOther.value.trim() !== "" && NS_MODEL_RE.test(nsEl.modelOther.value.trim()));
   const busy = nsBusyOf(ns.result);
-  const ok = !!nsSelection() && !!name && !nameErr && !own && !mandateErr && modelOk && !ns.pending && !busy;
+  const ok = !!nsSelection() && !!name && !nameErr && !mandateErr && modelOk && !ns.pending && !busy;
   nsBusyButton(nsEl.submit, busy || ns.pending);
   nsEl.submit.disabled = !ok;
   return ok;
@@ -1309,6 +1308,10 @@ async function nsSubmit(e) {
   clearInterval(ns.tick); ns.tick = null;
   ns.pending = false;
   nsEl.pending.hidden = true;
+  if (ns.result && ns.result.kind === "queued") {   // the session is queued: its name is taken, so the field is emptied (never on a failure: the name stays for the retry)
+    ns.suggestSeq++; ns.nameEdited = false; ns.afterCreate = true;   // no suggestion in flight or from a reload of the list refills it
+    nsEl.name.value = "";
+  }
   nsRenderStatus();
   nsValidate();
 }
@@ -1368,7 +1371,6 @@ async function nsRun(sel, body, res) {
     const out = await nsPost("api/spawn", { ...body, project: sel.key });
     if (out.status === 202 && out.d.ok) {
       step("spawn").state = "done";
-      ns.created = body.name;
       ns.result = { kind: "queued", op: out.d.op, name: out.d.name, project: out.d.project, role: out.d.role, since: Date.now(), state: "queued", opState: "", opResult: "",
                     steps: res.steps, pageOwed: res.pageOwed };
       nsTrack();
@@ -1577,7 +1579,7 @@ const sdEl = { form: $("#sd-form"), item: $("#sd-item"), project: $("#sd-project
   name: $("#sd-name"), nameErr: $("#sd-name-err"), mandate: $("#sd-mandate"), submit: $("#sd-submit"), pending: $("#sd-pending"),
   status: $("#sd-status"), note: $("#sd-note"), need: $("#sd-need"), extra: $("#sd-item-extra"),
   projects: $("#sd-projects"), itemPick: $("#sd-item-pick"), forkPick: $("#sd-fork-pick") };
-const sd = { applied: null, pending: false, result: null, track: null, tick: null, nameEdited: false, suggestSeq: 0, lookupSeq: 0, created: null };   // created: as ns.created
+const sd = { applied: null, pending: false, result: null, track: null, tick: null, nameEdited: false, suggestSeq: 0, lookupSeq: 0 };
 const sdItemId = () => sdEl.item.value.trim();
 const sdForkName = () => sdEl.fork.value.trim();
 function sdDecode(t) { try { return decodeURIComponent(t); } catch { return t; } }
@@ -1764,17 +1766,15 @@ function sdNeed() {
 }
 function sdValidate() {
   const name = sdEl.name.value.trim();
-  if (sd.created && name !== sd.created) sd.created = null;
-  const own = !!sd.created;   // the session this page just queued: no clash, and not to be sent again
   let err = "";
   if (name && (!SD_NAME_RE.test(name) || !name.includes("-side-") || name.length > 48)) err = "Lowercase letters, digits and dashes, with -side- in it, at most 48 characters; or leave it blank.";
-  else if (name && !own && state.byName.has(name)) err = `A session called ${name} is running already. Pick another name, or leave it blank.`;
+  else if (name && state.byName.has(name)) err = `A session called ${name} is running already. Pick another name, or leave it blank.`;
   sdEl.nameErr.textContent = err;
   sdEl.extra.hidden = !(sdItemId() && !sdForkName());   // the project and the agents belong to an item without a fork
   const need = sdNeed();
   sdEl.need.textContent = need;
   const busy = nsBusyOf(sd.result);
-  const ok = !err && !need && !own && !sd.pending && !busy;
+  const ok = !err && !need && !sd.pending && !busy;
   nsBusyButton(sdEl.submit, busy || sd.pending);
   sdEl.submit.disabled = !ok;
   return ok;
@@ -1796,8 +1796,9 @@ async function sdSubmit(e) {
   sdRenderStatus();
   const out = await nsPost("api/spawn", body);
   if (out.status === 202 && out.d.ok) {
-    sd.created = out.d.name || body.name || null;
     sd.result = { kind: "queued", op: out.d.op, name: out.d.name, since: Date.now(), state: "queued", opState: "", opResult: "" };
+    sd.suggestSeq++; sd.nameEdited = false;   // the session is queued: its name is taken, so the field is emptied (a failure keeps it); no suggestion in flight refills it
+    sdEl.name.value = "";
     sdTrack();
   } else {
     sd.result = { kind: "failed", error: String(out.d.error || `HTTP ${out.status}`) };
