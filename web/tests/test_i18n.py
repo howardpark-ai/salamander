@@ -102,9 +102,9 @@ def test_the_korean_table_has_every_key_with_the_same_placeholders_and_no_englis
             problems.append(f"{want}: empty")
         elif not re.search("[A-Za-z]", PLACEHOLDER.sub("", en)):
             pass   # nothing but placeholders (a count and a word the caller passes): there is no English in it to translate
-        elif not HANGUL.search(ko) and ko.strip() != en.strip():
+        elif not HANGUL.search(ko) and ko.strip().lower() != en.strip().lower():
             problems.append(f"{want}: no Korean in it and not the English either: {ko!r}")
-        elif ko.strip() == en.strip() and en not in ALLOWED_SAME:
+        elif ko.strip().lower() == en.strip().lower() and en not in ALLOWED_SAME:
             problems.append(f"{want}: the same as the English ({en!r}); if that is right, list it in ALLOWED_SAME")
         if not key.endswith(".one") and holders(ko) != holders(en):
             problems.append(f"{want}: placeholders {sorted(holders(ko))} differ from the English {sorted(holders(en))}")
@@ -117,7 +117,7 @@ def test_the_korean_table_has_every_key_with_the_same_placeholders_and_no_englis
 
 
 # words that read the same in both languages (a term both languages keep as it is)
-ALLOWED_SAME: set[str] = {"cron"}
+ALLOWED_SAME: set[str] = {"cron", "Shell", "shell", "Shell (Ctrl+`)"}   # Shell: the feature's name, kept in English on every screen
 
 
 def test_a_key_with_a_count_has_the_plural_forms_each_language_needs():
