@@ -10,5 +10,5 @@ queue_prefix = "queue/main/"    # tests.yml triggers on queue/**
 # check that completed without `success` as failed, so it cannot name them.
 required = ["gate"]
 
-# What a queue run tests, passed on to the workflow, which decides: "select" runs the suites the entry's change reaches (as a pull request's run does); main's full run after the merge catches a suite the selection missed.
-suites = "select"
+# What a queue run tests, passed on to the workflow, which decides: "all" runs every suite (the queue is the full gate on the tree that lands, and main runs no suite after the merge); "select" would run what a pull request runs.
+suites = "all"

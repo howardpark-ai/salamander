@@ -382,7 +382,7 @@ Who uses it: stackshot's `mq replay` (a replay driver that writes the file and a
 
 The repository's workflow runs on `push` to `queue/**` and reports the same job name as on a PR, `suites`, so what mq reads is the check the repository
 already requires. The repository chooses what a queue run tests with `suites = "all"` or `"select"`. `select` runs what a PR runs; the risk is a selection that misses a
-suite, which a full run on `main` after the merge catches. `all` runs every suite (the shards run in parallel anyway). mq only passes the value on to the
+suite, which only a repository that also runs every suite after the merge catches. `all` runs every suite (the shards run in parallel anyway). mq only passes the value on to the
 workflow. A queue run keeps the main-only steps for `main`, and uses the entry's ref as its concurrency group without cancelling. Those workflow edits belong to the repository that
 adopts mq, not to this command. The design assumes three things to prove on a scratch repository before the merge step relies on them: a push to
 `main` at a commit that contains a PR's head marks that PR merged with no API call; a push by the owner's SSH key to a `queue/**` branch starts the
@@ -416,7 +416,7 @@ base = "main"                  # the branch PRs target and entries are built on
 queue_mode = "chain"           # the only mode; may be left out
 required = ["suites"]          # the check names that must complete with success on an entry's head
 queue_prefix = "queue/main/"   # starts with queue/ (the workflow triggers on queue/**) and ends with /
-suites = "select"              # only passed on to the workflow: "all" | "select"
+suites = "all"                 # only passed on to the workflow: "all" | "select"
 # inflight_max = 6             # the default (1 to 16), left out
 on_conflict = "sh -c 'git checkout HEAD -- tests/tool_text.snapshot.json && python3 tools/tool_text.py update && python3 tools/tool_text.py check'"
 conflict_paths = ["tests/tool_text.snapshot.json"]

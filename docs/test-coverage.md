@@ -73,10 +73,10 @@ loops (`ok` counts 59, 89, 67, as unloaded).
 files it opens. `--measure` runs each suite under `strace -f -y` (open, openat, openat2) and keeps the tracked files it
 opened, minus the shared `full` files and its own file; `--select <from> <to>` turns a PR's diff into the suites that
 open a changed file; `--check` keeps the map honest (every suite has its line, every file is covered). A PR runs that
-selection; a push to `main` runs every suite, so a file the map misses fails there. The map says what a suite *opens*,
+selection; a merge-queue entry runs every suite, so a file the map misses fails there, before the merge. The map says what a suite *opens*,
 not what it *checks*: a suite that reads a file as data but asserts nothing about it still lists it, and a flow that
 reaches a file only by a path the run did not take (a suite that stops at an early failure, a `git clone` of the
-checkout, a file handed to a process the trace does not follow) is not on the line. Those are the misses `main` catches.
+checkout, a file handed to a process the trace does not follow) is not on the line. Those are the misses the queue catches.
 The `text` suites (`syntax`, `lanefields`) read most of the repo as text, so a change that is only comments still runs
 them. `syntax` also opens every tracked file just to read its first line (a shebang test), so it is a `firstline` suite: the
 files on the `none` line stay off its line only, since `lanefields` reads docs/lanes.md as content. A suite that fails under `strace` (its timing checks, or a Claude ancestor on the process tree) may have a partial
@@ -1194,18 +1194,13 @@ words a session acts on.
 
 ### `tests/ci.sh`: new (Wed Oct 14th 2026)
 
-The CI gate's two helpers (`.github/scripts/changed.sh`, `.github/scripts/tested.sh`), which decide what the runners
-run. Outside the rule's letter (no session, draft or map is at stake in CI), kept because the gate is what stands
-between a change and production: `release.sh` reads a skipped job as a verdict, so a wrong `sala=false` from
-`changed.sh` merges a sala change that no suite ran on, and a wrong "skip" from `tested.sh` leaves a merged tree that
-`main` never tested. `changed.sh` is checked on each shape of change against a throwaway repo (a sala change, the CI's
+The CI gate's helper (`.github/scripts/changed.sh`), which decides what the runners run. Outside the rule's letter
+(no session, draft or map is at stake in CI), kept because the gate is what stands between a change and production:
+`release.sh` reads a skipped job as a verdict, so a wrong `sala=false` from `changed.sh` merges a sala change that no suite
+ran on. `changed.sh` is checked on each shape of change against a throwaway repo (a sala change, the CI's
 own files with and without `web/`, `web/` created, a web-only change, both, docs, `web/` removed, an empty diff, no
-range), the two output lines compared exactly. `tested.sh` is checked against a `gh` stub serving canned JSON for its
-four calls, never the network: the one match (the PR's successful run with the artifact named for this tree) skips, and
-everything else runs — another tree, another job, no run, a direct push (and nothing further asked), a PR associated
-but not merged as this commit, an unmerged one, each API call failing; two specs in either order; the runs call asks
-for the PR's head, the event and success. Not checked: the workflow files themselves (the runner cannot be exercised
-before a merge; YAML is parsed by hand before one), the artifact upload (a first-party action).
+range), the two output lines compared exactly. Not checked: the workflow files themselves (the runner cannot be exercised
+before a merge; YAML is parsed by hand before one).
 
 ### `tests/deal.sh` new; `tests/webshard.sh` rewritten for the timings (Thu Nov 12th 2026)
 
