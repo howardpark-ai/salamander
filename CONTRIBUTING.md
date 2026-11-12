@@ -99,9 +99,10 @@ worktree, a PR, `release.sh`); what differs:
 
 - **tests:** `web/tests/` is a pytest suite, not one of `tests/run.sh`'s. Run it in the worktree's `web/`:
   `uv sync --frozen && uv run --frozen pytest`, then `node --check` over `src/**/*.js` (vendored files left out). CI's
-  `web-shard` jobs run exactly that for a change under `web/` and skip the suites. The pytest part is split in four shards that run
-  side by side (`.github/scripts/web-shard.sh <shard> <n>` deals the `tests/test_*.py` files by size, so a new test file
-  needs no list and no line anywhere; each shard runs its files serially, since parallel workers in one job gave
+  `web-shard` jobs run exactly that for a change under `web/` and skip the suites. The pytest part is split in six shards that run
+  side by side (`.github/scripts/web-shard.sh <shard> <n>` deals the `tests/test_*.py` files by their recorded times in
+  `web/tests/timings.json`, so a new test file needs no list and no line anywhere: it weighs the median until a refresh records it,
+  *Timings* below; each shard runs its files serially, since parallel workers in one job gave
   load-dependent failures in the browser tests), and the job named `web` gathers them into the one check. A change outside `web/` runs the suites
   and skips it; one under `.github/` runs both (*CI* below). `tests/syntax.sh` and `deploy.sh`'s `bash -n` pass over
   `web/` too: its Python files are parsed, and nothing under it carries a shell shebang.
@@ -191,7 +192,8 @@ without raising the minimum here, in the README and in that check. On macOS that
 | `tests/stackshotpath.sh` | where sala looks for stackshot's programs (`lib/stackshot-path.sh`, the client function in `lib/unitjob.py`, `lib/pr_watcher_cleanup.py` and `contrib/question-board.py`, the default commands of `lib/side.sh` and `lib/spawn.sh`, `release.sh`'s client) on fake checkouts in four layouts (the package path, the old root path, both, neither); a named file wins over the probe. |
 | `tests/stackshotshape.sh` | contract 12's guard (`docs/stackshot-contracts.md`): the state files stackshot reads, each written by sala's own writer and read back by a copy of stackshot's rule: `lanes.tsv` rows (`<session>\t<lane>`, sorted), `lane-default` (the lane alone on line 1), the fall to the default and to `subscription-1`, a rename moving and a retire dropping the row; `salamander-limit.json` from `watch --limit` against two fake panes (`panes` keyed by transcript uuid with `s`, `lane`, `lim`, `since`, `reset`; a gone pane dropped) | ~15 s |
 | `tests/webinstall.sh` | `install.sh --web` and the web UI's ttyd pieces (`web/contrib/sala-web-ttyd.service`, `web/contrib/sala-web-ttyd-attach`) under a fake HOME: a plain install writes no unit and names `--web`; `--web` writes `sala-web.socket`, `sala-web.service` and `sala-web-ttyd.service` into `$XDG_CONFIG_HOME/systemd/user` (else `~/.config/systemd/user`), mode 644, with `%h/<path>` in `ExecStart` for a checkout under HOME and an absolute path outside it, starting and enabling nothing; a second run changes nothing; a path with a space, a % or a $ is refused with exit 1 and nothing written; a write that fails (a folder the user cannot write to) removes its temporary file, exits 1 with a message and prints no next steps; an unknown option exits 2; the ttyd unit keeps its own runtime directory, a unix socket, `--base-path /tty`, `--url-arg` and `--check-origin`, names no owner value and passes `systemd-analyze verify` (skipped where there is no user manager); the attach script on a private tmux server (`tmux -L`) attaches an existing session and nothing else, and refuses an invalid name before tmux sees it | ~15 s |
-| `tests/webshard.sh` | `.github/scripts/web-shard.sh`, which deals the web app's test files to the shards of `tests.yml`'s `web-shard` job, on a throwaway tree with test files of known sizes: the four shards are exactly the expected lists (largest first, round-robin), their union is every `tests/test_*.py` and no file is in two, `conftest.py`, helpers and fixtures are not dealt, ties go by name whatever the locale, the same split on a second call, a new file is picked up by its name, a bad or missing argument exits 2 with the usage on stderr and nothing on stdout, a shard with no file (more shards than files, or no test file at all) exits 1; then the same union, disjoint and balance checks on this checkout's real `web/tests`; no network, no tmux | ~1 s |
+| `tests/webshard.sh` | `.github/scripts/web-shard.sh`, which deals the web app's test files to the shards of `tests.yml`'s `web-shard` job by their recorded times, on a throwaway tree whose file sizes run opposite to their times: the four shards are exactly the expected lists (the time decides, not the size), their union is every `tests/test_*.py` and no file is in two, `conftest.py`, helpers and fixtures are not dealt, ties go by name whatever the locale, the same split on a second call, a new file with no recorded time is dealt at the median, a recorded file that is gone is ignored, no timings file deals evenly, a timings file that is not valid exits 2, a bad or missing argument exits 2 with the usage on stderr and nothing on stdout, a shard with no file (more shards than files, or no test file at all) exits 1; then the same union and disjoint checks on this checkout's real `web/tests` in six shards; no network, no tmux | ~1 s |
+| `tests/deal.sh` | the dealer `.github/scripts/deal.py` and what uses it, which split CI's tests by recorded times (greedy longest-first bin packing): hand-worked shards, a balance bound that holds for any timings, every item in exactly one shard, the same deal on a second call and for any input order, the fallbacks (a new item weighs the median, a gone key is ignored, no timings file deals evenly), the exits; `tests/run.sh --shard K/N` and `--list` on a throwaway tree of stub suites; `.github/scripts/update_timings.py` on saved-log text (the median over runs, a failed suite or a gone file not recorded); and this checkout's two timings files (valid, and the real deals cover every suite and web test file once); no network, no tmux | ~8 s |
 | `tests/prwatcher.sh` | the PR-watcher cleanup job (`lib/pr_watcher_cleanup.py`, `systemd/sala-pr-watcher-cleanup.{service,timer}`, `docs/units.md`) as its own command in a locked temporary folder against a fake API (a local http server: the scheduled-task list in two pages, the sessions, the delete), a fake `gh` and a fake message command, the clock injected: a done task (fired and off, a merged or closed pull request, an archived session) of an archived, missing or not-connected creator deleted at once with its log line and no message; of a live creator asked ONCE and deleted 24 h after the ask (never twice, a failed message retried, deletion 24 h after first seen done when it never goes); an active task, a task it cannot place, another account's, a recurring routine and a task with no pull request left alone; API errors (list, session, GitHub, delete) leaving that task and exiting 1; `--dry-run` changing nothing; an expired token touching nothing; the token in no output | ~3 s |
 | `tests/machinefollow.sh` | machine-follow, the fleet-follow dispatcher (`lib/machine-follow.py`, `systemd/machine-follow.{path,timer,service}`, `systemd/machine-follow@.service`, `docs/units.md`) imported by `tests/machinefollow_scenario.py` and driven with the steps, the ssh probe and the systemd calls faked, under made-up machine names, in a locked temporary tree: the data file (a wrong entry named, a `before_command` that is not a list of strings, the setting that finds the file: environment, then sala's config file with `~` expanded, then the default under the config folder; a missing file one line and exit 2); the units against the script (the path unit's four watched files, the 10 min timer, the dispatcher's and the template's `ExecStart`, the template's `TimeoutStartSec` above the largest step plus the settle wait); who is due (never followed, a followed thing changed, the catch-up, `--force`, `--dry-run` changing nothing, the wrong host refused with 64, a second run of one machine doing nothing); the dispatcher starting only the due machines and never an active instance, with no step, probe or wait of its own; the settle rule; 75 as a skip and any other failure as a failure while the other machines still run; the state file written on success only; `retry_minutes`; the two steps of one entry (both always run, the worse result, the first capped); the real runner (`~/` expansion, a kill at the limit, 127), the real `systemctl` calls against a stub, the real fingerprints against throwaway git repositories, and the real script as a command with an isolated HOME. Nothing reads the real data file, the real state folder or the user's systemd | ~3 s |
 
@@ -380,7 +382,7 @@ need either. Change the skills in the skills repository in the same release as t
 
 ## CI
 
-CI runs on GitHub's hosted runners: every Linux job (`tests.yml`'s `changes`, `suites`, `web-shard`, `web` and `gate`,
+CI runs on GitHub's hosted runners: every Linux job (`tests.yml`'s `changes`, `suites-shard`, `suites`, `web-shard`, `web` and `gate`,
 `clean-text.yml`'s `clean-text`, `smoke.yml`'s `smoke-linux`) has `runs-on: ubuntu-latest` and `smoke-macos` has `macos-latest`, so a fork's pull
 request and an outside contributor's run CI with nothing to configure. The suites are written against Ubuntu 26.04's tmux 3.6
 (`hosted-setup.sh` warns on another). A hosted runner runs two suites per CPU at once, not all of them.
@@ -391,8 +393,8 @@ A hosted runner is a bare image, so a job that needs tools asks the local action
 | job | installed on a bare hosted image |
 |---|---|
 | `changes`, `clean-text` | nothing (git, bash, gh and python3 are on the image) |
-| `suites` | Python 3.14 (`actions/setup-python`), uv (`astral-sh/setup-uv`, its cache keyed on `web/uv.lock`), tmux and lsof (apt), then `uv sync --frozen` in `web/` for `tests/neutral-install.sh`'s offline web check |
-| `web-shard` (each of the four shards; the `web` gate installs nothing) | Python 3.14, uv, tmux (apt), ttyd 1.7.7 (the release's static binary, its sha256 pinned in `.github/scripts/hosted-setup.sh`), and a check that the image's Google Chrome is there (a missing browser fails the job; the page tests would otherwise skip and read as a pass) |
+| `suites-shard` (each of the two shards; the `suites` gate installs nothing) | Python 3.14 (`actions/setup-python`), uv (`astral-sh/setup-uv`, its cache keyed on `web/uv.lock`), tmux and lsof (apt), then `uv sync --frozen` in `web/` for `tests/neutral-install.sh`'s offline web check |
+| `web-shard` (each of the six shards; the `web` gate installs nothing) | Python 3.14, uv, tmux (apt), ttyd 1.7.7 (the release's static binary, its sha256 pinned in `.github/scripts/hosted-setup.sh`), and a check that the image's Google Chrome is there (a missing browser fails the job; the page tests would otherwise skip and read as a pass) |
 | `smoke-linux` | tmux and lsof |
 
 `.github/scripts/hosted-setup.sh <tmux|lsof|ttyd|chrome>...` does the installing and exits 0 at once unless the runner sets
@@ -403,14 +405,16 @@ Several things keep CI small:
 
 - **`tests.yml` runs only what a change needs.** Its first job, `changes`, sorts the files the change touches
   (`.github/scripts/changed.sh`: on a PR, GitHub's merge of the PR into `main` against its first parent; on a push,
-  from the last green main run's head, so a queued main run that a newer push replaced is still covered): `suites` (`tests/run.sh`, which includes `syntax` and `briefing`) runs when the change touches a file
-  a suite opens (*Which suites a PR runs*, below), `web-shard` (the web app's own tests under `web/`, in four shards: `uv sync --frozen`,
+  from the last green main run's head, so a queued main run that a newer push replaced is still covered): `suites-shard` (`tests/run.sh`, which includes `syntax` and `briefing`, in two
+  shards) runs when the change touches a file
+  a suite opens (*Which suites a PR runs*, below), `web-shard` (the web app's own tests under `web/`, in six shards: `uv sync --frozen`,
   `uv run --frozen pytest` over the shard's files, `node --check` over its scripts in shard 1; inert until `web/pyproject.toml`
-  exists) when something under `web/` did; a change to both runs both, a change under `.github/` too. `web` is the gate over
-  the shards: it fails unless every shard passed, records the tested tree (below) and is the one check name for the web tests
-  (the shards show as `web-shard (1)` to `web-shard (4)`). A job that is not needed reports as
-  *skipped* (the shards and `web` together), which `release.sh` reads as a verdict (a workflow kept from running by `on: paths` would report nothing,
-  and the gate would wait on it); the job names (`changes`, `suites`, `web`) are what it reads, and a `web-shard` check
+  exists) when something under `web/` did; a change to both runs both, a change under `.github/` too. `suites` and `web` are the gates over
+  the shards: each fails unless every one of its shards passed, records the tested tree (below) and is the one check name for its tests
+  (the shards show as `suites-shard (1)` and `(2)`, `web-shard (1)` to `web-shard (6)`; the branch ruleset requires `changes`, `suites` and `web`, so those three names never change, and a matrix
+  job's own name carries its index, which is why the gates exist). A job that is not needed reports as
+  *skipped* (the shards and their gate together), which `release.sh` reads as a verdict (a workflow kept from running by `on: paths` would report nothing,
+  and the gate would wait on it); the job names (`changes`, `suites`, `web`) are what it reads, and a `suites-shard` or `web-shard` check
   that fails fails the PR on its own too. `release.sh` merges
   only when a check passed and none failed or is pending. `gate` (needs `changes`, `suites` and `web`; runs always) fails unless each of them passed or was skipped: one name for "everything this run needed passed",
   which the sala merge queue can require because it reads a skipped check as failed. The workflow also runs on `merge_group` (GitHub's queue) and on a push to `queue/**` (the sala queue) with the PR's selection:
@@ -429,6 +433,26 @@ Several things keep CI small:
   session (`systemd-run --user --pipe --wait`): the suites that test sala's guards refuse a Claude ancestor, and a suite that fails under
   strace may have a partial line (the tool warns). `-j 3` at most on a shared machine. A file no suite should ever need goes on the `none`
   line with its reason beside it; code never does.
+- **Timings: the shards are balanced by recorded times, `tests/timings.json` and `web/tests/timings.json`.** CI splits both families
+  the way pytest-split (`least_duration`) and CircleCI's split-by-timings do: a committed file records how long each test took, and
+  `.github/scripts/deal.py` deals the tests to the shards by greedy longest-first bin packing (each test, the slowest first, to the shard
+  with the least time so far), so the slowest shard, which sets the wall time, is as light as the tests allow. A split by file size
+  followed time badly (the three heaviest web files were 11% of the web time), and the shell suites started in alphabetical order, so a
+  long one started late ran alone at the end. Shell suites are keyed by `tests/<suite>.sh` and dealt by `tests/run.sh --shard K/N` (which also
+  starts any run longest first); web test files are keyed by `tests/test_<name>.py` and dealt by `.github/scripts/web-shard.sh`.
+  Every shard, a job on its own runner, computes the whole deal itself, and the deal is deterministic. The fallbacks mean the record never
+  has to be complete: **a test missing from the file weighs the median recorded time** (so a new test or suite needs no entry, and is
+  neither free nor the heaviest), and **a key in the file whose test is gone is ignored**. Nothing fails on a stale record, it only
+  balances worse. **Refreshing:** `python3 -I .github/scripts/update_timings.py` (from the root of a checkout, `gh` signed in) rebuilds both
+  files from the logs of the last 10 successful `tests.yml` runs (`--runs N`; `--from-logs FILE…` for logs saved by hand; `--dry-run` writes
+  nothing): the suites' times from the `════ tests/<suite>.sh (pass, <n>s)` lines, the web files' from the timestamps of pytest's progress
+  lines, each the median over the runs, a key no run showed kept, a key whose file is gone dropped. It ends by printing the estimated
+  worst shard at 1 and 2 suite shards and at 4 and 6 web shards: quote those in the pull request. **When to run it:** after the shard
+  count changes, after adding or removing a number of tests that moves a family by a tenth (a new heavy web test file, a suite that
+  grew from seconds to minutes), or when a family's slowest shard is clearly longer than the others in a run (the shards of one run
+  should end within a minute or two of each other). Commit the two files by themselves, in a pull request of their own; a change to them
+  runs only `tests/deal.sh` and `tests/webshard.sh`, and the web shards when `web/` changed. It needs no schedule: a stale record
+  costs wall time, never a wrong result.
 - **A push to `main` does not test again what its PR's run already tested.** On `main`, each job first asks
   `.github/scripts/tested.sh` whether it passed on exactly this tree before, says why in its first step, and when so
   skips the rest while still reporting success. The PR run tests `refs/pull/N/merge`, GitHub's merge of the PR into
