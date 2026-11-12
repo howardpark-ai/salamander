@@ -11,7 +11,7 @@
 #   tests/run.sh --shard K/N and --list on a throwaway tree of stub suites (the shares are disjoint and cover every suite, only the
 #   share runs, a suite with no recorded time is dealt, an empty share exits 0 and says so, a bad --shard exits 2);
 #   .github/scripts/update_timings.py on saved-log text (the suites' `════` lines, the web files' time from pytest's progress-line
-#   timestamps, the median over runs, a key no run showed kept, a key whose file is gone dropped, a run that ran few suites not counted);
+#   timestamps, the median over runs, a key no run showed kept, a key whose file is gone dropped, a run that ran few suites not counted; through a stub gh, only the runs of the merge_group event are read);
 #   then this checkout's two timings files: valid, and the real deals cover every suite and every web test file once.
 # No network, no tmux, no process but the scripts themselves.
 set -u
@@ -227,6 +227,46 @@ before=$(cat "$U/tests/timings.json"); ( cd "$U" && python3 -I .github/scripts/u
 [ "$(cat "$U/tests/timings.json")" = "$before" ] && ok "--dry-run writes nothing" || bad "--dry-run wrote the file"
 ( cd "$U" && python3 -I .github/scripts/update_timings.py --from-logs /nonexistent ) >/dev/null 2>&1; [ "$?" = 2 ] && ok "a log that cannot be read: exit 2" || bad "missing log: rc=$?"
 ( cd "$U" && python3 -I .github/scripts/update_timings.py --bogus ) >/dev/null 2>&1; [ "$?" = 2 ] && ok "an unknown option: exit 2" || bad "bogus option: rc=$?"
+
+echo "== update_timings.py reads the merge queue's runs only (a stub gh on PATH, no network)"
+G="$T/gh"; mkdir -p "$G/bin" "$G/logs"
+cp "$T/log0.txt" "$G/logs/101"; cp "$T/log1.txt" "$G/logs/102"
+# a pull request's run of the same workflow: it shows 22 suites too, but s01 at 900 s, which no queue run shows
+sed 's|tests/s01.sh (pass, [0-9]*s)|tests/s01.sh (pass, 900s)|' "$T/log0.txt" > "$G/logs/103"
+cat > "$G/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+# a stand-in for gh: `run list` answers with runs 101 and 102 (merge_group) and 103 (pull_request), keeping the ones of --event when given;
+# `run view -R REPO ID --log` prints the saved log; every call is recorded.
+G=$(dirname "$(dirname "$0")")
+echo "$*" >> "$G/calls"
+if [ "$1 $2" = "run list" ]; then
+    ev=""; prev=""
+    for a in "$@"; do [ "$prev" = "--event" ] && ev="$a"; prev="$a"; done
+    out=""
+    for r in "101 merge_group" "102 merge_group" "103 pull_request"; do
+        set -- $r
+        if [ -z "$ev" ] || [ "$ev" = "$2" ]; then out="$out{\"databaseId\":$1,\"event\":\"$2\"},"; fi
+    done
+    echo "[${out%,}]"
+elif [ "$1 $2" = "run view" ]; then
+    cat "$G/logs/$5"
+else
+    exit 1
+fi
+EOF
+chmod +x "$G/bin/gh"
+U2="$T/upd2"; mkdir -p "$U2/.github/scripts" "$U2/tests" "$U2/web/tests"
+cp "$ROOT/.github/scripts/update_timings.py" "$ROOT/.github/scripts/deal.py" "$U2/.github/scripts/"
+for i in $(seq -w 1 22); do : > "$U2/tests/s$i.sh"; done
+: > "$U2/web/tests/test_one.py"; : > "$U2/web/tests/test_two.py"
+( cd "$U2" && PATH="$G/bin:$PATH" python3 -I .github/scripts/update_timings.py --repo o/r --runs 5 ) > "$T/upd2.out" 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "update_timings.py reading runs through gh: exit 0" || bad "gh form: rc=$rc $(cat "$T/upd2.out")"
+grep -q -- 'run list .*--event merge_group' "$G/calls" && ok "it asks gh for the merge_group event" || bad "run list without the event: $(cat "$G/calls")"
+[ "$(grep -c '^run view' "$G/calls")" = 2 ] && ! grep -q '^run view .* 103 ' "$G/calls" && ok "it reads the logs of the two queue runs and not the pull request's" || bad "run view calls: $(cat "$G/calls")"
+read -r v rest <<< "$(q "$U2/tests/timings.json" tests/s01.sh)"; [ "$v" = "20.0" ] && ok "a suite's time is the median over the queue runs only (10, 30 → 20, not 30 with the pull request's 900)" || bad "s01 from the queue: $v"
+[ "$rest" = "median over 2 CI logs (the last 5 successful merge_group runs of tests.yml), by .github/scripts/update_timings.py" ] && ok "the file says it was read from merge_group runs" || bad "source: $rest"
+: > "$G/calls"; ( cd "$U2" && PATH="$G/bin:$PATH" python3 -I .github/scripts/update_timings.py --repo o/r --event pull_request --dry-run ) > "$T/upd3.out" 2>&1
+grep -q -- 'run list .*--event pull_request' "$G/calls" && grep -q '^run view .* 103 ' "$G/calls" && ok "--event names another event to read" || bad "--event pull_request: $(cat "$G/calls")"
 
 echo "== this checkout's timings files"
 for f in tests/timings.json web/tests/timings.json; do

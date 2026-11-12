@@ -11,6 +11,10 @@ Where the numbers come from (nothing in the workflow has to change to produce th
           file's tests (or a line's worth of them) have run, so the time between two progress lines is the time of the file
           that ended on the later one; the first is counted from the "collected N items" line. A file runs serially in its
           shard, so these add up to the shard's pytest time.
+Which runs: only the runs of the `merge_group` event (GitHub's merge queue, `--event`), because that is the one event that runs every suite
+and every web test in full. A pull request runs the selection its change reaches and a push to main runs none (its suite jobs are
+skipped), so their logs hold few or no timings; they are not read. This is how pytest-split and similar tools record durations: from
+full runs. A queue run of a partial selection still counts, for the keys it shows.
 Each number is the MEDIAN over the runs sampled (one outlier run, a runner having a bad hour, moves nothing). Suites count only from
 a run that ran at least 20 of them (a pull request's selection runs few, and a suite among a few is faster than among eighty). A key the sampled
 runs did not show (a pull request runs only the suites its change reaches) keeps its recorded number; a key whose file is gone
@@ -18,8 +22,9 @@ from this checkout is dropped. A suite or file that is new has no number until a
 gives it the median (deal.py), so nothing breaks.
 
 Usage (stdlib only; `gh` signed in for the first form), from the root of a checkout, run with `python3 -I`:
-  .github/scripts/update_timings.py [--runs N] [--repo OWNER/REPO] [--dry-run]
-      the logs of the last N (default 10) successful runs of tests.yml, one `gh run view --log` each
+  .github/scripts/update_timings.py [--runs N] [--event NAME] [--repo OWNER/REPO] [--dry-run]
+      the logs of the last N (default 10) successful runs of tests.yml of the event NAME (default merge_group: the merge queue's
+      runs; a pull_request or push run is never read unless --event names it), one `gh run view --log` each
   .github/scripts/update_timings.py --from-logs FILE... [--dry-run]
       logs saved by hand (a whole run's `gh run view --log`, or one job's); no network
   --label TEXT  with --from-logs: what the logs are, recorded in the file's "source" (default "saved logs")
@@ -43,6 +48,7 @@ FILES = {  # family → (timings file, where the keys' files are, the shard coun
     "web": ("web/tests/timings.json", "web/", (4, 6)),
 }
 
+EVENT = "merge_group"   # the runs whose logs are read: GitHub's merge queue, which runs the full suite (a pull request runs a selection, a push to main none)
 MIN_SUITES = 20   # a run that ran fewer suites (a pull request's selection) says little: a suite alone is faster than among eighty, and the deal is for the full set
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 LINE = re.compile(r"^(?:(?P<job>[^\t]*)\t(?P<step>[^\t]*)\t)?(?P<ts>\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) ?(?P<text>.*)$")
@@ -123,13 +129,15 @@ def gh(*args):
     return r.returncode, r.stdout, r.stderr
 
 
-def run_logs(repo, n):
-    """[(run id, log text)] of the last n successful runs of tests.yml that have a log."""
-    rc, out, err = gh("run", "list", "-R", repo, "--workflow", "tests.yml", "--status", "success", "--limit", str(n), "--json", "databaseId")
+def run_logs(repo, n, event=EVENT):
+    """[(run id, log text)] of the last n successful runs of tests.yml of the given event that have a log."""
+    rc, out, err = gh("run", "list", "-R", repo, "--workflow", "tests.yml", "--event", event, "--status", "success", "--limit", str(n), "--json", "databaseId,event")
     if rc != 0:
         raise SystemExit(f"update_timings.py: gh run list failed: {err.strip()[:300]}")
     logs = []
     for r in json.loads(out):
+        if r.get("event") != event:   # asked for one event; a run of another is not read whatever gh returned
+            continue
         rc, text, err = gh("run", "view", "-R", repo, str(r["databaseId"]), "--log")
         if rc == 0 and text:
             logs.append((str(r["databaseId"]), text))
@@ -161,13 +169,15 @@ def estimates(family, timings):
 
 
 def main(argv):
-    runs, repo, dry, logs, where = 10, None, False, None, None
+    runs, repo, dry, logs, where, event = 10, None, False, None, None, EVENT
     args = list(argv)
     try:
         while args:
             a = args.pop(0)
             if a == "--runs":
                 runs = int(args.pop(0))
+            elif a == "--event":
+                event = args.pop(0)
             elif a == "--repo":
                 repo = args.pop(0)
             elif a == "--dry-run":
@@ -192,8 +202,8 @@ def main(argv):
                 print("update_timings.py: no --repo given and gh cannot tell which repository this is", file=sys.stderr)
                 return 2
             repo = out.strip()
-        logs = run_logs(repo, runs)
-        where = f"the last {runs} successful runs of tests.yml"
+        logs = run_logs(repo, runs, event)
+        where = f"the last {runs} successful {event} runs of tests.yml"
     if not logs:
         print("update_timings.py: no log to read", file=sys.stderr)
         return 1
