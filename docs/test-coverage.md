@@ -1207,6 +1207,26 @@ but not merged as this commit, an unmerged one, each API call failing; two specs
 for the PR's head, the event and success. Not checked: the workflow files themselves (the runner cannot be exercised
 before a merge; YAML is parsed by hand before one), the artifact upload (a first-party action).
 
+### `tests/deal.sh` new; `tests/webshard.sh` rewritten for the timings (Thu Nov 12th 2026)
+
+CI's two families of tests, the shell suites and the web test files, are now split across runners by their recorded times, the way
+pytest-split's `least_duration` and CircleCI's split-by-timings do: a committed file per family (`tests/timings.json`,
+`web/tests/timings.json`) and a dealer, `.github/scripts/deal.py`, that gives each test, longest first, to the shard with the least
+time so far. Outside the rule's letter (no session, draft or map is at stake in how CI is split), kept for the same reason as
+`tests/ci.sh` and for the one the old split had: a wrong deal costs a test that never runs (in no shard) or runs twice, and neither
+shows as a failure. `tests/deal.sh` checks the dealer on hand-worked timings (the exact shards, longest first), a balance bound that
+holds for any timings, every item in exactly one shard, the same deal on a second call and for any input order, and the fallbacks
+that let the record be incomplete: an item with no recorded time weighs the median, a recorded item that is gone is ignored, no
+timings file deals evenly; its exits (2 for a bad argument or a timings file that is not valid, 1 for a shard with no item); then
+`tests/run.sh --shard K/N` and `--list` on a throwaway tree of stub suites (disjoint shares that cover every suite, only the share
+runs, an empty share exits 0, the longest suite starts first); `.github/scripts/update_timings.py` on saved-log text (the median over
+runs, a failed suite or a gone file not recorded); and this checkout's two timings files. `tests/webshard.sh`, which used to check a
+round-robin by file size, now checks that `web-shard.sh` deals by the recorded time on a tree where size and time run opposite, plus
+the same checks as before (union, disjoint, locale, bad arguments, a shard with no file) and the real tree in six shards. Not
+checked: that the shards come out even in a real run (the record is measured from CI and the run is the check: the slowest shard
+should end within a minute or two of the others, and `update_timings.py` prints the estimate), the workflow's matrix and gate jobs
+(the runner cannot be exercised before a merge), and `gh` (the refresh tool's network half; its parsing is checked on text).
+
 ### `tests/cleantext.sh`: new (Sat Oct 31st 2026)
 
 The clean-text check (`.github/scripts/clean_text.py`, run by `.github/workflows/clean-text.yml`; CONTRIBUTING.md, *Clean

@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 # tests/run.sh — runs the suites side by side. Each suite already runs in its own temporary HOME on its own private
 # tmux socket (sala-<suite>-$$) with its own compiled fake claude, so they share nothing and run concurrently.
-# Usage: bash tests/run.sh [-j N] [suite…]
+# Usage: bash tests/run.sh [-j N] [--shard K/N] [--list] [suite…]
 #   no suite named: every tests/*.sh except lib.sh, run.sh, count-procs.sh and suitemap.sh (a new suite is picked up by its file alone;
 #   the tools are listed in the `case` below, in count-procs.sh and in suitemap.sh's TOOLS: the three lists must agree)
 #   -j N: at most N suites at once (default: all of them)
+#   --shard K/N: run only runner K's share (1..N) of the suites named (or of every suite), dealt by their recorded times
+#   (tests/timings.json, .github/scripts/deal.py: greedy longest-first bin packing, the way CI's `suites-shard` jobs split the work).
+#   A suite with no recorded time weighs the median, so a new suite is dealt with no line to add; a share with no suite (a pull
+#   request that runs few) says so and exits 0.
+#   --list: print the suites this run would start (after --shard), in start order, on one line, and run none (CI asks whether its
+#   share is empty before it installs anything).
+#   The suites START longest first (the recorded times, shard or not): the slowest set the wall time, and a long one started last
+#   runs alone at the end. With no python3 or no dealer, the order given, as before (--shard then exits 2).
 # Prints each suite's output as one block when it ends, then a per-suite time and pass/fail table; exit 1 when any failed.
 # SERIAL lists the suites that must run alone, after the parallel ones (none today; a suite goes there only with a reason
 # written next to it).
@@ -20,10 +28,14 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SERIAL=()
 JOBS=0
+SHARD=""
+LIST=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -j) JOBS="${2:?-j needs a number}"; shift 2 ;;
         -j*) JOBS="${1#-j}"; shift ;;
+        --shard) SHARD="${2:?--shard needs K/N}"; shift 2 ;;
+        --list) LIST=1; shift ;;
         -h|--help) awk 'NR==1{next} /^#/{print; next} {exit}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         --) shift; break ;;
         -*) echo "run.sh: unknown option $1" >&2; exit 2 ;;
@@ -31,9 +43,28 @@ while [ $# -gt 0 ]; do
     esac
 done
 case "$JOBS" in ''|*[!0-9]*) echo "run.sh: -j takes a number" >&2; exit 2 ;; esac
+if [ -n "$SHARD" ]; then
+    [[ $SHARD =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] && [ "${BASH_REMATCH[1]}" -le "${BASH_REMATCH[2]}" ] \
+        || { echo "run.sh: --shard takes K/N with 1 <= K <= N" >&2; exit 2; }
+    SHARD_K=${BASH_REMATCH[1]}; SHARD_N=${BASH_REMATCH[2]}
+fi
 if [ $# -gt 0 ]; then suites=("$@")
 else suites=(); for f in "$ROOT"/tests/*.sh; do n=$(basename "$f" .sh); case "$n" in lib|run|count-procs|suitemap) ;; *) suites+=("$n") ;; esac; done; fi
 for s in "${suites[@]}"; do [ -f "$ROOT/tests/$s.sh" ] || { echo "run.sh: no suite tests/$s.sh" >&2; exit 2; }; done
+# Order (the longest recorded time first) and, with --shard, deal: .github/scripts/deal.py reads tests/timings.json. Without --shard a
+# dealer that fails (a timings file that is not valid) leaves the list as given; the dealer says why on stderr.
+DEAL="$ROOT/.github/scripts/deal.py"
+if [ -f "$DEAL" ] && command -v python3 >/dev/null 2>&1; then
+    rc=0
+    dealt=$(for s in "${suites[@]}"; do echo "tests/$s.sh"; done | python3 -I "$DEAL" --timings "$ROOT/tests/timings.json" \
+        --of "${SHARD_N:-1}" --shard "${SHARD_K:-1}" --allow-empty ${SHARD:+--report} -) || rc=$?
+    if [ "$rc" = 0 ]; then
+        suites=(); [ -z "$dealt" ] || mapfile -t suites <<< "$dealt"
+        suites=("${suites[@]#tests/}"); suites=("${suites[@]%.sh}")
+    elif [ -n "$SHARD" ]; then echo "run.sh: the dealer failed (exit $rc), so --shard $SHARD cannot be made" >&2; exit 2; fi
+elif [ -n "$SHARD" ]; then echo "run.sh: --shard needs python3 and .github/scripts/deal.py" >&2; exit 2; fi
+if [ -n "$LIST" ]; then echo "${suites[*]-}"; exit 0; fi   # --list: the suites this run would start, in start order, and nothing is run
+if [ "${#suites[@]}" -eq 0 ]; then echo "run.sh: shard ${SHARD:-1/1} has no suite to run: nothing to do"; exit 0; fi
 par=(); ser=()
 for s in "${suites[@]}"; do case " ${SERIAL[*]-} " in *" $s "*) ser+=("$s") ;; *) par+=("$s") ;; esac; done
 

@@ -5,9 +5,19 @@
 # Runs on GitHub's hosted runners (`ubuntu-latest`). A hosted runner is a bare image, so each job that needs tools calls the
 # local action `.github/actions/hosted-tools` (Python 3.14, uv, tmux, lsof, ttyd 1.7.7, a Chrome check). CONTRIBUTING.md, *CI*.
 #
+# SHARDING BY RECORDED TIMES. Both families of tests are split the way large open-source projects split a slow run (pytest-split's
+# `least_duration`, CircleCI's split by timings): a committed file records how long each test took (tests/timings.json for the shell
+# suites, web/tests/timings.json for the web test files), and .github/scripts/deal.py deals them to the shards by greedy longest-first
+# bin packing, so the slowest shard, which sets the wall time, is as light as the tests allow. The suites run in two `suites-shard`
+# jobs and the web tests in six `web-shard` jobs; the jobs named `suites` and `web` (the required checks) are the gates over them. A test
+# missing from the file weighs the median recorded time, so a new test never breaks the deal. The files are refreshed from CI's own logs
+# by .github/scripts/update_timings.py (CONTRIBUTING.md, *Timings*). Deviation from the usual shape of a matrix: the shard jobs are not
+# the required checks, because a matrix job's name carries its index (`suites-shard (1)`) and a required check is a fixed name;
+# the gate job with the old name stays the check, as `web` already was.
+#
 # Three things keep the runs small:
 # - `changes` sorts what the change touches (.github/scripts/changed.sh): `suites` runs only when a suite has to run, `web`
-#   (the web app's pytest, in four `web-shard` jobs gathered by the gate job `web`) only when something under web/ did. A job
+#   (the web app's pytest, in six `web-shard` jobs gathered by the gate job `web`) only when something under web/ did. A job
 #   that is not needed reports "skipped", which release.sh's check gate reads as a verdict; a workflow kept from running
 #   by `on: paths` would report nothing, and the gate would wait on it. Job names stay: release.sh reads them, and `web`
 #   stays the name of the one check for the web tests.
@@ -109,11 +119,19 @@ jobs:
             echo "push range from: $from ($why)"; to=HEAD
           fi
           .github/scripts/changed.sh "$from" "$to" | tee -a "$GITHUB_OUTPUT"
-  suites:
+  suites-shard:
+    # The shell suites, tests/*.sh, in two shards that run side by side. Each runs its share of the suites, dealt by their recorded
+    # times (tests/run.sh --shard K/N → .github/scripts/deal.py, tests/timings.json: SHARDING BY RECORDED TIMES above), the longest first,
+    # at most two per CPU at once as before. The check every consumer reads is the `suites` job below, which gathers the shards.
+    name: suites-shard (${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.sala == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false   # every shard reports, so one red shard does not hide another's failures
+      matrix:
+        shard: [1, 2]
     steps:
       - name: scratch goes to the runner's temp folder
         run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # the runner context is not available in a job-level env, so this is a step
@@ -121,39 +139,70 @@ jobs:
       - id: tested
         name: on main only, already passed on exactly this tree in the PR's run? (.github/scripts/tested.sh says why)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: if .github/scripts/tested.sh tests.yml/suites@pull_request; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi
-      - name: on a GitHub-hosted runner only, set the bare image up (Python 3.14, uv, tmux, lsof)
+        run: if .github/scripts/tested.sh tests.yml/suites@pull_request; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi   # the artifact is recorded by the `suites` job below, once every shard passed
+      - id: plan
+        name: this runner's share of the suites (no suite when the tree already passed or a small selection left this shard nothing, and then the rest of the job is skipped)
         if: steps.tested.outputs.skip != 'true'
+        env:
+          ON_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}   # a PR, a GitHub merge-queue entry and a queue/** push run the selection; main runs everything
+          SUITES: ${{ needs.changes.outputs.suites }}   # `all`, or names from tests/suitemap.sh --select: words, split below
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}   # the length of the matrix above
+        run: |
+          names=(); if [ "$ON_MAIN" != true ] && [ -n "$SUITES" ] && [ "$SUITES" != all ]; then names=($SUITES); fi
+          share=$(bash tests/run.sh --shard "$SHARD/$SHARDS" --list "${names[@]}")
+          echo "runner $SHARD of $SHARDS: ${share:-no suite}"
+          if [ -n "$share" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; fi
+      - name: on a GitHub-hosted runner only, set the bare image up (Python 3.14, uv, tmux, lsof)
+        if: steps.plan.outputs.run == 'true'
         uses: ./.github/actions/hosted-tools
         with:
           tools: tmux lsof
           python: "3.14"
           uv: "true"
       - name: on a GitHub-hosted runner only, web/.venv for tests/neutral-install.sh (its web check runs offline from a warm uv cache, which a bare runner has not)
-        if: runner.environment == 'github-hosted' && steps.tested.outputs.skip != 'true'
+        if: runner.environment == 'github-hosted' && steps.plan.outputs.run == 'true'
         run: if [ -f web/pyproject.toml ]; then cd web && uv sync --frozen; fi
       - name: what the suites need (tmux; cc for the fake claude; python3; lsof and flock for the process and lock helpers)
-        if: steps.tested.outputs.skip != 'true'
+        if: steps.plan.outputs.run == 'true'
         run: |
           for t in tmux cc python3 flock lsof setsid; do command -v "$t" >/dev/null || { echo "missing on the runner: $t"; exit 1; }; done
           tmux -V; cc --version | head -1; python3 --version; command -v flock lsof
-      - name: the suites, side by side (a PR or a merge-queue entry, the suites its change reaches; a push to main, every tests/*.sh, a new suite by its file alone)
-        if: steps.tested.outputs.skip != 'true'
+      - name: this shard's suites, side by side (a PR or a merge-queue entry, the suites its change reaches; a push to main, every tests/*.sh, a new suite by its file alone)
+        if: steps.plan.outputs.run == 'true'
         env:
-          ON_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}   # a PR, a GitHub merge-queue entry and a queue/** push run the selection; main runs everything
-          SUITES: ${{ needs.changes.outputs.suites }}   # `all`, or names from tests/suitemap.sh --select: words, split below
+          ON_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          SUITES: ${{ needs.changes.outputs.suites }}
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
         run: |
           # main always runs the full set: a suite the PR's map missed fails here, after the merge, instead of never
           # A hosted runner has two or four CPUs: every suite at once (run.sh's default) starved the timing checks
           # (a first hosted trial failed eight suites on clocks and waits alone), so a hosted runner runs two suites per CPU at a time
           j=(); if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then j=(-j "$(( $(nproc) * 2 ))"); echo "hosted runner: at most ${j[1]} suites at once"; fi
           if [ "$ON_MAIN" != true ] && [ -n "$SUITES" ] && [ "$SUITES" != all ]; then
-              echo "suites for this change: $SUITES"; bash tests/run.sh "${j[@]}" $SUITES
+              echo "suites for this change: $SUITES"; bash tests/run.sh "${j[@]}" --shard "$SHARD/$SHARDS" $SUITES
           else
-              echo "every suite"; bash tests/run.sh "${j[@]}"
+              echo "every suite"; bash tests/run.sh "${j[@]}" --shard "$SHARD/$SHARDS"
           fi
+  suites:
+    # The gate over suites-shard: the check named `suites` that the branch ruleset, release.sh, the merge queue and `gate` read, and the
+    # job that records the tested tree. It passes only when every shard passed. When `changes` says no suite is needed, the shards and this
+    # job are skipped together, which release.sh reads as a verdict. On a push to main whose tree already passed in the PR's run, the
+    # shards skip their steps and pass, so this job passes too.
+    needs: [changes, suites-shard]
+    if: always() && needs.changes.outputs.sala == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: every suites-shard job passed
+        env:
+          SHARDS_RESULT: ${{ needs.suites-shard.result }}
+        run: '[ "$SHARDS_RESULT" = success ] || { echo "the suites-shard jobs ended as $SHARDS_RESULT"; exit 1; }'
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request' && needs.changes.outputs.suites == 'all'
       # The tested tree, recorded for the push to main (tested.sh): the artifact's name carries it, and the step runs
-      # only when every step above passed. 7 days is more than a PR waits between its check and its merge; a stale one
+      # only when every shard passed. 7 days is more than a PR waits between its check and its merge; a stale one
       # cannot match a tree that moved on. Only a PR that ran the FULL set records it: a subset passing says
       # nothing about the suites it left out, and main's skip would trust it.
       - id: tree
@@ -175,9 +224,10 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/tested-suites.txt"
   web-shard:
-    # The web app under web/: its own pytest, the way its README runs it, in four shards that run side by side (the serial
+    # The web app under web/: its own pytest, the way its README runs it, in six shards that run side by side (the serial
     # job took about 71 minutes on a two-CPU hosted runner for 2152 tests, too near the timeout). Each shard runs its share of the
-    # test files serially (.github/scripts/web-shard.sh deals them out by size, so a new file is picked up by its name); no
+    # test files serially (.github/scripts/web-shard.sh deals them out by their recorded times, web/tests/timings.json, so a new
+    # file is picked up by its name and weighs the median until a refresh records it: SHARDING BY RECORDED TIMES above); no
     # pytest-xdist, because parallel workers in one job gave load-dependent failures in the browser tests. The check every
     # consumer reads is the `web` job below, which gathers the shards. Inert until web/ exists (changed.sh says web=false
     # without web/pyproject.toml).
@@ -189,7 +239,7 @@ jobs:
     strategy:
       fail-fast: false   # every shard reports, so one red shard does not hide another's failures
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - name: scratch goes to the runner's temp folder
         run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # the runner context is not available in a job-level env, so this is a step
