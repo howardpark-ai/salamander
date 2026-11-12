@@ -12,6 +12,7 @@
 #   salamander op <verb> [args…] --from NAME --stdin                      the words on stdin (a pane on another box, over ssh)
 #   salamander op retire NAME --from YOU                                  NO words: only for a throwaway (tagged at spawn: any session; untagged: its spawner, the master or anyone, a throwaway's name; never a bypass flag, --keep-web or --id)
 #   salamander op revive --only NAME… --item board#N --from YOU           NO words: a reason on the record instead (--why "<one line>" for --item; --force allowed): one or more live Claude sessions, never the master or YOU, never a sweep, --rescue or --lane-default
+#   salamander op restore --only NAME… --item board#N --from YOU          NO words: a reason on the record (--why "<one line>" for --item): one or more pane-map sessions whose tmux session is gone, never the master or YOU, never --missing or --force
 #   salamander op --plan <verb> [args…]                                   the plan alone: the verb's dry run, nothing queued
 #   salamander op --list                                                  the queue (and what it is doing)
 #   salamander op --status <id>                                           one operation's record, queued or archived
@@ -23,6 +24,7 @@
 #   recycle [--update] [--force]              "recycle claude" = recycle --update --force
 #   update [HOST…|--fleet]                    this box (= recycle --update --force), named fleet hosts, or the fleet then this box
 #   revive [--only NAME]… [--force] [--item board#N | --why TEXT]    bring a session back (--only), or every pane on an older CLI; with --only NAME… and a reason (--item or --why) it needs no words (THE WORDS POLICY)
+#   restore --only NAME…                  recreate a session whose tmux session is gone from its pane-map row (lib/restore.sh: its tmux session in the row's directory, then revive --only resumes its conversation); with a reason (--item or --why) it needs no words (THE WORDS POLICY)
 #   retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
 #   close-shell NAME [--busy]
 #   forget-row NAME
@@ -135,12 +137,14 @@
 # what the owner sees; a step that restores or retries is the system's own and needs only a reason on the record. Three policies:
 #   owner       the owner's words, verbatim, on the marker; with none the call is refused (the generic "no --words" refusal). Every verb but the two below.
 #   throwaway   retire: the door above (op_own_retire_ok): a throwaway ends with no words, nothing else does.
-#   reason      revive: THE REASON DOOR below.
+#   reason      revive and restore: THE REASON DOOR below.
 #   verb         policy      why
 #   recycle      owner       relaunches every pane (interrupts every session's turn; --update also changes the CLI the owner sees)
 #   update       owner       changes the CLI on boxes (what the owner sees), then relaunches the panes
 #   revive       reason      with --only NAME…: it restores or retries a session, and revive's own idle guard (/exit only after 10 s idle, no child process, no recent task
 #                            output) cannot lose a working pane; with no --only (a sweep of every pane) it is a recycle's relaunch: owner
+#   restore      reason      with --only NAME…: it brings back a session whose tmux session is gone (a stopped scope, a crash) from its pane-map row and resumes the conversation it already had, through
+#                            revive's own guards (the duplicate-conversation guard, the inbox hold); it creates a tmux session and nothing else, so a reason on the record is enough. No sweep (--missing) and no --force
 #   retire       throwaway   ends a session for good: a throwaway holds nothing of the owner's; any other session may hold work, so it takes the owner's words
 #   close-shell  owner       ends a tmux shell that may be running a command of the owner's
 #   forget-row   owner       drops a pane-map row (a record the owner may still want)
@@ -164,6 +168,13 @@
 # `nowords=words: none (board#N: revive of one session)` / `words: none (reason: …)`; the log, the Slack post, the hearer's line and `op --list`/`--status` show it. With --words,
 # --item/--why are only recorded. op_run asks again before it relaunches anything (op_reason_run_ok): the marker's reason, only --only and --force, a row id per name, the sender still
 # allowed, every row still the live one it was queued for, neither master nor sender; a mismatch is stuck at once with nothing run and no claude -p helper (as for retire).
+# THE SAME DOOR FOR restore: `restore --only NAME [--only NAME]… (--item board#N | --why "<reason>") --from YOU`, with the same reason, the same placement of YOU by process ancestry and the same
+# SALA_OP_REASON_FROM; it differs in the arguments (--only NAME only: no --force, no --missing) and in the target. A NAME is a row of the pane map whose tmux session
+# does not exist and whose conversation is live nowhere else (restore_check, common.sh: also the verb's own --dry-run, which is the plan), not the master, not the Remote Control session, not one sala leaves alone
+# (SALA_NO_RELAUNCH) and not YOU (op_restore_target_ok). A session whose tmux session exists is revive's business: the plan says so. The marker binds the target by the row's conversation id (`ownrow=`, one per NAME);
+# op_run asks again (op_reason_run_ok) and goes stuck with nothing recreated when a row is gone, replaced by another conversation, or its tmux session came back. The runner runs the plain verb, `salamander restore NAME…`,
+# inside its sala-op-<id> unit: ops_guard and master_guard admit it by the unit (op_unit_caller), exactly as for every queued verb, so there is no flag, environment marker or other way in for a session; a raw `sala restore`
+# from a Claude session is still refused, and the refusal points to this verb.
 #
 # THE PLAN comes first: `op` runs the verb's own dry run (retire --dry-run, rename --dry-run, lane --dry-run, revive --dry-run
 # for a recycle's sweep and a revive) and prints it to the hearer; a dry run that refuses — no such session, an ambiguous
@@ -245,7 +256,7 @@
 : "${SALA_OP_HELPER_TOOLS:=Bash(sala:*),Bash(salamander:*),Bash(tmux list-panes:*),Bash(tmux list-sessions:*),Bash(tmux display:*),Bash(tmux capture-pane:*),Bash(tail:*),Bash(cat:*),Bash(ls:*),Bash(ps:*),Bash(grep:*),Read,Grep,Glob}"
 SALA_OP_DIR="$SALA_STATE_DIR/ops"; SALA_OP_DONE="$SALA_OP_DIR/done"; SALA_OP_LOG="$SALA_LOG_DIR/salamander-op.log"
 SALA_MANDATE_DIR="$SALA_STATE_DIR/mandates"   # a queued spawn's TEXT mandate, as a file the session reads (THE MANDATE'S TRANSPORT, the header)
-SALA_OP_VERBS="recycle update revive retire close-shell forget-row rename lane model provision spawn reboot"
+SALA_OP_VERBS="recycle update revive restore retire close-shell forget-row rename lane model provision spawn reboot"
 
 op_log() { local _t; [ -d "$SALA_LOG_DIR" ] || mkdir -p "$SALA_LOG_DIR"; _iso_now_r _t; echo "[$_t] $*" >> "$SALA_OP_LOG"; }   # (no mkdir and date process on every line)
 op_dur() { if [ "$1" -lt 60 ]; then echo "$1 s"; else dur_words "$1"; fi; }   # <seconds> → words (the suites run the waits in seconds)
@@ -468,16 +479,18 @@ op_reason_from_ok() {  # <from> → 0 when <from> may use the reason door: any s
     for x in $SALA_OP_REASON_FROM; do [ "$x" = "$1" ] && return 0; done
     return 1
 }
-op_reason_args_ok() {  # <revive's args…> → 0 when they are one or more `--only NAME` and at most `--force`, nothing else; the names in OP_REASON_NAMES; else 1, the reason in OP_REASON_WHY
-    OP_REASON_NAMES=(); OP_REASON_WHY=""
+op_reason_args_ok() {  # <revive|restore> <the verb's args…> → 0 when they are one or more `--only NAME` and, for a revive, at most `--force`, nothing else; the names in OP_REASON_NAMES; else 1, the reason in OP_REASON_WHY
+    local v=$1; shift; OP_REASON_NAMES=(); OP_REASON_WHY=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --only) { [ $# -ge 2 ] && [ -n "$2" ]; } || { OP_REASON_WHY="--only needs a session name"; return 1; }; OP_REASON_NAMES+=("$2"); shift ;;
-            --force) ;;
-            *) OP_REASON_WHY="a revive with no words takes --only NAME (one or more) and --force, nothing else ('$1' is ${SALA_OWNER_NAME}'s call: add --words \"…\")"; return 1 ;;
+            --force) [ "$v" = revive ] || { OP_REASON_WHY="a restore with no words takes --only NAME (one or more), nothing else ('$1' is ${SALA_OWNER_NAME}'s call: add --words \"…\")"; return 1; } ;;
+            *) if [ "$v" = revive ]; then OP_REASON_WHY="a revive with no words takes --only NAME (one or more) and --force, nothing else ('$1' is ${SALA_OWNER_NAME}'s call: add --words \"…\")"
+               else OP_REASON_WHY="a restore with no words takes --only NAME (one or more), nothing else ('$1' is ${SALA_OWNER_NAME}'s call: add --words \"…\")"; fi
+               return 1 ;;
         esac; shift
     done
-    [ ${#OP_REASON_NAMES[@]} -ge 1 ] || { OP_REASON_WHY="a revive with no words names its sessions with --only NAME: a sweep of every pane is ${SALA_OWNER_NAME}'s call (add --words \"…\")"; return 1; }
+    [ ${#OP_REASON_NAMES[@]} -ge 1 ] || { OP_REASON_WHY="a $v with no words names its sessions with --only NAME: a sweep of every $([ "$v" = revive ] && echo pane || echo missing session) is ${SALA_OWNER_NAME}'s call (add --words \"…\")"; return 1; }
     return 0
 }
 op_reason_target_ok() {  # <name> <from> <row id, or "" to take the row's own> → 0 when <from> may revive <name> with no words; else 1, the reason in OP_REASON_WHY; the row's id in OP_REASON_ROWID
@@ -506,30 +519,63 @@ op_reason_revive_ok() {  # <from> <item or ""> <why or ""> <revive's args…> �
     local f=$1 it=$2 wy=$3 n; shift 3
     OP_REASON_WHY=""; OP_REASON_ROWIDS=()
     if [ -z "$it" ] && [ -z "$wy" ]; then OP_REASON_WHY="a revive with no words needs a reason: --item board#N (the board item that found the session unable to work) or --why \"<one line, three words or more>\"; without one ${SALA_OWNER_NAME}'s words are needed: add --words \"…\""; return 1; fi
-    op_reason_args_ok "$@" || return 1
+    op_reason_args_ok revive "$@" || return 1
     if ! op_reason_from_ok "$f"; then OP_REASON_WHY="--from '$f' may not revive with no words: only ${SALA_OP_REASON_FROM} (SALA_OP_REASON_FROM) may; anyone else needs ${SALA_OWNER_NAME}'s words (--words \"…\")"; return 1; fi
     op_caller_is "$f" || { OP_REASON_WHY=$OP_CALLER_WHY; return 1; }
     for n in "${OP_REASON_NAMES[@]}"; do op_reason_target_ok "$n" "$f" "" || return 1; OP_REASON_ROWIDS+=("$OP_REASON_ROWID"); done
     return 0
 }
-op_reason_note() {  # <item> <why> <count> → the note a no-words revive carries
+op_restore_target_ok() {  # <name> <from> <conversation id, or "" to take the row's own> → 0 when <from> may restore <name> with no words; else 1, the reason in OP_REASON_WHY; the row's conversation id in OP_REASON_ROWID
+    # The target half of the reason restore, asked twice: when the operation is queued, and again by the runner (op_run) with the id the marker stored. <name> is a session of the
+    # pane map (a row, with the conversation it resumes) whose tmux session is missing, not the master (the watch keeps that one alive, and its restore needs the owner's words), not
+    # the Remote Control session, not the asker itself (a session that can ask is alive), and not one sala leaves alone (SALA_NO_RELAUNCH). restore_check (common.sh) is the verb's
+    # own judgment of the rest: a row with a conversation, no tmux session of that name, the conversation live nowhere else. The binding is the row's conversation id: between the two
+    # asks the row can be replaced by another session's, and then the marker no longer stands for it.
+    local n=$1 f=$2 want=$3 rc
+    OP_REASON_WHY=""; OP_REASON_ROWID=""
+    if [ "$n" = "$f" ]; then OP_REASON_WHY="'$n' is the asking session itself: a restore of yourself needs ${SALA_OWNER_NAME}'s words (--words \"…\")"; return 1; fi
+    if [ -n "${SALA_MASTER:-}" ] && [ "$n" = "$SALA_MASTER" ]; then OP_REASON_WHY="'$n' is the master session: restoring it needs ${SALA_OWNER_NAME}'s words (--words \"…\")"; return 1; fi
+    if [ "$n" = "$SALA_RC_SESSION" ]; then OP_REASON_WHY="'$n' is the Remote Control server's session, not a Claude session of the pane map"; return 1; fi
+    restore_check "$n"; rc=$?
+    if [ "$rc" != 0 ]; then OP_REASON_WHY="$RS_MSG"; return 1; fi
+    if [ -n "$want" ] && [ "$RS_UUID" != "$want" ]; then OP_REASON_WHY="the pane-map row under '$n' now is not the one the operation was queued for (conversation $RS_UUID, queued for $want)"; return 1; fi
+    OP_REASON_ROWID=$RS_UUID
+    return 0
+}
+op_reason_restore_ok() {  # <from> <item or ""> <why or ""> <restore's args…> → 0 when <from> may queue `restore <args>` with no words; else 1, the reason in OP_REASON_WHY; the conversation ids (one per --only, in order) in OP_REASON_ROWIDS
+    # THE REASON DOOR for restore (the header): one or more `--only NAME` and nothing else (no --force, no --missing sweep); a reason, `--item board#N` (format only) or `--why "<text>"`; <from> any session while
+    # SALA_OP_REASON_FROM is empty AND the session this call runs in by process ancestry (op_caller_is); every NAME a pane-map row with no tmux session (op_restore_target_ok), not the master, not <from>.
+    local f=$1 it=$2 wy=$3 n; shift 3
+    OP_REASON_WHY=""; OP_REASON_ROWIDS=()
+    if [ -z "$it" ] && [ -z "$wy" ]; then OP_REASON_WHY="a restore with no words needs a reason: --item board#N (the board item that found the session gone) or --why \"<one line, three words or more>\"; without one ${SALA_OWNER_NAME}'s words are needed: add --words \"…\""; return 1; fi
+    op_reason_args_ok restore "$@" || return 1
+    if ! op_reason_from_ok "$f"; then OP_REASON_WHY="--from '$f' may not restore with no words: only ${SALA_OP_REASON_FROM} (SALA_OP_REASON_FROM) may; anyone else needs ${SALA_OWNER_NAME}'s words (--words \"…\")"; return 1; fi
+    op_caller_is "$f" || { OP_REASON_WHY=$OP_CALLER_WHY; return 1; }
+    for n in "${OP_REASON_NAMES[@]}"; do op_restore_target_ok "$n" "$f" "" || return 1; OP_REASON_ROWIDS+=("$OP_REASON_ROWID"); done
+    return 0
+}
+op_reason_note() {  # <item> <why> <count> [verb] → the note a no-words revive (or restore) carries
+    local v=${4:-revive}
     if [ -n "$1" ]; then
-        if [ "$3" = 1 ]; then echo "words: none ($1: revive of one session)"; else echo "words: none ($1: revive of $3 sessions)"; fi
+        if [ "$3" = 1 ]; then echo "words: none ($1: $v of one session)"; else echo "words: none ($1: $v of $3 sessions)"; fi
     else echo "words: none (reason: $2)"; fi
 }
-op_reason_run_ok() {  # <id> → 0 when the marker of a no-words revive still passes every check (op_run); else 1, the reason in OP_REASON_WHY. The caller's ancestry cannot be asked here (the runner is outside every pane): the queue-time check stands for it.
-    local id=$1 it wy i from rows=(); it=$(op_val "$id" item); wy=$(op_val "$id" reason); from=$(op_val "$id" from)
+op_reason_run_ok() {  # <id> → 0 when the marker of a no-words revive or restore still passes every check (op_run); else 1, the reason in OP_REASON_WHY. The caller's ancestry cannot be asked here (the runner is outside every pane): the queue-time check stands for it.
+    local id=$1 it wy i from v rows=(); it=$(op_val "$id" item); wy=$(op_val "$id" reason); from=$(op_val "$id" from); v=$(op_val "$id" verb)
     OP_REASON_WHY=""
-    [ "$(op_val "$id" verb)" = revive ] || { OP_REASON_WHY="the marker says no words but is not a revive"; return 1; }
+    case "$v" in revive|restore) ;; *) OP_REASON_WHY="the marker says no words but is not a revive or a restore"; return 1 ;; esac
     if [ -n "$it" ] && [ -n "$wy" ]; then OP_REASON_WHY="the marker carries both an item and a reason"; return 1; fi
     if [ -z "$it" ] && [ -z "$wy" ]; then OP_REASON_WHY="the marker says no words but carries no reason (item= or reason=)"; return 1; fi
     if [ -n "$it" ]; then op_item_ok "$it" || { OP_REASON_WHY="the marker's item '$it' is not a board item id"; return 1; }
     else op_why_ok "$wy" || return 1; fi
-    op_reason_args_ok ${OP_ARGS[@]+"${OP_ARGS[@]}"} || return 1
+    op_reason_args_ok "$v" ${OP_ARGS[@]+"${OP_ARGS[@]}"} || return 1
     mapfile -t rows < <(op_vals "$id" ownrow)
-    [ "${#rows[@]}" = "${#OP_REASON_NAMES[@]}" ] || { OP_REASON_WHY="the marker carries ${#rows[@]} registry row id(s) (ownrow=) for ${#OP_REASON_NAMES[@]} session(s)"; return 1; }
-    op_reason_from_ok "$from" || { OP_REASON_WHY="'$from' may no longer revive with no words (SALA_OP_REASON_FROM: ${SALA_OP_REASON_FROM:-any})"; return 1; }
-    for ((i=0; i<${#OP_REASON_NAMES[@]}; i++)); do op_reason_target_ok "${OP_REASON_NAMES[i]}" "$from" "${rows[i]}" || return 1; done
+    [ "${#rows[@]}" = "${#OP_REASON_NAMES[@]}" ] || { OP_REASON_WHY="the marker carries ${#rows[@]} $([ "$v" = restore ] && echo conversation || echo registry row) id(s) (ownrow=) for ${#OP_REASON_NAMES[@]} session(s)"; return 1; }
+    op_reason_from_ok "$from" || { OP_REASON_WHY="'$from' may no longer $v with no words (SALA_OP_REASON_FROM: ${SALA_OP_REASON_FROM:-any})"; return 1; }
+    for ((i=0; i<${#OP_REASON_NAMES[@]}; i++)); do
+        if [ "$v" = restore ]; then op_restore_target_ok "${OP_REASON_NAMES[i]}" "$from" "${rows[i]}" || return 1
+        else op_reason_target_ok "${OP_REASON_NAMES[i]}" "$from" "${rows[i]}" || return 1; fi
+    done
     return 0
 }
 op_words_policy() {  # <verb> <args…> → OP_POLICY: what a marker with NO words needs (THE WORDS POLICY, the header): owner · reason · throwaway
@@ -545,6 +591,14 @@ op_words_policy() {  # <verb> <args…> → OP_POLICY: what a marker with NO wor
                 esac; shift
             done
             [ "$only" -ge 1 ] && OP_POLICY=reason ;;   # a sweep (no --only) and any other flag stay the owner's
+        restore)   # only `--only NAME`, one or more: no --force, and no --missing sweep (which the queue does not take at all)
+            while [ $# -gt 0 ]; do
+                case "$1" in
+                    --only) [ $# -ge 2 ] || return 0; only=$((only + 1)); shift ;;
+                    *) return 0 ;;
+                esac; shift
+            done
+            [ "$only" -ge 1 ] && OP_POLICY=reason ;;
     esac
     return 0
 }
@@ -563,6 +617,10 @@ op_shapes() {
                                             every NAME is a live Claude session of the registry that is neither the master nor YOU, and YOU is the session whose pane holds the call by process ancestry
                                             (not TMUX_PANE; a Claude Code exe, not a name; SALA_OP_REASON_FROM, empty = any session, limits who); never a sweep (no --only), --rescue, --lane-default or any other flag.
                                             --item is a format check only (board#N): sala does not ask the board whether the item exists. The runner checks it all again before it relaunches anything
+  restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT
+                                            `restore --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
+                                            every NAME is a pane-map row with no tmux session whose conversation is live nowhere else, is neither the master nor YOU, and YOU is the session whose pane holds the call by process ancestry
+                                            (as for revive; SALA_OP_REASON_FROM limits who); never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere. The runner checks it all again before it recreates anything
   retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
                                             ends a Claude session for good: NAME is the exact tmux session name, --id names it by conversation id; a side session only after `side done` (--skip-writeup the bypass); --busy retires a pane that is not idle; --self the session this call runs in; --leave-items a session that moves open board items (asked of stackshot first); --force is refused. Needs the owner's words, EXCEPT
                                             a throwaway: `retire NAME --from YOU` with no --words, accepted only when NAME's registry row has no project, no role,
@@ -629,6 +687,19 @@ op_shape() {
         esac; shift; done
         for s in ${only[@]+"${only[@]}"}; do OP_RUN+=(--only "$s"); done
         OP_RUN=(revive ${OP_RUN[@]+"${OP_RUN[@]}"} ${flags[@]+"${flags[@]}"}); OP_PLAN=("${OP_RUN[@]}" --dry-run); OP_LOCK=own; OP_SET=1; OP_TARGETS="${only[*]-}" ;;
+    restore)
+        # a session whose tmux session is gone, from its pane-map row (lib/restore.sh): `restore NAME…` is the verb's own form, the queue's marker keeps `--only NAME` like revive's.
+        # No sweep (--missing) and no flag: the plan is the verb's --dry-run; the runner's unit passes ops_guard like every queued verb (common.sh op_unit_caller).
+        while [ $# -gt 0 ]; do case "$1" in
+            --only) op_session_ok "${2:-}" || return 1
+                    case " ${only[*]-} " in *" $2 "*) op_bad "restore names '$2' twice"; return 1;; esac
+                    only+=("$2"); shift ;;
+            --missing) op_bad "restore --missing (a sweep of every missing session) is not queued: name the sessions with --only NAME"; return 1 ;;
+            *) op_bad "restore takes --only NAME only, not '$1'"; return 1 ;;
+        esac; shift; done
+        [ ${#only[@]} -ge 1 ] || { op_bad "restore needs at least one --only NAME"; return 1; }
+        OP_RUN=(restore "${only[@]}"); OP_PLAN=("${OP_RUN[@]}" --dry-run); OP_LOCK=own; OP_SET=1; OP_TARGETS="${only[*]}"
+        OP_PLAN_NOTE="would create each session's tmux session (detached, in the directory of its pane-map row), then revive --only resumes its conversation: its lane, model and effort rows, inbox hold and duplicate-conversation guard are revive's own; the plan below is restore --dry-run" ;;
     retire)
         local byid=""
         [ $# -ge 1 ] || { op_bad "retire needs a session name (or --id <conversation-id>)"; return 1; }
@@ -946,7 +1017,7 @@ op_main() {
         args=(${_na[@]+"${_na[@]}"})
     fi
     if [ -n "$item" ] || [ -n "$why" ]; then
-        [ "$verb" = revive ] || { op_bad "--item and --why are accepted only with revive (\`op revive --only NAME --item board#N\`, or --why \"<reason>\"), not with $verb: every other verb needs ${SALA_OWNER_NAME}'s words (--words \"…\")"; return 2; }
+        [ "$verb" = revive ] || [ "$verb" = restore ] || { op_bad "--item and --why are accepted only with revive and restore (\`op revive --only NAME --item board#N\`, \`op restore --only NAME --why \"<reason>\"\`), not with $verb: every other verb needs ${SALA_OWNER_NAME}'s words (--words \"…\")"; return 2; }
         { [ -z "$item" ] || [ -z "$why" ]; } || { op_bad "give the reason as --item board#N or --why \"…\", not both"; return 2; }
         if [ -n "$item" ]; then op_item_ok "$item" || { op_bad "'$item' is not a board item id (board#N, digits only)"; return 2; }
         else op_why_ok "$why" || { op_bad "$OP_REASON_WHY"; return 2; }; why=$(op_one_line "$why"); fi
@@ -974,10 +1045,10 @@ op_main() {
                     throwaway)   # the one operation a session queues with none, first door: it ends a throwaway
                         if op_own_flags_ok "${args[@]}" && op_own_retire_ok "$OP_TARGETS" "$from"; then nowords=$(op_own_note); ownrow=$OP_OWN_ROWID; fi ;;
                     reason)      # the other: it revives sessions, with a reason on the record
-                        if op_reason_revive_ok "$from" "$item" "$why" ${args[@]+"${args[@]}"}; then
-                            nowords=$(op_reason_note "$item" "$why" "${#OP_REASON_ROWIDS[@]}"); ownrow=$(printf '%s\n' "${OP_REASON_ROWIDS[@]}"); fi ;;
+                        if { [ "$verb" = restore ] && op_reason_restore_ok "$from" "$item" "$why" ${args[@]+"${args[@]}"}; } || { [ "$verb" = revive ] && op_reason_revive_ok "$from" "$item" "$why" ${args[@]+"${args[@]}"}; }; then
+                            nowords=$(op_reason_note "$item" "$why" "${#OP_REASON_ROWIDS[@]}" "$verb"); ownrow=$(printf '%s\n' "${OP_REASON_ROWIDS[@]}"); fi ;;
                 esac
-                [ -n "$nowords" ] || die "no --words: the queue takes an operation only with ${SALA_OWNER_NAME}'s words on it, verbatim (--words \"…\", or --stdin); a marker with none is refused. The one exception: \`op retire NAME --from YOU\` with no words, for a throwaway (no project, role or side, on no agents map): any session may end one whose row carries the throwaway tag (a bare \`sala spawn\` sets it), between turns; for a row without the tag YOU may end the one YOU started, the master one whose name is scratch-*, *-check-*, *-test-* or *-probe-*, and any session one with no live spawner and such a name; never with a bypass flag, --keep-web or --id, and only when the project record confirms the name is on no agents map. The one other: \`op revive --only NAME [--only NAME]… [--force] --from YOU\` with --item board#N or --why \"<one line>\" and no words, for live sessions that are not the master and not YOU (never a sweep)${OP_OWN_WHY:+; refused here: $OP_OWN_WHY}${OP_REASON_WHY:+; refused here: $OP_REASON_WHY}"
+                [ -n "$nowords" ] || die "no --words: the queue takes an operation only with ${SALA_OWNER_NAME}'s words on it, verbatim (--words \"…\", or --stdin); a marker with none is refused. The one exception: \`op retire NAME --from YOU\` with no words, for a throwaway (no project, role or side, on no agents map): any session may end one whose row carries the throwaway tag (a bare \`sala spawn\` sets it), between turns; for a row without the tag YOU may end the one YOU started, the master one whose name is scratch-*, *-check-*, *-test-* or *-probe-*, and any session one with no live spawner and such a name; never with a bypass flag, --keep-web or --id, and only when the project record confirms the name is on no agents map. The one other: \`op revive --only NAME [--only NAME]… [--force] --from YOU\` with --item board#N or --why \"<one line>\" and no words, for live sessions that are not the master and not YOU (never a sweep). And \`op restore --only NAME [--only NAME]… --from YOU\` with --item board#N or --why \"<one line>\" and no words, for pane-map sessions whose tmux session is gone, not the master and not YOU (never --missing)${OP_OWN_WHY:+; refused here: $OP_OWN_WHY}${OP_REASON_WHY:+; refused here: $OP_REASON_WHY}"
             fi
         fi
     fi
@@ -1219,7 +1290,7 @@ op_run() {  # <id> — the unit's main process
         # still the live one it was queued for, not the master, not the asker. A mismatch is stuck with nothing run, at once and with no claude -p helper (op_finish, not op_stuck).
         op_words_policy "$verb" ${OP_ARGS[@]+"${OP_ARGS[@]}"}
         if [ "$OP_POLICY" = reason ]; then
-            op_reason_run_ok "$id" || { op_say "$id" "stuck — $OP_REASON_WHY"; op_finish "$id" stuck "$OP_REASON_WHY; nothing was revived"; return 0; }
+            op_reason_run_ok "$id" || { op_say "$id" "stuck — $OP_REASON_WHY"; op_finish "$id" stuck "$OP_REASON_WHY; nothing was $([ "$verb" = restore ] && echo restored || echo revived)"; return 0; }
         else
             if [ "$OP_POLICY" != throwaway ] || [ -z "$(op_val "$id" ownrow)" ]; then
                 op_say "$id" "stuck — no words, but not a throwaway retire that still passes its checks with its row id"
@@ -1295,7 +1366,7 @@ op_stuck() {  # <id> <failure> — the one claude -p, then the result
 op_brief() {  # <id> <failure> → the helper's prompt
     local id="$1" why="$2" set asked
     set=$(op_val "$id" set)
-    if [ -n "$(op_val "$id" nowords)" ]; then asked="queued by $(op_val "$id" from) at $(local_human "$(op_val "$id" time)") with no words ($(op_val "$id" nowords)): $([ "$(op_val "$id" verb)" = revive ] && echo "that session revives the sessions named, for the reason in the note" || echo "that session ends a throwaway (the rule is in the note)")."
+    if [ -n "$(op_val "$id" nowords)" ]; then asked="queued by $(op_val "$id" from) at $(local_human "$(op_val "$id" time)") with no words ($(op_val "$id" nowords)): $(case "$(op_val "$id" verb)" in revive) echo "that session revives the sessions named, for the reason in the note";; restore) echo "that session restores the sessions named, for the reason in the note";; *) echo "that session ends a throwaway (the rule is in the note)";; esac)."
     else asked="with ${SALA_OWNER_NAME}'s words (quoted by $(op_val "$id" from); queued at $(local_human "$(op_val "$id" time)")): \"$(op_val "$id" words)\"."; fi
     cat <<EOF
 You are sala's stuck-operation helper: a one-off \`claude -p\` started by salamander's operation queue (lib/op.sh) on $_SALA_HN, inside the unit sala-op-$id. Nobody watches this run; your outputs are the sala commands you run and your last line.
@@ -1310,7 +1381,7 @@ $(tail -n 40 "$(op_oplog "$id")" 2>/dev/null)
 The relaunch log's last 20 lines ($SALA_LOG_DIR/salamander-revive.log):
 $(tail -n 20 "$SALA_LOG_DIR/salamander-revive.log" 2>/dev/null)
 
-Rules. NEVER run \`salamander retire\` (or any verb that ends a session) for an operation queued with no words ("with no words" above): its throwaway checks failed or it already ran, and a retire here would have none of them; end with a SALA-OP: stuck line instead. For a no-words revive (a reason in the note, not a retire), only \`salamander revive [--force] --only <those NAMEs>\`, the sessions its arguments name and nothing else (no sweep, no other session, no --rescue). Finish the operation with sala's own verbs only (salamander recycle, revive, retire, close-shell, forget-row, rename, lane, model, update, provision, spawn; \`salamander revive --only <session> --force --rescue\` when a stale background-task row holds a pane and no child process runs under its claude), with read-only looks (tmux list-panes, tmux capture-pane, tail, cat, ls, ps, grep, Read). Never --not-master, never stop a process, never tmux kill-*, never reboot, never a wider path than the words asked for (no --force the words did not imply). If it needs a decision only ${SALA_OWNER_NAME} can make, or a pane is held by work that must not be interrupted, stop and say so. A permission prompt you cannot answer means stop. Do not post to Slack or message a session: the queue does that from your last line.
+Rules. NEVER run \`salamander retire\` (or any verb that ends a session) for an operation queued with no words ("with no words" above): its throwaway checks failed or it already ran, and a retire here would have none of them; end with a SALA-OP: stuck line instead. For a no-words revive (a reason in the note, not a retire), only \`salamander revive [--force] --only <those NAMEs>\`, the sessions its arguments name and nothing else (no sweep, no other session, no --rescue); for a no-words restore, only \`salamander restore <those NAMEs>\`. Finish the operation with sala's own verbs only (salamander recycle, revive, restore, retire, close-shell, forget-row, rename, lane, model, update, provision, spawn; \`salamander revive --only <session> --force --rescue\` when a stale background-task row holds a pane and no child process runs under its claude), with read-only looks (tmux list-panes, tmux capture-pane, tail, cat, ls, ps, grep, Read). Never --not-master, never stop a process, never tmux kill-*, never reboot, never a wider path than the words asked for (no --force the words did not imply). If it needs a decision only ${SALA_OWNER_NAME} can make, or a pane is held by work that must not be interrupted, stop and say so. A permission prompt you cannot answer means stop. Do not post to Slack or message a session: the queue does that from your last line.
 End with exactly one line: \`SALA-OP: done <what you did, one line>\` or \`SALA-OP: stuck <why, one line>\`.
 EOF
 }
@@ -1331,6 +1402,7 @@ op_verify() {  # <id> → 0 when the operation's effect can be seen (or cannot b
                        [ "$(cut -f1 <<< "$(model_row "$_vx")")" = "$_vm" ] || { OP_VERIFY_WHY="'$_vx' is not recorded on $_vm"; return 1; }; done
                else [ "$(cut -f1 <<< "$(model_row "${a[0]:-}")")" = "${a[1]:-}" ] || { OP_VERIFY_WHY="'${a[0]:-}' is not recorded on ${a[1]:-}"; return 1; }; fi ;;
         spawn) tmux has-session -t "=${a[0]:-}" 2>/dev/null || { OP_VERIFY_WHY="no tmux session '${a[0]:-}'"; return 1; } ;;
+        restore) local _rn; for _rn in "${a[@]}"; do [ "$_rn" = --only ] && continue; tmux has-session -t "=$_rn" 2>/dev/null || { OP_VERIFY_WHY="no tmux session '$_rn'"; return 1; }; done ;;
     esac
     return 0
 }
@@ -1383,7 +1455,7 @@ $t" && { op_log "reply: $s has no live pane; sent to $m"; return 0; } ;;
     op_log "reply FAILED: $s is live but the push to its messaging socket failed; nobody was told, the Slack post stands — ${t:0:120}"; return 0
 }
 # THE MANY-SESSION POST (Mon Nov 2nd 2026): an operation given several sessions (lane <lane> <session>…, model <model> <session>…,
-# model --clear <session>…, revive --only A --only B…, lane fallback <lane>) names none of them in its title or its inbox line: the
+# model --clear <session>…, revive --only A --only B…, restore --only A --only B…, lane fallback <lane>) names none of them in its title or its inbox line: the
 # title carries the verb and its other arguments and a count, the way the recycle's own post does ("✅ *Recycle done* · 12 panes",
 # "⚠️ *Recycle … · n/N relaunched*"): every session through → "· done* · N sessions"; one failed or skipped → "· n/N succeeded*",
 # a bullet per failed or skipped session with its reason (a FAILED / NOT moved / stays-on RESULT line; when stuck, a pane its set
@@ -1392,7 +1464,7 @@ $t" && { op_log "reply: $s has no live pane; sent to $m"; return 0; } ;;
 op_sessions_of() {  # <verb> [args…] → the sessions a many-session shape names, one per line (none for any other verb or shape)
     local verb="${1:-}" a e=""; shift || true
     case "$verb" in
-    revive) while [ $# -gt 0 ]; do [ "$1" = --only ] && [ -n "${2:-}" ] && { echo "$2"; shift; }; shift; done ;;
+    revive|restore) while [ $# -gt 0 ]; do [ "$1" = --only ] && [ -n "${2:-}" ] && { echo "$2"; shift; }; shift; done ;;
     lane) case "${1:-}" in ''|fallback|default) return 0;; esac; [ "${2:-}" = --all ] && return 0; shift; [ $# -gt 0 ] && printf '%s\n' "$@" ;;
     model)
         if [ "${1:-}" = --clear ]; then shift; [ $# -gt 0 ] && printf '%s\n' "$@"
@@ -1524,7 +1596,7 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
     sala_post "$hd" "${bul[@]}"
     op_event "$id" "$st" "$n" "$nf" "$line" "$res"   # stackshot hears the end too (THE OP-END EVENT, above); never changes the outcome
     x=$(op_val "$id" unset_master)
-    if [ -n "$nowords" ]; then asked="Queued by $from at $when with no words ($nowords): $([ "$verb" = revive ] && echo "the session revived the sessions named, for the reason in the note" || echo "the session ended a throwaway (the rule is in the note)")."
+    if [ -n "$nowords" ]; then asked="Queued by $from at $when with no words ($nowords): $(case "$verb" in revive) echo "the session revived the sessions named, for the reason in the note";; restore) echo "the session restored the sessions named, for the reason in the note";; *) echo "the session ended a throwaway (the rule is in the note)";; esac)."
     else asked="Words from ${SALA_OWNER_NAME} (quoted by $from; queued at $when): \"$words\"."; fi
     if [ "$from" = sala-watch ]; then op_log "no reply sent: $id was queued by the watch itself (no session waits on it); the Slack post stands"; op_archive "$id"; op_kick_end; return 0; fi
     op_tell "$from" "[sala op $id] salamander $line — $st${cnt:+ ($cnt)}: $res.${dl:+$dl$nl}${x:+ SALA_MASTER was unset first: '$x' is no longer the session the watchdog keeps alive.} $asked (Automatic salamander message from the operation queue; the result is posted in Slack too; nothing to reply to.)"

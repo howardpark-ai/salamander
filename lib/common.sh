@@ -2599,16 +2599,23 @@ ledger_missing() {  # → the map's rows whose tmux session does not exist (the 
         tmux has-session -t "=$s" 2>/dev/null || printf '%s\n' "$line"
     done < "$SALA_SIDECAR"
 }
-restore_session() {  # <session> [row] → 0 recreated and resumed · 3 left alone (its conversation is live elsewhere) · 1 failed; one line on stdout
-    local sess="$1" row="${2:-}" uuid name cwd live out why note="" sess_re
-    no_relaunch "$sess" && { echo "$(no_relaunch_line "$sess"); sala does not recreate it"; return 1; }
+restore_check() {  # <session> [row] → 0 it can be recreated · 3 left alone (its conversation is live elsewhere) · 1 refused; its line in RS_MSG. Sets RS_UUID RS_CWD RS_NOTE (the cwd it would use, and " (its directory … is gone, so in $HOME)" when it falls back). Changes nothing: restore_session and `restore --dry-run` both ask it
+    local sess="$1" row="${2:-}" name live
+    RS_MSG=""; RS_UUID=""; RS_CWD=""; RS_NOTE=""
+    no_relaunch "$sess" && { RS_MSG="$(no_relaunch_line "$sess"); sala does not recreate it"; return 1; }
     [ -n "$row" ] || row=$(ledger_row "$sess")
-    [ -n "$row" ] || { echo "$sess: not in the pane map, nothing to recreate it from (salamander spawn makes a new session, adopt registers a live one)"; return 1; }
-    IFS=$'\t' read -r _ uuid name cwd <<< "$row"
-    [ -n "$uuid" ] || { echo "$sess: its pane-map row has no conversation id"; return 1; }
-    tmux has-session -t "=$sess" 2>/dev/null && { echo "$sess: its tmux session exists — revive brings its claude back (salamander revive --only $sess)"; return 1; }
-    if live=$(live_pane_for_uuid "$uuid"); then echo "$sess: left alone — its conversation is live already (pid ${live%% *} in ${live#* }); a conversation is never resumed twice"; return 3; fi
-    [ -n "$cwd" ] && [ -d "$cwd" ] || { note=" (its directory '${cwd:-?}' is gone, so in $HOME)"; cwd="$HOME"; }
+    [ -n "$row" ] || { RS_MSG="$sess: not in the pane map, nothing to recreate it from (salamander spawn makes a new session, adopt registers a live one)"; return 1; }
+    IFS=$'\t' read -r _ RS_UUID name RS_CWD <<< "$row"
+    [ -n "$RS_UUID" ] || { RS_MSG="$sess: its pane-map row has no conversation id"; return 1; }
+    tmux has-session -t "=$sess" 2>/dev/null && { RS_MSG="$sess: its tmux session exists — revive brings its claude back (salamander revive --only $sess)"; return 1; }
+    if live=$(live_pane_for_uuid "$RS_UUID"); then RS_MSG="$sess: left alone — its conversation is live already (pid ${live%% *} in ${live#* }); a conversation is never resumed twice"; return 3; fi
+    [ -n "$RS_CWD" ] && [ -d "$RS_CWD" ] || { RS_NOTE=" (its directory '${RS_CWD:-?}' is gone, so in $HOME)"; RS_CWD="$HOME"; }
+    return 0
+}
+restore_session() {  # <session> [row] → 0 recreated and resumed · 3 left alone (its conversation is live elsewhere) · 1 failed; one line on stdout
+    local sess="$1" row="${2:-}" out why rc sess_re uuid cwd note
+    restore_check "$sess" "$row"; rc=$?; [ "$rc" = 0 ] || { echo "$RS_MSG"; return "$rc"; }
+    uuid=$RS_UUID; cwd=$RS_CWD; note=$RS_NOTE
     tmux new-session -d -s "$sess" -c "$cwd" || { echo "$sess: tmux new-session failed"; return 1; }
     # not the recycle's own sweep (SALA_RECYCLE would re-post and stop retry workers); the guard was this caller's to pass
     out=$(env -u SALA_RECYCLE -u SALA_SKIP_PANE "$SALA_BIN" revive --only "$sess" --not-master 2>&1)
@@ -4970,11 +4977,13 @@ master_guard() {
     if [ -z "${SALA_MASTER:-}" ]; then
         claude_caller || return 0   # a human's shell, systemd, cron, the boot hook: no one-driver rule to hold against them
         here=""; [ -n "${TMUX_PANE:-}" ] && here=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
-        # the verbs the queue takes (lib/op.sh, THE VERBS); adopt and restore have no queue shape yet; a reboot is not
+        # the verbs the queue takes (lib/op.sh, THE VERBS); adopt has no queue shape yet; a reboot is not
         # queued (SALA_OP_REBOOT off by default, unsupported until a confirmation path is built): the owner runs it directly
         case "$verb" in
             reboot)
                 die "reboot is not queued: ${SALA_OWNER_NAME} runs \`sala reboot --go\` in the web UI's Shell; a session shows \`sala reboot --status\` and waits for the word" ;;
+            restore)
+                die "restore is a fleet operation, and a session never runs one itself: the operation queue does (no master session is configured). Queue it — sala op restore --only NAME --why \"<one line: why it is needed>\" --from ${here:-<you>} (or --item board#N for --why; ${SALA_OWNER_NAME}'s words are needed only for the master, yourself or a sweep) — and sala's watch runs it; sala op --plan restore --only NAME shows what it would do first" ;;
             recycle|update|revive|retire|close-shell|forget-row|rename|lane|model|provision)
                 die "$verb is a fleet operation, and a session never runs one itself: the operation queue does (no master session is configured). Queue it — sala op $verb … --from ${here:-<you>} --words \"<${SALA_OWNER_NAME}'s words>\" — and sala's watch runs it, one operation at a time; sala op --plan $verb … shows the plan first (the recycle procedure does exactly that). Override only if you know why: --not-master" ;;
             *)  die "$verb is a fleet operation, and a session never runs one itself (no master session is configured, and the operation queue has no '$verb' verb yet: lib/op.sh, THE VERBS). From a plain shell it runs; from a session only on ${SALA_OWNER_NAME}'s word, with --not-master" ;;

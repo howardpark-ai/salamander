@@ -35,9 +35,9 @@ HELP_SNAPSHOT_ROOT="$C" HELP_SNAPSHOT_FILE="$T/snap.txt" bash "$SNAPSH" --update
 out=$(HELP_SNAPSHOT_ROOT="$C" HELP_SNAPSHOT_FILE="$T/snap.txt" bash "$SNAPSH" 2>&1); rc=$?
 [ "$rc" = 0 ] && grep -q 'from start to end' "$T/snap.txt" && ok "--update rewrites the snapshot, and the check then passes" || bad "--update did not fix it: rc=$rc"
 
-sed -i 's/^usage="usage: salamander restore NAME… | --missing"/usage="usage: salamander restore NAME… | --missing | --all"/' "$C/lib/restore.sh"
+sed -i 's/^usage="usage: salamander restore (NAME… | --missing) \[--dry-run\]"/usage="usage: salamander restore (NAME… | --missing | --all) [--dry-run]"/' "$C/lib/restore.sh"
 out=$(HELP_SNAPSHOT_ROOT="$C" HELP_SNAPSHOT_FILE="$ROOT/tests/help-snapshot.txt" bash "$SNAPSH" 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q '^    +usage: salamander restore NAME… | --missing | --all' <<< "$out" && ok "a verb's own usage edited (restore): caught in its section" || bad "a verb's usage drift is not caught: rc=$rc $(echo "$out" | head -12)"
+[ "$rc" = 1 ] && grep -q '^    +usage: salamander restore (NAME… | --missing | --all) \[--dry-run\]' <<< "$out" && ok "a verb's own usage edited (restore): caught in its section" || bad "a verb's usage drift is not caught: rc=$rc $(echo "$out" | head -12)"
 out=$(HELP_SNAPSHOT_ROOT="$T/none" bash "$SNAPSH" 2>&1); [ "$?" = 1 ] && ok "a root with no sala fails, never passes silently" || bad "a missing root passed"
 
 echo "== check 2: the skills name only flags the help has"

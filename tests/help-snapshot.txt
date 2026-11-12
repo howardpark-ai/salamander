@@ -62,7 +62,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      is written only when the board item changed since the start, the project page has a timeline line from the session,
                                      and the summary was sent (by sala, through stackshot's client) to the origin agent or the project's -main
   salamander adopt NAME                           put a live session made by hand (outside spawn) into the pane map
-  salamander restore NAME… | --missing            recreate a session from its pane-map row (tmux session in its cwd, then resumed by uuid)
+  salamander restore (NAME… | --missing) [--dry-run]  recreate a session from its pane-map row (tmux session in its cwd, then resumed by uuid); --dry-run shows the plan, a session queues it: op restore
   salamander follow                               resident watcher of the session registry (sala-follow.service): follows hand renames
   salamander snapshot [--now]        event-driven tmux-resurrect save (tmux hooks + Claude SessionStart hook)
   salamander watch [--check]         the watchdog, from a timer: the operation queue, the automatic update, relaunch and recycle, the
@@ -264,6 +264,7 @@ usage: salamander revive [--dry-run] [--force] [--only NAME] [--lane-default] [-
   salamander op <verb> [args…] --from NAME --stdin                      the words on stdin (a pane on another box, over ssh)
   salamander op retire NAME --from YOU                                  NO words: only for a throwaway (tagged at spawn: any session; untagged: its spawner, the master or anyone, a throwaway's name; never a bypass flag, --keep-web or --id)
   salamander op revive --only NAME… --item board#N --from YOU           NO words: a reason on the record instead (--why "<one line>" for --item; --force allowed): one or more live Claude sessions, never the master or YOU, never a sweep, --rescue or --lane-default
+  salamander op restore --only NAME… --item board#N --from YOU          NO words: a reason on the record (--why "<one line>" for --item): one or more pane-map sessions whose tmux session is gone, never the master or YOU, never --missing or --force
   salamander op --plan <verb> [args…]                                   the plan alone: the verb's dry run, nothing queued
   salamander op --list                                                  the queue (and what it is doing)
   salamander op --status <id>                                           one operation's record, queued or archived
@@ -278,6 +279,10 @@ verbs:
                                             every NAME is a live Claude session of the registry that is neither the master nor YOU, and YOU is the session whose pane holds the call by process ancestry
                                             (not TMUX_PANE; a Claude Code exe, not a name; SALA_OP_REASON_FROM, empty = any session, limits who); never a sweep (no --only), --rescue, --lane-default or any other flag.
                                             --item is a format check only (board#N): sala does not ask the board whether the item exists. The runner checks it all again before it relaunches anything
+  restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT
+                                            `restore --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
+                                            every NAME is a pane-map row with no tmux session whose conversation is live nowhere else, is neither the master nor YOU, and YOU is the session whose pane holds the call by process ancestry
+                                            (as for revive; SALA_OP_REASON_FROM limits who); never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere. The runner checks it all again before it recreates anything
   retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
                                             ends a Claude session for good: NAME is the exact tmux session name, --id names it by conversation id; a side session only after `side done` (--skip-writeup the bypass); --busy retires a pane that is not idle; --self the session this call runs in; --leave-items a session that moves open board items (asked of stackshot first); --force is refused. Needs the owner's words, EXCEPT
                                             a throwaway: `retire NAME --from YOU` with no --words, accepted only when NAME's registry row has no project, no role,
@@ -303,7 +308,7 @@ verbs:
   reboot                                    not queued: the owner runs `sala reboot --go` in the web UI's Shell (SALA_OP_REBOOT: off by default, unsupported until a confirmation path is built)
 
 ### sala restore --help (exit 0)
-usage: salamander restore NAME… | --missing
+usage: salamander restore (NAME… | --missing) [--dry-run]
 
 ### sala note --help (exit 1)
 ✗ usage: salamander note "<next step>" | --done [<id>] | --list [--archived]

@@ -94,7 +94,7 @@ suite release lib/cipoll.py release.sh
 suite rename lib/adopt.sh lib/heartbeat.sh lib/rename.sh lib/sessions.py lib/snapshot.sh
 suite rescue lib/feedback.sh lib/holders.py lib/hook.sh lib/lane.sh lib/revive.sh lib/sessions.py
 suite retire lib/adopt.sh lib/feedback.sh lib/forget-row.sh lib/holders.py lib/retire.sh lib/sessions.py lib/sessions.sh lib/snapshot.sh
-suite retire-own lib/feedback.sh lib/op.sh lib/rc.sh lib/retire.sh lib/revive.sh lib/sessions.py lib/snapshot.sh lib/spawn.sh
+suite retire-own lib/feedback.sh lib/op.sh lib/rc.sh lib/restore.sh lib/retire.sh lib/revive.sh lib/sessions.py lib/snapshot.sh lib/spawn.sh
 suite retire-verbs lib/adopt.sh lib/close-shell.sh lib/feedback.sh lib/forget-row.sh lib/holders.py lib/op.sh lib/retire.sh lib/sessions.py lib/snapshot.sh
 suite runsh
 suite sdklane contrib/sdk-pane/driver.py lib/adopt.sh lib/alert.sh lib/feedback.sh lib/lane.sh lib/revive.sh lib/api_credit.py lib/sdk-pane.sh lib/sessions.py lib/spawn.sh tests/sdk-stub/claude_agent_sdk/__init__.py

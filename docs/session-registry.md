@@ -165,11 +165,15 @@ target's panes and the read of its environment is skipped; a live process with a
 picked; none: exit 1; nothing is written and nothing logged. `--json`: `{id, name, state, transcripts: [{id, path, current, machine,
 at, why}]}`.
 
-## A revive with a reason instead of words: `op revive --item` / `--why`
+## A revive or restore with a reason instead of words: `op revive` / `op restore` with `--item` / `--why`
 
 Added Tue Nov 3rd 2026. `lib/op.sh` decides per verb and arguments what the marker needs (`op_words_policy VERB ARGS…`; its header comment lists every verb with
-the reason): `owner` (the owner's words, the default), `reason` (a recorded reason in place of words) or `throwaway` (the retire door above). Only `revive` is `reason`, and
-only in one shape: `sala op revive --only NAME [--only NAME]… [--force] (--item board#N | --why "<one line>") --from YOU`, with no `--words`.
+the reason): `owner` (the owner's words, the default), `reason` (a recorded reason in place of words) or `throwaway` (the retire door above). Only `revive` and `restore` are `reason`, and
+each in one shape: `sala op revive --only NAME [--only NAME]… [--force] (--item board#N | --why "<one line>") --from YOU`, with no `--words`; and
+`sala op restore --only NAME [--only NAME]… (--item board#N | --why "<one line>") --from YOU` (no `--force`, no `--missing`), for a session whose tmux session is gone:
+each NAME is a row of the pane map (not a live registry row) whose conversation is live nowhere, not the master, not the Remote Control session and not the asker, bound by the row's
+conversation id in `ownrow=`. `op --plan restore …` is `restore --dry-run`: it refuses a live tmux session (use revive), a name with no row and a conversation live elsewhere. The runner passes
+the guard by its `sala-op-<id>` unit (no flag or environment marker), and a raw `sala restore` from a Claude session stays refused. Who, the reason and the checks below are the same for both.
 
 - **Who:** any live Claude session, placed by process ancestry (`op_caller_is`, the same placement retire's door uses; `TMUX_PANE` and `--from` are claims only).
   `SALA_OP_REASON_FROM` (empty by default = any session) is a space-separated allow list of session names that narrows it.
@@ -181,9 +185,9 @@ only in one shape: `sala op revive --only NAME [--only NAME]… [--force] (--ite
 - **Refused without words:** a sweep (no `--only`), `--rescue`, `--lane-default` and any other flag; `--item` and `--why` on any other verb.
 - **The runner checks again** (`op_run` through `op_words_policy`): the shape, the reason, the allow list and that each row under its name still has the stored id.
   On any mismatch the operation is recorded stuck with nothing run, and no helper starts for it. A no-words marker's `claude -p` helper (if its run fails after the check)
-  may run only `salamander revive [--force] --only` the names in the marker.
+  may run only `salamander revive [--force] --only` (a restore: `salamander restore`) the names in the marker.
 
-Tests: `tests/retire-own.sh` (sections on the reason door).
+Tests: `tests/retire-own.sh` (sections on the reason door and on restore), `tests/ledger.sh` (`restore --dry-run`).
 
 ## The flag and how to revert
 
