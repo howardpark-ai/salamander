@@ -2,8 +2,7 @@
 # macos-latest.
 # NO PUSH TRIGGER. The Linux leg ran tests/smoke.sh and tests/phases.sh on every push of every
 # branch and of main, and tests.yml's `suites` job runs both whenever a change touches the files they open (tests/suites.map)
-# and always on a push to main, so the push run only repeated them. With it went the tested-tree artifact and main's
-# tested.sh skip for this leg; tests.yml keeps its own.
+# and in every merge-queue entry, so the push run only repeated them.
 name: smoke
 on:
   workflow_dispatch:

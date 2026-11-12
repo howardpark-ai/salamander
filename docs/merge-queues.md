@@ -14,11 +14,11 @@ Use one queue at a time. With GitHub's queue active, keep the host file at `off`
 ## What the repository carries
 
 - **`.github/workflows/tests.yml`** runs for an entry of either queue: `on: merge_group` (types `checks_requested`) and `on: push` to `main` and `queue/**`.
-  The `changes` job picks the same suites as for a PR; the base it compares against is `merge_group.base_sha` for GitHub's entry and the merge base with `main` for a `queue/**` push.
-  `tested.sh` (the "this tree already passed on `main`" shortcut) reads and writes only on `main`, so a queue run always runs what its change needs.
+  An entry runs every suite and the web tests, whatever its change was: the queue is the full gate on the tree that lands, a PR runs only the suites its change reaches, and the push to `main` that follows runs no suite
+  (`changes` only; `suites` and `web` report skipped). `CONTRIBUTING.md`, *CI layout*.
 - **`gate`**, a job at the end of `tests.yml` (needs `changes`, `suites`, `web`; `if: always()`): it fails unless each of them is `success` or `skipped`.
   `sala mq` reads a check that completed without `success` as failed, and `suites` and `web` are skipped on some changes, so it cannot require them; it requires `gate`.
-- **`.github/mergequeue.toml`**, the sala queue's rules, read from `origin/main`: `base = "main"`, `queue_mode = "chain"`, `queue_prefix = "queue/main/"`, `required = ["gate"]`, `suites = "select"`.
+- **`.github/mergequeue.toml`**, the sala queue's rules, read from `origin/main`: `base = "main"`, `queue_mode = "chain"`, `queue_prefix = "queue/main/"`, `required = ["gate"]`, `suites = "all"`.
   It takes effect once it is on `main`.
 - **`release.sh`** asks GitHub whether `main` has a merge queue (`repository.mergeQueue(branch: "main")`). With one it enqueues the PR pinned to the head commit
   (the GraphQL mutation `enqueuePullRequest`; `gh pr merge` cannot be used, it asks for auto-merge, which is off here), waits until the PR reads MERGED (a removal is read from the PR's timeline and fails the release with GitHub's reason),
@@ -134,8 +134,9 @@ Then set the mode back to `off`. Exit codes of `mq wait`: 0 merged, 1 failed, 2 
 
 ## Things to know
 
-- A lone PR is tested twice: its own run and the queue entry's. A change under `.github/` runs every suite both times (about 16 to 25 minutes each); the queue's response timeout is 60 minutes.
-- A PR merged through the queue is a merge commit GitHub made on a tested ref, so `main`'s push run finds no earlier green tree and runs the full set again when `main` moved between; a lone PR on an unchanged `main` still skips.
+- A lone PR is tested twice: its own run (the suites its change reaches) and the queue entry's (every suite); the queue's response timeout is 60 minutes.
+- A PR merged through the queue lands as the very commit the entry's checks ran on, so the push to `main` runs no suite again; `release.sh` deploys that commit.
+- `release.sh --merged <pr>` judges the checks of the merge commit by their newest run: the entry's `suites` and `web` passes, then the push run's `changes` pass and skipped `suites` and `web`, which counts as a pass.
 - Branch protection on `main` stays (`changes`, `suites`, `web`, administrators included), so the required checks apply to the queue's ref and to `main` both.
 - `merge_group.base_sha` is `main`'s head for an entry at the front of the queue; for an entry stacked on another it may be the entry ahead. Either only changes which suites are selected, never whether a required check reports.
 - Only GitHub's queue and `sala mq` write `gh-readonly-queue/…` and `queue/…` branches; neither is a branch to work on.

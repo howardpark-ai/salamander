@@ -2,8 +2,8 @@
 # tests/suitemap.sh — which suites a change needs (Tue Oct 27th 2026). A tool, not a suite: tests/run.sh skips it.
 # Every pull request that touched anything outside web/ used to run all ~49 tests/*.sh suites (~2 min on the CI box, the
 # runner busy for every docs fix). tests/suites.map records, per suite, the tracked files it opens when it runs; a PR now
-# runs the suites that open the files it changes, and a push to main still runs the full set, so a miss here is caught on
-# main (tests.yml). The map is MEASURED, not written: --measure runs the suites under strace and records what they open.
+# runs the suites that open the files it changes, and a merge-queue entry runs the full set, so a miss here is caught in
+# the queue (tests.yml). The map is MEASURED, not written: --measure runs the suites under strace and records what they open.
 # Usage: bash tests/suitemap.sh --measure [-j N] [-T secs] [suite…]   (no suite named: every suite, as tests/run.sh would run)
 #        bash tests/suitemap.sh --check
 #        bash tests/suitemap.sh --select <from> <to>

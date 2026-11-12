@@ -1,4 +1,4 @@
-# The suites, on every pull request and on main (CONTRIBUTING.md). Each runs in an isolated HOME on a private tmux socket
+# The suites, on every pull request, in the merge queue and on main (CONTRIBUTING.md, *CI layout*). Each runs in an isolated HOME on a private tmux socket
 # against the compiled fake claude (tests/fake-claude.c): no real session, no network. The releaser merges a PR only when
 # this is green. smoke.yml carries the on-demand macOS leg.
 #
@@ -15,55 +15,36 @@
 # the required checks, because a matrix job's name carries its index (`suites-shard (1)`) and a required check is a fixed name;
 # the gate job with the old name stays the check, as `web` already was.
 #
-# Three things keep the runs small:
-# - `changes` sorts what the change touches (.github/scripts/changed.sh): `suites` runs only when a suite has to run, `web`
-#   (the web app's pytest, in six `web-shard` jobs gathered by the gate job `web`) only when something under web/ did. A job
-#   that is not needed reports "skipped", which release.sh's check gate reads as a verdict; a workflow kept from running
-#   by `on: paths` would report nothing, and the gate would wait on it. Job names stay: release.sh reads them, and `web`
-#   stays the name of the one check for the web tests.
-# - On a push to main, each job first asks whether it already passed on exactly this tree in the PR's own run
-#   (.github/scripts/tested.sh; the PR run records the tree it tested as the name of an artifact) and, when so, says why
-#   and skips its steps; the job still reports success. A direct push to main, or main having moved between the check
-#   and the merge, runs everything.
-# - A pull request runs only the suites that open the files it changes. tests/suites.map lists, per suite, the
-#   tracked files it opened when it ran under strace; `changes` first runs `tests/suitemap.sh --check` (a suite without a line, a
-#   tracked file no line or glob covers, a line naming a file that is gone: the job and so the PR fail) and changed.sh then
-#   names the suites in its `suites` output (`all`, or the names; a docs-only change names none and the job is skipped). A
-#   PUSH TO MAIN ALWAYS RUNS THE FULL SET whenever the job runs, so a miss in the map is caught there. The tested tree is
-#   recorded only by a PR that ran the full set, so main's tested.sh skip never trusts a subset. smoke.yml no longer runs on a
-#   push: its two suites, smoke and phases, are in this job's set.
+# THE LAYOUT, and why. The usual one: the merge queue is the full gate on the exact tree that lands, a pull request gets fast feedback, and a push to main
+# tests nothing again.
+# - A MERGE-QUEUE ENTRY RUNS EVERY SUITE AND THE WEB TESTS IN FULL (event `merge_group`, GitHub's queue; or a push to `queue/**`, sala's queue, docs/merge-queues.md).
+#   The checkout is the commit that main becomes, so what passes there is what lands: main stays green without a second run, and a suite that
+#   tests/suites.map missed on a pull request fails here, before the merge, instead of after it.
+# - A PULL REQUEST RUNS ONLY WHAT THE CHANGE REACHES, for quick feedback. `changes` first runs `tests/suitemap.sh --check` (a suite without a line, a tracked file
+#   no line or glob covers, a line naming a file that is gone: the job and so the PR fail), and changed.sh then names the suites in its `suites` output (`all`, or the
+#   names; a docs-only change names none and the job is skipped). tests/suites.map lists, per suite, the tracked files it opened under strace.
+#   `web` (the web app's pytest, in `web-shard` jobs gathered by the gate job `web`) runs only when something under web/ changed.
+# - A PUSH TO MAIN RUNS NO SUITE: `changes` only (the map check). The commit pushed is the one the queue tested, so a rerun would test the same tree twice
+#   (a full run's worth of runner minutes). `suites` and `web` report "skipped" on it, which a required check accepts and release.sh reads as a verdict.
+#   A direct push to main cannot skip the gate this way: the branch ruleset refuses a push of a commit the required checks have not passed on.
+# - A RELEASE TAKES THE COMMIT THE QUEUE TESTED: release.sh enqueues the PR pinned to its head, waits for MERGED and deploys the merge commit GitHub made.
+# A job that is not needed reports "skipped", which release.sh's check gate reads as a verdict; a workflow kept from running by `on: paths` would report nothing,
+# and the gate would wait on it. Job names stay: the branch ruleset and release.sh read `changes`, `suites` and `web` (`web` stays the name of the one check
+# for the web tests), and a required check that never reports makes the queue wait until its timeout, so every required job reports on every event.
+# `gate` is the one job that always runs and fails only when `changes`, `suites` or `web` failed or was cancelled (skipped counts as passing); it is the check
+# `.github/mergequeue.toml` names for sala's queue, which reads a skipped job as not passed.
 #
-# TWO MERGE QUEUES (docs/merge-queues.md). GitHub's merge queue and sala's own (`salamander mq`) both test an entry on a branch of their own and merge it only when the checks pass on that branch, so this
-# file runs for an entry on either, and the job names stay what they are on a PR (`changes`, `suites`, `web`).
-# - GitHub's: the event is `merge_group` (types: checks_requested), on the branch `gh-readonly-queue/main/pr-<n>-<sha>`. That branch is NOT in the `push` list below (the event is the trigger; both would run every entry twice).
-#   The checkout is the entry's head (`github.sha` is `github.event.merge_group.head_sha`) and `github.event.merge_group.base_sha` is the entry's parent, so `changes` reads the entry's own change as base_sha..HEAD. A check that never
-#   reports makes the queue wait until its timeout, so every required job (`changes`, `suites`, `web`) reports on this event, a skipped one included.
-# - sala's: a push to `queue/**` (main plus the PRs ahead plus this one). Its change is everything since main (the merge base with origin/main).
-# Both get a pull request's run, not main's: `suites` runs the suites the change reaches (tests/suites.map), `web` the web tests when web/ changed. What they do not do: record the tested tree (the PR's run does) and skip on it
-# (tested.sh is for main only). A push to main still runs every suite after the merge, and catches a suite the selection missed. `gate` is the one job that always runs and fails only when `changes`, `suites` or `web` failed or was
-# cancelled (skipped counts as passing); it is the check `.github/mergequeue.toml` names for sala's queue, which reads a skipped job as not passed.
+# The events. GitHub's queue: `merge_group` (types: checks_requested), on the branch `gh-readonly-queue/main/pr-<n>-<sha>`. That branch is NOT in the `push` list
+# below (the event is the trigger; both would run every entry twice). sala's queue: a push to `queue/**` (main plus the PRs ahead plus this one).
 name: tests
 on:
   pull_request:
   push:
-    branches: [main, 'queue/**']   # queue/** : sala's merge queue (`salamander mq`) tests each entry on a branch of that name; see TWO MERGE QUEUES above
-  merge_group:             # GitHub's merge queue: an entry's run is a pull request's (the selection); not in `push` (that would run it twice)
+    branches: [main, 'queue/**']   # main: `changes` only, no suite (above); queue/** : sala's merge queue (`salamander mq`) tests each entry on a branch of that name, in full
+  merge_group:             # GitHub's merge queue: an entry runs every suite (the full gate); not in `push` (that would run it twice)
     types: [checks_requested]
-permissions:   # tested.sh reads the runs and artifacts (actions) and the PR behind a merge commit (pull-requests); nothing here writes
+permissions:   # nothing here writes or calls the API
   contents: read
-  actions: read
-  pull-requests: read
-env:
-  GH_TOKEN: ${{ github.token }}
-# Every push to main shares one group, so a newer main push replaces the older runs still queued behind the running one
-# (several main runs once queued up, each testing a commit the
-# newest push already contained). GitHub keeps one running and one pending run per group: the running one finishes
-# (cancel-in-progress: false) and a newer pending run cancels the older pending one. The cancelled runs' commits are still
-# tested: the `changes` job starts a main run's range at the last green main run, not at `before`. Anything that is not a
-# push to main (every pull request) gets a group of its own run id, so PR runs are never grouped or cancelled.
-concurrency:
-  group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'tests-main' || format('tests-run-{0}', github.run_id) }}
-  cancel-in-progress: false
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -77,46 +58,28 @@ jobs:
         run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # the runner context is not available in a job-level env, so this is a step
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # the diff needs its other end: the merge commit's first parent on a PR, the last green main run's head on a push
+          fetch-depth: 0   # the diff needs its other end: the merge commit's first parent on a PR
       - name: tests/suites.map is honest (git and bash only, a second; every suite has its line, every file is covered or named)
         run: bash tests/suitemap.sh --check
       - id: paths
-        name: what the change touches (a PR, its merge commit against main; a push, from the last green main run to HEAD; .github/scripts/changed.sh)
+        name: what the change touches (a PR, its merge commit against main; a queue entry, everything; a push to main, nothing; .github/scripts/changed.sh)
         env:
           EVENT: ${{ github.event_name }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          MG_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
-          if [ "$EVENT" = merge_group ]; then
-            # GitHub's merge-queue entry: the checkout is the entry's head, and base_sha is its parent (main, or the entry ahead), so the entry's own change is base_sha..HEAD
-            from="$MG_BASE"; to=HEAD
-          elif [ "$EVENT" = push ] && [ "$GITHUB_REF" != refs/heads/main ]; then
-            # a push to a queue/** branch (sala's merge queue): main plus the PRs ahead plus this one; the change is everything since the merge base with main (any doubt is `none`: everything)
-            from=$(git merge-base HEAD origin/main 2>/dev/null) || from=none
-            [ -n "$from" ] || from=none
-            to=HEAD
-          elif [ "$EVENT" = pull_request ]; then
+          if [ "$EVENT" = pull_request ]; then
             # the checkout is GitHub's merge of the PR into main (refs/pull/N/merge): its first parent is main as merged
             # against; anything else (no merge commit, another head) is read as "everything changed"
             if [ "$(git rev-parse -q --verify HEAD^2 2>/dev/null)" = "$PR_HEAD" ]; then from=HEAD^1; else from=none; fi; to=HEAD
+          elif [ "$EVENT" = merge_group ] || [ "$GITHUB_REF" != refs/heads/main ]; then
+            # a queue entry (GitHub's merge_group, or a push to a queue/** branch of sala's queue): the full gate on the tree that lands. `none` is a range changed.sh
+            # cannot resolve, which it reads as everything changed: every suite, and the web tests when web/pyproject.toml exists
+            from=none; to=HEAD
           else
-            # A push to main: the range starts at the head of the last SUCCESSFUL tests.yml push run on main, not at `before`
-            # The concurrency group above cancels older pending main runs, so the newest
-            # run's before..after covers only its own push; without this a cancelled run's commits would go untested
-            # whenever the newest push alone needs no suites (a web-only push). The current run is in progress, so it is
-            # never its own answer. Any doubt (API error, no green run, a sha not in the checkout or not an ancestor of
-            # HEAD) is `none`, which changed.sh reads as everything changed: a full run.
-            from=none; why="no green main run found"
-            if last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null) && [ -n "$last" ]; then
-              if git cat-file -e "$last^{commit}" 2>/dev/null && git merge-base --is-ancestor "$last" HEAD 2>/dev/null; then
-                from="$last"; why="last green main run"
-              else
-                why="last green main run $last is not in the checkout or not an ancestor of HEAD"
-              fi
-            else
-              why="the API gave no answer for the last green main run"
-            fi
-            echo "push range from: $from ($why)"; to=HEAD
+            # a push to main: the commit was tested in the queue, so nothing runs again (the map check above still ran)
+            echo "a push to main: no suite and no web test run again; the queue tested this commit"
+            printf 'sala=false\nweb=false\nsuites=\n' | tee -a "$GITHUB_OUTPUT"
+            exit 0
           fi
           .github/scripts/changed.sh "$from" "$to" | tee -a "$GITHUB_OUTPUT"
   suites-shard:
@@ -136,20 +99,14 @@ jobs:
       - name: scratch goes to the runner's temp folder
         run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # the runner context is not available in a job-level env, so this is a step
       - uses: actions/checkout@v4
-      - id: tested
-        name: on main only, already passed on exactly this tree in the PR's run? (.github/scripts/tested.sh says why)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: if .github/scripts/tested.sh tests.yml/suites@pull_request; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi   # the artifact is recorded by the `suites` job below, once every shard passed
       - id: plan
-        name: this runner's share of the suites (no suite when the tree already passed or a small selection left this shard nothing, and then the rest of the job is skipped)
-        if: steps.tested.outputs.skip != 'true'
+        name: this runner's share of the suites (none when a small selection left this shard nothing, and then the rest of the job is skipped)
         env:
-          ON_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}   # a PR, a GitHub merge-queue entry and a queue/** push run the selection; main runs everything
-          SUITES: ${{ needs.changes.outputs.suites }}   # `all`, or names from tests/suitemap.sh --select: words, split below
+          SUITES: ${{ needs.changes.outputs.suites }}   # `all` (a queue entry), or names from tests/suitemap.sh --select (a PR): words, split below
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ strategy.job-total }}   # the length of the matrix above
         run: |
-          names=(); if [ "$ON_MAIN" != true ] && [ -n "$SUITES" ] && [ "$SUITES" != all ]; then names=($SUITES); fi
+          names=(); if [ -n "$SUITES" ] && [ "$SUITES" != all ]; then names=($SUITES); fi
           share=$(bash tests/run.sh --shard "$SHARD/$SHARDS" --list "${names[@]}")
           echo "runner $SHARD of $SHARDS: ${share:-no suite}"
           if [ -n "$share" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; fi
@@ -168,28 +125,26 @@ jobs:
         run: |
           for t in tmux cc python3 flock lsof setsid; do command -v "$t" >/dev/null || { echo "missing on the runner: $t"; exit 1; }; done
           tmux -V; cc --version | head -1; python3 --version; command -v flock lsof
-      - name: this shard's suites, side by side (a PR or a merge-queue entry, the suites its change reaches; a push to main, every tests/*.sh, a new suite by its file alone)
+      - name: this shard's suites, side by side (a PR, the suites its change reaches; a merge-queue entry, every tests/*.sh, a new suite by its file alone)
         if: steps.plan.outputs.run == 'true'
         env:
-          ON_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           SUITES: ${{ needs.changes.outputs.suites }}
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ strategy.job-total }}
         run: |
-          # main always runs the full set: a suite the PR's map missed fails here, after the merge, instead of never
+          # a queue entry always runs the full set: a suite the PR's map missed fails here, before the merge, instead of never
           # A hosted runner has two or four CPUs: every suite at once (run.sh's default) starved the timing checks
           # (a first hosted trial failed eight suites on clocks and waits alone), so a hosted runner runs two suites per CPU at a time
           j=(); if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then j=(-j "$(( $(nproc) * 2 ))"); echo "hosted runner: at most ${j[1]} suites at once"; fi
-          if [ "$ON_MAIN" != true ] && [ -n "$SUITES" ] && [ "$SUITES" != all ]; then
+          if [ -n "$SUITES" ] && [ "$SUITES" != all ]; then
               echo "suites for this change: $SUITES"; bash tests/run.sh "${j[@]}" --shard "$SHARD/$SHARDS" $SUITES
           else
               echo "every suite"; bash tests/run.sh "${j[@]}" --shard "$SHARD/$SHARDS"
           fi
   suites:
-    # The gate over suites-shard: the check named `suites` that the branch ruleset, release.sh, the merge queue and `gate` read, and the
-    # job that records the tested tree. It passes only when every shard passed. When `changes` says no suite is needed, the shards and this
-    # job are skipped together, which release.sh reads as a verdict. On a push to main whose tree already passed in the PR's run, the
-    # shards skip their steps and pass, so this job passes too.
+    # The gate over suites-shard: the check named `suites` that the branch ruleset, release.sh, the merge queue and `gate` read. It passes
+    # only when every shard passed. When `changes` says no suite is needed (a docs-only PR, a push to main), the shards and this job are
+    # skipped together, which release.sh reads as a verdict.
     needs: [changes, suites-shard]
     if: always() && needs.changes.outputs.sala == 'true'
     runs-on: ubuntu-latest
@@ -199,38 +154,14 @@ jobs:
         env:
           SHARDS_RESULT: ${{ needs.suites-shard.result }}
         run: '[ "$SHARDS_RESULT" = success ] || { echo "the suites-shard jobs ended as $SHARDS_RESULT"; exit 1; }'
-      - uses: actions/checkout@v4
-        if: github.event_name == 'pull_request' && needs.changes.outputs.suites == 'all'
-      # The tested tree, recorded for the push to main (tested.sh): the artifact's name carries it, and the step runs
-      # only when every shard passed. 7 days is more than a PR waits between its check and its merge; a stale one
-      # cannot match a tree that moved on. Only a PR that ran the FULL set records it: a subset passing says
-      # nothing about the suites it left out, and main's skip would trust it.
-      - id: tree
-        name: record the tested tree (an artifact named tested-suites-<tree sha>; a PR that ran every suite only)
-        if: github.event_name == 'pull_request' && needs.changes.outputs.suites == 'all'
-        run: |
-          tree=$(git rev-parse 'HEAD^{tree}'); echo "name=tested-suites-$tree" >> "$GITHUB_OUTPUT"
-          echo "suites passed on tree $tree (commit $(git rev-parse HEAD))" | tee "$RUNNER_TEMP/tested-suites.txt"
-      - uses: actions/upload-artifact@v4
-        continue-on-error: true   # a failed upload only means main tests again; it never fails a green job
-        if: github.event_name == 'pull_request' && needs.changes.outputs.suites == 'all'
-        with:
-          name: ${{ steps.tree.outputs.name }}
-          path: ${{ runner.temp }}/tested-suites.txt
-          retention-days: 7
-          overwrite: true
-          if-no-files-found: error
-      - name: remove the tested-tree marker (the upload has its own copy)
-        if: always()
-        run: rm -f "$RUNNER_TEMP/tested-suites.txt"
   web-shard:
     # The web app under web/: its own pytest, the way its README runs it, in six shards that run side by side (the serial
     # job took about 71 minutes on a two-CPU hosted runner for 2152 tests, too near the timeout). Each shard runs its share of the
     # test files serially (.github/scripts/web-shard.sh deals them out by their recorded times, web/tests/timings.json, so a new
     # file is picked up by its name and weighs the median until a refresh records it: SHARDING BY RECORDED TIMES above); no
     # pytest-xdist, because parallel workers in one job gave load-dependent failures in the browser tests. The check every
-    # consumer reads is the `web` job below, which gathers the shards. Inert until web/ exists (changed.sh says web=false
-    # without web/pyproject.toml).
+    # consumer reads is the `web` job below, which gathers the shards. Runs on a PR that changed web/ and on every queue entry;
+    # inert until web/ exists (changed.sh says web=false without web/pyproject.toml).
     name: web-shard (${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.web == 'true'
@@ -244,28 +175,20 @@ jobs:
       - name: scratch goes to the runner's temp folder
         run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"   # the runner context is not available in a job-level env, so this is a step
       - uses: actions/checkout@v4
-      - id: tested
-        name: on main only, already passed on exactly this tree in the PR's run? (.github/scripts/tested.sh says why)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: if .github/scripts/tested.sh tests.yml/web@pull_request; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi   # the artifact is recorded by the `web` job below, once every shard passed
       - name: on a GitHub-hosted runner only, set the bare image up (Python 3.14, uv, tmux, ttyd 1.7.7, and a check that Chrome is there)
-        if: steps.tested.outputs.skip != 'true'
         uses: ./.github/actions/hosted-tools
         with:
           tools: tmux ttyd chrome
           python: "3.14"
           uv: "true"
       - name: what the web app needs (uv; node for the syntax check of its scripts)
-        if: steps.tested.outputs.skip != 'true'
         run: |
           for t in uv node; do command -v "$t" >/dev/null || { echo "missing on the runner: $t"; exit 1; }; done
           uv --version; node --version
       - name: uv sync --frozen (the lockfile as committed)
-        if: steps.tested.outputs.skip != 'true'
         working-directory: web
         run: uv sync --frozen
       - name: pytest over this shard's test files
-        if: steps.tested.outputs.skip != 'true'
         working-directory: web
         env:
           SHARD: ${{ matrix.shard }}
@@ -275,14 +198,13 @@ jobs:
           echo "shard $SHARD of $SHARDS: $(echo "$files" | wc -l) test files"
           uv run --frozen pytest $files
       - name: node --check over the app's scripts under src/ (vendored files left out; shard 1 only, the check is the same in every shard)
-        if: steps.tested.outputs.skip != 'true' && matrix.shard == 1
+        if: matrix.shard == 1
         working-directory: web
         run: find src -name '*.js' -not -path '*/vendor/*' -not -path '*/node_modules/*' -print0 | xargs -0 -r -n1 node --check
   web:
-    # The gate over web-shard: the check named `web` that release.sh, the merge queue and any required-check rule read, and the
-    # job that records the tested tree. It passes only when every shard passed. When `changes` says the web tests are not needed,
-    # the shards and this job are skipped together, which release.sh reads as a verdict. On a push to main whose tree already
-    # passed in the PR's run, the shards skip their steps and pass, so this job passes too.
+    # The gate over web-shard: the check named `web` that release.sh, the merge queue and any required-check rule read. It passes
+    # only when every shard passed. When `changes` says the web tests are not needed (a PR that left web/ alone, a push to main),
+    # the shards and this job are skipped together, which release.sh reads as a verdict.
     needs: [changes, web-shard]
     if: always() && needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
@@ -292,26 +214,6 @@ jobs:
         env:
           SHARDS_RESULT: ${{ needs.web-shard.result }}
         run: '[ "$SHARDS_RESULT" = success ] || { echo "the web-shard jobs ended as $SHARDS_RESULT"; exit 1; }'
-      - uses: actions/checkout@v4
-        if: github.event_name == 'pull_request'
-      - id: tree
-        name: record the tested tree (an artifact named tested-web-<tree sha>; a PR only)
-        if: github.event_name == 'pull_request'
-        run: |
-          tree=$(git rev-parse 'HEAD^{tree}'); echo "name=tested-web-$tree" >> "$GITHUB_OUTPUT"
-          echo "web passed on tree $tree (commit $(git rev-parse HEAD))" | tee "$RUNNER_TEMP/tested-web.txt"
-      - uses: actions/upload-artifact@v4
-        continue-on-error: true   # a failed upload only means main tests again; it never fails a green job
-        if: github.event_name == 'pull_request'
-        with:
-          name: ${{ steps.tree.outputs.name }}
-          path: ${{ runner.temp }}/tested-web.txt
-          retention-days: 7
-          overwrite: true
-          if-no-files-found: error
-      - name: remove the tested-tree marker (the upload has its own copy)
-        if: always()
-        run: rm -f "$RUNNER_TEMP/tested-web.txt"
   gate:
     # The one job that always runs on every event, and the check sala's merge queue reads (.github/mergequeue.toml `required`): that queue judges a check completed without `success` as failed, and `suites` and `web`
     # are skipped when a change does not need them. Fails when `changes`, `suites` or `web` failed or was cancelled; success and skipped pass. Not a required check of the branch rule or of GitHub's queue (those name

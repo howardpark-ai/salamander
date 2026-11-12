@@ -6,8 +6,8 @@
 # THE SUITES. `sala` used to be "something outside web/ changed", which ran all ~46 suites for a one-line docs fix.
 # tests/suitemap.sh --select now answers from tests/suites.map (the tracked files each suite opens, measured): `all`, the names of
 # the suites whose files the change touches, or nothing (a docs change, a file no suite opens). `sala` is true exactly when that
-# answer is not empty. tests.yml runs the named suites on a pull request and EVERY suite on a push to main, so a file the map
-# does not know about is caught there. A range it cannot resolve is `all`, as for the web tests below.
+# answer is not empty. tests.yml runs the named suites on a pull request and EVERY suite in a merge-queue entry (changed.sh is given a range it cannot resolve), so a file the map
+# does not know about is caught there, before the merge. A range it cannot resolve is `all`, as for the web tests below.
 # Usage: changed.sh <from> <to>   two commits of the checkout it runs in. A <from> it cannot resolve (a new branch's zero
 # sha, a shallow clone, `none`) counts as everything changed. The file list and the verdict go to stderr, for the log.
 set -euo pipefail

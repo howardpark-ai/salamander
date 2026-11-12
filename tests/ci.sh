@@ -1,23 +1,19 @@
 #!/usr/bin/env bash
 # The CI gate's helpers (.github/scripts/, Wed Oct 14th 2026), which decide what the runners run. They stay tested
-# because a wrong `sala=false` merges a sala change with no suite run (release.sh reads a skipped job as a verdict), and a
-# wrong "skip" on main leaves a merged tree untested. changed.sh against a throwaway repo with a tests/suites.map of its own:
+# because a wrong `sala=false` merges a sala change with no suite run (release.sh reads a skipped job as a verdict).
+# changed.sh against a throwaway repo with a tests/suites.map of its own:
 # a sala-only change, the CI's own files without and with web/, web/ created, a web-only change, both, docs (no suite), web/
 # removed, an empty diff, no range: `sala=`, `web=` and `suites=` exactly.
 # tests/suitemap.sh (Tue Oct 27th 2026), which names the suites a pull request runs, against another throwaway repo
 # with a hand-made map of three suites: --select for each rule (a suite file, a mapped file, a full file, comments only in a
 # full file, a code line beside the comments, a shebang, a mode change, docs, an unmapped file, a changed suite line, a changed
 # full line, a deleted mapped file, .github/, web/, no range, no map) and --check clean and for each kind of problem.
-# tested.sh against a `gh` stub answering its four API calls from canned JSON (never the network): the PR's run with the
-# artifact for this tree (skip), for another tree, for another job, two specs, no run, a direct push, a PR that is not
-# this commit's merge, an unmerged one, each API call failing — a run every time but the exact match; and the runs call
-# asks for the PR's head, the event and success.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 export HOME=$(mktemp -d); mkdir -p "$HOME/bin"; export PATH="$HOME/bin:$PATH"
 trap 'rm -rf "$HOME"' EXIT
-CHANGED="$ROOT/.github/scripts/changed.sh"; TESTED="$ROOT/.github/scripts/tested.sh"
+CHANGED="$ROOT/.github/scripts/changed.sh"
 
 echo "== changed.sh"
 R="$HOME/repo"; git init -q -b main "$R"; git -C "$R" config user.email t@t; git -C "$R" config user.name t
@@ -156,76 +152,6 @@ git -C "$S" checkout -q -f "$B"; git -C "$S" clean -fdq; sed -i 's|^suite beta .
 out=$(SUITEMAP_ROOT="$S" bash "$TOOL" --check 2>&1); rc=$?
 [ "$rc" = 0 ] && ok "check: a firstline suite may name a none file (it opens everything for line 1)" || bad "text suite none: rc=$rc $out"
 git -C "$S" checkout -q -f "$B"; SUITEMAP_ROOT="$S" bash "$TOOL" --bogus >/dev/null 2>&1; [ $? = 2 ] && ok "an unknown subcommand: usage, exit 2" || bad "usage exit"
-
-echo "== tested.sh"
-export GH_STUB="$HOME/stub"; mkdir -p "$GH_STUB"
-cat > "$HOME/bin/gh" <<'STUB'
-#!/bin/bash
-# gh api <path> → canned JSON from $GH_STUB/<kind>.json; GH_FAIL=<kind> makes that call fail as gh does (exit 1, nothing on stdout)
-[ "$1" = api ] || { echo "stub: only gh api" >&2; exit 2; }
-echo "$2" >> "$GH_STUB/calls"
-case "$2" in
-    repos/*/git/commits/*) k=commit ;;
-    repos/*/commits/*/pulls) k=pulls ;;
-    repos/*/actions/workflows/*/runs\?*) k=runs ;;
-    repos/*/actions/runs/*/artifacts) k=artifacts ;;
-    *) echo "stub: unexpected path $2" >&2; exit 2 ;;
-esac
-[ "${GH_FAIL:-}" = "$k" ] && { echo "gh: HTTP 500 (stub)" >&2; exit 1; }
-cat "$GH_STUB/$k.json"
-STUB
-chmod +x "$HOME/bin/gh"
-export GITHUB_REPOSITORY=example-org/salamander GITHUB_SHA=1111111111111111111111111111111111111111
-T=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; H=2222222222222222222222222222222222222222
-echo "{\"sha\":\"$GITHUB_SHA\",\"tree\":{\"sha\":\"$T\"}}" > "$GH_STUB/commit.json"
-pulls() { echo "$1" > "$GH_STUB/pulls.json"; }
-runs() { echo "$1" > "$GH_STUB/runs.json"; }
-arts() { local names="" n; for n in "$@"; do names="$names${names:+,}{\"name\":\"$n\"}"; done; echo "{\"artifacts\":[$names]}" > "$GH_STUB/artifacts.json"; }
-tested() { : > "$GH_STUB/calls"; out=$(bash "$TESTED" "$@" 2>&1); rc=$?; }
-MERGED="[{\"number\":7,\"merged_at\":\"2026-10-14T10:00:00Z\",\"merge_commit_sha\":\"$GITHUB_SHA\",\"head\":{\"sha\":\"$H\"}}]"
-pulls "$MERGED"; runs '{"workflow_runs":[{"id":501},{"id":500}]}'; arts "tested-suites-$T"
-tested tests.yml/suites@pull_request
-[ "$rc" = 0 ] && [[ $out == *"skip: suites already passed on this exact tree in tests.yml run 501 (pull_request, PR #7"* ]] \
-    && ok "the PR's run passed suites on this tree: skip, said with the run and the PR" || bad "match: rc=$rc $out"
-grep -q "actions/workflows/tests.yml/runs?event=pull_request&head_sha=$H&status=success" "$GH_STUB/calls" \
-    && ok "the runs asked for are the PR head's, the event's, successful ones" || bad "calls: $(paste -sd' ' "$GH_STUB/calls")"
-arts "tested-suites-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-tested tests.yml/suites@pull_request
-[ "$rc" = 1 ] && [[ $out == *"run: no run of PR #7 passed"* ]] && ok "the runs tested another tree (main moved between the check and the merge): run" || bad "other tree: rc=$rc $out"
-arts "tested-web-$T"
-tested tests.yml/suites@pull_request
-[ "$rc" = 1 ] && ok "only another job passed on this tree: run" || bad "other job: rc=$rc $out"
-tested tests.yml/web@pull_request
-[ "$rc" = 0 ] && [[ $out == *"skip: web already passed"* ]] && ok "… and that job itself: skip" || bad "web: rc=$rc $out"
-arts "tested-smoke-linux-$T"
-tested smoke.yml/smoke-linux@push tests.yml/suites@pull_request
-[ "$rc" = 0 ] && [[ $out == *"in smoke.yml run 501 (push,"* ]] && grep -q 'smoke.yml/runs?event=push' "$GH_STUB/calls" && ! grep -q 'tests.yml/runs' "$GH_STUB/calls" \
-    && ok "two specs, the first matching: skip, the second not asked" || bad "spec 1: rc=$rc calls=$(paste -sd' ' "$GH_STUB/calls") $out"
-tested tests.yml/suites@pull_request smoke.yml/smoke-linux@push
-[ "$rc" = 0 ] && grep -q 'tests.yml/runs?event=pull_request' "$GH_STUB/calls" && grep -q 'smoke.yml/runs?event=push' "$GH_STUB/calls" \
-    && ok "two specs, the second matching: skip, after the first was asked" || bad "spec 2: rc=$rc calls=$(paste -sd' ' "$GH_STUB/calls") $out"
-runs '{"workflow_runs":[]}'
-tested tests.yml/suites@pull_request
-[ "$rc" = 1 ] && [[ $out == *"no successful pull_request run of tests.yml"* ]] && ok "no successful run of the PR: run" || bad "no run: rc=$rc $out"
-runs '{"workflow_runs":[{"id":501}]}'; arts "tested-suites-$T"
-pulls '[]'
-tested tests.yml/suites@pull_request
-[ "$rc" = 1 ] && [[ $out == *"a direct push to main"* ]] && ! grep -q 'actions/' "$GH_STUB/calls" && ok "no PR behind the commit (a direct push): run, no run asked for" || bad "direct: rc=$rc $out"
-pulls "[{\"number\":7,\"merged_at\":\"2026-10-14T10:00:00Z\",\"merge_commit_sha\":\"3333333333333333333333333333333333333333\",\"head\":{\"sha\":\"$H\"}}]"
-tested tests.yml/suites@pull_request
-[ "$rc" = 1 ] && [[ $out == *"a direct push to main"* ]] && ok "a PR associated with the commit but not merged as it: run" || bad "not its merge: rc=$rc $out"
-pulls "[{\"number\":7,\"merged_at\":null,\"merge_commit_sha\":\"$GITHUB_SHA\",\"head\":{\"sha\":\"$H\"}}]"
-tested tests.yml/suites@pull_request
-[ "$rc" = 1 ] && ok "an unmerged PR: run" || bad "unmerged: rc=$rc $out"
-pulls "$MERGED"
-for k in commit pulls runs artifacts; do
-    GH_FAIL=$k tested tests.yml/suites@pull_request
-    [ "$rc" = 1 ] && [[ $out == *"API error"* ]] && ok "the $k call failing: run" || bad "$k failing: rc=$rc $out"
-done
-tested
-[ "$rc" = 2 ] && ok "no spec: usage, exit 2" || bad "usage: rc=$rc $out"
-tested tests.yml/suites@pull_request
-[ "$rc" = 0 ] && ok "the control: the exact match skips again" || bad "control: rc=$rc $out"
 
 [ "$fail" = 0 ] && echo "ci: pass" || echo "ci: FAIL"
 exit $fail
