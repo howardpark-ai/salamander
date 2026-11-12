@@ -1196,8 +1196,9 @@ Tests: `tests/test_usage.py` (the data layer over fake transcripts in a temporar
 
 ## The language
 
-The page is in English by default and has a Korean version, chosen with the **KO / EN** control at the foot of the session list
-(beside the color control, in `#side-foot`). Only the page's own words are translated: the buttons, labels, hints, headings,
+The page is in English by default and has a Korean version, chosen with the **EN / KO** control at the foot of the session list
+(beside the color control, in `#side-foot`): two separate outlined buttons, EN then KO, 44 px wide at least, the one in use in the accent
+colour (text and border), each with a tooltip naming its language in the page's own (`side.lang.en`, `side.lang.ko`). Only the page's own words are translated: the buttons, labels, hints, headings,
 tooltips, the status and error lines the page itself words, relative ages ("5 min ago") and the dates in tooltips. Never
 translated: the chat (messages, tool names and output, the thinking and terminal text), session, project and machine names, paths and
 commands, and any text the server sends through (a queue note, an error reason from sala or stackshot, the Usage digest's

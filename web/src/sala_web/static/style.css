@@ -226,14 +226,14 @@ body.reordering .sess:not(.dragging) { pointer-events: none; }
 /* the color tool's button (colortool.js draws it into #side-colors): last in the panel, under "Show all sessions"; nothing shows in the light theme, where the tool draws nothing */
 .side-colors { display: none; }
 .side-colors:has(.ct:not([hidden])) { display: block; flex: none; padding: 8px 0; }
-/* the foot of the panel: the color tool's button at the left, the language switch (KO | EN, index.html .side-lang) at the right; the foot shows in both themes
+/* the foot of the panel: the color tool's button at the left, the language switch (two outlined buttons, EN then KO, the pressed one in the accent; index.html .side-lang) at the right; the foot shows in both themes
    (the light theme has no color button), and is the last thing in the panel */
 .side-foot { display: flex; align-items: center; flex: none; gap: 12px; padding: 0 16px; border-top: 1px solid var(--border); }
-.side-lang { display: inline-flex; margin: 8px 0 8px auto; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.side-lang button { font: inherit; font-size: 12px; font-weight: 600; line-height: 1.3; padding: 4px 8px; border: 0; background: none; color: var(--muted); cursor: pointer; }
-.side-lang button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text, #fff); }
-.side-lang button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-@media (pointer: coarse) { .side-lang button { min-width: 44px; min-height: 36px; } }
+.side-lang { display: inline-flex; gap: 8px; margin: 8px 0 8px auto; }
+.side-lang button { font: inherit; font-size: 13px; font-weight: 600; line-height: 1.2; min-width: 44px; min-height: 32px; padding: 0 8px; border: 1px solid var(--muted); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; }
+@media (hover: hover) { .side-lang button:hover { border-color: var(--text); background: var(--hover); } }
+.side-lang button[aria-pressed="true"] { color: var(--link); border-color: var(--accent); }
+.side-lang button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* main */
 #main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; padding-top: env(safe-area-inset-top); }
