@@ -13,6 +13,12 @@ Held here, in a headless Chromium, with the banner shown, in the dark and in the
 - the strip stays thin (one line, under 64 px), keeps role="status" and its hairline, and Reload keeps a visible 2 px outline
   when focused from the keyboard.
 
+On a phone (a 412 px touch screen, `(pointer: coarse)`) the strip stays one slim row: Reload is drawn 30 px tall (not the 44 px
+of `--ctl`, which made the strip about 61 px), and its 44 x 44 px tap area is an `::after` box that takes no room, the way the
+composer's Send button does. Held in the same browser: the drawn height, the strip's height, the `::after` box's computed size,
+what a tap lands on (the point just inside each edge of the 44 px square hits Reload, the point just outside does not), and that
+with a mouse at 1280 px Reload is still drawn at 32 px with no `::after` box.
+
 Runs in a headless Chromium when one is installed, else skipped.
 """
 
@@ -25,6 +31,7 @@ import pytest
 
 from conftest import NAME
 from test_composer_attach import WAIT_READY
+from test_composer_touch_row import resize
 
 MEASURE = """(() => {
   const root = document.documentElement, banner = document.getElementById('update-banner'), btn = document.getElementById('reload-btn');
@@ -107,3 +114,42 @@ def test_the_update_strip_is_the_card_gray_and_reload_is_the_solid_accent(served
     # thin and non-blocking, and the keyboard focus ring stays
     assert m["height"] < 64, m
     assert m["focusVisible"] and m["outline"] == "solid 2px", m
+
+
+# What the phone and desktop tests read: the strip, the drawn Reload, its ::after box, and where a tap lands.
+SHAPE = """(() => {
+  const banner = document.getElementById('update-banner'), btn = document.getElementById('reload-btn');
+  banner.hidden = false;
+  const b = btn.getBoundingClientRect(), s = banner.getBoundingClientRect(), a = getComputedStyle(btn, '::after');
+  const hits = (x, y) => document.elementFromPoint(x, y) === btn;
+  const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+  return { coarse: matchMedia('(pointer: coarse)').matches, width: innerWidth, strip: s.height, btn: [b.width, b.height],
+           after: { content: a.content, w: a.width, h: a.height },
+           inside: [hits(cx - b.width / 2 - 6, cy), hits(cx + b.width / 2 + 6, cy), hits(cx, cy - 21), hits(cx, cy + 21)],
+           outside: [hits(cx - b.width / 2 - 8, cy), hits(cx + b.width / 2 + 8, cy), hits(cx, cy - 23), hits(cx, cy + 23)] };
+})()"""
+
+
+def test_a_phone_keeps_the_update_strip_slim_with_a_30px_reload_and_a_44px_tap_area(served, browser):
+    browser.open(f"{served['url']}/#s={NAME}")
+    assert browser.evaluate(WAIT_READY)
+    browser.touch()
+    resize(browser, 412, 915, True)
+    m = browser.evaluate(SHAPE)
+    assert m["coarse"] and m["width"] == 412, m
+    assert m["btn"][1] <= 32, m                   # drawn no taller than 32 px (30 px; --ctl made it 44)
+    assert m["strip"] <= 48, m                    # one slim row: 8 + 30 + 8 padding and the 1 px hairline = 47 (it was about 61)
+    assert m["after"]["content"] == '""' and m["after"]["h"] == "44px" and float(m["after"]["w"][:-2]) >= 44, m   # its tap area
+    assert m["inside"][2] and m["inside"][3], m   # a tap 21 px above or below the center lands on Reload
+    assert not m["outside"][2] and not m["outside"][3], m   # 23 px away is beyond the 44 px area
+    assert m["inside"][0] and m["inside"][1] and not m["outside"][0] and not m["outside"][1], m   # and the gap to the text is not covered
+
+
+def test_a_desktop_keeps_reload_at_the_32px_control_size_with_no_extra_tap_area(served, browser):
+    browser.open(f"{served['url']}/#s={NAME}")
+    assert browser.evaluate(WAIT_READY)
+    resize(browser, 1280, 800, False)
+    m = browser.evaluate(SHAPE)
+    assert not m["coarse"] and m["width"] == 1280, m
+    assert m["btn"][1] == 32, m                   # drawn at --ctl, as before
+    assert m["after"]["content"] == "none", m     # no tap-area box on desktop

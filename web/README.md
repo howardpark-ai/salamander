@@ -1371,8 +1371,11 @@ the worker registered). What they do not cover is in `docs/test-coverage.md`.
 (`--panel`) with a `--border` hairline under it, so it follows the dark and the light theme and the color tool, and carries no orange
 of its own; it used to mix the accent 14% into the background, which came out brown on the dark theme. Reload (`#reload-btn`, drawn in
 the `look` style) is the solid accent button (`--accent-solid`, else `--accent`, with `--accent-on-solid`), so the eye goes there; it keeps
-the 2 px focus outline for a keyboard. `tests/test_update_banner_look.py` holds the colors, the contrast (4.5:1 or better) and the strip's
-height in both themes.
+the 2 px focus outline for a keyboard. Under a finger (`pointer: coarse`) Reload is drawn 30 px tall, so the strip stays one slim row of about 47 px
+(at the touch size of 44 px it was about 61 px), and its tap area stays 44 x 44 px: an `::after` box reaches 7 px past the drawn button on every
+side and takes no room, the way the composer's Send button does; with a mouse it is drawn at the 32 px control size, as before.
+`tests/test_update_banner_look.py` holds the colors, the contrast (4.5:1 or better), the strip's height in both themes, and the phone's drawn
+size and tap area.
 
 ## Mockup pages
 
