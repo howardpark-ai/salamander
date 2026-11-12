@@ -62,7 +62,7 @@
 #                                      is written only when the board item changed since the start, the project page has a timeline line from the session,
 #                                      and the summary was sent (by sala, through stackshot's client) to the origin agent or the project's -main
 #   salamander adopt NAME                           put a live session made by hand (outside spawn) into the pane map
-#   salamander restore NAME… | --missing            recreate a session from its pane-map row (tmux session in its cwd, then resumed by uuid)
+#   salamander restore (NAME… | --missing) [--dry-run]  recreate a session from its pane-map row (tmux session in its cwd, then resumed by uuid); --dry-run shows the plan, a session queues it: op restore
 #   salamander follow                               resident watcher of the session registry (sala-follow.service): follows hand renames
 #   salamander snapshot [--now]        event-driven tmux-resurrect save (tmux hooks + Claude SessionStart hook)
 #   salamander watch [--check]         the watchdog, from a timer: the operation queue, the automatic update, relaunch and recycle, the

@@ -48,6 +48,12 @@
 #     (op_words_policy) for each verb; the stuck helper's brief; the runner judges it again (op --run by hand) and goes stuck with nothing relaunched and no claude -p on a changed
 #     row id, a lost or malformed reason, an extra or removed session, a bad shape, a sender no longer allowed, a session that became the master or the sender; the untouched
 #     marker relaunches that one session and no other.
+#   - THE SAME DOOR FOR restore (lib/op.sh op_reason_restore_ok, op_restore_target_ok; lib/restore.sh --dry-run is its plan): `op restore --only NAME… --item board#N|--why "<text>" --from YOU` with no words recreates a
+#     session whose tmux session is gone (its pane-map row stands, its conversation is live nowhere): the plan (`op --plan restore`) refuses a live tmux session (and names revive), a name with no row and a conversation live in
+#     another session, and prints the tmux session, directory, conversation, lane and model otherwise; the queue refuses all of those, the master, the asker, a sweep (--missing), --force, a bare name, a sender outside
+#     SALA_OP_REASON_FROM, a plain shell, a spoofed pane, another session's pane and a person's shell; a raw `sala restore` from a Claude session stays refused and points to the queue; the marker (item= or reason=, ownrow=
+#     the row's conversation id, nowords), `op --list`, `--status` and the log; the runner (op --run by hand, passing the guard by its unit) recreates the session and resumes the conversation once, for one name or two, and
+#     goes stuck with nothing recreated and no claude -p helper when the marker no longer fits (ids, reason, shape, sender, master, tmux session back, conversation live elsewhere, row replaced);
 # Usage: bash tests/retire-own.sh   (exit 0 = pass; ~3 min)
 set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_SESSION_ID SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT \
@@ -772,6 +778,163 @@ mismatch "the sender no longer allowed" "" "SALA_OP_REASON_FROM=sala-test-other"
 mismatch "the session made the master since" "" "SALA_MASTER=$RA" "is the master session"
 mismatch "the sender is the session itself" "s/^from=.*/from=$RA/" "" "is the asking session itself"
 mismatch "the marker is a different verb with no words (recycle)" 's/^verb=revive/verb=recycle/;/^arg=/d' "" "not a throwaway retire that still passes"
+
+echo "== the reason door for restore: a session whose tmux session is gone is recreated by the queue's runner, with no words"
+# three throwaways whose tmux session is then ended: the pane-map row (and the registry row) stay, the claude is gone. GA is restored; GB is the master and the
+# several-names cases; GC's conversation is started again in another session (live elsewhere).
+GA=sala-test-gone1; GB=sala-test-gone2; GC=sala-test-gone3; UA=$(uuid 301); UB_=$(uuid 302); UC=$(uuid 303)
+gone() {  # <session>… → each tmux session ended, and the claude it ran gone with it (the pane-map row stays)
+    local s c; for s in "$@"; do c=$(claude_pid_under "$(tmux display -p -t "=$s:" '#{pane_pid}' 2>/dev/null)"); tmux kill-session -t "=$s" 2>/dev/null; [ -n "$c" ] && waitfor "! kill -0 $c 2>/dev/null" 20; done; return 0; }
+for a in "$GA $UA" "$GB $UB_" "$GC $UC"; do set -- $a; out=$(spawn "$1" "$2" "$PO"); [ $? = 0 ] || bad "spawn $1: $out"; done
+fake_up "$GA" "$GB" "$GC" || exit 1
+NWR="words: none (board#9007: restore of one session)"
+# a session whose tmux session exists is revive's business: the plan says so, nothing is queued
+enq_as "$PO" --plan restore --only "$GA" --item board#9007 --from sala-test-owner
+[ "$RC" != 0 ] && has "$OUT" "its tmux session exists" && has "$OUT" "salamander revive --only $GA" && [ "$(queued)" = 0 ] && ok "--plan: a session with a tmux session is refused, and the text names revive" || { bad "plan, live session: rc=$RC — $OUT"; dropall; }
+rrefuse "a live tmux session: no restore is queued" "its tmux session exists" "" "$PO" restore --only "$GA" --item board#9007 --from sala-test-owner
+gone "$GA" "$GB" "$GC"
+! tmux has-session -t "=$GA" 2>/dev/null && [ -n "$(awk -F'\t' -v s="$GA" '$1==s' "$SALA_SIDECAR")" ] && ok "setup: $GA has no tmux session and its pane-map row stands" || bad "setup: $(awk -F'\t' -v s="$GA" '$1==s' "$SALA_SIDECAR")"
+# the plan for a missing tmux session passes, and prints what the run would do
+enq_as "$PO" --plan restore --only "$GA" --item board#9007 --from sala-test-owner
+[ "$RC" = 0 ] && has "$OUT" "would create the tmux session '$GA'" && has "$OUT" "$HOME/work" && has "$OUT" "resumes conversation $UA" && has "$OUT" "lane " && has "$OUT" "model " \
+    && has "$OUT" "plan only: nothing queued" && [ "$(queued)" = 0 ] && ! tmux has-session -t "=$GA" 2>/dev/null && ok "--plan: a missing tmux session passes; the tmux session, directory, conversation, lane and model are printed; nothing queued or created" || { bad "plan, missing session: rc=$RC — $OUT"; dropall; }
+echo "    sample plan:"; sed 's/^/      /' <<< "$OUT"
+enq_as "$PO" --plan restore --only "$GA" --only "$GB" --from sala-test-owner
+[ "$RC" = 0 ] && has "$OUT" "'$GA'" && has "$OUT" "'$GB'" && [ "$(queued)" = 0 ] && ok "--plan with two names, no reason: the dry run needs none (nothing is queued)" || { bad "plan, two names: rc=$RC — $OUT"; dropall; }
+# plan refusals: a name with no row, a conversation live elsewhere
+enq_as "$PO" --plan restore --only sala-test-ghost --item board#9007 --from sala-test-owner
+[ "$RC" != 0 ] && has "$OUT" "not in the pane map" && [ "$(queued)" = 0 ] && ok "--plan: a name with no pane-map row is refused" || { bad "plan, no row: rc=$RC — $OUT"; dropall; }
+LE=sala-test-elsewhere
+$T new-session -d -s "$LE" -c "$HOME/work" -e FAKE_SESSION_ID="$UC" -e FAKE_NAME="$LE" -e FAKE_LOG="$FAKE_LOG"; $T send-keys -t "$LE" 'claude' Enter; fake_up "$LE"
+enq_as "$PO" --plan restore --only "$GC" --item board#9007 --from sala-test-owner
+[ "$RC" != 0 ] && has "$OUT" "its conversation is live already" && [ "$(queued)" = 0 ] && ok "--plan: a conversation live in another session is refused" || { bad "plan, live elsewhere: rc=$RC — $OUT"; dropall; }
+rrefuse "a conversation live elsewhere: nothing queued" "its conversation is live already" "" "$PO" restore --only "$GC" --item board#9007 --from sala-test-owner
+gone "$LE"
+
+# the door's refusals: nothing queued
+rrefuse "a name with no pane-map row" "not in the pane map" "" "$PO" restore --only sala-test-ghost --item board#9007 --from sala-test-owner
+rrefuse "no reason at all (the owner's words are named)" "needs a reason: --item board#N" "" "$PO" restore --only "$GA" --from sala-test-owner
+rrefuse "the generic refusal names the restore door too" "op restore --only NAME [--only NAME]… --from YOU" "" "$PO" restore --only "$GA" --from sala-test-owner
+rrefuse "a bad item" "is not a board item id" 2 "$PO" restore --only "$GA" --item board#x --from sala-test-owner
+rrefuse "a why of two words" "three words or more" 2 "$PO" restore --only "$GA" --why "bring back" --from sala-test-owner
+rrefuse "an item and a why together" "not both" 2 "$PO" restore --only "$GA" --item board#9007 --why "the pane map still has it" --from sala-test-owner
+rrefuse "--missing (a sweep) is not queued" "not queued: name the sessions" 2 "$PO" restore --missing --item board#9007 --from sala-test-owner
+rrefuse "--force is not a restore flag" "restore takes --only NAME only" 2 "$PO" restore --only "$GA" --force --item board#9007 --from sala-test-owner
+rrefuse "a bare name without --only" "restore takes --only NAME only" 2 "$PO" restore "$GA" --item board#9007 --from sala-test-owner
+rrefuse "no --only at all" "restore needs at least one --only NAME" 2 "$PO" restore --item board#9007 --from sala-test-owner
+rrefuse "the same name twice" "names '$GA' twice" 2 "$PO" restore --only "$GA" --only "$GA" --item board#9007 --from sala-test-owner
+rrefuse "the asking session itself" "is the asking session itself" "" "$PO" restore --only "$PO" --item board#9007 --from sala-test-owner
+SALA_MASTER="$GA" rrefuse "the master" "is the master session" "" "$PO" restore --only "$GA" --item board#9007 --from sala-test-owner
+SALA_MASTER="$GB" rrefuse "the master among several" "is the master session" "" "$PO" restore --only "$GA" --only "$GB" --item board#9007 --from sala-test-owner
+SALA_OP_REASON_FROM="sala-test-other" rrefuse "a sender the allow list does not name" "may not restore with no words" "" "$PO" restore --only "$GA" --item board#9007 --from sala-test-owner
+OUT=$("$SALA" op restore --only "$GA" --item board#9007 --from sala-test-owner 2>&1); RC=$?
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "process ancestry" && ok "a plain shell with no words: refused" || { bad "plain shell: rc=$RC queued=$(queued) — $OUT"; dropall; }
+OUT=$(TMUX_PANE="$PANE_O" "$SALA" op restore --only "$GA" --item board#9007 --from sala-test-owner 2>&1); RC=$?
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "process ancestry" && ok "a plain shell with TMUX_PANE set to owner's pane and --from owner: refused" || { bad "spoofed pane: rc=$RC queued=$(queued) — $OUT"; dropall; }
+callin sala-test-other env TMUX_PANE="$PANE_O" "$SALA" op restore --only "$GA" --item board#9007 --from sala-test-owner
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "this call runs in session 'sala-test-other'" && ok "a claude child in other's pane claiming --from owner: refused (placed in other)" || { bad "wrong session: rc=$RC queued=$(queued) — $OUT"; dropall; }
+callin sala-test-human env TMUX_PANE="$PANE_O" "$SALA" op restore --only "$GA" --item board#9007 --from sala-test-owner
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "process ancestry" && ok "a person's shell in a pane (no claude above the call): refused" || { bad "human pane: rc=$RC queued=$(queued) — $OUT"; dropall; }
+for v in "recycle" "model $PO opus"; do
+    enq_as "$PO" $v --item board#9007 --from sala-test-owner
+    [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "accepted only with revive and restore" && ok "'$v --item': refused, the reason door is revive's and restore's only" || { bad "'$v --item': rc=$RC — $OUT"; dropall; }
+done
+
+# a raw `sala restore` from a Claude session stays refused (the guard); the test names pass ops_guard by design, so the name here is none of the suite's
+callin "$PO" env SALA_CGROUP_FILE=/dev/null "$SALA" restore plain-nosuch
+[ "$RC" != 0 ] && has "$OUT" "restore is a fleet operation" && has "$OUT" "sala op restore --only NAME --why" && ok "a raw restore from a Claude session (no queue unit): refused, and the text points to 'sala op restore'" || bad "raw restore: rc=$RC — $OUT"
+callin "$PO" env SALA_CGROUP_FILE=/dev/null "$SALA" restore --missing
+[ "$RC" != 0 ] && has "$OUT" "restore is a fleet operation" && ! tmux has-session -t "=$GA" 2>/dev/null && ok "a raw restore --missing from a Claude session: refused, nothing recreated" || bad "raw restore --missing: rc=$RC — $OUT"
+
+# the queued run
+dropall
+S0=$(allstarts); NA0=$(nstart "$UA")
+enq_as "$PO" restore --only "$GA" --item board#9007 --from sala-test-owner; IDQ=$ID
+[ "$RC" = 0 ] && [ -n "$IDQ" ] && ok "queued with no words: $(head -1 <<< "$OUT")" || bad "restore, item: rc=$RC — $OUT"
+echo "    queue command: sala op restore --only $GA --item board#9007 --from sala-test-owner"; sed 's/^/      /' <<< "$OUT"
+if [ -n "$IDQ" ]; then
+    [ "$(mval "$IDQ" verb)" = restore ] && [ "$(awk -F= '$1=="arg"{printf "%s ", $2}' "$OPS/$IDQ.op")" = "--only $GA " ] && [ -z "$(mval "$IDQ" words)" ] && [ "$(mval "$IDQ" nowords)" = "$NWR" ] && [ "$(mval "$IDQ" item)" = board#9007 ] \
+        && [ -z "$(mval "$IDQ" reason)" ] && [ "$(mval "$IDQ" ownrow)" = "$UA" ] && [ "$(mval "$IDQ" from)" = sala-test-owner ] \
+        && ok "the marker: restore --only $GA, words empty, item=board#9007, ownrow = the row's conversation id, nowords='$NWR'" || bad "marker: $(<"$OPS/$IDQ.op")"
+    LIST=$("$SALA" op --list 2>&1); STAT=$("$SALA" op --status "$IDQ" 2>&1)
+    has "$LIST" "$NWR" && has "$STAT" "item: board#9007" && ok "op --list shows the note and op --status the item" || bad "list/status: $LIST / $STAT"
+    grep -qF -- "$NWR" "$HOME/.claude/salamander-op.log" 2>/dev/null && ok "the op log line says it" || bad "op log: $(tail -3 "$HOME/.claude/salamander-op.log" 2>/dev/null)"
+    rc=$(runop "$IDQ")
+    waitfor "[ \"\$(nstart '$UA')\" -gt $NA0 ]" 60
+    [ "$(dval "$IDQ" state)" = done ] && tmux has-session -t "=$GA" 2>/dev/null && [ "$(nstart "$UA")" = $((NA0 + 1)) ] && [ "$(( $(allstarts) - S0 ))" = 1 ] && [ "$(dval "$IDQ" nowords)" = "$NWR" ] \
+        && ok "the runner restored it: state done, $GA exists again, its conversation resumed once and no other session started" || bad "run: rc=$rc state=$(dval "$IDQ" state) starts +$(( $(allstarts) - S0 )) marker: $(tail -8 "$OPS/done/$IDQ.op" 2>/dev/null) out: $(<"$HOME/run.out")"
+    grep -q "running: salamander restore $GA" "$HOME/run.out" && ok "the runner ran the plain verb: salamander restore $GA" || bad "run log: $(<"$HOME/run.out")"
+    [ "$(tmux display -p -t "=$GA:" '#{pane_current_path}')" = "$HOME/work" ] && ok "in the row's directory" || bad "cwd: $(tmux display -p -t "=$GA:" '#{pane_current_path}')"
+    has "$(<"$POSTS")" "$GA" && ok "the post names the session restored" || bad "posts: $(tail -5 "$POSTS")"
+fi
+enq_as "$PO" restore --only "$GA" --item board#9007 --from sala-test-owner
+[ "$RC" != 0 ] && has "$OUT" "its tmux session exists" && [ "$(queued)" = 0 ] && ok "queued again after the run: its tmux session exists, so refused (revive's business)" || { bad "again: rc=$RC — $OUT"; dropall; }
+# --why, two names asked by another session
+enq_as "$PX" restore --only "$GB" --why "the pane map still holds it" --from sala-test-other
+[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "words: none (reason: the pane map still holds it)" ] && [ "$(mval "$ID" reason)" = "the pane map still holds it" ] && [ -z "$(mval "$ID" item)" ] && [ "$(mval "$ID" ownrow)" = "$UB_" ] \
+    && ok "--why: queued, the marker keeps reason= and the conversation id" || bad "restore --why: rc=$RC — $OUT / $(cat "$OPS/$ID.op" 2>/dev/null)"
+dropall
+gone "$GA"
+enq_as "$PX" restore --only "$GA" --only "$GB" --item board#9007 --from sala-test-other; IDM=$ID
+[ "$RC" = 0 ] && [ -n "$IDM" ] && [ "$(mval "$IDM" nowords)" = "words: none (board#9007: restore of 2 sessions)" ] && [ "$(mvals "$IDM" ownrow | paste -sd, -)" = "$UA,$UB_" ] \
+    && ok "two --only: queued, one ownrow per session in order, 'restore of 2 sessions'" || bad "two --only: rc=$RC — $OUT / $(cat "$OPS/$IDM.op" 2>/dev/null)"
+NA0=$(nstart "$UA"); NB0=$(nstart "$UB_")
+rc=$(runop "$IDM"); waitfor "[ \"\$(nstart '$UA')\" -gt $NA0 ] && [ \"\$(nstart '$UB_')\" -gt $NB0 ]" 60
+[ "$(dval "$IDM" state)" = done ] && tmux has-session -t "=$GA" 2>/dev/null && tmux has-session -t "=$GB" 2>/dev/null && ok "both sessions recreated and resumed by one run" || bad "two-name run: rc=$rc state=$(dval "$IDM" state) out: $(<"$HOME/run.out")"
+dropall
+# with the owner's words the plain forms still queue (a --missing is never queued, even then)
+enq_as "$PO" restore --missing --from sala-test-owner --words "bring them all back"
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "not queued: name the sessions" && ok "restore --missing is not queued even with the owner's words" || { bad "--missing with words: rc=$RC — $OUT"; dropall; }
+
+echo "== the runner judges the restore again before it recreates anything"
+restore_mismatch() {  # <label> <sed script or ""> <env assignment or ""> <fragment of the result> [<fragment 2, default "nothing was restored">] [<between-queue-and-run step>] → a queued restore of GA, changed, run: stuck, nothing recreated, no helper
+    local label=$1 ed=$2 envv=$3 frag=$4 frag2=${5:-nothing was restored} step=${6:-:} s0 id rc2
+    gone "$GA"
+    enq_as "$PO" restore --only "$GA" --item board#9007 --from sala-test-owner; id=$ID
+    [ -n "$id" ] || { bad "$label: not queued: $OUT"; return; }
+    [ -z "$ed" ] || sed -i "$ed" "$OPS/$id.op"
+    eval "$step"
+    s0=$(allstarts); rm -f "$HOME/helper.called"
+    rc2=$(env ${envv:+"$envv"} SALA_OP_STUCK=on SALA_OP_CLAUDE="$HOME/stub-helper" "$SALA" op --run "$id" > "$HOME/run.out" 2>&1; echo $?)
+    if [ "$(dval "$id" state)" = stuck ] && has "$(dval "$id" result)" "$frag" && has "$(dval "$id" result)" "$frag2" && [ "$(allstarts)" = "$s0" ] && [ -z "$(dval "$id" helper)" ] && [ ! -e "$HOME/helper.called" ] && ! grep -q "running: salamander" "$HOME/run.out" \
+        && { [ "$step" != : ] || ! tmux has-session -t "=$GA" 2>/dev/null; }; then
+        ok "$label: stuck with the reason, nothing recreated, no claude -p"
+    else bad "$label: rc=$rc2 starts=$(( $(allstarts) - s0 )) marker: $(tail -9 "$OPS/done/$id.op" 2>/dev/null) log: $(tail -4 "$HOME/run.out")"; fi
+    dropall
+}
+restore_mismatch "the conversation id replaced" 's/^ownrow=.*/ownrow=not-the-row/' "" "now is not the one the operation was queued for"
+restore_mismatch "the conversation id deleted" '/^ownrow=/d' "" "carries 0 conversation id(s)"
+restore_mismatch "the item deleted" '/^item=/d' "" "carries no reason"
+restore_mismatch "the item malformed" 's/^item=.*/item=board#x/' "" "is not a board item id"
+restore_mismatch "a second session added to the arguments" "/^arg=$GA\$/a arg=--only"$'\n'"/^arg=$GA\$/a arg=$GB" "" "conversation id(s)"
+restore_mismatch "a flag --force added" "/^arg=$GA\$/a arg=--force" "" "does not fit the verb's shape" "restore takes --only NAME only"
+restore_mismatch "the sender no longer allowed" "" "SALA_OP_REASON_FROM=sala-test-other" "may no longer restore with no words"
+restore_mismatch "the session made the master since" "" "SALA_MASTER=$GA" "is the master session"
+restore_mismatch "the sender is the session itself" "s/^from=.*/from=$GA/" "" "is the asking session itself"
+restore_mismatch "its tmux session came back" "" "" "its tmux session exists" "nothing was restored" "tmux new-session -d -s $GA 'sleep 300'"
+tmux kill-session -t "=$GA" 2>/dev/null
+restore_mismatch "its conversation live in another session since" "" "" "its conversation is live already" "nothing was restored" "\$T new-session -d -s $LE -c $HOME/work -e FAKE_SESSION_ID=$UA -e FAKE_NAME=$LE -e FAKE_LOG=$FAKE_LOG; \$T send-keys -t $LE claude Enter; fake_up $LE"
+gone "$LE"
+restore_mismatch "the pane-map row replaced by another conversation" "" "" "now is not the one the operation was queued for" "nothing was restored" "sed -i \"s/^$GA\t$UA/$GA\t$(uuid 399)/\" \"\$SALA_SIDECAR\""
+sed -i "s/^$GA\t$(uuid 399)/$GA\t$UA/" "$SALA_SIDECAR"
+restore_mismatch "the marker is a different verb with no words (recycle)" 's/^verb=restore/verb=recycle/;/^arg=/d' "" "not a throwaway retire that still passes" "nothing was ended"
+# the untouched marker restores that one session and no other
+gone "$GA"
+S0=$(allstarts); NA0=$(nstart "$UA")
+enq_as "$PO" restore --only "$GA" --item board#9007 --from sala-test-owner; IDC=$ID
+rc=$(runop "$IDC"); waitfor "[ \"\$(nstart '$UA')\" -gt $NA0 ]" 60
+[ "$(dval "$IDC" state)" = done ] && [ "$(( $(allstarts) - S0 ))" = 1 ] && ok "control: the untouched marker restores that one session and no other" || bad "control: rc=$rc state=$(dval "$IDC" state) starts +$(( $(allstarts) - S0 ))"
+dropall
+
+echo "== the policy table covers restore, and the stuck helper's brief"
+POLR=$( . "$ROOT/lib/op.sh"; for c in "restore" "restore --missing" "restore --only a" "restore --only a --only b" "restore --only a --force" "restore --only" "restore a" "restore --only a --missing"; do op_words_policy $c; printf '%s=%s;' "${c// /_}" "$OP_POLICY"; done )
+[ "$POLR" = "restore=owner;restore_--missing=owner;restore_--only_a=reason;restore_--only_a_--only_b=reason;restore_--only_a_--force=owner;restore_--only=owner;restore_a=owner;restore_--only_a_--missing=owner;" ] \
+    && ok "op_words_policy: restore with --only names is reason; a sweep, --force, a bare name and any other flag is owner" || bad "restore policy: $POLR"
+gone "$GA"
+enq_as "$PO" restore --only "$GA" --item board#9007 --from sala-test-owner; IDB=$ID
+BRIEF=$( . "$ROOT/lib/op.sh"; op_brief "$IDB" "it exited 1" )
+has "$BRIEF" "salamander restore <those NAMEs>" && has "$BRIEF" "NEVER run \`salamander retire\`" && has "$BRIEF" "that session restores the sessions named" && ok "the helper's brief: for a no-words restore only restore the named sessions, and no retire" || bad "restore brief: $BRIEF"
+dropall
 
 echo "== the help says it"
 HELP=$("$SALA" op --help 2>&1)

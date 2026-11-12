@@ -229,4 +229,22 @@ echo "== sala restore --missing"
 out=$("$SALA" restore --missing 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
 [ "$rc" = 0 ] && tmux has-session -t =sala-test-b 2>/dev/null && echo "$out" | grep -q '1 session(s) in the pane map have no tmux session: sala-test-b' && ok "--missing found and restored sala-test-b" || bad "--missing: rc=$rc"
 out=$("$SALA" restore --missing 2>&1); echo "$out" | grep -q 'nothing missing' && ok "--missing with nothing missing: $out" || bad "--missing again: $out"
+echo "== sala restore --dry-run: the same refusals and the plan, nothing changed"
+kill_wait sala-test-b
+n0=$(grep -c "^start $UB" "$FAKE_LOG")
+out=$("$SALA" restore sala-test-b --dry-run 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+[ "$rc" = 0 ] && echo "$out" | grep -q "would create the tmux session 'sala-test-b' detached in $HOME/work-b" && echo "$out" | grep -q "revive --only sala-test-b resumes conversation $UB" && echo "$out" | grep -q 'sala-test-b: lane .* · model .* · effort ' && echo "$out" | grep -q 'nothing was changed' \
+    && ! tmux has-session -t =sala-test-b 2>/dev/null && [ "$(grep -c "^start $UB" "$FAKE_LOG")" = "$n0" ] && ok "a missing session: the plan is printed, no tmux session made, no claude started" || bad "dry-run: rc=$rc $out"
+out=$("$SALA" restore sala-test-nope --dry-run 2>&1); rc=$?
+[ "$rc" = 1 ] && echo "$out" | grep -q '^\[dry-run\] would refuse: sala-test-nope: not in the pane map' && echo "$out" | grep -q 'nothing was changed' && ok "an unknown name: would refuse, exit 1" || bad "dry-run, unknown: rc=$rc $out"
+out=$("$SALA" restore sala-test-m --dry-run 2>&1); rc=$?
+[ "$rc" = 1 ] && echo "$out" | grep -q 'would refuse: sala-test-m: its tmux session exists' && echo "$out" | grep -q 'salamander revive --only sala-test-m' && ok "a session that exists: would refuse, and names revive" || bad "dry-run, exists: rc=$rc $out"
+hand sala-test-y "$UB" "$HOME"; fake_up sala-test-y
+out=$("$SALA" restore sala-test-b --dry-run 2>&1); rc=$?
+[ "$rc" = 1 ] && echo "$out" | grep -q 'would refuse: sala-test-b: left alone' && echo "$out" | grep -q 'its conversation is live already' && ! tmux has-session -t =sala-test-b 2>/dev/null && ok "a conversation live elsewhere: would refuse" || bad "dry-run, live elsewhere: rc=$rc $out"
+kill_wait sala-test-y
+out=$("$SALA" restore --missing --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q 'sala-test-b: would create the tmux session' && ! tmux has-session -t =sala-test-b 2>/dev/null && ok "--missing --dry-run: names what is missing, creates nothing" || bad "dry-run --missing: rc=$rc $out"
+out=$("$SALA" restore --dry-run 2>&1); rc=$?
+[ "$rc" != 0 ] && echo "$out" | grep -q 'usage: salamander restore' && ok "--dry-run with no name: the usage" || bad "dry-run, no name: rc=$rc $out"
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

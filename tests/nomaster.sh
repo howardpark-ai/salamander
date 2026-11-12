@@ -210,7 +210,7 @@ out=$(under_claude "$SALA" retire nosuch 2>&1); rc=$?
 out=$(under_claude "$SALA" recycle --force 2>&1); rc=$?
 [ "$rc" != 0 ] && has "$out" "sala op recycle" && [ "$(starts "$(uuid 3)")" = "$n0" ] && ok "recycle --force under a claude: refused, no pane relaunched" || bad "recycle under claude ($rc): $out"
 out=$(under_claude "$SALA" restore nosuch 2>&1); rc=$?
-[ "$rc" != 0 ] && has "$out" "no 'restore' verb yet" && ok "a verb the queue has no shape for (restore): refused, and said so" || bad "restore under claude ($rc): $out"
+[ "$rc" != 0 ] && has "$out" "restore is a fleet operation" && has "$out" "sala op restore --only NAME --why" && ok "a raw restore under claude: refused, and the text points to the queued verb" || bad "restore under claude ($rc): $out"
 # model: the queue has the verb now. The target must exist and not be a sala-test-* name (those pass the guard),
 # so a plain tmux session stands in for a fleet pane; its record is never written, nothing relaunched.
 $T new-session -d -s nomodel-x -c "$HOME"
