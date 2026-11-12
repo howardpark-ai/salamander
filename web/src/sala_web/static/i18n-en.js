@@ -414,6 +414,8 @@ window.SALA_I18N_EN = {
   "shared.ns.queued": "sala has the request and starts it within a few seconds.",
   "shared.ns.starting": "sala is starting the session. The Open button appears here when it is ready.",
   "side.lang": "Language",
+  "side.lang.en": "English",
+  "side.lang.ko": "Korean",
   "srch.capped": "Showing the newest {shown} of {matches} matches; narrow the range or add a word to see the rest.",
   "srch.err.failed": "The search failed: {error}",
   "srch.hint.more": "Unticked boxes hold more: {list}.",

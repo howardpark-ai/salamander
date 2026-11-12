@@ -42,6 +42,7 @@ WORDS = """
     composerPh: (document.querySelector("#composer .cm-placeholder") || {}).textContent,
     sideNewTip: a("#side-new", "title"),
     langPressed: [...document.querySelectorAll(".side-lang [data-lang]")].map((b) => b.dataset.lang + ":" + b.getAttribute("aria-pressed")),
+    langTips: [...document.querySelectorAll(".side-lang [data-lang]")].map((b) => b.getAttribute("title")),
   };
 })()
 """
@@ -94,8 +95,40 @@ def test_the_page_starts_in_english_with_the_control_showing_it(served, browser)
     assert w["lang"] == "en"
     assert w["newSession"] == "New session" and w["overview"] == "Overview" and w["unread"] == "Unread"
     assert w["searchPh"] == "Search" and w["sendLabel"] == "Send"
-    assert w["langPressed"] == ["ko:false", "en:true"], w
+    assert w["langPressed"] == ["en:true", "ko:false"], w
+    assert w["langTips"] == ["English", "Korean"], w
     assert saved_lang(served) == "en"
+
+
+SWITCH_LOOK = """(() => {
+  const bs = [...document.querySelectorAll(".side-lang button")];
+  const cs = bs.map((b) => getComputedStyle(b));
+  const probe = document.createElement("span");
+  probe.style.color = "var(--accent)";
+  document.body.appendChild(probe);
+  const accent = getComputedStyle(probe).color;
+  probe.remove();
+  return { labels: bs.map((b) => b.textContent), widths: bs.map((b) => Math.round(b.getBoundingClientRect().width)),
+           borders: cs.map((c) => c.borderTopWidth + " " + c.borderTopStyle), fills: cs.map((c) => c.backgroundColor),
+           colors: cs.map((c) => c.color), borderColors: cs.map((c) => c.borderTopColor), accent,
+           gap: bs.length > 1 ? Math.round(bs[1].getBoundingClientRect().left - bs[0].getBoundingClientRect().right) : null };
+})()"""
+
+
+def test_the_switch_is_two_outlined_buttons_en_then_ko_and_the_pressed_one_is_in_the_accent(served, browser):
+    open_page(served, browser)
+    v = browser.evaluate(SWITCH_LOOK)
+    assert v["labels"] == ["EN", "KO"], v
+    assert all(w >= 44 for w in v["widths"]), v
+    assert v["borders"] == ["1px solid", "1px solid"], v
+    assert v["fills"][0] == v["fills"][1] and v["gap"] >= 4, v      # separate buttons with the same plain fill, not one filled side
+    assert v["colors"][0] == v["accent"] and v["borderColors"][0] == v["accent"], v
+    assert v["colors"][1] != v["accent"] and v["borderColors"][1] != v["accent"], v
+    choose(browser, "ko")
+    v = browser.evaluate(SWITCH_LOOK)
+    assert v["labels"] == ["EN", "KO"], v
+    assert v["colors"][1] == v["accent"] and v["borderColors"][1] == v["accent"], v
+    assert v["colors"][0] != v["accent"] and v["borderColors"][0] != v["accent"], v
 
 
 def test_ko_words_the_chrome_in_korean_saves_it_and_keeps_it_over_a_reload(served, browser):
@@ -107,7 +140,8 @@ def test_ko_words_the_chrome_in_korean_saves_it_and_keeps_it_over_a_reload(serve
     for k in ("newSession", "overview", "unread", "searchPh", "sendLabel", "sideNewTip"):
         assert ko[k] != en[k] and HANGUL.search(ko[k]), (k, ko[k])
     assert ko["composerPh"] and ko["composerPh"] != en["composerPh"] and HANGUL.search(ko["composerPh"]), ko["composerPh"]
-    assert ko["langPressed"] == ["ko:true", "en:false"], ko
+    assert ko["langPressed"] == ["en:false", "ko:true"], ko
+    assert [t for t in ko["langTips"] if HANGUL.search(t)] == ko["langTips"] and len(ko["langTips"]) == 2, ko
     assert wait_until(browser, "true")
     assert saved_lang(served) == "ko"
     # a reload: served in Korean from the first paint

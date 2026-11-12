@@ -260,7 +260,7 @@ Held in a headless Chromium with the banner shown, dark then light (the theme se
 solid 2 px outline. The test fails on the old stylesheet. Not covered, and why: a color-tool theme with custom values (the tokens it sets are the same ones read here, and its wiring has
 its own tests in `test_colortool_wiring.py`), and how the strip looks to the eye (colors and contrast are computed, not seen).
 
-### The page in Korean or English: `web/tests/test_i18n.py` new, 14; `test_i18n_browser.py` new, 7; `i18n_node.py` helper; 18 files changed (Tue Nov 10th 2026)
+### The page in Korean or English: `web/tests/test_i18n.py` new, 14; `test_i18n_browser.py` new, 7 (8 since the switch took the sibling UI's look); `i18n_node.py` helper; 18 files changed (Tue Nov 10th 2026)
 
 The page's words now come from two tables (`static/i18n-en.js`, every key; `static/i18n-ko.js`, Korean only, every character written
 as a `\u` escape) through `tl()` and the `data-i18n` attributes, and a KO/EN control at the foot of the session list switches them
@@ -279,7 +279,7 @@ and no Hangul byte in the shipped source, the docs or the new test files; the lo
 fallback from Korean to English to the key itself, an unknown language read as English); relative ages and the "updated" line and
 the queued-start wait words in both languages; both pages served with the saved language in `<html lang>` and no `{{lang}}` left, a
 language the page does not have refused with nothing changed, the three script files served.
-`test_i18n_browser.py` holds, in a headless Chromium: the page starts in English with the control showing EN; a tap on KO rewords
+`test_i18n_browser.py` holds, in a headless Chromium: the page starts in English with the control showing EN (and a tooltip on each button); the switch is two outlined buttons, EN then KO, at least 44 px wide, the pressed one in the accent colour; a tap on KO rewords
 the sidebar, the composer's hint and the buttons, sets `lang="ko"`, saves it on the server and keeps it over a reload; the chat's
 text and a half-typed composer message are the same after the switch and a tap on EN restores every English word; the age on a
 message and the date in its tooltip change language; the New session form keeps what was typed in it and rewords its labels and
