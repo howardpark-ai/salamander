@@ -1,13 +1,13 @@
-"""/v2 redirects to /, and what the page's look needs from the server is served: the manifest, the worker, the code face and its licence.
+"""/v2 is not an address any more, and what the page's look needs from the server is served: the manifest, the worker, the code face and its licence.
 
-The look was first tried at `/v2/` next to the page at `/`. It is the page now, and `/v2`, `/v2/` and every path under it answer a temporary
-redirect to `/` for a while, so an old bookmark and the installed app's older link land on the page. The redirect is relative (it holds under
-whatever path prefix a proxy adds), keeps the query and nothing of the path (`/v2/x` goes to `/`), and answers GET and HEAD.
+The look was first tried at `/v2/` next to the page at `/`. It is the page now, and the address that used to redirect to `/` for a while is
+dropped: `/v2`, `/v2/` and every path under it answer what any unknown path answers (a 404), not a redirect. This file kept its name from the
+time it tested that redirect (renaming it would touch the suites map, the timings and the coverage list for no gain); it is now about the page
+at `/` and what it links.
 
-What a wrong answer costs: an old bookmark or the installed app's older link that lands on a 404, a redirect that is permanent (a browser that
-remembers it after the redirect is dropped), a redirect to an absolute address that breaks behind a path prefix, a query dropped (the old
-`?arg=` terminal links), the manifest or the worker no longer served (the installed app stops updating or installing), a font that 404s or
-is served as text, or a licence left behind.
+What a wrong answer costs: `/v2` answering again (a redirect or a page) after it was dropped, a `/v2` address left in the page or in a script or
+stylesheet, the manifest or the worker no longer served (the installed app stops updating or installing), a font that 404s or is served as
+text, or a licence left behind.
 
 No browser here: Starlette's TestClient over a fake empty state.
 """
@@ -31,47 +31,15 @@ def client(tmp_path):
     return TestClient(create_app(settings))
 
 
-@pytest.mark.parametrize("path, to", [
-    ("/v2", "./"),
-    ("/v2/", "../"),
-    ("/v2/x", "../"),
-    ("/v2/static/style.css", "../../"),
-    ("/v2/api/sessions", "../../"),
-    ("/v2/a/b/c", "../../../"),
-])
-def test_v2_and_every_path_under_it_redirect_temporarily_to_the_page(client, path, to):
-    r = client.get(path, follow_redirects=False)
-    assert r.status_code == 307, (path, r.status_code)
-    assert r.headers["location"] == to, (path, r.headers["location"])
-    assert r.headers.get("cache-control", "").startswith("no-") or "max-age" not in r.headers.get("cache-control", ""), "a temporary redirect is never cached for long"
+@pytest.mark.parametrize("path", ["/v2", "/v2/", "/v2/x", "/v2/static/app.js", "/v2/a/b?arg=x", "/v2x"])
+def test_v2_and_what_is_under_it_are_a_404_not_a_redirect(client, path):
+    for method in (client.get, client.head):
+        r = method(path, follow_redirects=False)
+        assert r.status_code == 404, (method.__name__, path, r.status_code)
+        assert "location" not in r.headers, (method.__name__, path)
 
 
-@pytest.mark.parametrize("path", ["/v2", "/v2/", "/v2/x", "/v2/static/app.js", "/v2/terminal"])
-def test_the_redirect_lands_on_the_page(client, path):
-    r = client.get(path)   # followed
-    assert r.status_code == 200 and r.url.path == "/"
-    assert "<title>sala</title>" in r.text
-
-
-def test_the_query_is_kept_and_a_path_is_not(client):
-    r = client.get("/v2/?arg=sess", follow_redirects=False)
-    assert r.status_code == 307 and r.headers["location"] == "../?arg=sess"
-    r = client.get("/v2?x=1&y=2", follow_redirects=False)
-    assert r.headers["location"] == "./?x=1&y=2"
-    r = client.get("/v2/some/path?q=a%20b", follow_redirects=False)
-    assert r.headers["location"] == "../../?q=a%20b"
-    # an old terminal link keeps working: /v2/?arg=x -> /?arg=x -> /terminal?arg=x
-    r = client.get("/v2/?arg=x", follow_redirects=True)
-    assert r.url.path == "/terminal" and r.url.query == b"arg=x"
-
-
-def test_head_redirects_too_and_a_write_is_not_taken_for_a_page(client):
-    assert client.head("/v2/", follow_redirects=False).status_code == 307
-    assert client.post("/v2/api/read", json={"name": "x"}, follow_redirects=False).status_code == 405
-    assert client.get("/v2x", follow_redirects=False).status_code == 404   # not under /v2/
-
-
-def test_nothing_else_is_served_under_v2_and_the_page_has_no_v2_address(client):
+def test_the_page_and_the_static_files_have_no_v2_address(client):
     page = client.get("/").text
     assert "/v2" not in page
     for name in ("app.js", "style.css"):
