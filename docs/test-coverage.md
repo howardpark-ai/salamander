@@ -3669,3 +3669,28 @@ Covered: `salamander alert --channel NAME` and `--channel=NAME` hand the notify 
 Changed: `tests/help-snapshot.txt` holds the new `alert` help lines and usage text; `tests/suites.map` lists the new file on the `briefing` line.
 
 Not covered, and why: a real Slack webhook (no network in the suites; the payload is the existing one and `reply.sh` already checks it); the digests' success path with a channel (the post call is the same one the failure notices use, and the digests' text is checked elsewhere); `release-watch.sh` itself (it prints and posts nothing; `release-alert.sh` posts for it); a unit's `Environment=BRIEFING_CHANNEL=` drop-in under systemd (the same variable is set in the tests' environment).
+
+### `tests/trimreport.sh`: new, 74 (Fri Nov 13th 2026)
+
+The weekly size report of the suites (`.github/scripts/trim_report.py`; CONTRIBUTING.md, *Keeping the suites trim*). Outside the rule's
+letter (no session, draft or map is at stake), kept because the report is what stands between the suites and slow growth that nobody
+sees: a script that counts wrong, never prints `TRIGGER`, or loses its state file stops the weekly comparison without any failure
+showing, and a cleanup pass runs only on its `TRIGGER` line.
+
+The script on throwaway trees, with no network and no tmux, in a temporary folder that is locked while the test runs and removed pass
+or fail. Covered: the counts of both families on a tiny made-up tree (the shell suites' `ok` lines and the web files' `assert` lines;
+a comment, the `ok()` definition, a `bad`-only line, an `echo`, a tool such as `lib.sh` and `conftest.py` are not counted, two `ok`
+calls on one line count once), a recorded time and an untimed suite, a time that is negative, not finite or above a year ignored with
+its key named, a timings file that cannot be read, the suites and files added and deleted since a prior state and the test lines
+up and down; each threshold's `TRIGGER` line, in order, and none under the limits or at a limit, the growth scaled to a week, the
+state file keeping the lines, a `[salamander]` table overriding the top-level keys, the config and state files at their XDG places;
+an unknown config key (a warning, exit 0), every bad config exiting 2 (a wrong type, a boolean, a negative or huge value, not TOML,
+not UTF-8, a folder, a missing file, a pipe, `/dev/stdin` from a pipe), a state folder that cannot be made or a state file that cannot be
+replaced (exit 1, no temporary file left), a corrupt or foreign previous state started over with a note, `--dry-run` writing
+nothing, a checkout with no suite (exit 2). Then this checkout: its two timings files parse, and the shell suites counted are the ones
+`tests/run.sh --list` names.
+
+Counts differ from the rule's "`ok` lines of a passing run" on purpose: the script counts the lines that call `ok` in the source, so a
+check in a loop counts once, which keeps the number the same from one run to the next and cheap to read. Not covered, and why: SIGTERM
+(the handler is three lines, and the script holds nothing a stop could leave behind); the weekly timer that runs the script (it lives
+outside this repository).
