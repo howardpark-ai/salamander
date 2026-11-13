@@ -233,6 +233,7 @@ one registered worker, a tab title with no trial mark; and controls 32 px under 
 coarse), which the tests that check a touch size now use.
 Removed with the layer: `test_v2_design.py` (15), `test_v2_layer.py` (29), `test_v2_browser.py` (4), the v2 prefix test in `test_mockup.py`, and the `/v2/` variants of
 `test_asset_recovery.py`, `test_colortool_wiring.py`, `test_unread_filter.py` and `test_board_items_ui.py`. The earlier entries about `/v2/` below stay as the record of that time.
+Update (Fri Nov 13th 2026): the redirect was dropped; `/v2` answers a 404 now (the entry above), and `test_look_redirect.py` no longer tests a redirect.
 Re-baselined (the number changed with the look, not a regression): reading text 15 px (was 16) and the header's name 15 px, so a 20-character name no longer needs Shell folded at
 360 px (`test_header_fold.py` uses a 13- and a 26-character name, `test_header_layout.py` the name's 154 px); the reply footer 13 px with 8 px above its rule; the unread count 12 px
 with 8 px corners and padding; the brand 15 px; 8 px corners on chips and the shell drawer (was 16); tags and chips without an outline (the unconfigured lane chip is plain grey
@@ -3694,3 +3695,14 @@ Counts differ from the rule's "`ok` lines of a passing run" on purpose: the scri
 check in a loop counts once, which keeps the number the same from one run to the next and cheap to read. Not covered, and why: SIGTERM
 (the handler is three lines, and the script holds nothing a stop could leave behind); the weekly timer that runs the script (it lives
 outside this repository).
+
+### `/v2` is dropped: `web/tests/test_look_redirect.py` 16 → 9 (Fri Nov 13th 2026)
+
+The temporary redirect from `/v2`, `/v2/` and everything under it to `/` (the entry about the look, below) is gone from `app.py`, along with its handler. The address now answers what any
+unknown path answers, a 404. A wrong answer is `/v2` answering again, as a redirect or as a page (an old bookmark would then land on something nobody maintains), a `/v2` address left in
+the page or in a script or stylesheet, the manifest, the worker, the code face or its licence no longer served.
+`test_look_redirect.py` keeps its name (a rename would touch the suites map, the timings and this list for no gain) and its subject is now the page at `/` and what it links. Removed (the
+redirect's own tests, 13 of the 16): the target for each path shape, the page the redirect lands on, the query kept and the path dropped, HEAD redirecting, a POST answered 405. Kept: no
+`/v2` left in the page or in `app.js` and `style.css`, the manifest and worker served, the code face and its licence served. Added (6, one per path shape, each for GET and HEAD):
+`/v2`, `/v2/`, `/v2/x`, `/v2/static/app.js`, `/v2/a/b?arg=x` and `/v2x` answer 404 with no `Location`. A POST under `/v2/` is a 404 now too, no longer a 405, and has no test of its own.
+Not covered, and why: a proxy or a browser that still holds the old redirect (a temporary redirect is not cached for long, and nothing here runs a browser's cache).

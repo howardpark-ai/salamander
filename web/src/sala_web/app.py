@@ -9,8 +9,6 @@ none itself):
   GET  /                          the page (/?arg=<tmux session> redirects to /terminal); #s=<name> opens a
                                   session, #sessions the sessions overview (every live session's role, status, model
                                   and lane, with account usage and API spend above them)
-  GET  /v2, /v2/<path>            a temporary redirect (307) to /, the query kept and the path dropped: the new look was tried at /v2/ before it became
-                                  the page, and old bookmarks and the installed app's older link land on /; dropped later
   GET  /terminal                  the full-size terminal: ttyd's page in a frame filling the window, ?arg=<tmux session> (static/terminal.html)
   GET  /manifest.webmanifest      the web app manifest (the page is installable as an app; static/manifest.webmanifest)
   GET  /sw.js                     the service worker, at the root so its scope is the whole site (static/sw.js)
@@ -599,15 +597,6 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if "arg" in request.query_params:
             return RedirectResponse("/terminal?" + request.url.query, status_code=302)
         return _page("index.html")
-
-    async def v2_moved(request: Request) -> Response:
-        # /v2 was where the new look was tried before it became the page: an old bookmark and the installed app's older link land on /.
-        # Temporary (the address is dropped later), relative so it holds under whatever path prefix a proxy adds, the query kept and the
-        # path not (/v2/x -> /; /?arg= then goes on to /terminal as it always did). One "../" for each directory the request is under:
-        # /v2 -> ./, /v2/ and /v2/x -> ../, /v2/a/b -> ../../
-        path = request.url.path
-        up = "../" * (1 + path[len("/v2/"):].count("/")) if path.startswith("/v2/") else "./"
-        return RedirectResponse(up + ("?" + request.url.query if request.url.query else ""), status_code=307)
 
     async def terminal_page(request: Request) -> Response:
         # the full-size terminal (the Shell drawer's "Open full size", the old /?arg= links): ttyd's page in a frame that fills the
@@ -1806,8 +1795,6 @@ def create_app(settings: Settings | None = None) -> Starlette:
     static_app = RevalidatedStatic(directory=STATIC)
     routes = [
         Route("/", index),
-        Route("/v2", v2_moved, methods=["GET", "HEAD"]),
-        Route("/v2/{rest:path}", v2_moved, methods=["GET", "HEAD"]),   # a temporary redirect to / (v2_moved)
         Route("/terminal", terminal_page),
         Route("/manifest.webmanifest", manifest),
         Route("/sw.js", service_worker),

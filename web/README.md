@@ -1355,14 +1355,13 @@ Terminal tab (ttyd's page in a frame: the frame's chrome follows the look, what 
 **The installed app is unchanged.** The page links `manifest.webmanifest` (`start_url` and `scope` are `./`, so the app opens at `/`) and
 `app.js` registers `/sw.js`, as before; the worker has no fetch handler (*Install as an app* below).
 
-**`/v2` redirects to `/` for a while.** The look was first tried at `/v2/`. `/v2`, `/v2/` and every path under it (GET and HEAD) answer a
-temporary redirect (307) to `/`, with the query kept and nothing of the path: `/v2/x` goes to `/`, not to `/x`. This is for old bookmarks
-and for the installed app's older link; it is dropped later, and nothing else refers to `/v2`.
+**`/v2` is not an address.** The look was first tried at `/v2/`; the redirect from there to `/` is dropped, so `/v2`, `/v2/` and every path
+under it answer a 404, like any unknown path, and nothing refers to `/v2`.
 
 **Tests.** `tests/test_look_scale.py` (pure text: every stylesheet holds the scale, the weights, no letter-spacing, no uppercase, the
 monospace face on code only, the grid, the two radii and one column width; the page keeps its manifest link and its one `look` style
 after every stylesheet link; every inline icon is on the 24 grid), `tests/test_look_redirect.py` (HTTP: `/v2` and what is under it
-redirect to `/` with the query, the manifest, the worker and the font with its licence are served) and `tests/test_look_browser.py` (a
+answer 404, no `/v2` address in the page, the manifest, the worker and the font with its licence are served) and `tests/test_look_browser.py` (a
 headless Chromium at 390, 768, 1024 and 1440 px over the Agents, Schedules and Machines tabs, a chat, Search results and the New session
 page: no sideways scroll, a column of at most 920 px on a wide screen, no error logged, the monospace font loaded, the manifest linked and
 the worker registered). What they do not cover is in `docs/test-coverage.md`.
