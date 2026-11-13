@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly report on the size of the test suites (suite count, serial minutes, slowest suites, test-line growth) (timer)
+
+[Timer]
+OnCalendar=Mon *-*-* 09:00:00 Asia/Seoul
+Persistent=true
+Unit=sala-test-trim.service
+
+[Install]
+WantedBy=timers.target
