@@ -76,6 +76,11 @@ def open_app(browser, served, hash_: str, width: int = 390, standalone: bool = F
     browser.evaluate(f"localStorage.clear(); sessionStorage.clear(); {('localStorage.setItem(%s, %s);' % (json.dumps(LAST), json.dumps(remembered))) if remembered else ''} ''")
     browser.send("Page.navigate", {"url": f"{served['url']}/{hash_}"})
     assert wait_for(browser, READY)
+    # READY holds before the load event can have fired (under CPU load the document may still be 'interactive'), and a hash
+    # set from outside before the load completes is a replace, not a push (HTML "navigate": a document not completely loaded
+    # makes the navigation a replace): it would overwrite the launch entry the history assertions count on
+    assert wait_for(browser, "document.readyState === 'complete'", 15.0), \
+        "the page's load did not finish: a hash set before it replaces the launch entry instead of pushing one"
     settle(browser)
 
 
