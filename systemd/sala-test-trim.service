@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly report on the size of the test suites (suite count, serial minutes, slowest suites, test-line growth)
+X-Model-Lane=none
+X-Project=infra/salamander
+X-Model-Note=weekly, no model call
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/uv run --script %h/salamander/.github/scripts/trim_report.py --root %h/salamander
