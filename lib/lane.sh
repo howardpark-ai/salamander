@@ -77,7 +77,7 @@
 # (exit 4) and the reason is one alert line.
 # THE BACK AGENTS' LANE RULE (common.sh; off unless SALA_BACK_LANE_RULE=on): the watch moves the background agents off the home lane near its
 # weekly limit and home when it resets, by queueing the ordinary `sala op lane <lane> <session>… --from sala-watch` (the switch below); a
-# back agent spawned meanwhile launches on the rule's lane. `salamander watch --back-lanes --dry-run` shows a pass. It is not a `lane` verb.
+# back agent spawned meanwhile launches on the rule's lane; a step never picks a dormant lane: its fallback takes the agents (or nobody moves). `salamander watch --back-lanes --dry-run` shows a pass. It is not a `lane` verb.
 # THE RESCUE (Wed Oct 14th 2026; asked by the project's coordinator session). The master runs on a lane (subscription-2 today); when
 # that lane's usage is out or its account is dead, the master cannot act, and the session that could move it is not the
 # master: `sala lane <lane> <master>` from there needed --not-master, and the master's own background rows held the
@@ -109,7 +109,7 @@ usage() {
     echo "       salamander lane active <lane>     [--dry-run]                  mark a lane active again (the only way back for api and sdk)"
     echo "       salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)"
     echo "       salamander lane --rescue <lane>   [--dry-run] [--force]        move the master (SALA_MASTER) off a lane that is out, from another session"
-    echo "  the background agents' lane rule (SALA_BACK_LANE_RULE=on) moves them by this switch; see: salamander watch --back-lanes --dry-run"
+    echo "  the background agents' lane rule (SALA_BACK_LANE_RULE=on) moves them by this switch; a dormant target lane is replaced by its fallback; see: salamander watch --back-lanes --dry-run"
     echo "  lanes: $(lane_choices)$(d=$(for l in $SALA_LANES_KNOWN; do lane_dormant "$l" && echo "$l"; done | paste -sd' ' -); [ -n "$d" ] && echo "; dormant: $d")  (subscription-1, shown as $(lane_label subscription-1): the login in ~/.claude · api: the key file · subscription-2, shown as $(lane_label subscription-2): a second login in its own config directory · sdk: api's key through the Agent SDK (client claude-agent-sdk), while the key has credit (a refusal switches it off for 6 hours) · bedrock: Claude on Amazon Bedrock through the AWS profile ${SALA_LANE_BEDROCK_PROFILE:-(none named: SALA_LANE_BEDROCK_PROFILE)}$(lane_check bedrock >/dev/null 2>&1 || echo ", not set up yet") · aws-platform: Claude Platform on AWS through the AWS profile ${SALA_LANE_AWSPLATFORM_PROFILE:-(none named: SALA_LANE_AWSPLATFORM_PROFILE)} and a workspace id$(lane_check aws-platform >/dev/null 2>&1 || echo ", not set up yet"))"
     echo "  --rescue on a switch: a stale background-task row (the exit dialog, the Stop hook's record, the mod) no longer holds a pane with no child process under its claude"
 }

@@ -312,8 +312,17 @@ LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-la
   with a plain GET (curl, 5 s timeout, over sala-web's unix socket by default; `SALA_BACK_LANE_REFRESH_URL` sets a socket path or an http(s)
   base URL, or `off`; at most every `SALA_BACK_LANE_REFRESH_EVERY` s, waiting up to `SALA_BACK_LANE_REFRESH_WAIT` s for the file) and reads
   it again. The token stays in the web app: sala makes no call to Anthropic and handles no credential; a failed or slow call leaves the
-  reading stale and nobody moves. `--dry-run` says when it would refresh and asks nobody. A target lane that is dormant or cannot launch is not moved onto: one notice per window and step, the state unchanged, a later
+  reading stale and nobody moves. `--dry-run` says when it would refresh and asks nobody. A target lane that cannot launch is not moved onto: one notice per window and step, the state unchanged, a later
   tick moves.
+- **Never onto a dormant lane.** When the lane a step would pick is dormant (a monthly usage cap, a seat gone, the API credit used up), the
+  agents move to that lane's fallback instead (`SALA_LANE_FALLBACK`, the table `sala lane fallback` reads: bedrock for aws-platform), and the
+  rule's lane becomes the fallback. It is used only when it is active and ready (the check `sala lane fallback` makes), is one of the lanes in
+  `SALA_BACK_LANE_ORDER` and lies further from home than the lane the agents stand on (a fallback that is the home lane is no step away from
+  it). Otherwise nobody moves and one notice per window and step says why, the state unchanged; the dry run prints the same notice. This holds
+  for step 1 (the second lane dormant), step 2 (the third lane dormant) and the catch-up (the rule's lane went dormant after the move: the
+  agents standing before the fallback, a straggler included, go to it). Step 3 needs the home lane active, as before. The outcome line and the
+  dry run name the lane actually used and why, for example `step 1 (… the aws-platform lane is dormant (…), so the bedrock lane, its fallback,
+  takes them): sala op lane bedrock …`. A new background agent still spawns on the rule's lane only while that lane is active and ready, else on the default lane.
 - **Fable.** A Fable background agent is not moved onto a lane in `SALA_FALLBACK_NO_FABLE` (bedrock): it stays where it is and the
   notice names it. The rule does not change a model.
 - **Spawn.** A background agent spawned while the rule has them off home launches on the rule's lane (recorded like `--lane`; `--lane`
