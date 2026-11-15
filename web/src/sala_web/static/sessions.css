@@ -144,6 +144,19 @@
 #overview-pane .c-foot { color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #overview-pane .c-est { font-style: italic; }
 
+/* the details page's table of the usage priced at list prices for want of a rate: as wide as its card, the text cells wrap
+   (a phone has no horizontal scroll), the numbers keep to one line */
+#overview-pane .ur-h { margin: 0; font-size: 15px; font-weight: 600; }
+#overview-pane .ur-table { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 13px; }
+#overview-pane .ur-table th, #overview-pane .ur-table td { padding: 8px 4px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: baseline; overflow-wrap: anywhere; }
+#overview-pane .ur-table th { color: var(--muted); font-weight: 400; }
+#overview-pane .ur-table :is(th, td):first-child { padding-left: 0; min-width: 5.4em; }
+#overview-pane .ur-table :is(th, td):last-child { padding-right: 0; }
+#overview-pane .ur-table .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#overview-pane .ur-table .ur-none { color: var(--busy); }
+#overview-pane .ur-table tbody tr:last-child td { border-bottom: 0; }
+#overview-pane .ur-table .ur-sum td { font-weight: 600; }
+
 /* the AWS lanes' spend cards (aws-platform and bedrock, an estimate at list prices): the figure and its estimate line as
    the API card's, then the models and the sessions as rows of a name, an amount and a share, every one on one line. A name
    gives way with an ellipsis only when the session's own name is longer than the card (its whole name is the tooltip) */
