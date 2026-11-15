@@ -162,6 +162,9 @@
                                  #   many seconds pass with no newer flag … (0 = off; `sala op recycle` never waits)
 #SALA_RECYCLE_GATHER_MAX=1800    # … and never longer than this after the first flag gathered, then the job resets once (0 = off)
 #SALA_RECYCLE_REST=1800          # a pane relaunched less than this long ago (its registry startedAt) is not relaunched again for a routine flag until the rest ends (0 = off)
+#SALA_EXIT_WAIT=30               # a relaunch: seconds a typed /exit gets to bring the pane back to its shell
+#SALA_EXIT_END=1                 # a claude still running after that wait is ended by its pid (SIGTERM, then SIGKILL) and its session resumed; 0 = skip the pane as before
+#SALA_EXIT_TERM_WAIT=10          # … seconds the SIGTERM gets before the SIGKILL (SALA_EXIT_KILL_WAIT=5: the SIGKILL, then the pane's shell)
 #SALA_SET_QUIET_AFTER=172800     # the one-time reconcile of old open recycle sets (`sala watch --sets`) closes a set older than this without a post
 #SALA_LATER_RETELL=3600         # watch, the deferred list (panes a recycle set aside, held by background shells or a turn): a pane still held this long
                                  #   since it was set aside (or since it was last told) is told again, the way the recycle first told it: the waiting flag, and its

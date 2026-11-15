@@ -3731,3 +3731,21 @@ says why; the dry run prints the lane it would really use and why, queues and wr
 home lane, or unset: nothing queued, one notice, a quiet line on the next tick, the dry run saying so; aws-platform active again: the move goes there; step 2 with bedrock dormant moves nobody (its fallback is home);
 the catch-up with the rule's lane dormant sends the stragglers (and the agents still on the dormant lane) to bedrock once, and with the fallback dormant too waits. Not covered, and why: the queue's own run of the move
 (`tests/lanefallback.sh` covers `op lane`), and a spawn while the rule's lane is dormant (unchanged: the default lane, covered by the existing spawn cases).
+
+### A claude that ignores `/exit` is ended by its pid: `tests/stuckexit.sh` new, 29 (Sun Nov 15th 2026)
+
+A relaunch (revive, recycle, a lane or model move, the dormant-lane fallback) types `/exit` and waits `SALA_EXIT_WAIT` for the pane to reach its shell. A claude that stays
+(a client stuck on a dead lane, a hung process) used to leave the pane skipped and retried for ever. `end_stuck_claude` (`lib/common.sh`), called from `close_pane` only after that
+wait, ends that one process by its pid and the sweep resumes the conversation by its id as for any pane. A wrong answer is a signal to the wrong process (another pane's claude, a
+process only named claude, the master, the session that runs the command, a claude that is mid-turn), a conversation lost on the way (no resume after the end), or a hung pane skipped
+as before. Fake claudes in a private tmux server, an isolated HOME, Slack a file; the suite signals only pids it read from its own panes.
+Checks: the dry runs of `revive` and `lane fallback` say "will end a stuck process" and signal nothing, and `SALA_EXIT_END=0` takes the sentence out; the sweep (four panes): the pane
+that ignores `/exit` is ended by SIGTERM and its conversation starts again in a new process under the same pane, with one output line and one post naming the session, the pid, the
+signal and the lane; the pane that ignores SIGTERM too is ended by SIGKILL after the wait; the pane that exits on `/exit` is never signalled and named in no post; a pane whose
+registry row says busy is skipped and still running. The gates, `end_stuck_claude` called directly, each refusing with its reason and leaving every process running: another pane's
+claude pid, a process named claude whose binary is not a Claude Code install, the master session, the caller's own pane, the caller's own pid, no pid, a busy row, the switch off.
+The dormant lane: with aws-platform dormant, `lane fallback` moves two sessions to bedrock; the one whose claude ignores `/exit` is ended by its pid and resumes on bedrock, the
+other leaves by itself and is never signalled, a session on another lane keeps its process.
+`tests/phases.sh` runs with `SALA_EXIT_END=0`: its pane that ignores `/exit` is still checked to be skipped (the path the switch off keeps), the sweep's counts unchanged.
+Not covered, and why: a real Claude Code CLI's behaviour on SIGTERM (the fake exits at once); a pid reused between the two signals (the start time is compared, but no test can make
+the kernel reuse a pid on demand); the sdk lane's pane (refused by a gate with no suite of its own).

@@ -123,6 +123,20 @@ a draft, a terminal prompt as before. Never for a recycle (`recycle --rescue` is
 is not a rescue. The limit of the test: a background subagent runs in the CLI's own process and shows no child, so a
 rescue confirms its row too; that is the operator's call behind the flag, and the reason it is one.
 
+*A claude that ignores `/exit`* (every relaunch: `revive`, `recycle`, a lane or model move, the dormant-lane fallback). A
+relaunch types `/exit` and waits `SALA_EXIT_WAIT` seconds for the pane to come back to its shell. A claude that is still
+running then (a client stuck on a dead lane, a hung process) used to leave the pane skipped, retried and skipped again. Now the
+sweep ends that one process by its pid (`end_stuck_claude`, `lib/common.sh`): SIGTERM, `SALA_EXIT_TERM_WAIT` seconds (10), then
+SIGKILL only if the same process (its start time is read before the first signal and again before the second) is still there,
+`SALA_EXIT_KILL_WAIT` seconds (5) for the pane to show its shell; the conversation then resumes by its explicit id on the lane
+its row names (on the fallback lane, for a session the fallback moved), as for any pane. The output gets one line and the
+admin post one line: the session, the pid, the signal, the lane. The pid is never found by name: it is the claude the sweep
+resolved from the pane's process, checked again right before the signal (named claude, `/proc/<pid>/exe` a Claude Code
+install, the one claude under the pane's own process, the pane named in its environment). Never ended: the master session,
+the session that runs the command (its pid or its pane), an sdk-lane CLI (it leaves through the driver's box), a claude whose
+registry row says a turn or background work is running (not a hang; the idle gates already skip such a pane before any `/exit`).
+`SALA_EXIT_END=0` turns the step off. `--dry-run` (and a queued operation's plan) says "will end a stuck process".
+
 ## Lane fields
 What a lane *is*, apart from how it launches (Thu Oct 22nd 2026; the lanes page,
 "Lane fields"). `sala lane --list` prints one aligned row per lane, `sala lane --json` the same as JSON (and the no-argument
@@ -238,7 +252,8 @@ and stay there until the owner or a session moves them back. Code: `lib/common.s
   Escape goes only to a pane whose registry status is `busy` with no background task under it, no dialog on screen and no unsent text in its
   box; nothing is typed, and a pane that is left as it is stays on the ordinary rule (relaunched when idle). The master (`SALA_MASTER`) moves last, by
   the rescue (`lane --rescue`), once the first sweep has let go of the recycle lock. If the default lane is the dead one,
-  it switches too. A session of any other lane is left alone.
+  it switches too. A session of any other lane is left alone. A pane whose claude is still running after its `/exit` and the wait
+  (a client stuck on the dead lane) is ended by its pid and its session resumed on the fallback (*A claude that ignores `/exit`*, above).
 - **The model.** A session on a Fable model moved onto bedrock runs `opus` (Opus 5.5) there, because Fable fails on bedrock
   (`SALA_FALLBACK_NO_FABLE`, `SALA_FALLBACK_FABLE_MODEL`). The override goes in `models.tsv` like any `sala model`; moving back
   restores nothing.

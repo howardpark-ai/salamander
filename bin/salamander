@@ -30,6 +30,8 @@
 #   salamander revive [--dry-run] [--force] [--only NAME] [--lane-default] [--rescue] | --save-map | --map-history | --self [--dry-run] [--rescue]
 #                                      (--rescue, with --only or --self: a stale background-task row — the exit dialog, the Stop hook's record or the
 #                                      mod listing work while no child process runs under the claude — no longer holds the pane)
+#                                      (a claude still running SALA_EXIT_WAIT s after its /exit — a hung process — is ended by its pid, SIGTERM then SIGKILL, and its session
+#                                      resumed: the dry run says "will end a stuck process"; never the master or the session running the command; SALA_EXIT_END=0: never)
 #   salamander rc     [--ensure|--start|--status|--restart|--stop|--archive ID…]   (the Remote Control server; retired)
 #   salamander map    [--write PATH]
 #   salamander update [HOST…|--fleet] [--check]   CLI update: here (= recycle --update --force), named hosts over ssh, or the whole fleet then here

@@ -4886,6 +4886,73 @@ pane_exit() {
     mod_log "exit $(_mod_who "$1") via keys ($MOD_WHY)"
     tui_send "$1" "/exit"
 }
+# ENDING A CLAUDE THAT IGNORES /exit. A queued relaunch (revive, recycle, a lane or model move, the dormant-lane fallback) types
+# /exit and waits SALA_EXIT_WAIT seconds for the pane to come back to its shell. A claude that never leaves (a dead lane's
+# client stuck in a retry, a hung process) used to stop the relaunch there: the pane was skipped, retried and skipped again, and
+# somebody ended the process by hand. end_stuck_claude (lib/revive.sh close_pane calls it, only on that timeout) ends THAT ONE
+# process by its pid: SIGTERM, a bounded wait, SIGKILL only when the same process is still there; then the pane is at its shell and
+# the relaunch goes on as for any pane, resuming the conversation by its explicit id. Never by name: the pid is the one the sweep
+# resolved from the pane, and it is checked again here, right before the signal:
+#   · the process is named claude AND its /proc exe is a Claude Code install (claude_exe_trusted), not a shell linked as "claude";
+#   · it is the one claude under the pane's own process (claude_pid_under) and not that process itself, and the environment it
+#     started with names this pane (TMUX_PANE) when the shell can read it;
+#   · it is not the master session, not an ancestor of this command, and this command does not run in its pane: a session never
+#     ends the claude it works in;
+#   · its registry row does not say a turn is running or background work holds the pane (a /exit typed to a claude that began a
+#     turn since is a turn, not a hang) and it is not the sdk lane's CLI (that pane leaves through the driver's box).
+# The pid's start time is read before the TERM and again before the KILL, so a pid reused in between is never signalled.
+# Returns 0 with STUCK_HOW=TERM|KILL when the process was ended (STUCK_HOW empty: it left on its own meanwhile) and the pane is
+# at its shell; 1 with STUCK_WHY when nothing was ended (a gate, or SALA_EXIT_END=0, which turns the whole step off); 2 with
+# STUCK_WHY when the process was ended but the pane did not come back to a shell.
+: "${SALA_EXIT_END:=1}"            # 1: a claude still running after the /exit wait is ended by pid; 0: never (the pane is skipped, as before)
+: "${SALA_EXIT_TERM_WAIT:=10}"     # seconds the SIGTERM gets before the SIGKILL
+: "${SALA_EXIT_KILL_WAIT:=5}"      # seconds the SIGKILL gets, and then the pane gets to show its shell
+STUCK_WHY=""; STUCK_HOW=""
+proc_start_ticks() {  # <pid> → the process's start time in clock ticks since boot (stat field 22), 1 when it cannot be read
+    local line st; { read -r line < "/proc/$1/stat"; } 2>/dev/null || return 1
+    line=${line##*) }; read -r -a st <<< "$line"
+    [[ ${st[19]:-} =~ ^[0-9]+$ ]] || return 1; printf '%s\n' "${st[19]}"
+}
+_stuck_identity() {  # <pid> → 0 when the pid is still a claude of a Claude Code install; STUCK_WHY says what it is otherwise
+    local comm=""
+    { read -r comm < "/proc/$1/comm"; } 2>/dev/null || :
+    [ "$comm" = claude ] || { STUCK_WHY="pid $1 is not a process named claude"; return 1; }
+    claude_exe_trusted "$1" || { STUCK_WHY="pid $1 does not run a Claude Code install's binary"; return 1; }
+    return 0
+}
+end_stuck_claude() {  # <pane> <session> <claude-pid>
+    local pane="$1" sess="$2" pid="$3" panepid paneid envpane status st0 st1 i
+    STUCK_WHY=""; STUCK_HOW=""
+    [ "${SALA_EXIT_END:-1}" = 1 ] || { STUCK_WHY="SALA_EXIT_END=0: a claude that ignores /exit is not ended"; return 1; }
+    [[ $pid =~ ^[0-9]+$ ]] && [ "$pid" -gt 1 ] || { STUCK_WHY="no claude pid to end"; return 1; }
+    if [ -n "${SALA_MASTER:-}" ] && [ "$sess" = "$SALA_MASTER" ]; then STUCK_WHY="the master session is never ended by pid"; return 1; fi
+    proc_gone "$pid" && { wait_for "$pane" shell "$SALA_EXIT_KILL_WAIT" && return 0; STUCK_WHY="the claude left but the pane did not come back to a shell"; return 2; }   # it left on its own after the wait
+    paneid=$(tmux display -p -t "$pane" '#{pane_id}' 2>/dev/null); panepid=$(tmux display -p -t "$pane" '#{pane_pid}' 2>/dev/null)
+    [ -n "$paneid" ] && [ -n "$panepid" ] || { STUCK_WHY="the pane cannot be read"; return 1; }
+    if [ "$pid" = "$$" ] || is_under "$$" "$pid" || { [ -n "${TMUX_PANE:-}" ] && [ "$TMUX_PANE" = "$paneid" ]; }; then STUCK_WHY="it is the session this command runs in"; return 1; fi
+    [ "$pid" != "$panepid" ] || { STUCK_WHY="the claude is the pane's own process: no shell to come back to"; return 1; }
+    [ "$(claude_pid_under "$panepid" 2>/dev/null)" = "$pid" ] || { STUCK_WHY="pid $pid is not the claude under pane $paneid"; return 1; }
+    _stuck_identity "$pid" || return 1
+    envpane=$(proc_env_val "$pid" TMUX_PANE) || envpane=""
+    [ -z "$envpane" ] || [ "$envpane" = "$paneid" ] || { STUCK_WHY="pid $pid started in pane $envpane, not $paneid"; return 1; }
+    [ "$(proc_lane "$pid")" != sdk ] || { STUCK_WHY="the sdk lane's CLI leaves through its driver's box, not by a signal"; return 1; }
+    registry_field_r status "$pid" status || status=""
+    case "$status" in busy|shell) STUCK_WHY="its registry row says '$status': a turn or background work is running, not a hang"; return 1;; esac
+    st0=$(proc_start_ticks "$pid") || { STUCK_WHY="pid $pid cannot be read"; return 1; }
+    kill -TERM "$pid" 2>/dev/null || { proc_gone "$pid" || { STUCK_WHY="SIGTERM to pid $pid was refused"; return 1; }; }
+    STUCK_HOW=TERM
+    for ((i=0; i<SALA_EXIT_TERM_WAIT; i++)); do proc_gone "$pid" && break; sleep 1; done
+    if ! proc_gone "$pid"; then
+        st1=$(proc_start_ticks "$pid") || st1=""
+        if [ "$st1" = "$st0" ] && _stuck_identity "$pid"; then
+            kill -KILL "$pid" 2>/dev/null || :; STUCK_HOW=KILL
+            for ((i=0; i<SALA_EXIT_KILL_WAIT; i++)); do proc_gone "$pid" && break; sleep 1; done
+        fi
+        proc_gone "$pid" || { STUCK_WHY="pid $pid is still running after SIGTERM and SIGKILL"; return 2; }
+    fi
+    wait_for "$pane" shell "$SALA_EXIT_KILL_WAIT" || { STUCK_WHY="pid $pid ended but the pane did not come back to a shell"; return 2; }
+    return 0
+}
 # THE REFUSAL MEMORY. An exit the mod refused for a turn used to leave no trace: the retry worker, then the deferred list, tried again
 # and said the same thing at every tick. refused/<uuid> is one line, "<count>\t<first at>\t<last at>\t<why>", written by close_pane
 # (lib/revive.sh) each time the exit is refused for a turn, read by it, by watch's deferred list and by `sala ready`, and removed when

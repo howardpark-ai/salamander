@@ -7,6 +7,7 @@ set -eu
 unset TMUX_PANE XDG_STATE_HOME   # a pane of the real server the test may run from: never a pane of this one; sala state under the sandbox HOME
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, tmux_socket_rm
+export SALA_EXIT_END=0   # the step that ends a claude ignoring /exit by its pid is off here: e below must stay skipped (tests/stuckexit.sh covers the step)
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null
 as_op_unit   # no master: the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
 HOLD="$HOME/.local/state/stackshot/anchor-hub"   # the default SALA_INBOX_HOLD_DIR: present, so holds are taken and released
@@ -24,7 +25,8 @@ cleanup() {  # the hold watcher, a recycle driver (its session) and the retry wo
 UA=aaaaaaaa-0000-4000-8000-000000000001 UB=bbbbbbbb-0000-4000-8000-000000000002 UC=cccccccc-0000-4000-8000-000000000003
 UD=dddddddd-0000-4000-8000-000000000004 UE=eeeeeeee-0000-4000-8000-000000000005 UF=ffffffff-0000-4000-8000-000000000006
 UG=99999999-0000-4000-8000-000000000007
-# a b c relaunch cleanly · d has unsubmitted text (phase 1 skip: never held) · e never leaves on /exit (phase 2 timeout) · g gets
+# a b c relaunch cleanly · d has unsubmitted text (phase 1 skip: never held) · e never leaves on /exit (phase 2 timeout; the suite runs with
+# SALA_EXIT_END=0, the step that ends such a claude by its pid off, so the skip path stays tested: tests/stuckexit.sh covers the step) · g gets
 # a turn once its inbox is held (the re-check before the /exit defers it; Fri Oct 30th 2026) · f's resume
 # comes up and dies 10 s in (phase 3: a skip, never an UPDATED row; until Oct 9th a 1 s poll that landed while it was up
 # counted it as relaunched, lib/revive.sh resume_wait). The fake lives 10 s, not 3, and the sweep waits 20 s, not 5 (FW below):

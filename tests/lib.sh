@@ -5,6 +5,8 @@
 #    an env var with its production default in lib/ (`: "${SALA_X:=default}"`), set short here. A suite may still set its
 #    own value for one step (sets.sh sets SALA_RETRY_EVERY per case). Production defaults are unchanged.
 #      SALA_EXIT_WAIT    30 → 5   a typed /exit landing (phases: the pane that ignores /exit runs into it)
+#      SALA_EXIT_TERM_WAIT 10 → 3, SALA_EXIT_KILL_WAIT 5 → 3   the wait a claude that ignored /exit gets after SIGTERM, and after SIGKILL
+#                                 (tests/stuckexit.sh; phases.sh turns the step off with SALA_EXIT_END=0 for its pane that ignores /exit)
 #      SALA_RESUME_WAIT  30 → 5   the resumed claude live in its pane (phases and sets-master: the resume that comes up and
 #                                 dies 10 s in is caught inside it, on the one command each that sets 20; sets-master's master
 #                                 registering 6 s in runs past it)
@@ -74,7 +76,7 @@
 unset CLAUDE_CODE_ENTRYPOINT ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR
 unset CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_ANTHROPIC_AWS AWS_PROFILE AWS_REGION ANTHROPIC_BEDROCK_REGION_PREFIX
 unset ENABLE_PROMPT_CACHING_1H ENABLE_PROMPT_CACHING_1H_BEDROCK   # a runner that sets them (this box does) would read as the lane's cache switch in the checks that watch it
-export SALA_EXIT_WAIT=5 SALA_RESUME_WAIT=5 SALA_SELF_WAIT=20 SALA_READY_WAIT=20 SALA_RC_SERVED_WAIT=10 SALA_SNAPSHOT_DELAY=1 \
+export SALA_EXIT_WAIT=5 SALA_EXIT_TERM_WAIT=3 SALA_EXIT_KILL_WAIT=3 SALA_RESUME_WAIT=5 SALA_SELF_WAIT=20 SALA_READY_WAIT=20 SALA_RC_SERVED_WAIT=10 SALA_SNAPSHOT_DELAY=1 \
     SALA_RESUME_GAP=0 SALA_HOLD_SETTLE=0.2 SALA_SPAWN_SETTLE=0.2 SALA_SHELL_SETTLE=0.2 SALA_RENAME_SETTLE=0.2 SALA_BRIDGE_SETTLE=0.5
 export SALA_RECYCLE_GATHER=0 SALA_RECYCLE_GATHER_MAX=0 SALA_RECYCLE_REST=0   # the waits are flags.sh's (the header)
 export SALA_UNIT_GAPS=off      # watch's unit-gap pass reads the real /etc/systemd/system and may message the board; tests/jobs.sh turns it on with temporary folders

@@ -817,7 +817,7 @@ check_pane() {
         [ -z "$uuid" ] && { SKIPPED+=("$label: no registry entry and no transcript matches title \"$(strip_marker "$title")\""); return; }
         draft=$(pane_draft "$pane" "$cpid")
         [ -n "$draft" ] && { skip "$label: unsubmitted text at the prompt (\"$draft\") — typing /exit would append to it and send the lot; submit or clear it, then rerun"; return; }
-        if [ "$DRY" = 1 ]; then emit ECHO "[dry-run] $label: would /exit ($ver) and resume $uuid on $CURRENT_VER · $LANE_LINE"; emit WOULD ""; return; fi
+        if [ "$DRY" = 1 ]; then emit ECHO "[dry-run] $label: would /exit ($ver) and resume $uuid on $CURRENT_VER · $LANE_LINE$([ "${SALA_EXIT_END:-1}" = 1 ] && echo " · a claude still running ${SALA_EXIT_WAIT}s after /exit: will end a stuck process (that one pid: TERM, then KILL after ${SALA_EXIT_TERM_WAIT}s) and resume the session")"; emit WOULD ""; return; fi
         emit CLAUDE "$pane|$sess|$label|$cpid|$ver|$uuid|$LANE_LINE|$(registry_field "$cpid" name)"   # the lane line is said when the /exit is typed (phase 2)
         ;;
     bash|sh|zsh|fish)
@@ -890,6 +890,22 @@ close_pane() {
     ready_clear "$uuid"; waiting_clear "$uuid"   # the relaunch consumes the ready marker and takes the waiting flag down
     RESCUE_NOTE=""; exit_wait "$pane" "$SALA_EXIT_WAIT" "$cpid"; rc=$?   # the pid: the rescue's child-process test (the header)
     [ "$rc" = 2 ] && { inbox_release "$uuid" "$hname"; SKIPPED+=("$label: background work is running (a shell, monitor or subagent), which /exit would stop — /exit cancelled, left on $ver; sala relaunches it once that work is done"); return; }
+    if [ "$rc" = 1 ]; then
+        # THE STUCK CLAUDE (common.sh, end_stuck_claude): the /exit was typed and the claude is still running after the wait. That one
+        # process is ended by its pid (TERM, then KILL), the conversation resumes by its id below as for any pane; every gate that
+        # refuses leaves the pane skipped as before, with the reason said.
+        local erc=0; end_stuck_claude "$pane" "$sess" "$cpid" || erc=$?
+        if [ "$erc" = 0 ]; then
+            rc=0
+            if [ -n "$STUCK_HOW" ]; then
+                local slane; slane=$(lane_shown "$(lane_for_session "$sess")")
+                emit ECHO "$label: claude (pid $cpid) was still running ${SALA_EXIT_WAIT}s after /exit — ended by its pid (SIG$STUCK_HOW); resuming $uuid on the $slane lane"
+                sala_post "🛑 *Ended a Claude process that ignored /exit*" "$label: pid $cpid ended (SIG$STUCK_HOW); the session resumes on the $slane lane"
+            fi
+        else
+            inbox_release "$uuid" "$hname"; SKIPPED+=("$label: claude didn't exit within ${SALA_EXIT_WAIT}s — a /exit may be queued behind a prompt; attach and check before rerunning (by pid: $STUCK_WHY)"); return
+        fi
+    fi
     [ "$rc" = 0 ] || { inbox_release "$uuid" "$hname"; SKIPPED+=("$label: claude didn't exit within ${SALA_EXIT_WAIT}s — a /exit may be queued behind a prompt; attach and check before rerunning"); return; }
     [ -n "$RESCUE_NOTE" ] && emit ECHO "$label: rescue — $RESCUE_NOTE"
     dedupe_ok "$uuid" "$label" || { inbox_release "$uuid" "$hname"; return; }

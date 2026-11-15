@@ -20,6 +20,8 @@
 #                                                                   route), the default if it was the default, and the jobs from then on — to the lane SALA_LANE_FALLBACK names for it,
 #                                                                   when that lane is active and ready; --dry-run prints the moves. Exit 4: no usable fallback. For a lane held by a monthly usage
 #                                                                   cap a pane that is mid-turn is first sent ONE Escape (pane_cut_turn, SALA_CUT_WAIT) so it can be relaunched
+#                                                                   A pane whose claude is still running SALA_EXIT_WAIT s after its /exit is ended by its pid (end_stuck_claude, common.sh) and the session
+#                                                                   resumed on the fallback; --dry-run says "will end a stuck process"
 #   salamander lane active <lane>   [--dry-run]                     mark it active again (the only way back for the API lane, api and sdk)
 #   salamander lane --migrate         [--dry-run]                   THE RENAME'S MIGRATION: rewrite the old name of a renamed lane (awsplatform → aws-platform) in lanes.tsv,
 #                                                                   lane-default, lane-state.tsv and the session registry, once (idempotent, atomic, a backup beside each file;
@@ -112,6 +114,7 @@ usage() {
     echo "  the background agents' lane rule (SALA_BACK_LANE_RULE=on) moves them by this switch; a dormant target lane is replaced by its fallback; see: salamander watch --back-lanes --dry-run"
     echo "  lanes: $(lane_choices)$(d=$(for l in $SALA_LANES_KNOWN; do lane_dormant "$l" && echo "$l"; done | paste -sd' ' -); [ -n "$d" ] && echo "; dormant: $d")  (subscription-1, shown as $(lane_label subscription-1): the login in ~/.claude · api: the key file · subscription-2, shown as $(lane_label subscription-2): a second login in its own config directory · sdk: api's key through the Agent SDK (client claude-agent-sdk), while the key has credit (a refusal switches it off for 6 hours; the pane then goes to the lane fallback's pick for sdk, bedrock by default) · bedrock: Claude on Amazon Bedrock through the AWS profile ${SALA_LANE_BEDROCK_PROFILE:-(none named: SALA_LANE_BEDROCK_PROFILE)}$(lane_check bedrock >/dev/null 2>&1 || echo ", not set up yet") · aws-platform: Claude Platform on AWS through the AWS profile ${SALA_LANE_AWSPLATFORM_PROFILE:-(none named: SALA_LANE_AWSPLATFORM_PROFILE)} and a workspace id$(lane_check aws-platform >/dev/null 2>&1 || echo ", not set up yet"))"
     echo "  --rescue on a switch: a stale background-task row (the exit dialog, the Stop hook's record, the mod) no longer holds a pane with no child process under its claude"
+    echo "  a pane whose claude is still running after the /exit wait (SALA_EXIT_WAIT) is ended by its pid, SIGTERM then SIGKILL (SALA_EXIT_END=0: never), and its session resumed on the new lane; the dry run says \"will end a stuck process\""
 }
 
 # THE LANE FOR A JOB: `lane env <lane>` and `lane exec <lane> -- CMD…` hand a scheduled job the environment a session on the lane
@@ -418,6 +421,7 @@ if [ "$MODE" = fallback ]; then
     for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
     [ "$DFLT" = 1 ] && echo "  default lane: $L → $fb (was $L; new sessions and every session without a lane of its own)"
     echo "  jobs: a sala job whose lane is $L runs on $fb while $L is dormant (salamander lane exec resolves it at run time; no unit file is rewritten)"
+    [ "${SALA_EXIT_END:-1}" = 1 ] && echo "  a claude still running ${SALA_EXIT_WAIT}s after its /exit: will end a stuck process (that one pid, SIGTERM then SIGKILL after ${SALA_EXIT_TERM_WAIT}s; never the master or the session running this) and resume the session on $fb"
     if [ "${#PLAN_ON[@]}" -eq 0 ] && [ "$DFLT" = 0 ]; then echo "nothing is on the $(lane_label "$L") lane and it is not the default$([ "${#PINSK[@]}" -gt 0 ] && echo ", bar the pinned ones above"): nothing to move"; exit 0; fi
     if [ "$DRY" = 1 ]; then echo "[dry-run] would record each one's home ($L) and model change, switch the default if it was $L, then: salamander lane $fb <sessions>…$([ -n "$MV_MASTER" ] && echo "; salamander lane --rescue $fb (the master $MV_MASTER)"); nothing written"; exit 0; fi
     ops_guard lane "$L" $NOTMASTER
