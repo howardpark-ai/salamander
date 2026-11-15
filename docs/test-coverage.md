@@ -3706,3 +3706,15 @@ redirect's own tests, 13 of the 16): the target for each path shape, the page th
 `/v2` left in the page or in `app.js` and `style.css`, the manifest and worker served, the code face and its licence served. Added (6, one per path shape, each for GET and HEAD):
 `/v2`, `/v2/`, `/v2/x`, `/v2/static/app.js`, `/v2/a/b?arg=x` and `/v2x` answer 404 with no `Location`. A POST under `/v2/` is a 404 now too, no longer a 405, and has no test of its own.
 Not covered, and why: a proxy or a browser that still holds the old redirect (a temporary redirect is not cached for long, and nothing here runs a browser's cache).
+
+### `tests/backlane.sh`: +22 checks, none retired: the back agents' rule never picks a dormant lane (Sun Nov 15th 2026)
+
+The rule's step 1 and step 2 used to stop with a notice when their target lane was dormant, and the catch-up queued stragglers onto the rule's lane even after it had gone dormant. Now a dormant target is replaced
+by its fallback from the one fallback table (`lane_fallback_pick`), provided that lane is active, ready, in `SALA_BACK_LANE_ORDER` and further from home than where the agents stand; else nobody moves and one notice says why.
+Kept because a wrong answer moves background agents onto a lane that refuses every message, or leaves them on the home lane at its limit with nothing said.
+Fakes only, as the rest of the suite: the dormant record staged in `lane-state.tsv`, the fake `salamander` that records `op lane`, the stubbed `lane_check`. Covered: step 1 with aws-platform dormant queues one
+operation onto bedrock for the agents bedrock can run (the Fable agent named and left), the rule's lane is bedrock, step 1 and the landing lane are both recorded as fired, a repeat tick queues nothing, the lane log
+says why; the dry run prints the lane it would really use and why, queues and writes nothing; a dormant lane that is not the target changes nothing; the fallback dormant too, not ready, outside the order, the
+home lane, or unset: nothing queued, one notice, a quiet line on the next tick, the dry run saying so; aws-platform active again: the move goes there; step 2 with bedrock dormant moves nobody (its fallback is home);
+the catch-up with the rule's lane dormant sends the stragglers (and the agents still on the dormant lane) to bedrock once, and with the fallback dormant too waits. Not covered, and why: the queue's own run of the move
+(`tests/lanefallback.sh` covers `op lane`), and a spawn while the rule's lane is dormant (unchanged: the default lane, covered by the existing spawn cases).

@@ -25,6 +25,9 @@
 #   CATCH-UP: while the back agents are off home, one that is still on the wrong side (spawned or tagged after the step, not live then) is queued onto
 #     the rule's lane at the next pass, once per window (the state's queued list), never twice; a state without the list queues those still home once;
 #     step 3 clears the list; nothing at home.
+#   NEVER ONTO A DORMANT LANE: a step whose target lane is dormant moves the agents to that lane's fallback (the lane fallback table) and says so, in the
+#     operation, the rule's lane, the log and the dry run; nobody moves, with one notice per window, when the fallback is dormant too, not ready, outside the
+#     order, the home lane or unset (also in the dry run); an unrelated dormant lane changes nothing; step 2 and the catch-up follow the same rule.
 #   SPAWN: a back agent spawned while the rule has them off home takes the rule's lane (back_lane_spawn_lane; `spawn --dry-run` says so).
 #   DRY RUN: `watch --back-lanes --dry-run` prints what each step would do and queues and writes nothing.
 # Isolated HOME in a temp folder (locked while the suite runs, removed at the end). Usage: bash tests/backlane.sh   (exit 0 = pass; a few seconds)
@@ -192,6 +195,63 @@ line=$(tail -1 "$FAKE_OPLOG"); case "$line" in "op|lane|subscription-1|back-a|ba
 [ "$(lane_of back-api)" = api ] && [ "$(lane_of front-a)" = subscription-1 ] && ok "the api agent and the front agent are untouched" || bad "others moved"
 out=$(tick); [ "$(ops)" = 3 ] && ok "a repeat tick queues nothing" || bad "step 3 repeat: ops=$(ops) $out"
 quota 95 $W2; out=$(tick); [ "$(ops)" = 4 ] && has "$out" "moved: step 1" && ok "the next window can start the cycle again" || bad "cycle: ops=$(ops) $out"
+
+echo "== never onto a dormant lane: the fallback takes the agents instead"
+dormant() { local l; for l in "$@"; do printf '%s\tdormant\ttest\t%s\t\tx\n' "$l" "$NOW"; done > "$ST/lane-state.tsv"; }
+# step 1 with the second lane dormant: the move goes to its fallback (bedrock), the Fable agent stays (bedrock cannot run it)
+reg; quota 95 $W1; dormant aws-platform; out=$(tick)
+[ "$(ops)" = 1 ] && has "$out" "moved: step 1" && has "$out" "to the bedrock lane" && has "$out" "aws-platform lane is dormant" && has "$out" "its fallback, takes them" && ok "step 1, aws-platform dormant: one operation, onto bedrock, the line says why" || bad "dormant step 1: ops=$(ops) $out"
+line=$(head -1 "$FAKE_OPLOG"); case "$line" in "op|lane|bedrock|back-a|back-b|--from|sala-watch|--words|$RULE_WORDS|") ok "the operation names bedrock and the two agents bedrock can run, never aws-platform";; *) bad "dormant step 1 argv: $line";; esac
+has "$out" "back-fab" && ok "the Fable agent bedrock cannot run is named and stays" || bad "dormant fable: $out"
+[ "$(drv 'back_lane_current')" = bedrock ] && ok "the rule's lane is bedrock, the lane actually used" || bad "dormant current: $(drv 'back_lane_current')"
+[ "$(drv 'back_lane_get f1')" != "" ] && [ "$(drv 'back_lane_get f2')" != "" ] && ok "step 1 and the lane it landed on are both recorded as fired in this window" || bad "f1=$(drv 'back_lane_get f1') f2=$(drv 'back_lane_get f2')"
+out=$(tick); [ "$(ops)" = 1 ] && ok "a repeat tick queues nothing" || bad "dormant repeat: ops=$(ops) $out"
+grep -q "backlane" "$ST/lanes.log" && grep "backlane" "$ST/lanes.log" | grep -q "dormant" && ok "the lane log line says why" || bad "dormant log: $(cat "$ST/lanes.log" 2>&1)"
+# the dry run prints the actual target and why, and queues and writes nothing
+reg; quota 95 $W1; dormant aws-platform
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
+has "$out" "would: step 1" && has "$out" "sala op lane bedrock back-a back-b" && has "$out" "aws-platform lane is dormant" && has "$out" "bedrock lane, its fallback, takes them" && ! has "$out" "sala op lane aws-platform" && [ "$(ops)" = 0 ] && [ ! -s "$STATE" ] && ok "dry run: names bedrock as the target and why, queues and writes nothing" || bad "dormant dry run: ops=$(ops) $out"
+# a healthy aws-platform: unchanged (the first sections hold the same); a dormant lane that is not the target changes nothing
+reg; quota 95 $W1; dormant api; out=$(tick); line=$(head -1 "$FAKE_OPLOG")
+case "$line" in "op|lane|aws-platform|"*) has "$out" "moved: step 1" && ! has "$out" "dormant" && ok "aws-platform active, another lane dormant: the move goes to aws-platform as before, no mention of a fallback" || bad "other dormant: $out";; *) bad "other dormant argv: $line";; esac
+# the fallback is no use: dormant too, not ready, outside the order, or not further from home
+reg; quota 95 $W1; dormant aws-platform bedrock; out=$(tick)
+[ "$(ops)" = 0 ] && [ "$(drv 'back_lane_current')" = subscription-1 ] && has "$out" "notice:" && has "$out" "dormant too" && ok "target and fallback both dormant: nothing moves, one notice that says why, the rule's lane unchanged" || bad "both dormant: ops=$(ops) $out"
+out=$(tick); [ "$(ops)" = 0 ] && has "$out" "blocked:" && ! has "$out" "notice:" && ok "the next tick: a quiet line, no second notice" || bad "both dormant 2: $out"
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
+has "$out" "dormant too" && ! has "$out" "would: step 1" && [ "$(ops)" = 0 ] && ok "the dry run says nobody moves and why (no move onto a dormant lane)" || bad "both dormant dry: $out"
+rm -f "$ST/lane-state.tsv"; out=$(tick); [ "$(ops)" = 1 ] && has "$out" "moved: step 1" && ok "once aws-platform is active again the rule moves them there" || bad "recovered: ops=$(ops) $out"
+reg; quota 95 $W1; dormant aws-platform; echo bedrock > "$FAKE_LC"; out=$(tick)
+[ "$(ops)" = 0 ] && has "$out" "notice:" && has "$out" "not ready" && ok "a fallback that cannot launch: nothing moves, one notice" || bad "fallback not ready: ops=$(ops) $out"
+rm -f "$FAKE_LC"
+reg; quota 95 $W1; dormant aws-platform; out=$(SALA_BACK_LANE_ORDER="subscription-1 aws-platform" tick)
+[ "$(ops)" = 0 ] && has "$out" "notice:" && has "$out" "not in SALA_BACK_LANE_ORDER" && ok "a fallback outside the order: nothing moves" || bad "outside order: ops=$(ops) $out"
+reg; quota 95 $W1; dormant aws-platform; out=$(SALA_LANE_FALLBACK="aws-platform=subscription-1" tick)
+[ "$(ops)" = 0 ] && has "$out" "notice:" && has "$out" "no further from home" && ok "a fallback that is the home lane: nothing moves" || bad "fallback home: ops=$(ops) $out"
+reg; quota 95 $W1; dormant aws-platform; out=$(SALA_LANE_FALLBACK="aws-platform=none" tick)
+[ "$(ops)" = 0 ] && has "$out" "notice:" && has "$out" "no fallback set" && ok "a lane with no fallback: nothing moves" || bad "no fallback: ops=$(ops) $out"
+# step 2 with the third lane dormant: its fallback is the home lane, which is no step forward: nothing moves
+reg; quota 95 $W1; tick >/dev/null; drv "back_lane_put moved_at $M" >/dev/null; dormant bedrock; pane_stop aws-platform workspace $((NOW - 60)); out=$(tick)
+[ "$(ops)" = 1 ] && has "$out" "notice:" && has "$out" "bedrock lane is dormant" && ok "step 2 with bedrock dormant: nothing moves onto it (its fallback is home)" || bad "step 2 dormant: ops=$(ops) $out"
+# the catch-up: the rule's lane went dormant after the move; a straggler goes to the fallback, never onto the dormant lane
+reg; quota 95 $W1; tick >/dev/null
+python3 -I -S - "$SESSIONS" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["sessions"]["back-late"] = {"id": "back-late", "name": "back-late", "state": "live", "role": "back", "side": None, "project": "projects/x", "created": "z"}; json.dump(d, open(sys.argv[1], "w"))
+PY
+echo back-late >> "$FAKE_LIVE"; printf 'back-late\tsubscription-1\n' >> "$FAKE_LANES"; dormant aws-platform
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
+has "$out" "would: catch-up: sala op lane bedrock back-a back-b back-late " && ! has "$out" "sala op lane aws-platform" && [ "$(ops)" = 1 ] && ok "catch-up dry run, the rule's lane dormant: the straggler and the agents standing on the dormant lane would go to bedrock" || bad "catch-up dormant dry: ops=$(ops) $out"
+out=$(tick); case "$(tail -1 "$FAKE_OPLOG")" in "op|lane|bedrock|back-a|back-b|back-late|--from|sala-watch|--words|$RULE_WORDS|") has "$out" "moved: catch-up" && ok "catch-up, the rule's lane dormant: the straggler is queued onto bedrock";; *) bad "catch-up dormant: $(tail -1 "$FAKE_OPLOG") / $out";; esac
+out=$(tick); [ "$(ops)" = 2 ] && ok "the straggler is not queued again" || bad "catch-up dormant repeat: ops=$(ops) $out"
+printf 'back-late2\tsubscription-1\n' >> "$FAKE_LANES"; echo back-late2 >> "$FAKE_LIVE"
+python3 -I -S - "$SESSIONS" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["sessions"]["back-late2"] = {"id": "back-late2", "name": "back-late2", "state": "live", "role": "back", "side": None, "project": "projects/x", "created": "z"}; json.dump(d, open(sys.argv[1], "w"))
+PY
+dormant aws-platform bedrock; out=$(tick)
+[ "$(ops)" = 2 ] && has "$out" "blocked: catch-up waits" && has "$out" "dormant too" && ok "catch-up with the fallback dormant too: nobody is moved onto a dormant lane" || bad "catch-up both dormant: ops=$(ops) $out"
+rm -f "$ST/lane-state.tsv"
 
 echo "== jobs are never touched"
 grep -q 'lane|exec\|job' "$FAKE_OPLOG" && bad "a job or exec in the queued operations" || ok "no queued operation is a job or an exec"

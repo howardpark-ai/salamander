@@ -18,7 +18,7 @@
 #   salamander watch --unit-gaps    only the unit-gap pass (unit_gaps_tick, below)
 #   salamander watch --sets [--dry-run]   only the flag rule over the open recycle sets (sets_tick, below); --dry-run prints what it would settle and writes nothing
 #   salamander watch --continued    only the continued-in follow (cont_tick, lib/continuedin.sh): a pane that moved to a new transcript id keeps its row
-#   salamander watch --back-lanes [--dry-run]   only the back agents' lane rule (back_lane_run, below; SALA_BACK_LANE_RULE=on; common.sh "THE BACK AGENTS' LANE RULE"); --dry-run prints what it would queue and write, and queues and writes nothing
+#   salamander watch --back-lanes [--dry-run]   only the back agents' lane rule (back_lane_run, below; SALA_BACK_LANE_RULE=on; common.sh "THE BACK AGENTS' LANE RULE"); --dry-run prints what it would queue (the lane it would really use: a dormant target is replaced by its fallback lane, with the reason), and queues and writes nothing
 #   salamander watch --wrapup [--dry-run]   only the idle wrap-up and clear of background agents (wrapup_tick, lib/wrapup.sh; OFF by default, needs SALA_IDLE_WRAPUP=on); --dry-run prints, per background pane, what it would do or why not, and changes nothing
 #
 # Checks, in order:              Heal:
