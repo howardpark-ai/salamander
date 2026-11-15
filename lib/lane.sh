@@ -110,7 +110,7 @@ usage() {
     echo "       salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)"
     echo "       salamander lane --rescue <lane>   [--dry-run] [--force]        move the master (SALA_MASTER) off a lane that is out, from another session"
     echo "  the background agents' lane rule (SALA_BACK_LANE_RULE=on) moves them by this switch; a dormant target lane is replaced by its fallback; see: salamander watch --back-lanes --dry-run"
-    echo "  lanes: $(lane_choices)$(d=$(for l in $SALA_LANES_KNOWN; do lane_dormant "$l" && echo "$l"; done | paste -sd' ' -); [ -n "$d" ] && echo "; dormant: $d")  (subscription-1, shown as $(lane_label subscription-1): the login in ~/.claude · api: the key file · subscription-2, shown as $(lane_label subscription-2): a second login in its own config directory · sdk: api's key through the Agent SDK (client claude-agent-sdk), while the key has credit (a refusal switches it off for 6 hours) · bedrock: Claude on Amazon Bedrock through the AWS profile ${SALA_LANE_BEDROCK_PROFILE:-(none named: SALA_LANE_BEDROCK_PROFILE)}$(lane_check bedrock >/dev/null 2>&1 || echo ", not set up yet") · aws-platform: Claude Platform on AWS through the AWS profile ${SALA_LANE_AWSPLATFORM_PROFILE:-(none named: SALA_LANE_AWSPLATFORM_PROFILE)} and a workspace id$(lane_check aws-platform >/dev/null 2>&1 || echo ", not set up yet"))"
+    echo "  lanes: $(lane_choices)$(d=$(for l in $SALA_LANES_KNOWN; do lane_dormant "$l" && echo "$l"; done | paste -sd' ' -); [ -n "$d" ] && echo "; dormant: $d")  (subscription-1, shown as $(lane_label subscription-1): the login in ~/.claude · api: the key file · subscription-2, shown as $(lane_label subscription-2): a second login in its own config directory · sdk: api's key through the Agent SDK (client claude-agent-sdk), while the key has credit (a refusal switches it off for 6 hours; the pane then goes to the lane fallback's pick for sdk, bedrock by default) · bedrock: Claude on Amazon Bedrock through the AWS profile ${SALA_LANE_BEDROCK_PROFILE:-(none named: SALA_LANE_BEDROCK_PROFILE)}$(lane_check bedrock >/dev/null 2>&1 || echo ", not set up yet") · aws-platform: Claude Platform on AWS through the AWS profile ${SALA_LANE_AWSPLATFORM_PROFILE:-(none named: SALA_LANE_AWSPLATFORM_PROFILE)} and a workspace id$(lane_check aws-platform >/dev/null 2>&1 || echo ", not set up yet"))"
     echo "  --rescue on a switch: a stale background-task row (the exit dialog, the Stop hook's record, the mod) no longer holds a pane with no child process under its claude"
 }
 
@@ -311,7 +311,7 @@ if [ "$MODE" = show ]; then
     T_S=(); T_REC=(); T_RUN=(); T_HM=(); T_NOTE=(); anyhome=0   # buffered: the HOME column is there only while some session sits off its home
     while IFS= read -r s; do
         [ -n "$s" ] || continue
-        rec=$(lane_row "$s"); eff=$(lane_for_session "$s"); run=$(running_lane "$s"); note=""   # eff: the row, else the default; an sdk row after its window → subscription-1
+        rec=$(lane_row "$s"); eff=$(lane_for_session "$s"); run=$(running_lane "$s"); note=""   # eff: the row, else the default; an sdk row after its window → the lane fallback's pick for sdk
         if no_relaunch "$s"; then note="$(no_relaunch_fix "$s" "managed outside sala (SALA_NO_RELAUNCH): sala never relaunches it")"
         elif ! tmux has-session -t "=$s" 2>/dev/null; then note="no tmux session (a restore brings it back on $eff)"
         elif [ "$run" = "?" ]; then note="its environment cannot be read"
@@ -319,7 +319,7 @@ if [ "$MODE" = show ]; then
         elif [ "$run" != "$eff" ]; then note="← runs on $run; a relaunch puts it on $eff (salamander lane $eff $s, or the next recycle)"
         fi
         lane_dormant "$eff" && note="${note:+$note; }the $(lane_label "$(lane_state_id "$eff")") lane is dormant ($(lane_dormant_since_words "$eff")): it stays where it is, moving it is your call"
-        [ "$rec" = sdk ] && ! sdk_window_open && note="${note:+$note; }$(sdk_closed_why): an sdk row launches on subscription-1 until then (salamander lane subscription-1 $s clears the row)"
+        [ "$rec" = sdk ] && ! sdk_window_open && note="${note:+$note; }$(sdk_closed_why): an sdk row launches on $eff until then (the lane fallback's pick for sdk; salamander lane $eff $s clears the row)"
         [ -n "$rec" ] && ! lane_known "$rec" && note="${note:+$note; }⚠ the recorded lane '$rec' is not a lane: a relaunch uses the default, $eff; the row is left as it is (salamander lane <lane> $s replaces it)"
         pn=$(lane_pin_of "$s"); [ -z "$pn" ] || note="${note:+$note; }pinned to $pn: held out of every bulk lane move (salamander lane unpin $s)"
         hm=$(lane_home "$s"); [ "$hm" = "$(lane_state_id "$eff")" ] || [ "$hm" = "$eff" ] && hm=""   # the home shows only while the session sits elsewhere (the lane fallback moved it; nothing moves it back by itself)
@@ -559,7 +559,7 @@ case "$LANE" in
     aws-platform) echo "  on the launch line (names only): $(lane_env_names aws-platform), after unsetting $(lane_unset_names aws-platform) (they would change the routing or the signing) — the profile $SALA_LANE_AWSPLATFORM_PROFILE's keys are read by the CLI from $SALA_LANE_AWSPLATFORM_CREDENTIALS_FILE, never by sala$(lane_args aws-platform | sed 's/^ / · /')"
          echo "  no Remote Control and no claude.ai connectors on this lane (watch's bridge heal and the reboot's bridge check stand down)" ;;
     sdk) echo "  on the launch line: salamander sdk-pane <uuid> <session> — the pane program (lib/sdk-pane.sh) runs the Agent SDK ($SALA_LANE_SDK_PIN) and hands $(lane_env_names sdk) to the CLI it spawns, read from $SALA_LANE_API_KEY_FILE$([ -r "$SALA_LANE_API_WORKSPACE_FILE" ] && echo " and $SALA_LANE_API_WORKSPACE_FILE") (the value is in that process's environment and nowhere else) · --mcp-config $SALA_LANE_API_MCP_CONFIG"
-         echo "  while the key has credit: a turn the credit refuses writes the shared record ($(api_credit_state_file)) and puts the pane back on subscription-1 at once (one post); a session recorded on sdk is relaunched on subscription-1 for API_CREDIT_RETRY_S seconds (6 hours by default) after a refusal, then the key is tried again"
+         echo "  while the key has credit: a turn the credit refuses writes the shared record ($(api_credit_state_file)) and puts the pane on the sdk lane's fallback at once (one post): the lane fallback table's pick for sdk, $(lane_label "$(sdk_fallback_lane)") now (SALA_LANE_FALLBACK; bedrock by default, subscription-1 only when that pick is not active and ready); a session recorded on sdk is relaunched there for API_CREDIT_RETRY_S seconds (6 hours by default) after a refusal, then the key is tried again"
          echo "  no Remote Control and no claude.ai connectors on this lane (watch's bridge heal and the reboot's bridge check stand down)" ;;
 esac
 for s in ${SESS[@]+"${SESS[@]}"}; do

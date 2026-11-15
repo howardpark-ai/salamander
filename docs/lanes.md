@@ -222,6 +222,9 @@ and stay there until the owner or a session moves them back. Code: `lib/common.s
   and one line says why: on the watch's one dormant post ("not moved automatically: …") and from `lane dormant` by hand.
   `SALA_LANE_FALLBACK_AUTO=off` turns the automatic parts off (the move on dormancy and the jobs below); `lane fallback`
   by hand keeps working.
+  The same pick serves the sdk lane's credit refusal (*The sdk lane*, `sdk_fallback_lane` in `lib/common.sh`): a pane whose turn
+  the API credit refuses goes to the table's pick for sdk (bedrock by default), and to `subscription-1` only as the last resort when
+  that pick is not active and ready. `SALA_LANE_FALLBACK_AUTO` does not govern it (nothing is dormant: the credit is the signal).
 - **The trigger.** A lane turning dormant, by the watch's own detection or by `sala lane dormant <lane>` by hand (not with
   `--no-fallback`), queues ONE operation: `sala op lane fallback <lane> --from sala-watch --words "<the standing words of the fallback>"`. The queue is the normal path for a guarded fleet verb (the runner is a `sala-op-<id>` unit with no Claude
   above it, so the guards pass), it runs the plan at queue time and refuses what has no usable fallback, and it gives one
@@ -274,7 +277,7 @@ Code: `lib/common.sh` ("THE PINNED SESSIONS"), `lib/lane.sh` (`lane pin`, `lane 
 - **For a mover added later.** Any code that picks sessions to move on its own calls the helpers in `lib/common.sh` instead of testing the
   list itself: `lane_is_pinned <session>`, `lane_pin_of <session>`, `pinned_skip_note <session>` (prints the skip line) and
   `lane_pins_split <session>…` (sets `PIN_MOVE` and `PIN_SKIP`).
-- **Not covered:** a session that moves itself (the sdk lane's pane going back to subscription-1 when the API credit refuses a call) and a
+- **Not covered:** a session that moves itself (the sdk lane's pane moving to the sdk lane's fallback when the API credit refuses a call) and a
   new session spawned under a pinned name (it takes the default or `--lane` as any spawn does).
 
 ## The back agents' lane rule
@@ -363,12 +366,19 @@ refusal). The key is used while the file holds no `refused_at` within the last `
 refusal with "credit balance" in it (any case) writes the file and the run falls back to the subscription lane
 (`subscription-1`); a call that works removes it. So the key is tried again six hours after a refusal, and a top-up is found without
 anyone telling sala. `salamander lane` shows the lane as not ready while a refusal is fresh, and says when and by what job. **On the
-sdk lane**: `lane_check sdk` refuses while a refusal is fresh; a row of `sdk` then launches on `subscription-1` (`lane_for_session`; one
-`fallback` line per relaunch in `lanes.log`; the row stays until `sala lane subscription-1 <session>` clears it, and the table says so),
-and the wrapper checks the record itself too, so a pane program typed during that time runs the subscription-1 line in its place. A
-turn the credit refuses (an assistant message with error `billing_error`, or "credit balance" in an error result or the CLI's
-stderr): the driver writes the record and exits 3, the wrapper rewrites the row to `subscription-1`, posts once in plain words (the
-session is back on the subscription-1 login, why, and `salamander lane sdk <session>` to come back) and runs the
-subscription-1 line in the pane at once; the last message may need to be sent again. A turn that ends without an error removes the
+sdk lane**: `lane_check sdk` refuses while a refusal is fresh; a row of `sdk` then launches on **the sdk lane's fallback**, the lane
+fallback table's pick for sdk (`SALA_LANE_FALLBACK`, see *The lane fallback* below: `bedrock` by default), through `lane_for_session`
+(`sdk_fallback_lane` is the one place that picks it; one `fallback` line per relaunch in `lanes.log`; the row stays until
+`sala lane <that lane> <session>` clears it, and the table says so), and the wrapper checks the record itself too, so a pane program typed
+during that time runs the fallback's line in its place. The pick must be usable (`lane_fallback_pick`: not dormant, `lane_check` passes,
+`lane_out` sees nothing wrong); when it is not (no entry or `none`, dormant, not set up, out) `subscription-1` is the last resort, never
+a lane that would refuse the turn as well, and the post and the `lanes.log` line say so with the reason. The sdk lane is the `api`
+lane's alias, so the table's entry for `api` and for `sdk` is one entry (the first of the two in the map is read). A turn the credit
+refuses (an assistant message with error `billing_error`, or "credit balance" in an error result or the CLI's stderr): the driver
+writes the record and exits 3, the wrapper rewrites the row to the fallback lane, posts once in plain words (the session moved to
+the `<label>` lane, why, and `salamander lane sdk <session>` to come back; no login is claimed for a lane that has none) and runs
+the fallback's line in the pane at once; a Fable session whose fallback cannot run Fable (`SALA_FALLBACK_NO_FABLE`: bedrock) gets the
+same model change the lane fallback records (`SALA_FALLBACK_FABLE_MODEL`, opus), written to `models.tsv` and named in the post.
+The last message may need to be sent again. A turn that ends without an error removes the
 record. A CLI that dies leaves the pane at its shell with a line; the next revive resumes it as any shell pane.
 Knobs: `API_CREDIT_RETRY_S`, `SALA_LANE_SDK_PIN`, `SALA_LANE_SDK_CMD` (tests), `SALA_LANE_SDK_NOW` (tests' clock for the record).

@@ -7,16 +7,18 @@
 # interpreter, the credit record holding a fresh refusal) and the clock injected (SALA_LANE_SDK_NOW; the lane is open
 # while the shared credit record, lib/api_credit.py, holds no refusal less than 6 h old; the tests stamp one at a fixed epoch in the
 # far future, which the real clock reads as old and SALA_LANE_SDK_NOW=<60 s after it> as fresh); resume_cmd's line for an sdk row (`salamander
-# sdk-pane <uuid> <session>`, the model and effort, never the key or a $(cat)), and the max line once the window is closed,
-# logged once; the default lane sdk after the window reading subscription-1; `sala lane sdk <session>` end to end through the direct
+# sdk-pane <uuid> <session>`, the model and effort, never the key or a $(cat)), and the sdk lane's FALLBACK line once the window is closed
+# (the lane fallback table's pick for sdk, bedrock by default; SALA_LANE_FALLBACK followed; subscription-1 as the last resort when the pick
+# is dormant, not set up or `none`), logged once; the default lane sdk after the window reading the fallback; `sala lane sdk <session>` end to end through the direct
 # sweep (recorded, relaunched, the pane's program `sala-sdk`, the fake's environment carrying the key by the SDK's own route,
 # proc_lane sdk, the driver handed the files' paths and the launcher, the key value in none of the output, the scrollback,
 # the logs, the argv); the screen's ❯ box (a rule, the ❯ line, a rule; the dim hint no draft; typed text read as a draft
 # and refusing a relaunch; Enter reaching the SDK as a query; sala's marked message; nothing on it a terminal prompt);
 # a later `revive --force --only` relaunching the sdk pane (/exit typed into the box, the lane line `sdk → sdk`, the
 # summary `(lane sdk)`), with a recorded model and effort on the SDK's line; the credit fallback (a refused turn → the row
-# subscription-1, one post in plain words, the pane resumed on the subscription-1 line at once, the table subscription-1/subscription-1); a CLI that dies leaving the
-# pane at its shell with a line, resumed by the next revive on sdk; the wrapper's own credit gate running the subscription-1 line; the
+# bedrock, one post in plain words naming the Bedrock lane (no login claimed), the pane resumed on the bedrock line at once, a Fable session's model changed to
+# opus, the table bedrock/bedrock); a CLI that dies leaving the
+# pane at its shell with a line, resumed by the next revive on sdk; the wrapper's own credit gate running the fallback's line; the
 # switch refused once the window is closed; spawn refused on a default of sdk. Posts stubbed to a file; isolated HOME, a
 # private tmux socket. Usage: bash tests/sdklane.sh   (exit 0 = pass; ~50 s)
 set -u
@@ -40,6 +42,8 @@ unset TMUX; export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"   # 
 KEYF="$HOME/.config/anthropic/api-key"; WSF="$HOME/.config/anthropic/workspace-id"; MCPF="$HOME/.config/claude-lanes/api-mcp.json"
 DUMMY="dummy-key-NOT-REAL-$$"; WSID="wsid_dummy_$$"
 (umask 077; printf '%s\n' "$DUMMY" > "$KEYF"); printf '%s\n' "$WSID" > "$WSF"; echo '{"mcpServers":{}}' > "$MCPF"
+# the sdk lane's fallback is the lane fallback table's pick (bedrock by default), which must be ready: the fixture profile (tests/lib.sh) with a header in the credentials file
+CRED="$HOME/.aws/credentials"; mkdir -p "$HOME/.aws"; printf '[example-bedrock]\naws_access_key_id = dummy-not-real-%s\n' "$$" > "$CRED"
 cleanup() {
     local f p; for f in "$HOME"/.claude/salamander-retry*.pid; do [ -s "$f" ] && kill "$(<"$f")" 2>/dev/null; done
     [ -n "${FAKEMOD:-}" ] && kill "$FAKEMOD" 2>/dev/null
@@ -93,7 +97,7 @@ lane_rc sdk && bad "lane_rc sdk said a bridge is possible" || ok "lane_rc sdk: n
 [ "$(lane_env_names sdk)" = "ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS" ] && ok "lane_env_names sdk: the names the driver hands the CLI (a dry run shows them)" || bad "lane_env_names sdk: $(lane_env_names sdk)"
 [ -z "$(lane_env_prefix sdk)" ] && [ -z "$(lane_args sdk)" ] && ok "nothing of the lane on a claude line: the pane program carries it" || bad "sdk prefix '$(lane_env_prefix sdk)' args '$(lane_args sdk)'"
 
-echo "== resume_cmd: the pane program's line for an sdk row; the subscription-1 line once the window is closed, said once in lanes.log"
+echo "== resume_cmd: the pane program's line for an sdk row; the fallback's line (bedrock) once the window is closed, said once in lanes.log"
 lane_write sala-test-x sdk && [ "$(lane_for_session sala-test-x)" = sdk ] && ok "lane_write sdk: the row is read back" || bad "row: $(slurp "$SALA_LANES")"
 r=$(resume_cmd "$UX" sala-test-x)
 [ "$r" = "$SALA_BIN sdk-pane $UX sala-test-x" ] && ok "an sdk row: salamander sdk-pane <uuid> <session> — no claude, no env prefix, no --mcp-config" || bad "resume_cmd on sdk: $r"
@@ -103,14 +107,34 @@ model_write sala-test-x opus xhigh
 model_drop sala-test-x
 n0=$(grep -c . "$SALA_LANE_LOG" 2>/dev/null)
 r=$(SALA_LANE_SDK_NOW=$UNTIL resume_cmd "$UX" sala-test-x)
-[ "$r" = "$(mod_env_prefix)claude --resume $UX" ] && ok "the window closed, the row still sdk: the subscription-1 line (no key, no config directory)" || bad "after the window: $r"
-grep -q $'\tfallback\tsala-test-x\tsdk → subscription-1 (the API credit refused a call' "$SALA_LANE_LOG" && [ "$(grep -c . "$SALA_LANE_LOG")" = $((n0 + 1)) ] && ok "and one fallback line in lanes.log naming the session and the fix" || bad "lanes.log: $(tail -3 "$SALA_LANE_LOG")"
-[ "$(SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x)" = subscription-1 ] && [ "$(SALA_LANE_SDK_NOW=$BEFORE lane_for_session sala-test-x)" = sdk ] && ok "lane_for_session: sdk 6 h after a refusal, subscription-1 within them" || bad "lane_for_session around the end: $(SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x) / $(SALA_LANE_SDK_NOW=$BEFORE lane_for_session sala-test-x)"
-[ "$(lane_row sala-test-x)" = sdk ] && ok "the row itself is untouched (salamander lane subscription-1 <session> clears it)" || bad "row after the fallback: $(lane_row sala-test-x)"
-lane_set_default sdk; [ "$(lane_default)" = sdk ] && [ "$(SALA_LANE_SDK_NOW=$UNTIL lane_default)" = subscription-1 ] && ok "a default of sdk reads subscription-1 while a refusal is fresh" || bad "default around the end: $(lane_default) / $(SALA_LANE_SDK_NOW=$UNTIL lane_default)"
+[ "$r" = "$(lane_env_prefix bedrock)$(mod_env_prefix)claude --resume $UX$(lane_args bedrock)" ] && ok "the window closed, the row still sdk: the bedrock line (the AWS profile and ids by name, no API key, no config directory)" || bad "after the window: $r"
+! grep -q 'ANTHROPIC_API_KEY\|ANTHROPIC_CUSTOM_HEADERS' <<< "$r" && ! grep -qF "$DUMMY" <<< "$r" && grep -q 'CLAUDE_CODE_USE_BEDROCK=1' <<< "$r" && ok "and that line carries no sdk/api key or workspace header" || bad "the fallback line carries a key: $r"
+grep -q $'\tfallback\tsala-test-x\tsdk → bedrock (the API credit refused a call' "$SALA_LANE_LOG" && ! grep -q 'last resort' <<< "$(tail -1 "$SALA_LANE_LOG")" && [ "$(grep -c . "$SALA_LANE_LOG")" = $((n0 + 1)) ] && ok "and one fallback line in lanes.log naming the session, the bedrock lane and the fix" || bad "lanes.log: $(tail -3 "$SALA_LANE_LOG")"
+[ "$(SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x)" = bedrock ] && [ "$(SALA_LANE_SDK_NOW=$BEFORE lane_for_session sala-test-x)" = sdk ] && [ "$(lane_for_session sala-test-x)" = sdk ] && ok "lane_for_session: sdk 6 h after a refusal and with the window open, bedrock (the table's pick) within them" || bad "lane_for_session around the end: $(SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x) / $(SALA_LANE_SDK_NOW=$BEFORE lane_for_session sala-test-x)"
+[ "$(lane_row sala-test-x)" = sdk ] && ok "the row itself is untouched (salamander lane bedrock <session> clears it)" || bad "row after the fallback: $(lane_row sala-test-x)"
+lane_set_default sdk; [ "$(lane_default)" = sdk ] && [ "$(SALA_LANE_SDK_NOW=$UNTIL lane_default)" = bedrock ] && ok "a default of sdk reads bedrock while a refusal is fresh" || bad "default around the end: $(lane_default) / $(SALA_LANE_SDK_NOW=$UNTIL lane_default)"
 out=$("$SALA" spawn sala-test-z --cwd "$HOME" 2>&1); rc=$?
 [ "$rc" = 1 ] && grep -q 'default lane is sdk' <<< "$out" && grep -q 'salamander lane sdk sala-test-z' <<< "$out" && ! tmux has-session -t =sala-test-z 2>/dev/null && ok "spawn on a default of sdk: refused before any tmux session, the way said (spawn on subscription-1, then sala lane sdk NAME)" || bad "spawn on default sdk ($rc): $out"
-lane_set_default subscription-1; lane_drop sala-test-x
+lane_set_default subscription-1
+echo "== the sdk lane's fallback is the lane fallback table's pick: the table followed, subscription-1 only as the last resort, said so"
+[ "$(sdk_fallback_lane)" = bedrock ] && [ "$(SALA_LANE_SDK_NOW=$UNTIL lane_effective sdk)" = bedrock ] && [ "$(lane_effective sdk)" = sdk ] && ok "the default table: sdk → bedrock (lane_effective: bedrock after a refusal, sdk with the window open)" || bad "default pick: $(sdk_fallback_lane) / $(SALA_LANE_SDK_NOW=$UNTIL lane_effective sdk) / $(lane_effective sdk)"
+[ "$(SALA_LANE_FALLBACK="sdk=subscription-1" sdk_fallback_lane)" = subscription-1 ] && [ "$(SALA_LANE_FALLBACK="sdk=subscription-1" SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x)" = subscription-1 ] && ok "SALA_LANE_FALLBACK=sdk=subscription-1: the pane follows the table to subscription-1" || bad "overridden table: $(SALA_LANE_FALLBACK="sdk=subscription-1" sdk_fallback_lane) / $(SALA_LANE_FALLBACK="sdk=subscription-1" SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x)"
+[ "$(SALA_LANE_FALLBACK="sdk=subscription-2" SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x)" = subscription-1 ] && ok "a table pick that is not ready (subscription-2, no config directory here): the last resort, subscription-1" || bad "unready pick: $(SALA_LANE_FALLBACK="sdk=subscription-2" SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x)"
+lane_dormant_set bedrock "test: no access" hand
+t=""; w=""; _sdk_fallback_r t w
+[ "$(SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x)" = subscription-1 ] && [ "$t" = subscription-1 ] && grep -q 'fallback, Bedrock, is dormant too' <<< "$w" && ok "bedrock dormant: subscription-1 as the last resort, the reason in plain words" || bad "dormant bedrock: $(SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x) / $t / $w"
+n0=$(grep -c . "$SALA_LANE_LOG" 2>/dev/null); r=$(SALA_LANE_SDK_NOW=$UNTIL resume_cmd "$UX" sala-test-x)
+[ "$r" = "$(mod_env_prefix)claude --resume $UX" ] && grep -q $'\tfallback\tsala-test-x\tsdk → subscription-1 (the API credit refused a call.*last resort, the table pick is not usable: .*Bedrock, is dormant too' "$SALA_LANE_LOG" && [ "$(grep -c . "$SALA_LANE_LOG")" = $((n0 + 1)) ] \
+    && ok "resume_cmd then runs the subscription-1 line, and lanes.log says it is the last resort and why" || bad "last resort line '$r' / $(tail -1 "$SALA_LANE_LOG")"
+lane_dormant_clear bedrock "test"
+mv "$CRED" "$CRED.away"; [ "$(SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x)" = subscription-1 ] && ok "bedrock not set up (no profile header): subscription-1, never a lane that cannot launch" || bad "bedrock unready: $(SALA_LANE_SDK_NOW=$UNTIL lane_for_session sala-test-x)"; mv "$CRED.away" "$CRED"
+t=""; w=""; SALA_LANE_FALLBACK="subscription-1=bedrock" _sdk_fallback_r t w
+[ "$t" = subscription-1 ] && grep -q 'no fallback set' <<< "$w" && SALA_LANE_FALLBACK="sdk=none" _sdk_fallback_r t w && [ "$t" = subscription-1 ] && grep -q 'no fallback set' <<< "$w" && ok "no entry for sdk, or none: subscription-1 as the last resort, said" || bad "no entry: $t / $w"
+model_write sala-test-x fable
+r=$(SALA_LANE_SDK_NOW=$UNTIL resume_cmd "$UX" sala-test-x)
+[ "$(resume_cmd "$UX" sala-test-x)" = "$SALA_BIN sdk-pane $UX sala-test-x --model fable" ] && grep -q -- " --model opus" <<< "$r" && ! grep -q -- "--model fable" <<< "$r" && ok "a Fable session on the bedrock fallback line: --model opus (bedrock cannot run Fable); on the sdk line it stays Fable" || bad "fable on the fallback: $r / $(resume_cmd "$UX" sala-test-x)"
+model_drop sala-test-x
+lane_drop sala-test-x
 out=$("$SALA" lane 2>&1); grep -q 'sdk ready' <<< "$out" && ok "the table: sdk ready" || bad "table: $out"
 out=$(SALA_LANE_SDK_NOW=$UNTIL "$SALA" lane 2>&1); grep -q 'sdk not ready' <<< "$out" && grep -q 'the API credit refused a call' <<< "$out" && ok "the table with a fresh refusal: sdk not ready, the refusal named" || bad "table at the end: $out"
 
@@ -169,22 +193,37 @@ case "$(sdk_argv)" in *" --resume $U1 --model sonnet --effort high "*) ok "the m
 grep -qF "$U1 /exit" "$FAKE_TYPED_LOG" && ok "the stub's disconnect left the old fake by /exit (its row and socket gone with it)" || bad "typed log: $(<"$FAKE_TYPED_LOG")"
 model_drop sala-test-a
 
-echo "== the credit fallback: a refused turn puts the pane back on subscription-1 at once — the row, one post, the subscription-1 line in the pane"
+echo "== the credit fallback: a refused turn puts the pane on bedrock (the table's pick) at once — the row, one post, the bedrock line in the pane, a Fable session on opus"
 "$SALA" lane sdk sala-test-b >/dev/null 2>&1; waitfor '[ "$(starts "$U2")" = 2 ]' 40 && fake_up sala-test-b && [ "$(pcmd b)" = sala-sdk ] && ok "b on sdk (its SDK refuses every turn: FAKE_SDK=credit)" || bad "b: starts $(starts "$U2") $(pcmd b)"
 posts0=$(grep -c '^%%$' "$POSTS" 2>/dev/null)
+model_write sala-test-b fable   # a Fable session: bedrock cannot run Fable, so the move changes its model as the lane fallback does
 $T send-keys -t sala-test-b -l 'spend a little'; $T send-keys -t sala-test-b Enter
 waitfor '[ "$(starts "$U2")" = 3 ]' 40 && fake_up sala-test-b && ok "the pane relaunched by itself after the refusal" || bad "b after the refusal: starts $(starts "$U2") $(screen b | tail -6)"
-[ "$(lane_row sala-test-b)" = subscription-1 ] && ok "the row rewritten: sala-test-b → subscription-1" || bad "row: '$(lane_row sala-test-b)'"
-waitfor '[ "$(pcmd b)" = claude ]' 10 && [ "$(lanelog "$U2")" = "key=n hdr=n cfg=-" ] && [ "$(proc_lane "$(cpid b)")" = subscription-1 ] && ok "the pane's program is claude on the subscription-1 line, no key" || bad "b after: $(pcmd b) $(lanelog "$U2") $(proc_lane "$(cpid b)")"
-waitfor "[ \"\$(grep -c '^%%$' '$POSTS' 2>/dev/null)\" = $((posts0 + 1)) ]" 10 && grep -q 'sala-test-b is back on the Ultra login' "$POSTS" && grep -q 'The API credit refused its turn' "$POSTS" && grep -q 'salamander lane sdk sala-test-b' "$POSTS" \
-    && ok "one post, in plain words: back on the Ultra login, why, and the way back" || bad "posts: $(tail -c 800 "$POSTS")"
-grep -q $'\tfallback\tsala-test-b\tsdk → subscription-1 (the credit refused a turn)' "$SALA_LANE_LOG" && ok "lanes.log: the fallback line" || bad "lanes.log: $(tail -3 "$SALA_LANE_LOG")"
+[ "$(lane_row sala-test-b)" = bedrock ] && ok "the row rewritten: sala-test-b → bedrock" || bad "row: '$(lane_row sala-test-b)'"
+waitfor '[ "$(pcmd b)" = claude ]' 10 && [ "$(lanelog "$U2")" = "key=n hdr=n cfg=-" ] && [ "$(proc_lane "$(cpid b)")" = bedrock ] && ok "the pane's program is claude on the bedrock line, no key" || bad "b after: $(pcmd b) $(lanelog "$U2") $(proc_lane "$(cpid b)")"
+waitfor "[ \"\$(grep -c '^%%$' '$POSTS' 2>/dev/null)\" = $((posts0 + 1)) ]" 10 && grep -q 'sala-test-b moved to the Bedrock lane' "$POSTS" && grep -q 'The API credit refused its turn' "$POSTS" && grep -q 'recorded the Bedrock lane for it' "$POSTS" && grep -q 'salamander lane sdk sala-test-b' "$POSTS" && ! grep -qi 'login' <<< "$(tail -c 700 "$POSTS")" \
+    && ok "one post, in plain words: moved to the Bedrock lane (no login claimed), why, and the way back" || bad "posts: $(tail -c 800 "$POSTS")"
+grep -q $'\tfallback\tsala-test-b\tsdk → bedrock (the credit refused a turn)' "$SALA_LANE_LOG" && ok "lanes.log: the fallback line, naming bedrock" || bad "lanes.log: $(tail -3 "$SALA_LANE_LOG")"
 # the driver wrote the shared credit record when it left with the refusal (real clock, by the session); put the fixed stamp back
 python3 -I -c 'import json,sys,time; d=json.load(open(sys.argv[1])); assert d["by"]=="sdk-pane sala-test-b" and abs(d["refused_at"]-time.time())<600 and ("billing_error" in d["detail"].lower() or "credit balance" in d["detail"].lower()), d' "$CREC" \
     && ok "the credit record: written by the driver (by sdk-pane sala-test-b, now, the refusal as detail)" || bad "credit record after the refusal: $(cat "$CREC" 2>/dev/null)"
 rec_at $REFAT
-grep -qE '^sala-test-b +subscription-1 +subscription-1' <<< "$("$SALA" lane)" && ok "the table: recorded subscription-1, running subscription-1" || bad "table: $("$SALA" lane)"
+grep -qE '^sala-test-b +bedrock +bedrock' <<< "$("$SALA" lane)" && ok "the table: recorded bedrock, running bedrock" || bad "table: $("$SALA" lane)"
+[ "$(model_row sala-test-b | cut -f1)" = opus ] && grep -q 'changed from fable to opus' "$POSTS" && ok "the Fable session's model recorded as opus (bedrock cannot run Fable), and the post says so" || bad "b's model: $(model_row sala-test-b) / $(tail -c 400 "$POSTS")"
+model_drop sala-test-b
 screen b | grep -q 'the API refused the turn (billing_error)' || $T capture-pane -p -S - -t sala-test-b | grep -q 'the API refused the turn (billing_error)' && ok "the refusal was printed in the pane before the switch" || bad "scrollback: $($T capture-pane -p -S - -t sala-test-b | tail -12)"
+
+echo "== the same refusal with bedrock dormant: subscription-1 as the last resort, the post and lanes.log say so"
+U8=$(uuid 8); mk h "$U8" -e FAKE_SDK=credit; fake_up sala-test-h
+lane_dormant_set bedrock "test: no access" hand
+"$SALA" lane sdk sala-test-h >/dev/null 2>&1; waitfor '[ "$(starts "$U8")" = 2 ]' 40 && fake_up sala-test-h && [ "$(pcmd h)" = sala-sdk ] && ok "h on sdk (its SDK refuses every turn)" || bad "h: starts $(starts "$U8") $(pcmd h)"
+posts0=$(grep -c '^%%$' "$POSTS" 2>/dev/null)
+$T send-keys -t sala-test-h -l 'spend a little'; $T send-keys -t sala-test-h Enter
+waitfor '[ "$(starts "$U8")" = 3 ]' 40 && fake_up sala-test-h && [ "$(lane_row sala-test-h)" = subscription-1 ] && waitfor '[ "$(pcmd h)" = claude ]' 10 && [ "$(proc_lane "$(cpid h)")" = subscription-1 ] \
+    && ok "the pick (bedrock) is dormant: the row and the pane are on subscription-1, the last resort" || bad "h after the refusal: row '$(lane_row sala-test-h)' $(pcmd h) $(proc_lane "$(cpid h)")"
+waitfor "[ \"\$(grep -c '^%%$' '$POSTS' 2>/dev/null)\" = $((posts0 + 1)) ]" 10 && grep -q 'sala-test-h moved to the Ultra lane' "$POSTS" && grep -q 'was not usable, so the last resort' "$POSTS" && grep -q 'fallback, Bedrock, is dormant too' "$POSTS" \
+    && grep -q $'\tfallback\tsala-test-h\tsdk → subscription-1 (the credit refused a turn; last resort, the table pick is not usable: ' "$SALA_LANE_LOG" && ok "the post names the Ultra lane, that it is the last resort and why; lanes.log says so too" || bad "h post/log: $(tail -c 700 "$POSTS") / $(tail -2 "$SALA_LANE_LOG")"
+lane_dormant_clear bedrock "test"; rec_at $REFAT
 
 echo "== the CLI dying: the pane at its shell with a line; the next revive resumes it on sdk (a shell pane with a map row)"
 "$SALA" adopt sala-test-a >/dev/null 2>&1 && [ "$(ledger_row sala-test-a | cut -f2)" = "$U1" ] && ok "a adopted into the pane map (its row, from the SDK CLI's registry row)" || bad "adopt: $("$SALA" adopt sala-test-a 2>&1)"
@@ -195,15 +234,15 @@ out=$("$SALA" revive --force --only sala-test-a 2>&1); rc=$?
 waitfor '[ "$(starts "$U1")" = 4 ]' 40 && fake_up sala-test-a && [ "$(pcmd a)" = sala-sdk ] && [ "$(lanelog "$U1")" = "key=y hdr=y cfg=-" ] && ok "revive on the shell pane: resumed through the pane program, on sdk" || bad "revive after the kill ($rc): $out / starts $(starts "$U1") $(pcmd a)"
 grep -qF "lane: none → sdk" <<< "$out" && ok "the lane line for a shell pane: none → sdk" || bad "revive: $out"
 
-echo "== the wrapper's own credit gate: typed with a fresh refusal on record, it runs the subscription-1 line in the pane"
+echo "== the wrapper's own credit gate: typed with a fresh refusal on record, it runs the fallback's (bedrock) line in the pane"
 $T new-session -d -s sala-test-g -c "$HOME" -x 110 -y 30 -e FAKE_NAME=sala-test-g -e FAKE_LOG="$FAKE_LOG" -e FAKE_LANE_LOG="$FAKE_LANE_LOG" -e FAKE_TYPED_LOG="$FAKE_TYPED_LOG" -e SALA_LANE_SDK_NOW=$UNTIL
 lane_write sala-test-g sdk
 $T send-keys -t sala-test-g "$SALA_BIN sdk-pane $U7 sala-test-g" Enter
 waitfor '[ "$(starts "$U7")" = 1 ]' 40 && fake_up sala-test-g && ok "a claude came up in g" || bad "g: $(screen g | tail -5)"
-waitfor '[ "$(pcmd g)" = claude ]' 10 && [ "$(lanelog "$U7")" = "key=n hdr=n cfg=-" ] && [ "$(proc_lane "$(cpid g)")" = subscription-1 ] && ok "on the subscription-1 line: the program claude, no key" || bad "g: $(pcmd g) $(lanelog "$U7") $(proc_lane "$(cpid g)")"
-$T capture-pane -p -S - -t sala-test-g | grep -q 'sala-sdk: the API credit refused a call' && ok "the pane says the credit refused and that it resumed on subscription-1" || bad "g scrollback: $($T capture-pane -p -S - -t sala-test-g | grep sala-sdk)"
-[ "$(lane_row sala-test-g)" = sdk ] && [ "$(SALA_LANE_SDK_NOW=$UNTIL "$SALA" lane 2>&1 | grep -c 'sala-test-g .*the API credit refused a call')" = 1 ] && ok "the row stays sdk; the table with a fresh refusal says it launches on subscription-1 until cleared" || bad "g row $(lane_row sala-test-g) / $(SALA_LANE_SDK_NOW=$UNTIL "$SALA" lane 2>&1 | grep sala-test-g)"
-grep -qE '^sala-test-g +sdk +subscription-1 +← runs on subscription-1' <<< "$("$SALA" lane)" && ok "the table now (the refusal old): runs on subscription-1, a relaunch puts it on sdk" || bad "table: $("$SALA" lane | grep sala-test-g)"
+waitfor '[ "$(pcmd g)" = claude ]' 10 && [ "$(lanelog "$U7")" = "key=n hdr=n cfg=-" ] && [ "$(proc_lane "$(cpid g)")" = bedrock ] && ok "on the bedrock line: the program claude, no key" || bad "g: $(pcmd g) $(lanelog "$U7") $(proc_lane "$(cpid g)")"
+$T capture-pane -p -J -S - -t sala-test-g | grep -q 'sala-sdk: the API credit refused a call.*the Bedrock lane' && ok "the pane says the credit refused and that it resumed on the Bedrock lane" || bad "g scrollback: $($T capture-pane -p -S - -t sala-test-g | grep sala-sdk)"
+[ "$(lane_row sala-test-g)" = sdk ] && [ "$(SALA_LANE_SDK_NOW=$UNTIL "$SALA" lane 2>&1 | grep -c 'sala-test-g .*the API credit refused a call')" = 1 ] && ok "the row stays sdk; the table with a fresh refusal says it launches on bedrock until cleared" || bad "g row $(lane_row sala-test-g) / $(SALA_LANE_SDK_NOW=$UNTIL "$SALA" lane 2>&1 | grep sala-test-g)"
+grep -qE '^sala-test-g +sdk +bedrock +← runs on bedrock' <<< "$("$SALA" lane)" && ok "the table now (the refusal old): runs on bedrock, a relaunch puts it on sdk" || bad "table: $("$SALA" lane | grep sala-test-g)"
 
 echo "== the pane program's own refusals"
 out=$("$SALA" sdk-pane 2>&1); [ $? = 2 ] && grep -q '^usage: salamander sdk-pane' <<< "$out" && ok "no uuid: usage, exit 2" || bad "sdk-pane without args: $out"

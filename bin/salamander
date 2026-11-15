@@ -116,7 +116,7 @@
 #   salamander lane --rescue <lane> [--dry-run] [--force]   another session moves the master (SALA_MASTER) off a lane that is out (its usage
 #                                      gone or its account dead, by sala's own watches); refused while the lane looks fine
 #   salamander sdk-pane <uuid> [<session>] [--model M] [--effort E]   the sdk lane's pane program, the line resume_cmd types in place
-#                                      of `claude --resume`: the Agent SDK on the API credit, until a call is refused (lib/sdk-pane.sh)
+#                                      of `claude --resume`: the Agent SDK on the API credit, until a call is refused, then the lane fallback's pick for sdk (bedrock by default; lib/sdk-pane.sh)
 #   salamander model [<session> <model> [--effort <level>] | <session> --clear | <model> [--effort <level>] <session>… | --clear <session>…] [--dry-run] [--not-master]   the model and effort a
 #                                      session is relaunched on, ahead of its transcript's: recorded, then relaunched on them (resumed;
 #                                      every later relaunch keeps them); --clear: the transcript decides again; no argument: the table (lib/model.sh).
