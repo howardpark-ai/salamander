@@ -24,6 +24,7 @@ from sala_web.config import Settings
 KEY = "[masked Anthropic key]"
 TOKEN = "[masked secret]"
 OPUS = "claude-opus-5-5"
+MYSTERY, MYSTERY2 = "claude-mystery-9", "claude-mystery-8-20260101"   # in no price table
 
 
 def day(ymd, results):
@@ -65,7 +66,7 @@ HOURS = [
     hour("2026-10-15", 19, [use(OPUS, out=1_000_000)]),   # Dubai Oct 15 23:00: half of the day's $40
     hour("2026-10-15", 20, [use(OPUS, out=1_000_000)]),   # Dubai Oct 16 00:00: the next day there, the other $20
     hour("2026-10-16", 0, [use(OPUS, out=500_000, ws=2)]),  # not in the cost report yet: estimated, $10.02
-    hour("2026-10-16", 1, [use(OPUS, w1=1000), use("claude-haiku-5-5", out=10)]),  # no rate: counted as unpriced
+    hour("2026-10-16", 1, [use(MYSTERY, w1=1000), use(MYSTERY2, out=10)]),  # no rate, no list price either: unpriced
     hour("2026-10-16", 2, []),
     hour("2026-10-16", 19, [use(OPUS, out=1_000_000)]),   # Dubai Oct 16 23:00
     hour("2026-10-16", 20, [use(OPUS, out=500_000)]),     # Dubai Oct 17 00:00
@@ -104,10 +105,12 @@ def test_spent_today_and_this_month_in_the_configured_zone():
     assert got["usageThrough"] == "2026-10-16T03:00:00Z"   # the running hour left out
     assert got["exactThrough"] == "2026-10-16T00:00:00Z"
     assert got["calibratedOn"] == "2026-10-15"
-    assert got["unpriced"] == [
-        {"model": OPUS, "type": "cache_creation.ephemeral_1h_input_tokens", "count": 1000},
-        {"model": "claude-haiku-5-5", "type": "output_tokens", "count": 10},
+    assert got["unpriced"] == [   # a model in no price table stays out of every figure and is listed (the date taken off)
+        {"model": MYSTERY, "type": "cache_creation.ephemeral_1h_input_tokens", "count": 1000},
+        {"model": "claude-mystery-8", "type": "output_tokens", "count": 10},
     ]
+    # nothing was priced at list prices: the flag is off, as it is for every figure of the calibrated rates
+    assert got["listPriced"] == [] and got["todayListPriceUsd"] == 0 and got["monthListPriceUsd"] == 0
     assert got["consoleUrl"] == CR.CONSOLE_URL
     # the promotional credit's fields are gone
     for k in ("leftUsd", "anchor", "grants", "spentExactUsd", "spentEstimatedUsd"):
@@ -123,6 +126,62 @@ def test_an_hour_from_20_utc_is_the_next_day_in_the_zone():
     # a minute before midnight there it is still Oct 16 (the 19:00 UTC hour is still running, so not counted yet)
     got = CR.compute(KEY, FakeAdmin(), at("2026-10-16T19:59:00+00:00"))
     assert got["today"] == "2026-10-16" and got["todayUsd"] == 30.02
+
+
+SONNET, HAIKU_DATED = "claude-sonnet-5-5", "claude-haiku-4-5-20251001"
+# hour 0 of Oct 16 UTC is not in the cost report yet; none of these models has a calibrated rate (Sonnet and Haiku are in the price table)
+NEW_MODELS = [use(SONNET, read=2_709_000, w5=762_000, unc=218_000, out=32_000), use(HAIKU_DATED, unc=20, out=5),
+              use(MYSTERY, out=7)]
+
+
+def admin_with(hours, more_cost_days=()):
+    """FakeAdmin's reports with these hourly buckets (and more complete cost days)."""
+    class Fake(FakeAdmin):
+        def __call__(self, key, path, params):
+            if path == CR.COST_PATH:
+                return {"data": COST_DAYS + list(more_cost_days), "has_more": False, "next_page": None}
+            if path == CR.USAGE_PATH and params["bucket_width"] == "1h":
+                return {"data": hours, "has_more": False, "next_page": None}
+            return super().__call__(key, path, params)
+    return Fake()
+
+
+def test_tokens_without_a_calibrated_rate_count_at_list_prices_and_are_marked_as_an_estimate():
+    now = at("2026-10-16T03:30:00+00:00")
+    base = CR.compute(KEY, admin_with([hour("2026-10-16", 0, [])]), now)
+    got = CR.compute(KEY, admin_with([hour("2026-10-16", 0, NEW_MODELS)]), now)
+    # Sonnet 5.5 at $2 / $2.5 / $0.10 / $10 per MTok: 0.436 + 1.905 + 0.2709 + 0.32; a dated Haiku id is its family's row
+    assert [(r["model"], r["type"], r["count"], r["usd"]) for r in got["listPriced"]] == [
+        (SONNET, "cache_creation.ephemeral_5m_input_tokens", 762_000, 1.905),
+        (SONNET, "uncached_input_tokens", 218_000, 0.436),
+        (SONNET, "output_tokens", 32_000, 0.32),
+        (SONNET, "cache_read_input_tokens", 2_709_000, 0.2709),
+        ("claude-haiku-4-5", "output_tokens", 5, 0.00),
+        ("claude-haiku-4-5", "uncached_input_tokens", 20, 0.00),
+    ]
+    listed = 0.436 + 1.905 + 0.2709 + 0.32 + (20 * 1 + 5 * 5) / 1e6
+    assert got["monthListPriceUsd"] == got["todayListPriceUsd"] == round(listed, 2)   # Dubai Oct 16 04:00: today
+    # counted in both figures; the calibrated estimate (monthEstimatedUsd) is the same as without them
+    assert got["monthUsd"] == pytest.approx(base["monthUsd"] + listed, abs=0.006)
+    assert got["todayUsd"] == pytest.approx(base["todayUsd"] + listed, abs=0.006)
+    assert got["monthEstimatedUsd"] == base["monthEstimatedUsd"] and got["estimatedFrom"] == base["estimatedFrom"]
+    # a model in no price table is not counted as $0: listed
+    assert got["unpriced"] == [{"model": MYSTERY, "type": "output_tokens", "count": 7}]
+    assert base["listPriced"] == [] and base["monthListPriceUsd"] == 0
+
+
+def test_the_list_price_estimate_leaves_once_the_cost_report_covers_the_day():
+    # the cost report now has Oct 16 (a Sonnet row is enough: the day is exact, its amount shared over its hours)
+    later = at("2026-10-17T03:30:00+00:00")
+    covered = [day("2026-10-16", [cost(SONNET, "output_tokens", 32)])]
+    got = CR.compute(KEY, admin_with([hour("2026-10-16", 0, NEW_MODELS)], covered), later)
+    assert got["listPriced"] == [] and got["monthListPriceUsd"] == 0 and got["unpriced"] == []
+
+
+def test_a_rate_calibrated_from_the_cost_report_wins_over_the_list_price():
+    # Opus output is calibrated at $20/M (0.002 cents a token): 1M tokens of the not-yet-reported hour cost $20, the list price ($25/M) is not used
+    got = CR.compute(KEY, admin_with([hour("2026-10-16", 0, [use(OPUS, out=1_000_000)])]), at("2026-10-16T03:30:00+00:00"))
+    assert got["listPriced"] == [] and got["monthEstimatedUsd"] == 20.0 and got["monthListPriceUsd"] == 0
 
 
 def test_requests_and_paging():

@@ -10,7 +10,10 @@ hour since the month began gets a cost:
 - an hour of a UTC day the cost report has: exact, that day's amount shared out over its hours by their usage;
 - any later hour (the latest ones): estimated from that hour's tokens, priced at rates calibrated from the cost report
   itself (amount / tokens per model, context window and token type, on the latest complete day that has that key).
-  There is no price table here; tokens with no calibrated rate are counted and reported as unpriced, never guessed.
+  Tokens with no calibrated rate (a model the cost report has no complete day for yet) are priced at the list prices of
+  spend.PRICES (the one table; a dated id maps to its family row), counted in the figures and listed in the payload's
+  listPriced, as an estimate that leaves once the cost report covers them. Tokens whose model has no list price either are
+  counted nowhere and listed in unpriced, never taken as $0.
 
 Then the hours are summed into the zone's day and month (for a zone at UTC+4: an hour from 20:00 UTC on is the next day).
 
@@ -29,6 +32,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from . import spend as SP
 from . import swr as SWR
 from . import tz
 
@@ -43,6 +47,9 @@ HOUR = timedelta(hours=1)
 DAY = timedelta(days=1)
 TOKEN_FIELDS = ("uncached_input_tokens", "cache_read_input_tokens", "output_tokens")
 WEB_SEARCH = "web_search_requests"
+# the place of a token type in spend.PRICES' rows: input, cache write 5m, cache write 1h, cache read, output
+LIST_COLUMN = {"uncached_input_tokens": 0, "cache_creation.ephemeral_5m_input_tokens": 1,
+               "cache_creation.ephemeral_1h_input_tokens": 2, "cache_read_input_tokens": 3, "output_tokens": 4}
 
 
 NO_KEY = "No Admin API key on this machine."   # the card reads this as "not configured" (sessions.js NOT_CONFIGURED_WORDS)
@@ -169,6 +176,18 @@ def price(results: list, rates: dict, unknown: dict | None = None) -> float:
     return cents
 
 
+def list_price(model, ttype: str, count: float) -> float | None:
+    """The list price in cents of `count` tokens of a type on a model (a dated id counts as its family), or None
+    when the table has no price for that model or that type (web searches, a cache window it does not know)."""
+    col = LIST_COLUMN.get(ttype)
+    if col is None:
+        return None
+    tok = [0] * len(LIST_COLUMN)
+    tok[col] = count
+    usd = SP.price(model, tok)
+    return None if usd is None else usd * 100
+
+
 def by_day(buckets: list[dict], now: datetime) -> dict[date, list]:
     """Results of the daily buckets that have ended."""
     out = {}
@@ -246,26 +265,40 @@ def compute(key: str, fetch, now: datetime) -> dict:
             for i in range(24):
                 cents_at[s0 + i * HOUR] = total / 24
 
-    unknown: dict[tuple, float] = {}
+    unknown: dict[tuple, float] = {}                 # (model, type) -> tokens no price at all covers
+    listed: dict[tuple, list] = {}                   # (model, type) -> [tokens, cents] priced at list prices
     estimated_at: dict[datetime, float] = {}
+    listed_at: dict[datetime, float] = {}
     usage_through = None
     for s, e, results in hours:
         usage_through = max(usage_through, e) if usage_through else e
         if s.date() not in exact_days and s >= month0:
-            estimated_at[s] = price(results, rates, unknown)
+            lacking: dict[tuple, float] = {}
+            estimated_at[s] = price(results, rates, lacking)
+            for (m, t), n in lacking.items():
+                cents = list_price(m, t, n)
+                key = (SP.normalize_model(m) if m else None, t)
+                if cents is None:
+                    unknown[key] = unknown.get(key, 0) + n
+                else:
+                    row = listed.setdefault(key, [0, 0.0])
+                    row[0] += n
+                    row[1] += cents
+                    listed_at[s] = listed_at.get(s, 0.0) + cents
 
     def total(table: dict, since: datetime) -> float:
         return sum(c for s, c in table.items() if since <= s < now)
 
     month_exact, today_exact = total(cents_at, month0), total(cents_at, today0)
     month_est, today_est = total(estimated_at, month0), total(estimated_at, today0)
+    month_list, today_list = total(listed_at, month0), total(listed_at, today0)
     exact_through = (datetime.combine(max(exact_days), datetime.min.time(), timezone.utc) + DAY) if exact_days else None
     est_hours = sorted(s for s, c in estimated_at.items() if c > 0)
     return {
         "today": today0.date().isoformat(),
         "month": month0.strftime("%Y-%m"),
-        "todayUsd": round((today_exact + today_est) / 100, 2),
-        "monthUsd": round((month_exact + month_est) / 100, 2),
+        "todayUsd": round((today_exact + today_est + today_list) / 100, 2),
+        "monthUsd": round((month_exact + month_est + month_list) / 100, 2),
         "todayEstimatedUsd": round(today_est / 100, 2),
         "monthEstimatedUsd": round(month_est / 100, 2),
         # the hours priced from usage: the latest ones, which the cost report does not have yet
@@ -273,6 +306,13 @@ def compute(key: str, fetch, now: datetime) -> dict:
         "exactThrough": iso(exact_through) if exact_through else None,
         "usageThrough": iso(usage_through) if usage_through else None,
         "calibratedOn": cal_day.isoformat() if cal_day else None,
+        # the part of the figures priced at list prices because the cost report has no rate for it yet (todayUsd and monthUsd
+        # include it; the two estimated figures above do not): its totals and, per model and token type, the month's rows
+        "todayListPriceUsd": round(today_list / 100, 2),
+        "monthListPriceUsd": round(month_list / 100, 2),
+        "listPriced": [{"model": m, "type": t, "count": round(n), "usd": round(c / 100, 4)}
+                       for (m, t), (n, c) in sorted(listed.items(), key=lambda kv: -kv[1][1]) if n >= 1],
+        # tokens no price covers: in no figure
         "unpriced": [{"model": m, "type": t, "count": round(n)}
                      for (m, t), n in sorted(unknown.items(), key=lambda kv: -kv[1]) if n >= 1],
         "consoleUrl": CONSOLE_URL,

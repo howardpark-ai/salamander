@@ -3749,3 +3749,20 @@ other leaves by itself and is never signalled, a session on another lane keeps i
 `tests/phases.sh` runs with `SALA_EXIT_END=0`: its pane that ignores `/exit` is still checked to be skipped (the path the switch off keeps), the sweep's counts unchanged.
 Not covered, and why: a real Claude Code CLI's behaviour on SIGTERM (the fake exits at once); a pid reused between the two signals (the start time is compared, but no test can make
 the kernel reuse a pid on demand); the sdk lane's pane (refused by a gate with no suite of its own).
+
+### The metered card counts tokens without a calibrated rate at list prices: `web/tests/test_unrated_usage.py` new, 7 tests (8 cases), and `test_credit.py` +3 (Sun Nov 15th 2026)
+
+Tokens the cost report has no rate for yet (a model the report does not cover) used to be listed in orange on the metered card and left out of the figures, so a month that spent dollars
+read $0.00. `credit.compute` now prices them at `spend.PRICES` list prices (a dated id is mapped to its family by spend's own normaliser, the table is not copied), counts them in
+`todayUsd` and `monthUsd`, and puts the estimated part and its per-model, per-kind rows in the payload (`todayListPriceUsd`, `monthListPriceUsd`, `listPriced`). A model no price covers stays
+in `unpriced`, never $0. A wrong answer is a month that reads low, an estimate counted twice once the report covers the day, a calibrated rate overridden by a list price, a model with no
+price shown as $0, a token list on the card, a table that runs off a phone's edge, or a string missing in Korean.
+`test_credit.py`: a dated Sonnet and Haiku id is counted at its family's list price and appears in `listPriced`; a model missing from the price table stays uncounted and listed in `unpriced`
+(date removed from its id); the estimate leaves once the cost report covers the day; a rate calibrated from the cost report wins over the list price; nothing estimated gives zero list-price
+totals and an empty `listPriced`. The old figures hold: the existing cases moved to models the table does not carry so their numbers stand.
+`test_unrated_usage.py`: headless Chromium, the answers of `api/credit` stubbed. The card: the month figure counts the estimate, one gray "Partly estimated at list price" line, no orange line,
+no model or token text on the card; nothing estimated gives no line; a model with no price gives one short orange notice (on the details page "See the table below"), and its row on the details page
+reads "not counted" after the total, never $0. The details page: the table's title, note and four headers, the rows in spend order with the page's own compact numbers (2.7M, 762K), the rows that
+round to $0.00 merged into one "input . output" row, a total row; no table when nothing is estimated. Korean: every string read from the Korean table, the numbers in the Korean units (270.9
+man), and back to English. At 390 px, in both languages: the table is no wider than its card, the card inside the screen, the page does not scroll sideways (table 324 px wide in 324).
+Not covered, and why: the live Admin API (the cost and usage reports are stubbed, as in the other credit cases); an answer saved before this change (no new fields: the card reads them as empty).

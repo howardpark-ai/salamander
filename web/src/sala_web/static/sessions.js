@@ -451,9 +451,9 @@ function quotaCardBody(q, known, opts = {}) {
 // estimated from the hourly usage report, and the card says so.
 const compact = { format: (n) => SalaI18n.number(n, { notation: "compact", maximumFractionDigits: 1 }) };
 const TOKEN_TYPE = {
-  uncached_input_tokens: "ov.tok.input", output_tokens: "ov.tok.output", cache_read_input_tokens: "ov.tok.cacheRead",
-  "cache_creation.ephemeral_5m_input_tokens": "ov.tok.cacheWrite5m",
-  "cache_creation.ephemeral_1h_input_tokens": "ov.tok.cacheWrite1h", web_search_requests: "ov.tok.search",
+  uncached_input_tokens: "ov.kind.input", output_tokens: "ov.kind.output", cache_read_input_tokens: "ov.kind.cacheRead",
+  "cache_creation.ephemeral_5m_input_tokens": "ov.kind.cacheWrite5m",
+  "cache_creation.ephemeral_1h_input_tokens": "ov.kind.cacheWrite1h", web_search_requests: "ov.kind.search",
 };
 // a failed request's note is kept as a key with its text, so a language change words it again; a server answer's own error stays as it came
 const errText = (x) => (x.local ? tl(x.local.key, { msg: x.local.msg }) : x.error);
@@ -517,11 +517,59 @@ function creditCardBody(c, opts = {}) {  // opts.known: the lane's state from it
   parts.forEach((p, i) => foot.append(...(i ? [" · ", p] : [p])));
   foot.title = foot.textContent;  // one line, cut with an ellipsis on a phone: the whole of it on hover
   if (parts.length) card.append(foot);
-  const unpriced = (c.unpriced || []).map((u) => tl(u.model ? "ov.c.unpricedOn" : "ov.c.unpriced", {
-    count: compact.format(u.count), type: Object.hasOwn(TOKEN_TYPE, u.type) ? tl(TOKEN_TYPE[u.type]) : u.type, model: u.model ? modelLabel(u.model) : "" }));
-  if (unpriced.length) card.append(div("c-line c-warn", tl("ov.c.notCountedRate", { list: unpriced.join(" · ") })));
+  // tokens the cost report has no rate for yet are priced at list prices and counted in the figures: one quiet line says so, and the
+  // rows are on the details page (unratedCard), never a token list here. Tokens no list price covers either are in no figure:
+  // a short notice, also pointing at the details page
+  if (has && (c.listPriced || []).length) card.append(div("c-line c-listest", tl("ov.c.listPriceEst")));
+  if ((c.unpriced || []).length) card.append(div("c-line c-warn", tl(opts.page ? "ov.c.notCountedSomeBelow" : "ov.c.notCountedSome")));
   card.append(...notes());
   card.append(has ? updatedFoot(c.fetchedAt, CREDIT_STALE_MS) : pendingFoot());
+  return card;
+}
+
+// The details page's table of the usage the cost report has no rate for yet: what the card's figures count at list prices (api/credit's
+// listPriced: model, type, tokens, USD for the month), a model's rows that round to $0.00 merged into one ("input · output"), a
+// total row, and then, outside the total, the tokens no list price covers (unpriced), marked "not counted". Null when there is nothing.
+const unratedRows = (c) => {
+  const kindOf = (t) => (Object.hasOwn(TOKEN_TYPE, t) ? tl(TOKEN_TYPE[t]) : t);
+  const order = Object.keys(TOKEN_TYPE);
+  const small = new Map(), rows = [];
+  for (const r of c.listPriced || []) {
+    if (r.usd >= 0.005) { rows.push({ ...r, kind: kindOf(r.type) }); continue; }
+    if (!small.has(r.model)) small.set(r.model, []);
+    small.get(r.model).push(r);
+  }
+  for (const [model, rs] of small) {
+    rs.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
+    rows.push({ model, kind: rs.map((r) => kindOf(r.type)).join(" · "), count: rs.reduce((n, r) => n + r.count, 0), usd: rs.reduce((n, r) => n + r.usd, 0), small: true });
+  }
+  // a model's rows together (the model with the most spent first), the most tokens first within it, a merged $0.00 row last
+  const spent = new Map();
+  for (const r of rows) spent.set(r.model, (spent.get(r.model) || 0) + r.usd);
+  return rows.sort((a, b) => spent.get(b.model) - spent.get(a.model) || (a.model < b.model ? -1 : a.model > b.model ? 1 : 0) || (a.small ? 1 : 0) - (b.small ? 1 : 0) || b.count - a.count);
+};
+function unratedCard(c) {
+  const rows = unratedRows(c), none = c.unpriced || [];
+  if (!rows.length && !none.length) return null;
+  const card = div("q-card c-card ur-card");
+  const h = document.createElement("h3");
+  h.className = "ur-h";
+  h.textContent = tl("ov.unrated.title");
+  card.append(h, div("c-line ur-note", tl("ov.unrated.note")));
+  const table = document.createElement("table");
+  table.className = "ur-table";
+  const cell = (tag, text, cls) => { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; return e; };
+  const tr = (...cells) => { const r = document.createElement("tr"); r.append(...cells); return r; };
+  const head = document.createElement("thead");
+  head.append(tr(cell("th", tl("ov.unrated.model")), cell("th", tl("ov.unrated.kind")), cell("th", tl("ov.unrated.tokens"), "n"), cell("th", tl("ov.unrated.cost"), "n")));
+  const body = document.createElement("tbody");
+  for (const r of rows) body.append(tr(cell("td", modelLabel(r.model)), cell("td", r.kind), cell("td", compact.format(r.count), "n"), cell("td", usd(r.usd), "n")));
+  if (rows.length) body.append(tr(cell("td", tl("ov.unrated.total")), cell("td", ""), cell("td", compact.format(rows.reduce((n, r) => n + r.count, 0)), "n"), cell("td", usd(rows.reduce((n, r) => n + r.usd, 0)), "n")));
+  if (rows.length) body.lastChild.className = "ur-sum";
+  for (const u of none) body.append(tr(cell("td", u.model ? modelLabel(u.model) : ""), cell("td", Object.hasOwn(TOKEN_TYPE, u.type) ? tl(TOKEN_TYPE[u.type]) : u.type),
+    cell("td", compact.format(u.count), "n"), cell("td", tl("ov.unrated.notCounted"), "n ur-none")));
+  table.append(head, body);
+  card.append(table);
   return card;
 }
 
@@ -866,7 +914,10 @@ function laneRecord(l) {
 // the lane's usage, drawn by the card's own helpers from the card's own answers
 function laneUsage(l) {
   const id = l.id;
-  if (id === "api") return creditCard(sp.credit || { pending: true }, { billing: true, known: l.state, plan: true, page: true });
+  if (id === "api") {   // the card, then the table of the usage priced at list prices for want of a rate (when there is any)
+    const c = sp.credit || { pending: true };
+    return [creditCard(c, { billing: true, known: l.state, plan: true, page: true }), unratedCard(c)].filter(Boolean);
+  }
   if (SPEND_LANES.includes(id)) return spendCard(id, spendOf(id, sp.spend), { all: true, known: l.state, page: true });
   if (PLACEHOLDER_LANES.includes(id)) {
     const q = sp.quota && sp.quota.find((x) => laneNorm(x.lane) === id);
@@ -888,7 +939,7 @@ function laneRender() {
   note.textContent = l.error ? tl("ov.err.laneRecord", { error: l.error }) : "";
   document.getElementById("ld-record").replaceChildren(laneRecord(l));
   const usage = laneUsage(l);
-  document.getElementById("ld-usage").replaceChildren(usage);
+  document.getElementById("ld-usage").replaceChildren(...[].concat(usage));
   const rows = sp.rows.filter((r) => onLane(r, l.id));
   const body = document.querySelector("#ld-table tbody");
   body.replaceChildren(...rows.map(sessionRow));
