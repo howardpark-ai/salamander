@@ -3218,9 +3218,11 @@ mod_env_prefix() {
 #         itself and hands them only to the CLI process the SDK spawns (the CLI, with CLAUDE_CODE_ENTRYPOINT=sdk-py set by
 #         the SDK, never by hand), resumes the conversation, loads the user settings (hooks, plugins), the api lane's
 #         --mcp-config, and draws a ❯ box the pane's readers know. The CLI registers as every pane's does, so idle checks,
-#         /exit and the resume work as on any lane. While the record holds a refusal less than API_CREDIT_RETRY_S (6 h) old a row of sdk launches on subscription-1 (lane_for_session;
-#         the wrapper checks the record itself too), and a turn the credit refuses writes the record and puts the pane back on subscription-1 at once (the
-#         wrapper, exit 3 from the driver: row rewritten, one post, resumed on the subscription-1 line). No Remote Control (as api).
+#         /exit and the resume work as on any lane. While the record holds a refusal less than API_CREDIT_RETRY_S (6 h) old a row of sdk launches on the sdk lane's FALLBACK (lane_for_session;
+#         the wrapper checks the record itself too), and a turn the credit refuses writes the record and puts the pane on the fallback at once (the
+#         wrapper, exit 3 from the driver: row rewritten, one post, resumed on the fallback's line). The fallback is the lane fallback table's pick for
+#         sdk (SALA_LANE_FALLBACK, bedrock by default: lane_fallback_pick, so that lane must be active and ready); subscription-1 only as the last
+#         resort when the pick is not usable, said in the post and in lanes.log (sdk_fallback_lane, below). No Remote Control (as api).
 # The CLI picks its auth when the process starts (ANTHROPIC_API_KEY before the stored login; a config directory keeps its
 # own login), and the login in ~/.claude is untouched by a per-process key, so a switch is a relaunch with another env and
 # never a re-auth. STATE, in the XDG state dir like the map: lanes.tsv, one "<tmux session>\t<lane>" row per session with
@@ -3421,23 +3423,35 @@ lane_fields_problems() {  # <lane> → one line per field that breaks the spec (
 # THE CREDIT RECORD (lib/api_credit.py has the rule and the format, lib/api-credit.sh the shell side):
 # the API key's credit cannot be read, so the refusal is the signal. sdk_window_open → 0 while the key may be used: no refusal on
 # record in the last API_CREDIT_RETRY_S seconds (default 6 h). A refusal (the driver's exit 3, a briefing's "credit balance") writes
-# the record, and every sdk row launches on subscription-1 until the retry time passes; the first launch after it tries the key
+# the record, and every sdk row launches on the sdk lane's fallback (sdk_fallback_lane) until the retry time passes; the first launch after it tries the key
 # again, and a call that works removes the record. SALA_LANE_SDK_NOW is the tests' clock. There is no date gate (an earlier version had
 # SALA_LANE_SDK_UNTIL); a setting by that name in an old config is ignored.
 . "${BASH_SOURCE[0]%/*}/api-credit.sh"
 sdk_window_open() { api_credit_ok "${SALA_LANE_SDK_NOW:-}"; }
 sdk_closed_why() { local w; w=$(api_credit_when_local); printf 'the API credit refused a call%s' "${w:+ ($w)}"; }   # why the sdk lane is closed, for a message
-# lane_effective <lane> → the lane a launch really goes on: sdk after its window → subscription-1 (the credit is gone, the
-# key alone bills the workspace and the CLI on the key is the api lane; the launch goes back to the subscription-1 lane after the window expires)
-lane_effective() { case "${1:-subscription-1}" in sdk) sdk_window_open && echo sdk || echo subscription-1;; *) lane_norm "${1:-subscription-1}";; esac; }
-_lane_effective_r() { local _e; _lane_norm_r _e "${2:-subscription-1}"; if [ "$_e" = sdk ]; then sdk_window_open && _e=sdk || _e=subscription-1; fi; printf -v "$1" %s "$_e"; }   # <var> <lane>: lane_effective in a variable
+# _sdk_fallback_r <var> [<why var>] → the lane an sdk row launches on while the credit is refused, in <var>: the lane fallback table's pick for
+# sdk (lane_fallback_pick: SALA_LANE_FALLBACK, bedrock by default; that lane must be active and ready). When the pick is not usable (no entry or
+# `none`, dormant, not set up, out) the last resort is subscription-1, whose login has no credit to run out: never a lane that would refuse the turn
+# too. The reason, in plain words, goes to <why var> (empty when the table's pick stands). It forks, but only on this closed path.
+_sdk_fallback_r() {
+    local _t _w=""
+    if _t=$(lane_fallback_pick sdk); then
+        case "$_t" in ''|sdk|api) _w="the lane fallback table names no other lane than the API key's for sdk (SALA_LANE_FALLBACK)"; _t=subscription-1;; esac
+    else _w=$_t; _t=subscription-1; fi
+    printf -v "$1" %s "$_t"; [ -z "${2:-}" ] || printf -v "$2" %s "$_w"
+}
+sdk_fallback_lane() { local _f; _sdk_fallback_r _f; printf '%s\n' "$_f"; }   # → the lane an sdk row launches on while the credit is refused
+# lane_effective <lane> → the lane a launch really goes on: sdk after its window → its fallback (the credit is gone, the
+# key alone bills the workspace and the CLI on the key is the api lane; the launch goes back to sdk after the window expires)
+lane_effective() { case "${1:-subscription-1}" in sdk) if sdk_window_open; then echo sdk; else sdk_fallback_lane; fi;; *) lane_norm "${1:-subscription-1}";; esac; }
+_lane_effective_r() { local _e; _lane_norm_r _e "${2:-subscription-1}"; if [ "$_e" = sdk ] && ! sdk_window_open; then _sdk_fallback_r _e; fi; printf -v "$1" %s "$_e"; }   # <var> <lane>: lane_effective in a variable
 _lane_default_r() { local _l=""; { IFS= read -r _l < "$SALA_LANE_DEFAULT_FILE"; } 2>/dev/null; _l=${_l//[$' \t\r']/}; _lane_norm_r _l "$_l"; lane_known "$_l" || _l=subscription-1; _lane_effective_r "$1" "$_l"; }
 lane_default() { local l; _lane_default_r l; printf '%s\n' "$l"; }
 _lane_row_raw_r() { printf -v "$1" %s ""; [ -n "${2:-}" ] && [ -r "$SALA_LANES" ] && _tsv_col_r "$1" "$SALA_LANES" "$2" 2; return 0; }   # <var> <session> → the word in its row as the file holds it (an old name stays old)
 _lane_row_r() { _lane_row_raw_r "$1" "${2:-}"; _lane_norm_r "$1" "${!1}"; return 0; }   # <var> <session> → its own lane in <var> (the current name of a renamed lane; a row written before the rename still says awsplatform)
 lane_row() { local _l; _lane_row_r _l "${1:-}"; [ -n "$_l" ] && printf '%s\n' "$_l"; return 0; }   # <session> → its own lane, or nothing
 _lane_for_session_r() { local _fl; _lane_row_r _fl "${2:-}"; lane_known "$_fl" || _lane_pin_lane_r _fl "${2:-}"; if lane_known "$_fl"; then _lane_effective_r "$1" "$_fl"; else _lane_default_r "$1"; fi; }   # <var> <session>: its row, else its pin's lane (THE PINNED SESSIONS), else the default
-lane_for_session() { local l; _lane_for_session_r l "${1:-}"; printf '%s\n' "$l"; }   # <session> → the lane it launches on (its row, else its pin's lane, else the default; no session → the default; an sdk row after the window → subscription-1)
+lane_for_session() { local l; _lane_for_session_r l "${1:-}"; printf '%s\n' "$l"; }   # <session> → the lane it launches on (its row, else its pin's lane, else the default; no session → the default; an sdk row after the window → its fallback)
 lane_dir() { local _n; _lane_norm_r _n "${1:-}"; case "$_n" in subscription-2) echo "$SALA_LANE_TEAM_DIR";; esac; }   # <lane> → its config directory (subscription-2's: SALA_LANE_TEAM_DIR keeps its name)
 lane_rc() { local _n; _lane_norm_r _n "${1:-subscription-1}"; case "$_n" in api|sdk|bedrock|aws-platform) return 1;; esac; return 0; }   # <lane> → 0 when a claude on it can have a Remote Control bridge (a claude.ai login behind it)
 lane_plain_path() { case "$1" in ''|*[!A-Za-z0-9/._~+-]*) return 1;; esac; return 0; }   # typed into a shell unquoted: mod_env_prefix's test
@@ -3478,7 +3492,7 @@ lane_check() {
              lane_plain_path "$d" || { echo "$_ln lane: the config directory's path needs shell quoting, which a typed launch line cannot carry: $d"; return 1; }
              return 0 ;;
         sdk) # the key and the workspace id as api's (read by the driver, not a shell), then what the pane program needs
-             sdk_window_open || { echo "sdk lane: $(sdk_closed_why) — a session recorded on sdk launches on subscription-1 until then (API_CREDIT_RETRY_S)"; return 1; }
+             sdk_window_open || { echo "sdk lane: $(sdk_closed_why) — a session recorded on sdk launches on the $(lane_label "$(sdk_fallback_lane)") lane until then (API_CREDIT_RETRY_S)"; return 1; }
              [ -r "$SALA_LANE_API_KEY_FILE" ] || { echo "sdk lane: the key file $SALA_LANE_API_KEY_FILE is missing or unreadable (SALA_LANE_API_KEY_FILE)"; return 1; }
              [ -s "$SALA_LANE_API_KEY_FILE" ] || { echo "sdk lane: the key file $SALA_LANE_API_KEY_FILE is empty"; return 1; }
              if [ -e "$SALA_LANE_API_WORKSPACE_FILE" ]; then
@@ -4698,8 +4712,13 @@ resume_cmd() {
         [ "$reff" != - ] && effort_known "$reff" && eff="$reff"
     fi
     lane=$(lane_for_session "${2:-}")
-    # an sdk row after the credit's window launches on subscription-1 (lane_effective): said once per relaunch, here, in lanes.log
-    [ "$lane" = subscription-1 ] && [ "$(lane_row "${2:-}")" = sdk ] && lane_log fallback "${2:-}" "sdk → subscription-1 ($(sdk_closed_why); the row stays: salamander lane subscription-1 ${2:-<session>} to clear it)"
+    # an sdk row after the credit's window launches on the sdk lane's fallback (lane_effective, sdk_fallback_lane): said once per relaunch, here, in lanes.log;
+    # a Fable session is relaunched on the fallback's model when the fallback cannot run Fable (SALA_FALLBACK_NO_FABLE), for this line only
+    if [ "$lane" != sdk ] && [ "$(lane_row "${2:-}")" = sdk ]; then
+        local fbt fbw=""; _sdk_fallback_r fbt fbw
+        lane_log fallback "${2:-}" "sdk → $lane ($(sdk_closed_why)${fbw:+; last resort, the table pick is not usable: $fbw}; the row stays: salamander lane $lane ${2:-<session>} to clear it)"
+        case " $SALA_FALLBACK_NO_FABLE " in *" $lane "*) case "$fam" in fable|claude-fable-*) fam="$SALA_FALLBACK_FABLE_MODEL" ;; esac ;; esac
+    fi
     # the sdk lane's pane program in place of claude (lib/sdk-pane.sh): the model and effort go to it, the key never does
     # (the wrapper reads the lane's files itself); no mod prefix — the SDK's CLI loads the user settings, whose env names the mod
     [ "$lane" = sdk ] && { echo "$SALA_BIN sdk-pane $1 ${2:--}${fam:+ --model $fam}${eff:+ --effort $eff}"; return; }

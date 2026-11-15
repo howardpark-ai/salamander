@@ -84,6 +84,19 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/sdklane.sh`: the credit refusal follows the lane fallback table, bedrock by default, not a hard-coded subscription-1 (Sun Nov 15th 2026)
+
+An sdk pane whose turn the API credit refuses used to be put on `subscription-1`, whatever `SALA_LANE_FALLBACK` said for sdk (bedrock by default,
+the owner's standing call). It now goes to `lane_fallback_pick sdk` (`sdk_fallback_lane` in `lib/common.sh`: the pick must be active and ready),
+and to `subscription-1` only as the last resort when the pick is not usable, said in the post and in `lanes.log`. Every sdk-lane check that named
+subscription-1 as the fallback now names bedrock (the fixture profile gets its header in the throwaway credentials file so bedrock is ready); +13 checks
+(the default table; `SALA_LANE_FALLBACK=sdk=subscription-1` followed; a pick that is not ready; bedrock dormant, not set up, no entry or `none`, each the
+last resort with its reason; the bedrock line carrying no sdk/api key; a Fable session resumed on opus on the fallback line, and its model recorded as
+opus when a pane's refusal moves it; and one end-to-end pane with bedrock dormant going to subscription-1 with the post and the log saying why). Guards:
+a pane that sits on a lane the credit refuses (or one that cannot launch) loses every turn it is sent, and a Fable session on bedrock is refused outright.
+The post names the lane by its label and claims no login for a lane that has none. Not covered: a real refusal from the API (the stub SDK's `FAKE_SDK=credit`
+stands in), and Remote Control or claude.ai connector differences between the lanes (the fake claude has neither).
+
 ### `tests/syntax.sh`: 59 → 57
 
 Unchanged. Every tracked shell file parses, and the Python files too: the same gate `deploy.sh` runs before it
@@ -1061,8 +1074,8 @@ missing thing (the key file, the `--mcp-config` file — an SDK session has no c
 pane would come up with no portal and no GitHub — the interpreter, the window closed) and to read the clock from
 `SALA_LANE_SDK_NOW`, because panes relaunched onto a lane that cannot launch sit at their shells. `resume_cmd` is
 checked for the pane program's line (`salamander sdk-pane <uuid> <session>`, a model row's `--model` and `--effort`
-following), for carrying neither the key nor a `$(cat …)` (the wrapper reads the lane's files itself), and for the subscription
-line once the window is closed with one `fallback` line in `lanes.log` (a pane that kept resuming onto the sdk line after
+following), for carrying neither the key nor a `$(cat …)` (the wrapper reads the lane's files itself), and for the sdk lane's fallback
+line (bedrock by default, see the Nov 15th entry above) once the window is closed with one `fallback` line in `lanes.log` (a pane that kept resuming onto the sdk line after
 the credit would come up refused at every turn); `lane_for_session` and a default of `sdk` are checked around the instant
 itself. `spawn` on a default of `sdk` is checked to refuse before any tmux session is made. `sala lane sdk <session>` is
 checked end to end through the direct sweep: the row recorded, the pane relaunched, its program `sala-sdk` (a shell's name
@@ -1076,12 +1089,12 @@ reaching the SDK as a query; `tui_send`'s marked message arriving as typed; `/re
 sent as a prompt; nothing on the screen matching `pane_prompt`'s list; `is_idle_reason` idle on the SDK CLI's registry
 row. A later `revive --force --only` is checked to relaunch the sdk pane with the lane line `sdk → sdk` and the summary
 `(lane sdk)`, the old fake left by `/exit` (the stub's disconnect), and a model row's pair on the new SDK line. The credit
-fallback is checked end to end on a pane whose stub refuses every turn: the row rewritten to `subscription-1`, one post in plain
-words (back on the subscription login, why, the way back), the pane resumed on the subscription line at once (its program `claude`, no key),
-the table `subscription-1`/`subscription-1`, the refusal printed before the switch. A killed CLI is checked to leave the pane at its shell with
+fallback is checked end to end on a pane whose stub refuses every turn: the row rewritten to the fallback lane (`bedrock`), one post in plain
+words (moved to the Bedrock lane, why, the way back), the pane resumed on that lane's line at once (its program `claude`, no key),
+the table `bedrock`/`bedrock`, the refusal printed before the switch. A killed CLI is checked to leave the pane at its shell with
 a line, and the next revive to resume it on sdk through the shell-pane path (the lane line `none → sdk`), after `adopt`
 gave it a pane-map row. The wrapper's own date gate is checked with the clock set in the pane's environment: typed after
-the instant it runs the subscription line, the row stays `sdk`, and the table says what a relaunch does until the row is cleared.
+the instant it runs the fallback's line, the row stays `sdk`, and the table says what a relaunch does until the row is cleared.
 The switch is checked to refuse once the window is closed, recording and relaunching nothing. The pane program's usage
 refusals (no uuid, a bad uuid, a model that could not be typed) are kept because the line is typed into a shell. The mod
 in the SDK's CLI (a lane switch once left a session at the driver's box for 30 s: the real

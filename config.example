@@ -83,11 +83,11 @@
                                  #   ${XDG_STATE_HOME:-~/.local/state}/api-credit/state.json, docs/lanes.md "The sdk lane") the key is not tried again; the briefings and the sdk lane share it
                                  #   sdk (an alias of api with client claude-agent-sdk, and the next two settings are that client's): the api lane's key through the Agent SDK, which the API credit pays for while
                                  #   it lasts; the pane runs `salamander sdk-pane` (lib/sdk-pane.sh, contrib/sdk-pane/driver.py) in place of claude. While the
-                                 #   record holds a fresh refusal a session recorded on sdk is relaunched on subscription-1 (the row stays until `sala lane subscription-1 <session>`)
+                                 #   record holds a fresh refusal a session recorded on sdk is relaunched on the lane fallback's pick for sdk (SALA_LANE_FALLBACK: bedrock by default, subscription-1 when that is not active and ready; the row stays until `sala lane <that lane> <session>`)
 #SALA_LANE_SDK_PIN=claude-agent-sdk==0.2.165                 # sdk: the SDK `uv run --with` fetches for the driver (pinned to a smoke-tested version)
 #SALA_LANE_SDK_CMD=                                          # sdk: the driver's interpreter in place of `uv run --quiet --no-project --with <pin> python -I` (the tests' stub)
                                  #   sdk reuses SALA_LANE_API_KEY_FILE, SALA_LANE_API_WORKSPACE_FILE and SALA_LANE_API_MCP_CONFIG (the last one required: an SDK
-                                 #   session has no claude.ai connector). A turn the credit refuses puts the pane back on subscription-1 at once, with one post.
+                                 #   session has no claude.ai connector). A turn the credit refuses puts the pane on that fallback lane at once, with one post.
                                  #   Which lane each session runs on and the default for new ones are STATE, not config: ~/.local/state/salamander/
                                  #   lanes.tsv and lane-default, written by `sala lane` (nothing recorded = subscription-1, the launch line as before)
                                  #   Likewise a session's compact window (`claude --autocompact`): ~/.local/state/salamander/compact.tsv, one

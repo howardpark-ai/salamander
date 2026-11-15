@@ -24,7 +24,7 @@ feedback panel, no rename here). Nothing printed here matches a terminal prompt 
 EXIT: 0 — left on /exit, or the CLI ended on its own with 0 (the mod's exit, a SIGTERM); 1 — the CLI died or the SDK failed;
 2 — usage; 3 — THE CREDIT REFUSED A TURN (an assistant message with error billing_error, or "credit balance" in an error
 result or in the CLI's stderr): the driver first writes the shared credit record (lib/api_credit.py: ${XDG_STATE_HOME:-~/.local/state}/
-api-credit/state.json, so the briefings and every other job see the refusal too), then the wrapper puts the pane back on subscription-1.
+api-credit/state.json, so the briefings and every other job see the refusal too), then the wrapper puts the pane on the sdk lane's fallback (lane fallback table, bedrock by default; subscription-1 as the last resort).
 A turn that ends without an error removes the record (the key worked). The screen is cleared on the way out, as the
 CLI clears its own, so the shell's prompt comes up on a clean pane.
 """
@@ -208,7 +208,7 @@ class Driver:
                 text = " ".join(b.text for b in m.content if isinstance(b, TextBlock))
                 s.say(f"⚠ the API refused the turn ({m.error}): {one_line(text, 300)}")
                 if m.error == "billing_error" or CREDIT_RE.search(text):
-                    self.credit_refused("sala-sdk: the API credit refused this turn — leaving so the pane comes back on the subscription-1 login", f"{m.error}: {text}")
+                    self.credit_refused("sala-sdk: the API credit refused this turn — leaving so the pane comes back on the lane fallback (bedrock by default)", f"{m.error}: {text}")
             return
         if isinstance(m, UserMessage):
             o = m.origin   # an inbound turn (the inbox socket: a cue, stackshot, SendMessage): shown with where it came from
@@ -231,7 +231,7 @@ class Driver:
             if m.is_error:
                 s.say(f"⚠ {one_line(m.result or m.subtype, 300)}")
                 if CREDIT_RE.search(m.result or "") or self.stderr_credit:
-                    self.credit_refused("sala-sdk: the API credit refused this turn — leaving so the pane comes back on the subscription-1 login", m.result or "credit balance (the CLI's stderr)")
+                    self.credit_refused("sala-sdk: the API credit refused this turn — leaving so the pane comes back on the lane fallback (bedrock by default)", m.result or "credit balance (the CLI's stderr)")
             else:
                 api_credit.record_success()   # a turn the key paid for: the credit is there
             return
@@ -248,7 +248,7 @@ class Driver:
         except ProcessError as e:
             text = f"{e} {e.stderr or ''}"
             if CREDIT_RE.search(text) or self.stderr_credit:
-                self.credit_refused("sala-sdk: the API credit refused this session — leaving so the pane comes back on the subscription-1 login", text)
+                self.credit_refused("sala-sdk: the API credit refused this session — leaving so the pane comes back on the lane fallback (bedrock by default)", text)
             elif e.exit_code == 0 or self.exiting:
                 self.finish(EXIT_OK, "sala-sdk: the CLI ended — leaving")
             else:

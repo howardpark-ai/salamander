@@ -19,14 +19,15 @@
 #      sits here" (resume_send would type a resume line INTO the driver); check_pane takes a `sala-sdk` pane whose claude
 #      runs on sdk (proc_lane) as a claude pane
 #   2. the credit gate: while the shared record (lib/api_credit.py, ${XDG_STATE_HOME:-~/.local/state}/api-credit/state.json)
-#      holds a refusal less than API_CREDIT_RETRY_S (6 h) old it runs the subscription-1 line in its place (exec, so `claude` is the
-#      pane's program); with no refusal, or an older one, it starts the driver and the key is tried
+#      holds a refusal less than API_CREDIT_RETRY_S (6 h) old it runs the sdk lane's FALLBACK line in its place (exec, so `claude` is the
+#      pane's program): the lane fallback table's pick for sdk (SALA_LANE_FALLBACK, bedrock by default; sdk_fallback_lane in common.sh),
+#      subscription-1 only as the last resort when that pick is not active and ready; with no refusal, or an older one, it starts the driver and the key is tried
 #   3. runs the driver under `uv run --quiet --no-project --with <pin> python -I` (SALA_LANE_SDK_CMD in the tests), handing
 #      it the PATHS of the key, the workspace id and the --mcp-config (the api lane's files), sala's own claude launcher as
 #      the CLI (cli_path: the SDK's bundled CLI is another version, which a recycle would read as stale), the model and the
 #      effort; the key's value is read by the driver and goes only into the environment of the CLI it spawns
 #   4. the credit fallback: the driver exits 3 when a turn came back refused by the credit (billing_error / "credit balance") and
-#      has written the shared record; a turn that works removes it. On the 3 the row is rewritten to subscription-1, one post says so in plain words, and its line is exec'd here, at once — the pane
+#      has written the shared record; a turn that works removes it. On the 3 the row is rewritten to the fallback lane, one post says so in plain words, and its line is exec'd here, at once — the pane
 #      never sits refused. Any other exit leaves the pane at its shell with a line saying so; sala's next revive resumes it.
 # Exit: the driver's (0 left on /exit or the CLI's own end · 1 the CLI died or the SDK failed · 2 usage), or the exec'd line's.
 usage() { echo "usage: salamander sdk-pane <uuid> [<session>|-] [--model <model>] [--effort <level>]" >&2; exit 2; }
@@ -53,16 +54,18 @@ if [ "$RUN" = 0 ]; then
     exec -a sala-sdk "${BASH:-bash}" "$SALA_BIN" sdk-pane --run "$UUID" "${SESS:--}" ${MODEL:+--model "$MODEL"} ${EFFORT:+--effort "$EFFORT"}
 fi
 
-# exec_line <why> — the session's resume line with the credit record holding a refusal (the subscription-1 line, whatever the row says; the
-# subscription-1 line carries no key), run in this pane's place: `bash -c` execs a simple command, so the pane's program reads `claude`
+# exec_line <why> — the session's resume line with the credit record holding a refusal (the sdk lane's fallback line, whatever the row says: bedrock
+# by default, subscription-1 as the last resort; neither carries the API key: bedrock's names the AWS profile and ids, subscription-1's is the
+# plain login), run in this pane's place: `bash -c` execs a simple command, so the pane's program reads `claude`
 exec_line() {
-    local line; line=$(resume_cmd "$UUID" "$SESS")   # the record is closed by now: the date gate's caller found it so, and the exit-3 path below wrote it
+    local line on; line=$(resume_cmd "$UUID" "$SESS")   # the record is closed by now: the date gate's caller found it so, and the exit-3 path below wrote it
     case "$line" in *" sdk-pane "*) echo "sala-sdk: $1 — but the resume line is still the sdk lane's; the pane stays at its shell" >&2; exit 1 ;; esac
-    echo "sala-sdk: $1 — resuming on the subscription-1 line in this pane:"; echo "  $line"
+    on=$(lane_for_session "$SESS")
+    echo "sala-sdk: $1 — resuming on the $(lane_label "$on") lane's line in this pane:"; echo "  $line"
     exec "${BASH:-bash}" -c "$line"
 }
 
-# 2. the credit gate (common.sh sdk_window_open; the row stays, lane_for_session gives subscription-1, resume_cmd logs the fallback)
+# 2. the credit gate (common.sh sdk_window_open; the row stays, lane_for_session gives the sdk lane's fallback, resume_cmd logs it)
 sdk_window_open || exec_line "$(sdk_closed_why)"
 
 # 3. the driver
@@ -81,19 +84,24 @@ args=("$DRIVER" --resume "$UUID" --key-file "$SALA_LANE_API_KEY_FILE" --cli "$SA
 env -u ANTHROPIC_API_KEY -u ANTHROPIC_CUSTOM_HEADERS "${cmd[@]}" "${args[@]}"; rc=$?
 case "$rc" in
     0) exit 0 ;;
-    3)  # 4. the credit refused a turn: subscription-1 from now on, said once, the pane resumed there at once
-        echo "sala-sdk: the API credit refused this session's turn — back on the $(lane_label subscription-1) login"
+    3)  # 4. the credit refused a turn: the sdk lane's fallback from now on (the table's pick, subscription-1 as the last resort), said once, the pane resumed there at once
         sdk_window_open && api_credit_refuse "sdk-pane ${SESS:-$UUID}" "the driver exited 3: the credit refused a turn"   # the driver wrote the record; this is for a driver that could not
+        _sdk_fallback_r FB FBWHY   # the record is closed now (written above or by the driver): the table's pick, active and ready, else subscription-1
+        FBL=$(lane_label "$FB"); LAST=""; [ -z "$FBWHY" ] || LAST=" (the last resort: the lane fallback's pick for sdk is not usable — $FBWHY)"
+        echo "sala-sdk: the API credit refused this session's turn — on the $FBL lane now$LAST"
         if [ -n "$SESS" ]; then
-            lane_write "$SESS" subscription-1 || echo "sala-sdk: could not record the lane for '$SESS' (see above); the resume line below is subscription-1's for this launch only" >&2
-            lane_log fallback "$SESS" "sdk → subscription-1 (the credit refused a turn)"
-            "$SALA_BIN" alert "sala: $SESS is back on the $(lane_label subscription-1) login" \
-                "The API credit refused its turn (the sdk lane), so sala recorded the $(lane_label subscription-1) login for it and resumed the conversation there; the last message may need to be sent again." \
+            lane_write "$SESS" "$FB" || echo "sala-sdk: could not record the lane for '$SESS' (see above); the resume line below is $FBL's for this launch only" >&2
+            # a Fable session cannot run on every fallback (SALA_FALLBACK_NO_FABLE: bedrock): the same model change the lane fallback records
+            CHG=$(lane_fallback_model_change "$SESS" "$FB"); FBMODEL=""
+            if [ -n "$CHG" ]; then model_write "$SESS" "${CHG#*$'\t'}" && FBMODEL=" Its model changed from ${CHG%%$'\t'*} to ${CHG#*$'\t'}, which $FBL can run." || echo "sala-sdk: could not record the model change for '$SESS' ($SALA_MODELS): it may resume on a model $FBL cannot run" >&2; fi
+            lane_log fallback "$SESS" "sdk → $FB (the credit refused a turn${FBWHY:+; last resort, the table pick is not usable: $FBWHY})${CHG:+; model ${CHG%%$'\t'*} → ${CHG#*$'\t'}}"
+            "$SALA_BIN" alert "sala: $SESS moved to the $FBL lane" \
+                "The API credit refused its turn (the sdk lane), so sala recorded the $FBL lane for it (the lane fallback's pick for sdk${FBWHY:+, which was not usable, so the last resort: $FBWHY}) and resumed the conversation there; the last message may need to be sent again.$FBMODEL" \
                 "To put it back on the credit: salamander lane sdk $SESS" >/dev/null 2>&1 || true
         else
-            lane_log fallback - "sdk → subscription-1 (the credit refused a turn; no session name, nothing recorded)"
+            lane_log fallback - "sdk → $FB (the credit refused a turn; no session name, nothing recorded)"
         fi
-        [ -n "$SESS" ] || echo "sala-sdk: no session name was given, so nothing is recorded; the subscription-1 line for this launch only" >&2
-        exec_line "the credit refused a turn${SESS:+ ($SESS recorded on subscription-1)}" ;;
+        [ -n "$SESS" ] || echo "sala-sdk: no session name was given, so nothing is recorded; the default lane's line for this launch only" >&2
+        exec_line "the credit refused a turn${SESS:+ ($SESS recorded on $FB)}" ;;
     *)  echo "sala-sdk: the driver ended (exit $rc) — the pane is at its shell; sala's next revive resumes $UUID${SESS:+ for $SESS} on its lane" >&2; exit "$rc" ;;
 esac
