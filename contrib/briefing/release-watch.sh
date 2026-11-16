@@ -135,7 +135,10 @@ $2";; esac
     echo "relay: the Agent SDK turn answered '${OUT:-nothing}'; rerunning it with claude -p" >&2
   fi
   [ -x "$CLAUDE_BIN" ] || { echo "⚠️ couldn't reach $1 (claude CLI missing), so nobody was told"; return; }
-  OUT=$(cd "$RELAY_CWD" && timeout 180 "$CLAUDE_BIN" --model haiku \
+  # --strict-mcp-config with no --mcp-config: SendMessage and ListAgents are built-in tools, so the turn connects to no MCP server. A
+  # headless run that connects to the user-scope OAuth MCP server may renew its OAuth sign-in, whose rotated refresh token the CLI's per-process
+  # lock does not protect (anthropics/claude-code#85236, #91641): one such run can wipe the sign-in every session shares.
+  OUT=$(cd "$RELAY_CWD" && timeout 180 "$CLAUDE_BIN" --model haiku --strict-mcp-config \
         --allowedTools "SendMessage,ListAgents" \
         -p "$RPROMPT" 2>/dev/null | tail -1)
   case "$OUT" in
