@@ -8,7 +8,7 @@
 # command line, CODEX_HOME from SALA_CODEX_HOME and no API key variable in codex's environment, the prompt and the diff on stdin, an EMPTY working root) and
 # a second run for the same sha posting nothing, a new sha reviewed again; two runs at once for one PR (one codex run, one comment); a codex exit status, a
 # timeout (the stub's child gone), a limit message, a refusal, an empty answer: exit 0, no comment, and the next good run still posts; a long real review that
-# mentions the usage limit, and a short bullet or numbered review that quotes a limit or retry phrase in a finding, are posted (only a short PROSE first line is a refusal); an over-size diff skipped without a codex run; a gh failure; a comment that fails to post leaves no marker; the
+# mentions the usage limit, and a short bullet or numbered review that quotes a limit or retry phrase in a finding, are posted (only a short PROSE first line is a refusal; a bullet is a marker followed by whitespace, so a bold refusal is still one); an over-size diff skipped without a codex run; a gh failure; a comment that fails to post leaves no marker; the
 # privacy check on a public repo (PASS posts; a hit, a scan that exits 1 with a PASS line, a scan that cannot run, no scan command, a scan that times out and
 # an unreadable visibility each post only the withheld note, keep the text in the state folder with mode 600, and a re-run posts nothing more; a private
 # repo is posted without it); a body cut to 60000 characters; a state folder that cannot be written still exits 0. TMPDIR is the suite's own folder and is
@@ -49,6 +49,12 @@ case "$1" in
                empty)   : > "$out" ;;
                quote1)  echo "- limits.py:12: the usage limit never resets" > "$out" ;;
                quote2)  echo "- retry.py:3: add a try again later path" > "$out" ;;
+               boldrefuse) echo "**I'm sorry, but I can't help with that.**" > "$out" ;;
+               boldlimit)  echo "**You've hit your usage limit.**" > "$out" ;;
+               dash)    echo "- a.py:1: x" > "$out" ;;
+               star)    echo "* a.py:1: x" > "$out" ;;
+               num1)    echo "1. a.py:1: x" > "$out" ;;
+               num2)    echo "1) a.py:1: x" > "$out" ;;
                later)   printf -- '- a.py:1: a bug\n\nYou have hit your usage limit. Try again later.\n' > "$out" ;;
                numbered) printf '1. b.py:2: I cannot help but notice the usage limit is wrong\n' > "$out" ;;
                long)    { echo "- src/limits.py:10: the check never resets the usage limit counter."; head -c 1300 /dev/zero | tr '\0' 'x'; echo; } > "$out" ;;
@@ -178,6 +184,14 @@ for m in exit3 sleep limit refusal empty; do
 done
 reset; echo long > "$FAKE_DIR/mode"; cr "$REPO" 5
 [ "$(ncomments)" = 1 ] && grep -q "usage limit counter" "$FAKE_DIR/comment.1" && ok "a long real review that mentions the usage limit is posted, not mistaken for a limit message" || bad "long: comments=$(ncomments) log=$(logtext)"
+for m in dash star num1 num2; do   # a bullet is a marker followed by whitespace: each of these shapes is a review and is posted
+    reset; echo "$m" > "$FAKE_DIR/mode"; cr "$REPO" 5
+    [ "$(ncomments)" = 1 ] && [ -d "$STATE/done" ] && ok "a review that starts with the bullet shape '$m' is posted" || bad "$m: comments=$(ncomments) log=$(logtext)"
+done
+for m in boldrefuse boldlimit; do   # a bold refusal or limit line starts with a star but is no bullet: nothing is posted, no marker
+    reset; echo "$m" > "$FAKE_DIR/mode"; cr "$REPO" 5
+    [ "$rc" = 0 ] && [ "$(ncomments)" = 0 ] && [ ! -d "$STATE/done" ] && logtext | grep -q "refusal or a limit message" && ok "a bold refusal or limit line ($m) is no review: nothing posted, no marker" || bad "$m: rc=$rc comments=$(ncomments) log=$(logtext)"
+done
 for m in quote1 quote2 later numbered; do   # a real review that quotes a limit or retry phrase in a finding is posted, whatever line or bullet it sits in
     reset; echo "$m" > "$FAKE_DIR/mode"; cr "$REPO" 5
     [ "$(ncomments)" = 1 ] && [ -d "$STATE/done" ] && ok "a short review with a finding that quotes a limit phrase ($m) is posted, not dropped" || bad "$m: comments=$(ncomments) log=$(logtext)"

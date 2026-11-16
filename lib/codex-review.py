@@ -42,7 +42,8 @@ BAD_ANSWER = re.compile(
     r"\bi (can't|cannot|can not|am unable to|'m unable to|won't) (help|assist|comply|review)|"
     r"\bi'm sorry,? (but )?i (can|cannot)|unable to (help|assist|comply)", re.I)
 BAD_ANSWER_MAX = 1000
-REVIEW_START = re.compile(r"[-*\u2022\d]|no findings\.?\s*$", re.I)    # a bullet marker, a digit (1. ...), or "No findings."
+# a bullet is a marker FOLLOWED BY WHITESPACE ("- x", "* x", "1. x", "1) x"), or "No findings."; "**bold**" or a bare number is prose
+REVIEW_START = re.compile(r"[-*\u2022]\s|\d+[.)]\s|no findings\.?\s*$", re.I)
 
 
 def is_bad_answer(answer):
