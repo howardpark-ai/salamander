@@ -18,7 +18,7 @@
 3. Runs `codex exec --sandbox read-only --skip-git-repo-check -C <an empty temporary folder> --output-last-message <file> -` with the review prompt and the diff on stdin,
    for at most `SALA_CODEX_TIMEOUT` seconds (then its whole process group is ended). Codex sees the diff and an empty working folder, nothing of the checkout.
    The prompt asks for correctness bugs, risky changes and missing tests or docs, as short bullets with file and line, at most 40 lines, and `No findings.` when there are none.
-4. A non-zero exit, a timeout, an empty answer, or a short answer that is a refusal or a usage-limit message is logged and **posts nothing**, and leaves no marker, so the next call tries again.
+4. A non-zero exit, a timeout, an empty answer, or a short answer that is a refusal or a usage-limit message (judged on the first non-blank line alone, and only when that line is prose: an answer that starts with a bullet marker, a digit or `No findings.` is a review, whatever its findings quote, and so is anything over 1000 characters) is logged and **posts nothing**, and leaves no marker, so the next call tries again.
 5. A good answer goes through the privacy check (below) and is posted with `gh pr comment <pr> --repo <repo> --body-file`, headed
    `Codex review (trial, read-only, a second opinion and not a gate) of <sha7>`, cut to 60000 characters.
 
@@ -48,7 +48,7 @@ Read from `~/.config/salamander/config` or the environment (`release.sh` passes 
 | `SALA_CODEX_MAX_DIFF` | `300000` | bytes; a larger diff is skipped |
 | `SALA_CODEX_TIMEOUT` | `900` | seconds Codex may run |
 | `SALA_CODEX_PUBLIC_SCAN` | unset | the privacy check's command (above); unset withholds |
-| `SALA_CODEX_SCAN_TIMEOUT` | `120` | seconds the privacy check may run |
+| `SALA_CODEX_SCAN_TIMEOUT` | `300` | seconds the privacy check may run |
 
 Codex signs in through a ChatGPT seat (`CODEX_HOME=~/.config/codex codex login`). No API key is used and none may be added: `OPENAI_API_KEY` and `CODEX_API_KEY` are removed from the environment Codex runs in.
 

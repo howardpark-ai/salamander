@@ -440,4 +440,4 @@
 #SALA_CODEX_TIMEOUT=900           # seconds Codex may take; then its process group is ended and nothing is posted
 #SALA_CODEX_PUBLIC_SCAN=          # the command of the privacy check a review passes before it is posted on a public repo, called as `<command> scan <dir> --repo <name>`
 #                                  (exit 0 and a PASS line = pass). Unset (the default): such a review is withheld and kept in the state folder, never posted unchecked
-#SALA_CODEX_SCAN_TIMEOUT=120      # seconds the privacy check may take; over it the review is withheld
+#SALA_CODEX_SCAN_TIMEOUT=300      # seconds the privacy check may take; over it the review is withheld

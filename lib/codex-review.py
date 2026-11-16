@@ -34,14 +34,23 @@ Write at most 40 lines in all.
 If there is nothing to report, answer exactly: No findings.
 Do not restate the diff.
 """
-# an answer that is a refusal or a usage-limit message, not a review. Applied to a short answer only: a real review of a change to
-# rate limiting may say "rate limit" and must not be dropped for it.
+# an answer that is a refusal or a usage-limit message, not a review. Applied to a short answer's FIRST non-blank line only, and only when that
+# line is prose: a real review is bullets (or "No findings.") and may quote these very phrases in a finding, and must not be dropped for it.
 BAD_ANSWER = re.compile(
     r"usage limit|hit your .{0,40}limit|reached (your|the) .{0,40}limit|(exceeded|over) (your|the) .{0,30}(quota|limit)|"
     r"try again (later|in |at )|upgrade to (plus|pro)|"
     r"\bi (can't|cannot|can not|am unable to|'m unable to|won't) (help|assist|comply|review)|"
     r"\bi'm sorry,? (but )?i (can|cannot)|unable to (help|assist|comply)", re.I)
 BAD_ANSWER_MAX = 1000
+REVIEW_START = re.compile(r"[-*\u2022\d]|no findings\.?\s*$", re.I)    # a bullet marker, a digit (1. ...), or "No findings."
+
+
+def is_bad_answer(answer):
+    """True when a short answer is a refusal or a limit message: its first non-blank line is prose that matches BAD_ANSWER."""
+    if len(answer) > BAD_ANSWER_MAX:
+        return False
+    first = next((ln.strip() for ln in answer.splitlines() if ln.strip()), "")
+    return not REVIEW_START.match(first) and bool(BAD_ANSWER.search(first))
 
 
 class Skip(Exception):
@@ -200,7 +209,7 @@ def review(repo, pr, state_dir, log):
             answer = ""
         if not answer:
             raise Skip("codex gave an empty answer: nothing posted")
-        if len(answer) <= BAD_ANSWER_MAX and BAD_ANSWER.search(answer):
+        if is_bad_answer(answer):
             raise Skip("codex answered with a refusal or a limit message, not a review: nothing posted (%s)" % tail(answer.encode(), 200))
 
         # 5. compose, check, post
