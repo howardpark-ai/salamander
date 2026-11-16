@@ -72,6 +72,7 @@ assistant is doing the install, give it [docs/sala-guide-for-ai.md](docs/sala-gu
 | [permission-hook.md](docs/permission-hook.md) | Answering routine permission dialogs automatically |
 | [stuck-question-recovery.md](docs/stuck-question-recovery.md) | What happens when a session waits on a question only a person can answer |
 | [ci-runs.md](docs/ci-runs.md) | The CI-run poller and its files |
+| [codex-review.md](docs/codex-review.md) | The trial Codex review posted on a PR |
 | [merge-queues.md](docs/merge-queues.md) | The three ways a PR reaches `main` |
 | [mq.md](docs/mq.md) | `sala mq`, our own merge queue |
 | [mockup.md](docs/mockup.md) | Showing a design as a numbered web page |

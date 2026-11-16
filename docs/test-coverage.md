@@ -84,6 +84,22 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/codex-review.sh`: new, 65 (Mon Nov 16th 2026); `tests/release.sh` +10
+
+`salamander codex-review <owner/repo> <pr>` (`lib/codex-review.sh`, `lib/codex-review.py`, `docs/codex-review.md`) and the detached start from `release.sh --run`. Kept because
+the verb posts text on public repos and runs beside every release: a wrong answer here is a public comment carrying something private, a second comment for one commit, or a
+release that waits on a review. Run through the real verb in a locked temporary HOME against a stub `codex`, `gh` and public scan on PATH that log every call and are steered by
+files; no network, no real Codex, no sign-in. Checked: no arguments, a bad pr, three arguments and a bad repo exit 2 with the shape of the call, `--help` exits 0; another repo and
+`SALA_CODEX_REVIEW=off` call nothing; not signed in calls no `gh` and posts nothing; a good answer posts one comment headed with the seven-character sha, with the exact codex command line,
+`CODEX_HOME` from `SALA_CODEX_HOME`, no `OPENAI_API_KEY` or `CODEX_API_KEY` in codex's environment, the prompt and the diff on stdin and an empty working folder; the same sha again posts
+nothing and a new sha is reviewed; two runs at once give one codex run and one comment; a codex exit status, a timeout (the stub's child is gone), a limit message, a refusal and an empty
+answer exit 0, post nothing, leave no marker, and the next good run posts; a long real review that mentions the usage limit is posted; an over-size diff, a gh failure and a comment that
+fails to post; on a public repo a scan PASS posts, and a hit, a PASS line with exit 1, a command that cannot run, no command set, a timeout and an unreadable visibility each post only the
+withheld note, keep the text at mode 600 and post nothing on a re-run, while a private repo posts without the check; both repo names; a 70000-character answer cut to 60000; an unwritable
+state folder still exits 0; TMPDIR empty at the end. `tests/release.sh` gains: an open PR starts a transient unit `salamander-codex-review-<pr>-<time>` before the merge with its own log; a merged PR,
+`--merged` and a checkout with no `bin/salamander` log "not started"; no user unit falls back to `setsid nohup` and the stub runs; a stub that exits 1 never changes the release; a stub that sleeps
+3 s is not waited for. Not covered, and why: the real Codex CLI, `gh` and public scan (no sign-in yet; the stubs stand in), and what Codex answers.
+
 ### `tests/sdklane.sh`: the credit refusal follows the lane fallback table, bedrock by default, not a hard-coded subscription-1 (Sun Nov 15th 2026)
 
 An sdk pane whose turn the API credit refuses used to be put on `subscription-1`, whatever `SALA_LANE_FALLBACK` said for sdk (bedrock by default,

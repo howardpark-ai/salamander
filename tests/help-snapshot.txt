@@ -169,6 +169,11 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      read GitHub yourself then (lib/cipoll.sh, lib/cipoll.py, docs/ci-runs.md)
   salamander ci-poll           the resident CI-run poller (sala-cipoll.service): one conditional `gh api -i` read of each repo in ~/.config/salamander/ci-repos
                                      (the tracked lib/ci-repos lists none) every SALA_CIPOLL_INTERVAL s (60), one atomic file per repo under ~/.local/state/salamander/ci-runs/
+  salamander codex-review <owner/repo> <pr>
+                                     a trial: OpenAI's Codex CLI reviews the PR's diff read-only and the review is posted as a comment on it (lib/codex-review.sh,
+                                     lib/codex-review.py, docs/codex-review.md). Only the two repos it names; one review per head sha; a review passes the public scan
+                                     before it is posted on a public repo. Never blocks or fails a merge or release: exit 0 for a valid call, one short line, log under
+                                     ~/.local/state/salamander/codex-review/; SALA_CODEX_REVIEW=off turns it off. release.sh --run starts it detached for an open PR
   salamander mq add N… | status [--json] | drop N | pause | resume | wait N [--timeout S] | doctor   [--repo OWNER/NAME]
                                      our own merge queue for a repo without GitHub's (lib/mq.sh, lib/mq/, docs/mq.md): PRs wait in a line, each one is
                                      an entry stacked on the entry ahead, pushed as a queue/main/g<seq> branch and tested at once, a failed one is failed alone. Host file mode = "shadow" tests and writes
@@ -420,6 +425,19 @@ usage: salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
   ci-poll  the resident poller (sala-cipoll.service): every SALA_CIPOLL_INTERVAL s (60) one conditional read (ETag; a 304 is free) of
            repos/<repo>/actions/runs?per_page=30 for each repo in ~/.config/salamander/ci-repos (else lib/ci-repos, which lists none), one atomic file per repo.
            A GitHub error keeps the old file and backs off (doubling to SALA_CIPOLL_BACKOFF_MAX s, 600; a rate limit waits for its reset).
+
+### sala codex-review --help (exit 0)
+usage: salamander codex-review <owner/repo> <pr>
+
+  Has OpenAI's Codex CLI review the head of pull request <pr> of <owner/repo> (read-only: the diff only) and posts the review as a comment
+  on the PR. A trial and a second opinion: it never blocks, delays or fails a merge or a release, so for a valid call it ALWAYS exits 0
+  and prints one short line; a start from a script is detached and never waited for. Only howardpark-ai/salamander and howardpark-ai/stackshot
+  are reviewed; any other repo is logged and left alone. One review per head sha. Exit 2 = a wrong call (this text on stderr).
+  Log: <state>/codex-review/<owner>__<repo>-pr-<n>.log (~/.local/state/salamander/...), times in UTC. docs/codex-review.md.
+  Settings (config file or environment): SALA_CODEX_REVIEW=off turns it off; SALA_CODEX_BIN (default ~/.local/bin/codex);
+  SALA_CODEX_HOME (default ~/.config/codex, never ~/.codex); SALA_CODEX_MAX_DIFF bytes (300000), over it the PR is skipped;
+  SALA_CODEX_TIMEOUT seconds (900); SALA_CODEX_PUBLIC_SCAN, the command of the privacy check a review passes before it is posted on a
+  public repo (unset: the review is withheld, never posted unchecked).
 
 ### sala mq --help (exit 0)
 usage: salamander mq add N… [--flag recycle] [--repo OWNER/NAME]

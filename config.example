@@ -433,3 +433,11 @@
 #SALA_BRIEFING_MODEL=sonnet      # the model the briefing digests call (contrib/briefing/lib.sh). Read from the environment of the digest's unit, not from this file. Default: sonnet
 #                                 The web UI's other variables are all named SALA_WEB_<NAME> (SALA_WEB_ROLES_CMD, SALA_WEB_PAGE_DIRS, SALA_WEB_BRAIN_DIR, SALA_WEB_TMUX_SOCKET,
 #                                 SALA_WEB_TERMINAL_URL, SALA_WEB_STACKSHOT_WEB, SALA_WEB_STACKSHOT_STATE, ...): web/README.md lists each one
+#SALA_CODEX_REVIEW=on            # off = `salamander codex-review` does nothing (the trial Codex review of a PR, docs/codex-review.md). Default: on
+#SALA_CODEX_BIN=~/.local/bin/codex   # the Codex CLI. It runs with CODEX_HOME=SALA_CODEX_HOME, signed in through a ChatGPT seat, never with an API key
+#SALA_CODEX_HOME=~/.config/codex     # Codex's own state folder for this review (never ~/.codex)
+#SALA_CODEX_MAX_DIFF=300000       # bytes: a PR whose diff is larger is skipped and logged, not reviewed
+#SALA_CODEX_TIMEOUT=900           # seconds Codex may take; then its process group is ended and nothing is posted
+#SALA_CODEX_PUBLIC_SCAN=          # the command of the privacy check a review passes before it is posted on a public repo, called as `<command> scan <dir> --repo <name>`
+#                                  (exit 0 and a PASS line = pass). Unset (the default): such a review is withheld and kept in the state folder, never posted unchecked
+#SALA_CODEX_SCAN_TIMEOUT=120      # seconds the privacy check may take; over it the review is withheld
