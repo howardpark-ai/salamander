@@ -4,12 +4,20 @@ keydown Chromium loses while the IME is switching) can be read off afterwards in
 
 The page (static/termclip.js `hookShellTerminal`) listens on the terminal frame and posts batches to `POST /api/shell/keylog`.
 Nothing the person types may land here, so the rule is held twice, in the page and again here, where a buggy or hostile client
-is met: a keydown or keyup is kept only when its `key` is a NAME (`Alt`, `HangulMode`, `Process`, `Enter`, ...: ASCII letters and
-digits, two or more of them), never a typed character. A composition event is kept as `{t, type}` and nothing else: its `data` is
-the text the IME is composing, which is typed text (a password typed in Korean mode), and a cap per event would not hold it, since
-successive updates spell a whole secret out. That the composition started, updated and ended, and when, is what tells whether the
-Hangul mode switched. Every field is checked for type and range and an event with any other field (a composition event with `data`
-included), a missing one or a bad value is dropped whole; what is stored is rebuilt from the checked fields.
+is met. The log records which NON-CHARACTER keys were pressed and when, and that IME activity happened and when, never which
+letter keys:
+- a keydown or keyup is kept only when its `key` is on the list KEY_NAMES (`Alt`, `HangulMode`, `Process`, `Enter`, `F5`, ...), by
+  exact match; a typed character, or any name no key sends, drops the event;
+- its `code` (the physical key) is kept only from the list CODES (`AltRight`, `Lang1`, `Enter`, ...) or empty; a code that names a
+  letter, digit, punctuation or numpad key (`KeyG`, `Digit1`, `Comma`, `Numpad5`, `Space`) is never stored; its `keyCode` only from
+  KEYCODES, else 0;
+- an IME event (`key` Process, Unidentified, Dead or Compose, or `isComposing`, or `keyCode` 229) keeps the physical `code`, the real
+  `keyCode` and the Shift state of the key behind it in the browser, which on a 2-set Korean layout spell the Hangul being typed
+  (a password): the server rewrites such an event to code "", keyCode 0, shift false, whatever the client sent, so an old client
+  that still sends `Process` with `KeyG` is rewritten, never stored as sent;
+- a composition event is `{t, type}` and nothing else: its `data` is the text being composed.
+Every field is checked for type and range and an event with any other field, a missing one or a bad value is dropped whole; what is
+stored is rebuilt from the checked fields.
 
 The file, `<state_dir>/shell-keylog.jsonl`: one JSON object a line, mode 0600, never over MAX_FILE bytes: a write that would pass
 the cap first keeps the newest half of the file (rewritten through a temp file in the same folder, then renamed over it).
@@ -34,8 +42,27 @@ COMPOSITION_EVENTS = ("compositionstart", "compositionupdate", "compositionend")
 KEY_FIELDS = frozenset({"t", "type", "key", "code", "keyCode", "isComposing", "shift", "ctrl", "alt", "meta"})
 COMPOSITION_FIELDS = frozenset({"t", "type"})   # no text: a composition is what the person is typing
 FLAGS = ("isComposing", "shift", "ctrl", "alt", "meta")
-KEY_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]{1,23}")   # a key's name: never a single typed character
-CODE_NAME = re.compile(r"[A-Za-z0-9]{0,24}")         # a physical key's name (AltRight, Lang1, KeyA, ...), empty when the browser has none
+# The names of keys that type no character (KeyboardEvent.key), by exact match: the same list is in termclip.js (KEYLOG_KEYS).
+KEY_NAMES = frozenset({
+    "Alt", "AltGraph", "Control", "Shift", "Meta", "CapsLock", "NumLock", "ScrollLock", "HangulMode", "HanjaMode", "JunjaMode",
+    "KanjiMode", "KanaMode", "Convert", "NonConvert", "Process", "Unidentified", "Dead", "Compose", "Enter", "Backspace", "Delete",
+    "Tab", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Insert", "ContextMenu",
+    "Clear", *(f"F{n}" for n in range(1, 25))})
+# The physical names (KeyboardEvent.code) of those same keys, and empty when the browser has none. Never a letter, digit, punctuation
+# or numpad digit key.
+CODES = frozenset({
+    "", "AltLeft", "AltRight", "ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight", "CapsLock", "NumLock",
+    "ScrollLock", "Lang1", "Lang2", "Lang3", "Lang4", "Lang5", "Convert", "NonConvert", "KanaMode", "Enter", "NumpadEnter", "Backspace",
+    "Delete", "Tab", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Insert",
+    "ContextMenu", *(f"F{n}" for n in range(1, 25))})
+# The legacy keyCodes of those keys (Backspace 8, Tab 9, Clear 12, Enter 13, Shift 16, Control 17, Alt 18, CapsLock 20, Hangul 21,
+# Junja 23, Hanja 25, Escape 27, Convert 28, NonConvert 29, paging and arrows 33-40, Insert 45, Delete 46, Meta and ContextMenu 91-93,
+# F1 to F24 112-135, NumLock 144, ScrollLock 145); 229 (an IME's "processing") is an IME event, rewritten below. Any other keyCode is
+# stored as 0.
+KEYCODES = frozenset({8, 9, 12, 13, 16, 17, 18, 20, 21, 23, 25, 27, 28, 29, *range(33, 41), 45, 46, 91, 92, 93, *range(112, 136), 144, 145})
+IME_KEYS = frozenset({"Process", "Unidentified", "Dead", "Compose"})
+IME_KEYCODE = 229
+CODE_SHAPE = re.compile(r"[A-Za-z0-9]{0,24}")        # what a code looks like, checked before an IME event's is rewritten
 
 
 def _int(v: object, lo: int, hi: int) -> bool:
@@ -52,13 +79,19 @@ def clean(event: object) -> dict | None:
     if kind in KEY_EVENTS:
         if set(event) != KEY_FIELDS:
             return None
-        key, code = event["key"], event["code"]
-        if not (isinstance(key, str) and KEY_NAME.fullmatch(key) and isinstance(code, str) and CODE_NAME.fullmatch(code)):
+        key, code, key_code = event["key"], event["code"], event["keyCode"]
+        if not (isinstance(key, str) and key in KEY_NAMES and isinstance(code, str) and CODE_SHAPE.fullmatch(code)):
             return None
-        if not _int(event["keyCode"], 0, 65535) or not all(isinstance(event[f], bool) for f in FLAGS):
+        if not _int(key_code, 0, 65535) or not all(isinstance(event[f], bool) for f in FLAGS):
             return None
-        return {"t": event["t"], "type": kind, "key": key, "code": code, "keyCode": event["keyCode"],
-                **{f: event[f] for f in FLAGS}}
+        out = {"t": event["t"], "type": kind, "key": key, "code": code, "keyCode": key_code, **{f: event[f] for f in FLAGS}}
+        if key in IME_KEYS or out["isComposing"] or key_code == IME_KEYCODE:
+            out.update(code="", keyCode=0, shift=False)     # the key behind an IME event is a letter of what is being typed
+        elif code not in CODES:
+            return None
+        elif key_code not in KEYCODES:
+            out["keyCode"] = 0
+        return out
     if kind in COMPOSITION_EVENTS:
         if set(event) != COMPOSITION_FIELDS:
             return None

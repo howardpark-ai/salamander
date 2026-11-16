@@ -1502,13 +1502,30 @@ whole pixel and change nothing the eye can see. The font file has a regular weig
 records what the keyboard sends to the frame so the cause can be read rather than guessed (a keyboard type that reads right Alt as a plain
 Alt, or a browser that loses the keydown while the IME switches). Capture-phase listeners on the frame's document record `keydown`,
 `keyup`, `compositionstart`, `compositionupdate` and `compositionend` as `{t (ms since the epoch), type, key, code, keyCode,
-isComposing, shift, ctrl, alt, meta}` (a composition event: `{t, type}` only). **A keydown or keyup is
-recorded only when its `key` is a name** (letters and digits, two or more: `Alt`, `HangulMode`, `Process`, `Convert`, `Unidentified`,
-`Backspace`, `Enter`, ...), never a single typed character, so typed text and passwords are not in it; **a composition event carries
-no text** (its `data` is what the person is typing in Korean mode, a password included, and a cap per event would still let successive
-updates spell it out), only that it started, updated or ended and when, which shows whether the Hangul mode switched. The page posts batches of at most
-50 to **`POST /api/shell/keylog`** every 2 seconds while it has any and when the page is hidden. The server (`keylog.py`) checks every field
-again (types, lengths, the fixed list of event types, ranges), drops an event with any other shape, and appends one JSON line per event to
+isComposing, shift, ctrl, alt, meta}` (a composition event: `{t, type}` only). **The log records which non-character keys were
+pressed and when, and that IME activity happened and when, never which letter keys**, so typed text and passwords (a Korean one
+included) are not in it:
+- a keydown or keyup is recorded only when its `key` is on a fixed list (exact match: `Alt`, `AltGraph`, `Control`, `Shift`, `Meta`,
+  `CapsLock`, `NumLock`, `ScrollLock`, `HangulMode`, `HanjaMode`, `JunjaMode`, `KanjiMode`, `KanaMode`, `Convert`, `NonConvert`, `Process`,
+  `Unidentified`, `Dead`, `Compose`, `Enter`, `Backspace`, `Delete`, `Tab`, `Escape`, the arrows, `Home`, `End`, `PageUp`, `PageDown`,
+  `Insert`, `ContextMenu`, `Clear`, `F1` to `F24`); a typed character, or a name no key sends, drops the event;
+- its `code` must be one of the same keys' physical names (`AltLeft`, `AltRight`, `Lang1` to `Lang5`, `Enter`, `NumpadEnter`, ...) or
+  empty, and a code that names a letter, digit, punctuation or numpad digit key (`KeyA`, `Digit1`, `Comma`, `Numpad5`, `Space`)
+  is never stored; its `keyCode` is kept only from a fixed list of those keys' codes (8, 9, 12, 13, 16, 17, 18, 20, 21, 23, 25, 27, 28,
+  29, 33-40, 45, 46, 91-93, 112-135, 144, 145), else 0;
+- **an IME event** (`key` `Process`, `Unidentified`, `Dead` or `Compose`, or `isComposing`, or `keyCode` 229) is stored with
+  `code` `""`, `keyCode` 0 and `shift` false, because in a Korean IME the browser keeps the physical code, the real keyCode and the Shift state
+  of the key behind it, which on a 2-set layout spell the Hangul being typed (a password at a prompt); `isComposing` and the ctrl, alt and meta
+  flags stay as they were. The server does the same whatever the client sent: an old client that sends `Process` with `KeyG` is rewritten,
+  not stored as sent;
+- **a composition event carries no text** (its `data` is what the person is typing, and a cap per event would still let successive
+  updates spell it out), only that it started, updated or ended and when.
+
+What stays readable is what the log is for: the Hangul/English key as `HangulMode` or as `Process` with the keys around it, right Alt as
+`Alt` with `AltRight`, Enter and the rest, and when IME activity happened, which shows whether the Hangul mode switched. A `Process` event
+on the Hangul/English key itself is stored without its `Lang1` (an IME event keeps no code); the `HangulMode` and `Alt` events beside it say
+which key it was. The page posts batches of at most 50 to **`POST /api/shell/keylog`** every 2 seconds while it has any and when the page is hidden. The server (`keylog.py`) checks every field
+again (types, the fixed lists of event types, key names, codes and keyCodes, ranges, the IME rewrite), drops an event with any other shape, and appends one JSON line per event to
 **`<state_dir>/shell-keylog.jsonl`** (`~/.local/state/sala-web/` for the packaged unit), mode 0600, never past 256 KB: a write that would pass
 the cap first keeps the newest half of the file (a temp file in the same folder, renamed over it, under a lock). Read it with `tail` on the
 box; no route reads it back. A temporary diagnostic: remove the key log with the hook's `attachKeyLog` and `keylog.py` when the cause is known.
@@ -1849,7 +1866,7 @@ part of `web/`.
 | `POST /api/s/<pid>/send` | `{"text": "...", "uploads": ["<name as /api/upload returned it>"]}` as `application/json`; with a dialog open, `{"text": "2"}` or `{"text": "esc"}` answers it (`dialogAnswer` in the reply) |
 | `POST /api/shell/open` | `{}` as `application/json` → `{ok, session: "<SALA_SHELL_SESSION>", created}`: makes the shell drawer's tmux session (a plain `bash -l` in the home directory) when it is missing, under a lock; `created` is true when it had to (*The shell drawer*); 403/415 as every POST, 502 when tmux cannot make it |
 | `POST /api/shell/keys` | `{"key": "<name>"}` as `application/json`, `name` one of `Escape`, `Tab`, `Up`, `Down`, `Left`, `Right`, `Enter`, `BSpace`, `C-a`..`C-z` → `{ok, sent}`: `tmux send-keys -t =<SALA_SHELL_SESSION>: <name>`; any other name 400 and nothing sent, 502 when the session is not there; 403/415 as every POST |
-| `POST /api/shell/keylog` | a JSON list of at most 50 events as `application/json` (32 KB at most), from the Shell's terminal frame: `{t, type: keydown\|keyup, key, code, keyCode, isComposing, shift, ctrl, alt, meta}` or `{t, type: compositionstart\|compositionupdate\|compositionend}` (no other field) → `{ok, n}`, n the events kept, one JSON line each in `<state_dir>/shell-keylog.jsonl` (0600, 256 KB at most, the newest half kept past it; *The shell drawer*). A key event is kept only when `key` is a name of two to 24 letters and digits, never a typed character, and a composition event with a `data` field (or any other) is dropped, never written; an event of any other shape is dropped, not an error; a body that is not such a list (or over 50 events or 32 KB, or not JSON) is 400; 403/415 as every POST |
+| `POST /api/shell/keylog` | a JSON list of at most 50 events as `application/json` (32 KB at most), from the Shell's terminal frame: `{t, type: keydown\|keyup, key, code, keyCode, isComposing, shift, ctrl, alt, meta}` or `{t, type: compositionstart\|compositionupdate\|compositionend}` (no other field) → `{ok, n}`, n the events kept, one JSON line each in `<state_dir>/shell-keylog.jsonl` (0600, 256 KB at most, the newest half kept past it; *The shell drawer*). It records which non-character keys were pressed and when and that IME activity happened and when, never which letter keys: a key event is kept only when `key` is on the fixed list (`Alt`, `HangulMode`, `Process`, `Enter`, `F1`..`F24`, ...) and `code` is one of those keys' physical names or empty, never a letter, digit, punctuation or numpad key's; an IME event (`key` `Process`, `Unidentified`, `Dead` or `Compose`, `isComposing`, or `keyCode` 229) is stored with `code` `""`, `keyCode` 0 and `shift` false whatever the client sent; a composition event with a `data` field (or any other) is dropped, never written; an event of any other shape is dropped, not an error; a body that is not such a list (or over 50 events or 32 KB, or not JSON) is 400; 403/415 as every POST |
 | `GET /api/prefs` | the page's saved preferences, defaults filled in |
 | `PUT /api/prefs` | merge the given keys into them, as `application/json`; returns the result |
 | `POST /api/read` | `{"name": "<session name>"}` as `application/json` (403 cross-origin, 415 other types, 413 over 4 KB, 400 bad body, 404 no live session by that name): the owner opened that session, so its read marker in `state_dir/read-state.json` moves up to its latest reply; returns `{ok, name, moved}` (*The unread reply count*) |

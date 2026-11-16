@@ -55,7 +55,7 @@ def lines(env) -> list[dict]:
 
 def test_a_good_batch_is_written_one_line_an_event_and_answered_with_the_count(env):
     batch = [key(key="Alt", code="AltRight", keyCode=18, alt=True), key(type="keyup", key="Alt", code="AltRight", keyCode=18),
-             key(key="Process", code="KeyG", keyCode=229, isComposing=True), key(key="Unidentified", code="", keyCode=0),
+             key(key="Process", code="", keyCode=0, isComposing=True), key(key="Unidentified", code="", keyCode=0),
              comp(type="compositionstart"), comp(), comp(type="compositionend")]
     r = post(env, batch)
     assert r.status_code == 200 and r.json() == {"ok": True, "n": 7}
@@ -64,6 +64,86 @@ def test_a_good_batch_is_written_one_line_an_event_and_answered_with_the_count(e
     assert env["file"].read_text().isascii()
     assert post(env, [key(key="Enter", code="Enter", keyCode=13)]).json()["n"] == 1
     assert len(lines(env)) == 8                                               # appended, never replaced
+
+
+def test_an_ime_event_is_rewritten_to_no_code_no_keycode_no_shift_whatever_the_client_sent(env):
+    old_shape = [key(key="Process", code="KeyG", keyCode=229, isComposing=True), key(key="Process", code="KeyQ", keyCode=229, isComposing=True, shift=True),
+                 key(key="Process", code="Digit1", keyCode=49), key(key="Unidentified", code="KeyH", keyCode=72, shift=True),
+                 key(key="Dead", code="Quote", keyCode=222), key(key="Compose", code="KeyE", keyCode=69, shift=True),
+                 key(key="Alt", code="AltRight", keyCode=229),                       # a 229 on any key is an IME event
+                 key(key="Enter", code="Enter", keyCode=13, isComposing=True, shift=True, ctrl=True),
+                 key(type="keyup", key="Process", code="KeyG", keyCode=71, isComposing=False)]
+    r = post(env, old_shape)
+    assert r.status_code == 200 and r.json() == {"ok": True, "n": len(old_shape)}       # rewritten, not rejected
+    got = lines(env)
+    assert [(e["key"], e["code"], e["keyCode"], e["shift"]) for e in got] == [
+        ("Process", "", 0, False), ("Process", "", 0, False), ("Process", "", 0, False), ("Unidentified", "", 0, False), ("Dead", "", 0, False),
+        ("Compose", "", 0, False), ("Alt", "", 0, False), ("Enter", "", 0, False), ("Process", "", 0, False)]
+    assert [e["isComposing"] for e in got] == [True, True, False, False, False, False, False, True, False]    # as sent
+    assert got[7]["ctrl"] is True and got[7]["alt"] is False and got[0]["isComposing"] is True      # the other flags stay
+    text = env["file"].read_text()
+    for leak in ("KeyG", "KeyQ", "KeyH", "KeyE", "Digit", "Quote", "229", '"keyCode":71', '"keyCode":49'):
+        assert leak not in text, leak
+
+
+def test_a_korean_password_on_a_2_set_layout_leaves_no_letter_code_keycode_or_shift_in_the_file(env):
+    """Every letter key is a keydown with key Process that keeps the physical code, 229 (sometimes the real keyCode) and the Shift state, and a
+    keyup with the Latin letter, its code and the real keyCode; the same sequence as the page test sends, posted as the page would (cleaned) and as
+    a client that still sends the old shape would."""
+    seq = [key(key="HangulMode", code="Lang1", keyCode=21), key(type="keyup", key="HangulMode", code="Lang1", keyCode=21),
+           key(key="Alt", code="AltRight", keyCode=18, alt=True), key(type="keyup", key="Alt", code="AltRight", keyCode=18)]
+    for letter, code, shift, vk in (("g", "KeyG", False, 71), ("k", "KeyK", False, 75), ("Q", "KeyQ", True, 81), ("h", "KeyH", False, 72)):
+        seq += [key(key="Process", code=code, keyCode=229, isComposing=True, shift=shift), comp(type="compositionupdate"),
+                key(type="keyup", key=letter, code=code, keyCode=vk, shift=shift, isComposing=True),
+                key(key="Process", code=code, keyCode=vk, isComposing=True, shift=shift),               # some events keep the real keyCode
+                key(type="keyup", key="Process", code=code, keyCode=vk, shift=shift)]
+    seq += [key(key="Process", code="Digit1", keyCode=229, isComposing=True), key(type="keyup", key="1", code="Digit1", keyCode=49),
+            key(key="Enter", code="Enter", keyCode=13)]
+    assert post(env, seq[:50]).status_code == 200 and post(env, seq[50:]).status_code == 200
+    got = lines(env)
+    text = env["file"].read_text()
+    for leak in ("KeyG", "KeyK", "KeyQ", "KeyH", "Digit", '"g"', '"k"', '"Q"', '"h"', '"1"'):
+        assert leak not in text, leak
+    assert not [e for e in got if e["type"].startswith("key") and e["keyCode"] in (71, 75, 81, 72, 49, 229)]
+    assert all(e["shift"] is False and e["code"] == "" and e["keyCode"] == 0 for e in got if e.get("key") == "Process")
+    assert not [e for e in got if e["type"] == "keyup" and e["key"] in ("g", "k", "Q", "h", "1")]        # the Latin keyups are dropped
+    # the Hangul/English key, right Alt and Enter stay readable, and that IME keys were pressed and when
+    assert [(e["type"], e["key"], e["code"], e["keyCode"]) for e in got if e.get("code")] == [
+        ("keydown", "HangulMode", "Lang1", 21), ("keyup", "HangulMode", "Lang1", 21), ("keydown", "Alt", "AltRight", 18),
+        ("keyup", "Alt", "AltRight", 18), ("keydown", "Enter", "Enter", 13)]
+    assert sum(e.get("key") == "Process" for e in got) == 4 * 3 + 1
+
+
+def test_a_key_name_off_the_list_is_dropped_and_every_listed_name_is_kept(env):
+    for name in ("Hello", "Spacebar", "Control2", "arrowup", "alt", "F25", "F0", "Unicode", "AudioVolumeUp", "Pause", "PrintScreen"):
+        assert KL.clean(key(key=name, code="")) is None, name
+    for name in sorted(KL.KEY_NAMES):
+        got = KL.clean(key(key=name, code="", keyCode=0))
+        assert got is not None and got["key"] == name, name
+    assert KL.KEY_NAMES >= {"Alt", "AltGraph", "HangulMode", "HanjaMode", "Process", "Unidentified", "Dead", "Compose", "Enter", "ArrowLeft", "F1", "F24"}
+    assert not any(len(n) == 1 for n in KL.KEY_NAMES)
+    assert post(env, [key(key="Hello", code="")]).json()["n"] == 0
+
+
+def test_a_code_that_names_a_character_key_is_never_stored(env):
+    for code in ("KeyA", "KeyZ", "Digit0", "Digit9", "Minus", "Equal", "Comma", "Period", "Slash", "Backquote", "Quote", "Semicolon", "BracketLeft",
+                 "Backslash", "Space", "Numpad0", "Numpad5", "NumpadAdd", "NumpadDecimal", "IntlRo", "IntlYen", "Hello"):
+        assert KL.clean(key(key="Enter", code=code, keyCode=13)) is None, code
+        assert KL.clean(key(key="Alt", code=code, keyCode=18)) is None, code
+    assert KL.CODES.isdisjoint({f"Key{c}" for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"} | {f"Digit{n}" for n in range(10)} | {f"Numpad{n}" for n in range(10)} | {"Space", "Comma"})
+    for code in sorted(KL.CODES):
+        assert KL.clean(key(key="Enter", code=code, keyCode=13))["code"] == code, code
+    assert KL.clean(key(key="Alt", code="AltRight", keyCode=18))["code"] == "AltRight"
+
+
+def test_a_keycode_is_kept_only_for_the_non_character_keys(env):
+    assert KL.clean(key(key="Enter", code="Enter", keyCode=13))["keyCode"] == 13
+    assert KL.clean(key(key="F5", code="F5", keyCode=116))["keyCode"] == 116
+    assert KL.clean(key(key="HangulMode", code="Lang1", keyCode=21))["keyCode"] == 21
+    for vk in (0, 65, 71, 81, 90, 48, 57, 96, 105, 186, 222, 32, 19, 27 + 1000):
+        assert KL.clean(key(key="Enter", code="Enter", keyCode=vk))["keyCode"] == (0 if vk not in KL.KEYCODES else vk), vk
+    assert 229 not in KL.KEYCODES and all(vk in KL.KEYCODES for vk in (8, 9, 13, 16, 17, 18, 20, 21, 25, 27, *range(33, 41), 45, 46, 91, 92, 93, *range(112, 136), 144, 145))
+    assert KL.clean(key(key="Enter", code="Enter", keyCode=71))["keyCode"] == 0
 
 
 def test_an_empty_list_is_fine_and_writes_nothing(env):

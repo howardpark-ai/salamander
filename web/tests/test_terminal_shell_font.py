@@ -24,6 +24,7 @@ import time
 import pytest
 
 from conftest import NAME
+from sala_web import keylog as KL
 from sala_web import tmuxio as T
 from sala_web.app import STATIC
 from test_composer_attach import WAIT_READY
@@ -73,7 +74,7 @@ def test_the_font_is_d2coding_14px_loaded_in_the_frame_before_it_is_set():
 
 def test_the_key_log_records_names_and_composition_only():
     assert '"api/shell/keylog"' in TERMCLIP and "keepalive: true" in TERMCLIP and "splice(0, 50)" in TERMCLIP and "2000" in TERMCLIP
-    assert "const KEYLOG_NAME = /^[A-Za-z][A-Za-z0-9]{1,23}$/;" in TERMCLIP     # a name, never one typed character
+    assert "const KEYLOG_KEYS = new Set([" in TERMCLIP and "KEYLOG_NAME" not in TERMCLIP     # a listed name, never one typed character
     assert 'for (const type of ["keydown", "keyup", ...KEYLOG_COMPOSITION]) win.document.addEventListener(type, recordKey, true);' in TERMCLIP
     assert "pagehide" in TERMCLIP
     entry = body_of(TERMCLIP, "function keyLogEntry(")                           # a composition event is {t, type}: never its text
@@ -200,7 +201,7 @@ def test_the_key_log_records_named_keys_and_composition_and_never_a_typed_charac
       k("keydown", { key: " ", code: "Space" }); k("keydown", { key: "5", code: "Digit5" });
       k("keydown", { key: "Alt", code: "AltRight", altKey: true });
       k("keydown", { key: "HangulMode", code: "Lang1" }); k("keyup", { key: "HangulMode", code: "Lang1" });
-      k("keydown", { key: "Process", code: "KeyG", isComposing: true, shiftKey: true });
+      k("keydown", { key: "Process", code: "KeyG", isComposing: true, shiftKey: true });          // an IME key: stored without its code and shift
       k("keydown", { key: "Enter", code: "Enter", ctrlKey: true, metaKey: true });
       const c = (type, data) => d.dispatchEvent(new CompositionEvent(type, { data, bubbles: true }));
       c("compositionstart", ""); c("compositionupdate", "%s"); c("compositionupdate", "0123456789abcdefXYZ"); c("compositionend", "%s");
@@ -213,7 +214,8 @@ def test_the_key_log_records_named_keys_and_composition_and_never_a_typed_charac
     assert alt["code"] == "AltRight" and alt["alt"] is True and alt["shift"] is False and alt["isComposing"] is False and alt["keyCode"] == 0
     assert isinstance(alt["t"], int) and abs(alt["t"] - time.time() * 1000) < 60_000
     proc = ev[3]
-    assert proc["isComposing"] is True and proc["shift"] is True and ev[4]["ctrl"] is True and ev[4]["meta"] is True
+    assert proc["isComposing"] is True and proc["shift"] is False and proc["code"] == "" and proc["keyCode"] == 0
+    assert ev[4]["ctrl"] is True and ev[4]["meta"] is True and ev[4]["code"] == "Enter" and ev[4]["keyCode"] == 0
     assert all(set(e) == {"t", "type"} for e in ev[5:])                                  # a composition event is its time and type, no text
     flat = json.dumps(ev, ensure_ascii=False)
     assert KO not in flat and KO[0] not in flat and "0123456789" not in flat and "XYZ" not in flat
@@ -237,6 +239,73 @@ def test_a_composed_password_never_reaches_the_queue_or_a_post(fake):
     sent = json.dumps(fake.evaluate("window.__posts"), ensure_ascii=False)
     assert not any(ch in sent for ch in secret if not ch.isascii()) and "hunter" not in sent and "data" not in sent
     assert sent.count("compositionupdate") == len(steps)
+
+
+# What a browser sends for a password typed on a 2-set Korean layout: every letter key is a keydown with key "Process" that keeps the
+# physical code, keyCode 229 (on some events the real one) and the Shift state, and a keyup with the Latin letter, the code and the real keyCode.
+IME_SEQUENCE = """((d) => {
+  const ev = (type, init, keyCode) => { const e = new KeyboardEvent(type, Object.assign({ bubbles: true }, init));
+    Object.defineProperty(e, "keyCode", { value: keyCode }); d.dispatchEvent(e); };
+  const c = (type) => d.dispatchEvent(new CompositionEvent(type, { data: "x", bubbles: true }));
+  ev("keydown", { key: "HangulMode", code: "Lang1" }, 21); ev("keyup", { key: "HangulMode", code: "Lang1" }, 21);       // the switch to Hangul
+  ev("keydown", { key: "Alt", code: "AltRight", altKey: true }, 18); ev("keyup", { key: "Alt", code: "AltRight" }, 18);
+  ev("keydown", { key: "Process", code: "KeyG", isComposing: false }, 229); c("compositionstart");
+  ev("keyup", { key: "g", code: "KeyG" }, 71);
+  ev("keydown", { key: "Process", code: "KeyK", isComposing: true }, 229); c("compositionupdate");
+  ev("keyup", { key: "k", code: "KeyK", isComposing: true }, 75);
+  ev("keydown", { key: "Process", code: "KeyQ", shiftKey: true, isComposing: true }, 229); c("compositionupdate");
+  ev("keyup", { key: "Q", code: "KeyQ", shiftKey: true, isComposing: true }, 81);
+  ev("keydown", { key: "Process", code: "KeyH", isComposing: true }, 72);                            // some events keep the real keyCode
+  ev("keyup", { key: "Process", code: "KeyH", isComposing: false }, 72);
+  ev("keydown", { key: "Process", code: "Digit1", isComposing: true }, 229); ev("keyup", { key: "1", code: "Digit1" }, 49);
+  ev("keydown", { key: "Process", code: "Space", isComposing: true }, 229); ev("keyup", { key: " ", code: "Space" }, 32);
+  ev("keydown", { key: "Enter", code: "Enter", isComposing: true, shiftKey: true }, 229); c("compositionend");
+  ev("keydown", { key: "Enter", code: "Enter" }, 13);
+  return 1; })(document.querySelector("#shell-term iframe").contentDocument)"""
+
+
+def test_a_korean_password_leaves_no_letter_code_keycode_or_shift_in_the_queue_or_a_post(fake):
+    hooked(fake)
+    fake.evaluate(IME_SEQUENCE)
+    queued = [json.loads(q) for q in fake.evaluate("keyLogQueue.map((e) => JSON.stringify(e))")]
+    fake.evaluate("window.dispatchEvent(new Event('pagehide'))")
+    sent = [e for batch in fake.evaluate("window.__posts") for e in batch]
+    assert queued and [{k: v for k, v in e.items() if k != "t"} for e in sent] == [{k: v for k, v in e.items() if k != "t"} for e in queued]
+    flat = json.dumps(sent)
+    for leak in ("KeyG", "KeyK", "KeyQ", "KeyH", "Digit", "Space", '"g"', '"k"', '"Q"', '"1"', '" "'):
+        assert leak not in flat, leak
+    for e in sent:
+        if e["type"].startswith("composition"):
+            assert set(e) == {"t", "type"}
+        else:
+            assert e["keyCode"] not in (71, 75, 81, 72, 49, 32, 229), e                  # no real keyCode of a letter, nor the IME's 229
+            if e["key"] in ("Process", "Unidentified") or e["isComposing"]:
+                assert e["code"] == "" and e["keyCode"] == 0 and e["shift"] is False, e     # an IME event is its time and key name
+    # what the key log is for stays readable: the Hangul/English key, right Alt, Enter, and that IME activity happened and when
+    readable = [(e["type"], e["key"], e["code"], e["keyCode"]) for e in sent if e["type"].startswith("key") and e["code"]]
+    assert readable == [("keydown", "HangulMode", "Lang1", 21), ("keyup", "HangulMode", "Lang1", 21), ("keydown", "Alt", "AltRight", 18),
+                        ("keyup", "Alt", "AltRight", 18), ("keydown", "Enter", "Enter", 13)]
+    assert [e["type"] for e in sent if e["type"].startswith("composition")] == ["compositionstart", "compositionupdate", "compositionupdate", "compositionend"]
+    assert sum(e["key"] == "Process" for e in sent if e["type"].startswith("key")) == 7          # the IME keydowns and the one keyup are there, as events
+    assert not any(e["key"] in ("g", "k", "Q", "1", " ") for e in sent if e["type"].startswith("key"))   # the Latin keyups are not
+
+
+def test_the_pages_lists_are_the_servers(fake):
+    got = fake.evaluate("({ keys: [...KEYLOG_KEYS], codes: [...KEYLOG_CODES], keyCodes: [...KEYLOG_KEYCODES], ime: [...KEYLOG_IME_KEYS] })")
+    assert sorted(got["keys"]) == sorted(KL.KEY_NAMES) and sorted(got["codes"]) == sorted(KL.CODES)
+    assert sorted(got["keyCodes"]) == sorted(KL.KEYCODES) and sorted(got["ime"]) == sorted(KL.IME_KEYS)
+
+
+def test_a_name_or_code_outside_the_lists_is_never_recorded(fake):
+    hooked(fake)
+    posts = frame_events(fake, """(d) => {
+      const k = (type, init) => d.dispatchEvent(new KeyboardEvent(type, Object.assign({ bubbles: true }, init)));
+      k("keydown", { key: "Hello", code: "" });                                            // a name no key sends
+      k("keydown", { key: "Spacebar", code: "Space" }); k("keydown", { key: "Enter", code: "KeyA" });          // a code that names a letter key
+      k("keydown", { key: "Enter", code: "Numpad5" }); k("keydown", { key: "Tab", code: "Comma" });
+      k("keydown", { key: "Alt", code: "AltRight" });                                       // the control: this one is recorded
+    }""")
+    assert [(e["key"], e["code"]) for b in posts for e in b] == [("Alt", "AltRight")]
 
 
 def test_events_go_in_batches_of_50_and_the_page_hide_flushes_what_waits(fake):

@@ -189,8 +189,12 @@ none itself):
   POST /api/shell/keys            {"key"}: one key of the drawer's key row into the shell session, from a fixed list of key names
   POST /api/shell/keylog          a JSON list of at most 50 key and composition events from the Shell's terminal frame (32 KB at most) ->
                                   {"ok", "n"}: n kept, one JSON line each in state_dir/shell-keylog.jsonl (0600, 256 KB at most, the
-                                  newest half kept past it; keylog.py). Only a key NAME is kept (Alt, HangulMode, Process, Enter ...), never
-                                  a typed character, and a composition event is only {t, type}, never the composed text; every field is
+                                  newest half kept past it; keylog.py). It records which non-character keys were pressed and when,
+                                  and that IME activity happened and when, never which letter keys: a key is kept only from a list of
+                                  names (Alt, HangulMode, Process, Enter, F5 ...) and codes (AltRight, Lang1 ...), never a typed character
+                                  or a letter, digit or punctuation key's code; an IME event (key Process, Unidentified, Dead or
+                                  Compose, isComposing, keyCode 229) is stored with code "", keyCode 0, shift false whatever the client
+                                  sent; a composition event is only {t, type}, never the composed text; every field is
                                   checked and an event with any other shape or field is dropped; 400 for a
                                   body that is not such a list, 403 cross-origin, 415 not JSON, like the other POSTs
   GET  /api/spawn/options         what the New session form offers (spawn.py): the project pages (key, title)

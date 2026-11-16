@@ -168,13 +168,29 @@ async function applyShellFont(win, term) {
   } catch { /* the terminal works without it */ }
 }
 
-// The key log. A keydown or keyup is recorded only when its `key` is a name (Alt, HangulMode, Process, Enter ...: letters and digits, two or
-// more), never a typed character, which would be the text or a password. A composition event is recorded as {t, type} only: its `data` is
-// what the person is typing in Korean mode (a password included), and a cap per event would still let successive updates spell it out.
-// The server checks the same rule again (keylog.py). The events wait here and go to POST api/shell/keylog in batches of at most 50, every 2 s
-// while there are any and when the page is hidden; a post that fails loses its batch (it is a diagnostic, not a record).
-const KEYLOG_NAME = /^[A-Za-z][A-Za-z0-9]{1,23}$/;
-const KEYLOG_CODE = /^[A-Za-z0-9]{0,24}$/;
+// The key log records which NON-CHARACTER keys were pressed and when, and that IME activity happened and when, never which letter keys.
+// A keydown or keyup is recorded only when its `key` is one of KEYLOG_KEYS (Alt, HangulMode, Process, Enter, F5 ...), by exact match, and its
+// `code` one of KEYLOG_CODES (AltRight, Lang1 ...) or empty: a typed character, a name no key sends, a code that names a letter, digit,
+// punctuation or numpad key drops the event, since text and passwords must not be in it. An IME event (key Process, Unidentified, Dead or
+// Compose, or isComposing, or keyCode 229) is recorded with code "", keyCode 0 and shift false: in a Korean IME the browser keeps the physical
+// code, the real keyCode and the Shift state of the key behind it, which on a 2-set layout spell the Hangul being typed. A composition event
+// is {t, type} only: its `data` is the text being composed. The server checks the same rules again (keylog.py, which holds the same lists).
+// The events wait here and go to POST api/shell/keylog in batches of at most 50, every 2 s while there are any and when the page is
+// hidden; a post that fails loses its batch (it is a diagnostic, not a record).
+const KEYLOG_KEYS = new Set([
+  "Alt", "AltGraph", "Control", "Shift", "Meta", "CapsLock", "NumLock", "ScrollLock", "HangulMode", "HanjaMode", "JunjaMode", "KanjiMode",
+  "KanaMode", "Convert", "NonConvert", "Process", "Unidentified", "Dead", "Compose", "Enter", "Backspace", "Delete", "Tab", "Escape",
+  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Insert", "ContextMenu", "Clear",
+  ...Array.from({ length: 24 }, (_, i) => "F" + (i + 1))]);
+const KEYLOG_CODES = new Set([
+  "", "AltLeft", "AltRight", "ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight", "CapsLock", "NumLock",
+  "ScrollLock", "Lang1", "Lang2", "Lang3", "Lang4", "Lang5", "Convert", "NonConvert", "KanaMode", "Enter", "NumpadEnter", "Backspace",
+  "Delete", "Tab", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Insert", "ContextMenu",
+  ...Array.from({ length: 24 }, (_, i) => "F" + (i + 1))]);
+// the legacy keyCodes of those keys; any other is recorded as 0 (229, an IME's "processing", is handled as an IME event)
+const KEYLOG_KEYCODES = new Set([8, 9, 12, 13, 16, 17, 18, 20, 21, 23, 25, 27, 28, 29, 33, 34, 35, 36, 37, 38, 39, 40, 45, 46, 91, 92, 93,
+  ...Array.from({ length: 24 }, (_, i) => 112 + i), 144, 145]);
+const KEYLOG_IME_KEYS = new Set(["Process", "Unidentified", "Dead", "Compose"]);
 const KEYLOG_COMPOSITION = ["compositionstart", "compositionupdate", "compositionend"];
 const keyLogQueue = [];
 let keyLogTimer = null;
@@ -182,9 +198,12 @@ function keyLogEntry(ev) {
   const t = Date.now();
   if (ev.type === "keydown" || ev.type === "keyup") {
     const key = typeof ev.key === "string" ? ev.key : "", code = typeof ev.code === "string" ? ev.code : "";
-    if (!KEYLOG_NAME.test(key) || !KEYLOG_CODE.test(code)) return null;
-    return { t, type: ev.type, key, code, keyCode: Number.isInteger(ev.keyCode) ? ev.keyCode : 0, isComposing: !!ev.isComposing,
-             shift: !!ev.shiftKey, ctrl: !!ev.ctrlKey, alt: !!ev.altKey, meta: !!ev.metaKey };
+    if (!KEYLOG_KEYS.has(key)) return null;
+    const keyCode = Number.isInteger(ev.keyCode) ? ev.keyCode : 0;
+    const ime = KEYLOG_IME_KEYS.has(key) || !!ev.isComposing || keyCode === 229;
+    if (!ime && !KEYLOG_CODES.has(code)) return null;
+    return { t, type: ev.type, key, code: ime ? "" : code, keyCode: !ime && KEYLOG_KEYCODES.has(keyCode) ? keyCode : 0,
+             isComposing: !!ev.isComposing, shift: !ime && !!ev.shiftKey, ctrl: !!ev.ctrlKey, alt: !!ev.altKey, meta: !!ev.metaKey };
   }
   if (KEYLOG_COMPOSITION.includes(ev.type)) return { t, type: ev.type };
   return null;
