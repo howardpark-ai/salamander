@@ -84,6 +84,11 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/codex-review.sh`: +6, 75 (Mon Nov 16th 2026)
+
+A bullet is a marker followed by whitespace, not any leading star or number. Kept because a bold refusal such as `**I'm sorry, but I can't help with that.**` started with a star and was taken for a review, posted and marked done.
+Checked: a bold refusal and a bold limit line post nothing and leave no marker; reviews starting `- `, `* `, `1. ` and `1) ` are posted.
+
 ### `tests/codex-review.sh`: +4, 69 (Mon Nov 16th 2026)
 
 The refusal and limit check judges an answer by its first non-blank line only, and only when that line is prose. Kept because the first live review quoted "usage limit" in a finding and was dropped as if it were a
