@@ -186,6 +186,8 @@ out=$(relay "$NOW" text:ABSENT)
 rec_at $((NOW - 60))
 out=$(relay "$NOW" text:DONE)
 [ "$out" = "some-session has been told and will report" ] && [ ! -e "$T/sdk-argv" ] && [ -e "$T/claude-argv" ] && ok "relay with a refusal 60 s old on record: only claude -p" || bad "relay fresh refusal: $out"
+grep -qx -e '--strict-mcp-config' "$T/claude-argv" && ! grep -qx -e '--mcp-config' "$T/claude-argv" \
+    && ok "relay on claude -p: --strict-mcp-config and no --mcp-config (no MCP server, so no sign-in renewal)" || bad "relay claude argv lacks --strict-mcp-config: $(tr '\n' ' ' < "$T/claude-argv")"
 rec_at $((NOW - 7 * 3600))
 out=$(relay "$NOW" text:DONE)
 [ ! -e "$T/claude-argv" ] && [ -e "$T/sdk-argv" ] && ok "relay with a refusal 7 h old on record: the SDK turn again" || bad "relay old refusal: $out"
