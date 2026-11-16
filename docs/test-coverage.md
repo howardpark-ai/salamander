@@ -84,6 +84,12 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/codex-review.sh`: +4, 69 (Mon Nov 16th 2026)
+
+The refusal and limit check judges an answer by its first non-blank line only, and only when that line is prose. Kept because the first live review quoted "usage limit" in a finding and was dropped as if it were a
+limit message. Checked: a short bullet review that says the usage limit never resets, one that says to add a try again later path, a bullet followed later by a prose line with the limit phrase, and a numbered review whose finding
+contains a refusal phrase are all posted; the bare limit and refusal messages still post nothing. Also: `SALA_CODEX_SCAN_TIMEOUT` is 300 in the docs, as in the code.
+
 ### `tests/codex-review.sh`: new, 65 (Mon Nov 16th 2026); `tests/release.sh` +10
 
 `salamander codex-review <owner/repo> <pr>` (`lib/codex-review.sh`, `lib/codex-review.py`, `docs/codex-review.md`) and the detached start from `release.sh --run`. Kept because
