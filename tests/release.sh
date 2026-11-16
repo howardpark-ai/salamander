@@ -25,6 +25,9 @@
 # a successful deploy and before the final message: the merge commit is the open PR's from `gh pr view --json mergeCommit` after the merge, else the first-parent
 # merge in the checkout, else a log line and no call; an already merged PR passes the merge commit its checks ran on; the client's lines are logged as 'items of PR #n: …';
 # a failing client (cut to 300 characters), no client at all, or no merge commit never fails the release; a failed release (deploy, checks) never calls it.
+# The Codex trial review (docs/codex-review.md) is started from an open PR with a stub bin/salamander in the checkout copy: a transient unit of its own named
+# salamander-codex-review-<pr>-<time> (the fake systemd-run logs it) before the merge, with its output apart from the release's; no unit: `setsid nohup`; an already merged PR
+# or --merged, or no bin/salamander: one line saying it was not started; a stub that exits 1 or runs 3 s never changes the release's result or is waited for.
 # Not checked: the systemd-run start (a real user unit), the real gh and deploy.sh.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -505,6 +508,52 @@ release --run 90
     && ok "GitHub's queue answer unreadable: failed before any merge, the message names the direct switch" || bad "gq unreadable: rc=$rc msgs=$(msgs) $out"
 out=$(SALA_RELEASE_MERGE=sideways bash "$CO/release.sh" --status 2>&1); rc=$?
 [ "$rc" = 2 ] && [[ "$out" == *"SALA_RELEASE_MERGE is 'sideways': auto, direct or queue"* ]] && ok "a bad SALA_RELEASE_MERGE: exit 2 with the three values" || bad "bad mode: rc=$rc $out"
+
+echo "== the Codex trial review: started detached for an open PR, never for a merged one, never able to change the result"
+mkdir -p "$CO/bin"
+cat > "$CO/bin/salamander" <<'FAKE'
+#!/bin/bash
+echo "salamander $*" >> "$FAKE_DIR/crcalls"
+case "${FAKE_CR:-ok}" in
+    fail) exit 1 ;;
+    slow) sleep 3; echo slow-done >> "$FAKE_DIR/crdone" ;;
+esac
+FAKE
+chmod +x "$CO/bin/salamander"
+reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"
+release --run 12
+[ "$rc" = 0 ] && [[ "$out" == *"codex-review started for PR #12 (unit salamander-codex-review-12-"* ]] && called "systemd-run .*--unit salamander-codex-review-12-[0-9]* .*$CO/bin/salamander codex-review o/r 12\$" \
+    && ok "an open PR: one transient unit starts 'salamander codex-review o/r 12' and one release-log line says so" || bad "codex open: rc=$rc calls=$(calls) $out"
+[ "$(grep -n 'salamander-codex-review' "$FAKE_DIR/calls" | head -1 | cut -d: -f1)" -lt "$(grep -n 'gh pr merge' "$FAKE_DIR/calls" | head -1 | cut -d: -f1)" ] && called "^deploy.sh $" \
+    && ok "it is started before the merge, and the merge and the deploy go on as before" || bad "codex order: $(calls)"
+called "systemd-run .*StandardOutput=append:$HOME/state/salamander/releases/codex-review-pr-12.log" && ok "its output goes to its own log, apart from the release's" || bad "codex log: $(calls)"
+reset; view MERGED "" "$MERGED_C"; cruns 1 "${PASS3[@]}"
+release --run 13
+[ "$rc" = 0 ] && ! called "salamander-codex-review" && [[ "$out" == *"codex-review not started: the PR is already merged"* ]] && ok "an already merged PR: no review started, the line says why" || bad "codex merged: rc=$rc calls=$(calls) $out"
+reset; view MERGED "" "$MERGED_C"; cruns 1 "${PASS3[@]}"
+release --run --merged 13
+[ "$rc" = 0 ] && ! called "salamander-codex-review" && [[ "$out" == *"codex-review not started"* ]] && ok "--merged: no review started" || bad "codex --merged: rc=$rc calls=$(calls) $out"
+# a failing systemd-run: the fallback detaches the command with setsid nohup, and the stub runs
+printf '#!/bin/bash\necho "systemd-run $*" >> "$FAKE_DIR/calls"\nexit 1\n' > "$HOME/bin/systemd-run"
+reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"
+release --run 12
+waitfor '[ -e "$FAKE_DIR/crcalls" ]' 50 
+[ "$rc" = 0 ] && [[ "$out" == *"codex-review started for PR #12 (detached, no user unit"* ]] && grep -q "^salamander codex-review o/r 12\$" "$FAKE_DIR/crcalls" && ok "no user unit: setsid nohup starts it, the stub ran with the repo and the PR" || bad "codex fallback: rc=$rc crcalls=$(cat "$FAKE_DIR/crcalls" 2>/dev/null) $out"
+reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; export FAKE_CR=fail
+release --run 12
+waitfor '[ -e "$FAKE_DIR/crcalls" ]' 50
+[ "$rc" = 0 ] && called "gh pr merge 12" && called "^deploy.sh $" && [[ "$(msgs)" == *"merged and deployed"* ]] && ok "a review start that exits 1 never changes the release: merged, deployed, rc 0" || bad "codex fail: rc=$rc calls=$(calls) $out"
+reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; export FAKE_CR=slow
+t0=$(date +%s); release --run 12; t1=$(date +%s)
+[ "$rc" = 0 ] && [ $((t1 - t0)) -lt 3 ] && [ ! -e "$FAKE_DIR/crdone" ] && ok "a review that runs 3 s is not waited for: the release was over before it was" || bad "codex slow: rc=$rc secs=$((t1 - t0)) done=$(cat "$FAKE_DIR/crdone" 2>/dev/null)"
+waitfor '[ -e "$FAKE_DIR/crdone" ]' 80 && ok "(and the detached run finished on its own)" || bad "codex slow: never finished"
+unset FAKE_CR
+printf '#!/bin/bash\necho "systemd-run $*" >> "$FAKE_DIR/calls"\n' > "$HOME/bin/systemd-run"
+rm -f "$CO/bin/salamander"
+reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"
+release --run 12
+[ "$rc" = 0 ] && ! called "salamander-codex-review" && [[ "$out" == *"codex-review not started: no bin/salamander in $CO"* ]] && called "^deploy.sh $" && ok "no bin/salamander next to release.sh: not started, the line says why, the release goes on" || bad "codex nobin: rc=$rc calls=$(calls) $out"
+rmdir "$CO/bin"
 
 echo "== the start: a transient unit that runs the steps (systemd-run is a fake; nothing starts)"
 reset; release 20

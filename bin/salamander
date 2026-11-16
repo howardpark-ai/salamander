@@ -169,6 +169,11 @@
 #                                      read GitHub yourself then (lib/cipoll.sh, lib/cipoll.py, docs/ci-runs.md)
 #   salamander ci-poll           the resident CI-run poller (sala-cipoll.service): one conditional `gh api -i` read of each repo in ~/.config/salamander/ci-repos
 #                                      (the tracked lib/ci-repos lists none) every SALA_CIPOLL_INTERVAL s (60), one atomic file per repo under ~/.local/state/salamander/ci-runs/
+#   salamander codex-review <owner/repo> <pr>
+#                                      a trial: OpenAI's Codex CLI reviews the PR's diff read-only and the review is posted as a comment on it (lib/codex-review.sh,
+#                                      lib/codex-review.py, docs/codex-review.md). Only the two repos it names; one review per head sha; a review passes the public scan
+#                                      before it is posted on a public repo. Never blocks or fails a merge or release: exit 0 for a valid call, one short line, log under
+#                                      ~/.local/state/salamander/codex-review/; SALA_CODEX_REVIEW=off turns it off. release.sh --run starts it detached for an open PR
 #   salamander mq add N… | status [--json] | drop N | pause | resume | wait N [--timeout S] | doctor   [--repo OWNER/NAME]
 #                                      our own merge queue for a repo without GitHub's (lib/mq.sh, lib/mq/, docs/mq.md): PRs wait in a line, each one is
 #                                      an entry stacked on the entry ahead, pushed as a queue/main/g<seq> branch and tested at once, a failed one is failed alone. Host file mode = "shadow" tests and writes
@@ -206,6 +211,7 @@ case "$sub" in
     question) . "$SALA_ROOT/lib/question.sh"; qs_main "$@" ;;   # a background `claude -p` run that asks the owner a question parks until the answer arrives
     resume-answer) . "$SALA_ROOT/lib/question.sh"; qs_main resume-answer "$@" ;;
     ci-poll|ci-runs) . "$SALA_ROOT/lib/cipoll.sh" ;;   # the CI-run poller and its reader
+    codex-review) . "$SALA_ROOT/lib/codex-review.sh" ;;   # a Codex CLI review of a PR, posted on it (a trial; never fails a caller)
     mq) . "$SALA_ROOT/lib/mq.sh" ;;   # our own merge queue (shadow mode)
     mockup) . "$SALA_ROOT/lib/mockup.sh" ;;   # an HTML mockup as a numbered sala-web page (docs/mockup.md)
     config) cs_print_config ;;

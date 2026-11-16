@@ -38,6 +38,10 @@
 #   is fresh (SALA_RELEASE_CIFILE_MAX_AGE s, 120; 0 = ignore it) and shows a workflow run of the commit still going, the loop waits on it and
 #   makes no check-runs call. It only ever says "still going": a finished run, no run of the sha, a missing or stale file all go to the
 #   check-runs read below, which alone decides pass or fail, so the file can make a release wait longer but never pass or fail it earlier.
+#   The Codex trial review: right after step 1 finds the PR OPEN (never for an already merged PR or `--merged`), `salamander codex-review <repo> <pr>` is
+#   started detached (its own transient unit salamander-codex-review-<pr>-<time>, else `setsid nohup`) with its output in <state>/releases/codex-review-pr-<pr>.log,
+#   and never waited for: it is a second opinion posted as a PR comment (docs/codex-review.md), and neither its start failing nor its run can change this
+#   script's steps or exit status. One line in the release log says it was started or why not.
 #   GitHub's API budget: the checks are read with `gh api -i` and the url's last ETag (If-None-Match), so a 304, which
 #   GitHub does not count against the owner's 5,000 calls an hour, costs nothing; an open PR's checks are the check runs of its head
 #   commit (`pulls/<pr>` for the head, then `commits/<head>/check-runs`), not `gh pr checks`. Every read is kept per url in
@@ -215,6 +219,27 @@ wait_queue() {
     done
 }
 
+# codex_review_start <pr>: start `salamander codex-review <repo> <pr>` (the trial review, docs/codex-review.md) detached and leave it. It gets its own transient user
+# unit, because this script runs in one and systemd ends a unit's whole cgroup when its main process exits, which would cut a review that outlives the release; with
+# no user manager (or no systemd-run) it falls back to `setsid nohup`. The output goes to its own log, never into the release's. Always returns 0 and says one line.
+codex_review_start() {
+    local pr="$1" crlog="$LOGDIR/codex-review-pr-$1.log" unit v; local -a senv=()
+    unit="salamander-codex-review-$pr-$(date +%s)"
+    if [ ! -x "$HERE/bin/salamander" ]; then say "codex-review not started: no bin/salamander in $HERE"; return 0; fi
+    for v in PATH XDG_STATE_HOME SALA_CONFIG SALA_CODEX_REVIEW SALA_CODEX_BIN SALA_CODEX_HOME SALA_CODEX_MAX_DIFF SALA_CODEX_TIMEOUT SALA_CODEX_PUBLIC_SCAN SALA_CODEX_SCAN_TIMEOUT; do
+        [ -n "${!v+x}" ] && senv+=("--setenv=$v=${!v}")
+    done
+    if systemd-run --user --quiet --collect --unit "$unit" -p "StandardOutput=append:$crlog" -p "StandardError=append:$crlog" "${senv[@]}" \
+           "$HERE/bin/salamander" codex-review "$REPO" "$pr" </dev/null >/dev/null 2>&1; then
+        say "codex-review started for PR #$pr (unit $unit, output $crlog)"
+    elif (setsid nohup "$HERE/bin/salamander" codex-review "$REPO" "$pr" >> "$crlog" 2>&1 </dev/null &) 2>/dev/null; then
+        say "codex-review started for PR #$pr (detached, no user unit; output $crlog)"
+    else
+        say "codex-review not started: neither systemd-run nor setsid could start it"
+    fi
+    return 0
+}
+
 run() {
     local pr="$1" want_merged="${2:-}" log="$LOGDIR/pr-$1.log" title sha changed live_sha
     exec > >(tee -a "$log") 2>&1
@@ -244,6 +269,7 @@ run() {
         [ "$mergeable" = MERGEABLE ] || fail "mergeable" "GitHub says $mergeable (a conflict with main, or still computing)"
     fi
     say "PR #$pr: $title$([ "$mode" = merged ] && echo " (already merged as $msha)")"
+    if [ "$mode" = open ]; then codex_review_start "$pr" || true; else say "codex-review not started: the PR is already merged"; fi
     local out; out="$(./deploy.sh --check 2>&1)" || { echo "$out"; fail "drift" "the production checkout has drifted, so nothing was $([ "$mode" = merged ] && echo deployed || echo merged): $(echo "$out" | sed -n 2p | sed 's/^ *//')"; }
     say "production checkout clean"
     # The buckets gh pr checks sorts a check into: pass, fail, pending, skipping, cancel. A job tests.yml's `changes` job
