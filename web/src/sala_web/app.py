@@ -187,6 +187,11 @@ none itself):
   PUT  /api/prefs                 merge the given keys into them (state_dir/prefs.json, written atomically)
   POST /api/shell/open            make sure the Shell drawer's tmux session (SALA_SHELL_SESSION, default sala-shell) exists (a plain login bash in ~)
   POST /api/shell/keys            {"key"}: one key of the drawer's key row into the shell session, from a fixed list of key names
+  POST /api/shell/keylog          a JSON list of at most 50 key and composition events from the Shell's terminal frame (32 KB at most) ->
+                                  {"ok", "n"}: n kept, one JSON line each in state_dir/shell-keylog.jsonl (0600, 256 KB at most, the
+                                  newest half kept past it; keylog.py). Only a key NAME is kept (Alt, HangulMode, Process, Enter ...), never
+                                  a typed character; every field is checked and an event with any other shape is dropped; 400 for a
+                                  body that is not such a list, 403 cross-origin, 415 not JSON, like the other POSTs
   GET  /api/spawn/options         what the New session form offers (spawn.py): the project pages (key, title)
                                   read from stackshot's pages checkout, the page dirs, the lanes a session can be spawned
                                   on, the effort levels, the name and mandate limits
@@ -253,6 +258,7 @@ from . import colors as CLR
 from . import credit as CR
 from . import debuglog as DL
 from . import foryou as FY
+from . import keylog as KL
 from . import lanenames as LNM
 from . import lanes as LN
 from . import lanestate as LS
@@ -1355,6 +1361,33 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return _err(502, f"tmux failed: {e}")
         return JSONResponse({"ok": True, "sent": key})
 
+    keylog = KL.KeyLog(settings.state_dir / KL.FILE_NAME)
+
+    async def shell_keylog(request: Request) -> Response:
+        """The Shell terminal's key log (keylog.py): what the keyboard sends to the frame, to find why the Hangul/English key does nothing.
+        A JSON list of at most KL.MAX_EVENTS events in at most KL.MAX_BODY bytes; each is checked and rebuilt by KL.clean, one that
+        fails is dropped (a typed character most of all). Same guards as the other POSTs: the origin check and JSON."""
+        if _cross_origin(request):
+            return _err(403, "cross-origin request refused")
+        if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
+            return _err(415, "shell/keylog takes application/json")
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw += chunk
+            if len(raw) > KL.MAX_BODY:
+                return _err(400, f"body over {KL.MAX_BODY} bytes")
+        try:
+            body = json.loads(raw)
+        except (ValueError, RecursionError):
+            return _err(400, "body must be JSON")
+        if not isinstance(body, list) or len(body) > KL.MAX_EVENTS:
+            return _err(400, f"body must be a JSON list of at most {KL.MAX_EVENTS} events")
+        try:
+            n = await run_in_threadpool(keylog.append, KL.clean_all(body))
+        except OSError as e:
+            return _err(500, f"could not write the key log: {e.strerror or e}")
+        return JSONResponse({"ok": True, "n": n})
+
     async def get_prefs(request: Request) -> Response:
         return JSONResponse(await run_in_threadpool(_read_prefs, prefs_path), headers={"Cache-Control": "no-store"})
 
@@ -1833,6 +1866,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/api/upload", upload, methods=["POST"]),
         Route("/api/shell/open", shell_open, methods=["POST"]),
         Route("/api/shell/keys", shell_keys, methods=["POST"]),
+        Route("/api/shell/keylog", shell_keylog, methods=["POST"]),
         Route("/api/prefs", get_prefs, methods=["GET"]),
         Route("/api/prefs", put_prefs, methods=["PUT"]),
         Route("/api/read", post_read, methods=["POST"]),

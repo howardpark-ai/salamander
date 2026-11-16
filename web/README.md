@@ -1484,6 +1484,34 @@ ended). The app makes the session on demand instead of a user unit: a unit is no
 copy by hand), and would not bring the session back after a tmux server restart; making it on demand needs nothing outside
 the checkout.
 
+**The face.** ttyd 1.7.7's own face (13px, "Consolas,Liberation Mono,Menlo,Courier,monospace") has no Korean glyphs, so the Shell
+draws in **D2Coding 14px**, the file the pages themselves load (`static/fonts/D2Coding-Regular.woff2`). `hookShellTerminal`
+(`static/termclip.js`, called by `ensureShellFrame` and, on `terminal.html`, only when `?arg` is the `shellSession` that `api/config`
+names) follows `hookTerminalClipboard`'s pattern: it polls after each frame load for the frame's `window.term`, leaves a term it has
+hooked alone, and stops quietly on a cross-origin frame. In the frame's own document it declares the `@font-face` (at an absolute
+same-origin address made from `termclip.js`'s own URL, because the frame is served from `/tty/`, `font-display: block`), waits
+for `document.fonts.load("14px D2Coding")`, sets `term.options.fontFamily` (`"D2Coding", Consolas, monospace`) and `fontSize` (14), and
+fits the terminal again (`term.fit`, which ttyd's page exposes; else a `resize` event on the frame's window, which ttyd's own handler turns
+into a fit and a resize message to the pane). A file that does not load leaves ttyd's face. D2Coding is a double-width Korean font: a
+Korean letter takes two cells. The `@font-face` carries `size-adjust: 100.2%`: the advance at 14px is 7px, which Chrome measures as
+6.99997 and xterm floors to a 6px cell (the letters squeezed on a grid a pixel too narrow); two tenths of a percent put the measure over the
+whole pixel and change nothing the eye can see. The font file has a regular weight only, so bold is the browser's. The Terminal tab
+(Claude session panes) and `terminal.html` for any other session are left as ttyd draws them.
+
+**The key log.** The Hangul/English key (right Alt on most keyboards) did not seem to switch the Shell to Korean; the same hook
+records what the keyboard sends to the frame so the cause can be read rather than guessed (a keyboard type that reads right Alt as a plain
+Alt, or a browser that loses the keydown while the IME switches). Capture-phase listeners on the frame's document record `keydown`,
+`keyup`, `compositionstart`, `compositionupdate` and `compositionend` as `{t (ms since the epoch), type, key, code, keyCode,
+isComposing, shift, ctrl, alt, meta}` (a composition event: `{t, type, data}`, `data` cut to 16 characters). **A keydown or keyup is
+recorded only when its `key` is a name** (letters and digits, two or more: `Alt`, `HangulMode`, `Process`, `Convert`, `Unidentified`,
+`Backspace`, `Enter`, ...), never a single typed character, so typed text and passwords are not in it; a composition event does carry
+up to 16 characters of what the IME is composing, which is what shows whether the Hangul mode switched. The page posts batches of at most
+50 to **`POST /api/shell/keylog`** every 2 seconds while it has any and when the page is hidden. The server (`keylog.py`) checks every field
+again (types, lengths, the fixed list of event types, ranges), drops an event with any other shape, and appends one JSON line per event to
+**`<state_dir>/shell-keylog.jsonl`** (`~/.local/state/sala-web/` for the packaged unit), mode 0600, never past 256 KB: a write that would pass
+the cap first keeps the newest half of the file (a temp file in the same folder, renamed over it, under a lock). Read it with `tail` on the
+box; no route reads it back. A temporary diagnostic: remove the key log with the hook's `attachKeyLog` and `keylog.py` when the cause is known.
+
 **The key row (phone).** A soft keyboard has no Esc, Tab, Ctrl or arrows, so the sheet has a row under the terminal:
 Esc, Tab, Ctrl (sticky: it applies to the next key and clears), up, down, Ctrl+C, each at least 44 px wide and 40 high.
 A button posts **`POST /api/shell/keys`** `{"key": "<name>"}`; the server runs `tmux send-keys -t =<SALA_SHELL_SESSION>: <name>`
@@ -1503,7 +1531,10 @@ refuse it. Stackshot's session sync reads the registry of Claude sessions, not t
 
 **Tests.** `tests/test_shell_backend.py` (the endpoints and the exclusions, on a private tmux server and an isolated HOME),
 `tests/test_shell_drawer.py` (the page in a headless browser: button, drawer, remembered state, height saved, the key row,
-the phone sheet), `tests/test_prefs.py` and `tests/test_header_layout.py`; sala's side in `tests/smoke.sh`.
+the phone sheet), `tests/test_terminal_shell_font.py` (the face and the key log: the source, a fake term, and the real ttyd: the font loads,
+the cell is 7px, a Korean letter is two columns, the pane is told the size, real key events reach the log, the Terminal tab is untouched),
+`tests/test_shell_keylog.py` (the endpoint: every field checked, a typed character dropped, the 0600 file and its cap),
+`tests/test_prefs.py` and `tests/test_header_layout.py`; sala's side in `tests/smoke.sh`.
 
 ## The screen's height
 
@@ -1817,6 +1848,7 @@ part of `web/`.
 | `POST /api/s/<pid>/send` | `{"text": "...", "uploads": ["<name as /api/upload returned it>"]}` as `application/json`; with a dialog open, `{"text": "2"}` or `{"text": "esc"}` answers it (`dialogAnswer` in the reply) |
 | `POST /api/shell/open` | `{}` as `application/json` → `{ok, session: "<SALA_SHELL_SESSION>", created}`: makes the shell drawer's tmux session (a plain `bash -l` in the home directory) when it is missing, under a lock; `created` is true when it had to (*The shell drawer*); 403/415 as every POST, 502 when tmux cannot make it |
 | `POST /api/shell/keys` | `{"key": "<name>"}` as `application/json`, `name` one of `Escape`, `Tab`, `Up`, `Down`, `Left`, `Right`, `Enter`, `BSpace`, `C-a`..`C-z` → `{ok, sent}`: `tmux send-keys -t =<SALA_SHELL_SESSION>: <name>`; any other name 400 and nothing sent, 502 when the session is not there; 403/415 as every POST |
+| `POST /api/shell/keylog` | a JSON list of at most 50 events as `application/json` (32 KB at most), from the Shell's terminal frame: `{t, type: keydown\|keyup, key, code, keyCode, isComposing, shift, ctrl, alt, meta}` or `{t, type: compositionstart\|compositionupdate\|compositionend, data}` → `{ok, n}`, n the events kept, one JSON line each in `<state_dir>/shell-keylog.jsonl` (0600, 256 KB at most, the newest half kept past it; *The shell drawer*). A key event is kept only when `key` is a name of two to 24 letters and digits, never a typed character; an event of any other shape is dropped, not an error; a body that is not such a list (or over 50 events or 32 KB, or not JSON) is 400; 403/415 as every POST |
 | `GET /api/prefs` | the page's saved preferences, defaults filled in |
 | `PUT /api/prefs` | merge the given keys into them, as `application/json`; returns the result |
 | `POST /api/read` | `{"name": "<session name>"}` as `application/json` (403 cross-origin, 415 other types, 413 over 4 KB, 400 bad body, 404 no live session by that name): the owner opened that session, so its read marker in `state_dir/read-state.json` moves up to its latest reply; returns `{ok, name, moved}` (*The unread reply count*) |

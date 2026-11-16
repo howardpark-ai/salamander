@@ -88,6 +88,11 @@ def where(request, served, browser, monkeypatch):
           const ok = t && t.buffer && Array.from({{ length: t.rows }}, (_, i) => t.buffer.active.getLine(i).translateToString(true)).join('|').includes('READY')
             && t._core.coreMouseService.activeProtocol !== 'NONE' && typeof t._core._customKeyEventHandler === 'function';
           if (ok) t.focus(); return ok; }})()""")
+        if request.param != "tab":
+            # the Shell's own frames switch to D2Coding 14px a moment after the term appears (termclip.js hookShellTerminal), which changes the
+            # cell size: the drag below is measured from the grid that stays, so it waits for the switch (the Terminal tab keeps ttyd's face)
+            assert until(browser, f"document.querySelector({json.dumps(sel)}).contentWindow.term.options.fontSize === 14")
+            wait_ms(browser, 300)
         yield {"b": browser, "sel": sel, "url": url, "host": host, "view": request.param}
 
 

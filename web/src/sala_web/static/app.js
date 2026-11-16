@@ -3815,7 +3815,7 @@ function shellNote(text) {
   if (text) shell.noteTimer = setTimeout(() => { n.textContent = ""; }, 6000);
 }
 
-// the frame, as loadTerminal builds the Terminal tab's: same-origin ttyd, the clipboard allowed, OSC 52 hooked
+// the frame, as loadTerminal builds the Terminal tab's: same-origin ttyd, the clipboard allowed, OSC 52 hooked; and the Shell's face and key log
 async function ensureShellFrame() {
   const seq = ++shell.seq;
   let created = false, session = "";
@@ -3837,6 +3837,7 @@ async function ensureShellFrame() {
   const frame = el("iframe", { src: state.terminalUrl + encodeURIComponent(session), title: shellTitle(), allow: "clipboard-read; clipboard-write" });
   shellHost.replaceChildren(frame);
   hookTerminalClipboard(frame);
+  hookShellTerminal(frame);   // the Shell only: D2Coding 14px and the key log (the Terminal tab's frames are left as ttyd draws them)
   frame.addEventListener("load", () => hookShellCtrl(frame));
   // the frame takes the focus when it has loaded, unless the drawer was closed meanwhile or the focus went to the composer or another field
   if (!narrow()) frame.addEventListener("load", () => {

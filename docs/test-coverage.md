@@ -3810,3 +3810,23 @@ front agent queued once per window (a stay-at-home pane not queued twice, a wind
 with the front step off the operation carries only the back agents; the dry run names the front agents. The spawn: `back_lane_front_spawn_lane` and `spawn --dry-run` (the lane note, `--lane` winning, a side session and a back agent
 unchanged, a Fable model switched to opus on bedrock and kept on a lane that runs it). `tests/sessions.sh` gains 2 checks for `front-names` (the front list, and a row with no role listed as a front by the record). Not covered, and why:
 the queue's own run of the move (`tests/lanefallback.sh` covers `op lane`), and moving a session's model back on the way home, which nothing does.
+
+### The Shell draws in D2Coding 14px and keeps a key log: `web/tests/test_terminal_shell_font.py` new, 15 tests, and `web/tests/test_shell_keylog.py` new, 66 cases (Tue Nov 17th 2026)
+
+The Shell drawer's frame, and the full-size page when its `?arg` is the Shell session, draw in D2Coding 14px (ttyd's own face has no Korean glyphs) and record what the keyboard sends to the terminal, for the
+Hangul/English key that did nothing; the Terminal tab is left alone. A wrong answer is a Korean letter that is not two columns, a cell measured from the old face (a squeezed grid, a pane told the wrong size), a font
+address that resolves under `/tty/`, a Terminal tab or another session drawn in the Shell's face, typed text (a password) in the log, a log that grows past its cap, one that others can read, or a bad client that gets
+a character into the file.
+`test_terminal_shell_font.py`: the source (the call sites in both pages and none in the Terminal tab's `loadTerminal`, 14, the name, the font loaded before the options are set, the key rule in the code); a fake `term`
+in a same-origin frame (the face and the fit once per term, again for a reloaded frame, a resize event when there is no `fit`, a term with no options and a font that does not load left alone, the font declared at an
+absolute same-origin address with the cache-busting `v`, the Terminal tab neither styled nor logged, which keys and composition events are recorded with their flags and the 16-character cut, a typed letter, digit,
+space or Korean letter never, batches of 50, the page hide flushing what waits); the real ttyd on a scratch tmux session behind one same-origin address: the file loads and `fontSize` is 14, the cell is a whole 7px
+(a regression: without `size-adjust` xterm floored D2Coding's 6.99997 to 6), a Korean letter is two cells, the tmux window is as wide as the terminal's columns, real key events (DevTools) reach the 0600 log and a typed
+`q` does not, the Terminal tab keeps 13px and ttyd's face, and `terminal.html` gets the face for the Shell session and not for another.
+`test_shell_keylog.py`: no browser, no tmux. A good batch is written one line an event and answered `{ok, n}`; 47 shapes of bad event are each dropped while the good one beside them is kept (a printable letter, digit,
+space, punctuation, a Korean letter, a name with a non-ASCII letter, over 24 characters, with a newline at its end, wrong types for the code, keyCode, flags and time, a time out of range, an unlisted type, an extra or a
+missing field, a composition event over 16 characters), and every printable ASCII character as a keydown reaches no file; a body that is not a list, over 50 events, over 32 KB, not JSON or nested deep enough to overflow the
+parser is 400; 403 cross-origin and 415 not JSON as the other POSTs; the file is 0600 (a loose one made so), never past 256 KB over 120 batches, cut to the newest unbroken half at a line start, with no temp file left; the
+state folder made when missing; an unwritable one a plain 500; the endpoint named in the app's docstring and the README.
+Not covered, and why: a real Windows keyboard and its IME (no browser here sends the Hangul/English key; the log is what finds out what it sends), the cell at a display scale other than 100% (xterm floors the cell to
+whole device pixels at any scale; only 100% is run), and the bold weight (the font file has a regular weight only).
