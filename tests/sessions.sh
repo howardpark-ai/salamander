@@ -658,11 +658,16 @@ out=$(SALA_SESSIONS=off "$SALA" sessions tag --auto 2>&1); rc=$?
 echo "== phase 5: the rule's reader counts a row with no role by the record; the watch's fill"
 n=$(sessions_py back-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
 [ "$n" = "ba late tagm" ] && ok "back-names: a stored role back (tagm, from phase 4) and a record-listed back; no front, no side session, no unlisted, no retired row" || bad "back-names: '$n'"
+n=$(sessions_py front-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
+[ "$n" = "fa gamma2 ro tage tw" ] && ok "front-names: the same reader for the front agents (a stored role front or a record-listed front; no back, no side session, no retired row)" || bad "front-names: '$n'"
 cp "$REG" "$HOME/reg.before"; : > "$RLOG"
-sessions_py back-names --record "$REC" --record-max-age 600 >/dev/null 2>&1
-same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "back-names is read-only (file and log unchanged)" || bad "back-names wrote"
+sessions_py back-names --record "$REC" --record-max-age 600 >/dev/null 2>&1; sessions_py front-names --record "$REC" --record-max-age 600 >/dev/null 2>&1
+same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "back-names and front-names are read-only (file and log unchanged)" || bad "back-names or front-names wrote"
 addrec late2 false; n=$(sessions_py back-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
 [ "$n" = "ba late late2 tagm" ] && [ "$(q late2 role)" = null ] && ok "a row with no role counts by what the record says of it, before anything is written" || bad "back-names, untagged: '$n' role=$(q late2 role)"
+addrec late2 true; n=$(sessions_py front-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
+[ "$n" = "fa gamma2 late2 ro tage tw" ] && [ "$(q late2 role)" = null ] && ok "front-names: a row with no role listed as a front by the record counts, before anything is written" || bad "front-names, untagged: '$n' role=$(q late2 role)"
+addrec late2 false
 rm -f "$REC"; n=$(sessions_py back-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
 [ "$n" = "ba late tagm" ] && ok "with no record the stored roles alone count" || bad "back-names, no record: '$n'"
 : > "$RLOG"; cp "$REG" "$HOME/reg.before"; sessions_fill_roles; rc=$?
