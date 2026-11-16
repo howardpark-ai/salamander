@@ -4341,7 +4341,7 @@ back_lane_front_fire() {
            return 0;;
         2) back_lane_front_failnote "$target" "$win"; return 0;;
     esac
-    back_lane_put front_window "$win"; back_lane_put fqueued "$target|$win|${BL_FSENT[*]// /,}"; back_lane_put fblocked ""
+    back_lane_put front_window "$win"; back_lane_put fqueued "$target|$win|$(IFS=,; echo "${BL_FSENT[*]}")"; back_lane_put fblocked ""
     lane_log backlane "$target" "front step: ${#BL_FSENT[@]} front agent(s) queued onto $target (op ${BL_OPID:-?}): $why"
     echo "moved: front step ($why): ${#BL_FSENT[@]} front agent(s) to the $(lane_shown "$target") lane, op ${BL_OPID:-?} queued (the operation posts once when it is done)$(back_lane_front_swapnote "$target" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
     [ "${#BL_FFAIL[@]}" -eq 0 ] || back_lane_front_failnote "$target" "$win"
