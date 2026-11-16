@@ -37,6 +37,7 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
                                                                              stale, unreadable: nothing written)
   back-names [--record F] [--record-max-age S]                               read-only: the live background agents' names, one per line (a row with
                                                                              no role counts by what the record says of it)
+  front-names [--record F] [--record-max-age S]                              read-only: the same for the live front agents
   list [--all] [--json]                                                      the registry, read-only
   resolve REF [--live] [--json]                                              phase 3, read-only: REF is a session id (or a unique prefix of 8+
                                                                              characters), a transcript id, a name, an alias or role:<project>/<role>.
@@ -519,8 +520,8 @@ def cmd_tag_auto(R, a):
     return 0
 
 
-def cmd_back_names(R, a):
-    """Read-only: the names of the live background agents, one per line: a live row that is no side session and whose role is back, the role
+def _role_names(R, a, want):
+    """Read-only: the names of the live agents of one role, one per line: a live row that is no side session and whose role is `want`, the role
     of a row with none read from the project record (what `tag --auto` would write), so a row not yet tagged still counts. A record that
     cannot answer leaves the rows with their stored roles only."""
     try:
@@ -531,9 +532,19 @@ def cmd_back_names(R, a):
         if r.get("state") != "live" or r.get("side") or not r.get("name"):
             continue
         role = r.get("role") or derive_role(r, rec)[1]
-        if role == "back":
+        if role == want:
             print(r["name"])
     return 0
+
+
+def cmd_back_names(R, a):
+    """Read-only: the names of the live background agents, one per line (see _role_names)."""
+    return _role_names(R, a, "back")
+
+
+def cmd_front_names(R, a):
+    """Read-only: the names of the live front agents, one per line (see _role_names): the front step of the back agents' lane rule reads it."""
+    return _role_names(R, a, "front")
 
 
 # -- phase 3: the published file and the resolver (both read-only) ------------------------------------------------------
@@ -883,7 +894,7 @@ def main():
     p.add_argument("--keep", type=int, default=30)
     p.add_argument("--caller", default="")
     p.add_argument("--machine", default="")
-    p.add_argument("cmd", choices=["dual", "set", "prepare", "abandon", "record", "tag", "list", "resolve", "transcript", "back-names", "migrate", "check", "relane"])
+    p.add_argument("cmd", choices=["dual", "set", "prepare", "abandon", "record", "tag", "list", "resolve", "transcript", "back-names", "front-names", "migrate", "check", "relane"])
     p.add_argument("args", nargs="*")
     p.add_argument("--lane"); p.add_argument("--model"); p.add_argument("--effort")
     p.add_argument("--transcript"); p.add_argument("--why"); p.add_argument("--tmachine", default="")
@@ -896,9 +907,9 @@ def main():
     a = p.parse_args()
     R = Registry(a)
     rc = 0
-    if a.cmd in ("resolve", "transcript", "back-names"):  # read-only to the letter: not even an error line in sessions.log
+    if a.cmd in ("resolve", "transcript", "back-names", "front-names"):  # read-only to the letter: not even an error line in sessions.log
         try:
-            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names}[a.cmd](R.load(), a)
+            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names, "front-names": cmd_front_names}[a.cmd](R.load(), a)
         except Exception as e:
             print("sessions %s: %s" % (a.cmd, e), file=sys.stderr)
             return 1
