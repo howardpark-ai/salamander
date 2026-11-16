@@ -3793,3 +3793,20 @@ reads "not counted" after the total, never $0. The details page: the table's tit
 round to $0.00 merged into one "input . output" row, a total row; no table when nothing is estimated. Korean: every string read from the Korean table, the numbers in the Korean units (270.9
 man), and back to English. At 390 px, in both languages: the table is no wider than its card, the card inside the screen, the page does not scroll sideways (table 324 px wide in 324).
 Not covered, and why: the live Admin API (the cost and usage reports are stubbed, as in the other credit cases); an answer saved before this change (no new fields: the card reads them as empty).
+
+### `tests/backlane.sh`: +68 checks, none retired: the front agents move at a second threshold (Mon Nov 16th 2026)
+
+The back agents' rule gains a front step: at `SALA_BACK_LANE_FRONT_THRESHOLD` (default 95) the live front agents move onto the lane the background agents stand on, once per weekly window, and a Fable front agent bound for a
+lane in `SALA_FALLBACK_NO_FABLE` gets the `lane fallback` model change (the `SALA_FALLBACK_FABLE_MODEL` override and a lane-home record) just before the operation is queued. Kept because a wrong answer moves the sessions people
+talk to onto a lane that cannot run their model, moves a pinned or off-order session, fires twice in a window, or leaves a front agent on a lane at its limit with nothing said.
+Fakes only, as the rest of the suite (the fake `salamander` that records `op lane`, the stubbed `lane_check`, a saved usage answer). The sections before the new one are unchanged; the harness sets the front threshold to `off` for them, since a
+front agent registered at the same 95% would otherwise join their moves, and the new sections set it back to the default. Covered: the config (default 95, the default words carrying the clause, `off`, `0`, a non-number, a value under the
+back threshold, over the reading, equal to it); 94% moves only the back agents and a later 95% in the same window moves the front agents alone; from home at 95%, two operations, the back agents first and the front agents onto the lane step 1
+chose, with the pinned one named and held out, and the api, side, dead-pane rows left; a repeat tick queues nothing; the state records the queued names; the lane log line; step 1 refused leaves the front step waiting with a line, then both run
+in one pass; the rule's lane not ready or refused: one notice per window, a quiet line after, the move once it can; a dormant target goes to its fallback, both dormant gives one notice; the dry run names both steps and writes nothing.
+The swap: a Fable front agent to bedrock gets the override and the lane-home record (its lane and the model it had), is in the operation (the Fable back agent still stays), a non-Fable one gets nothing, a lane that runs Fable gets no
+override, the dry run names `model fable -> opus on bedrock` and writes nothing, a failed model write leaves that one out with one notice and no trace and the next pass retries it through the catch-up. The catch-up after step 2, a late
+front agent queued once per window (a stay-at-home pane not queued twice, a window that is over queues nothing), the role read from the project record. Step 3: the front agents ride the same operation home and the front keys are cleared;
+with the front step off the operation carries only the back agents; the dry run names the front agents. The spawn: `back_lane_front_spawn_lane` and `spawn --dry-run` (the lane note, `--lane` winning, a side session and a back agent
+unchanged, a Fable model switched to opus on bedrock and kept on a lane that runs it). `tests/sessions.sh` gains 2 checks for `front-names` (the front list, and a row with no role listed as a front by the record). Not covered, and why:
+the queue's own run of the move (`tests/lanefallback.sh` covers `op lane`), and moving a session's model back on the way home, which nothing does.
