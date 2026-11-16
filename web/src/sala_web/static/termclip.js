@@ -169,7 +169,8 @@ async function applyShellFont(win, term) {
 }
 
 // The key log. A keydown or keyup is recorded only when its `key` is a name (Alt, HangulMode, Process, Enter ...: letters and digits, two or
-// more), never a typed character, which would be the text or a password; composition events carry what the IME is composing (cut to 16).
+// more), never a typed character, which would be the text or a password. A composition event is recorded as {t, type} only: its `data` is
+// what the person is typing in Korean mode (a password included), and a cap per event would still let successive updates spell it out.
 // The server checks the same rule again (keylog.py). The events wait here and go to POST api/shell/keylog in batches of at most 50, every 2 s
 // while there are any and when the page is hidden; a post that fails loses its batch (it is a diagnostic, not a record).
 const KEYLOG_NAME = /^[A-Za-z][A-Za-z0-9]{1,23}$/;
@@ -185,7 +186,7 @@ function keyLogEntry(ev) {
     return { t, type: ev.type, key, code, keyCode: Number.isInteger(ev.keyCode) ? ev.keyCode : 0, isComposing: !!ev.isComposing,
              shift: !!ev.shiftKey, ctrl: !!ev.ctrlKey, alt: !!ev.altKey, meta: !!ev.metaKey };
   }
-  if (KEYLOG_COMPOSITION.includes(ev.type)) return { t, type: ev.type, data: String(ev.data == null ? "" : ev.data).slice(0, 16) };
+  if (KEYLOG_COMPOSITION.includes(ev.type)) return { t, type: ev.type };
   return null;
 }
 function flushKeyLog() {

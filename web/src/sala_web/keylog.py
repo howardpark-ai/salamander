@@ -5,9 +5,11 @@ keydown Chromium loses while the IME is switching) can be read off afterwards in
 The page (static/termclip.js `hookShellTerminal`) listens on the terminal frame and posts batches to `POST /api/shell/keylog`.
 Nothing the person types may land here, so the rule is held twice, in the page and again here, where a buggy or hostile client
 is met: a keydown or keyup is kept only when its `key` is a NAME (`Alt`, `HangulMode`, `Process`, `Enter`, ...: ASCII letters and
-digits, two or more of them), never a typed character; a composition event keeps its `data` cut to MAX_DATA characters (it is
-what the IME was composing, which is what tells whether the Hangul mode switched). Every field is checked for type and range and
-an event with any other field, a missing one or a bad value is dropped whole; what is stored is rebuilt from the checked fields.
+digits, two or more of them), never a typed character. A composition event is kept as `{t, type}` and nothing else: its `data` is
+the text the IME is composing, which is typed text (a password typed in Korean mode), and a cap per event would not hold it, since
+successive updates spell a whole secret out. That the composition started, updated and ended, and when, is what tells whether the
+Hangul mode switched. Every field is checked for type and range and an event with any other field (a composition event with `data`
+included), a missing one or a bad value is dropped whole; what is stored is rebuilt from the checked fields.
 
 The file, `<state_dir>/shell-keylog.jsonl`: one JSON object a line, mode 0600, never over MAX_FILE bytes: a write that would pass
 the cap first keeps the newest half of the file (rewritten through a temp file in the same folder, then renamed over it).
@@ -26,12 +28,11 @@ FILE_NAME = "shell-keylog.jsonl"
 MAX_BODY = 32 * 1024          # one POST
 MAX_EVENTS = 50               # events in one POST
 MAX_FILE = 256 * 1024         # the file never grows past this
-MAX_DATA = 16                 # characters of a composition event's data
 T_MIN, T_MAX = 946_684_800_000, 4_102_444_800_000   # milliseconds since the epoch: Jan 1st 2000 to Jan 1st 2100
 KEY_EVENTS = ("keydown", "keyup")
 COMPOSITION_EVENTS = ("compositionstart", "compositionupdate", "compositionend")
 KEY_FIELDS = frozenset({"t", "type", "key", "code", "keyCode", "isComposing", "shift", "ctrl", "alt", "meta"})
-COMPOSITION_FIELDS = frozenset({"t", "type", "data"})
+COMPOSITION_FIELDS = frozenset({"t", "type"})   # no text: a composition is what the person is typing
 FLAGS = ("isComposing", "shift", "ctrl", "alt", "meta")
 KEY_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]{1,23}")   # a key's name: never a single typed character
 CODE_NAME = re.compile(r"[A-Za-z0-9]{0,24}")         # a physical key's name (AltRight, Lang1, KeyA, ...), empty when the browser has none
@@ -61,10 +62,7 @@ def clean(event: object) -> dict | None:
     if kind in COMPOSITION_EVENTS:
         if set(event) != COMPOSITION_FIELDS:
             return None
-        data = event["data"]
-        if not isinstance(data, str) or len(data) > MAX_DATA:
-            return None
-        return {"t": event["t"], "type": kind, "data": data}
+        return {"t": event["t"], "type": kind}
     return None
 
 
@@ -82,7 +80,7 @@ class KeyLog:
 
     def append(self, events: list[dict]) -> int:
         """Write one line per (already cleaned) event; the number written. Past MAX_FILE the oldest half goes first."""
-        # ensure_ascii: a line is plain ASCII, so a lone surrogate or a line separator in `data` cannot break the file
+        # ensure_ascii: a line is plain ASCII, so no character of any kind can break the file
         lines = [json.dumps(e, separators=(",", ":")) + "\n" for e in events]
         while lines and sum(map(len, lines)) > MAX_FILE // 2:     # not reachable with MAX_EVENTS of these events; the cap is kept regardless
             lines.pop(0)

@@ -75,7 +75,10 @@ def test_the_key_log_records_names_and_composition_only():
     assert '"api/shell/keylog"' in TERMCLIP and "keepalive: true" in TERMCLIP and "splice(0, 50)" in TERMCLIP and "2000" in TERMCLIP
     assert "const KEYLOG_NAME = /^[A-Za-z][A-Za-z0-9]{1,23}$/;" in TERMCLIP     # a name, never one typed character
     assert 'for (const type of ["keydown", "keyup", ...KEYLOG_COMPOSITION]) win.document.addEventListener(type, recordKey, true);' in TERMCLIP
-    assert "pagehide" in TERMCLIP and "slice(0, 16)" in TERMCLIP
+    assert "pagehide" in TERMCLIP
+    entry = body_of(TERMCLIP, "function keyLogEntry(")                           # a composition event is {t, type}: never its text
+    comp_line = [ln for ln in entry.splitlines() if "KEYLOG_COMPOSITION" in ln][0]
+    assert "return { t, type: ev.type };" in comp_line and "data" not in comp_line and "slice(0, 16)" not in TERMCLIP
 
 
 # ---------------------------------------------------------------- the hook, against a fake term in a same-origin frame
@@ -211,9 +214,29 @@ def test_the_key_log_records_named_keys_and_composition_and_never_a_typed_charac
     assert isinstance(alt["t"], int) and abs(alt["t"] - time.time() * 1000) < 60_000
     proc = ev[3]
     assert proc["isComposing"] is True and proc["shift"] is True and ev[4]["ctrl"] is True and ev[4]["meta"] is True
-    assert [e["data"] for e in ev[5:]] == ["", KO, "0123456789abcdef", KO]               # the data is cut to 16 characters
+    assert all(set(e) == {"t", "type"} for e in ev[5:])                                  # a composition event is its time and type, no text
+    flat = json.dumps(ev, ensure_ascii=False)
+    assert KO not in flat and KO[0] not in flat and "0123456789" not in flat and "XYZ" not in flat
     assert "KeyA" not in json.dumps(ev) and '"a"' not in json.dumps(ev)                  # nothing of the typed letter went out
     assert all(len(b) <= 50 for b in posts)
+
+
+def test_a_composed_password_never_reaches_the_queue_or_a_post(fake):
+    """Typed in Korean mode at a prompt, a password is composed syllable by syllable: each update carries the text so far, so a cap on one
+    event would not hold it. The page records that the composition started, updated and ended, and nothing of the text."""
+    hooked(fake)
+    secret = KO + "\ub098\ub2e4" + "hunter2"
+    steps = [secret[:i] for i in range(1, len(secret) + 1)]
+    fake.evaluate("""((steps, secret) => { const d = document.querySelector("#shell-term iframe").contentDocument;
+      const c = (type, data) => d.dispatchEvent(new CompositionEvent(type, { data, bubbles: true }));
+      c("compositionstart", ""); for (const s of steps) c("compositionupdate", s); c("compositionend", secret); return 1; })(%s, %s)""" % (json.dumps(steps), json.dumps(secret)))
+    queued = fake.evaluate("keyLogQueue.map((e) => JSON.stringify(e))")                 # what waits on the queue, before any post
+    assert len(queued) == len(steps) + 2 and all(set(json.loads(q)) == {"t", "type"} for q in queued)
+    assert not any(ch in q for q in queued for ch in secret if not ch.isascii()) and not any("hunter" in q for q in queued)
+    fake.evaluate("window.dispatchEvent(new Event('pagehide'))")
+    sent = json.dumps(fake.evaluate("window.__posts"), ensure_ascii=False)
+    assert not any(ch in sent for ch in secret if not ch.isascii()) and "hunter" not in sent and "data" not in sent
+    assert sent.count("compositionupdate") == len(steps)
 
 
 def test_events_go_in_batches_of_50_and_the_page_hide_flushes_what_waits(fake):

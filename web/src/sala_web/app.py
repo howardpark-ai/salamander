@@ -190,7 +190,8 @@ none itself):
   POST /api/shell/keylog          a JSON list of at most 50 key and composition events from the Shell's terminal frame (32 KB at most) ->
                                   {"ok", "n"}: n kept, one JSON line each in state_dir/shell-keylog.jsonl (0600, 256 KB at most, the
                                   newest half kept past it; keylog.py). Only a key NAME is kept (Alt, HangulMode, Process, Enter ...), never
-                                  a typed character; every field is checked and an event with any other shape is dropped; 400 for a
+                                  a typed character, and a composition event is only {t, type}, never the composed text; every field is
+                                  checked and an event with any other shape or field is dropped; 400 for a
                                   body that is not such a list, 403 cross-origin, 415 not JSON, like the other POSTs
   GET  /api/spawn/options         what the New session form offers (spawn.py): the project pages (key, title)
                                   read from stackshot's pages checkout, the page dirs, the lanes a session can be spawned

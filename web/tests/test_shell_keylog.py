@@ -39,7 +39,7 @@ def key(**over) -> dict:
 
 
 def comp(**over) -> dict:
-    return {**{"t": T0, "type": "compositionupdate", "data": KO}, **over}
+    return {**{"t": T0, "type": "compositionupdate"}, **over}
 
 
 def post(env, body, **kw):
@@ -56,12 +56,12 @@ def lines(env) -> list[dict]:
 def test_a_good_batch_is_written_one_line_an_event_and_answered_with_the_count(env):
     batch = [key(key="Alt", code="AltRight", keyCode=18, alt=True), key(type="keyup", key="Alt", code="AltRight", keyCode=18),
              key(key="Process", code="KeyG", keyCode=229, isComposing=True), key(key="Unidentified", code="", keyCode=0),
-             comp(type="compositionstart", data=""), comp(), comp(type="compositionend", data="0123456789abcdef")]
+             comp(type="compositionstart"), comp(), comp(type="compositionend")]
     r = post(env, batch)
     assert r.status_code == 200 and r.json() == {"ok": True, "n": 7}
     assert lines(env) == batch
     assert (env["file"].stat().st_mode & 0o777) == 0o600
-    assert env["file"].read_text().isascii()                                  # the Korean letter is stored escaped
+    assert env["file"].read_text().isascii()
     assert post(env, [key(key="Enter", code="Enter", keyCode=13)]).json()["n"] == 1
     assert len(lines(env)) == 8                                               # appended, never replaced
 
@@ -111,9 +111,12 @@ BAD = [
     ("an extra field (the typed text)", key(text="hunter2")),
     ("a missing flag", {k: v for k, v in key().items() if k != "meta"}),
     ("a composition event with a key", comp(key="Process")),
-    ("a composition event with more than 16 characters", comp(data="x" * 17)),
+    ("a composition event with data (a Korean syllable)", comp(data=KO)),
+    ("a composition event with data (one letter)", comp(data="x")),
+    ("a composition event with empty data", comp(type="compositionstart", data="")),
     ("a composition event with data that is not a string", comp(data=5)),
-    ("a composition event with no data", {"t": T0, "type": "compositionend"}),
+    ("a composition event with null data", comp(data=None)),
+    ("a composition event with a text field", comp(text="secret")),
     ("a composition event with an extra field", comp(isComposing=True)),
     ("a string", "keydown Alt"),
     ("a number", 5),
@@ -137,6 +140,24 @@ def test_a_single_printable_keydown_from_a_buggy_client_never_reaches_the_file(e
     for chunk in (typed[:50], typed[50:]):
         assert post(env, chunk).json() == {"ok": True, "n": 0}
     assert not env["file"].exists()                                          # a password typed in the pane is nowhere on disk
+
+
+def test_a_composed_password_leaves_no_composed_character_in_the_file(env):
+    """A password typed in Korean mode at a prompt: the IME composes it syllable by syllable, each update carrying the text so far.
+    Sent as a buggy client would send it (with `data`) every event is dropped; sent as the page sends it, only {t, type} is kept."""
+    secret = KO + "\ub098\ub2e4" + "hunter2"
+    steps = [secret[:i] for i in range(1, len(secret) + 1)]
+    with_text = [comp(type="compositionstart", data="")] + [comp(data=s) for s in steps] + [comp(type="compositionend", data=secret)]
+    assert post(env, with_text).json() == {"ok": True, "n": 0}
+    assert not env["file"].exists()
+    as_sent = [{"t": T0 + i, "type": e["type"]} for i, e in enumerate(with_text)]
+    assert post(env, as_sent).json() == {"ok": True, "n": len(with_text)}
+    text = env["file"].read_text()
+    assert [r["type"] for r in lines(env)] == ["compositionstart"] + ["compositionupdate"] * len(steps) + ["compositionend"]
+    assert all(set(r) == {"t", "type"} for r in lines(env))
+    raw = env["file"].read_bytes()
+    assert all(ch not in text and ch.encode() not in raw for ch in secret if not ch.isascii())   # no Korean syllable, escaped or not
+    assert "\\u" not in text and "data" not in text and "hunter" not in text and "nter2" not in text
 
 
 # ---------------------------------------------------------------- the body
@@ -249,8 +270,9 @@ def test_a_file_that_cannot_be_written_is_a_plain_500(tmp_path):
 
 def test_the_unit_functions_agree_with_the_endpoint():
     assert KL.clean(key()) == key() and KL.clean(comp()) == comp()
-    assert KL.clean_all([key(key="a"), key(), "x", comp(data="y" * 17), comp()]) == [key(), comp()]
-    assert KL.MAX_FILE == 256 * 1024 and KL.MAX_EVENTS == 50 and KL.MAX_BODY == 32 * 1024 and KL.MAX_DATA == 16
+    assert KL.clean_all([key(key="a"), key(), "x", comp(data="y"), comp()]) == [key(), comp()]
+    assert KL.clean(comp(data="")) is None and KL.COMPOSITION_FIELDS == {"t", "type"}      # no text of any kind, not even an empty string
+    assert KL.MAX_FILE == 256 * 1024 and KL.MAX_EVENTS == 50 and KL.MAX_BODY == 32 * 1024 and not hasattr(KL, "MAX_DATA")
 
 
 def test_the_endpoint_is_in_the_apps_docstring_and_the_readme():
