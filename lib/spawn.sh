@@ -103,7 +103,8 @@
 # transcript, so the original is never shared with a second writer; archive the original after.
 # --lane L launches on that lane in place of the default and records the row (common.sh, lanes), so every later relaunch
 # keeps it; without it the session follows the default lane and nothing is recorded, as before. One exception: a background agent
-# (--project … --role back) spawned while the back agents' lane rule has them off their home lane (SALA_BACK_LANE_RULE=on) takes the rule's lane.
+# (--project … --role back) spawned while the back agents' lane rule has them off their home lane (SALA_BACK_LANE_RULE=on) takes the rule's lane, and
+# so does a front agent (--role front) spawned while the rule's front step is engaged (it fired in the current weekly window).
 # THE SESSION REGISTRY'S ID (phase 2): before the pane's claude starts, spawn makes (or finds) the registry row and puts its
 # id in the pane's environment as SALA_SESSION_ID, so the session's SessionStart hook can name its row; a spawn that does not come
 # up takes the row back (see the comment at tmux new-session below). SALA_SESSIONS=off: no id, no export.
@@ -454,11 +455,19 @@ spawn_register() {  # the register hook (the header), once the session is up and
 # THE BACK AGENTS' LANE RULE (common.sh): a background agent spawned while the rule has the back agents off their home lane lands on the rule's lane
 # (as --lane would: recorded, so every relaunch keeps it, and the rule's move home finds it). An explicit --lane wins; a front agent, a side session and
 # a throwaway are not the rule's; a Fable model is left on the default when the rule's lane cannot run Fable; a rule lane that is dormant or not ready is skipped.
+# A FRONT agent (--role front, not --side) spawned while the rule's front step is engaged takes the rule's lane the same way (back_lane_front_spawn_lane); a Fable model
+# that lane cannot run is launched on SALA_FALLBACK_FABLE_MODEL instead (the front step's swap, which cannot leave a front agent behind), and the note says so.
 BACK_RULE_NOTE=""
 if [ -z "$LANE_OPT" ] && [ -n "$PROJECT" ] && [ "$ROLE" = back ] && [ "$SIDE" = 0 ] && BL_SPAWN=$(back_lane_spawn_lane); then
     if [[ $MODEL == *fable* ]] && [[ " $SALA_FALLBACK_NO_FABLE " == *" $BL_SPAWN "* ]]; then
         BACK_RULE_NOTE="the back agents' lane rule has them on the $(lane_shown "$BL_SPAWN") lane, which cannot run $MODEL: this one takes the default lane"
     else LANE_OPT=$BL_SPAWN; BACK_RULE_NOTE="the back agents' lane rule has them on the $(lane_shown "$BL_SPAWN") lane: this one launches there (--lane overrides)"; fi
+fi
+if [ -z "$LANE_OPT" ] && [ -n "$PROJECT" ] && [ "$ROLE" = front ] && [ "$SIDE" = 0 ] && BL_SPAWN=$(back_lane_front_spawn_lane); then
+    LANE_OPT=$BL_SPAWN; BACK_RULE_NOTE="the lane rule's front step is engaged and has the front agents on the $(lane_shown "$BL_SPAWN") lane: this one launches there (--lane overrides)"
+    if [[ $MODEL == *fable* ]] && [[ " $SALA_FALLBACK_NO_FABLE " == *" $BL_SPAWN "* ]]; then
+        MODEL=$SALA_FALLBACK_FABLE_MODEL; BACK_RULE_NOTE="$BACK_RULE_NOTE; the $(lane_shown "$BL_SPAWN") lane cannot run Fable, so it launches on $MODEL"
+    fi
 fi
 if [ -n "$LANE_OPT" ]; then
     lane_known "$LANE_OPT" || die "'$LANE_OPT' is not a lane (one of: $(lane_choices))"

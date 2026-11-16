@@ -3861,13 +3861,16 @@ lane_fallback_auto() {
 #   1. the home lane's "This week" limit reaches SALA_BACK_LANE_THRESHOLD percent       → the back agents move to the second lane;
 #   2. a pane running on the second lane is stopped on its cap (the limit watch's state) → they move to the third;
 #   3. the home lane's weekly limit resets (a fresh reading in a new window, under the threshold) → all of them move home.
-# Front agents, jobs (`lane exec`, `sala job`), SALA_LANE_FALLBACK and the dormant record are not part of it. OFF by default.
+# Jobs (`lane exec`, `sala job`), SALA_LANE_FALLBACK and the dormant record are not part of it; the FRONT agents are part of it only through the
+# second, higher threshold below (THE FRONT STEP) and the step home. OFF by default.
 # A PINNED session (THE PINNED SESSIONS above) is never moved by it: back_lane_movers puts it in BL_PINNED and every outcome line that moves
 # (or would move) agents ends with back_lane_pinned_note, "; skipped (pinned to <lane>): <session>", in the dry run too.
 #   SALA_BACK_LANE_RULE       off (default) · on
 #   SALA_BACK_LANE_ORDER      "<home> <second> <third>" lane ids (an old word works); two lanes make a rule with no step 2
 #   SALA_BACK_LANE_THRESHOLD  percent of the home lane's "This week" limit (kind weekly_all), default 90; the model-scoped weekly
 #                             limits ("Fable this week") are never read
+#   SALA_BACK_LANE_FRONT_THRESHOLD   percent, default 95: at this reading the FRONT agents move too (THE FRONT STEP below); `off` or 0 switches that step off;
+#                             a value under SALA_BACK_LANE_THRESHOLD leaves the step idle, with a line saying so
 #   SALA_BACK_LANE_MAX_AGE    seconds: the home lane's reading (sala-web's quota-<lane>.json in SALA_WEB_STATE_DIR, written by web/src/sala_web/quota.py)
 #                             older than this, failed (errorKind), without a "This week" percent, or whose window is over moves nobody (default 1800)
 #   SALA_BACK_LANE_WORDS      the words the queued operations carry (the owner's standing rule, quoted); the public default describes the rule
@@ -3889,15 +3892,29 @@ lane_fallback_auto() {
 # expired reading, or a dormant home lane, moves nobody. THE CATCH-UP (`back_lane_catchup`): a step fires once per window, so while the rule
 # has the agents off home a pass that finds one still on the wrong side (it had no role, or no pane, when the step fired) moves it to the rule's
 # lane, once per step (state key `queued`: <lane>|<window>|<names>).
+# THE FRONT STEP (back_lane_front_tick; SALA_BACK_LANE_FRONT_THRESHOLD, default 95): the live front agents (a registry row with role front, or no role and
+# the project record's top-level agent; no side session, not SALA_NO_RELAUNCH, not the master) are not part of step 1. When the home lane's reading
+# (the same fresh one) reaches the front threshold and the rule has the back agents off home, they move too, onto the rule's lane: those whose lane is in
+# the order and before it, once per weekly window (state keys front_window, fqueued, fblocked). Step 1 runs first in the same pass, so a pass that finds the
+# reading at the front threshold with the agents still home moves the back agents and then the front agents onto the lane step 1 chose. A pinned
+# front agent is held out and named; a lane outside the order (api, subscription-2) is left alone; a dormant target is replaced by its fallback and a
+# target that cannot take them holds one notice, as for the back agents. A front agent on Fable bound for a lane in SALA_FALLBACK_NO_FABLE is not left
+# behind (the back agents are): the step does the model swap `sala lane fallback` does, in its order (lane_fallback_model_change read first, the home
+# and the model it had recorded by lane_home_set, then model_write), right before queuing the move (back_lane_front_swap); a swap that cannot be
+# written leaves that session out of the move, with a notice. Moving home restores no model, as for the fallback. A front agent found on the wrong side later
+# (spawned, tagged, not live then) is queued once per window by the catch-up (back_lane_front_catchup, state key fqueued) and one spawned while the step
+# is engaged launches on the rule's lane (back_lane_front_spawn_lane). The step home (3) takes the front agents off home along with the back agents
+# when the front step is on or has fired; it too is reached only when the rule has the back agents off home.
 : "${SALA_BACK_LANE_RULE:=off}"
 : "${SALA_BACK_LANE_ORDER:=subscription-1 aws-platform bedrock}"
 : "${SALA_BACK_LANE_THRESHOLD:=90}"
+: "${SALA_BACK_LANE_FRONT_THRESHOLD:=95}"
 : "${SALA_BACK_LANE_MAX_AGE:=1800}"
 : "${SALA_BACK_LANE_STATE:=$SALA_STATE_DIR/back-lane.state}"
 : "${SALA_BACK_LANE_REFRESH_URL:=}"      # where the watch asks for a fresh reading: empty = sala-web's socket (SALA_WEB_SOCKET, else $XDG_RUNTIME_DIR/sala-web/sala-web.sock); a socket path, an http(s) base URL, or off
 : "${SALA_BACK_LANE_REFRESH_EVERY:=120}" # seconds between two asks
 : "${SALA_BACK_LANE_REFRESH_WAIT:=10}"   # seconds to wait for the refreshed file after the GET (sala-web refreshes in the background)
-_bl_words="${SALA_OWNER_NAME}'s standing rule for the background agents: off the home lane near its weekly limit, back when it resets"
+_bl_words="${SALA_OWNER_NAME}'s standing rule for the background agents: off the home lane near its weekly limit (the front agents too, at a second, higher threshold), back when it resets"
 : "${SALA_BACK_LANE_WORDS:=$_bl_words}"; unset _bl_words   # a default the config overrides with the owner's own words, quoted
 back_lane_on() { case "${SALA_BACK_LANE_RULE:-off}" in on|1|yes|true) return 0;; esac; return 1; }
 BL_ORDER=()
@@ -4030,10 +4047,10 @@ for p in panes.values():
     [ -n "$best" ] && { echo "$best"; return 0; }
     return 1
 }
-back_lane_names() {  # → the live back agents, one per line: a registry row with role back and no side, whose tmux session exists; a row with no role counts by what the project record's agents map says of it (lib/sessions.py back-names)
+back_lane_names() {  # [back|front] → the live agents of that role (default back), one per line: a registry row with that role and no side, whose tmux session exists; a row with no role counts by what the project record's agents map says of it (lib/sessions.py back-names, front-names)
     sessions_on && [ -r "$SALA_SESSIONS_FILE" ] || return 0
     local s names
-    names=$(sessions_py back-names --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" 2>/dev/null)
+    names=$(sessions_py "${1:-back}-names" --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" 2>/dev/null)
     while IFS= read -r s; do [ -n "$s" ] && tmux has-session -t "=$s" 2>/dev/null && echo "$s"; done <<< "$names"
     return 0
 }
@@ -4049,29 +4066,33 @@ back_lane_substitute() {
     if [ "$fx" -le "$floor" ]; then echo "$why; its fallback, the $(lane_shown "$f") lane, is no further from home than the lane they are on"; return 1; fi
     printf '%s\t%s\n' "$f" "$why, so the $(lane_shown "$f") lane, its fallback, takes them"
 }
-# back_lane_movers <target lane> → BL_MOVE (who goes), BL_STAY (a Fable session the target cannot run) and BL_PINNED (a pinned session the
-# move would otherwise have taken: held out, THE PINNED SESSIONS above); the rule above says who counts
-BL_MOVE=(); BL_STAY=(); BL_PINNED=()
+# back_lane_movers <target lane> [back|front] → BL_MOVE (who goes), BL_STAY (a Fable session the target cannot run), BL_PINNED (a pinned session the
+# move would otherwise have taken: held out, THE PINNED SESSIONS above) and, for front, BL_SWAP (the movers whose model the move changes: a Fable
+# front agent bound for a lane in SALA_FALLBACK_NO_FABLE; front agents are never left in BL_STAY); the rule above says who counts
+BL_MOVE=(); BL_STAY=(); BL_PINNED=(); BL_SWAP=()
 back_lane_pinned_note() {  # → "; skipped (pinned to <lane>): <session>; …" for BL_PINNED, nothing when none
     local s o=""; for s in ${BL_PINNED[@]+"${BL_PINNED[@]}"}; do o="$o; $(pinned_skip_note "$s")"; done; printf '%s' "$o"
 }
 back_lane_movers() {
-    BL_MOVE=(); BL_STAY=(); BL_PINNED=(); local t ti s e ei; back_lane_order || return 1; t=$(lane_state_id "$1") || return 1; ti=$(back_lane_idx "$t") || return 1
+    BL_MOVE=(); BL_STAY=(); BL_PINNED=(); BL_SWAP=(); local role=${2:-back} t ti s e ei; back_lane_order || return 1; t=$(lane_state_id "$1") || return 1; ti=$(back_lane_idx "$t") || return 1
     while IFS= read -r s; do
         [ -n "$s" ] || continue; no_relaunch "$s" && continue; [ "$s" = "${SALA_MASTER:-}" ] && continue
         e=$(lane_for_session "$s"); ei=$(back_lane_idx "$e") || continue            # a lane outside the order is not the rule's
         if [ "$ti" -eq 0 ]; then [ "$ei" -gt 0 ] || continue; else [ "$ei" -lt "$ti" ] || continue; fi
         if lane_is_pinned "$s"; then BL_PINNED+=("$s"); continue; fi                 # held out of a bulk move (THE PINNED SESSIONS)
-        case " $SALA_FALLBACK_NO_FABLE " in *" $t "*) if session_on_fable "$s"; then BL_STAY+=("$s"); continue; fi;; esac
+        case " $SALA_FALLBACK_NO_FABLE " in *" $t "*) if session_on_fable "$s"; then if [ "$role" = front ]; then BL_SWAP+=("$s"); else BL_STAY+=("$s"); continue; fi; fi;; esac
         BL_MOVE+=("$s")
-    done < <(back_lane_names)
+    done < <(back_lane_names "$role")
     return 0
 }
 # back_lane_same_window <key> <recorded> → 0 when the two window keys name the same weekly window (the endpoint's reset time moves by fractions of a second)
 back_lane_same_window() { [ -n "$1" ] && [ -n "$2" ] && [ "$1" -lt $(( $2 + 3600 )) ] && [ "$1" -gt $(( $2 - 3600 )) ]; }
 back_lane_commit() {  # <step> <target> <window key> <target's place> [<the names queued, space-separated>] — the rule's state after a step; a step home clears the way out
     back_lane_put lane "$2"; back_lane_put moved_at "$(printf '%(%s)T' -1)"; back_lane_put "f$4" "$3"; back_lane_put blocked ""
-    if [ "$1" = 3 ]; then back_lane_put window ""; back_lane_put queued ""; else
+    if [ "$1" = 3 ]; then
+        back_lane_put window ""; back_lane_put queued ""
+        local k; for k in front_window fqueued fblocked; do [ -z "$(back_lane_get "$k")" ] || back_lane_put "$k" ""; done   # the front step's record goes with the way out (written only if it was)
+    else
         [ "$1" != 1 ] || back_lane_put window "$3"
         local nm=${5:-}; back_lane_put queued "$2|$3|${nm// /,}"   # who the rule has queued onto this lane in this window: the catch-up below never queues a name twice
     fi
@@ -4106,8 +4127,17 @@ back_lane_catchup() {
 # back_lane_tick [--dry-run] → one pass of the rule; prints one line per outcome, "<tag>: <text>" (the watch logs them; `notice:` lines are posted):
 #   idle (nothing to do, with why when a reading was refused) · moved (the operation queued) · advanced (state moved, nobody to move) ·
 #   blocked / notice (the step cannot be taken now) · would (a dry run: what it would queue and write; nothing is queued or written)
+# The pass is the three steps for the back agents (back_lane_tick_steps), then the front step on the lane they left the rule on
+# (back_lane_front_tick); a dry run, which changes no state, hands the front step the lane step 1 or 2 would have chosen (BL_PASS_TARGET).
+BL_PASS_TARGET=""; BL_PASS_STEP=""
 back_lane_tick() {
     back_lane_on || return 0
+    BL_PASS_TARGET=""; BL_PASS_STEP=""
+    back_lane_tick_steps "$@"
+    back_lane_front_tick "$@"
+    return 0
+}
+back_lane_tick_steps() {
     local dry=0 now cur ci home ti target why stp rd st pct win rst moved_at w0 key out id f stp2 picked pti; [ "${1:-}" = --dry-run ] && dry=1
     back_lane_order || { echo "idle: SALA_BACK_LANE_ORDER names fewer than two lanes ($SALA_BACK_LANE_ORDER)"; return 0; }
     case "$SALA_BACK_LANE_THRESHOLD" in ''|*[!0-9]*) echo "idle: SALA_BACK_LANE_THRESHOLD is not a whole number ($SALA_BACK_LANE_THRESHOLD)"; return 0;; esac
@@ -4162,26 +4192,190 @@ back_lane_tick() {
         return 0
     fi
     back_lane_movers "$target"
-    if [ "${#BL_MOVE[@]}" -eq 0 ]; then
+    BL_PASS_TARGET=$target; BL_PASS_STEP=$stp   # what the front step reads after a dry run (a real pass has written it to the state)
+    BL_FMOVE=(); [ "$stp" != 3 ] || back_lane_front_home_movers "$target"   # the step home takes the front agents standing off home in the same call
+    if [ "${#BL_MOVE[@]}" -eq 0 ] && [ "${#BL_FMOVE[@]}" -eq 0 ]; then
         if [ "$dry" = 1 ]; then echo "would: step $stp ($why): the rule's lane becomes the $(lane_shown "$target") lane; no back agent to move$(back_lane_pinned_note)"; return 0; fi
         back_lane_commit "$stp" "$target" "$key" "$ti" ""; [ "$picked" = "$target" ] || back_lane_put "f$pti" "$key"
         echo "advanced: step $stp ($why): the rule's lane is now the $(lane_shown "$target") lane; no back agent needed moving${BL_STAY[*]:+; Fable stays: ${BL_STAY[*]}}$(back_lane_pinned_note)"
         return 0
     fi
     if [ "$dry" = 1 ]; then
-        echo "would: step $stp ($why): sala op lane $target ${BL_MOVE[*]} --from sala-watch --words \"…\"; then the rule's lane is the $(lane_shown "$target") lane (a dry run writes and queues nothing)${BL_STAY[*]:+; Fable stays (the $(lane_shown "$target") lane cannot run it): ${BL_STAY[*]}}$(back_lane_pinned_note)"
+        echo "would: step $stp ($why): sala op lane $target ${BL_MOVE[*]}${BL_FMOVE[*]:+${BL_MOVE[*]:+ }${BL_FMOVE[*]}} --from sala-watch --words \"…\"; then the rule's lane is the $(lane_shown "$target") lane (a dry run writes and queues nothing)${BL_FMOVE[*]:+; the front agent(s) among them: ${BL_FMOVE[*]}}${BL_STAY[*]:+; Fable stays (the $(lane_shown "$target") lane cannot run it): ${BL_STAY[*]}}$(back_lane_pinned_note)"
         return 0
     fi
-    out=$("$SALA_BIN" op lane "$target" "${BL_MOVE[@]}" --from sala-watch --words "$SALA_BACK_LANE_WORDS" 2>&1) || {
+    out=$("$SALA_BIN" op lane "$target" ${BL_MOVE[@]+"${BL_MOVE[@]}"} ${BL_FMOVE[@]+"${BL_FMOVE[@]}"} --from sala-watch --words "$SALA_BACK_LANE_WORDS" 2>&1) || {
         if [ "$(back_lane_get blocked)" != "$stp@$key" ]; then
             back_lane_put blocked "$stp@$key"; echo "notice: the back agents should move to the $(lane_shown "$target") lane ($why) but the move was not queued: $(printf '%s' "$out" | tail -3 | paste -sd' ' -)"
         else echo "blocked: step $stp not queued: $(printf '%s' "$out" | tail -1)"; fi
         return 0; }
     id=$(printf '%s\n' "$out" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)
     back_lane_commit "$stp" "$target" "$key" "$ti" "${BL_MOVE[*]}"; [ "$picked" = "$target" ] || back_lane_put "f$pti" "$key"
-    lane_log backlane "$target" "step $stp: ${#BL_MOVE[@]} back agent(s) queued onto $target (op ${id:-?}): $why"
-    echo "moved: step $stp ($why): ${#BL_MOVE[@]} back agent(s) to the $(lane_shown "$target") lane, op ${id:-?} queued (the operation posts once when it is done)$(back_lane_pinned_note)"
+    lane_log backlane "$target" "step $stp: ${#BL_MOVE[@]} back agent(s)${BL_FMOVE[*]:+ and ${#BL_FMOVE[@]} front agent(s)} queued onto $target (op ${id:-?}): $why"
+    echo "moved: step $stp ($why): ${#BL_MOVE[@]} back agent(s)${BL_FMOVE[*]:+ and ${#BL_FMOVE[@]} front agent(s)} to the $(lane_shown "$target") lane, op ${id:-?} queued (the operation posts once when it is done)$(back_lane_pinned_note)"
     [ "${#BL_STAY[@]}" -eq 0 ] || echo "notice: ${#BL_STAY[@]} Fable back agent(s) did not move to the $(lane_shown "$target") lane (it cannot run Fable): ${BL_STAY[*]}"
+    return 0
+}
+# THE FRONT STEP (the header's paragraph): the front agents move at SALA_BACK_LANE_FRONT_THRESHOLD, a second, higher reading, onto the lane the rule has the
+# back agents on; once per weekly window (state: front_window = the window key it fired in, fqueued = <lane>|<window>|<names> already queued, fblocked =
+# the notice already sent). back_lane_front_threshold → rc 0 with BL_FT, the threshold in force; rc 1: the step is off (`off`, 0); rc 2: idle, BL_FT_WHY says why
+BL_FT=""; BL_FT_WHY=""; BL_FMOVE=(); BL_FSENT=(); BL_FFAIL=(); BL_OPID=""; BL_OPOUT=""
+back_lane_front_threshold() {
+    BL_FT=""; BL_FT_WHY=""; local v=${SALA_BACK_LANE_FRONT_THRESHOLD-95}
+    case "$v" in ''|off) return 1;; *[!0-9]*) BL_FT_WHY="SALA_BACK_LANE_FRONT_THRESHOLD is not a whole number or off ($v)"; return 2;; esac
+    [ "$v" -ne 0 ] || return 1
+    if [ "$v" -lt "$SALA_BACK_LANE_THRESHOLD" ]; then BL_FT_WHY="SALA_BACK_LANE_FRONT_THRESHOLD ($v) is lower than SALA_BACK_LANE_THRESHOLD ($SALA_BACK_LANE_THRESHOLD)"; return 2; fi
+    BL_FT=$v
+}
+# back_lane_front_home_movers <home> → BL_FMOVE: the front agents standing off home, which the step home takes in the same call when the front step is on
+# or has fired; a pinned one joins BL_PINNED (the back agents' BL_MOVE, BL_STAY and BL_PINNED are kept)
+back_lane_front_home_movers() {
+    BL_FMOVE=(); local rc=0; back_lane_front_threshold || rc=$?
+    [ "$rc" = 0 ] || [ -n "$(back_lane_get front_window)" ] || return 0
+    local mv=(${BL_MOVE[@]+"${BL_MOVE[@]}"}) st=(${BL_STAY[@]+"${BL_STAY[@]}"}) pin=(${BL_PINNED[@]+"${BL_PINNED[@]}"})
+    back_lane_movers "$1" front || return 0
+    BL_FMOVE=(${BL_MOVE[@]+"${BL_MOVE[@]}"}); pin+=(${BL_PINNED[@]+"${BL_PINNED[@]}"})
+    BL_MOVE=(${mv[@]+"${mv[@]}"}); BL_STAY=(${st[@]+"${st[@]}"}); BL_PINNED=(${pin[@]+"${pin[@]}"})
+}
+# back_lane_front_swap <session> <target lane> → rc 0 when the session may be queued: nothing to change, or the model change `sala lane fallback` makes is
+# written (a Fable session bound for a lane in SALA_FALLBACK_NO_FABLE runs on SALA_FALLBACK_FABLE_MODEL there). The same calls in the same order: the change is
+# read first (once the override is written the session no longer reads as Fable), its home and the model it had are recorded (lane_home_set), then the
+# override (model_write). rc 1 when the override cannot be written: the session is not queued (it would relaunch on Fable on a lane that cannot run it).
+back_lane_front_swap() {
+    local chg prev had; chg=$(lane_fallback_model_change "$1" "$2"); [ -n "$chg" ] || return 0
+    prev=$(model_row "$1"); prev=${prev%%$'\t'*}; had=$(lane_home "$1")
+    lane_home_set "$1" "$(lane_for_session "$1")" "${prev:-fable}" || true   # the table's record of where it came from; the move does not depend on it
+    model_write "$1" "${chg#*$'\t'}" && return 0
+    [ -n "$had" ] || lane_home_clear "$1"   # a home recorded only for this swap goes again
+    return 1
+}
+# back_lane_front_send <target lane> <session>… → swaps the models that need it, then queues the ONE `sala op lane`. BL_FSENT (the names it carries), BL_FFAIL (left out:
+# the model change could not be written), BL_OPID, BL_OPOUT (the operation's own words on a refusal). rc 0 queued · 1 the operation was refused · 2 nothing left to queue
+back_lane_front_send() {
+    local t=$1 s; shift; BL_FSENT=(); BL_FFAIL=(); BL_OPID=""; BL_OPOUT=""
+    for s in "$@"; do if back_lane_front_swap "$s" "$t"; then BL_FSENT+=("$s"); else BL_FFAIL+=("$s"); fi; done
+    [ "${#BL_FSENT[@]}" -gt 0 ] || return 2
+    BL_OPOUT=$("$SALA_BIN" op lane "$t" "${BL_FSENT[@]}" --from sala-watch --words "$SALA_BACK_LANE_WORDS" 2>&1) || return 1
+    BL_OPID=$(printf '%s\n' "$BL_OPOUT" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)
+}
+# back_lane_front_swapnote <target lane> <name>… → "; model fable -> opus on the <lane> lane: <names>" for the names in BL_SWAP among those given, nothing when none
+back_lane_front_swapnote() {
+    local t=$1 n s sw=(); shift
+    for n in "$@"; do for s in ${BL_SWAP[@]+"${BL_SWAP[@]}"}; do [ "$s" = "$n" ] && sw+=("$n"); done; done
+    [ "${#sw[@]}" -eq 0 ] || printf '; model fable -> %s on the %s lane (it cannot run Fable): %s' "$SALA_FALLBACK_FABLE_MODEL" "$(lane_shown "$t")" "${sw[*]}"
+}
+# back_lane_front_failnote <target lane> <window key> → the one notice per window and set of names for the front agents left out of a move (BL_FFAIL), then `blocked:`
+back_lane_front_failnote() {
+    local k="swap@$2|${BL_FFAIL[*]// /,}"
+    if [ "$(back_lane_get fblocked)" != "$k" ]; then
+        back_lane_put fblocked "$k"
+        echo "notice: ${#BL_FFAIL[@]} front agent(s) did not move to the $(lane_shown "$1") lane (the model change it needs could not be written, so they would relaunch on Fable there): ${BL_FFAIL[*]}"
+    else echo "blocked: front agent(s) left out of the move to the $(lane_shown "$1") lane: the model change could not be written for ${BL_FFAIL[*]}"; fi
+}
+# back_lane_front_tick [--dry-run] → the front step's lines (back_lane_tick above): after the back agents' steps, on the lane the rule has them on
+back_lane_front_tick() {
+    local dry=0 home cur ci rd st pct="" win="" rst fw rc=0; [ "${1:-}" = --dry-run ] && dry=1
+    back_lane_order || return 0
+    case "$SALA_BACK_LANE_THRESHOLD" in ''|*[!0-9]*) return 0;; esac
+    back_lane_front_threshold || rc=$?
+    case "$rc" in
+        1) [ "$dry" = 1 ] && echo "idle: the front step is off (SALA_BACK_LANE_FRONT_THRESHOLD is ${SALA_BACK_LANE_FRONT_THRESHOLD:-empty}): the rule does not move the front agents"; return 0;;
+        2) echo "idle: the front step cannot run: $BL_FT_WHY"; return 0;;
+    esac
+    home=${BL_ORDER[0]}; cur=$(back_lane_current); ci=$(back_lane_idx "$cur")
+    if [ "$dry" = 1 ] && [ -n "$BL_PASS_TARGET" ]; then   # a dry run changed nothing: the lane step 1 or 2 would have chosen is the rule's
+        [ "$BL_PASS_STEP" = 3 ] && return 0                # the step home's line already names the front agents it takes
+        cur=$BL_PASS_TARGET; ci=$(back_lane_idx "$cur")
+    fi
+    fw=$(back_lane_get front_window)
+    if ! lane_dormant "$home"; then
+        if rd=$(back_lane_reading "$home"); then IFS=$'\t' read -r st pct win rst <<< "$rd"
+        elif [ "$ci" -gt 0 ]; then echo "idle: front step: no usable $(lane_shown "$home") reading: ${rd#bad$'\t'}"; fi   # at home step 1 has said so
+    fi
+    if [ -n "$pct" ] && [ "$pct" -ge "$BL_FT" ]; then
+        if [ "$ci" -eq 0 ]; then echo "idle: front step: the $(lane_shown "$home") lane is at $pct% (front threshold $BL_FT%) but the back agents are still on it: the front agents stay"; return 0; fi
+        if ! back_lane_same_window "$win" "$fw"; then back_lane_front_fire "$dry" "$cur" "$ci" "$pct" "$win" "$rst"; return 0; fi
+        echo "idle: front step already fired in this weekly window"
+    elif [ -n "$pct" ] && [ "$dry" = 1 ]; then
+        echo "idle: front step: the $(lane_shown "$home") lane is at $pct% (front threshold $BL_FT%): the front agents stay"
+    fi
+    [ "$ci" -gt 0 ] && back_lane_front_catchup "$cur" "$dry"
+    return 0
+}
+# back_lane_front_fire <dry> <the rule's lane> <its place> <percent> <window key> <reset epoch> → the front step itself (a dormant or unready target as for step 1)
+back_lane_front_fire() {
+    local dry=$1 target=$2 ci=$3 pct=$4 win=$5 rst=$6 why out rc=0 kb="front@$5" sw n
+    why="the $(lane_shown "${BL_ORDER[0]}") lane's weekly limit is at $pct% (front threshold $BL_FT%, it resets $(back_lane_when "$rst"))"
+    if lane_dormant "$target"; then
+        if ! out=$(back_lane_substitute "$target" "$ci"); then
+            if [ "$(back_lane_get fblocked)" != "$kb" ]; then
+                [ "$dry" = 1 ] || back_lane_put fblocked "$kb"
+                echo "notice: the front agents should move to the $(lane_shown "$target") lane ($why) but nobody moves: $out"
+            else echo "blocked: front step waits: $out"; fi
+            return 0
+        fi
+        target=${out%%$'\t'*}; why="$why; ${out#*$'\t'}"
+    elif ! out=$(lane_check "$target"); then
+        if [ "$(back_lane_get fblocked)" != "$kb" ]; then
+            [ "$dry" = 1 ] || back_lane_put fblocked "$kb"
+            echo "notice: the front agents should move to the $(lane_shown "$target") lane ($why) but it cannot take them: $out"
+        else echo "blocked: front step waits: the $(lane_shown "$target") lane cannot take them: $out"; fi
+        return 0
+    fi
+    back_lane_movers "$target" front
+    if [ "${#BL_MOVE[@]}" -eq 0 ]; then
+        if [ "$dry" = 1 ]; then echo "would: front step ($why): no front agent to move$(back_lane_pinned_note)"; return 0; fi
+        back_lane_put front_window "$win"; back_lane_put fqueued "$target|$win|"; back_lane_put fblocked ""
+        echo "advanced: front step ($why): no front agent needed moving$(back_lane_pinned_note)"
+        return 0
+    fi
+    if [ "$dry" = 1 ]; then
+        echo "would: front step ($why): sala op lane $target ${BL_MOVE[*]} --from sala-watch --words \"…\"$(back_lane_front_swapnote "$target" "${BL_MOVE[@]}") (a dry run writes and queues nothing)$(back_lane_pinned_note)"
+        return 0
+    fi
+    back_lane_front_send "$target" "${BL_MOVE[@]}" || rc=$?
+    case "$rc" in
+        1) if [ "$(back_lane_get fblocked)" != "$kb" ]; then
+               back_lane_put fblocked "$kb"; echo "notice: the front agents should move to the $(lane_shown "$target") lane ($why) but the move was not queued: $(printf '%s' "$BL_OPOUT" | tail -3 | paste -sd' ' -)"
+           else echo "blocked: front step not queued: $(printf '%s' "$BL_OPOUT" | tail -1)"; fi
+           return 0;;
+        2) back_lane_front_failnote "$target" "$win"; return 0;;
+    esac
+    back_lane_put front_window "$win"; back_lane_put fqueued "$target|$win|$(IFS=,; echo "${BL_FSENT[*]}")"; back_lane_put fblocked ""
+    lane_log backlane "$target" "front step: ${#BL_FSENT[@]} front agent(s) queued onto $target (op ${BL_OPID:-?}): $why"
+    echo "moved: front step ($why): ${#BL_FSENT[@]} front agent(s) to the $(lane_shown "$target") lane, op ${BL_OPID:-?} queued (the operation posts once when it is done)$(back_lane_front_swapnote "$target" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
+    [ "${#BL_FFAIL[@]}" -eq 0 ] || back_lane_front_failnote "$target" "$win"
+    return 0
+}
+# THE FRONT CATCH-UP: while the front step has fired in the current window (front_window) a front agent found on the wrong side of the rule's lane (one spawned or tagged
+# since, a name that was not live when the step fired, one the rule's lane moved past after step 2) is queued once, the state's fqueued keeping the names already asked
+# back_lane_front_catchup <cur> <dry 0|1> → prints a `moved:` / `would:` line when it queues (or would), nothing otherwise
+back_lane_front_catchup() {
+    local cur=$1 dry=$2 fw now q ql qw qn n out late=() tgt sub=""
+    fw=$(back_lane_get front_window); [ -n "$fw" ] || return 0
+    _now_r now; [ "$now" -lt "$fw" ] || return 0   # the window it fired in is over
+    tgt=$cur
+    if lane_dormant "$cur"; then   # the rule's lane went dormant after the move: a straggler goes to its fallback, never onto it
+        back_lane_movers "$cur" front || return 0; [ "${#BL_MOVE[@]}" -gt 0 ] || return 0
+        if ! out=$(back_lane_substitute "$cur" "$(back_lane_idx "$cur")"); then echo "blocked: front catch-up waits for ${BL_MOVE[*]}: $out"; return 0; fi
+        tgt=${out%%$'\t'*}; sub=" (${out#*$'\t'})"
+    fi
+    q=$(back_lane_get fqueued); ql=${q%%|*}; qw=${q#*|}; qn=${qw#*|}; qw=${qw%%|*}
+    [ "$q" = "$ql" ] && { qw=""; qn=""; }
+    { [ "$ql" = "$tgt" ] && back_lane_same_window "$qw" "$fw"; } || qn=""
+    back_lane_movers "$tgt" front || return 0
+    for n in ${BL_MOVE[@]+"${BL_MOVE[@]}"}; do case ",$qn," in *",$n,"*) ;; *) late+=("$n");; esac; done
+    [ "${#late[@]}" -gt 0 ] || return 0
+    if [ "$dry" = 1 ]; then echo "would: front catch-up: sala op lane $tgt ${late[*]} --from sala-watch --words \"…\" (the front agent(s) the rule's move has not queued yet$sub$(back_lane_front_swapnote "$tgt" "${late[@]}"); a dry run writes and queues nothing)$(back_lane_pinned_note)"; return 0; fi
+    local rc=0; back_lane_front_send "$tgt" "${late[@]}" || rc=$?
+    case "$rc" in
+        1) echo "blocked: front catch-up not queued: $(printf '%s' "$BL_OPOUT" | tail -1)"; return 0;;
+        2) back_lane_front_failnote "$tgt" "$fw"; return 0;;
+    esac
+    back_lane_put fqueued "$tgt|$fw|${qn:+$qn,}$(IFS=,; echo "${BL_FSENT[*]}")"
+    lane_log backlane "$tgt" "front catch-up: ${#BL_FSENT[@]} front agent(s) queued onto $tgt (op ${BL_OPID:-?})"
+    echo "moved: front catch-up: ${#BL_FSENT[@]} front agent(s) the rule had not moved (${BL_FSENT[*]}) to the $(lane_shown "$tgt") lane$sub, op ${BL_OPID:-?} queued$(back_lane_front_swapnote "$tgt" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
+    [ "${#BL_FFAIL[@]}" -eq 0 ] || back_lane_front_failnote "$tgt" "$fw"
     return 0
 }
 # back_lane_spawn_lane → the lane a NEW back agent spawns on while the rule has the back agents off home (stdout, rc 0); rc 1 when the rule is
@@ -4189,6 +4383,16 @@ back_lane_tick() {
 back_lane_spawn_lane() {
     back_lane_on || return 1; back_lane_order || return 1
     local c; c=$(back_lane_current); [ "$c" != "${BL_ORDER[0]}" ] || return 1
+    lane_dormant "$c" && return 1; lane_check "$c" >/dev/null 2>&1 || return 1
+    echo "$c"
+}
+# back_lane_front_spawn_lane → the lane a NEW front agent spawns on while the front step is engaged (it fired in the current window and the rule has the back agents
+# off home): the rule's lane (stdout, rc 0); rc 1 otherwise, or when that lane cannot take it (dormant, not ready)
+back_lane_front_spawn_lane() {
+    back_lane_on || return 1; back_lane_order || return 1; back_lane_front_threshold || return 1
+    local c fw now; c=$(back_lane_current); [ "$c" != "${BL_ORDER[0]}" ] || return 1
+    fw=$(back_lane_get front_window); [ -n "$fw" ] || return 1
+    _now_r now; [ "$now" -lt "$fw" ] || return 1
     lane_dormant "$c" && return 1; lane_check "$c" >/dev/null 2>&1 || return 1
     echo "$c"
 }

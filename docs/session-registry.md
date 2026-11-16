@@ -246,8 +246,8 @@ agents a back agent. No new source, no guessing from a name.
 - **The record cannot answer** (missing, older than the max age, not JSON, another schema): exit 4 with the reason on stderr and nothing written.
 - `--dry-run` writes nothing (no file, no log line). Same write path as `tag` (the pane map's lock, the atomic save, one `tag` line per row in `sessions.log`).
 - Callers: the watchdog tick runs it for every row with no role (the quiet form, best effort), and a bare `sala spawn` runs it for the new name before it
-  marks the row a throwaway, so a name the record lists becomes that project's agent. The registry reader `back-names` (`lib/sessions.py`, no command of its own) is the read-only list the back agents' lane
-  rule counts from: the rows whose stored role is `back`, or with no stored role whose record role is `back` (a record that cannot answer leaves the stored roles alone).
+  marks the row a throwaway, so a name the record lists becomes that project's agent. The registry readers `back-names` and `front-names` (`lib/sessions.py`, no command of their own) are the read-only lists the back agents' lane
+  rule counts from: the rows whose stored role is `back` (`front` for `front-names`, the front step's list), or with no stored role whose record role is that role (a record that cannot answer leaves the stored roles alone).
 
 ## Phase 2: an explicit signal for a fresh start
 

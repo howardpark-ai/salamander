@@ -35,7 +35,8 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 unset SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_NO_RELAUNCH SALA_BACK_LANE_RULE SALA_BACK_LANE_ORDER SALA_BACK_LANE_THRESHOLD SALA_BACK_LANE_MAX_AGE \
-      SALA_BACK_LANE_WORDS SALA_BACK_LANE_STATE SALA_LANE_FALLBACK SALA_FALLBACK_NO_FABLE TMUX TMUX_PANE
+      SALA_BACK_LANE_WORDS SALA_BACK_LANE_STATE SALA_BACK_LANE_FRONT_THRESHOLD SALA_LANE_FALLBACK SALA_FALLBACK_NO_FABLE TMUX TMUX_PANE
+export SALA_BACK_LANE_FRONT_THRESHOLD=off   # the sections up to THE FRONT STEP test the back agents' steps with a front agent registered at the same 95%: that step is off for them
 T=""
 trap '[ -n "$T" ] && rm -rf "$T"' EXIT
 T=$(mktemp -d "${TMPDIR:-/tmp}/sala-backlane.XXXXXX")
@@ -411,5 +412,163 @@ has "$out" "would: step 2" && [ "$(ops)" = "$n" ] && [ "$(cat "$STATE")" = "$bef
 rm -f "$SALA_LIMIT_STATE"; quota 10 $W2
 out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
 has "$out" "would: step 3" && [ "$(ops)" = "$n" ] && ok "step 3 dry run: nothing queued" || bad "dry step 3: $out"
+
+echo "== THE FRONT STEP: the front agents move at the second threshold (default 95), onto the rule's lane"
+unset SALA_BACK_LANE_FRONT_THRESHOLD
+# regf: reg, then more front agents: b, fab (Fable by the models list), api (a lane outside the order), pin (pinned to home), dead (no pane), side (a side session)
+regf() {
+    reg; rm -f "$ST/lane-home.tsv" "$ST/lane-pins.tsv"
+    python3 -I -S - "$SESSIONS" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for n, side in (("front-b", None), ("front-fab", None), ("front-api", None), ("front-pin", None), ("front-dead", None), ("front-side", "fork")):
+    d["sessions"][n] = {"id": n, "name": n, "state": "live", "role": "front", "side": side, "project": "projects/x", "created": n}
+json.dump(d, open(sys.argv[1], "w"))
+PY
+    printf '%s\n' front-b front-fab front-api front-pin front-side >> "$FAKE_LIVE"
+    printf 'front-b\tsubscription-1\nfront-fab\tsubscription-1\nfront-api\tapi\nfront-pin\tsubscription-1\nfront-dead\tsubscription-1\nfront-side\tsubscription-1\n' >> "$FAKE_LANES"
+    printf 'front-fab\tfable\txhigh\n' >> "$ST/models.tsv"
+    printf 'front-pin\tsubscription-1\n' > "$ST/lane-pins.tsv"
+}
+fop() { sed -n "${1}p" "$FAKE_OPLOG"; }
+model_of() { awk -F'\t' -v n="$1" '$1 == n { m = $2 } END { print m }' "$ST/models.tsv"; }
+home_of() { awk -F'\t' -v n="$1" '$1 == n { print $2 "|" $4 }' "$ST/lane-home.tsv" 2>/dev/null; }
+BACK3="op|lane|aws-platform|back-a|back-b|back-fab|--from|sala-watch|--words|$RULE_WORDS|"
+FRONT3="op|lane|aws-platform|front-a|front-b|front-fab|--from|sala-watch|--words|$RULE_WORDS|"
+[ "$(drv 'echo "$SALA_BACK_LANE_FRONT_THRESHOLD"')" = 95 ] && ok "SALA_BACK_LANE_FRONT_THRESHOLD defaults to 95" || bad "default: $(drv 'echo "$SALA_BACK_LANE_FRONT_THRESHOLD"')"
+out=$(SALA_BACK_LANE_WORDS= drv 'echo "$SALA_BACK_LANE_WORDS"'); has "$out" "the front agents too, at a second, higher threshold" && ok "the default words of the rule carry the clause about the front agents" || bad "words: $out"
+# below the front threshold only the back agents move; the same window's rise to 95 then moves the front agents, alone
+regf; quota 94 $W1; out=$(tick)
+[ "$(ops)" = 1 ] && has "$out" "moved: step 1" && ! has "$out" "front step" && [ "$(lane_of front-a)" = subscription-1 ] && [ -z "$(drv 'back_lane_get front_window')" ] && ok "94%: step 1 moves the back agents; no front agent moves, no front state" || bad "94%: ops=$(ops) $out"
+quota 95 $W1; out=$(tick)
+[ "$(ops)" = 2 ] && has "$out" "moved: front step" && [ "$(fop 2)" = "$FRONT3" ] && ok "then 95% in the same window: the front step alone, onto aws-platform, with the rule's words" || bad "94 then 95: ops=$(ops) $(fop 2) / $out"
+# from home at 95: step 1 first, then the front step on the lane step 1 chose
+regf; quota 95 $W1; out=$(tick)
+[ "$(ops)" = 2 ] && has "$out" "moved: step 1" && has "$out" "moved: front step" && [ "$(fop 1)" = "$BACK3" ] && [ "$(fop 2)" = "$FRONT3" ] && ok "95% from home: two operations, the back agents first, then the front agents, both onto aws-platform" || bad "95%: ops=$(ops) $(fop 1) $(fop 2) / $out"
+has "$out" "3 front agent(s)" && has "$out" "skipped (pinned to subscription-1): front-pin" && ! has "$out" "notice:" && ok "the line counts the front agents and names the pinned one held out (no notice)" || bad "front line: $out"
+[ "$(lane_of front-api)" = api ] && [ "$(lane_of front-dead)" = subscription-1 ] && [ "$(lane_of front-side)" = subscription-1 ] && [ "$(lane_of front-pin)" = subscription-1 ] && [ "$(lane_of back-api)" = api ] && ok "a front agent on a lane outside the order, with no pane, a side session and the pinned one stay" || bad "front others: api $(lane_of front-api) dead $(lane_of front-dead) side $(lane_of front-side) pin $(lane_of front-pin)"
+[ "$(model_of front-fab)" = fable ] && [ -z "$(home_of front-fab)" ] && ok "a Fable front agent bound for aws-platform (which runs Fable) gets no model change and no home record" || bad "fable on aws: model $(model_of front-fab) home $(home_of front-fab)"
+case "$(drv 'back_lane_get fqueued')" in "aws-platform|"*"|front-a,front-b,front-fab") ok "the state records who the front step queued (fqueued) and the window (front_window)";; *) bad "fqueued: $(drv 'back_lane_get fqueued')";; esac
+[ -n "$(drv 'back_lane_get front_window')" ] && out=$(tick) && [ "$(ops)" = 2 ] && has "$out" "front step already fired in this weekly window" && ok "a repeat tick queues nothing and says the front step already fired" || bad "repeat: ops=$(ops) $out"
+grep -q "front step" "$ST/lanes.log" && ok "the front move is in the lane log" || bad "no lane log line for the front step"
+# the dry run: both steps, from home, nothing queued or written
+regf; quota 95 $W1
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
+has "$out" "would: step 1" && has "$out" "would: front step" && has "$out" "sala op lane aws-platform front-a front-b front-fab" && has "$out" "skipped (pinned to subscription-1): front-pin" && [ "$(ops)" = 0 ] && [ ! -s "$STATE" ] && ok "watch --back-lanes --dry-run: what step 1 would do and what the front step would do on that lane; nothing queued or written" || bad "front dry run: $out"
+# the threshold: off, 0, invalid, under the back threshold, over the reading, equal to the back threshold
+for v in off 0; do regf; quota 95 $W1; out=$(SALA_BACK_LANE_FRONT_THRESHOLD=$v tick); [ "$(ops)" = 1 ] && ! has "$out" "front" && [ "$(lane_of front-a)" = subscription-1 ] && ok "SALA_BACK_LANE_FRONT_THRESHOLD=$v: the front agents never move and the real pass says nothing about it" || bad "front $v: ops=$(ops) $out"; done
+out=$(SALA_BACK_LANE_FRONT_THRESHOLD=off drv 'back_lane_tick --dry-run'); has "$out" "the front step is off" && ok "the dry run says the front step is off" || bad "front off dry: $out"
+regf; quota 95 $W1; out=$(SALA_BACK_LANE_FRONT_THRESHOLD=abc tick); [ "$(ops)" = 1 ] && has "$out" "the front step cannot run: SALA_BACK_LANE_FRONT_THRESHOLD is not a whole number or off (abc)" && ok "an invalid value: the back step runs, the front step is idle with a clear line" || bad "front abc: ops=$(ops) $out"
+regf; quota 95 $W1; out=$(SALA_BACK_LANE_FRONT_THRESHOLD=85 tick); [ "$(ops)" = 1 ] && has "$out" "(85) is lower than SALA_BACK_LANE_THRESHOLD (90)" && ok "a front threshold under the back threshold: idle with a clear line" || bad "front 85: ops=$(ops) $out"
+regf; quota 95 $W1; out=$(SALA_BACK_LANE_FRONT_THRESHOLD=98 tick); [ "$(ops)" = 1 ] && ok "98% front threshold, reading 95: only the back agents move" || bad "front 98: ops=$(ops) $out"
+regf; quota 90 $W1; out=$(SALA_BACK_LANE_FRONT_THRESHOLD=90 tick); [ "$(ops)" = 2 ] && ok "a front threshold equal to the back threshold: both fire at 90%" || bad "front 90: ops=$(ops) $out"
+# step 1 that cannot be taken leaves the rule's lane at home: the front step waits, with a line
+regf; quota 95 $W1; echo aws-platform > "$FAKE_LC"; out=$(tick)
+[ "$(ops)" = 0 ] && has "$out" "notice:" && has "$out" "the front agents stay" && ok "step 1 blocked: nothing moves; the front step says the back agents are still home" || bad "blocked step 1: ops=$(ops) $out"
+rm -f "$FAKE_LC"; out=$(tick); [ "$(ops)" = 2 ] && ok "once step 1 can run, the same pass moves the back agents and the front agents" || bad "unblocked: ops=$(ops) $out"
+# the target cannot take them: one notice per window, then a quiet line, then the move
+regf; quota 92 $W1; tick >/dev/null; quota 96 $W1; echo aws-platform > "$FAKE_LC"; out=$(tick)
+[ "$(ops)" = 1 ] && has "$out" "notice: the front agents should move to the aws-platform lane" && has "$out" "cannot take them" && ok "the rule's lane not ready: one notice, no front operation, the state unchanged" || bad "not ready: ops=$(ops) $out"
+out=$(tick); [ "$(ops)" = 1 ] && has "$out" "blocked: front step waits" && ! has "$out" "notice:" && ok "the next tick: a quiet line, no second notice" || bad "not ready 2: $out"
+rm -f "$FAKE_LC"; out=$(tick); [ "$(ops)" = 2 ] && has "$out" "moved: front step" && ok "when the lane is ready the front step moves" || bad "ready: ops=$(ops) $out"
+# a failed operation: one notice, nothing recorded as queued, the next pass retries
+regf; quota 92 $W1; tick >/dev/null; quota 96 $W1; echo 1 > "$FAKE_OP_RC"; out=$(tick)
+[ "$(ops)" = 2 ] && has "$out" "notice: the front agents should move to the aws-platform lane" && has "$out" "not queued" && [ -z "$(drv 'back_lane_get front_window')" ] && ok "a refused operation: one notice, front_window not written" || bad "refused: $out"
+out=$(tick); has "$out" "blocked: front step not queued" && ! has "$out" "notice:" && ok "the next tick: a quiet line" || bad "refused 2: $out"
+rm -f "$FAKE_OP_RC"; out=$(tick); has "$out" "moved: front step" && ok "once the queue takes it, the front step moves" || bad "refused 3: $out"
+# a dormant rule lane: the fallback takes the front agents too, and says why; with the fallback dormant too, one notice
+regf; quota 92 $W1; tick >/dev/null; dormant aws-platform; quota 96 $W1; out=$(tick)
+has "$out" "moved: front step" && has "$out" "aws-platform lane is dormant" && has "$out" "bedrock lane, its fallback, takes them" && [ "$(fop 2)" = "op|lane|bedrock|front-a|front-b|front-fab|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "the rule's lane dormant: the front agents go to its fallback, never onto it, and the line says why" || bad "front dormant: $(fop 2) / $out"
+regf; quota 92 $W1; tick >/dev/null; dormant aws-platform bedrock; quota 96 $W1; out=$(tick)
+[ "$(ops)" = 1 ] && has "$out" "notice: the front agents should move" && has "$out" "dormant too" && ok "target and fallback both dormant: nobody moves, one notice that says why" || bad "front both dormant: ops=$(ops) $out"
+out=$(tick); [ "$(ops)" = 1 ] && has "$out" "blocked: front step waits" && ! has "$out" "notice:" && ok "the next tick: a quiet line" || bad "front both dormant 2: $out"
+rm -f "$ST/lane-state.tsv"
+
+echo "== the front step's model swap: a Fable front agent bound for a lane that cannot run it"
+# step 1's target dormant: the back agents and the front agents go to bedrock, which cannot run Fable
+regf; quota 95 $W1; dormant aws-platform; out=$(tick)
+[ "$(ops)" = 2 ] && [ "$(fop 2)" = "op|lane|bedrock|front-a|front-b|front-fab|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "the Fable front agent is in the move to bedrock (the back one is left, as before)" || bad "swap move: ops=$(ops) $(fop 2) / $out"
+has "$out" "model fable -> opus on the bedrock lane (it cannot run Fable): front-fab" && ok "the outcome line names the swap" || bad "swap line: $out"
+[ "$(model_of front-fab)" = opus ] && ok "its model override is written (opus) before the move was queued" || bad "override: $(model_of front-fab)"
+[ "$(home_of front-fab)" = "subscription-1|fable" ] && ok "lane-home records the lane it came from and the model it had" || bad "home: $(home_of front-fab)"
+[ "$(model_of front-a)" = "" ] && [ -z "$(home_of front-a)" ] && ok "a front agent that is not on Fable gets no override and no home record" || bad "non-fable: $(model_of front-a) $(home_of front-a)"
+[ "$(model_of back-fab)" = fable ] && [ -z "$(home_of back-fab)" ] && ok "the Fable back agent is untouched (it stays, as before)" || bad "back fable: $(model_of back-fab) $(home_of back-fab)"
+rm -f "$ST/lane-state.tsv"
+# the dry run names the swap and writes nothing
+regf; quota 95 $W1; dormant aws-platform
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
+has "$out" "would: front step" && has "$out" "model fable -> opus on the bedrock lane" && [ "$(model_of front-fab)" = fable ] && [ -z "$(home_of front-fab)" ] && [ "$(ops)" = 0 ] && ok "dry run: says model fable -> opus on bedrock; no override, no home record, nothing queued" || bad "swap dry: $out"
+rm -f "$ST/lane-state.tsv"
+# a model change that cannot be written: that session is left out, with a notice; the others move; no trace of the swap
+regf; quota 95 $W1; dormant aws-platform; out=$(SALA_FALLBACK_FABLE_MODEL=nonsense tick)
+[ "$(fop 2)" = "op|lane|bedrock|front-a|front-b|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "a failed model write leaves the Fable front agent out of the operation; the others move" || bad "failed write: $(fop 2) / $out"
+has "$out" "notice: 1 front agent(s) did not move to the bedrock lane" && has "$out" "front-fab" && ok "one notice names it and why" || bad "failed write notice: $out"
+[ "$(model_of front-fab)" = fable ] && [ -z "$(home_of front-fab)" ] && ok "no override and no home record are left behind" || bad "failed write residue: $(model_of front-fab) $(home_of front-fab)"
+case "$(drv 'back_lane_get fqueued')" in *"|front-a,front-b") ok "it is not in the queued list, so the catch-up retries it";; *) bad "fqueued: $(drv 'back_lane_get fqueued')";; esac
+out=$(SALA_FALLBACK_FABLE_MODEL=nonsense tick); [ "$(ops)" = 2 ] && has "$out" "blocked:" && ! has "$out" "notice:" && ok "the next pass still cannot write it: a quiet line, no second notice, nothing queued" || bad "failed write 2: ops=$(ops) $out"
+out=$(tick); [ "$(ops)" = 3 ] && has "$out" "moved: front catch-up" && [ "$(fop 3)" = "op|lane|bedrock|front-fab|--from|sala-watch|--words|$RULE_WORDS|" ] && [ "$(model_of front-fab)" = opus ] && [ "$(home_of front-fab)" = "subscription-1|fable" ] && ok "once the model can be written the catch-up swaps it and moves it" || bad "failed write 3: ops=$(ops) $(fop 3) $(model_of front-fab) / $out"
+rm -f "$ST/lane-state.tsv"
+# the catch-up after step 2: the rule's lane moves on to bedrock, the front agents on aws-platform follow, the Fable one with its swap
+regf; quota 95 $W1; tick >/dev/null; drv "back_lane_put moved_at $M" >/dev/null; pane_stop aws-platform workspace $((NOW - 60)); out=$(tick)
+[ "$(ops)" = 4 ] && has "$out" "moved: step 2" && has "$out" "moved: front catch-up" && [ "$(fop 4)" = "op|lane|bedrock|front-a|front-b|front-fab|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "step 2: the back agents go to bedrock and the front agents follow in the same pass (catch-up)" || bad "step 2 front: ops=$(ops) $(fop 4) / $out"
+has "$out" "model fable -> opus on the bedrock lane" && [ "$(model_of front-fab)" = opus ] && [ "$(home_of front-fab)" = "aws-platform|fable" ] && ok "the Fable front agent: override written, home recorded as aws-platform with the model it had" || bad "step 2 swap: $(model_of front-fab) $(home_of front-fab) / $out"
+out=$(tick); [ "$(ops)" = 4 ] && ok "a repeat pass queues nothing" || bad "step 2 repeat: ops=$(ops) $out"
+rm -f "$SALA_LIMIT_STATE"
+
+echo "== the front step home, the catch-up and the spawn"
+# step 3 takes the front agents standing off home in the same operation as the back agents
+regf; quota 95 $W1; tick >/dev/null; quota 10 $W2; out=$(tick)
+[ "$(ops)" = 3 ] && has "$out" "moved: step 3" && has "$out" "3 back agent(s) and 3 front agent(s)" && [ "$(fop 3)" = "op|lane|subscription-1|back-a|back-b|back-fab|front-a|front-b|front-fab|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "step 3: one operation carries the back agents and the front agents off home" || bad "step 3: ops=$(ops) $(fop 3) / $out"
+[ "$(lane_of front-api)" = api ] && [ "$(lane_of back-api)" = api ] && ok "a lane outside the order stays" || bad "step 3 others"
+[ -z "$(drv 'back_lane_get front_window')" ] && [ -z "$(drv 'back_lane_get fqueued')" ] && [ -z "$(drv 'back_lane_get fblocked')" ] && ok "step 3 clears the front step's record" || bad "step 3 state: $(cat "$STATE")"
+quota 95 $W2; out=$(tick); [ "$(ops)" = 5 ] && ok "the next window can start it again: step 1 and the front step" || bad "next window: ops=$(ops) $out"
+regf; quota 95 $W1; tick >/dev/null; drv 'back_lane_put moved_at 1' >/dev/null
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1); n=$(ops); quota 10 $W2
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
+has "$out" "would: step 3" && has "$out" "the front agent(s) among them: front-a front-b front-fab" && [ "$(ops)" = "$n" ] && ok "dry run of step 3 names the front agents it takes home" || bad "dry step 3: $out"
+# with the front step off and never fired, step 3 leaves a front agent off home where it is
+regf; quota 95 $W1; SALA_BACK_LANE_FRONT_THRESHOLD=off tick >/dev/null; grep -v '^front-a	' "$FAKE_LANES" > "$T/lanes.t"; printf 'front-a\taws-platform\n' >> "$T/lanes.t"; cp "$T/lanes.t" "$FAKE_LANES"
+quota 10 $W2; out=$(SALA_BACK_LANE_FRONT_THRESHOLD=off tick)
+[ "$(fop 2)" = "op|lane|subscription-1|back-a|back-b|back-fab|--from|sala-watch|--words|$RULE_WORDS|" ] && [ "$(lane_of front-a)" = aws-platform ] && ok "front step off: step 3 carries only the back agents (the old behavior, byte for byte)" || bad "step 3 off: $(fop 2) front-a on $(lane_of front-a)"
+# the catch-up: a front agent spawned after the front step fired is queued once per window
+regf; quota 95 $W1; tick >/dev/null
+python3 -I -S - "$SESSIONS" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["sessions"]["front-late"] = {"id": "front-late", "name": "front-late", "state": "live", "role": "front", "side": None, "project": "projects/x", "created": "z"}; json.dump(d, open(sys.argv[1], "w"))
+PY
+echo front-late >> "$FAKE_LIVE"; printf 'front-late\tsubscription-1\n' >> "$FAKE_LANES"
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
+has "$out" "would: front catch-up: sala op lane aws-platform front-late " && [ "$(ops)" = 2 ] && ok "front catch-up dry run: says it would queue the late front agent, queues nothing" || bad "front catch-up dry: ops=$(ops) $out"
+out=$(tick); [ "$(ops)" = 3 ] && has "$out" "moved: front catch-up" && [ "$(fop 3)" = "op|lane|aws-platform|front-late|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "the next pass queues exactly that front agent onto the rule's lane" || bad "front catch-up: ops=$(ops) $(fop 3) / $out"
+grep -v '^front-late	' "$FAKE_LANES" > "$T/lanes.t"; printf 'front-late\tsubscription-1\n' >> "$T/lanes.t"; cp "$T/lanes.t" "$FAKE_LANES"   # the pane could not be closed: still home
+out=$(tick); [ "$(ops)" = 3 ] && ok "a pane that stays at home is not queued a second time in the same window" || bad "front catch-up twice: ops=$(ops) $out"
+# a window that is over: no catch-up
+drv 'back_lane_put front_window 1000' >/dev/null; drv 'back_lane_put fqueued ""' >/dev/null; quota 50 $W1; out=$(tick); [ "$(ops)" = 3 ] && ok "a front_window that is over: no catch-up" || bad "front window over: ops=$(ops) $out"
+# the role from the project record: a front-listed row with no role and a stored-front row move with the front agents
+regrl; quota 95 $W1; rec; out=$(tick)
+[ "$(ops)" = 2 ] && [ "$(fop 2)" = "op|lane|aws-platform|front-a|rl-front|rl-old|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "front names count a row with no role by the record (rl-front) and a stored front (rl-old); not rl-back, rl-none, rl-side" || bad "front record: ops=$(ops) $(fop 2)"
+rm -f "$SALA_PROJECT_RECORD"
+# spawn: a new front agent takes the rule's lane while the front step is engaged
+regf; quota 95 $W1; tick >/dev/null
+out=$(drv 'back_lane_front_spawn_lane; echo "rc=$?"'); [ "$out" = $'aws-platform\nrc=0' ] && ok "after the front step: a new front agent takes aws-platform" || bad "front spawn: $out"
+out=$(SALA_BACK_LANE_FRONT_THRESHOLD=off drv 'back_lane_front_spawn_lane; echo "rc=$?"'); [ "$out" = "rc=1" ] && ok "front step off: the default lane" || bad "front spawn off: $out"
+regf; quota 94 $W1; tick >/dev/null; out=$(drv 'back_lane_front_spawn_lane; echo "rc=$?"'); [ "$out" = "rc=1" ] && ok "the back agents off home but the front step not fired: a new front agent takes the default lane" || bad "front spawn not engaged: $out"
+regf; quota 95 $W1; tick >/dev/null; drv 'back_lane_put front_window 1000' >/dev/null; out=$(drv 'back_lane_front_spawn_lane; echo "rc=$?"'); [ "$out" = "rc=1" ] && ok "a front_window that is over: the default lane" || bad "front spawn window over: $out"
+regf; quota 95 $W1; tick >/dev/null; echo aws-platform > "$FAKE_LC"; out=$(drv 'back_lane_front_spawn_lane; echo "rc=$?"'); rm -f "$FAKE_LC"; [ "$out" = "rc=1" ] && ok "the rule's lane not ready: the default lane" || bad "front spawn not ready: $out"
+regf; quota 95 $W1; tick >/dev/null
+sp lr-front-x --project projects/foo --role front --dry-run
+[ "$RC" = 0 ] && has "$OUT" "[dry-run] lane: the lane rule's front step is engaged and has the front agents on the aws-platform lane" && ok "spawn --dry-run of a front agent says it launches on aws-platform" || bad "spawn front dry: rc=$RC $OUT"
+sp lr-front-x --project projects/foo --role front --model fable --dry-run
+[ "$RC" = 0 ] && has "$OUT" "front step" && ! has "$OUT" "launches on opus" && ok "a Fable model on aws-platform (which runs it) is kept" || bad "spawn front fable aws: rc=$RC $OUT"
+sp lr-front-x --project projects/foo --role front --lane bedrock --dry-run
+[ "$RC" = 0 ] && ! has "$OUT" "front step" && ok "--lane wins over the rule" || bad "spawn front --lane: rc=$RC $OUT"
+sp lr-side-quiet01 --side --project projects/foo --item s1 --dry-run
+[ "$RC" = 0 ] && ! has "$OUT" "front step" && ok "a side session is not the rule's" || bad "spawn front side: rc=$RC $OUT"
+sp lr-back-x --project projects/foo --role back --mandate "a mandate" --dry-run
+[ "$RC" = 0 ] && has "$OUT" "the back agents' lane rule has them on the aws-platform lane" && ! has "$OUT" "front step" && ok "a back agent's spawn note is the old one" || bad "spawn back: rc=$RC $OUT"
+regf; quota 95 $W1; dormant aws-platform; tick >/dev/null
+sp lr-front-x --project projects/foo --role front --model fable --dry-run
+[ "$RC" = 0 ] && has "$OUT" "the bedrock lane cannot run Fable, so it launches on opus" && ok "a Fable front agent on bedrock launches on opus, and the note says so" || bad "spawn front fable bedrock: rc=$RC $OUT"
+rm -f "$ST/lane-state.tsv"
 
 exit $fail
