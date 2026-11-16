@@ -193,8 +193,8 @@ none itself):
                                   and that IME activity happened and when, never which letter keys: a key is kept only from a list of
                                   names (Alt, HangulMode, Process, Enter, F5 ...) and codes (AltRight, Lang1 ...), never a typed character
                                   or a letter, digit or punctuation key's code; an IME event (key Process, Unidentified, Dead or
-                                  Compose, isComposing, keyCode 229) is stored with code "", keyCode 0, shift false whatever the client
-                                  sent; a composition event is only {t, type}, never the composed text; every field is
+                                  Compose, isComposing, keyCode 229) is stored with keyCode 0 and shift false, and its code only if it
+                                  names a non-character key (Lang1 ...), else "", whatever the client sent; a composition event is only {t, type}, never the composed text; every field is
                                   checked and an event with any other shape or field is dropped; 400 for a
                                   body that is not such a list, 403 cross-origin, 415 not JSON, like the other POSTs
   GET  /api/spawn/options         what the New session form offers (spawn.py): the project pages (key, title)

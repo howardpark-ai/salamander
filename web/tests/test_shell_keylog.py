@@ -66,24 +66,32 @@ def test_a_good_batch_is_written_one_line_an_event_and_answered_with_the_count(e
     assert len(lines(env)) == 8                                               # appended, never replaced
 
 
-def test_an_ime_event_is_rewritten_to_no_code_no_keycode_no_shift_whatever_the_client_sent(env):
+def test_an_ime_event_is_rewritten_to_no_keycode_no_shift_and_no_character_code_whatever_the_client_sent(env):
     old_shape = [key(key="Process", code="KeyG", keyCode=229, isComposing=True), key(key="Process", code="KeyQ", keyCode=229, isComposing=True, shift=True),
                  key(key="Process", code="Digit1", keyCode=49), key(key="Unidentified", code="KeyH", keyCode=72, shift=True),
                  key(key="Dead", code="Quote", keyCode=222), key(key="Compose", code="KeyE", keyCode=69, shift=True),
                  key(key="Alt", code="AltRight", keyCode=229),                       # a 229 on any key is an IME event
                  key(key="Enter", code="Enter", keyCode=13, isComposing=True, shift=True, ctrl=True),
-                 key(type="keyup", key="Process", code="KeyG", keyCode=71, isComposing=False)]
+                 key(type="keyup", key="Process", code="KeyG", keyCode=71, isComposing=False),
+                 key(key="Process", code="Space", keyCode=229, isComposing=True), key(key="Process", code="Comma", keyCode=188),
+                 key(key="Process", code="Numpad5", keyCode=101, shift=True),
+                 # a code that names a non-character key stays: the Hangul/English key arriving as Process is what the log is for
+                 key(key="Process", code="Lang1", keyCode=229, isComposing=True, shift=True), key(type="keyup", key="Process", code="Lang1", keyCode=21),
+                 key(key="Unidentified", code="AltRight", keyCode=229), key(key="Process", code="Convert", keyCode=229)]
     r = post(env, old_shape)
     assert r.status_code == 200 and r.json() == {"ok": True, "n": len(old_shape)}       # rewritten, not rejected
     got = lines(env)
     assert [(e["key"], e["code"], e["keyCode"], e["shift"]) for e in got] == [
         ("Process", "", 0, False), ("Process", "", 0, False), ("Process", "", 0, False), ("Unidentified", "", 0, False), ("Dead", "", 0, False),
-        ("Compose", "", 0, False), ("Alt", "", 0, False), ("Enter", "", 0, False), ("Process", "", 0, False)]
-    assert [e["isComposing"] for e in got] == [True, True, False, False, False, False, False, True, False]    # as sent
+        ("Compose", "", 0, False), ("Alt", "AltRight", 0, False), ("Enter", "Enter", 0, False), ("Process", "", 0, False),
+        ("Process", "", 0, False), ("Process", "", 0, False), ("Process", "", 0, False),
+        ("Process", "Lang1", 0, False), ("Process", "Lang1", 0, False), ("Unidentified", "AltRight", 0, False), ("Process", "Convert", 0, False)]
+    assert [e["isComposing"] for e in got][:9] == [True, True, False, False, False, False, False, True, False]    # as sent
     assert got[7]["ctrl"] is True and got[7]["alt"] is False and got[0]["isComposing"] is True      # the other flags stay
     text = env["file"].read_text()
-    for leak in ("KeyG", "KeyQ", "KeyH", "KeyE", "Digit", "Quote", "229", '"keyCode":71', '"keyCode":49'):
+    for leak in ("KeyG", "KeyQ", "KeyH", "KeyE", "Digit", "Quote", "Space", "Comma", "Numpad", "229", '"keyCode":71', '"keyCode":49', '"keyCode":101'):
         assert leak not in text, leak
+    assert text.count('"code":"Lang1"') == 2 and "shift\":true" not in text
 
 
 def test_a_korean_password_on_a_2_set_layout_leaves_no_letter_code_keycode_or_shift_in_the_file(env):
@@ -98,20 +106,25 @@ def test_a_korean_password_on_a_2_set_layout_leaves_no_letter_code_keycode_or_sh
                 key(key="Process", code=code, keyCode=vk, isComposing=True, shift=shift),               # some events keep the real keyCode
                 key(type="keyup", key="Process", code=code, keyCode=vk, shift=shift)]
     seq += [key(key="Process", code="Digit1", keyCode=229, isComposing=True), key(type="keyup", key="1", code="Digit1", keyCode=49),
+            key(key="Process", code="Space", keyCode=229, isComposing=True), key(type="keyup", key=" ", code="Space", keyCode=32),
+            key(key="Process", code="Comma", keyCode=229, isComposing=True), key(type="keyup", key=",", code="Comma", keyCode=188),
+            key(key="Process", code="Numpad5", keyCode=229, isComposing=True), key(type="keyup", key="5", code="Numpad5", keyCode=101),
+            key(key="Process", code="Lang1", keyCode=229), key(type="keyup", key="Process", code="Lang1", keyCode=21),    # the Hangul/English key as Process
             key(key="Enter", code="Enter", keyCode=13)]
     assert post(env, seq[:50]).status_code == 200 and post(env, seq[50:]).status_code == 200
     got = lines(env)
     text = env["file"].read_text()
-    for leak in ("KeyG", "KeyK", "KeyQ", "KeyH", "Digit", '"g"', '"k"', '"Q"', '"h"', '"1"'):
+    for leak in ("KeyG", "KeyK", "KeyQ", "KeyH", "Digit", "Space", "Comma", "Numpad", '"g"', '"k"', '"Q"', '"h"', '"1"', '"key":" "', '"key":","', '"key":"5"'):
         assert leak not in text, leak
-    assert not [e for e in got if e["type"].startswith("key") and e["keyCode"] in (71, 75, 81, 72, 49, 229)]
-    assert all(e["shift"] is False and e["code"] == "" and e["keyCode"] == 0 for e in got if e.get("key") == "Process")
-    assert not [e for e in got if e["type"] == "keyup" and e["key"] in ("g", "k", "Q", "h", "1")]        # the Latin keyups are dropped
+    assert not [e for e in got if e["type"].startswith("key") and e["keyCode"] in (71, 75, 81, 72, 49, 32, 188, 101, 229)]
+    assert all(e["shift"] is False and e["code"] in ("", "Lang1") and e["keyCode"] == 0 for e in got if e.get("key") == "Process")
+    assert [e["code"] for e in got if e.get("key") == "Process"].count("Lang1") == 2                  # only the Hangul/English key's code
+    assert not [e for e in got if e["type"] == "keyup" and e["key"] in ("g", "k", "Q", "h", "1", " ", ",", "5")]        # the Latin keyups are dropped
     # the Hangul/English key, right Alt and Enter stay readable, and that IME keys were pressed and when
     assert [(e["type"], e["key"], e["code"], e["keyCode"]) for e in got if e.get("code")] == [
         ("keydown", "HangulMode", "Lang1", 21), ("keyup", "HangulMode", "Lang1", 21), ("keydown", "Alt", "AltRight", 18),
-        ("keyup", "Alt", "AltRight", 18), ("keydown", "Enter", "Enter", 13)]
-    assert sum(e.get("key") == "Process" for e in got) == 4 * 3 + 1
+        ("keyup", "Alt", "AltRight", 18), ("keydown", "Process", "Lang1", 0), ("keyup", "Process", "Lang1", 0), ("keydown", "Enter", "Enter", 13)]
+    assert sum(e.get("key") == "Process" for e in got) == 4 * 3 + 1 + 3 + 2
 
 
 def test_a_key_name_off_the_list_is_dropped_and_every_listed_name_is_kept(env):

@@ -172,8 +172,9 @@ async function applyShellFont(win, term) {
 // A keydown or keyup is recorded only when its `key` is one of KEYLOG_KEYS (Alt, HangulMode, Process, Enter, F5 ...), by exact match, and its
 // `code` one of KEYLOG_CODES (AltRight, Lang1 ...) or empty: a typed character, a name no key sends, a code that names a letter, digit,
 // punctuation or numpad key drops the event, since text and passwords must not be in it. An IME event (key Process, Unidentified, Dead or
-// Compose, or isComposing, or keyCode 229) is recorded with code "", keyCode 0 and shift false: in a Korean IME the browser keeps the physical
-// code, the real keyCode and the Shift state of the key behind it, which on a 2-set layout spell the Hangul being typed. A composition event
+// Compose, or isComposing, or keyCode 229) is recorded with keyCode 0, shift false, and its code only when it is in KEYLOG_CODES (Lang1 for
+// the Hangul/English key arriving as Process), else "": in a Korean IME the browser keeps the physical code, the real keyCode and the Shift
+// state of the key behind it, which on a 2-set layout spell the Hangul being typed. A composition event
 // is {t, type} only: its `data` is the text being composed. The server checks the same rules again (keylog.py, which holds the same lists).
 // The events wait here and go to POST api/shell/keylog in batches of at most 50, every 2 s while there are any and when the page is
 // hidden; a post that fails loses its batch (it is a diagnostic, not a record).
@@ -202,7 +203,7 @@ function keyLogEntry(ev) {
     const keyCode = Number.isInteger(ev.keyCode) ? ev.keyCode : 0;
     const ime = KEYLOG_IME_KEYS.has(key) || !!ev.isComposing || keyCode === 229;
     if (!ime && !KEYLOG_CODES.has(code)) return null;
-    return { t, type: ev.type, key, code: ime ? "" : code, keyCode: !ime && KEYLOG_KEYCODES.has(keyCode) ? keyCode : 0,
+    return { t, type: ev.type, key, code: ime && !KEYLOG_CODES.has(code) ? "" : code, keyCode: !ime && KEYLOG_KEYCODES.has(keyCode) ? keyCode : 0,
              isComposing: !!ev.isComposing, shift: !ime && !!ev.shiftKey, ctrl: !!ev.ctrlKey, alt: !!ev.altKey, meta: !!ev.metaKey };
   }
   if (KEYLOG_COMPOSITION.includes(ev.type)) return { t, type: ev.type };

@@ -249,6 +249,7 @@ IME_SEQUENCE = """((d) => {
   const c = (type) => d.dispatchEvent(new CompositionEvent(type, { data: "x", bubbles: true }));
   ev("keydown", { key: "HangulMode", code: "Lang1" }, 21); ev("keyup", { key: "HangulMode", code: "Lang1" }, 21);       // the switch to Hangul
   ev("keydown", { key: "Alt", code: "AltRight", altKey: true }, 18); ev("keyup", { key: "Alt", code: "AltRight" }, 18);
+  ev("keydown", { key: "Process", code: "Lang1" }, 229); ev("keyup", { key: "Process", code: "Lang1" }, 21);         // the same key arriving as Process
   ev("keydown", { key: "Process", code: "KeyG", isComposing: false }, 229); c("compositionstart");
   ev("keyup", { key: "g", code: "KeyG" }, 71);
   ev("keydown", { key: "Process", code: "KeyK", isComposing: true }, 229); c("compositionupdate");
@@ -259,6 +260,8 @@ IME_SEQUENCE = """((d) => {
   ev("keyup", { key: "Process", code: "KeyH", isComposing: false }, 72);
   ev("keydown", { key: "Process", code: "Digit1", isComposing: true }, 229); ev("keyup", { key: "1", code: "Digit1" }, 49);
   ev("keydown", { key: "Process", code: "Space", isComposing: true }, 229); ev("keyup", { key: " ", code: "Space" }, 32);
+  ev("keydown", { key: "Process", code: "Comma", isComposing: true }, 229); ev("keyup", { key: ",", code: "Comma" }, 188);
+  ev("keydown", { key: "Process", code: "Numpad5", isComposing: true, shiftKey: true }, 229); ev("keyup", { key: "5", code: "Numpad5" }, 101);
   ev("keydown", { key: "Enter", code: "Enter", isComposing: true, shiftKey: true }, 229); c("compositionend");
   ev("keydown", { key: "Enter", code: "Enter" }, 13);
   return 1; })(document.querySelector("#shell-term iframe").contentDocument)"""
@@ -272,22 +275,23 @@ def test_a_korean_password_leaves_no_letter_code_keycode_or_shift_in_the_queue_o
     sent = [e for batch in fake.evaluate("window.__posts") for e in batch]
     assert queued and [{k: v for k, v in e.items() if k != "t"} for e in sent] == [{k: v for k, v in e.items() if k != "t"} for e in queued]
     flat = json.dumps(sent)
-    for leak in ("KeyG", "KeyK", "KeyQ", "KeyH", "Digit", "Space", '"g"', '"k"', '"Q"', '"1"', '" "'):
+    for leak in ("KeyG", "KeyK", "KeyQ", "KeyH", "Digit", "Space", "Comma", "Numpad", '"g"', '"k"', '"Q"', '"1"', '" "', '","', '"5"'):
         assert leak not in flat, leak
     for e in sent:
         if e["type"].startswith("composition"):
             assert set(e) == {"t", "type"}
         else:
-            assert e["keyCode"] not in (71, 75, 81, 72, 49, 32, 229), e                  # no real keyCode of a letter, nor the IME's 229
+            assert e["keyCode"] not in (71, 75, 81, 72, 49, 32, 188, 101, 229), e       # no real keyCode of a letter, nor the IME's 229
             if e["key"] in ("Process", "Unidentified") or e["isComposing"]:
-                assert e["code"] == "" and e["keyCode"] == 0 and e["shift"] is False, e     # an IME event is its time and key name
+                assert e["code"] in KL.CODES and e["keyCode"] == 0 and e["shift"] is False, e   # an IME event: its time, key name and, at most, a non-character code
     # what the key log is for stays readable: the Hangul/English key, right Alt, Enter, and that IME activity happened and when
     readable = [(e["type"], e["key"], e["code"], e["keyCode"]) for e in sent if e["type"].startswith("key") and e["code"]]
     assert readable == [("keydown", "HangulMode", "Lang1", 21), ("keyup", "HangulMode", "Lang1", 21), ("keydown", "Alt", "AltRight", 18),
-                        ("keyup", "Alt", "AltRight", 18), ("keydown", "Enter", "Enter", 13)]
+                        ("keyup", "Alt", "AltRight", 18), ("keydown", "Process", "Lang1", 0), ("keyup", "Process", "Lang1", 0),
+                        ("keydown", "Enter", "Enter", 0), ("keydown", "Enter", "Enter", 13)]     # the first Enter ended the composition: an IME event, no keyCode
     assert [e["type"] for e in sent if e["type"].startswith("composition")] == ["compositionstart", "compositionupdate", "compositionupdate", "compositionend"]
-    assert sum(e["key"] == "Process" for e in sent if e["type"].startswith("key")) == 7          # the IME keydowns and the one keyup are there, as events
-    assert not any(e["key"] in ("g", "k", "Q", "1", " ") for e in sent if e["type"].startswith("key"))   # the Latin keyups are not
+    assert sum(e["key"] == "Process" for e in sent if e["type"].startswith("key")) == 11         # the IME keydowns and the keyups of Process are there, as events
+    assert not any(e["key"] in ("g", "k", "Q", "1", " ", ",", "5") for e in sent if e["type"].startswith("key"))   # the Latin keyups are not
 
 
 def test_the_pages_lists_are_the_servers(fake):

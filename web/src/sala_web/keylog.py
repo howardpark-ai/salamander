@@ -13,8 +13,9 @@ letter keys:
   KEYCODES, else 0;
 - an IME event (`key` Process, Unidentified, Dead or Compose, or `isComposing`, or `keyCode` 229) keeps the physical `code`, the real
   `keyCode` and the Shift state of the key behind it in the browser, which on a 2-set Korean layout spell the Hangul being typed
-  (a password): the server rewrites such an event to code "", keyCode 0, shift false, whatever the client sent, so an old client
-  that still sends `Process` with `KeyG` is rewritten, never stored as sent;
+  (a password): the server stores keyCode 0 and shift false whatever the client sent, and the `code` only when it is on CODES (the
+  non-character keys: `Lang1` to `Lang5`, `AltRight`, `Convert`, ...), else "". So the Hangul/English key arriving as `Process` with
+  `Lang1` stays readable, and an old client that sends `Process` with `KeyG` is rewritten to "", never stored as sent;
 - a composition event is `{t, type}` and nothing else: its `data` is the text being composed.
 Every field is checked for type and range and an event with any other field, a missing one or a bad value is dropped whole; what is
 stored is rebuilt from the checked fields.
@@ -86,7 +87,8 @@ def clean(event: object) -> dict | None:
             return None
         out = {"t": event["t"], "type": kind, "key": key, "code": code, "keyCode": key_code, **{f: event[f] for f in FLAGS}}
         if key in IME_KEYS or out["isComposing"] or key_code == IME_KEYCODE:
-            out.update(code="", keyCode=0, shift=False)     # the key behind an IME event is a letter of what is being typed
+            # the key behind an IME event may be a letter of what is being typed: its code is kept only when it names a non-character key
+            out.update(code=code if code in CODES else "", keyCode=0, shift=False)
         elif code not in CODES:
             return None
         elif key_code not in KEYCODES:
