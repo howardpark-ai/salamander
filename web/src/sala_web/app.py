@@ -1214,7 +1214,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
             if repeat and prev[2] is None:
                 return _duplicate()
             try:
-                resp, answered = await _send_locked(s, pane, text, paths, prev[2] if repeat else None)
+                resp, answered = await _send_locked(s, pane, text, paths, prev[2] if repeat else None,
+                                                    body.get("retry") is True)
                 if resp.status_code == 200:
                     last_sent[pane] = (sig, time.monotonic(), answered)
                 return resp
@@ -1225,9 +1226,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
         return JSONResponse({"ok": False, "duplicate": True, "error": "already sent a moment ago"}, status_code=409)
 
     async def _send_locked(s: S.Session, pane: str, text: str, paths: list[Path],
-                           answered_before: str | None) -> tuple[Response, str | None]:
+                           answered_before: str | None, retry: bool = False) -> tuple[Response, str | None]:
         """Paste and submit, or answer the dialog the pane shows. Returns the response and, for a dialog answer,
-        the dialog's text (what a repeat of the same answer is compared with)."""
+        the dialog's text (what a repeat of the same answer is compared with). retry is the page's Retry of a message
+        that failed: when the pane's box already holds that very message, it is submitted as it stands, not pasted again."""
         try:
             ppid = await T.pane_pid(settings, pane)
         except T.TmuxError as e:
@@ -1235,7 +1237,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if not S.is_same_or_descendant(s.pid, ppid):
             return _err(409, f"pane {pane} does not belong to session {s.name}; nothing sent"), None
         captured = await T.capture(settings, pane)
-        state, _ = T.input_box(captured)
+        state, box_text = T.input_box(captured)
         if state == "missing":
             return await _answer_dialog(pane, captured, text, paths, answered_before)
         if answered_before is not None:
@@ -1245,7 +1247,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
             text = text.lstrip()[len(T.SHELL):]
             if not text.strip() and not paths:
                 return _err(400, "nothing to send after the ! the pane's shell mode already has"), None
-        return await _paste_and_submit(pane, state, text, paths), None
+        return await _paste_and_submit(pane, state, text, paths, box_text if retry else None,
+                                       T.box_hidden(captured)), None
 
     async def _answer_dialog(pane: str, captured: str, text: str, paths: list[Path],
                              answered_before: str | None) -> tuple[Response, str | None]:
@@ -1266,8 +1269,17 @@ def create_app(settings: Settings | None = None) -> Starlette:
         await T.send_key(settings, pane, key)
         return JSONResponse({"ok": True, "dialogAnswer": key, "imagesPasted": 0, "imagesAttached": 0}), dialog_text
 
-    async def _paste_and_submit(pane: str, state: str, text: str, paths: list[Path]) -> Response:
+    async def _paste_and_submit(pane: str, state: str, text: str, paths: list[Path],
+                                retry_box: str | None = None,
+                                retry_hidden: tuple[bool, bool] = (False, False)) -> Response:
         if state == "text":
+            # a Retry of a message whose paste landed but whose Enter did not (or whose box read "missing" while it
+            # scrolled): the box holds that message (all of it, or the part its rules say is hidden), so press Enter.
+            # Anything else in the box is never submitted.
+            if retry_box is not None and not paths and T.retry_matches(retry_box, text, *retry_hidden):
+                await T.send_enter(settings, pane)
+                return JSONResponse({"ok": True, "imagesPasted": 0, "imagesAttached": 0, "filesPasted": 0,
+                                     "resubmitted": True})
             return _err(409, "pane input box is not empty; nothing sent")
         attached = 0
         # the pane turns a pasted image path into an attachment chip, which is what is counted; any other file's path

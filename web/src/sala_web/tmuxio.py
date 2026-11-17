@@ -30,6 +30,10 @@ SHELL = "!"  # the box's first glyph after "!" is typed: Claude Code's shell mod
 BOX_GLYPHS = (PROMPT, SHELL)
 RULE_CHAR = "─"  # ─
 CHIP_RE = re.compile(r"\[Image #\d+\]")
+# the label Claude Code draws in the rule above an input box that holds more lines than it shows ("──── ↑ 1 more ────"):
+# its first glyph line has scrolled out of view, and a "↓ N more" label shows in the rule below when the tail is cut off
+MORE_ABOVE_RE = re.compile(r"\u2191\s*\d+\s+more\b")
+MORE_BELOW_RE = re.compile(r"\u2193\s*\d+\s+more\b")
 OPTION_RE = re.compile(r"^(?:" + PROMPT + r"\s*)?([1-9])\.\s+\S")
 BOX_SIDES = "│┃|"  # a dialog drawn inside a box: its side borders are not part of the text
 DIALOG_KEYS = {str(d) for d in range(1, 10)} | {"Escape"}
@@ -251,10 +255,20 @@ def _glyph(line: str) -> str | None:
 
 def _box(lines: list[str], rule_idx: list[int]):
     """Yield (first, bottom, glyph) for each candidate input box, last one first: a rule, then a line starting with a
-    box glyph; bottom is the next rule after it, or None (never for a shell-mode box)."""
+    box glyph; bottom is the next rule after it, or None (never for a shell-mode box).
+
+    A box that holds more lines than it shows has scrolled its glyph line out of view: its top rule then carries an
+    "↑ N more" label and the first visible line is a continuation line with no glyph. That is a box too, when a bottom
+    rule closes it with at least one line between; its glyph is None. A label like that over no closing rule is not
+    a box, nor is any other label."""
     for top in reversed(rule_idx):
         first = top + 1
         if first >= len(lines):
+            continue
+        if MORE_ABOVE_RE.search(plain(lines[top])):
+            bottom = next((i for i in rule_idx if i > top), None)
+            if bottom is not None and bottom > first:
+                yield first, bottom, None
             continue
         glyph = _glyph(lines[first])
         if not glyph:
@@ -265,41 +279,89 @@ def _box(lines: list[str], rule_idx: list[int]):
         yield first, bottom, glyph
 
 
+def _used_box(lines: list[str]):
+    """(first, bottom, glyph) of the input box input_box reads: the last candidate box that has a bottom rule, or None."""
+    rule_idx = [i for i, ln in enumerate(lines) if _is_rule(ln)]
+    return next(((first, bottom, glyph) for first, bottom, glyph in _box(lines, rule_idx) if bottom is not None), None)
+
+
 def input_box(captured: str) -> tuple[str, str]:
     """Find Claude Code's input box (a line starting with ❯, or ! in shell mode, between two horizontal rules) and
-    say whether it holds text. Dim text is the placeholder suggestion and counts as empty.
+    say whether it holds text. Dim text is the placeholder suggestion and counts as empty. A box scrolled past its
+    glyph line (its top rule says "↑ N more") has no glyph line to find: it holds text by definition, and its visible
+    text is the lines between its two rules.
 
     Returns ("empty" | "text" | "missing", the box's visible text).
     """
     lines = captured.split("\n")
-    rule_idx = [i for i, ln in enumerate(lines) if _is_rule(ln)]
-    for first, bottom, glyph in _box(lines, rule_idx):
-        if bottom is None:
-            continue
-        content_chars: list[str] = []
-        all_text: list[str] = []
-        for i in range(first, bottom):
-            runs = _visible_runs(lines[i])
-            if i == first:
-                # drop everything up to and including the prompt glyph
-                seen = False
-                kept: list[tuple[str, bool]] = []
-                for t, d in runs:
-                    if not seen and glyph in t:
-                        t = t.split(glyph, 1)[1]
-                        seen = True
-                    elif not seen:
-                        continue
-                    kept.append((t, d))
-                runs = kept
+    used = _used_box(lines)
+    if used is None:
+        return "missing", ""
+    first, bottom, glyph = used
+    content_chars: list[str] = []
+    all_text: list[str] = []
+    for i in range(first, bottom):
+        runs = _visible_runs(lines[i])
+        if i == first and glyph:
+            # drop everything up to and including the prompt glyph
+            seen = False
+            kept: list[tuple[str, bool]] = []
             for t, d in runs:
-                all_text.append(t)
-                if not d:
-                    content_chars.append(t)
-            all_text.append("\n")
-        visible = "".join(content_chars).replace(" ", " ").strip()
-        return ("text" if visible else "empty"), "".join(all_text).replace(" ", " ").strip()
-    return "missing", ""
+                if not seen and glyph in t:
+                    t = t.split(glyph, 1)[1]
+                    seen = True
+                elif not seen:
+                    continue
+                kept.append((t, d))
+            runs = kept
+        for t, d in runs:
+            all_text.append(t)
+            if not d:
+                content_chars.append(t)
+        all_text.append("\n")
+    visible = "".join(content_chars).replace(" ", " ").strip()
+    # a scrolled box (no glyph) always holds text: its glyph line is out of view and "↑ N more" says so
+    return ("text" if visible or glyph is None else "empty"), "".join(all_text).replace(" ", " ").strip()
+
+
+RETRY_MIN_PARTIAL = 12  # characters a part of the retried message must have to count as the message
+
+
+def box_hidden(captured: str) -> tuple[bool, bool]:
+    """(above, below): whether the input box input_box reads has lines out of view. above is true when its top rule
+    says "↑ N more" (its first lines have scrolled out), below when its bottom rule says "↓ N more" (its last lines are
+    cut off). Both are read from the rules of that very box, never from another rule in the pane; (False, False) when
+    there is no box."""
+    lines = captured.split("\n")
+    used = _used_box(lines)
+    if used is None:
+        return False, False
+    first, bottom, _ = used
+    return (bool(MORE_ABOVE_RE.search(plain(lines[first - 1]))),
+            bool(MORE_BELOW_RE.search(plain(lines[bottom]))))
+
+
+def retry_matches(box_text: str, message: str, above: bool = False, below: bool = False) -> bool:
+    """True when the input box's visible text is the message being retried. A box that shows all of its text must
+    equal the message. A part counts only on the side the box says is hidden (above and below come from box_hidden):
+    with only "↑ N more" the text may be the message's tail, with only "↓ N more" its head, with both a slice of it
+    (contained in it); a part must have at least RETRY_MIN_PARTIAL characters. Whitespace is ignored: the pane wraps
+    lines at its own width, in the middle of a word when the word is longer than the line, and indents the lines it
+    continues."""
+    box, msg = "".join(box_text.split()), "".join(message.split())
+    if not box or not msg:
+        return False
+    if box == msg:
+        return True
+    if len(box) < RETRY_MIN_PARTIAL:
+        return False
+    if above and below:
+        return box in msg
+    if above:
+        return msg.endswith(box)
+    if below:
+        return msg.startswith(box)
+    return False
 
 
 def shell_mode(captured: str) -> bool:

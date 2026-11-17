@@ -204,3 +204,149 @@ def test_real_50col_capture_with_text_typed_is_text():
 ])
 def test_one_trailing_rule_character_is_enough(line):
     assert tmuxio._is_rule(line)
+
+
+# --- a box scrolled past its glyph line: "↑ N more" in the top rule, no "❯" line in view ---------------------------
+
+def _more(label: str, width: int = 60) -> str:
+    """A rule that carries a label, as Claude Code draws "──── ↑ 1 more ────"."""
+    side = "─" * ((width - len(label) - 2) // 2)
+    return f"\x1b[38;5;244m{side} {label} {side}\x1b[39m"
+
+
+SCROLLED = "\n".join(["old output", _more("↑ 1 more"), "  second line", "  third line", "  fourth line", RULE,
+                      "  ? for shortcuts"])
+
+
+def test_scrolled_box_reads_as_text_with_the_visible_lines():
+    assert tmuxio.input_box(SCROLLED) == ("text", "second line\n  third line\n  fourth line")
+
+
+def test_scrolled_box_with_the_glyph_line_in_view_and_more_below_is_text():
+    cap = "\n".join(["old output", RULE, "❯ first", "  second", _more("↓ 2 more"), "  footer"])
+    assert tmuxio.input_box(cap) == ("text", "first\n  second")
+    assert tmuxio._is_rule(_more("↓ 2 more"))
+
+
+def test_scrolled_box_with_a_label_on_both_rules():
+    cap = "\n".join(["out", _more("↑ 3 more"), "  middle", _more("↓ 1 more"), "  footer"])
+    assert tmuxio.input_box(cap) == ("text", "middle")
+
+
+def test_scrolled_box_text_is_text_even_when_dim():
+    cap = "\n".join([_more("↑ 1 more"), "\x1b[2m  dim continuation\x1b[0m", RULE])
+    assert tmuxio.input_box(cap)[0] == "text"
+
+
+def test_scrolled_box_with_a_short_lead_rule_and_two_digit_count():
+    cap = "\n".join(["out", "─── ↑ 12 more " + "─" * 30, "  tail", "─" * 40])
+    assert tmuxio.input_box(cap) == ("text", "tail")
+
+
+def test_last_box_wins_when_the_scrolled_one_is_the_older():
+    cap = "\n".join([_more("↑ 1 more"), "  tail", RULE, "answer", RULE, "❯ ", RULE])
+    assert tmuxio.input_box(cap)[0] == "empty"
+    cap = "\n".join([RULE, "❯ ", RULE, "answer", _more("↑ 1 more"), "  tail", RULE])
+    assert tmuxio.input_box(cap) == ("text", "tail")
+
+
+@pytest.mark.parametrize("label", [
+    "trailing words and more",   # the existing rule fixture's kind of label: the word "more" alone is no indicator
+    "more",
+    "1 more",                    # no arrow
+    "↑ more",               # no count
+    "see ↑ about more",
+    "→ 3 more",             # another arrow
+])
+def test_an_ordinary_label_over_text_is_not_a_box(label):
+    cap = "\n".join(["out", _more(label), "  some text", RULE, "  footer"])
+    assert tmuxio.input_box(cap) == ("missing", "")
+    assert tmuxio.count_chips(cap) == 0
+
+
+def test_the_indicator_without_a_bottom_rule_is_not_a_box():
+    cap = "\n".join(["out", _more("↑ 1 more"), "  text", "  more text"])
+    assert tmuxio.input_box(cap) == ("missing", "")
+    assert not tmuxio.shell_mode(cap) and tmuxio.count_chips(cap) == 0
+
+
+def test_the_indicator_over_two_adjacent_rules_is_not_a_box():
+    assert tmuxio.input_box("\n".join([_more("↑ 1 more"), RULE, "footer"]))[0] == "missing"
+
+
+def test_a_dialog_under_an_indicator_less_rule_is_still_no_box():
+    cap = "\n".join(["out", _more("trailing words and more"), " Do you want to proceed?", " ❯ 1. Yes", "   2. No", ""])
+    assert tmuxio.input_box(cap)[0] == "missing"
+
+
+def test_shell_mode_and_chips_are_unchanged_by_the_scrolled_box_rule():
+    assert not tmuxio.shell_mode(SCROLLED)  # the glyph line is out of view: nothing says it is shell mode
+    assert tmuxio.shell_mode(SHELL) and not tmuxio.shell_mode(NARROW)
+    chips = "\n".join(["out", _more("↑ 1 more"), "  [Image #1] and [Image #2]", RULE])
+    assert tmuxio.count_chips(chips) == 2
+    assert tmuxio.count_chips(SCROLLED) == 0
+
+
+def test_a_continuation_line_that_starts_with_a_glyph_is_not_the_glyph_line_of_a_scrolled_box():
+    cap = "\n".join(["out", _more("↑ 1 more"), "! looks like shell mode", "  more", RULE])
+    assert tmuxio.input_box(cap) == ("text", "! looks like shell mode\n  more")
+    assert not tmuxio.shell_mode(cap)
+
+
+MSG = "line one\nline two is a little longer\nline three\nline four\nline five\nline six"
+TAIL = "  line two is a little longer\n  line three\n  line four\n  line five\n  line six"
+HEAD = "line one\n  line two is a little longer"
+MIDDLE = "line two is a little longer\n  line three\n  line four"
+
+
+def test_retry_matches_the_message_or_a_long_enough_part_of_it():
+    assert tmuxio.retry_matches(MSG, MSG)
+    assert tmuxio.retry_matches("line one line two is a little longer line three line four line five line six", MSG)
+    assert tmuxio.retry_matches(TAIL, MSG, above=True)  # scrolled: its first lines are out of view
+    assert tmuxio.retry_matches(HEAD, MSG, below=True)  # cut off below
+    assert tmuxio.retry_matches("line one line two is a lit\ntle longer", MSG, below=True)  # wrapped in the middle of a word
+    assert tmuxio.retry_matches(MIDDLE, MSG, above=True, below=True)
+    assert not tmuxio.retry_matches("line six", MSG, above=True)  # a short tail proves nothing
+    assert not tmuxio.retry_matches("line one", MSG, below=True)  # nor a short head
+    assert not tmuxio.retry_matches("something the owner typed", MSG)
+    assert not tmuxio.retry_matches("something the owner typed", MSG, above=True, below=True)
+    assert not tmuxio.retry_matches("", MSG) and not tmuxio.retry_matches(MSG, "")
+    assert not tmuxio.retry_matches(MSG + " and more", MSG)
+
+
+def test_a_fully_visible_box_that_is_part_of_the_message_is_never_the_message():
+    # the owner's own text, a head of the retried message, in a box that hides nothing: submitting it would send
+    # something that is not the retried message
+    assert not tmuxio.retry_matches("deploy to production", "deploy to production after approval")
+    assert not tmuxio.retry_matches("production after approval", "deploy to production after approval")
+    assert not tmuxio.retry_matches(HEAD, MSG) and not tmuxio.retry_matches(TAIL, MSG)
+    assert not tmuxio.retry_matches(MIDDLE, MSG)
+    assert not tmuxio.retry_matches("deploy to production", "deploy to production after approval", above=True)
+    assert not tmuxio.retry_matches("deploy to production", "deploy to production after approval", below=False)
+    # the same text on the side the box says is hidden is a part of a message cut off there
+    assert tmuxio.retry_matches("deploy to production", "deploy to production after approval", below=True)
+    assert tmuxio.retry_matches("production after approval", "deploy to production after approval", above=True)
+
+
+def test_a_part_counts_only_on_the_side_the_box_says_is_hidden():
+    assert tmuxio.retry_matches(TAIL, MSG, above=True) and not tmuxio.retry_matches(TAIL, MSG, below=True)
+    assert tmuxio.retry_matches(HEAD, MSG, below=True) and not tmuxio.retry_matches(HEAD, MSG, above=True)
+    assert not tmuxio.retry_matches(TAIL, MSG) and not tmuxio.retry_matches(HEAD, MSG)
+    # a middle slice needs both labels; the label of one side does not make it a head or a tail
+    assert tmuxio.retry_matches(MIDDLE, MSG, above=True, below=True)
+    assert not tmuxio.retry_matches(MIDDLE, MSG, above=True) and not tmuxio.retry_matches(MIDDLE, MSG, below=True)
+    # equal text needs no label, with or without them
+    assert tmuxio.retry_matches(MSG, MSG, above=True) and tmuxio.retry_matches(MSG, MSG, above=True, below=True)
+
+
+def test_box_hidden_reads_the_rules_of_the_box_input_box_reads():
+    assert tmuxio.box_hidden(SCROLLED) == (True, False)
+    assert tmuxio.box_hidden("\n".join(["old output", RULE, "❯ first", "  second", _more("↓ 2 more"), "  footer"])) == (False, True)
+    assert tmuxio.box_hidden("\n".join(["out", _more("↑ 3 more"), "  middle", _more("↓ 1 more"), "  footer"])) == (True, True)
+    assert tmuxio.box_hidden("\n".join(["out", RULE, "❯ whole", RULE])) == (False, False)
+    assert tmuxio.box_hidden("some output\nno box here\n") == (False, False)
+    # a label on a rule of another, earlier box in the pane is not the box's own
+    cap = "\n".join([_more("↑ 1 more"), "  old tail", RULE, "answer", RULE, "❯ whole", RULE, "  footer"])
+    assert tmuxio.box_hidden(cap) == (False, False)
+    cap = "\n".join([RULE, "❯ whole", _more("↓ 1 more"), "answer", RULE, "❯ ", RULE])
+    assert tmuxio.box_hidden(cap) == (False, False)

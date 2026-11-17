@@ -3101,14 +3101,15 @@ function redrawPending(p) {
   p.node = n;
 }
 
-async function deliver(p) {
+async function deliver(p, retry = false) {
   const s = state.byName.get(p.session);
   state.sending = true; refreshSendButton();
   try {
     if (!s) throw new Error(tl("app.pend.notLive"));
     const r = await fetch(`api/s/${s.pid}/send`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: p.text, uploads: p.images.map((im) => im.name) }),
+      // retry: this is the bubble's Retry, so a box that already holds this very message is submitted, not pasted again
+      body: JSON.stringify({ text: p.text, uploads: p.images.map((im) => im.name), ...(retry ? { retry: true } : {}) }),
     });
     const d = await r.json().catch(() => ({}));
     if (r.status === 409 && d.duplicate) {  // the server already pasted this exact message moments ago: drop the copy
@@ -3144,7 +3145,7 @@ function retryPending(p) {
   if (state.sending) return;
   p.status = "sending"; p.sentAt = Date.now(); redrawPending(p);
   pinToBottom();
-  deliver(p);
+  deliver(p, true);
 }
 function editPending(p) {
   dropPending(p, { keepImages: true });

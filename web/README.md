@@ -56,7 +56,9 @@ sala is, *Deploying* below.
      mostly `─`, or one that starts and ends with a run of `─` (3 or more each) around a short label, since Claude
      Code draws the session name in the rule above the box and in a 50-column pane that is only about half `─`. In
      shell mode (after `!` is typed) the box's first glyph is `!`, not `❯`, and a command sent then loses its own
-     leading `!` so the box does not get a second one. A permission dialog or menu
+     leading `!` so the box does not get a second one. A long message makes the box scroll: its top rule then says
+     `↑ N more` and the `❯` line is out of view, which still counts as a box (holding text) when a rule closes it, so
+     a long message is pasted and submitted like any other. A permission dialog or menu
      has no such box, so nothing is pasted into it. If the pane shows a numbered selection dialog instead (a focused
      `❯ 1. Yes` line and the options `2.`, `3.`... below the last rule above it), a message that is exactly one of
      the option numbers is sent as that one digit (`tmux send-keys <digit>`, no Enter: Claude Code's selection
@@ -65,6 +67,13 @@ sala is, *Deploying* below.
      2, 3, or esc; nothing sent"). The page drops the message bubble of an answer and says what it sent;
   3. the input box is empty. Dim text is the placeholder suggestion and counts as empty. If the owner (or anything
      else) left text there, the send is refused with "pane input box is not empty". sala-web never clears it.
+     The one exception is the page's *Retry* of a message that failed (the request carries `"retry": true`): when the
+     box already holds that very message (equal to it, ignoring whitespace), it is not pasted again, only Enter is sent.
+     A box that shows only part of a long message counts when the part is at least 12 characters and its own rule says
+     that side is hidden: its tail when the top rule says `↑ N more`, its head when the bottom rule says `↓ N more`,
+     a slice from the middle when both do. A fully visible box must equal the message, so the owner's own shorter
+     text, even when it is the head or tail of the retried message, is never submitted. Any other text in the box is
+     still refused.
 - **Older messages load as the chat is scrolled to its top.** A session's chat opens with the last 200 messages of its
   transcript (`TAIL_N`, `transcript.read_tail_page`); the stream's `reset` also carries `before`, a cursor (the byte offset
   in the transcript where those messages begin), and `start` (the file's start is already in). A line at the top of the
