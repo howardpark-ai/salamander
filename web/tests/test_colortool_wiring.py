@@ -417,6 +417,7 @@ def test_the_button_sits_last_in_the_side_panel_and_the_panel_opens_upward_fits_
     fake.combos = [combo("An evening look with a rather long name", full(RADIX), "c1"), combo("Warm", full(RADIX), "c2")]
     go(browser, served["url"] + "/" + CHAT, width=width, height=height, ready=READY_CHAT)
     open_side(browser, width)
+    browser.settle("document.getElementById('sidebar')")     # the slide is over and the web fonts are in: the rects below are the settled ones
     g = browser.evaluate(GEOMETRY)
     assert g["buttons"] == 1 and g["inSidebar"] and g["btnPosition"] not in ("fixed", "absolute"), g          # one button, in the panel, in the flow
     assert g["fixed"] == [], f"a fixed element of the tool is on the page before the panel is opened: {g['fixed']}"      # no floating corner button
@@ -427,6 +428,9 @@ def test_the_button_sits_last_in_the_side_panel_and_the_panel_opens_upward_fits_
     # the open panel: in the body, fixed, above the button, inside the window, never sideways; the fields are folded away at first
     open_panel(browser)
     wait(browser, "document.querySelectorAll('#ct-list li').length === 2", "the saved list did not show")
+    # the panel's height is its text's: a web font that arrives after the panel is drawn re-wraps it, and a panel read on the fallback face
+    # can already be as tall as the window allows, so the closed height is read only once the fonts are in and the panel has stopped moving
+    browser.settle("document.getElementById('ct-pop')")
     g = browser.evaluate(GEOMETRY)
     assert g["popParent"] == "BODY" and g["popFixed"] and g["fixed"] == ["ct-pop"], g
     p = g["pop"]
@@ -440,6 +444,7 @@ def test_the_button_sits_last_in_the_side_panel_and_the_panel_opens_upward_fits_
     closed = p
     click(browser, "#ct-fold")
     wait(browser, "!document.getElementById('ct-fields').hidden", "the fold did not open")
+    browser.settle("document.getElementById('ct-pop')")
     g = browser.evaluate(GEOMETRY)
     p = g["pop"]
     assert p["b"] <= g["btn"]["t"] + 0.5 and abs(p["b"] - closed["b"]) < 1, ("the panel does not hang from the button", p, closed)

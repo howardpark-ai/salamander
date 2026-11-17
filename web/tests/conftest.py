@@ -335,6 +335,44 @@ class CDP:
         self.send("Page.reload")
         self.wait_ready(extra, timeout)
 
+    def settle(self, element: str = "document.documentElement", frame: str | None = None, frames: int = 3, timeout: float = 60.0) -> None:
+        """Wait until the layout of what a test is about to measure has stopped moving, and fail when it never does. A page that is "ready"
+        (wait_ready) may still be laying out: a web font that arrives after the first layout (index.html's stylesheet and the Pretendard
+        subsets come from a CDN, a subset is asked for only when text that needs it is first drawn) re-wraps the text, and a size change
+        queued before a test attaches a `resize` listener is delivered to it at the next frame. So a test that reads a rect, or counts events
+        from a listener, calls this first. `element` is a JS expression for the element to watch (asked again on every frame); `frame` is one
+        for an iframe whose own document and window are watched too (its fonts, its size, and its frames: a resize event queued for it has
+        been delivered once its frames have run). Settled means: every watched document's `fonts.status` is "loaded" and the element's box
+        and the watched window's size are the same on `frames` frames in a row. An AssertionError names the state when that does not
+        happen within `timeout` s (never answers true on a timeout, as wait_ready)."""
+        js = ("""(() => {
+          const el = () => (__ELEMENT__), frame = () => (__FRAME__), FRAMES = __FRAMES__, LIMIT = __LIMIT__;
+          const read = () => {
+            const e = el(); if (!e) return null;
+            const f = frame(), win = f ? f.contentWindow : window;
+            const b = e.getBoundingClientRect();   // the layout is made (and the fonts it needs are asked for) before the status is read
+            const docs = f ? [document, f.contentDocument] : [document];
+            return { win, fonts: docs.map((d) => (d ? d.fonts.status : "no document")).join("/"),
+                     key: [b.left, b.top, b.right, b.bottom, win.innerWidth, win.innerHeight].map((v) => Math.round(v * 100)).join(",") };
+          };
+          return new Promise((res) => {
+            let last = null, still = 0, s = null, done = false;
+            const end = (ok) => { if (!done) { done = true; res({ ok, key: s && s.key, fonts: s && s.fonts }); } };
+            setTimeout(() => end(false), LIMIT);
+            const step = () => {
+              try { s = read(); } catch (e) { s = null; }
+              if (s && s.fonts.split("/").every((x) => x === "loaded") && s.key === last) still++; else still = 0;
+              last = s ? s.key : null;
+              if (still >= FRAMES) return end(true);
+              (s ? s.win : window).requestAnimationFrame(step);
+            };
+            window.requestAnimationFrame(step);
+          });
+        })()""".replace("__ELEMENT__", element).replace("__FRAME__", frame or "null")
+                .replace("__FRAMES__", str(frames)).replace("__LIMIT__", str(int(timeout * 1000))))
+        r = self.evaluate(js, timeout_ms=int(timeout * 1000) + 10000)
+        assert r["ok"], f"the layout did not settle within {timeout:.0f} s (watching {element}): fonts {r['fonts']}, box {r['key']}"
+
     def touch(self, on: bool = True) -> None:
         """A touch screen: `(pointer: coarse)` matches (the look's 44 px controls) and `(hover: none)`; set on the open page, live."""
         self.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 1} if on else {"enabled": False})
