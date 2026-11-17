@@ -6,9 +6,9 @@
    pages has none of it. ttyd's page is same-origin with ours and exposes its xterm.js as window.term; hookTerminalClipboard puts
    three things on it: the OSC 52 copy, the Copy button for a copy the browser refused, and Ctrl+V as a paste.
 
-   hookShellTerminal (the Shell drawer's frame, and terminal.html when it shows the Shell session) adds two more: the Shell draws in
-   D2Coding 14px (ttyd's own default face has no Korean glyphs), and a key log, what the keyboard sends to the terminal, for the
-   Hangul/English key. The Terminal tab's frames (Claude session panes) get neither. */
+   hookTerminalFont (every frame: the Terminal tab, the Shell drawer, terminal.html for any session) draws the terminal in D2Coding 14px
+   (ttyd's own default face has no Korean glyphs). hookShellTerminal (the Shell drawer's frame, and terminal.html when it shows the Shell
+   session; no other frame) adds a key log, what the keyboard sends to the terminal, for the Hangul/English key. */
 
 async function copyText(text) {
   try {
@@ -128,18 +128,18 @@ function hookTerminalClipboard(frame) {
 }
 
 
-// ---- The Shell's face and key log (hookShellTerminal) ----
+// ---- The terminal's face (hookTerminalFont) and the Shell's key log (hookShellTerminal) ----
 
 // The font file is the one the pages themselves load (static/fonts, @font-face in index.html). ttyd's frame is served from /tty/, so a relative
 // URL would resolve there: the address is made absolute from this script's own (static/termclip.js?v=<build>), which also keeps the cache-busting
 // `v` and whatever path prefix the app is served under.
-const SHELL_FONT_URL = (() => {
+const TERM_FONT_URL = (() => {
   const own = document.currentScript && document.currentScript.src;
   try { return new URL("fonts/D2Coding-Regular.woff2" + new URL(own).search, own).href; }
   catch { return new URL("static/fonts/D2Coding-Regular.woff2", location.href).href; }
 })();
-const SHELL_FONT_FAMILY = '"D2Coding", Consolas, monospace';
-const SHELL_FONT_SIZE = 14;
+const TERM_FONT_FAMILY = '"D2Coding", Consolas, monospace';
+const TERM_FONT_SIZE = 14;
 
 // D2Coding draws a Korean letter exactly two cells wide. xterm.js measures a cell from the font in use when an option changes, so the
 // face is loaded in the frame's own document FIRST (font-display: block, no flash of another face), then set on the term, which re-measures,
@@ -147,21 +147,26 @@ const SHELL_FONT_SIZE = 14;
 // size-adjust: 100.2% is not a look: D2Coding's advance at 14px is 7px, which Chrome measures as 6.99997, and xterm floors the cell to whole device
 // pixels (6, not 7: every letter drawn on a 6px grid, squeezed and overlapping). Two tenths of a percent of advance (a few hundredths of a pixel)
 // put the measure safely over the whole pixel, at 100%, 200% and 300% display scaling alike; the letters do not change.
-async function applyShellFont(win, term) {
+// The face is set once per term, and that holds across a reconnect of the same term: ttyd 1.7.7 re-applies its preferences on every connect, but
+// the page's own defaults (13px, Consolas) live in the Terminal's constructor options, not in those preferences, so they carry no font unless
+// the server is started with `-t fontSize=...` / `-t fontFamily=...` or the page URL has `?fontSize=`. Nothing here sets either (checked against
+// the real ttyd: after a restart and a reconnect the term keeps D2Coding 14px). If one is ever set, the face must be re-applied after each
+// preferences message.
+async function applyTerminalFont(win, term) {
   const doc = win.document;
-  if (!doc.getElementById("sala-shell-font")) {
+  if (!doc.getElementById("sala-term-font")) {
     const st = doc.createElement("style");
-    st.id = "sala-shell-font";
-    st.textContent = '@font-face{font-family:"D2Coding";src:url("' + SHELL_FONT_URL + '") format("woff2");font-weight:400;font-style:normal;font-display:block;size-adjust:100.2%}';
+    st.id = "sala-term-font";
+    st.textContent = '@font-face{font-family:"D2Coding";src:url("' + TERM_FONT_URL + '") format("woff2");font-weight:400;font-style:normal;font-display:block;size-adjust:100.2%}';
     (doc.head || doc.documentElement).append(st);
   }
   try {
-    const faces = await doc.fonts.load(SHELL_FONT_SIZE + "px D2Coding");
+    const faces = await doc.fonts.load(TERM_FONT_SIZE + "px D2Coding");
     if (!faces.length) return;
   } catch { return; }   // the file did not load: ttyd's own face stays
   if (win.term !== term) return;   // the frame went to another page while the file loaded
-  term.options.fontFamily = SHELL_FONT_FAMILY;
-  term.options.fontSize = SHELL_FONT_SIZE;
+  term.options.fontFamily = TERM_FONT_FAMILY;
+  term.options.fontSize = TERM_FONT_SIZE;
   try {
     if (typeof term.fit === "function") term.fit();
     else win.dispatchEvent(new win.Event("resize"));   // ttyd's own handler fits and sends the new size
@@ -234,10 +239,10 @@ function attachKeyLog(win) {
   if (!keyLogPagehide) { keyLogPagehide = true; window.addEventListener("pagehide", flushKeyLog); }
 }
 
-// Same pattern as hookTerminalClipboard: the page builds `term` a moment after the frame loads, so the hook polls (10 s at most); a reloaded
-// frame has a new term and is hooked again, a term already hooked is left alone, a cross-origin frame is left as it is.
-const shellHooked = new WeakSet();
-function hookShellTerminal(frame) {
+// Same pattern as hookTerminalClipboard: the page builds `term` a moment after the frame loads, so a hook polls (10 s at most); a reloaded
+// frame has a new term and is hooked again, a term already hooked is left alone, a cross-origin frame is left as it is. `hook(win, term)` runs
+// once per term; each hook keeps its own set of the terms it has done, so the font and the key log are hooked independently on one frame.
+function hookWhenTerm(frame, hooked, hook) {
   let timer = null;
   const tryHook = (t0) => {
     timer = null;
@@ -245,10 +250,9 @@ function hookShellTerminal(frame) {
     let win = null, term = null;
     try { win = frame.contentWindow; term = win && win.term; if (win) void win.document; } catch { return; }   // cross-origin: nothing to hook
     if (term && term.options && typeof term.options === "object" && win.document && win.document.fonts) {
-      if (shellHooked.has(term)) return;
-      shellHooked.add(term);
-      try { attachKeyLog(win); } catch { /* the terminal works without it */ }
-      applyShellFont(win, term).catch(() => {});
+      if (hooked.has(term)) return;
+      hooked.add(term);
+      hook(win, term);
       return;
     }
     if (Date.now() - t0 < 10000) timer = setTimeout(() => tryHook(t0), 250);
@@ -256,4 +260,14 @@ function hookShellTerminal(frame) {
   const start = () => { if (timer) clearTimeout(timer); tryHook(Date.now()); };
   frame.addEventListener("load", start);
   start();
+}
+const fontHooked = new WeakSet();
+function hookTerminalFont(frame) {   // every terminal frame
+  hookWhenTerm(frame, fontHooked, (win, term) => { applyTerminalFont(win, term).catch(() => {}); });
+}
+const keyLogHooked = new WeakSet();
+function hookShellTerminal(frame) {   // the Shell session's frame only: the key log
+  hookWhenTerm(frame, keyLogHooked, (win) => {
+    try { attachKeyLog(win); } catch { /* the terminal works without it */ }
+  });
 }

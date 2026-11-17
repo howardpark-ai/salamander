@@ -1,11 +1,11 @@
-"""The Shell draws in D2Coding 14px, and its key log (static/termclip.js `hookShellTerminal`).
+"""Every terminal frame draws in D2Coding 14px (static/termclip.js `hookTerminalFont`), and the Shell keeps a key log (`hookShellTerminal`).
 
-ttyd 1.7.7's own face ("Consolas,Liberation Mono,Menlo,Courier,monospace", 13px) has no Korean glyphs. The Shell drawer's frame, and
-the full-size page (terminal.html) when its ?arg is the Shell session (api/config `shellSession`), load the font the pages themselves
-use (static/fonts/D2Coding-Regular.woff2, at an absolute same-origin address: the frame's own base is /tty/) into the frame's document,
-wait for it, set `term.options.fontFamily` and `fontSize` 14, and fit the terminal again. The same hook records what the keyboard sends
-(named keys and composition events only, never a typed character) and posts it to `POST /api/shell/keylog` (test_shell_keylog.py is the
-server's half). The Terminal tab (Claude session panes) is left as ttyd draws it.
+ttyd 1.7.7's own face ("Consolas,Liberation Mono,Menlo,Courier,monospace", 13px) has no Korean glyphs. The Terminal tab's frame, the Shell
+drawer's frame and the full-size page (terminal.html) for any session load the font the pages themselves use
+(static/fonts/D2Coding-Regular.woff2, at an absolute same-origin address: the frame's own base is /tty/) into the frame's document, wait
+for it, set `term.options.fontFamily` and `fontSize` 14, and fit the terminal again. The Shell's frame (the drawer, and terminal.html when
+its ?arg is the Shell session, api/config `shellSession`) alone also records what the keyboard sends (named keys and composition events
+only, never a typed character) and posts it to `POST /api/shell/keylog` (test_shell_keylog.py is the server's half).
 
 Three levels, the browser ones in the headless Chromium of conftest.py (skipped without one):
 
@@ -13,7 +13,7 @@ Three levels, the browser ones in the headless Chromium of conftest.py (skipped 
 * a fake `term` in a same-origin about:blank frame (as test_terminal_ctrl_v.py): the hook polls, hooks a term once, leaves a
   cross-origin or a throwing term alone, what the key log records and when it posts;
 * the real ttyd on a scratch tmux session behind one same-origin address (ttyd_harness.py): the font file loads, the cell is measured
-  from it, a Korean letter is two cells, the pane is told the new size, real key events reach the log, and the Terminal tab stays as it was.
+  from it, a Korean letter is two cells, the pane is told the new size, real key events reach the log of the Shell and of no other frame.
 """
 
 from __future__ import annotations
@@ -43,14 +43,16 @@ def body_of(src: str, head: str) -> str:
 # ---------------------------------------------------------------- the source
 
 
-def test_the_shell_drawer_and_the_shell_session_of_the_full_size_page_are_hooked_and_nothing_else():
+def test_every_terminal_frame_gets_the_font_and_only_the_shell_gets_the_key_log():
+    # the font: the Terminal tab, the Shell drawer, and terminal.html for any session
+    assert APP_JS.count("hookTerminalFont(") == 2
+    for fn in ("async function ensureShellFrame()", "function loadTerminal()"):
+        assert "hookTerminalFont(frame)" in body_of(APP_JS, fn) and "hookTerminalClipboard(frame)" in body_of(APP_JS, fn)
+    assert TERMINAL_JS.count("hookTerminalFont(") == 1 and "\n  hookTerminalFont(frame);" in TERMINAL_JS     # not behind the arg test
+    # the key log: the Shell drawer, and terminal.html only when ?arg is the Shell session api/config names
     assert APP_JS.count("hookShellTerminal(") == 1
     assert "hookShellTerminal(frame)" in body_of(APP_JS, "async function ensureShellFrame()")
-    assert "hookTerminalClipboard(frame)" in body_of(APP_JS, "async function ensureShellFrame()")      # still there
-    for other in ("async function loadTerminal(", "function loadTerminal("):                          # the Terminal tab keeps ttyd's face
-        if other in APP_JS:
-            assert "hookShellTerminal" not in body_of(APP_JS, other)
-    # terminal.html: only when ?arg is the Shell session api/config names
+    assert "hookShellTerminal" not in body_of(APP_JS, "function loadTerminal()")
     assert TERMINAL_JS.count("hookShellTerminal(") == 1 and "hookTerminalClipboard(frame)" in TERMINAL_JS
     assert 'if (arg && arg === shellSession) hookShellTerminal(frame);' in TERMINAL_JS
     assert "c.shellSession" in TERMINAL_JS
@@ -58,17 +60,22 @@ def test_the_shell_drawer_and_the_shell_session_of_the_full_size_page_are_hooked
 
 def test_the_font_is_d2coding_14px_loaded_in_the_frame_before_it_is_set():
     assert (STATIC / "fonts" / "D2Coding-Regular.woff2").is_file()
-    assert "const SHELL_FONT_SIZE = 14;" in TERMCLIP
-    assert """const SHELL_FONT_FAMILY = '"D2Coding", Consolas, monospace';""" in TERMCLIP
+    assert "const TERM_FONT_SIZE = 14;" in TERMCLIP
+    assert """const TERM_FONT_FAMILY = '"D2Coding", Consolas, monospace';""" in TERMCLIP
     assert "font-display:block;size-adjust:100.2%" in TERMCLIP and "D2Coding-Regular.woff2" in TERMCLIP   # see the comment there: without it a cell is 6px, not 7
     # an absolute address made from this script's own (ttyd's frame is served from /tty/; the ?v is kept)
     assert "document.currentScript" in TERMCLIP and "new URL(" in TERMCLIP
-    fn = body_of(TERMCLIP, "async function applyShellFont(")
+    fn = body_of(TERMCLIP, "async function applyTerminalFont(")
     assert fn.index("doc.fonts.load(") < fn.index("term.options.fontFamily") < fn.index("term.options.fontSize") < fn.index("term.fit")
     assert "win.dispatchEvent(new win.Event(\"resize\"))" in fn                # without term.fit ttyd's own resize handler refits
     assert "win.term !== term" in fn                                           # a frame that went elsewhere meanwhile is left alone
-    hook = body_of(TERMCLIP, "function hookShellTerminal(")
-    assert "frame.addEventListener(\"load\", start)" in hook and "10000" in hook and "shellHooked.has(term)" in hook
+    # the poll both hooks share: 10 s, a reloaded frame polls again, a term is hooked once (per hook)
+    poll = body_of(TERMCLIP, "function hookWhenTerm(")
+    assert "frame.addEventListener(\"load\", start)" in poll and "10000" in poll and "hooked.has(term)" in poll
+    font = body_of(TERMCLIP, "function hookTerminalFont(")
+    assert "hookWhenTerm(frame, fontHooked" in font and "applyTerminalFont(" in font and "attachKeyLog" not in font
+    keys = body_of(TERMCLIP, "function hookShellTerminal(")
+    assert "hookWhenTerm(frame, keyLogHooked" in keys and "attachKeyLog(win)" in keys and "applyTerminalFont" not in keys
 
 
 def test_the_key_log_records_names_and_composition_only():
@@ -111,7 +118,7 @@ INSTALL = """
 TERM_STATE = """new Promise((res) => { const t0 = Date.now(); (function poll() {
   const f = document.querySelector("#shell-term iframe"); const t = f.contentWindow.term;
   if ((t && t.sets.length >= 2) || Date.now() - t0 > %d) res(t ? { sets: t.sets, fits: t.fits,
-      style: (f.contentDocument.getElementById("sala-shell-font") || {}).textContent || null } : null);
+      style: (f.contentDocument.getElementById("sala-term-font") || {}).textContent || null } : null);
   else setTimeout(poll, 50);
 })(); })"""
 
@@ -168,18 +175,22 @@ def test_a_term_without_options_is_left_alone_and_a_failing_font_leaves_ttyds_fa
     assert fake.evaluate("document.querySelector('#shell-term iframe').contentWindow.term.sets.length") == 0
 
 
-def test_the_terminal_tab_is_not_given_the_shell_face_or_the_key_log(fake):
+def test_the_terminal_tab_gets_the_font_and_not_the_key_log(fake):
     fake.evaluate("""document.querySelector("#top .tab[data-tab=terminal]").click(); 1""")
     assert fake.evaluate("new Promise((res) => { const t0 = Date.now(); (function poll() { const f = document.querySelector('#terminal-pane iframe');"
                          " if (f || Date.now() - t0 > 8000) res(!!f); else setTimeout(poll, 50); })(); })") is True
     fake.evaluate("""(() => { const f = document.querySelector("#terminal-pane iframe"); f.contentWindow.term = window.__fakeTerm();
       f.dispatchEvent(new Event("load")); return 1; })()""")
+    got = fake.evaluate("""new Promise((res) => { const t0 = Date.now(); (function poll() {
+      const f = document.querySelector("#terminal-pane iframe"), t = f.contentWindow.term;
+      if (t.sets.length >= 2 || Date.now() - t0 > 8000) res({ sets: t.sets, fits: t.fits, style: !!f.contentDocument.getElementById("sala-term-font") });
+      else setTimeout(poll, 50); })(); })""")
+    assert got == {"sets": [["fontFamily", '"D2Coding", Consolas, monospace'], ["fontSize", 14]], "fits": 1, "style": True}
     fake.evaluate("""(() => { const d = document.querySelector("#terminal-pane iframe").contentDocument;
-      d.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", code: "AltRight" })); return 1; })()""")
-    fake.evaluate("new Promise((r) => setTimeout(r, 2600))")
-    assert fake.evaluate("document.querySelector('#terminal-pane iframe').contentWindow.term.sets.length") == 0
-    assert fake.evaluate("document.querySelector('#terminal-pane iframe').contentDocument.getElementById('sala-shell-font')") is None
-    assert fake.evaluate("window.__posts.flat().length") == 0
+      d.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", code: "AltRight", bubbles: true })); return 1; })()""")
+    fake.evaluate("new Promise((r) => setTimeout(r, 2600))")                      # past the 2 s flush
+    assert fake.evaluate("window.__posts.flat().length") == 0                      # a key in a Claude session's frame is not logged
+    assert fake.evaluate("document.querySelector('#terminal-pane iframe').contentWindow.term.sets.length") == 2   # and the font was set once
 
 
 def frame_events(browser, js: str):
@@ -192,6 +203,14 @@ def frame_events(browser, js: str):
 def hooked(browser):
     browser.evaluate("(%s)(0)" % INSTALL.strip())
     assert browser.evaluate(TERM_STATE % 8000)["sets"]
+
+
+def test_the_shell_frame_gets_the_font_once_and_the_key_log(fake):
+    hooked(fake)
+    assert fake.evaluate("document.querySelector('#shell-term iframe').contentWindow.term.sets") == [
+        ["fontFamily", '"D2Coding", Consolas, monospace'], ["fontSize", 14]]
+    posts = frame_events(fake, """(d) => { d.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", code: "AltRight", bubbles: true })); }""")
+    assert [(e["key"], e["code"]) for b in posts for e in b] == [("Alt", "AltRight")]
 
 
 def test_the_key_log_records_named_keys_and_composition_and_never_a_typed_character(fake):
@@ -355,6 +374,8 @@ def open_real_shell(r):
 
 
 FRAME = 'document.querySelector("#shell-term iframe")'
+TAB_FRAME = 'document.querySelector("#terminal-pane iframe")'
+FULL_FRAME = 'document.querySelector("#term-full iframe")'
 
 MEASURE = """(() => {
   const f = %s, w = f.contentWindow, t = w.term, d = f.contentDocument;
@@ -412,26 +433,60 @@ def test_real_key_events_reach_the_log_and_a_typed_letter_does_not(real_shell):
     assert oct(log.stat().st_mode & 0o777) == "0o600"
 
 
-def test_the_terminal_tab_in_ttyd_keeps_ttyds_own_face(real_shell):
+SCREEN_READY = """(() => { const f = %s, t = f && f.contentWindow.term;
+  return t && t.buffer && Array.from({ length: t.rows }, (_, i) => t.buffer.active.getLine(i)?.translateToString(true) || "").join("").includes("READY"); })()"""
+
+
+def keylog_rows(r, wait: float):
+    """The key log's rows after `wait` s (the page posts every 2 s); [] when the file was never made."""
+    log = r["served"]["settings"].state_dir / "shell-keylog.jsonl"
+    deadline = time.time() + wait
+    while time.time() < deadline and not (log.exists() and "HangulMode" in log.read_text()):
+        time.sleep(0.2)
+    return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+
+def assert_d2coding_fitted(r, frame: str):
+    """The frame draws in D2Coding 14px, its cell is the face's own 7px and the tmux window is as wide as the terminal's columns."""
+    b = r["browser"]
+    assert wait_for(b, frame + ".contentWindow.term.options.fontSize === 14") is True
+    b.settle(frame, frame=frame)
+    m = b.evaluate(MEASURE % (frame, KO[0]))
+    assert m["size"] == 14 and m["family"] == '"D2Coding", Consolas, monospace' and m["loaded"] == 1 and m["check"] is True
+    assert abs(m["wideW"] - 2 * m["aW"]) < 0.01 and m["cellW"] == 7, m
+    assert m["screenW"] == m["cols"] * m["cellW"], m
+    # ttyd tells the pane the new size a moment after the layout settles: poll tmux for the width rather than guess how long that takes
+    deadline = time.time() + 20
+    while True:
+        pw = int(r["pane"].tmux("display-message", "-p", "-t", "scratch", "#{window_width}").stdout.strip())
+        if pw == m["cols"] or time.time() > deadline:
+            break
+        time.sleep(0.25)
+    assert pw == m["cols"], (pw, m)
+
+
+def test_the_terminal_tab_in_ttyd_draws_in_d2coding_14px_and_logs_no_key(real_shell):
     b = real_shell["browser"]
     b.evaluate("""document.querySelector("#top .tab[data-tab=terminal]").click(); 1""")
-    assert wait_for(b, """(() => { const t = document.querySelector("#terminal-pane iframe").contentWindow.term;
-      return t && t.buffer && Array.from({ length: t.rows }, (_, i) => t.buffer.active.getLine(i)?.translateToString(true) || "").join("").includes("READY"); })()""") is True
-    time.sleep(2)
-    got = b.evaluate("""(() => { const f = document.querySelector("#terminal-pane iframe"), t = f.contentWindow.term;
-      return [t.options.fontSize, t.options.fontFamily, f.contentDocument.getElementById("sala-shell-font") === null]; })()""")
-    assert got[0] == 13 and "D2Coding" not in got[1] and got[2] is True
+    assert wait_for(b, SCREEN_READY % TAB_FRAME) is True
+    assert_d2coding_fitted(real_shell, TAB_FRAME)
+    b.evaluate(TAB_FRAME + ".contentWindow.term.focus(); 1")
+    press(b, "Alt", "AltRight", 18, ALT)
+    press(b, "HangulMode", "Lang1", 21)
+    assert keylog_rows(real_shell, 4) == []                                  # a Claude session's keys are not logged
 
 
 @pytest.mark.parametrize("arg, shell", [("sala-shell", True), ("some-claude-session", False)])
-def test_the_full_size_page_gets_the_face_for_the_shell_session_only(real_shell, arg, shell):
+def test_the_full_size_page_draws_in_d2coding_14px_for_any_session_and_logs_keys_for_the_shell_only(real_shell, arg, shell):
     b = real_shell["browser"]
     b.open(f"{real_shell['url']}/terminal?arg={arg}")
-    assert wait_for(b, """(() => { const f = document.querySelector("#term-full iframe"); const t = f && f.contentWindow.term;
-      return t && t.buffer && Array.from({ length: t.rows }, (_, i) => t.buffer.active.getLine(i)?.translateToString(true) || "").join("").includes("READY"); })()""") is True
-    time.sleep(2.5)
-    got = b.evaluate("""(() => { const t = document.querySelector("#term-full iframe").contentWindow.term; return [t.options.fontSize, t.options.fontFamily]; })()""")
+    assert wait_for(b, SCREEN_READY % FULL_FRAME) is True
+    assert_d2coding_fitted(real_shell, FULL_FRAME)
+    b.evaluate(FULL_FRAME + ".contentWindow.term.focus(); 1")
+    press(b, "Alt", "AltRight", 18, ALT)
+    press(b, "HangulMode", "Lang1", 21)
+    rows = keylog_rows(real_shell, 8 if shell else 4)
     if shell:
-        assert got == [14, '"D2Coding", Consolas, monospace']
+        assert [(r["key"], r["code"]) for r in rows if r["type"] == "keydown"] == [("Alt", "AltRight"), ("HangulMode", "Lang1")]
     else:
-        assert got[0] == 13 and "D2Coding" not in got[1]
+        assert rows == []

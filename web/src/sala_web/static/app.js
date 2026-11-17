@@ -3182,6 +3182,7 @@ function loadTerminal() {
   const frame = el("iframe", { src: state.terminalUrl + encodeURIComponent(s.tmuxSession), title: tl("term.frameTitleFor", { name: s.name }), allow: "clipboard-read; clipboard-write" });
   host.replaceChildren(frame);
   hookTerminalClipboard(frame);
+  hookTerminalFont(frame);   // D2Coding 14px, as in the Shell; the key log is the Shell's alone
 }
 
 /* ---------- composer ---------- */
@@ -3850,7 +3851,8 @@ async function ensureShellFrame() {
   const frame = el("iframe", { src: state.terminalUrl + encodeURIComponent(session), title: shellTitle(), allow: "clipboard-read; clipboard-write" });
   shellHost.replaceChildren(frame);
   hookTerminalClipboard(frame);
-  hookShellTerminal(frame);   // the Shell only: D2Coding 14px and the key log (the Terminal tab's frames are left as ttyd draws them)
+  hookTerminalFont(frame);
+  hookShellTerminal(frame);   // the key log is the Shell's alone (the font is every terminal frame's)
   frame.addEventListener("load", () => hookShellCtrl(frame));
   // the frame takes the focus when it has loaded, unless the drawer was closed meanwhile or the focus went to the composer or another field
   if (!narrow()) frame.addEventListener("load", () => {
