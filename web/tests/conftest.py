@@ -303,7 +303,10 @@ class CDP:
         r = self.send("Runtime.evaluate", {"expression": expression, "awaitPromise": True, "returnByValue": True,
                                            "timeout": timeout_ms})
         if "exceptionDetails" in r:
-            raise RuntimeError(r["exceptionDetails"].get("text") or str(r["exceptionDetails"]))
+            # `text` is only "Uncaught" for a thrown error; the error itself (its stack names the line) is in `exception`
+            d = r["exceptionDetails"]
+            what = (d.get("exception") or {}).get("description") or d.get("text") or str(d)
+            raise RuntimeError(f"{what}\n  in the expression: {expression.strip()[:300]}")
         return r["result"].get("value")
 
     def _recv(self) -> dict:
