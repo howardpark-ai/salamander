@@ -20,6 +20,7 @@ in node like linkTokens's (test_chat_links.py).
 
 from __future__ import annotations
 
+import base64
 import json
 import shutil
 import subprocess
@@ -584,4 +585,77 @@ def test_a_footer_link_gains_and_loses_its_wrapped_mark_as_the_chat_width_change
         assert a["wrapped"] == (len(a["frags"]) > 1) and (a["afterDisplay"] == "none") == a["wrapped"], (width, a)
         seen.setdefault(width, []).append(a["wrapped"])
     assert seen == {320: [True, True], 1280: [False]}, seen
+
+
+# The web fonts, held back. Pretendard's stylesheet comes from a CDN: here it is answered at once with a face of the same name
+# whose file is not (a held request), so the page lays out on the fallback font; the file is then answered with D2Coding's, set
+# at 300% (size-adjust), which makes every footer text far wider and so breaks the links the fallback font left on one line.
+CDN = "https://cdn.jsdelivr.net/"
+FAKE_FONT = CDN + "test/pretendard-variable.woff2"
+FAKE_CSS = ('@font-face{font-family:"Pretendard Variable";src:url("%s") format("woff2");font-weight:45 920;'
+            'font-display:swap;size-adjust:300%%}' % FAKE_FONT)
+FOOTER_LINKS = r"""
+new Promise((res) => { const t0 = Date.now();
+  const frames = (n) => new Promise((r) => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+  (async () => {
+    while (document.querySelectorAll("#chat > .msg.assistant").length < %d && Date.now() - t0 < 20000) await new Promise((r) => setTimeout(r, 50));
+    await frames(3);
+    res({ fonts: document.fonts.status, links: [...document.querySelectorAll("#chat .md.footer a[href]")].map((a) =>
+      ({ wrapped: a.classList.contains("wrapped"), lines: a.getClientRects().length })) });
+  })();
+})
+"""
+
+
+def test_a_footer_link_is_marked_again_when_a_web_font_swaps_in(served, browser):
+    """A web font that arrives after the first layout changes the text's widths and so where a link breaks, with no change
+    of the chat's width. The page marks the links again by itself once the fonts are in (markWrappedLinks, app.js): this test
+    never calls it (settle(remark=False)). The first layout is on the fallback font with the face's file held back, where the
+    footer links that fit one line are unmarked; the file then arrives and widens the text, and a link on two lines or more,
+    and only that, carries .wrapped."""
+    transcript_file(served).write_text(TRANSCRIPT)
+    browser.send("Fetch.enable", {"patterns": [{"urlPattern": CDN + "*"}]})
+    held: list[str] = []
+    seen = 0
+
+    def pump() -> None:
+        """Answer the stylesheet at once, hold the font file's request (its id goes to `held`), let any other request go on."""
+        nonlocal seen
+        browser.send("Browser.getVersion")   # reads what the browser has sent so far, events included
+        while seen < len(browser.events):
+            e = browser.events[seen]
+            seen += 1
+            if e.get("method") != "Fetch.requestPaused":
+                continue
+            rid, url = e["params"]["requestId"], e["params"]["request"]["url"]
+            if url == FAKE_FONT:
+                held.append(rid)
+            elif url.endswith(".css"):
+                browser.send("Fetch.fulfillRequest", {"requestId": rid, "responseCode": 200, "body": base64.b64encode(FAKE_CSS.encode()).decode(),
+                                                      "responseHeaders": [{"name": "Content-Type", "value": "text/css"},
+                                                                          {"name": "Access-Control-Allow-Origin", "value": "*"}]})
+            else:
+                browser.send("Fetch.continueRequest", {"requestId": rid})
+
+    browser.open(f"{served['url']}/#s={NAME}")
+    end = time.time() + 20
+    while not held and time.time() < end:
+        pump()
+        time.sleep(0.05)
+    assert held, "the page never asked for the web font"
+    before = browser.evaluate(FOOTER_LINKS % len(CASES))
+    assert before["fonts"] == "loading", before   # the layout so far is the fallback font's
+    assert before["links"] and all(a["wrapped"] == (a["lines"] > 1) for a in before["links"]), ("the first layout is marked", before)
+    one_line = [i for i, a in enumerate(before["links"]) if a["lines"] == 1]
+    assert one_line, ("no footer link fits one line on the fallback font, nothing could be left unmarked", before)
+    font = (STATIC / "fonts" / "D2Coding-Regular.woff2").read_bytes()
+    browser.send("Fetch.fulfillRequest", {"requestId": held[0], "responseCode": 200, "body": base64.b64encode(font).decode(),
+                                          "responseHeaders": [{"name": "Content-Type", "value": "font/woff2"},
+                                                              {"name": "Access-Control-Allow-Origin", "value": "*"}]})
+    c = by_case(probe(browser, remark=False))
+    after = [a for m in c.values() for d in m["mds"] if "footer" in d["cls"].split() for a in d["links"]]
+    assert len(after) == len(before["links"]), (len(after), len(before["links"]))
+    for a in after:
+        assert_footer_link_target("after the font swap", a)
+    assert any(len(after[i]["frags"]) > 1 for i in one_line), ("the swap broke no link that was on one line: it proves nothing", after)
 

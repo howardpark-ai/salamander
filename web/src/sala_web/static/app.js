@@ -176,7 +176,7 @@ function replyNodes(text, last, offered = null) {
 // one rectangle from the first line's left edge to the last line's right edge, partial or empty for a wrapped link, so a
 // wrapped link keeps its own text box, already a line or more tall, as the target). Reads every link first, then writes,
 // so the page lays out once. It runs on each message added to the chat and, since the lines depend on the column's width,
-// again whenever the chat's width changes (see the observers by #chat below).
+// again whenever the chat's width changes or a web font arrives (see the observers by #chat below).
 function markWrappedLinks(...roots) {
   const links = roots.flatMap((root) => [...root.querySelectorAll(".md.footer a[href]")]);
   const wrapped = links.map((a) => a.getClientRects().length > 1);
@@ -2525,12 +2525,24 @@ new ResizeObserver(() => {
   updateJump();
 }).observe($("#chat"));
 new ResizeObserver(() => { if (chatScroll.pinned && state.tab === "chat" && pane().clientHeight) scrollToBottom(); updateJump(); }).observe(pane());
-// footer links that wrap lose their ::after tap area (markWrappedLinks): when a message is added, and when the chat's width
-// changes (a resize, a browser zoom, the sidebar), which is the only thing that moves a line break; not on its height
+// footer links that wrap lose their ::after tap area (markWrappedLinks): when a message is added, when the chat's width
+// changes (a resize, a browser zoom, the sidebar; not its height), and when a web font arrives (below): each moves a line break
 new MutationObserver((recs) => markWrappedLinks(...recs.flatMap((r) => [...r.addedNodes].filter((n) => n.nodeType === 1))))
   .observe($("#chat"), { childList: true });
 let chatWidth = -1;
 new ResizeObserver(() => { const w = $("#chat").clientWidth; if (w !== chatWidth) { chatWidth = w; markWrappedLinks($("#chat")); } }).observe($("#chat"));
+// A web font (Pretendard's subsets, D2Coding; font-display: swap) arrives after the first layout and changes the text's widths,
+// and so where a link breaks, with no change of the chat's width. One call per frame, however many loadingdone events come.
+if (document.fonts) {
+  let remarkQueued = false;
+  const remarkAfterFonts = () => {
+    if (remarkQueued) return;
+    remarkQueued = true;
+    requestAnimationFrame(() => { remarkQueued = false; markWrappedLinks($("#chat")); });
+  };
+  document.fonts.addEventListener("loadingdone", remarkAfterFonts);
+  document.fonts.ready.then(remarkAfterFonts);
+}
 $("#chat").addEventListener("click", (e) => { if (e.target.closest("summary")) chatScroll.toggledAt = performance.now(); });
 $("#jump").addEventListener("click", pinToBottom);
 
