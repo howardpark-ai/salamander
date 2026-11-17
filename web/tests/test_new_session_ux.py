@@ -18,7 +18,6 @@ import time
 import pytest
 
 from test_board_items_ui import wait_for
-from test_composer_attach import WAIT_READY
 from test_new_session import ROWS_LOADED, click, ns, open_form, open_more, pick, set_scope, set_value, stub  # noqa: F401
 from test_new_session import env, sala  # noqa: F401  (fixtures)
 from fake_stackshot import agent, row

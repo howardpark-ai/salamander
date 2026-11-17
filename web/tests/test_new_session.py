@@ -30,7 +30,7 @@ from sala_web.app import STATIC, create_app
 from sala_web.config import Settings
 from fake_stackshot import FakeStackshot
 from test_board_items_ui import wait_for, wait_side
-from test_composer_attach import WAIT_READY
+from conftest import CHAT_READY
 from test_composer_editable import key, typed
 
 ROOT = STATIC.parent.parent.parent    # web/
@@ -593,7 +593,7 @@ def open_page(browser, served, width=390, height=844, dark=True) -> None:
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": stub(os.getpid())})
     browser.width, browser.height = width, height
     browser.open(f"{served['url']}/#s={FAKE}", dark=dark)
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     if width <= 760:
         click(browser, "#side-open")
         wait_side(browser)
@@ -713,8 +713,7 @@ def test_back_returns_from_the_page_and_the_link_opens_it_again(sala, served, br
     browser.evaluate("history.forward(); ''")
     assert wait_for(browser, "document.body.classList.contains('new-open') && !nav.busy", 5.0), ns(browser)
     # a reload on the link opens the page (nothing else is recorded: no layer to walk back over)
-    browser.send("Page.reload")
-    assert wait_for(browser, WAIT_READY, 10.0)
+    browser.reload()   # the link is #new: the page has no chat message to wait for
     assert wait_for(browser, "document.body.classList.contains('new-open') && !nav.busy && nav.reload === 0", 10.0), ns(browser)
     g = ns(browser)
     assert g["open"] and g["hash"] == "#new" and g["current"] == "page", g
@@ -734,8 +733,7 @@ def test_back_returns_from_the_page_and_the_link_opens_it_again(sala, served, br
     assert ns(browser)["hash"] == f"#s={FAKE}" and browser.evaluate("state.selected") == FAKE
     # a stale record of the old popover layer ("new") in an entry is read as no layers
     browser.evaluate("""history.replaceState({ sala: { layers: ["new"], idx: 99 } }, ""); ''""")
-    browser.send("Page.reload")
-    assert wait_for(browser, WAIT_READY, 10.0)
+    browser.reload(CHAT_READY)   # the hash is the session's again
     assert browser.evaluate("nav.cur.layers.length") == 0 and ns(browser)["hidden"]
 
 

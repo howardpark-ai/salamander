@@ -20,8 +20,7 @@ import json
 import pytest
 
 from sala_web.app import STATIC
-from test_composer_attach import WAIT_READY
-from test_reload_menu import wait_fresh
+from conftest import CHAT_READY
 
 INDEX = (STATIC / "index.html").read_text()
 CSS = (STATIC / "style.css").read_text()
@@ -176,7 +175,7 @@ def test_the_header_markup_and_styles():
 @pytest.mark.parametrize("served", [LONG_SESSION], indirect=True)
 def test_a_long_name_keeps_its_width_and_the_rest_folds_in_order(served, browser):
     browser.open(f"{served['url']}/#s={LONG}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     folded, header_w = {}, {}
     for w in WIDTHS:
         got = set_width(browser, w)
@@ -205,7 +204,7 @@ def test_a_long_name_keeps_its_width_and_the_rest_folds_in_order(served, browser
 @pytest.mark.parametrize("served", [SHORT_SESSION], indirect=True)
 def test_a_short_name_leaves_the_controls_in_the_bar(served, browser):
     browser.open(f"{served['url']}/#s=board-main")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     folded, header_w = {}, {}
     for w in WIDTHS:
         got = set_width(browser, w)
@@ -225,7 +224,7 @@ def test_the_menu_items_work_where_they_are(served, browser):
     """At a width where everything that can fold has folded, the tabs, the toggle and Reload work from the menu, the tab
     keeps its state back in the bar when the window widens, and the fold is there again after the reload."""
     browser.open(f"{served['url']}/#s={LONG}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     got = set_width(browser, 600)
     assert check(got) == list(FOLD), got["items"]
     s0 = browser.evaluate(STATE)
@@ -254,8 +253,8 @@ def test_the_menu_items_work_where_they_are(served, browser):
     assert check(got) == list(FOLD)
     browser.evaluate("document.querySelector('#top-menu-btn').click(); ''")
     assert browser.evaluate(STATE)["open"]
-    browser.evaluate("window.__old = true; document.querySelector('#menu-reload').click(); ''")
-    assert wait_fresh(browser)
+    browser.evaluate("window.__stale = true; document.querySelector('#menu-reload').click(); ''")
+    browser.wait_ready(CHAT_READY)   # the click starts the reload from inside the page: the new document is the one without the mark
     nav = browser.evaluate('performance.getEntriesByType("navigation")[0].type')
     assert nav == "reload"
     browser.evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))")
@@ -272,7 +271,7 @@ def test_the_thinking_toggle_is_in_the_menu_at_every_width(served, browser):
     whole bar free the toggle is still not in the header but in the ⋯ menu, which has its button; it works from there
     (a click, the Space key on the focused box) with the menu staying open, and the pref is saved."""
     browser.open(f"{served['url']}/#s=board-main")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     for w in (1600, 996, 390):
         got = set_width(browser, w)
         it = got["items"]["tools"]
@@ -316,7 +315,7 @@ def test_on_a_360_px_phone_the_shell_button_folds_first(served, browser):
     unchanged. PHONE_NAMES says how many go for each name."""
     name = served["name"]
     browser.open(f"{served['url']}/#s={name}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     folds = dict(PHONE_NAMES)[name]
     got = set_width(browser, 360)
     assert got["name"]["text"] == name

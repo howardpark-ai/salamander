@@ -38,8 +38,7 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-from conftest import NAME
-from test_composer_attach import WAIT_READY
+from conftest import CHAT_READY, NAME
 from sala_web import app as A
 from sala_web import sessions as S
 from sala_web import tmuxio as T
@@ -576,7 +575,7 @@ LIVE_EVENT = """state.es.dispatchEvent(new MessageEvent("live", { data: JSON.str
 
 def test_a_live_event_renders_the_block_with_stop_and_the_clear_event_removes_it(served, browser):
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     assert browser.evaluate(STATE) is None
     # a live event, as the stream delivers it (the page's own listener)
     browser.evaluate(LIVE_EVENT % json.dumps({"running": True, "command": "sleep 20", "uuid": "b-1", "text": "code: ABCD-1234"}))
@@ -594,7 +593,7 @@ def test_a_live_event_renders_the_block_with_stop_and_the_clear_event_removes_it
 
 def test_the_stop_button_posts_to_stop_and_says_what_happened(served, browser):
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.evaluate("""(() => { window.__stops = []; const real = window.fetch;
       window.fetch = (u, o) => { if (String(u).endsWith("/stop")) { __stops.push({ u: String(u), method: o.method, body: o.body, type: o.headers["Content-Type"] });
         return Promise.resolve(new Response(JSON.stringify(window.__reply), { status: window.__status, headers: { "Content-Type": "application/json" } })); }

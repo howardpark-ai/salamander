@@ -19,9 +19,9 @@ from __future__ import annotations
 import base64
 import json
 
-from conftest import NAME
+from conftest import CHAT_READY, NAME
 from sala_web.app import STATIC
-from test_composer_attach import PNG, WAIT_CHIPS, WAIT_READY
+from test_composer_attach import PNG, WAIT_CHIPS
 
 INDEX = (STATIC / "index.html").read_text()
 # the send is captured in the page: the fake session has no pane, and the payload is what these tests are about
@@ -54,7 +54,7 @@ def typed(browser, text: str) -> None:
 
 def open_composer(browser, served) -> None:
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     assert browser.evaluate(SPY_SEND) == "input"
 
 
@@ -214,13 +214,6 @@ def test_placeholder_shows_only_while_empty(served, browser):
     assert not browser.evaluate(STATE)["empty"]
 
 
-WAIT_FRESH = """
-new Promise((res) => { const t0 = Date.now(); (function poll() {
-  if ((!window.__old && document.querySelectorAll("#chat > .msg").length >= 1) || Date.now() - t0 > 15000) res(!window.__old); else setTimeout(poll, 100);
-})(); })
-"""
-
-
 def test_a_draft_survives_a_reload(served, browser):
     open_composer(browser, served)
     typed(browser, " 초안 draft ")
@@ -230,9 +223,7 @@ def test_a_draft_survives_a_reload(served, browser):
     browser.evaluate("new Promise((r) => setTimeout(r, 600))")  # saved 400 ms after the last keystroke, and kept in this browser
     assert browser.evaluate(key_js) == " 초안 draft \nline 2"
     # a real reload (opening the same #s= URL again would be a hash navigation)
-    browser.evaluate("window.__old = true; ''")
-    browser.send("Page.reload")
-    assert browser.evaluate(WAIT_FRESH)
+    browser.reload(CHAT_READY)
     s = browser.evaluate(STATE)
     assert s["text"] == " 초안 draft \nline 2" and not s["empty"] and s["sendEnabled"] and s["lines"] == 2, s
     assert browser.evaluate(key_js) == " 초안 draft \nline 2"  # kept until it is sent

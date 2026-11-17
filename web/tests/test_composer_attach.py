@@ -10,7 +10,7 @@ from __future__ import annotations
 import base64
 import json
 
-from conftest import NAME
+from conftest import CHAT_READY, NAME
 from sala_web.app import STATIC
 
 INDEX = (STATIC / "index.html").read_text()
@@ -24,11 +24,6 @@ def test_composer_has_the_attach_control():
     assert '<div id="drop-hint" data-i18n="ui.cmp.drop">Drop files to attach</div>' in INDEX
 
 
-WAIT_READY = """
-new Promise((res) => { const t0 = Date.now(); (function poll() {
-  if (document.querySelectorAll("#chat > .msg").length >= 1 || Date.now() - t0 > 15000) res(true); else setTimeout(poll, 100);
-})(); })
-"""
 WAIT_CHIPS = """
 new Promise((res) => { const t0 = Date.now(); (function poll() {
   const chips = document.querySelectorAll("#chips .chip"), up = document.querySelectorAll("#chips .chip.uploading");
@@ -53,7 +48,7 @@ def pick(browser, name: str, mime: str, data: bytes) -> None:
 
 def test_attach_button_feeds_the_same_upload_path_as_a_paste(served, browser):
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     # the button: a 44 px touch target with a name, over the hidden chooser
     att = browser.evaluate("(() => { const a = document.querySelector('#attach'), r = a.getBoundingClientRect(); "
                            "return { w: r.width, h: r.height, label: a.getAttribute('aria-label'), disabled: a.disabled, "
@@ -94,7 +89,7 @@ def test_paste_reads_clipboard_items_only_when_files_is_empty(served, browser):
     a browser that fills items alone. Chromium's shape for a clipboard image (two chips for one paste on Android Chrome): files holds a File, and items[0].getAsFile() makes a new File on every call, "image.png" with
     lastModified = the time of the call, so reading it beside files gave a second File no field could match."""
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     got = browser.evaluate("""(() => {
       const f = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
       const t = new File([new Uint8Array(4)], "a.txt", { type: "text/plain" });
@@ -140,7 +135,7 @@ def test_a_non_image_file_shows_as_a_file_chip_and_send_carries_its_path_referen
     """attach (the chooser's change), paste and drop take any file; a non-image shows as a chip with a file
     icon, its name and its size, uploads to uploads/<folder>/<safe name>, and send carries the reference."""
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     mp4 = b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 6   # about 1.5 KB of binary
     pick(browser, "my holiday clip.mp4", "video/mp4", mp4)
     got = browser.evaluate(WAIT_CHIPS % 1)
@@ -179,7 +174,7 @@ def test_a_non_image_file_shows_as_a_file_chip_and_send_carries_its_path_referen
 
 def test_a_file_chip_shows_progress_and_an_error_and_remove_stops_the_upload(served, browser):
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     got = browser.evaluate("""(async () => {
       let aborted = 0;
       const big = 640 * 1024 * 1024;

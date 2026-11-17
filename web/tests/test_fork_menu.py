@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 
 from test_board_items_ui import wait_for
-from test_composer_attach import WAIT_READY
 from test_new_session import env, sala  # noqa: F401  (fixtures)
 
 SESS = """(() => {
@@ -50,7 +49,7 @@ def open_list(browser, served) -> None:
     browser.send("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False})
     browser.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": "dark"}]})
     browser.send("Page.navigate", {"url": f"{served['url']}/#new"})
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready()   # the "new session" page has no chat message
     browser.evaluate("document.querySelector('#side-open').click(); ''")
     assert wait_for(browser, SIDE_IN, 5.0)
     assert wait_for(browser, "document.querySelectorAll('#session-list .sess').length === 4", 5.0), browser.evaluate(ROWS)
@@ -152,7 +151,7 @@ def test_on_a_touch_screen_the_button_is_only_on_the_open_session(sala, served, 
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": SESS})
     browser.width, browser.height = 390, 844
     browser.open(f"{served['url']}/#s=example-alpha-api", dark=True)
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready()   # the stub's session: it has no transcript, so no chat message
     browser.evaluate("document.querySelector('#side-open').click(); ''")
     assert wait_for(browser, "document.querySelectorAll('#session-list .sess').length === 4", 8.0)
     vis = browser.evaluate("[...document.querySelectorAll('#session-list .sess')].map((r) => [r.dataset.key, r.classList.contains('selected'), r.querySelector('.sess-more') ? getComputedStyle(r.querySelector('.sess-more')).display !== 'none' : null])")

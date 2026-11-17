@@ -8,13 +8,11 @@ The page parts run in a headless Chromium when one is installed (conftest.py: `s
 from __future__ import annotations
 
 import json
-import time
 
 import pytest
 
-from conftest import NAME
+from conftest import CHAT_READY, NAME
 from sala_web.app import STATIC
-from test_composer_attach import WAIT_READY
 
 INDEX = (STATIC / "index.html").read_text()
 
@@ -44,31 +42,13 @@ MENU = """(() => { const b = document.querySelector("#menu-reload"), r = b.getBo
            text: b.textContent.trim(), word: getComputedStyle(b, "::after").content,
            inMenu: m.contains(b), inBar: document.querySelector("#top-end").contains(b),
            open: document.body.classList.contains("top-menu-open"), width: innerWidth }; })()"""
-WAIT_FRESH = """
-new Promise((res) => { const t0 = Date.now(); (function poll() {
-  if ((!window.__old && document.querySelectorAll("#chat > .msg").length >= 1) || Date.now() - t0 > 15000) res(!window.__old); else setTimeout(poll, 100);
-})(); })
-"""
-
-
-def wait_fresh(browser) -> bool:
-    """True once the page after the reload shows its messages. The click starts the reload from inside the page, so an
-    evaluate issued right after it may land on the page that is going ("Inspected target navigated or closed"): ask again."""
-    for _ in range(100):
-        try:
-            return browser.evaluate(WAIT_FRESH)
-        except RuntimeError as e:
-            if "navigated or closed" not in str(e):
-                raise
-            time.sleep(0.1)
-    return False
 
 
 def test_reload_from_the_menu_keeps_the_draft_and_loads_the_fresh_build(served, browser):
     """At a phone's width. The installed app's standalone display cannot be emulated here (DevTools has no
     display-mode feature), and nothing in the page depends on it: the item is in the page's own header."""
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     bar = browser.evaluate(MENU)
     # an icon in the bar, one tap away: no word, its name is the label and the tooltip, a target of at least 32 px
     assert bar["width"] == 390 and bar["inBar"] and not bar["inMenu"] and bar["shown"] and not bar["open"], bar
@@ -83,8 +63,8 @@ def test_reload_from_the_menu_keeps_the_draft_and_loads_the_fresh_build(served, 
     assert browser.evaluate(key) == "draft 초안 kept"
     loaded = browser.evaluate("document.querySelector('meta[name=sala-web-version]').content")
     # the click: a reload navigation, the menu closed, the draft back in the composer and still kept in storage until it is sent
-    browser.evaluate("window.__old = true; document.querySelector('#menu-reload').click(); ''")
-    assert wait_fresh(browser)
+    browser.evaluate("window.__stale = true; document.querySelector('#menu-reload').click(); ''")
+    browser.wait_ready(CHAT_READY)   # the click starts the reload from inside the page: the new document is the one without the mark
     got = browser.evaluate("""(() => ({ nav: performance.getEntriesByType("navigation")[0].type, text: %s, draftLeft: %s,
       version: document.querySelector('meta[name=sala-web-version]').content, menuOpen: document.body.classList.contains("top-menu-open") }))()"""
                            % (COMPOSER_TEXT, key))
@@ -106,7 +86,7 @@ def test_where_the_name_needs_the_room_reload_is_a_row_with_its_word_in_the_menu
     """Folded into the ⋯ menu the icon becomes a touch-sized row that says Reload (the bar's icon has no word), and it is
     still the same labelled button."""
     browser.open(f"{served['url']}/#s={LONG}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.send("Emulation.setDeviceMetricsOverride", {"width": 600, "height": 844, "deviceScaleFactor": 1, "mobile": True})
     browser.evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))")
     closed = browser.evaluate(MENU)

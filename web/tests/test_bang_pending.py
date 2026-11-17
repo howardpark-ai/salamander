@@ -16,9 +16,8 @@ from __future__ import annotations
 
 import json
 
-from conftest import NAME, SID
+from conftest import CHAT_READY, NAME, SID
 from sala_web import transcript as TR
-from test_composer_attach import WAIT_READY
 from test_composer_editable import SPY_SEND, enter, typed
 
 ARM = """(() => { window.__timers = []; const real = window.setTimeout;
@@ -38,7 +37,7 @@ def line(content, uuid="b-1", ts="2026-10-21T20:26:30.402Z") -> dict:
 
 def opened(browser, served) -> None:
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     assert browser.evaluate(SPY_SEND) == "input"
     assert browser.evaluate(ARM)
 

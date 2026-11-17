@@ -18,8 +18,8 @@ import json
 
 import pytest
 
-from conftest import NAME
-from test_composer_editable import STATE, WAIT_FRESH, enter, key, open_composer, typed
+from conftest import CHAT_READY, NAME
+from test_composer_editable import STATE, enter, key, open_composer, typed
 from test_composer_touch import MODE, WAIT_SENT, tap_send, touch
 
 # the text, the selection in text offsets, where the focus is, and the rest of STATE
@@ -485,9 +485,7 @@ def test_a_draft_with_its_indents_and_markers_survives_a_reload(served, browser)
     key_js = "localStorage.getItem('salaweb.draft.' + %s)" % json.dumps(NAME)
     browser.evaluate("new Promise((r) => setTimeout(r, 600))")  # saved 400 ms after the last keystroke
     assert browser.evaluate(key_js) == "- a\n  - b\n  - c"
-    browser.evaluate("window.__old = true; ''")
-    browser.send("Page.reload")
-    assert browser.evaluate(WAIT_FRESH)
+    browser.reload(CHAT_READY)
     s = browser.evaluate(STATE)
     assert s["text"] == "- a\n  - b\n  - c" and s["sendEnabled"] and s["lines"] == 3, s
     assert browser.evaluate(key_js) == "- a\n  - b\n  - c"  # kept until it is sent

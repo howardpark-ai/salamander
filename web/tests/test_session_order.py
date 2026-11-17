@@ -17,7 +17,6 @@ import json
 import time
 
 from test_board_items_ui import wait_for
-from test_composer_attach import WAIT_READY
 
 SESS = """(() => {
   const real = window.fetch.bind(window), json = (o) => new Response(JSON.stringify(o), { headers: { "Content-Type": "application/json" } });
@@ -57,7 +56,7 @@ def open_list(browser, served, projects=None, hash_="#new") -> None:
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": SESS % json.dumps(projects or PROJECTS)})
     browser.width, browser.height = 1280, 800
     browser.open(f"{served['url']}/{hash_}", dark=True)
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready()   # the page is #new (or the stub's sessions): no chat message to wait for
     browser.evaluate("document.querySelector('#side-open').click(); ''")
     assert wait_for(browser, SIDE_IN, 5.0)
     browser.evaluate("(() => { const c = document.querySelector('#show-back'); if (!c.checked) c.click(); return '' })()")
@@ -103,8 +102,7 @@ def ids(*names: str) -> list:
 
 def reopen(browser) -> None:
     """A reload of the page with the list drawn again (the saved order is read from the server), `show all` on."""
-    browser.send("Page.reload")
-    assert browser.evaluate(WAIT_READY)
+    browser.reload()
     browser.evaluate("document.querySelector('#side-open').click(); ''")
     assert wait_for(browser, SIDE_IN, 5.0)
     browser.evaluate("(() => { const c = document.querySelector('#show-back'); if (!c.checked) c.click(); return '' })()")
@@ -158,8 +156,7 @@ def test_a_drag_reorders_inside_its_project_and_sala_keeps_it(served, browser):
     assert saved(browser)[:3] == ids("example-alpha-ui", "example-alpha-engineer", "example-alpha-main"), saved(browser)   # ids, not names
     # kept by sala, not by the browser: a reload reads it from the server (and so does a page on another device)
     browser.evaluate("localStorage.clear(); sessionStorage.clear(); ''")
-    browser.send("Page.reload")
-    assert browser.evaluate(WAIT_READY)
+    browser.reload()
     browser.evaluate("document.querySelector('#side-open').click(); ''")
     assert wait_for(browser, SIDE_IN, 5.0)
     browser.evaluate("(() => { const c = document.querySelector('#show-back'); if (!c.checked) c.click(); return '' })()")
@@ -187,8 +184,7 @@ def test_the_saved_order_comes_first_a_new_session_follows_it_and_unknown_names_
     r = browser.evaluate("""fetch('api/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionOrder: ['example-gone-main', 'example-alpha-ui', 'example-beta-x', 'example-alpha-main'] }) }).then((r) => r.status)""")
     assert r == 200
-    browser.send("Page.reload")
-    assert browser.evaluate(WAIT_READY)
+    browser.reload()
     browser.evaluate("document.querySelector('#side-open').click(); ''")
     assert wait_for(browser, SIDE_IN, 5.0)
     assert wait_for(browser, "document.querySelectorAll('#session-list .sess').length >= 5", 5.0)
@@ -213,8 +209,7 @@ def test_a_long_list_of_names_that_are_gone_never_pushes_a_live_session_out_of_t
     gone = [f"example-gone-{i}" for i in range(497)]
     r = browser.evaluate("fetch('api/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionOrder: %s }) }).then((r) => r.status)" % json.dumps(gone + ["example-alpha-ui", "example-alpha-main", "example-alpha-engineer"]))
     assert r == 200
-    browser.send("Page.reload")
-    assert browser.evaluate(WAIT_READY)
+    browser.reload()
     browser.evaluate("document.querySelector('#side-open').click(); ''")
     assert wait_for(browser, SIDE_IN, 5.0)
     browser.evaluate("(() => { const c = document.querySelector('#show-back'); if (!c.checked) c.click(); return '' })()")

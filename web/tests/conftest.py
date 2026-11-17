@@ -241,6 +241,15 @@ def chromium_binary() -> str | None:
     return shells[-1] if shells else None
 
 
+# What wait_ready() waits for on every page: the document has loaded and app.js has run (see CDP.wait_ready). CHAT_READY is the
+# extra condition of a session page, which draws chat messages; the "new session" page and the overview have none.
+# The last part is the page's own walk back over the layers (the open drawer) a reloaded history entry had: app.js does it once its first
+# list has come in (init), and a tap before it is done is undone by it.
+PAGE_READY = ("document.readyState === 'complete' && typeof loadSessions === 'function' && !!document.getElementById('sidebar') && "
+              "typeof nav !== 'undefined' && nav.reload === 0 && !nav.busy && !window.__stale")
+CHAT_READY = "document.querySelectorAll('#chat > .msg').length >= 1"
+
+
 class CDP:
     """A headless Chromium on --remote-debugging-pipe, one page attached; `send` is a DevTools call on that page."""
 
@@ -293,6 +302,38 @@ class CDP:
         if dark:
             self.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": "dark"}]})
         self.send("Page.navigate", {"url": url})
+
+    def wait_ready(self, extra: str = "", timeout: float = 90.0) -> None:
+        """Wait until the page is really up, and fail when it is not: the document has loaded (`readyState` complete: index.html's
+        stylesheet and fonts come from a CDN, so on a slow network that takes far longer than on a quiet box) and app.js has run
+        (`loadSessions`, which it defines, and #sidebar are there) and has settled the history entry it was loaded on (a reload with the
+        drawer open walks back over it: `nav`). Until then a call into the page throws, "Cannot read properties of
+        null". `extra` is one more JS condition for what the page under test has once it is drawn (CHAT_READY for a session page, which
+        has chat messages; the "new session" page has none, so it passes nothing). Never answers true on a timeout: an
+        AssertionError names the page's state instead. A document a reload or a navigation replaces still satisfies this until it is
+        gone: `reload()` marks it, or a test that navigates to another document marks it itself (window.__stale)."""
+        cond = PAGE_READY + (f" && ({extra})" if extra else "")
+        end, last = time.time() + timeout, None
+        while time.time() < end:
+            try:
+                if self.evaluate(cond):
+                    return
+            except RuntimeError as e:   # the condition cannot throw: this is a context a navigation replaced under the call
+                last = e
+            time.sleep(0.1)
+        try:
+            state = self.evaluate("({ readyState: document.readyState, url: location.href, loadSessions: typeof loadSessions, "
+                                  "sidebar: !!document.getElementById('sidebar'), messages: document.querySelectorAll('#chat > .msg').length, "
+                                  "nav: typeof nav === 'undefined' ? null : { reload: nav.reload, busy: !!nav.busy } })")
+        except RuntimeError as e:
+            state = f"unreadable: {e}"
+        raise AssertionError(f"the page was not ready within {timeout:.0f} s (extra condition: {extra or 'none'}): {state}; last error: {last}")
+
+    def reload(self, extra: str = "", timeout: float = 90.0) -> None:
+        """Reload the page and wait for the NEW document: the old one is marked first, so its still-complete state does not count."""
+        self.evaluate("window.__stale = true; ''")
+        self.send("Page.reload")
+        self.wait_ready(extra, timeout)
 
     def touch(self, on: bool = True) -> None:
         """A touch screen: `(pointer: coarse)` matches (the look's 44 px controls) and `(hover: none)`; set on the open page, live."""
