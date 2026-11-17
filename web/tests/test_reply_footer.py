@@ -325,7 +325,42 @@ def by_case(got: dict) -> dict:
     return {m["uuid"][2:]: m for m in got["msgs"]}
 
 
-def probe(browser) -> dict:
+# The page's text is set in web fonts that arrive after the first layout (Pretendard's subsets from a CDN, D2Coding from the
+# server, both font-display: swap). A swap changes the text's widths, and so where a link breaks, with no change of the chat's
+# width: the chat's width observer never asks markWrappedLinks (app.js) again, and .wrapped keeps what the fallback font laid
+# out. How late the fonts come depends on the machine and its network; on a slow CI runner a link of the "pages" case read one
+# line when it was marked and two when it was measured, and failed "a link on two lines or more, and only that, carries
+# .wrapped" (19 and 29 px, the link's two lines) once in a while. So a probe starts from a settled page: the replies in, every
+# font the layout asked for loaded (or failed), the layout after it done, and the mark made again on that final layout by the
+# page's own markWrappedLinks (the width test passes remark=False: it checks the mark the width observer makes by itself).
+SETTLE = r"""
+new Promise((res) => { const t0 = Date.now(), left = () => 20000 - (Date.now() - t0);
+  const frames = (n) => new Promise((r) => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  (async () => {
+    while (document.querySelectorAll("#chat > .msg.assistant").length < %d && left() > 0) await pause(100);
+    // a layout asks for the fonts it needs, they load, the layout after them may ask for more: until a round finds none loading
+    for (let round = 0; round < 5; round++) {
+      await frames(2);
+      while (document.fonts.status === "loading" && left() > 0) await pause(50);
+      await frames(2);
+      if (document.fonts.status !== "loading") break;
+    }
+    if (%s) markWrappedLinks(document.getElementById("chat"));
+    await frames(2);
+    res({ fonts: document.fonts.status, msgs: document.querySelectorAll("#chat > .msg.assistant").length });
+  })();
+})
+"""
+
+
+def settle(browser, remark: bool = True) -> None:
+    got = browser.evaluate(SETTLE % (len(CASES), "true" if remark else "false"))
+    assert got == {"fonts": "loaded", "msgs": len(CASES)}, ("the page did not settle", got)
+
+
+def probe(browser, remark: bool = True) -> dict:
+    settle(browser, remark)
     got = browser.evaluate(PROBE % len(CASES))
     assert len(got["msgs"]) == len(CASES), [m["uuid"] for m in got["msgs"]]
     return got
@@ -540,10 +575,11 @@ def test_a_footer_link_gains_and_loses_its_wrapped_mark_as_the_chat_width_change
     window has its ::after tap area, loses it when a narrow window breaks it over lines, and gets it back."""
     transcript_file(served).write_text(TRANSCRIPT)
     browser.open(f"{served['url']}/#s={NAME}")
+    settle(browser, remark=False)   # the fonts are in before the first width change, so every mark below is the observer's own
     seen = {}
     for width in (320, 1280, 320):
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": False})
-        a = footer_of(by_case(probe(browser))["slug"])["links"][0]
+        a = footer_of(by_case(probe(browser, remark=False))["slug"])["links"][0]
         # only the mark and the ::after here: back at 320 the sidebar drawer stays open over the text, so no hit test
         assert a["wrapped"] == (len(a["frags"]) > 1) and (a["afterDisplay"] == "none") == a["wrapped"], (width, a)
         seen.setdefault(width, []).append(a["wrapped"])
