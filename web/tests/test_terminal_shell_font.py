@@ -146,6 +146,9 @@ def test_a_term_that_appears_late_gets_the_face_once_and_is_fitted(fake):
 
 
 def test_the_font_is_the_real_file_and_a_fit_falls_back_to_a_resize_event(fake):
+    # the frame's own first layout (or a font that arrives in the page) queues a resize event that is delivered at the next frame: count only
+    # the one this test provokes, so the frame is let settle (fonts loaded, size unchanged, its frames run) before the listener goes on
+    fake.settle("document.querySelector('#shell-term iframe')", frame="document.querySelector('#shell-term iframe')")
     fake.evaluate("""(() => { const f = document.querySelector("#shell-term iframe"); window.__resized = 0;
       f.contentWindow.addEventListener("resize", () => window.__resized++);
       const t = window.__fakeTerm(); delete t.fit; f.contentWindow.term = t; return 1; })()""")
