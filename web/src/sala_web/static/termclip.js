@@ -4,7 +4,11 @@
 
    ttyd 1.7.7's own page copies nothing from tmux and pastes nothing on Ctrl+V, so a ttyd page that is not framed by one of these
    pages has none of it. ttyd's page is same-origin with ours and exposes its xterm.js as window.term; hookTerminalClipboard puts
-   three things on it: the OSC 52 copy, the Copy button for a copy the browser refused, and Ctrl+V as a paste. */
+   three things on it: the OSC 52 copy, the Copy button for a copy the browser refused, and Ctrl+V as a paste.
+
+   hookShellTerminal (the Shell drawer's frame, and terminal.html when it shows the Shell session) adds two more: the Shell draws in
+   D2Coding 14px (ttyd's own default face has no Korean glyphs), and a key log, what the keyboard sends to the terminal, for the
+   Hangul/English key. The Terminal tab's frames (Claude session panes) get neither. */
 
 async function copyText(text) {
   try {
@@ -123,3 +127,133 @@ function hookTerminalClipboard(frame) {
   start();
 }
 
+
+// ---- The Shell's face and key log (hookShellTerminal) ----
+
+// The font file is the one the pages themselves load (static/fonts, @font-face in index.html). ttyd's frame is served from /tty/, so a relative
+// URL would resolve there: the address is made absolute from this script's own (static/termclip.js?v=<build>), which also keeps the cache-busting
+// `v` and whatever path prefix the app is served under.
+const SHELL_FONT_URL = (() => {
+  const own = document.currentScript && document.currentScript.src;
+  try { return new URL("fonts/D2Coding-Regular.woff2" + new URL(own).search, own).href; }
+  catch { return new URL("static/fonts/D2Coding-Regular.woff2", location.href).href; }
+})();
+const SHELL_FONT_FAMILY = '"D2Coding", Consolas, monospace';
+const SHELL_FONT_SIZE = 14;
+
+// D2Coding draws a Korean letter exactly two cells wide. xterm.js measures a cell from the font in use when an option changes, so the
+// face is loaded in the frame's own document FIRST (font-display: block, no flash of another face), then set on the term, which re-measures,
+// and the terminal is fitted again: the columns and rows then follow the new cell size, and ttyd's resize handler tells the pane.
+// size-adjust: 100.2% is not a look: D2Coding's advance at 14px is 7px, which Chrome measures as 6.99997, and xterm floors the cell to whole device
+// pixels (6, not 7: every letter drawn on a 6px grid, squeezed and overlapping). Two tenths of a percent of advance (a few hundredths of a pixel)
+// put the measure safely over the whole pixel, at 100%, 200% and 300% display scaling alike; the letters do not change.
+async function applyShellFont(win, term) {
+  const doc = win.document;
+  if (!doc.getElementById("sala-shell-font")) {
+    const st = doc.createElement("style");
+    st.id = "sala-shell-font";
+    st.textContent = '@font-face{font-family:"D2Coding";src:url("' + SHELL_FONT_URL + '") format("woff2");font-weight:400;font-style:normal;font-display:block;size-adjust:100.2%}';
+    (doc.head || doc.documentElement).append(st);
+  }
+  try {
+    const faces = await doc.fonts.load(SHELL_FONT_SIZE + "px D2Coding");
+    if (!faces.length) return;
+  } catch { return; }   // the file did not load: ttyd's own face stays
+  if (win.term !== term) return;   // the frame went to another page while the file loaded
+  term.options.fontFamily = SHELL_FONT_FAMILY;
+  term.options.fontSize = SHELL_FONT_SIZE;
+  try {
+    if (typeof term.fit === "function") term.fit();
+    else win.dispatchEvent(new win.Event("resize"));   // ttyd's own handler fits and sends the new size
+  } catch { /* the terminal works without it */ }
+}
+
+// The key log records which NON-CHARACTER keys were pressed and when, and that IME activity happened and when, never which letter keys.
+// A keydown or keyup is recorded only when its `key` is one of KEYLOG_KEYS (Alt, HangulMode, Process, Enter, F5 ...), by exact match, and its
+// `code` one of KEYLOG_CODES (AltRight, Lang1 ...) or empty: a typed character, a name no key sends, a code that names a letter, digit,
+// punctuation or numpad key drops the event, since text and passwords must not be in it. An IME event (key Process, Unidentified, Dead or
+// Compose, or isComposing, or keyCode 229) is recorded with keyCode 0, shift false, and its code only when it is in KEYLOG_CODES (Lang1 for
+// the Hangul/English key arriving as Process), else "": in a Korean IME the browser keeps the physical code, the real keyCode and the Shift
+// state of the key behind it, which on a 2-set layout spell the Hangul being typed. A composition event
+// is {t, type} only: its `data` is the text being composed. The server checks the same rules again (keylog.py, which holds the same lists).
+// The events wait here and go to POST api/shell/keylog in batches of at most 50, every 2 s while there are any and when the page is
+// hidden; a post that fails loses its batch (it is a diagnostic, not a record).
+const KEYLOG_KEYS = new Set([
+  "Alt", "AltGraph", "Control", "Shift", "Meta", "CapsLock", "NumLock", "ScrollLock", "HangulMode", "HanjaMode", "JunjaMode", "KanjiMode",
+  "KanaMode", "Convert", "NonConvert", "Process", "Unidentified", "Dead", "Compose", "Enter", "Backspace", "Delete", "Tab", "Escape",
+  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Insert", "ContextMenu", "Clear",
+  ...Array.from({ length: 24 }, (_, i) => "F" + (i + 1))]);
+const KEYLOG_CODES = new Set([
+  "", "AltLeft", "AltRight", "ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight", "CapsLock", "NumLock",
+  "ScrollLock", "Lang1", "Lang2", "Lang3", "Lang4", "Lang5", "Convert", "NonConvert", "KanaMode", "Enter", "NumpadEnter", "Backspace",
+  "Delete", "Tab", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Insert", "ContextMenu",
+  ...Array.from({ length: 24 }, (_, i) => "F" + (i + 1))]);
+// the legacy keyCodes of those keys; any other is recorded as 0 (229, an IME's "processing", is handled as an IME event)
+const KEYLOG_KEYCODES = new Set([8, 9, 12, 13, 16, 17, 18, 20, 21, 23, 25, 27, 28, 29, 33, 34, 35, 36, 37, 38, 39, 40, 45, 46, 91, 92, 93,
+  ...Array.from({ length: 24 }, (_, i) => 112 + i), 144, 145]);
+const KEYLOG_IME_KEYS = new Set(["Process", "Unidentified", "Dead", "Compose"]);
+const KEYLOG_COMPOSITION = ["compositionstart", "compositionupdate", "compositionend"];
+const keyLogQueue = [];
+let keyLogTimer = null;
+function keyLogEntry(ev) {
+  const t = Date.now();
+  if (ev.type === "keydown" || ev.type === "keyup") {
+    const key = typeof ev.key === "string" ? ev.key : "", code = typeof ev.code === "string" ? ev.code : "";
+    if (!KEYLOG_KEYS.has(key)) return null;
+    const keyCode = Number.isInteger(ev.keyCode) ? ev.keyCode : 0;
+    const ime = KEYLOG_IME_KEYS.has(key) || !!ev.isComposing || keyCode === 229;
+    if (!ime && !KEYLOG_CODES.has(code)) return null;
+    return { t, type: ev.type, key, code: ime && !KEYLOG_CODES.has(code) ? "" : code, keyCode: !ime && KEYLOG_KEYCODES.has(keyCode) ? keyCode : 0,
+             isComposing: !!ev.isComposing, shift: !ime && !!ev.shiftKey, ctrl: !!ev.ctrlKey, alt: !!ev.altKey, meta: !!ev.metaKey };
+  }
+  if (KEYLOG_COMPOSITION.includes(ev.type)) return { t, type: ev.type };
+  return null;
+}
+function flushKeyLog() {
+  if (keyLogTimer) { clearTimeout(keyLogTimer); keyLogTimer = null; }
+  while (keyLogQueue.length) {
+    const batch = keyLogQueue.splice(0, 50);
+    try {
+      fetch("api/shell/keylog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(batch), keepalive: true })
+        .catch(() => {});
+    } catch { /* nothing to do */ }
+  }
+}
+function recordKey(ev) {
+  let e = null;
+  try { e = keyLogEntry(ev); } catch { /* an odd event: not logged */ }
+  if (!e) return;
+  keyLogQueue.push(e);
+  if (keyLogQueue.length > 200) keyLogQueue.splice(0, keyLogQueue.length - 200);   // a server that does not answer cannot grow it
+  if (!keyLogTimer) keyLogTimer = setTimeout(flushKeyLog, 2000);
+}
+let keyLogPagehide = false;
+function attachKeyLog(win) {
+  for (const type of ["keydown", "keyup", ...KEYLOG_COMPOSITION]) win.document.addEventListener(type, recordKey, true);
+  win.addEventListener("pagehide", flushKeyLog);   // the frame going to another page
+  if (!keyLogPagehide) { keyLogPagehide = true; window.addEventListener("pagehide", flushKeyLog); }
+}
+
+// Same pattern as hookTerminalClipboard: the page builds `term` a moment after the frame loads, so the hook polls (10 s at most); a reloaded
+// frame has a new term and is hooked again, a term already hooked is left alone, a cross-origin frame is left as it is.
+const shellHooked = new WeakSet();
+function hookShellTerminal(frame) {
+  let timer = null;
+  const tryHook = (t0) => {
+    timer = null;
+    if (!frame.isConnected) return;
+    let win = null, term = null;
+    try { win = frame.contentWindow; term = win && win.term; if (win) void win.document; } catch { return; }   // cross-origin: nothing to hook
+    if (term && term.options && typeof term.options === "object" && win.document && win.document.fonts) {
+      if (shellHooked.has(term)) return;
+      shellHooked.add(term);
+      try { attachKeyLog(win); } catch { /* the terminal works without it */ }
+      applyShellFont(win, term).catch(() => {});
+      return;
+    }
+    if (Date.now() - t0 < 10000) timer = setTimeout(() => tryHook(t0), 250);
+  };
+  const start = () => { if (timer) clearTimeout(timer); tryHook(Date.now()); };
+  frame.addEventListener("load", start);
+  start();
+}
