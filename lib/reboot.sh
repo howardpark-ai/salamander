@@ -3,7 +3,7 @@
 #
 #   salamander reboot --dry-run       steps 1–4, then start + resume everything (the acceptance test; no reboot)
 #   salamander reboot --go            steps 1–4, then the reboot as the master's last act — only on the owner's word
-#   salamander reboot --status        every hook's status
+#   salamander reboot --status        every hook's status, and the last run's step (the boot half ends it at booted, or boot-waiting)
 #   salamander reboot --resume        un-stick a half-done run: start + resume every hook from the recorded pause time
 #   salamander reboot --after-boot    (internal) the boot half, launched by `watch` when a reboot marker is present
 #
@@ -123,7 +123,11 @@ case "$MODE" in
 --status)
     [ ${#NAMES[@]} -gt 0 ] || { echo "no SALA_REBOOT_HOOKS configured"; exit 0; }
     for i in $(all_idx); do hook "$i" status 15; rc=$?; case "$rc" in 0) s=running;; 3) s=stopped;; *) s="BROKEN (rc $rc)";; esac; echo "${NAMES[$i]}: $s — $HOOK_LINE"; done
-    [ -s "$RSTATE" ] && echo "last run: $(st_val mode) · paused at $(st_val paused_at) · step $(st_val step)"
+    if [ -s "$RSTATE" ]; then
+        # a finished boot half records step booted and its time; a state an older version wrote has no booted_at: the old line
+        st=$(st_val step); ba=$(st_val booted_at)
+        echo "last run: $(st_val mode) · paused at $(st_val paused_at) · step $st$([ "$st" = booted ] && [ -n "$ba" ] && echo " (finished $ba)")"
+    fi
     notes_line; exit 0 ;;
 --resume)
     since=$(st_val paused_at); [ -n "$since" ] || since=$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -241,8 +245,10 @@ if [ "$MODE" = --after-boot ]; then
             rlog "  ✗ ${NAMES[$k]} never came up — gave up after $((SALA_REBOOT_BOOT_GIVEUP/60)) min"
             tell_master "🚨 *Reboot: ${NAMES[$k]} never came up*" "still not up $((SALA_REBOOT_BOOT_GIVEUP/60)) min after boot; sala stopped watching it and its inbound stays paused" "fix ${NAMES[$k]}, then \`sala reboot --resume\` resumes it" "Details: ~/.claude/salamander-reboot.log"
         done
+        st_put step boot-waiting   # --status says why the run is unfinished, not a stale "rebooting"
         exit 0   # marker kept: --status shows the run unfinished, --resume finishes it
     fi
+    st_put step booted; st_put booted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"   # the outcome, for --status
     mv -f "$RMARK" "$RMARK.done-$(date +%Y%m%dT%H%M%S)"
     exit 0
 fi
