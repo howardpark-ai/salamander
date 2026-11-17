@@ -89,6 +89,15 @@ def settle(browser) -> None:
     browser.evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))")
 
 
+def reload(browser, extra: str = "") -> None:
+    """Reload the page and wait for the NEW document, drawn (READY) and satisfying `extra`. `Page.reload` returns as the reload is
+    started, not done: until the new document replaces it, the old one still answers READY, so a bare wait for READY can pass on the
+    old page, and a step taken meanwhile (a spy installed, a tap) is lost with it, or lands on a new page whose script has not wired
+    its controls yet. browser.reload marks the old document first (window.__stale) and also waits for the new one to be loaded
+    and past its first walk over the history."""
+    browser.reload(f"{READY} && ({extra})" if extra else READY)
+
+
 def hist(browser) -> dict:
     """The page (PAGE) with the tab's history: `entries` the hashes of sala's entries after the sentinel (the Forward
     entries a Back leaves included, until a push truncates them), `past` those up to the current one, `i` the position
@@ -300,8 +309,7 @@ def test_a_reload_with_layers_open_leaves_them_and_one_back_leaves(served, brows
     open_app(browser, served, f"#s={A}")
     open_drawer(browser)
     assert hist(browser)["i"] == 1
-    browser.send("Page.reload")
-    assert wait_for(browser, READY)
+    reload(browser)
     settle(browser)
     # the walk back over the dead entries was a same-document traversal: the page is the one the reload made
     assert browser.evaluate("performance.getEntriesByType('navigation')[0].type") == "reload"
@@ -319,8 +327,7 @@ def test_a_launch_with_no_view_opens_the_last_view_with_the_sidebar_closed(serve
     assert h["replace"] and h["entries"] == [f"#s={B}"] and h["len"] == 3 and h["state"]["layers"] == [] and not h["drawer"], h
     wait_for(browser, "document.getElementById('sidebar').getBoundingClientRect().right <= 0")
     # written into the launch entry: a reload keeps it, and Back leaves
-    browser.send("Page.reload")
-    assert wait_for(browser, READY)
+    reload(browser)
     settle(browser)
     h = hist(browser)
     in_session(h, B)
@@ -484,8 +491,7 @@ def test_a_rapid_double_back_closes_the_layer_and_the_second_leaves(served, brow
 def test_an_entry_of_the_first_build_is_read_as_no_layers(served, browser):
     open_app(browser, served, f"#s={A}")
     browser.evaluate("""history.replaceState({ sala: { depth: 1, base: "#sessions", overlays: ["drawer"], idx: 5 } }, ""); ''""")
-    browser.send("Page.reload")
-    assert wait_for(browser, READY)
+    reload(browser)
     settle(browser)
     h = hist(browser)
     in_session(h, A)
@@ -499,8 +505,7 @@ def test_an_entry_that_lists_the_removed_items_sheet_is_read_as_no_layer(served,
     The record is read without it: nothing opens, nothing is left to back out of."""
     open_app(browser, served, f"#s={A}")
     browser.evaluate(f"""history.replaceState({{ sala: {{ layers: [{{ sheet: {json.dumps(A)} }}], idx: 5 }} }}, ""); ''""")
-    browser.send("Page.reload")
-    assert wait_for(browser, READY)
+    reload(browser)
     settle(browser)
     h = hist(browser)
     in_session(h, A)
@@ -586,8 +591,7 @@ def test_a_wide_browser_with_no_hash_opens_on_the_overview_by_replacing_the_laun
     assert back(browser)["left"]
     # a reload keeps the Overview and adds nothing
     open_app(browser, served, "", width=1280)
-    browser.send("Page.reload")
-    assert wait_for(browser, READY)
+    reload(browser)
     settle(browser)
     h = hist(browser)
     on_overview(h)
@@ -750,10 +754,11 @@ def test_unsent_text_is_kept_per_session_and_the_composer_is_emptied_on_a_switch
     assert browser.evaluate("getText()") == "draft for A 초안"
     # a closed app: the tab's sessionStorage gone, the text still there after a reload
     browser.evaluate("sessionStorage.clear(); ''")
-    browser.send("Page.reload")
-    assert wait_for(browser, READY)
-    assert wait_for(browser, "getText() === 'draft for A 초안'", 5.0)
+    reload(browser, "!!state.current && getText() === 'draft for A 초안' && !document.getElementById('send').disabled")
+    assert browser.evaluate("getText()") == "draft for A 초안"
     # the button sends it; the draft is gone from the session and from storage, and does not come back
+    settle(browser)
+    browser.settle("document.getElementById('send')")   # the button is tapped at the centre of where it is: not while a late font re-flows the page
     browser.evaluate(SPY_SEND)
     tap(browser, "#send")
     assert wait_for(browser, "__sent.length === 1 && __sent[0].text === 'draft for A 초안'", 5.0), browser.evaluate("window.__sent")
@@ -776,9 +781,7 @@ def test_a_draft_emptied_by_hand_is_dropped_and_one_of_the_first_build_is_carrie
     assert wait_for(browser, f"localStorage.getItem('salaweb.draft.{A}') === null", 3.0)
     # the first build kept it in this tab's sessionStorage, once
     browser.evaluate(f"sessionStorage.setItem('salaweb.draft.{A}', 'from before'); ''")
-    browser.send("Page.reload")
-    assert wait_for(browser, READY)
-    assert wait_for(browser, "getText() === 'from before'", 5.0)
+    reload(browser, "getText() === 'from before'")
     assert browser.evaluate(f"sessionStorage.getItem('salaweb.draft.{A}')") is None
     assert browser.evaluate(f"localStorage.getItem('salaweb.draft.{A}')") == "from before"
     # capped, text only
