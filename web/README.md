@@ -1942,7 +1942,8 @@ line gets 3px of extra tap height above and below its text from an invisible `::
 a body link's. A footer link that wraps has no extra area beyond its text, so its target is its own text:
 `markWrappedLinks()` (`app.js`) puts `.wrapped` on a link of two lines or more, which turns its `::after` off, because that
 box is one rectangle from the first line's left edge to the last line's right edge, partial or empty for a wrapped link. It
-runs when a message is added and when the chat's width changes, the only thing that moves a line break. There is no
+runs when a message is added, when the chat's width changes and when a web font arrives (Pretendard and D2Coding swap in after the
+first layout and change the text's widths; one call per frame however many `loadingdone` events come), each of which moves a line break. There is no
 vertical padding on a footer link: that
 put its text a device pixel off the footer text's row at a fractional browser zoom, so the text stays on
 the footer baseline. The link stays a plain inline box; an `inline-block` does not break
