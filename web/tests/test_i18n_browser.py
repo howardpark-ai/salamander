@@ -21,15 +21,10 @@ import re
 import time
 import urllib.request
 
-from conftest import NAME
+from conftest import CHAT_READY, NAME
 
 HANGUL = re.compile("[" + chr(0xAC00) + "-" + chr(0xD7A3) + "]")
 
-WAIT_READY = """
-new Promise((res) => { const t0 = Date.now(); (function poll() {
-  if (document.querySelectorAll("#chat > .msg").length >= 1 || Date.now() - t0 > 15000) res(true); else setTimeout(poll, 100);
-})(); })
-"""
 # what a person reads in the chrome of the page, by role (not the chat)
 WORDS = """
 (() => {
@@ -74,7 +69,7 @@ def settle(browser, url: str, timeout_s: float = 20.0) -> None:
 def open_page(served, browser, frag: str = "") -> None:
     browser.open(f"{served['url']}/#s={NAME}{frag}")
     settle(browser, served["url"])
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     # the language is applied by the page's scripts; its control is wired once app.js has run
     assert wait_until(browser, "typeof SalaI18n !== 'undefined' && document.querySelector('.side-lang [data-lang]')")
 
@@ -222,7 +217,7 @@ def test_a_choice_saved_on_the_server_is_the_language_from_the_first_paint(serve
     langs = browser.evaluate("window.__langs")
     assert langs and langs[0] == "ko", f"the first document the server sent was not in Korean: {langs}"
     assert set(langs) == {"ko"}, f"the page showed another language before it settled: {langs}"
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     assert wait_until(browser, "document.querySelector('#side-new .label') && /[" + chr(0xAC00) + "-" + chr(0xD7A3) + "]/.test(document.querySelector('#side-new .label').textContent)")
     assert browser.evaluate("document.querySelector('.side-lang [data-lang=ko]').getAttribute('aria-pressed')") == "true"
 

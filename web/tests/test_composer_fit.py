@@ -23,10 +23,10 @@ from __future__ import annotations
 import re
 
 import pytest
-from conftest import CDP, NAME, chromium_binary
+from conftest import CDP, CHAT_READY, NAME, chromium_binary
 from sala_web import timingdebug as TD
 from sala_web.app import STATIC
-from test_composer_attach import WAIT_CHIPS, WAIT_READY
+from test_composer_attach import WAIT_CHIPS
 from test_timing_debug import log_records, wait_log
 
 APP_JS = (STATIC / "app.js").read_text()
@@ -102,7 +102,8 @@ def test_the_stylesheet_and_the_script_size_the_shell_from_the_visible_area():
 
 def test_the_composer_stays_on_the_screen_through_keyboard_paste_bars_and_a_stale_layout_viewport(served, browser):
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY) and browser.evaluate(WAIT_MODEL)
+    browser.wait_ready(CHAT_READY)
+    assert browser.evaluate(WAIT_MODEL)
     f = browser.evaluate(FIT)
     assert f["vvH"] == 844 and f["inner"] == 844 and f["dvh"] == 844 and f["appVar"] == "844px" and f["scale"] == 1 and f["vvTop"] == 0, f
     assert_fits(f, 844, 0)
@@ -183,7 +184,8 @@ def test_the_desktop_layout_is_unchanged(served):
     try:
         metrics(c, 800, width=1280, mobile=False)
         c.send("Page.navigate", {"url": f"{served['url']}/#s={NAME}"})
-        assert c.evaluate(WAIT_READY) and c.evaluate(WAIT_MODEL)
+        c.wait_ready(CHAT_READY)
+        assert c.evaluate(WAIT_MODEL)
         f = c.evaluate(FIT)
         assert f["vvH"] == 800 and f["inner"] == 800 and f["dvh"] == 800 and f["appH"] == 800 and f["appVar"] == "800px", f
         assert f["composer"]["bottom"] == 800 and f["composer"]["left"] == 0 and f["composer"]["right"] == 1280, f  # the sidebar is over the page, not beside it
@@ -202,7 +204,8 @@ def test_the_desktop_layout_is_unchanged(served):
 
 def test_the_timing_log_records_the_viewports(served, browser):
     browser.open(f"{served['url']}/?debug=timing#s={NAME}")
-    assert browser.evaluate(WAIT_READY) and browser.evaluate(WAIT_MODEL)
+    browser.wait_ready(CHAT_READY)
+    assert browser.evaluate(WAIT_MODEL)
     recs = wait_log(served, lambda rs: any(x["name"] == "viewport" and x["why"] == "start" for x in rs))
     start = next(x for x in recs if x["name"] == "viewport" and x["why"] == "start")
     assert start["vvH"] == 844 and start["vvTop"] == 0 and start["scale"] == 1 and start["inner"] == 844 and start["clientH"] == 844, start

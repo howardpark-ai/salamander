@@ -22,7 +22,6 @@ import pytest
 
 from sala_web.app import STATIC
 from test_board_items_ui import wait_for
-from test_composer_attach import WAIT_READY
 
 # ── the pure rules, in node ───────────────────────────────────────────────────
 NODE = r"""
@@ -118,7 +117,7 @@ def open_panel(browser, served, width: int, unread=None, hash_="#sessions") -> N
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 800, "deviceScaleFactor": 1, "mobile": False})
         browser.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": "dark"}]})
         browser.send("Page.navigate", {"url": url})
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready()   # the stub's sessions have no transcript: no chat message on this page, whatever the hash
     show_panel(browser)
 
 
@@ -183,15 +182,13 @@ def test_the_choice_is_kept_by_the_server_and_survives_a_reload(served, browser)
             break
         browser.evaluate("new Promise((r) => setTimeout(r, 100))")
     assert get_prefs(served)["unreadOnly"] is True
-    browser.send("Page.reload")
-    assert browser.evaluate(WAIT_READY)
+    browser.reload()
     show_panel(browser)
     wait_rows(browser, ["example-alpha-main", "example-beta-main", "example-gamma-main"])    # the first paint after the reload is already filtered
     assert browser.evaluate(ENTRY)["pressed"] == "true"
     # another device that turned it off: the next load shows everything
     put_prefs(served, {"unreadOnly": False})
-    browser.send("Page.reload")
-    assert browser.evaluate(WAIT_READY)
+    browser.reload()
     show_panel(browser)
     assert browser.evaluate(ENTRY)["pressed"] == "false" and "example-alpha-ui" in browser.evaluate(ROWS)
 

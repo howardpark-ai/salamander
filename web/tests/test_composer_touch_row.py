@@ -20,8 +20,7 @@ from __future__ import annotations
 
 import time
 
-from conftest import NAME
-from test_composer_attach import WAIT_READY
+from conftest import CHAT_READY, NAME
 
 # The viewport override reaches the renderer a moment after its DevTools call returns: wait until the page is that wide.
 SETTLED = "new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok(innerWidth))))"
@@ -48,7 +47,7 @@ def resize(browser, width: int, height: int, mobile: bool) -> None:
 
 def test_a_phone_keeps_the_one_line_row_at_48px_with_a_30px_send_and_a_44px_tap_area(served, browser):
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.touch()
     resize(browser, 412, 915, True)
     m = browser.evaluate(MEASURE)
@@ -62,7 +61,7 @@ def test_a_phone_keeps_the_one_line_row_at_48px_with_a_30px_send_and_a_44px_tap_
 
 def test_a_desktop_keeps_the_row_at_50px_and_the_send_button_at_32px_with_no_extra_tap_area(served, browser):
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     resize(browser, 1280, 800, False)
     m = browser.evaluate(MEASURE)
     assert not m["coarse"] and m["width"] == 1280, m

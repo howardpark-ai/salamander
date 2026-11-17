@@ -18,7 +18,7 @@ import time
 import pytest
 
 from test_board_items_ui import wait_for
-from test_composer_attach import WAIT_READY
+from conftest import CHAT_READY
 from test_header_fold import set_width
 from test_header_menu import FRONT, key
 
@@ -33,7 +33,7 @@ ELSEWHERE = (640, 600)   # the chat area: nothing of the header or the menu
 
 def open_page(browser, served) -> None:
     browser.open(f"{served['url']}/#s=demo")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     set_width(browser, 1280)
     move(browser, *ELSEWHERE)
 

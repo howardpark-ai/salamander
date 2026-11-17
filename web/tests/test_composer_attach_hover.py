@@ -22,8 +22,7 @@ from __future__ import annotations
 
 import time
 
-from conftest import NAME
-from test_composer_attach import WAIT_READY
+from conftest import CHAT_READY, NAME
 
 BOXES = """(() => {
   const btn = document.querySelector('#attach'), row = document.querySelector('.compose-row');
@@ -63,7 +62,7 @@ SETTLED = "new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame
 
 def desktop(browser, served) -> None:
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.send("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False})
     deadline = time.monotonic() + 10
     while browser.evaluate(SETTLED) != 1280:
@@ -150,7 +149,7 @@ def test_the_focus_ring_is_on_the_same_30px_square(served, browser):
 def test_a_tap_leaves_no_stuck_highlight(served, browser):
     browser.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 5})
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     assert browser.evaluate("matchMedia('(hover: none)').matches")
     c = browser.evaluate(CENTRE)
     browser.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": c["x"], "y": c["y"]}]})

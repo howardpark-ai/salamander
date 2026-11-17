@@ -24,7 +24,7 @@ from sala_web.app import STATIC
 from test_back_button import FAKE
 from test_board_items_ui import CONTRAST, wait_for
 from test_sidebar_hover import OPEN, click_button, move, open_wide
-from test_composer_attach import WAIT_READY
+from conftest import CHAT_READY
 from test_header_fold import inside, set_width
 
 CSS = (STATIC / "style.css").read_text()
@@ -51,7 +51,7 @@ LAYOUT = r"""
 
 def open_header(browser, served, width: int) -> dict:
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     set_width(browser, width)
     return browser.evaluate(LAYOUT)
 
@@ -110,7 +110,7 @@ def test_a_long_name_is_cut_centred_never_moved_or_put_under_something(served, b
     long = "gamma-harbor-crate-sorting-and-shelf-labeling-march-2031-rn"
     browser.send("Page.enable")
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.evaluate(f"document.querySelector('#title .name').textContent = {long!r}; layoutHeader(); ''")
     for w in (1280, 1000, 900):
         set_width(browser, w)
@@ -143,7 +143,7 @@ def test_the_name_is_centred_on_the_full_bar_at_every_width(served, browser, wid
     does not fit between the tracks it is cut with an ellipsis, not moved. This holds from
     400 px up: a phone under 400 px left-aligns the name (the test for it follows this one)."""
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.evaluate(f"document.querySelector('#title .name').textContent = {name!r}; layoutHeader(); ''")
     set_width(browser, width)
     browser.evaluate("layoutHeader(); ''")
@@ -173,7 +173,7 @@ def test_below_400_px_the_name_starts_after_the_toggle_and_runs_up_to_the_cluste
     name that is still too long is cut with an ellipsis against the cluster, never under it. The items in the bar are those
     of the centred bar (the fold is measured on the centred grid): the ⋯ button alone."""
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.evaluate(f"document.querySelector('#title .name').textContent = {name!r}; layoutHeader(); ''")
     set_width(browser, width)
     browser.evaluate("layoutHeader(); ''")
@@ -206,7 +206,7 @@ def test_at_360_px_the_name_has_about_234_px_not_129(served, browser):
     the dot and its gap, the cluster (the "working" badge and the ⋯ button, the item count button gone) and the
     title's gap: about 234 px; with the button it was 181 left-aligned, and 129 centred."""
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     set_width(browser, 360)
     browser.evaluate(f"document.querySelector('#title .name').textContent = {LONG_NAME!r}; layoutHeader(); ''")
     got = browser.evaluate(LAYOUT)
@@ -233,7 +233,7 @@ def place(browser) -> dict:
 
 def open_stackshot(browser, served, width: int) -> dict:
     browser.open(f"{served['url']}/#s={STACKSHOT['name']}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     return set_width(browser, width)
 
 
@@ -367,7 +367,7 @@ THEME = """(() => {
 @pytest.mark.parametrize("served", [SESSION], indirect=True)
 def test_front_and_background_have_their_own_colours_readable_in_both_themes(served, browser, scheme):
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": scheme}]})
     browser.evaluate(THEME)
     got = {r["text"]: r for r in browser.evaluate(CONTRAST + "('#probe-front, #probe-background')")}

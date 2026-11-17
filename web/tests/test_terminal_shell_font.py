@@ -23,11 +23,10 @@ import time
 
 import pytest
 
-from conftest import NAME
+from conftest import CHAT_READY, NAME
 from sala_web import keylog as KL
 from sala_web import tmuxio as T
 from sala_web.app import STATIC
-from test_composer_attach import WAIT_READY
 from ttyd_harness import ALT, press, real_ttyd
 
 APP_JS = (STATIC / "app.js").read_text()
@@ -123,7 +122,7 @@ def fake(served, browser, monkeypatch):
         return False
     monkeypatch.setattr(T, "ensure_shell_session", ensure)
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.served = served
     assert browser.evaluate(OPEN_SHELL) is True
     assert browser.evaluate("new Promise((res) => { const t0 = Date.now(); (function poll() { if (document.querySelector('#shell-term iframe') || Date.now() - t0 > 8000) res(!!document.querySelector('#shell-term iframe')); else setTimeout(poll, 50); })(); })")
@@ -335,7 +334,7 @@ def real_shell(served, browser, monkeypatch):
         browser.send("Emulation.setFocusEmulationEnabled", {"enabled": True})
         browser.send("Emulation.setDeviceMetricsOverride", {"width": 1100, "height": 800, "deviceScaleFactor": 1, "mobile": False})
         browser.open(f"{url}/#s={NAME}")
-        assert browser.evaluate(WAIT_READY)
+        browser.wait_ready(CHAT_READY)
         yield {"browser": browser, "pane": pane, "url": url, "served": served}
 
 

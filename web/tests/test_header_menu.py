@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 from sala_web.app import STATIC
-from test_composer_attach import WAIT_READY
+from conftest import CHAT_READY
 from test_header_fold import inside, set_width
 
 INDEX = (STATIC / "index.html").read_text()
@@ -74,7 +74,7 @@ def test_the_menu_markup_is_session_then_view_then_the_toggle():
 @pytest.mark.parametrize("served", [FRONT], indirect=True)
 def test_the_menu_lists_session_view_and_thinking_in_that_order(served, browser):
     browser.open(f"{served['url']}/#s=demo")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     set_width(browser, 1280)
     closed = browser.evaluate(MENU)
     assert not closed["open"] and not closed["shown"] and not closed["inBar"], closed   # role, lane and the tabs are not in the bar
@@ -105,7 +105,7 @@ def test_role_and_lane_keep_their_badge_colours_in_the_menu(served, browser, rol
     """Front is the accent's orange and background a violet (--role-*-text on a tint of the colour); each lane
     has its own (--lane-*): the colour of the words and a border that is not the plain one, in both themes."""
     browser.open(f"{served['url']}/#s={served['name']}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": scheme}]})
     m = open_menu(browser)
     assert m["role"]["color"] == m["want"][role] and m["lane"]["color"] == m["want"][lane], (m["role"], m["lane"], m["want"])
@@ -119,7 +119,7 @@ def test_role_and_lane_keep_their_badge_colours_in_the_menu(served, browser, rol
 @pytest.mark.parametrize("served", [FRONT], indirect=True)
 def test_chat_and_terminal_switch_from_the_menu_with_the_state_shown(served, browser):
     browser.open(f"{served['url']}/#s=demo")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     for w in (1280, 390):
         set_width(browser, w)
         m = open_menu(browser)
@@ -140,7 +140,7 @@ def test_the_menu_is_reachable_and_operable_from_the_keyboard(served, browser):
     """Tab from the ⋯ button goes to Chat, Terminal and the toggle (the menu follows the button in the page); Enter on
     Terminal switches the view; Escape closes the menu."""
     browser.open(f"{served['url']}/#s=demo")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     set_width(browser, 1280)
     browser.evaluate("document.querySelector('#top-menu-btn').focus(); ''")
     key(browser, "Enter", "Enter", 13, "\r")

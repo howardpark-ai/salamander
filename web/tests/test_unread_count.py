@@ -475,32 +475,11 @@ GEOM = """[...document.querySelectorAll('#session-list .sess, #session-list .gro
 SIDE_IN = "document.getElementById('sidebar').getBoundingClientRect().left === 0"
 
 
-# The page is ready when its document has loaded and app.js has run (the globals the tests call exist, the stub is in). The
-# document's load waits on the stylesheet and fonts from a CDN (index.html), so on a slow network it can take far longer than a
-# quiet machine's fraction of a second, and until then there is no #sidebar and no loadSessions: a call into the page throws
-# ("TypeError: Cannot read properties of null", which the CDP helper reported as a bare "Uncaught" in a CI run).
-# WAIT_READY does not say this: it waits for a chat message, which the "new session" page never has, and gives up after 15 s
-# with True all the same. __stale marks the document a reload replaces, which satisfies the rest until it is gone.
-READY = ("document.readyState === 'complete' && typeof loadSessions === 'function' && !!document.getElementById('sidebar') && "
-         "!!document.querySelector('#side-open') && Array.isArray(window.__reads) && !window.__stale")
-
-
-def wait_ready(browser, timeout: float = 90.0) -> None:
-    end, last = time.time() + timeout, None
-    while time.time() < end:
-        try:
-            if browser.evaluate(READY):
-                return
-        except RuntimeError as e:   # READY itself cannot throw: this is a context a navigation replaced under the call
-            last = e
-        time.sleep(0.1)
-    raise AssertionError(f"the page was not ready within {timeout:.0f} s: {last}")
-
-
-def reload_page(browser) -> None:
-    browser.evaluate("window.__stale = true; ''")
-    browser.send("Page.reload")
-    wait_ready(browser)
+# The page is ready when its document has loaded and app.js has run (CDP.wait_ready in conftest.py: the document's load waits on the
+# stylesheet and fonts from a CDN, so on a slow network it takes far longer than a quiet machine's fraction of a second, and until
+# then there is no #sidebar and no loadSessions). The "new session" page has no chat message, so that is all it waits for, with the
+# stub's own pieces: the open button and the reads the stub keeps.
+STUB_READY = "!!document.querySelector('#side-open') && Array.isArray(window.__reads)"
 
 
 def put_prefs(served, **prefs) -> None:
@@ -515,7 +494,7 @@ def open_page(browser, served, unread=UNREAD, hash_="#new", rows=3) -> None:
     browser.send("Emulation.setDeviceMetricsOverride", {"width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False})
     browser.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": "dark"}]})
     browser.send("Page.navigate", {"url": f"{served['url']}/{hash_}"})
-    wait_ready(browser)
+    browser.wait_ready(STUB_READY)
     browser.evaluate("document.querySelector('#side-open').click(); ''")
     assert wait_for(browser, SIDE_IN, 5.0)
     assert wait_for(browser, f"document.querySelectorAll('#session-list .sess').length === {rows}", 8.0), browser.evaluate(CHIPS)
@@ -658,7 +637,7 @@ def test_a_folded_project_and_its_scope_show_the_total_of_the_sessions_inside(sa
     assert browser.evaluate(CHIPS) == []                           # the folded project lists no rows
     # a folded scope shows it too
     put_prefs(served, collapsed=["scope:example"])
-    reload_page(browser)
+    browser.reload(STUB_READY)
     browser.evaluate("document.querySelector('#side-open').click(); ''")
     assert wait_for(browser, "document.querySelector('#session-list .scope-title') !== null", 8.0)
     heads = {h["ckey"]: h for h in browser.evaluate(HEADCHIPS)}
@@ -681,7 +660,7 @@ def test_a_header_with_nothing_unread_has_no_count(sala, served, browser):
     assert wait_for(browser, "document.querySelector('#session-list .group-title') !== null", 5.0)
     assert not any(h["chip"] for h in browser.evaluate(HEADCHIPS))
     put_prefs(served, collapsed=[])
-    reload_page(browser)
+    browser.reload(STUB_READY)
 
 
 def test_the_folded_header_of_the_open_session_has_no_count_for_it(sala, served, browser):

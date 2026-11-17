@@ -23,7 +23,7 @@ import time
 import pytest
 
 from sala_web.app import STATIC
-from test_composer_attach import WAIT_READY
+from conftest import CHAT_READY
 from test_overview_columns import row
 
 INDEX = (STATIC / "index.html").read_text()
@@ -197,7 +197,7 @@ AGENTS = """(() => ({
 def test_a_session_with_open_items_has_no_button_in_the_title_bar_and_the_agents_table_has_no_count(served, browser):
     # the board answers items for the open session (three, one of them waiting on the owner): the page holds them, and draws none of them
     open_page(browser, served, f"#s={FAKE}", width=1280, height=800)
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     assert browser.evaluate(WAIT_BOARD)
     time.sleep(0.5)   # a late repaint would still draw one
     t = browser.evaluate(TITLE_BAR)
@@ -256,7 +256,7 @@ def test_the_page_asks_for_the_board_once_a_minute(served, browser):
     browser.send("Page.enable")
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": INTERVALS})
     open_page(browser, served, f"#s={FAKE}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     assert browser.evaluate(WAIT_BOARD)
     time.sleep(0.5)
     assert browser.evaluate("window.__boardCalls") == 1   # once, with the page's load

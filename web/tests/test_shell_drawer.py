@@ -24,10 +24,9 @@ import time
 
 import pytest
 
-from conftest import NAME
+from conftest import CHAT_READY, NAME
 from sala_web import tmuxio as T
 from sala_web.app import STATIC
-from test_composer_attach import WAIT_READY
 
 HOST = socket.gethostname().split(".")[0]      # api/config tells the page the machine; the session is SALA_SHELL_SESSION (conftest leaves it unset: sala-shell)
 SESSION = "sala-shell"
@@ -113,7 +112,7 @@ def chat(served, browser, fake):
     browser.call("Browser.grantPermissions", {"origin": served["url"], "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"]})
     browser.send("Emulation.setFocusEmulationEnabled", {"enabled": True})
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     until(browser, "typeof state !== 'undefined' && state.current")
     browser.served = served
     return browser

@@ -29,8 +29,7 @@ import time
 
 import pytest
 
-from conftest import NAME
-from test_composer_attach import WAIT_READY
+from conftest import CHAT_READY, NAME
 from test_composer_touch_row import resize
 
 MEASURE = """(() => {
@@ -82,7 +81,7 @@ def set_theme(browser, theme: str) -> None:
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_the_update_strip_is_the_card_gray_and_reload_is_the_solid_accent(served, browser, theme):
     browser.open(f"{served['url']}/#s={NAME}", dark=(theme == "dark"))
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     set_theme(browser, theme)
     # a key press first, so the focus the measurement gives Reload counts as a keyboard focus (:focus-visible)
     browser.send("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Shift", "code": "ShiftLeft"})
@@ -132,7 +131,7 @@ SHAPE = """(() => {
 
 def test_a_phone_keeps_the_update_strip_slim_with_a_30px_reload_and_a_44px_tap_area(served, browser):
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     browser.touch()
     resize(browser, 412, 915, True)
     m = browser.evaluate(SHAPE)
@@ -147,7 +146,7 @@ def test_a_phone_keeps_the_update_strip_slim_with_a_30px_reload_and_a_44px_tap_a
 
 def test_a_desktop_keeps_reload_at_the_32px_control_size_with_no_extra_tap_area(served, browser):
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     resize(browser, 1280, 800, False)
     m = browser.evaluate(SHAPE)
     assert not m["coarse"] and m["width"] == 1280, m

@@ -23,7 +23,7 @@ import json
 import re
 import time
 
-from conftest import NAME
+from conftest import CHAT_READY, NAME
 from sala_web.app import STATIC
 from test_composer_attach import PNG, WAIT_CHIPS
 from test_composer_editable import STATE, enter, key, open_composer, typed
@@ -659,9 +659,7 @@ def test_a_list_draft_comes_back_drawn_and_a_switch_leaves_no_undo(served, brows
     browser.evaluate("new Promise((r) => setTimeout(r, 600))")   # saved 400 ms after the last key
     key_js = "localStorage.getItem('salaweb.draft.' + %s)" % json.dumps(NAME)
     assert browser.evaluate(key_js) == "- a\n- b"                 # the draft is the plain markdown
-    browser.evaluate("window.__old = true; ''")
-    browser.send("Page.reload")
-    assert browser.evaluate("new Promise((res) => { const t0 = Date.now(); (function poll() { if ((!window.__old && document.querySelectorAll('#chat > .msg').length >= 1) || Date.now() - t0 > 15000) res(!window.__old); else setTimeout(poll, 100); })(); })")
+    browser.reload(CHAT_READY)
     s = browser.evaluate(STATE)
     assert s["text"] == "- a\n- b" and browser.evaluate(MARKS) == ["•", "•"], s
 

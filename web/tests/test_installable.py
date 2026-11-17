@@ -107,13 +107,12 @@ PAGE_COLOURS = """(() => ({
 
 
 def test_page_canvas_and_theme_color_follow_the_scheme_in_the_browser(served, browser):
-    from conftest import NAME
-    from test_composer_attach import WAIT_READY
+    from conftest import CHAT_READY, NAME
     bg = theme_bgs()
     for dark in (True, False):
         browser.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": "dark" if dark else "light"}]})
         browser.open(f"{served['url']}/#s={NAME}", dark=dark)
-        assert browser.evaluate(WAIT_READY)
+        browser.wait_ready(CHAT_READY)
         got = browser.evaluate(PAGE_COLOURS)
         want = bg["dark" if dark else "light"]
         assert got["dark"] == dark and got["scheme"] == ("dark" if dark else "light"), got
@@ -127,10 +126,9 @@ PADS = """(() => { const p = (s, k) => parseFloat(getComputedStyle(document.quer
 
 
 def test_safe_area_insets_pad_what_reaches_the_screens_edges(served, browser):
-    from conftest import NAME
-    from test_composer_attach import WAIT_READY
+    from conftest import CHAT_READY, NAME
     browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(WAIT_READY)
+    browser.wait_ready(CHAT_READY)
     before = browser.evaluate(PADS)
     try:  # a phone with a 24 px status bar and a 34 px gesture bar
         browser.send("Emulation.setSafeAreaInsetsOverride", {"insets": {"top": 24, "bottom": 34, "left": 0, "right": 0}})
