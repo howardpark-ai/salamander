@@ -94,6 +94,38 @@ tmux has-session -t =sala-test-b 2>/dev/null && echo "$out" | grep -q 'Reboot: 1
 [ ! -e "$SALA_LEDGER_FREEZE" ] && ok "unfrozen after the restore" || bad "after --resume: still frozen: $(<"$SALA_LEDGER_FREEZE")"
 ls "$HOME/.claude/salamander-reboot.marker.done-"* >/dev/null 2>&1 && ok "marker retired" || bad "marker not retired"
 
+echo "== reboot --after-boot records its outcome in the state, and --status shows it"
+RS="$HOME/.claude/salamander-reboot.state"; RM="$HOME/.claude/salamander-reboot.marker"
+rm -f "$HOME/.claude/salamander-reboot.marker.done-"*; : > "$HOME/.claude/salamander-reboot-panes.tsv"
+printf 'boot-now\n' > "$HOME/.claude/salamander-boot-revive"   # revive's record of this (simulated) boot: the boot half does not wait for it
+echo running > "$HOME/hook.state"
+status_line() { SALA_REBOOT_HOOKS="${1:-t=$HOME/hook}" "$SALA" reboot --status 2>&1 | grep '^last run:'; }
+printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"
+[ "$(status_line)" = "last run: --go · paused at 2026-01-02T03:04:05Z · step rebooting" ] && ok "before the boot half: step rebooting, the old line" || bad "status before: $(status_line)"
+printf 'boot_id=not-this-boot\nwritten=%s\npaused_at=2026-01-02T03:04:05Z\npanes=%s\n' "$(date +%s)" "$HOME/.claude/salamander-reboot-panes.tsv" > "$RM"
+out=$(SALA_BOOT_ID=boot-now SALA_REBOOT_HOOKS="t=$HOME/hook" "$SALA" reboot --after-boot 2>&1); rc=$?
+[ "$rc" = 0 ] && [ ! -e "$RM" ] && ls "$HOME/.claude/salamander-reboot.marker.done-"* >/dev/null 2>&1 && ok "boot half done (rc 0), marker retired" || bad "after-boot: rc=$rc marker=$([ -e "$RM" ] && echo kept || echo gone) $out"
+sl=$(status_line)
+[[ "$sl" =~ ^last\ run:\ --go\ ·\ paused\ at\ 2026-01-02T03:04:05Z\ ·\ step\ booted\ \(finished\ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z\)$ ]] && ok "after the boot half: step booted with its finish time" || bad "status after the boot half: $sl"
+[ "$(_kv_first "$RS" step)" = booted ] && [ -n "$(_kv_first "$RS" booted_at)" ] && ok "state: step=booted, booted_at set" || bad "state: $(<"$RS")"
+printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=booted\n' > "$RS"   # a state written by a version before booted_at: no time to show
+[ "$(status_line)" = "last run: --go · paused at 2026-01-02T03:04:05Z · step booted" ] && ok "no booted_at: the old line, no finish time" || bad "status without booted_at: $(status_line)"
+printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nbooted_at=2026-01-02T03:09:05Z\nstep=resumed\n' > "$RS"   # a --resume after a boot half: the old line, the stale time not shown
+[ "$(status_line)" = "last run: --go · paused at 2026-01-02T03:04:05Z · step resumed" ] && ok "step resumed keeps the old line" || bad "status after --resume: $(status_line)"
+# the give-up path: a hook that never comes up (status stopped, start does nothing). BOOT_WAIT -29 puts the first window (BOOT_WAIT + 30 s) at 1 s, BOOT_GIVEUP 1
+cat > "$HOME/hook-dead" <<'EOF2'
+#!/usr/bin/env bash
+case "$1" in status) echo "stopped"; exit 3;; esac; echo "$1"; exit 0
+EOF2
+chmod +x "$HOME/hook-dead"
+printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"
+printf 'boot_id=not-this-boot\nwritten=%s\npaused_at=2026-01-02T03:04:05Z\npanes=%s\n' "$(date +%s)" "$HOME/.claude/salamander-reboot-panes.tsv" > "$RM"
+out=$(SALA_BOOT_ID=boot-now SALA_REBOOT_BOOT_WAIT=-29 SALA_REBOOT_BOOT_GIVEUP=1 SALA_REBOOT_HOOKS="d=$HOME/hook-dead" "$SALA" reboot --after-boot 2>&1); rc=$?
+[ "$rc" = 0 ] && [ -s "$RM" ] && ok "gave up on a hook that never came up: marker kept" || bad "give-up: rc=$rc marker=$([ -e "$RM" ] && echo kept || echo gone) $out"
+[ "$(_kv_first "$RS" step)" = boot-waiting ] && [ -z "$(_kv_first "$RS" booted_at)" ] && ok "state: step=boot-waiting, no booted_at" || bad "state after give-up: $(<"$RS")"
+sl=$(status_line "d=$HOME/hook-dead")
+[ "$sl" = "last run: --go · paused at 2026-01-02T03:04:05Z · step boot-waiting" ] && ok "status after the give-up: step boot-waiting" || bad "status after the give-up: $sl"
+
 
 echo "== map gaps (2026-10-08): a rename of a session the map does not have is refused, up front"
 UR=ffffffff-0000-4000-8000-000000000005 UR2=ffffffff-0000-4000-8000-000000000006 UD=ffffffff-0000-4000-8000-000000000007 UO=ffffffff-0000-4000-8000-000000000008

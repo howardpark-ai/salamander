@@ -3836,3 +3836,18 @@ parser is 400; 403 cross-origin and 415 not JSON as the other POSTs; the file is
 state folder made when missing; an unwritable one a plain 500; the endpoint named in the app's docstring and the README.
 Not covered, and why: a real Windows keyboard and its IME (no browser here sends the Hangul/English key; the log is what finds out what it sends), the cell at a display scale other than 100% (xterm floors the cell to
 whole device pixels at any scale; only 100% is run), and the bold weight (the font file has a regular weight only).
+
+### `tests/ledger-recycle.sh` +9 checks, none retired: `sala reboot --status` after the boot half (Tue Nov 17th 2026)
+
+`lib/reboot.sh` left the state at `step rebooting` for good: the boot half never wrote to it, so `--status` kept saying
+the run was mid-reboot hours after the boot half had finished. The boot half now records `step booted` and `booted_at`
+when it retires the marker, and `step boot-waiting` when it gives up on a hook with the marker kept; `--status` shows
+`step booted (finished <ISO>)` only when `booted_at` is set.
+Covered, in the existing `ledger-recycle` suite beside the `reboot --resume` case (a marker from another boot, a fake
+hook, `SALA_BOOT_ID` standing for this boot and a boot record naming it): the old `step rebooting` line before the boot
+half; `--after-boot` with a hook that is up retiring the marker, `step booted` with a finish time in the state and the
+status line; a state with no `booted_at` printing the plain `step booted` line, and `step resumed` with a stale
+`booted_at` the plain line too; a hook that stays stopped (`SALA_REBOOT_BOOT_WAIT=-29` and `SALA_REBOOT_BOOT_GIVEUP=1` so
+the give-up comes after one 10 s round) leaving the marker and `step boot-waiting`, with no `booted_at`, in the state and
+the status line. About 11 s added. Not covered, and why: a hook that comes up between the first report and the
+give-up (the same path as the one that is up at once, after the report), and the shutdown half's steps (unchanged).

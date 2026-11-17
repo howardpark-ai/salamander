@@ -57,6 +57,13 @@ the master; if not, it says it gave up and leaves the marker, so `sala reboot --
 lines go into the one post-boot report in the master's pane, which is sent once every hook is resumed or reported.
 So a hook's `status` should exit 3 only when the service is really stopped, not while it is starting.
 
+**What `sala reboot --status` says of the last run:** after the hooks' lines it prints
+`last run: <mode> · paused at <T> · step <step>`. The shutdown half moves the step through `pause`, `drain`, `flush` and
+`rebooting` (`--resume` writes `resumed`); the boot half ends it. A finished boot half (the marker retired) records
+`booted` with its finish time, shown as `step booted (finished <ISO>)`; a boot half that gave up on a hook (the marker
+kept) records `boot-waiting`, so the run reads as unfinished for a real reason and not as a stale `rebooting`. A state
+written before the boot half recorded `booted_at` prints the plain line, with no finish time.
+
 ## The pane map during a reboot
 
 sala's record of which conversation lives in which tmux session is the pane map (`~/.local/state/salamander/pane-map.tsv`:
