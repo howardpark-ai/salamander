@@ -39,7 +39,8 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
                                                                              read-only: the live background agents' names, one per line (a row with
                                                                              no role counts by what the record says of it, else by the roles file:
                                                                              stackshot's roles.json, a front or back entry that is not retired
-                                                                             and does not name another project than the row's;
+                                                                             and does not name another project than the row's
+                                                                             (an entry or a row with no project is never refused);
                                                                              "keeper" entries are not counted)
   front-names [--record F] [--record-max-age S] [--roles F] [--roles-max-age S]
                                                                              read-only: the same for the live front agents
