@@ -137,6 +137,18 @@ class Pane:
         self.ttyd.terminate()
         self.ttyd.wait(timeout=10)
         self._spawn_ttyd()
+        self._wait_listening()
+
+    def _wait_listening(self, seconds: float = 10):
+        """Return once ttyd's port accepts a connection: a page that reconnects before that is refused and shows its overlay again."""
+        t0 = time.time()
+        while time.time() - t0 < seconds:
+            try:
+                socket.create_connection(("127.0.0.1", self.ttyd_port), timeout=1).close()
+                return
+            except OSError:
+                time.sleep(0.05)
+        raise RuntimeError("ttyd did not listen again within %s s" % seconds)
 
     def text(self) -> str:
         return self.tmux("capture-pane", "-p", "-t", "scratch").stdout
