@@ -312,7 +312,8 @@ LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-la
   A row the record places nowhere (a project's own session has no role on its row and is on no agents map) counts by **the roles file**,
   stackshot's `roles.json` (`SALA_ROLES_FILE`, the same answer as the Overview's Role column), when it is fresh (written within
   `SALA_ROLES_FILE_MAX_AGE`, default 1800 s): a `front` or `back` entry that is not retired gives that role; a `keeper` entry is not counted,
-  and the record comes first. Only the rule's reader (`back-names`, `front-names`) reads it; nothing writes it onto a row, and a missing,
+  and the record comes first. An entry applies only when the row does not contradict it: a row whose project differs from the entry's
+  (`projects/<slug>` and a bare `<slug>` count as the same) gets no role from the file, a row with no project or the same one gets the entry's. Only the rule's reader (`back-names`, `front-names`) reads it; nothing writes it onto a row, and a missing,
   stale or unreadable file changes nothing.
 - **The catch-up.** A step fires once per weekly window, so an agent the earlier pass did not take (it had no role then, or its pane
   was not up) would stay on the home lane until the next window. While the rule has the agents off home, every pass that finds one
