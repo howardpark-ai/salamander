@@ -3857,7 +3857,8 @@ lane_fallback_auto() {
 # THE BACK AGENTS' LANE RULE (lib/watch.sh `back_lane_tick`, lib/spawn.sh, `sala watch --back-lanes`).
 # A standing rule for the BACKGROUND agents (registry rows with role back, or with no role that stackshot's project record lists on a
 # project's background: map, or else that the roles file (stackshot's roles.json, the same answer as the Overview's Role column) calls back
-# (lib/sessions.py `back-names`; the watch writes the record's role onto the row each tick, `sessions tag --auto`, never the roles file's); never a
+# (lib/sessions.py `back-names`; the watch writes the record's role onto the row each tick, `sessions tag --auto`, never the roles file's; a row whose
+# project differs from the entry's project gets no role from the file); never a
 # side session) that keeps them off a login lane
 # near its weekly limit, in three steps over an ordered list of lanes (SALA_BACK_LANE_ORDER, first = home):
 #   1. the home lane's "This week" limit reaches SALA_BACK_LANE_THRESHOLD percent       → the back agents move to the second lane;
@@ -3897,7 +3898,7 @@ lane_fallback_auto() {
 # THE FRONT STEP (back_lane_front_tick; SALA_BACK_LANE_FRONT_THRESHOLD, default 95): the live front agents (a registry row with role front, or no role and
 # the project record's top-level agent, or else no role and a front entry of the roles file (stackshot's roles.json, the same answer as the Overview's
 # Role column: it names the project keepers' own sessions, which have no role on their row and are on no agents map; a `keeper` entry or a retired one
-# is not counted, and the record comes first); no side session, not SALA_NO_RELAUNCH, not the master) are not part of step 1. When the home lane's reading
+# is not counted, an entry that names another project than the row's gives that row nothing, and the record comes first); no side session, not SALA_NO_RELAUNCH, not the master) are not part of step 1. When the home lane's reading
 # (the same fresh one) reaches the front threshold and the rule has the back agents off home, they move too, onto the rule's lane: those whose lane is in
 # the order and before it, once per weekly window (state keys front_window, fqueued, fblocked). Step 1 runs first in the same pass, so a pass that finds the
 # reading at the front threshold with the agents still home moves the back agents and then the front agents onto the lane step 1 chose. A pinned

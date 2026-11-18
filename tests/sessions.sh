@@ -689,6 +689,29 @@ rnames front | grep -qw ro && ! rnames back | grep -qw ro && ok "a stored role w
 rnames back | grep -qw late2 && ! rnames front | grep -qw late2 && ok "the record comes first: late2 (the record lists it back) is back though the roles file says front" || bad "record first: $(rnames front) / $(rnames back)"
 case " $(rnames front) $(rnames back) " in *" mm "*|*" gone "*|*" sd "*|*" ex "*|*" ghost "*) bad "uncounted row counted: $(rnames front) / $(rnames back)";; *) ok "a keeper entry (mm), a retired entry (gone), a side row (sd), a retired row (ex) and a name with no live row (ghost) are not counted";; esac
 same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "with a roles file back-names and front-names are still read-only (file and log unchanged)" || bad "roles read wrote"
+# the roles file matches a row by name, so a row that names another project than the entry must get nothing from it (a name reassigned to another project)
+ROLES2="$HOME/roles2.json"
+python3 - "$ROLES2" "$(isonow)" <<'PY'
+import json, sys
+e = lambda role, proj: {"role": role, "project": proj, "live": True}
+json.dump({"generated": sys.argv[2], "ids": {}, "sessions": {
+    "rp-same": e("front", "projects/x"), "rp-none": e("back", "projects/x"), "rp-diff": e("front", "projects/x"), "rp-bare": e("back", "x"),
+    "rp-bare-diff": e("back", "y"), "rp-noproj": e("front", None)}}, open(sys.argv[1], "w"))
+PY
+i=60
+for n in rp-same rp-none rp-diff rp-bare rp-bare-diff rp-noproj; do i=$((i + 1)); ledger_write add "$n" "44444444-0000-4000-8000-0000000000$i" "$n" "$HOME/wa-$n" >/dev/null 2>&1; done
+sessions_set rp-same project=projects/x >/dev/null 2>&1; sessions_set rp-diff project=projects/y >/dev/null 2>&1
+sessions_set rp-bare project=projects/x >/dev/null 2>&1; sessions_set rp-bare-diff project=projects/x >/dev/null 2>&1; sessions_set rp-noproj project=projects/x >/dev/null 2>&1
+pn() { sessions_py "$1-names" --record "$REC" --record-max-age 600 --roles "$ROLES2" --roles-max-age 1800 2>&1 | paste -sd' '; }
+n=$(pn front)
+case " $n " in *" rp-same "*) ok "a row on the same project as the roles entry gets the entry's role (rp-same: front)";; *) bad "same project: '$n'";; esac
+[ "$(q rp-none project)" = null ] && case " $(pn back) " in *" rp-none "*) ok "a row with no project gets the entry's role (rp-none: back)";; *) bad "row without project: $(pn back)";; esac || bad "rp-none has a project: $(q rp-none project)"
+case " $(pn front) $(pn back) " in *" rp-diff "*) bad "a row on another project than the entry got its role: $(pn front) / $(pn back)";; *) ok "a row whose project differs from the entry's (projects/y against projects/x) gets no role from the file";; esac
+case " $(pn back) " in *" rp-bare "*) ok "key normalization: the entry's bare slug (x) and the row's page key (projects/x) are the same project";; *) bad "bare slug vs page key: $(pn back)";; esac
+case " $(pn back) " in *" rp-bare-diff "*) bad "a bare slug naming another project gave its role: $(pn back)";; *) ok "key normalization: a bare slug that names another project (y against projects/x) gives nothing";; esac
+case " $(pn front) " in *" rp-noproj "*) ok "an entry with no project agrees with any row (rp-noproj: front)";; *) bad "entry without project: $(pn front)";; esac
+for n in rp-same rp-none rp-diff rp-bare rp-bare-diff rp-noproj; do ledger_write retire "$n" >/dev/null 2>&1; done   # the later cases count live rows
+rm -f "$ROLES2"
 for how in missing stale garbage noshape; do
     case "$how" in
         missing) rm -f "$ROLES" ;;

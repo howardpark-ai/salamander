@@ -38,7 +38,8 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
   back-names [--record F] [--record-max-age S] [--roles F] [--roles-max-age S]
                                                                              read-only: the live background agents' names, one per line (a row with
                                                                              no role counts by what the record says of it, else by the roles file:
-                                                                             stackshot's roles.json, a front or back entry that is not retired;
+                                                                             stackshot's roles.json, a front or back entry that is not retired
+                                                                             and does not name another project than the row's;
                                                                              "keeper" entries are not counted)
   front-names [--record F] [--record-max-age S] [--roles F] [--roles-max-age S]
                                                                              read-only: the same for the live front agents
@@ -473,13 +474,15 @@ def load_record(path, max_age):
 # "front"|"back"|"keeper", "project": key, "live": bool[, "retired": true][, "page_owed": true]}}}), rewritten every few minutes: the one answer
 # sala's Overview Role column shows. The back agents' lane rule reads it (back-names, front-names) for a row that has no role and that the project
 # record does not place either (a project's own session, with no role on its row and on no agents map). It is read with the same rule as the
-# record (written at most ROLES_MAX_AGE seconds ago, else it answers nothing).
+# record (written at most ROLES_MAX_AGE seconds ago, else it answers nothing). It matches a row by name, and gives a row its role only when the row
+# does not contradict it: a row whose `project` differs from the entry's project gets nothing from the file (a name reassigned to another project
+# must not inherit its former project's role from a snapshot that is still fresh).
 ROLES_MAX_AGE = 1800
 
 
 def load_roles(path, max_age):
-    """name -> "front" | "back" for every entry of the roles file with that role that is not retired (a "keeper" or any other role is not
-    counted); RecordUnavailable with the reason (not configured, missing, unreadable, no "sessions" object, stale)."""
+    """name -> (role, project) for every entry of the roles file with a "front" or "back" role that is not retired (a "keeper" or any other role
+    is not counted; project is the entry's project key, None when it has none); RecordUnavailable with the reason (not configured, missing, unreadable, no "sessions" object, stale)."""
     if not path:
         raise RecordUnavailable("no roles file is configured")
     try:
@@ -503,8 +506,26 @@ def load_roles(path, max_age):
     out = {}
     for name, e in sessions.items():
         if isinstance(e, dict) and e.get("role") in ("front", "back") and e.get("retired") is not True:
-            out[name] = e["role"]
+            out[name] = (e["role"], e["project"] if isinstance(e.get("project"), str) and e["project"].strip() else None)
     return out
+
+
+def _project_id(p):
+    """A project key compared by what it names: a registry row's `project` is a page key (projects/<slug>), the roles file may give the bare <slug>."""
+    p = p.strip()
+    return p[len("projects/"):] if p.startswith("projects/") else p
+
+
+def roles_role(row, roles):
+    """The role the roles file gives a live row, else None: the entry of the row's name, unless the row has a project and the entry names a
+    different one (a row with no project, an entry with none, or the same project agree)."""
+    ent = roles.get(row["name"])
+    if ent is None:
+        return None
+    role, proj = ent
+    if proj and isinstance(row.get("project"), str) and row["project"].strip() and _project_id(row["project"]) != _project_id(proj):
+        return None
+    return role
 
 
 def derive_role(row, rec):
@@ -565,7 +586,8 @@ def cmd_tag_auto(R, a):
 def _role_names(R, a, want):
     """Read-only: the names of the live agents of one role, one per line: a live row that is no side session and whose role is `want`, the role
     of a row with none read from the project record (what `tag --auto` would write), so a row not yet tagged still counts; when the record
-    places it nowhere, the roles file (load_roles: stackshot's roles.json, the Overview's Role column) gives a front or back role. A stored role is never changed and the record comes first. A record or roles file that cannot answer leaves
+    places it nowhere, the roles file (load_roles: stackshot's roles.json, the Overview's Role column) gives a front or back role, unless the row's project
+    differs from the entry's (roles_role). A stored role is never changed and the record comes first. A record or roles file that cannot answer leaves
     the rows with what the other gives, at worst their stored roles only. Nothing is written (`tag --auto` never reads the roles file)."""
     try:
         rec = load_record(a.record, a.record_max_age)
@@ -578,7 +600,7 @@ def _role_names(R, a, want):
     for r in sorted(R.rows.values(), key=lambda r: r.get("name") or ""):
         if r.get("state") != "live" or r.get("side") or not r.get("name"):
             continue
-        role = r.get("role") or derive_role(r, rec)[1] or roles.get(r["name"])
+        role = r.get("role") or derive_role(r, rec)[1] or roles_role(r, roles)
         if role == want:
             print(r["name"])
     return 0
