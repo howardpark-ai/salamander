@@ -311,7 +311,8 @@ LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-la
   overwritten. To fill the registry at once: `sala sessions tag --auto --dry-run` (what it would do), then `sala sessions tag --auto`.
   A row the record places nowhere (a project's own session has no role on its row and is on no agents map) counts by **the roles file**,
   stackshot's `roles.json` (`SALA_ROLES_FILE`, the same answer as the Overview's Role column), when it is fresh (written within
-  `SALA_ROLES_FILE_MAX_AGE`, default 1800 s): a `front` or `back` entry that is not retired gives that role; a `keeper` entry is not counted,
+  `SALA_ROLES_FILE_MAX_AGE`, default 1800 s): a `front` or `back` entry that is not retired gives that role; an entry whose role is the old `keeper` is not counted
+  (the keeper is now a mark on one front or back agent, `"keeper": true` on its entry, and counts with that agent's role; a flagged entry that is retired is not counted),
   and the record comes first. An entry applies only when the row does not contradict it: a row whose project differs from the entry's
   (`projects/<slug>` and a bare `<slug>` count as the same) gets no role from the file, a row with no project or the same one gets the entry's. The check applies only when both sides name a project: an entry with no project gives its role to a row on any project. Only the rule's reader (`back-names`, `front-names`) reads it; nothing writes it onto a row, and a missing,
   stale or unreadable file changes nothing.

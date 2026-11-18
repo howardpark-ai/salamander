@@ -1094,7 +1094,7 @@ server sends back only the matches, as short snippets, never a transcript.
   subagent's entry is shown under its agent, marked *subagent*. A transcript the registry does not know shows as *session
   `<first 8>`*.
 - **Roles are filled at read time**: the registry row's own role, else what stackshot answers for the name or an alias
-  (`front`, `back`; `keeper` reads as background), else the **unknown** bucket, which is never dropped. Nothing is written back to the registry.
+  (`front`, `back`; the project's keeper is a mark on one front or back agent and reads with that agent's role, and the old `keeper` role reads as background), else the **unknown** bucket, which is never dropped. Nothing is written back to the registry.
 - **The summary line** reads `32 matches for “zebra”, newest first · 1 h to Mon Jan 5th 02:08 UTC · searched in 0.4 s`. The server keeps the
   newest **200** matches and a warning says so when there were more (*Showing the newest 200 of N matches*); the page shows 25 at a time
   (*Show N more*). A search is cut at **20 s** and says so; two run at once, a third is refused (429) with a sentence.

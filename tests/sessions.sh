@@ -689,6 +689,35 @@ rnames front | grep -qw ro && ! rnames back | grep -qw ro && ok "a stored role w
 rnames back | grep -qw late2 && ! rnames front | grep -qw late2 && ok "the record comes first: late2 (the record lists it back) is back though the roles file says front" || bad "record first: $(rnames front) / $(rnames back)"
 case " $(rnames front) $(rnames back) " in *" mm "*|*" gone "*|*" sd "*|*" ex "*|*" ghost "*) bad "uncounted row counted: $(rnames front) / $(rnames back)";; *) ok "a keeper entry (mm), a retired entry (gone), a side row (sd), a retired row (ex) and a name with no live row (ghost) are not counted";; esac
 same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "with a roles file back-names and front-names are still read-only (file and log unchanged)" || bad "roles read wrote"
+# the keeper is a mark on one front or back agent ("keeper": true beside its role), never a role of its own: a marked entry counts with its own role, a flagged retired
+# entry does not count, and an entry whose role is the old "keeper" is not counted, flagged or not (stackshot still writes that form until it removes it)
+ROLES3="$HOME/roles3.json"
+python3 - "$ROLES3" "$(isonow)" <<'PY'
+import json, sys
+e = lambda role, **kw: dict({"role": role, "project": "projects/x", "live": True}, **kw)
+json.dump({"generated": sys.argv[2], "ids": {}, "sessions": {
+    "mk-bld": e("back", keeper=True), "mk-main": e("front", keeper=True), "mk-ret": e("front", keeper=True, retired=True),
+    "mk-oldflag": e("keeper", keeper=True), "mk-oldplain": e("keeper"), "mk-plain": e("back")}}, open(sys.argv[1], "w"))
+PY
+i=70
+for n in mk-bld mk-main mk-ret mk-oldflag mk-oldplain mk-plain; do i=$((i + 1)); ledger_write add "$n" "44444444-0000-4000-8000-0000000000$i" "$n" "$HOME/wa-$n" >/dev/null 2>&1; sessions_set "$n" project=projects/x >/dev/null 2>&1; done
+# the setup above discards its errors: an absent row would look like a row correctly refused a role, so each fixture row must exist, be live, carry projects/x and have no role of its own
+for n in mk-bld mk-main mk-ret mk-oldflag mk-oldplain mk-plain; do
+    [ "$(q "$n" state live)" = '"live"' ] && [ "$(q "$n" project live)" = '"projects/x"' ] && [ "$(q "$n" role live)" = null ] && ok "fixture row $n exists, is live, has project projects/x and no role" || bad "fixture row $n: state=$(q "$n" state live) project=$(q "$n" project live) role=$(q "$n" role live)"
+done
+kn() { sessions_py "$1-names" --record "$REC" --record-max-age 600 --roles "$ROLES3" --roles-max-age 1800 2>&1 | paste -sd' '; }
+cp "$REG" "$HOME/reg.before"; : > "$RLOG"
+case " $(kn back) " in *" mk-bld "*) ok "a marked builder (role back, keeper true, no separate keeper name) counts as back";; *) bad "marked builder: back=$(kn back)";; esac
+case " $(kn front) " in *" mk-bld "*) bad "the marked builder also counted as front: $(kn front)";; *) ok "the marked builder is not a front agent";; esac
+case " $(kn front) " in *" mk-main "*) ok "a marked non-builder (role front, keeper true) counts as front";; *) bad "marked non-builder: front=$(kn front)";; esac
+case " $(kn back) " in *" mk-main "*) bad "the marked non-builder also counted as back: $(kn back)";; *) ok "the marked non-builder is not a back agent";; esac
+case " $(kn front) $(kn back) " in *" mk-ret "*) bad "a flagged retired entry counted: $(kn front) / $(kn back)";; *) ok "a flagged entry that is retired (mk-ret) is not counted";; esac
+case " $(kn front) $(kn back) " in *" mk-oldflag "*) bad "an old keeper role with the flag counted: $(kn front) / $(kn back)";; *) ok "an entry whose role is the old keeper is not counted even with the flag (mk-oldflag)";; esac
+case " $(kn front) $(kn back) " in *" mk-oldplain "*) bad "an unflagged old keeper counted: $(kn front) / $(kn back)";; *) ok "an unflagged old keeper entry (mk-oldplain) is still not counted";; esac
+case " $(kn back) " in *" mk-plain "*) ok "an entry without the flag counts as before (mk-plain: back)";; *) bad "unflagged back entry: back=$(kn back)";; esac
+same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "with a marked roles file back-names and front-names are still read-only (file and log unchanged)" || bad "marked roles read wrote"
+for n in mk-bld mk-main mk-ret mk-oldflag mk-oldplain mk-plain; do ledger_write retire "$n" >/dev/null 2>&1; done   # the later cases count live rows
+rm -f "$ROLES3"
 # the roles file matches a row by name, so a row that names another project than the entry must get nothing from it (a name reassigned to another project)
 ROLES2="$HOME/roles2.json"
 python3 - "$ROLES2" "$(isonow)" <<'PY'

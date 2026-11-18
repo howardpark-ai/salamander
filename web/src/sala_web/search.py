@@ -27,7 +27,7 @@ through the parent's record of it (the call's tool_result carries `toolUseResult
 call is not found.
 
 Role (front / background / unknown): the registry row's `role` when it has one (`spawn --role`); else what stackshot says of that
-name (the project pages' agents map, the same answer the Overview's Role column shows: `roles`, a keeper counts as background);
+name (the project pages' agents map, the same answer the Overview's Role column shows: `roles`; a keeper is a mark on one front or back agent and counts with that agent's role, while the old `keeper` role counts as background);
 else "unknown", which is its own bucket in the filter, never a dropped result. A subagent shows its agent's role.
 """
 
@@ -60,7 +60,7 @@ CHECK_EVERY = 512         # lines between two looks at the clock
 
 AGENT_CATS = ("front", "back", "sub", "unknown")
 KINDS = ("messages", "tools", "output", "thinking")
-ROLE_OF = {"front": "front", "back": "back", "keeper": "back"}   # stackshot's keeper is a background session
+ROLE_OF = {"front": "front", "back": "back", "keeper": "back"}   # the old keeper role (stackshot still writes it until it removes that form) is a background session; a marked keeper has role front or back
 
 TS_RE = re.compile(rb'"timestamp"\s*:\s*"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)')
 SID_RE = re.compile(r"^[0-9A-Fa-f-]{8,64}$")

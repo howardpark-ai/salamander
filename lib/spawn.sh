@@ -53,7 +53,7 @@
 #     command (stackshot's `client.py post project-agent <key> <name> --role <part of the name after the project's name>
 #     --front|--back --mandate "<first line>"`; an agent registered there is on the project's map and a page edit to the
 #     map reaches no reader once a project has a record, so the page is never the thing to edit), so the web form can show
-#     "not listed on the project yet" with the command; and the page's keeper is asked once (spawn_ask_keeper): one stackshot message to the page key
+#     "not listed on the project yet" with the command; and the project's keeper (a mark on one agent: the builder, else the -main agent, when nothing is marked) is asked once (spawn_ask_keeper): one stackshot message to the page key
 #     (`client.py message <key> …`, SALA_SPAWN_ASK_CMD; the tests stub it), at most once per name per SALA_SPAWN_ASK_EVERY,
 #     and never when SALA_SPAWN_REGISTER is configured (registration is the hook's then). Both "cannot tell" answers (no
 #     brain here, no pages.py, a timeout) refuse with exit 1 and say so. THE ONE COMMAND THAT NEEDS STACKSHOT:
@@ -143,7 +143,7 @@ if d.get('tmux'): print('%-24s %-10s %s%s' % (d.get('name','?'), d.get('version'
 fi
 
 stackshot_prog_r _SPAWN_CLIENT "${SALA_STACKSHOT_DIR-}" client   # lib/stackshot-path.sh: the package path of stackshot's client, else the root path of an older checkout
-: "${SALA_SPAWN_ASK_CMD=${SALA_STACKSHOT_DIR:+python3 $_SPAWN_CLIENT message}}"    # the stackshot message that asks a page's keeper for an unlisted name's line (unset: this default, none without SALA_STACKSHOT_DIR; set empty: never asked)
+: "${SALA_SPAWN_ASK_CMD=${SALA_STACKSHOT_DIR:+python3 $_SPAWN_CLIENT message}}"    # the stackshot message that asks the project's keeper for an unlisted name's line (unset: this default, none without SALA_STACKSHOT_DIR; set empty: never asked)
 : "${SALA_SPAWN_ASK_EVERY:=3600}"                                       # seconds before the same name's keeper is asked again
 SPAWN_LOG="$SALA_LOG_DIR/salamander-spawn.log"
 spawn_log() { mkdir -p "$SALA_LOG_DIR" 2>/dev/null; echo "[$(date -Is)] spawn ${NAME:-?}: $*" >> "$SPAWN_LOG" 2>/dev/null || true; }
@@ -409,20 +409,20 @@ register_cmd() {  # <page key> <front|back, or empty for either> <name> <mandate
     case "$r" in front) flag=--front ;; back) flag=--back ;; *) flag='--front|--back' ;; esac
     printf 'python3 ~/stackshot/%s post project-agent %s %s --role %s %s --mandate %s' "$rel" "$key" "$name" "$role" "$flag" "$([ -n "$line" ] && shell_dq "$line" || echo '"<one line>"')"
 }
-spawn_ask_keeper() {  # <page key> <mandate line> <what pages.py said> <the register command> — one stackshot message to the page's keeper, detached; never when a register hook owns registration
+spawn_ask_keeper() {  # <page key> <mandate line> <what pages.py said> <the register command> — one stackshot message to the project's keeper, detached; never when a register hook owns registration
     local stamp="$SALA_STATE_DIR/spawn-asked/$NAME" now last text role="${ROLE:-front}"
     if [ -n "${SALA_SPAWN_REGISTER:-}" ]; then spawn_log "ask: not sent for $1 — SALA_SPAWN_REGISTER is configured, so registration is the hook's"; return 0; fi
     [ -n "$SALA_SPAWN_ASK_CMD" ] || { spawn_log "ask: not sent for $1 — SALA_SPAWN_ASK_CMD is empty"; return 0; }
     now=$(date +%s); _mkparent "$stamp"; last=$(cat "$stamp" 2>/dev/null || echo 0)
     if [ $((now - ${last:-0})) -lt "$SALA_SPAWN_ASK_EVERY" ] 2>/dev/null; then
         spawn_log "ask: not sent again for $1 (asked at $(local_human "$last"), within $SALA_SPAWN_ASK_EVERY s)"
-        echo "   (the page's keeper was asked to register it at $(local_human "$last") already; not again within $(( SALA_SPAWN_ASK_EVERY / 60 )) min)" >&2; return 0
+        echo "   (the project's keeper was asked to register it at $(local_human "$last") already; not again within $(( SALA_SPAWN_ASK_EVERY / 60 )) min)" >&2; return 0
     fi
     echo "$now" > "$stamp"
     text="[sala spawn] A new $role agent '$NAME' of $1 was asked for${SALA_OP_FROM:+ by $SALA_OP_FROM}${SALA_OP_WORDS:+ (\"$SALA_OP_WORDS\")}, but the name is not on the page's agents map yet ($3). Please register it with stackshot, then the spawn runs again (sala op spawn $NAME --project $1 --role $role${2:+ --mandate <the mandate>} --from <you> --words \"<${SALA_OWNER_NAME}'s words>\"):"$'\n'"$4"$'\n'"(Automatic salamander message from sala spawn; nothing to reply to.)"
     ( setsid timeout --kill-after=10 150 sh -c "$SALA_SPAWN_ASK_CMD \"\$@\"" spawn-ask "$1" "$text" --sender "sala spawn" </dev/null >> "$SPAWN_LOG" 2>&1 & )
     spawn_log "ask: the keeper of $1 asked to register it ($SALA_SPAWN_ASK_CMD, to $1)"
-    echo "   the page's keeper was asked to register it in one stackshot message (to $1)" >&2
+    echo "   the project's keeper was asked to register it in one stackshot message (to $1)" >&2
 }
 refuse_unlisted() {  # <page key> <role> <what pages.py said> [the project's -main agent] — the refusal (stderr), the marker and the register command (stdout), the keeper asked, exit 3
     local line cmd; line=$(mandate_line); cmd=$(register_cmd "$1" "$2" "$NAME" "$line" "${4:-}")
@@ -451,7 +451,7 @@ spawn_register() {  # the register hook (the header), once the session is up and
 # recorded nowhere — it follows the default until `sala lane <lane> NAME` gives it a lane of its own; --lane L launches on L
 # and records the row at once. A lane that cannot launch (its key file or config directory gone) is refused
 # here, before the tmux session is made and before any page is asked about the name (a refusal the box can give alone
-# never costs a pages.py call or a message to a page's keeper).
+# never costs a pages.py call or a message to the project's keeper).
 # THE BACK AGENTS' LANE RULE (common.sh): a background agent spawned while the rule has the back agents off their home lane lands on the rule's lane
 # (as --lane would: recorded, so every relaunch keeps it, and the rule's move home finds it). An explicit --lane wins; a front agent, a side session and
 # a throwaway are not the rule's; a Fable model is left on the default when the rule's lane cannot run Fable; a rule lane that is dormant or not ready is skipped.
