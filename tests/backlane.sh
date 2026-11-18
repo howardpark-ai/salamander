@@ -22,7 +22,7 @@
 #   NO ROLE: a registry row with no role counts as a back agent when the project record (stackshot's projects.json) lists it under background:
 #     (a front-listed row, an unlisted one, a side session and a row whose stored role says otherwise do not; no or a stale record: nobody extra);
 #     a real `watch --back-lanes` pass writes those roles into the registry, its dry run writes nothing. A row the record places nowhere takes the
-#     front or back entry of the roles file (stackshot's roles.json) and moves with that role (a keeper entry, a retired one, a stale file: nobody).
+#     front or back entry of the roles file (stackshot's roles.json) and moves with that role (the keeper is a mark on one front or back agent, "keeper": true on its entry, and moves with that agent's role; an entry whose role is the old keeper, a retired one, a stale file: nobody).
 #   CATCH-UP: while the back agents are off home, one that is still on the wrong side (spawned or tagged after the step, not live then) is queued onto
 #     the rule's lane at the next pass, once per window (the state's queued list), never twice; a state without the list queues those still home once;
 #     step 3 clears the list; nothing at home.
@@ -579,7 +579,7 @@ sp lr-front-x --project projects/foo --role front --model fable --dry-run
 rm -f "$ST/lane-state.tsv"
 
 echo "== the roles file: a row the project record places nowhere takes its front or back entry"
-# the row has no role; stackshot's roles.json (the Overview's Role column) names it: front moves with the front agents, back with the back agents; keeper, retired and stale: nobody
+# the row has no role; stackshot's roles.json (the Overview's Role column) names it: front moves with the front agents, back with the back agents; a flagged front or back entry (the keeper mark) moves with its role; the old keeper role, retired and stale: nobody
 nr() {  # <name> → add a live row with no role, a pane and a lane on home
     python3 -I -S - "$SESSIONS" "$1" <<'PY'
 import json, sys
@@ -588,15 +588,26 @@ d["sessions"][n] = {"id": n, "name": n, "state": "live", "role": None, "side": N
 PY
     echo "$1" >> "$FAKE_LIVE"; printf '%s\tsubscription-1\n' "$1" >> "$FAKE_LANES"
 }
-mkroles() {  # [generated epoch] → the roles file: rr-front front, rr-back back, rr-keeper keeper, rr-gone front but retired, rr-rec front (the record says back)
+mkroles() {  # [generated epoch] → the roles file: rr-front front, rr-back back, rr-keeper keeper (the old form), rr-gone front but retired, rr-rec front (the record says back);
+    # the keeper as a mark on one agent ("keeper": true beside a front or back role): rr-kfront front, rr-kback back, rr-kold the old keeper role with the flag, rr-kgone front, flagged and retired
     python3 -I -S - "$SALA_ROLES_FILE" "$(iso "${1:-$NOW}")" <<'PY'
 import json, sys
 e = lambda role, **kw: dict({"role": role, "project": "projects/x", "live": True}, **kw)
-json.dump({"generated": sys.argv[2], "ids": {}, "sessions": {"rr-front": e("front"), "rr-back": e("back"), "rr-keeper": e("keeper"), "rr-gone": e("front", retired=True), "rr-rec": e("front")}},
+json.dump({"generated": sys.argv[2], "ids": {}, "sessions": {"rr-front": e("front"), "rr-back": e("back"), "rr-keeper": e("keeper"), "rr-gone": e("front", retired=True), "rr-rec": e("front"),
+    "rr-kfront": e("front", keeper=True), "rr-kback": e("back", keeper=True), "rr-kold": e("keeper", keeper=True), "rr-kgone": e("front", keeper=True, retired=True)}},
           open(sys.argv[1], "w"))
 PY
 }
-regroles() { regf; for n in rr-front rr-back rr-keeper rr-gone rr-rec; do nr "$n"; done; }
+RRNAMES="rr-front rr-back rr-keeper rr-gone rr-rec rr-kfront rr-kback rr-kold rr-kgone"
+regroles() { regf; for n in $RRNAMES; do nr "$n"; done; }
+rr_rows() {  # the setup above discards its errors: an absent row would look like a row correctly refused a role, so each fixture row must exist, be live and have no role
+    python3 -I -S - "$SESSIONS" $RRNAMES <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))["sessions"]
+bad = [n for n in sys.argv[2:] if n not in d or d[n].get("state") != "live" or d[n].get("role") is not None]
+print(" ".join(bad) if bad else "ok")
+PY
+}
 rec_rr() {  # the project record lists rr-rec as a background agent
     python3 -I -S - "$SALA_PROJECT_RECORD" "$(iso "$NOW")" <<'PY'
 import json, sys
@@ -607,8 +618,12 @@ BACKRR="op|lane|aws-platform|back-a|back-b|back-fab|rr-rec|--from|sala-watch|--w
 regroles; rec_rr; quota 95 $W1; out=$(tick)
 [ "$(ops)" = 2 ] && [ "$(fop 1)" = "$BACKRR" ] && [ "$(fop 2)" = "$FRONT3" ] && ok "no roles file: the row the record lists moves (rr-rec); the other rows with no role move nobody (as before)" || bad "no roles file: ops=$(ops) $(fop 1) $(fop 2)"
 regroles; rec_rr; mkroles; quota 95 $W1; out=$(tick)
-[ "$(ops)" = 2 ] && [ "$(fop 1)" = "op|lane|aws-platform|back-a|back-b|back-fab|rr-back|rr-rec|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "the roles file's back entry moves with the back agents, and the record's own listing (rr-rec, back) comes first" || bad "roles back: ops=$(ops) $(fop 1)"
-[ "$(fop 2)" = "op|lane|aws-platform|front-a|front-b|front-fab|rr-front|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "its front entry moves with the front agents; a keeper entry, a retired entry and the back-listed rr-rec do not" || bad "roles front: $(fop 2)"
+[ "$(ops)" = 2 ] && [ "$(fop 1)" = "op|lane|aws-platform|back-a|back-b|back-fab|rr-back|rr-kback|rr-rec|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "the roles file's back entry moves with the back agents, and the record's own listing (rr-rec, back) comes first" || bad "roles back: ops=$(ops) $(fop 1)"
+[ "$(fop 2)" = "op|lane|aws-platform|front-a|front-b|front-fab|rr-front|rr-kfront|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "its front entry moves with the front agents; a keeper entry, a retired entry and the back-listed rr-rec do not" || bad "roles front: $(fop 2)"
+[ "$(rr_rows)" = ok ] && ok "the nine fixture rows exist, are live and have no role of their own" || bad "fixture rows missing or not as intended: $(rr_rows)"
+case " $(fop 1) " in *"|rr-kback|"*) ok "a flagged back entry (the keeper mark on a builder, rr-kback) moves with the back agents though the row has no role";; *) bad "flagged back entry: $(fop 1)";; esac
+case " $(fop 2) " in *"|rr-kfront|"*) ok "a flagged front entry (the keeper mark on a -main agent, rr-kfront) moves with the front agents though the row has no role";; *) bad "flagged front entry: $(fop 2)";; esac
+case "$(fop 1) $(fop 2)" in *rr-kold*|*rr-kgone*|*rr-keeper*|*rr-gone*) bad "an uncounted entry moved: $(fop 1) / $(fop 2)";; *) ok "an entry whose role is the old keeper (flagged or not) and a flagged entry that is retired move nobody";; esac
 regroles; rec_rr; mkroles $((NOW - 7200)); quota 95 $W1; out=$(tick)
 [ "$(fop 1)" = "$BACKRR" ] && [ "$(fop 2)" = "$FRONT3" ] && ok "a stale roles file (2 h old) is not read" || bad "stale roles: $(fop 1) / $(fop 2)"
 rm -f "$SALA_ROLES_FILE" "$SALA_PROJECT_RECORD"

@@ -35,7 +35,7 @@
                                  #   Unset: ~/stackshot, as before. Set EMPTY on a box with no stackshot: every one of those defaults is empty at once. The
                                  #   explicit knobs (SALA_AGENT_CHECK_SCRIPT, SALA_SPAWN_ASK_CMD, SALA_SIDE_*_CMD, SALA_STACKSHOT_CLIENT, STACKSHOT_CLIENT,
                                  #   SALA_WEB_ROLES_CMD) win over it. release.sh and sala-web read the environment only, not this file
-#SALA_SPAWN_ASK_CMD="python3 ~/stackshot/stackshot/fleet/client.py message"   # the stackshot message that asks a page's keeper for an unlisted name's agents line
+#SALA_SPAWN_ASK_CMD="python3 ~/stackshot/stackshot/fleet/client.py message"   # the stackshot message that asks the project's keeper for an unlisted name's agents line
                                  #   (default: `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py message`; `<cmd> <page key> <text> --sender "sala spawn"`, detached, 150 s); set it empty to never ask
 #SALA_SPAWN_ASK_EVERY=3600        # seconds before the same name's keeper is asked again (the stamp: ~/.local/state/salamander/spawn-asked/<name>)
 #SALA_AGENT_NAME_MAX=48           # a project agent's name: lowercase letters, digits and dashes, no dash at either end, at most this many characters

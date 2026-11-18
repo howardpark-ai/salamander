@@ -40,8 +40,9 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
                                                                              no role counts by what the record says of it, else by the roles file:
                                                                              stackshot's roles.json, a front or back entry that is not retired
                                                                              and does not name another project than the row's
-                                                                             (an entry or a row with no project is never refused);
-                                                                             "keeper" entries are not counted)
+                                                                             (an entry or a row with no project is never refused); the project's
+                                                                             keeper is a mark on one front or back agent ("keeper": true) and counts
+                                                                             with that agent's role; an entry whose role is the old "keeper" is not counted)
   front-names [--record F] [--record-max-age S] [--roles F] [--roles-max-age S]
                                                                              read-only: the same for the live front agents
   list [--all] [--json]                                                      the registry, read-only
@@ -472,7 +473,7 @@ def load_record(path, max_age):
 
 
 # The roles file: stackshot keeps $HOME/.local/state/stackshot/roles.json ({"generated": "<ISO Z>", "ids": {...}, "sessions": {name: {"role":
-# "front"|"back"|"keeper", "project": key, "live": bool[, "retired": true][, "page_owed": true]}}}), rewritten every few minutes: the one answer
+# "front"|"back"[|"keeper", the old form], "project": key, "live": bool[, "keeper": true][, "retired": true][, "page_owed": true]}}}), rewritten every few minutes: the one answer
 # sala's Overview Role column shows. The back agents' lane rule reads it (back-names, front-names) for a row that has no role and that the project
 # record does not place either (a project's own session, with no role on its row and on no agents map). It is read with the same rule as the
 # record (written at most ROLES_MAX_AGE seconds ago, else it answers nothing). It matches a row by name, and gives a row its role only when the row
@@ -482,8 +483,12 @@ ROLES_MAX_AGE = 1800
 
 
 def load_roles(path, max_age):
-    """name -> (role, project) for every entry of the roles file with a "front" or "back" role that is not retired (a "keeper" or any other role
-    is not counted; project is the entry's project key, None when it has none); RecordUnavailable with the reason (not configured, missing, unreadable, no "sessions" object, stale)."""
+    """name -> (role, project) for every entry of the roles file with a "front" or "back" role that is not retired (any other role is not counted;
+    project is the entry's project key, None when it has none); RecordUnavailable with the reason (not configured, missing, unreadable, no "sessions" object, stale).
+    The project's keeper is a mark on one front or back agent (`"keeper": true` on its entry), never a role of its own: a marked entry counts with its
+    own role (a marked builder as back, a marked -main agent or other non-builder as front), is dropped when retired like any other, and the flag changes
+    nothing for an entry without it. An entry whose role is the old "keeper" (stackshot still writes it until it removes that form) is not counted,
+    flagged or not."""
     if not path:
         raise RecordUnavailable("no roles file is configured")
     try:

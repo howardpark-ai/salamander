@@ -135,7 +135,7 @@ if mode == "exit3":
     print("   ✗ %s is not on the page's agents map" % name)
     print("   REGISTER: %s" % project)
     sys.stderr.write("✗ refused: the plan for spawn %s did not pass (exit 3) — nothing queued\n" % name)
-    sys.stderr.write("   the page's keeper was asked to register it in one stackshot message (to %s)\n" % project)
+    sys.stderr.write("   the project's keeper was asked to register it in one stackshot message (to %s)\n" % project)
     print("REGISTER: %s" % project)
     print("python3 ~/stackshot/stackshot/fleet/client.py post project-agent %s %s --role main %s --mandate \"<one line>\"   # \"quoted\" & <tagged>" % (project, name, "--back" if role == "back" else "--front"))
     sys.exit(3)
@@ -420,7 +420,7 @@ def test_what_the_queue_answers_reaches_the_page_as_it_is(env, monkeypatch):
     assert d["block"] == ("REGISTER: projects/gamma-harbor\n"
                           "python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/gamma-harbor gamma-harbor-main --role main --front --mandate \"<one line>\"   # \"quoted\" & <tagged>")
     assert "ADD-TO-PAGE" not in d["block"] and "agents:" not in d["block"]
-    assert d["keeper"] == "the page's keeper was asked to register it in one stackshot message (to projects/gamma-harbor)"
+    assert d["keeper"] == "the project's keeper was asked to register it in one stackshot message (to projects/gamma-harbor)"
     assert "✗ refused" in d["error"] and "not on the page's agents map" in d["error"]
     s.mode("exit4")
     d = c.post("/api/spawn", json=body).json()

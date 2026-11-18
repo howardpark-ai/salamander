@@ -1454,8 +1454,9 @@ agent_listed_on() {  # <name> <page key> → 0 listed on that page (its mandate 
 }
 # THE PROJECT RECORD (docs/stackshot-contracts.md, interface 20). stackshot publishes the project record at
 # ~/.local/state/stackshot/projects.json (schema 1: {"schema": 1, "generated": "<ISO Z>", "projects": {<prj_xxxxxxxx>: {id, key,
-# keeper, agents: {<name>: {front, role, mandate_line[, page_owed]}}}}, "by_key": {<page key>: <id>}}), rewritten every few minutes,
-# so a spawn on the coordinator machine reads a file: no token, no HTTP. It is the FIRST source of the project spawn's agents-map check and of
+# keeper, agents: {<name>: {front, role, mandate_line[, page_owed][, keeper]}}}}, "by_key": {<page key>: <id>}}), rewritten every few minutes
+# (`keeper` stays an agent name; the keeper is a mark on one agent, `keeper: true` on its entry, and a project record may also carry keeper_agent and
+# keeper_source, optional fields sala does not require), so a spawn on the coordinator machine reads a file: no token, no HTTP. It is the FIRST source of the project spawn's agents-map check and of
 # agent_unlisted (plain spawn, rename); pages.py (above) is the fallback when the record cannot answer (missing, unreadable,
 # another schema, older than SALA_PROJECT_RECORD_MAX_AGE, no such project). An agent with `page_owed: true` was registered
 # through `client.py post project-agent` and its page line is still owed: for a spawn that registration is the point, so it
@@ -3897,7 +3898,8 @@ lane_fallback_auto() {
 # lane, once per step (state key `queued`: <lane>|<window>|<names>).
 # THE FRONT STEP (back_lane_front_tick; SALA_BACK_LANE_FRONT_THRESHOLD, default 95): the live front agents (a registry row with role front, or no role and
 # the project record's top-level agent, or else no role and a front entry of the roles file (stackshot's roles.json, the same answer as the Overview's
-# Role column: it names the project keepers' own sessions, which have no role on their row and are on no agents map; a `keeper` entry or a retired one
+# Role column: it names the project agents (a keeper included) that have no role on their row and are on no agents map; the keeper is a mark on one
+# front or back agent (`"keeper": true` on its entry) and counts with that agent's role; an entry whose role is the old `keeper`, or a retired one,
 # is not counted, an entry that names another project than the row's gives that row nothing, and the record comes first); no side session, not SALA_NO_RELAUNCH, not the master) are not part of step 1. When the home lane's reading
 # (the same fresh one) reaches the front threshold and the rule has the back agents off home, they move too, onto the rule's lane: those whose lane is in
 # the order and before it, once per weekly window (state keys front_window, fqueued, fblocked). Step 1 runs first in the same pass, so a pass that finds the

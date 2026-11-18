@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 45
+contract-version: 46
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -296,6 +296,14 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   (a 429 whose text says the account crossed its monthly usage threshold and when access returns); its `reset` is that time. `lane` is the lane the pane runs on, as for the login lanes' kinds. Additive: a reader
   that treats `lim` as an opaque word is unaffected. sala also marks such a lane dormant until that time (the seventh `until` column of its own `lane-state.tsv`, which stackshot does not read) and moves its sessions to the lane's fallback.
 
+- **46** — Wed Nov 18th 2026. Interfaces 8, 11 and 20 (the keeper of a project): stackshot makes a project's keeper a mark on one agent instead of a separate name. In the roles file
+  (`roles.json`, `SALA_ROLES_FILE`, the lane rule's second source) a session's entry may carry `"keeper": true` beside its `role` (`front` or `back`); the keeper is never a third role, and an entry
+  whose `role` is the old `keeper` stays accepted until stackshot removes that form. sala counts a flagged entry with its own role (a marked builder as back, a marked -main or other non-builder as front),
+  does not count a flagged entry that is retired, and still does not count an entry whose `role` is `keeper`, flagged or not; an entry without the flag reads exactly as before. In the project record
+  (interface 20) each project may carry two more fields, `keeper_agent` (the agent that keeps the project) and `keeper_source` (`mark`, `derived`, `legacy` or `empty`), and an agent's entry may carry
+  `"keeper": true`; `keeper` stays an agent name. All additive and optional: sala reads none of them and requires none, so a record without them reads as before. The spawn keeper ask (interface 8) is
+  addressed to the project's keeper, the mark on one agent (the builder, else the -main agent, when nothing is marked); its command, text and exit codes are unchanged.
+
 ## How each entry reads
 
 - **Direction**: `sala → stackshot` means sala writes or calls and stackshot reads or answers; `stackshot → sala` the
@@ -503,7 +511,8 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 ## 8. Spawn keeper ask
 
 - **Direction**: sala → stackshot (CLI message).
-- **Mechanism**: `SALA_SPAWN_ASK_CMD` (unset → `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py message`, `~/stackshot` when that is unset, none when it
+- **Mechanism**: the project's keeper is asked: the keeper is a mark on one agent of the project (the builder, else the -main agent, when nothing is marked), and the
+  message goes to the project's page key, which stackshot routes to it. `SALA_SPAWN_ASK_CMD` (unset → `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py message`, `~/stackshot` when that is unset, none when it
   is empty; set empty → never asked),
   run as `<cmd> <page key> <text> --sender "sala spawn"`, detached, 150 s timeout, at most once per
   `SALA_SPAWN_ASK_EVERY` (3600 s) per name (stamp `$SALA_STATE_DIR/spawn-asked/<name>`). The text starts `[sala spawn] …`
@@ -568,7 +577,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Direction**: sala's web app → stackshot (CLI).
 - **Mechanism**: `SALA_WEB_ROLES_CMD` (default `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles`: `~/stackshot` when `SALA_STACKSHOT_DIR` is
   unset in sala-web's environment, no command when it is empty, `config.py` `_roles_cmd`), every
-  `roles_ttl` 30 s; expects JSON `{"sessions": {<name>: {"role", "project"}}}`.
+  `roles_ttl` 30 s; expects JSON `{"sessions": {<name>: {"role", "project"}}}` (an entry may also carry `"keeper": true`, the mark of a project's keeper from version 46: sala-web ignores it, and `role` is still `front` or `back`, or the old `keeper`).
 - **Owners**: sala `web/src/sala_web/sessions.py:377` `RolesCache`. stackshot `client.py:107` `get("roles")` →
   `GET /client/roles` (503 `no roles yet` before the first roles file).
 - **Absent or changed**: a failure keeps the last good answer and sets `rolesError`; the overview shows sessions without
@@ -723,7 +732,10 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Mechanism**: `~/.local/state/stackshot/projects.json` (`SALA_PROJECT_RECORD` overrides the path), written atomically by
   stackshot's `projects.py` `sync()` whenever the records change and at least every 4 minutes. Schema 1:
   `{"schema": 1, "generated": "<ISO Z>", "projects": {"prj_<8 hex>": {"id", "key" (the project page key), "keeper",
-  "agents": {"<name>": {"front": true|false, "role", "mandate_line", "page_owed"?: true}}}}, "by_key": {"<page key>": "<id>"}}`.
+  "keeper_agent"?, "keeper_source"?, "agents": {"<name>": {"front": true|false, "role", "mandate_line", "page_owed"?: true, "keeper"?: true}}}}, "by_key": {"<page key>": "<id>"}}`.
+  The keeper is a mark on one agent (version 46): `keeper` stays an agent name, `keeper_agent` is the agent that keeps the project and `keeper_source` says where it came
+  from (`mark`: a mark names it; `derived`: no mark, so the builder, else the -main agent; `legacy`: the page's old fields name it; `empty`: nothing keeps it), and the marked agent's
+  entry carries `"keeper": true`. `keeper_agent`, `keeper_source` and the entry's `keeper` are optional additive fields that sala does not read and does not require.
   `front` is true for a top-level entry of the page's `agents:` map and false for one under `background:`; `role` is the part
   of the name after the project's name (`alex-builder` → `builder`); the project's main agent is the front entry whose
   name ends in `-main`. `page_owed: true` marks an agent registered through `client.py post project-agent` whose page line is
