@@ -1493,22 +1493,28 @@ ended). The app makes the session on demand instead of a user unit: a unit is no
 copy by hand), and would not bring the session back after a tmux server restart; making it on demand needs nothing outside
 the checkout.
 
-**The face.** ttyd 1.7.7's own face (13px, "Consolas,Liberation Mono,Menlo,Courier,monospace") has no Korean glyphs, so the Shell
-draws in **D2Coding 14px**, the file the pages themselves load (`static/fonts/D2Coding-Regular.woff2`). `hookShellTerminal`
-(`static/termclip.js`, called by `ensureShellFrame` and, on `terminal.html`, only when `?arg` is the `shellSession` that `api/config`
-names) follows `hookTerminalClipboard`'s pattern: it polls after each frame load for the frame's `window.term`, leaves a term it has
-hooked alone, and stops quietly on a cross-origin frame. In the frame's own document it declares the `@font-face` (at an absolute
+**The face.** ttyd 1.7.7's own face (13px, "Consolas,Liberation Mono,Menlo,Courier,monospace") has no Korean glyphs, so every terminal
+frame draws in **D2Coding 14px**, the file the pages themselves load (`static/fonts/D2Coding-Regular.woff2`): the Shell drawer, the
+Terminal tab (Claude session panes) and `terminal.html` for any session. `hookTerminalFont` (`static/termclip.js`, called by
+`ensureShellFrame`, `loadTerminal` and `terminal.js`) follows `hookTerminalClipboard`'s pattern: it polls after each frame load for the
+frame's `window.term`, leaves a term it has hooked alone, and stops quietly on a cross-origin frame (the poll is `hookWhenTerm`, which the key
+log's hook shares). In the frame's own document it declares the `@font-face` (at an absolute
 same-origin address made from `termclip.js`'s own URL, because the frame is served from `/tty/`, `font-display: block`), waits
 for `document.fonts.load("14px D2Coding")`, sets `term.options.fontFamily` (`"D2Coding", Consolas, monospace`) and `fontSize` (14), and
 fits the terminal again (`term.fit`, which ttyd's page exposes; else a `resize` event on the frame's window, which ttyd's own handler turns
 into a fit and a resize message to the pane). A file that does not load leaves ttyd's face. D2Coding is a double-width Korean font: a
 Korean letter takes two cells. The `@font-face` carries `size-adjust: 100.2%`: the advance at 14px is 7px, which Chrome measures as
 6.99997 and xterm floors to a 6px cell (the letters squeezed on a grid a pixel too narrow); two tenths of a percent put the measure over the
-whole pixel and change nothing the eye can see. The font file has a regular weight only, so bold is the browser's. The Terminal tab
-(Claude session panes) and `terminal.html` for any other session are left as ttyd draws them.
+whole pixel and change nothing the eye can see. The font file has a regular weight only, so bold is the browser's. The switch happens
+a moment after the term appears and changes the cell size, so a Terminal tab pane is refitted once, as the Shell's is. The face is set once per
+term and survives a reconnect of the same term: ttyd 1.7.7 re-applies its preferences on every connect, but its 13px Consolas defaults are
+constructor options, not preferences, so a font reaches `applyPreferences` only if the server is started with `-t fontSize=...` or
+`-t fontFamily=...` or the page URL carries `?fontSize=`; nothing here does. If one ever does, the face has to be re-applied after each
+preferences message.
 
-**The key log.** The Hangul/English key (right Alt on most keyboards) did not seem to switch the Shell to Korean; the same hook
-records what the keyboard sends to the frame so the cause can be read rather than guessed (a keyboard type that reads right Alt as a plain
+**The key log.** The Hangul/English key (right Alt on most keyboards) did not seem to switch the Shell to Korean; `hookShellTerminal`
+(called by `ensureShellFrame` and, on `terminal.html`, only when `?arg` is the `shellSession` that `api/config` names; no other
+frame, a Claude session's included) records what the keyboard sends to the frame so the cause can be read rather than guessed (a keyboard type that reads right Alt as a plain
 Alt, or a browser that loses the keydown while the IME switches). Capture-phase listeners on the frame's document record `keydown`,
 `keyup`, `compositionstart`, `compositionupdate` and `compositionend` as `{t (ms since the epoch), type, key, code, keyCode,
 isComposing, shift, ctrl, alt, meta}` (a composition event: `{t, type}` only). **The log records which non-character keys were

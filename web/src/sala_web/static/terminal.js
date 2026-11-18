@@ -18,6 +18,7 @@
   frame.allow = "clipboard-read; clipboard-write";
   document.getElementById("term-full").append(frame);
   hookTerminalClipboard(frame);
-  if (arg && arg === shellSession) hookShellTerminal(frame);   // the Shell session only: D2Coding 14px and the key log; a Claude session's pane stays as ttyd draws it
+  hookTerminalFont(frame);   // D2Coding 14px for any session
+  if (arg && arg === shellSession) hookShellTerminal(frame);   // the key log is the Shell session's alone
   frame.addEventListener("load", () => { try { frame.contentWindow.focus(); } catch { /* cross-origin */ } }, { once: true });
 })();
