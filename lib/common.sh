@@ -3858,7 +3858,7 @@ lane_fallback_auto() {
 # A standing rule for the BACKGROUND agents (registry rows with role back, or with no role that stackshot's project record lists on a
 # project's background: map, or else that the roles file (stackshot's roles.json, the same answer as the Overview's Role column) calls back
 # (lib/sessions.py `back-names`; the watch writes the record's role onto the row each tick, `sessions tag --auto`, never the roles file's; a row whose
-# project differs from the entry's project gets no role from the file); never a
+# project differs from the entry's project gets no role from the file; an entry with no project, or a row with none, is never refused); never a
 # side session) that keeps them off a login lane
 # near its weekly limit, in three steps over an ordered list of lanes (SALA_BACK_LANE_ORDER, first = home):
 #   1. the home lane's "This week" limit reaches SALA_BACK_LANE_THRESHOLD percent       → the back agents move to the second lane;

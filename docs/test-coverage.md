@@ -3811,10 +3811,10 @@ with the front step off the operation carries only the back agents; the dry run 
 unchanged, a Fable model switched to opus on bedrock and kept on a lane that runs it). `tests/sessions.sh` gains 2 checks for `front-names` (the front list, and a row with no role listed as a front by the record). Not covered, and why:
 the queue's own run of the move (`tests/lanefallback.sh` covers `op lane`), and moving a session's model back on the way home, which nothing does.
 
-### `tests/sessions.sh` +6, none retired: the roles file gives a role only when the row's project agrees (Wed Nov 18th 2026)
+### `tests/sessions.sh` +12 (6 role cases, 6 row-exists assertions), none retired: the roles file gives a role only when the row's project agrees (Wed Nov 18th 2026)
 
 The roles file matched a row by name alone, so a live row with no stored role that had been reassigned to another project could take its former project's role from a snapshot still under 30 minutes old, and be moved to the wrong lane by the back agents' rule. Kept because a wrong role moves a session people talk to onto a lane it should not be on.
-Fakes only (a second roles file the test writes, six rows it adds and retires again). `load_roles` now keeps each entry's project; a row on the same project gets the entry's role, a row with no project gets it, a row on another project gets none, the entry's bare slug and the row's `projects/<slug>` are the same project (and a bare slug naming another project is not), and an entry with no project agrees with any row. Not covered, and why: the file's real contents (stackshot's own tests cover it).
+Fakes only (a second roles file the test writes, six rows it adds and retires again; the setup discards its errors, so before the role cases six assertions check that each row exists, is live and carries its intended project, `rp-none` none: otherwise a row that failed to register would pass the "gets no role" cases). `load_roles` now keeps each entry's project; a row on the same project gets the entry's role, a row with no project gets it, a row on another project gets none, the entry's bare slug and the row's `projects/<slug>` are the same project (and a bare slug naming another project is not), and an entry with no project agrees with any row. Not covered, and why: the file's real contents (stackshot's own tests cover it).
 
 ### `tests/backlane.sh` +31 checks and `tests/sessions.sh` +11, none retired: the rule's front agents from the roles file, and the front home catch-up (Wed Nov 18th 2026)
 

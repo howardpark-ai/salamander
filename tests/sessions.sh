@@ -703,6 +703,11 @@ for n in rp-same rp-none rp-diff rp-bare rp-bare-diff rp-noproj; do i=$((i + 1))
 sessions_set rp-same project=projects/x >/dev/null 2>&1; sessions_set rp-diff project=projects/y >/dev/null 2>&1
 sessions_set rp-bare project=projects/x >/dev/null 2>&1; sessions_set rp-bare-diff project=projects/x >/dev/null 2>&1; sessions_set rp-noproj project=projects/x >/dev/null 2>&1
 pn() { sessions_py "$1-names" --record "$REC" --record-max-age 600 --roles "$ROLES2" --roles-max-age 1800 2>&1 | paste -sd' '; }
+# the setup above discards its errors: an absent row would look like a row correctly refused a role, so each fixture row must exist, be live, and carry its intended project
+for pair in rp-same:projects/x rp-none:null rp-diff:projects/y rp-bare:projects/x rp-bare-diff:projects/x rp-noproj:projects/x; do   # q prints JSON: a string is quoted, none is null, an absent live row is "<none>"
+    fn=${pair%%:*}; fp=${pair#*:}; [ "$fp" = null ] || fp="\"$fp\""
+    [ "$(q "$fn" state live)" = '"live"' ] && [ "$(q "$fn" project live)" = "$fp" ] && ok "fixture row $fn exists, is live and has project $fp" || bad "fixture row $fn: state=$(q "$fn" state live) project=$(q "$fn" project live) (want live, $fp)"
+done
 n=$(pn front)
 case " $n " in *" rp-same "*) ok "a row on the same project as the roles entry gets the entry's role (rp-same: front)";; *) bad "same project: '$n'";; esac
 [ "$(q rp-none project)" = null ] && case " $(pn back) " in *" rp-none "*) ok "a row with no project gets the entry's role (rp-none: back)";; *) bad "row without project: $(pn back)";; esac || bad "rp-none has a project: $(q rp-none project)"
