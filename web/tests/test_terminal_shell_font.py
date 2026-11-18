@@ -513,12 +513,17 @@ def test_the_font_survives_ttyd_reconnecting_on_the_same_term(real_shell, where)
       w.WebSocket = class extends Orig { constructor(...a) { super(...a); window.__ws.push("new"); } };
       return 1; })()""" % frame)
     r["pane"].restart_ttyd()
-    # the open socket dropped (it was made before the patch above, so only its overlay says so): ttyd's page waits for Enter on "Press Enter to Reconnect"
-    assert wait_for(b, '/Reconnect/.test(%s.contentDocument.body.innerText)' % frame, 25) is True
-    for _ in range(3):                                                            # a connect the proxy still refuses puts the overlay back: Enter again
+    # the open socket dropped (it was made before the patch above, so only its overlay says so): ttyd's page waits for Enter on "Press Enter to
+    # Reconnect", or, if it reconnected by itself, has already redrawn the pane
+    PROMPT = '/Reconnect/.test(%s.contentDocument.body.innerText)' % frame
+    READY = SCREEN_READY % frame
+    assert wait_for(b, "(%s) || (%s)" % (PROMPT, READY), 25) is True
+    for _ in range(3):                                                            # a connect the proxy still refuses puts the prompt back: Enter again
+        if wait_for(b, "!(%s) || (%s)" % (PROMPT, READY), 1) and wait_for(b, READY, 12):
+            break
         b.evaluate(frame + ".contentWindow.term.focus(); 1")
         press(b, "Enter", "Enter", 13)
-        if wait_for(b, SCREEN_READY % frame, 12):                                 # ttyd redrew the pane into the page
+        if wait_for(b, READY, 12):                                                # ttyd redrew the pane into the page
             break
     assert wait_for(b, SCREEN_READY % frame, 1) is True
     assert b.evaluate("window.__ws.length >= 1") is True                          # through a new socket
