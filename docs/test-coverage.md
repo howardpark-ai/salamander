@@ -3811,6 +3811,18 @@ with the front step off the operation carries only the back agents; the dry run 
 unchanged, a Fable model switched to opus on bedrock and kept on a lane that runs it). `tests/sessions.sh` gains 2 checks for `front-names` (the front list, and a row with no role listed as a front by the record). Not covered, and why:
 the queue's own run of the move (`tests/lanefallback.sh` covers `op lane`), and moving a session's model back on the way home, which nothing does.
 
+### `tests/backlane.sh` +31 checks and `tests/sessions.sh` +11, none retired: the rule's front agents from the roles file, and the front home catch-up (Wed Nov 18th 2026)
+
+Two gaps in who the back agents' rule moves. A project's own session has no role on its row and is on no agents map, so the rule did not count it as a front agent and step 3 never took it home; and once step 3 had put the rule back at home, nothing queued a front agent step 3 had missed.
+`front-names` and `back-names` now also read stackshot's roles file (`SALA_ROLES_FILE`, the Overview's Role column) for a row the project record places nowhere; `back_lane_front_home_catchup` queues the live front agents standing off home onto the home lane once per window. Kept because a wrong
+answer leaves sessions people talk to on a lane at its limit for a whole week, moves a keeper entry or a retired one the Overview does not show as an agent, queues a pane twice while it is still closing, or fires in a window in which step 3 never ran.
+Fakes only (the fake `salamander` gains a switch that queues without applying the lane move, to stand for a busy pane; the suite's own roles file). `sessions.sh`: a row with no role listed front or back in a fresh roles file counts as such; a stored role and the record's listing come first; a keeper entry, a retired entry, a side row,
+a retired row and a name with no live row are not counted; a missing, stale, garbled or shapeless file and no `--roles` leave both lists as they were; read-only (registry and log unchanged). `backlane.sh`: the same through a real pass (the operation names the roles file's entries and not the rest; a stale file is not read);
+the home catch-up: one `op lane subscription-1 <name>` with the rule's words for a front agent left on bedrock after step 3, a repeat tick and a second late agent in the window (the first not asked again); nothing for a window in which step 3 did not fire (never, or a later one), a stale, missing, at-threshold or above-threshold
+reading (89% queues), a dormant or not-ready home lane, the front step off, `0` or invalid, the rule off; a pinned front agent held out and named, a side session, a pane-less row and a lane outside the order left; the front agents step 3 itself took not queued again in that pass or the next
+(`hqueued` written by step 3); a refused operation gives a blocked line, records nothing and is retried; the dry run names the agent and writes and queues nothing; the next step 1 clears `hqueued`; off home no home catch-up line. Not covered, and why: the roles file's real contents
+(stackshot's own tests cover the file; the suite writes its shape from interface 11 and the Overview), and the operation's own run of the move (`tests/lanefallback.sh`).
+
 ### Every terminal draws in D2Coding 14px and the Shell keeps a key log: `web/tests/test_terminal_shell_font.py` new, 20 tests, and `web/tests/test_shell_keylog.py` new, 75 cases (Tue Nov 17th 2026)
 
 The Terminal tab's frame, the Shell drawer's frame and the full-size page for any session draw in D2Coding 14px (ttyd's own face has no Korean glyphs); the Shell's frame alone (the drawer, and the full-size page when its `?arg` is the Shell session) also records what the keyboard sends to the terminal, for the

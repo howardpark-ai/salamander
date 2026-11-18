@@ -309,6 +309,11 @@ LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-la
   as a bare spawn does for a name the record lists. A name on no map, on two maps, or whose row names another project is left as it is,
   and a stale or missing record changes nothing: the rows with a stored role are still counted. A role already on a row is never
   overwritten. To fill the registry at once: `sala sessions tag --auto --dry-run` (what it would do), then `sala sessions tag --auto`.
+  A row the record places nowhere (a project's own session has no role on its row and is on no agents map) counts by **the roles file**,
+  stackshot's `roles.json` (`SALA_ROLES_FILE`, the same answer as the Overview's Role column), when it is fresh (written within
+  `SALA_ROLES_FILE_MAX_AGE`, default 1800 s): a `front` or `back` entry that is not retired gives that role; a `keeper` entry is not counted,
+  and the record comes first. Only the rule's reader (`back-names`, `front-names`) reads it; nothing writes it onto a row, and a missing,
+  stale or unreadable file changes nothing.
 - **The catch-up.** A step fires once per weekly window, so an agent the earlier pass did not take (it had no role then, or its pane
   was not up) would stay on the home lane until the next window. While the rule has the agents off home, every pass that finds one
   of them still on a lane it should have left moves it with the rule's lane (a plain `sala op lane`, like the step) and notes the
@@ -387,6 +392,14 @@ background agents on. It runs only while the rule is on, and is its own switch.
   operation carries only the background agents, as before.
 - **Catch-up.** A front agent spawned or tagged after the front step fired, and found on the wrong side, is queued once per window (the
   `fqueued` list), as for the background agents.
+- **Home catch-up.** Step 3 is the only way the rule takes front agents home, so one it missed (not live, or not yet counted as a front
+  agent, when step 3 fired) would stay off home for the whole window. While the rule is at home and the front step is on, a pass that finds
+  the home lane usable (not dormant, ready), a fresh reading under `SALA_BACK_LANE_THRESHOLD` and step 3 fired in this window queues the live
+  front agents standing off home onto the home lane, once per window (state key `hqueued`: `<home>|<window>|<names>`; step 3 fills it with
+  the front agents it took itself, so a busy pane that has not finished moving is not queued twice; the next step 1 or 2 clears it). Who
+  moves is as for the front step (a pinned one is held out and named). The lines read `moved: front catch-up (home): …`, `would: front
+  catch-up (home): …` (the dry run queues and writes nothing) and `blocked: front catch-up (home) not queued: …`; with any condition not
+  met it says nothing.
 - **Spawn.** A front agent (`sala spawn --project … --role front`, not a side session) spawned while the front step is engaged launches on
   the rule's lane (`--lane` wins). A Fable model on a lane that cannot run it launches on `SALA_FALLBACK_FABLE_MODEL`, and the dry run says so.
 - **Dry run.** `sala watch --back-lanes --dry-run` prints what step 1 would do and what the front step would do on that lane, including

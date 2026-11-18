@@ -1462,6 +1462,7 @@ agent_listed_on() {  # <name> <page key> → 0 listed on that page (its mandate 
 # counts as listed (the note says the line is owed).
 : "${SALA_PROJECT_RECORD:=$HOME/.local/state/stackshot/projects.json}"
 : "${SALA_PROJECT_RECORD_MAX_AGE:=600}"    # seconds: the contract says a reader treats an older file as stale (stackshot rewrites it every 5 minutes)
+: "${SALA_ROLES_FILE_MAX_AGE:=1800}"       # seconds: an older file answers nothing (stackshot rewrites it every few minutes)
 project_record_agent() {  # <page key, or empty for any project> <name> [front|back to check] → rc 0 listed (stdout line 1: the mandate line, line 2: the project's -main agent or empty) · 3 the project is in the record and the name is not on its agents map, or (no page key given) the name is on no project of a fresh record (line 1 the why, line 2 the -main agent, empty for no key) · 5 listed with the other role (the why) · 1 the record cannot answer (the why)
     [ -r "$SALA_PROJECT_RECORD" ] || { echo "no project record at $SALA_PROJECT_RECORD"; return 1; }
     local out rc
@@ -3855,7 +3856,8 @@ lane_fallback_auto() {
 }
 # THE BACK AGENTS' LANE RULE (lib/watch.sh `back_lane_tick`, lib/spawn.sh, `sala watch --back-lanes`).
 # A standing rule for the BACKGROUND agents (registry rows with role back, or with no role that stackshot's project record lists on a
-# project's background: map (lib/sessions.py `back-names`; the watch writes that role onto the row each tick, `sessions tag --auto`); never a
+# project's background: map, or else that the roles file (stackshot's roles.json, the same answer as the Overview's Role column) calls back
+# (lib/sessions.py `back-names`; the watch writes the record's role onto the row each tick, `sessions tag --auto`, never the roles file's); never a
 # side session) that keeps them off a login lane
 # near its weekly limit, in three steps over an ordered list of lanes (SALA_BACK_LANE_ORDER, first = home):
 #   1. the home lane's "This week" limit reaches SALA_BACK_LANE_THRESHOLD percent       → the back agents move to the second lane;
@@ -3893,7 +3895,9 @@ lane_fallback_auto() {
 # has the agents off home a pass that finds one still on the wrong side (it had no role, or no pane, when the step fired) moves it to the rule's
 # lane, once per step (state key `queued`: <lane>|<window>|<names>).
 # THE FRONT STEP (back_lane_front_tick; SALA_BACK_LANE_FRONT_THRESHOLD, default 95): the live front agents (a registry row with role front, or no role and
-# the project record's top-level agent; no side session, not SALA_NO_RELAUNCH, not the master) are not part of step 1. When the home lane's reading
+# the project record's top-level agent, or else no role and a front entry of the roles file (stackshot's roles.json, the same answer as the Overview's
+# Role column: it names the project keepers' own sessions, which have no role on their row and are on no agents map; a `keeper` entry or a retired one
+# is not counted, and the record comes first); no side session, not SALA_NO_RELAUNCH, not the master) are not part of step 1. When the home lane's reading
 # (the same fresh one) reaches the front threshold and the rule has the back agents off home, they move too, onto the rule's lane: those whose lane is in
 # the order and before it, once per weekly window (state keys front_window, fqueued, fblocked). Step 1 runs first in the same pass, so a pass that finds the
 # reading at the front threshold with the agents still home moves the back agents and then the front agents onto the lane step 1 chose. A pinned
@@ -3905,6 +3909,12 @@ lane_fallback_auto() {
 # (spawned, tagged, not live then) is queued once per window by the catch-up (back_lane_front_catchup, state key fqueued) and one spawned while the step
 # is engaged launches on the rule's lane (back_lane_front_spawn_lane). The step home (3) takes the front agents off home along with the back agents
 # when the front step is on or has fired; it too is reached only when the rule has the back agents off home.
+# THE FRONT HOME CATCH-UP (back_lane_front_home_catchup): step 3 is the only way the rule takes a front agent home, so one it missed (not live or not a
+# front agent when step 3 fired) would stay off home for the whole next window. While the rule is at home and the front step is on, a pass that finds the
+# home lane usable (not dormant, ready), a fresh reading under SALA_BACK_LANE_THRESHOLD, and step 3 fired in THIS window (the state's f0 and the reading's
+# window are the same window) queues the live front agents standing off home onto the home lane, once per window (state key hqueued:
+# <home>|<window>|<names>, which step 3 itself fills with the front agents it took in the same pass; any later step clears it). Pinned, off-order, master
+# and SALA_NO_RELAUNCH sessions are left as for the front step; a pinned one is named.
 : "${SALA_BACK_LANE_RULE:=off}"
 : "${SALA_BACK_LANE_ORDER:=subscription-1 aws-platform bedrock}"
 : "${SALA_BACK_LANE_THRESHOLD:=90}"
@@ -4047,10 +4057,10 @@ for p in panes.values():
     [ -n "$best" ] && { echo "$best"; return 0; }
     return 1
 }
-back_lane_names() {  # [back|front] → the live agents of that role (default back), one per line: a registry row with that role and no side, whose tmux session exists; a row with no role counts by what the project record's agents map says of it (lib/sessions.py back-names, front-names)
+back_lane_names() {  # [back|front] → the live agents of that role (default back), one per line: a registry row with that role and no side, whose tmux session exists; a row with no role counts by what the project record's agents map says of it, else by the roles file (lib/sessions.py back-names, front-names)
     sessions_on && [ -r "$SALA_SESSIONS_FILE" ] || return 0
     local s names
-    names=$(sessions_py "${1:-back}-names" --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" 2>/dev/null)
+    names=$(sessions_py "${1:-back}-names" --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" --roles "$SALA_ROLES_FILE" --roles-max-age "$SALA_ROLES_FILE_MAX_AGE" 2>/dev/null)
     while IFS= read -r s; do [ -n "$s" ] && tmux has-session -t "=$s" 2>/dev/null && echo "$s"; done <<< "$names"
     return 0
 }
@@ -4089,6 +4099,7 @@ back_lane_movers() {
 back_lane_same_window() { [ -n "$1" ] && [ -n "$2" ] && [ "$1" -lt $(( $2 + 3600 )) ] && [ "$1" -gt $(( $2 - 3600 )) ]; }
 back_lane_commit() {  # <step> <target> <window key> <target's place> [<the names queued, space-separated>] — the rule's state after a step; a step home clears the way out
     back_lane_put lane "$2"; back_lane_put moved_at "$(printf '%(%s)T' -1)"; back_lane_put "f$4" "$3"; back_lane_put blocked ""
+    [ -z "$(back_lane_get hqueued)" ] || back_lane_put hqueued ""   # the home catch-up's list is per stay at home: any step clears it (a step 3 writes its own right after)
     if [ "$1" = 3 ]; then
         back_lane_put window ""; back_lane_put queued ""
         local k; for k in front_window fqueued fblocked; do [ -z "$(back_lane_get "$k")" ] || back_lane_put "$k" ""; done   # the front step's record goes with the way out (written only if it was)
@@ -4211,6 +4222,8 @@ back_lane_tick_steps() {
         return 0; }
     id=$(printf '%s\n' "$out" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)
     back_lane_commit "$stp" "$target" "$key" "$ti" "${BL_MOVE[*]}"; [ "$picked" = "$target" ] || back_lane_put "f$pti" "$key"
+    # the front agents this step took are queued: the home catch-up (same pass) must not queue them again while their busy panes finish moving
+    [ "$stp" != 3 ] || [ "$picked" != "$target" ] || [ "${#BL_FMOVE[@]}" -eq 0 ] || back_lane_put hqueued "$target|$key|$(IFS=,; echo "${BL_FMOVE[*]}")"
     lane_log backlane "$target" "step $stp: ${#BL_MOVE[@]} back agent(s)${BL_FMOVE[*]:+ and ${#BL_FMOVE[@]} front agent(s)} queued onto $target (op ${id:-?}): $why"
     echo "moved: step $stp ($why): ${#BL_MOVE[@]} back agent(s)${BL_FMOVE[*]:+ and ${#BL_FMOVE[@]} front agent(s)} to the $(lane_shown "$target") lane, op ${id:-?} queued (the operation posts once when it is done)$(back_lane_pinned_note)"
     [ "${#BL_STAY[@]}" -eq 0 ] || echo "notice: ${#BL_STAY[@]} Fable back agent(s) did not move to the $(lane_shown "$target") lane (it cannot run Fable): ${BL_STAY[*]}"
@@ -4300,6 +4313,7 @@ back_lane_front_tick() {
         echo "idle: front step: the $(lane_shown "$home") lane is at $pct% (front threshold $BL_FT%): the front agents stay"
     fi
     [ "$ci" -gt 0 ] && back_lane_front_catchup "$cur" "$dry"
+    [ "$ci" -eq 0 ] && back_lane_front_home_catchup "$dry"
     return 0
 }
 # back_lane_front_fire <dry> <the rule's lane> <its place> <percent> <window key> <reset epoch> → the front step itself (a dormant or unready target as for step 1)
@@ -4376,6 +4390,41 @@ back_lane_front_catchup() {
     lane_log backlane "$tgt" "front catch-up: ${#BL_FSENT[@]} front agent(s) queued onto $tgt (op ${BL_OPID:-?})"
     echo "moved: front catch-up: ${#BL_FSENT[@]} front agent(s) the rule had not moved (${BL_FSENT[*]}) to the $(lane_shown "$tgt") lane$sub, op ${BL_OPID:-?} queued$(back_lane_front_swapnote "$tgt" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
     [ "${#BL_FFAIL[@]}" -eq 0 ] || back_lane_front_failnote "$tgt" "$fw"
+    return 0
+}
+# THE FRONT HOME CATCH-UP (the header's paragraph): the rule is at home and step 3 has fired in the weekly window the fresh reading belongs to, yet a live front
+# agent still stands off home (it was not live, or not a front agent, when step 3 fired). It is queued onto the home lane once per window: the state's hqueued
+# (<home>|<step 3's window key f0>|<names>) holds the names already asked, so a pane the move could not close yet (a busy one, retried by the operation itself)
+# is not queued again. Every other condition failing leaves nothing printed and nothing written.
+# back_lane_front_home_catchup <dry 0|1> → prints a `moved:` / `would:` line when it queues (or would), `blocked:` / `notice:` as the front catch-up does
+back_lane_front_home_catchup() {
+    local dry=$1 home f0 rd st pct win rst q ql qw qn n late=() rc=0
+    back_lane_order || return 0
+    case "$SALA_BACK_LANE_THRESHOLD" in ''|*[!0-9]*) return 0;; esac
+    back_lane_front_threshold || return 0
+    home=${BL_ORDER[0]}
+    lane_dormant "$home" && return 0
+    lane_check "$home" >/dev/null 2>&1 || return 0
+    rd=$(back_lane_reading "$home") || return 0
+    IFS=$'\t' read -r st pct win rst <<< "$rd"
+    [ "$pct" -lt "$SALA_BACK_LANE_THRESHOLD" ] || return 0
+    f0=$(back_lane_get f0); back_lane_same_window "$win" "$f0" || return 0   # step 3 has not fired for this window
+    q=$(back_lane_get hqueued); ql=${q%%|*}; qw=${q#*|}; qn=${qw#*|}; qw=${qw%%|*}
+    [ "$q" = "$ql" ] && { qw=""; qn=""; }
+    { [ "$ql" = "$home" ] && back_lane_same_window "$qw" "$f0"; } || qn=""
+    back_lane_movers "$home" front || return 0
+    for n in ${BL_MOVE[@]+"${BL_MOVE[@]}"}; do case ",$qn," in *",$n,"*) ;; *) late+=("$n");; esac; done
+    [ "${#late[@]}" -gt 0 ] || return 0
+    if [ "$dry" = 1 ]; then echo "would: front catch-up (home): sala op lane $home ${late[*]} --from sala-watch --words \"…\" (the front agent(s) the step home had not taken; a dry run writes and queues nothing)$(back_lane_pinned_note)"; return 0; fi
+    back_lane_front_send "$home" "${late[@]}" || rc=$?
+    case "$rc" in
+        1) echo "blocked: front catch-up (home) not queued: $(printf '%s' "$BL_OPOUT" | tail -1)"; return 0;;
+        2) back_lane_front_failnote "$home" "$win"; return 0;;
+    esac
+    back_lane_put hqueued "$home|$f0|${qn:+$qn,}$(IFS=,; echo "${BL_FSENT[*]}")"
+    lane_log backlane "$home" "front catch-up (home): ${#BL_FSENT[@]} front agent(s) queued onto $home (op ${BL_OPID:-?})"
+    echo "moved: front catch-up (home): ${#BL_FSENT[@]} front agent(s) the step home had not taken (${BL_FSENT[*]}) to the $(lane_shown "$home") lane, op ${BL_OPID:-?} queued$(back_lane_front_swapnote "$home" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
+    [ "${#BL_FFAIL[@]}" -eq 0 ] || back_lane_front_failnote "$home" "$win"
     return 0
 }
 # back_lane_spawn_lane → the lane a NEW back agent spawns on while the rule has the back agents off home (stdout, rc 0); rc 1 when the rule is
