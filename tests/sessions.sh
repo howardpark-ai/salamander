@@ -668,6 +668,39 @@ addrec late2 false; n=$(sessions_py back-names --record "$REC" --record-max-age 
 addrec late2 true; n=$(sessions_py front-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
 [ "$n" = "fa gamma2 late2 ro tage tw" ] && [ "$(q late2 role)" = null ] && ok "front-names: a row with no role listed as a front by the record counts, before anything is written" || bad "front-names, untagged: '$n' role=$(q late2 role)"
 addrec late2 false
+# the roles file (stackshot's roles.json, the Overview's Role column): a row with no role that the record places nowhere takes a front or back entry of it
+ROLES="$HOME/roles.json"
+mkroles() {  # <generated ISO Z> → the roles file: nl front, dd back, late2 front (the record says back), ro back (the row stores front), mm keeper, gone front but retired, sd front (a side row), ex front (a retired row)
+    python3 - "$ROLES" "$1" <<'PY'
+import json, sys
+e = lambda role, **kw: dict({"role": role, "project": "projects/x", "live": True}, **kw)
+json.dump({"generated": sys.argv[2], "ids": {}, "sessions": {
+    "nl": e("front"), "dd": e("back"), "late2": e("front"), "ro": e("back"), "mm": e("keeper"), "gone": e("front", retired=True),
+    "sd": e("front"), "ex": e("front"), "ghost": e("front")}}, open(sys.argv[1], "w"))
+PY
+}
+rnames() { sessions_py "$1-names" --record "$REC" --record-max-age 600 --roles "$ROLES" --roles-max-age 1800 2>&1 | paste -sd' '; }
+mkroles "$(isonow)"; cp "$REG" "$HOME/reg.before"; : > "$RLOG"
+n=$(rnames front)
+[ "$n" = "fa gamma2 nl ro tage tw" ] && ok "front-names with a roles file: a row with no role that the record does not place (nl) counts as front by its entry; the others are as before" || bad "front-names, roles: '$n'"
+n=$(rnames back)
+[ "$n" = "ba dd late late2 tagm" ] && ok "back-names with a roles file: dd (on two maps, so the record places it nowhere) counts as back by its entry" || bad "back-names, roles: '$n'"
+rnames front | grep -qw ro && ! rnames back | grep -qw ro && ok "a stored role wins over the roles file (ro stays front though the file says back)" || bad "stored role: $(rnames front) / $(rnames back)"
+rnames back | grep -qw late2 && ! rnames front | grep -qw late2 && ok "the record comes first: late2 (the record lists it back) is back though the roles file says front" || bad "record first: $(rnames front) / $(rnames back)"
+case " $(rnames front) $(rnames back) " in *" mm "*|*" gone "*|*" sd "*|*" ex "*|*" ghost "*) bad "uncounted row counted: $(rnames front) / $(rnames back)";; *) ok "a keeper entry (mm), a retired entry (gone), a side row (sd), a retired row (ex) and a name with no live row (ghost) are not counted";; esac
+same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "with a roles file back-names and front-names are still read-only (file and log unchanged)" || bad "roles read wrote"
+for how in missing stale garbage noshape; do
+    case "$how" in
+        missing) rm -f "$ROLES" ;;
+        stale) mkroles "$(date -u -d '-2 hours' +%Y-%m-%dT%H:%M:%SZ)" ;;
+        garbage) echo '{"generated": ' > "$ROLES" ;;
+        noshape) printf '{"generated": "%s", "sessions": []}' "$(isonow)" > "$ROLES" ;;
+    esac
+    [ "$(rnames front)" = "fa gamma2 ro tage tw" ] && [ "$(rnames back)" = "ba late late2 tagm" ] && ok "a $how roles file: both lists are as without it" || bad "$how roles file: '$(rnames front)' / '$(rnames back)'"
+done
+n=$(sessions_py front-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
+[ "$n" = "fa gamma2 ro tage tw" ] && ok "no --roles at all: as before" || bad "no --roles: '$n'"
+rm -f "$ROLES"
 rm -f "$REC"; n=$(sessions_py back-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
 [ "$n" = "ba late tagm" ] && ok "with no record the stored roles alone count" || bad "back-names, no record: '$n'"
 : > "$RLOG"; cp "$REG" "$HOME/reg.before"; sessions_fill_roles; rc=$?

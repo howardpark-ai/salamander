@@ -21,7 +21,8 @@
 #     socket; --dry-run says it would refresh and asks nobody. The suite never reaches a real socket.
 #   NO ROLE: a registry row with no role counts as a back agent when the project record (stackshot's projects.json) lists it under background:
 #     (a front-listed row, an unlisted one, a side session and a row whose stored role says otherwise do not; no or a stale record: nobody extra);
-#     a real `watch --back-lanes` pass writes those roles into the registry, its dry run writes nothing.
+#     a real `watch --back-lanes` pass writes those roles into the registry, its dry run writes nothing. A row the record places nowhere takes the
+#     front or back entry of the roles file (stackshot's roles.json) and moves with that role (a keeper entry, a retired one, a stale file: nobody).
 #   CATCH-UP: while the back agents are off home, one that is still on the wrong side (spawned or tagged after the step, not live then) is queued onto
 #     the rule's lane at the next pass, once per window (the state's queued list), never twice; a state without the list queues those still home once;
 #     step 3 clears the list; nothing at home.
@@ -30,11 +31,15 @@
 #     order, the home lane or unset (also in the dry run); an unrelated dormant lane changes nothing; step 2 and the catch-up follow the same rule.
 #   SPAWN: a back agent spawned while the rule has them off home takes the rule's lane (back_lane_spawn_lane; `spawn --dry-run` says so).
 #   DRY RUN: `watch --back-lanes --dry-run` prints what each step would do and queues and writes nothing.
+#   FRONT HOME CATCH-UP: at home after step 3, a live front agent left off home is queued onto the home lane once per window (state hqueued); not when
+#     step 3 has not fired in this window, with a stale, missing, at-threshold or above-threshold reading, a dormant or not ready home lane, the front step
+#     off or invalid; a pinned one is held out and named; the front agents step 3 itself took are not queued again in the same pass or the next; a
+#     refused operation gives a blocked line and a retry; the dry run names the agent and writes nothing; the next step 1 clears hqueued.
 # Isolated HOME in a temp folder (locked while the suite runs, removed at the end). Usage: bash tests/backlane.sh   (exit 0 = pass; a few seconds)
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
-unset SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_NO_RELAUNCH SALA_BACK_LANE_RULE SALA_BACK_LANE_ORDER SALA_BACK_LANE_THRESHOLD SALA_BACK_LANE_MAX_AGE \
+unset SALA_ROLES_FILE_MAX_AGE SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_NO_RELAUNCH SALA_BACK_LANE_RULE SALA_BACK_LANE_ORDER SALA_BACK_LANE_THRESHOLD SALA_BACK_LANE_MAX_AGE \
       SALA_BACK_LANE_WORDS SALA_BACK_LANE_STATE SALA_BACK_LANE_FRONT_THRESHOLD SALA_LANE_FALLBACK SALA_FALLBACK_NO_FABLE TMUX TMUX_PANE
 export SALA_BACK_LANE_FRONT_THRESHOLD=off   # the sections up to THE FRONT STEP test the back agents' steps with a front agent registered at the same 95%: that step is off for them
 T=""
@@ -51,7 +56,8 @@ export SALA_WEB_STATE_DIR="$T/web" SALA_LIMIT_STATE="$T/limit.json" SALA_OWNER_N
 # the refresh asks the local sala-web: off for every case but its own section, and never the real socket
 export SALA_BACK_LANE_REFRESH_URL=off SALA_BACK_LANE_REFRESH_WAIT=1 XDG_RUNTIME_DIR="$T/run" PATH="$T/fakebin:$PATH"
 unset SALA_WEB_SOCKET
-export FAKE_OPLOG="$T/ops.log" FAKE_LIVE="$T/tmux-live" FAKE_OP_RC="$T/op.rc" FAKE_LC="$T/lane-check-fail"
+export FAKE_OPLOG="$T/ops.log" FAKE_LIVE="$T/tmux-live" FAKE_OP_RC="$T/op.rc" FAKE_LC="$T/lane-check-fail" FAKE_NOMOVE="$T/nomove"
+export SALA_ROLES_FILE="$T/roles.json"   # stackshot's roles file: this suite's own (none unless a case writes one), never the real one
 ST="$XDG_STATE_HOME/salamander"; STATE="$ST/back-lane.state"
 RULE_WORDS="Sam: when lane A reaches 80%, move all back agents to lane B"
 
@@ -63,6 +69,7 @@ printf '%s|' "$@" >> "$FAKE_OPLOG"; echo >> "$FAKE_OPLOG"
 if [ -s "$FAKE_OP_RC" ]; then echo "sala op: refused for the test"; exit "$(cat "$FAKE_OP_RC")"; fi
 [ "$2" = lane ] || exit 0
 lane=$3; shift 3
+if [ -e "$FAKE_NOMOVE" ]; then echo "queued op 1760000000-1: lane $lane"; exit 0; fi   # a busy pane: queued, but the lane has not changed yet
 while [ $# -gt 0 ] && [ "$1" != --from ]; do
     grep -v "^$1	" "$FAKE_LANES" > "$FAKE_LANES.t" 2>/dev/null; printf '%s\t%s\n' "$1" "$lane" >> "$FAKE_LANES.t"; mv "$FAKE_LANES.t" "$FAKE_LANES"; shift
 done
@@ -122,7 +129,7 @@ PY
     printf '%s\n' back-a back-b back-fab back-api back-dead front-a side-a sala-job-x > "$FAKE_LIVE"; sed -i '/^back-dead$/d' "$FAKE_LIVE"
     printf 'back-fab\tfable\txhigh\n' > "$ST/models.tsv"
     printf 'back-a\tsubscription-1\nback-b\tsubscription-1\nback-fab\tsubscription-1\nback-api\tapi\nfront-a\tsubscription-1\nside-a\tsubscription-1\n' > "$FAKE_LANES"
-    rm -f "$ST/lane-state.tsv" "$STATE" "$FAKE_OPLOG" "$FAKE_OP_RC" "$FAKE_LC" "$SALA_LIMIT_STATE" "$ST/lane-default" "$ST/lanes.log"
+    rm -f "$ST/lane-state.tsv" "$STATE" "$FAKE_OPLOG" "$FAKE_OP_RC" "$FAKE_LC" "$FAKE_NOMOVE" "$SALA_ROLES_FILE" "$SALA_LIMIT_STATE" "$ST/lane-default" "$ST/lanes.log"
     : > "$FAKE_OPLOG"
 }
 ops() { local n; n=$(grep -c . "$FAKE_OPLOG" 2>/dev/null); echo "${n:-0}"; }
@@ -570,5 +577,113 @@ regf; quota 95 $W1; dormant aws-platform; tick >/dev/null
 sp lr-front-x --project projects/foo --role front --model fable --dry-run
 [ "$RC" = 0 ] && has "$OUT" "the bedrock lane cannot run Fable, so it launches on opus" && ok "a Fable front agent on bedrock launches on opus, and the note says so" || bad "spawn front fable bedrock: rc=$RC $OUT"
 rm -f "$ST/lane-state.tsv"
+
+echo "== the roles file: a row the project record places nowhere takes its front or back entry"
+# the row has no role; stackshot's roles.json (the Overview's Role column) names it: front moves with the front agents, back with the back agents; keeper, retired and stale: nobody
+nr() {  # <name> → add a live row with no role, a pane and a lane on home
+    python3 -I -S - "$SESSIONS" "$1" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); n = sys.argv[2]
+d["sessions"][n] = {"id": n, "name": n, "state": "live", "role": None, "side": None, "project": None, "created": n}; json.dump(d, open(sys.argv[1], "w"))
+PY
+    echo "$1" >> "$FAKE_LIVE"; printf '%s\tsubscription-1\n' "$1" >> "$FAKE_LANES"
+}
+mkroles() {  # [generated epoch] → the roles file: rr-front front, rr-back back, rr-keeper keeper, rr-gone front but retired, rr-rec front (the record says back)
+    python3 -I -S - "$SALA_ROLES_FILE" "$(iso "${1:-$NOW}")" <<'PY'
+import json, sys
+e = lambda role, **kw: dict({"role": role, "project": "projects/x", "live": True}, **kw)
+json.dump({"generated": sys.argv[2], "ids": {}, "sessions": {"rr-front": e("front"), "rr-back": e("back"), "rr-keeper": e("keeper"), "rr-gone": e("front", retired=True), "rr-rec": e("front")}},
+          open(sys.argv[1], "w"))
+PY
+}
+regroles() { regf; for n in rr-front rr-back rr-keeper rr-gone rr-rec; do nr "$n"; done; }
+rec_rr() {  # the project record lists rr-rec as a background agent
+    python3 -I -S - "$SALA_PROJECT_RECORD" "$(iso "$NOW")" <<'PY'
+import json, sys
+json.dump({"schema": 1, "generated": sys.argv[2], "by_key": {}, "projects": {"prj_t1": {"id": "prj_t1", "key": "projects/x", "retired": False, "agents": {"rr-rec": {"front": False, "role": "x", "mandate_line": "m"}}}}}, open(sys.argv[1], "w"))
+PY
+}
+BACKRR="op|lane|aws-platform|back-a|back-b|back-fab|rr-rec|--from|sala-watch|--words|$RULE_WORDS|"   # rr-rec is listed under background: by the record
+regroles; rec_rr; quota 95 $W1; out=$(tick)
+[ "$(ops)" = 2 ] && [ "$(fop 1)" = "$BACKRR" ] && [ "$(fop 2)" = "$FRONT3" ] && ok "no roles file: the row the record lists moves (rr-rec); the other rows with no role move nobody (as before)" || bad "no roles file: ops=$(ops) $(fop 1) $(fop 2)"
+regroles; rec_rr; mkroles; quota 95 $W1; out=$(tick)
+[ "$(ops)" = 2 ] && [ "$(fop 1)" = "op|lane|aws-platform|back-a|back-b|back-fab|rr-back|rr-rec|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "the roles file's back entry moves with the back agents, and the record's own listing (rr-rec, back) comes first" || bad "roles back: ops=$(ops) $(fop 1)"
+[ "$(fop 2)" = "op|lane|aws-platform|front-a|front-b|front-fab|rr-front|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "its front entry moves with the front agents; a keeper entry, a retired entry and the back-listed rr-rec do not" || bad "roles front: $(fop 2)"
+regroles; rec_rr; mkroles $((NOW - 7200)); quota 95 $W1; out=$(tick)
+[ "$(fop 1)" = "$BACKRR" ] && [ "$(fop 2)" = "$FRONT3" ] && ok "a stale roles file (2 h old) is not read" || bad "stale roles: $(fop 1) / $(fop 2)"
+rm -f "$SALA_ROLES_FILE" "$SALA_PROJECT_RECORD"
+
+echo "== the front home catch-up: a front agent step 3 did not take is queued home once per window"
+# addfront <name> <lane>: a live front agent with a pane that stands on <lane>
+addfront() {
+    python3 -I -S - "$SESSIONS" "$1" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); n = sys.argv[2]
+d["sessions"][n] = {"id": n, "name": n, "state": "live", "role": "front", "side": None, "project": "projects/x", "created": "z" + n}; json.dump(d, open(sys.argv[1], "w"))
+PY
+    echo "$1" >> "$FAKE_LIVE"; grep -v "^$1	" "$FAKE_LANES" > "$T/lanes.t"; printf '%s\t%s\n' "$1" "$2" >> "$T/lanes.t"; cp "$T/lanes.t" "$FAKE_LANES"
+}
+HOMEFRONT="op|lane|subscription-1|front-late|--from|sala-watch|--words|$RULE_WORDS|"
+# athome: the rule at home after step 3 in the window W2 (the moves applied), then a front agent left on bedrock
+athome() { regf; quota 95 $W1; tick >/dev/null; quota 10 $W2; tick >/dev/null; addfront front-late bedrock; }
+athome; n=$(ops)
+[ "$n" = 3 ] && [ "$(drv 'back_lane_current')" = subscription-1 ] || bad "setup: ops=$n current=$(drv 'back_lane_current')"
+touch "$FAKE_NOMOVE"; out=$(tick)
+[ "$(ops)" = 4 ] && has "$out" "moved: front catch-up (home): 1 front agent(s) the step home had not taken (front-late) to the Ultra lane" && [ "$(fop 4)" = "$HOMEFRONT" ] && ok "at home after step 3: the front agent left on bedrock is queued home, once, with the rule's words" || bad "home catch-up: ops=$(ops) $(fop 4) / $out"
+case "$(drv 'back_lane_get hqueued')" in "subscription-1|"*"|front-a,front-b,front-fab,front-late") ok "the state records it (hqueued: <home>|<window>|<names>), after the front agents step 3 queued";; *) bad "hqueued: $(drv 'back_lane_get hqueued')";; esac
+grep -q "front catch-up (home)" "$ST/lanes.log" && ok "the move is in the lane log" || bad "no lane log line"
+out=$(tick); [ "$(ops)" = 4 ] && ok "a repeat tick (the pane has not moved yet) queues nothing" || bad "repeat: ops=$(ops) $out"
+rm -f "$FAKE_NOMOVE"
+# a second late front agent in the same window: queued alone, the first not again
+touch "$FAKE_NOMOVE"; addfront front-late2 aws-platform; out=$(tick)
+[ "$(ops)" = 5 ] && [ "$(fop 5)" = "op|lane|subscription-1|front-late2|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "a second one in the same window: queued alone, the first is not asked twice" || bad "second: ops=$(ops) $(fop 5) / $out"
+rm -f "$FAKE_NOMOVE"
+# not in this window
+regf; quota 50 $W1; addfront front-late bedrock; out=$(tick)
+[ "$(ops)" = 0 ] && ok "step 3 never fired (the rule has been home all along): nothing queued" || bad "no step 3: ops=$(ops) $out"
+athome; quota 10 $((W2 + 7 * 86400)); n=$(ops); out=$(tick)
+[ "$(ops)" = "$n" ] && ok "a later window in which step 3 has not fired: nothing queued" || bad "later window: ops=$(ops) $out"
+# the reading
+athome; n=$(ops); quota 10 $W2 7200; out=$(tick); [ "$(ops)" = "$n" ] && ok "a stale reading: nothing queued" || bad "stale: ops=$(ops) $out"
+rm -f "$T/web/quota-subscription-1.json"; out=$(tick); [ "$(ops)" = "$n" ] && ok "no reading: nothing queued" || bad "no reading: ops=$(ops) $out"
+quota 90 $W2; out=$(drv 'back_lane_front_home_catchup 0'); [ "$(ops)" = "$n" ] && [ -z "$out" ] && ok "a reading at the threshold: nothing queued, nothing printed" || bad "at threshold: ops=$(ops) $out"
+quota 99 $W2; out=$(drv 'back_lane_front_home_catchup 0'); [ "$(ops)" = "$n" ] && [ -z "$out" ] && ok "a reading above it: nothing queued" || bad "above: ops=$(ops) $out"
+quota 89 $W2; out=$(drv 'back_lane_front_home_catchup 0'); [ "$(ops)" = $((n + 1)) ] && has "$out" "moved: front catch-up (home)" && ok "a reading just under it queues" || bad "89: ops=$(ops) $out"
+# the home lane, the front step, the lane
+athome; n=$(ops); dormant subscription-1; out=$(tick); [ "$(ops)" = "$n" ] && ok "the home lane dormant: nothing queued" || bad "home dormant: ops=$(ops) $out"
+rm -f "$ST/lane-state.tsv"
+echo subscription-1 > "$FAKE_LC"; out=$(tick); [ "$(ops)" = "$n" ] && ! has "$out" "catch-up (home)" && ok "the home lane not ready: nothing queued" || bad "home not ready: ops=$(ops) $out"
+rm -f "$FAKE_LC"
+for v in off 0; do out=$(SALA_BACK_LANE_FRONT_THRESHOLD=$v tick); [ "$(ops)" = "$n" ] && ok "the front step off ($v): nothing queued" || bad "front $v: ops=$(ops) $out"; done
+SALA_BACK_LANE_RULE=off drv 'back_lane_tick' >/dev/null; [ "$(ops)" = "$n" ] && ok "the rule off: nothing queued" || bad "rule off: ops=$(ops)"
+out=$(SALA_BACK_LANE_FRONT_THRESHOLD=abc tick); [ "$(ops)" = "$n" ] && ok "an invalid front threshold: nothing queued" || bad "front abc: ops=$(ops) $out"
+# who: pinned held out and named, a lane outside the order, the side session and a pane-less row left
+athome; n=$(ops)
+grep -v '^front-pin	' "$FAKE_LANES" > "$T/lanes.t"; printf 'front-pin\tbedrock\n' >> "$T/lanes.t"; cp "$T/lanes.t" "$FAKE_LANES"
+grep -v '^front-side	' "$FAKE_LANES" > "$T/lanes.t"; printf 'front-side\tbedrock\n' >> "$T/lanes.t"; cp "$T/lanes.t" "$FAKE_LANES"
+grep -v '^front-dead	' "$FAKE_LANES" > "$T/lanes.t"; printf 'front-dead\tbedrock\n' >> "$T/lanes.t"; cp "$T/lanes.t" "$FAKE_LANES"
+out=$(tick)
+[ "$(ops)" = $((n + 1)) ] && [ "$(fop $((n + 1)))" = "$HOMEFRONT" ] && has "$out" "skipped (pinned to subscription-1): front-pin" && ok "a pinned front agent is held out and named; a side session, a pane-less row and a lane outside the order (front-api) stay" || bad "who: ops=$(ops) $(fop $((n + 1))) / $out"
+# step 3's own front agents are not queued again in the same pass (their busy panes have not moved yet)
+regf; quota 95 $W1; tick >/dev/null; touch "$FAKE_NOMOVE"; quota 10 $W2; out=$(tick)
+[ "$(ops)" = 3 ] && has "$out" "moved: step 3" && ! has "$out" "catch-up (home)" && ok "step 3 and the same pass's catch-up: one operation, the front agents it took are not queued a second time" || bad "same pass: ops=$(ops) $out"
+case "$(drv 'back_lane_get hqueued')" in "subscription-1|"*"|front-a,front-b,front-fab") ok "step 3 records the front agents it queued (hqueued)";; *) bad "hqueued after step 3: $(drv 'back_lane_get hqueued')";; esac
+out=$(tick); [ "$(ops)" = 3 ] && ok "the next pass (panes still busy): nothing queued either" || bad "next pass: ops=$(ops) $out"
+rm -f "$FAKE_NOMOVE"
+# a refused operation: a blocked line, nothing recorded, the next pass retries
+athome; n=$(ops); echo 1 > "$FAKE_OP_RC"; out=$(tick)
+[ "$(ops)" = $((n + 1)) ] && has "$out" "blocked: front catch-up (home) not queued" && ! has "$(drv 'back_lane_get hqueued')" front-late && ok "a refused operation: a blocked line, nothing recorded" || bad "refused: ops=$(ops) $out"
+rm -f "$FAKE_OP_RC"; out=$(tick); [ "$(ops)" = $((n + 2)) ] && has "$out" "moved: front catch-up (home)" && ok "once the queue takes it, the next pass queues it" || bad "refused 2: ops=$(ops) $out"
+# the dry run: names the agent, writes and queues nothing
+athome; n=$(ops); before=$(cat "$STATE")
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
+has "$out" "would: front catch-up (home): sala op lane subscription-1 front-late " && [ "$(ops)" = "$n" ] && [ "$(cat "$STATE")" = "$before" ] && ok "dry run: says what it would queue and names the agent; queues and writes nothing" || bad "dry: ops=$(ops) $out"
+# step 1 in the next window clears the list
+athome; touch "$FAKE_NOMOVE"; tick >/dev/null; rm -f "$FAKE_NOMOVE"; [ -n "$(drv 'back_lane_get hqueued')" ] || bad "setup: hqueued empty"
+quota 95 $((W2 + 7 * 86400)); tick >/dev/null
+[ "$(drv 'back_lane_current')" = aws-platform ] && [ -z "$(drv 'back_lane_get hqueued')" ] && ok "the next step 1 (the agents leave home again) clears hqueued" || bad "step 1 clear: $(drv 'back_lane_current') hq=$(drv 'back_lane_get hqueued')"
+# the back catch-up and the front step off home are untouched
+regf; quota 95 $W1; tick >/dev/null; out=$(tick); [ "$(ops)" = 2 ] && ! has "$out" "catch-up (home)" && ok "off home: no home catch-up line, the existing behavior" || bad "off home: ops=$(ops) $out"
+rm -f "$SALA_ROLES_FILE"
 
 exit $fail

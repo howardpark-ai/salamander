@@ -35,9 +35,13 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
                                                                              name the record does not list is left, with the reason. Exit 0 done, 3 the
                                                                              one named session is on no agents map, 4 the record cannot answer (missing,
                                                                              stale, unreadable: nothing written)
-  back-names [--record F] [--record-max-age S]                               read-only: the live background agents' names, one per line (a row with
-                                                                             no role counts by what the record says of it)
-  front-names [--record F] [--record-max-age S]                              read-only: the same for the live front agents
+  back-names [--record F] [--record-max-age S] [--roles F] [--roles-max-age S]
+                                                                             read-only: the live background agents' names, one per line (a row with
+                                                                             no role counts by what the record says of it, else by the roles file:
+                                                                             stackshot's roles.json, a front or back entry that is not retired;
+                                                                             "keeper" entries are not counted)
+  front-names [--record F] [--record-max-age S] [--roles F] [--roles-max-age S]
+                                                                             read-only: the same for the live front agents
   list [--all] [--json]                                                      the registry, read-only
   resolve REF [--live] [--json]                                              phase 3, read-only: REF is a session id (or a unique prefix of 8+
                                                                              characters), a transcript id, a name, an alias or role:<project>/<role>.
@@ -465,6 +469,44 @@ def load_record(path, max_age):
     return out
 
 
+# The roles file: stackshot keeps $HOME/.local/state/stackshot/roles.json ({"generated": "<ISO Z>", "ids": {...}, "sessions": {name: {"role":
+# "front"|"back"|"keeper", "project": key, "live": bool[, "retired": true][, "page_owed": true]}}}), rewritten every few minutes: the one answer
+# sala's Overview Role column shows. The back agents' lane rule reads it (back-names, front-names) for a row that has no role and that the project
+# record does not place either (a project's own session, with no role on its row and on no agents map). It is read with the same rule as the
+# record (written at most ROLES_MAX_AGE seconds ago, else it answers nothing).
+ROLES_MAX_AGE = 1800
+
+
+def load_roles(path, max_age):
+    """name -> "front" | "back" for every entry of the roles file with that role that is not retired (a "keeper" or any other role is not
+    counted); RecordUnavailable with the reason (not configured, missing, unreadable, no "sessions" object, stale)."""
+    if not path:
+        raise RecordUnavailable("no roles file is configured")
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        if not isinstance(d, dict):
+            raise RecordUnavailable("the roles file %s is not an object" % path)
+        gen = datetime.datetime.fromisoformat(str(d["generated"]).replace("Z", "+00:00")).timestamp()
+        age = datetime.datetime.now(datetime.timezone.utc).timestamp() - gen
+        if age > max_age or age < -60:
+            raise RecordUnavailable("the roles file %s is stale (written %d s ago)" % (path, age))
+        sessions = d["sessions"]
+        if not isinstance(sessions, dict):
+            raise RecordUnavailable("the roles file %s has no sessions" % path)
+    except RecordUnavailable:
+        raise
+    except OSError as e:
+        raise RecordUnavailable("no roles file at %s (%s)" % (path, e.strerror or e))
+    except Exception as e:
+        raise RecordUnavailable("the roles file %s is unreadable (%s)" % (path, e))
+    out = {}
+    for name, e in sessions.items():
+        if isinstance(e, dict) and e.get("role") in ("front", "back") and e.get("retired") is not True:
+            out[name] = e["role"]
+    return out
+
+
 def derive_role(row, rec):
     """(project, role, None) for a live row with no role that the record lists on exactly one project, else (None, None, why it is left)."""
     if row.get("side"):
@@ -522,16 +564,21 @@ def cmd_tag_auto(R, a):
 
 def _role_names(R, a, want):
     """Read-only: the names of the live agents of one role, one per line: a live row that is no side session and whose role is `want`, the role
-    of a row with none read from the project record (what `tag --auto` would write), so a row not yet tagged still counts. A record that
-    cannot answer leaves the rows with their stored roles only."""
+    of a row with none read from the project record (what `tag --auto` would write), so a row not yet tagged still counts; when the record
+    places it nowhere, the roles file (load_roles: stackshot's roles.json, the Overview's Role column) gives a front or back role. A stored role is never changed and the record comes first. A record or roles file that cannot answer leaves
+    the rows with what the other gives, at worst their stored roles only. Nothing is written (`tag --auto` never reads the roles file)."""
     try:
         rec = load_record(a.record, a.record_max_age)
     except RecordUnavailable:
         rec = {}
+    try:
+        roles = load_roles(a.roles, a.roles_max_age)
+    except RecordUnavailable:
+        roles = {}
     for r in sorted(R.rows.values(), key=lambda r: r.get("name") or ""):
         if r.get("state") != "live" or r.get("side") or not r.get("name"):
             continue
-        role = r.get("role") or derive_role(r, rec)[1]
+        role = r.get("role") or derive_role(r, rec)[1] or roles.get(r["name"])
         if role == want:
             print(r["name"])
     return 0
@@ -903,6 +950,7 @@ def main():
     p.add_argument("--project"); p.add_argument("--role"); p.add_argument("--project-key", dest="project_key")
     p.add_argument("--dry-run", action="store_true", dest="dry_run")
     p.add_argument("--auto", action="store_true"); p.add_argument("--record", default=""); p.add_argument("--record-max-age", type=int, default=RECORD_MAX_AGE, dest="record_max_age")
+    p.add_argument("--roles", default=""); p.add_argument("--roles-max-age", type=int, default=ROLES_MAX_AGE, dest="roles_max_age")
     p.add_argument("--map"); p.add_argument("--lanes", default=""); p.add_argument("--models", default=""); p.add_argument("--renames", default="")
     a = p.parse_args()
     R = Registry(a)
