@@ -517,11 +517,11 @@ def test_the_font_survives_ttyd_reconnecting_on_the_same_term(real_shell, where)
     # Reconnect", or, if it reconnected by itself, has already redrawn the pane
     PROMPT = '/Reconnect/.test(%s.contentDocument.body.innerText)' % frame
     READY = SCREEN_READY % frame
-    assert wait_for(b, "(%s) || (%s)" % (PROMPT, READY), 25) is True
-    for _ in range(3):                                                            # a connect the proxy still refuses puts the prompt back: Enter again
-        if wait_for(b, "!(%s) || (%s)" % (PROMPT, READY), 1) and wait_for(b, READY, 12):
+    for _ in range(3):                                                            # a connect the proxy still refuses puts the prompt back
+        assert wait_for(b, "(%s) || (%s)" % (PROMPT, READY), 25) is True
+        if b.evaluate(READY):
             break
-        b.evaluate(frame + ".contentWindow.term.focus(); 1")
+        b.evaluate(frame + ".contentWindow.term.focus(); 1")                      # the prompt is up: Enter is for it, never for the live shell
         press(b, "Enter", "Enter", 13)
         if wait_for(b, READY, 12):                                                # ttyd redrew the pane into the page
             break
