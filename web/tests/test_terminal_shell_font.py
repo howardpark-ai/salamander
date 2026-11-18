@@ -490,3 +490,37 @@ def test_the_full_size_page_draws_in_d2coding_14px_for_any_session_and_logs_keys
         assert [(r["key"], r["code"]) for r in rows if r["type"] == "keydown"] == [("Alt", "AltRight"), ("HangulMode", "Lang1")]
     else:
         assert rows == []
+
+
+@pytest.mark.parametrize("where", ["shell", "tab"])
+def test_the_font_survives_ttyd_reconnecting_on_the_same_term(real_shell, where):
+    """ttyd's page applies its preferences (13px, Consolas ...) on every websocket connect, through `terminal.options[key] = value` on the
+    one term object it keeps: a reconnect after ttyd restarts is the case that puts its face back over ours. The font, the 7px cell and the
+    tmux window width must be ours again, on the same term."""
+    r = real_shell
+    b = r["browser"]
+    if where == "shell":
+        open_real_shell(r)
+        frame = FRAME
+    else:
+        b.evaluate("""document.querySelector("#top .tab[data-tab=terminal]").click(); 1""")
+        assert wait_for(b, SCREEN_READY % TAB_FRAME) is True
+        frame = TAB_FRAME
+    assert_d2coding_fitted(r, frame)
+    b.evaluate("""new Promise((res) => { const t = %s.contentWindow.term; window.__term0 = t; t.write("\\x1b[2J\\x1b[H", () => res(1)); })""" % frame)
+    assert wait_for(b, "!(" + SCREEN_READY % frame + ")", 5) is True            # the screen is empty: READY is what the reconnect brings back
+    b.evaluate("""(() => { const w = %s.contentWindow, Orig = w.WebSocket; window.__ws = [];
+      w.WebSocket = class extends Orig { constructor(...a) { super(...a); window.__ws.push("new"); } };
+      return 1; })()""" % frame)
+    r["pane"].restart_ttyd()
+    # the open socket dropped (it was made before the patch above, so only its overlay says so): ttyd's page waits for Enter on "Press Enter to Reconnect"
+    assert wait_for(b, '/Reconnect/.test(%s.contentDocument.body.innerText)' % frame, 25) is True
+    for _ in range(3):                                                            # a connect the proxy still refuses puts the overlay back: Enter again
+        b.evaluate(frame + ".contentWindow.term.focus(); 1")
+        press(b, "Enter", "Enter", 13)
+        if wait_for(b, SCREEN_READY % frame, 12):                                 # ttyd redrew the pane into the page
+            break
+    assert wait_for(b, SCREEN_READY % frame, 1) is True
+    assert b.evaluate("window.__ws.length >= 1") is True                          # through a new socket
+    assert b.evaluate(frame + ".contentWindow.term === window.__term0") is True   # the same term object, so ttyd re-applied its options to it
+    assert_d2coding_fitted(r, frame)
