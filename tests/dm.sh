@@ -21,7 +21,9 @@
 #              likewise, Ctrl-D skips the rest, an app listed twice is asked once, no value in any transcript or request; no terminal, no
 #              SALA_DM_APPS, an unknown app and `--all <app>` are refused with exit 2; `--set-token <app>` is unchanged; tokens PASTED AHEAD
 #              (typed a fixed gap apart, never waiting for a prompt, a slow `mv` holding sala between two prompts) are never echoed and the
-#              terminal's echo flag is restored after the run and after a SIGTERM; an app name never starts with a dash (`--all` is never an app)
+#              terminal's echo flag is restored after the run and after a SIGTERM; an app name never starts with a dash (`--all` is never an app);
+#              at a terminal where echo cannot be turned off (a fake `stty` that fails, or fails only on -echo) nothing is asked: exit 2, one line;
+#              input queued behind Ctrl-D or an abort is dropped before echo is restored (not run by the invoking shell, not read by a `read -t 1`)
 #   secrecy    the token in no process argument (the curl wrapper's record), in no output, state or cache file, over EVERY case: the per-case records
 #              are deleted by reset, so an audit log (kept to the end) collects each case's curl arguments, outputs and state files first; a deliberate
 #              leak was shown to fail it; lib/dm.sh names the token only where it builds curl's stdin config; the settings read from the config file
@@ -553,6 +555,82 @@ feed "$TP2"; ptypaste paste 'then Enter: ' --set-token beta-app
 rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; rm -f "$T/pty.out.echo"
 feed "$TP1"; ptypaste term "$M3" --set-token
 [ "$PTRC" = 143 ] && [ "$PTECHO" = on ] && [ -z "$(ls -A "$T/tok")" ] && ok "SIGTERM at a prompt: the terminal's echo is restored, exit 143, nothing stored" || bad "sigterm: rc=$PTRC echo=$PTECHO $(ls -A "$T/tok")"
+# At a terminal where echo cannot be turned off, no prompt is shown: a prompt with echo on would show a pasted token. A fake `stty` first on PATH
+# fails, in two ways (every call, or only `stty -echo` after a good `stty -g`, which must then put the saved settings back); both prompt paths
+# (no app, one app) refuse with one line on stderr and exit 2 before anything is asked, and nothing is stored.
+REALSTTY=$(command -v stty); mkdir -p "$T/sttybin"
+printf '#!/bin/bash\nexit 1\n' > "$T/sttybin/stty"; chmod +x "$T/sttybin/stty"
+refuse_noecho() { [ "$PTRC" = 2 ] && grep -q '^sala dm: cannot turn terminal echo off; nothing was asked$' <<<"$PTOUT" && [ "$(wc -l <<<"$PTOUT")" = 1 ] && ! grep -qE 'token for|Paste the bot token|Storing the bot token' <<<"$PTOUT" && [ -z "$(ls -A "$T/tok")" ]; }
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
+feed "$TA"; PATH="$T/sttybin:$PATH" ptyrun "$M3" --set-token
+refuse_noecho && ok "--set-token (no app) at a terminal where \`stty -g\` fails: exit 2, one line, no prompt, nothing stored" || bad "no-echo (all, stty -g fails): rc=$PTRC [$PTOUT] $(ls -A "$T/tok")"
+feed "$TA"; PATH="$T/sttybin:$PATH" ptyrun 'then Enter: ' --set-token beta-app
+refuse_noecho && ok "--set-token <app> at a terminal where \`stty -g\` fails: exit 2, one line, no prompt, nothing stored" || bad "no-echo (single, stty -g fails): rc=$PTRC [$PTOUT] $(ls -A "$T/tok")"
+printf '#!/bin/bash\necho "$*" >> "%s"\n[ "$1" = -echo ] && exit 1\nexec %s "$@"\n' "$T/stty.log" "$REALSTTY" > "$T/sttybin/stty"
+rm -f "$T/stty.log"; feed "$TA"; PATH="$T/sttybin:$PATH" ptyrun "$M3" --set-token
+refuse_noecho && [ "$(sed -n 1p "$T/stty.log")" = -g ] && [ "$(sed -n 2p "$T/stty.log")" = -echo ] && [ "$(sed -n 3p "$T/stty.log")" != -echo ] && [ "$(wc -l < "$T/stty.log")" = 3 ] && ok "--set-token (no app), \`stty -echo\` fails after a good \`stty -g\`: refused the same way, and the saved settings are put back (stty -g, stty -echo, stty <saved>)" || bad "no-echo (all, stty -echo fails): rc=$PTRC [$PTOUT] log=[$(tr '\n' '|' < "$T/stty.log" | cut -c1-120)]"
+rm -f "$T/stty.log"; feed "$TA"; PATH="$T/sttybin:$PATH" ptyrun 'then Enter: ' --set-token beta-app
+refuse_noecho && [ "$(sed -n 1p "$T/stty.log")" = -g ] && [ "$(sed -n 2p "$T/stty.log")" = -echo ] && [ "$(wc -l < "$T/stty.log")" = 3 ] && ok "--set-token <app>, \`stty -echo\` fails after a good \`stty -g\`: refused the same way, the saved settings put back" || bad "no-echo (single, stty -echo fails): rc=$PTRC [$PTOUT] log=[$(tr '\n' '|' < "$T/stty.log" | cut -c1-120)]"
+# Input still queued in the terminal when sala leaves (Ctrl-D skipping the rest, an abort) is thrown away before echo is restored. Otherwise the
+# invoking shell reads it, prints it and runs it: a pasted token in its history or in a 'command not found' line. The driver runs the invoking
+# shell too (an interactive bash with prompt READY> , or a `bash -c` that reads once after sala), types the first token, and in the gap the slow
+# `mv` makes queues either Ctrl-D then a line (eof) or a line then SIGTERM to sala (term, sala's pid from a file); nothing is typed after.
+cat > "$T/pty-queue.py" <<'PY'
+import os, pty, select, signal, sys, termios, time
+out, mark, how, inter, sendline, pidfile, ta, tq = sys.argv[1:9]; cmd = sys.argv[9:]
+mark = mark.encode()
+pid, fd = pty.fork()
+if pid == 0: os.execvp(cmd[0], cmd)
+echo = lambda: bool(termios.tcgetattr(fd)[3] & termios.ECHO)
+buf = b""; stage = 0; t_done = None; end = time.time() + 30; timed_out = True
+while time.time() < end:
+    if select.select([fd], [], [], 0.02)[0]:
+        try: d = os.read(fd, 4096)
+        except OSError: timed_out = False; break
+        if not d: timed_out = False; break
+        buf += d
+    if stage == 0 and (inter != "1" or buf.count(b"READY> ") >= 1):
+        if inter == "1": os.write(fd, sendline.encode() + b"\n")
+        stage = 1
+    elif stage == 1 and buf.count(mark) >= 1 and not echo():
+        os.write(fd, ta.encode() + b"\n"); time.sleep(0.02)   # sala is now in the slow mv
+        if how == "eof": os.write(fd, b"\x04"); os.write(fd, tq.encode() + b"\n")
+        else: os.write(fd, tq.encode() + b"\n"); os.kill(int(open(pidfile).read()), signal.SIGTERM)
+        stage = 2
+    elif stage == 2 and inter == "1" and buf.count(b"READY> ") >= 2:
+        t_done = t_done or time.time()
+        if time.time() >= t_done + 1.0: os.write(fd, b"exit\n"); stage = 3
+if timed_out:
+    try: os.kill(pid, signal.SIGKILL)
+    except OSError: pass
+try: os.waitpid(pid, 0)
+except OSError: pass
+open(out, "wb").write(buf.replace(b"\r", b""))
+sys.exit(99 if timed_out else 0)
+PY
+TQ=xoxb-TEST-QUEUED
+# <eof|term> <interactive 1|0> <typed line> : the transcript is in $T/pty.out
+ptyqueue() {
+    local how=$1 inter=$2 line=$3 c
+    if [ "$inter" = 1 ]; then c=(bash --noprofile --norc -i); else c=(bash -c 'bash "$1" dm --set-token; IFS= read -r -t 1 AFTER; printf "after=[%s]\n" "$AFTER"' _ "$ROOT/bin/salamander"); fi
+    PTRC=; rm -f "$T/queue.pid" "$T/pty.out"
+    PATH="$T/slowbin:$PATH" HISTFILE=/dev/null PS1='READY> ' SALA_DM_APPS="alpha-app beta-app" python3 -I "$T/pty-queue.py" "$T/pty.out" "$M3" "$how" "$inter" "$line" "$T/queue.pid" "$TA" "$TQ" "${c[@]}"
+    PTRC=$?; PTOUT=$(<"$T/pty.out"); cat "$T/pty.out" >> "$AUDIT/output"
+}
+SALACMD="bash $ROOT/bin/salamander dm --set-token"
+# Ctrl-D after the first token, then a line queued behind it, in an interactive shell: the line must not reach the shell
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
+ptyqueue eof 1 "$SALACMD"
+[ "$PTRC" = 0 ] && [ "$(tokval alpha-app)" = "$TA" ] && [ ! -e "$T/tok/slack-bot-token-beta-app" ] && grep -q '^  beta-app: skipped$' <<<"$PTOUT" && ok "queued input: Ctrl-D after the first token skips the second app (first stored, run ends)" || bad "queue eof run: rc=$PTRC [$PTOUT]"
+! grep -qF "$TQ" <<<"$PTOUT" && ! grep -q 'command not found' <<<"$PTOUT" && ok "queued input: a line pasted behind Ctrl-D is not echoed, run or reported by the invoking shell once sala has exited" || bad "queue eof: the queued line reached the shell: [$PTOUT]"
+# the same, read by a following `read -t 1` in a non-interactive shell
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
+ptyqueue eof 0 ""
+[ "$PTRC" = 0 ] && grep -q '^  beta-app: skipped$' <<<"$PTOUT" && grep -q '^after=\[\]$' <<<"$PTOUT" && ok "queued input: a following \`read -t 1\` in the invoking shell finds nothing (after=[])" || bad "queue eof read: rc=$PTRC [$PTOUT]"
+# an abort (SIGTERM at the slow step, exit 143) drops queued input too
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
+ptyqueue term 1 "bash -c 'echo \$\$ > $T/queue.pid; exec bash $ROOT/bin/salamander dm --set-token'"
+[ "$PTRC" = 0 ] && ! grep -qF "$TQ" <<<"$PTOUT" && ! grep -q 'command not found' <<<"$PTOUT" && ok "queued input: after an abort (SIGTERM) the line queued behind the first token is not seen by the invoking shell" || bad "queue term: rc=$PTRC [$PTOUT]"
 # refusals: a terminal is needed, the app list must exist, an unknown app is a usage error
 rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
 printf '%s\n%s\n%s\n' "$TA" "$TB" "$TC" | $S --set-token >"$T/o" 2>"$T/err"; rc=$?
@@ -599,7 +677,7 @@ audit_collect
 [ -s "$AUDIT/state" ] && [ -s "$AUDIT/state-list" ] && [ -s "$AUDIT/output" ] && ok "(and the outputs and the state files of every case)" || bad "the audit log is missing outputs or state files"
 qfirst "$AUDIT/argv" && ok "every curl call, over every case, started with -q (so ~/.curlrc is never read)" || bad "a curl call did not start with -q"
 if grep -aqF -e "$TOKEN" -e "$TOKEN2" -e xoxb "$AUDIT/argv" 2>/dev/null; then bad "a token was in a curl argument list: $(tr '\0' '\n' < "$AUDIT/argv" | grep -aF -e "$TOKEN" -e "$TOKEN2" -e xoxb | redact | head -3 | tr '\n' '|')"; else ok "the token was in no curl argument list, over every case (the audit log, not the last case's record)"; fi
-if grep -aqF -e "$TOKEN" -e "$TOKEN2" -e "$TA" -e "$TB" -e "$TC" -e "$TOLD" -e "$BADV" "$AUDIT/output" 2>/dev/null; then bad "a token was in the output of a call: $(grep -aF -e "$TOKEN" -e "$TOKEN2" -e "$TA" -e "$TB" -e "$TC" -e "$TOLD" -e "$BADV" "$AUDIT/output" | redact | head -3 | tr '\n' '|')"; else ok "the token was in no output (stdout or stderr) of any call, over every case"; fi
+if grep -aqF -e "$TOKEN" -e "$TOKEN2" -e "$TA" -e "$TB" -e "$TC" -e "$TOLD" -e "$BADV" -e "$TQ" "$AUDIT/output" 2>/dev/null; then bad "a token was in the output of a call: $(grep -aF -e "$TOKEN" -e "$TOKEN2" -e "$TA" -e "$TB" -e "$TC" -e "$TOLD" -e "$BADV" -e "$TQ" "$AUDIT/output" | redact | head -3 | tr '\n' '|')"; else ok "the token was in no output (stdout or stderr) of any call, over every case"; fi
 if grep -aqF -e "$TOKEN" -e "$TOKEN2" "$AUDIT/state" "$AUDIT/state-list" 2>/dev/null; then bad "a token was written under the state folder: $(grep -aF -e "$TOKEN" -e "$TOKEN2" "$AUDIT/state" "$AUDIT/state-list" | redact | head -3 | tr '\n' '|')"; else ok "the token is in no cache or state file, over every case"; fi
 if grep -rqF -e "$TOKEN" -e "$TOKEN2" "$SALA_STATE_DIR" 2>/dev/null; then bad "a token was written under the state folder"; else ok "the token is in no cache or state file now"; fi
 bad_lines=$(grep -nE '(^|[^A-Z_])DM_TOKEN([^A-Z_]|$)' "$ROOT/lib/dm.sh" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -vF -e 'DM_TOKEN=$tok' -e "printf 'header = \"Authorization: Bearer %s\"\\n' \"\$DM_TOKEN\" | curl" )

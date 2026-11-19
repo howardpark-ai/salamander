@@ -102,6 +102,16 @@ its pane (the nearest ancestor that clips or scrolls sideways, or the screen), w
 kept and the base rule stands once, plus a read of the parsed stylesheets (the CSSOM, not a regex over the text) that finds the base rule exactly once with no parent rule, so it is under no `@media`,
 `@supports` or `@container`; one test puts a copy of it inside an `@media` and a 600 px box inside the search pane and checks that both new checks fail. Not covered, and why: a real iOS WebKit (the zoom itself is a phone's to show; the computed size is what the rule controls).
 
+### `tests/dm.sh`: +8, 177 (Thu Nov 19th 2026)
+
+Hardening of the terminal-echo helper of `sala dm --set-token`. Kept because each was a way for a pasted bot token to show or to be run.
+Checked, in a pty: with a fake `stty` first on `PATH` that fails (every call, or only `stty -echo` after a good `stty -g`), both prompt paths (no app, one app)
+print one line on stderr ("cannot turn terminal echo off; nothing was asked"), exit 2, ask nothing and store nothing, and in the second case put the saved settings
+back (the fake logs its calls: `-g`, `-echo`, then the saved string); and a line queued in the terminal behind Ctrl-D (after the first token, in the gap a slow `mv`
+makes) or behind an abort (SIGTERM to sala, exit 143) is never seen by the invoking shell: an interactive bash prints no echo of it and no 'command not found', and a
+`bash -c` that runs `read -t 1` after sala reads nothing. The audit of every output also looks for the queued line. Seven of the eight new checks (and the audit) were
+shown to fail on the previous `lib/dm.sh`; the eighth (Ctrl-D skips the second app) passes on both, by design: it proves the run the other two read from.
+
 ### `tests/dm.sh`: +9, 169 (Thu Nov 19th 2026)
 
 Follow-up to `sala dm --set-token` with no app. Kept because each was a way for a bot token to show in clear, or for a wrong app to be asked.

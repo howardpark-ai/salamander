@@ -245,28 +245,51 @@ dm_store_one() {
 # dm_echo_off / dm_echo_on: keep the terminal's echo off for a whole --set-token run, not only while `read -s` is reading. `read -s` turns echo off
 # only for the moment it reads, so a token pasted ahead (the owner pastes the next one before its prompt is up) would be printed in clear in
 # the gap between two reads. With stdin not a terminal (a test, a pipe) nothing is done. dm_echo_off saves the settings (`stty -g`) and
-# restores them on every way out (EXIT, INT, TERM, HUP); dm_echo_on restores them and clears the traps on a normal return.
+# restores them on every way out (EXIT, INT, TERM, HUP); dm_echo_on restores them and clears the traps on a normal return. When stdin IS a
+# terminal and echo cannot be turned off (`stty -g` or `stty -echo` fails), dm_echo_off puts back whatever it changed and returns 1: the callers
+# refuse before any prompt, because a prompt with echo on would show a pasted token.
+# dm_echo_on first throws away the input still queued in the terminal (lines pasted ahead and never read: after Ctrl-D, an abort, a surplus
+# line). Left there, the invoking shell would read them once echo is back, print them and run them, and a token would end in its history or in
+# a 'command not found' line. `read -rs -t 0.05 -n 4096` takes what is pending (it reads in non-canonical mode, so a half-typed line goes too)
+# and times out at once when nothing is; the drain is bounded (about a second), so a flood cannot hold sala.
 DM_STTY=""
+dm_drain_input() {
+    [ -t 0 ] || return 0
+    local junk="" n=0 t0=${EPOCHREALTIME:-}
+    while IFS= read -rs -t 0.05 -n 4096 junk; do
+        n=$((n + 1))
+        if [ -n "$t0" ]; then [ $(( ${EPOCHREALTIME/./} - ${t0/./} )) -lt 1000000 ] || break
+        else [ "$n" -lt 20 ] || break; fi
+    done
+}
 dm_echo_on() {
-    [ -n "$DM_STTY" ] && stty "$DM_STTY" 2>/dev/null
+    if [ -n "$DM_STTY" ]; then
+        dm_drain_input
+        stty "$DM_STTY" 2>/dev/null
+    fi
     DM_STTY=""; trap - EXIT INT TERM HUP
 }
 dm_echo_off() {
     [ -t 0 ] || return 0
-    DM_STTY=$(stty -g 2>/dev/null) || { DM_STTY=""; return 0; }
+    DM_STTY=$(stty -g 2>/dev/null) || { DM_STTY=""; return 1; }
+    [ -n "$DM_STTY" ] || return 1
     # A signal only exits; the EXIT trap puts the settings back. (Restoring in the signal's own trap is too early: `read -s`, interrupted, then
     # puts back the settings it found, echo off, after the trap has run. The EXIT trap runs after that.)
     trap 'dm_echo_on' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
     trap 'exit 129' HUP
-    stty -echo 2>/dev/null
+    if ! stty -echo 2>/dev/null; then
+        stty "$DM_STTY" 2>/dev/null   # whatever it half did is undone; nothing queued is dropped, nothing was asked yet
+        DM_STTY=""; trap - EXIT INT TERM HUP
+        return 1
+    fi
 }
 
 dm_cmd_set_token() {   # <app>
     local app=$1 val="" rc
     if [ ! -t 0 ]; then dm_err "--set-token needs a terminal (the token is typed at a hidden prompt, never taken from a pipe or an argument)"; return 2; fi
-    dm_echo_off
+    dm_echo_off || { dm_err "cannot turn terminal echo off; nothing was asked"; return 2; }
     printf 'Paste the bot token for %s (xoxb-…; nothing is shown as you paste), then Enter: ' "$app" >&2
     IFS= read -rs val; echo >&2
     dm_echo_on
@@ -284,8 +307,8 @@ dm_cmd_set_token_all() {
     for a in "${list[@]}"; do case " ${apps[*]:-} " in *" $a "*) ;; *) apps+=("$a") ;; esac; done   # a name listed twice is asked once
     if [ "${#apps[@]}" = 0 ]; then dm_err "no apps are configured: set SALA_DM_APPS (space-separated names) in $SALA_CONFIG, or name one: sala dm --set-token <app>"; return 2; fi
     if [ ! -t 0 ]; then dm_err "--set-token needs a terminal (the token is typed at a hidden prompt, never taken from a pipe or an argument)"; return 2; fi
+    dm_echo_off || { dm_err "cannot turn terminal echo off; nothing was asked"; return 2; }   # once, before the first prompt, and back on after the last: a token pasted ahead is never echoed between two prompts
     echo "Storing the bot token of each app in SALA_DM_APPS (${#apps[@]}), one at a time. Nothing is shown as you paste; Enter alone skips an app and keeps its stored token; Ctrl-D skips the rest." >&2
-    dm_echo_off   # once, before the first prompt, and back on after the last: a token pasted ahead is never echoed between two prompts
     for a in "${apps[@]}"; do
         if [ "$eof" = 1 ]; then out+=("$a: skipped"); continue; fi
         if ! dm_check_app "$a"; then out+=("$a: refused"); bad=1; continue; fi
