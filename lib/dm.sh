@@ -39,7 +39,7 @@ Post a message into the Direct Message between a Slack app and the owner, as tha
 TEXT is the message, as one argument; with `-` or with no TEXT the message is read from stdin, which is the safe form for text with quotes,
 backticks or $( ). --thread <ts> (or --thread=<ts>) replies in the thread of the message with that ts; options come before TEXT.
 On success the posted message's ts is printed on stdout, so a caller can thread under it. A message over 39000 characters is refused.
-<app> is one of the names in SALA_DM_APPS (letters, digits and dashes). Settings, in ~/.config/salamander/config:
+<app> is one of the names in SALA_DM_APPS (letters, digits and dashes, not starting with a dash). Settings, in ~/.config/salamander/config:
   SALA_DM_APPS       the app names allowed, space-separated (no default: none is allowed until it is set)
   SALA_DM_USER_ID    the Slack member id the message goes to
   SALA_DM_TOKEN_DIR  where the token files are (default ~/.config/sala-briefing); the token of <app> is slack-bot-token-<app>, mode 600
@@ -64,7 +64,8 @@ dm_apps_has() {   # <name> → 0 when SALA_DM_APPS lists it (read into an array:
 }
 
 dm_check_app() {   # <name> → 0 when it is a valid, listed app name; else the message and 2 (usage) or 3 (no list set)
-    if ! [[ ${1:-} =~ ^[A-Za-z0-9-]+$ ]]; then dm_err "the app name is letters, digits and dashes, got '${1:-}'"; return 2; fi
+    # (no leading dash: a name such as --all or -h would read as an option, so `--set-token --all` can only ever mean every app)
+    if ! [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]]; then dm_err "the app name is letters, digits and dashes, and does not start with a dash, got '${1:-}'"; return 2; fi
     if [ -z "${SALA_DM_APPS//[[:space:]]/}" ]; then dm_err "no apps are allowed: set SALA_DM_APPS (space-separated names) in $SALA_CONFIG"; return 3; fi
     dm_apps_has "$1" || { dm_err "unknown app '$1' (SALA_DM_APPS lists: $SALA_DM_APPS)"; return 2; }
 }
@@ -241,11 +242,34 @@ dm_store_one() {
     dm_write_token "$app" "$val" || { dm_err "could not write $(dm_token_dir)/slack-bot-token-$app"; return 3; }
 }
 
+# dm_echo_off / dm_echo_on: keep the terminal's echo off for a whole --set-token run, not only while `read -s` is reading. `read -s` turns echo off
+# only for the moment it reads, so a token pasted ahead (the owner pastes the next one before its prompt is up) would be printed in clear in
+# the gap between two reads. With stdin not a terminal (a test, a pipe) nothing is done. dm_echo_off saves the settings (`stty -g`) and
+# restores them on every way out (EXIT, INT, TERM, HUP); dm_echo_on restores them and clears the traps on a normal return.
+DM_STTY=""
+dm_echo_on() {
+    [ -n "$DM_STTY" ] && stty "$DM_STTY" 2>/dev/null
+    DM_STTY=""; trap - EXIT INT TERM HUP
+}
+dm_echo_off() {
+    [ -t 0 ] || return 0
+    DM_STTY=$(stty -g 2>/dev/null) || { DM_STTY=""; return 0; }
+    # A signal only exits; the EXIT trap puts the settings back. (Restoring in the signal's own trap is too early: `read -s`, interrupted, then
+    # puts back the settings it found, echo off, after the trap has run. The EXIT trap runs after that.)
+    trap 'dm_echo_on' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+    stty -echo 2>/dev/null
+}
+
 dm_cmd_set_token() {   # <app>
     local app=$1 val="" rc
     if [ ! -t 0 ]; then dm_err "--set-token needs a terminal (the token is typed at a hidden prompt, never taken from a pipe or an argument)"; return 2; fi
+    dm_echo_off
     printf 'Paste the bot token for %s (xoxb-…; nothing is shown as you paste), then Enter: ' "$app" >&2
     IFS= read -rs val; echo >&2
+    dm_echo_on
     dm_store_one "$app" "$val"; rc=$?; val=""
     [ "$rc" = 0 ] || return "$rc"
     echo "stored token for $app"
@@ -261,6 +285,7 @@ dm_cmd_set_token_all() {
     if [ "${#apps[@]}" = 0 ]; then dm_err "no apps are configured: set SALA_DM_APPS (space-separated names) in $SALA_CONFIG, or name one: sala dm --set-token <app>"; return 2; fi
     if [ ! -t 0 ]; then dm_err "--set-token needs a terminal (the token is typed at a hidden prompt, never taken from a pipe or an argument)"; return 2; fi
     echo "Storing the bot token of each app in SALA_DM_APPS (${#apps[@]}), one at a time. Nothing is shown as you paste; Enter alone skips an app and keeps its stored token; Ctrl-D skips the rest." >&2
+    dm_echo_off   # once, before the first prompt, and back on after the last: a token pasted ahead is never echoed between two prompts
     for a in "${apps[@]}"; do
         if [ "$eof" = 1 ]; then out+=("$a: skipped"); continue; fi
         if ! dm_check_app "$a"; then out+=("$a: refused"); bad=1; continue; fi
@@ -277,6 +302,7 @@ dm_cmd_set_token_all() {
         fi
         val=""
     done
+    dm_echo_on
     echo "summary:"
     for i in "${out[@]}"; do echo "  $i"; done
     return "$bad"

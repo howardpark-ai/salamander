@@ -129,6 +129,16 @@ its pane (the nearest ancestor that clips or scrolls sideways, or the screen), w
 kept and the base rule stands once, plus a read of the parsed stylesheets (the CSSOM, not a regex over the text) that finds the base rule exactly once with no parent rule, so it is under no `@media`,
 `@supports` or `@container`; one test puts a copy of it inside an `@media` and a 600 px box inside the search pane and checks that both new checks fail. Not covered, and why: a real iOS WebKit (the zoom itself is a phone's to show; the computed size is what the rule controls).
 
+### `tests/dm.sh`: +9, 169 (Thu Nov 19th 2026)
+
+Follow-up to `sala dm --set-token` with no app. Kept because each was a way for a bot token to show in clear, or for a wrong app to be asked.
+Checked: tokens pasted ahead (the driver types each line a quarter second after the one before, never looking at the terminal, and a slow `mv` first on
+`PATH` holds sala between two prompts) are never echoed and all three are stored; the terminal's echo flag is on again after the run, after the single-app
+prompt and after a SIGTERM at a prompt (exit 143, nothing stored); an app name never starts with a dash, so a listed `--all` or `-x` is refused (2) as a name
+for a post, for `--check` and in the `--set-token --all` loop, where only the real app is asked. The existing pty check waits for echo to be off before it
+types, which is why it could not see the gap. Each new check was shown to fail on the old `lib/dm.sh` (six failures: the three name refusals, the
+`--set-token --all` loop, the echoed paste, the SIGTERM exit); the terminal-flag checks pass on both, by design (they guard the restore, not the gap).
+
 ### `tests/dm.sh`: +8, 131 (Thu Nov 19th 2026)
 
 Two follow-ups to the entry below. Kept because each was a way for `sala dm` to post to the wrong place.

@@ -19,7 +19,9 @@
 #              --set-token with no app (or --all) asks for every app in SALA_DM_APPS in turn: three stored from three lines (mode 600 each), an empty
 #              line skips an app and keeps its old token, a bad value is refused for its app while the others store (exit 1), a write that fails
 #              likewise, Ctrl-D skips the rest, an app listed twice is asked once, no value in any transcript or request; no terminal, no
-#              SALA_DM_APPS, an unknown app and `--all <app>` are refused with exit 2; `--set-token <app>` is unchanged
+#              SALA_DM_APPS, an unknown app and `--all <app>` are refused with exit 2; `--set-token <app>` is unchanged; tokens PASTED AHEAD
+#              (typed a fixed gap apart, never waiting for a prompt, a slow `mv` holding sala between two prompts) are never echoed and the
+#              terminal's echo flag is restored after the run and after a SIGTERM; an app name never starts with a dash (`--all` is never an app)
 #   secrecy    the token in no process argument (the curl wrapper's record), in no output, state or cache file, over EVERY case: the per-case records
 #              are deleted by reset, so an audit log (kept to the end) collects each case's curl arguments, outputs and state files first; a deliberate
 #              leak was shown to fail it; lib/dm.sh names the token only where it builds curl's stdin config; the settings read from the config file
@@ -319,6 +321,11 @@ run alpha-app --thread; [ "$RC" = 2 ] && ok "--thread with no value is a usage e
 # -- refusals: each with its exit code, and no request made -------------------------------------------------------------------------------------
 reset
 run 'bad_app!' 'x'; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && ok "an app name outside letters, digits and dashes: usage error (2)" || bad "bad name: rc=$RC"
+# an app name never starts with a dash, even when it is listed in SALA_DM_APPS: `--all` (and any option-like name) cannot be an app, so
+# `--set-token --all` can only mean every app (the old pattern allowed a leading dash, and a listed `--all` was then a valid app)
+SALA_DM_APPS="--all -x alpha-app" run --all 'x'; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"does not start with a dash"*) true ;; *) false ;; esac && ok "a listed app named --all is refused as a name (2), nothing posted" || bad "app --all: rc=$RC err=[$ERR] requests=$(nall)"
+SALA_DM_APPS="--all -x alpha-app" run -x 'x'; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"does not start with a dash"*) true ;; *) false ;; esac && ok "a listed app named -x is refused as a name (2), nothing posted" || bad "app -x: rc=$RC err=[$ERR] requests=$(nall)"
+SALA_DM_APPS="--all -x alpha-app" run --check --all; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"does not start with a dash"*) true ;; *) false ;; esac && ok "--check --all: the same refusal (2), no request" || bad "check --all: rc=$RC err=[$ERR]"
 run gamma-app 'x'; [ "$RC" = 2 ] && case "$ERR" in *"unknown app 'gamma-app'"*) true ;; *) false ;; esac && [ "$(nall)" = 0 ] && ok "an app not in SALA_DM_APPS: usage error, nothing posted" || bad "unlisted: rc=$RC err=[$ERR]"
 run '' 'x'; [ "$RC" = 2 ] && ok "an empty app name: usage error" || bad "empty app: rc=$RC"
 SALA_DM_APPS= run alpha-app 'x'; [ "$RC" = 3 ] && case "$ERR" in *SALA_DM_APPS*) true ;; *) false ;; esac && [ "$(nall)" = 0 ] && ok "no SALA_DM_APPS: setting problem (3) naming the variable" || bad "no apps: rc=$RC err=[$ERR]"
@@ -495,6 +502,57 @@ feed "$TA" "<EOF>"; ptyrun "$M3" --set-token
 # a listed name twice is asked once; a lone app asks once
 feed "$TA"; SALA_DM_APPS="alpha-app alpha-app" ptyrun "$M3" --set-token
 [ "$PTRC" = 0 ] && [ "$(grep -c 'token for alpha-app (' <<<"$PTOUT")" = 1 ] && ok "an app listed twice in SALA_DM_APPS is asked once" || bad "duplicate app: rc=$PTRC [$PTOUT]"
+# --set-token (no app) with `--all` listed as an app name: the name is refused as an app, so --all means every app and only the real apps are asked
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
+feed "$TA"; SALA_DM_APPS="--all alpha-app" ptyrun "$M3" --set-token --all
+[ "$PTRC" = 1 ] && [ "$(tokval alpha-app)" = "$TA" ] && [ "$(grep -c 'token for .* (Bot User' <<<"$PTOUT")" = 1 ] && grep -q '^  --all: refused$' <<<"$PTOUT" && grep -q '^  alpha-app: stored$' <<<"$PTOUT" && ok "--set-token --all with an app named --all listed: that name is refused, never asked; the real app is" || bad "set-token --all named app: rc=$PTRC [$PTOUT]"
+# tokens PASTED AHEAD must never be echoed. The owner can paste token 2 and 3 while sala is still working on token 1; `read -s` turns the
+# terminal's echo off only while it is reading, so with echo back on between two reads that value was printed in clear. The check above waits
+# for echo to be off before it types, which is why it could not see this. Here the driver types each line a fixed gap after the one before,
+# without looking at the terminal, and a slow `mv` (first on PATH, a stand-in for the slow step between two prompts) holds sala in the gap
+# where the old code had echo on. It also reads the terminal's echo flag after the run: the settings must be what they were before.
+mkdir -p "$T/slowbin"; printf '#!/bin/bash\nsleep 0.5\nexec /usr/bin/mv "$@"\n' > "$T/slowbin/mv"; chmod +x "$T/slowbin/mv"
+cat > "$T/pty-paste.py" <<'PY'
+import os, pty, select, signal, sys, termios, time
+out, inp, mark, gap, mode = sys.argv[1], sys.argv[2], sys.argv[3].encode(), float(sys.argv[4]), sys.argv[5]; cmd = sys.argv[6:]
+lines = open(inp).read().split("\n")[:-1]   # one pasted line each, sent `gap` seconds apart whatever the terminal shows
+pid, fd = pty.fork()
+if pid == 0: os.execvp(cmd[0], cmd)
+echo = lambda: bool(termios.tcgetattr(fd)[3] & termios.ECHO)
+buf = b""; sent = 0; t0 = None; end = time.time() + 30; killed = False
+while time.time() < end:
+    if select.select([fd], [], [], 0.02)[0]:
+        try: d = os.read(fd, 4096)
+        except OSError: break
+        if not d: break
+        buf += d
+    if t0 is None and buf.count(mark) >= 1 and not echo(): t0 = time.time()   # the first prompt is up and the terminal is quiet: start
+    if t0 is not None:
+        if mode == "term" and not killed: os.kill(pid, signal.SIGTERM); killed = True
+        elif mode == "paste" and sent < len(lines) and time.time() >= t0 + sent * gap: os.write(fd, lines[sent].encode() + b"\n"); sent += 1
+else:
+    os.kill(pid, signal.SIGKILL); os.waitpid(pid, 0); open(out, "wb").write(buf); sys.exit(99)
+_, st = os.waitpid(pid, 0)
+open(out, "wb").write(buf.replace(b"\r", b""))
+open(out + ".echo", "w").write("on" if echo() else "off")
+sys.exit(os.waitstatus_to_exitcode(st))
+PY
+ptypaste() { local mode=$1 mark=$2; shift 2; PTRC=; PATH="$T/slowbin:$PATH" python3 -I "$T/pty-paste.py" "$T/pty.out" "$T/pty.in" "$mark" 0.25 "$mode" bash "$ROOT/bin/salamander" dm "$@"; PTRC=$?; PTOUT=$(<"$T/pty.out"); PTECHO=$(<"$T/pty.out.echo"); cat "$T/pty.out" >> "$AUDIT/output"; }   # <paste|term> <prompt marker> <sala dm args…>
+TP1=xoxb-TEST-PASTE-1111; TP2=xoxb-TEST-PASTE-2222; TP3=xoxb-TEST-PASTE-3333
+pleaks() { grep -qF -e "$TP1" -e "$TP2" -e "$TP3" "$T/pty.out"; }
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; rm -f "$T/pty.out.echo"
+feed "$TP1" "$TP2" "$TP3"; ptypaste paste "$M3" --set-token
+[ "$PTRC" = 0 ] && [ "$(tokval alpha-app)" = "$TP1" ] && [ "$(tokval beta-app)" = "$TP2" ] && [ "$(tokval gamma-app)" = "$TP3" ] && ok "tokens pasted ahead (a quarter second apart, never waiting for a prompt): all three are stored, exit 0" || bad "paste ahead: rc=$PTRC $(ls -A "$T/tok" | tr '\n' ' ')"
+pleaks && bad "tokens pasted ahead: a value was echoed into the terminal between two prompts" || ok "tokens pasted ahead: no value is ever echoed (the terminal's echo stays off between the prompts)"
+[ "$PTECHO" = on ] && ok "after the run the terminal's echo is on again (the settings are put back)" || bad "echo after the paste run: $PTECHO"
+# the single-app prompt: echo is back on after it, and a value pasted at it is not shown
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; rm -f "$T/pty.out.echo"
+feed "$TP2"; ptypaste paste 'then Enter: ' --set-token beta-app
+[ "$PTRC" = 0 ] && [ "$(tokval beta-app)" = "$TP2" ] && ! pleaks && [ "$PTECHO" = on ] && ok "--set-token <app>: the value is not echoed and the terminal's echo is on again afterwards" || bad "single app echo: rc=$PTRC echo=$PTECHO"
+# the settings are restored on a signal too: SIGTERM at the first prompt (echo off) leaves the terminal as it was, nothing stored
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; rm -f "$T/pty.out.echo"
+feed "$TP1"; ptypaste term "$M3" --set-token
+[ "$PTRC" = 143 ] && [ "$PTECHO" = on ] && [ -z "$(ls -A "$T/tok")" ] && ok "SIGTERM at a prompt: the terminal's echo is restored, exit 143, nothing stored" || bad "sigterm: rc=$PTRC echo=$PTECHO $(ls -A "$T/tok")"
 # refusals: a terminal is needed, the app list must exist, an unknown app is a usage error
 rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
 printf '%s\n%s\n%s\n' "$TA" "$TB" "$TC" | $S --set-token >"$T/o" 2>"$T/err"; rc=$?
