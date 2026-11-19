@@ -117,6 +117,16 @@ html, body { height: 100%; margin: 0; background: var(--bg); }
 html { accent-color: var(--accent); }
 body { color: var(--text); font: 15px/1.55 var(--font); overflow: hidden; }
 button { font: inherit; color: inherit; }
+/* Every text-entry field is 16px, on every device, from this one rule (no media query, no platform or device check): WebKit on iOS
+   zooms the page into a focused field whose text is under 16px and never zooms back out, and a rule that applies everywhere is
+   less to keep up than a patch per screen. Chat text, labels and buttons keep the body's 15px. The fields: every <input> but the ones
+   that take no typed text (checkbox, radio, range, color, file, the buttons, hidden, image), <textarea>, <select> and an editable
+   element (the composer is CodeMirror's contenteditable, #input: its lines inherit this size). A field rule elsewhere never sets a
+   font-size or the font shorthand (it would outrank this one): the field's look is its own, the size is this one's
+   (tests: web/tests/test_field_font_size.py reads the computed size of every field on the page). */
+input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="reset"],
+          [type="submit"], [type="image"], [type="hidden"]),
+textarea, select, [contenteditable]:not([contenteditable="false"]) { font-size: 16px; }
 
 /* as tall as what is on the screen: --app-h is the visual viewport's height, set on <html> by app.js (its "shell's
    height" section: on Android Chrome the layout viewport, which 100dvh measures, can stay taller than the visible part
@@ -626,7 +636,7 @@ details.notice { background: transparent; }
 .ns-field > label, .ns-field > .ns-label, .ns-role legend, .ns-grid > label, .ns-more > summary { font-size: 13px; font-weight: 600; color: var(--text); }
 .ns-hint { font-size: 12px; font-weight: 400; color: var(--muted); }
 .ns-form input[type="text"], .ns-form input[type="search"], .ns-form textarea, .ns-form select {
-  font: inherit; font-size: 15px; line-height: 1.4; color: var(--text); background: var(--bg); border: 1px solid var(--border);
+  font-family: inherit; line-height: 1.4; color: var(--text); background: var(--bg); border: 1px solid var(--border);
   border-radius: 8px; padding: 8px 8px; min-height: 40px; width: 100%; min-width: 0; box-sizing: border-box; margin: 0; }
 .ns-form textarea { resize: vertical; min-height: 80px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ns-form input:focus-visible, .ns-form textarea:focus-visible, .ns-form select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

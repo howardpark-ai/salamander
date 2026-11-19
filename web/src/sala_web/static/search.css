@@ -8,10 +8,10 @@
 .side-search { flex: none; position: relative; margin: 0 8px 8px; }
 .side-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
 .side-search input { display: block; width: 100%; box-sizing: border-box; height: 34px; padding: 0 8px 0 32px; border: 1px solid var(--border); border-radius: 8px;
-  background: var(--panel); color: var(--text); font: inherit; font-size: 15px; }
+  background: var(--panel); color: var(--text); font-family: inherit; }
 .side-search input::placeholder { color: var(--faint); }
 .side-search input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
-@media (max-width: 760px) { .side-search input { height: 44px; font-size: 16px; } }   /* a tap target; 16px: no zoom on focus on iOS */
+@media (max-width: 760px) { .side-search input { height: 44px; } }   /* a tap target (its 16px is the base rule's, style.css) */
 
 /* the page takes the main area, as the Overview and the New session page do; it is its own scroller */
 #search-pane { overflow-y: auto; overflow-x: hidden; }
@@ -24,7 +24,7 @@ body.search-open #search-pane { display: block; }
 #search-pane .se-q { position: relative; }
 #search-pane .se-q svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
 #search-pane .se-q input { display: block; width: 100%; box-sizing: border-box; height: 34px; padding: 0 8px 0 32px; border: 1px solid var(--border); border-radius: 8px;
-  background: var(--panel); color: var(--text); font: inherit; font-size: 15px; }
+  background: var(--panel); color: var(--text); font-family: inherit; }
 #search-pane .se-q input::placeholder { color: var(--faint); }
 #search-pane .se-q input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 #search-pane [hidden] { display: none !important; }          /* .se-row sets display:flex, which beats the hidden attribute */
@@ -39,7 +39,7 @@ body.search-open #search-pane { display: block; }
 #search-pane .se-chip[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
 #search-pane .se-chip:focus-visible, #search-pane .se-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #search-pane .se-dates input { height: 32px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
-  color: var(--text); font: inherit; font-size: 15px; }
+  color: var(--text); font-family: inherit; }
 #search-pane .se-zone { color: var(--faint); font-size: 12px; }
 #search-pane .se-note { font-size: 12px; color: var(--muted); }
 #search-pane .se-summary { padding: 8px 2px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--border); }
@@ -74,7 +74,7 @@ body.search-open #search-pane { display: block; }
 .msg.search-hit { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
 
 @media (max-width: 760px) {
-  #search-pane .se-q input { height: 44px; font-size: 16px; }
+  #search-pane .se-q input { height: 44px; }   /* a tap target (its 16px is the base rule's, style.css) */
   #search-pane .se-row > b { min-width: 100%; }
   #search-pane .se-chip { padding: 8px 12px; }
   #search-pane .se-kind { margin-left: 0; }

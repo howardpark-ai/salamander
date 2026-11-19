@@ -1340,8 +1340,10 @@ offer. Tests: `tests/test_colortool_wiring.py`, `tests/test_colors_combos.py`.
 
 ## The look
 
-**The page is drawn with stackshot's look**: one type scale (12, 13, 15, 17 and 22 px; 16 px stays on form fields, since a smaller
-field makes iOS zoom the page when it takes focus), two weights (400 and 600, 500 on tags), sentence case, a 4 px grid, 4 and 8 px
+**The page is drawn with stackshot's look**: one type scale (12, 13, 15, 17 and 22 px; every text-entry field is 16 px, from one
+base rule in `style.css` that has no media query and no device check, since WebKit on iOS zooms the page into a focused field under 16 px and never
+zooms back out: an input that takes typed text, a textarea, a select and the composer's editable, at every width, so a new field is right
+without a patch, and a field rule elsewhere sets no font size of its own), two weights (400 and 600, 500 on tags), sentence case, a 4 px grid, 4 and 8 px
 corners, one 920 px column, D2Coding for code, stackshot's icons (a 24 grid, a 2 px round stroke), two button levels, tinted tags without
 an outline, links without an underline until hover, and the orange accent (`#f0a06a` dark, `#ad4608` light). On a phone the Agents table is
 one row per agent, and controls are 44 px (32 px with a mouse).
