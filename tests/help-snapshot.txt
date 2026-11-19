@@ -539,7 +539,7 @@ Post a message into the Direct Message between a Slack app and the owner, as tha
 TEXT is the message, as one argument; with `-` or with no TEXT the message is read from stdin, which is the safe form for text with quotes,
 backticks or $( ). --thread <ts> (or --thread=<ts>) replies in the thread of the message with that ts; options come before TEXT.
 On success the posted message's ts is printed on stdout, so a caller can thread under it. A message over 39000 characters is refused.
-<app> is one of the names in SALA_DM_APPS (letters, digits and dashes). Settings, in ~/.config/salamander/config:
+<app> is one of the names in SALA_DM_APPS (letters, digits and dashes, not starting with a dash). Settings, in ~/.config/salamander/config:
   SALA_DM_APPS       the app names allowed, space-separated (no default: none is allowed until it is set)
   SALA_DM_USER_ID    the Slack member id the message goes to
   SALA_DM_TOKEN_DIR  where the token files are (default ~/.config/sala-briefing); the token of <app> is slack-bot-token-<app>, mode 600
