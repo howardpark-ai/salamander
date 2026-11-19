@@ -19,7 +19,7 @@ source `lib.sh` to post its notices through the same webhook.
 | `defunct.sh` + `defunct.prompt.md` | Forwarded Address Unsubscribe Queue: the unread mail under the Gmail label `BRIEFING_FORWARD_LABEL`, classified, read only. The job is label-driven and off by default: with no label set it writes one `cron.log` line and exits 0. |
 | `release-alert.sh` | Runs `release-watch.sh` and posts what it prints, unless that is `NO_REPLY`. A failed probe gets a ⚠️ post. |
 | `release-watch.sh` | Probes the Claude Code CLI and the Ubuntu LTS upgrade path. A release not announced before is printed once, and the session that owns the upgrade is pinged. The Claude Code CLI's owner is sala's master; with none it is `RELEASE_WATCH_CLI_OWNER` (the environment, else the sala config's line; unset: nobody is pinged; `release-watch.sh cli-owner` prints it). The Ubuntu LTS path goes to `RELEASE_WATCH_UBUNTU_SESSION` and names the plan's page `RELEASE_WATCH_UBUNTU_PAGE` (unset: posted only, no page named). `release-watch.sh defer <product> [tag]` keeps one release quiet until a newer one appears. |
-| `reply.sh <thread_ts> [text]` | A reply in the thread of a message in the briefing channel (a fast-lane chat with the briefing session). The text is the argument, or stdin when it is omitted or `-`. It goes through `post_slack` with `BRIEFING_THREAD_TS` set, which adds `thread_ts` to the payload (the app's `chat.postMessage` body or the webhook's). Prints Slack's answer (`ok`); a ts that is not digits.digits, or an empty text, is a one-line error and exit 2, and nothing is posted. |
+| `reply.sh <thread_ts> [text]` | A reply in the thread of a message in the briefing channel (a fast-lane chat with the briefing session). The text is the argument, or stdin when it is omitted or `-`. It goes through `post_slack` with `BRIEFING_THREAD_TS` set, which sends it through the channel's webhook with `thread_ts` in the payload, never through the app. Prints Slack's answer (`ok`); a ts that is not digits.digits, or an empty text, is a one-line error and exit 2, and nothing is posted. |
 
 **The read guard.** The model may only read mail. On the portal route the model writes
 JavaScript for `portal_codemode_execute`, whose `codemode` object can call every tool of every connected server, and
@@ -241,8 +241,10 @@ the file `slack-bot-token-<app>` in the folder `sala dm` reads (`SALA_DM_TOKEN_D
 mode 600 or stricter, not empty); `SALA_DM_API_BASE` is the API's base URL (default `https://slack.com/api`, only a test changes it).
 Both are read from the environment, else the sala config, as for `sala dm`. The app needs the `chat:write` bot scope and must be in
 the channel (a channel id is the surest value for `BRIEFING_BOT_CHANNEL_<NAME>`). The post is `chat.postMessage` with the same
-formatted text as the webhook gets (`unfurl_links` and `unfurl_media` off), and `thread_ts` when `BRIEFING_THREAD_TS` is set
-(`reply.sh`): a thread lives in one channel, so a reply goes to the channel of the post it answers. `post_slack` still prints `ok`.
+formatted text as the webhook gets (`unfurl_links` and `unfurl_media` off), and carries no `thread_ts`: a post with
+`BRIEFING_THREAD_TS` set (`reply.sh`) goes through the channel's webhook, into the thread in the channel, because the thread's
+parent is a channel message and the app is not a member of the channel. A reply to a DM goes through `sala dm <app> --thread`.
+`post_slack` still prints `ok`.
 
 **Never lost: the webhook is the fallback.** When the channel has no app, or its token file is missing, unreadable, looser than
 mode 600 or empty, or the network fails, or Slack answers anything but HTTP 200 with `ok:true`, the same text goes through the

@@ -84,7 +84,7 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
-### `tests/briefing/botpost.sh` new, 41 (Thu Nov 19th 2026); `tests/suites.map` and `tests/briefing/reply.sh` changed
+### `tests/briefing/botpost.sh` new, 40 (Thu Nov 19th 2026); `tests/suites.map` and `tests/briefing/reply.sh` changed
 
 The briefing posts through a channel's Slack app (`contrib/briefing/lib.sh`, `_bot_post` and `post_slack`; `contrib/briefing/README.md`, *Slack
 channels*): a channel mapped to an app (`BRIEFING_BOT_APP_<NAME>`) posts with that app's bot token, `chat.postMessage`, so the post shows the
@@ -93,15 +93,16 @@ briefing or a thread reply that reaches no one because a token file is gone or S
 thread, or a bot token in a place others read (a process's arguments or environment, an output, a log) or sent anywhere but the API.
 One listener on 127.0.0.1 plays the Slack API and the webhook and records each request's path, Authorization header and body; the API's answer is
 set per case; every token and URL is a made-up value in a temporary folder that is locked while the test runs and removed pass or fail.
-Checked: the app's post (the Bearer header, the channel, the text, the two unfurl flags, `thread_ts` only when set, no webhook call, `ok` printed,
-no log line); `BRIEFING_BOT_CHANNEL_<NAME>` as the channel to post to; `SALA_NOTIFY_CHANNEL` naming the channel; the environment over the config line;
+Checked: the app's post (the Bearer header, the channel, the text, the two unfurl flags, no `thread_ts`, no webhook call, `ok` printed,
+no log line); a post with `BRIEFING_THREAD_TS` on a mapped channel makes no `chat.postMessage` call and goes once to the channel's webhook with its `thread_ts`
+and no log line (the thread's parent is a channel message and the app is not in the channel), and an empty `BRIEFING_THREAD_TS` is no thread; `BRIEFING_BOT_CHANNEL_<NAME>` as the channel to post to; `SALA_NOTIFY_CHANNEL` naming the channel; the environment over the config line;
 the text equal to what the webhook gets for the same input; no mapping, no channel, or a name that does not match `[a-z0-9-]+`: the webhook only
 and no log line; a missing token file, a folder in its place, mode 644 and 660 (the token is never sent), an empty or blank file, an app name that is
 not a plain name, and a channel setting that is not a channel: the webhook gets the same text and `bot-post.log` gets one line with its reason; mode
 400 is accepted; Slack's `ok:false` (its error code logged, a text that is not a code logged as `unknown_error`), HTTP 500 with `ok:true` in the body,
 429, an answer that is not JSON, `ok` that is not `true`, a refused connection, and a redirect (not followed, so the token goes nowhere else): the
-webhook and the log line; the fallback keeps `thread_ts`; `BRIEFING_NO_POST` sends nothing and does not touch the token file; `reply.sh` through the
-app into the reports channel with its thread, and through the webhook when the token is gone; `SALA_DM_TOKEN_DIR` and `SALA_DM_API_BASE` read
+webhook and the log line; `BRIEFING_NO_POST` sends nothing and does not touch the token file; `reply.sh` through the
+reports webhook with its thread, with or without the app's token, and no log line; `SALA_DM_TOKEN_DIR` and `SALA_DM_API_BASE` read
 from the sala config; a copy of `contrib/briefing` alone (no `lib/dm.sh`); and the token's absence from every output and log of the suite and
 from every process's argument list and environment, sampled while a post is in flight (the listener holds the answer 1.5 s; the same sample shows
 the post was in flight). Each new check was shown to fail on the old `lib.sh` (30 of the 41 fail; the 11 that pass are the ones that guard what

@@ -4,8 +4,10 @@
 # be done, so a post is never lost. One listener on 127.0.0.1 plays both the Slack API (/api/...) and the webhook (/hook...), recording
 # each request's path, Authorization header and body; the API's answer is whatever the case puts in a file. Checked:
 #   - the token file present: chat.postMessage with the Bearer header, the channel (its name, or BRIEFING_BOT_CHANNEL_<NAME>), the text
-#     and the two unfurl flags, thread_ts only when BRIEFING_THREAD_TS is set; the webhook is not hit; answer "ok"; no log line;
-#     SALA_NOTIFY_CHANNEL names the channel too; reply.sh goes through the app, into its thread; the text is the one the webhook gets
+#     and the two unfurl flags, no thread_ts; the webhook is not hit; answer "ok"; no log line;
+#     SALA_NOTIFY_CHANNEL names the channel too; the text is the one the webhook gets
+#   - BRIEFING_THREAD_TS set (a thread reply, reply.sh): no chat.postMessage at all, one webhook post with thread_ts, no log line (the
+#     thread's parent is a channel message and the app is not in the channel); an empty BRIEFING_THREAD_TS is no thread: the app posts
 #   - no mapping (a channel without a setting, no channel at all): the webhook only, no log line
 #   - token file missing / mode 644 / empty / a folder, an app name that is not a plain name, a bad channel setting: the webhook gets the
 #     same text and bot-post.log gets one line (time, channel, app, reason); a loose-mode token is never sent anywhere
@@ -120,9 +122,12 @@ if [ "$OUT" = ok ] && [ "$(nreq)" = 1 ] && [ "$(napi)" = 1 ] && [ "$(nhook)" = 0
     ok "a mapped channel: chat.postMessage with the Bearer header, the channel, the text and the unfurl flags; no webhook; no log line; ok"
 else bad "bot post: out=$OUT requests=$(nreq) api=$(napi) hook=$(nhook) body=$(cat "$T/req/$a.body" 2>/dev/null)"; fi
 
-fresh; post BRIEFING_CHANNEL=reports BRIEFING_THREAD_TS=1760000000.123456 -- 'a reply'; a=$(apireq)
-[ "$OUT" = ok ] && [ "$(nhook)" = 0 ] && body_eq "$T/req/$a.body" '{"channel":"reports","text":"a reply","thread_ts":"1760000000.123456","unfurl_links":false,"unfurl_media":false}' \
-    && ok "BRIEFING_THREAD_TS: thread_ts is in the body, in the same channel" || bad "thread: out=$OUT body=$(cat "$T/req/$a.body" 2>/dev/null)"
+# a thread reply never goes through the app (its parent is a channel message, the app is not a member of the channel): the webhook gets it
+fresh; post BRIEFING_CHANNEL=reports BRIEFING_THREAD_TS=1760000000.123456 -- 'a reply'; h=$(hookreq)
+[ "$OUT" = ok ] && [ "$(napi)" = 0 ] && [ "$(nhook)" = 1 ] && [ "$(nreq)" = 1 ] && [ "$(cat "$T/req/$h.path")" = /hook-reports ] \
+    && body_eq "$T/req/$h.body" '{"text":"a reply","thread_ts":"1760000000.123456","unfurl_links":false,"unfurl_media":false}' && [ -z "$(logline)" ] \
+    && ok "BRIEFING_THREAD_TS on a mapped channel: no chat.postMessage, one webhook post with thread_ts, no bot-post.log line" \
+    || bad "thread: out=$OUT apis=$(napi) hooks=$(nhook) log=[$(logline)] body=$(cat "$T/req/$h.body" 2>/dev/null)"
 fresh; post BRIEFING_CHANNEL=reports BRIEFING_THREAD_TS= -- 'no thread'; a=$(apireq)
 body_eq "$T/req/$a.body" '{"channel":"reports","text":"no thread","unfurl_links":false,"unfurl_media":false}' \
     && ok "an empty BRIEFING_THREAD_TS adds no thread_ts" || bad "empty ts: $(cat "$T/req/$a.body" 2>/dev/null)"
@@ -190,11 +195,9 @@ fresh; post BRIEFING_CHANNEL=reports SALA_DM_API_BASE=http://127.0.0.1:$PORT/red
 fellback "a redirect" http_302
 n=0; for f in "$T"/req/*.path; do [ "$(cat "$f")" = /api/chat.postMessage ] && n=$((n + 1)); done
 [ "$n" = 0 ] && ok "a redirect is not followed: the token went nowhere else" || bad "the redirect was followed ($n calls to /api)"
-fresh; printf '200\n{"ok":false,"error":"channel_not_found"}' > "$T/answer"; post BRIEFING_CHANNEL=reports BRIEFING_THREAD_TS=1760000000.123456 -- 'text for thread fallback'
+fresh; printf '200\n{"ok":false,"error":"channel_not_found"}' > "$T/answer"; post BRIEFING_CHANNEL=reports -- 'text for fallback payload'
 h=$(hookreq)
-[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("thread_ts"))' "$T/req/$h.body")" = 1760000000.123456 ] \
-    && ok "the fallback keeps the thread: the webhook payload has thread_ts" || bad "fallback thread: $(cat "$T/req/$h.body" 2>/dev/null)"
-body_eq "$T/req/$h.body" '{"text":"text for thread fallback","thread_ts":"1760000000.123456","unfurl_links":false,"unfurl_media":false}' \
+body_eq "$T/req/$h.body" '{"text":"text for fallback payload","unfurl_links":false,"unfurl_media":false}' \
     && ok "the fallback payload is the webhook's own, as before" || bad "fallback payload: $(cat "$T/req/$h.body" 2>/dev/null)"
 
 # ---- BRIEFING_NO_POST: nothing is sent, no token is read
@@ -202,13 +205,14 @@ fresh; chmod 000 "$T/tok/slack-bot-token-demo-app"; post BRIEFING_CHANNEL=report
 [ "$OUT" = "not posted (BRIEFING_NO_POST)" ] && [ "$(nreq)" = 0 ] && grep -q '^a dry run$' "$T/blog/would-post.log" && [ -z "$(logline)" ] \
     && ok "BRIEFING_NO_POST: the text goes to would-post.log, nothing is sent, no log line (the token file was not touched)" || bad "no post: out=$OUT requests=$(nreq) log=[$(logline)]"
 
-# ---- reply.sh: through the app, into the thread, in the reports channel
-fresh; OUT=$(env -u SALA_NOTIFY_CHANNEL -u BRIEFING_CHANNEL "$D/reply.sh" 1760000000.123456 'Done' 2>&1); a=$(apireq); printf '%s\n' "$OUT" >> "$T/all.out"
-[ "$OUT" = ok ] && [ "$(nhook)" = 0 ] && body_eq "$T/req/$a.body" '{"channel":"reports","text":"Done","thread_ts":"1760000000.123456","unfurl_links":false,"unfurl_media":false}' \
-    && ok "reply.sh: the thread reply goes through the app, in the reports channel, with its thread_ts" || bad "reply.sh: out=$OUT $(cat "$T/req/$a.body" 2>/dev/null)"
+# ---- reply.sh: through the reports channel's webhook, into the thread, with or without the app's token
+fresh; OUT=$(env -u SALA_NOTIFY_CHANNEL -u BRIEFING_CHANNEL "$D/reply.sh" 1760000000.123456 'Done' 2>&1); h=$(hookreq); printf '%s\n' "$OUT" >> "$T/all.out"
+[ "$OUT" = ok ] && [ "$(napi)" = 0 ] && [ "$(nhook)" = 1 ] && [ "$(cat "$T/req/$h.path")" = /hook-reports ] && [ -z "$(logline)" ] \
+    && body_eq "$T/req/$h.body" '{"text":"Done","thread_ts":"1760000000.123456","unfurl_links":false,"unfurl_media":false}' \
+    && ok "reply.sh: the thread reply goes through the reports webhook with its thread_ts, not through the app, no log line" || bad "reply.sh: out=$OUT apis=$(napi) hooks=$(nhook) log=[$(logline)] $(cat "$T/req/$h.body" 2>/dev/null)"
 fresh; rm -f "$T/tok/slack-bot-token-demo-app"; OUT=$(env -u SALA_NOTIFY_CHANNEL -u BRIEFING_CHANNEL "$D/reply.sh" 1760000000.123456 'Done' 2>&1); h=$(hookreq)
-[ "$OUT" = ok ] && [ "$(nhook)" = 1 ] && [ "$(napi)" = 0 ] && [ "$(cat "$T/req/$h.path")" = /hook-reports ] && logline | grep -q 'reason=no_token_file' \
-    && ok "reply.sh without the token: the reply still goes out through the webhook, and the log says why" || bad "reply.sh fallback: out=$OUT hooks=$(nhook) log=[$(logline)]"
+[ "$OUT" = ok ] && [ "$(nhook)" = 1 ] && [ "$(napi)" = 0 ] && [ "$(cat "$T/req/$h.path")" = /hook-reports ] && [ -z "$(logline)" ] \
+    && ok "reply.sh without the token: the same webhook post, and no log line (a thread reply is not a failed bot post)" || bad "reply.sh no token: out=$OUT hooks=$(nhook) log=[$(logline)]"
 mk_token demo-app 600 "$TOKEN"$'\n'
 
 # ---- the settings from the sala config, the environment unset
