@@ -56,7 +56,7 @@ wait_lock() { lock_wait "$HOME/.claude/salamander-recycle.lock" 60; }
 mk() { local n="$1" u="$2"; shift 2; $T new-session -d -s "sala-test-$n" -c "$HOME" -e FAKE_SESSION_ID="$u" -e FAKE_NAME="$n" -e FAKE_LOG="$FAKE_LOG" "$@"; $T send-keys -t "sala-test-$n" 'claude' Enter; }
 draft() { fake_up "$1"; $T send-keys -t "sala-test-$1" -l 'half a thought'; waitfor "$T capture-pane -p -t sala-test-$1 | grep -q 'half a thought'" 20; }
 undraft() { $T send-keys -t "sala-test-$1" Enter; }
-newest_set() { local f best=""; for f in "$SALA_SET_DIR"/[0-9]*-[0-9]*; do [ -e "$f" ] || continue; [[ ${f##*/} > "${best##*/}" ]] && best=$f; done; echo "${best##*/}"; }
+newest_set() { local f best=""; for f in "$SALA_SET_DIR"/[0-9]*-[0-9]*; do [ -e "$f" ] || continue; case ${f##*/} in *.t.*) continue;; esac; [[ ${f##*/} > "${best##*/}" ]] && best=$f; done; echo "${best##*/}"; }
 
 # ── the fake panes: session \t state (live | wait | gone) \t startedAt (epoch s) ─────────────────────────────────────────────────
 PT="$HOME/panes.tsv"; : > "$PT"
