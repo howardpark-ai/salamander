@@ -84,19 +84,23 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
-### `web/tests/test_field_font_size.py` new, 17: every text-entry field is 16 px from one base rule (Thu Nov 19th 2026)
+### `web/tests/test_field_font_size.py` new, 19: every text-entry field is 16 px from one base rule (Thu Nov 19th 2026)
 
 WebKit on iOS zooms the page into a focused field whose text is under 16 px and never zooms back out. The fields were 15 px, with a 16 px patch on three of them on a narrow screen
 (the sidebar's search box, the search page's box, the Usage explorer's selects), so the composer, the New session form, the Quick session form, the Schedules sort and the date boxes
 zoomed a phone. One rule in `style.css` now sizes every input that takes typed text, textarea, select and editable element to 16 px, with no media query and no device check; the three patches
-and every field rule's own font size are gone, their heights kept. A wrong answer is a field under 16 px again (a new field, or a field rule that sets its own size and outranks the base
+and every field rule's own font size are gone, their heights kept. One exception stays, on purpose: the color tool (`colortool.js`, stackshot's pinned file) still declares its own
+16 px for its hex boxes (`.ct-hex { font: 16px ui-monospace, … }`, for the monospace face), so the computed-size check passes for those boxes even if that declaration were the only source of the size and
+the base rule did not reach them; the file is pinned and not edited here. A wrong answer is a field under 16 px again (a new field, or a field rule that sets its own size and outranks the base
 rule), a composer that grew taller with the bigger text, or a view that scrolls sideways on a phone.
 Held in a headless Chromium: the fields are the page's own, found by a query over the DOM (input, textarea, select and `[contenteditable]` minus the inputs that take no text, never a list of ids),
 and each computes 16 px at 1280 and 390 px, the ones not on the screen too, while the body, a chat message and the Send button keep 15 px; a field added at run time is found by the same query, and a
 field rule that sizes it under 16 px fails it. The views whose fields are drawn only when they open (the New session form with its folded options, the Quick session form, the search page with its date
-boxes, the Schedules tab, the Usage explorer, the color tool's pop-up) are opened and read the same way, and none of them scrolls sideways at 390 px. The composer stays one line: the editor 30 px, a
+boxes, the Schedules tab, the Usage explorer, the color tool's pop-up) are opened and read the same way, and at 390 px none of them scrolls sideways and no field's right edge is past the edge of
+its pane (the nearest ancestor that clips or scrolls sideways, or the screen), which a pane with `overflow-x: hidden` would otherwise hide from the document and body widths. The composer stays one line: the editor 30 px, a
 22 px line centred on the Send button, the row 48 px with a 30 px button on a touch screen and 50 px with a 32 px one with a mouse. And a text check that the three patches are gone with their heights
-kept and the base rule stands once with no media query. Not covered, and why: a real iOS WebKit (the zoom itself is a phone's to show; the computed size is what the rule controls).
+kept and the base rule stands once, plus a read of the parsed stylesheets (the CSSOM, not a regex over the text) that finds the base rule exactly once with no parent rule, so it is under no `@media`,
+`@supports` or `@container`; one test puts a copy of it inside an `@media` and a 600 px box inside the search pane and checks that both new checks fail. Not covered, and why: a real iOS WebKit (the zoom itself is a phone's to show; the computed size is what the rule controls).
 
 ### `tests/dm.sh`: new, 78 (Thu Nov 19th 2026)
 
