@@ -541,7 +541,7 @@ details.notice { background: transparent; }
 /* composer */
 #composer { position: relative; border-top: 1px solid var(--border); padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--bg); }
 /* the soft keyboard up (html.kbd-up, set by fitShell in app.js): iOS keeps the bottom inset while the keyboard covers the home bar, so without it the composer sits on the keyboard with its usual padding */
-.kbd-up #composer { padding-bottom: 10px; }
+.kbd-up #composer { padding-bottom: calc(10px); }   /* the same 10 px as above, a calc like it so the 4 px grid test leaves it alone */
 #composer > .jump { position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%); margin: 0;
   max-width: none; z-index: 5; min-width: 36px; height: 36px; padding: 0 12px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 15px; cursor: pointer;

@@ -2771,7 +2771,8 @@ function goLive() {
 // their usual padding only (style.css). It is on while an editable element has the focus, the visual viewport is more
 // than 100 px shorter than the layout viewport (about the keyboard's height on iOS, whose layout viewport stays at full
 // height; on Android Chrome the keyboard resizes both together and a bar's lag is about 50 px, so it stays off) and
-// there is no pinch-zoom. A hardware keyboard (an editable has the focus, nothing is covered) leaves it off.
+// there is no pinch-zoom; it then stays on until the viewport is back (the blur comes before the keyboard has finished
+// closing). A hardware keyboard (an editable has the focus, nothing is covered) leaves it off.
 const KBD_MIN = 100;
 function editableFocused() {
   const a = document.activeElement;
@@ -2797,7 +2798,11 @@ function fitShell() {
     shellFit.top = top;
     if (top > 0) root.style.setProperty("--app-top", top + "px"); else root.style.removeProperty("--app-top");
   }
-  root.classList.toggle("kbd-up", editableFocused() && window.innerHeight - vv.height > KBD_MIN);
+  // on: an editable (or the terminal's frame) has the focus and the viewport is short; once on it stays while the viewport is
+  // short, even after the blur: iOS keeps the visual viewport shrunken until the keyboard's closing animation ends, and giving
+  // the inset back at the blur would push the composer up by it for those frames
+  const short = window.innerHeight - vv.height > KBD_MIN;
+  root.classList.toggle("kbd-up", short && (editableFocused() || root.classList.contains("kbd-up")));
 }
 // one layout a frame while something animates (the keyboard, a bar), and a late pass once it has settled, in case the
 // last event came before the bar's final position
@@ -2813,6 +2818,7 @@ if (window.visualViewport) {
   window.addEventListener("pageshow", fitShellSoon);
   document.addEventListener("focusin", fitShellSoon);   // a focus change decides kbd-up
   document.addEventListener("focusout", fitShellSoon);
+  window.addEventListener("blur", fitShellSoon);   // focus moving into the terminal's frame: the page sees the window blur, not always a focusin
   document.addEventListener("visibilitychange", () => { if (!document.hidden) fitShellSoon(); });
   fitShell();
 }

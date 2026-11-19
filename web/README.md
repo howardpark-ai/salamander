@@ -1600,7 +1600,9 @@ when all three hold: an editable element has the focus (`input`, `textarea`, `se
 `document.activeElement`; a button or a checkbox opens no keyboard), `innerHeight - visualViewport.height` is over 100 px (on
 iOS the layout viewport keeps its full height, so the difference is about the keyboard's height; on Android Chrome the
 keyboard resizes both viewports together and a bar's lag is about 50 px, so it stays near 0 and the class stays off), and the
-scale is at most 1.01 (it is removed with the variables while zoomed). A hardware keyboard (an editable focused, nothing
+scale is at most 1.01 (it is removed with the variables while zoomed); once on, it stays while the viewport is short even after the
+blur, because iOS keeps the visual viewport shrunken until the keyboard's closing animation ends (the inset would otherwise push the
+composer up for those frames), and goes when the viewport is back. A hardware keyboard (an editable focused, nothing
 covered) and every state without a keyboard keep the inset, so with the keyboard down nothing changes. `focusin` and `focusout`
 run `fitShell` like the viewport events, so a focus change updates it, and the late pass after 350 ms stays.
 
