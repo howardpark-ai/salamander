@@ -158,7 +158,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      app's bot token (lib/dm.sh): TEXT is one argument, or stdin when it is `-` or absent (the safe form for quotes and backticks);
                                      <app> is a name in SALA_DM_APPS, the member is SALA_DM_USER_ID, the token is SALA_DM_TOKEN_DIR/slack-bot-token-<app> (mode 600);
                                      prints the posted message's ts; exit 0 posted, 1 Slack said no (its error code), 2 usage, 3 setting or token problem, 4 network
-  salamander dm --set-token <app> | --check <app> | --help   store the app's bot token at a hidden prompt (a terminal only) · auth.test with it: the bot user and team
+  salamander dm --set-token [<app> | --all] | --check <app> | --help   store the app's bot token at a hidden prompt (a terminal only; with no app, or --all, ask for each app in SALA_DM_APPS in turn) · auth.test with it: the bot user and team
   salamander job add NAME --repo REPO --script PATH --schedule S… --description "…" --lane LANE [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
                                      a scheduled job as a systemd service + timer kept in git (lib/job.sh, docs/units.md): the two files go into the
                                      repo's unit folder with Description= and X-Model-Lane=, are linked into ~/.config/systemd/user and enabled; prints the git
@@ -531,7 +531,7 @@ usage: sala mockup add FILE|-
 
 ### sala dm --help (exit 0)
 usage: sala dm <app> [--thread <ts>] [TEXT|-]
-       sala dm --set-token <app>
+       sala dm --set-token [<app> | --all]
        sala dm --check <app>
        sala dm --help | -h
 
@@ -545,7 +545,10 @@ On success the posted message's ts is printed on stdout, so a caller can thread 
   SALA_DM_TOKEN_DIR  where the token files are (default ~/.config/sala-briefing); the token of <app> is slack-bot-token-<app>, mode 600
   SALA_DM_API_BASE   the Slack API's base URL (default https://slack.com/api)
 --set-token <app>  asks for the app's bot token (xoxb-…) with a hidden prompt and stores it (mode 600, directory 700); needs a terminal.
---check <app>      calls auth.test with the stored token and prints the bot user id and the team, never the token.
+--set-token        with no app (or --all) asks for each app in SALA_DM_APPS in turn, one hidden prompt each, and stores each the same way. An empty
+                   line skips that app and keeps its stored token; a value that is no bot token is refused for that app and the next is asked.
+                   It ends with each app's outcome (stored, skipped or refused); exit 1 when any was refused, else 0.
+--check <app>     calls auth.test with the stored token and prints the bot user id and the team, never the token.
 
 exit: 0 posted · 1 Slack answered an error (its code is printed) · 2 usage · 3 a setting or the token file is missing or refused · 4 network
 

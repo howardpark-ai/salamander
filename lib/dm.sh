@@ -2,7 +2,8 @@
 # Sourced by bin/salamander, which then calls dm_main (the functions are defined here and nothing runs on source, so a test can call one).
 #
 #   salamander dm <app> [--thread <ts>] [TEXT|-]      post TEXT (an argument, or stdin when TEXT is `-` or absent) as <app>
-#   salamander dm --set-token <app>                   store the app's bot token: hidden prompt, in the owner's own terminal
+#   salamander dm --set-token [<app> | --all]         store the app's bot token (hidden prompt, in the owner's own terminal); with no app, or
+#                                                     --all, ask for each app in SALA_DM_APPS in turn
 #   salamander dm --check <app>                       auth.test with the stored token: the bot user id and the team
 #   salamander dm --help | -h
 #
@@ -30,7 +31,7 @@ DM_MAX_CHARS=39000
 dm_usage() {
     cat <<'USAGE'
 usage: sala dm <app> [--thread <ts>] [TEXT|-]
-       sala dm --set-token <app>
+       sala dm --set-token [<app> | --all]
        sala dm --check <app>
        sala dm --help | -h
 
@@ -44,7 +45,10 @@ On success the posted message's ts is printed on stdout, so a caller can thread 
   SALA_DM_TOKEN_DIR  where the token files are (default ~/.config/sala-briefing); the token of <app> is slack-bot-token-<app>, mode 600
   SALA_DM_API_BASE   the Slack API's base URL (default https://slack.com/api)
 --set-token <app>  asks for the app's bot token (xoxb-…) with a hidden prompt and stores it (mode 600, directory 700); needs a terminal.
---check <app>      calls auth.test with the stored token and prints the bot user id and the team, never the token.
+--set-token        with no app (or --all) asks for each app in SALA_DM_APPS in turn, one hidden prompt each, and stores each the same way. An empty
+                   line skips that app and keeps its stored token; a value that is no bot token is refused for that app and the next is asked.
+                   It ends with each app's outcome (stored, skipped or refused); exit 1 when any was refused, else 0.
+--check <app>     calls auth.test with the stored token and prints the bot user id and the team, never the token.
 
 exit: 0 posted · 1 Slack answered an error (its code is printed) · 2 usage · 3 a setting or the token file is missing or refused · 4 network
 USAGE
@@ -229,15 +233,53 @@ dm_cmd_check() {   # <app>
     echo "ok: $1 is bot user $DM_UID in team $DM_TEAM ($DM_TEAMID)"
 }
 
+# dm_store_one <app> <value>: the one validation and the one write every --set-token path uses; 0 stored, 2 not a bot token, 3 could not write.
+# The value is never printed.
+dm_store_one() {
+    local app=$1 val=${2//[[:space:]]/}
+    [[ $val =~ ^xoxb-[A-Za-z0-9-]+$ ]] || { dm_err "that is not a bot token (it must start with xoxb-); nothing stored"; return 2; }
+    dm_write_token "$app" "$val" || { dm_err "could not write $(dm_token_dir)/slack-bot-token-$app"; return 3; }
+}
+
 dm_cmd_set_token() {   # <app>
-    local app=$1 val=""
+    local app=$1 val="" rc
     if [ ! -t 0 ]; then dm_err "--set-token needs a terminal (the token is typed at a hidden prompt, never taken from a pipe or an argument)"; return 2; fi
     printf 'Paste the bot token for %s (xoxb-…; nothing is shown as you paste), then Enter: ' "$app" >&2
     IFS= read -rs val; echo >&2
-    val=${val//[[:space:]]/}
-    [[ $val =~ ^xoxb-[A-Za-z0-9-]+$ ]] || { dm_err "that is not a bot token (it must start with xoxb-); nothing stored"; return 2; }
-    dm_write_token "$app" "$val" || { dm_err "could not write $(dm_token_dir)/slack-bot-token-$app"; return 3; }
+    dm_store_one "$app" "$val"; rc=$?; val=""
+    [ "$rc" = 0 ] || return "$rc"
     echo "stored token for $app"
+}
+
+# dm_cmd_set_token_all: --set-token with no app (or --all): the same store for each app in SALA_DM_APPS, in order, one hidden prompt each.
+# An empty line skips the app (its stored token is kept); a value the single-app path refuses is refused for that app and the loop goes on;
+# Ctrl-D skips the rest. The summary names each app's outcome; the exit is 1 when any app was refused, else 0. Nothing is sent over the network.
+dm_cmd_set_token_all() {
+    local list=() apps=() a val="" eof=0 i out=() bad=0
+    read -ra list <<< "${SALA_DM_APPS:-}"
+    for a in "${list[@]}"; do case " ${apps[*]:-} " in *" $a "*) ;; *) apps+=("$a") ;; esac; done   # a name listed twice is asked once
+    if [ "${#apps[@]}" = 0 ]; then dm_err "no apps are configured: set SALA_DM_APPS (space-separated names) in $SALA_CONFIG, or name one: sala dm --set-token <app>"; return 2; fi
+    if [ ! -t 0 ]; then dm_err "--set-token needs a terminal (the token is typed at a hidden prompt, never taken from a pipe or an argument)"; return 2; fi
+    echo "Storing the bot token of each app in SALA_DM_APPS (${#apps[@]}), one at a time. Nothing is shown as you paste; Enter alone skips an app and keeps its stored token; Ctrl-D skips the rest." >&2
+    for a in "${apps[@]}"; do
+        if [ "$eof" = 1 ]; then out+=("$a: skipped"); continue; fi
+        if ! dm_check_app "$a"; then out+=("$a: refused"); bad=1; continue; fi
+        printf 'token for %s (Bot User OAuth Token, xoxb-...): ' "$a" >&2
+        if IFS= read -rs val; then :; else eof=1; val=""; fi
+        echo >&2
+        val=${val//[[:space:]]/}
+        if [ -z "$val" ]; then
+            echo "skipped $a: nothing entered, its stored token (if any) is kept"; out+=("$a: skipped")
+        elif dm_store_one "$a" "$val"; then
+            echo "stored token for $a"; out+=("$a: stored")
+        else
+            out+=("$a: refused"); bad=1
+        fi
+        val=""
+    done
+    echo "summary:"
+    for i in "${out[@]}"; do echo "  $i"; done
+    return "$bad"
 }
 
 # dm_thread_check <value>: a --thread value is a message ts such as 1700000000.000100; 1 (with the usage line) when it is empty or not one
@@ -254,8 +296,9 @@ dm_main() {
         --set-token) mode=set; shift ;;
         --check) mode=check; shift ;;
     esac
+    if [ "$mode" = set ] && { [ $# = 0 ] || [ "$*" = --all ]; }; then dm_cmd_set_token_all; return $?; fi   # no app, or --all: every app in SALA_DM_APPS
     if [ "$mode" != post ]; then
-        [ $# = 1 ] || { dm_err "usage: sala dm --$([ "$mode" = set ] && echo set-token || echo check) <app>"; return 2; }
+        [ $# = 1 ] || { dm_err "usage: sala dm --$([ "$mode" = set ] && echo 'set-token [<app> | --all]' || echo 'check <app>')"; return 2; }
         dm_check_app "$1" || return $?
         app=$1
         if [ "$mode" = set ]; then dm_cmd_set_token "$app"; return $?; fi

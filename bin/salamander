@@ -158,7 +158,7 @@
 #                                      app's bot token (lib/dm.sh): TEXT is one argument, or stdin when it is `-` or absent (the safe form for quotes and backticks);
 #                                      <app> is a name in SALA_DM_APPS, the member is SALA_DM_USER_ID, the token is SALA_DM_TOKEN_DIR/slack-bot-token-<app> (mode 600);
 #                                      prints the posted message's ts; exit 0 posted, 1 Slack said no (its error code), 2 usage, 3 setting or token problem, 4 network
-#   salamander dm --set-token <app> | --check <app> | --help   store the app's bot token at a hidden prompt (a terminal only) · auth.test with it: the bot user and team
+#   salamander dm --set-token [<app> | --all] | --check <app> | --help   store the app's bot token at a hidden prompt (a terminal only; with no app, or --all, ask for each app in SALA_DM_APPS in turn) · auth.test with it: the bot user and team
 #   salamander job add NAME --repo REPO --script PATH --schedule S… --description "…" --lane LANE [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
 #                                      a scheduled job as a systemd service + timer kept in git (lib/job.sh, docs/units.md): the two files go into the
 #                                      repo's unit folder with Description= and X-Model-Lane=, are linked into ~/.config/systemd/user and enabled; prints the git

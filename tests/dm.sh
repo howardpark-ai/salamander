@@ -14,7 +14,12 @@
 #   refusals   a bad, unlisted or unconfigured app name, a missing / empty / 644 / malformed token file, a missing or malformed SALA_DM_USER_ID,
 #              each with its exit code and no request made
 #   errors     Slack's error code is the only thing printed (and the token never is), 5xx retried once then network, a timeout, no server
-#   token      --set-token refuses a non-terminal (the hidden prompt itself needs a terminal and is not driven here); dm_write_token (mode 600, atomic, no temp left, a new folder 700, an old one untouched); --check
+#   token      --set-token refuses a non-terminal; dm_write_token (mode 600, atomic, no temp left, a new folder 700, an old one untouched); --check
+#   set-token  the hidden prompt IS driven, through a pty (python3's pty module types a line at each prompt once the terminal's echo is off):
+#              --set-token with no app (or --all) asks for every app in SALA_DM_APPS in turn: three stored from three lines (mode 600 each), an empty
+#              line skips an app and keeps its old token, a bad value is refused for its app while the others store (exit 1), a write that fails
+#              likewise, Ctrl-D skips the rest, an app listed twice is asked once, no value in any transcript or request; no terminal, no
+#              SALA_DM_APPS, an unknown app and `--all <app>` are refused with exit 2; `--set-token <app>` is unchanged
 #   secrecy    the token in no process argument (the curl wrapper's record), in no output, state or cache file, over EVERY case: the per-case records
 #              are deleted by reset, so an audit log (kept to the end) collects each case's curl arguments, outputs and state files first; a deliberate
 #              leak was shown to fail it; lib/dm.sh names the token only where it builds curl's stdin config; the settings read from the config file
@@ -397,8 +402,117 @@ $S --set-token beta-app </dev/null >"$T/o" 2>"$T/err"; rc=$?
 printf '%s\n' "$TOKEN" | $S --set-token beta-app >"$T/o" 2>"$T/err"; rc=$?
 [ "$rc" = 2 ] && [ ! -e "$T/tok/slack-bot-token-beta-app" ] && ! grep -q "$TOKEN" "$T/o" "$T/err" && ok "--set-token from a pipe: refused too, and the value is not echoed" || bad "set-token pipe: rc=$rc"
 $S --set-token gamma-app </dev/null >/dev/null 2>&1; [ "$?" = 2 ] && ok "--set-token for an unlisted app: usage error" || bad "set-token unlisted"
-$S --set-token >/dev/null 2>&1; [ "$?" = 2 ] && ok "--set-token with no app: usage error" || bad "set-token no app"
 settoken beta-app
+# --set-token with no app (or --all) asks for every app in SALA_DM_APPS in turn. It needs a terminal, so the hidden prompt IS driven here: a pty
+# (python3's pty module) runs `sala dm` with a terminal for stdin, stdout and stderr and types one line at each prompt, once the terminal's echo is off
+# (so a typed value is never echoed into the transcript). The transcript (everything the owner would see) goes to the audit log too.
+cat > "$T/pty-run.py" <<'PY'
+import os, pty, select, signal, sys, termios, time
+out, inp, mark = sys.argv[1], sys.argv[2], sys.argv[3].encode(); cmd = sys.argv[4:]
+lines = open(inp).read().split("\n")[:-1]   # one typed line each; the literal <EOF> is Ctrl-D
+pid, fd = pty.fork()
+if pid == 0: os.execvp(cmd[0], cmd)
+buf = b""; sent = 0; end = time.time() + 30; rc = None
+while time.time() < end:
+    if select.select([fd], [], [], 0.1)[0]:
+        try: d = os.read(fd, 4096)
+        except OSError: break
+        if not d: break
+        buf += d
+    if sent < len(lines) and buf.count(mark) > sent:
+        try: noecho = not (termios.tcgetattr(fd)[3] & termios.ECHO)
+        except termios.error: noecho = False
+        if noecho:
+            os.write(fd, b"\x04" if lines[sent] == "<EOF>" else lines[sent].encode() + b"\n"); sent += 1
+else:
+    os.kill(pid, signal.SIGKILL); os.waitpid(pid, 0); open(out, "wb").write(buf); sys.exit(99)
+_, st = os.waitpid(pid, 0)
+open(out, "wb").write(buf.replace(b"\r", b""))
+sys.exit(os.waitstatus_to_exitcode(st))
+PY
+TA=xoxb-test-all-alpha; TB=xoxb-test-all-beta; TC=xoxb-test-all-gamma; TOLD=xoxb-test-all-old; BADV=not-a-token-zzz9
+ptyrun() { local mark=$1; shift; PTRC=; python3 -I "$T/pty-run.py" "$T/pty.out" "$T/pty.in" "$mark" bash "$ROOT/bin/salamander" dm "$@"; PTRC=$?; PTOUT=$(<"$T/pty.out"); cat "$T/pty.out" >> "$AUDIT/output"; }   # <prompt marker> <sala dm args…>: lines from $T/pty.in
+feed() { printf '%s\n' "$@" > "$T/pty.in"; }   # the lines typed at the prompts, in order
+tokmode() { stat -c %a "$T/tok/slack-bot-token-$1" 2>/dev/null; }
+tokval() { head -n 1 "$T/tok/slack-bot-token-$1" 2>/dev/null; }
+leaks() { grep -qF -e "$TA" -e "$TB" -e "$TC" -e "$TOLD" -e "$BADV" "$T/pty.out"; }   # 0 when a typed value (or a stored old one) is in the last transcript
+M3='xoxb-...): '
+SALA_DM_APPS="alpha-app beta-app gamma-app"; export SALA_DM_APPS
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; reset
+# all three stored in one run, from three typed lines
+feed "$TA" "$TB" "$TC"; ptyrun "$M3" --set-token
+[ "$PTRC" = 0 ] && [ "$(tokval alpha-app)" = "$TA" ] && [ "$(tokval beta-app)" = "$TB" ] && [ "$(tokval gamma-app)" = "$TC" ] && ok "--set-token (no app): three prompts, three tokens stored in one run, exit 0" || bad "set-token all: rc=$PTRC $(ls -A "$T/tok" | tr '\n' ' ')"
+[ "$(tokmode alpha-app)" = 600 ] && [ "$(tokmode beta-app)" = 600 ] && [ "$(tokmode gamma-app)" = 600 ] && [ "$(stat -c %a "$T/tok")" = 700 ] && ! ls -A "$T/tok" | grep -q '^\.' && ok "--set-token (no app): each file is mode 600, no temporary file left" || bad "set-token all modes: $(stat -c '%n %a' "$T/tok"/* | tr '\n' ' ')"
+[ "$(grep -c 'token for .* (Bot User OAuth Token, xoxb-\.\.\.): ' <<<"$PTOUT")" = 3 ] && grep -q 'token for alpha-app (Bot User OAuth Token, xoxb-...): ' <<<"$PTOUT" && ok "--set-token (no app): a prompt names each app's token, in SALA_DM_APPS order" || bad "set-token all prompts: [$PTOUT]"
+o1=$(grep -n 'token for alpha-app (' <<<"$PTOUT" | head -1 | cut -d: -f1); o2=$(grep -n 'token for beta-app (' <<<"$PTOUT" | head -1 | cut -d: -f1); o3=$(grep -n 'token for gamma-app (' <<<"$PTOUT" | head -1 | cut -d: -f1)
+[ -n "$o1" ] && [ "$o1" -lt "$o2" ] && [ "$o2" -lt "$o3" ] && ok "--set-token (no app): the apps are asked in the order SALA_DM_APPS lists them" || bad "set-token all order: $o1 $o2 $o3"
+grep -q '^  alpha-app: stored$' <<<"$PTOUT" && grep -q '^  beta-app: stored$' <<<"$PTOUT" && grep -q '^  gamma-app: stored$' <<<"$PTOUT" && ok "--set-token (no app): the summary lists each app as stored" || bad "set-token all summary: [$PTOUT]"
+leaks && bad "--set-token (no app): a typed value appears in the transcript" || ok "--set-token (no app): no typed value appears in the transcript (not echoed)"
+[ "$(nall)" = 0 ] && ok "--set-token (no app): no request was made (nothing goes to the network)" || bad "set-token all made requests: $(nall)"
+# --all is the same
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
+feed "$TA" "$TB" "$TC"; ptyrun "$M3" --set-token --all
+[ "$PTRC" = 0 ] && [ "$(tokval alpha-app)" = "$TA" ] && [ "$(tokval beta-app)" = "$TB" ] && [ "$(tokval gamma-app)" = "$TC" ] && ok "--set-token --all is the same as --set-token with no app" || bad "set-token --all: rc=$PTRC"
+# the single-app form is unchanged: one prompt, one token, the old output
+rm -f "$T/tok/slack-bot-token-beta-app"
+feed "$TB"; ptyrun 'then Enter: ' --set-token beta-app
+[ "$PTRC" = 0 ] && [ "$(tokval beta-app)" = "$TB" ] && [ "$(tokmode beta-app)" = 600 ] && [ "$(grep -c 'Paste the bot token for' <<<"$PTOUT")" = 1 ] && grep -q '^stored token for beta-app$' <<<"$PTOUT" && ! grep -q 'summary' <<<"$PTOUT" && ok "--set-token <app> is unchanged: one prompt, stored, 'stored token for <app>', no summary" || bad "set-token single: rc=$PTRC [$PTOUT]"
+feed "$BADV"; ptyrun 'then Enter: ' --set-token beta-app
+[ "$PTRC" = 2 ] && [ "$(tokval beta-app)" = "$TB" ] && grep -q 'that is not a bot token (it must start with xoxb-); nothing stored' <<<"$PTOUT" && ok "--set-token <app> with a bad value: the same refusal (exit 2), the stored token untouched" || bad "set-token single bad: rc=$PTRC [$PTOUT]"
+feed ""; ptyrun 'then Enter: ' --set-token beta-app
+[ "$PTRC" = 2 ] && [ "$(tokval beta-app)" = "$TB" ] && ok "--set-token <app> with an empty line is still a refusal (2), not a skip" || bad "set-token single empty: rc=$PTRC"
+# an empty line skips that app and keeps its old token
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; settoken beta-app "$TOLD"
+feed "$TA" "" "$TC"; ptyrun "$M3" --set-token
+[ "$PTRC" = 0 ] && [ "$(tokval alpha-app)" = "$TA" ] && [ "$(tokval beta-app)" = "$TOLD" ] && [ "$(tokval gamma-app)" = "$TC" ] && ok "an empty line skips that app and keeps its old token; the others are stored; exit 0" || bad "skip: rc=$PTRC $(cat "$T/tok"/* | sed 's/.*/<tok>/' | tr '\n' ' ')"
+grep -q '^skipped beta-app: nothing entered' <<<"$PTOUT" && grep -q '^  beta-app: skipped$' <<<"$PTOUT" && grep -q '^  alpha-app: stored$' <<<"$PTOUT" && grep -q '^  gamma-app: stored$' <<<"$PTOUT" && ok "a skipped app is said so, and the summary lists stored and skipped" || bad "skip summary: [$PTOUT]"
+leaks && bad "skip: a typed value appears in the transcript" || ok "skip: no typed value appears in the transcript"
+# an app with no token yet, skipped: nothing is created
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
+feed "" "$TB" ""; ptyrun "$M3" --set-token
+[ "$PTRC" = 0 ] && [ ! -e "$T/tok/slack-bot-token-alpha-app" ] && [ ! -e "$T/tok/slack-bot-token-gamma-app" ] && [ "$(tokval beta-app)" = "$TB" ] && ok "a skipped app that had no token gets no file" || bad "skip empty app: rc=$PTRC $(ls -A "$T/tok")"
+# a bad token is refused for that app, the others still store, the exit is 1
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; settoken beta-app "$TOLD"
+feed "$TA" "$BADV" "$TC"; ptyrun "$M3" --set-token
+[ "$PTRC" = 1 ] && [ "$(tokval alpha-app)" = "$TA" ] && [ "$(tokval beta-app)" = "$TOLD" ] && [ "$(tokval gamma-app)" = "$TC" ] && ok "a bad token is refused for its app (old token kept), the other apps still store, exit 1" || bad "bad token: rc=$PTRC"
+grep -q 'that is not a bot token (it must start with xoxb-); nothing stored' <<<"$PTOUT" && grep -q '^  beta-app: refused$' <<<"$PTOUT" && grep -q '^  alpha-app: stored$' <<<"$PTOUT" && grep -q '^  gamma-app: stored$' <<<"$PTOUT" && ok "the refusal is the single-app message, and the summary lists stored, refused, stored" || bad "bad token summary: [$PTOUT]"
+leaks && bad "bad token: a typed value (the refused one included) appears in the transcript" || ok "bad token: neither the refused nor the stored values appear in the transcript"
+# a bad first app does not stop the loop either, and a refused-only run is exit 1
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
+feed "$BADV" "$BADV" "$BADV"; ptyrun "$M3" --set-token
+[ "$PTRC" = 1 ] && [ -z "$(ls -A "$T/tok")" ] && [ "$(grep -c 'nothing stored' <<<"$PTOUT")" = 3 ] && ok "three bad values: all three are asked and refused, nothing stored, exit 1" || bad "all bad: rc=$PTRC $(ls -A "$T/tok")"
+# every app skipped is exit 0
+feed "" "" ""; ptyrun "$M3" --set-token
+[ "$PTRC" = 0 ] && [ -z "$(ls -A "$T/tok")" ] && ok "every app skipped: nothing stored, exit 0" || bad "all skipped: rc=$PTRC"
+# a failed write for one app (its token path is a folder) is refused for that app, the others still store
+rm -rf "$T/tok"; mkdir -p "$T/tok/slack-bot-token-beta-app"; chmod 700 "$T/tok"
+feed "$TA" "$TB" "$TC"; ptyrun "$M3" --set-token
+[ "$PTRC" = 1 ] && [ "$(tokval alpha-app)" = "$TA" ] && [ "$(tokval gamma-app)" = "$TC" ] && grep -q 'could not write' <<<"$PTOUT" && grep -q '^  beta-app: refused$' <<<"$PTOUT" && ok "a token file that cannot be written is refused for that app, the others store, exit 1" || bad "write failure: rc=$PTRC [$PTOUT]"
+# Ctrl-D at a prompt skips that app and the rest, keeping what was stored
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
+feed "$TA" "<EOF>"; ptyrun "$M3" --set-token
+[ "$PTRC" = 0 ] && [ "$(tokval alpha-app)" = "$TA" ] && [ ! -e "$T/tok/slack-bot-token-beta-app" ] && [ ! -e "$T/tok/slack-bot-token-gamma-app" ] && grep -q '^  beta-app: skipped$' <<<"$PTOUT" && grep -q '^  gamma-app: skipped$' <<<"$PTOUT" && ok "Ctrl-D skips the rest: the stored app stays, the others are listed as skipped, exit 0" || bad "ctrl-d: rc=$PTRC [$PTOUT]"
+# a listed name twice is asked once; a lone app asks once
+feed "$TA"; SALA_DM_APPS="alpha-app alpha-app" ptyrun "$M3" --set-token
+[ "$PTRC" = 0 ] && [ "$(grep -c 'token for alpha-app (' <<<"$PTOUT")" = 1 ] && ok "an app listed twice in SALA_DM_APPS is asked once" || bad "duplicate app: rc=$PTRC [$PTOUT]"
+# refusals: a terminal is needed, the app list must exist, an unknown app is a usage error
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"
+printf '%s\n%s\n%s\n' "$TA" "$TB" "$TC" | $S --set-token >"$T/o" 2>"$T/err"; rc=$?
+[ "$rc" = 2 ] && grep -q 'needs a terminal' "$T/err" && [ -z "$(ls -A "$T/tok")" ] && ! grep -qF -e "$TA" -e "$TB" -e "$TC" "$T/o" "$T/err" && ok "--set-token (no app) with stdin a pipe: refused (2), nothing stored, no value echoed" || bad "set-token all pipe: rc=$rc $(cat "$T/err")"
+$S --set-token --all </dev/null >"$T/o" 2>"$T/err"; rc=$?
+[ "$rc" = 2 ] && grep -q 'needs a terminal' "$T/err" && [ -z "$(ls -A "$T/tok")" ] && ok "--set-token --all with stdin not a terminal: refused (2), nothing stored" || bad "set-token --all /dev/null: rc=$rc"
+SALA_DM_APPS= $S --set-token </dev/null >"$T/o" 2>"$T/err"; rc=$?
+[ "$rc" = 2 ] && [ "$(wc -l < "$T/err")" = 1 ] && grep -q 'SALA_DM_APPS' "$T/err" && ok "--set-token with no SALA_DM_APPS configured: a one-line usage error (2) naming the setting" || bad "set-token no apps: rc=$rc [$(cat "$T/err")]"
+feed "$TA"; SALA_DM_APPS= ptyrun "$M3" --set-token
+[ "$PTRC" = 2 ] && [ "$(wc -l <<<"$PTOUT")" = 1 ] && grep -q 'SALA_DM_APPS' <<<"$PTOUT" && ok "--set-token with no SALA_DM_APPS, even at a terminal: the same one-line usage error (2), no prompt" || bad "set-token no apps tty: rc=$PTRC [$PTOUT]"
+$S --set-token gamma-app-x </dev/null >"$T/o" 2>"$T/err"; rc=$?
+[ "$rc" = 2 ] && grep -q "unknown app 'gamma-app-x'" "$T/err" && ok "--set-token with an unknown app: usage error (2) naming it" || bad "set-token unknown: rc=$rc [$(cat "$T/err")]"
+feed "$TA"; ptyrun "$M3" --set-token gamma-app-x
+[ "$PTRC" = 2 ] && grep -q "unknown app 'gamma-app-x'" <<<"$PTOUT" && ! grep -q 'token for' <<<"$PTOUT" && ok "--set-token with an unknown app, at a terminal: exit 2, no prompt" || bad "set-token unknown tty: rc=$PTRC [$PTOUT]"
+$S --set-token --all alpha-app </dev/null >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 2 ] && grep -q 'usage: sala dm --set-token' "$T/err" && ok "--set-token --all <app>: a usage error (2)" || bad "set-token --all app: rc=$rc [$(cat "$T/err")]"
+export SALA_DM_APPS="alpha-app beta-app"
+rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; settoken alpha-app; settoken beta-app "$TOKEN"; reset
 reset
 run --check alpha-app
 [ "$RC" = 0 ] && [ "$OUT" = "ok: alpha-app is bot user U0BOT001 in team Test Team (T0TEST001)" ] && [ "$(field 1 'r[i-1]["path"]')" = /auth.test ] && [ "$(nall)" = 1 ] && ok "--check: auth.test with the token, prints the bot user id and the team" || bad "check: rc=$RC out=[$OUT] err=[$ERR]"
@@ -421,13 +535,13 @@ grep -qF '${SALA_DM_API_BASE:-https://slack.com/api}' "$ROOT/lib/dm.sh" && ok "t
 # The per-case records (curl's argument log, the cache) are deleted by reset between cases, so these checks run over the AUDIT log: each case's
 # curl arguments (NUL-separated), every output `sala dm` printed, and every file left under the state folder (path, then contents), collected
 # before each reset and once more now, all at the end. The match is on the token string itself; a report shows counts and redacted lines only.
-redact() { sed -e "s/$TOKEN/<TOKEN>/g" -e "s/$TOKEN2/<TOKEN2>/g" -e 's/xoxb-[A-Za-z0-9-]*/<xoxb>/g'; }
+redact() { sed -e "s/$TOKEN/<TOKEN>/g" -e "s/$TOKEN2/<TOKEN2>/g" -e "s/$TA/<TA>/g" -e "s/$TB/<TB>/g" -e "s/$TC/<TC>/g" -e "s/$TOLD/<TOLD>/g" -e "s/$BADV/<BADV>/g" -e 's/xoxb-[A-Za-z0-9-]*/<xoxb>/g'; }
 audit_collect
 [ -s "$AUDIT/argv" ] && [ "$(tr -cd '\0' < "$AUDIT/argv" | wc -c)" -gt 100 ] && ok "(the audit log holds the curl arguments of every case: $(tr '\0' '\n' < "$AUDIT/argv" | grep -c '^@@call@@$') curl calls)" || bad "the audit log has no curl arguments"
 [ -s "$AUDIT/state" ] && [ -s "$AUDIT/state-list" ] && [ -s "$AUDIT/output" ] && ok "(and the outputs and the state files of every case)" || bad "the audit log is missing outputs or state files"
 qfirst "$AUDIT/argv" && ok "every curl call, over every case, started with -q (so ~/.curlrc is never read)" || bad "a curl call did not start with -q"
 if grep -aqF -e "$TOKEN" -e "$TOKEN2" -e xoxb "$AUDIT/argv" 2>/dev/null; then bad "a token was in a curl argument list: $(tr '\0' '\n' < "$AUDIT/argv" | grep -aF -e "$TOKEN" -e "$TOKEN2" -e xoxb | redact | head -3 | tr '\n' '|')"; else ok "the token was in no curl argument list, over every case (the audit log, not the last case's record)"; fi
-if grep -aqF -e "$TOKEN" -e "$TOKEN2" "$AUDIT/output" 2>/dev/null; then bad "a token was in the output of a call: $(grep -aF -e "$TOKEN" -e "$TOKEN2" "$AUDIT/output" | redact | head -3 | tr '\n' '|')"; else ok "the token was in no output (stdout or stderr) of any call, over every case"; fi
+if grep -aqF -e "$TOKEN" -e "$TOKEN2" -e "$TA" -e "$TB" -e "$TC" -e "$TOLD" -e "$BADV" "$AUDIT/output" 2>/dev/null; then bad "a token was in the output of a call: $(grep -aF -e "$TOKEN" -e "$TOKEN2" -e "$TA" -e "$TB" -e "$TC" -e "$TOLD" -e "$BADV" "$AUDIT/output" | redact | head -3 | tr '\n' '|')"; else ok "the token was in no output (stdout or stderr) of any call, over every case"; fi
 if grep -aqF -e "$TOKEN" -e "$TOKEN2" "$AUDIT/state" "$AUDIT/state-list" 2>/dev/null; then bad "a token was written under the state folder: $(grep -aF -e "$TOKEN" -e "$TOKEN2" "$AUDIT/state" "$AUDIT/state-list" | redact | head -3 | tr '\n' '|')"; else ok "the token is in no cache or state file, over every case"; fi
 if grep -rqF -e "$TOKEN" -e "$TOKEN2" "$SALA_STATE_DIR" 2>/dev/null; then bad "a token was written under the state folder"; else ok "the token is in no cache or state file now"; fi
 bad_lines=$(grep -nE '(^|[^A-Z_])DM_TOKEN([^A-Z_]|$)' "$ROOT/lib/dm.sh" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -vF -e 'DM_TOKEN=$tok' -e "printf 'header = \"Authorization: Bearer %s\"\\n' \"\$DM_TOKEN\" | curl" )
