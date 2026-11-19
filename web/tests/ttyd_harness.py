@@ -32,6 +32,35 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _ttyd_answers(port: int, deadline: float) -> bool:
+    """True when the listener on `port` answers GET /tty/ as ttyd does: status 200 and a `Server: ttyd...` header, the whole header
+    block read (it may arrive in several pieces). Another listener on the port, or a silent one, is False; no wait outlasts `deadline`
+    (a time.monotonic() value)."""
+    try:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return False
+        with socket.create_connection(("127.0.0.1", port), timeout=min(1, left)) as c:
+            c.sendall(b"GET /tty/ HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            head = b""
+            while b"\r\n\r\n" not in head and len(head) < 16384:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return False
+                c.settimeout(left)
+                chunk = c.recv(4096)
+                if not chunk:
+                    break
+                head += chunk
+    except OSError:
+        return False
+    lines = head.split(b"\r\n\r\n", 1)[0].split(b"\r\n")
+    status = lines[0].split()
+    if len(status) < 2 or not status[0].startswith(b"HTTP/1.") or status[1] != b"200":
+        return False
+    return any(l.lower().startswith(b"server:") and l.split(b":", 1)[1].strip().lower().startswith(b"ttyd") for l in lines[1:])
+
+
 class Router:
     """A byte-level router on one loopback port: a request whose path starts with /tty goes to ttyd, every other one to the app, so
     that the app's page and ttyd's page are one origin (the frame's `term` is readable from the app, as behind the real proxy).
@@ -149,19 +178,12 @@ class Pane:
         self._wait_listening()
 
     def _wait_listening(self, seconds: float = 10, raising: bool = True) -> bool:
-        """True once ttyd's port accepts a connection (a page that reconnects before that is refused and shows its overlay again);
-        False, or RuntimeError, when ttyd exited or the time is up."""
-        t0 = time.time()
-        while time.time() - t0 < seconds and self.ttyd.poll() is None:
-            try:                                          # ask for ttyd's own page: another listener on the port would not answer as ttyd does
-                with socket.create_connection(("127.0.0.1", self.ttyd_port), timeout=1) as c:
-                    c.settimeout(2)
-                    c.sendall(b"GET /tty/ HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
-                    head = c.recv(4096)
-                if head.startswith(b"HTTP/1.") and b" 200 " in head[:16] and b"ttyd" in head.lower() and self.ttyd.poll() is None:
-                    return True
-            except OSError:
-                pass
+        """True once ttyd's own page answers on its port (a page that reconnects before that is refused and shows its overlay
+        again); False, or RuntimeError, when ttyd exited or the time is up. Every socket wait is bounded by the time left."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline and self.ttyd.poll() is None:
+            if _ttyd_answers(self.ttyd_port, deadline) and self.ttyd.poll() is None:
+                return True
             time.sleep(0.05)
         if raising:
             raise RuntimeError("ttyd did not listen again within %s s" % seconds)
