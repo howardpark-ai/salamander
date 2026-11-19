@@ -444,17 +444,88 @@ briefing_webhook_file() {
   printf '%s' "$WEBHOOK_FILE"
 }
 
-# post_slack <text>  — posts slack_text <text>, then slack_links and sala_board_links, to the webhook (briefing_webhook_file: the
-# default one, or the channel's). With BRIEFING_THREAD_TS set (reply.sh),
+# The bot-token post (below) reads the same token files and the same API base as `sala dm` (lib/dm.sh: dm_token_dir, dm_api_base). A
+# copy of contrib/briefing alone has no lib/dm.sh: the two one-line defaults below then stand in for it.
+if [ -r "$BRIEFING_DIR/../../lib/dm.sh" ]; then . "$BRIEFING_DIR/../../lib/dm.sh"; fi
+declare -F dm_token_dir >/dev/null || dm_token_dir() { printf '%s' "${SALA_DM_TOKEN_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/sala-briefing}"; }
+declare -F dm_api_base >/dev/null || dm_api_base() { local b=${SALA_DM_API_BASE:-https://slack.com/api}; printf '%s' "${b%/}"; }
+
+# _bot_post <text>  — posts <text> to the post's channel (BRIEFING_CHANNEL, else SALA_NOTIFY_CHANNEL, as briefing_webhook_file
+# names it) as that channel's Slack app, with the app's bot token: chat.postMessage, so the post shows the app's own name. The app
+# is the setting BRIEFING_BOT_APP_<NAME> (NAME = the channel in capitals, dashes as underscores; the environment, else the sala
+# config), no default; BRIEFING_BOT_CHANNEL_<NAME> is the channel id or name to post to (default: the channel name). The token is
+# ${SALA_DM_TOKEN_DIR:-~/.config/sala-briefing}/slack-bot-token-<app> (what `sala dm` reads: mode 600 or stricter, not empty), read
+# by the python process itself: it is never in an argument list, an environment variable, an output or a log. BRIEFING_THREAD_TS
+# adds thread_ts (a thread lives in one channel, so the reply goes to the channel of the post it answers).
+# Returns 0 and prints "ok" (as the webhook does) when Slack answered HTTP 200 with ok:true. Returns 1 for anything else, and the
+# caller then sends the same text through the webhook: no mapping (silent), or one line in $LOGDIR/bot-post.log saying why (the
+# time, the channel, the app and a short reason: a local one such as no_token_file, token_mode_644, token_empty, network,
+# http_<status>, or slack_error:<Slack's error code>). A post whose answer was lost after Slack took it can come out twice.
+_bot_post() {
+  local ch=${BRIEFING_CHANNEL:-${SALA_NOTIFY_CHANNEL:-}} var app bch tokdir base
+  [[ $ch =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]+$ ]] || return 1
+  var=${ch^^}; var=${var//-/_}
+  _bcfg_load "BRIEFING_BOT_APP_$var" "BRIEFING_BOT_CHANNEL_$var" SALA_DM_TOKEN_DIR SALA_DM_API_BASE
+  app=$(_bcfg "BRIEFING_BOT_APP_$var"); [ -n "$app" ] || return 1
+  bch=$(_bcfg "BRIEFING_BOT_CHANNEL_$var")
+  tokdir=$(SALA_DM_TOKEN_DIR=$(_bhome "$(_bcfg SALA_DM_TOKEN_DIR)") dm_token_dir)
+  base=$(SALA_DM_API_BASE=$(_bcfg SALA_DM_API_BASE) dm_api_base)
+  python3 -I - "$1" "$ch" "$app" "$bch" "$tokdir" "$base" "${BRIEFING_THREAD_TS-}" "$LOGDIR" <<'PY'
+import json, os, re, stat, sys, time, urllib.error, urllib.request
+text, ch, app, bch, tokdir, base, ts, logdir = sys.argv[1:9]
+def fail(reason):   # one line in bot-post.log, then the exit that sends the post through the webhook
+    shown = app if re.fullmatch(r"[A-Za-z0-9-]{1,64}", app) else "-"
+    try:
+        with open(os.path.join(logdir, "bot-post.log"), "a", encoding="utf-8") as f:
+            f.write("%s channel=%s app=%s reason=%s\n" % (time.strftime("%F %T"), ch, shown, reason))
+    except OSError:
+        pass
+    sys.exit(3)
+if not re.fullmatch(r"[A-Za-z0-9-]+", app): fail("bad_app_name")
+if bch and not re.fullmatch(r"[#A-Za-z0-9._-]{1,80}", bch): fail("bad_channel_setting")
+path = os.path.join(tokdir, "slack-bot-token-" + app)
+try: st = os.stat(path)
+except OSError: fail("no_token_file")
+if not stat.S_ISREG(st.st_mode): fail("no_token_file")
+if st.st_mode & 0o077: fail("token_mode_%o" % (st.st_mode & 0o777))
+try:
+    with open(path, encoding="utf-8", errors="replace") as f: tok = "".join(f.readline().split())
+except OSError: fail("token_unreadable")
+if not tok: fail("token_empty")
+if not (tok.isascii() and tok.isprintable()): fail("token_unusable")
+body = {"channel": bch or ch, "text": text, "unfurl_links": False, "unfurl_media": False}
+if ts: body["thread_ts"] = ts
+req = urllib.request.Request(base + "/chat.postMessage", data=json.dumps(body).encode(),
+    headers={"Content-Type": "application/json; charset=utf-8", "Authorization": "Bearer " + tok})
+class NoRedirect(urllib.request.HTTPRedirectHandler):   # the token goes to the API base and nowhere else
+    def redirect_request(self, *a, **k): return None
+try:
+    with urllib.request.build_opener(NoRedirect).open(req, timeout=20) as r: code, raw = r.status, r.read()
+except urllib.error.HTTPError as e: fail("http_%d" % e.code)
+except Exception: fail("network")   # (the exception's text could name the request: never printed)
+if code != 200: fail("http_%d" % code)
+try: d = json.loads(raw.decode("utf-8", "replace")); assert isinstance(d, dict)
+except Exception: fail("bad_response")
+if d.get("ok") is True: print("ok"); sys.exit(0)
+e = d.get("error")
+fail("slack_error:" + (e if isinstance(e, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", e) else "unknown_error"))
+PY
+}
+
+# post_slack <text>  — posts slack_text <text>, then slack_links and sala_board_links, to the post's channel. A channel with a Slack
+# app mapped (BRIEFING_BOT_APP_<NAME>, see _bot_post) and that app's token file goes through the app's bot token, so the post shows
+# the app's own name; anything else, and any failure of that, goes to the webhook (briefing_webhook_file: the default one, or the
+# channel's), so a post is never lost. With BRIEFING_THREAD_TS set (reply.sh),
 # the post is a reply in that message's thread: the payload gains "thread_ts", which incoming webhooks honour (checked
 # live). Unset or empty, the payload is the same as before. With BRIEFING_NO_POST set and non-empty (a test
-# run by hand) the finished text goes to $LOGDIR/would-post.log instead and the webhook is never read.
+# run by hand) the finished text goes to $LOGDIR/would-post.log instead and neither the token nor the webhook is read.
 post_slack() {
   local text linked
   text=$(slack_text "$1") && [ -n "$text" ] || text=$1   # a formatter failure never costs the post
   linked=$(slack_links "$text") && [ -n "$linked" ] && text=$linked   # nor a linker failure: the unlinked text goes
   linked=$(printf '%s\n' "$text" | sala_board_links "$(briefing_setting SALA_STACKSHOT_WEB)") && [ -n "$linked" ] && text=$linked   # each bare board#N: a link to its item
   if [ -n "${BRIEFING_NO_POST-}" ]; then printf '%s\n' "$text" >> "$LOGDIR/would-post.log"; echo "not posted (BRIEFING_NO_POST)"; return 0; fi
+  _bot_post "$text" && return 0
   python3 - "$text" "$(cat "$(briefing_webhook_file)")" "${BRIEFING_THREAD_TS-}" <<'PY'
 import json,sys,urllib.request
 text,url,ts=sys.argv[1],sys.argv[2],sys.argv[3]

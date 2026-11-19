@@ -407,6 +407,12 @@
                                  #   The briefing jobs (the digests, the release alert, reply.sh) post to `reports` unless BRIEFING_CHANNEL says otherwise.
                                  #   Setting unset or empty, or its file missing or blank: the post goes to BRIEFING_WEBHOOK_FILE, so nothing is lost while
                                  #   a new webhook is not there yet. sala's own notices (recycles, limits, updates, reboots, watch alerts) name no channel and keep the default webhook
+#BRIEFING_BOT_APP_REPORTS=       # a named channel posts as its own Slack app (the app's bot token, so the post shows the app's name) instead of through a webhook:
+                                 #   the app's name, e.g. "reports-app"; NAME as for BRIEFING_WEBHOOK_FILE_<NAME> above. The token is slack-bot-token-<app> in
+                                 #   SALA_DM_TOKEN_DIR (the file `sala dm` reads; secret, mode 600). No default: unset or empty, the channel posts through its webhook.
+                                 #   Token file missing, loose or empty, a network error or a Slack refusal: the post goes through the webhook, and a line saying
+                                 #   why is appended to bot-post.log in BRIEFING_LOGDIR, so no post is lost
+#BRIEFING_BOT_CHANNEL_REPORTS=   # optional: the channel id (or name) the app posts to. Unset or empty: the channel's name (BRIEFING_CHANNEL); an id is the surest
 #BRIEFING_BRAIN_REPO=            # the GitHub repo (name, under the repository owner) of the pages: a page key a post names (a SALA_PAGE_DIRS dir,
                                  #   people/ or companies/) links to its .md there. Unset or empty (the default): page keys stay plain
 #BRIEFING_ISSUE_REPOS=           # the repos whose `<repo>#N` a post links to an issue, space-separated and quoted. Unset or empty: salamander stackshot
