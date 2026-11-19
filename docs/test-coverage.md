@@ -102,7 +102,7 @@ its pane (the nearest ancestor that clips or scrolls sideways, or the screen), w
 kept and the base rule stands once, plus a read of the parsed stylesheets (the CSSOM, not a regex over the text) that finds the base rule exactly once with no parent rule, so it is under no `@media`,
 `@supports` or `@container`; one test puts a copy of it inside an `@media` and a 600 px box inside the search pane and checks that both new checks fail. Not covered, and why: a real iOS WebKit (the zoom itself is a phone's to show; the computed size is what the rule controls).
 
-### `tests/dm.sh`: new, 78 (Thu Nov 19th 2026)
+### `tests/dm.sh`: +28, 106 (Thu Nov 19th 2026)
 
 `sala dm` (`lib/dm.sh`): a message into a Slack app's Direct Message with the owner, as that app, with the app's bot token. Kept because
 it handles a secret and posts text a caller composed: a token on a command line, in a log or in an error line is a credential in places
@@ -110,15 +110,21 @@ others read, a message parsed as shell runs what a note quotes, and a channel ca
 The Slack API is a local python server that records each request and answers from a queue; a `curl` wrapper on PATH records every argument
 curl receives. Checked: the happy path (conversations.open, then chat.postMessage with the channel, the text, thread_ts, the Bearer token,
 a JSON body; the ts alone on stdout); the cache (600 in a 700 folder, reused with no second open, one file per app, a junk file ignored);
-a cached channel rejected as channel_not_found or is_archived dropped and opened again once, and a second rejection an error rather than a
-loop; stdin and argument forms arriving verbatim with backticks, `$( )`, quotes, backslashes, newlines and non-ASCII and running nothing;
+the cache bound to the recipient and the API base (a changed `SALA_DM_USER_ID` or `SALA_DM_API_BASE` with no clearing of state reopens the DM
+and posts to the new channel; a trailing slash is the same base; an old file with a channel id alone, or a file of the wrong shape or empty,
+is ignored and rewritten, never a crash); a cached channel rejected as channel_not_found or is_archived dropped and opened again once, and a
+second rejection an error rather than a loop; stdin and argument forms arriving verbatim with backticks, `$( )`, quotes, backslashes, newlines and non-ASCII and running nothing;
 39000 characters (also two-byte ones) posted, 39001 or a huge stdin refused with nothing posted; empty, blank, non-UTF-8, two TEXTs and a bad
-`--thread` refused (2); a bad, unlisted or unconfigured app (2 or 3), a missing, empty, 644, 640 or malformed token file (3), a missing or
+`--thread` refused (2), an empty one too in both forms (`--thread ''`, `--thread=`, also with the text on stdin) with no request made; a bad, unlisted or unconfigured app (2 or 3), a missing, empty, 644, 640 or malformed token file (3), a missing or
 malformed SALA_DM_USER_ID (3), each with no request made; Slack's error code as the only line (an error text that is no code shown as
 unknown_error), a 5xx retried once then a network line (4), a timeout, no server, a non-JSON answer, ok:true with no ts; `dm_write_token`
 (600, a new folder 700, an old folder untouched, replacing a loose file, no temporary file left, a failed write cleaning up);
-`--set-token` refusing stdin that is not a terminal (the hidden prompt itself needs one and is not driven); `--check`; the token in no
-curl argument list over every case, in no output, cache or state file, and named in `lib/dm.sh` only where curl's stdin config is built;
+`--set-token` refusing stdin that is not a terminal (the hidden prompt itself needs one and is not driven); `--check`; curl never reading `~/.curlrc` (a `trace` or `trace-ascii` line there writes no file and no token reaches a file under HOME, `-q` is the
+first argument of every curl call, and a control with the real curl without `-q` does write the trace, so the check can fail); the secrecy
+check run over an audit log that survives the per-case resets (each case's curl arguments, every output and every state file, the token matched
+as a string and redacted only in the report), so a leak during one case is not lost to the next reset: the token in no curl argument list, no
+output and no cache or state file over every case, shown to fail when `lib/dm.sh` is made to pass the token to curl in an early case; the token
+named in `lib/dm.sh` only where curl's stdin config is built;
 the four settings read from the config file as from the environment. Not checked: the real Slack API (nothing here calls it), the hidden
 prompt under a pseudo-terminal (a typed-ahead value would be echoed by the terminal before the prompt turns echo off, so the check would
 fail for a reason that is not the code's).
