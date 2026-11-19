@@ -54,10 +54,11 @@ def open_tab(served, browser, size: dict, hash_: str = "#machines", cards: bool 
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": COUNT})
     browser.open(f"{served['url']}/{hash_}", dark=True)
     browser.send("Emulation.setDeviceMetricsOverride", size)
+    browser.wait_ready()                  # the page's stylesheet and fonts come from a CDN: a loaded runner takes far longer than 15 s
     if cards:
-        wait(browser, f'document.querySelectorAll("{CARD}").length > 0', "the machine cards")
+        wait(browser, f'document.querySelectorAll("{CARD}").length > 0', "the machine cards", 60000)
     else:
-        wait(browser, 'document.querySelector("#overview-pane") && document.body.classList.contains("overview-open")', "the Overview")
+        wait(browser, 'document.querySelector("#overview-pane") && document.body.classList.contains("overview-open")', "the Overview", 60000)
 
 
 def screenshot(browser, name: str) -> None:
