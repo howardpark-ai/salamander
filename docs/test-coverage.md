@@ -102,6 +102,19 @@ its pane (the nearest ancestor that clips or scrolls sideways, or the screen), w
 kept and the base rule stands once, plus a read of the parsed stylesheets (the CSSOM, not a regex over the text) that finds the base rule exactly once with no parent rule, so it is under no `@media`,
 `@supports` or `@container`; one test puts a copy of it inside an `@media` and a 600 px box inside the search pane and checks that both new checks fail. Not covered, and why: a real iOS WebKit (the zoom itself is a phone's to show; the computed size is what the rule controls).
 
+### `tests/dm.sh`: +17, 123 (Thu Nov 19th 2026)
+
+Three follow-ups to the entry below. Kept because each was a way for `sala dm` to post to the wrong place, or for a check to pass while proving nothing.
+Checked: an empty `--thread` is refused where it is parsed, so a later valid `--thread` cannot overwrite it (`--thread '' --thread <ts>`,
+`--thread= --thread=<ts>`) and an earlier one cannot hide it (`--thread <ts> --thread ''`, `--thread=<ts> --thread=`), each exit 2 with no request in the fake
+server's log, and two valid flags still take the later one; the channel cache's first line is split on tabs without collapsing them, so doubled tabs, a
+trailing tab, an empty user id field that shifts the rest left, a fourth field and a line of empty fields are each no cache (the DM is opened again; the
+first four were a cache hit on the old reader), a well-formed line is still a hit, also with no final newline, only the first line is read (junk after a valid
+first line does not matter, a valid line that is not the first is no cache); the `~/.curlrc` control runs with `CURL_HOME` set to the fixture HOME for that call only
+(and for the real runs), `CURL_HOME` is unset for the suite, so an inherited `CURL_HOME` holding its own `.curlrc` can no longer make the control pass or fail
+for a reason outside the fixture. Each new check was shown to fail: the old reader and the old parser for the first two (seven failures), the old test run with an
+inherited `CURL_HOME` for the third (the control produced no trace; the new test passes under the same variable).
+
 ### `tests/dm.sh`: +28, 106 (Thu Nov 19th 2026)
 
 `sala dm` (`lib/dm.sh`): a message into a Slack app's Direct Message with the owner, as that app, with the app's bot token. Kept because
