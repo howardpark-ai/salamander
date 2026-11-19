@@ -7,6 +7,8 @@ set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); D=$ROOT/contrib/briefing
 fail=0; ok() { echo "  ok   $*"; }; bad() { echo "  FAIL $*"; fail=1; }
 T=$(mktemp -d); trap 'kill "${SRV:-}" 2>/dev/null; rm -rf "$T"' EXIT
+# reply.sh posts to the reports channel: the caller's own sala config (a reports webhook file, a Slack app and its token) must never be read
+mkdir -p "$T/home"; export HOME=$T/home SALA_CONFIG=$T/no-config; unset SALA_DM_TOKEN_DIR SALA_DM_API_BASE BRIEFING_CHANNEL SALA_NOTIFY_CHANNEL BRIEFING_THREAD_TS BRIEFING_NO_POST
 export BRIEFING_LOGDIR=$T/logs BRIEFING_WEBHOOK_FILE=$T/webhook BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR=$T/no-board BRIEFING_COMMIT_REPOS=
 got=$(bash -c '. "$1" 2>/dev/null; echo "$WEBHOOK_FILE"' _ "$D/lib.sh")
 [ "$got" = "$T/webhook" ] || { bad "BRIEFING_WEBHOOK_FILE not honoured ($got): stopping before anything posts"; exit 1; }

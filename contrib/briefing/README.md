@@ -19,7 +19,7 @@ source `lib.sh` to post its notices through the same webhook.
 | `defunct.sh` + `defunct.prompt.md` | Forwarded Address Unsubscribe Queue: the unread mail under the Gmail label `BRIEFING_FORWARD_LABEL`, classified, read only. The job is label-driven and off by default: with no label set it writes one `cron.log` line and exits 0. |
 | `release-alert.sh` | Runs `release-watch.sh` and posts what it prints, unless that is `NO_REPLY`. A failed probe gets a ⚠️ post. |
 | `release-watch.sh` | Probes the Claude Code CLI and the Ubuntu LTS upgrade path. A release not announced before is printed once, and the session that owns the upgrade is pinged. The Claude Code CLI's owner is sala's master; with none it is `RELEASE_WATCH_CLI_OWNER` (the environment, else the sala config's line; unset: nobody is pinged; `release-watch.sh cli-owner` prints it). The Ubuntu LTS path goes to `RELEASE_WATCH_UBUNTU_SESSION` and names the plan's page `RELEASE_WATCH_UBUNTU_PAGE` (unset: posted only, no page named). `release-watch.sh defer <product> [tag]` keeps one release quiet until a newer one appears. |
-| `reply.sh <thread_ts> [text]` | A reply in the thread of a message in the briefing channel (a fast-lane chat with the briefing session). The text is the argument, or stdin when it is omitted or `-`. It goes through `post_slack` with `BRIEFING_THREAD_TS` set, which adds `thread_ts` to the webhook payload. Prints Slack's answer (`ok`); a ts that is not digits.digits, or an empty text, is a one-line error and exit 2, and nothing is posted. |
+| `reply.sh <thread_ts> [text]` | A reply in the thread of a message in the briefing channel (a fast-lane chat with the briefing session). The text is the argument, or stdin when it is omitted or `-`. It goes through `post_slack` with `BRIEFING_THREAD_TS` set, which adds `thread_ts` to the payload (the app's `chat.postMessage` body or the webhook's). Prints Slack's answer (`ok`); a ts that is not digits.digits, or an empty text, is a one-line error and exit 2, and nothing is posted. |
 
 **The read guard.** The model may only read mail. On the portal route the model writes
 JavaScript for `portal_codemode_execute`, whose `codemode` object can call every tool of every connected server, and
@@ -92,6 +92,7 @@ other briefing lines), and nothing is sourced. Each is optional.
 |---|---|
 | Slack incoming-webhook URL (secret; mode 600, never in git) | `BRIEFING_WEBHOOK_FILE`, default `~/.config/sala-briefing/slack-webhook` |
 | a named channel's own webhook URL (secret; mode 600), see *Slack channels* | `BRIEFING_WEBHOOK_FILE_<NAME>`, no default (unset: the default webhook) |
+| a Slack app's bot token (secret; mode 600), see *Posting as the channel's Slack app* | `slack-bot-token-<app>` in `SALA_DM_TOKEN_DIR`, default `~/.config/sala-briefing`; the channel's app is `BRIEFING_BOT_APP_<NAME>`, no default (unset: the webhook) |
 | logs: each run's stream-json `<job>.<YYYYMMDD>.jsonl` and `.err`, `release-watch.err`, and `cron.log` (the timers' stdout and stderr, appended by the script itself under `BRIEFING_CRON_LOG=1`) | `BRIEFING_LOGDIR`, default `~/.local/state/sala-briefing/` |
 | an older log directory, `BRIEFING_OLD_LOGDIR` (unset: none): `lib.sh`'s `migrate_old_logdir` carries its files over the first time a briefing script runs (plain files, `mv -n`, nothing overwritten; a name present in both stays in the old directory, named on one `cron.log` line; the old directory is removed once empty). `lib.sh` creates the log directory itself | |
 | release watcher state: `notified/<product>` (last tag announced), `deferred/<product>` (a parked tag) | `~/.release-watch/` |
@@ -224,6 +225,32 @@ Like the default one, each file holds one URL (secret; mode 600, never in git). 
 
 **Fallback.** When the channel's setting is unset or empty, or its file does not exist or is blank, the post goes to the
 default webhook (`BRIEFING_WEBHOOK_FILE`) as before, so nothing is lost while a new webhook is not there yet.
+
+**Posting as the channel's Slack app.** A webhook post shows the name of the app the webhook belongs to. To make each channel's
+posts show its own app, map the channel to the app whose bot token should post it, in `~/.config/salamander/config` (the
+environment overrides the config line; NAME is written as for the webhook files):
+
+```
+BRIEFING_BOT_APP_REPORTS=reports-app        # the reports channel posts as the Slack app "reports-app"
+BRIEFING_BOT_APP_STACK_OPS=ops-app          # a channel named stack-ops posts as "ops-app"
+BRIEFING_BOT_CHANNEL_STACK_OPS=C0123ABCDEF  # optional: the channel id (or name) to post to; default: the channel's name
+```
+
+There is no default mapping: a channel with no `BRIEFING_BOT_APP_<NAME>` posts through its webhook as before. The app's token is
+the file `slack-bot-token-<app>` in the folder `sala dm` reads (`SALA_DM_TOKEN_DIR`, default `~/.config/sala-briefing`; secret,
+mode 600 or stricter, not empty); `SALA_DM_API_BASE` is the API's base URL (default `https://slack.com/api`, only a test changes it).
+Both are read from the environment, else the sala config, as for `sala dm`. The app needs the `chat:write` bot scope and must be in
+the channel (a channel id is the surest value for `BRIEFING_BOT_CHANNEL_<NAME>`). The post is `chat.postMessage` with the same
+formatted text as the webhook gets (`unfurl_links` and `unfurl_media` off), and `thread_ts` when `BRIEFING_THREAD_TS` is set
+(`reply.sh`): a thread lives in one channel, so a reply goes to the channel of the post it answers. `post_slack` still prints `ok`.
+
+**Never lost: the webhook is the fallback.** When the channel has no app, or its token file is missing, unreadable, looser than
+mode 600 or empty, or the network fails, or Slack answers anything but HTTP 200 with `ok:true`, the same text goes through the
+webhook as described above, thread included. Each fallback after an app was tried appends one line to `$LOGDIR/bot-post.log`:
+the time, the channel, the app and a short reason (`no_token_file`, `token_mode_644`, `token_empty`, `network`, `http_<status>`,
+`slack_error:<Slack's error code>`). The token and the webhook URL are never printed or logged; the token is read by the posting
+process itself, so it is in no argument list and no environment variable. One edge: when Slack accepts a post but its answer is
+lost on the way, the fallback sends the post a second time. `BRIEFING_NO_POST` still sends nothing and reads no token.
 
 **Which channel a post goes to** (`post_slack`, `lib.sh`): the channel named by `BRIEFING_CHANNEL`, else by
 `SALA_NOTIFY_CHANNEL`, else none (the default webhook).
