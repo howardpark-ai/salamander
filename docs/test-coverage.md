@@ -130,6 +130,16 @@ its pane (the nearest ancestor that clips or scrolls sideways, or the screen), w
 kept and the base rule stands once, plus a read of the parsed stylesheets (the CSSOM, not a regex over the text) that finds the base rule exactly once with no parent rule, so it is under no `@media`,
 `@supports` or `@container`; one test puts a copy of it inside an `@media` and a 600 px box inside the search pane and checks that both new checks fail. Not covered, and why: a real iOS WebKit (the zoom itself is a phone's to show; the computed size is what the rule controls).
 
+### `tests/dm.sh`: +23, 200 (Thu Nov 19th 2026)
+
+An option placed after the app is refused, never posted, and a time is not turned into an emoji code. Kept because `sala dm <app> --check` posted the text "--check" into a person's Direct Message, as the option loop only knew `--thread`.
+Checked: `--check`, `--set-token`, `--all`, `--help` and `--foo` after the app, and `--thread <ts> --check`, each exit 2 with a one-line error naming the argument, the usage line on stderr, nothing on stdout and no request made;
+`--thread` with no value and two arguments (`--check one`) keep their own errors; `-- --check` posts the text `--check` verbatim, and so does stdin text `--check`, with `-` and with no TEXT; a TEXT that starts with a single dash (`-1 down`) still posts.
+The refusal checks were shown to fail on the previous `lib/dm.sh` (each posted the option as the message).
+A message goes through one more step: Slack reads `:NN:` as an emoji code, so "04:00: the weekly run" showed `:00:` as a gray box. Checked: a zero-width space (U+200B, written as bytes in the test) arrives before the closing colon
+of `04:00:` as an argument and on stdin, of `12:30:45` and of each inner colon of `10:20:30:40`; `:100:`, `:white_check_mark:`, `:+1:`, a lone `04:00`, `3:2 and 4:5` and a URL with a port arrive byte-identical; taking the space out gives the original text back.
+The four positive checks were shown to fail on the previous `lib/dm.sh` (the text arrived with no space); the unchanged-text checks pass on both, by design.
+
 ### `tests/dm.sh`: +8, 177 (Thu Nov 19th 2026)
 
 Hardening of the terminal-echo helper of `sala dm --set-token`. Kept because each was a way for a pasted bot token to show or to be run.

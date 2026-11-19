@@ -319,6 +319,41 @@ run alpha-app one two; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && ok "two TEXT argume
 $S alpha-app </dev/null >/dev/null 2>&1; [ "$?" = 2 ] && [ "$(nall)" = 0 ] && ok "no TEXT and an empty stdin: usage error" || bad "empty stdin"
 run alpha-app --thread abc 'x'; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && ok "a --thread that is not a ts is a usage error" || bad "bad thread: rc=$RC"
 run alpha-app --thread; [ "$RC" = 2 ] && ok "--thread with no value is a usage error" || bad "--thread alone: rc=$RC"
+# an option placed after the app is refused, never posted as the message (sala dm <app> --check once posted the text "--check")
+reset
+for opt in --check --set-token --all --help --foo; do
+    run alpha-app "$opt"
+    [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && [ -z "$OUT" ] && case "$ERR" in *"'$opt' looks like an option"*"usage: sala dm"*) true ;; *) false ;; esac && ok "$opt after the app is refused (2): named, usage line shown, nothing posted, no request" || bad "$opt after the app: rc=$RC out=[$OUT] err=[$ERR] requests=$(nall)"
+done
+run alpha-app --thread; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"--thread needs a message ts"*) true ;; *) false ;; esac && ok "--thread alone keeps its own error" || bad "--thread alone: rc=$RC err=[$ERR]"
+run alpha-app --thread "$TS" --check; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"'--check' looks like an option"*) true ;; *) false ;; esac && ok "--thread <ts> then --check is refused too" || bad "--thread ts --check: rc=$RC err=[$ERR]"
+run alpha-app --check one; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"one TEXT only"*) true ;; *) false ;; esac && ok "two arguments keep the one-TEXT refusal" || bad "--check one: rc=$RC err=[$ERR]"
+run alpha-app -- --check
+[ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "--check" ] && ok "-- before it posts the text --check verbatim" || bad "-- --check: rc=$RC err=[$ERR] text=[$(last '["body"]["text"]')]"
+printf -- '--check' | $S alpha-app - >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(last '["body"]["text"]')" = "--check" ] && ok "stdin text --check (with -) posts verbatim, never inspected" || bad "stdin --check: rc=$rc err=[$(<"$T/err")]"
+printf -- '--check' | $S alpha-app >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(last '["body"]["text"]')" = "--check" ] && ok "stdin text --check with no TEXT posts verbatim" || bad "stdin --check, no TEXT: rc=$rc err=[$(<"$T/err")]"
+run alpha-app '-1 down'
+[ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "-1 down" ] && ok "a TEXT starting with a single dash still posts" || bad "-1 down: rc=$RC err=[$ERR]"
+# a time followed by a colon is sent as written: Slack reads :NN: as an emoji code, so a zero-width space goes before the closing colon
+reset
+Z=$'\xe2\x80\x8b'   # U+200B, written as bytes so no invisible character sits in this file
+run alpha-app '04:00: the weekly run'
+[ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "04:00${Z}: the weekly run" ] && ok "04:00: as an argument gets a zero-width space before the second colon" || bad "04:00: arg: rc=$RC text=[$(last '["body"]["text"]')]"
+printf '04:00: the weekly run' | $S alpha-app - >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(last '["body"]["text"]')" = "04:00${Z}: the weekly run" ] && ok "04:00: on stdin gets it too" || bad "04:00: stdin: rc=$rc text=[$(last '["body"]["text"]')]"
+run alpha-app '12:30:45'
+[ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "12:30${Z}:45" ] && ok "12:30:45 becomes 12:30<zwsp>:45" || bad "12:30:45: rc=$RC text=[$(last '["body"]["text"]')]"
+run alpha-app '10:20:30:40'
+[ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "10:20${Z}:30${Z}:40" ] && ok "10:20:30:40 gets one before each inner closing colon" || bad "10:20:30:40: rc=$RC text=[$(last '["body"]["text"]')]"
+for same in ':100:' ':white_check_mark:' ':+1: done' '04:00' 'see http://host:8080/x' 'ratio 3:2 and 4:5'; do
+    run alpha-app -- "$same"
+    [ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "$same" ] && ok "'$same' arrives byte-identical" || bad "'$same': rc=$RC text=[$(last '["body"]["text"]')]"
+done
+run alpha-app '04:00: the weekly run'
+rt=$(last '["body"]["text"]'); [ "${rt//$Z/}" = '04:00: the weekly run' ] && ok "taking the zero-width space out gives the original text back" || bad "round trip: [$rt]"
+reset
 
 # -- refusals: each with its exit code, and no request made -------------------------------------------------------------------------------------
 reset

@@ -537,7 +537,9 @@ usage: sala dm <app> [--thread <ts>] [TEXT|-]
 
 Post a message into the Direct Message between a Slack app and the owner, as that app (the app's Messages tab), with the app's bot token.
 TEXT is the message, as one argument; with `-` or with no TEXT the message is read from stdin, which is the safe form for text with quotes,
-backticks or $( ). --thread <ts> (or --thread=<ts>) replies in the thread of the message with that ts; options come before TEXT.
+backticks or $( ). --thread <ts> (or --thread=<ts>) replies in the thread of the message with that ts; options come before TEXT, and a TEXT that starts with -- is refused
+unless it comes after a -- (sala dm <app> -- "--text"), or is sent on stdin.
+A digit run between colons, as in a time like 04:00:, gets an invisible zero-width space before its closing colon so Slack shows it as typed rather than as an emoji code.
 On success the posted message's ts is printed on stdout, so a caller can thread under it. A message over 39000 characters is refused.
 <app> is one of the names in SALA_DM_APPS (letters, digits and dashes, not starting with a dash). Settings, in ~/.config/salamander/config:
   SALA_DM_APPS       the app names allowed, space-separated (no default: none is allowed until it is set)

@@ -37,7 +37,9 @@ usage: sala dm <app> [--thread <ts>] [TEXT|-]
 
 Post a message into the Direct Message between a Slack app and the owner, as that app (the app's Messages tab), with the app's bot token.
 TEXT is the message, as one argument; with `-` or with no TEXT the message is read from stdin, which is the safe form for text with quotes,
-backticks or $( ). --thread <ts> (or --thread=<ts>) replies in the thread of the message with that ts; options come before TEXT.
+backticks or $( ). --thread <ts> (or --thread=<ts>) replies in the thread of the message with that ts; options come before TEXT, and a TEXT that starts with -- is refused
+unless it comes after a -- (sala dm <app> -- "--text"), or is sent on stdin.
+A digit run between colons, as in a time like 04:00:, gets an invisible zero-width space before its closing colon so Slack shows it as typed rather than as an emoji code.
 On success the posted message's ts is printed on stdout, so a caller can thread under it. A message over 39000 characters is refused.
 <app> is one of the names in SALA_DM_APPS (letters, digits and dashes, not starting with a dash). Settings, in ~/.config/salamander/config:
   SALA_DM_APPS       the app names allowed, space-separated (no default: none is allowed until it is set)
@@ -338,7 +340,7 @@ dm_thread_check() {
 }
 
 dm_main() {
-    local app="" thread="" text="" have_text=0 mode=post rc tf
+    local app="" thread="" text="" have_text=0 mode=post rc tf sep=0
     case "${1:-}" in
         '') dm_usage >&2; return 2 ;;
         -h|--help|help) dm_usage; return 0 ;;
@@ -366,12 +368,18 @@ dm_main() {
             --thread=*)
                 dm_thread_check "${1#--thread=}" || return 2
                 thread=${1#--thread=}; shift ;;
-            --) shift; break ;;
+            --) sep=1; shift; break ;;
             *) break ;;
         esac
     done
     dm_check_app "$app" || return $?
     if [ $# -gt 1 ]; then dm_err "one TEXT only (quote it, or send it on stdin with -)"; return 2; fi
+    # a lone argument that starts with -- and came with no -- before it is a misplaced option (sala dm <app> --check), never a message:
+    # refused here, before the scratch folder, the token or any request
+    if [ "$sep" = 0 ] && [ $# = 1 ] && [[ $1 == --* ]]; then
+        dm_err "'$1' looks like an option, but options come before TEXT; to post text that starts with -- put -- before it, or send it on stdin"
+        dm_usage >&2; return 2
+    fi
     if [ $# = 1 ] && [ "$1" != - ]; then text=$1; have_text=1; fi
     dm_scratch || { dm_err "no scratch folder"; return 3; }
     trap 'rm -rf "$DM_T"' EXIT
@@ -384,12 +392,16 @@ dm_main() {
     fi
     # the message: UTF-8, not empty, at most DM_MAX_CHARS characters (counted as characters, not bytes); trailing newlines are dropped
     python3 -I -c '
-import sys
+import re, sys
 b = open(sys.argv[1], "rb").read()
 try: t = b.decode("utf-8")
 except UnicodeDecodeError: sys.exit(10)
 t = t.rstrip("\n")
 if not t.strip(): sys.exit(11)
+# Slack reads :NN: as an emoji code, so "04:00: the weekly run" showed ":00:" as a gray box: put a zero-width space before the closing colon of a
+# digit run that follows a digit, so a time is shown as typed (":100:", ":+1:", ":white_check_mark:", "04:00" and URLs are left alone).
+# Done before the length check, so the limit counts what is posted.
+t = re.sub(r"(?<=\d):(\d+)(?=:)", lambda m: ":" + m.group(1) + chr(0x200b), t)
 if len(t) > int(sys.argv[2]): sys.exit(12)
 open(sys.argv[1], "wb").write(t.encode("utf-8"))
 ' "$tf" "$DM_MAX_CHARS"; rc=$?
