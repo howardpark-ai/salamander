@@ -3875,3 +3875,14 @@ status line; a state with no `booted_at` printing the plain `step booted` line, 
 the give-up comes after one 10 s round) leaving the marker and `step boot-waiting`, with no `booted_at`, in the state and
 the status line. About 11 s added. Not covered, and why: a hook that comes up between the first report and the
 give-up (the same path as the one that is up at once, after the report), and the shutdown half's steps (unchanged).
+
+### `web/tests/test_viewport_ios_zoom.py`: new, 11 cases (the viewport meta gets `maximum-scale=1` on iOS only)
+
+WebKit zooms in to a focused text field whose font is under 16 px (the composer and the forms are 15 px) and never zooms
+back; a script after the viewport tag in `index.html` and `terminal.html` adds `maximum-scale=1` on an iPhone or iPad.
+Covered (a headless Chromium with a user agent override, the real page): an iPhone, an iPad and Chrome's iOS build get
+the scale on the main page; a desktop Chromium, an Android phone (with and without touch points) and a Mac (`MacIntel`,
+no touch screen) keep the tag as it was; iPadOS in its desktop mode (a Mac user agent, `MacIntel`, five touch points set by
+an init script) gets it; the terminal page follows the same rule; the tag in both files carries no scale itself and the
+script leaves a tag that has one alone. Not covered, and why: WebKit itself (no WebKit in the suite; the zoom is a phone's
+to show).

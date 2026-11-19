@@ -3,6 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- iOS only: WebKit zooms the page in to any text field it focuses whose font is under 16 px (the composer, the search box and the
+     forms here are 15 px) and never zooms back out. `maximum-scale=1` stops that zoom; Safari keeps pinch-to-zoom whatever it says
+     (accessibility), but Chrome on Android would honour it and lose pinch zoom, so it is added here for iOS and left out of the tag
+     for everything else. iPadOS in its desktop mode sends a Mac user agent, told apart by the touch screen. A failure here changes nothing -->
+<script>
+try {
+  var vp = document.querySelector('meta[name="viewport"]');
+  if (vp && !/maximum-scale/.test(vp.content) &&
+      (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1))) {
+    vp.content += ", maximum-scale=1";
+  }
+} catch (e) {}
+</script>
 <meta name="color-scheme" content="dark">
 <title>terminal</title>
 <!-- The full-size terminal: the Shell drawer's "Open full size" link, and the old /?arg=<session> links, land here instead of on ttyd's

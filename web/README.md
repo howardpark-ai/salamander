@@ -1579,6 +1579,15 @@ the compose row sits above the gesture bar. The keyboard shrinks the visual view
 composer above it and the visual viewport unscrolled); a pinch-zoom shrinks it in CSS pixels without hiding anything,
 so above scale 1 the variable is dropped and `100dvh` holds.
 
+On an iPhone or iPad the viewport meta also gets `maximum-scale=1`, added by a small script right after the tag in
+`index.html` and `terminal.html` (before the first paint). Why: WebKit zooms the page in to any text field it focuses whose
+computed font size is under 16 px (the composer, the search box and the forms are 15 px) and never zooms back out;
+`maximum-scale=1` stops that, no text size changes, and Safari still lets a pinch zoom the page. The tag itself stays as it
+is because Chrome on Android honours `maximum-scale` and would lose pinch zoom: the script adds it only when the user agent
+says iPhone, iPad or iPod, or the platform is `MacIntel` with a touch screen (iPadOS in its desktop mode sends a Mac user
+agent). `tests/test_viewport_ios_zoom.py` checks the tag under each user agent in a headless Chromium; WebKit's own zoom is
+a phone's to show.
+
 Why not `100dvh` alone (seen on Android Chrome): right after a keyboard
 image paste and the keyboard's close, the composer's lower half (the paperclip, the send button, the model line) sat
 under the screen's bottom edge for a while with nothing changed. `100dvh` and
