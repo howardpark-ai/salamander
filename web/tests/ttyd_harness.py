@@ -40,7 +40,7 @@ class Router:
 
     def __init__(self, app_port: int, ttyd_port: int):
         self.app_port, self.ttyd_port = app_port, ttyd_port
-        self.port = _free_port()
+        self.port = 0                                     # bound to port 0 in _serve: the kernel's pick is read back, so no other listener can take it first
         self.loop = asyncio.new_event_loop()
         self.ready = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
@@ -59,7 +59,8 @@ class Router:
 
     async def _serve(self):
         self.stop_ev = asyncio.Event()
-        server = await asyncio.start_server(self._handle, "127.0.0.1", self.port)
+        server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+        self.port = server.sockets[0].getsockname()[1]
         self.ready.set()
         await self.stop_ev.wait()
         server.close()
@@ -124,7 +125,15 @@ class Pane:
         for opt in self.options:                          # tmux settings of this private server, e.g. ("set", "-g", "mouse", "on")
             r = self.tmux(*opt)
             assert r.returncode == 0, r.stderr
-        self._spawn_ttyd()
+        for attempt in range(5):                          # a port picked a moment ago can be taken by another listener before ttyd binds it: ttyd exits, pick again
+            self._spawn_ttyd()
+            if self._wait_listening(raising=False):
+                return
+            if self.ttyd.poll() is None:                  # alive but not answering: stop it by its pid before the next try
+                self.ttyd.kill()
+            self.ttyd.wait(timeout=10)
+            self.ttyd_port = _free_port()
+        raise RuntimeError("ttyd did not listen after 5 tries")
 
     def _spawn_ttyd(self):
         ttyd_port = self.ttyd_port
@@ -139,16 +148,19 @@ class Pane:
         self._spawn_ttyd()
         self._wait_listening()
 
-    def _wait_listening(self, seconds: float = 10):
-        """Return once ttyd's port accepts a connection: a page that reconnects before that is refused and shows its overlay again."""
+    def _wait_listening(self, seconds: float = 10, raising: bool = True) -> bool:
+        """True once ttyd's port accepts a connection (a page that reconnects before that is refused and shows its overlay again);
+        False, or RuntimeError, when ttyd exited or the time is up."""
         t0 = time.time()
-        while time.time() - t0 < seconds:
+        while time.time() - t0 < seconds and self.ttyd.poll() is None:
             try:
                 socket.create_connection(("127.0.0.1", self.ttyd_port), timeout=1).close()
-                return
+                return True
             except OSError:
                 time.sleep(0.05)
-        raise RuntimeError("ttyd did not listen again within %s s" % seconds)
+        if raising:
+            raise RuntimeError("ttyd did not listen again within %s s" % seconds)
+        return False
 
     def text(self) -> str:
         return self.tmux("capture-pane", "-p", "-t", "scratch").stdout
@@ -184,7 +196,7 @@ def real_ttyd(served, cmd: str = READ_CMD, options: tuple = ()):
     try:
         ttyd_port = _free_port()
         pane.start(ttyd_port)
-        router = Router(int(served["url"].rsplit(":", 1)[1]), ttyd_port)
+        router = Router(int(served["url"].rsplit(":", 1)[1]), pane.ttyd_port)
         router.start()
         yield pane, router.port
     finally:
