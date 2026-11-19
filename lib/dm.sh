@@ -155,9 +155,14 @@ dm_slack_err() { dm_err "slack error: $DM_ERR"; }
 # and the API base it was opened for; any other shape (an old file with the channel id alone included) is no cache
 dm_cache_file() { printf '%s' "$SALA_STATE_DIR/dm/$1.channel"; }
 dm_cache_read() {   # <app> → DM_CHANNEL; 1 when there is none, it is not this member's and this API's, or it is not a channel id
-    local u="" b="" c="" extra=""
-    { IFS=$'\t' read -r u b c extra < "$(dm_cache_file "$1")"; } 2>/dev/null || return 1
-    [ -z "$extra" ] && [ "$u" = "${SALA_DM_USER_ID:-}" ] && [ "$b" = "$(dm_api_base)" ] || return 1
+    # only the first line counts (later lines are ignored); it is split on tabs by hand, never by `read`, whose IFS would take a run of tabs for one
+    # separator and let an empty field shift the others: exactly three fields, or no cache
+    local line="" tab=$'\t' re u b c
+    { IFS= read -r line < "$(dm_cache_file "$1")" || [ -n "$line" ]; } 2>/dev/null || return 1
+    re="^([^$tab]*)$tab([^$tab]*)$tab([^$tab]*)\$"
+    [[ $line =~ $re ]] || return 1
+    u=${BASH_REMATCH[1]} b=${BASH_REMATCH[2]} c=${BASH_REMATCH[3]}   # the next =~ resets BASH_REMATCH
+    [ -n "$u" ] && [ "$u" = "${SALA_DM_USER_ID:-}" ] && [ "$b" = "$(dm_api_base)" ] || return 1
     [[ $c =~ ^[CDG][A-Z0-9]+$ ]] || return 1
     DM_CHANNEL=$c
 }
@@ -234,7 +239,7 @@ dm_cmd_set_token() {   # <app>
 }
 
 dm_main() {
-    local app="" thread="" have_thread=0 text="" have_text=0 mode=post rc tf
+    local app="" thread="" text="" have_text=0 mode=post rc tf
     case "${1:-}" in
         '') dm_usage >&2; return 2 ;;
         -h|--help|help) dm_usage; return 0 ;;
@@ -254,13 +259,17 @@ dm_main() {
     app=$1; shift
     while [ $# -gt 0 ]; do
         case "$1" in
-            --thread) [ $# -ge 2 ] || { dm_err "--thread needs a message ts"; return 2; }; thread=$2; have_thread=1; shift 2 ;;
-            --thread=*) thread=${1#--thread=}; have_thread=1; shift ;;
+            --thread)   # an empty value is refused where it is parsed, so a later valid --thread cannot overwrite it
+                [ $# -ge 2 ] || { dm_err "--thread needs a message ts"; return 2; }
+                [ -n "$2" ] || { dm_err "--thread needs a message ts, got an empty value"; return 2; }
+                thread=$2; shift 2 ;;
+            --thread=*)
+                [ -n "${1#--thread=}" ] || { dm_err "--thread needs a message ts, got an empty value"; return 2; }
+                thread=${1#--thread=}; shift ;;
             --) shift; break ;;
             *) break ;;
         esac
     done
-    if [ "$have_thread" = 1 ] && [ -z "$thread" ]; then dm_err "--thread needs a message ts, got an empty value"; return 2; fi
     [[ -z $thread || $thread =~ ^[0-9]+\.[0-9]+$ ]] || { dm_err "--thread takes a message ts such as 1700000000.000100, got '$thread'"; return 2; }
     dm_check_app "$app" || return $?
     if [ $# -gt 1 ]; then dm_err "one TEXT only (quote it, or send it on stdin with -)"; return 2; fi

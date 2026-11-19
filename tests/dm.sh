@@ -29,7 +29,7 @@ SRV_PID=""
 cleanup() { [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null; wait "$SRV_PID" 2>/dev/null; exec 8<&-; rm -rf "$T"; }
 trap cleanup EXIT
 export HOME=$T/home SALA_CONFIG=/dev/null XDG_STATE_HOME=$T/state SALA_STATE_DIR=$T/state/salamander TMPDIR=$T/tmp
-unset SALA_DM_APPS SALA_DM_USER_ID SALA_DM_TOKEN_DIR SALA_DM_API_BASE SALA_DM_TIMEOUT SALA_DM_RETRY_WAIT XDG_CONFIG_HOME
+unset SALA_DM_APPS SALA_DM_USER_ID SALA_DM_TOKEN_DIR SALA_DM_API_BASE SALA_DM_TIMEOUT SALA_DM_RETRY_WAIT XDG_CONFIG_HOME CURL_HOME
 mkdir -p "$HOME" "$T/tmp" "$T/ctl" "$T/bin"
 CTL=$T/ctl; LOG=$CTL/log; ARGV=$T/curl-argv
 AUDIT=$T/audit; mkdir -p "$AUDIT"   # survives reset(): every case's curl arguments, outputs and state files, for the secrecy check at the end
@@ -184,20 +184,50 @@ for shape in 'D0STALE01' "UTEST0001	$CBASE" "UTEST0001	$CBASE	D0STALE01	extra" "
 done
 reset; mkdir -p "$SALA_STATE_DIR/dm"; : > "$CACHE"
 run alpha-app 'empty cache file'; [ "$RC" = 0 ] && [ "$(nreq conversations.open)" = 1 ] && ok "cache: an empty file is ignored too" || bad "empty cache: rc=$RC"
+# the first line is read strictly: exactly three tab-separated fields, none collapsed. `read` with IFS=tab takes a run of tabs for one separator, so
+# the first four of these lines (doubled tabs, a trailing tab, an empty user id shifting the rest left) once parsed as a valid hit on D0STALE01
+TB=$'\t'
+for shape in "UTEST0001${TB}${TB}$CBASE${TB}D0STALE01" "UTEST0001${TB}$CBASE${TB}${TB}D0STALE01" "UTEST0001${TB}$CBASE${TB}D0STALE01${TB}" "${TB}UTEST0001${TB}$CBASE${TB}D0STALE01" "UTEST0001${TB}$CBASE${TB}D0STALE01${TB}extra" "${TB}$CBASE${TB}D0STALE01" "${TB}${TB}D0STALE01"; do
+    reset; mkdir -p "$SALA_STATE_DIR/dm"; printf '%s\n' "$shape" > "$CACHE"
+    run alpha-app 'strict cache'
+    [ "$RC" = 0 ] && [ -z "$ERR" ] && [ "$(nreq conversations.open)" = 1 ] && [ "$(last '["body"]["channel"]')" = D0TEST001 ] && [ "$(cached_channel)" = D0TEST001 ] \
+        && ok "cache: a line that is not exactly three tab-separated fields ($(printf '%s' "$shape" | sed 's/\t/<TAB>/g; s#http://127.0.0.1:[0-9]*#<base>#')) is no cache: the DM is opened again" \
+        || bad "strict cache [$shape]: rc=$RC err=[$ERR] opens=$(nreq conversations.open) channel=$(last '["body"]["channel"]')"
+done
+# an empty user id field never matches, though SALA_DM_USER_ID is set
+reset; mkdir -p "$SALA_STATE_DIR/dm"; printf '%s\t%s\t%s\n' "" "$CBASE" D0STALE01 > "$CACHE"
+run alpha-app 'empty user id field'
+[ "$RC" = 0 ] && [ "$(nreq conversations.open)" = 1 ] && [ "$(last '["body"]["channel"]')" = D0TEST001 ] && ok "cache: an empty user id field is no cache when SALA_DM_USER_ID is set" || bad "empty user id field: rc=$RC opens=$(nreq conversations.open)"
+# the well-formed line is still a hit, with or without its newline; only the first line is read, so junk after it does not matter
+reset; seedcache D0CACHED1
+run alpha-app 'hit'
+[ "$RC" = 0 ] && [ "$(nreq conversations.open)" = 0 ] && [ "$(last '["body"]["channel"]')" = D0CACHED1 ] && ok "cache: a well-formed line is a hit (no conversations.open)" || bad "well-formed hit: rc=$RC opens=$(nreq conversations.open) channel=$(last '["body"]["channel"]')"
+reset; mkdir -p "$SALA_STATE_DIR/dm"; printf '%s\t%s\t%s' "$SALA_DM_USER_ID" "$CBASE" D0CACHED1 > "$CACHE"
+run alpha-app 'hit, no newline'
+[ "$RC" = 0 ] && [ "$(nreq conversations.open)" = 0 ] && [ "$(last '["body"]["channel"]')" = D0CACHED1 ] && ok "cache: a well-formed line with no final newline is a hit" || bad "no-newline hit: rc=$RC opens=$(nreq conversations.open)"
+reset; seedcache D0CACHED1; printf 'junk\n\t\t\nUTEST0001\textra\n' >> "$CACHE"
+run alpha-app 'hit, junk after'
+[ "$RC" = 0 ] && [ "$(nreq conversations.open)" = 0 ] && [ "$(last '["body"]["channel"]')" = D0CACHED1 ] && ok "cache: a valid first line followed by junk lines is still a hit (only the first line is read)" || bad "junk after: rc=$RC opens=$(nreq conversations.open)"
+reset; mkdir -p "$SALA_STATE_DIR/dm"; { printf 'junk\n'; printf '%s\t%s\t%s\n' "$SALA_DM_USER_ID" "$CBASE" D0CACHED1; } > "$CACHE"
+run alpha-app 'junk before'
+[ "$RC" = 0 ] && [ "$(nreq conversations.open)" = 1 ] && [ "$(last '["body"]["channel"]')" = D0TEST001 ] && ok "cache: a valid line that is not the first line is no cache" || bad "junk before: rc=$RC opens=$(nreq conversations.open)"
 
 # curl never reads the user's default config (~/.curlrc): a trace line there would record the token (the config on stdin) in a file
 qfirst() { tr '\0' '\n' < "$1" | awk '/^@@call@@$/ { n++; getline a; if (a != "-q") bad++ } END { exit (n > 0 && !bad) ? 0 : 1 }'; }   # <argv record>: every curl call starts with -q
 TRACE=$HOME/curl-trace.log
+# curl looks for .curlrc in CURL_HOME first, then XDG_CONFIG_HOME, then HOME. The environment the suite runs in must not decide which: CURL_HOME is unset for
+# the whole suite, and here it is set to the fixture HOME (the folder that holds the trace .curlrc) for each call only, the real runs and the control alike,
+# so the control can only read the fixture's .curlrc, and so would the real runs if curl -q did not stop them
 for opt in trace trace-ascii; do
     reset
     printf '%s = "%s"\n' "$opt" "$TRACE" > "$HOME/.curlrc"
-    run alpha-app 'with a curlrc'
+    CURL_HOME=$HOME run alpha-app 'with a curlrc'
     [ "$RC" = 0 ] && [ -z "$ERR" ] && ok "curl ($opt in ~/.curlrc): a post still works" || bad "with curlrc ($opt): rc=$RC err=[$ERR]"
     [ ! -e "$TRACE" ] && ok "curl ($opt in ~/.curlrc): the trace file is never created (curl -q is its first argument)" || bad "curl read ~/.curlrc ($opt): the trace file exists"
     if grep -rqF -e "$TOKEN" -e "$TOKEN2" "$HOME" 2>/dev/null; then bad "a token was written to a file under HOME ($opt)"; else ok "curl ($opt in ~/.curlrc): the token is in no file under HOME"; fi
     qfirst "$ARGV" && ok "curl ($opt): -q is the first argument of the curl calls (the wrapper's record)" || bad "curl's first argument is not -q: [$(tr '\0' '\n' < "$ARGV" | sed -n 1,2p | tr '\n' ' ')]"
     # the check has teeth: without -q the real curl does read the same ~/.curlrc and writes the trace file (the token is in its stdin config)
-    printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" | "$REAL_CURL" -sS -K - -X POST -o /dev/null "$SALA_DM_API_BASE/auth.test" >/dev/null 2>&1
+    printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" | CURL_HOME=$HOME "$REAL_CURL" -sS -K - -X POST -o /dev/null "$SALA_DM_API_BASE/auth.test" >/dev/null 2>&1
     [ -s "$TRACE" ] && ok "curl ($opt): (control) without -q the same ~/.curlrc does create the trace file, so the checks above can fail" || bad "the ~/.curlrc control ($opt) produced no trace: the checks prove nothing"
     rm -f "$HOME/.curlrc" "$TRACE"
 done
@@ -209,6 +239,19 @@ run alpha-app --thread '' 'x'
 run alpha-app --thread= 'x'
 [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && [ -z "$OUT" ] && case "$ERR" in *"--thread needs a message ts"*) true ;; *) false ;; esac && ok "--thread= (empty) is a usage error (2), nothing posted" || bad "--thread=: rc=$RC err=[$ERR] requests=$(nall)"
 printf 'x' | $S alpha-app --thread '' - >/dev/null 2>&1; [ "$?" = 2 ] && [ "$(nall)" = 0 ] && ok "an empty --thread with the message on stdin is refused too" || bad "--thread '' with stdin"
+# an empty value is refused where it is parsed: a later valid --thread must not overwrite it, an earlier one must not hide it
+TS=1700000000.000100
+reset; run alpha-app --thread '' --thread "$TS" 'x'
+[ "$RC" = 2 ] && [ "$(nall)" = 0 ] && [ -z "$OUT" ] && case "$ERR" in *"--thread needs a message ts"*) true ;; *) false ;; esac && ok "--thread '' then a valid --thread: a usage error (2), nothing posted (the later flag does not overwrite the empty one)" || bad "--thread '' --thread ts: rc=$RC err=[$ERR] requests=$(nall)"
+reset; run alpha-app --thread= --thread="$TS" 'x'
+[ "$RC" = 2 ] && [ "$(nall)" = 0 ] && [ -z "$OUT" ] && case "$ERR" in *"--thread needs a message ts"*) true ;; *) false ;; esac && ok "--thread= then --thread=<ts>: a usage error (2), nothing posted" || bad "--thread= --thread=ts: rc=$RC err=[$ERR] requests=$(nall)"
+reset; run alpha-app --thread "$TS" --thread '' 'x'
+[ "$RC" = 2 ] && [ "$(nall)" = 0 ] && [ -z "$OUT" ] && case "$ERR" in *"--thread needs a message ts"*) true ;; *) false ;; esac && ok "a valid --thread then --thread '': a usage error (2), nothing posted" || bad "--thread ts --thread '': rc=$RC err=[$ERR] requests=$(nall)"
+reset; run alpha-app --thread="$TS" --thread= 'x'
+[ "$RC" = 2 ] && [ "$(nall)" = 0 ] && ok "a valid --thread=<ts> then --thread=: refused too" || bad "--thread=ts --thread=: rc=$RC err=[$ERR] requests=$(nall)"
+reset; run alpha-app --thread "$TS" --thread 1700000000.000200 'x'
+[ "$RC" = 0 ] && [ "$(last '["body"]["thread_ts"]')" = 1700000000.000200 ] && ok "two valid --thread flags: the later one wins (unchanged)" || bad "two valid threads: rc=$RC err=[$ERR] thread=$(last '["body"].get("thread_ts")')"
+reset
 
 # -- message: what arrives, and the length rule -----------------------------------------------------------------------------------------------
 reset
