@@ -154,6 +154,11 @@
 #                                      headline) hands the notify command SALA_NOTIFY_CHANNEL=NAME (contrib/briefing/post-stdin.sh: that
 #                                      channel's own Slack webhook, else the default one); a bad name is a usage error
 #   salamander alert --help | -h | [--channel NAME] -- "<headline>"   the usage (exit 0, posts nothing) · `--` ends the options, so a headline may start with `-`
+#   salamander dm <app> [--thread <ts>] [TEXT|-]   post a message into a Slack app's Direct Message with the owner, as that app (its Messages tab), with the
+#                                      app's bot token (lib/dm.sh): TEXT is one argument, or stdin when it is `-` or absent (the safe form for quotes and backticks);
+#                                      <app> is a name in SALA_DM_APPS, the member is SALA_DM_USER_ID, the token is SALA_DM_TOKEN_DIR/slack-bot-token-<app> (mode 600);
+#                                      prints the posted message's ts; exit 0 posted, 1 Slack said no (its error code), 2 usage, 3 setting or token problem, 4 network
+#   salamander dm --set-token <app> | --check <app> | --help   store the app's bot token at a hidden prompt (a terminal only) · auth.test with it: the bot user and team
 #   salamander job add NAME --repo REPO --script PATH --schedule S… --description "…" --lane LANE [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
 #                                      a scheduled job as a systemd service + timer kept in git (lib/job.sh, docs/units.md): the two files go into the
 #                                      repo's unit folder with Description= and X-Model-Lane=, are linked into ~/.config/systemd/user and enabled; prints the git
@@ -213,6 +218,7 @@ case "$sub" in
     ci-poll|ci-runs) . "$SALA_ROOT/lib/cipoll.sh" ;;   # the CI-run poller and its reader
     codex-review) . "$SALA_ROOT/lib/codex-review.sh" ;;   # a Codex CLI review of a PR, posted on it (a trial; never fails a caller)
     mq) . "$SALA_ROOT/lib/mq.sh" ;;   # our own merge queue (shadow mode)
+    dm) . "$SALA_ROOT/lib/dm.sh"; dm_main "$@"; exit $? ;;   # a message into a Slack app's Direct Message with the owner, as that app (docs/subcommands.md)
     mockup) . "$SALA_ROOT/lib/mockup.sh" ;;   # an HTML mockup as a numbered sala-web page (docs/mockup.md)
     config) cs_print_config ;;
     -h|--help|'') sed -n '2,/^#   salamander config/p' "$SALA_BIN" | sed 's/^# \{0,1\}//'; [ -n "$sub" ] || exit 2 ;;
