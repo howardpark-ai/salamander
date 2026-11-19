@@ -1586,6 +1586,11 @@ the page up by about the keyboard, so `visualViewport.offsetTop` is above 0 and 
 would have its title bar above the screen and an empty band under the composer. `app.js` therefore also sets `--app-top` to
 `offsetTop` (unset at 0, so Android Chrome and desktop are as before, and dropped with `--app-h` above scale 1), and
 `style.css` places `#app` (`position: relative; top`), the sidebar at a phone's width and the shell drawer's bottom by it.
+An iPhone in landscape is wider than 760 px and takes the wide layout, whose toggle and header block, edge strip and closed
+sidebar are `position: fixed` from the layout viewport's top, so they follow the offset too: `--fixed-top` (the block's top)
+is `--app-top` plus `--inset-top` (the safe area and the update banner), the strip and the closed sidebar start at
+`--app-top`, and the sidebar's own `padding-top` keeps `--inset-top` only, because docked it sits in `#app`, which the
+offset has already moved.
 
 Why not `100dvh` alone (seen on Android Chrome): right after a keyboard
 image paste and the keyboard's close, the composer's lower half (the paperclip, the send button, the model line) sat
@@ -1605,9 +1610,11 @@ or retracts").
 shadowing `visualViewport.height`: the protocol cannot produce it) in a headless Chromium, and checks the composer's
 box against the visible area at each step; iOS's offset is staged the same way (`offsetTop`, `height` and `scale`
 shadowed, `resize` and `scroll` dispatched) and `#app`, the title bar, the composer, the sidebar and the drawer are checked
-against it; a gesture bar, Chrome's insets, its transitions and WebKit itself (not run in these tests) are a
-phone's to show. On an iPhone: tap the composer (keyboard up: the title bar at the top of the screen, the composer
-directly on the keyboard, no empty band). **The check on the phone**, in a Chrome tab and in the installed app, each: open a session, tap the
+against it, in the narrow layout and in the wide one (844 x 390: the block, the strip, the peeking and the docked
+sidebar, an update banner); a gesture bar, Chrome's insets, its transitions and WebKit itself (not run in these tests)
+are a phone's to show. On an iPhone, portrait and landscape: tap the composer (keyboard up: the title bar at the top of the
+screen, the composer directly on the keyboard, no empty band; in landscape the toggle and the name sit on the title bar, and
+the peeking or docked sidebar starts at the screen's top). **The check on the phone**, in a Chrome tab and in the installed app, each: open a session, tap the
 composer (keyboard up: the composer whole above the keyboard, the chat still showing), paste an image from the
 keyboard (a chip row above the input, still whole), close the keyboard with the back gesture (the composer whole above
 the gesture bar, the model line under it visible), scroll the chat up and down (the same), switch to another app and
