@@ -21,6 +21,11 @@ scrolls the page up, so visualViewport.offsetTop > 0): offsetTop, height and sca
 landscape: the toggle and header block, the edge strip and the sidebar are position: fixed from the layout viewport's top);
 WebKit itself is not run here, so the real iPhone is the manual check. A real gesture
 bar, Chrome's real safe-area insets and its real transitions are a phone's to show (the manual check in the README).
+
+The soft keyboard also covers the home bar, but iOS keeps reporting the bottom inset, so html.kbd-up (set while an editable
+element has the focus and the visual viewport is over 100 px shorter than the layout viewport, at scale 1) takes the inset off
+the composer, the New session form and the shell drawer. Chromium's setSafeAreaInsetsOverride gives the nonzero inset; the
+iOS keyboard is the staged offset, height and scale above; the Android lag (about 50 px) and a zoom must leave it off.
 """
 
 from __future__ import annotations
@@ -114,6 +119,14 @@ def test_the_stylesheet_and_the_script_size_the_shell_from_the_visible_area():
     assert "#side-open { position: fixed; z-index: 32; left: 8px; top: calc(var(--fixed-top) +" in wide and ".side-head { position: fixed; z-index: 31; left: 0; top: var(--fixed-top);" in wide
     assert "var(--fixed-top)" not in re.search(r"#sidebar\s*\{[^}]*\}", wide).group(0)  # the sidebar's own padding never counts the offset
     assert re.search(r"#composer\s*\{[^}]*padding:[^;]*calc\(10px \+ env\(safe-area-inset-bottom\)\)", CSS)
+    # the soft keyboard up (html.kbd-up): the bottom inset is dropped; the originals above stay for the keyboard down
+    assert re.search(r"\.kbd-up #composer\s*\{\s*padding-bottom:\s*10px;\s*\}", CSS)
+    narrow = CSS[CSS.index("@media (max-width: 760px) {   /* a phone: the same column"):].split("@media (max-width: 520px)")[0]
+    assert re.search(r"\.ns-form\s*\{[^}]*calc\(24px \+ env\(safe-area-inset-bottom\)\)", narrow)
+    assert re.search(r"\.kbd-up \.ns-form\s*\{\s*padding-bottom:\s*24px;\s*\}", narrow)
+    drawer = CSS[CSS.index("/* a bottom sheet at the visible bottom of the screen"):]
+    assert re.search(r"\.shell-drawer\s*\{[^}]*padding-bottom:\s*env\(safe-area-inset-bottom\)", drawer)
+    assert re.search(r"\.kbd-up \.shell-drawer\s*\{\s*padding-bottom:\s*0;\s*\}", drawer)
     assert "viewport-fit=cover" in (STATIC / "index.html").read_text() and "interactive-widget=resizes-content" in (STATIC / "index.html").read_text()
     block = APP_JS[APP_JS.index("/* ---------- the shell's height"):APP_JS.index("/* ---------- copy ----------")]
     assert 'root.style.setProperty("--app-h", h + "px")' in block and 'root.style.removeProperty("--app-h")' in block
@@ -123,7 +136,12 @@ def test_the_stylesheet_and_the_script_size_the_shell_from_the_visible_area():
     for ev in ('window.visualViewport.addEventListener("resize", fitShellSoon)', 'window.visualViewport.addEventListener("scroll", fitShellSoon)',
                'window.addEventListener("resize", fitShellSoon)', 'window.addEventListener("pageshow", fitShellSoon)', '"visibilitychange"'):
         assert ev in block, ev
-    assert "innerHeight" not in block  # the visual viewport, never the layout viewport's height
+    # the shell's own height is the visual viewport's, never the layout viewport's: innerHeight is read once, for the keyboard
+    assert block.count("innerHeight") == 1 and "window.innerHeight - vv.height > KBD_MIN" in block and "const KBD_MIN = 100;" in block
+    assert 'root.classList.toggle("kbd-up", editableFocused() && ' in block and block.count('root.classList.remove("kbd-up")') == 1  # the zoomed branch
+    assert "document.activeElement" in block and "textarea" in block and "contenteditable" in block
+    for ev in ('document.addEventListener("focusin", fitShellSoon)', 'document.addEventListener("focusout", fitShellSoon)'):
+        assert ev in block, ev
     # the recorder's viewport records (opt-in with the rest of it): the fields the phone check reads, and no text
     assert 'rec("viewport", null, d)' in RECORDER_JS and "viewportWatch();" in RECORDER_JS
     for k in ("vvH", "vvTop", "scale", "inner", "clientH", "dvh", "app", "appVar", "compTop", "compBottom", "rowBottom", "modelBottom", "pad", "focus"):
@@ -259,6 +277,96 @@ def test_the_shell_follows_the_visual_viewports_offset_on_ios(served, browser):
     browser.evaluate(UNSTAGE_IOS)
     assert browser.evaluate(WAIT_TOP % '""') == ""
     assert abs(browser.evaluate(WAIT_APP % 844) - 844) < 0.6
+
+
+WAIT_KBD = """new Promise((res) => { const t0 = Date.now(); (function poll() {
+  const on = document.documentElement.classList.contains("kbd-up");
+  if (on === %s || Date.now() - t0 > 3000) res(on); else setTimeout(poll, 30); })(); })"""
+SETTLE = "new Promise((res) => setTimeout(() => res(document.documentElement.classList.contains('kbd-up')), 500))"   # past the 350 ms late pass
+KBD_PADS = """(() => { const pad = (s) => parseFloat(getComputedStyle(document.querySelector(s)).paddingBottom);
+  const d = document.querySelector("#shell-drawer"), was = d.hidden; d.hidden = false;
+  const out = { on: document.documentElement.classList.contains("kbd-up"), composer: pad("#composer"), ns: pad("#ns-form"), drawer: pad("#shell-drawer"),
+                focus: document.activeElement ? document.activeElement.id : null }; d.hidden = was; return out; })()"""
+KBD_DOWN = {"on": False, "composer": 44, "ns": 58, "drawer": 34}   # no keyboard: the 34 px inset counts everywhere
+KBD_UP = {"on": True, "composer": 10, "ns": 24, "drawer": 0}       # the soft keyboard up: it does not
+
+
+def test_the_keyboard_drops_the_bottom_inset_on_ios(served, browser):
+    """An iPhone with the soft keyboard up keeps reporting the 34 px home-bar inset while the keyboard covers the bar: with an
+    editable element focused and the visual viewport 336 px shorter than the layout viewport (staged), html.kbd-up takes the
+    inset off the composer (10), the New session form (24) and the shell drawer (0); with the keyboard down, with nothing
+    editable focused (a hardware keyboard), on Android's ~50 px lag and under a zoom, nothing changes (44, 58, 34)."""
+    browser.open(f"{served['url']}/#s={NAME}")
+    browser.wait_ready(CHAT_READY)
+    assert browser.evaluate(WAIT_MODEL)
+    try:
+        browser.send("Emulation.setSafeAreaInsetsOverride", {"insets": {"top": 0, "bottom": 34, "left": 0, "right": 0}})
+    except RuntimeError as e:
+        pytest.skip(f"this Chromium cannot emulate safe-area insets: {e}")
+    f = browser.evaluate(KBD_PADS)
+    assert {k: f[k] for k in KBD_DOWN} == KBD_DOWN, f
+    # the keyboard up (iOS, staged): the composer has the focus and 508 of 844 px are visible
+    browser.evaluate("document.querySelector('#input').focus(); 1")
+    assert browser.evaluate(STAGE_IOS % (336, 508, 1)) == 844
+    assert browser.evaluate(WAIT_KBD % "true") is True
+    f = browser.evaluate(KBD_PADS)
+    assert {k: f[k] for k in KBD_UP} == KBD_UP and f["focus"] == "input", f
+    assert abs(browser.evaluate(WAIT_APP % 508) - 508) < 0.6
+    c = browser.evaluate(FIT)
+    assert abs(c["composer"]["bottom"] - 844) < 0.6 and c["pad"] == 10, c
+    assert c["composer"]["bottom"] - c["model"]["bottom"] < 10.6, c   # the composer's last line sits on the keyboard with its 10 px, no inset band
+    # the same stage with nothing focused (a hardware keyboard: no soft keyboard covers anything): the inset stays
+    browser.evaluate("document.activeElement.blur(); 1")
+    assert browser.evaluate(WAIT_KBD % "false") is False
+    f = browser.evaluate(KBD_PADS)
+    assert {k: f[k] for k in KBD_DOWN} == KBD_DOWN and f["focus"] == "", f
+    # a focused element that opens no keyboard (a button) does not count either
+    browser.evaluate("document.querySelector('#send').focus(); 1")
+    assert browser.evaluate(SETTLE) is False
+    # a focused frame (the terminal in the shell drawer or the Terminal tab) counts: its typing comes from the soft keyboard
+    browser.evaluate("""(() => { const f = document.createElement("iframe"); f.id = "kbd-probe-frame"; f.src = "about:blank";
+      document.body.append(f); f.focus(); return document.activeElement === f; })()""")
+    assert browser.evaluate(WAIT_KBD % "true") is True
+    browser.evaluate("document.querySelector('#kbd-probe-frame').remove(); 1")
+    assert browser.evaluate(WAIT_KBD % "false") is False
+    # an editable again: on; the keyboard down (offset and height unstaged): off, the inset back
+    browser.evaluate("document.querySelector('#input').focus(); 1")
+    assert browser.evaluate(WAIT_KBD % "true") is True
+    browser.evaluate(UNSTAGE_IOS)
+    assert browser.evaluate(WAIT_KBD % "false") is False
+    assert abs(browser.evaluate(WAIT_APP % 844) - 844) < 0.6
+    f = browser.evaluate(KBD_PADS)
+    assert {k: f[k] for k in KBD_DOWN} == KBD_DOWN and f["focus"] == "input", f
+    # Android Chrome: the visual viewport lags the layout viewport by about 50 px (a bar still showing), the input focused: off
+    assert browser.evaluate(STAGE_LAG % 788) == 844
+    assert abs(browser.evaluate(WAIT_APP % 788) - 788) < 0.6
+    assert browser.evaluate(SETTLE) is False
+    f = browser.evaluate(KBD_PADS)
+    assert {k: f[k] for k in KBD_DOWN} == KBD_DOWN and f["focus"] == "input", f
+    # the threshold: 100 px shorter is not a keyboard, 101 is
+    assert browser.evaluate(STAGE_LAG % 744) == 844
+    assert abs(browser.evaluate(WAIT_APP % 744) - 744) < 0.6
+    assert browser.evaluate(SETTLE) is False
+    assert browser.evaluate(STAGE_LAG % 743) == 844
+    assert abs(browser.evaluate(WAIT_APP % 743) - 743) < 0.6
+    assert browser.evaluate(SETTLE) is True
+    browser.evaluate(UNSTAGE_LAG)
+    assert browser.evaluate(WAIT_KBD % "false") is False
+    assert abs(browser.evaluate(WAIT_APP % 844) - 844) < 0.6
+    # a pinch-zoom while the keyboard is up: off (the variables are dropped with it), the inset back
+    browser.evaluate(STAGE_IOS % (336, 508, 1))
+    assert browser.evaluate(WAIT_KBD % "true") is True
+    browser.evaluate(STAGE_IOS % (100, 422, 2))
+    assert browser.evaluate(WAIT_KBD % "false") is False
+    assert browser.evaluate(WAIT_VAR % '""') == ""
+    f = browser.evaluate(KBD_PADS)
+    assert {k: f[k] for k in KBD_DOWN} == KBD_DOWN, f
+    # the zoom back to 1 with the keyboard still up: on again; then the keyboard closes
+    browser.evaluate(STAGE_IOS % (336, 508, 1))
+    assert browser.evaluate(WAIT_KBD % "true") is True
+    browser.evaluate(UNSTAGE_IOS)
+    assert browser.evaluate(WAIT_KBD % "false") is False
+    browser.evaluate("document.activeElement.blur(); 1")
 
 
 WIDE_BOXES = """(() => { const r = (s) => { const n = document.querySelector(s); const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left }; };

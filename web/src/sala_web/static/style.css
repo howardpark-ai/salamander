@@ -540,6 +540,8 @@ details.notice { background: transparent; }
 
 /* composer */
 #composer { position: relative; border-top: 1px solid var(--border); padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--bg); }
+/* the soft keyboard up (html.kbd-up, set by fitShell in app.js): iOS keeps the bottom inset while the keyboard covers the home bar, so without it the composer sits on the keyboard with its usual padding */
+.kbd-up #composer { padding-bottom: 10px; }
 #composer > .jump { position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%); margin: 0;
   max-width: none; z-index: 5; min-width: 36px; height: 36px; padding: 0 12px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 15px; cursor: pointer;
@@ -786,6 +788,7 @@ a.ns-chip { display: inline-flex; align-items: center; text-decoration: none; }
 }
 @media (max-width: 760px) {   /* a phone: the same column at full width with side padding; the page scrolls */
   .ns-form { padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); }
+  .kbd-up .ns-form { padding-bottom: 24px; }   /* the keyboard covers the gesture bar: no inset */
 }
 @media (max-width: 520px) { .ns-form { --ns-name-w: 6.5rem; } }   /* a narrow name column on a phone; the description keeps the rest */
 
@@ -928,6 +931,7 @@ body.shell-dragging .shell-term iframe { pointer-events: none; }
   /* a bottom sheet at the visible bottom of the screen (--app-h and --app-top are the visual viewport's height and offset, see fitShell in app.js) */
   .shell-drawer { position: fixed; left: 0; right: 0; bottom: calc(100dvh - var(--app-h, 100dvh) - var(--app-top, 0px)); z-index: 35; height: calc(var(--app-h, 100dvh) * .6);
     border-radius: 8px 8px 0 0; box-shadow: 0 -8px 28px rgba(0,0,0,.28); padding-bottom: env(safe-area-inset-bottom); overflow: hidden; }
+  .kbd-up .shell-drawer { padding-bottom: 0; }   /* the keyboard covers the gesture bar: no inset */
   .shell-handle { height: 20px; cursor: default; }
   .shell-head { padding: 0 8px 4px 16px; }
   .shell-chip { flex: 0 1 auto; }

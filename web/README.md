@@ -1592,6 +1592,18 @@ is `--app-top` plus `--inset-top` (the safe area and the update banner), the str
 `--app-top`, and the sidebar's own `padding-top` keeps `--inset-top` only, because docked it sits in `#app`, which the
 offset has already moved.
 
+iOS also keeps reporting `safe-area-inset-bottom` (the home bar's 34 px) while the keyboard covers the home bar, so a composer
+that pads it would leave about 44 px of empty band above the keyboard. `fitShell` therefore sets the class `kbd-up` on
+`<html>` while the soft keyboard is up, and `style.css` drops the bottom inset under it: the composer pads 10 px (instead of
+`10px + env(safe-area-inset-bottom)`), the New session form at a phone's width 24 px and the shell drawer 0. The class is on
+when all three hold: an editable element has the focus (`input`, `textarea`, `select`, `[contenteditable]` or an `iframe`, the terminal's frame, read from
+`document.activeElement`; a button or a checkbox opens no keyboard), `innerHeight - visualViewport.height` is over 100 px (on
+iOS the layout viewport keeps its full height, so the difference is about the keyboard's height; on Android Chrome the
+keyboard resizes both viewports together and a bar's lag is about 50 px, so it stays near 0 and the class stays off), and the
+scale is at most 1.01 (it is removed with the variables while zoomed). A hardware keyboard (an editable focused, nothing
+covered) and every state without a keyboard keep the inset, so with the keyboard down nothing changes. `focusin` and `focusout`
+run `fitShell` like the viewport events, so a focus change updates it, and the late pass after 350 ms stays.
+
 Why not `100dvh` alone (seen on Android Chrome): right after a keyboard
 image paste and the keyboard's close, the composer's lower half (the paperclip, the send button, the model line) sat
 under the screen's bottom edge for a while with nothing changed. `100dvh` and
@@ -1611,8 +1623,11 @@ shadowing `visualViewport.height`: the protocol cannot produce it) in a headless
 box against the visible area at each step; iOS's offset is staged the same way (`offsetTop`, `height` and `scale`
 shadowed, `resize` and `scroll` dispatched) and `#app`, the title bar, the composer, the sidebar and the drawer are checked
 against it, in the narrow layout and in the wide one (844 x 390: the block, the strip, the peeking and the docked
-sidebar, an update banner); a gesture bar, Chrome's insets, its transitions and WebKit itself (not run in these tests)
-are a phone's to show. On an iPhone, portrait and landscape: tap the composer (keyboard up: the title bar at the top of the
+sidebar, an update banner); the keyboard's `kbd-up` class is checked with Chromium's safe-area override (34 px): on with an editable focused at the iOS
+stage (composer 10 px, New session form 24 px, drawer 0), off with nothing editable focused, with the keyboard unstaged, at
+the Android lag (the threshold is 100 px) and under a zoom; a gesture bar, Chrome's insets, its transitions and WebKit itself
+(not run in these tests) are a phone's to show. On an iPhone, with the keyboard up, the composer sits directly on it with no band
+(also in the New session form and the shell drawer). On an iPhone, portrait and landscape: tap the composer (keyboard up: the title bar at the top of the
 screen, the composer directly on the keyboard, no empty band; in landscape the toggle and the name sit on the title bar, and
 the peeking or docked sidebar starts at the screen's top). **The check on the phone**, in a Chrome tab and in the installed app, each: open a session, tap the
 composer (keyboard up: the composer whole above the keyboard, the chat still showing), paste an image from the
