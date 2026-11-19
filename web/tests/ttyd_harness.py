@@ -153,11 +153,16 @@ class Pane:
         False, or RuntimeError, when ttyd exited or the time is up."""
         t0 = time.time()
         while time.time() - t0 < seconds and self.ttyd.poll() is None:
-            try:
-                socket.create_connection(("127.0.0.1", self.ttyd_port), timeout=1).close()
-                return True
+            try:                                          # ask for ttyd's own page: another listener on the port would not answer as ttyd does
+                with socket.create_connection(("127.0.0.1", self.ttyd_port), timeout=1) as c:
+                    c.settimeout(2)
+                    c.sendall(b"GET /tty/ HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+                    head = c.recv(4096)
+                if head.startswith(b"HTTP/1.") and b" 200 " in head[:16] and b"ttyd" in head.lower() and self.ttyd.poll() is None:
+                    return True
             except OSError:
-                time.sleep(0.05)
+                pass
+            time.sleep(0.05)
         if raising:
             raise RuntimeError("ttyd did not listen again within %s s" % seconds)
         return False
