@@ -52,13 +52,22 @@ Run by the side session itself (its own tmux session is the default `--name`). I
    started, in the local mirror of the pages (`$SALA_BRAIN_DIR`, unset by default; every put is committed to it at once). Where the
    mirror is not on the box, the page's last change from stackshot (`get page-ts`) after the start counts, said as the weaker proof.
    No project on the record: skipped, and said.
-3. **The summary reached the origin agent (a fork) or the project's main agent (a start about an item).** `side done` sends it
-   itself from `--summary` through stackshot's client `message` (once, only when everything else holds, and a repeat never
-   sends it again). A receiver ending in `-main` gets `[for <owner>]` on line 1 (`<owner>` is the `SALA_OWNER_NAME` setting). `--summary-to NAME` sends to someone else: first without the
-   mark (a background agent must not get it); if stackshot refuses with its front-agent text ("is a front agent of … a session
-   the owner talks to … `[for <owner>]`", a user-facing agent whose name does not end in `-main`), it is sent once more with the mark.
-   Any other failure ends there. `--summary-to projects/SLUG` (or a key in another page dir) sends it to the project: the router rules it,
-   and the message is never marked. The log of each attempt is in `$SALA_LOG_DIR/salamander-side.log`.
+3. **The summary reached the origin agent (a fork) or the project's main agent (a start about an item).** The full write-up stays
+   on the item and the page (checks 1 and 2 prove it); `side done` sends the receiver a **pointer** through stackshot's client
+   `message`, once, only when everything else holds, and a repeat never sends it again. To an agent (a `-main`, any other front
+   agent, a background agent; `--summary-to NAME` picks another one) the pointer is **one line, sent with `--fyi` and no
+   `[for <owner>]` mark**, at most 200 characters before the sender label the client adds (`<owner>` is the `SALA_OWNER_NAME` setting):
+   `[side done] <name> finished its conversation with <owner>, <item> (<page>): <first line of the summary, cut with an ellipsis to fit>`.
+   The item and page are the ones on the session's record (either alone when only one is set). An `--fyi` is held for the receiver's
+   next turn and starts none: the mark is what starts a turn the owner sees, and a summary asks nothing. stackshot cuts a held line at
+   260 characters, sender label included, and says so (logged in `salamander-side.log`; the exit stays 0).
+   If stackshot **refuses** the `--fyi` (the receiver's hook cannot fetch held lines: a cloud session, a box behind on its checkout, no
+   turn in 30 days; the client exits 1 and nothing is delivered) or the client cannot be reached, `side done` **never falls back to the
+   marked form**: it logs the output to `$SALA_LOG_DIR/salamander-side.log`, prints a `⚠` line saying the pointer was not delivered and
+   that the write-up stands on the item and the page, **still writes the marker and exits 0** (a front agent that cannot hold lines must not
+   block a wrap-up for ever), and does not record the send. `--summary-to projects/SLUG` (or a key in another page dir) sends the
+   **full body** to the project instead: the router rules it, the message is plain (no `--fyi`, never marked), and a failed send there
+   leaves no marker. The log of each attempt is in `$SALA_LOG_DIR/salamander-side.log`.
 
 `--dry-run` runs the checks and sends and writes nothing.
 
