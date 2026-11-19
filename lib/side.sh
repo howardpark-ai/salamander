@@ -20,8 +20,9 @@
 #      client message, and records that it did, so a repeat of `side done` never sends it again. To an agent (a *-main, another front agent, a
 #      background agent) the pointer is ONE line sent with --fyi and NO `[for <owner>]` mark, at most 200 characters before the sender label the
 #      client adds: `[side done] <name> finished its conversation with <owner>[, <item> (<page>)]: <first line of the summary, cut with an
-#      ellipsis to fit>`. An --fyi is held for the receiver's next turn and starts none (the mark is what starts a turn). stackshot cuts the held
-#      line at 260 characters, label included, and says so (logged; exit stays 0). It refuses an --fyi to a front agent whose hook cannot fetch
+#      ellipsis to fit>`. The reference is never cut, only the excerpt: a long page key leaves less room, and a reference over 200 alone is sent whole with no
+#      excerpt (said); a fork with neither item nor page says `no item or page (full text: sala sessions transcript <name>)` instead. An --fyi is held for the receiver's next turn and starts none (the mark is what starts a turn). stackshot cuts the held
+#      line at 260 characters, label included, and says so (`… cut to 260 characters in the held line`: that text, not the number, is logged; exit stays 0). It refuses an --fyi to a front agent whose hook cannot fetch
 #      held lines (a cloud session, a box behind on its checkout, no turn in 30 days; exit 1, nothing delivered): then side done NEVER falls
 #      back to the marked form (the summary asks nothing), logs the output to salamander-side.log, prints a ⚠ line saying the pointer was not
 #      delivered and that the write-up stands on the item and the page, writes the marker anyway and exits 0 (a front agent that cannot hold
@@ -186,7 +187,6 @@ if [ "$DRY" = 1 ]; then echo "dry run: nothing sent, no marker written"; exit 0;
 
 # send the summary (once), then the marker
 if [ -z "$SENT_TO" ]; then
-    [ -n "$SALA_SIDE_MSG_CMD" ] || die "SALA_SIDE_MSG_CMD is empty: the summary cannot be sent, so no marker is written"
     ATTEMPT_OUT=""
     # the attempt's output file goes on ANY exit, a stop included (a SIGTERM from a `timeout` or a cancelled CI job runs an EXIT trap, not a plain `rm` below)
     trap 'rm -f "${ATTEMPT_OUT:-}"' EXIT
@@ -205,32 +205,44 @@ $TEXT
         *)
             pointer="$ITEM"   # the item and the page, as the record has them: ", <item> (<page>)", or either alone
             if [ -n "$PROJECT" ]; then if [ -n "$pointer" ]; then pointer="$pointer ($PROJECT)"; else pointer="$PROJECT"; fi; fi
+            # neither (a fork started without an item, on no project): the full summary is nowhere but this conversation, so the line says where
+            [ -n "$pointer" ] || pointer="no item or page (full text: sala sessions transcript $NAME)"
             body=$(printf '%s' "$TEXT" | python3 -c '
 import re, sys
 name, owner, pointer = sys.argv[1:4]
 text = sys.stdin.buffer.read().decode("utf-8", "replace")
 first = next((l for l in text.splitlines() if l.strip()), "")
 first = re.sub(r"\s+", " ", first).strip()
-head = "[side done] %s finished its conversation with %s%s: " % (name, owner, ", " + pointer if pointer else "")
-room = 200 - len(head)   # the whole line is at most 200 characters; the client adds its sender label
-if room < 1:             # a very long name or pointer: the head itself is cut
-    line = head[:199].rstrip() + "…"
-else:
-    line = head + (first if len(first) <= room else first[:room - 1].rstrip() + "…")
+# the reference (the item and page, or where the full text is) is never cut: only the summary excerpt is clipped to fit
+ref = "[side done] %s finished its conversation with %s, %s" % (name, owner, pointer)
+room = 200 - len(ref) - len(": ")   # the whole line is at most 200 characters; the client adds its sender label
+if room >= 2:                       # at least a character and the ellipsis
+    line = ref + ": " + (first if len(first) <= room else first[:room - 1].rstrip() + "…")
+else:                               # the reference alone fills the line: sent whole, with no excerpt, over the 200 (stackshot cuts a held line at 260)
+    line = ref
+    if len(line) > 200:
+        sys.stderr.write("   note: the reference alone is %d characters, over the 200 of a pointer line: it is sent whole, without the summary excerpt (stackshot may cut a held line at 260, and says so)\n" % len(line))
 sys.stdout.write(line)
 ' "$NAME" "$SALA_OWNER_NAME" "$pointer") || die "could not build the one-line pointer for $SUMMARY_TO"
             HOW=fyi; FYI="--fyi" ;;
     esac
     ATTEMPT_OUT=$(mktemp "${TMPDIR:-/tmp}/sala-side-msg.XXXXXX") || die "could not make a temp file for the message output"
-    printf '%s' "$body" | timeout --kill-after=10 "$SALA_SIDE_MSG_TIMEOUT" sh -c "$SALA_SIDE_MSG_CMD \"\$@\"" side-msg "$SUMMARY_TO" - --sender "$NAME" $FYI > "$ATTEMPT_OUT" 2>&1; rc=$?
+    if [ -n "$SALA_SIDE_MSG_CMD" ]; then
+        printf '%s' "$body" | timeout --kill-after=10 "$SALA_SIDE_MSG_TIMEOUT" sh -c "$SALA_SIDE_MSG_CMD \"\$@\"" side-msg "$SUMMARY_TO" - --sender "$NAME" $FYI > "$ATTEMPT_OUT" 2>&1; rc=$?
+    elif [ "$HOW" = fyi ]; then
+        # no client: the same as one that cannot be reached, so the pointer's warning and the marker follow (the write-up stands on the item and the page)
+        echo "SALA_SIDE_MSG_CMD is empty: no client to send the pointer with" > "$ATTEMPT_OUT"; rc=127
+    else
+        die "SALA_SIDE_MSG_CMD is empty: the summary cannot be sent, so no marker is written"
+    fi
     cat "$ATTEMPT_OUT" >> "$SALA_LOG_DIR/salamander-side.log"
     if [ "$HOW" = fyi ]; then
         # stackshot refuses an --fyi to a front agent whose hook cannot fetch held lines (exit 1, nothing delivered). Never fall back to the marked form:
         # the summary asks nothing, and the mark is what starts a turn. So say it, write the marker anyway, and do not record the send.
         if [ "$rc" = 0 ]; then
             echo "[$(date '+%F %T')] side done $NAME: pointer delivered to $SUMMARY_TO as --fyi, unmarked" >> "$SALA_LOG_DIR/salamander-side.log"
-            if grep -q "260" "$ATTEMPT_OUT"; then
-                echo "[$(date '+%F %T')] side done $NAME: stackshot reports the held line was cut at 260 characters (sender label included); delivered" >> "$SALA_LOG_DIR/salamander-side.log"
+            if grep -Eq "cut to [0-9]+ characters" "$ATTEMPT_OUT"; then   # the client's own diagnostic (stackshot's _cut_note), never a bare number: 260 can be inside a message id
+                echo "[$(date '+%F %T')] side done $NAME: stackshot reports the held line was cut (its limit is 260 characters, sender label included); delivered" >> "$SALA_LOG_DIR/salamander-side.log"
             fi
             printf 'summary_sent_to=%s\nsummary_sent_at=%s\n' "$SUMMARY_TO" "$(date +%s)" >> "$(side_file "$NAME")"
             echo "   the pointer was sent to $SUMMARY_TO (--fyi: held for its next turn, starts none)"

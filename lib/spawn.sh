@@ -597,9 +597,9 @@ side_write_mandate() {
         fi
         echo
         echo "## The end"
-        echo "- Before this conversation ends you MUST run \`sala side done\`. It records the write-up and sends your summary to \`$SIDE_TO\`:"
-        echo "      sala side done${ITEM:+ --item $ITEM} --summary \"<what was decided or found, written for $SIDE_TO>\""
-        echo "  It succeeds only when (1) the board item${ITEM:+ $ITEM} changed since you started: record what was decided on it through the stackshot connector (if you read it there, pass its \`updated\` as \`--item-updated <epoch or ISO time>\`), (2) the project page${SIDE_PROJECT:+ \`$SIDE_PROJECT\`} has a timeline line with your name, \`$NAME\`, as its source, and (3) the summary is sent (\`sala side done\` sends it itself). It says what is missing; fix that and run it again."
+        echo "- Before this conversation ends you MUST run \`sala side done\`. It records the write-up and sends \`$SIDE_TO\` a one-line pointer: the FIRST line of your summary, with the item and page, in at most 200 characters. Put the gist in that first line; the rest of the summary does not travel, so the full detail belongs on the board item and the project page. (A summary sent to a project page key, \`--summary-to projects/<slug>\`, goes whole.)"
+        echo "      sala side done${ITEM:+ --item $ITEM} --summary \"<the gist in one first line, then any detail; written for $SIDE_TO>\""
+        echo "  It succeeds only when (1) the board item${ITEM:+ $ITEM} changed since you started: record what was decided on it through the stackshot connector (if you read it there, pass its \`updated\` as \`--item-updated <epoch or ISO time>\`), (2) the project page${SIDE_PROJECT:+ \`$SIDE_PROJECT\`} has a timeline line with your name, \`$NAME\`, as its source, and (3) the pointer is sent (\`sala side done\` sends it itself; if the receiver cannot take it you are told and the marker is still written). It says what is missing; fix that and run it again."
         echo "- You retire only when ${SALA_OWNER_NAME} tells you to (the request goes through the queue: \`sala op retire $NAME\`). Never retire or exit yourself, and do not ask to be retired."
         if [ -n "$MFILE" ] || [ -n "$MTEXT" ]; then
             echo
