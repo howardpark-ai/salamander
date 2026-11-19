@@ -102,6 +102,17 @@ its pane (the nearest ancestor that clips or scrolls sideways, or the screen), w
 kept and the base rule stands once, plus a read of the parsed stylesheets (the CSSOM, not a regex over the text) that finds the base rule exactly once with no parent rule, so it is under no `@media`,
 `@supports` or `@container`; one test puts a copy of it inside an `@media` and a 600 px box inside the search pane and checks that both new checks fail. Not covered, and why: a real iOS WebKit (the zoom itself is a phone's to show; the computed size is what the rule controls).
 
+### `tests/dm.sh`: +8, 131 (Thu Nov 19th 2026)
+
+Two follow-ups to the entry below. Kept because each was a way for `sala dm` to post to the wrong place.
+Checked: a NUL byte in the channel cache's first line is no cache, because bash `read` silently drops a NUL and the line then parsed as a clean hit on the cached
+channel; a NUL inside the channel id (`D0STALE<NUL>JUNK`), at the end of the line and inside the user id field each lead to `conversations.open` being called
+again and the post going to the new channel, a NUL on a later line is ignored like any other later line, and the well-formed hits (also with no final newline)
+are unchanged; every `--thread` value is validated where it is parsed, so a non-timestamp value cannot be overwritten by a later valid one: `--thread bad
+--thread <ts>`, `--thread=bad --thread=<ts>`, `--thread <ts> --thread bad` and `--thread=<ts> --thread=bad` are each exit 2 with no request in the fake
+server's log (the empty-value cases are unchanged). Each new check was shown to fail on the old code: the three NUL cases and the two bad-then-valid orders
+(five failures; the valid-then-bad orders were already refused by the whole-value check that ran after parsing, which is now dropped as redundant).
+
 ### `tests/dm.sh`: +17, 123 (Thu Nov 19th 2026)
 
 Three follow-ups to the entry below. Kept because each was a way for `sala dm` to post to the wrong place, or for a check to pass while proving nothing.

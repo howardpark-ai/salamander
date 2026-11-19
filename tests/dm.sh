@@ -8,7 +8,7 @@
 #              with no second open), a cached channel Slack rejects (channel_not_found, is_archived) dropped and opened again once, an uncached one not
 #              retried, the thread ts as an argument or --thread=, the answer's ts as the only stdout; the cache is bound to the member id and the API
 #              base (a changed SALA_DM_USER_ID or SALA_DM_API_BASE reopens the DM and posts to the new channel; an old file with a channel id alone,
-#              or one with the wrong shape, is ignored, never a crash); curl never reads ~/.curlrc (a `trace` line there writes no file)
+#              or one with the wrong shape or a NUL byte, is ignored, never a crash); curl never reads ~/.curlrc (a `trace` line there writes no file)
 #   message    stdin and argument forms arrive verbatim (backticks, $( ), quotes, newlines, a leading dash, non-ASCII) and run nothing; 39000
 #              characters go, 39001 are refused (characters, not bytes) with nothing posted; empty, non-UTF-8, extra arguments refused
 #   refusals   a bad, unlisted or unconfigured app name, a missing / empty / 644 / malformed token file, a missing or malformed SALA_DM_USER_ID,
@@ -211,6 +211,23 @@ run alpha-app 'hit, junk after'
 reset; mkdir -p "$SALA_STATE_DIR/dm"; { printf 'junk\n'; printf '%s\t%s\t%s\n' "$SALA_DM_USER_ID" "$CBASE" D0CACHED1; } > "$CACHE"
 run alpha-app 'junk before'
 [ "$RC" = 0 ] && [ "$(nreq conversations.open)" = 1 ] && [ "$(last '["body"]["channel"]')" = D0TEST001 ] && ok "cache: a valid line that is not the first line is no cache" || bad "junk before: rc=$RC opens=$(nreq conversations.open)"
+# bash `read` silently drops a NUL byte, so a NUL inside the channel id (D0ABC<NUL>JUNK), at the end of the line or in the user id field once read as a
+# clean line and the DM went to the cached channel; a first line holding a NUL is no cache, whatever the rest looks like. A NUL on a later line is not the first line's.
+for where in channel-id end-of-line user-id-field; do
+    reset; mkdir -p "$SALA_STATE_DIR/dm"
+    case "$where" in
+        channel-id)     printf '%s\t%s\tD0STALE\0JUNK\n' "$SALA_DM_USER_ID" "$CBASE" > "$CACHE" ;;
+        end-of-line)    printf '%s\t%s\tD0STALE01\0\n' "$SALA_DM_USER_ID" "$CBASE" > "$CACHE" ;;
+        user-id-field)  printf '%s\0\t%s\tD0STALE01\n' "$SALA_DM_USER_ID" "$CBASE" > "$CACHE" ;;
+    esac
+    run alpha-app 'nul cache'
+    [ "$RC" = 0 ] && [ -z "$ERR" ] && [ "$(nreq conversations.open)" = 1 ] && [ "$(last '["body"]["channel"]')" = D0TEST001 ] && [ "$(cached_channel)" = D0TEST001 ] \
+        && ok "cache: a NUL byte in the first line ($where) is no cache: the DM is opened again, not posted to the cached channel" \
+        || bad "NUL cache ($where): rc=$RC err=[$ERR] opens=$(nreq conversations.open) channel=$(last '["body"]["channel"]')"
+done
+reset; seedcache D0CACHED1; printf 'junk\0\n' >> "$CACHE"
+run alpha-app 'hit, nul after'
+[ "$RC" = 0 ] && [ "$(nreq conversations.open)" = 0 ] && [ "$(last '["body"]["channel"]')" = D0CACHED1 ] && ok "cache: a NUL on a later line does not matter (only the first line is read)" || bad "NUL after: rc=$RC opens=$(nreq conversations.open)"
 
 # curl never reads the user's default config (~/.curlrc): a trace line there would record the token (the config on stdin) in a file
 qfirst() { tr '\0' '\n' < "$1" | awk '/^@@call@@$/ { n++; getline a; if (a != "-q") bad++ } END { exit (n > 0 && !bad) ? 0 : 1 }'; }   # <argv record>: every curl call starts with -q
@@ -251,6 +268,15 @@ reset; run alpha-app --thread="$TS" --thread= 'x'
 [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && ok "a valid --thread=<ts> then --thread=: refused too" || bad "--thread=ts --thread=: rc=$RC err=[$ERR] requests=$(nall)"
 reset; run alpha-app --thread "$TS" --thread 1700000000.000200 'x'
 [ "$RC" = 0 ] && [ "$(last '["body"]["thread_ts"]')" = 1700000000.000200 ] && ok "two valid --thread flags: the later one wins (unchanged)" || bad "two valid threads: rc=$RC err=[$ERR] thread=$(last '["body"].get("thread_ts")')"
+# a non-timestamp value is refused where it is parsed too: a later valid --thread must not overwrite it (it posted before), an earlier valid one must not hide it
+reset; run alpha-app --thread bad --thread "$TS" 'x'
+[ "$RC" = 2 ] && [ "$(nall)" = 0 ] && [ -z "$OUT" ] && case "$ERR" in *"--thread takes a message ts"*"'bad'"*) true ;; *) false ;; esac && ok "--thread bad then a valid --thread: a usage error (2), nothing posted (the later flag does not overwrite the bad one)" || bad "--thread bad --thread ts: rc=$RC err=[$ERR] requests=$(nall)"
+reset; run alpha-app --thread=bad --thread="$TS" 'x'
+[ "$RC" = 2 ] && [ "$(nall)" = 0 ] && [ -z "$OUT" ] && case "$ERR" in *"--thread takes a message ts"*"'bad'"*) true ;; *) false ;; esac && ok "--thread=bad then --thread=<ts>: a usage error (2), nothing posted" || bad "--thread=bad --thread=ts: rc=$RC err=[$ERR] requests=$(nall)"
+reset; run alpha-app --thread "$TS" --thread bad 'x'
+[ "$RC" = 2 ] && [ "$(nall)" = 0 ] && [ -z "$OUT" ] && case "$ERR" in *"--thread takes a message ts"*"'bad'"*) true ;; *) false ;; esac && ok "a valid --thread then --thread bad: a usage error (2), nothing posted" || bad "--thread ts --thread bad: rc=$RC err=[$ERR] requests=$(nall)"
+reset; run alpha-app --thread="$TS" --thread=bad 'x'
+[ "$RC" = 2 ] && [ "$(nall)" = 0 ] && ok "a valid --thread=<ts> then --thread=bad: refused too" || bad "--thread=ts --thread=bad: rc=$RC err=[$ERR] requests=$(nall)"
 reset
 
 # -- message: what arrives, and the length rule -----------------------------------------------------------------------------------------------
