@@ -2766,12 +2766,27 @@ function goLive() {
 // first vtop pixels (the title bar) above the screen and an empty band of the page under it, between the composer and
 // the keyboard. --app-top is that offset, and #app, the narrow sidebar, the shell drawer and the wide layout's fixed pieces (the
 // toggle and header block, the edge strip, the closed sidebar; style.css, --fixed-top) follow it.
+// The soft keyboard up (html.kbd-up): iOS keeps the safe-area's bottom inset (the home bar's room) while the keyboard
+// covers the home bar, so the composer, the New session form and the shell drawer drop it, and sit on the keyboard with
+// their usual padding only (style.css). It is on while an editable element has the focus, the visual viewport is more
+// than 100 px shorter than the layout viewport (about the keyboard's height on iOS, whose layout viewport stays at full
+// height; on Android Chrome the keyboard resizes both together and a bar's lag is about 50 px, so it stays off) and
+// there is no pinch-zoom; it then stays on until the viewport is back (the blur comes before the keyboard has finished
+// closing). A hardware keyboard (an editable has the focus, nothing is covered) leaves it off.
+const KBD_MIN = 100;
+function editableFocused() {
+  const a = document.activeElement;
+  if (!a || a === document.body) return false;
+  if (a.tagName === "IFRAME") return true;   // the terminal (Terminal tab, shell drawer) is a frame: its keys come from the soft keyboard, and the viewport check below decides
+  return a.matches("input, textarea, select, [contenteditable]:not([contenteditable=false])") && !a.matches("input[type=button], input[type=submit], input[type=reset], input[type=checkbox], input[type=radio], input[type=range], input[type=file], input[type=color], input[type=image]");
+}
 const shellFit = { h: null, top: null, raf: 0, late: 0 };
 function fitShell() {
   shellFit.raf = 0;
   const vv = window.visualViewport, root = document.documentElement;
   if (!vv) return;
   if (vv.scale > 1.01 || !(vv.height > 0)) {
+    root.classList.remove("kbd-up");
     if (shellFit.h !== null) { shellFit.h = null; root.style.removeProperty("--app-h"); }
     if (shellFit.top !== null) { shellFit.top = null; root.style.removeProperty("--app-top"); }
     return;
@@ -2783,6 +2798,11 @@ function fitShell() {
     shellFit.top = top;
     if (top > 0) root.style.setProperty("--app-top", top + "px"); else root.style.removeProperty("--app-top");
   }
+  // on: an editable (or the terminal's frame) has the focus and the viewport is short; once on it stays while the viewport is
+  // short, even after the blur: iOS keeps the visual viewport shrunken until the keyboard's closing animation ends, and giving
+  // the inset back at the blur would push the composer up by it for those frames
+  const short = window.innerHeight - vv.height > KBD_MIN;
+  root.classList.toggle("kbd-up", short && (editableFocused() || root.classList.contains("kbd-up")));
 }
 // one layout a frame while something animates (the keyboard, a bar), and a late pass once it has settled, in case the
 // last event came before the bar's final position
@@ -2796,6 +2816,9 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener("scroll", fitShellSoon);
   window.addEventListener("resize", fitShellSoon);
   window.addEventListener("pageshow", fitShellSoon);
+  document.addEventListener("focusin", fitShellSoon);   // a focus change decides kbd-up
+  document.addEventListener("focusout", fitShellSoon);
+  window.addEventListener("blur", fitShellSoon);   // focus moving into the terminal's frame: the page sees the window blur, not always a focusin
   document.addEventListener("visibilitychange", () => { if (!document.hidden) fitShellSoon(); });
   fitShell();
 }
