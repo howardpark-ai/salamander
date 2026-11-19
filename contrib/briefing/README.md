@@ -243,6 +243,25 @@ default webhook (`BRIEFING_WEBHOOK_FILE`) as before, so nothing is lost while a 
 not set otherwise. Read the notice from stdin as always; use the variable only to choose a destination, and treat it as data
 (its value matches `[a-z0-9-]+`).
 
+## Direct messages as a Slack app
+
+A webhook posts into one channel and cannot reply in a thread of a person's Direct Message. `salamander dm <app> [--thread <ts>]
+[TEXT|-]` (lib/dm.sh, `docs/subcommands.md`) posts into the Direct Message between a Slack app and the owner, as that app, with the
+app's bot token (the message appears in the app's Messages tab), and prints the message's ts so a caller can thread under it. It is
+the way for a session to talk to the owner through the same app that posts a channel's briefing. In `~/.config/salamander/config`:
+
+```
+SALA_DM_APPS="reports-app alerts-app"    # the app names `sala dm` may post as
+SALA_DM_USER_ID=UXXXXXXXX                # the Slack member id to message
+SALA_DM_TOKEN_DIR=~/.config/sala-briefing # the default; the token of <app> is slack-bot-token-<app> in it (secret; mode 600; never in git)
+```
+
+The owner stores each token once, in their own terminal, with `salamander dm --set-token <app>` (hidden prompt, atomic write, mode 600),
+and checks it with `salamander dm --check <app>` (`auth.test`: the bot user id and the team, never the token). The app needs the
+`chat:write` and `im:write` bot scopes and its Messages tab turned on. The message is read from stdin with `-` (or no TEXT), the form to
+use for anything with quotes or backticks. Exit codes: 0 posted, 1 Slack answered an error (its code is printed), 2 usage, 3 a setting
+or the token file is missing or refused, 4 network.
+
 ## Dry run of the release watcher
 
 ```

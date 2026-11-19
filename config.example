@@ -318,6 +318,12 @@
                                  #   that call (unset for every other post: sala's own notices name no channel). A command may ignore it;
                                  #   post-stdin.sh sends the post to BRIEFING_WEBHOOK_FILE_<NAME>, below)
 #SALA_NOTIFY_TIMEOUT=60           # seconds a post may take before its command is stopped (killed 5 s later), so a hung one cannot hold the watch
+#SALA_DM_APPS=                    # `sala dm <app> …` (a message into a Slack app's Direct Message with the owner, as that app; lib/dm.sh): the app names it
+                                 #   may post as, space-separated, each letters, digits and dashes (e.g. "alerts-app reports-app"). Unset or empty (the default): no app is allowed
+#SALA_DM_USER_ID=                # the Slack member id (U… or W…) that `sala dm` messages. Unset: `sala dm` refuses and names this variable
+#SALA_DM_TOKEN_DIR=              # where the bot tokens are: the file slack-bot-token-<app> in it holds the app's xoxb-… token (secret; mode 600, or it is refused;
+                                 #   `sala dm --set-token <app>` writes it). Unset or empty: ~/.config/sala-briefing ($XDG_CONFIG_HOME/sala-briefing)
+#SALA_DM_API_BASE=https://slack.com/api   # the Slack API's base URL; only a test points it elsewhere
 #SALA_FLEET_HOSTS=                # ssh aliases `salamander update --fleet` also updates, e.g. "laptop desktop"
 #SALA_FLEET_TIMEOUT=8             # seconds before a host counts as offline (skipped, not failed)
 #SALA_POST_UPDATE_CMD=            # run after ANY CLI update attempt (recycle --update, update --fleet, provision), e.g. bump a version dashboard
