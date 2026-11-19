@@ -319,6 +319,24 @@ run alpha-app one two; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && ok "two TEXT argume
 $S alpha-app </dev/null >/dev/null 2>&1; [ "$?" = 2 ] && [ "$(nall)" = 0 ] && ok "no TEXT and an empty stdin: usage error" || bad "empty stdin"
 run alpha-app --thread abc 'x'; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && ok "a --thread that is not a ts is a usage error" || bad "bad thread: rc=$RC"
 run alpha-app --thread; [ "$RC" = 2 ] && ok "--thread with no value is a usage error" || bad "--thread alone: rc=$RC"
+# an option placed after the app is refused, never posted as the message (sala dm <app> --check once posted the text "--check")
+reset
+for opt in --check --set-token --all --help --foo; do
+    run alpha-app "$opt"
+    [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && [ -z "$OUT" ] && case "$ERR" in *"'$opt' looks like an option"*"usage: sala dm"*) true ;; *) false ;; esac && ok "$opt after the app is refused (2): named, usage line shown, nothing posted, no request" || bad "$opt after the app: rc=$RC out=[$OUT] err=[$ERR] requests=$(nall)"
+done
+run alpha-app --thread; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"--thread needs a message ts"*) true ;; *) false ;; esac && ok "--thread alone keeps its own error" || bad "--thread alone: rc=$RC err=[$ERR]"
+run alpha-app --thread "$TS" --check; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"'--check' looks like an option"*) true ;; *) false ;; esac && ok "--thread <ts> then --check is refused too" || bad "--thread ts --check: rc=$RC err=[$ERR]"
+run alpha-app --check one; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"one TEXT only"*) true ;; *) false ;; esac && ok "two arguments keep the one-TEXT refusal" || bad "--check one: rc=$RC err=[$ERR]"
+run alpha-app -- --check
+[ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "--check" ] && ok "-- before it posts the text --check verbatim" || bad "-- --check: rc=$RC err=[$ERR] text=[$(last '["body"]["text"]')]"
+printf -- '--check' | $S alpha-app - >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(last '["body"]["text"]')" = "--check" ] && ok "stdin text --check (with -) posts verbatim, never inspected" || bad "stdin --check: rc=$rc err=[$(<"$T/err")]"
+printf -- '--check' | $S alpha-app >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(last '["body"]["text"]')" = "--check" ] && ok "stdin text --check with no TEXT posts verbatim" || bad "stdin --check, no TEXT: rc=$rc err=[$(<"$T/err")]"
+run alpha-app '-1 down'
+[ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "-1 down" ] && ok "a TEXT starting with a single dash still posts" || bad "-1 down: rc=$RC err=[$ERR]"
+reset
 
 # -- refusals: each with its exit code, and no request made -------------------------------------------------------------------------------------
 reset

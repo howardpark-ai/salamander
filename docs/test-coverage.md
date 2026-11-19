@@ -130,6 +130,13 @@ its pane (the nearest ancestor that clips or scrolls sideways, or the screen), w
 kept and the base rule stands once, plus a read of the parsed stylesheets (the CSSOM, not a regex over the text) that finds the base rule exactly once with no parent rule, so it is under no `@media`,
 `@supports` or `@container`; one test puts a copy of it inside an `@media` and a 600 px box inside the search pane and checks that both new checks fail. Not covered, and why: a real iOS WebKit (the zoom itself is a phone's to show; the computed size is what the rule controls).
 
+### `tests/dm.sh`: +12, 189 (Thu Nov 19th 2026)
+
+An option placed after the app is refused, never posted. Kept because `sala dm <app> --check` posted the text "--check" into a person's Direct Message, as the option loop only knew `--thread`.
+Checked: `--check`, `--set-token`, `--all`, `--help` and `--foo` after the app, and `--thread <ts> --check`, each exit 2 with a one-line error naming the argument, the usage line on stderr, nothing on stdout and no request made;
+`--thread` with no value and two arguments (`--check one`) keep their own errors; `-- --check` posts the text `--check` verbatim, and so does stdin text `--check`, with `-` and with no TEXT; a TEXT that starts with a single dash (`-1 down`) still posts.
+The refusal checks were shown to fail on the previous `lib/dm.sh` (each posted the option as the message).
+
 ### `tests/dm.sh`: +8, 177 (Thu Nov 19th 2026)
 
 Hardening of the terminal-echo helper of `sala dm --set-token`. Kept because each was a way for a pasted bot token to show or to be run.

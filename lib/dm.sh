@@ -37,7 +37,8 @@ usage: sala dm <app> [--thread <ts>] [TEXT|-]
 
 Post a message into the Direct Message between a Slack app and the owner, as that app (the app's Messages tab), with the app's bot token.
 TEXT is the message, as one argument; with `-` or with no TEXT the message is read from stdin, which is the safe form for text with quotes,
-backticks or $( ). --thread <ts> (or --thread=<ts>) replies in the thread of the message with that ts; options come before TEXT.
+backticks or $( ). --thread <ts> (or --thread=<ts>) replies in the thread of the message with that ts; options come before TEXT, and a TEXT that starts with -- is refused
+unless it comes after a -- (sala dm <app> -- "--text"), or is sent on stdin.
 On success the posted message's ts is printed on stdout, so a caller can thread under it. A message over 39000 characters is refused.
 <app> is one of the names in SALA_DM_APPS (letters, digits and dashes, not starting with a dash). Settings, in ~/.config/salamander/config:
   SALA_DM_APPS       the app names allowed, space-separated (no default: none is allowed until it is set)
@@ -338,7 +339,7 @@ dm_thread_check() {
 }
 
 dm_main() {
-    local app="" thread="" text="" have_text=0 mode=post rc tf
+    local app="" thread="" text="" have_text=0 mode=post rc tf sep=0
     case "${1:-}" in
         '') dm_usage >&2; return 2 ;;
         -h|--help|help) dm_usage; return 0 ;;
@@ -366,12 +367,18 @@ dm_main() {
             --thread=*)
                 dm_thread_check "${1#--thread=}" || return 2
                 thread=${1#--thread=}; shift ;;
-            --) shift; break ;;
+            --) sep=1; shift; break ;;
             *) break ;;
         esac
     done
     dm_check_app "$app" || return $?
     if [ $# -gt 1 ]; then dm_err "one TEXT only (quote it, or send it on stdin with -)"; return 2; fi
+    # a lone argument that starts with -- and came with no -- before it is a misplaced option (sala dm <app> --check), never a message:
+    # refused here, before the scratch folder, the token or any request
+    if [ "$sep" = 0 ] && [ $# = 1 ] && [[ $1 == --* ]]; then
+        dm_err "'$1' looks like an option, but options come before TEXT; to post text that starts with -- put -- before it, or send it on stdin"
+        dm_usage >&2; return 2
+    fi
     if [ $# = 1 ] && [ "$1" != - ]; then text=$1; have_text=1; fi
     dm_scratch || { dm_err "no scratch folder"; return 3; }
     trap 'rm -rf "$DM_T"' EXIT
