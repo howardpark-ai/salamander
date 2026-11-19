@@ -41,6 +41,10 @@ def _ttyd_answers(port: int, deadline: float) -> bool:
         if left <= 0:
             return False
         with socket.create_connection(("127.0.0.1", port), timeout=min(1, left)) as c:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return False
+            c.settimeout(left)
             c.sendall(b"GET /tty/ HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
             head = b""
             while b"\r\n\r\n" not in head and len(head) < 16384:
@@ -53,6 +57,8 @@ def _ttyd_answers(port: int, deadline: float) -> bool:
                     break
                 head += chunk
     except OSError:
+        return False
+    if b"\r\n\r\n" not in head:                          # EOF or the size limit ended the read: a partial header block is no answer
         return False
     lines = head.split(b"\r\n\r\n", 1)[0].split(b"\r\n")
     status = lines[0].split()
@@ -184,7 +190,7 @@ class Pane:
         while time.monotonic() < deadline and self.ttyd.poll() is None:
             if _ttyd_answers(self.ttyd_port, deadline) and self.ttyd.poll() is None:
                 return True
-            time.sleep(0.05)
+            time.sleep(max(0.0, min(0.05, deadline - time.monotonic())))
         if raising:
             raise RuntimeError("ttyd did not listen again within %s s" % seconds)
         return False
