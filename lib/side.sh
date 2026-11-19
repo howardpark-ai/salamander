@@ -15,15 +15,22 @@
 #      the brain mirror ($SALA_BRAIN_DIR; the coordinator commits every put to it at once, so a put shows there). Where the
 #      mirror is not on this box (or SALA_BRAIN_DIR is not set), the page's last-change time from stackshot's client (`get page-ts`) after the start counts, said as the
 #      weaker proof it is. No project on the record (a fork of an agent with none): skipped, and said so.
-#   3. THE SUMMARY reached the origin agent (a fork) or the project's -main (a start about an item): sala sends it from --summary (a file,
-#      text, or - for stdin) through stackshot's client message, once all the other checks hold, and records that it did, so a repeat of
-#      `side done` never sends it again. A receiver ending in -main gets `[for <owner>]` on the first line (a front agent takes a message only
-#      then). --summary-to NAME sends it to another agent: first without the mark (a background agent must not get it), and once more
-#      with it only when stackshot refuses with its front-agent text ("is a front agent … [for <owner>]"; a user-facing agent not named
-#      *-main); any other failure ends there. --summary-to projects/SLUG (or a key in another page dir) sends it to the project (the router rules it), never marked. Without a summary and none sent before: this check fails.
+#   3. THE SUMMARY reached the origin agent (a fork) or the project's -main (a start about an item): the full write-up stays on the item and
+#      the page (checks 1 and 2 proved it); sala sends only a POINTER to the receiver, once all the other checks hold, through stackshot's
+#      client message, and records that it did, so a repeat of `side done` never sends it again. To an agent (a *-main, another front agent, a
+#      background agent) the pointer is ONE line sent with --fyi and NO `[for <owner>]` mark, at most 200 characters before the sender label the
+#      client adds: `[side done] <name> finished its conversation with <owner>[, <item> (<page>)]: <first line of the summary, cut with an
+#      ellipsis to fit>`. An --fyi is held for the receiver's next turn and starts none (the mark is what starts a turn). stackshot cuts the held
+#      line at 260 characters, label included, and says so (logged; exit stays 0). It refuses an --fyi to a front agent whose hook cannot fetch
+#      held lines (a cloud session, a box behind on its checkout, no turn in 30 days; exit 1, nothing delivered): then side done NEVER falls
+#      back to the marked form (the summary asks nothing), logs the output to salamander-side.log, prints a ⚠ line saying the pointer was not
+#      delivered and that the write-up stands on the item and the page, writes the marker anyway and exits 0 (a front agent that cannot hold
+#      lines must not block a wrap-up for ever), and does not record the send. --summary-to NAME sends to another agent the same way.
+#      --summary-to projects/SLUG (or a key in another page dir) sends the FULL body to the project (the router rules it), plain, no --fyi, never
+#      marked; a failed send there leaves no marker. Without a summary and none sent before: this check fails.
 # --dry-run runs the checks and sends and writes nothing. A marker already there: said, exit 0. Exit 0 the marker is there, 1 something is missing.
 # The commands (stackshot's client, one per knob, so the tests stub them): SALA_SIDE_ITEMS_CMD <agent> · SALA_SIDE_PAGE_TS_CMD <page key> ·
-# SALA_SIDE_MSG_CMD <to> - --sender <name> (the text on stdin); empty = the check or the send is not possible and fails with that said.
+# SALA_SIDE_MSG_CMD <to> - --sender <name> [--fyi] (the text on stdin); empty = the check or the send is not possible and fails with that said.
 
 stackshot_prog_r _SIDE_CLIENT "${SALA_STACKSHOT_DIR-}" client   # the client under the stackshot checkout: its package path, else the root path of an older checkout (lib/stackshot-path.sh)
 : "${SALA_SIDE_ITEMS_CMD=${SALA_STACKSHOT_DIR:+python3 $_SIDE_CLIENT get items}}"        # → the agent's open items as JSON ({"items": [{"shown": "board#N", "updated": epoch, …}]})
@@ -180,46 +187,67 @@ if [ "$DRY" = 1 ]; then echo "dry run: nothing sent, no marker written"; exit 0;
 # send the summary (once), then the marker
 if [ -z "$SENT_TO" ]; then
     [ -n "$SALA_SIDE_MSG_CMD" ] || die "SALA_SIDE_MSG_CMD is empty: the summary cannot be sent, so no marker is written"
-    if [ -n "$ORIGIN" ]; then what="a side conversation forked from $ORIGIN${ITEM:+ (about $ITEM)}"; else what="a side conversation about ${ITEM:-its project}${PROJECT:+ ($PROJECT)}"; fi
-    body="[side done] $NAME, $what, has finished its conversation with ${SALA_OWNER_NAME}. Its summary:
+    ATTEMPT_OUT=""
+    # the attempt's output file goes on ANY exit, a stop included (a SIGTERM from a `timeout` or a cancelled CI job runs an EXIT trap, not a plain `rm` below)
+    trap 'rm -f "${ATTEMPT_OUT:-}"' EXIT
+    # A page-key target (<dir>/<slug>) goes to the router, which rules it: the full body, plain, no --fyi. Any agent name (a *-main, another front agent,
+    # a background agent) gets ONE short pointer line as stackshot's --fyi, never marked: a held line starts no turn, and the full summary stays on the
+    # item and the page, which the checks above proved.
+    case "$SUMMARY_TO" in
+        */*)
+            if [ -n "$ORIGIN" ]; then what="a side conversation forked from $ORIGIN${ITEM:+ (about $ITEM)}"; else what="a side conversation about ${ITEM:-its project}${PROJECT:+ ($PROJECT)}"; fi
+            body="[side done] $NAME, $what, has finished its conversation with ${SALA_OWNER_NAME}. Its summary:
 
 $TEXT
 
 (Automatic salamander message from sala side done; nothing to reply to. The session stays until ${SALA_OWNER_NAME} has it retired.)"
-    mark="[for ${SALA_OWNER_NAME}]
-"
-    send_try() {  # <header> → 0 delivered; this attempt's output is in $ATTEMPT_OUT and appended to the log
-        local rc
-        ATTEMPT_OUT=$(mktemp "${TMPDIR:-/tmp}/sala-side-msg.XXXXXX") || die "could not make a temp file for the message output"
-        printf '%s' "$1$body" | timeout --kill-after=10 "$SALA_SIDE_MSG_TIMEOUT" sh -c "$SALA_SIDE_MSG_CMD \"\$@\"" side-msg "$SUMMARY_TO" - --sender "$NAME" > "$ATTEMPT_OUT" 2>&1; rc=$?
-        cat "$ATTEMPT_OUT" >> "$SALA_LOG_DIR/salamander-side.log"
-        return $rc
-    }
-    # A front agent that is not a *-main (a user-facing agent with another suffix) takes a message only with [for <owner>] on line 1; a background
-    # agent must not get that mark. So a -main gets it at once; any other agent first without it, and once with it only on stackshot's own refusal.
-    # A page-key target (<dir>/<slug>) goes to the router, which rules it: never marked.
-    case "$SUMMARY_TO" in
-        */*) HOW=plain ;;
-        *-main) HOW=marked ;;
-        *) HOW=try ;;
+            HOW=plain; FYI="" ;;
+        *)
+            pointer="$ITEM"   # the item and the page, as the record has them: ", <item> (<page>)", or either alone
+            if [ -n "$PROJECT" ]; then if [ -n "$pointer" ]; then pointer="$pointer ($PROJECT)"; else pointer="$PROJECT"; fi; fi
+            body=$(printf '%s' "$TEXT" | python3 -c '
+import re, sys
+name, owner, pointer = sys.argv[1:4]
+text = sys.stdin.buffer.read().decode("utf-8", "replace")
+first = next((l for l in text.splitlines() if l.strip()), "")
+first = re.sub(r"\s+", " ", first).strip()
+head = "[side done] %s finished its conversation with %s%s: " % (name, owner, ", " + pointer if pointer else "")
+room = 200 - len(head)   # the whole line is at most 200 characters; the client adds its sender label
+if room < 1:             # a very long name or pointer: the head itself is cut
+    line = head[:199].rstrip() + "…"
+else:
+    line = head + (first if len(first) <= room else first[:room - 1].rstrip() + "…")
+sys.stdout.write(line)
+' "$NAME" "$SALA_OWNER_NAME" "$pointer") || die "could not build the one-line pointer for $SUMMARY_TO"
+            HOW=fyi; FYI="--fyi" ;;
     esac
-    ATTEMPT_OUT=""; DELIVERED=""
-    # the attempt's output file goes on ANY exit, a stop included (a SIGTERM from a `timeout` or a cancelled CI job runs an EXIT trap, not a plain `rm` below)
-    trap 'rm -f "${ATTEMPT_OUT:-}"' EXIT
-    if [ "$HOW" = marked ]; then send_try "$mark" && DELIVERED="with [for ${SALA_OWNER_NAME}]"
-    else
-        send_try "" && DELIVERED="without [for ${SALA_OWNER_NAME}]"
-        if [ -z "$DELIVERED" ] && [ "$HOW" = try ] && grep -qF -e "front agent" -e "[for ${SALA_OWNER_NAME}]" "$ATTEMPT_OUT"; then
-            echo "[$(date '+%F %T')] side done $NAME: $SUMMARY_TO refused the message without [for ${SALA_OWNER_NAME}] (a front agent); retrying once with it" >> "$SALA_LOG_DIR/salamander-side.log"
-            rm -f "$ATTEMPT_OUT"
-            send_try "$mark" && DELIVERED="with [for ${SALA_OWNER_NAME}], on the second attempt"
+    ATTEMPT_OUT=$(mktemp "${TMPDIR:-/tmp}/sala-side-msg.XXXXXX") || die "could not make a temp file for the message output"
+    printf '%s' "$body" | timeout --kill-after=10 "$SALA_SIDE_MSG_TIMEOUT" sh -c "$SALA_SIDE_MSG_CMD \"\$@\"" side-msg "$SUMMARY_TO" - --sender "$NAME" $FYI > "$ATTEMPT_OUT" 2>&1; rc=$?
+    cat "$ATTEMPT_OUT" >> "$SALA_LOG_DIR/salamander-side.log"
+    if [ "$HOW" = fyi ]; then
+        # stackshot refuses an --fyi to a front agent whose hook cannot fetch held lines (exit 1, nothing delivered). Never fall back to the marked form:
+        # the summary asks nothing, and the mark is what starts a turn. So say it, write the marker anyway, and do not record the send.
+        if [ "$rc" = 0 ]; then
+            echo "[$(date '+%F %T')] side done $NAME: pointer delivered to $SUMMARY_TO as --fyi, unmarked" >> "$SALA_LOG_DIR/salamander-side.log"
+            if grep -q "260" "$ATTEMPT_OUT"; then
+                echo "[$(date '+%F %T')] side done $NAME: stackshot reports the held line was cut at 260 characters (sender label included); delivered" >> "$SALA_LOG_DIR/salamander-side.log"
+            fi
+            printf 'summary_sent_to=%s\nsummary_sent_at=%s\n' "$SUMMARY_TO" "$(date +%s)" >> "$(side_file "$NAME")"
+            echo "   the pointer was sent to $SUMMARY_TO (--fyi: held for its next turn, starts none)"
+        else
+            echo "[$(date '+%F %T')] side done $NAME: the --fyi pointer to $SUMMARY_TO was not delivered (exit $rc); no marked retry; the marker is written anyway" >> "$SALA_LOG_DIR/salamander-side.log"
+            echo "⚠ the pointer to $SUMMARY_TO was not delivered (its output is in $SALA_LOG_DIR/salamander-side.log); the write-up stands on the item and the page, and the marker is written anyway"
         fi
+    else
+        if [ "$rc" != 0 ]; then
+            rm -f "$ATTEMPT_OUT"
+            die "the summary could not be sent to $SUMMARY_TO ($SALA_SIDE_MSG_CMD; its output is in $SALA_LOG_DIR/salamander-side.log): no marker written; run side done again"
+        fi
+        echo "[$(date '+%F %T')] side done $NAME: summary delivered to $SUMMARY_TO, plain" >> "$SALA_LOG_DIR/salamander-side.log"
+        printf 'summary_sent_to=%s\nsummary_sent_at=%s\n' "$SUMMARY_TO" "$(date +%s)" >> "$(side_file "$NAME")"
+        echo "   the summary was sent to $SUMMARY_TO"
     fi
     rm -f "$ATTEMPT_OUT"
-    [ -n "$DELIVERED" ] || die "the summary could not be sent to $SUMMARY_TO ($SALA_SIDE_MSG_CMD; its output is in $SALA_LOG_DIR/salamander-side.log): no marker written; run side done again"
-    echo "[$(date '+%F %T')] side done $NAME: summary delivered to $SUMMARY_TO $DELIVERED" >> "$SALA_LOG_DIR/salamander-side.log"
-    printf 'summary_sent_to=%s\nsummary_sent_at=%s\n' "$SUMMARY_TO" "$(date +%s)" >> "$(side_file "$NAME")"
-    echo "   the summary was sent to $SUMMARY_TO"
 fi
 mkdir -p "$SALA_SIDE_DIR"
 printf '%s by %s: item %s, page %s, summary to %s\n' "$(date +%s)" "$NAME" "${ITEM:-none}" "${PROJECT:-none}" "${SUMMARY_TO:-$SENT_TO}" > "$(side_done_file "$NAME").t.$$" && mv -f "$(side_done_file "$NAME").t.$$" "$(side_done_file "$NAME")" \

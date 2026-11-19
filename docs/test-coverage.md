@@ -268,12 +268,12 @@ compare and restore at the end of a recycle and of a reboot, the map gaps of Oct
 case and the two retire cases, on a map of three rows it adopts itself (one setup check); `tests/ledger.sh` keeps the
 rest. No check was dropped: 114 `ok` lines before, 74 + 41 after.
 
-### `tests/side.sh` new, 71 (85 since Tue Oct 27th); `tests/spawn.sh` +9, `tests/sessions.sh` +8, `web/tests/test_side_sessions.py` new, 35 (Mon Oct 26th 2026)
+### `tests/side.sh` new, 71 (85 since Tue Oct 27th, 97 since Thu Nov 19th); `tests/spawn.sh` +9, `tests/sessions.sh` +8, `web/tests/test_side_sessions.py` new, 35 (Mon Oct 26th 2026)
 
 Side conversations (`lib/spawn.sh` A SIDE SESSION, `lib/side.sh`, `lib/retire.sh`, `lib/sessions.py` `transcript`, `web/src/sala_web/spawn.py`,
 `docs/side-sessions.md`). A wrong answer here is a side session that can be retired without its write-up, one that lands on an agents map or
 with a role, a fork of the wrong conversation or directory, a summary sent twice or before the write-up exists, or a marker written with a
-check failing. `side.sh` (85; +14 on Tue Oct 27th for the header decision: a `-main` marked at once, another agent plain then marked once on stackshot's front-agent refusal, any other refusal not retried, `--summary-to projects/<slug>`, the name check): the argument matrix; the names; the dry run; the real start of each kind with the mandate's content, the
+check failing. `side.sh` (97; +14 on Tue Oct 27th for the header decision, and on Thu Nov 19th the marked-retry cases were replaced by the `--fyi` ones, +7 net: an agent target, a `-main` or any other, gets ONE line of at most 200 characters sent with `--fyi` and no `[for <owner>]` mark, holding the item and page pointer and the summary's first line cut with an ellipsis, even for a long multi-line summary; the item alone as the pointer; a client reply that the line was cut at 260 logged with exit 0; an `--fyi` the client refuses (or a failing send) giving the ⚠ line, a log entry, the marker written, exit 0, no second marked attempt and no `summary_sent_to`, and a repeat sending nothing; a `projects/<slug>` target unchanged, plain with the full body and no `--fyi`, a failing send there leaving no marker; the output file gone on a refused `--fyi` and a refused page-key send; the name check): the argument matrix; the names; the dry run; the real start of each kind with the mandate's content, the
 record and the registry row; `side done` in every mode (the three checks, each failing alone and together, the repeat, the failing send,
 `--item-updated`, the page-ts fallback); the retire gate. `spawn.sh` (+9): the queue side (the shape refusals with nothing queued, the plan,
 the marker's arguments, a conflict, a start about a project with no page, `op retire` of a side session refused at queue time and passing

@@ -8,7 +8,9 @@
 # the mandate file written with the item, its link, the agents and the end rules, the record under side/, the registry row's side fields,
 # the fork's conversation and directory); `side done` (every check run and every failure said: the item changed since the start, by the
 # agents' items or by --item-updated; the project page's timeline line from the session, dated from the start, from the brain mirror or
-# the weaker page-ts; the summary sent once, with [for Rowan] to a -main (another agent plain, marked once on a front-agent refusal; projects/<slug> targets), never again; a failing send leaving no marker); the retire gate
+# the weaker page-ts; to an agent (a -main or any other) ONE short line of at most 200 characters sent once with --fyi and no [for Rowan] mark, holding the
+# item and page pointer and the summary's first line, never again; an --fyi the client refuses: a ⚠ line, a log entry, the marker written anyway, no second
+# (marked) attempt, no send recorded; projects/<slug> targets plain with the full body and no --fyi, a failing send there leaving no marker); the retire gate
 # (refused in the dry run and for real until the marker, --force the one bypass, a plain session untouched, the record moved after the
 # retire). stackshot's client is a set of stubs (SALA_SIDE_ITEMS_CMD, SALA_SIDE_PAGE_TS_CMD, SALA_SIDE_MSG_CMD), pages.py a stub
 # (SALA_AGENT_CHECK_SCRIPT), the project record a file; the compiled fake claude, a private tmux socket and an isolated HOME. No real
@@ -60,9 +62,12 @@ IN=$(cat); FIRST=$(head -1 <<< "$IN")
 printf 'TRY %s | first line: %s\n' "$*" "$FIRST" >> "$HOME/tries.txt"
 [ -e "$HOME/msg-fail" ] && { echo "boom" >&2; exit 7; }
 [ -e "$HOME/msg-refuse-other" ] && { echo "400: the project page is locked" >&2; exit 1; }
-# stackshot's refusal of a message to a front agent without [for Rowan] on line 1 (the real text)
-[ -e "$HOME/msg-refuse-front" ] && [ "$FIRST" != "[for Rowan]" ] && { echo "400: $1 is a front agent of foo, a session Rowan talks to, and it takes a message only when the message's first line carries [for Rowan]" >&2; exit 1; }
+# stackshot's refusal of an --fyi to a front agent whose hook cannot fetch held lines: exit 1, nothing delivered
+[ -e "$HOME/msg-refuse-fyi" ] && case " $* " in *" --fyi "*) echo "400: $1 is a front agent whose hook cannot fetch held lines; the fyi was not delivered" >&2; exit 1;; esac
 { printf 'ARGS %s\n' "$*"; printf '%s\n' "$IN"; echo "%%"; } >> "$HOME/msgs.txt"
+# the reply of a held line cut at 260 characters (sender label included)
+[ -e "$HOME/msg-cut" ] && echo "held; cut at 260 characters (sender label included)"
+exit 0
 EOF
 chmod +x "$HOME/fake-items" "$HOME/fake-pagets" "$HOME/fake-msg"
 export PATH="$HOME/.local/bin:$PATH" FAKE_LOG="$HOME/fake.log"
@@ -86,6 +91,10 @@ run() { OUT=$("$SALA" spawn "$@" 2>&1); RC=$?; }
 sd() { OUT=$("$SALA" side done "$@" 2>&1 </dev/null); RC=$?; }
 sessions() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -v '^keep-alive$' | paste -sd' ' -; }
 nmsgs() { grep -c '^%%$' "$HOME/msgs.txt" 2>/dev/null || echo 0; }
+plen() { python3 -c 'import sys; print(len(sys.argv[1]))' "$1"; }   # a text's length in characters
+# the last message in msgs.txt: its ARGS line, its text (lines between ARGS and %%), the number of text lines
+lastargs() { awk '/^ARGS /{a=$0} END{print a}' "$HOME/msgs.txt"; }
+lasttext() { awk '/^ARGS /{t=""; n=0; next} /^%%$/{next} {t=(n++? t "\n" : "") $0} END{printf "%s", t}' "$HOME/msgs.txt"; }
 rowq() {  # <name> <field> → a field of the newest registry row of that name ("<none>" when no row; "None" for a null)
     python3 - "$REG" "$1" "$2" <<'PY'
 import json, sys
@@ -225,10 +234,11 @@ sd --name "$S" --summary "decided: ship it" --dry-run
 [ "$RC" = 0 ] && has "$OUT" "✓ page: a timeline line of $TODAY" && has "$OUT" "dry run: nothing sent, no marker written" && [ "$(nmsgs)" = 0 ] && [ ! -e "$SIDE/$S.done" ] && ok "all hold, --dry-run: exit 0, nothing sent, no marker" || bad "dry ok: rc=$RC msgs=$(nmsgs) — $OUT"
 echo "the long summary, line two" > "$HOME/side331-summary.txt"
 sd --name "$S" --summary "$HOME/side331-summary.txt"
-[ "$RC" = 0 ] && has "$OUT" "the summary was sent to acme-main" && has "$OUT" "the write-up marker is written" && [ -s "$SIDE/$S.done" ] && [ "$(nmsgs)" = 1 ] && ok "all hold: the summary sent (from a file), the marker written" || bad "done: rc=$RC msgs=$(nmsgs) — $OUT"
-MSG=$(<"$HOME/msgs.txt")
-[ "$(sed -n 1p <<< "$MSG")" = "ARGS acme-main - --sender $S" ] && [ "$(sed -n 2p <<< "$MSG")" = "[for Rowan]" ] && has "$MSG" "[side done] $S" && has "$MSG" "board#12" && has "$MSG" "the long summary, line two" \
-    && ok "the message: to the project's -main, sender the session, [for Rowan] on line 1, the summary inside" || bad "message: $MSG"
+[ "$RC" = 0 ] && has "$OUT" "the pointer was sent to acme-main" && has "$OUT" "the write-up marker is written" && [ -s "$SIDE/$S.done" ] && [ "$(nmsgs)" = 1 ] && ok "all hold: the summary sent (from a file), the marker written" || bad "done: rc=$RC msgs=$(nmsgs) — $OUT"
+MSG=$(<"$HOME/msgs.txt"); LT=$(lasttext)
+[ "$(sed -n 1p <<< "$MSG")" = "ARGS acme-main - --sender $S --fyi" ] && [ "$LT" = "[side done] $S finished its conversation with Rowan, board#12 (projects/foo): the long summary, line two" ] \
+    && hasnt "$MSG" "[for Rowan]" && [ "$(wc -l <<< "$LT")" = 1 ] \
+    && ok "the message: to the project's -main with --fyi, sender the session, ONE line with the item and page pointer and the summary's first line, no [for Rowan]" || bad "message: $MSG"
 sd --name "$S"
 [ "$RC" = 0 ] && has "$OUT" "the write-up marker is there already" && [ "$(nmsgs)" = 1 ] && ok "a repeat: the marker is there, nothing sent again" || bad "repeat: rc=$RC msgs=$(nmsgs) — $OUT"
 
@@ -248,10 +258,11 @@ sd --name "$S2" --summary "s2" --item-updated "not a time"
 [ "$RC" = 1 ] && has "$OUT" "neither an epoch nor an ISO time" && ok "--item-updated that is no time: said" || bad "item-updated junk: rc=$RC — $OUT"
 touch "$HOME/msg-fail"
 sd --name "$S2" --summary "s2" --item-updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-[ "$RC" != 0 ] && has "$OUT" "could not be sent to acme-main" && [ ! -e "$SIDE/$S2.done" ] && [ -z "$(sval "$S2" summary_sent_to)" ] && ok "--item-updated now (ISO): the checks hold, the send fails: no marker, the send not recorded" || bad "send fails: rc=$RC — $OUT / $(<"$SIDE/$S2.side")"
-rm -f "$HOME/msg-fail"
+[ "$RC" = 0 ] && has "$OUT" "⚠ the pointer to acme-main was not delivered" && has "$OUT" "the write-up stands on the item and the page" && has "$OUT" "the write-up marker is written" && [ -s "$SIDE/$S2.done" ] && [ -z "$(sval "$S2" summary_sent_to)" ] \
+    && hasnt "$OUT" "the pointer was sent" && has "$(<"$SALA_LOG_DIR/salamander-side.log")" "boom" && has "$(<"$SALA_LOG_DIR/salamander-side.log")" "not delivered (exit 7); no marked retry" && ok "--item-updated now (ISO): the checks hold, the fyi send fails: the ⚠ line, the log, the marker written, exit 0, the send not recorded" || bad "send fails: rc=$RC — $OUT / $(<"$SIDE/$S2.side")"
+rm -f "$HOME/msg-fail"; rm -f "$SIDE/$S2.done"   # the marker taken away by hand: a repeat tries the send again, because none was recorded
 sd --name "$S2" --summary "s2" --item-updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --summary-to gamma-foo-other
-[ "$RC" = 0 ] && [ "$(nmsgs)" = 2 ] && [ -s "$SIDE/$S2.done" ] && [ "$(grep -c "^ARGS gamma-foo-other - --sender $S2\$" "$HOME/msgs.txt")" = 1 ] && ok "the retry succeeds, --summary-to sends to another agent" || bad "retry: rc=$RC msgs=$(nmsgs) — $OUT"
+[ "$RC" = 0 ] && [ "$(nmsgs)" = 2 ] && [ -s "$SIDE/$S2.done" ] && [ "$(grep -c "^ARGS gamma-foo-other - --sender $S2 --fyi\$" "$HOME/msgs.txt")" = 1 ] && ok "the repeat sends again (none was recorded), --summary-to sends to another agent, with --fyi" || bad "retry: rc=$RC msgs=$(nmsgs) — $OUT"
 hasnt "$(tail -8 "$HOME/msgs.txt")" "[for Rowan]" && ok "no [for Rowan] line to an agent that is not a -main" || bad "for Rowan sent: $(tail -8 "$HOME/msgs.txt")"
 # the page without a brain mirror: stackshot's last-change time
 S3=gamma-foo-side-sedge12; mkrec "$S3" fork gamma-foo-lead projects/foo "" gamma-foo-lead "$(( $(date +%s) - 120 ))"
@@ -269,33 +280,62 @@ sd --name gamma-foo-nobody
 [ "$RC" = 1 ] && has "$OUT" "is not a side session" && ok "a name with no side record: refused" || bad "not side: rc=$RC — $OUT"
 sd --name "$S2" --item junk; [ "$RC" = 1 ] && has "$OUT" "board item id as shown" && ok "--item that is not board#N: refused" || bad "item junk: rc=$RC — $OUT"
 
-echo "== side done: the header decision (-main marked at once; another agent plain, marked once on a front-agent refusal), --summary-to projects/<slug>, the name check"
+echo "== side done: an agent gets ONE --fyi line, unmarked (a -main, a front agent, a background agent); a refused fyi never falls back to the mark; --summary-to projects/<slug>, the name check"
 tries() { local n; n=$(grep -c "^TRY" "$HOME/tries.txt" 2>/dev/null); echo "${n:-0}"; }
 mkdone() {  # <name> → a session whose three checks hold (a fork with no item, a timeline line from it)
     mkrec "$1" fork gamma-foo-lead projects/foo "" gamma-foo-lead "$(( $(date +%s) - 120 ))"
     printf -- '- **%s** | %s — settled\n' "$TODAY" "$1" >> "$HOME/brain/projects/foo.md"
 }
 LOG="$SALA_LOG_DIR/salamander-side.log"
+FYIARGS() { echo "ARGS $1 - --sender $2 --fyi"; }   # the arguments an fyi send must carry: <to> <sender>
+# a check on the last message, an agent target's: the --fyi arguments, ONE line of at most 200 characters, the head, no mark; <to> <sender> <head after "with Rowan, ">
+fyi_ok() { local LT; LT=$(lasttext); [ "$(lastargs)" = "$(FYIARGS "$1" "$2")" ] && [ "$(wc -l <<< "$LT")" = 1 ] && [ "$(plen "$LT")" -le 200 ] \
+    && case "$LT" in "[side done] $2 finished its conversation with Rowan, $3"*) true;; *) false;; esac && hasnt "$LT" "[for Rowan]"; }
+LONG="first line of a long long summary $(printf 'word%.0s ' $(seq 1 80))
+second line must not travel
+
+third line either"
 : > "$HOME/msgs.txt"; : > "$HOME/tries.txt"
 H1=gamma-foo-side-fern21; mkdone "$H1"
-sd --name "$H1" --summary "h1" --summary-to x-main
-[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && [ "$(sed -n 2p "$HOME/msgs.txt")" = "[for Rowan]" ] && [ -s "$SIDE/$H1.done" ] && ok "a target ending in -main: [for Rowan] on the first try, one attempt" || bad "x-main: rc=$RC tries=$(tries) — $OUT / $(<"$HOME/msgs.txt")"
-: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"; touch "$HOME/msg-refuse-front"
+sd --name "$H1" --summary "$LONG" --summary-to x-main
+LT=$(lasttext)
+[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && fyi_ok x-main "$H1" "projects/foo: first line of a long long summary word" && [ -s "$SIDE/$H1.done" ] && [ "$(sval "$H1" summary_sent_to)" = x-main ] \
+    && ok "a target ending in -main: --fyi, one attempt, one line, no [for Rowan]" || bad "x-main: rc=$RC tries=$(tries) — $OUT / $(<"$HOME/msgs.txt")"
+[ "$(plen "$LT")" -le 200 ] && [ "$(plen "$LT")" -ge 190 ] && [ "${LT: -1}" = "…" ] && hasnt "$LT" "second line must not travel" && hasnt "$LT" "third line" \
+    && ok "a long multi-line summary: only its first line, cut with an ellipsis, the whole line $(plen "$LT") characters (within 200)" || bad "long summary line ($(plen "$LT")): $LT"
+has "$(<"$LOG")" "pointer delivered to x-main as --fyi, unmarked" && ok "the log: the pointer delivered as --fyi, unmarked" || bad "log: $(tail -4 "$LOG")"
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"
+H1C=gamma-foo-side-fern28; mkrec "$H1C" discuss "" "" board#7 x-main "$(( $(date +%s) - 120 ))"
+sd --name "$H1C" --summary "item only" --summary-to x-main --item-updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+[ "$RC" = 0 ] && fyi_ok x-main "$H1C" "board#7: item only" && ok "an item and no page: the pointer is the item alone" || bad "item only: rc=$RC — $OUT / $(<"$HOME/msgs.txt")"
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"
 H2=gamma-foo-side-fern22; mkdone "$H2"
 sd --name "$H2" --summary "h2 body" --summary-to example-foo-sharing
-[ "$RC" = 0 ] && [ "$(tries)" = 2 ] && has "$(sed -n 1p "$HOME/tries.txt")" "first line: [side done] $H2" && has "$(sed -n 2p "$HOME/tries.txt")" "first line: [for Rowan]" \
-    && [ "$(nmsgs)" = 1 ] && [ "$(sed -n 2p "$HOME/msgs.txt")" = "[for Rowan]" ] && has "$(<"$HOME/msgs.txt")" "h2 body" && [ -s "$SIDE/$H2.done" ] && [ "$(sval "$H2" summary_sent_to)" = example-foo-sharing ] \
-    && ok "a front agent not named -main: first without the mark, refused, retried once with it, delivered, marker written" || bad "front retry: rc=$RC tries=$(tries) — $OUT / $(<"$HOME/tries.txt")"
-has "$(<"$LOG")" "retrying once with it" && has "$(<"$LOG")" "delivered to example-foo-sharing with [for Rowan], on the second attempt" && has "$(<"$LOG")" "is a front agent of foo" && ok "the log: the refusal text, the retry and which attempt delivered" || bad "log: $(tail -5 "$LOG")"
-: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"; rm -f "$HOME/msg-refuse-front"
+[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && [ "$(nmsgs)" = 1 ] && fyi_ok example-foo-sharing "$H2" "projects/foo: h2 body" && [ -s "$SIDE/$H2.done" ] && [ "$(sval "$H2" summary_sent_to)" = example-foo-sharing ] \
+    && ok "a plain agent that is not a -main: the same --fyi line, unmarked, one attempt, delivered, marker written" || bad "plain agent: rc=$RC tries=$(tries) — $OUT / $(<"$HOME/tries.txt")"
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"
 H2B=gamma-foo-side-fern26; mkdone "$H2B"
 sd --name "$H2B" --summary "h2b" --summary-to example-foo-builder
-[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && hasnt "$(<"$HOME/msgs.txt")" "[for Rowan]" && has "$(<"$LOG")" "delivered to example-foo-builder without [for Rowan]" && ok "a background agent: delivered on the first try without the mark, no retry" || bad "plain: rc=$RC tries=$(tries) — $OUT"
-: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"; touch "$HOME/msg-refuse-other"
+[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && fyi_ok example-foo-builder "$H2B" "projects/foo: h2b" && has "$(<"$LOG")" "pointer delivered to example-foo-builder as --fyi, unmarked" && ok "a background agent: delivered on the first try, --fyi, unmarked, no retry" || bad "builder: rc=$RC tries=$(tries) — $OUT"
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"; touch "$HOME/msg-cut"
+H2C=gamma-foo-side-fern29; mkdone "$H2C"
+sd --name "$H2C" --summary "h2c" --summary-to x-main
+[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && [ -s "$SIDE/$H2C.done" ] && [ "$(sval "$H2C" summary_sent_to)" = x-main ] && has "$(<"$LOG")" "the held line was cut at 260 characters" && ok "the client says the line was cut at 260: logged, exit 0, delivered and recorded" || bad "cut: rc=$RC — $OUT / $(tail -4 "$LOG")"
+rm -f "$HOME/msg-cut"
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"; touch "$HOME/msg-refuse-fyi"
 H3=gamma-foo-side-fern23; mkdone "$H3"
-sd --name "$H3" --summary "h3" --summary-to example-foo-sharing
-[ "$RC" != 0 ] && [ "$(tries)" = 1 ] && [ ! -s "$HOME/msgs.txt" ] && has "$OUT" "could not be sent to example-foo-sharing" && [ ! -e "$SIDE/$H3.done" ] && [ -z "$(sval "$H3" summary_sent_to)" ] && has "$(<"$LOG")" "the project page is locked" \
-    && ok "a refusal with other text: not retried, dies, no marker, the output in the log" || bad "other refusal: rc=$RC tries=$(tries) — $OUT"
+sd --name "$H3" --summary "h3" --summary-to x-main
+[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && [ ! -s "$HOME/msgs.txt" ] && has "$OUT" "⚠ the pointer to x-main was not delivered" && has "$OUT" "the write-up stands on the item and the page" && has "$OUT" "the write-up marker is written" && [ -s "$SIDE/$H3.done" ] && [ -z "$(sval "$H3" summary_sent_to)" ] \
+    && has "$(<"$LOG")" "hook cannot fetch held lines" && has "$(<"$LOG")" "the --fyi pointer to x-main was not delivered (exit 1); no marked retry" \
+    && ok "an fyi the client refuses: ⚠ line, log, marker written, exit 0, ONE attempt (no marked retry), no send recorded" || bad "fyi refused: rc=$RC tries=$(tries) — $OUT / $(<"$HOME/tries.txt")"
+hasnt "$(<"$HOME/tries.txt")" "[for Rowan]" && ok "no attempt carried a [for Rowan] mark" || bad "marked attempt: $(<"$HOME/tries.txt")"
+sd --name "$H3" --summary "h3"
+[ "$RC" = 0 ] && has "$OUT" "the write-up marker is there already" && [ "$(tries)" = 1 ] && ok "a repeat after the refused fyi: the marker is there, nothing more sent" || bad "repeat after refusal: rc=$RC tries=$(tries) — $OUT"
+rm -f "$HOME/msg-refuse-fyi"; : > "$HOME/msgs.txt"; : > "$HOME/tries.txt"; touch "$HOME/msg-refuse-other"
+H3B=gamma-foo-side-fern30; mkdone "$H3B"
+sd --name "$H3B" --summary "h3b" --summary-to projects/notes
+[ "$RC" != 0 ] && [ "$(tries)" = 1 ] && [ ! -s "$HOME/msgs.txt" ] && has "$OUT" "could not be sent to projects/notes" && [ ! -e "$SIDE/$H3B.done" ] && [ -z "$(sval "$H3B" summary_sent_to)" ] && has "$(<"$LOG")" "the project page is locked" \
+    && ok "a page-key target whose plain send fails: dies, no marker, nothing recorded, the output in the log" || bad "page-key refusal: rc=$RC tries=$(tries) — $OUT"
 rm -f "$HOME/msg-refuse-other"; : > "$HOME/msgs.txt"; : > "$HOME/tries.txt"
 H4=gamma-foo-side-fern24; mkdone "$H4"
 sd --name "$H4" --summary "h4 body" --summary-to projects/notes
@@ -322,7 +362,10 @@ OUT=$(TMPDIR="$SCR" "$SALA" side done --name "$H7" --summary "h7" --summary-to e
 [ "$RC" = 0 ] && [ -z "$(left)" ] && ok "a delivered summary leaves nothing in TMPDIR" || bad "delivered: rc=$RC left: $(left | tr '\n' ' ') — $OUT"
 touch "$HOME/msg-refuse-other"; H8=gamma-foo-side-fern32; mkdone "$H8"
 OUT=$(TMPDIR="$SCR" "$SALA" side done --name "$H8" --summary "h8" --summary-to example-foo-builder 2>&1 </dev/null); RC=$?
-[ "$RC" != 0 ] && [ -z "$(left)" ] && ok "a refused summary leaves nothing in TMPDIR" || bad "refused: rc=$RC left: $(left | tr '\n' ' ')"
+[ "$RC" = 0 ] && has "$OUT" "⚠ the pointer to example-foo-builder was not delivered" && [ -z "$(left)" ] && ok "a refused fyi leaves nothing in TMPDIR" || bad "refused fyi: rc=$RC left: $(left | tr '\n' ' ')"
+H8B=gamma-foo-side-fern34; mkdone "$H8B"
+OUT=$(TMPDIR="$SCR" "$SALA" side done --name "$H8B" --summary "h8b" --summary-to projects/notes 2>&1 </dev/null); RC=$?
+[ "$RC" != 0 ] && [ -z "$(left)" ] && ok "a refused page-key summary leaves nothing in TMPDIR" || bad "refused page-key: rc=$RC left: $(left | tr '\n' ' ')"
 rm -f "$HOME/msg-refuse-other"
 H9=gamma-foo-side-fern33; mkdone "$H9"; rm -f "$HOME/msg-go"
 TMPDIR="$SCR" SALA_SIDE_MSG_CMD="$HOME/fake-msg-hang" "$SALA" side done --name "$H9" --summary "h9" --summary-to example-foo-builder >/dev/null 2>&1 </dev/null &
