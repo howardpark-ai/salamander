@@ -14,7 +14,11 @@ is what the keyboard does under interactive-widget=resizes-content (and what a b
 viewport has caught up); a visual viewport shorter than the layout viewport at scale 1 (the state the phone was in)
 cannot be produced through the protocol (the viewport clip of setDeviceMetricsOverride and setVisibleSize change
 neither viewport in this build), so that state is staged by shadowing visualViewport.height on the page and
-dispatching its resize event: what the page does with the value is tested, not that Chrome reports it. A real gesture
+dispatching its resize event: what the page does with the value is tested, not that Chrome reports it. The same goes
+for iOS WebKit's keyboard (it ignores interactive-widget=resizes-content, leaves the layout viewport at full height and
+scrolls the page up, so visualViewport.offsetTop > 0): offsetTop, height and scale are shadowed the same way and --app-top,
+#app, the sidebar and the shell drawer are checked against them; WebKit itself is not run here, so the
+real iPhone is the manual check. A real gesture
 bar, Chrome's real safe-area insets and its real transitions are a phone's to show (the manual check in the README).
 """
 
@@ -58,6 +62,20 @@ PASTE = """(() => { const dt = new DataTransfer();
 STAGE_LAG = """(() => { Object.defineProperty(visualViewport, "height", { get: () => %d, configurable: true });
   visualViewport.dispatchEvent(new Event("resize")); return innerHeight; })()"""
 UNSTAGE_LAG = """(() => { delete visualViewport.height; visualViewport.dispatchEvent(new Event("resize")); return visualViewport.height; })()"""
+# iOS WebKit with the keyboard up: the layout viewport stays full height and the page is scrolled up, so the visual viewport
+# is `top` px below the layout viewport's top; a resize and a scroll event, as WebKit sends both (scale as given)
+STAGE_IOS = """(() => { const v = {offsetTop: %s, height: %s, scale: %s};
+  for (const k in v) Object.defineProperty(visualViewport, k, { get: () => v[k], configurable: true });
+  visualViewport.dispatchEvent(new Event("resize")); visualViewport.dispatchEvent(new Event("scroll")); return innerHeight; })()"""
+UNSTAGE_IOS = """(() => { for (const k of ["offsetTop", "height", "scale"]) delete visualViewport[k];
+  visualViewport.dispatchEvent(new Event("resize")); visualViewport.dispatchEvent(new Event("scroll")); return visualViewport.height; })()"""
+IOS_BOXES = """(() => { const r = (s) => { const n = document.querySelector(s); const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; };
+  const root = document.documentElement.style;
+  return { appTop: root.getPropertyValue("--app-top"), appH: root.getPropertyValue("--app-h"), app: r("#app"), bar: r("#top"), composer: r("#composer"),
+           send: r("#send"), model: r("#model-line"), sidebar: r("#sidebar"), vvTop: visualViewport.offsetTop }; })()"""
+WAIT_TOP = """new Promise((res) => { const t0 = Date.now(); (function poll() {
+  const v = document.documentElement.style.getPropertyValue("--app-top");
+  if (v === %s || Date.now() - t0 > 5000) res(v); else setTimeout(poll, 30); })(); })"""
 
 
 def metrics(browser, height: int, width: int = 390, mobile: bool = True) -> None:
@@ -81,11 +99,16 @@ def assert_fits(f: dict, visible: float, inset: float, *, chips: bool = False) -
 
 def test_the_stylesheet_and_the_script_size_the_shell_from_the_visible_area():
     assert re.search(r"#app\s*\{[^}]*height:\s*var\(--app-h,\s*100dvh\)", CSS)
-    assert re.search(r"#sidebar\s*\{[^}]*inset:\s*0 auto auto 0;\s*height:\s*var\(--app-h,\s*100dvh\)", CSS)  # the narrow one
+    assert re.search(r"#sidebar\s*\{[^}]*inset:\s*var\(--app-top,\s*0px\) auto auto 0;\s*height:\s*var\(--app-h,\s*100dvh\)", CSS)  # the narrow one
+    # iOS: the visual viewport's offset below the layout viewport's top moves the shell, the narrow sidebar and the drawer's bottom
+    assert re.search(r"#app\s*\{[^}]*height:\s*var\(--app-h,\s*100dvh\);\s*position:\s*relative;\s*top:\s*var\(--app-top,\s*0px\)", CSS)
+    assert re.search(r"\.shell-drawer\s*\{[^}]*bottom:\s*calc\(100dvh - var\(--app-h,\s*100dvh\) - var\(--app-top,\s*0px\)\)", CSS)
     assert re.search(r"#composer\s*\{[^}]*padding:[^;]*calc\(10px \+ env\(safe-area-inset-bottom\)\)", CSS)
     assert "viewport-fit=cover" in (STATIC / "index.html").read_text() and "interactive-widget=resizes-content" in (STATIC / "index.html").read_text()
     block = APP_JS[APP_JS.index("/* ---------- the shell's height"):APP_JS.index("/* ---------- copy ----------")]
     assert 'root.style.setProperty("--app-h", h + "px")' in block and 'root.style.removeProperty("--app-h")' in block
+    assert 'root.style.setProperty("--app-top", top + "px")' in block and "vv.offsetTop" in block
+    assert block.count('root.style.removeProperty("--app-top")') == 2  # unset at an offset of 0, and while zoomed
     assert "vv.scale > 1.01" in block and "requestAnimationFrame(fitShell)" in block and "setTimeout(fitShell, 350)" in block
     for ev in ('window.visualViewport.addEventListener("resize", fitShellSoon)', 'window.visualViewport.addEventListener("scroll", fitShellSoon)',
                'window.addEventListener("resize", fitShellSoon)', 'window.addEventListener("pageshow", fitShellSoon)', '"visibilitychange"'):
@@ -171,6 +194,61 @@ def test_the_composer_stays_on_the_screen_through_keyboard_paste_bars_and_a_stal
                             "pos: getComputedStyle(document.querySelector('#sidebar')).position }; })()")
     assert side["pos"] == "fixed" and side["top"] == 0 and abs(side["bottom"] - 788) < 0.6 and side["toggle"] <= 788 - 34, side
     browser.evaluate(UNSTAGE_LAG)
+
+
+def test_the_shell_follows_the_visual_viewports_offset_on_ios(served, browser):
+    """iOS WebKit with the keyboard up (staged, see the module docstring): the visual viewport is `top` px below the layout
+    viewport's top, `h` px tall. #app covers exactly it: the title bar starts at `top`, the composer ends at top + h."""
+    browser.open(f"{served['url']}/#s={NAME}")
+    browser.wait_ready(CHAT_READY)
+    assert browser.evaluate(WAIT_MODEL)
+    base = browser.evaluate(IOS_BOXES)
+    assert base["appTop"] == "" and base["app"] == {"top": 0, "bottom": 844} and base["bar"]["top"] == 0, base  # nothing moves at 0
+    # the keyboard up: the layout viewport stays 844 tall, the page is scrolled up by 336 px, 508 px are visible (336 + 508 = 844)
+    assert browser.evaluate(STAGE_IOS % (336, 508, 1)) == 844
+    assert browser.evaluate(WAIT_TOP % '"336px"') == "336px"
+    assert abs(browser.evaluate(WAIT_APP % 508) - 508) < 0.6
+    f = browser.evaluate(IOS_BOXES)
+    assert f["appTop"] == "336px" and f["appH"] == "508px" and f["vvTop"] == 336, f
+    assert f["app"] == {"top": 336, "bottom": 844}, f
+    assert f["bar"]["top"] == 336, f                                       # the title bar is the first thing on the screen
+    assert abs(f["composer"]["bottom"] - 844) < 0.6 and f["composer"]["top"] > f["bar"]["top"], f   # and no band under the composer
+    assert f["model"]["bottom"] <= 844 and f["send"]["bottom"] <= 844 and f["send"]["top"] >= 336, f
+    # another offset, not adding up to the layout viewport's height (a bar still showing): the bottom is top + height wherever it lands
+    browser.evaluate(STAGE_IOS % (60, 500, 1))
+    assert browser.evaluate(WAIT_TOP % '"60px"') == "60px"
+    assert abs(browser.evaluate(WAIT_APP % 500) - 500) < 0.6
+    f = browser.evaluate(IOS_BOXES)
+    assert f["app"] == {"top": 60, "bottom": 560} and f["bar"]["top"] == 60 and abs(f["composer"]["bottom"] - 560) < 0.6, f
+    # the narrow sidebar, opened, starts at the offset and ends at the visible bottom
+    browser.evaluate("document.body.classList.add('side-open'); 1")
+    f = browser.evaluate(IOS_BOXES)
+    assert f["sidebar"] == {"top": 60, "bottom": 560}, f
+    browser.evaluate("document.body.classList.remove('side-open'); 1")
+    # the shell drawer (a bottom sheet) ends at the visible bottom, 60 % of the visible height tall
+    d = browser.evaluate("(() => { const d = document.querySelector('#shell-drawer'); d.hidden = false; document.body.classList.add('shell-open');"
+                         "const b = d.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, h: b.height, pos: getComputedStyle(d).position }; })()")
+    assert d["pos"] == "fixed" and abs(d["bottom"] - 560) < 0.6 and abs(d["h"] - 300) < 0.6, d
+    browser.evaluate("document.querySelector('#shell-drawer').hidden = true; document.body.classList.remove('shell-open'); 1")
+    # the offset back to 0 (the keyboard closes): the variable is unset and nothing is moved, the height as it was
+    browser.evaluate(STAGE_IOS % (0, 844, 1))
+    assert browser.evaluate(WAIT_TOP % '""') == ""
+    assert abs(browser.evaluate(WAIT_APP % 844) - 844) < 0.6
+    f = browser.evaluate(IOS_BOXES)
+    assert f["appTop"] == "" and f["appH"] == "844px" and f["app"] == {"top": 0, "bottom": 844} and f["bar"]["top"] == 0, f
+    # a pinch-zoom (scale above 1) drops both variables whatever the offset: 100dvh holds, #app at the page top
+    browser.evaluate(STAGE_IOS % (100, 422, 2))
+    assert browser.evaluate(WAIT_VAR % '""') == ""
+    f = browser.evaluate(IOS_BOXES)
+    assert f["appTop"] == "" and f["appH"] == "" and f["app"] == {"top": 0, "bottom": 844}, f
+    # the zoom back to 1 with the offset still there: both are set again
+    browser.evaluate(STAGE_IOS % (100, 744, 1))
+    assert browser.evaluate(WAIT_TOP % '"100px"') == "100px"
+    f = browser.evaluate(IOS_BOXES)
+    assert f["appH"] == "744px" and f["app"] == {"top": 100, "bottom": 844}, f
+    browser.evaluate(UNSTAGE_IOS)
+    assert browser.evaluate(WAIT_TOP % '""') == ""
+    assert abs(browser.evaluate(WAIT_APP % 844) - 844) < 0.6
 
 
 def test_the_desktop_layout_is_unchanged(served):

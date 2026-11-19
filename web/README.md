@@ -1581,6 +1581,12 @@ the compose row sits above the gesture bar. The keyboard shrinks the visual view
 composer above it and the visual viewport unscrolled); a pinch-zoom shrinks it in CSS pixels without hiding anything,
 so above scale 1 the variable is dropped and `100dvh` holds.
 
+iOS WebKit ignores `interactive-widget`: with the keyboard up it keeps the layout viewport at full height and scrolls
+the page up by about the keyboard, so `visualViewport.offsetTop` is above 0 and a shell of the right height at the page top
+would have its title bar above the screen and an empty band under the composer. `app.js` therefore also sets `--app-top` to
+`offsetTop` (unset at 0, so Android Chrome and desktop are as before, and dropped with `--app-h` above scale 1), and
+`style.css` places `#app` (`position: relative; top`), the sidebar at a phone's width and the shell drawer's bottom by it.
+
 Why not `100dvh` alone (seen on Android Chrome): right after a keyboard
 image paste and the keyboard's close, the composer's lower half (the paperclip, the send button, the model line) sat
 under the screen's bottom edge for a while with nothing changed. `100dvh` and
@@ -1597,8 +1603,11 @@ or retracts").
 `tests/test_composer_fit.py` drives the keyboard (both viewports shrunk, a chip row pasted, both restored), a bar
 (a shorter layout viewport) and the stale state (the visual viewport shorter than the layout viewport, staged by
 shadowing `visualViewport.height`: the protocol cannot produce it) in a headless Chromium, and checks the composer's
-box against the visible area at each step; a gesture bar, Chrome's insets and its transitions are a
-phone's to show. **The check on the phone**, in a Chrome tab and in the installed app, each: open a session, tap the
+box against the visible area at each step; iOS's offset is staged the same way (`offsetTop`, `height` and `scale`
+shadowed, `resize` and `scroll` dispatched) and `#app`, the title bar, the composer, the sidebar and the drawer are checked
+against it; a gesture bar, Chrome's insets, its transitions and WebKit itself (not run in these tests) are a
+phone's to show. On an iPhone: tap the composer (keyboard up: the title bar at the top of the screen, the composer
+directly on the keyboard, no empty band). **The check on the phone**, in a Chrome tab and in the installed app, each: open a session, tap the
 composer (keyboard up: the composer whole above the keyboard, the chat still showing), paste an image from the
 keyboard (a chip row above the input, still whole), close the keyboard with the back gesture (the composer whole above
 the gesture bar, the model line under it visible), scroll the chat up and down (the same), switch to another app and

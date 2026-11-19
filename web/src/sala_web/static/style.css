@@ -130,8 +130,10 @@ textarea, select, [contenteditable]:not([contenteditable="false"]) { font-size: 
 
 /* as tall as what is on the screen: --app-h is the visual viewport's height, set on <html> by app.js (its "shell's
    height" section: on Android Chrome the layout viewport, which 100dvh measures, can stay taller than the visible part
-   after the keyboard closes, and the composer's lower half sat under the screen's edge); 100dvh without a script */
-#app { display: flex; height: var(--app-h, 100dvh); }
+   after the keyboard closes, and the composer's lower half sat under the screen's edge); 100dvh without a script.
+   --app-top is the visual viewport's offset below the layout viewport's top (iOS WebKit scrolls the page up by the keyboard
+   instead of resizing it; 0, so unset, on Android Chrome and on desktop): the shell sits where the screen is, not at the page top */
+#app { display: flex; height: var(--app-h, 100dvh); position: relative; top: var(--app-top, 0px); }
 
 /* sidebar */
 /* the safe-area insets (viewport-fit=cover in index.html): the status bar's and the gesture bar's room, 0 where there
@@ -833,8 +835,8 @@ body.dragging #drop-hint { display: flex; }
 @media (max-width: 760px) {
   .only-narrow { display: inline-block; }
   .only-wide { display: none; }
-  /* its height as #app's (the visible part of the screen), not the layout viewport's (bottom: 0 would be that) */
-  #sidebar { position: fixed; z-index: 30; inset: 0 auto auto 0; height: var(--app-h, 100dvh); width: min(300px, 85vw);
+  /* its top and height as #app's (the visible part of the screen), not the layout viewport's (bottom: 0 would be that) */
+  #sidebar { position: fixed; z-index: 30; inset: var(--app-top, 0px) auto auto 0; height: var(--app-h, 100dvh); width: min(300px, 85vw);
     transform: translateX(-100%); transition: transform .18s ease; }
   body.side-open #sidebar { transform: none; }
   #scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 20; }
@@ -918,8 +920,8 @@ body.shell-dragging .shell-term iframe { pointer-events: none; }
   .shell-label { display: none; }
   .shell-scrim { position: fixed; inset: 0; z-index: 34; background: rgba(0,0,0,.45); }
   body.shell-open .shell-scrim { display: block; }
-  /* a bottom sheet at the visible bottom of the screen (--app-h is the visual viewport's height, see fitShell in app.js) */
-  .shell-drawer { position: fixed; left: 0; right: 0; bottom: calc(100dvh - var(--app-h, 100dvh)); z-index: 35; height: calc(var(--app-h, 100dvh) * .6);
+  /* a bottom sheet at the visible bottom of the screen (--app-h and --app-top are the visual viewport's height and offset, see fitShell in app.js) */
+  .shell-drawer { position: fixed; left: 0; right: 0; bottom: calc(100dvh - var(--app-h, 100dvh) - var(--app-top, 0px)); z-index: 35; height: calc(var(--app-h, 100dvh) * .6);
     border-radius: 8px 8px 0 0; box-shadow: 0 -8px 28px rgba(0,0,0,.28); padding-bottom: env(safe-area-inset-bottom); overflow: hidden; }
   .shell-handle { height: 20px; cursor: default; }
   .shell-head { padding: 0 8px 4px 16px; }
