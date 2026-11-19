@@ -322,7 +322,7 @@
                                  #   may post as, space-separated, each letters, digits and dashes (e.g. "alerts-app reports-app"). Unset or empty (the default): no app is allowed
 #SALA_DM_USER_ID=                # the Slack member id (U… or W…) that `sala dm` messages. Unset: `sala dm` refuses and names this variable
 #SALA_DM_TOKEN_DIR=              # where the bot tokens are: the file slack-bot-token-<app> in it holds the app's xoxb-… token (secret; mode 600, or it is refused;
-                                 #   `sala dm --set-token <app>` writes it). Unset or empty: ~/.config/sala-briefing ($XDG_CONFIG_HOME/sala-briefing)
+                                 #   `sala dm --set-token [<app>]` writes it). Unset or empty: ~/.config/sala-briefing ($XDG_CONFIG_HOME/sala-briefing)
 #SALA_DM_API_BASE=https://slack.com/api   # the Slack API's base URL; only a test points it elsewhere
 #SALA_FLEET_HOSTS=                # ssh aliases `salamander update --fleet` also updates, e.g. "laptop desktop"
 #SALA_FLEET_TIMEOUT=8             # seconds before a host counts as offline (skipped, not failed)

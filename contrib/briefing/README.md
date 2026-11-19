@@ -283,8 +283,9 @@ SALA_DM_USER_ID=UXXXXXXXX                # the Slack member id to message
 SALA_DM_TOKEN_DIR=~/.config/sala-briefing # the default; the token of <app> is slack-bot-token-<app> in it (secret; mode 600; never in git)
 ```
 
-The owner stores each token once, in their own terminal, with `salamander dm --set-token <app>` (hidden prompt, atomic write, mode 600),
-and checks it with `salamander dm --check <app>` (`auth.test`: the bot user id and the team, never the token). The app needs the
+The owner stores the tokens once, in their own terminal, with `salamander dm --set-token`, which asks for each app in `SALA_DM_APPS` in turn
+(a hidden prompt each; Enter alone skips an app and keeps its stored token; `--set-token <app>` stores just one; atomic write, mode 600),
+and checks one with with `salamander dm --check <app>` (`auth.test`: the bot user id and the team, never the token). The app needs the
 `chat:write` and `im:write` bot scopes and its Messages tab turned on. The message is read from stdin with `-` (or no TEXT), the form to
 use for anything with quotes or backticks. Exit codes: 0 posted, 1 Slack answered an error (its code is printed), 2 usage, 3 a setting
 or the token file is missing or refused, 4 network.
