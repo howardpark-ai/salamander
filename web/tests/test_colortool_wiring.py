@@ -646,7 +646,7 @@ def test_reset_and_live_now_remove_every_inline_property_and_put_the_status_bar_
     click(browser, "#ct-reset" if how == "Reset" else ".ct-preset[data-p=live]")
     assert all(v == "" for v in inline(browser).values()), inline(browser)                   # including --dis-op and the four shifted surfaces
     left = browser.evaluate("(() => { const s = document.documentElement.style, out = []; for (let i = 0; i < s.length; i++) out.push(s[i]); return out; })()")
-    assert set(left) <= {"--app-h", "--banner-h"}, left                                       # the page's own two layout properties stay; nothing else
+    assert set(left) <= {"--app-h", "--app-top", "--banner-h"}, left                                       # the page's own layout properties stay; nothing else
     assert stored(browser) is None
     assert meta(browser) == META_DARK
     assert browser.evaluate("getComputedStyle(document.body).backgroundColor") == css_rgb(DARK["--bg"])

@@ -2758,21 +2758,30 @@ function goLive() {
 // changed). The visual viewport is kept current through those transitions, so the shell follows it: on its resize and
 // scroll, the window's resize, and when the page is shown again. The keyboard shrinks it the same way
 // (interactive-widget=resizes-content in index.html resizes both viewports), so the composer stays above the keyboard
-// as before. A pinch-zoom shrinks the visual viewport in CSS pixels without hiding anything: at a scale above 1 the
-// variable is dropped and 100dvh holds.
-const shellFit = { h: null, raf: 0, late: 0 };
+// as before. A pinch-zoom shrinks the visual viewport in CSS pixels without hiding anything: at a scale above 1 both
+// variables are dropped and 100dvh holds.
+// iOS WebKit ignores interactive-widget=resizes-content: on a focus it leaves the layout viewport at full height and
+// scrolls the page up by about the keyboard, so the visual viewport sits vtop = visualViewport.offsetTop below the
+// layout viewport's top (0 on Android Chrome and on desktop). A shell of the right height at the page top then has its
+// first vtop pixels (the title bar) above the screen and an empty band of the page under it, between the composer and
+// the keyboard. --app-top is that offset, and #app, the narrow sidebar and the shell drawer (style.css) follow it.
+const shellFit = { h: null, top: null, raf: 0, late: 0 };
 function fitShell() {
   shellFit.raf = 0;
   const vv = window.visualViewport, root = document.documentElement;
   if (!vv) return;
   if (vv.scale > 1.01 || !(vv.height > 0)) {
     if (shellFit.h !== null) { shellFit.h = null; root.style.removeProperty("--app-h"); }
+    if (shellFit.top !== null) { shellFit.top = null; root.style.removeProperty("--app-top"); }
     return;
   }
   const h = Math.round(vv.height * 10) / 10;
-  if (h === shellFit.h) return;
-  shellFit.h = h;
-  root.style.setProperty("--app-h", h + "px");
+  if (h !== shellFit.h) { shellFit.h = h; root.style.setProperty("--app-h", h + "px"); }
+  const top = Math.max(0, Math.round((vv.offsetTop || 0) * 10) / 10);
+  if (top !== shellFit.top) {
+    shellFit.top = top;
+    if (top > 0) root.style.setProperty("--app-top", top + "px"); else root.style.removeProperty("--app-top");
+  }
 }
 // one layout a frame while something animates (the keyboard, a bar), and a late pass once it has settled, in case the
 // last event came before the bar's final position
