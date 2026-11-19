@@ -18,8 +18,9 @@
 # no output. A Slack error prints Slack's error code only.
 # THE MESSAGE: an argument is written to a file as it came, and the stdin form is the safe one for anything with quotes or backticks; the
 # JSON body is built by python3 from that file, so no text is ever parsed as shell or spliced into a command.
-# THE CHANNEL: conversations.open's answer is cached per app ($SALA_STATE_DIR/dm/<app>.channel); one Slack rejects as channel_not_found or
-# is_archived is dropped and opened again, once.
+# THE CHANNEL: conversations.open's answer is cached per app ($SALA_STATE_DIR/dm/<app>.channel) together with the member id and the API base it
+# was opened for (`<user id> <api base> <channel>`, tab-separated): a changed SALA_DM_USER_ID or SALA_DM_API_BASE, or an old file that holds a
+# channel id only, is no cache, and the DM is opened again. One Slack rejects as channel_not_found or is_archived is dropped and opened again, once.
 # Exit: 0 posted (stdout: the message's ts, so a caller can thread under it) · 1 Slack said no · 2 usage · 3 setting or token problem ·
 # 4 network (curl failed or Slack answered 5xx, after one retry). A 5xx or a timeout is tried once more, which can post a message twice
 # when Slack took the first and the answer was lost; the retry is the price of not losing a message to one hiccup.
@@ -96,10 +97,14 @@ dm_scratch() { [ -n "$DM_T" ] || DM_T=$( umask 077; mktemp -d "${TMPDIR:-/tmp}/s
 
 # dm_http <api method> <body file>: one POST with the token in curl's config on stdin. The response body lands in $DM_T/resp, the status in
 # DM_HTTP. Returns curl's exit status (0: an answer came, whatever it says).
+# `-q` is curl's first argument, so its default config (~/.curlrc, which could turn on a trace or a verbose log file) is never read: with the
+# token on stdin's config, a trace file would record it.
+dm_api_base() { local b=${SALA_DM_API_BASE:-https://slack.com/api}; printf '%s' "${b%/}"; }
 dm_http() {
-    local rc base=${SALA_DM_API_BASE:-https://slack.com/api}
-    DM_HTTP=$(printf 'header = "Authorization: Bearer %s"\n' "$DM_TOKEN" | curl -sS -K - --proto '=http,https' --max-time "${SALA_DM_TIMEOUT:-15}" \
-        -H 'Content-Type: application/json; charset=utf-8' --data-binary @"$2" -o "$DM_T/resp" -w '%{http_code}' "${base%/}/$1" 2>/dev/null)
+    local rc base
+    base=$(dm_api_base)
+    DM_HTTP=$(printf 'header = "Authorization: Bearer %s"\n' "$DM_TOKEN" | curl -q -sS -K - --proto '=http,https' --max-time "${SALA_DM_TIMEOUT:-15}" \
+        -H 'Content-Type: application/json; charset=utf-8' --data-binary @"$2" -o "$DM_T/resp" -w '%{http_code}' "$base/$1" 2>/dev/null)
     rc=$?
     [ "$rc" = 0 ] || DM_HTTP=0
     return "$rc"
@@ -146,11 +151,13 @@ else:
 
 dm_slack_err() { dm_err "slack error: $DM_ERR"; }
 
-# the channel cache: $SALA_STATE_DIR/dm/<app>.channel holds one channel id
+# the channel cache: $SALA_STATE_DIR/dm/<app>.channel holds one line, `<user id> <api base> <channel id>` (tab-separated), bound to the member
+# and the API base it was opened for; any other shape (an old file with the channel id alone included) is no cache
 dm_cache_file() { printf '%s' "$SALA_STATE_DIR/dm/$1.channel"; }
-dm_cache_read() {   # <app> → DM_CHANNEL; 1 when there is none, or it is not a channel id
-    local c=""
-    { IFS= read -r c < "$(dm_cache_file "$1")"; } 2>/dev/null || return 1
+dm_cache_read() {   # <app> → DM_CHANNEL; 1 when there is none, it is not this member's and this API's, or it is not a channel id
+    local u="" b="" c="" extra=""
+    { IFS=$'\t' read -r u b c extra < "$(dm_cache_file "$1")"; } 2>/dev/null || return 1
+    [ -z "$extra" ] && [ "$u" = "${SALA_DM_USER_ID:-}" ] && [ "$b" = "$(dm_api_base)" ] || return 1
     [[ $c =~ ^[CDG][A-Z0-9]+$ ]] || return 1
     DM_CHANNEL=$c
 }
@@ -158,7 +165,7 @@ dm_cache_write() {   # <app> <channel>: atomic, mode 600 in a 700 folder; a fail
     local f tmp; f=$(dm_cache_file "$1")
     ( umask 077; mkdir -p "${f%/*}" ) 2>/dev/null || return 0
     tmp=$( umask 077; mktemp "${f%/*}/.$1.XXXXXX" 2>/dev/null ) || return 0
-    { printf '%s\n' "$2" > "$tmp" && mv -f "$tmp" "$f"; } 2>/dev/null || rm -f "$tmp"
+    { printf '%s\t%s\t%s\n' "${SALA_DM_USER_ID:-}" "$(dm_api_base)" "$2" > "$tmp" && mv -f "$tmp" "$f"; } 2>/dev/null || rm -f "$tmp"
     return 0
 }
 
@@ -227,7 +234,7 @@ dm_cmd_set_token() {   # <app>
 }
 
 dm_main() {
-    local app="" thread="" text="" have_text=0 mode=post rc tf
+    local app="" thread="" have_thread=0 text="" have_text=0 mode=post rc tf
     case "${1:-}" in
         '') dm_usage >&2; return 2 ;;
         -h|--help|help) dm_usage; return 0 ;;
@@ -247,12 +254,13 @@ dm_main() {
     app=$1; shift
     while [ $# -gt 0 ]; do
         case "$1" in
-            --thread) [ $# -ge 2 ] || { dm_err "--thread needs a message ts"; return 2; }; thread=$2; shift 2 ;;
-            --thread=*) thread=${1#--thread=}; shift ;;
+            --thread) [ $# -ge 2 ] || { dm_err "--thread needs a message ts"; return 2; }; thread=$2; have_thread=1; shift 2 ;;
+            --thread=*) thread=${1#--thread=}; have_thread=1; shift ;;
             --) shift; break ;;
             *) break ;;
         esac
     done
+    if [ "$have_thread" = 1 ] && [ -z "$thread" ]; then dm_err "--thread needs a message ts, got an empty value"; return 2; fi
     [[ -z $thread || $thread =~ ^[0-9]+\.[0-9]+$ ]] || { dm_err "--thread takes a message ts such as 1700000000.000100, got '$thread'"; return 2; }
     dm_check_app "$app" || return $?
     if [ $# -gt 1 ]; then dm_err "one TEXT only (quote it, or send it on stdin with -)"; return 2; fi
