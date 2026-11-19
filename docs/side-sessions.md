@@ -25,8 +25,9 @@ any mandate file. It says: what the conversation is; the item (its id, and its l
 project page's Current state and the item first; the involved agents (`--agents`, passed in by the caller: the item's owner,
 the sessions in its needs); to **find and read only the transcript excerpts it needs** from them with the new read-only
 `sala sessions transcript <name> [--json]`, never a whole transcript; that it is a side conversation with the owner; that it
-must run `sala side done` before it ends; and that it retires only when the owner tells it to. A `--mandate` of the caller is
-appended as the owner's own instructions.
+must run `sala side done` before it ends, which sends the receiver a one-line pointer made of **the first line of its summary** (so the
+gist goes on that line, and the full detail on the board item and the project page; a summary sent to a project page key goes whole); and that it retires
+only when the owner tells it to. A `--mandate` of the caller is appended as the owner's own instructions.
 
 There is **no quiet watch, no auto-retire and no cap**. A side session retires only on the owner's word, through `sala op retire`. The one case where
 a retire takes no words is not a side session at all: a plain throwaway (bare `sala spawn`, no project, role or side flag) carrying the throwaway tag a bare spawn writes (any session may retire a tagged row, whatever its name, between turns); a row from before the tag keeps the older rules (its spawner, the master, or any session when NAME is a throwaway's name and it has no live spawner). Never with
@@ -58,16 +59,22 @@ Run by the side session itself (its own tmux session is the default `--name`). I
    agent, a background agent; `--summary-to NAME` picks another one) the pointer is **one line, sent with `--fyi` and no
    `[for <owner>]` mark**, at most 200 characters before the sender label the client adds (`<owner>` is the `SALA_OWNER_NAME` setting):
    `[side done] <name> finished its conversation with <owner>, <item> (<page>): <first line of the summary, cut with an ellipsis to fit>`.
-   The item and page are the ones on the session's record (either alone when only one is set). An `--fyi` is held for the receiver's
+   The item and page are the ones on the session's record (either alone when only one is set). A fork with **neither** (started without
+   an item, on no project) says where the full text is instead: `…, no item or page (full text: sala sessions transcript <name>): <excerpt>`.
+   Only the summary excerpt is ever clipped: the reference (the item and page, or that transcript hint) is never cut, so a long page key
+   leaves less room for the excerpt, and a reference that alone passes the 200 characters is sent **whole, with no excerpt**, over the limit
+   (`side done` says so on its output; stackshot cuts a held line at 260 and says so). An `--fyi` is held for the receiver's
    next turn and starts none: the mark is what starts a turn the owner sees, and a summary asks nothing. stackshot cuts a held line at
-   260 characters, sender label included, and says so (logged in `salamander-side.log`; the exit stays 0).
+   260 characters, sender label included, and says so in its reply (`Its text was cut to 260 characters in the held line …`); `side done`
+   logs an entry in `salamander-side.log` only for that diagnostic (a number in a message id does not count; the exit stays 0).
    If stackshot **refuses** the `--fyi` (the receiver's hook cannot fetch held lines: a cloud session, a box behind on its checkout, no
-   turn in 30 days; the client exits 1 and nothing is delivered) or the client cannot be reached, `side done` **never falls back to the
+   turn in 30 days; the client exits 1 and nothing is delivered), or the client cannot be reached or is not configured
+   (`SALA_SIDE_MSG_CMD` empty: the same warning, log entry and marker as any other failed send), `side done` **never falls back to the
    marked form**: it logs the output to `$SALA_LOG_DIR/salamander-side.log`, prints a `⚠` line saying the pointer was not delivered and
    that the write-up stands on the item and the page, **still writes the marker and exits 0** (a front agent that cannot hold lines must not
    block a wrap-up for ever), and does not record the send. `--summary-to projects/SLUG` (or a key in another page dir) sends the
    **full body** to the project instead: the router rules it, the message is plain (no `--fyi`, never marked), and a failed send there
-   leaves no marker. The log of each attempt is in `$SALA_LOG_DIR/salamander-side.log`.
+   (an unconfigured client included) leaves no marker. The log of each attempt is in `$SALA_LOG_DIR/salamander-side.log`.
 
 `--dry-run` runs the checks and sends and writes nothing.
 

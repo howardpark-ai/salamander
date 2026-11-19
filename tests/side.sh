@@ -9,7 +9,9 @@
 # the fork's conversation and directory); `side done` (every check run and every failure said: the item changed since the start, by the
 # agents' items or by --item-updated; the project page's timeline line from the session, dated from the start, from the brain mirror or
 # the weaker page-ts; to an agent (a -main or any other) ONE short line of at most 200 characters sent once with --fyi and no [for Rowan] mark, holding the
-# item and page pointer and the summary's first line, never again; an --fyi the client refuses: a ⚠ line, a log entry, the marker written anyway, no second
+# item and page pointer (never cut: a long page key clips the excerpt, a reference over 200 alone goes whole; a fork with neither says where its transcript is) and the
+# summary's first line, never again; no client configured (SALA_SIDE_MSG_CMD empty) the same ⚠ line and marker for an agent, a refusal for a page key; only stackshot's own
+# cut diagnostic logged, never a bare 260; an --fyi the client refuses: a ⚠ line, a log entry, the marker written anyway, no second
 # (marked) attempt, no send recorded; projects/<slug> targets plain with the full body and no --fyi, a failing send there leaving no marker); the retire gate
 # (refused in the dry run and for real until the marker, --force the one bypass, a plain session untouched, the record moved after the
 # retire). stackshot's client is a set of stubs (SALA_SIDE_ITEMS_CMD, SALA_SIDE_PAGE_TS_CMD, SALA_SIDE_MSG_CMD), pages.py a stub
@@ -65,8 +67,9 @@ printf 'TRY %s | first line: %s\n' "$*" "$FIRST" >> "$HOME/tries.txt"
 # stackshot's refusal of an --fyi to a front agent whose hook cannot fetch held lines: exit 1, nothing delivered
 [ -e "$HOME/msg-refuse-fyi" ] && case " $* " in *" --fyi "*) echo "400: $1 is a front agent whose hook cannot fetch held lines; the fyi was not delivered" >&2; exit 1;; esac
 { printf 'ARGS %s\n' "$*"; printf '%s\n' "$IN"; echo "%%"; } >> "$HOME/msgs.txt"
-# the reply of a held line cut at 260 characters (sender label included)
-[ -e "$HOME/msg-cut" ] && echo "held; cut at 260 characters (sender label included)"
+# the client's reply when the server cut the held line (stackshot's _cut_note, word for word), and a plain reply whose message id has 260 in it
+[ -e "$HOME/msg-cut" ] && echo "delivered. Its text was cut to 260 characters in the held line (the words after the cut are in the message log only): put a long result on the item (update, complete) or on a page and send the pointer."
+[ -e "$HOME/msg-id260" ] && echo "delivered to $1 as message 4260ab, held for its next turn"
 exit 0
 EOF
 chmod +x "$HOME/fake-items" "$HOME/fake-pagets" "$HOME/fake-msg"
@@ -179,6 +182,9 @@ M="$MANDATES/side-gamma-foo-side-mica07.md"
     && has "$(<"$M")" '`acme-main`, `example-x-builder`' && has "$(<"$M")" "sala sessions transcript" && has "$(<"$M")" "ONLY the transcript excerpts you need" \
     && has "$(<"$M")" "sala side done --item board#12" && has "$(<"$M")" "retire only when Rowan tells you" && has "$(<"$M")" "Focus on the deploy question only." && ok "the mandate: the item and its link, the page, the agents, the transcript rule, side done, retire-only-on-the-owner's-word, the owner's own instruction appended" || bad "mandate: $(cat "$M" 2>&1 | head -30)"
 hasnt "$(<"$M")" "a fork of" && ok "the mandate of a fresh session does not claim to be a fork" || bad "mandate says fork"
+has "$(<"$M")" "sends \`acme-main\` a one-line pointer: the FIRST line of your summary" && has "$(<"$M")" "Put the gist in that first line; the rest of the summary does not travel" \
+    && has "$(<"$M")" "the full detail belongs on the board item and the project page" && has "$(<"$M")" "\`--summary-to projects/<slug>\`, goes whole" && hasnt "$(<"$M")" "sends your summary" \
+    && ok "the mandate: only the first line of the summary travels to an agent (the gist goes there, the detail on the item and the page), a project page key takes it whole" || bad "mandate wording: $(grep -n 'side done' "$M" | head -5)"
 waitfor "grep -q 'side-gamma-foo-side-mica07.md' '$TYPED'" 20 && ok "the orientation line typed names the mandate file" || bad "typed: $(cat "$TYPED" 2>/dev/null | tail -3)"
 [ "$(sval gamma-foo-side-mica07 kind)" = discuss ] && [ "$(sval gamma-foo-side-mica07 item)" = board#12 ] && [ "$(sval gamma-foo-side-mica07 project)" = projects/foo ] \
     && [ "$(sval gamma-foo-side-mica07 summary_to)" = acme-main ] && [ "$(sval gamma-foo-side-mica07 agents)" = acme-main,example-x-builder ] && [ -n "$(sval gamma-foo-side-mica07 started)" ] \
@@ -320,8 +326,54 @@ sd --name "$H2B" --summary "h2b" --summary-to example-foo-builder
 : > "$HOME/msgs.txt"; : > "$HOME/tries.txt"; touch "$HOME/msg-cut"
 H2C=gamma-foo-side-fern29; mkdone "$H2C"
 sd --name "$H2C" --summary "h2c" --summary-to x-main
-[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && [ -s "$SIDE/$H2C.done" ] && [ "$(sval "$H2C" summary_sent_to)" = x-main ] && has "$(<"$LOG")" "the held line was cut at 260 characters" && ok "the client says the line was cut at 260: logged, exit 0, delivered and recorded" || bad "cut: rc=$RC — $OUT / $(tail -4 "$LOG")"
+[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && [ -s "$SIDE/$H2C.done" ] && [ "$(sval "$H2C" summary_sent_to)" = x-main ] && has "$(<"$LOG")" "stackshot reports the held line was cut" && ok "the client's own cut diagnostic: logged, exit 0, delivered and recorded" || bad "cut: rc=$RC — $OUT / $(tail -4 "$LOG")"
 rm -f "$HOME/msg-cut"
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"; touch "$HOME/msg-id260"; LL=$(wc -l < "$LOG")
+H2D=gamma-foo-side-fern30; mkdone "$H2D"
+sd --name "$H2D" --summary "h2d" --summary-to x-main
+[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && [ -s "$SIDE/$H2D.done" ] && [ "$(sval "$H2D" summary_sent_to)" = x-main ] && has "$(tail -n +$((LL + 1)) "$LOG")" "pointer delivered to x-main as --fyi, unmarked" && hasnt "$(tail -n +$((LL + 1)) "$LOG")" "was cut" \
+    && ok "a message id with 260 in it (no cut said): delivered and recorded, nothing about a cut logged" || bad "id 260: rc=$RC — $OUT / $(tail -n +$((LL + 1)) "$LOG")"
+rm -f "$HOME/msg-id260"
+# a fork with neither an item nor a page: the line says where the full summary is (its own transcript), never a bare excerpt
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"
+H2E=gamma-foo-side-fern31; mkrec "$H2E" fork gamma-foo-lead "" "" gamma-foo-lead "$(( $(date +%s) - 120 ))"
+sd --name "$H2E" --summary "neither item nor page, gist here" --summary-to x-main
+[ "$RC" = 0 ] && [ "$(tries)" = 1 ] && fyi_ok x-main "$H2E" "no item or page (full text: sala sessions transcript $H2E): neither item nor page, gist here" && [ -s "$SIDE/$H2E.done" ] \
+    && ok "a fork with no item and no page: the line says the full summary is in the session's transcript (sala sessions transcript <name>), then the excerpt" || bad "neither: rc=$RC — $OUT / $(<"$HOME/msgs.txt")"
+# the client unset (SALA_SIDE_MSG_CMD empty): an agent target warns and still gets the marker; a page-key target refuses, no marker
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"
+H2F=gamma-foo-side-fern32; mkdone "$H2F"
+SALA_SIDE_MSG_CMD= sd --name "$H2F" --summary "h2f" --summary-to x-main
+[ "$RC" = 0 ] && [ "$(tries)" = 0 ] && has "$OUT" "⚠ the pointer to x-main was not delivered" && has "$OUT" "the write-up marker is written" && [ -s "$SIDE/$H2F.done" ] && [ -z "$(sval "$H2F" summary_sent_to)" ] && has "$(tail -3 "$LOG")" "SALA_SIDE_MSG_CMD is empty" \
+    && ok "no client (SALA_SIDE_MSG_CMD empty), an agent target: the ⚠ line, the log, the marker written, exit 0, nothing recorded as sent" || bad "empty client, agent: rc=$RC tries=$(tries) — $OUT"
+H2G=gamma-foo-side-fern33; mkdone "$H2G"
+SALA_SIDE_MSG_CMD= sd --name "$H2G" --summary "h2g" --summary-to projects/notes
+[ "$RC" != 0 ] && has "$OUT" "SALA_SIDE_MSG_CMD is empty: the summary cannot be sent" && [ ! -e "$SIDE/$H2G.done" ] && [ -z "$(sval "$H2G" summary_sent_to)" ] && [ "$(tries)" = 0 ] \
+    && ok "no client, a page-key target: refused, no marker (the full body cannot be sent)" || bad "empty client, page key: rc=$RC — $OUT"
+# a long page key: the reference is never cut, the excerpt gives way; a reference over the 200 alone is sent whole, with no excerpt, and said
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"
+mklong() {  # <name> <slug length> → a session on projects/<slug> with an item, its timeline line in the mirror; LSLUG the slug
+    LSLUG=$(printf 'k%.0s' $(seq 1 "$2")); mkrec "$1" discuss "" "projects/$LSLUG" board#7 x-main "$(( $(date +%s) - 120 ))"
+    printf '## Timeline\n- **%s** | %s — settled\n' "$TODAY" "$1" >> "$HOME/brain/projects/$LSLUG.md"
+}
+H2H=gamma-foo-side-fern34; mklong "$H2H" 60
+sd --name "$H2H" --summary "a summary first line that is long enough to need clipping $(printf 'word%.0s ' $(seq 1 30))" --summary-to x-main --item-updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+LT=$(lasttext)
+[ "$RC" = 0 ] && [ "$(plen "$LT")" -le 200 ] && has "$LT" "board#7 (projects/$LSLUG): a summary first line" && [ "${LT: -1}" = "…" ] && fyi_ok x-main "$H2H" "board#7 (projects/$LSLUG): a summary" \
+    && ok "a long page key: the whole key stays in the line, the excerpt is clipped to the room left ($(plen "$LT") characters)" || bad "long key ($(plen "$LT")): rc=$RC $LT — $OUT"
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"
+H2I=gamma-foo-side-fern35; mklong "$H2I" 215
+sd --name "$H2I" --summary "excerpt that has no room" --summary-to x-main --item-updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+LT=$(lasttext)
+[ "$RC" = 0 ] && [ "$(plen "$LT")" -gt 200 ] && [ "${LT: -1}" = ")" ] && has "$LT" "board#7 (projects/$LSLUG)" && hasnt "$LT" "excerpt that has no room" && has "$OUT" "the reference alone is" && has "$OUT" "sent whole, without the summary excerpt" && [ -s "$SIDE/$H2I.done" ] \
+    && ok "a reference over the 200 alone: sent whole with no excerpt, said on the output ($(plen "$LT") characters), marker written" || bad "key over the limit ($(plen "$LT")): rc=$RC $LT — $OUT"
+# the edge: a reference of 198 characters leaves no room for the excerpt (the old cut took the closing parenthesis off): sent whole, no excerpt, no note (it is within the 200)
+: > "$HOME/msgs.txt"; : > "$HOME/tries.txt"
+H2J=gamma-foo-side-fern36; PRE=$(plen "[side done] $H2J finished its conversation with Rowan, board#7 (projects/)"); mklong "$H2J" $(( 198 - PRE ))
+sd --name "$H2J" --summary "excerpt that has no room either" --summary-to x-main --item-updated "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+LT=$(lasttext)
+[ "$RC" = 0 ] && [ "$(plen "$LT")" = 198 ] && [ "${LT: -1}" = ")" ] && has "$LT" "board#7 (projects/$LSLUG)" && hasnt "$LT" "excerpt" && hasnt "$OUT" "the reference alone is" && [ -s "$SIDE/$H2J.done" ] \
+    && ok "a reference of 198 characters: the whole key and its closing parenthesis, no excerpt, nothing said (within the 200)" || bad "key at 198 ($(plen "$LT")): rc=$RC $LT — $OUT"
 : > "$HOME/msgs.txt"; : > "$HOME/tries.txt"; touch "$HOME/msg-refuse-fyi"
 H3=gamma-foo-side-fern23; mkdone "$H3"
 sd --name "$H3" --summary "h3" --summary-to x-main
