@@ -17,8 +17,9 @@ neither viewport in this build), so that state is staged by shadowing visualView
 dispatching its resize event: what the page does with the value is tested, not that Chrome reports it. The same goes
 for iOS WebKit's keyboard (it ignores interactive-widget=resizes-content, leaves the layout viewport at full height and
 scrolls the page up, so visualViewport.offsetTop > 0): offsetTop, height and scale are shadowed the same way and --app-top,
-#app, the sidebar and the shell drawer are checked against them; WebKit itself is not run here, so the
-real iPhone is the manual check. A real gesture
+#app, the sidebar and the shell drawer are checked against them, in the narrow layout and in the wide one (an iPhone in
+landscape: the toggle and header block, the edge strip and the sidebar are position: fixed from the layout viewport's top);
+WebKit itself is not run here, so the real iPhone is the manual check. A real gesture
 bar, Chrome's real safe-area insets and its real transitions are a phone's to show (the manual check in the README).
 """
 
@@ -103,6 +104,15 @@ def test_the_stylesheet_and_the_script_size_the_shell_from_the_visible_area():
     # iOS: the visual viewport's offset below the layout viewport's top moves the shell, the narrow sidebar and the drawer's bottom
     assert re.search(r"#app\s*\{[^}]*height:\s*var\(--app-h,\s*100dvh\);\s*position:\s*relative;\s*top:\s*var\(--app-top,\s*0px\)", CSS)
     assert re.search(r"\.shell-drawer\s*\{[^}]*bottom:\s*calc\(100dvh - var\(--app-h,\s*100dvh\) - var\(--app-top,\s*0px\)\)", CSS)
+    # iOS, wide layout: the fixed pieces are placed from the layout viewport's top, so --fixed-top adds the offset to --inset-top (the
+    # safe area and the banner), the edge strip and the closed sidebar start at the offset, and the sidebar's padding-top keeps
+    # --inset-top only (docked, it sits in #app, which the offset has moved already: counting it again would double it)
+    wide = CSS[CSS.index("@media (min-width: 761px) {\n  :root { --top-h"):].split("@media (max-width")[0]
+    assert re.search(r"--inset-top:\s*calc\(env\(safe-area-inset-top\) \+ var\(--banner-h\)\);\s*--fixed-top:\s*calc\(var\(--app-top,\s*0px\) \+ var\(--inset-top\)\)", wide)
+    assert re.search(r"#side-edge\s*\{[^}]*top:\s*var\(--app-top,\s*0px\);\s*height:\s*var\(--app-h,\s*100dvh\)", wide)
+    assert re.search(r"#sidebar\s*\{[^}]*inset:\s*var\(--app-top,\s*0px\) auto auto -280px;\s*height:\s*var\(--app-h,\s*100dvh\);\s*padding-top:\s*calc\(var\(--inset-top\) \+ var\(--top-h\)\)", wide)
+    assert "#side-open { position: fixed; z-index: 32; left: 8px; top: calc(var(--fixed-top) +" in wide and ".side-head { position: fixed; z-index: 31; left: 0; top: var(--fixed-top);" in wide
+    assert "var(--fixed-top)" not in re.search(r"#sidebar\s*\{[^}]*\}", wide).group(0)  # the sidebar's own padding never counts the offset
     assert re.search(r"#composer\s*\{[^}]*padding:[^;]*calc\(10px \+ env\(safe-area-inset-bottom\)\)", CSS)
     assert "viewport-fit=cover" in (STATIC / "index.html").read_text() and "interactive-widget=resizes-content" in (STATIC / "index.html").read_text()
     block = APP_JS[APP_JS.index("/* ---------- the shell's height"):APP_JS.index("/* ---------- copy ----------")]
@@ -249,6 +259,88 @@ def test_the_shell_follows_the_visual_viewports_offset_on_ios(served, browser):
     browser.evaluate(UNSTAGE_IOS)
     assert browser.evaluate(WAIT_TOP % '""') == ""
     assert abs(browser.evaluate(WAIT_APP % 844) - 844) < 0.6
+
+
+WIDE_BOXES = """(() => { const r = (s) => { const n = document.querySelector(s); const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left }; };
+  const root = document.documentElement.style, sb = document.querySelector("#sidebar");
+  return { appTop: root.getPropertyValue("--app-top"), app: r("#app"), bar: r("#top"), head: r("#sidebar .side-head"), toggle: r("#side-open"),
+           edge: r("#side-edge"), sidebar: r("#sidebar"), search: r("#side-search"), pos: getComputedStyle(sb).position,
+           edgeDisplay: getComputedStyle(document.querySelector("#side-edge")).display, banner: document.querySelector("#update-banner").offsetHeight,
+           bannerVar: root.getPropertyValue("--banner-h") }; })()"""
+WAIT_PEEK = """new Promise((res) => { const t0 = Date.now(); (function poll() { const l = document.querySelector("#sidebar").getBoundingClientRect().left;
+  if (l === 0 || Date.now() - t0 > 5000) res(l); else setTimeout(poll, 30); })(); })"""   # the slide (left .18s) has run
+WAIT_BANNER = """new Promise((res) => { const t0 = Date.now(); (function poll() { const v = document.documentElement.style.getPropertyValue("--banner-h");
+  if ((v && v !== "0px") || Date.now() - t0 > 5000) res(v); else setTimeout(poll, 30); })(); })"""
+
+
+def test_the_wide_layouts_fixed_pieces_follow_the_visual_viewports_offset_on_ios(served, browser):
+    """An iPhone in landscape (844 x 390, wider than 760 px, so the wide layout) with the keyboard up (staged, see the module
+    docstring): the toggle and header block, the edge strip and the sidebar are position: fixed from the layout viewport's top,
+    so each must be moved by the offset. At offset N: the block's top is N + its top at 0, the strip and the sidebar span N to
+    N + h with the sidebar's first row where it was below its top, and docked (body.side-pin) the sidebar is in the flow, so
+    #top starts at N and the block still lines up with it (the offset counted once, not twice). At 0 nothing moves."""
+    metrics(browser, 390, width=844)   # not browser.open: it would put the 390 x 844 viewport back
+    browser.send("Page.navigate", {"url": f"{served['url']}/#s={NAME}"})
+    browser.wait_ready(CHAT_READY)
+    assert browser.evaluate(WAIT_MODEL)
+    base = browser.evaluate(WIDE_BOXES)
+    assert base["pos"] == "fixed" and base["edgeDisplay"] != "none", base                              # the wide layout, closed
+    assert base["appTop"] == "" and base["app"]["top"] == 0 and base["head"]["top"] == 0 and base["toggle"]["top"] == (54 - 32) / 2, base
+    assert base["edge"] == {"top": 0, "bottom": 390, "left": 0} and base["sidebar"]["top"] == 0 and base["sidebar"]["bottom"] == 390, base
+    first = base["search"]["top"] - base["sidebar"]["top"]
+    assert first >= 54, base                                                                            # the row under the header block
+    # the keyboard up, landscape: the layout viewport stays 390 tall, the page is scrolled up by 150, 240 are visible
+    assert browser.evaluate(STAGE_IOS % (150, 240, 1)) == 390
+    assert browser.evaluate(WAIT_TOP % '"150px"') == "150px"
+    assert abs(browser.evaluate(WAIT_APP % 240) - 240) < 0.6
+    f = browser.evaluate(WIDE_BOXES)
+    assert f["app"]["top"] == 150 and f["bar"]["top"] == 150, f
+    assert f["head"]["top"] == 150 + base["head"]["top"] and f["head"]["top"] == f["bar"]["top"], f      # the block sits on the title bar
+    assert f["toggle"]["top"] == 150 + base["toggle"]["top"], f
+    assert f["edge"] == {"top": 150, "bottom": 390, "left": 0}, f                                       # the strip covers the visible part
+    # peeking: the sidebar slides in over the page, from the screen's top to its bottom, its first row where it was
+    browser.evaluate("document.body.classList.add('side-peek'); 1")
+    assert browser.evaluate(WAIT_PEEK) == 0
+    p = browser.evaluate(WIDE_BOXES)
+    assert p["pos"] == "fixed" and p["sidebar"]["left"] == 0 and p["sidebar"]["top"] == 150 and abs(p["sidebar"]["bottom"] - 390) < 0.6, p
+    assert abs(p["search"]["top"] - p["sidebar"]["top"] - first) < 0.6, (p, first)
+    assert p["head"]["top"] == 150 + base["head"]["top"] and p["head"]["top"] == p["bar"]["top"], p
+    # another offset that does not add up to the layout viewport's height (a bar still showing): top N, bottom N + h wherever it lands
+    browser.evaluate(STAGE_IOS % (40, 300, 1))
+    assert browser.evaluate(WAIT_TOP % '"40px"') == "40px"
+    assert abs(browser.evaluate(WAIT_APP % 300) - 300) < 0.6
+    p = browser.evaluate(WIDE_BOXES)
+    assert p["sidebar"]["top"] == 40 and abs(p["sidebar"]["bottom"] - 340) < 0.6 and p["head"]["top"] == 40 + base["head"]["top"], p
+    assert abs(p["search"]["top"] - 40 - first) < 0.6, (p, first)
+    browser.evaluate(STAGE_IOS % (150, 240, 1))
+    assert browser.evaluate(WAIT_TOP % '"150px"') == "150px"
+    assert abs(browser.evaluate(WAIT_APP % 240) - 240) < 0.6
+    browser.evaluate("document.body.classList.remove('side-peek'); 1")
+    # an update banner (it pushes the title bar down by its height): the block follows it, on top of the offset
+    browser.evaluate("document.querySelector('#update-banner').hidden = false; 1")
+    b = browser.evaluate(WAIT_BANNER)
+    assert b and b != "0px", b
+    f = browser.evaluate(WIDE_BOXES)
+    assert f["banner"] > 0 and f["bar"]["top"] == 150 + f["banner"] and f["head"]["top"] == f["bar"]["top"], f
+    # docked: the sidebar is in the flow of #app (which the offset has moved), the block still lines up with the title bar
+    browser.evaluate("document.body.classList.add('side-pin'); 1")
+    d = browser.evaluate(WIDE_BOXES)
+    assert d["pos"] == "static" and d["edgeDisplay"] == "none", d
+    assert d["app"]["top"] == 150 and d["sidebar"]["top"] == 150 and abs(d["sidebar"]["bottom"] - 390) < 0.6, d
+    assert d["bar"]["top"] == 150 + d["banner"] and d["head"]["top"] == d["bar"]["top"], d              # 150, not 300
+    assert d["toggle"]["top"] == d["bar"]["top"] + (54 - 32) / 2, d
+    assert abs(d["search"]["top"] - d["sidebar"]["top"] - first - d["banner"]) < 0.6, (d, first)        # padding-top: the banner once, not the offset
+    browser.evaluate("document.querySelector('#update-banner').hidden = true; document.body.classList.remove('side-pin'); 1")
+    # the offset back to 0 (the keyboard closes): the variable is unset and every piece is where it was
+    browser.evaluate(STAGE_IOS % (0, 390, 1))
+    assert browser.evaluate(WAIT_TOP % '""') == ""
+    assert abs(browser.evaluate(WAIT_APP % 390) - 390) < 0.6
+    z = browser.evaluate(WIDE_BOXES)
+    for k in ("app", "bar", "head", "toggle", "edge", "sidebar"):
+        assert z[k] == base[k], (k, z[k], base[k])
+    assert z["appTop"] == "" and abs(z["search"]["top"] - base["search"]["top"]) < 0.6, z
+    browser.evaluate(UNSTAGE_IOS)
+    assert browser.evaluate(WAIT_TOP % '""') == ""
 
 
 def test_the_desktop_layout_is_unchanged(served):

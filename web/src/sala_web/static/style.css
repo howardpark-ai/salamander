@@ -805,10 +805,15 @@ body.dragging #drop-hint { display: flex; }
    closed, peeking or pinned. That is why the sidebar closes by `left`, not by a transform: a transformed sidebar would
    take its fixed header along. The sidebar keeps the block's row free at its top (its padding-top); the title bar keeps the room
    too while the sidebar is not docked (padding-left), and docked it starts beside the sidebar. --banner-h (app.js) is the update
-   banner's height, which pushes the title bar down, so the block follows it. A keyboard user's focus peeks it too (:focus-visible,
+   banner's height, which pushes the title bar down, so the block follows it. The fixed pieces (the block, the edge strip, the
+   sidebar while it is not docked) are placed from the layout viewport's top, which is not the screen's top where iOS scrolls the page
+   up for the keyboard: --fixed-top, their top, adds --app-top (the visual viewport's offset, see #app) to --inset-top, the room
+   the safe area and the banner take at the top of the shell, which is what the sidebar's own padding-top keeps (docked it
+   sits in #app, which --app-top has already moved, so it must not count the offset twice). A keyboard user's focus peeks it too (:focus-visible,
    which a mouse click on a row does not leave) */
 @media (min-width: 761px) {
-  :root { --top-h: 54px; --side-fixed-w: 280px;   /* the sidebar's width */ --banner-h: 0px; --fixed-top: calc(env(safe-area-inset-top) + var(--banner-h)); }
+  :root { --top-h: 54px; --side-fixed-w: 280px;   /* the sidebar's width */ --banner-h: 0px;
+    --inset-top: calc(env(safe-area-inset-top) + var(--banner-h)); --fixed-top: calc(var(--app-top, 0px) + var(--inset-top)); }
   /* the title bar spans the whole header (no side padding: the name is centred in the bar); --lead is the room at the left that
      the fixed block is over, and a peek covers 280 px: the bar's content starts where a docked bar's does; the cluster keeps 16 px at the right */
   #top { min-height: var(--top-h); padding-left: 0; padding-right: 0; --lead: calc(var(--side-fixed-w) + 16px); }
@@ -818,9 +823,9 @@ body.dragging #drop-hint { display: flex; }
   body.side-pin #title { margin-left: calc(-1 * var(--side-fixed-w)); pointer-events: none; }
   body.side-pin #title > * { pointer-events: auto; }
   .top-end { padding-right: 16px; }
-  #side-edge { position: fixed; z-index: 29; left: 0; top: 0; bottom: 0; width: 8px; }
-  #sidebar { position: fixed; z-index: 30; inset: 0 auto auto -280px; height: var(--app-h, 100dvh);
-    padding-top: calc(var(--fixed-top) + var(--top-h)); transition: left .18s ease; }
+  #side-edge { position: fixed; z-index: 29; left: 0; top: var(--app-top, 0px); height: var(--app-h, 100dvh); width: 8px; }   /* the visible strip */
+  #sidebar { position: fixed; z-index: 30; inset: var(--app-top, 0px) auto auto -280px; height: var(--app-h, 100dvh);
+    padding-top: calc(var(--inset-top) + var(--top-h)); transition: left .18s ease; }
   body.side-peek #sidebar, #sidebar:has(:focus-visible) { left: 0; box-shadow: 4px 0 24px rgba(0, 0, 0, .16); }
   body.side-pin #sidebar, body.side-pin #sidebar:has(:focus-visible) { position: static; z-index: auto; height: auto; box-shadow: none; transition: none; }
   body.side-pin #side-edge { display: none; }   /* nothing to peek: it is open */

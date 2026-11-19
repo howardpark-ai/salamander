@@ -2764,7 +2764,8 @@ function goLive() {
 // scrolls the page up by about the keyboard, so the visual viewport sits vtop = visualViewport.offsetTop below the
 // layout viewport's top (0 on Android Chrome and on desktop). A shell of the right height at the page top then has its
 // first vtop pixels (the title bar) above the screen and an empty band of the page under it, between the composer and
-// the keyboard. --app-top is that offset, and #app, the narrow sidebar and the shell drawer (style.css) follow it.
+// the keyboard. --app-top is that offset, and #app, the narrow sidebar, the shell drawer and the wide layout's fixed pieces (the
+// toggle and header block, the edge strip, the closed sidebar; style.css, --fixed-top) follow it.
 const shellFit = { h: null, top: null, raf: 0, late: 0 };
 function fitShell() {
   shellFit.raf = 0;
