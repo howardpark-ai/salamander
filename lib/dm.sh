@@ -157,8 +157,10 @@ dm_cache_file() { printf '%s' "$SALA_STATE_DIR/dm/$1.channel"; }
 dm_cache_read() {   # <app> → DM_CHANNEL; 1 when there is none, it is not this member's and this API's, or it is not a channel id
     # only the first line counts (later lines are ignored); it is split on tabs by hand, never by `read`, whose IFS would take a run of tabs for one
     # separator and let an empty field shift the others: exactly three fields, or no cache
-    local line="" tab=$'\t' re u b c
-    { IFS= read -r line < "$(dm_cache_file "$1")" || [ -n "$line" ]; } 2>/dev/null || return 1
+    # bash drops a NUL byte when it reads, so `D0ABC<NUL>JUNK` would pass for `D0ABCJUNK` or a NUL after the id for a clean line: a first line holding any NUL is no cache
+    local f line="" tab=$'\t' re u b c; f=$(dm_cache_file "$1")
+    [ "$(head -n 1 -- "$f" 2>/dev/null | tr -cd '\0' | wc -c)" = 0 ] || return 1
+    { IFS= read -r line < "$f" || [ -n "$line" ]; } 2>/dev/null || return 1
     re="^([^$tab]*)$tab([^$tab]*)$tab([^$tab]*)\$"
     [[ $line =~ $re ]] || return 1
     u=${BASH_REMATCH[1]} b=${BASH_REMATCH[2]} c=${BASH_REMATCH[3]}   # the next =~ resets BASH_REMATCH
@@ -238,6 +240,12 @@ dm_cmd_set_token() {   # <app>
     echo "stored token for $app"
 }
 
+# dm_thread_check <value>: a --thread value is a message ts such as 1700000000.000100; 1 (with the usage line) when it is empty or not one
+dm_thread_check() {
+    [ -n "$1" ] || { dm_err "--thread needs a message ts, got an empty value"; return 1; }
+    [[ $1 =~ ^[0-9]+\.[0-9]+$ ]] || { dm_err "--thread takes a message ts such as 1700000000.000100, got '$1'"; return 1; }
+}
+
 dm_main() {
     local app="" thread="" text="" have_text=0 mode=post rc tf
     case "${1:-}" in
@@ -259,18 +267,17 @@ dm_main() {
     app=$1; shift
     while [ $# -gt 0 ]; do
         case "$1" in
-            --thread)   # an empty value is refused where it is parsed, so a later valid --thread cannot overwrite it
+            --thread)   # each value is checked where it is parsed, so a later valid --thread cannot overwrite a bad one
                 [ $# -ge 2 ] || { dm_err "--thread needs a message ts"; return 2; }
-                [ -n "$2" ] || { dm_err "--thread needs a message ts, got an empty value"; return 2; }
+                dm_thread_check "$2" || return 2
                 thread=$2; shift 2 ;;
             --thread=*)
-                [ -n "${1#--thread=}" ] || { dm_err "--thread needs a message ts, got an empty value"; return 2; }
+                dm_thread_check "${1#--thread=}" || return 2
                 thread=${1#--thread=}; shift ;;
             --) shift; break ;;
             *) break ;;
         esac
     done
-    [[ -z $thread || $thread =~ ^[0-9]+\.[0-9]+$ ]] || { dm_err "--thread takes a message ts such as 1700000000.000100, got '$thread'"; return 2; }
     dm_check_app "$app" || return $?
     if [ $# -gt 1 ]; then dm_err "one TEXT only (quote it, or send it on stdin with -)"; return 2; fi
     if [ $# = 1 ] && [ "$1" != - ]; then text=$1; have_text=1; fi
