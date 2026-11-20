@@ -438,16 +438,17 @@ tmux kill-session -t gamma-foo-sl 2>/dev/null
 
 echo "== the surface follows the project record, not the flag alone: a registered Slack agent spawned without --surface starts in the Slack brief's directory (what tag --auto lists it as)"
 SURFREC="$HOME/surface-record.json"
-# mksurf <json {agent name: [front, surface or ""]}> → a fresh record with one project, projects/foo
+# mksurf <json {agent name: [front, surface or ""]}> → a fresh record with one project, projects/foo. "" is NO surface field (absent: sala);
+# "EMPTY" writes `"surface": ""` and "NULL" writes `"surface": null` (a present, empty value: refused, never read as sala)
 mksurf() { python3 - "$1" > "$SURFREC" <<'PY'
 import json, sys, datetime
 spec = json.loads(sys.argv[1])
-ags = {n: dict({"front": a[0], "role": n.rsplit("-", 1)[-1], "mandate_line": "m"}, **({"surface": a[1]} if a[1] else {})) for n, a in spec.items()}
+ags = {n: dict({"front": a[0], "role": n.rsplit("-", 1)[-1], "mandate_line": "m"}, **({"surface": {"EMPTY": "", "NULL": None}.get(a[1], a[1])} if a[1] else {})) for n, a in spec.items()}
 t = datetime.datetime.now(datetime.timezone.utc)
 print(json.dumps({"schema": 1, "generated": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "projects": {"prj_example": {"id": "prj_example", "key": "projects/foo", "agents": ags}}, "by_key": {"projects/foo": "prj_example"}}))
 PY
 }
-mksurf '{"gamma-foo-rs": [true, "slack"], "gamma-foo-ra": [true, ""], "gamma-foo-rw": [false, ""], "gamma-foo-rb": [false, "slack"], "gamma-foo-rt": [true, "telegram"]}'
+mksurf '{"gamma-foo-rs": [true, "slack"], "gamma-foo-ra": [true, ""], "gamma-foo-rw": [false, ""], "gamma-foo-rb": [false, "slack"], "gamma-foo-rt": [true, "telegram"], "gamma-foo-re": [true, "EMPTY"], "gamma-foo-rn": [true, "NULL"]}'
 HOMED=$(cd "$HOME" && pwd -P)
 rsrun() { SALA_PROJECT_RECORD="$SURFREC" SALA_SLACK_CWD="$SLACKD" run "$@"; }
 rsrun gamma-foo-rs --project projects/foo --role front --dry-run
@@ -480,6 +481,21 @@ SALA_SESSIONS=off rsrun gamma-foo-rs --project projects/foo --role front --dry-r
 [ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && ok "SALA_SESSIONS=off (registry writes off) does not stop the read of the record: a slack entry still starts in the Slack brief's directory" || bad "sessions off, record slack: rc=$RC — $OUT"
 SALA_SESSIONS=off rsrun gamma-foo-ra --project projects/foo --role front --surface slack --dry-run
 [ "$RC" != 0 ] && has "$OUT" "--surface slack conflicts" && ok "SALA_SESSIONS=off: the conflict with the record is refused as well" || bad "sessions off, conflict: rc=$RC — $OUT"
+rsrun gamma-foo-re --project projects/foo --role front --dry-run
+[ "$RC" != 0 ] && has "$OUT" "project record" && has "$OUT" "empty surface: a surface is sala or slack" && ! has "$OUT" "[dry-run]" && ok "an entry with an explicit empty surface (\"\"): the spawn is refused, the message names the project record and the empty value" || bad "record empty: rc=$RC — $OUT"
+rsrun gamma-foo-rn --project projects/foo --role front --dry-run
+[ "$RC" != 0 ] && has "$OUT" "empty surface" && ! has "$OUT" "[dry-run]" && ok "... and an explicit null surface is refused the same way" || bad "record null: rc=$RC — $OUT"
+rsrun gamma-foo-re --project projects/foo --role front --surface sala --dry-run
+[ "$RC" != 0 ] && has "$OUT" "empty surface" && ok "... with --surface sala too (an empty entry is not read as sala)" || bad "record empty, flag sala: rc=$RC — $OUT"
+rsrun gamma-foo-re --dry-run
+[ "$RC" != 0 ] && has "$OUT" "empty surface" && ok "... and a bare spawn of such a name is refused too" || bad "bare empty: rc=$RC — $OUT"
+# a registry that cannot be read must not change the answer: the record alone places the name (it used to fall back to the flag and the default directory)
+REGKEEP="$SALA_SESSIONS_FILE.keep"; cp "$SALA_SESSIONS_FILE" "$REGKEEP"; echo '{this is not json' > "$SALA_SESSIONS_FILE"
+rsrun gamma-foo-rs --project projects/foo --role front --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && ok "a corrupt registry does not change the surface: a slack entry still starts in the Slack brief's directory" || bad "corrupt registry, record slack: rc=$RC — $OUT"
+rsrun gamma-foo-re --project projects/foo --role front --dry-run
+[ "$RC" != 0 ] && has "$OUT" "empty surface" && ok "a corrupt registry does not change a refusal either" || bad "corrupt registry, record empty: rc=$RC — $OUT"
+mv -f "$REGKEEP" "$SALA_SESSIONS_FILE"
 list projects/foo gamma-foo-rs "page line"   # a record that cannot answer: pages.py's stub answers the listing, and the surface is the flag's alone (spawn must not depend on stackshot being reachable)
 SALA_PROJECT_RECORD=/nonexistent SALA_SLACK_CWD="$SLACKD" run gamma-foo-rs --project projects/foo --role front --dry-run
 [ "$RC" = 0 ] && has "$OUT" "cwd $HOMED, model" && ok "a missing record is no refusal: the flag alone decides" || bad "missing record: rc=$RC — $OUT"

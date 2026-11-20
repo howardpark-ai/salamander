@@ -833,6 +833,67 @@ out=$("$SALA" sessions tag --auto sf-copy 2>&1); rc=$?
 out=$("$SALA" sessions tag --auto --surface slack 2>&1); rc=$?
 [ "$rc" != 0 ] && same_file "$REG" "$HOME/reg.before" && ok "tag --auto --surface is refused: the record gives it" || bad "auto --surface: rc=$rc $out"
 
+echo "== the surface: an explicit EMPTY surface in the record (\"\" or null) is refused, an absent field still means sala"
+# A present-but-empty `surface` on an agent entry is no value: the contract defaults only an ABSENT field, so an empty one must not clear a Slack tag.
+i=120; for n in sf-empty sf-null; do i=$((i + 1)); ledger_write add "$n" "44444444-0000-4000-8000-000000000$i" "$n" "$HOME/wa-$n" >/dev/null 2>&1; done
+python3 - "$REC" <<'PY2'
+import json, sys
+d = json.load(open(sys.argv[1])); a = d["projects"]["prj_t1"]["agents"]
+a["sf-empty"] = {"front": True, "role": "x", "mandate_line": "m", "surface": ""}      # present, empty string
+a["sf-null"] = {"front": True, "role": "x", "mandate_line": "m", "surface": None}     # present, JSON null
+json.dump(d, open(sys.argv[1], "w"))
+PY2
+"$SALA" sessions tag sf-empty --role front --project projects/proj-a >/dev/null 2>&1
+"$SALA" sessions tag sf-empty --surface slack >/dev/null 2>&1                          # a Slack tag an empty entry must not clear
+EMPTY_BEFORE=$(for n in sf-empty sf-null; do whole_row "$n"; done)
+[ "$(q sf-empty surface)" = '"slack"' ] && ok "setup: sf-empty is a front row tagged slack; sf-null has no role" || bad "setup empty: $(q sf-empty surface)"
+cp "$REG" "$HOME/reg.before"; : > "$RLOG"
+out=$("$SALA" sessions tag --auto --dry-run 2>&1); rc=$?
+echo "$out" | grep -qE "^sessions tag --auto: left sf-empty \([0-9a-f]{8}\): the record gives it an empty surface: a surface is sala or slack" && ! echo "$out" | grep -q "would tag sf-empty" && same_file "$REG" "$HOME/reg.before" && ok "--auto --dry-run: an empty surface on a row with a role is reported with the reason, and not as a clear of its slack" || bad "dry run, empty: rc=$rc $out"
+echo "$out" | grep -qE "^sessions tag --auto: left sf-null \([0-9a-f]{8}\): the record gives it an empty surface" && ok "--auto --dry-run: a JSON null surface is reported the same way" || bad "dry run, null: $out"
+out=$("$SALA" sessions tag --auto 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "left sf-empty " && echo "$out" | grep -q "left sf-null " && [ "$(for n in sf-empty sf-null; do whole_row "$n"; done)" = "$EMPTY_BEFORE" ] && [ "$(q sf-empty surface)" = '"slack"' ] && ok "tag --auto: rows with an empty or null surface are left whole (the Slack tag stays, the role-less row gets no project or role)" || bad "bulk empty: rc=$rc $out"
+out=$("$SALA" sessions tag --auto sf-empty 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "left sf-empty .*empty surface" && [ "$(whole_row sf-empty)" = "$(sed -n 1p <<< "$EMPTY_BEFORE")" ] && ok "tag --auto NAME on a row with a role and an empty surface: the reason said, exit 0, the row unchanged" || bad "named empty: rc=$rc $out"
+out=$("$SALA" sessions tag --auto sf-null 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "left sf-null .*empty surface" && [ "$(whole_row sf-null)" = "$(sed -n 2p <<< "$EMPTY_BEFORE")" ] && ok "tag --auto NAME on a role-less row with a null surface: exit 0, the row untouched" || bad "named null: rc=$rc $out"
+"$SALA" sessions tag sf-empty --surface sala >/dev/null 2>&1                            # put the row back: the listings below count the slack rows
+[ "$(has_field sf-empty surface)" = no ] && ok "teardown: sf-empty is a sala row again" || bad "teardown: $(q sf-empty surface)"
+
+echo "== record-surface: reads only the project record (a registry that is missing, corrupt or unreadable changes nothing), exit 3 / 4 / 5"
+rsf() { sessions_py record-surface "$1" ${2:+--project "$2"} --record "${RSF_REC:-$REC}" --record-max-age 600 2>&1; }
+out=$(rsf sf-new); rc=$?;      [ "$rc" = 0 ] && [ "$out" = slack ] && ok "record-surface: a slack entry answers slack" || bad "rsf slack: rc=$rc $out"
+out=$(rsf sf-stale); rc=$?;    [ "$rc" = 0 ] && [ "$out" = sala ] && ok "record-surface: an entry with no surface field answers sala" || bad "rsf absent: rc=$rc $out"
+out=$(rsf fa projects/proj-a); rc=$?; [ "$rc" = 0 ] && [ "$out" = sala ] && ok "record-surface NAME --project P reads P's map" || bad "rsf project: rc=$rc $out"
+out=$(rsf sf-empty); rc=$?;    [ "$rc" = 5 ] && echo "$out" | grep -q "empty surface: a surface is sala or slack" && ok "record-surface: an empty surface is exit 5 with the reason" || bad "rsf empty: rc=$rc $out"
+out=$(rsf sf-null); rc=$?;     [ "$rc" = 5 ] && echo "$out" | grep -q "empty surface" && ok "record-surface: a JSON null surface is exit 5 as well" || bad "rsf null: rc=$rc $out"
+out=$(rsf sf-bad); rc=$?;      [ "$rc" = 5 ] && echo "$out" | grep -q "surface 'telegram'" && ok "record-surface: a surface sala does not know is exit 5" || bad "rsf telegram: rc=$rc $out"
+out=$(rsf sf-back); rc=$?;     [ "$rc" = 5 ] && echo "$out" | grep -q "slack agent is a front agent" && ok "record-surface: a back agent called slack is exit 5" || bad "rsf back slack: rc=$rc $out"
+out=$(rsf no-such-agent); rc=$?; [ "$rc" = 3 ] && ok "record-surface: a name on no map is exit 3" || bad "rsf unlisted: rc=$rc $out"
+out=$(rsf dd); rc=$?;          [ "$rc" = 3 ] && ok "record-surface: a name on the maps of two projects is exit 3" || bad "rsf two maps: rc=$rc $out"
+out=$(rsf sf-new projects/proj-b); rc=$?; [ "$rc" = 3 ] && ok "record-surface: a name not on P's map is exit 3" || bad "rsf other project: rc=$rc $out"
+out=$(RSF_REC="$HOME/no-such-record.json" rsf sf-new); rc=$?; [ "$rc" = 4 ] && ok "record-surface: a missing record is exit 4" || bad "rsf no record: rc=$rc $out"
+cp "$REC" "$REC.keep"; python3 -c 'import json,sys; f=sys.argv[1]; d=json.load(open(f)); d["generated"]="2020-01-01T00:00:00Z"; json.dump(d, open(f,"w"))' "$REC"
+out=$(rsf fa); rc=$?; [ "$rc" = 4 ] && ok "record-surface: a stale record is exit 4" || bad "rsf stale: rc=$rc $out"
+mv "$REC.keep" "$REC"
+cp "$REG" "$HOME/reg.good2"
+reg_cases() {  # <label>: the answers are the same whatever state the registry file is in
+    local label=$1 out rc
+    out=$(rsf sf-new); rc=$?;   [ "$rc" = 0 ] && [ "$out" = slack ] && ok "record-surface, registry $label: slack still answers slack" || bad "rsf $label slack: rc=$rc $out"
+    out=$(rsf fa); rc=$?;       [ "$rc" = 0 ] && [ "$out" = sala ] && ok "record-surface, registry $label: sala still answers sala" || bad "rsf $label sala: rc=$rc $out"
+    out=$(rsf sf-empty); rc=$?; [ "$rc" = 5 ] && ok "record-surface, registry $label: an empty surface is still exit 5" || bad "rsf $label empty: rc=$rc $out"
+    out=$(rsf no-such-agent); rc=$?; [ "$rc" = 3 ] && ok "record-surface, registry $label: an unlisted name is still exit 3" || bad "rsf $label unlisted: rc=$rc $out"
+    out=$(RSF_REC="$HOME/no-such-record.json" rsf fa); rc=$?; [ "$rc" = 4 ] && ok "record-surface, registry $label: a missing record is still exit 4" || bad "rsf $label no record: rc=$rc $out"
+}
+echo '{this is not json' > "$REG";           reg_cases corrupt
+echo '{"schema": 1}' > "$REG";                reg_cases "without a sessions object"
+rm -f "$REG";                                 reg_cases missing
+cp "$HOME/reg.good2" "$REG"; chmod 000 "$REG"; reg_cases unreadable
+chmod 600 "$REG"; cp "$HOME/reg.good2" "$REG"
+same_file "$REG" "$HOME/reg.good2" && ok "the registry is back as it was" || bad "registry not restored"
+out=$(sessions_py slack-names 2>&1); rc=$?
+[ "$rc" = 0 ] && ok "slack-names reads the registry again" || bad "slack-names after restore: rc=$rc $out"
+
 echo "== the surface: a manual tag, its refusals, and the value read back"
 out=$("$SALA" sessions tag sf-man --role front --surface slack 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(q sf-man surface)" = '"slack"' ] && [ "$(q sf-man role)" = '"front"' ] && ok "tag --role front --surface slack sets both" || bad "tag: rc=$rc $out"
