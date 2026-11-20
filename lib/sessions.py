@@ -34,7 +34,7 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
                                                                              one under background: is back); a role already on a row is never touched; a
                                                                              name the record does not list is left, with the reason. A row the record lists on
                                                                              one project also takes that agent's `surface` (slack only; a record entry
-                                                                             without it clears a stale slack), role or not. Exit 0 done, 3 the
+                                                                             without the field clears a stale slack; an empty one is refused), role or not. Exit 0 done, 3 the
                                                                              one named session is on no agents map, 4 the record cannot answer (missing,
                                                                              stale, unreadable: nothing written)
   back-names [--record F] [--record-max-age S] [--roles F] [--roles-max-age S]
@@ -53,8 +53,9 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
                                                                              --project is given, else on the one project that lists it): `slack` or `sala`
                                                                              on stdout, exit 0. Exit 3 the record does not place the name (on no map, or on
                                                                              several projects), 4 the record cannot answer, 5 it places it but the surface
-                                                                             cannot be used (a value sala does not know, a back agent called slack); the
-                                                                             reason on stderr. `spawn` asks it before choosing the start directory
+                                                                             cannot be used (an empty or null surface, a value sala does not know, a back
+                                                                             agent called slack); the reason on stderr. It reads only the project record
+                                                                             (never the registry). `spawn` asks it before choosing the start directory
   list [--all] [--json]                                                      the registry, read-only (a slack row shows [slack] after its role; --json
                                                                              carries `surface` only on such a row)
   resolve REF [--live] [--json]                                              phase 3, read-only: REF is a session id (or a unique prefix of 8+
@@ -513,9 +514,19 @@ class RecordUnavailable(Exception):
     pass
 
 
+def _record_surface(ag):
+    """The `surface` of a record entry, keeping an ABSENT field (None: the contract defaults it to sala) apart from a PRESENT one that holds no
+    value (an empty string or a JSON null, both returned as ""): the second is refused, never read as sala (it could clear a Slack tag)."""
+    if "surface" not in ag:
+        return None
+    v = ag["surface"]
+    return "" if v is None else v
+
+
 def load_record(path, max_age):
     """name -> [(project page key, front, surface)] for every agent of every live project in the project record (surface: the entry's `surface` as
-    written, None when it has none, which is a sala session); RecordUnavailable with the reason."""
+    written; None when the entry has NO such field, which is a sala session; "" when the field is there and empty or null, which is no value and
+    is never read as sala, see _surface_unusable); RecordUnavailable with the reason."""
     if not path:
         raise RecordUnavailable("no project record is configured")
     try:
@@ -542,7 +553,7 @@ def load_record(path, max_age):
             continue
         for name, ag in p["agents"].items():
             if isinstance(ag, dict) and isinstance(ag.get("front"), bool):
-                out.setdefault(name, []).append((p["key"], ag["front"], ag.get("surface")))
+                out.setdefault(name, []).append((p["key"], ag["front"], _record_surface(ag)))
     return out
 
 
@@ -639,9 +650,12 @@ def _surface_hit(row, rec):
 
 
 def _surface_unusable(front, surface):
-    """Why a surface the record gives cannot be used (a value sala does not know, a back agent called slack), else None."""
-    if surface in (None, ""):
+    """Why a surface the record gives cannot be used (an empty value, a value sala does not know, a back agent called slack), else None. None is an
+    entry with no `surface` field: sala, as the contract says. An empty string or a JSON null is a field that is there with no value: unusable."""
+    if surface is None:
         return None
+    if surface == "":
+        return "the record gives it an empty surface: a surface is %s (leave the field out for a sala session)" % " or ".join(SURFACES)
     if surface not in SURFACES:
         return "the record gives it surface '%s': a surface is %s" % (surface, " or ".join(SURFACES))
     if surface == "slack" and not front:
@@ -651,15 +665,16 @@ def _surface_unusable(front, surface):
 
 def derive_surface(row, rec):
     """(surface, None) for a live row the record lists on exactly one project (the same match as derive_role): `slack` when that agent's entry says so,
-    `sala` when it says nothing (so a stale slack on the row is cleared); (None, why it is left) for a row the record does not place, a side session,
-    an entry that gives a surface sala does not know, or a back agent that the record calls slack (a slack agent is a front agent)."""
+    `sala` when the entry has no `surface` field (so a stale slack on the row is cleared); (None, why it is left) for a row the record does not
+    place, a side session, an entry whose `surface` is empty (or null) or a surface sala does not know, or a back agent that the record calls slack
+    (a slack agent is a front agent)."""
     hit, why = _surface_hit(row, rec)
     if hit is None:
         return None, why
     why = _surface_unusable(hit[1], hit[2])
     if why:
         return None, why
-    return (hit[2] if hit[2] not in (None, "") else DEFAULT_SURFACE), None
+    return (hit[2] if hit[2] is not None else DEFAULT_SURFACE), None
 
 
 def surface_refusal(row, rec):
@@ -747,9 +762,9 @@ def cmd_tag_auto(R, a):
     return 0
 
 
-def cmd_record_surface(R, a):
+def cmd_record_surface(a):
     """Read-only: `record-surface NAME [--project P]`, the surface the project record gives the agent NAME, the same reading `tag --auto` uses
-    (derive_surface): `slack` or `sala` on stdout. Exit 3 the record does not place the name (on no map, not on P's map, or on several projects),
+    (derive_surface): `slack` or `sala` on stdout. It reads the project record and nothing else (it takes no registry). Exit 3 the record does not place the name (on no map, not on P's map, or on several projects),
     4 the record cannot answer, 5 it places the name with a surface that cannot be used (the reason on stderr)."""
     if len(a.args) != 1:
         raise RegistryError("record-surface needs exactly one agent name")
@@ -1182,7 +1197,9 @@ def main():
     rc = 0
     if a.cmd in ("resolve", "transcript", "back-names", "front-names", "slack-names", "record-surface"):  # read-only to the letter: not even an error line in sessions.log
         try:
-            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names, "front-names": cmd_front_names, "slack-names": cmd_slack_names, "record-surface": cmd_record_surface}[a.cmd](R.load(), a)
+            if a.cmd == "record-surface":   # answers from the project record alone: the registry is never opened, so one that is missing, corrupt or unreadable cannot change the answer (spawn's start directory follows it)
+                return cmd_record_surface(a)
+            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names, "front-names": cmd_front_names, "slack-names": cmd_slack_names}[a.cmd](R.load(), a)
         except Exception as e:
             print("sessions %s: %s" % (a.cmd, e), file=sys.stderr)
             return 1
