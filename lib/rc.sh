@@ -22,6 +22,17 @@
 #                      (refused for a session a live pane is bridged to); --unarchive ID… undoes it
 #                      the CLI itself uses (POST /v1/code/sessions/<id>/archive, OAuth bearer from
 #                      ~/.claude/.credentials.json — never printed). UNOFFICIAL: non-200 → do it on claude.ai.
+#   rc --titles [--apply (--only NAME… | --all)]
+#                      claude.ai shows each pane's Remote Control session under a title written once, when the
+#                      bridge session is made, and changed afterwards only by a rename inside the CLI: a pane started
+#                      with --name never renames, so its title can stay an auto-generated name while its sala name is
+#                      right everywhere else. Bare: a read-only table of the live bridged panes whose claude.ai title
+#                      differs from the pane's name (exit 0 either way; a pane whose session is past the first 100
+#                      is counted as "not listed", never guessed). --apply --only NAME… sets just those panes' titles
+#                      to their names (PUT /v1/code/sessions/<id> {"title": NAME}, the same UNOFFICIAL endpoint family
+#                      as --archive), then re-reads and says ok or FAILED per pane; --apply alone is refused, --all
+#                      applies to every differing pane. Only a name in [a-z0-9-] with nameSource user; idempotent.
+#                      SALA_ANTHROPIC_API (default https://api.anthropic.com) moves the API for a test.
 #   rc --run           (internal) the loop, inside the pane
 #
 # Env pins (emergency only; leave unset so served sessions follow settings.json like every pane):
@@ -126,6 +137,111 @@ print(f"    {sid}  status={d.get('status')}  web={d.get('bridgeSessionId')}  fir
 PY
     done
     [ "$found" = 1 ] || echo "    (none)" ;;
+--titles)
+    shift; tapply=0; tall=0; tonly=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --apply) tapply=1; shift ;;
+            --all) tall=1; shift ;;
+            --dry-run) shift ;;
+            --only) [ $# -ge 2 ] && [ -n "$2" ] || rcdie "--only needs a pane name"; tonly+="$2"$'\n'; shift 2 ;;
+            --only=?*) tonly+="${1#--only=}"$'\n'; shift ;;
+            *) rcdie "--titles: unknown argument '$1' (see: salamander rc --help)" ;;
+        esac
+    done
+    [ "$tapply" = 0 ] || [ "$tall" = 1 ] || [ -n "$tonly" ] || rcdie "--titles --apply needs --only NAME (repeatable) to name the panes; a bulk apply to every differing pane needs --all"
+    [ "$tapply" = 1 ] || [ "$tall" = 0 ] || rcdie "--titles --all needs --apply (the bare form is the read-only list)"
+    [ "$tall" = 0 ] || [ -z "$tonly" ] || rcdie "--titles: --all and --only are two ways to choose the panes; use one"
+    # the live bridged panes (as live_pane_for_bridge: a registry row with a tmux session, pid alive, not an RC child; the bridge id from the
+    # row, else the transcript's last remote_session_change): name TAB bridge id TAB nameSource. With --only, only those names are looked at.
+    panes=""
+    for f in "$SALA_REG_DIR"/*.json; do
+        [ -r "$f" ] || continue; pid=${f##*/}; pid=${pid%.json}; case "$pid" in ''|*[!0-9]*) continue;; esac
+        kill -0 "$pid" 2>/dev/null || continue
+        registry_field_r tn "$pid" tmux; [ -n "$tn" ] || continue
+        is_rc_child "$pid" && continue
+        registry_field_r pname "$pid" name
+        if [ -n "$tonly" ]; then case $'\n'"$tonly" in *$'\n'"$pname"$'\n'*) ;; *) continue ;; esac; fi
+        registry_field_r psrc "$pid" nameSource; registry_field_r pb "$pid" bridgeSessionId
+        if [ -z "$pb" ] || [ "$pb" = null ]; then registry_field_r psid "$pid" sessionId; pb=$(bridge_for_uuid "$psid" 2>/dev/null); fi
+        [ -n "$pb" ] && [ "$pb" != null ] || continue
+        panes+="$pname"$'\t'"$pb"$'\t'"$psrc"$'\n'
+    done
+    TITLES_PANES="$panes" TITLES_ONLY="$tonly" TITLES_ALL="$tall" TITLES_APPLY="$tapply" python3 - <<'PY'
+import json, sys, os, re, urllib.request, urllib.error
+base = os.environ.get('SALA_ANTHROPIC_API', 'https://api.anthropic.com').rstrip('/')
+apply_ = os.environ['TITLES_APPLY'] == '1'
+only = [x for x in os.environ['TITLES_ONLY'].split('\n') if x]
+try: tok = json.load(open(os.path.expanduser('~/.claude/.credentials.json')))['claudeAiOauth']['accessToken']
+except Exception: print('rc --titles: no claude.ai login found in ~/.claude/.credentials.json'); sys.exit(1)
+H = {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', 'anthropic-client-platform': 'cli'}
+def safe(x): return str(x).replace(tok, '<token>') if tok else str(x)
+def call(method, path, body=None):  # (status, text); a network failure is status 0 and its reason, never a traceback
+    req = urllib.request.Request(base + path, data=None if body is None else json.dumps(body).encode(), headers=H, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r: return r.status, r.read().decode('utf-8', 'replace')
+    except urllib.error.HTTPError as e: return e.code, e.read().decode('utf-8', 'replace')
+    except Exception as e: return 0, f'{type(e).__name__}: {e}'
+def cloud():  # claude.ai id without its prefix -> the session row; None when the list cannot be read (the reason printed)
+    st, txt = call('GET', '/v1/code/sessions?limit=100')
+    if st != 200: print(f'rc --titles: cannot list claude.ai sessions: HTTP {st} {safe(txt)[:200]}'); return None
+    try: d = json.loads(txt)
+    except Exception: print('rc --titles: the session list is not JSON'); return None
+    rows = (d.get('data') or d.get('items') or []) if isinstance(d, dict) else []
+    return {x['id'].split('_', 1)[1]: x for x in rows if isinstance(x, dict) and '_' in str(x.get('id', ''))}
+def clean(t): return '(none)' if t is None else str(t).replace('\n', ' ')
+cl = cloud()
+if cl is None: sys.exit(1)
+panes = {}; order = []
+for line in os.environ['TITLES_PANES'].split('\n'):
+    f = line.split('\t')
+    if len(f) == 3 and f[0] not in panes: panes[f[0]] = f; order.append(f[0])
+listed, notlisted = [], []
+for n in order:
+    b = panes[n][1]; row = cl.get(b.split('_', 1)[1]) if '_' in b else None
+    (listed if row else notlisted).append((n, row))
+def eligible(n):
+    if not re.fullmatch(r'[a-z0-9-]+', n): return 'its name is not in [a-z0-9-]'
+    if panes[n][2] != 'user': return f'its nameSource is {panes[n][2] or "unset"}, not user'
+    return ''
+if not apply_:
+    diff = [(n, r) for n, r in listed if r.get('title') != n]
+    if diff:
+        w = max(len(n) for n, _ in diff)
+        print(f"{'NAME':<{w}}  {'CLAUDE.AI TITLE':<40}  STATUS")
+        for n, r in diff:
+            why = eligible(n)
+            print(f"{n:<{w}}  {clean(r.get('title'))[:40]:<40}  {r.get('status', '?')}/{r.get('connection_status', '?')}{'  (cannot be set: ' + why + ')' if why else ''}")
+        print(f'{len(diff)} of {len(listed)} bridged panes carry another title: salamander rc --titles --apply --only NAME [--only NAME]… (or --all)')
+    else: print(f'all {len(listed)} bridged panes carry their sala name')
+    if notlisted: print(f"not listed ({len(notlisted)}): {', '.join(n for n, _ in notlisted)}  (their claude.ai session is not in the first 100 sessions)")
+    sys.exit(0)
+rc = 0; todo = []; lrow = dict(listed)
+names = only if only else [n for n, r in listed if r.get('title') != n]
+for n in names:
+    if n not in panes: print(f'FAILED  {n}  no live bridged pane of that name'); rc = 1; continue
+    row = lrow.get(n)
+    if row is None: print(f'FAILED  {n}  not listed: its claude.ai session is not in the first 100 sessions'); rc = 1; continue
+    why = eligible(n)
+    if why:  # named by --only: a refusal; picked by --all: a pane it cannot set is left out, said, and not a failure
+        if only: print(f'FAILED  {n}  refused: {why}'); rc = 1
+        else: print(f'skip    {n}  {why}')
+        continue
+    if row.get('title') == n: print(f'ok      {n}  already carries its name'); continue
+    st, txt = call('PUT', '/v1/code/sessions/cse_' + panes[n][1].split('_', 1)[1], {'title': n})
+    if st != 200: print(f'FAILED  {n}  HTTP {st} {safe(txt)[:200]}'); rc = 1; continue
+    todo.append(n)
+if todo:
+    after = cloud()
+    for n in todo:
+        r = (after or {}).get(panes[n][1].split('_', 1)[1])
+        if r and r.get('title') == n: print(f'ok      {n}  title set')
+        elif r: print(f"FAILED  {n}  set, but the re-read shows {clean(r.get('title'))!r}"); rc = 1
+        else: print(f'FAILED  {n}  set, but the re-read could not find the session'); rc = 1
+if not names: print(f'all {len(listed)} bridged panes carry their sala name')
+sys.exit(rc)
+PY
+    ;;
 --archive|--unarchive)
     action=${cmd#--}; shift; [ $# -gt 0 ] || rcdie "--$action needs one or more web session ids (session_… or cse_…)"
     # REFUSE to archive a session that a LIVE pane on this box is bridged to: that hides the session the user is

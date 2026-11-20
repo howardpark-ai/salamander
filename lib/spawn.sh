@@ -745,6 +745,13 @@ if [ -n "$LANE_OPT" ]; then echo "   lane    : $LANE ($([ -n "$LANE_ROW" ] && ec
 else echo "   lane    : $LANE (the default; sala lane <lane> $NAME gives it one of its own)"; fi
 [ -z "$BACK_RULE_NOTE" ] || echo "             $BACK_RULE_NOTE"
 echo "   conv    : ${ruuid:-?}${FORK:+   (forked from $FORK — archive the original: salamander rc --archive <web id>)}"
+# THE CLAUDE.AI TITLE: claude.ai names the bridge session once, when it is made, and a pane started with --name never renames it, so it can
+# keep an auto-generated name. Set it to the pane's name now that the bridge id is known (rc --titles, lib/rc.sh). Best effort and bounded: no bridge
+# id yet or no claude.ai login file = nothing; a failure is one warning line and never fails the spawn.
+if [ -n "${rbridge:-}" ] && [ "$rbridge" != "—" ] && [ -r "$HOME/.claude/.credentials.json" ]; then
+    tout=$(timeout --kill-after=2 8 "$SALA_BIN" rc --titles --apply --only "$NAME" 2>&1 </dev/null) \
+        || echo "   ⚠ the claude.ai title was not set to '$NAME' ($(printf '%s\n' "$tout" | grep -v '^ok ' | head -1 | cut -c1-160)): sala rc --titles --apply --only $NAME retries it"
+fi
 if [ -n "${rbridge:-}" ] && [ "$rbridge" != "—" ]; then echo "   remote  : https://claude.ai/code/${rbridge}"
 elif ! lane_rc "$LANE"; then echo "   remote  : none — no Remote Control on the $(lane_shown "$LANE") lane (no claude.ai login behind it)"
 else echo "   remote  : no bridge yet — check /rc in the pane, or run /remote-control there"; fi
