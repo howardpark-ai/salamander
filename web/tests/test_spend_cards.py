@@ -259,7 +259,7 @@ def test_the_spend_answer_of_a_dormant_lane_has_its_figures_and_the_record(world
         fresh = {"lanes": [], "pending": True}
         world["app"].state.spend._swr.state = fresh
         stub = c.get("/api/spend").json()
-        assert {"lane": "aws-platform", "dormant": {"reason": "no workspace", "since": SINCE}} in stub["lanes"], stub
+        assert {"lane": "aws-platform", "dormant": {"reason": "no workspace", "since": SINCE}, "api_limit": None} in stub["lanes"], stub
 
 
 def test_models_without_a_price_and_sessions_without_a_transcript_are_said_in_plain_words(world, aws, page, browser):

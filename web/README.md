@@ -545,6 +545,16 @@ without a list price listed on the card as not counted, never as $0. Model ids a
 is `claude-opus-5-5`). Only transcripts under `claude_dir/projects` are read, and only the sessions that are or were on an AWS
 lane, from files modified since the month began, each read from where the last read stopped (a cache of offsets and the
 month's messages in `state_dir/spend-scan.json`); nothing but ids, times, model names and token counts is kept or sent, no prompt, no reply, no tool input.
+**The API spend limit (the aws-platform card's strip).** One line under the figure, above the estimate line: `Limit $1,000 · Tier 3 · Paused until Tue Dec 1st`
+(the day in the `SALA_TZ` zone). The three facts come from Anthropic's "Monthly Claude API Spend Exceeding Thresholds" emails: a briefing job
+(`contrib/briefing/aws-limit.sh`) keeps the newest one's limit, tier and pause-until instant in `aws-api-limit.json` in sala's state directory, and
+`GET /api/spend` puts them on the aws-platform lane's entry as `api_limit` (`limit`, `tier`, `pausedUntil`, `emailDate`, `fetchedAt`, `org`,
+`stale`, `staleDays`, `pauseEnded`; `null` when the file is missing, unreadable or incomplete, and then the card has no strip and no error). The
+file is read at each ask, so the flags are the moment's. The line never wraps: a narrow card cuts its end with an ellipsis, and the tooltip is the whole
+text with the pause instant's time and zone, the email's date and the source. A newest email **more than 14 days old** keeps the figures and adds a second
+line, `as of Mon Nov 9th, no newer email`; once the pause-until instant has passed the strip says `Pause ended Tue Dec 1st` instead of `Paused until`
+(and keeps that second line if the email is stale). Only the Overview card carries the strip; the lane's details page does not.
+
 **Which lane a message was on** is not in the transcript or its folder (both AWS lanes run with the default config directory), so it is worked
 out from sala's records: `lanes.log` (the lane a session was put on and when, a rename followed through its aliases,
 `(default)` read as the default lane then), the lane of each live claude process this page sees (its environment, from the

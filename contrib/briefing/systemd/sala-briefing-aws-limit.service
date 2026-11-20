@@ -1,0 +1,13 @@
+[Unit]
+Description=sala briefing — API spend limit: reads Anthropic's "Monthly Claude API Spend Exceeding Thresholds" email and keeps the limit, tier and pause date for the aws-platform card (contrib/briefing/aws-limit.sh)
+# No model call: aws_limit.py reads the mailbox through the portal (gmail_fetch.py's read-only Gmail reads) and writes one small JSON file
+# (docs/overview.md, "The API spend limit"). Settings: BRIEFING_GMAIL_CONNECTOR, BRIEFING_LEAN_PORTAL_URL and SALA_AWS_LIMIT_ORG in the sala config.
+X-Model-Lane=none
+X-Project=sala/salamander
+X-Model-Note=no model call
+
+[Service]
+Type=oneshot
+# the script appends its own output to cron.log in its log directory (lib.sh: BRIEFING_CRON_LOG; BRIEFING_LOGDIR, the sala config's line)
+Environment=BRIEFING_CRON_LOG=1
+ExecStart=%h/salamander/contrib/briefing/aws-limit.sh
