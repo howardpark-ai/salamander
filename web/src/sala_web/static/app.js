@@ -274,10 +274,12 @@ async function loadSessions() {
   }
 }
 
-// background agents work out of the owner's sight: hidden unless the toggle is on (or one is selected)
+// background agents and Slack agents (the owner talks to a Slack agent in Slack: its payload carries surface "slack") work out of the
+// owner's sight: hidden unless the toggle is on (or one is selected)
 const HIDDEN_ROLES = new Set(["back"]);
+const hiddenFromList = (s) => HIDDEN_ROLES.has(s.role) || s.surface === "slack";
 const visibleSessions = (g) => {
-  const shown = orderedSessions(g).filter((s) => state.prefs.showAll || !HIDDEN_ROLES.has(s.role) || s.name === state.selected);
+  const shown = orderedSessions(g).filter((s) => state.prefs.showAll || !hiddenFromList(s) || s.name === state.selected);
   return state.prefs.unreadOnly ? unreadKept(shown, state.selected) : shown;   // "Unread only": the Unread entry, below
 };
 
@@ -288,7 +290,7 @@ const visibleSessions = (g) => {
    after the read marker kept in state_dir/read-state.json, so the phone and the desktop agree, at most 10 a session) and
    sends `unread_count` with every session. The open session never shows one: opening it, and any reply that lands while it
    is open and the page is in view, moves its marker up to its latest reply (POST api/read; the server takes the time from the
-   transcript). Background agents never get a count (the server sends them 0).
+   transcript). Background agents and Slack agents never get a count (the server sends them 0).
 
    The Unread entry under Overview shows the total of those counts and, tapped, turns the "Unread only" filter on (tap again: off): the
    list then holds only the agents with an unread reply, under their project and scope headings, plus the open one until the owner

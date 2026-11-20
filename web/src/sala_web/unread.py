@@ -9,7 +9,8 @@ listed (entries not seen for SEEN_KEEP_DAYS are dropped, so the file does not gr
 `annotate` sets two fields on every session: `unread_count`, the number of replies with a timestamp after "read", and
 `unread`, which is `unread_count > 0`. A reply is the text of a turn that ended (transcript._ends_turn: a main-thread
 assistant line with text that is not followed by a tool call; narration between tool calls is not one). Only a front
-agent (stackshot's role `front`) has a count; a background agent, a quick session and a session with no project have 0.
+agent (stackshot's role `front`) has a count; a background agent, a Slack agent (`surface` "slack": the owner reads it in Slack,
+so it has no read-marker row either), a quick session and a session with no project have 0.
 A turn still running does not count yet: while the session is not `idle` (busy, or waiting for an answer) only a line that
 says it ended its turn counts, so the text being written at this moment is left out, and the replies of turns that already
 ended stay counted. A session with no entry yet is on first sight: its entry is made at the latest reply's time, so
@@ -138,7 +139,7 @@ class ReadState:
                     for s in g["sessions"]:
                         s["unread"] = False
                         s["unread_count"] = 0
-                        if s.get("role") != "front":
+                        if s.get("role") != "front" or s.get("surface") == "slack":
                             continue
                         cwd, sid = s.get("cwd") or "", s.get("sessionId") or ""
                         e = rows.get(s["name"])

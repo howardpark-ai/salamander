@@ -258,6 +258,20 @@ def test_only_an_idle_front_agent_is_ever_unread(store):
         assert s["unread"] is False and s["unread_count"] == 0, role
 
 
+def test_a_slack_agent_has_no_count_and_no_marker_row_while_a_front_agent_without_surface_still_counts(store):
+    st = store["state"]
+    slack = {**sdict("sf-example-a"), "surface": "slack"}
+    plain = sdict("sf-example-b")
+    st.annotate(scopes_of(slack, plain), T0 + 1)
+    append_reply(store, T0 + 5000, "r1")
+    slack, plain = {**sdict("sf-example-a"), "surface": "slack"}, sdict("sf-example-b")
+    st.annotate(scopes_of(slack, plain), T0 + 6000)
+    assert (slack["unread"], slack["unread_count"]) == (False, 0)      # a reply newer than any marker, yet nothing is counted
+    assert (plain["unread"], plain["unread_count"]) == (True, 1)       # a front agent with no surface key counts as before
+    rows = json.loads(store["path"].read_text())["sessions"]
+    assert "sf-example-a" not in rows and "sf-example-b" in rows       # no read-marker row is made for the slack agent
+
+
 def test_a_front_agent_with_no_reply_yet_is_not_unread_and_its_first_reply_is(store):
     store["transcript"].write_text(line("user", T0, [{"type": "text", "text": "hi"}], "u1"))
     assert unread_of(store, sdict("example-alpha-main"), T0 + 1) is False
