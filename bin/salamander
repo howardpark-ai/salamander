@@ -33,7 +33,7 @@
 #                                      mod listing work while no child process runs under the claude — no longer holds the pane)
 #                                      (a claude still running SALA_EXIT_WAIT s after its /exit — a hung process — is ended by its pid, SIGTERM then SIGKILL, and its session
 #                                      resumed: the dry run says "will end a stuck process"; never the master or the session running the command; SALA_EXIT_END=0: never)
-#   salamander rc     [--ensure|--start|--status|--restart|--stop|--archive ID…|--titles [--apply (--only NAME…|--all)]]   (the Remote Control server; retired; --titles: claude.ai session titles)
+#   salamander rc     [--ensure|--start|--status|--restart|--stop|--archive ID…|--titles [--dry-run|--apply (--only NAME (repeatable)|--all)]]   (the Remote Control server; retired; --titles: claude.ai session titles)
 #   salamander map    [--write PATH]
 #   salamander update [HOST…|--fleet] [--check]   CLI update: here (= recycle --update --force), named hosts over ssh, or the whole fleet then here
 #   salamander provision [--check] [HOST…]  the spec's script steps on every box (the others in parallel, this box last, then a recycle); HOST… = just those, no recycle

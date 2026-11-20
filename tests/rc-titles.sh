@@ -83,7 +83,7 @@ export SALA_ANTHROPIC_API="http://127.0.0.1:$(<"$CTL/port")"
 # -- the panes: a live process and a registry row each (name, nameSource, bridge) ---------------------------------------------------------------
 LONG=$(printf 'a%.0s' $(seq 1 120))
 pane() {   # <name> <nameSource> <bridge id>
-    sleep 600 & local pid=$!; PIDS+=("$pid")
+    sleep 600 & local pid=$!; PIDS+=("$pid"); LASTPID=$pid
     printf '{"pid":%s,"sessionId":"sid-%s","name":"%s","nameSource":"%s","tmux":"%s:@1.%%1","cwd":"/","bridgeSessionId":"%s","version":"9.9.9"}\n' "$pid" "$1" "$1" "$2" "$1" "$3" > "$HOME/.claude/sessions/$pid.json"
 }
 pane sf-example-a user session_e1      # title differs
@@ -107,6 +107,16 @@ rows = [("cse_e1", "swift-jaunty-charm"), ("cse_e2", "sf-example-b"), ("cse_e3",
 json.dump([{"id": i, "title": t, "status": "active", "connection_status": "connected"} for i, t in rows], open(sys.argv[1], "w"))
 PY
     : > "$LOG"; rm -f "$CTL/failput"
+}
+settle() {   # every titled session carries its pane's name again (the all-match state of the cloud)
+    python3 -I - "$SESS" "$LONG" <<'PY'
+import json, sys
+names = {"cse_e1": "sf-example-a", "cse_e3": "sf-example-c", "cse_e4": "sf-example-d", "cse_e6": "Sf-Example-F", "cse_e7": sys.argv[2]}
+rows = json.load(open(sys.argv[1]))
+for r in rows:
+    if r["id"] in names: r["title"] = names[r["id"]]
+json.dump(rows, open(sys.argv[1], "w"))
+PY
 }
 title_of() { python3 -I -c 'import json,sys; print(next(r["title"] for r in json.load(open(sys.argv[1])) if r["id"]==sys.argv[2]))' "$SESS" "$1"; }
 nreq() { local n; n=$(grep -c "\"method\": \"$1\"" "$LOG" 2>/dev/null); echo "${n:-0}"; }   # <METHOD>: requests the stub saw
@@ -133,14 +143,7 @@ run --titles --dry-run
 [ "$RC" = 0 ] && grep -q "^sf-example-c " <<< "$OUT" && [ "$(nreq PUT)" = 0 ] && ok "--dry-run is the default spelled out" || bad "--dry-run: rc=$RC $OUT"
 
 echo "== nothing differs: the all-match message, exit 0"
-python3 -I - "$SESS" "$LONG" <<'PY'
-import json, sys
-names = {"cse_e1": "sf-example-a", "cse_e3": "sf-example-c", "cse_e4": "sf-example-d", "cse_e6": "Sf-Example-F", "cse_e7": sys.argv[2]}
-rows = json.load(open(sys.argv[1]))
-for r in rows:
-    if r["id"] in names: r["title"] = names[r["id"]]
-json.dump(rows, open(sys.argv[1], "w"))
-PY
+settle
 run --titles
 [ "$RC" = 0 ] && [ "$(head -1 <<< "$OUT")" = "all 6 bridged panes carry their sala name" ] && has "$OUT" "not listed (1): sf-example-e" && ok "all 6 bridged panes carry their sala name (the unlisted one still reported)" || bad "all-match: rc=$RC $OUT"
 
@@ -176,6 +179,52 @@ run --titles --apply --all
 has "$OUT" "skip    sf-example-d  its nameSource is auto, not user" && has "$OUT" "skip    Sf-Example-F  its name is not in [a-z0-9-]" && [ "$(title_of cse_e4)" = auto-title-d ] && ok "--all leaves the panes it cannot set, and says so" || bad "--all skips: $OUT"
 has "$OUT" "FAILED  $LONG  HTTP 400 " && ok "(the long name's PUT is refused by the API: that one FAILED, so exit 1)" || bad "--all long: $OUT"
 [ "$(nreq PUT)" = 3 ] && ok "--all sent three PUTs (a, c, the long name), none for b, d, F" || bad "--all PUTs: $(nreq PUT)"
+
+echo "== --dry-run with --apply is refused: a requested dry run never renames a session"
+seed; run --titles --apply --dry-run --only sf-example-a
+[ "$RC" != 0 ] && has "$ERR" "--dry-run and --apply contradict" && [ "$(nreq PUT)" = 0 ] && [ ! -s "$LOG" ] && [ "$(title_of cse_e1)" = swift-jaunty-charm ] && ok "--apply --dry-run --only: refused, no request at all, no title changed" || bad "dry-run+apply: rc=$RC err=[$ERR] out=[$OUT] log=$(cat "$LOG")"
+run --titles --dry-run --apply --all
+[ "$RC" != 0 ] && has "$ERR" "--dry-run and --apply contradict" && [ ! -s "$LOG" ] && ok "--dry-run --apply --all: refused too, whichever order" || bad "dry-run+apply+all: rc=$RC err=[$ERR] log=$(cat "$LOG")"
+
+echo "== the help says --only NAME is repeatable (the parser takes one name per --only)"
+run --help
+has "$OUT" "--only NAME (repeatable)" && ! has "$OUT" "--only NAME…" && ok "rc --help: --only NAME (repeatable), no NAME…" || bad "rc help: $(grep -n -- '--titles\|--only NAME' <<< "$OUT")"
+! grep -q -- '--titles.*--only NAME…' "$ROOT/bin/salamander" "$ROOT/docs/subcommands.md" && grep -q -- '--titles.*--only NAME (repeatable)' "$ROOT/bin/salamander" && grep -q -- '--titles.*--only NAME (repeatable)' "$ROOT/docs/subcommands.md" && ok "the usage line and docs/subcommands.md say it too" || bad "usage or docs still say --only NAME…"
+seed; run --titles --apply --only sf-example-a --only sf-example-c
+[ "$RC" = 0 ] && [ "$(title_of cse_e1)" = sf-example-a ] && [ "$(title_of cse_e3)" = sf-example-c ] && [ "$(nreq PUT)" = 2 ] && ok "the documented form --only a --only b sets both" || bad "--only a --only b: rc=$RC $OUT"
+
+echo "== a name two live panes carry is refused before any PUT"
+seed
+pane sf-example-twin user session_e10; TW1=$LASTPID; pane sf-example-twin user session_e11; TW2=$LASTPID
+python3 -I - "$SESS" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+rows += [{"id": "cse_e10", "title": "twin-title-1", "status": "active", "connection_status": "connected"}, {"id": "cse_e11", "title": "twin-title-2", "status": "active", "connection_status": "connected"}]
+json.dump(rows, open(sys.argv[1], "w"))
+PY
+run --titles --apply --only sf-example-twin
+[ "$RC" = 1 ] && has "$OUT" "FAILED  sf-example-twin  ambiguous: 2 live panes" && [ "$(nreq PUT)" = 0 ] && [ "$(title_of cse_e10)" = twin-title-1 ] && ok "--only on an ambiguous name: FAILED listing the clash, exit 1, no PUT" || bad "ambiguous: rc=$RC $OUT log=$(grep PUT "$LOG")"
+run --titles --apply --only sf-example-a --only sf-example-twin
+[ "$RC" = 1 ] && [ "$(nreq PUT)" = 0 ] && [ "$(title_of cse_e1)" = swift-jaunty-charm ] && ok "an ambiguous name among others stops the whole run before any PUT" || bad "ambiguous+other: rc=$RC $OUT"
+run --titles --apply --all
+[ "$RC" = 1 ] && has "$OUT" "ambiguous: 2 live panes" && [ "$(nreq PUT)" = 0 ] && ok "--all refuses on a clash too" || bad "ambiguous --all: rc=$RC $OUT"
+run --titles
+[ "$RC" = 0 ] && has "$OUT" "ambiguous (1): sf-example-twin" && [ "$(nreq PUT)" = 0 ] && ok "the read-only list names the ambiguous name and exits 0" || bad "ambiguous list: rc=$RC $OUT"
+kill "$TW1" "$TW2" 2>/dev/null; rm -f "$HOME/.claude/sessions/$TW1.json" "$HOME/.claude/sessions/$TW2.json"
+
+echo "== --apply --all reports a pane whose session is past the API's first page, and does not exit 0"
+seed; settle; : > "$LOG"; run --titles --apply --all
+[ "$RC" = 1 ] && has "$OUT" "FAILED  sf-example-e  not listed: its claude.ai session is not in the first 100 sessions" && [ "$(nreq PUT)" = 0 ] && ok "all titles match, one pane not in the list: reported, exit 1, no PUT" || bad "--all unlisted (all match): rc=$RC $OUT"
+has "$OUT" "1 could not be checked" && ! has "$OUT" "all 6 bridged panes carry" && ok "the summary does not claim every pane matches" || bad "summary: $OUT"
+seed; settle; python3 -I - "$SESS" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+for r in rows:
+    if r["id"] == "cse_e3": r["title"] = "swift-quiet-otter"
+json.dump(rows, open(sys.argv[1], "w"))
+PY
+: > "$LOG"; run --titles --apply --all
+[ "$RC" = 1 ] && [ "$(title_of cse_e3)" = sf-example-c ] && has "$OUT" "ok      sf-example-c  title set" && has "$OUT" "FAILED  sf-example-e  not listed" && ok "the settable pane is still set, the unlisted one reported, exit 1" || bad "--all unlisted (one differs): rc=$RC $OUT"
 
 echo "== errors: a non-200 (status and the first 200 characters, no token), a too-long title, an unreachable API, no login file"
 seed; echo cse_e3 > "$CTL/failput"; run --titles --apply --only sf-example-c --only sf-example-a
