@@ -42,6 +42,7 @@ class Session:
     parked_job: str | None = None  # the background job its conversation moved into (registry parkedJobId), else None
     agent_id: str | None = None  # sala's permanent id for the agent (sessions.json row id; outlives a rename, a recycle, a /clear), else None
     aliases: tuple[str, ...] = ()  # the names the agent had before (the registry row's aliases)
+    surface: str | None = None  # "slack" for a front agent that answers the owner on Slack (the registry row's or the roles entry's surface); None is a sala session
 
     @property
     def tmux_session(self) -> str:
@@ -76,6 +77,8 @@ class Session:
             out["agentId"] = self.agent_id
             if self.aliases:
                 out["aliases"] = list(self.aliases)
+        if self.surface == "slack":   # only a slack agent carries the key (absent means sala), so every other session's payload is as it was
+            out["surface"] = "slack"
         return out
 
 
@@ -600,6 +603,8 @@ def attach_agent_ids(sessions: list[Session], rows: list[dict]) -> None:
         taken.add(row["id"])
         s.agent_id = row["id"]
         s.aliases = tuple(a for a in row.get("aliases") or [] if isinstance(a, str) and a)
+        if row.get("surface") == "slack":
+            s.surface = "slack"
 
     for s in sessions:   # the conversation first, for every session, so a name match never takes a row another session owns by it
         take(s, by_sid.get(s.session_id))
@@ -683,6 +688,8 @@ def group_sessions(sessions: list[Session], roles: dict[str, dict], side: dict[s
         r = roles.get(s.name) or roles.get(s.session_id) or {}
         s.role = r.get("role")
         s.project = r.get("project")
+        if r.get("surface") == "slack":   # the roles file's entry says so too (only when slack); the registry row's mark, set by attach_agent_ids, stays
+            s.surface = "slack"
         rec = side.get(s.name)
         if rec:
             s.side = {"kind": rec["kind"], "origin": rec["origin"], "item": rec["item"]}
@@ -731,6 +738,7 @@ def overview_rows(sessions: list[Session], roles: dict[str, dict], side: dict[st
                     "projectTitle": g["title"] if s["project"] else None,
                     "role": s["role"], "status": STATUS_LABEL.get(s["status"], s["status"]), "lane": s["lane"],
                     **({"parkedJob": s["parkedJob"]} if s.get("parkedJob") else {}),
+                    **({"surface": "slack"} if s.get("surface") == "slack" else {}),
                 })
     return rows
 

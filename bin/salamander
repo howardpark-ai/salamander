@@ -6,10 +6,11 @@
 #   salamander spawn  [NAME] [--mandate FILE|TEXT [--no-confirm]] [--cwd DIR] [--lane L] [--model M] [--effort E] [--fork UUID] [--master] [--dry-run]
 #                                      (--brief FILE and --prompt TEXT: the mandate's older names, kept as aliases; --lane L records the lane too; a bare spawn from a Claude session records it on the throwaway's row, spawned_by: that session may later retire it with no words; every bare spawn also writes the throwaway tag, throwaway=1, on the row: any session may retire a tagged row with no words, between turns)
 #                                      (--fork UUID is a resume: like a recycle or revive it passes the user settings' permissions.defaultMode as --permission-mode)
-#   salamander spawn  NAME --project <page key> --role front|back [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
+#   salamander spawn  NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
 #                                      a project agent's session (lib/spawn.sh): the name must be registered with stackshot (on the project's agents map) first —
 #                                      not there: exit 3 and `REGISTER: <key>` + stackshot's `post project-agent` command to run (the keeper asked once); no such page: exit 4
-#                                      and `NO-PAGE: <key>`; a back agent needs a mandate and starts on it unasked, in the directory SALA_BACK_CWD names (refused when this machine lacks it), else in $HOME when it is unset (--cwd wins); SALA_SPAWN_REGISTER runs after
+#                                      and `NO-PAGE: <key>`; a back agent needs a mandate and starts on it unasked, in the directory SALA_BACK_CWD names (refused when this machine lacks it), else in $HOME when it is unset (--cwd wins);
+#                                      --surface slack (front only) is a front agent that answers the owner's Slack app messages: it starts in the directory SALA_SLACK_CWD names (refused when that key is unset or the directory is missing; --cwd wins) and its row carries surface: slack; SALA_SPAWN_REGISTER runs after
 #   salamander spawn  --suggest-name --project <page key> --role front|back [--prefix P] [--new]   a free name, never a taken one: <prefix>-main only for a
 #                                      front agent of a project with no agent yet (the record says so, or --new: no page yet), else <prefix>-<random word>;
 #                                      the prefix is --prefix, else the project record's, else the page-name convention (<scope>-<slug>, the scopes SALA_SCOPES)
@@ -51,12 +52,12 @@
 #                                      session is an error, nothing written; SALA_SESSIONS=off writes nothing
 #   salamander sessions transcript <ref> [--json]   read-only: where a session's conversations are on disk, the current one first, then the
 #                                      earlier ones (the registry's list), with each file's path; the way a side session finds an agent's transcripts
-#   salamander sessions tag <id|name> [--project <page key>] [--role front|back] [--project-key <page key>] [--dry-run]
-#                                      fill project/role of an existing live row (a row spawn --project --role did not make); only the given
-#                                      fields change; a retired row, an unknown session or a bad role is an error, nothing written
+#   salamander sessions tag <id|name> [--project <page key>] [--role front|back] [--surface slack|sala] [--project-key <page key>] [--dry-run]
+#                                      fill project/role/surface of an existing live row (a row spawn --project --role did not make); only the given
+#                                      fields change; a retired row, an unknown session, a bad role or a bad surface is an error, nothing written
 #   salamander sessions tag --auto [<id|name>] [--dry-run]   the backfill: every live row with no role (or the one named) gets its project and
 #                                      role from stackshot's project record (a top-level entry of the agents map is front, one under background: is
-#                                      back); a role already on a row is never overwritten; --dry-run prints what it would write; the watch runs it each tick
+#                                      back); a role already on a row is never overwritten; a listed row also takes the entry's surface (slack, or none: clears a stale slack); --dry-run prints what it would write; the watch runs it each tick
 #   salamander sessions resolve <ref> [--live] [--json]   phase 3, read-only: the row a session id (or 8+ char prefix), transcript id, name, alias or
 #                                      role:<project>/<role> names; exit 0 found, 1 none, 2 ambiguous (candidates listed, nothing picked)
 #   salamander side done [--name NAME] [--item board#N] [--item-updated EPOCH|ISO] [--summary FILE|TEXT|-] [--summary-to NAME|projects/SLUG] [--dry-run]

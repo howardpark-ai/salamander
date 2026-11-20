@@ -1,7 +1,7 @@
 # lib/spawn.sh — start a named tmux session running Claude Code, visible to Remote Control.
 #
 #   spawn [NAME] [--mandate FILE|TEXT [--no-confirm]] [--cwd DIR] [--lane L] [--model M] [--effort E] [--fork UUID] [--master] [--dry-run]
-#   spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
+#   spawn NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
 #   spawn --suggest-name --project <page key> --role front|back [--prefix P] [--new]
 #   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
 #   spawn --suggest-name --side (--fork-of AGENT | --project <page key>)
@@ -69,6 +69,14 @@
 #     must not quietly start the agent under the front rules). An explicit --cwd wins for both; a side session and a plain spawn
 #     are unchanged. The pane map's cwd column records the directory, so `sala restore` recreates the session there; the dry
 #     run's "cwd …" shows it.
+#   · THE SURFACE (--surface sala|slack): where a front agent talks with the owner. `sala` (the default; no flag) is a session the owner reads in
+#     sala; `slack` is a front agent that answers his Slack app messages. Only valid with --role front (a back agent is refused), and
+#     not with --side. A slack agent starts in the directory SALA_SLACK_CWD names (the CLI loads that directory's CLAUDE.md, the Slack
+#     brief, not the sala-pane rules of $HOME) when --cwd is not given; SALA_SLACK_CWD unset, or naming a directory this box does not have, refuses the
+#     spawn with a message naming the key: it never falls back to another directory. The pane map's cwd column records the directory, so
+#     revive and `sala restore` start it there again. Its registry row carries `surface: slack` (a sala agent's row has no such field);
+#     `sessions tag --auto` keeps it in step with the project record's agent entry. The register command the refusal prints, and the keeper's
+#     message, carry `--surface slack` for it.
 #   · a name already live (a tmux session, or a running claude registered under it) is refused as for any spawn.
 # --dry-run runs every check and prints the plan ("[dry-run] would spawn …"), makes nothing, records nothing, calls no
 # hook; the operation queue runs it as the verb's plan (lib/op.sh, `sala op spawn`, the one path a web request takes).
@@ -120,14 +128,17 @@
 
 if [ "${1:-}" = "--list" ]; then
     printf '%-24s %-10s %s\n' NAME VERSION BRIDGE
+    SLACK_NAMES=""; sessions_on && SLACK_NAMES=$(sessions_py slack-names 2>/dev/null | paste -sd' ' -)   # the registry's slack rows: marked [slack] at the end of their line
+    export SLACK_NAMES
     _claude_pids_r _cps || :
     for pid in $_cps; do
         f="$SALA_REG_DIR/$pid.json"; [ -r "$f" ] || continue
         is_rc_child "$pid" && continue
         python3 -c "
-import json
+import json, os
 d=json.load(open('$f'))
-if d.get('tmux'): print('%-24s %-10s %s%s' % (d.get('name','?'), d.get('version','?'), d.get('bridgeSessionId') or '—', '  ⚠ parked → bg fork %s' % d['parkedJobId'][:8] if d.get('parkedJobId') else ''))" 2>/dev/null
+mark = '  [slack]' if d.get('name') in os.environ.get('SLACK_NAMES', '').split() else ''
+if d.get('tmux'): print('%-24s %-10s %s%s%s' % (d.get('name','?'), d.get('version','?'), d.get('bridgeSessionId') or '—', '  ⚠ parked → bg fork %s' % d['parkedJobId'][:8] if d.get('parkedJobId') else '', mark))" 2>/dev/null
     done | sort
     # tmux sessions whose claude exited/crashed: show them with the sidecar's conversation id
     tmux list-panes -a -F '#{session_name} #{pane_current_command} #{pane_pid}' 2>/dev/null | while read -r sess cmd ppid; do
@@ -137,7 +148,7 @@ if d.get('tmux'): print('%-24s %-10s %s%s' % (d.get('name','?'), d.get('version'
         is_shell_session "$sess" && continue   # the web UI's shell drawer
         [ "$sess" = "0" ] && continue
         uuid=$(awk -F'\t' -v s="$sess" '$1==s {print $2; exit}' "$SALA_SIDECAR" 2>/dev/null)
-        printf '%-24s %-10s %s\n' "$sess" "(shell)" "claude exited — revive: salamander revive --only $sess${uuid:+   (sidecar ${uuid:0:8}…)}"
+        printf '%-24s %-10s %s\n' "$sess" "(shell)" "claude exited — revive: salamander revive --only $sess${uuid:+   (sidecar ${uuid:0:8}…)}$(case " $SLACK_NAMES " in *" $sess "*) printf '  [slack]';; esac)"
     done | sort
     exit 0
 fi
@@ -282,14 +293,14 @@ side_origin() {  # <agent> → "<its current conversation>|<its directory>" of t
 GENERATED=0; NAME=""
 case "${1:-}" in
     '') ;;
-    --brief|--prompt|--mandate|--cwd|--fork|--model|--effort|--master|--no-confirm|--project|--role|--lane|--dry-run|--suggest-name|--side|--fork-of|--item|--agents|--prefix) ;;
+    --brief|--prompt|--mandate|--cwd|--fork|--model|--effort|--master|--no-confirm|--project|--role|--surface|--lane|--dry-run|--suggest-name|--side|--fork-of|--item|--agents|--prefix) ;;
     -*)  die "unknown first argument: $1" ;;
     *)   NAME="$1"; shift ;;
 esac
 case "$NAME" in *[.:\ ]*) die "invalid session name '$NAME' (no dots, colons, or spaces)";; esac
 is_shell_session "$NAME" && die "'$NAME' is the web UI's shell session (SALA_SHELL_SESSION) — a Claude session cannot take its name; pick another name"
 
-MANDATE=""; MKIND=""; CWD="$HOME"; MODEL=""; EFFORT=""; FORK=""; MASTER=0; GO=0; PROJECT=""; ROLE=""; LANE_OPT=""; DRY=0; SUGGEST=0; PREFIX_OPT=""; NEW_OPT=0
+MANDATE=""; MKIND=""; CWD="$HOME"; MODEL=""; EFFORT=""; FORK=""; MASTER=0; GO=0; PROJECT=""; ROLE=""; SURFACE_OPT=""; SURFACE_GIVEN=0; LANE_OPT=""; DRY=0; SUGGEST=0; PREFIX_OPT=""; NEW_OPT=0
 SIDE=0; FORK_OF=""; ITEM=""; AGENTS=""; CWD_GIVEN=0
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -310,6 +321,7 @@ while [ $# -gt 0 ]; do
         --effort) EFFORT="${2:-}"; shift 2 || die "--effort needs a level";;
         --project) PROJECT="${2:-}"; shift 2 || die "--project needs a page key (<dir>/<slug>, e.g. projects/demo)";;
         --role)   ROLE="${2:-}";   shift 2 || die "--role needs front or back";;
+        --surface) SURFACE_OPT="${2:-}"; SURFACE_GIVEN=1; shift 2 || die "--surface needs sala or slack";;   # where a front agent talks with the owner (the header, THE SURFACE)
         --lane)   LANE_OPT="${2:-}"; shift 2 || die "--lane needs a lane (one of: $(lane_choices))";;
         *) die "unknown arg: $1";;
     esac
@@ -322,6 +334,7 @@ if [ "$SIDE" = 0 ]; then
     [ -z "$FORK_OF$ITEM$AGENTS" ] || die "--fork-of, --item and --agents go with --side (a side conversation)"
 else
     [ -z "$ROLE" ] || die "--side takes no --role: a side session is on no page's agents map"
+    [ "$SURFACE_GIVEN" = 0 ] || die "--side takes no --surface: a side session is on no page's agents map"
     [ -z "$FORK" ] || die "--side forks with --fork-of AGENT (its current conversation is found for you), not --fork UUID"
     [ "$MASTER" = 0 ] || die "--side and --master cannot go together"
     SIDE_PROJECT="$PROJECT"; PROJECT=""
@@ -345,6 +358,15 @@ if [ "$SIDE" = 0 ] && { [ -n "$PROJECT" ] || [ -n "$ROLE" ] || [ "$SUGGEST" = 1 
     [ -n "$ROLE" ] || die "--project needs --role front or --role back (front: a session ${SALA_OWNER_NAME} talks to, a top-level entry under agents:; back: a background agent, under background:)"
     case "$ROLE" in front|back) ;; *) die "--role takes front or back, not '$ROLE'";; esac
     page_key_ok "$PROJECT" || die "'$PROJECT' is not a page key: <dir>/<slug> with the dir one of ${SALA_PAGE_DIRS// /, } and the slug lowercase letters, digits and dashes (projects/site-redesign, projects/demo)"
+fi
+SURFACE=""   # slack only: a sala agent carries no surface (absent means sala), like stackshot's project record
+if [ "$SURFACE_GIVEN" = 1 ]; then
+    case "$SURFACE_OPT" in sala|slack) ;; *) die "--surface takes sala or slack, not '$SURFACE_OPT'";; esac
+    [ -n "$PROJECT" ] && [ -n "$ROLE" ] || die "--surface goes with --project <page key> --role front: it says where a project's front agent talks with ${SALA_OWNER_NAME}"
+    if [ "$SURFACE_OPT" = slack ]; then
+        [ "$ROLE" = front ] || die "a slack agent is a front agent: --surface slack goes with --role front, not --role $ROLE"
+        SURFACE=slack
+    fi
 fi
 if [ "$NEW_OPT" = 1 ]; then
     [ "$SUGGEST" = 1 ] && [ "$SIDE" = 0 ] || die "--new goes with --suggest-name --project … --role … (the project has no page yet)"
@@ -383,6 +405,12 @@ if [ "$ROLE" = back ] && [ "$CWD_GIVEN" = 0 ] && [ -n "${SALA_BACK_CWD:-}" ]; th
     [ -d "$BACK_DIR" ] || die "a back agent starts in the background brief's directory, which does not exist here: $BACK_DIR (SALA_BACK_CWD names it; it loads the background brief from there, not the front rules from \$HOME). Create or clone the directory, fix SALA_BACK_CWD, or pass --cwd DIR"
     CWD="$BACK_DIR"
 fi
+if [ "$SURFACE" = slack ] && [ "$CWD_GIVEN" = 0 ]; then   # a Slack agent starts where the Slack brief is (the header, THE SURFACE); --cwd always wins, and there is no other fallback
+    [ -n "${SALA_SLACK_CWD:-}" ] || die "a Slack agent starts in the Slack brief's directory, and SALA_SLACK_CWD (the config key) is not set on this machine: set it to the directory whose CLAUDE.md is the Slack brief, or pass --cwd DIR. It does not start in \$HOME, which would load the sala-pane rules"
+    SLACK_DIR="${SALA_SLACK_CWD/#\~/$HOME}"
+    [ -d "$SLACK_DIR" ] || die "a Slack agent starts in the Slack brief's directory, which does not exist here: $SLACK_DIR (SALA_SLACK_CWD names it; it loads the Slack brief from there, not the sala-pane rules from \$HOME). Create or clone the directory, fix SALA_SLACK_CWD, or pass --cwd DIR"
+    CWD="$SLACK_DIR"
+fi
 [ -d "$CWD" ] || die "cwd does not exist: $CWD"
 CWD=$(cd "$CWD" && pwd -P)   # the real path: it goes into the pane map's cwd column, which `sala restore` recreates the session in
 # THE MANDATE'S KIND (the header): a file (absolute, so the pane's shell finds it from --cwd) or text
@@ -401,13 +429,13 @@ mandate_line() {  # → the mandate's first non-blank line, one line, a heading'
 shell_dq() {  # <text> → the text double-quoted for a shell (backslash, ", $ and ` escaped)
     printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"$`]/\\&/g')"
 }
-register_cmd() {  # <page key> <front|back, or empty for either> <name> <mandate line> <the project's -main agent, or empty> → stackshot's register command (words only: sala never runs it)
-    local key=$1 r=$2 name=$3 line=$4 pmain=${5:-} role='<role>' pre flag rel
+register_cmd() {  # <page key> <front|back, or empty for either> <name> <mandate line> <the project's -main agent, or empty> [slack] → stackshot's register command (words only: sala never runs it); a slack agent's carries --surface slack
+    local key=$1 r=$2 name=$3 line=$4 pmain=${5:-} sf=${6:-} role='<role>' pre flag rel
     stackshot_rel_r rel "${SALA_STACKSHOT_DIR:-$HOME/stackshot}" client   # the client's path below the checkout, as this box has it (lib/stackshot-path.sh)
     pre=${pmain%-main}   # the project's name is its -main agent's without -main; the role is the part of NAME after it
     if [ -n "$pmain" ] && [ "$pre" != "$pmain" ] && [ "${name#"$pre"-}" != "$name" ] && [ -n "${name#"$pre"-}" ]; then role=${name#"$pre"-}; fi
     case "$r" in front) flag=--front ;; back) flag=--back ;; *) flag='--front|--back' ;; esac
-    printf 'python3 ~/stackshot/%s post project-agent %s %s --role %s %s --mandate %s' "$rel" "$key" "$name" "$role" "$flag" "$([ -n "$line" ] && shell_dq "$line" || echo '"<one line>"')"
+    printf 'python3 ~/stackshot/%s post project-agent %s %s --role %s %s%s --mandate %s' "$rel" "$key" "$name" "$role" "$flag" "${sf:+ --surface $sf}" "$([ -n "$line" ] && shell_dq "$line" || echo '"<one line>"')"
 }
 spawn_ask_keeper() {  # <page key> <mandate line> <what pages.py said> <the register command> — one stackshot message to the project's keeper, detached; never when a register hook owns registration
     local stamp="$SALA_STATE_DIR/spawn-asked/$NAME" now last text role="${ROLE:-front}"
@@ -419,13 +447,13 @@ spawn_ask_keeper() {  # <page key> <mandate line> <what pages.py said> <the regi
         echo "   (the project's keeper was asked to register it at $(local_human "$last") already; not again within $(( SALA_SPAWN_ASK_EVERY / 60 )) min)" >&2; return 0
     fi
     echo "$now" > "$stamp"
-    text="[sala spawn] A new $role agent '$NAME' of $1 was asked for${SALA_OP_FROM:+ by $SALA_OP_FROM}${SALA_OP_WORDS:+ (\"$SALA_OP_WORDS\")}, but the name is not on the page's agents map yet ($3). Please register it with stackshot, then the spawn runs again (sala op spawn $NAME --project $1 --role $role${2:+ --mandate <the mandate>} --from <you> --words \"<${SALA_OWNER_NAME}'s words>\"):"$'\n'"$4"$'\n'"(Automatic salamander message from sala spawn; nothing to reply to.)"
+    text="[sala spawn] A new $role${SURFACE:+ ($SURFACE surface)} agent '$NAME' of $1 was asked for${SALA_OP_FROM:+ by $SALA_OP_FROM}${SALA_OP_WORDS:+ (\"$SALA_OP_WORDS\")}, but the name is not on the page's agents map yet ($3). Please register it with stackshot, then the spawn runs again (sala op spawn $NAME --project $1 --role $role${SURFACE:+ --surface $SURFACE}${2:+ --mandate <the mandate>} --from <you> --words \"<${SALA_OWNER_NAME}'s words>\"):"$'\n'"$4"$'\n'"(Automatic salamander message from sala spawn; nothing to reply to.)"
     ( setsid timeout --kill-after=10 150 sh -c "$SALA_SPAWN_ASK_CMD \"\$@\"" spawn-ask "$1" "$text" --sender "sala spawn" </dev/null >> "$SPAWN_LOG" 2>&1 & )
     spawn_log "ask: the keeper of $1 asked to register it ($SALA_SPAWN_ASK_CMD, to $1)"
     echo "   the project's keeper was asked to register it in one stackshot message (to $1)" >&2
 }
 refuse_unlisted() {  # <page key> <role> <what pages.py said> [the project's -main agent] — the refusal (stderr), the marker and the register command (stdout), the keeper asked, exit 3
-    local line cmd; line=$(mandate_line); cmd=$(register_cmd "$1" "$2" "$NAME" "$line" "${4:-}")
+    local line cmd; line=$(mandate_line); cmd=$(register_cmd "$1" "$2" "$NAME" "$line" "${4:-}" "$SURFACE")
     echo "✗ '$NAME' is not on the agents map of $1 ($3): a project agent is registered with stackshot before its session is made. Register it, then spawn again: $cmd" >&2
     echo "REGISTER: $1"
     echo "$cmd"
@@ -559,7 +587,7 @@ print('|'.join([str(d.get('name','')), str(d.get('version','')), str(d.get('brid
 
 SIDE_MFILE="$SALA_STATE_DIR/mandates/side-$NAME.md"   # where a side session's generated mandate is written (at run time; the dry run only says so)
 if [ "$DRY" = 1 ]; then
-    echo "[dry-run] would spawn '$NAME'${PROJECT:+ as a $ROLE agent of $PROJECT (on its agents map: $LISTED)}${SIDE_KIND:+ as a side session ($([ "$SIDE_KIND" = fork ] && echo "a fork of $FORK_OF" || echo "a fresh start about $ITEM of $SIDE_PROJECT")${ITEM:+, item $ITEM}; on no agents map; its write-up summary goes to $SIDE_TO)} on the $(lane_shown "$LANE") lane${LANE_OPT:+ (recorded)}, cwd $CWD, model ${MODEL:-global default} / effort ${EFFORT:-global default}${FORK:+, forked from $FORK}"
+    echo "[dry-run] would spawn '$NAME'${PROJECT:+ as a $ROLE agent${SURFACE:+ on the $SURFACE surface} of $PROJECT (on its agents map: $LISTED)}${SIDE_KIND:+ as a side session ($([ "$SIDE_KIND" = fork ] && echo "a fork of $FORK_OF" || echo "a fresh start about $ITEM of $SIDE_PROJECT")${ITEM:+, item $ITEM}; on no agents map; its write-up summary goes to $SIDE_TO)} on the $(lane_shown "$LANE") lane${LANE_OPT:+ (recorded)}, cwd $CWD, model ${MODEL:-global default} / effort ${EFFORT:-global default}${FORK:+, forked from $FORK}"
     if [ "$SIDE" = 1 ]; then echo "[dry-run] mandate: written to $SIDE_MFILE and read by the session ($([ "$GO" = 1 ] && echo "then it starts on it; nobody confirms" || echo "it waits for a confirmation"))${AGENTS:+, naming the agents $AGENTS}${MANDATE:+, with your ${MFILE:+file $MFILE}${MTEXT:+text} appended}"
     elif [ -n "$MFILE" ]; then echo "[dry-run] mandate: the file $MFILE, read by the session ($([ "$GO" = 1 ] && echo "then it starts on it; nobody confirms" || echo "it waits for a confirmation")): $(mandate_line)"
     elif [ -n "$MTEXT" ]; then echo "[dry-run] mandate: the text typed as the first message: $(mandate_line)"
@@ -661,7 +689,7 @@ MAPPED=""
 if [ -n "${ruuid:-}" ]; then ledger_write add "$NAME" "$ruuid" "$NAME" "$CWD" && MAPPED=1; fi
 LANE_ROW=""
 if [ -n "$LANE_OPT" ]; then lane_write "$NAME" "$LANE_OPT" && LANE_ROW=1; fi   # the explicit lane is intent: every later relaunch keeps it
-if [ -n "$PROJECT" ] && [ -n "$MAPPED" ]; then sessions_set "$NAME" "project=$PROJECT" "role=$ROLE"; fi   # the session registry's row (phase 1): never fails the spawn
+if [ -n "$PROJECT" ] && [ -n "$MAPPED" ]; then sessions_set "$NAME" "project=$PROJECT" "role=$ROLE" ${SURFACE:+"surface=$SURFACE"}; fi   # the session registry's row (phase 1): never fails the spawn
 if [ -z "$PROJECT" ] && [ "$SIDE" = 0 ] && [ "$MASTER" = 0 ] && [ -n "$MAPPED" ]; then
     # a bare spawn of a name a project lists (its agents map, through stackshot's project record) is that project's agent: its row takes the project and
     # role from the record (sessions.py tag --auto), so the back agents' lane rule and the published registry count it. Any other bare spawn is a
@@ -684,7 +712,7 @@ else "$SALA_BIN" revive --save-map >/dev/null 2>&1; fi
 
 [ "$GENERATED" = 1 ] && echo "   (name auto-generated — throwaway)"
 echo "✅ spawned '$NAME'"
-[ -n "$PROJECT" ] && echo "   project : $PROJECT — $ROLE agent (on its agents map: $LISTED)"
+[ -n "$PROJECT" ] && echo "   project : $PROJECT — $ROLE agent${SURFACE:+ ($SURFACE surface)} (on its agents map: $LISTED)"
 if [ "$SIDE" = 1 ]; then
     echo "   side    : $SIDE_KIND${FORK_OF:+ of $FORK_OF}${ITEM:+, $ITEM}${SIDE_PROJECT:+ ($SIDE_PROJECT)} — on no agents map; summary to $SIDE_TO; retires only on ${SALA_OWNER_NAME}'s word, once \`sala side done\` ran"
     [ -n "$SIDE_REC" ] || echo "   ⚠ the side record could not be written under $SALA_SIDE_DIR: retire will not ask for the write-up marker, and sala side done cannot run"

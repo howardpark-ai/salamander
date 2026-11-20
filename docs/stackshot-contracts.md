@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 46
+contract-version: 47
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -303,6 +303,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   (interface 20) each project may carry two more fields, `keeper_agent` (the agent that keeps the project) and `keeper_source` (`mark`, `derived`, `legacy` or `empty`), and an agent's entry may carry
   `"keeper": true`; `keeper` stays an agent name. All additive and optional: sala reads none of them and requires none, so a record without them reads as before. The spawn keeper ask (interface 8) is
   addressed to the project's keeper, the mark on one agent (the builder, else the -main agent, when nothing is marked); its command, text and exit codes are unchanged.
+- **47** — Fri Nov 20th 2026. Interfaces 19, 20 and 11 (the surface of a front agent): a front agent may answer the owner on Slack instead of in sala. In the project record (interface 20) an agent's entry may carry `"surface": "slack"`; absent means `sala`, the only other value, and anything else is refused by sala wherever it reads or writes one. `sala sessions tag --auto` copies it onto the session's registry row (and clears a stale `slack` from a row whose entry has none), and `sala spawn --surface slack` writes it at birth. The registry's session rows (interface 19, `session-registry.json`) carry `"surface": "slack"` only for a slack row, so every other row's shape is as before. In the roles file (interface 11) a session's entry may carry `"surface": "slack"` the same way (only when slack), which sala-web reads for its session list; without it the row's own surface is used. All additive and optional: a reader that ignores the key reads exactly as before.
 
 ## How each entry reads
 
@@ -577,12 +578,12 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Direction**: sala's web app → stackshot (CLI).
 - **Mechanism**: `SALA_WEB_ROLES_CMD` (default `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles`: `~/stackshot` when `SALA_STACKSHOT_DIR` is
   unset in sala-web's environment, no command when it is empty, `config.py` `_roles_cmd`), every
-  `roles_ttl` 30 s; expects JSON `{"sessions": {<name>: {"role", "project"}}}` (an entry may also carry `"keeper": true`, the mark of a project's keeper from version 46: sala-web ignores it, and `role` is still `front` or `back`, or the old `keeper`).
+  `roles_ttl` 30 s; expects JSON `{"sessions": {<name>: {"role", "project"}}}` (an entry may also carry `"keeper": true`, the mark of a project's keeper from version 46: sala-web ignores it, and `role` is still `front` or `back`, or the old `keeper`; from version 47 an entry may also carry `"surface": "slack"`, only when slack, which sala-web puts on the session's JSON).
 - **Owners**: sala `web/src/sala_web/sessions.py:377` `RolesCache`. stackshot `client.py:107` `get("roles")` →
   `GET /client/roles` (503 `no roles yet` before the first roles file).
 - **Absent or changed**: a failure keeps the last good answer and sets `rolesError`; the overview shows sessions without
   roles. An empty `SALA_STACKSHOT_DIR` runs nothing and sets `rolesError` to say so. Fail-open.
-- **Test**: `web/tests/test_sessions.py`, `web/tests/test_roles_cmd.py` (the default and the knob).
+- **Test**: `web/tests/test_sessions.py` (the surface only when slack included), `web/tests/test_roles_cmd.py` (the default and the knob).
 - **Stable**: yes.
 
 ## 12. Lanes and limit state read by stackshot
@@ -711,7 +712,8 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   letter only), schema 1:
   `{"schema": 1, "machine": "<letter>", "written": "<ISO Z>", "sessions": {"<sala session id>": {"id", "name", "aliases": [],
   "project", "project_key", "role", "lane", "model", "effort", "pane", "cwd", "state": "live|retired", "created",
-  "retired_at", "transcripts": [{"id": "<claude session id>", "machine", "at", "why"}]}}}`. `project` and `project_key` both
+  "retired_at", "transcripts": [{"id": "<claude session id>", "machine", "at", "why"}]}}}`. A row of a slack front agent carries one more key, `"surface": "slack"` (version 47; no other row has the key, `sala` being the default).
+  `project` and `project_key` both
   hold the project page key until stackshot project ids exist; `role` is `front` or `back` or null; empty fields are null.
   Retired rows stay (grow-only), so an old id still resolves. Reading rule: a transcript id belongs to the row whose
   `transcripts[].id` lists it, the last entry being the row's current conversation; two rows listing one id is ambiguous.
@@ -722,7 +724,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Absent or changed**: `SALA_SESSIONS=off`, a missing or corrupt `sessions.json` (or no `SALA_HEARTBEAT_STATE_DIR`): nothing is
   published and the last good file stays, with one `sessions.log` line; its `written` ages. A box that is swept rather than driving
   has no file. Fail-open for stackshot: without the file it keeps its name-based behaviour.
-- **Test**: `tests/sessions.sh` (phase 3 section): contents, atomicity, `written` refresh, the off flag, a corrupt registry.
+- **Test**: `tests/sessions.sh` (phase 3 section): contents, atomicity, `written` refresh, the off flag, a corrupt registry, the surface only on a slack row.
 - **Stable**: yes from version 4.
 
 ## 20. Project record
@@ -732,10 +734,12 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Mechanism**: `~/.local/state/stackshot/projects.json` (`SALA_PROJECT_RECORD` overrides the path), written atomically by
   stackshot's `projects.py` `sync()` whenever the records change and at least every 4 minutes. Schema 1:
   `{"schema": 1, "generated": "<ISO Z>", "projects": {"prj_<8 hex>": {"id", "key" (the project page key), "keeper",
-  "keeper_agent"?, "keeper_source"?, "agents": {"<name>": {"front": true|false, "role", "mandate_line", "page_owed"?: true, "keeper"?: true}}}}, "by_key": {"<page key>": "<id>"}}`.
+  "keeper_agent"?, "keeper_source"?, "agents": {"<name>": {"front": true|false, "role", "mandate_line", "page_owed"?: true, "keeper"?: true, "surface"?: "slack"}}}}, "by_key": {"<page key>": "<id>"}}`.
   The keeper is a mark on one agent (version 46): `keeper` stays an agent name, `keeper_agent` is the agent that keeps the project and `keeper_source` says where it came
   from (`mark`: a mark names it; `derived`: no mark, so the builder, else the -main agent; `legacy`: the page's old fields name it; `empty`: nothing keeps it), and the marked agent's
   entry carries `"keeper": true`. `keeper_agent`, `keeper_source` and the entry's `keeper` are optional additive fields that sala does not read and does not require.
+  `surface` (version 47) is the entry's other optional field and sala does read it: absent means `sala`, `slack` is a front agent that answers the owner on Slack, and any other value is refused
+  (`tag --auto` leaves the row and says why; a back agent named `slack` is left too). `sala sessions tag --auto` copies it onto the session's row, a record without it clears a stale `slack`.
   `front` is true for a top-level entry of the page's `agents:` map and false for one under `background:`; `role` is the part
   of the name after the project's name (`alex-builder` → `builder`); the project's main agent is the front entry whose
   name ends in `-main`. `page_owed: true` marks an agent registered through `client.py post project-agent` whose page line is
@@ -754,15 +758,15 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   stale, no such project) falls back to interface 7 unchanged, with its exit codes and its "cannot tell" refusal.
   The same reading rule gives a live session with no role its role (`sala sessions tag --auto`, `back-names`; the
   back agents' lane rule counts from it): a name on exactly one non-retired project's map is that project's agent, `front`
-  true a front agent and false a back agent; a name on no map or on several is left alone. No new field or meaning.
+  true a front agent and false a back agent; a name on no map or on several is left alone. The same single-project reading gives the row its `surface`, for a row with a role as well as one without.
 - **Owners**: sala `lib/common.sh` `project_record_agent`, `lib/spawn.sh` (the check before `page_exists`),
-  `agent_unlisted`, `lib/sessions.py` `load_record` / `derive_role` (the role fill). stackshot `projects.py` (`build`, `sync`, `_record`).
+  `agent_unlisted`, `lib/sessions.py` `load_record` / `derive_role` / `derive_surface` (the role and surface fill). stackshot `projects.py` (`build`, `sync`, `_record`).
 - **Absent or changed**: no file, an old file or another schema: pages.py answers (interface 7). A stackshot that adds fields is
   harmless (sala reads `front`, `mandate_line`, `page_owed` and the names only). A change of the three meanings above, or of
   the schema number, needs this document's bump and a sala change first. The record lags the page by up to its refresh
   interval: a line just added to a page may show as unlisted for a few minutes.
 - **Test**: `tests/spawn.sh` (the project record section: listed, unlisted, front vs back, page_owed, the main agent, missing,
-  stale, garbage, other schema, fallback, "cannot tell", `agent_unlisted`).
+  stale, garbage, other schema, fallback, "cannot tell", `agent_unlisted`). `tests/sessions.sh` (the `tag --auto` section: the surface copied, cleared, left on a bad value).
 - **Stable**: yes from version 5.
 
 ## 21. sala-web project calls
