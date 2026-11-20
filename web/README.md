@@ -549,8 +549,10 @@ month's messages in `state_dir/spend-scan.json`); nothing but ids, times, model 
 (the day in the `SALA_TZ` zone). The three facts come from Anthropic's "Monthly Claude API Spend Exceeding Thresholds" emails: a briefing job
 (`contrib/briefing/aws-limit.sh`) keeps the newest one's limit, tier and pause-until instant in `aws-api-limit.json` in sala's state directory, and
 `GET /api/spend` puts them on the aws-platform lane's entry as `api_limit` (`limit`, `tier`, `pausedUntil`, `emailDate`, `fetchedAt`, `org`,
-`stale`, `staleDays`, `pauseEnded`; `null` when the file is missing, unreadable or incomplete, and then the card has no strip and no error). The
-file is read at each ask, so the flags are the moment's. The line never wraps: a narrow card cuts its end with an ellipsis, and the tooltip is the whole
+`stale`, `staleDays`, `pauseEnded`; `null` when the file is missing, unreadable, incomplete or corrupt (a limit that is not a finite number
+above 0 and below 1e9, a tier outside 0 to 1000), or when `SALA_AWS_LIMIT_ORG` is unset or names another organization than the file's `org`, and
+then the card has no strip and no error). The file and the setting are read at each ask, so the flags are the moment's and a cleared or changed organization
+shows no figure of the old one. The line never wraps: a narrow card cuts its end with an ellipsis, and the tooltip is the whole
 text with the pause instant's time and zone, the email's date and the source. A newest email **more than 14 days old** keeps the figures and adds a second
 line, `as of Mon Nov 9th, no newer email`; once the pause-until instant has passed the strip says `Pause ended Tue Dec 1st` instead of `Paused until`
 (and keeps that second line if the email is stale). Only the Overview card carries the strip; the lane's details page does not.

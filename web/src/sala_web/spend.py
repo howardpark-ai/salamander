@@ -424,15 +424,31 @@ def sid_of(projects: Path, path: str) -> str:
 # ── the API spend limit (the aws-platform card's strip) ──────────────────────
 LIMIT_FILE = "aws-api-limit.json"   # in sala's state dir; written by contrib/briefing/aws-limit.sh (aws_limit.py), never by this app
 LIMIT_STALE_S = 14 * 86400          # an email older than this is shown as "as of <date>, no newer email"
+LIMIT_MAX = 1e9                     # a limit at or above this (or not a finite number) is a corrupt file, not a figure
+TIER_MAX = 1000
 
 
-def read_api_limit(path: Path | None, now: datetime | None = None) -> dict | None:
+def _org_key(name: object) -> str:
+    """An organization name as the job compares it (aws_limit.py _org_key): whitespace collapsed, edge punctuation off, case folded."""
+    return " ".join(str(name or "").split()).strip(" .,;:").casefold()
+
+
+def read_api_limit(path: Path | None, now: datetime | None = None, org: str | None = None) -> dict | None:
     """The limit, tier and pause date from the state file the job keeps from Anthropic's "Monthly Claude API Spend Exceeding
     Thresholds" emails, or None for a file that is missing, unreadable or does not hold all of them (the card then shows no strip,
     never an error). The facts are the email's own: nothing is computed from them except two flags for the card, evaluated now:
     `stale` (the newest email is more than 14 days old: the figures stay, marked as of that email) and `pauseEnded` (the pause-until
-    instant has passed). Times are ISO UTC; the card shows them in the SALA_TZ zone."""
+    instant has passed). Times are ISO UTC; the card shows them in the SALA_TZ zone.
+    The file counts only for the organization the job is set to read: `org` (default: SALA_AWS_LIMIT_ORG, from the environment or sala's
+    config, read now) must be set and name the file's own "org" (compared as the job compares: case, spacing and edge punctuation aside);
+    with the setting cleared or changed the file is another organization's and the answer is None. Numbers must be finite and sane
+    (a limit above 0 and below 1e9, a tier of 0 to 1000): a corrupt file never becomes a figure, and never an error."""
     if path is None:
+        return None
+    if org is None:
+        from .config import sala_setting
+        org = sala_setting("SALA_AWS_LIMIT_ORG")
+    if not _org_key(org):
         return None
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
@@ -440,16 +456,19 @@ def read_api_limit(path: Path | None, now: datetime | None = None) -> dict | Non
         return None
     if not isinstance(doc, dict) or doc.get("v") != 1:
         return None
-    limit, tier = doc.get("limit"), doc.get("tier")
-    if isinstance(limit, bool) or not isinstance(limit, (int, float)) or not limit > 0:
+    file_org = doc.get("org")
+    if not isinstance(file_org, str) or _org_key(file_org) != _org_key(org):
         return None
-    if isinstance(tier, bool) or not isinstance(tier, int) or tier < 0:
+    limit, tier = doc.get("limit"), doc.get("tier")
+    # a chained comparison is false for NaN and for infinity (1e309 reads as inf), and compares a huge int without converting it
+    if isinstance(limit, bool) or not isinstance(limit, (int, float)) or not 0 < limit < LIMIT_MAX:
+        return None
+    if isinstance(tier, bool) or not isinstance(tier, int) or not 0 <= tier <= TIER_MAX:
         return None
     until, sent = parse_iso(doc.get("paused_until")), parse_iso(doc.get("email_date"))
     if until is None or sent is None:
         return None
     fetched = doc.get("fetched_at")
-    org = doc.get("org")
     t = (now or datetime.now(timezone.utc)).timestamp()
     age = t - sent
     return {
@@ -458,7 +477,7 @@ def read_api_limit(path: Path | None, now: datetime | None = None) -> dict | Non
         "pausedUntil": doc["paused_until"],
         "emailDate": doc["email_date"],
         "fetchedAt": fetched if isinstance(fetched, str) and parse_iso(fetched) is not None else None,
-        "org": org if isinstance(org, str) else "",
+        "org": file_org,
         "stale": age > LIMIT_STALE_S,
         "staleDays": max(0, int(age // 86400)),
         "pauseEnded": t >= until,
