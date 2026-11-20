@@ -4,7 +4,7 @@
 # id already inside a Slack link (labelled or not), a code span or a URL is not linked again, so a second pass changes
 # nothing; *board#N* stays bold with the link inside the asterisks; a trailing / on the address is dropped; an unset or
 # unusable address leaves the text as it is; a longer word is not an id. Then on the send paths: sala_notify_raw (sala_post),
-# `sala alert`, and the briefings' post_slack (BRIEFING_NO_POST: the finished text goes to a file, no webhook).
+# `sala alert`, and the briefings' post_slack (BRIEFING_NO_POST: the finished text goes to a file, nothing is sent).
 # A temporary HOME and config; nothing outside them is touched.
 # Usage: bash tests/boardlinks.sh   (exit 0 = pass; a second or two)
 set -u

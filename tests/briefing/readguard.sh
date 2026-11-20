@@ -258,10 +258,9 @@ case "$out" in *"execs=1 gained=1"*"deliver=0"*) grep -q '• a line' "$T/posts"
 cp "$T/bin/claude.keep" "$T/bin/claude"
 
 # BRIEFING_NO_POST (the switch the guard's real test run used): the real post_slack writes the text to would-post.log
-# and never opens the webhook (a dead local port here: a missed switch fails fast, not at Slack)
-printf 'http://127.0.0.1:9/never\n' > "$T/webhook"
+# and reads no app token (none is configured here: a missed switch would fail the post, not reach Slack)
 out=$(HOME="$T/home" BRIEFING_LOGDIR="$T/logs" BRIEFING_NO_POST=1 BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR= BRIEFING_COMMIT_REPOS= \
-      bash -c '. "$1/lib.sh" 2>/dev/null; WEBHOOK_FILE=$2/webhook; post_slack "*would post*"; echo "rc=$?"' _ "$D" "$T" 2>&1)
+      bash -c '. "$1/lib.sh" 2>/dev/null; post_slack "*would post*"; echo "rc=$?"' _ "$D" "$T" 2>&1)
 case "$out" in "not posted (BRIEFING_NO_POST)"*"rc=0"*) ok "BRIEFING_NO_POST=1: post_slack posts nothing and says so" ;; *) bad "no-post: $out" ;; esac
 grep -q '^\*would post\*$' "$T/logs/would-post.log" 2>/dev/null && ok "… the text lands in would-post.log" || bad "would-post.log: $(cat "$T/logs/would-post.log" 2>/dev/null)"
 # briefing_box: the name the posts give this machine. SALA_HEARTBEAT_NAME from the environment, else its line in the sala config, else the hostname

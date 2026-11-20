@@ -361,15 +361,14 @@ bad_units=$(grep -L '^X-Project=sala/salamander$' "$ROOT"/systemd/sala-watch.ser
 [ -z "$bad_units" ] && ok "sala's own units carry the neutral X-Project=sala/salamander" || bad "X-Project in: $bad_units"
 out=$(env -u SALA_BACKFILL_MAP SALA_CONFIG="$EMPTY" bash "$ROOT/contrib/backfill-job-projects.sh" --dry-run 2>&1); rc=$?
 [ $rc = 0 ] && case "$out" in *"no map"*) true;; *) false;; esac && ok "the job-project backfill has no built-in map (nothing to do)" || bad "backfill (rc=$rc): $out"
-out=$(env -u BRIEFING_GMAIL_CONNECTOR -u BRIEFING_LOGDIR -u BRIEFING_WEBHOOK_FILE -u XDG_STATE_HOME SALA_CONFIG="$EMPTY" bash -c '. "$1/contrib/briefing/lib.sh" 2>/dev/null; echo "[$BRIEFING_GMAIL_CONNECTOR|$GMAIL_TOOLS|$PORTAL_GMAIL_READS|$OLD_LOGDIR]"; echo "${LOGDIR#$HOME/}"; echo "${WEBHOOK_FILE#$HOME/}"; briefing_need_connector summary && echo needs-none' _ "$ROOT")
+out=$(env -u BRIEFING_GMAIL_CONNECTOR -u BRIEFING_LOGDIR -u XDG_STATE_HOME SALA_CONFIG="$EMPTY" bash -c '. "$1/contrib/briefing/lib.sh" 2>/dev/null; echo "[$BRIEFING_GMAIL_CONNECTOR|$GMAIL_TOOLS|$PORTAL_GMAIL_READS|$OLD_LOGDIR]"; echo "${LOGDIR#$HOME/}"; briefing_need_connector summary && echo needs-none' _ "$ROOT")
 [ "$out" = "[|||]
-.local/state/sala-briefing
-.config/sala-briefing/slack-webhook" ] && ok "the briefing: no connector, no Gmail tools, no old log directory, neutral paths, and a digest does not run" || bad "briefing defaults: $out"
+.local/state/sala-briefing" ] && ok "the briefing: no connector, no Gmail tools, no old log directory, neutral paths, and a digest does not run" || bad "briefing defaults: $out"
 out=$(env -u RELEASE_WATCH_CLI_OWNER SALA_CONFIG="$EMPTY" RELEASE_WATCH_STATE="$T/rw" RELEASE_WATCH_SALA=/nonexistent sh "$ROOT/contrib/briefing/release-watch.sh" cli-owner 2>/dev/null)
 [ -z "$out" ] && ok "release-watch: no CLI owner without RELEASE_WATCH_CLI_OWNER" || bad "cli owner: $out"
 out=$(env -u SALA_PAGE_DIRS -u SALA_BRAIN_DIR -u SALA_WEB_BRAIN_DIR -u SALA_WEB_PAGE_DIRS -u SALA_JOB_REPOS -u XDG_CONFIG_HOME SALA_CONFIG="$EMPTY" python3 -I -S -c 'import sys; sys.path.insert(0, sys.argv[1]); import sala_web.config as c, sala_web.schedules as s; print(c._brain_dir(), c._page_dirs(), s.KNOWN_REPOS, s.table_checkouts())' "$ROOT/web/src" 2>&1)
 [ "$out" = "None ['projects'] ('salamander', 'stackshot') []" ] && ok "the web UI: no brain mirror, page dir projects, known repos salamander and stackshot only" || bad "web defaults: $out"
-for v in SALA_BRAIN_DIR SALA_BACKFILL_MAP SALA_MACHINE_FOLLOW_MACHINES BRIEFING_GMAIL_CONNECTOR BRIEFING_LOGDIR BRIEFING_OLD_LOGDIR BRIEFING_WEBHOOK_FILE BRIEFING_LEAN_CLIENT_NAME BRIEFING_BRAIN_REPO BRIEFING_ISSUE_REPOS BRIEFING_GITHUB_BASE BRIEFING_TZ BRIEFING_WATCHLIST BRIEFING_LOW_PRIORITY_SENDERS BRIEFING_FORWARD_LABEL SALA_OWN_UNIT_PREFIXES \
+for v in SALA_BRAIN_DIR SALA_BACKFILL_MAP SALA_MACHINE_FOLLOW_MACHINES BRIEFING_GMAIL_CONNECTOR BRIEFING_LOGDIR BRIEFING_OLD_LOGDIR BRIEFING_LEAN_CLIENT_NAME BRIEFING_BRAIN_REPO BRIEFING_ISSUE_REPOS BRIEFING_GITHUB_BASE BRIEFING_TZ BRIEFING_WATCHLIST BRIEFING_LOW_PRIORITY_SENDERS BRIEFING_FORWARD_LABEL SALA_OWN_UNIT_PREFIXES \
          RELEASE_WATCH_CLI_OWNER RELEASE_WATCH_UBUNTU_SESSION RELEASE_WATCH_UBUNTU_PAGE; do
     grep -q "^#$v=" "$ROOT/config.example" && ok "$v is documented in config.example" || bad "$v is not in config.example"
 done

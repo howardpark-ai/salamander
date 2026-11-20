@@ -1,6 +1,6 @@
 #!/bin/bash
-# sala-briefing — shared helpers for the morning digests + release alerts. Delivery = Slack incoming
-# webhook (the briefing channel of the owner's Slack workspace); LLM = headless `claude -p` on
+# sala-briefing — shared helpers for the morning digests + release alerts. Delivery = a Slack app's
+# direct message to the owner (no webhook: _bot_post, below); LLM = headless `claude -p` on
 # this machine inheriting the claude.ai Google Workspace connector (BRIEFING_GMAIL_CONNECTOR), or reading
 # the same mailbox through the owner's MCP Portal when BRIEFING_CLAUDE_CONFIG_DIR
 # picks a login without that connector. While the API key has credit (the shared record, lib/api_credit.py) the turn
@@ -53,7 +53,7 @@ _bcfg() {  # <VAR> → the environment's value when it sets VAR, else the config
   if [ -n "${!1+x}" ]; then printf '%s' "${!1}"; else printf '%s' "${_BCFG[$1]-}"; fi
 }
 _bhome() { case "$1" in "~"|"~/"*) printf '%s' "$HOME${1#\~}";; '$HOME'|'$HOME/'*) printf '%s' "$HOME${1#\$HOME}";; '${HOME}'|'${HOME}/'*) printf '%s' "$HOME${1#\$\{HOME\}}";; *) printf '%s' "$1";; esac; }
-_bcfg_load BRIEFING_WEBHOOK_FILE BRIEFING_LOGDIR BRIEFING_OLD_LOGDIR BRIEFING_GMAIL_CONNECTOR BRIEFING_LEAN_CLIENT_NAME BRIEFING_TZ
+_bcfg_load BRIEFING_LOGDIR BRIEFING_OLD_LOGDIR BRIEFING_GMAIL_CONNECTOR BRIEFING_LEAN_CLIENT_NAME BRIEFING_TZ
 # BRIEFING_TZ: the time zone the digests show their times in (an IANA name such as Europe/Paris, or UTC); unset, empty or not a
 # plain zone name: UTC. Exported as TZ, so the clock, gmail_fetch.py's dates and the posts' times all read it. The timers' own
 # OnCalendar lines carry their zone themselves.
@@ -62,8 +62,6 @@ export TZ=$BRIEFING_TZ
 # BRIEFING_LEAN_CLIENT_NAME: the name gmail_fetch.py gives itself to the portal (MCP clientInfo; its User-Agent is <name>/1).
 # Unset or empty: sala-briefing-lean (gmail_fetch.py's own default). Exported for it.
 BRIEFING_LEAN_CLIENT_NAME=$(_bcfg BRIEFING_LEAN_CLIENT_NAME); [ -n "$BRIEFING_LEAN_CLIENT_NAME" ] && export BRIEFING_LEAN_CLIENT_NAME || unset BRIEFING_LEAN_CLIENT_NAME
-# BRIEFING_WEBHOOK_FILE: the Slack incoming-webhook URL's file (secret, mode 600); unset or empty: ~/.config/sala-briefing/slack-webhook
-WEBHOOK_FILE=$(_bhome "$(_bcfg BRIEFING_WEBHOOK_FILE)"); WEBHOOK_FILE=${WEBHOOK_FILE:-$HOME/.config/sala-briefing/slack-webhook}   # tests repoint it (tests/briefing/reply.sh)
 # BRIEFING_LOGDIR: the run logs. They are state, not cache (XDG); unset or empty: $XDG_STATE_HOME (~/.local/state)/sala-briefing.
 # The units append their own output to cron.log here too (BRIEFING_CRON_LOG, below), so they name no directory of their own.
 LOGDIR=$(_bhome "$(_bcfg BRIEFING_LOGDIR)"); LOGDIR=${LOGDIR:-${XDG_STATE_HOME:-$HOME/.local/state}/sala-briefing}   # tests repoint it: CI runs as the user ci, who cannot write under the owner's home
@@ -428,64 +426,33 @@ PY
 # post becomes a link to its item at SALA_STACKSHOT_WEB. Missing (a copy of contrib/briefing alone): the text goes as it is.
 if [ -r "$BRIEFING_DIR/../../lib/boardlinks.sh" ]; then . "$BRIEFING_DIR/../../lib/boardlinks.sh"; else sala_board_links() { cat; }; fi
 
-# briefing_webhook_file  — prints the webhook file a post goes to. A post may name a channel (a short name matching [a-z0-9-]+):
-# BRIEFING_CHANNEL, else SALA_NOTIFY_CHANNEL (sala's notify command gets it from `salamander alert --channel`). The channel's own
-# file is BRIEFING_WEBHOOK_FILE_<NAME> (NAME = the channel in capitals, dashes turned into underscores; the environment, else the
-# sala config), used only when that file exists and holds something. No channel, a name that does not match, the setting unset or
-# empty, or its file missing or blank: the default WEBHOOK_FILE, so a webhook that is not there yet loses no post.
-briefing_webhook_file() {
-  local ch=${BRIEFING_CHANNEL:-${SALA_NOTIFY_CHANNEL:-}} var f
-  if [[ $ch =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]+$ ]]; then   # spelled out: a-z can match accented letters in some locales
-    var=${ch^^}; var=BRIEFING_WEBHOOK_FILE_${var//-/_}
-    [ -n "${_BCFG[$var]+x}" ] || _bcfg_load "$var"
-    f=$(_bhome "$(_bcfg "$var")")
-    if [ -n "$f" ] && grep -q '[^[:space:]]' "$f" 2>/dev/null; then printf '%s' "$f"; return 0; fi
-  fi
-  printf '%s' "$WEBHOOK_FILE"
-}
-
 # The bot-token post (below) reads the same token files and the same API base as `sala dm` (lib/dm.sh: dm_token_dir, dm_api_base). A
 # copy of contrib/briefing alone has no lib/dm.sh: the two one-line defaults below then stand in for it.
 if [ -r "$BRIEFING_DIR/../../lib/dm.sh" ]; then . "$BRIEFING_DIR/../../lib/dm.sh"; fi
 declare -F dm_token_dir >/dev/null || dm_token_dir() { printf '%s' "${SALA_DM_TOKEN_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/sala-briefing}"; }
 declare -F dm_api_base >/dev/null || dm_api_base() { local b=${SALA_DM_API_BASE:-https://slack.com/api}; printf '%s' "${b%/}"; }
 
-# _bot_post <text>  — posts <text> to the post's channel (BRIEFING_CHANNEL, else SALA_NOTIFY_CHANNEL, as briefing_webhook_file
-# names it) as that channel's Slack app, with the app's bot token: chat.postMessage, so the post shows the app's own name. The app
-# is the setting BRIEFING_BOT_APP_<NAME> (NAME = the channel in capitals, dashes as underscores; the environment, else the sala
-# config), no default; BRIEFING_BOT_CHANNEL_<NAME> is the channel id or name to post to (default: the channel name). The token is
-# ${SALA_DM_TOKEN_DIR:-~/.config/sala-briefing}/slack-bot-token-<app> (what `sala dm` reads: mode 600 or stricter, not empty), read
-# by the python process itself: it is never in an argument list, an environment variable, an output or a log. A post with
-# BRIEFING_THREAD_TS set (reply.sh) is never a bot post: it returns 1 at once, silently (no log line, this is no failure), and
-# post_slack sends it through the channel's webhook. The thread's parent is a channel message and the Slack apps are not members of
-# the channels, so the app cannot reply in that thread; the webhook can. (A reply to a DM goes through `sala dm <app> --thread`.)
-# Returns 0 and prints "ok" (as the webhook does) when Slack answered HTTP 200 with ok:true. Returns 1 for anything else, and the
-# caller then sends the same text through the webhook: no mapping (silent), or one line in $LOGDIR/bot-post.log saying why (the
-# time, the channel, the app and a short reason: a local one such as no_token_file, token_mode_644, token_empty, network,
-# http_<status>, or slack_error:<Slack's error code>). A post whose answer was lost after Slack took it can come out twice.
-_bot_post() {
-  local ch=${BRIEFING_CHANNEL:-${SALA_NOTIFY_CHANNEL:-}} var app bch tokdir base
-  [ -z "${BRIEFING_THREAD_TS-}" ] || return 1   # a thread reply goes through the webhook (see above); an empty value means no thread
-  [[ $ch =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]+$ ]] || return 1
-  var=${ch^^}; var=${var//-/_}
-  _bcfg_load "BRIEFING_BOT_APP_$var" "BRIEFING_BOT_CHANNEL_$var" SALA_DM_TOKEN_DIR SALA_DM_API_BASE
-  app=$(_bcfg "BRIEFING_BOT_APP_$var"); [ -n "$app" ] || return 1
-  bch=$(_bcfg "BRIEFING_BOT_CHANNEL_$var")
-  tokdir=$(SALA_DM_TOKEN_DIR=$(_bhome "$(_bcfg SALA_DM_TOKEN_DIR)") dm_token_dir)
-  base=$(SALA_DM_API_BASE=$(_bcfg SALA_DM_API_BASE) dm_api_base)
-  python3 -I - "$1" "$ch" "$app" "$bch" "$tokdir" "$base" "$LOGDIR" <<'PY'
+# _bot_try <text> <channel> <app> <dm-id> <tokdir> <base> [thread_ts]  — one attempt to post <text> as <app> with chat.postMessage to
+# <dm-id> (the channel name when empty), as a reply in the thread <thread_ts> when it is given. Prints "ok" and returns 0 when Slack answered HTTP 200 with ok:true. Otherwise appends one line to
+# $LOGDIR/bot-post.log (the time, <channel>, the app and a short reason), prints the reason alone and returns 3. Reasons: no_token_file,
+# token_mode_644 (and the like), token_empty, token_unreadable, token_unusable, bad_app_name, bad_channel_setting, bad_thread_ts (all local: the same
+# call would fail the same way), network, http_<status>, bad_response, slack_error:<Slack's error code> (remote: worth one more try).
+# The token is read by this python process alone: never in an argument list, an environment variable, an output or a log.
+_bot_try() {
+  python3 -I - "$1" "$2" "$3" "$4" "$5" "$6" "$LOGDIR" "${7-}" <<'PY'
 import json, os, re, stat, sys, time, urllib.error, urllib.request
-text, ch, app, bch, tokdir, base, logdir = sys.argv[1:8]
-def fail(reason):   # one line in bot-post.log, then the exit that sends the post through the webhook
+text, ch, app, bch, tokdir, base, logdir, ts = sys.argv[1:9]
+def fail(reason):   # one line in bot-post.log, the reason on stdout, then the exit the caller reads
     shown = app if re.fullmatch(r"[A-Za-z0-9-]{1,64}", app) else "-"
     try:
         with open(os.path.join(logdir, "bot-post.log"), "a", encoding="utf-8") as f:
             f.write("%s channel=%s app=%s reason=%s\n" % (time.strftime("%F %T"), ch, shown, reason))
     except OSError:
         pass
-    sys.exit(3)
+    print(reason); sys.exit(3)
 if not re.fullmatch(r"[A-Za-z0-9-]+", app): fail("bad_app_name")
 if bch and not re.fullmatch(r"[#A-Za-z0-9._-]{1,80}", bch): fail("bad_channel_setting")
+if ts and not re.fullmatch(r"[0-9]+\.[0-9]+", ts): fail("bad_thread_ts")
 path = os.path.join(tokdir, "slack-bot-token-" + app)
 try: st = os.stat(path)
 except OSError: fail("no_token_file")
@@ -497,6 +464,7 @@ except OSError: fail("token_unreadable")
 if not tok: fail("token_empty")
 if not (tok.isascii() and tok.isprintable()): fail("token_unusable")
 body = {"channel": bch or ch, "text": text, "unfurl_links": False, "unfurl_media": False}
+if ts: body["thread_ts"] = ts
 req = urllib.request.Request(base + "/chat.postMessage", data=json.dumps(body).encode(),
     headers={"Content-Type": "application/json; charset=utf-8", "Authorization": "Bearer " + tok})
 class NoRedirect(urllib.request.HTTPRedirectHandler):   # the token goes to the API base and nowhere else
@@ -514,28 +482,70 @@ fail("slack_error:" + (e if isinstance(e, str) and re.fullmatch(r"[A-Za-z0-9_.-]
 PY
 }
 
-# post_slack <text>  — posts slack_text <text>, then slack_links and sala_board_links, to the post's channel. A channel with a Slack
-# app mapped (BRIEFING_BOT_APP_<NAME>, see _bot_post) and that app's token file goes through the app's bot token, so the post shows
-# the app's own name; anything else, and any failure of that, goes to the webhook (briefing_webhook_file: the default one, or the
-# channel's), so a post is never lost. With BRIEFING_THREAD_TS set (reply.sh),
-# the post skips the app and goes to the webhook as a reply in that message's thread: the payload gains "thread_ts", which
-# incoming webhooks honour (checked live). Unset or empty, the payload is the same as before. With BRIEFING_NO_POST set and non-empty (a test
-# run by hand) the finished text goes to $LOGDIR/would-post.log instead and neither the token nor the webhook is read.
+# _bot_log <channel> <app> <reason>  — one line in $LOGDIR/bot-post.log for a post that could not even be attempted (_bot_try writes its own).
+_bot_log() {
+  local c=$1 a=$2; [[ $c =~ ^[a-z0-9-]{1,64}$ ]] || c=-; [[ $a =~ ^[A-Za-z0-9-]{1,64}$ ]] || a=-
+  printf '%s channel=%s app=%s reason=%s\n' "$(date '+%F %T')" "$c" "$a" "$3" >> "$LOGDIR/bot-post.log" 2>/dev/null; return 0
+}
+
+# _bot_post <text>  — delivers <text> as a Slack app's direct message to the owner. There is no webhook: a post is delivered by an app or
+# it is not delivered. The post's channel is BRIEFING_CHANNEL, else SALA_NOTIFY_CHANNEL, else sala-admin (where sala's own notices go).
+# The channel names its app: BRIEFING_BOT_APP_<NAME> (NAME = the channel in capitals, dashes as underscores; the environment, else the
+# sala config), no default; BRIEFING_BOT_CHANNEL_<NAME> is the id to post to (a DM channel id: the app's DM with the owner; default: the
+# channel's name). The app's token is the file slack-bot-token-<app> in SALA_DM_TOKEN_DIR (what `sala dm` reads: mode 600 or stricter,
+# not empty), read by the python process itself. The order, each failed attempt appending its own line to $LOGDIR/bot-post.log (the
+# time, the channel, the app and the reason; see _bot_try):
+#   1. the channel's app posts to its DM; with BRIEFING_THREAD_TS set (reply.sh) as a reply in that thread of the DM;
+#   2. a failure a second try could change (network, http_<status>, bad_response, slack_error:<code>) is tried once more; a local
+#      refusal (no_token_file, token_mode_*, token_empty, bad_app_name, ...) is not, it would fail the same way;
+#   3. still failing, or the channel has no app mapped (a name that is not [a-z0-9-]+ included), and the post is not sala-admin's own:
+#      the sala-admin app (BRIEFING_BOT_APP_SALA_ADMIN, if mapped) posts to its DM the text under a first line, `[post for app <app> could
+#      not be delivered: <reason>]` or `[post for channel <name> had no app mapped]`; one attempt, never in a thread (the thread's
+#      parent is a message in another DM);
+#   4. nothing reachable: returns 1 and prints nothing. No other path exists.
+# Returns 0 and prints "ok" when an app posted (HTTP 200 with ok:true). A post whose answer was lost after Slack took it can come out twice.
+_bot_post() {
+  local ch=${BRIEFING_CHANNEL:-${SALA_NOTIFY_CHANNEL:-sala-admin}} var app="" bch="" r="" sa sbch tokdir base shown note
+  _bcfg_load BRIEFING_BOT_APP_SALA_ADMIN BRIEFING_BOT_CHANNEL_SALA_ADMIN SALA_DM_TOKEN_DIR SALA_DM_API_BASE
+  if [[ $ch =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]+$ ]]; then
+    var=${ch^^}; var=${var//-/_}
+    _bcfg_load "BRIEFING_BOT_APP_$var" "BRIEFING_BOT_CHANNEL_$var"
+    app=$(_bcfg "BRIEFING_BOT_APP_$var"); bch=$(_bcfg "BRIEFING_BOT_CHANNEL_$var")
+  fi
+  tokdir=$(SALA_DM_TOKEN_DIR=$(_bhome "$(_bcfg SALA_DM_TOKEN_DIR)") dm_token_dir)
+  base=$(SALA_DM_API_BASE=$(_bcfg SALA_DM_API_BASE) dm_api_base)
+  sa=$(_bcfg BRIEFING_BOT_APP_SALA_ADMIN); sbch=$(_bcfg BRIEFING_BOT_CHANNEL_SALA_ADMIN)
+  shown=$ch; [[ $ch =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]{1,64}$ ]] || shown=-
+  if [ -n "$app" ]; then
+    r=$(_bot_try "$1" "$ch" "$app" "$bch" "$tokdir" "$base" "${BRIEFING_THREAD_TS-}") && { echo ok; return 0; }
+    case $r in   # local refusals: a second try would fail the same way
+      no_token_file|token_*|bad_app_name|bad_channel_setting|bad_thread_ts) ;;
+      *) r=$(_bot_try "$1" "$ch" "$app" "$bch" "$tokdir" "$base" "${BRIEFING_THREAD_TS-}") && { echo ok; return 0; } ;;
+    esac
+    local a=$app; [[ $app =~ ^[A-Za-z0-9-]{1,64}$ ]] || a=-
+    note="[post for app $a could not be delivered: $r]"
+  else
+    note="[post for channel $shown had no app mapped]"
+    [ -n "$sa" ] && [ "$ch" != sala-admin ] || { _bot_log "$ch" - no_app_mapped; return 1; }
+  fi
+  [ "$ch" != sala-admin ] || return 1   # sala-admin's own post: no one left to tell
+  [ -n "$sa" ] || return 1
+  _bot_try "$note"$'\n'"$1" sala-admin "$sa" "$sbch" "$tokdir" "$base" >/dev/null && { echo ok; return 0; }
+  return 1
+}
+
+# post_slack <text>  — delivers slack_text <text>, then slack_links and sala_board_links, as the post's Slack app (_bot_post: the app's DM,
+# one retry, then the sala-admin app's DM naming what failed). Prints "ok" and returns 0 when an app posted; returns 1 and prints nothing
+# when none could (every failed attempt is a line in $LOGDIR/bot-post.log), so a caller sees the failure. There is no webhook. With
+# BRIEFING_THREAD_TS set (reply.sh) the post is a reply in that thread of the app's DM. With BRIEFING_NO_POST set and non-empty (a test run
+# by hand) the finished text goes to $LOGDIR/would-post.log instead and no token is read.
 post_slack() {
   local text linked
   text=$(slack_text "$1") && [ -n "$text" ] || text=$1   # a formatter failure never costs the post
   linked=$(slack_links "$text") && [ -n "$linked" ] && text=$linked   # nor a linker failure: the unlinked text goes
   linked=$(printf '%s\n' "$text" | sala_board_links "$(briefing_setting SALA_STACKSHOT_WEB)") && [ -n "$linked" ] && text=$linked   # each bare board#N: a link to its item
   if [ -n "${BRIEFING_NO_POST-}" ]; then printf '%s\n' "$text" >> "$LOGDIR/would-post.log"; echo "not posted (BRIEFING_NO_POST)"; return 0; fi
-  _bot_post "$text" && return 0
-  python3 - "$text" "$(cat "$(briefing_webhook_file)")" "${BRIEFING_THREAD_TS-}" <<'PY'
-import json,sys,urllib.request
-text,url,ts=sys.argv[1],sys.argv[2],sys.argv[3]
-payload={"text":text,"unfurl_links":False,"unfurl_media":False}
-if ts: payload["thread_ts"]=ts
-req=urllib.request.Request(url,data=json.dumps(payload).encode(),headers={"Content-Type":"application/json"})
-with urllib.request.urlopen(req,timeout=20) as r: print(r.read().decode())
-PY
+  _bot_post "$text"
 }
 
 # guard_settings  — the settings JSON that loads guard.py as a PreToolUse hook on every mcp__ tool of one run, for

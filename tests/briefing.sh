@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The briefing contrib (contrib/briefing/): runs every tests/briefing/*.sh. Offline: a temporary HOME, a fake `claude`,
-# posting stubbed or sent to a listener on 127.0.0.1; nothing reaches Slack, Gmail or the real webhook.
+# posting stubbed or sent to a listener on 127.0.0.1; nothing reaches Slack or Gmail.
 # Usage: bash tests/briefing.sh   (exit 0 = pass; a few seconds)
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

@@ -55,7 +55,7 @@
 # `--check` then reports "healthy: no master session". A state that still remembers a master with no master_unset record
 # is a lost config, as before, and `--check` fails on it.
 # State: $SALA_LOG_DIR/salamander-watch.state (uuid, bridge, last action times). Log: salamander-watch.log.
-# Notify: SALA_WATCH_NOTIFY_CMD gets the message on stdin (e.g. a Slack webhook helper).
+# Notify: SALA_WATCH_NOTIFY_CMD gets the message on stdin (e.g. a Slack helper).
 # Besides the master, each run may start one automatic relaunch, cued as soon as it is due: the panes still on an older CLI
 # than the installed one (auto_relaunch) or a recycle that board items or `sala recycle --when-idle` asked for
 # (auto_recycle); the recycle itself skips a busy pane and its retry worker brings that pane back once it is idle. The CLI
