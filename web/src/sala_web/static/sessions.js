@@ -580,6 +580,38 @@ function unratedCard(c) {
 // page), what could not be counted in plain words, and when it was counted. A lane that cannot be counted says so in the card.
 const usdEst = (n) => (n > 0 && n < 0.005 ? "<$0.01" : usd(n));
 const shareText = (x) => (typeof x !== "number" ? "" : x > 0 && x < 0.005 ? "<1%" : Math.round(x * 100) + "%");
+// THE API SPEND LIMIT STRIP (the aws-platform Overview card): one line under the figure, "Limit $1,000 · Tier 3 · Paused until Tue Dec 1st",
+// from Anthropic's "Monthly Claude API Spend Exceeding Thresholds" emails (the server's api_limit: spend.py read_api_limit, kept by the
+// briefing job). It never wraps: a narrow card cuts its end with an ellipsis, and the title is the whole text with the pause instant in
+// the SALA_TZ zone, the email's date and the source. A newest email more than 14 days old (api_limit.stale) keeps the figures and
+// adds a second line, "as of <that email's day>, no newer email"; after the pause instant "Pause ended <day>" replaces "Paused until".
+// No api_limit (null: no email, an unreadable file) draws nothing.
+const limitAmount = (n) => "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+const dayTime = (d) => dayWords(d.toISOString()) + " " + zoneTime.format(d) + " " + zoneLabel(d);
+function limitStrip(l) {
+  if (!l || typeof l.limit !== "number" || typeof l.tier !== "number") return [];
+  const until = new Date(Date.parse(l.pausedUntil)), sent = new Date(Date.parse(l.emailDate));
+  if (isNaN(until) || isNaN(sent)) return [];
+  const amount = limitAmount(l.limit);
+  const tier = tl("ov.l.tier", { tier: l.tier });
+  const ended = l.pauseEnded === true;
+  const pause = tl(ended ? "ov.l.pauseEnded" : "ov.l.pausedUntil", { when: dayWords(until.toISOString()) });
+  const title = tl(ended ? "ov.l.tipEnded" : "ov.l.tipPaused", { amount, tier, when: dayTime(until) }) + " "
+    + tl("ov.l.tipSource", { org: l.org ? " (" + l.org + ")" : "", when: dayTime(sent) })
+    + (l.stale ? " " + tl("ov.l.tipStale", { days: l.staleDays }) : "");
+  const bold = (t) => { const b = document.createElement("b"); b.textContent = t; return b; };
+  const strip = div("l-strip");
+  strip.append(document.createTextNode(tl("ov.l.limit") + " "), bold(amount), document.createTextNode(" \u00b7 "), bold(tier),
+    document.createTextNode(" \u00b7 "), span("paused", pause));
+  strip.title = title;
+  const out = [strip];
+  if (l.stale) {
+    const asOf = div("l-strip l-asof", tl("ov.l.asOf", { when: dayWords(sent.toISOString()) }));
+    asOf.title = title;
+    out.push(asOf);
+  }
+  return out;
+}
 function spendRow(nameNode, amount, share, title) {
   const row = div("s-row");
   const name = div("s-name");
@@ -617,6 +649,7 @@ function spendCardBody(lane, a, opts = {}) {
   f.append(span("c-k", tl("ov.c.thisMonth")), span("c-v", has ? usdEst(a.monthUsd) : "—"));
   figs.append(f);
   card.append(figs);
+  if (brief && has) card.append(...limitStrip(a.api_limit));   // the limit, tier and pause date, directly under the figure (aws-platform only: no other lane carries api_limit)
   const since = a.since ? dayWords(a.since) : "";
   const est = div("c-line c-foot s-est", has ? (since ? tl("ov.s.estimateSince", { since }) : tl("ov.s.estimate")) : tl("ov.c.notYet"));
   est.title = since ? tl("ov.s.estTitleSince", { since }) : tl("ov.s.estTitle");

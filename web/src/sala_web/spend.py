@@ -421,6 +421,50 @@ def sid_of(projects: Path, path: str) -> str:
     return rel[1] if len(rel) > 2 and rel[2] == "subagents" else Path(rel[-1]).stem
 
 
+# ── the API spend limit (the aws-platform card's strip) ──────────────────────
+LIMIT_FILE = "aws-api-limit.json"   # in sala's state dir; written by contrib/briefing/aws-limit.sh (aws_limit.py), never by this app
+LIMIT_STALE_S = 14 * 86400          # an email older than this is shown as "as of <date>, no newer email"
+
+
+def read_api_limit(path: Path | None, now: datetime | None = None) -> dict | None:
+    """The limit, tier and pause date from the state file the job keeps from Anthropic's "Monthly Claude API Spend Exceeding
+    Thresholds" emails, or None for a file that is missing, unreadable or does not hold all of them (the card then shows no strip,
+    never an error). The facts are the email's own: nothing is computed from them except two flags for the card, evaluated now:
+    `stale` (the newest email is more than 14 days old: the figures stay, marked as of that email) and `pauseEnded` (the pause-until
+    instant has passed). Times are ISO UTC; the card shows them in the SALA_TZ zone."""
+    if path is None:
+        return None
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict) or doc.get("v") != 1:
+        return None
+    limit, tier = doc.get("limit"), doc.get("tier")
+    if isinstance(limit, bool) or not isinstance(limit, (int, float)) or not limit > 0:
+        return None
+    if isinstance(tier, bool) or not isinstance(tier, int) or tier < 0:
+        return None
+    until, sent = parse_iso(doc.get("paused_until")), parse_iso(doc.get("email_date"))
+    if until is None or sent is None:
+        return None
+    fetched = doc.get("fetched_at")
+    org = doc.get("org")
+    t = (now or datetime.now(timezone.utc)).timestamp()
+    age = t - sent
+    return {
+        "limit": limit,
+        "tier": tier,
+        "pausedUntil": doc["paused_until"],
+        "emailDate": doc["email_date"],
+        "fetchedAt": fetched if isinstance(fetched, str) and parse_iso(fetched) is not None else None,
+        "org": org if isinstance(org, str) else "",
+        "stale": age > LIMIT_STALE_S,
+        "staleDays": max(0, int(age // 86400)),
+        "pauseEnded": t >= until,
+    }
+
+
 # ── the count ────────────────────────────────────────────────────────────────
 def load_observed(path: Path | None) -> dict:
     if path is None:

@@ -435,6 +435,11 @@
 #BRIEFING_LEAN_PORTAL_URL=       # the MCP portal's address the lean summary reads Gmail through (e.g. https://mcp-portal.example.com/mcp).
                                  #   Empty (the default): the serverUrl of Claude Code's login entry for the portal; neither: the lean summary
                                  #   posts its "failed" notice and sends nothing
+#SALA_AWS_LIMIT_ORG=             # the organization the API spend limit job (contrib/briefing/aws-limit.sh) reads Anthropic's "Monthly Claude API Spend
+                                 #   Exceeding Thresholds" emails for: the name those emails give in quotes ("your organization "<name>"") and only that one's mail counts.
+                                 #   The job keeps the newest email's limit, tier and pause date in ~/.local/state/salamander/aws-api-limit.json, which the aws-platform card
+                                 #   on the Overview shows as one line. Unset or empty (the default): the job does nothing and the card shows no such line. It reads the
+                                 #   mailbox as the digests do (BRIEFING_GMAIL_CONNECTOR, BRIEFING_LEAN_PORTAL_URL above)
 #BRIEFING_TZ=UTC                 # the time zone the digests show their times in (an IANA name such as Europe/Paris, or UTC). Unset, empty or not a
                                  #   plain zone name: UTC. Independent of SALA_TZ above; the timers' own OnCalendar lines carry their zone themselves
 #BRIEFING_WATCHLIST=             # the companies and topics a Google Alert must be about to count in the mail summary (prompt slot {{WATCHLIST}}),

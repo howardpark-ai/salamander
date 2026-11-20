@@ -161,6 +161,11 @@
    the API card's, then the models and the sessions as rows of a name, an amount and a share, every one on one line. A name
    gives way with an ellipsis only when the session's own name is longer than the card (its whole name is the tooltip) */
 #overview-pane .s-est { color: var(--muted); }
+/* the API spend limit strip (sessions.js limitStrip): one line, never wrapped; a narrow card cuts its end with an ellipsis */
+#overview-pane .l-strip { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 12px; line-height: 1.45; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#overview-pane .l-strip b { color: var(--text); font-weight: 600; font-variant-numeric: proportional-nums; }
+#overview-pane .l-strip .paused { color: var(--busy); font-weight: 600; }
+#overview-pane .l-strip.l-asof { margin-top: 2px; padding-top: 0; border-top: 0; color: var(--busy); }
 #overview-pane .s-list { margin-top: 8px; }
 #overview-pane .s-h { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 2px; white-space: nowrap; }
 #overview-pane .s-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; align-items: baseline; gap: 0 12px; padding: 4px 0; font-size: 15px; }

@@ -536,7 +536,7 @@ def test_a_dormant_lane_keeps_its_figures_and_gains_the_record_in_the_answer(w):
         # before the first count lands, a dormant lane is the stub {lane, dormant}
         app.state.spend._swr.state = {"lanes": [], "pending": True}
         stub = c.get("/api/spend").json()
-    assert {"lane": "aws-platform", "dormant": dormant} in stub["lanes"]
+    assert {"lane": "aws-platform", "dormant": dormant, "api_limit": None} in stub["lanes"]
 
 
 def test_configured_comes_from_sala_s_lane_table(w):

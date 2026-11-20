@@ -17,6 +17,7 @@ source `lib.sh` to post its notices through the same Slack apps.
 | `summary-lean.sh` + `summary-lean.prompt.md` + `gmail_fetch.py` + `lean-compare.sh` | The lean Morning Email Summary (below): code reads and trims the unread mail, one model call with no tools writes the text. Run with `--post` (the installed unit does) it posts the digest to the briefing channel; without it the script writes `lean/YYYYMMDD.txt` and posts nothing. |
 | `holds.py` | The new holds of the last 24 hours, for `summary.sh`. Reads stackshot's `GET /client/brief` with the machine token, outside the model, and prints the new-hold lines framed as a data block (nothing when there are none). |
 | `defunct.sh` + `defunct.prompt.md` | Forwarded Address Unsubscribe Queue: the unread mail under the Gmail label `BRIEFING_FORWARD_LABEL`, classified, read only. The job is label-driven and off by default: with no label set it writes one `cron.log` line and exits 0. |
+| `aws-limit.sh` + `aws_limit.py` | The API spend limit (*The API spend limit*, below): reads the newest "Monthly Claude API Spend Exceeding Thresholds" email through `gmail_fetch.py`'s portal client and keeps its limit, tier and pause date in a state file for sala's Overview card. No model call. |
 | `release-alert.sh` | Runs `release-watch.sh` and posts what it prints, unless that is `NO_REPLY`. A failed probe gets a ⚠️ post. |
 | `release-watch.sh` | Probes the Claude Code CLI and the Ubuntu LTS upgrade path. A release not announced before is printed once, and the session that owns the upgrade is pinged. The Claude Code CLI's owner is sala's master; with none it is `RELEASE_WATCH_CLI_OWNER` (the environment, else the sala config's line; unset: nobody is pinged; `release-watch.sh cli-owner` prints it). The Ubuntu LTS path goes to `RELEASE_WATCH_UBUNTU_SESSION` and names the plan's page `RELEASE_WATCH_UBUNTU_PAGE` (unset: posted only, no page named). `release-watch.sh defer <product> [tag]` keeps one release quiet until a newer one appears. |
 | `reply.sh <thread_ts> [text]` | A reply in the thread of a message in the reports app's DM (a fast-lane chat with the briefing session). The text is the argument, or stdin when it is omitted or `-`. It goes through `post_slack` with `BRIEFING_THREAD_TS` set, which sends it as the reports app's DM with `thread_ts` in the payload. Prints `ok` and exits 0 when an app posted; when none could (the tokens missing, Slack refusing) it prints nothing and exits 1, with a line per attempt in `bot-post.log`; a ts that is not digits.digits, or an empty text, is a one-line error and exit 2, and nothing is posted. |
@@ -65,6 +66,7 @@ quiet channel always means the job did not run.
 | `sala-briefing-summary-lean.timer` | 06:00 UTC | `summary-lean.sh --post`, which posts the digest to the briefing channel |
 | `sala-briefing-defunct.timer` | 06:15 UTC | `defunct.sh` (off until `BRIEFING_FORWARD_LABEL` is set) |
 | `sala-briefing-release.timer` | 06:30 UTC | `release-alert.sh` |
+| `sala-briefing-aws-limit.timer` | 02:10, 08:10, 14:10, 20:10 UTC | `aws-limit.sh` (off until `SALA_AWS_LIMIT_ORG` is set) |
 
 The times are neutral defaults, written in each unit's `OnCalendar` line with the zone after the time
 (`*-*-* 06:00:00 UTC`), so the machine's own clock does not matter. Edit the line to move one, for example to
@@ -85,6 +87,31 @@ other briefing lines), and nothing is sourced. Each is optional.
 | `BRIEFING_LOW_PRIORITY_SENDERS` | Senders and kinds of mail that stay low-priority in the mail summary unless they are a security, billing or legal issue, comma-separated (for example `news@example.com, weekly newsletters`); fills `{{LOW_PRIORITY_SENDERS}}` in the two summary prompts. | `none configured` |
 | `BRIEFING_FORWARD_LABEL` | The Gmail label of the defunct-address queue, one plain word (letters, digits, `.`, `_`, `-`, `/`); fills `{{FORWARD_LABEL}}` in the defunct prompt. | the defunct job is off (one `cron.log` line, exit 0) |
 | `BRIEFING_CHANNEL` | The Slack channel a post goes to, read from the environment only (not the config; *Slack channels*, below): a name matching `[a-z0-9-]+` whose app is `BRIEFING_BOT_APP_<NAME>`. The jobs default it to `reports`; set it in a unit's environment to move one job. | the jobs use `reports`; a script that sets none (`post-stdin.sh`) uses `SALA_NOTIFY_CHANNEL`, else the sala-admin app |
+
+## The API spend limit
+
+When an organization's monthly API spend crosses its threshold, Anthropic emails "Monthly Claude API Spend Exceeding Thresholds": the dollar
+threshold, the API tier it was set from, and the instant API use is paused until (midnight UTC on a named day). Nothing else tells us, so
+`aws-limit.sh` (`aws_limit.py`) reads the newest such email four times a day and writes
+
+```
+~/.local/state/salamander/aws-api-limit.json
+{"v": 1, "limit": 1000, "tier": 3, "paused_until": "2026-12-01T00:00:00Z", "email_date": "2026-11-09T12:33:09Z", "org": "Example Org", "fetched_at": "2026-11-20T10:00:00Z"}
+```
+
+atomically. The web app reads the file at each `GET /api/spend` and the aws-platform card on the Overview shows one line from it
+(`web/README.md`, *The AWS lanes' spend cards*). It reads the mailbox exactly as the lean summary does (`gmail_fetch.py`'s `Portal`: the five read-only
+Gmail reads through the portal, the login Claude Code already holds, never a refresh) and calls no model.
+
+- **Which email.** The subject, and the organization the email names, which must be `SALA_AWS_LIMIT_ORG` (config.example): mail about another
+  organization is ignored. The newest by its Date header wins. The limit is the dollar figure in "crossed the $X monthly API usage threshold", the
+  tier the "(Tier N)" after it, the pause the date after "until midnight UTC on".
+- **Switched off, not failing.** With no `BRIEFING_GMAIL_CONNECTOR` or no `SALA_AWS_LIMIT_ORG` the job writes one `cron.log` line and exits 0.
+- **A run that finds nothing leaves the file as it was.** So does an email whose text no longer has the four facts; the card is then as old as the last good
+  email, and says so (a newest email over 14 days old is shown "as of <day>, no newer email"). A refused login exits 3 and any other failure 4, each with one
+  `cron.log` line.
+- **Installing.** The unit pair is in git; a deploy does not link it. After the deploy: `ln -sf ~/salamander/contrib/briefing/systemd/sala-briefing-aws-limit.{service,timer} ~/.config/systemd/user/`,
+  `systemctl --user daemon-reload`, `systemctl --user enable --now sala-briefing-aws-limit.timer`, with `SALA_AWS_LIMIT_ORG` set in the sala config.
 
 ## Where secrets, logs and state live (outside the repo)
 

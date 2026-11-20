@@ -56,7 +56,11 @@ none itself):
                                   "dormant": {reason, since}; before the first count it is just {"lane", "dormant"}. The last answer at once,
                                   refreshed in a thread every 5 minutes and kept in state_dir/spend-aws.json (swr.py; the
                                   per-file read cache is spend-scan.json, the live lane sightings spend-lanes.json); "pending"
-                                  until the first count lands, "error" in plain words when it cannot be counted
+                                  until the first count lands, "error" in plain words when it cannot be counted.
+                                  The aws-platform entry also carries "api_limit": {limit, tier, pausedUntil, emailDate, fetchedAt,
+                                  org, stale, staleDays, pauseEnded} or null: the limit Anthropic's threshold emails announce, from
+                                  the file the briefing job keeps in sala's state dir (spend.py read_api_limit; null when it is
+                                  missing or unreadable)
   GET  /api/usage?week=<0|1|2>    the Overview's Usage analysis tab (usage.py): what the Claude Code replies on THIS machine cost, at list prices, over one weekly
                                   range (0 = the running week, 1 and 2 = seven days back each; a week runs from one weekly reset of the subscription lane to the
                                   next), counted from the transcripts under ~/.claude/projects and each second login's folder, subagents included (no AWS or Anthropic
@@ -733,6 +737,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
         lanes = [{**x, "dormant": dormant[x["lane"]]} if x.get("lane") in dormant else x for x in out.get("lanes") or []]
         have = {x.get("lane") for x in lanes}
         lanes += [{"lane": lane, "dormant": dormant[lane]} for lane in SPD.LANES if lane in dormant and lane not in have]
+        # the aws-platform lane's limit, tier and pause date from Anthropic's threshold emails (spend.py read_api_limit): the file the
+        # briefing job keeps, read at each ask so the stale and pause-ended flags are the moment's; null when there is none
+        limit = SPD.read_api_limit(settings.sala_state_dir / SPD.LIMIT_FILE)
+        lanes = [{**x, "api_limit": limit} if x.get("lane") == "aws-platform" else x for x in lanes]
         out["lanes"] = lanes
         return JSONResponse(out, headers={"Cache-Control": "no-store"})
 

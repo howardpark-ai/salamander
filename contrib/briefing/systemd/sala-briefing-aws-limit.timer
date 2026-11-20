@@ -1,0 +1,10 @@
+[Unit]
+Description=sala briefing — API spend limit, four times a day (timer)
+
+[Timer]
+OnCalendar=*-*-* 02,08,14,20:10:00 UTC
+Persistent=true
+Unit=sala-briefing-aws-limit.service
+
+[Install]
+WantedBy=timers.target
