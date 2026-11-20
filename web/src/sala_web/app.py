@@ -23,7 +23,7 @@ none itself):
                                   "unread" (count > 0); unread.py; and "agentId" (sala's permanent id for the agent,
                                   from the registry's sessions.json: the key of the saved agent order) with its
                                   "aliases", when the registry has a row for it
-  POST /api/read                  {"name"}: the owner opened that session, so its read marker moves up to its latest reply
+  POST /api/read                  {"name"}: the owner opened that session, so its read marker moves up to its latest reply (a Slack agent has none: moved false)
                                   (state_dir/read-state.json, so the phone and the desktop agree; unread.py)
   GET  /api/overview              the same sessions as flat rows in sidebar order, each with the model and effort its
                                   pane runs now (its command line, else sala's record, else its latest reply; a bare
@@ -1459,6 +1459,12 @@ def create_app(settings: Settings | None = None) -> Starlette:
         found = next((x for x in live if x.name == name), None)
         if found is None:
             return _err(404, "no live session with that name")
+        # a Slack agent is read in Slack and has no read-marker row (unread.py): opening it moves nothing and writes nothing.
+        # Its surface comes from the registry row or the roles entry, the two places the session list reads it from
+        await run_in_threadpool(lambda: S.attach_agent_ids(live, S.load_agent_rows(settings.sala_state_dir / "sessions.json")))
+        role = (await roles.get()).get(found.name) or {}
+        if found.surface == "slack" or role.get("surface") == "slack":
+            return JSONResponse({"ok": True, "name": found.name, "moved": False}, headers={"Cache-Control": "no-store"})
         moved = await run_in_threadpool(read_state.mark_read, found.name, found.cwd, found.session_id)
         return JSONResponse({"ok": True, "name": found.name, "moved": moved}, headers={"Cache-Control": "no-store"})
 

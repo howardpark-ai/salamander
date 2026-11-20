@@ -21,7 +21,8 @@ The count is read from the transcript's tail (transcript.count_replies_since) an
 10 replies lie past the scan's byte limit (16 MB of tail) shows fewer; 9+ is a floor, never an exact number.
 
 Opening a session in the UI posts POST /api/read, which moves "read" up to the session's latest reply (never down). The server
-computes the time itself from the transcript, so a page cannot mark a reply it has not been shown by sending a time.
+computes the time itself from the transcript, so a page cannot mark a reply it has not been shown by sending a time. For a Slack
+agent the endpoint answers `moved: false` and writes nothing, so the page's post on opening one is harmless (it ignores the body).
 """
 
 from __future__ import annotations
