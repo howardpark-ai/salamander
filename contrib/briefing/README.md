@@ -103,11 +103,13 @@ atomically. The web app reads the file at each `GET /api/spend` and the aws-plat
 (`web/README.md`, *The AWS lanes' spend cards*). It reads the mailbox exactly as the lean summary does (`gmail_fetch.py`'s `Portal`: the five read-only
 Gmail reads through the portal, the login Claude Code already holds, never a refresh) and calls no model.
 
-- **Which email.** The subject, and the organization the email names, which must be `SALA_AWS_LIMIT_ORG` (config.example): mail about another
-  organization is ignored. The newest by its Date header wins. The limit is the dollar figure in "crossed the $X monthly API usage threshold", the
+- **Which email.** The subject, a From address at `anthropic.com` (or a subdomain of it), and the organization the email names, which must be
+  `SALA_AWS_LIMIT_ORG` (config.example): mail from another sender or about another organization is ignored. Of the rest, the newest by its Date
+  header is the one that counts, and only it: when it lacks a fact, nothing is written (see below) and an older alert never takes its place. The job
+  reads the first page of Gmail's matches for the subject, 50 mails (`--page-size`). The limit is the dollar figure in "crossed the $X monthly API usage threshold", the
   tier the "(Tier N)" after it, the pause the date after "until midnight UTC on".
 - **Switched off, not failing.** With no `BRIEFING_GMAIL_CONNECTOR` or no `SALA_AWS_LIMIT_ORG` the job writes one `cron.log` line and exits 0.
-- **A run that finds nothing leaves the file as it was.** So does an email whose text no longer has the four facts; the card is then as old as the last good
+- **A run that finds nothing leaves the file as it was.** So does a newest email of the organization whose text no longer has the four facts; the card is then as old as the last good
   email, and says so (a newest email over 14 days old is shown "as of <day>, no newer email"). A refused login exits 3 and any other failure 4, each with one
   `cron.log` line.
 - **Installing.** The unit pair is in git; a deploy does not link it. After the deploy: `ln -sf ~/salamander/contrib/briefing/systemd/sala-briefing-aws-limit.{service,timer} ~/.config/systemd/user/`,

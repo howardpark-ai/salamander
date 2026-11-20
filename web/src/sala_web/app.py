@@ -738,7 +738,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         have = {x.get("lane") for x in lanes}
         lanes += [{"lane": lane, "dormant": dormant[lane]} for lane in SPD.LANES if lane in dormant and lane not in have]
         # the aws-platform lane's limit, tier and pause date from Anthropic's threshold emails (spend.py read_api_limit): the file the
-        # briefing job keeps, read at each ask so the stale and pause-ended flags are the moment's; null when there is none
+        # briefing job keeps, read at each ask so the stale and pause-ended flags are the moment's; null when there is none, when
+        # SALA_AWS_LIMIT_ORG (read at each ask too: the environment, else sala's config) is unset, or names another organization than the file
         limit = SPD.read_api_limit(settings.sala_state_dir / SPD.LIMIT_FILE)
         lanes = [{**x, "api_limit": limit} if x.get("lane") == "aws-platform" else x for x in lanes]
         out["lanes"] = lanes

@@ -31,8 +31,16 @@ def body(limit="$1000.00", tier="Tier 3", until="December 1, 2026", org="Example
             "about API usage limits.Example Sender, PBC1 Example Street, Example City" % (limit, org, "." if dot else "", tier, until))
 
 
+FROM = "Example Sender <alerts@anthropic.com>"   # how the portal hands the From header over: a name and an address
+
+
+def hdr(date, frm=FROM, subject=None):
+    return {"subject": subject or A.SUBJECT, "from": frm, "date": date}
+
+
 def msg(date, **kw):
-    return {"headers": {"subject": kw.pop("subject", A.SUBJECT), "date": date}, "body": body(**kw)}
+    frm, subject = kw.pop("frm", FROM), kw.pop("subject", A.SUBJECT)
+    return {"headers": hdr(date, frm, subject), "body": body(**kw)}
 
 
 T = tempfile.mkdtemp(prefix="awslimit-check-")
@@ -56,22 +64,48 @@ try:
     # --- one message --------------------------------------------------------------------------------------------------
     got = A.parse_message(msg("Mon, 09 Nov 2026 12:33:09 +0000 (UTC)")["headers"], body(), "Example Org")
     check("the email date is the Date header in UTC", got and got["email_date"] == "2026-11-09T12:33:09Z", got)
-    got = A.parse_message({"subject": A.SUBJECT, "date": "Mon, 09 Nov 2026 21:33:09 +0900"}, body(), "example org")
+    got = A.parse_message(hdr("Mon, 09 Nov 2026 21:33:09 +0900"), body(), "example org")
     check("a zone offset is converted and the organization matches without regard to case", got and got["email_date"] == "2026-11-09T12:33:09Z", got)
     check("another organization is ignored", A.parse_message(msg("Mon, 09 Nov 2026 12:33:09 +0000")["headers"], body(org="Other Org"), "Example Org") is None)
     check("no organization configured: nothing matches", A.parse_message(msg("Mon, 09 Nov 2026 12:33:09 +0000")["headers"], body(), "") is None)
-    check("another subject is ignored", A.parse_message({"subject": "Your receipt", "date": "Mon, 09 Nov 2026 12:33:09 +0000"}, body(), "Example Org") is None)
-    check("no readable Date header: None", A.parse_message({"subject": A.SUBJECT, "date": "yesterday-ish"}, body(), "Example Org") is None)
+    check("another subject is ignored", A.parse_message(hdr("Mon, 09 Nov 2026 12:33:09 +0000", subject="Your receipt"), body(), "Example Org") is None)
+    check("no readable Date header: None", A.parse_message(hdr("yesterday-ish"), body(), "Example Org") is None)
+
+    # --- the sender -------------------------------------------------------------------------------------------------------
+    D = "Mon, 09 Nov 2026 12:33:09 +0000"
+    for frm, want in (("Example Sender <alerts@anthropic.com>", True), ("alerts@anthropic.com", True), ("<alerts@anthropic.com>", True),
+                      ('"Example Sender" <alerts@Anthropic.COM>', True), ("alerts@mail.anthropic.com", True),
+                      ("alerts@example.com", False), ("alerts@anthropic.com.example.net", False), ("alerts@notanthropic.com", False),
+                      ("alerts@example.com.anthropic.com.example.net", False), ("anthropic.com <alerts@example.com>", False),
+                      ("Example Sender <alerts@example.com>", False), ("alerts@anthropic.com, other@example.com", False),
+                      ("", False), (None, False), ("anthropic.com", False), ("alerts@@anthropic.com", False)):
+        got = A.parse_message(hdr(D, frm), body(), "Example Org")
+        check("sender %r: %s" % (frm, "accepted" if want else "ignored"), bool(got) == want, got)
+    check("no From header at all: ignored", A.parse_message({"subject": A.SUBJECT, "date": D}, body(), "Example Org") is None)
+    check("the newest of the organization from another sender is ignored: the Anthropic one stands",
+          (A.newest({"m1": msg(D), "m2": msg("Fri, 13 Nov 2026 08:00:00 +0000", frm="alerts@example.com", limit="$9000.00")}, "Example Org") or {}).get("limit") == 1000)
 
     # --- the newest of several ----------------------------------------------------------------------------------------
     msgs = {"m1": msg("Tue, 27 Oct 2026 06:21:15 +0000", limit="$500.00", tier="Tier 2", until="November 1, 2026"),
             "m2": msg("Mon, 02 Nov 2026 01:41:35 +0000", limit="$500.00", tier="Tier 2"),
             "m3": msg("Mon, 09 Nov 2026 12:33:09 +0000"),
             "m4": msg("Fri, 13 Nov 2026 08:00:00 +0000", org="Other Org", limit="$9000.00", tier="Tier 4"),
-            "m5": {"headers": {"subject": A.SUBJECT, "date": "Sat, 14 Nov 2026 08:00:00 +0000"}, "body": "garbage"}}
-    got = A.newest(msgs, "Example Org")
-    check("the newest email of the organization wins (a newer one of another organization, and a newer unparseable one, do not)",
+            "m5": {"headers": hdr("Sat, 14 Nov 2026 08:00:00 +0000"), "body": "garbage"}}
+    got = A.newest({k: v for k, v in msgs.items() if k != "m5"}, "Example Org")
+    check("the newest email of the organization wins (a newer one of another organization does not)",
           got and (got["limit"], got["tier"], got["email_date"]) == (1000, 3, "2026-11-09T12:33:09Z"), got)
+    # a newest alert of the organization that lacks a fact: None, never an older alert's figures
+    one = {"m1": msg("Tue, 27 Oct 2026 06:21:15 +0000", limit="$500.00", tier="Tier 2", until="November 1, 2026"),
+           "m2": msg("Mon, 09 Nov 2026 12:33:09 +0000", tier="no tier named")}
+    check("the newest alert of the organization lacks its tier and an older one parses: None (the older one does not take its place)", A.newest(one, "Example Org") is None, A.newest(one, "Example Org"))
+    cut = msg("Mon, 09 Nov 2026 12:33:09 +0000"); cut["body"] = cut["body"].split("The threshold was set")[0]
+    check("a newest alert cut off before its tier: None", A.newest({"m1": msgs["m1"], "m2": cut}, "Example Org") is None)
+    check("the newest alert of the organization lacks the pause date: None", A.newest({"m1": msgs["m1"], "m2": msg("Mon, 09 Nov 2026 12:33:09 +0000", until="soon")}, "Example Org") is None)
+    check("the newest message names no organization (it cannot be the organization's): the older parseable one stands",
+          (A.newest({"m1": msgs["m1"], "m2": {"headers": hdr("Mon, 09 Nov 2026 12:33:09 +0000"), "body": "garbage"}}, "Example Org") or {}).get("email_date") == "2026-10-27T06:21:15Z")
+    check("a newer unparseable alert of ANOTHER organization does not block the organization's own",
+          (A.newest({"m1": msgs["m1"], "m2": msg("Mon, 09 Nov 2026 12:33:09 +0000", org="Other Org", tier="no tier named")}, "Example Org") or {}).get("tier") == 2)
+    check("a newest alert with no readable date cannot be ranked: ignored", (A.newest({"m1": msgs["m1"], "m2": {"headers": hdr("later"), "body": body()}}, "Example Org") or {}).get("email_date") == "2026-10-27T06:21:15Z")
     check("a different month: the pause date follows its email", A.newest({"m": msg("Thu, 03 Dec 2026 10:00:00 +0000", until="January 1, 2027")}, "Example Org")["paused_until"] == "2027-01-01T00:00:00Z")
     check("no message: None", A.newest({}, "Example Org") is None and A.newest(None, "Example Org") is None)
     check("only another organization's mail: None", A.newest({"m": msg("Mon, 09 Nov 2026 12:33:09 +0000", org="Other Org")}, "Example Org") is None)
@@ -88,6 +122,12 @@ try:
     before = open(path).read()
     rc, line = A.run("Example Org", path, lambda: {"x": msg("Mon, 09 Nov 2026 12:33:09 +0000", org="Other Org")}, now)
     check("no email of the organization: exit 0, a line that says so, the file as it was", rc == 0 and "left as it was" in line and open(path).read() == before, line)
+    rc, line = A.run("Example Org", path, lambda: {"x": msg("Fri, 13 Nov 2026 08:00:00 +0000", frm="alerts@example.com", limit="$9000.00")}, now)
+    check("only a lookalike sender's mail: exit 0, the file as it was", rc == 0 and "left as it was" in line and open(path).read() == before, line)
+    rc, line = A.run("Example Org", path, lambda: {"a": msg("Tue, 27 Oct 2026 06:21:15 +0000", limit="$500.00", tier="Tier 2", until="November 1, 2026"),
+                                                  "b": msg("Fri, 13 Nov 2026 08:00:00 +0000", tier="no tier named")}, now)
+    check("the newest alert lacks its tier, an older one parses: exit 0, a line that says so, the file untouched (the older figures do not overwrite it)",
+          rc == 0 and "left as it was" in line and open(path).read() == before, line)
     rc, line = A.run("", path, lambda: (_ for _ in ()).throw(AssertionError("the mailbox must not be read")), now)
     check("no organization set: the mailbox is not read and nothing is written", rc == 0 and "SALA_AWS_LIMIT_ORG" in line and open(path).read() == before, line)
 
@@ -98,6 +138,15 @@ try:
         check("a failed read raises (main turns it into exit 4)", False)
     except RuntimeError:
         check("a failed read raises (main turns it into exit 4) and the file is as it was", open(path).read() == before)
+
+    # --- the paging default -------------------------------------------------------------------------------------------------
+    seen = {}
+    A.fetch_messages = lambda page_size, deadline, G=None: seen.setdefault("n", page_size) and {}
+    os.environ["SALA_AWS_LIMIT_ORG"] = "Example Org"
+    A._gmail_fetch = lambda: None
+    A.main(["--state-file", os.path.join(T, "paging.json")])
+    check("the default page size is 50", seen.get("n") == 50, seen)
+    os.environ.pop("SALA_AWS_LIMIT_ORG", None)
 
     # --- the command line: no organization, no read ----------------------------------------------------------------------
     env = dict(os.environ)
