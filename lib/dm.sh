@@ -7,8 +7,7 @@
 #   salamander dm --check <app>                       auth.test with the stored token: the bot user id and the team
 #   salamander dm --help | -h
 #
-# Why it exists: the incoming webhooks `sala alert` posts through (contrib/briefing/post-stdin.sh) reach one channel each and cannot start
-# a thread in a Direct Message. A Slack app's bot token (xoxb-…) can: conversations.open (the app's DM with the member) gives the channel,
+# Why it exists: a session needs to message the owner as a Slack app and start a thread there. A Slack app's bot token (xoxb-…) can: conversations.open (the app's DM with the member) gives the channel,
 # chat.postMessage posts into it, and the message appears in the app's Messages tab.
 #
 # Settings (config.example): SALA_DM_APPS (the app names allowed), SALA_DM_USER_ID (the member to message), SALA_DM_TOKEN_DIR (where the

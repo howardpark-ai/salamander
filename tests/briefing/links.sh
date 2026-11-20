@@ -106,7 +106,7 @@ printf '#!/bin/sh\nsleep 6\nprintf "NAME VERSION BRIDGE\\nslow-main 1 -\\n"\n' >
 start=$(date +%s); got=$(BRIEFING_SESSIONS_CMD= BRIEFING_REGISTRY_CMD=false BRIEFING_SPAWN_LIST_CMD="$T/slow.sh" lnk 'slow-main'); took=$(( $(date +%s) - start ))
 [ "$got" = "<${SALA}slow-main|slow-main>" ] && [ "$took" -ge 6 ] && [ "$took" -le 12 ] && ok "a 6 s spawn --list fallback still links under the 20 s default cap (${took}s)" || bad "slow fallback: ${took}s, $got"
 
-# the fallback: the real post_slack, the linker made to fail or print nothing, against a listener on 127.0.0.1
+# the fallback: the real post_slack, the linker made to fail or print nothing, against a listener on 127.0.0.1 playing the Slack API
 python3 - "$T/port" "$T/body" 3 <<'PY' &
 import http.server, sys
 port_file, body, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
@@ -115,7 +115,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         seen[0] += 1
         open(f"{body}.{seen[0]}", "wb").write(self.rfile.read(int(self.headers.get("Content-Length", 0))))
-        self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+        self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
     def log_message(self, *a): pass
 s = http.server.HTTPServer(("127.0.0.1", 0), H)
 open(port_file, "w").write(str(s.server_address[1]))
@@ -124,8 +124,9 @@ PY
 SRV=$!
 for _ in $(seq 50); do [ -s "$T/port" ] && break; sleep 0.1; done
 if [ -s "$T/port" ]; then
-    printf 'http://127.0.0.1:%s/hook\n' "$(cat "$T/port")" > "$T/webhook"
-    post() { bash -c '. "$1" 2>/dev/null; WEBHOOK_FILE=$2/webhook; eval "$3"; post_slack "$4"' _ "$LIB" "$T" "$1" "$2"; }
+    mkdir -p "$T/tok"; printf '%s\n' fake-links-test-token > "$T/tok/slack-bot-token-adm-app"; chmod 600 "$T/tok/slack-bot-token-adm-app"
+    export BRIEFING_BOT_APP_SALA_ADMIN=adm-app BRIEFING_BOT_CHANNEL_SALA_ADMIN=D0ADMIN SALA_DM_TOKEN_DIR=$T/tok SALA_DM_API_BASE=http://127.0.0.1:$(cat "$T/port")/api
+    post() { bash -c '. "$1" 2>/dev/null; eval "$3"; post_slack "$4"' _ "$LIB" "$T" "$1" "$2"; }
     sent() { python3 -c 'import json,sys; sys.stdout.write(json.load(open(sys.argv[1], encoding="utf-8"))["text"])' "$T/body.$1" 2>/dev/null; }
     r1=$(post ':' '**Done** on s6 in ~/x')
     r2=$(post 'slack_links() { echo partial; return 1; }' '**Done** on s6 in ~/x')

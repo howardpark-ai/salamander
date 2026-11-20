@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# Named Slack channels: a post can name a channel (a short [a-z0-9-]+ name), and a channel with its own webhook file posts there.
+# Named Slack channels: a post can name a channel (a short [a-z0-9-]+ name), and the channel's Slack app posts it into its DM
+# (BRIEFING_BOT_APP_<NAME> and BRIEFING_BOT_CHANNEL_<NAME>); a post that names none, or a channel with no app, goes to the sala-admin
+# app's DM. There is no webhook.
 # Part 1, `salamander alert --channel`: the stub notify command sees SALA_NOTIFY_CHANNEL=<name> for that call and the same text, and
 #   does not see the variable without --channel (even when the caller's own environment has one); --channel=<name>; a name outside
 #   [a-z0-9-]+ (or none) is exit 2 with nothing posted or logged; options only before the headline; `--` and a headline that
 #   starts with `-`; -h and --help print the usage and post nothing; sala_post (sala's own notices) never carries a channel; a hung
 #   notify command is still stopped at SALA_NOTIFY_TIMEOUT.
-# Part 2, post_slack against a listener on 127.0.0.1 (one path per webhook file): the channel's file when it exists and holds a
-#   URL (BRIEFING_CHANNEL before SALA_NOTIFY_CHANNEL; the name in capitals with dashes as underscores; the config line, the
-#   environment over it), the default file when the setting is unset or empty, the file is missing, empty or blank, or the name
-#   does not match; post-stdin.sh end to end behind `salamander alert --channel`.
+# Part 2, post_slack against a listener on 127.0.0.1 playing the Slack API: the DM of the channel's app (BRIEFING_CHANNEL before
+#   SALA_NOTIFY_CHANNEL; the name in capitals with dashes as underscores; the config line, the environment over it), the sala-admin
+#   DM when no channel is named or the channel has no app or the name does not match; post-stdin.sh end to end behind
+#   `salamander alert --channel`, and its failure (exit 1, nothing sent) when no app is mapped at all.
 # Part 3, the jobs: release-alert.sh, summary-lean.sh, summary.sh, defunct.sh and reply.sh post to `reports` by default (their
-#   own failure notices included), BRIEFING_CHANNEL moves one, and an unset reports setting falls back to the default webhook.
-# Nothing leaves the box and no real webhook is read.
+#   own failure notices included), BRIEFING_CHANNEL moves one, and an unmapped reports app falls back to the sala-admin DM.
+# Nothing leaves the box; the token is a made-up value in a temporary folder.
 # Usage: bash tests/briefing/channel.sh   (exit 0 = pass; a few seconds)
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); D=$ROOT/contrib/briefing
@@ -124,8 +126,9 @@ dt=$(( $(date +%s) - t0 ))
 SALA_NOTIFY_CMD='exit 3' SALA_CONFIG=/dev/null SALA_LOG_DIR=$T/log bash "$ROOT/bin/salamander" alert --channel reports 'x' >/dev/null 2>&1; rc=$?
 [ $rc = 1 ] && ok "a failing notify command is exit 1 with a channel too" || bad "failing command: rc=$rc"
 
-# ------------------------------------------------------------------------------------------------ part 2: post_slack and the webhook files
-# one listener, one path per webhook file; each request is kept as path.N and body.N
+# ------------------------------------------------------------------------------------------------ part 2: post_slack and the apps
+# one listener playing the Slack API: each request is kept as path.N and body.N, the answer is {"ok":true}; a request to any other path
+# (where a webhook would be) is a failure of the run
 python3 - "$T/port" "$T/req" <<'PY' &
 import http.server, sys
 port_file, base = sys.argv[1], sys.argv[2]
@@ -135,7 +138,7 @@ class H(http.server.BaseHTTPRequestHandler):
         seen[0] += 1
         open(f"{base}.path.{seen[0]}", "w").write(self.path)
         open(f"{base}.body.{seen[0]}", "wb").write(self.rfile.read(int(self.headers.get("Content-Length", 0))))
-        self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+        self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
     def log_message(self, *a): pass
 s = http.server.HTTPServer(("127.0.0.1", 0), H)
 open(port_file, "w").write(str(s.server_address[1]))
@@ -145,68 +148,66 @@ SRV=$!
 for _ in $(seq 50); do [ -s "$T/port" ] && break; sleep 0.1; done
 [ -s "$T/port" ] || { bad "the 127.0.0.1 listener did not start"; exit 1; }
 PORT=$(cat "$T/port")
-wh() { printf 'http://127.0.0.1:%s/%s\n' "$PORT" "$1" > "$2"; }
-wh default "$T/wh-default"; wh reports "$T/wh-reports"; wh ops "$T/wh-ops"
-: > "$T/wh-empty"; printf ' \n\t\n' > "$T/wh-blank"
+mkdir -p "$T/tok"; for a in rep-app ops-app adm-app; do printf '%s\n' "fake-channel-test-token" > "$T/tok/slack-bot-token-$a"; chmod 600 "$T/tok/slack-bot-token-$a"; done
 cat > "$T/config" <<EOF
-BRIEFING_WEBHOOK_FILE=$T/wh-default
-BRIEFING_WEBHOOK_FILE_REPORTS=$T/wh-reports
-BRIEFING_WEBHOOK_FILE_STACK_OPS=$T/wh-ops
-BRIEFING_WEBHOOK_FILE_GONE=$T/wh-does-not-exist
-BRIEFING_WEBHOOK_FILE_EMPTY=$T/wh-empty
-BRIEFING_WEBHOOK_FILE_BLANK=$T/wh-blank
-BRIEFING_WEBHOOK_FILE_UNSET_ONE=
+BRIEFING_BOT_APP_REPORTS=rep-app
+BRIEFING_BOT_CHANNEL_REPORTS=D0REPORTS
+BRIEFING_BOT_APP_STACK_OPS=ops-app
+BRIEFING_BOT_CHANNEL_STACK_OPS=D0OPS
+BRIEFING_BOT_APP_SALA_ADMIN=adm-app
+BRIEFING_BOT_CHANNEL_SALA_ADMIN=D0ADMIN
 EOF
-export SALA_CONFIG=$T/config BRIEFING_LOGDIR=$T/blog BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR=$T/no-board BRIEFING_COMMIT_REPOS=
+export SALA_CONFIG=$T/config SALA_DM_TOKEN_DIR=$T/tok SALA_DM_API_BASE=http://127.0.0.1:$PORT/api BRIEFING_LOGDIR=$T/blog BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR=$T/no-board BRIEFING_COMMIT_REPOS=
 nreq() { ls "$T" | grep -c '^req\.path\.'; }
-lastpath() { cat "$T/req.path.$(nreq)" 2>/dev/null; }
+chof() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["channel"])' "$T/req.body.$1" 2>/dev/null; }   # the DM a request went to
+lastch() { chof "$(nreq)"; }
+nonapi() { local f n=0; for f in "$T"/req.path.*; do [ -e "$f" ] || continue; case $(cat "$f") in /api/chat.postMessage) ;; *) n=$((n + 1));; esac; done; echo "$n"; }
 # post <VAR=val…> -- <text> posts through the real lib.sh's post_slack with a clean channel environment
 post() {
     local envs=(); while [ $# -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done; shift
     env -u BRIEFING_CHANNEL -u SALA_NOTIFY_CHANNEL ${envs[@]+"${envs[@]}"} bash -c '. "$1/lib.sh" 2>/dev/null; post_slack "$2"' _ "$D" "$1" 2>&1
 }
-expect() { # expect <label> <path> <env…>: one post with that environment must land on /<path>
+expect() { # expect <label> <DM id> <env…>: one post with that environment must land in that DM
     local label=$1 want=$2; shift 2; local n out; n=$(nreq)
     out=$(post "$@" -- "a post for $label");
-    if [ "$out" = ok ] && [ "$(nreq)" = $((n + 1)) ] && [ "$(lastpath)" = "/$want" ]; then ok "$label: posted to /$want"; else bad "$label: want /$want, got $(lastpath) (out=$out, requests $n -> $(nreq))"; fi
+    if [ "$out" = ok ] && [ "$(nreq)" = $((n + 1)) ] && [ "$(lastch)" = "$want" ]; then ok "$label: posted to $want"; else bad "$label: want $want, got $(lastch) (out=$out, requests $n -> $(nreq))"; fi
 }
-expect "no channel" default
-expect "BRIEFING_CHANNEL=reports (the config line)" reports BRIEFING_CHANNEL=reports
-expect "SALA_NOTIFY_CHANNEL=reports" reports SALA_NOTIFY_CHANNEL=reports
-expect "BRIEFING_CHANNEL=stack-ops (STACK_OPS: capitals, dash as underscore)" ops BRIEFING_CHANNEL=stack-ops
-expect "BRIEFING_CHANNEL before SALA_NOTIFY_CHANNEL" ops BRIEFING_CHANNEL=stack-ops SALA_NOTIFY_CHANNEL=reports
-expect "an empty BRIEFING_CHANNEL leaves SALA_NOTIFY_CHANNEL" reports BRIEFING_CHANNEL= SALA_NOTIFY_CHANNEL=reports
-expect "a channel with no setting at all (other)" default BRIEFING_CHANNEL=other
-expect "a channel whose setting is empty (unset-one)" default BRIEFING_CHANNEL=unset-one
-expect "a channel whose file is missing (gone)" default BRIEFING_CHANNEL=gone
-expect "a channel whose file is empty (empty)" default BRIEFING_CHANNEL=empty
-expect "a channel whose file is only blanks (blank)" default BRIEFING_CHANNEL=blank
-expect "a name that does not match (Reports)" default BRIEFING_CHANNEL=Reports
-expect "a name that does not match (a/b)" default SALA_NOTIFY_CHANNEL=a/b
-expect "the environment over the config line" ops BRIEFING_CHANNEL=reports BRIEFING_WEBHOOK_FILE_REPORTS="$T/wh-ops"
-expect "BRIEFING_WEBHOOK_FILE in the environment is the default" ops BRIEFING_WEBHOOK_FILE="$T/wh-ops" BRIEFING_CHANNEL=gone
-wh reports "$HOME/wh-r"   # a setting written with a leading ~ is the caller's home (here the test's)
-expect "a leading ~ in the setting is the caller's home" reports BRIEFING_CHANNEL=reports BRIEFING_WEBHOOK_FILE_REPORTS='~/wh-r'
+expect "no channel (the sala-admin app)" D0ADMIN
+expect "BRIEFING_CHANNEL=reports" D0REPORTS BRIEFING_CHANNEL=reports
+expect "SALA_NOTIFY_CHANNEL=reports" D0REPORTS SALA_NOTIFY_CHANNEL=reports
+expect "BRIEFING_CHANNEL=stack-ops (STACK_OPS: capitals, dash as underscore)" D0OPS BRIEFING_CHANNEL=stack-ops
+expect "BRIEFING_CHANNEL before SALA_NOTIFY_CHANNEL" D0OPS BRIEFING_CHANNEL=stack-ops SALA_NOTIFY_CHANNEL=reports
+expect "an empty BRIEFING_CHANNEL leaves SALA_NOTIFY_CHANNEL" D0REPORTS BRIEFING_CHANNEL= SALA_NOTIFY_CHANNEL=reports
+expect "a channel with no app mapped (other): the sala-admin DM" D0ADMIN BRIEFING_CHANNEL=other
+expect "a name that does not match (Reports): the sala-admin DM" D0ADMIN BRIEFING_CHANNEL=Reports
+expect "a name that does not match (a/b): the sala-admin DM" D0ADMIN SALA_NOTIFY_CHANNEL=a/b
+expect "the environment over the config line" D0OPS BRIEFING_CHANNEL=reports BRIEFING_BOT_CHANNEL_REPORTS=D0OPS
+n=$(nreq); post BRIEFING_CHANNEL=other -- 'plain post' >/dev/null
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d["text"]=="[post for channel other had no app mapped]\nplain post" else 1)' "$T/req.body.$((n + 1))" \
+    && ok "a post for a channel with no app names the channel on its first line" || bad "notice line: $(cat "$T/req.body.$((n + 1))")"
 # the payload is post_slack's, whatever the channel
 n=$(nreq); post BRIEFING_CHANNEL=reports -- 'plain post' >/dev/null
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if sorted(d)==["text","unfurl_links","unfurl_media"] and d["text"]=="plain post" else 1)' "$T/req.body.$((n + 1))" \
-    && ok "a channel post has the same payload (text and the two unfurl flags)" || bad "payload: $(cat "$T/req.body.$((n + 1))")"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if sorted(d)==["channel","text","unfurl_links","unfurl_media"] and d["text"]=="plain post" else 1)' "$T/req.body.$((n + 1))" \
+    && ok "a channel post has the same payload (channel, text and the two unfurl flags)" || bad "payload: $(cat "$T/req.body.$((n + 1))")"
 
 # post-stdin.sh (the notify command) behind `salamander alert --channel`: the whole path
-e2e() { # e2e <label> <want path> [alert args…]
+e2e() { # e2e <label> <want DM id> [alert args…]
     local label=$1 want=$2 n; shift 2; n=$(nreq)
     SALA_NOTIFY_CMD=$D/post-stdin.sh SALA_LOG_DIR=$T/log bash "$ROOT/bin/salamander" alert "$@" >/dev/null 2>&1; rc=$?
-    if [ $rc = 0 ] && [ "$(nreq)" = $((n + 1)) ] && [ "$(lastpath)" = "/$want" ]; then ok "$label: alert -> post-stdin.sh -> /$want"; else bad "$label: rc=$rc want /$want got $(lastpath) (requests $n -> $(nreq))"; fi
+    if [ $rc = 0 ] && [ "$(nreq)" = $((n + 1)) ] && [ "$(lastch)" = "$want" ]; then ok "$label: alert -> post-stdin.sh -> $want"; else bad "$label: rc=$rc want $want got $(lastch) (requests $n -> $(nreq))"; fi
 }
-e2e "alert without a channel" default "Disk is full" "host one"
-e2e "alert --channel reports" reports --channel reports "Disk is full" "host one"
+e2e "alert without a channel" D0ADMIN "Disk is full" "host one"
+e2e "alert --channel reports" D0REPORTS --channel reports "Disk is full" "host one"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d["text"].startswith("⚠️ *Disk is full*") and "host one" in d["text"] else 1)' "$T/req.body.$(nreq)" \
     && ok "the channel post carries the alert's text" || bad "e2e text: $(cat "$T/req.body.$(nreq)")"
-e2e "alert --channel=stack-ops" ops --channel=stack-ops "Disk is full"
-e2e "alert --channel gone (its file is missing)" default --channel gone "Disk is full"
-SALA_NOTIFY_CHANNEL=leak e2e "alert without a channel, one inherited" default "Disk is full"
+e2e "alert --channel=stack-ops" D0OPS --channel=stack-ops "Disk is full"
+e2e "alert --channel gone (no app mapped)" D0ADMIN --channel gone "Disk is full"
+SALA_NOTIFY_CHANNEL=leak e2e "alert without a channel, one inherited" D0ADMIN "Disk is full"
 n=$(nreq); SALA_NOTIFY_CMD=$D/post-stdin.sh SALA_LOG_DIR=$T/log bash "$ROOT/bin/salamander" alert --channel 'Bad Name' "x" >/dev/null 2>&1; rc=$?
-[ $rc = 2 ] && [ "$(nreq)" = "$n" ] && ok "alert --channel 'Bad Name': exit 2 and no request reached any webhook" || bad "bad name end to end: rc=$rc requests $n -> $(nreq)"
+[ $rc = 2 ] && [ "$(nreq)" = "$n" ] && ok "alert --channel 'Bad Name': exit 2 and no request reached Slack" || bad "bad name end to end: rc=$rc requests $n -> $(nreq)"
+# a post nothing can deliver is a failed notify command: exit 1 through post-stdin.sh and `salamander alert`, and not one request
+n=$(nreq); SALA_NOTIFY_CMD=$D/post-stdin.sh SALA_LOG_DIR=$T/log SALA_CONFIG=/dev/null bash "$ROOT/bin/salamander" alert "Disk is full" >/dev/null 2>&1; rc=$?
+[ $rc = 1 ] && [ "$(nreq)" = "$n" ] && ok "no app mapped anywhere: the alert fails (exit 1) and nothing is sent" || bad "undeliverable alert: rc=$rc requests $n -> $(nreq)"
 
 # ------------------------------------------------------------------------------------------------ part 3: the jobs
 # a stand-in checkout: the real scripts and lib.sh, release-watch.sh replaced by a stub (the real one probes the network)
@@ -224,32 +225,32 @@ printf '#!/bin/sh\nexit 1\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
 printf '#!/bin/sh\necho "the portal was not reached" >&2\nexit 4\n' > "$T/bin/fetch"; chmod +x "$T/bin/fetch"
 jobenv=(HOME="$T/home" BRIEFING_LOGDIR="$T/blog" BRIEFING_CLAUDE_BIN="$T/bin/claude" BRIEFING_LEAN_FETCH_CMD="$T/bin/fetch" BRIEFING_BACKEND=cli
         BRIEFING_HOLDS_CMD=true BRIEFING_LEAN_RETRY_WAIT=0 BRIEFING_GMAIL_CONNECTOR=demo BRIEFING_FORWARD_LABEL=forwarded)
-job() { # job <label> <script> <want paths, space separated> [VAR=val …] -- [args]: runs a job and checks where each of its posts went, in order
-    local label=$1 script=$2 want=$3 envs=() n got="" i p w=""; shift 3
+job() { # job <label> <script> <want DM ids, space separated> [VAR=val …] -- [args]: runs a job and checks which DM each of its posts went to, in order
+    local label=$1 script=$2 want=$3 envs=() n got="" i; shift 3
     while [ $# -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done; [ "${1:-}" = -- ] && shift
     n=$(nreq)
     env -u BRIEFING_CHANNEL -u SALA_NOTIFY_CHANNEL "${jobenv[@]}" ${envs[@]+"${envs[@]}"} "$RB/$script" "$@" >"$T/job.out" 2>&1; rc=$?
-    for ((i = n + 1; i <= $(nreq); i++)); do got+="${got:+ }$(cat "$T/req.path.$i")"; done
-    for p in $want; do w+="${w:+ }/$p"; done
-    if [ "$got" = "$w" ]; then ok "$label: $w (exit $rc)"; else bad "$label: want [$w], got [$got] (exit $rc: $(head -c 300 "$T/job.out"))"; fi
+    for ((i = n + 1; i <= $(nreq); i++)); do got+="${got:+ }$(chof "$i")"; done
+    if [ "$got" = "$want" ]; then ok "$label: $want (exit $rc)"; else bad "$label: want [$want], got [$got] (exit $rc: $(head -c 300 "$T/job.out"))"; fi
 }
-job "release-alert.sh: the release post" release-alert.sh "reports" --
-job "release-alert.sh: the post and then the probe-failure notice, both" release-alert.sh "reports reports" STUB_FAIL=1 --
-job "release-alert.sh with BRIEFING_CHANNEL=stack-ops" release-alert.sh "ops" BRIEFING_CHANNEL=stack-ops --
-job "summary-lean.sh --post: its failure notice" summary-lean.sh "reports" -- --post
-job "summary-lean.sh --post with BRIEFING_CHANNEL=stack-ops" summary-lean.sh "ops" BRIEFING_CHANNEL=stack-ops -- --post
-job "summary.sh: its failure notice" summary.sh "reports" --
-job "summary.sh with BRIEFING_CHANNEL=stack-ops" summary.sh "ops" BRIEFING_CHANNEL=stack-ops --
-job "defunct.sh: its failure notice" defunct.sh "reports" --
-job "defunct.sh with BRIEFING_CHANNEL=stack-ops" defunct.sh "ops" BRIEFING_CHANNEL=stack-ops --
-# reply.sh: a thread reply goes to the channel of the post it answers
+job "release-alert.sh: the release post" release-alert.sh "D0REPORTS" --
+job "release-alert.sh: the post and then the probe-failure notice, both" release-alert.sh "D0REPORTS D0REPORTS" STUB_FAIL=1 --
+job "release-alert.sh with BRIEFING_CHANNEL=stack-ops" release-alert.sh "D0OPS" BRIEFING_CHANNEL=stack-ops --
+job "summary-lean.sh --post: its failure notice" summary-lean.sh "D0REPORTS" -- --post
+job "summary-lean.sh --post with BRIEFING_CHANNEL=stack-ops" summary-lean.sh "D0OPS" BRIEFING_CHANNEL=stack-ops -- --post
+job "summary.sh: its failure notice" summary.sh "D0REPORTS" --
+job "summary.sh with BRIEFING_CHANNEL=stack-ops" summary.sh "D0OPS" BRIEFING_CHANNEL=stack-ops --
+job "defunct.sh: its failure notice" defunct.sh "D0REPORTS" --
+job "defunct.sh with BRIEFING_CHANNEL=stack-ops" defunct.sh "D0OPS" BRIEFING_CHANNEL=stack-ops --
+# reply.sh: a thread reply goes to the DM of the app that sent the post it answers
 n=$(nreq); out=$(env -u BRIEFING_CHANNEL -u SALA_NOTIFY_CHANNEL "${jobenv[@]}" "$RB/reply.sh" 1760000000.123456 'Done' 2>&1)
-[ "$out" = ok ] && [ "$(nreq)" = $((n + 1)) ] && [ "$(lastpath)" = /reports ] && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("thread_ts")=="1760000000.123456" else 1)' "$T/req.body.$(nreq)" \
-    && ok "reply.sh: the thread reply goes to /reports, with its thread_ts" || bad "reply.sh: out=$out last=$(lastpath)"
+[ "$out" = ok ] && [ "$(nreq)" = $((n + 1)) ] && [ "$(lastch)" = D0REPORTS ] && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("thread_ts")=="1760000000.123456" else 1)' "$T/req.body.$(nreq)" \
+    && ok "reply.sh: the thread reply goes to the reports app's DM, with its thread_ts" || bad "reply.sh: out=$out last=$(lastch)"
 n=$(nreq); out=$(env -u SALA_NOTIFY_CHANNEL "${jobenv[@]}" BRIEFING_CHANNEL=stack-ops "$RB/reply.sh" 1760000000.123456 'Done' 2>&1)
-[ "$out" = ok ] && [ "$(lastpath)" = /ops ] && ok "reply.sh with BRIEFING_CHANNEL=stack-ops: the reply follows it" || bad "reply.sh override: out=$out last=$(lastpath)"
-# the reports channel's setting unset: every job falls back to the default webhook, so no post is lost while the webhook is missing
-printf 'BRIEFING_WEBHOOK_FILE=%s\n' "$T/wh-default" > "$T/config-noreports"
-job "release-alert.sh, reports has no webhook yet: the default one" release-alert.sh "default" SALA_CONFIG="$T/config-noreports" --
-job "summary-lean.sh --post, reports has no webhook yet: the default one" summary-lean.sh "default" SALA_CONFIG="$T/config-noreports" -- --post
+[ "$out" = ok ] && [ "$(lastch)" = D0OPS ] && ok "reply.sh with BRIEFING_CHANNEL=stack-ops: the reply follows it" || bad "reply.sh override: out=$out last=$(lastch)"
+# the reports channel's app unmapped: every job's post goes to the sala-admin DM under its naming line, so no post is lost while the app is missing
+grep -v '_REPORTS=' "$T/config" > "$T/config-noreports"
+job "release-alert.sh, reports has no app yet: the sala-admin DM" release-alert.sh "D0ADMIN" SALA_CONFIG="$T/config-noreports" --
+job "summary-lean.sh --post, reports has no app yet: the sala-admin DM" summary-lean.sh "D0ADMIN" SALA_CONFIG="$T/config-noreports" -- --post
+[ "$(nonapi)" = 0 ] && ok "nothing in the whole run asked for a path other than chat.postMessage (no webhook)" || bad "$(nonapi) request(s) to another path"
 exit $fail

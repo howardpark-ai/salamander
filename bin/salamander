@@ -152,7 +152,7 @@
 #                                      from a systemd unit — lib/alert.sh); exit 0 posted, 1 post failed, 2 usage, 3 no notify command;
 #                                      a URL in the headline is moved after the bold: ⚠️ *text* → URL; --channel NAME ([a-z0-9-]+, before the
 #                                      headline) hands the notify command SALA_NOTIFY_CHANNEL=NAME (contrib/briefing/post-stdin.sh: that
-#                                      channel's own Slack webhook, else the default one); a bad name is a usage error
+#                                      channel's own Slack app, else the sala-admin one); a bad name is a usage error
 #   salamander alert --help | -h | [--channel NAME] -- "<headline>"   the usage (exit 0, posts nothing) · `--` ends the options, so a headline may start with `-`
 #   salamander dm <app> [--thread <ts>] [TEXT|-]   post a message into a Slack app's Direct Message with the owner, as that app (its Messages tab), with the
 #                                      app's bot token (lib/dm.sh): TEXT is one argument, or stdin when it is `-` or absent (the safe form for quotes and backticks);

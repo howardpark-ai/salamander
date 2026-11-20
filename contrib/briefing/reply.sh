@@ -1,9 +1,12 @@
 #!/bin/bash
-# reply.sh <thread_ts> [text]  — a reply in the thread of a briefing-channel message (a fast-lane chat with
+# reply.sh <thread_ts> [text]  — a reply in the thread of a message in the DM of the channel's Slack app (a fast-lane chat with
 # the briefing session). The text is the argument, or stdin when it is omitted or `-`. It goes out through post_slack, so
-# the same formatter and linker as every other post, with BRIEFING_THREAD_TS adding "thread_ts" to the payload.
-# Prints Slack's answer ("ok"); a bad ts or an empty text is a one-line error and exit 2, before anything is posted.
-# A reply must go to the channel of the post it answers: the briefing posts are in the reports channel, so BRIEFING_CHANNEL defaults to it here too.
+# the same formatter and linker as every other post, with BRIEFING_THREAD_TS adding "thread_ts" to the app's chat.postMessage
+# (a ts of a message in that DM). There is no channel thread and no webhook any more.
+# Prints "ok" and exits 0 when the app posted; exit 1 and no output when it could not (bot-post.log says why); a bad ts or an empty
+# text is a one-line error and exit 2, before anything is posted.
+# A reply must go to the DM of the app that sent the post it answers: the briefing posts are the reports channel's app's, so BRIEFING_CHANNEL
+# defaults to it here too.
 # Lives in salamander contrib/briefing/.
 . "$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/lib.sh"   # sets BRIEFING_DIR
 BRIEFING_CHANNEL="${BRIEFING_CHANNEL:-reports}"   # this job posts to the reports channel; BRIEFING_CHANNEL in the unit environment names another (README.md, Slack channels)

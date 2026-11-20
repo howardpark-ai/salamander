@@ -3,7 +3,7 @@
 # the digest only when that count is non-zero (else the 🚨 "held back" notice), and a loud notice instead of the digest
 # for the auth sentinel, an empty result or a non-zero exit. A fake `claude` writes the stream log; post_slack is stubbed
 # to a file, and the real post_slack is pointed at a listener on 127.0.0.1 for the payload Slack accepts, its linker at no
-# sessions, board or repos. Nothing leaves the box and the real webhook is never read. (wording checks dropped.)
+# sessions, board or repos. Nothing leaves the box and no real token is read. (wording checks dropped.)
 set -u
 export BRIEFING_GMAIL_CONNECTOR=demo   # a made-up connector word (config.example): the tools are mcp__claude_ai_Google_Workspace_demo__* and the portal's gdemo_*
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); D=$ROOT/contrib/briefing
@@ -30,14 +30,17 @@ PY
 exit "${FAKE_RC:-0}"
 FAKE
 chmod +x "$T/bin/claude"
-printf 'http://127.0.0.1:9/never\n' > "$T/webhook"   # a dead local port: a missed stub fails here, not at Slack
+# the posts are stubbed below; the real post_slack case at the end reaches only a listener on 127.0.0.1 (a dead local port until then:
+# a missed stub fails here, not at Slack)
+export BRIEFING_BOT_APP_SALA_ADMIN=adm-app BRIEFING_BOT_CHANNEL_SALA_ADMIN=D0ADMIN SALA_DM_TOKEN_DIR=$T/tok SALA_DM_API_BASE=http://127.0.0.1:9/api
+mkdir -p "$T/tok"; printf '%s\n' fake-guard-test-token > "$T/tok/slack-bot-token-adm-app"; chmod 600 "$T/tok/slack-bot-token-adm-app"
 
 # case <label> <calls> <rc> <result>: source lib.sh in a fresh bash, repoint its paths, stub posting, run and deliver.
 # Prints GMAIL_CALLS, deliver's status and every post, one per line block.
 case_run() {
     HOME="$T/home" FAKE_CALLS=$2 FAKE_RC=$3 FAKE_RESULT=$4 bash -c '
         . "$1/lib.sh" 2>/dev/null
-        HOME=$2/home LOGDIR=$2/logs CLAUDE_BIN=$2/bin/claude WEBHOOK_FILE=$2/webhook
+        HOME=$2/home LOGDIR=$2/logs CLAUDE_BIN=$2/bin/claude
         POSTS=$2/posts; post_slack() { printf "POST<<%s>>\n" "$1" >> "$POSTS"; }
         run_claude "guard-$3" "a prompt"
         echo "calls=$GMAIL_CALLS rc=$RC"
@@ -77,7 +80,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         data = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         open(body_file, "wb").write(data)
-        self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+        self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
     def log_message(self, *a): pass
 s = http.server.HTTPServer(("127.0.0.1", 0), H)
 open(port_file, "w").write(str(s.server_address[1]))
@@ -86,14 +89,13 @@ PY
 SRV=$!
 for _ in $(seq 50); do [ -s "$PORT_FILE" ] && break; sleep 0.1; done
 if [ -s "$PORT_FILE" ]; then
-    printf 'http://127.0.0.1:%s/hook\n' "$(cat "$PORT_FILE")" > "$T/webhook"
-    resp=$(HOME="$T/home" BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR= BRIEFING_COMMIT_REPOS= bash -c '. "$1/lib.sh" 2>/dev/null; WEBHOOK_FILE=$2/webhook; post_slack "plain text"' _ "$D" "$T" 2>&1)
+    resp=$(HOME="$T/home" SALA_DM_API_BASE=http://127.0.0.1:$(cat "$PORT_FILE")/api BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR= BRIEFING_COMMIT_REPOS= bash -c '. "$1/lib.sh" 2>/dev/null; post_slack "plain text"' _ "$D" "$T" 2>&1)
     wait "$SRV" 2>/dev/null; SRV=
     [ "$resp" = ok ] && ok "post_slack: listener answered" || bad "post_slack response: $resp"
     python3 - "$T/body" <<'PY' && ok "post_slack: the JSON payload Slack accepts (text, unfurls off)" || bad "post_slack body: $(cat "$T/body" 2>/dev/null)"
 import json, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
-assert d == {"text": "plain text", "unfurl_links": False, "unfurl_media": False}, d
+assert d == {"channel": "D0ADMIN", "text": "plain text", "unfurl_links": False, "unfurl_media": False}, d
 PY
 else
     bad "the 127.0.0.1 listener did not start"

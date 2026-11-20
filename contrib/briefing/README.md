@@ -2,9 +2,9 @@
 
 Three daily posts to a Slack briefing channel: two email digests written by a headless
 `claude -p` turn, and a release watcher with no LLM in its probes. They live in `contrib/` because they are the wiring of one
-deployment (its Gmail through a claude.ai "Google Workspace <word>" connector, `BRIEFING_GMAIL_CONNECTOR`, its webhook), not part of
+deployment (its Gmail through a claude.ai "Google Workspace <word>" connector, `BRIEFING_GMAIL_CONNECTOR`, its Slack apps), not part of
 sala. sala's core does not depend on them. The one link is the other way round: sala's `SALA_WATCH_NOTIFY_CMD` can
-source `lib.sh` to post its notices through the same webhook.
+source `lib.sh` to post its notices through the same Slack apps.
 
 ## The scripts
 
@@ -12,14 +12,14 @@ source `lib.sh` to post its notices through the same webhook.
 |---|---|
 | `sdk_run.py` | One turn through the Claude Agent SDK on the API credit while the key has credit (below). |
 | `guard.py` | The read guard (below): a PreToolUse hook that refuses, before it runs, any portal call that is not plainly one of the five Gmail reads, and any other Workspace tool that can write. Loaded only by the digests' own runs, through `--settings`. |
-| `lib.sh` | Shared helpers, sourced by the others. `post_slack <text>` posts to the incoming webhook (turning `**bold**` into Slack's `*bold*`, then linking session names (to sala's own session link (`SALA_SESSION_URL` from the sala config, with the name in place of `{name}`), for every live session in sala's registry, `sala sessions --json`, bridged or not; `sala spawn --list` with a 20 s cap only if the registry is empty or fails), board ids, `<repo>#N`, commits, knowledge-base page slugs (the last three only when `BRIEFING_GITHUB_BASE` names the GitHub account they link into; unset: they stay plain) and the digests' `[gmail:<threadId>]` markers; a linker failure sends the unlinked text; with `BRIEFING_NO_POST=1` it writes the text to `~/.local/state/sala-briefing/would-post.log` instead). `run_claude` runs one headless turn with only the Gmail read tools (and the portal's two code-mode tools) allowed, the read guard loaded, and keeps its stream-json log. `deliver` posts the result. Sourcing it only defines things and never exits the caller. |
+| `lib.sh` | Shared helpers, sourced by the others. `post_slack <text>` posts as a Slack app's direct message (*Slack channels*, below: the channel's app, one retry, then the sala-admin app; no webhook) (turning `**bold**` into Slack's `*bold*`, then linking session names (to sala's own session link (`SALA_SESSION_URL` from the sala config, with the name in place of `{name}`), for every live session in sala's registry, `sala sessions --json`, bridged or not; `sala spawn --list` with a 20 s cap only if the registry is empty or fails), board ids, `<repo>#N`, commits, knowledge-base page slugs (the last three only when `BRIEFING_GITHUB_BASE` names the GitHub account they link into; unset: they stay plain) and the digests' `[gmail:<threadId>]` markers; a linker failure sends the unlinked text; with `BRIEFING_NO_POST=1` it writes the text to `~/.local/state/sala-briefing/would-post.log` instead). `run_claude` runs one headless turn with only the Gmail read tools (and the portal's two code-mode tools) allowed, the read guard loaded, and keeps its stream-json log. `deliver` posts the result. Sourcing it only defines things and never exits the caller. |
 | `summary.sh` + `summary.prompt.md` | Morning Email Summary. Also carries a "New holds (last 24 hours)" section when stackshot reports any (below). |
 | `summary-lean.sh` + `summary-lean.prompt.md` + `gmail_fetch.py` + `lean-compare.sh` | The lean Morning Email Summary (below): code reads and trims the unread mail, one model call with no tools writes the text. Run with `--post` (the installed unit does) it posts the digest to the briefing channel; without it the script writes `lean/YYYYMMDD.txt` and posts nothing. |
 | `holds.py` | The new holds of the last 24 hours, for `summary.sh`. Reads stackshot's `GET /client/brief` with the machine token, outside the model, and prints the new-hold lines framed as a data block (nothing when there are none). |
 | `defunct.sh` + `defunct.prompt.md` | Forwarded Address Unsubscribe Queue: the unread mail under the Gmail label `BRIEFING_FORWARD_LABEL`, classified, read only. The job is label-driven and off by default: with no label set it writes one `cron.log` line and exits 0. |
 | `release-alert.sh` | Runs `release-watch.sh` and posts what it prints, unless that is `NO_REPLY`. A failed probe gets a ⚠️ post. |
 | `release-watch.sh` | Probes the Claude Code CLI and the Ubuntu LTS upgrade path. A release not announced before is printed once, and the session that owns the upgrade is pinged. The Claude Code CLI's owner is sala's master; with none it is `RELEASE_WATCH_CLI_OWNER` (the environment, else the sala config's line; unset: nobody is pinged; `release-watch.sh cli-owner` prints it). The Ubuntu LTS path goes to `RELEASE_WATCH_UBUNTU_SESSION` and names the plan's page `RELEASE_WATCH_UBUNTU_PAGE` (unset: posted only, no page named). `release-watch.sh defer <product> [tag]` keeps one release quiet until a newer one appears. |
-| `reply.sh <thread_ts> [text]` | A reply in the thread of a message in the briefing channel (a fast-lane chat with the briefing session). The text is the argument, or stdin when it is omitted or `-`. It goes through `post_slack` with `BRIEFING_THREAD_TS` set, which sends it through the channel's webhook with `thread_ts` in the payload, never through the app. Prints Slack's answer (`ok`); a ts that is not digits.digits, or an empty text, is a one-line error and exit 2, and nothing is posted. |
+| `reply.sh <thread_ts> [text]` | A reply in the thread of a message in the reports app's DM (a fast-lane chat with the briefing session). The text is the argument, or stdin when it is omitted or `-`. It goes through `post_slack` with `BRIEFING_THREAD_TS` set, which sends it as the reports app's DM with `thread_ts` in the payload. Prints `ok` and exits 0 when an app posted; when none could (the tokens missing, Slack refusing) it prints nothing and exits 1, with a line per attempt in `bot-post.log`; a ts that is not digits.digits, or an empty text, is a one-line error and exit 2, and nothing is posted. |
 
 **The read guard.** The model may only read mail. On the portal route the model writes
 JavaScript for `portal_codemode_execute`, whose `codemode` object can call every tool of every connected server, and
@@ -84,15 +84,14 @@ other briefing lines), and nothing is sourced. Each is optional.
 | `BRIEFING_WATCHLIST` | The companies and topics a Google Alert must be about to count in the mail summary, comma-separated (for example `Example Corp, drip irrigation`); fills `{{WATCHLIST}}` in the two summary prompts. | the prompts read `none configured` |
 | `BRIEFING_LOW_PRIORITY_SENDERS` | Senders and kinds of mail that stay low-priority in the mail summary unless they are a security, billing or legal issue, comma-separated (for example `news@example.com, weekly newsletters`); fills `{{LOW_PRIORITY_SENDERS}}` in the two summary prompts. | `none configured` |
 | `BRIEFING_FORWARD_LABEL` | The Gmail label of the defunct-address queue, one plain word (letters, digits, `.`, `_`, `-`, `/`); fills `{{FORWARD_LABEL}}` in the defunct prompt. | the defunct job is off (one `cron.log` line, exit 0) |
-| `BRIEFING_CHANNEL` | The Slack channel a post goes to, read from the environment only (not the config; *Slack channels*, below): a name matching `[a-z0-9-]+` whose webhook file is `BRIEFING_WEBHOOK_FILE_<NAME>`. The jobs default it to `reports`; set it in a unit's environment to move one job. | the jobs use `reports`; a script that sets none (`post-stdin.sh`) uses `SALA_NOTIFY_CHANNEL`, else the default webhook |
+| `BRIEFING_CHANNEL` | The Slack channel a post goes to, read from the environment only (not the config; *Slack channels*, below): a name matching `[a-z0-9-]+` whose app is `BRIEFING_BOT_APP_<NAME>`. The jobs default it to `reports`; set it in a unit's environment to move one job. | the jobs use `reports`; a script that sets none (`post-stdin.sh`) uses `SALA_NOTIFY_CHANNEL`, else the sala-admin app |
 
 ## Where secrets, logs and state live (outside the repo)
 
 | what | path |
 |---|---|
-| Slack incoming-webhook URL (secret; mode 600, never in git) | `BRIEFING_WEBHOOK_FILE`, default `~/.config/sala-briefing/slack-webhook` |
-| a named channel's own webhook URL (secret; mode 600), see *Slack channels* | `BRIEFING_WEBHOOK_FILE_<NAME>`, no default (unset: the default webhook) |
-| a Slack app's bot token (secret; mode 600), see *Posting as the channel's Slack app* | `slack-bot-token-<app>` in `SALA_DM_TOKEN_DIR`, default `~/.config/sala-briefing`; the channel's app is `BRIEFING_BOT_APP_<NAME>`, no default (unset: the webhook) |
+| a Slack app's bot token (secret; mode 600, never in git), see *Slack channels* | `slack-bot-token-<app>` in `SALA_DM_TOKEN_DIR`, default `~/.config/sala-briefing`; the channel's app is `BRIEFING_BOT_APP_<NAME>`, no default (unset: the sala-admin app) |
+| the old Slack incoming-webhook files | `BRIEFING_WEBHOOK_FILE` and `BRIEFING_WEBHOOK_FILE_<NAME>` are no longer used for posting; a leftover file can be deleted |
 | logs: each run's stream-json `<job>.<YYYYMMDD>.jsonl` and `.err`, `release-watch.err`, and `cron.log` (the timers' stdout and stderr, appended by the script itself under `BRIEFING_CRON_LOG=1`) | `BRIEFING_LOGDIR`, default `~/.local/state/sala-briefing/` |
 | an older log directory, `BRIEFING_OLD_LOGDIR` (unset: none): `lib.sh`'s `migrate_old_logdir` carries its files over the first time a briefing script runs (plain files, `mv -n`, nothing overwritten; a name present in both stays in the old directory, named on one `cron.log` line; the old directory is removed once empty). `lib.sh` creates the log directory itself | |
 | release watcher state: `notified/<product>` (last tag announced), `deferred/<product>` (a parked tag) | `~/.release-watch/` |
@@ -196,7 +195,7 @@ the units run the checkout.
 To run one now: `systemctl --user start sala-briefing-summary-lean.service`. Then check `~/.local/state/sala-briefing/cron.log` and
 `journalctl --user -u sala-briefing-summary-lean`.
 
-To have sala's notices use this webhook, set this in `~/.config/salamander/config`:
+To have sala's notices use these Slack apps, set this in `~/.config/salamander/config`:
 
 ```
 SALA_WATCH_NOTIFY_CMD=~/salamander/contrib/briefing/post-stdin.sh
@@ -210,63 +209,59 @@ inside it: `bash -c '. ~/salamander/contrib/briefing/lib.sh; post_slack "$(cat)"
 
 ## Slack channels
 
-A Slack incoming webhook belongs to one channel, so posts are split across channels by giving a named channel its own
-webhook file. A channel is a short name of lowercase letters, digits and dashes (`[a-z0-9-]+`, for example `reports` or
-`stack-ops`). In `~/.config/salamander/config`:
-
-```
-BRIEFING_WEBHOOK_FILE=~/.config/sala-briefing/slack-webhook            # the default webhook
-BRIEFING_WEBHOOK_FILE_REPORTS=~/.config/sala-briefing/webhook-reports  # the reports channel's own
-BRIEFING_WEBHOOK_FILE_STACK_OPS=~/.config/sala-briefing/webhook-ops    # a channel named stack-ops
-```
-
-The setting's name is `BRIEFING_WEBHOOK_FILE_` and the channel name in capitals with its dashes turned into underscores.
-Like the default one, each file holds one URL (secret; mode 600, never in git). The environment overrides the config line.
-
-**Fallback.** When the channel's setting is unset or empty, or its file does not exist or is blank, the post goes to the
-default webhook (`BRIEFING_WEBHOOK_FILE`) as before, so nothing is lost while a new webhook is not there yet.
-
-**Posting as the channel's Slack app.** A webhook post shows the name of the app the webhook belongs to. To make each channel's
-posts show its own app, map the channel to the app whose bot token should post it, in `~/.config/salamander/config` (the
-environment overrides the config line; NAME is written as for the webhook files):
+Every post is delivered by a Slack app, as a direct message to the owner (`chat.postMessage` with the app's bot token). There is no
+webhook: the `BRIEFING_WEBHOOK_FILE` and `BRIEFING_WEBHOOK_FILE_<NAME>` settings are no longer used for posting, and a post makes no
+request to a webhook URL. A "channel" is now the name that picks the app: a short name of lowercase letters, digits and dashes
+(`[a-z0-9-]+`, for example `reports` or `stack-ops`). In `~/.config/salamander/config` (the environment overrides the config line;
+NAME is the channel name in capitals with its dashes turned into underscores):
 
 ```
 BRIEFING_BOT_APP_REPORTS=reports-app        # the reports channel posts as the Slack app "reports-app"
+BRIEFING_BOT_CHANNEL_REPORTS=D0123ABCDEF    # the DM id the app posts to; unset: the channel's name
 BRIEFING_BOT_APP_STACK_OPS=ops-app          # a channel named stack-ops posts as "ops-app"
-BRIEFING_BOT_CHANNEL_STACK_OPS=C0123ABCDEF  # optional: the channel id (or name) to post to; default: the channel's name
+BRIEFING_BOT_APP_SALA_ADMIN=admin-app       # the sala-admin app: the fallback below, and the app of a post that names no channel
+BRIEFING_BOT_CHANNEL_SALA_ADMIN=D0123ABCDEG # the sala-admin app's DM id
 ```
 
-There is no default mapping: a channel with no `BRIEFING_BOT_APP_<NAME>` posts through its webhook as before. The app's token is
-the file `slack-bot-token-<app>` in the folder `sala dm` reads (`SALA_DM_TOKEN_DIR`, default `~/.config/sala-briefing`; secret,
-mode 600 or stricter, not empty); `SALA_DM_API_BASE` is the API's base URL (default `https://slack.com/api`, only a test changes it).
-Both are read from the environment, else the sala config, as for `sala dm`. The app needs the `chat:write` bot scope and must be in
-the channel (a channel id is the surest value for `BRIEFING_BOT_CHANNEL_<NAME>`). The post is `chat.postMessage` with the same
-formatted text as the webhook gets (`unfurl_links` and `unfurl_media` off), and carries no `thread_ts`: a post with
-`BRIEFING_THREAD_TS` set (`reply.sh`) goes through the channel's webhook, into the thread in the channel, because the thread's
-parent is a channel message and the app is not a member of the channel. A reply to a DM goes through `sala dm <app> --thread`.
-`post_slack` still prints `ok`.
+There is no default mapping. The app's token is the file `slack-bot-token-<app>` in the folder `sala dm` reads (`SALA_DM_TOKEN_DIR`,
+default `~/.config/sala-briefing`; secret, mode 600 or stricter, not empty); `SALA_DM_API_BASE` is the API's base URL (default
+`https://slack.com/api`, only a test changes it). Both are read from the environment, else the sala config, as for `sala dm`. The app
+needs the `chat:write` bot scope, and the value of `BRIEFING_BOT_CHANNEL_<NAME>` should be the id of its DM with the owner (an id is
+the surest value). The post is the formatted text (`unfurl_links` and `unfurl_media` off), and `post_slack` prints `ok`.
 
-**Never lost: the webhook is the fallback.** When the channel has no app, or its token file is missing, unreadable, looser than
-mode 600 or empty, or the network fails, or Slack answers anything but HTTP 200 with `ok:true`, the same text goes through the
-webhook as described above, thread included. Each fallback after an app was tried appends one line to `$LOGDIR/bot-post.log`:
-the time, the channel, the app and a short reason (`no_token_file`, `token_mode_644`, `token_empty`, `network`, `http_<status>`,
-`slack_error:<Slack's error code>`). The token and the webhook URL are never printed or logged; the token is read by the posting
-process itself, so it is in no argument list and no environment variable. One edge: when Slack accepts a post but its answer is
-lost on the way, the fallback sends the post a second time. `BRIEFING_NO_POST` still sends nothing and reads no token.
+**Which app a post goes to** (`post_slack`, `lib.sh`): the channel named by `BRIEFING_CHANNEL`, else by `SALA_NOTIFY_CHANNEL`, else none,
+which means the sala-admin app.
 
-**Which channel a post goes to** (`post_slack`, `lib.sh`): the channel named by `BRIEFING_CHANNEL`, else by
-`SALA_NOTIFY_CHANNEL`, else none (the default webhook).
+**Never silently lost: the order of tries.**
+
+1. The post's app, to its DM. A channel with no app mapped, or a name outside `[a-z0-9-]+`, skips this step and goes to step 3.
+2. If that failed in a way a second try could change (a network error, an HTTP status other than 200, an unreadable answer, a
+   Slack error code), one retry. A local refusal (the token file missing, looser than mode 600 or empty, a bad app name, a bad channel
+   setting, a bad `thread_ts`) is not retried.
+3. The sala-admin app's DM, with a first line saying what happened: `[post for app <app> could not be delivered: <reason>]`, or
+   `[post for channel <name> had no app mapped]`, then the post. Skipped when the failed app is sala-admin itself, or when
+   sala-admin is not mapped.
+4. Nothing reachable: `post_slack` prints nothing, returns non-zero and makes no other request.
+
+Each failed attempt appends one line to `$LOGDIR/bot-post.log`: the time, the channel, the app and a short reason (`no_token_file`,
+`token_mode_644`, `token_empty`, `network`, `http_<status>`, `slack_error:<Slack's error code>`). The token is never printed or logged;
+it is read by the posting process itself, so it is in no argument list and no environment variable. One edge: when Slack accepts a
+post but its answer is lost on the way, the retry or the sala-admin copy sends the post a second time. `BRIEFING_NO_POST` still sends
+nothing and reads no token.
+
+**Threads.** With `BRIEFING_THREAD_TS` set (`reply.sh`) the post is a reply in that thread of the app's DM: the ts is sent as `thread_ts`
+on the same `chat.postMessage`. The ts must be the ts of a message in that DM (what `sala dm` prints); a thread of a channel message is
+not reachable any more, because the channel webhooks are gone. A ts that is not `digits.digits` is refused before anything is sent.
 
 - The briefing jobs (the digests `summary-lean.sh`, `summary.sh` and `defunct.sh`, the release alert `release-alert.sh`, and
-  `reply.sh`, whose thread reply must land in the channel of the post it answers) post to `reports`, and so do their own
-  failure notices. A job's unit can name another channel with `Environment=BRIEFING_CHANNEL=<name>` (a drop-in);
-  `BRIEFING_WEBHOOK_FILE_REPORTS` then decides where `reports` goes.
+  `reply.sh`) post to `reports`, and so do their own failure notices. A job's unit can name another channel with
+  `Environment=BRIEFING_CHANNEL=<name>` (a drop-in); `BRIEFING_BOT_APP_<NAME>` then decides which app posts it.
 - `salamander alert --channel <name> "<headline>" ["<line>"…]` (also `--channel=<name>`, before the headline) posts through
   sala's notify command with `SALA_NOTIFY_CHANNEL=<name>` in the command's environment for that one call, and with the same
-  text. With `post-stdin.sh` as the notify command it reaches `post_slack`, which picks the channel's webhook. A name outside
+  text. With `post-stdin.sh` as the notify command it reaches `post_slack`, which picks the channel's app. A name outside
   `[a-z0-9-]+` is a usage error (exit 2) and nothing is posted.
-- sala's own notices (recycles, lane limits, CLI updates, reboots, the watch's alerts) name no channel and keep the default
-  webhook. `SALA_NOTIFY_CHANNEL` is not set for them.
+- sala's own notices (recycles, lane limits, CLI updates, reboots, the watch's alerts) name no channel and go to the sala-admin app.
+  `SALA_NOTIFY_CHANNEL` is not set for them.
 
 **For a custom notify command:** `SALA_NOTIFY_CHANNEL` is the channel name when `salamander alert --channel` made the post and is
 not set otherwise. Read the notice from stdin as always; use the variable only to choose a destination, and treat it as data
@@ -274,7 +269,7 @@ not set otherwise. Read the notice from stdin as always; use the variable only t
 
 ## Direct messages as a Slack app
 
-A webhook posts into one channel and cannot reply in a thread of a person's Direct Message. `salamander dm <app> [--thread <ts>]
+`salamander dm <app> [--thread <ts>]
 [TEXT|-]` (lib/dm.sh, `docs/subcommands.md`) posts into the Direct Message between a Slack app and the owner, as that app, with the
 app's bot token (the message appears in the app's Messages tab), and prints the message's ts so a caller can thread under it. It is
 the way for a session to talk to the owner through the same app that posts a channel's briefing. In `~/.config/salamander/config`:
@@ -326,8 +321,8 @@ stays that way. `summary.sh` calls `fetch_new_holds` (`lib.sh`) before the run, 
 ## A digest run that posts nothing
 
 `BRIEFING_NO_POST=1 ~/salamander/contrib/briefing/summary.sh` runs the whole turn (the model reads Gmail, the guards
-run) and writes what `post_slack` would have sent to `~/.local/state/sala-briefing/would-post.log` instead; the webhook is never
-read. The stream log, `guard.log` and `cron.log` are written as in a real run. Use it to check the read guard live.
+run) and writes what `post_slack` would have sent to `~/.local/state/sala-briefing/would-post.log` instead; no app token is
+read and nothing is sent. The stream log, `guard.log` and `cron.log` are written as in a real run. Use it to check the read guard live.
 
 ## The lean summary
 
@@ -498,7 +493,7 @@ The `cp` in "Installing the timers" above copies the lean files too (`sala-brief
   nowhere; a refused, unreachable, hanging or tokenless fetch is one stderr line; `summary.sh` with a fake `claude` puts
   the block in the prompt, none when there are no holds, and a failed fetch adds one `.err` line and still posts;
 - the lean summary (`tests/briefing/lean.sh`, against `lean_fake_portal.py`, a local listener that
-  speaks the portal's MCP and answers with made-up mail in the portal's shapes; a fake `claude`; a counting webhook listener):
+  speaks the portal's MCP and answers with made-up mail in the portal's shapes; a fake `claude`; a counting listener playing the Slack API):
   the fetch sends the bearer token and its own user agent, calls only the five Gmail reads (each through `guard.py`), prints
   and logs no token, never touches the refresh token; trimming (quotes, signatures, footers, HTML, links, dates in the `BRIEFING_TZ` zone, one item
   per thread with the thread id, alerts as titles and URLs, repeats once, the cap, a hostile mail that cannot close
@@ -508,8 +503,8 @@ The `cp` in "Installing the timers" above copies the lean files too (`sala-brief
   through, the count line from code, nothing posted by default, one post with `--post` / `BRIEFING_LEAN_POST=1`, a fetch
   error / auth error / run without a Gmail read as a loud notice with no digest and no model call, a failing or silent model
   as a failed notice, `lean-compare.sh`, the units (`--post`);
-- `reply.sh`: `thread_ts` in the payload when given, the payload unchanged without it, a bad ts or an empty text refused
-  before anything is posted, the text from stdin.
+- `reply.sh`: `thread_ts` in the payload when given (to the reports app's DM), the payload unchanged without it, a bad ts or an empty text
+  refused before anything is posted, the text from stdin, exit 1 with no output when no app can deliver.
 
-The guard test uses a fake `claude` and a posting stub, plus a local listener for `post_slack`. It
-never reads the configured webhook.
+The guard test uses a fake `claude` and a posting stub, plus a local listener playing the Slack API for `post_slack`. It
+reads no real token.

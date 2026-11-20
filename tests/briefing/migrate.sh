@@ -42,13 +42,13 @@ env HOME="$T/home" BRIEFING_LOGDIR="$T/n2" BRIEFING_OLD_LOGDIR="$T/o2" bash -c '
 mkdir -p "$T/fake-cache"; printf 'x\n' > "$T/fake-cache/x.jsonl"
 env -u BRIEFING_OLD_LOGDIR HOME="$T/home" BRIEFING_LOGDIR="$T/n3" bash -c '. "$1/lib.sh" 2>/dev/null; echo "old=[$OLD_LOGDIR]"' _ "$D" | grep -qxF 'old=[]' && ok "BRIEFING_LOGDIR set without BRIEFING_OLD_LOGDIR: no old directory is read" || bad "OLD_LOGDIR not empty under a repointed LOGDIR"
 # the defaults: state, not cache, under a neutral name; no old directory unless one is named
-out=$(env -u BRIEFING_LOGDIR -u BRIEFING_OLD_LOGDIR -u BRIEFING_WEBHOOK_FILE -u XDG_STATE_HOME HOME="$T/h4" SALA_CONFIG="$T/none" bash -c '. "$1/lib.sh" 2>/dev/null; echo "$LOGDIR|$OLD_LOGDIR|$WEBHOOK_FILE"' _ "$D")
-[ "$out" = "$T/h4/.local/state/sala-briefing||$T/h4/.config/sala-briefing/slack-webhook" ] && ok "no setting: logs in ~/.local/state/sala-briefing, no old directory, the webhook file in ~/.config/sala-briefing" || bad "defaults: $out"
-# the sala config's lines (made-up paths): the log directory, the old one it carries over, the webhook file; ~ is the home
+out=$(env -u BRIEFING_LOGDIR -u BRIEFING_OLD_LOGDIR -u XDG_STATE_HOME HOME="$T/h4" SALA_CONFIG="$T/none" bash -c '. "$1/lib.sh" 2>/dev/null; echo "$LOGDIR|$OLD_LOGDIR"' _ "$D")
+[ "$out" = "$T/h4/.local/state/sala-briefing|" ] && ok "no setting: logs in ~/.local/state/sala-briefing, no old directory" || bad "defaults: $out"
+# the sala config's lines (made-up paths): the log directory and the old one it carries over; ~ is the home
 mkdir -p "$T/h5/old-logs"; printf 'x\n' > "$T/h5/old-logs/x.jsonl"
-printf 'BRIEFING_LOGDIR=~/demo-logs\nBRIEFING_OLD_LOGDIR="$HOME/old-logs"   # carried over\nBRIEFING_WEBHOOK_FILE=~/demo-hook\n' > "$T/h5.config"
-out=$(env -u BRIEFING_LOGDIR -u BRIEFING_OLD_LOGDIR -u BRIEFING_WEBHOOK_FILE HOME="$T/h5" SALA_CONFIG="$T/h5.config" bash -c '. "$1/lib.sh" 2>/dev/null; migrate_old_logdir; echo "$LOGDIR|$OLD_LOGDIR|$WEBHOOK_FILE"' _ "$D")
-[ "$out" = "$T/h5/demo-logs|$T/h5/old-logs|$T/h5/demo-hook" ] && [ "$(cat "$T/h5/demo-logs/x.jsonl" 2>/dev/null)" = x ] && ok "the sala config's BRIEFING_LOGDIR, BRIEFING_OLD_LOGDIR and BRIEFING_WEBHOOK_FILE lines are read, and the old directory carried over" || bad "config: $out"
+printf 'BRIEFING_LOGDIR=~/demo-logs\nBRIEFING_OLD_LOGDIR="$HOME/old-logs"   # carried over\n' > "$T/h5.config"
+out=$(env -u BRIEFING_LOGDIR -u BRIEFING_OLD_LOGDIR HOME="$T/h5" SALA_CONFIG="$T/h5.config" bash -c '. "$1/lib.sh" 2>/dev/null; migrate_old_logdir; echo "$LOGDIR|$OLD_LOGDIR"' _ "$D")
+[ "$out" = "$T/h5/demo-logs|$T/h5/old-logs" ] && [ "$(cat "$T/h5/demo-logs/x.jsonl" 2>/dev/null)" = x ] && ok "the sala config's BRIEFING_LOGDIR and BRIEFING_OLD_LOGDIR lines are read, and the old directory carried over" || bad "config: $out"
 # the units name no log path: BRIEFING_CRON_LOG=1 appends the script's own output to cron.log in its log directory, and a child does not inherit it
 out=$(env -u BRIEFING_OLD_LOGDIR HOME="$T/h6" BRIEFING_LOGDIR="$T/h6/logs" BRIEFING_CRON_LOG=1 bash -c '. "$1/lib.sh"; echo "to the log"; echo "child=[$(printenv BRIEFING_CRON_LOG)]"' _ "$D")
 [ -z "$out" ] && grep -qx 'to the log' "$T/h6/logs/cron.log" && grep -qx 'child=\[\]' "$T/h6/logs/cron.log" && ok "BRIEFING_CRON_LOG=1: the output goes to cron.log in the log directory; a child does not get it" || bad "cron log: out=$out log=$(cat "$T/h6/logs/cron.log" 2>/dev/null)"

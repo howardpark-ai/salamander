@@ -44,7 +44,7 @@ rm -f "$POSTED"
   . "$ROOT/lib/common.sh" >/dev/null 2>&1; sala_post "$HEAD" "$BULLET" )
 [ "$(cat "$POSTED" 2>/dev/null)" = "$WANT" ] && [ "$(ran)" = 0 ] && ok "sala_post: intact, nothing ran" || bad "sala_post: got [$(cat "$POSTED" 2>/dev/null)], ran: $(ls "$T" | grep '^ran-' | tr '\n' ' ')"
 
-# the real post_slack (no webhook: BRIEFING_NO_POST writes the finished text to a file): nothing in the notice runs either
+# the real post_slack (nothing sent: BRIEFING_NO_POST writes the finished text to a file): nothing in the notice runs either
 mkdir -p "$T/real/contrib" "$T/real-home"
 cp -r "$D" "$T/real/contrib/briefing"
 mkdir -p "$T/blog"

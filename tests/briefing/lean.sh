@@ -258,27 +258,27 @@ print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "re
 PY
 EOF
 chmod +x "$T/bin/fetch" "$T/bin/claude"
-# a webhook listener that counts posts, so "posts nothing" and "posts once" are measured, not assumed
+# a listener playing the Slack API that counts posts, so "posts nothing" and "posts once" are measured, not assumed
 python3 - "$T/hook-port" "$T/hook-seen" <<'PY' &
 import http.server, sys
 port_file, seen = sys.argv[1:3]
 class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         open(seen, "a").write(self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode() + "\n")
-        self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+        self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
     def log_message(self, *a): pass
 s = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H); open(port_file, "w").write(str(s.server_address[1])); s.serve_forever()
 PY
 HOOK=$!
 for _ in $(seq 50); do [ -s "$T/hook-port" ] && break; sleep 0.1; done
-printf 'http://127.0.0.1:%s/\n' "$(cat "$T/hook-port")" > "$T/webhook"
+mkdir -p "$T/tok"; printf '%s\n' fake-lean-test-token > "$T/tok/slack-bot-token-adm-app"; chmod 600 "$T/tok/slack-bot-token-adm-app"
 DATE=$(TZ=UTC date +%Y%m%d)   # the default zone: BRIEFING_TZ is unset in these runs
 export SALA_OWNER_NAME=Quill   # a made-up owner name: the prompt's {{OWNER}} and the greeting come from this setting
 lean() { # lean [VAR=val …] -- [args]: runs summary-lean.sh with the stubs; the output in $T/run
     rm -rf "$T/logs"; mkdir -p "$T/logs"; rm -f "$T/hook-seen" "$T/fetch-ran" "$T/claude-ran" "$T/argv0" "$T/stdin" "$T/env"
     local envs=(); while [ $# -gt 0 ] && [ "$1" != -- ]; do envs+=("$1"); shift; done; [ "${1:-}" = -- ] && shift
     env HOME="$T/home" FAKE_DIR="$T" FETCH_MODE=ok BRIEFING_LOGDIR="$T/logs" BRIEFING_CLAUDE_BIN="$T/bin/claude" BRIEFING_LEAN_FETCH_CMD="$T/bin/fetch" \
-        BRIEFING_WEBHOOK_FILE="$T/webhook" BRIEFING_BACKEND=cli BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR="$T/no-board" BRIEFING_COMMIT_REPOS= \
+        BRIEFING_BOT_APP_SALA_ADMIN=adm-app BRIEFING_BOT_CHANNEL_SALA_ADMIN=D0ADMIN SALA_DM_TOKEN_DIR="$T/tok" SALA_DM_API_BASE="http://127.0.0.1:$(cat "$T/hook-port")/api" BRIEFING_BACKEND=cli BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR="$T/no-board" BRIEFING_COMMIT_REPOS= \
         BRIEFING_HOLDS_CMD="${HOLDS_STUB:-true}" BRIEFING_LEAN_RETRY_WAIT=0 ${envs[@]+"${envs[@]}"} "$D/summary-lean.sh" "$@" > "$T/run" 2>&1
 }
 posts() { [ -f "$T/hook-seen" ] && wc -l < "$T/hook-seen" || echo 0; }
@@ -346,7 +346,7 @@ grep -q '@@ASOF@@' "$D/summary-lean.prompt.md" && grep -q '@@UNREAD@@' "$D/summa
 # posting
 lean -- --post; rc=$?
 [ $rc = 0 ] && [ "$(posts)" = 1 ] && grep -q 'morning email summary' "$T/hook-seen" && grep -q 'open' "$T/hook-seen" && [ ! -e "$(OUTF)" ] \
-    && ok "--post: delivered once to the webhook through post_slack (the [gmail:] marker linked), no file" || bad "--post: rc=$rc posts=$(posts) $(cat "$T/run")"
+    && ok "--post: delivered once to the sala-admin app's DM through post_slack (the [gmail:] marker linked), no file" || bad "--post: rc=$rc posts=$(posts) $(cat "$T/run")"
 lean BRIEFING_LEAN_POST=1 --; [ "$(posts)" = 1 ] && ok "BRIEFING_LEAN_POST=1 is --post" || bad "BRIEFING_LEAN_POST: posts=$(posts)"
 lean BRIEFING_LEAN_POST=1 BRIEFING_NO_POST=1 --; [ "$(posts)" = 0 ] && grep -q 'morning email summary' "$T/logs/would-post.log" && ok "--post honours BRIEFING_NO_POST (to would-post.log), like the other briefings" || bad "NO_POST: posts=$(posts)"
 lean -- --bogus; [ $? = 2 ] && [ ! -e "$T/claude-ran" ] && ok "an unknown argument is refused (exit 2) before anything runs" || bad "bogus argument"

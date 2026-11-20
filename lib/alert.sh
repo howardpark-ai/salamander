@@ -9,8 +9,8 @@
 # "--helpful") is the headline and posts as before.
 # A CHANNEL is a short name matching [a-z0-9-]+ (anything else is a usage error, exit 2, and nothing is posted). It reaches the
 # notify command as SALA_NOTIFY_CHANNEL=<name> in the command's environment for this one call; without --channel the variable is
-# unset. What a channel means is the notify command's business: contrib/briefing/post-stdin.sh sends the post to the Slack webhook
-# the config names for it (BRIEFING_WEBHOOK_FILE_<NAME>) and to the default webhook when there is none.
+# unset. What a channel means is the notify command's business: contrib/briefing/post-stdin.sh posts it as the Slack app the config
+# names for it (BRIEFING_BOT_APP_<NAME>) and as the sala-admin app when there is none.
 #
 # ALERTS THAT NEED NO CLAUDE TURN: a usage limit can stop every API call, and then no alert reaches
 # the owner, because every alert path went through a Claude session blocked the same way. sala's posts do not (sala_post →
