@@ -186,7 +186,7 @@ def served(tmp_path, monkeypatch, request):
     """{"url", "settings", "name"}: the app on 127.0.0.1:<free port>, the fake session NAME with SAMPLE_TRANSCRIPT.
     A test may give the fake session another name, a role, a lane and a status
     (`@pytest.mark.parametrize("served", [{"name": ..., "role": "front", "lane": "subscription-2", "status": "busy"}], indirect=True)`):
-    the role comes through a roles command that prints it, the lane by patching proc_lane (the pid is this process's)."""
+    the role (and a `surface`, "slack" for a Slack agent) comes through a roles command that prints it, the lane by patching proc_lane (the pid is this process's)."""
     import uvicorn
 
     want = getattr(request, "param", None) or {}
@@ -204,7 +204,8 @@ def served(tmp_path, monkeypatch, request):
     monkeypatch.setattr(S, "live_tmux_names", lambda: {})  # never the default tmux server's names
     roles_cmd = ["false"]
     if "role" in want:
-        roles_cmd = [sys.executable, "-c", f"print({json.dumps({'sessions': {name: {'role': want['role']}}})!r})"]
+        entry = {"role": want["role"], **({"surface": want["surface"]} if "surface" in want else {})}
+        roles_cmd = [sys.executable, "-c", f"print({json.dumps({'sessions': {name: entry}})!r})"]
     if "lane" in want:
         monkeypatch.setattr(S, "proc_lane", lambda _pid, lane=want["lane"]: lane)
     settings = Settings(socket=tmp_path / "s.sock", state_dir=tmp_path / "state", claude_dir=claude,

@@ -434,6 +434,35 @@ def test_a_busy_front_agent_counts_only_what_has_ended(served):
     assert me(served)["unread_count"] == 1                             # a turn that ended before the running one began
 
 
+SLACK = [{"name": "example-alpha-main", "role": "front", "surface": "slack"}]
+
+
+def marker_rows(served) -> dict:
+    """The sessions in state_dir/read-state.json ({} when the file was never written)."""
+    path = served["settings"].state_dir / UR.FILE_NAME
+    return json.loads(path.read_text())["sessions"] if path.exists() else {}
+
+
+@pytest.mark.parametrize("served", SLACK, indirect=True)
+def test_opening_a_slack_agent_writes_no_read_marker_row(served):
+    me(served)
+    reply_now(served, "r-new")
+    s = me(served)
+    assert s["surface"] == "slack" and s["unread_count"] == 0           # the list never counts it
+    code, body = call(served["url"], "POST", "/api/read", {"name": served["name"]})
+    assert (code, body["ok"], body["moved"]) == (200, True, False)      # a harmless no-op: the page ignores the body
+    assert served["name"] not in marker_rows(served)                    # and no row is made for it, by the list or by opening it
+    assert me(served)["unread_count"] == 0
+
+
+@pytest.mark.parametrize("served", FRONT, indirect=True)
+def test_opening_a_sala_front_agent_still_writes_its_read_marker_row(served):
+    me(served)
+    reply_now(served, "r-new")
+    assert call(served["url"], "POST", "/api/read", {"name": served["name"]})[1]["moved"] is True
+    assert served["name"] in marker_rows(served)
+
+
 @pytest.mark.parametrize("served", FRONT, indirect=True)
 def test_mark_read_refusals(served):
     url = served["url"]
