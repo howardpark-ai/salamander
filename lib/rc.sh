@@ -22,16 +22,18 @@
 #                      (refused for a session a live pane is bridged to); --unarchive ID… undoes it
 #                      the CLI itself uses (POST /v1/code/sessions/<id>/archive, OAuth bearer from
 #                      ~/.claude/.credentials.json — never printed). UNOFFICIAL: non-200 → do it on claude.ai.
-#   rc --titles [--apply (--only NAME… | --all)]
+#   rc --titles [--dry-run | --apply (--only NAME (repeatable) | --all)]
 #                      claude.ai shows each pane's Remote Control session under a title written once, when the
 #                      bridge session is made, and changed afterwards only by a rename inside the CLI: a pane started
 #                      with --name never renames, so its title can stay an auto-generated name while its sala name is
 #                      right everywhere else. Bare: a read-only table of the live bridged panes whose claude.ai title
 #                      differs from the pane's name (exit 0 either way; a pane whose session is past the first 100
-#                      is counted as "not listed", never guessed). --apply --only NAME… sets just those panes' titles
+#                      is counted as "not listed", never guessed). --apply --only NAME (repeatable) sets just those panes' titles
 #                      to their names (PUT /v1/code/sessions/<id> {"title": NAME}, the same UNOFFICIAL endpoint family
 #                      as --archive), then re-reads and says ok or FAILED per pane; --apply alone is refused, --all
-#                      applies to every differing pane. Only a name in [a-z0-9-] with nameSource user; idempotent.
+#                      applies to every differing pane (a pane not in the first 100 is FAILED, exit 1). Only a name in
+#                      [a-z0-9-] with nameSource user; idempotent. --dry-run is the bare form spelled out; with --apply
+#                      it is refused. A name two live panes carry is refused before any PUT.
 #                      SALA_ANTHROPIC_API (default https://api.anthropic.com) moves the API for a test.
 #   rc --run           (internal) the loop, inside the pane
 #
@@ -138,18 +140,19 @@ PY
     done
     [ "$found" = 1 ] || echo "    (none)" ;;
 --titles)
-    shift; tapply=0; tall=0; tonly=""
+    shift; tapply=0; tall=0; tdry=0; tonly=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --apply) tapply=1; shift ;;
             --all) tall=1; shift ;;
-            --dry-run) shift ;;
+            --dry-run) tdry=1; shift ;;
             --only) [ $# -ge 2 ] && [ -n "$2" ] || rcdie "--only needs a pane name"; tonly+="$2"$'\n'; shift 2 ;;
             --only=?*) tonly+="${1#--only=}"$'\n'; shift ;;
             *) rcdie "--titles: unknown argument '$1' (see: salamander rc --help)" ;;
         esac
     done
-    [ "$tapply" = 0 ] || [ "$tall" = 1 ] || [ -n "$tonly" ] || rcdie "--titles --apply needs --only NAME (repeatable) to name the panes; a bulk apply to every differing pane needs --all"
+    [ "$tdry" = 0 ] || [ "$tapply" = 0 ] || rcdie "--titles: --dry-run and --apply contradict each other (--dry-run is the read-only list); use one. Nothing was changed"
+    [ "$tapply" = 0 ] || [ "$tall" = 1 ] || [ -n "$tonly" ] || rcdie "--titles --apply needs --only NAME (repeatable: --only a --only b) to name the panes; a bulk apply to every differing pane needs --all"
     [ "$tapply" = 1 ] || [ "$tall" = 0 ] || rcdie "--titles --all needs --apply (the bare form is the read-only list)"
     [ "$tall" = 0 ] || [ -z "$tonly" ] || rcdie "--titles: --all and --only are two ways to choose the panes; use one"
     # the live bridged panes (as live_pane_for_bridge: a registry row with a tmux session, pid alive, not an RC child; the bridge id from the
@@ -192,10 +195,13 @@ def cloud():  # claude.ai id without its prefix -> the session row; None when th
 def clean(t): return '(none)' if t is None else str(t).replace('\n', ' ')
 cl = cloud()
 if cl is None: sys.exit(1)
-panes = {}; order = []
+panes = {}; order = []; amb = {}
 for line in os.environ['TITLES_PANES'].split('\n'):
     f = line.split('\t')
-    if len(f) == 3 and f[0] not in panes: panes[f[0]] = f; order.append(f[0])
+    if len(f) != 3: continue
+    if f[0] not in panes: panes[f[0]] = f; order.append(f[0])
+    elif f[1] != panes[f[0]][1]:  # two live panes with one name and different claude.ai sessions: which one the name means is not guessed
+        amb.setdefault(f[0], [panes[f[0]][1]]); amb[f[0]] += [] if f[1] in amb[f[0]] else [f[1]]
 listed, notlisted = [], []
 for n in order:
     b = panes[n][1]; row = cl.get(b.split('_', 1)[1]) if '_' in b else None
@@ -214,10 +220,15 @@ if not apply_:
             print(f"{n:<{w}}  {clean(r.get('title'))[:40]:<40}  {r.get('status', '?')}/{r.get('connection_status', '?')}{'  (cannot be set: ' + why + ')' if why else ''}")
         print(f'{len(diff)} of {len(listed)} bridged panes carry another title: salamander rc --titles --apply --only NAME [--only NAME]… (or --all)')
     else: print(f'all {len(listed)} bridged panes carry their sala name')
+    if amb: print(f"ambiguous ({len(amb)}): {', '.join(sorted(amb))}  (more than one live pane carries the name; --apply refuses it)")
     if notlisted: print(f"not listed ({len(notlisted)}): {', '.join(n for n, _ in notlisted)}  (their claude.ai session is not in the first 100 sessions)")
     sys.exit(0)
 rc = 0; todo = []; lrow = dict(listed)
 names = only if only else [n for n, r in listed if r.get('title') != n]
+clash = [n for n in dict.fromkeys(only if only else order) if n in amb]
+if clash:  # before any PUT: a name two live panes carry cannot say which of them it renames
+    for n in clash: print(f"FAILED  {n}  ambiguous: {len(amb[n])} live panes carry this name (claude.ai sessions {', '.join(amb[n])}); nothing was changed")
+    sys.exit(1)
 for n in names:
     if n not in panes: print(f'FAILED  {n}  no live bridged pane of that name'); rc = 1; continue
     row = lrow.get(n)
@@ -231,6 +242,8 @@ for n in names:
     st, txt = call('PUT', '/v1/code/sessions/cse_' + panes[n][1].split('_', 1)[1], {'title': n})
     if st != 200: print(f'FAILED  {n}  HTTP {st} {safe(txt)[:200]}'); rc = 1; continue
     todo.append(n)
+if not only:  # --all: a pane whose session is past the API's first page cannot be checked: said per pane, and the exit is not 0
+    for n, _ in notlisted: print(f'FAILED  {n}  not listed: its claude.ai session is not in the first 100 sessions'); rc = 1
 if todo:
     after = cloud()
     for n in todo:
@@ -238,7 +251,7 @@ if todo:
         if r and r.get('title') == n: print(f'ok      {n}  title set')
         elif r: print(f"FAILED  {n}  set, but the re-read shows {clean(r.get('title'))!r}"); rc = 1
         else: print(f'FAILED  {n}  set, but the re-read could not find the session'); rc = 1
-if not names: print(f'all {len(listed)} bridged panes carry their sala name')
+if not names: print(f'all {len(listed)} bridged panes carry their sala name' if not notlisted else f'all {len(listed)} listed bridged panes carry their sala name; {len(notlisted)} could not be checked')
 sys.exit(rc)
 PY
     ;;
