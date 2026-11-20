@@ -13,7 +13,8 @@ usage: sala mockup add FILE|-
           sandbox: the page's own scripts and styles run, but it cannot reach sala's API or cookies and fetches nothing (no network, no external
           script or stylesheet); data: images work, and Google Fonts (fonts.googleapis.com, fonts.gstatic.com). Put
           <meta name="viewport" content="width=device-width, initial-scale=1"> in the page so a phone shows it at its own width (add notes when it is missing).
-          Refused: an empty file, one over 5 MiB, one that is not UTF-8 or holds a NUL byte. Numbers go up by one and are never given twice, also after a
+          Refused: an empty file, one over 5 MiB, one that is not UTF-8 or holds a NUL byte, a page that letters its designs
+          (Variant A, Option B: name them instead, the same words as the board's options; no override). Numbers go up by one and are never given twice, also after a
           page is deleted. The address is SALA_SESSION_URL's scheme and host; without that setting the path /mockup/<n> is printed and a note says so.
           Pages are stored under $SALA_STATE_DIR/mockups (mode 700), on this machine only.
   list    the stored pages: number, size, age, address (--json: the same as an array).

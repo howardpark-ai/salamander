@@ -3,7 +3,10 @@
 # tree (locked while the suite runs, removed at its end); nothing touches the real state folder, systemd or the board. No process is killed, no tmux.
 #   add       numbering from 1, one URL on stdout and nothing else, parallel adds taking different numbers (the counter under its lock), a number never
 #             given again after a page is deleted (also with the counter file lost), modes 700/600, stdin, the refusals (empty, over 5 MiB, not UTF-8, NUL byte,
-#             a missing file, a directory) writing nothing and taking no number, the viewport note, the address from SALA_SESSION_URL (path only without it)
+#             a missing file, a directory, a page that letters its designs) writing nothing and taking no number, the viewport note, the address from SALA_SESSION_URL (path only without it)
+#   lettered  a page whose visible text letters its designs (Variant A, Option B, Design C, Layout D, a non-breaking space, the Korean words built from
+#             escapes) is refused naming the phrases and saying to name the designs; named designs, a design word with no letter, a sentence ending before a
+#             capital, a lowercase letter, and "Variant A" inside script, style, a comment or a class/id attribute are taken
 #   list      table and --json; remove
 #   clean     the age rule (old and unlinked deleted, old and linked kept, young kept), SALA_MOCKUP_REFERENCES unset = keep everything and say why, `none`,
 #             a failing or silent-unreadable command = keep everything + exit 1, --dry-run, a stale half-written page removed
@@ -59,6 +62,47 @@ after=$(cat "$D/counter")
 # the exactly-5-MiB add took one number (and was removed); the refusals took none
 [ "$after" = "$((before + 1))" ] && [ "$(ls "$D" | grep -c '\.html$')" = "$n_before" ] && ok "refusals take no number and write no page" || bad "counter $before -> $after, pages $n_before -> $(ls "$D" | grep -c '\.html$')"
 ls -A "$D" | grep -q '^\.tmp-' && bad "a refusal left a temporary file" || ok "a refusal leaves no temporary file"
+
+# a page that letters its designs: refused, naming the phrases; nothing written, no number taken
+lettered() {   # NAME CONTENT: write the page, add it; refused = exit 1, a sentence naming the designs, the counter and the pages unchanged
+    local name=$1 want=$2 c0 n0 rc
+    c0=$(cat "$D/counter"); n0=$(ls "$D" | grep -c '\.html$')
+    printf '%s' "$3" > "$T/in/$name.html"
+    $S add "$T/in/$name.html" >"$T/out" 2>"$T/err"; rc=$?
+    if [ "$rc" = 1 ] && [ ! -s "$T/out" ] && grep -q "$want" "$T/err" && grep -q 'name each design' "$T/err" \
+        && [ "$(cat "$D/counter")" = "$c0" ] && [ "$(ls "$D" | grep -c '\.html$')" = "$n0" ]; then ok "lettered: $name is refused (names the phrase, says to name the designs, no number, no page)"
+    else bad "lettered $name: rc=$rc err=[$(cat "$T/err")] counter $c0 -> $(cat "$D/counter")"; fi
+}
+accepted() {   # NAME CONTENT: the page is stored (and removed again, so the counter alone moves)
+    local name=$1 out
+    printf '%s' "$2" > "$T/in/$name.html"
+    out=$($S add "$T/in/$name.html" 2>/dev/null); rc=$?
+    if [ "$rc" = 0 ] && [ -n "$out" ]; then ok "lettered: $name is taken"; $S remove "${out##*/}" >/dev/null; else bad "lettered $name: rc=$rc"; fi
+}
+lettered let-variant 'Variant A' '<!doctype html><title>t</title><h1>Variant A</h1><p>x</p>'
+lettered let-option 'Option B' '<title>t</title><p>Option B: a panel</p>'
+lettered let-design 'design C' '<title>t</title><div><b>design C</b></div>'
+lettered let-layout 'Layout D' '<title>t</title><li>Layout D'
+lettered let-nbsp 'Variant A' "<title>t</title><p>Variant$(printf '\302\240')A</p>"
+lettered let-entity 'Option B' '<title>t</title><p>Option&nbsp;B</p>'
+lettered let-markup 'Proposal C' '<title>t</title><p>Proposal <b>C</b></p>'
+ko_opt=$(python3 -c 'print(chr(0xC635) + chr(0xC158) + " A", end="")'); ko_draft=$(python3 -c 'print(chr(0xC2DC) + chr(0xC548) + "B", end="")')
+ko_design=$(python3 -c 'print(chr(0xB514) + chr(0xC790) + chr(0xC778) + " C", end="")')   # the Korean words for option, draft design, design: code points, no Hangul in the file
+lettered let-ko-option "$ko_opt" "<title>t</title><p>$ko_opt</p>"
+lettered let-ko-draft "$ko_draft" "<title>t</title><p>$ko_draft</p>"
+lettered let-ko-design "$ko_design" "<title>t</title><p>$ko_design</p>"
+printf '%s' '<title>t</title><p>Variant A, Option B, Design C, Layout D, Variant A</p>' > "$T/in/let-many.html"
+$S add "$T/in/let-many.html" >/dev/null 2>"$T/err"
+grep -q '"Variant A", "Option B", "Design C")' "$T/err" && ! grep -q 'Layout D' "$T/err" && ok "lettered: at most 3 distinct phrases are listed, as the page words them" || bad "lettered list: [$(cat "$T/err")]"
+accepted let-named '<title>t</title><h2>One-line strip</h2><h2>Fuller panel</h2>'
+accepted let-noletter '<title>t</title><p>The design is final. The variant, the option and the layout stay.</p>'
+accepted let-period '<title>t</title><p>Pick from the options. A new line follows.</p>'
+accepted let-lower '<title>t</title><p>Option a and variant b</p>'
+accepted let-script '<title>t</title><script>var s="Variant A"; // Option B</script><p>x</p>'
+accepted let-style '<title>t</title><style>/* Design C */ .x::after{content:"Layout D"}</style><p>x</p>'
+accepted let-comment '<title>t</title><!-- Variant A --><p>x</p>'
+accepted let-attr '<title>t</title><p class="variant-a" id="option-B" title="x">x</p>'
+accepted let-word '<title>t</title><p>Optional A or the Variants B</p>'
 $S --x >/dev/null 2>&1; [ $? = 2 ] && ok "an unknown option is a usage error (exit 2)" || bad "unknown option exit"
 $S >/dev/null 2>&1; [ $? = 2 ] && ok "no argument prints the usage and exits 2" || bad "no-argument exit"
 $S --help 2>&1 | grep -q 'max-bytes' && ok "--help describes the cap" || bad "help lacks --max-bytes"
