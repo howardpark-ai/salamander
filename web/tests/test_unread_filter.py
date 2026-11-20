@@ -32,7 +32,8 @@ eval(m[1] + 'globalThis.api = { unreadOfSession, unreadTotal, unreadKept };');
 const { unreadOfSession, unreadTotal, unreadKept } = globalThis.api;
 const f = (name, n, extra) => ({ name, role: 'front', unread_count: n, unread: n > 0, ...extra });
 const all = [f('a', 2), f('b', 0), f('c', 1), f('eng', 0, { role: 'back' }), f('d', 0, { unread_count: undefined, unread: true }),
-             f('e', 0, { role: 'side', unread_count: 4 }), f('g', 12)];
+             f('e', 0, { role: 'side', unread_count: 4 }), f('g', 12),
+             f('sf-example-a', 3, { surface: 'slack' })];                 // a slack agent: no count even if a payload carried one
 console.log(JSON.stringify({
   of: all.map((s) => unreadOfSession(s, null)),
   ofOpen: unreadOfSession(f('a', 2), 'a'), ofNull: [unreadOfSession(null, null), unreadOfSession({}, null)],
@@ -41,6 +42,7 @@ console.log(JSON.stringify({
   keptOpenRead: unreadKept(all, 'b').map((s) => s.name),      // the open agent stays although it has nothing unread
   keptOpenA: unreadKept(all, 'a').map((s) => s.name),         // ... and an open agent with replies is the open one, never counted twice
   keptOpenBack: unreadKept(all, 'eng').map((s) => s.name),
+  keptOpenSlack: unreadKept(all, 'sf-example-a').map((s) => s.name),
   none: unreadKept([f('x', 0), f('y', 0)], null), noneOpen: unreadKept([f('x', 0), f('y', 0)], 'y').map((s) => s.name),
 }));
 """
@@ -52,13 +54,14 @@ def test_the_filter_rules_in_node():
         pytest.skip("no node")
     out = subprocess.run([node, "-e", NODE, str(STATIC / "shared.js")], capture_output=True, text=True, check=True).stdout
     got = json.loads(out)
-    assert got["of"] == [2, 0, 1, 0, 1, 0, 12], got           # a count; none for a background or side agent; `unread` with no count reads as 1
+    assert got["of"] == [2, 0, 1, 0, 1, 0, 12, 0], got        # a count; none for a background, side or slack agent; `unread` with no count reads as 1
     assert got["ofOpen"] == 0 and got["ofNull"] == [0, 0], got
     assert got["total"] == 16 and got["totalOpenA"] == 14, got
     assert got["kept"] == ["a", "c", "d", "g"], got            # background agents never; a side agent has no count
     assert got["keptOpenRead"] == ["a", "b", "c", "d", "g"], got
     assert got["keptOpenA"] == ["a", "c", "d", "g"], got
     assert got["keptOpenBack"] == ["a", "c", "eng", "d", "g"], got   # an open background agent stays too (it is the page's open one)
+    assert got["keptOpenSlack"] == ["a", "c", "d", "g", "sf-example-a"], got   # a slack agent never counts, but stays while it is the open one
     assert got["none"] == [] and got["noneOpen"] == ["y"], got
 
 
@@ -69,6 +72,7 @@ SESS = """(() => {
   window.__unread = %s;
   const sess = (n, role) => ({ pid: 1, sessionId: n, name: n, cwd: "/x", status: "idle", tmux: "x:@0.%%0", tmuxSession: n, paneId: "%%0",
     role, project: "", lane: "subscription-1", updatedAt: null, startedAt: null, agentId: "agent-" + n,
+    ...((window.__slack || []).includes(n) ? { surface: "slack" } : {}),      // the payload carries surface only for a slack agent
     unread_count: role === "front" ? (window.__unread[n] || 0) : 0, unread: role === "front" && (window.__unread[n] || 0) > 0 });
   const proj = (key, names) => ({ key: "projects/" + key, title: key, scope: "example", sessions: names.map((n) => sess(n, n.endsWith("-engineer") ? "back" : "front")) });
   window.fetch = (url, opts) => {
@@ -105,9 +109,10 @@ def get_prefs(served) -> dict:
         return json.load(r)
 
 
-def open_panel(browser, served, width: int, unread=None, hash_="#sessions") -> None:
-    """The page with the side panel open, drawn from the stub."""
+def open_panel(browser, served, width: int, unread=None, hash_="#sessions", slack=()) -> None:
+    """The page with the side panel open, drawn from the stub; `slack`: the names of the sessions the stub marks surface "slack"."""
     browser.send("Page.enable")
+    browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": f"window.__slack = {json.dumps(list(slack))};"})
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": SESS % json.dumps(UNREAD if unread is None else unread)})
     browser.width, browser.height = width, 844 if width < 700 else 800
     url = f"{served['url']}/{hash_}"
@@ -248,3 +253,23 @@ def test_the_total_follows_the_rows_and_reads_9_plus_above_nine(served, browser)
     browser.evaluate("window.__unread['example-beta-main'] = 0; window.__unread['example-alpha-main'] = 1; ''")
     poll(browser)
     assert browser.evaluate(ENTRY)["count"] == "1" and browser.evaluate(ENTRY)["countLabel"] == "1 unread reply in all agents"
+
+
+def test_a_slack_agent_is_hidden_like_a_background_agent_and_has_no_count(served, browser):
+    """The stub sends a count for the slack agent too (a real server sends 0): the page shows none and leaves it out of the total."""
+    plain = ["example-alpha-main", "example-alpha-ui", "example-beta-main", "example-gamma-main"]
+    everything = ["example-alpha-engineer", "example-alpha-main", "example-alpha-ui", "example-beta-main", "example-beta-x", "example-gamma-engineer", "example-gamma-main"]
+    chip = "document.querySelector('#session-list .sess[data-key=\"example-beta-x\"] .ucount')"
+    open_panel(browser, served, 1280, unread={"example-beta-main": 1, "example-beta-x": 4}, slack=["example-beta-x"])
+    wait_rows(browser, plain)                                                                 # hidden by default, as the background agents are
+    assert browser.evaluate(ENTRY)["count"] == "1"                                            # its 4 are not in the total
+    browser.evaluate("document.querySelector('#show-back').click(); ''")                    # Show all sessions: it is listed, with no count
+    wait_rows(browser, everything)
+    assert browser.evaluate(chip) is None and browser.evaluate(ENTRY)["count"] == "1"
+    browser.evaluate("document.querySelector('#show-back').click(); ''")
+    wait_rows(browser, plain)
+    browser.evaluate("location.hash = '#s=example-beta-x'; ''")                              # opened: it is shown while it is the open one
+    wait_rows(browser, plain[:3] + ["example-beta-x", "example-gamma-main"])
+    assert browser.evaluate(chip) is None
+    browser.evaluate("location.hash = '#sessions'; ''")
+    wait_rows(browser, plain)
