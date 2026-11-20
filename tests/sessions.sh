@@ -888,11 +888,62 @@ reg_cases() {  # <label>: the answers are the same whatever state the registry f
 echo '{this is not json' > "$REG";           reg_cases corrupt
 echo '{"schema": 1}' > "$REG";                reg_cases "without a sessions object"
 rm -f "$REG";                                 reg_cases missing
-cp "$HOME/reg.good2" "$REG"; chmod 000 "$REG"; reg_cases unreadable
+if [ "$(id -u)" != 0 ]; then
+    cp "$HOME/reg.good2" "$REG"; chmod 000 "$REG"; reg_cases unreadable
+else   # chmod 000 blocks no read by root, so the case would pass without testing anything; the never-opened check below does not depend on it
+    echo "  skip record-surface, registry unreadable: running as root, where chmod 000 blocks no read"
+fi
 chmod 600 "$REG"; cp "$HOME/reg.good2" "$REG"
 same_file "$REG" "$HOME/reg.good2" && ok "the registry is back as it was" || bad "registry not restored"
 out=$(sessions_py slack-names 2>&1); rc=$?
 [ "$rc" = 0 ] && ok "slack-names reads the registry again" || bad "slack-names after restore: rc=$rc $out"
+
+echo "== record-surface never opens the registry (the cases above see only what it answers: a change that loaded the registry and swallowed the failure would still pass them)"
+# nolookup.py <sessions.py> <registry> <sentinel> <args...>: runs sessions.py's main() in this process with the registry stubbed. Registry.load, and any
+# open / exists / getsize of the registry file itself, write the sentinel and raise; the exit status and what main() printed come back on stdout.
+cat > "$HOME/nolookup.py" <<'PY'
+import builtins, contextlib, importlib.util, io, os, sys
+src, reg, sentinel = sys.argv[1:4]
+spec = importlib.util.spec_from_file_location("sessions_under_test", src)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+def hit(what):
+    with open(sentinel, "a") as f:
+        f.write("the registry was touched: %s\n" % what)
+    raise AssertionError("record-surface touched the registry: %s" % what)
+def stub_load(self):
+    hit("Registry.load() was called")
+m.Registry.load = stub_load
+real_open, real_exists, real_getsize = builtins.open, os.path.exists, os.path.getsize
+def is_reg(p): return isinstance(p, (str, bytes, os.PathLike)) and os.fsdecode(p) == reg
+def guarded_open(p, *a, **k):
+    if is_reg(p): hit("open(%s)" % reg)
+    return real_open(p, *a, **k)
+def guarded_exists(p):
+    if is_reg(p): hit("os.path.exists(%s)" % reg)
+    return real_exists(p)
+def guarded_getsize(p):
+    if is_reg(p): hit("os.path.getsize(%s)" % reg)
+    return real_getsize(p)
+builtins.open, os.path.exists, os.path.getsize = guarded_open, guarded_exists, guarded_getsize
+sys.argv = ["sessions.py", "--file", reg] + sys.argv[4:]
+out, err = io.StringIO(), io.StringIO()
+with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+    rc = m.main()
+print("rc=%s" % rc); print(out.getvalue().strip()); print(err.getvalue().strip())
+PY
+SENT="$HOME/registry-touched"
+nolookup_ok() {  # <label> <name> <expected rc> <expected stdout, "" = any>: the arguments are the ones rsf passes
+    local out
+    rm -f "$SENT"
+    out=$(python3 -I "$HOME/nolookup.py" "$SALA_SESSIONS_PY" "$REG" "$SENT" record-surface "$2" --record "$REC" --record-max-age 600 2>&1)
+    if [ -e "$SENT" ]; then bad "record-surface ($1) touched the registry: $(tr '\n' ' ' < "$SENT")"
+    elif [ "$(sed -n 1p <<< "$out")" = "rc=$3" ] && { [ -z "$4" ] || [ "$(sed -n 2p <<< "$out")" = "$4" ]; }; then ok "record-surface ($1): the registry is never opened and the answer is right (rc=$3${4:+, $4})"
+    else bad "record-surface ($1): wrong answer with the registry stubbed: $out"; fi
+}
+nolookup_ok "a slack name" sf-new 0 slack
+nolookup_ok "a sala name" fa 0 sala
+nolookup_ok "an empty-surface name" sf-empty 5 ""
+rm -f "$SENT"
 
 echo "== the surface: a manual tag, its refusals, and the value read back"
 out=$("$SALA" sessions tag sf-man --role front --surface slack 2>&1); rc=$?
