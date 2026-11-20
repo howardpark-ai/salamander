@@ -48,6 +48,13 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
   front-names [--record F] [--record-max-age S] [--roles F] [--roles-max-age S]
                                                                              read-only: the same for the live front agents
   slack-names                                                                read-only: the names of the live rows whose surface is slack, one per line
+  record-surface NAME [--project P] [--record F] [--record-max-age S]
+                                                                             read-only: the surface the project record gives the agent NAME (on P's map when
+                                                                             --project is given, else on the one project that lists it): `slack` or `sala`
+                                                                             on stdout, exit 0. Exit 3 the record does not place the name (on no map, or on
+                                                                             several projects), 4 the record cannot answer, 5 it places it but the surface
+                                                                             cannot be used (a value sala does not know, a back agent called slack); the
+                                                                             reason on stderr. `spawn` asks it before choosing the start directory
   list [--all] [--json]                                                      the registry, read-only (a slack row shows [slack] after its role; --json
                                                                              carries `surface` only on such a row)
   resolve REF [--live] [--json]                                              phase 3, read-only: REF is a session id (or a unique prefix of 8+
@@ -616,10 +623,8 @@ def derive_role(row, rec):
     return key, "front" if front else "back", None
 
 
-def derive_surface(row, rec):
-    """(surface, None) for a live row the record lists on exactly one project (the same match as derive_role): `slack` when that agent's entry says so,
-    `sala` when it says nothing (so a stale slack on the row is cleared); (None, why it is left) for a row the record does not place, a side session,
-    an entry that gives a surface sala does not know, or a back agent that the record calls slack (a slack agent is a front agent)."""
+def _surface_hit(row, rec):
+    """((project key, front, surface), None) for a live row the record lists on exactly one project, else (None, why it is not placed)."""
     if row.get("side"):
         return None, "a side session is on no agents map"
     hits = rec.get(row.get("name"))
@@ -627,24 +632,69 @@ def derive_surface(row, rec):
         return None, "on no project's agents map"
     if len(hits) > 1:
         return None, "on the agents maps of several projects (%s)" % ", ".join(sorted(h[0] for h in hits))
-    key, front, surface = hits[0]
+    key = hits[0][0]
     if row.get("project") and row["project"] != key:
         return None, "its row says project %s, the record lists it on %s" % (row["project"], key)
+    return hits[0], None
+
+
+def _surface_unusable(front, surface):
+    """Why a surface the record gives cannot be used (a value sala does not know, a back agent called slack), else None."""
     if surface in (None, ""):
-        return DEFAULT_SURFACE, None
+        return None
     if surface not in SURFACES:
-        return None, "the record gives it surface '%s': a surface is %s" % (surface, " or ".join(SURFACES))
+        return "the record gives it surface '%s': a surface is %s" % (surface, " or ".join(SURFACES))
     if surface == "slack" and not front:
-        return None, "the record lists it as a slack agent under background: (a slack agent is a front agent)"
-    return surface, None
+        return "the record lists it as a slack agent under background: (a slack agent is a front agent)"
+    return None
+
+
+def derive_surface(row, rec):
+    """(surface, None) for a live row the record lists on exactly one project (the same match as derive_role): `slack` when that agent's entry says so,
+    `sala` when it says nothing (so a stale slack on the row is cleared); (None, why it is left) for a row the record does not place, a side session,
+    an entry that gives a surface sala does not know, or a back agent that the record calls slack (a slack agent is a front agent)."""
+    hit, why = _surface_hit(row, rec)
+    if hit is None:
+        return None, why
+    why = _surface_unusable(hit[1], hit[2])
+    if why:
+        return None, why
+    return (hit[2] if hit[2] not in (None, "") else DEFAULT_SURFACE), None
+
+
+def surface_refusal(row, rec):
+    """The reason when the record places the row on one project and gives it a surface that cannot be used, else None (a row the record does not
+    place is no refusal: that is the usual case of a row with a role)."""
+    hit, _why = _surface_hit(row, rec)
+    return None if hit is None else _surface_unusable(hit[1], hit[2])
+
+
+def _auto_surface_of_roled_row(R, row, rec, dry_run):
+    """`tag --auto` for a live row that has a role: only its surface follows the record. The changes made (or, in a dry run, that would be made);
+    [] for nothing to change (a row the record does not place included); None when a reason was printed and the row is left as it is (a surface the record gives that cannot be used, a back row called slack). A row whose role is back
+    is never made a slack row (a slack agent is a front agent, and `tag` refuses the same pair): the record calling it front and slack does not
+    change the row's role here, so the surface stays off and the reason is said."""
+    sf, _why = derive_surface(row, rec)
+    if not sf:
+        why = surface_refusal(row, rec)
+        if why:   # the record places the row but its surface cannot be used: the row stays as it is and the reason is said
+            print("sessions tag --auto: left %s (%s): %s" % (row["name"], row["id"][:8], why))
+            return None
+        return []
+    if sf == "slack" and row.get("role") == "back":
+        print("sessions tag --auto: left %s (%s): the record lists it as a slack agent but its row has role back (a slack agent is a front agent): the row is not changed; tag it --role front --surface slack by hand if the record is right"
+              % (row["name"], row["id"][:8]))
+        return None
+    return apply_tag(R, row, None, None, dry_run, sf)
 
 
 def cmd_tag_auto(R, a):
     """`tag --auto [SESSION]`: give every live row that has no role (or the one named) its project and role from the project record. A role
     already on a row is never touched; a row the record does not list (a throwaway, a scratch session, a side session) is left, with the
     reason. A row the record lists on one project (with a role or without) also takes that agent's `surface` from it: `slack` when the entry
-    says so, and a stale `slack` on the row is cleared when the entry says nothing; a row the record does not place keeps its surface.
-    Idempotent. Exit 0 done (or nothing to do), 1 an error, 3 the one named session is on no agents map, 4 the record cannot answer
+    says so, and a stale `slack` on the row is cleared when the entry says nothing; a row the record does not place keeps its surface. A row
+    the record places with a surface that cannot be used (a value sala does not know, a back agent called slack) is left exactly as it is, with
+    the reason; a back row is never made slack. Idempotent. Exit 0 done (or nothing to do), 1 an error, 3 the one named session is on no agents map, 4 the record cannot answer
     (missing, stale, unreadable: nothing is written)."""
     if a.project is not None or a.role is not None or a.project_key is not None or a.surface is not None:
         raise RegistryError("tag --auto takes no --project, --role, --surface or --project-key: the project record gives them")
@@ -660,9 +710,10 @@ def cmd_tag_auto(R, a):
         if row.get("state") != "live":
             raise RegistryError("session '%s' (%s) is retired: a retired row is not tagged" % (row.get("name"), row["id"]))
         if row.get("role"):
-            sf, _why = derive_surface(row, rec)
-            ch = apply_tag(R, row, None, None, a.dry_run, sf) if sf else []
-            if ch:
+            ch = _auto_surface_of_roled_row(R, row, rec, a.dry_run)
+            if ch is None:
+                pass
+            elif ch:
                 print("sessions tag --auto: %s %s (%s): %s" % ("would tag" if a.dry_run else "tagged", row["name"], row["id"][:8], "; ".join(ch)))
             else:
                 print("sessions tag --auto: %s (%s) already has role %s: nothing changed" % (row["name"], row["id"][:8], row["role"]))
@@ -670,25 +721,55 @@ def cmd_tag_auto(R, a):
         rows = [row]
     else:
         rows = sorted((r for r in R.rows.values() if r.get("state") == "live" and not r.get("role")), key=lambda r: r.get("name") or "")
-    done = left = 0
+    done = left = refused = 0
     for row in rows:
         proj, role, why = derive_role(row, rec)
         if role is None:
             left += 1
             print("sessions tag --auto: left %s (%s): %s" % (row["name"], row["id"][:8], why))
             continue
-        sf, _why = derive_surface(row, rec)
+        sf, why = derive_surface(row, rec)
+        if sf is None:   # the record places the row but its surface cannot be used: the whole row stays as it is (no project, no role), and the reason is said
+            left += 1
+            refused += 1
+            print("sessions tag --auto: left %s (%s): %s" % (row["name"], row["id"][:8], why))
+            continue
         ch = apply_tag(R, row, proj, role, a.dry_run, sf)
         done += 1
         print("sessions tag --auto: %s %s (%s): %s" % ("would tag" if a.dry_run else "tagged", row["name"], row["id"][:8], "; ".join(ch)))
     if a.args:
-        return 0 if done else 3
+        return 0 if (done or refused) else 3   # a name the record places is no exit 3, even when its surface keeps the row as it is (spawn marks exit 3 a throwaway)
     for row in sorted((r for r in R.rows.values() if r.get("state") == "live" and r.get("role") and r.get("name")), key=lambda r: r["name"]):   # a row with a role: only its surface follows the record
-        sf, _why = derive_surface(row, rec)
-        ch = apply_tag(R, row, None, None, a.dry_run, sf) if sf else []
+        ch = _auto_surface_of_roled_row(R, row, rec, a.dry_run)
         if ch:
             print("sessions tag --auto: %s %s (%s): %s" % ("would tag" if a.dry_run else "tagged", row["name"], row["id"][:8], "; ".join(ch)))
     print("sessions tag --auto: %d live row(s) without a role: %d %s, %d left" % (len(rows), done, "would be tagged" if a.dry_run else "tagged", left))
+    return 0
+
+
+def cmd_record_surface(R, a):
+    """Read-only: `record-surface NAME [--project P]`, the surface the project record gives the agent NAME, the same reading `tag --auto` uses
+    (derive_surface): `slack` or `sala` on stdout. Exit 3 the record does not place the name (on no map, not on P's map, or on several projects),
+    4 the record cannot answer, 5 it places the name with a surface that cannot be used (the reason on stderr)."""
+    if len(a.args) != 1:
+        raise RegistryError("record-surface needs exactly one agent name")
+    name = a.args[0]
+    try:
+        rec = load_record(a.record, a.record_max_age)
+    except RecordUnavailable as e:
+        print("sessions record-surface: %s" % e, file=sys.stderr)
+        return 4
+    hits = rec.get(name) or []
+    if a.project:
+        hits = [h for h in hits if h[0] == a.project]
+    if len(hits) != 1:
+        print("sessions record-surface: '%s' is %s" % (name, "on no project's agents map" if not hits else "on the agents maps of several projects"), file=sys.stderr)
+        return 3
+    sf, why = derive_surface({"name": name}, {name: hits})
+    if sf is None:
+        print("sessions record-surface: %s" % why, file=sys.stderr)
+        return 5
+    print(sf)
     return 0
 
 
@@ -1085,7 +1166,7 @@ def main():
     p.add_argument("--keep", type=int, default=30)
     p.add_argument("--caller", default="")
     p.add_argument("--machine", default="")
-    p.add_argument("cmd", choices=["dual", "set", "prepare", "abandon", "record", "tag", "list", "resolve", "transcript", "back-names", "front-names", "slack-names", "migrate", "check", "relane"])
+    p.add_argument("cmd", choices=["dual", "set", "prepare", "abandon", "record", "tag", "list", "resolve", "transcript", "back-names", "front-names", "slack-names", "record-surface", "migrate", "check", "relane"])
     p.add_argument("args", nargs="*")
     p.add_argument("--lane"); p.add_argument("--model"); p.add_argument("--effort")
     p.add_argument("--transcript"); p.add_argument("--why"); p.add_argument("--tmachine", default="")
@@ -1099,9 +1180,9 @@ def main():
     a = p.parse_args()
     R = Registry(a)
     rc = 0
-    if a.cmd in ("resolve", "transcript", "back-names", "front-names", "slack-names"):  # read-only to the letter: not even an error line in sessions.log
+    if a.cmd in ("resolve", "transcript", "back-names", "front-names", "slack-names", "record-surface"):  # read-only to the letter: not even an error line in sessions.log
         try:
-            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names, "front-names": cmd_front_names, "slack-names": cmd_slack_names}[a.cmd](R.load(), a)
+            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names, "front-names": cmd_front_names, "slack-names": cmd_slack_names, "record-surface": cmd_record_surface}[a.cmd](R.load(), a)
         except Exception as e:
             print("sessions %s: %s" % (a.cmd, e), file=sys.stderr)
             return 1

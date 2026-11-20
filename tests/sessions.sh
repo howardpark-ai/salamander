@@ -774,7 +774,7 @@ cp "$REG" "$HOME/reg.before"; SALA_SESSIONS=off sessions_fill_roles; rc=$?
 echo "== the surface of a front agent: sala (absent) or slack, in the row, the listings, tag and tag --auto"
 # The rows here are new (sf-*): the sections above count rows by name and are left as they were.
 has_field() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))["sessions"]; r=[x for x in d.values() if x["name"]==sys.argv[2] and x["state"]=="live"][0]; print("yes" if sys.argv[3] in r else "no")' "$REG" "$1" "$2"; }
-i=100; for n in sf-new sf-stale sf-copy sf-bad sf-back sf-man sf-none; do i=$((i + 1)); ledger_write add "$n" "44444444-0000-4000-8000-000000000$i" "$n" "$HOME/wa-$n" >/dev/null 2>&1; done
+i=100; for n in sf-new sf-stale sf-copy sf-bad sf-back sf-man sf-none sf-unk sf-rb; do i=$((i + 1)); ledger_write add "$n" "44444444-0000-4000-8000-000000000$i" "$n" "$HOME/wa-$n" >/dev/null 2>&1; done
 mkrec "$(isonow)"
 python3 - "$REC" <<'PY'
 import json, sys
@@ -785,26 +785,45 @@ a["sf-stale"] = ent(True)                       # lists no surface: a stale slac
 a["sf-copy"] = ent(True, surface="slack")       # its row has a role already and no surface
 a["sf-bad"] = ent(True, surface="telegram")     # a value sala does not know
 a["sf-back"] = ent(False, surface="slack")      # a back agent the record calls slack
+a["sf-unk"] = ent(True, surface="telegram")     # a value sala does not know, on a row with no role yet
+a["sf-rb"] = ent(True, surface="slack")         # the record says front and slack, the row says back
 json.dump(d, open(sys.argv[1], "w"))
 PY
 "$SALA" sessions tag sf-stale --role front --project projects/proj-a >/dev/null 2>&1
 "$SALA" sessions tag sf-stale --surface slack >/dev/null 2>&1
 "$SALA" sessions tag sf-copy --role front --project projects/proj-a >/dev/null 2>&1
 "$SALA" sessions tag sf-bad --role front --project projects/proj-a >/dev/null 2>&1
+"$SALA" sessions tag sf-rb --role back --project projects/proj-a >/dev/null 2>&1
+whole_row() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))["sessions"]; print(json.dumps([x for x in d.values() if x["name"]==sys.argv[2] and x["state"]=="live"][0], sort_keys=True))' "$REG" "$1"; }
+ROWS_BEFORE=$(for n in sf-bad sf-back sf-unk sf-rb; do whole_row "$n"; done)   # the rows --auto must leave exactly as they are
 [ "$(q sf-stale surface)" = '"slack"' ] && [ "$(has_field sf-copy surface)" = no ] && ok "a manual tag --surface slack marks a front row; a row with none has no surface key" || bad "setup: $(q sf-stale surface) $(has_field sf-copy surface)"
 cp "$REG" "$HOME/reg.before"; : > "$RLOG"
 out=$("$SALA" sessions tag --auto --dry-run 2>&1); rc=$?
 [ "$rc" = 0 ] && echo "$out" | grep -q "would tag sf-new .*role None -> front; surface None -> slack" && echo "$out" | grep -q "would tag sf-stale .*surface slack -> None" && echo "$out" | grep -q "would tag sf-copy .*surface None -> slack" && same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "--auto --dry-run says the surface it would copy or clear (a role-less row and rows that have a role), writes nothing" || bad "dry run: rc=$rc $out"
-echo "$out" | grep -q "sf-bad" && bad "a bad record value is neither tagged nor reported for a row that has a role: $out" || ok "a row with a role and a bad record value is quietly left"
+echo "$out" | grep -qE "^sessions tag --auto: left sf-bad \([0-9a-f]{8}\): the record gives it surface 'telegram'" && ok "--auto --dry-run: a row with a role and a surface the record gives that cannot be used is reported with the reason" || bad "dry run, bad value on a roled row: $out"
 out=$("$SALA" sessions tag --auto 2>&1); rc=$?
+echo "$out" | grep -qE "^sessions tag --auto: left sf-bad \([0-9a-f]{8}\): the record gives it surface 'telegram'" && ok "tag --auto: a row with a role and a surface that cannot be used: one 'left NAME (ID8): reason' line" || bad "bulk, bad value on a roled row: $out"
+echo "$out" | grep -qE "^sessions tag --auto: left sf-(copy|stale) " && bad "a roled row with a usable surface is reported: $out" || ok "a roled row with a usable surface stays quiet"
+echo "$out" | grep -q "left sf-unk .*telegram" && ok "a role-less row whose record entry has a surface sala does not know: left, and the reason is reported" || bad "unknown surface, no reason: $out"
+echo "$out" | grep -q "left sf-back .*slack agent is a front agent" && ok "a role-less back row the record calls slack: left, and the reason is reported" || bad "back+slack, no reason: $out"
+echo "$out" | grep -q "left sf-rb .*role back" && ok "a row with role back that the record calls front and slack: left, and the reason is reported" || bad "role back vs record: $out"
+[ "$(for n in sf-bad sf-back sf-unk sf-rb; do whole_row "$n"; done)" = "$ROWS_BEFORE" ] && ok "those rows are exactly as they were (project, role, surface and every other field), not only the surface field" || bad "rows changed: $(for n in sf-bad sf-back sf-unk sf-rb; do whole_row "$n"; done)"
+[ "$(q sf-rb role)" = '"back"' ] && [ "$(has_field sf-rb surface)" = no ] && ok "auto-tagging never writes a back row that is slack (the pair a manual tag refuses)" || bad "back+slack row: $(q sf-rb role) $(q sf-rb surface)"
 [ "$rc" = 0 ] && [ "$(q sf-new surface)" = '"slack"' ] && [ "$(q sf-new role)" = '"front"' ] && ok "tag --auto: a role-less row the record lists as slack takes role and surface together" || bad "new: rc=$rc $out :: $(q sf-new surface)"
 [ "$(q sf-copy surface)" = '"slack"' ] && [ "$(q sf-copy role)" = '"front"' ] && ok "tag --auto copies the record's surface onto a row that already has a role" || bad "copy: $(q sf-copy surface) $out"
 [ "$(has_field sf-stale surface)" = no ] && ok "a record without the field clears a stale slack (the key is gone, not set to sala)" || bad "stale: $(q sf-stale surface)"
 [ "$(has_field sf-bad surface)" = no ] && [ "$(has_field sf-none surface)" = no ] && ok "a value sala does not know is not copied; a row the record does not list keeps what it has" || bad "bad/none: $(q sf-bad surface)"
 out=$("$SALA" sessions tag --auto sf-back 2>&1); rc=$?
-[ "$(has_field sf-back surface)" = no ] && ok "a back agent the record calls slack is left (a slack agent is a front agent)" || bad "back: $(q sf-back surface)"
+[ "$(has_field sf-back surface)" = no ] && [ "$(q sf-back role)" = null ] && [ "$rc" = 0 ] && echo "$out" | grep -q "slack agent is a front agent" && ok "a back agent the record calls slack is left whole, named: exit 0 (it is on a map), the reason said" || bad "back: rc=$rc $out $(q sf-back surface)"
+out=$("$SALA" sessions tag --auto sf-bad 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -qE "^sessions tag --auto: left sf-bad \([0-9a-f]{8}\): the record gives it surface 'telegram'" && [ "$(whole_row sf-bad)" = "$(sed -n 1p <<< "$ROWS_BEFORE")" ] && ok "tag --auto NAME on a row with a role and a surface that cannot be used: the reason said, exit 0, the row unchanged" || bad "named bad on a roled row: rc=$rc $out"
+out=$("$SALA" sessions tag --auto sf-unk 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "left sf-unk" && [ "$(q sf-unk role)" = null ] && [ "$(q sf-unk project)" = null ] && ok "tag --auto NAME on a row with an unusable surface: exit 0 (never 3, which marks a throwaway), the row untouched" || bad "named unk: rc=$rc $out"
+out=$("$SALA" sessions tag --auto sf-rb 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "left sf-rb .*role back" && [ "$(has_field sf-rb surface)" = no ] && ok "tag --auto NAME on a back row the record calls slack: left, the reason said" || bad "named rb: rc=$rc $out"
 "$SALA" sessions tag sf-none --role front >/dev/null 2>&1; "$SALA" sessions tag sf-none --surface slack >/dev/null 2>&1
 out=$("$SALA" sessions tag --auto 2>&1); rc=$?
+echo "$out" | grep -q "left sf-none " && bad "a row with a role that the record does not place is reported: $out" || ok "a row with a role that the record does not place stays quiet"
 [ "$(q sf-none surface)" = '"slack"' ] && ok "a row the record places nowhere keeps its surface" || bad "unlisted keeps: $(q sf-none surface)"
 cp "$REG" "$HOME/reg.before"; : > "$RLOG"
 out=$("$SALA" sessions tag --auto 2>&1); rc=$?

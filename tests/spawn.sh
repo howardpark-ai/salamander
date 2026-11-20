@@ -436,6 +436,74 @@ OUT=$("$SALA" sessions 2>&1)
 grep -E '^[0-9a-f]{8} +gamma-foo-sl ' <<< "$OUT" | grep -q 'front \[slack\]' && ok "sessions marks it after the role" || bad "sessions: $OUT"
 tmux kill-session -t gamma-foo-sl 2>/dev/null
 
+echo "== the surface follows the project record, not the flag alone: a registered Slack agent spawned without --surface starts in the Slack brief's directory (what tag --auto lists it as)"
+SURFREC="$HOME/surface-record.json"
+# mksurf <json {agent name: [front, surface or ""]}> → a fresh record with one project, projects/foo
+mksurf() { python3 - "$1" > "$SURFREC" <<'PY'
+import json, sys, datetime
+spec = json.loads(sys.argv[1])
+ags = {n: dict({"front": a[0], "role": n.rsplit("-", 1)[-1], "mandate_line": "m"}, **({"surface": a[1]} if a[1] else {})) for n, a in spec.items()}
+t = datetime.datetime.now(datetime.timezone.utc)
+print(json.dumps({"schema": 1, "generated": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "projects": {"prj_example": {"id": "prj_example", "key": "projects/foo", "agents": ags}}, "by_key": {"projects/foo": "prj_example"}}))
+PY
+}
+mksurf '{"gamma-foo-rs": [true, "slack"], "gamma-foo-ra": [true, ""], "gamma-foo-rw": [false, ""], "gamma-foo-rb": [false, "slack"], "gamma-foo-rt": [true, "telegram"]}'
+HOMED=$(cd "$HOME" && pwd -P)
+rsrun() { SALA_PROJECT_RECORD="$SURFREC" SALA_SLACK_CWD="$SLACKD" run "$@"; }
+rsrun gamma-foo-rs --project projects/foo --role front --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && has "$OUT" "as a front agent on the slack surface of projects/foo" && ok "a slack agent in the record, no --surface: the dry run starts it in the Slack brief's directory" || bad "record slack, no flag: rc=$RC — $OUT"
+rsrun gamma-foo-rs --project projects/foo --role front --surface slack --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && ok "the record and --surface slack agree: the Slack brief's directory" || bad "record slack, flag slack: rc=$RC — $OUT"
+rsrun gamma-foo-rs --project projects/foo --role front --surface sala --dry-run
+[ "$RC" != 0 ] && has "$OUT" "--surface sala conflicts" && has "$OUT" "surface slack" && ! has "$OUT" "[dry-run]" && ok "--surface sala against a slack entry is refused, the message names both values" || bad "flag sala vs slack: rc=$RC — $OUT"
+rsrun gamma-foo-ra --project projects/foo --role front --surface slack --dry-run
+[ "$RC" != 0 ] && has "$OUT" "--surface slack conflicts" && has "$OUT" "surface sala" && ok "--surface slack against an entry with no surface is refused, the message names both values" || bad "flag slack vs sala: rc=$RC — $OUT"
+rsrun gamma-foo-ra --project projects/foo --role front --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $HOMED, model" && ! has "$OUT" "slack" && ok "an agent whose entry has no surface keeps \$HOME and no mention of Slack, even with SALA_SLACK_CWD set" || bad "record sala: rc=$RC — $OUT"
+rsrun gamma-foo-rw --project projects/foo --role back --mandate work --dry-run
+[ "$RC" = 0 ] && has "$OUT" "as a back agent of projects/foo" && ! has "$OUT" "slack" && ok "a back agent in the record is unchanged" || bad "record back: rc=$RC — $OUT"
+rsrun gamma-foo-rs --project projects/foo --role back --mandate work --dry-run
+[ "$RC" != 0 ] && ! has "$OUT" "[dry-run]" && ok "a slack entry spawned --role back is still refused" || bad "slack entry as back: rc=$RC — $OUT"
+rsrun gamma-foo-rb --project projects/foo --role back --mandate work --dry-run
+[ "$RC" != 0 ] && has "$OUT" "project record" && has "$OUT" "a slack agent is a front agent" && ! has "$OUT" "[dry-run]" && ok "a back entry the record calls slack: the spawn is refused, the message names the project record and says why" || bad "back+slack entry: rc=$RC — $OUT"
+rsrun gamma-foo-rt --project projects/foo --role front --dry-run
+[ "$RC" != 0 ] && has "$OUT" "project record" && has "$OUT" "surface 'telegram'" && ! has "$OUT" "[dry-run]" && ok "an entry with a surface sala does not know: the spawn is refused, the message names the project record and the value" || bad "record telegram: rc=$RC — $OUT"
+rsrun gamma-foo-rt --project projects/foo --role front --surface sala --dry-run
+[ "$RC" != 0 ] && has "$OUT" "surface 'telegram'" && ok "... with --surface sala too" || bad "record telegram, flag sala: rc=$RC — $OUT"
+rsrun gamma-foo-rt --project projects/foo --role front --cwd "$OTHERD" --dry-run
+[ "$RC" != 0 ] && has "$OUT" "surface 'telegram'" && ok "... and with --cwd (the directory is not the question: the row would be refused by tag --auto)" || bad "record telegram, --cwd: rc=$RC — $OUT"
+SALA_AGENT_CHECK=off rsrun gamma-foo-rt --project projects/foo --role front --dry-run
+[ "$RC" != 0 ] && has "$OUT" "surface 'telegram'" && ok "... and with SALA_AGENT_CHECK=off (the record is read either way)" || bad "record telegram, check off: rc=$RC — $OUT"
+rsrun gamma-foo-rt --dry-run
+[ "$RC" != 0 ] && has "$OUT" "surface 'telegram'" && ok "a bare spawn of such a name is refused too" || bad "bare telegram: rc=$RC — $OUT"
+SALA_SESSIONS=off rsrun gamma-foo-rs --project projects/foo --role front --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && ok "SALA_SESSIONS=off (registry writes off) does not stop the read of the record: a slack entry still starts in the Slack brief's directory" || bad "sessions off, record slack: rc=$RC — $OUT"
+SALA_SESSIONS=off rsrun gamma-foo-ra --project projects/foo --role front --surface slack --dry-run
+[ "$RC" != 0 ] && has "$OUT" "--surface slack conflicts" && ok "SALA_SESSIONS=off: the conflict with the record is refused as well" || bad "sessions off, conflict: rc=$RC — $OUT"
+list projects/foo gamma-foo-rs "page line"   # a record that cannot answer: pages.py's stub answers the listing, and the surface is the flag's alone (spawn must not depend on stackshot being reachable)
+SALA_PROJECT_RECORD=/nonexistent SALA_SLACK_CWD="$SLACKD" run gamma-foo-rs --project projects/foo --role front --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $HOMED, model" && ok "a missing record is no refusal: the flag alone decides" || bad "missing record: rc=$RC — $OUT"
+cp "$SURFREC" "$SURFREC.keep"; python3 -c 'import json,sys; f=sys.argv[1]; d=json.load(open(f)); d["generated"]="2020-01-01T00:00:00Z"; json.dump(d, open(f,"w"))' "$SURFREC"
+rsrun gamma-foo-rs --project projects/foo --role front --surface slack --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && ok "a stale record is no refusal: the flag alone decides" || bad "stale record: rc=$RC — $OUT"
+mv "$SURFREC.keep" "$SURFREC"; unlist gamma-foo-rs
+OUT=$(env -u SALA_SLACK_CWD SALA_PROJECT_RECORD="$SURFREC" "$SALA" spawn gamma-foo-rs --project projects/foo --role front --dry-run 2>&1); RC=$?
+[ "$RC" != 0 ] && has "$OUT" "SALA_SLACK_CWD" && has "$OUT" "not set" && ! has "$OUT" "[dry-run]" && ok "a slack entry, SALA_SLACK_CWD unset: refused naming the key, never started in \$HOME" || bad "record slack, unset: rc=$RC — $OUT"
+SALA_PROJECT_RECORD="$SURFREC" SALA_SLACK_CWD="$HOME/no-such-slack-dir" run gamma-foo-rs --project projects/foo --role front --dry-run
+[ "$RC" != 0 ] && has "$OUT" "does not exist here: $HOME/no-such-slack-dir" && ok "a slack entry, SALA_SLACK_CWD naming a missing directory: refused" || bad "record slack, missing dir: rc=$RC — $OUT"
+rsrun gamma-foo-rs --project projects/foo --role front --cwd "$OTHERD" --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $OTHERD, model" && ok "--cwd still wins over the record's surface" || bad "record slack, --cwd: rc=$RC — $OUT"
+rsrun gamma-foo-rs --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && ok "a bare spawn of a name the record lists as slack (tag --auto marks the row slack) starts in the Slack brief's directory too" || bad "bare slack: rc=$RC — $OUT"
+rsrun gamma-foo-ra --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $HOMED, model" && ok "a bare spawn of a sala entry keeps \$HOME" || bad "bare sala: rc=$RC — $OUT"
+# a real spawn: the pane starts in the Slack brief's directory and the row says slack, with no flag at all
+fakeenv "$(uuid 16)" gamma-foo-rs
+rsrun gamma-foo-rs --project projects/foo --role front --lane subscription-1
+[ "$RC" = 0 ] && [ "$(tmux display -p -t gamma-foo-rs:0 '#{pane_current_path}' 2>/dev/null)" = "$SLACKD" ] && [ "$(sregf gamma-foo-rs surface)" = "projects/foo front slack" ] && ok "a real spawn with no --surface: the pane's shell is in the Slack brief's directory and the row says slack" || bad "real record slack: rc=$RC — $OUT / $(tmux display -p -t gamma-foo-rs:0 '#{pane_current_path}' 2>&1) / $(sregf gamma-foo-rs surface)"
+tmux kill-session -t gamma-foo-rs 2>/dev/null
+rm -f "$SURFREC"
+
 echo "== the surface through the queue: the shape, the plan, the marker's arguments"
 for args in "spawn x --project projects/foo --role back --mandate m --surface slack --from t --words x" "spawn x --project projects/foo --role front --surface telegram --from t --words x" \
             "spawn x --project projects/foo --role front --surface --from t --words x" "spawn x --side --fork-of gamma-foo-fr --surface slack --from t --words x"; do
