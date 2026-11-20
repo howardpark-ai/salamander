@@ -15,7 +15,9 @@ Storage: <state>/mockups/ (state = SALA_STATE_DIR, else $XDG_STATE_HOME/salamand
 writer; sala-web only reads. A number is taken under an exclusive lock on <dir>/.lock: the counter is raised and saved (write, fsync, rename)
 BEFORE the page is written, so a crash leaves a gap and never a number given twice, and the counter keeps counting after a page is deleted.
 A page is written to a temporary name and renamed, so a reader never sees half a page. A page is refused when it is empty, over 5 MiB, not
-UTF-8 or holds a NUL byte (a mockup is text; the response says charset=utf-8, so another encoding would show as garbage).
+UTF-8 or holds a NUL byte (a mockup is text; the response says charset=utf-8, so another encoding would show as garbage), or when its visible text
+letters its designs ("Variant A", "Option B": a design word and one capital letter; scripts, styles, comments and attributes do not count): name each
+design instead, the same words as the board's options, so a letter here never meets a different letter there. There is no override: a name is always possible.
 
 Address: the origin (scheme and host) of SALA_SESSION_URL, the link template sala already uses for a session's web link. Without it the path
 (/mockup/<n>) is printed and a note on stderr says what to prefix it with.
@@ -34,6 +36,7 @@ Tests: SALA_MOCKUP_DIR (the folder), SALA_MOCKUP_NOW (the clock, epoch seconds),
 Exit: 0 done (also a pass that kept pages for want of a way to read the board), 1 refused or failed, 2 usage.
 """
 import fcntl
+import html
 import json
 import os
 import re
@@ -53,6 +56,14 @@ TMP_MAX_AGE_S = 86400                # a half-written page older than this is a 
 PAGE_RE = re.compile(r"([1-9][0-9]*)\.html")
 REF_RE = re.compile(r"/mockup/([1-9][0-9]{0,17})(?![0-9])")
 VIEWPORT_RE = re.compile(r"<meta[^>]+name\s*=\s*[\"']?viewport", re.I)
+# What a reader sees: script and style bodies, comments and tags are dropped first (an unterminated one runs to the end of the page).
+HIDDEN_RE = re.compile(r"<script\b.*?(?:</script\s*>|\Z)|<style\b.*?(?:</style\s*>|\Z)|<!--.*?(?:-->|\Z)", re.I | re.S)
+TAG_RE = re.compile(r"<[/!?]?[A-Za-z](?:\"[^\"]*\"|'[^']*'|[^'\">])*>")
+# A design word and one capital letter standing alone ("Variant A", "Option B"). The Korean words are \u escapes only (a public repo holds no Hangul):
+# U+C635 U+C158 (option), U+C2DC U+C548 (draft design), U+B514 U+C790 U+C778 (design), whitespace optional between word and letter.
+LETTERED_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?i:variant|option|design|layout|proposal|alternative|concept|version|approach)[\s\u00a0]+[A-Z](?![A-Za-z0-9])"
+    r"|(?:\uC635\uC158|\uC2DC\uC548|\uB514\uC790\uC778)[\s\u00a0]*[A-Z](?![A-Za-z0-9])")
 
 
 class Refused(Exception):
@@ -142,7 +153,7 @@ def take_number(d: str) -> int:
 
 
 def check_page(data: bytes) -> str:
-    """The page's text, or a Refused. Over MAX_BYTES, empty, a NUL byte or not UTF-8 is refused."""
+    """The page's text, or a Refused. Over MAX_BYTES, empty, a NUL byte, not UTF-8 or lettering its designs is refused."""
     if not data.strip():
         raise Refused("the file is empty")
     if len(data) > MAX_BYTES:
@@ -150,9 +161,27 @@ def check_page(data: bytes) -> str:
     if b"\0" in data:
         raise Refused("the file holds a NUL byte: it is not an HTML text file")
     try:
-        return data.decode("utf-8")
+        text = data.decode("utf-8")
     except UnicodeDecodeError as e:
         raise Refused("the file is not UTF-8 (byte %d): save it as UTF-8, the page is served as text/html; charset=utf-8" % e.start)
+    found = lettered_designs(text)
+    if found:
+        raise Refused("the page letters its designs (%s): name each design instead (One-line strip, Fuller panel), the same words as the board's options, "
+                      "so a letter here never meets a different letter there" % ", ".join('"%s"' % f for f in found))
+    return text
+
+
+def lettered_designs(text: str) -> list:
+    """Up to 3 distinct phrases of the page's visible text that letter a design ("Variant A", "Option B"), as the page words them."""
+    visible = html.unescape(TAG_RE.sub(" ", HIDDEN_RE.sub(" ", text)))
+    found = []
+    for m in LETTERED_RE.finditer(visible):
+        phrase = " ".join(m.group(0).split())
+        if phrase not in found:
+            found.append(phrase)
+            if len(found) == 3:
+                break
+    return found
 
 
 def base_url() -> str:

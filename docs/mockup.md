@@ -21,9 +21,15 @@ https://sala.example.com/mockup/7
 `https://sala.example.com/#s={name}`), followed by `/mockup/<n>`. Nothing is hard-coded. With the setting unset the path `/mockup/<n>` is printed and a
 note on stderr says what to put in front of it.
 
-**What a page may be.** UTF-8 text, not empty, at most 5 MiB, no NUL byte; anything else is refused with a sentence and takes no number. UTF-8 is the one
+**What a page may be.** UTF-8 text, not empty, at most 5 MiB, no NUL byte, and no lettered designs; anything else is refused with a sentence and takes no number. UTF-8 is the one
 encoding because the response says `text/html; charset=utf-8` (no byte-order guessing, no per-file charset) and a mockup is text; 5 MiB is far more than
 a hand-made page with inline styles, scripts and `data:` images needs, and the response is read whole.
+A page that letters its designs is refused too: when the visible text holds a design word (variant, option, design, layout, proposal, alternative, concept,
+version, approach, or the Korean words for option, draft design and design) followed by one capital letter standing alone ("Variant A", "Option B"), `add` says
+which phrases it found and takes no number. Name each design instead (One-line strip, Fuller panel), the same words as the board's options: a letter on a
+page and a letter on the board can mean different designs, a name cannot. Only the visible text counts: script and style bodies, comments, tags and
+attributes (`class="variant-a"`) are skipped, and a lowercase letter or a sentence that ends before a capital ("the options. A new line") is not a hit.
+There is no override flag: a name is always possible.
 Put `<meta name="viewport" content="width=device-width, initial-scale=1">` in the page's `<head>` so a phone lays it out at its own width instead of a zoomed-out
 desktop page; `add` prints a note on stderr when the meta is missing, and changes nothing in the file.
 
