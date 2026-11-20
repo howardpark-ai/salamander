@@ -30,7 +30,7 @@ exec 8< "$T"; flock -n 8 2>/dev/null   # systemd-tmpfiles' ageing skips a direct
 deny_load "$T/deny"   # the owner's private values come from the deny source at run time, never from this file (read before HOME changes)
 export HOME="$T/home"; mkdir -p "$HOME/.claude" "$HOME/.config/salamander"
 # tests/lib.sh gives the other suites a fixture profile and job lane; this one starts from a bare environment
-unset SALA_UNIT_PROJECT_MAP SALA_OWNER_NAME SALA_TZ SALA_SHELL_SESSION SALA_BACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_JOB_LANE SALA_SETTINGS_APPLY SALA_SESSION_URL SALA_STACKSHOT_WEB SALA_JOB_GITHUB SALA_FLEET_HOSTS SALA_MASTER XDG_CONFIG_HOME XDG_STATE_HOME TMUX TMUX_PANE
+unset SALA_UNIT_PROJECT_MAP SALA_OWNER_NAME SALA_TZ SALA_SHELL_SESSION SALA_BACK_CWD SALA_SLACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_JOB_LANE SALA_SETTINGS_APPLY SALA_SESSION_URL SALA_STACKSHOT_WEB SALA_JOB_GITHUB SALA_FLEET_HOSTS SALA_MASTER XDG_CONFIG_HOME XDG_STATE_HOME TMUX TMUX_PANE
 for v in $(compgen -v | grep -E '^SALA_LANE_'); do unset "$v"; done
 EMPTY="$T/empty-config"; : > "$EMPTY"
 
@@ -76,6 +76,7 @@ echo "== no config: the shell session name, the time zone and the background dir
 sh_in "$EMPTY" 'is_shell_session sala-shell' >/dev/null && ok "is_shell_session knows the default name" || bad "is_shell_session sala-shell"
 sh_in "$EMPTY" 'is_shell_session some-shell' >/dev/null && bad "is_shell_session accepts another name" || ok "is_shell_session refuses another name"
 [ -z "$(sh_in "$EMPTY" 'printf %s "$SALA_TZ"')" ] && ok "SALA_TZ is empty by default" || bad "SALA_TZ: $(sh_in "$EMPTY" 'printf %s "$SALA_TZ"')"
+[ -z "$(sh_in "$EMPTY" 'printf %s "${SALA_SLACK_CWD:-}"')" ] && ok "SALA_SLACK_CWD is empty by default (a Slack-surface spawn is refused until it is set)" || bad "SALA_SLACK_CWD: $(sh_in "$EMPTY" 'printf %s "${SALA_SLACK_CWD:-}"')"
 [ -z "$(sh_in "$EMPTY" 'printf %s "${SALA_BACK_CWD:-}"')" ] && ok "SALA_BACK_CWD is empty by default" || bad "SALA_BACK_CWD: $(sh_in "$EMPTY" 'printf %s "${SALA_BACK_CWD:-}"')"
 # a made-up machine zone (no relation to the owner's): with SALA_TZ unset every time follows it, as `date` does
 E=1790000000   # Sep 21st 2026, 14:13:20 UTC
@@ -101,7 +102,7 @@ sh_in "$T/config-b" 'is_shell_session my-console' >/dev/null && ok "is_shell_ses
 printf 'SALA_SHELL_SESSION=alex-shell\nSALA_BACK_CWD=%s/briefs\n' "$HOME" > "$T/config-keep"
 [ "$(sh_in "$T/config-keep" 'echo "$SALA_SHELL_SESSION $SALA_BACK_CWD"')" = "alex-shell $HOME/briefs" ] && ok "a config line keeps a previous owner's session name and background directory" || bad "kept names: $(sh_in "$T/config-keep" 'echo "$SALA_SHELL_SESSION $SALA_BACK_CWD"')"
 out=$(sh_in "$EMPTY" 'cs_print_config 2>&1')
-for kv in 'SALA_SHELL_SESSION +sala-shell$' 'SALA_TZ *$' 'SALA_BACK_CWD *$'; do
+for kv in 'SALA_SHELL_SESSION +sala-shell$' 'SALA_TZ *$' 'SALA_BACK_CWD *$' 'SALA_SLACK_CWD *$'; do
     echo "$out" | grep -qE -- "^$kv" && ok "config print lists ${kv%% *}" || bad "config print misses '$kv'"
 done
 
@@ -291,7 +292,7 @@ if deny_have; then
         n=$(deny_count "$ROOT/$f"); [ "$n" = 0 ] && ok "$f has no deny-source hit" || bad "$f has $n deny-source hit lines: $(deny_at "$ROOT/$f")"
     done
 fi
-for s in SALA_JOB_LANE SALA_SETTINGS_APPLY SALA_JOB_GITHUB SALA_UNIT_PROJECT_MAP SALA_STACKSHOT_WEB SALA_SESSION_URL SALA_SHELL_SESSION SALA_TZ SALA_BACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_OWNER_NAME SALA_LANE_BEDROCK_PROFILE SALA_LANE_AWSPLATFORM_PROFILE SALA_LANE_TEAM_ORG ci-repos unit-repos.tsv; do
+for s in SALA_JOB_LANE SALA_SETTINGS_APPLY SALA_JOB_GITHUB SALA_UNIT_PROJECT_MAP SALA_STACKSHOT_WEB SALA_SESSION_URL SALA_SHELL_SESSION SALA_TZ SALA_BACK_CWD SALA_SLACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_OWNER_NAME SALA_LANE_BEDROCK_PROFILE SALA_LANE_AWSPLATFORM_PROFILE SALA_LANE_TEAM_ORG ci-repos unit-repos.tsv; do
     grep -q -- "$s" "$ROOT/config.example" && ok "config.example documents $s" || bad "config.example does not mention $s"
 done
 # the README keeps no settings: its old Lanes section is docs/lanes.md and the section with SALA_OWNER_NAME is docs/recycle.md

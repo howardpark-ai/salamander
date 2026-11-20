@@ -105,3 +105,29 @@ def test_proc_lane_reads_the_environment(tmp_path, monkeypatch):
         "api", "subscription-1", "subscription-2", "other", "subscription-1", "sdk", "subscription-1", None]
     assert [S.proc_lane(p) for p in (10, 11, 12, 13, 14, 15, 16, 17)] == [
         "bedrock", "aws-platform", "bedrock", "aws-platform", "subscription-1", "subscription-1", "sdk", "aws-platform"]
+
+
+def test_surface_is_in_the_session_json_only_for_a_slack_agent():
+    roles = {
+        "beta-slack": {"role": "front", "project": "projects/beta-docs", "surface": "slack"},
+        "beta-docs-main": {"role": "front", "project": "projects/beta-docs"},
+        "beta-sala": {"role": "front", "project": "projects/beta-docs", "surface": "sala"},   # sala is the default: no key
+    }
+    sessions = [sess("beta-slack"), sess("beta-docs-main"), sess("beta-sala")]
+    by_name = {s["name"]: s for sc in S.group_sessions(sessions, roles) for g in sc["groups"] for s in g["sessions"]}
+    assert by_name["beta-slack"]["surface"] == "slack"
+    assert "surface" not in by_name["beta-docs-main"] and "surface" not in by_name["beta-sala"]
+    rows = {r["name"]: r for r in S.overview_rows(sessions, roles)}
+    assert rows["beta-slack"]["surface"] == "slack"
+    assert "surface" not in rows["beta-docs-main"] and "surface" not in rows["beta-sala"]
+
+
+def test_surface_comes_from_the_registry_row_when_the_roles_entry_has_none():
+    roles = {"beta-slack": {"role": "front", "project": "projects/beta-docs"}, "beta-docs-main": {"role": "front", "project": "projects/beta-docs"}}
+    sessions = [sess("beta-slack"), sess("beta-docs-main")]
+    S.attach_agent_ids(sessions, [
+        {"id": "id-s", "name": "beta-slack", "pane": "beta-slack", "state": "live", "surface": "slack", "transcripts": []},
+        {"id": "id-m", "name": "beta-docs-main", "pane": "beta-docs-main", "state": "live", "transcripts": []}])
+    by_name = {s["name"]: s for sc in S.group_sessions(sessions, roles) for g in sc["groups"] for s in g["sessions"]}
+    assert by_name["beta-slack"]["surface"] == "slack" and by_name["beta-slack"]["agentId"] == "id-s"
+    assert "surface" not in by_name["beta-docs-main"]

@@ -18,7 +18,9 @@
 # claude -p; and, for the side conversation (`spawn NAME --side`), the queue's side: its shape refused at queue time, the plan, the marker's
 # arguments, a conflict, the retire gate on a side session without its write-up (the session itself is tests/side.sh); the start directory
 # (a back agent with no --cwd starts in the directory SALA_BACK_CWD names, else $HOME when it is unset, and refused when it names a directory that is missing; --cwd wins;
-# front, plain and side keep $HOME; the dry run and the pane map show it) and the launch line's Enter (a pane that shows ble.sh's
+# front, plain and side keep $HOME; the dry run and the pane map show it), and the surface (`--surface slack`: a front agent that answers on Slack starts in the directory
+# SALA_SLACK_CWD names, refused with a message naming the key when it is unset or missing, refused with a back role or a side session or a bad value; its row carries
+# surface: slack, spawn --list and sessions mark it, the register command carries --surface slack; through the queue: the shape, the plan, the marker's arguments) and the launch line's Enter (a pane that shows ble.sh's
 # "-- MULTILINE --" banner gets one C-j). pages.py is a stub (SALA_AGENT_CHECK_SCRIPT), the stackshot message a stub (SALA_SPAWN_ASK_CMD), the register
 # hook a stub, systemd-run / systemctl stubs, the claude -p a stub (never the API), Slack a file; isolated HOME, a private
 # tmux socket, the compiled fake claude. No real session, page, message or unit is touched.
@@ -26,7 +28,7 @@
 set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH SALA_SPAWN_REGISTER \
-      SALA_AGENT_CHECK SALA_AGENT_CHECK_SCRIPT SALA_BACK_CWD SALA_SPAWN_ASK_CMD SALA_SPAWN_ASK_EVERY SALA_OP_FROM SALA_OP_WORDS SALA_OP_ID SALA_OP_PLAN
+      SALA_AGENT_CHECK SALA_AGENT_CHECK_SCRIPT SALA_BACK_CWD SALA_SLACK_CWD SALA_SPAWN_ASK_CMD SALA_SPAWN_ASK_EVERY SALA_OP_FROM SALA_OP_WORDS SALA_OP_ID SALA_OP_PLAN
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, fake_up, tmux_socket_rm; the lane variables unset
 # the made-up fleet these checks were written against: three scopes, so a page the project record does not know is named <scope>-<slug>
@@ -381,6 +383,75 @@ fakeenv "$(uuid 15)" gamma-foo-cwd
 run gamma-foo-cwd --project projects/foo --role back --mandate "work" --lane subscription-1
 [ "$RC" = 0 ] && has "$OUT" "(cwd $BACKD)" && [ "$(tmux display -p -t gamma-foo-cwd:0 '#{pane_current_path}' 2>/dev/null)" = "$BACKD" ] && ok "a real back spawn: the pane's shell started in the brief's directory" || bad "real back: rc=$RC — $OUT / $(tmux display -p -t gamma-foo-cwd:0 '#{pane_current_path}' 2>&1)"
 [ "$(awk -F'\t' -v n=gamma-foo-cwd '$1==n {print $4}' "$SALA_SIDECAR")" = "$BACKD" ] && ok "the pane map's cwd column records it (sala restore recreates the session there)" || bad "pane map: $(grep gamma-foo-cwd "$SALA_SIDECAR")"
+
+echo "== the surface: a front agent that answers on Slack starts in the Slack brief's directory (SALA_SLACK_CWD); only a front agent; refusals name the key; no fallback"
+SLACKD="$HOME/slack-brief"; mkdir -p "$SLACKD"; SLACKD=$(cd "$SLACKD" && pwd -P)
+list projects/foo gamma-foo-sl "chat front"
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role front --surface slack --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && has "$OUT" "as a front agent on the slack surface of projects/foo" && ok "front --surface slack, no --cwd: the dry run shows the Slack brief's directory and the surface" || bad "slack dry: rc=$RC — $OUT"
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role front --surface slack --cwd "$OTHERD" --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $OTHERD, model" && ok "--cwd given: it wins over SALA_SLACK_CWD" || bad "slack --cwd: rc=$RC — $OUT"
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role front --surface sala --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $(cd "$HOME" && pwd -P), model" && ! has "$OUT" "slack" && ok "--surface sala: the default, \$HOME as before, no mention of Slack" || bad "sala dry: rc=$RC — $OUT"
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-fr --project projects/foo --role front --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $(cd "$HOME" && pwd -P), model" && ok "a front agent with no --surface ignores SALA_SLACK_CWD" || bad "no surface: rc=$RC — $OUT"
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role back --mandate "work" --surface slack --dry-run
+[ "$RC" != 0 ] && has "$OUT" "a slack agent is a front agent" && ok "--surface slack with --role back is refused" || bad "slack back: rc=$RC — $OUT"
+OUT=$(env -u SALA_SLACK_CWD "$SALA" spawn gamma-foo-sl --project projects/foo --role front --surface slack --dry-run 2>&1); RC=$?
+[ "$RC" != 0 ] && has "$OUT" "SALA_SLACK_CWD" && has "$OUT" "not set" && ! has "$OUT" "cwd $(cd "$HOME" && pwd -P), model" && ok "SALA_SLACK_CWD unset: refused, the message names the key (no start in \$HOME)" || bad "slack unset: rc=$RC — $OUT"
+SALA_SLACK_CWD="" run gamma-foo-sl --project projects/foo --role front --surface slack --dry-run
+[ "$RC" != 0 ] && has "$OUT" "SALA_SLACK_CWD" && ok "SALA_SLACK_CWD empty is unset" || bad "slack empty: rc=$RC — $OUT"
+SALA_SLACK_CWD="$HOME/no-such-slack-dir" run gamma-foo-sl --project projects/foo --role front --surface slack --dry-run
+[ "$RC" != 0 ] && has "$OUT" "does not exist here: $HOME/no-such-slack-dir" && has "$OUT" "SALA_SLACK_CWD" && ! has "$OUT" "cwd $(cd "$HOME" && pwd -P), model" && ok "SALA_SLACK_CWD naming a missing directory: refused, the message names the key and the directory" || bad "slack missing: rc=$RC — $OUT"
+[ -z "$(tmux list-sessions 2>/dev/null | grep gamma-foo-sl)" ] && ok "a refused slack spawn made no session" || bad "a session exists after the refusal"
+mkdir -p "$HOME/slack-tilde"; SALA_SLACK_CWD='~/slack-tilde' run gamma-foo-sl --project projects/foo --role front --surface slack --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $(cd "$HOME/slack-tilde" && pwd -P), model" && ok "SALA_SLACK_CWD with a leading ~ is the home directory's" || bad "slack tilde: rc=$RC — $OUT"
+rmdir "$HOME/slack-tilde"
+for v in telegram Slack ""; do
+    SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role front --surface "$v" --dry-run
+    [ "$RC" != 0 ] && has "$OUT" "--surface takes sala or slack" && ok "--surface '$v' is refused" || bad "surface '$v': rc=$RC — $OUT"
+done
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --surface slack --dry-run
+[ "$RC" != 0 ] && has "$OUT" "--surface goes with --project" && ok "--surface without --project and --role is refused" || bad "surface alone: rc=$RC — $OUT"
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --surface slack --dry-run
+[ "$RC" != 0 ] && ok "--surface with --project and no --role is refused" || bad "surface, no role: rc=$RC — $OUT"
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --side --fork-of gamma-foo-fr --surface slack --dry-run
+[ "$RC" != 0 ] && has "$OUT" "--side takes no --surface" && ok "a side session takes no --surface" || bad "side surface: rc=$RC — $OUT"
+unlist gamma-foo-sl
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role front --surface slack --dry-run
+[ "$RC" = 3 ] && grep -qx 'python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-sl --role <role> --front --surface slack --mandate "<one line>"' <<< "$OUT" && ok "an unlisted slack agent: the register command it prints carries --surface slack" || bad "slack register: rc=$RC — $OUT"
+run gamma-foo-sl --project projects/foo --role front --dry-run
+[ "$RC" = 3 ] && ! has "$OUT" "--surface" && ok "an unlisted sala agent: the register command carries no --surface" || bad "sala register: rc=$RC — $OUT"
+list projects/foo gamma-foo-sl "chat front"
+fakeenv "$(uuid 61)" gamma-foo-sl
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role front --surface slack --lane subscription-1
+[ "$RC" = 0 ] && has "$OUT" "(cwd $SLACKD)" && has "$OUT" "slack surface" && [ "$(tmux display -p -t gamma-foo-sl:0 '#{pane_current_path}' 2>/dev/null)" = "$SLACKD" ] && ok "a real slack spawn: the pane's shell started in SALA_SLACK_CWD's directory" || bad "real slack: rc=$RC — $OUT / $(tmux display -p -t gamma-foo-sl:0 '#{pane_current_path}' 2>&1)"
+[ "$(awk -F'\t' -v n=gamma-foo-sl '$1==n {print $4}' "$SALA_SIDECAR")" = "$SLACKD" ] && ok "the pane map's cwd column records it (revive and sala restore start it there)" || bad "slack pane map: $(grep gamma-foo-sl "$SALA_SIDECAR")"
+sregf() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); r=[x for x in d["sessions"].values() if x["name"]==sys.argv[2] and x["state"]=="live"][0]; print(r["project"], r["role"], r.get(sys.argv[3], "<absent>"))' "$SALA_SESSIONS_FILE" "$1" "$2" 2>&1; }
+[ "$(sregf gamma-foo-sl surface)" = "projects/foo front slack" ] && ok "the registry row carries surface: slack beside project and role" || bad "slack row: $(sregf gamma-foo-sl surface)"
+[ "$(sregf gamma-foo-main surface)" = "projects/foo front <absent>" ] && [ "$(sregf gamma-foo-worker surface)" = "projects/foo back <absent>" ] && ok "a sala agent's row has no surface key" || bad "sala rows: $(sregf gamma-foo-main surface) / $(sregf gamma-foo-worker surface)"
+OUT=$("$SALA" spawn --list 2>&1); RC=$?
+[ "$RC" = 0 ] && grep -E '^gamma-foo-sl +' <<< "$OUT" | grep -q '\[slack\]$' && ! grep -E '^gamma-foo-main +' <<< "$OUT" | grep -q 'slack' && ok "spawn --list marks the slack agent [slack] at the end of its line and no other" || bad "spawn --list: rc=$RC — $OUT"
+OUT=$("$SALA" sessions 2>&1)
+grep -E '^[0-9a-f]{8} +gamma-foo-sl ' <<< "$OUT" | grep -q 'front \[slack\]' && ok "sessions marks it after the role" || bad "sessions: $OUT"
+tmux kill-session -t gamma-foo-sl 2>/dev/null
+
+echo "== the surface through the queue: the shape, the plan, the marker's arguments"
+for args in "spawn x --project projects/foo --role back --mandate m --surface slack --from t --words x" "spawn x --project projects/foo --role front --surface telegram --from t --words x" \
+            "spawn x --project projects/foo --role front --surface --from t --words x" "spawn x --side --fork-of gamma-foo-fr --surface slack --from t --words x"; do
+    eval "enq $args"; [ "$RC" = 2 ] && has "$OUT" "✗" && ok "refused (exit 2): op ${args% --from*}" || bad "op $args: rc=$RC — $OUT"
+done
+[ "$(queued)" = 0 ] && ok "nothing queued by those" || bad "left: $(ls "$OPS" 2>/dev/null)"
+list projects/foo gamma-foo-slq "slack queued"
+SALA_SLACK_CWD="$SLACKD" enq --plan spawn gamma-foo-slq --project projects/foo --role front --surface slack
+[ "$RC" = 0 ] && has "$OUT" "plan: salamander spawn gamma-foo-slq --project projects/foo --role front --surface slack" && has "$OUT" "on the slack surface" && has "$OUT" "plan only: nothing queued" && [ "$(queued)" = 0 ] && ok "--plan: the slack surface in the command and the dry run, nothing queued" || bad "slack plan: rc=$RC — $OUT"
+SALA_SLACK_CWD="$SLACKD" enq spawn gamma-foo-slq --project projects/foo --role front --surface slack --from sala-test-h --words "queue the slack one"
+[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mvals "$ID" arg | paste -sd'|' -)" = "gamma-foo-slq|--project|projects/foo|--role|front|--surface|slack" ] && ok "the marker's arg= lines carry --surface slack" || bad "slack queued: rc=$RC $(mvals "$ID" arg | paste -sd'|' -) — $OUT"
+"$SALA" op --cancel "$ID" >/dev/null 2>&1
+enq spawn gamma-foo-slq --project projects/foo --role front --surface sala --from sala-test-h --words "queue the sala one"
+[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mvals "$ID" arg | paste -sd'|' -)" = "gamma-foo-slq|--project|projects/foo|--role|front|--surface|sala" ] && ok "--surface sala is accepted: the marker keeps the arguments as typed" || bad "sala queued: rc=$RC $(mvals "$ID" arg | paste -sd'|' -)"
+"$SALA" op --cancel "$ID" >/dev/null 2>&1
+unlist gamma-foo-slq
 
 echo "== the launch line's Enter: a pane at a shell that shows ble.sh's multiline banner after the Enter gets one C-j; a pane without it gets none"
 STUCKF="$HOME/stuck-cj.txt"; SHELLP="stuck-shell"

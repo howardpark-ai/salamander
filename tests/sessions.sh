@@ -21,6 +21,8 @@
 # PHASE 4 (Sat Oct 24th 2026, the end of this file): `sala sessions tag` fills project/role of a live row (by name, id, 8-character prefix;
 # --project-key as the same field; --dry-run; idempotent; the argument and unknown-session errors; a retired row; off; a corrupt file; the
 # lock) and `resolve role:<project>/<role>` finds the row afterwards.
+# SURFACE (the end of this file): the registry row's optional `surface` (absent = sala, slack the only other value): `tag --surface`, `tag --auto` copying or clearing it from
+# the project record, `set`, the listings (`[slack]`, JSON only when slack), `slack-names`, the publish, and a bad value refused wherever it is read.
 # Usage: bash tests/sessions.sh   (exit 0 = pass; ~25 s)
 set -u
 unset TMUX TMUX_PANE XDG_STATE_HOME
@@ -768,5 +770,142 @@ addrec late2 false; sessions_fill_roles; rc=$?
 [ "$rc" = 0 ] && [ "$(q late2 role)" = '"back"' ] && [ "$(q late2 project)" = '"projects/proj-a"' ] && ok "the watch's fill (sessions_fill_roles) tags a row once the record lists it" || bad "fill: rc=$rc $(q late2 role)"
 cp "$REG" "$HOME/reg.before"; SALA_SESSIONS=off sessions_fill_roles; rc=$?
 [ "$rc" = 0 ] && same_file "$REG" "$HOME/reg.before" && ok "SALA_SESSIONS=off: the fill does nothing and returns 0" || bad "fill off: rc=$rc"
+
+echo "== the surface of a front agent: sala (absent) or slack, in the row, the listings, tag and tag --auto"
+# The rows here are new (sf-*): the sections above count rows by name and are left as they were.
+has_field() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))["sessions"]; r=[x for x in d.values() if x["name"]==sys.argv[2] and x["state"]=="live"][0]; print("yes" if sys.argv[3] in r else "no")' "$REG" "$1" "$2"; }
+i=100; for n in sf-new sf-stale sf-copy sf-bad sf-back sf-man sf-none; do i=$((i + 1)); ledger_write add "$n" "44444444-0000-4000-8000-000000000$i" "$n" "$HOME/wa-$n" >/dev/null 2>&1; done
+mkrec "$(isonow)"
+python3 - "$REC" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); a = d["projects"]["prj_t1"]["agents"]
+ent = lambda front, **k: dict({"front": front, "role": "x", "mandate_line": "m"}, **k)
+a["sf-new"] = ent(True, surface="slack")        # a slack agent whose row has no role yet
+a["sf-stale"] = ent(True)                       # lists no surface: a stale slack on its row is cleared
+a["sf-copy"] = ent(True, surface="slack")       # its row has a role already and no surface
+a["sf-bad"] = ent(True, surface="telegram")     # a value sala does not know
+a["sf-back"] = ent(False, surface="slack")      # a back agent the record calls slack
+json.dump(d, open(sys.argv[1], "w"))
+PY
+"$SALA" sessions tag sf-stale --role front --project projects/proj-a >/dev/null 2>&1
+"$SALA" sessions tag sf-stale --surface slack >/dev/null 2>&1
+"$SALA" sessions tag sf-copy --role front --project projects/proj-a >/dev/null 2>&1
+"$SALA" sessions tag sf-bad --role front --project projects/proj-a >/dev/null 2>&1
+[ "$(q sf-stale surface)" = '"slack"' ] && [ "$(has_field sf-copy surface)" = no ] && ok "a manual tag --surface slack marks a front row; a row with none has no surface key" || bad "setup: $(q sf-stale surface) $(has_field sf-copy surface)"
+cp "$REG" "$HOME/reg.before"; : > "$RLOG"
+out=$("$SALA" sessions tag --auto --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "would tag sf-new .*role None -> front; surface None -> slack" && echo "$out" | grep -q "would tag sf-stale .*surface slack -> None" && echo "$out" | grep -q "would tag sf-copy .*surface None -> slack" && same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "--auto --dry-run says the surface it would copy or clear (a role-less row and rows that have a role), writes nothing" || bad "dry run: rc=$rc $out"
+echo "$out" | grep -q "sf-bad" && bad "a bad record value is neither tagged nor reported for a row that has a role: $out" || ok "a row with a role and a bad record value is quietly left"
+out=$("$SALA" sessions tag --auto 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(q sf-new surface)" = '"slack"' ] && [ "$(q sf-new role)" = '"front"' ] && ok "tag --auto: a role-less row the record lists as slack takes role and surface together" || bad "new: rc=$rc $out :: $(q sf-new surface)"
+[ "$(q sf-copy surface)" = '"slack"' ] && [ "$(q sf-copy role)" = '"front"' ] && ok "tag --auto copies the record's surface onto a row that already has a role" || bad "copy: $(q sf-copy surface) $out"
+[ "$(has_field sf-stale surface)" = no ] && ok "a record without the field clears a stale slack (the key is gone, not set to sala)" || bad "stale: $(q sf-stale surface)"
+[ "$(has_field sf-bad surface)" = no ] && [ "$(has_field sf-none surface)" = no ] && ok "a value sala does not know is not copied; a row the record does not list keeps what it has" || bad "bad/none: $(q sf-bad surface)"
+out=$("$SALA" sessions tag --auto sf-back 2>&1); rc=$?
+[ "$(has_field sf-back surface)" = no ] && ok "a back agent the record calls slack is left (a slack agent is a front agent)" || bad "back: $(q sf-back surface)"
+"$SALA" sessions tag sf-none --role front >/dev/null 2>&1; "$SALA" sessions tag sf-none --surface slack >/dev/null 2>&1
+out=$("$SALA" sessions tag --auto 2>&1); rc=$?
+[ "$(q sf-none surface)" = '"slack"' ] && ok "a row the record places nowhere keeps its surface" || bad "unlisted keeps: $(q sf-none surface)"
+cp "$REG" "$HOME/reg.before"; : > "$RLOG"
+out=$("$SALA" sessions tag --auto 2>&1); rc=$?
+[ "$rc" = 0 ] && same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "tag --auto again: byte-identical, no log line (idempotent with a surface in play)" || bad "repeat: rc=$rc $out"
+out=$("$SALA" sessions tag --auto sf-copy 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "already has role front: nothing changed" && ok "--auto NAME on a row with a role and nothing to change says so" || bad "named: rc=$rc $out"
+out=$("$SALA" sessions tag --auto --surface slack 2>&1); rc=$?
+[ "$rc" != 0 ] && same_file "$REG" "$HOME/reg.before" && ok "tag --auto --surface is refused: the record gives it" || bad "auto --surface: rc=$rc $out"
+
+echo "== the surface: a manual tag, its refusals, and the value read back"
+out=$("$SALA" sessions tag sf-man --role front --surface slack 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(q sf-man surface)" = '"slack"' ] && [ "$(q sf-man role)" = '"front"' ] && ok "tag --role front --surface slack sets both" || bad "tag: rc=$rc $out"
+cp "$REG" "$HOME/reg.before"
+for v in telegram Slack ""; do
+    out=$("$SALA" sessions tag sf-man --surface "$v" 2>&1); rc=$?
+    [ "$rc" != 0 ] && same_file "$REG" "$HOME/reg.before" && echo "$out" | grep -qi "surface" && ok "tag --surface '$v' is refused and says so, nothing written" || bad "tag --surface '$v': rc=$rc $out"
+done
+out=$("$SALA" sessions tag sf-man --role back 2>&1); rc=$?
+[ "$rc" != 0 ] && echo "$out" | grep -qi "slack" && same_file "$REG" "$HOME/reg.before" && ok "--role back on a slack row is refused (a slack agent is a front agent), nothing written" || bad "slack to back: rc=$rc $out"
+out=$("$SALA" sessions tag sf-man --role back --surface sala 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(q sf-man role)" = '"back"' ] && [ "$(has_field sf-man surface)" = no ] && ok "--role back --surface sala is one move: the role changes and the surface key goes" || bad "to back: rc=$rc $out"
+out=$("$SALA" sessions tag sf-none --surface sala 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(has_field sf-none surface)" = no ] && ok "--surface sala takes the mark off: the row is stored without the field" || bad "sala: rc=$rc $out"
+out=$("$SALA" sessions tag sf-back --surface slack 2>&1); rc=$?
+[ "$rc" != 0 ] && echo "$out" | grep -qi "front" && [ "$(has_field sf-back surface)" = no ] && ok "--surface slack on a back row is refused" || bad "slack on back: rc=$rc $out"
+ledger_write add sf-roleless "44444444-0000-4000-8000-000000000199" sf-roleless "$HOME/wa-sf-roleless" >/dev/null 2>&1
+out=$("$SALA" sessions tag sf-roleless --surface slack 2>&1); rc=$?
+[ "$rc" != 0 ] && [ "$(has_field sf-roleless surface)" = no ] && ok "--surface slack on a row with no role is refused (it needs the front role, given or on the row)" || bad "slack, no role: rc=$rc $out"
+out=$("$SALA" sessions tag sf-roleless --role front --surface sala 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(has_field sf-roleless surface)" = no ] && ok "--surface sala on a row that never had one changes nothing but the role" || bad "sala on none: rc=$rc $out"
+
+echo "== the surface: set, a bad value on disk, the listings"
+sessions_set sf-roleless role=front surface=slack >/dev/null 2>&1; rc=$?
+[ "$(q sf-roleless surface)" = '"slack"' ] && ok "set surface=slack (what spawn writes) stores the key" || bad "set: rc=$rc $(q sf-roleless surface)"
+sessions_set sf-roleless surface=sala >/dev/null 2>&1
+[ "$(has_field sf-roleless surface)" = no ] && ok "set surface=sala removes the key" || bad "set sala: $(q sf-roleless surface)"
+cp "$REG" "$HOME/reg.good"
+sessions_set sf-roleless role=back surface=slack >/dev/null 2>&1
+[ "$(has_field sf-roleless surface)" = no ] && [ "$(q sf-roleless role)" = '"front"' ] && ok "set refuses a slack row with the back role, nothing written" || bad "set slack back: $(q sf-roleless surface) $(q sf-roleless role)"
+sessions_set sf-roleless surface=telegram >/dev/null 2>&1
+[ "$(has_field sf-roleless surface)" = no ] && ok "set surface=telegram is refused, nothing written" || bad "set bad: $(q sf-roleless surface)"
+sessions_set sf-roleless surface=slack >/dev/null 2>&1
+out=$("$SALA" sessions 2>&1)
+echo "$out" | grep -E "^[0-9a-f]{8} +sf-copy " | grep -q "front \[slack\]" && echo "$out" | grep -E "^[0-9a-f]{8} +sf-roleless " | grep -q "front \[slack\]" && ok "sessions: a slack row's ROLE reads 'front [slack]'" || bad "list: $out"
+echo "$out" | grep -E "^[0-9a-f]{8} +ba " | grep -q "slack" && bad "a sala row carries the mark: $out" || ok "sessions: a sala row has no mark"
+"$SALA" sessions --json > "$HOME/list.json" 2>&1
+python3 - "$HOME/list.json" <<'PY' && ok "sessions --json: surface is slack on a slack row and the key is absent on every other" || bad "list --json: $(head -c 300 "$HOME/list.json")"
+import json, sys
+rows = json.load(open(sys.argv[1]))["sessions"]
+slack = sorted(r["name"] for r in rows if r.get("surface") == "slack")
+assert slack == ["sf-copy", "sf-new", "sf-roleless"], slack
+assert all("surface" not in r for r in rows if r["name"] not in slack)
+assert all(r.get("surface") in (None, "slack") for r in rows)
+PY
+out=$("$SALA" sessions resolve sf-copy 2>&1); rc=$?
+echo "$out" | grep -q "^role: .*front \[slack\]" && ok "resolve prints the mark after the role" || bad "resolve: rc=$rc $out"
+out=$("$SALA" sessions resolve sf-copy --json 2>&1)
+echo "$out" | grep -q '"surface": "slack"' && ok "resolve --json carries surface for a slack row" || bad "resolve json: $out"
+out=$("$SALA" sessions resolve ba --json 2>&1)
+echo "$out" | grep -q '"surface"' && bad "resolve --json carries surface for a sala row: $out" || ok "resolve --json has no surface for a sala row"
+n=$(sessions_py slack-names 2>&1 | paste -sd' ')
+[ "$n" = "sf-copy sf-new sf-roleless" ] && ok "slack-names: the live slack rows by name, one per word" || bad "slack-names: '$n'"
+cp "$REG" "$HOME/reg.before"; : > "$RLOG"; sessions_py slack-names >/dev/null 2>&1
+same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "slack-names is read-only" || bad "slack-names wrote"
+python3 - "$ROOT" "$REG" <<'PY' && ok "the published copy carries surface only on a slack row" || bad "export_doc surface"
+import sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import sessions as S
+d = S.export_doc(sys.argv[2], "a", "2026-01-01T00:00:00Z")["sessions"]
+by = {x["name"]: x for x in d.values()}
+assert by["sf-copy"]["surface"] == "slack" and by["sf-new"]["surface"] == "slack"
+assert "surface" not in by["ba"] and "surface" not in by["sf-man"]
+PY
+
+echo "== the surface: a value sala does not know, on disk, is refused wherever it is read"
+cp "$REG" "$HOME/reg.good"
+python3 - "$REG" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+r = [x for x in d["sessions"].values() if x["name"] == "sf-copy"][0]
+r["surface"] = "telegram"
+json.dump(d, open(sys.argv[1], "w"))
+PY
+cp "$REG" "$HOME/reg.bad"
+out=$("$SALA" sessions 2>&1); rc=$?
+[ "$rc" != 0 ] && echo "$out" | grep -q "surface" && echo "$out" | grep -q "sf-copy" && ok "a row with surface 'telegram': sessions refuses and names the row" || bad "bad row, list: rc=$rc $out"
+out=$("$SALA" sessions tag sf-man --role front 2>&1); rc=$?
+[ "$rc" != 0 ] && same_file "$REG" "$HOME/reg.bad" && ok "a write meets the same refusal and leaves the file as it was" || bad "bad row, tag: rc=$rc $out"
+python3 - "$ROOT" "$REG" <<'PY' && ok "the publish refuses it too" || bad "export_doc on a bad surface"
+import sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import sessions as S
+try:
+    S.export_doc(sys.argv[2], "a", "2026-01-01T00:00:00Z")
+except S.RegistryError as e:
+    assert "surface" in str(e)
+else:
+    raise SystemExit("no refusal")
+PY
+cp "$HOME/reg.good" "$REG"
+out=$("$SALA" sessions 2>&1); rc=$?
+[ "$rc" = 0 ] && ok "the registry reads again once the value is back" || bad "after restore: rc=$rc $out"
 
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

@@ -106,7 +106,7 @@ scan "sala lane --list" "$OUT/lanelist.txt"
 runsala config config
 [ "$rc" = 0 ] && ok "sala config exits 0" || bad "sala config rc=$rc"
 scan "sala config" "$OUT/config.txt"
-for kv in 'SALA_SHELL_SESSION +sala-shell$' 'SALA_OWNER_NAME +the owner$' 'SALA_TZ *$' 'SALA_SCOPES *$' 'SALA_DEFAULT_SCOPE *$' 'SALA_BRAND_SUFFIX *$' 'SALA_HELP_SESSION *$' 'SALA_BACK_CWD *$' \
+for kv in 'SALA_SHELL_SESSION +sala-shell$' 'SALA_OWNER_NAME +the owner$' 'SALA_TZ *$' 'SALA_SCOPES *$' 'SALA_DEFAULT_SCOPE *$' 'SALA_BRAND_SUFFIX *$' 'SALA_HELP_SESSION *$' 'SALA_BACK_CWD *$' 'SALA_SLACK_CWD *$' \
           'SALA_JOB_LANE +subscription-1$' 'SALA_LANE_BEDROCK_PROFILE *$' 'SALA_LANE_MAX_ORG *$' 'SALA_STACKSHOT_WEB *$' 'SALA_SESSION_URL *$' 'SALA_FLEET_HOSTS *$' 'SALA_MASTER *$'; do
     grep -qE -- "^$kv" "$OUT/config.txt" && ok "sala config: ${kv%% *} is ${kv#* }" || bad "sala config: expected '$kv', got '$(grep -E "^${kv%% *}( |$)" "$OUT/config.txt" | head -1)'"
 done

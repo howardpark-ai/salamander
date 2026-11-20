@@ -31,6 +31,7 @@ fi
 : "${SALA_RC_RESTART_DELAY:=30}"                  # seconds between server relaunches
 : "${SALA_TZ:=}"                                  # timezone for names/logs and every time sala shows (an IANA name); empty = this machine's local time
 : "${SALA_BACK_CWD:=}"                            # where `spawn --role back` starts without --cwd (the directory of the background brief); empty = $HOME
+: "${SALA_SLACK_CWD:=}"                           # where `spawn --role front --surface slack` starts without --cwd (the directory of the Slack brief); empty = the spawn is refused (no fallback)
 : "${SALA_SCOPES:=}"                              # the scopes sessions are named by (<scope>-<project>-…), space-separated; empty = none. The web UI takes them from this first, and from stackshot's own settings file only when this is empty or unset
 : "${SALA_DEFAULT_SCOPE:=}"                       # the scope a page outside every scope's directory is named in; empty = the first of SALA_SCOPES
 : "${SALA_HELP_SESSION:=}"                       # web UI only: the session the overview's Get Help chip opens; empty = no chip
@@ -99,7 +100,7 @@ SALA_WAITING_DIR="$SALA_STATE_DIR/waiting"   # waiting/<uuid>: a relaunch sala s
 [ -n "${SALA_RELAUNCH_WAITING_TEXT:-}" ] || SALA_RELAUNCH_WAITING_TEXT='[sala] A <what> is waiting for this session. Bring your work to a checkpoint. Stop your own background watches (TaskStop) and put what they were waiting for in a `sala note "<step>"` before `sala ready`. If a step must wait until after the relaunch, leave it with `sala note "<step>"` (or set the board item'\''s recycle flag), then run `sala ready` as the turn'\''s last call.'
 
 cs_print_config() {
-    for v in SALA_CONFIG SALA_RC_SESSION SALA_SHELL_SESSION SALA_RC_NAME SALA_RC_CAPACITY SALA_RC_RESTART_DELAY SALA_TZ SALA_BACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_OWNER_NAME SALA_LOG_DIR \
+    for v in SALA_CONFIG SALA_RC_SESSION SALA_SHELL_SESSION SALA_RC_NAME SALA_RC_CAPACITY SALA_RC_RESTART_DELAY SALA_TZ SALA_BACK_CWD SALA_SLACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_OWNER_NAME SALA_LOG_DIR \
              SALA_RESURRECT_DIR SALA_RESURRECT_SAVE SALA_CLAUDE SALA_SPAWN_PREFIX SALA_SNAPSHOT_CMD SALA_SNAPSHOT_DELAY SALA_FLEET_HOSTS SALA_POST_UPDATE_CMD SALA_POST_RECYCLE_CMD SALA_MASTER SALA_WATCH_COOLDOWN SALA_WATCH_NOTIFY_CMD SALA_RETRY_EVERY SALA_RETRY_WINDOW SALA_READY_TTL SALA_READY_WAIT SALA_RELAUNCH_WAITING_TEXT SALA_BOOT_GRACE SALA_BOOT_DEADLINE SALA_HEARTBEAT_REPO SALA_HEARTBEAT_DIR SALA_FLEET_NAMES SALA_REG_DIR SALA_PROJECTS SALA_STATE_DIR SALA_SIDECAR SALA_LEDGER_LOG SALA_SESSIONS SALA_SESSIONS_FILE SALA_MOD_DIR SALA_MOD_WAIT \
              SALA_LANES SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_LANE_SDK_PIN SALA_LANE_SDK_CMD \
              SALA_LANE_BEDROCK_PROFILE SALA_LANE_BEDROCK_CREDENTIALS_FILE SALA_LANE_BEDROCK_PREFIX SALA_LANE_BEDROCK_OPUS_MODEL SALA_LANE_BEDROCK_SONNET_MODEL SALA_LANE_BEDROCK_HAIKU_MODEL \
@@ -2888,7 +2889,7 @@ sessions_record() {  # <id|name> <claude session id> <clear|resume|start> [machi
     ( if command -v flock >/dev/null 2>&1; then flock -w 10 6 || { echo "the pane map's lock is held (another write hung?) - nothing recorded" >&2; exit 1; }; fi
       sessions_py record "$1" --transcript "$2" --why "$3" ${4:+--tmachine "$4"} ) 6>>"$SALA_SIDECAR.lock"
 }
-sessions_tag() {  # <id|name> [--project P] [--role R] [--project-key P] [--dry-run] | --auto [<id|name>] [--dry-run] — fill project/role of a live row; sessions_py's status. A dry run only reads: no lock
+sessions_tag() {  # <id|name> [--project P] [--role R] [--surface S] [--project-key P] [--dry-run] | --auto [<id|name>] [--dry-run] — fill project/role of a live row; sessions_py's status. A dry run only reads: no lock
     local ra=(); case " $* " in *" --auto "*) ra=(--record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE");; esac   # --auto: the roles come from stackshot's project record
     case " $* " in *" --dry-run "*) sessions_py tag "$@" ${ra[@]+"${ra[@]}"}; return $? ;; esac
     ( if command -v flock >/dev/null 2>&1; then flock -w 10 6 || { echo "the pane map's lock is held (another write hung?) - nothing written" >&2; exit 1; }; fi
