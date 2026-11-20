@@ -73,7 +73,11 @@
 #     sala; `slack` is a front agent that answers his Slack app messages. Only valid with --role front (a back agent is refused), and
 #     not with --side. A slack agent starts in the directory SALA_SLACK_CWD names (the CLI loads that directory's CLAUDE.md, the Slack
 #     brief, not the sala-pane rules of $HOME) when --cwd is not given; SALA_SLACK_CWD unset, or naming a directory this box does not have, refuses the
-#     spawn with a message naming the key: it never falls back to another directory. The pane map's cwd column records the directory, so
+#     spawn with a message naming the key: it never falls back to another directory. The surface is the flag's, or, with no flag, the one the
+#     project record gives the name (the entry `sessions tag --auto` copies onto the row later), so a registered Slack agent spawned without
+#     --surface starts in the Slack brief's directory too; a --surface that conflicts with the record's is refused, naming both, and so is an entry whose
+#     surface sala cannot use (a value it does not know, a back agent called slack: `tag --auto` would refuse the row), with or without --surface or --cwd. A record
+#     that is missing, stale or does not list the name is no refusal: the flag alone decides, and SALA_SESSIONS=off does not stop the read. The pane map's cwd column records the directory, so
 #     revive and `sala restore` start it there again. Its registry row carries `surface: slack` (a sala agent's row has no such field);
 #     `sessions tag --auto` keeps it in step with the project record's agent entry. The register command the refusal prints, and the keeper's
 #     message, carry `--surface slack` for it.
@@ -399,6 +403,22 @@ fi
 if [ -n "$FORK" ]; then
     case "$FORK" in *[!0-9a-fA-F-]*) die "invalid --fork uuid '$FORK'";; esac
     [ -s "$(transcript_for_uuid "$FORK")" ] || die "no transcript for $FORK under $SALA_PROJECTS"
+fi
+REC_SURFACE=""   # the surface the project record gives this name (slack, sala), the one `sessions tag --auto` copies onto the row later: the start directory follows it, not the flag alone
+if [ "$SIDE" = 0 ] && [ "$MASTER" = 0 ]; then   # read-only on the record file, so SALA_SESSIONS=off (registry writes and the publish) does not matter here
+    REC_SURFACE=$(sessions_py record-surface "$NAME" ${PROJECT:+--project "$PROJECT"} --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" 2>&1); rsrc=$?
+    case "$rsrc" in
+        0) ;;
+        5) die "the project record ($SALA_PROJECT_RECORD) lists '$NAME' with a surface sala cannot use, so it is not spawned (sessions tag --auto would refuse its row): ${REC_SURFACE#sessions record-surface: }" ;;
+        *) REC_SURFACE="" ;;   # not on a map (3), a missing, stale or unreadable record (4), or any other failure: the flag alone decides; a spawn does not depend on stackshot being reachable
+    esac
+fi
+if [ -n "$REC_SURFACE" ]; then
+    [ "$SURFACE_GIVEN" = 0 ] || [ "$SURFACE_OPT" = "$REC_SURFACE" ] || die "--surface $SURFACE_OPT conflicts with the project record, which lists '$NAME' with surface $REC_SURFACE (sessions tag --auto would put $REC_SURFACE back on its row): drop --surface, or change the agent's entry in the record first"
+    if [ "$REC_SURFACE" = slack ]; then
+        [ "$ROLE" != back ] || die "a slack agent is a front agent: the project record lists '$NAME' with surface slack, so --role back is refused"
+        SURFACE=slack
+    fi
 fi
 if [ "$ROLE" = back ] && [ "$CWD_GIVEN" = 0 ] && [ -n "${SALA_BACK_CWD:-}" ]; then   # a background agent starts where the background brief is (the header); --cwd always wins
     BACK_DIR="${SALA_BACK_CWD/#\~/$HOME}"
