@@ -890,10 +890,11 @@ echo '{"schema": 1}' > "$REG";                reg_cases "without a sessions obje
 rm -f "$REG";                                 reg_cases missing
 if [ "$(id -u)" != 0 ]; then
     cp "$HOME/reg.good2" "$REG"; chmod 000 "$REG"; reg_cases unreadable
+    chmod 600 "$REG"   # only the branch that set mode 000 resets it: as root the registry is still absent here and a chmod on it would fail
 else   # chmod 000 blocks no read by root, so the case would pass without testing anything; the never-opened check below does not depend on it
     echo "  skip record-surface, registry unreadable: running as root, where chmod 000 blocks no read"
 fi
-chmod 600 "$REG"; cp "$HOME/reg.good2" "$REG"
+cp "$HOME/reg.good2" "$REG"; chmod 600 "$REG"   # restore: copy first (the file may be absent), then the mode, so root and non-root end the same
 same_file "$REG" "$HOME/reg.good2" && ok "the registry is back as it was" || bad "registry not restored"
 out=$(sessions_py slack-names 2>&1); rc=$?
 [ "$rc" = 0 ] && ok "slack-names reads the registry again" || bad "slack-names after restore: rc=$rc $out"
@@ -902,7 +903,7 @@ echo "== record-surface never opens the registry (the cases above see only what 
 # nolookup.py <sessions.py> <registry> <sentinel> <args...>: runs sessions.py's main() in this process with the registry stubbed. Registry.load, and any
 # open / exists / getsize of the registry file itself, write the sentinel and raise; the exit status and what main() printed come back on stdout.
 cat > "$HOME/nolookup.py" <<'PY'
-import builtins, contextlib, importlib.util, io, os, sys
+import builtins, contextlib, importlib.util, io, os, pathlib, sys
 src, reg, sentinel = sys.argv[1:4]
 spec = importlib.util.spec_from_file_location("sessions_under_test", src)
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
@@ -914,10 +915,24 @@ def stub_load(self):
     hit("Registry.load() was called")
 m.Registry.load = stub_load
 real_open, real_exists, real_getsize = builtins.open, os.path.exists, os.path.getsize
+real_io_open, real_path_open = io.open, pathlib.Path.open
+real_read_text, real_read_bytes = pathlib.Path.read_text, pathlib.Path.read_bytes
 def is_reg(p): return isinstance(p, (str, bytes, os.PathLike)) and os.fsdecode(p) == reg
 def guarded_open(p, *a, **k):
     if is_reg(p): hit("open(%s)" % reg)
     return real_open(p, *a, **k)
+def guarded_io_open(p, *a, **k):   # io.open is a second name for the builtin: patching builtins.open leaves it, and what pathlib reads through, untouched
+    if is_reg(p): hit("io.open(%s)" % reg)
+    return real_io_open(p, *a, **k)
+def guarded_path_open(self, *a, **k):
+    if is_reg(self): hit("Path.open(%s)" % reg)
+    return real_path_open(self, *a, **k)
+def guarded_read_text(self, *a, **k):
+    if is_reg(self): hit("Path.read_text(%s)" % reg)
+    return real_read_text(self, *a, **k)
+def guarded_read_bytes(self, *a, **k):
+    if is_reg(self): hit("Path.read_bytes(%s)" % reg)
+    return real_read_bytes(self, *a, **k)
 def guarded_exists(p):
     if is_reg(p): hit("os.path.exists(%s)" % reg)
     return real_exists(p)
@@ -925,6 +940,15 @@ def guarded_getsize(p):
     if is_reg(p): hit("os.path.getsize(%s)" % reg)
     return real_getsize(p)
 builtins.open, os.path.exists, os.path.getsize = guarded_open, guarded_exists, guarded_getsize
+io.open, pathlib.Path.open, pathlib.Path.read_text, pathlib.Path.read_bytes = guarded_io_open, guarded_path_open, guarded_read_text, guarded_read_bytes
+if sys.argv[4:5] == ["--selftest"]:   # the guard itself: every way of reading the registry must trip it (a guard that trips on nothing proves nothing)
+    for label, call in (("Registry.load", lambda: m.Registry.load(None)), ("open", lambda: open(reg)), ("io.open", lambda: io.open(reg)),
+                        ("Path.open", lambda: pathlib.Path(reg).open()), ("Path.read_text", lambda: pathlib.Path(reg).read_text()),
+                        ("Path.read_bytes", lambda: pathlib.Path(reg).read_bytes()), ("os.path.exists", lambda: os.path.exists(reg)),
+                        ("os.path.getsize", lambda: os.path.getsize(reg))):
+        try: call(); print("%s: NOT guarded" % label)
+        except AssertionError: print("%s: guarded" % label)
+    sys.exit(0)
 sys.argv = ["sessions.py", "--file", reg] + sys.argv[4:]
 out, err = io.StringIO(), io.StringIO()
 with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -932,17 +956,24 @@ with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
 print("rc=%s" % rc); print(out.getvalue().strip()); print(err.getvalue().strip())
 PY
 SENT="$HOME/registry-touched"
-nolookup_ok() {  # <label> <name> <expected rc> <expected stdout, "" = any>: the arguments are the ones rsf passes
+out=$(python3 -I "$HOME/nolookup.py" "$SALA_SESSIONS_PY" "$REG" "$SENT" --selftest 2>&1)
+rm -f "$SENT"
+want=$(printf '%s: guarded\n' Registry.load open io.open Path.open Path.read_text Path.read_bytes os.path.exists os.path.getsize)
+[ "$out" = "$want" ] && ok "the guard trips on Registry.load, open, io.open, Path.open, Path.read_text, Path.read_bytes, os.path.exists and os.path.getsize" || bad "the guard misses a way of reading the registry: $out"
+nolookup_ok() {  # <label> <name> <expected rc> <expected stdout, "" = any> [<expected stderr fragment>]: the arguments are the ones rsf passes, the record is $NL_REC (default $REC)
     local out
     rm -f "$SENT"
-    out=$(python3 -I "$HOME/nolookup.py" "$SALA_SESSIONS_PY" "$REG" "$SENT" record-surface "$2" --record "$REC" --record-max-age 600 2>&1)
+    out=$(python3 -I "$HOME/nolookup.py" "$SALA_SESSIONS_PY" "$REG" "$SENT" record-surface "$2" --record "${NL_REC:-$REC}" --record-max-age 600 2>&1)
     if [ -e "$SENT" ]; then bad "record-surface ($1) touched the registry: $(tr '\n' ' ' < "$SENT")"
-    elif [ "$(sed -n 1p <<< "$out")" = "rc=$3" ] && { [ -z "$4" ] || [ "$(sed -n 2p <<< "$out")" = "$4" ]; }; then ok "record-surface ($1): the registry is never opened and the answer is right (rc=$3${4:+, $4})"
+    elif [ "$(sed -n 1p <<< "$out")" = "rc=$3" ] && { [ -z "$4" ] || [ "$(sed -n 2p <<< "$out")" = "$4" ]; } && { [ -z "${5:-}" ] || sed -n '2,$p' <<< "$out" | grep -qF -- "$5"; }; then ok "record-surface ($1): the registry is never opened and the answer is right (rc=$3${4:+, $4})"
     else bad "record-surface ($1): wrong answer with the registry stubbed: $out"; fi
 }
 nolookup_ok "a slack name" sf-new 0 slack
 nolookup_ok "a sala name" fa 0 sala
 nolookup_ok "an empty-surface name" sf-empty 5 ""
+# a registry fallback used only when the record cannot answer would keep the answers above and break here: with no record at all the answer is exit 4, nothing on stdout, never a registry lookup
+NL_REC="$HOME/no-such-record.json" nolookup_ok "no project record at all, a name the registry has" sf-new 4 "" "no project record at"
+NL_REC="$HOME/no-such-record.json" nolookup_ok "no project record at all, a name the registry lacks" no-such-agent 4 "" "no project record at"
 rm -f "$SENT"
 
 echo "== the surface: a manual tag, its refusals, and the value read back"
