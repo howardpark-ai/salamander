@@ -452,7 +452,7 @@ def read_api_limit(path: Path | None, now: datetime | None = None, org: str | No
         return None
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):   # RecursionError: a deeply nested file (100000 "[") overflows the parser
         return None
     if not isinstance(doc, dict) or doc.get("v") != 1:
         return None

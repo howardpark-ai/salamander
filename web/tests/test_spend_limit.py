@@ -88,6 +88,11 @@ def test_a_corrupt_or_incomplete_file_is_none_never_an_error(tmp_path, content):
     assert SPD.read_api_limit(put(tmp_path, content), NOW) is None
 
 
+def test_a_deeply_nested_file_is_none_never_an_error(tmp_path):
+    assert SPD.read_api_limit(put(tmp_path, "[" * 100_000), NOW) is None
+    assert SPD.read_api_limit(put(tmp_path, '{"v": 1, "org": "Example Org", "limit": ' + "[" * 100_000), NOW) is None
+
+
 def test_undecodable_bytes_are_none(tmp_path):
     p = tmp_path / SPD.LIMIT_FILE
     p.write_bytes(b"\xff\xfe\x00{")
@@ -217,6 +222,17 @@ def test_a_corrupt_limit_makes_api_limit_null_and_the_endpoint_still_answers_200
     w.registry("aws-one", A, lane="aws-platform")
     w.transcript(A, line("m1", "claude-sonnet-5-5", WHEN, out=100_000))
     (w.sala / SPD.LIMIT_FILE).write_text(raw(limit=limit))
+    with TestClient(create_app(w.settings)) as c:
+        poll(c)
+        assert _api_limit(c) is None
+        (w.sala / SPD.LIMIT_FILE).write_text(json.dumps(doc(now=datetime.now(timezone.utc))))   # the file mended: served again
+        assert _api_limit(c)["limit"] == 1000
+
+
+def test_a_deeply_nested_file_makes_api_limit_null_and_the_endpoint_still_answers_200(w):
+    w.registry("aws-one", A, lane="aws-platform")
+    w.transcript(A, line("m1", "claude-sonnet-5-5", WHEN, out=100_000))
+    (w.sala / SPD.LIMIT_FILE).write_text("[" * 100_000)
     with TestClient(create_app(w.settings)) as c:
         poll(c)
         assert _api_limit(c) is None
