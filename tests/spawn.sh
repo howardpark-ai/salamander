@@ -344,8 +344,11 @@ sreg() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); r=[x for x
 echo "== the spawn of a front agent with a text mandate (--prompt) and a failing hook: the text typed as the first message, the hook's failure one ⚠ line, the spawn done"
 list projects/foo gamma-foo-press "press"; rm -f "$HOME/reg-args.txt" "$HOME/reg-env.txt"; touch "$HOME/reg-fail"
 fakeenv "$(uuid 13)" gamma-foo-press
-SALA_SPAWN_REGISTER="\"$HOME/fake-register\" \"\$@\"" run gamma-foo-press --project projects/foo --role front --prompt "hello: there" --cwd "$HOME"
-rm -f "$HOME/reg-fail"
+# a claude.ai login file and an API that refuses the connection: the title step (rc --titles, lib/spawn.sh THE CLAUDE.AI TITLE) fails, and that is one warning line
+mkdir -p "$HOME/.claude"; printf '{"claudeAiOauth":{"accessToken":"example-token-not-real"}}\n' > "$HOME/.claude/.credentials.json"
+SALA_ANTHROPIC_API="http://127.0.0.1:1" SALA_SPAWN_REGISTER="\"$HOME/fake-register\" \"\$@\"" run gamma-foo-press --project projects/foo --role front --prompt "hello: there" --cwd "$HOME"
+rm -f "$HOME/reg-fail" "$HOME/.claude/.credentials.json"
+[ "$RC" = 0 ] && [ "$(grep -c 'the claude.ai title was not set' <<< "$OUT")" = 1 ] && has "$OUT" "sala rc --titles --apply --only gamma-foo-press retries it" && ! has "$OUT" "example-token-not-real" && ok "a title step that fails (claude.ai unreachable): one warning line, no token, the spawn still done" || bad "title warning: rc=$RC — $OUT"
 [ "$RC" = 0 ] && has "$OUT" "✅ spawned 'gamma-foo-press'" && tmux has-session -t =gamma-foo-press 2>/dev/null && grep -q "^gamma-foo-press	$(uuid 13)	" "$SALA_SIDECAR" && ok "spawned and mapped: exit 0 although the hook failed" || bad "press spawn: rc=$RC — $OUT"
 waitfor "grep -qxF \"$(uuid 13) $SALA_MSG_MARK hello: there\" '$TYPED'" 120 && ok "the text mandate typed as the first message, with the marker, one line" || bad "press typed: $(typed_ctx "$TYPED" "$(uuid 13)")"
 has "$OUT" "⚠ register: the hook exited 7 (SALA_SPAWN_REGISTER; its output: $SPAWNLOG) — the session is up; register it by hand" && has "$OUT" "mandate : typed as the first message" && ok "the failing hook: one ⚠ line naming the exit code and the log; the session is up" || bad "hook fail: $OUT"

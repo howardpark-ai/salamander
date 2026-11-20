@@ -33,7 +33,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      mod listing work while no child process runs under the claude — no longer holds the pane)
                                      (a claude still running SALA_EXIT_WAIT s after its /exit — a hung process — is ended by its pid, SIGTERM then SIGKILL, and its session
                                      resumed: the dry run says "will end a stuck process"; never the master or the session running the command; SALA_EXIT_END=0: never)
-  salamander rc     [--ensure|--start|--status|--restart|--stop|--archive ID…]   (the Remote Control server; retired)
+  salamander rc     [--ensure|--start|--status|--restart|--stop|--archive ID…|--titles [--apply (--only NAME…|--all)]]   (the Remote Control server; retired; --titles: claude.ai session titles)
   salamander map    [--write PATH]
   salamander update [HOST…|--fleet] [--check]   CLI update: here (= recycle --update --force), named hosts over ssh, or the whole fleet then here
   salamander provision [--check] [HOST…]  the spec's script steps on every box (the others in parallel, this box last, then a recycle); HOST… = just those, no recycle
@@ -370,6 +370,17 @@ panes, and differ in three ways this file absorbs:
                      (refused for a session a live pane is bridged to); --unarchive ID… undoes it
                      the CLI itself uses (POST /v1/code/sessions/<id>/archive, OAuth bearer from
                      ~/.claude/.credentials.json — never printed). UNOFFICIAL: non-200 → do it on claude.ai.
+  rc --titles [--apply (--only NAME… | --all)]
+                     claude.ai shows each pane's Remote Control session under a title written once, when the
+                     bridge session is made, and changed afterwards only by a rename inside the CLI: a pane started
+                     with --name never renames, so its title can stay an auto-generated name while its sala name is
+                     right everywhere else. Bare: a read-only table of the live bridged panes whose claude.ai title
+                     differs from the pane's name (exit 0 either way; a pane whose session is past the first 100
+                     is counted as "not listed", never guessed). --apply --only NAME… sets just those panes' titles
+                     to their names (PUT /v1/code/sessions/<id> {"title": NAME}, the same UNOFFICIAL endpoint family
+                     as --archive), then re-reads and says ok or FAILED per pane; --apply alone is refused, --all
+                     applies to every differing pane. Only a name in [a-z0-9-] with nameSource user; idempotent.
+                     SALA_ANTHROPIC_API (default https://api.anthropic.com) moves the API for a test.
   rc --run           (internal) the loop, inside the pane
 
 Env pins (emergency only; leave unset so served sessions follow settings.json like every pane):
