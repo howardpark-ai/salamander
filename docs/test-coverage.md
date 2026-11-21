@@ -84,6 +84,30 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/units.sh`: +5, 34 (Sat Nov 21st 2026)
+
+A shipped timer that names its service with `Unit=` must name a file beside it (read from the unit files, no systemd manager; one check per such timer). A timer aimed at a missing or misspelled
+service now fails the suite; it was shown to fail on a misspelled `Unit=` and restored. Already covered before this: each `.timer` has a same-named `.service` beside it (`tests/units.sh`), and
+`sala job relink` with a stubbed `systemctl` repoints the links at the production checkout and reloads (`tests/jobs.sh`). Not covered, and why: that the relink command enables a timer, because
+it does not (it repoints existing links and runs `daemon-reload`; `sala job add` is what runs `enable --now`), and a live systemd user manager is never used by a suite.
+
+### `tests/bgagents.sh`: +29, 214 (Sat Nov 21st 2026)
+
+Second review pass of `sala bg-agents` (`lib/bgagents.py`, `docs/bg-agents.md`). Each new check fails on the code before this change (the new suite was run against it: 26 of its checks fail there, in
+every group below; the rest tighten a test or follow the new wording). The suite's fakes gained a call log and a sleep for the liveness stub, and a per-project refusal and a call log for the board-item stub.
+A raised entry is kept when its project is off the want list for far longer than the cooldown (nothing raised, `--status` says raised and not on the want list), is not started or raised for again when the
+project returns, and is cleared as before by `--reset` and the cooldown; the same give-up after a reset raises again with a new request id. A second run that starts while the first sleeps in a slow
+board-item call (lock released, the load check keeping the first from starting) does not start the project and the first records its item; a mark younger than the window holds a project back and `--status`
+says an item is being filed; a mark older than the window is ignored; a start that worked while the item was filed is not recorded as a failure item. A filing refused for one project is counted on it
+(one failure, back-off of the cooldown, doubling, shown by `--status`, cleared by a filing that works and by `--reset`), a run a minute later does not file it again and says so, and the project after it
+gets the run's one raise (the stub's per-key log shows no second try of the failing key). A slow liveness check does not block `--reset` and the run re-reads the ledger after it; a name probed in the start
+phase is not probed again; six live projects take three checks in one run and the rest at the next (the least recently checked first, none started or raised for), and `SALA_BGAGENTS_MAX_PROBES` sets the cap.
+A liveness check that cannot say (an exit that is neither 0 nor 1, or no command) leaves a stale project stale with no attempt, leaves a given-up stale project without a board item, and leaves a started
+project without a second start, each with the log line saying so; a confirmed exit 1 ends the stale state and lets the start or the raise go on. Changed: the cross-scope request-id check files both projects in
+the SAME clock second (the ids differ by their scope part; the random part is not stubbed by the suite, so no more is asserted), and three retry checks wait out the filing back-off before the retry. Not
+covered, and why: the 2 x timeout window against a run that dies after setting its mark is covered by a hand-set mark, not by killing a run; the interleaving of two runs inside the short unlocked window
+around a probe is not reproduced beyond a reset (the ledger is re-read under the lock, which is what the reset check shows).
+
 ### `tests/bgagents.sh`: +33, 185 (Sat Nov 21st 2026)
 
 Review fixes to the board-item raise of `sala bg-agents`. Kept because each wrong answer is a job that acts against the owner's answer or says something false to them: a project the owner was

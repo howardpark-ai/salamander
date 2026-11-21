@@ -2,7 +2,7 @@
 # Every service unit sala ships under systemd/ and contrib/*/systemd/ names the model lane it runs on: one
 # `X-Model-Lane=<lane>` line in its [Unit] section, the lane one of the vocabulary below, so the Schedules tab of the Overview can list it.
 # An optional `X-Model-Note=<text>` line (at most one, not empty) is shown beside the lane. systemd ignores X- keys in [Unit]; the lines are metadata. The value is read from what the unit's script runs, never guessed
-# (docs/units.md). Also: each .timer has its .service, and each .service with a timer is covered by the check.
+# (docs/units.md). Also: each .timer has its .service, a timer's Unit= names a file beside it, and each .service with a timer is covered by the check.
 # Usage: bash tests/units.sh   (exit 0 = pass; under a second; reads files only, writes nothing)
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd); cd "$ROOT"
@@ -14,6 +14,9 @@ for dir in systemd contrib/*/systemd; do
     for t in "$dir"/*.timer; do
         [ -e "$t" ] || continue
         [ -f "${t%.timer}.service" ] && ok "$t has its service" || bad "$t has no ${t%.timer}.service beside it"
+        # a timer that names its service (Unit=) names a file that exists beside it: a timer aimed at a missing or misspelled service starts nothing
+        u=$(awk '/^\[/ {sec=$0} sec=="[Timer]" && /^Unit=/ {sub(/^Unit=/, ""); print; exit}' "$t")
+        if [ -n "$u" ]; then [ -f "$dir/$u" ] && ok "$t: Unit=$u is in $dir" || bad "$t: Unit=$u is no file in $dir"; fi
     done
     for s in "$dir"/*.service; do
         [ -e "$s" ] || continue
