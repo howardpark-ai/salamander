@@ -75,14 +75,16 @@ cat > "$T/bin/alive" <<'EOF'
 # exit 0 = live (the name is a line of alive.txt), 1 = none, like `sala sessions resolve --live`; $T/alive.rc forces any other exit (a check that cannot say);
 # every call is noted in alive.log, and $T/alive.sleep seconds are waited after the answer is decided (a slow check); alive.ready is written once the answer and the delay are
 # captured, so a test that changes alive.sleep waits for it (the log line is written before the delay is read); $T/alive.seq (one exit code a line) answers call N with line N
-# (the last line after that)
+# (the last line after that); $T/alive.hold.N holds call N (after its answer is decided) until the test removes that file, for at most 15 s by the clock (half the 30 s the job allows a check)
 echo "$1" >> "$T/alive.log"
+n=$(wc -l < "$T/alive.log"); hold=0; [ -e "$T/alive.hold.$n" ] && hold=1
 # the answer is decided first and given after the wait: a slow check reports what was true when it asked
-if [ -f "$T/alive.seq" ]; then n=$(wc -l < "$T/alive.log"); rc=$(sed -n "$n p" "$T/alive.seq"); [ -n "$rc" ] || rc=$(tail -n 1 "$T/alive.seq")
+if [ -f "$T/alive.seq" ]; then rc=$(sed -n "$n p" "$T/alive.seq"); [ -n "$rc" ] || rc=$(tail -n 1 "$T/alive.seq")
 elif [ -f "$T/alive.rc" ]; then rc=$(cat "$T/alive.rc"); elif grep -qx -- "$1" "$T/alive.txt" 2>/dev/null; then rc=0; else rc=1; fi
 delay=0; [ -f "$T/alive.sleep" ] && delay=$(cat "$T/alive.sleep")
 echo "$1" >> "$T/alive.ready"
 [ "$delay" != 0 ] && sleep "$delay"
+if [ "$hold" = 1 ]; then until=$((SECONDS + 15)); while [ -e "$T/alive.hold.$n" ] && [ "$SECONDS" -lt "$until" ]; do sleep 0.1; done; fi
 exit "$rc"
 EOF
 cat > "$T/bin/ask" <<'EOF'
@@ -90,8 +92,8 @@ cat > "$T/bin/ask" <<'EOF'
 # the board-item command: notes the call in order.log, waits $T/ask.sleep seconds when that file is there (a slow stackshot), then is the fake client's `post question`;
 # ask.ready is written once the delay is captured (a test that changes ask.sleep for the next caller waits for it); ask.hold is explained below
 delay=0; [ -f "$T/ask.sleep" ] && delay=$(cat "$T/ask.sleep")
-hold=0; [ -f "$T/ask.hold" ] && hold=1
 echo ask >> "$T/order.log"; echo ask >> "$T/ask.ready"
+n=$(wc -l < "$T/ask.ready"); hold=0; [ -e "$T/ask.hold.$n" ] && hold=1
 # $T/ask.failkey names one project the board refuses (a filing error that belongs to that key); every call's project is noted in ask.keys
 prev=""
 for a in "$@"; do
@@ -102,9 +104,9 @@ for a in "$@"; do
     prev=$a
 done
 [ "$delay" != 0 ] && sleep "$delay"
-# $T/ask.hold: the call waits until the test removes that file (a bounded wait of 60 s), however long the other runs take; the run that waits here is given a filing timeout
-# (SALA_BGAGENTS_RAISE_TIMEOUT) longer than the bound, so its own timeout never ends the hold first
-[ "$hold" = 1 ] && for _ in $(seq 1 600); do [ -e "$T/ask.hold" ] || break; sleep 0.1; done
+# $T/ask.hold.N: call N waits until the test removes that file, however long the other runs take. The wait ends by the CLOCK (bash SECONDS, not a count of sleeps, which only
+# gives a minimum) at half the filing timeout this call has (SALA_BGAGENTS_RAISE_TIMEOUT, 30 s when unset), so the job's own timeout can never end a hold first
+if [ "$hold" = 1 ]; then rt=$SALA_BGAGENTS_RAISE_TIMEOUT; [ -n "$rt" ] || rt=30; until=$((SECONDS + rt / 2)); while [ -e "$T/ask.hold.$n" ] && [ "$SECONDS" -lt "$until" ]; do sleep 0.1; done; fi
 exec python3 "$ROOT/tests/fake-stackshot-client.py" post question "$@"
 EOF
 cat > "$T/bin/prefixes" <<'EOF'
@@ -128,11 +130,12 @@ run() {   # [args] → OUT (stdout+stderr), RC; the clock is $NOW (default N0)
     OUT=$(SALA_BGAGENTS_NOW=${NOW:-$N0} $S "$@" 2>&1); RC=$?
 }
 reset() {   # a clean slate: no ledger, no call logs, a quiet load, an empty list, nothing alive, no project record
-    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.ready" "$T/alive.seq" "$T/ask.ready" "$T/ask.hold"
+    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.ready" "$T/alive.seq" "$T/ask.ready" "$T/ask.hold."* "$T/alive.hold."*
     unset FAKE_CLIENT_FAIL
     mkdir -p "$SALA_STATE_DIR"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; NOW=$N0
     export SALA_BGAGENTS=on
 }
+await_file() { local _; for _ in $(seq 1 120); do [ -s "$1" ] && return 0; sleep 0.1; done; return 1; }   # a signal a stub wrote (bounded; a miss shows in the checks after it)
 calls() { [ -f "$1" ] && wc -l < "$1" || echo 0; }
 led() {   # <key> <field> → the ledger's value (empty when there is none)
     python3 -c 'import json,sys
@@ -540,19 +543,19 @@ reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" 
 run; ORDER=$(tr '\n' ' ' < "$T/order.log")
 [ "$ORDER" = "spawn ask " ] && [ "$(calls "$T/post.log")" = 1 ] && [ "$(led $KEY raised)" = True ] && ok "the start comes first: the next project is started, then the board item is raised" || bad "order: [$ORDER]"
 # the ledger lock is not held across the raise: a reset of another project runs during a slow call, and wins over what the run writes afterwards
-reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example" "$KEY2=second"; patch "$KEY2" raised=true 'raised_item="item-seed"'; echo 4 > "$T/ask.sleep"
-export SALA_BGAGENTS_RAISE_TIMEOUT=30
+reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example" "$KEY2=second"; patch "$KEY2" raised=true 'raised_item="item-seed"'; : > "$T/ask.hold.1"
+export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-for _ in $(seq 1 100); do [ -s "$T/order.log" ] && break; sleep 0.1; done
+await_file "$T/ask.ready"
 t0=$(date +%s%N); run --reset "$KEY2"; t1=$(date +%s%N)
 [ "$RC" = 0 ] && [[ $OUT == *"cleared the ledger entry"* ]] && [ $(( (t1 - t0) / 1000000 )) -lt 3000 ] && ok "a slow raise does not block \`--reset\` of another project (it ran during the call, in under 3 s)" || bad "reset blocked: rc=$RC [$OUT] $(( (t1 - t0) / 1000000 )) ms"
-wait "$BG"
+rm -f "$T/ask.hold.1"; wait "$BG"
 [ "$(cat "$T/bg.rc")" = 0 ] && [ "$(led $KEY raised)" = True ] && [ "$(led $KEY2 attempts)" = 0 ] && [ "$(led $KEY2 raised)" = False ] && ok "...the run's result is written to the entry as it then is: the raise is recorded and the other project's reset is not written over" || bad "after the slow raise: rc=$(cat "$T/bg.rc") $(cat "$L")"
 # a reset of the SAME project during the call wins: the result is set aside
-reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; echo 3 > "$T/ask.sleep"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; : > "$T/ask.hold.1"
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-for _ in $(seq 1 100); do [ -s "$T/order.log" ] && break; sleep 0.1; done
-run --reset "$KEY"; wait "$BG"
+await_file "$T/ask.ready"
+run --reset "$KEY"; rm -f "$T/ask.hold.1"; wait "$BG"
 [ "$RC" = 0 ] && [ "$(cat "$T/bg.rc")" = 0 ] && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY raise_token)" = "" ] && [ "$(led $KEY attempts)" = 0 ] && grep -q "reset while the board item" "$T/bg.out" && ok "a \`--reset\` of the same project during the call wins: the entry stays cleared and the run says the result was not recorded" || bad "reset lost: $(cat "$L") [$(cat "$T/bg.out")]"
 unset SALA_BGAGENTS_RAISE_TIMEOUT
 # the raise has its own short timeout: the listing's timeout does not apply to it, and the prefixes call is bounded by it too
@@ -570,12 +573,12 @@ rm -f "$T/ask.sleep" "$T/prefixes.sleep"
 # 5. a project whose board item is being filed is left alone by every other run (the lock is given up for the call: its mark is `raising_at`)
 mark() { patch "$KEY" next_try=0 attempts=2 failures=2 retire_needed=true; }   # below the cap, due, its start did not finish: it needs an item
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark
-echo 30 > "$T/loadavg"; echo 4 > "$T/ask.sleep"; export SALA_BGAGENTS_RAISE_TIMEOUT=30
+echo 30 > "$T/loadavg"; : > "$T/ask.hold.1"; export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-for _ in $(seq 1 100); do [ -s "$T/order.log" ] && break; sleep 0.1; done
+await_file "$T/ask.ready"
 MARK=$(led $KEY raising_at); echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
-NOW=$((N0+1)) run; SECOND=$OUT; wait "$BG"
-[ "$MARK" = "$N0" ] && [ "$(calls "$T/spawn.log")" = 0 ] && [ "$(calls "$T/post.log")" = 0 ] && [[ $SECOND == *"another run is filing its board item"* ]] && ok "while the item is filed (lock released), a second run does not start the due project" || bad "overlap start: mark=$MARK spawn=$(calls "$T/spawn.log") post=$(calls "$T/post.log") [$SECOND]"
+NOW=$((N0+1)) run; SECOND=$OUT; rm -f "$T/ask.hold.1"; wait "$BG"
+[ "$MARK" -ge "$N0" ] && [ "$MARK" -lt $((N0+60)) ] && [ "$(calls "$T/spawn.log")" = 0 ] && [ "$(calls "$T/post.log")" = 0 ] && [[ $SECOND == *"another run is filing its board item"* ]] && ok "while the item is filed (lock released), a second run does not start the due project" || bad "overlap start: mark=$MARK spawn=$(calls "$T/spawn.log") post=$(calls "$T/post.log") [$SECOND]"
 [ "$(cat "$T/bg.rc")" = 0 ] && [ "$(led $KEY raised)" = True ] && [ "$(qcalls)" = 1 ] && [ "$(led $KEY raising_at)" = 0 ] && [ "$(led $KEY retire_needed)" = True ] && ok "...and the first run records its item (the mark is cleared) with no start success told as a failure" || bad "overlap record: rc=$(cat "$T/bg.rc") calls=$(qcalls) $(cat "$L")"
 run --status >/dev/null; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; patch "$KEY" raising_at=$((N0-10)); run
 [ "$(calls "$T/spawn.log")" = 0 ] && [ "$(qcalls)" = 0 ] && ok "a mark younger than the window (2 x the raise timeout and the wait for the lock) holds the project back, start and raise alike" || bad "young mark: spawn=$(calls "$T/spawn.log") calls=$(qcalls) [$OUT]"
@@ -583,12 +586,12 @@ run --status; [[ $OUT == *"a board item is being filed"* ]] && ok "--status says
 patch "$KEY" raising_at=$((N0-1000)); run
 [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY retire_needed)" = False ] && ok "a mark older than the window is stale (the run that set it died): the project is looked at again" || bad "old mark: spawn=$(calls "$T/spawn.log") $(cat "$L")"
 # a start that worked meanwhile (by a run that ignored a stale mark) is not told to the owner as a failure: the first run's item is not recorded
-reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; echo 3 > "$T/ask.sleep"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; : > "$T/ask.hold.1"
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-for _ in $(seq 1 100); do [ -s "$T/order.log" ] && break; sleep 0.1; done
-patch "$KEY" retire_needed=false attempts=0 failures=0 started_at=$N0; wait "$BG"
+await_file "$T/ask.ready"
+patch "$KEY" retire_needed=false attempts=0 failures=0 started_at=$N0; rm -f "$T/ask.hold.1"; wait "$BG"
 [ "$(led $KEY raised)" = False ] && [ "$(led $KEY raising_at)" = 0 ] && [ "$(led $KEY started_at)" = "$N0" ] && grep -q "no longer stuck" "$T/bg.out" && ok "a success recorded during the call: the item is not recorded, the entry as it is stays" || bad "late failure item: $(cat "$L") [$(cat "$T/bg.out")]"
-rm -f "$T/ask.sleep"; unset SALA_BGAGENTS_RAISE_TIMEOUT
+unset SALA_BGAGENTS_RAISE_TIMEOUT
 
 # 6. a filing error that belongs to one project waits out that project's back-off, and the next project gets the run's one raise
 reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example" "$KEY2=second"; echo "$KEY" > "$T/ask.failkey"
@@ -605,15 +608,14 @@ run --reset "$KEY" >/dev/null; [ "$(led $KEY raise_failures)" = 0 ] && ok "\`--r
 
 # 7. liveness probes are made without the ledger lock, and at most SALA_BGAGENTS_MAX_PROBES (3) a run
 reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example" "$KEY2=second"
-patch "$KEY" next_try=0 attempts=1 failures=1 retire_needed=true stale=true; patch "$KEY2" raised=true 'raised_item="item-seed"'; echo "$NAME" > "$T/alive.txt"; echo 4 > "$T/alive.sleep"
+patch "$KEY" next_try=0 attempts=1 failures=1 retire_needed=true stale=true; patch "$KEY2" raised=true 'raised_item="item-seed"'; echo "$NAME" > "$T/alive.txt"; : > "$T/alive.hold.1"
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-for _ in $(seq 1 100); do [ -s "$T/alive.log" ] && break; sleep 0.1; done
+await_file "$T/alive.ready"
 t0=$(date +%s%N); run --reset "$KEY2"; t1=$(date +%s%N)
 [ "$RC" = 0 ] && [[ $OUT == *"cleared the ledger entry"* ]] && [ $(( (t1 - t0) / 1000000 )) -lt 3000 ] && ok "a slow liveness check does not block \`--reset\` (it ran during the probe, in under 3 s)" || bad "reset blocked by a probe: rc=$RC [$OUT] $(( (t1 - t0) / 1000000 )) ms"
-wait "$BG"
+rm -f "$T/alive.hold.1"; wait "$BG"
 [ "$(cat "$T/bg.rc")" = 0 ] && [ "$(led $KEY2 failures)" = 0 ] && [ "$(led $KEY2 raised)" = False ] && [ "$(led $KEY stale)" = True ] && ok "...the run re-reads the ledger after its probes: the reset is not written over (the reset project is started afresh), the probed project is kept as it was" || bad "after the probe: rc=$(cat "$T/bg.rc") $(cat "$L") [$(cat "$T/bg.out")]"
 [ "$(grep -cx "$NAME" "$T/alive.log")" = 1 ] && ok "a project probed in the start phase is not probed again for the raise (one check)" || bad "double probe: $(cat "$T/alive.log")"
-rm -f "$T/alive.sleep"
 reset; seedn "projects/p1=p1" "projects/p2=p2" "projects/p3=p3" "projects/p4=p4" "projects/p5=p5" "projects/p6=p6"; : > "$T/list.txt"
 for i in 1 2 3 4 5 6; do
     printf '%s\n' "projects/p$i p$i p$i-main" >> "$T/list.txt"; echo "p$i-engineer" >> "$T/alive.txt"
@@ -641,35 +643,34 @@ rm -f "$T/alive.rc"; NOW=$((N0+1)) run
 
 # 9. third review pass: the filing mark is read from the clock when filing begins, the filing has its own owner token, a cached liveness answer does not outlive another run's start,
 #    the probe slots rotate without a command, and an inconclusive check blocks a failure item for a started pane too
-await_file() { local _; for _ in $(seq 1 120); do [ -s "$1" ] && return 0; sleep 0.1; done; return 1; }
-# (a) the probes and the start before the filing take a run's time: the mark is read when the filing begins. Run A sleeps 3 s in its liveness check, then files (a slow call);
-#     run B, whose clock is the window (75 s) after A's START, must still find the project marked
+# (a) the probes and the start before the filing take a run's time: the mark is read when the filing begins. Run A waits 6 s in its liveness check (a minimum of elapsed time, which
+#     orders nothing: the mark must then be at least 6 s after A's start), then files, held; run B, whose clock is the window (195 s with a 90 s filing timeout) after A's START,
+#     must still find the project marked
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark
-echo 30 > "$T/loadavg"; echo 3 > "$T/alive.sleep"; echo 5 > "$T/ask.sleep"
+echo 30 > "$T/loadavg"; echo 6 > "$T/alive.sleep"; : > "$T/ask.hold.1"; export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-await_file "$T/order.log"; rm -f "$T/alive.sleep"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; MARK=$(led $KEY raising_at)
-NOW=$((N0+75)) run; SECOND=$OUT; wait "$BG"
-[ "$MARK" -ge $((N0+3)) ] && [ "$(calls "$T/spawn.log")" = 0 ] && [[ $SECOND == *"another run is filing its board item"* ]] && ok "the filing mark is the clock when filing begins (after the probes), so a run a whole window after the first one's start still leaves the project alone" || bad "mark at run start: mark=$MARK spawn=$(calls "$T/spawn.log") [$SECOND]"
+await_file "$T/ask.ready"; rm -f "$T/alive.sleep"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; MARK=$(led $KEY raising_at)
+NOW=$((N0+195)) run; SECOND=$OUT; rm -f "$T/ask.hold.1"; wait "$BG"; unset SALA_BGAGENTS_RAISE_TIMEOUT
+[ "$MARK" -ge $((N0+6)) ] && [ "$(calls "$T/spawn.log")" = 0 ] && [[ $SECOND == *"another run is filing its board item"* ]] && ok "the filing mark is the clock when filing begins (after the probes), so a run a whole window after the first one's start still leaves the project alone" || bad "mark at run start: mark=$MARK spawn=$(calls "$T/spawn.log") [$SECOND]"
 [ "$(led $KEY raised)" = True ] && [ "$(qcalls)" = 1 ] && ok "...and the first run records its item" || bad "first filing: $(cat "$L")"
-rm -f "$T/ask.sleep"
-# (b) a retry has its own owner: run A's filing outlives its window and fails after run B (the retry, the same request id) took over; A writes nothing, B's mark stays, and a third run stays out
-reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; echo 3 > "$T/ask.sleep"
+# (b) a retry has its own owner: run A's filing outlives its window and fails after run B (the retry, the same request id) took over; A writes nothing, B's mark stays, and a third run stays out.
+#     Both filings are held (calls 1 and 2) and released by the test, A's first: the order is decided by the hold files alone
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; : > "$T/ask.hold.1"; : > "$T/ask.hold.2"; export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( FAKE_CLIENT_FAIL=1 SALA_BGAGENTS_NOW=$N0 $S > "$T/a.out" 2>&1; echo $? > "$T/a.rc" ) & PA=$!
-await_file "$T/ask.ready"; MKA=$(led $KEY raising_at); echo 8 > "$T/ask.sleep"      # B's clock is A's recorded mark plus the window, however long A took to get there
-( SALA_BGAGENTS_NOW=$((MKA+75)) $S > "$T/b.out" 2>&1; echo $? > "$T/b.rc" ) & PB=$!
+await_file "$T/ask.ready"; MKA=$(led $KEY raising_at)      # B's clock is A's recorded mark plus the window (195 s), however long A took to get there
+( SALA_BGAGENTS_NOW=$((MKA+195)) $S > "$T/b.out" 2>&1; echo $? > "$T/b.rc" ) & PB=$!
 for _ in $(seq 1 120); do [ "$(calls "$T/ask.ready")" -ge 2 ] && break; sleep 0.1; done
-wait "$PA"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
+rm -f "$T/ask.hold.1"; wait "$PA"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
 RF=$(led $KEY raise_failures); MK=$(led $KEY raising_at)
-NOW=$((MKA+80)) run; THIRD=$OUT; wait "$PB"
-[ "$RF" = 0 ] && [ "$MK" -ge $((MKA+75)) ] && ok "the expired filing that fails after its retry began writes nothing: no failure counted, the retry's mark kept" || bad "expired filer wrote: failures=$RF mark=$MK $(cat "$T/a.out")"
+NOW=$((MKA+200)) run; THIRD=$OUT; rm -f "$T/ask.hold.2"; wait "$PB"; unset SALA_BGAGENTS_RAISE_TIMEOUT
+[ "$RF" = 0 ] && [ "$MK" -ge $((MKA+195)) ] && ok "the expired filing that fails after its retry began writes nothing: no failure counted, the retry's mark kept" || bad "expired filer wrote: failures=$RF mark=$MK $(cat "$T/a.out")"
 [ "$(calls "$T/spawn.log")" = 0 ] && [[ $THIRD == *"another run is filing its board item"* ]] && ok "...so a third run does not start the project under the retry" || bad "retry guard cleared: spawn=$(calls "$T/spawn.log") [$THIRD]"
 [ "$(cat "$T/b.rc")" = 0 ] && [ "$(led $KEY raised)" = True ] && [ "$(led $KEY raising_by)" = "" ] && [ "$(led $KEY raise_failures)" = 0 ] && grep -q "took over while this one was in flight" "$T/a.out" && ok "the retry records its item (same request id), and the expired run says its result was not recorded" || bad "retry result: $(cat "$L") [$(cat "$T/a.out")]"
-rm -f "$T/ask.sleep"
-# (c) a liveness answer taken before another run started the same agent is dropped when the lock is taken again
-reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; patch "$KEY" next_try=0 attempts=1 failures=0 retire_needed=false started_at=$((N0-100)); echo 3 > "$T/alive.sleep"
+# (c) a liveness answer taken before another run started the same agent is dropped when the lock is taken again (run A's check is held after it decided its answer)
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; patch "$KEY" next_try=0 attempts=1 failures=0 retire_needed=false started_at=$((N0-100)); : > "$T/alive.hold.1"
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-await_file "$T/alive.ready"; rm -f "$T/alive.sleep"
-NOW=$((N0+1)) run; wait "$BG"
+await_file "$T/alive.ready"
+NOW=$((N0+1)) run; rm -f "$T/alive.hold.1"; wait "$BG"
 [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY started_at)" = $((N0+1)) ] && [ "$(cat "$T/bg.rc")" = 0 ] && grep -q "was overtaken by another run" "$T/bg.out" && ok "a \"not live\" answer is dropped when another run started the agent meanwhile: one start, not two, and the log says so" || bad "stale answer used: spawn=$(calls "$T/spawn.log") $(cat "$L") [$(cat "$T/bg.out")]"
 # (d) without a liveness command the names considered still advance probed_at, so the first names do not take the slots every run
 reset; : > "$T/list.txt"
@@ -688,12 +689,12 @@ reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=ex
 printf '1\n1\n0\n' > "$T/alive.seq"; run
 [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(calls "$T/alive.log")" = 3 ] && [ "$(qcalls)" = 0 ] && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY stale)" = True ] && [[ $OUT == *"is live while the project is still on the want list"* ]] && ok "a start that failed on its own check but left a live pane: the earlier \"not live\" answer is dropped, the raise phase asks again, no failed-start item" || bad "answer kept after the start: spawn=$(calls "$T/spawn.log") alive=$(calls "$T/alive.log") calls=$(qcalls) $(cat "$L") [$OUT]"
 # (h) a filing that fails after another run started the project writes no failure: the retry count and back-off stay, no "board item needed" line
-reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; : > "$T/ask.hold"     # the first filing is held until the second run is done: no sleep decides who is first
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; : > "$T/ask.hold.1"     # the first filing is held until the second run is done: no sleep decides who is first
 # the filing timeout (90 s) is longer than the hold's bound (60 s), so the timeout never fails the held filing; the window is then 2 x 90 + 15 = 195 s, which the second run's clock passes
 export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( FAKE_CLIENT_FAIL=1 SALA_BGAGENTS_NOW=$N0 $S > "$T/a.out" 2>&1; echo $? > "$T/a.rc" ) & PA=$!
 await_file "$T/ask.ready"; MKA=$(led $KEY raising_at); echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
-NOW=$((MKA+195)) run; BOUT=$OUT; rm -f "$T/ask.hold"; wait "$PA"; unset SALA_BGAGENTS_RAISE_TIMEOUT
+NOW=$((MKA+195)) run; BOUT=$OUT; rm -f "$T/ask.hold.1"; wait "$PA"; unset SALA_BGAGENTS_RAISE_TIMEOUT
 [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY started_at)" -ge $((MKA+195)) ] && ok "the window ran out, a second run started the project during the first one's filing" || bad "second run: spawn=$(calls "$T/spawn.log") $(cat "$L") [$BOUT]"
 [ "$(led $KEY raise_failures)" = 0 ] && [ "$(led $KEY raise_next_try)" = 0 ] && [ "$(led $KEY raising_at)" = 0 ] && [ "$(led $KEY raising_by)" = "" ] && [ "$(cat "$T/a.rc")" = 0 ] && ! grep -q "board item needed" "$T/a.out" && grep -q "no longer stuck" "$T/a.out" && ok "the first run's failed filing, for a project that is running now, counts no failure, writes no back-off and says no board item is needed" || bad "late failure written: $(cat "$L") rc=$(cat "$T/a.rc") [$(cat "$T/a.out")]"
 # the cap counts the checks made outside the lock (the two windows), not the attempt's own check of its start: with the smallest cap (2) the run above still makes three calls
