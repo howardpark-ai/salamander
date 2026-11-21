@@ -84,6 +84,19 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +2, 241 (Sat Nov 21st 2026)
+
+Ninth review pass of `sala bg-agents` (test-only), and a review of the whole set of overlap proofs and stubs for three kinds of gap. (1) The proofs waited for `ready.N` and then sampled whether the call was held
+(`holding.N` present), but the stub writes those two markers in separate steps: a pause between them failed the sample although the calls did overlap (shown by running the old suite with a one second pause
+between the two writes: all nine proofs failed with "in flight=no"). A new helper `need_held <ask|alive> N...` waits, bounded (60 s), for `holding.N` before the test acts or samples, and a call that never
+enters its hold fails its check by name; every proof site and the takeover pair (both calls) use it, and `need_ask` / `need_alive` are gone. With the same pause the new suite passes. (2) Both stubs decided
+why a hold ended by looking at the hold file after the wait loop, so a file removed after the clock's deadline but before that look was recorded as "released" (shown with the two stubs and a removal between the
+deadline and the look: old "released", new "bound"); the reason is now set inside the loop, at the moment it sees the file gone or the deadline reached, and `released.N` is written from it. Two new checks
+show both reasons: a hold nobody releases is recorded as bound (a two second filing timeout), a hold the test removes as released (board-item and liveness stubs). (3) The audit found nothing else: no other
+reader samples `ready` and `holding` together, no other reason is decided after the fact, and every bounded poll is checked (`await_file` is only called through `need_held`; the twelve-call numbering check
+reads its markers after `wait`). The two new checks give their calls `/dev/null` as stdin, because the fake client reads its stdin for a question and a foreground call inherits the harness's. Earlier entries
+stay as they were.
+
 ### `tests/bgagents.sh`: +10, 239 (Sat Nov 21st 2026)
 
 Eighth review pass of `sala bg-agents` (test-only). Three things. (1) The stubs took their call number by counting the lines of a log they had just appended to, after signaling: a call paused between

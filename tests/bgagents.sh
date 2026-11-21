@@ -88,8 +88,11 @@ delay=0; [ -f "$T/alive.sleep" ] && delay=$(cat "$T/alive.sleep")
 echo "$1" > "$T/alive.ready.$n"
 [ "$delay" != 0 ] && sleep "$delay"
 if [ "$hold" = 1 ]; then
-    : > "$T/alive.holding.$n"; until=$((SECONDS + 15)); while [ -e "$T/alive.hold.$n" ] && [ "$SECONDS" -lt "$until" ]; do sleep 0.1; done
-    if [ -e "$T/alive.hold.$n" ]; then echo bound > "$T/alive.released.$n"; else echo released > "$T/alive.released.$n"; fi
+    echo holding > "$T/alive.holding.$n"; until=$((SECONDS + 15)); why=""
+    while [ -z "$why" ]; do
+        if [ ! -e "$T/alive.hold.$n" ]; then why=released; elif [ "$SECONDS" -ge "$until" ]; then why=bound; else sleep 0.1; fi     # the reason is set here, when the loop sees it, never decided by a later look at the file
+    done
+    echo "$why" > "$T/alive.released.$n"
 fi
 exit "$rc"
 EOF
@@ -115,11 +118,14 @@ done
 [ "$delay" != 0 ] && sleep "$delay"
 # $T/ask.hold.N: call N waits until the test removes that file, however long the other runs take. The wait ends by the CLOCK (bash SECONDS, not a count of sleeps, which only
 # gives a minimum) at half the filing timeout this call has (SALA_BGAGENTS_RAISE_TIMEOUT, 30 s when unset), so the job's own timeout can never end a hold first;
-# ask.released.N records how the call left its hold: "released" (the test removed the file) or "bound" (the clock ended it)
+# ask.released.N records how the call left its hold: "released" (the loop saw the test had removed the file) or "bound" (the loop saw the clock's deadline first); it is set inside the loop
+# at that moment, so a file removed just after the deadline cannot turn "bound" into "released"; ask.holding.N is written when the call enters the hold (after ready.N and the delay)
 if [ "$hold" = 1 ]; then
-    : > "$T/ask.holding.$n"; rt=$SALA_BGAGENTS_RAISE_TIMEOUT; [ -n "$rt" ] || rt=30; until=$((SECONDS + rt / 2))
-    while [ -e "$T/ask.hold.$n" ] && [ "$SECONDS" -lt "$until" ]; do sleep 0.1; done
-    if [ -e "$T/ask.hold.$n" ]; then echo bound > "$T/ask.released.$n"; else echo released > "$T/ask.released.$n"; fi
+    echo holding > "$T/ask.holding.$n"; rt=$SALA_BGAGENTS_RAISE_TIMEOUT; [ -n "$rt" ] || rt=30; until=$((SECONDS + rt / 2)); why=""
+    while [ -z "$why" ]; do
+        if [ ! -e "$T/ask.hold.$n" ]; then why=released; elif [ "$SECONDS" -ge "$until" ]; then why=bound; else sleep 0.1; fi     # the reason is set here, when the loop sees it, never decided by a later look at the file
+    done
+    echo "$why" > "$T/ask.released.$n"
 fi
 exec python3 "$ROOT/tests/fake-stackshot-client.py" post question "$@"
 EOF
@@ -149,11 +155,12 @@ reset() {   # a clean slate: no ledger, no call logs, a quiet load, an empty lis
     mkdir -p "$SALA_STATE_DIR"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; NOW=$N0
     export SALA_BGAGENTS=on
 }
-await_file() { local _; for _ in $(seq 1 120); do [ -s "$1" ] && return 0; sleep 0.1; done; return 1; }   # a signal a stub wrote (bounded)
-need_ask() { await_file "$T/ask.ready.$1" || bad "the board-item call $1 never started (no ready signal in 12 s): the overlap checks that follow prove nothing"; }
-need_alive() { await_file "$T/alive.ready.$1" || bad "the liveness call $1 never started (no ready signal in 12 s): the overlap checks that follow prove nothing"; }
+await_file() { local _ tries=120; [ -n "$2" ] && tries=$2; for _ in $(seq 1 "$tries"); do [ -s "$1" ] && return 0; sleep 0.1; done; return 1; }   # a signal a stub wrote (bounded: 12 s, or the number of tenths of a second given)
+# need_held <ask|alive> <N>…: wait (60 s, bounded: a call can be slow to get here, e.g. the 6 s liveness wait below, on a loaded runner) until call N has ENTERED its hold. ready.N and holding.N are written in two steps, so a test that acts, and later samples whether the call
+# is held, waits for holding.N (it implies ready.N); a call that never gets there fails its check by name
+need_held() { local kind=$1 n; shift; for n in "$@"; do await_file "$T/$kind.holding.$n" 600 || bad "the $kind call $n never entered its hold (no holding signal in 60 s): the overlap checks that follow prove nothing"; done; }
 # the proof that a run really overlapped a call, not only that the overlap was arranged: IN FLIGHT = the call has signaled it started, its hold file is still there and it has not left its hold
-# (no released.N yet; holding.N says it entered the hold), asked at the moment the other run is done; FREED = it left its hold because the test removed the file (not because the stub's own clock bound ended it)
+# (no released.N yet; holding.N says it entered the hold, and the test waited for it BEFORE acting), asked at the moment the other run is done: held before and still held after means held throughout; FREED = it left its hold because the test removed the file (not because the stub's own clock bound ended it)
 ask_held() { [ -s "$T/ask.ready.$1" ] && [ -e "$T/ask.holding.$1" ] && [ -e "$T/ask.hold.$1" ] && [ ! -e "$T/ask.released.$1" ] && echo yes || echo no; }
 ask_freed() { [ "$(cat "$T/ask.released.$1" 2>/dev/null)" = released ] && echo yes || echo no; }
 alive_held() { [ -s "$T/alive.ready.$1" ] && [ -e "$T/alive.holding.$1" ] && [ -e "$T/alive.hold.$1" ] && [ ! -e "$T/alive.released.$1" ] && echo yes || echo no; }
@@ -568,7 +575,7 @@ run; ORDER=$(tr '\n' ' ' < "$T/order.log")
 reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example" "$KEY2=second"; patch "$KEY2" raised=true 'raised_item="item-seed"'; : > "$T/ask.hold.1"
 export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-need_ask 1
+need_held ask 1
 t0=$(date +%s%N); run --reset "$KEY2"; t1=$(date +%s%N); HELD=$(ask_held 1)
 [ "$RC" = 0 ] && [[ $OUT == *"cleared the ledger entry"* ]] && [ $(( (t1 - t0) / 1000000 )) -lt 3000 ] && ok "a slow raise does not block \`--reset\` of another project (it ran during the call, in under 3 s)" || bad "reset blocked: rc=$RC [$OUT] $(( (t1 - t0) / 1000000 )) ms"
 rm -f "$T/ask.hold.1"; wait "$BG"
@@ -577,7 +584,7 @@ rm -f "$T/ask.hold.1"; wait "$BG"
 # a reset of the SAME project during the call wins: the result is set aside
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; : > "$T/ask.hold.1"
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-need_ask 1
+need_held ask 1
 run --reset "$KEY"; HELD=$(ask_held 1); rm -f "$T/ask.hold.1"; wait "$BG"
 [ "$HELD" = yes ] && [ "$(ask_freed 1)" = yes ] && ok "...proof of the overlap: the raise was in flight when the same project was reset, and left its hold only when the test released it" || bad "same-project reset overlap not proved: in flight=$HELD freed=$(ask_freed 1)"
 [ "$RC" = 0 ] && [ "$(cat "$T/bg.rc")" = 0 ] && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY raise_token)" = "" ] && [ "$(led $KEY attempts)" = 0 ] && grep -q "reset while the board item" "$T/bg.out" && ok "a \`--reset\` of the same project during the call wins: the entry stays cleared and the run says the result was not recorded" || bad "reset lost: $(cat "$L") [$(cat "$T/bg.out")]"
@@ -599,7 +606,7 @@ mark() { patch "$KEY" next_try=0 attempts=2 failures=2 retire_needed=true; }   #
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark
 echo 30 > "$T/loadavg"; : > "$T/ask.hold.1"; export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-need_ask 1
+need_held ask 1
 MARK=$(led $KEY raising_at); echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
 NOW=$((N0+1)) run; SECOND=$OUT; HELD=$(ask_held 1); rm -f "$T/ask.hold.1"; wait "$BG"
 [ "$HELD" = yes ] && [ "$(ask_freed 1)" = yes ] && ok "...proof of the overlap: the filing was in flight (held) while the second run ran, and left its hold only when the test released it" || bad "second run overlap not proved: in flight=$HELD freed=$(ask_freed 1)"
@@ -613,7 +620,7 @@ patch "$KEY" raising_at=$((N0-1000)); run
 # a start that worked meanwhile (by a run that ignored a stale mark) is not told to the owner as a failure: the first run's item is not recorded
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; : > "$T/ask.hold.1"
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-need_ask 1
+need_held ask 1
 patch "$KEY" retire_needed=false attempts=0 failures=0 started_at=$N0; HELD=$(ask_held 1); rm -f "$T/ask.hold.1"; wait "$BG"
 [ "$HELD" = yes ] && [ "$(ask_freed 1)" = yes ] && ok "...proof of the overlap: the filing was in flight when the start was recorded, and left its hold only when the test released it" || bad "recorded start overlap not proved: in flight=$HELD freed=$(ask_freed 1)"
 [ "$(led $KEY raised)" = False ] && [ "$(led $KEY raising_at)" = 0 ] && [ "$(led $KEY started_at)" = "$N0" ] && grep -q "no longer stuck" "$T/bg.out" && ok "a success recorded during the call: the item is not recorded, the entry as it is stays" || bad "late failure item: $(cat "$L") [$(cat "$T/bg.out")]"
@@ -636,7 +643,7 @@ run --reset "$KEY" >/dev/null; [ "$(led $KEY raise_failures)" = 0 ] && ok "\`--r
 reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example" "$KEY2=second"
 patch "$KEY" next_try=0 attempts=1 failures=1 retire_needed=true stale=true; patch "$KEY2" raised=true 'raised_item="item-seed"'; echo "$NAME" > "$T/alive.txt"; : > "$T/alive.hold.1"
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-need_alive 1
+need_held alive 1
 t0=$(date +%s%N); run --reset "$KEY2"; t1=$(date +%s%N); HELD=$(alive_held 1)
 [ "$RC" = 0 ] && [[ $OUT == *"cleared the ledger entry"* ]] && [ $(( (t1 - t0) / 1000000 )) -lt 3000 ] && ok "a slow liveness check does not block \`--reset\` (it ran during the probe, in under 3 s)" || bad "reset blocked by a probe: rc=$RC [$OUT] $(( (t1 - t0) / 1000000 )) ms"
 rm -f "$T/alive.hold.1"; wait "$BG"
@@ -676,7 +683,7 @@ rm -f "$T/alive.rc"; NOW=$((N0+1)) run
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark
 echo 30 > "$T/loadavg"; echo 6 > "$T/alive.sleep"; : > "$T/ask.hold.1"; export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-need_ask 1; rm -f "$T/alive.sleep"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; MARK=$(led $KEY raising_at)
+need_held ask 1; rm -f "$T/alive.sleep"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; MARK=$(led $KEY raising_at)
 NOW=$((N0+195)) run; SECOND=$OUT; HELD=$(ask_held 1); rm -f "$T/ask.hold.1"; wait "$BG"; unset SALA_BGAGENTS_RAISE_TIMEOUT
 [ "$HELD" = yes ] && [ "$(ask_freed 1)" = yes ] && ok "the first run's filing was in flight (held) when the second run ran, and left its hold only when the test released it" || bad "mark overlap not proved: in flight=$HELD freed=$(ask_freed 1)"
 [ "$MARK" -ge $((N0+6)) ] && [ "$(calls "$T/spawn.log")" = 0 ] && [[ $SECOND == *"another run is filing its board item"* ]] && ok "the filing mark is the clock when filing begins (after the probes), so a run a whole window after the first one's start still leaves the project alone" || bad "mark at run start: mark=$MARK spawn=$(calls "$T/spawn.log") [$SECOND]"
@@ -685,9 +692,9 @@ NOW=$((N0+195)) run; SECOND=$OUT; HELD=$(ask_held 1); rm -f "$T/ask.hold.1"; wai
 #     Both filings are held (calls 1 and 2) and released by the test, A's first: the order is decided by the hold files alone
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; : > "$T/ask.hold.1"; : > "$T/ask.hold.2"; export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( FAKE_CLIENT_FAIL=1 SALA_BGAGENTS_NOW=$N0 $S > "$T/a.out" 2>&1; echo $? > "$T/a.rc" ) & PA=$!
-need_ask 1; MKA=$(led $KEY raising_at)      # B's clock is A's recorded mark plus the window (195 s), however long A took to get there
+need_held ask 1; MKA=$(led $KEY raising_at)      # B's clock is A's recorded mark plus the window (195 s), however long A took to get there
 ( SALA_BGAGENTS_NOW=$((MKA+195)) $S > "$T/b.out" 2>&1; echo $? > "$T/b.rc" ) & PB=$!
-need_ask 2; BOTH=$(ask_held 1)$(ask_held 2)      # both filings are in flight: A's (the expired one) and B's (the retry)
+need_held ask 2; BOTH=$(ask_held 1)$(ask_held 2)      # both filings are in flight: A's (the expired one) and B's (the retry)
 rm -f "$T/ask.hold.1"; wait "$PA"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
 RF=$(led $KEY raise_failures); MK=$(led $KEY raising_at)
 NOW=$((MKA+200)) run; THIRD=$OUT; HELD2=$(ask_held 2); rm -f "$T/ask.hold.2"; wait "$PB"; unset SALA_BGAGENTS_RAISE_TIMEOUT
@@ -698,7 +705,7 @@ NOW=$((MKA+200)) run; THIRD=$OUT; HELD2=$(ask_held 2); rm -f "$T/ask.hold.2"; wa
 # (c) a liveness answer taken before another run started the same agent is dropped when the lock is taken again (run A's check is held after it decided its answer)
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; patch "$KEY" next_try=0 attempts=1 failures=0 retire_needed=false started_at=$((N0-100)); : > "$T/alive.hold.1"
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-need_alive 1
+need_held alive 1
 NOW=$((N0+1)) run; HELD=$(alive_held 1); rm -f "$T/alive.hold.1"; wait "$BG"
 [ "$HELD" = yes ] && [ "$(alive_freed 1)" = yes ] && ok "the first run's liveness check was in flight (held, its answer already decided) when the second run started the agent, and left its hold only when the test released it" || bad "overtaken answer overlap not proved: in flight=$HELD freed=$(alive_freed 1)"
 [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY started_at)" = $((N0+1)) ] && [ "$(cat "$T/bg.rc")" = 0 ] && grep -q "was overtaken by another run" "$T/bg.out" && ok "a \"not live\" answer is dropped when another run started the agent meanwhile: one start, not two, and the log says so" || bad "stale answer used: spawn=$(calls "$T/spawn.log") $(cat "$L") [$(cat "$T/bg.out")]"
@@ -723,7 +730,7 @@ reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=ex
 # the stub ends a hold by the clock at half the filing timeout (45 s with the 90 s timeout below), so the timeout never fails the held filing; the window is then 2 x 90 + 15 = 195 s, which the second run's clock passes
 export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( FAKE_CLIENT_FAIL=1 SALA_BGAGENTS_NOW=$N0 $S > "$T/a.out" 2>&1; echo $? > "$T/a.rc" ) & PA=$!
-need_ask 1; MKA=$(led $KEY raising_at); echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
+need_held ask 1; MKA=$(led $KEY raising_at); echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
 NOW=$((MKA+195)) run; BOUT=$OUT; HELD=$(ask_held 1); rm -f "$T/ask.hold.1"; wait "$PA"; unset SALA_BGAGENTS_RAISE_TIMEOUT
 [ "$HELD" = yes ] && [ "$(ask_freed 1)" = yes ] && ok "proof of the overlap: the first filing was still in flight (held) when the second run finished, and left its hold only when the test released it (not by its own clock)" || bad "recovery overlap not proved: in flight=$HELD freed=$(ask_freed 1)"
 [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY started_at)" -ge $((MKA+195)) ] && ok "the window ran out, a second run started the project during the first one's filing" || bad "second run: spawn=$(calls "$T/spawn.log") $(cat "$L") [$BOUT]"
@@ -744,6 +751,13 @@ reset; echo pk > "$T/ask.failkey"
 for i in $(seq 1 12); do "$T/bin/alive" "n$i" & "$T/bin/ask" --project pk 2>/dev/null & done; wait
 got=""; for i in $(seq 1 12); do [ -s "$T/alive.ready.$i" ] && [ -s "$T/ask.ready.$i" ] && [ -e "$T/alive.claim.$i" ] && [ -e "$T/ask.claim.$i" ] && got="$got$i "; done
 [ "$got" = "1 2 3 4 5 6 7 8 9 10 11 12 " ] && [ "$(ls "$T"/alive.claim.* "$T"/ask.claim.* | wc -l)" = 24 ] && ok "twelve concurrent calls of each stub take twelve different numbers (claimed before anything is signaled)" || bad "call numbers shared: got [$got] $(ls "$T" | grep -c claim) claims"
+# (j) (stdin is /dev/null: the fake client reads its stdin for a question) the stubs record WHY a hold ended where the loop sees it: the clock's deadline is "bound" (nobody removed the file: a 2 s filing timeout gives a 1 s bound), the test's removal is "released"
+reset; : > "$T/ask.hold.1"; SALA_BGAGENTS_RAISE_TIMEOUT=2 "$T/bin/ask" --project k < /dev/null > /dev/null 2>&1
+[ "$(cat "$T/ask.released.1" 2>/dev/null)" = bound ] && ok "a hold nobody released ends by the clock and is recorded as bound" || bad "bound not recorded: [$(cat "$T/ask.released.1" 2>/dev/null)]"
+reset; : > "$T/ask.hold.1"; : > "$T/alive.hold.1"
+( SALA_BGAGENTS_RAISE_TIMEOUT=90 "$T/bin/ask" --project k < /dev/null > /dev/null 2>&1 ) & PK=$!; ( "$T/bin/alive" some-name < /dev/null > /dev/null 2>&1 ) & PL=$!
+need_held ask 1; need_held alive 1; rm -f "$T/ask.hold.1" "$T/alive.hold.1"; wait "$PK" "$PL"
+[ "$(cat "$T/ask.released.1" 2>/dev/null)" = released ] && [ "$(cat "$T/alive.released.1" 2>/dev/null)" = released ] && ok "a hold the test removed is recorded as released (board-item and liveness stubs)" || bad "released not recorded: [$(cat "$T/ask.released.1" 2>/dev/null)] [$(cat "$T/alive.released.1" 2>/dev/null)]"
 # (f) the subcommand table describes the shipped timer
 ! grep -q "No timer is shipped" "$ROOT/docs/subcommands.md" && grep -q 'sala-bg-agents.timer' "$ROOT/docs/subcommands.md" && ok "docs/subcommands.md says the timer ships in systemd/ (not that none ships)" || bad "subcommands.md timer sentence"
 
