@@ -42,6 +42,7 @@ SALA_OWNER_NAME=$(printf '%s' "$SALA_OWNER_NAME" | tr -cd "[:alnum:] ._'-")
 SALA_OWNER_NAME="${SALA_OWNER_NAME:0:40}"; [ -n "${SALA_OWNER_NAME//[[:space:]]/}" ] || SALA_OWNER_NAME="the owner"
 export SALA_OWNER_NAME                            # python helpers (guard, question, permissions) read it from the environment
 : "${SALA_LOG_DIR:=$HOME/.claude}"                # revive/rc logs + rc stop marker
+case $SALA_LOG_DIR in /*) ;; *) SALA_LOG_DIR=$HOME/$SALA_LOG_DIR;; esac   # a relative folder is under $HOME, as sala-web reads it (web/src/sala_web/config.py): never under a process's own working directory
 : "${SALA_RESURRECT_DIR:=$HOME/.local/share/tmux/resurrect}"   # tmux-resurrect saves (the pane map lived here once; a symlink stays)
 : "${SALA_RESURRECT_SAVE:=$HOME/.tmux/plugins/tmux-resurrect/scripts/save.sh}"   # full snapshot (spawn runs it)
 : "${SALA_CLAUDE:=$(command -v claude 2>/dev/null || echo "$HOME/.local/bin/claude")}"

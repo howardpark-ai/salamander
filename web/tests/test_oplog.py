@@ -4,6 +4,8 @@ The tests drive the app in process (starlette's TestClient) over a log folder th
 """
 
 import os
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,6 +15,7 @@ from sala_web import oplog as OL
 from sala_web.app import create_app
 from sala_web.config import Settings
 
+ROOT = Path(__file__).resolve().parents[2]
 ID = "1795241896-3776744"          # the shape `sala op` builds an id in: the epoch second and the process id
 HEADERS = {
     "cache-control": "private, no-store",
@@ -266,3 +269,68 @@ def test_the_log_dir_is_the_one_setting_both_sides_read(tmp_path, monkeypatch):
     assert factory() == Path.home() / "other logs"
     monkeypatch.setenv("SALA_LOG_DIR", str(tmp_path / "env"))
     assert factory() == tmp_path / "env"                                   # the environment still wins, as for every sala setting
+    monkeypatch.delenv("SALA_LOG_DIR")
+    monkeypatch.setenv("HOME", str(tmp_path / "h"))
+    monkeypatch.chdir(tmp_path)
+    cfg.write_text("SALA_LOG_DIR=logs\n")
+    assert factory() == tmp_path / "h" / "logs"                            # a relative folder is under $HOME (as the CLI reads it), never the working folder
+    monkeypatch.setenv("SALA_LOG_DIR", "a/b")
+    assert factory() == tmp_path / "h" / "a" / "b"
+
+
+# The CLI's own post, run as the CLI runs it (lib/common.sh and lib/op.sh sourced, the real op_post, Slack a printed line), then its link followed
+# through the web app built the way the service builds it: no sala environment of its own, only the default config file under the same HOME.
+CLI_POST = r"""
+set -u
+. "$ROOT/lib/common.sh"; . "$ROOT/lib/op.sh"
+sala_notify_raw() { printf '%s\n' "$1"; }
+OP_PF=(); OP_PL=()
+mkdir -p "$SALA_OP_DIR" "$SALA_LOG_DIR"
+printf 'id=%s\ntime=%s\nfrom=sala-test-h\nwords=w\nverb=model\narg=sala-test-a\narg=--clear\nstate=done\n' "$ID" 1795241896 > "$SALA_OP_DIR/$ID.op"
+printf '%s' "$LOGTEXT" > "$(op_oplog "$ID")"
+op_post "$ID" done 1 0 sala-test-a
+"""
+CLI_LOG = "[2026-11-02T10:00:00Z] op: cleared the model\nthe verb's own output\n"
+CLI_CASES = {
+    # name: (default config's text, the CLI's own SALA_CONFIG text or None, extra CLI environment, CLI working folder, link expected)
+    "default folder": (None, None, {}, "", True),
+    "moved in the config": ("SALA_LOG_DIR=~/moved\n", None, {}, "", True),
+    "relative in the config, CLI run from elsewhere": ("SALA_LOG_DIR=logs\n", None, {}, "elsewhere", True),
+    "a CLI-only SALA_CONFIG": (None, "SALA_LOG_DIR=~/cli-only\n", {}, "", False),
+    "a CLI-only SALA_LOG_DIR": (None, None, {"SALA_LOG_DIR": "@cli-only"}, "", False),
+    "a CLI-only relative SALA_LOG_DIR": (None, None, {"SALA_LOG_DIR": "elsewhere-logs"}, "", False),
+    "the config's line wins over the CLI's environment, as it does for the CLI": ("SALA_LOG_DIR=~/moved\n", None, {"SALA_LOG_DIR": "@cli-only"}, "", True),
+}
+
+
+@pytest.mark.parametrize("case", list(CLI_CASES))
+def test_the_link_the_cli_posts_opens_the_log_or_is_not_posted(tmp_path, monkeypatch, case):
+    default_cfg, cli_cfg, extra, cwd, linked = CLI_CASES[case]
+    home = tmp_path / "home"
+    (home / ".config" / "salamander").mkdir(parents=True)
+    default = home / ".config" / "salamander" / "config"
+    if default_cfg:
+        default.write_text(default_cfg)
+    other = tmp_path / "cli.conf"
+    if cli_cfg:
+        other.write_text(cli_cfg)
+    work = tmp_path / (cwd or "work")
+    work.mkdir()
+    cli_env = {k: str(home / v[1:]) if v.startswith("@") else v for k, v in extra.items()}
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "ROOT": str(ROOT), "ID": ID, "LOGTEXT": CLI_LOG,
+           "SALA_CONFIG": str(other if cli_cfg else default), "SALA_SESSION_URL": "https://sala.example/#s={name}", **cli_env}
+    out = subprocess.run(["bash", "-c", CLI_POST], env=env, cwd=work, capture_output=True, text=True, timeout=60, check=True).stdout.splitlines()[-1]
+    m = re.search(r"<https://sala\.example(/op/[^|>]+)\|log>$", out)
+    assert bool(m) == linked, out
+    # the web service: no sala environment, the same HOME, its own working folder
+    for k in ("SALA_CONFIG", "SALA_LOG_DIR", "SALA_WEB_LOG_DIR"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    web = TestClient(create_app(make_settings(tmp_path)))
+    r = web.get(m.group(1) if m else f"/op/{ID}")
+    if linked:
+        assert r.status_code == 200 and r.text == CLI_LOG, (case, r.status_code)     # the link the CLI posted opens the log it wrote
+    else:
+        assert r.status_code == 404, case             # the page would not have found it: that is why the post names the file instead
+        assert "/op/" not in out and out.endswith(f"salamander-op-{ID}.log"), out

@@ -714,16 +714,25 @@ for tpl in 'https://sala.example/#s={name}' 'https://sala.example:8443/x/#s={nam
     esac
     [ "$P" = "$want" ] && [ "$(nposts "asked by sala-test-h")" = 1 ] && ok "SALA_SESSION_URL='${tpl:-<empty>}': one line, the log as expected" || bad "post for '$tpl': [$P] want [$want]"
 done
-echo "== …the log folder is sala's one setting SALA_LOG_DIR, read from the config file by the CLI and by sala-web alike: a folder moved there still gets the link (the runner's environment names no web setting)"
-mkdir -p "$HOME/custom-logs"; printf 'SALA_LOG_DIR=~/custom-logs   # moved\n' > "$HOME/moved.conf"
-for tpl in 'https://sala.example/#s={name}' ''; do
+echo "== …the log folder is sala's one setting SALA_LOG_DIR: the link is given only when it is what sala-web reads (the default config file's line, a relative folder under \$HOME); a CLI-only SALA_CONFIG or SALA_LOG_DIR gets the path"
+DEFCFG="$HOME/.config/salamander/config"; mkdir -p "$(dirname "$DEFCFG")"; printf 'SALA_LOG_DIR=~/custom-logs  # moved\n' > "$DEFCFG"; printf 'SALA_LOG_DIR=~/cli-only\n' > "$HOME/cli.conf"
+oplink() {  # <name> <want: link|path> <folder under $HOME> <cwd> <address> <env words…> → one operation run with that environment, its post and files checked
+    local nm="$1" want="$2" dir="$3" cwd="$4" tpl="$5" P w; shift 5
     KL=$((KL+1)); KI="$KL-$KL"; mkop "$KI" model sala-test-a --clear; : > "$POSTS"; SALA_OP_STUCK=off tick
-    SALA_CONFIG="$HOME/moved.conf" SALA_SESSION_URL="$tpl" SALA_OP_STUCK=off runop "$KI"
-    P=$(post "asked by sala-test-h")
-    if [ -n "$tpl" ]; then want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · <https://sala.example/op/$KI|log>"
-    else want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · log ~/custom-logs/salamander-op-$KI.log"; fi
-    [ "$P" = "$want" ] && [ -f "$HOME/custom-logs/salamander-op-$KI.out" ] && ok "SALA_LOG_DIR moved in the config, address $([ -n "$tpl" ] && echo set || echo unset): the line as expected, the operation's files in the moved folder" || bad "post with a moved log folder, address '$tpl': [$P] want [$want] / $(ls "$HOME/custom-logs")"
-done
+    ( cd "$cwd" && env "$@" SALA_SESSION_URL="$tpl" SALA_OP_STUCK=off SALA_CGROUP_FILE="$HOME/op-unit.cgroup" "$SALA" op --run "$KI" >/dev/null 2>&1 )
+    P=$(post "asked by sala-test-h"); w="✅ *cleared the model of sala-test-a* · asked by sala-test-h · "
+    if [ "$want" = link ] && [ -n "$tpl" ]; then w+="<https://sala.example/op/$KI|log>"; else w+="log ~/$dir/salamander-op-$KI.log"; fi
+    [ "$P" = "$w" ] && [ -f "$HOME/$dir/salamander-op-$KI.out" ] && ok "$nm" || bad "$nm: [$P] want [$w] / $(ls "$HOME/$dir" 2>&1 | tr '\n' ' ')"
+}
+mkdir -p "$HOME/rel-logs" "$HOME/cli-only" "$HOME/env-logs"
+oplink "SALA_LOG_DIR moved in the default config, address set: the link" link custom-logs "$HOME" 'https://sala.example/#s={name}' SALA_CONFIG="$DEFCFG"
+oplink "SALA_LOG_DIR moved in the default config, no address: the path in the moved folder" link custom-logs "$HOME" '' SALA_CONFIG="$DEFCFG"
+printf 'SALA_LOG_DIR=rel-logs\n' > "$DEFCFG"
+oplink "a relative SALA_LOG_DIR in the config, run from another folder: under \$HOME, and the link" link rel-logs / 'https://sala.example/#s={name}' SALA_CONFIG="$DEFCFG"
+oplink "a CLI-only SALA_CONFIG naming another folder: the path, no link to a page that would 404" path cli-only "$HOME" 'https://sala.example/#s={name}' SALA_CONFIG="$HOME/cli.conf"
+rm -f "$DEFCFG"
+oplink "a CLI-only SALA_LOG_DIR in the environment: the path, no link" path env-logs "$HOME" 'https://sala.example/#s={name}' SALA_CONFIG=/dev/null SALA_LOG_DIR="$HOME/env-logs"
+oplink "a CLI-only relative SALA_LOG_DIR in the environment: under \$HOME, the path, no link" path env-logs / 'https://sala.example/#s={name}' SALA_CONFIG=/dev/null SALA_LOG_DIR=env-logs
 rm -f "$HOME/norun"
 
 [ "$fail" = 0 ] && echo "op: pass" || echo "op: FAIL"
