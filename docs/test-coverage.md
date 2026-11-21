@@ -84,6 +84,22 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +60, 152 (Sat Nov 21st 2026)
+
+`sala bg-agents` raises ONE board item for the owner when a project reaches the attempt cap or an agent it listed did not start. Kept because this is the only place the owner learns that a project
+the job cannot start stays without its background agent: a wrong answer is silence (nobody told), the same question filed every ten minutes, a failed raise counted as a failure of the project, or a raise
+that eats the run's one attempt. Checked against `tests/fake-stackshot-client.py` (which enforces the board's limits on `post question`) and a stub for the instance's prefixes: given up raises exactly one
+item in that run, with the project page, the sender label, the subject, three options with one recommended, text in everyday words (no exit code, command or path) and the last problem in one sentence,
+and counts nothing against the project; later runs raise nothing more; a retire-needed project raises one item (a different text), also not twice, and a start that works later raises nothing; a failing,
+a timing-out and a missing client say `board item needed: <project>`, exit 1, leave `raised` unset, change neither attempts, failures nor back-off, leave the run's attempt to the next project, and are retried
+with the same request id; a cleared ledger entry that gives up again raises again with a new request id; a stuck project that has left the list raises nothing; `--dry-run` raises and writes nothing;
+`--status` says "board item raised" or "not raised yet"; the subject's bracket (setting, project scope, default scope, the instance's prefixes, none to be had) and a malformed setting refused.
+`--reset KEY` (what a session runs when the owner answers "Keep trying later"): one line says what was cleared; attempts, failures, back-off, retire needed, the board item and the last outcome are cleared while the
+agent, its listing and its start time are kept, and the next run goes straight to the start (no second listing, attempt 1, nothing raised); a project stuck again raises a new item; a key with no entry (or no ledger) is refused
+with one line and exit 1 and nothing is created; it works with the switch off without reading the want list; `--dry-run` (either order) writes nothing; it stands aside while a run holds the lock; a missing key, a key with
+`--status` or two keys is a usage error; the item's text says a session resets the record, names no command, and still fits five lines when a project is stuck for both reasons.
+Not covered, and why: the real stackshot server (its checks of the ask and the options are the fake client's copy of them; the ask was also read through stackshot's own parser once by hand).
+
 ### `tests/bgagents.sh` new, 92 (Sat Nov 21st 2026)
 
 `sala bg-agents` (`lib/bgagents.sh`, `lib/bgagents.py`, `docs/bg-agents.md`), the fleet job that lists and starts a project's background engineer agent from stackshot's want list. Kept because it

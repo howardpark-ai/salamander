@@ -170,13 +170,16 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander job check [--post] [--quiet]   the unit-gap pass (sala-unit-gaps.path, the watch tick): a timer of ours with no Description=, no X-Model-Lane=
                                      or not in git is opened once as a board item (client.py post job-gap open; stackshot moves it by the builder of
                                      the repo that owns its script) and closed when it is fixed (post job-gap clear)
-  salamander bg-agents [--dry-run | --status]
+  salamander bg-agents [--dry-run | --status | --reset <project key> [--dry-run]]
                                      the fleet job that gives a project a background (engineer) agent when stackshot says it wants one (lib/bgagents.sh,
                                      lib/bgagents.py, docs/bg-agents.md): off unless SALA_BGAGENTS=on; reads `client.py background-wanted`, takes AT MOST ONE project a run
                                      (a load check first: 1-minute average under SALA_BGAGENTS_MAX_LOAD, 10), lists <name prefix>-engineer on it (`client.py post
                                      project-agent`, label sala-web) and starts the pane (`sala spawn … --role back`); a per-project ledger backs off after a failure (10 min, doubling,
                                      24 h cap) and gives up at SALA_BGAGENTS_MAX_ATTEMPTS (5). An agent it listed whose pane did not start is NOT taken off by the job: it says
-                                     `retire needed: <name>` and exits 1 (no path takes an agent off a project without the owner's words). --dry-run decides and does nothing; --status shows the ledger
+                                     `retire needed: <name>` and exits 1 (no path takes an agent off a project without the owner's words). A project it cannot start (given up, or a retire
+                                     needed) is raised ONCE as a board item for the owner (`client.py post question`; a failed raise says `board item needed: <project>`, exits 1, is retried).
+                                     --dry-run decides and does nothing; --status shows the ledger; --reset clears one project's ledger entry (a session runs it when the owner
+                                     answers "Keep trying later": the next run tries the project afresh; works with the switch off)
   salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
                                      the GitHub Actions runs of a repo, read from the file the CI-run poller keeps (no GitHub call): the JSON on
                                      stdout, cut to a head commit with --sha; exit 3 = no file for that repo, 4 = older than --max-age (default 120 s):
@@ -581,6 +584,7 @@ exit: 0 posted · 1 Slack answered an error (its code is printed) · 2 usage · 
 ### sala bg-agents --help (exit 0)
 usage: sala bg-agents [--dry-run]
        sala bg-agents --status
+       sala bg-agents --reset <project key> [--dry-run]
 
   A run (off unless SALA_BGAGENTS=on in the config): reads stackshot's want list (`client.py background-wanted`, one line `<project key> <name prefix>
           <front agent>` a project), takes AT MOST ONE project that is not in back-off or given up, checks the load (1-minute average under
@@ -588,9 +592,18 @@ usage: sala bg-agents [--dry-run]
           (`client.py post project-agent … --role engineer --back`, the label SALA_BGAGENTS_SENDER, sala-web) and starts its pane
           (`sala spawn <name> --project <key> --role back --mandate <line>`), then checks it is live. One line a decision. Exit 0 = the run finished (a skip and
           a failed project too), 1 = a retire is needed (`retire needed: <name>`: an agent this job listed could not be started and no path takes it off
-          without the owner's words), 2 = usage or a bad setting.
+          without the owner's words) or a board item is needed and could not be raised (`board item needed: <project>`, below), 2 = usage or a bad setting.
   --dry-run  the whole decision; nothing is posted, started or written (the want list and the load are read).
   --status   the ledger (<state>/bgagents.json), one line a project: attempts, failures, next try, state. Read-only; works with the switch off.
+  --reset    clears one project's ledger entry (attempts, failures, back-off, given up, retire needed, the board item, the last outcome) so the next run tries it afresh; the
+          agent's entry on the project is left as it is (the next run sees it already listed and goes to the start). A ledger edit, not a run: it works with the switch off,
+          writes atomically, prints one line, and refuses a key with no entry (exit 1). With --dry-run it says what it would clear and writes nothing. It is what a session runs
+          when the owner answers "Keep trying later" on the board item below; the owner never runs it.
+
+  A project it cannot start is never left silent: when one reaches the attempt cap ("given up") or an agent this job listed did not start (retire needed), the
+  job raises ONE board item for the owner (`client.py post question`: what happened in plain words, and three options), once per project; the ledger keeps
+  it (--status: "given up (board item raised)" or "(board item not raised yet)"). A raise that fails says `board item needed: <project>`, exits 1 and is tried
+  again at the next run. It is no attempt and no failure of the project. --dry-run raises nothing.
 
   Ledger and back-off: after a failure the project waits SALA_BGAGENTS_COOLDOWN seconds (600), doubled for every further failure up to
   SALA_BGAGENTS_COOLDOWN_MAX (86400); at SALA_BGAGENTS_MAX_ATTEMPTS (5) attempts it is left alone ("given up"). An entry is cleared only after its project

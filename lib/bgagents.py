@@ -10,6 +10,9 @@ check, a per-project ledger with a back-off and a maximum number of attempts. No
   sala bg-agents [--dry-run]     one run (SALA_BGAGENTS=on; off or unset: one line, nothing touched). --dry-run makes the whole decision and posts,
                                  spawns and writes nothing
   sala bg-agents --status        the ledger, one line a project: attempts, next try, state (read-only; also with the switch off)
+  sala bg-agents --reset KEY     clear that project's ledger entry (attempts, failures, back-off, given up, retire needed, the board item, the last outcome) so the next run tries it
+                                 afresh; the agent's entry on the project is left as it is. A ledger edit, not a run: works with the switch off; --dry-run says what it would clear
+                                 and writes nothing; a key with no entry is refused (exit 1)
 
 A run, in order:
   1. SALA_BGAGENTS is not `on`: one line, exit 0, nothing read, written or started.
@@ -36,7 +39,17 @@ SALA_BGAGENTS_LOADAVG (/proc/loadavg), SALA_BGAGENTS_RECORD_GRACE (900), SALA_BG
 SALA_BGAGENTS_SPAWN_TIMEOUT (300), and the four commands SALA_BGAGENTS_LIST_CMD, _POST_CMD, _SPAWN_CMD, _ALIVE_CMD (the suites stub them);
 SALA_PROJECT_RECORD and SALA_PROJECT_RECORD_MAX_AGE (stackshot's project record, as spawn reads it), SALA_TZ (the zone times are shown in),
 SALA_OWNER_NAME (the mandate's default text). SALA_BGAGENTS_NOW is the suites' clock.
-Exit: 0 = the run finished (also when it skipped or a project failed), 1 = a retire is needed, 2 = usage or a bad setting.
+A PROJECT IT CANNOT START NEVER STAYS SILENT. When a project reaches the attempt cap ("given up") or the ledger sets retire_needed (an agent this job listed
+whose pane did not start), the job raises ONE board item for the owner through stackshot's client (`client.py post question`: a decision item with a short
+ask and three options; the want list's project is its page), once per project: the ledger's `raised` is set with the item's id and the time, and it is set
+again only after the project's entry was cleared (the reset) and it gives up again. The raise is no attempt and no failure of the project: it does not take the
+run's one attempt, and a raise that fails (no client, the client refused or timed out) leaves `raised` false, says `board item needed: <project>` and is tried
+again at the next run (the request id kept in the ledger makes a repeat file nothing twice). --dry-run raises nothing.
+
+Settings of the raise: SALA_BGAGENTS_ASK_CMD (the filing command, `client.py post question`), SALA_BGAGENTS_PREFIXES_CMD (`client.py get config`, read for
+the instance's subject prefixes), SALA_BGAGENTS_SUBJECT_PREFIX (the subject's bracket, "[scope] ": unset = the project's own scope in the project record,
+else SALA_DEFAULT_SCOPE, else the first of SALA_SCOPES, the first of them the instance has as a prefix, else the instance's first prefix).
+Exit: 0 = the run finished (also when it skipped or a project failed), 1 = a retire is needed or a board item is needed and could not be raised, 2 = usage or a bad setting.
 """
 import fcntl
 import json
@@ -54,6 +67,13 @@ ROLE = "engineer"
 NAME_MAX = 48
 KEY_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$")
 PREFIX_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+ASK_SENDER = "sala-bg-agents"       # the filing script's own label on the board item
+SUBJECT_MAX = 80
+BRACKET_RE = re.compile(r"^\[[A-Za-z0-9._-]+\] $")
+OPTIONS = (("Keep trying later", "A session resets the project's record, and the job tries again from the first attempt."),
+           ("Leave it without one", "The project goes on without a background agent."),
+           ("I will start it by hand", "You start the agent yourself; the job leaves the project alone."))
+RECOMMENDED = OPTIONS[0][0]
 DEFAULT_MANDATE = ("Handles outside events (mail, Slack, GitHub) for this project and builds what needs no decision of {owner}, "
                    "so the front agent serves only {owner}")
 
@@ -95,6 +115,12 @@ def mandate_text():
 
 def mandate_ok(m):
     return 0 < len(m) <= 600 and not re.search(r"[\x00-\x1f\x7f\\]", m)
+
+
+def first_word(name):
+    """The first blank-separated word of a setting, kept to the characters a subject bracket takes."""
+    w = os.environ.get(name, "").split()
+    return re.sub(r"[^A-Za-z0-9._-]", "", w[0]) if w else ""
 
 
 def cmd_words(name):
@@ -167,7 +193,8 @@ def last_line(text, n=160):
 # ---- the ledger -----------------------------------------------------------------------------------------------------------------
 
 BLANK = {"prefix": "", "agent": "", "attempts": 0, "failures": 0, "next_try": 0, "created": False, "posted_at": 0, "started_at": 0, "retired": False,
-         "retire_needed": False, "awaiting_record": False, "last": "", "last_at": 0, "absent_since": 0}
+         "retire_needed": False, "awaiting_record": False, "last": "", "last_at": 0, "absent_since": 0,
+         "last_plain": "", "raised": False, "raised_at": 0, "raised_item": "", "raise_token": ""}
 
 
 class Ledger:
@@ -219,7 +246,7 @@ def given_up(e, cfg):
 
 def state_of(e, cfg, now):
     if given_up(e, cfg):
-        return "given up"
+        return "given up (board item %s)" % ("raised" if e["raised"] else "not raised yet")
     if e["retire_needed"]:
         return "retire needed (the agent's entry stays on the project; the start is tried again)"
     if e["next_try"] > now:
@@ -326,14 +353,15 @@ def backoff(failures, cfg):
     return min(cfg["cooldown"] * (2 ** max(0, failures - 1)), cfg["cooldown_max"])
 
 
-def fail(e, key, why, cfg, now, log, led, counts_attempt=False):
+def fail(e, key, why, cfg, now, log, led, counts_attempt=False, plain=""):
     """A project failure: the back-off grows. counts_attempt: a failure the job only observed (relisted, still listed) is one more attempt too, so a project
-    that never settles is given up like one that never starts."""
+    that never settles is given up like one that never starts. plain: the same failure in one everyday sentence, kept for the board item (last_plain)."""
     if counts_attempt:
         e["attempts"] += 1
     e["failures"] += 1
     e["next_try"] = int(now + backoff(e["failures"], cfg))
     e["last"], e["last_at"] = "failed: " + why, now
+    e["last_plain"] = plain
     if given_up(e, cfg):
         log.say("failed", "%s: %s; attempt %d of %d: given up, left alone from now on" % (key, why, e["attempts"], cfg["max_attempts"]))
     else:
@@ -350,17 +378,19 @@ def retire_own_agent(key, name, e, log):
 
 
 def post_agent(cfg, key, name):
-    """-> (ok, created, why). created is False when stackshot says the agent was already listed (nothing changed)."""
+    """-> (ok, created, why, plain). created is False when stackshot says the agent was already listed (nothing changed). plain: the failure in one everyday sentence."""
     cmd = cfg["post_cmd"] + [key, name, "--role", ROLE, "--back", "--mandate", cfg["mandate"], "--sender", cfg["sender"]]
     if not cfg["post_cmd"]:
-        return False, False, "no stackshot client on this machine (SALA_BGAGENTS_POST_CMD)"
+        return False, False, "no stackshot client on this machine (SALA_BGAGENTS_POST_CMD)", "There is no stackshot client on this machine to add the agent to the project."
     rc, out = run(cmd, cfg["post_timeout"])
     if rc == 0:
-        return True, "nothing changed" not in out and "already listed" not in out.lower(), ""
+        return True, "nothing changed" not in out and "already listed" not in out.lower(), "", ""
     if rc == 124:
-        return False, False, "the post timed out (it may have gone through: the next attempt looks at the project record first)"
+        return False, False, "the post timed out (it may have gone through: the next attempt looks at the project record first)", "Adding the agent to the project took too long."
     m = re.search(r"\[(\d{3})\]\s*(.*)", out)
-    return False, False, ("HTTP %s: %s" % (m.group(1), last_line(m.group(2), 120)) if m else "the post failed (exit %d: %s)" % (rc, last_line(out, 120)))
+    plain = {"409": "The agent's name is already taken on a project, or waiting there for another sender.",
+             "403": "The project is hidden on the board, so the agent could not be added to it."}.get(m.group(1) if m else "", "Stackshot did not accept the request to add the agent to the project.")
+    return False, False, ("HTTP %s: %s" % (m.group(1), last_line(m.group(2), 120)) if m else "the post failed (exit %d: %s)" % (rc, last_line(out, 120))), plain
 
 
 def attempt(cfg, key, prefix, e, now, log, led):
@@ -379,9 +409,9 @@ def attempt(cfg, key, prefix, e, now, log, led):
     if skip:
         log.say("post", "%s: %s is %s; not listed again" % (key, name, "already on the project's map" if on_map else "listed by an earlier run (waiting for the record)"))
     else:
-        ok, created, why = post_agent(cfg, key, name)
+        ok, created, why, plain = post_agent(cfg, key, name)
         if not ok:
-            fail(e, key, "listing %s failed: %s" % (name, why), cfg, now, log, led)
+            fail(e, key, "listing %s failed: %s" % (name, why), cfg, now, log, led, plain=plain)
             return False
         if created:
             e["created"] = True
@@ -404,13 +434,142 @@ def attempt(cfg, key, prefix, e, now, log, led):
         return False
     e["awaiting_record"] = False
     why = "the start of %s %s" % (name, "timed out" if rc == 124 else ("failed (exit %d: %s)" % (rc, last_line(out, 100))) if rc != 0 else "did not come up (spawn said it was up, but it is not live)")
-    fail(e, key, why, cfg, now, log, led)
+    fail(e, key, why, cfg, now, log, led, plain="Starting the agent's session took too long." if rc == 124 else
+         ("The agent's session could not be started." if rc != 0 else "The agent's session started but did not stay up."))
     if e["created"] and not e["retired"]:
         needed = retire_own_agent(key, name, e, log)
         led.save()
         return needed
     log.say("keep", "%s: %s was not listed by this job; its entry is left as it is" % (key, name))
     return False
+
+
+# ---- the board item for a project it cannot start --------------------------------------------------------------------------------
+
+def needs_item(e, cfg):
+    """A project the job cannot start: at the attempt cap, or an agent it listed whose pane did not start (the retire step it may not take itself)."""
+    return given_up(e, cfg) or bool(e["retire_needed"])
+
+
+def run_split(cmd, timeout, stdin=None):
+    """-> (rc, stdout, stderr), the two kept apart (the client prints the answer on stdout and the reason on stderr); rc 124 for a timeout, 127 for a command that cannot be run."""
+    try:
+        p = subprocess.run(cmd, input=stdin, stdin=None if stdin is not None else subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, text=True, errors="replace")
+        return p.returncode, p.stdout, p.stderr
+    except subprocess.TimeoutExpired:
+        return 124, "", "timed out after %d s" % timeout
+    except OSError as e:
+        return 127, "", "cannot run %s: %s" % (cmd[0] if cmd else "(no command)", e.__class__.__name__)
+
+
+def record_scope(key):
+    """The project's scope in stackshot's project record (the file spawn reads), whatever its age; "" when it says none."""
+    path = os.environ.get("SALA_PROJECT_RECORD") or os.path.join(os.path.expanduser("~"), ".local", "state", "stackshot", "projects.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        pid = (d.get("by_key") or {}).get(key)
+        p = d["projects"].get(pid) if pid else None
+        if p is None:
+            p = next((v for v in d["projects"].values() if isinstance(v, dict) and v.get("key") == key), None)
+        return re.sub(r"[^A-Za-z0-9._-]", "", str(p.get("scope") or "")) if isinstance(p, dict) else ""
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return ""
+
+
+def instance_prefixes(cfg):
+    """The subject prefixes the stackshot instance takes (`client.py get config`: {"subject": {"prefixes": [...]}}), or [] when it cannot be read."""
+    if not cfg["prefixes_cmd"]:
+        return []
+    rc, out, _ = run_split(cfg["prefixes_cmd"], cfg["post_timeout"])
+    try:
+        v = json.loads(out)["subject"]["prefixes"] if rc == 0 else []
+        return [x for x in v if isinstance(x, str) and BRACKET_RE.match(x)]
+    except (ValueError, KeyError, TypeError):
+        return []
+
+
+def subject_prefix(cfg, key):
+    """-> the bracket a board subject for KEY opens with ("[scope] "), or "" when there is none to use. SALA_BGAGENTS_SUBJECT_PREFIX wins. Else the first of the
+    project's own scope (project record), SALA_DEFAULT_SCOPE and the first of SALA_SCOPES that the instance takes as a prefix; none of them: the instance's first
+    prefix; the instance not readable: the first of them as it is."""
+    if cfg["subject_prefix"]:
+        return cfg["subject_prefix"]
+    cands = []
+    for sc in (record_scope(key), cfg["default_scope"], cfg["first_scope"]):
+        b = "[%s] " % sc if sc else ""
+        if b and b not in cands:
+            cands.append(b)
+    known = instance_prefixes(cfg)
+    if known:
+        return next((c for c in cands if c in known), known[0])
+    return cands[0] if cands else ""
+
+
+def item_parts(cfg, key, e, prefix):
+    """-> (subject, ask, text lines, options): the owner's item in everyday words (no exit code, no command)."""
+    slug = key.split("/", 1)[-1]
+    n = e["failures"] or e["attempts"] or 1
+    times = "%d time%s" % (n, "" if n == 1 else "s")
+    subject = prefix + "%s wants a background agent and its start failed %s" % (slug, times)
+    if len(subject) > SUBJECT_MAX:
+        subject = subject[:SUBJECT_MAX - 1].rstrip() + "…"
+    ask = "Decide: what to do about the background agent of %s · Recommend: %s · Stakes: the project has no background agent until then · By: any time" % (slug, RECOMMENDED)
+    lines = ["%s wants a background agent (%s), and starting it has failed %s." % (slug, e["agent"] or "%s-%s" % (e["prefix"] or slug, ROLE), times),
+             "The last problem: %s" % (e["last_plain"] or "no reason was recorded.")]
+    if given_up(e, cfg):
+        lines.append("The job has stopped trying, so the project stays without a background agent until you decide.")
+    if e["retire_needed"]:
+        lines.append("The agent is still on the project although its session is not running, and the job may not take it off without your word.")
+    lines.append("If you pick \"%s\", a session resets the project's record and the job tries again." % RECOMMENDED)
+    return subject, ask, lines, list(OPTIONS)
+
+
+def raise_item(cfg, key, e, now, log, led, dry):
+    """Raise the one board item for KEY. -> True when it was raised (or would be, in a dry run), False when it could not be: `board item needed: KEY`, `raised` stays
+    false and the next run tries again. Never touches attempts, failures or the back-off, and never takes the run's one attempt."""
+    if dry:
+        log.say("plan", "%s: would raise one board item for the owner (%s)" % (key, "given up" if given_up(e, cfg) else "an agent this job listed did not start"))
+        return True
+
+    def needed(why):
+        log.say("raise", "board item needed: %s (could not be raised: %s); tried again at the next run" % (key, why))
+        return False
+
+    if not cfg["ask_cmd"]:
+        return needed("no stackshot client on this machine (SALA_BGAGENTS_ASK_CMD)")
+    prefix = subject_prefix(cfg, key)
+    if not prefix:
+        return needed("no subject prefix: set SALA_BGAGENTS_SUBJECT_PREFIX")
+    if not e["raise_token"]:
+        e["raise_token"] = "bgagents-%s-%d" % (key.split("/", 1)[-1], now)     # kept before the call: a retry after a timeout names the same question and files nothing twice
+        led.save()
+    subject, ask, lines, options = item_parts(cfg, key, e, prefix)
+    cmd = cfg["ask_cmd"] + ["--project", key, "--subject", subject, "--ask", ask, "--request-id", e["raise_token"], "--sender", ASK_SENDER]
+    for label, line in options:
+        cmd += ["--option", "%s=%s" % (label, line)]
+    cmd += ["--recommended", RECOMMENDED]
+    rc, out, err = run_split(cmd, cfg["post_timeout"], "\n".join(lines) + "\n")
+    item = (out.split() or [""])[0]
+    if rc != 0 or not item or len(item) > 40:
+        return needed("exit %d: %s" % (rc, last_line(err or out, 120)) if rc != 0 else "the client printed no item id")
+    e.update(raised=True, raised_at=now, raised_item=item)
+    log.say("raise", "%s: board item %s raised for the owner (%s)" % (key, item, "given up" if given_up(e, cfg) else "retire needed"))
+    led.save()
+    return True
+
+
+def raise_due(cfg, led, listed, now, log, dry, tried):
+    """Raise the item of every project that needs one and has none yet (on the want list, or an agent this job listed and has not started). -> how many could not be raised."""
+    bad = 0
+    for key in sorted(led.projects):
+        e = led.projects[key]
+        if key in tried or e["raised"] or not needs_item(e, cfg) or not (key in listed or pending(e)):
+            continue
+        tried.add(key)
+        if not raise_item(cfg, key, e, now, log, led, dry):
+            bad += 1
+    return bad
 
 
 def pending(e):
@@ -443,7 +602,8 @@ def one_run(cfg, dry, now, log):
     if not cands:
         log.say("idle", "nobody on the want list")
         return 0
-    retire = 0
+    retire, tried = 0, set()
+    unraised = raise_due(cfg, led, listed, now, log, dry, tried)    # a project already given up (or waiting on a retire) that nobody has been told about: before anything else, and no attempt
     for key, prefix, _front in cands:
         e = led.projects.get(key)
         if e is not None:
@@ -452,7 +612,8 @@ def one_run(cfg, dry, now, log):
                 continue
             if e["retired"] and key in listed:       # this job created the agent and retired it earlier, and the project wants one again
                 e["retired"], e["created"], e["posted_at"] = False, False, 0
-                fail(e, key, "listed again after this job created and retired its agent", cfg, now, log, led, counts_attempt=True)
+                fail(e, key, "listed again after this job created and retired its agent", cfg, now, log, led, counts_attempt=True,
+                     plain="The project asked for a background agent again after this job had added one and taken it off.")
                 continue
             if e["next_try"] > now:
                 log.say("skip", "%s: backing off until %s (attempt %d of %d)" % (key, local_text(e["next_try"]), e["attempts"], cfg["max_attempts"]))
@@ -460,7 +621,8 @@ def one_run(cfg, dry, now, log):
             if e["started_at"]:
                 if is_alive(cfg, e["agent"]):
                     if key in listed and now - e["started_at"] >= cfg["cooldown"]:
-                        fail(e, key, "still on the want list %s after its pane started (the pane is left running)" % dur_text(now - e["started_at"]), cfg, now, log, led, counts_attempt=True)
+                        fail(e, key, "still on the want list %s after its pane started (the pane is left running)" % dur_text(now - e["started_at"]), cfg, now, log, led, counts_attempt=True,
+                             plain="The agent's session is running, but the project kept asking for a background agent.")
                     elif key in listed:
                         log.say("skip", "%s: %s started %s ago; waiting for the project to leave the list" % (key, e["agent"], dur_text(now - e["started_at"])))
                     continue
@@ -468,10 +630,10 @@ def one_run(cfg, dry, now, log):
         load = load_average(cfg)
         if load is None:
             log.say("skip", "%s: the load average could not be read (%s); nothing attempted" % (key, cfg["loadavg"]))
-            return 0
+            return 1 if unraised else 0
         if load >= cfg["max_load"]:
             log.say("skip", "%s: load %.2f is at or above %g; nothing attempted, nothing counted" % (key, load, cfg["max_load"]))
-            return 0
+            return 1 if unraised else 0
         if dry:
             e2 = e or dict(BLANK)
             name = "%s-%s" % (prefix, ROLE)
@@ -480,12 +642,13 @@ def one_run(cfg, dry, now, log):
             step = ("skip the listing (%s)" % ("already on the map" if on_map else "listed by an earlier run")) if (on_map or e2["posted_at"]) \
                 else "list %s (%s, background; label %s)" % (name, ROLE, cfg["sender"])
             log.say("plan", "%s: would %s, then start its pane (sala spawn --project %s --role back); attempt %d of %d; load %.2f" % (key, step, key, e2["attempts"] + (0 if waiting else 1), cfg["max_attempts"], load))
-            return 0
+            return 1 if unraised else 0
         e = led.entry(key)
         if attempt(cfg, key, prefix, e, now, log, led):
             retire += 1
         break
-    return 1 if retire else 0
+    unraised += raise_due(cfg, led, listed, now, log, dry, tried)    # the attempt may have just taken the project to its cap or to a retire step
+    return 1 if (retire or unraised) else 0
 
 
 def status(cfg):
@@ -502,6 +665,10 @@ def status(cfg):
             extra = "; off the list since %s" % local_text(e["absent_since"])
         if e["last"]:
             extra += "; last: %s (%s)" % (e["last"], local_text(e["last_at"]))
+        if e["raised"] and not given_up(e, cfg):
+            extra += "; board item %s raised (%s)" % (e["raised_item"] or "-", local_text(e["raised_at"]))
+        elif e["raised"]:
+            extra += "; item %s (%s)" % (e["raised_item"] or "-", local_text(e["raised_at"]))
         print("%s  %s  attempts %d/%d  failures %d  next try %s  %s%s" % (key, e["agent"] or "-", e["attempts"], cfg["max_attempts"], e["failures"], nxt, state_of(e, cfg, now), extra))
     return 0
 
@@ -516,37 +683,93 @@ def config():
         "post_timeout": env_num("SALA_BGAGENTS_POST_TIMEOUT", 120.0), "spawn_timeout": env_num("SALA_BGAGENTS_SPAWN_TIMEOUT", 300.0),
         "list_cmd": cmd_words("SALA_BGAGENTS_LIST_CMD"), "post_cmd": cmd_words("SALA_BGAGENTS_POST_CMD"),
         "spawn_cmd": cmd_words("SALA_BGAGENTS_SPAWN_CMD"), "alive_cmd": cmd_words("SALA_BGAGENTS_ALIVE_CMD"),
+        "ask_cmd": cmd_words("SALA_BGAGENTS_ASK_CMD"), "prefixes_cmd": cmd_words("SALA_BGAGENTS_PREFIXES_CMD"),
+        "subject_prefix": os.environ.get("SALA_BGAGENTS_SUBJECT_PREFIX", ""),
+        "default_scope": first_word("SALA_DEFAULT_SCOPE"), "first_scope": first_word("SALA_SCOPES"),
     }
+
+
+RESET_FIELDS = ("attempts", "failures", "next_try", "retire_needed", "raised", "raised_at", "raised_item", "raise_token", "last", "last_at", "last_plain")
+USAGE = "usage: sala bg-agents [--dry-run | --status | --reset <project key> [--dry-run]]"
+
+
+def reset_project(cfg, key, dry, now, log):
+    """`--reset KEY`: a ledger edit, not a run (it works with the switch off). Clears the project's attempts, failures, back-off (so it is not given up), retire_needed, the board item
+    (raised, raised_at, raised_item, raise_token) and the last outcome, so the next run tries it afresh. The agent's entry on the project is left as it is: the ledger keeps the
+    agent, its listing and its start, so the next run sees the agent already listed and goes to the start. A key with no entry is refused (exit 1). Atomic like every write."""
+    path = cfg["ledger"]
+    if not os.path.exists(path):
+        print("bg-agents: no ledger entry for %s; nothing cleared" % key, file=sys.stderr)
+        return 1
+    lock = None
+    if not dry:
+        lock = os.open(path + ".lock", os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print("bg-agents: another run holds the lock; nothing cleared", file=sys.stderr)
+            return 1
+    led = Ledger(path, dry)
+    e = led.projects.get(key)
+    if e is None:
+        print("bg-agents: no ledger entry for %s; nothing cleared" % key, file=sys.stderr)
+        return 1
+    state = "given up" if given_up(e, cfg) else "retire needed" if e["retire_needed"] else "backing off" if e["next_try"] > now else "not stuck"
+    was = "attempts %d, failures %d, %s%s" % (e["attempts"], e["failures"], state, ", board item raised" if e["raised"] else "")
+    for f in RESET_FIELDS:
+        e[f] = BLANK[f]
+    log.say("reset", "%s: %s the ledger entry (was: %s); the next run tries it afresh, the agent's entry on the project is left as it is" % (key, "would clear" if dry else "cleared", was))
+    led.save()
+    return 0
 
 
 def main(argv):
     args = argv[1:]
     dry = stat = False
-    for a in args:
+    reset = None
+    i = 0
+    while i < len(args):
+        a = args[i]
         if a == "--dry-run":
             dry = True
         elif a == "--status":
             stat = True
+        elif a == "--reset":
+            if i + 1 >= len(args) or args[i + 1].startswith("-") or reset is not None:
+                print(USAGE, file=sys.stderr)
+                return 2
+            reset = args[i + 1]
+            i += 1
         elif a in ("-h", "--help"):
             print(__doc__)
             return 0
         else:
-            print("usage: sala bg-agents [--dry-run | --status]", file=sys.stderr)
+            print(USAGE, file=sys.stderr)
             return 2
-    if dry and stat:
-        print("usage: sala bg-agents [--dry-run | --status]", file=sys.stderr)
+        i += 1
+    if (dry and stat) or (stat and reset is not None):
+        print(USAGE, file=sys.stderr)
         return 2
     cfg = config()
     if stat:
         return status(cfg)
     now = now_s()
     log = Log(now, dry)
+    if reset is not None:
+        return reset_project(cfg, reset, dry, now, log)
     if os.environ.get("SALA_BGAGENTS", "off").strip().lower() != "on":
         print("bg-agents is off (SALA_BGAGENTS=on in the config turns it on); nothing done")
         return 0
     if not mandate_ok(cfg["mandate"]):
         print("bg-agents: SALA_BGAGENTS_MANDATE must be one line of at most 600 characters with no control character or backslash; nothing done", file=sys.stderr)
         return 2
+    sp = cfg["subject_prefix"]
+    if sp:
+        sp = sp.strip()
+        cfg["subject_prefix"] = sp = "[%s] " % sp[1:-1] if sp.startswith("[") and sp.endswith("]") else sp + " "
+        if not BRACKET_RE.match(sp):
+            print("bg-agents: SALA_BGAGENTS_SUBJECT_PREFIX must be a bracket word like [scope] (letters, digits, . _ -); nothing done", file=sys.stderr)
+            return 2
     if not dry:
         os.makedirs(os.path.dirname(cfg["ledger"]), mode=0o700, exist_ok=True)
         lock = os.open(cfg["ledger"] + ".lock", os.O_CREAT | os.O_RDWR, 0o600)

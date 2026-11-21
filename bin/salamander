@@ -170,13 +170,16 @@
 #   salamander job check [--post] [--quiet]   the unit-gap pass (sala-unit-gaps.path, the watch tick): a timer of ours with no Description=, no X-Model-Lane=
 #                                      or not in git is opened once as a board item (client.py post job-gap open; stackshot moves it by the builder of
 #                                      the repo that owns its script) and closed when it is fixed (post job-gap clear)
-#   salamander bg-agents [--dry-run | --status]
+#   salamander bg-agents [--dry-run | --status | --reset <project key> [--dry-run]]
 #                                      the fleet job that gives a project a background (engineer) agent when stackshot says it wants one (lib/bgagents.sh,
 #                                      lib/bgagents.py, docs/bg-agents.md): off unless SALA_BGAGENTS=on; reads `client.py background-wanted`, takes AT MOST ONE project a run
 #                                      (a load check first: 1-minute average under SALA_BGAGENTS_MAX_LOAD, 10), lists <name prefix>-engineer on it (`client.py post
 #                                      project-agent`, label sala-web) and starts the pane (`sala spawn … --role back`); a per-project ledger backs off after a failure (10 min, doubling,
 #                                      24 h cap) and gives up at SALA_BGAGENTS_MAX_ATTEMPTS (5). An agent it listed whose pane did not start is NOT taken off by the job: it says
-#                                      `retire needed: <name>` and exits 1 (no path takes an agent off a project without the owner's words). --dry-run decides and does nothing; --status shows the ledger
+#                                      `retire needed: <name>` and exits 1 (no path takes an agent off a project without the owner's words). A project it cannot start (given up, or a retire
+#                                      needed) is raised ONCE as a board item for the owner (`client.py post question`; a failed raise says `board item needed: <project>`, exits 1, is retried).
+#                                      --dry-run decides and does nothing; --status shows the ledger; --reset clears one project's ledger entry (a session runs it when the owner
+#                                      answers "Keep trying later": the next run tries the project afresh; works with the switch off)
 #   salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
 #                                      the GitHub Actions runs of a repo, read from the file the CI-run poller keeps (no GitHub call): the JSON on
 #                                      stdout, cut to a head commit with --sha; exit 3 = no file for that repo, 4 = older than --max-age (default 120 s):
