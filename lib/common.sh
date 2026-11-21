@@ -916,7 +916,7 @@ pset_create() {
         if grep -qxF "offline=$h" "$SALA_SET_DIR/$id"; then off+=("${bx[@]}"); else b+=("${bx[@]}"); fi
     done
     pset_log "set $id: $nok/$N OK, $(set_count "$id" item) item(s), $(set_count "$id" offline) offline"
-    sala_post "⚠️ *Provision $(set_val "$id" label) · $nok/$N OK*" ${b[@]+"${b[@]}"} ${off[@]+"${off[@]}"}
+    _set_post "⚠️ *Provision $(set_val "$id" label) · $nok/$N OK*" ${b[@]+"${b[@]}"} ${off[@]+"${off[@]}"}
 }
 # _pset_apply <id> <result dir> <host…> — a later run of boxes outstanding in this set (a retry, watch's provision of a box
 # back online, any named run): steps back ok/fixed settle their items; new leftovers join the set (a session/owner one

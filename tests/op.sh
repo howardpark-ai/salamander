@@ -96,6 +96,11 @@ tick() { "$SALA" watch --ops >/dev/null 2>&1; }
 workers() { local f n=0; for f in "$HOME"/.claude/salamander-retry*.pid; do [ -s "$f" ] && kill -0 "$(<"$f")" 2>/dev/null && n=$((n+1)); done; echo $n; }
 runs() { grep -c '^run' "$HOME/helper-runs.txt" 2>/dev/null || echo 0; }
 wait_lock() { lock_wait "$SALA_RECYCLE_LOCK" 120; }
+LG=" · log ~/.claude/salamander-op-"   # what every operation post ends in (the asked-by line), with its id and ".log" after it
+nops() { nposts "$LG"; }   # how many operation posts (each one ends in the asked-by and log line)
+lines_in() { grep -c . <<< "$1"; }   # how many lines a post has
+plain_post() {  # <post> → 0 when it carries none of what the old post carried: a raw argument, an exit code, a Details line, a queue stamp, the owner's words
+    case "$1" in *"--force"*|*"--update"*|*"--only"*|*"exit "*|*"exited"*|*"Details:"*|*"queued at"*|*"nothing retries it: once"*|*Rowan*|*"post test"*) return 1;; esac; return 0; }
 
 echo "== setup: four panes on the fake claude — the hearing session h (its inbox logged), a, b and d"
 mk h "$(uuid 1)" -e FAKE_SOCK_LOG="$SOCKLOG"; mk a "$(uuid 2)"; mk b "$(uuid 3)"; mk d "$(uuid 4)"
@@ -206,10 +211,11 @@ A=$(<"$HOME/helper-args.txt"); has "$A" "-p" && has "$A" "--max-turns" && grep -
     && grep -qx -- '--allowedTools' "$HOME/helper-args.txt" && ! has "$A" "dangerously" && ! has "$A" "permission-mode" && ok "claude -p: --max-turns 7, --allowedTools sala's verbs and read-only looks, no bypass flag" || bad "helper args: $A"
 B=$(<"$HOME/helper-brief.txt"); has "$B" "op $R1" && has "$B" "recycle --update --force" && has "$B" "\"recycle claude\"" && has "$B" "What happened: its runner (unit sala-op-$R1) ended without a result" && has "$B" "Already tried:" \
     && has "$B" "SALA-OP: done" && has "$B" "SALA-OP: stuck" && has "$B" "Never --not-master" && ok "the brief: the operation, Rowan's words, what happened, what was tried, the verdict line contract" || bad "brief: $B"
-P=$(post "sala op: recycle --update --force · stuck"); [ -n "$P" ] && has "$P" "🚨" && has "$P" "ended without a result" && has "$P" "nothing retries it" && [ "$(grep -c 'folded in:' <<< "$P")" = 2 ] && has "$P" "one-off claude -p" && has "$P" "Details: ~/.claude/salamander-op-$R1.log" \
-    && [ "$(nposts 'sala op:')" = 1 ] && ok "one post: stuck, the exact failure, the two folded in, the claude -p named" || bad "post: $P"
+P=$(post " · log ~/.claude/salamander-op-$R1.log"); [ -n "$P" ] && [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *update and recycle on $_SALA_HN is stuck*" ] && [ "$(sed -n 2p <<< "$P")" = "The test helper does nothing." ] \
+    && [ "$(sed -n 3p <<< "$P")" = "asked by sala-test-h · log ~/.claude/salamander-op-$R1.log" ] && plain_post "$P" && ! has "$P" "recycle claude" && ! has "$P" "folded in" && [ "$(nops)" = 1 ] \
+    && ok "one 3-line post: the headline, the helper's one sentence, who asked and the log; no words, no argv, no folded-in list" || bad "post: $P"
 waitfor "grep -q 'sala op $R1\] salamander recycle --update --force .*stuck: its runner' '$SOCKLOG'" 20 && ok "the hearing session (h) got the result in its inbox" || bad "sock log: $(<"$SOCKLOG")"
-tick; [ "$(runs)" = 1 ] && [ "$(nposts 'sala op:')" = 1 ] && ok "a later tick: nothing retries it, no second claude -p, no second post" || bad "retried: runs=$(runs) posts=$(nposts 'sala op:')"
+tick; [ "$(runs)" = 1 ] && [ "$(nops)" = 1 ] && ok "a later tick: nothing retries it, no second claude -p, no second post" || bad "retried: runs=$(runs) posts=$(nops)"
 
 echo "== a reboot marker whose runner is gone and whose boot id changed: the box is back → done"
 RB="1700000000-1"; printf 'id=%s\ntime=1700000000\nfrom=x shell\nwords=reboot t-host-a\nverb=reboot\nstate=running\nunit=sala-op-%s\nstarted=1700000000\nboot=not-this-boot\n' "$RB" "$RB" > "$OPS/$RB.op"
@@ -229,9 +235,10 @@ SET=$(mval "$E" set); [ -n "$SET" ] && [ "$(set_val "$SET" kind)" = Recycle ] &&
 regstatus sala-test-b idle
 waitfor "[ -f '$DONE/$E.op' ]" 240 && [ "$(mval "$E" state)" = done ] && ok "b relaunched by the worker, the set closed, the waiter judged: done, archived" || bad "state: $(mval "$E" state) — $(tail -5 "$HOME/.claude/salamander-op-$E.log" 2>/dev/null; tail -5 "$RLOG")"
 has "$(mval "$E" result)" "4/4 relaunched" && [ -n "$(mval "$E" waiter)" ] && ok "the result: 4/4 relaunched, judged by the waiter" || bad "marker: $(slurp "$DONE/$E.op")"
-P=$(post "sala op: recycle --force · done"); [ -n "$P" ] && has "$P" "✅" && has "$P" "4/4 relaunched" && has "$P" "asked by sala-test-h" && has "$P" "\"recycle claude now\"" && [ "$(nposts 'sala op:')" = 1 ] && ok "one post: done, the set's count, who asked with the words" || bad "post: $P / $(<"$POSTS")"
+P=$(post " · log ~/.claude/salamander-op-$E.log"); [ "$P" = "✅ *recycled 4 sessions* · asked by sala-test-h · log ~/.claude/salamander-op-$E.log" ] && plain_post "$P" && [ "$(nops)" = 1 ] \
+    && ok "one post, ONE line: done, the set's count of sessions, who asked, the log" || bad "post: $P / $(<"$POSTS")"
 waitfor "grep -q 'sala op $E\] salamander recycle --force .*done: Recycle' '$SOCKLOG'" 20 && ok "h (relaunched meanwhile) got the result in its inbox" || bad "sock log: $(<"$SOCKLOG")"
-L=$(grep "sala op $E\] salamander recycle --force .*done: Recycle" "$SOCKLOG" | head -1); has "$L" "queued at" && ! has "$L" "said at" && has "$P" "queued at" && ! has "$P" "said at" && ok "the done message and the post stamp the quote as queued at, never said at (the marker's time is the queue time)" || bad "quote stamp: $L / $P"
+L=$(grep "sala op $E\] salamander recycle --force .*done: Recycle" "$SOCKLOG" | head -1); has "$L" "queued at" && ! has "$L" "said at" && ! has "$P" "queued at" && ! has "$P" "said at" && ok "the done message stamps the quote as queued at, never said at (the marker's time is the queue time); the post carries no quote and no stamp" || bad "quote stamp: $L / $P"
 [ "$(runs)" = 0 ] && ok "no claude -p for a clean run" || bad "helper ran: $(<"$HOME/helper-runs.txt")"
 waitfor '[ "$(workers)" = 0 ]' 40; wait_lock
 
@@ -246,7 +253,7 @@ R=$(mval "$G" result); has "$R" "given up" && has "$R" "sala-test-b" && has "$R"
 [ "$(runs)" = 1 ] && ok "the claude -p ran once" || bad "runs: $(runs)"
 B=$(<"$HOME/helper-brief.txt"); has "$B" "op $G" && has "$B" "revive --only sala-test-b --force" && has "$B" "\"bring b back\"" && has "$B" "its set $(mval "$G" set)" && has "$B" "given up: sala-test-b" && has "$B" "revive --only <session> --force --rescue" \
     && ok "the brief: the operation, the words, its set and what it gave up, the rescue allowed" || bad "brief: $B"
-P=$(post "sala op: revive --only sala-test-b --force · stuck"); [ -n "$P" ] && has "$P" "🚨" && has "$P" "given up" && [ "$(nposts 'sala op:')" = 1 ] && ok "one post: stuck with the exact failure" || bad "post: $P / $(<"$POSTS")"
+P=$(post " · log ~/.claude/salamander-op-$G.log"); [ -n "$P" ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *revive of sala-test-b is stuck*" ] && has "$P" "• sala-test-b" && plain_post "$P" && [ "$(nops)" = 1 ] && ok "one post: stuck, the pane given up named with its reason" || bad "post: $P / $(<"$POSTS")"
 waitfor "grep -q 'sala op $G\] salamander revive --only sala-test-b --force .*stuck: Revive' '$SOCKLOG'" 20 && ok "h got it in its inbox" || bad "sock log: $(<"$SOCKLOG")"
 waitfor '[ "$(workers)" = 0 ]' 40; wait_lock
 mk b "$(uuid 3)"; fake_up sala-test-b   # b is back for the sections below
@@ -265,7 +272,7 @@ regstatus sala-test-d busy; rm -f "$HOME/norun"
 tick; waitfor "[ -f '$DONE/$V2.op' ]" 120
 [ "$(mval "$V2" state)" = done ] && has "$(mval "$V2" result)" "ended the session (the one-off claude -p finished it" && [ "$(runs)" = 1 ] && ! tmux has-session -t =sala-test-d 2>/dev/null \
     && ok "a real 'done': the session gone, the operation done through the claude -p, its first try in the result" || bad "real done: $(slurp "$DONE/$V2.op")"
-P=$(post "sala op: retire sala-test-d · done"); [ -n "$P" ] && has "$P" "✅" && has "$P" "one-off claude -p" && ok "one post: done, the claude -p named" || bad "post: $P"
+P=$(post " · log ~/.claude/salamander-op-$V2.log"); [ "$P" = "✅ *retired sala-test-d* · asked by sala-test-h · log ~/.claude/salamander-op-$V2.log" ] && ok "one post, one line: done (the helper finished it; the log says how)" || bad "post: $P"
 rm -f "$HOME/helper-act.sh" "$HOME/helper-verdict.txt"
 
 echo "== two queued operations naming one session (markers written past the enqueue check): the first is stuck, neither runs, no claude -p with SALA_OP_STUCK=off"
@@ -276,7 +283,7 @@ printf 'id=%s\ntime=%s\nfrom=x shell\nwords=bring a back\nverb=revive\narg=--onl
 SALA_OP_STUCK=off tick; waitfor "[ -f '$DONE/$C1.op' ]" 60
 [ "$(mval "$C1" state)" = stuck ] && has "$(mval "$C1" result)" "conflicts with queued op $C2" && [ "$(mval "$C2" state)" = queued ] && tmux has-session -t =sala-test-a 2>/dev/null && [ "$(grep -c "^start $(uuid 2)" "$FAKE_LOG")" = 2 ] \
     && ok "the first stuck on the conflict, the second still queued, a untouched" || bad "conflict: $(cat "$DONE/$C1.op" "$OPS/$C2.op" 2>/dev/null)"
-[ "$(runs)" = 0 ] && [ -z "$(mval "$C1" helper)" ] && ! has "$(post 'sala op: retire sala-test-a · stuck')" "one-off claude -p" && ok "SALA_OP_STUCK=off: no claude -p, and the post says none" || bad "helper ran: $(slurp "$HOME/helper-runs.txt")"
+PC=$(post " · log ~/.claude/salamander-op-$C1.log"); [ "$(runs)" = 0 ] && [ -z "$(mval "$C1" helper)" ] && [ "$(sed -n 1p <<< "$PC")" = "🚨 *retire of sala-test-a is stuck*" ] && ! has "$PC" "one-off" && has "$PC" "nothing retries it" && plain_post "$PC" && ok "SALA_OP_STUCK=off: no claude -p; the post says nothing retries it (no helper line to tell who acts)" || bad "helper ran: $(slurp "$HOME/helper-runs.txt") / $PC"
 "$SALA" op --cancel "$C2" >/dev/null; [ "$(queued)" = 0 ] && ok "the second cancelled" || bad "left: $(ls "$OPS")"
 
 echo "== the waiter's deadline: a set still outstanding when SALA_OP_SETTLE_WAIT is out → stuck, the worker goes on by itself"
@@ -344,7 +351,7 @@ tick; waitfor "[ -f '$DONE/$M5.op' ]" 240
 [ "$(mval "$M5" state)" = done ] && [ "$(mrow sala-test-a)" = haiku/high ] && ok "done: the row haiku/high recorded by the unit" || bad "model run: $(slurp "$DONE/$M5.op") / row '$(mrow sala-test-a)' / $(tail -8 "$HOME/.claude/salamander-op-$M5.log" 2>/dev/null)"
 waitfor "[ \"\$(grep -c \"^start $(uuid 2) \" \"\$FAKE_LOG\")\" -ge 3 ]" 40; fake_up sala-test-a
 case "$(proc_args "$(claude_pid_under "$(tmux display -p -t sala-test-a '#{pane_pid}')")")" in *"--model haiku --effort high"*) ok "a's claude was relaunched on --model haiku --effort high" ;; *) bad "a's args: $(proc_args "$(claude_pid_under "$(tmux display -p -t sala-test-a '#{pane_pid}')")")" ;; esac
-P=$(post "sala op: model sala-test-a haiku --effort high · done"); [ -n "$P" ] && has "$P" "✅" && has "$P" "asked by sala-test-h" && [ "$(nposts 'sala op:')" = 1 ] && ok "one post: done, who asked with the owner's words" || bad "post: $P / $(<"$POSTS")"
+P=$(post " · log ~/.claude/salamander-op-$M5.log"); [ "$P" = "✅ *set sala-test-a to haiku* · asked by sala-test-h · log ~/.claude/salamander-op-$M5.log" ] && [ "$(nops)" = 1 ] && ok "one post, one line: done, who asked, no words" || bad "post: $P / $(<"$POSTS")"
 waitfor "grep -q 'sala op $M5\] salamander model sala-test-a haiku --effort high .*done' '$SOCKLOG'" 20 && ok "the hearing session (h) got the result in its inbox" || bad "sock log: $(<"$SOCKLOG")"
 HS0=$(grep -c "^start $(uuid 1) " "$FAKE_LOG"); : > "$POSTS"; : > "$SOCKLOG"; wait_lock
 regstatus sala-test-h busy   # the asker works while the operation runs: the unit has no TMUX_PANE, so h is relaunched like any pane, once idle
@@ -416,8 +423,8 @@ waitfor "[ \"\$(starts $(uuid 6))\" -ge 2 ] && [ \"\$(starts $(uuid 7))\" -ge 2 
 wait_lock; fake_up sala-test-e sala-test-f sala-test-g
 bs=0; for n in e f g; do case "$(proc_args "$(claude_pid_under "$(tmux display -p -t sala-test-$n '#{pane_pid}')")")" in *"--model haiku --effort high"*) bs=$((bs+1));; esac; done
 [ "$bs" = 3 ] && [ "$(starts "$(uuid 6)")" = 2 ] && [ "$(starts "$(uuid 7)")" = 2 ] && [ "$(starts "$(uuid 8)")" = 2 ] && ok "each pane relaunched exactly once, on --model haiku --effort high" || bad "batch relaunches: $bs on haiku/high, starts $(starts "$(uuid 6)") $(starts "$(uuid 7)") $(starts "$(uuid 8)")"
-[ "$(nposts 'sala op:')" = 1 ] && P=$(post "✅ *sala op: model haiku --effort high · done* · 3 sessions") && [ -n "$P" ] && has "$P" "asked by sala-test-h" && ! has "$P" "sala-test-e" && ! has "$P" "sala-test-f" && ! has "$P" "sala-test-g" \
-    && ok "ONE Slack post for the three: done, a count of the sessions (none named), who asked" || bad "batch post: $(nposts 'sala op:') posts — $(<"$POSTS")"
+P=$(post " · log ~/.claude/salamander-op-$MB.log"); [ "$(nops)" = 1 ] && [ "$P" = "✅ *set 3 sessions to haiku* · asked by sala-test-h · log ~/.claude/salamander-op-$MB.log" ] && ! has "$P" "sala-test-e" && ! has "$P" "sala-test-f" && ! has "$P" "sala-test-g" \
+    && ok "ONE Slack post for the three, ONE line: done, a count of the sessions (none named), who asked" || bad "batch post: $(nops) posts — $(<"$POSTS")"
 waitfor "grep -q 'sala op $MB\] salamander model haiku --effort high .* done (3 sessions)' '$SOCKLOG'" 30 \
     && [ "$(grep -c "sala op $MB\]" "$SOCKLOG")" = 1 ] && L=$(grep "sala op $MB\]" "$SOCKLOG") && ! has "$L" "sala-test-e" && ! has "$L" "sala-test-f" && ! has "$L" "sala-test-g" \
     && ok "ONE notice into the asker's inbox, with the count and no session named" || bad "batch notice: $(grep -c "sala op $MB\]" "$SOCKLOG") lines — $(<"$SOCKLOG")"
@@ -428,7 +435,7 @@ enq model sala-test-e --clear --from sala-test-h --words "e back on its transcri
 [ "$(mval "$MC" state)" = done ] && [ -z "$(mrow sala-test-e)" ] && [ "$(mrow sala-test-f)" = haiku/high ] && [ -z "$(mvals "$MC" detail)" ] && ok "the single-session --clear: e's row gone, f's kept, no detail lines (the old shape as it was)" || bad "old --clear: $(slurp "$DONE/$MC.op") / rows '$(mrow sala-test-e)' '$(mrow sala-test-f)'"
 : > "$POSTS"; : > "$SOCKLOG"
 enq model --clear sala-test-f sala-test-g --from sala-test-h --words "f and g back on their transcripts"; MD="$ID"; tick; waitfor "[ -f '$DONE/$MD.op' ]" 120
-[ "$(mval "$MD" state)" = done ] && [ -z "$(mrow sala-test-f)" ] && [ -z "$(mrow sala-test-g)" ] && [ "$(mvals "$MD" detail | wc -l)" = 2 ] && [ "$(nposts 'sala op:')" = 1 ] && ok "--clear <session>… through the queue: both rows dropped, one operation, one post" || bad "batch clear: $(slurp "$DONE/$MD.op") / rows '$(mrow sala-test-f)' '$(mrow sala-test-g)' posts $(nposts 'sala op:')"
+[ "$(mval "$MD" state)" = done ] && [ -z "$(mrow sala-test-f)" ] && [ -z "$(mrow sala-test-g)" ] && [ "$(mvals "$MD" detail | wc -l)" = 2 ] && [ "$(nops)" = 1 ] && ok "--clear <session>… through the queue: both rows dropped, one operation, one post" || bad "batch clear: $(slurp "$DONE/$MD.op") / rows '$(mrow sala-test-f)' '$(mrow sala-test-g)' posts $(nops)"
 waitfor "[ \"\$(grep -c \"sala op $MD\\]\" \"$SOCKLOG\")\" = 1 ]" 30 && L=$(grep "sala op $MD\]" "$SOCKLOG") && has "$L" "salamander model --clear " && has "$L" "done (2 sessions)" && ! has "$L" "sala-test-f" && ! has "$L" "sala-test-g" && ok "and one inbox notice: the count, no session named" || bad "batch clear notice: $(<"$SOCKLOG")"
 # a session that fails: a stand-in model.sh (a copy of the entry point whose lib/model.sh prints what a batch with a failure prints and exits 1)
 BSTUB="$HOME/batchstub"; mkdir -p "$BSTUB/bin" "$BSTUB/lib"; cp "$ROOT/bin/salamander" "$BSTUB/bin/salamander"
@@ -438,7 +445,8 @@ MF="$(( $(date +%s) + 500 ))-77"; { printf 'id=%s\ntime=%s\nfrom=sala-test-h\nwo
 : > "$POSTS"; : > "$SOCKLOG"; rm -f "$HOME/helper-runs.txt"
 SALA_CGROUP_FILE="$HOME/op-unit.cgroup" "$BSTUB/bin/salamander" op --run "$MF" >/dev/null 2>&1
 [ "$(mval "$MF" state)" = stuck ] && has "$(mval "$MF" result)" "1 FAILED (sala-test-f)" && [ "$(mvals "$MF" detail | wc -l)" = 2 ] && [ "$(runs)" = 0 ] && ok "a batch with a failed session: stuck, the failure named in the result, a line per session, no claude -p" || bad "batch failure: $(slurp "$DONE/$MF.op") / helper runs $(runs)"
-P=$(post "🚨 *sala op: model haiku --effort high · stuck · 1/2 succeeded*"); [ "$(nposts 'sala op:')" = 1 ] && [ -n "$P" ] && has "$P" "sala-test-f: FAILED: boom (exit 1)" && ! has "$P" "sala-test-e:" && ok "one 🚨 post: the count, the failed session named with its reason, the one that stood not listed" || bad "batch failure post: $(<"$POSTS")"
+P=$(post " · log ~/.claude/salamander-op-$MF.log"); [ "$(nops)" = 1 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *set 1 of 2 sessions to haiku*" ] && [ "$(sed -n 2p <<< "$P")" = "• sala-test-f: failed: boom" ] && ! has "$P" "sala-test-e:" && [ "$(lines_in "$P")" = 3 ] && plain_post "$P" \
+    && ok "one 🚨 post: the count, the failed session named with its reason (no exit code), the one that stood not listed" || bad "batch failure post: $(<"$POSTS")"
 waitfor "grep -q 'sala op $MF\] .*stuck (1/2 succeeded): model batch: 2 session(s)' '$SOCKLOG'" 30 && [ "$(grep -c "sala op $MF\]" "$SOCKLOG")" = 1 ] && L=$(grep "sala op $MF\]" "$SOCKLOG") && has "$L" "sala-test-f: FAILED: boom (exit 1)" && ! has "$L" "sala-test-e:" && ok "one inbox notice: the count and the failure line" || bad "batch failure notice: $(<"$SOCKLOG")"
 rm -rf "$BSTUB"
 
@@ -453,8 +461,8 @@ FK=$(( $(date +%s) + 900 ))
 # many sessions, every one through: a count, no name
 : > "$POSTS"; : > "$SOCKLOG"; F1="$FK-81"; NN=(); for k in $(seq -w 1 17); do NN+=("sala-test-n$k"); done
 mkfin "$F1" sala-test-h lane subscription-1 "${NN[@]}"; fin "$F1" done "Lane subscription-1: 17/17 relaunched"
-P=$(post "sala op:"); [ "$(nposts 'sala op:')" = 1 ] && has "$P" "✅ *sala op: lane subscription-1 · done* · 17 sessions" && has "$P" "17/17 relaunched" && ! has "$P" "sala-test-n" && has "$P" "asked by sala-test-h" \
-    && ok "17 sessions, all through: the title says '· done* · 17 sessions' and names none" || bad "17 post: $(<"$POSTS")"
+P=$(post " · log ~/.claude/salamander-op-$F1.log"); [ "$(nops)" = 1 ] && [ "$P" = "✅ *moved 17 sessions to subscription-1* · asked by sala-test-h · log ~/.claude/salamander-op-$F1.log" ] && ! has "$P" "sala-test-n" && plain_post "$P" \
+    && ok "17 sessions, all through: ONE line, the count in the headline, none named" || bad "17 post: $(<"$POSTS")"
 waitfor "grep -q 'sala op $F1\]' '$SOCKLOG'" 30 && L=$(grep "sala op $F1\]" "$SOCKLOG") && has "$L" "salamander lane subscription-1 " && has "$L" "done (17 sessions): Lane subscription-1: 17/17 relaunched" && ! has "$L" "sala-test-n" \
     && ok "and the inbox line: the count, no session named" || bad "17 inbox: $(<"$SOCKLOG")"
 # a relaunch set that gave one pane up, deferred another and never got it back (stuck): the count, those two named with their reason
@@ -462,9 +470,9 @@ waitfor "grep -q 'sala op $F1\]' '$SOCKLOG'" 30 && L=$(grep "sala op $F1\]" "$SO
 mkfin "$F2" sala-test-h revive --only sala-test-q1 --only sala-test-q2 --only sala-test-q3 --only sala-test-q4 --only sala-test-q5 --force
 printf '%s\n' kind=Revive label=opposttest done=3 total=5 "skip=sala-test-q1: busy, deferred" back=sala-test-q1 "gave=sala-test-q3: its pane is gone" "skip=sala-test-q3: its pane is gone" "skip=sala-test-q4: busy, deferred" out=sala-test-q4 > "$SALA_SET_DIR/$FS"
 echo "set=$FS" >> "$OPS/$F2.op"; fin "$F2" stuck "Revive opposttest: 3/5 relaunched, 1 pane given up: sala-test-q3: its pane is gone"
-P=$(post "sala op:"); has "$P" "🚨 *sala op: revive --force · stuck · 3/5 succeeded*" && has "$P" "sala-test-q3: its pane is gone" && has "$P" "sala-test-q4: busy, deferred" \
-    && ! has "$P" "sala-test-q1" && ! has "$P" "sala-test-q2" && ! has "$P" "sala-test-q5" \
-    && ok "some failed, some skipped: '3/5 succeeded', the given-up and the deferred pane each named with its reason, the rest not listed" || bad "partial post: $(<"$POSTS")"
+P=$(post " · log ~/.claude/salamander-op-$F2.log"); [ "$(lines_in "$P")" = 4 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *revived 3 of 5 sessions*" ] && [ "$(sed -n 2p <<< "$P")" = "• sala-test-q3: its pane is gone" ] && [ "$(sed -n 3p <<< "$P")" = "• sala-test-q4: busy, deferred" ] \
+    && [ "$(sed -n 4p <<< "$P")" = "asked by sala-test-h · log ~/.claude/salamander-op-$F2.log" ] && plain_post "$P" \
+    && ok "some failed, some skipped: '3 of 5', the given-up and the deferred pane each named with its reason, the rest not listed" || bad "partial post: $(<"$POSTS")"
 waitfor "grep -q 'sala op $F2\]' '$SOCKLOG'" 30 && L=$(grep "sala op $F2\]" "$SOCKLOG") && has "$L" "salamander revive --force " && has "$L" "stuck (3/5 succeeded)" && has "$L" "sala-test-q4: busy, deferred" && ! has "$L" "sala-test-q2" \
     && ok "and the inbox line: the count and the two named" || bad "partial inbox: $(<"$SOCKLOG")"
 rm -f "$SALA_SET_DIR/$FS"
@@ -472,14 +480,75 @@ rm -f "$SALA_SET_DIR/$FS"
 : > "$POSTS"; F3="$FK-83"; mkfin "$F3" sala-watch lane fallback subscription-1
 printf 'detail=%s\n' "sala-test-r1: subscription-1 → bedrock" "sala-test-r2: subscription-1 → bedrock (NOT moved: still recorded on subscription-1)" "sala-test-r3: stays on subscription-1 (managed outside sala)" "default lane: subscription-1 → bedrock" >> "$OPS/$F3.op"
 fin "$F3" done "the subscription-1 lane is dormant: 2 sessions and the default moved to the bedrock lane"
-P=$(post "sala op:"); has "$P" "✅ *sala op: lane fallback subscription-1 · done · 1/3 succeeded*" && has "$P" "sala-test-r2: subscription-1 → bedrock (NOT moved" && has "$P" "sala-test-r3: stays on subscription-1 (managed outside sala)" \
-    && has "$P" "default lane: subscription-1 → bedrock" && ! has "$P" "sala-test-r1" && ok "the lane fallback: '1/3 succeeded', the one not moved and the one that stays named, the default lane's line kept" || bad "fallback post: $(<"$POSTS")"
+P=$(post " · log ~/.claude/salamander-op-$F3.log"); [ "$(sed -n 1p <<< "$P")" = "⚠️ *moved 1 of 3 sessions off the dormant lane subscription-1*" ] && has "$P" "• sala-test-r2: subscription-1 → bedrock (NOT moved" && has "$P" "• sala-test-r3: stays on subscription-1 (managed outside sala)" \
+    && has "$P" "• default lane: subscription-1 → bedrock" && ! has "$P" "sala-test-r1" && has "$P" "asked by sala-watch" && plain_post "$P" && ok "the lane fallback: '1 of 3', the one not moved and the one that stays named, the default lane's line kept" || bad "fallback post: $(<"$POSTS")"
+# a lane fallback names why the lane is dormant on ONE line under the headline: a monthly cap with the day access returns (the verb's own last line), another cause with no day (the lane's own record), none when nothing says why
+: > "$POSTS"; F3A="$FK-83a"; mkfin "$F3A" sala-watch lane fallback subscription-2
+printf 'detail=%s\n' "sala-test-r1: subscription-2 → bedrock" "sala-test-r2: subscription-2 → bedrock" "default lane: subscription-2 → bedrock" >> "$OPS/$F3A.op"
+fin "$F3A" done "the Team lane is dormant (monthly usage cap, access returns Tue Dec 1st 09:00): 2 sessions and the default moved to the bedrock lane"
+P=$(post " · log ~/.claude/salamander-op-$F3A.log"); [ "$(lines_in "$P")" = 4 ] && [ "$(sed -n 1p <<< "$P")" = "✅ *moved 2 sessions off the dormant lane subscription-2*" ] && [ "$(sed -n 2p <<< "$P")" = "• reason: monthly usage cap; access returns Tue Dec 1st 09:00" ] && [ "$(sed -n 3p <<< "$P")" = "• default lane: subscription-2 → bedrock" ] && [ "$(sed -n 4p <<< "$P")" = "asked by sala-watch · log ~/.claude/salamander-op-$F3A.log" ] && plain_post "$P" \
+    && ok "a capped lane: the headline, ONE reason line (the cap and the day access returns), the default lane's line, who asked and the log" || bad "capped fallback post: $P"
+: > "$POSTS"; "$SALA" lane dormant subscription-2 --no-fallback --reason "no seat" >/dev/null 2>&1; F3B="$FK-83b"; mkfin "$F3B" sala-watch lane fallback subscription-2
+printf 'detail=%s\n' "sala-test-r1: subscription-2 → bedrock" "sala-test-r2: subscription-2 → bedrock" >> "$OPS/$F3B.op"
+fin "$F3B" done "the Team lane is dormant: 2 sessions moved to the bedrock lane"
+P=$(post " · log ~/.claude/salamander-op-$F3B.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 2p <<< "$P")" = "• reason: no seat" ] && ! has "$P" "access returns" && plain_post "$P" && ok "another cause: one plain phrase for it, no day" || bad "other-cause fallback post: $P"
+"$SALA" lane active subscription-2 >/dev/null 2>&1
+: > "$POSTS"; F3C="$FK-83c"; mkfin "$F3C" sala-watch lane fallback subscription-2
+printf 'detail=%s\n' "sala-test-r1: subscription-2 → bedrock" "sala-test-r2: subscription-2 → bedrock" >> "$OPS/$F3C.op"
+fin "$F3C" done "the Team lane is dormant: 2 sessions moved to the bedrock lane"
+P=$(post " · log ~/.claude/salamander-op-$F3C.log"); [ "$P" = "✅ *moved 2 sessions off the dormant lane subscription-2* · asked by sala-watch · log ~/.claude/salamander-op-$F3C.log" ] && ok "no cause on record: no reason line, the finished post stays ONE line" || bad "no-cause fallback post: $P"
 # one session: named in the title as before, no count
 : > "$POSTS"; : > "$SOCKLOG"; F4="$FK-84"; mkfin "$F4" sala-test-h lane subscription-1 sala-test-z1; fin "$F4" done "Lane subscription-1: 1/1 relaunched"
-P=$(post "sala op:"); has "$P" "✅ *sala op: lane subscription-1 sala-test-z1 · done*" && ! has "$P" "1 session" && ! has "$P" "succeeded" && ok "one session: named in the title, no count" || bad "single post: $(<"$POSTS")"
+P=$(post " · log ~/.claude/salamander-op-$F4.log"); [ "$P" = "✅ *moved sala-test-z1 to subscription-1* · asked by sala-test-h · log ~/.claude/salamander-op-$F4.log" ] && ok "one session: named in the headline, no count, one line" || bad "single post: $(<"$POSTS")"
 waitfor "grep -q 'sala op $F4\]' '$SOCKLOG'" 30 && L=$(grep "sala op $F4\]" "$SOCKLOG") && has "$L" "salamander lane subscription-1 sala-test-z1 " && has "$L" " done: Lane" && ok "and its inbox line names it, as before" || bad "single inbox: $(<"$SOCKLOG")"
 : > "$POSTS"; F5="$FK-85"; mkfin "$F5" sala-test-h model haiku sala-test-z2; echo "detail=sala-test-z2: switched in place to haiku" >> "$OPS/$F5.op"; fin "$F5" done "model batch: 1 session(s) → haiku: 1 switched in place"
-P=$(post "sala op:"); has "$P" "✅ *sala op: model haiku sala-test-z2 · done*" && has "$P" "sala-test-z2: switched in place to haiku" && ok "a model batch of one: named, with its line, as before" || bad "batch of one post: $(<"$POSTS")"
+P=$(post " · log ~/.claude/salamander-op-$F5.log"); [ "$P" = "✅ *set sala-test-z2 to haiku* · asked by sala-test-h · log ~/.claude/salamander-op-$F5.log" ] && ok "a model batch of one: named, one line" || bad "batch of one post: $(<"$POSTS")"
+
+echo "== the post's shapes: a stuck op with its step, without one, with no helper line, cut to one plain sentence; a long failure list capped; nothing of the old post"
+sid() { echo "$FK-$1"; }   # a fresh marker id per case
+stuckwhy() { echo "stuckwhy=$2" >> "$OPS/$1.op"; }   # <id> <the helper's one line>: what op_helper leaves on the marker
+# stuck, a step named in the verb's output: the headline carries it, then the helper's one sentence, then who asked and the log
+: > "$POSTS"; S1=$(sid 201); mkfin "$S1" sala-test-h provision demo-host; printf '%s\n' "  demo-host: provisioned — sala: ❌ demo-step: a check that cannot pass · 4 steps ok" > "$SALA_LOG_DIR/salamander-op-$S1.out"
+stuckwhy "$S1" "Its check expects a timer that only runs on another machine, so a rerun can't pass; the check needs a fix."
+fin "$S1" stuck "salamander provision demo-host exited 1: demo-host: provisioned — sala: ❌ demo-step: a check that cannot pass (no claude -p: the check needs a fix)"
+P=$(post "$LG$S1.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *provision on demo-host is stuck* (step demo-step)" ] && [ "$(sed -n 2p <<< "$P")" = "Its check expects a timer that only runs on another machine, so a rerun can't pass; the check needs a fix." ] \
+    && [ "$(sed -n 3p <<< "$P")" = "asked by sala-test-h · log ~/.claude/salamander-op-$S1.log" ] && plain_post "$P" && ok "stuck with a step: the headline names it, ONE sentence why, who asked and the log" || { bad "stuck with step: $P"; }
+echo "   rendered:"; sed 's/^/      | /' <<< "$P"
+# stuck, no step in the output; the helper's line carries an exit code, a path, a backtick command and a second sentence: one plain sentence is left
+: > "$POSTS"; S2=$(sid 202); mkfin "$S2" sala-test-h retire sala-test-zz; stuckwhy "$S2" "the one-off helper found \`salamander retire sala-test-zz\` held by another run (exit 1) and logged it in ~/.claude/x/run.log. A second sentence, which stays out."
+fin "$S2" stuck "salamander retire sala-test-zz exited 1: held — the one-off claude -p could not finish it: held"
+P=$(post "$LG$S2.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *retire of sala-test-zz is stuck*" ] && has "$(sed -n 2p <<< "$P")" "The one-off helper found salamander retire sala-test-zz held by another run" && ! has "$P" "exit" && ! has "$P" "run.log" && ! has "$P" "A second sentence" && ! has "$P" '`' && ! has "$P" "(step" && plain_post "$P" \
+    && ok "stuck without a step: no step in the headline; the helper's line cut to its first sentence, no exit code, no path, no backtick" || bad "stuck without step: $P"
+# the stuck helper's line missing (no helper ran, or it gave no verdict): the fixed sentence, which says nothing retries it and a person finishes it
+: > "$POSTS"; S3=$(sid 203); mkfin "$S3" sala-test-h rename sala-test-zz sala-test-zy
+fin "$S3" stuck "no tmux session 'sala-test-zz' (exit 1)"
+P=$(post "$LG$S3.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *rename of sala-test-zz is stuck*" ] && [ "$(sed -n 2p <<< "$P")" = "It did not finish, and nothing retries it: finish it by hand or ask again." ] && plain_post "$P" && ! has "$P" "no tmux session" \
+    && ok "no helper line: the fixed sentence (nothing retries it, a person finishes it); the raw failure stays in the log" || bad "no helper line: $P"
+# a stuck master retire: the one extra line that says the master setting is cleared
+: > "$POSTS"; S4=$(sid 204); mkfin "$S4" sala-test-h retire sala-test-zm; echo "unset_master=sala-test-zm" >> "$OPS/$S4.op"
+fin "$S4" stuck "salamander retire exited 1"
+P=$(post "$LG$S4.log"); [ "$(lines_in "$P")" = 4 ] && has "$P" "The master setting was cleared first" && ! has "$P" "salamander master" && plain_post "$P" && ok "a stuck master retire: one more line, the master setting is cleared, no command in it" || bad "master retire: $P"
+# many sessions, failures: five lines at most, then "and N more"
+: > "$POSTS"; S5=$(sid 205); MM=(); for k in 1 2 3 4 5 6 7 8 9; do MM+=("sala-test-m$k"); done
+mkfin "$S5" sala-test-h lane subscription-1 "${MM[@]}"
+for k in 1 2 3 4 5 6 7; do echo "detail=sala-test-m$k: FAILED: no pane (exit 1)" >> "$OPS/$S5.op"; done; for k in 8 9; do echo "detail=sala-test-m$k: subscription-1" >> "$OPS/$S5.op"; done
+fin "$S5" stuck "lane: 7 sessions FAILED"
+P=$(post "$LG$S5.log"); [ "$(lines_in "$P")" = 8 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *moved 2 of 9 sessions to subscription-1*" ] && [ "$(sed -n 2p <<< "$P")" = "• sala-test-m1: failed: no pane" ] && [ "$(sed -n 6p <<< "$P")" = "• sala-test-m5: failed: no pane" ] \
+    && [ "$(sed -n 7p <<< "$P")" = "and 2 more" ] && [ "$(sed -n 8p <<< "$P")" = "asked by sala-test-h · log ~/.claude/salamander-op-$S5.log" ] && ! has "$P" "sala-test-m6" && ! has "$P" "sala-test-m8" && plain_post "$P" \
+    && ok "7 of 9 failed: the count in the headline, five sessions named, 'and 2 more', no exit code, the ones that went through not listed" || bad "capped post: $P"
+# exactly five failures: no "and N more"
+: > "$POSTS"; S6=$(sid 206); mkfin "$S6" sala-test-h lane subscription-1 "${MM[@]:0:6}"
+for k in 1 2 3 4 5; do echo "detail=sala-test-m$k: FAILED: no pane" >> "$OPS/$S6.op"; done
+fin "$S6" stuck "lane: 5 sessions FAILED"
+P=$(post "$LG$S6.log"); [ "$(lines_in "$P")" = 7 ] && ! has "$P" "more" && ok "five failures: all named, no 'and N more'" || bad "five post: $P"
+# every session through: one line; (the recycle's own set and the 17-session case above are the other counts)
+: > "$POSTS"; S7=$(sid 207); mkfin "$S7" sala-test-h model haiku "${MM[@]:0:4}"; fin "$S7" done "model batch: 4 session(s) → haiku: 4 switched in place"
+P=$(post "$LG$S7.log"); [ "$P" = "✅ *set 4 sessions to haiku* · asked by sala-test-h · log ~/.claude/salamander-op-$S7.log" ] && ok "many sessions, all done: ONE line with the count" || bad "all done: $P"
+# a stuck operation with the helper's verdict: the whole post is read as a phone would, and none of the old post's parts are in it
+: > "$POSTS"; S8=$(sid 208); mkfin "$S8" sala-test-h update demo-a demo-b; stuckwhy "$S8" "Demo-b is offline, so it needs a person to start it."
+fin "$S8" stuck "salamander update demo-a demo-b exited 1: demo-b: offline"
+P=$(post "$LG$S8.log"); [ "$(sed -n 1p <<< "$P")" = "🚨 *update on 2 machines is stuck*" ] && [ "$(sed -n 2p <<< "$P")" = "Demo-b is offline, so it needs a person to start it." ] && plain_post "$P" && ! has "$P" "board item" && ! has "$P" "folded in" && ! has "$P" "reason:" \
+    && ok "an update over two boxes: the count of machines, the helper's sentence; no words, no board item, no folded-in list" || bad "update post: $P"
 
 echo "== the end of an operation is reported to stackshot: one client.py event per op (verb, machine, sessions, result), never changing the op"
 # op_finish on hand-written markers, as above; the client is tests/fake-stackshot-client.py (it logs every call), the op log is SALA_OP_LOG
@@ -537,7 +606,7 @@ n0=$(evn); enq --plan retire sala-test-d --from t --words x; [ "$(evn)" = "$n0" 
 # a failing client: the op ends the same (exit 0, state done, the Slack post and the inbox line made), the failure is in the op log
 : > "$POSTS"; : > "$SOCKLOG"; E9="$FK-99"; mkfin "$E9" sala-test-h lane subscription-1 sala-test-z1
 rc=$(FAKE_CLIENT_FAIL=1 finrc "$E9" done "Lane subscription-1: 1/1 relaunched")
-[ "$rc" = 0 ] && [ "$(mval "$E9" state)" = done ] && [ -f "$DONE/$E9.op" ] && has "$(post 'sala op:')" "✅ *sala op: lane subscription-1 sala-test-z1 · done*" \
+[ "$rc" = 0 ] && [ "$(mval "$E9" state)" = done ] && [ -f "$DONE/$E9.op" ] && has "$(post ' · log ~/.claude/salamander-op-')" "✅ *moved sala-test-z1 to subscription-1*" \
     && grep -q "op $E9: ⚠ the fleet_op event was not reported (client exit 1" "$OPLOG" \
     && ok "a client that exits 1: the op still ends done (exit 0), archived and posted; the failure is logged" || bad "failing client: rc=$rc state=$(mval "$E9" state) log: $(tail -2 "$OPLOG")"
 waitfor "grep -q 'sala op $E9\]' '$SOCKLOG'" 30 && ok "and the hearing session still gets its inbox line" || bad "failing client inbox: $(<"$SOCKLOG")"

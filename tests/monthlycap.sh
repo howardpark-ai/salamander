@@ -167,9 +167,11 @@ grep -rqF "skipped (pinned to subscription-2): sala-test-p" "$HOME/.claude/salam
 [ "$(awk -F'\t' '$1=="sala-test-a" {print $2}' "$SALA_LANE_HOME" 2>/dev/null)" = subscription-2 ] && ok "the home record says a came from subscription-2 (the way back is the ordinary one)" || bad "home: $(cat "$SALA_LANE_HOME" 2>/dev/null)"
 
 echo "== one post for the whole episode, naming the lane, the day access returns and the fallback; more ticks add none"
+lines_n() { grep -c . <<< "$1"; }
 [ "$(nposts '')" = 1 ] && ok "exactly ONE post after the move" || bad "posts: $(nposts ''): $(<"$POSTS")"
-p=$(post "sala op: lane fallback")
-has "$p" "Team" && has "$p" "Bedrock" && has "$p" "monthly usage cap" && has "$p" "access returns" && has "$p" "$(TZ=Etc/UTC date -d "@$R" '+%a %b')" && ok "it names the Team lane, the monthly cap, the day access returns and the Bedrock lane" || bad "post: $p"
+p=$(post " · log ~/.claude/salamander-op-")
+[ "$(lines_n "$p")" = 4 ] && has "$(sed -n 1p <<< "$p")" "*moved 2 of 3 sessions off the dormant lane subscription-2*" && has "$(sed -n 2p <<< "$p")" "• reason: monthly usage cap; access returns " && has "$(sed -n 2p <<< "$p")" "$(TZ=Etc/UTC date -d "@$R" '+%a %b')" && has "$(sed -n 3p <<< "$p")" "• sala-test-p: stays on subscription-2" && has "$(sed -n 4p <<< "$p")" "asked by sala-watch · log ~/.claude/salamander-op-" \
+    && ok "the post stays short (4 lines): the count and the dormant lane, ONE line that says why it is dormant (the monthly cap) and the day access returns, the pinned session that stays, who asked and the log" || bad "post: $p"
 lw; lw; lw; tick; lw
 [ "$(nposts '')" = 1 ] && ok "still ONE post over five more ticks (no repeated 'working again')" || bad "posts after more ticks: $(nposts ''): $(<"$POSTS")"
 [ "$(queued)" = 0 ] && ok "no second operation" || bad "queued: $(ls "$OPS")"

@@ -4015,3 +4015,28 @@ status line; a state with no `booted_at` printing the plain `step booted` line, 
 the give-up comes after one 10 s round) leaving the marker and `step boot-waiting`, with no `booted_at`, in the state and
 the status line. About 11 s added. Not covered, and why: a hook that comes up between the first report and the
 give-up (the same path as the one that is up at once, after the report), and the shutdown half's steps (unchanged).
+
+### `tests/op.sh` +11, `tests/psets.sh` +9, and the post wording in `lanefallback`, `monthlycap`, `nomaster`, `opparallel`, `spawn`, none retired: short Slack posts for finished and stuck operations (Sat Nov 21st 2026)
+
+`sala op` posted one long block when an operation ended (a quoted title with the whole argv, the owner's words, a Details line, a
+folded-in list, an exit code). It now posts the short shape of `op_post` in `lib/op.sh` (docs/subcommands.md, the `op` row): a
+finished operation is one line, a stuck one a headline (with its step), one plain sentence of why, and the asked-by and log line;
+an operation over several sessions carries the count and names only the failed or skipped ones. The suites that asserted the old
+text now assert the new, and the posts are rendered into the test output.
+Covered, in `tests/op.sh`'s new section (fixtures made with `mkfin`/`fin`, so no verb runs): a stuck `provision` with a step
+(`❌ <step>:` in the verb's output) and the helper's sentence; a stuck one with no step, the helper's line carrying an exit code, a
+path, a backtick command and a second sentence (one plain sentence left); the helper's line missing (the fixed sentence); a stuck
+master retire (the one extra line, no command in it); 7 of 9 sessions failed (the count in the headline, five named, `and 2 more`);
+exactly five failures (no `and N more`); a model batch all done (one line with the count); an `update` over two boxes. Every
+post is also checked for what the old one carried (`plain_post`: no `--force`/`--only` argv, no `exit N`, no Details line, no
+queue stamp, no quoted words of the owner). The existing cases check the exact one-line done posts (a recycle, a retire, a
+single model change, 17 sessions through, a model batch), the 3-line stuck post of a recycle with `--update`, a revive that gave a
+pane up and the `SALA_OP_STUCK=off` post.
+`tests/psets.sh` covers the duplicate: a provision that ends stuck under an operation (`SALA_OP_ID` set, as the runner does)
+exits 1, makes its set, starts the set's retry worker (which fixes and closes it) and posts nothing; the same failing run with no
+operation over it posts once (the set's first post); a clean run and a run that leaves something for a person keep their posts
+under an operation; `--only` that fails posts nothing under an operation and one fleet post without. The wording changes in
+`lanefallback`, `monthlycap`, `nomaster`, `opparallel` and `spawn` are the exact new headlines (the lane fallback's count and
+default-lane line, the one reason line under the headline (the cap and the day access returns, in `monthlycap`; `op.sh` adds a capped lane, another cause with no day, and none on record, which stays one line), the pinned session's `stays on` line, the master retire's one-line done and its stuck extra line).
+Not covered, and why: the way a real stuck helper words its line (the tests stub it; the brief now asks for one plain sentence), and a
+log link (sala-web serves no operation log at a URL, so `log` is the path as plain text).

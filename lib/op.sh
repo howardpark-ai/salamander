@@ -40,8 +40,8 @@
 #                                             front agent once per session): `model <model> [--effort <level>] <session>…` is ONE
 #                                             operation for all the sessions named, and it ends in ONE result notice with a line per
 #                                             session (RESULT lines of lib/model.sh, THE BATCH: op_run keeps them as `detail=` lines on
-#                                             the marker; the notice and the Slack post count the sessions that went through and name
-#                                             only the failed or skipped ones, with their reason: op_finish, THE MANY-SESSION POST).
+#                                             the marker; the notice and the Slack post count the sessions and the post names
+#                                             only the failed or skipped ones, with their reason: op_finish, THE OP POST).
 #                                             Which shape: a first word that is a model (opus · sonnet · haiku · fable · claude-…) is
 #                                             the batch; any other first word is the session of the single-session shape below, which
 #                                             is unchanged (model_batch_shape, common.sh, has the two corner cases). All the sessions
@@ -219,7 +219,8 @@
 # self-worker done); its set (common.sh, "recycle sets") then says: closed with nothing given up → done; closed with a pane
 # given up → stuck; panes still outstanding (a retry worker, the deferred list) → `waiting`, and a detached waiter judges
 # the set once it closes (up to the retry window and 15 min). The queue goes on meanwhile: a later operation waits only for
-# the lock. Every result is one Slack post (✅ done · 🚨 stuck with the exact failure) and one line into the hearing
+# the lock. Every result is one short Slack post (✅ done: ONE line · 🚨 stuck: the headline, one plain sentence of why, who asked and
+# the log; THE OP POST, above op_finish) and one line into the hearing
 # session's inbox (its messaging socket, as `sala note` delivers; when it is not live, the line goes to <name>-main with
 # `[for <owner>]` first and the op log says `reply: … sent to …`; when neither is live, the op log says `reply FAILED` and the post stands), then the archive. The same end is reported once to stackshot (`client.py event --kind fleet_op`, op_event,
 # THE OP-END EVENT above op_finish): a failure of that report is a line in the op log and nothing else.
@@ -234,7 +235,8 @@
 # wall clock (SALA_OP_STUCK_TURNS, SALA_OP_STUCK_TIME), with a brief of the operation, the log tails and what was already
 # tried. It ends with one line, `SALA-OP: done <what>` or `SALA-OP: stuck <why>`; a `done` is checked where sala can (the
 # retired session gone, the renamed one live, the default lane set) and trusted otherwise. If it does not finish the
-# operation, the operation is stuck: posted once with the exact failure, told to the hearing session, archived; nothing
+# operation, the operation is stuck: posted once (the helper's own stuck line, cut to one plain sentence, is the post's why line;
+# the exact failure stays in the log and the hearing session's message), told to the hearing session, archived; nothing
 # retries it by another route. The tests stub the command (SALA_OP_CLAUDE), so no suite ever calls the API.
 #
 # Sourced by bin/salamander (op_main) and by lib/watch.sh (op_tick).
@@ -1386,7 +1388,7 @@ The relaunch log's last 20 lines ($SALA_LOG_DIR/salamander-revive.log):
 $(tail -n 20 "$SALA_LOG_DIR/salamander-revive.log" 2>/dev/null)
 
 Rules. NEVER run \`salamander retire\` (or any verb that ends a session) for an operation queued with no words ("with no words" above): its throwaway checks failed or it already ran, and a retire here would have none of them; end with a SALA-OP: stuck line instead. For a no-words revive (a reason in the note, not a retire), only \`salamander revive [--force] --only <those NAMEs>\`, the sessions its arguments name and nothing else (no sweep, no other session, no --rescue); for a no-words restore, only \`salamander restore <those NAMEs>\`. Finish the operation with sala's own verbs only (salamander recycle, revive, restore, retire, close-shell, forget-row, rename, lane, model, update, provision, spawn; \`salamander revive --only <session> --force --rescue\` when a stale background-task row holds a pane and no child process runs under its claude), with read-only looks (tmux list-panes, tmux capture-pane, tail, cat, ls, ps, grep, Read). Never --not-master, never stop a process, never tmux kill-*, never reboot, never a wider path than the words asked for (no --force the words did not imply). If it needs a decision only ${SALA_OWNER_NAME} can make, or a pane is held by work that must not be interrupted, stop and say so. A permission prompt you cannot answer means stop. Do not post to Slack or message a session: the queue does that from your last line.
-End with exactly one line: \`SALA-OP: done <what you did, one line>\` or \`SALA-OP: stuck <why, one line>\`.
+End with exactly one line: \`SALA-OP: done <what you did, one line>\` or \`SALA-OP: stuck <why>\`; the stuck line becomes the Slack post's one sentence for ${SALA_OWNER_NAME}, so write it as one plain sentence that says what blocks it and who has to act, with no exit codes, commands or paths.
 EOF
 }
 op_verify() {  # <id> → 0 when the operation's effect can be seen (or cannot be checked); 1 with OP_VERIFY_WHY
@@ -1413,7 +1415,7 @@ op_verify() {  # <id> → 0 when the operation's effect can be seen (or cannot b
 op_helper() {  # <id> <failure> → prints the verdict; 0 = done (checked), 1 = stuck
     local id="$1" why="$2" cmd hl rc line
     cmd="${SALA_OP_CLAUDE:-$SALA_CLAUDE}"; hl="$SALA_LOG_DIR/salamander-op-$id.helper.log"
-    job_env_args "$SALA_JOB_LANE" || { echo "the one-off claude -p could not start: the $(lane_shown "$SALA_JOB_LANE") lane (SALA_JOB_LANE) is not ready: $JOB_ENV_WHY"; op_say "$id" "no claude -p: the $SALA_JOB_LANE lane is not ready: $JOB_ENV_WHY"; return 1; }
+    job_env_args "$SALA_JOB_LANE" || { op_put "$id" stuckwhy "a one-off helper could not start, because its lane was not ready"; echo "the one-off claude -p could not start: the $(lane_shown "$SALA_JOB_LANE") lane (SALA_JOB_LANE) is not ready: $JOB_ENV_WHY"; op_say "$id" "no claude -p: the $SALA_JOB_LANE lane is not ready: $JOB_ENV_WHY"; return 1; }
     op_say "$id" "one claude -p on the $(lane_shown "$SALA_JOB_LANE") lane for the stuck operation (at most $SALA_OP_STUCK_TURNS turns, $(op_dur "$SALA_OP_STUCK_TIME"); its output: $hl)"
     ( cd "$SALA_OP_HELPER_CWD" 2>/dev/null || cd "$HOME"
       exec timeout --kill-after=30 "$SALA_OP_STUCK_TIME" env -u ANTHROPIC_API_KEY -u ANTHROPIC_CUSTOM_HEADERS -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CONFIG_DIR ${JOB_ENV[@]+"${JOB_ENV[@]}"} \
@@ -1422,10 +1424,12 @@ op_helper() {  # <id> <failure> → prints the verdict; 0 = done (checked), 1 = 
     case "$line" in
         "SALA-OP: done"*)
             if op_verify "$id"; then echo "$(op_one_line "${line#SALA-OP: done}")"; op_say "$id" "the claude -p says done: ${line#SALA-OP: }"; return 0; fi
+            op_put "$id" stuckwhy "a one-off helper said it was done, but the check found it was not"
             echo "the one-off claude -p said done (\"$(op_one_line "${line#SALA-OP: done}")\"), but the check says otherwise: $OP_VERIFY_WHY"; op_say "$id" "the claude -p said done, but: $OP_VERIFY_WHY"; return 1 ;;
-        "SALA-OP: stuck"*) echo "the one-off claude -p could not finish it: $(op_one_line "${line#SALA-OP: stuck}")"; op_say "$id" "the claude -p says stuck: ${line#SALA-OP: }"; return 1 ;;
-        *) if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then echo "the one-off claude -p ran out of time ($(op_dur "$SALA_OP_STUCK_TIME")) without a verdict"
-           else echo "the one-off claude -p ended (exit $rc) without a SALA-OP verdict line"; fi
+        "SALA-OP: stuck"*) op_put "$id" stuckwhy "$(op_one_line "${line#SALA-OP: stuck}")"   # the helper's own one-line why: the Slack post's sentence (op_post)
+            echo "the one-off claude -p could not finish it: $(op_one_line "${line#SALA-OP: stuck}")"; op_say "$id" "the claude -p says stuck: ${line#SALA-OP: }"; return 1 ;;
+        *) if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then op_put "$id" stuckwhy "a one-off helper ran out of time before it finished"; echo "the one-off claude -p ran out of time ($(op_dur "$SALA_OP_STUCK_TIME")) without a verdict"
+           else op_put "$id" stuckwhy "a one-off helper ended without saying whether it finished"; echo "the one-off claude -p ended (exit $rc) without a SALA-OP verdict line"; fi
            op_say "$id" "the claude -p gave no verdict (exit $rc)"; return 1 ;;
     esac
 }
@@ -1458,13 +1462,12 @@ $t" && { op_log "reply: $s has no live pane; sent to $m"; return 0; } ;;
     fi
     op_log "reply FAILED: $s is live but the push to its messaging socket failed; nobody was told, the Slack post stands — ${t:0:120}"; return 0
 }
-# THE MANY-SESSION POST (Mon Nov 2nd 2026): an operation given several sessions (lane <lane> <session>…, model <model> <session>…,
+# THE MANY-SESSION POST (Mon Nov 2nd 2026; its text rebuilt as THE OP POST, below): an operation given several sessions (lane <lane> <session>…, model <model> <session>…,
 # model --clear <session>…, revive --only A --only B…, restore --only A --only B…, lane fallback <lane>) names none of them in its title or its inbox line: the
-# title carries the verb and its other arguments and a count, the way the recycle's own post does ("✅ *Recycle done* · 12 panes",
-# "⚠️ *Recycle … · n/N relaunched*"): every session through → "· done* · N sessions"; one failed or skipped → "· n/N succeeded*",
-# a bullet per failed or skipped session with its reason (a FAILED / NOT moved / stays-on RESULT line; when stuck, a pane its set
-# gave up or deferred and never got back, or one still outstanding); stuck with nothing per session to go on → "· N sessions, none
-# confirmed". The sessions that went through are counted, never listed (the marker keeps their lines). One session: as before.
+# headline carries the count ("✅ *recycled 14 sessions*"; with failures "🚨 *recycled 12 of 14 sessions*"), then a line per failed
+# or skipped session with its reason (a FAILED / NOT moved / stays-on RESULT line; when stuck, a pane its set gave up or deferred and
+# never got back, or one still outstanding), five at most and then "and N more". The sessions that went through are counted, never
+# listed (the marker keeps their lines). One session: named in the headline.
 op_sessions_of() {  # <verb> [args…] → the sessions a many-session shape names, one per line (none for any other verb or shape)
     local verb="${1:-}" a e=""; shift || true
     case "$verb" in
@@ -1541,8 +1544,117 @@ op_event() {  # <id> <done|stuck> <n named> <nf failed or skipped among them> <l
     else op_log "op $id: ⚠ the fleet_op event was not reported (client exit $rc${out:+: $out}); the operation is unaffected"; fi
     return 0
 }
+# THE OP POST (what Slack gets when an operation ends; the owner reads it on a phone, so it reads at a glance). Built by op_post, sent by sala_post:
+#   finished  ONE line: "✅ *retired <name>* · asked by <session> · log <path>"
+#   stuck     "🚨 *provision on <box> is stuck*" (+ " (step <name>)" when the verb's output names the step that failed), ONE plain sentence of why
+#             (the stuck helper's own one-line result, kept to its first sentence with exit codes, paths and backticks taken out; with no such line
+#             a fixed sentence that says nothing retries it and a person finishes it), then "asked by <session> · log <path>"
+#   many sessions (a recycle's set, revive/restore --only A --only B…, lane/model batches): the headline carries the count ("✅ *recycled 14 sessions*";
+#             some failed or skipped: "🚨 *recycled 12 of 14 sessions*", ⚠️ for a finished one that skipped some), then ONLY those sessions, one short
+#             line each (5 at most, then "and N more"), then the asked-by line.
+#   lane fallback: one more line under the headline, "• reason: monthly usage cap; access returns <day>" (op_dormant_why), since the owner reads the post to learn why the lane is dormant and when it returns.
+# The headline is a verb phrase with its target, never the argv. The owner's words stay on the marker, in the operation's log and in the hearing
+# session's own message (op_tell); the post carries none, nor an exit code or a raw command. `log` is the path of the operation's log, as text:
+# sala-web serves no operation log at a URL (its /api/spawn/status answers a JSON record of the marker for the spawn dialog and shows no log), so there is nothing to link.
+op_plain() {  # <text> → one plain sentence: one line, its first sentence, no backticks, no exit codes, no paths
+    local t; t=$(op_one_line "$*"); t=${t//\`/}
+    t=$(sed -E 's/([.!?])[[:space:]].*$/\1/' <<< "$t")   # the first sentence first, so a path's own dot never ends it
+    t=$(sed -E 's/ ?\((exit|exited|rc|status)[ =:]*[0-9]+\)//Ig; s/,? ?(exit(ed)?( code| status)?|rc)[ =:]*[0-9]+//Ig; s/(^| )(~|\.{0,2})\/[^ ]*\/[^ ]*//g; s/ +/ /g; s/^ //; s/ ([.,;:])/\1/g' <<< "$t")
+    t=${t:0:200}
+    printf '%s\n' "$t"
+}
+op_box() {  # <id> <verb> → the machine(s) a host-taking verb ran for: the one host named, "N machines", "every machine" (--fleet, or provision with none named) or this box
+    local a=() s skip="" host="" nh=0 fleet=0
+    mapfile -t a < <(op_vals "$1" arg)
+    for s in ${a[@]+"${a[@]}"}; do
+        if [ -n "$skip" ]; then skip=""; continue; fi
+        case "$s" in --only) skip=1;; --fleet) fleet=1;; -*) ;; *) host=$s; nh=$((nh + 1));; esac
+    done
+    if [ "$fleet" = 1 ] || { [ "$nh" = 0 ] && [ "$2" = provision ]; }; then echo "every machine"
+    elif [ "$nh" -gt 1 ]; then echo "$nh machines"
+    elif [ "$nh" = 1 ]; then echo "$host"
+    else echo "$_SALA_HN"; fi
+}
+op_step_of() {  # <id> → the first step a provision's output reports as failed ("❌ <step>: …"), or nothing
+    local f; f=$(op_out "$1"); [ -f "$f" ] || return 0
+    grep -o '❌ [A-Za-z0-9_-]*:' "$f" 2>/dev/null | head -1 | sed -E 's/^❌ //; s/:$//'
+    return 0
+}
+op_headline() {  # <id> <done|stuck> <sessions counted, 0 = none> <failed or skipped among them> <sessions, one per line> → OPE (emoji), OPH (the bold text)
+    local id="$1" st="$2" tot="$3" nf="$4" ss="$5" verb a=() n=0 sub="" nof="" dt nt box name hn="$_SALA_HN" upd=""
+    verb=$(op_val "$id" verb); mapfile -t a < <(op_vals "$id" arg)
+    [ -n "$ss" ] && n=$(grep -c . <<< "$ss")
+    if [ "$tot" -gt 1 ]; then
+        if [ "$nf" -gt 0 ]; then sub="$((tot - nf)) of $tot sessions"; else sub="$tot sessions"; fi; nof=" of $tot sessions"
+    elif [ "$n" = 1 ]; then sub=$ss; nof=" of $ss"
+    else sub="the sessions"; fi
+    box=$(op_box "$id" "$verb"); name=${a[0]:-}
+    printf '%s\n' ${a[@]+"${a[@]}"} | grep -qxF -- --update && upd=1
+    case "$verb" in
+        recycle) dt="$([ -n "$upd" ] && echo "updated Claude and recycled" || echo recycled) $sub"; nt="$([ -n "$upd" ] && echo "update and recycle" || echo recycle) on $hn" ;;
+        update) dt="updated Claude on $box"; nt="update on $box" ;;
+        revive) dt="revived $sub"; nt="revive$nof" ;;
+        restore) dt="restored $sub"; nt="restore$nof" ;;
+        retire) [ "$name" = --id ] && name="session ${a[1]:-}"; dt="retired $name"; nt="retire of $name" ;;
+        close-shell) dt="closed the shell $name"; nt="close of the shell $name" ;;
+        forget-row) dt="dropped the leftover row of $name"; nt="drop of the leftover row of $name" ;;
+        rename) dt="renamed $name to ${a[1]:-}"; nt="rename of $name" ;;
+        spawn) dt="spawned $name"; nt="spawn of $name" ;;
+        reboot) dt="rebooted $box"; nt="reboot of $box" ;;
+        provision) dt="provisioned $box"; nt="provision on $box" ;;
+        lane)
+            case "$name" in
+                default) dt="set the default lane to ${a[1]:-}"; nt="default lane change to ${a[1]:-}" ;;
+                fallback) dt="moved $sub off the dormant lane ${a[1]:-}"; nt="lane fallback from ${a[1]:-}" ;;
+                *) [ "${a[1]:-}" = --all ] && { sub="every session"; nof=""; }
+                   dt="moved $sub to $name"; nt="lane move to $name$nof" ;;
+            esac ;;
+        model)
+            if [ "$name" = --clear ] || [ "${a[1]:-}" = --clear ]; then
+                [ "${a[1]:-}" = --clear ] && { sub=$name; nof=" of $name"; }
+                dt="cleared the model of $sub"; nt="model clear$nof"
+            elif model_batch_shape "${a[@]}"; then dt="set $sub to $name"; nt="model change$nof"
+            else dt="set $name to ${a[1]:-}"; nt="model change of $name"; fi ;;
+        *) dt="finished $verb"; nt="$verb" ;;
+    esac
+    if [ "$st" = stuck ]; then
+        OPE="🚨"; if [ "$nf" -gt 0 ] && [ "$tot" -gt 1 ]; then OPH=$dt; else OPH="$nt is stuck"; fi
+    elif [ "$nf" -gt 0 ]; then OPE="⚠️"; OPH=$dt
+    else OPE="✅"; OPH=$dt; fi
+}
+op_dormant_why() {  # <id> → for a lane fallback, the one plain line that says why the lane is dormant ("reason: monthly usage cap; access returns Tue Dec 1st 09:00"; just "reason: no seat" when there is no regain day); nothing for any other operation
+    local id="$1" a=() r l
+    mapfile -t a < <(op_vals "$id" arg); [ "$(op_val "$id" verb)" = lane ] && [ "${a[0]:-}" = fallback ] || return 0
+    r=$(op_val "$id" result | sed -n 's/.*is dormant (\(monthly usage cap\), \(access returns [^)]*\)).*/reason: \1; \2/p')   # the verb's own last line: the same data the old post carried
+    if [ -z "$r" ]; then l=${a[1]:-}; [ -n "$l" ] && r=$(lane_state_field "$l" 3 2>/dev/null); r=$(op_plain "$r"); r=${r%.}; [ -z "$r" ] || r="reason: $r"; fi
+    printf '%s\n' "$r"
+}
+op_post() {  # <id> <done|stuck> <sessions counted> <failed or skipped among them> <sessions, one per line> — the one Slack post; OP_PF holds the failed or skipped sessions' lines
+    local id="$1" st="$2" tot="$3" nf="$4" ss="$5" verb foot text step="" why x i=0 cap=5 logp rsn
+    verb=$(op_val "$id" verb); logp=$(op_oplog "$id"); logp=${logp/#"$HOME"/\~}
+    op_headline "$id" "$st" "$tot" "$nf" "$ss"
+    foot="asked by $(op_val "$id" from) · log $logp"
+    rsn=$(op_dormant_why "$id")
+    if [ "$st" = done ] && [ ${#OP_PF[@]} = 0 ] && [ -z "$rsn" ]; then sala_post "$OPE *$OPH* · $foot"; return 0; fi
+    [ "$st" = stuck ] && [ "$verb" = provision ] && step=$(op_step_of "$id")
+    text="$OPE *$OPH*${step:+ (step $step)}"
+    [ -z "$rsn" ] || text+=$'\n'"• $rsn"   # a lane fallback: why the lane is dormant and when it returns, one line under the headline
+    if [ "$st" = stuck ] && [ ${#OP_PF[@]} = 0 ]; then
+        why=$(op_val "$id" stuckwhy); [ -n "$why" ] && why=$(op_plain "$why")
+        [ -n "$why" ] || why="It did not finish, and nothing retries it: finish it by hand or ask again."
+        why="$(printf '%s' "${why:0:1}" | tr '[:lower:]' '[:upper:]')${why:1}"; case "$why" in *[.!?]) ;; *) why+=".";; esac
+        text+=$'\n'"$why"
+    fi
+    for x in ${OP_PF[@]+"${OP_PF[@]}"}; do
+        i=$((i + 1)); [ "$i" -le "$cap" ] || break
+        x=$(op_plain "${x/FAILED:/failed:}"); text+=$'\n'"• ${x:0:110}"
+    done
+    [ ${#OP_PF[@]} -gt "$cap" ] && text+=$'\n'"and $(( ${#OP_PF[@]} - cap )) more"
+    if [ "$st" = stuck ] && [ -n "$(op_val "$id" unset_master)" ]; then text+=$'\n'"The master setting was cleared first, so nothing keeps a master session alive until it is set again."; fi
+    sala_post "$text"$'\n'"$foot"
+}
 op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the hearing session's line, the archive
-    local id="$1" st="$2" res="$3" line from words nowords when hd bul=() x asked verb args=() ss="" n=0 nf=0 cnt="" fb=() ot=() y s set
+    local id="$1" st="$2" res="$3" line from words nowords when x asked verb args=() ss="" n=0 nf=0 cnt="" fb=() ot=() y s set ptot=0 pnf=0
     [ -f "$(op_file "$id")" ] || return 0
     line=$(op_line "$id"); from=$(op_val "$id" from); words=$(op_val "$id" words); nowords=$(op_val "$id" nowords); when=$(local_human "$(op_val "$id" time)")
     res=$(op_one_line "$res")
@@ -1554,7 +1666,7 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
         ss=$(op_vals "$id" detail | sed -n 's/^\([^ :][^ :]*\): .*/\1/p')
     fi
     [ -n "$ss" ] && n=$(grep -c . <<< "$ss")
-    local nl=$'\n' dl=""
+    local nl=$'\n' dl=""; OP_PF=()   # OP_PF: the failed or skipped sessions' lines for the post (op_post)
     if [ "$n" -gt 1 ]; then
         # many sessions: the failed and skipped ones named with their reason, the rest counted (THE MANY-SESSION POST, above)
         while IFS= read -r y; do
@@ -1581,23 +1693,29 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
         if [ "$nf" -gt 0 ]; then cnt="$((n - nf))/$n succeeded"
         elif [ "$st" = done ]; then cnt=$(plural "$n" session)
         else cnt="$(plural "$n" session), none confirmed"; fi
-        bul=("$res" ${fb[@]+"${fb[@]}"} ${ot[@]+"${ot[@]}"})
+        ptot=$n; pnf=$nf; OP_PF=(${fb[@]+"${fb[@]}"} ${ot[@]+"${ot[@]}"})
         for y in ${fb[@]+"${fb[@]}"} ${ot[@]+"${ot[@]}"}; do dl+="$nl  - $y"; done
     else
         while IFS= read -r y; do [ -n "$y" ] && { dl+="$nl  - $y"; }; done < <(op_vals "$id" detail)   # a many-session operation's line per session (op_run)
-        bul=("$res")
-        while IFS= read -r y; do [ -n "$y" ] && bul+=("$y"); done < <(op_vals "$id" detail)   # a many-session operation: a line per session, under the result
+        set=$(op_val "$id" set)
+        case "$verb" in recycle|revive|restore) if set_has "$set"; then   # a relaunch's set counts the sessions in the post's headline (the hearing session's line stays as it was)
+            ptot=$(set_val "$set" total); [[ $ptot =~ ^[0-9]+$ ]] || ptot=0
+            if [ "$st" = stuck ]; then
+                while IFS= read -r y; do
+                    [ -n "$y" ] || continue; s="${y%%[: ]*}"
+                    grep -qxF -- "back=$s" "$SALA_SET_DIR/$set" && continue
+                    printf '%s\n' ${OP_PF[@]+"${OP_PF[@]}"} | grep -q "^$s[: ]" || OP_PF+=("$y")
+                done < <(set_vals "$set" gave; set_vals "$set" skip)
+                while IFS= read -r s; do
+                    [ -n "$s" ] || continue
+                    printf '%s\n' ${OP_PF[@]+"${OP_PF[@]}"} | grep -q "^$s[: ]" || OP_PF+=("$s: not relaunched yet")
+                done < <(set_vals "$set" out)
+            fi
+        fi ;; esac
+        pnf=${#OP_PF[@]}
     fi
-    if [ "$st" = done ]; then hd="✅ *sala op: $line · done*"
-    else hd="🚨 *sala op: $line · stuck*"; bul+=("nothing retries it: once the cause is clear, finish it by hand or say the words again"); fi
-    if [ -n "$cnt" ]; then if [ "$nf" -gt 0 ]; then hd="${hd%\*} · $cnt*"; else hd+=" · $cnt"; fi; fi
-    bul+=("asked by $from (queued at $when)${words:+: \"$words\"}${nowords:+: $nowords}")
-    x=$(op_val "$id" item); [ -n "$x" ] && [ -n "$words" ] && bul+=("board item: $x"); x=$(op_val "$id" reason); [ -n "$x" ] && [ -n "$words" ] && bul+=("reason: $x")   # (with no words the note already says it)
-    x=$(op_val "$id" unset_master); [ -n "$x" ] && bul+=("SALA_MASTER was unset first: '$x' is no longer the session the watchdog keeps alive$([ "$st" = done ] || echo " (salamander master --set $x makes it so again, if the retire is not to happen)")")
-    while IFS= read -r x; do [ -n "$x" ] && bul+=("folded in: $x"); done < <(op_vals "$id" absorbed)
-    [ -n "$(op_val "$id" helper)" ] && bul+=("a one-off claude -p looked at it (its output: ~/.claude/salamander-op-$id.helper.log)")
-    bul+=("Details: ~/.claude/salamander-op-$id.log")
-    sala_post "$hd" "${bul[@]}"
+    [ "$ptot" -ge "$pnf" ] || ptot=$pnf
+    op_post "$id" "$st" "$ptot" "$pnf" "$ss"   # the one Slack post (THE OP POST, above)
     op_event "$id" "$st" "$n" "$nf" "$line" "$res"   # stackshot hears the end too (THE OP-END EVENT, above); never changes the outcome
     x=$(op_val "$id" unset_master)
     if [ -n "$nowords" ]; then asked="Queued by $from at $when with no words ($nowords): $(case "$verb" in revive) echo "the session revived the sessions named, for the reason in the note";; restore) echo "the session restored the sessions named, for the reason in the note";; *) echo "the session ended a throwaway (the rule is in the note)";; esac)."

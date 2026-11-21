@@ -173,7 +173,7 @@ L=$(oplog "$R"); u=$(grep -n "unsetting SALA_MASTER first" <<< "$L" | head -1 | 
 ! tmux has-session -t =sala-test-m 2>/dev/null && ok "the session is gone" || bad "sala-test-m still lives"
 "$SALA" master --name >/dev/null 2>&1; rc=$?
 [ "$rc" = 1 ] && grep -q '^#SALA_MASTER=' "$SALA_CONFIG" && ! grep -q '^SALA_MASTER=' "$SALA_CONFIG" && [ "$(stv master_unset | cut -d' ' -f1)" = sala-test-m ] && ok "the config names no master; master_unset recorded" || bad "after the op: rc=$rc config: $(<"$SALA_CONFIG") state: $(<"$ST")"
-P=$(post "retire sala-test-m · done"); [ -n "$P" ] && has "$P" "SALA_MASTER was unset first: 'sala-test-m' is no longer the session the watchdog keeps alive" && ! has "$P" "makes it so again" && ok "one post: done, the unset named" || bad "post: [$P] posts file: [$(<"$POSTS")] unit log tail: $(oplog "$R" | tail -6)"
+P=$(post " · log ~/.claude/salamander-op-$R.log"); [ "$P" = "✅ *retired sala-test-m* · asked by sala-test-h · log ~/.claude/salamander-op-$R.log" ] && ok "one post, one line: done (the unset is in the op log and the marker, and the hearing session's message)" || bad "post: [$P] posts file: [$(<"$POSTS")] unit log tail: $(oplog "$R" | tail -6)"
 wait_lock
 
 echo "== a retire that fails after the unset: stuck, SALA_MASTER stays unset, the session alive, the post says how to put it back"
@@ -184,7 +184,7 @@ regstatus sala-test-a busy; rm -f "$HOME/norun"   # busy by the time it runs: th
 tick; waitfor "[ -f '$DONE/$R2.op' ]" 120 || bad "op $R2 did not end: $(slurp "$OPS/$R2.op")"
 [ "$(mval "$R2" state)" = stuck ] && [ "$(mval "$R2" unset_master)" = sala-test-a ] && tmux has-session -t =sala-test-a 2>/dev/null && [ -n "$(cpid sala-test-a)" ] && ok "stuck; the session alive; unset_master on the marker" || bad "marker: $(slurp "$DONE/$R2.op")"
 "$SALA" master --name >/dev/null 2>&1; rc=$?; [ "$rc" = 1 ] && ! grep -q '^SALA_MASTER=' "$SALA_CONFIG" && ok "SALA_MASTER stays unset" || bad "master after the failed retire: rc=$rc"
-P=$(post "retire sala-test-a · stuck"); [ -n "$P" ] && has "$P" "SALA_MASTER was unset first: 'sala-test-a'" && has "$P" "salamander master --set sala-test-a makes it so again" && ok "the post: unset first, and how to make it the master again" || bad "post: $P"
+P=$(post " · log ~/.claude/salamander-op-$R2.log"); [ "$(sed -n 1p <<< "$P")" = "🚨 *retire of sala-test-a is stuck*" ] && has "$P" "The master setting was cleared first" && ! has "$P" "salamander master" && ok "the post: stuck, and the one line that the master setting was cleared first (no command in it)" || bad "post: $P"
 regstatus sala-test-a idle; wait_lock
 
 echo "== an unset that fails: stuck, the retire never started, the config untouched"

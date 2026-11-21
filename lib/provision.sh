@@ -335,15 +335,23 @@ pset_run() {
     if [ "$anyleft" = 0 ]; then sala_notify_raw "$(fleet_post "$d" "${fresh[@]}")"; return 0; fi
     pset_create "$PSTART-$$" "$d" "${fresh[@]}"; pset_followup "$PSTART-$$"
 }
+prov_failed() { { printf '%s\n' "${REPORT[@]}" | grep -q 'FAILED' || printf '%s\n' "${POST[@]}" | grep -q '^❌'; }; }   # the run fails: its exit code below
 if [ "$CHECK" = 0 ]; then
     # --only: the single fleet post, never a set (a set's retry worker re-runs a whole provision of its boxes); --quiet: no post
-    if [ "$QUIET" = 1 ]; then :; elif [ "$SESSION" = 0 ] && [ -z "$ONLY" ]; then pset_run "$rdir" $allhosts; else sala_notify_raw "$(fleet_post "$rdir" $allhosts)"; fi
+    # A run that fails under a queued operation (SALA_OP_ID, exported by the op runner) is that operation's stuck, which op_finish posts
+    # once (THE OP POST, lib/op.sh): this run posts nothing of its own then. Its set is still made, with its retry worker and follow-up,
+    # and the set's LATER posts stand. The same run with no operation over it (a plain `sala provision`, the watch's, a set's retry
+    # worker) keeps its post, and so does a clean or ⚠️ run under an operation (nothing stuck there to report twice).
+    if [ "$QUIET" = 1 ]; then :
+    elif [ -n "${SALA_OP_ID:-}" ] && prov_failed; then
+        if [ "$SESSION" = 0 ] && [ -z "$ONLY" ]; then _SET_QUIET=1 pset_run "$rdir" $allhosts; fi
+    elif [ "$SESSION" = 0 ] && [ -z "$ONLY" ]; then pset_run "$rdir" $allhosts; else sala_notify_raw "$(fleet_post "$rdir" $allhosts)"; fi
     # a remote /provision updates that box's CLI as one of its steps → the version tracker is stale now (not after --only)
     [ "$RKEEP" = 1 ] || rm -rf "${rdir:?}"
     [ -z "$ONLY" ] && printf '%s\n' "${REPORT[@]}" | grep -q 'provisioned' && post_update_hook "provision: $(printf '%s; ' "${REPORT[@]}")" $(printf '%s\n' "${REPORT[@]}" | grep 'provisioned' | cut -d: -f1)
 fi
 [ "$RKEEP" = 1 ] || { [ -d "${rdir:-}" ] && rm -rf "${rdir:?}"; }
-rc=0; { printf '%s\n' "${REPORT[@]}" | grep -q 'FAILED' || printf '%s\n' "${POST[@]}" | grep -q '^❌'; } && rc=1
+rc=0; prov_failed && rc=1
 # the last act of a whole-fleet run: this box's CLI update + the recycle (the master's; standing authorization,
 # it relaunches the invoking pane too once idle)
 if [ "$CHECK" = 0 ] && [ ${#HOSTS[@]} -eq 0 ] && [ "$RECYCLE" = 1 ]; then

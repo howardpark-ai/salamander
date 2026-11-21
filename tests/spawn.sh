@@ -605,7 +605,7 @@ waitfor "[ -f '$DONE/$ID.op' ]" 120 && [ "$(mval "$ID" state)" = done ] && ok "d
 tmux has-session -t =gamma-foo-queued 2>/dev/null && grep -q "^gamma-foo-queued	$(uuid 14)	" "$SALA_SIDECAR" && ok "the session is up and mapped" || bad "session: $(sessions); map: $(<"$SALA_SIDECAR")"
 waitfor "grep -qF \"$(uuid 14) $SALA_MSG_MARK Read $MF in full\" '$TYPED'" 120 && grep "^$(uuid 14) " "$TYPED" | grep -qF "nobody is waiting to confirm" && ok "the session reads the mandate file the queue wrote, and starts on it" || bad "queued typed: $(typed_ctx "$TYPED" "$(uuid 14)")"
 [ -f "$MF" ] && [ "$(<"$MF")" = "queued text mandate" ] && ok "the mandate file is still there after the operation (the session reads it at its first prompt)" || bad "file gone: $(ls "$MANDATES" 2>/dev/null)"
-[ "$(nposts 'sala op: spawn gamma-foo-queued')" = 1 ] && has "$(<"$POSTS")" "✅" && [ "$(runs)" = 0 ] && ok "one ✅ post, no claude -p" || bad "posts: $(<"$POSTS"); runs=$(runs)"
+[ "$(nposts '✅ *spawned gamma-foo-queued* · asked by sala-test-h · log ')" = 1 ] && [ "$(nposts '')" = 1 ] && [ "$(runs)" = 0 ] && ok "one ✅ post, no claude -p" || bad "posts: $(<"$POSTS"); runs=$(runs)"
 grep -q "spawn gamma-foo-queued: spawn-register: no hook configured" "$SPAWNLOG" && ok "the register no-op logged from the unit too" || bad "spawn log: $(<"$SPAWNLOG")"
 
 echo "== a conflict: two queued spawns of one name → the second refused, its file removed; cancelling the first removes its file"
@@ -625,7 +625,7 @@ tick; waitfor "[ -f '$DONE/$ID.op' ]" 120
 [ "$(mval "$ID" state)" = stuck ] && has "$(mval "$ID" result)" "exited 3" && has "$(mval "$ID" result)" "no claude -p: only the page's keeper can register the agent" && ok "stuck: exited 3, the result says only the keeper can register the agent" || bad "late: $(cat "$OPS/$ID.op" "$DONE/$ID.op" 2>/dev/null)"
 [ "$(runs)" = 0 ] && [ -z "$(mval "$ID" helper)" ] && ! tmux has-session -t =gamma-foo-late 2>/dev/null && ok "no claude -p, no session made" || bad "runs=$(runs) sessions: $(sessions)"
 waitask gamma-foo-late && has "$(ask gamma-foo-late)" "was asked for by sala-test-h (\"spawn late\")" && ok "the keeper asked from the unit, with who heard and the owner's words (SALA_OP_FROM, SALA_OP_WORDS exported by the runner)" || bad "late ask: $(ask gamma-foo-late)"
-[ "$(nposts 'sala op: spawn gamma-foo-late')" = 1 ] && has "$(<"$POSTS")" "🚨" && ok "one 🚨 post" || bad "posts: $(<"$POSTS")"
+[ "$(nposts '🚨 *spawn of gamma-foo-late is stuck*')" = 1 ] && [ "$(nposts '')" = 1 ] && ok "one 🚨 post" || bad "posts: $(<"$POSTS")"
 [ -f "$MANDATES/$ID-gamma-foo-late.md" ] && ok "its mandate file stays (the spawn runs again once the line is there)" || bad "late file gone"
 
 echo "== the queue, a side conversation (tests/side.sh checks the session itself): the shape refused at queue time, the plan, the marker's arguments, a conflict, the retire gate"
