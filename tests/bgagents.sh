@@ -88,8 +88,9 @@ EOF
 cat > "$T/bin/ask" <<'EOF'
 #!/usr/bin/env bash
 # the board-item command: notes the call in order.log, waits $T/ask.sleep seconds when that file is there (a slow stackshot), then is the fake client's `post question`;
-# ask.ready is written once the delay is captured (a test that changes ask.sleep for the next caller waits for it)
+# ask.ready is written once the delay is captured (a test that changes ask.sleep for the next caller waits for it); ask.hold is explained below
 delay=0; [ -f "$T/ask.sleep" ] && delay=$(cat "$T/ask.sleep")
+hold=0; [ -f "$T/ask.hold" ] && hold=1
 echo ask >> "$T/order.log"; echo ask >> "$T/ask.ready"
 # $T/ask.failkey names one project the board refuses (a filing error that belongs to that key); every call's project is noted in ask.keys
 prev=""
@@ -101,6 +102,8 @@ for a in "$@"; do
     prev=$a
 done
 [ "$delay" != 0 ] && sleep "$delay"
+# $T/ask.hold: the call waits until the test removes that file (a bounded wait of 60 s), however long the other runs take
+[ "$hold" = 1 ] && for _ in $(seq 1 600); do [ -e "$T/ask.hold" ] || break; sleep 0.1; done
 exec python3 "$ROOT/tests/fake-stackshot-client.py" post question "$@"
 EOF
 cat > "$T/bin/prefixes" <<'EOF'
@@ -124,7 +127,7 @@ run() {   # [args] → OUT (stdout+stderr), RC; the clock is $NOW (default N0)
     OUT=$(SALA_BGAGENTS_NOW=${NOW:-$N0} $S "$@" 2>&1); RC=$?
 }
 reset() {   # a clean slate: no ledger, no call logs, a quiet load, an empty list, nothing alive, no project record
-    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.ready" "$T/alive.seq" "$T/ask.ready"
+    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.ready" "$T/alive.seq" "$T/ask.ready" "$T/ask.hold"
     unset FAKE_CLIENT_FAIL
     mkdir -p "$SALA_STATE_DIR"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; NOW=$N0
     export SALA_BGAGENTS=on
@@ -684,13 +687,16 @@ reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=ex
 printf '1\n1\n0\n' > "$T/alive.seq"; run
 [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(calls "$T/alive.log")" = 3 ] && [ "$(qcalls)" = 0 ] && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY stale)" = True ] && [[ $OUT == *"is live while the project is still on the want list"* ]] && ok "a start that failed on its own check but left a live pane: the earlier \"not live\" answer is dropped, the raise phase asks again, no failed-start item" || bad "answer kept after the start: spawn=$(calls "$T/spawn.log") alive=$(calls "$T/alive.log") calls=$(qcalls) $(cat "$L") [$OUT]"
 # (h) a filing that fails after another run started the project writes no failure: the retry count and back-off stay, no "board item needed" line
-reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; echo 3 > "$T/ask.sleep"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; : > "$T/ask.hold"     # the first filing is held until the second run is done: no sleep decides who is first
 ( FAKE_CLIENT_FAIL=1 SALA_BGAGENTS_NOW=$N0 $S > "$T/a.out" 2>&1; echo $? > "$T/a.rc" ) & PA=$!
 await_file "$T/ask.ready"; MKA=$(led $KEY raising_at); echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
-NOW=$((MKA+75)) run; BOUT=$OUT; wait "$PA"
+NOW=$((MKA+75)) run; BOUT=$OUT; rm -f "$T/ask.hold"; wait "$PA"
 [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY started_at)" -ge $((MKA+75)) ] && ok "the window ran out, a second run started the project during the first one's filing" || bad "second run: spawn=$(calls "$T/spawn.log") $(cat "$L") [$BOUT]"
 [ "$(led $KEY raise_failures)" = 0 ] && [ "$(led $KEY raise_next_try)" = 0 ] && [ "$(led $KEY raising_at)" = 0 ] && [ "$(led $KEY raising_by)" = "" ] && [ "$(cat "$T/a.rc")" = 0 ] && ! grep -q "board item needed" "$T/a.out" && grep -q "no longer stuck" "$T/a.out" && ok "the first run's failed filing, for a project that is running now, counts no failure, writes no back-off and says no board item is needed" || bad "late failure written: $(cat "$L") rc=$(cat "$T/a.rc") [$(cat "$T/a.out")]"
-rm -f "$T/ask.sleep"
+# the cap counts the checks made outside the lock (the two windows), not the attempt's own check of its start: with the smallest cap (2) the run above still makes three calls
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; patch "$KEY" next_try=0 attempts=4 failures=4 retire_needed=false started_at=$((N0-100)); echo fail > "$T/spawn.mode"
+printf '1\n1\n0\n' > "$T/alive.seq"; SALA_BGAGENTS_MAX_PROBES=2 run
+[ "$(calls "$T/alive.log")" = 3 ] && [ "$(qcalls)" = 0 ] && ok "SALA_BGAGENTS_MAX_PROBES counts the two windows (one start-phase and one raise-phase check at cap 2), not the attempt's own check: three calls in all" || bad "cap and the attempt's check: alive=$(calls "$T/alive.log") calls=$(qcalls) [$OUT]"
 # (f) the subcommand table describes the shipped timer
 ! grep -q "No timer is shipped" "$ROOT/docs/subcommands.md" && grep -q 'sala-bg-agents.timer' "$ROOT/docs/subcommands.md" && ok "docs/subcommands.md says the timer ships in systemd/ (not that none ships)" || bad "subcommands.md timer sentence"
 

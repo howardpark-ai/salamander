@@ -130,9 +130,12 @@ what is known: its subject, text and stakes read "the start did not finish" inst
 path:** a project that is stale, or whose pane was started (`started_at`, also when it is given up), and whose check cannot say is left exactly as it is (stale stays set, no start attempt, no board item) and the log line says the check could not be told.
 
 **The liveness checks are made without the ledger lock, and a few a run.** A check may take 30 s. The run collects the names it needs to check, saves the ledger, gives the lock up, asks, takes the lock again
-and reads the ledger again from disk before it applies the answers, so a `--reset` or another run is never blocked by a check nor written over. At most `SALA_BGAGENTS_MAX_PROBES` (3) checks are made a run: the
-start phase uses up to two, the raise the rest, the least recently checked project first (`probed_at`), so a few live projects never starve the others; a project whose check did not fit waits for the next run
-(nothing is attempted or raised for it meanwhile, and the log line says so). A name checked in the start phase is not checked again for the raise, unless this run then attempted a start of that
+and reads the ledger again from disk before it applies the answers, so a `--reset` or another run is never blocked by a check nor written over. `SALA_BGAGENTS_MAX_PROBES` (3) caps the checks of the two probe windows, which are
+the ones made without the lock: the start phase uses up to one less than the cap (two by default), the raise phase the rest, counting every answer the start phase took (also one dropped later, see below), so the
+two windows never make more than the cap together; the least recently checked project goes first (`probed_at`), so a few live projects never starve the others; a project whose check did not fit waits for the next run
+(nothing is attempted or raised for it meanwhile, and the log line says so). **Not counted against the cap:** the run's own check of the start it attempts (a run makes at most one attempt). It is made with the lock held,
+as the attempt is: one check after a spawn that exited non-zero, and after a spawn that reported the pane up a check every two seconds or so until the session is live or `SALA_BGAGENTS_ALIVE_WAIT` (30 s) has passed. So a run that
+attempts a start can make more liveness calls than the cap, never more than the cap outside the lock plus that one agent's own checks. A name checked in the start phase is not checked again for the raise, unless this run then attempted a start of that
 agent: the answer given before the attempt is dropped (the pane may be up now even when the start reported a failure), so the raise phase asks again, or, with no check left in the cap, leaves the project for the next run.
 An answer is only good for the entries it was given for: after the lock is taken again, an answer whose project changed meanwhile (another run started or retried it) is dropped, and the log line says the
 project was overtaken by another run, so a cached "not live" never starts an agent another run has just started. With no liveness command nothing is asked (every answer is "cannot say"), but the names considered still
@@ -172,7 +175,7 @@ All are in `config.example`, commented, default off. They are read from the conf
 | `SALA_BGAGENTS_LOADAVG` | `/proc/loadavg` | where the load is read |
 | `SALA_BGAGENTS_RECORD_GRACE`, `_ALIVE_WAIT`, `_POST_TIMEOUT`, `_SPAWN_TIMEOUT` | 900, 30, 120, 300 | seconds |
 | `SALA_BGAGENTS_RAISE_TIMEOUT` | 30 | seconds each of the board item's two calls may take (the raise is one a run, after the start, without the ledger lock) |
-| `SALA_BGAGENTS_MAX_PROBES` | 3 | the most liveness checks a run makes (at least 2; they are made without the ledger lock) |
+| `SALA_BGAGENTS_MAX_PROBES` | 3 | the most liveness checks the two probe windows of a run make (at least 2; made without the ledger lock; the check of the run's own start attempt is not counted) |
 | `SALA_BGAGENTS_ASK_CMD` | `client.py post question` | the board-item command; empty: no client, `board item needed` and exit 1 |
 | `SALA_BGAGENTS_PREFIXES_CMD` | `client.py get config` | reads the instance's subject prefixes |
 | `SALA_BGAGENTS_SUBJECT_PREFIX` | empty | the item's subject bracket, e.g. `[hp]`; empty: derived (above) |
