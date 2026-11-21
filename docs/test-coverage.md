@@ -84,6 +84,23 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +33, 185 (Sat Nov 21st 2026)
+
+Review fixes to the board-item raise of `sala bg-agents`. Kept because each wrong answer is a job that acts against the owner's answer or says something false to them: a project the owner was
+asked about that the job keeps starting (the owner declined, or is starting it by hand), an item that tells the owner the start failed while the agent is running, two items that collapse into one
+because their request ids match (the second is never filed), a stackshot outage that holds up every start and every `--reset` for minutes. Checked: once an item is raised, a project below the cap
+(retire needed, or 2 attempts of 5), due and however long it waits, gets no listing, no start and no second item, `--status` says it is left alone, `--reset` makes it tried again, and it does not
+take the run's attempt from the next project; a project at the cap whose agent session is live raises nothing, is recorded `agent running, want list stale` (ledger, log, `--status`, `--dry-run`) and
+makes no new attempt while the pane lives, and is raised normally (the start failed) once the pane is gone; a stale project below the cap is kept out of the retry loop and goes back in when the pane
+is gone; a liveness check that cannot say (an exit that is neither 0 nor 1, or no command) still raises, with a subject, text and stakes that say only that the start did not finish; the request id is
+`bgagents-<scope>-<slug>-<time>-<random>`: two projects with one slug in different scopes get different ids and items in one second, a reset followed by another give-up in the same second gets a new
+one, and a retry of one escalation keeps the token the ledger holds; two outstanding projects raise ONE item a run (the run says one more waits, the next run takes it, then nothing); the start comes
+before the raise (order of the stubs' calls); while a raise sleeps in a slow stub `--reset` of another project runs at once and is not written over by the run's result, and a `--reset` of the same
+project during the call wins (the result is set aside, the run says so); `SALA_BGAGENTS_RAISE_TIMEOUT` (default 30 s) bounds the question and the prefixes read, and the listing's
+`SALA_BGAGENTS_POST_TIMEOUT` no longer does. Three older checks changed with it: the retire block runs with no board-item client (so the retry of the start is still tested), a raised retire-needed
+project is not started again, and the timeout check uses the new setting. Not covered, and why: another run starting inside the unlocked window of a raise (it would name the same request id, so the
+board files one item; the interleaving is not reproduced), and the real stackshot client's limit on a request id's length (the key part is cut at 64 characters, so an id stays under 100 characters).
+
 ### `tests/bgagents.sh`: +60, 152 (Sat Nov 21st 2026)
 
 `sala bg-agents` raises ONE board item for the owner when a project reaches the attempt cap or an agent it listed did not start. Kept because this is the only place the owner learns that a project

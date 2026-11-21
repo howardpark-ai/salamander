@@ -19,10 +19,11 @@ A run, in order:
   2. The list is read (SALA_BGAGENTS_LIST_CMD). A read that fails is one line and exit 0 with the ledger untouched: it is no project's failure.
   3. The ledger is brought up to date: a project in it that is not on the list gets `absent_since`; once it has been absent for the cooldown its
      entry is dropped (the only reset); a project back on the list clears `absent_since`.
-  4. Each listed project is looked at in list order. A project given up (attempts at the maximum) or in back-off (next_try not reached) is skipped. The
+  4. Each listed project is looked at in list order. A project given up (attempts at the maximum), with a board item raised or in back-off (next_try not reached) is skipped. The
      first project that is due gets the run's one attempt; the load check comes first and a high load is a skip with nothing taken from the ledger.
   5. The attempt: list the agent (skipped when the project record already has the name, or when this job listed it on an earlier run), then start the
      pane and wait, bounded, for it to be live.
+  6. After the attempt, at most ONE board item is raised for a project it cannot start (below).
 Failures (each one raises the project's back-off: cooldown, doubled for every failure, up to the cap): a post that failed or timed out (an HTTP 409 and
 a 403 included), a start that failed, a project listed again after this job created AND retired its agent, and a project still listed once the cooldown
 has passed after this job started its pane (a running agent is never retired for that). A start that fails because stackshot's project record has not yet
@@ -31,30 +32,40 @@ caught up with the post (spawn exit 3) is waited out for SALA_BGAGENTS_RECORD_GR
 RETIRING IS A MARKED STEP, NOT DONE HERE. An agent this job listed whose start failed would be taken off the project again, but every path sala has for
 that (`sala op retire`, `sala op forget-row`) takes the owner's words for an agent that is on a project's agents map (lib/op.sh, THE WORDS POLICY: retire is
 `throwaway`, forget-row is `owner`), and no door lets a job do it. So `retire_own_agent` only says `retire needed: <name>`, the run exits 1, and the ledger
-keeps `retire_needed`; the entry stays on the map and the next attempt finds it there and tries the start again without listing it twice.
+keeps `retire_needed`; the entry stays on the map and the next attempt finds it there and tries the start again without listing it twice (until the board item for
+it is raised, which is in the same run: after that nothing is tried until a session resets the record).
 
 Settings (environment; lib/bgagents.sh passes the config file's values): SALA_BGAGENTS (off), SALA_BGAGENTS_COOLDOWN (600), SALA_BGAGENTS_COOLDOWN_MAX
 (86400), SALA_BGAGENTS_MAX_ATTEMPTS (5), SALA_BGAGENTS_MAX_LOAD (10), SALA_BGAGENTS_MANDATE, SALA_BGAGENTS_SENDER (sala-web), SALA_BGAGENTS_LEDGER,
 SALA_BGAGENTS_LOADAVG (/proc/loadavg), SALA_BGAGENTS_RECORD_GRACE (900), SALA_BGAGENTS_ALIVE_WAIT (30), SALA_BGAGENTS_POST_TIMEOUT (120),
-SALA_BGAGENTS_SPAWN_TIMEOUT (300), and the four commands SALA_BGAGENTS_LIST_CMD, _POST_CMD, _SPAWN_CMD, _ALIVE_CMD (the suites stub them);
+SALA_BGAGENTS_SPAWN_TIMEOUT (300), SALA_BGAGENTS_RAISE_TIMEOUT (30), and the four commands SALA_BGAGENTS_LIST_CMD, _POST_CMD, _SPAWN_CMD, _ALIVE_CMD (the suites stub them);
 SALA_PROJECT_RECORD and SALA_PROJECT_RECORD_MAX_AGE (stackshot's project record, as spawn reads it), SALA_TZ (the zone times are shown in),
 SALA_OWNER_NAME (the mandate's default text). SALA_BGAGENTS_NOW is the suites' clock.
 A PROJECT IT CANNOT START NEVER STAYS SILENT. When a project reaches the attempt cap ("given up") or the ledger sets retire_needed (an agent this job listed
 whose pane did not start), the job raises ONE board item for the owner through stackshot's client (`client.py post question`: a decision item with a short
 ask and three options; the want list's project is its page), once per project: the ledger's `raised` is set with the item's id and the time, and it is set
-again only after the project's entry was cleared (the reset) and it gives up again. The raise is no attempt and no failure of the project: it does not take the
-run's one attempt, and a raise that fails (no client, the client refused or timed out) leaves `raised` false, says `board item needed: <project>` and is tried
-again at the next run (the request id kept in the ledger makes a repeat file nothing twice). --dry-run raises nothing.
+again only after the project's entry was cleared (the reset) and it gives up again. Once an item is raised the job makes NO start attempt for that project until a
+session resets it (`sala bg-agents --reset KEY`, what the answer "Keep trying later" is); the other two answers ("Leave it without one", "I will start it by hand") just
+leave it raised, so nothing runs. The raise is no attempt and no failure of the project, and it never delays a start: it is made AFTER the run's start attempt, at most
+ONE a run (the next outstanding project waits for the next run), with its own short timeout (SALA_BGAGENTS_RAISE_TIMEOUT, 30 s) for each of its two calls, and the
+ledger lock is NOT held across them (it is taken to keep the request id, given up for the calls and taken again to write the result to the entry as it is then on disk;
+a `--reset` that ran meanwhile wins: its cleared entry is not written over, and the run says so). A raise that fails (no client, the client refused or timed out)
+leaves `raised` false, says `board item needed: <project>` and is tried again at the next run with the same request id (a repeat files nothing twice). The request id of
+an escalation is `bgagents-<scope>-<slug>-<time>-<random>`, kept in the ledger's `raise_token` and new after a reset. --dry-run raises nothing.
+A project that stays on the want list while its agent's session is LIVE (the start failed late, or the pane was started by hand) is no start failure: before raising, the
+job asks whether the session is live (SALA_BGAGENTS_ALIVE_CMD); when it is, nothing is raised, the ledger records `agent running, want list stale` (`stale`) and the
+project makes no new attempt while its pane is alive. When the check cannot say, the item is raised saying only that the start did not finish.
 
 Settings of the raise: SALA_BGAGENTS_ASK_CMD (the filing command, `client.py post question`), SALA_BGAGENTS_PREFIXES_CMD (`client.py get config`, read for
-the instance's subject prefixes), SALA_BGAGENTS_SUBJECT_PREFIX (the subject's bracket, "[scope] ": unset = the project's own scope in the project record,
-else SALA_DEFAULT_SCOPE, else the first of SALA_SCOPES, the first of them the instance has as a prefix, else the instance's first prefix).
+the instance's subject prefixes), SALA_BGAGENTS_RAISE_TIMEOUT (30 s a call), SALA_BGAGENTS_SUBJECT_PREFIX (the subject's bracket, "[scope] ": unset = the project's own
+scope in the project record, else SALA_DEFAULT_SCOPE, else the first of SALA_SCOPES, the first of them the instance has as a prefix, else the instance's first prefix).
 Exit: 0 = the run finished (also when it skipped or a project failed), 1 = a retire is needed or a board item is needed and could not be raised, 2 = usage or a bad setting.
 """
 import fcntl
 import json
 import os
 import re
+import secrets
 import shlex
 import subprocess
 import sys
@@ -194,7 +205,7 @@ def last_line(text, n=160):
 
 BLANK = {"prefix": "", "agent": "", "attempts": 0, "failures": 0, "next_try": 0, "created": False, "posted_at": 0, "started_at": 0, "retired": False,
          "retire_needed": False, "awaiting_record": False, "last": "", "last_at": 0, "absent_since": 0,
-         "last_plain": "", "raised": False, "raised_at": 0, "raised_item": "", "raise_token": ""}
+         "last_plain": "", "raised": False, "raised_at": 0, "raised_item": "", "raise_token": "", "stale": False}
 
 
 class Ledger:
@@ -245,8 +256,12 @@ def given_up(e, cfg):
 
 
 def state_of(e, cfg, now):
+    if e["stale"] and not e["raised"]:
+        return "agent running, want list stale (no board item raised)"
     if given_up(e, cfg):
         return "given up (board item %s)" % ("raised" if e["raised"] else "not raised yet")
+    if e["raised"]:
+        return "left alone until a session resets it (board item raised%s)" % (", retire needed" if e["retire_needed"] else "")
     if e["retire_needed"]:
         return "retire needed (the agent's entry stays on the project; the start is tried again)"
     if e["next_try"] > now:
@@ -335,6 +350,15 @@ def is_alive(cfg, name):
         return False
     rc, _ = run(cmd + [name, "--live"], 30)
     return rc == 0
+
+
+def alive_state(cfg, name):
+    """Is the session NAME live? True / False, or None when the check cannot say (no liveness command, no name, a timeout, a command that cannot be run, an ambiguous name: any
+    exit but 0 = found and 1 = none)."""
+    if not cfg["alive_cmd"] or not name:
+        return None
+    rc, _ = run(cfg["alive_cmd"] + [name, "--live"], 30)
+    return True if rc == 0 else False if rc == 1 else None
 
 
 def wait_alive(cfg, name):
@@ -481,7 +505,7 @@ def instance_prefixes(cfg):
     """The subject prefixes the stackshot instance takes (`client.py get config`: {"subject": {"prefixes": [...]}}), or [] when it cannot be read."""
     if not cfg["prefixes_cmd"]:
         return []
-    rc, out, _ = run_split(cfg["prefixes_cmd"], cfg["post_timeout"])
+    rc, out, _ = run_split(cfg["prefixes_cmd"], cfg["raise_timeout"])
     try:
         v = json.loads(out)["subject"]["prefixes"] if rc == 0 else []
         return [x for x in v if isinstance(x, str) and BRACKET_RE.match(x)]
@@ -506,28 +530,63 @@ def subject_prefix(cfg, key):
     return cands[0] if cands else ""
 
 
-def item_parts(cfg, key, e, prefix):
-    """-> (subject, ask, text lines, options): the owner's item in everyday words (no exit code, no command)."""
+def item_parts(cfg, key, e, prefix, known=True):
+    """-> (subject, ask, text lines, options): the owner's item in everyday words (no exit code, no command). known: the job saw that the agent's session is not running;
+    when the liveness check could not say (known False) the item says only what is known: that the start did not finish."""
     slug = key.split("/", 1)[-1]
     n = e["failures"] or e["attempts"] or 1
     times = "%d time%s" % (n, "" if n == 1 else "s")
-    subject = prefix + "%s wants a background agent and its start failed %s" % (slug, times)
+    what = "its start failed %s" % times if known else "its start did not finish"
+    subject = prefix + "%s wants a background agent and %s" % (slug, what)
     if len(subject) > SUBJECT_MAX:
         subject = subject[:SUBJECT_MAX - 1].rstrip() + "…"
-    ask = "Decide: what to do about the background agent of %s · Recommend: %s · Stakes: the project has no background agent until then · By: any time" % (slug, RECOMMENDED)
-    lines = ["%s wants a background agent (%s), and starting it has failed %s." % (slug, e["agent"] or "%s-%s" % (e["prefix"] or slug, ROLE), times),
+    stakes = "the project has no background agent until then" if known else "the job does not try again until then"
+    ask = "Decide: what to do about the background agent of %s · Recommend: %s · Stakes: %s · By: any time" % (slug, RECOMMENDED, stakes)
+    agent = e["agent"] or "%s-%s" % (e["prefix"] or slug, ROLE)
+    lines = ["%s wants a background agent (%s), and %s." % (slug, agent, "starting it has failed %s" % times if known else "the start did not finish"),
              "The last problem: %s" % (e["last_plain"] or "no reason was recorded.")]
     if given_up(e, cfg):
-        lines.append("The job has stopped trying, so the project stays without a background agent until you decide.")
+        lines.append("The job has stopped trying, so the project stays without a background agent until you decide." if known else "The job has stopped trying until you decide.")
     if e["retire_needed"]:
-        lines.append("The agent is still on the project although its session is not running, and the job may not take it off without your word.")
+        lines.append("The agent is still on the project although its session is not running, and the job may not take it off without your word." if known else
+                     "The agent is still on the project, and the job may not take it off without your word.")
     lines.append("If you pick \"%s\", a session resets the project's record and the job tries again." % RECOMMENDED)
     return subject, ask, lines, list(OPTIONS)
 
 
-def raise_item(cfg, key, e, now, log, led, dry):
-    """Raise the one board item for KEY. -> True when it was raised (or would be, in a dry run), False when it could not be: `board item needed: KEY`, `raised` stays
-    false and the next run tries again. Never touches attempts, failures or the back-off, and never takes the run's one attempt."""
+class RunLock:
+    """The run's flock on <ledger>.lock. The raise gives it up around its network call (release) and takes it again to write the result (retake), so a slow stackshot never
+    holds `--reset` or another run out."""
+
+    def __init__(self, fd):
+        self.fd = fd
+
+    def release(self):
+        fcntl.flock(self.fd, fcntl.LOCK_UN)
+
+    def retake(self, wait=15.0):
+        end = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return True
+            except OSError:
+                if time.monotonic() >= end:
+                    return False
+                time.sleep(0.1)
+
+
+def new_token(key, now):
+    """The request id of ONE escalation: the full project key (scope-slug), the time and a random part, so two projects with one slug, or one project escalating twice in a second
+    (a reset between), never share an id. Kept in the ledger: a retry of the same escalation names the same question."""
+    return "bgagents-%s-%d-%s" % (key.replace("/", "-")[:64], now, secrets.token_hex(4))
+
+
+def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
+    """Raise the one board item for KEY. -> True when it was raised (or would be, in a dry run), False when it could not be (`board item needed: KEY`, `raised` stays false and
+    the next run tries again), None when a reset during the call set the result aside. Never touches attempts, failures or the back-off, and never takes the run's one attempt.
+    The ledger lock is NOT held across the network calls: the token is kept under it, the calls are made without it, and the result is written under it again to the entry as it
+    is then on disk, and only when that entry still carries this raise's token (a `--reset` that ran meanwhile cleared it, and wins)."""
     if dry:
         log.say("plan", "%s: would raise one board item for the owner (%s)" % (key, "given up" if given_up(e, cfg) else "an agent this job listed did not start"))
         return True
@@ -538,38 +597,45 @@ def raise_item(cfg, key, e, now, log, led, dry):
 
     if not cfg["ask_cmd"]:
         return needed("no stackshot client on this machine (SALA_BGAGENTS_ASK_CMD)")
-    prefix = subject_prefix(cfg, key)
-    if not prefix:
-        return needed("no subject prefix: set SALA_BGAGENTS_SUBJECT_PREFIX")
     if not e["raise_token"]:
-        e["raise_token"] = "bgagents-%s-%d" % (key.split("/", 1)[-1], now)     # kept before the call: a retry after a timeout names the same question and files nothing twice
+        e["raise_token"] = new_token(key, now)     # kept before the call: a retry after a timeout names the same question and files nothing twice
         led.save()
-    subject, ask, lines, options = item_parts(cfg, key, e, prefix)
-    cmd = cfg["ask_cmd"] + ["--project", key, "--subject", subject, "--ask", ask, "--request-id", e["raise_token"], "--sender", ASK_SENDER]
-    for label, line in options:
-        cmd += ["--option", "%s=%s" % (label, line)]
-    cmd += ["--recommended", RECOMMENDED]
-    rc, out, err = run_split(cmd, cfg["post_timeout"], "\n".join(lines) + "\n")
+    token, snap = e["raise_token"], dict(e)
+    if lock:
+        lock.release()
+    try:
+        prefix = subject_prefix(cfg, key)
+        res = None
+        if prefix:
+            subject, ask, lines, options = item_parts(cfg, key, snap, prefix, known)
+            cmd = cfg["ask_cmd"] + ["--project", key, "--subject", subject, "--ask", ask, "--request-id", token, "--sender", ASK_SENDER]
+            for label, line in options:
+                cmd += ["--option", "%s=%s" % (label, line)]
+            cmd += ["--recommended", RECOMMENDED]
+            res = run_split(cmd, cfg["raise_timeout"], "\n".join(lines) + "\n")
+    finally:
+        held = lock.retake() if lock else True
+    if not held:
+        return needed("the ledger is locked by another process; the item may have been filed and the next run names the same question")
+    if res is None:
+        return needed("no subject prefix: set SALA_BGAGENTS_SUBJECT_PREFIX")
+    rc, out, err = res
     item = (out.split() or [""])[0]
     if rc != 0 or not item or len(item) > 40:
         return needed("exit %d: %s" % (rc, last_line(err or out, 120)) if rc != 0 else "the client printed no item id")
+    cur = Ledger(led.path, False)       # the entry as it is on disk now: a reset (or another run) may have changed it during the call
+    ce = cur.projects.get(key)
+    if ce is None or ce["raise_token"] != token:
+        log.say("raise", "%s: the record was reset while the board item %s was being filed; the result is not recorded" % (key, item))
+        return None
+    ce.update(raised=True, raised_at=now, raised_item=item)
+    cur.save()
     e.update(raised=True, raised_at=now, raised_item=item)
     log.say("raise", "%s: board item %s raised for the owner (%s)" % (key, item, "given up" if given_up(e, cfg) else "retire needed"))
-    led.save()
     return True
 
 
-def raise_due(cfg, led, listed, now, log, dry, tried):
-    """Raise the item of every project that needs one and has none yet (on the want list, or an agent this job listed and has not started). -> how many could not be raised."""
-    bad = 0
-    for key in sorted(led.projects):
-        e = led.projects[key]
-        if key in tried or e["raised"] or not needs_item(e, cfg) or not (key in listed or pending(e)):
-            continue
-        tried.add(key)
-        if not raise_item(cfg, key, e, now, log, led, dry):
-            bad += 1
-    return bad
+STALE_TEXT = "agent running, want list stale"
 
 
 def pending(e):
@@ -577,7 +643,87 @@ def pending(e):
     return bool(e["posted_at"] and not e["started_at"] and not e["retired"])
 
 
-def one_run(cfg, dry, now, log):
+def raise_next(cfg, led, listed, now, log, dry, lock):
+    """After the run's attempt: the ONE raise of the run, for the first project (key order) that needs an item and has none (on the want list, or an agent this job listed and has
+    not started). A project whose agent session is live is no start failure: it is recorded as `agent running, want list stale` and raises nothing (no raise taken, the next one
+    is looked at); when the check cannot say, the item says only that the start did not finish. The others wait for the next run. -> 1 when the raise could not be made."""
+    waiting = [k for k in sorted(led.projects) if not led.projects[k]["raised"] and needs_item(led.projects[k], cfg) and (k in listed or pending(led.projects[k]))]
+    for i, key in enumerate(waiting):
+        e = led.projects[key]
+        live = alive_state(cfg, e["agent"])
+        if live is True:
+            if not e["stale"] and not dry:
+                e["stale"], e["last"], e["last_at"] = True, STALE_TEXT, now
+                led.save()
+            log.say("stale", "%s: %s (%s is live while the project is still on the want list): no board item raised, no new attempt while its pane is alive" % (key, STALE_TEXT, e["agent"]))
+            continue
+        if e["stale"] and not dry:
+            e["stale"] = False      # its pane is gone (or cannot be told): the project is looked at as any other
+            led.save()
+        more = len(waiting) - i - 1
+        res = raise_item(cfg, key, e, now, log, led, dry, lock, known=live is False)
+        if more:
+            log.say("raise", "%d more project%s still need%s a board item; one raise a run, the rest wait for the next run" % (more, "" if more == 1 else "s", "s" if more == 1 else ""))
+        return 1 if res is False else 0
+    return 0
+
+
+def start_one(cfg, cands, listed, led, now, log, dry):
+    """The run's one attempt: the candidates in order, the first project that is due. -> 1 when a retire is needed."""
+    for key, prefix, _front in cands:
+        e = led.projects.get(key)
+        if e is not None:
+            if given_up(e, cfg):
+                log.say("skip", "%s: given up after %d attempts (%s); left alone" % (key, e["attempts"], e["last"] or "no outcome"))
+                continue
+            if e["raised"]:     # the owner has been asked: no start attempt until a session resets the record (`--reset`, what "Keep trying later" is); the other two answers leave it so
+                log.say("skip", "%s: board item %s raised; left alone until a session resets the project's record" % (key, e["raised_item"] or "-"))
+                continue
+            if e["stale"]:
+                if alive_state(cfg, e["agent"]) is True:
+                    log.say("skip", "%s: %s (%s is live); no attempt while its pane is alive" % (key, STALE_TEXT, e["agent"]))
+                    continue
+                e["stale"] = False      # its pane is gone (or cannot be told): the project is looked at as any other
+                led.save()
+            if e["retired"] and key in listed:       # this job created the agent and retired it earlier, and the project wants one again
+                e["retired"], e["created"], e["posted_at"] = False, False, 0
+                fail(e, key, "listed again after this job created and retired its agent", cfg, now, log, led, counts_attempt=True,
+                     plain="The project asked for a background agent again after this job had added one and taken it off.")
+                continue
+            if e["next_try"] > now:
+                log.say("skip", "%s: backing off until %s (attempt %d of %d)" % (key, local_text(e["next_try"]), e["attempts"], cfg["max_attempts"]))
+                continue
+            if e["started_at"]:
+                if is_alive(cfg, e["agent"]):
+                    if key in listed and now - e["started_at"] >= cfg["cooldown"]:
+                        fail(e, key, "still on the want list %s after its pane started (the pane is left running)" % dur_text(now - e["started_at"]), cfg, now, log, led, counts_attempt=True,
+                             plain="The agent's session is running, but the project kept asking for a background agent.")
+                    elif key in listed:
+                        log.say("skip", "%s: %s started %s ago; waiting for the project to leave the list" % (key, e["agent"], dur_text(now - e["started_at"])))
+                    continue
+                e["started_at"] = 0
+        load = load_average(cfg)
+        if load is None:
+            log.say("skip", "%s: the load average could not be read (%s); nothing attempted" % (key, cfg["loadavg"]))
+            return 0
+        if load >= cfg["max_load"]:
+            log.say("skip", "%s: load %.2f is at or above %g; nothing attempted, nothing counted" % (key, load, cfg["max_load"]))
+            return 0
+        if dry:
+            e2 = e or dict(BLANK)
+            name = "%s-%s" % (prefix, ROLE)
+            on_map = agent_on_map(key, name, now)
+            waiting = bool(e2["awaiting_record"] and e2["posted_at"])
+            step = ("skip the listing (%s)" % ("already on the map" if on_map else "listed by an earlier run")) if (on_map or e2["posted_at"]) \
+                else "list %s (%s, background; label %s)" % (name, ROLE, cfg["sender"])
+            log.say("plan", "%s: would %s, then start its pane (sala spawn --project %s --role back); attempt %d of %d; load %.2f" % (key, step, key, e2["attempts"] + (0 if waiting else 1), cfg["max_attempts"], load))
+            return 0
+        e = led.entry(key)
+        return 1 if attempt(cfg, key, prefix, e, now, log, led) else 0
+    return 0
+
+
+def one_run(cfg, dry, now, log, lock=None):
     rows = read_list(cfg, log)
     if rows is None:
         return 0
@@ -602,52 +748,8 @@ def one_run(cfg, dry, now, log):
     if not cands:
         log.say("idle", "nobody on the want list")
         return 0
-    retire, tried = 0, set()
-    unraised = raise_due(cfg, led, listed, now, log, dry, tried)    # a project already given up (or waiting on a retire) that nobody has been told about: before anything else, and no attempt
-    for key, prefix, _front in cands:
-        e = led.projects.get(key)
-        if e is not None:
-            if given_up(e, cfg):
-                log.say("skip", "%s: given up after %d attempts (%s); left alone" % (key, e["attempts"], e["last"] or "no outcome"))
-                continue
-            if e["retired"] and key in listed:       # this job created the agent and retired it earlier, and the project wants one again
-                e["retired"], e["created"], e["posted_at"] = False, False, 0
-                fail(e, key, "listed again after this job created and retired its agent", cfg, now, log, led, counts_attempt=True,
-                     plain="The project asked for a background agent again after this job had added one and taken it off.")
-                continue
-            if e["next_try"] > now:
-                log.say("skip", "%s: backing off until %s (attempt %d of %d)" % (key, local_text(e["next_try"]), e["attempts"], cfg["max_attempts"]))
-                continue
-            if e["started_at"]:
-                if is_alive(cfg, e["agent"]):
-                    if key in listed and now - e["started_at"] >= cfg["cooldown"]:
-                        fail(e, key, "still on the want list %s after its pane started (the pane is left running)" % dur_text(now - e["started_at"]), cfg, now, log, led, counts_attempt=True,
-                             plain="The agent's session is running, but the project kept asking for a background agent.")
-                    elif key in listed:
-                        log.say("skip", "%s: %s started %s ago; waiting for the project to leave the list" % (key, e["agent"], dur_text(now - e["started_at"])))
-                    continue
-                e["started_at"] = 0
-        load = load_average(cfg)
-        if load is None:
-            log.say("skip", "%s: the load average could not be read (%s); nothing attempted" % (key, cfg["loadavg"]))
-            return 1 if unraised else 0
-        if load >= cfg["max_load"]:
-            log.say("skip", "%s: load %.2f is at or above %g; nothing attempted, nothing counted" % (key, load, cfg["max_load"]))
-            return 1 if unraised else 0
-        if dry:
-            e2 = e or dict(BLANK)
-            name = "%s-%s" % (prefix, ROLE)
-            on_map = agent_on_map(key, name, now)
-            waiting = bool(e2["awaiting_record"] and e2["posted_at"])
-            step = ("skip the listing (%s)" % ("already on the map" if on_map else "listed by an earlier run")) if (on_map or e2["posted_at"]) \
-                else "list %s (%s, background; label %s)" % (name, ROLE, cfg["sender"])
-            log.say("plan", "%s: would %s, then start its pane (sala spawn --project %s --role back); attempt %d of %d; load %.2f" % (key, step, key, e2["attempts"] + (0 if waiting else 1), cfg["max_attempts"], load))
-            return 1 if unraised else 0
-        e = led.entry(key)
-        if attempt(cfg, key, prefix, e, now, log, led):
-            retire += 1
-        break
-    unraised += raise_due(cfg, led, listed, now, log, dry, tried)    # the attempt may have just taken the project to its cap or to a retire step
+    retire = start_one(cfg, cands, listed, led, now, log, dry)      # the starts come first ...
+    unraised = raise_next(cfg, led, listed, now, log, dry, lock)    # ... then at most one board item, the only call that can be slow, made with the ledger lock given up
     return 1 if (retire or unraised) else 0
 
 
@@ -680,7 +782,8 @@ def config():
         "loadavg": os.environ.get("SALA_BGAGENTS_LOADAVG") or "/proc/loadavg", "ledger": ledger_path(),
         "sender": os.environ.get("SALA_BGAGENTS_SENDER") or "sala-web", "mandate": mandate_text(),
         "record_grace": env_num("SALA_BGAGENTS_RECORD_GRACE", 900.0), "alive_wait": env_num("SALA_BGAGENTS_ALIVE_WAIT", 30.0),
-        "post_timeout": env_num("SALA_BGAGENTS_POST_TIMEOUT", 120.0), "spawn_timeout": env_num("SALA_BGAGENTS_SPAWN_TIMEOUT", 300.0),
+        "post_timeout": env_num("SALA_BGAGENTS_POST_TIMEOUT", 120.0), "raise_timeout": env_num("SALA_BGAGENTS_RAISE_TIMEOUT", 30.0),
+        "spawn_timeout": env_num("SALA_BGAGENTS_SPAWN_TIMEOUT", 300.0),
         "list_cmd": cmd_words("SALA_BGAGENTS_LIST_CMD"), "post_cmd": cmd_words("SALA_BGAGENTS_POST_CMD"),
         "spawn_cmd": cmd_words("SALA_BGAGENTS_SPAWN_CMD"), "alive_cmd": cmd_words("SALA_BGAGENTS_ALIVE_CMD"),
         "ask_cmd": cmd_words("SALA_BGAGENTS_ASK_CMD"), "prefixes_cmd": cmd_words("SALA_BGAGENTS_PREFIXES_CMD"),
@@ -689,7 +792,7 @@ def config():
     }
 
 
-RESET_FIELDS = ("attempts", "failures", "next_try", "retire_needed", "raised", "raised_at", "raised_item", "raise_token", "last", "last_at", "last_plain")
+RESET_FIELDS = ("attempts", "failures", "next_try", "retire_needed", "raised", "raised_at", "raised_item", "raise_token", "stale", "last", "last_at", "last_plain")
 USAGE = "usage: sala bg-agents [--dry-run | --status | --reset <project key> [--dry-run]]"
 
 
@@ -778,7 +881,7 @@ def main(argv):
         except OSError:
             print("bg-agents: another run holds the lock; nothing done")
             return 0
-    rc = one_run(cfg, dry, now, log)
+    rc = one_run(cfg, dry, now, log, None if dry else RunLock(lock))
     if dry:
         print("dry run: nothing was posted, started or written")
     return rc

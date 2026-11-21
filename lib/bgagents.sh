@@ -22,8 +22,10 @@ usage: sala bg-agents [--dry-run]
 
   A project it cannot start is never left silent: when one reaches the attempt cap ("given up") or an agent this job listed did not start (retire needed), the
   job raises ONE board item for the owner (`client.py post question`: what happened in plain words, and three options), once per project; the ledger keeps
-  it (--status: "given up (board item raised)" or "(board item not raised yet)"). A raise that fails says `board item needed: <project>`, exits 1 and is tried
-  again at the next run. It is no attempt and no failure of the project. --dry-run raises nothing.
+  it (--status: "given up (board item raised)" or "(board item not raised yet)"). Once raised, the job makes no start attempt for that project until a session
+  resets it (--reset). The raise comes after the run's start attempt, at most one a run, with its own timeout (SALA_BGAGENTS_RAISE_TIMEOUT, 30 s) and without the
+  ledger lock held. A project whose agent session is live is not raised for ("agent running, want list stale"). A raise that fails says `board item needed:
+  <project>`, exits 1 and is tried again at the next run. It is no attempt and no failure of the project. --dry-run raises nothing.
 
   Ledger and back-off: after a failure the project waits SALA_BGAGENTS_COOLDOWN seconds (600), doubled for every further failure up to
   SALA_BGAGENTS_COOLDOWN_MAX (86400); at SALA_BGAGENTS_MAX_ATTEMPTS (5) attempts it is left alone ("given up"). An entry is cleared only after its project
@@ -38,7 +40,7 @@ esac
 # the config file is sourced (common.sh), so a `NAME=value` line there is a shell variable, not part of the environment lib/bgagents.py reads: export the
 # settings it takes (a no-op for one that is unset; the systemd service has only PATH in its environment, so the config is its only source)
 export SALA_BGAGENTS SALA_BGAGENTS_COOLDOWN SALA_BGAGENTS_COOLDOWN_MAX SALA_BGAGENTS_MAX_ATTEMPTS SALA_BGAGENTS_MAX_LOAD SALA_BGAGENTS_MANDATE SALA_BGAGENTS_SENDER \
-       SALA_BGAGENTS_LEDGER SALA_BGAGENTS_LOADAVG SALA_BGAGENTS_RECORD_GRACE SALA_BGAGENTS_ALIVE_WAIT SALA_BGAGENTS_POST_TIMEOUT SALA_BGAGENTS_SPAWN_TIMEOUT \
+       SALA_BGAGENTS_LEDGER SALA_BGAGENTS_LOADAVG SALA_BGAGENTS_RECORD_GRACE SALA_BGAGENTS_ALIVE_WAIT SALA_BGAGENTS_POST_TIMEOUT SALA_BGAGENTS_SPAWN_TIMEOUT SALA_BGAGENTS_RAISE_TIMEOUT \
        SALA_BGAGENTS_SUBJECT_PREFIX SALA_DEFAULT_SCOPE SALA_SCOPES \
        SALA_PROJECT_RECORD SALA_PROJECT_RECORD_MAX_AGE SALA_TZ SALA_OWNER_NAME SALA_STATE_DIR
 # the six commands: a setting wins (also an empty one: no client), else the stackshot client / this sala (the suites stub them)

@@ -29,7 +29,7 @@ Exit codes: 0 = the run finished (a skip or a failed project too), 1 = a retire 
    is no project's failure. A line that is not three words with a valid project key and prefix is said and ignored.
 3. **The ledger is brought up to date.** A project in it that is not on the list gets `absent_since`; a project back on the list loses it. An entry is cleared **only** after
    its project has been off the list for at least the cooldown (it is the only reset), unless this job listed an agent for it and has not started its pane yet.
-4. **One project.** The list is walked in order. A project given up or in back-off is skipped with one line. The first project that is due is the run's one attempt.
+4. **One project.** The list is walked in order. A project given up, in back-off or with a board item raised (below) is skipped with one line. The first project that is due is the run's one attempt.
 5. **The load check**, before anything is listed: the 1-minute average from `/proc/loadavg` must be under `SALA_BGAGENTS_MAX_LOAD` (10). At or above it, or when the file cannot be read, the
    run says so in one line and stops. That is not a failure and takes nothing from the ledger.
 6. **The listing.** `client.py post project-agent <project> <name> --role engineer --back --mandate "<line>" --sender sala-web`. The name is `<name prefix>-engineer`, the role is `engineer`,
@@ -39,7 +39,8 @@ Exit codes: 0 = the run finished (a skip or a failed project too), 1 = a retire 
 7. **The start.** `sala spawn NAME --project KEY --role back --mandate "<line>"`, then a bounded wait for the session to be live (`SALA_BGAGENTS_ALIVE_WAIT`). A start that exits 3 right after the
    listing means sala's copy of the project record lags (it is refreshed about every five minutes): that is waited out for `SALA_BGAGENTS_RECORD_GRACE` (900 s) without a failure, and finished from
    the ledger at a later run even when stackshot's list has already dropped the project (its agent is on the map now). It becomes a failure after the grace.
-8. **The log.** One line a decision, on stdout (the unit's journal) and appended to `bgagents.log` beside the ledger: `<time in SALA_TZ> <action> <text>`. No token appears in a line.
+8. **The board item**, after the attempt: at most one a run (below).
+9. **The log.** One line a decision, on stdout (the unit's journal) and appended to `bgagents.log` beside the ledger: `<time in SALA_TZ> <action> <text>`. No token appears in a line.
 
 ## Failures, back-off, the cap
 
@@ -63,7 +64,7 @@ A load skip is not in the table: it takes nothing from the ledger.
 When an agent this job listed could not be started, it should come off the project again. Every path sala has for that takes the owner's words for an agent on a project's agents map
 (`lib/op.sh`, the words policy: `retire` is for throwaway sessions only, `forget-row` is the owner's), and no door lets a job do it. The job does not invent one. It says
 `retire needed: <name>`, exits 1 and keeps `retire_needed` in the ledger. The entry stays on the map, so the next attempt finds it there, does not list it twice and tries the start again;
-a start that works clears the mark. The job never retires an agent it did not list, an agent after a 409, or a running agent.
+a start that works clears the mark. The board item below is raised for it in the same run, and from then on nothing is tried until a session resets the record (`--reset`). The job never retires an agent it did not list, an agent after a 409, or a running agent.
 
 ## A project it cannot start never stays silent: one board item for the owner
 
@@ -71,6 +72,10 @@ When a project reaches the attempt cap ("given up") **or** the ledger sets `reti
 through stackshot's client, `client.py post question`: a decision item filed under the project's own page (the want list's key), owned by the project's front agent, with a short ask, the
 text below and three options. It is raised **once per project**: the ledger records `raised`, `raised_at` and `raised_item`, and a later run that finds the project still stuck raises nothing.
 It is raised again only after the project's ledger entry was cleared (the reset) and the project gives up again; that is a new question (a new request id).
+
+**Once raised, the project is left alone.** From the moment an item is raised for a project, the job makes no start attempt for it (it says `board item <id> raised; left alone until a
+session resets the project's record`), whatever the ledger's attempt count and back-off say, until a session runs `sala bg-agents --reset <key>`. That is what "Keep trying later" is; the
+owner's other two answers ("Leave it without one", "I will start it by hand") just leave the item raised, so nothing runs for the project.
 
 What the owner reads, from a test (the subject opens with the bracket of the project's scope, below):
 
@@ -97,13 +102,24 @@ The words are everyday ones: no exit code and no command is in the item. The las
 `last` (which stays in the log and in `--status`). When the agent is listed but its pane never started, a line says the agent is still on the project and that the job may not take it off
 without the owner's word (the marked step above). One item covers both reasons.
 
-The raise is not an attempt: it does not take the run's one attempt (the next project is still taken in the same run), it is no failure of the project, and it touches neither the attempt
-count nor the back-off. It is made before the attempt for a project already stuck, and after it for a project the attempt has just taken to the cap or to a retire step. Only a project on the
-want list, or one whose listed agent has not been started, is asked about; a stuck project that has left the list is not.
+The raise is not an attempt: it does not take the run's one attempt, it is no failure of the project, and it touches neither the attempt count nor the back-off. **Starts come first and
+the raise is bounded.** It is made after the run's start attempt (so a project the attempt has just taken to the cap or to a retire step is raised in the same run), for **at most one**
+project a run (the first by key; any other outstanding project waits for the next run, and the run says how many wait). Each of its two calls (the instance's prefixes, the question) has its
+own timeout, `SALA_BGAGENTS_RAISE_TIMEOUT` (30 s), not the listing's `SALA_BGAGENTS_POST_TIMEOUT`. The ledger lock is **not held across the network calls**: the run keeps the request id in the
+ledger under the lock, gives the lock up for the calls, takes it again and writes the result to the entry as it is on disk then. So a slow or down stackshot delays no start and does not block
+`--reset`; and a `--reset` that ran during the call wins: the entry it cleared is not written over, and the run says the record was reset while the item was filed (an item filed in that moment
+stays on the board; the owner's answer is the same "keep trying"). Only a project on the want list, or one whose listed agent has not been started, is asked about; a stuck project that has
+left the list is not.
+
+**An agent that is running is no start failure.** A project can reach the cap because it stays on the want list while its agent's session is live (the start failed late, or the pane was
+started by hand). Before raising, the job asks the same liveness command the start uses (`SALA_BGAGENTS_ALIVE_CMD`, exit 0 live, 1 not). When the session is live, nothing is raised: the ledger
+records `stale` and `last` = `agent running, want list stale`, the log line says so, `--status` shows it, and the project makes no new attempt while its pane is alive; once the pane is gone it is
+looked at as any other project (stale cleared, raised if stuck). When the check cannot say (no command, a timeout, an ambiguous name, any exit but 0 and 1) the item is raised but says only
+what is known: its subject, text and stakes read "the start did not finish" instead of "failed N times" and "no background agent".
 
 **When the raise fails** (no stackshot client on the machine, the client refuses or does not answer in time), `raised` stays false, the run says `board item needed: <project> (could not be
 raised: <reason>)` and exits 1, and the next run tries again with the same request id, so an item that was filed although the answer was lost is not filed twice. The ledger keeps the token
-before the call. `--dry-run` raises nothing: it says `would raise one board item for the owner`.
+before the call. The request id is `bgagents-<scope>-<slug>-<time>-<random>` (the full project key with `/` as `-`, so two projects with one slug in different scopes never share one, and a random part, so a project that is reset and stuck again in the same second does not reuse one); it is made once per escalation, kept in `raise_token`, reused by every retry of that escalation and made new after a reset. `--dry-run` raises nothing: it says `would raise one board item for the owner`.
 
 **The subject's bracket.** Stackshot refuses a subject that starts with none of its prefixes and has no default, so the job picks one: `SALA_BGAGENTS_SUBJECT_PREFIX` when set (for example
 `[hp]`, written as a bracket word); else the first of the project's own scope (stackshot's project record), `SALA_DEFAULT_SCOPE` and the first of `SALA_SCOPES` that the instance takes as a prefix
@@ -113,7 +129,7 @@ before the call. `--dry-run` raises nothing: it says `would raise one board item
 
 `$SALA_STATE_DIR/bgagents.json` (default `~/.local/state/salamander/`; `SALA_BGAGENTS_LEDGER` moves it), mode 600, written atomically (a temporary file in the same folder, fsynced, renamed over the
 ledger; one left by a crash is swept at the next save). It is read and written under a lock (`bgagents.json.lock`): a second run at the same time stands aside. Per project: `prefix`, `agent`,
-`attempts`, `failures`, `next_try`, `created` (this job listed the agent), `posted_at`, `started_at`, `retired`, `retire_needed`, `awaiting_record`, `last` and `last_at`, `last_plain`, `absent_since`, and for the board item `raised`, `raised_at`, `raised_item` and `raise_token` (the request id). An attempt
+`attempts`, `failures`, `next_try`, `created` (this job listed the agent), `posted_at`, `started_at`, `retired`, `retire_needed`, `awaiting_record`, `last` and `last_at`, `last_plain`, `absent_since`, `stale` (agent running, want list stale), and for the board item `raised`, `raised_at`, `raised_item` and `raise_token` (the request id). An attempt
 is counted before anything is asked, so a death in the middle leaves it on the record.
 
 ## Settings
@@ -132,6 +148,7 @@ All are in `config.example`, commented, default off. They are read from the conf
 | `SALA_BGAGENTS_LEDGER` | `$SALA_STATE_DIR/bgagents.json` | the ledger path |
 | `SALA_BGAGENTS_LOADAVG` | `/proc/loadavg` | where the load is read |
 | `SALA_BGAGENTS_RECORD_GRACE`, `_ALIVE_WAIT`, `_POST_TIMEOUT`, `_SPAWN_TIMEOUT` | 900, 30, 120, 300 | seconds |
+| `SALA_BGAGENTS_RAISE_TIMEOUT` | 30 | seconds each of the board item's two calls may take (the raise is one a run, after the start, without the ledger lock) |
 | `SALA_BGAGENTS_ASK_CMD` | `client.py post question` | the board-item command; empty: no client, `board item needed` and exit 1 |
 | `SALA_BGAGENTS_PREFIXES_CMD` | `client.py get config` | reads the instance's subject prefixes |
 | `SALA_BGAGENTS_SUBJECT_PREFIX` | empty | the item's subject bracket, e.g. `[hp]`; empty: derived (above) |
