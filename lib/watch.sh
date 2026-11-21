@@ -1864,9 +1864,14 @@ deferred_revive() {
 [ "$CHECK_ONLY" = 1 ] || { waiting_prune; busy_prune; refusal_prune; }   # relaunch-waiting flags whose owner is gone; busy records of sessions long gone
 [ "$CHECK_ONLY" = 1 ] || inbox_release_stale   # a relaunch that died left its pane's inbox held: free it after 10 min
 # UNMAPPED SESSIONS (the map is a ledger — common.sh): a live claude in a tmux session the pane map
-# does not know (started by hand, outside spawn; or a spawn whose row never landed) is reported once — a log line and
-# one post per session — and never added from here: `sala adopt NAME` is the honored path. One ps pass for every pane
-# (note.sh's ancestry walk in awk); the key clears once the session is mapped, so a later unmapped life is reported again.
+# does not know (started by hand, outside spawn) is reported once — a log line and one post per session — and never added from
+# here: `sala adopt NAME` is the honored path. A spawn still landing its row is not one (THE SPAWN WINDOW, rename.sh: the row is
+# written on the spawn's way out, after the pane is up): a session whose spawn is in flight (spawn_in_flight, common.sh, the rule rename
+# waits on: a spawn operation queued, running or waiting, or a tmux session under SALA_UNMAPPED_YOUNG seconds old, default
+# SALA_RENAME_YOUNG = 120) is skipped with no state key, so the next tick looks again; past the window one with no row is reported as
+# before. The map is read once more just before the post (the row may have landed since the first read): found, nothing is posted or
+# set. One ps pass for every pane (note.sh's ancestry walk in awk); the key clears once the session is mapped, so a later unmapped
+# life is reported again. The post says who acts (a session adopts it if it is meant to stay) and gives the owner no command.
 unmapped_report() {
     local sess c u k kk su tm sv pt seen=" "
     _panes_get_r pt
@@ -1880,8 +1885,11 @@ unmapped_report() {
         registry_conv_r u "$c"; [ -n "$u" ] && [ "$u" != null ] || continue
         seen="$seen$sess "
         _kv_first_r sv "$WSTATE" "$k"; [ "$sv" = "$u" ] && continue
+        spawn_in_flight "$sess" "$(tmux_win_t "$sess")" "${SALA_UNMAPPED_YOUNG:-${SALA_RENAME_YOUNG:-120}}" && continue   # its row is still to land: no key, the next tick checks again
+        su=""; [ -r "$SALA_SIDECAR" ] && _tsv_col_r su "$SALA_SIDECAR" "$sess" 2
+        [ -z "$su" ] || continue   # the row landed since the first read: nothing posted, nothing set
         st_set "$k" "$u"; wlog "unmapped: '$sess' runs conversation $u with no pane-map row — sala adopt $sess registers it"
-        notify "⚠️ *$sess is not in the pane map*" "a live session sala did not spawn (or a spawn whose row never landed): a reboot or recycle could not bring it back" "run: sala adopt $sess"
+        notify "⚠️ *$sess is not in the pane map*" "a live session sala did not spawn: a reboot or recycle could not bring it back" "a sala session adopts it if it is meant to stay"
     done <<< "$pt"
 }
 [ "$CHECK_ONLY" = 1 ] || unmapped_report

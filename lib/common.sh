@@ -2491,6 +2491,21 @@ ledger_log() {  # <op> <session> <old → new> — one line per change
 # An EMPTY name prints a bare `=`, which tmux refuses: `=:` alone would read as the caller's own session.
 tmux_sess_t() { printf '=%s' "$1"; }                                                    # <session> → `=session`
 tmux_win_t() { if [ -n "${1:-}" ]; then printf '=%s:%s' "$1" "${2:-}"; else printf '='; fi; }   # <session> [window] → `=session:` (its active window and pane) or `=session:window`
+# spawn_in_flight <session> <pane or tmux target> [window seconds] → 0 when the session is a spawn still to land its pane-map row (rename's
+# THE SPAWN WINDOW, and the watch's unmapped report, which waits the same way before it calls a session unmapped): a spawn operation for the
+# name queued, running or waiting (the marker under $SALA_STATE_DIR/ops, exact), or a tmux session created under <window> seconds ago
+# (default SALA_RENAME_YOUNG, 120; a spawn run by hand has no marker). One definition: the two callers differ only in the window they pass.
+spawn_in_flight() {
+    local f created
+    for f in "$SALA_STATE_DIR"/ops/*.op; do
+        [ -e "$f" ] || continue
+        [ "$(_kv_first "$f" verb)" = spawn ] && [ "$(_kv_first "$f" arg)" = "$1" ] || continue
+        case "$(_kv_first "$f" state)" in queued|running|waiting) return 0;; esac
+    done
+    created=$(tmux display -p -t "$2" '#{session_created}' 2>/dev/null || true)
+    case "$created" in ''|*[!0-9]*) return 1;; esac
+    [ $(( $(date +%s) - created )) -lt "${3:-${SALA_RENAME_YOUNG:-120}}" ]
+}
 # THE FLEET'S TMUX SERVER: a probe tmux server started WITH ~/.tmux.conf had tmux-continuum
 # restore the fleet's layout into it, and the config's hooks (post-restore-all `sala revive`, post-save-all `sala revive
 # --save-map`, session-created/closed/renamed `sala snapshot`) ran sala against that server: tmux gives a hook's job

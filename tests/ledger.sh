@@ -76,6 +76,47 @@ printf 'sala-test-old\t%s\told\n' "$UX" > "$OLD2/map-history/claude-pane-map.202
   [ "$fail" = 0 ] ) || fail=1
 [ ! -e "$MAP" ] && [ ! -e "$HOME/.local/share/tmux/resurrect/claude-pane-map.tsv" ] && ok "the sandbox's own HOME, with no old map, got nothing (the ledger starts empty)" || bad "something made a map in the main HOME: $(ls -la "$HOME/.local/share/tmux/resurrect" "$(dirname "$MAP")" 2>/dev/null)"
 
+echo "== a session whose spawn is still landing its row is not reported as unmapped (the spawn window)"
+# sala-test-m has a live claude and no row. Young (SALA_UNMAPPED_YOUNG large) or a spawn operation in flight: no post, no state key, so
+# the next tick looks again; past the window (0) one post, once, with no `run:` line; a row that lands between the first read of the
+# map and the post (a tmux shim writes it while the in-flight check asks for the session's age) stops the post.
+WSTATE="$HOME/.claude/salamander-watch.state"; WLOGF="$HOME/.claude/salamander-watch.log"
+wtick() { env "$@" SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; }          # [VAR=value…] → one watch tick
+nposts() { grep -c 'sala-test-m is not in the pane map' "$POSTS" 2>/dev/null || true; }
+ukey() { grep -c '^unmapped\.' "$WSTATE" 2>/dev/null || true; }
+ulog() { grep -c "unmapped: 'sala-test-m'" "$WLOGF" 2>/dev/null || true; }
+reset_unmapped() { : > "$POSTS"; [ -e "$WSTATE" ] && sed -i '/^unmapped\./d' "$WSTATE"; rm -f "$SALA_STATE_DIR"/ops/unmapped-*.op; return 0; }
+reset_unmapped; ulog0=$(ulog)
+wtick SALA_UNMAPPED_YOUNG=3600
+[ "$(nposts)" = 0 ] && [ "$(ukey)" = 0 ] && [ "$(ulog)" = "$ulog0" ] && ok "a young session with no row: no post, no state key, no log line" || bad "young: posts=$(nposts) keys=$(ukey) log=$(tail -2 "$WLOGF")"
+wtick SALA_UNMAPPED_YOUNG=3600
+[ "$(nposts)" = 0 ] && [ "$(ukey)" = 0 ] && ok "and still none on the next tick (it is looked at again, not remembered)" || bad "young, second tick: posts=$(nposts) keys=$(ukey)"
+mkdir -p "$SALA_STATE_DIR/ops"
+for st in queued running waiting; do
+    printf 'id=unmapped-1\nverb=spawn\narg=sala-test-m\narg=--project\narg=projects/foo\nstate=%s\n' "$st" > "$SALA_STATE_DIR/ops/unmapped-1.op"
+    wtick SALA_UNMAPPED_YOUNG=0
+    [ "$(nposts)" = 0 ] && [ "$(ukey)" = 0 ] && ok "an old session with a $st spawn operation for its name: no post, no state key" || bad "$st marker: posts=$(nposts) keys=$(ukey) marker=$(<"$SALA_STATE_DIR/ops/unmapped-1.op")"
+done
+rm -f "$SALA_STATE_DIR/ops/unmapped-1.op"
+printf 'id=unmapped-2\nverb=spawn\narg=sala-test-other\nstate=running\n' > "$SALA_STATE_DIR/ops/unmapped-2.op"
+spawn_in_flight sala-test-m "=sala-test-m:" 0 && bad "a spawn operation for another name counted for sala-test-m" || ok "a spawn operation for another name does not count (the marker is exact)"
+rm -f "$SALA_STATE_DIR"/ops/unmapped-*.op
+wtick SALA_UNMAPPED_YOUNG=0
+[ "$(nposts)" = 1 ] && [ "$(ukey)" = 1 ] && [ "$(ulog)" = $((ulog0 + 1)) ] && ok "past the window, no spawn in flight: exactly one post, the key set, the log line kept" || bad "past the window: posts=$(nposts) keys=$(ukey) log=$(tail -2 "$WLOGF")"
+grep -q 'a sala session adopts it if it is meant to stay' "$POSTS" && ! grep -q 'run:' "$POSTS" && ! grep -q 'sala adopt' "$POSTS" && ok "the post names who acts and gives the owner no command" || bad "post text: $(slurp "$POSTS")"
+wtick SALA_UNMAPPED_YOUNG=0
+[ "$(nposts)" = 1 ] && ok "reported once: the next tick posts nothing more" || bad "second tick: posts=$(nposts)"
+reset_unmapped; ulog0=$(ulog)
+eval "tmux() { case \"\$*\" in *'#{session_created}'*) [ -e '$HOME/land-row' ] && printf 'sala-test-m\\t%s\\tsala-test-m\\t%s\\n' '$UM' '$HOME/work-m' >> '$MAP';; esac; command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux
+: > "$HOME/land-row"
+wtick SALA_UNMAPPED_YOUNG=0; rm -f "$HOME/land-row"
+[ "$(nposts)" = 0 ] && [ "$(ukey)" = 0 ] && [ "$(ulog)" = "$ulog0" ] && [ -n "$(row sala-test-m)" ] && ok "the row lands between the read and the post: nothing posted, nothing set" || bad "row landed mid-tick: posts=$(nposts) keys=$(ukey) row=$(row sala-test-m) log=$(tail -2 "$WLOGF")"
+wtick SALA_UNMAPPED_YOUNG=0
+[ "$(nposts)" = 0 ] && [ "$(ukey)" = 0 ] && ok "a session with a row: nothing" || bad "mapped session: posts=$(nposts) keys=$(ukey)"
+grep -v '^sala-test-m	' "$MAP" > "$MAP.tmp"; mv -f "$MAP.tmp" "$MAP"
+eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux   # the plain one again
+[ -z "$(row sala-test-m)" ] && reset_unmapped && ok "the row removed again for the cases below" || bad "row still there: $(row sala-test-m)"
+
 echo "== an unmapped live session: watch reports it (once), never adds it"
 # busy_elsewhere counts only this instance's revive (2026-10-08 flake: another suite's or the fleet's revive on the box
 # made this watch skip its run): a decoy revive under another HOME stays alive through this case. No /proc environ:
@@ -88,7 +129,7 @@ decoy() {  # <HOME> → a long-running `bash …/bin/salamander revive --only x`
 undecoy() { kill "$DPID" 2>/dev/null; wait "$DPID" 2>/dev/null; DPID=""; }
 PROC_ENV=0; [ -r "/proc/$$/environ" ] && PROC_ENV=1
 if [ "$PROC_ENV" = 1 ]; then decoy "$HOME/elsewhere" && ok "a decoy revive runs under another HOME" || bad "the decoy did not start"; fi
-SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; rc=$?
+SALA_UNMAPPED_YOUNG=0 SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; rc=$?   # past the spawn window: the session was made by hand
 [ -n "${DPID:-}" ] && undecoy
 [ "$rc" = 0 ] && ok "watch ran (rc 0)" || bad "watch rc=$rc: $(tail -3 "$HOME/.claude/salamander-watch.log" 2>/dev/null)"
 [ "$(grep -c 'sala-test-m is not in the pane map' "$POSTS" 2>/dev/null)" = 1 ] && ok "one post: sala-test-m is not in the pane map" || bad "posts: $(slurp "$POSTS")"
@@ -96,7 +137,7 @@ SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; rc=$?
 if [ "$PROC_ENV" = 1 ]; then
     n=$(grep -c 'skip: a resurrect restore or a salamander revive is running' "$HOME/.claude/salamander-watch.log")
     decoy "$HOME" || bad "the same-HOME decoy did not start"
-    SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; undecoy
+    SALA_UNMAPPED_YOUNG=0 SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; undecoy
     [ "$(grep -c 'skip: a resurrect restore or a salamander revive is running' "$HOME/.claude/salamander-watch.log")" = $((n + 1)) ] \
         && ok "a revive under this HOME still makes watch skip its run" || bad "watch did not skip for this HOME's revive: $(tail -3 "$HOME/.claude/salamander-watch.log")"
 else ok "no /proc environ: busy_elsewhere stays machine-wide (the same-HOME check needs /proc)"; fi

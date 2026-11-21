@@ -130,19 +130,9 @@ pane=$(tmux list-panes -t "$(tmux_win_t "$OLD")" -F '#{pane_id}' | head -1)
 # (the .side file) later still, which the side-or-in-place decision below needs (the last wait, ahead of that decision). Those lookups and
 # the row wait share one budget (spawn_wait), the waiting line naming what it waits for. In
 # flight = a spawn operation for OLD that is queued, running or waiting (the marker under $SALA_STATE_DIR/ops, exact), or a tmux session
-# created under SALA_RENAME_YOUNG seconds ago (default 120; a spawn run by hand has no marker). An older session, a hand-made throwaway
+# created under SALA_RENAME_YOUNG seconds ago (default 120; a spawn run by hand has no marker): spawn_in_flight, in common.sh, which
+# the watch's unmapped report shares (its own window, SALA_UNMAPPED_YOUNG). An older session, a hand-made throwaway
 # included, is refused at once, as is --sync (SALA_RENAME_SYNC=1: it relies on the exit 4 being fast).
-spawn_in_flight() {  # <session> <pane> → 0 when the session is a spawn still to land its row
-    local f created
-    for f in "$SALA_STATE_DIR"/ops/*.op; do
-        [ -e "$f" ] || continue
-        [ "$(_kv_first "$f" verb)" = spawn ] && [ "$(_kv_first "$f" arg)" = "$1" ] || continue
-        case "$(_kv_first "$f" state)" in queued|running|waiting) return 0;; esac
-    done
-    created=$(tmux display -p -t "$2" '#{session_created}' 2>/dev/null || true)
-    case "$created" in ''|*[!0-9]*) return 1;; esac
-    [ $(( $(date +%s) - created )) -lt "${SALA_RENAME_YOUNG:-120}" ]
-}
 spawn_is_side() {  # <session> → 0 when the spawn is a side one: the in-flight spawn operation's own arguments when it has one (exact), else the name
     local f
     for f in "$SALA_STATE_DIR"/ops/*.op; do

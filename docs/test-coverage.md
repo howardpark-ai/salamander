@@ -355,6 +355,15 @@ Borderline keeps: the one post "sala-test-m is not in the pane map" (the only wa
 after a reboot); "nothing missing → nothing recreated" and `restore --missing` with nothing missing (they read the
 output's words, but they are the only checks that the no-op path recreates nothing).
 
+Added (Sat Nov 21st): the spawn window of watch's unmapped report. A session with a live claude and no row is not
+reported while its spawn is in flight, the same rule `rename` waits on (`spawn_in_flight`, `lib/common.sh`; the window is
+`SALA_UNMAPPED_YOUNG`): a young tmux session, or a queued, running or waiting spawn operation for its name (an operation
+for another name does not count), gives no post, no state key and no log line, so the next tick looks again; past the
+window one post, with no `run:` line and no command for the owner, and no second on the next tick; a row that lands between
+the first read of the map and the post (a tmux shim writes it while the age is asked) gives no post and no key; a session
+with a row gives nothing. This guards the one warning that a session will not come back after a reboot from crying wolf on
+every fresh spawn.
+
 Added after the cut (Sat Oct 10th): a claude on a probe tmux server whose pane id equals a fleet pane's (each server
 numbers its panes from %0) is neither taken for a hand rename of that fleet session by `rename --sync` nor followed by
 `--save-map`. On main both happened: the master was told of a rename that never was, and the fleet session's map row
