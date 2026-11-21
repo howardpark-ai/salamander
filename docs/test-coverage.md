@@ -84,6 +84,16 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +1, 229 (Sat Nov 21st 2026)
+
+Sixth review pass of `sala bg-agents` (test-only; the library is unchanged). The recovery check holds the first filing with a hold file for at most 60 s, and the filing's own timeout used to be
+the default 30 s, so on a slow runner the filing could time out before the second run ended; the check now runs the first filing with a 90 s timeout (longer than the hold), and the second run's clock
+is the first run's recorded mark plus the window that timeout gives (195 s). One new check makes the cap bite: two given-up projects are due for a raise-phase check at the smallest cap, the first
+one was also the start attempt's project, so the budget (the start-phase answer is dropped after the attempt but still charged) leaves one raise-phase check. It goes to the least recently checked
+project, the first one's second check is deferred, and one item is filed, for the project that was checked. The new check fails when the raise window ignores the cap, and when the dropped
+answers are not charged against it (each was tried by editing the library locally, not committed; the first also fails the existing cap and rotation checks). Not covered, and why: the hold's
+60 s bound itself (a runner that slow would fail the check visibly, not silently).
+
 ### `tests/bgagents.sh`: +1, 228 (Sat Nov 21st 2026)
 
 Fifth review pass of `sala bg-agents`. The recovery check (a second run starts the project while the first one's filing is in flight, and the first filing then fails) no longer depends on a three-second

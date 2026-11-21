@@ -102,7 +102,8 @@ for a in "$@"; do
     prev=$a
 done
 [ "$delay" != 0 ] && sleep "$delay"
-# $T/ask.hold: the call waits until the test removes that file (a bounded wait of 60 s), however long the other runs take
+# $T/ask.hold: the call waits until the test removes that file (a bounded wait of 60 s), however long the other runs take; the run that waits here is given a filing timeout
+# (SALA_BGAGENTS_RAISE_TIMEOUT) longer than the bound, so its own timeout never ends the hold first
 [ "$hold" = 1 ] && for _ in $(seq 1 600); do [ -e "$T/ask.hold" ] || break; sleep 0.1; done
 exec python3 "$ROOT/tests/fake-stackshot-client.py" post question "$@"
 EOF
@@ -688,15 +689,23 @@ printf '1\n1\n0\n' > "$T/alive.seq"; run
 [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(calls "$T/alive.log")" = 3 ] && [ "$(qcalls)" = 0 ] && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY stale)" = True ] && [[ $OUT == *"is live while the project is still on the want list"* ]] && ok "a start that failed on its own check but left a live pane: the earlier \"not live\" answer is dropped, the raise phase asks again, no failed-start item" || bad "answer kept after the start: spawn=$(calls "$T/spawn.log") alive=$(calls "$T/alive.log") calls=$(qcalls) $(cat "$L") [$OUT]"
 # (h) a filing that fails after another run started the project writes no failure: the retry count and back-off stay, no "board item needed" line
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; : > "$T/ask.hold"     # the first filing is held until the second run is done: no sleep decides who is first
+# the filing timeout (90 s) is longer than the hold's bound (60 s), so the timeout never fails the held filing; the window is then 2 x 90 + 15 = 195 s, which the second run's clock passes
+export SALA_BGAGENTS_RAISE_TIMEOUT=90
 ( FAKE_CLIENT_FAIL=1 SALA_BGAGENTS_NOW=$N0 $S > "$T/a.out" 2>&1; echo $? > "$T/a.rc" ) & PA=$!
 await_file "$T/ask.ready"; MKA=$(led $KEY raising_at); echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
-NOW=$((MKA+75)) run; BOUT=$OUT; rm -f "$T/ask.hold"; wait "$PA"
-[ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY started_at)" -ge $((MKA+75)) ] && ok "the window ran out, a second run started the project during the first one's filing" || bad "second run: spawn=$(calls "$T/spawn.log") $(cat "$L") [$BOUT]"
+NOW=$((MKA+195)) run; BOUT=$OUT; rm -f "$T/ask.hold"; wait "$PA"; unset SALA_BGAGENTS_RAISE_TIMEOUT
+[ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY started_at)" -ge $((MKA+195)) ] && ok "the window ran out, a second run started the project during the first one's filing" || bad "second run: spawn=$(calls "$T/spawn.log") $(cat "$L") [$BOUT]"
 [ "$(led $KEY raise_failures)" = 0 ] && [ "$(led $KEY raise_next_try)" = 0 ] && [ "$(led $KEY raising_at)" = 0 ] && [ "$(led $KEY raising_by)" = "" ] && [ "$(cat "$T/a.rc")" = 0 ] && ! grep -q "board item needed" "$T/a.out" && grep -q "no longer stuck" "$T/a.out" && ok "the first run's failed filing, for a project that is running now, counts no failure, writes no back-off and says no board item is needed" || bad "late failure written: $(cat "$L") rc=$(cat "$T/a.rc") [$(cat "$T/a.out")]"
 # the cap counts the checks made outside the lock (the two windows), not the attempt's own check of its start: with the smallest cap (2) the run above still makes three calls
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; patch "$KEY" next_try=0 attempts=4 failures=4 retire_needed=false started_at=$((N0-100)); echo fail > "$T/spawn.mode"
 printf '1\n1\n0\n' > "$T/alive.seq"; SALA_BGAGENTS_MAX_PROBES=2 run
 [ "$(calls "$T/alive.log")" = 3 ] && [ "$(qcalls)" = 0 ] && ok "SALA_BGAGENTS_MAX_PROBES counts the two windows (one start-phase and one raise-phase check at cap 2), not the attempt's own check: three calls in all" || bad "cap and the attempt's check: alive=$(calls "$T/alive.log") calls=$(qcalls) [$OUT]"
+# ... and the budget is spent: a second project is due for a raise-phase check too, and the run's checks stop at the cap. At cap 2 the start phase took one check (answer dropped after
+#     the attempt, still charged), so one raise-phase check is left: the least recently checked project (the second one) gets it, the first one's second check is deferred. Calls: the first
+#     project twice (start phase, attempt), the second once. A cap that was ignored, or answers that were dropped and not charged, would make a fourth call.
+reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example" "$KEY2=second"; patch "$KEY" next_try=0 attempts=4 failures=4 retire_needed=false started_at=$((N0-100)); echo fail > "$T/spawn.mode"
+printf '1\n1\n1\n1\n' > "$T/alive.seq"; SALA_BGAGENTS_MAX_PROBES=2 run
+[ "$(calls "$T/alive.log")" = 3 ] && [ "$(grep -cx "$NAME" "$T/alive.log")" = 2 ] && [ "$(grep -cx "second-engineer" "$T/alive.log")" = 1 ] && [ "$(qcalls)" = 1 ] && [ "$(cat "$T/ask.keys")" = "$KEY2" ] && ok "at the cap the second project's raise-phase check is made and the first project's second check is deferred: three calls, one item (for the project that was checked)" || bad "budget spent: alive=$(tr '\n' ' ' < "$T/alive.log") calls=$(qcalls) keys=$(cat "$T/ask.keys" 2>/dev/null) [$OUT]"
 # (f) the subcommand table describes the shipped timer
 ! grep -q "No timer is shipped" "$ROOT/docs/subcommands.md" && grep -q 'sala-bg-agents.timer' "$ROOT/docs/subcommands.md" && ok "docs/subcommands.md says the timer ships in systemd/ (not that none ships)" || bad "subcommands.md timer sentence"
 
