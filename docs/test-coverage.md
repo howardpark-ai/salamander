@@ -4331,3 +4331,17 @@ Three review points on the one-pass path filter of `op_plain` (`lib/op.sh`), eac
   `x ["/tmp/a b"] y` gives `x y`. Covered: the quoted pair, a keyed quoted pair, a quoted path in parentheses, the same with spaces inside the brackets (`[ "/tmp/a b" ]`
   keeps `[ ]`: the pair is not only the path), and a closer followed by a letter. Two earlier cases change their answer, `read ["/tmp/a b"] now` and
   `read (file="/tmp/a b"), ok` (`read now`, `read, ok`).
+
+### `tests/op.sh` +5, none retired: a path pass that fails silently, nests inside a path (Sat Nov 21st 2026)
+
+Two review points on the path filter of `op_plain` (`lib/op.sh`), each checked by a run before it was changed.
+- **A path pass with no program or no output was an empty reason.** `awk ""` exits 0 and prints nothing, so with `op_paths_awk` printing nothing (it is a heredoc
+  that cannot fail today, so this is a guard), `op_plain` answered a blank reason instead of the fixed sentence. `op_drop_paths` now fails on an empty program, and on
+  an answer with no line end at all (a working pass prints its line end even for an empty answer, so a text that is only a path is still an empty sentence, which
+  the callers' own fallbacks handle). Covered: `op_paths_awk` printing nothing, and printing a program that prints nothing, each asserting the fixed sentence; and a
+  text that is only a path staying an empty sentence. The first form was not made a rule of `op_plain` (a blank answer from a non-blank text): that one is a
+  legitimate answer for a text that is only a path.
+- **Nests inside a path were not measured.** The deep-nest checks bracketed a path or plain text but never nested inside the path's own end. Measured under mawk at
+  20000 to 160000 (a quoted path with N openers in its body; a path with N openers in its body and the closers after it; closers after a path; a bracket pair with N
+  openers before the path): linear on every shape, about twice per doubling (0.01 to 0.5 s at 160000), so no fix. Covered: the path with N openers and the quoted
+  path with N openers, each with the closers after, at 80000 and 160000, the larger bounded against the smaller.

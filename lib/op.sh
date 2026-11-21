@@ -1693,7 +1693,9 @@ BEGIN { KC = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
 AWK
 }
 op_drop_paths() {  # <text> → the text with every path taken out (the awk program above); bytes (LC_ALL=C): every character it reads is ASCII, and a byte lookup stays constant-time on a long line
-    LC_ALL=C awk "$(op_paths_awk)" <<< "$1"
+    local prog o; prog=$(op_paths_awk) && [ -n "$prog" ] || return 1   # no program: awk "" exits 0 and prints nothing, which would pass for an empty answer
+    o=$(LC_ALL=C awk "$prog" <<< "$1"; r=$?; printf x; exit "$r") || return 1   # a working pass always prints its line end, an empty answer included: nothing at all is a failed pass
+    [ "${o: -2}" = $'\nx' ] || return 1; printf '%s\n' "${o%$'\nx'}"
 }
 op_plain_fixed() { printf '%s\n' "the reason is not shown here: see the log"; }   # what op_plain answers when a step of it fails: never the text (it may hold a path or a command) and never nothing
 op_plain() {  # <text> → one plain sentence: one line, its first sentence, no backtick span, no exit codes, no paths. A step that fails (awk or sed missing, say) gives op_plain_fixed instead
