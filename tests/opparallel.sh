@@ -457,7 +457,7 @@ PY
     # the results: one Slack post and one line into the hearing session's inbox per operation, each naming its own operation
     local line np nl
     for id in $ops; do
-        line=$(op_line "$id"); np=$(nposts "✅ *sala op: $line · done*"); nl=$(lines_of "$SOCKLOG" "[sala op $id] salamander $line "'\u2014'" done:")   # (the inbox logs the message as JSON)
+        line=$(op_line "$id"); np=$(nposts " · log ~/.claude/salamander-op-$id.log"); nl=$(lines_of "$SOCKLOG" "[sala op $id] salamander $line "'\u2014'" done:")   # (the inbox logs the message as JSON)
         [ "$np" = 1 ] && [ "$nl" = 1 ] || { ok_ops=0; bad "round $n: op $id ($line): $np post(s), $nl inbox line(s) — $(grep -E "told|reply" "$SALA_LOG_DIR/salamander-op.log" | tail -4 | cut -c1-200) / $(tail -3 "$SOCKLOG" | cut -c1-200)"; }
     done
     [ "$(( $(wc -l < "$SOCKLOG") - sl0 ))" = "$(echo $ops | wc -w)" ] || { ok_ops=0; bad "round $n: the hearing session's inbox got $(( $(wc -l < "$SOCKLOG") - sl0 )) line(s) for $(echo $ops | wc -w) operations"; }

@@ -215,10 +215,10 @@ waitfor "[ \"\$(proc_lane \"\$(cpid a)\")\" = bedrock ]" 240 && waitfor "[ \"\$(
 [ "$(hrow sala-test-f)" = "subscription-1/fable" ] && [ "$(mrow sala-test-f)" = opus ] && ok "the Fable session: runs on opus (models.tsv), and the home record keeps the model it had (fable)" || bad "f: home $(hrow sala-test-f) model $(mrow sala-test-f)"
 [ "$(mrow sala-test-a)" = "" ] && ok "a session not on Fable gets no model override" || bad "a model: $(mrow sala-test-a)"
 [ "$(lane_default)" = bedrock ] && [ "$(hrow '(default)')" = "subscription-1/-" ] && ok "the default lane moved to bedrock, and its home (subscription-1) is kept" || bad "default: $(lane_default) / $(hrow '(default)')"
-n=$(nposts 'sala op: lane fallback')
+n=$(nposts ' · log ~/.claude/salamander-op-')
 [ "$n" = 1 ] && [ "$(nposts '')" = 1 ] && ok "ONE Slack post for the whole batch" || bad "posts: $n — $(<"$POSTS")"
-p=$(post "sala op: lane fallback")
-has "$p" "Ultra" && has "$p" "Bedrock" && has "$p" "sala op: lane fallback subscription-1 · done* · 3 sessions" && ok "the post names the dead lane and the fallback, and counts the sessions moved" || bad "post: $p"
+p=$(post " · log ~/.claude/salamander-op-")
+[ "$(sed -n 1p <<< "$p")" = "✅ *moved 3 sessions off the dormant lane subscription-1*" ] && has "$p" "• default lane: subscription-1 → bedrock" && has "$p" "asked by sala-watch · log ~/.claude/salamander-op-" && ok "the post: the count of sessions moved and the dead lane in the headline, the default lane's line, who asked and the log" || bad "post: $p"
 ! has "$p" "sala-test-a" && ! has "$p" "sala-test-f" && ! has "$p" "sala-test-m" && has "$p" "default lane: subscription-1 → bedrock" && ok "the sessions that moved are counted, not listed; the default lane's line stays" || bad "post names: $p"
 ! has "$p" "sala-test-k" && ok "the subscription-2 session is not in it" || bad "post names k: $p"
 ! grep -q 'sala-watch' "$HOME/.claude/salamander-inbox"* 2>/dev/null && ok "no inbox line to sala-watch (no session waits on a watch-queued operation)" || bad "inbox line to sala-watch"

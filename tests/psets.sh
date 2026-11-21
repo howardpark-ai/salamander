@@ -156,6 +156,36 @@ grep -q '^item=t-host-b|resurrect-timer|session|' "$SALA_SET_DIR/$D" && [ "$(set
 "$SALA" provision --settle "$D" t-host-b resurrect-timer ok "saver restarted" >/dev/null 2>&1
 [ "$(set_val "$D" done)" = 2 ] && [ "$(set_val "$D" closed)" = 1 ] && ok "settled: the set closed (2/2)" || bad "close: $(<"$SALA_SET_DIR/$D")"
 
+echo "== a provision that ends stuck under a queued operation (SALA_OP_ID, set by the op runner) posts nothing of its own: the operation's post is the one"
+# The same failing run with no operation over it keeps its post (a plain `sala provision`, the watch's, a set's retry worker); the set is made either way.
+nsets() { ls "$SALA_SET_DIR" 2>/dev/null | grep -cE '^[0-9]+-[0-9]+$'; }
+FAILS=("STEP|failed|settings|merge failed: locked")
+steps t-host-o1 "${OKS[@]:0:2}" "${FAILS[@]}"; : > "$POSTS"; s0=$(nsets)
+SALA_OP_ID=1790000000-1 "$SALA" provision t-host-o1 >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(nsets)" = $((s0 + 1))  ] && [ "$(nposts "")" = 0 ] && ok "under an operation: the failed run exits 1, its set is made, and NO post from the run (the operation's op_finish posts once)" || bad "op-owned stuck: rc=$rc sets $s0 → $(nsets) posts=$(nposts ""): $(show)"
+O1=$(newset); grep -q '^item=t-host-o1|settings|failed|' "$SALA_SET_DIR/$O1" && ok "the set holds the failed item, for its retry worker" || bad "set items: $(grep ^item= "$SALA_SET_DIR/$O1")"
+waitfor 'pset_worker_live "$O1"' 10 && ok "and its retry worker was started" || bad "no retry worker: $(tail -5 "$SALA_PSET_LOG")"
+steps t-host-o1 "${OKS[@]:0:2}" "STEP|fixed|settings|merged"
+waitfor '[ "$(set_val "$O1" closed)" = 1 ]' 40 && grep -qx 'fix=t-host-o1|settings fixed' "$SALA_SET_DIR/$O1" && ok "and the retry fixed it and closed the set (the set is the operation's only way back to green, so it is kept)" || bad "retry: closed=$(set_val "$O1" closed): $(tail -5 "$SALA_PSET_LOG")"
+waitfor '! pset_worker_live "$O1"' 20
+: > "$POSTS"; steps t-host-o2 "${OKS[@]:0:2}" "${FAILS[@]}"; s0=$(nsets)
+"$SALA" provision t-host-o2 >/dev/null 2>&1; rc=$?
+O2=$(newset); [ "$rc" = 1 ] && [ "$(nsets)" = $((s0 + 1)) ] && [ "$(nposts "")" = 1 ] && has "$(post 'Provision')" "⚠️" && ok "the same run with no operation over it: ONE post, the set's first post (a set no operation owns is reported as before)" || bad "plain stuck: rc=$rc posts=$(nposts ""): $(show)"
+steps t-host-o2 "${OKS[@]:0:2}" "STEP|fixed|settings|merged"; waitfor '[ "$(set_val "$O2" closed)" = 1 ]' 40; waitfor '! pset_worker_live "$O2"' 20
+# a run that is not a failure keeps its post under an operation (nothing stuck there to say twice): clean, and a leftover for a person (⚠️)
+: > "$POSTS"; steps t-host-o3 "${OKS[@]}"; SALA_OP_ID=1790000000-2 "$SALA" provision t-host-o3 >/dev/null 2>&1
+[ "$(nposts "")" = 1 ] && has "$(post 'fleet provision')" "t-host-o3" && ok "a clean run under an operation: its fleet post stays" || bad "clean under op: $(show)"
+: > "$POSTS"; steps t-host-o4 "${OKS[@]}" "STEP|manual|repo|local commits, fast-forward refused"; SALA_OP_ID=1790000000-3 "$SALA" provision t-host-o4 >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(nposts "")" = 1 ] && has "$(post 'Provision')" "⚠️" && ok "a run that leaves something for a person under an operation (exit 0, not stuck): its set post stays" || bad "manual under op: rc=$rc: $(show)"
+O4=$(newset); [ -n "$O4" ] && "$SALA" provision --settle "$O4" t-host-o4 repo ok "back in step" >/dev/null 2>&1
+# --only: the single fleet post, never a set; a failing one under an operation posts nothing, one with none over it posts once
+: > "$POSTS"; steps t-host-o5 "${OKS[@]:0:2}" "${FAILS[@]}"; echo "STEP|failed|settings|still off" > "$HOME/hosts/t-host-o5.steps.check"
+SALA_OP_ID=1790000000-4 "$SALA" provision --only settings t-host-o5 >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(nposts "")" = 0 ] && ok "--only that fails, under an operation: exit 1 and no post of its own" || bad "only under op: rc=$rc: $(show)"
+"$SALA" provision --only settings t-host-o5 >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(nposts "")" = 1 ] && has "$(post 'fleet provision')" "only settings" && ok "the same --only with no operation over it: ONE fleet post" || bad "only plain: rc=$rc: $(show)"
+: > "$POSTS"
+
 echo "== --only: just the named steps, the apply then their check, on every box; no CLI update, no recycle, no set"
 : > "$HOME/calls.txt"; : > "$HOME/ssh.txt"
 "$SALA" provision --only settings,nosuch t-host-c >/dev/null 2>&1 && bad "an unknown step was accepted" || ok "an unknown step is refused"
