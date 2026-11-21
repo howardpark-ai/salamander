@@ -460,3 +460,22 @@
 #SALA_CODEX_PUBLIC_SCAN=          # the command of the privacy check a review passes before it is posted on a public repo, called as `<command> scan <dir> --repo <name>`
 #                                  (exit 0 and a PASS line = pass). Unset (the default): such a review is withheld and kept in the state folder, never posted unchecked
 #SALA_CODEX_SCAN_TIMEOUT=300      # seconds the privacy check may take; over it the review is withheld
+#SALA_BGAGENTS=off               # `sala bg-agents` (docs/bg-agents.md): the fleet job that lists and starts a project's background engineer agent when stackshot's want list names the project.
+                                 #   Anything but `on` (the default: off): a run prints one line and touches nothing. Read from this file, also by the timer's service (whose environment is only PATH)
+#SALA_BGAGENTS_COOLDOWN=600      # seconds a project waits after a failure, doubled for every further failure; also the time a project must be off the want list before its ledger entry is cleared
+#SALA_BGAGENTS_COOLDOWN_MAX=86400   # the longest a project waits between two tries (24 h)
+#SALA_BGAGENTS_MAX_ATTEMPTS=5    # attempts after which a project is left alone ("given up" in `sala bg-agents --status`)
+#SALA_BGAGENTS_MAX_LOAD=10       # a run does nothing (and counts nothing) while the 1-minute load average is at or above this (the load check comes before anything is listed)
+#SALA_BGAGENTS_MANDATE=          # the one line the agent is listed with and started on (at most 600 characters, no control character or backslash). Empty (the default): "Handles outside
+                                 #   events (mail, Slack, GitHub) for this project and builds what needs no decision of SALA_OWNER_NAME, so the front agent serves only SALA_OWNER_NAME"
+#SALA_BGAGENTS_SENDER=sala-web   # the --sender label of the `post project-agent` call: one the stackshot instance lists in [project_agent] form_senders (the New session form's)
+#SALA_BGAGENTS_LEDGER=           # the per-project ledger (JSON, mode 600, written atomically). Default: $SALA_STATE_DIR/bgagents.json (~/.local/state/salamander/); the log is bgagents.log beside it
+#SALA_BGAGENTS_LOADAVG=/proc/loadavg   # where the load average is read from (the suites point it at a file)
+#SALA_BGAGENTS_RECORD_GRACE=900  # seconds a start that sala's copy of stackshot's project record does not show yet (spawn exit 3 after the listing) is waited out, without a failure
+#SALA_BGAGENTS_ALIVE_WAIT=30     # seconds after `sala spawn` reports the pane up that the job waits for the session to be live
+#SALA_BGAGENTS_POST_TIMEOUT=120  # seconds the listing call may take (a timeout is a failure; the next attempt reads the project record first)
+#SALA_BGAGENTS_SPAWN_TIMEOUT=300 # seconds `sala spawn` may take
+#SALA_BGAGENTS_LIST_CMD=         # the want list's command (the suites stub it). Unset: `python3 <stackshot client> background-wanted`; set empty: no client, the run says so and reads nothing
+#SALA_BGAGENTS_POST_CMD=         # the listing command, called with <project key> <name> --role engineer --back --mandate <line> --sender <label> appended. Unset: `python3 <stackshot client> post project-agent`
+#SALA_BGAGENTS_SPAWN_CMD=        # the start command, called with <name> --project <key> --role back --mandate <line> appended. Unset: this sala's `spawn`
+#SALA_BGAGENTS_ALIVE_CMD=        # the liveness command, called with <name> --live appended (exit 0 = a live session). Unset: this sala's `sessions resolve`

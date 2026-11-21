@@ -170,6 +170,13 @@
 #   salamander job check [--post] [--quiet]   the unit-gap pass (sala-unit-gaps.path, the watch tick): a timer of ours with no Description=, no X-Model-Lane=
 #                                      or not in git is opened once as a board item (client.py post job-gap open; stackshot moves it by the builder of
 #                                      the repo that owns its script) and closed when it is fixed (post job-gap clear)
+#   salamander bg-agents [--dry-run | --status]
+#                                      the fleet job that gives a project a background (engineer) agent when stackshot says it wants one (lib/bgagents.sh,
+#                                      lib/bgagents.py, docs/bg-agents.md): off unless SALA_BGAGENTS=on; reads `client.py background-wanted`, takes AT MOST ONE project a run
+#                                      (a load check first: 1-minute average under SALA_BGAGENTS_MAX_LOAD, 10), lists <name prefix>-engineer on it (`client.py post
+#                                      project-agent`, label sala-web) and starts the pane (`sala spawn … --role back`); a per-project ledger backs off after a failure (10 min, doubling,
+#                                      24 h cap) and gives up at SALA_BGAGENTS_MAX_ATTEMPTS (5). An agent it listed whose pane did not start is NOT taken off by the job: it says
+#                                      `retire needed: <name>` and exits 1 (no path takes an agent off a project without the owner's words). --dry-run decides and does nothing; --status shows the ledger
 #   salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
 #                                      the GitHub Actions runs of a repo, read from the file the CI-run poller keeps (no GitHub call): the JSON on
 #                                      stdout, cut to a head commit with --sha; exit 3 = no file for that repo, 4 = older than --max-age (default 120 s):
@@ -217,6 +224,7 @@ case "$sub" in
     settings-apply) . "$SALA_ROOT/lib/settings-apply.sh"; sa_main "$@" ;;   # the spec's settings steps: status, --check, --run inside its unit
     question) . "$SALA_ROOT/lib/question.sh"; qs_main "$@" ;;   # a background `claude -p` run that asks the owner a question parks until the answer arrives
     resume-answer) . "$SALA_ROOT/lib/question.sh"; qs_main resume-answer "$@" ;;
+    bg-agents) . "$SALA_ROOT/lib/bgagents.sh" ;;   # the want list's background agents: list and start one engineer a run (a timer; docs/bg-agents.md)
     ci-poll|ci-runs) . "$SALA_ROOT/lib/cipoll.sh" ;;   # the CI-run poller and its reader
     codex-review) . "$SALA_ROOT/lib/codex-review.sh" ;;   # a Codex CLI review of a PR, posted on it (a trial; never fails a caller)
     mq) . "$SALA_ROOT/lib/mq.sh" ;;   # our own merge queue (shadow mode)
