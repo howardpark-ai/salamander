@@ -268,12 +268,26 @@ op_oplog() { echo "$SALA_LOG_DIR/salamander-op-$1.log"; }
 op_web_base() {  # → scheme://host of sala's web UI (the origin of SALA_SESSION_URL, the setting `sala mockup` reads its address from), or nothing when none is set
     # sala-web reads SALA_LOG_DIR from sala's default config file (web/src/sala_web/config.py, log_dir; its own environment names no sala setting), so the
     # link is given only when that is the folder this operation's log is in: a CLI-only SALA_CONFIG or SALA_LOG_DIR (a test, a one-off) would otherwise link a page that 404s
-    local t w l=$SALA_LOG_DIR
-    w=$( unset SALA_LOG_DIR; [ -r "$HOME/.config/salamander/config" ] && . "$HOME/.config/salamander/config" >/dev/null 2>&1
-         d=${SALA_LOG_DIR:-$HOME/.claude}; case $d in /*) ;; *) d=$HOME/$d;; esac; printf '%s' "$d" )
+    # and only for a log that is there as a regular file, not a link (the page opens it without following one, and answers 404 for anything else).
+    # The config is read as text, the SALA_LOG_DIR line the way sala_setting does (web/src/sala_web/config.py), never sourced a second time: its commands ran once, in common.sh
+    local id=${1:-} t w="" l=$SALA_LOG_DIR line raw q lp base
+    t=$(session_url_template); [[ $t =~ ^(https?://[^/?#[:space:]\<\>|]+) ]] || return 0   # no web address: nothing to read
+    base=${BASH_REMATCH[1]}
+    lp=$(op_oplog "$id"); { [ -f "$lp" ] && [ ! -L "$lp" ]; } || return 0
+    local cfg=$HOME/.config/salamander/config
+    if [ -r "$cfg" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            [[ $line =~ ^[[:space:]]*(export[[:space:]]+)?SALA_LOG_DIR=(.*)$ ]] && w=${BASH_REMATCH[2]} || continue
+            read -r raw <<< "$w" || :; q=${raw:0:1}   # the value, trimmed; the last assignment wins
+            if [ "$q" = "'" ] || [ "$q" = '"' ]; then raw=${raw:1}; case $raw in *"$q"*) raw=${raw%%"$q"*};; esac   # quoted: what is inside
+            else raw=${raw%%[[:space:]]#*}; read -r raw <<< "$raw" || :; fi                                               # else up to a ` #` comment
+            if [ "$raw" = "~" ] || [[ $raw == "~/"* ]]; then raw=$HOME${raw:1}; fi
+            raw=${raw//'${HOME}'/$HOME}; w=${raw//'$HOME'/$HOME}
+        done < "$cfg"
+    fi
+    w=${w:-$HOME/.claude}; case $w in /*) ;; *) w=$HOME/$w;; esac
     { [ "${w%/}" = "${l%/}" ] || [ "$w" -ef "$l" ]; } || return 0
-    t=$(session_url_template)
-    [[ $t =~ ^(https?://[^/?#[:space:]\<\>|]+) ]] && printf '%s\n' "${BASH_REMATCH[1]}"
+    printf '%s\n' "$base"
     return 0
 }
 op_out() { echo "$SALA_LOG_DIR/salamander-op-$1.out"; }   # the verb's own output, a copy (the log has it too, between the runner's lines)
@@ -1576,8 +1590,8 @@ op_event() {  # <id> <done|stuck> <n named> <nf failed or skipped among them> <l
 # The headline is a verb phrase with its target, never the argv. The owner's words stay on the marker, in the operation's log and in the hearing
 # session's own message (op_tell); the post carries none, nor an exit code or a raw command. `log` is where the operation's log can be read: with
 # sala's web address set (op_web_base: the origin of SALA_SESSION_URL) a Slack link, `<BASE/op/<id>|log>`, to sala-web's read-only page of that
-# log (web/src/sala_web/oplog.py, behind the site's sign-in); with none set, or when sala-web would not find the log (its folder, SALA_WEB_LOG_DIR
-# else ~/.claude, is not SALA_LOG_DIR), the path of the log file as text, `log ~/.claude/salamander-op-<id>.log`.
+# log (web/src/sala_web/oplog.py, behind the site's sign-in); with none set, or when sala-web would not find the log (its folder, the default config's
+# SALA_LOG_DIR, is not the one the log is in, or the log is not a regular file), the path of the log file as text, `log ~/.claude/salamander-op-<id>.log`.
 op_drop_ticks() {  # <text> → the text with every backtick-delimited span dropped whole: a run of N backticks opens, the next run of exactly N closes (an unpaired opener drops the rest of the text)
     awk '{
         s = $0; out = ""
@@ -1679,7 +1693,7 @@ op_dormant_why() {  # <id> → for a lane fallback, the one plain line that says
 }
 op_post() {  # <id> <done|stuck> <sessions counted> <failed or skipped among them> <sessions, one per line> — the one Slack post; OP_PF holds the failed or skipped sessions' lines (the cap counts only these), OP_PL the lines about no session
     local id="$1" st="$2" tot="$3" nf="$4" ss="$5" verb foot text step="" why x i=0 cap=5 logp rsn base
-    verb=$(op_val "$id" verb); logp=$(op_oplog "$id"); logp=${logp/#"$HOME"/\~}; base=$(op_web_base)
+    verb=$(op_val "$id" verb); logp=$(op_oplog "$id"); logp=${logp/#"$HOME"/\~}; base=$(op_web_base "$id")
     op_headline "$id" "$st" "$tot" "$nf" "$ss"
     foot="asked by $(op_val "$id" from) · $([ -n "$base" ] && echo "<$base/op/$id|log>" || echo "log $logp")"
     rsn=$(op_dormant_why "$id")
