@@ -4353,3 +4353,11 @@ Two review points on the path filter of `op_plain` (`lib/op.sh`), each checked b
   20000 to 160000 (a quoted path with N openers in its body; a path with N openers in its body and the closers after it; closers after a path; a bracket pair with N
   openers before the path): linear on every shape, about twice per doubling (0.01 to 0.5 s at 160000), so no fix. Covered: the path with N openers and the quoted
   path with N openers, each with the closers after, at 80000 and 160000, the larger bounded against the smaller.
+
+### `tests/op.sh` the four nest checks compare the whole answer, none added or retired (Sat Nov 21st 2026)
+
+The deep-nest checks of the path filter (`op_drop_paths`: a path inside nested pairs, openers around plain text, a path and a quoted path with openers in their body)
+kept only the first six bytes of the answer, so a filter that dropped the last closer or the trailing letter at depth passed them. Each now compares the exit status,
+and the checksum and byte count of the whole answer (`cksum`) with those of the answer it must give, which the test writes itself with `awk` and `printf` into a
+file (never into a variable), at BOTH depths of every shape. Proof by mutation: with the filter made to drop its last character on an input over 100000 bytes, the four
+old checks passed and the four new ones failed (the byte count one short, the checksum different); the filter was restored and all four pass.
