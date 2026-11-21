@@ -17,9 +17,9 @@
 # `bash tests/suitemap.sh --check` fails a PR when a suite has no line, a tracked file is neither full, none nor on a line, or a
 # line names a file that is gone.
 #
-# full: the shared code and harness every suite runs through (bin/salamander, lib/common.sh and lib/boardlinks.sh, which it sources, lib/api-credit.sh and lib/stackshot-path.sh, which common.sh sources, tests/lib.sh, tests/run.sh,
+# full: the shared code and harness every suite runs through (bin/salamander, lib/common.sh and lib/boardlinks.sh and lib/slacksafe.sh, which it sources, lib/api-credit.sh and lib/stackshot-path.sh, which common.sh sources, tests/lib.sh, tests/run.sh,
 # tests/fake-claude.c) and the tool that reads this file (tests/suitemap.sh).
-full bin/salamander lib/common.sh lib/api-credit.sh lib/stackshot-path.sh lib/boardlinks.sh tests/lib.sh tests/run.sh tests/fake-claude.c tests/suitemap.sh
+full bin/salamander lib/common.sh lib/api-credit.sh lib/stackshot-path.sh lib/boardlinks.sh lib/slacksafe.sh tests/lib.sh tests/run.sh tests/fake-claude.c tests/suitemap.sh
 # none: prose and repository housekeeping that no suite parses, named file by file. NOT `*.md`: the briefing's model prompts
 # (contrib/briefing/*.prompt.md) are text the briefing suite feeds a fake claude, so they are measured. The launchd plists are
 # XML for macOS boxes that only launchd reads (syntax.sh opens their first line to look for a shebang, which a firstline
@@ -111,6 +111,7 @@ suite settingsapply lib/barepane.sh lib/continuedin.sh lib/op.sh lib/provision.s
 suite side lib/feedback.sh lib/op.sh lib/retire.sh lib/revive.sh lib/sessions.py lib/sessions.sh lib/side.sh lib/snapshot.sh lib/spawn.sh
 suite signin lib/barepane.sh lib/continuedin.sh lib/note.sh lib/op.sh lib/recycle-request.sh lib/rename.sh lib/settings-apply.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
 suite skills-flags .github/scripts/skills-flags.py lib/lane.sh lib/model.sh lib/note.sh lib/op.sh lib/question.sh lib/rc.sh lib/reauth.sh lib/recycle-request.sh lib/restore.sh lib/revive.sh lib/sdk-pane.sh lib/sessions.sh lib/settings-apply.sh lib/side.sh lib/stuck.sh tests/help-snapshot.sh
+suite slacksafe contrib/briefing/lib.sh lib/alert.sh lib/dm.sh lib/stuck.sh
 suite smoke lib/adopt.sh lib/heartbeat.sh lib/rename.sh lib/revive.sh lib/sessions.py lib/spawn.sh
 suite spawn lib/barepane.sh lib/continuedin.sh lib/lanewords.py lib/op.sh lib/rc.sh lib/retire.sh lib/revive.sh lib/sessions.py lib/sessions.sh lib/settings-apply.sh lib/spawn.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
 suite stackshotpath contrib/question-board.py lib/pr_watcher_cleanup.py lib/side.sh lib/spawn.sh lib/unitjob.py release.sh

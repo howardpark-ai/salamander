@@ -429,6 +429,9 @@ PY
 # sala_board_links (lib/boardlinks.sh in this checkout, the one implementation sala's own posts run): each bare board#N in a
 # post becomes a link to its item at SALA_STACKSHOT_WEB. Missing (a copy of contrib/briefing alone): the text goes as it is.
 if [ -r "$BRIEFING_DIR/../../lib/boardlinks.sh" ]; then . "$BRIEFING_DIR/../../lib/boardlinks.sh"; else sala_board_links() { cat; }; fi
+# sala_slack_safe (lib/slacksafe.sh, the one implementation every Slack post runs, last, on the final text): a digit run between colons
+# gets an invisible zero-width space before its closing colon so Slack does not draw it as an emoji code. Missing: the text goes as it is.
+if [ -r "$BRIEFING_DIR/../../lib/slacksafe.sh" ]; then . "$BRIEFING_DIR/../../lib/slacksafe.sh"; else sala_slack_safe() { cat; }; fi
 
 # The bot-token post (below) reads the same token files and the same API base as `sala dm` (lib/dm.sh: dm_token_dir, dm_api_base). A
 # copy of contrib/briefing alone has no lib/dm.sh: the two one-line defaults below then stand in for it.
@@ -548,6 +551,7 @@ post_slack() {
   text=$(slack_text "$1") && [ -n "$text" ] || text=$1   # a formatter failure never costs the post
   linked=$(slack_links "$text") && [ -n "$linked" ] && text=$linked   # nor a linker failure: the unlinked text goes
   linked=$(printf '%s\n' "$text" | sala_board_links "$(briefing_setting SALA_STACKSHOT_WEB)") && [ -n "$linked" ] && text=$linked   # each bare board#N: a link to its item
+  linked=$(printf '%s\n' "$text" | sala_slack_safe) && [ -n "$linked" ] && text=$linked   # last, on the final text: no digit run between colons for Slack to read as an emoji code
   if [ -n "${BRIEFING_NO_POST-}" ]; then printf '%s\n' "$text" >> "$LOGDIR/would-post.log"; echo "not posted (BRIEFING_NO_POST)"; return 0; fi
   _bot_post "$text"
 }

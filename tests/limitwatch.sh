@@ -84,7 +84,10 @@ EOF
 chmod +x "$HOME/.local/bin/journalctl"
 jline() { printf '%s\t{"%s":"%s","__REALTIME_TIMESTAMP":"%s000000"}\n' "$1" "$2" "$3" "$1" >> "$JOURNAL"; }   # <epoch> <USER_UNIT|_SYSTEMD_USER_UNIT> <unit>
 export PATH="$HOME/.local/bin:$PATH" FAKE_LOG="$HOME/fake.log" FAKE_SOCK_LOG="$HOME/sock.log"
-POSTS="$HOME/posts.txt"; export SALA_NOTIFY_CMD="cat >> $POSTS"
+# Slack is a file. The posts carry a zero-width space (U+200B) before the closing colon of a time that a colon follows ("since Sat Nov 21st
+# 04:45: sala-test-e": Slack would draw :45: as an emoji code; lib/slacksafe.sh), so the file the assertions read has it taken out, and a raw copy keeps it
+# for the one check that pins the space (below). The space is a sed byte escape and a printf: no invisible character sits in this file.
+POSTS="$HOME/posts.txt"; Z=$(printf '\xe2\x80\x8b'); export SALA_NOTIFY_CMD="tee -a $POSTS.raw | LC_ALL=C sed 's/\xe2\x80\x8b//g' >> $POSTS"
 export SALA_LIMIT_PSTART="*=0"   # the records here are dated before the fake claudes started: every pane's process "started" at 0 (the last section sets its own)
 export SALA_BIN="$ROOT/bin/salamander" SALA_ROOT="$ROOT"
 SALA="$ROOT/bin/salamander"; SOCK="sala-limitwatch-$$"
@@ -183,6 +186,7 @@ grep -q "^    • Team lane: Team 5-hour limit since $(lwt $((STOP+100))), it sa
 grep -q "^    • Ultra lane: Ultra Opus weekly limit since $(lwt $((STOP+300))), it says it resets $(lwt "$RESET"): sala-test-f$" "$POSTS" && ok "f: one model's weekly limit" || bad "f: $(<"$POSTS")"
 grep -q "^    • api lane: API rate limit since $(lwt $((STOP+400))), with no reset time given: sala-test-d$" "$POSTS" && ok "d: the api lane's 429" || bad "d: $(<"$POSTS")"
 grep -q "^    • api lane: out of API credit since $(lwt $((STOP+500))): sala-test-e$" "$POSTS" && ok "e: the api lane's credit, the sanitized record" || bad "e: $(<"$POSTS")"
+grep -qF "since $(lwt $((STOP+500)))${Z}: sala-test-e" "$POSTS.raw" && ok "a time followed by a colon in a lane-limit post carries the zero-width space (the escape is on this path)" || bad "no zero-width space after the time in the raw post: $(sed "s/$Z/<Z>/g" "$POSTS.raw" | head -8)"
 [ "$(grep -c 'outside the panes' "$POSTS")" = 1 ] && grep -q "^    • outside the panes, the budget watch (budget-watch): weekly limit since $(lwt $((NOW-6000))) (2 runs so far), it says it resets $(lwt "$RESET"); its next scheduled run tries again$" "$POSTS" \
     && ok "the headless runs on one line, named by the unit whose WorkingDirectory is their cwd, since the first run after its last success" || bad "headless: $(<"$POSTS")"
 [ "$(told "$UA")$(told "$UB")$(told "$UC")$(told "$UD")$(told "$UE")$(told "$UF")" = 000000 ] && ok "nobody told while stopped" || bad "told while stopped"
