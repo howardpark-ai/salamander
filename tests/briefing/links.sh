@@ -29,6 +29,8 @@ got=$(lnk 'x.* then xyz and a+b(1) and aab'); [ "$got" = "<${SALA}x.*|x.*> then 
 got=$(lnk 'ask ? first'); [ "$got" = 'ask ? first' ] && ok "the registry's '?' placeholder name is never linked" || bad "placeholder: $got"
 got=$(lnk 'in `alpha-main` and <https://x.y/alpha-main|alpha-main>'); [ "$got" = 'in `alpha-main` and <https://x.y/alpha-main|alpha-main>' ] && ok "code spans and existing links are still left alone" || bad "kept: $got"
 got=$(lnk 'alpha-main s6 salamander#5'); [ "$got" = "<${SALA}alpha-main|alpha-main> <$SS/s6|s6> <https://github.com/example-org/salamander/issues/5|salamander#5>" ] && ok "board ids and repo#N still link" || bad "other kinds: $got"
+# SLACK_LINKS_ONLY=sessions (what `sala dm` asks for): session names only; a board id, repo#N, a slug and a [gmail:] marker are not touched
+got=$(SLACK_LINKS_ONLY=sessions BRIEFING_BRAIN_REPO=demo-pages lnk 'alpha-main s6 g46 salamander#5 projects/demo [gmail:18c0ab]'); [ "$got" = "<${SALA}alpha-main|alpha-main> s6 g46 salamander#5 projects/demo [gmail:18c0ab]" ] && ok "SLACK_LINKS_ONLY=sessions links the session and nothing else" || bad "sessions only: $got"
 got=$(lnk 'see g46 now'); [ "$got" = "see <$SS/46|board#46> now" ] && ok "a store id g46 in the board data links to items/46, shown as board#46" || bad "store id: $got"
 # page slugs and repo#N: a slug links into BRIEFING_BRAIN_REPO (none set: plain), its dirs SALA_PAGE_DIRS plus people and companies;
 # repo#N for the repos of BRIEFING_ISSUE_REPOS (default salamander and stackshot); the config's lines count when the environment has none

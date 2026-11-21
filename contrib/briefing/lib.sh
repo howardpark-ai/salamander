@@ -322,6 +322,8 @@ briefing_box() {
 # that kind of link off: no board links, no commit links, never an error. A leading ~ or $HOME in a path is the caller's home.
 # The GitHub links (a page slug, `<repo>#N`, a commit) point into BRIEFING_GITHUB_BASE, read the same way (environment, then the
 # config line); unset or empty, none of them is made and those references stay plain text.
+# SLACK_LINKS_ONLY=sessions (in the environment of the call): session names only, no other kind of link and no [gmail:…] rewriting; `sala dm`
+# (lib/dm.sh) runs it that way, so a name in a DM links exactly as it does in a briefing or an operation post, with the same lookup.
 slack_links() {
   local sessions tpl board web repos cfg="${SALA_CONFIG:-$HOME/.config/salamander/config}"
   sessions=$(briefing_sessions)   # no sessions: no session links
@@ -343,9 +345,11 @@ slack_links() {
   github_base=$(briefing_setting BRIEFING_GITHUB_BASE)
   page_dirs=$(briefing_setting SALA_PAGE_DIRS); page_dirs=${page_dirs:-projects}
   python3 - "$1" "$sessions" "$board" "$repos" "$tpl" "$(briefing_setting BRIEFING_GMAIL_ACCOUNT)" "$web" "$issue_repos" "$brain_repo" "$page_dirs" "$github_base" <<'PY'
-import re,subprocess,sys
+import os,re,subprocess,sys
 sys.stdout.reconfigure(encoding='utf-8')
 text, sessions_out, board_dir, repos_spec, tpl, gmail_account, board_web, issue_repos, brain_repo, page_dirs, github_base = sys.argv[1:12]
+only_sessions = os.environ.get('SLACK_LINKS_ONLY') == 'sessions'   # sala dm (lib/dm.sh): link session names alone; its board ids go through sala_board_links
+if only_sessions: board_dir = repos_spec = board_web = github_base = ''   # no board, commit, repo or page link; the [gmail:…] markers are not touched below
 board_web = board_web.strip().rstrip('/')
 def home_path(p):   # a config line is never expanded: a leading ~ or $HOME is the caller's home
     import os
@@ -371,7 +375,7 @@ def session_url(name, bridge):   # lib/common.sh's SALA_SESSION_URL_PY, the same
     from urllib.parse import quote
     if tpl: return tpl.replace('{name}', quote(name, safe="-_.!~*'()"))
     return 'https://claude.ai/code/session_' + bridge.split('_', 1)[1] if '_' in bridge else ''
-import os   # every item has a board-data/<letter>/<n>.json (board.md lists only the recent ones)
+# every item has a board-data/<letter>/<n>.json (board.md lists only the recent ones)
 try: board = {l + f[:-5] for l in os.listdir(board_dir) if re.fullmatch(r'[a-z]', l)
               for f in os.listdir(os.path.join(board_dir, l)) if re.fullmatch(r'[0-9]+\.json', f)}
 except OSError: board = set()   # no board data: ids stay plain
@@ -417,7 +421,7 @@ def link(m):
     return t
 CODE = r'(`[^`\n]*`)'                                     # the code spans slack_text sees
 KEEP = re.compile(CODE + r'|(<[^<>\n]*>|https?://[^\s<>`]+)')   # plus Slack links and bare URLs: never linked into
-t = ''.join(p if re.fullmatch(CODE, p) else re.sub(r'[ \t]*\[gmail:([^\]\n]*)\]', gmail, p) for p in re.split(CODE, text))
+t = text if only_sessions else ''.join(p if re.fullmatch(CODE, p) else re.sub(r'[ \t]*\[gmail:([^\]\n]*)\]', gmail, p) for p in re.split(CODE, text))
 sys.stdout.write(''.join(p if KEEP.fullmatch(p) else TOKEN.sub(link, p) for p in re.split(KEEP, t) if p))
 PY
 }

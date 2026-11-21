@@ -158,6 +158,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander dm <app> [--thread <ts>] [TEXT|-]   post a message into a Slack app's Direct Message with the owner, as that app (its Messages tab), with the
                                      app's bot token (lib/dm.sh): TEXT is one argument, or stdin when it is `-` or absent (the safe form for quotes and backticks);
                                      <app> is a name in SALA_DM_APPS, the member is SALA_DM_USER_ID, the token is SALA_DM_TOKEN_DIR/slack-bot-token-<app> (mode 600);
+                                     board ids (board#N) and session names in TEXT are posted as links, as in every other sala post;
                                      prints the posted message's ts; exit 0 posted, 1 Slack said no (its error code), 2 usage, 3 setting or token problem, 4 network
   salamander dm --set-token [<app> | --all] | --check <app> | --help   store the app's bot token at a hidden prompt (a terminal only; with no app, or --all, ask for each app in SALA_DM_APPS in turn) · auth.test with it: the bot user and team
   salamander job add NAME --repo REPO --script PATH --schedule S… --description "…" --lane LANE [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
@@ -555,6 +556,7 @@ TEXT is the message, as one argument; with `-` or with no TEXT the message is re
 backticks or $( ). --thread <ts> (or --thread=<ts>) replies in the thread of the message with that ts; options come before TEXT, and a TEXT that starts with -- is refused
 unless it comes after a -- (sala dm <app> -- "--text"), or is sent on stdin.
 A digit run between colons, as in a time like 04:00:, gets an invisible zero-width space before its closing colon so Slack shows it as typed rather than as an emoji code.
+Like every other sala post, a board item id (board#N) and the name of a live or registered session in the text are posted as links (code spans, Slack links and URLs are left as they are).
 On success the posted message's ts is printed on stdout, so a caller can thread under it. A message over 39000 characters is refused.
 <app> is one of the names in SALA_DM_APPS (letters, digits and dashes, not starting with a dash). Settings, in ~/.config/salamander/config:
   SALA_DM_APPS       the app names allowed, space-separated (no default: none is allowed until it is set)
