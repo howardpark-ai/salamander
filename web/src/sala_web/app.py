@@ -16,6 +16,11 @@ none itself):
                                   text/html; charset=utf-8 in a sandbox: every answer under /mockup carries a Content-Security-Policy
                                   `sandbox allow-scripts` (an opaque origin: no cookies, no sala API) with connect-src 'none', nosniff and
                                   Referrer-Policy no-referrer; read-only, behind the same sign-in as the rest of the site (the proxy's)
+  GET  /op/<id>                   the log of one `sala op` operation (oplog.py; <log dir>/salamander-op-<id>.log, the last 256 KB, text/plain;
+                                  charset=utf-8; 404 for any other address under /op, a missing log, a link or a file that is not a regular
+                                  one; 405 for any method but GET and HEAD): shown as the file is, not parsed or redacted, behind the same
+                                  sign-in as the rest of the site (the proxy's); every answer under /op carries Cache-Control private,
+                                  no-store, nosniff, Referrer-Policy no-referrer and a Content-Security-Policy of default-src 'none'; sandbox
   GET  /api/config                settings the page needs (terminal URL prefix, the title-bar suffix, the scopes) and the build version
   GET  /sessions                  redirects to /#sessions (the overview was its own page before it moved into /)
   GET  /api/sessions              live sessions grouped by project; each carries "unread_count" (the replies a front
@@ -258,7 +263,7 @@ from urllib.parse import urlsplit
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -273,6 +278,7 @@ from . import lanes as LN
 from . import lanestate as LS
 from . import machines as MCH
 from . import mockup as MK
+from . import oplog as OL
 from . import projpick as PP
 from . import quota as Q
 from . import schedules as SCH
@@ -665,6 +671,18 @@ def create_app(settings: Settings | None = None) -> Starlette:
         except UnicodeDecodeError:   # the CLI only stores UTF-8; a file put there by hand that is not is not served as if it were
             return Response("this mockup is not UTF-8 text", status_code=415, media_type="text/plain", headers=MK.HEADERS)
         return HTMLResponse(text, headers=MK.HEADERS)   # text/html; charset=utf-8
+
+    async def op_log_page(request: Request) -> Response:
+        # The log of one `sala op` operation (oplog.py), linked from the operation's Slack post. EVERY answer here (a log, a 404, a 405) carries
+        # the headers of oplog.py. Read-only; the sign-in is the proxy's, as for every route. "id" is the id as written in the address.
+        if request.method not in ("GET", "HEAD"):
+            return Response("method not allowed", status_code=405, media_type="text/plain",
+                            headers={**OL.HEADERS, "Allow": "GET, HEAD"})
+        raw = request.path_params.get("id", "")
+        text = await run_in_threadpool(OL.read_log, settings.log_dir, raw)
+        if text is None:
+            return Response("no such log", status_code=404, media_type="text/plain", headers=OL.HEADERS)
+        return PlainTextResponse(text, headers=OL.HEADERS)   # text/plain; charset=utf-8
 
     async def config(request: Request) -> Response:
         # shellSession and host name the Shell drawer (sala's SALA_SHELL_SESSION and this machine); timezone (SALA_TZ, "" = the
@@ -1866,6 +1884,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # everything under /mockup (any method, any depth) is answered by mockup_page, so no answer of this prefix lacks the sandbox headers
         Route("/mockup/{n:path}", mockup_page, methods=MK.METHODS),
         Route("/mockup", mockup_page, methods=MK.METHODS),
+        # everything under /op (any method, any depth) is answered by op_log_page, so no answer of this prefix lacks its headers
+        Route("/op/{id:path}", op_log_page, methods=OL.METHODS),
+        Route("/op", op_log_page, methods=OL.METHODS),
         Route("/api/config", config),
         Route("/sessions", sessions_page),
         Route("/api/sessions", list_sessions),

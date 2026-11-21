@@ -4103,5 +4103,27 @@ operation over it posts once (the set's first post); a clean run and a run that 
 under an operation; `--only` that fails posts nothing under an operation and one fleet post without. The wording changes in
 `lanefallback`, `monthlycap`, `nomaster`, `opparallel` and `spawn` are the exact new headlines (the lane fallback's count and
 default-lane line, the one reason line under the headline (the cap and the day access returns, in `monthlycap`; `op.sh` adds a capped lane, another cause with no day, and none on record, which stays one line), the pinned session's `stays on` line, the master retire's one-line done and its stuck extra line).
-Not covered, and why: the way a real stuck helper words its line (the tests stub it; the brief now asks for one plain sentence), and a
-log link (sala-web serves no operation log at a URL, so `log` is the path as plain text).
+Not covered, and why: the way a real stuck helper words its line (the tests stub it; the brief now asks for one plain sentence). The log
+link was not there yet when this entry was written; it is the next entry's.
+
+### `web/tests/test_oplog.py` new, 41; `tests/op.sh` +8: an operation's log at `/op/<id>`, linked from the post (Sat Nov 21st 2026)
+
+The operation post's closing line gave the log file's path, which a phone cannot open. sala-web now serves the log read-only at `GET /op/<id>`
+(`web/src/sala_web/oplog.py`, `web/README.md` *Operation log pages*), and `op_post` (`lib/op.sh`) writes the line as the Slack link
+`<https://<host>/op/<id>|log>` when sala's web address is set (the origin of `SALA_SESSION_URL`, as `sala mockup` reads it), the path as before when it is not.
+The log is a file that can hold what an operation printed, shown to whoever passes the site's sign-in, and read from an address a stranger could shape, so the
+route's checks guard a path-building and a disclosure edge, not wording.
+Covered, in `web/tests/test_oplog.py` (the app in process over a log folder the test makes): a log is served as `text/plain; charset=utf-8`, as the file is
+(nothing parsed or taken out, markup and a token-looking string untouched); HEAD; a log over 256 KB is cut from its front, the first line says how much of how
+many bytes is shown, the cut falls on a line start and the end of the log is what stays; a log of exactly the cap is not cut; a cut that falls exactly on a line start keeps the first line, one that falls inside a line drops its fragment; a cut inside a two-byte character
+and bytes that are not UTF-8 are replaced, never an error; an empty log is an empty page; a missing log is a 404 `no such log`; 18 addresses that are not an id
+(`../x`, a path past a good id, too short, too long, a leading dash or plus, a `.log` suffix, an encoded NUL or space, letters, full-width digits, a double
+dash) are 404s while a good log and a file outside the folder exist, and the id check is a full match (a newline or a space around a good id is no id); `/op`,
+`/op/`, a trailing slash and a deeper path are 404s; an encoded `..` never leaves the folder; a link, a folder and a pipe (which must not wait for a writer) are
+refused; the `.out` and `.helper.log` beside a log are not reachable; POST, PUT, PATCH, DELETE, OPTIONS, TRACE and CONNECT are 405s with `Allow` on an id, a bad id and `/op`;
+the four headers are on every 200, 404 and 405; the log dir follows `SALA_WEB_LOG_DIR`, then `SALA_LOG_DIR`, then `~/.claude`.
+In `tests/op.sh`: with `SALA_SESSION_URL` set to an https address, and to one with a port and a path, the finished post's last line is
+`asked by <session> · <https://<host>/op/<id>|log>` (host and port only, no path or fragment of the template); with it unset, empty, or a non-http scheme it is
+`asked by <session> · log ~/.claude/salamander-op-<id>.log` as before; each is one post. With the address set, `SALA_WEB_LOG_DIR` equal to the log folder (with or without a trailing slash) keeps the link and a different folder gives the path (sala-web would 404 on it).
+Not covered, and why: the Slack rendering of the link and a real browser opening it (a Slack and a proxy sign-in are not in a test), and the web unit's own
+environment (a moved `SALA_LOG_DIR` reaches sala-web only through `SALA_WEB_LOG_DIR`; the default is the same folder on both sides).
