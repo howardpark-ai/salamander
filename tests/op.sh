@@ -23,7 +23,7 @@
 # Usage: bash tests/op.sh   (exit 0 = pass; ~90 s)
 set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
-      SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH
+      SALA_SESSION_URL SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, fake_up, tmux_socket_rm; the lane variables unset
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null SALA_TZ=Etc/UTC
@@ -700,6 +700,32 @@ done
 K8="$((K0+6))-8"; K9="$((K0+7))-9"; mkop "$K8" retire; mkop "$K9" model sala-test-a --clear; : > "$LAUNCHES"
 SALA_OP_QUEUE=off SALA_OP_STUCK=off runop "$K8"; [ "$(kicks)" = 0 ] && ok "SALA_OP_QUEUE=off: an op that ends kicks nothing" || bad "queue off kick: $(<"$LAUNCHES")"
 "$SALA" op --cancel "$K9" >/dev/null 2>&1; rm -f "$HOME/norun"
+
+echo "== the post's closing line: with sala's web address set the log is a link to sala-web's page of it (/op/<id>); with none, or an address that is not http(s), the path as before"
+touch "$HOME/norun"; KL=$((K0+30))
+for tpl in 'https://sala.example/#s={name}' 'https://sala.example:8443/x/#s={name}' UNSET '' 'ssh://sala.example/#s={name}'; do
+    KL=$((KL+1)); KI="$KL-$KL"; mkop "$KI" model sala-test-a --clear; : > "$POSTS"; SALA_OP_STUCK=off tick
+    if [ "$tpl" = UNSET ]; then SALA_OP_STUCK=off runop "$KI"; else SALA_SESSION_URL="$tpl" SALA_OP_STUCK=off runop "$KI"; fi
+    P=$(post "asked by sala-test-h"); L=$(sed -n '$p' <<< "$P")
+    case "$tpl" in
+        'https://sala.example/#s={name}') want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · <https://sala.example/op/$KI|log>" ;;
+        'https://sala.example:8443/x/#s={name}') want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · <https://sala.example:8443/op/$KI|log>" ;;
+        *) want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · log ~/.claude/salamander-op-$KI.log" ;;
+    esac
+    [ "$P" = "$want" ] && [ "$(nposts "asked by sala-test-h")" = 1 ] && ok "SALA_SESSION_URL='${tpl:-<empty>}': one line, the log as expected" || bad "post for '$tpl': [$P] want [$want]"
+done
+echo "== …and only when sala-web would find the log: SALA_WEB_LOG_DIR (else ~/.claude) is the folder the log is in; a folder it does not read keeps the path"
+for wd in "$HOME/.claude" "$HOME/.claude/" "$HOME/elsewhere"; do
+    KL=$((KL+1)); KI="$KL-$KL"; mkop "$KI" model sala-test-a --clear; : > "$POSTS"; SALA_OP_STUCK=off tick
+    SALA_WEB_LOG_DIR="$wd" SALA_SESSION_URL='https://sala.example/#s={name}' SALA_OP_STUCK=off runop "$KI"
+    P=$(post "asked by sala-test-h")
+    case "$wd" in
+        "$HOME/elsewhere") want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · log ~/.claude/salamander-op-$KI.log" ;;
+        *) want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · <https://sala.example/op/$KI|log>" ;;
+    esac
+    [ "$P" = "$want" ] && ok "SALA_WEB_LOG_DIR=${wd/#"$HOME"/~}: the log line as expected" || bad "post for web log dir '$wd': [$P] want [$want]"
+done
+rm -f "$HOME/norun"
 
 [ "$fail" = 0 ] && echo "op: pass" || echo "op: FAIL"
 exit $fail

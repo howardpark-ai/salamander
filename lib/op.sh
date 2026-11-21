@@ -265,6 +265,14 @@ op_log() { local _t; [ -d "$SALA_LOG_DIR" ] || mkdir -p "$SALA_LOG_DIR"; _iso_no
 op_dur() { if [ "$1" -lt 60 ]; then echo "$1 s"; else dur_words "$1"; fi; }   # <seconds> → words (the suites run the waits in seconds)
 op_say() { local _t; _iso_now_r _t; echo "[$_t] op $1: ${*:2}" >&2; }   # the operation's own log (the unit's stderr and stdout both land there; stderr, so a $(…) never captures it)
 op_oplog() { echo "$SALA_LOG_DIR/salamander-op-$1.log"; }
+op_web_base() {  # → scheme://host of sala's web UI (the origin of SALA_SESSION_URL, the setting `sala mockup` reads its address from), or nothing when none is set
+    # or when sala-web would not find this operation's log: it reads SALA_WEB_LOG_DIR, else ~/.claude (not sala's config file), so a link is only given when that is the folder the log is in
+    local t w=${SALA_WEB_LOG_DIR:-$HOME/.claude} l=$SALA_LOG_DIR
+    { [ "${w%/}" = "${l%/}" ] || [ "$w" -ef "$l" ]; } || return 0
+    t=$(session_url_template)
+    [[ $t =~ ^(https?://[^/?#[:space:]\<\>|]+) ]] && printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+}
 op_out() { echo "$SALA_LOG_DIR/salamander-op-$1.out"; }   # the verb's own output, a copy (the log has it too, between the runner's lines)
 op_files() { local f; for f in "$SALA_OP_DIR"/*.op; do [ -e "$f" ] && printf '%s\n' "$f" 2>/dev/null; done; return 0; }   # oldest first: the name starts with the epoch (a glob comes sorted; no ls and sort)
 _op_file_r() { if [ -f "$SALA_OP_DIR/$2.op" ]; then printf -v "$1" %s "$SALA_OP_DIR/$2.op"; else printf -v "$1" %s "$SALA_OP_DONE/$2.op"; fi; }   # <var> <id> → the marker's path, no subshell
@@ -1555,8 +1563,10 @@ op_event() {  # <id> <done|stuck> <n named> <nf failed or skipped among them> <l
 #   lane fallback: one more line under the headline, "• reason: monthly usage cap; access returns <day>" (op_dormant_why), since the owner reads the post to learn why the lane is dormant and when it returns;
 #             and the default lane's own line ("• default lane: <from> → <to>") right after it: it is no session, so the five-line cap never counts it and never cuts it.
 # The headline is a verb phrase with its target, never the argv. The owner's words stay on the marker, in the operation's log and in the hearing
-# session's own message (op_tell); the post carries none, nor an exit code or a raw command. `log` is the path of the operation's log, as text:
-# sala-web serves no operation log at a URL (its /api/spawn/status answers a JSON record of the marker for the spawn dialog and shows no log), so there is nothing to link.
+# session's own message (op_tell); the post carries none, nor an exit code or a raw command. `log` is where the operation's log can be read: with
+# sala's web address set (op_web_base: the origin of SALA_SESSION_URL) a Slack link, `<BASE/op/<id>|log>`, to sala-web's read-only page of that
+# log (web/src/sala_web/oplog.py, behind the site's sign-in); with none set, or when sala-web would not find the log (its folder, SALA_WEB_LOG_DIR
+# else ~/.claude, is not SALA_LOG_DIR), the path of the log file as text, `log ~/.claude/salamander-op-<id>.log`.
 op_plain() {  # <text> → one plain sentence: one line, its first sentence, no backtick span, no exit codes, no paths
     local t; t=$(op_one_line "$*")
     t=$(sed -E 's/`[^`]*`//g' <<< "$t"); t=${t//\`/}   # a backtick-enclosed span is a command or a name: dropped whole (the ticks alone would leave the command in the text), then any stray tick
@@ -1632,10 +1642,10 @@ op_dormant_why() {  # <id> → for a lane fallback, the one plain line that says
     printf '%s\n' "$r"
 }
 op_post() {  # <id> <done|stuck> <sessions counted> <failed or skipped among them> <sessions, one per line> — the one Slack post; OP_PF holds the failed or skipped sessions' lines (the cap counts only these), OP_PL the lines about no session
-    local id="$1" st="$2" tot="$3" nf="$4" ss="$5" verb foot text step="" why x i=0 cap=5 logp rsn
-    verb=$(op_val "$id" verb); logp=$(op_oplog "$id"); logp=${logp/#"$HOME"/\~}
+    local id="$1" st="$2" tot="$3" nf="$4" ss="$5" verb foot text step="" why x i=0 cap=5 logp rsn base
+    verb=$(op_val "$id" verb); logp=$(op_oplog "$id"); logp=${logp/#"$HOME"/\~}; base=$(op_web_base)
     op_headline "$id" "$st" "$tot" "$nf" "$ss"
-    foot="asked by $(op_val "$id" from) · log $logp"
+    foot="asked by $(op_val "$id" from) · $([ -n "$base" ] && echo "<$base/op/$id|log>" || echo "log $logp")"
     rsn=$(op_dormant_why "$id")
     if [ "$st" = done ] && [ ${#OP_PF[@]} = 0 ] && [ ${#OP_PL[@]} = 0 ] && [ -z "$rsn" ]; then sala_post "$OPE *$OPH* · $foot"; return 0; fi
     [ "$st" = stuck ] && [ "$verb" = provision ] && step=$(op_step_of "$id")
