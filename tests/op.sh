@@ -686,27 +686,36 @@ pgot=$(plain ""); [ -z "$pgot" ] && ok "plain: an empty text is an empty sentenc
 # deep nests: a closer per level around a path, and bracket text with no path at all, at 20000 and at 80000 levels, under mawk where it is available (the line built by
 # concatenation, or a copy of the stack per closer, cost four times as much per doubling there): the time of the larger is bounded, and bounded against the smaller
 MB=$HOME/mawkbin; mkdir -p "$MB"; ln -sf "$(command -v mawk || command -v awk)" "$MB/awk"
-nesttime() {  # <levels> <shape c|d> → $NT, the milliseconds op_drop_paths takes on it, and $NO, the first six characters of the answer
+nrep() { awk -v u="$1" -v n="$2" 'BEGIN { for (i = 0; i < n; i++) printf "%s", u }'; }   # <unit> <times> → the unit written that many times (to a file, never held in a variable)
+nesttime() {  # <levels> <shape c|d|g|i> → $NT, the milliseconds op_drop_paths takes on it, $NRC its exit status, and $NGOT / $NWANT the cksum (checksum and byte count) of the
+    # whole answer and of the answer it must give (written by nrep and printf, not by the filter): every byte of it is compared, the end of it included
     local n=$1 txt t0 t1
     case $2 in c) txt="$(longrep '[(' $((n * 2)))/b$(longrep ')]' $((n * 2)))";; d) txt="ok $(longrep '(' "$n")x$(longrep ')' "$n") z"
         ;; g) txt="read /a$(longrep '(' "$n")b$(longrep ')' "$n") z";; i) txt="read \"/a$(longrep '[' "$n")\"$(longrep ']' "$n") z";; esac
     printf '%s\n' "$txt" > "$HOME/nest.in"; t0=${EPOCHREALTIME//[.,]/}
-    PATH="$MB:$PATH" timeout 60 bash -c '. "$1/lib/common.sh"; . "$1/lib/op.sh"; read -r x < "$2"; op_drop_paths "$x" > "$3"' _ "$ROOT" "$HOME/nest.in" "$HOME/nest.out"; t1=${EPOCHREALTIME//[.,]/}
-    NT=$(( (t1 - t0) / 1000 )); NO=$(head -c 6 "$HOME/nest.out")
+    PATH="$MB:$PATH" timeout 60 bash -c '. "$1/lib/common.sh"; . "$1/lib/op.sh"; read -r x < "$2"; op_drop_paths "$x" > "$3"' _ "$ROOT" "$HOME/nest.in" "$HOME/nest.out"; NRC=$?; t1=${EPOCHREALTIME//[.,]/}
+    NT=$(( (t1 - t0) / 1000 ))
+    case $2 in c) { nrep '[(' $((n - 1)); printf '[]'; nrep ')]' $((n - 1)); printf '\n'; };; d) { printf 'ok '; nrep '(' "$n"; printf x; nrep ')' "$n"; printf ' z\n'; };;
+        g) printf 'read  z\n';; i) { printf 'read '; nrep ']' "$n"; printf ' z\n'; };; esac > "$HOME/nest.want"
+    NGOT=$(cksum < "$HOME/nest.out"); NWANT=$(cksum < "$HOME/nest.want")
 }
-for nc in "c|[([([(|a path inside 20000 nested pairs, then the closers" "d|ok (((|20000 openers around plain text, then the closers"; do
-    IFS='|' read -r nsh nwant nl <<< "$nc"
-    nesttime 20000 "$nsh"; na=$NT; nesttime 80000 "$nsh"; nb=$NT; nout=$NO
-    [ "$nout" = "$nwant" ] && [ "$nb" -lt 8000 ] && [ "$nb" -lt $((na * 8 + 500)) ] && ok "plain, $nl: $na ms, and $nb ms at four times the depth (linear)" || bad "plain, nest '$nsh': '$nout', $na ms then $nb ms at four times the depth"
+for nc in "c|a path inside 20000 nested pairs, then the closers" "d|20000 openers around plain text, then the closers"; do
+    IFS='|' read -r nsh nl <<< "$nc"
+    nesttime 20000 "$nsh"; na=$NT; nga=$NGOT; nwa=$NWANT; nra=$NRC; nesttime 80000 "$nsh"; nb=$NT
+    [ "$nra" = 0 ] && [ "$NRC" = 0 ] && [ "$nga" = "$nwa" ] && [ "$NGOT" = "$NWANT" ] && [ "$nb" -lt 8000 ] && [ "$nb" -lt $((na * 8 + 500)) ] \
+        && ok "plain, $nl: the whole answer at both depths, $na ms, and $nb ms at four times the depth (linear)" \
+        || bad "plain, nest '$nsh': exit $nra/$NRC, answer '$nga' wanted '$nwa', then '$NGOT' wanted '$NWANT', $na ms then $nb ms at four times the depth"
 done
 # the same inside a path (the stack of the path's own end): a path with N openers in its body and N closers after it, and a quoted path whose body holds N
 # openers with the N closers after it, at 80000 and at 160000: the larger is bounded against the smaller
-for nc in "g|read  |a path with 80000 openers in its body and the closers after it" "i|read ]|a quoted path with 80000 openers in its body, the closers after it"; do
-    IFS='|' read -r nsh nwant nl <<< "$nc"
-    nesttime 80000 "$nsh"; na=$NT; nesttime 160000 "$nsh"; nb=$NT; nout=$NO
-    [ "$nout" = "$nwant" ] && [ "$nb" -lt 8000 ] && [ "$nb" -lt $((na * 3 + 500)) ] && ok "plain, $nl: $na ms, and $nb ms at twice the depth (linear)" || bad "plain, nest '$nsh': '$nout', $na ms then $nb ms at twice the depth"
+for nc in "g|a path with 80000 openers in its body and the closers after it" "i|a quoted path with 80000 openers in its body, the closers after it"; do
+    IFS='|' read -r nsh nl <<< "$nc"
+    nesttime 80000 "$nsh"; na=$NT; nga=$NGOT; nwa=$NWANT; nra=$NRC; nesttime 160000 "$nsh"; nb=$NT
+    [ "$nra" = 0 ] && [ "$NRC" = 0 ] && [ "$nga" = "$nwa" ] && [ "$NGOT" = "$NWANT" ] && [ "$nb" -lt 8000 ] && [ "$nb" -lt $((na * 3 + 500)) ] \
+        && ok "plain, $nl: the whole answer at both depths, $na ms, and $nb ms at twice the depth (linear)" \
+        || bad "plain, nest '$nsh': exit $nra/$NRC, answer '$nga' wanted '$nwa', then '$NGOT' wanted '$NWANT', $na ms then $nb ms at twice the depth"
 done
-rm -f "$HOME/nest.in" "$HOME/nest.out"; rm -rf "$MB"
+rm -f "$HOME/nest.in" "$HOME/nest.out" "$HOME/nest.want"; rm -rf "$MB"
 # a stuck post whose helper line names a single-segment path and a command: neither reaches Slack
 : > "$POSTS"; S9=$(sid 209); mkfin "$S9" sala-test-h rename sala-test-zz sala-test-zy; stuckwhy "$S9" "It could not write /tmp or ~/settings.json, and \`salamander rename sala-test-zz sala-test-zy\` stopped. Second sentence."
 fin "$S9" stuck "no tmux session (exit 1)"
