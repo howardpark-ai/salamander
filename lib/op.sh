@@ -1615,11 +1615,12 @@ op_plain() {  # <text> → one plain sentence: one line, its first sentence, no 
     t=$(sed -E -e 's/"(~|\.{0,2})\/([^"\\]|\\.)*"//g' -e "s/'(~|\.{0,2})\/([^'\\\\]|\\\\.)*'//g" <<< "$t")   # a backslash escapes the next character, an escaped quote included
     t=$(sed -E 's/([.!?])[[:space:]].*$/\1/' <<< "$t")   # the first sentence first, so a path's own dot never ends it
     # a path of any depth goes: alone in brackets, after a key and = or : (file=/tmp, key:/etc/x, dir=./), after an opening bracket, or at a word start: /tmp, /etc, ~/file, ~/a/b, ./x, /;
-    # a token ends at a space, but a closing bracket at its very end stays (it closes the bracket the path sat in), and a bracket pair that holds only a path goes whole, up to the last closing bracket of its token;
+    # a token ends at a space, but a closing bracket at its very end stays (it closes the bracket the path sat in), and a bracket pair that holds only a path goes whole, up to its own closing bracket (one followed by a path character is part of the path), so (see [/tmp/a]) and [/tmp/a][3] keep what is around the pair;
     # after = anything goes (file=//srv/share); a URL (a : followed by //) and a time (04:00) have no slash right after the delimiter and stay;
     # the bare-slash rule for a colon key eats the space after it, so it runs twice: two such keys in a row both go
+    local pb='([^] )}>]|[])}>][A-Za-z0-9_.~-])*'   # the inside of a bracketed path: no space, and a closing bracket only when a path character follows it (/tmp/a]b); else it is the pair's own closer
     t=$(sed -E -e 's/ ?\((exit|exited|rc|status)[ =:]*[0-9]+\)//Ig' -e 's/,? ?(exit(ed)?( code| status)?|rc)[ =:]*[0-9]+//Ig' \
-        -e 's/[(\[{<]((~|\.{0,2})\/[^ ]*|[A-Za-z0-9_.-]+=(~|\.{0,2})\/[^ ]*|[A-Za-z0-9_.-]+:(~|\.{0,2})\/([^ \/][^ ]*)?)[])}>]//g' \
+        -e "s/[(\[{<]((~|\.{0,2})\/${pb}|[A-Za-z0-9_.-]+=(~|\.{0,2})\/${pb}|[A-Za-z0-9_.-]+:(~|\.{0,2})\/([^ \/]${pb})?)[])}>]//g" \
         -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+=(~|\.{0,2})\/([^ ]*[^] )}>])?/\1/g' \
         -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+:(~|\.{0,2})\/($|[] )}>])/\1\3/g' -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+:(~|\.{0,2})\/($|[] )}>])/\1\3/g' \
         -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+[=:](~|\.{0,2})\/[^ \/]([^ ]*[^] )}>])?/\1/g' \
