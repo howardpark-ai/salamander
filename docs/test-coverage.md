@@ -84,6 +84,21 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh` new, 92 (Sat Nov 21st 2026)
+
+`sala bg-agents` (`lib/bgagents.sh`, `lib/bgagents.py`, `docs/bg-agents.md`), the fleet job that lists and starts a project's background engineer agent from stackshot's want list. Kept because it
+creates agent entries on a project and starts panes unattended: a wrong answer is a second agent listed for one project, a pane started under load, a retry loop that never ends, or an agent taken off
+a project that was running. Run through the real verb in a locked temporary tree against stub commands for the want list, the listing call, the start and the liveness check, a fake load average file
+and a fake clock; no stackshot, no session, no tmux, no process is signalled. Checked: off (unset or `off`) prints one line and never reads the list or writes anything, `--status` still reads; an empty
+list, a failed read (ledger byte for byte unchanged, no failure counted), no client and a malformed line; one project (the exact listing and start arguments, ledger fields, mode 600, log, no leftover temporary
+file); two projects give one agent a run in list order; load at 10, over it and unreadable skips with nothing counted, 9.99 runs; back-off 600 s doubling to the cap with no call while waiting; the attempt maximum
+(given up, left alone, shown in `--status`); an HTTP 409 and 403 on the listing, a project listed again after created-and-retired, and a project still listed after a started pane are failures (the running agent
+stays, no second start); the ledger entry is cleared only after the project has been off the list for the cooldown; a failed start of an agent this job listed says `retire needed: NAME` and exits 1 while
+nothing is taken off the project, never for an agent it did not list, a 409 or a load skip; an agent already on the project record is not listed twice; a start the project record has not caught up with is waited
+out and finished from the ledger; `--dry-run` writes and calls nothing; `--status` lines with times in `SALA_TZ`; a crash before the rename leaves the old ledger whole, a death inside the start leaves the attempt
+counted, a second run at once stands aside; the mandate default (the owner's name), override and refusals. Not covered, and why: the real stackshot client and `sala spawn` (their own suites cover them; the stubs
+stand in) and the timer unit (made by `sala job add`, nothing shipped here).
+
 ### `tests/briefing/botpost.sh` new, 60 (Thu Nov 19th 2026; no webhook since Fri Nov 20th); `tests/suites.map`, `tests/briefing/reply.sh` and the other briefing suites that listened for a webhook changed
 
 Every briefing post is a Slack app's direct message (`contrib/briefing/lib.sh`, `_bot_post` and `post_slack`; `contrib/briefing/README.md`, *Slack
