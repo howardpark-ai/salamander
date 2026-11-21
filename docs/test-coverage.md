@@ -4266,3 +4266,27 @@ pair stays (`(see )`, `[3]`), also for adjacent pairs (`[x][/tmp/a][y]`, `[/tmp/
 sits inside the path, still pass.
 What the filter does not try to catch: an unquoted path that contains a space, and a path built from anything but a leading `/`, `~/`, `./` or
 `../` (a drive letter, a bare relative `a/b`); it is a courtesy against leaking a path into a phone post, not a parser.
+
+### `tests/op.sh` +49, none retired: the post's path filter as one pass (Sat Nov 21st 2026)
+
+The path rules of `op_plain` (`lib/op.sh`) were a stack of `sed` expressions, each fixed against the last review's shape and each leaving the next:
+a closing bracket that ended the match in the wrong place dropped an unrelated `[3]`, a filename tail after a bracket (`]@records.csv]`) stayed in the
+post, a mismatched closer (`[/tmp/a)]`) left a stray `]`. They are one `awk` pass now (`op_paths_awk`, run through `op_drop_paths`): it reads the
+line once with a stack of the brackets around it, so a path ends where its own bracket closes, and the backtick-span helper (`op_drop_ticks`) reads it
+once as well (it was quadratic in the number of backtick runs).
+Covered, in `tests/op.sh`: every earlier plain-sentence case unchanged (forty-seven, all still pass), and forty-two new ones in the same loop:
+- the three review points: `[path:/][3]` keeps `[3]`; a filename tail after `]` (`@`, `+`) goes with the path; `[/tmp/a)]` leaves no stray bracket;
+- a closer left behind by a path that held brackets (`/tmp/a[1]`, `(/tmp/a(1))`) or by a path inside a bracket of its own (`see /tmp/a)`, `/tmp/a)))`);
+- a key before a quoted path goes with it (`file="/tmp/a b"`, `file='…'`, `path:"…"`, `(file="…")`);
+- an unclosed quote or bracket (`read "/tmp/a`, `read [/tmp/a`, `read (/tmp/a`), a path at the very end, a lone `/`, and an escaped space in a path;
+- the four side effects the one pass accepts, pinned so they are not accidental: a pair that finds no closer of its own leaves its opener
+  (`ok (/tmp/a]` gives `ok (`, `[/tmp/a]s` gives `[`, `[/tmp/a]and[/tmp/b]` gives `[`, `[/tmp/a]/tmp/b` gives `[`); none shows a path;
+- trailing punctuation, adjacent paths, nested and adjacent pairs, `~/`, `./` and `../` roots, a sentence with non-ASCII words, and what is left alone
+  (`and/or`, `a/b`, `3/4`, a `scheme://` URL, an apostrophe in a word).
+Seven more checks: a line of two hundred thousand characters in five shapes (one long path, a double quote opened and never closed, a run of
+`[/`, a run of backtick runs, non-ASCII text and then a path), each in a bounded wait and each finishing in a few seconds; awk failing (the
+text goes on as it is, cut to its first sentence, never empty); and an empty text.
+Not covered, by design: an unquoted path that contains a space (the part after the space stays), a path that does not start with `/`, `~/`, `./`
+or `../`, a path inside a `scheme://` URL, and a closing bracket followed by `(` after a bracketed path (`[/tmp/a](x).csv]` keeps `(x).csv]`:
+`[/tmp/a](3)` reads the same way), and a closed pair followed at once by `./` (`[/a]./b` keeps `./b`). It is a courtesy against leaking a path into a phone
+post, not a parser.

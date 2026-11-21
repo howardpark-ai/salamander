@@ -598,11 +598,71 @@ for pc in "it could not write to /tmp and stopped|it could not write to and stop
           "it set file=/ dir=./ path:~/ today|it set today" \
           "it set a:~/ b:./ c:~/ d:~/ today|it set today" \
           "it saw file=//srv/share today|it saw today" \
-          "it saw key://srv/x and https://h/x today|it saw key://srv/x and https://h/x today"; do
+          "it saw key://srv/x and https://h/x today|it saw key://srv/x and https://h/x today" \
+          "[path:/][3] now|[3] now" \
+          "(see [path:/]) end|(see ) end" \
+          "ok [/tmp/customer]@records.csv] today|ok today" \
+          "ok [/tmp/customer]+x.csv] today|ok today" \
+          "ok [path:/tmp/a]@b] now|ok now" \
+          "ok [/tmp/a)] now|ok now" \
+          "read /tmp/a[1] now|read now" \
+          "read [/tmp/a[1]] now|read now" \
+          "read (/tmp/a(1)) x|read x" \
+          "see /tmp/a) now|see now" \
+          "see /tmp/a))) ok|see ok" \
+          "set file=\"/tmp/a b\" now|set now" \
+          "set file='/tmp/a b' now|set now" \
+          "set path:\"/tmp/a b\" now|set now" \
+          "read (file=\"/tmp/a b\"), ok|read (), ok" \
+          "ok (/tmp/a] now|ok ( now" \
+          "list [/tmp/a]and[/tmp/b] z|list [ z" \
+          "[/tmp/a]s ok|[ ok" \
+          "[/tmp/a]/tmp/b ok|[ ok" \
+          "read \"/tmp/a now|read \" now" \
+          "read '/tmp/a now|read ' now" \
+          "read [/tmp/a now|read [ now" \
+          "read (/tmp/a|read (" \
+          "read /tmp/a|read" \
+          "read /|read" \
+          "read /tmp/my\\ file.txt now|read now" \
+          "read /tmp/a, then stop|read then stop" \
+          "read /tmp/a. Next sentence|read" \
+          "x [/tmp/a]. y|x." \
+          "read /tmp/a /tmp/b now|read now" \
+          "read \"/tmp/a\" \"/tmp/b c\" now|read now" \
+          "read [\"/tmp/a b\"] now|read [] now" \
+          "read [[/tmp/a]] z|read [] z" \
+          "(a (b [/tmp/c]) d) e|(a (b ) d) e" \
+          "[x][/tmp/a][y] z|[x][y] z" \
+          "a:~/f b:./g c:../h now|now" \
+          "see ../up and ./here and ~/home now|see and and now" \
+          "and/or a/b c/d now|and/or a/b c/d now" \
+          "see <file:///tmp/x> now|see <file:///tmp/x> now" \
+          "read \"/tmp/a\\\" b\" ok|read ok" \
+          "read it's /tmp/a and 'x' ok|read it's and 'x' ok" \
+          "日本語 /tmp/a 日本語 now|日本語 日本語 now"; do
     pin=${pc%%|*}; pwant=${pc#*|}; pgot=$(plain "$pin")
     [ "$pgot" = "$pwant" ] && ok "plain: '$pin' → '$pgot'" || bad "plain: '$pin' → '$pgot' (wanted '$pwant')"
 done
 pgot=$(plain "a \`one span\` here and a lone \` tick"); [ "$pgot" = "a here and a lone" ] && ok "plain: an unpaired tick drops the rest of the text, a span goes whole" || bad "plain, ticks: '$pgot'"
+# the pass over a long line is linear: 200000 characters in one token, in the shapes that made a path rule scan back (a quote or a bracket opened and never closed,
+# a run of openers, a run of backtick runs), each in a bounded wait, each ending with the path gone and the text before it kept
+longrep() { local o=$1 k=$2; while [ ${#o} -lt "$k" ]; do o=$o$o; done; printf '%s' "${o:0:$k}"; }   # <unit> <chars> → the unit repeated to that many characters
+longtest() {  # <label> <text> <wanted prefix of the answer>
+    local t0 t1 r rc; t0=$SECONDS; r=$(timeout 60 bash -c '. "$1/lib/common.sh"; . "$1/lib/op.sh"; read -r x < "$2"; op_plain "$x"' _ "$ROOT" "$HOME/long.in"); rc=$?; t1=$SECONDS
+    [ "$rc" = 0 ] && [ $((t1 - t0)) -lt 40 ] && [ "${r:0:${#3}}" = "$3" ] && ok "plain, $1: done in $((t1 - t0)) s, '${r:0:20}'" || bad "plain, $1: rc=$rc after $((t1 - t0)) s, '${r:0:40}'"
+}
+LA=$(longrep a 200000)
+for lc in "a 200000-character path|read /$LA now|read now" "an unclosed double quote 100000 times|read $(longrep '"/' 200000)|" \
+          "100000 openers each with a slash|read $(longrep '[/' 200000)|read [" \
+          "50000 backtick runs|read $(longrep '``a`' 200000)|read" "200000 non-ASCII characters and then a path|$(longrep '日' 200000) /tmp/a now|日日日"; do
+    IFS='|' read -r ll lt lw <<< "$lc"
+    printf '%s\n' "$lt" > "$HOME/long.in"; longtest "$ll" "$lt" "$lw"
+done
+rm -f "$HOME/long.in"
+# awk gone or failing: the text goes on as it is (its first sentence, no exit code), never an empty post
+pgot=$(bash -c '. "$1/lib/common.sh"; . "$1/lib/op.sh"; awk() { return 127; }; op_plain "it failed at /tmp/x (exit 3). Then more"' _ "$ROOT"); [ "$pgot" = "it failed at /tmp/x." ] && ok "plain: with awk failing the text is kept, cut to its first sentence, never empty" || bad "plain, awk failing: '$pgot'"
+pgot=$(plain ""); [ -z "$pgot" ] && ok "plain: an empty text is an empty sentence" || bad "plain, empty: '$pgot'"
 # a stuck post whose helper line names a single-segment path and a command: neither reaches Slack
 : > "$POSTS"; S9=$(sid 209); mkfin "$S9" sala-test-h rename sala-test-zz sala-test-zy; stuckwhy "$S9" "It could not write /tmp or ~/settings.json, and \`salamander rename sala-test-zz sala-test-zy\` stopped. Second sentence."
 fin "$S9" stuck "no tmux session (exit 1)"
