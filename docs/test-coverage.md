@@ -84,6 +84,21 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +10, 239 (Sat Nov 21st 2026)
+
+Eighth review pass of `sala bg-agents` (test-only). Three things. (1) The stubs took their call number by counting the lines of a log they had just appended to, after signaling: a call paused between
+the two steps and another call's line made both count the same number, so the test's release of the first call's hold file would not have released it (shown by running the two steps with a
+pause between them: both calls got number 2). A call now CLAIMS its number first with an exclusive create (bash noclobber, O_EXCL; `mkdir` is not used for this: the uutils `mkdir` of Ubuntu 26.04
+lets concurrent calls both create the same directory, 21 to 23 distinct directories out of 24 in repeated runs) and only then signals `ready.N`; one new check starts twelve calls of each stub together
+and wants twelve different numbers. (2) The overlap checks ignored a missed ready signal and never showed that the other run really ran during the call (with the hold switched off, so that the
+filing finished first, the old reset-during-a-slow-raise check still passed). A missed ready signal now fails its check, and each of the nine overlap checks has a new check that proves the overlap:
+the held call had signaled it started and entered its hold (`holding.N`) and was still held when the other run was done, and it left its hold because the test removed the file (`released.N` says
+"released", not "bound", which the stub's own clock writes); with the hold switched off all nine of those checks fail. The nine are: a reset of another project, a reset of the same project, a second run
+against a filing, a start recorded during a call, a reset during a slow liveness check, the filing mark, the takeover pair (both calls held together, call 1 released first, call 2 still held while a
+third run ran), an answer overtaken by another run's start, and the failing filing after a recovery. (3) A comment that gave the hold's bound as 60 s now says it is half the filing timeout (45 s there).
+The entries above that give 60 s are the record of those passes and are left as they were. Not covered, and why: whether a held call could ever outlive the stub's own clock bound on a slower runner
+than any seen (the check would then fail visibly through `released.N` saying "bound").
+
 ### `tests/bgagents.sh`: +0, 229 (Sat Nov 21st 2026)
 
 Seventh review pass of `sala bg-agents` (test-only; no check added or removed). The hold in the board-item stub counted 600 sleeps of 0.1 s, which is only a minimum for the loop (every
