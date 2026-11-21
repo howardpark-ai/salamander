@@ -12,7 +12,7 @@ The address is the only input: the id must match ID_RE (digits, one dash: the ep
 path is built from nothing else. The file is opened without following a link and must be a regular file; a link, a folder, a pipe or anything else
 is "no such log". Only the last MAX_BYTES are served; a longer log is cut from the front, and the first line of the page says so.
 
-Every answer under /op/ (a log, a 404, a 405) carries the headers below: the page is private (never kept by a shared cache), is plain text that a
+Every method is answered by this module's handler (the route has no method list), so every answer under /op/ (a log, a 404, a 405, whatever the verb) carries the headers below: the page is private (never kept by a shared cache), is plain text that a
 browser must not sniff into anything else, says nothing about which page linked to it, and has a policy that allows nothing to load or run.
 """
 
@@ -32,8 +32,6 @@ HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Content-Security-Policy": "default-src 'none'; sandbox",
 }
-
-METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"]   # every method, so Starlette's own 405 (no headers, a wrong Allow) never answers under /op
 
 
 def read_log(root: Path, raw: str) -> str | None:
@@ -67,6 +65,8 @@ def read_log(root: Path, raw: str) -> str | None:
         return text
     if before != b"\n":   # the cut fell inside a line: that fragment is left out (a cut on a line start leaves every line whole)
         nl = text.find("\n")
-        if nl >= 0:
+        if 0 <= nl < len(text) - 1:   # a whole line follows the fragment
             text = text[nl + 1:]
+        else:   # no line in the whole tail (one line longer than the cap, its own end the only newline): its last bytes are shown, and the page says its first part is not
+            text = "(first part of a very long line cut)\n" + text
     return f"[earlier lines cut: showing the last {MAX_BYTES // 1024} KB of {size} bytes]\n{text}"

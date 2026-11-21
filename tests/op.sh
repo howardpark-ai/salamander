@@ -714,16 +714,15 @@ for tpl in 'https://sala.example/#s={name}' 'https://sala.example:8443/x/#s={nam
     esac
     [ "$P" = "$want" ] && [ "$(nposts "asked by sala-test-h")" = 1 ] && ok "SALA_SESSION_URL='${tpl:-<empty>}': one line, the log as expected" || bad "post for '$tpl': [$P] want [$want]"
 done
-echo "== …and only when sala-web would find the log: SALA_WEB_LOG_DIR (else ~/.claude) is the folder the log is in; a folder it does not read keeps the path"
-for wd in "$HOME/.claude" "$HOME/.claude/" "$HOME/elsewhere"; do
+echo "== …the log folder is sala's one setting SALA_LOG_DIR, read from the config file by the CLI and by sala-web alike: a folder moved there still gets the link (the runner's environment names no web setting)"
+mkdir -p "$HOME/custom-logs"; printf 'SALA_LOG_DIR=~/custom-logs   # moved\n' > "$HOME/moved.conf"
+for tpl in 'https://sala.example/#s={name}' ''; do
     KL=$((KL+1)); KI="$KL-$KL"; mkop "$KI" model sala-test-a --clear; : > "$POSTS"; SALA_OP_STUCK=off tick
-    SALA_WEB_LOG_DIR="$wd" SALA_SESSION_URL='https://sala.example/#s={name}' SALA_OP_STUCK=off runop "$KI"
+    SALA_CONFIG="$HOME/moved.conf" SALA_SESSION_URL="$tpl" SALA_OP_STUCK=off runop "$KI"
     P=$(post "asked by sala-test-h")
-    case "$wd" in
-        "$HOME/elsewhere") want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · log ~/.claude/salamander-op-$KI.log" ;;
-        *) want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · <https://sala.example/op/$KI|log>" ;;
-    esac
-    [ "$P" = "$want" ] && ok "SALA_WEB_LOG_DIR=${wd/#"$HOME"/~}: the log line as expected" || bad "post for web log dir '$wd': [$P] want [$want]"
+    if [ -n "$tpl" ]; then want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · <https://sala.example/op/$KI|log>"
+    else want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · log ~/custom-logs/salamander-op-$KI.log"; fi
+    [ "$P" = "$want" ] && [ -f "$HOME/custom-logs/salamander-op-$KI.out" ] && ok "SALA_LOG_DIR moved in the config, address $([ -n "$tpl" ] && echo set || echo unset): the line as expected, the operation's files in the moved folder" || bad "post with a moved log folder, address '$tpl': [$P] want [$want] / $(ls "$HOME/custom-logs")"
 done
 rm -f "$HOME/norun"
 

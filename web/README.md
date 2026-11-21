@@ -1426,18 +1426,17 @@ A page should carry `<meta name="viewport" content="width=device-width, initial-
 ## Operation log pages
 
 `GET /op/<id>` serves the log of one `sala op` operation (salamander's `lib/op.sh`), as `text/plain; charset=utf-8`. The operation's Slack post ends in a link to it, `<https://<host>/op/<id>|log>`, when sala's web
-address is set (`SALA_SESSION_URL`'s scheme and host, the setting `sala mockup` reads its address from), and sala-web would find the log (below), so the owner reads what an operation did from a phone; with no address set, or with a log folder sala-web does not read, the post keeps the log file's path as text.
+address is set (`SALA_SESSION_URL`'s scheme and host, the setting `sala mockup` reads its address from), so the owner reads what an operation did from a phone; with no address set the post keeps the log file's path as text.
 
-- **The file**: `<log dir>/salamander-op-<id>.log`, the file the CLI writes (`op_oplog`). The log dir is `SALA_WEB_LOG_DIR`, else `SALA_LOG_DIR`, else `~/.claude`, which is the CLI's own default (`Settings.log_dir`, `oplog.py`);
-  set `SALA_WEB_LOG_DIR` (in the web unit's environment) when `SALA_LOG_DIR` is moved in sala's config file, since the web app does not read that file for it. The CLI writes the link only when `SALA_WEB_LOG_DIR` (else `~/.claude`), as the CLI sees it, is the folder `SALA_LOG_DIR` names, so a link never points at a page that would 404; otherwise the post keeps the path. sala-web only reads.
+- **The file**: `<log dir>/salamander-op-<id>.log`, the file the CLI writes (`op_oplog`). The log dir is sala's one setting `SALA_LOG_DIR` (default `~/.claude`), read by the CLI and by sala-web from the same place: the line in sala's config file (`Settings.log_dir`, `sala_setting`; the environment wins, as for every sala setting). A folder moved in the config therefore moves both, and the link always opens the log; the value should be a plain path (`~` or `$HOME` first is understood, as for the other settings sala-web reads from the config), and a `SALA_LOG_DIR` set only in some process's environment is not seen by the other side. There is no separate web setting. sala-web only reads.
 - **The address is the only input**: the id must be digits, one dash, digits (`^[0-9]{6,12}-[0-9]{1,10}$`, the epoch second and the process id an id is built from), and the path is built from nothing else. Any other address
   under `/op` (a `..`, a deeper path, a longer id, no id) is a 404 `no such log`, as is an id with no file. The file is opened without following a link and must be a regular file: a link, a folder or a pipe is a 404 too.
   The other files an operation leaves beside its log (`.out`, `.helper.log`) are not served.
-- **The last 256 KB**: a longer log is read from its end; the page then starts with `[earlier lines cut: showing the last 256 KB of <N> bytes]` (N is the file's size) and the first, partial line of the tail is left out (a cut that falls exactly on a line start leaves every line whole).
+- **The last 256 KB**: a longer log is read from its end; the page then starts with `[earlier lines cut: showing the last 256 KB of <N> bytes]` (N is the file's size) and the first, partial line of the tail is left out (a cut that falls exactly on a line start leaves every line whole). When the tail holds no complete line (one line longer than the cap, its own newline the only one or none), its last bytes are shown after a second line, `(first part of a very long line cut)`, never an empty page.
   Bytes that are not UTF-8 are replaced, never an error.
 - **Shown as the file is**: the log is not parsed and not redacted. It holds what the operation printed (session names, paths, the verb's own output), and the page is as private as the whole site: there is no sign-in of its
   own, the proxy in front of the site is the sign-in ([web-proxy.md](../docs/web-proxy.md)) and the route is served by the same app, so it is inside that sign-in.
-- **Methods**: GET and HEAD; any other method, TRACE and CONNECT included, is a 405 with `Allow: GET, HEAD` and the headers below (every method is routed to this handler, so the framework's own 405 never answers under `/op`).
+- **Methods**: GET and HEAD; any other method, TRACE, CONNECT and a verb no list names (PROPFIND) included, is a 405 with `Allow: GET, HEAD` and the headers below (the route has no method list, so every method reaches this handler and the framework's own 405 never answers under `/op`).
 
 Every response under `/op/` (a log, a 404, a 405) carries:
 
@@ -1693,7 +1692,7 @@ accepted when its `Origin` matches the Host it came in on. `tests/test_hosts.py`
 | Roles, projects | `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles` (`~/stackshot` when unset; empty = no stackshot: no command, `rolesError` says so), cached 30 s; on failure the last good answer is kept |
 | Board items | stackshot's client API, `GET <client.url>/client/items?key=<session name>` with the bearer token from `$XDG_CONFIG_HOME/stackshot/client.token`, one read per live session a minute, the last good answer kept per session (*Board items*) |
 | Mockup pages | `$SALA_STATE_DIR/mockups/<n>.html` (default `~/.local/state/salamander/mockups/`), written by `sala mockup add`, read at each request; nothing is cached or listed |
-| Operation logs | `$SALA_LOG_DIR/salamander-op-<id>.log` (default `~/.claude/`), written by `sala op`, read at each request (the last 256 KB); nothing is cached or listed |
+| Operation logs | `$SALA_LOG_DIR/salamander-op-<id>.log` (sala's `SALA_LOG_DIR`, read from the environment, else sala's config file; default `~/.claude/`), written by `sala op`, read at each request (the last 256 KB); nothing is cached or listed |
 | Transcript | `~/.claude/projects/<cwd, every non-alphanumeric char as ->/<sessionId>.jsonl`, falling back to a glob on the sessionId |
 | For you (no page reads it now) | stackshot's client API with the same token and address: `GET <client.url>/client/for-you` (the list and the flags, one read a minute), and on a tap `POST /client/for-you/seen` and `POST /client/items/<key>/watch`, always with the label `sala-web`; kept in memory only; `docs/stackshot-contracts.md`, interface 22 (*For you*) |
 | Projects (the New session form) | stackshot's client API with the same token and address as the board items: `GET <client.url>/client/projects?scope=…[&q=…]` (the scope's listed projects, and with `q` its hidden matches), and on Create `POST /client/project` (a new project and its page), `/client/project-list` and `/client/project-agent`, always with the label `sala-web`; these are `client.py get projects` and `post project`, `post project-list`, `post project-agent`; `docs/stackshot-contracts.md`, interface 21 |
@@ -1734,7 +1733,6 @@ Settings (environment):
 | `SALA_WEB_COMPAT_TTYD_SOCKET` | empty. The same for ttyd's old socket path, linked to `SALA_WEB_TTYD_SOCKET` |
 | `SALA_WEB_TTYD_SOCKET` | `$XDG_RUNTIME_DIR/sala-web-ttyd/ttyd.sock`: where `sala-web-ttyd.service` listens; only the old ttyd path's link points at it |
 | `SALA_WEB_CLAUDE_DIR` | `~/.claude` |
-| `SALA_WEB_LOG_DIR` | `$SALA_LOG_DIR`, else `~/.claude`: where `sala op` writes `salamander-op-<id>.log`, served at `/op/<id>` (*Operation log pages*) |
 | `SALA_WEB_TMUX_SOCKET` (or `--tmux-socket`) | empty = the default tmux server; tests use a private `-L` name |
 | `SALA_WEB_ROLES_CMD` | `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles` (`$SALA_STACKSHOT_DIR/client.py` on a checkout from before stackshot's package) |
 | `SALA_STACKSHOT_DIR` | `~/stackshot`: where stackshot's checkout is, sala's one knob for it (`config.example`). Read from the environment here, not from sala's config file, so a unit that needs another path sets it in its own `Environment=`. Set empty on a machine with no stackshot: no roles command |
