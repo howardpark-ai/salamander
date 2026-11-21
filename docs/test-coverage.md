@@ -84,6 +84,19 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +10, 224 (Sat Nov 21st 2026)
+
+Third review pass of `sala bg-agents`; nine of the ten checks fail on the code before this change (the new suite was run against it), the tenth (the first run records its item) only follows. The
+overlap checks run two or three real processes with the fake clock pinned per process (the clock runs on from the pinned start by the real time elapsed, so a run's start and its filing differ
+by what the slow stubs took). A run that sleeps 3 s in a liveness check and then 5 s in the board-item call is met by a second run whose clock is exactly the window (75 s) after the first run's
+start: the project stays untouched (no start, "another run is filing its board item") and the first run records its item; with the mark taken at the run's start it was started. A filing that outlives
+its window and fails after a retry (same request id, its own token) took the mark over writes nothing: no failure counted, the retry's mark kept, a third run still stays out, the retry's item is recorded
+and the first run says its result was not recorded. A "not live" answer from a slow check is dropped when a second run starts the same agent meanwhile: one start, not two, and the log says the project was
+overtaken. With no liveness command, four projects (three stale below the cap, one given up) show that the probe slots rotate: the later project's item is filed at the second run, with `probed_at`
+advanced. A given-up project whose pane was started and whose check cannot say files no failure item and changes nothing; a confirmed "not live" then files it. `docs/subcommands.md` describes the shipped timer.
+The liveness stub now decides its answer when asked and gives it after its wait. Not covered, and why: the 75 s window itself against a real wall clock (the suite moves the fake clock instead of waiting), and a
+check that is overtaken in the raise phase after the start phase's answers were taken (the same revalidation runs, but only the start-phase interleaving is reproduced).
+
 ### `tests/units.sh`: +5, 34 (Sat Nov 21st 2026)
 
 A shipped timer that names its service with `Unit=` must name a file beside it (read from the unit files, no systemd manager; one check per such timer). A timer aimed at a missing or misspelled

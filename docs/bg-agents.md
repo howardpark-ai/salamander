@@ -113,10 +113,12 @@ ledger under the lock, gives the lock up for the calls, takes it again and write
 `--reset`; and a `--reset` that ran during the call wins: the entry it cleared is not written over, and the run says the record was reset while the item was filed (an item filed in that moment
 stays on the board; the owner's answer is the same "keep trying").
 
-**A project whose item is being filed is left alone.** Under the lock, before it is given up, the run marks the entry `raising_at` (with the request id, its token). Any other run that starts
+**A project whose item is being filed is left alone.** Under the lock, before it is given up, the run marks the entry `raising_at` with the clock **when filing begins** (not the run's start: the liveness checks and the
+start before it can take minutes, and a mark taken from the run's start would already be old) and `raising_by`, a token of this filing attempt. Any other run that starts
 meanwhile skips the entry, for the start and for the raise alike (`another run is filing its board item`; `--status`: "a board item is being filed"), until the mark is older than twice the raise
 timeout and the wait for the lock (75 s with the default timeout): then the run that set it is taken as dead. When the first run returns, it writes the item only if the entry on disk still
-carries ITS token and the project is still stuck: a start that worked meanwhile is not told to the owner as a failure (the run says the project is no longer stuck and the item is not recorded;
+carries its request id, is still marked with ITS filing token and the project is still stuck (a retry, which reuses the request id so a repeat files nothing twice, takes the mark over with its own token:
+the first run's late result, a success or a failure, is then set aside, so it neither clears the retry's mark nor changes its back-off; the board answers both with the same item): a start that worked meanwhile is not told to the owner as a failure (the run says the project is no longer stuck and the item is not recorded;
 the item filed stays on the board). Only a project on the want list, or one whose listed agent has not been started, is asked about; a stuck project that has
 left the list is not.
 
@@ -125,12 +127,15 @@ started by hand). Before raising, the job asks the same liveness command the sta
 records `stale` and `last` = `agent running, want list stale`, the log line says so, `--status` shows it, and the project makes no new attempt while its pane is alive; once the pane is gone it is
 looked at as any other project (stale cleared, raised if stuck). When the check cannot say (no command, a timeout, an ambiguous name, any exit but 0 and 1) a project that was not marked stale is raised for, saying only
 what is known: its subject, text and stakes read "the start did not finish" instead of "failed N times" and "no background agent". **Only a confirmed exit 1 (not live) lets a running project back into the start
-path:** a project that is stale, or whose pane was started, and whose check cannot say is left exactly as it is (stale stays set, no start attempt, nothing raised) and the log line says the check could not be told.
+path:** a project that is stale, or whose pane was started (`started_at`, also when it is given up), and whose check cannot say is left exactly as it is (stale stays set, no start attempt, no board item) and the log line says the check could not be told.
 
 **The liveness checks are made without the ledger lock, and a few a run.** A check may take 30 s. The run collects the names it needs to check, saves the ledger, gives the lock up, asks, takes the lock again
 and reads the ledger again from disk before it applies the answers, so a `--reset` or another run is never blocked by a check nor written over. At most `SALA_BGAGENTS_MAX_PROBES` (3) checks are made a run: the
 start phase uses up to two, the raise the rest, the least recently checked project first (`probed_at`), so a few live projects never starve the others; a project whose check did not fit waits for the next run
 (nothing is attempted or raised for it meanwhile, and the log line says so). A name checked in the start phase is not checked again for the raise.
+An answer is only good for the entries it was given for: after the lock is taken again, an answer whose project changed meanwhile (another run started or retried it) is dropped, and the log line says the
+project was overtaken by another run, so a cached "not live" never starts an agent another run has just started. With no liveness command nothing is asked (every answer is "cannot say"), but the names considered still
+advance `probed_at`, so the first projects do not take the check slots every run and defer the board items of the later ones.
 
 **When the raise fails** (no stackshot client on the machine, the client refuses or does not answer in time), `raised` stays false, the run says `board item needed: <project> (could not be
 raised: <reason>)` and exits 1, and the next run tries again with the same request id, so an item that was filed although the answer was lost is not filed twice. **A filing failure counts on its project** (`raise_failures`, `raise_next_try`,

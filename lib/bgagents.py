@@ -112,6 +112,18 @@ def now_s():
         return int(time.time())
 
 
+START = time.monotonic()
+
+
+def fresh_now():
+    """The clock right now. A run's `now` is its start; the probes and the start of a project can take minutes, so the filing mark and its window are read from this: with
+    SALA_BGAGENTS_NOW set (a suite's fake clock) the run's start plus the real time since the process began, else the wall clock."""
+    try:
+        return int(float(os.environ["SALA_BGAGENTS_NOW"])) + int(time.monotonic() - START)
+    except (KeyError, ValueError):
+        return int(time.time())
+
+
 def state_dir():
     base = os.environ.get("SALA_STATE_DIR") or os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"), "salamander")
     return base
@@ -212,7 +224,7 @@ def last_line(text, n=160):
 BLANK = {"prefix": "", "agent": "", "attempts": 0, "failures": 0, "next_try": 0, "created": False, "posted_at": 0, "started_at": 0, "retired": False,
          "retire_needed": False, "awaiting_record": False, "last": "", "last_at": 0, "absent_since": 0,
          "last_plain": "", "raised": False, "raised_at": 0, "raised_item": "", "raise_token": "", "stale": False,
-         "raising_at": 0, "raise_failures": 0, "raise_next_try": 0, "probed_at": 0}
+         "raising_at": 0, "raising_by": "", "raise_failures": 0, "raise_next_try": 0, "probed_at": 0}
 
 
 class Ledger:
@@ -267,13 +279,13 @@ def raise_window(cfg):
     return 2 * cfg["raise_timeout"] + 15
 
 
-def raising_now(e, cfg, now):
-    """Is another run filing this project's board item right now (its mark is younger than the window)?"""
-    return bool(e["raising_at"]) and now - e["raising_at"] < raise_window(cfg)
+def raising_now(e, cfg):
+    """Is another run filing this project's board item right now (its mark is younger than the window, both read from the clock now)?"""
+    return bool(e["raising_at"]) and fresh_now() - e["raising_at"] < raise_window(cfg)
 
 
 def state_of(e, cfg, now):
-    if raising_now(e, cfg, now) and not e["raised"]:
+    if raising_now(e, cfg) and not e["raised"]:
         return "a board item is being filed"
     if e["stale"] and not e["raised"]:
         return "agent running, want list stale (no board item raised)"
@@ -605,9 +617,11 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
     """Raise the one board item for KEY. -> True when it was raised (or would be, in a dry run), False when it could not be (`board item needed: KEY`; `raised` stays false, the
     failure is counted on the project and its next filing waits out a back-off like a start's), None when the result was set aside (a reset, or the project started, meanwhile).
     Never touches attempts, failures or the start's back-off, and never takes the run's one attempt.
-    The ledger lock is NOT held across the network calls. Under it the entry gets its request id and `raising_at` (the mark that makes every other run leave the project alone
-    while the item is filed); the calls are made without it; then it is taken again and the entry is read as it is on disk: the result is written only when that entry still carries
-    this raise's token (a `--reset` that ran meanwhile cleared it, and wins) and the project still needs the item (a start that worked meanwhile is not told to the owner as a failure)."""
+    The ledger lock is NOT held across the network calls. Under it the entry gets its request id (the idempotency key a retry reuses), `raising_at` (the clock when filing begins, not
+    the run's start: the mark that makes every other run leave the project alone while the item is filed) and `raising_by` (a token of THIS filing attempt, its owner); the calls are
+    made without the lock; then it is taken again and the entry is read as it is on disk: the result is written only when that entry still carries this raise's request id (a `--reset`
+    that ran meanwhile cleared it, and wins), is still marked as this attempt's (a later filing of the same project, after this one's window ran out, owns it now and this result is
+    set aside) and the project still needs the item (a start that worked meanwhile is not told to the owner as a failure)."""
     if dry:
         log.say("plan", "%s: would raise one board item for the owner (%s)" % (key, "given up" if given_up(e, cfg) else "an agent this job listed did not start"))
         return True
@@ -615,7 +629,7 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
     def failure(x, why):
         x["raise_failures"] += 1
         x["raise_next_try"] = int(now + backoff(x["raise_failures"], cfg))
-        x["raising_at"] = 0
+        x["raising_at"], x["raising_by"] = 0, ""
         log.say("raise", "board item needed: %s (could not be raised: %s); tried again after %s" % (key, why, local_text(x["raise_next_try"])))
         return False
 
@@ -625,7 +639,8 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
         return r
     if not e["raise_token"]:
         e["raise_token"] = new_token(key, now)     # kept before the call: a retry after a timeout names the same question and files nothing twice
-    e["raising_at"] = now
+    by = secrets.token_hex(8)
+    e["raising_at"], e["raising_by"] = fresh_now(), by      # when the filing begins: the probes and the start before it may have taken the run's whole window
     led.save()
     token, snap = e["raise_token"], dict(e)
     if lock:
@@ -658,16 +673,19 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
     if ce is None or ce["raise_token"] != token:
         log.say("raise", "%s: the record was reset while the board item was being filed%s; the result is not recorded" % (key, " (item %s)" % item if not why else ""))
         return None
+    if ce["raising_by"] != by:
+        log.say("raise", "%s: another filing of this board item took over while this one was in flight (its window ran out); this result is not recorded%s" % (key, "" if why else " (item %s)" % item))
+        return None
     if why:
         r = failure(ce, why)
         cur.save()
         return r
     if not ce["raised"] and not needs_item(ce, cfg):
-        ce["raising_at"] = 0
+        ce["raising_at"], ce["raising_by"] = 0, ""
         cur.save()
         log.say("raise", "%s: the project is no longer stuck (it started while the board item %s was being filed); the item is not recorded" % (key, item))
         return None
-    ce.update(raised=True, raised_at=now, raised_item=item, raising_at=0, raise_failures=0, raise_next_try=0)
+    ce.update(raised=True, raised_at=now, raised_item=item, raising_at=0, raising_by="", raise_failures=0, raise_next_try=0)
     cur.save()
     log.say("raise", "%s: board item %s raised for the owner (%s)" % (key, item, "given up" if given_up(ce, cfg) else "retire needed"))
     return True
@@ -675,6 +693,16 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
 
 STALE_TEXT = "agent running, want list stale"
 NOT_PROBED = object()       # a liveness answer this run did not get (the probe cap); never confused with None, "the check could not say"
+CHANGED = object()          # an answer that was dropped: the project's entry changed (another run acted on it) while the check was made
+
+
+def unsure(r, cfg):
+    """Why a project is left as it is: the words of the log line for an answer that is not a confirmed live / not live."""
+    if r is None:
+        return "could not be told"
+    if r is CHANGED:
+        return "was overtaken by another run (its entry changed while it was checked)"
+    return "is checked at a later run (at most %d checks a run)" % cfg["max_probes"]
 
 
 def pending(e):
@@ -687,12 +715,17 @@ class NullLog:
         pass
 
 
-class ProbeBook:
-    """The liveness answers of a run: name -> True (live), False (confirmed not live), None (the check could not say). A name with no answer is NOT_PROBED. In `collect`
-    mode nothing is answered and the names asked for are kept, in the order they were asked."""
+def probe_sig(led, name):
+    """What the start path decides on for the projects that carry the agent NAME: if it differs after a check, another run acted on them and the answer is out of date."""
+    return tuple(sorted((k, e["started_at"], e["stale"], e["attempts"], e["raised"]) for k, e in led.projects.items() if e["agent"] == name))
 
-    def __init__(self, results=None, collect=False):
-        self.results, self.collect, self.wanted = results or {}, collect, []
+
+class ProbeBook:
+    """The liveness answers of a run: name -> True (live), False (confirmed not live), None (the check could not say), CHANGED (dropped, see probe_sig). A name with no answer is
+    NOT_PROBED. In `collect` mode nothing is answered and the names asked for are kept, in the order they were asked."""
+
+    def __init__(self, results=None, collect=False, sigs=None):
+        self.results, self.collect, self.wanted, self.sigs = results or {}, collect, [], sigs or {}
 
     def get(self, name):
         if not name:
@@ -703,11 +736,22 @@ class ProbeBook:
             self.wanted.append(name)
         return NOT_PROBED
 
+    def resign(self, led):
+        """Take the ledger as it is now (the run's own changes included) as what the answers were given for."""
+        self.sigs = {n: probe_sig(led, n) for n in self.results}
+
+    def revalidate(self, led):
+        """After the lock was given up and taken again: an answer whose projects changed meanwhile is dropped (CHANGED), so a cached "not live" never starts an agent another run just started."""
+        for n in list(self.results):
+            if self.results[n] is not CHANGED and probe_sig(led, n) != self.sigs.get(n):
+                self.results[n] = CHANGED
+
 
 def probe_window(cfg, wanted, cap, led, now, lock, dry):
     """Ask whether up to CAP of the sessions in WANTED are live, WITHOUT the ledger lock (a probe may take 30 s). The ledger is saved first, the lock given up, the probes made, the lock
-    taken again and the ledger read again from disk (a reset or another run may have changed it), and each probed project's `probed_at` is set (the least recently probed go first, so
-    a few live projects never starve the rest). -> (results, ledger), or (None, None) when the lock could not be taken again. No command to ask with: every answer is None, the lock kept."""
+    taken again and the ledger read again from disk (a reset or another run may have changed it; an answer for a project that changed is dropped), and each probed project's `probed_at`
+    is set (the least recently probed go first, so a few live projects never starve the rest). -> (a ProbeBook, the ledger), or (None, None) when the lock could not be taken again.
+    No command to ask with: every answer is None, no lock is given up, and `probed_at` is still advanced for the names considered, so the same first names never take the slots every run."""
     seen = {e["agent"]: e["probed_at"] for e in led.projects.values() if e["agent"]}
     names = []
     for n in sorted(wanted, key=lambda n: seen.get(n, 0)):
@@ -715,9 +759,14 @@ def probe_window(cfg, wanted, cap, led, now, lock, dry):
             names.append(n)
     names = names[:cap]
     if not names:
-        return {}, led
+        return ProbeBook(), led
     if not cfg["alive_cmd"]:
-        return {n: None for n in names}, led
+        for e in led.projects.values():
+            if e["agent"] in names:
+                e["probed_at"] = now
+        led.save()
+        return ProbeBook({n: None for n in names}), led
+    sigs = {n: probe_sig(led, n) for n in names}
     led.save()
     if lock:
         lock.release()
@@ -729,16 +778,18 @@ def probe_window(cfg, wanted, cap, led, now, lock, dry):
         return None, None
     if lock:
         led = Ledger(led.path, dry)
+    book = ProbeBook(results, sigs=sigs)
+    book.revalidate(led)
     for e in led.projects.values():
         if e["agent"] in results:
             e["probed_at"] = now
     led.save()
-    return results, led
+    return book, led
 
 
 def raise_order(cfg, led, listed, now):
     """The projects that need a board item and have none, that another run is not filing right now: the least recently probed first, then by key."""
-    ks = [k for k, e in led.projects.items() if not e["raised"] and needs_item(e, cfg) and (k in listed or pending(e)) and not raising_now(e, cfg, now)]
+    ks = [k for k, e in led.projects.items() if not e["raised"] and needs_item(e, cfg) and (k in listed or pending(e)) and not raising_now(e, cfg)]
     return sorted(ks, key=lambda k: (led.projects[k]["probed_at"], k))
 
 
@@ -756,8 +807,8 @@ def raise_next(cfg, led, listed, now, log, dry, lock, probes):
             log.say("raise", "board item still needed: %s (the last filing failed %d time%s; next try %s)" % (key, e["raise_failures"], "" if e["raise_failures"] == 1 else "s", local_text(e["raise_next_try"])))
             continue
         r = probes.get(e["agent"])
-        if r is NOT_PROBED:
-            log.say("raise", "%s: whether its agent's session is live is checked at a later run (at most %d checks a run); the board item waits" % (key, cfg["max_probes"]))
+        if r is NOT_PROBED or r is CHANGED:
+            log.say("raise", "%s: whether its agent's session is live %s; the board item waits" % (key, unsure(r, cfg)))
             continue
         if r is True:
             if not e["stale"] and not dry:
@@ -765,8 +816,8 @@ def raise_next(cfg, led, listed, now, log, dry, lock, probes):
                 led.save()
             log.say("stale", "%s: %s (%s is live while the project is still on the want list): no board item raised, no new attempt while its pane is alive" % (key, STALE_TEXT, e["agent"]))
             continue
-        if r is None and e["stale"]:
-            log.say("stale", "%s: whether %s is live could not be told; the entry is left as it is (stale, no board item, no attempt)" % (key, e["agent"]))
+        if r is None and (e["stale"] or e["started_at"]):       # a pane that is, or may be, running: no failure item for it on a check that cannot say
+            log.say("stale", "%s: whether %s is live could not be told; the entry is left as it is (%s, no board item, no attempt)" % (key, e["agent"], "stale" if e["stale"] else "its pane was started"))
             continue
         if r is False and e["stale"] and not dry:
             e["stale"] = False      # its pane is confirmed gone: the project is looked at as any other
@@ -791,7 +842,7 @@ def start_one(cfg, cands, listed, led, now, log, dry, probes):
             if e["raised"]:     # the owner has been asked: no start attempt until a session resets the record (`--reset`, what "Keep trying later" is); the other two answers leave it so
                 log.say("skip", "%s: board item %s raised; left alone until a session resets the project's record" % (key, e["raised_item"] or "-"))
                 continue
-            if raising_now(e, cfg, now):      # another run is filing the item for this project right now (its lock is given up for the call): no start under it
+            if raising_now(e, cfg):      # another run is filing the item for this project right now (its lock is given up for the call): no start under it
                 log.say("skip", "%s: another run is filing its board item (since %s); no attempt meanwhile" % (key, local_text(e["raising_at"])))
                 continue
             if e["stale"]:
@@ -800,7 +851,7 @@ def start_one(cfg, cands, listed, led, now, log, dry, probes):
                     log.say("skip", "%s: %s (%s is live); no attempt while its pane is alive" % (key, STALE_TEXT, e["agent"]))
                     continue
                 if r is not False:
-                    log.say("skip", "%s: %s; whether %s is live %s: the entry is left as it is, no attempt" % (key, STALE_TEXT, e["agent"], "could not be told" if r is None else "is checked at a later run (at most %d checks a run)" % cfg["max_probes"]))
+                    log.say("skip", "%s: %s; whether %s is live %s: the entry is left as it is, no attempt" % (key, STALE_TEXT, e["agent"], unsure(r, cfg)))
                     continue
                 e["stale"] = False      # its pane is confirmed gone: the project is looked at as any other
                 led.save()
@@ -814,8 +865,8 @@ def start_one(cfg, cands, listed, led, now, log, dry, probes):
                 continue
             if e["started_at"]:
                 r = probes.get(e["agent"])
-                if r is None or r is NOT_PROBED:
-                    log.say("skip", "%s: %s was started; whether it is live %s: the entry is left as it is, no attempt" % (key, e["agent"], "could not be told" if r is None else "is checked at a later run (at most %d checks a run)" % cfg["max_probes"]))
+                if r is None or r is NOT_PROBED or r is CHANGED:
+                    log.say("skip", "%s: %s was started; whether it is live %s: the entry is left as it is, no attempt" % (key, e["agent"], unsure(r, cfg)))
                     continue
                 if r is True:
                     if key in listed and now - e["started_at"] >= cfg["cooldown"]:
@@ -865,7 +916,7 @@ def one_run(cfg, dry, now, log, lock=None):
                 e["absent_since"], changed = 0, True
         elif not e["absent_since"]:
             e["absent_since"], changed = now, True
-        elif now - e["absent_since"] >= cfg["cooldown"] and not pending(e) and not e["raised"] and not raising_now(e, cfg, now):
+        elif now - e["absent_since"] >= cfg["cooldown"] and not pending(e) and not e["raised"] and not raising_now(e, cfg):
             # a raised entry is never pruned: the owner was asked, and the project stays left alone, on the list or off it, until a session resets it (`--reset`)
             log.say("reset", "%s: off the list for %s: its ledger entry is cleared" % (key, dur_text(now - e["absent_since"])))
             del led.projects[key]
@@ -880,18 +931,20 @@ def one_run(cfg, dry, now, log, lock=None):
     ghost = copy.deepcopy(led)
     ghost.dry = True        # the collecting pass decides nothing and writes nothing
     start_one(cfg, candidates(rows, led, listed), listed, ghost, now, NullLog(), True, book)
-    results, led = probe_window(cfg, book.wanted, cfg["max_probes"] - 1, led, now, lock, dry)
+    first, led = probe_window(cfg, book.wanted, cfg["max_probes"] - 1, led, now, lock, dry)
     if led is None:
         log.say("skip", "the ledger is locked by another process after the liveness checks; nothing more this run")
         return 0
-    retire = start_one(cfg, candidates(rows, led, listed), listed, led, now, log, dry, ProbeBook(results))     # the starts come first ...
+    retire = start_one(cfg, candidates(rows, led, listed), listed, led, now, log, dry, first)     # the starts come first ...
+    first.resign(led)       # (what this run just did to the entries is not another run's change)
     # ... then at most one board item: its liveness probes (the rest of the cap), then the call itself, both without the lock
-    due = [led.projects[k]["agent"] for k in raise_order(cfg, led, listed, now) if led.projects[k]["raise_next_try"] <= now and led.projects[k]["agent"] and led.projects[k]["agent"] not in results]
-    rresults, led = probe_window(cfg, due, cfg["max_probes"] - len(results), led, now, lock, dry)
+    due = [led.projects[k]["agent"] for k in raise_order(cfg, led, listed, now) if led.projects[k]["raise_next_try"] <= now and led.projects[k]["agent"] and led.projects[k]["agent"] not in first.results]
+    second, led = probe_window(cfg, due, cfg["max_probes"] - len(first.results), led, now, lock, dry)
     if led is None:
         log.say("skip", "the ledger is locked by another process after the liveness checks; no board item this run")
         return 1 if retire else 0
-    unraised = raise_next(cfg, led, listed, now, log, dry, lock, ProbeBook(dict(results, **rresults)))
+    first.revalidate(led)
+    unraised = raise_next(cfg, led, listed, now, log, dry, lock, ProbeBook(dict(first.results, **second.results)))
     return 1 if (retire or unraised) else 0
 
 
@@ -936,7 +989,7 @@ def config():
     }
 
 
-RESET_FIELDS = ("attempts", "failures", "next_try", "retire_needed", "raised", "raised_at", "raised_item", "raise_token", "stale", "raising_at", "raise_failures", "raise_next_try", "probed_at", "last", "last_at", "last_plain")
+RESET_FIELDS = ("attempts", "failures", "next_try", "retire_needed", "raised", "raised_at", "raised_item", "raise_token", "stale", "raising_at", "raising_by", "raise_failures", "raise_next_try", "probed_at", "last", "last_at", "last_plain")
 USAGE = "usage: sala bg-agents [--dry-run | --status | --reset <project key> [--dry-run]]"
 
 
