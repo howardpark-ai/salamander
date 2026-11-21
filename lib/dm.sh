@@ -18,6 +18,8 @@
 # no output. A Slack error prints Slack's error code only.
 # THE MESSAGE: an argument is written to a file as it came, and the stdin form is the safe one for anything with quotes or backticks; the
 # JSON body is built by python3 from that file, so no text is ever parsed as shell or spliced into a command.
+# THE LINKS: like every other sala post, each board item id (board#N) and each live or registered session name in the text leaves as a Slack link
+# (dm_link_text, below: sala_board_links and the briefings' session matcher, one implementation each); code spans, Slack links and URLs stay as they are.
 # THE CHANNEL: conversations.open's answer is cached per app ($SALA_STATE_DIR/dm/<app>.channel) together with the member id and the API base it
 # was opened for (`<user id> <api base> <channel>`, tab-separated): a changed SALA_DM_USER_ID or SALA_DM_API_BASE, or an old file that holds a
 # channel id only, is no cache, and the DM is opened again. One Slack rejects as channel_not_found or is_archived is dropped and opened again, once.
@@ -39,6 +41,7 @@ TEXT is the message, as one argument; with `-` or with no TEXT the message is re
 backticks or $( ). --thread <ts> (or --thread=<ts>) replies in the thread of the message with that ts; options come before TEXT, and a TEXT that starts with -- is refused
 unless it comes after a -- (sala dm <app> -- "--text"), or is sent on stdin.
 A digit run between colons, as in a time like 04:00:, gets an invisible zero-width space before its closing colon so Slack shows it as typed rather than as an emoji code.
+Like every other sala post, a board item id (board#N) and the name of a live or registered session in the text are posted as links (code spans, Slack links and URLs are left as they are).
 On success the posted message's ts is printed on stdout, so a caller can thread under it. A message over 39000 characters is refused.
 <app> is one of the names in SALA_DM_APPS (letters, digits and dashes, not starting with a dash). Settings, in ~/.config/salamander/config:
   SALA_DM_APPS       the app names allowed, space-separated (no default: none is allowed until it is set)
@@ -224,6 +227,44 @@ dm_cmd_post() {   # <app> <thread ts or ""> <text file>
         [ "$rc" = 1 ] && dm_slack_err
         return "$rc"
     done
+}
+
+# dm_session_links <text> → the text with every live or registered session name as a Slack link to sala's session page. This is the one matcher
+# the briefings' and the operation queue's posts run (slack_links in contrib/briefing/lib.sh: the same registry lookup, the same SALA_SESSION_URL
+# template and encoding, code spans, Slack links and bare URLs left alone), asked for session names alone (SLACK_LINKS_ONLY=sessions). It runs
+# in a subshell, so the library's own settings (set -u, PATH, TZ) never reach sala dm; the registry is read through this very sala unless the
+# environment names another command (BRIEFING_REGISTRY_CMD, BRIEFING_SPAWN_LIST_CMD). Fails (status 1, nothing printed) when the library is not there.
+dm_session_links() {
+    local lib="${SALA_ROOT:-}/contrib/briefing/lib.sh"
+    [ -r "$lib" ] || return 1
+    (
+        { . "$lib"; } >/dev/null 2>&1 || exit 1
+        case "${SALA_BIN:-}" in ''|*[[:space:]]*) ;; *)
+            : "${BRIEFING_REGISTRY_CMD:=$SALA_BIN sessions --json}"; : "${BRIEFING_SPAWN_LIST_CMD:=$SALA_BIN spawn --list}"
+            export BRIEFING_REGISTRY_CMD BRIEFING_SPAWN_LIST_CMD ;;
+        esac
+        SLACK_LINKS_ONLY=sessions slack_links "$1" 2>/dev/null
+    )
+}
+
+# dm_link_text <text file>: every board item id (board#N, as sala_board_links links it for every other post: the address is SALA_STACKSHOT_WEB) and
+# every session name in the message becomes a Slack link, in place. A code span, an existing Slack link and a bare URL are left alone, so a
+# second pass changes nothing; a text with neither is not rewritten (the same bytes go out). Never costs the post: a linker that fails, a NUL in
+# the text, or a linked text over Slack's 40000 characters leaves the file as it was.
+dm_link_text() {
+    local tf=$1 text new step
+    [ "$(tr -d '\0' < "$tf" | wc -c)" = "$(wc -c < "$tf")" ] || return 0
+    text=$(<"$tf"); new=$text
+    if ! declare -F sala_board_links >/dev/null && [ -r "${SALA_ROOT:-}/lib/boardlinks.sh" ]; then . "$SALA_ROOT/lib/boardlinks.sh"; fi
+    if declare -F sala_board_links >/dev/null; then
+        step=$(printf '%s\n' "$new" | sala_board_links "${SALA_STACKSHOT_WEB:-}") && [ -n "$step" ] && new=$step
+    fi
+    step=$(dm_session_links "$new") && [ -n "$step" ] && new=$step
+    [ "$new" != "$text" ] || return 0
+    printf '%s' "$new" > "$tf.linked" || { rm -f "$tf.linked"; return 0; }
+    if python3 -I -c 'import sys; sys.exit(0 if len(open(sys.argv[1], "rb").read().decode("utf-8")) <= 40000 else 1)' "$tf.linked" 2>/dev/null
+    then mv -f "$tf.linked" "$tf"; else rm -f "$tf.linked"; fi
+    return 0
 }
 
 dm_cmd_check() {   # <app>
@@ -416,7 +457,7 @@ open(sys.argv[1], "wb").write(t.encode("utf-8"))
     elif ! [[ $SALA_DM_USER_ID =~ ^[UW][A-Z0-9]+$ ]]; then dm_err "SALA_DM_USER_ID is not a Slack member id (U… or W…)"; rc=3
     else
         dm_read_token "$app"; rc=$?
-        [ "$rc" = 0 ] && { dm_cmd_post "$app" "$thread" "$tf"; rc=$?; }
+        [ "$rc" = 0 ] && { dm_link_text "$tf"; dm_cmd_post "$app" "$thread" "$tf"; rc=$?; }   # board ids and session names become links first, as in every other post
     fi
     rm -rf "$DM_T"; DM_T=""; trap - EXIT
     return "$rc"

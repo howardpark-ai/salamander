@@ -11,6 +11,10 @@
 #              or one with the wrong shape or a NUL byte, is ignored, never a crash); curl never reads ~/.curlrc (a `trace` line there writes no file)
 #   message    stdin and argument forms arrive verbatim (backticks, $( ), quotes, newlines, a leading dash, non-ASCII) and run nothing; 39000
 #              characters go, 39001 are refused (characters, not bytes) with nothing posted; empty, non-UTF-8, extra arguments refused
+#   links      a board id (board#N) and a session name leave as Slack links, as in every other sala post: the registry (a fake command) names the
+#              live sessions, a retired one and an unknown word stay plain; both in one text; code spans, existing Slack links and a URL with an
+#              id-like or name-like string in it are left alone; the text sent a second time (the first one's output) is not doubled; a text
+#              with neither goes out byte for byte; a registry that fails, or SALA_STACKSHOT_WEB unset, costs only its own kind of link
 #   refusals   a bad, unlisted or unconfigured app name, a missing / empty / 644 / malformed token file, a missing or malformed SALA_DM_USER_ID,
 #              each with its exit code and no request made
 #   errors     Slack's error code is the only thing printed (and the token never is), 5xx retried once then network, a timeout, no server
@@ -100,6 +104,11 @@ export SALA_DM_APPS="alpha-app beta-app" SALA_DM_USER_ID=UTEST0001 SALA_DM_TOKEN
 mkdir -p "$T/tok"; chmod 700 "$T/tok"
 settoken() { rm -f "$T/tok/slack-bot-token-$1"; printf '%s\n' "${2:-$TOKEN}" > "$T/tok/slack-bot-token-$1"; chmod 600 "$T/tok/slack-bot-token-$1"; }   # <app> [token]
 settoken alpha-app; settoken beta-app "$TOKEN"
+# links: the board's address, sala's session link, and a fake registry (the lookup is this suite's, never the machine's sessions or tmux)
+export SALA_STACKSHOT_WEB=https://board.example.com SALA_SESSION_URL='https://sala.example.com/#s={name}' BRIEFING_LOGDIR=$T/briefing-logs
+printf '%s\n' '{"sessions":[{"name":"example-session","state":"live"},{"name":"example-side","state":"live"},{"name":"retired-session","state":"retired"}]}' > "$T/registry.json"
+: > "$T/spawnlist"
+export BRIEFING_REGISTRY_CMD="cat $T/registry.json" BRIEFING_SPAWN_LIST_CMD="cat $T/spawnlist"
 # `sala dm` through a wrapper that keeps a copy of everything it printed (stdout and stderr) in the audit log, and hands both on unchanged
 cat > "$T/bin/sala-dm" <<WRAP
 #!/bin/bash
@@ -354,6 +363,60 @@ done
 run alpha-app '04:00: the weekly run'
 rt=$(last '["body"]["text"]'); [ "${rt//$Z/}" = '04:00: the weekly run' ] && ok "taking the zero-width space out gives the original text back" || bad "round trip: [$rt]"
 reset
+
+# -- links: board ids and session names, as in every other post ---------------------------------------------------------------------------------
+# The id is built at run time (BD#N): no literal board id sits in this file.
+BD=board
+# The registry, the board's address and sala's session link are this suite's own (set with the other settings above); L <name> is a session's link.
+BI=https://board.example.com/items; SU='https://sala.example.com/#s='
+L() { printf '<%s%s|%s>' "$SU" "$1" "$1"; }
+sent() { last '["body"]["text"]'; }
+chk() {   # <what> <text> <expected text as Slack gets it>
+    reset; run alpha-app "$2"; local got; got=$(sent)
+    [ "$RC" = 0 ] && [ "$got" = "$3" ] && ok "links: $1" || bad "links: $1: rc=$RC got=[$got]"
+}
+chk "a board id leaves as a link to its item" 'see '"$BD"'#9001 now' "see <$BI/9001|$BD#9001> now"
+chk "a session name leaves as a link to sala's session page" 'example-session is idle' "$(L example-session) is idle"
+chk "a board id and a session name in one text, with the id bold" '*'"$BD"'#9002*: ask example-side, then example-session' \
+    "*<$BI/9002|$BD#9002>*: ask $(L example-side), then $(L example-session)"
+chk "several of each, on several lines" $''"$BD"$'#1 and '"$BD"$'#2\n  \xe2\x80\xa2 example-session / example-session' \
+    "<$BI/1|$BD#1> and <$BI/2|$BD#2>"$'\n  \xe2\x80\xa2 '"$(L example-session) / $(L example-session)"
+chk "a code span is left alone" 'run `'"$BD"'#9001 example-session` now' 'run `'"$BD"'#9001 example-session` now'
+chk "an existing Slack link is left alone, labelled or not" "<$BI/12|$BD#12> $(L example-session) <https://x.example/y|example-session> <$BI/13>" \
+    "<$BI/12|$BD#12> $(L example-session) <https://x.example/y|example-session> <$BI/13>"
+chk "a URL with an id-like or a name-like string in it is left alone" 'at https://x.example/'"$BD"'#9001/example-session ok' 'at https://x.example/'"$BD"'#9001/example-session ok'
+chk "a longer word is not an id or a name" 'x'"$BD"'#9001 '"$BD"'#9001a example-session-2 my-example-session' 'x'"$BD"'#9001 '"$BD"'#9001a example-session-2 my-example-session'
+chk "a retired session and an unknown name stay plain" 'retired-session and other-session' 'retired-session and other-session'
+chk "the time fix and the links together" '04:00: '"$BD"'#7 example-side' "04:00$Z: <$BI/7|$BD#7> $(L example-side)"
+reset; run alpha-app '*'"$BD"'#9002*: example-session'; once=$(sent)
+run alpha-app "$once"; twice=$(sent)
+[ "$RC" = 0 ] && [ "$once" = "*<$BI/9002|$BD#9002>*: $(L example-session)" ] && [ "$once" = "$twice" ] && ok "links: a text that is already linked, sent again, is not doubled" || bad "links twice: [$once] then [$twice]"
+for same in 'no id and no name here' ''"$BD"'# and '"$BD"'#x and session' $'multi\nline é 日本 😀 text' '`example-session`' 'example.session' 'rm -rf ~/ $(x) "q"'; do
+    chk "a text with neither id nor name goes out byte for byte (${#same} characters)" "$same" "$same"
+done
+reset; printf 'stdin: '"$BD"'#5 and example-session\n' | $S alpha-app - >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(sent)" = "stdin: <$BI/5|$BD#5> and $(L example-session)" ] && ok "links: the stdin form is linked too" || bad "stdin links: rc=$rc [$(sent)]"
+reset; run alpha-app --thread 1699999999.000100 'in a thread: '"$BD"'#8 example-side'
+[ "$RC" = 0 ] && [ "$(sent)" = "in a thread: <$BI/8|$BD#8> $(L example-side)" ] && [ "$(last '["body"]["thread_ts"]')" = 1699999999.000100 ] && ok "links: a threaded post is linked and stays in its thread" || bad "thread links: rc=$RC [$(sent)]"
+# a lookup that fails costs only the session links; the board id still links and the post still goes
+reset; BRIEFING_REGISTRY_CMD=false run alpha-app ''"$BD"'#3 example-session'
+[ "$RC" = 0 ] && [ "$(sent)" = "<$BI/3|$BD#3> example-session" ] && ok "links: a registry that fails (and no spawn list) leaves names plain, the id still links, the post goes" || bad "registry fails: rc=$RC [$(sent)]"
+printf 'NAME VERSION BRIDGE\nlisted-session 2.1 -\n' > "$T/spawnlist2"   # (the commands are split into words, never run through a shell: a file to cat)
+reset; BRIEFING_REGISTRY_CMD=false BRIEFING_SPAWN_LIST_CMD="cat $T/spawnlist2" run alpha-app ''"$BD"'#3 listed-session'
+[ "$RC" = 0 ] && [ "$(sent)" = "<$BI/3|$BD#3> $(L listed-session)" ] && ok "links: with the registry empty, the sessions sala lists are the names (the briefings' fallback)" || bad "spawn list: rc=$RC [$(sent)]"
+reset; SALA_STACKSHOT_WEB= run alpha-app ''"$BD"'#3 example-session'
+[ "$RC" = 0 ] && [ "$(sent)" = "$BD#3 $(L example-session)" ] && ok "links: no SALA_STACKSHOT_WEB leaves ids plain, names still link" || bad "no board address: rc=$RC [$(sent)]"
+reset; SALA_STACKSHOT_WEB=https://board.example.com/ run alpha-app ''"$BD"'#3'
+[ "$RC" = 0 ] && [ "$(sent)" = "<$BI/3|$BD#3>" ] && ok "links: a trailing / on the board's address is dropped" || bad "trailing slash: rc=$RC [$(sent)]"
+reset; run alpha-app ''"$BD"'#4'
+[ "$(nreq chat.postMessage)" = 1 ] && [ "$(nreq conversations.open)" = 1 ] && ok "links: one open and one post per message (the linking sends nothing to Slack)" || bad "request counts: open=$(nreq conversations.open) post=$(nreq chat.postMessage)"
+# a message that is refused never reaches the lookup
+: > "$T/lookups"; reset
+printf '#!/bin/sh\necho run >> %s\ncat %s\n' "$T/lookups" "$T/registry.json" > "$T/lookup.sh"; chmod +x "$T/lookup.sh"
+BRIEFING_REGISTRY_CMD="$T/lookup.sh" run alpha-app '--check'
+[ "$RC" = 2 ] && [ ! -s "$T/lookups" ] && [ "$(nall)" = 0 ] && ok "links: a refused message (an option as TEXT) never reaches the lookup" || bad "refused case: rc=$RC lookups=[$(cat "$T/lookups")]"
+BRIEFING_REGISTRY_CMD="$T/lookup.sh" run alpha-app 'example-session'
+[ "$RC" = 0 ] && [ "$(wc -l < "$T/lookups")" = 1 ] && ok "links: a posted message reads the registry once" || bad "lookups: $(wc -l < "$T/lookups")"
 
 # -- refusals: each with its exit code, and no request made -------------------------------------------------------------------------------------
 reset
