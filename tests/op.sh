@@ -581,7 +581,15 @@ for pc in "it could not write to /tmp and stopped|it could not write to and stop
           "it set file=/ and path:~/ and dir=./ today|it set and and today" \
           "it failed on /tmp/customer]records.csv today|it failed on today" \
           "it failed on [/tmp/a] and (path=/var/log/x) today|it failed on and today" \
-          "retry() returned [] and [3] today|retry() returned [] and [3] today"; do
+          "retry() returned [] and [3] today|retry() returned [] and [3] today" \
+          "it read \"/tmp/customer\\\" records.csv\" today|it read today" \
+          "it read '/tmp/a\\' b.csv' today|it read today" \
+          "it failed on [/tmp/customer]records.csv] today|it failed on today" \
+          "it failed on (/tmp/a]b) and [~/x]y] today|it failed on and today" \
+          "it set file=/ dir=./ path:~/ today|it set today" \
+          "it set a:~/ b:./ c:~/ d:~/ today|it set today" \
+          "it saw file=//srv/share today|it saw today" \
+          "it saw key://srv/x and https://h/x today|it saw key://srv/x and https://h/x today"; do
     pin=${pc%%|*}; pwant=${pc#*|}; pgot=$(plain "$pin")
     [ "$pgot" = "$pwant" ] && ok "plain: '$pin' → '$pgot'" || bad "plain: '$pin' → '$pgot' (wanted '$pwant')"
 done

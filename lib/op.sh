@@ -1612,13 +1612,16 @@ op_plain() {  # <text> → one plain sentence: one line, its first sentence, no 
     local t; t=$(op_one_line "$*")
     t=$(op_drop_ticks "$t"); t=${t//\`/}   # a backtick span (a run of N ticks to the next run of N) is a command or a name: dropped whole (the ticks alone would leave the command in the text), then any stray tick
     # a quoted path goes whole, spaces and dots inside it too, so it goes before the sentence cut ("/tmp/my file. csv" must not be cut in the middle)
-    t=$(sed -E -e 's/"(~|\.{0,2})\/[^"]*"//g' -e "s/'(~|\.{0,2})\/[^']*'//g" <<< "$t")
+    t=$(sed -E -e 's/"(~|\.{0,2})\/([^"\\]|\\.)*"//g' -e "s/'(~|\.{0,2})\/([^'\\\\]|\\\\.)*'//g" <<< "$t")   # a backslash escapes the next character, an escaped quote included
     t=$(sed -E 's/([.!?])[[:space:]].*$/\1/' <<< "$t")   # the first sentence first, so a path's own dot never ends it
     # a path of any depth goes: alone in brackets, after a key and = or : (file=/tmp, key:/etc/x, dir=./), after an opening bracket, or at a word start: /tmp, /etc, ~/file, ~/a/b, ./x, /;
-    # a token ends at a space, but a closing bracket at its very end stays (it closes the bracket the path sat in); a URL (a : followed by //) and a time (04:00) have no slash right after the delimiter and stay
+    # a token ends at a space, but a closing bracket at its very end stays (it closes the bracket the path sat in), and a bracket pair that holds only a path goes whole, up to the last closing bracket of its token;
+    # after = anything goes (file=//srv/share); a URL (a : followed by //) and a time (04:00) have no slash right after the delimiter and stay;
+    # the bare-slash rule for a colon key eats the space after it, so it runs twice: two such keys in a row both go
     t=$(sed -E -e 's/ ?\((exit|exited|rc|status)[ =:]*[0-9]+\)//Ig' -e 's/,? ?(exit(ed)?( code| status)?|rc)[ =:]*[0-9]+//Ig' \
-        -e 's/[(\[{<]((~|\.{0,2})\/[^] )}>]*|[A-Za-z0-9_.-]+[=:](~|\.{0,2})\/([^ \/][^] )}>]*)?)[])}>]//g' \
-        -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+[=:](~|\.{0,2})\/($|[] )}>])/\1\3/g' \
+        -e 's/[(\[{<]((~|\.{0,2})\/[^ ]*|[A-Za-z0-9_.-]+=(~|\.{0,2})\/[^ ]*|[A-Za-z0-9_.-]+:(~|\.{0,2})\/([^ \/][^ ]*)?)[])}>]//g' \
+        -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+=(~|\.{0,2})\/([^ ]*[^] )}>])?/\1/g' \
+        -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+:(~|\.{0,2})\/($|[] )}>])/\1\3/g' -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+:(~|\.{0,2})\/($|[] )}>])/\1\3/g' \
         -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+[=:](~|\.{0,2})\/[^ \/]([^ ]*[^] )}>])?/\1/g' \
         -e 's/(^|[ (\[{<])(~|\.{0,2})\/([^ ]*[^] )}>])?/\1/g' \
         -e 's/ +/ /g; s/^ //; s/ $//; s/ ([.,;:])/\1/g' <<< "$t")
