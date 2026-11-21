@@ -517,8 +517,8 @@ echo "   rendered:"; sed 's/^/      | /' <<< "$P"
 # stuck, no step in the output; the helper's line carries an exit code, a path, a backtick command and a second sentence: one plain sentence is left
 : > "$POSTS"; S2=$(sid 202); mkfin "$S2" sala-test-h retire sala-test-zz; stuckwhy "$S2" "the one-off helper found \`salamander retire sala-test-zz\` held by another run (exit 1) and logged it in ~/.claude/x/run.log. A second sentence, which stays out."
 fin "$S2" stuck "salamander retire sala-test-zz exited 1: held — the one-off claude -p could not finish it: held"
-P=$(post "$LG$S2.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *retire of sala-test-zz is stuck*" ] && has "$(sed -n 2p <<< "$P")" "The one-off helper found salamander retire sala-test-zz held by another run" && ! has "$P" "exit" && ! has "$P" "run.log" && ! has "$P" "A second sentence" && ! has "$P" '`' && ! has "$P" "(step" && plain_post "$P" \
-    && ok "stuck without a step: no step in the headline; the helper's line cut to its first sentence, no exit code, no path, no backtick" || bad "stuck without step: $P"
+P=$(post "$LG$S2.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *retire of sala-test-zz is stuck*" ] && has "$(sed -n 2p <<< "$P")" "The one-off helper found held by another run" && ! has "$P" "salamander retire" && ! has "$P" "sala-test-zz held" && ! has "$P" "exit" && ! has "$P" "run.log" && ! has "$P" "A second sentence" && ! has "$P" '`' && ! has "$P" "(step" && plain_post "$P" \
+    && ok "stuck without a step: no step in the headline; the helper's line cut to its first sentence, no exit code, no path, and the backtick-enclosed command gone whole" || bad "stuck without step: $P"
 # the stuck helper's line missing (no helper ran, or it gave no verdict): the fixed sentence, which says nothing retries it and a person finishes it
 : > "$POSTS"; S3=$(sid 203); mkfin "$S3" sala-test-h rename sala-test-zz sala-test-zy
 fin "$S3" stuck "no tmux session 'sala-test-zz' (exit 1)"
@@ -549,6 +549,55 @@ P=$(post "$LG$S7.log"); [ "$P" = "✅ *set 4 sessions to haiku* · asked by sala
 fin "$S8" stuck "salamander update demo-a demo-b exited 1: demo-b: offline"
 P=$(post "$LG$S8.log"); [ "$(sed -n 1p <<< "$P")" = "🚨 *update on 2 machines is stuck*" ] && [ "$(sed -n 2p <<< "$P")" = "Demo-b is offline, so it needs a person to start it." ] && plain_post "$P" && ! has "$P" "board item" && ! has "$P" "folded in" && ! has "$P" "reason:" \
     && ok "an update over two boxes: the count of machines, the helper's sentence; no words, no board item, no folded-in list" || bad "update post: $P"
+
+echo "== the plain sentence's filter: no path of any depth (/tmp, ~/file, ~/a/b, /etc/hosts), no backtick-enclosed span, the first sentence only; plain slashes in the text stay"
+plain() { bash -c '. "$1/lib/common.sh"; . "$1/lib/op.sh"; op_plain "$2"' _ "$ROOT" "$1"; }   # <text> → op_plain's one sentence
+for pc in "it could not write to /tmp and stopped|it could not write to and stopped" \
+          "it could not read ~/settings.json and stopped|it could not read and stopped" \
+          "the unit file /etc/hosts was changed|the unit file was changed" \
+          "the copy in ~/a/b/c.log failed|the copy in failed" \
+          "the copy (/etc) failed|the copy failed" \
+          "it ran \`rm -rf demo-dir\` and failed|it ran and failed" \
+          "it ran \`salamander lane x. y\` and failed. A second sentence.|it ran and failed." \
+          "3/5 sessions and a/b stay put|3/5 sessions and a/b stay put" \
+          "it failed (exit 1) at /tmp.|it failed at"; do
+    pin=${pc%%|*}; pwant=${pc#*|}; pgot=$(plain "$pin")
+    [ "$pgot" = "$pwant" ] && ok "plain: '$pin' → '$pgot'" || bad "plain: '$pin' → '$pgot' (wanted '$pwant')"
+done
+pgot=$(plain "a \`one span\` here and a lone \` tick"); [ "$pgot" = "a here and a lone tick" ] && ok "plain: an unpaired tick goes, a span goes whole" || bad "plain, ticks: '$pgot'"
+# a stuck post whose helper line names a single-segment path and a command: neither reaches Slack
+: > "$POSTS"; S9=$(sid 209); mkfin "$S9" sala-test-h rename sala-test-zz sala-test-zy; stuckwhy "$S9" "It could not write /tmp or ~/settings.json, and \`salamander rename sala-test-zz sala-test-zy\` stopped. Second sentence."
+fin "$S9" stuck "no tmux session (exit 1)"
+P=$(post "$LG$S9.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 2p <<< "$P")" = "It could not write or and stopped." ] && ! has "$P" "/tmp" && ! has "$P" "settings.json" && ! has "$P" "salamander rename" && ! has "$P" '`' && plain_post "$P" \
+    && ok "a stuck post: the single-segment and the ~/file paths and the enclosed command stay out of it" || bad "path/command post: $P"
+
+echo "== a lane move over every session that skipped or failed some: the count stays partial, never 'every session'; the default lane's line is outside the cap"
+# lane <lane> --all: the sessions are not on the marker, the relaunch set carries the total and the pane it gave up
+: > "$POSTS"; A1=$(sid 301); AS="oplaneall-$$"; mkfin "$A1" sala-test-h lane subscription-1 --all
+printf '%s\n' kind=Recycle label=oplaneall done=2 total=3 closed=1 "gave=sala-test-w3: its pane is gone" "skip=sala-test-w3: its pane is gone" > "$SALA_SET_DIR/$AS"
+echo "set=$AS" >> "$OPS/$A1.op"; fin "$A1" stuck "Recycle oplaneall: 2/3 relaunched, 1 pane given up: sala-test-w3: its pane is gone"
+P=$(post "$LG$A1.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *moved 2 of 3 sessions to subscription-1*" ] && [ "$(sed -n 2p <<< "$P")" = "• sala-test-w3: its pane is gone" ] && ! has "$P" "every session" && plain_post "$P" \
+    && ok "lane --all with a pane given up: '2 of 3 sessions' and the pane named, not 'every session'" || bad "lane --all partial: $P"
+rm -f "$SALA_SET_DIR/$AS"
+# the same move with nothing failed or skipped keeps its own headline
+: > "$POSTS"; A2=$(sid 302); AS="oplaneall2-$$"; mkfin "$A2" sala-test-h lane subscription-1 --all
+printf '%s\n' kind=Recycle label=oplaneall2 done=3 total=3 closed=1 > "$SALA_SET_DIR/$AS"; echo "set=$AS" >> "$OPS/$A2.op"; fin "$A2" done "Recycle oplaneall2: 3/3 relaunched"
+P=$(post "$LG$A2.log"); [ "$P" = "✅ *moved every session to subscription-1* · asked by sala-test-h · log ~/.claude/salamander-op-$A2.log" ] && ok "lane --all with nothing failed: 'every session', one line" || bad "lane --all clean: $P"
+rm -f "$SALA_SET_DIR/$AS"
+# the lane fallback: five real failures and the default lane's line: all five named, no "and 1 more", the default line present
+: > "$POSTS"; A3=$(sid 303); mkfin "$A3" sala-watch lane fallback subscription-1
+for k in 1 2 3 4 5; do echo "detail=sala-test-v$k: subscription-1 → bedrock (NOT moved: still recorded on subscription-1)" >> "$OPS/$A3.op"; done
+printf 'detail=%s\n' "sala-test-v6: subscription-1 → bedrock" "default lane: subscription-1 → bedrock" >> "$OPS/$A3.op"
+fin "$A3" done "the subscription-1 lane is dormant: 1 session and the default moved to the bedrock lane"
+P=$(post "$LG$A3.log"); [ "$(sed -n 1p <<< "$P")" = "⚠️ *moved 1 of 6 sessions off the dormant lane subscription-1*" ] && [ "$(sed -n 2p <<< "$P")" = "• default lane: subscription-1 → bedrock" ] && [ "$(grep -c 'NOT moved' <<< "$P")" = 5 ] && ! has "$P" " more" && ! has "$P" "sala-test-v6" && [ "$(lines_in "$P")" = 8 ] && plain_post "$P" \
+    && ok "five failures and the default lane: the default line stays, all five named, no 'and 1 more'" || bad "five + default: $P"
+# seven failures and the default line: the cap counts the seven only ("and 2 more"), the default line is still there
+: > "$POSTS"; A4=$(sid 304); mkfin "$A4" sala-watch lane fallback subscription-1
+for k in 1 2 3 4 5 6 7; do echo "detail=sala-test-v$k: subscription-1 → bedrock (NOT moved: still recorded on subscription-1)" >> "$OPS/$A4.op"; done
+printf 'detail=%s\n' "default lane: subscription-1 → bedrock" >> "$OPS/$A4.op"
+fin "$A4" done "the subscription-1 lane is dormant: the default moved to the bedrock lane"
+P=$(post "$LG$A4.log"); [ "$(sed -n 2p <<< "$P")" = "• default lane: subscription-1 → bedrock" ] && [ "$(grep -c 'NOT moved' <<< "$P")" = 5 ] && has "$P" "and 2 more" && ! has "$P" "and 3 more" && ! has "$P" "sala-test-v6" && [ "$(lines_in "$P")" = 9 ] && plain_post "$P" \
+    && ok "seven failures and the default lane: 'and 2 more' (the seven only), the default line present and never cut" || bad "seven + default: $P"
 
 echo "== the end of an operation is reported to stackshot: one client.py event per op (verb, machine, sessions, result), never changing the op"
 # op_finish on hand-written markers, as above; the client is tests/fake-stackshot-client.py (it logs every call), the op log is SALA_OP_LOG

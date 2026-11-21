@@ -1552,14 +1552,16 @@ op_event() {  # <id> <done|stuck> <n named> <nf failed or skipped among them> <l
 #   many sessions (a recycle's set, revive/restore --only A --only B…, lane/model batches): the headline carries the count ("✅ *recycled 14 sessions*";
 #             some failed or skipped: "🚨 *recycled 12 of 14 sessions*", ⚠️ for a finished one that skipped some), then ONLY those sessions, one short
 #             line each (5 at most, then "and N more"), then the asked-by line.
-#   lane fallback: one more line under the headline, "• reason: monthly usage cap; access returns <day>" (op_dormant_why), since the owner reads the post to learn why the lane is dormant and when it returns.
+#   lane fallback: one more line under the headline, "• reason: monthly usage cap; access returns <day>" (op_dormant_why), since the owner reads the post to learn why the lane is dormant and when it returns;
+#             and the default lane's own line ("• default lane: <from> → <to>") right after it: it is no session, so the five-line cap never counts it and never cuts it.
 # The headline is a verb phrase with its target, never the argv. The owner's words stay on the marker, in the operation's log and in the hearing
 # session's own message (op_tell); the post carries none, nor an exit code or a raw command. `log` is the path of the operation's log, as text:
 # sala-web serves no operation log at a URL (its /api/spawn/status answers a JSON record of the marker for the spawn dialog and shows no log), so there is nothing to link.
-op_plain() {  # <text> → one plain sentence: one line, its first sentence, no backticks, no exit codes, no paths
-    local t; t=$(op_one_line "$*"); t=${t//\`/}
+op_plain() {  # <text> → one plain sentence: one line, its first sentence, no backtick span, no exit codes, no paths
+    local t; t=$(op_one_line "$*")
+    t=$(sed -E 's/`[^`]*`//g' <<< "$t"); t=${t//\`/}   # a backtick-enclosed span is a command or a name: dropped whole (the ticks alone would leave the command in the text), then any stray tick
     t=$(sed -E 's/([.!?])[[:space:]].*$/\1/' <<< "$t")   # the first sentence first, so a path's own dot never ends it
-    t=$(sed -E 's/ ?\((exit|exited|rc|status)[ =:]*[0-9]+\)//Ig; s/,? ?(exit(ed)?( code| status)?|rc)[ =:]*[0-9]+//Ig; s/(^| )(~|\.{0,2})\/[^ ]*\/[^ ]*//g; s/ +/ /g; s/^ //; s/ ([.,;:])/\1/g' <<< "$t")
+    t=$(sed -E 's/ ?\((exit|exited|rc|status)[ =:]*[0-9]+\)//Ig; s/,? ?(exit(ed)?( code| status)?|rc)[ =:]*[0-9]+//Ig; s/\((~|\.{0,2})\/[^ )]*\)//g; s/(^| )(~|\.{0,2})\/[^ ]*//g; s/ +/ /g; s/^ //; s/ ([.,;:])/\1/g' <<< "$t")   # a path of any depth goes: /tmp, /etc, ~/file, ~/a/b, ./x
     t=${t:0:200}
     printf '%s\n' "$t"
 }
@@ -1606,7 +1608,7 @@ op_headline() {  # <id> <done|stuck> <sessions counted, 0 = none> <failed or ski
             case "$name" in
                 default) dt="set the default lane to ${a[1]:-}"; nt="default lane change to ${a[1]:-}" ;;
                 fallback) dt="moved $sub off the dormant lane ${a[1]:-}"; nt="lane fallback from ${a[1]:-}" ;;
-                *) [ "${a[1]:-}" = --all ] && { sub="every session"; nof=""; }
+                *) [ "${a[1]:-}" = --all ] && [ "$nf" -eq 0 ] && { sub="every session"; nof=""; }   # "every session" only when nothing failed or was skipped: otherwise the count stays ("moved 2 of 3 sessions")
                    dt="moved $sub to $name"; nt="lane move to $name$nof" ;;
             esac ;;
         model)
@@ -1629,22 +1631,25 @@ op_dormant_why() {  # <id> → for a lane fallback, the one plain line that says
     if [ -z "$r" ]; then l=${a[1]:-}; [ -n "$l" ] && r=$(lane_state_field "$l" 3 2>/dev/null); r=$(op_plain "$r"); r=${r%.}; [ -z "$r" ] || r="reason: $r"; fi
     printf '%s\n' "$r"
 }
-op_post() {  # <id> <done|stuck> <sessions counted> <failed or skipped among them> <sessions, one per line> — the one Slack post; OP_PF holds the failed or skipped sessions' lines
+op_post() {  # <id> <done|stuck> <sessions counted> <failed or skipped among them> <sessions, one per line> — the one Slack post; OP_PF holds the failed or skipped sessions' lines (the cap counts only these), OP_PL the lines about no session
     local id="$1" st="$2" tot="$3" nf="$4" ss="$5" verb foot text step="" why x i=0 cap=5 logp rsn
     verb=$(op_val "$id" verb); logp=$(op_oplog "$id"); logp=${logp/#"$HOME"/\~}
     op_headline "$id" "$st" "$tot" "$nf" "$ss"
     foot="asked by $(op_val "$id" from) · log $logp"
     rsn=$(op_dormant_why "$id")
-    if [ "$st" = done ] && [ ${#OP_PF[@]} = 0 ] && [ -z "$rsn" ]; then sala_post "$OPE *$OPH* · $foot"; return 0; fi
+    if [ "$st" = done ] && [ ${#OP_PF[@]} = 0 ] && [ ${#OP_PL[@]} = 0 ] && [ -z "$rsn" ]; then sala_post "$OPE *$OPH* · $foot"; return 0; fi
     [ "$st" = stuck ] && [ "$verb" = provision ] && step=$(op_step_of "$id")
     text="$OPE *$OPH*${step:+ (step $step)}"
     [ -z "$rsn" ] || text+=$'\n'"• $rsn"   # a lane fallback: why the lane is dormant and when it returns, one line under the headline
-    if [ "$st" = stuck ] && [ ${#OP_PF[@]} = 0 ]; then
+    if [ "$st" = stuck ] && [ ${#OP_PF[@]} = 0 ] && [ ${#OP_PL[@]} = 0 ]; then
         why=$(op_val "$id" stuckwhy); [ -n "$why" ] && why=$(op_plain "$why")
         [ -n "$why" ] || why="It did not finish, and nothing retries it: finish it by hand or ask again."
         why="$(printf '%s' "${why:0:1}" | tr '[:lower:]' '[:upper:]')${why:1}"; case "$why" in *[.!?]) ;; *) why+=".";; esac
         text+=$'\n'"$why"
     fi
+    for x in ${OP_PL[@]+"${OP_PL[@]}"}; do   # a line about no session (the default lane): its own line under the headline, outside the cap
+        x=$(op_plain "$x"); text+=$'\n'"• ${x:0:110}"
+    done
     for x in ${OP_PF[@]+"${OP_PF[@]}"}; do
         i=$((i + 1)); [ "$i" -le "$cap" ] || break
         x=$(op_plain "${x/FAILED:/failed:}"); text+=$'\n'"• ${x:0:110}"
@@ -1666,7 +1671,7 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
         ss=$(op_vals "$id" detail | sed -n 's/^\([^ :][^ :]*\): .*/\1/p')
     fi
     [ -n "$ss" ] && n=$(grep -c . <<< "$ss")
-    local nl=$'\n' dl=""; OP_PF=()   # OP_PF: the failed or skipped sessions' lines for the post (op_post)
+    local nl=$'\n' dl=""; OP_PF=(); OP_PL=()   # OP_PF: the failed or skipped sessions' lines for the post (op_post, five at most); OP_PL: the lines about no session (the lane fallback's default lane), never counted and never cut
     if [ "$n" -gt 1 ]; then
         # many sessions: the failed and skipped ones named with their reason, the rest counted (THE MANY-SESSION POST, above)
         while IFS= read -r y; do
@@ -1693,12 +1698,12 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
         if [ "$nf" -gt 0 ]; then cnt="$((n - nf))/$n succeeded"
         elif [ "$st" = done ]; then cnt=$(plural "$n" session)
         else cnt="$(plural "$n" session), none confirmed"; fi
-        ptot=$n; pnf=$nf; OP_PF=(${fb[@]+"${fb[@]}"} ${ot[@]+"${ot[@]}"})
+        ptot=$n; pnf=$nf; OP_PF=(${fb[@]+"${fb[@]}"}); OP_PL=(${ot[@]+"${ot[@]}"})
         for y in ${fb[@]+"${fb[@]}"} ${ot[@]+"${ot[@]}"}; do dl+="$nl  - $y"; done
     else
         while IFS= read -r y; do [ -n "$y" ] && { dl+="$nl  - $y"; }; done < <(op_vals "$id" detail)   # a many-session operation's line per session (op_run)
         set=$(op_val "$id" set)
-        case "$verb" in recycle|revive|restore) if set_has "$set"; then   # a relaunch's set counts the sessions in the post's headline (the hearing session's line stays as it was)
+        case "$verb" in recycle|revive|restore|lane) if set_has "$set"; then   # a relaunch's set (a lane --all's too) counts the sessions in the post's headline (the hearing session's line stays as it was)
             ptot=$(set_val "$set" total); [[ $ptot =~ ^[0-9]+$ ]] || ptot=0
             if [ "$st" = stuck ]; then
                 while IFS= read -r y; do
