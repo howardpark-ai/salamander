@@ -333,6 +333,7 @@ case ${LOGKIND:-file} in
     file) printf '%s' "$LOGTEXT" > "$(op_oplog "$ID")" ;;
     symlink) printf '%s' "$LOGTEXT" > "$HOME/elsewhere.log"; ln -s "$HOME/elsewhere.log" "$(op_oplog "$ID")" ;;
     unreadable) printf '%s' "$LOGTEXT" > "$(op_oplog "$ID")"; chmod 0200 "$(op_oplog "$ID")" ;;
+    readonly) printf '%s' "$LOGTEXT" > "$(op_oplog "$ID")"; chmod 0400 "$(op_oplog "$ID")" ;;
     missing) : ;;
 esac
 op_post "$ID" done 1 0 sala-test-a
@@ -362,6 +363,10 @@ CLI_CASES = {   # name: (default config's text, the CLI's own SALA_CONFIG text o
     "a missing log": (None, None, {}, "", "missing", False),
     "a symlink log": (None, None, {}, "", "symlink", False),
     "a write-only log (nobody can read it, the page answers 404)": (None, None, {}, "", "unreadable", False),
+    # The readability test is the CLI user's own, and the service is a user unit of the same account, so the two agree: a log the owner can read gets the link
+    # and opens. NOT covered: a separate web account reading the logs through an ACL (the repo does not set one up); there the CLI cannot tell, posts the path
+    # and errs on the side of no link rather than a dead one (web/README.md, Operation log pages).
+    "a read-only log (the owner reads it: linked and opens)": (None, None, {}, "", "readonly", True),
     "a missing log in a moved folder": ("SALA_LOG_DIR=~/moved\n", None, {}, "", "missing", False),
 }
 
