@@ -717,7 +717,7 @@ mkop() {  # <id> <verb> <arg>… — a queued marker written by hand (model --cl
     local i="$1" v="$2" a; shift 2
     { printf 'id=%s\ntime=%s\nfrom=sala-test-h\nwords=kick test\nverb=%s\n' "$i" "${i%%-*}" "$v"; for a in "$@"; do printf 'arg=%s\n' "$a"; done; echo state=queued; } > "$OPS/$i.op"
 }
-runop() { SALA_CGROUP_FILE="$HOME/op-unit.cgroup" "$SALA" op --run "$1" >/dev/null 2>&1; }   # the unit's main process, run by hand once a tick started it (norun)
+runop() { : >> "$SALA_LOG_DIR/salamander-op-$1.log"; SALA_CGROUP_FILE="$HOME/op-unit.cgroup" "$SALA" op --run "$1" >/dev/null 2>&1; }   # the unit's main process, run by hand once a tick started it (norun); the real unit's redirect has made the log by then
 touch "$HOME/norun"; K0=$(( $(date +%s) + 100 ))
 for mode in done stuck; do
     : > "$LAUNCHES"; K1="$K0-1"; K2="$((K0+1))-2"; K3="$((K0+2))-3"; K0=$((K0+10))
@@ -757,12 +757,13 @@ DEFCFG="$HOME/.config/salamander/config"; mkdir -p "$(dirname "$DEFCFG")"; print
 oplink() {  # <name> <want: link|path> <folder under $HOME> <cwd> <address> <env words…> → one operation run with that environment, its post and files checked
     local nm="$1" want="$2" dir="$3" cwd="$4" tpl="$5" P w; shift 5
     KL=$((KL+1)); KI="$KL-$KL"; mkop "$KI" model sala-test-a --clear; : > "$POSTS"; SALA_OP_STUCK=off tick
+    : >> "$HOME/$dir/salamander-op-$KI.log"   # (the unit's redirect makes the log before the runner starts)
     ( cd "$cwd" && env "$@" SALA_SESSION_URL="$tpl" SALA_OP_STUCK=off SALA_CGROUP_FILE="$HOME/op-unit.cgroup" "$SALA" op --run "$KI" >/dev/null 2>&1 )
     P=$(post "asked by sala-test-h"); w="✅ *cleared the model of sala-test-a* · asked by sala-test-h · "
     if [ "$want" = link ] && [ -n "$tpl" ]; then w+="<https://sala.example/op/$KI|log>"; else w+="log ~/$dir/salamander-op-$KI.log"; fi
     [ "$P" = "$w" ] && [ -f "$HOME/$dir/salamander-op-$KI.out" ] && ok "$nm" || bad "$nm: [$P] want [$w] / $(ls "$HOME/$dir" 2>&1 | tr '\n' ' ')"
 }
-mkdir -p "$HOME/rel-logs" "$HOME/cli-only" "$HOME/env-logs"
+mkdir -p "$HOME/custom-logs" "$HOME/rel-logs" "$HOME/cli-only" "$HOME/env-logs"
 oplink "SALA_LOG_DIR moved in the default config, address set: the link" link custom-logs "$HOME" 'https://sala.example/#s={name}' SALA_CONFIG="$DEFCFG"
 oplink "SALA_LOG_DIR moved in the default config, no address: the path in the moved folder" link custom-logs "$HOME" '' SALA_CONFIG="$DEFCFG"
 printf 'SALA_LOG_DIR=rel-logs\n' > "$DEFCFG"

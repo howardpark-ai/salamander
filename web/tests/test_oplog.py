@@ -13,7 +13,7 @@ from starlette.testclient import TestClient
 
 from sala_web import oplog as OL
 from sala_web.app import create_app
-from sala_web.config import Settings
+from sala_web.config import Settings, log_dir
 
 ROOT = Path(__file__).resolve().parents[2]
 ID = "1795241896-3776744"          # the shape `sala op` builds an id in: the epoch second and the process id
@@ -256,7 +256,7 @@ def test_a_tail_with_a_newline_in_it_drops_the_partial_line_and_has_no_marker(en
 def test_the_log_dir_is_the_one_setting_both_sides_read(tmp_path, monkeypatch):
     # the CLI sources sala's config file and reads SALA_LOG_DIR from it; sala-web has no sala environment, so it reads the same line from the same
     # file (separate environments: the web service's has no SALA_LOG_DIR, and no SALA_WEB_LOG_DIR is read at all)
-    factory = Settings.__dataclass_fields__["log_dir"].default_factory
+    factory = log_dir
     cfg = tmp_path / "config"
     monkeypatch.setenv("SALA_CONFIG", str(cfg))
     monkeypatch.delenv("SALA_LOG_DIR", raising=False)
@@ -278,6 +278,26 @@ def test_the_log_dir_is_the_one_setting_both_sides_read(tmp_path, monkeypatch):
     assert factory() == tmp_path / "h" / "a" / "b"
 
 
+def test_a_running_service_follows_a_folder_changed_in_the_config(tmp_path, monkeypatch):
+    # the CLI rereads the config at each post, so the service must too: an app built once finds a log in the folder the config names NOW
+    monkeypatch.setenv("HOME", str(tmp_path / "h"))
+    for k in ("SALA_LOG_DIR", "SALA_WEB_LOG_DIR"):
+        monkeypatch.delenv(k, raising=False)
+    cfg = tmp_path / "config"
+    monkeypatch.setenv("SALA_CONFIG", str(cfg))
+    (tmp_path / "h" / "first").mkdir(parents=True)
+    (tmp_path / "h" / "second").mkdir()
+    store(tmp_path / "h" / "first", data="in the first folder\n")
+    store(tmp_path / "h" / "second", data="in the second folder\n")
+    cfg.write_text("SALA_LOG_DIR=first\n")
+    web = TestClient(create_app(make_settings(tmp_path)))                     # built once, as the service is
+    assert web.get(f"/op/{ID}").text == "in the first folder\n"
+    cfg.write_text("SALA_LOG_DIR=second\n")
+    assert web.get(f"/op/{ID}").text == "in the second folder\n"              # no restart
+    cfg.write_text("SALA_TZ=Etc/UTC\n")
+    assert web.get(f"/op/{ID}").status_code == 404                           # back to ~/.claude, where there is none
+
+
 # The CLI's own post, run as the CLI runs it (lib/common.sh and lib/op.sh sourced, the real op_post, Slack a printed line), then its link followed
 # through the web app built the way the service builds it: no sala environment of its own, only the default config file under the same HOME.
 CLI_POST = r"""
@@ -287,25 +307,39 @@ sala_notify_raw() { printf '%s\n' "$1"; }
 OP_PF=(); OP_PL=()
 mkdir -p "$SALA_OP_DIR" "$SALA_LOG_DIR"
 printf 'id=%s\ntime=%s\nfrom=sala-test-h\nwords=w\nverb=model\narg=sala-test-a\narg=--clear\nstate=done\n' "$ID" 1795241896 > "$SALA_OP_DIR/$ID.op"
-printf '%s' "$LOGTEXT" > "$(op_oplog "$ID")"
+case ${LOGKIND:-file} in
+    file) printf '%s' "$LOGTEXT" > "$(op_oplog "$ID")" ;;
+    symlink) printf '%s' "$LOGTEXT" > "$HOME/elsewhere.log"; ln -s "$HOME/elsewhere.log" "$(op_oplog "$ID")" ;;
+    missing) : ;;
+esac
 op_post "$ID" done 1 0 sala-test-a
 """
 CLI_LOG = "[2026-11-02T10:00:00Z] op: cleared the model\nthe verb's own output\n"
-CLI_CASES = {
-    # name: (default config's text, the CLI's own SALA_CONFIG text or None, extra CLI environment, CLI working folder, link expected)
-    "default folder": (None, None, {}, "", True),
-    "moved in the config": ("SALA_LOG_DIR=~/moved\n", None, {}, "", True),
-    "relative in the config, CLI run from elsewhere": ("SALA_LOG_DIR=logs\n", None, {}, "elsewhere", True),
-    "a CLI-only SALA_CONFIG": (None, "SALA_LOG_DIR=~/cli-only\n", {}, "", False),
-    "a CLI-only SALA_LOG_DIR": (None, None, {"SALA_LOG_DIR": "@cli-only"}, "", False),
-    "a CLI-only relative SALA_LOG_DIR": (None, None, {"SALA_LOG_DIR": "elsewhere-logs"}, "", False),
-    "the config's line wins over the CLI's environment, as it does for the CLI": ("SALA_LOG_DIR=~/moved\n", None, {"SALA_LOG_DIR": "@cli-only"}, "", True),
+CLI_CASES = {   # name: (default config's text, the CLI's own SALA_CONFIG text or None, extra CLI environment, CLI working folder, the log's kind, link expected)
+    "default folder": (None, None, {}, "", "file", True),
+    "moved in the config": ("SALA_LOG_DIR=~/moved\n", None, {}, "", "file", True),
+    "relative in the config, CLI run from elsewhere": ("SALA_LOG_DIR=logs\n", None, {}, "elsewhere", "file", True),
+    "a CLI-only SALA_CONFIG": (None, "SALA_LOG_DIR=~/cli-only\n", {}, "", "file", False),
+    "a CLI-only SALA_LOG_DIR": (None, None, {"SALA_LOG_DIR": "@cli-only"}, "", "file", False),
+    "a CLI-only relative SALA_LOG_DIR": (None, None, {"SALA_LOG_DIR": "elsewhere-logs"}, "", "file", False),
+    "the config's line wins over the CLI's environment, as it does for the CLI": ("SALA_LOG_DIR=~/moved\n", None, {"SALA_LOG_DIR": "@cli-only"}, "", "file", True),
+    # the config's SALA_LOG_DIR line in every shape the app's reader understands: the CLI's reading of it must agree with the app's
+    "an export, double quotes, a space in the folder": ('export SALA_LOG_DIR="$HOME/other logs"\n', None, {}, "", "file", True),
+    "a trailing comment": ("SALA_LOG_DIR=~/moved   # kept here\n", None, {}, "", "file", True),
+    "HOME, plain and braced": ("SALA_LOG_DIR=$" + "{HOME}" + "/a\nSALA_LOG_DIR=" + "$HOME" + "/b\n", None, {}, "", "file", True),   # (built so no home-path shape sits in the source)
+    "the last assignment wins": ("SALA_LOG_DIR=~/first\nSALA_LOG_DIR=~/moved\n", None, {}, "", "file", True),
+    "an indented line": ("   SALA_LOG_DIR=~/moved\n", None, {}, "", "file", True),
+    "an empty value is the default": ("SALA_LOG_DIR=\n", None, {}, "", "file", True),
+    # the log itself: the page opens a regular file only, so a link to a missing log or to a symlink would 404
+    "a missing log": (None, None, {}, "", "missing", False),
+    "a symlink log": (None, None, {}, "", "symlink", False),
+    "a missing log in a moved folder": ("SALA_LOG_DIR=~/moved\n", None, {}, "", "missing", False),
 }
 
 
 @pytest.mark.parametrize("case", list(CLI_CASES))
 def test_the_link_the_cli_posts_opens_the_log_or_is_not_posted(tmp_path, monkeypatch, case):
-    default_cfg, cli_cfg, extra, cwd, linked = CLI_CASES[case]
+    default_cfg, cli_cfg, extra, cwd, kind, linked = CLI_CASES[case]
     home = tmp_path / "home"
     (home / ".config" / "salamander").mkdir(parents=True)
     default = home / ".config" / "salamander" / "config"
@@ -317,7 +351,7 @@ def test_the_link_the_cli_posts_opens_the_log_or_is_not_posted(tmp_path, monkeyp
     work = tmp_path / (cwd or "work")
     work.mkdir()
     cli_env = {k: str(home / v[1:]) if v.startswith("@") else v for k, v in extra.items()}
-    env = {"PATH": os.environ["PATH"], "HOME": str(home), "ROOT": str(ROOT), "ID": ID, "LOGTEXT": CLI_LOG,
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "ROOT": str(ROOT), "ID": ID, "LOGTEXT": CLI_LOG, "LOGKIND": kind,
            "SALA_CONFIG": str(other if cli_cfg else default), "SALA_SESSION_URL": "https://sala.example/#s={name}", **cli_env}
     out = subprocess.run(["bash", "-c", CLI_POST], env=env, cwd=work, capture_output=True, text=True, timeout=60, check=True).stdout.splitlines()[-1]
     m = re.search(r"<https://sala\.example(/op/[^|>]+)\|log>$", out)
@@ -334,3 +368,27 @@ def test_the_link_the_cli_posts_opens_the_log_or_is_not_posted(tmp_path, monkeyp
     else:
         assert r.status_code == 404, case             # the page would not have found it: that is why the post names the file instead
         assert "/op/" not in out and out.endswith(f"salamander-op-{ID}.log"), out
+
+
+def test_the_link_check_runs_no_config_command(tmp_path):
+    # the config is sourced once, by the CLI (common.sh); the link check reads the default config as text and never runs it again, and never
+    # touches it at all when the CLI was pointed at another config
+    home = tmp_path / "home"
+    (home / ".config" / "salamander").mkdir(parents=True)
+    default = home / ".config" / "salamander" / "config"
+    base = {"PATH": os.environ["PATH"], "HOME": str(home), "ROOT": str(ROOT), "ID": ID, "LOGTEXT": CLI_LOG,
+            "SALA_SESSION_URL": "https://sala.example/#s={name}"}
+    marker = 'echo ran >> "$HOME/ran.log"\n'
+
+    def run(cfg: Path):
+        return subprocess.run(["bash", "-c", CLI_POST], env={**base, "SALA_CONFIG": str(cfg)}, cwd=tmp_path, capture_output=True, text=True,
+                              timeout=60, check=True).stdout.splitlines()[-1]
+
+    default.write_text(marker + "SALA_LOG_DIR=~/moved\n")
+    assert run(default).endswith("|log>")
+    assert (home / "ran.log").read_text() == "ran\n"                  # once: the CLI's own source of its config, not a second time for the link
+    (home / "ran.log").unlink()
+    other = tmp_path / "other.conf"
+    other.write_text("SALA_LOG_DIR=~/cli-only\n")
+    out = run(other)                                                  # the CLI was pointed elsewhere: the default config is not executed at all
+    assert not (home / "ran.log").exists() and "/op/" not in out

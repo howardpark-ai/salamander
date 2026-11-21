@@ -61,6 +61,13 @@ def brand_suffix() -> str:
     return " ".join(sala_setting("SALA_BRAND_SUFFIX").split())[:40]
 
 
+def log_dir() -> Path:
+    """Where `sala op` writes an operation's log: sala's setting SALA_LOG_DIR (the environment, else the line in sala's config file; default
+    ~/.claude). A relative folder is under $HOME (the CLI does the same, lib/common.sh), never under this process's working directory.
+    Read on each call, so a folder changed in the config is followed at the next request, as the CLI follows it at the next post."""
+    return Path.home() / (sala_setting("SALA_LOG_DIR") or ".claude")
+
+
 def help_session() -> str:
     """The session the overview's Get Help chip opens: sala's setting SALA_HELP_SESSION, one session name (letters, digits, dot,
     underscore, dash; at most 64). "" (the default, and any other value) = the page shows no Get Help chip. Read on each call."""
@@ -218,11 +225,10 @@ class Settings:
         os.environ.get("SALA_WEB_TTYD_SOCKET") or _runtime_dir() / "sala-web-ttyd" / "ttyd.sock"))
     claude_dir: Path = field(default_factory=lambda: Path(
         os.environ.get("SALA_WEB_CLAUDE_DIR") or Path.home() / ".claude"))
-    # where `sala op` writes an operation's log (salamander-op-<id>.log, lib/op.sh, oplog.py): sala's own SALA_LOG_DIR, read the way every sala
-    # setting reaches this app (sala_setting: the environment, else the line in sala's config file, which the CLI sources), default ~/.claude.
-    # One setting, one file both sides read, so the CLI's link to the page and the page's folder cannot differ.
-    # A relative folder is under $HOME (the CLI does the same, lib/common.sh), never under this process's working directory.
-    log_dir: Path = field(default_factory=lambda: Path.home() / (sala_setting("SALA_LOG_DIR") or ".claude"))
+    # where `sala op` writes an operation's log (salamander-op-<id>.log, lib/op.sh, oplog.py). None (the default) = sala's own SALA_LOG_DIR, read
+    # on each request (log_dir() below), so a folder changed in sala's config is followed by the running service, as the CLI follows it on each
+    # post; a path here (tests) fixes it.
+    log_dir: Path | None = None
     # tmux -L <name>; empty means the default server. Tests point this at a private server.
     tmux_socket_name: str = field(default_factory=lambda: os.environ.get("SALA_WEB_TMUX_SOCKET", ""))
     roles_cmd: list[str] = field(default_factory=_roles_cmd)

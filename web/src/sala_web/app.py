@@ -295,7 +295,7 @@ from . import transcript as TR
 from . import unread as UR
 from . import usage as USG
 from . import usage_digest as USGD
-from .config import SHELL_SESSION, Settings, brand_suffix, help_session, owner_name
+from .config import SHELL_SESSION, Settings, brand_suffix, help_session, log_dir, owner_name
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
@@ -679,7 +679,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return Response("method not allowed", status_code=405, media_type="text/plain",
                             headers={**OL.HEADERS, "Allow": "GET, HEAD"})
         raw = request.path_params.get("id", "")
-        text = await run_in_threadpool(OL.read_log, settings.log_dir, raw)
+        text = await run_in_threadpool(OL.read_log, settings.log_dir or log_dir(), raw)
         if text is None:
             return Response("no such log", status_code=404, media_type="text/plain", headers=OL.HEADERS)
         return PlainTextResponse(text, headers=OL.HEADERS)   # text/plain; charset=utf-8
