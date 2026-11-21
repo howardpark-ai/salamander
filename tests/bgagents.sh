@@ -62,7 +62,7 @@ esac
 EOF
 cat > "$T/bin/spawn" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' "$*" >> "$T/spawn.log"
+printf '%s\n' "$*" >> "$T/spawn.log"; echo spawn >> "$T/order.log"
 case "$(cat "$T/spawn.mode" 2>/dev/null || echo ok)" in
     ok) printf '%s\n' "$1" >> "$T/alive.txt"; exit 0 ;;
     dead) exit 0 ;;
@@ -72,21 +72,32 @@ esac
 EOF
 cat > "$T/bin/alive" <<'EOF'
 #!/usr/bin/env bash
-grep -qx -- "$1" "$T/alive.txt" 2>/dev/null
+# exit 0 = live (the name is a line of alive.txt), 1 = none, like `sala sessions resolve --live`; $T/alive.rc forces any other exit (a check that cannot say)
+[ -f "$T/alive.rc" ] && exit "$(cat "$T/alive.rc")"
+grep -qx -- "$1" "$T/alive.txt" 2>/dev/null && exit 0
+exit 1
+EOF
+cat > "$T/bin/ask" <<'EOF'
+#!/usr/bin/env bash
+# the board-item command: notes the call in order.log, waits $T/ask.sleep seconds when that file is there (a slow stackshot), then is the fake client's `post question`
+echo ask >> "$T/order.log"
+[ -f "$T/ask.sleep" ] && sleep "$(cat "$T/ask.sleep")"
+exec python3 "$ROOT/tests/fake-stackshot-client.py" post question "$@"
 EOF
 cat > "$T/bin/prefixes" <<'EOF'
 #!/usr/bin/env bash
 echo x >> "$T/prefixes.calls"
+[ -f "$T/prefixes.sleep" ] && exec sleep "$(cat "$T/prefixes.sleep")"
 [ -f "$T/prefixes.rc" ] && exit "$(cat "$T/prefixes.rc")"
 echo '{"subject": {"prefixes": ["[alpha] ", "[beta] "]}, "pages": {"flavor": "plain"}}'
 EOF
 chmod +x "$T/bin"/*
-export T FAKE_CLIENT_DIR=$T/fake
+export T ROOT FAKE_CLIENT_DIR=$T/fake
 export SALA_BGAGENTS_LIST_CMD=$T/bin/list SALA_BGAGENTS_POST_CMD=$T/bin/post SALA_BGAGENTS_SPAWN_CMD=$T/bin/spawn SALA_BGAGENTS_ALIVE_CMD=$T/bin/alive
-export SALA_BGAGENTS_ASK_CMD="python3 $ROOT/tests/fake-stackshot-client.py post question" SALA_BGAGENTS_PREFIXES_CMD=$T/bin/prefixes SALA_DEFAULT_SCOPE=alpha
+export SALA_BGAGENTS_ASK_CMD=$T/bin/ask SALA_BGAGENTS_PREFIXES_CMD=$T/bin/prefixes SALA_DEFAULT_SCOPE=alpha
 export SALA_BGAGENTS_LOADAVG=$T/loadavg SALA_BGAGENTS_ALIVE_WAIT=0 SALA_PROJECT_RECORD=$T/projects.json SALA_BGAGENTS_NOW=$N0
 export SALA_BGAGENTS_MAX_ATTEMPTS=5 SALA_BGAGENTS_COOLDOWN=600 SALA_BGAGENTS_COOLDOWN_MAX=86400 SALA_BGAGENTS_MAX_LOAD=10 SALA_BGAGENTS_RECORD_GRACE=900
-unset SALA_BGAGENTS SALA_BGAGENTS_MANDATE SALA_BGAGENTS_SENDER SALA_BGAGENTS_LEDGER SALA_BGAGENTS_SUBJECT_PREFIX SALA_SCOPES FAKE_CLIENT_FAIL
+unset SALA_BGAGENTS_RAISE_TIMEOUT SALA_BGAGENTS SALA_BGAGENTS_MANDATE SALA_BGAGENTS_SENDER SALA_BGAGENTS_LEDGER SALA_BGAGENTS_SUBJECT_PREFIX SALA_SCOPES FAKE_CLIENT_FAIL
 
 S="bash $ROOT/bin/salamander bg-agents"
 OUT=""; RC=0
@@ -94,7 +105,7 @@ run() {   # [args] → OUT (stdout+stderr), RC; the clock is $NOW (default N0)
     OUT=$(SALA_BGAGENTS_NOW=${NOW:-$N0} $S "$@" 2>&1); RC=$?
 }
 reset() {   # a clean slate: no ledger, no call logs, a quiet load, an empty list, nothing alive, no project record
-    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls"
+    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/alive.rc" "$T/ask.sleep" "$T/order.log"
     unset FAKE_CLIENT_FAIL
     mkdir -p "$SALA_STATE_DIR"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; NOW=$N0
     export SALA_BGAGENTS=on
@@ -258,6 +269,8 @@ reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo 409 > "$T
 NOW=$((N0+700)) run; NOW=$((N0+1300)) run; ! has_entry $KEY && ok "a failed project's entry resets by the same rule (absent for the cooldown), not by waiting" || bad "failed entry reset"
 
 # -- retire: the marked step -------------------------------------------------------------------------------------------------------------------
+# (no board-item client here: a raised project is left alone, which the raise section below covers; the retry of the start is what this block checks)
+SAVED_ASK=$SALA_BGAGENTS_ASK_CMD; export SALA_BGAGENTS_ASK_CMD=
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo fail > "$T/spawn.mode"
 run
 [ "$RC" = 1 ] && grep -q "retire needed: $NAME" <<<"$OUT" && ok "a failed start of an agent this job listed: \`retire needed: NAME\` and exit 1" || bad "retire needed: rc=$RC [$OUT]"
@@ -265,6 +278,7 @@ run
 [ "$(calls "$T/post.log")" = 1 ] && ! grep -qi retire "$T/post.log" "$T/spawn.log" && ok "nothing is taken off the project: the only call to stackshot was the listing" || bad "a retire-like call: $(cat "$T/post.log")"
 NOW=$((N0+601)) run; [ "$(calls "$T/post.log")" = 1 ] && [ "$(calls "$T/spawn.log")" = 2 ] && [ "$RC" = 1 ] && ok "the next try finds the entry (listed by the ledger): no second listing, the start tried again" || bad "retry after retire: post=$(calls "$T/post.log") spawn=$(calls "$T/spawn.log") rc=$RC [$OUT]"
 echo ok > "$T/spawn.mode"; NOW=$((N0+2000)) run; [ "$RC" = 0 ] && [ "$(led $KEY retire_needed)" = False ] && [ "$(led $KEY started_at)" != 0 ] && ok "a start that works clears the mark: nothing left to retire" || bad "retire cleared: rc=$RC $(cat "$L")"
+export SALA_BGAGENTS_ASK_CMD=$SAVED_ASK
 # a spawn that says up but never is live
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo dead > "$T/spawn.mode"
 run; [ "$RC" = 1 ] && [[ $OUT == *"did not come up"* && $OUT == *"retire needed: $NAME"* ]] && ok "a pane that spawn reports up but is never live is a failed start too" || bad "dead: rc=$RC [$OUT]"
@@ -304,8 +318,9 @@ run
 [ "$(qfield 1 subject)" = "[alpha] example wants a background agent and its start failed 1 time" ] && ok "...its subject says \"1 time\", not \"1 times\"" || bad "retire subject: $(qfield 1 subject)"
 printf '%s\n' "$(qfield 1 all)" | grep -qiE 'exit|--|sala |client|python|spawn|HTTP|\.py' && bad "the retire item has a raw word in it: $(qfield 1 all)" || ok "...and, like the other, no exit code or command in it"
 run --status; [[ $OUT == *"retire needed"* && $OUT == *"board item board#"* ]] && ok "--status: a retire-needed project shows its raised item" || bad "retire status: [$OUT]"
-NOW=$((N0+601)) run; NOW=$((N0+5000)) run; [ "$(qcalls)" = 1 ] && [ "$(calls "$T/spawn.log")" -ge 2 ] && ok "the retry of the start does not raise again (one item per project)" || bad "retire second raise: calls=$(qcalls)"
-echo ok > "$T/spawn.mode"; NOW=$((N0+20000)) run; [ "$(qcalls)" = 1 ] && [ "$(led $KEY retire_needed)" = False ] && ok "a start that works later raises nothing either" || bad "after start: calls=$(qcalls)"
+NOW=$((N0+601)) run; NOW=$((N0+5000)) run; [ "$(qcalls)" = 1 ] && [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(calls "$T/post.log")" = 1 ] && [[ $OUT == *"board item board#"*"raised; left alone until a session resets"* ]] && ok "once raised, no start is tried again and no second item is raised (one item per project)" || bad "retire second raise: calls=$(qcalls) spawn=$(calls "$T/spawn.log") [$OUT]"
+echo ok > "$T/spawn.mode"; NOW=$((N0+20000)) run; [ "$(qcalls)" = 1 ] && [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY retire_needed)" = True ] && ok "...even when a start would work now: the project stays quiet until a session resets it" || bad "after raise: calls=$(qcalls) spawn=$(calls "$T/spawn.log")"
+run --reset "$KEY" >/dev/null; NOW=$((N0+20001)) run; [ "$(qcalls)" = 1 ] && [ "$(calls "$T/spawn.log")" = 2 ] && [ "$(led $KEY retire_needed)" = False ] && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY started_at)" != 0 ] && ok "after \`--reset\` the start is tried and works: the mark is cleared and nothing more is raised" || bad "after reset: calls=$(qcalls) $(cat "$L")"
 
 # the raise fails: nothing is lost, it is no failure of the project, it does not take the run's attempt, and the next run tries again with the same request id
 reset; printf '%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seed "$KEY" example; export FAKE_CLIENT_FAIL=1
@@ -320,7 +335,7 @@ RID1=$(qfield 1 request-id); unset FAKE_CLIENT_FAIL; NOW=$((N0+60)) run
 NOW=$((N0+120)) run; [ "$(qcalls)" = 2 ] && ok "and then never again" || bad "raised again after the retry"
 # a timeout of the client counts as a failed raise as well
 reset; seed "$KEY" example; printf '%s\n' "$KEY example example-main" > "$T/list.txt"
-SALA_BGAGENTS_POST_TIMEOUT=1 FAKE_CLIENT_HANG=3 run; [ "$RC" = 1 ] && [[ $OUT == *"board item needed"* && $OUT == *"timed out"* ]] && [ "$(led $KEY raised)" = False ] && ok "a client that does not answer in time: the same (needed, exit 1, retried)" || bad "timeout: rc=$RC [$OUT]"
+SALA_BGAGENTS_RAISE_TIMEOUT=1 FAKE_CLIENT_HANG=3 run; [ "$RC" = 1 ] && [[ $OUT == *"board item needed"* && $OUT == *"timed out"* ]] && [ "$(led $KEY raised)" = False ] && ok "a client that does not answer in time: the same (needed, exit 1, retried)" || bad "timeout: rc=$RC [$OUT]"
 # no client at all
 reset; seed "$KEY" example; printf '%s\n' "$KEY example example-main" > "$T/list.txt"
 SALA_BGAGENTS_ASK_CMD= run; [ "$RC" = 1 ] && [[ $OUT == *"board item needed: $KEY (could not be raised: no stackshot client"* ]] && [ "$(led $KEY raised)" != True ] && ok "no stackshot client on the box: \`board item needed: PROJECT\`, exit 1, raised false" || bad "no ask client: rc=$RC [$OUT]"
@@ -402,6 +417,124 @@ reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; full_entry "$K
 [ "$(qcalls)" = 1 ] && [ "$(qfield 1 stdin | wc -l)" = 5 ] && [[ $(qfield 1 stdin) == *'If you pick "Keep trying later", a session resets the project'"'"'s record and the job tries again.' ]] && ok "the item's last line says a session resets the record and the job tries again (five lines at most, given up and retire needed together)" || bad "item lines: calls=$(qcalls) [$OUT] $(qfield 1 stdin)"
 qfield 1 all | grep -qiE 'bg-agents|--reset|sala ' && bad "the item names the command: $(qfield 1 all)" || ok "...and the item names no command (the owner never runs it)"
 qfield 1 options | grep -q '^Keep trying later=A session resets' && ok "the option says a session resets the record" || bad "option: $(qfield 1 options)"
+
+# -- review fixes: a raised project stays quiet, a live agent is no start failure, unique request ids, one bounded raise a run ----------------------------------
+seedn() {   # <key=prefix>… → a ledger with one given-up entry per spec (agent <prefix>-engineer, listed, the raise not made)
+    python3 - "$L" "$N0" "$@" <<'PY'
+import json, sys
+path, n0, *specs = sys.argv[1:]; n0 = int(n0); projects = {}
+for sp in specs:
+    key, prefix = sp.split("=")
+    projects[key] = {"prefix": prefix, "agent": prefix + "-engineer", "attempts": 5, "failures": 5, "next_try": n0 + 9999, "created": True, "posted_at": n0 - 9999,
+                     "last": "failed: x", "last_at": n0, "last_plain": "The agent's session could not be started."}
+json.dump({"schema": 1, "projects": projects}, open(path, "w"))
+PY
+}
+patch() {   # <key> <field>=<json value>… → the ledger entry with those fields set
+    python3 - "$L" "$@" <<'PY'
+import json, sys
+path, key, *kv = sys.argv[1:]; d = json.load(open(path))
+for x in kv:
+    k, v = x.split("=", 1); d["projects"][key][k] = json.loads(v)
+json.dump(d, open(path, "w"))
+PY
+}
+mkdir -p "$T/fake"
+
+# 1. once an item is raised, the project makes no start attempt until a session resets it (the owner's other two answers leave it raised)
+for shape in 'retire_needed=true attempts=1' 'retire_needed=false attempts=2'; do
+    want_att=$(echo "$shape" | sed 's/.*attempts=//'); reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"
+    # shellcheck disable=SC2086
+    patch "$KEY" next_try=0 raised=true raised_at=$N0 'raised_item="item-seed"' failures=1 $shape
+    run; NOW=$((N0+700)) run; NOW=$((N0+999999)) run
+    [ "$RC" = 0 ] && [ "$(calls "$T/post.log")" = 0 ] && [ "$(calls "$T/spawn.log")" = 0 ] && [ "$(qcalls)" = 0 ] && [[ $OUT == *"item-seed raised; left alone until a session resets"* ]] && [ "$(led $KEY attempts)" = "$want_att" ] \
+        && ok "a raised project below the cap ($shape), due, however long it waits: no listing, no start, no second item, attempts as they were" || bad "raised project was tried ($shape): post=$(calls "$T/post.log") spawn=$(calls "$T/spawn.log") [$OUT]"
+done
+run --status; [[ $OUT == *"left alone until a session resets it (board item raised)"* ]] && ok "--status says it is left alone until a session resets it" || bad "status raised: [$OUT]"
+run --reset "$KEY" >/dev/null; NOW=$((N0+10)) run; [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY started_at)" != 0 ] && ok "\`--reset\` (\"Keep trying later\") makes it tried again from the first attempt" || bad "after reset: spawn=$(calls "$T/spawn.log") $(cat "$L")"
+reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example"; patch "$KEY" next_try=0 raised=true 'raised_item="item-seed"' attempts=2
+run; [ "$(calls "$T/post.log")" = 1 ] && grep -q "^$KEY2 " "$T/post.log" && ok "a raised project does not take the run's attempt: the next project is started" || bad "raised blocked the next project: [$(cat "$T/post.log" 2>/dev/null)]"
+
+# 2. a project that stays on the want list while its agent's session is live is no start failure
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; run; patch "$KEY" attempts=4
+NOW=$((N0+700)) run
+[ "$RC" = 0 ] && [ "$(led $KEY attempts)" = 5 ] && [ "$(qcalls)" = 0 ] && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY stale)" = True ] && [ "$(led $KEY last)" = "agent running, want list stale" ] && [[ $OUT == *"agent running, want list stale"* ]] \
+    && ok "at the cap with a live pane: nothing raised, the ledger and the log say \`agent running, want list stale\`" || bad "stale: rc=$RC calls=$(qcalls) [$OUT] $(cat "$L")"
+run --status; [[ $OUT == *"agent running, want list stale"* && $OUT != *"not raised yet"* ]] && ok "--status says so (not \"board item not raised yet\")" || bad "status stale: [$OUT]"
+NOW=$((N0+999999)) run; [ "$(qcalls)" = 0 ] && [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(calls "$T/post.log")" = 1 ] && [ "$(led $KEY attempts)" = 5 ] && ok "...and later runs raise nothing and attempt nothing while the pane stays alive" || bad "stale later: calls=$(qcalls) [$OUT]"
+run --dry-run; [[ $OUT == *"agent running, want list stale"* && $OUT != *"would raise"* ]] && [ "$(qcalls)" = 0 ] && ok "--dry-run says the same and raises nothing" || bad "dry stale: [$OUT]"
+: > "$T/alive.txt"; NOW=$((N0+1000000)) run
+[ "$(qcalls)" = 1 ] && [ "$(led $KEY raised)" = True ] && [ "$(led $KEY stale)" = False ] && [[ $(qfield 1 subject) == *"its start failed 1 time" ]] && [[ $(qfield 1 stdin) == *"has failed 1 time."* ]] && ok "once the pane is gone the project is stuck like any other: the item is raised, saying the start failed" || bad "after the pane died: calls=$(qcalls) [$OUT] $(cat "$L")"
+# an entry flagged stale (below the cap, retire needed) is kept out of the retry loop while its pane is alive, and goes back into it when the pane is gone
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; patch "$KEY" next_try=0 attempts=1 failures=1 retire_needed=true stale=true; echo "$NAME" > "$T/alive.txt"
+run; [ "$(calls "$T/post.log")" = 0 ] && [ "$(calls "$T/spawn.log")" = 0 ] && [ "$(qcalls)" = 0 ] && [ "$(led $KEY attempts)" = 1 ] && [[ $OUT == *"no attempt while its pane is alive"* ]] && ok "a stale project below the cap makes no attempt while its pane is alive" || bad "stale loop: [$OUT]"
+: > "$T/alive.txt"; NOW=$((N0+10)) run; [ "$(led $KEY stale)" = False ] && [ "$(calls "$T/spawn.log")" = 1 ] && ok "...and is looked at as any other project once the pane is gone (the start is tried)" || bad "stale cleared: $(cat "$L")"
+# the check cannot say: raised as today, saying only what is known
+for how in "rc7" "nocmd"; do
+    reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example
+    if [ "$how" = rc7 ]; then echo 7 > "$T/alive.rc"; run; else SALA_BGAGENTS_ALIVE_CMD= run; fi
+    [ "$(qcalls)" = 1 ] && [ "$(led $KEY raised)" = True ] && [[ $(qfield 1 subject) == "[alpha] example wants a background agent and its start did not finish" ]] && [[ $(qfield 1 stdin) == *"and the start did not finish."* && $(qfield 1 stdin) != *"failed"* && $(qfield 1 stdin) != *"without a background agent"* ]] \
+        && [[ $(qfield 1 ask) == *"Stakes: the job does not try again until then"* ]] && ok "the liveness check cannot say ($how): the item is raised and says only that the start did not finish" || bad "uncertain ($how): calls=$(qcalls) $(qfield 1 all)"
+done
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; patch "$KEY" retire_needed=true; echo 2 > "$T/alive.rc"; run
+[[ $(qfield 1 stdin) == *"The agent is still on the project, and the job may not take it off without your word."* && $(qfield 1 stdin) != *"not running"* ]] && ok "...a retire-needed item with an unknown session does not say the session is not running" || bad "uncertain retire text: $(qfield 1 stdin)"
+
+# 3. the request id: the full project key, one token an escalation
+reset; printf '%s\n%s\n' "projects/example example example-main" "infra/example example example-main" > "$T/list.txt"; seedn "projects/example=example" "infra/example=example"
+run; NOW=$((N0+1)) run
+RA=$(qfield 1 request-id); RB=$(qfield 2 request-id)
+[ "$(qcalls)" = 2 ] && [ "$RA" != "$RB" ] && [[ $RA == bgagents-infra-example-$N0-* && $RB == bgagents-projects-example-$((N0+1))-* ]] && [ "$(led infra/example raised_item)" != "$(led projects/example raised_item)" ] && ok "two projects with one slug in different scopes get different request ids and two items" || bad "slug collision: [$RA] [$RB] calls=$(qcalls)"
+SAME=$(python3 - "$T/fake/calls.jsonl" <<'PY'
+import json, sys
+print(len({json.loads(l)["argv"][json.loads(l)["argv"].index("--request-id") + 1] for l in open(sys.argv[1]) if '"post", "question"' in l}))
+PY
+)
+[ "$SAME" = 2 ] && ok "...even in one second (the same run clock)" || bad "ids in one second: $SAME"
+[[ $RA =~ ^bgagents-infra-example-$N0-[0-9a-f]{8}$ ]] && ok "the id is bgagents-<scope>-<slug>-<time>-<random>" || bad "id shape: $RA"
+# a reset followed by another give-up in the same second does not reuse the id
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; run; R1=$(qfield 1 request-id)
+run --reset "$KEY" >/dev/null; seed "$KEY" example; run; R2=$(qfield 2 request-id)
+[ "$(qcalls)" = 2 ] && [ -n "$R1" ] && [ "$R1" != "$R2" ] && ok "a reset and another give-up in the same second: a new request id, a second item" || bad "same-second reuse: [$R1] [$R2] calls=$(qcalls)"
+# a retry of the same escalation keeps its id (the raise that failed, then worked) and the ledger holds it
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; export FAKE_CLIENT_FAIL=1; run; T1=$(led $KEY raise_token); unset FAKE_CLIENT_FAIL
+NOW=$((N0+5)) run; NOW=$((N0+9)) run
+[ -n "$T1" ] && [ "$(qfield 2 request-id)" = "$T1" ] && [ "$(qcalls)" = 2 ] && ok "a retry of the same escalation reuses the token the ledger kept (nothing filed twice)" || bad "retry id: [$T1] [$(qfield 2 request-id)]"
+
+# 4. one bounded raise a run, after the start, without the ledger lock
+reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example" "$KEY2=second"
+run; [ "$RC" = 0 ] && [ "$(qcalls)" = 1 ] && [[ $OUT == *"1 more project still needs a board item"* ]] && [ "$(led $KEY raised)" = True ] && [ "$(led $KEY2 raised)" = False ] && ok "two outstanding projects: ONE raise in the run (the first by key), the run says one more waits (exit 0)" || bad "one raise: rc=$RC calls=$(qcalls) [$OUT]"
+NOW=$((N0+1)) run; [ "$(qcalls)" = 2 ] && [ "$(led $KEY2 raised)" = True ] && [ "$RC" = 0 ] && ok "the next run raises the second" || bad "second raise: calls=$(qcalls)"
+NOW=$((N0+2)) run; [ "$(qcalls)" = 2 ] && ok "and then nothing more" || bad "third raise"
+reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example"
+run; ORDER=$(tr '\n' ' ' < "$T/order.log")
+[ "$ORDER" = "spawn ask " ] && [ "$(calls "$T/post.log")" = 1 ] && [ "$(led $KEY raised)" = True ] && ok "the start comes first: the next project is started, then the board item is raised" || bad "order: [$ORDER]"
+# the ledger lock is not held across the raise: a reset of another project runs during a slow call, and wins over what the run writes afterwards
+reset; printf '%s\n%s\n' "$KEY example example-main" "$KEY2 second second-main" > "$T/list.txt"; seedn "$KEY=example" "$KEY2=second"; patch "$KEY2" raised=true 'raised_item="item-seed"'; echo 4 > "$T/ask.sleep"
+export SALA_BGAGENTS_RAISE_TIMEOUT=30
+( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
+for _ in $(seq 1 100); do [ -s "$T/order.log" ] && break; sleep 0.1; done
+t0=$(date +%s%N); run --reset "$KEY2"; t1=$(date +%s%N)
+[ "$RC" = 0 ] && [[ $OUT == *"cleared the ledger entry"* ]] && [ $(( (t1 - t0) / 1000000 )) -lt 3000 ] && ok "a slow raise does not block \`--reset\` of another project (it ran during the call, in under 3 s)" || bad "reset blocked: rc=$RC [$OUT] $(( (t1 - t0) / 1000000 )) ms"
+wait "$BG"
+[ "$(cat "$T/bg.rc")" = 0 ] && [ "$(led $KEY raised)" = True ] && [ "$(led $KEY2 attempts)" = 0 ] && [ "$(led $KEY2 raised)" = False ] && ok "...the run's result is written to the entry as it then is: the raise is recorded and the other project's reset is not written over" || bad "after the slow raise: rc=$(cat "$T/bg.rc") $(cat "$L")"
+# a reset of the SAME project during the call wins: the result is set aside
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; echo 3 > "$T/ask.sleep"
+( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
+for _ in $(seq 1 100); do [ -s "$T/order.log" ] && break; sleep 0.1; done
+run --reset "$KEY"; wait "$BG"
+[ "$RC" = 0 ] && [ "$(cat "$T/bg.rc")" = 0 ] && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY raise_token)" = "" ] && [ "$(led $KEY attempts)" = 0 ] && grep -q "reset while the board item" "$T/bg.out" && ok "a \`--reset\` of the same project during the call wins: the entry stays cleared and the run says the result was not recorded" || bad "reset lost: $(cat "$L") [$(cat "$T/bg.out")]"
+unset SALA_BGAGENTS_RAISE_TIMEOUT
+# the raise has its own short timeout: the listing's timeout does not apply to it, and the prefixes call is bounded by it too
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example
+SALA_BGAGENTS_POST_TIMEOUT=1 FAKE_CLIENT_HANG=2 run; [ "$RC" = 0 ] && [ "$(led $KEY raised)" = True ] && ok "SALA_BGAGENTS_POST_TIMEOUT does not bound the raise" || bad "post timeout applied to the raise: rc=$RC [$OUT]"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example
+SALA_BGAGENTS_RAISE_TIMEOUT=1 FAKE_CLIENT_HANG=3 run; [ "$RC" = 1 ] && [[ $OUT == *"board item needed"*"timed out after 1 s"* ]] && ok "SALA_BGAGENTS_RAISE_TIMEOUT bounds the question's call" || bad "raise timeout: rc=$RC [$OUT]"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; echo 4 > "$T/prefixes.sleep"
+t0=$(date +%s); SALA_BGAGENTS_RAISE_TIMEOUT=1 run; t1=$(date +%s)
+[ "$RC" = 0 ] && [ $((t1 - t0)) -le 3 ] && [ "$(led $KEY raised)" = True ] && ok "...and so does the read of the instance's prefixes (a timeout there falls back to the default scope)" || bad "prefixes timeout: rc=$RC $((t1 - t0)) s [$OUT]"
+[ "$(env -u SALA_BGAGENTS_RAISE_TIMEOUT python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import bgagents; print(bgagents.config()["raise_timeout"])' "$ROOT/lib")" = 30.0 ] && ok "the raise timeout defaults to 30 s" || bad "default raise timeout"
+grep -q 'SALA_BGAGENTS_RAISE_TIMEOUT=30' "$ROOT/config.example" && grep -q 'SALA_BGAGENTS_RAISE_TIMEOUT' "$ROOT/docs/bg-agents.md" && ok "the setting is in config.example and docs/bg-agents.md" || bad "setting undocumented"
+rm -f "$T/ask.sleep" "$T/prefixes.sleep"
 
 # -- agent already on the map ------------------------------------------------------------------------------------------------------------------
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; record "$KEY" "$NAME"
