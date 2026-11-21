@@ -6,7 +6,7 @@
 #SALA_RC_CAPACITY=32              # served sessions (CLI default)
 #SALA_RC_RESTART_DELAY=30         # seconds between server relaunches
 #SALA_TZ=                         # an IANA zone, e.g. Europe/Berlin: the zone of every time sala writes (spawn names, logs) and of every time the web UI shows, labelled with the zone's own abbreviation (CEST, EST). Unset or empty = this machine's local time (and the viewer's own zone in the web UI). The briefings (contrib/briefing) have their own zone, BRIEFING_TZ below, and do not follow it
-#SALA_LOG_DIR=~/.claude           # revive/rc logs, rc stop marker, operation logs (sala-web serves those at /op/<id> from this folder too)
+#SALA_LOG_DIR=~/.claude           # revive/rc logs, rc stop marker, operation logs (sala-web serves those at /op/<id> from this folder too); a relative folder is under $HOME
 #SALA_RESURRECT_DIR=~/.local/share/tmux/resurrect   # tmux-resurrect saves (a symlink to the pane map stays here since Tue Oct 6th 2026)
 #SALA_SIDECAR=~/.local/state/salamander/pane-map.tsv   # the pane map (session → conversation, name, cwd; a ledger, see docs/design-notes.md); its log, freeze files and map-history/ sit beside it
 #SALA_SESSIONS=write              # the session registry (phases 1 and 2; docs/session-registry.md): sessions.json beside the pane map, one row per session with an id

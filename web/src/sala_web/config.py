@@ -221,7 +221,8 @@ class Settings:
     # where `sala op` writes an operation's log (salamander-op-<id>.log, lib/op.sh, oplog.py): sala's own SALA_LOG_DIR, read the way every sala
     # setting reaches this app (sala_setting: the environment, else the line in sala's config file, which the CLI sources), default ~/.claude.
     # One setting, one file both sides read, so the CLI's link to the page and the page's folder cannot differ.
-    log_dir: Path = field(default_factory=lambda: Path(sala_setting("SALA_LOG_DIR") or Path.home() / ".claude"))
+    # A relative folder is under $HOME (the CLI does the same, lib/common.sh), never under this process's working directory.
+    log_dir: Path = field(default_factory=lambda: Path.home() / (sala_setting("SALA_LOG_DIR") or ".claude"))
     # tmux -L <name>; empty means the default server. Tests point this at a private server.
     tmux_socket_name: str = field(default_factory=lambda: os.environ.get("SALA_WEB_TMUX_SOCKET", ""))
     roles_cmd: list[str] = field(default_factory=_roles_cmd)
