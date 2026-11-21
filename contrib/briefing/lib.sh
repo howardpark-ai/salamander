@@ -429,9 +429,37 @@ PY
 # sala_board_links (lib/boardlinks.sh in this checkout, the one implementation sala's own posts run): each bare board#N in a
 # post becomes a link to its item at SALA_STACKSHOT_WEB. Missing (a copy of contrib/briefing alone): the text goes as it is.
 if [ -r "$BRIEFING_DIR/../../lib/boardlinks.sh" ]; then . "$BRIEFING_DIR/../../lib/boardlinks.sh"; else sala_board_links() { cat; }; fi
-# sala_slack_safe (lib/slacksafe.sh, the one implementation every Slack post runs, last, on the final text): a digit run between colons
-# gets an invisible zero-width space before its closing colon so Slack does not draw it as an emoji code. Missing: the text goes as it is.
-if [ -r "$BRIEFING_DIR/../../lib/slacksafe.sh" ]; then . "$BRIEFING_DIR/../../lib/slacksafe.sh"; else sala_slack_safe() { cat; }; fi
+# sala_slack_safe: a digit run between colons gets an invisible zero-width space before its closing colon, so Slack does not draw it as an emoji
+# code (a gray box); it runs last, on the final text. This is a COPY of the function in lib/slacksafe.sh (the rules are written there), defined here
+# so a copy of contrib/briefing alone, with no lib/ beside it, escapes its posts as well; tests/slacksafe.sh diffs the two bodies and fails on a drift.
+sala_slack_safe() {
+    python3 -I -c '
+import re, sys
+Z = chr(0x200b)
+PROT = re.compile(
+    r"(?P<fence>```.*?```)"
+    r"|(?P<code>`[^`\n]*`)"
+    r"|(?P<link><(?:[A-Za-z][A-Za-z0-9+.-]*://|mailto:|[@#!])[^<>\s|]*(?:\|(?P<label>[^<>\n]*))?>)"
+    r"|(?P<url>(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]*://[^\s<>`]+)", re.S)
+CODE = re.compile(r":[0-9]{1,2}(?=:)")
+def esc(s): return CODE.sub(lambda m: m.group(0) + Z, s)
+def part(m):
+    if m.group("link") is not None and m.group("label") is not None:
+        t = m.group(0); i = len(t) - len(m.group("label")) - 1
+        return t[:i] + esc(m.group("label")) + ">"
+    return m.group(0)
+def fix(t):
+    out, pos = [], 0
+    for m in PROT.finditer(t):
+        out.append(esc(t[pos:m.start()])); out.append(part(m)); pos = m.end()
+    out.append(esc(t[pos:]))
+    return "".join(out)
+raw = sys.stdin.buffer.read()
+try: res = fix(raw.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape")
+except Exception: res = raw
+sys.stdout.buffer.write(res)
+'
+}
 
 # The bot-token post (below) reads the same token files and the same API base as `sala dm` (lib/dm.sh: dm_token_dir, dm_api_base). A
 # copy of contrib/briefing alone has no lib/dm.sh: the two one-line defaults below then stand in for it.
