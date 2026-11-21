@@ -476,6 +476,7 @@
 #SALA_BGAGENTS_POST_TIMEOUT=120  # seconds the listing call may take (a timeout of the listing is a failure; the next attempt reads the project record first)
 #SALA_BGAGENTS_SPAWN_TIMEOUT=300 # seconds `sala spawn` may take
 #SALA_BGAGENTS_RAISE_TIMEOUT=30  # seconds each of the board item's two calls (the instance's prefixes, the question) may take; the raise comes after the run's start, one a run, and the ledger lock is not held for it (a timeout: `board item needed`, tried again next run)
+#SALA_BGAGENTS_MAX_PROBES=3      # the most liveness checks a run makes (at least 2), made without the ledger lock; the least recently checked project first, the rest at the next run
 #SALA_BGAGENTS_LIST_CMD=         # the want list's command (the suites stub it). Unset: `python3 <stackshot client> background-wanted`; set empty: no client, the run says so and reads nothing
 #SALA_BGAGENTS_POST_CMD=         # the listing command, called with <project key> <name> --role engineer --back --mandate <line> --sender <label> appended. Unset: `python3 <stackshot client> post project-agent`
 #SALA_BGAGENTS_ASK_CMD=          # the board-item command: raises ONE item for the owner when a project is given up or an agent this job listed did not start (docs/bg-agents.md). Called with --project <key>
