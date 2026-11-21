@@ -156,5 +156,4 @@ All are in `config.example`, commented, default off. They are read from the conf
 
 ## Running it from a timer
 
-No unit file ships with sala: a hand-linked unit is not installed by a deploy. Make the timer with `sala job add` (`docs/units.md`), which writes the unit and refuses a taken name,
-for example every ten minutes; the job's script is `sala bg-agents`. The job does nothing while `SALA_BGAGENTS` is off, so the timer can be installed first and the switch turned on after.
+The unit ships in `systemd/` as `sala-bg-agents.timer` (with `sala-bg-agents.service`): it runs `sala bg-agents` five minutes after boot and every ten minutes after its last run, on lane `none`. It was made with `sala job add` (`docs/units.md`), which writes the unit and refuses a taken name; a deploy does not link it, so after the deploy that lands it run `sala job relink sala-bg-agents`. The unit does nothing while `SALA_BGAGENTS` is off, so the timer can be installed first and the switch turned on after.

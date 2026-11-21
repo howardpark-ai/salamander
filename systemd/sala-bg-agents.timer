@@ -1,0 +1,10 @@
+[Unit]
+Description=Start the background agent a project wants from the want list, one project a run (timer)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+Unit=sala-bg-agents.service
+
+[Install]
+WantedBy=timers.target
