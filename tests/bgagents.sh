@@ -88,9 +88,9 @@ delay=0; [ -f "$T/alive.sleep" ] && delay=$(cat "$T/alive.sleep")
 echo "$1" > "$T/alive.ready.$n"
 [ "$delay" != 0 ] && sleep "$delay"
 if [ "$hold" = 1 ]; then
-    echo holding > "$T/alive.holding.$n"; until=$((SECONDS + 15)); why=""
+    echo holding > "$T/alive.holding.$n"; until=$((SECONDS + ${ALIVE_HOLD_BOUND:-15})); why=""
     while [ -z "$why" ]; do
-        if [ ! -e "$T/alive.hold.$n" ]; then why=released; elif [ "$SECONDS" -ge "$until" ]; then why=bound; else sleep 0.1; fi     # the reason is set here, when the loop sees it, never decided by a later look at the file
+        if [ "$SECONDS" -ge "$until" ]; then why=bound; elif [ ! -e "$T/alive.hold.$n" ]; then why=released; else sleep 0.1; fi     # the reason is set here, when the loop sees it, never decided by a later look at the file
     done
     echo "$why" > "$T/alive.released.$n"
 fi
@@ -123,7 +123,7 @@ done
 if [ "$hold" = 1 ]; then
     echo holding > "$T/ask.holding.$n"; rt=$SALA_BGAGENTS_RAISE_TIMEOUT; [ -n "$rt" ] || rt=30; until=$((SECONDS + rt / 2)); why=""
     while [ -z "$why" ]; do
-        if [ ! -e "$T/ask.hold.$n" ]; then why=released; elif [ "$SECONDS" -ge "$until" ]; then why=bound; else sleep 0.1; fi     # the reason is set here, when the loop sees it, never decided by a later look at the file
+        if [ "$SECONDS" -ge "$until" ]; then why=bound; elif [ ! -e "$T/ask.hold.$n" ]; then why=released; else sleep 0.1; fi     # the reason is set here, when the loop sees it, never decided by a later look at the file
     done
     echo "$why" > "$T/ask.released.$n"
 fi
@@ -758,6 +758,15 @@ reset; : > "$T/ask.hold.1"; : > "$T/alive.hold.1"
 ( SALA_BGAGENTS_RAISE_TIMEOUT=90 "$T/bin/ask" --project k < /dev/null > /dev/null 2>&1 ) & PK=$!; ( "$T/bin/alive" some-name < /dev/null > /dev/null 2>&1 ) & PL=$!
 need_held ask 1; need_held alive 1; rm -f "$T/ask.hold.1" "$T/alive.hold.1"; wait "$PK" "$PL"
 [ "$(cat "$T/ask.released.1" 2>/dev/null)" = released ] && [ "$(cat "$T/alive.released.1" 2>/dev/null)" = released ] && ok "a hold the test removed is recorded as released (board-item and liveness stubs)" || bad "released not recorded: [$(cat "$T/ask.released.1" 2>/dev/null)] [$(cat "$T/alive.released.1" 2>/dev/null)]"
+# (j2) the deadline is read BEFORE the file: a hold whose file the test removes after the deadline has passed (here a deadline that is already up when the loop starts) is "bound", never "released"
+reset; : > "$T/ask.hold.1"; echo 1 > "$T/ask.sleep"
+( SALA_BGAGENTS_RAISE_TIMEOUT=0 "$T/bin/ask" --project k < /dev/null > /dev/null 2>&1 ) & PK=$!
+for _ in $(seq 1 100); do [ -e "$T/ask.ready.1" ] && break; sleep 0.1; done; rm -f "$T/ask.hold.1"; wait "$PK"
+[ "$(cat "$T/ask.released.1" 2>/dev/null)" = bound ] && ok "a file removed after the deadline is recorded as bound (board-item stub)" || bad "ask: late removal read as [$(cat "$T/ask.released.1" 2>/dev/null)]"
+reset; : > "$T/alive.hold.1"; echo 1 > "$T/alive.sleep"
+( ALIVE_HOLD_BOUND=0 "$T/bin/alive" some-name < /dev/null > /dev/null 2>&1 ) & PL=$!
+for _ in $(seq 1 100); do [ -e "$T/alive.ready.1" ] && break; sleep 0.1; done; rm -f "$T/alive.hold.1"; wait "$PL"
+[ "$(cat "$T/alive.released.1" 2>/dev/null)" = bound ] && ok "a file removed after the deadline is recorded as bound (liveness stub)" || bad "alive: late removal read as [$(cat "$T/alive.released.1" 2>/dev/null)]"
 # (f) the subcommand table describes the shipped timer
 ! grep -q "No timer is shipped" "$ROOT/docs/subcommands.md" && grep -q 'sala-bg-agents.timer' "$ROOT/docs/subcommands.md" && ok "docs/subcommands.md says the timer ships in systemd/ (not that none ships)" || bad "subcommands.md timer sentence"
 
