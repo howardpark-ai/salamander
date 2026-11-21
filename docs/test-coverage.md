@@ -4177,3 +4177,25 @@ In `tests/op.sh`: with `SALA_SESSION_URL` set to an https address, and to one wi
 `asked by <session> · log ~/.claude/salamander-op-<id>.log` as before; each is one post. With `SALA_LOG_DIR` moved in the default config file the link is still given (and with no address the path shows the moved folder), a relative one is under `$HOME` whatever folder the runner is in, and a CLI-only `SALA_CONFIG` or `SALA_LOG_DIR` (absolute or relative) gets the path with no link, the operation's files in the folder it names.
 Not covered, and why: the Slack rendering of the link and a real browser opening it (a Slack and a proxy sign-in are not in a test), and a web unit whose own
 environment sets `SALA_LOG_DIR` differently from the config file (not supported: the setting is read from the config for both).
+
+### `tests/op.sh` +24, none retired: the default-lane line for small batches, backtick runs and quoted paths in the post's filter (Sat Nov 21st 2026)
+
+Three review points on the short post of `op_post` / `op_plain` (`lib/op.sh`). The lane fallback's default-lane line reached the post
+only when the fallback moved two or more sessions (only that branch of `op_finish` filled the lines about no session), so a fallback
+that moved the default lane and none or one session left it out; it now reaches `OP_PL` for every count, outside the five-entry cap.
+`op_plain` read a double-backtick delimiter as an empty span, so ``cmd`` kept `cmd` in the post; a run of N backticks now opens a
+span that closes at the next run of N (an unpaired opener drops the rest of the text), whole. Its path filter missed a quoted path and
+a path after `=`, `:` or an opening bracket; those go as well, while a URL (a `:` followed by `//`) and a time (`04:00`) stay.
+Covered, in `tests/op.sh` (fixtures made with `mkfin`/`fin`, `op_plain` called on text): the fallback that moved the default lane and
+no session (the default-lane line is the only line under the headline), one session (the session named in the headline, the default
+line under it) and two (the count, the default line); a double and a triple backtick span, two runs of different length inside one
+span, and an unpaired double tick; a path in double and in single quotes, `file=/tmp`, `key:/etc/x`, `(path=/var/log)`,
+`[/var/log]` and `<~/f>`; and, left alone, `https://host/x`, `http://h:80/y.`, `04:00`, `14:30` and a query string with `a:b`. The
+earlier case of an unpaired single tick now expects the rest of the text dropped.
+Five more cases come from a review of the filter, each failing on the code before: a quoted path with spaces (double and single
+quotes) goes whole and a `. ` inside it no longer cuts the sentence (quoted paths are dropped before the sentence cut); a bare slash after a
+key (`file=/`, `path:~/`, `dir=./`) goes; a closing bracket inside an unquoted token (`/tmp/customer]records.csv`) goes with the token, while
+one at its very end stays with the bracket it closes; and the post no longer rewrites unrelated text (`retry() returned []` and `[3]` are kept:
+a bracket pair is dropped only when a path or keyed path was its whole content, `[/tmp/a]`, `(path=/var/log/x)`).
+What the filter does not try to catch: an unquoted path that contains a space, and a path built from anything but a leading `/`, `~/`, `./` or
+`../` (a drive letter, a bare relative `a/b`); it is a courtesy against leaking a path into a phone post, not a parser.

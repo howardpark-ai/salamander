@@ -1578,11 +1578,36 @@ op_event() {  # <id> <done|stuck> <n named> <nf failed or skipped among them> <l
 # sala's web address set (op_web_base: the origin of SALA_SESSION_URL) a Slack link, `<BASE/op/<id>|log>`, to sala-web's read-only page of that
 # log (web/src/sala_web/oplog.py, behind the site's sign-in); with none set, or when sala-web would not find the log (its folder, SALA_WEB_LOG_DIR
 # else ~/.claude, is not SALA_LOG_DIR), the path of the log file as text, `log ~/.claude/salamander-op-<id>.log`.
+op_drop_ticks() {  # <text> → the text with every backtick-delimited span dropped whole: a run of N backticks opens, the next run of exactly N closes (an unpaired opener drops the rest of the text)
+    awk '{
+        s = $0; out = ""
+        while ((i = index(s, "`")) > 0) {
+            out = out substr(s, 1, i - 1); s = substr(s, i)
+            match(s, /^`+/); n = RLENGTH; rest = substr(s, n + 1); found = 0; pos = 1
+            while (match(substr(rest, pos), /`+/)) {
+                st = pos + RSTART - 1; len = RLENGTH
+                if (len == n) { found = 1; break }
+                pos = st + len
+            }
+            if (found) s = substr(rest, st + len); else s = ""
+        }
+        print out s
+    }' <<< "$1"
+}
 op_plain() {  # <text> → one plain sentence: one line, its first sentence, no backtick span, no exit codes, no paths
     local t; t=$(op_one_line "$*")
-    t=$(sed -E 's/`[^`]*`//g' <<< "$t"); t=${t//\`/}   # a backtick-enclosed span is a command or a name: dropped whole (the ticks alone would leave the command in the text), then any stray tick
+    t=$(op_drop_ticks "$t"); t=${t//\`/}   # a backtick span (a run of N ticks to the next run of N) is a command or a name: dropped whole (the ticks alone would leave the command in the text), then any stray tick
+    # a quoted path goes whole, spaces and dots inside it too, so it goes before the sentence cut ("/tmp/my file. csv" must not be cut in the middle)
+    t=$(sed -E -e 's/"(~|\.{0,2})\/[^"]*"//g' -e "s/'(~|\.{0,2})\/[^']*'//g" <<< "$t")
     t=$(sed -E 's/([.!?])[[:space:]].*$/\1/' <<< "$t")   # the first sentence first, so a path's own dot never ends it
-    t=$(sed -E 's/ ?\((exit|exited|rc|status)[ =:]*[0-9]+\)//Ig; s/,? ?(exit(ed)?( code| status)?|rc)[ =:]*[0-9]+//Ig; s/\((~|\.{0,2})\/[^ )]*\)//g; s/(^| )(~|\.{0,2})\/[^ ]*//g; s/ +/ /g; s/^ //; s/ ([.,;:])/\1/g' <<< "$t")   # a path of any depth goes: /tmp, /etc, ~/file, ~/a/b, ./x
+    # a path of any depth goes: alone in brackets, after a key and = or : (file=/tmp, key:/etc/x, dir=./), after an opening bracket, or at a word start: /tmp, /etc, ~/file, ~/a/b, ./x, /;
+    # a token ends at a space, but a closing bracket at its very end stays (it closes the bracket the path sat in); a URL (a : followed by //) and a time (04:00) have no slash right after the delimiter and stay
+    t=$(sed -E -e 's/ ?\((exit|exited|rc|status)[ =:]*[0-9]+\)//Ig' -e 's/,? ?(exit(ed)?( code| status)?|rc)[ =:]*[0-9]+//Ig' \
+        -e 's/[(\[{<]((~|\.{0,2})\/[^] )}>]*|[A-Za-z0-9_.-]+[=:](~|\.{0,2})\/([^ \/][^] )}>]*)?)[])}>]//g' \
+        -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+[=:](~|\.{0,2})\/($|[] )}>])/\1\3/g' \
+        -e 's/(^|[ (\[{<])[A-Za-z0-9_.-]+[=:](~|\.{0,2})\/[^ \/]([^ ]*[^] )}>])?/\1/g' \
+        -e 's/(^|[ (\[{<])(~|\.{0,2})\/([^ ]*[^] )}>])?/\1/g' \
+        -e 's/ +/ /g; s/^ //; s/ $//; s/ ([.,;:])/\1/g' <<< "$t")
     t=${t:0:200}
     printf '%s\n' "$t"
 }
@@ -1723,6 +1748,11 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
         for y in ${fb[@]+"${fb[@]}"} ${ot[@]+"${ot[@]}"}; do dl+="$nl  - $y"; done
     else
         while IFS= read -r y; do [ -n "$y" ] && { dl+="$nl  - $y"; }; done < <(op_vals "$id" detail)   # a many-session operation's line per session (op_run)
+        if [ "$verb" = lane ] && [ "${args[0]:-}" = fallback ]; then   # the default lane's line (a line about no session) reaches the post for none or one session too
+            while IFS= read -r y; do
+                [ -n "$y" ] || continue; s=${y%%: *}; grep -qxF -- "$s" <<< "$ss" || OP_PL+=("$y")
+            done < <(op_vals "$id" detail)
+        fi
         set=$(op_val "$id" set)
         case "$verb" in recycle|revive|restore|lane) if set_has "$set"; then   # a relaunch's set (a lane --all's too) counts the sessions in the post's headline (the hearing session's line stays as it was)
             ptot=$(set_val "$set" total); [[ $ptot =~ ^[0-9]+$ ]] || ptot=0
