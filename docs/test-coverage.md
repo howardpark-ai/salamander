@@ -84,6 +84,14 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +0, 243 (Sat Nov 21st 2026), the last pass
+
+Twelfth review pass of `sala bg-agents` (test-only; no check added or removed), on three more points of a second opinion, each checked by a run. (1) A gate that the clock opened was only noticed by a second look at the gate file after the wait loop, so a gate removed in
+between went unrecorded. The expiry is now set in the branch that ends the wait by the clock, as the hold loops set the reason (shown with the gate bound at 2 s and a pause after the loop: the previous stubs recorded "gone", the new ones record "gate-expired"); that race
+was harmless for the verdict (the hold file is removed before the gate, so "gone" was true at the look) and is fixed for the record. (2) A stub abandoned after a setup timeout was sent SIGTERM, which a stub that traps or ignores it survives, leaving the helper's `wait` blocked;
+it is sent SIGKILL by its PID (shown with a stub that ignores SIGTERM: the previous helper never returned, the new one reports at once). (3) The prefixes stub truncated its stamp file before writing the time, so a kill in between left an empty stamp and failed a correct
+timeout; each stamp is now written to a temporary file and renamed over the real one (shown with the old way and a 600 ms gap between truncate and write: the check failed in all eight runs; the renamed way leaves the previous whole stamp). Earlier entries stay as they were.
+
 ### `tests/bgagents.sh`: +0, 243 (Sat Nov 21st 2026), the pass after
 
 Eleventh review pass of `sala bg-agents` (test-only; no check added or removed), on four points of a second opinion, each checked by a run or by reading the code. (1) A stub's gate opened itself after 30 s while the helper waits up to 60 s for a signal, so a stalled
