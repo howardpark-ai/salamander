@@ -218,13 +218,51 @@ def test_any_other_method_is_405_with_the_headers(env, method):
         check_headers(r)
 
 
-def test_the_log_dir_defaults_to_the_clis_own_setting(tmp_path, monkeypatch):
+@pytest.mark.parametrize("method", ["PROPFIND", "MKCOL", "PURGE", "BREW"])
+def test_a_method_no_list_names_is_405_with_the_headers_too(env, method):
+    # a verb outside any list Starlette would be given: the route has no method list, so its own 405 (no headers, a wrong Allow) never answers
+    store(env["logs"])
+    for path in (f"/op/{ID}", "/op/nonsense", "/op/a/b", "/op"):
+        r = env["client"].request(method, path)
+        assert r.status_code == 405, (method, path)
+        assert r.headers["allow"] == "GET, HEAD"
+        check_headers(r)
+
+
+@pytest.mark.parametrize("end", ["\n", ""])   # its own newline is the tail's only one, or there is none at all
+def test_one_huge_line_is_served_as_its_tail_with_a_marker(env, end):
+    # a log whose last 256 KB hold no newline: the page keeps the tail of that line and says its first part is cut, never an empty page
+    line = "".join(chr(ord("a") + i % 26) for i in range(OL.MAX_BYTES + 5000))
+    store(env["logs"], data=line + end)
+    r = env["client"].get(f"/op/{ID}")
+    assert r.status_code == 200
+    first, second, rest = r.text.split("\n", 2)
+    assert first == f"[earlier lines cut: showing the last 256 KB of {len(line) + len(end)} bytes]"
+    assert second == "(first part of a very long line cut)"
+    assert rest == line[-(OL.MAX_BYTES - len(end)):] + end         # the tail of the line, up to the end of the file
+    check_headers(r)
+
+
+def test_a_tail_with_a_newline_in_it_drops_the_partial_line_and_has_no_marker(env):
+    data = "q" * 300000 + "\nsecond line\nthird\n"                    # the cut falls inside the long first line
+    store(env["logs"], data=data)
+    text = env["client"].get(f"/op/{ID}").text
+    assert text == f"[earlier lines cut: showing the last 256 KB of {len(data)} bytes]\nsecond line\nthird\n"
+
+
+def test_the_log_dir_is_the_one_setting_both_sides_read(tmp_path, monkeypatch):
+    # the CLI sources sala's config file and reads SALA_LOG_DIR from it; sala-web has no sala environment, so it reads the same line from the same
+    # file (separate environments: the web service's has no SALA_LOG_DIR, and no SALA_WEB_LOG_DIR is read at all)
     factory = Settings.__dataclass_fields__["log_dir"].default_factory
-    monkeypatch.delenv("SALA_WEB_LOG_DIR", raising=False)
-    monkeypatch.setenv("SALA_LOG_DIR", str(tmp_path / "cli"))
-    assert factory() == tmp_path / "cli"
-    monkeypatch.setenv("SALA_WEB_LOG_DIR", str(tmp_path / "web"))
-    assert factory() == tmp_path / "web"
-    monkeypatch.delenv("SALA_WEB_LOG_DIR")
-    monkeypatch.delenv("SALA_LOG_DIR")
-    assert factory() == Path.home() / ".claude"
+    cfg = tmp_path / "config"
+    monkeypatch.setenv("SALA_CONFIG", str(cfg))
+    monkeypatch.delenv("SALA_LOG_DIR", raising=False)
+    monkeypatch.setenv("SALA_WEB_LOG_DIR", str(tmp_path / "ignored"))
+    cfg.write_text("SALA_TZ=Etc/UTC\n")
+    assert factory() == Path.home() / ".claude"                           # no line anywhere
+    cfg.write_text("SALA_LOG_DIR=~/custom-logs   # moved\n")
+    assert factory() == Path.home() / "custom-logs"                       # the config line alone, as the CLI's source of it
+    cfg.write_text('export SALA_LOG_DIR="$HOME/other logs"\n')
+    assert factory() == Path.home() / "other logs"
+    monkeypatch.setenv("SALA_LOG_DIR", str(tmp_path / "env"))
+    assert factory() == tmp_path / "env"                                   # the environment still wins, as for every sala setting

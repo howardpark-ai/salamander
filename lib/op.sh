@@ -266,10 +266,8 @@ op_dur() { if [ "$1" -lt 60 ]; then echo "$1 s"; else dur_words "$1"; fi; }   # 
 op_say() { local _t; _iso_now_r _t; echo "[$_t] op $1: ${*:2}" >&2; }   # the operation's own log (the unit's stderr and stdout both land there; stderr, so a $(…) never captures it)
 op_oplog() { echo "$SALA_LOG_DIR/salamander-op-$1.log"; }
 op_web_base() {  # → scheme://host of sala's web UI (the origin of SALA_SESSION_URL, the setting `sala mockup` reads its address from), or nothing when none is set
-    # or when sala-web would not find this operation's log: it reads SALA_WEB_LOG_DIR, else ~/.claude (not sala's config file), so a link is only given when that is the folder the log is in
-    local t w=${SALA_WEB_LOG_DIR:-$HOME/.claude} l=$SALA_LOG_DIR
-    { [ "${w%/}" = "${l%/}" ] || [ "$w" -ef "$l" ]; } || return 0
-    t=$(session_url_template)
+    # sala-web finds the log in SALA_LOG_DIR too: it reads that one setting from the same config file this CLI sources (web/src/sala_web/config.py, log_dir), so there is nothing to compare
+    local t; t=$(session_url_template)
     [[ $t =~ ^(https?://[^/?#[:space:]\<\>|]+) ]] && printf '%s\n' "${BASH_REMATCH[1]}"
     return 0
 }

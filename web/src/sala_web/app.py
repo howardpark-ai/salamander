@@ -264,7 +264,7 @@ from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
-from starlette.routing import Mount, Route
+from starlette.routing import Mount, Route, request_response
 from starlette.staticfiles import StaticFiles
 
 from . import board as B
@@ -683,6 +683,17 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if text is None:
             return Response("no such log", status_code=404, media_type="text/plain", headers=OL.HEADERS)
         return PlainTextResponse(text, headers=OL.HEADERS)   # text/plain; charset=utf-8
+
+    class OpLogApp:
+        # An object, not the function: Starlette gives a Route whose endpoint is a function the methods ["GET"] when none are named (and 405s
+        # every other verb itself, without our headers), but a Route whose endpoint is any other ASGI app takes every method, however unusual.
+        def __init__(self) -> None:
+            self.app = request_response(op_log_page)
+
+        async def __call__(self, scope, receive, send) -> None:
+            await self.app(scope, receive, send)
+
+    op_log_app = OpLogApp()
 
     async def config(request: Request) -> Response:
         # shellSession and host name the Shell drawer (sala's SALA_SHELL_SESSION and this machine); timezone (SALA_TZ, "" = the
@@ -1885,8 +1896,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/mockup/{n:path}", mockup_page, methods=MK.METHODS),
         Route("/mockup", mockup_page, methods=MK.METHODS),
         # everything under /op (any method, any depth) is answered by op_log_page, so no answer of this prefix lacks its headers
-        Route("/op/{id:path}", op_log_page, methods=OL.METHODS),
-        Route("/op", op_log_page, methods=OL.METHODS),
+        # (an ASGI-app endpoint and no methods= list: a verb no list names, PROPFIND for one, would otherwise get Starlette's own 405, without the headers and with a wrong Allow)
+        Route("/op/{id:path}", op_log_app),
+        Route("/op", op_log_app),
         Route("/api/config", config),
         Route("/sessions", sessions_page),
         Route("/api/sessions", list_sessions),

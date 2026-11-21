@@ -4133,7 +4133,7 @@ default-lane line, the one reason line under the headline (the cap and the day a
 Not covered, and why: the way a real stuck helper words its line (the tests stub it; the brief now asks for one plain sentence). The log
 link was not there yet when this entry was written; it is the next entry's.
 
-### `web/tests/test_oplog.py` new, 41; `tests/op.sh` +8: an operation's log at `/op/<id>`, linked from the post (Sat Nov 21st 2026)
+### `web/tests/test_oplog.py` new, 48; `tests/op.sh` +7: an operation's log at `/op/<id>`, linked from the post (Sat Nov 21st 2026)
 
 The operation post's closing line gave the log file's path, which a phone cannot open. sala-web now serves the log read-only at `GET /op/<id>`
 (`web/src/sala_web/oplog.py`, `web/README.md` *Operation log pages*), and `op_post` (`lib/op.sh`) writes the line as the Slack link
@@ -4148,9 +4148,9 @@ and bytes that are not UTF-8 are replaced, never an error; an empty log is an em
 dash) are 404s while a good log and a file outside the folder exist, and the id check is a full match (a newline or a space around a good id is no id); `/op`,
 `/op/`, a trailing slash and a deeper path are 404s; an encoded `..` never leaves the folder; a link, a folder and a pipe (which must not wait for a writer) are
 refused; the `.out` and `.helper.log` beside a log are not reachable; POST, PUT, PATCH, DELETE, OPTIONS, TRACE and CONNECT are 405s with `Allow` on an id, a bad id and `/op`;
-the four headers are on every 200, 404 and 405; the log dir follows `SALA_WEB_LOG_DIR`, then `SALA_LOG_DIR`, then `~/.claude`.
+the four headers are on every 200, 404 and 405; a verb no list names (PROPFIND, MKCOL, PURGE, an invented one) is the same 405 with the headers; one line longer than the cap (with or without its newline) gives its tail after the marker `(first part of a very long line cut)`, and a tail with a newline gives no marker; the log dir is `SALA_LOG_DIR` read from the environment, else sala's config file (`~`, `$HOME`, quotes, `export`), else `~/.claude`, with `SALA_WEB_LOG_DIR` ignored.
 In `tests/op.sh`: with `SALA_SESSION_URL` set to an https address, and to one with a port and a path, the finished post's last line is
 `asked by <session> · <https://<host>/op/<id>|log>` (host and port only, no path or fragment of the template); with it unset, empty, or a non-http scheme it is
-`asked by <session> · log ~/.claude/salamander-op-<id>.log` as before; each is one post. With the address set, `SALA_WEB_LOG_DIR` equal to the log folder (with or without a trailing slash) keeps the link and a different folder gives the path (sala-web would 404 on it).
-Not covered, and why: the Slack rendering of the link and a real browser opening it (a Slack and a proxy sign-in are not in a test), and the web unit's own
-environment (a moved `SALA_LOG_DIR` reaches sala-web only through `SALA_WEB_LOG_DIR`; the default is the same folder on both sides).
+`asked by <session> · log ~/.claude/salamander-op-<id>.log` as before; each is one post. With `SALA_LOG_DIR` moved in the config file the runner reads (its environment names no web setting) the link is still given, and with no address the path shows the moved folder.
+Not covered, and why: the Slack rendering of the link and a real browser opening it (a Slack and a proxy sign-in are not in a test), and a web unit whose own
+environment sets `SALA_LOG_DIR` differently from the config file (not supported: the setting is read from the config for both).
