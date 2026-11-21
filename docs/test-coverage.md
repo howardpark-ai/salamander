@@ -84,6 +84,18 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +0, 243 (Sat Nov 21st 2026)
+
+Tenth review pass of `sala bg-agents` (test-only; no check added or removed; the two late-removal checks of the previous pass are counted here, since that pass's entry stops at 241). (1) The two late-removal checks removed the hold file during a
+three second sleep of the stub and then sampled `holding.N`, so a test process that was stalled for more than three seconds between the removal and the sample failed the check although the order was right (shown by
+running the old check with a four second stall there: it failed, the new check with the same stall passes). The stubs now take a gate file: a call whose gate file exists waits, after its delay and before its first look at the hold file,
+until the test removes the gate file (at most 30 s by the clock), and then writes `looking.N` with what the hold file looked like. A helper `late_removal <ask|alive>` removes the hold file, then the gate file, waits for `looking.N`
+and the check requires "gone" and "bound"; no sleep is left in it. With the removal and the gate lifted in the wrong order the checks fail ("present"); with the stubs' loops put back to reading the file first they fail ("released").
+(2) The readiness wait ended after ten seconds and the removal followed even when it timed out. A stub that starts after that does not pass the check (it finds no hold file, enters no hold and writes no `released.N`, so the check
+failed), but the cause was hidden; a stub that never signals ready, or never signals looking, is now reported as a setup failure of its own and the check is not judged. (3) Two wall-clock limits in other checks were made
+wider: the prefixes read that must be cut by the one second timeout (limit 20 s, the stub's own sleep 40 s, was 3 s and 4 s) and the `--reset` during a probe (limit 10 s, a blocked reset would wait out the probe's 15 s hold,
+was 3 s). The other proofs were read for the same two gaps: `need_held` already reports its own timeout and the hold proofs sample state the stubs themselves wrote, so nothing else changed. Earlier entries stay as they were.
+
 ### `tests/bgagents.sh`: +2, 241 (Sat Nov 21st 2026)
 
 Ninth review pass of `sala bg-agents` (test-only), and a review of the whole set of overlap proofs and stubs for three kinds of gap. (1) The proofs waited for `ready.N` and then sampled whether the call was held
