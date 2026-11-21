@@ -84,6 +84,14 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +1, 228 (Sat Nov 21st 2026)
+
+Fifth review pass of `sala bg-agents`. The recovery check (a second run starts the project while the first one's filing is in flight, and the first filing then fails) no longer depends on a three-second
+sleep: the board-item stub holds the filing until the test removes a hold file (a bounded wait of 60 s), so the second run is always done before the first filing fails; the check was intermittent under load before.
+One new check pins what the cap counts: with the smallest cap, a start attempt that fails its own check but leaves a live pane makes three liveness calls in all (a start-phase check, the attempt's own check,
+a raise-phase check), so the cap counts the two probe windows and not the attempt's own check; this one does not fail on the previous code (it pins the documented behavior; the previous docs were incomplete). `docs/bg-agents.md`
+and `config.example` say which checks count. Not covered, and why: the intermittent failure itself (it needs a loaded machine; the hold removes the timing it depended on).
+
 ### `tests/bgagents.sh`: +3, 227 (Sat Nov 21st 2026)
 
 Fourth review pass of `sala bg-agents`; two of the three new checks fail on the code before this change (the new suite was run against it), the third (the second run started the project) only sets
