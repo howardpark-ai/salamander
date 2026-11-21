@@ -4,6 +4,10 @@
 # 1 or 2 digits, a colon. Checked on the function: escaped are name:0:, >:0:, 04:00:, :7:, " :12: ", (pane :1:), 10:00:30:, a link's label;
 # left alone are :100:, :+1:, :-1:, :white_check_mark:, URLs and ports, a Slack link's URL part, code spans and blocks; an
 # already-escaped text and a second pass change nothing; a byte that is not UTF-8 and a missing trailing newline pass through.
+# Linear time (a 100000-character run of letters, an unclosed backtick, an unclosed fence and a lone < each filter in well under two seconds: the url
+# alternative once rescanned the rest of a token from every character), a post whose filter fails or gives nothing goes out as it was and never empty
+# (sala_post, sq_send), the briefings' own copy of the function is identical to lib/slacksafe.sh and escapes a copy of contrib/briefing alone, and
+# op_out_tail drops ":0" only from a pane label whose session exists (a worker id keeps it).
 # Then on every send path: sala_post (sala_notify_raw, a stub notify command), `sala alert`, the stuck-question post (sq_send) and the
 # briefings' post_slack (BRIEFING_NO_POST: the finished text goes to a file, nothing is sent). `sala dm` is checked in tests/dm.sh.
 # The zero-width space is built at run time (Z): no invisible character sits in this file. A temporary HOME and config; nothing outside them
@@ -16,6 +20,7 @@ export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null
 trap 'rm -rf "$HOME"' EXIT
 . "$ROOT/lib/slacksafe.sh"
 Z=$(printf '\xe2\x80\x8b')   # U+200B, written as bytes
+POSTS=$HOME/posts.txt
 safe() { printf '%s' "$1" | sala_slack_safe; }
 show() { printf '%s' "$1" | sed "s/$Z/<Z>/g"; }
 check() {  # <what> <input> <expected>
@@ -67,6 +72,42 @@ got=$(printf 'name:0: 日本語 ✓ 🚨\n' | sala_slack_safe); [ "$got" = "name
 printf 'a:0: \xff\xfe b' | sala_slack_safe > "$HOME/inv"; printf 'a:0\xe2\x80\x8b: \xff\xfe b' | cmp -s - "$HOME/inv" && ok "a byte that is not UTF-8 passes through untouched" || bad "invalid bytes: $(od -An -c "$HOME/inv")"
 [ "$(printf 'a:0: b' | sala_slack_safe | tail -c 1)" = b ] && ok "a text with no trailing newline gets none added" || bad "a trailing newline was added"
 
+# linear time: the filter on a long run with no scheme, no code and no link in it (the shapes that made the old url alternative quadratic)
+lin() {  # <what> <python expression for the text>
+    local t0 t1 n
+    python3 -c "import sys; sys.stdout.write($2)" > "$HOME/long.txt"
+    t0=$(date +%s.%N); timeout 60 bash -c '. "$1"; sala_slack_safe' _ "$ROOT/lib/slacksafe.sh" < "$HOME/long.txt" > "$HOME/long.out"; t1=$(date +%s.%N)
+    n=$(wc -c < "$HOME/long.out")
+    if awk -v a="$t0" -v b="$t1" 'BEGIN { exit !(b - a < 2) }' && [ "$n" = "$(wc -c < "$HOME/long.txt")" ]; then ok "linear: $1 filters in under 2 s (unchanged, $n bytes)"
+    else bad "linear: $1 took $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.1f", b - a }') s, $n bytes out"; fi
+}
+lin "a 200000-character run of letters and digits" '"a1" * 100000'
+lin "an unclosed backtick before a long token" '"`" + "a" * 100000'
+lin "an unclosed fence before a long token" '"```" + "a" * 100000'
+lin "a lone < before a long token" '"<" + "a" * 100000'
+lin "a long token with dots and dashes" '"a.b-" * 50000'
+got=$(python3 -c 'import sys; sys.stdout.write("a" * 100000 + " :0: x")' | sala_slack_safe | tail -c 9); [ "$got" = " :0${Z}: x" ] && ok "a run after a 100000-character token is still escaped" || bad "after a long token: $(show "$got")"
+same "a scheme in the middle of a token is part of the token, a URL after a space is a URL" 'x9http://a.example:1:/p http://a.example:2:/q'
+
+# a post whose filter fails, or gives nothing for a text that had something, goes out as it was and never empty
+for mode in fails empty; do
+    for path in sala_post sq_send; do
+        rm -f "$POSTS" "$HOME/log/salamander-watch.log"; mkdir -p "$HOME/log"
+        (
+            export SALA_NOTIFY_CMD="cat > $POSTS" SALA_LOG_DIR=$HOME/log
+            . "$ROOT/lib/common.sh" >/dev/null 2>&1; . "$ROOT/lib/stuck.sh" >/dev/null 2>&1
+            if [ "$mode" = fails ]; then sala_slack_safe() { cat >/dev/null; return 1; }; else sala_slack_safe() { cat >/dev/null; return 0; }; fi
+            if [ "$path" = sala_post ]; then sala_post "⚠️ *waits*" "sess-h:0: idle at 04:00: ok"; else sq_send "⚠️ *waits*" "sess-h:0: idle at 04:00: ok"; fi
+            echo $? > "$HOME/send-rc"
+        ) >/dev/null 2>&1
+        want="⚠️ *waits*"$'\n'"    • sess-h:0: idle at 04:00: ok"
+        got=$(cat "$POSTS" 2>/dev/null)
+        [ "$got" = "$want" ] && [ -s "$POSTS" ] && ok "$path, a filter that $mode: the post goes out unescaped, not empty" || bad "$path, filter $mode: [$(show "$got")]"
+        grep -q "slack escape" "$HOME/log/salamander-watch.log" 2>/dev/null && ok "$path, a filter that $mode: one line in the watch log" || bad "$path, filter $mode: no log line"
+    done
+done
+rm -f "$POSTS"
+
 # the send paths
 W=https://board.example.com; SESS=https://sala.example/#s=
 BD=board   # the id is built at run time (${BD}#N): no literal board id sits in this file
@@ -98,14 +139,31 @@ grep -qF "sess-d:0${Z}: asks a question" "$POSTS" 2>/dev/null && ok "sq_send (th
 rm -f "$POSTS"
 
 # a pane suffix that tells the reader nothing is dropped where a post is worded: an operation's output lines name pane 0 as "name:0:" (op_out_tail,
-# the tail a stuck notice quotes); a pane other than 0 is information and stays
-(
-    . "$ROOT/lib/common.sh" >/dev/null 2>&1; . "$ROOT/lib/op.sh" >/dev/null 2>&1
-    op_out() { echo "$HOME/op-out.$1"; }
-    printf '[stamp] start\n  sess-f:0: not relaunched, busy\nsess-g:2: kept\nplain: a:0: b\n' > "$HOME/op-out.1"
-    op_out_tail 1 5 > "$HOME/op-tail"
-)
-[ "$(cat "$HOME/op-tail" 2>/dev/null)" = 'start ·   sess-f: not relaunched, busy · sess-g:2: kept · plain: a:0: b' ] && ok "op_out_tail: a pane 0 suffix is dropped, pane 2 and a mid-line :0: stay" || bad "op_out_tail: $(cat "$HOME/op-tail" 2>/dev/null)"
+# the tail a stuck notice quotes) when the name is a tmux session that exists; a pane other than 0 is information and stays, and so does a leading
+# word that names no session ("worker:0: timed out" is a worker id)
+op_tail() {  # <sessions the stub tmux lists> → the tail of the lines in op-out.1
+    (
+        . "$ROOT/lib/common.sh" >/dev/null 2>&1; . "$ROOT/lib/op.sh" >/dev/null 2>&1
+        op_out() { echo "$HOME/op-out.$1"; }
+        if [ -n "$1" ]; then tmux() { [ "$1" = list-sessions ] && printf '%s\n' sess-f sess-g; return 0; }; else tmux() { return 1; }; fi
+        op_out_tail 1 7
+    )
+}
+printf '[stamp] start\n  sess-f:0: not relaunched, busy\nsess-g:2: kept\nplain: a:0: b\nworker:0: timed out\nsess-g:0: idle\n' > "$HOME/op-out.1"
+got=$(op_tail yes)
+[ "$got" = 'start ·   sess-f: not relaunched, busy · sess-g:2: kept · plain: a:0: b · worker:0: timed out · sess-g: idle' ] && ok "op_out_tail: pane 0 of a session that exists is dropped; pane 2, a mid-line :0: and worker:0: stay" || bad "op_out_tail: $got"
+got=$(op_tail "")
+[ "$got" = 'start ·   sess-f:0: not relaunched, busy · sess-g:2: kept · plain: a:0: b · worker:0: timed out · sess-g:0: idle' ] && ok "op_out_tail: with no tmux session list nothing is dropped" || bad "op_out_tail, no tmux: $got"
+
+# the briefings carry their own copy of the function (a copy of contrib/briefing alone has no lib/): the two bodies are the same text, and a lone copy escapes
+body() { awk '/^sala_slack_safe\(\) \{/ { p = 1 } p { print } p && /^\}/ { exit }' "$1"; }
+[ -n "$(body "$ROOT/lib/slacksafe.sh")" ] && [ "$(body "$ROOT/lib/slacksafe.sh")" = "$(body "$ROOT/contrib/briefing/lib.sh")" ] && ok "contrib/briefing/lib.sh: its sala_slack_safe is the same text as lib/slacksafe.sh's" || bad "the two sala_slack_safe bodies differ"
+mkdir -p "$HOME/solo" "$HOME/blog"; cp -r "$ROOT/contrib/briefing" "$HOME/solo/briefing"
+BRIEFING_LOGDIR=$HOME/blog BRIEFING_NO_POST=1 BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR= BRIEFING_COMMIT_REPOS= \
+    bash -c '. "$1/lib.sh"; post_slack "$2"' _ "$HOME/solo/briefing" $'📬 *Summary*\n• sess-i:0: idle; at 04:00: ok; :100:' >/dev/null 2>&1
+got=$(cat "$HOME/blog/would-post.log" 2>/dev/null)
+[ "$got" = $'📬 *Summary*\n• sess-i:0'"$Z"': idle; at 04:00'"$Z"': ok; :100:' ] && ok "a copy of contrib/briefing alone (no lib/ beside it): post_slack escapes too" || bad "standalone post_slack: $(show "$got")"
+rm -rf "$HOME/solo" "$HOME/blog/would-post.log"
 
 # the briefings' post_slack: the escape is the last step, after slack_text and the links
 mkdir -p "$HOME/blog"

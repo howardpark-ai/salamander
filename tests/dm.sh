@@ -321,6 +321,19 @@ OUT=$(python3 -c 'print("x"*39001, end="")' | $S alpha-app - 2>"$T/err"); RC=$?;
 [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"over 39000 characters"*"nothing cut"*) true ;; *) false ;; esac && ok "39001 characters: refused with a clear error, nothing posted, nothing cut" || bad "39001: rc=$RC err=[$ERR] requests=$(nall)"
 OUT=$(python3 -c 'import sys; sys.stdout.write("x"*500000)' 2>/dev/null | $S alpha-app - 2>"$T/err"); RC=$?; ERR=$(<"$T/err")
 [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && ok "a huge stdin is refused the same way" || bad "huge: rc=$RC err=[$ERR]"
+# an oversized message is refused BEFORE the escape runs (the escape is a python3 whose program names PROT; a wrapper on a PATH of its own marks each
+# run of it), and the limit is checked again after it, which adds a character to every digit run it makes safe
+mkdir -p "$T/filterbin"; rm -f "$T/filter-ran"
+printf '#!/bin/bash\ncase "$*" in *PROT*) : > "%s/filter-ran" ;; esac\nexec "%s" "$@"\n' "$T" "$(command -v python3)" > "$T/filterbin/python3"; chmod +x "$T/filterbin/python3"
+reset
+OUT=$(python3 -c 'print("x"*39001, end="")' | PATH="$T/filterbin:$PATH" $S alpha-app - 2>"$T/err"); RC=$?; ERR=$(<"$T/err")
+[ "$RC" = 2 ] && [ "$(nall)" = 0 ] && [ ! -e "$T/filter-ran" ] && ok "an oversized message is refused without the escape filter running" || bad "oversized, filter: rc=$RC ran=$([ -e "$T/filter-ran" ] && echo yes || echo no) err=[$ERR]"
+printf 'ok: 0 :1:\n' | PATH="$T/filterbin:$PATH" $S alpha-app - >/dev/null 2>&1
+[ -e "$T/filter-ran" ] && ok "the wrapper does see the filter run on a message within the limit (the check above is not blind)" || bad "the filter wrapper never marked a run"
+reset
+OUT=$(python3 -c 'print(":1:"*13000, end="")' | $S alpha-app - 2>"$T/err"); RC=$?; ERR=$(<"$T/err")
+[ "$RC" = 2 ] && [ "$(nall)" = 0 ] && case "$ERR" in *"over 39000 characters"*) true ;; *) false ;; esac && ok "39000 characters that grow past the limit once escaped are refused, nothing posted" || bad "growing text: rc=$RC err=[$ERR] requests=$(nall)"
+rm -rf "$T/filterbin" "$T/filter-ran"
 run alpha-app ''; [ "$RC" = 2 ] && [ "$(nall)" = 0 ] && ok "an empty message is a usage error (2), nothing posted" || bad "empty: rc=$RC"
 printf '  \n\n' | $S alpha-app - >/dev/null 2>&1; [ "$?" = 2 ] && [ "$(nall)" = 0 ] && ok "a message of blanks is refused too" || bad "blank message"
 printf '\377\376bad' | $S alpha-app - >/dev/null 2>&1; [ "$?" = 2 ] && [ "$(nall)" = 0 ] && ok "a message that is not UTF-8 is refused, nothing posted" || bad "non-UTF-8"

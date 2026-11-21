@@ -1240,8 +1240,16 @@ op_tick_locked() {
 }
 
 # ── inside the unit: the runner, the waiter, the result ──────────────────────
+op_pane0_drop() {  # stdin → stdout: a line that starts with a pane label of pane 0, "<session>:0: ", loses the ":0" (it tells the reader nothing, and Slack would read ":0:" as an emoji code); only where <session> is a tmux session that exists, so "worker:0: timed out" (a worker id, never a pane) keeps it
+    local names; names=$(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+    [ -n "$names" ] || { cat; return 0; }
+    NAMES=$names awk 'BEGIN { n = split(ENVIRON["NAMES"], a, "\n"); for (i = 1; i <= n; i++) k[a[i]] = 1 }
+        { ws = ""; rest = $0; if (match(rest, /^[ \t]+/)) { ws = substr(rest, 1, RLENGTH); rest = substr(rest, RLENGTH + 1) }
+          if (match(rest, /^[^ \t:]+:0: /)) { nm = substr(rest, 1, RLENGTH - 4); if (nm in k) rest = nm ": " substr(rest, RLENGTH + 1) }
+          print ws rest }'
+}
 op_out_tail() {  # <id> [lines] → the verb's own output's last lines, one line, secrets masked
-    local n="${2:-3}" t; t=$(grep -v '^[[:space:]]*$' "$(op_out "$1")" 2>/dev/null | tail -n "$n" | sed -E 's/^\[[^]]*\] //; s/^([[:space:]]*[^[:space:]:]+):0: /\1: /' | paste -sd'·' - | sed 's/·/ · /g' | cut -c1-400)
+    local n="${2:-3}" t; t=$(grep -v '^[[:space:]]*$' "$(op_out "$1")" 2>/dev/null | tail -n "$n" | sed -E 's/^\[[^]]*\] //' | op_pane0_drop | paste -sd'·' - | sed 's/·/ · /g' | cut -c1-400)
     if command -v scrub_text >/dev/null 2>&1; then printf '%s' "$t" | scrub_text; else printf '%s' "$t"; fi
 }
 op_wait_lock() {  # [secs] → 0 once no relaunch holds the recycle lock (fd 9 closed here first)

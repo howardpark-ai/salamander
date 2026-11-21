@@ -273,8 +273,33 @@ dm_safe_file() {
     local tf=$1
     if ! declare -F sala_slack_safe >/dev/null && [ -r "${SALA_ROOT:-}/lib/slacksafe.sh" ]; then . "$SALA_ROOT/lib/slacksafe.sh"; fi
     declare -F sala_slack_safe >/dev/null || return 0
-    sala_slack_safe < "$tf" > "$tf.safe" 2>/dev/null && mv -f "$tf.safe" "$tf" || rm -f "$tf.safe"
+    if sala_slack_safe < "$tf" > "$tf.safe" 2>/dev/null && { [ -s "$tf.safe" ] || [ ! -s "$tf" ]; }; then mv -f "$tf.safe" "$tf"; else rm -f "$tf.safe"; fi   # nothing from a text that had something: the text as it was
     return 0
+}
+
+# dm_check_text <text file> → 0, or 2 once it has said what is wrong: the message is UTF-8, not empty and at most DM_MAX_CHARS characters (counted as
+# characters, not bytes); trailing newlines are dropped. Run before the escape (an oversized text is refused without being filtered) and after it
+# (the escape adds a character to each digit run it makes safe, so the text posted is the one the limit counts).
+dm_check_text() {
+    local tf=$1 rc
+    python3 -I -c '
+import re, sys
+b = open(sys.argv[1], "rb").read()
+try: t = b.decode("utf-8")
+except UnicodeDecodeError: sys.exit(10)
+t = t.rstrip("\n")
+if not t.strip(): sys.exit(11)
+if len(t) > int(sys.argv[2]): sys.exit(12)
+open(sys.argv[1], "wb").write(t.encode("utf-8"))
+' "$tf" "$DM_MAX_CHARS"; rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        10) dm_err "the message is not valid UTF-8; nothing posted" ;;
+        11) dm_err "the message is empty; nothing posted" ;;
+        12) dm_err "the message is over $DM_MAX_CHARS characters (Slack takes about 40000); nothing posted, nothing cut" ;;
+        *) dm_err "could not read the message" ;;
+    esac
+    return 2
 }
 
 dm_cmd_check() {   # <app>
@@ -440,33 +465,17 @@ dm_main() {
         head -c 400000 > "$tf"
         if [ "$(stat -c %s "$tf")" -ge 400000 ]; then dm_err "the message is over $DM_MAX_CHARS characters; nothing posted"; rm -rf "$DM_T"; DM_T=""; trap - EXIT; return 2; fi
     fi
+    # the message: UTF-8, not empty, at most DM_MAX_CHARS characters, checked BEFORE the escape so an oversized one is refused without being filtered
+    dm_check_text "$tf" || { rm -rf "$DM_T"; DM_T=""; trap - EXIT; return 2; }
     # Slack reads :NN: as an emoji code (a gray box): the shared escape (lib/slacksafe.sh) puts a zero-width space before the closing colon of a
-    # colon, 1 or 2 digits, a colon. Done before the length check, so the limit counts what is posted.
+    # colon, 1 or 2 digits, a colon. It lengthens the text, so the limit is checked again on what is posted.
     dm_safe_file "$tf"
-    # the message: UTF-8, not empty, at most DM_MAX_CHARS characters (counted as characters, not bytes); trailing newlines are dropped
-    python3 -I -c '
-import re, sys
-b = open(sys.argv[1], "rb").read()
-try: t = b.decode("utf-8")
-except UnicodeDecodeError: sys.exit(10)
-t = t.rstrip("\n")
-if not t.strip(): sys.exit(11)
-if len(t) > int(sys.argv[2]): sys.exit(12)
-open(sys.argv[1], "wb").write(t.encode("utf-8"))
-' "$tf" "$DM_MAX_CHARS"; rc=$?
-    case "$rc" in
-        0) ;;
-        10) dm_err "the message is not valid UTF-8; nothing posted" ;;
-        11) dm_err "the message is empty; nothing posted" ;;
-        12) dm_err "the message is over $DM_MAX_CHARS characters (Slack takes about 40000); nothing posted, nothing cut" ;;
-        *) dm_err "could not read the message" ;;
-    esac
-    if [ "$rc" != 0 ]; then rm -rf "$DM_T"; DM_T=""; trap - EXIT; return 2; fi
+    dm_check_text "$tf" || { rm -rf "$DM_T"; DM_T=""; trap - EXIT; return 2; }
     if [ -z "${SALA_DM_USER_ID:-}" ]; then dm_err "SALA_DM_USER_ID is not set: set it to the Slack member id the message goes to ($SALA_CONFIG)"; rc=3
     elif ! [[ $SALA_DM_USER_ID =~ ^[UW][A-Z0-9]+$ ]]; then dm_err "SALA_DM_USER_ID is not a Slack member id (U… or W…)"; rc=3
     else
         dm_read_token "$app"; rc=$?
-        [ "$rc" = 0 ] && { dm_link_text "$tf"; dm_safe_file "$tf"; dm_cmd_post "$app" "$thread" "$tf"; rc=$?; }   # board ids and session names become links first, as in every other post
+        [ "$rc" = 0 ] && { dm_link_text "$tf"; dm_safe_file "$tf"; dm_check_text "$tf" && { dm_cmd_post "$app" "$thread" "$tf"; rc=$?; } || rc=2; }   # board ids and session names become links first, as in every other post
     fi
     rm -rf "$DM_T"; DM_T=""; trap - EXIT
     return "$rc"
