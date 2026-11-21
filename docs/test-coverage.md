@@ -4228,8 +4228,13 @@ one at its very end stays with the bracket it closes; and the post no longer rew
 a bracket pair is dropped only when a path or keyed path was its whole content, `[/tmp/a]`, `(path=/var/log/x)`).
 A fourth round of review points, eight more cases (seven fail on the code before, the eighth pins the URLs): a backslash-escaped quote inside a quoted path
 (`"/tmp/customer\" records.csv"`, and the single-quote form) no longer ends the redaction early; a bracketed path whose token holds a
-closing bracket inside (`[/tmp/customer]records.csv]`, `(/tmp/a]b)`) goes up to the last closing bracket of its token; keys in a row
+closing bracket inside (`[/tmp/customer]records.csv]`, `(/tmp/a]b)`) goes whole (a closing bracket that a path character follows is part of the path); keys in a row
 (`file=/ dir=./ path:~/`, and four colon keys in a row) all go, since the bare-slash rule for a colon key eats the space after it and runs
 twice; and after `=` a double slash is a path too (`file=//srv/share`), while `key://srv/x` and `https://h/x` stay.
+A fifth round, one point and nine more cases (all nine fail on the code before): a bracket pair that holds only a path ends at its own closing
+bracket, not at the last one in the token. `(see [/tmp/a])` kept only `(see` and `[/tmp/a][3]` lost the unrelated `[3]`; now the text around the
+pair stays (`(see )`, `[3]`), also for adjacent pairs (`[x][/tmp/a][y]`, `[/tmp/a] [/tmp/b][4]`), a pair inside another (`(a (b [/tmp/c]) d)`,
+`[[/tmp/a]]`), a pair followed by a comma, and a keyed path in a pair (`[path=/x/y][2]`). The cases from the fourth round, where a closing bracket
+sits inside the path, still pass.
 What the filter does not try to catch: an unquoted path that contains a space, and a path built from anything but a leading `/`, `~/`, `./` or
 `../` (a drive letter, a bare relative `a/b`); it is a courtesy against leaking a path into a phone post, not a parser.

@@ -586,6 +586,15 @@ for pc in "it could not write to /tmp and stopped|it could not write to and stop
           "it read '/tmp/a\\' b.csv' today|it read today" \
           "it failed on [/tmp/customer]records.csv] today|it failed on today" \
           "it failed on (/tmp/a]b) and [~/x]y] today|it failed on and today" \
+          "ok (see [/tmp/a]) now|ok (see ) now" \
+          "[/tmp/a][3] now|[3] now" \
+          "(see (/tmp/a)) end|(see ) end" \
+          "a [/tmp/a],[b] c|a,[b] c" \
+          "[x][/tmp/a][y] z|[x][y] z" \
+          "(a (b [/tmp/c]) d) e|(a (b ) d) e" \
+          "it set [path=/x/y][2] ok|it set [2] ok" \
+          "[/tmp/a] [/tmp/b][4] z|[4] z" \
+          "[[/tmp/a]] z|[] z" \
           "it set file=/ dir=./ path:~/ today|it set today" \
           "it set a:~/ b:./ c:~/ d:~/ today|it set today" \
           "it saw file=//srv/share today|it saw today" \
