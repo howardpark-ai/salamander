@@ -267,6 +267,16 @@ dm_link_text() {
     return 0
 }
 
+# dm_safe_file <text file>: the text made safe from Slack's emoji codes, in place (sala_slack_safe, lib/slacksafe.sh: the one implementation every
+# Slack post runs). Never costs the post: a filter that fails leaves the file as it was.
+dm_safe_file() {
+    local tf=$1
+    if ! declare -F sala_slack_safe >/dev/null && [ -r "${SALA_ROOT:-}/lib/slacksafe.sh" ]; then . "$SALA_ROOT/lib/slacksafe.sh"; fi
+    declare -F sala_slack_safe >/dev/null || return 0
+    sala_slack_safe < "$tf" > "$tf.safe" 2>/dev/null && mv -f "$tf.safe" "$tf" || rm -f "$tf.safe"
+    return 0
+}
+
 dm_cmd_check() {   # <app>
     local rc
     printf '{}' > "$DM_T/check.json"
@@ -430,6 +440,9 @@ dm_main() {
         head -c 400000 > "$tf"
         if [ "$(stat -c %s "$tf")" -ge 400000 ]; then dm_err "the message is over $DM_MAX_CHARS characters; nothing posted"; rm -rf "$DM_T"; DM_T=""; trap - EXIT; return 2; fi
     fi
+    # Slack reads :NN: as an emoji code (a gray box): the shared escape (lib/slacksafe.sh) puts a zero-width space before the closing colon of a
+    # colon, 1 or 2 digits, a colon. Done before the length check, so the limit counts what is posted.
+    dm_safe_file "$tf"
     # the message: UTF-8, not empty, at most DM_MAX_CHARS characters (counted as characters, not bytes); trailing newlines are dropped
     python3 -I -c '
 import re, sys
@@ -438,10 +451,6 @@ try: t = b.decode("utf-8")
 except UnicodeDecodeError: sys.exit(10)
 t = t.rstrip("\n")
 if not t.strip(): sys.exit(11)
-# Slack reads :NN: as an emoji code, so "04:00: the weekly run" showed ":00:" as a gray box: put a zero-width space before the closing colon of a
-# digit run that follows a digit, so a time is shown as typed (":100:", ":+1:", ":white_check_mark:", "04:00" and URLs are left alone).
-# Done before the length check, so the limit counts what is posted.
-t = re.sub(r"(?<=\d):(\d+)(?=:)", lambda m: ":" + m.group(1) + chr(0x200b), t)
 if len(t) > int(sys.argv[2]): sys.exit(12)
 open(sys.argv[1], "wb").write(t.encode("utf-8"))
 ' "$tf" "$DM_MAX_CHARS"; rc=$?
@@ -457,7 +466,7 @@ open(sys.argv[1], "wb").write(t.encode("utf-8"))
     elif ! [[ $SALA_DM_USER_ID =~ ^[UW][A-Z0-9]+$ ]]; then dm_err "SALA_DM_USER_ID is not a Slack member id (U… or W…)"; rc=3
     else
         dm_read_token "$app"; rc=$?
-        [ "$rc" = 0 ] && { dm_link_text "$tf"; dm_cmd_post "$app" "$thread" "$tf"; rc=$?; }   # board ids and session names become links first, as in every other post
+        [ "$rc" = 0 ] && { dm_link_text "$tf"; dm_safe_file "$tf"; dm_cmd_post "$app" "$thread" "$tf"; rc=$?; }   # board ids and session names become links first, as in every other post
     fi
     rm -rf "$DM_T"; DM_T=""; trap - EXIT
     return "$rc"

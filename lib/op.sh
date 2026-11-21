@@ -1233,7 +1233,7 @@ op_tick_locked() {
 
 # ── inside the unit: the runner, the waiter, the result ──────────────────────
 op_out_tail() {  # <id> [lines] → the verb's own output's last lines, one line, secrets masked
-    local n="${2:-3}" t; t=$(grep -v '^[[:space:]]*$' "$(op_out "$1")" 2>/dev/null | tail -n "$n" | sed -E 's/^\[[^]]*\] //' | paste -sd'·' - | sed 's/·/ · /g' | cut -c1-400)
+    local n="${2:-3}" t; t=$(grep -v '^[[:space:]]*$' "$(op_out "$1")" 2>/dev/null | tail -n "$n" | sed -E 's/^\[[^]]*\] //; s/^([[:space:]]*[^[:space:]:]+):0: /\1: /' | paste -sd'·' - | sed 's/·/ · /g' | cut -c1-400)
     if command -v scrub_text >/dev/null 2>&1; then printf '%s' "$t" | scrub_text; else printf '%s' "$t"; fi
 }
 op_wait_lock() {  # [secs] → 0 once no relaunch holds the recycle lock (fd 9 closed here first)

@@ -1509,15 +1509,17 @@ PY
 # it: a driver that only writes its log is a failure nobody sees.
 # Every post leaves through sala_send_post: each bare board#N becomes a link to its item (lib/boardlinks.sh, the one
 # implementation the briefings' post_slack runs too; SALA_STACKSHOT_WEB unset: the text goes as it is).
-_bl=${BASH_SOURCE[0]}; [[ $_bl == */* ]] || _bl=./$_bl; . "${_bl%/*}/boardlinks.sh"; unset _bl   # beside this file, no process
+_bl=${BASH_SOURCE[0]}; [[ $_bl == */* ]] || _bl=./$_bl; . "${_bl%/*}/boardlinks.sh"; . "${_bl%/*}/slacksafe.sh"; unset _bl   # beside this file, no process
+# After the links, on the final text, every post also goes through sala_slack_safe (lib/slacksafe.sh, the one implementation `sala dm` and the
+# briefings' post_slack run too): a digit run between colons, as in "<link|session>:0:", would be drawn by Slack as an emoji code (a gray box).
 # The message reaches the notify command only on its stdin, as data: the command string is the owner's config and nothing of the message
 # is ever put into it. The command is bounded (SALA_NOTIFY_TIMEOUT s, 60 by default, killed 5 s later): a post that hangs must not hold
 # the watch's tick, which also does the revives, the queue runs and the recycles.
 # A post may name a Slack channel (`sala alert --channel`): the optional second argument reaches the command as SALA_NOTIFY_CHANNEL in its
 # environment, for this one call; without one the variable is unset for the command, so sala's own posts never carry a channel.
-sala_send_post() {   # <cmd> [<channel>]  — stdin, board ids linked, into the notify command; its exit code (124 = it ran out of time)
+sala_send_post() {   # <cmd> [<channel>]  — stdin, board ids linked, digit runs between colons made safe, into the notify command; its exit code (124 = it ran out of time)
     local ch="${2:-}"
-    sala_board_links "${SALA_STACKSHOT_WEB:-}" | {
+    sala_board_links "${SALA_STACKSHOT_WEB:-}" | sala_slack_safe | {
         if [ -n "$ch" ]; then export SALA_NOTIFY_CHANNEL="$ch"; else unset SALA_NOTIFY_CHANNEL; fi
         timeout -k 5 "${SALA_NOTIFY_TIMEOUT:-60}" sh -c "$1"
     }

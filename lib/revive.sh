@@ -900,7 +900,7 @@ close_pane() {
             if [ -n "$STUCK_HOW" ]; then
                 local slane; slane=$(lane_shown "$(lane_for_session "$sess")")
                 emit ECHO "$label: claude (pid $cpid) was still running ${SALA_EXIT_WAIT}s after /exit — ended by its pid (SIG$STUCK_HOW); resuming $uuid on the $slane lane"
-                sala_post "🛑 *Ended a Claude process that ignored /exit*" "$label: pid $cpid ended (SIG$STUCK_HOW); the session resumes on the $slane lane"
+                sala_post "🛑 *Ended a Claude process that ignored /exit*" "${label%:0}: pid $cpid ended (SIG$STUCK_HOW); the session resumes on the $slane lane"
             fi
         else
             inbox_release "$uuid" "$hname"; SKIPPED+=("$label: claude didn't exit within ${SALA_EXIT_WAIT}s — a /exit may be queued behind a prompt; attach and check before rerunning (by pid: $STUCK_WHY)"); return

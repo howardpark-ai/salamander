@@ -356,6 +356,10 @@ run alpha-app '12:30:45'
 [ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "12:30${Z}:45" ] && ok "12:30:45 becomes 12:30<zwsp>:45" || bad "12:30:45: rc=$RC text=[$(last '["body"]["text"]')]"
 run alpha-app '10:20:30:40'
 [ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "10:20${Z}:30${Z}:40" ] && ok "10:20:30:40 gets one before each inner closing colon" || bad "10:20:30:40: rc=$RC text=[$(last '["body"]["text"]')]"
+run alpha-app '<https://s.example/x|x>:0: done'
+[ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "<https://s.example/x|x>:0${Z}: done" ] && ok ">:0: (a pane after a Slack link) gets it too, the link's URL untouched" || bad ">:0: arg: rc=$RC text=[$(last '["body"]["text"]')]"
+run alpha-app 'name:0: and (pane :1:) and <https://h.example:80:/p|a:5:b>'
+[ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "name:0${Z}: and (pane :1${Z}:) and <https://h.example:80:/p|a:5${Z}:b>" ] && ok "name:0:, (pane :1:) and a link's label are escaped, its URL is not" || bad "name:0: arg: rc=$RC text=[$(last '["body"]["text"]')]"
 for same in ':100:' ':white_check_mark:' ':+1: done' '04:00' 'see http://host:8080/x' 'ratio 3:2 and 4:5'; do
     run alpha-app -- "$same"
     [ "$RC" = 0 ] && [ "$(last '["body"]["text"]')" = "$same" ] && ok "'$same' arrives byte-identical" || bad "'$same': rc=$RC text=[$(last '["body"]["text"]')]"
