@@ -79,7 +79,7 @@ cat > "$T/bin/alive" <<'EOF'
 # The call's number N is CLAIMED first, with an exclusive create (bash noclobber, O_EXCL: the first free alive.claim.N is taken; mkdir is NOT used: the uutils mkdir of Ubuntu 26.04 lets two concurrent calls both create the same directory), so two calls that start together never share a number; only then is anything
 # signaled: alive.ready.N says call N has its answer, its delay and its hold decided; alive.holding.N that it entered the hold; alive.released.N says how it left its hold ("released" by the test removing the file, "bound" by the clock);
 # alive.gate.N (a file the test creates with the hold file) stops call N after its delay and BEFORE its first look at the hold file until the test removes the gate file (at most 30 s by the clock), and alive.looking.N is written when the call comes
-# to that first look, with what it saw ("gone" or "present"): a test that removes the hold file, then the gate file, and then waits for looking.N, has proved by the stub's own handshake, not by timing, that the file was gone at the first look
+# to that first look, with what it saw ("gone" or "present", or "gate-expired" when the clock opened the gate and the test did not): a test that removes the hold file, then the gate file, and then waits for looking.N, has proved by the stub's own handshake, not by timing, that the file was gone at the first look
 n=1; while ! ( set -o noclobber; : > "$T/alive.claim.$n" ) 2>/dev/null; do n=$((n + 1)); done
 echo "$1" >> "$T/alive.log"
 hold=0; [ -e "$T/alive.hold.$n" ] && hold=1
@@ -91,8 +91,8 @@ delay=0; [ -f "$T/alive.sleep" ] && delay=$(cat "$T/alive.sleep")
 echo "$1" > "$T/alive.ready.$n"
 [ "$delay" != 0 ] && sleep "$delay"
 if [ "$hold" = 1 ]; then
-    if [ "$gate" = 1 ]; then gu=$((SECONDS + 30)); while [ -e "$T/alive.gate.$n" ] && [ "$SECONDS" -lt "$gu" ]; do sleep 0.1; done; fi
-    if [ -e "$T/alive.hold.$n" ]; then echo present > "$T/alive.looking.$n"; else echo gone > "$T/alive.looking.$n"; fi
+    gx=0; if [ "$gate" = 1 ]; then gu=$((SECONDS + 30)); while [ -e "$T/alive.gate.$n" ] && [ "$SECONDS" -lt "$gu" ]; do sleep 0.1; done; [ -e "$T/alive.gate.$n" ] && gx=1; fi     # gx: the clock opened the gate, the test did not
+    if [ "$gx" = 1 ]; then echo gate-expired > "$T/alive.looking.$n"; elif [ -e "$T/alive.hold.$n" ]; then echo present > "$T/alive.looking.$n"; else echo gone > "$T/alive.looking.$n"; fi
     echo holding > "$T/alive.holding.$n"; until=$((SECONDS + ${ALIVE_HOLD_BOUND:-15})); why=""
     while [ -z "$why" ]; do
         if [ "$SECONDS" -ge "$until" ]; then why=bound; elif [ ! -e "$T/alive.hold.$n" ]; then why=released; else sleep 0.1; fi     # the reason is set here, when the loop sees it, never decided by a later look at the file
@@ -126,10 +126,10 @@ done
 # gives a minimum) at half the filing timeout this call has (SALA_BGAGENTS_RAISE_TIMEOUT, 30 s when unset), so the job's own timeout can never end a hold first;
 # ask.released.N records how the call left its hold: "released" (the loop saw the test had removed the file) or "bound" (the loop saw the clock's deadline first); it is set inside the loop
 # at that moment, so a file removed just after the deadline cannot turn "bound" into "released"; ask.holding.N is written when the call enters the hold (after ready.N and the delay);
-# ask.gate.N and ask.looking.N: as for the liveness stub (the gate file stops the call before its first look at the hold file until the test removes it; looking.N says what that look saw)
+# ask.gate.N and ask.looking.N: as for the liveness stub (the gate file stops the call before its first look at the hold file until the test removes it; looking.N says what that look saw, or "gate-expired" when the clock opened the gate)
 if [ "$hold" = 1 ]; then
-    if [ "$gate" = 1 ]; then gu=$((SECONDS + 30)); while [ -e "$T/ask.gate.$n" ] && [ "$SECONDS" -lt "$gu" ]; do sleep 0.1; done; fi
-    if [ -e "$T/ask.hold.$n" ]; then echo present > "$T/ask.looking.$n"; else echo gone > "$T/ask.looking.$n"; fi
+    gx=0; if [ "$gate" = 1 ]; then gu=$((SECONDS + 30)); while [ -e "$T/ask.gate.$n" ] && [ "$SECONDS" -lt "$gu" ]; do sleep 0.1; done; [ -e "$T/ask.gate.$n" ] && gx=1; fi     # gx: the clock opened the gate, the test did not
+    if [ "$gx" = 1 ]; then echo gate-expired > "$T/ask.looking.$n"; elif [ -e "$T/ask.hold.$n" ]; then echo present > "$T/ask.looking.$n"; else echo gone > "$T/ask.looking.$n"; fi
     echo holding > "$T/ask.holding.$n"; rt=$SALA_BGAGENTS_RAISE_TIMEOUT; [ -n "$rt" ] || rt=30; until=$((SECONDS + rt / 2)); why=""
     while [ -z "$why" ]; do
         if [ "$SECONDS" -ge "$until" ]; then why=bound; elif [ ! -e "$T/ask.hold.$n" ]; then why=released; else sleep 0.1; fi     # the reason is set here, when the loop sees it, never decided by a later look at the file
@@ -141,7 +141,12 @@ EOF
 cat > "$T/bin/prefixes" <<'EOF'
 #!/usr/bin/env bash
 echo x >> "$T/prefixes.calls"
-[ -f "$T/prefixes.sleep" ] && exec sleep "$(cat "$T/prefixes.sleep")"
+# $T/prefixes.sleep: a read that takes that many seconds. It records when it started (prefixes.start) and, every tenth of a second, the time of its last sign of life (prefixes.beat), in microseconds of its own clock:
+# beat - start is how long the job let it live before cutting it off, which is the timeout the job passed (the stub is killed by the job's subprocess timeout and cannot be told the number any other way)
+if [ -f "$T/prefixes.sleep" ]; then
+    t=${EPOCHREALTIME/./}; echo "$t" > "$T/prefixes.start"; end=$((SECONDS + $(cat "$T/prefixes.sleep")))
+    while [ "$SECONDS" -lt "$end" ]; do t=${EPOCHREALTIME/./}; echo "$t" > "$T/prefixes.beat"; sleep 0.1; done; exit 0
+fi
 [ -f "$T/prefixes.rc" ] && exit "$(cat "$T/prefixes.rc")"
 echo '{"subject": {"prefixes": ["[alpha] ", "[beta] "]}, "pages": {"flavor": "plain"}}'
 EOF
@@ -159,7 +164,7 @@ run() {   # [args] → OUT (stdout+stderr), RC; the clock is $NOW (default N0)
     OUT=$(SALA_BGAGENTS_NOW=${NOW:-$N0} $S "$@" 2>&1); RC=$?
 }
 reset() {   # a clean slate: no ledger, no call logs, a quiet load, an empty list, nothing alive, no project record
-    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.seq" "$T"/ask.ready.* "$T"/ask.hold.* "$T"/ask.claim.* "$T"/ask.released.* "$T"/ask.holding.* "$T"/alive.holding.* "$T"/alive.ready.* "$T"/alive.hold.* "$T"/alive.claim.* "$T"/alive.released.* "$T"/ask.gate.* "$T"/ask.looking.* "$T"/alive.gate.* "$T"/alive.looking.*
+    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/prefixes.start" "$T/prefixes.beat" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.seq" "$T"/ask.ready.* "$T"/ask.hold.* "$T"/ask.claim.* "$T"/ask.released.* "$T"/ask.holding.* "$T"/alive.holding.* "$T"/alive.ready.* "$T"/alive.hold.* "$T"/alive.claim.* "$T"/alive.released.* "$T"/ask.gate.* "$T"/ask.looking.* "$T"/alive.gate.* "$T"/alive.looking.*
     unset FAKE_CLIENT_FAIL
     mkdir -p "$SALA_STATE_DIR"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; NOW=$N0
     export SALA_BGAGENTS=on
@@ -167,16 +172,18 @@ reset() {   # a clean slate: no ledger, no call logs, a quiet load, an empty lis
 await_file() { local _ tries=120; [ -n "$2" ] && tries=$2; for _ in $(seq 1 "$tries"); do [ -s "$1" ] && return 0; sleep 0.1; done; return 1; }   # a signal a stub wrote (bounded: 12 s, or the number of tenths of a second given)
 # late_removal <ask|alive>: the (j2) setup, run by a handshake and not by timing: a call that is held and gated (its hold file and its gate file exist before it starts, and its deadline is already up when it enters the hold) signals ready.1;
 # the test then removes the hold file, then the gate file, and waits for looking.1 (written after the gate went, with what the stub saw at its first look). Sets LATE_LOOK (gone or present) and LATE_WHY (the released.1 line); LATE_OK=0 when a signal never came
-# (reported here as a setup failure, nothing removed after it is judged)
+# (reported here as a setup failure, nothing removed after it is judged; a stub that never signals is stopped by its PID and reaped, so no wait here is unbounded)
 late_removal() {
     local kind=$1 pid; LATE_OK=0; LATE_LOOK=""; LATE_WHY=""
     reset; : > "$T/$kind.hold.1"; : > "$T/$kind.gate.1"
-    if [ "$kind" = ask ]; then ( SALA_BGAGENTS_RAISE_TIMEOUT=0 "$T/bin/ask" --project k < /dev/null > /dev/null 2>&1 ) & pid=$!
-    else ( ALIVE_HOLD_BOUND=0 "$T/bin/alive" some-name < /dev/null > /dev/null 2>&1 ) & pid=$!; fi
-    if ! await_file "$T/$kind.ready.1" 600; then rm -f "$T/$kind.gate.1" "$T/$kind.hold.1"; wait "$pid"; bad "setup: the $kind stub never signalled ready (no $kind.ready.1 in 60 s): the removal was not made and the check was not run"; return; fi
+    if [ "$kind" = ask ]; then SALA_BGAGENTS_RAISE_TIMEOUT=0 "$T/bin/ask" --project k < /dev/null > /dev/null 2>&1 & pid=$!      # the stub itself is the background job (its PID is the one stopped below), not a subshell around it
+    else ALIVE_HOLD_BOUND=0 "$T/bin/alive" some-name < /dev/null > /dev/null 2>&1 & pid=$!; fi
+    if ! await_file "$T/$kind.ready.1" 600; then kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; bad "setup: the $kind stub never signalled ready (no $kind.ready.1 in 60 s; the stub was stopped): the removal was not made and the check was not run"; return; fi
     rm -f "$T/$kind.hold.1"; rm -f "$T/$kind.gate.1"
-    if ! await_file "$T/$kind.looking.1" 600; then wait "$pid"; bad "setup: the $kind stub never signalled looking (no $kind.looking.1 in 60 s after the hold file and the gate file were removed): the check was not run"; return; fi
-    wait "$pid"; LATE_OK=1; LATE_LOOK=$(cat "$T/$kind.looking.1" 2>/dev/null); LATE_WHY=$(cat "$T/$kind.released.1" 2>/dev/null)
+    if ! await_file "$T/$kind.looking.1" 600; then kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; bad "setup: the $kind stub never signalled looking (no $kind.looking.1 in 60 s after the hold file and the gate file were removed; the stub was stopped): the check was not run"; return; fi
+    wait "$pid"; LATE_LOOK=$(cat "$T/$kind.looking.1" 2>/dev/null); LATE_WHY=$(cat "$T/$kind.released.1" 2>/dev/null)
+    if [ "$LATE_LOOK" = gate-expired ]; then bad "setup: the $kind stub's gate expired (30 s by the clock) before the test lifted it, so what the stub saw proves nothing: the check was not judged"; return; fi
+    LATE_OK=1
 }
 # need_held <ask|alive> <N>…: wait (60 s, bounded: a call can be slow to get here, e.g. the 6 s liveness wait below, on a loaded runner) until call N has ENTERED its hold. ready.N and holding.N are written in two steps, so a test that acts, and later samples whether the call
 # is held, waits for holding.N (it implies ready.N); a call that never gets there fails its check by name
@@ -616,9 +623,9 @@ reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" ex
 SALA_BGAGENTS_POST_TIMEOUT=1 FAKE_CLIENT_HANG=2 run; [ "$RC" = 0 ] && [ "$(led $KEY raised)" = True ] && ok "SALA_BGAGENTS_POST_TIMEOUT does not bound the raise" || bad "post timeout applied to the raise: rc=$RC [$OUT]"
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example
 SALA_BGAGENTS_RAISE_TIMEOUT=1 FAKE_CLIENT_HANG=3 run; [ "$RC" = 1 ] && [[ $OUT == *"board item needed"*"timed out after 1 s"* ]] && ok "SALA_BGAGENTS_RAISE_TIMEOUT bounds the question's call" || bad "raise timeout: rc=$RC [$OUT]"
-reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; echo 40 > "$T/prefixes.sleep"      # a read that would take 40 s: the run is bound by the 1 s timeout, and the margin to the 20 s limit below is for a loaded runner
-t0=$(date +%s); SALA_BGAGENTS_RAISE_TIMEOUT=1 run; t1=$(date +%s)
-[ "$RC" = 0 ] && [ $((t1 - t0)) -le 20 ] && [ "$(led $KEY raised)" = True ] && ok "...and so does the read of the instance's prefixes (a timeout there falls back to the default scope)" || bad "prefixes timeout: rc=$RC $((t1 - t0)) s [$OUT]"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; echo 40 > "$T/prefixes.sleep"      # a read that would take 40 s: the job cuts it off at the timeout it is given, and the stub's own clock says how long it was let live
+SALA_BGAGENTS_RAISE_TIMEOUT=1 run; LIVED=$(( ($(cat "$T/prefixes.beat" 2>/dev/null || echo 0) - $(cat "$T/prefixes.start" 2>/dev/null || echo 0)) / 1000 ))      # ms the read was let live (a timeout of 1 s: about 1000; a hard-coded 10 s would give about 10000)
+[ "$RC" = 0 ] && [ -s "$T/prefixes.start" ] && [ "$LIVED" -ge 0 ] && [ "$LIVED" -lt 5000 ] && [ "$(led $KEY raised)" = True ] && ok "...and so does the read of the instance's prefixes (a timeout there falls back to the default scope)" || bad "prefixes timeout: rc=$RC the read was let live $LIVED ms (started: $([ -s "$T/prefixes.start" ] && echo yes || echo no)) [$OUT]"
 [ "$(env -u SALA_BGAGENTS_RAISE_TIMEOUT python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import bgagents; print(bgagents.config()["raise_timeout"])' "$ROOT/lib")" = 30.0 ] && ok "the raise timeout defaults to 30 s" || bad "default raise timeout"
 grep -q 'SALA_BGAGENTS_RAISE_TIMEOUT=30' "$ROOT/config.example" && grep -q 'SALA_BGAGENTS_RAISE_TIMEOUT' "$ROOT/docs/bg-agents.md" && ok "the setting is in config.example and docs/bg-agents.md" || bad "setting undocumented"
 rm -f "$T/ask.sleep" "$T/prefixes.sleep"

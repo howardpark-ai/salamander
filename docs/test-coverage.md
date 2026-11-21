@@ -84,13 +84,22 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +0, 243 (Sat Nov 21st 2026), the pass after
+
+Eleventh review pass of `sala bg-agents` (test-only; no check added or removed), on four points of a second opinion, each checked by a run or by reading the code. (1) A stub's gate opened itself after 30 s while the helper waits up to 60 s for a signal, so a stalled
+runner could let the stub record "present" before the removal and fail the check for the wrong reason (shown with a gate of 2 s and a 4 s stall: the previous stubs gave "present" and a failed check; now the stub records "gate-expired" and the helper reports a
+setup failure and judges nothing). (2) Both signal-timeout paths waited, unbounded, for the stub they had given up on; the stub is now the background job itself (no subshell around it), and a stub that never signals is killed by its PID and reaped before the
+setup failure is reported (shown with a stub that sleeps forever: the previous helper never returned, the new one reports at once). (3) The prefixes-read check used a 20 s cutoff, so a hard-coded 10 s timeout in the job passed it; the stub now records its start and its
+last sign of life on its own clock, and the check requires the read to have been let live under 5 s (shown with the job's timeout hard-coded to 10 s: the previous suite passed, the new one fails with 9900 ms). (4) The wording of the previous entry for the reversed
+removal order is corrected (it only holds when the hold file stays until the stub has recorded its look). Earlier entries stay as they were.
+
 ### `tests/bgagents.sh`: +0, 243 (Sat Nov 21st 2026)
 
 Tenth review pass of `sala bg-agents` (test-only; no check added or removed; the two late-removal checks of the previous pass are counted here, since that pass's entry stops at 241). (1) The two late-removal checks removed the hold file during a
 three second sleep of the stub and then sampled `holding.N`, so a test process that was stalled for more than three seconds between the removal and the sample failed the check although the order was right (shown by
 running the old check with a four second stall there: it failed, the new check with the same stall passes). The stubs now take a gate file: a call whose gate file exists waits, after its delay and before its first look at the hold file,
 until the test removes the gate file (at most 30 s by the clock), and then writes `looking.N` with what the hold file looked like. A helper `late_removal <ask|alive>` removes the hold file, then the gate file, waits for `looking.N`
-and the check requires "gone" and "bound"; no sleep is left in it. With the removal and the gate lifted in the wrong order the checks fail ("present"); with the stubs' loops put back to reading the file first they fail ("released").
+and the check requires "gone" and "bound"; no sleep is left in it. With the gate lifted first and the hold file kept until the stub has recorded its look, the checks fail ("present") (with the two removals merely swapped and no wait between them the stub may still find the file gone, so that order is not guaranteed to fail); with the stubs' loops put back to reading the file first they fail ("released").
 (2) The readiness wait ended after ten seconds and the removal followed even when it timed out. A stub that starts after that does not pass the check (it finds no hold file, enters no hold and writes no `released.N`, so the check
 failed), but the cause was hidden; a stub that never signals ready, or never signals looking, is now reported as a setup failure of its own and the check is not judged. (3) Two wall-clock limits in other checks were made
 wider: the prefixes read that must be cut by the one second timeout (limit 20 s, the stub's own sleep 40 s, was 3 s and 4 s) and the `--reset` during a probe (limit 10 s, a blocked reset would wait out the probe's 15 s hold,
