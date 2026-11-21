@@ -4178,7 +4178,7 @@ In `tests/op.sh`: with `SALA_SESSION_URL` set to an https address, and to one wi
 Not covered, and why: the Slack rendering of the link and a real browser opening it (a Slack and a proxy sign-in are not in a test), and a web unit whose own
 environment sets `SALA_LOG_DIR` differently from the config file (not supported: the setting is read from the config for both).
 
-### `tests/op.sh` +24, none retired: the default-lane line for small batches, backtick runs and quoted paths in the post's filter (Sat Nov 21st 2026)
+### `tests/op.sh` +32, none retired: the default-lane line for small batches, backtick runs and quoted paths in the post's filter (Sat Nov 21st 2026)
 
 Three review points on the short post of `op_post` / `op_plain` (`lib/op.sh`). The lane fallback's default-lane line reached the post
 only when the fallback moved two or more sessions (only that branch of `op_finish` filled the lines about no session), so a fallback
@@ -4197,5 +4197,10 @@ quotes) goes whole and a `. ` inside it no longer cuts the sentence (quoted path
 key (`file=/`, `path:~/`, `dir=./`) goes; a closing bracket inside an unquoted token (`/tmp/customer]records.csv`) goes with the token, while
 one at its very end stays with the bracket it closes; and the post no longer rewrites unrelated text (`retry() returned []` and `[3]` are kept:
 a bracket pair is dropped only when a path or keyed path was its whole content, `[/tmp/a]`, `(path=/var/log/x)`).
+A fourth round of review points, eight more cases (seven fail on the code before, the eighth pins the URLs): a backslash-escaped quote inside a quoted path
+(`"/tmp/customer\" records.csv"`, and the single-quote form) no longer ends the redaction early; a bracketed path whose token holds a
+closing bracket inside (`[/tmp/customer]records.csv]`, `(/tmp/a]b)`) goes up to the last closing bracket of its token; keys in a row
+(`file=/ dir=./ path:~/`, and four colon keys in a row) all go, since the bare-slash rule for a colon key eats the space after it and runs
+twice; and after `=` a double slash is a path too (`file=//srv/share`), while `key://srv/x` and `https://h/x` stay.
 What the filter does not try to catch: an unquoted path that contains a space, and a path built from anything but a leading `/`, `~/`, `./` or
 `../` (a drive letter, a bare relative `a/b`); it is a courtesy against leaking a path into a phone post, not a parser.
