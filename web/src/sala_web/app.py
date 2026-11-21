@@ -679,7 +679,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return Response("method not allowed", status_code=405, media_type="text/plain",
                             headers={**OL.HEADERS, "Allow": "GET, HEAD"})
         raw = request.path_params.get("id", "")
-        text = await run_in_threadpool(OL.read_log, settings.log_dir or log_dir(), raw)
+        # the folder is resolved inside the worker too: reading sala's config is a file read, never on the event loop
+        text = await run_in_threadpool(lambda: OL.read_log(settings.log_dir or log_dir(), raw))
         if text is None:
             return Response("no such log", status_code=404, media_type="text/plain", headers=OL.HEADERS)
         return PlainTextResponse(text, headers=OL.HEADERS)   # text/plain; charset=utf-8
