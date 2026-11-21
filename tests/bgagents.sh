@@ -77,10 +77,13 @@ cat > "$T/bin/alive" <<'EOF'
 # captured, so a test that changes alive.sleep waits for it; $T/alive.seq (one exit code a line) answers call N with line N (the last line after that); $T/alive.hold.N holds call N
 # (after its answer is decided) until the test removes that file, for at most 15 s by the clock (half the 30 s the job allows a check).
 # The call's number N is CLAIMED first, with an exclusive create (bash noclobber, O_EXCL: the first free alive.claim.N is taken; mkdir is NOT used: the uutils mkdir of Ubuntu 26.04 lets two concurrent calls both create the same directory), so two calls that start together never share a number; only then is anything
-# signaled: alive.ready.N says call N has its answer, its delay and its hold decided; alive.holding.N that it entered the hold; alive.released.N says how it left its hold ("released" by the test removing the file, "bound" by the clock)
+# signaled: alive.ready.N says call N has its answer, its delay and its hold decided; alive.holding.N that it entered the hold; alive.released.N says how it left its hold ("released" by the test removing the file, "bound" by the clock);
+# alive.gate.N (a file the test creates with the hold file) stops call N after its delay and BEFORE its first look at the hold file until the test removes the gate file (at most 30 s by the clock), and alive.looking.N is written when the call comes
+# to that first look, with what it saw ("gone" or "present"): a test that removes the hold file, then the gate file, and then waits for looking.N, has proved by the stub's own handshake, not by timing, that the file was gone at the first look
 n=1; while ! ( set -o noclobber; : > "$T/alive.claim.$n" ) 2>/dev/null; do n=$((n + 1)); done
 echo "$1" >> "$T/alive.log"
 hold=0; [ -e "$T/alive.hold.$n" ] && hold=1
+gate=0; [ -e "$T/alive.gate.$n" ] && gate=1
 # the answer is decided first and given after the wait: a slow check reports what was true when it asked
 if [ -f "$T/alive.seq" ]; then rc=$(sed -n "$n p" "$T/alive.seq"); [ -n "$rc" ] || rc=$(tail -n 1 "$T/alive.seq")
 elif [ -f "$T/alive.rc" ]; then rc=$(cat "$T/alive.rc"); elif grep -qx -- "$1" "$T/alive.txt" 2>/dev/null; then rc=0; else rc=1; fi
@@ -88,6 +91,8 @@ delay=0; [ -f "$T/alive.sleep" ] && delay=$(cat "$T/alive.sleep")
 echo "$1" > "$T/alive.ready.$n"
 [ "$delay" != 0 ] && sleep "$delay"
 if [ "$hold" = 1 ]; then
+    if [ "$gate" = 1 ]; then gu=$((SECONDS + 30)); while [ -e "$T/alive.gate.$n" ] && [ "$SECONDS" -lt "$gu" ]; do sleep 0.1; done; fi
+    if [ -e "$T/alive.hold.$n" ]; then echo present > "$T/alive.looking.$n"; else echo gone > "$T/alive.looking.$n"; fi
     echo holding > "$T/alive.holding.$n"; until=$((SECONDS + ${ALIVE_HOLD_BOUND:-15})); why=""
     while [ -z "$why" ]; do
         if [ "$SECONDS" -ge "$until" ]; then why=bound; elif [ ! -e "$T/alive.hold.$n" ]; then why=released; else sleep 0.1; fi     # the reason is set here, when the loop sees it, never decided by a later look at the file
@@ -105,6 +110,7 @@ delay=0; [ -f "$T/ask.sleep" ] && delay=$(cat "$T/ask.sleep")
 n=1; while ! ( set -o noclobber; : > "$T/ask.claim.$n" ) 2>/dev/null; do n=$((n + 1)); done
 echo ask >> "$T/order.log"
 hold=0; [ -e "$T/ask.hold.$n" ] && hold=1
+gate=0; [ -e "$T/ask.gate.$n" ] && gate=1
 echo ask > "$T/ask.ready.$n"
 # $T/ask.failkey names one project the board refuses (a filing error that belongs to that key); every call's project is noted in ask.keys
 prev=""
@@ -119,8 +125,11 @@ done
 # $T/ask.hold.N: call N waits until the test removes that file, however long the other runs take. The wait ends by the CLOCK (bash SECONDS, not a count of sleeps, which only
 # gives a minimum) at half the filing timeout this call has (SALA_BGAGENTS_RAISE_TIMEOUT, 30 s when unset), so the job's own timeout can never end a hold first;
 # ask.released.N records how the call left its hold: "released" (the loop saw the test had removed the file) or "bound" (the loop saw the clock's deadline first); it is set inside the loop
-# at that moment, so a file removed just after the deadline cannot turn "bound" into "released"; ask.holding.N is written when the call enters the hold (after ready.N and the delay)
+# at that moment, so a file removed just after the deadline cannot turn "bound" into "released"; ask.holding.N is written when the call enters the hold (after ready.N and the delay);
+# ask.gate.N and ask.looking.N: as for the liveness stub (the gate file stops the call before its first look at the hold file until the test removes it; looking.N says what that look saw)
 if [ "$hold" = 1 ]; then
+    if [ "$gate" = 1 ]; then gu=$((SECONDS + 30)); while [ -e "$T/ask.gate.$n" ] && [ "$SECONDS" -lt "$gu" ]; do sleep 0.1; done; fi
+    if [ -e "$T/ask.hold.$n" ]; then echo present > "$T/ask.looking.$n"; else echo gone > "$T/ask.looking.$n"; fi
     echo holding > "$T/ask.holding.$n"; rt=$SALA_BGAGENTS_RAISE_TIMEOUT; [ -n "$rt" ] || rt=30; until=$((SECONDS + rt / 2)); why=""
     while [ -z "$why" ]; do
         if [ "$SECONDS" -ge "$until" ]; then why=bound; elif [ ! -e "$T/ask.hold.$n" ]; then why=released; else sleep 0.1; fi     # the reason is set here, when the loop sees it, never decided by a later look at the file
@@ -150,12 +159,25 @@ run() {   # [args] → OUT (stdout+stderr), RC; the clock is $NOW (default N0)
     OUT=$(SALA_BGAGENTS_NOW=${NOW:-$N0} $S "$@" 2>&1); RC=$?
 }
 reset() {   # a clean slate: no ledger, no call logs, a quiet load, an empty list, nothing alive, no project record
-    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.seq" "$T"/ask.ready.* "$T"/ask.hold.* "$T"/ask.claim.* "$T"/ask.released.* "$T"/ask.holding.* "$T"/alive.holding.* "$T"/alive.ready.* "$T"/alive.hold.* "$T"/alive.claim.* "$T"/alive.released.*
+    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.seq" "$T"/ask.ready.* "$T"/ask.hold.* "$T"/ask.claim.* "$T"/ask.released.* "$T"/ask.holding.* "$T"/alive.holding.* "$T"/alive.ready.* "$T"/alive.hold.* "$T"/alive.claim.* "$T"/alive.released.* "$T"/ask.gate.* "$T"/ask.looking.* "$T"/alive.gate.* "$T"/alive.looking.*
     unset FAKE_CLIENT_FAIL
     mkdir -p "$SALA_STATE_DIR"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; NOW=$N0
     export SALA_BGAGENTS=on
 }
 await_file() { local _ tries=120; [ -n "$2" ] && tries=$2; for _ in $(seq 1 "$tries"); do [ -s "$1" ] && return 0; sleep 0.1; done; return 1; }   # a signal a stub wrote (bounded: 12 s, or the number of tenths of a second given)
+# late_removal <ask|alive>: the (j2) setup, run by a handshake and not by timing: a call that is held and gated (its hold file and its gate file exist before it starts, and its deadline is already up when it enters the hold) signals ready.1;
+# the test then removes the hold file, then the gate file, and waits for looking.1 (written after the gate went, with what the stub saw at its first look). Sets LATE_LOOK (gone or present) and LATE_WHY (the released.1 line); LATE_OK=0 when a signal never came
+# (reported here as a setup failure, nothing removed after it is judged)
+late_removal() {
+    local kind=$1 pid; LATE_OK=0; LATE_LOOK=""; LATE_WHY=""
+    reset; : > "$T/$kind.hold.1"; : > "$T/$kind.gate.1"
+    if [ "$kind" = ask ]; then ( SALA_BGAGENTS_RAISE_TIMEOUT=0 "$T/bin/ask" --project k < /dev/null > /dev/null 2>&1 ) & pid=$!
+    else ( ALIVE_HOLD_BOUND=0 "$T/bin/alive" some-name < /dev/null > /dev/null 2>&1 ) & pid=$!; fi
+    if ! await_file "$T/$kind.ready.1" 600; then rm -f "$T/$kind.gate.1" "$T/$kind.hold.1"; wait "$pid"; bad "setup: the $kind stub never signalled ready (no $kind.ready.1 in 60 s): the removal was not made and the check was not run"; return; fi
+    rm -f "$T/$kind.hold.1"; rm -f "$T/$kind.gate.1"
+    if ! await_file "$T/$kind.looking.1" 600; then wait "$pid"; bad "setup: the $kind stub never signalled looking (no $kind.looking.1 in 60 s after the hold file and the gate file were removed): the check was not run"; return; fi
+    wait "$pid"; LATE_OK=1; LATE_LOOK=$(cat "$T/$kind.looking.1" 2>/dev/null); LATE_WHY=$(cat "$T/$kind.released.1" 2>/dev/null)
+}
 # need_held <ask|alive> <N>…: wait (60 s, bounded: a call can be slow to get here, e.g. the 6 s liveness wait below, on a loaded runner) until call N has ENTERED its hold. ready.N and holding.N are written in two steps, so a test that acts, and later samples whether the call
 # is held, waits for holding.N (it implies ready.N); a call that never gets there fails its check by name
 need_held() { local kind=$1 n; shift; for n in "$@"; do await_file "$T/$kind.holding.$n" 600 || bad "the $kind call $n never entered its hold (no holding signal in 60 s): the overlap checks that follow prove nothing"; done; }
@@ -594,9 +616,9 @@ reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" ex
 SALA_BGAGENTS_POST_TIMEOUT=1 FAKE_CLIENT_HANG=2 run; [ "$RC" = 0 ] && [ "$(led $KEY raised)" = True ] && ok "SALA_BGAGENTS_POST_TIMEOUT does not bound the raise" || bad "post timeout applied to the raise: rc=$RC [$OUT]"
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example
 SALA_BGAGENTS_RAISE_TIMEOUT=1 FAKE_CLIENT_HANG=3 run; [ "$RC" = 1 ] && [[ $OUT == *"board item needed"*"timed out after 1 s"* ]] && ok "SALA_BGAGENTS_RAISE_TIMEOUT bounds the question's call" || bad "raise timeout: rc=$RC [$OUT]"
-reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; echo 4 > "$T/prefixes.sleep"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; echo 40 > "$T/prefixes.sleep"      # a read that would take 40 s: the run is bound by the 1 s timeout, and the margin to the 20 s limit below is for a loaded runner
 t0=$(date +%s); SALA_BGAGENTS_RAISE_TIMEOUT=1 run; t1=$(date +%s)
-[ "$RC" = 0 ] && [ $((t1 - t0)) -le 3 ] && [ "$(led $KEY raised)" = True ] && ok "...and so does the read of the instance's prefixes (a timeout there falls back to the default scope)" || bad "prefixes timeout: rc=$RC $((t1 - t0)) s [$OUT]"
+[ "$RC" = 0 ] && [ $((t1 - t0)) -le 20 ] && [ "$(led $KEY raised)" = True ] && ok "...and so does the read of the instance's prefixes (a timeout there falls back to the default scope)" || bad "prefixes timeout: rc=$RC $((t1 - t0)) s [$OUT]"
 [ "$(env -u SALA_BGAGENTS_RAISE_TIMEOUT python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import bgagents; print(bgagents.config()["raise_timeout"])' "$ROOT/lib")" = 30.0 ] && ok "the raise timeout defaults to 30 s" || bad "default raise timeout"
 grep -q 'SALA_BGAGENTS_RAISE_TIMEOUT=30' "$ROOT/config.example" && grep -q 'SALA_BGAGENTS_RAISE_TIMEOUT' "$ROOT/docs/bg-agents.md" && ok "the setting is in config.example and docs/bg-agents.md" || bad "setting undocumented"
 rm -f "$T/ask.sleep" "$T/prefixes.sleep"
@@ -645,7 +667,7 @@ patch "$KEY" next_try=0 attempts=1 failures=1 retire_needed=true stale=true; pat
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
 need_held alive 1
 t0=$(date +%s%N); run --reset "$KEY2"; t1=$(date +%s%N); HELD=$(alive_held 1)
-[ "$RC" = 0 ] && [[ $OUT == *"cleared the ledger entry"* ]] && [ $(( (t1 - t0) / 1000000 )) -lt 3000 ] && ok "a slow liveness check does not block \`--reset\` (it ran during the probe, in under 3 s)" || bad "reset blocked by a probe: rc=$RC [$OUT] $(( (t1 - t0) / 1000000 )) ms"
+[ "$RC" = 0 ] && [[ $OUT == *"cleared the ledger entry"* ]] && [ $(( (t1 - t0) / 1000000 )) -lt 10000 ] && ok "a slow liveness check does not block \`--reset\` (it ran during the probe, in under 10 s: a blocked reset would wait out the probe's 15 s hold)" || bad "reset blocked by a probe: rc=$RC [$OUT] $(( (t1 - t0) / 1000000 )) ms"
 rm -f "$T/alive.hold.1"; wait "$BG"
 [ "$HELD" = yes ] && [ "$(alive_freed 1)" = yes ] && ok "...proof of the overlap: the liveness check was in flight (held) when the reset ran, and left its hold only when the test released it" || bad "probe overlap not proved: in flight=$HELD freed=$(alive_freed 1)"
 [ "$(cat "$T/bg.rc")" = 0 ] && [ "$(led $KEY2 failures)" = 0 ] && [ "$(led $KEY2 raised)" = False ] && [ "$(led $KEY stale)" = True ] && ok "...the run re-reads the ledger after its probes: the reset is not written over (the reset project is started afresh), the probed project is kept as it was" || bad "after the probe: rc=$(cat "$T/bg.rc") $(cat "$L") [$(cat "$T/bg.out")]"
@@ -759,16 +781,12 @@ reset; : > "$T/ask.hold.1"; : > "$T/alive.hold.1"
 need_held ask 1; need_held alive 1; rm -f "$T/ask.hold.1" "$T/alive.hold.1"; wait "$PK" "$PL"
 [ "$(cat "$T/ask.released.1" 2>/dev/null)" = released ] && [ "$(cat "$T/alive.released.1" 2>/dev/null)" = released ] && ok "a hold the test removed is recorded as released (board-item and liveness stubs)" || bad "released not recorded: [$(cat "$T/ask.released.1" 2>/dev/null)] [$(cat "$T/alive.released.1" 2>/dev/null)]"
 # (j2) the deadline is read BEFORE the file: a hold whose file the test removes after the deadline has passed (here a deadline that is already up when the loop starts) is "bound", never "released".
-#      The stub sleeps its delay after ready.N and only then enters the hold: the test removes the file during that sleep and checks, right after the removal, that the stub has not entered the hold yet
-#      (no holding.N), so the file is gone before the stub's first look; a delayed runner fails the check (the setup is invalid) instead of passing it for the old order's reason
-reset; : > "$T/ask.hold.1"; echo 3 > "$T/ask.sleep"
-( SALA_BGAGENTS_RAISE_TIMEOUT=0 "$T/bin/ask" --project k < /dev/null > /dev/null 2>&1 ) & PK=$!
-for _ in $(seq 1 100); do [ -e "$T/ask.ready.1" ] && break; sleep 0.1; done; rm -f "$T/ask.hold.1"; early=0; [ -e "$T/ask.holding.1" ] || early=1; wait "$PK"
-[ "$early" = 1 ] && [ "$(cat "$T/ask.released.1" 2>/dev/null)" = bound ] && ok "a file removed after the deadline is recorded as bound (board-item stub)" || bad "ask: removal before the stub's first look: $early, read as [$(cat "$T/ask.released.1" 2>/dev/null)]"
-reset; : > "$T/alive.hold.1"; echo 3 > "$T/alive.sleep"
-( ALIVE_HOLD_BOUND=0 "$T/bin/alive" some-name < /dev/null > /dev/null 2>&1 ) & PL=$!
-for _ in $(seq 1 100); do [ -e "$T/alive.ready.1" ] && break; sleep 0.1; done; rm -f "$T/alive.hold.1"; early=0; [ -e "$T/alive.holding.1" ] || early=1; wait "$PL"
-[ "$early" = 1 ] && [ "$(cat "$T/alive.released.1" 2>/dev/null)" = bound ] && ok "a file removed after the deadline is recorded as bound (liveness stub)" || bad "alive: removal before the stub's first look: $early, read as [$(cat "$T/alive.released.1" 2>/dev/null)]"
+#      A handshake, no timing: the stub is held at a gate before its first look; the test removes the hold file, then the gate file; the stub then writes looking.N with what it saw (the file is gone) and enters the loop.
+#      The removal is thus certain to come before the first look, on any runner, and a stub that never signals is a setup failure of its own, not a pass or a fail of the check
+late_removal ask
+[ "$LATE_OK" = 0 ] || { [ "$LATE_LOOK" = gone ] && [ "$LATE_WHY" = bound ] && ok "a file removed after the deadline is recorded as bound (board-item stub)" || bad "ask: at its first look the file was [$LATE_LOOK], the hold was read as [$LATE_WHY]"; }
+late_removal alive
+[ "$LATE_OK" = 0 ] || { [ "$LATE_LOOK" = gone ] && [ "$LATE_WHY" = bound ] && ok "a file removed after the deadline is recorded as bound (liveness stub)" || bad "alive: at its first look the file was [$LATE_LOOK], the hold was read as [$LATE_WHY]"; }
 # (f) the subcommand table describes the shipped timer
 ! grep -q "No timer is shipped" "$ROOT/docs/subcommands.md" && grep -q 'sala-bg-agents.timer' "$ROOT/docs/subcommands.md" && ok "docs/subcommands.md says the timer ships in systemd/ (not that none ships)" || bad "subcommands.md timer sentence"
 
