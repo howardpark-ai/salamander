@@ -1,0 +1,8 @@
+[Unit]
+Description=Start the background agent a project wants from the want list, one project a run
+X-Model-Lane=none
+X-Project=sala/salamander
+
+[Service]
+Type=oneshot
+ExecStart=%h/salamander/bin/salamander bg-agents
