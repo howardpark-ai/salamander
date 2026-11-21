@@ -273,7 +273,7 @@ op_web_base() {  # → scheme://host of sala's web UI (the origin of SALA_SESSIO
     local id=${1:-} t w="" l=$SALA_LOG_DIR line raw q lp base
     t=$(session_url_template); [[ $t =~ ^(https?://[^/?#[:space:]\<\>|]+) ]] || return 0   # no web address: nothing to read
     base=${BASH_REMATCH[1]}
-    lp=$(op_oplog "$id"); { [ -f "$lp" ] && [ ! -L "$lp" ]; } || return 0
+    lp=$(op_oplog "$id"); { [ -f "$lp" ] && [ ! -L "$lp" ] && [ -r "$lp" ]; } || return 0   # a regular file, not a link, readable (by this user: the page's own user is not known here)
     local cfg=$HOME/.config/salamander/config
     if [ -r "$cfg" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
@@ -282,7 +282,7 @@ op_web_base() {  # → scheme://host of sala's web UI (the origin of SALA_SESSIO
             if [ "$q" = "'" ] || [ "$q" = '"' ]; then raw=${raw:1}; case $raw in *"$q"*) raw=${raw%%"$q"*};; esac   # quoted: what is inside
             else raw=${raw%%[[:space:]]#*}; read -r raw <<< "$raw" || :; fi                                               # else up to a ` #` comment
             if [ "$raw" = "~" ] || [[ $raw == "~/"* ]]; then raw=$HOME${raw:1}; fi
-            raw=${raw//'${HOME}'/$HOME}; w=${raw//'$HOME'/$HOME}
+            raw=${raw//'${HOME}'/"$HOME"}; w=${raw//'$HOME'/"$HOME"}   # (the replacement quoted: with patsub_replacement on, bash 5.2+, a bare & in $HOME would stand for the match)
         done < "$cfg"
     fi
     w=${w:-$HOME/.claude}; case $w in /*) ;; *) w=$HOME/$w;; esac

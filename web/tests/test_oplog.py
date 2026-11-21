@@ -298,6 +298,28 @@ def test_a_running_service_follows_a_folder_changed_in_the_config(tmp_path, monk
     assert web.get(f"/op/{ID}").status_code == 404                           # back to ~/.claude, where there is none
 
 
+def test_the_log_folder_is_resolved_off_the_event_loop(tmp_path, monkeypatch):
+    # reading sala's config is a file read: it runs in the worker thread with the log read, never on the loop (a slow home folder must not stall other requests)
+    import asyncio
+    import sala_web.app as appmod
+    seen = []
+
+    def spy():
+        try:
+            asyncio.get_running_loop()
+            seen.append("loop")
+        except RuntimeError:
+            seen.append("worker")
+        return tmp_path / "logs"
+
+    (tmp_path / "logs").mkdir()
+    store(tmp_path / "logs")
+    monkeypatch.setattr(appmod, "log_dir", spy)
+    web = TestClient(create_app(make_settings(tmp_path)))
+    assert web.get(f"/op/{ID}").text == LOG
+    assert seen == ["worker"]
+
+
 # The CLI's own post, run as the CLI runs it (lib/common.sh and lib/op.sh sourced, the real op_post, Slack a printed line), then its link followed
 # through the web app built the way the service builds it: no sala environment of its own, only the default config file under the same HOME.
 CLI_POST = r"""
@@ -310,6 +332,7 @@ printf 'id=%s\ntime=%s\nfrom=sala-test-h\nwords=w\nverb=model\narg=sala-test-a\n
 case ${LOGKIND:-file} in
     file) printf '%s' "$LOGTEXT" > "$(op_oplog "$ID")" ;;
     symlink) printf '%s' "$LOGTEXT" > "$HOME/elsewhere.log"; ln -s "$HOME/elsewhere.log" "$(op_oplog "$ID")" ;;
+    unreadable) printf '%s' "$LOGTEXT" > "$(op_oplog "$ID")"; chmod 0200 "$(op_oplog "$ID")" ;;
     missing) : ;;
 esac
 op_post "$ID" done 1 0 sala-test-a
@@ -326,21 +349,29 @@ CLI_CASES = {   # name: (default config's text, the CLI's own SALA_CONFIG text o
     # the config's SALA_LOG_DIR line in every shape the app's reader understands: the CLI's reading of it must agree with the app's
     "an export, double quotes, a space in the folder": ('export SALA_LOG_DIR="$HOME/other logs"\n', None, {}, "", "file", True),
     "a trailing comment": ("SALA_LOG_DIR=~/moved   # kept here\n", None, {}, "", "file", True),
-    "HOME, plain and braced": ("SALA_LOG_DIR=$" + "{HOME}" + "/a\nSALA_LOG_DIR=" + "$HOME" + "/b\n", None, {}, "", "file", True),   # (built so no home-path shape sits in the source)
+    # (the two HOME forms are built from pieces so no home-path shape sits in the source; each case holds ONE assignment, so each form is used by both readers)
+    "braced HOME alone": ("SALA_LOG_DIR=$" + "{HOME}" + "/braced\n", None, {}, "", "file", True),
+    "plain HOME alone": ("SALA_LOG_DIR=" + "$HOME" + "/plain\n", None, {}, "", "file", True),
+    "an ampersand in HOME, plain HOME in the config": ("SALA_LOG_DIR=" + "$HOME" + "/logs\n", None, {}, "", "file", True, "a&b"),
+    "an ampersand in HOME, braced HOME in the config": ("SALA_LOG_DIR=$" + "{HOME}" + "/logs\n", None, {}, "", "file", True, "a&b"),
+    "an ampersand in HOME, a tilde in the config": ("SALA_LOG_DIR=~/logs\n", None, {}, "", "file", True, "a&b"),
     "the last assignment wins": ("SALA_LOG_DIR=~/first\nSALA_LOG_DIR=~/moved\n", None, {}, "", "file", True),
     "an indented line": ("   SALA_LOG_DIR=~/moved\n", None, {}, "", "file", True),
     "an empty value is the default": ("SALA_LOG_DIR=\n", None, {}, "", "file", True),
     # the log itself: the page opens a regular file only, so a link to a missing log or to a symlink would 404
     "a missing log": (None, None, {}, "", "missing", False),
     "a symlink log": (None, None, {}, "", "symlink", False),
+    "a write-only log (nobody can read it, the page answers 404)": (None, None, {}, "", "unreadable", False),
     "a missing log in a moved folder": ("SALA_LOG_DIR=~/moved\n", None, {}, "", "missing", False),
 }
 
 
 @pytest.mark.parametrize("case", list(CLI_CASES))
 def test_the_link_the_cli_posts_opens_the_log_or_is_not_posted(tmp_path, monkeypatch, case):
-    default_cfg, cli_cfg, extra, cwd, kind, linked = CLI_CASES[case]
-    home = tmp_path / "home"
+    default_cfg, cli_cfg, extra, cwd, kind, linked, *more = CLI_CASES[case]
+    if kind == "unreadable" and os.geteuid() == 0:
+        pytest.skip("root reads a write-only file anyway: the case needs an ordinary user")
+    home = tmp_path / (more[0] if more else "home")
     (home / ".config" / "salamander").mkdir(parents=True)
     default = home / ".config" / "salamander" / "config"
     if default_cfg:
