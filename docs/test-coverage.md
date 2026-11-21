@@ -84,6 +84,17 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +0, 229 (Sat Nov 21st 2026)
+
+Seventh review pass of `sala bg-agents` (test-only; no check added or removed). The hold in the board-item stub counted 600 sleeps of 0.1 s, which is only a minimum for the loop (every
+pass also pays a fork and the scheduler), so under load it could outrun the filing timeout. The hold now ends by the clock (bash `SECONDS`) at half the filing timeout the call has, so the job's
+own timeout cannot end it first. The same review asked whether any other check decides an order by a count of sleeps or a fixed delay; eight did (a stub's `sleep` N was the only thing keeping a
+run inside another's call), and all are now held by files the test removes: the board-item stub holds call N while `ask.hold.N` exists, the liveness stub holds call N while `alive.hold.N`
+exists (after its answer is decided), and the overlap checks (a reset during a slow raise, the same project's reset, the second run against a filing in flight, a start recorded during a call, a reset during
+a slow probe, the takeover pair, the overtaken answer, the failing filing after a recovery) release them in the order they need. What is left is a minimum elapsed time, which orders nothing: one liveness
+check that takes 6 s so that the filing mark is at least 6 s after the first run's start, and the bounded waits for a stub's ready file (a miss shows in the checks after it). The takeover checks use
+a 90 s filing timeout, so the window is 195 s and the second run's clock is the first one's recorded mark plus that.
+
 ### `tests/bgagents.sh`: +1, 229 (Sat Nov 21st 2026)
 
 Sixth review pass of `sala bg-agents` (test-only; the library is unchanged). The recovery check holds the first filing with a hold file for at most 60 s, and the filing's own timeout used to be
