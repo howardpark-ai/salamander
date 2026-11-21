@@ -104,6 +104,7 @@ rm -f "$SALA_STATE_DIR"/ops/unmapped-*.op
 wtick SALA_UNMAPPED_YOUNG=0
 [ "$(nposts)" = 1 ] && [ "$(ukey)" = 1 ] && [ "$(ulog)" = $((ulog0 + 1)) ] && ok "past the window, no spawn in flight: exactly one post, the key set, the log line kept" || bad "past the window: posts=$(nposts) keys=$(ukey) log=$(tail -2 "$WLOGF")"
 grep -q 'a sala session adopts it if it is meant to stay' "$POSTS" && ! grep -q 'run:' "$POSTS" && ! grep -q 'sala adopt' "$POSTS" && ok "the post names who acts and gives the owner no command" || bad "post text: $(slurp "$POSTS")"
+grep -q 'a live session with no pane-map row: a reboot or recycle could not bring it back' "$POSTS" && ! grep -q 'did not spawn' "$POSTS" && ok "the post says only what is known: no pane-map row, never that sala did not spawn it" || bad "post wording: $(slurp "$POSTS")"
 wtick SALA_UNMAPPED_YOUNG=0
 [ "$(nposts)" = 1 ] && ok "reported once: the next tick posts nothing more" || bad "second tick: posts=$(nposts)"
 reset_unmapped; ulog0=$(ulog)

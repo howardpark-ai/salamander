@@ -1864,7 +1864,7 @@ deferred_revive() {
 [ "$CHECK_ONLY" = 1 ] || { waiting_prune; busy_prune; refusal_prune; }   # relaunch-waiting flags whose owner is gone; busy records of sessions long gone
 [ "$CHECK_ONLY" = 1 ] || inbox_release_stale   # a relaunch that died left its pane's inbox held: free it after 10 min
 # UNMAPPED SESSIONS (the map is a ledger — common.sh): a live claude in a tmux session the pane map
-# does not know (started by hand, outside spawn) is reported once — a log line and one post per session — and never added from
+# does not know (started by hand, outside spawn, or a spawn whose row write failed) is reported once — a log line and one post per session — and never added from
 # here: `sala adopt NAME` is the honored path. A spawn still landing its row is not one (THE SPAWN WINDOW, rename.sh: the row is
 # written on the spawn's way out, after the pane is up): a session whose spawn is in flight (spawn_in_flight, common.sh, the rule rename
 # waits on: a spawn operation queued, running or waiting, or a tmux session under SALA_UNMAPPED_YOUNG seconds old, default
@@ -1889,7 +1889,7 @@ unmapped_report() {
         su=""; [ -r "$SALA_SIDECAR" ] && _tsv_col_r su "$SALA_SIDECAR" "$sess" 2
         [ -z "$su" ] || continue   # the row landed since the first read: nothing posted, nothing set
         st_set "$k" "$u"; wlog "unmapped: '$sess' runs conversation $u with no pane-map row — sala adopt $sess registers it"
-        notify "⚠️ *$sess is not in the pane map*" "a live session sala did not spawn: a reboot or recycle could not bring it back" "a sala session adopts it if it is meant to stay"
+        notify "⚠️ *$sess is not in the pane map*" "a live session with no pane-map row: a reboot or recycle could not bring it back" "a sala session adopts it if it is meant to stay"
     done <<< "$pt"
 }
 [ "$CHECK_ONLY" = 1 ] || unmapped_report
