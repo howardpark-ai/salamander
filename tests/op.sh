@@ -560,11 +560,32 @@ for pc in "it could not write to /tmp and stopped|it could not write to and stop
           "it ran \`rm -rf demo-dir\` and failed|it ran and failed" \
           "it ran \`salamander lane x. y\` and failed. A second sentence.|it ran and failed." \
           "3/5 sessions and a/b stay put|3/5 sessions and a/b stay put" \
-          "it failed (exit 1) at /tmp.|it failed at"; do
+          "it failed (exit 1) at /tmp.|it failed at" \
+          "it ran \`\`salamander retire x\`\` and failed|it ran and failed" \
+          "it ran \`\`\`x\`\`\` and failed|it ran and failed" \
+          "it ran \`a\`\`b\` and failed|it ran and failed" \
+          "it ran \`\`x. and failed|it ran" \
+          "it could not read \"/tmp\" at all|it could not read at all" \
+          "it could not read '/tmp' at all|it could not read at all" \
+          "it failed on file=/tmp today|it failed on today" \
+          "it failed on key:/etc/x today|it failed on today" \
+          "it failed (path=/var/log) today|it failed today" \
+          "it failed [/var/log] today|it failed today" \
+          "it failed on <~/f> today|it failed on today" \
+          "see https://host/x and http://h:80/y.|see https://host/x and http://h:80/y." \
+          "the timer runs at 04:00 and 14:30|the timer runs at 04:00 and 14:30" \
+          "it failed at file:/tmp and https://h/p?q=a:b|it failed at and https://h/p?q=a:b" \
+          "it could not read \"/tmp/customer records.csv\" at all|it could not read at all" \
+          "it could not read '/tmp/customer records.csv' at all|it could not read at all" \
+          "it wrote \"/tmp/a b. c.csv\" today and stopped|it wrote today and stopped" \
+          "it set file=/ and path:~/ and dir=./ today|it set and and today" \
+          "it failed on /tmp/customer]records.csv today|it failed on today" \
+          "it failed on [/tmp/a] and (path=/var/log/x) today|it failed on and today" \
+          "retry() returned [] and [3] today|retry() returned [] and [3] today"; do
     pin=${pc%%|*}; pwant=${pc#*|}; pgot=$(plain "$pin")
     [ "$pgot" = "$pwant" ] && ok "plain: '$pin' → '$pgot'" || bad "plain: '$pin' → '$pgot' (wanted '$pwant')"
 done
-pgot=$(plain "a \`one span\` here and a lone \` tick"); [ "$pgot" = "a here and a lone tick" ] && ok "plain: an unpaired tick goes, a span goes whole" || bad "plain, ticks: '$pgot'"
+pgot=$(plain "a \`one span\` here and a lone \` tick"); [ "$pgot" = "a here and a lone" ] && ok "plain: an unpaired tick drops the rest of the text, a span goes whole" || bad "plain, ticks: '$pgot'"
 # a stuck post whose helper line names a single-segment path and a command: neither reaches Slack
 : > "$POSTS"; S9=$(sid 209); mkfin "$S9" sala-test-h rename sala-test-zz sala-test-zy; stuckwhy "$S9" "It could not write /tmp or ~/settings.json, and \`salamander rename sala-test-zz sala-test-zy\` stopped. Second sentence."
 fin "$S9" stuck "no tmux session (exit 1)"
@@ -598,6 +619,23 @@ printf 'detail=%s\n' "default lane: subscription-1 → bedrock" >> "$OPS/$A4.op"
 fin "$A4" done "the subscription-1 lane is dormant: the default moved to the bedrock lane"
 P=$(post "$LG$A4.log"); [ "$(sed -n 2p <<< "$P")" = "• default lane: subscription-1 → bedrock" ] && [ "$(grep -c 'NOT moved' <<< "$P")" = 5 ] && has "$P" "and 2 more" && ! has "$P" "and 3 more" && ! has "$P" "sala-test-v6" && [ "$(lines_in "$P")" = 9 ] && plain_post "$P" \
     && ok "seven failures and the default lane: 'and 2 more' (the seven only), the default line present and never cut" || bad "seven + default: $P"
+
+# the lane fallback that moved the default lane and none, one or two sessions: the default-lane line is in the post for every count
+: > "$POSTS"; A5=$(sid 305); mkfin "$A5" sala-watch lane fallback subscription-1
+printf 'detail=%s\n' "default lane: subscription-1 → bedrock" >> "$OPS/$A5.op"
+fin "$A5" done "the subscription-1 lane is dormant: the default moved to the bedrock lane"
+P=$(post "$LG$A5.log"); [ "$(lines_in "$P")" = 3 ] && has "$P" "• default lane: subscription-1 → bedrock" && has "$P" "asked by sala-watch" && plain_post "$P" \
+    && ok "fallback, no session moved, the default lane moved: its line is in the post" || bad "fallback n=0: $P"
+: > "$POSTS"; A6=$(sid 306); mkfin "$A6" sala-watch lane fallback subscription-1
+printf 'detail=%s\n' "sala-test-v1: subscription-1 → bedrock" "default lane: subscription-1 → bedrock" >> "$OPS/$A6.op"
+fin "$A6" done "the subscription-1 lane is dormant: 1 session and the default moved to the bedrock lane"
+P=$(post "$LG$A6.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "✅ *moved sala-test-v1 off the dormant lane subscription-1*" ] && [ "$(sed -n 2p <<< "$P")" = "• default lane: subscription-1 → bedrock" ] && plain_post "$P" \
+    && ok "fallback, one session moved, the default lane moved: the session named, the default line present" || bad "fallback n=1: $P"
+: > "$POSTS"; A7=$(sid 307); mkfin "$A7" sala-watch lane fallback subscription-1
+printf 'detail=%s\n' "sala-test-v1: subscription-1 → bedrock" "sala-test-v2: subscription-1 → bedrock" "default lane: subscription-1 → bedrock" >> "$OPS/$A7.op"
+fin "$A7" done "the subscription-1 lane is dormant: 2 sessions and the default moved to the bedrock lane"
+P=$(post "$LG$A7.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "✅ *moved 2 sessions off the dormant lane subscription-1*" ] && [ "$(sed -n 2p <<< "$P")" = "• default lane: subscription-1 → bedrock" ] && plain_post "$P" \
+    && ok "fallback, two sessions moved, the default lane moved: the count, the default line present" || bad "fallback n=2: $P"
 
 echo "== the end of an operation is reported to stackshot: one client.py event per op (verb, machine, sessions, result), never changing the op"
 # op_finish on hand-written markers, as above; the client is tests/fake-stackshot-client.py (it logs every call), the op log is SALA_OP_LOG
