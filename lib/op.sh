@@ -1594,9 +1594,9 @@ op_event() {  # <id> <done|stuck> <n named> <nf failed or skipped among them> <l
 # SALA_LOG_DIR, is not the one the log is in, or the log is not a regular file), the path of the log file as text, `log ~/.claude/salamander-op-<id>.log`.
 op_drop_ticks() {  # <text> → the text with every backtick-delimited span dropped whole: a run of N backticks opens, the next run of exactly N closes (an unpaired opener drops the rest of the text)
     LC_ALL=C awk '{
-        s = $0; n = length(s); out = ""; i = 1
+        s = $0; n = length(s); i = 1
         while (i <= n) {
-            if (substr(s, i, 1) != "`") { j = i; while (j <= n && substr(s, j, 1) != "`") j++; out = out substr(s, i, j - i); i = j; continue }
+            if (substr(s, i, 1) != "`") { j = i; while (j <= n && substr(s, j, 1) != "`") j++; printf "%s", substr(s, i, j - i); i = j; continue }
             for (j = i; j <= n && substr(s, j, 1) == "`"; j++) ; len = j - i; found = 0
             while (j <= n) {                                  # the next run of exactly len ticks closes; one pass, never back
                 if (substr(s, j, 1) != "`") { j++; continue }
@@ -1606,13 +1606,13 @@ op_drop_ticks() {  # <text> → the text with every backtick-delimited span drop
             }
             i = found ? k : n + 1
         }
-        print out
+        print ""
     }' <<< "$1"
 }
 op_paths_awk() { cat <<'AWK'
 # One pass over one line; writes it with every path taken out, and stops after its first sentence. What goes: a quoted path (a backslash
 # escapes the next character), a bare path at a word start ("/", "~/", "./", "../"), key=path and key:path (never key://: a URL stays),
-# and a bracket pair that holds only a path. A bracketed path ends at ITS OWN closing bracket; a closer that matches only the bracket
+# and a bracket pair that holds only a path (a quoted one included). A bracketed path ends at ITS OWN closing bracket; a closer that matches only the bracket
 # around the path ends a bare path; a closer that a path character follows belongs to the path (/tmp/a]b); a mismatched one is a path
 # character. A path takes its trailing . , ; : with it. Not caught, by design: a path with an unquoted space, a path that starts with
 # anything else, a scheme://host/path.
@@ -1640,15 +1640,15 @@ function quoted(i,  c, j, d) {                 # a quoted path at i: index of it
   NQ[c] = 1                                    # no closing quote from here on: a later one cannot find any either (keeps it linear)
   return 0
 }
-function pathend(j, ctx,  c, nx, ls) {         # first index after the path starting at j; CLOSED=1 when it stopped at ctx's closer
-  CLOSED = 0; ls = ""
+function pathend(j, ctx,  c, nx) {         # first index after the path starting at j; CLOSED=1 when it stopped at ctx's closer
+  CLOSED = 0; lp = 0                           # LS: the brackets opened inside the path, lp their count (an array and a pointer: no copying of the rest per pop)
   for (; j <= n; j++) {
     c = substr(s, j, 1)
     if (c == " ") break
     if (c == "\\") { j++; continue }
-    if (isopen(c)) { ls = ls c; continue }
+    if (isopen(c)) { LS[++lp] = c; continue }
     if (!isclose(c)) continue
-    if (ls != "" && mate(substr(ls, length(ls), 1)) == c) { ls = substr(ls, 1, length(ls) - 1); continue }
+    if (lp > 0 && mate(LS[lp]) == c) { lp--; continue }
     if (ctx != "" && mate(ctx) == c) {
       nx = substr(s, j + 1, 1)
       if (nx == "" || nx == " " || index(",.;:!?", nx) > 0 || isopen(nx) || isclose(nx)) { CLOSED = 1; return j }
@@ -1657,18 +1657,19 @@ function pathend(j, ctx,  c, nx, ls) {         # first index after the path star
   return j
 }
 function emit(c) {
-  out = out c
-  if (isopen(c)) stk = stk c
-  else if (isclose(c) && stk != "" && mate(substr(stk, length(stk), 1)) == c) stk = substr(stk, 1, length(stk) - 1)
+  printf "%s", c                               # written as it goes: building the line by concatenation copies it every time under mawk
+  if (isopen(c)) ST[++sp] = c                  # ST: the brackets open around the text so far, sp their count
+  else if (isclose(c) && sp > 0 && mate(ST[sp]) == c) sp--
 }
 BEGIN { KC = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" }
 {
-  s = $0; n = length(s); out = ""; stk = ""; i = 1; split("", NQ)
+  s = $0; n = length(s); sp = 0; i = 1; split("", NQ)
   while (i <= n) {
     c = substr(s, i, 1); p = (i > 1) ? substr(s, i - 1, 1) : ""
     if ((e = quoted(i)) > 0) { i = e + 1; continue }
     if (isopen(c)) {                                       # a pair that holds only a path (or key=path) goes whole
       v = i + 1; k = keyrun(v); sep = SEP
+      if ((e = quoted(v + k)) > 0 && substr(s, e + 1, 1) == mate(c)) { i = e + 2; continue }   # a quoted path (or key="path") alone in the pair
       if (k == 0 ? pstart(v) > 0 : ispath(v + k, sep)) {
         e = pathend(v + k, c)
         if (CLOSED) { i = e + 1; continue }
@@ -1679,7 +1680,7 @@ BEGIN { KC = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
       if (k > 0 && (e = quoted(i + k)) > 0) { i = e + 1; continue }
       v = i + (k > 0 ? k : 0)
       if (k > 0 ? ispath(v, sep) : pstart(v) > 0) {
-        e = pathend(v, substr(stk, length(stk), 1))
+        e = pathend(v, sp > 0 ? ST[sp] : "")
         if (index(".!?", substr(s, e - 1, 1)) > 0 && substr(s, e, 1) == " ") break   # the path's own dot ended the sentence
         i = e; continue
       }
@@ -1687,22 +1688,23 @@ BEGIN { KC = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
     emit(c); i++
     if (index(".!?", c) > 0 && substr(s, i, 1) == " ") break          # the first sentence only
   }
-  print out
+  print ""
 }
 AWK
 }
 op_drop_paths() {  # <text> → the text with every path taken out (the awk program above); bytes (LC_ALL=C): every character it reads is ASCII, and a byte lookup stays constant-time on a long line
     LC_ALL=C awk "$(op_paths_awk)" <<< "$1"
 }
-op_plain() {  # <text> → one plain sentence: one line, its first sentence, no backtick span, no exit codes, no paths
-    local t p; t=$(op_one_line "$*")
+op_plain_fixed() { printf '%s\n' "the reason is not shown here: see the log"; }   # what op_plain answers when a step of it fails: never the text (it may hold a path or a command) and never nothing
+op_plain() {  # <text> → one plain sentence: one line, its first sentence, no backtick span, no exit codes, no paths. A step that fails (awk or sed missing, say) gives op_plain_fixed instead
+    local t; t=$(op_one_line "$*") || { op_plain_fixed; return 0; }
     # a backtick span (a run of N ticks to the next run of N) is a command or a name: dropped whole (the ticks alone would leave the command in the text), then any stray tick
-    p=$(op_drop_ticks "$t") && t=$p; t=${t//\`/}
-    # every path goes in ONE pass (op_paths_awk), a quoted one whole, spaces and dots inside it too. Where awk is missing or fails the text goes on as it is: a post is never empty for it
-    p=$(op_drop_paths "$t") && t=$p
-    t=$(sed -E 's/([.!?])[[:space:]].*$/\1/' <<< "$t")   # the first sentence (a no-op after the pass, but it is also the fallback's cut)
+    t=$(op_drop_ticks "$t") || { op_plain_fixed; return 0; }; t=${t//\`/}
+    # every path goes in ONE pass (op_paths_awk), a quoted one whole, spaces and dots inside it too
+    t=$(op_drop_paths "$t") || { op_plain_fixed; return 0; }
+    t=$(sed -E 's/([.!?])[[:space:]].*$/\1/' <<< "$t") || { op_plain_fixed; return 0; }   # the first sentence (a no-op after the pass)
     t=$(sed -E -e 's/ ?\((exit|exited|rc|status)[ =:]*[0-9]+\)//Ig' -e 's/,? ?(exit(ed)?( code| status)?|rc)[ =:]*[0-9]+//Ig' \
-        -e 's/ +/ /g; s/^ //; s/ $//; s/ ([.,;:])/\1/g' <<< "$t")
+        -e 's/ +/ /g; s/^ //; s/ $//; s/ ([.,;:])/\1/g' <<< "$t") || { op_plain_fixed; return 0; }
     t=${t:0:200}
     printf '%s\n' "$t"
 }

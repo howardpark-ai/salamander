@@ -4302,3 +4302,23 @@ Not covered, by design: an unquoted path that contains a space (the part after t
 or `../`, a path inside a `scheme://` URL, and a closing bracket followed by `(` after a bracketed path (`[/tmp/a](x).csv]` keeps `(x).csv]`:
 `[/tmp/a](3)` reads the same way), and a closed pair followed at once by `./` (`[/a]./b` keeps `./b`). It is a courtesy against leaking a path into a phone
 post, not a parser.
+
+### `tests/op.sh` +9, one replaced: a failing filter step, deep nests under mawk, a quoted path alone in a pair (Sat Nov 21st 2026)
+
+Three review points on the one-pass path filter of `op_plain` (`lib/op.sh`), each checked before it was fixed.
+- **A failing step sent the text.** With awk missing, `op_plain` went on with the text as it was, and the text holds the path and the command the filter exists
+  to keep out of a post (`op_drop_ticks` is an awk pass too). It now answers a fixed sentence, `the reason is not shown here: see the log`, when any of its five
+  steps fails (the line, the tick pass, the path pass, the two sed steps): never the text, never nothing. Covered: the tick pass failing, the path pass failing,
+  awk missing from the `PATH`, sed missing from the `PATH`, each with a text holding a path and a command, each asserting the fixed sentence and neither of them.
+  The earlier check that kept the text with awk failing is gone (it pinned the wrong behavior). What the post's other steps do on a failure, read: `op_one_line` is
+  shell only; the post's own callers all go through `op_plain`; `sala_post` ends in `sala_slack_safe_send`, which on a failure sends its input as it was, and its
+  input is already filtered (that filter only keeps digit runs between colons from drawing as emoji); the stackshot event text (`scrub_text`) is not a Slack post.
+- **A deep nest was quadratic under mawk.** Measured with a closer per level around a path (levels 20000, 40000, 80000 as text of 80000 to 320000 characters): about
+  0.23, 1.2 and 5.3 s under mawk, linear under gawk. The cost was the line built by concatenation, one character at a time (mawk copies it each time), and a copy
+  of the stack per closer; the pass now writes each kept character as it goes and keeps its two stacks as arrays with a pointer (the tick pass writes its chunks
+  the same way). After: 0.13, 0.24 and 0.47 s under mawk. Covered: a path inside 20000 and then 80000 nested pairs, and 20000 and then 80000 openers around plain
+  text, each answer's start, the larger time bounded and bounded against the smaller (a quadratic one is sixteen times it).
+- **`["/tmp/a b"]` left `[]`.** A quoted path alone in a bracket pair (or `key="path"` alone) now takes the pair with it, as an unquoted one always did, so
+  `x ["/tmp/a b"] y` gives `x y`. Covered: the quoted pair, a keyed quoted pair, a quoted path in parentheses, the same with spaces inside the brackets (`[ "/tmp/a b" ]`
+  keeps `[ ]`: the pair is not only the path), and a closer followed by a letter. Two earlier cases change their answer, `read ["/tmp/a b"] now` and
+  `read (file="/tmp/a b"), ok` (`read now`, `read, ok`).

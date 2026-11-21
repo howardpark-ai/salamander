@@ -613,7 +613,7 @@ for pc in "it could not write to /tmp and stopped|it could not write to and stop
           "set file=\"/tmp/a b\" now|set now" \
           "set file='/tmp/a b' now|set now" \
           "set path:\"/tmp/a b\" now|set now" \
-          "read (file=\"/tmp/a b\"), ok|read (), ok" \
+          "read (file=\"/tmp/a b\"), ok|read, ok" \
           "ok (/tmp/a] now|ok ( now" \
           "list [/tmp/a]and[/tmp/b] z|list [ z" \
           "[/tmp/a]s ok|[ ok" \
@@ -630,7 +630,11 @@ for pc in "it could not write to /tmp and stopped|it could not write to and stop
           "x [/tmp/a]. y|x." \
           "read /tmp/a /tmp/b now|read now" \
           "read \"/tmp/a\" \"/tmp/b c\" now|read now" \
-          "read [\"/tmp/a b\"] now|read [] now" \
+          "read [\"/tmp/a b\"] now|read now" \
+          "x [file=\"/tmp/a b\"] y|x y" \
+          "mixed (\"/tmp/a b\") ok|mixed ok" \
+          "x [ \"/tmp/a b\" ] y|x [ ] y" \
+          "x [\"/tmp/a b\"]z y|x z y" \
           "read [[/tmp/a]] z|read [] z" \
           "(a (b [/tmp/c]) d) e|(a (b ) d) e" \
           "[x][/tmp/a][y] z|[x][y] z" \
@@ -660,9 +664,34 @@ for lc in "a 200000-character path|read /$LA now|read now" "an unclosed double q
     printf '%s\n' "$lt" > "$HOME/long.in"; longtest "$ll" "$lt" "$lw"
 done
 rm -f "$HOME/long.in"
-# awk gone or failing: the text goes on as it is (its first sentence, no exit code), never an empty post
-pgot=$(bash -c '. "$1/lib/common.sh"; . "$1/lib/op.sh"; awk() { return 127; }; op_plain "it failed at /tmp/x (exit 3). Then more"' _ "$ROOT"); [ "$pgot" = "it failed at /tmp/x." ] && ok "plain: with awk failing the text is kept, cut to its first sentence, never empty" || bad "plain, awk failing: '$pgot'"
+# a step of the filter failing (awk or sed missing, or a helper that returns an error): one fixed sentence, never the text (it holds a path and a command here) and never nothing
+SECRET='failed reading /tmp/secret/x.txt with `cmd --token abc` now'; FIXED="the reason is not shown here: see the log"
+FBA=$HOME/failawk; FBS=$HOME/failsed; mkdir -p "$FBA" "$FBS"
+printf '#!/bin/sh\nexit 127\n' > "$FBA/awk"; printf '#!/bin/sh\nexit 127\n' > "$FBS/sed"; chmod +x "$FBA/awk" "$FBS/sed"
+for fc in "the tick filter (op_drop_ticks) failing|op_drop_ticks() { return 1; }" "the path filter (op_drop_paths) failing|op_drop_paths() { return 1; }" \
+          "awk missing from the PATH|PATH=$FBA:\$PATH" "sed missing from the PATH|PATH=$FBS:\$PATH"; do
+    fl=${fc%%|*}; fcode=${fc#*|}
+    pgot=$(bash -c '. "$1/lib/common.sh"; . "$1/lib/op.sh"; eval "$3"; hash -r; op_plain "$2"' _ "$ROOT" "$SECRET" "$fcode")
+    [ "$pgot" = "$FIXED" ] && ok "plain, $fl: the fixed sentence, no path and no command in it" || bad "plain, $fl: '$pgot'"
+done
+rm -rf "$FBA" "$FBS"
 pgot=$(plain ""); [ -z "$pgot" ] && ok "plain: an empty text is an empty sentence" || bad "plain, empty: '$pgot'"
+# deep nests: a closer per level around a path, and bracket text with no path at all, at 20000 and at 80000 levels, under mawk where it is available (the line built by
+# concatenation, or a copy of the stack per closer, cost four times as much per doubling there): the time of the larger is bounded, and bounded against the smaller
+MB=$HOME/mawkbin; mkdir -p "$MB"; ln -sf "$(command -v mawk || command -v awk)" "$MB/awk"
+nesttime() {  # <levels> <shape c|d> → $NT, the milliseconds op_drop_paths takes on it, and $NO, the first six characters of the answer
+    local n=$1 txt t0 t1
+    case $2 in c) txt="$(longrep '[(' $((n * 2)))/b$(longrep ')]' $((n * 2)))";; d) txt="ok $(longrep '(' "$n")x$(longrep ')' "$n") z";; esac
+    printf '%s\n' "$txt" > "$HOME/nest.in"; t0=${EPOCHREALTIME//[.,]/}
+    PATH="$MB:$PATH" timeout 60 bash -c '. "$1/lib/common.sh"; . "$1/lib/op.sh"; read -r x < "$2"; op_drop_paths "$x" > "$3"' _ "$ROOT" "$HOME/nest.in" "$HOME/nest.out"; t1=${EPOCHREALTIME//[.,]/}
+    NT=$(( (t1 - t0) / 1000 )); NO=$(head -c 6 "$HOME/nest.out")
+}
+for nc in "c|[([([(|a path inside 20000 nested pairs, then the closers" "d|ok (((|20000 openers around plain text, then the closers"; do
+    IFS='|' read -r nsh nwant nl <<< "$nc"
+    nesttime 20000 "$nsh"; na=$NT; nesttime 80000 "$nsh"; nb=$NT; nout=$NO
+    [ "$nout" = "$nwant" ] && [ "$nb" -lt 8000 ] && [ "$nb" -lt $((na * 8 + 500)) ] && ok "plain, $nl: $na ms, and $nb ms at four times the depth (linear)" || bad "plain, nest '$nsh': '$nout', $na ms then $nb ms at four times the depth"
+done
+rm -f "$HOME/nest.in" "$HOME/nest.out"; rm -rf "$MB"
 # a stuck post whose helper line names a single-segment path and a command: neither reaches Slack
 : > "$POSTS"; S9=$(sid 209); mkfin "$S9" sala-test-h rename sala-test-zz sala-test-zy; stuckwhy "$S9" "It could not write /tmp or ~/settings.json, and \`salamander rename sala-test-zz sala-test-zy\` stopped. Second sentence."
 fin "$S9" stuck "no tmux session (exit 1)"
