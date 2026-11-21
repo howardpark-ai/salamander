@@ -676,15 +676,15 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
     if ce["raising_by"] != by:
         log.say("raise", "%s: another filing of this board item took over while this one was in flight (its window ran out); this result is not recorded%s" % (key, "" if why else " (item %s)" % item))
         return None
+    if not ce["raised"] and (not needs_item(ce, cfg) or ce["started_at"] != snap["started_at"]):
+        ce["raising_at"], ce["raising_by"] = 0, ""      # recovered while the item was filed (another run started the agent): no failure, no back-off, no item for a project that is running
+        cur.save()
+        log.say("raise", "%s: the project is no longer stuck (it started while the board item %s); nothing is recorded" % (key, "was being filed" if not why else "was being filed and the filing failed"))
+        return None
     if why:
         r = failure(ce, why)
         cur.save()
         return r
-    if not ce["raised"] and not needs_item(ce, cfg):
-        ce["raising_at"], ce["raising_by"] = 0, ""
-        cur.save()
-        log.say("raise", "%s: the project is no longer stuck (it started while the board item %s was being filed); the item is not recorded" % (key, item))
-        return None
     ce.update(raised=True, raised_at=now, raised_item=item, raising_at=0, raising_by="", raise_failures=0, raise_next_try=0)
     cur.save()
     log.say("raise", "%s: board item %s raised for the owner (%s)" % (key, item, "given up" if given_up(ce, cfg) else "retire needed"))
@@ -736,9 +736,10 @@ class ProbeBook:
             self.wanted.append(name)
         return NOT_PROBED
 
-    def resign(self, led):
-        """Take the ledger as it is now (the run's own changes included) as what the answers were given for."""
-        self.sigs = {n: probe_sig(led, n) for n in self.results}
+    def forget(self, name):
+        """The run attempted a start of this agent: whatever was answered before it (a "not live" most of all, the pane may have come up since, or be coming up) is out of date."""
+        if not self.collect and name in self.results:
+            self.results[name] = CHANGED
 
     def revalidate(self, led):
         """After the lock was given up and taken again: an answer whose projects changed meanwhile is dropped (CHANGED), so a cached "not live" never starts an agent another run just started."""
@@ -893,7 +894,9 @@ def start_one(cfg, cands, listed, led, now, log, dry, probes):
             log.say("plan", "%s: would %s, then start its pane (sala spawn --project %s --role back); attempt %d of %d; load %.2f" % (key, step, key, e2["attempts"] + (0 if waiting else 1), cfg["max_attempts"], load))
             return 0
         e = led.entry(key)
-        return 1 if attempt(cfg, key, prefix, e, now, log, led) else 0
+        needed = attempt(cfg, key, prefix, e, now, log, led)
+        probes.forget(e["agent"])       # (the attempt may have made the pane, even when it reports a failed start)
+        return 1 if needed else 0
     return 0
 
 
@@ -936,9 +939,9 @@ def one_run(cfg, dry, now, log, lock=None):
         log.say("skip", "the ledger is locked by another process after the liveness checks; nothing more this run")
         return 0
     retire = start_one(cfg, candidates(rows, led, listed), listed, led, now, log, dry, first)     # the starts come first ...
-    first.resign(led)       # (what this run just did to the entries is not another run's change)
+    first.revalidate(led)       # an answer given before this run's own start of that agent is out of date (the pane may have come up since): dropped, so the raise phase asks again or leaves it
     # ... then at most one board item: its liveness probes (the rest of the cap), then the call itself, both without the lock
-    due = [led.projects[k]["agent"] for k in raise_order(cfg, led, listed, now) if led.projects[k]["raise_next_try"] <= now and led.projects[k]["agent"] and led.projects[k]["agent"] not in first.results]
+    due = [led.projects[k]["agent"] for k in raise_order(cfg, led, listed, now) if led.projects[k]["raise_next_try"] <= now and led.projects[k]["agent"] and first.results.get(led.projects[k]["agent"], CHANGED) is CHANGED]
     second, led = probe_window(cfg, due, cfg["max_probes"] - len(first.results), led, now, lock, dry)
     if led is None:
         log.say("skip", "the ledger is locked by another process after the liveness checks; no board item this run")

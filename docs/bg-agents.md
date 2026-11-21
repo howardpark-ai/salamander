@@ -118,8 +118,8 @@ start before it can take minutes, and a mark taken from the run's start would al
 meanwhile skips the entry, for the start and for the raise alike (`another run is filing its board item`; `--status`: "a board item is being filed"), until the mark is older than twice the raise
 timeout and the wait for the lock (75 s with the default timeout): then the run that set it is taken as dead. When the first run returns, it writes the item only if the entry on disk still
 carries its request id, is still marked with ITS filing token and the project is still stuck (a retry, which reuses the request id so a repeat files nothing twice, takes the mark over with its own token:
-the first run's late result, a success or a failure, is then set aside, so it neither clears the retry's mark nor changes its back-off; the board answers both with the same item): a start that worked meanwhile is not told to the owner as a failure (the run says the project is no longer stuck and the item is not recorded;
-the item filed stays on the board). Only a project on the want list, or one whose listed agent has not been started, is asked about; a stuck project that has
+the first run's late result, a success or a failure, is then set aside, so it neither clears the retry's mark nor changes its back-off; the board answers both with the same item): a start that worked meanwhile is not told to the owner as a failure (the run says the project is no longer stuck and records nothing: not the item, and not a failure either, so a filing that FAILED
+for a project another run has started since counts no failure, sets no back-off and says no "board item needed"; an item the board did file stays on the board). Only a project on the want list, or one whose listed agent has not been started, is asked about; a stuck project that has
 left the list is not.
 
 **An agent that is running is no start failure.** A project can reach the cap because it stays on the want list while its agent's session is live (the start failed late, or the pane was
@@ -132,7 +132,8 @@ path:** a project that is stale, or whose pane was started (`started_at`, also w
 **The liveness checks are made without the ledger lock, and a few a run.** A check may take 30 s. The run collects the names it needs to check, saves the ledger, gives the lock up, asks, takes the lock again
 and reads the ledger again from disk before it applies the answers, so a `--reset` or another run is never blocked by a check nor written over. At most `SALA_BGAGENTS_MAX_PROBES` (3) checks are made a run: the
 start phase uses up to two, the raise the rest, the least recently checked project first (`probed_at`), so a few live projects never starve the others; a project whose check did not fit waits for the next run
-(nothing is attempted or raised for it meanwhile, and the log line says so). A name checked in the start phase is not checked again for the raise.
+(nothing is attempted or raised for it meanwhile, and the log line says so). A name checked in the start phase is not checked again for the raise, unless this run then attempted a start of that
+agent: the answer given before the attempt is dropped (the pane may be up now even when the start reported a failure), so the raise phase asks again, or, with no check left in the cap, leaves the project for the next run.
 An answer is only good for the entries it was given for: after the lock is taken again, an answer whose project changed meanwhile (another run started or retried it) is dropped, and the log line says the
 project was overtaken by another run, so a cached "not live" never starts an agent another run has just started. With no liveness command nothing is asked (every answer is "cannot say"), but the names considered still
 advance `probed_at`, so the first projects do not take the check slots every run and defer the board items of the later ones.
