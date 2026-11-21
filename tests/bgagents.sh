@@ -758,15 +758,17 @@ reset; : > "$T/ask.hold.1"; : > "$T/alive.hold.1"
 ( SALA_BGAGENTS_RAISE_TIMEOUT=90 "$T/bin/ask" --project k < /dev/null > /dev/null 2>&1 ) & PK=$!; ( "$T/bin/alive" some-name < /dev/null > /dev/null 2>&1 ) & PL=$!
 need_held ask 1; need_held alive 1; rm -f "$T/ask.hold.1" "$T/alive.hold.1"; wait "$PK" "$PL"
 [ "$(cat "$T/ask.released.1" 2>/dev/null)" = released ] && [ "$(cat "$T/alive.released.1" 2>/dev/null)" = released ] && ok "a hold the test removed is recorded as released (board-item and liveness stubs)" || bad "released not recorded: [$(cat "$T/ask.released.1" 2>/dev/null)] [$(cat "$T/alive.released.1" 2>/dev/null)]"
-# (j2) the deadline is read BEFORE the file: a hold whose file the test removes after the deadline has passed (here a deadline that is already up when the loop starts) is "bound", never "released"
-reset; : > "$T/ask.hold.1"; echo 1 > "$T/ask.sleep"
+# (j2) the deadline is read BEFORE the file: a hold whose file the test removes after the deadline has passed (here a deadline that is already up when the loop starts) is "bound", never "released".
+#      The stub sleeps its delay after ready.N and only then enters the hold: the test removes the file during that sleep and checks, right after the removal, that the stub has not entered the hold yet
+#      (no holding.N), so the file is gone before the stub's first look; a delayed runner fails the check (the setup is invalid) instead of passing it for the old order's reason
+reset; : > "$T/ask.hold.1"; echo 3 > "$T/ask.sleep"
 ( SALA_BGAGENTS_RAISE_TIMEOUT=0 "$T/bin/ask" --project k < /dev/null > /dev/null 2>&1 ) & PK=$!
-for _ in $(seq 1 100); do [ -e "$T/ask.ready.1" ] && break; sleep 0.1; done; rm -f "$T/ask.hold.1"; wait "$PK"
-[ "$(cat "$T/ask.released.1" 2>/dev/null)" = bound ] && ok "a file removed after the deadline is recorded as bound (board-item stub)" || bad "ask: late removal read as [$(cat "$T/ask.released.1" 2>/dev/null)]"
-reset; : > "$T/alive.hold.1"; echo 1 > "$T/alive.sleep"
+for _ in $(seq 1 100); do [ -e "$T/ask.ready.1" ] && break; sleep 0.1; done; rm -f "$T/ask.hold.1"; early=0; [ -e "$T/ask.holding.1" ] || early=1; wait "$PK"
+[ "$early" = 1 ] && [ "$(cat "$T/ask.released.1" 2>/dev/null)" = bound ] && ok "a file removed after the deadline is recorded as bound (board-item stub)" || bad "ask: removal before the stub's first look: $early, read as [$(cat "$T/ask.released.1" 2>/dev/null)]"
+reset; : > "$T/alive.hold.1"; echo 3 > "$T/alive.sleep"
 ( ALIVE_HOLD_BOUND=0 "$T/bin/alive" some-name < /dev/null > /dev/null 2>&1 ) & PL=$!
-for _ in $(seq 1 100); do [ -e "$T/alive.ready.1" ] && break; sleep 0.1; done; rm -f "$T/alive.hold.1"; wait "$PL"
-[ "$(cat "$T/alive.released.1" 2>/dev/null)" = bound ] && ok "a file removed after the deadline is recorded as bound (liveness stub)" || bad "alive: late removal read as [$(cat "$T/alive.released.1" 2>/dev/null)]"
+for _ in $(seq 1 100); do [ -e "$T/alive.ready.1" ] && break; sleep 0.1; done; rm -f "$T/alive.hold.1"; early=0; [ -e "$T/alive.holding.1" ] || early=1; wait "$PL"
+[ "$early" = 1 ] && [ "$(cat "$T/alive.released.1" 2>/dev/null)" = bound ] && ok "a file removed after the deadline is recorded as bound (liveness stub)" || bad "alive: removal before the stub's first look: $early, read as [$(cat "$T/alive.released.1" 2>/dev/null)]"
 # (f) the subcommand table describes the shipped timer
 ! grep -q "No timer is shipped" "$ROOT/docs/subcommands.md" && grep -q 'sala-bg-agents.timer' "$ROOT/docs/subcommands.md" && ok "docs/subcommands.md says the timer ships in systemd/ (not that none ships)" || bad "subcommands.md timer sentence"
 
