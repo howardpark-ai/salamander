@@ -473,9 +473,15 @@
 #SALA_BGAGENTS_LOADAVG=/proc/loadavg   # where the load average is read from (the suites point it at a file)
 #SALA_BGAGENTS_RECORD_GRACE=900  # seconds a start that sala's copy of stackshot's project record does not show yet (spawn exit 3 after the listing) is waited out, without a failure
 #SALA_BGAGENTS_ALIVE_WAIT=30     # seconds after `sala spawn` reports the pane up that the job waits for the session to be live
-#SALA_BGAGENTS_POST_TIMEOUT=120  # seconds the listing call may take (a timeout is a failure; the next attempt reads the project record first)
+#SALA_BGAGENTS_POST_TIMEOUT=120  # seconds the listing call (and each call about the board item) may take (a timeout of the listing is a failure; the next attempt reads the project record first)
 #SALA_BGAGENTS_SPAWN_TIMEOUT=300 # seconds `sala spawn` may take
 #SALA_BGAGENTS_LIST_CMD=         # the want list's command (the suites stub it). Unset: `python3 <stackshot client> background-wanted`; set empty: no client, the run says so and reads nothing
 #SALA_BGAGENTS_POST_CMD=         # the listing command, called with <project key> <name> --role engineer --back --mandate <line> --sender <label> appended. Unset: `python3 <stackshot client> post project-agent`
+#SALA_BGAGENTS_ASK_CMD=          # the board-item command: raises ONE item for the owner when a project is given up or an agent this job listed did not start (docs/bg-agents.md). Called with --project <key>
+                                 #   --subject <text> --ask <line> --request-id <token> --option <label>=<line> (three) --recommended <label> --sender sala-bg-agents appended, the question's text on stdin; prints the item's id.
+                                 #   Unset: `python3 <stackshot client> post question`; set empty: no client, the run says `board item needed: <project>` and exits 1 (tried again at the next run)
+#SALA_BGAGENTS_PREFIXES_CMD=     # reads the stackshot instance's subject prefixes as JSON ({"subject": {"prefixes": [...]}}). Unset: `python3 <stackshot client> get config`; set empty: not read
+#SALA_BGAGENTS_SUBJECT_PREFIX=   # the bracket the board item's subject opens with, e.g. [hp] (stackshot refuses a subject with none of its prefixes). Empty (the default): the project's own scope from the project
+                                 #   record, else SALA_DEFAULT_SCOPE, else the first of SALA_SCOPES, the first of them the instance takes as a prefix, else the instance's first prefix
 #SALA_BGAGENTS_SPAWN_CMD=        # the start command, called with <name> --project <key> --role back --mandate <line> appended. Unset: this sala's `spawn`
 #SALA_BGAGENTS_ALIVE_CMD=        # the liveness command, called with <name> --live appended (exit 0 = a live session). Unset: this sala's `sessions resolve`
