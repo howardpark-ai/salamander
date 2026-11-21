@@ -73,17 +73,24 @@ EOF
 cat > "$T/bin/alive" <<'EOF'
 #!/usr/bin/env bash
 # exit 0 = live (the name is a line of alive.txt), 1 = none, like `sala sessions resolve --live`; $T/alive.rc forces any other exit (a check that cannot say);
-# every call is noted in alive.log, and $T/alive.sleep seconds are waited after the answer is decided (a slow check)
+# every call is noted in alive.log, and $T/alive.sleep seconds are waited after the answer is decided (a slow check); alive.ready is written once the answer and the delay are
+# captured, so a test that changes alive.sleep waits for it (the log line is written before the delay is read); $T/alive.seq (one exit code a line) answers call N with line N
+# (the last line after that)
 echo "$1" >> "$T/alive.log"
 # the answer is decided first and given after the wait: a slow check reports what was true when it asked
-if [ -f "$T/alive.rc" ]; then rc=$(cat "$T/alive.rc"); elif grep -qx -- "$1" "$T/alive.txt" 2>/dev/null; then rc=0; else rc=1; fi
-[ -f "$T/alive.sleep" ] && sleep "$(cat "$T/alive.sleep")"
+if [ -f "$T/alive.seq" ]; then n=$(wc -l < "$T/alive.log"); rc=$(sed -n "$n p" "$T/alive.seq"); [ -n "$rc" ] || rc=$(tail -n 1 "$T/alive.seq")
+elif [ -f "$T/alive.rc" ]; then rc=$(cat "$T/alive.rc"); elif grep -qx -- "$1" "$T/alive.txt" 2>/dev/null; then rc=0; else rc=1; fi
+delay=0; [ -f "$T/alive.sleep" ] && delay=$(cat "$T/alive.sleep")
+echo "$1" >> "$T/alive.ready"
+[ "$delay" != 0 ] && sleep "$delay"
 exit "$rc"
 EOF
 cat > "$T/bin/ask" <<'EOF'
 #!/usr/bin/env bash
-# the board-item command: notes the call in order.log, waits $T/ask.sleep seconds when that file is there (a slow stackshot), then is the fake client's `post question`
-echo ask >> "$T/order.log"
+# the board-item command: notes the call in order.log, waits $T/ask.sleep seconds when that file is there (a slow stackshot), then is the fake client's `post question`;
+# ask.ready is written once the delay is captured (a test that changes ask.sleep for the next caller waits for it)
+delay=0; [ -f "$T/ask.sleep" ] && delay=$(cat "$T/ask.sleep")
+echo ask >> "$T/order.log"; echo ask >> "$T/ask.ready"
 # $T/ask.failkey names one project the board refuses (a filing error that belongs to that key); every call's project is noted in ask.keys
 prev=""
 for a in "$@"; do
@@ -93,7 +100,7 @@ for a in "$@"; do
     fi
     prev=$a
 done
-[ -f "$T/ask.sleep" ] && sleep "$(cat "$T/ask.sleep")"
+[ "$delay" != 0 ] && sleep "$delay"
 exec python3 "$ROOT/tests/fake-stackshot-client.py" post question "$@"
 EOF
 cat > "$T/bin/prefixes" <<'EOF'
@@ -117,7 +124,7 @@ run() {   # [args] → OUT (stdout+stderr), RC; the clock is $NOW (default N0)
     OUT=$(SALA_BGAGENTS_NOW=${NOW:-$N0} $S "$@" 2>&1); RC=$?
 }
 reset() {   # a clean slate: no ledger, no call logs, a quiet load, an empty list, nothing alive, no project record
-    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log"
+    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.ready" "$T/alive.seq" "$T/ask.ready"
     unset FAKE_CLIENT_FAIL
     mkdir -p "$SALA_STATE_DIR"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; NOW=$N0
     export SALA_BGAGENTS=on
@@ -644,20 +651,20 @@ rm -f "$T/ask.sleep"
 # (b) a retry has its own owner: run A's filing outlives its window and fails after run B (the retry, the same request id) took over; A writes nothing, B's mark stays, and a third run stays out
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; echo 3 > "$T/ask.sleep"
 ( FAKE_CLIENT_FAIL=1 SALA_BGAGENTS_NOW=$N0 $S > "$T/a.out" 2>&1; echo $? > "$T/a.rc" ) & PA=$!
-await_file "$T/order.log"; echo 8 > "$T/ask.sleep"
-( SALA_BGAGENTS_NOW=$((N0+75)) $S > "$T/b.out" 2>&1; echo $? > "$T/b.rc" ) & PB=$!
-for _ in $(seq 1 120); do [ "$(calls "$T/order.log")" -ge 2 ] && break; sleep 0.1; done
+await_file "$T/ask.ready"; MKA=$(led $KEY raising_at); echo 8 > "$T/ask.sleep"      # B's clock is A's recorded mark plus the window, however long A took to get there
+( SALA_BGAGENTS_NOW=$((MKA+75)) $S > "$T/b.out" 2>&1; echo $? > "$T/b.rc" ) & PB=$!
+for _ in $(seq 1 120); do [ "$(calls "$T/ask.ready")" -ge 2 ] && break; sleep 0.1; done
 wait "$PA"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
 RF=$(led $KEY raise_failures); MK=$(led $KEY raising_at)
-NOW=$((N0+80)) run; THIRD=$OUT; wait "$PB"
-[ "$RF" = 0 ] && [ "$MK" -ge $((N0+75)) ] && ok "the expired filing that fails after its retry began writes nothing: no failure counted, the retry's mark kept" || bad "expired filer wrote: failures=$RF mark=$MK $(cat "$T/a.out")"
+NOW=$((MKA+80)) run; THIRD=$OUT; wait "$PB"
+[ "$RF" = 0 ] && [ "$MK" -ge $((MKA+75)) ] && ok "the expired filing that fails after its retry began writes nothing: no failure counted, the retry's mark kept" || bad "expired filer wrote: failures=$RF mark=$MK $(cat "$T/a.out")"
 [ "$(calls "$T/spawn.log")" = 0 ] && [[ $THIRD == *"another run is filing its board item"* ]] && ok "...so a third run does not start the project under the retry" || bad "retry guard cleared: spawn=$(calls "$T/spawn.log") [$THIRD]"
 [ "$(cat "$T/b.rc")" = 0 ] && [ "$(led $KEY raised)" = True ] && [ "$(led $KEY raising_by)" = "" ] && [ "$(led $KEY raise_failures)" = 0 ] && grep -q "took over while this one was in flight" "$T/a.out" && ok "the retry records its item (same request id), and the expired run says its result was not recorded" || bad "retry result: $(cat "$L") [$(cat "$T/a.out")]"
 rm -f "$T/ask.sleep"
 # (c) a liveness answer taken before another run started the same agent is dropped when the lock is taken again
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; patch "$KEY" next_try=0 attempts=1 failures=0 retire_needed=false started_at=$((N0-100)); echo 3 > "$T/alive.sleep"
 ( SALA_BGAGENTS_NOW=$N0 $S > "$T/bg.out" 2>&1; echo $? > "$T/bg.rc" ) & BG=$!
-await_file "$T/alive.log"; rm -f "$T/alive.sleep"
+await_file "$T/alive.ready"; rm -f "$T/alive.sleep"
 NOW=$((N0+1)) run; wait "$BG"
 [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY started_at)" = $((N0+1)) ] && [ "$(cat "$T/bg.rc")" = 0 ] && grep -q "was overtaken by another run" "$T/bg.out" && ok "a \"not live\" answer is dropped when another run started the agent meanwhile: one start, not two, and the log says so" || bad "stale answer used: spawn=$(calls "$T/spawn.log") $(cat "$L") [$(cat "$T/bg.out")]"
 # (d) without a liveness command the names considered still advance probed_at, so the first names do not take the slots every run
@@ -671,6 +678,19 @@ SALA_BGAGENTS_ALIVE_CMD= run; SALA_BGAGENTS_ALIVE_CMD= NOW=$((N0+1)) run
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; patch "$KEY" started_at=$((N0-100)); echo 7 > "$T/alive.rc"; run
 [ "$(qcalls)" = 0 ] && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY started_at)" = $((N0-100)) ] && [[ $OUT == *"could not be told; the entry is left as it is (its pane was started, no board item, no attempt)"* ]] && ok "a given-up project whose pane was started and whose check cannot say: no failure item, nothing changed" || bad "uncertain started given-up: calls=$(qcalls) [$OUT] $(cat "$L")"
 rm -f "$T/alive.rc"; NOW=$((N0+1)) run; [ "$(qcalls)" = 1 ] && [ "$(led $KEY raised)" = True ] && ok "...and a confirmed \"not live\" lets the item be filed" || bad "confirmed not live: calls=$(qcalls) $(cat "$L")"
+# (g) a start the run attempted makes its earlier "not live" answer out of date: the spawn failed, but the pane is live when the raise looks (the answers, call by call: 1 the start
+#     phase "not live", 2 the attempt's own check "not live", 3 the raise phase "live"); the old code kept answer 1 and filed a failed-start item for a live pane
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; patch "$KEY" next_try=0 attempts=4 failures=4 retire_needed=false started_at=$((N0-100)); echo fail > "$T/spawn.mode"
+printf '1\n1\n0\n' > "$T/alive.seq"; run
+[ "$(calls "$T/spawn.log")" = 1 ] && [ "$(calls "$T/alive.log")" = 3 ] && [ "$(qcalls)" = 0 ] && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY stale)" = True ] && [[ $OUT == *"is live while the project is still on the want list"* ]] && ok "a start that failed on its own check but left a live pane: the earlier \"not live\" answer is dropped, the raise phase asks again, no failed-start item" || bad "answer kept after the start: spawn=$(calls "$T/spawn.log") alive=$(calls "$T/alive.log") calls=$(qcalls) $(cat "$L") [$OUT]"
+# (h) a filing that fails after another run started the project writes no failure: the retry count and back-off stay, no "board item needed" line
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seedn "$KEY=example"; mark; echo 30 > "$T/loadavg"; echo 3 > "$T/ask.sleep"
+( FAKE_CLIENT_FAIL=1 SALA_BGAGENTS_NOW=$N0 $S > "$T/a.out" 2>&1; echo $? > "$T/a.rc" ) & PA=$!
+await_file "$T/ask.ready"; MKA=$(led $KEY raising_at); echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"
+NOW=$((MKA+75)) run; BOUT=$OUT; wait "$PA"
+[ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY started_at)" -ge $((MKA+75)) ] && ok "the window ran out, a second run started the project during the first one's filing" || bad "second run: spawn=$(calls "$T/spawn.log") $(cat "$L") [$BOUT]"
+[ "$(led $KEY raise_failures)" = 0 ] && [ "$(led $KEY raise_next_try)" = 0 ] && [ "$(led $KEY raising_at)" = 0 ] && [ "$(led $KEY raising_by)" = "" ] && [ "$(cat "$T/a.rc")" = 0 ] && ! grep -q "board item needed" "$T/a.out" && grep -q "no longer stuck" "$T/a.out" && ok "the first run's failed filing, for a project that is running now, counts no failure, writes no back-off and says no board item is needed" || bad "late failure written: $(cat "$L") rc=$(cat "$T/a.rc") [$(cat "$T/a.out")]"
+rm -f "$T/ask.sleep"
 # (f) the subcommand table describes the shipped timer
 ! grep -q "No timer is shipped" "$ROOT/docs/subcommands.md" && grep -q 'sala-bg-agents.timer' "$ROOT/docs/subcommands.md" && ok "docs/subcommands.md says the timer ships in systemd/ (not that none ships)" || bad "subcommands.md timer sentence"
 

@@ -84,6 +84,16 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +3, 227 (Sat Nov 21st 2026)
+
+Fourth review pass of `sala bg-agents`; two of the three new checks fail on the code before this change (the new suite was run against it), the third (the second run started the project) only sets
+up the second. A start that fails its own liveness check but leaves a live pane is met by a liveness stub that answers call by call (the start phase "not live", the attempt's own check "not live",
+the raise phase "live"): the raise phase asks again, the project is recorded stale, and no failed-start item is filed; the old code kept the first answer and filed one for a live pane. A filing that fails
+after a second run started the project (two real processes, the second one's clock the first one's recorded mark plus the window) counts no failure, sets no back-off, leaves the mark cleared and
+says no board item is needed. Two existing checks were made steadier: the takeover check sets the second run's clock from the first run's recorded mark plus the window (not from its start, which a
+slow first run could outrun), and the overlap checks wait on a readiness file that the stubs write after they captured the answer and the delay (the log line is written before the delay is read, so a
+test could remove the delay file too early). Not covered, and why: a pane that appears between the attempt and the raise phase's own check with a real spawn (the stub answers by call number instead).
+
 ### `tests/bgagents.sh`: +10, 224 (Sat Nov 21st 2026)
 
 Third review pass of `sala bg-agents`; nine of the ten checks fail on the code before this change (the new suite was run against it), the tenth (the first run records its item) only follows. The
