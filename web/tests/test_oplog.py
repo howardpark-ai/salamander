@@ -364,8 +364,9 @@ CLI_CASES = {   # name: (default config's text, the CLI's own SALA_CONFIG text o
     "a symlink log": (None, None, {}, "", "symlink", False),
     "a write-only log (nobody can read it, the page answers 404)": (None, None, {}, "", "unreadable", False),
     # The readability test is the CLI user's own, and the service is a user unit of the same account, so the two agree: a log the owner can read gets the link
-    # and opens. NOT covered: a separate web account reading the logs through an ACL (the repo does not set one up); there the CLI cannot tell, posts the path
-    # and errs on the side of no link rather than a dead one (web/README.md, Operation log pages).
+    # and opens. Skipped when the running user can still WRITE the fixture (root can): the case is meant for a log the user may read but not write, so that a
+    # regression that required write access before linking would fail it. NOT covered: a separate web account (an ACL, say) lacking read or directory access, or
+    # reading what the CLI cannot: there the check can err either way (web/README.md, Operation log pages).
     "a read-only log (the owner reads it: linked and opens)": (None, None, {}, "", "readonly", True),
     "a missing log in a moved folder": ("SALA_LOG_DIR=~/moved\n", None, {}, "", "missing", False),
 }
@@ -390,6 +391,10 @@ def test_the_link_the_cli_posts_opens_the_log_or_is_not_posted(tmp_path, monkeyp
     env = {"PATH": os.environ["PATH"], "HOME": str(home), "ROOT": str(ROOT), "ID": ID, "LOGTEXT": CLI_LOG, "LOGKIND": kind,
            "SALA_CONFIG": str(other if cli_cfg else default), "SALA_SESSION_URL": "https://sala.example/#s={name}", **cli_env}
     out = subprocess.run(["bash", "-c", CLI_POST], env=env, cwd=work, capture_output=True, text=True, timeout=60, check=True).stdout.splitlines()[-1]
+    if kind == "readonly":
+        fixture = next(home.rglob(f"salamander-op-{ID}.log"))
+        if os.access(fixture, os.W_OK):
+            pytest.skip("the running user can still write the 0400 fixture (root can): the case needs a log that is readable but not writable")
     m = re.search(r"<https://sala\.example(/op/[^|>]+)\|log>$", out)
     assert bool(m) == linked, out
     # the web service: no sala environment, the same HOME, its own working folder
