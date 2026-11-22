@@ -2,12 +2,11 @@
 # The fleet guard (`salamander hook pre-tool`, lib/guard.py): a table of Bash commands → allow or deny, through the
 # real hook with a PreToolUse payload on stdin. Checks: reboot, CLI update, tmux kill-* on the fleet's server and kill of a
 # claude process are denied with the documented JSON and the `sala op … --words` fix in the reason (Thu Oct 15th
-# 2026: the queue's verb for the kind — update, retire — never the master or `sala cue`; a reboot is not queued, so its
+# 2026: the queue's verb for the kind — update, retire — never `sala cue`; a reboot is not queued, so its
 # reason says the owner runs `sala reboot --go` in person and never names `sala op reboot`); near misses pass, one row
 # per kind (echo, grep and git words, a heredoc's body, a comment, other installers, private tmux servers, sala's own
 # verbs, $(pgrep …) and xargs forms, ssh); a literal pid is judged by /proc (a process named claude vs not), a process
-# group too; `bash -c` strings are checked; the master's pane is exempt and another pane is not, and with no master
-# configured no pane is; `kill <pid>` of the claude of a throwaway the calling session started itself (registry spawned_by)
+# group too; `bash -c` strings are checked; no pane is exempt, a SALA_MASTER line left in the config included; `kill <pid>` of the claude of a throwaway the calling session started itself (registry spawned_by)
 # passes and every other stop stays denied; a tmux window, pane or session group placed into a session other than
 # the caller's own is denied and one into the caller's own passes; malformed input fails open. Isolated HOME, a private tmux server with -f /dev/null (never the fleet's).
 set -u
@@ -149,16 +148,16 @@ expect allow "~/.local/bin/sala update --fleet"
 expect allow "SALA_X=1 ~/salamander/bin/salamander reboot --go"
 expect allow "sala op spawn gamma-foo-main --project projects/foo --role front --mandate ~/m.md --from me --words 'make it'" "the queue's spawn verb"
 
-echo "== the master's pane is exempt, another pane is not"
+echo "== no pane is exempt: a SALA_MASTER line left in the config exempts nothing"
 $T new-session -d -s the-master -x 80 -y 20 "sleep 300"; $T new-session -d -s worker -x 80 -y 20 "sleep 300"
 MP=$($T list-panes -t =the-master -F '#{pane_id}'); WP=$($T list-panes -t =worker -F '#{pane_id}')
 TSOCK="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"
 echo "SALA_MASTER=the-master" > "$SALA_CONFIG"
-v=$(TMUX="$TSOCK,1,0" TMUX_PANE="$MP" verdict "sudo reboot"); [ "$v" = allow ] && ok "the master's pane: sudo reboot allowed" || bad "master: $v"
+v=$(TMUX="$TSOCK,1,0" TMUX_PANE="$MP" verdict "sudo reboot"); [ "$v" = deny ] && ok "the pane the old config names: sudo reboot denied like any other" || bad "old master's pane: $v"
 v=$(TMUX="$TSOCK,1,0" TMUX_PANE="$WP" verdict "sudo reboot"); [ "$v" = deny ] && ok "another pane: denied" || bad "worker: $v"
 v=$(TMUX="$TSOCK,1,0" TMUX_PANE="$WP" verdict "tmux kill-server"); [ "$v" = allow ] && ok "plain tmux kill-server from a pane on a private server (\$TMUX) passes" || bad "private \$TMUX: $v"
 : > "$SALA_CONFIG"
-v=$(TMUX="$TSOCK,1,0" TMUX_PANE="$MP" verdict "sudo reboot"); [ "$v" = deny ] && ok "no master configured: the former master's pane is denied like any other" || bad "no master, master's pane: $v"
+v=$(TMUX="$TSOCK,1,0" TMUX_PANE="$MP" verdict "sudo reboot"); [ "$v" = deny ] && ok "no SALA_MASTER line: the same pane is denied" || bad "no SALA_MASTER, same pane: $v"
 
 echo "== a session may kill the claude of a throwaway it started itself (spawned_by)"
 # a tmux session per case, each pane running a fake claude (comm = claude) as the pane's own process; the registry (the
@@ -217,7 +216,7 @@ $T new-session -d -s thr-dead -x 80 -y 20 "exec env SALA_SESSION_ID=a9 $HOME/bin
 waitfor "[ \"\$(cat /proc/\$($T list-panes -t =thr-dead -F '#{pane_pid}')/comm 2>/dev/null)\" = claude ]" 20 || bad "thr-dead did not start"
 v=$(ownv "kill $(pidof_s thr-dead)"); [ "$v" = allow ] && ok "the process that does carry the row's id, under the same name: allowed" || bad "matching id: $v"
 echo "SALA_MASTER=thr-own" > "$SALA_CONFIG"
-v=$(ownv "kill $P_OWN"); [ "$v" = deny ] && ok "the master's session is never a throwaway to kill: denied" || bad "master: $v"
+v=$(ownv "kill $P_OWN"); [ "$v" = allow ] && ok "a SALA_MASTER line naming the throwaway changes nothing: still the caller's own throwaway, allowed" || bad "old master line: $v"
 : > "$SALA_CONFIG"
 echo '{"schema": 1, "sessions": {}}' > "$HOME/.local/state/salamander/sessions.json"
 v=$(ownv "kill $P_OWN"); [ "$v" = deny ] && ok "no row in the registry: denied" || bad "no row: $v"
@@ -296,7 +295,7 @@ pexpect allow "tmux list-windows -t thr-other"                  "reading another
 pexpect allow "tmux send-keys -t thr-other: x"                  "send-keys is not covered (sala's revive and resume sends use it)"
 v=$(SALA_TMUX_SOCKET="$TSOCK" TMUX="$TSOCK,1,0" hook "tmux new-window -d -t thr-other: 'sleep 1'"); case "$v" in *deny*) ok "deny  no TMUX_PANE (no caller identity) and another session's target" ;; *) bad "no pane: $v" ;; esac
 echo "SALA_MASTER=owner" > "$SALA_CONFIG"
-pexpect allow "tmux new-window -d -t thr-other: 'sleep 1'"      "the master's own pane is exempt"
+pexpect deny "tmux new-window -d -t thr-other: 'sleep 1'"       "a SALA_MASTER line exempts no pane"
 : > "$SALA_CONFIG"
 r=$(SALA_TMUX_SOCKET="$TSOCK" TMUX="$TSOCK,1,0" TMUX_PANE="$OP" reason "tmux new-window -d -t thr-other: 'x'")
 case "$r" in *'-t <you>:'*'sala spawn NAME'*'tmux -L <name> -f /dev/null'*) ok "the deny names what to do instead: own session, a bare sala spawn, a private server" ;; *) bad "deny text: $r" ;; esac

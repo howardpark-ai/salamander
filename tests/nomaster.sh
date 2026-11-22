@@ -4,9 +4,9 @@
 # left-over line:
 #  - the guards with no master (lib/common.sh, claude_caller): a Claude ancestor refused with the `sala op` pointer and
 #    nothing run; the queue's cgroup admitted; a tmux-launched caller (the resurrect boot hook, a human's pane shell)
-#    passes; a sala-test-* target, --dry-run, --not-master and --check pass; a verb the queue has no shape for refused with
+#    passes; a sala-test-* target, --dry-run and --check pass; a verb the queue has no shape for refused with
 #    that said; `model` (the queue has the verb) refused with the `sala op model` pointer, its --dry-run and the
-#    no-argument table form left open; the control: a master set and a Claude caller outside tmux passes as before.
+#    no-argument table form left open; the control: a SALA_MASTER line left in the config exempts no one.
 #  - `sala master` and `sala cue` are unknown subcommands (exit 2, nothing delivered).
 #  - `watch` with no master: `--check` healthy and exit 0; a plain tick heals, recreates and bridges nothing and types
 #    nothing; the post-boot report as one Slack post per boot, not twice; the tmux server down with no tmux.service:
@@ -106,9 +106,9 @@ mk h "$(uuid 2)"; mk a "$(uuid 3)"; mk b "$(uuid 4)"
 fake_up sala-test-h sala-test-a sala-test-b || exit 1
 for n in h a b; do "$SALA" adopt "sala-test-$n" >/dev/null 2>&1 || bad "adopt sala-test-$n failed"; done   # into the pane map, as spawned sessions are: the tick's unmapped report is not under test
 
-echo "== a master set (the control): a Claude caller outside tmux passes the guard as before"
+echo "== a master line left in the config (the control): it exempts no one, a Claude caller outside tmux is refused as with none"
 out=$(under_claude "$SALA" retire nosuch 2>&1); rc=$?
-[ "$rc" != 0 ] && ! has "$out" "fleet operation" && ! has "$out" "sala op" && ok "a master set, a Claude caller outside tmux: the guard passes (retire goes on to its own refusal)" || bad "control ($rc): $out"
+[ "$rc" != 0 ] && has "$out" "fleet operation" && has "$out" "sala op" && ok "a SALA_MASTER line in the config, a Claude caller outside tmux: refused and pointed to the queue, as with none" || bad "control ($rc): $out"
 
 unset_master_line() { sed -i 's/^SALA_MASTER=/#SALA_MASTER=/' "$SALA_CONFIG"; }   # the line a config still carries, commented out (sala neither writes nor unsets it)
 set_master() { printf 'SALA_MASTER=%s\n' "$1" >> "$SALA_CONFIG"; }   # <name> - the line put back by hand; the later line wins
@@ -130,6 +130,8 @@ out=$(under_claude "$SALA" recycle --force 2>&1); rc=$?
 [ "$rc" != 0 ] && has "$out" "sala op recycle" && [ "$(starts "$(uuid 3)")" = "$n0" ] && ok "recycle --force under a claude: refused, no pane relaunched" || bad "recycle under claude ($rc): $out"
 out=$(under_claude "$SALA" restore nosuch 2>&1); rc=$?
 [ "$rc" != 0 ] && has "$out" "restore is a fleet operation" && has "$out" "sala op restore --only NAME --why" && ok "a raw restore under claude: refused, and the text points to the queued verb" || bad "restore under claude ($rc): $out"
+out=$(under_claude "$SALA" adopt nosuch 2>&1); rc=$?
+[ "$rc" != 0 ] && has "$out" "adopt is a fleet operation" && ! has "$out" "--not-master" && ! has "$out" "--master" && ! has "$out" "override" && ok "a raw adopt under claude (no queue shape): refused, and the reply names no flag" || bad "adopt under claude ($rc): $out"
 # model: the queue has the verb now. The target must exist and not be a sala-test-* name (those pass the guard),
 # so a plain tmux session stands in for a fleet pane; its record is never written, nothing relaunched.
 $T new-session -d -s nomodel-x -c "$HOME"
@@ -149,8 +151,7 @@ out=$(under_claude env SALA_CGROUP_FILE="$HOME/op-unit.cgroup" "$SALA" retire no
 ! has "$out" "fleet operation" && ok "the queue's cgroup: admitted (retire goes on to its own refusal)" || bad "cgroup: $out"
 out=$(under_claude "$SALA" retire sala-test-nosuch 2>&1); ! has "$out" "fleet operation" && ok "a sala-test-* target: passes" || bad "sala-test target: $out"
 out=$(under_claude "$SALA" retire nosuch --dry-run 2>&1); ! has "$out" "fleet operation" && ok "--dry-run: passes" || bad "dry-run: $out"
-out=$(under_claude "$SALA" retire nosuch --not-master 2>&1); ! has "$out" "fleet operation" && ok "--not-master: passes" || bad "not-master: $out"
-under_claude bash -c ". '$ROOT/lib/common.sh'; master_guard recycle --check" >/dev/null 2>&1 && ok "--check: passes" || bad "--check refused"
+under_claude bash -c ". '$ROOT/lib/common.sh'; fleet_guard recycle --check" >/dev/null 2>&1 && ok "--check: passes" || bad "--check refused"
 tmux new-session -d -s sala-test-shell -c "$HOME" "'$SALA' retire nosuch > '$HOME/shell.out' 2>&1; echo rc=\$? >> '$HOME/shell.out'; sleep 300"
 waitfor "grep -q '^rc=' '$HOME/shell.out' 2>/dev/null" 40 || bad "the pane shell's call did not end"
 ! grep -q "fleet operation" "$HOME/shell.out" && ok "a human's pane shell (TMUX_PANE set, no claude in it, tmux above): passes" || bad "pane shell: $(<"$HOME/shell.out")"

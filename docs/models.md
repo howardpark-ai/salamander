@@ -40,9 +40,9 @@ summary naming the failures, without the one-off `claude -p`. For example (three
   - sala-c: relaunch started on haiku/high (a busy pane is retried until it is idle)
 ```
 A Claude session's raw `sala model <session> …` is refused by the guard
-(`master_guard`) with the pointer to the queue; the table form, `sala model` with no argument, is read-only and stays open.
+(`fleet_guard`) with the pointer to the queue; the table form, `sala model` with no argument, is read-only and stays open.
 The shape is checked at queue time with the same functions `sala model` uses (`model_valid`, `effort_known`), and the plan is
-`model … --dry-run` (an unknown session refuses it before anything is queued); `--record-only`, `--not-master` and `--dry-run`
+`model … --dry-run` (an unknown session refuses it before anything is queued); `--record-only` and `--dry-run`
 are not queue arguments. The runner takes the recycle lock itself, like `lane`, and a second operation of another verb
 naming the same session is refused. The asking session may name itself: the queue's unit has no pane, so it moves the
 session like any other (in place once it is idle, else `revive --force --only`; a busy pane is handed to the retry worker and

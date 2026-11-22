@@ -19,11 +19,10 @@ A PreToolUse hook on Bash: it denies a command, typed by a session outside sala,
               process group (-PGID) holding one · pkill/killall whose pattern literally names claude
               EXCEPT (a guard that blocks a session's own cleanup works against it): `kill <pid>` of the claude
               of a throwaway the calling session started itself: the pid sits in a tmux pane of session S on the caller's
-              server, S is not the caller or the master, and the registry has one live row S with no project, role or side
+              server, S is not the caller, and the registry has one live row S with no project, role or side
               and spawned_by = the caller (`spawn` writes it). The caller is the tmux session of TMUX_PANE; none,
               or any read failing, and the stop is a hit as before.
-Exempt: the sala master's own pane (hook.sh passes SALA_MASTER; TMUX_PANE's tmux session is compared, as master_guard
-does; nothing is exempt once SALA_MASTER is unset) · sala's own verbs (`sala …`, `salamander …`: the command word is
+Exempt: sala's own verbs (`sala …`, `salamander …`: the command word is
 sala, so no rule sees its arguments) · a private tmux server (-L <name> / -S <path> / a $TMUX that is not the fleet's).
 The deny names the queue's verb for the command (`sala op <verb> … --from NAME --words "<the owner's words>"`, lib/op.sh;
 Thu Oct 15th 2026): a session queues the operation, sala's watch runs it. A reboot is the exception: it is not
@@ -35,7 +34,7 @@ TIGHT BY DESIGN: anything that cannot be read off the command passes — a pid i
 subprocesses are tmux: `display` for the caller, after a match, and `list-panes` to place a claude pid in a session). `bash -c` / `sh -c` strings are checked as commands.
 FAIL OPEN: any exception → nothing printed → the call proceeds.
 
-Input: the PreToolUse hook JSON on stdin (tool_input.command). Argument 1: the master's tmux session name (may be empty).
+Input: the PreToolUse hook JSON on stdin (tool_input.command).
 Output: nothing (allow), or the documented deny object:
   {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "…"}}
 """
@@ -788,17 +787,16 @@ def process_session_id(pid):
     return None
 
 
-def make_own_ok(master):
+def make_own_ok():
     """The allowance for a session's own cleanup, since a guard that blocks it works against the session: `kill <pid>` of the claude of a throwaway
-    the calling session started itself is not a hit. The caller is the tmux session of TMUX_PANE (the identity the master
-    check and `sala op` use); no caller, no allowance. The pid must also carry the row's id as SALA_SESSION_ID (a victim renamed to the name is not the throwaway). Any failure reading the pane, the registry or the process → not allowed."""
+    the calling session started itself is not a hit. The caller is the tmux session of TMUX_PANE (the identity `sala op` uses); no caller, no allowance. The pid must also carry the row's id as SALA_SESSION_ID (a victim renamed to the name is not the throwaway). Any failure reading the pane, the registry or the process → not allowed."""
     def ok(pid):
         try:
             me = caller_session()
             if not me:
                 return False
             s = session_of_pid(pid)
-            if not s or s == me or s == master:
+            if not s or s == me:
                 return False
             rid = own_throwaway(s, me)
             # the pid is bound to the row by the process, not by the tmux session name alone: a session renamed to a dead
@@ -819,14 +817,11 @@ def main():
         cmd = ti.get("command") if isinstance(ti, dict) else None
         if not isinstance(cmd, str):
             return
-        master = sys.argv[1] if len(sys.argv) > 1 else ""
-        OWN_OK = make_own_ok(master)   # asks tmux only when a claude pid is named
+        OWN_OK = make_own_ok()   # asks tmux only when a claude pid is named
         hit = check(cmd)
         if not hit:
             return
         me = caller_session()
-        if master and me == master:
-            return   # the master runs fleet operations itself
         kind, what = hit
         if kind in NOT_QUEUED:
             reason = "sala guard: `%s` %s, and a session never runs that itself. %s" % (what, EFFECT[kind], NOT_QUEUED[kind])

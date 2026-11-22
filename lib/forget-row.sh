@@ -8,14 +8,14 @@
 # model rows, and stackshot is told to drop the agent entry (common.sh, RETIRE DROPS THE AGENT ENTRY: fails soft).
 #
 # Refused: a name with a live tmux session by that exact name (the message names `retire`, or `close-shell` when the session runs no Claude: forgetting the
-# row would leave the live session out of the map), a name with no row, the master session and the Remote Control session.
+# row would leave the live session out of the map), a name with no row and the Remote Control session.
 # --dry-run: nothing is written; "[dry-run] would …" lines, refusals as "[dry-run] would refuse: …" (exit 1).
 
 usage="usage: salamander forget-row <name> [--dry-run]
   a live session with a Claude in it: salamander retire <tmux-session>; a live session with none: salamander close-shell <tmux-session>"
-name=""; DRY=0; DRYFLAG=""; NOTMASTER=""
+name=""; DRY=0; DRYFLAG=""
 while [ $# -gt 0 ]; do case "$1" in
-    --dry-run) DRY=1; DRYFLAG=--dry-run ;; --not-master) NOTMASTER=--not-master ;;
+    --dry-run) DRY=1; DRYFLAG=--dry-run ;;
     --force) die "forget-row has no --force: it refuses only a name whose tmux session is live" ;;
     -*) die "unknown option: $1
 $usage" ;;
@@ -28,7 +28,7 @@ refuse() {
     if [ "$DRY" = 1 ]; then dry "would refuse: $1"; dry "nothing was changed"; exit 1; fi
     die "$1"
 }
-ops_guard forget-row "$name" $NOTMASTER $DRYFLAG
+ops_guard forget-row "$name" $DRYFLAG
 ledger_frozen_die forget-row
 
 if tmux has-session -t "=$name" 2>/dev/null; then

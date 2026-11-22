@@ -2945,7 +2945,7 @@ restore_session() {  # <session> [row] → 0 recreated and resumed · 3 left alo
     uuid=$RS_UUID; cwd=$RS_CWD; note=$RS_NOTE
     tmux new-session -d -s "$sess" -c "$cwd" || { echo "$sess: tmux new-session failed"; return 1; }
     # not the recycle's own sweep (SALA_RECYCLE would re-post and stop retry workers); the guard was this caller's to pass
-    out=$(env -u SALA_RECYCLE -u SALA_SKIP_PANE "$SALA_BIN" revive --only "$sess" --not-master 2>&1)
+    out=$(env -u SALA_RECYCLE -u SALA_SKIP_PANE "$SALA_BIN" revive --only "$sess" 2>&1)
     re_escape_r sess_re "$sess"; printf '%s\n' "$out" | grep -E "^ *$sess_re:0: |^✗|^⚠" | sed 's/^ */      /'
     if printf '%s\n' "$out" | grep -q "^ *$sess:0: resumed $uuid"; then echo "$sess: back in $cwd$note, on its conversation"; return 0; fi
     why=$(printf '%s\n' "$out" | grep -F "$sess:0: " | tail -1 | sed "s/^ *$sess:0: //"); [ -n "$why" ] || why=$(printf '%s\n' "$out" | grep . | tail -1)
@@ -5000,18 +5000,17 @@ lw_limit() {
     esac
     echo "${who:+$who }$what"
 }
-# IS A LANE OUT? (the rescue.) The master runs on a lane; when that lane's usage is out or its
-# account is dead the master cannot act, and another session moves it (`sala lane --rescue <lane>`, lib/lane.sh). That
-# verb refuses while the lane looks fine, so "out" needs a test, and sala has three cheap, honest readings of its own: it
-# asks no model and makes no request.
+# IS A LANE OUT? A session runs on a lane; when that lane's usage is out or its
+# account is dead the session cannot act. "Out" needs a test, and sala has three cheap, honest readings of its own: it
+# asks no model and makes no request (the lane fallback uses them to pick a lane that works).
 #   1. lane_check: the lane cannot launch at all (no key file, a directory not signed in) — out.
 #   2. the sign-in watch's state (SALA_SIGNIN_STATE, lib/watch.sh "SIGN-IN WATCH"): the lane's last look was WRONG (not
 #      signed in, another account, the key refused) — out. The sdk lane is the api key's: judged by the api line.
-#   3. the limit watch's state (SALA_LIMIT_STATE, lib/watch.sh): a pane stopped on this lane by a limit. The master's own
-#      pane stopped on it is decisive, whatever the limit; another pane's stop is decisive only for a lane-wide limit
+#   3. the limit watch's state (SALA_LIMIT_STATE, lib/watch.sh): a pane stopped on this lane by a limit. The named
+#      session's own pane stopped on it is decisive, whatever the limit; another pane's stop is decisive only for a lane-wide limit
 #      (weekly, 5-hour, credit, workspace, rate), since one model's limit (seven_day_opus) stops only that model's panes.
 # lane_out <lane> [<session>] → 0 with the reasons on stdout (one per line) when any reading says the lane is out; 1 and
-# nothing when none does (the lane looks fine to sala: `--force` is the override). A watch that has not looked, or whose
+# nothing when none does (the lane looks fine to sala). A watch that has not looked, or whose
 # state is unreadable, says nothing — an absent reading is not "fine", it is nothing, and the caller's words say so.
 _signin_get() {  # <lane> <field> → the sign-in state's value for "<lane>.<field>", else the one under the lane's old word (max.seen, team.since: a state written before the rename); nothing when neither is there
     local _v _o; _v=$(awk -F= -v k="$1.$2" '$1==k {print substr($0, length(k)+2); exit}' "$SALA_SIGNIN_STATE" 2>/dev/null)
@@ -5478,7 +5477,7 @@ pane_exit() {
 #   · the process is named claude AND its /proc exe is a Claude Code install (claude_exe_trusted), not a shell linked as "claude";
 #   · it is the one claude under the pane's own process (claude_pid_under) and not that process itself, and the environment it
 #     started with names this pane (TMUX_PANE) when the shell can read it;
-#   · it is not the master session, not an ancestor of this command, and this command does not run in its pane: a session never
+#   · it is not an ancestor of this command, and this command does not run in its pane: a session never
 #     ends the claude it works in;
 #   · its registry row does not say a turn is running or background work holds the pane (a /exit typed to a claude that began a
 #     turn since is a turn, not a hang) and it is not the sdk lane's CLI (that pane leaves through the driver's box).
@@ -5625,16 +5624,12 @@ local_human() {
 }
 
 # ── one driver ────────────────────────────────────────────────────────────────
-# master_guard <verb> [args…] → 0 when this invocation may drive a recycle of this box, else dies.
-# A recycle relaunches every pane, the invoking one included; two drivers race the same panes. So a
-# recycle is driven from the MASTER pane (SALA_MASTER) — any other pane queues it with `sala op`. Allowed regardless: not inside tmux (a human shell, systemd, cron);
-# --dry-run / --check (read-only); --not-master (explicit override); and a master that is not live
-# (the box must never become unrecyclable — said out loud).
-# NO MASTER ("No master session", Thu Oct 15th 2026): with SALA_MASTER unset the operation queue (lib/op.sh) is
-# the one driver, so a Claude session (claude_caller) is REFUSED and pointed to `sala op <verb> … --from NAME --words
-# "<the owner's words>"` (a reboot is not queued: pointed to the owner running `sala reboot --go` directly); a human's pane shell, a plain shell, systemd (the watch and its units, cron) and the resurrect boot
-# hook pass as before. Until Thu Oct 15th a missing master let any pane run the verb, with a notice: the master's
-# absence then meant "nobody holds the one-driver rule", now it means "the queue holds it".
+# fleet_guard <verb> [args…] → 0 when this invocation may drive a fleet operation of this box, else dies.
+# A recycle relaunches every pane, the invoking one included; two drivers race the same panes. So the operation queue
+# (lib/op.sh) is the one driver, and a Claude session (claude_caller) is REFUSED and pointed to `sala op <verb> … --from NAME --words
+# "<the owner's words>"` (a reboot is not queued: pointed to the owner running `sala reboot --go` directly). Allowed regardless: the queue's own
+# runner (op_unit_caller); --dry-run / --check (read-only); and every caller that is not a Claude session: a human's pane shell, a
+# plain shell, systemd (the watch and its units, cron) and the resurrect boot hook.
 # SIDE SESSIONS add no guarded verb: `spawn --side` is as free as any spawn (not a fleet operation, never guarded here; a session starts
 # one through the queue, `sala op spawn NAME --side …`, with the owner's words), `sala side done` writes only the caller's own record and `sala sessions
 # transcript` only reads. A side session's retire is the ordinary `retire` verb, gated by lib/retire.sh on the write-up marker (--skip-writeup the one bypass).
@@ -5643,7 +5638,7 @@ local_human() {
 # `claude` process among our ancestors): the resurrect boot hook, `sala watch` and a human shell pass untouched. A
 # throwaway target named sala-test-* passes from any pane, so the sala builder can test on its own panes.
 # THE OPERATION QUEUE (lib/op.sh): a verb run inside a sala-op-<id> transient unit is the queue's runner, which
-# takes the recycle lock and runs one operation at a time in place of the master's pane — both guards admit it by the
+# takes the recycle lock and runs one operation at a time in place of a session's pane — both guards admit it by the
 # unit's name in the caller's cgroup (op_unit_caller), read from /proc/self/cgroup (SALA_CGROUP_FILE: the tests). The Bash
 # guard hook (lib/guard.py) keeps its logic: a session typing the raw command is denied as before, pointed to `sala op`.
 op_unit_caller() { local _cg=""; { IFS= read -r -d '' _cg < "${SALA_CGROUP_FILE:-/proc/self/cgroup}"; } 2>/dev/null || :; [[ $_cg =~ /sala-op-[0-9]+-[0-9]+\.service ]]; }   # (a grep -qE, read by the shell)
@@ -5666,36 +5661,25 @@ ops_guard() {
     op_unit_caller && return 0
     case "$target" in sala-test-*) return 0;; esac
     claude_caller || return 0
-    master_guard "$verb" "$@"
+    fleet_guard "$verb" "$@"
 }
-master_guard() {
-    local verb="$1"; shift; local a here mpane
-    op_unit_caller && return 0   # the operation queue's runner (lib/op.sh) drives it in place of the master's pane
-    for a in "$@"; do case "$a" in --dry-run|--check|--not-master) return 0;; esac; done
-    if [ -z "${SALA_MASTER:-}" ]; then
-        claude_caller || return 0   # a human's shell, systemd, cron, the boot hook: no one-driver rule to hold against them
-        here=""; [ -n "${TMUX_PANE:-}" ] && here=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
-        # the verbs the queue takes (lib/op.sh, THE VERBS); adopt has no queue shape yet; a reboot is not
-        # queued (SALA_OP_REBOOT off by default, unsupported until a confirmation path is built): the owner runs it directly
-        case "$verb" in
-            reboot)
-                die "reboot is not queued: ${SALA_OWNER_NAME} runs \`sala reboot --go\` in the web UI's Shell; a session shows \`sala reboot --status\` and waits for the word" ;;
-            restore)
-                die "restore is a fleet operation, and a session never runs one itself: the operation queue does (no master session is configured). Queue it — sala op restore --only NAME --why \"<one line: why it is needed>\" --from ${here:-<you>} (or --item board#N for --why; ${SALA_OWNER_NAME}'s words are needed only for the master, yourself or a sweep) — and sala's watch runs it; sala op --plan restore --only NAME shows what it would do first" ;;
-            recycle|update|revive|retire|close-shell|forget-row|rename|lane|model|provision)
-                die "$verb is a fleet operation, and a session never runs one itself: the operation queue does (no master session is configured). Queue it — sala op $verb … --from ${here:-<you>} --words \"<${SALA_OWNER_NAME}'s words>\" — and sala's watch runs it, one operation at a time; sala op --plan $verb … shows the plan first (the recycle procedure does exactly that). Override only if you know why: --not-master" ;;
-            *)  die "$verb is a fleet operation, and a session never runs one itself (no master session is configured, and the operation queue has no '$verb' verb yet: lib/op.sh, THE VERBS). From a plain shell it runs; from a session only on ${SALA_OWNER_NAME}'s word, with --not-master" ;;
-        esac
-    fi
-    [ -n "${TMUX_PANE:-}" ] || return 0
-    here=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || return 0
-    [ "$here" = "$SALA_MASTER" ] && return 0
-    mpane=$(tmux list-panes -t "$(tmux_win_t "$SALA_MASTER")" -F '#{pane_id}' 2>/dev/null | head -1)
-    if [ -z "$mpane" ] || ! claude_pid_under "$(tmux display -p -t "$mpane" '#{pane_pid}')" >/dev/null 2>&1; then
-        echo "⚠ master session '$SALA_MASTER' is not live — allowing '$verb' from '$here' (salamander watch no longer revives the master)" >&2
-        sala_post "⚠️ *$verb ran from $here*" "the master $SALA_MASTER was not live, so the guard let it through"; return 0
-    fi
-    die "$verb is driven from the master session ('$SALA_MASTER'), not from '$here': a Claude session never runs this raw: queue it with \`sala op <verb>\` (see \`sala op --help\`; adopt and restore have their own forms), so two drivers never race the same panes. Override only if you know why: --not-master"
+fleet_guard() {
+    local verb="$1"; shift; local a here
+    op_unit_caller && return 0   # the operation queue's runner (lib/op.sh) drives it
+    for a in "$@"; do case "$a" in --dry-run|--check) return 0;; esac; done
+    claude_caller || return 0   # a human's shell, systemd, cron, the boot hook: no one-driver rule to hold against them
+    here=""; [ -n "${TMUX_PANE:-}" ] && here=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
+    # the verbs the queue takes (lib/op.sh, THE VERBS); adopt has no queue shape yet; a reboot is not
+    # queued (SALA_OP_REBOOT off by default, unsupported until a confirmation path is built): the owner runs it directly
+    case "$verb" in
+        reboot)
+            die "reboot is not queued: ${SALA_OWNER_NAME} runs \`sala reboot --go\` in the web UI's Shell; a session shows \`sala reboot --status\` and waits for the word" ;;
+        restore)
+            die "restore is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op restore --only NAME --why \"<one line: why it is needed>\" --from ${here:-<you>} (or --item board#N for --why; ${SALA_OWNER_NAME}'s words are needed only for yourself or a sweep) — and sala's watch runs it; sala op --plan restore --only NAME shows what it would do first" ;;
+        recycle|update|revive|retire|close-shell|forget-row|rename|lane|model|provision)
+            die "$verb is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op $verb … --from ${here:-<you>} --words \"<${SALA_OWNER_NAME}'s words>\" — and sala's watch runs it, one operation at a time; sala op --plan $verb … shows the plan first (the recycle procedure does exactly that)" ;;
+        *)  die "$verb is a fleet operation, and a session never runs one itself, and the operation queue has no '$verb' verb yet (lib/op.sh, THE VERBS). Ask ${SALA_OWNER_NAME} to run it from a plain shell" ;;
+    esac
 }
 
 # ── recycle lock ──────────────────────────────────────────────────────────────

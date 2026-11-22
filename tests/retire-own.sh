@@ -7,17 +7,16 @@
 #   - a bare `sala spawn` from a Claude session's pane records that session as the row's spawned_by; the same spawn from a plain shell
 #     records none;
 #   - `op retire NAME --from YOU` with no --words is queued when NAME is a throwaway (a live row, no project, no role, not a side session, on no
-#     project's agents map, not the master, not YOU) and YOU may end it: its spawner; the master, when the name is a throwaway's (or the master
-#     started it); or any session when it has no live spawner (none on the row, or the spawner's session is gone) and a throwaway's name
+#     project's agents map, not YOU) and YOU may end it: its spawner; or any session when it has no live spawner (none on the row, or the spawner's session is gone) and a throwaway's name
 #     (scratch-*, *-check-*, *-test-*, *-probe-*); the marker says which rule (an empty words, a `nowords=` note) and `op --list` shows the note,
 #     not an empty quote;
 #   - (a review finding; the bypass flags are --busy, --skip-writeup, --self and --leave-items since Sun Nov 1st 2026, with --id and the old --force refused too) the bypass flags and --keep-web are never taken with no words (queue time, flag before or after the name, and the runner on
-#     a marker edited by hand); the agents-map check FAILS CLOSED for the master and any-session doors: a stale, missing or unreadable project
+#     a marker edited by hand); the agents-map check FAILS CLOSED for the any-session door: a stale, missing or unreadable project
 #     record is a refusal (no page reader is asked: a pages.py stub here is a tripwire that must never run), while the spawner door still
-#     queues; the master needs a throwaway's name unless it started the row; a pane with no row id anywhere passes only under a throwaway's name
+#     queues; a pane with no row id anywhere passes only under a throwaway's name
 #     with a fresh "unlisted" answer, whichever door let the caller in (a victim with no id renamed onto a dead row's name is refused);
 #   - every other case keeps the refusal, and the refusal says when no words are allowed and why this one is not: a throwaway whose spawner is
-#     live; a project agent (also with a throwaway name and no spawner); a side session; a name on the project record's agents map; the master; the
+#     live; a project agent (also with a throwaway name and no spawner); a side session; a name on the project record's agents map; the
 #     asking session itself; a row with no spawner or a dead one and a name that is not a throwaway's; a name that is not the row's own (its id);
 #     a name with no row; another verb with no words;
 #   - the caller is placed by PROCESS ANCESTRY (a pane process in tmux list-panes -a, a claude on the way up), never by TMUX_PANE or --from:
@@ -34,26 +33,26 @@
 #     exited mid-read is skipped; the untouched one is retired;
 #   - THE THROWAWAY TAG: a bare spawn (from a Claude session or a plain shell) writes throwaway=1 on the row, a spawn with
 #     --project/--role or --side never does, and setting a project, a role or a side mark (sessions set, sessions tag) takes it off; any live session
-#     but the row itself and the master retires a tagged row with no words, its spawner alive or not, under any name (the master too); a tag written onto a row
+#     but the row itself retires a tagged row with no words, its spawner alive or not, under any name; a tag written onto a row
 #     that has a project, a side mark or an agents-map entry opens nothing, nor does it lift the bypass-flag/--keep-web refusal or the fail-closed agents-map
 #     check; the rows the rest of this suite makes have the tag taken off by its `spawn` helper (they stand in for rows from before the tag) and keep the earlier
 #     rules; the runner ends a tagged row (retire's own idle check, no --busy);
 #   - the owner's words still queue any retire as before;
 #   - THE REASON DOOR (lib/op.sh op_words_policy, op_reason_revive_ok; the same process-ancestry placement of the caller as above): `op revive --only NAME… [--force]` with
-#     `--item board#N` or `--why "<text>"` and no --words is queued from any live Claude session (SALA_OP_REASON_FROM empty), for live registry rows that are neither the
-#     master nor the asker: the marker (item= or reason=, one ownrow= per session in order, the nowords note), `op --list`, `--status` and the log; refused with nothing queued
+#     `--item board#N` or `--why "<text>"` and no --words is queued from any live Claude session (SALA_OP_REASON_FROM empty), for live registry rows that are not
+#     the asker: the marker (item= or reason=, one ownrow= per session in order, the nowords note), `op --list`, `--status` and the log; refused with nothing queued
 #     for no reason, a bad item (board#x, #5, 5, two lines), a why of two words / empty / two lines / over 200 characters, both together, a sweep, --rescue and --lane-default,
-#     --item or --why on any other verb, a name with no row or a row's id, the asker or the master (also among several), a sender outside SALA_OP_REASON_FROM, a plain shell, a
+#     --item or --why on any other verb, a name with no row or a row's id, the asker (also among several), a sender outside SALA_OP_REASON_FROM, a plain shell, a
 #     detached call, a person's pane, another session's pane, `--auto`; every other verb with no words keeps the plain refusal and retire's door is unchanged; the policy table
 #     (op_words_policy) for each verb; the stuck helper's brief; the runner judges it again (op --run by hand) and goes stuck with nothing relaunched and no claude -p on a changed
-#     row id, a lost or malformed reason, an extra or removed session, a bad shape, a sender no longer allowed, a session that became the master or the sender; the untouched
+#     row id, a lost or malformed reason, an extra or removed session, a bad shape, a sender no longer allowed, a session that became the sender; the untouched
 #     marker relaunches that one session and no other.
 #   - THE SAME DOOR FOR restore (lib/op.sh op_reason_restore_ok, op_restore_target_ok; lib/restore.sh --dry-run is its plan): `op restore --only NAME… --item board#N|--why "<text>" --from YOU` with no words recreates a
 #     session whose tmux session is gone (its pane-map row stands, its conversation is live nowhere): the plan (`op --plan restore`) refuses a live tmux session (and names revive), a name with no row and a conversation live in
-#     another session, and prints the tmux session, directory, conversation, lane and model otherwise; the queue refuses all of those, the master, the asker, a sweep (--missing), --force, a bare name, a sender outside
+#     another session, and prints the tmux session, directory, conversation, lane and model otherwise; the queue refuses all of those, the asker, a sweep (--missing), --force, a bare name, a sender outside
 #     SALA_OP_REASON_FROM, a plain shell, a spoofed pane, another session's pane and a person's shell; a raw `sala restore` from a Claude session stays refused and points to the queue; the marker (item= or reason=, ownrow=
 #     the row's conversation id, nowords), `op --list`, `--status` and the log; the runner (op --run by hand, passing the guard by its unit) recreates the session and resumes the conversation once, for one name or two, and
-#     goes stuck with nothing recreated and no claude -p helper when the marker no longer fits (ids, reason, shape, sender, master, tmux session back, conversation live elsewhere, row replaced);
+#     goes stuck with nothing recreated and no claude -p helper when the marker no longer fits (ids, reason, shape, sender, tmux session back, conversation live elsewhere, row replaced);
 # Usage: bash tests/retire-own.sh   (exit 0 = pass; ~3 min)
 set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_SESSION_ID SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT \
@@ -169,12 +168,12 @@ mvals() { local f="$OPS/$1.op"; awk -F= -v k="$2" '$1==k {print substr($0, lengt
 mval() { local f="$OPS/$1.op"; awk -F= -v k="$2" '$1==k {print substr($0, length(k)+2); exit}' "$f" 2>/dev/null; }   # <id> <key> → a marker's value
 queued() { ls "$OPS"/*.op 2>/dev/null | wc -l; }
 dropall() { local f; for f in "$OPS"/*.op; do [ -e "$f" ] && rm -f "$f"; done; true; }   # a queued marker names its session: cleared between cases (nothing runs them)
-enq_as() {  # <session> <op args…> → OUT, RC, ID of `sala op` called from inside that session's driver (SALA_MASTER passed on when set); "" = this plain shell
+enq_as() {  # <session> <op args…> → OUT, RC, ID of `sala op` called from inside that session's driver (SALA_MASTER, a leftover config line, passed on when set); "" = this plain shell
     local p=$1 l; shift
     if [ -n "$p" ]; then callin "$p" env ${SALA_MASTER:+SALA_MASTER=$SALA_MASTER} ${SALA_AGENT_CHECK_SCRIPT:+SALA_AGENT_CHECK_SCRIPT=$SALA_AGENT_CHECK_SCRIPT} ${SALA_OP_REASON_FROM:+SALA_OP_REASON_FROM="$SALA_OP_REASON_FROM"} "$SALA" op "$@"; else OUT=$("$SALA" op "$@" 2>&1); RC=$?; fi
     ID=""; while IFS= read -r l; do if [[ $l =~ ^queued\ op\ ([0-9-]*): ]]; then ID=${BASH_REMATCH[1]}; break; fi; done <<< "$OUT"
 }
-NOWORDS="words: none (throwaway, retired by its spawner)"; NW_MASTER="words: none (throwaway, retired by the master)"; NW_ANY="words: none (throwaway with no tag, retired by any session: no live spawner)"; NW_TAG="words: none (throwaway tag set at spawn, retired by any session)"
+NOWORDS="words: none (throwaway, retired by its spawner)"; NW_ANY="words: none (throwaway with no tag, retired by any session: no live spawner)"; NW_TAG="words: none (throwaway tag set at spawn, retired by any session)"
 
 echo "== setup: the asking sessions owner and other"
 out=$(spawn sala-test-owner "$(uuid 1)"); [ $? = 0 ] && tmux has-session -t =sala-test-owner 2>/dev/null || bad "spawn owner: $out"
@@ -199,7 +198,7 @@ out=$(spawn sala-test-proj "$(uuid 15)" "$PO"); out2=$(spawn sala-test-sidey "$(
 sessions_set sala-test-proj project=projects/test role=back
 sessions_set sala-test-sidey side=1
 [ "$(rowq sala-test-proj spawned_by)" = sala-test-owner ] && [ "$(rowq sala-test-sidey spawned_by)" = sala-test-owner ] && [ "$(rowq sala-test-mast spawned_by)" = sala-test-owner ] && [ "$(rowq sala-test-proj project)" = projects/test ] && [ "$(rowq sala-test-sidey side)" = 1 ] \
-    && ok "three more of owner's, made into a project agent and a side session by setting their fields (the third stands in for the master below)" || bad "rows: spawned_by $(rowq sala-test-proj spawned_by) $(rowq sala-test-sidey spawned_by) $(rowq sala-test-mast spawned_by) / proj=$(rowq sala-test-proj project) side=$(rowq sala-test-sidey side)"
+    && ok "three more of owner's, made into a project agent and a side session by setting their fields (the third is an ordinary throwaway)" || bad "rows: spawned_by $(rowq sala-test-proj spawned_by) $(rowq sala-test-sidey spawned_by) $(rowq sala-test-mast spawned_by) / proj=$(rowq sala-test-proj project) side=$(rowq sala-test-sidey side)"
 sessions_set sala-test-owner spawned_by=sala-test-owner   # an odd row: owner marked as its own spawner
 
 echo "== own throwaway: queued with no words, the marker says so"
@@ -232,7 +231,9 @@ refuse "a row with no spawned_by under a name that is no throwaway's" "has no sp
 refuse "the asking session itself (its row names itself)" "is the asking session itself" "$PO" retire sala-test-owner --from sala-test-owner
 refuse "a name with no row" "has no live registry row under that exact name" "$PO" retire sala-test-ghost --from sala-test-owner
 refuse "the row's id in place of its name" "is not the registry row's own name" "$PO" retire "$(rowq sala-test-own2 id)" --from sala-test-owner
-SALA_MASTER=sala-test-mast refuse "the master (even one the asker started)" "is the master session" "$PO" retire sala-test-mast --from sala-test-owner
+SALA_MASTER=sala-test-mast enq_as "$PO" retire sala-test-mast --from sala-test-owner
+[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NOWORDS" ] && ok "a SALA_MASTER line left in the config naming it changes nothing: owner's throwaway, queued by its spawner (note '$NOWORDS')" || { bad "retire of the old master's name: rc=$RC — $OUT"; }
+dropall
 enq_as "$PO" rename sala-test-own2 sala-test-renamed --from sala-test-owner
 [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "no --words" && ! has "$OUT" "refused here: " && ok "another verb on owner's own throwaway (rename): still needs words" || { bad "rename: rc=$RC — $OUT"; dropall; }
 enq_as "$PO" retire sala-test-own2 sala-test-own1 --from sala-test-owner   # two names: not the retire shape
@@ -408,23 +409,20 @@ driver_up sala-test-gone
 out=$(spawn sala-test-orph2 "$(uuid 102)" sala-test-gone); out2=$(spawn sala-plain-orph "$(uuid 103)" sala-test-gone)
 [ "$(rowq sala-test-orph2 spawned_by)" = sala-test-gone ] && [ "$(rowq sala-plain-orph spawned_by)" = sala-test-gone ] && ok "two throwaways started by a session (sala-test-gone) that is then closed" || bad "orph rows: '$(rowq sala-test-orph2 spawned_by)' '$(rowq sala-plain-orph spawned_by)' $out $out2"
 enq_as "$PO" retire sala-test-orph2 --from sala-test-owner
-[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "was started by 'sala-test-gone', who is still live" && ok "while its spawner is live: only the spawner (or the master) may" || { bad "orph while spawner live: rc=$RC queued=$(queued) — $OUT"; dropall; }
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "was started by 'sala-test-gone', who is still live" && ok "while its spawner is live: only the spawner may" || { bad "orph while spawner live: rc=$RC queued=$(queued) — $OUT"; dropall; }
 tmux kill-session -t =sala-test-gone; waitfor "! tmux has-session -t =sala-test-gone 2>/dev/null" 20
 enq_as "$PO" retire sala-test-orph2 --from sala-test-owner
 [ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NW_ANY" ] && ok "the spawner gone: any session may (note '$NW_ANY')" || bad "orph, spawner gone: rc=$RC — $OUT"
 dropall
 refuse "a dead spawner but a name that is no throwaway's" "who is no longer live, but its name is not a throwaway's" "$PO" retire sala-plain-orph --from sala-test-owner
 
-echo "== the master ends any throwaway; nobody ends a project agent, a side session, a listed agent, a name that is no throwaway's"
+echo "== a SALA_MASTER line left in the config opens no door: nobody ends a live spawner's throwaway, a project agent or a side session"
 SALA_MASTER=sala-test-other enq_as "$PX" retire sala-test-own2 --from sala-test-other
-[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NW_MASTER" ] && ok "the master (other) ends owner's throwaway, whose spawner is live: queued, note '$NW_MASTER'" || bad "master: rc=$RC — $OUT"
-dropall
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "was started by 'sala-test-owner', who is still live" && ok "the session an old config names ends no throwaway of a live spawner" || { bad "old master: rc=$RC queued=$(queued) — $OUT"; dropall; }
 SALA_MASTER=sala-test-other enq_as "$PX" retire sala-test-proj --from sala-test-other
-[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "is a project agent, not a throwaway" && ok "the master still cannot end a project agent with no words" || { bad "master, project: rc=$RC queued=$(queued) — $OUT"; dropall; }
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "is a project agent, not a throwaway" && ok "nor a project agent" || { bad "old master, project: rc=$RC queued=$(queued) — $OUT"; dropall; }
 SALA_MASTER=sala-test-other enq_as "$PX" retire sala-test-sidey --from sala-test-other
-[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "is a side session" && ok "nor a side session" || { bad "master, side: rc=$RC queued=$(queued) — $OUT"; dropall; }
-SALA_MASTER=sala-test-other enq_as "$PO" retire sala-test-other --from sala-test-owner
-[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "is the master session" && ok "nor the master itself" || { bad "retire the master: rc=$RC queued=$(queued) — $OUT"; dropall; }
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "is a side session" && ok "nor a side session" || { bad "old master, side: rc=$RC queued=$(queued) — $OUT"; dropall; }
 out=$(spawn sala-test-projnos "$(uuid 104)"); sessions_set sala-test-projnos project=projects/test role=front
 refuse "a no-spawner row with a project and a throwaway name (the name alone is never enough)" "is a project agent, not a throwaway" "$PO" retire sala-test-projnos --from sala-test-owner
 out=$(spawn sala-test-sidenos "$(uuid 105)"); sessions_set sala-test-sidenos side=1
@@ -467,11 +465,10 @@ rc=$(SALA_OP_STUCK=on SALA_OP_CLAUDE="$HOME/stub-helper" runop "$IDF")
     && ok "a no-words marker with --busy added by hand: the runner goes stuck, nothing ended, no claude -p helper (rc=$rc)" || bad "runner --busy: rc=$rc id=$IDF marker: $(cat "$OPS/done/$IDF.op" "$OPS/$IDF.op" 2>/dev/null | tail -8) log: $(tail -4 "$HOME/run.out")"
 tmux kill-session -t =sala-test-flag1 2>/dev/null; dropall
 
-echo "== the agents-map check fails closed for the master and any-session doors (a review finding: a record that cannot answer is a refusal)"
+echo "== the agents-map check fails closed for the any-session door (a review finding: a record that cannot answer is a refusal)"
 for st in stale missing garbage; do
     record_set "$st"
     refuse "any session, a throwaway with no spawner, record $st" "could not confirm that 'sala-test-nospawn' is unlisted" "$PO" retire sala-test-nospawn --from sala-test-owner
-    SALA_MASTER=sala-test-other refuse "the master, owner's throwaway (spawner live), record $st" "could not confirm that 'sala-test-own2' is unlisted" "$PX" retire sala-test-own2 --from sala-test-other
     enq_as "$PO" retire sala-test-own1 --from sala-test-owner
     [ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NOWORDS" ] && ok "the spawner's own throwaway, record $st: still queued (its registry row is the proof)" || bad "spawner, record $st: rc=$RC — $OUT"
     dropall
@@ -483,17 +480,16 @@ PG_NOP=$(stub_pages nop 0 "no project page for this name: nothing to check")
 rm -f "$HOME/pages-ran"
 SALA_AGENT_CHECK_SCRIPT=$PG_UNL refuse "stale record, a pages.py that answers 'unlisted' (exit 3)" "could not confirm that 'sala-test-nospawn' is unlisted" "$PO" retire sala-test-nospawn --from sala-test-owner
 SALA_AGENT_CHECK_SCRIPT=$PG_NOP refuse "stale record, a pages.py that answers 'no project page'" "could not confirm that 'sala-test-nospawn' is unlisted" "$PO" retire sala-test-nospawn --from sala-test-owner
-SALA_AGENT_CHECK_SCRIPT=$PG_UNL SALA_MASTER=sala-test-other refuse "stale record, the master's door and a pages.py that answers 'unlisted'" "could not confirm that 'sala-test-own2' is unlisted" "$PX" retire sala-test-own2 --from sala-test-other
 record_set fresh
 SALA_AGENT_CHECK_SCRIPT=$PG_UNL refuse "a fresh record that lists the name refuses whatever a pages.py would say" "is on a project's agents map" "$PO" retire sala-test-mapped --from sala-test-owner
 [ ! -e "$HOME/pages-ran" ] && ok "the pages.py stub was never run (the record is read alone)" || bad "pages.py ran $(wc -l < "$HOME/pages-ran") time(s)"
 
-echo "== the master ends a throwaway's name, or a row it started; not any row (a review finding)"
-out=$(spawn sala-plain-own "$(uuid 121)" "$PO"); out2=$(spawn sala-plain-mastown "$(uuid 122)" "$PX")
-[ "$(rowq sala-plain-own spawned_by)" = sala-test-owner ] && [ "$(rowq sala-plain-mastown spawned_by)" = sala-test-other ] && ok "two rows with a plain name: one owner started, one the master (other) started" || bad "plain rows: '$(rowq sala-plain-own spawned_by)' '$(rowq sala-plain-mastown spawned_by)' $out $out2"
-SALA_MASTER=sala-test-other refuse "the master, a row owner started under a name that is no throwaway's" "was not started by the master and its name is not a throwaway's" "$PX" retire sala-plain-own --from sala-test-other
-SALA_MASTER=sala-test-other enq_as "$PX" retire sala-plain-mastown --from sala-test-other
-[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NOWORDS" ] && ok "the master, a plain-named row it started itself: queued by the spawner door (note '$NOWORDS')" || bad "master, own plain row: rc=$RC — $OUT"
+echo "== a plain-named row: its own spawner ends it, another live session does not (a review finding)"
+out=$(spawn sala-plain-own "$(uuid 121)" "$PO"); out2=$(spawn sala-plain-othown "$(uuid 122)" "$PX")
+[ "$(rowq sala-plain-own spawned_by)" = sala-test-owner ] && [ "$(rowq sala-plain-othown spawned_by)" = sala-test-other ] && ok "two rows with a plain name: one owner started, one other started" || bad "plain rows: '$(rowq sala-plain-own spawned_by)' '$(rowq sala-plain-othown spawned_by)' $out $out2"
+refuse "another session, a row owner started under a name that is no throwaway's" "was started by 'sala-test-owner', who is still live" "$PX" retire sala-plain-own --from sala-test-other
+enq_as "$PX" retire sala-plain-othown --from sala-test-other
+[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NOWORDS" ] && ok "a plain-named row it started itself: queued by the spawner door (note '$NOWORDS')" || bad "own plain row: rc=$RC — $OUT"
 dropall
 
 echo "== a pane with no row id is bound by its name alone, so the name must be a throwaway's and a fresh answer must say unlisted (a review finding)"
@@ -588,7 +584,7 @@ enq_as "$PO" retire sala-plain-tag1 --from sala-test-owner
 [ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NOWORDS" ] && ok "its own spawner still ends it under the spawner rule (note '$NOWORDS')" || bad "tagged, spawner: rc=$RC — $OUT"
 dropall
 SALA_MASTER=sala-test-other enq_as "$PX" retire sala-plain-tag1 --from sala-test-other
-[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NW_TAG" ] && ok "the master ends a tagged row of any name (not only a throwaway's name, as for an untagged one)" || bad "tagged by master: rc=$RC — $OUT"
+[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NW_TAG" ] && ok "another session ends a tagged row of any name (a leftover SALA_MASTER line changes nothing)" || bad "tagged by another session: rc=$RC — $OUT"
 dropall
 # still refused, tag or not
 refuse_tag() {  # <why> <fragment> <pane> <op args…>: a refusal of a tagged row (the message need not name the old rule)
@@ -599,8 +595,6 @@ refuse_tag() {  # <why> <fragment> <pane> <op args…>: a refusal of a tagged ro
 tag_raw sala-test-owner
 refuse_tag "a tagged row asked to end itself" "is the asking session itself" "$PO" retire sala-test-owner --from sala-test-owner
 sessions_set sala-test-owner throwaway=
-TAGGED=1 spawn sala-plain-tagm "$(uuid 214)" >/dev/null
-SALA_MASTER=sala-plain-tagm refuse_tag "a tagged row that is the master" "is the master session" "$PO" retire sala-plain-tagm --from sala-test-owner
 tag_raw sala-test-proj; tag_raw sala-test-sidey; tag_raw sala-test-mapped
 [ "$(rowq sala-test-proj throwaway)" = 1 ] && [ "$(rowq sala-test-proj project)" = projects/test ] && ok "(a row that has a project AND the tag, written straight onto it: it must not count)" || bad "tag_raw proj"
 refuse_tag "a tagged row that has a project and a role (the tag does not count)" "is a project agent, not a throwaway" "$PX" retire sala-test-proj --from sala-test-other
@@ -690,8 +684,6 @@ rrefuse "a name with no row" "has no live registry row under that exact name" ""
 rrefuse "the row's id in place of its name" "is not the registry row's own name" "" "$PO" revive --only "$(rowq $RB id)" --item board#9007 --from sala-test-owner
 rrefuse "the asking session itself" "is the asking session itself" "" "$PO" revive --only sala-test-owner --item board#9007 --from sala-test-owner
 rrefuse "the asking session among several" "is the asking session itself" "" "$PO" revive --only "$RA" --only sala-test-owner --item board#9007 --from sala-test-owner
-SALA_MASTER="$RA" rrefuse "the master" "is the master session" "" "$PO" revive --only "$RA" --item board#9007 --from sala-test-owner
-SALA_MASTER="$RB" rrefuse "the master among several" "is the master session" "" "$PO" revive --only "$RA" --only "$RB" --item board#9007 --from sala-test-owner
 SALA_OP_REASON_FROM="sala-test-other" rrefuse "a sender the allow list does not name (SALA_OP_REASON_FROM)" "may not revive with no words" "" "$PO" revive --only "$RA" --item board#9007 --from sala-test-owner
 SALA_OP_REASON_FROM="sala-test-other" enq_as "$PX" revive --only "$RA" --item board#9007 --from sala-test-other
 [ "$RC" = 0 ] && [ -n "$ID" ] && ok "and the one it names is queued" || bad "allow list, listed sender: rc=$RC — $OUT"
@@ -768,12 +760,11 @@ mismatch "a second session added to the arguments, no row id for it" "/^arg=--fo
 mismatch "a flag --rescue added (the shape no longer fits)" '/^arg=--force/a arg=--rescue' "" "does not fit the verb's shape" "revive takes"
 mismatch "the sweep (the --only removed)" '/^arg=--only/d;/^arg=sala-test-theirs/d' "" "not a throwaway retire that still passes"
 mismatch "the sender no longer allowed" "" "SALA_OP_REASON_FROM=sala-test-other" "may no longer revive with no words"
-mismatch "the session made the master since" "" "SALA_MASTER=$RA" "is the master session"
 mismatch "the sender is the session itself" "s/^from=.*/from=$RA/" "" "is the asking session itself"
 mismatch "the marker is a different verb with no words (recycle)" 's/^verb=revive/verb=recycle/;/^arg=/d' "" "not a throwaway retire that still passes"
 
 echo "== the reason door for restore: a session whose tmux session is gone is recreated by the queue's runner, with no words"
-# three throwaways whose tmux session is then ended: the pane-map row (and the registry row) stay, the claude is gone. GA is restored; GB is the master and the
+# three throwaways whose tmux session is then ended: the pane-map row (and the registry row) stay, the claude is gone. GA is restored; GB is for the
 # several-names cases; GC's conversation is started again in another session (live elsewhere).
 GA=sala-test-gone1; GB=sala-test-gone2; GC=sala-test-gone3; UA=$(uuid 301); UB_=$(uuid 302); UC=$(uuid 303)
 gone() {  # <session>… → each tmux session ended, and the claude it ran gone with it (the pane-map row stays)
@@ -817,8 +808,6 @@ rrefuse "a bare name without --only" "restore takes --only NAME only" 2 "$PO" re
 rrefuse "no --only at all" "restore needs at least one --only NAME" 2 "$PO" restore --item board#9007 --from sala-test-owner
 rrefuse "the same name twice" "names '$GA' twice" 2 "$PO" restore --only "$GA" --only "$GA" --item board#9007 --from sala-test-owner
 rrefuse "the asking session itself" "is the asking session itself" "" "$PO" restore --only "$PO" --item board#9007 --from sala-test-owner
-SALA_MASTER="$GA" rrefuse "the master" "is the master session" "" "$PO" restore --only "$GA" --item board#9007 --from sala-test-owner
-SALA_MASTER="$GB" rrefuse "the master among several" "is the master session" "" "$PO" restore --only "$GA" --only "$GB" --item board#9007 --from sala-test-owner
 SALA_OP_REASON_FROM="sala-test-other" rrefuse "a sender the allow list does not name" "may not restore with no words" "" "$PO" restore --only "$GA" --item board#9007 --from sala-test-owner
 OUT=$("$SALA" op restore --only "$GA" --item board#9007 --from sala-test-owner 2>&1); RC=$?
 [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "process ancestry" && ok "a plain shell with no words: refused" || { bad "plain shell: rc=$RC queued=$(queued) — $OUT"; dropall; }
@@ -902,7 +891,6 @@ restore_mismatch "the item malformed" 's/^item=.*/item=board#x/' "" "is not a bo
 restore_mismatch "a second session added to the arguments" "/^arg=$GA\$/a arg=--only"$'\n'"/^arg=$GA\$/a arg=$GB" "" "conversation id(s)"
 restore_mismatch "a flag --force added" "/^arg=$GA\$/a arg=--force" "" "does not fit the verb's shape" "restore takes --only NAME only"
 restore_mismatch "the sender no longer allowed" "" "SALA_OP_REASON_FROM=sala-test-other" "may no longer restore with no words"
-restore_mismatch "the session made the master since" "" "SALA_MASTER=$GA" "is the master session"
 restore_mismatch "the sender is the session itself" "s/^from=.*/from=$GA/" "" "is the asking session itself"
 restore_mismatch "its tmux session came back" "" "" "its tmux session exists" "nothing was restored" "tmux new-session -d -s $GA 'sleep 300'"
 tmux kill-session -t "=$GA" 2>/dev/null
@@ -933,6 +921,6 @@ echo "== the help says it"
 HELP=$("$SALA" op --help 2>&1)
 has "$HELP" "op revive --only NAME… --item board#N --from YOU" && has "$HELP" "--why" && has "$HELP" "SALA_OP_REASON_FROM" && has "$HELP" "format check only" && ok "op --help describes the reason door (format check only, the allow list)" || bad "op --help (revive): $HELP"
 has "$HELP" "throwaway tag" && has "$HELP" "NO words" && ok "op --help describes the exception" || bad "op --help: $HELP"
-has "$HELP" "never with a bypass flag, --keep-web or --id" && has "$HELP" "must confirm NAME is on no agents map" && has "$HELP" "the master (NAME a" && ok "and its rules: no bypass flag, --keep-web or --id, the master needs a throwaway's name, the agents-map check fails closed" || bad "op --help rules: $HELP"
+has "$HELP" "never with a bypass flag, --keep-web or --id" && has "$HELP" "must confirm NAME is on no agents map" && has "$HELP" "or any session when NAME has no live spawner" && ! has "$HELP" "master" && ok "and its rules: no bypass flag, --keep-web or --id, the older rule for an untagged row, the agents-map check fails closed, no master named" || bad "op --help rules: $HELP"
 
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

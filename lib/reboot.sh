@@ -153,7 +153,7 @@ case "$MODE" in
 --dry-run|--go)
     [ ${#NAMES[@]} -gt 0 ] || die "no SALA_REBOOT_HOOKS configured — nothing to pause or flush (see docs/reboot-contract.md)"
     for i in $(all_idx); do [ -x "${PATHS[$i]/#\~/$HOME}" ] || die "hook ${NAMES[$i]}: ${PATHS[$i]} is not executable"; done
-    master_guard reboot "${@:2}" ;;   # the dry run pauses and stops services too: master-only like the real one
+    fleet_guard reboot "${@:2}" ;;   # the dry run pauses and stops services too: guarded like the real one
 *) die "usage: salamander reboot --dry-run | --go | --status | --resume" ;;
 esac
 

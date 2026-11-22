@@ -1,23 +1,23 @@
 # lib/model.sh — the model and effort a session is relaunched on, recorded (Wed Oct 14th 2026, asked by the project's coordinator session; common.sh,
 # "models"). Built on lib/lane.sh's conventions: the record first, then the relaunch through the machinery every relaunch
-# uses, the same guards, the same --dry-run and --not-master.
+# uses, the same guards, the same --dry-run.
 #
 #   salamander model                                                           the table: every session with a model of its own —
 #                                                                              the record, what its claude runs on, and
 #                                                                              its transcript's last turn
-#   salamander model <session> <model> [--effort <level>] [--dry-run] [--not-master]
+#   salamander model <session> <model> [--effort <level>] [--dry-run]
 #                                                                              record them, then put the session on them: switched in
 #                                                                              place when its pane is idle with an empty input box,
 #                                                                              else relaunched (resumed, same conversation); one
 #                                                                              already running them is left alone
-#   salamander model <session> <model> [--effort <level>] --record-only [--dry-run] [--not-master]
+#   salamander model <session> <model> [--effort <level>] --record-only [--dry-run]
 #                                                                              record them alone: nothing relaunched now, the row
 #                                                                              holds at the session's next relaunch
-#   salamander model <session> --clear [--dry-run] [--not-master]              drop the record: the transcript decides again, at the
+#   salamander model <session> --clear [--dry-run]              drop the record: the transcript decides again, at the
 #                                                                              session's next relaunch (nothing relaunched now)
-#   salamander model <model> [--effort <level>] <session>… [--dry-run] [--not-master]   THE BATCH: the same switch for
+#   salamander model <model> [--effort <level>] <session>… [--dry-run]   THE BATCH: the same switch for
 #                                                                              several sessions in one command (see below)
-#   salamander model --clear <session> <session>… [--dry-run] [--not-master]   drop the records of several sessions
+#   salamander model --clear <session> <session>… [--dry-run]   drop the records of several sessions
 #
 # THE BATCH (a batch of model changes should not wake a front agent once per session; the
 # queue's `sala op model <model> [--effort <level>] <session>…` runs it and sends ONE result notice). Which shape a command line has
@@ -81,19 +81,19 @@
 
 usage() {
     echo "usage: salamander model                                                       the table (each recorded session: record, launched with, last turn)"
-    echo "       salamander model <session> <model> [--effort <level>] [--dry-run] [--not-master]   record + switch it in place (idle, empty input box) or relaunch it (already on them: left alone)"
-    echo "       salamander model <session> <model> [--effort <level>] --record-only [--dry-run] [--not-master]   record alone, no relaunch (it holds at the next one)"
-    echo "       salamander model <session> --clear [--dry-run] [--not-master]          drop the record (the transcript decides at the next relaunch)"
-    echo "       salamander model <model> [--effort <level>] <session>… [--dry-run] [--not-master]   the same for several sessions at once: one lock, one sweep for the relaunches, one summary (the first word a model = this shape)"
-    echo "       salamander model --clear <session> <session>… [--dry-run] [--not-master]   drop the records of several sessions"
+    echo "       salamander model <session> <model> [--effort <level>] [--dry-run]   record + switch it in place (idle, empty input box) or relaunch it (already on them: left alone)"
+    echo "       salamander model <session> <model> [--effort <level>] --record-only [--dry-run]   record alone, no relaunch (it holds at the next one)"
+    echo "       salamander model <session> --clear [--dry-run]          drop the record (the transcript decides at the next relaunch)"
+    echo "       salamander model <model> [--effort <level>] <session>… [--dry-run]   the same for several sessions at once: one lock, one sweep for the relaunches, one summary (the first word a model = this shape)"
+    echo "       salamander model --clear <session> <session>… [--dry-run]   drop the records of several sessions"
     echo "  models: $SALA_MODEL_FAMILIES, or a full model id (claude-…) · efforts: $SALA_EFFORTS_KNOWN"
 }
 
 export SALA_FLAG_SRC=model   # the flag a relaunch here raises: one pane, explicit (common.sh, flag_src)
-DRY=0; NOTMASTER=""; CLEAR=0; RECORD_ONLY=0; EFFORT=""; EFFORT_SET=0; args=()
+DRY=0; CLEAR=0; RECORD_ONLY=0; EFFORT=""; EFFORT_SET=0; args=()
 while [ $# -gt 0 ]; do
     case "$1" in
-        --dry-run) DRY=1 ;; --not-master) NOTMASTER=--not-master ;; --clear) CLEAR=1 ;; --record-only) RECORD_ONLY=1 ;;
+        --dry-run) DRY=1 ;; --clear) CLEAR=1 ;; --record-only) RECORD_ONLY=1 ;;
         --effort) [ $# -ge 2 ] || die "--effort needs a level ($SALA_EFFORTS_KNOWN)"; EFFORT="$2"; EFFORT_SET=1; shift ;;
         --effort=*) EFFORT="${1#--effort=}"; EFFORT_SET=1 ;;
         -h|--help) usage; exit 0 ;;
@@ -198,7 +198,7 @@ if [ -n "$BATCH" ]; then
         fi
     done
     if [ ${#BAD[@]} -gt 0 ]; then printf '✗ %s\n' "${BAD[@]}" >&2; die "the batch is refused (${#BAD[@]} problem(s) in ${#BS[@]} session(s)) — nothing recorded, nothing relaunched"; fi
-    ops_guard model "${BS[0]}" $NOTMASTER $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): the master's, when a Claude session asks
+    ops_guard model "${BS[0]}" $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): queued with sala op when a Claude session asks
     ORD=(); LASTS=""   # the asking session goes last: its wait for its own turn to end (below) holds nobody else back
     for s in "${BS[@]}"; do if [ -n "${SALA_OP_FROM:-}" ] && [ "$s" = "$SALA_OP_FROM" ]; then LASTS="$s"; else ORD+=("$s"); fi; done
     [ -z "$LASTS" ] || ORD+=("$LASTS")
@@ -211,7 +211,7 @@ if [ -n "$BATCH" ]; then
         drc=0
         for s in "${ORD[@]}"; do
             echo "── $s"
-            SALA_MODEL_SINGLE=1 "$SALA_BIN" model "$s" ${CARGS[@]+"${CARGS[@]}"} --dry-run $NOTMASTER 2>&1 </dev/null | sed 's/^/  /'; [ "${PIPESTATUS[0]}" = 0 ] || drc=1
+            SALA_MODEL_SINGLE=1 "$SALA_BIN" model "$s" ${CARGS[@]+"${CARGS[@]}"} --dry-run 2>&1 </dev/null | sed 's/^/  /'; [ "${PIPESTATUS[0]}" = 0 ] || drc=1
         done
         [ "$BATCH" = clear ] || echo "[dry-run] the sessions that cannot be switched in place would be relaunched together, by one sweep: salamander revive --force --only … (one result for the batch)"
         exit "$drc"
@@ -227,7 +227,7 @@ if [ -n "$BATCH" ]; then
     RK=(); RT=(); i=0
     for s in "${ORD[@]}"; do
         i=$((i+1)); : > "$OUTF"; : > "$LOGF"; echo "── [$i/${#ORD[@]}] $s"
-        SALA_MODEL_SINGLE=1 SALA_MODEL_BATCH_OUT="$OUTF" "$SALA_BIN" model "$s" ${CARGS[@]+"${CARGS[@]}"} $NOTMASTER > "$LOGF" 2>&1 </dev/null; crc=$?
+        SALA_MODEL_SINGLE=1 SALA_MODEL_BATCH_OUT="$OUTF" "$SALA_BIN" model "$s" ${CARGS[@]+"${CARGS[@]}"} > "$LOGF" 2>&1 </dev/null; crc=$?
         sed 's/^/  /' "$LOGF"
         got=$(awk -F'\t' '{k=$2; d=$3} END {if (k != "") print k "\t" d}' "$OUTF"); k=${got%%$'\t'*}; d=${got#*$'\t'}
         if [ "$crc" != 0 ] || [ -z "$k" ]; then
@@ -241,8 +241,8 @@ if [ -n "$BATCH" ]; then
     SW=(); NSW=0; SELFR=0
     for ((i=0; i<${#ORD[@]}; i++)); do case "${RK[i]}" in relaunch) SW+=(--only "${ORD[i]}"); NSW=$((NSW+1));; self) SELFR=1;; esac; done
     rrc=0
-    if [ "$NSW" -gt 0 ]; then echo "── relaunch sweep: one revive for $NSW pane(s)"; "$SALA_BIN" revive --force "${SW[@]}" $NOTMASTER </dev/null || rrc=$?; fi
-    if [ "$SELFR" = 1 ]; then "$SALA_BIN" revive --self $NOTMASTER || rrc=$?; fi
+    if [ "$NSW" -gt 0 ]; then echo "── relaunch sweep: one revive for $NSW pane(s)"; "$SALA_BIN" revive --force "${SW[@]}" </dev/null || rrc=$?; fi
+    if [ "$SELFR" = 1 ]; then "$SALA_BIN" revive --self || rrc=$?; fi
     # one line per session, then the summary (lib/op.sh reads both: the RESULT lines are the notice's body, the last line its result)
     nsw=0; nsame=0; nrl=0; nrec=0; ndrop=0; nnone=0; nfail=0; failed=()
     for ((i=0; i<${#ORD[@]}; i++)); do
@@ -280,7 +280,7 @@ if [ "$CLEAR" = 1 ]; then
         tmux has-session -t "=$SESS" 2>/dev/null || die "unknown session '$SESS': no tmux session, and no model recorded for it"
         echo "$SESS: no model recorded — it is relaunched on its transcript's model and effort already"; batch_note norecord; exit 0
     fi
-    ops_guard model "$SESS" $NOTMASTER $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): the master's, when a Claude session asks
+    ops_guard model "$SESS" $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): queued with sala op when a Claude session asks
     if [ "$DRY" = 1 ]; then echo "[dry-run] would drop the model record for $SESS ($(show_row "$old")) — nothing recorded, nothing relaunched"; exit 0; fi
     model_drop "$SESS" || die "could not drop the model record for '$SESS' ($SALA_MODELS)"
     batch_note cleared "$(show_row "$old")"
@@ -304,7 +304,7 @@ fi
 # and a wake resumes the conversation on it (resume_cmd reads the table). A batch's child takes this path too, so the batch's sweep never names it.
 if is_sleeping "$SESS"; then RECORD_ONLY=1; echo "ℹ $SESS is sleeping: the model is recorded only, nothing relaunched (a wake resumes it on the record)"; fi
 no_relaunch "$SESS" && ! is_sleeping "$SESS" && die "$(no_relaunch_line "$SESS") — $(no_relaunch_fix "$SESS" "it is launched by hand; take it out of SALA_NO_RELAUNCH to record a model for it")"
-ops_guard model "$SESS" $NOTMASTER $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): the master's, when a Claude session asks
+ops_guard model "$SESS" $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): queued with sala op when a Claude session asks
 
 # ── the record alone (--record-only) ──────────────────────────────────────────
 if [ "$RECORD_ONLY" = 1 ]; then
@@ -471,8 +471,8 @@ if batch_child; then   # a batch's child: the relaunch is left to the driver's o
     exit 0
 fi
 rc=0
-if [ "$SESS" = "$ME" ]; then "$SALA_BIN" revive --self $NOTMASTER || rc=$?
-else "$SALA_BIN" revive --force --only "$SESS" $NOTMASTER || rc=$?; fi
+if [ "$SESS" = "$ME" ]; then "$SALA_BIN" revive --self || rc=$?
+else "$SALA_BIN" revive --force --only "$SESS" || rc=$?; fi
 if [ "$rc" != 0 ]; then
     echo "⚠ the model is recorded, but the relaunch did not run through (exit $rc, above): $SESS comes onto $MODEL/$EFFORT at its next relaunch — salamander revive --force --only $SESS, or the next recycle" >&2
     exit "$rc"

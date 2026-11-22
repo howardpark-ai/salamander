@@ -10,7 +10,7 @@
 #     says "refused"; Ultra — the login no longer reports Max; api and sdk — the limit watch has a pane stopped on the real
 #     "Credit balance is too low" record (tests/fixtures/limit-billing.jsonl). A second tick changes nothing (reason and since
 #     of the first stand); an old refusal / an old credit stop (older than the lane's last change) is not a new signal.
-#   THE EFFECTS: `sala lane <lane> <session>`, `lane default <lane>`, `lane --rescue <lane>` and `spawn --lane <lane>` refuse to
+#   THE EFFECTS: `sala lane <lane> <session>`, `lane default <lane>`, `lane <lane> <session> --rescue` and `spawn --lane <lane>` refuse to
 #     move onto a dormant lane in plain words, and a spawn with a dormant default refuses too; spawn's list of lanes hides it;
 #     `sala lane` shows it with its reason and since (and a note on a session still on it); lane_out counts it out; the web
 #     side is web/tests/test_lane_dormant.py. The sessions still on it are posted ONCE per dormant episode (plain words, no
@@ -142,7 +142,7 @@ out=$("$SALA" lane subscription-2 sala-test-s1 --dry-run 2>&1); rc=$?
 out=$("$SALA" lane subscription-2 --all --dry-run 2>&1); rc=$?; [ "$rc" != 0 ] && has "$out" "is dormant" && ok "lane subscription-2 --all: refused" || bad "all ($rc): $out"
 out=$("$SALA" lane default subscription-2 2>&1); rc=$?
 [ "$rc" != 0 ] && has "$out" "the Team lane is dormant" && [ "$(slurp "$SALA_LANE_DEFAULT_FILE")" = "$default0" ] && ok "lane default subscription-2: refused, the default untouched" || bad "default ($rc): $out"
-out=$("$SALA" lane --rescue subscription-2 2>&1); rc=$?; [ "$rc" != 0 ] && has "$out" "is dormant" && ok "lane --rescue subscription-2: refused too" || bad "rescue ($rc): $out"
+out=$("$SALA" lane subscription-2 sala-test-s1 --rescue 2>&1); rc=$?; [ "$rc" != 0 ] && has "$out" "is dormant" && ok "lane subscription-2 <session> --rescue: refused too" || bad "rescue ($rc): $out"
 [ "$(md5sum < "$SALA_LANES")" = "$sumL" ] && ok "no lane row was written by any refusal" || bad "lanes.tsv changed"
 out=$("$SALA" lane subscription-1 sala-test-nosuch 2>&1); rc=$?; has "$out" "dormant" && bad "a lane that is not dormant was refused as dormant" || ok "a lane that is not dormant is not refused for it (subscription-1 reaches its own checks: $(head -c 60 <<< "$out"))"
 out=$("$SALA" spawn sala-test-x --lane subscription-2 --dry-run 2>&1); rc=$?
