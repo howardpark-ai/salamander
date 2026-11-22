@@ -246,14 +246,16 @@ unset SALA_CLEAR_TRIES; export SALA_CLEAR_WAIT=6
 echo "== the SessionStart hook: source clear in a back row prints the context line; nothing for a front row, a start or the off switch"
 ida=$("$SALA" sessions resolve sala-test-a --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 idb=$("$SALA" sessions resolve sala-test-b --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+pa=$($T list-panes -t =sala-test-a: -F '#{pane_id}' | head -1); pb=$($T list-panes -t =sala-test-b: -F '#{pane_id}' | head -1)   # the pane a's claude is in, and another pane (b's)
 payload() { printf '{"session_id":"%s","source":"%s","cwd":"/tmp"}' "$(uuid 77)" "$1"; }   # <source>
-out=$(payload clear | SALA_SESSION_ID=$ida "$SALA" hook session-start 2>/dev/null)
+out=$(payload clear | TMUX_PANE=$pa SALA_SESSION_ID=$ida "$SALA" hook session-start 2>/dev/null)
 has "$out" '"hookEventName": "SessionStart"' && has "$out" "You are sala-test-a, a background agent of the gbrain page projects/wrapup-test" && has "$out" 'under `background:`' && ok "a back row: one additionalContext line naming the agent and its project" || bad "out: $out"
 python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["hookSpecificOutput"]["additionalContext"].startswith("[sala] ")' "$out" 2>/dev/null && ok "it is one JSON object a SessionStart hook can return" || bad "not JSON: $out"
-[ -z "$(payload clear | SALA_SESSION_ID=$idb "$SALA" hook session-start 2>/dev/null)" ] && ok "a front row: nothing printed" || bad "front printed something"
-[ -z "$(payload startup | SALA_SESSION_ID=$ida "$SALA" hook session-start 2>/dev/null)" ] && [ -z "$(payload resume | SALA_SESSION_ID=$ida "$SALA" hook session-start 2>/dev/null)" ] && ok "a start and a resume: nothing printed" || bad "start printed something"
-[ -z "$(payload clear | SALA_SESSION_ID=$ida SALA_CLEAR_CONTEXT=off "$SALA" hook session-start 2>/dev/null)" ] && ok "SALA_CLEAR_CONTEXT=off: nothing printed" || bad "off printed something"
-[ -z "$(printf 'garbage' | SALA_SESSION_ID=$ida "$SALA" hook session-start 2>/dev/null)" ] && ok "garbage in: nothing printed, exit 0" || bad "garbage printed something"
+[ -z "$(payload clear | TMUX_PANE=$pb SALA_SESSION_ID=$idb "$SALA" hook session-start 2>/dev/null)" ] && ok "a front row: nothing printed" || bad "front printed something"
+[ -z "$(payload startup | TMUX_PANE=$pa SALA_SESSION_ID=$ida "$SALA" hook session-start 2>/dev/null)" ] && [ -z "$(payload resume | TMUX_PANE=$pa SALA_SESSION_ID=$ida "$SALA" hook session-start 2>/dev/null)" ] && ok "a start and a resume: nothing printed" || bad "start printed something"
+[ -z "$(payload clear | TMUX_PANE=$pa SALA_SESSION_ID=$ida SALA_CLEAR_CONTEXT=off "$SALA" hook session-start 2>/dev/null)" ] && ok "SALA_CLEAR_CONTEXT=off: nothing printed" || bad "off printed something"
+[ -z "$(printf 'garbage' | TMUX_PANE=$pa SALA_SESSION_ID=$ida "$SALA" hook session-start 2>/dev/null)" ] && ok "garbage in: nothing printed, exit 0" || bad "garbage printed something"
+[ -z "$(payload clear | TMUX_PANE=$pb SALA_SESSION_ID=$ida "$SALA" hook session-start 2>/dev/null)" ] && [ -z "$(payload clear | env -u TMUX_PANE SALA_SESSION_ID=$ida "$SALA" hook session-start 2>/dev/null)" ] && ok "a claude that is not in the back row's own pane (another pane, no pane) gets no context line either" || bad "a throwaway got the context line"
 [ "$(nposts x)" = 0 ] && ok "and still no post from anything above" || bad "posts: $(<"$POSTS")"
 
 [ "$fail" = 0 ] && echo "wrapup: pass" || echo "wrapup: FAIL"

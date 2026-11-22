@@ -4375,3 +4375,22 @@ kept only the first six bytes of the answer, so a filter that dropped the last c
 and the checksum and byte count of the whole answer (`cksum`) with those of the answer it must give, which the test writes itself with `awk` and `printf` into a
 file (never into a variable), at BOTH depths of every shape. Proof by mutation: with the filter made to drop its last character on an input over 100000 bytes, the four
 old checks passed and the four new ones failed (the byte count one short, the checksum different); the filter was restored and all four pass.
+
+### `tests/sessions.sh` +15, `tests/wrapup.sh` +1: the SessionStart hook records only for the claude in the row's own pane (Sun Nov 22nd 2026)
+
+`SALA_SESSION_ID` sits in the pane's shell environment, so any `claude` started from that shell inherits it, and `salamander hook session-start` appended
+that claude's conversation to the row's list (`lib/hook.sh`; the rule is in `docs/session-registry.md`, "The hook"). A throwaway on a private tmux server did
+exactly that, and what is delivered to the row follows its latest conversation. Every check guards one of "a claude that is not the session names the row" or
+"the session itself stops being recorded". With the id set, the hook now records only when `TMUX_PANE` is set, tmux reaches the fleet's server and `TMUX_PANE`
+is the first pane of the live row's tmux session (the lookup `_inbox_push` makes); otherwise nothing is recorded or printed, the exit is 0 and one line goes to
+`sessions.log`.
+- `sessions.sh`: a claude on a second private tmux server (`TMUX` naming it), whose pane has the SAME pane id as the row's, for each source (`clear`, `resume`,
+  `startup`); the fleet's server with the pane of another tmux session, a second pane of the row's window, and a second window of the row's session; a pane id the
+  server does not have; no `TMUX_PANE`, with and without `TMUX`. Each: exit 0, no output, `sessions.json` byte-identical; the nine refusals are nine lines in
+  `sessions.log`; an id that is no live row is refused the same way; the row's own pane (with the second pane and window beside it) records each of the three
+  sources with its `why`. The existing hook checks now run in the row's pane (`TMUX_PANE`), as the real hook does; the fallback by the pane's tmux session name
+  (no id) is the existing check, unchanged.
+- `wrapup.sh`: the cleared background agent's context line is printed only to the claude in the row's pane: from another pane, or none, nothing is printed.
+- Proof by mutation: with the refusal in `lib/hook.sh` switched off (`if [ -n "$_why_not" ]` made `if false`), `sessions.sh` failed eleven checks (the nine
+  refusals, the log-line count and the unknown id) and `wrapup.sh` its throwaway check, while every own-pane check still passed; the check was restored and both
+  suites pass.
