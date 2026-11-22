@@ -22,7 +22,11 @@ A run, in order:
   4. Each listed project is looked at in list order. A project given up (attempts at the maximum), with a board item raised or in back-off (next_try not reached) is skipped. The
      first project that is due gets the run's one attempt; the load check comes first and a high load is a skip with nothing taken from the ledger.
   5. The attempt: list the agent (skipped when the project record already has the name, or when this job listed it on an earlier run), then start the
-     pane and wait, bounded, for it to be live.
+     pane and wait, bounded, for it to be live. A live pane is a start only when it is also PLACED in its project, read three ways (`read_back`): stackshot's
+     project record lists it on the project's agents map as a back agent, roles.json has a live entry for it on the project, and sala's own registry row carries the
+     project and the role back. The three are read again until SALA_BGAGENTS_PLACE_WAIT is up (the record and roles.json are rewritten about every five minutes);
+     a link that disagrees or cannot answer at the deadline fails the attempt (the pane is left running): the reason names the link, the back-off applies, one
+     Slack post (`sala alert`) and, after the attempt, the board item.
   6. After the attempt, at most ONE board item is raised for a project it cannot start (below).
 Failures (each one raises the project's back-off: cooldown, doubled for every failure, up to the cap): a post that failed or timed out (an HTTP 409 and
 a 403 included), a start that failed, a project listed again after this job created AND retired its agent, and a project still listed once the cooldown
@@ -38,11 +42,12 @@ it is raised, which is in the same run: after that nothing is tried until a sess
 Settings (environment; lib/bgagents.sh passes the config file's values): SALA_BGAGENTS (off), SALA_BGAGENTS_COOLDOWN (600), SALA_BGAGENTS_COOLDOWN_MAX
 (86400), SALA_BGAGENTS_MAX_ATTEMPTS (5), SALA_BGAGENTS_MAX_LOAD (10), SALA_BGAGENTS_MANDATE, SALA_BGAGENTS_SENDER (sala-web), SALA_BGAGENTS_LEDGER,
 SALA_BGAGENTS_LOADAVG (/proc/loadavg), SALA_BGAGENTS_RECORD_GRACE (900), SALA_BGAGENTS_ALIVE_WAIT (30), SALA_BGAGENTS_POST_TIMEOUT (120),
-SALA_BGAGENTS_SPAWN_TIMEOUT (300), SALA_BGAGENTS_RAISE_TIMEOUT (30), SALA_BGAGENTS_MAX_PROBES (3), and the four commands SALA_BGAGENTS_LIST_CMD, _POST_CMD, _SPAWN_CMD, _ALIVE_CMD (the suites stub them);
+SALA_BGAGENTS_SPAWN_TIMEOUT (300), SALA_BGAGENTS_RAISE_TIMEOUT (30), SALA_BGAGENTS_MAX_PROBES (3), SALA_BGAGENTS_PLACE_WAIT (360) and _PLACE_POLL (5) (the read-back), SALA_ROLES_FILE and
+SALA_ROLES_FILE_MAX_AGE (1800), SALA_BGAGENTS_ALERT_CMD (the Slack post, `sala alert`), and the four commands SALA_BGAGENTS_LIST_CMD, _POST_CMD, _SPAWN_CMD, _ALIVE_CMD (the suites stub them);
 SALA_PROJECT_RECORD and SALA_PROJECT_RECORD_MAX_AGE (stackshot's project record, as spawn reads it), SALA_TZ (the zone times are shown in),
 SALA_OWNER_NAME (the mandate's default text). SALA_BGAGENTS_NOW is the suites' clock.
 A PROJECT IT CANNOT START NEVER STAYS SILENT. When a project reaches the attempt cap ("given up") or the ledger sets retire_needed (an agent this job listed
-whose pane did not start), the job raises ONE board item for the owner through stackshot's client (`client.py post question`: a decision item with a short
+whose pane did not start) or `unplaced` (a pane that is live but not placed in its project by the record, roles.json and sala's row), the job raises ONE board item for the owner through stackshot's client (`client.py post question`: a decision item with a short
 ask and three options; the want list's project is its page), once per project: the ledger's `raised` is set with the item's id and the time, and it is set
 again only after a session reset the entry (`--reset`) and it gives up again: a raised entry is NEVER pruned for being off the want list. Once an item is raised the job makes NO start attempt for that project until a
 session resets it (`sala bg-agents --reset KEY`, what the answer "Keep trying later" is); the other two answers ("Leave it without one", "I will start it by hand") just
@@ -224,7 +229,7 @@ def last_line(text, n=160):
 BLANK = {"prefix": "", "agent": "", "attempts": 0, "failures": 0, "next_try": 0, "created": False, "posted_at": 0, "started_at": 0, "retired": False,
          "retire_needed": False, "awaiting_record": False, "last": "", "last_at": 0, "absent_since": 0,
          "last_plain": "", "raised": False, "raised_at": 0, "raised_item": "", "raise_token": "", "stale": False,
-         "raising_at": 0, "raising_by": "", "raise_failures": 0, "raise_next_try": 0, "probed_at": 0}
+         "raising_at": 0, "raising_by": "", "raise_failures": 0, "raise_next_try": 0, "probed_at": 0, "unplaced": ""}
 
 
 class Ledger:
@@ -291,6 +296,8 @@ def state_of(e, cfg, now):
         return "agent running, want list stale (no board item raised)"
     if given_up(e, cfg):
         return "given up (board item %s%s)" % ("raised" if e["raised"] else "not raised yet", ", not on the want list" if e["raised"] and e["absent_since"] else "")
+    if e["unplaced"]:
+        return "started but not placed on the project (its pane is left running; %s)" % ("left alone until a session resets it, board item raised" if e["raised"] else "board item not raised yet")
     if e["raised"]:
         return "left alone until a session resets it (board item raised%s%s)" % (", retire needed" if e["retire_needed"] else "", ", not on the want list" if e["absent_since"] else "")
     if e["retire_needed"]:
@@ -402,6 +409,132 @@ def wait_alive(cfg, name):
         time.sleep(min(2.0, max(0.05, deadline - time.monotonic())))
 
 
+# ---- the read-back: is a started session placed in its project? ------------------------------------------------------------------
+
+BACK = "back"
+LINKS = ("the record", "roles.json", "sala's row")     # the three places that put a session in its project, in the order they are read
+
+
+def _fresh_json(path, max_age, now):
+    """-> (the file's object, "") or (None, why): a file stackshot rewrites ({"generated": "<ISO Z>", ...}); older than MAX_AGE (or dated in the future) answers nothing."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        if not isinstance(d, dict):
+            return None, "it is not an object"
+        gen = datetime.fromisoformat(str(d["generated"]).replace("Z", "+00:00")).timestamp()
+    except OSError:
+        return None, "it is missing"
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None, "it is unreadable"
+    if now - gen > max_age or now - gen < -60:
+        return None, "it is stale (written %s ago)" % dur_text(now - gen)
+    return d, ""
+
+
+def _page_id(p):
+    """A project compared by what it names: a registry row's project is a page key (projects/<slug>), the roles file may give the bare <slug>."""
+    p = p.strip() if isinstance(p, str) else ""
+    return p[len("projects/"):] if p.startswith("projects/") else p
+
+
+def record_link(name, key, role, now):
+    """Link 1: stackshot's project record (the file spawn reads, SALA_PROJECT_RECORD, schema 1) lists NAME on KEY's agents map with ROLE (back = front false). -> ("ok" | "no" | "cannot", detail)."""
+    path = os.environ.get("SALA_PROJECT_RECORD") or os.path.join(os.path.expanduser("~"), ".local", "state", "stackshot", "projects.json")
+    d, why = _fresh_json(path, env_num("SALA_PROJECT_RECORD_MAX_AGE", 600), now)
+    if d is None:
+        return "cannot", why
+    try:
+        if d.get("schema") != 1:
+            return "cannot", "it is not schema 1"
+        projects = d["projects"]
+        pid = (d.get("by_key") or {}).get(key)
+        p = projects.get(pid) if pid else None
+        if p is None:
+            p = next((v for v in projects.values() if isinstance(v, dict) and v.get("key") == key), None)
+        if not isinstance(p, dict):
+            return "cannot", "it has no project %s" % key
+        a = (p.get("agents") if isinstance(p.get("agents"), dict) else {}).get(name)
+        if not isinstance(a, dict):
+            return "no", ""
+        if not isinstance(a.get("front"), bool):
+            return "cannot", "it gives no front or back for %s" % name
+        return ("ok", "") if (role == "front") == a["front"] else ("no", "as a %s agent" % role)
+    except (KeyError, TypeError, AttributeError):
+        return "cannot", "it is unreadable"
+
+
+def roles_link(name, key, now):
+    """Link 2: stackshot's roles.json (SALA_ROLES_FILE, the file sala's Overview Role column and the lane rules read) has a LIVE entry for NAME that names KEY. -> ("ok" | "no" | "cannot", detail)."""
+    path = os.environ.get("SALA_ROLES_FILE") or os.path.join(os.path.expanduser("~"), ".local", "state", "stackshot", "roles.json")
+    d, why = _fresh_json(path, env_num("SALA_ROLES_FILE_MAX_AGE", 1800), now)
+    if d is None:
+        return "cannot", why
+    sessions = d.get("sessions")
+    if not isinstance(sessions, dict):
+        return "cannot", "it has no sessions"
+    ent = sessions.get(name)
+    if not isinstance(ent, dict) or ent.get("retired") is True or _page_id(ent.get("project")) != _page_id(key):
+        return "no", ""
+    return ("ok", "") if ent.get("live") is True else ("no", "as a live session")
+
+
+def row_link(cfg, name, key, role):
+    """Link 3: sala's own registry row for NAME (`sessions resolve NAME --live --json`, the liveness command) carries project KEY and role ROLE. -> ("ok" | "no" | "cannot", detail)."""
+    if not cfg["alive_cmd"]:
+        return "cannot", "there is no registry command"
+    rc, out, _ = run_split(cfg["alive_cmd"] + [name, "--live", "--json"], 30)
+    if rc == 1:
+        return "no", "as a live session"
+    if rc != 0:
+        return "cannot", "the registry could not be asked (exit %d)" % rc
+    try:
+        row = json.loads(out)
+    except ValueError:
+        return "cannot", "its answer is unreadable"
+    if not isinstance(row, dict):
+        return "cannot", "its answer is unreadable"
+    if _page_id(row.get("project")) != _page_id(key):
+        return "no", ""
+    return ("ok", "") if row.get("role") == role else ("no", "as a %s agent" % role)
+
+
+def unplaced_reason(name, key, bad):
+    """The plain sentence for the links that did not put NAME on KEY: `<name> started but the record does not list it on <key>`; one clause a link, in LINKS order."""
+    parts = []
+    for link, kind, detail in bad:
+        if kind == "cannot":
+            parts.append("%s could not be read (%s), so it does not confirm it on %s" % (link, detail, key))
+        else:
+            parts.append("%s does not list it on %s%s" % (link, key, " " + detail if detail else ""))
+    return "%s started but %s" % (name, "; ".join(parts))
+
+
+def read_back(cfg, name, key, role=BACK):
+    """The read-back of a started session: is NAME placed on project KEY with ROLE by all three links (the project record, roles.json, sala's registry row)? -> (0, "") when all three
+    agree, else (1, the reason, naming each link that does not). The three are read again every SALA_BGAGENTS_PLACE_POLL seconds until SALA_BGAGENTS_PLACE_WAIT seconds are up (the record and
+    roles.json are rewritten about every five minutes, a fresh start is on neither at once) and it fails only then; a link that cannot answer (missing, stale, unreadable) is a miss, never
+    a pass. The one place this lives: a spawn or rename read-back asks the same question."""
+    deadline = time.monotonic() + cfg["place_wait"]
+    while True:
+        res = (record_link(name, key, role, fresh_now()), roles_link(name, key, fresh_now()), row_link(cfg, name, key, role))
+        bad = [(LINKS[i], r[0], r[1]) for i, r in enumerate(res) if r[0] != "ok"]
+        if not bad:
+            return 0, ""
+        if time.monotonic() >= deadline:
+            return 1, unplaced_reason(name, key, bad)
+        time.sleep(min(cfg["place_poll"], max(0.05, deadline - time.monotonic())))
+
+
+def alert(cfg, text, log):
+    """One Slack post through sala's own alert path (`sala alert HEADLINE LINE`, SALA_BGAGENTS_ALERT_CMD); a failed post is one log line and changes nothing."""
+    if not cfg["alert_cmd"]:
+        log.say("alert", "not posted: no alert command (SALA_BGAGENTS_ALERT_CMD)")
+        return
+    rc, out = run(cfg["alert_cmd"] + [text, "The job left its session running and did not count it as a start."], 60)
+    log.say("alert", "posted to Slack" if rc == 0 else "the Slack post failed (exit %d: %s)" % (rc, last_line(out, 100)))
+
+
 # ---- the decisions --------------------------------------------------------------------------------------------------------------
 
 def backoff(failures, cfg):
@@ -483,8 +616,16 @@ def attempt(cfg, key, prefix, e, now, log, led):
         return False
     alive = wait_alive(cfg, name) if rc == 0 else is_alive(cfg, name)
     if alive:
-        e.update(started_at=now, awaiting_record=False, retire_needed=False, last="started", last_at=now)
-        log.say("start", "%s: %s is live" % (key, name))
+        placed, reason = read_back(cfg, name, key)
+        if placed != 0:
+            # live is not registered: the pane is left running and the start is NOT counted; the back-off applies as for any failed attempt, and the miss is told once per attempt
+            # (the Slack post here, the board item after the attempt), never once per poll of the read-back
+            e["awaiting_record"], e["unplaced"] = False, reason
+            fail(e, key, reason, cfg, now, log, led, plain=reason[0].upper() + reason[1:] + ".")
+            alert(cfg, reason, log)
+            return False
+        e.update(started_at=now, awaiting_record=False, retire_needed=False, unplaced="", last="started", last_at=now)
+        log.say("start", "%s: %s is live and placed on the project (the record, roles.json and sala's row agree)" % (key, name))
         led.save()
         return False
     e["awaiting_record"] = False
@@ -502,8 +643,9 @@ def attempt(cfg, key, prefix, e, now, log, led):
 # ---- the board item for a project it cannot start --------------------------------------------------------------------------------
 
 def needs_item(e, cfg):
-    """A project the job cannot start: at the attempt cap, or an agent it listed whose pane did not start (the retire step it may not take itself)."""
-    return given_up(e, cfg) or bool(e["retire_needed"])
+    """A project the job cannot start: at the attempt cap, an agent it listed whose pane did not start (the retire step it may not take itself), or a session that started but is not
+    placed on the project by all three of the record, roles.json and sala's row (its pane is left running)."""
+    return given_up(e, cfg) or bool(e["retire_needed"]) or bool(e["unplaced"])
 
 
 def run_split(cmd, timeout, stdin=None):
@@ -623,7 +765,7 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
     that ran meanwhile cleared it, and wins), is still marked as this attempt's (a later filing of the same project, after this one's window ran out, owns it now and this result is
     set aside) and the project still needs the item (a start that worked meanwhile is not told to the owner as a failure)."""
     if dry:
-        log.say("plan", "%s: would raise one board item for the owner (%s)" % (key, "given up" if given_up(e, cfg) else "an agent this job listed did not start"))
+        log.say("plan", "%s: would raise one board item for the owner (%s)" % (key, "given up" if given_up(e, cfg) else "its started session is not placed on the project" if e["unplaced"] else "an agent this job listed did not start"))
         return True
 
     def failure(x, why):
@@ -687,7 +829,7 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
         return r
     ce.update(raised=True, raised_at=now, raised_item=item, raising_at=0, raising_by="", raise_failures=0, raise_next_try=0)
     cur.save()
-    log.say("raise", "%s: board item %s raised for the owner (%s)" % (key, item, "given up" if given_up(ce, cfg) else "retire needed"))
+    log.say("raise", "%s: board item %s raised for the owner (%s)" % (key, item, "given up" if given_up(ce, cfg) else "not placed on the project" if ce["unplaced"] else "retire needed"))
     return True
 
 
@@ -807,7 +949,7 @@ def raise_next(cfg, led, listed, now, log, dry, lock, probes):
             held_back += 1
             log.say("raise", "board item still needed: %s (the last filing failed %d time%s; next try %s)" % (key, e["raise_failures"], "" if e["raise_failures"] == 1 else "s", local_text(e["raise_next_try"])))
             continue
-        r = probes.get(e["agent"])
+        r = False if e["unplaced"] else probes.get(e["agent"])      # a session that is live and not placed is the failure itself: the stale check does not hold its item back
         if r is NOT_PROBED or r is CHANGED:
             log.say("raise", "%s: whether its agent's session is live %s; the board item waits" % (key, unsure(r, cfg)))
             continue
@@ -941,7 +1083,7 @@ def one_run(cfg, dry, now, log, lock=None):
     retire = start_one(cfg, candidates(rows, led, listed), listed, led, now, log, dry, first)     # the starts come first ...
     first.revalidate(led)       # an answer given before this run's own start of that agent is out of date (the pane may have come up since): dropped, so the raise phase asks again or leaves it
     # ... then at most one board item: its liveness probes (the rest of the cap), then the call itself, both without the lock
-    due = [led.projects[k]["agent"] for k in raise_order(cfg, led, listed, now) if led.projects[k]["raise_next_try"] <= now and led.projects[k]["agent"] and first.results.get(led.projects[k]["agent"], CHANGED) is CHANGED]
+    due = [led.projects[k]["agent"] for k in raise_order(cfg, led, listed, now) if led.projects[k]["raise_next_try"] <= now and led.projects[k]["agent"] and not led.projects[k]["unplaced"] and first.results.get(led.projects[k]["agent"], CHANGED) is CHANGED]
     second, led = probe_window(cfg, due, cfg["max_probes"] - len(first.results), led, now, lock, dry)
     if led is None:
         log.say("skip", "the ledger is locked by another process after the liveness checks; no board item this run")
@@ -984,15 +1126,16 @@ def config():
         "record_grace": env_num("SALA_BGAGENTS_RECORD_GRACE", 900.0), "alive_wait": env_num("SALA_BGAGENTS_ALIVE_WAIT", 30.0),
         "post_timeout": env_num("SALA_BGAGENTS_POST_TIMEOUT", 120.0), "raise_timeout": env_num("SALA_BGAGENTS_RAISE_TIMEOUT", 30.0), "max_probes": max(2, int(env_num("SALA_BGAGENTS_MAX_PROBES", 3))),
         "spawn_timeout": env_num("SALA_BGAGENTS_SPAWN_TIMEOUT", 300.0),
+        "place_wait": env_num("SALA_BGAGENTS_PLACE_WAIT", 360.0), "place_poll": env_num("SALA_BGAGENTS_PLACE_POLL", 5.0),
         "list_cmd": cmd_words("SALA_BGAGENTS_LIST_CMD"), "post_cmd": cmd_words("SALA_BGAGENTS_POST_CMD"),
         "spawn_cmd": cmd_words("SALA_BGAGENTS_SPAWN_CMD"), "alive_cmd": cmd_words("SALA_BGAGENTS_ALIVE_CMD"),
-        "ask_cmd": cmd_words("SALA_BGAGENTS_ASK_CMD"), "prefixes_cmd": cmd_words("SALA_BGAGENTS_PREFIXES_CMD"),
+        "ask_cmd": cmd_words("SALA_BGAGENTS_ASK_CMD"), "alert_cmd": cmd_words("SALA_BGAGENTS_ALERT_CMD"), "prefixes_cmd": cmd_words("SALA_BGAGENTS_PREFIXES_CMD"),
         "subject_prefix": os.environ.get("SALA_BGAGENTS_SUBJECT_PREFIX", ""),
         "default_scope": first_word("SALA_DEFAULT_SCOPE"), "first_scope": first_word("SALA_SCOPES"),
     }
 
 
-RESET_FIELDS = ("attempts", "failures", "next_try", "retire_needed", "raised", "raised_at", "raised_item", "raise_token", "stale", "raising_at", "raising_by", "raise_failures", "raise_next_try", "probed_at", "last", "last_at", "last_plain")
+RESET_FIELDS = ("attempts", "failures", "next_try", "retire_needed", "raised", "raised_at", "raised_item", "raise_token", "stale", "raising_at", "raising_by", "raise_failures", "raise_next_try", "probed_at", "unplaced", "last", "last_at", "last_plain")
 USAGE = "usage: sala bg-agents [--dry-run | --status | --reset <project key> [--dry-run]]"
 
 

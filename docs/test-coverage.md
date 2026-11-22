@@ -84,6 +84,20 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +19, 262 (Sun Nov 22nd 2026)
+
+`sala bg-agents` counted a start on liveness alone: a pane that was up counted even when the project did not hold it. A start now counts only when the session is placed in its project
+three ways (stackshot's project record lists it as a back agent, `roles.json` has a live entry for it on the project, and sala's registry row carries the project and the role back), read
+again until a named deadline (`SALA_BGAGENTS_PLACE_WAIT`; the record and `roles.json` are rewritten about every five minutes). The path guarded is a session count: a project whose
+background agent is "started" in the ledger and on the board while the registry and stackshot disagree about where it lives, so nobody is told and the project has no agent it can reach. The
+suite's spawn stub now places the session the way a real start does (`place.skip` leaves one link out) and its liveness stub answers `--json` with the registry row. The checks: all three agree
+(the start counts, no post, no item); each link disagreeing alone (the record, a record that lists a front agent, roles.json, roles.json with the session not live, the row's project, the row's role),
+each failing the attempt with its own reason, no start counted, the back-off of any failure, the pane left running, one Slack post and one board item; two links disagreeing (both named, not the
+third); a stale, an unreadable and a missing link failing the attempt (a link that cannot answer is never a pass); a link that lags and catches up inside the deadline (waited out, no failure) and
+one that never does (fails at the deadline after repeated reads, one post and one item for the attempt, not one per read); the next attempt after a reset counting the start once the links agree;
+no alert command, and a refused post, each changing nothing else; `--status` showing the project as started but not placed. With the read-back replaced by "always placed" (liveness-only counting)
+sixteen of the nineteen fail (the three that pass are the ones where all links agree, the bare-slug roles entry and the retry, which a liveness-only count also passes).
+
 ### `tests/bgagents.sh`: +0, 243 (Sat Nov 21st 2026), the last pass
 
 Twelfth review pass of `sala bg-agents` (test-only; no check added or removed), on three more points of a second opinion, each checked by a run. (1) A gate that the clock opened was only noticed by a second look at the gate file after the wait loop, so a gate removed in

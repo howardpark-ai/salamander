@@ -22,6 +22,9 @@
 #   reset     `--reset KEY`: one project's ledger entry cleared (attempts, failures, back-off, given up, retire needed, the board item, the last outcome), the agent's entry kept,
 #             the next run goes to the start; one line; a key with no entry refused (exit 1); with the switch off; atomic; --dry-run writes nothing; the item says a session resets it
 #   onmap     an agent already on the project record: no second listing, straight to the start
+#   placed    a live session is a start only when the project record, roles.json and sala's registry row all place it on the project (back): each of the three
+#             disagreeing, a link that cannot answer (stale, unreadable, missing), all three agreeing, a link that lags (read again until the deadline), the miss told once per
+#             attempt (one Slack post, one board item, one failed line, the pane left running), the next attempt counting it once they agree
 #   record    a start that stackshot's record has not caught up with is waited out (no failure) and finished from the ledger when the project has left the list
 #   dry       --dry-run decides and writes, lists and starts nothing
 #   status    the ledger, one line a project, times in SALA_TZ
@@ -64,14 +67,54 @@ cat > "$T/bin/spawn" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$T/spawn.log"; echo spawn >> "$T/order.log"
 case "$(cat "$T/spawn.mode" 2>/dev/null || echo ok)" in
-    ok) printf '%s\n' "$1" >> "$T/alive.txt"; exit 0 ;;
+    ok) printf '%s\n' "$1" >> "$T/alive.txt"; python3 "$T/place.py" "$@"; exit 0 ;;
     dead) exit 0 ;;
     fail) echo "claude did not start in $1:0 within 45s" >&2; exit 1 ;;
     norecord) echo "not on the agents map" >&2; exit 3 ;;
 esac
 EOF
+# a real start puts the new session in its project three ways: stackshot's record lists it (a back agent, front false), roles.json has a live entry for it, and its registry row (the alive stub with --json) carries the project and the role.
+# $T/place.skip names the links the spawn leaves out (the words record and roles), so a case can make exactly one of them disagree
+cat > "$T/place.py" <<'PYREG'
+import datetime, json, os, sys
+name, key = sys.argv[1], sys.argv[sys.argv.index("--project") + 1]
+skip = open(os.environ["T"] + "/place.skip").read().split() if os.path.exists(os.environ["T"] + "/place.skip") else []
+gen = datetime.datetime.fromtimestamp(float(os.environ["SALA_BGAGENTS_NOW"]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def load(path, empty):
+    try:
+        return json.load(open(path))
+    except (OSError, ValueError):
+        return empty
+if "record" not in skip:
+    path = os.environ["SALA_PROJECT_RECORD"]
+    d = load(path, {"schema": 1, "projects": {}, "by_key": {}})
+    pid = d["by_key"].setdefault(key, "prj_" + str(len(d["by_key"]) + 1))
+    p = d["projects"].setdefault(pid, {"id": pid, "key": key, "agents": {}})
+    p["agents"][name] = {"front": False, "role": "engineer", "mandate_line": "x"}
+    d["generated"] = gen
+    json.dump(d, open(path, "w"))
+if "roles" not in skip:
+    path = os.environ["SALA_ROLES_FILE"]
+    d = load(path, {"sessions": {}})
+    d["sessions"][name] = {"role": "back", "project": key, "live": True}
+    d["generated"] = gen
+    json.dump(d, open(path, "w"))
+PYREG
+cat > "$T/bin/alert" <<'EOF'
+#!/usr/bin/env bash
+# the Slack post (sala alert): logs the headline and the line, one call a line pair; $T/alert.rc forces an exit code
+printf '%s\n' "$1" >> "$T/alert.log"; printf '%s\n' "$2" >> "$T/alert.lines"
+exit "$(cat "$T/alert.rc" 2>/dev/null || echo 0)"
+EOF
 cat > "$T/bin/alive" <<'EOF'
 #!/usr/bin/env bash
+# with --json a live answer carries the registry row: project projects/<name without -engineer> and role back by default; $T/row.project and $T/row.role replace them, and $T/row.lag = N makes the first N --json answers
+# carry no project (a row the watch has not tagged yet); every --json call is noted in row.calls
+if [ "${3:-}" = --json ] || [ "${2:-}" = --json ]; then
+    echo x >> "$T/row.calls"; lag=$(cat "$T/row.lag" 2>/dev/null || echo 0); nrow=$(wc -l < "$T/row.calls")
+    if [ "$nrow" -le "$lag" ]; then rowproj=null; else rowproj="\"$(cat "$T/row.project" 2>/dev/null || echo "projects/${1%-engineer}")\""; fi
+    ROWJSON="{\"name\": \"$1\", \"project\": $rowproj, \"role\": \"$(cat "$T/row.role" 2>/dev/null || echo back)\"}"
+fi
 # exit 0 = live (the name is a line of alive.txt), 1 = none, like `sala sessions resolve --live`; $T/alive.rc forces any other exit (a check that cannot say);
 # every call is noted in alive.log, and $T/alive.sleep seconds are waited after the answer is decided (a slow check); alive.ready.N is written once the answer and the delay are
 # captured, so a test that changes alive.sleep waits for it; $T/alive.seq (one exit code a line) answers call N with line N (the last line after that); $T/alive.hold.N holds call N
@@ -99,6 +142,7 @@ if [ "$hold" = 1 ]; then
     done
     echo "$why" > "$T/alive.released.$n"
 fi
+[ "$rc" = 0 ] && [ -n "${ROWJSON:-}" ] && echo "$ROWJSON"
 exit "$rc"
 EOF
 cat > "$T/bin/ask" <<'EOF'
@@ -156,6 +200,7 @@ chmod +x "$T/bin"/*
 export T ROOT FAKE_CLIENT_DIR=$T/fake
 export SALA_BGAGENTS_LIST_CMD=$T/bin/list SALA_BGAGENTS_POST_CMD=$T/bin/post SALA_BGAGENTS_SPAWN_CMD=$T/bin/spawn SALA_BGAGENTS_ALIVE_CMD=$T/bin/alive
 export SALA_BGAGENTS_ASK_CMD=$T/bin/ask SALA_BGAGENTS_PREFIXES_CMD=$T/bin/prefixes SALA_DEFAULT_SCOPE=alpha
+export SALA_BGAGENTS_ALERT_CMD=$T/bin/alert SALA_ROLES_FILE=$T/roles.json SALA_BGAGENTS_PLACE_WAIT=0 SALA_BGAGENTS_PLACE_POLL=0.1
 export SALA_BGAGENTS_LOADAVG=$T/loadavg SALA_BGAGENTS_ALIVE_WAIT=0 SALA_PROJECT_RECORD=$T/projects.json SALA_BGAGENTS_NOW=$N0
 export SALA_BGAGENTS_MAX_ATTEMPTS=5 SALA_BGAGENTS_COOLDOWN=600 SALA_BGAGENTS_COOLDOWN_MAX=86400 SALA_BGAGENTS_MAX_LOAD=10 SALA_BGAGENTS_RECORD_GRACE=900
 unset SALA_BGAGENTS_RAISE_TIMEOUT SALA_BGAGENTS SALA_BGAGENTS_MANDATE SALA_BGAGENTS_SENDER SALA_BGAGENTS_LEDGER SALA_BGAGENTS_SUBJECT_PREFIX SALA_SCOPES FAKE_CLIENT_FAIL
@@ -166,7 +211,7 @@ run() {   # [args] → OUT (stdout+stderr), RC; the clock is $NOW (default N0)
     OUT=$(SALA_BGAGENTS_NOW=${NOW:-$N0} $S "$@" 2>&1); RC=$?
 }
 reset() {   # a clean slate: no ledger, no call logs, a quiet load, an empty list, nothing alive, no project record
-    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/prefixes.start" "$T/prefixes.beat" "$T/prefixes.start.tmp" "$T/prefixes.beat.tmp" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.seq" "$T"/ask.ready.* "$T"/ask.hold.* "$T"/ask.claim.* "$T"/ask.released.* "$T"/ask.holding.* "$T"/alive.holding.* "$T"/alive.ready.* "$T"/alive.hold.* "$T"/alive.claim.* "$T"/alive.released.* "$T"/ask.gate.* "$T"/ask.looking.* "$T"/alive.gate.* "$T"/alive.looking.*
+    rm -rf "$SALA_STATE_DIR" "$T/list.txt" "$T/list.rc" "$T/list.calls" "$T/post.log" "$T/post.mode" "$T/spawn.log" "$T/spawn.mode" "$T/alive.txt" "$T/projects.json" "$T/roles.json" "$T/alert.log" "$T/alert.lines" "$T/alert.rc" "$T/place.skip" "$T/row.calls" "$T/row.lag" "$T/row.project" "$T/row.role" "$T/fake" "$T/prefixes.rc" "$T/prefixes.calls" "$T/prefixes.sleep" "$T/prefixes.start" "$T/prefixes.beat" "$T/prefixes.start.tmp" "$T/prefixes.beat.tmp" "$T/alive.rc" "$T/alive.log" "$T/alive.sleep" "$T/ask.sleep" "$T/ask.failkey" "$T/ask.keys" "$T/order.log" "$T/alive.seq" "$T"/ask.ready.* "$T"/ask.hold.* "$T"/ask.claim.* "$T"/ask.released.* "$T"/ask.holding.* "$T"/alive.holding.* "$T"/alive.ready.* "$T"/alive.hold.* "$T"/alive.claim.* "$T"/alive.released.* "$T"/ask.gate.* "$T"/ask.looking.* "$T"/alive.gate.* "$T"/alive.looking.*
     unset FAKE_CLIENT_FAIL
     mkdir -p "$SALA_STATE_DIR"; echo "0.50 0.40 0.30 1/200 12345" > "$T/loadavg"; NOW=$N0
     export SALA_BGAGENTS=on
@@ -815,6 +860,70 @@ NOW=$((N0+300)) run
 [ "$(led $KEY started_at)" = $((N0+300)) ] && [ "$(led $KEY attempts)" = 1 ] && [ "$(calls "$T/post.log")" = 1 ] && [ "$(calls "$T/spawn.log")" = 2 ] && ok "the start is finished from the ledger although the project is off the list (attempts stay 1, no second listing)" || bad "finish: $(cat "$L") post=$(calls "$T/post.log")"
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo norecord > "$T/spawn.mode"; run; : > "$T/list.txt"
 NOW=$((N0+1000)) run; [ "$RC" = 1 ] && [ "$(led $KEY failures)" = 1 ] && [[ $OUT == *"retire needed"* ]] && ok "the record never caught up (past the grace): a failure and the marked retire" || bad "grace over: rc=$RC [$OUT]"
+
+# -- placed: a live session is a start only when its project holds it three ways -----------------------------------------------------------------
+# The links: (1) stackshot's project record lists the name on the project as a back agent, (2) roles.json has a live entry for it on the project, (3) sala's registry row (the alive stub's --json answer) carries the project and the role back.
+# A real start (the spawn stub) sets all three; place.skip leaves one out, and a case then writes that link's wrong answer itself. A miss fails the attempt (no start counted, back-off as for any failure, the pane left running), is told once
+# by a Slack post (the alert stub) and raises the board item (the fake client), and the reason names the link that disagrees.
+roles() {   # <name> <project> <live: true|false> → a fresh roles.json (written at the fake clock) with that one entry
+    python3 - "$T/roles.json" "$NOW" "$@" <<'PY'
+import datetime, json, sys
+path, now, name, proj, live = sys.argv[1:]
+gen = datetime.datetime.fromtimestamp(float(now), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+json.dump({"generated": gen, "sessions": {name: {"role": "back", "project": proj, "live": live == "true"}}}, open(path, "w"))
+PY
+}
+placed_miss() {   # <label> <what the reason says after "<name> started but "> [text the reason must NOT hold…]: the checks every failed read-back shares (a case has just run)
+    local label=$1 want=$2 x why good=1; shift 2; why=$(led $KEY unplaced)
+    [ "$RC" = 0 ] && [ "$(led $KEY started_at)" = 0 ] && [ "$(led $KEY attempts)" = 1 ] && [ "$(led $KEY failures)" = 1 ] && [ "$(led $KEY next_try)" = $((N0+600)) ] || good=0       # not a start; the back-off of any failure
+    [[ $why == "$NAME started but $want"* ]] && [ "$(led $KEY last)" = "failed: $why" ] || good=0
+    for x in "$@"; do [[ $why == *"$x"* ]] && good=0; done
+    grep -qx -- "$NAME" "$T/alive.txt" && [ "$(led $KEY retire_needed)" = False ] && [[ $OUT != *"retire needed"* ]] || good=0       # the pane is left running; nothing to retire
+    [ "$(calls "$T/alert.log")" = 1 ] && [ "$(head -1 "$T/alert.log")" = "$why" ] || good=0       # one Slack post, the reason as its headline
+    [ "$(qcalls)" = 1 ] && [[ $(qfield 1 stdin) == *"${why:1}"* ]] && [ "$(led $KEY raised)" = True ] || good=0       # one board item that says it
+    [ "$(grep -c ' failed ' "$SALA_STATE_DIR/bgagents.log")" = 1 ] || good=0
+    [ "$good" = 1 ] && ok "$label" || bad "$label: rc=$RC [$OUT] $(cat "$L" 2>/dev/null) alert=[$(cat "$T/alert.log" 2>/dev/null)]"
+}
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; run
+[ "$RC" = 0 ] && [ "$(led $KEY started_at)" = "$N0" ] && [ "$(led $KEY unplaced)" = "" ] && [ "$(led $KEY last)" = started ] && [[ $OUT == *"is live and placed"* ]] && [ "$(calls "$T/alert.log")" = 0 ] && [ "$(qcalls)" = 0 ] && ok "the record, roles.json and the row all place it: the start counts, no Slack post, no board item" || bad "all three agree: rc=$RC [$OUT] $(cat "$L")"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo record > "$T/place.skip"; record "$KEY" other-agent; run
+placed_miss "the record does not list it (roles.json and the row do): the attempt fails with the record named" "the record does not list it on $KEY" "roles.json" "sala's row"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo record > "$T/place.skip"; record_front() { record "$@"; sed -i 's/"front": false/"front": true/' "$T/projects.json"; }; record_front "$KEY" "$NAME"; run
+placed_miss "the record lists it as a front agent: it does not place a back agent" "the record does not list it on $KEY as a back agent" "roles.json" "sala's row"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo roles > "$T/place.skip"; roles other-agent "$KEY" true; run
+placed_miss "roles.json does not list it (the record and the row do): the attempt fails with roles.json named" "roles.json does not list it on $KEY" "the record" "sala's row"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo roles > "$T/place.skip"; roles "$NAME" "$KEY" false; run
+placed_miss "roles.json lists it but not as a live session: it does not place it" "roles.json does not list it on $KEY as a live session" "the record" "sala's row"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo roles > "$T/place.skip"; roles "$NAME" "${KEY#projects/}" true; run
+[ "$(led $KEY started_at)" = "$N0" ] && [ "$(calls "$T/alert.log")" = 0 ] && ok "roles.json may name the project by its bare slug (the row's page key and the slug are the same project)" || bad "slug: [$OUT] $(cat "$L")"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo projects/other > "$T/row.project"; run
+placed_miss "sala's row names another project: the attempt fails with the row named" "sala's row does not list it on $KEY" "the record" "roles.json"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo front > "$T/row.role"; run
+placed_miss "sala's row carries the project but the role front: it does not place a back agent" "sala's row does not list it on $KEY as a back agent" "the record" "roles.json"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo "record roles" > "$T/place.skip"; record "$KEY" other-agent; roles other-agent "$KEY" true; run
+placed_miss "two links disagree: the reason names both and not the third" "the record does not list it on $KEY; roles.json does not list it on $KEY" "sala's row"
+# a link that cannot answer is a miss, never a pass
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo record > "$T/place.skip"; NOW=$((N0-5000)) record "$KEY" "$NAME"; run
+placed_miss "a stale record cannot answer: the attempt fails and says the record could not be read (stale)" "the record could not be read (it is stale" "roles.json" "sala's row"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo record > "$T/place.skip"; echo garbage > "$T/projects.json"; run
+placed_miss "an unreadable record cannot answer: the attempt fails and says so" "the record could not be read (it is unreadable)" "roles.json" "sala's row"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo roles > "$T/place.skip"; run
+placed_miss "a missing roles.json cannot answer: the attempt fails and says so" "roles.json could not be read (it is missing)" "the record" "sala's row"
+# the read-back reads again until its deadline, and fails only then; the miss is told once per attempt, not once per read
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo 3 > "$T/row.lag"; SALA_BGAGENTS_PLACE_WAIT=20 run
+[ "$(led $KEY started_at)" = "$N0" ] && [ "$(calls "$T/row.calls")" = 4 ] && [ "$(calls "$T/alert.log")" = 0 ] && [ "$(led $KEY failures)" = 0 ] && ok "a link that lags (the row has no project for three reads) is waited out inside the deadline: the start counts, no failure, no post" || bad "lag: [$OUT] reads=$(calls "$T/row.calls") $(cat "$L")"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo 1000 > "$T/row.lag"; t0=$SECONDS; SALA_BGAGENTS_PLACE_WAIT=2 run; el=$((SECONDS - t0))
+placed_miss "a link that never catches up fails at the deadline (2 s here)" "sala's row does not list it on $KEY" "the record" "roles.json"
+[ "$(calls "$T/row.calls")" -ge 3 ] && [ "$el" -ge 2 ] && ok "...after reading again and again (at least three reads) and not before the deadline, yet ONE Slack post, ONE board item and ONE failed line for the attempt" || bad "polls: reads=$(calls "$T/row.calls") elapsed=${el}s"
+# the pane is left running, so the next run's attempt reads the three links again and counts the start once they agree
+rm -f "$T/row.lag" "$T/alert.log" "$T/alert.lines"; $S --reset "$KEY" >/dev/null 2>&1; run
+[ "$(led $KEY started_at)" = "$N0" ] && [ "$(led $KEY unplaced)" = "" ] && [ "$(led $KEY raised)" = False ] && [ "$(calls "$T/alert.log")" = 0 ] && ok "after the owner's reset the pane (still running) is placed and the next attempt counts it as a start" || bad "retry: [$OUT] $(cat "$L")"
+# the Slack post is the job's own report of a miss; the attempt fails the same without it, and a refused post changes nothing
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo projects/other > "$T/row.project"; SALA_BGAGENTS_ALERT_CMD= run
+[ "$RC" = 0 ] && [ "$(led $KEY started_at)" = 0 ] && [ "$(led $KEY failures)" = 1 ] && [ "$(qcalls)" = 1 ] && [[ $OUT == *"no alert command"* ]] && ok "no alert command: said in one line, the attempt still fails and raises its board item" || bad "no alert cmd: rc=$RC [$OUT]"
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo projects/other > "$T/row.project"; echo 1 > "$T/alert.rc"; run
+[ "$RC" = 0 ] && [ "$(led $KEY started_at)" = 0 ] && [ "$(led $KEY failures)" = 1 ] && [ "$(qcalls)" = 1 ] && [[ $OUT == *"the Slack post failed"* ]] && ok "a Slack post that fails is one line: the attempt, its back-off and its board item are as they were" || bad "alert fails: rc=$RC [$OUT]"
+run --status; [[ $OUT == *"started but not placed on the project"* ]] && ok "--status shows the project as started but not placed" || bad "status unplaced: [$OUT]"
 
 # -- dry run ---------------------------------------------------------------------------------------------------------------------------------------
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"

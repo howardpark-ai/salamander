@@ -41,6 +41,19 @@ Exit codes: 0 = the run finished (a skip or a failed project too), 1 = a retire 
 7. **The start.** `sala spawn NAME --project KEY --role back --mandate "<line>"`, then a bounded wait for the session to be live (`SALA_BGAGENTS_ALIVE_WAIT`). A start that exits 3 right after the
    listing means sala's copy of the project record lags (it is refreshed about every five minutes): that is waited out for `SALA_BGAGENTS_RECORD_GRACE` (900 s) without a failure, and finished from
    the ledger at a later run even when stackshot's list has already dropped the project (its agent is on the map now). It becomes a failure after the grace.
+   **A live session is not yet a start.** The job counts a start only when the session is also placed in its project, read three ways (`read_back` in `lib/bgagents.py`, one function with a plain
+   interface: the session name, the project key and the role, `back` here; it answers 0 when all three agree, else 1 with a reason naming each link that does not):
+   1. stackshot's project record (`SALA_PROJECT_RECORD`) lists the name on the project's agents map as a back agent (`front` false);
+   2. `roles.json` (`SALA_ROLES_FILE`, `~/.local/state/stackshot/roles.json`, the file the Overview's Role column and the lane rules read) has a live entry for the name that names the project (the page key or its bare slug);
+   3. sala's own registry row for the session (`sala sessions resolve NAME --live --json`) carries that project and the role `back`.
+
+   The record and `roles.json` are rewritten about every five minutes and a fresh start is on neither at once, so the three are read again every `SALA_BGAGENTS_PLACE_POLL` (5 s) until
+   `SALA_BGAGENTS_PLACE_WAIT` (360 s) is up, and the attempt fails only then. A link that cannot answer (missing, stale, unreadable) is a miss, never a pass. A miss is a failed attempt: no start is
+   counted, the back-off applies as for any failure, the pane is **left running** (nothing is retired), and the reason says which link disagrees in one plain sentence, for example
+   `example-engineer started but the record does not list it on projects/example` (also `roles.json does not list it…`, `sala's row does not list it…`, or `the record could not be read (it is stale…), so it does not confirm it…`).
+   It is told **once per attempt**, not once per read: one Slack post through sala's own alert path (`SALA_BGAGENTS_ALERT_CMD`, default `sala alert`; a failed post is one log line and changes nothing) and the
+   board item below, raised after the attempt (the ledger's `unplaced` holds the reason, and a live pane does not hold the item back as "agent running, want list stale" would). The next attempt, after
+   the back-off or a `--reset`, reads the three again and counts the start once they agree.
 8. **The board item**, after the attempt: at most one a run (below).
 9. **The log.** One line a decision, on stdout (the unit's journal) and appended to `bgagents.log` beside the ledger: `<time in SALA_TZ> <action> <text>`. No token appears in a line.
 
@@ -56,6 +69,7 @@ The failures:
 |---|---|
 | the listing failed or timed out | an HTTP 409 (the name is taken or pending by another sender, or another project's longer prefix) and a 403 (a hidden or non-listed project: a `project-list` post is needed first) are in it; the reason is logged |
 | the start failed | `sala spawn` exited non-zero, timed out, or reported the pane up but the session is not live |
+| the session is live but not placed in its project | the project record, `roles.json` and sala's registry row do not all place it on the project as a back agent by the read-back's deadline (step 7); the pane is left running, the reason names the link, and the miss is told once by a Slack post and the board item |
 | the project is listed again after this job created and retired its agent | the want came back; this is one more attempt on the books |
 | the project is still listed after this job started its pane and the cooldown passed | a running agent is **never** retired for it, and no second start is made |
 
@@ -70,7 +84,7 @@ a start that works clears the mark. The board item below is raised for it in the
 
 ## A project it cannot start never stays silent: one board item for the owner
 
-When a project reaches the attempt cap ("given up") **or** the ledger sets `retire_needed` (an agent this job listed whose pane did not start), the job raises ONE board item for the owner
+When a project reaches the attempt cap ("given up"), **or** the ledger sets `retire_needed` (an agent this job listed whose pane did not start), **or** a started session is not placed on its project (`unplaced`, step 7), the job raises ONE board item for the owner
 through stackshot's client, `client.py post question`: a decision item filed under the project's own page (the want list's key), owned by the project's front agent, with a short ask, the
 text below and three options. It is raised **once per project**: the ledger records `raised`, `raised_at` and `raised_item`, and a later run that finds the project still stuck raises nothing.
 It is raised again only after a session reset the project's ledger entry (`--reset`) and the project gives up again; that is a new question (a new request id). The raised entry is never pruned
@@ -155,7 +169,7 @@ before the call. The request id is `bgagents-<scope>-<slug>-<time>-<random>` (th
 
 `$SALA_STATE_DIR/bgagents.json` (default `~/.local/state/salamander/`; `SALA_BGAGENTS_LEDGER` moves it), mode 600, written atomically (a temporary file in the same folder, fsynced, renamed over the
 ledger; one left by a crash is swept at the next save). It is read and written under a lock (`bgagents.json.lock`): a second run at the same time stands aside. Per project: `prefix`, `agent`,
-`attempts`, `failures`, `next_try`, `created` (this job listed the agent), `posted_at`, `started_at`, `retired`, `retire_needed`, `awaiting_record`, `last` and `last_at`, `last_plain`, `absent_since`, `stale` (agent running, want list stale), and for the board item `raised`, `raised_at`, `raised_item` and `raise_token` (the request id). An attempt
+`attempts`, `failures`, `next_try`, `created` (this job listed the agent), `posted_at`, `started_at`, `retired`, `retire_needed`, `awaiting_record`, `last` and `last_at`, `last_plain`, `absent_since`, `stale` (agent running, want list stale), `unplaced` (the reason a live session was not counted as a start, empty otherwise), and for the board item `raised`, `raised_at`, `raised_item` and `raise_token` (the request id). An attempt
 is counted before anything is asked, so a death in the middle leaves it on the record.
 
 ## Settings
@@ -174,6 +188,9 @@ All are in `config.example`, commented, default off. They are read from the conf
 | `SALA_BGAGENTS_LEDGER` | `$SALA_STATE_DIR/bgagents.json` | the ledger path |
 | `SALA_BGAGENTS_LOADAVG` | `/proc/loadavg` | where the load is read |
 | `SALA_BGAGENTS_RECORD_GRACE`, `_ALIVE_WAIT`, `_POST_TIMEOUT`, `_SPAWN_TIMEOUT` | 900, 30, 120, 300 | seconds |
+| `SALA_BGAGENTS_PLACE_WAIT`, `_PLACE_POLL` | 360, 5 | seconds the read-back of a started session (step 7) keeps reading the project record, `roles.json` and the registry row before it fails the attempt, and the pause between two reads (the record is rewritten about every five minutes) |
+| `SALA_ROLES_FILE`, `SALA_ROLES_FILE_MAX_AGE` | `~/.local/state/stackshot/roles.json`, 1800 | the roles file the read-back reads, and the age in seconds after which it answers nothing |
+| `SALA_BGAGENTS_ALERT_CMD` | `sala alert` | the Slack post of a started session that is not placed in its project, called with the headline and one line appended; empty: no post, one log line |
 | `SALA_BGAGENTS_RAISE_TIMEOUT` | 30 | seconds each of the board item's two calls may take (the raise is one a run, after the start, without the ledger lock) |
 | `SALA_BGAGENTS_MAX_PROBES` | 3 | the most liveness checks the two probe windows of a run make (at least 2; made without the ledger lock; the check of the run's own start attempt is not counted) |
 | `SALA_BGAGENTS_ASK_CMD` | `client.py post question` | the board-item command; empty: no client, `board item needed` and exit 1 |
