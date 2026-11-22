@@ -1366,13 +1366,17 @@ lane_names_tick() {
 # answer for or says is listed nowhere, never for a listed pane) and that the record says is listed nowhere (project_record_agent "" NAME, rc 3: a file read,
 # no pages.py, no HTTP). Listed (rc 0), or listed with the other role (rc 4, rc 5), is fine. WHEN THE RECORD CANNOT ANSWER (rc 1: missing, stale, unreadable)
 # for a pane that no registry tag exempts, that pane is counted (nbad) and not reported (a stale record would make a false "missing"): one post that the check could not run,
-# at most once per back-off, and in that tick NO key is deleted at all (whether its pane is in this scan or not: tmux down, a pane just gone), so grace and back-off
-# survive the outage; a pane a registry tag exempts is not counted, so a host holding only such panes posts nothing. A box with
+# at most once per back-off. A pane a registry tag exempts is not counted, so a host holding only such panes posts nothing. THE RECORD-LEVEL ANSWER (rec_down), one per tick and
+# independent of the panes: rc 1 from any pane's read says the record cannot answer; a tick that reads no pane at all (an empty scan, or only panes exempt by name) asks
+# project_record_agent "" unreg-probe-nobody (a name that is never a real session; rc 1 = cannot answer, any other rc = can), and only when a key of this watch exists, so a
+# healthy tick starts no process of its own for it. When rec_down is 1 OR a pane was counted (nbad > 0), NO unreg.<name> key and NOT the unreg_record key is deleted (whether its
+# pane is in this scan or not: tmux down, a pane just gone, nothing live), so grace, back-off and the outage post's own back-off survive the outage; the "could not check" line is
+# posted only when nbad > 0. A box with
 # no stackshot (stackshot_present false) or SALA_AGENT_CHECK=off (the spawn gate's own switch) skips the check silently.
 # TIMING. A pane must have been missing for SALA_UNREGISTERED_GRACE seconds (default 600, the record's own SALA_PROJECT_RECORD_MAX_AGE: stackshot rewrites it every few
 # minutes, so a name registered a moment ago has reached it by then) on consecutive ticks before it is posted; it is posted again every SALA_UNREGISTERED_BACKOFF
 # seconds (default 21600, 6 h) while it is still missing. The state is one key per pane, unreg.<name>=<first seen epoch>:<last post epoch>, in the watch state file; the key goes
-# when the pane is listed, exempt or gone, in a tick where the record answered for every pane (a tick with any pane it could not answer for deletes no key). SALA_UNREGISTERED_CHECK=off turns the watch off.
+# when the pane is listed, exempt or gone, in a tick where the record can answer (a tick in which it cannot, rec_down or nbad, deletes no key and not the unreg_record key either). SALA_UNREGISTERED_CHECK=off turns the watch off.
 # The post says what is true and what to do in plain words, and gives no time of day (only minutes and hours), so no timezone is involved.
 : "${SALA_UNREGISTERED_CHECK:=on}"; : "${SALA_UNREGISTERED_GRACE:=600}"; : "${SALA_UNREGISTERED_BACKOFF:=21600}"
 unreg_due() {  # <state key> <now> → rc 0 when a post is due (first seen at least GRACE ago and none within BACKOFF); the key is stamped; UNREG_AGE = seconds since first seen
@@ -1398,7 +1402,7 @@ print("%s\t%s" % ("1" if r.get("side") else "0", "1" if r.get("throwaway") else 
 unregistered_tick() {
     case "$SALA_UNREGISTERED_CHECK" in off|no|false|0) return 0;; esac
     [ "${SALA_AGENT_CHECK:-on}" != off ] && stackshot_present || return 0
-    local pt sess c tm kk k now rec rrc hub pmain role rel side seen=" " keep=" " cand=() nbad=0 why="" l del=() hint cmd
+    local pt sess c tm kk k now rec rrc hub pmain role rel side seen=" " keep=" " cand=() nbad=0 why="" l del=() hint cmd rec_down="" held=0
     _now_r now; _panes_get_r pt
     while IFS='|' read -r sess c; do
         [ -n "$sess" ] && [ "$sess" != "${SALA_RC_SESSION:-}" ] || continue
@@ -1411,6 +1415,7 @@ unregistered_tick() {
     for sess in ${cand[@]+"${cand[@]}"}; do
         _key_r kk "$sess"; k="unreg.$kk"
         rec=$(project_record_agent "" "$sess"); rrc=$?
+        if [ "$rrc" = 1 ]; then rec_down=1; elif [ -z "$rec_down" ]; then rec_down=0; fi   # this read is the tick's record-level answer: the record could not answer (1) or it could
         case "$rrc" in
             1) unreg_tag_exempt "$sess" && continue   # a registry tag exempts it whatever the record says: it is not one of the panes the record could not answer for
                nbad=$((nbad + 1)); why=$(sed -n 1p <<< "$rec"); keep="$keep$k "; continue ;;   # the record cannot answer: nothing said of this pane, its key kept as it is
@@ -1434,6 +1439,11 @@ unregistered_tick() {
             "or rename it to a name its project already lists; if it was meant to end, a session retires it" \
             "it has been missing for $((UNREG_AGE / 60)) min; this reminder repeats every $UNREG_NEXT h while it is still missing, and stops once it is registered, renamed or closed"
     done
+    if [ -z "$rec_down" ]; then   # no pane was read (an empty scan, or only panes exempt by name): the record's own answer is needed all the same, but only when there is a key it could delete
+        rec_down=0
+        if [ -r "$WSTATE" ]; then while IFS= read -r l || [ -n "$l" ]; do case "$l" in unreg.*=*|unreg_record=*) held=1; break;; esac; done < "$WSTATE"; fi
+        [ "$held" = 0 ] || { project_record_agent "" "unreg-probe-nobody" >/dev/null 2>&1; [ $? != 1 ] || rec_down=1; }   # a name that is never a real session: rc 1 = the record cannot answer, any other rc = it can (a file read, like the per-pane reads)
+    fi
     if [ "$nbad" -gt 0 ]; then   # the record could not answer for the panes it was asked about: one post per back-off, and no pane reported
         if unreg_due unreg_record "$now"; then
             wlog "unregistered: could not check $nbad live agent pane(s): $why"
@@ -1442,9 +1452,9 @@ unregistered_tick() {
                 "panes this check could not read an answer for were not reported as unregistered, because an answer from this record would not be trustworthy" \
                 "this repeats every $UNREG_NEXT h while the record still cannot answer; it stops when stackshot's project record is readable and fresh again"
         fi
-    else st_del unreg_record; fi
-    # a key whose pane is listed, exempt or gone goes; but when the record could not answer for any pane (nbad > 0) nothing is deleted, whether the pane is in this scan or not (tmux down, a pane just gone), so grace and back-off survive an outage
-    [ "$nbad" -gt 0 ] || while IFS= read -r l || [ -n "$l" ]; do case "$l" in unreg.*=*) k=${l%%=*}; case "$keep" in *" $k "*) ;; *) del+=("$k");; esac;; esac; done < "$WSTATE"
+    elif [ "$rec_down" != 1 ]; then st_del unreg_record; fi   # the outage post's key goes only when the record answers
+    # a key whose pane is listed, exempt or gone goes; but when the record could not answer (rec_down: a pane's read or the probe got rc 1, whatever panes the scan holds) nothing is deleted, whether the pane is in this scan or not (tmux down, a pane just gone), so grace and back-off survive an outage
+    [ "$nbad" -gt 0 ] || [ "$rec_down" = 1 ] || while IFS= read -r l || [ -n "$l" ]; do case "$l" in unreg.*=*) k=${l%%=*}; case "$keep" in *" $k "*) ;; *) del+=("$k");; esac;; esac; done < "$WSTATE"
     for k in ${del[@]+"${del[@]}"}; do st_del "$k"; done
     return 0
 }
