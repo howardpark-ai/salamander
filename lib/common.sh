@@ -5771,6 +5771,28 @@ draft_from_capture() {
     while [[ $l == *[[:space:]] ]]; do l=${l%?}; done
     printf '%s\n' "$l"
 }
+# dim_from_capture (stdin: `capture-pane -e` output) → the DIM text of the input line (the suggestion Claude Code shows in an empty
+# composer), or empty. The same box reading and the same dim spans as draft_from_capture, which drops them: this keeps them, in
+# order, joined by one space when the line holds several. Read-only; draft_from_capture's answer is unchanged by it.
+dim_from_capture() {
+    local l rem post t rest best bt p out="" cap
+    cap=$(cat); _box_from_capture "$cap"
+    [ -n "$_BOX_LINE" ] || return 0
+    rem=$_BOX_LINE
+    while [[ $rem == *$'\e[2m'* ]]; do   # a dim span runs to the next reset or the end of the line
+        post=${rem#*$'\e[2m'}; best=-1; bt=""
+        for t in $'\e[0m' $'\e[22m' $'\e[m'; do
+            if [[ $post == *"$t"* ]]; then rest=${post%%"$t"*}; p=${#rest}; if [ "$best" -lt 0 ] || [ "$p" -lt "$best" ]; then best=$p; bt=$t; fi; fi
+        done
+        if [ "$best" -ge 0 ]; then l=${post:0:best}; rem=${post:best+${#bt}}; else l=$post; rem=""; fi
+        _sgr_strip_r l "$l"; l=${l//$'\xc2\xa0'/ }; _lstrip_r l
+        [[ $l == "$_BOX_GLYPH"* ]] && l=${l#"$_BOX_GLYPH"}
+        _lstrip_r l
+        while [[ $l == *[[:space:]] ]]; do l=${l%?}; done
+        [ -n "$l" ] && out+="${out:+ }$l"
+    done
+    [ -z "$out" ] || printf '%s\n' "$out"
+}
 prompt_clears() { local i; for ((i=0; i<${2:-10}; i++)); do pane_prompt "$1" || return 0; sleep 1; done; return 1; }
 # resume_wait <pane> <uuid> <secs> → the resumed claude is LIVE in its pane, not merely started (revive, unpark and spawn;
 # here, out of revive.sh). Until a later release the check
