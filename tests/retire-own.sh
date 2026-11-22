@@ -819,7 +819,7 @@ callin sala-test-human env TMUX_PANE="$PANE_O" "$SALA" op restore --only "$GA" -
 [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "process ancestry" && ok "a person's shell in a pane (no claude above the call): refused" || { bad "human pane: rc=$RC queued=$(queued) — $OUT"; dropall; }
 for v in "recycle" "model $PO opus"; do
     enq_as "$PO" $v --item board#9007 --from sala-test-owner
-    [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "accepted only with revive and restore" && ok "'$v --item': refused, the reason door is revive's and restore's only" || { bad "'$v --item': rc=$RC — $OUT"; dropall; }
+    [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "accepted only with revive, restore, sleep and wake" && ok "'$v --item': refused, the reason door is revive's, restore's, sleep's and wake's only" || { bad "'$v --item': rc=$RC — $OUT"; dropall; }
 done
 
 # a raw `sala restore` from a Claude session stays refused (the guard); the test names pass ops_guard by design, so the name here is none of the suite's

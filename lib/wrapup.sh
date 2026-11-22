@@ -231,23 +231,37 @@ wrapup_tick() {
     ( flock -n 8 || exit 0; wrapup_locked ) 8>>"$SALA_LOG_DIR/salamander-wrapup.lock"
 }
 
-# ── SLEEP_READY (stage 1 of sleep: the verdict only; nothing calls it yet, no tick, no verb) ──────────────────────────────────────────────
+# ── SLEEP_READY (the verdict `sala sleep` asks, lib/sleep.sh; no watch tick asks it yet) ─────────────────────────────────────────────────
 # sleep_ready <tmux session> → 0 when the session may go to sleep now (common.sh, THE SLEEPING SESSIONS); else 1 with the FIRST refusing reason
 # as one short text in SLEEP_WHY and on stdout. It reuses wrap_ready (stage clear: idle in the registry, not waiting on a background job, no background work,
 # no dialog, nothing typed; the wrap-up's own idle-age window and its warm bound do not apply, a sleep comes after an hour) and adds what
 # a sleep must not lose, cheap checks first. A claude that ends takes with it: a scheduled job (cron), a queued or running operation naming
 # it, a note not yet delivered, a pending relaunch (the deferred list, an open recycle set, the waiting flag), a stackshot inbox message
 # for it, a limit or network stop it is sitting on, and a question open on its screen. The session's own kinds are refused first: the
-# master, the Remote Control session, a Remote Control served session, the sdk lane, SALA_NO_RELAUNCH and the shell session, a side session.
+# master, the Remote Control session, a Remote Control served session, the sdk lane, SALA_NO_RELAUNCH and the shell session, a side session, a front agent (sleep_is_front).
 # SALA_SLEEP_AFTER (3600): the idle age. SALA_STACKSHOT_INBOX: the directory of stackshot's inbox (hub/ and msg/ under it; it may be missing).
 : "${SALA_STACKSHOT_INBOX:=$HOME/.local/state/stackshot/inbox}"
 SLEEP_WHY=""
 _sleep_no() { SLEEP_WHY=$1; printf '%s\n' "$1"; return 1; }
 # the seams of the two scans that need the watch's own tables: a missing one says "not stopped" (a test replaces either)
 _sleep_limit_stopped() {  # <session> <claude pid> <lane> → 0 when the limit scan finds the pane stopped on a limit
-    declare -F lw_scan >/dev/null 2>&1 || return 1
+    if ! declare -F lw_scan >/dev/null 2>&1; then
+        # outside the watch (`sala sleep`) there is no scan: the limit watch's own record of the panes it holds stopped (SALA_LIMIT_STATE, keyed by conversation id) answers instead
+        local c; registry_conv_r c "$2"; [ -n "$c" ] && [ "$c" != null ] && [ -r "$SALA_LIMIT_STATE" ] || return 1
+        python3 -I -S -c 'import json, sys
+try: d = json.load(open(sys.argv[1])).get("panes") or {}
+except Exception: sys.exit(1)
+sys.exit(0 if sys.argv[2] in d else 1)' "$SALA_LIMIT_STATE" "$c" 2>/dev/null
+        return
+    fi
     local o; o=$(printf '%s|%s|%s\n' "$1" "$2" "$3" | lw_scan 2>/dev/null) || return 1
     [[ $o == "stop "* || $o == *$'\n'"stop "* ]]
+}
+# sleep_is_front <session> → 0 for a front agent, which the owner talks to and which never sleeps: a registry row with role front (or no role and a front entry
+# of the project record or the roles file: back_lane_names front), or the name of a project's -main agent
+sleep_is_front() {
+    case "${1:-}" in *-main) return 0;; esac
+    back_lane_names front 2>/dev/null | grep -qxF -- "$1"
 }
 _sleep_net_stopped() { local o; o=$(net_stopped_sessions "$1" 2>/dev/null); [ -n "$o" ]; }   # <session> → 0 when its claude is stopped on a network error
 sleep_ready() {
@@ -260,6 +274,7 @@ sleep_ready() {
     [ -z "${SALA_MASTER:-}" ] || [ "$sess" != "$SALA_MASTER" ] || { _sleep_no "the master session"; return 1; }
     no_relaunch "$sess" && { _sleep_no "managed outside sala (SALA_NO_RELAUNCH or the web UI's shell)"; return 1; }
     side_is "$sess" && { _sleep_no "a side session"; return 1; }
+    sleep_is_front "$sess" && { _sleep_no "a front agent: the owner talks to it, so it never sleeps"; return 1; }
     sleeping_uuid_r uuid "$sess" || { _sleep_no "not in the pane map"; return 1; }
     pane=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_id}' 2>/dev/null | head -1)
     ppid=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_pid}' 2>/dev/null | head -1)
@@ -280,6 +295,7 @@ sleep_ready() {
     # a queued, running or waiting operation that names it (the marker's arg= lines: its sessions, old and new names alike)
     for f in "${SALA_OP_DIR:-$SALA_STATE_DIR/ops}"/*.op; do
         [ -f "$f" ] || continue
+        [ "${f##*/}" != "${SALA_OP_ID:-}.op" ] || continue   # the operation this very run belongs to (a queued sleep names its session): its own marker never refuses it
         _kv_first_r st "$f" state
         case "$st" in queued|running|waiting) ;; *) continue;; esac
         if grep -qxF -- "arg=$sess" "$f" 2>/dev/null; then id=${f##*/}; _sleep_no "operation ${id%.op} ($st) names it"; return 1; fi

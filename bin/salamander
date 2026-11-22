@@ -69,6 +69,8 @@
 #                                      and the summary was sent (by sala, through stackshot's client) to the origin agent or the project's -main
 #   salamander adopt NAME                           put a live session made by hand (outside spawn) into the pane map
 #   salamander restore (NAME… | --missing) [--dry-run]  recreate a session from its pane-map row (tmux session in its cwd, then resumed by uuid); --dry-run shows the plan, a session queues it: op restore
+#   salamander sleep NAME… [--dry-run] | --list    end the claude of an idle session (nothing in flight; never a front agent), keeping its tmux session and pane-map row; a session queues it: op sleep
+#   salamander wake NAME… [--dry-run]               resume a sleeping session by its conversation id (a session queues it: op wake); a name that is not asleep is a message, no action
 #   salamander follow                               resident watcher of the session registry (sala-follow.service): follows hand renames
 #   salamander snapshot [--now]        event-driven tmux-resurrect save (tmux hooks + Claude SessionStart hook)
 #   salamander watch [--check]         the watchdog, from a timer: the operation queue, the automatic update, relaunch and recycle, the
@@ -90,7 +92,7 @@
 #   salamander op <verb> [args…] --from NAME --words "<the owner's words>"   queue a fleet operation for `watch` to run with no model (lib/op.sh):
 #                                      recycle [--update] [--force] · update [HOST…|--fleet] · revive [--only NAME]… [--force] ·
 #                                      retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items] (a side session: refused until `side done` wrote its marker; --skip-writeup the one bypass; NO --words only for a throwaway: a row with the throwaway tag a bare spawn sets, by any session between turns; a row without the tag, by its spawner, or by any session when NAME is a scratch-*, *-check-*, *-test-* or *-probe-* name (any session: and no live spawner); never with a bypass flag, --keep-web or --id, and only when the project record confirms NAME is on no agents map) · close-shell NAME [--busy] · forget-row NAME · rename OLD NEW · lane <lane> <session>…|<lane> --all|default <lane>|fallback <lane> ·
-#                                      model <model> [--effort <level>] <session>…|--clear <session>… (several sessions in ONE operation, ONE result notice) or the single-session <session> <model> [--effort <level>]|<session> --clear · provision [--only STEPS] [HOST…] · spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT]
+#                                      sleep|wake --only NAME… (--item board#N | --why "<reason>"; no --words) · model <model> [--effort <level>] <session>…|--clear <session>… (several sessions in ONE operation, ONE result notice) or the single-session <session> <model> [--effort <level>]|<session> --clear · provision [--only STEPS] [HOST…] · spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT]
 #                                      [--lane L] | spawn NAME --side (--fork-of AGENT | --project KEY --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] (a side conversation)
 #                                      (a TEXT mandate goes to ~/.local/state/salamander/mandates/<id>-NAME.md; a name not
 #                                      on the page refuses with exit 3 and the REGISTER: line and command) (a reboot is not queued: the owner runs `sala reboot --go` in the web UI's Shell;
@@ -216,7 +218,7 @@ sub="${1:-}"; shift || true
 case "$sub" in hook) . "$SALA_ROOT/lib/hook.sh"; exit 0 ;; esac
 . "$SALA_ROOT/lib/common.sh"
 case "$sub" in
-    spawn|revive|rc|map|feedback|snapshot|watch|retire|close-shell|forget-row|update|provision|heartbeat|ready|unpark|reboot|note|rename|follow|adopt|restore|reauth|alert|lane|model|sdk-pane|sessions|side|job|notice). "$SALA_ROOT/lib/$sub.sh" ;;
+    spawn|revive|rc|map|feedback|snapshot|watch|retire|close-shell|forget-row|update|provision|heartbeat|ready|unpark|reboot|note|rename|follow|adopt|restore|sleep|wake|reauth|alert|lane|model|sdk-pane|sessions|side|job|notice). "$SALA_ROOT/lib/$sub.sh" ;;
     recycle) case " $* " in *" --when-idle "*) . "$SALA_ROOT/lib/recycle-request.sh"; rr_main "$@" ;;   # a request, from any pane: no guard, no lock
                  *) set -- --all "$@"; . "$SALA_ROOT/lib/revive.sh" ;; esac ;;
     op) . "$SALA_ROOT/lib/op.sh"; op_main "$@" ;;   # the operation queue: queue, plan, list, cancel; --run/--settle inside its unit

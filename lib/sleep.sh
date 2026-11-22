@@ -1,0 +1,101 @@
+# lib/sleep.sh — put idle sessions to sleep: end the claude of a session that has nothing in flight, keep its tmux session and pane-map row, and mark it
+# sleeping (common.sh, THE SLEEPING SESSIONS). `salamander wake` (lib/wake.sh) resumes it.
+#
+#   salamander sleep NAME… [--dry-run]     the named sessions (exact tmux session names)
+#   salamander sleep --list                the sleeping sessions, with the time each went to sleep
+#
+# WHEN A SESSION MAY SLEEP: sleep_ready (lib/wrapup.sh) says so. It is idle (the registry row says idle and has said so for SALA_SLEEP_AFTER seconds, 3600 by
+# default), holds no background command, task or subagent, has no dialog showing and nothing typed in its input box, and has nothing a sleep would lose: no
+# scheduled job, no queued operation or note naming it, no relaunch waiting for it, no stackshot inbox message for it, no limit or network stop, no open question.
+# Refused outright: a front agent (a project's -main agent, or a registry row with role front: the owner talks to it), the Remote Control session, a side
+# session, the sdk lane, a session in SALA_NO_RELAUNCH, and the session this command runs in (a sleep would end the call that made it). A refusal says why, in
+# one line, and nothing is touched. There is no bypass flag: a busy session is asked again once it is idle.
+#
+# HOW IT ENDS THE CLAUDE (as retire and revive do, never by name, never a kill): the stackshot inbox is held for the pane, queued feedback drafts are sent, the
+# idle check and sleep_ready are made again with the hold in place, the sleeping marker is written (so the bare-pane heal never revives the pane in the
+# gap), and /exit is typed (common.sh pane_exit: the mod first, else the keys). The pane must be back at its shell within SALA_EXIT_WAIT seconds; if it is
+# not, the marker is taken off again, the claude is left as it is and the command says so (nothing is ever signalled: a claude that ignores /exit is not
+# a sleeper). The hold is released at the end, whatever the result.
+#
+# THE QUEUE: a session asks with `sala op sleep --only NAME… (--item board#N | --why "<reason>") --from YOU` (lib/op.sh); the queue's runner, a
+# sala-op-<id> unit, passes ops_guard like every queued verb. Run raw from a Claude session this verb is refused and points there.
+#
+# --dry-run: nothing is typed, marked or changed; the same refusals as the real run, as "[dry-run] would refuse: …" (exit 1), and for a session that may sleep
+# what the run would do. Read-only, so it passes the guard from a Claude session like every verb's dry run.
+
+usage="usage: salamander sleep NAME… [--dry-run] | --list
+  puts idle sessions to sleep: their claude ends, their tmux session and pane-map row stay; salamander wake NAME resumes one"
+. "$SALA_ROOT/lib/wrapup.sh"
+NAMES=(); DRY=0; DRYFLAG=""; LIST=0
+for a in "$@"; do case "$a" in
+    --dry-run) DRY=1; DRYFLAG=--dry-run ;; --list) LIST=1 ;; -h|--help) echo "$usage"; exit 0 ;;
+    -*) die "unknown option: $a
+$usage" ;;
+    *) NAMES+=("$a") ;;
+esac; done
+if [ "$LIST" = 1 ]; then
+    [ ${#NAMES[@]} -eq 0 ] && [ "$DRY" = 0 ] || die "--list takes nothing else
+$usage"
+    n=0
+    while IFS=$'\t' read -r u t nm; do
+        [ -n "$u" ] || continue
+        e=$(date -u -d "$t" +%s 2>/dev/null) || e=""
+        printf '%s\tasleep since %s\t(conversation %s)\n' "${nm:-?}" "$([ -n "$e" ] && local_human "$e" || echo "${t:-?}")" "$u"; n=$((n + 1))
+    done < <(sleeping_list)
+    [ "$n" -gt 0 ] || echo "no session is sleeping"
+    exit 0
+fi
+[ ${#NAMES[@]} -gt 0 ] || die "$usage"
+ops_guard sleep "${NAMES[0]}" $DRYFLAG
+dry() { echo "[dry-run] $*"; }
+caller=$(ancestry_session 2>/dev/null || true); [ -n "$caller" ] || caller=${SALA_OP_FROM:-}   # the session that asks: by process ancestry, else the queue's own record of who asked
+
+# sleep_one <name> → 0 asleep (or, in a dry run, could be) · 1 refused or not done; its one line on stdout, the refusal on stderr in a dry run's form
+sleep_one() {
+    local n="$1" pane ppid pid uuid i rc scr why
+    if [ -n "$caller" ] && [ "$caller" = "$n" ]; then
+        if [ "$DRY" = 1 ]; then dry "would refuse: '$n' is the session this command runs in: a sleep would end the call that made it"; else echo "✗ $n: not put to sleep — it is the session this command runs in: a sleep would end the call that made it"; fi
+        return 1
+    fi
+    if ! sleep_ready "$n" >/dev/null; then
+        if [ "$DRY" = 1 ]; then dry "would refuse: $n: $SLEEP_WHY"; else echo "✗ $n: not put to sleep — $SLEEP_WHY"; fi
+        return 1
+    fi
+    pane=$(tmux list-panes -t "$(tmux_win_t "$n")" -F '#{pane_id}' 2>/dev/null | head -1)
+    ppid=$(tmux list-panes -t "$(tmux_win_t "$n")" -F '#{pane_pid}' 2>/dev/null | head -1)
+    pid=$(claude_pid_under "$ppid" 2>/dev/null); sleeping_uuid_r uuid "$n" || uuid=""
+    if [ "$DRY" = 1 ]; then
+        dry "$n: claude pid $pid in pane $pane, conversation $uuid, idle for at least ${SALA_SLEEP_AFTER}s with nothing in flight"
+        dry "$n: would hold its stackshot inbox, send queued feedback drafts, write its sleeping marker, type /exit into pane $pane and wait up to ${SALA_EXIT_WAIT}s for the shell; the tmux session and the pane-map row stay"
+        return 0
+    fi
+    inbox_hold "$uuid" "$n"
+    unmode "$pane"
+    if ! send_feedback_drafts "$pane" "$uuid"; then inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — feedback draft(s) are still queued: /exit would stop at the drafts gate (send them by hand, then ask again)"; return 1; fi
+    if ! prompt_clears "$pane" 10; then inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — a terminal prompt is showing"; return 1; fi
+    # THE RE-CHECK, with the hold in place: a line handed out before it started a turn, and an /exit typed by keys would end that turn
+    if ! sleep_ready "$n" >/dev/null; then inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — it was not ready once its inbox was held: $SLEEP_WHY"; return 1; fi
+    if [ "$(claude_pid_under "$ppid" 2>/dev/null)" != "$pid" ]; then inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — the claude in its pane changed since the check"; return 1; fi
+    sleeping_mark "$uuid" "$n" || { inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — its sleeping marker could not be written"; return 1; }
+    scr=$(pane_exit "$pane" "$pid" 2>/dev/null); rc=$?
+    case "$rc" in
+        0) ;;
+        2) why="background work is running (a shell, monitor or subagent), which /exit would stop" ;;
+        3) why="unsubmitted text is at the prompt (\"$scr\"), which /exit would run over" ;;
+        4) why="a turn is running${scr:+ (held by $scr)}" ;;
+        *) why="the pane did not take /exit (composer not empty, or the Enter was dropped twice)" ;;
+    esac
+    if [ "$rc" != 0 ]; then sleeping_clear "$uuid"; inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — $why; its claude is left as it is"; return 1; fi
+    if ! wait_for "$pane" shell "$SALA_EXIT_WAIT"; then
+        sleeping_clear "$uuid"; inbox_release "$uuid" "$n"
+        echo "✗ $n: not put to sleep — its claude was still running ${SALA_EXIT_WAIT}s after /exit (a dialog may hold it: attach and look); nothing was signalled and its marker is off again"; return 1
+    fi
+    inbox_release "$uuid" "$n"
+    echo "✅ $n: asleep — its claude (pid $pid) ended, the pane and the pane-map row stay, conversation $uuid; wake it with: sala wake $n"
+    return 0
+}
+bad=0
+for n in "${NAMES[@]}"; do sleep_one "$n" || bad=$((bad + 1)); done
+[ "$DRY" = 1 ] && dry "nothing was changed"
+[ ${#NAMES[@]} -gt 1 ] && echo "$((${#NAMES[@]} - bad)) of ${#NAMES[@]} asleep"
+[ "$bad" = 0 ]

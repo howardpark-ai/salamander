@@ -5676,6 +5676,8 @@ fleet_guard() {
             die "reboot is not queued: ${SALA_OWNER_NAME} runs \`sala reboot --go\` in the web UI's Shell; a session shows \`sala reboot --status\` and waits for the word" ;;
         restore)
             die "restore is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op restore --only NAME --why \"<one line: why it is needed>\" --from ${here:-<you>} (or --item board#N for --why; ${SALA_OWNER_NAME}'s words are needed only for yourself or a sweep) — and sala's watch runs it; sala op --plan restore --only NAME shows what it would do first" ;;
+        sleep|wake)
+            die "$verb is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op $verb --only NAME (--item board#N | --why \"<one line: why>\") --from ${here:-<you>} (no ${SALA_OWNER_NAME}'s words needed) — and sala's watch runs it; sala op --plan $verb --only NAME shows what it would do first" ;;
         recycle|update|revive|retire|close-shell|forget-row|rename|lane|model|provision)
             die "$verb is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op $verb … --from ${here:-<you>} --words \"<${SALA_OWNER_NAME}'s words>\" — and sala's watch runs it, one operation at a time; sala op --plan $verb … shows the plan first (the recycle procedure does exactly that)" ;;
         *)  die "$verb is a fleet operation, and a session never runs one itself, and the operation queue has no '$verb' verb yet (lib/op.sh, THE VERBS). Ask ${SALA_OWNER_NAME} to run it from a plain shell" ;;

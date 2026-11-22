@@ -14,7 +14,7 @@
 #  - 4 the deferred list and the recycle set: a deferred row of a sleeping pane is dropped and the set no longer counts it (not gave, not left behind);
 #  - 5 stale_panes does not list it; 6 lane and model: the table row only, no relaunch (`sala lane X NAME`, `sala model NAME X`), the control's plan relaunches;
 #  - 7 retire, close-shell, forget-row, rename work with no /exit and no live claude and clear the marker (rename rewrites its name text); adopt and box say
-#    "sleeping" instead of "no claude"; 8 `sala op revive|restore --only NAME` says "sleeping: wakes in a later stage" and queues nothing;
+#    "sleeping" instead of "no claude"; 8 `sala op revive|restore --only NAME` says "sleeping: its claude ended on purpose" and queues nothing;
 #  - 9 the wrap-up tick lists no pane with no claude; 10 `sala sessions` and `sala spawn --list` show `sleeping` (display only);
 #  - sleep_ready: yes for an idle, free pane; and each refusal with its reason: no session, already asleep, the Remote Control session, the master, SALA_NO_RELAUNCH,
 #    a side session, no pane-map row, no claude, the sdk lane, idle too short, a busy registry row, a draft in the box, a scheduled job, a queued operation naming it,
@@ -246,14 +246,14 @@ echo "== 8: sala op revive|restore --only NAME — 'sleeping', nothing queued, n
 sleeping_mark "$UC" sala-test-c   # c is bare again (killed above): now it sleeps
 rm -f "$OPS"/*.op 2>/dev/null
 run op revive --only sala-test-c --from sala-test-d --words "test words"
-[ "$RC" = 0 ] && has "$OUT" "sala-test-c: sleeping: wakes in a later stage" && ! has "$OUT" "no claude" && [ -z "$(ls "$OPS"/*.op 2>/dev/null)" ] && ok "op revive c: said, exit 0, nothing queued" || bad "op revive c: rc=$RC queued=$(ls "$OPS" 2>/dev/null) — $OUT"
+[ "$RC" = 0 ] && has "$OUT" "sala-test-c: sleeping: its claude ended on purpose" && ! has "$OUT" "no claude" && [ -z "$(ls "$OPS"/*.op 2>/dev/null)" ] && ok "op revive c: said, exit 0, nothing queued" || bad "op revive c: rc=$RC queued=$(ls "$OPS" 2>/dev/null) — $OUT"
 run op restore --only sala-test-c --from sala-test-d --words "test words"
-[ "$RC" = 0 ] && has "$OUT" "wakes in a later stage" && [ -z "$(ls "$OPS"/*.op 2>/dev/null)" ] && ok "op restore c: the same" || bad "op restore c: rc=$RC — $OUT"
+[ "$RC" = 0 ] && has "$OUT" "its claude ended on purpose" && [ -z "$(ls "$OPS"/*.op 2>/dev/null)" ] && ok "op restore c: the same" || bad "op restore c: rc=$RC — $OUT"
 run op revive --only sala-test-c --only sala-test-d --from sala-test-d --words "test words"
 [ "$RC" != 0 ] && has "$OUT" "nothing queued" && [ -z "$(ls "$OPS"/*.op 2>/dev/null)" ] && ok "a sleeper and a live name together: nothing queued, the other named" || bad "op mixed: rc=$RC — $OUT"
 sleeping_clear "$UC"
 run op --plan revive --only sala-test-c --from sala-test-d --words "test words"
-has "$OUT" "plan: salamander revive" && ! has "$OUT" "wakes in a later stage" && ok "the control c (no marker): the plan is the plan it was" || bad "op plan c: rc=$RC — $OUT"
+has "$OUT" "plan: salamander revive" && ! has "$OUT" "its claude ended on purpose" && ok "the control c (no marker): the plan is the plan it was" || bad "op plan c: rc=$RC — $OUT"
 
 echo "== 9: the wrap-up tick lists no pane with no claude"
 sleeping_mark "$UC" sala-test-c

@@ -4701,3 +4701,24 @@ exempts nothing and that the guard's reply to `adopt` names no flag; `lanefallba
 an ordinary line of the plan. `tests/help-snapshot.txt` regenerated (the `--not-master` and `lane --rescue <lane>` lines and
 the retire, lane fallback, model and hook wording). Kept for stage 4: the `SALA_MASTER` default, `SALA_BOOT_AUDIT`,
 `SALA_HEARTBEAT_GIT=master`, the `unset SALA_MASTER` lines of the suites, `sets-master`'s name and the grep gate.
+
+### `tests/sleepverbs.sh`, a new suite: `sala sleep` and `sala wake` through the queue, and a session that sleeps for real (Mon Nov 23rd 2026)
+
+New, 74 checks; `tests/sleeping.sh` keeps its 97 checks (one expected text changed: a queued revive of a sleeper now says its claude
+ended on purpose and names `sala op wake`, where stage 1 said it wakes in a later stage). Stage 2 of the feature adds the two
+verbs and nothing that calls them on its own, so every check makes the call by hand against a private tmux server, an isolated
+HOME and the compiled fake claude. Checked: `sleep` refusals, each with its one-line reason and nothing done (a name that is no
+session, a front agent, a pane with no claude, a pane that is busy or asked something, a queued operation that names it, the
+asker's own session, an unknown option, no `--force`); `--dry-run` says the plan and touches nothing; a real sleep (the marker
+written before `/exit`, the claude gone by its pid, the tmux session and the pane-map row kept, the inbox hold released, a bare-pane
+heal that leaves it alone); a sleep whose pane never reaches a shell clears its marker and holds nothing; `--list` prints the
+sleepers; `wake` of a non-sleeper (a message, exit 0, nothing done), of a sleeper (marker cleared, resumed by its explicit
+conversation uuid, resumed once), of one whose claude is already running (only the marker cleared), of one whose conversation is
+live in another pane (refused, still asleep) and of one whose tmux session is gone (recreated); a raw call from a Claude session
+refused with the `sala op` line, and the same call from the op unit let through; the queue (`sala op sleep|wake --only` with
+`--item` or `--why`, no `--words`; refused for a name that is not live, is a front agent, is the asker, is not sleeping for wake;
+the marker's shape and the per-verb plan and class); the runner for both verbs, including a sleep whose own queued marker names
+the session (exempted by operation id) and a run stuck after the marker's row was tampered with; and the help text of both verbs
+and of `sala op`. Every kill is of one pid whose `/proc/<pid>/exe` is the suite's fake. Not checked: the web and `sessions`
+display of a sleeper (stage 3), stackshot's presence of a sleeper and delivery to it (stage 4), the watch tick that sleeps an idle
+session (stage 5), a real stackshot inbox and a real Claude process.
