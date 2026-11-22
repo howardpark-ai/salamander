@@ -742,6 +742,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   so does an OLD on the agents maps of two or more projects, with a reason naming their keys (the record gives no one project as its entry's). `rename --sync`, a hand rename that is followed, goes on and says the reason on stderr; a box whose record is
   absent (stat says no such file or directory, not any other error) and with no stackshot client has nothing to ask and goes on.
   A side session renamed to an agent name keeps its own path (version 14) and reads the same record (`record_name_unlisted`): a record that cannot answer refuses the rename in its plan.
+  `sala watch` reads the record a second time to notice an agent pane that is live here and on no project's map (no interface change and no version bump: one more reader of the same file under the same reading rule): `project_record_agent "" NAME` per live agent pane that the spawn gate's exceptions list (`agent_gate_exempt`) does not skip; rc 3 (a fresh record that lists the name nowhere) is "unregistered", rc 0, 4 and 5 are fine, and rc 1 (missing, stale, unreadable) posts one "could not check" line and never a per-pane one (`lib/watch.sh`, `unregistered_tick`; `docs/subcommands.md`, `watch`).
   The same reading rule gives a live session with no role its role (`sala sessions tag --auto`, `back-names`; the
   back agents' lane rule counts from it): a name on exactly one non-retired project's map is that project's agent, `front`
   true a front agent and false a back agent; a name on no map or on several is left alone. The same single-project reading gives the row its `surface`, for a row with a role as well as one without.
@@ -750,7 +751,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   harmless (sala reads `front`, `mandate_line`, `page_owed` and the names only). A change of the three meanings above, or of
   the schema number, needs this document's bump and a sala change first. The record lags the page by up to its refresh
   interval: a line just added to a page may show as unlisted for a few minutes.
-- **Test**: `tests/spawn.sh` (the project record section: listed, unlisted, front vs back, page_owed, the main agent, missing,
+- **Test**: `tests/unregistered.sh` (the watch's read: missing, listed, exempt, stale, missing file, garbage). `tests/spawn.sh` (the project record section: listed, unlisted, front vs back, page_owed, the main agent, missing,
   stale, garbage, other schema, "the record cannot answer", the exempt names). `tests/sessions.sh` (the `tag --auto` section: the surface copied, cleared, left on a bad value).
 - **Stable**: yes from version 5.
 
