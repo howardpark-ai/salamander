@@ -186,7 +186,7 @@ pf=$(grep -l "\"sessionId\":\"$UPR\"" "$HOME"/.claude/sessions/*.json | head -1)
 python3 - "$pf" <<'PY2'
 import json, sys; p = sys.argv[1]; d = json.load(open(p)); d["name"] = "sala-test-probe"; d["nameSource"] = "user"; json.dump(d, open(p, "w"))
 PY2
-SALA_MASTER= "$SALA" rename --sync >/dev/null 2>&1
+"$SALA" rename --sync >/dev/null 2>&1
 tmux has-session -t =sala-test-pf 2>/dev/null && ! grep -q "'sala-test-pf' → " "$SALA_LOG_DIR/salamander-rename.log" 2>/dev/null \
     && ok "rename --sync: the probe's name is not taken for a hand rename of sala-test-pf" || bad "sync followed the probe: $(grep sala-test-pf "$SALA_LOG_DIR/salamander-rename.log" | tail -1)"
 "$SALA" revive --save-map >/dev/null 2>&1

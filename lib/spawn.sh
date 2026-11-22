@@ -1,6 +1,6 @@
 # lib/spawn.sh — start a named tmux session running Claude Code, visible to Remote Control.
 #
-#   spawn [NAME] [--mandate FILE|TEXT [--no-confirm]] [--cwd DIR] [--lane L] [--model M] [--effort E] [--fork UUID] [--master] [--dry-run]
+#   spawn [NAME] [--mandate FILE|TEXT [--no-confirm]] [--cwd DIR] [--lane L] [--model M] [--effort E] [--fork UUID] [--dry-run]
 #   spawn NAME --role <role word> [--front|--back] --mandate FILE|TEXT [...]   (a plain spawn that registers its name with stackshot: THE SPAWN GATE, below)
 #   spawn NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
 #   spawn --suggest-name --project <page key> --role front|back [--prefix P] [--new]
@@ -125,7 +125,7 @@
 # claude in that row's own pane: any other claude that inherited the id from the pane's shell, such as a throwaway on a private tmux
 # server, names no row; lib/hook.sh); a spawn that does not come
 # up takes the row back (see the comment at tmux new-session below). SALA_SESSIONS=off: no id, no export.
-# A THROWAWAY'S SPAWNER: a spawn with no --project, --side or --master, run by a Claude session, writes the
+# A THROWAWAY'S SPAWNER: a spawn with no --project or --side, run by a Claude session, writes the
 # caller's tmux session name onto the row as spawned_by (common.sh spawn_caller; docs/session-registry.md). `sala op retire NAME --from YOU` takes
 # no words for exactly that row (lib/op.sh, op_own_retire_ok); a spawn from a plain shell, a human's pane or the queue records none.
 # THE THROWAWAY TAG: the same spawn, whoever runs it, also writes throwaway=1 onto the row; any live session may
@@ -314,18 +314,17 @@ side_origin() {  # <agent> → "<its current conversation>|<its directory>" of t
 GENERATED=0; NAME=""
 case "${1:-}" in
     '') ;;
-    --brief|--prompt|--mandate|--cwd|--fork|--model|--effort|--master|--no-confirm|--project|--role|--front|--back|--surface|--lane|--dry-run|--suggest-name|--side|--fork-of|--item|--agents|--prefix) ;;
+    --brief|--prompt|--mandate|--cwd|--fork|--model|--effort|--no-confirm|--project|--role|--front|--back|--surface|--lane|--dry-run|--suggest-name|--side|--fork-of|--item|--agents|--prefix) ;;
     -*)  die "unknown first argument: $1" ;;
     *)   NAME="$1"; shift ;;
 esac
 case "$NAME" in *[.:\ ]*) die "invalid session name '$NAME' (no dots, colons, or spaces)";; esac
 is_shell_session "$NAME" && die "'$NAME' is the web UI's shell session (SALA_SHELL_SESSION) — a Claude session cannot take its name; pick another name"
 
-MANDATE=""; MKIND=""; CWD="$HOME"; MODEL=""; EFFORT=""; FORK=""; MASTER=0; GO=0; PROJECT=""; ROLE=""; SURFACE_OPT=""; SURFACE_GIVEN=0; LANE_OPT=""; DRY=0; SUGGEST=0; PREFIX_OPT=""; NEW_OPT=0
+MANDATE=""; MKIND=""; CWD="$HOME"; MODEL=""; EFFORT=""; FORK=""; GO=0; PROJECT=""; ROLE=""; SURFACE_OPT=""; SURFACE_GIVEN=0; LANE_OPT=""; DRY=0; SUGGEST=0; PREFIX_OPT=""; NEW_OPT=0
 SIDE=0; FORK_OF=""; ITEM=""; AGENTS=""; CWD_GIVEN=0; REG_ROLE=""; REG_SIDE=""
 while [ $# -gt 0 ]; do
     case "$1" in
-        --master) MASTER=1; shift;;                # designate the new session as the master afterwards (salamander master --set)
         --no-confirm) GO=1; shift;;                # with a mandate file: start on it after the orientation (an unattended agent)
         --dry-run) DRY=1; shift;;                  # every check, the plan, nothing made (the operation queue's plan)
         --suggest-name) SUGGEST=1; shift;;         # print the suggested name for --project/--role and exit
@@ -359,7 +358,6 @@ else
     [ -z "$ROLE" ] || die "--side takes no --role: a side session is on no page's agents map"
     [ "$SURFACE_GIVEN" = 0 ] || die "--side takes no --surface: a side session is on no page's agents map"
     [ -z "$FORK" ] || die "--side forks with --fork-of AGENT (its current conversation is found for you), not --fork UUID"
-    [ "$MASTER" = 0 ] || die "--side and --master cannot go together"
     SIDE_PROJECT="$PROJECT"; PROJECT=""
     if [ -n "$FORK_OF" ]; then
         SIDE_KIND=fork
@@ -434,7 +432,7 @@ if [ -n "$FORK" ]; then
     [ -s "$(transcript_for_uuid "$FORK")" ] || die "no transcript for $FORK under $SALA_PROJECTS"
 fi
 REC_SURFACE=""   # the surface the project record gives this name (slack, sala), the one `sessions tag --auto` copies onto the row later: the start directory follows it, not the flag alone
-if [ "$SIDE" = 0 ] && [ "$MASTER" = 0 ]; then   # read-only on the record file, so SALA_SESSIONS=off (registry writes and the publish) does not matter here
+if [ "$SIDE" = 0 ]; then   # read-only on the record file, so SALA_SESSIONS=off (registry writes and the publish) does not matter here
     REC_SURFACE=$(sessions_py record-surface "$NAME" ${PROJECT:+--project "$PROJECT"} --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" 2>&1); rsrc=$?
     case "$rsrc" in
         0) ;;
@@ -779,7 +777,7 @@ if [ -n "${ruuid:-}" ]; then ledger_write add "$NAME" "$ruuid" "$NAME" "$CWD" &&
 LANE_ROW=""
 if [ -n "$LANE_OPT" ]; then lane_write "$NAME" "$LANE_OPT" && LANE_ROW=1; fi   # the explicit lane is intent: every later relaunch keeps it
 if [ -n "$PROJECT" ] && [ -n "$MAPPED" ]; then sessions_set "$NAME" "project=$PROJECT" "role=$ROLE" ${SURFACE:+"surface=$SURFACE"}; fi   # the session registry's row (phase 1): never fails the spawn
-if [ -z "$PROJECT" ] && [ "$SIDE" = 0 ] && [ "$MASTER" = 0 ] && [ -n "$MAPPED" ]; then
+if [ -z "$PROJECT" ] && [ "$SIDE" = 0 ] && [ -n "$MAPPED" ]; then
     # a bare spawn of a name a project lists (its agents map, through stackshot's project record) is that project's agent: its row takes the project and
     # role from the record (sessions.py tag --auto), so the back agents' lane rule and the published registry count it. Any other bare spawn is a
     # throwaway: its row carries the throwaway tag and records the Claude session that started it (common.sh, A THROWAWAY'S SPAWNER)
@@ -827,5 +825,4 @@ else echo "   remote  : no bridge yet — check /rc in the pane, or run /remote-
 [ "${rname:-}" = "$NAME" ] || echo "   ⚠ session name is '${rname:-unset}', not '$NAME' — run /rename $NAME in the pane"
 [ -n "$MAPPED" ] || echo "   ⚠ the pane map has no row for '$NAME' yet ($([ -n "${ruuid:-}" ] && echo "the write failed, see above" || echo "no registry entry yet")) — a reboot could not bring it back; once it is up, run: salamander adopt $NAME"
 [ -n "$PROJECT" ] && spawn_register   # THE REGISTER HOOK (the header): after the session is up and mapped; a failure is one ⚠ line, never the exit status
-if [ "$MASTER" = 1 ]; then "$SALA_BIN" master --set "$NAME" || exit 1; fi
 exit 0   # the session is up and verified above; nothing after this line may decide the exit status (Why: a trailing `[ … ] &&` once returned 1 on every good spawn)

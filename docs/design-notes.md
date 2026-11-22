@@ -2,11 +2,10 @@
 
 The failure modes that shaped sala, and what each design choice answers.
 
-- **At most one master session, watched by a timer — optional since the operation queue.** With one, everything
-  else is healed *from* a Claude session; the master is the one session a machine guarantees you can reach from claude.ai.
-  Its identity is the tmux session name, so `/clear` or a resume inside it is not a fault. Keep it a dedicated operator
-  session, not one you develop in. With none (`salamander master --unset`), the queue
-  is the one driver, the watch keeps no master alive (it still revives any pane whose claude died) and the post-boot report goes to Slack.
+- **No master session: the operation queue is the one driver.** The master path is retired: the watch keeps, heals and
+  bridges no master (it revives any pane whose claude died, a former master's included) and the post-boot report goes to
+  Slack. A `SALA_MASTER` line left in a config does nothing but draw one notice per value (`salamander master --unset`
+  comments it out).
 - **`/feedback` is opened only when a draft is queued.** The CLI keeps drafts as files (`~/.claude/feedback/drafts/*.json`,
   `status: queued`); the drain checks the disk first, so a recycle leaves no `/feedback` turn in the panes that had nothing
   to send. `/exit` itself is unavoidable: it is the only clean shutdown.
@@ -23,8 +22,7 @@ The failure modes that shaped sala, and what each design choice answers.
   older versions; the first `sala` after that moves it (log and `map-history/` with it), leaves a symlink at the old path
   and fills in the cwd column from the live registry, `$HOME` where nothing is live. Older
   versions rebuilt it on every save from what was alive, so the first save after a boot that brought back only part of the
-  sessions dropped the other rows for good. Now only honored paths change it: `spawn`, `unpark`, `adopt` and
-  `watch`'s re-add of the master row **add**; `rename` **renames**; `retire`, `close-shell` and `forget-row` are the only paths that **drop** a row.
+  sessions dropped the other rows for good. Now only honored paths change it: `spawn`, `unpark` and `adopt` **add**; `rename` **renames**; `retire`, `close-shell` and `forget-row` are the only paths that **drop** a row.
   Absence never removes one: a crash, a force-quit, a dead claude or a missing tmux session leaves the row in place.
   The one change an observation may make is the **follow**: the live claude in a mapped session reports a different
   conversation than its row (a `/clear`, a hand `--resume`), and the row follows — `revive --save-map`, wired to

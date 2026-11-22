@@ -248,7 +248,7 @@ printf '%s\t%s\t%s\t%s\t%s\t%s\n' sala-test-x "$(date +%s)" "background work is 
 set_resolve "$S4" ok sala-test-other "not in the set"   # someone else's pane: ignored
 [ "$(set_count "$S4" out)" = 1 ] && [ ! -s "$POSTS" ] && ok "before watch: x outstanding, the set open, nothing posted" || bad "before watch: out=$(set_count "$S4" out) posts: $(show)"
 sleep 1; [ "$(reports)" = 0 ] && ok "an ignored settle (someone else's pane) makes no post-recycle call" || bad "calls: $(<"$PR")"
-SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1
+"$SALA" watch >/dev/null 2>&1
 grep -q 'deferred: sala-test-x relaunched' "$HOME/.claude/salamander-watch.log" && ok "watch relaunched x" || bad "watch did not relaunch x: $(grep deferred "$HOME/.claude/salamander-watch.log")"
 [ "$(set_val "$S4" done)" = 2 ] && [ "$(set_val "$S4" closed)" = 1 ] && [ -n "$(post 'set closed')" ] && ok "x closed the set: 2/2, closed, its \"set closed\" post out" || bad "deferred: $(cat "$SALA_SET_DIR/$S4"; show)"
 [ ! -s "$SALA_DEFERRED" ] && ok "x left the deferred list" || bad "deferred list: $(<"$SALA_DEFERRED")"
@@ -273,10 +273,10 @@ waitfor '[ "$(workers)" = 0 ]' 40 && ok "the worker has nothing left to retry an
 [[ $(post 'deferred') =~ (^|$'\n')\ +•\ sala-test-sh1:\ busy\ for\ [0-9]+\ min\;\ sala\ relaunches\ it\ once\ it\ is\ free($'\n'|$) ]] && ! has "$(post 'deferred')" "background shell" \
     && ok "its bullet is the short form (no process to count under the stand-in: \"busy for <age>\"), not \"said ready, but its background shell(s)…\"" || bad "deferred bullet: $(post 'deferred')"
 [ "$(cpid sh1)" = "$SC" ] && ok "the pane was not relaunched while its shells run (same claude pid)" || bad "pid $SC → $(cpid sh1)"
-SALA_MASTER=sala-test-mm "$SALA" watch >/dev/null 2>&1
+"$SALA" watch >/dev/null 2>&1
 [ "$(cpid sh1)" = "$SC" ] && grep -q "^sala-test-sh1	" "$SALA_DEFERRED" && ok "watch leaves it alone while the registry still says 'shell'" || bad "watch moved it: pid $(cpid sh1); $(<"$SALA_DEFERRED")"
 sed -i 's/"status":"[a-z]*"/"status":"idle"/' "$HOME/.claude/sessions/$SC.json"                        # the shells are done
-SALA_MASTER=sala-test-mm "$SALA" watch >/dev/null 2>&1
+"$SALA" watch >/dev/null 2>&1
 grep -q 'deferred: sala-test-sh1 relaunched' "$HOME/.claude/salamander-watch.log" && [ "$(set_val "$S5" closed)" = 1 ] && [ "$(set_val "$S5" done)" = 2 ] \
     && ok "shells done: watch relaunched it and closed the set 2/2" || bad "after the shells: $(cat "$SALA_SET_DIR/$S5"; grep deferred "$HOME/.claude/salamander-watch.log")"
 $T kill-session -t sala-test-sh1; $T kill-session -t sala-test-mm; : > "$POSTS"; : > "$PR"; rm -f "$SALA_DEFERRED"
@@ -294,9 +294,9 @@ SE=$(ls -t "$SALA_SET_DIR" | grep -v '^current\|\.lock' | head -1)
 [ -n "$(post 'deferred')" ] && post deferred | grep -q 'half a thought\|draft\|unsubmitted' && ok "the report names the pane as deferred, with its reason (the unsubmitted draft)" || bad "no deferred post with a reason: $(show)"
 grep -q 'sala-test-we:0: still skipped after' "$RLOG" && bad "the old give-up line is back" || ok "no give-up line in the log"
 WP=$(cpid we); mk mm "$(uuid 14)"; fake_up mm
-SALA_MASTER=sala-test-mm "$SALA" watch >/dev/null 2>&1
+"$SALA" watch >/dev/null 2>&1
 [ "$(cpid we)" = "$WP" ] && grep -q "^sala-test-we	" "$SALA_DEFERRED" && ok "watch does not relaunch it while the draft stands" || bad "watch: pid $WP → $(cpid we); $(<"$SALA_DEFERRED")"
-undraft we; SALA_MASTER=sala-test-mm "$SALA" watch >/dev/null 2>&1
+undraft we; "$SALA" watch >/dev/null 2>&1
 grep -q 'deferred: sala-test-we relaunched' "$HOME/.claude/salamander-watch.log" && [ "$(set_val "$SE" closed)" = 1 ] && [ "$(set_val "$SE" done)" = 1 ] \
     && ok "the draft sent: watch relaunched it and the set closed 1/1" || bad "after the draft: $(cat "$SALA_SET_DIR/$SE"; grep deferred "$HOME/.claude/salamander-watch.log")"
 
@@ -321,7 +321,7 @@ P2=$(post " deferred*"); D1=$(pbl "$P2" sala-test-b1); D2=$(pbl "$P2" sala-test-
 waitfor '[ "$(workers)" = 0 ]' 40 || bad "the retry worker did not finish"; wait_lock
 sed -i 's/"status":"[a-z]*"/"status":"idle"/' "$HOME/.claude/sessions/$B1.json"     # b1's turn ended
 mk mm2 "$(uuid 23)"; fake_up mm2; : > "$POSTS"
-SALA_MASTER=sala-test-mm2 "$SALA" watch >/dev/null 2>&1
+"$SALA" watch >/dev/null 2>&1
 waitfor '[ -n "$(post "· 1/2*")" ]' 120 && ok "b1 relaunched by watch: a 🔄 · 1/2 follow-up" || bad "no follow-up: $(show; grep deferred "$HOME/.claude/salamander-watch.log")"
 P3=$(post "· 1/2*"); W2=$(pbl "$P3" sala-test-b2)
 [ "$(norm "$W2")" = "$(norm "$F2")" ] && ok "the 🔄 follow-up names b2 with the same words (no \"still waiting,\")" || bad "follow-up bullet: '$W2' vs '$F2' in: $P3"

@@ -37,24 +37,24 @@ Services with nothing to pause (a plain data store) implement `pause` and `resum
 master pane:
 
 1. **Pause:** records `T` = now (UTC); runs `pause --at T` on every hook. Any failure → resume all, stop.
-2. **Drain:** waits until every pane except the master is idle (busy ones are held; a pane still busy after the budget
+2. **Drain:** waits until every pane except the one running the command is idle (busy ones are held; a pane still busy after the budget
    halts the run), drains feedback drafts, takes a resurrect snapshot, and records every pane's conversation uuid and
    claude.ai id.
 3. **Flush and stop, in order:** `flush-stop`, then `status` must exit 3, per hook in `SALA_REBOOT_HOOKS` order; a final
    heartbeat. Any failure → **halt: no reboot**, `start` + `resume` the ones already stopped, report.
 4. **Dry run:** `start` every hook in reverse order (each `status` must exit 0), then `resume --since T --sessions <live>`.
    **Real run:** writes the reboot marker (`T`, the pane snapshot, the planned checks) and issues the reboot as the
-   master's last act.
+   running session's last act.
 
 **At boot** (the marker is present): `sala watch` launches the boot half as its own systemd unit. It waits for revive,
 recreates every session of the frozen pane-map roster that did not come back (see *The pane map during a reboot*),
 checks each pane's claude.ai id against the snapshot (re-bridging with `/remote-control` where needed) and writes the
 verified session list. Then it polls every hook's `status` together and runs `resume --since T --sessions <file>` on each
 one **the moment it exits 0**, so a slow hook holds nobody else. A hook still stopped (exit 3) at 300 s gets one `start`.
-A hook not up by 300 s is reported to the master at once, as **still coming up** (any exit but 0 and 3) or **down**
-(exit 3 and the start failed), and stays on watch for up to 30 min after boot: if it comes up, sala resumes it and tells
-the master; if not, it says it gave up and leaves the marker, so `sala reboot --resume` finishes the run. The summary
-lines go into the one post-boot report in the master's pane, which is sent once every hook is resumed or reported.
+A hook not up by 300 s is reported to Slack at once, as **still coming up** (any exit but 0 and 3) or **down**
+(exit 3 and the start failed), and stays on watch for up to 30 min after boot: if it comes up, sala resumes it and says so
+in Slack; if not, it says it gave up and leaves the marker, so `sala reboot --resume` finishes the run. The summary
+lines go into the one post-boot report, a Slack post, which is sent once every hook is resumed or reported.
 So a hook's `status` should exit 3 only when the service is really stopped, not while it is starting.
 
 **What `sala reboot --status` says of the last run:** after the hooks' lines it prints
@@ -88,5 +88,5 @@ is no roster; the post-boot report names the rows with no tmux session, and `sal
 A session whose work continues after the reboot leaves itself a note before the drain: `sala note "<what I do next>"`
 from its own pane, or in one step with the hand-over, `sala cue --after "<what I do next>" "reboot the box"`. Notes are
 not reboot-specific: one comes back after its session's next relaunch of any kind (see `lib/note.sh`). During a clean
-reboot, watch holds off and the boot half delivers the due notes once the hooks are resumed or reported, and tells the
-master about any whose session is not back. The shutdown report names the sessions with notes; a dry run changes nothing.
+reboot, watch holds off and the boot half delivers the due notes once the hooks are resumed or reported, and posts to Slack
+about any whose session is not back. The shutdown report names the sessions with notes; a dry run changes nothing.

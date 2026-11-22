@@ -3,7 +3,7 @@
 # remote /provision) and, on the box that hosts them, named long-lived sessions in tmux that survive reboots
 # and CLI updates, resumed by transcript UUID, reachable from Remote Control.
 #
-#   salamander spawn  [NAME] [--mandate FILE|TEXT [--no-confirm]] [--cwd DIR] [--lane L] [--model M] [--effort E] [--fork UUID] [--master] [--dry-run]
+#   salamander spawn  [NAME] [--mandate FILE|TEXT [--no-confirm]] [--cwd DIR] [--lane L] [--model M] [--effort E] [--fork UUID] [--dry-run]
 #                                      (--brief FILE and --prompt TEXT: the mandate's older names, kept as aliases; --lane L records the lane too; a bare spawn from a Claude session records it on the throwaway's row, spawned_by: that session may later retire it with no words; every bare spawn also writes the throwaway tag, throwaway=1, on the row: any session may retire a tagged row with no words, between turns)
 #                                      (--fork UUID is a resume: like a recycle or revive it passes the user settings' permissions.defaultMode as --permission-mode)
 #   salamander spawn  NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
@@ -32,18 +32,18 @@
 #                                      (--rescue, with --only or --self: a stale background-task row — the exit dialog, the Stop hook's record or the
 #                                      mod listing work while no child process runs under the claude — no longer holds the pane)
 #                                      (a claude still running SALA_EXIT_WAIT s after its /exit — a hung process — is ended by its pid, SIGTERM then SIGKILL, and its session
-#                                      resumed: the dry run says "will end a stuck process"; never the master or the session running the command; SALA_EXIT_END=0: never)
+#                                      resumed: the dry run says "will end a stuck process"; never the session running the command; SALA_EXIT_END=0: never)
 #   salamander rc     [--ensure|--start|--status|--restart|--stop|--archive ID…|--titles [--dry-run|--apply (--only NAME (repeatable)|--all)]]   (the Remote Control server; retired; --titles: claude.ai session titles)
 #   salamander map    [--write PATH]
 #   salamander update [HOST…|--fleet] [--check]   CLI update: here (= recycle --update --force), named hosts over ssh, or the whole fleet then here
 #   salamander provision [--check] [HOST…]  the spec's script steps on every box (the others in parallel, this box last, then a recycle); HOST… = just those, no recycle
 #   salamander provision --only STEP[,STEP…] [--check] [HOST…]   just those steps on every box (or HOST…): the apply, then their check; no CLI update, no recycle
-#   salamander provision --settle <set> <host> <step> ok|gave ["<note>"] · --waiting <set> <host> <step> "<text>" · --sets   a provision set's leftovers (the master)
+#   salamander provision --settle <set> <host> <step> ok|gave ["<note>"] · --waiting <set> <host> <step> "<text>" · --sets   a provision set's leftovers
 #   salamander retire <tmux-session>|--id <conversation-id> [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items] [--dry-run]
 #                                      end a Claude session for good (exit · kill · unmap · snapshot · archive); the exact tmux session name, or --id for a session known by its conversation; --self ends the session the command runs in (queue it: sala op retire NAME --self; its own running turn is not counted busy); --force is gone
 #   salamander close-shell <tmux-session> [--busy] [--dry-run]   close a session whose panes run no Claude (kill · unmap · snapshot)
 #   salamander forget-row <name> [--dry-run]   drop a pane-map row whose tmux session is gone (and its lane and model rows)
-#   salamander rename OLD NEW [--dry-run]           rename a live pane end to end (/rename · tmux · map · master · notes · heartbeat; renames OLD's entry on its project's page via stackshot if the page does not list NEW)
+#   salamander rename OLD NEW [--dry-run]           rename a live pane end to end (/rename · tmux · map · notes · heartbeat; renames OLD's entry on its project's page via stackshot if the page does not list NEW)
 #   salamander sessions [--all] [--json] | --check [--dry-run] | --migrate [--dry-run]   the session registry (phases 1 and 2; docs/session-registry.md):
 #                                      one row per session with an id that outlives a rename; read-only listing, --check repairs a kill between the
 #                                      pane map's write and the registry's, --migrate makes the rows of the pane map once (--dry-run first)
@@ -72,7 +72,7 @@
 #   salamander follow                               resident watcher of the session registry (sala-follow.service): follows hand renames
 #   salamander snapshot [--now]        event-driven tmux-resurrect save (tmux hooks + Claude SessionStart hook)
 #   salamander watch [--check]         the watchdog, from a timer: the operation queue, the automatic update, relaunch and recycle, the
-#                                      watches below and the post-boot report; a master session (SALA_MASTER), if one is set, kept alive and bridged
+#                                      watches below and the post-boot report; a SALA_MASTER line left in the config is said once to be retired
 #   salamander watch --limit | --signin | --net   only the usage-limit watch, only the lane sign-in watch, or only the network-stop wake (lib/watch.sh)
 #   salamander watch --stuck [--dry-run]   only the stuck-question watch: a pane stopped on a terminal-only question posted once, with its sala-web link
 #   salamander watch --questions       only the parked-question sweep (lib/watch.sh question_sweep_tick)
@@ -87,7 +87,7 @@
 #   salamander heartbeat [--no-push|--dry-run|--check]   sweep every box over ssh: liveness, CLI version, live sessions → the fleet live store (timer)
 #   salamander ready [--clear|--list]  from inside a session, as the turn's last call: I may be relaunched now (recycle's fast path; shells may be cut, a running subagent never is: it is named and the relaunch waits for it; a pane on the deferred list counts as waiting)
 #   salamander unpark NAME [--dry-run]  bring a conversation parked by "← for agents" back into its pane (see lib/unpark.sh)
-#   salamander master [--name|--json|--set NAME|--unset]  the master session (SALA_MASTER): is it live; --set designates one; --unset ends it
+#   salamander master [--name|--json|--unset]  the master session (SALA_MASTER; retired): is it live; --unset ends it
 #                                      (the operation queue replaces it: nothing healed or bridged, the post-boot report to Slack)
 #   salamander cue [--from NAME] [--after "<next>"] [--dry-run] "<words>"  hand an operator cue ("recycle claude") to the master; --after leaves a note;
 #                                      no master → the pointer to `salamander op` and exit 1, nothing delivered

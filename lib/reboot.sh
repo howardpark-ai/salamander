@@ -2,23 +2,23 @@
 # upgrade; the clean-reboot protocol brief in the ops repo; participant contract docs/reboot-contract.md).
 #
 #   salamander reboot --dry-run       steps 1–4, then start + resume everything (the acceptance test; no reboot)
-#   salamander reboot --go            steps 1–4, then the reboot as the master's last act — only on the owner's word
+#   salamander reboot --go            steps 1–4, then the reboot as the session's last act — only on the owner's word
 #   salamander reboot --status        every hook's status, and the last run's step (the boot half ends it at booted, or boot-waiting)
 #   salamander reboot --resume        un-stick a half-done run: start + resume every hook from the recorded pause time
 #   salamander reboot --after-boot    (internal) the boot half, launched by `watch` when a reboot marker is present
 #
-# The sequence: 1 pause inbound (hooks' `pause --at T`) · 2 drain every pane but the master and this one, snapshot,
+# The sequence: 1 pause inbound (hooks' `pause --at T`) · 2 drain every pane but this one, snapshot,
 # record each pane's conversation + claude.ai id · 3/4 flush-stop each hook in SALA_REBOOT_HOOKS order and verify it is
 # stopped, final heartbeat · 5 dry run: start + resume; real: marker, then reboot. Any failure halts with no reboot and
 # rolls back (start + resume what was stopped/paused).
 # At boot: revive done → the pane map's frozen roster against tmux (every session not back is recreated and resumed),
 # the freeze lifted → each pane's claude.ai id checked against the snapshot (re-bridged with /remote-control
 # where needed) → every hook polled together, each resumed (--since T --sessions <verified>) the moment it is up → the
-# result lines go into the one post-boot report `watch` hands the master; a hook not up by then is reported and kept on watch.
+# result lines go into the one post-boot report `watch` posts; a hook not up by then is reported and kept on watch.
 
 : "${SALA_REBOOT_HOOKS:=}"            # name=path … in stop order (see docs/reboot-contract.md)
 : "${SALA_REBOOT_DRAIN_WAIT:=900}"    # seconds to wait for the other panes to go idle before halting
-: "${SALA_REBOOT_BOOT_WAIT:=300}"     # seconds after boot before a hook that is not up is reported to the master
+: "${SALA_REBOOT_BOOT_WAIT:=300}"     # seconds after boot before a hook that is not up is reported
 : "${SALA_REBOOT_BOOT_GIVEUP:=1800}"  # seconds after boot the boot half keeps watching a reported hook, to resume it itself
 : "${SALA_REBOOT_SHELL_GRACE:=120}"   # a pane idle but for a background shell counts as drained after this long
 CUT=(); DRAFTS_SEEN=()
@@ -35,15 +35,10 @@ done; export PATH
 rlog() { echo "[$(date -Is)] $*" >> "$RLOG"; }
 say() { echo "$*"; rlog "$*"; REPORT+=("$*"); }
 REPORT=()
-# tell_master <headline> [bullet…] — straight into the master's inbox (the post-boot report's path); Slack when that
-# fails, in the shared notice shape (sala_post)
-tell_master() {
-    local mp cpid sock text="[sala reboot] $1" b; shift
-    for b in "$@"; do [ -n "$b" ] && text="$text"$'\n'"- $b"; done
-    mp=$(tmux list-panes -t "$(tmux_win_t "${SALA_MASTER:-}")" -F '#{pane_id}' 2>/dev/null | head -1)
-    [ -n "$mp" ] && cpid=$(claude_pid_under "$(tmux display -p -t "$mp" '#{pane_pid}')" 2>/dev/null) && sock=$(session_socket "$cpid") \
-        && session_push "$sock" "$text" && { rlog "told the master: ${text%%$'\n'*}"; return 0; }
-    sala_post "$(printf '%s' "$text" | head -1 | sed 's/^\[sala reboot\] //')" "$@"; rlog "master unreachable — sent to Slack: ${text%%$'\n'*}"
+# tell_owner <headline> [bullet…] — a Slack post in the shared notice shape (sala_post), and a line in the reboot log
+tell_owner() {
+    local text="[sala reboot] $1"; shift
+    sala_post "$(printf '%s' "$text" | head -1 | sed 's/^\[sala reboot\] //')" "$@"; rlog "sent to Slack: ${text%%$'\n'*}"
 }
 
 NAMES=(); PATHS=()
@@ -100,7 +95,7 @@ deliver_notes() {
     local out l
     out=$("$SALA_BIN" note --deliver --reboot 2>&1)
     while IFS= read -r l; do [ -n "$l" ] && say "$l"; done <<< "$out"
-    printf '%s\n' "$out" | grep -q '✗ notes waiting' && tell_master "⚠️ *Reboot: session notes not delivered yet*" "$(printf '%s\n' "$out" | grep '✗ notes waiting' | sed 's/.*(delivered when it is): //')" "their sessions are not back; \`sala revive --only NAME\` brings one back and its note follows"
+    printf '%s\n' "$out" | grep -q '✗ notes waiting' && tell_owner "⚠️ *Reboot: session notes not delivered yet*" "$(printf '%s\n' "$out" | grep '✗ notes waiting' | sed 's/.*(delivered when it is): //')" "their sessions are not back; \`sala revive --only NAME\` brings one back and its note follows"
     return 0
 }
 # fire_post_recycle <paused_at ISO> [skipped session…] — SALA_POST_RECYCLE_CMD at the end of the boot half (or `--resume`
@@ -194,14 +189,14 @@ if [ "$MODE" = --after-boot ]; then
     # hook holds nobody else (one writer once took minutes on a first boot, and a serial wait held
     # the others paused behind it). A hook still not up after SALA_REBOOT_BOOT_WAIT is reported once —
     # "still coming up" (status neither 0 nor 3) or "down" (3 and a start failed) — and kept on watch until
-    # SALA_REBOOT_BOOT_GIVEUP; it is resumed on its own if it comes up, and the master is told either way.
+    # SALA_REBOOT_BOOT_GIVEUP; it is resumed on its own if it comes up, and the report says so either way.
     pending=(); for ((k=${#NAMES[@]}-1; k>=0; k--)); do pending+=("$k"); done
     declare -A told=() tried=(); RESUMED=()
     resume_one() {  # <k> <how it came up>
         local k="$1"
         if hook "$k" resume 600 --since "$since" --sessions "$vf"; then say "  ▶ ${NAMES[$k]} $2, resumed — $HOOK_LINE"; RESUMED+=("${NAMES[$k]}"); return 0; fi
         say "  ✗ ${NAMES[$k]} $2, but resume failed — $HOOK_LINE"
-        tell_master "🚨 *Reboot: ${NAMES[$k]} is up but did not resume*" "status: $HOOK_LINE" "\`sala reboot --resume\` retries" "Details: ~/.claude/salamander-reboot.log"
+        tell_owner "🚨 *Reboot: ${NAMES[$k]} is up but did not resume*" "status: $HOOK_LINE" "\`sala reboot --resume\` retries" "Details: ~/.claude/salamander-reboot.log"
     }
     watch_hooks() {  # <deadline seconds since t0> — poll until nothing is pending or the deadline passes
         local dl="$1" k rc el left
@@ -211,7 +206,7 @@ if [ "$MODE" = --after-boot ]; then
                 hook "$k" status 15; rc=$?; el=$(( $(date +%s) - t0 ))
                 if [ "$rc" = 0 ]; then
                     resume_one "$k" "up after ${el}s"
-                    [ -n "${told[$k]:-}" ] && tell_master "✅ *Reboot: ${NAMES[$k]} came up after ${el}s*" "resumed — nothing to do"
+                    [ -n "${told[$k]:-}" ] && tell_owner "✅ *Reboot: ${NAMES[$k]} came up after ${el}s*" "resumed — nothing to do"
                     continue
                 fi
                 if [ "$rc" = 3 ] && [ -z "${tried[$k]:-}" ] && [ "$el" -ge "$SALA_REBOOT_BOOT_WAIT" ]; then  # still stopped: start it once
@@ -222,7 +217,7 @@ if [ "$MODE" = --after-boot ]; then
                     told[$k]=1
                     if [ "$rc" = 3 ]; then state="is down (stopped, and a start did not bring it up)"; else state="is still coming up"; fi
                     say "  ⏳ ${NAMES[$k]} $state ${el}s after boot — $HOOK_LINE"
-                    tell_master "⏳ *Reboot: ${NAMES[$k]} $state ${el}s after boot*" "status: $HOOK_LINE" "resumed so far: $(echo "${RESUMED[*]:-none}" | sed 's/ /, /g')" "sala keeps checking it for up to $((SALA_REBOOT_BOOT_GIVEUP/60)) min after boot, resumes it the moment it is up, and says so either way" "Details: ~/.claude/salamander-reboot.log"
+                    tell_owner "⏳ *Reboot: ${NAMES[$k]} $state ${el}s after boot*" "status: $HOOK_LINE" "resumed so far: $(echo "${RESUMED[*]:-none}" | sed 's/ /, /g')" "sala keeps checking it for up to $((SALA_REBOOT_BOOT_GIVEUP/60)) min after boot, resumes it the moment it is up, and says so either way" "Details: ~/.claude/salamander-reboot.log"
                 fi
                 left+=("$k")
             done
@@ -243,7 +238,7 @@ if [ "$MODE" = --after-boot ]; then
     if [ ${#pending[@]} -gt 0 ] && ! watch_hooks "$SALA_REBOOT_BOOT_GIVEUP"; then
         for k in "${pending[@]}"; do
             rlog "  ✗ ${NAMES[$k]} never came up — gave up after $((SALA_REBOOT_BOOT_GIVEUP/60)) min"
-            tell_master "🚨 *Reboot: ${NAMES[$k]} never came up*" "still not up $((SALA_REBOOT_BOOT_GIVEUP/60)) min after boot; sala stopped watching it and its inbound stays paused" "fix ${NAMES[$k]}, then \`sala reboot --resume\` resumes it" "Details: ~/.claude/salamander-reboot.log"
+            tell_owner "🚨 *Reboot: ${NAMES[$k]} never came up*" "still not up $((SALA_REBOOT_BOOT_GIVEUP/60)) min after boot; sala stopped watching it and its inbound stays paused" "fix ${NAMES[$k]}, then \`sala reboot --resume\` resumes it" "Details: ~/.claude/salamander-reboot.log"
         done
         st_put step boot-waiting   # --status says why the run is unfinished, not a stale "rebooting"
         exit 0   # marker kept: --status shows the run unfinished, --resume finishes it
@@ -276,14 +271,13 @@ for i in $(all_idx); do
     if hook "$i" pause 30 --at "$T"; then say "  ⏸ ${NAMES[$i]} — $HOOK_LINE"; else halt "${NAMES[$i]} did not pause ($HOOK_LINE)"; fi
 done
 
-# 2. drain: every claude pane but the master and this one idle (no prompt, no draft), served sessions idle
+# 2. drain: every claude pane but this one idle (no prompt, no draft), served sessions idle
 st_put step drain
-mpane=""; [ -n "${SALA_MASTER:-}" ] && mpane=$(tmux list-panes -t "$(tmux_win_t "$SALA_MASTER")" -F '#{pane_id}' 2>/dev/null | head -1)
 dl=$(( $(date +%s) + SALA_REBOOT_DRAIN_WAIT )); nextlog=0
 while :; do
     holders=()
     while IFS='|' read -r pane sess cpid uuid br; do
-        [ -n "$pane" ] || continue; [ "$pane" = "$mpane" ] && continue; [ "$pane" = "${TMUX_PANE:-}" ] && continue
+        [ -n "$pane" ] || continue; [ "$pane" = "${TMUX_PANE:-}" ] && continue
         why=$(is_idle_reason "$cpid")
         # a background shell with no turn running: the reboot cuts it anyway — held for SALA_REBOOT_SHELL_GRACE, then
         # counted as drained and named in the report (a leftover watcher held the first dry run)
@@ -310,7 +304,7 @@ while :; do
     sleep 10
 done
 while IFS='|' read -r pane sess cpid uuid br; do
-        [ -n "$pane" ] || continue; [ "$pane" = "$mpane" ] && continue; [ "$pane" = "${TMUX_PANE:-}" ] && continue
+        [ -n "$pane" ] || continue; [ "$pane" = "${TMUX_PANE:-}" ] && continue
         send_feedback_drafts "$pane" "$(registry_field "$cpid" sessionId)" >/dev/null 2>&1 || rlog "feedback drafts still queued for $sess"
 done <<< "$(claude_panes)"
 "$SALA_BIN" snapshot --now >/dev/null 2>&1

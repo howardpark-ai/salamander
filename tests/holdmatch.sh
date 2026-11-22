@@ -148,7 +148,7 @@ echo named > "$MODE"; echo "$UH" > "$HOME/fakemod.sid"
 python3 "$HOME/fakemod.py" "$MSOCK" "$RUN:$SALA_STATE_DIR/mod" "$MODE" "$HEARD" "$HOME" "$SOCK" & FAKEMOD=$!
 waitfor '[ -S "$MSOCK" ]' 20 || { echo "the fake mod did not start"; exit 1; }
 mk() { local n="$1" u="$2"; shift 2; $T new-session -d -s "sala-test-$n" -c "$HOME" -e FAKE_SESSION_ID="$u" -e FAKE_NAME="$n" -e FAKE_LOG="$FAKE_LOG" -e FAKE_SOCK_LOG="$FAKE_SOCK_LOG" "$@"; $T send-keys -t "sala-test-$n" 'claude' Enter; }
-watch_tick() { SALA_MASTER=sala-test-mm "$SALA" watch >/dev/null 2>&1; }
+watch_tick() { "$SALA" watch >/dev/null 2>&1; }
 heard_n() { nlog "$1" "$HEARD"; }
 mk hm "$UH" -e FAKE_STARTED_AT=$(( $(date +%s) - 3600 )); mk mm "$UM"; fake_up hm mm
 HP=$(cpid hm); PANE=$($T list-panes -t =sala-test-hm -F '#{pane_id}' | head -1)

@@ -371,7 +371,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
     `lib/common.sh:107-112`), on a swept box's rows the claude.ai Remote Control address or `""` while the bridge is down.
     `previous_name` + `renamed_at` (ISO-8601 UTC) only on a row of the driving machine `salamander rename` renamed (`lib/heartbeat.sh:39-41`,
     written at `:311` from `salamander-renames.jsonl`, `lib/rename.sh:197`).
-  - `machine.json`: `{"letter", "fleet", "claude", "checked", "master", "master_session", "fleet_ssh"}`;
+  - `machine.json`: `{"letter", "fleet", "claude", "checked", "master", "master_session", "fleet_ssh"}` (`master` and `master_session` are empty strings since the master path was retired; the keys stay and no consumer reads them, so no version bump);
     `checked` ISO-8601 UTC `Z` of the last change; `fleet_ssh = {"<fleet name>": {"letter", "ok", "since"}}` on the driving
     machine; `hub` (a swept remote machine's config-repo fast-forward) was removed in contract version 10.
 - **Owners**: sala `lib/heartbeat.sh:18-45` (the header, which names the contract), `:250` `row()`, `:261` `publish()`;

@@ -81,7 +81,7 @@ echo "== a session whose spawn is still landing its row is not reported as unmap
 # the next tick looks again; past the window (0) one post, once, with no `run:` line; a row that lands between the first read of the
 # map and the post (a tmux shim writes it while the in-flight check asks for the session's age) stops the post.
 WSTATE="$HOME/.claude/salamander-watch.state"; WLOGF="$HOME/.claude/salamander-watch.log"
-wtick() { env "$@" SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; }          # [VAR=value…] → one watch tick
+wtick() { env "$@" "$SALA" watch >/dev/null 2>&1; }          # [VAR=value…] → one watch tick
 nposts() { grep -c 'sala-test-m is not in the pane map' "$POSTS" 2>/dev/null || true; }
 ukey() { grep -c '^unmapped\.' "$WSTATE" 2>/dev/null || true; }
 ulog() { grep -c "unmapped: 'sala-test-m'" "$WLOGF" 2>/dev/null || true; }
@@ -130,7 +130,7 @@ decoy() {  # <HOME> → a long-running `bash …/bin/salamander revive --only x`
 undecoy() { kill "$DPID" 2>/dev/null; wait "$DPID" 2>/dev/null; DPID=""; }
 PROC_ENV=0; [ -r "/proc/$$/environ" ] && PROC_ENV=1
 if [ "$PROC_ENV" = 1 ]; then decoy "$HOME/elsewhere" && ok "a decoy revive runs under another HOME" || bad "the decoy did not start"; fi
-SALA_UNMAPPED_YOUNG=0 SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; rc=$?   # past the spawn window: the session was made by hand
+SALA_UNMAPPED_YOUNG=0 "$SALA" watch >/dev/null 2>&1; rc=$?   # past the spawn window: the session was made by hand
 [ -n "${DPID:-}" ] && undecoy
 [ "$rc" = 0 ] && ok "watch ran (rc 0)" || bad "watch rc=$rc: $(tail -3 "$HOME/.claude/salamander-watch.log" 2>/dev/null)"
 [ "$(grep -c 'sala-test-m is not in the pane map' "$POSTS" 2>/dev/null)" = 1 ] && ok "one post: sala-test-m is not in the pane map" || bad "posts: $(slurp "$POSTS")"
@@ -138,7 +138,7 @@ SALA_UNMAPPED_YOUNG=0 SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; rc=
 if [ "$PROC_ENV" = 1 ]; then
     n=$(grep -c 'skip: a resurrect restore or a salamander revive is running' "$HOME/.claude/salamander-watch.log")
     decoy "$HOME" || bad "the same-HOME decoy did not start"
-    SALA_UNMAPPED_YOUNG=0 SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; undecoy
+    SALA_UNMAPPED_YOUNG=0 "$SALA" watch >/dev/null 2>&1; undecoy
     [ "$(grep -c 'skip: a resurrect restore or a salamander revive is running' "$HOME/.claude/salamander-watch.log")" = $((n + 1)) ] \
         && ok "a revive under this HOME still makes watch skip its run" || bad "watch did not skip for this HOME's revive: $(tail -3 "$HOME/.claude/salamander-watch.log")"
 else ok "no /proc environ: busy_elsewhere stays machine-wide (the same-HOME check needs /proc)"; fi
@@ -148,7 +148,7 @@ out=$("$SALA" adopt sala-test-m 2>&1); echo "$out" | sed 's/^/    /'
 [ "$(row sala-test-m)" = "sala-test-m	$UM	sala-test-m	$HOME/work-m" ] && ok "row: session, uuid, name, cwd (from the process)" || bad "row: '$(row sala-test-m)'"
 [ "$(logn adopt sala-test-m)" = 1 ] && grep -q "	adopt	sala-test-m	— → $UM (sala-test-m, $HOME/work-m)	" "$LOG" && ok "one ledger-log line: adopt, — → uuid (name, cwd)" || bad "log: $(<"$LOG")"
 out=$("$SALA" adopt sala-test-m 2>&1); echo "$out" | grep -q 'already in the pane map' && [ "$(logn adopt sala-test-m)" = 1 ] && ok "adopting it again changes nothing" || bad "second adopt: $out"
-SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; grep -q '^unmapped\.' "$HOME/.claude/salamander-watch.state" && bad "watch kept the unmapped key" || ok "watch dropped its unmapped key once the session was mapped"
+"$SALA" watch >/dev/null 2>&1; grep -q '^unmapped\.' "$HOME/.claude/salamander-watch.state" && bad "watch kept the unmapped key" || ok "watch dropped its unmapped key once the session was mapped"
 
 echo "== spawn adds exactly its row"
 out=$(spawn sala-test-a "$UA" "$HOME/work-a"); echo "$out" | grep -E '^✅|⚠' | sed 's/^/    /'
@@ -219,10 +219,10 @@ echo "== a stale freeze (owner dead on this boot) is cleared by watch"
 sleep 0.2 & dead=$!; wait $dead
 ledger_freeze recycle "$dead" && [ -s "$SALA_LEDGER_FREEZE" ] && ok "a freeze owned by dead pid $dead" || bad "could not write the stale freeze"
 ledger_freeze_stale && ok "ledger_freeze_stale says so" || bad "ledger_freeze_stale missed it"
-SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1
+"$SALA" watch >/dev/null 2>&1
 [ ! -e "$SALA_LEDGER_FREEZE" ] && ok "watch cleared it" || bad "stale freeze still there: $(<"$SALA_LEDGER_FREEZE")"
 ledger_freeze recycle $$ >/dev/null; ledger_freeze_stale && bad "a live freeze read as stale" || ok "a live freeze (owner alive) is not stale"
-SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; [ -s "$SALA_LEDGER_FREEZE" ] && ok "watch leaves a live freeze alone" || bad "watch cleared a live freeze"
+"$SALA" watch >/dev/null 2>&1; [ -s "$SALA_LEDGER_FREEZE" ] && ok "watch leaves a live freeze alone" || bad "watch cleared a live freeze"
 ledger_unfreeze test >/dev/null
 
 echo "== reboot --dry-run: frozen from the pause, lifted at the end; a halt lifts it too (a sandbox hook)"

@@ -421,7 +421,7 @@ if [ "$MODE" = fallback ]; then
     for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
     [ "$DFLT" = 1 ] && echo "  default lane: $L → $fb (was $L; new sessions and every session without a lane of its own)"
     echo "  jobs: a sala job whose lane is $L runs on $fb while $L is dormant (salamander lane exec resolves it at run time; no unit file is rewritten)"
-    [ "${SALA_EXIT_END:-1}" = 1 ] && echo "  a claude still running ${SALA_EXIT_WAIT}s after its /exit: will end a stuck process (that one pid, SIGTERM then SIGKILL after ${SALA_EXIT_TERM_WAIT}s; never the master or the session running this) and resume the session on $fb"
+    [ "${SALA_EXIT_END:-1}" = 1 ] && echo "  a claude still running ${SALA_EXIT_WAIT}s after its /exit: will end a stuck process (that one pid, SIGTERM then SIGKILL after ${SALA_EXIT_TERM_WAIT}s; never the session running this) and resume the session on $fb"
     if [ "${#PLAN_ON[@]}" -eq 0 ] && [ "$DFLT" = 0 ]; then echo "nothing is on the $(lane_label "$L") lane and it is not the default$([ "${#PINSK[@]}" -gt 0 ] && echo ", bar the pinned ones above"): nothing to move"; exit 0; fi
     if [ "$DRY" = 1 ]; then echo "[dry-run] would record each one's home ($L) and model change, switch the default if it was $L, then: salamander lane $fb <sessions>…$([ -n "$MV_MASTER" ] && echo "; salamander lane --rescue $fb (the master $MV_MASTER)"); nothing written"; exit 0; fi
     ops_guard lane "$L" $NOTMASTER

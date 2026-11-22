@@ -275,14 +275,14 @@ e = s[sys.argv[2]]; assert e["name"] == "smoke" and e["url"] == "https://claude.
 assert "cse_01FAKE" in s   # the rc-shaped fake registers too; the heartbeat reports what the registry says is live in tmux
 PY2
 git -C "$HOME/store.git" cat-file -e HEAD:data/q/sessions.json 2>/dev/null && ok "heartbeat pushed to the remote" || bad "heartbeat did not push"
-# live store + git master-only: full facts locally, only the master record in git
-out=$(SALA_HEARTBEAT_STATE_DIR="$HOME/live" SALA_HEARTBEAT_GIT=master SALA_MASTER=smoke SALA_HEARTBEAT_REPO="$HOME/store" SALA_HEARTBEAT_DIR=data SALA_FLEET_NAMES="$HOME/fleet.tsv" "$ROOT/bin/salamander" heartbeat 2>&1)
-python3 - "$HOME/live/q" "$HOME/store/data/q" <<'PY2' && ok "live store full, git carries only the master record" || bad "live/master split: $out"
+# live store + git master-only (the mode stays): full facts locally, only the master record in git; its master keys are empty strings now
+out=$(SALA_HEARTBEAT_STATE_DIR="$HOME/live" SALA_HEARTBEAT_GIT=master SALA_HEARTBEAT_REPO="$HOME/store" SALA_HEARTBEAT_DIR=data SALA_FLEET_NAMES="$HOME/fleet.tsv" "$ROOT/bin/salamander" heartbeat 2>&1)
+python3 - "$HOME/live/q" "$HOME/store/data/q" <<'PY2' && ok "live store full, git carries only the master record (empty keys)" || bad "live/master split: $out"
 import json, sys
 live, git = sys.argv[1], sys.argv[2]
 lm = json.load(open(live + "/machine.json")); gm = json.load(open(git + "/machine.json"))
 assert lm["claude"] == "9.9.9" and "fleet_ssh" in lm
-assert set(gm) == {"letter", "fleet", "master", "master_session"} and gm["master"] == "smoke"
+assert set(gm) == {"letter", "fleet", "master", "master_session"} and gm["master"] == "" and gm["master_session"] == "" and lm["master"] == "" and lm["master_session"] == ""
 PY2
 echo "== heartbeat fleet sweep: a posix box behind an ssh stub — its version published, no hub field, no git in the payload"
 # one fake host behind an `ssh` stub (psets.sh's shape): lin1 answers the liveness probe and prints its fixture for the

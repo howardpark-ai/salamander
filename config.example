@@ -50,16 +50,13 @@
                                  #   (the suites, a box with no stackshot). `spawn --project` is the one command that needs stackshot, by design; SALA_AGENT_CHECK=off is the only bypass
 #SALA_SNAPSHOT_CMD=              # `snapshot` runs this instead of save.sh directly, e.g. systemctl --user start --no-block tmux-resurrect-save.service
 #SALA_SNAPSHOT_DELAY=4            # seconds `snapshot` waits to coalesce a burst of events into one save
-#SALA_MASTER=                     # optional: a tmux session `salamander watch` keeps alive + bridged (a dedicated operator session). The
-                                 #   operation queue replaces it (`sala op`, SALA_OP_* below): with none, a Claude session's raw
-                                 #   fleet verb is refused and pointed to `sala op`, `sala cue` points there too, and the post-boot report
-                                 #   goes to Slack. `salamander master --set NAME` writes it, `--unset` comments it out
-#SALA_PSET_TARGET=                # optional: a session name (a front agent, e.g. my-project-main) that hears a provision set's items addressed to the owner
-                                 #   when NO master is configured (SALA_MASTER unset): the same text the master would get, with
-                                 #   `[for <owner name>]` on its first line so a front agent's pane takes it, into its inbox as `sala cue` delivers. A
-                                 #   configured master always wins, even one that is briefly down (its items stay pending, retried every watch
-                                 #   tick; the target is never told). The target not live, or its push failing: the Slack post as before (the
-                                 #   items count as told).
+#SALA_MASTER=                     # retired: `salamander watch` no longer keeps, heals or bridges a master session, and a line left here only draws
+                                 #   one notice per value. The operation queue replaces it (`sala op`, SALA_OP_* below): a Claude session's raw
+                                 #   fleet verb is refused and pointed to `sala op`, and the post-boot report goes to Slack.
+                                 #   `salamander master --unset` comments the line out
+#SALA_PSET_TARGET=                # optional: a session name (a front agent, e.g. my-project-main) that hears a provision set's items, with
+                                 #   `[for <owner name>]` on its first line so a front agent's pane takes it, into its inbox as `sala cue` delivers.
+                                 #   Unset, the target not live, or its push failing: the Slack post (the items count as told).
                                  #   Unset (the default) = exactly the behaviour without the knob
 #SALA_WATCH_COOLDOWN=600          # seconds before watch repeats the same heal
 #SALA_MODEL_INPLACE=on           # `sala model`: an idle pane with an empty input box is switched with /model and /effort typed into it (its conversation
@@ -187,8 +184,8 @@
                                  #   the relaunch's kind: recycle · reboot of <host> · CLI update relaunch · provision relaunch · automatic relaunch.
                                  #   Default: the owner's wording, in lib/common.sh
 #SALA_BOOT_GRACE=900             # watch: post-boot report waits this long after boot for revive's summary …
-#SALA_BOOT_DEADLINE=1800         # … and this long for an idle master, then delivers anyway (no live master → notify)
-#SALA_BOOT_AUDIT=                # what the master checks after a boot, e.g. "failed units, key services, dmesg"
+#SALA_BOOT_DEADLINE=1800         # … and this long for a clean reboot's boot half
+#SALA_BOOT_AUDIT=                # no longer used: the post-boot report goes to Slack with no audit request
 #SALA_AUTO_UPDATE=on             # watch: update the CLI on its own, at once, when npm has a newer one (every box); this box's panes on an
                                  #   older version than the installed CLI are relaunched at once (`recycle`, those panes only; a busy one once idle)
 #SALA_AUTO_RECYCLE=on            # watch: at once, run the recycle the master's "recycle claude" would (recycle --update --force) when board

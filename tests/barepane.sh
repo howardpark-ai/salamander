@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Bare panes (lib/barepane.sh, called by lib/watch.sh): after a mass SIGKILL of every claude on
 # the coordinator machine, tmux and its panes stay up as bare shells and nothing revived them. Watch now revives ANY
-# mapped pane that stays at a shell with no claude for SALA_BARE_GRACE, with `revive --only`. What is checked, with no master
-# configured (the only pane check such a box has):
+# mapped pane that stays at a shell with no claude for SALA_BARE_GRACE, with `revive --only`: the pane check of every
+# box, a former master's pane included. What is checked:
 #  - the control: panes with a claude, and one tick over bare panes before the grace, revive nothing and post nothing;
 #  - after the grace the bare panes are revived on their own conversations (the fake claude's start log counts them), the
 #    longest-bare first, at most SALA_BARE_MAX per tick (a cap of 2 for three bare panes: the third waits for the next tick),
@@ -11,7 +11,8 @@
 #    `side done` marker, a pane running a command (a child of its shell), a session in SALA_NO_RELAUNCH, a pane that has a claude;
 #  - a recycle lock held: nothing is revived and the clocks restart, so the grace counts from the first bare tick after it;
 #  - a pane revive cannot bring back (FAKE_RESUME_FAIL): tried SALA_BARE_TRIES times, one "could not revive" post, then left;
-#  - SALA_BARE_REVIVE=off revives nothing.
+#  - SALA_BARE_REVIVE=off revives nothing;
+#  - a pane whose name is still SALA_MASTER (a line left in a config) is revived like any other, never skipped.
 # SAFETY: every kill in this suite is a `kill -9` of ONE pid, taken only after /proc/<pid>/exe is the suite's own compiled fake
 # claude and /proc/<pid>/environ names this suite's temporary HOME (killfake, cleanup). The tmux server is a private socket
 # (tmux -L sala-barepane-<pid> -f /dev/null, SALA_TMUX_SOCKET pointing at it), HOME is a mktemp -d, the claude is tests/fake-claude.c;
@@ -142,6 +143,14 @@ b1=$(n_starts 2); export SALA_BARE_REVIVE=off; tick; sleep 5; tick; unset SALA_B
 ! hasclaude b && [ "$(n_starts 2)" = "$b1" ] && ok "b stays bare with the switch off" || bad "b: $(n_starts 2) vs $b1"
 tick; sleep 5; tick
 waitfor 'hasclaude b' 40 && ok "and is revived with it back on (the clock restarted)" || bad "b: $(tail -5 "$WLOG")"
+
+echo "== a pane named like the former master (a SALA_MASTER line left in the config) is revived like any other"
+killfake sala-test-b; waitfor '! hasclaude b' 40
+b2=$(n_starts 2); export SALA_MASTER=sala-test-b
+tick; sleep 5; tick
+unset SALA_MASTER
+waitfor 'hasclaude b' 40 && [ "$(n_starts 2)" = "$((b2 + 1))" ] && ok "b (the name SALA_MASTER still holds): not skipped, revived once on its own conversation" || bad "b: starts $(n_starts 2) vs $b2; $(tail -6 "$WLOG")"
+! grep -q "master" <<< "$(grep -i "sala-test-b" "$WLOG" | grep -i "skip\|left alone")" && ok "no master skip in the log" || bad "log: $(grep sala-test-b "$WLOG" | tail -3)"
 
 [ "$fail" = 0 ] && echo "barepane: pass" || echo "barepane: FAIL"
 exit $fail

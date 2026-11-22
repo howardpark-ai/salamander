@@ -1935,6 +1935,8 @@ cgroup with no Claude session above it, and the cgroup file stands for that. The
 
 ### `tests/nomaster.sh`: new, 56 ("No master session", Thu Oct 15th 2026); 4 added Sun Oct 25th 2026
 
+*Changed Sun Nov 22nd 2026 (the master path retired, stage 1, the last section of this file): the last-good copy, `master --set` and the lost-config checks below are gone, `--unset` and the guards stay, and a left-over `SALA_MASTER` line's one notice is checked.*
+
 The master is optional since the operation queue (a configured master can be retired once the queue works), and retiring it is one queued operation. Every check guards one of two losses, or the operation itself. A master coming
 back from a record after it was unset — `watch` recreating, resuming or bridging it, a last-good restore naming it again —
 is a session nobody asked for driving relaunches: `salamander master --unset` on a temporary config is checked to
@@ -2600,6 +2602,8 @@ the reason as a sentence and the day ("Usage check refused since Tue Jan 6th", "
 server's two "not configured" words held to the page's list. Not checked: the live sign-in output without a subscription, the usage endpoint's status for it, a real Slack post, how the chip looks (no one has seen it in a browser).
 
 ### `tests/pset-target.sh`: new, 28 (`SALA_PSET_TARGET`, Fri Oct 16th 2026)
+
+*Changed Sun Nov 22nd 2026 (the master path retired, stage 1, the last section of this file): there is no master leg; the live-master and not-live-master checks below are gone and a session still named `SALA_MASTER` is checked to hear nothing.*
 
 A provision set's session/owner items go to the master; with no master configured (`SALA_MASTER` unset) a
 configured `SALA_PSET_TARGET`, a front agent, takes the same text with `[for the user]` on its first line. Two fake claudes
@@ -4561,3 +4565,27 @@ Enter and then C-j run the line once (two Enters seen); the banner showing, C-j 
 the shell at its prompt getting no key. About 12 s added to `ledger`, 6 s to `mod`. Not covered, and why: ble.sh itself
 (not installed on the runners; the stand-in reproduces only its effect, an Enter that does not run the line), and the
 watch's server check on an empty server (the same helper; the suites that start no server keep their cases).
+
+### The master path retired, stage 1: what the suites lost and gained (Sun Nov 22nd 2026)
+
+Nothing keeps, heals, bridges or sets a master any more: `watch` has no master checks and no inbox report, `spawn --master`
+and `master --set` are gone, `rename` moves no master, `pset_tell` has no master leg, the last-good config copy is gone. What
+the suites lost is the checks of those flows; the watch-driving suites (`ledger`, `ledger-recycle`, `autorecycle`, `sets`,
+`flags`, `laterlist`, `holdmatch`) only dropped `SALA_MASTER=` from their `watch` lines. Removed checks: `lanes` (the
+watch on the api lane and on a claude.ai lane typing `/remote-control` or not into the master's pane); `retire` (the master
+guard reading the resolved `--id` name); `stuckexit` (the check that `end_stuck_claude` refuses the master); `side`
+(`--side` with `--master`); `smoke` (the master and master-session fields of the heartbeat: `machine.json` now writes both
+empty, asserted live and in the git store); `nomaster` (the last-good copy refreshed by `--unset`, `master --set` clearing
+the record, the lost-config exit 1 and its recovery, the pinned "no master session is configured, so it comes here" report
+text and the old tmux-down log wording); `pset-target` (the live master winning, a master configured but not live leaving
+items pending with `tellfail`, with and without a live target: 4 sections, as there is no master leg to win or to fail).
+`psets` tells a `SALA_PSET_TARGET` session where it told the master (`SALA_CUE_TARGET` is no longer read there).
+
+Added: in `nomaster` a `SALA_MASTER` line left in a config draws exactly one notice per value (one Slack post, one log line,
+the `master_retired_warned` state key), a second tick posts nothing and exits 0, a changed value says it again, an emptied
+line drops the key and posts nothing, the line added again warns again, `watch --check` prints the line, writes no state, posts
+nothing and still exits 0 with its last line leading `healthy:` (provision's step judges the first 60 characters of that
+line), and the plain `--check` with no master prints no warning; in `pset-target` a live session still named `SALA_MASTER`
+hears nothing (no target: the Slack post; with a target: only the target hears); in `barepane` a pane named like the former
+master, its claude killed, is revived once by the bare-pane revive like any other, no master skip in the log. Not checked: a
+real systemd timer tick (the suites run `watch` directly), the Slack post's exact wording.

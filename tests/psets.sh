@@ -2,9 +2,9 @@
 # Provision sets (2026-10-08; common.sh, "provision sets"): a `sala provision` run that leaves something on a
 # box gets the recycle set's follow-up. Checks, against fake hosts (an `ssh` stub on PATH that runs the steps script
 # locally, reading each host's STEP lines from a fixture; a host with an .offline marker does not answer), Slack stubbed to
-# a file (SALA_NOTIFY_CMD) and the master's inbox stubbed (a fake claude in a private tmux server, its messaging socket
+# a file (SALA_NOTIFY_CMD) and the target session's inbox stubbed (SALA_PSET_TARGET) (a fake claude in a private tmux server, its messaging socket
 # replaced by a listener that writes what arrives to a file). The set's state, never the posts' wording: a clean
-# run makes no set; a run with leftovers makes one, its items split by kind (session | owner; none = owner; the older spelling is read as owner); ONE master
+# run makes no set; a run with leftovers makes one, its items split by kind (session | owner; none = owner; the older spelling is read as owner); ONE message to the target
 # message carrying the exact settle and --waiting commands it will run, never sent twice; --waiting and --settle on the
 # set's items; a failed step joining the set, retried by its worker and settled; the last settle closing the set, which
 # then refuses --settle; a give-up closing it once; an offline box keeping its set open until a later provision of it
@@ -64,9 +64,9 @@ steps() { local h="$1"; shift; printf '%s\n' "$@" > "$HOME/hosts/$h.steps"; }   
 newset() { ls "$SALA_SET_DIR" 2>/dev/null | grep -E '^[0-9]+-[0-9]+$' | while read -r f; do grep -qx 'closed=0' "$SALA_SET_DIR/$f" && echo "$f"; done | tail -1; }
 OKS=("STEP|ok|deploy|current" "STEP|ok|gitcfg|ok" "STEP|ok|settings|ok")
 
-echo "== the master: a fake claude in a private tmux server, its inbox socket a listener writing to a file"
-$T new-session -d -s sala-test-master -c "$HOME" -e FAKE_SESSION_ID=00000000-0000-4000-8000-0000000000aa -e FAKE_NAME=master; $T send-keys -t sala-test-master 'claude' Enter
-waitfor 'ls "$HOME"/.claude/fake-*.sock >/dev/null 2>&1' 20 || { echo "the fake master did not start"; exit 1; }
+echo "== the target (SALA_PSET_TARGET): a fake claude in a private tmux server, its inbox socket a listener writing to a file"
+$T new-session -d -s sala-test-target -c "$HOME" -e FAKE_SESSION_ID=00000000-0000-4000-8000-0000000000aa -e FAKE_NAME=target; $T send-keys -t sala-test-target 'claude' Enter
+waitfor 'ls "$HOME"/.claude/fake-*.sock >/dev/null 2>&1' 20 || { echo "the fake target did not start"; exit 1; }
 MSOCK=$(ls "$HOME"/.claude/fake-*.sock | head -1); rm -f "$MSOCK"
 python3 - "$MSOCK" "$INBOX" <<'PYL' &
 import json, socket, sys
@@ -82,8 +82,8 @@ while True:
         if line.strip():
             with open(sys.argv[2], "a") as f: f.write(json.loads(line)["message"]["content"] + "\n%%\n")
 PYL
-LPID=$!; export SALA_CUE_TARGET=sala-test-master
-waitfor '[ -S "$MSOCK" ]' 20 && ok "the master's inbox is stubbed" || { echo "listener did not start"; exit 1; }
+LPID=$!; export SALA_PSET_TARGET=sala-test-target
+waitfor '[ -S "$MSOCK" ]' 20 && ok "the target's inbox is stubbed" || { echo "listener did not start"; exit 1; }
 
 echo "== a clean run: the single fleet post, no set"
 steps t-host-c "${OKS[@]}"
@@ -91,7 +91,7 @@ steps t-host-c "${OKS[@]}"
 [ -z "$(newset)" ] && ok "no set made" || bad "a set was made: $(newset)"
 : > "$POSTS"
 
-echo "== a run with leftovers: the first post, the kinds, one message to the master"
+echo "== a run with leftovers: the first post, the kinds, one message to the target"
 steps t-host-a "${OKS[@]}" "STEP|manual|repo|local commits, fast-forward refused" "STEP|manual|deny-rules|missing|session"
 out=$("$SALA" provision t-host-a t-host-c 2>&1)
 A=$(newset)
@@ -102,7 +102,7 @@ waitfor '[ "$(nmsgs)" -ge 1 ]' 10
 [ "$(pstep_parse 'STEP|manual|x|d|owner')" = "$(printf 'manual\tx\td\towner')" ] \
     && [ "$(pstep_parse 'STEP|manual|x|d')" = "$(printf 'manual\tx\td\towner')" ] && [ "$(pstep_parse 'STEP|manual|x|d|session')" = "$(printf 'manual\tx\td\tsession')" ] \
     && ok "pstep_parse: owner and none give owner; session stays session" || bad "pstep_parse: $(pstep_parse 'STEP|manual|x|d|owner') / $(pstep_parse 'STEP|manual|x|d') / $(pstep_parse 'STEP|manual|x|d|session')"
-[ "$(nmsgs)" = 1 ] && ok "exactly one message to the master" || bad "$(nmsgs) messages: $(<"$INBOX")"
+[ "$(nmsgs)" = 1 ] && ok "exactly one message to the target" || bad "$(nmsgs) messages: $(<"$INBOX")"
 M=$(<"$INBOX")
 grep -qF "(set $A)" <<< "$M" && grep -qF "• t-host-a · deny-rules (deny entries): missing" <<< "$M" && grep -qF "sala provision --settle $A t-host-a deny-rules ok \"" <<< "$M" \
     && ok "it names the set, host, step, detail and the exact settle command for the session item" || bad "message: $M"
@@ -148,7 +148,7 @@ rm -f "$HOME/hosts/t-host-b.offline"; "$SALA" provision t-host-b >/dev/null 2>&1
 [ "$(set_val "$C1" done)" = 2 ] && [ "$(set_val "$C1" closed)" = 1 ] && ok "back online and clean: the same set settled and closed (2/2)" || bad "offline settle: $(<"$SALA_SET_DIR/$C1")"
 : > "$POSTS"
 
-echo "== an offline box back with leftovers: they join the same set, the master hears of the session one"
+echo "== an offline box back with leftovers: they join the same set, the target hears of the session one"
 touch "$HOME/hosts/t-host-b.offline"; "$SALA" provision t-host-c t-host-b >/dev/null 2>&1; D=$(newset)
 rm -f "$HOME/hosts/t-host-b.offline"; steps t-host-b "${OKS[@]}" "STEP|manual|resurrect-timer|no snapshot in 20 min|session"
 "$SALA" provision t-host-b >/dev/null 2>&1

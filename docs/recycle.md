@@ -7,8 +7,8 @@ How a recycle runs: the one driver rule and the recycle lock, the flags and the 
 relaunches every pane including the invoking one, and two drivers race the same panes. From any other tmux pane the
 command refuses and says to hand the cue to the master. Not enforced when not
 inside tmux (a shell, systemd, cron), for `--dry-run` / `--check`, with `--not-master`, or when the master itself is not
-live — that last case is allowed and announced, so a dead master never makes the box unrecyclable (`watch` normally
-revives it first). **With no master configured** (Thu Oct 15th 2026) the queue holds the rule: a call from a
+live — that last case is allowed and announced, so a dead master never makes the box unrecyclable (`watch` no longer
+keeps a master: its pane is revived by the bare-pane revive like any other). **With no master configured** (Thu Oct 15th 2026) the queue holds the rule: a call from a
 Claude session — a `claude` process among the caller's ancestors, or a pane that still names itself (`TMUX_PANE`) and runs
 one (`claude_caller`) — is refused and pointed to `sala op <verb> … --from NAME --words "<the owner's words>"` (a verb the
 queue has no shape for yet — `model`, `adopt`, `restore` — is refused with that said); a human's pane shell, a plain

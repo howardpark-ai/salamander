@@ -14,15 +14,6 @@
 
 SALA_CONFIG="${SALA_CONFIG:-$HOME/.config/salamander/config}"
 [ -r "$SALA_CONFIG" ] && . "$SALA_CONFIG"
-# a last-good copy of the config: refreshed whenever a readable config names a master, so a lost or
-# truncated file can be diffed and restored (`salamander master` and `watch` point at it)
-SALA_CONFIG_LASTGOOD="$HOME/.claude/salamander-config.last-good"
-if [ -r "$SALA_CONFIG" ] && [ -n "${SALA_MASTER:-}" ]; then   # (cmp -s, read by the shell: a process per salamander call; the config is text)
-    _cfg_a=""; _cfg_b=$'\x01none'; { IFS= read -r -d '' _cfg_a < "$SALA_CONFIG"; } 2>/dev/null || :
-    if [ -r "$SALA_CONFIG_LASTGOOD" ]; then _cfg_b=""; { IFS= read -r -d '' _cfg_b < "$SALA_CONFIG_LASTGOOD"; } 2>/dev/null || :; fi
-    [ "$_cfg_a" = "$_cfg_b" ] || cp -f "$SALA_CONFIG" "$SALA_CONFIG_LASTGOOD" 2>/dev/null || true
-    unset _cfg_a _cfg_b
-fi
 : "${SALA_RC_SESSION:=claude-rc}"                 # tmux session hosting `claude remote-control`
 : "${SALA_SHELL_SESSION:=sala-shell}"             # tmux session of the web UI's shell drawer: a plain login bash, never a Claude pane;
                                                   # the web app reads this same setting from the config file and tells the page the name
@@ -1029,40 +1020,23 @@ _inbox_push() {
     sock=$(session_socket "$mpid"); [ -n "$sock" ] || return 4
     session_push "$sock" "$2" >/dev/null 2>&1 || return 4
 }
-# master_push <text> → 0 delivered into the master's inbox as a turn (`_inbox_push`); 1 no master configured, 2 not live,
-# 4 no socket or the push failed
-master_push() {
-    local target="${SALA_CUE_TARGET:-${SALA_MASTER:-}}"
-    [ -n "$target" ] || return 1
-    _inbox_push "$target" "$1"
-}
-# pset_tell <id> — tell the master about the set's session/owner items not told yet; a failed delivery stays pending
-# (`watch` tries again every tick) and is logged once until it goes through. NO MASTER: SALA_MASTER unset
-# (master_push 1) → the items go out as one Slack post naming `sala provision --sets`, and count as told (nothing to retry
-# against). SALA_PSET_TARGET (a session name, unset = none) is a front agent that takes the same text, `[for <owner>]` on its
-# first line, only when NO master is configured (SALA_MASTER unset, master_push 1). A configured master wins whatever its
-# state: live it hears the items; not live (2, e.g. mid-recycle) or a failed push (4) the items stay pending and `watch`
-# retries, the target never told. A target that is not live or whose push fails changes nothing: the Slack post.
+# pset_tell <id> — tell SALA_PSET_TARGET (a session name, unset = none: a front agent) about the set's session/owner items
+# not told yet, `[for <owner>]` on the first line of the text. A target that is not live or whose push fails changes
+# nothing: the items go out as one Slack post naming `sala provision --sets`, and count as told (nothing to retry against).
 pset_tell() {
-    local id="$1" txt tells rc=0 trc=0
+    local id="$1" txt tells trc=0
     # the list first, then the text: an item added in between is sent and told again later, never marked told unsent
     mapfile -t tells < <(set_vals "$id" tell)
     txt=$(_set_locked _pset_tell_text "$id"); [ -n "$txt" ] || return 0
-    master_push "$txt" || rc=$?
-    if [ "$rc" = 1 ] && [ -n "${SALA_PSET_TARGET:-}" ]; then
+    if [ -n "${SALA_PSET_TARGET:-}" ]; then
         _inbox_push "$SALA_PSET_TARGET" "[for ${SALA_OWNER_NAME}]"$'\n'"$txt" || trc=$?
         if [ "$trc" = 0 ]; then
-            _set_locked _pset_told "$id" "${tells[@]}"; pset_log "set $id: no master session — told $SALA_PSET_TARGET about ${#tells[@]} item(s)"; return 0
+            _set_locked _pset_told "$id" "${tells[@]}"; pset_log "set $id: told $SALA_PSET_TARGET about ${#tells[@]} item(s)"; return 0
         fi
-        pset_log "set $id: no master session and $SALA_PSET_TARGET (SALA_PSET_TARGET) could not be told (exit $trc)"
+        pset_log "set $id: $SALA_PSET_TARGET (SALA_PSET_TARGET) could not be told (exit $trc)"
     fi
-    if [ "$rc" = 1 ]; then
-        sala_post "⚠️ *Provision $(set_val "$id" label) left $(plural "${#tells[@]}" item) with nobody to hand them to*" "no master session is configured, so they are posted here instead of a session's inbox" "the items and the commands that settle them: sala provision --sets (set $id)" "Details: $SALA_PSET_LOG"
-        _set_locked _pset_told "$id" "${tells[@]}"; pset_log "set $id: no master session — ${#tells[@]} item(s) posted to Slack instead"; return 0
-    fi
-    if [ "$rc" = 0 ]; then _set_locked _pset_told "$id" "${tells[@]}"; pset_log "set $id: told the master about ${#tells[@]} item(s)"; return 0; fi
-    [ -n "$(set_val "$id" tellfail)" ] && return 0
-    _set_locked _set_put "$id" tellfail "$(date +%s)"; pset_log "set $id: could not tell the master (exit $rc) — watch tries again"
+    sala_post "⚠️ *Provision $(set_val "$id" label) left $(plural "${#tells[@]}" item) with nobody to hand them to*" "no session is set to take them (SALA_PSET_TARGET), so they are posted here instead of a session's inbox" "the items and the commands that settle them: sala provision --sets (set $id)" "Details: $SALA_PSET_LOG"
+    _set_locked _pset_told "$id" "${tells[@]}"; pset_log "set $id: ${#tells[@]} item(s) posted to Slack instead"
 }
 # pset_worker <id> — the set's retry worker for its failed items, detached, one per set
 pset_worker() {
@@ -4324,7 +4298,7 @@ back_lane_pinned_note() {  # → "; skipped (pinned to <lane>): <session>; …" 
 back_lane_movers() {
     BL_MOVE=(); BL_STAY=(); BL_PINNED=(); BL_SWAP=(); local role=${2:-back} t ti s e ei; back_lane_order || return 1; t=$(lane_state_id "$1") || return 1; ti=$(back_lane_idx "$t") || return 1
     while IFS= read -r s; do
-        [ -n "$s" ] || continue; no_relaunch "$s" && continue; [ "$s" = "${SALA_MASTER:-}" ] && continue
+        [ -n "$s" ] || continue; no_relaunch "$s" && continue
         e=$(lane_for_session "$s"); ei=$(back_lane_idx "$e") || continue            # a lane outside the order is not the rule's
         if [ "$ti" -eq 0 ]; then [ "$ei" -gt 0 ] || continue; else [ "$ei" -lt "$ti" ] || continue; fi
         if lane_is_pinned "$s"; then BL_PINNED+=("$s"); continue; fi                 # held out of a bulk move (THE PINNED SESSIONS)
@@ -5416,7 +5390,6 @@ end_stuck_claude() {  # <pane> <session> <claude-pid>
     STUCK_WHY=""; STUCK_HOW=""
     [ "${SALA_EXIT_END:-1}" = 1 ] || { STUCK_WHY="SALA_EXIT_END=0: a claude that ignores /exit is not ended"; return 1; }
     [[ $pid =~ ^[0-9]+$ ]] && [ "$pid" -gt 1 ] || { STUCK_WHY="no claude pid to end"; return 1; }
-    if [ -n "${SALA_MASTER:-}" ] && [ "$sess" = "$SALA_MASTER" ]; then STUCK_WHY="the master session is never ended by pid"; return 1; fi
     proc_gone "$pid" && { wait_for "$pane" shell "$SALA_EXIT_KILL_WAIT" && return 0; STUCK_WHY="the claude left but the pane did not come back to a shell"; return 2; }   # it left on its own after the wait
     paneid=$(tmux display -p -t "$pane" '#{pane_id}' 2>/dev/null); panepid=$(tmux display -p -t "$pane" '#{pane_pid}' 2>/dev/null)
     [ -n "$paneid" ] && [ -n "$panepid" ] || { STUCK_WHY="the pane cannot be read"; return 1; }

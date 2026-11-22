@@ -33,8 +33,7 @@ the master's pane when a Claude session asks): `sala lane <lane> <session>…` r
 `revive --self` for the invoking pane; `sala lane <lane> --all` records every session and the default, then `recycle
 --force` (a relaunch of every pane is a recycle, and the board hears of it as one); `sala lane default <lane>` only sets
 the default. A lane whose prerequisites are missing is refused before anything is recorded. `--dry-run` prints what would
-be recorded and relaunched and the *names* of the variables, never a value. On the api lane there is no Remote Control:
-`watch` skips the bridge check and heal for a master running on it (one log line), and the reboot's boot half counts
+be recorded and relaunched and the *names* of the variables, never a value. On the api lane there is no Remote Control: the reboot's boot half counts
 such a pane as back once it is on its conversation.
 
 **The lane line** (Wed Oct 14th 2026: a `revive --force --only` put a pane on the api default — it had no row, and only

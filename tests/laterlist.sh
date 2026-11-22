@@ -42,7 +42,7 @@ mk() { local n="$1" u="$2"; shift 2; $T new-session -d -s "sala-test-$n" -c "$HO
 setstatus() { sed -i "s/\"status\":\"[a-z]*\"/\"status\":\"$2\"/" "$HOME/.claude/sessions/$(cpid "$1").json"; }   # <name> <status>
 npost() { awk -v RS='%%\n' -v h="$1" 'index($0, h) {n++} END {print n+0}' "$POSTS" 2>/dev/null; }
 nsock() { grep -c "^$1 .*waiting for this session" "$FAKE_SOCK_LOG" 2>/dev/null || true; }   # <uuid> → how many times the recycle's line reached it
-watch_tick() { SALA_MASTER=sala-test-mm "$SALA" watch >/dev/null 2>&1; }
+watch_tick() { "$SALA" watch >/dev/null 2>&1; }
 field() { awk -F'\t' -v s="$1" -v n="$2" '$1==s {print $n}' "$SALA_DEFERRED"; }     # <session> <column> of its row
 fake_row() {  # <session> <held s> <told_at s ago or 0> <told_n> <posted 0|1> [set id] — a row as the clock would have left it
     local now; now=$(date +%s)
