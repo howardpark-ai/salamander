@@ -261,7 +261,10 @@ suggest_name() {  # <page key> <role> [prefix] [new] [real] → see the header (
         picked=$(agent_name_check "$key" "${cands[@]}"); crc=$?
         case "$crc" in
             0) echo "$picked"; return 0 ;;
-            2|3) ;;                                    # stackshot answered and calls none valid (3: one of them is already listed, i.e. ours): the numbered names below are the last resort
+            2|3) # stackshot ANSWERED and calls none valid (3: one of them is already listed, i.e. ours): a numbered name would be one it was never asked about, possibly unusable
+                 # (a retired, hidden or hub project, a prefix it does not know), so none is returned: its reasons are printed and the exit is nonzero
+                 { echo "stackshot answered and calls none of the names it was asked about valid for $key:"; printf '%s\n' "$picked" | sed 's/^/   /'; } >&2
+                 return 1 ;;
             *) echo "${cands[0]}"; return 0 ;;         # unavailable: sala's own suggestion, as before
         esac
     fi
@@ -543,11 +546,18 @@ spawn_register_plan() {  # <project> <role word> <front|back> → the decision o
     GATE_REG="$1|$2|$3"
     LISTED="not on the record yet: stackshot is asked to list it on $1 as a $3 agent (role $2; post project-agent, label $SALA_SPAWN_SENDER) right before the pane is made"; GATE_NOTE="$LISTED"
 }
+REGISTERED_KEY=""   # the project NAME was registered on (and read back) by THIS run
+spawn_registered_note() {  # the exit trap: registered, but no session came up (the pane could not be made, claude did not start) → say so and how to go on; the retry is safe
+    [ -n "$REGISTERED_KEY" ] && [ -z "${SPAWN_UP:-}" ] || return 0
+    echo "⚠ '$NAME' is registered with stackshot on $REGISTERED_KEY, but no session came up: run the same spawn again (same --role, --front/--back and --mandate): a name the record lists just starts its pane, and nothing is registered twice" >&2
+    spawn_log "registered '$NAME' on $REGISTERED_KEY, but no session came up: a repeat of the same spawn starts it"
+}
 spawn_register_do() {  # → stackshot lists NAME (the real yes) and the record shows it (read back), or the spawn stops with exit 6 and no pane made
     [ -n "$GATE_REG" ] || return 0
     local key=${GATE_REG%%|*} rest=${GATE_REG#*|} word side line; word=${rest%%|*}; side=${rest#*|}; line=$(register_line)
     agent_register "$key" "$NAME" "$word" "$side" "$line" "$SURFACE" || spawn_gate_refuse 6 "stackshot did not register '$NAME' on $key, so no session was made: $AR_WHY"
-    agent_record_read_back "$key" "$NAME" "" "$side" || spawn_gate_refuse 6 "stackshot answered the registration of '$NAME' on $key (${AR_NOTE:-ok}), but the record does not show it ($ARB_WHY): no session was made; run the spawn again, or check it with: python3 $(stackshot_client) get project $key"
+    agent_record_read_back "$key" "$NAME" "" "$side" || spawn_gate_refuse 6 "stackshot answered the registration of '$NAME' on $key (${AR_NOTE:-ok}), but the record does not show it ($ARB_WHY): no session was made; run the same spawn again (stackshot answers a repeat with the same side and mandate with the same 200), or check it with: python3 $(stackshot_client) get project $key"
+    REGISTERED_KEY=$key   # from here a spawn that ends without a pane says the name is registered (spawn_registered_note, the exit trap)
     LISTED="registered with stackshot just now on $key as a $side agent (role $word; read back)"; GATE_NOTE="$LISTED"
     spawn_log "registered '$NAME' on $key ($side, role $word, label $SALA_SPAWN_SENDER): ${AR_NOTE:-ok}"
     echo "   registered with stackshot on $key as a $side agent (role $word), read back from the record"
@@ -623,7 +633,15 @@ elif [ -n "$PROJECT" ]; then
     # THE PROJECT SPAWN'S CHECKS (common.sh): the record first (THE SPAWN GATE: listed = yes; not listed with a mandate = stackshot is asked to list it, and the pane starts only on its yes);
     # then, only when the record cannot answer, the page and the name on its agents map; neither fails open
     if [ "${SALA_AGENT_CHECK:-on}" = off ]; then LISTED="not checked (SALA_AGENT_CHECK=off)"
-    elif exempt=$(agent_gate_exempt "$NAME" 0 "$GENERATED"); then LISTED="not checked ($exempt)"; spawn_log "gate: '$NAME' is exempt ($exempt)"
+    elif exempt=$(agent_gate_exempt "$NAME" 0 "$GENERATED"); then
+        LISTED="not checked ($exempt)"; spawn_log "gate: '$NAME' is exempt ($exempt)"
+        # the exemption skips the REQUIREMENT to be on the record (no registration, no page check), never the role of a name the record DOES list: a *-test-* name that is
+        # a back agent there is not started as a front agent (a record that cannot answer, or does not list the name, changes nothing)
+        rec=$(project_record_agent "$PROJECT" "$NAME" "$ROLE"); rrc=$?
+        case "$rrc" in
+            0) LISTED=$(sed -n 1p <<< "$rec"); spawn_log "project record: exempt '$NAME' is listed on $PROJECT ($ROLE)" ;;
+            5) spawn_log "refused: $rec"; die "$rec — a spawn takes the role the record gives: --role $([ "$ROLE" = front ] && echo back || echo front) (or change the page's line first); the exemption of a throwaway's name does not skip this" ;;
+        esac
     else
         # the first source: stackshot's project record (a file; common.sh, THE PROJECT RECORD). A project in it exists and its map
         # answers listed / not listed / the other role; a record that cannot answer (missing, stale, unreadable, no such project)
@@ -787,7 +805,7 @@ PANE=$(tmux_win_t "$NAME" 0); SIDE_T0=$(date +%s)
 # server, in another session, pane or window or outside tmux inherits the id too and is refused; lib/hook.sh). Nothing when SALA_SESSIONS=off or the registry fails: the hook then finds the row by the
 # tmux session name. A spawn that does not come up takes the row back (the exit trap below); a kill leaves it for `sessions --check`.
 SPAWN_SID=$(sessions_prepare "$NAME" "$NAME" "$CWD" 2>/dev/null); SPAWN_UP=""
-trap '[ -z "$SPAWN_UP" ] && [ -n "$SPAWN_SID" ] && sessions_abandon "$SPAWN_SID"' EXIT
+trap 'spawn_registered_note; [ -z "$SPAWN_UP" ] && [ -n "$SPAWN_SID" ] && sessions_abandon "$SPAWN_SID"' EXIT
 if [ -n "$SPAWN_SID" ]; then
     tmux new-session -d -s "$NAME" -c "$CWD" -e "SALA_SESSION_ID=$SPAWN_SID" 2>/dev/null || tmux new-session -d -s "$NAME" -c "$CWD" || die "tmux new-session failed"
 else

@@ -309,11 +309,28 @@ if [ -n "$why" ] && [ "$BUSY" = 0 ]; then die "'$name' is not idle: $why — wai
 [ -n "$why" ] && echo "⚠ retiring '$name' while it is not idle ($why)"
 # STACKSHOT FIRST (common.sh, THE RETIRE ASKS STACKSHOT FIRST): a session that is on a project's record is taken off it BEFORE its pane is closed. "not listed" (or nothing to ask) goes on; any other
 # answer refuses the retire with stackshot's reason and leaves the pane exactly as it is (asking again is safe: stackshot's retire is idempotent). The closed exceptions list skips the ask.
+ASKED_CALL=0
 if [ -n "$proj" ]; then
     if ex=$(retire_gate_exempt); then echo "ℹ stackshot is not asked about '$name': it is $ex"; retire_log "$name: not asked ($ex)"
-    elif retire_ask_first "$name" "$proj" "${psrc:-}"; then echo "ℹ $RETIRE_ASKED"
+    elif retire_ask_first "$name" "$proj" "${psrc:-}"; then echo "ℹ $RETIRE_ASKED"; [ -z "$RD_RC" ] || ASKED_CALL=1
     else refuse "$RETIRE_ASKED_WHY; the pane is left as it is. Ask again when the cause is gone (the retire asks stackshot again each time), or see $SALA_LOG_DIR/salamander-retire.log"; fi
-else retire_log "$name: no project known for it, so stackshot was not asked to drop an agent entry"; fi
+else retire_log "$name: no project known for it${RETIRE_PROJ_WHY:+ ($RETIRE_PROJ_WHY)}, so stackshot was not asked to drop an agent entry"; fi
+# REVALIDATE AFTER THE ASK: the call can take up to 90 s, long after the idle and identity checks above. Before /exit or the kill the pane is looked at again: a pane that became busy,
+# or a session that replaced it under the same name, is left alone. The record is already off by then, and says so: a retry is safe (stackshot's retire is idempotent).
+retire_still_same() {  # → 0 the pane is the one the checks above passed; 1 with RV_WHY (what changed)
+    local np nc nu iw; RV_WHY=""
+    np=$(tmux display -p -t "$pane" '#{session_name} #{pane_pid}' 2>/dev/null) || np=""
+    if [ "$np" != "$name $panepid" ]; then RV_WHY="'$name' is not the session this retire started on (its pane $pane is gone, or is another process now)"; return 1; fi
+    nc=$(claude_pid_under "$panepid" || true)
+    if [ "$nc" != "$cpid" ]; then RV_WHY="'$name' is not the session this retire started on (the claude in its pane is another process now)"; return 1; fi
+    if [ -n "$uuid" ]; then registry_conv_r nu "$cpid"; if [ -n "$nu" ] && [ "$nu" != "$uuid" ]; then RV_WHY="'$name' is not the session this retire started on (its conversation changed from $uuid to $nu)"; return 1; fi; fi
+    if [ "$BUSY" = 0 ]; then iw=$(SALA_IDLE_OWN_TURN=$OWN_TURN is_idle_reason "$cpid"); if [ -n "$iw" ]; then RV_WHY="'$name' is not idle any more ($iw)"; return 1; fi; fi
+    return 0
+}
+if [ "$ASKED_CALL" = 1 ] && ! retire_still_same; then
+    retire_log "$name: left alone after the ask: $RV_WHY"
+    die "$RV_WHY: the pane is left as it is; stackshot has already taken it off $proj's record (a retry is safe: stackshot's retire is idempotent, so asking again changes nothing)"
+fi
 if [ "$SELF" = 1 ] && [ "$caller" = "$name" ]; then
     # the tmux kill below ends this very process tree: ignore the hangup and a closed pty, and write what is left to the retire log, so the tail (snapshot, archive, stackshot) is done
     trap '' HUP PIPE; mkdir -p "$SALA_LOG_DIR"; exec >> "$SALA_LOG_DIR/salamander-retire.log" 2>&1
