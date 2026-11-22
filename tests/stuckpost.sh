@@ -18,7 +18,7 @@
 # Isolated HOME, a private tmux server started with -f /dev/null, the compiled fake claude; no real session is touched.
 # Usage: bash tests/stuckpost.sh   (exit 0 = pass; ~20 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_RC_SESSION SALA_NO_RELAUNCH SALA_STUCK_POST SALA_STUCK_CONFIRM SALA_STUCK_RETRIES SALA_FLEET_HOSTS
+unset TMUX_PANE XDG_STATE_HOME SALA_RC_SESSION SALA_NO_RELAUNCH SALA_STUCK_POST SALA_STUCK_CONFIRM SALA_STUCK_RETRIES SALA_FLEET_HOSTS
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, tmux_socket_rm
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null SALA_TZ=Etc/UTC
@@ -153,8 +153,8 @@ bash_q "ls $DLG/stp-knob" "List it" > "$PF"; tmux send-keys -t sala-test-stuck E
 waitfor 'screen stuck | grep -q "stp-knob"' 20 || bad "the seventh dialog did not show"
 s=$(<"$STATE"); SALA_STUCK_POST=0 sw; SALA_STUCK_POST=off sw
 [ "$(posts)" = 6 ] && [ "$(<"$STATE")" = "$s" ] && ok "SALA_STUCK_POST=0 / off: nothing posted, the state untouched" || bad "$(posts) posts; state: $(<"$STATE")"
-for s in $(tmux list-sessions -F '#{session_name}'); do "$SALA" adopt "$s" >/dev/null 2>&1; done   # into the pane map first: a plain tick with no master runs the whole tick, its unmapped report included
-"$SALA" watch >/dev/null 2>&1   # no master configured: the tick runs this step with the rest
+for s in $(tmux list-sessions -F '#{session_name}'); do "$SALA" adopt "$s" >/dev/null 2>&1; done   # into the pane map first: a plain tick runs the whole tick, its unmapped report included
+"$SALA" watch >/dev/null 2>&1   # the tick runs this step with the rest
 [ "$(posts)" = 7 ] && has "$(lastpost)" "stp-knob" && ok "a plain watch tick runs the step" || bad "$(posts) posts after a plain watch: $(lastpost)"
 
 echo "== the Your move row: opened with the post, once per question; closed when the pane stops waiting; stackshot failing changes nothing"

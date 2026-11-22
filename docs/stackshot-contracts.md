@@ -433,7 +433,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   a relaunch is dropped, as before the hold existed (the defect it fixes).
 - **Test**: `tests/inboxorphans.sh` (the keys no row names), `tests/nomaster.sh` (the watch's log line); `tests/phases.sh` (hold dir present, all holds written at least the settle before the first `/exit`, a pane that turns busy
   after its hold is deferred and queued for retry, a skipped pane's hold cleared, holds released after the sweep and after a TERM in
-  the settle); `tests/sets-master.sh` (the `--self` worker: busy after the hold hands off to the retry worker, an abort releases
+  the settle); `tests/sets-self.sh` (the `--self` worker: busy after the hold hands off to the retry worker, an abort releases
   the hold, both with an empty registry name).
 - **Stable**: yes.
 

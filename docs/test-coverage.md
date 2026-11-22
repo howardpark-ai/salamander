@@ -4722,3 +4722,33 @@ the session (exempted by operation id) and a run stuck after the marker's row wa
 and of `sala op`. Every kill is of one pid whose `/proc/<pid>/exe` is the suite's fake. Not checked: the web and `sessions`
 display of a sleeper (stage 3), stackshot's presence of a sleeper and delivery to it (stage 4), the watch tick that sleeps an idle
 session (stage 5), a real stackshot inbox and a real Claude process.
+
+### The master path retired, stage 4: config, defaults, docs and the grep gate (Mon Nov 23rd 2026)
+
+The last stage removes what the earlier three left standing as settings and wording. `SALA_MASTER` has no default and is not
+in `sala config` or `config.example`; a config that still sets it sources clean (nothing printed, no error), and the watch's
+one notice per value is unchanged (`nomaster`; its text now reads "SALA_MASTER is retired and ignored"). `SALA_BOOT_AUDIT` is
+gone and ignored with no notice. `SALA_HEARTBEAT_GIT=master` (the retired record-only mode) is read as `full`; the
+`machine.json` keys `master` and `master_session` stay as empty strings, because they are a contract key pair (a removal
+needs the contract's version bump first). `lanes_working` (unused outside two checks) is gone. Residual wording across
+`lib/`, `bin/`, `install.sh`, `config.example` and the docs names no master; the dated entries above stay as they were.
+`tests/sets-master.sh` is `tests/sets-self.sh` (the suite is about the invoking pane's relaunch by the self-worker, which never
+needed a master), with its `suites.map` and `timings.json` rows; the `unset ... SALA_MASTER` words are out of 42 `unset`
+lines in the suites.
+
+Removed checks: `sleeping` (`sleep_ready` refusing the session a `SALA_MASTER` line names: it is an ordinary pane, and the
+refusal is gone), `lanedormant` (the `lanes_working` line, which `lane_out` of the dormant lane two lines above already
+covers). Rewritten, not dropped: `smoke` (`SALA_HEARTBEAT_GIT=master` now proves the retired value is read as `full`: git holds
+the same `machine.json` and a `sessions.json`), `rescue` (the all-lanes reading is a loop over `lane_out`),
+`neutral-install` (`sala config` has no `SALA_MASTER` line; it used to be an empty line).
+
+Added, in `neutral-defaults`: a config carrying `SALA_MASTER`, `SALA_BOOT_AUDIT` and `SALA_HEARTBEAT_GIT=master` sources with
+no output and no error; `sala config` lists neither setting; and THE GATE. `git grep -i master` over the tracked files may
+match only an allowlist, and a new match fails with its `file:line`. The allowlist is, by file: the two history docs
+(`docs/test-coverage.md`, `docs/stackshot-contracts.md`) and the suite of the retirement itself (`tests/nomaster.sh`), whole;
+the gate's own file; the token `SALA_MASTER` and the state key `master_retired_warned` in `lib/watch.sh` (the one notice) and in
+`docs/subcommands.md` and `docs/design-notes.md` (which describe it); the heartbeat's `master_session` and `"master"` keys and
+the retired `master` value in `lib/heartbeat.sh`, `docs/heartbeat-store.md`, `config.example` and `tests/smoke.sh`; in the
+suites, `SALA_MASTER` (the leftover-line checks), `not-master`, `*master*` (negative assertions) and the suite name `nomaster`
+(also in `CONTRIBUTING.md`); and web/'s look-alikes (the git branch named `master`, stackshot's own "the master box", a fixture
+with the contract keys). The gate plants one line it must reject and one it must accept, so a gate that went blind fails.

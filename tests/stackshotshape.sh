@@ -16,7 +16,7 @@
 # tmux socket) whose transcripts carry the real weekly-limit record (tests/fixtures/limit-weekly.jsonl). Isolated HOME.
 # Usage: bash tests/stackshotshape.sh   (exit 0 = pass; ~15 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_TZ ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR SALA_LANE_API_KEY_FILE SALA_LANE_TEAM_DIR SALA_MASTER
+unset TMUX_PANE XDG_STATE_HOME SALA_TZ ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR SALA_LANE_API_KEY_FILE SALA_LANE_TEAM_DIR
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null SALA_SESSIONS=off

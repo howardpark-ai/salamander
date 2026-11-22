@@ -12,7 +12,7 @@ unset TMUX_PANE XDG_STATE_HOME   # never a pane of the real server; the default 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, tmux_socket_rm
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null
-as_op_unit   # no master: the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
+as_op_unit   # the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
 mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/projects" "$HOME/.local/bin" "$HOME/.local/share/tmux/resurrect" "$HOME/work-a" "$HOME/work-b" "$HOME/work-c" "$HOME/work-m"
 touch "$HOME/.claude/salamander-rc.stopped"      # no Remote Control server in the sandbox
 cc -o "$HOME/.local/bin/claude" "$ROOT/tests/fake-claude.c" || { rm -rf "$HOME"; exit 1; }   # the temp HOME goes with this exit (an EXIT trap may not exist yet here)
@@ -38,7 +38,7 @@ regfile() { echo "$HOME/.claude/sessions/$(claude_pid_under "$(tmux display -p -
 hand() { $T new-session -d -s "$1" -c "$3" -e FAKE_SESSION_ID="$2" -e FAKE_NAME="$1" -e FAKE_LOG="$FAKE_LOG"; $T send-keys -t "$1" 'claude' Enter; }
 spawn() { $T set-environment -g FAKE_SESSION_ID "$2"; $T set-environment -g FAKE_NAME "$1"; $T set-environment -g FAKE_LOG "$FAKE_LOG"; "$SALA" spawn "$1" --cwd "$3" 2>&1; }
 
-echo "== setup: a session made by hand (the master of the watch tests), then the library"
+echo "== setup: a session made by hand (the watch tests' session), then the library"
 hand sala-test-m "$UM" "$HOME/work-m"; fake_up sala-test-m
 . "$ROOT/lib/common.sh"; MAP="$SALA_SIDECAR"; LOG="$SALA_LEDGER_LOG"
 eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux   # literal socket: the children run set -u

@@ -9,7 +9,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, tmux_socket_rm
 export SALA_EXIT_END=0   # the step that ends a claude ignoring /exit by its pid is off here: e below must stay skipped (tests/stuckexit.sh covers the step)
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null
-as_op_unit   # no master: the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
+as_op_unit   # the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
 HOLD="$HOME/.local/state/stackshot/anchor-hub"   # the default SALA_INBOX_HOLD_DIR: present, so holds are taken and released
 mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/projects/x" "$HOME/.local/bin" "$HOME/.local/share/tmux/resurrect" "$HOLD"
 touch "$HOME/.claude/salamander-rc.stopped"      # no Remote Control server in the sandbox

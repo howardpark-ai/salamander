@@ -50,9 +50,6 @@
                                  #   (the suites, a box with no stackshot). `spawn --project` is the one command that needs stackshot, by design; SALA_AGENT_CHECK=off is the only bypass
 #SALA_SNAPSHOT_CMD=              # `snapshot` runs this instead of save.sh directly, e.g. systemctl --user start --no-block tmux-resurrect-save.service
 #SALA_SNAPSHOT_DELAY=4            # seconds `snapshot` waits to coalesce a burst of events into one save
-#SALA_MASTER=                     # retired: `salamander watch` no longer keeps, heals or restarts the master; the line will be removed in a later change,
-                                 #   and one left here draws one notice per value. The operation queue replaces it (`sala op`, SALA_OP_* below): a Claude session's raw
-                                 #   fleet verb is refused and pointed to `sala op`, and the post-boot report goes to Slack.
 #SALA_PSET_TARGET=                # optional: a session name (a front agent, e.g. my-project-main) that hears a provision set's items, with
                                  #   `[for <owner name>]` on its first line so a front agent's pane takes it, into its inbox.
                                  #   Unset, the target not live, or its push failing: the Slack post (the items count as told).
@@ -151,7 +148,7 @@
                                  #   aws-platform's status is DERIVED like bedrock's; its launch line starts with `env -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_FOUNDRY -u ANTHROPIC_AWS_API_KEY`
 #SALA_RETRY_EVERY=300           # recycle: retry transiently skipped panes (busy, just idle, draft) this often …
 #SALA_RETRY_WINDOW=7200          # … for this long, then defer (not give up) whoever is still pending
-#SALA_HOLD_SETTLE=3              # revive: seconds between holding the stackshot inbox of every pane of a sweep (or of the master's pane) and the first /exit; a line handed out just before the hold is a turn by then, which the check before the /exit sees
+#SALA_HOLD_SETTLE=3              # revive: seconds between holding the stackshot inbox of every pane of a sweep (or of the invoking pane) and the first /exit; a line handed out just before the hold is a turn by then, which the check before the /exit sees
 #SALA_SELF_WAIT=900              # revive --self: how long its worker waits for the invoking pane to go idle, and again after the hold and again for a turn started after the idle check (so up to three times this); a pane still busy is handed to the retry worker
 #SALA_RECYCLE_GATHER=600         # recycle flags: a flag raised from the board, a --when-idle request or the CLI update while the job is unfinished waits until this
                                  #   many seconds pass with no newer flag … (0 = off; `sala op recycle` never waits)
@@ -184,10 +181,9 @@
                                  #   Default: the owner's wording, in lib/common.sh
 #SALA_BOOT_GRACE=900             # watch: post-boot report waits this long after boot for revive's summary …
 #SALA_BOOT_DEADLINE=1800         # … and this long for a clean reboot's boot half
-#SALA_BOOT_AUDIT=                # no longer used: the post-boot report goes to Slack with no audit request
 #SALA_AUTO_UPDATE=on             # watch: update the CLI on its own, at once, when npm has a newer one (every box); this box's panes on an
                                  #   older version than the installed CLI are relaunched at once (`recycle`, those panes only; a busy one once idle)
-#SALA_AUTO_RECYCLE=on            # watch: at once, run the recycle the master's "recycle claude" would (recycle --update --force) when board
+#SALA_AUTO_RECYCLE=on            # watch: at once, run the recycle a session's "recycle claude" would (recycle --update --force) when board
                                  #   items wait for one or a session ran `sala recycle --when-idle "<reason>"`; at most one an hour
 #SALA_RECYCLE_WANTED_CMD="python3 ~/stackshot/stackshot/fleet/client.py recycle-wanted"   # open board items on this box waiting for a recycle:
                                  #   prints a count, then optionally ids; asked at most every 10 min, 20 s timeout; empty/non-numeric/failed = 0
@@ -212,7 +208,7 @@
 #SALA_NET_DNS_WAIT=5             # seconds that lookup may take
 #SALA_NET_LOOKBACK=259200        # an error older than this many seconds is no stop (the transcript's last error time)
 #SALA_IDLE_WRAPUP=off           # watch (lib/wrapup.sh): OFF by default (the CLI's own compaction is the limit); on|1|yes|true turns it on. When on, a background agent (role back in the session registry; never a front agent, a side
-                                 #   session, the master or an sdk-lane pane) idle for SALA_IDLE_WRAPUP_MIN minutes is sent one marked message ("sala: you have
+                                 #   session or an sdk-lane pane) idle for SALA_IDLE_WRAPUP_MIN minutes is sent one marked message ("sala: you have
                                  #   been idle 50 minutes; your conversation is cleared after this turn. Write anything only you know to your items and pages
                                  #   ..., then reply done."); when that turn is over sala types /clear. Skipped, tried next tick: mid-turn, text in the input
                                  #   box, a dialog, a background command/task/subagent/scheduled job, parked. Never twice with no turn between. Before turning it on, delete the wrap.* keys from ~/.claude/salamander-watch.state.
@@ -332,7 +328,7 @@
                                   # It sees SALA_RECYCLE_KIND=recycle|reboot, SALA_RECYCLE_STARTED=<epoch>, SALA_RECYCLE_RESULT=ok|partial, SALA_RECYCLE_SKIPPED="<tmux sessions still not relaunched>". e.g.:
 #SALA_POST_RECYCLE_CMD="python3 ~/stackshot/stackshot/fleet/client.py recycled"   # stackshot clears the waits-for-recycle field
 #SALA_HEARTBEAT_STATE_DIR=~/.local/state/salamander/fleet   # LIVE store the consumer reads: <dir>/<letter>/{machine,sessions}.json, rewritten on change
-#SALA_HEARTBEAT_GIT=full         # also into SALA_HEARTBEAT_REPO: full · master (only this box's master record) · off
+#SALA_HEARTBEAT_GIT=full         # also into SALA_HEARTBEAT_REPO: full · off (a leftover `master` is read as full)
 #SALA_HEARTBEAT_REPO=             # optional: also commit the store into this git checkout (empty = off)
 #SALA_HEARTBEAT_DIR=              # store path inside that repo; files land in <dir>/<letter>/{machine,sessions}.json
 #SALA_FLEET_NAMES=~/fleet-names.tsv   # TSV: <os hostname>\t<fleet name>\t<letter>; or set SALA_HEARTBEAT_LETTER / SALA_HEARTBEAT_NAME
@@ -419,7 +415,7 @@
                                  #   a trailing / is fine). The page links (BRIEFING_BRAIN_REPO), the `<repo>#N` issue links (BRIEFING_ISSUE_REPOS; also
                                  #   written `<account>/<repo>#N`) and the commit links (BRIEFING_COMMIT_REPOS) are built on it. Unset or empty (the
                                  #   default): none of them links, the page keys, `<repo>#N` and commit ids stay plain text
-#RELEASE_WATCH_CLI_OWNER=        # release-watch.sh: the session a new Claude Code CLI release is relayed to when sala has no master. Unset or empty
+#RELEASE_WATCH_CLI_OWNER=        # release-watch.sh: the session a new Claude Code CLI release is relayed to. Unset or empty
                                  #   (the default): the release is posted and nobody is pinged
 #RELEASE_WATCH_UBUNTU_SESSION=   # release-watch.sh: the session an open Ubuntu LTS upgrade path is relayed to. Unset or empty: posted only
 #RELEASE_WATCH_UBUNTU_PAGE=      # release-watch.sh: the project page (a page key) with the LTS upgrade plan, named in the post and the relay.

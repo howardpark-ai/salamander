@@ -338,7 +338,7 @@ UD=44444444-0000-4000-8000-000000000004; echo '{"type":"user"}' > "$HOME/.claude
 # the fake lives 10 s, not 3: resume_wait sees it only if one poll (tmux display, claude_pid_under, sleep 1) lands inside its life,
 # and on a loaded runner a poll outlasts 3 s (seen in CI with 47
 # suites at once, "claude did not start … within 45s"). On this fail path the fake never writes a registry row, so a longer life
-# cannot read as a started session; spawn waits 45 s, so 10 s fits with room. phases.sh and sets-master.sh keep 3 s: their resume
+# cannot read as a started session; spawn waits 45 s, so 10 s fits with room. phases.sh and sets-self.sh keep 3 s: their resume
 # wait is 5 s (SALA_RESUME_WAIT) and a longer life there would flip their verdict.
 $T set-environment -g FAKE_RESUME_FAIL 1; $T set-environment -g FAKE_RESUME_DELAY 10000
 out=$("$SALA" spawn sala-test-dead --fork "$UD" --cwd "$HOME" 2>&1); rc=$?

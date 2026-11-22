@@ -28,8 +28,7 @@ through `resume_cmd` — so a recycle brings an api-lane pane back on the api la
 `config.example`.
 
 `sala lane` is the only thing that writes the state, and it relaunches through the machinery every relaunch uses, with
-its guards (a busy pane deferred and retried, a running subagent never cut (it holds the move until it ends and is named in the skip line and in `watch`'s one log line; docs/recycle.md, "One idea of busy"), `SALA_NO_RELAUNCH` left alone, the invoking pane last, one driver at a time,
-the master's pane when a Claude session asks): `sala lane <lane> <session>…` records, then `revive --force --only …` and
+its guards (a busy pane deferred and retried, a running subagent never cut (it holds the move until it ends and is named in the skip line and in `watch`'s one log line; docs/recycle.md, "One idea of busy"), `SALA_NO_RELAUNCH` left alone, the invoking pane last, one driver at a time): `sala lane <lane> <session>…` records, then `revive --force --only …` and
 `revive --self` for the invoking pane; `sala lane <lane> --all` records every session and the default, then `recycle
 --force` (a relaunch of every pane is a recycle, and the board hears of it as one); `sala lane default <lane>` only sets
 the default. A lane whose prerequisites are missing is refused before anything is recorded. `--dry-run` prints what would
@@ -91,9 +90,8 @@ changes nothing by itself. A failed box is posted once per fingerprint in the st
 lines for it. State: `settings-apply.state` in sala's state directory; a second `--run` while one runs exits 75.
 
 **The rescue** (Wed Oct 14th 2026; `lib/revive.sh` "THE RESCUE", `lib/common.sh` `lane_out`). The `salamander lane --rescue <lane>`
-mode, which moved the configured master off a lane that was out, is gone with the master (stage 3 of retiring it): a
-configured `SALA_MASTER` is an ordinary session, moved by `sala lane <lane> <session>…` like any other, and `--force` is not
-an option. `--rescue` is now only the pane flag below, and `lane --rescue <lane>` with no sessions, or with `--all`, is
+mode, which moved one fixed session off a lane that was out, is gone: every session is moved by
+`sala lane <lane> <session>…`, and `--force` is not an option. `--rescue` is now only the pane flag below, and `lane --rescue <lane>` with no sessions, or with `--all`, is
 refused with a message. `lane_out` (in `lib/common.sh`) still reads sala's own state to say whether a lane is out, by
 three readings sala already has and nothing else (no model asked, no request made): `lane_check` (the lane cannot launch
 at all), the sign-in watch's last look (`lane-signin.state`: not signed in, another account, the key refused), and the
@@ -123,8 +121,7 @@ SIGKILL only if the same process (its start time is read before the first signal
 its row names (on the fallback lane, for a session the fallback moved), as for any pane. The output gets one line and the
 admin post one line: the session, the pid, the signal, the lane. The pid is never found by name: it is the claude the sweep
 resolved from the pane's process, checked again right before the signal (named claude, `/proc/<pid>/exe` a Claude Code
-install, the one claude under the pane's own process, the pane named in its environment). Never ended: the master session,
-the session that runs the command (its pid or its pane), an sdk-lane CLI (it leaves through the driver's box), a claude whose
+install, the one claude under the pane's own process, the pane named in its environment). Never ended: the session that runs the command (its pid or its pane), an sdk-lane CLI (it leaves through the driver's box), a claude whose
 registry row says a turn or background work is running (not a hang; the idle gates already skip such a pane before any `/exit`).
 `SALA_EXIT_END=0` turns the step off. `--dry-run` (and a queued operation's plan) says "will end a stuck process".
 
@@ -241,7 +238,7 @@ and stay there until the owner or a session moves them back. Code: `lib/common.s
   relaunch would skip it for ever. For that lane only, the fallback first sends such a pane ONE Escape (`pane_cut_turn` in `lib/lane.sh`: what the
   user would press to interrupt a turn) and waits up to `SALA_CUT_WAIT` seconds (40) for it to be idle, then relaunches it as any other. The
   Escape goes only to a pane whose registry status is `busy` with no background task under it, no dialog on screen and no unsent text in its
-  box; nothing is typed, and a pane that is left as it is stays on the ordinary rule (relaunched when idle). A session a leftover `SALA_MASTER` line names moves with the others. If the default lane is the dead one,
+  box; nothing is typed, and a pane that is left as it is stays on the ordinary rule (relaunched when idle). If the default lane is the dead one,
   it switches too. A session of any other lane is left alone. A pane whose claude is still running after its `/exit` and the wait
   (a client stuck on the dead lane) is ended by its pid and its session resumed on the fallback (*A claude that ignores `/exit`*, above).
 - **The model.** A session on a Fable model moved onto bedrock runs `opus` (Opus 5.5) there, because Fable fails on bedrock
@@ -259,7 +256,7 @@ and stay there until the owner or a session moves them back. Code: `lib/common.s
 - **One notice.** The operation posts ONE Slack notice for the batch: the dead lane, the fallback, each session moved and
   any model change (and a session that could not be moved, named). Nobody is told in an inbox: `from=sala-watch` is no session.
 - **Dry run and by hand.** `sala lane fallback <lane> --dry-run` prints the plan (the sessions, a Fable session's model change,
-  the master last, the default, the jobs) and writes, queues and relaunches nothing. `sala lane fallback <lane>` is the real form
+  the default, the jobs) and writes, queues and relaunches nothing. `sala lane fallback <lane>` is the real form
   for a person (it needs the lane to be dormant; exit 4: no usable fallback, nothing recorded).
 
 ## Pinned sessions
@@ -290,7 +287,7 @@ Thu Nov 5th 2026. A standing rule for the background agents that keeps them off 
 home when the limit resets. **Off by default** (`SALA_BACK_LANE_RULE=off`: nothing is read or moved). Code: `lib/common.sh` ("THE BACK AGENTS'
 LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-lanes`), `lib/spawn.sh`; test `tests/backlane.sh`.
 
-- **Who.** The live background agents: registry rows with role `back` and no side session, with a tmux session, not the master,
+- **Who.** The live background agents: registry rows with role `back` and no side session, with a tmux session,
   not `SALA_NO_RELAUNCH` and not pinned (*Pinned sessions*; a pinned one is listed as `skipped (pinned to <lane>): <session>` on the outcome line). A front agent (until the front step below), a side session, a job (`lane exec`, `sala job`) and the default lane are never touched, and a
   background agent on a lane outside the order (api, subscription-2) is left where it is.
 - **A row with no role** (an imported or adopted one, a bare spawn) counts by stackshot's project record, the source `spawn --project`
@@ -361,7 +358,7 @@ background agents on. It runs only while the rule is on, and is its own switch.
   the front step then runs on the lane step 1 chose (the second lane, or its fallback), in the same pass: two operations, the background agents first.
   If step 1 cannot be taken (its notice says why), the front step waits: the front agents stay while the background agents are still home.
 - **Who.** The live front agents: registry rows with role `front` (or, with no role, listed as a front agent by stackshot's project record,
-  the registry reader `front-names`), no side session, with a tmux session, not the master, not `SALA_NO_RELAUNCH`, on a lane in the
+  the registry reader `front-names`), no side session, with a tmux session, not `SALA_NO_RELAUNCH`, on a lane in the
   order and before the target. A pinned session is held out and named (`skipped (pinned to <lane>): <session>`); a front agent on a lane
   outside the order (api, subscription-2) is left where it is.
 - **The move** is the same `sala op lane <lane> <sessions…> --from sala-watch --words "$SALA_BACK_LANE_WORDS"`, one operation for the front

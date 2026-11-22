@@ -17,7 +17,7 @@
 # kill_fake_claude (exe and HOME checked).
 # Usage: bash tests/stuckexit.sh   (exit 0 = pass)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
+unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_NO_RELAUNCH SALA_RESCUE SALA_CLAUDE SALA_EXIT_END
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR CLAUDE_CODE_OAUTH_TOKEN SALA_LANE_API_KEY_FILE SALA_LANE_TEAM_DIR SALA_LANE_FALLBACK
 unset AWS_PROFILE AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_BEARER_TOKEN_BEDROCK CLAUDE_CODE_USE_BEDROCK SALA_LANE_BEDROCK_CREDENTIALS_FILE
@@ -46,7 +46,7 @@ cleanup() {
 }; trap cleanup EXIT
 eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux    # literal socket: the children run set -u
 . "$ROOT/lib/common.sh"
-as_op_unit   # the guarded verbs this suite runs stand for the queue's runner (no master: tests/lib.sh)
+as_op_unit   # the guarded verbs this suite runs stand for the queue's runner (tests/lib.sh)
 mkdir -p "$SALA_STATE_DIR"; : > "$POSTS"
 # mk <n> <uuid> <launch line> [tmux new-session options…]: pane sala-test-<n>, its claude started by the launch line
 mk() { local n="$1" u="$2" line="$3"; shift 3; $T new-session -d -s "sala-test-$n" -c "$HOME" -e FAKE_SESSION_ID="$u" -e FAKE_NAME="sala-test-$n" -e FAKE_LOG="$FAKE_LOG" "$@"; $T send-keys -t "sala-test-$n" "$line" Enter; }

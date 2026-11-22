@@ -27,7 +27,7 @@
 # Isolated HOME. Usage: bash tests/lanedormant.sh   (exit 0 = pass; ~40 s)
 set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_TZ CLAUDE_CONFIG_DIR ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS CLAUDE_CODE_OAUTH_TOKEN
-unset SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_MASTER SALA_CLAUDE SALA_SIGNIN_ALERT SALA_WEB_STATE_DIR SALA_LANE_REVIVE_EVERY
+unset SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_CLAUDE SALA_SIGNIN_ALERT SALA_WEB_STATE_DIR SALA_LANE_REVIVE_EVERY
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 export SALA_SIGNIN_ALERT=on   # lib.sh turns the step off for every other suite; the signals live in it
@@ -154,7 +154,6 @@ out=$("$SALA" spawn sala-test-x --dry-run 2>&1); rc=$?
 "$SALA" lane active subscription-1 >/dev/null 2>&1; printf 'subscription-1\n' > "$SALA_LANE_DEFAULT_FILE"
 lane_out subscription-2 >/dev/null && ok "lane_out: a dormant lane is out" || bad "lane_out subscription-2"
 lane_out subscription-2 | grep -q "dormant" && ok "… and says why" || bad "lane_out text: $(lane_out subscription-2)"
-case " $(lanes_working) " in *" subscription-2 "*) bad "lanes_working lists the dormant subscription-2: $(lanes_working)";; *" subscription-1 "*) ok "lanes_working leaves the dormant subscription-2 out: $(lanes_working)";; *) bad "lanes_working: $(lanes_working)";; esac
 "$SALA" lane active subscription-2 >/dev/null 2>&1
 out=$("$SALA" lane subscription-2 sala-test-nosuch 2>&1); has "$out" "dormant" && bad "refused after active" || ok "after 'lane active subscription-2' the refusal is gone"
 reset_all

@@ -112,7 +112,6 @@ Match the board when there is one:
 | `SALA_BACK_LANE_WORDS` / `SALA_BACK_LANE_STATE` | a sentence that states the rule / `back-lane.state` in the state directory | The words every queued move carries (the user's own sentence, quoted, if they want one) and the file that makes each step fire once per weekly window |
 | `SALA_LANE_BEDROCK_PROFILE` | empty | Bedrock is ready only when this names a profile found in `~/.aws/credentials`. A profile name with "admin" in it is refused. Also needs `SALA_LANE_BEDROCK_REGION`: there is no default region, and with it unset the lane stays "not set up" and `sala lane` says which setting is missing |
 | `SALA_WATCH_NOTIFY_CMD` | empty | No alert is sent anywhere. Optional: a command that reads the message on stdin. For `sala alert --channel NAME` it also gets `SALA_NOTIFY_CHANNEL=NAME` in its environment (unset for every other post); `contrib/briefing/post-stdin.sh` uses it to pick a Slack app (`BRIEFING_BOT_APP_<NAME>`, else the sala-admin one) |
-| `SALA_MASTER` | empty | No master session. Optional |
 | `SALA_FLEET_HOSTS` | empty | No other machines |
 | `SALA_SETTINGS_APPLY` | `off` | Nothing is applied to Claude Code settings by sala |
 | `SALA_OP_REBOOT` | see `config.example` | A reboot is not queued by default |

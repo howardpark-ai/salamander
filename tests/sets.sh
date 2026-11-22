@@ -2,8 +2,8 @@
 # Recycle sets (common.sh, "recycle sets"): every notice after a recycle's first post names that
 # recycle by its label and counts n/N. What is checked is the set's state and that its posts go out, never their wording
 # The set state under concurrent writers; a real recycle leaving two panes behind, both back in one retry pass →
-# the set closed; a give-up (a pane gone) → "closed at n/N" exactly once and never "set closed"; the master's own pane:
-# tests/sets-master.sh (split out, so the two run side by side); two workers on one set (the self-worker case)
+# the set closed; a give-up (a pane gone) → "closed at n/N" exactly once and never "set closed"; the invoking pane:
+# tests/sets-self.sh (split out, so the two run side by side); two workers on one set (the self-worker case)
 # both keep running and the count covers both; a newer recycle stops a worker; a deferred pane keeps its set open until
 # watch relaunches it; a pane that said ready but is held by background shells only (registry state 'shell') goes on the
 # deferred list at once, and a pane still pending when the retry window ends is deferred, not given up. The
@@ -18,7 +18,7 @@ unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, tmux_socket_rm
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null SALA_TZ=Etc/UTC
-as_op_unit   # no master: the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
+as_op_unit   # the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
 mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/projects/x" "$HOME/.local/bin" "$HOME/.local/share/tmux/resurrect"
 touch "$HOME/.claude/salamander-rc.stopped"      # no Remote Control server in the sandbox
 mkdir -p "$HOME/.local/share/claude/versions"; cc -o "$HOME/.local/share/claude/versions/9.9.9" "$ROOT/tests/fake-claude.c" || { rm -rf "$HOME"; exit 1; }   # the temp HOME goes with this exit (an EXIT trap may not exist yet here)
@@ -55,7 +55,7 @@ eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux   
 show() { sed 's/^/      | /' "$POSTS" 2>/dev/null | grep -v '| %%$'; }
 wait_lock() { lock_wait "$HOME/.claude/salamander-recycle.lock" 60; }
 # exit-empty off once a session has started the server: a section ending with its last kill-session must not empty it, or the next
-# new-session races the server going away (the same failure as tests/sets-master.sh). cleanup kills it.
+# new-session races the server going away (the same failure as tests/sets-self.sh). cleanup kills it.
 mk() { local n="$1" u="$2"; shift 2; $T new-session -d -s "sala-test-$n" -c "$HOME" -e FAKE_SESSION_ID="$u" -e FAKE_NAME="$n" -e FAKE_LOG="$FAKE_LOG" "$@"; $T set -s exit-empty off; $T send-keys -t "sala-test-$n" 'claude' Enter; }
 draft() {  # typed, never submitted: a transient skip (once the fake is up; until the text shows in the pane)
     fake_up "$1"; $T send-keys -t "sala-test-$1" -l 'half a thought'; waitfor "$T capture-pane -p -t sala-test-$1 | grep -q 'half a thought'" 20; }
@@ -87,7 +87,7 @@ want="$(HEAD "${S5%%-*}" 2/4)
     • pa: still waiting, $BUSY
     • pb: still waiting, $DLG
     • pc: still waiting, not relaunched yet"
-[ "$(posts_plain)" = "$want" ] && ok "pending: a busy pane, a dialog pane, and one the first post named no reason for (the master's), each its own bullet after the pane just back" || bad "pending post: $(show)"
+[ "$(posts_plain)" = "$want" ] && ok "pending: a busy pane, a dialog pane, and one the first post named no reason for (the invoking pane's), each its own bullet after the pane just back" || bad "pending post: $(show)"
 S6="$((FB-102))-502"; set_create "$S6" Recycle recycle 3 0 9.9.9 1 out=pa out=pb gave="pg: its pane is gone" "skip=pa: $BUSY" "skip=pg: its pane is gone"
 : > "$POSTS"; set_resolve "$S6" ok pb "pb relaunched on 9.9.9, 3 min after the recycle"
 want="$(HEAD "${S6%%-*}" 1/3)

@@ -19,7 +19,7 @@
 # (`op --plan`) saying so for the asking session; SALA_MODEL_INPLACE=off. A batch mixing an in-place switch and a pane left for the one sweep.
 # Isolated HOME, a private tmux socket, the compiled fake claude. Usage: bash tests/modelinplace.sh   (exit 0 = pass; ~90 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH SALA_MASTER SALA_OP_PLAN SALA_OP_FROM
+unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH SALA_OP_PLAN SALA_OP_FROM
 unset ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, tmux_socket_rm

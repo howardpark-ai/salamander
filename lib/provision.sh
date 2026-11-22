@@ -1,7 +1,7 @@
 # lib/provision.sh — provision the whole fleet from the coordinator machine: every box's deterministic steps, then the recycle.
 #
 #   salamander provision [--check] [--session] [--no-recycle] [--only STEP[,STEP…]] [--quiet] [HOST…]
-#       no HOST: every SALA_FLEET_HOSTS box, then this one, then `recycle --update --force` (the master's last act)
+#       no HOST: every SALA_FLEET_HOSTS box, then this one, then `recycle --update --force` (the run's last act)
 #       HOST…:   just those boxes, this one included when named (no recycle)
 #       --check: every box read-only (the scripts' check mode); changes nothing
 #       --only:  just these steps of the step scripts, on every box (or the named ones): the apply, then a check of the
@@ -13,16 +13,16 @@
 #       --session: also the old headless /provision session per remote box, after the steps (every
 #                  item is a script step or reports `manual`, so the session is opt-in — it can fix nothing a script
 #                  does not, and a `manual` item needs the owner, not a model)
-#   salamander provision --settle <set> <host> <step> ok|gave ["<note>"]   (the master) an item of a provision set is done,
+#   salamander provision --settle <set> <host> <step> ok|gave ["<note>"]   (the session told of it) an item of a provision set is done,
 #       or given up; the note is the plain words the set's post shows ("repo back in step with GitHub")
-#   salamander provision --waiting <set> <host> <step> "<id> is waiting on your OK in <session>"   (the master) the item
+#   salamander provision --waiting <set> <host> <step> "<id> is waiting on your OK in <session>"   (the session told of it) the item
 #       waits on the owner: the text stands in for its detail in the set's later posts
 #   salamander provision --sets          the open provision sets, their boxes and items
 #   salamander provision --retry-worker <set>   (internal) the set's retry worker for its failed steps
 #
 # PROVISION SETS (common.sh, "provision sets"): a run that leaves something on a box — a failed
 # step, a `manual` one, a box offline — is a set with the recycle set's follow-up: a failed step is retried, a manual one
-# of kind `session` goes to the master to fix and settle, one of kind `owner` goes to the master to file on the board and
+# of kind `session` goes to the front agent to fix and settle, one of kind `owner` goes to the front agent to file on the board and
 # record with --waiting, an offline box is provisioned once it is back; every later post names the set and counts boxes
 # OK. A clean run keeps its single fleet post. The run's own --session mode keeps the old fleet post and makes no set.
 #
@@ -320,7 +320,7 @@ if [ "$CHECK" = 0 ] && [ "$LOCALRUN" = 1 ]; then   # this box last: its repo fas
 fi
 # pset_run <result dir> <host…> — the run's Slack report: a box outstanding in an open provision set settles into that set
 # (its pass post, if anything changed for it); the other boxes, all OK → the single fleet post as before, else a new set
-# and its first post. Then the follow-up: the master told about session/owner items, a retry worker for failed ones.
+# and its first post. Then the follow-up: the front agent told about session/owner items, a retry worker for failed ones.
 pset_run() {
     local d="$1"; shift; local h s fresh=() routed=() hs anyleft=0
     for h in "$@"; do if [ -n "$(pset_open_for "$h")" ]; then routed+=("$h"); else fresh+=("$h"); fi; done
@@ -352,7 +352,7 @@ if [ "$CHECK" = 0 ]; then
 fi
 [ "$RKEEP" = 1 ] || { [ -d "${rdir:-}" ] && rm -rf "${rdir:?}"; }
 rc=0; prov_failed && rc=1
-# the last act of a whole-fleet run: this box's CLI update + the recycle (the master's; standing authorization,
+# the last act of a whole-fleet run: this box's CLI update + the recycle (standing authorization,
 # it relaunches the invoking pane too once idle)
 if [ "$CHECK" = 0 ] && [ ${#HOSTS[@]} -eq 0 ] && [ "$RECYCLE" = 1 ]; then
     echo "  → sala recycle --update --force (this box's CLI, then every pane, this one last)"

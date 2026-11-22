@@ -22,7 +22,7 @@
 #   A queued move that finds its fallback gone dormant ends stuck (exit 4), named, with no claude -p.
 # Usage: bash tests/lanefallback.sh   (exit 0 = pass; ~150 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
+unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH SALA_RESCUE SALA_CLAUDE
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR CLAUDE_CODE_OAUTH_TOKEN SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE \
       SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_WEB_STATE_DIR SALA_LANE_FALLBACK SALA_FALLBACK_NO_FABLE SALA_FALLBACK_FABLE_MODEL
@@ -94,7 +94,7 @@ cleanup() {
 }; trap cleanup EXIT
 eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux    # literal socket: the children run set -u
 . "$ROOT/lib/common.sh"
-as_op_unit   # this suite's own fleet verbs run as the queue's runner would (no master: the guards refuse a Claude caller otherwise)
+as_op_unit   # this suite's own fleet verbs run as the queue's runner would (the guards refuse a Claude caller otherwise)
 OPS="$SALA_STATE_DIR/ops"; DONE="$OPS/done"; REC="$SALA_LANE_STATE"; WLOG="$HOME/.claude/salamander-watch.log"; MODELS="$SALA_STATE_DIR/models.tsv"
 CRED="$HOME/.aws/credentials"; export SALA_LANE_BEDROCK_CREDENTIALS_FILE="$CRED"
 mk() { local n="$1" u="$2"; shift 2; $T new-session -d -s "sala-test-$n" -c "$HOME" -e FAKE_SESSION_ID="$u" -e FAKE_NAME="sala-test-$n" -e FAKE_LOG="$FAKE_LOG" -e FAKE_LANE_LOG="$FAKE_LANE_LOG" -e FAKE_TYPED_LOG="$FAKE_TYPED_LOG" -e FAKE_BEDROCK_LOG="$FAKE_BEDROCK_LOG" "$@"; $T send-keys -t "sala-test-$n" 'claude' Enter; }
@@ -147,7 +147,7 @@ out=$("$SALA" lane fallback subscription-1 --dry-run 2>&1); rc=$?
 before=$(sumfiles); starts0=$(starts "$(uuid 1)")$(starts "$(uuid 2)")$(starts "$(uuid 3)")
 out=$("$SALA" lane fallback subscription-1 --dry-run 2>&1); rc=$?
 [ "$rc" = 0 ] && has "$out" "lane fallback: the Ultra lane is dormant" && has "$out" "to the Bedrock lane" && has "$out" "one hop" && ok "the plan header names the dead lane and the fallback" || bad "plan ($rc): $out"
-has "$out" "sala-test-a: subscription-1 → bedrock" && has "$out" "sala-test-f: subscription-1 → bedrock, model fable → opus" && has "$out" "sala-test-m: subscription-1 → bedrock" && ! has "$out" "the master" && ! has "$out" "rescue" \
+has "$out" "sala-test-a: subscription-1 → bedrock" && has "$out" "sala-test-f: subscription-1 → bedrock, model fable → opus" && has "$out" "sala-test-m: subscription-1 → bedrock" && ! has "$out" "rescue" \
     && ok "each session is named, the Fable one with its model change, and the one an old config names is an ordinary line" || bad "plan lines: $out"
 ! has "$out" "sala-test-k:" && ok "the subscription-2 session is not in subscription-1's plan" || bad "k in the plan: $out"
 has "$out" "default lane: subscription-1 → bedrock" && has "$out" "jobs: a sala job whose lane is subscription-1 runs on bedrock while subscription-1 is dormant" && has "$out" "[dry-run]" && ok "the default and the jobs are in the plan, marked dry run" || bad "plan default/jobs: $out"
@@ -208,7 +208,7 @@ waitfor "[ -f '$DONE/$W2.op' ]" 480 && ok "the operation ran and was archived" |
 wait_lock
 [ "$(lane_row sala-test-a)|$(lane_row sala-test-f)|$(lane_row sala-test-m)|$(lane_row sala-test-k)" = "bedrock|bedrock|bedrock|subscription-2" ] && ok "a, f and m recorded on bedrock; the subscription-2 session untouched" || bad "rows: $(lane_row sala-test-a)|$(lane_row sala-test-f)|$(lane_row sala-test-m)|$(lane_row sala-test-k)"
 waitfor "[ \"\$(proc_lane \"\$(cpid a)\")\" = bedrock ]" 240 && waitfor "[ \"\$(proc_lane \"\$(cpid f)\")\" = bedrock ]" 240 && waitfor "[ \"\$(proc_lane \"\$(cpid m)\")\" = bedrock ]" 240 \
-    && ok "relaunched: a, f and m (the old master's name) run on bedrock (proc_lane)" || bad "running lanes: $(proc_lane "$(cpid a)") $(proc_lane "$(cpid f)") $(proc_lane "$(cpid m)")"
+    && ok "relaunched: a, f and m (the name a SALA_MASTER line holds) run on bedrock (proc_lane)" || bad "running lanes: $(proc_lane "$(cpid a)") $(proc_lane "$(cpid f)") $(proc_lane "$(cpid m)")"
 [ "$(proc_lane "$(cpid k)")" = subscription-1 ] && [ "$(starts "$(uuid 4)")" = "$starts_k" ] && ok "k was not relaunched" || bad "k: starts $(starts "$(uuid 4)") vs $starts_k"
 [ "$(starts "$(uuid 1)")" -gt "$starts_a" ] && [ "$(starts "$(uuid 2)")" -gt "$starts_f" ] && [ "$(starts "$(uuid 3)")" -gt "$starts_m" ] && ok "each moved session was relaunched" || bad "starts: a $(starts "$(uuid 1)")/$starts_a f $(starts "$(uuid 2)")/$starts_f m $(starts "$(uuid 3)")/$starts_m"
 [ "$(hrow sala-test-a)|$(hrow sala-test-m)" = "subscription-1/-|subscription-1/-" ] && ok "the home record: a and m came from subscription-1" || bad "homes: $(cat "$SALA_LANE_HOME")"

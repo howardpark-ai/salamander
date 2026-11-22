@@ -73,7 +73,7 @@
   "tests/sdklane.sh": 56.0,
   "tests/sessions-spawn.sh": 83.5,
   "tests/sessions.sh": 72.0,
-  "tests/sets-master.sh": 81.5,
+  "tests/sets-self.sh": 81.5,
   "tests/sets.sh": 143.0,
   "tests/settingsapply.sh": 27.5,
   "tests/side.sh": 54.5,

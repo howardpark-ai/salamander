@@ -238,7 +238,7 @@ wrapup_tick() {
 # a sleep must not lose, cheap checks first. A claude that ends takes with it: a scheduled job (cron), a queued or running operation naming
 # it, a note not yet delivered, a pending relaunch (the deferred list, an open recycle set, the waiting flag), a stackshot inbox message
 # for it, a limit or network stop it is sitting on, and a question open on its screen. The session's own kinds are refused first: the
-# master, the Remote Control session, a Remote Control served session, the sdk lane, SALA_NO_RELAUNCH and the shell session, a side session, a front agent (sleep_is_front).
+# Remote Control session, a Remote Control served session, the sdk lane, SALA_NO_RELAUNCH and the shell session, a side session, a front agent (sleep_is_front).
 # SALA_SLEEP_AFTER (3600): the idle age. SALA_STACKSHOT_INBOX: the directory of stackshot's inbox (hub/ and msg/ under it; it may be missing).
 : "${SALA_STACKSHOT_INBOX:=$HOME/.local/state/stackshot/inbox}"
 SLEEP_WHY=""
@@ -271,7 +271,6 @@ sleep_ready() {
     tmux has-session -t "=$sess" 2>/dev/null || { _sleep_no "no tmux session '$sess'"; return 1; }
     is_sleeping "$sess" && { _sleep_no "already asleep"; return 1; }
     [ "$sess" != "${SALA_RC_SESSION:-}" ] || { _sleep_no "the Remote Control session"; return 1; }
-    [ -z "${SALA_MASTER:-}" ] || [ "$sess" != "$SALA_MASTER" ] || { _sleep_no "the master session"; return 1; }
     no_relaunch "$sess" && { _sleep_no "managed outside sala (SALA_NO_RELAUNCH or the web UI's shell)"; return 1; }
     side_is "$sess" && { _sleep_no "a side session"; return 1; }
     sleep_is_front "$sess" && { _sleep_no "a front agent: the owner talks to it, so it never sleeps"; return 1; }

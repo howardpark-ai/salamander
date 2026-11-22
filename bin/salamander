@@ -74,7 +74,7 @@
 #   salamander follow                               resident watcher of the session registry (sala-follow.service): follows hand renames
 #   salamander snapshot [--now]        event-driven tmux-resurrect save (tmux hooks + Claude SessionStart hook)
 #   salamander watch [--check]         the watchdog, from a timer: the operation queue, the automatic update, relaunch and recycle, the
-#                                      watches below and the post-boot report; a SALA_MASTER line left in the config is said once to be retired
+#                                      watches below and the post-boot report
 #   salamander watch --limit | --signin | --net   only the usage-limit watch, only the lane sign-in watch, or only the network-stop wake (lib/watch.sh)
 #   salamander watch --stuck [--dry-run]   only the stuck-question watch: a pane stopped on a terminal-only question posted once, with its sala-web link
 #   salamander watch --questions       only the parked-question sweep (lib/watch.sh question_sweep_tick)

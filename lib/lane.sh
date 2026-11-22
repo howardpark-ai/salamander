@@ -39,7 +39,7 @@
 # The lane fields (common.sh, "THE LANE FIELDS") are what --list and --json print. A switch is a relaunch — the CLI
 # picks its auth when it starts — and never a re-auth: the login in ~/.claude is untouched by a per-process key, and a
 # config directory keeps its own. This replaces the hand-made ~/api-session/lane-relaunch.sh (`sala lane api <session>`)
-# and master-to-team.sh (`sala lane subscription-2 <session>`; `team` is read as its old word).
+# and a script that moved a session to the team lane (`sala lane subscription-2 <session>`; `team` is read as its old word).
 #
 # HOW IT RELAUNCHES — through the machinery every relaunch uses, with that machinery's guards (a busy pane deferred and
 # retried, SALA_NO_RELAUNCH left alone, the invoking pane last, one driver at a time), nothing of its own:
@@ -441,7 +441,7 @@ if [ "$MODE" = default ]; then
     old=$(lane_default)
     [ "$old" = "$LANE" ] && { echo "default lane: $LANE (already)"; exit 0; }
     n=0; for s in $(lane_sessions); do [ -z "$(lane_row "$s")" ] || continue; if lane_is_pinned "$s"; then PINSK+=("$s"); else n=$((n+1)); fi; done   # a pinned session keeps its pin's lane when the default changes
-    # --dry-run writes nothing (Wed Oct 14th 2026, the master session: `sala lane default api --dry-run` wrote the default
+    # --dry-run writes nothing (Wed Oct 14th 2026, a coordinating session: `sala lane default api --dry-run` wrote the default
     # lane — this block never looked at DRY and went straight to lane_set_default)
     if [ "$DRY" = 1 ]; then
         echo "[dry-run] would set the default lane: $LANE (was $old) — $n session(s) without a lane of their own would take it at their next relaunch; nothing recorded"

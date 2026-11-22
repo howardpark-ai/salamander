@@ -33,8 +33,8 @@
 #                                boot time, kernel and the revive summary
 # Never: type into a busy pane or a prompt; kill anything; act while a resurrect restore or a
 # `salamander revive` is running; act twice on the same failure within SALA_WATCH_COOLDOWN.
-# The watchdog no longer keeps, heals or restarts a master session; a SALA_MASTER line left in the config is retired
-# (it will be removed in a later change) and gets one notice (THE RETIRED MASTER PATH below; `--check` prints it too).
+# The watchdog keeps no session of its own: every mapped pane is healed alike (the bare-pane heal). A SALA_MASTER line left in the
+# config is retired, ignored and gets one notice (THE RETIRED SALA_MASTER LINE below; `--check` prints it too).
 # `--check` reports "healthy: …" and exits 0 unless the tmux server is down.
 # The operation queue (lib/op.sh) runs fleet operations.
 # State: $SALA_LOG_DIR/salamander-watch.state (last action times, boot report). Log: salamander-watch.log.
@@ -112,7 +112,7 @@ APSTATE="$SALA_LOG_DIR/salamander-autoprovision.state"
 ap_get() { _kv_first "$APSTATE" "$1"; }
 ap_set() { _kv_set "$APSTATE" "$1" "$2"; }
 # PROVISION SETS (common.sh "provision sets"), every tick: an open set's give-ups (pset_expire),
-# the master told about items it has not heard of yet (pset_tell: a delivery that failed is retried here), and a box a set
+# the front agent told about items it has not heard of yet (pset_tell: a delivery that failed is retried here), and a box a set
 # lists as offline that the heartbeat store says answers ssh again → ONE `provision --no-recycle <hosts…>` (its own unit,
 # fixed name sala-auto-provision-sets; not while it still runs; a box at most every
 # SALA_RETRY_EVERY), which settles those boxes into their set.
@@ -1442,33 +1442,33 @@ unregistered_tick() {
 [ "$SETTINGS_ONLY" = 1 ] && { settings_tick; exit 0; }   # `sala watch --settings`: the settings-apply tick alone (lib/settings-apply.sh)
 [ "$QUESTIONS_ONLY" = 1 ] && { question_sweep_tick; exit 0; }   # `sala watch --questions`: the parked-question sweep alone
 [ "$CHECK_ONLY" = 1 ] || { _claude_panes_r _TICK_PANES; _TICK_PANES_SET=1; }   # one tmux call and one ps pass for the three scans below (limit, net, stuck); nothing acts on a pane in between. Only a pane with a claude process is listed, so a SLEEPING session (common.sh, THE SLEEPING SESSIONS: no claude on purpose) is in none of the three scans, nor in the wrap-up's (lib/wrapup.sh): nothing is read from it, typed into it or woken
-[ "$CHECK_ONLY" = 1 ] || limit_tick   # first, before anything that may end this run: it needs no master, no tmux and no idle box
-[ "$CHECK_ONLY" = 1 ] || net_tick   # the same: no master; tmux down reads as no panes
-[ "$CHECK_ONLY" = 1 ] || signin_tick   # the same: no master, no tmux
+[ "$CHECK_ONLY" = 1 ] || limit_tick   # first, before anything that may end this run: it needs no tmux and no idle box
+[ "$CHECK_ONLY" = 1 ] || net_tick   # the same: tmux down reads as no panes
+[ "$CHECK_ONLY" = 1 ] || signin_tick   # the same: no tmux
 [ "$CHECK_ONLY" = 1 ] || ld_post_tick   # the same: the one post of a dormant lane's episode (the dormant record's signals)
-[ "$CHECK_ONLY" = 1 ] || sessions_fill_roles   # the same: every live row with no role takes the one the project record gives it (common.sh sessions_fill_roles); no tmux, no master, a record that cannot answer changes nothing
+[ "$CHECK_ONLY" = 1 ] || sessions_fill_roles   # the same: every live row with no role takes the one the project record gives it (common.sh sessions_fill_roles); no tmux, a record that cannot answer changes nothing
 [ "$CHECK_ONLY" = 1 ] || back_lane_run   # the same: the back agents' lane rule (off unless SALA_BACK_LANE_RULE=on); reads the limit and quota state just written, queues before the queue runs
 [ "$CHECK_ONLY" = 1 ] || lane_names_tick   # the same: lane-names.json (stackshot reads it); a tick that finds nothing changed starts no process for it
-[ "$CHECK_ONLY" = 1 ] || stuck_tick   # the same: no master; tmux down reads as no panes
-[ "$CHECK_ONLY" = 1 ] || unregistered_tick   # the same: no master; a file read per live agent pane (the project record), a post only past its grace and back-off
+[ "$CHECK_ONLY" = 1 ] || stuck_tick   # the same: tmux down reads as no panes
+[ "$CHECK_ONLY" = 1 ] || unregistered_tick   # the same: a file read per live agent pane (the project record), a post only past its grace and back-off
 unset _TICK_PANES_SET _TICK_PANES   # what follows may relaunch panes: it reads them afresh
-[ "$CHECK_ONLY" = 1 ] || question_sweep_tick   # the same: no master, no tmux; the sweep is its own unit
-[ "$CHECK_ONLY" = 1 ] || settings_tick   # the same: no master, no tmux; a run it starts is its own unit, so nothing below waits on it
+[ "$CHECK_ONLY" = 1 ] || question_sweep_tick   # the same: no tmux; the sweep is its own unit
+[ "$CHECK_ONLY" = 1 ] || settings_tick   # the same: no tmux; a run it starts is its own unit, so nothing below waits on it
 [ "$CHECK_ONLY" = 1 ] || unit_gaps_tick   # the same: file reads and at most three job-gap opens and three clears
-# THE OPERATION QUEUE (lib/op.sh): the oldest queued operation starts as its own sala-op-<id> unit, one at a time,
-# master or no master; a runner that ended without a result is settled. One started here counts as this run's automatic
+# THE OPERATION QUEUE (lib/op.sh): the oldest queued operation starts as its own sala-op-<id> unit, one at a time;
+# a runner that ended without a result is settled. One started here counts as this run's automatic
 # launch (OP_LAUNCHED → AUTO_LAUNCHED below), so no auto-update, auto-relaunch or auto-recycle starts beside it in the same run.
 OP_LAUNCHED=0; [ "$CHECK_ONLY" = 1 ] || op_tick
-# THE RETIRED MASTER PATH: the watchdog no longer keeps, heals or restarts the master, and a SALA_MASTER line left in the
-# config is retired and will be removed in a later change. It is said once per value, never an error: a changed value says
+# THE RETIRED SALA_MASTER LINE: the watchdog keeps no session of its own, and a SALA_MASTER line left in the
+# config is retired and ignored. It is said once per value, never an error: a changed value says
 # it again, an emptied one drops the key so a line added later says it again. `--check` prints the line and writes no state. Not said at config load
 # (common.sh runs on every sala call).
 if [ -n "${SALA_MASTER:-}" ]; then
-    MASTER_RETIRED_MSG="SALA_MASTER=$SALA_MASTER is set in $SALA_CONFIG, but the watchdog no longer keeps, heals or restarts the master: the line is retired and will be removed in a later change"
-    if [ "$CHECK_ONLY" = 1 ]; then echo "⚠ $MASTER_RETIRED_MSG"
+    RETIRED_LINE_MSG="SALA_MASTER=$SALA_MASTER is set in $SALA_CONFIG, but SALA_MASTER is retired and ignored: the watchdog keeps no session of its own; remove the line from the config"
+    if [ "$CHECK_ONLY" = 1 ]; then echo "⚠ $RETIRED_LINE_MSG"
     elif [ "$(st_get master_retired_warned)" != "$SALA_MASTER" ]; then
-        st_set master_retired_warned "$SALA_MASTER"; wlog "$MASTER_RETIRED_MSG"
-        notify "ℹ️ *The master path is retired*" "$MASTER_RETIRED_MSG" "the session itself is kept alive like any other mapped pane (the bare-pane revive)"
+        st_set master_retired_warned "$SALA_MASTER"; wlog "$RETIRED_LINE_MSG"
+        notify "ℹ️ *SALA_MASTER is retired*" "$RETIRED_LINE_MSG" "the session itself is kept alive like any other mapped pane (the bare-pane revive)"
     fi
 elif [ "$CHECK_ONLY" = 0 ] && [ -n "$(st_get master_retired_warned)" ]; then st_del master_retired_warned; fi
 finding() { echo "$*"; [ "$CHECK_ONLY" = 1 ] && exit 1; return 0; }
@@ -1631,7 +1631,7 @@ auto_relaunch() {
 [ "$CHECK_ONLY" = 1 ] || auto_update
 [ "$CHECK_ONLY" = 1 ] || auto_relaunch
 [ "$CHECK_ONLY" = 1 ] || provision_sets_tick
-# AUTO-RECYCLE: what used to wait for a cue to the master — a relaunch so every
+# AUTO-RECYCLE: what used to wait for a session's cue — a relaunch so every
 # pane re-reads its connectors, CLAUDE.md, skills and settings — runs on its own as soon as it is due (no whole-box idle
 # wait: above), when
 #  - board items on this box wait for a recycle: SALA_RECYCLE_WANTED_CMD prints a count, then optionally ids (sh -c,
@@ -1657,7 +1657,7 @@ auto_relaunch() {
 #    SALA_RECYCLE_REF_SLACK for the deploy), nothing is left for a recycle to do: a request is dropped, a board flag is reported
 #    served to the board (the post-recycle command, with the flag's time) and nothing is launched. A token with no epoch is timed
 #    by when watch first saw the board list it (an upper bound of the flag's time, so the guard never skips a flag it cannot prove served).
-# Then the recycle the master's cue would run ("recycle claude" → `recycle --update --force`), once, as its own unit; the
+# Then the recycle a session's "recycle claude" would run (`recycle --update --force`), once, as its own unit; the
 # request markers it served are cleared and one post says what triggered it. Never while a recycle, revive, restore or
 # rename runs (busy_elsewhere ended this run above), during a reboot or with the pane map frozen; at most once an hour.
 : "${SALA_AUTO_RECYCLE:=on}"; : "${SALA_RECYCLE_WANTED_CMD:=}"

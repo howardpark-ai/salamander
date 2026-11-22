@@ -40,7 +40,7 @@
 # SETS: every post after a recycle's first names that recycle and counts n/N (common.sh,
 # "recycle sets"). The driver names the set (SALA_SET) before its sweep; the sweep writes it; every worker, the self-worker
 # and watch's deferred relaunch settle their panes in it. Each worker has its own pid file (salamander-retry.<pid>.pid).
-# THE LANE LINE (Wed Oct 14th 2026, the master session: `revive --force --only 56` put pane 56 on the api default — it had no
+# THE LANE LINE (Wed Oct 14th 2026, a coordinating session: `revive --force --only 56` put pane 56 on the api default — it had no
 # lane row, and only its environment knew it ran on subscription-2, then called team). Every relaunch plan prints "lane: <runs on now> → <relaunched
 # on>" for its pane (lane_plan below), the first from the process (proc_lane), the second from the resume line's source
 # (lane_for_session: the row, else the default), and when the two differ and no row records the intent, THAT PANE is refused
@@ -245,7 +245,7 @@ fi
 # detaches and exits inside it, and the driver must see the new launcher target. A live process keeps
 # the binary it started with — only a relaunch moves it — so "update the CLI" and "relaunch the panes"
 # are one operation; this is the whole of the owner's "recycle claude" cue.
-# --dry-run is read here too, before the update (Wed Oct 14th 2026, the master session: `revive --update --dry-run` ran
+# --dry-run is read here too, before the update (Wed Oct 14th 2026, a coordinating session: `revive --update --dry-run` ran
 # `claude update`, since the flag loop that sets DRY comes after this block); it stays in the arguments, so the flag loop
 # and recycle's driver still see it.
 DO_UPDATE=0; ARGS=()
@@ -329,7 +329,7 @@ while [ $# -gt 0 ]; do
             # the lane line, before anything is scheduled (the header, THE LANE LINE); the self-worker checks it again when it fires
             scpid=$(claude_pid_under "$(tmux display -p -t "$TMUX_PANE" '#{pane_pid}' 2>/dev/null)")
             lane_plan "$ss" "$scpid" || die "$ss: $([ "$DRY" = 1 ] && echo "[dry-run] --self would be refused" || echo "--self refused") — $LANE_WHY ($LANE_LINE)"
-            # --dry-run: what the self-worker would do, and no worker (Wed Oct 14th 2026, the master session: `revive --self
+            # --dry-run: what the self-worker would do, and no worker (Wed Oct 14th 2026, a coordinating session: `revive --self
             # --dry-run` scheduled the real self-relaunch — an earlier version read --dry-run before the update, but this branch never looked)
             if [ "$DRY" = 1 ]; then
                 if [ -n "$scpid" ]; then
@@ -379,11 +379,11 @@ while [ $# -gt 0 ]; do
             # SALA_RECYCLE_SKIPPED_FILE (this driver's own file; a self-worker that fails counts as one), which stands in
             # when the sweep wrote no set. Not on a dry run.
             # THE SET (common.sh, "recycle sets"): the driver names it (SALA_SET, its start and pid)
-            # and makes it the current recycle set, which stops an earlier recycle's workers; the sweep writes it, the master's
+            # and makes it the current recycle set, which stops an earlier recycle's workers; the sweep writes it, the invoking
             # pane counting in it (SALA_SET_SELF) when the self-worker will relaunch it. A clean recycle stays one post:
-            # with the master's pane the only one outstanding, the self-worker makes the set's first post once that
-            # pane is settled. The first-post-at-once rule applies when a pane besides the master's is left behind: the
-            # sweep posts, the master's pane in it as "not relaunched yet", and the self-worker settles it like any other.
+            # with the invoking pane the only one outstanding, the self-worker makes the set's first post once that
+            # pane is settled. The first-post-at-once rule applies when a pane besides the invoking one is left behind: the
+            # sweep posts, the invoking pane in it as "not relaunched yet", and the self-worker settles it like any other.
             # Fallback: a self-worker that died before posting leaves the set unreported, and the driver posts it here.
             # A DRY RUN (Wed Oct 14th 2026; the header, THE LANE LINE): the sweep's check phase and the self-worker's plan for the
             # invoking pane, nothing else — no freeze (until today a dry run froze the map for its length), no self-worker (until
@@ -421,7 +421,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-# a direct revive (not recycle's own sweep, not a worker) is a fleet operation: master only when a session calls it
+# a direct revive (not recycle's own sweep, not a worker) is a fleet operation: queued, never run raw, when a session calls it
 if [ -z "${SALA_RECYCLE:-}" ] && [ "$SELF_WORKER" = 0 ] && [ -z "${SALA_RETRY_WORKER:-}" ]; then
     ops_guard revive "${ONLY_LIST[0]:-all}" $([ "$DRY" = 1 ] && echo --dry-run)
 fi
@@ -593,7 +593,7 @@ if [ "$SELF_WORKER" = 1 ]; then
     # every abort here is unattended: say it out loud, never only in the log (a background watch-loop in the invoking pane
     # once held it "busy" for a long time and nothing said so)
     label=$(tmux display -p -t "$SELF_PANE" '#{session_name}' 2>/dev/null); label=${label:-$SELF_PANE}
-    # under a recycle driver the master's pane is one outstanding pane of the set, settled like any other: relaunched, a
+    # under a recycle driver the invoking pane is one outstanding pane of the set, settled like any other: relaunched, a
     # closure; failed, a give-up (towards "closed at n/N"); handed to a retry worker, nothing more until that worker settles
     # it. When a pane besides it was left behind, the sweep's first post already listed it as "not relaunched yet";
     # when it is the only one outstanding, a clean recycle stays one post: the self-worker makes the set's
@@ -710,7 +710,7 @@ fi
 # Panes are independent, so a phase's jobs are plain background subshells, at most SALA_SWEEP_JOBS at once. A subshell's
 # arrays never reach the parent: each job writes its rows to a file (NUL-separated KIND, text) that the parent folds back
 # in pane order, so the summary reads as before. The invoking pane (SALA_SKIP_PANE) and the self-worker are untouched:
-# the master is relaunched last, after this sweep.
+# the invoking pane is relaunched last, after this sweep.
 : "${SALA_RESUME_GAP:=1}"; : "${SALA_SWEEP_JOBS:=12}"
 TMPD=$(mktemp -d "${TMPDIR:-/tmp}/sala-revive.XXXXXX"); trap 'rm -rf "$TMPD"' EXIT
 emit() { printf '%s\0%s\0' "$1" "$2" >> "$RES"; }
@@ -789,7 +789,7 @@ check_pane() {
         [ -z "$cpid" ] && { SKIPPED+=("$label: claude pane but pid not found"); return; }
         is_rc_server "$cpid" && { SKIPPED+=("$label: a Remote Control server outside $SALA_RC_SESSION — left alone (use: salamander rc)"); return; }
         ver=$(proc_version "$cpid")
-        # the pane this command runs in is never relaunched by its own sweep (Wed Oct 14th 2026, the master session: `revive --force
+        # the pane this command runs in is never relaunched by its own sweep (Wed Oct 14th 2026, a coordinating session: `revive --force
         # --only <own session>` answered "own session, already current", which read as done): with --force or on an older CLI
         # it is a skip that says so and names the way, `salamander revive --self`
         if is_ancestor "$cpid"; then
@@ -1087,8 +1087,8 @@ if [ "$DRY" = 0 ] && [ -z "${SALA_RETRY_WORKER:-}" ] && [ -z "${SALA_DEFERRED_TR
     START_WORKER=1; notes+=("sala retries ${#RETRY[@]} of them every $((SALA_RETRY_EVERY/60)) min for up to $(dur_words "$SALA_RETRY_WINDOW")")
 fi
 # the set, written whole before any worker is told its id: N = the panes this sweep meant to relaunch (back, left behind,
-# and the master's own pane when the self-worker comes next), n = those back; outstanding = the retried, the deferred and
-# the master's pane; every other pane left behind is given up at once. A Revive set exists only when a pane is left to come
+# and the invoking pane when the self-worker comes next), n = those back; outstanding = the retried, the deferred and
+# the invoking pane; every other pane left behind is given up at once. A Revive set exists only when a pane is left to come
 # back for, and has no first post (a direct revive never posted one): its closures are its posts.
 if [ -n "$SET" ] && ! set_has "$SET" && { [ "$SET_KIND" = Recycle ] || [ "$START_WORKER" = 1 ] || [ "$ndef" -gt 0 ]; }; then
     nback=0; for l in ${UPDATED[@]+"${UPDATED[@]}"} ${REVIVED[@]+"${REVIVED[@]}"}; do case "$l" in *"⤷ told:"*) ;; *) nback=$((nback+1));; esac; done
@@ -1116,8 +1116,8 @@ if [ "$DRY" = 0 ] && [ -n "${SALA_RECYCLE_SKIPPED_FILE:-}" ] && [ -z "${SALA_RET
     for l in ${SKIPPED[@]+"${SKIPPED[@]}"}; do echo "${l%%:*}"; done >> "$SALA_RECYCLE_SKIPPED_FILE" 2>/dev/null || true
 fi
 # BOOT RECORD: the first full sweep of each boot — the resurrect
-# post-restore hook's — leaves its summary for `watch`, which hands the master a post-boot report once
-# revive is done and the master is idle. A hook's stdout goes nowhere, so this is also its only record.
+# post-restore hook's — leaves its summary for `watch`, which posts the post-boot report once
+# revive is done. A hook's stdout goes nowhere, so this is also its only record.
 if [ "$DRY" = 0 ] && [ -z "$ONLY" ] && [ -z "${SALA_RECYCLE:-}" ] && [ -z "${SALA_RETRY_WORKER:-}" ] \
    && bid=$(boot_id) && [ -n "$bid" ] && [ "$(head -1 "$SALA_BOOT_REC" 2>/dev/null)" != "$bid" ]; then
     # THE NETWORK STOP: a pane brought back whose turn ended on "Can't reach the API server" stays stopped until the
@@ -1135,8 +1135,8 @@ fi
 # THE FIRST POST of a recycle's set (common.sh, set_report): CLEAN RECYCLE (reported like a clean provision or a clean
 # CLI update), one phone-width post when nothing was left behind;
 # else the panes left behind, one bullet each (panes held for one reason: one line with a count, post_group_bullets), under the set's label and count. A clean recycle stays one post;
-# the first-post-at-once rule applies when a pane besides the master's is left behind: then the master's
+# the first-post-at-once rule applies when a pane besides the invoking one is left behind: then the invoking
 # pane, which the self-worker relaunches next, is in it as "<session>: not relaunched yet", its relaunch a closure like any
-# other. Nothing left behind but the master's pane → no post here: the self-worker makes the first post once it is settled.
+# other. Nothing left behind but the invoking pane → no post here: the self-worker makes the first post once it is settled.
 [ -n "$SET" ] && [ "$SET_KIND" = Recycle ] && ! { [ -n "$selfsess" ] && [ ${#SKIPPED[@]} -eq 0 ]; } && set_report "$SET"
 exit 0

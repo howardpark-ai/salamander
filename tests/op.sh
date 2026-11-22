@@ -16,13 +16,13 @@
 # nothing else; the waiter's deadline. The rename verb's plan for the asker's own pane (run without TMUX_PANE, as the unit does): the runner's
 # "type /rename NEW (pane now: …)" line and the note that nothing is left to type, never the direct run's "type it here yourself". The model verb for several sessions: one operation, one marker, one sweep, one Slack post and one inbox line that count the
 # sessions through and name only the failed or skipped ones with their reason (a single session is named as before); the old single-session shape unchanged; one unknown session refuses the lot; a failed session ends it stuck, named, with no claude -p. The end of every operation is reported to stackshot once (client.py event --kind fleet_op: verb, machine, sessions, result ok / partial / failed) through tests/fake-stackshot-client.py, a client that fails, hangs past the timeout or is missing changing nothing about the op. systemd-run and systemctl are stubs (the unit runs detached, in the queue's cgroup as
-# the real unit does — the stub exports SALA_CGROUP_FILE naming a sala-op-<id> unit, since with no master the guards refuse a
+# the real unit does — the stub exports SALA_CGROUP_FILE naming a sala-op-<id> unit, since the guards refuse a
 # Claude caller; `is-active` answers from a file), the claude -p is a stub (SALA_OP_CLAUDE: no suite ever calls
 # the API), Slack is a file. Isolated HOME, a private tmux socket, the compiled fake claude; no real session, pane or unit
-# is touched. The master's own retire through the queue and the guards with no master are tests/nomaster.sh's.
+# is touched. The guards with no session special to them are tests/nomaster.sh's.
 # Usage: bash tests/op.sh   (exit 0 = pass; ~90 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
+unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
       SALA_SESSION_URL SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, fake_up, tmux_socket_rm; the lane variables unset
@@ -193,7 +193,7 @@ touch "$HOME/norun"; : > "$LAUNCHES"; : > "$POSTS"; rm -f "$HOME/helper-runs.txt
 enq recycle --from sala-test-h --words "recycle claude"; R1="$ID"; [ -n "$R1" ] || bad "recycle not queued: $OUT"
 sleep 1; enq update --from sala-test-h --words "update claude"; U1="$ID"; [ -n "$U1" ] && has "$OUT" "claude update" && ok "update (this box) queued, its plan a note (no claude update run)" || bad "update: $OUT"
 sleep 1; enq recycle --force --from x --words "force it"; R2="$ID"; [ -n "$R2" ] || bad "recycle --force not queued: $OUT"
-"$SALA" watch >/dev/null 2>&1   # a plain tick (no master configured): the queue runs all the same
+"$SALA" watch >/dev/null 2>&1   # a plain tick: the queue runs all the same
 [ "$(grep -c -- "--unit=sala-op-$R1 " "$LAUNCHES")" = 1 ] && grep -q -- "-p KillMode=process" "$LAUNCHES" && [ "$(grep -c -- '--unit=sala-op-' "$LAUNCHES")" = 1 ] && ok "a plain watch tick started the oldest as unit sala-op-$R1 (KillMode=process), and only that one" || bad "launches: $(<"$LAUNCHES")"
 [ "$(mval "$R1" state)" = running ] && [ "$(mval "$R1" unit)" = "sala-op-$R1" ] && [ -n "$(mval "$R1" boot)" ] && [ "$(mvals "$R1" arg | paste -sd' ' -)" = "--update --force" ] && ok "its marker: running, unit, boot; the flags folded in: --update --force" || bad "marker: $(<"$OPS/$R1.op")"
 [ "$(mval "$U1" state)" = absorbed ] && [ "$(mval "$U1" into)" = "$R1" ] && [ -f "$DONE/$U1.op" ] && [ "$(mval "$R2" state)" = absorbed ] && [ -f "$DONE/$R2.op" ] && [ "$(mvals "$R1" absorbed | grep -c .)" = 2 ] && ok "the update and the second recycle: absorbed into $R1, archived, named on its marker" || bad "absorbed: $(cat "$DONE/$U1.op" "$DONE/$R2.op" 2>/dev/null)"

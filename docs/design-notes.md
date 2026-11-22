@@ -2,10 +2,10 @@
 
 The failure modes that shaped sala, and what each design choice answers.
 
-- **No master session: the operation queue is the one driver.** The master path is retired: the watch keeps, heals and
-  bridges no master (it revives any pane whose claude died, a former master's included) and the post-boot report goes to
-  Slack. A `SALA_MASTER` line left in a config is retired and will be removed in a later change; the watch draws one notice per
-  value for it. `sala master` and `sala cue` are gone: nothing hands work to a master or unsets one.
+- **The operation queue is the one driver.** No session is kept, healed or bridged as a special one: the watch revives any
+  pane whose claude died, and the post-boot report goes to Slack. A `SALA_MASTER` line left in an old config is ignored; the
+  watch draws one notice per value for it. Nothing hands work to a session through a verb of its own: every fleet operation is
+  queued with `sala op`.
 - **`/feedback` is opened only when a draft is queued.** The CLI keeps drafts as files (`~/.claude/feedback/drafts/*.json`,
   `status: queued`); the drain checks the disk first, so a recycle leaves no `/feedback` turn in the panes that had nothing
   to send. `/exit` itself is unavoidable: it is the only clean shutdown.

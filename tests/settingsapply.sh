@@ -13,12 +13,12 @@
 # Isolated HOME, no tmux, nothing real.
 # Usage: bash tests/settingsapply.sh   (exit 0 = pass; ~20 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SETTINGS_APPLY SALA_SETTINGS_STEPS SALA_SETTINGS_SPEC_DIR SALA_SETTINGS_INPUTS
+unset TMUX_PANE XDG_STATE_HOME SALA_SETTINGS_APPLY SALA_SETTINGS_STEPS SALA_SETTINGS_SPEC_DIR SALA_SETTINGS_INPUTS
 export SALA_SETTINGS_APPLY=on   # the default is off: the tick and the watch tests below run with the service on; the kill-switch tests set off themselves
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null SALA_TZ=Etc/UTC
-as_op_unit   # no master: the unit's command runs here, in this shell — its provision stands for the service's unit, which no Claude session launches (tests/lib.sh, 5)
+as_op_unit   # the unit's command runs here, in this shell — its provision stands for the service's unit, which no Claude session launches (tests/lib.sh, 5)
 TOP="$HOME"
 mkdir -p "$HOME/.claude" "$HOME/.local/bin" "$HOME/hosts/t-host-b/.claude" "$HOME/hosts/t-host-c/.claude" "$HOME/knobs" "$HOME/fleet/a" "$HOME/demo-ops/spec"
 trap 'rm -rf "$HOME"' EXIT

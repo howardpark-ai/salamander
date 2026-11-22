@@ -15,7 +15,7 @@
 # Isolated HOME, a private tmux server started with -f /dev/null, the compiled fake claude; no real session is touched.
 # Usage: bash tests/instantalert.sh   (exit 0 = pass; ~15 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_RC_SESSION SALA_NO_RELAUNCH SALA_STUCK_POST SALA_STUCK_CONFIRM SALA_STUCK_RETRIES SALA_STUCK_INSTANT SALA_STUCK_INSTANT_TYPES SALA_FLEET_HOSTS
+unset TMUX_PANE XDG_STATE_HOME SALA_RC_SESSION SALA_NO_RELAUNCH SALA_STUCK_POST SALA_STUCK_CONFIRM SALA_STUCK_RETRIES SALA_STUCK_INSTANT SALA_STUCK_INSTANT_TYPES SALA_FLEET_HOSTS
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null SALA_TZ=Etc/UTC

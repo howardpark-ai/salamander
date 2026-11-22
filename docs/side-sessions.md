@@ -30,7 +30,7 @@ gist goes on that line, and the full detail on the board item and the project pa
 only when the owner tells it to. A `--mandate` of the caller is appended as the owner's own instructions.
 
 There is **no quiet watch, no auto-retire and no cap**. A side session retires only on the owner's word, through `sala op retire`. The one case where
-a retire takes no words is not a side session at all: a plain throwaway (bare `sala spawn`, no project, role or side flag) carrying the throwaway tag a bare spawn writes (any session may retire a tagged row, whatever its name, between turns); a row from before the tag keeps the older rules (its spawner, the master, or any session when NAME is a throwaway's name and it has no live spawner). Never with
+a retire takes no words is not a side session at all: a plain throwaway (bare `sala spawn`, no project, role or side flag) carrying the throwaway tag a bare spawn writes (any session may retire a tagged row, whatever its name, between turns); a row from before the tag keeps the older rules (its spawner, or any session when NAME is a throwaway's name and it has no live spawner). Never with
 a bypass flag (`--busy`, `--skip-writeup`, `--self`, `--leave-items`), `--id` or `--keep-web`, and only when the project record confirms NAME is on no agents map (`sala op retire NAME --from YOU`; docs/session-registry.md, *A throwaway's spawner*). A side session is refused that path, tagged or not, and a spawn with `--side` never writes the tag.
 
 ## The write-up gate: `sala side done`

@@ -109,7 +109,7 @@ r=$(reason "claude update"); case "$r" in *'not queued'*) bad "update says not q
 r=$(reason "claude update"); case "$r" in *'sala op update --from <you> --words'*) ok "a CLI update → sala op update" ;; *) bad "update's fix: $r" ;; esac
 r=$(reason "tmux kill-session -t example-x"); case "$r" in *'sala op retire <session> --from <you> --words'*) ok "tmux kill-* → sala op retire <session>" ;; *) bad "tmux's fix: $r" ;; esac
 r=$(reason "kill $CL"); case "$r" in *'sala op retire <session> (or revive --only <session> --force, to relaunch it) --from <you> --words'*) ok "kill of a claude → sala op retire <session>, or revive --only to relaunch" ;; *) bad "kill's fix: $r" ;; esac
-case "$r" in *master*) bad "the reason still names the master: $r" ;; *) ok "no master and no sala cue in the reason: the queue is the one door" ;; esac
+case "$r" in *master*) bad "the reason still names the retired path: $r" ;; *) ok "the reason names no retired path and no sala cue: the queue is the one door" ;; esac
 
 echo "== allowed: near misses"
 expect allow "echo reboot"
@@ -149,11 +149,11 @@ expect allow "SALA_X=1 ~/salamander/bin/salamander reboot --go"
 expect allow "sala op spawn gamma-foo-main --project projects/foo --role front --mandate ~/m.md --from me --words 'make it'" "the queue's spawn verb"
 
 echo "== no pane is exempt: a SALA_MASTER line left in the config exempts nothing"
-$T new-session -d -s the-master -x 80 -y 20 "sleep 300"; $T new-session -d -s worker -x 80 -y 20 "sleep 300"
-MP=$($T list-panes -t =the-master -F '#{pane_id}'); WP=$($T list-panes -t =worker -F '#{pane_id}')
+$T new-session -d -s the-old -x 80 -y 20 "sleep 300"; $T new-session -d -s worker -x 80 -y 20 "sleep 300"
+MP=$($T list-panes -t =the-old -F '#{pane_id}'); WP=$($T list-panes -t =worker -F '#{pane_id}')
 TSOCK="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"
-echo "SALA_MASTER=the-master" > "$SALA_CONFIG"
-v=$(TMUX="$TSOCK,1,0" TMUX_PANE="$MP" verdict "sudo reboot"); [ "$v" = deny ] && ok "the pane the old config names: sudo reboot denied like any other" || bad "old master's pane: $v"
+echo "SALA_MASTER=the-old" > "$SALA_CONFIG"
+v=$(TMUX="$TSOCK,1,0" TMUX_PANE="$MP" verdict "sudo reboot"); [ "$v" = deny ] && ok "the pane the old config names: sudo reboot denied like any other" || bad "the old line's pane: $v"
 v=$(TMUX="$TSOCK,1,0" TMUX_PANE="$WP" verdict "sudo reboot"); [ "$v" = deny ] && ok "another pane: denied" || bad "worker: $v"
 v=$(TMUX="$TSOCK,1,0" TMUX_PANE="$WP" verdict "tmux kill-server"); [ "$v" = allow ] && ok "plain tmux kill-server from a pane on a private server (\$TMUX) passes" || bad "private \$TMUX: $v"
 : > "$SALA_CONFIG"
@@ -216,7 +216,7 @@ $T new-session -d -s thr-dead -x 80 -y 20 "exec env SALA_SESSION_ID=a9 $HOME/bin
 waitfor "[ \"\$(cat /proc/\$($T list-panes -t =thr-dead -F '#{pane_pid}')/comm 2>/dev/null)\" = claude ]" 20 || bad "thr-dead did not start"
 v=$(ownv "kill $(pidof_s thr-dead)"); [ "$v" = allow ] && ok "the process that does carry the row's id, under the same name: allowed" || bad "matching id: $v"
 echo "SALA_MASTER=thr-own" > "$SALA_CONFIG"
-v=$(ownv "kill $P_OWN"); [ "$v" = allow ] && ok "a SALA_MASTER line naming the throwaway changes nothing: still the caller's own throwaway, allowed" || bad "old master line: $v"
+v=$(ownv "kill $P_OWN"); [ "$v" = allow ] && ok "a SALA_MASTER line naming the throwaway changes nothing: still the caller's own throwaway, allowed" || bad "old SALA_MASTER line: $v"
 : > "$SALA_CONFIG"
 echo '{"schema": 1, "sessions": {}}' > "$HOME/.local/state/salamander/sessions.json"
 v=$(ownv "kill $P_OWN"); [ "$v" = deny ] && ok "no row in the registry: denied" || bad "no row: $v"
