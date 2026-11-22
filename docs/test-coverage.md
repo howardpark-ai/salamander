@@ -109,6 +109,15 @@ one that never does (fails at the deadline after repeated reads, one post and on
 no alert command, and a refused post, each changing nothing else; `--status` showing the project as started but not placed. With the read-back replaced by "always placed" (liveness-only counting)
 sixteen of the nineteen fail (the three that pass are the ones where all links agree, the bare-slug roles entry and the retry, which a liveness-only count also passes).
 
+### `tests/box.sh` new, 31 (Sun Nov 22nd 2026)
+
+New for `sala box SESSION [--json]` (`lib/box.sh`), which prints what is in a pane's input box as `empty`, `suggestion` or `typed`. Kept by the rule's first bullet: the loss it guards is an unsent draft. A session that
+reads a pane with a raw `capture-pane` sees Claude Code's dim suggested prompt exactly like typed words (the capture drops the attribute), and takes it for someone's text: it refuses, quotes it, or relays it as theirs.
+The suite checks the helper `dim_from_capture` on captures with the attributes (12: a suggestion alone, a span ended by SGR 22, one with no reset, typed text with a dim completion, a dim part then typed text, two spans,
+a shell-mode placeholder, a dim notice outside the box, an old dim line above the box, no box), each also asserting what `draft_from_capture` returns, which this change leaves as it was. On a fake claude pane in a private tmux server
+it checks the three states as text (6, with the read-only proof: the screen as it was, no key reached a pane, nothing written under HOME), as `--json` (5, a quote and a backslash parse back), and the refusals (8: a session that
+is not live exits 2, a pane with no claude exits 3, usage, an unknown option, two names, `--help`). Shown to fail on a mutation of each kind: with `draft_from_capture` made to keep dim text (the dim handling off) the suggestion and completion checks fail in both groups, and with `sala box` calling a suggestion `typed` the suggestion check fails as text and as `--json`.
+
 ### `tests/bgagents.sh`: +0, 243 (Sat Nov 21st 2026), the last pass
 
 Twelfth review pass of `sala bg-agents` (test-only; no check added or removed), on three more points of a second opinion, each checked by a run. (1) A gate that the clock opened was only noticed by a second look at the gate file after the wait loop, so a gate removed in

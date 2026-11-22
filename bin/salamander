@@ -60,6 +60,9 @@
 #                                      back); a role already on a row is never overwritten; a listed row also takes the entry's surface (slack, or none: clears a stale slack); --dry-run prints what it would write; the watch runs it each tick
 #   salamander sessions resolve <ref> [--live] [--json]   phase 3, read-only: the row a session id (or 8+ char prefix), transcript id, name, alias or
 #                                      role:<project>/<role> names; exit 0 found, 1 none, 2 ambiguous (candidates listed, nothing picked)
+#   salamander box SESSION [--json]    read-only: what is in a session's pane input box, as one of three states on the first line: empty · suggestion (dim text,
+#                                      Claude Code's own suggested prompt that nobody typed; counts as empty; its text follows, labelled) · typed (non-dim text, someone's unsent
+#                                      words; the text follows). A session reads a pane's box with this command, never with raw capture-pane. Exit 0 read, 2 no live session or pane, 3 no claude in the pane
 #   salamander side done [--name NAME] [--item board#N] [--item-updated EPOCH|ISO] [--summary FILE|TEXT|-] [--summary-to NAME|projects/SLUG] [--dry-run]
 #                                      a side session's write-up gate (lib/side.sh), run by the session itself before it ends: the marker retire asks for
 #                                      is written only when the board item changed since the start, the project page has a timeline line from the session,
@@ -232,6 +235,7 @@ case "$sub" in
     codex-review) . "$SALA_ROOT/lib/codex-review.sh" ;;   # a Codex CLI review of a PR, posted on it (a trial; never fails a caller)
     mq) . "$SALA_ROOT/lib/mq.sh" ;;   # our own merge queue (shadow mode)
     dm) . "$SALA_ROOT/lib/dm.sh"; dm_main "$@"; exit $? ;;   # a message into a Slack app's Direct Message with the owner, as that app (docs/subcommands.md)
+    box) . "$SALA_ROOT/lib/box.sh"; box_main "$@"; exit $? ;;   # what is in a session's pane input box: empty, suggestion or typed (docs/subcommands.md)
     mockup) . "$SALA_ROOT/lib/mockup.sh" ;;   # an HTML mockup as a numbered sala-web page (docs/mockup.md)
     config) cs_print_config ;;
     -h|--help|'') sed -n '2,/^#   salamander config/p' "$SALA_BIN" | sed 's/^# \{0,1\}//'; [ -n "$sub" ] || exit 2 ;;

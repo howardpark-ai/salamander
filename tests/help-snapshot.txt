@@ -60,6 +60,9 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      back); a role already on a row is never overwritten; a listed row also takes the entry's surface (slack, or none: clears a stale slack); --dry-run prints what it would write; the watch runs it each tick
   salamander sessions resolve <ref> [--live] [--json]   phase 3, read-only: the row a session id (or 8+ char prefix), transcript id, name, alias or
                                      role:<project>/<role> names; exit 0 found, 1 none, 2 ambiguous (candidates listed, nothing picked)
+  salamander box SESSION [--json]    read-only: what is in a session's pane input box, as one of three states on the first line: empty · suggestion (dim text,
+                                     Claude Code's own suggested prompt that nobody typed; counts as empty; its text follows, labelled) · typed (non-dim text, someone's unsent
+                                     words; the text follows). A session reads a pane's box with this command, never with raw capture-pane. Exit 0 read, 2 no live session or pane, 3 no claude in the pane
   salamander side done [--name NAME] [--item board#N] [--item-updated EPOCH|ISO] [--summary FILE|TEXT|-] [--summary-to NAME|projects/SLUG] [--dry-run]
                                      a side session's write-up gate (lib/side.sh), run by the session itself before it ends: the marker retire asks for
                                      is written only when the board item changed since the start, the project page has a timeline line from the session,
@@ -614,5 +617,20 @@ usage: sala bg-agents [--dry-run]
   Ledger and back-off: after a failure the project waits SALA_BGAGENTS_COOLDOWN seconds (600), doubled for every further failure up to
   SALA_BGAGENTS_COOLDOWN_MAX (86400); at SALA_BGAGENTS_MAX_ATTEMPTS (5) attempts it is left alone ("given up"). An entry is cleared only after its project
   has been off the want list for the cooldown (never while a board item is raised for it). Settings are in config.example (all commented, default off); docs/bg-agents.md has the rules.
+
+### sala box --help (exit 0)
+usage: sala box SESSION [--json]
+
+  Prints what is in the input box of SESSION's pane, as one of three states on the first line:
+    empty       nothing is in the box.
+    suggestion  only dim text: Claude Code's own suggested next prompt, which nobody typed. It counts as empty (typing over it
+                replaces it). The text follows on the next line, labelled as Claude Code's own suggestion, not typed by anyone.
+    typed       non-dim text: unsent words someone typed (or typed on claude.ai and not sent). The text follows on the next line.
+  --json    one object instead: {"session":"…","state":"empty|suggestion|typed","text":"…"} (text is "" when empty).
+
+  A session reads a pane's box with this command, never raw `tmux capture-pane`: a capture without the attributes shows the dim
+  suggestion exactly like typed text, and a session that takes it for someone's words refuses, quotes or relays text nobody wrote.
+  Read-only (no key is sent, nothing is logged); it works on the caller's own pane too.
+  Exit 0 read · 2 usage, no live session of that name, or no tmux pane · 3 no claude in the pane.
 
 ### verbs with no help path of their own (listed, not probed; their usage is the sala --help text above): adopt ci-poll close-shell config cue feedback follow forget-row heartbeat hook map master provision ready reboot rename retire snapshot spawn unpark update watch
