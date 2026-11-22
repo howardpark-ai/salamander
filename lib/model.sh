@@ -159,7 +159,8 @@ if [ $# -eq 0 ]; then
             if [ "$lm" != "$rm_" ] || { [ "$re_" != - ] && [ "$le" != "$re_" ]; }; then note="← a relaunch puts it on the record (salamander revive --force --only $s, or the next recycle)"; fi
         elif ! tmux has-session -t "=$s" 2>/dev/null; then note="no tmux session (a restore brings it back on the record)"
         else note="no claude running (a revive resumes it on the record)"; fi
-        no_relaunch "$s" && note="$(no_relaunch_fix "$s" "managed outside sala (SALA_NO_RELAUNCH): sala never relaunches it")"
+        if is_sleeping "$s"; then note="sleeping: no claude on purpose, a wake resumes it on the record"
+        elif no_relaunch "$s"; then note="$(no_relaunch_fix "$s" "managed outside sala (SALA_NO_RELAUNCH): sala never relaunches it")"; fi
         printf '%-30s %-22s %-22s %-18s %s\n' "$s" "$(show_row "$rec")" "$lw" "$lt" "$note"
     done <<< "$rows"
     exit 0
@@ -191,9 +192,9 @@ if [ -n "$BATCH" ]; then
             [ -n "$(model_row "$s")" ] || tmux has-session -t "=$s" 2>/dev/null || BAD+=("unknown session '$s': no tmux session, and no model recorded for it")
         else
             if [ "$RECORD_ONLY" = 1 ]; then session_known "$s" || BAD+=("unknown session '$s': no tmux session, no pane-map row and no model recorded for it (salamander spawn --list)")
-            else tmux has-session -t "=$s" 2>/dev/null || BAD+=("unknown session '$s': no tmux session by that name (salamander spawn --list)"); fi
+            else is_sleeping "$s" || tmux has-session -t "=$s" 2>/dev/null || BAD+=("unknown session '$s': no tmux session by that name (salamander spawn --list)"); fi
             [ "$s" = "$SALA_RC_SESSION" ] && BAD+=("'$s' is the Remote Control server's session — it has no model of its own (salamander rc)")
-            no_relaunch "$s" && BAD+=("$(no_relaunch_line "$s") — $(no_relaunch_fix "$s" "it is launched by hand; take it out of SALA_NO_RELAUNCH to record a model for it")")
+            no_relaunch "$s" && ! is_sleeping "$s" && BAD+=("$(no_relaunch_line "$s") — $(no_relaunch_fix "$s" "it is launched by hand; take it out of SALA_NO_RELAUNCH to record a model for it")")
         fi
     done
     if [ ${#BAD[@]} -gt 0 ]; then printf '✗ %s\n' "${BAD[@]}" >&2; die "the batch is refused (${#BAD[@]} problem(s) in ${#BS[@]} session(s)) — nothing recorded, nothing relaunched"; fi
@@ -296,10 +297,13 @@ if [ "$EFFORT_SET" = 1 ]; then effort_known "$EFFORT" || die "invalid effort '$E
 if [ "$RECORD_ONLY" = 1 ]; then
     session_known "$SESS" || die "unknown session '$SESS': no tmux session, no pane-map row and no model recorded for it (salamander spawn --list)"
 else
-    tmux has-session -t "=$SESS" 2>/dev/null || die "unknown session '$SESS': no tmux session by that name (salamander spawn --list)"
+    is_sleeping "$SESS" || tmux has-session -t "=$SESS" 2>/dev/null || die "unknown session '$SESS': no tmux session by that name (salamander spawn --list)"
 fi
 [ "$SESS" = "$SALA_RC_SESSION" ] && die "'$SESS' is the Remote Control server's session — it has no model of its own (salamander rc)"
-no_relaunch "$SESS" && die "$(no_relaunch_line "$SESS") — $(no_relaunch_fix "$SESS" "it is launched by hand; take it out of SALA_NO_RELAUNCH to record a model for it")"
+# a SLEEPING session (common.sh, THE SLEEPING SESSIONS) has no claude to relaunch or switch in place: the switch is the record alone (--record-only),
+# and a wake resumes the conversation on it (resume_cmd reads the table). A batch's child takes this path too, so the batch's sweep never names it.
+if is_sleeping "$SESS"; then RECORD_ONLY=1; echo "ℹ $SESS is sleeping: the model is recorded only, nothing relaunched (a wake resumes it on the record)"; fi
+no_relaunch "$SESS" && ! is_sleeping "$SESS" && die "$(no_relaunch_line "$SESS") — $(no_relaunch_fix "$SESS" "it is launched by hand; take it out of SALA_NO_RELAUNCH to record a model for it")"
 ops_guard model "$SESS" $NOTMASTER $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): the master's, when a Claude session asks
 
 # ── the record alone (--record-only) ──────────────────────────────────────────

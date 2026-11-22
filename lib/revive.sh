@@ -167,6 +167,8 @@ retry_worker() {
             IFS='|' read -r pane sess label oldpid last tries lastwhy <<<"$e"; : "${last:=0}" "${tries:=0}"
             pane_exists "$pane" || { res+=(gave "$sess" "$sess: its pane is gone"); continue; }
             # listed after this worker started (common.sh, no_relaunch): never relaunched; given up so the set can close
+            # a session that went to sleep since: nothing to relaunch, and it no longer counts in the set (not "given up": it is not left behind)
+            is_sleeping "$sess" && { res+=(gone "$sess" "$sess is sleeping, so it no longer counts"); rlog "$(sleeping_line "$sess")"; continue; }
             no_relaunch "$sess" && { res+=(gave "$sess" "$(no_relaunch_line "$sess")"); rlog "$(no_relaunch_line "$sess")"; continue; }
             # a pane that said `ready`, or whose last turn ended with nothing in flight (the Stop hook's record, busy_hook_idle),
             # is tried now (once its turn has ended and settled); the others every SALA_RETRY_EVERY
@@ -821,6 +823,8 @@ check_pane() {
         emit CLAUDE "$pane|$sess|$label|$cpid|$ver|$uuid|$LANE_LINE|$(registry_field "$cpid" name)"   # the lane line is said when the /exit is typed (phase 2)
         ;;
     bash|sh|zsh|fish)
+        # a sleeping pane never gets here (phase 1 lists it as `sleeping` first); the guard keeps it from being resumed if a caller ever does
+        is_sleeping "$sess" && return 0
         uuid=$(sidecar_uuid_for_session "$sess")
         if [ -z "$uuid" ]; then
             saved_ran_claude "$sess" || { SKIPPED+=("$label: shell pane, not a claude session (done with it? sala close-shell $sess)"); return; }
@@ -939,7 +943,7 @@ verify_pane() {
     else REVIVED+=("$label: resumed $uuid$(lane_note "${label%:*}")"); fi
 }
 
-ROWS=(); NOREL=(); while IFS= read -r line; do [ -n "$line" ] && ROWS+=("$line"); done < <(ordered_panes)
+ROWS=(); NOREL=(); SLEEPING=(); while IFS= read -r line; do [ -n "$line" ] && ROWS+=("$line"); done < <(ordered_panes)
 # phase 1: check
 T0=$(date +%s); D1=0; D2=0; D3=0; N=0; ELIG=(); RESUMED=(); nclaude=0; nshell=0; nwould=0
 for line in ${ROWS[@]+"${ROWS[@]}"}; do
@@ -948,6 +952,9 @@ for line in ${ROWS[@]+"${ROWS[@]}"}; do
     is_shell_session "$sess" && continue   # the web UI's shell drawer: a plain bash, not a Claude session and not "done with" either: no row, no skip line
     # NOT RELAUNCHED (Tue Oct 13th 2026; common.sh, no_relaunch): a SALA_NO_RELAUNCH session is excluded,
     # not skipped: its own summary row, never in SKIPPED, RETRY, the deferred list, the set's count or the skipped file
+    # A SLEEPING session (common.sh, THE SLEEPING SESSIONS) is a shell with no claude on purpose: never resumed here (a wake does that), not
+    # skipped-failed, not in the set's count. It has its own line in the plan and the summary, `sleeping`, apart from SALA_NO_RELAUNCH's.
+    is_sleeping "$sess" && { SLEEPING+=("$(sleeping_line "$label")"); continue; }
     no_relaunch "$sess" && { NOREL+=("$(no_relaunch_line "$label")"); continue; }
     [ -n "${SALA_SKIP_PANE:-}" ] && [ "$pane" = "$SALA_SKIP_PANE" ] && { OK+=("$label: invoking pane — the driver relaunches it once idle"); continue; }
     N=$((N+1)); run_job "$TMPD/1.$N" check_pane "$pane" "$sess" "$win" "$title" "$cmd" "$panepid" "$cwd"
@@ -957,8 +964,8 @@ for ((i=1; i<=N; i++)); do
     fold_rows "$TMPD/1.$i"
     case "$FOUND_KIND" in CLAUDE) ELIG[$i]="CLAUDE|$FOUND_TEXT"; nclaude=$((nclaude+1));; SHELL) ELIG[$i]="SHELL|$FOUND_TEXT"; nshell=$((nshell+1));; WOULD) nwould=$((nwould+1));; esac
 done
-if [ "$DRY" = 1 ]; then echo "[$(date -Is)] phase 1 (check): $N pane(s) → $nwould would be relaunched, ${#OK[@]} current, ${#SKIPPED[@]} skipped, in $(( $(date +%s) - T0 ))s"
-else D1=$(( $(date +%s) - T0 )); echo "[$(date -Is)] phase 1 (check): $N pane(s) → $nclaude claude + $nshell shell to relaunch, ${#OK[@]} current, ${#SKIPPED[@]} skipped, in ${D1}s${NOREL[0]:+; ${#NOREL[@]} not relaunched (SALA_NO_RELAUNCH)}"; fi
+if [ "$DRY" = 1 ]; then echo "[$(date -Is)] phase 1 (check): $N pane(s) → $nwould would be relaunched, ${#OK[@]} current, ${#SKIPPED[@]} skipped, in $(( $(date +%s) - T0 ))s${SLEEPING[0]:+; ${#SLEEPING[@]} sleeping}"
+else D1=$(( $(date +%s) - T0 )); echo "[$(date -Is)] phase 1 (check): $N pane(s) → $nclaude claude + $nshell shell to relaunch, ${#OK[@]} current, ${#SKIPPED[@]} skipped, in ${D1}s${NOREL[0]:+; ${#NOREL[@]} not relaunched (SALA_NO_RELAUNCH)}${SLEEPING[0]:+; ${#SLEEPING[@]} sleeping}"; fi
 # phase 2: close
 if [ "$nclaude" -gt 0 ]; then
     T1=$(date +%s); closed=0
@@ -1050,6 +1057,7 @@ echo; echo "── salamander revive (target $CURRENT_VER)"
 [ ${#OK[@]} -gt 0 ] && { echo "  ✓ already current (${#OK[@]}):"; printf '      %s\n' "${OK[@]}"; }
 [ ${#SKIPPED[@]} -gt 0 ] && { echo "  ⚠ skipped (${#SKIPPED[@]}):"; printf '      %s\n' "${SKIPPED[@]}"; }
 [ ${#NOREL[@]} -gt 0 ] && { echo "  ⊘ not relaunched, managed outside sala (${#NOREL[@]}):"; printf '      %s\n' "${NOREL[@]}"; }
+[ ${#SLEEPING[@]} -gt 0 ] && { echo "  ☾ sleeping (${#SLEEPING[@]}):"; printf '      %s\n' "${SLEEPING[@]}"; }
 # a detached driver's summary is read by nobody, so say it out loud when panes were left behind —
 # and come back for the transient ones (RETRY above): a detached worker, same flags, same gates.
 notes=()

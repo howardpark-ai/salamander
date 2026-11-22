@@ -157,6 +157,10 @@ if d.get('tmux'): print('%-24s %-10s %s%s%s' % (d.get('name','?'), d.get('versio
         is_shell_session "$sess" && continue   # the web UI's shell drawer
         [ "$sess" = "0" ] && continue
         uuid=$(awk -F'\t' -v s="$sess" '$1==s {print $2; exit}' "$SALA_SIDECAR" 2>/dev/null)
+        if is_sleeping "$sess"; then   # display only: its claude ended on purpose, so no "revive" is offered
+            printf '%-24s %-10s %s\n' "$sess" "(sleeping)" "sleeping — its claude ended on purpose; not revived${uuid:+   (sidecar ${uuid:0:8}…)}$(case " $SLACK_NAMES " in *" $sess "*) printf '  [slack]';; esac)"
+            continue
+        fi
         printf '%-24s %-10s %s\n' "$sess" "(shell)" "claude exited — revive: salamander revive --only $sess${uuid:+   (sidecar ${uuid:0:8}…)}$(case " $SLACK_NAMES " in *" $sess "*) printf '  [slack]';; esac)"
     done | sort
     exit 0

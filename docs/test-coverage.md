@@ -4650,3 +4650,21 @@ subcommands with exit 2 and nothing delivered, that `op --plan retire` and `reti
 `--from` prints the same line with `<you>` and queues nothing, that a stray `SALA_CUE_TARGET` changes nothing and that
 `reauth --help` names no master or cue. `tests/help-snapshot.txt` regenerated (the two verbs' lines, the `recycle` and `reauth`
 wording). Not checked: a box that still has a `sala cue` allow rule or a script calling it (outside this repo).
+
+### `tests/sleeping.sh`, a new suite: a session that sleeps is never revived, restored, failed or counted as missing (Mon Nov 23rd 2026)
+
+New, 97 checks, none retired. A sleeping session's claude ended on purpose while its tmux session and pane-map row stay, so
+every sweep that heals "a pane with no claude" would resume it: that undoes the sleep and, in a recycle set or a restore, would
+count it as lost. Stage 1 of the feature builds the marker (`$SALA_SLEEP_DIR/<conversation uuid>`), the predicate and every
+exclusion with no verb that sleeps or wakes, so each check makes the marker by hand and runs a marked pane beside an unmarked
+control that is still handled as before (a control that is revived, restored or relaunched proves the exclusion is the marker's
+doing and not a dead path). Checked: the predicate (by tmux name, no marker, a path-shaped id refused, mark, clear, list and
+rename keep one line); the pane map, session registry and `sessions` JSON are byte for byte unchanged by a marker; the
+bare-pane heal (a clock started before the marker is cleared, no revive, no "could not revive" post); `revive --only` refused by
+name and the sweep's `N sleeping` count; `restore` (not in `ledger_missing` or `restore --missing`, `restore NAME` and the
+compare after a reboot create no session); the deferred list and a recycle set (a sleeper's row dropped, the total reduced, never
+`gave`); `stale_panes`; `lane` and `model` (the row only, nothing relaunched); `rename`, `retire`, `close-shell`, `forget-row`
+(no `/exit`, the marker follows or goes), `adopt` and `box` (said as sleeping); `op revive|restore` (said, nothing queued, a mixed call
+queues nothing); the wrap-up tick; the `sleeping` display in `sessions` and `spawn --list`; and `sleep_ready` with the one yes and each
+refusal reason a pane can be made to show here (all but "no tmux pane"). Every kill is of one pid whose `/proc/<pid>/exe` is the suite's fake. Not checked: a real
+sleep or wake (stage 2), the watch tick that will call `sleep_ready`, a real stackshot inbox.

@@ -17,6 +17,7 @@ ledger_frozen_die adopt   # a recycle or reboot holds the pane map
 is_shell_session "$name" && die "'$name' is the web UI's shell, a plain bash and not a Claude session — it is never in the pane map"
 tmux has-session -t "=$name" 2>/dev/null || die "no tmux session '$name'"
 pane=$(tmux list-panes -t "$(tmux_win_t "$name")" -F '#{pane_id}' | head -1)
+is_sleeping "$name" && die "'$name' is sleeping: its claude ended on purpose and its pane-map row is already its record — nothing to adopt"
 cpid=$(claude_pid_under "$(tmux display -p -t "$pane" '#{pane_pid}')") || die "'$name' runs no claude — adopt registers a live session; a session the map has a row for comes back with: salamander restore $name"
 is_rc_child "$cpid" && die "'$name' runs a Remote Control served session (--sdk-url), not a pane session"
 uuid=$(registry_field "$cpid" sessionId); [ -n "$uuid" ] && [ "$uuid" != null ] || die "no registry entry for '$name' (pid $cpid) — the claude may still be starting; try again in a moment"

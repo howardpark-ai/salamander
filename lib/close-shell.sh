@@ -73,12 +73,15 @@ if [ "$DRY" = 1 ]; then
     l=$(lane_row "$name"); m=$(model_row "$name")
     if [ -n "$l" ]; then dry "would drop its lane row ($name → $l) from $SALA_LANES"; else dry "no lane row to drop"; fi
     if [ -n "$m" ]; then dry "would drop its model row ($name → $(printf '%s' "$m" | tr '\t' /)) from $SALA_MODELS"; else dry "no model row to drop"; fi
+    is_sleeping "$name" && dry "'$name' is sleeping: its marker would be cleared with the row"
     dry "would take a resurrect snapshot (salamander snapshot --now), so a reboot would not restore the shell"
     dry "nothing was changed"; exit 0
 fi
 [ -z "$kids" ] || echo "⚠ closing '$name' while it is still running: $kids (--busy)"
 echo "'$name': a shell session, no Claude in it"
 tmux kill-session -t "=$name" && echo "'$name': tmux session killed"
+# a SLEEPING session (common.sh, THE SLEEPING SESSIONS) is a shell with no claude: this verb closes it too, and its marker goes with the row
+suuid=$(sidecar_uuid_for_session "$name"); [ -z "$suuid" ] || sleeping_clear "$suuid"
 if [ -n "$(ledger_row "$name")" ]; then
     if ledger_write retire "$name"; then echo "'$name': pane map row removed"
     else echo "⚠ '$name': the pane map row could not be removed (see above) — until it is, a restore would bring the session back"; fi

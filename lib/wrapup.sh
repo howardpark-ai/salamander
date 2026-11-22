@@ -159,7 +159,7 @@ wrapup_locked() {
     local -A isback=()
     _now_r now
     while IFS= read -r line; do [ -n "$line" ] && isback[$line]=1; done < <(wrap_back_names)
-    _claude_panes_r tbl   # fresh: a relaunch earlier in this tick has changed pids
+    _claude_panes_r tbl   # fresh: a relaunch earlier in this tick has changed pids. Only panes with a claude process are listed: a SLEEPING session (common.sh) has none, so it is never wrapped up or cleared
     while IFS='|' read -r sess pane pid; do
         [ -n "$sess" ] && [ -n "${isback[$sess]+x}" ] || continue
         [ "$sess" != "${SALA_RC_SESSION:-}" ] || continue
@@ -229,4 +229,84 @@ wrapup_tick() {
     tmux_server_up || return 0
     if bare_busy; then [ "${WRAP_DRY:-0}" = 1 ] && echo "standing aside — $BARE_BUSY_WHY"; return 0; fi
     ( flock -n 8 || exit 0; wrapup_locked ) 8>>"$SALA_LOG_DIR/salamander-wrapup.lock"
+}
+
+# ── SLEEP_READY (stage 1 of sleep: the verdict only; nothing calls it yet, no tick, no verb) ──────────────────────────────────────────────
+# sleep_ready <tmux session> → 0 when the session may go to sleep now (common.sh, THE SLEEPING SESSIONS); else 1 with the FIRST refusing reason
+# as one short text in SLEEP_WHY and on stdout. It reuses wrap_ready (stage clear: idle in the registry, not waiting on a background job, no background work,
+# no dialog, nothing typed; the wrap-up's own idle-age window and its warm bound do not apply, a sleep comes after an hour) and adds what
+# a sleep must not lose, cheap checks first. A claude that ends takes with it: a scheduled job (cron), a queued or running operation naming
+# it, a note not yet delivered, a pending relaunch (the deferred list, an open recycle set, the waiting flag), a stackshot inbox message
+# for it, a limit or network stop it is sitting on, and a question open on its screen. The session's own kinds are refused first: the
+# master, the Remote Control session, a Remote Control served session, the sdk lane, SALA_NO_RELAUNCH and the shell session, a side session.
+# SALA_SLEEP_AFTER (3600): the idle age. SALA_STACKSHOT_INBOX: the directory of stackshot's inbox (hub/ and msg/ under it; it may be missing).
+: "${SALA_STACKSHOT_INBOX:=$HOME/.local/state/stackshot/inbox}"
+SLEEP_WHY=""
+_sleep_no() { SLEEP_WHY=$1; printf '%s\n' "$1"; return 1; }
+# the seams of the two scans that need the watch's own tables: a missing one says "not stopped" (a test replaces either)
+_sleep_limit_stopped() {  # <session> <claude pid> <lane> → 0 when the limit scan finds the pane stopped on a limit
+    declare -F lw_scan >/dev/null 2>&1 || return 1
+    local o; o=$(printf '%s|%s|%s\n' "$1" "$2" "$3" | lw_scan 2>/dev/null) || return 1
+    [[ $o == "stop "* || $o == *$'\n'"stop "* ]]
+}
+_sleep_net_stopped() { local o; o=$(net_stopped_sessions "$1" 2>/dev/null); [ -n "$o" ]; }   # <session> → 0 when its claude is stopped on a network error
+sleep_ready() {
+    local sess="${1:-}" pane ppid pid conv uuid stamp age k v f id lane crons tw st
+    SLEEP_WHY=""
+    [ -n "$sess" ] || { _sleep_no "no session named"; return 1; }
+    tmux has-session -t "=$sess" 2>/dev/null || { _sleep_no "no tmux session '$sess'"; return 1; }
+    is_sleeping "$sess" && { _sleep_no "already asleep"; return 1; }
+    [ "$sess" != "${SALA_RC_SESSION:-}" ] || { _sleep_no "the Remote Control session"; return 1; }
+    [ -z "${SALA_MASTER:-}" ] || [ "$sess" != "$SALA_MASTER" ] || { _sleep_no "the master session"; return 1; }
+    no_relaunch "$sess" && { _sleep_no "managed outside sala (SALA_NO_RELAUNCH or the web UI's shell)"; return 1; }
+    side_is "$sess" && { _sleep_no "a side session"; return 1; }
+    sleeping_uuid_r uuid "$sess" || { _sleep_no "not in the pane map"; return 1; }
+    pane=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_id}' 2>/dev/null | head -1)
+    ppid=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_pid}' 2>/dev/null | head -1)
+    [ -n "$pane" ] && [ -n "$ppid" ] || { _sleep_no "no tmux pane"; return 1; }
+    pid=$(claude_pid_under "$ppid" 2>/dev/null)
+    [ -n "$pid" ] || { _sleep_no "no claude is running in its pane"; return 1; }
+    is_rc_child "$pid" && { _sleep_no "a Remote Control served session"; return 1; }
+    _proc_lane_r lane "$pid"
+    [ "$lane" != sdk ] || { _sleep_no "on the sdk lane"; return 1; }
+    registry_conv_r conv "$pid"; [ -n "$conv" ] && [ "$conv" != null ] || { _sleep_no "no conversation id in its registry row"; return 1; }
+    registry_field_r stamp "$pid" statusUpdatedAt
+    if [[ ${stamp:0:10} =~ ^[0-9]{10}$ ]]; then _stamp_age_r age "$stamp"; else _sleep_no "no idle time in its registry row"; return 1; fi
+    [ "$age" -ge "${SALA_SLEEP_AFTER:-3600}" ] || { _sleep_no "idle for $((age / 60)) min, not yet ${SALA_SLEEP_AFTER:-3600} s"; return 1; }
+    if ! wrap_ready "$sess" "$pane" "$pid" "$conv" "$age" clear; then _sleep_no "${WRAP_WHY:-not idle}"; return 1; fi
+    # a scheduled job: the Stop hook's record of its last turn (a cron dies with the conversation's process)
+    _kv_first_r crons "$SALA_BUSY_DIR/$conv" crons
+    if [ "${crons:-0}" -gt 0 ] 2>/dev/null || grep -q '^cron=' "$SALA_BUSY_DIR/$conv" 2>/dev/null; then _sleep_no "its last turn left a scheduled job"; return 1; fi
+    # a queued, running or waiting operation that names it (the marker's arg= lines: its sessions, old and new names alike)
+    for f in "${SALA_OP_DIR:-$SALA_STATE_DIR/ops}"/*.op; do
+        [ -f "$f" ] || continue
+        _kv_first_r st "$f" state
+        case "$st" in queued|running|waiting) ;; *) continue;; esac
+        if grep -qxF -- "arg=$sess" "$f" 2>/dev/null; then id=${f##*/}; _sleep_no "operation ${id%.op} ($st) names it"; return 1; fi
+    done
+    # a note not yet handled (the store holds only unhandled ones): by its conversation, or by the session name
+    if [ -s "$SALA_LOG_DIR/salamander-notes.tsv" ] && awk -F'\t' -v u="$uuid" -v c="$conv" -v s="$sess" '$3 == u || $3 == c || $2 == s {f = 1} END {exit !f}' "$SALA_LOG_DIR/salamander-notes.tsv" 2>/dev/null; then
+        _sleep_no "a note waits for it (sala note --list)"; return 1
+    fi
+    # a relaunch that waits for it: the deferred list, an open recycle or revive set, the waiting flag
+    if [ -s "$SALA_DEFERRED" ] && awk -F'\t' -v s="$sess" '$1 == s {f = 1} END {exit !f}' "$SALA_DEFERRED" 2>/dev/null; then _sleep_no "on the deferred list (a relaunch waits for it)"; return 1; fi
+    for f in "$SALA_SET_DIR"/*; do
+        id=${f##*/}; [[ $id =~ ^[0-9]+-[0-9]+$ ]] || continue
+        [ "$(set_val "$id" closed)" != 1 ] || continue
+        if _set_out "$id" "$sess"; then _sleep_no "an open relaunch set ($id) waits for it"; return 1; fi
+    done
+    waiting_for "$conv" && { _sleep_no "a relaunch flag waits for it (waiting/)"; return 1; }
+    waiting_for "$uuid" && { _sleep_no "a relaunch flag waits for it (waiting/)"; return 1; }
+    # a stackshot inbox message for it (hub/ and msg/ under the inbox; the directory may not exist on this box)
+    for tw in hub msg; do
+        if grep -qsF -e "$sess" -e "$uuid" "$SALA_STACKSHOT_INBOX/$tw"/*.json 2>/dev/null; then _sleep_no "a stackshot $tw message waits for it"; return 1; fi
+    done
+    # stopped on a limit or on the network: its last turn ended on an error, and the conversation must stay in its pane for the resume that follows
+    _sleep_limit_stopped "$sess" "$pid" "$lane" && { _sleep_no "stopped on a usage limit"; return 1; }
+    _sleep_net_stopped "$sess" && { _sleep_no "stopped on a network error"; return 1; }
+    # a question open on its screen (stuck.state: the watch's record of a dialog or a "Your move" row)
+    _key_r k "$sess"
+    _kv_first_r v "$SALA_STATE_DIR/stuck.state" "s.$k.row"; [ -z "$v" ] || { _sleep_no "a question is open on its screen"; return 1; }
+    _kv_first_r v "$SALA_STATE_DIR/stuck.state" "s.$k.hash"; [ -z "$v" ] || { _sleep_no "a question is open on its screen"; return 1; }
+    return 0
 }

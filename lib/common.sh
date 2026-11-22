@@ -700,6 +700,8 @@ _set_sync() {
         args=(); n=0; left=0
         while IFS= read -r s; do
             [ -n "$s" ] || continue; left=$((left + 1))
+            # a sleeping pane has no claude to relaunch, so it no longer counts (THE SLEEPING SESSIONS); it settles as gone, in N too
+            if is_sleeping "$s"; then args+=(gone "$s" "$s is sleeping, so it no longer counts"); n=$((n + 1)); continue; fi
             [ -n "${rd[$s]+x}" ] || rd[$s]=$(_set_pane_read "$s")
             read -r st sa ver <<< "${rd[$s]}"
             case "$st" in
@@ -2119,11 +2121,71 @@ stale_panes() {
 # and the reboot leave it alone), the revive sweep drops it without a summary row, `spawn --list` and the lane lists leave it
 # out, and `adopt` refuses it.
 is_shell_session() { [ -n "$1" ] && [ "$1" = "${SALA_SHELL_SESSION:-}" ]; }   # <tmux session>
-no_relaunch() { [ -n "$1" ] || return 1; is_shell_session "$1" && return 0; case " ${SALA_NO_RELAUNCH//[$'\t\n']/ } " in *" $1 "*) return 0;; esac; return 1; }   # <tmux session>
+no_relaunch() { [ -n "$1" ] || return 1; is_shell_session "$1" && return 0; case " ${SALA_NO_RELAUNCH//[$'\t\n']/ } " in *" $1 "*) return 0;; esac; is_sleeping "$1"; }   # <tmux session> (a sleeping session counts: its claude ended on purpose, THE SLEEPING SESSIONS below)
 # no_relaunch_fix <tmux session> <advice for a session in SALA_NO_RELAUNCH>: the closing words of a refusal. The shell session is not
 # in SALA_NO_RELAUNCH (it is sala's own), so "take it out of SALA_NO_RELAUNCH" would send the reader to a list it is not on.
-no_relaunch_fix() { if is_shell_session "$1"; then echo "it is sala's own shell session (SALA_SHELL_SESSION), not a Claude session"; else echo "$2"; fi; }   # <tmux session> <advice>
-no_relaunch_line() { if is_shell_session "$1"; then echo "$1: not relaunched — the web UI's shell, not a Claude session"; else echo "$1: not relaunched — SALA_NO_RELAUNCH (managed outside sala)"; fi; }   # <tmux session>
+no_relaunch_fix() { if is_shell_session "$1"; then echo "it is sala's own shell session (SALA_SHELL_SESSION), not a Claude session"; elif is_sleeping "$1"; then echo "it is sleeping: its claude ended on purpose, so there is nothing to relaunch"; else echo "$2"; fi; }   # <tmux session> <advice>
+no_relaunch_line() { if is_shell_session "$1"; then echo "$1: not relaunched — the web UI's shell, not a Claude session"; elif is_sleeping "$1"; then sleeping_line "$1"; else echo "$1: not relaunched — SALA_NO_RELAUNCH (managed outside sala)"; fi; }   # <tmux session>
+# THE SLEEPING SESSIONS (stage 1: the predicate and every exclusion; nothing yet puts a session to sleep or wakes one, a marker is made by hand).
+# A session that has been idle a long time may SLEEP: its claude process ends, its tmux session and its pane-map row stay, and a later wake
+# resumes the conversation by its id. The record is one marker file per conversation, $SALA_SLEEP_DIR/<conversation uuid>, holding one line,
+# `<ISO-Z time> <name>`. It is NOT a column of the pane map (the map's four columns are read by readers outside this repo), and no file
+# sala publishes (the heartbeat's sessions.json, session-registry.json, machine.json) carries it. is_sleeping resolves a tmux session
+# name, or a session name, to its pane-map conversation id and asks for the marker. no_relaunch is true for a sleeping session, so every
+# path that revives, restores, relaunches, moves a lane or a model, fails or counts a pane leaves it alone without a summary row
+# (the call sites of no_relaunch); the few places where "left alone" is wrong for a sleeper (retire, rename, forget-row, the bare-pane
+# heal's state, lane and model rows that are only written, the plan lines) ask is_sleeping themselves.
+# SALA_SLEEP_DIR: the knob, so a test uses a private directory. SALA_SLEEP_AFTER: the idle age at which sleep_ready (lib/wrapup.sh) says yes.
+: "${SALA_SLEEP_DIR:=$SALA_STATE_DIR/sleeping}"
+: "${SALA_SLEEP_AFTER:=3600}"
+_sleep_uuid_ok() { [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }   # a marker's file name: one path component, never a path (no slash, no leading dot)
+# sleeping_uuid_r <var> <session or name> → (the var is not one of its own locals: _su _by _l _r _s _u _n t) the conversation id of the pane-map row whose tmux session (else whose name) is that, in <var>; 1 when the map has none
+sleeping_uuid_r() {
+    local _su="" _by="" _l _r _s _u _n t=$'\t'   # the row is cut at its tabs by hand: `read` with a tab in IFS folds an empty name away
+    printf -v "$1" %s ""
+    [ -n "${2:-}" ] && [ -r "$SALA_SIDECAR" ] || return 1
+    { while IFS= read -r _l || [ -n "$_l" ]; do
+          [[ $_l == *"$t"* ]] || continue
+          _s=${_l%%"$t"*}; _r=${_l#*"$t"}; _u=${_r%%"$t"*}; _n=""
+          [[ $_r == *"$t"* ]] && { _r=${_r#*"$t"}; _n=${_r%%"$t"*}; }
+          [ "$_s" = "$2" ] && { _su=$_u; break; }
+          [ -n "$_by" ] || { [ -n "$_n" ] && [ "$_n" = "$2" ] && _by=$_u; }
+      done < "$SALA_SIDECAR"; } 2>/dev/null
+    [ -n "$_su" ] || _su=$_by
+    [ -n "$_su" ] || return 1
+    printf -v "$1" %s "$_su"
+}
+is_sleeping() {  # <tmux session or name> → 0 when its conversation has a marker. Cheap when nothing sleeps (no marker, no map read)
+    [ -n "${1:-}" ] && [ -d "$SALA_SLEEP_DIR" ] || return 1
+    compgen -G "$SALA_SLEEP_DIR/*" >/dev/null 2>&1 || return 1
+    local _sid; sleeping_uuid_r _sid "$1" && _sleep_uuid_ok "$_sid" && [ -f "$SALA_SLEEP_DIR/$_sid" ]
+}
+sleeping_mark() {  # <conversation uuid> <name> → writes the marker (one line, `<ISO-Z time> <name>`), atomically; the stage that puts a session to sleep calls it
+    _sleep_uuid_ok "${1:-}" || { echo "sleeping_mark: '${1:-}' is not a conversation id" >&2; return 1; }
+    local tmp t; mkdir -p "$SALA_SLEEP_DIR" 2>/dev/null || return 1
+    tmp=$(mktemp "$SALA_SLEEP_DIR/.mark.XXXXXX") || return 1
+    t=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    printf '%s %s\n' "$t" "${2:-}" > "$tmp" && mv -f "$tmp" "$SALA_SLEEP_DIR/$1" || { rm -f "$tmp"; return 1; }
+}
+sleeping_clear() {  # <conversation uuid> → removes the marker (none: nothing to do)
+    _sleep_uuid_ok "${1:-}" || return 0
+    rm -f "$SALA_SLEEP_DIR/$1" 2>/dev/null; return 0
+}
+sleeping_rename() {  # <conversation uuid> <new name> → the marker keeps its time and takes the new name (a rename of a sleeping session); no marker: nothing to do
+    _sleep_uuid_ok "${1:-}" && [ -f "$SALA_SLEEP_DIR/$1" ] || return 0
+    local t="" n tmp; read -r t n < "$SALA_SLEEP_DIR/$1" 2>/dev/null || true
+    tmp=$(mktemp "$SALA_SLEEP_DIR/.mark.XXXXXX") || return 1
+    printf '%s %s\n' "$t" "${2:-}" > "$tmp" && mv -f "$tmp" "$SALA_SLEEP_DIR/$1" || { rm -f "$tmp"; return 1; }
+}
+sleeping_list() {  # → one line per marker: `<uuid> TAB <time> TAB <name>`
+    local f u t n
+    for f in "$SALA_SLEEP_DIR"/*; do
+        [ -f "$f" ] || continue; u=${f##*/}; _sleep_uuid_ok "$u" || continue
+        t=""; n=""; read -r t n < "$f" 2>/dev/null || true
+        printf '%s\t%s\t%s\n' "$u" "$t" "$n"
+    done
+}
+sleeping_line() { echo "$1: sleeping — its claude ended on purpose and its pane stays; not resumed, not relaunched, not counted"; }   # <tmux session>
 # is_under <pid> <root-pid> → 0 when root is an ancestor of (or is) pid
 is_under() {
     local q="$1"
@@ -2858,13 +2920,15 @@ ledger_missing() {  # → the map's rows whose tmux session does not exist (the 
     local line s
     while IFS= read -r line; do
         s=${line%%$'\t'*}; [ -n "$s" ] && [ "$s" != "$SALA_RC_SESSION" ] || continue
-        no_relaunch "$s" && continue   # managed outside sala: never recreated, so never missing (no_relaunch)
+        no_relaunch "$s" && continue   # managed outside sala, or sleeping (its tmux session may be gone after a reboot, on purpose): never recreated, so never missing (no_relaunch)
         tmux has-session -t "=$s" 2>/dev/null || printf '%s\n' "$line"
     done < "$SALA_SIDECAR"
 }
 restore_check() {  # <session> [row] → 0 it can be recreated · 3 left alone (its conversation is live elsewhere) · 1 refused; its line in RS_MSG. Sets RS_UUID RS_CWD RS_NOTE (the cwd it would use, and " (its directory … is gone, so in $HOME)" when it falls back). Changes nothing: restore_session and `restore --dry-run` both ask it
     local sess="$1" row="${2:-}" name live
     RS_MSG=""; RS_UUID=""; RS_CWD=""; RS_NOTE=""
+    # a sleeping session is left alone, not refused: its row is meant to have no claude (and maybe no tmux session), and a wake, not a restore, resumes it
+    is_sleeping "$sess" && { RS_MSG="$(sleeping_line "$sess")"; return 3; }
     no_relaunch "$sess" && { RS_MSG="$(no_relaunch_line "$sess"); sala does not recreate it"; return 1; }
     [ -n "$row" ] || row=$(ledger_row "$sess")
     [ -n "$row" ] || { RS_MSG="$sess: not in the pane map, nothing to recreate it from (salamander spawn makes a new session, adopt registers a live one)"; return 1; }
@@ -2894,6 +2958,7 @@ ledger_compare_restore() {  # <Recycle|Reboot> [roster] — the frozen roster ag
     while IFS= read -r line; do
         s=${line%%$'\t'*}; [ -n "$s" ] && [ "$s" != "$SALA_RC_SESSION" ] || continue
         tmux has-session -t "=$s" 2>/dev/null && continue
+        is_sleeping "$s" && { echo "  $(sleeping_line "$s")"; continue; }   # its tmux session is gone (a reboot): a wake resumes it, never a restore
         no_relaunch "$s" && { echo "  $(no_relaunch_line "$s"); not recreated, not counted"; continue; }
         out=$(restore_session "$s" "$line"); rc=$?
         printf '%s\n' "$out" | sed 's/^/  /'; out=$(printf '%s\n' "$out" | tail -1)

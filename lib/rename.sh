@@ -188,11 +188,19 @@ fi
 have_claude() { cpid=$(claude_pid_under "$(tmux display -p -t "$pane" '#{pane_pid}')" || true); [ -n "$cpid" ]; }
 have_uuid() { have_claude && uuid=$(registry_field "$cpid" sessionId) && [ -n "$uuid" ]; }
 have_row() { [ -n "$(ledger_row "$OLD")" ] || [ -n "$(ledger_uuid_rows "$uuid")" ]; }
-spawn_wait "running claude" have_claude
-[ -n "$cpid" ] || die "'$OLD' has no running claude — revive it first (salamander revive --only $OLD)"
-uuid=""; spawn_wait "registry entry" have_uuid
-bridge=$(registry_field "$cpid" bridgeSessionId); [ "$bridge" = null ] && bridge=""
-[ -n "$uuid" ] || die "no registry entry for '$OLD' (pid $cpid)"
+# A SLEEPING session (common.sh, THE SLEEPING SESSIONS) has no claude to ask and none to type /rename into: its conversation id is the pane map's,
+# and the rename is sala's own records alone (the tmux session, the map row, the lane and model rows, the notes, the marker's name). No /exit, no wait.
+SLEEPR=0; is_sleeping "$OLD" && SLEEPR=1
+cpid=""; bridge=""; uuid=""
+if [ "$SLEEPR" = 1 ]; then
+    uuid=$(sidecar_uuid_for_session "$OLD"); [ -n "$uuid" ] || die "'$OLD' is sleeping, but its pane-map row has no conversation id"
+else
+    spawn_wait "running claude" have_claude
+    [ -n "$cpid" ] || die "'$OLD' has no running claude — revive it first (salamander revive --only $OLD)"
+    spawn_wait "registry entry" have_uuid
+    bridge=$(registry_field "$cpid" bridgeSessionId); [ "$bridge" = null ] && bridge=""
+    [ -n "$uuid" ] || die "no registry entry for '$OLD' (pid $cpid)"
+fi
 # NOT IN THE PANE MAP (renames of two hand-made throwaway sessions added a map row each,
 # and the next recycle brought one back as a fleet session): a session the map has no row for, on a conversation no row
 # carries, is not sala's to rename. Checked here, before anything is typed or renamed, like the freeze, so nothing is left
@@ -215,12 +223,13 @@ PY
 [ -z "$taken" ] || die "'$NEW' is already the name of a live session (tmux '$taken')"
 here=$(tmux display -p -t "${TMUX_PANE:-}" '#{session_name}' 2>/dev/null || true)
 SELF=0; [ -n "${TMUX_PANE:-}" ] && [ "$here" = "$OLD" ] && [ "$WORKER" = 0 ] && SELF=1
-cur=$(registry_field "$cpid" name)
+if [ "$SLEEPR" = 1 ]; then cur=$NEW; else cur=$(registry_field "$cpid" name); fi   # sleeping: no claude name to bring in line, so no /rename is owed (step 2)
 status_known() { local st; registry_field_r st "$cpid" status; [ -n "$st" ]; }   # 1: the pane's registry row gives no status (below, step 1)
 
 if [ "$DRY" = 1 ]; then
     echo "[dry-run] '$OLD' → '$NEW'  (conversation ${uuid:0:8}…, claude.ai ${bridge:-no bridge})"
-    if [ "$SELF" = 1 ]; then echo "  a direct run inside this pane, which cannot type into itself: nothing typed; ${cur:+session name now '$cur'}${cur:+ — }/rename $NEW has to be typed in the pane by hand if it is not '$NEW' yet (a queued \`sala op rename $OLD $NEW\` types it from outside once the pane is idle)"
+    if [ "$SLEEPR" = 1 ]; then echo "  sleeping: no claude is running, so nothing is typed and no /exit is needed; sala's records follow the new name (the sleeping marker too)"
+    elif [ "$SELF" = 1 ]; then echo "  a direct run inside this pane, which cannot type into itself: nothing typed; ${cur:+session name now '$cur'}${cur:+ — }/rename $NEW has to be typed in the pane by hand if it is not '$NEW' yet (a queued \`sala op rename $OLD $NEW\` types it from outside once the pane is idle)"
     else echo "  type /rename $NEW (pane now: ${cur:-unnamed}; $(if status_known; then why=$(is_idle_reason "$cpid"); echo "${why:-idle}"; else echo "status unknown, not busy: it would go ahead as for an idle pane"; fi))"; fi
     if [ "$RL" = 1 ]; then
         echo "  rename '$OLD' to '$NEW' on $RL_HUB's page, in place (stackshot: post project-agent-rename, label $SALA_RENAME_SENDER): the entry keeps its line, place and side; stackshot refuses if '$NEW' is listed or '$OLD' is not"
@@ -294,8 +303,10 @@ fi
 # ── 3. sala's records
 tmux rename-session -t "=$OLD" "$NEW" || die "tmux would not rename '$OLD' (the session name is '$cur' now) — rename the tmux session by hand"
 # the map row: an honored rename (the map is a ledger — common.sh); a session the map lacks was refused above
-rcwd=$(registry_field "$cpid" cwd); [ -n "$rcwd" ] && [ "$rcwd" != null ] || rcwd=$(tmux display -p -t "$pane" '#{pane_current_path}')
+if [ "$SLEEPR" = 1 ]; then rcwd=$(ledger_row "$OLD" | cut -f4); else rcwd=$(registry_field "$cpid" cwd); fi
+[ -n "$rcwd" ] && [ "$rcwd" != null ] || rcwd=$(tmux display -p -t "$pane" '#{pane_current_path}')
 ledger_write rename "$OLD" "$NEW" "$uuid" "$rcwd" || echo "⚠ the pane map did not take the rename (see above)"
+[ "$SLEEPR" = 0 ] || sleeping_rename "$uuid" "$NEW"   # the marker is keyed by the conversation, so it stands; only its name text follows (common.sh)
 lane_rename "$OLD" "$NEW" || echo "⚠ the lane table did not take the rename: '$NEW' launches on the default lane until \`sala lane <lane> $NEW\` (common.sh, lanes)"   # its lane row follows
 model_rename "$OLD" "$NEW" || echo "⚠ the model table did not take the rename: '$NEW' relaunches on its transcript's model until \`sala model $NEW <model>\` (common.sh, models)"   # its model row follows
 if [ "$SD" = 1 ]; then   # the side record ends (above): from here on the session is an ordinary one, and the write-up it owed is not owed
@@ -318,7 +329,7 @@ python3 -c 'import json,sys,time; print(json.dumps({"uuid":sys.argv[1],"from":sy
 "$SALA_BIN" heartbeat >/dev/null 2>&1 || echo "⚠ the heartbeat failed; the next 5-minute sweep publishes the new name"
 
 # ── verify
-ok=1; nb=$(registry_field "$cpid" bridgeSessionId); [ "$nb" = null ] && nb=""
+ok=1; if [ "$SLEEPR" = 1 ]; then nb=$bridge; else nb=$(registry_field "$cpid" bridgeSessionId); fi; [ "$nb" = null ] && nb=""
 tmux has-session -t "=$NEW" 2>/dev/null || { ok=0; echo "⚠ no tmux session '$NEW' after the rename"; }
 [ "$(sidecar_uuid_for_session "$NEW")" = "$uuid" ] || { ok=0; echo "⚠ the pane map does not bind '$NEW' to its conversation"; }
 [ "$nb" = "$bridge" ] || echo "⚠ the claude.ai link changed (${bridge:-none} → ${nb:-none})"
