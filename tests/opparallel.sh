@@ -139,12 +139,33 @@ if cmd == "agent-listed":
 sys.exit(1)
 PY
 cat > "$HOME/fake-client.py" <<'PY'
-import json, os, random, sys, time
+import fcntl, json, os, random, sys, time
 home = os.environ["HOME"]; a = sys.argv[1:]
 open(home + "/client-calls.txt", "a").write(" ".join(a) + "\n")
 time.sleep(random.random() * 0.3)
+def record(update=None, key=None):   # the project record file, under a lock (the operations run side by side): update(agents) edits a project's agents (the project is made when the record lacks it)
+    with open(home + "/projects.lock", "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        rec = json.load(open(home + "/projects.json"))
+        pr = next((v for v in rec["projects"].values() if v["key"] == key), None)
+        if update is not None:
+            if pr is None:
+                pid = "prj_" + key.replace("/", "_"); pr = rec["projects"][pid] = {"id": pid, "key": key, "keeper": "x", "agents": {}}; rec["by_key"][key] = pid
+            update(pr["agents"])
+            rec["generated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            json.dump(rec, open(home + "/projects.json.tmp", "w")); os.replace(home + "/projects.json.tmp", home + "/projects.json")
+        return pr
+if a[:2] == ["get", "project"]:   # the READ-BACK after a registration
+    pr = record(key=a[2])
+    if pr is None: print("stackshot: no such project [404]", file=sys.stderr); sys.exit(1)
+    print(json.dumps(pr)); sys.exit(0)
+if a[:2] == ["post", "project-agent"]:   # THE SPAWN GATE's registration: the agent is on the record from the answer on
+    mand = a[a.index("--mandate") + 1] if "--mandate" in a else ""
+    record(lambda ag: ag.update({a[3]: {"front": "--front" in a, "role": a[a.index("--role") + 1], "mandate_line": mand}}), a[2])
+    print(json.dumps({"project": a[2], "agent": a[3], "page_owed": False, "note": "stub"})); sys.exit(0)
 project, old, new = a[2], a[3], a[4]
 open(home + "/listed.txt", "a").write("%s\t%s\t%s\n" % (project, new, "renamed by the stub"))
+record(lambda ag: ag.update({new: ag.pop(old)}) if old in ag else None, project)   # the record shows the entry under NEW from the answer on (the rename is read back)
 print(json.dumps({"project": "prj_example", "key": project, "result": "renamed", "old": old, "new": new, "front": True, "role": "x", "mandate": "renamed by the stub", "note": "stub"}))
 PY
 cat > "$HOME/fake-register" <<'EOF'
@@ -456,10 +477,10 @@ PY
     # what each pane was typed: its own mandate file, no other's
     [ "$(lines_of "$TYPED" "$ua <!-- sala --> Read $SALA_STATE_DIR/mandates/$IDA-$A.md")" = 1 ] && [ "$(lines_of "$TYPED" "$ua <!-- sala --> Read $SALA_STATE_DIR/mandates/side-$B.md")" = 0 ] \
         && [ "$(lines_of "$TYPED" "$ub <!-- sala --> Read $SALA_STATE_DIR/mandates/side-$B.md")" = 1 ] && [ "$(lines_of "$TYPED" "$ub <!-- sala --> Read $SALA_STATE_DIR/mandates/$IDA-$A.md")" = 0 ] || { ok_ops=0; bad "round $n: what the panes were typed: $(grep -E "$ua|$ub" "$TYPED" | cut -c1-160)"; }
-    # stackshot's side: the register hook once for the project agent, with its own conversation and lane; pages.py asked once per spawn question (the plan, then the run)
+    # stackshot's side: the register hook once for the project agent, with its own conversation and lane; since THE SPAWN GATE the record decides a project spawn (a name not on it, with its mandate, is registered through the client), so pages.py is not asked at all
     [ "$(lines_of "$HOME/register.log" "name=$A ")" = 1 ] && grep -qx "name=$A project=projects/pt role=front mfile=$SALA_STATE_DIR/mandates/$IDA-$A.md uuid=$ua lane=subscription-1" "$HOME/register.log" || { ok_ops=0; bad "round $n: the register hook: $(grep -E "$A" "$HOME/register.log")"; }
     [ "$(lines_of "$HOME/register.log" "$B")" = 0 ] || { ok_ops=0; bad "round $n: the register hook for the side session: $(grep "$B" "$HOME/register.log")"; }
-    [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $A")" = 2 ] && [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $B")" = 0 ] || { ok_ops=0; bad "round $n: pages.py calls for the spawns: $(grep -E "$A|$B" "$HOME/pages-calls.txt" | paste -sd'|' -)"; }
+    [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $A")" = 0 ] && [ "$(lines_of "$HOME/client-calls.txt" "post project-agent projects/pt $A ")" = 1 ] && [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $B")" = 0 ] || { ok_ops=0; bad "round $n: pages.py calls for the spawns: $(grep -E "$A|$B" "$HOME/pages-calls.txt" | paste -sd'|' -)"; }
     if [ "$four" = 1 ]; then
         [ "$(lines_of "$HOME/client-calls.txt" "post project-agent-rename projects/foo $S $S2")" = 1 ] || { ok_ops=0; bad "round $n: the stackshot client: $(grep -E "$S" "$HOME/client-calls.txt")"; }
         # the record decided (the entry was on it, the new name was not): pages.py is not asked about either name

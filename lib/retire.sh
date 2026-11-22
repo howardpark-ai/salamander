@@ -193,8 +193,14 @@ lane_dry_line() {  # <session> → what the lane and model rows are, for the dry
     if [ -n "$l" ]; then dry "would drop its lane row ($1 → $l) from $SALA_LANES"; else dry "no lane row to drop (a later session of the name starts on the default lane)"; fi
     if [ -n "$m" ]; then dry "would drop its model row ($1 → $(printf '%s' "$m" | tr '\t' /)) from $SALA_MODELS"; else dry "no model row to drop"; fi
 }
-agent_dry_line() {  # the stackshot call a real retire makes at its end (RETIRE DROPS THE AGENT ENTRY, common.sh), for the dry run: said, never made
-    [ -z "${proj:-}" ] || dry "would tell stackshot to drop '$name' from $proj's agents once retired (client.py post project-agent-retire, label $SALA_RETIRE_SENDER); a failure there changes nothing"
+retire_gate_exempt() {  # → 0 when this session is on the closed exceptions list (common.sh, THE SPAWN GATE: a throwaway's name, a side session, sala's shell): stackshot is not asked
+    agent_gate_exempt "$name" "$(if side_is "$name"; then echo 1; else echo 0; fi)" 0
+}
+agent_dry_line() {  # the stackshot call a real retire makes BEFORE it closes the pane (THE RETIRE ASKS STACKSHOT FIRST, common.sh), for the dry run: said, never made
+    local ex
+    if [ -z "${proj:-}" ]; then return 0; fi
+    if ex=$(retire_gate_exempt); then dry "would not ask stackshot to drop '$name' from $proj's agents: it is $ex"; return 0; fi
+    dry "would ask stackshot FIRST, before the pane is closed, to take '$name' off $proj's agents (client.py post project-agent-retire, label $SALA_RETIRE_SENDER): \"not listed\" goes on, any other refusal stops the retire with stackshot's reason and leaves the pane as it is"
 }
 proj=""
 
@@ -301,6 +307,13 @@ fi
 why=$(SALA_IDLE_OWN_TURN=$OWN_TURN is_idle_reason "$cpid")
 if [ -n "$why" ] && [ "$BUSY" = 0 ]; then die "'$name' is not idle: $why — wait, or pass --busy to retire it anyway"; fi
 [ -n "$why" ] && echo "⚠ retiring '$name' while it is not idle ($why)"
+# STACKSHOT FIRST (common.sh, THE RETIRE ASKS STACKSHOT FIRST): a session that is on a project's record is taken off it BEFORE its pane is closed. "not listed" (or nothing to ask) goes on; any other
+# answer refuses the retire with stackshot's reason and leaves the pane exactly as it is (asking again is safe: stackshot's retire is idempotent). The closed exceptions list skips the ask.
+if [ -n "$proj" ]; then
+    if ex=$(retire_gate_exempt); then echo "ℹ stackshot is not asked about '$name': it is $ex"; retire_log "$name: not asked ($ex)"
+    elif retire_ask_first "$name" "$proj" "${psrc:-}"; then echo "ℹ $RETIRE_ASKED"
+    else refuse "$RETIRE_ASKED_WHY; the pane is left as it is. Ask again when the cause is gone (the retire asks stackshot again each time), or see $SALA_LOG_DIR/salamander-retire.log"; fi
+else retire_log "$name: no project known for it, so stackshot was not asked to drop an agent entry"; fi
 if [ "$SELF" = 1 ] && [ "$caller" = "$name" ]; then
     # the tmux kill below ends this very process tree: ignore the hangup and a closed pty, and write what is left to the retire log, so the tail (snapshot, archive, stackshot) is done
     trap '' HUP PIPE; mkdir -p "$SALA_LOG_DIR"; exec >> "$SALA_LOG_DIR/salamander-retire.log" 2>&1
@@ -330,5 +343,5 @@ elif [ "$KEEP_WEB" = 0 ] && [ -n "$cpid$uuid" ]; then
 fi
 as=""; [ "$given" != "$name" ] && as=" (named as '$given')"
 echo "retired '$name'$as${uuid:+; the transcript stays — bring the conversation back with: claude --resume $uuid}"
-retire_drop_agent "$name" "$proj" "${psrc:-}"   # the retire is done: tell stackshot to drop the agent entry (always 0; a failure is a log line, never the retire's result)
+# stackshot was asked BEFORE the pane was closed (above): no second call here, so a repeat cannot change the record's answer
 if side_is "$name"; then mkdir -p "$SALA_SIDE_DIR/retired" && mv -f "$(side_file "$name")" "$SALA_SIDE_DIR/retired/" && { [ ! -f "$(side_done_file "$name")" ] || mv -f "$(side_done_file "$name")" "$SALA_SIDE_DIR/retired/"; }; fi   # the side record is history now

@@ -91,9 +91,17 @@ PY
 cat > "$HOME/fake-client.py" <<'PY'
 import json, os, sys
 home = os.environ["HOME"]
+a = sys.argv[1:]
+if a[:2] == ["get", "project"]:   # the READ-BACK: stackshot's live answer for a project, from the record file; counted apart from the posts ($HOME/readback-calls.txt)
+    open(home + "/readback-calls.txt", "a").write(a[2] + "\n")
+    if os.path.exists(home + "/readback-mode") and open(home + "/readback-mode").read().strip() == "down":
+        print("stackshot: project not read [0] URLError: <urlopen error [Errno 111] Connection refused>", file=sys.stderr); sys.exit(1)
+    rec = json.load(open(home + "/projects.json"))
+    for pr in rec["projects"].values():
+        if pr["key"] == a[2]: print(json.dumps(pr)); sys.exit(0)
+    print("stackshot: no such project [404]", file=sys.stderr); sys.exit(1)
 open(home + "/client-calls.txt", "a").write("\x1f".join(sys.argv[1:]) + "\n")
 mode = open(home + "/client-mode").read().strip() if os.path.exists(home + "/client-mode") else "renamed"
-a = sys.argv[1:]
 if a[:2] == ["post", "project-agent"]:   # a side session becoming an agent: the real client prints its refusals on stdout, exit 1
     amode = open(home + "/client-mode-agent").read().strip() if os.path.exists(home + "/client-mode-agent") else "recorded"
     project, name = a[2], a[3]
@@ -103,7 +111,13 @@ if a[:2] == ["post", "project-agent"]:   # a side session becoming an agent: the
                  "unreachable": "stackshot: agent not listed [0] URLError: <urlopen error [Errno 111] Connection refused>"}
     if amode in arefusals: print(arefusals[amode]); sys.exit(1)
     mand = a[a.index("--mandate") + 1] if "--mandate" in a else ""
+    if amode == "norecord": print(f"Recorded in prj_example ({project}): {name}"); sys.exit(0)   # a 200 that changes nothing in the record: what the read-back must catch
     open(home + "/listed.txt", "a").write("%s\t%s\t%s\n" % (project, name, mand))   # the project record lists it (page_owed) from here on
+    if True:
+        rp = home + "/projects.json"; rec = json.load(open(rp))
+        for pr in rec["projects"].values():
+            if pr["key"] == project: pr["agents"][name] = {"front": "--front" in a, "role": a[a.index("--role") + 1] if "--role" in a else "x", "mandate_line": mand}
+        json.dump(rec, open(rp, "w"))
     print(f"Recorded in prj_example ({project}) in stackshot's record only: the page line is still owed. Add `{name}: {mand}` under `agents:`")
     sys.exit(0)
 if a[:2] != ["post", "project-agent-rename"] or len(a) < 5: print("usage: client.py post project-agent-rename <project> <OLD> <NEW> [--sender <label>]", file=sys.stderr); sys.exit(1)
@@ -117,13 +131,18 @@ if mode == "garbage": print("<html>not json</html>"); sys.exit(0)
 front = old != "sala-test-o2"
 role = new.split("-", 2)[2] if new.count("-") >= 2 else "?"
 line = "builds the foo things" if front else "watches the foo inbox"
+if mode == "already" and old == "sala-test-o4":   # the earlier rename (sala started it) did happen on stackshot's side: the record already shows NEW and not OLD (the other "already" case, o3, is not sala's: nothing is read back there)
+    rp = home + "/projects.json"; rec = json.load(open(rp))
+    for pr in rec["projects"].values():
+        if pr["key"] == project and old in pr["agents"]: pr["agents"][new] = pr["agents"].pop(old)
+    json.dump(rec, open(rp, "w"))
 if mode == "renamed":
     open(home + "/listed.txt", "a").write("%s\t%s\t%s\n" % (project, new, line))
     rp = home + "/projects.json"; rec = json.load(open(rp))   # stackshot rewrites its record a few minutes later: the entry moves to NEW
     for pr in rec["projects"].values():
         if pr["key"] == project and old in pr["agents"]: pr["agents"][new] = pr["agents"].pop(old)
     json.dump(rec, open(rp, "w"))
-print(json.dumps({"project": "prj_example", "key": project, "result": "renamed" if mode == "renamed" else "already renamed", "old": old, "new": new,
+print(json.dumps({"project": "prj_example", "key": project, "result": "renamed" if mode in ("renamed", "noshow") else "already renamed", "old": old, "new": new,
                   "front": front, "role": role, "mandate": line, "note": "stub"}))
 PY
 python3 - "$HOME/projects.json" <<'PY'
@@ -222,6 +241,32 @@ echo "$out" | sed 's/^/    /' | cut -c1-260
 [ "$rc" = 0 ] && has "$out" "'gamma-foo-qux' was already listed on projects/foo's page in place of 'sala-test-o4' (stackshot: already renamed): taken as the retry of the rename sala started earlier" \
     && has "$out" "✅ 'sala-test-o4' is now 'gamma-foo-qux'" && [ "$(calls)" = $((n0 + 1)) ] && tmux has-session -t =gamma-foo-qux 2>/dev/null && ok "the retry goes on, and the log line says it was taken as a retry" || bad "already renamed retry: rc=$rc"
 mode renamed
+
+echo "== the READ-BACK: after stackshot's yes the record must show the change, or nothing is typed or renamed here"
+export SALA_READBACK_WAIT=2 SALA_READBACK_POLL=1
+# (a) stackshot says renamed but its record still lists OLD and not NEW: the rename stops before anything is typed
+mode noshow; n0=$(calls); MAP_BEFORE=$(slurp "$MAP"); : > "$HOME/readback-calls.txt"
+out=$("$SALA" rename gamma-foo-qux gamma-foo-quux 2>&1); rc=$?
+echo "$out" | sed 's/^/    /' | cut -c1-300
+[ "$rc" != 0 ] && has "$out" "stackshot answered the rename of 'gamma-foo-qux' to 'gamma-foo-quux' on projects/foo, but the record does not show it" && has "$out" "nothing was typed or renamed here" && [ "$(calls)" = $((n0 + 1)) ] \
+    && [ -s "$HOME/readback-calls.txt" ] && untouched gamma-foo-qux gamma-foo-quux && tmux has-session -t =gamma-foo-qux 2>/dev/null && ! tmux has-session -t =gamma-foo-quux 2>/dev/null \
+    && ok "read-back fails (the record lacks NEW): the rename stops with an error, the tmux session and the pane map unchanged" || bad "read-back failure: rc=$rc calls=$(calls) (was $n0)"
+# (b) the success path says it read the record back
+mode renamed; : > "$HOME/readback-calls.txt"; setname gamma-foo-qux gamma-foo-quux   # (what the CLI does once it takes /rename)
+out=$("$SALA" rename gamma-foo-qux gamma-foo-quux 2>&1); rc=$?
+[ "$rc" = 0 ] && has "$out" "ℹ read back: the record lists 'gamma-foo-quux' on projects/foo and no longer 'gamma-foo-qux'" && [ -s "$HOME/readback-calls.txt" ] && tmux has-session -t =gamma-foo-quux 2>/dev/null \
+    && ok "read-back succeeds: said, and the rename goes on" || bad "read-back success: rc=$rc — $out"
+# (c) stackshot's live answer unreachable: the published record file decides (it shows the change here, so the rename goes on)
+printf 'down\n' > "$HOME/readback-mode"; mode renamed; setname gamma-foo-quux gamma-foo-quuux
+out=$("$SALA" rename gamma-foo-quux gamma-foo-quuux 2>&1); rc=$?
+[ "$rc" = 0 ] && has "$out" "ℹ read back: the record lists 'gamma-foo-quuux'" && tmux has-session -t =gamma-foo-quuux 2>/dev/null && ok "live answer unreachable: read back from the published record file, the rename goes on" || bad "read-back via the file: rc=$rc — $out"
+# (d) neither the live answer nor the record shows it: refused (the file is stale or lacks it)
+mode noshow; n0=$(calls)
+out=$("$SALA" rename gamma-foo-quuux gamma-foo-quuuux 2>&1); rc=$?
+[ "$rc" != 0 ] && has "$out" "the record does not show it" && tmux has-session -t =gamma-foo-quuux 2>/dev/null && ok "live answer unreachable and the file lacks NEW: refused, nothing renamed" || bad "read-back down+noshow: rc=$rc — $out"
+rm -f "$HOME/readback-mode"; mode renamed
+# put the name back to what the sections below expect (o4's renamed session was gamma-foo-qux): none of them uses it, the session is closed
+tmux kill-session -t =gamma-foo-quuux 2>/dev/null; MAP_BEFORE=$(slurp "$MAP")
 
 echo "== no client: refused, naming it; a hand rename (--sync) is followed, never calls stackshot"
 n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
@@ -547,6 +592,12 @@ for m in 403 400 409 unreachable; do
         && untouched sala-test-side-b gamma-foo-refused && [ -f "$(side_file sala-test-side-b)" ] && [ "$(rowfield sala-test-side-b side)" = 1 ] && [ -z "$(rowfield sala-test-side-b project)" ] \
         && ok "$m: refused with stackshot's reason, one call, tmux session, pane map, side record and row unchanged" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "$m: rc=$rc calls=$(calls) (was $n0)"; }
 done
+# (c2) stackshot says recorded (200) but its record does not list NEW: the read-back refuses, nothing typed or renamed, the side record kept
+printf 'norecord\n' > "$HOME/client-mode-agent"; n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
+out=$(SALA_READBACK_WAIT=2 SALA_READBACK_POLL=1 "$SALA" rename sala-test-side-b gamma-foo-refused 2>&1); rc=$?
+[ "$rc" != 0 ] && has "$out" "stackshot answered the listing of 'gamma-foo-refused' on projects/foo, but the record does not show it" && has "$out" "nothing was typed or renamed here" && [ "$(calls)" = $((n0 + 1)) ] \
+    && untouched sala-test-side-b gamma-foo-refused && [ -f "$(side_file sala-test-side-b)" ] && [ "$(rowfield sala-test-side-b side)" = 1 ] \
+    && ok "side listing read back: the record lacks NEW: refused, tmux session, pane map, side record and row unchanged" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "side read-back failure: rc=$rc calls=$(calls) (was $n0)"; }
 printf 'recorded\n' > "$HOME/client-mode-agent"
 n0=$(calls)
 out=$(SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR= "$SALA" rename sala-test-side-b gamma-foo-refused 2>&1); rc=$?

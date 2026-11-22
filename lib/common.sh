@@ -1191,7 +1191,7 @@ except Exception as e:
     rename_mark_has "$old" "$new" && return 0
     RL_WHY="stackshot says '$old' is already gone from the page and '$new' is listed ($RL_DETAIL), but this machine did not start that rename: nothing was renamed here; if it is yours, the page's keeper confirms it"; return 1
 }
-# RETIRE DROPS THE AGENT ENTRY (Wed Oct 28th 2026; lib/retire.sh): a retired session must not stay a pending agent (page_owed) on its
+# RETIRE DROPS THE AGENT ENTRY (Wed Oct 28th 2026; lib/retire.sh; since the spawn gate it asks BEFORE the pane is closed, retire_ask_first below): a retired session must not stay an agent on its
 # project, so once a retire has succeeded sala tells stackshot: `client.py post project-agent-retire <project> <name> --sender sala-retire`
 # (SALA_RETIRE_SENDER overrides the label). Since Sat Oct 31st 2026 stackshot does the whole job itself: it removes the agent's line (and the lines
 # below it) from the project page's `agents:` map, adds a timeline line, and drops a pending entry of the name. Answers: 200 with `result` "line removed"
@@ -1245,25 +1245,31 @@ retire_project_of() {  # <session> [<conversation id>] → sets RETIRE_PROJ (the
     RETIRE_PROJ=$p; RETIRE_PROJ_SRC=$src
 }
 retire_log() { local _t; _iso_now_r _t; echo "[$_t] $*" >> "$SALA_LOG_DIR/salamander-retire.log" 2>/dev/null; true; }
-retire_drop_agent() {  # <session> <project> [<where the project came from>] → asks stackshot to take the agent off its project; ALWAYS 0: the outcome is a log line and an "ℹ" line, never an error
-    local n=$1 proj=$2 src=${3:-} c out full rc said why status shown
-    if [ -z "$proj" ]; then retire_log "$n: no project known for it, so stackshot was not asked to drop an agent entry"; return 0; fi
+_retire_call() {  # <session> <project> [<where the project came from>] → the one `post project-agent-retire` call and its log line. rc 0 the call was made (RD_RC its exit, RD_FULL its output, RD_OUT the last line, RD_SHOWN that line cut in the middle, RD_STATUS and RD_WHY the "[status] reason" of a refusal, RD_C the client) · rc 2 no call was made (RD_WHY says why: no project, not a hub page key, no client.py)
+    local n=$1 proj=$2 src=${3:-}
+    RD_RC="" RD_FULL="" RD_OUT="" RD_SHOWN="" RD_STATUS="" RD_WHY="" RD_C=""
+    if [ -z "$proj" ]; then RD_WHY="no project known for it"; retire_log "$n: no project known for it, so stackshot was not asked to drop an agent entry"; return 2; fi
     [ -z "$src" ] || retire_log "$n: its project $proj came from $src"
-    if ! page_key_ok "$proj"; then retire_log "$n: its project '$proj' is not a hub page key, so stackshot was not asked to drop an agent entry"; return 0; fi
-    if ! c=$(stackshot_client); then retire_log "$n: no stackshot client.py on this box, so $proj was not asked to drop its agent entry"; return 0; fi
-    # 90 s, not the 45 s of the old read-only call: stackshot now reads the page, writes it back, reads it back and adds a timeline line (RETIRE DROPS THE AGENT ENTRY, above)
-    out=$(timeout 90 python3 "$c" post project-agent-retire "$proj" "$n" --sender "$SALA_RETIRE_SENDER" 2>&1 </dev/null); rc=$?
-    if [ "$rc" = 124 ]; then out="stackshot did not answer within 90 s (the page may or may not be changed; an immediate retry may get a 409 \"in progress\" while stackshot finishes: ask again a little later)"; fi
-    full=$out; out=$(_lastline "$out")
+    if ! page_key_ok "$proj"; then RD_WHY="its project '$proj' is not a hub page key"; retire_log "$n: its project '$proj' is not a hub page key, so stackshot was not asked to drop an agent entry"; return 2; fi
+    if ! RD_C=$(stackshot_client); then RD_WHY="no stackshot client.py on this box"; retire_log "$n: no stackshot client.py on this box, so $proj was not asked to drop its agent entry"; return 2; fi
+    # 90 s, not the 45 s of the old read-only call: stackshot may read the page, write it back, read it back and add a timeline line (RETIRE DROPS THE AGENT ENTRY, above)
+    RD_FULL=$(timeout "${SALA_RETIRE_ASK_TIMEOUT:-90}" python3 "$RD_C" post project-agent-retire "$proj" "$n" --sender "$SALA_RETIRE_SENDER" 2>&1 </dev/null); RD_RC=$?
+    if [ "$RD_RC" = 124 ]; then RD_FULL="stackshot did not answer within ${SALA_RETIRE_ASK_TIMEOUT:-90} s (the record may or may not be changed; an immediate retry may get a 409 \"in progress\" while stackshot finishes: ask again a little later)"; fi
+    RD_OUT=$(_lastline "$RD_FULL")
     # a long answer is cut in the MIDDLE, never at the end: a 502's reason ends with what is left to do (whether the timeline line was written)
-    shown=$out; [ "${#shown}" -le 600 ] || shown="${out:0:100}…${out: -500}"
-    status="" why=""
-    if [[ $out =~ \[([0-9]{3})\]\ (.*)$ ]]; then status=${BASH_REMATCH[1]}; why=${BASH_REMATCH[2]}; [ "${#why}" -le 600 ] || why="${why:0:100}…${why: -500}"; fi
-    retire_log "$n: project-agent-retire $proj (label $SALA_RETIRE_SENDER) → exit $rc${shown:+: $shown}"
+    RD_SHOWN=$RD_OUT; [ "${#RD_SHOWN}" -le 600 ] || RD_SHOWN="${RD_OUT:0:100}…${RD_OUT: -500}"
+    if [[ $RD_OUT =~ \[([0-9]{3})\]\ (.*)$ ]]; then RD_STATUS=${BASH_REMATCH[1]}; RD_WHY=${BASH_REMATCH[2]}; [ "${#RD_WHY}" -le 600 ] || RD_WHY="${RD_WHY:0:100}…${RD_WHY: -500}"; fi
+    retire_log "$n: project-agent-retire $proj (label $SALA_RETIRE_SENDER) → exit $RD_RC${RD_SHOWN:+: $RD_SHOWN}"
+    return 0
+}
+retire_drop_agent() {  # <session> <project> [<where the project came from>] → asks stackshot to take the agent off its project AFTER the fact (forget-row: its pane is already gone, so there is none to protect); ALWAYS 0: the outcome is a log line and an "ℹ" line, never an error. A retire of a live pane asks FIRST instead (retire_ask_first, below)
+    local n=$1 proj=$2 said
+    _retire_call "$@" || return 0
+    local rc=$RD_RC full=$RD_FULL status=$RD_STATUS why=$RD_WHY shown=$RD_SHOWN c=$RD_C
     if [ "$rc" = 0 ]; then
         case $full in   # the client prints stackshot's JSON on one line: {"result": "line removed" | "dropped" | "not listed", ...}
-            *'"result": "line removed"'*) said="stackshot removed '$n' from $proj's agents (its line is off the page; a timeline line says so)" ;;
-            *'"result": "dropped"'*)      said="stackshot dropped '$n' from $proj (it was only pending: no page line to remove)" ;;
+            *'"result": "line removed"'*) said="stackshot removed '$n' from $proj's agents (it is off the project record)" ;;
+            *'"result": "dropped"'*)      said="stackshot dropped '$n' from $proj (it was only pending: nothing else to remove)" ;;
             *'"result": "not listed"'*)   said="'$n' is not on $proj's agents and not pending in stackshot: nothing to remove" ;;
             *)                            said="stackshot told to drop '$n' from $proj's agents${shown:+: $shown}" ;;
         esac
@@ -1274,6 +1280,32 @@ retire_drop_agent() {  # <session> <project> [<where the project came from>] →
         echo "ℹ stackshot refused ($status): $why; the retire itself is done"
     else echo "ℹ stackshot was not told to drop '$n' from $proj's agents (exit $rc${shown:+: $shown}; see $SALA_LOG_DIR/salamander-retire.log): the retire itself is done"; fi
     return 0
+}
+# THE RETIRE ASKS STACKSHOT FIRST (lib/retire.sh): a session that is on a project's record is taken off it BEFORE its pane is closed, so a refusal leaves the pane alone
+# and a retire that went through is never left half done on the record. retire_ask_first <session> <project> [<where from>] → rc 0 go on with the retire: stackshot took the
+# agent off ("line removed", "dropped"), said it was not listed (a repeat after a lost reply, or a session that never was), the project is unknown to it (404), or there is
+# nothing to ask (no project known, not a hub page key, no client.py: a box without stackshot, as before); RETIRE_ASKED says which, in words (printed by the caller as an "ℹ" line)
+# · rc 1 stackshot refused or could not be asked (a 409 rename or retire running on the page, 403, 400, 422, 502, a timeout, not reached): RETIRE_ASKED_WHY is the reason; the caller
+# refuses the retire and leaves the pane as it is. Idempotent on stackshot's side, so asking again is the way out of any refusal.
+RETIRE_ASKED="" RETIRE_ASKED_WHY=""
+retire_ask_first() {
+    local n=$1 proj=$2
+    RETIRE_ASKED="" RETIRE_ASKED_WHY=""
+    if ! _retire_call "$@"; then RETIRE_ASKED="stackshot was not asked about '$n' ($RD_WHY): it is on no project's record from here"; return 0; fi
+    if [ "$RD_RC" = 0 ]; then
+        case $RD_FULL in
+            *'"result": "line removed"'*) RETIRE_ASKED="stackshot removed '$n' from $proj's agents (it is off the project record)" ;;
+            *'"result": "dropped"'*)      RETIRE_ASKED="stackshot dropped '$n' from $proj (it was only pending: nothing else to remove)" ;;
+            *'"result": "not listed"'*)   RETIRE_ASKED="'$n' is not on $proj's agents and not pending in stackshot: nothing to remove" ;;
+            *)                            RETIRE_ASKED_WHY="stackshot answered exit 0 with an answer sala cannot read (${RD_SHOWN:-nothing}): the record may or may not be changed"; return 1 ;;
+        esac
+        return 0
+    fi
+    if [ "$RD_RC" != 124 ] && [ "$RD_STATUS" = 404 ]; then RETIRE_ASKED="stackshot has no project $proj (404: $RD_WHY), so '$n' is on no record of it"; return 0; fi
+    if [ "$RD_RC" = 124 ]; then RETIRE_ASKED_WHY=$RD_FULL
+    elif [ -n "$RD_STATUS" ]; then RETIRE_ASKED_WHY="stackshot refused to take '$n' off $proj ($RD_STATUS): $RD_WHY"
+    else RETIRE_ASKED_WHY="stackshot could not be asked to take '$n' off $proj (exit $RD_RC${RD_SHOWN:+: $RD_SHOWN})"; fi
+    return 1
 }
 # RETIRE ASKS FOR OPEN ITEMS FIRST (lib/retire.sh): a Claude session that moves an open board item is not ended from under it. Before a retire acts,
 # sala asks stackshot's client what the session moves: `client.py get items <session>` answers {"items": [{"shown": "board#N", "roles": ["mover"|"then"|"needs"], "held": bool, …}]},
@@ -1317,7 +1349,7 @@ print(",".join(str(i.get("shown") or i.get("gid")) for i in items if isinstance(
 # page's agents map, so a rename to a real agent name its project does not list reached the refusal above, and a session must not go down a route
 # that ends in a rename refusal. With a side record for OLD, the rename lists NEW as a new agent itself: `client.py post project-agent <hub> NEW --role R
 # --front --mandate "<line>" --sender sala-web` (the New session form's label, honored from this box: form_senders/form_machines), which records a PENDING
-# agent in stackshot's project record (page_owed; the page's own line stays the page keeper's to add: stackshot cannot write a page's frontmatter), then
+# agent in stackshot's project record (stackshot writes the record directly and answers page_owed: false: nothing is owed on the page), then
 # the rename goes on and the side record ends (rename_side_end): the session is an ordinary agent from then on. The project is the record's `project`,
 # else the one its origin agent has; neither = a refusal, said in the plan. The call is idempotent (the same role and line again answers "already
 # recorded … as it stands"), which a busy pane's retry worker relies on. SALA_RENAME_LIST_SENDER overrides the label.
@@ -1512,6 +1544,150 @@ PY
 ); rc=$?
     case "$rc" in 0|3|4|5) printf '%s\n' "$out"; return "$rc" ;; esac
     _lastline "$out"; return 1
+}
+# THE SPAWN GATE (lib/spawn.sh; docs/stackshot-contracts.md, interface 34): every agent session sala creates is on stackshot's project record BEFORE its pane
+# exists. stackshot answers first (the record, then the register call `client.py post project-agent … --sender sala-spawn`); the pane starts only on its yes. Rename and
+# retire are requests to stackshot too (rename_list_run above, retire_ask_first above). Every change is read back (agent_record_read_back below).
+# THE EXCEPTIONS are a CLOSED list, kept in this one function (tests/spawn.sh covers each class): sala's own shell session (SALA_SHELL_SESSION), a side session (spawn --side, or a
+# *-side-* name), a spawn's auto-generated throwaway name, and a throwaway's name (scratch-*, *-check-*, *-test-*, *-probe-*). Everything else that is not on the record is refused
+# with the reason and the register command. Revive, recycle, adopt, restore and the relaunch paths never come here: they resume a session that already exists.
+throwaway_name_p() { case "$1" in scratch-*|*-check-*|*-test-*|*-probe-*) return 0 ;; esac; return 1; }   # <name> → 0 for a name a throwaway carries by habit (op.sh's no-words retire door shares this list)
+agent_gate_exempt() {  # <name> <side 0|1> <generated 0|1> → rc 0 exempt (stdout: the class, in words) · rc 1 the gate applies
+    local n=$1
+    if is_shell_session "$n"; then echo "sala's own shell session"; return 0; fi
+    if [ "${2:-0}" = 1 ] || [[ $n == *-side-?* ]]; then echo "a side session"; return 0; fi
+    if [ "${3:-0}" = 1 ]; then echo "an auto-generated throwaway"; return 0; fi
+    if throwaway_name_p "$n"; then echo "a throwaway's name (scratch-*, *-check-*, *-test-*, *-probe-*)"; return 0; fi
+    return 1
+}
+stackshot_present() { [ -r "$SALA_PROJECT_RECORD" ] || stackshot_client >/dev/null 2>&1; }   # → 0 when this box has stackshot (a record file or a client); a box without it has nothing to ask (docs/running-without-stackshot.md)
+agent_role_word() {  # <name> <the project's -main agent, or empty> → the role word stackshot's register call takes: the part of NAME after the project's name, else its last dash-part
+    local pre=${2%-main}
+    if [ -n "$2" ] && [ "$pre" != "$2" ] && [[ $1 == "$pre"-?* ]]; then printf '%s\n' "${1#"$pre"-}"; else printf '%s\n' "${1##*-}"; fi
+}
+project_for_name() {  # <name> → rc 0: the page key of the one project whose name (its -main agent's without -main) is the longest prefix of NAME (stdout) · rc 1: none or ambiguous, or the record cannot say (stdout: why)
+    [ -r "$SALA_PROJECT_RECORD" ] || { echo "no readable project record at $SALA_PROJECT_RECORD"; return 1; }
+    local out rc
+    out=$(python3 -I - "$SALA_PROJECT_RECORD" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" 2>&1 <<'PY'
+import datetime, json, sys
+path, max_age, name = sys.argv[1:4]
+def no(why): print(why); sys.exit(1)
+try:
+    d = json.load(open(path, encoding="utf-8"))
+    if not isinstance(d, dict) or d.get("schema") != 1: no("the project record is not schema 1")
+    age = datetime.datetime.now(datetime.timezone.utc).timestamp() - datetime.datetime.fromisoformat(str(d["generated"]).replace("Z", "+00:00")).timestamp()
+    if age > float(max_age) or age < -60: no("the project record is stale (written %d s ago)" % age)
+    best, hits = -1, []
+    for p in d["projects"].values():
+        ag = p.get("agents") if isinstance(p, dict) and isinstance(p.get("agents"), dict) else {}
+        for m, a in ag.items():
+            if isinstance(a, dict) and a.get("front") is True and m.endswith("-main") and name.startswith(m[:-5] + "-"):
+                n = len(m) - 5
+                if n > best: best, hits = n, [p.get("key") or ""]
+                elif n == best and (p.get("key") or "") not in hits: hits.append(p.get("key") or "")
+    hits = [h for h in hits if h]
+    if len(hits) == 1: print(hits[0]); sys.exit(0)
+    no("no project of the record has a name that '%s' starts with" % name if not hits else "more than one project could own '%s': %s" % (name, ", ".join(sorted(hits))))
+except SystemExit: raise
+except Exception as e: no("the project record is unreadable (%s)" % e)
+PY
+); rc=$?
+    printf '%s\n' "$out"; return "$rc"
+}
+: "${SALA_SPAWN_SENDER:=sala-spawn}"      # the label of the register call (stackshot's [project_agent] form_senders)
+# agent_register <project> <name> <role word> <front|back> <one-line mandate> [<surface>] → rc 0: stackshot listed the agent (AR_NOTE: its note; 200 is also the answer for a repeat with the same side and mandate) · rc 1: it refused or could not be reached (AR_WHY: stackshot's reason: 400 a bad field, name or missing project prefix, 403 not allowed or a hub/retired page, 409 the name taken or on the other side, [0] not reached)
+agent_register() {
+    local c out rc; AR_NOTE="" AR_WHY=""
+    c=$(stackshot_client) || { AR_WHY="no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/stackshot/fleet/client.py), so sala cannot register '$2' with stackshot"; return 1; }
+    out=$(timeout 90 python3 "$c" post project-agent "$1" "$2" --role "$3" "--$4" ${6:+--surface "$6"} --mandate "$5" --sender "$SALA_SPAWN_SENDER" 2>&1 </dev/null); rc=$?
+    if [ "$rc" = 0 ]; then AR_NOTE=$(_lastline "$out"); return 0; fi
+    if [ "$rc" = 124 ]; then AR_WHY="stackshot did not answer within 90 s (the registration may or may not have gone through: asking again is safe, a repeat with the same side and mandate answers 200)"; return 1; fi
+    AR_WHY=$(_lastline "${out:-the stackshot client exited $rc with no output}"); return 1
+}
+# agent_record_read_back <project> <name that must be listed> [<name that must be gone>] [front|back] → rc 0 the record shows it (checked right after a change; every change is read back) · rc 1 it does not within
+# SALA_READBACK_WAIT seconds (ARB_WHY says what the record shows). The live read first (`client.py get project <key>`, stackshot's own answer), else the published file (SALA_PROJECT_RECORD, which stackshot rewrites after
+# every verb); a live answer that is definite decides, an unreadable one (not reached, not JSON) falls to the file.
+: "${SALA_READBACK_WAIT:=30}" "${SALA_READBACK_POLL:=2}"
+agent_record_read_back() {
+    local key=$1 want=$2 gone=${3:-} side=${4:-} c out verdict why="" deadline=$((SECONDS + SALA_READBACK_WAIT)) src
+    ARB_WHY=""
+    while :; do
+        verdict=""; src=""
+        if c=$(stackshot_client 2>/dev/null) && out=$(timeout 20 python3 "$c" get project "$key" 2>/dev/null </dev/null); then
+            verdict=$(_agents_verdict "$key" "$want" "$gone" "$side" <<< "$out"); src="stackshot's live answer"
+            case "$verdict" in unreadable*) verdict="" ;; esac
+        fi
+        if [ -z "$verdict" ] && [ -r "$SALA_PROJECT_RECORD" ]; then verdict=$(_agents_verdict "$key" "$want" "$gone" "$side" < "$SALA_PROJECT_RECORD"); src="the published project record"; fi
+        [ -n "$verdict" ] || { verdict="unreadable: neither stackshot's live answer nor the project record could be read"; src="nothing"; }
+        case "$verdict" in
+            ok) return 0 ;;
+            side*) ARB_WHY="$src lists '$want' on $key as ${verdict#side }"; return 1 ;;   # the other side is no lag: it will not heal by waiting
+        esac
+        why="$src: ${verdict#* }"
+        [ "$SECONDS" -lt "$deadline" ] || { ARB_WHY="the read-back failed: $why"; return 1; }
+        sleep "$SALA_READBACK_POLL"
+    done
+}
+_agents_verdict() {  # <key> <want listed> <want gone> <front|back|empty> (a project's JSON, or the whole record file, on stdin) → "ok" | "absent <why>" | "present <why>" | "side <front|back>" | "unreadable <why>"
+    python3 -I -c '
+import json, sys
+key, want, gone, side = sys.argv[1:5]
+try:
+    d = json.load(sys.stdin)
+    if "projects" in d and "schema" in d:   # the published record file: find the project
+        pid = (d.get("by_key") or {}).get(key)
+        p = d["projects"].get(pid) if pid else None
+        if p is None: p = next((v for v in d["projects"].values() if isinstance(v, dict) and v.get("key") == key), None)
+        if p is None: print("absent the record has no project " + key); sys.exit(0)
+    else: p = d
+    ag = p.get("agents") if isinstance(p.get("agents"), dict) else {}
+    a = ag.get(want)
+    if not isinstance(a, dict): print("absent it does not list \x27%s\x27 on %s" % (want, key)); sys.exit(0)
+    if side and isinstance(a.get("front"), bool) and (side == "front") != a["front"]: print("side " + ("front" if a["front"] else "back")); sys.exit(0)
+    if gone and isinstance(ag.get(gone), dict): print("present it still lists \x27%s\x27 on %s" % (gone, key)); sys.exit(0)
+    print("ok")
+except SystemExit: raise
+except Exception as e: print("unreadable %s" % e)
+' "$@"
+}
+# THE NAME CHECK (spawn --suggest-name): stackshot's `GET /client/agent-name?key=<project page key>&names=a,b,c` (live since stackshot c554182a; machine-token bearer auth like the other client reads; the CLI is
+# `client.py get agent-name <project> <name> [<name> ...]`, at most 20 names) answers {"results": [{name, valid, code, reason}], "first_free", "prefixes"} against the project's rules. code is one of
+# prefix, format, listed, pending, retired, hidden, hub, limit. It takes no lock and registers nothing, and exits 0 whenever it answers, even when every name is invalid: `valid` in the JSON is the answer, never the exit code.
+# valid=true means the register will not refuse the name NOW (a name can be taken between the read and the register: the register call is still the real yes, and its refusal is handled there).
+# Differences from the register that matter here: a name already `listed` reads valid=false even where the register would answer 200 "nothing changed": that is "already ours", not a refusal, so the gate
+# decides "listed" from the project record FIRST (project_record_agent) and this check only suggests names; a name `pending` for any sender (our own included) reads pending; a bad-shape name on a hub, hidden or
+# retired project reads hub/hidden/retired. For a project whose id is not in stackshot's id file the read may write that id (as `get project` does).
+# agent_name_check is the one place that asks it. A 404, no client, a connection error, a non-JSON answer or a timeout is "unavailable": the suggestion falls back to sala's own (a free tmux name, a free word),
+# silently. stackshot's check does not see tmux, live sessions or retired names of other machines: sala's own check stays.
+# SALA_AGENT_NAME_CMD is the command (the key, then the names as separate words, are appended; default `python3 <client.py> get agent-name`; set empty: never asked; the suites stub it, never the real endpoint).
+# agent_name_check <project key> <name>… → rc 0: the first of the names stackshot calls valid (stdout) · rc 1: unavailable · rc 2: asked, and none is valid (stdout: one line a name, "<name>: <stackshot's reason> [<code>]",
+# so a prefix refusal's text reaches the caller) · rc 3: asked, none is valid, and at least one is `listed` (already ours: stdout the same lines, the listed ones marked "already on the record")
+agent_name_check() {
+    local key=$1 cmd c out; shift
+    [ $# -gt 0 ] || return 1
+    [ $# -le 20 ] || set -- "${@:1:20}"     # stackshot takes 20 names at most
+    cmd="${SALA_AGENT_NAME_CMD-unset}"
+    if [ "$cmd" = unset ]; then c=$(stackshot_client 2>/dev/null) || return 1; cmd="python3 $c get agent-name"; fi
+    [ -n "$cmd" ] || return 1
+    out=$(timeout --kill-after=2 "${SALA_AGENT_NAME_TIMEOUT:-10}" sh -c "$cmd \"\$@\"" agent-name "$key" "$@" </dev/null 2>/dev/null) || return 1
+    printf '%s\n' "$out" | python3 -I -c '
+import json, sys
+order = sys.argv[1:]
+try:
+    res = json.loads(sys.stdin.read())["results"]
+    if not isinstance(res, list): raise ValueError
+    by = {r["name"]: r for r in res if isinstance(r, dict) and isinstance(r.get("name"), str)}
+except Exception: sys.exit(1)
+for n in order:
+    if n in by and by[n].get("valid") is True: print(n); sys.exit(0)
+listed = False
+for n in order:
+    r = by.get(n)
+    if r is None: continue
+    code = r.get("code") or ""
+    if code == "listed": listed = True
+    print("%s: %s%s" % (n, ("already on the record: " if code == "listed" else "") + str(r.get("reason") or code or "not valid"), " [%s]" % code if code else ""))
+sys.exit(3 if listed else 2)' "$@"
 }
 # rename_record_plan <OLD> <NEW> → what `sala rename` does about OLD's entry on its project, decided from the project record ALONE (no pages.py:
 # its "no project page for this name" answer, exit 0, read as "listed", is how a rename of a listed agent once left its entry under the old name).

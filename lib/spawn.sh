@@ -1,6 +1,7 @@
 # lib/spawn.sh — start a named tmux session running Claude Code, visible to Remote Control.
 #
 #   spawn [NAME] [--mandate FILE|TEXT [--no-confirm]] [--cwd DIR] [--lane L] [--model M] [--effort E] [--fork UUID] [--master] [--dry-run]
+#   spawn NAME --role <role word> [--front|--back] --mandate FILE|TEXT [...]   (a plain spawn that registers its name with stackshot: THE SPAWN GATE, below)
 #   spawn NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
 #   spawn --suggest-name --project <page key> --role front|back [--prefix P] [--new]
 #   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
@@ -10,6 +11,13 @@
 # No NAME → throwaway `<prefix>-<YYYYMMDD>-<word>` (date in SALA_TZ); with --project, the suggested agent name (below). Model/
 # effort unset → the session follows ~/.claude/settings.json. The name is applied with `/rename` typed into the pane (the CLI's
 # own name flags do not reliably stick), then verified against the registry.
+#
+# THE SPAWN GATE (common.sh, THE SPAWN GATE; docs/stackshot-contracts.md, interface 34): every agent session this creates is on stackshot's project record BEFORE
+# its pane exists. The record decides first (listed = yes). A name that is not on it is registered through `client.py post project-agent … --sender sala-spawn` when the spawn
+# carries --role <word> (a plain spawn; --project K --role front|back for a project agent) and --mandate (--front|--back picks the side, default back), right before the pane is made;
+# the pane starts only on stackshot's 200 and the record is read back. Any other answer (or stackshot not reached) prints stackshot's reason and exits 6 with NO pane. With no
+# --role/--mandate the spawn is refused (exit 3) with the reason and the register command. THE EXCEPTIONS are a closed list (common.sh agent_gate_exempt): sala's shell
+# session, a side session, an auto-generated throwaway name, and scratch-*, *-check-*, *-test-*, *-probe-*. Revive, recycle, adopt and restore create no session and never come here.
 #
 # THE MANDATE (Thu Oct 15th 2026; --brief FILE and --prompt TEXT are its older names, kept as aliases with the same
 # behaviour): a readable FILE is read by the session itself — the orientation line "Read FILE in full …" is typed, and the
@@ -43,7 +51,7 @@
 #   · THE PROJECT RECORD FIRST (common.sh, THE PROJECT RECORD; docs/stackshot-contracts.md, interface 20):
 #     stackshot's ~/.local/state/stackshot/projects.json lists each project's agents with `front` true/false. When it is fresh
 #     and has the project, it answers both checks below: the name on the map and `front` agreeing with --role → listed (an
-#     agent registered through `client.py post project-agent` with its page line still owed counts); the name absent → exit 3
+#     agent registered through `client.py post project-agent` counts); the name absent → exit 3
 #     as below; the other role → exit 1. Only when the record cannot answer (missing, stale, unreadable, no such project) do
 #     the two pages.py checks below run, with their own "cannot tell" refusal.
 #   · the page exists (`pages.py resolve`): missing → exit 4 with `NO-PAGE: <key>` on stdout — a new project's page is made
@@ -235,16 +243,28 @@ suggest_name() {  # <page key> <role> [prefix] [new] [real] → see the header (
     [ -n "$p" ] || p=$(suggest_prefix "$key")
     # a real spawn with no NAME keeps the old rule: a front is <prefix>-main (on the map or not: the spawn's own checks say), a back a word
     if [ "$real" = 1 ] && [ "$role" = front ]; then echo "$p-main"; return 0; fi
-    # -main only for a front agent of a project that has no agent yet: the record says so, or the caller says the project is new (no page,
-    # so no record can know it). A record that is missing, stale or does not list the project is no ground for -main: a word is
+    # THE CANDIDATES, in the order they are preferred: -main only for a front agent of a project that has no agent yet (the record says so, or the caller says the project is new: no page,
+    # so no record can know it; a record that is missing, stale or does not list the project is no ground for -main), then random words. Each is free by sala's own check (name_taken: a tmux
+    # session, a live claude, any project's map); stackshot's name check (agent_name_check, common.sh) then picks the first it calls valid for the project, and when it is unavailable
+    # (a 404, no client, a connection error, not JSON, a timeout) the first candidate is the answer, as it was before the check existed.
+    local -a cands=(); local picked crc dup c2
     if [ "$role" = front ] && [ $((${#p} + 5)) -le "$max" ] && { { [ "$known" = 1 ] && [ "${n:-0}" = 0 ]; } || { [ "$known" = 0 ] && [ "$isnew" = 1 ]; }; } && ! name_taken "$p-main"; then
-        echo "$p-main"; return 0
+        cands+=("$p-main")
     fi
-    for ((i=0; i<40; i++)); do
+    for ((i=0; i<40 && ${#cands[@]}<10; i++)); do
         w=${WORDS[RANDOM % ${#WORDS[@]}]}; tail="-$w"; cand="$p$tail"
         if [ "${#cand}" -gt "$max" ]; then cand="${p:0:$((max - ${#tail}))}"; cand="${cand%-}$tail"; fi
-        name_taken "$cand" || { echo "$cand"; return 0; }
+        dup=0; for c2 in ${cands[@]+"${cands[@]}"}; do [ "$c2" = "$cand" ] && dup=1; done
+        [ "$dup" = 1 ] || name_taken "$cand" || cands+=("$cand")
     done
+    if [ ${#cands[@]} -gt 0 ]; then
+        picked=$(agent_name_check "$key" "${cands[@]}"); crc=$?
+        case "$crc" in
+            0) echo "$picked"; return 0 ;;
+            2|3) ;;                                    # stackshot answered and calls none valid (3: one of them is already listed, i.e. ours): the numbered names below are the last resort
+            *) echo "${cands[0]}"; return 0 ;;         # unavailable: sala's own suggestion, as before
+        esac
+    fi
     for tail in "-$$" "-$RANDOM" "-$RANDOM"; do   # every word was taken: a number, cut to fit, with no dash left before it
         cand="${p:0:$((max - ${#tail}))}"; cand="${cand%-}$tail"
         name_taken "$cand" || { echo "$cand"; return 0; }
@@ -299,7 +319,7 @@ side_origin() {  # <agent> → "<its current conversation>|<its directory>" of t
 GENERATED=0; NAME=""
 case "${1:-}" in
     '') ;;
-    --brief|--prompt|--mandate|--cwd|--fork|--model|--effort|--master|--no-confirm|--project|--role|--surface|--lane|--dry-run|--suggest-name|--side|--fork-of|--item|--agents|--prefix) ;;
+    --brief|--prompt|--mandate|--cwd|--fork|--model|--effort|--master|--no-confirm|--project|--role|--front|--back|--surface|--lane|--dry-run|--suggest-name|--side|--fork-of|--item|--agents|--prefix) ;;
     -*)  die "unknown first argument: $1" ;;
     *)   NAME="$1"; shift ;;
 esac
@@ -307,7 +327,7 @@ case "$NAME" in *[.:\ ]*) die "invalid session name '$NAME' (no dots, colons, or
 is_shell_session "$NAME" && die "'$NAME' is the web UI's shell session (SALA_SHELL_SESSION) — a Claude session cannot take its name; pick another name"
 
 MANDATE=""; MKIND=""; CWD="$HOME"; MODEL=""; EFFORT=""; FORK=""; MASTER=0; GO=0; PROJECT=""; ROLE=""; SURFACE_OPT=""; SURFACE_GIVEN=0; LANE_OPT=""; DRY=0; SUGGEST=0; PREFIX_OPT=""; NEW_OPT=0
-SIDE=0; FORK_OF=""; ITEM=""; AGENTS=""; CWD_GIVEN=0
+SIDE=0; FORK_OF=""; ITEM=""; AGENTS=""; CWD_GIVEN=0; REG_ROLE=""; REG_SIDE=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --master) MASTER=1; shift;;                # designate the new session as the master afterwards (salamander master --set)
@@ -326,7 +346,9 @@ while [ $# -gt 0 ]; do
         --model)  MODEL="${2:-}";  shift 2 || die "--model needs an alias";;
         --effort) EFFORT="${2:-}"; shift 2 || die "--effort needs a level";;
         --project) PROJECT="${2:-}"; shift 2 || die "--project needs a page key (<dir>/<slug>, e.g. projects/demo)";;
-        --role)   ROLE="${2:-}";   shift 2 || die "--role needs front or back";;
+        --role)   ROLE="${2:-}";   shift 2 || die "--role needs front or back (with --project), or a role word for stackshot (a plain spawn, below)";;
+        --front)  REG_SIDE=front; shift;;          # a plain spawn that registers its name with stackshot (THE SPAWN GATE, the header): which side; --back (the default) is a background agent
+        --back)   REG_SIDE=back; shift;;
         --surface) SURFACE_OPT="${2:-}"; SURFACE_GIVEN=1; shift 2 || die "--surface needs sala or slack";;   # where a front agent talks with the owner (the header, THE SURFACE)
         --lane)   LANE_OPT="${2:-}"; shift 2 || die "--lane needs a lane (one of: $(lane_choices))";;
         *) die "unknown arg: $1";;
@@ -358,6 +380,16 @@ else
     [ -z "$ITEM" ] || item_id_ok "$ITEM" || die "--item takes a board item id as shown (board#N, sN, board-tmp-box#N), not '$ITEM'"
     [ -z "$AGENTS" ] || [[ "$AGENTS" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || die "--agents takes agent names joined by commas (lowercase letters, digits, dashes), not '$AGENTS'"
 fi
+# A PLAIN SPAWN'S REGISTRATION ARGUMENTS (the header, THE SPAWN GATE): with no --project, --role is the role WORD stackshot lists the agent under (engineer, tests: the part of the name after the project's name),
+# --front/--back (default back) its side; they only matter when the name is not on the project record yet, and --mandate then gives the line it is listed with. front|back belong to --project.
+if [ "$SIDE" = 0 ] && [ -z "$PROJECT" ] && [ -n "$ROLE" ]; then
+    case "$ROLE" in front|back) die "--role needs --project <page key> when it is front or back (a project agent); a plain spawn's --role is the role word stackshot lists the agent under (engineer, tests), with --front or --back for its side" ;; esac
+    [[ $ROLE =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$ ]] || die "--role takes a role word of letters, digits, . _ - (at most 32 characters, no leading dash), not '$ROLE'"
+    REG_ROLE=$ROLE; ROLE=""
+fi
+[ -z "$REG_SIDE" ] || [ -z "$PROJECT" ] || die "--front and --back go with a plain spawn's registration; with --project the side is --role front|back"
+[ -z "$REG_SIDE" ] || [ "$SIDE" = 0 ] || die "--front and --back are for a spawn that registers its name with stackshot; a side session is on no project record"
+[ -z "$REG_SIDE" ] || [ -n "$REG_ROLE" ] || die "--front and --back go with --role <word>: they say which side the agent is listed on"
 # THE PROJECT AGENT'S ARGUMENTS (the header): --project and --role go together; a back agent needs a mandate
 if [ "$SIDE" = 0 ] && { [ -n "$PROJECT" ] || [ -n "$ROLE" ] || [ "$SUGGEST" = 1 ]; }; then
     [ -n "$PROJECT" ] || die "--role needs --project <page key> (<dir>/<slug>, e.g. projects/demo): a project agent is a session of a project page"
@@ -442,11 +474,14 @@ if [ -n "$MANDATE" ]; then
     elif [ "$MKIND" = --brief ]; then die "brief not readable: $MANDATE"
     else MTEXT="$MANDATE"; fi
 fi
-mandate_line() {  # → the mandate's first non-blank line, one line, a heading's # stripped, at most 70 characters (stackshot's rule for the page's line); empty for none
+mandate_line() {  # [width] → the mandate's first non-blank line, one line, a heading's # stripped, at most 70 characters (the register command's; a register call takes up to 600: register_line); empty for none
     local s
     if [ -n "$MFILE" ]; then s=$(grep -m1 -v '^[[:space:]]*$' "$MFILE" 2>/dev/null); elif [ -n "$MTEXT" ]; then s=$(printf '%s\n' "$MTEXT" | grep -m1 -v '^[[:space:]]*$'); else return 0; fi
     s=$(printf '%s' "$s" | tr '\r\n\t' '   ' | sed 's/^ *#* *//; s/  */ /g; s/ $//')
-    python3 -c 'import sys; print(sys.argv[1][:70])' "$s" 2>/dev/null || printf '%s\n' "${s:0:70}"   # characters, not bytes: a Korean line is cut whole
+    python3 -c 'import sys; print(sys.argv[1][:int(sys.argv[2])])' "$s" "${1:-70}" 2>/dev/null || printf '%s\n' "${s:0:${1:-70}}"   # characters, not bytes: a Korean line is cut whole
+}
+register_line() {  # → the line the register call lists the agent with: the mandate's first line, at most 600 characters (stackshot's limit), no control character or backslash
+    mandate_line 600 | tr -d '\000-\037\177' | tr '\\' '/'
 }
 shell_dq() {  # <text> → the text double-quoted for a shell (backslash, ", $ and ` escaped)
     printf '"%s"' "$(printf '%s' "$1" | sed 's/[\\"$`]/\\&/g')"
@@ -495,6 +530,39 @@ spawn_register() {  # the register hook (the header), once the session is up and
     if [ "$rc" = 0 ]; then spawn_log "spawn-register: the hook ran ($ROLE agent of $PROJECT)"; echo "   register: the hook ran (SALA_SPAWN_REGISTER)"
     else spawn_log "spawn-register: the hook exited $rc ($ROLE agent of $PROJECT) — the session is up all the same"; echo "   ⚠ register: the hook exited $rc (SALA_SPAWN_REGISTER; its output: $SPAWN_LOG) — the session is up; register it by hand"; fi
     return 0
+}
+
+# THE SPAWN GATE (common.sh, THE SPAWN GATE; the header): the record decides first, stackshot's register call is the yes, the pane starts only on it.
+GATE_NOTE=""   # what the gate said, for the plan and the result (empty for an exception and for a box without stackshot)
+spawn_can_register() { [ -n "$MFILE$MTEXT" ] && stackshot_client >/dev/null 2>&1; }   # a mandate to list the agent with, and a client to ask
+spawn_gate_refuse() {  # <exit code> <message> → the refusal on stderr, a log line, no pane
+    echo "✗ $2" >&2; spawn_log "refused: $2"; exit "$1"
+}
+GATE_REG=""    # "<page key>|<role word>|<front|back>" when the name is not on the record and stackshot is to list it: decided with the other checks, done right before the pane is made (spawn_register_do)
+spawn_register_plan() {  # <project> <role word> <front|back> → the decision only: nothing is asked yet (a dry run and every later check still come first)
+    GATE_REG="$1|$2|$3"
+    LISTED="not on the record yet: stackshot is asked to list it on $1 as a $3 agent (role $2; post project-agent, label $SALA_SPAWN_SENDER) right before the pane is made"; GATE_NOTE="$LISTED"
+}
+spawn_register_do() {  # → stackshot lists NAME (the real yes) and the record shows it (read back), or the spawn stops with exit 6 and no pane made
+    [ -n "$GATE_REG" ] || return 0
+    local key=${GATE_REG%%|*} rest=${GATE_REG#*|} word side line; word=${rest%%|*}; side=${rest#*|}; line=$(register_line)
+    agent_register "$key" "$NAME" "$word" "$side" "$line" "$SURFACE" || spawn_gate_refuse 6 "stackshot did not register '$NAME' on $key, so no session was made: $AR_WHY"
+    agent_record_read_back "$key" "$NAME" "" "$side" || spawn_gate_refuse 6 "stackshot answered the registration of '$NAME' on $key (${AR_NOTE:-ok}), but the record does not show it ($ARB_WHY): no session was made; run the spawn again, or check it with: python3 $(stackshot_client) get project $key"
+    LISTED="registered with stackshot just now on $key as a $side agent (role $word; read back)"; GATE_NOTE="$LISTED"
+    spawn_log "registered '$NAME' on $key ($side, role $word, label $SALA_SPAWN_SENDER): ${AR_NOTE:-ok}"
+    echo "   registered with stackshot on $key as a $side agent (role $word), read back from the record"
+}
+spawn_refuse_plain() {  # <why the record did not list it> → the refusal of a plain spawn of a name that is not on the record: the reason and the register command, exit 3 (REGISTER marker as for a project spawn when the project is known)
+    local hub why=$1 line cmd note="" pmain; line=$(mandate_line)
+    echo "✗ '$NAME' is not on stackshot's project record ($why): a session made for a project's work is registered with stackshot before its pane exists. Either spawn it with the registration (spawn $NAME --project <page key> --role front|back --mandate <one line>, or spawn $NAME --role <role word> [--front|--back] --mandate <one line>), or give it a throwaway's name (scratch-*, *-check-*, *-test-*, *-probe-*, or no name at all), or make it a side conversation (--side)." >&2
+    if hub=$(project_for_name "$NAME"); then
+        pmain=$(project_record_agent "$hub" "$NAME" 2>/dev/null | sed -n 2p)   # the project's -main agent: the role is the part of NAME after its name
+        cmd=$(register_cmd "$hub" "" "$NAME" "$line" "$pmain")
+        echo "   (register it with stackshot first; the command below leaves the side open: --front for a front agent, --back for a background one)" >&2
+        echo "REGISTER: $hub"; echo "$cmd"
+    else note=" (no project of the record owns the name: $hub)"; echo "   $note" >&2; fi
+    spawn_log "refused: '$NAME' is not on the project record ($why)$note"
+    exit 3
 }
 
 # THE LANE (Tue Oct 13th 2026; common.sh, lanes): a new session launches on the default lane (`sala lane default`),
@@ -552,8 +620,10 @@ if [ "$SIDE" = 1 ]; then
         esac
     fi
 elif [ -n "$PROJECT" ]; then
-    # THE PROJECT SPAWN'S CHECKS (common.sh): the page, then the name on its agents map; neither fails open
+    # THE PROJECT SPAWN'S CHECKS (common.sh): the record first (THE SPAWN GATE: listed = yes; not listed with a mandate = stackshot is asked to list it, and the pane starts only on its yes);
+    # then, only when the record cannot answer, the page and the name on its agents map; neither fails open
     if [ "${SALA_AGENT_CHECK:-on}" = off ]; then LISTED="not checked (SALA_AGENT_CHECK=off)"
+    elif exempt=$(agent_gate_exempt "$NAME" 0 "$GENERATED"); then LISTED="not checked ($exempt)"; spawn_log "gate: '$NAME' is exempt ($exempt)"
     else
         # the first source: stackshot's project record (a file; common.sh, THE PROJECT RECORD). A project in it exists and its map
         # answers listed / not listed / the other role; a record that cannot answer (missing, stale, unreadable, no such project)
@@ -561,9 +631,15 @@ elif [ -n "$PROJECT" ]; then
         rec=$(project_record_agent "$PROJECT" "$NAME" "$ROLE"); rrc=$?
         case "$rrc" in
             0) LISTED=$(sed -n 1p <<< "$rec"); spawn_log "project record: '$NAME' is listed on $PROJECT ($ROLE)" ;;
-            3) pmain=$(sed -n 2p <<< "$rec"); refuse_unlisted "$PROJECT" "$ROLE" "$(sed -n 1p <<< "$rec")${pmain:+; main agent: $pmain}" "$pmain" ;;
+            3) pmain=$(sed -n 2p <<< "$rec")
+               if spawn_can_register; then spawn_register_plan "$PROJECT" "$(agent_role_word "$NAME" "$pmain")" "$ROLE"
+               else refuse_unlisted "$PROJECT" "$ROLE" "$(sed -n 1p <<< "$rec")${pmain:+; main agent: $pmain}" "$pmain"; fi ;;
             5) spawn_log "refused: $rec"; die "$rec — a spawn takes the role the record gives: --role $([ "$ROLE" = front ] && echo back || echo front) (or change the page's line first)" ;;
-            *) spawn_log "project record: no answer ($rec); asking pages.py"
+            *) spawn_log "project record: no answer ($rec)"
+               if spawn_can_register; then   # the record cannot say, stackshot can: it is asked to list the name (a repeat with the same side and mandate answers 200), and the read-back shows it
+                   spawn_register_plan "$PROJECT" "$(agent_role_word "$NAME" "")" "$ROLE"
+               else
+               spawn_log "asking pages.py"
                why=$(page_exists "$PROJECT"); rc=$?
                case "$rc" in
                    0) ;;
@@ -576,11 +652,40 @@ elif [ -n "$PROJECT" ]; then
                    0) LISTED="$why" ;;
                    3) refuse_unlisted "$PROJECT" "$ROLE" "$why" ;;
                    *) die "cannot tell whether '$NAME' is on the agents map of $PROJECT ($why; the project record: $rec) — a project spawn needs the answer; try again, or check stackshot's pages.py (SALA_STACKSHOT_DIR) on this box" ;;
-               esac ;;
+               esac
+               fi ;;
         esac
     fi
 else
-    if why=$(agent_unlisted "$NAME"); then   # an agent name its project page does not list yet (fail-open: pages.py's own mapping of the name, a plain spawn's rule)
+    # A PLAIN SPAWN (THE SPAWN GATE): an exception (the closed list, common.sh agent_gate_exempt) skips the check; any other name is decided from the record first.
+    # Listed = yes. Not listed: spawned with --role <word> and --mandate it is registered (the project the one whose name the NAME starts with), else refused with the reason and the
+    # register command. A record that cannot answer falls to the older fail-open check (agent_unlisted, pages.py: PR B removes it), as does a box without stackshot.
+    if exempt=$(agent_gate_exempt "$NAME" 0 "$GENERATED"); then spawn_log "gate: '$NAME' is exempt ($exempt)"
+    elif [ "${SALA_AGENT_CHECK:-on}" != off ] && stackshot_present; then
+        rec=$(project_record_agent "" "$NAME"); rrc=$?
+        case "$rrc" in
+            0) GATE_NOTE=$(sed -n 1p <<< "$rec"); spawn_log "project record: '$NAME' is $GATE_NOTE" ;;
+            3) if [ -n "$REG_ROLE" ] && spawn_can_register; then
+                   hub=$(project_for_name "$NAME") || spawn_gate_refuse 6 "'$NAME' is not on stackshot's project record and sala cannot tell which project to list it on ($hub): spawn it with --project <page key> --role front|back --mandate <one line>"
+                   spawn_register_plan "$hub" "$REG_ROLE" "${REG_SIDE:-back}"
+               else spawn_refuse_plain "$(sed -n 1p <<< "$rec")"; fi ;;
+            *) if [ -n "$REG_ROLE" ] && spawn_can_register; then   # the record cannot say which project owns the name, so the caller must
+                   spawn_gate_refuse 6 "'$NAME' cannot be registered: stackshot's project record cannot be read ($rec), so sala cannot tell which project to list it on; spawn it with --project <page key> --role front|back --mandate <one line>"
+               fi
+               if why=$(agent_unlisted "$NAME"); then   # an agent name its project page does not list yet (fail-open: pages.py's own mapping of the name, a plain spawn's rule)
+                   hub=$(printf '%s\n' "$why" | sed -n 's/.* on \([a-z0-9/-]*\) (\(the page\|steward\).*/\1/p' | head -1)
+                   echo "✗ $why" >&2
+                   if [ -n "$hub" ]; then   # the page pages.py named: the block as for a project spawn, the role unknown here
+                       line=$(mandate_line)
+                       echo "   (register it with stackshot first; the command below leaves the role open: --front for a front agent, --back for a background one; --project $hub --role front|back says which)" >&2
+                       echo "REGISTER: $hub"
+                       register_cmd "$hub" "" "$NAME" "$line" ""; echo
+                   fi
+                   spawn_log "refused: $why"
+                   exit 3
+               fi ;;
+        esac
+    elif why=$(agent_unlisted "$NAME"); then   # an agent name its project page does not list yet (fail-open: pages.py's own mapping of the name, a plain spawn's rule)
         hub=$(printf '%s\n' "$why" | sed -n 's/.* on \([a-z0-9/-]*\) (\(the page\|steward\).*/\1/p' | head -1)
         echo "✗ $why" >&2
         if [ -n "$hub" ]; then   # the page pages.py named: the block as for a project spawn, the role unknown here
@@ -614,6 +719,7 @@ if [ "$DRY" = 1 ]; then
     elif [ -n "$MFILE" ]; then echo "[dry-run] mandate: the file $MFILE, read by the session ($([ "$GO" = 1 ] && echo "then it starts on it; nobody confirms" || echo "it waits for a confirmation")): $(mandate_line)"
     elif [ -n "$MTEXT" ]; then echo "[dry-run] mandate: the text typed as the first message: $(mandate_line)"
     else echo "[dry-run] mandate: none"; fi
+    [ -z "$GATE_NOTE" ] || [ -n "$PROJECT" ] || echo "[dry-run] gate: '$NAME' is $GATE_NOTE"
     [ -n "$PROJECT" ] && echo "[dry-run] register: $([ -n "${SALA_SPAWN_REGISTER:-}" ] && echo "the hook (SALA_SPAWN_REGISTER) would run after" || echo "no hook configured (SALA_SPAWN_REGISTER): the page's line is the record")"
     [ -z "$BACK_RULE_NOTE" ] || echo "[dry-run] lane: $BACK_RULE_NOTE"
     echo "[dry-run] nothing made, recorded or typed"
@@ -671,6 +777,7 @@ side_record() {  # the session's record (common.sh, THE SIDE SESSIONS) and the r
     return 0
 }
 
+spawn_register_do   # THE SPAWN GATE: stackshot's yes comes BEFORE any pane or registry row exists (no pane to take back when it says no or the read-back fails)
 PANE=$(tmux_win_t "$NAME" 0); SIDE_T0=$(date +%s)
 [ "$SIDE" = 0 ] || side_write_mandate || die "could not write the side session's mandate to $SIDE_MFILE"
 # THE SESSION'S ID (phase 2): the registry row is made BEFORE the pane's claude starts, and its id goes into the pane's

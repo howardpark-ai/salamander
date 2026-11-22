@@ -79,7 +79,7 @@
 #                                             and a leading dash all survive as bytes in the file); a readable FILE given is
 #                                             passed as it is. The file is never moved with the marker: the session reads it at
 #                                             its first prompt, after the operation has ended. A refused or cancelled operation's
-#                                             file is removed. At run time a spawn that exits 3 or 4 is stuck with no claude -p
+#                                             file is removed. At run time a spawn that exits 3, 4 or 6 (stackshot would not register it) is stuck with no claude -p
 #                                             (only the page's keeper can register the agent).
 #   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
 #                                             a side conversation (lib/spawn.sh A SIDE SESSION, docs/side-sessions.md): a
@@ -327,8 +327,7 @@ op_from_claude() {  # → 0 when a claude process is among the ancestors (a Clau
     return 1
 }
 op_throwaway_name() {  # <name> → 0 when the name is one a throwaway carries by habit: scratch-* (a bare `sala spawn`), *-check-*, *-test-*, *-probe-*
-    case "$1" in scratch-*|*-check-*|*-test-*|*-probe-*) return 0 ;; esac
-    return 1
+    throwaway_name_p "$1"   # common.sh: the one list, shared with the spawn gate's exceptions (agent_gate_exempt)
 }
 op_caller_is() {  # <from> → 0 when this call runs inside <from>'s own Claude session, placed by PROCESS ANCESTRY (common.sh ancestry_session, never TMUX_PANE or --from); else 1, the reason in OP_CALLER_WHY
     # The one placement of the caller that every no-words door uses (retire's throwaway door, the item revive): a pane's process in tmux list-panes -a with a trusted Claude Code process on the way up.
@@ -1373,7 +1372,8 @@ op_run() {  # <id> — the unit's main process
             op_finish "$id" stuck "$(op_out_tail "$id" 1)"; return 0
         fi
     fi
-    if [ "$verb" = spawn ] && { [ "$rc" = 3 ] || [ "$rc" = 4 ]; }; then   # not on the page (3) or no page (4): only the page's keeper can change that, no claude -p
+    if [ "$verb" = spawn ] && { [ "$rc" = 3 ] || [ "$rc" = 4 ] || [ "$rc" = 6 ]; }; then   # not on the page (3), no page (4), or stackshot refused or could not be asked to register it (6; no pane was made): only the page's keeper or stackshot can change that, no claude -p
+        if [ "$rc" = 6 ]; then op_finish "$id" stuck "salamander ${OP_RUN[*]} exited 6: $(op_out_tail "$id" 4) (no claude -p: stackshot would not register the agent, so no pane was made; once it is registered, say the words again)"; return 0; fi
         op_finish "$id" stuck "salamander ${OP_RUN[*]} exited $rc: $(op_out_tail "$id" 4) (no claude -p: only the page's keeper can register the agent; once it is registered, say the words again)"; return 0
     fi
     [ "$rc" = 0 ] || { op_stuck "$id" "$(op_run_words) exited $rc: $(op_out_tail "$id" 3)"; return 0; }

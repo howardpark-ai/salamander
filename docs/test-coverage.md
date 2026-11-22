@@ -4455,3 +4455,23 @@ the record with a name added to the agents maps of the projects it is given.
 Proof by mutation (each run fails the checks named; the files were restored and the suite passes): with `unique` dropped from the OLD read, the two-project run renamed (one call), the plan, `--sync` and plan-answer checks failed;
 with the snapshot failure falling back to the live file, the unwritable-`TMPDIR`, snapshot-plan and failing-`cp` checks failed; with `[ -e ]` deciding "absent" again, the four denying-parent checks failed (the run went ahead
 with no call refused); with ENOTDIR counted as an error, the ENOTDIR check failed; with the reader's message taken from `[ -e ]`, the reader check failed ("no project record at").
+
+### The spawn gate, retire asking first, and the read-back (Sun Nov 22nd 2026)
+
+Every agent session sala creates is on stackshot's project record before its pane exists, a retire asks stackshot before it closes the pane, and a rename or a registration is read back. Revive, recycle, adopt and the relaunch
+paths create no session and are not asked. The checks stub stackshot's `client.py` (`SALA_STACKSHOT_CLIENT`) and the name check (`SALA_AGENT_NAME_CMD`): no network, a private tmux socket, the compiled fake claude.
+
+- **`tests/spawn.sh`, "THE SPAWN GATE".** A name the record lists: the pane starts and stackshot is not asked to register. Not listed and no `--role`/`--mandate`: refused (exit 3) with the reason and the register command, no
+  call, no pane. Not listed with `--role` and `--mandate` (`--back` by default, `--front` on request; a project spawn the same): `post project-agent ... --sender sala-spawn`, and the stub records whether the pane existed at the
+  call, so the check proves the pane starts only after the 200. Stackshot's 409, 403 and 400, stackshot not reached, and a 200 whose record does not show the agent (the read-back): each exits 6 with stackshot's reason and no
+  pane or registry row; through the op queue exit 6 is stuck with no `claude -p`. A dry run says it would register and asks nothing. The closed exceptions list (`agent_gate_exempt`): `scratch-*`, `*-check-*`, `*-test-*`,
+  `*-probe-*`, a name-less spawn, `--side`, sala's shell session; each skips the check with stackshot down, and an ordinary name is not exempt. The old `pages.py` path is still exercised where there is no record and no client
+  (PR B removes it). The name check (stubs only, never the real endpoint): `agent_name_check` passes the key and the names as separate words, picks the first name stackshot calls valid, prints a prefix refusal's text and code to the caller
+  (rc 2), reads a `listed` name as "already ours" (rc 3, not a refusal), reads `pending`, `hub` and `retired` as not valid, and treats a 404, non-JSON, a timeout, a missing or an empty command as unavailable (rc 1); `spawn --suggest-name` skips an invalid candidate, and with the route not live prints sala's own suggestion without alarm.
+- **`tests/retire.sh`, "the agent entry".** The stub is asked first: the stub records that the pane still exists at the call and that the pane is closed after the answer, and exactly one call is made (no second call after the
+  pane is gone). "line removed", "dropped", "not listed" and a 404 go on and say so; 422, 409, 502 (also a long reason cut in the middle, its end kept), 403, 400, stackshot not reached, an answer that is not JSON and a timeout
+  refuse the retire with stackshot's reason and leave the pane, the claude, the registry row and the map as they were; asking again once stackshot answers goes through. A throwaway's name and a side session are not asked. A
+  missing `client.py` and a session with no project still go on. `forget-row`, whose pane is already gone, keeps the after-the-fact call.
+- **`tests/rename.sh`, "the READ-BACK".** After stackshot's rename answer the record must show NEW and not OLD: a record that does not stops the rename before anything is typed (tmux session and map unchanged); a record that
+  does is read back and said; with stackshot's live answer unreachable the published record file decides. A side session listed through `post project-agent` is read back the same way (a 200 that changes nothing is refused,
+  the side record and the row kept). The stub answers `get project <key>` from the same record file the pane rename edits.
