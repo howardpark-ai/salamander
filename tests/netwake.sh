@@ -17,7 +17,7 @@
 # revive's summary counts the resumed panes that stopped on it ("1 resumed, 1 of them stopped on a network error; woken once
 # the network is back"). Usage: bash tests/netwake.sh   (exit 0 = pass)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_TZ ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR SALA_LANE_API_KEY_FILE SALA_LANE_TEAM_DIR SALA_MASTER
+unset TMUX_PANE XDG_STATE_HOME SALA_TZ ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR SALA_LANE_API_KEY_FILE SALA_LANE_TEAM_DIR
 unset SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"

@@ -30,7 +30,7 @@ exec 8< "$T"; flock -n 8 2>/dev/null   # systemd-tmpfiles' ageing skips a direct
 deny_load "$T/deny"   # the owner's private values come from the deny source at run time, never from this file (read before HOME changes)
 export HOME="$T/home"; mkdir -p "$HOME/.claude" "$HOME/.config/salamander"
 # tests/lib.sh gives the other suites a fixture profile and job lane; this one starts from a bare environment
-unset SALA_UNIT_PROJECT_MAP SALA_OWNER_NAME SALA_TZ SALA_SHELL_SESSION SALA_BACK_CWD SALA_SLACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_JOB_LANE SALA_SETTINGS_APPLY SALA_SESSION_URL SALA_STACKSHOT_WEB SALA_JOB_GITHUB SALA_FLEET_HOSTS SALA_MASTER XDG_CONFIG_HOME XDG_STATE_HOME TMUX TMUX_PANE
+unset SALA_UNIT_PROJECT_MAP SALA_OWNER_NAME SALA_TZ SALA_SHELL_SESSION SALA_BACK_CWD SALA_SLACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_JOB_LANE SALA_SETTINGS_APPLY SALA_SESSION_URL SALA_STACKSHOT_WEB SALA_JOB_GITHUB SALA_FLEET_HOSTS XDG_CONFIG_HOME XDG_STATE_HOME TMUX TMUX_PANE
 for v in $(compgen -v | grep -E '^SALA_LANE_'); do unset "$v"; done
 EMPTY="$T/empty-config"; : > "$EMPTY"
 
@@ -373,6 +373,59 @@ for v in SALA_BRAIN_DIR SALA_BACKFILL_MAP SALA_MACHINE_FOLLOW_MACHINES BRIEFING_
          RELEASE_WATCH_CLI_OWNER RELEASE_WATCH_UBUNTU_SESSION RELEASE_WATCH_UBUNTU_PAGE; do
     grep -q "^#$v=" "$ROOT/config.example" && ok "$v is documented in config.example" || bad "$v is not in config.example"
 done
+
+# a config that still carries the retired settings sources clean: nothing printed, no error (the watch's one notice is nomaster.sh's)
+printf 'SALA_MASTER=sala-test-x\nSALA_BOOT_AUDIT=1\nSALA_HEARTBEAT_GIT=master\n' > "$T/old-config"
+out=$(sh_in "$T/old-config" 'echo "rc=$?"; echo "git=$SALA_HEARTBEAT_GIT"'); [ "$out" = "rc=0
+git=master" ] && ok "a config with SALA_MASTER, SALA_BOOT_AUDIT and git=master sources silently (no warning, no error at load)" || bad "old config: $out"
+[ -z "$(sh_in "$EMPTY" 'cs_print_config' | grep -E '^(SALA_MASTER|SALA_BOOT_AUDIT) ')" ] && ok "sala config lists neither SALA_MASTER nor SALA_BOOT_AUDIT" || bad "config still lists a retired setting"
+
+# THE GATE: the retired master path stays retired. `git grep -i master` over the tracked files may match only an allowlist: the
+# history docs (whole files), the suite of the retirement itself, the one config warning (SALA_MASTER and its state key in
+# lib/watch.sh and the docs that describe it), the heartbeat's two contract keys, the git branch name "master" in web/, and the
+# tests that prove a leftover SALA_MASTER line or a retired name changes nothing. A new match prints its file:line and fails.
+echo "== the grep gate: the word master matches only the allowlist"
+cat > "$T/gate.py" <<'PYEOF'
+import re, subprocess, sys
+WHOLE = {"docs/test-coverage.md", "docs/stackshot-contracts.md", "tests/nomaster.sh", "tests/neutral-defaults.sh"}
+TESTS = ["SALA_MASTER", "not-master", "*master*", "nomaster"]
+TOKENS = [   # (path regex, tokens removed from a line before it is judged)
+    (r"^lib/watch\.sh$", ["SALA_MASTER", "master_retired_warned"]),
+    (r"^lib/heartbeat\.sh$", ["master_session", '"master"', "`master`", "= master ]"]),
+    (r"^config\.example$", ["`master`"]),
+    (r"^docs/heartbeat-store\.md$", ["master_session", "`master`", "checked, master,"]),
+    (r"^docs/(subcommands|design-notes)\.md$", ["SALA_MASTER", "master_retired_warned"]),
+    (r"^CONTRIBUTING\.md$", ["SALA_MASTER", "not-master", "nomaster"]),
+    (r"^tests/", TESTS),
+    (r"^tests/smoke\.sh$", ["SALA_HEARTBEAT_GIT=master", "git=master"]),
+    (r"^web/README\.md$", ["`main` or `master`"]),
+    (r"^web/src/sala_web/foryou\.py$", ["the master box"]),
+    (r"^web/src/sala_web/schedules\.py$", ["main or master", '"master"']),
+    (r"^web/tests/machines_world\.py$", ['"master"', "master_session"]),
+]
+def offenders(lines):
+    out = []
+    for l in lines:
+        if not l.strip(): continue
+        f, n, body = l.split(":", 2)
+        if f in WHOLE: continue
+        for rx, toks in TOKENS:
+            if re.search(rx, f):
+                for t in toks: body = body.replace(t, "")
+        if re.search("master", body, re.I): out.append(f"{f}:{n}")
+    return out
+# the planted lines prove the gate finds a new word and lets an allowed token through
+assert offenders(["lib/common.sh:1:the master session"]) == ["lib/common.sh:1"], "gate misses a planted line"
+assert offenders(["lib/watch.sh:1:SALA_MASTER=x", "tests/op.sh:2:unset SALA_MASTER"]) == [], "gate rejects an allowed token"
+r = subprocess.run(["git", "-C", sys.argv[1], "grep", "-n", "-i", "-I", "master"], capture_output=True, text=True)
+if r.returncode not in (0, 1): print("SKIP: not a git checkout"); sys.exit(0)
+bad = offenders(r.stdout.split("\n"))
+for b in bad: print(b)
+sys.exit(1 if bad else 0)
+PYEOF
+out=$(python3 -I "$T/gate.py" "$ROOT" 2>&1); rc=$?
+if [ "$rc" = 0 ]; then case "$out" in SKIP*) echo "  (gate skipped: $out)";; *) ok "no tracked file names a master outside the allowlist";; esac
+else bad "the word master is back (file:line): $(echo "$out" | head -20 | paste -sd' ')"; fi
 
 [ "$fail" = 0 ] && echo "neutral-defaults: pass" || echo "neutral-defaults: FAIL"
 exit "$fail"

@@ -39,7 +39,7 @@ while IFS= read -r l; do
     body=${l#*:}
     [[ $body =~ ^[[:space:]]*# ]] && continue
     echo "  FAIL ${l%%:*}: a tmux target that is a bare session name (use tmux_sess_t or tmux_win_t, lib/common.sh): $(echo "${l#*:}" | sed 's/^[[:space:]]*//' | cut -c1-110)"; fail=1; tl=$((tl+1))
-done < <(grep -nE 'tmux[^|;]* -t "?\$\{?(name|NAME|sess|SESS|SESSION|session|master|MASTER|SALA_MASTER|SALA_RC_SESSION|OLD|NEW|new|target|sb)\}?"?([ )]|$)' lib/*.sh bin/salamander 2>/dev/null)
+done < <(grep -nE 'tmux[^|;]* -t "?\$\{?(name|NAME|sess|SESS|SESSION|session|SALA_RC_SESSION|OLD|NEW|new|target|sb)\}?"?([ )]|$)' lib/*.sh bin/salamander 2>/dev/null)
 [ "$tl" = 0 ] && echo "  ok   no tmux target that is a bare session name in lib/*.sh and bin/salamander"
 # Commands for the owner: text in lib/, bin/ and docs/ that hands the owner a command to type
 # gives it for sala's own Shell (the web UI's Shell button): bare for this machine, `ssh <host> '<command>'` for another, typed in that

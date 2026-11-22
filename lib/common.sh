@@ -44,7 +44,6 @@ case $SALA_LOG_DIR in /*) ;; *) SALA_LOG_DIR=$HOME/$SALA_LOG_DIR;; esac   # a re
 : "${SALA_FLEET_POST_CMD:=}"                      # (older name; SALA_POST_UPDATE_CMD supersedes it)
 : "${SALA_POST_UPDATE_CMD:=$SALA_FLEET_POST_CMD}"  # run after ANY CLI update attempt (local recycle --update, update --fleet, provision): e.g. bump a version dashboard
 : "${SALA_POST_RECYCLE_CMD:=}"                    # run once at the end of every recycle and clean reboot of THIS box (see post_recycle_hook)
-: "${SALA_MASTER:=}"                              # retired: `watch` no longer keeps, heals or restarts the master; the line will be removed in a later change
 : "${SALA_WATCH_COOLDOWN:=600}"                   # seconds before `watch` repeats the same heal
 : "${SALA_WATCH_NOTIFY_CMD:=}"                    # `watch` pipes each heal/alert message into this (sh -c)
 : "${SALA_NO_RELAUNCH:=}"                         # tmux sessions sala never relaunches or restores (space-separated; see no_relaunch)
@@ -82,8 +81,7 @@ SALA_READY_DIR="$HOME/.claude/salamander-ready"     # `ready` markers, one per c
 : "${SALA_READY_TTL:=3600}"                          # a ready marker older than this is ignored
 : "${SALA_READY_WAIT:=90}"                           # retry worker: how long to wait for a `ready` pane's turn to end
 : "${SALA_BOOT_GRACE:=900}"                          # post-boot report: wait this long after boot for revive's summary …
-: "${SALA_BOOT_DEADLINE:=1800}"                      # … and this long for a clean reboot's boot half, then deliver anyway (the boot report has no master step now)
-: "${SALA_BOOT_AUDIT:=}"                             # no longer used: the boot report has no master step, so nothing is appended to it
+: "${SALA_BOOT_DEADLINE:=1800}"                      # … and this long for a clean reboot's boot half, then deliver anyway
 SALA_BOOT_REC="$SALA_LOG_DIR/salamander-boot-revive" # the first full revive of each boot: boot id, time, summary
 # THE BUSY RECORD and THE WAITING FLAG (lib/hook.sh): two Claude Code
 # settings hooks give the busy check an exact answer and give a session word of a relaunch waiting for it. Their state:
@@ -95,7 +93,7 @@ SALA_WAITING_DIR="$SALA_STATE_DIR/waiting"   # waiting/<uuid>: a relaunch sala s
 
 cs_print_config() {
     for v in SALA_CONFIG SALA_RC_SESSION SALA_SHELL_SESSION SALA_RC_NAME SALA_RC_CAPACITY SALA_RC_RESTART_DELAY SALA_TZ SALA_BACK_CWD SALA_SLACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_OWNER_NAME SALA_LOG_DIR \
-             SALA_RESURRECT_DIR SALA_RESURRECT_SAVE SALA_CLAUDE SALA_SPAWN_PREFIX SALA_SNAPSHOT_CMD SALA_SNAPSHOT_DELAY SALA_FLEET_HOSTS SALA_POST_UPDATE_CMD SALA_POST_RECYCLE_CMD SALA_MASTER SALA_WATCH_COOLDOWN SALA_WATCH_NOTIFY_CMD SALA_RETRY_EVERY SALA_RETRY_WINDOW SALA_READY_TTL SALA_READY_WAIT SALA_RELAUNCH_WAITING_TEXT SALA_BOOT_GRACE SALA_BOOT_DEADLINE SALA_HEARTBEAT_REPO SALA_HEARTBEAT_DIR SALA_FLEET_NAMES SALA_REG_DIR SALA_PROJECTS SALA_STATE_DIR SALA_SIDECAR SALA_LEDGER_LOG SALA_SESSIONS SALA_SESSIONS_FILE SALA_MOD_DIR SALA_MOD_WAIT \
+             SALA_RESURRECT_DIR SALA_RESURRECT_SAVE SALA_CLAUDE SALA_SPAWN_PREFIX SALA_SNAPSHOT_CMD SALA_SNAPSHOT_DELAY SALA_FLEET_HOSTS SALA_POST_UPDATE_CMD SALA_POST_RECYCLE_CMD SALA_WATCH_COOLDOWN SALA_WATCH_NOTIFY_CMD SALA_RETRY_EVERY SALA_RETRY_WINDOW SALA_READY_TTL SALA_READY_WAIT SALA_RELAUNCH_WAITING_TEXT SALA_BOOT_GRACE SALA_BOOT_DEADLINE SALA_HEARTBEAT_REPO SALA_HEARTBEAT_DIR SALA_FLEET_NAMES SALA_REG_DIR SALA_PROJECTS SALA_STATE_DIR SALA_SIDECAR SALA_LEDGER_LOG SALA_SESSIONS SALA_SESSIONS_FILE SALA_MOD_DIR SALA_MOD_WAIT \
              SALA_LANES SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_LANE_SDK_PIN SALA_LANE_SDK_CMD \
              SALA_LANE_BEDROCK_PROFILE SALA_LANE_BEDROCK_CREDENTIALS_FILE SALA_LANE_BEDROCK_PREFIX SALA_LANE_BEDROCK_OPUS_MODEL SALA_LANE_BEDROCK_SONNET_MODEL SALA_LANE_BEDROCK_HAIKU_MODEL \
              SALA_LANE_AWSPLATFORM_PROFILE SALA_LANE_AWSPLATFORM_CREDENTIALS_FILE SALA_LANE_AWSPLATFORM_WORKSPACE_ID SALA_LANE_AWSPLATFORM_OPUS_MODEL SALA_LANE_AWSPLATFORM_SONNET_MODEL SALA_LANE_AWSPLATFORM_HAIKU_MODEL \
@@ -378,7 +376,7 @@ defer_add() {  # <tmux session> <why> [force] [set id] — `watch` relaunches it
 # ── recycle sets ──────────────────────────────────────────────────────────────
 # A SET is one recycle, or one `revive --only` / `revive --self` that left a pane to come back
 # for (kind Revive). Every notice after its first post links back to it by its LABEL — its start, "2030-01-02 09:12 UTC",
-# the same on every post — and carries a running count: n of the N panes it meant to relaunch (the master's own pane and
+# the same on every post — and carries a running count: n of the N panes it meant to relaunch (the invoking pane and
 # deferred panes included). One bullet per pane, but panes held for the same reason are one line with a count once more than 5
 # share it (post_group_bullets); every retry post the same shape (count in the headline,
 # panes just back as bullets, the CLI version they came back on, and — while the set is open — one bullet per pane still out with
@@ -535,7 +533,7 @@ post_group_bullets() {
 # _set_pending_bullets <id> — a 🔄 post's tail (one bullet per pane): the panes the set still waits for,
 # from the set's own record, no new state. Each outstanding pane (out=) carries the reason of the first post's left-behind
 # bullet (skip=, "<session>: <why>") as "<session>: still waiting, <why>" ("not relaunched yet" when the first post named none: the
-# master's pane), except a held pane's bullet (hold_bullet: "<session>: busy for 2 h; sala relaunches it once it is free"),
+# invoking pane), except a held pane's bullet (hold_bullet: "<session>: busy for 2 h; sala relaunches it once it is free"),
 # which is the whole line, as the first post and the deferred post worded it; each given-up
 # pane (gave=) as "<session>: given up, <why>". Nothing outstanding prints nothing (the closing posts carry the given-up
 # panes themselves). Capped at SALA_SET_PENDING_MAX (12) bullets, then "…and N more"; a reason longer than 240 characters is
@@ -601,10 +599,10 @@ _set_deferred() {
     local gb=(); mapfile -t gb < <(post_group_bullets "$@")   # the post groups panes held for one reason; the record above keeps each
     sala_post "⚠️ *$(set_val "$id" kind) $(set_val "$id" label) · $(set_val "$id" done)/$(set_val "$id" total) relaunched · $# deferred*" ${gb[@]+"${gb[@]}"}
 }
-# set_report <id> — the set's first post (the recycle's own: at the end of its sweep, or — the master's pane the only one
+# set_report <id> — the set's first post (the recycle's own: at the end of its sweep, or — the invoking pane the only one
 # outstanding — by the self-worker once that pane is settled), once: nothing left behind →
 # "✅ *Recycle done*" as before; panes left behind → "⚠️ *Recycle <label> · n/N relaunched*": how many came back and on
-# which version, one bullet per pane left behind (one outstanding with no bullet of its own — the master's pane, which the
+# which version, one bullet per pane left behind (one outstanding with no bullet of its own — the invoking pane, which the
 # self-worker relaunches next — says "not relaunched yet"; a pane settled before the post drops out), then the retry and
 # deferred notes; nothing left to wait for → that same post headed "closed at n/N", which closes the set.
 set_report() { _set_locked _set_report "$1"; }
@@ -801,9 +799,9 @@ set_prune() {  # watch: closed sets after 3 days, any set after 9 (a deferred pa
 # no set: provision's single fleet post, as before. Items, one per step that reported `failed` or `manual`:
 #   failed  → provision's retry worker re-runs `provision --no-recycle <host…>` every SALA_RETRY_EVERY for SALA_RETRY_WINDOW
 #             (the recycle retry worker's settings); a step that comes back ok/fixed settles its item
-#   session → a session can fix it: the master is told (one inbox message per batch, the settle command in it); it fixes
+#   session → a session can fix it: the front agent is told (one inbox message per batch, the settle command in it); it fixes
 #             the item and settles it (`sala provision --settle`)
-#   owner   → the owner decides: the master files a board item (needs: decision), records "<id> is waiting on your OK in
+#   owner   → the owner decides: the front agent files a board item (needs: decision), records "<id> is waiting on your OK in
 #             <session>" (`sala provision --waiting`; that text replaces the item's detail in later posts), runs the step
 #             once the answer is in and settles it. sala itself never calls stackshot: the text is opaque to it.
 # The kind is the step line's optional 5th field, STEP|manual|<name>|<detail>|<session|owner> (none = owner). A box OFFLINE at run
@@ -816,8 +814,8 @@ set_prune() {  # watch: closed sets after 3 days, any set after 9 (a deferred pa
 # empties the set); "⚠️ … closed at n/N" once, when nothing is outstanding and something was given up.
 # State keys besides the recycle set's: item=<host>|<step>|<kind>|<since>|<word>|<detail> · wait=<host>|<step>|<text> ·
 # fix=<host>|<note> (what settled an item, for the box's ✅ bullet) · okn=<host>|<steps OK> · offline=<host> ·
-# tell=<host>|<step> (a session/owner item the master has not been told yet; `watch` redelivers).
-: "${SALA_PSET_TARGET:=}"                         # a front agent that takes a provision set's items when there is no master (see pset_tell)
+# tell=<host>|<step> (a session/owner item the front agent has not been told yet; `watch` redelivers).
+: "${SALA_PSET_TARGET:=}"                         # a front agent that takes a provision set's items (see pset_tell)
 : "${SALA_PROVISION_SET_WINDOW:=604800}"
 SALA_STEP_WORDS="${SALA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/lib/step-words.tsv"
 # the box's own rows (a spec's own steps, same columns), read before the tracked table: a row there wins (config.example)
@@ -995,7 +993,7 @@ _pset_expire() {
     _set_close_posts "$id"
 }
 pset_expire() { _set_locked _pset_expire "$@"; }
-_pset_tell_text() {  # <id> → the master's message for the items not told yet (empty: nothing to tell)
+_pset_tell_text() {  # <id> → the message for the items not told yet (empty: nothing to tell)
     local id="$1" e h s it w det kind ss="" hw="" n=0
     for e in $(set_vals "$id" tell); do
         h="${e%%|*}"; s="${e#*|}"; it=$(_pset_item "$id" "$h" "$s"); [ -n "$it" ] || continue
@@ -2761,7 +2759,7 @@ sidecar_uuid_for_session() { local _u; [ -r "$SALA_SIDECAR" ] || return 1; _tsv_
 # (sidecar_uuid_for_session, spawn --list, revive's ordered_panes and shell branch, watch, rename, retire) reads on. The
 # file is $SALA_SIDECAR (the XDG state dir; see SALA_STATE_DIR above and ledger_migrate at the end of this file).
 # The honored paths and their ops:
-#   add     `spawn`, `unpark`, watch's re-add of the master row      adopt   `sala adopt NAME` (a session made by hand)
+#   add     `spawn`, `unpark`                                        adopt   `sala adopt NAME` (a session made by hand)
 #   rename  `sala rename` (a row the map has; never adds one)          retire  `sala retire`, `sala close-shell` and `sala forget-row` — the only paths that drop a row
 #   follow  the ONE change an observation may make: the live claude in a mapped session reports a different conversation
 #           than the row (a /clear, a hand --resume); write_sidecar (revive --save-map) applies it from the live registry,
@@ -4210,8 +4208,8 @@ lane_fallback_auto() {
 #                             /api/quota (a unix socket path, default sala-web's own socket; or an http(s) base URL; or `off`), at most every _EVERY (120) s,
 #                             then up to _WAIT (10) s for the file to refresh. sala-web holds the token; a failed call leaves the reading stale and nobody moves
 # THE MOVE is `sala op lane <lane> <session>… --from sala-watch --words "$SALA_BACK_LANE_WORDS"`: the queue, the ordinary switch, a busy
-# pane deferred and retried, ONE Slack post by the operation. Who moves: the live back agents (a tmux session; not SALA_NO_RELAUNCH, not the
-# master) whose lane is in the order and on the wrong side of the target (a step forward moves those before it; the way home those off home);
+# pane deferred and retried, ONE Slack post by the operation. Who moves: the live back agents (a tmux session; not SALA_NO_RELAUNCH)
+# whose lane is in the order and on the wrong side of the target (a step forward moves those before it; the way home those off home);
 # a back agent on another lane (api, subscription-2) is left where it is, as is a Fable session when the target is in SALA_FALLBACK_NO_FABLE
 # (it would fail there; one notice says so). The target must be active and ready; else nothing moves and one notice says why, once per window.
 # NEVER ONTO A DORMANT LANE: a step whose target lane is dormant (a monthly usage cap, a seat gone, API credit used up) moves the agents to that
@@ -4226,7 +4224,7 @@ lane_fallback_auto() {
 # the project record's top-level agent, or else no role and a front entry of the roles file (stackshot's roles.json, the same answer as the Overview's
 # Role column: it names the project agents (a keeper included) that have no role on their row and are on no agents map; the keeper is a mark on one
 # front or back agent (`"keeper": true` on its entry) and counts with that agent's role; an entry whose role is the old `keeper`, or a retired one,
-# is not counted, an entry that names another project than the row's gives that row nothing, and the record comes first); no side session, not SALA_NO_RELAUNCH, not the master) are not part of step 1. When the home lane's reading
+# is not counted, an entry that names another project than the row's gives that row nothing, and the record comes first); no side session, not SALA_NO_RELAUNCH) are not part of step 1. When the home lane's reading
 # (the same fresh one) reaches the front threshold and the rule has the back agents off home, they move too, onto the rule's lane: those whose lane is in
 # the order and before it, once per weekly window (state keys front_window, fqueued, fblocked). Step 1 runs first in the same pass, so a pass that finds the
 # reading at the front threshold with the agents still home moves the back agents and then the front agents onto the lane step 1 chose. A pinned
@@ -4242,7 +4240,7 @@ lane_fallback_auto() {
 # front agent when step 3 fired) would stay off home for the whole next window. While the rule is at home and the front step is on, a pass that finds the
 # home lane usable (not dormant, ready), a fresh reading under SALA_BACK_LANE_THRESHOLD, and step 3 fired in THIS window (the state's f0 and the reading's
 # window are the same window) queues the live front agents standing off home onto the home lane, once per window (state key hqueued:
-# <home>|<window>|<names>, which step 3 itself fills with the front agents it took in the same pass; any later step clears it). Pinned, off-order, master
+# <home>|<window>|<names>, which step 3 itself fills with the front agents it took in the same pass; any later step clears it). Pinned, off-order
 # and SALA_NO_RELAUNCH sessions are left as for the front step; a pinned one is named.
 : "${SALA_BACK_LANE_RULE:=off}"
 : "${SALA_BACK_LANE_ORDER:=subscription-1 aws-platform bedrock}"
@@ -5050,10 +5048,9 @@ for group in (own, wide):
     fi
     return $out
 }
-lanes_working() { local l w=""; for l in $SALA_LANES_KNOWN; do lane_out "$l" >/dev/null 2>&1 || w="$w$l "; done; echo "${w% }"; }   # → the lanes sala sees nothing wrong with, space-separated
 
 # ── models ────────────────────────────────────────────────────────────────────
-# A session's MODEL and EFFORT, recorded (Wed Oct 14th 2026, asked by the project's coordinator session: move the master session to sonnet at
+# A session's MODEL and EFFORT, recorded (Wed Oct 14th 2026, asked by the project's coordinator session: move one session to sonnet at
 # medium effort, and have every relaunch keep it). Until now a relaunch took both from the conversation's own transcript
 # (_resume_flags_for_uuid above: the newest real turn's family, the prevailing effort), so a pane could be moved only by
 # typing /model into it, and a skill's or a hand's /model decided what the next relaunch came back on. The record wins
@@ -5685,7 +5682,7 @@ fleet_guard() {
 }
 
 # ── recycle lock ──────────────────────────────────────────────────────────────
-# One relaunch driver at a time: until now only the master's judgement and watch's
+# One relaunch driver at a time: until now only a session's judgement and watch's
 # pgrep kept two recycles apart, and two drivers would /exit and resume the same panes. The lock is flock(2) on
 # $SALA_LOG_DIR/salamander-recycle.lock, taken on fd 9 by the command that starts a relaunch and held for its whole life
 # AND its children's: the fd is inherited, so the detached driver (the sweep, then the self-worker) keeps it until both
@@ -6089,7 +6086,7 @@ prompt_clears() { local i; for ((i=0; i<${2:-10}; i++)); do pane_prompt "$1" || 
 # here, out of revive.sh). Until a later release the check
 # was `wait_for … claude` alone, which returns the moment the pane's foreground command reads `claude`: a resume that comes
 # up and dies (a refused --resume, a CLI broken by its update) reads so until it exits, and the self-worker posted
-# "✅ Recycle done" over a pane sitting at its shell (tests/sets-master.sh, twice: the fake's FAKE_RESUME_FAIL
+# "✅ Recycle done" over a pane sitting at its shell (tests/sets-self.sh, twice: the fake's FAKE_RESUME_FAIL
 # dies within milliseconds, and a 1 s poll landed inside them). Polled every second, as wait_for. 0 once a claude under
 # the pane carries <uuid> in its registry row (the CLI writes it 1–14 s into its start on a loaded machine) and is still
 # there a poll later, RESUMED_PID naming it; also 0 when <secs> run out with a claude alive under the pane, row or no row

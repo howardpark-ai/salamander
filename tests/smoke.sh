@@ -7,7 +7,7 @@ unset XDG_STATE_HOME   # the pane map goes under the sandbox HOME, never a state
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, tmux_socket_rm
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null
-as_op_unit   # no master: the guarded verbs this suite runs itself (adopt) stand for the queue's runner (tests/lib.sh, 5)
+as_op_unit   # the guarded verbs this suite runs itself (adopt) stand for the queue's runner (tests/lib.sh, 5)
 mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/projects" "$HOME/.local/bin" "$HOME/.local/share/tmux/resurrect"
 cc -o "$HOME/.local/bin/claude" "$ROOT/tests/fake-claude.c"
 export PATH="$HOME/.local/bin:$PATH"
@@ -275,14 +275,15 @@ e = s[sys.argv[2]]; assert e["name"] == "smoke" and e["url"] == "https://claude.
 assert "cse_01FAKE" in s   # the rc-shaped fake registers too; the heartbeat reports what the registry says is live in tmux
 PY2
 git -C "$HOME/store.git" cat-file -e HEAD:data/q/sessions.json 2>/dev/null && ok "heartbeat pushed to the remote" || bad "heartbeat did not push"
-# live store + git master-only (the mode stays): full facts locally, only the master record in git; its master keys are empty strings now
+# live store + a config that still says SALA_HEARTBEAT_GIT=master (the retired record-only mode): read as full, git carries every file
+rm -rf "$HOME/store/data/q"
 out=$(SALA_HEARTBEAT_STATE_DIR="$HOME/live" SALA_HEARTBEAT_GIT=master SALA_HEARTBEAT_REPO="$HOME/store" SALA_HEARTBEAT_DIR=data SALA_FLEET_NAMES="$HOME/fleet.tsv" "$ROOT/bin/salamander" heartbeat 2>&1)
-python3 - "$HOME/live/q" "$HOME/store/data/q" <<'PY2' && ok "live store full, git carries only the master record (empty keys)" || bad "live/master split: $out"
-import json, sys
+python3 - "$HOME/live/q" "$HOME/store/data/q" <<'PY2' && ok "a leftover git=master reads as full: git carries machine.json and sessions.json, no error" || bad "live/git split: $out"
+import json, os, sys
 live, git = sys.argv[1], sys.argv[2]
 lm = json.load(open(live + "/machine.json")); gm = json.load(open(git + "/machine.json"))
-assert lm["claude"] == "9.9.9" and "fleet_ssh" in lm
-assert set(gm) == {"letter", "fleet", "master", "master_session"} and gm["master"] == "" and gm["master_session"] == "" and lm["master"] == "" and lm["master_session"] == ""
+assert lm["claude"] == "9.9.9" and "fleet_ssh" in lm and gm == lm, (gm, lm)
+assert os.path.exists(git + "/sessions.json")
 PY2
 echo "== heartbeat fleet sweep: a posix box behind an ssh stub — its version published, no hub field, no git in the payload"
 # one fake host behind an `ssh` stub (psets.sh's shape): lin1 answers the liveness probe and prints its fixture for the

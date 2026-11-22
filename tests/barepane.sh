@@ -2,7 +2,7 @@
 # Bare panes (lib/barepane.sh, called by lib/watch.sh): after a mass SIGKILL of every claude on
 # the coordinator machine, tmux and its panes stay up as bare shells and nothing revived them. Watch now revives ANY
 # mapped pane that stays at a shell with no claude for SALA_BARE_GRACE, with `revive --only`: the pane check of every
-# box, a former master's pane included. What is checked:
+# box, the pane a leftover SALA_MASTER line names included. What is checked:
 #  - the control: panes with a claude, and one tick over bare panes before the grace, revive nothing and post nothing;
 #  - after the grace the bare panes are revived on their own conversations (the fake claude's start log counts them), the
 #    longest-bare first, at most SALA_BARE_MAX per tick (a cap of 2 for three bare panes: the third waits for the next tick),
@@ -19,7 +19,7 @@
 # no real pane, server, ~/.claude or claude process is read or touched, and the suite refuses to start if any of that is not so.
 # Posts go to a file. Usage: bash tests/barepane.sh   (exit 0 = pass; ~90 s)
 set -u
-unset TMUX TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
+unset TMUX TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_NO_RELAUNCH SALA_BOOT_ID SALA_CONFIG SALA_BARE_REVIVE
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
@@ -144,13 +144,13 @@ b1=$(n_starts 2); export SALA_BARE_REVIVE=off; tick; sleep 5; tick; unset SALA_B
 tick; sleep 5; tick
 waitfor 'hasclaude b' 40 && ok "and is revived with it back on (the clock restarted)" || bad "b: $(tail -5 "$WLOG")"
 
-echo "== a pane named like the former master (a SALA_MASTER line left in the config) is revived like any other"
+echo "== a pane named like the one a SALA_MASTER line left in the config) is revived like any other"
 killfake sala-test-b; waitfor '! hasclaude b' 40
 b2=$(n_starts 2); export SALA_MASTER=sala-test-b
 tick; sleep 5; tick
-unset SALA_MASTER
+unset
 waitfor 'hasclaude b' 40 && [ "$(n_starts 2)" = "$((b2 + 1))" ] && ok "b (the name SALA_MASTER still holds): not skipped, revived once on its own conversation" || bad "b: starts $(n_starts 2) vs $b2; $(tail -6 "$WLOG")"
-! grep -q "master" <<< "$(grep -i "sala-test-b" "$WLOG" | grep -i "skip\|left alone")" && ok "no master skip in the log" || bad "log: $(grep sala-test-b "$WLOG" | tail -3)"
+! grep -q "SALA_MASTER" <<< "$(grep -i "sala-test-b" "$WLOG" | grep -i "skip\|left alone")" && ok "no skip in the log" || bad "log: $(grep sala-test-b "$WLOG" | tail -3)"
 
 [ "$fail" = 0 ] && echo "barepane: pass" || echo "barepane: FAIL"
 exit $fail

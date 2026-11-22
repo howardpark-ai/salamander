@@ -16,7 +16,7 @@
 #  - 7 retire, close-shell, forget-row, rename work with no /exit and no live claude and clear the marker (rename rewrites its name text); adopt and box say
 #    "sleeping" instead of "no claude"; 8 `sala op revive|restore --only NAME` says "sleeping: its claude ended on purpose" and queues nothing;
 #  - 9 the wrap-up tick lists no pane with no claude; 10 `sala sessions` and `sala spawn --list` show `sleeping` (display only);
-#  - sleep_ready: yes for an idle, free pane; and each refusal with its reason: no session, already asleep, the Remote Control session, the master, SALA_NO_RELAUNCH,
+#  - sleep_ready: yes for an idle, free pane; and each refusal with its reason: no session, already asleep, the Remote Control session, SALA_NO_RELAUNCH,
 #    a side session, no pane-map row, no claude, the sdk lane, idle too short, a busy registry row, a draft in the box, a scheduled job, a queued operation naming it,
 #    a note waiting, the deferred list, an open set, the waiting flag, a stackshot inbox message, a limit stop, a network stop, a question open on its screen.
 # SAFETY: every kill is a `kill -9` of ONE pid whose /proc/<pid>/exe is this suite's own compiled fake and whose environment names this suite's temporary HOME
@@ -24,7 +24,7 @@
 # mktemp -d held with flock, the claude is tests/fake-claude.c; no real pane, server, ~/.claude or claude process is read or touched. Posts go to a file.
 # Usage: bash tests/sleeping.sh   (exit 0 = pass)
 set -u
-unset TMUX TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND SALA_SLEEP_DIR \
+unset TMUX TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND SALA_SLEEP_DIR \
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_NO_RELAUNCH SALA_BOOT_ID SALA_CONFIG SALA_BARE_REVIVE SALA_IDLE_WRAPUP SALA_SESSION_ID SALA_STACKSHOT_INBOX \
       SALA_STACKSHOT_DIR SALA_STACKSHOT_CLIENT SALA_AGENT_CHECK_SCRIPT SALA_PROJECT_RECORD
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -272,7 +272,6 @@ expect() {  # <label> <session> <text of the reason> → ok when sleep_ready ref
 expect "no such session" sala-test-nosuch "no tmux session"
 sleeping_mark "$(uuid 6)" sala-test-s; expect "already asleep" sala-test-s "already asleep"; sleeping_clear "$(uuid 6)"
 r=$(SALA_RC_SESSION=sala-test-s why sala-test-s); has "$r" "Remote Control" && ok "refused: the Remote Control session ($r)" || bad "rc: $r"
-r=$(SALA_MASTER=sala-test-s why sala-test-s); has "$r" "master" && ok "refused: the master session ($r)" || bad "master: $r"
 r=$(SALA_NO_RELAUNCH=sala-test-s why sala-test-s); has "$r" "SALA_NO_RELAUNCH" && ok "refused: managed outside sala ($r)" || bad "no_relaunch: $r"
 mkdir -p "$SALA_SIDE_DIR"; echo "kind=fork" > "$(side_file sala-test-s)"; expect "a side session" sala-test-s "side session"; rm -f "$(side_file sala-test-s)"
 expect "not in the pane map" sala-test-t "not in the pane map"

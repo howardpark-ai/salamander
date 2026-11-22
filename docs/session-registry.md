@@ -80,12 +80,12 @@ sets it. `lib/sessions.py` clears it when a row is given a project, a role or a 
 `set`): a row that has become something else is no throwaway, whatever it was born as. The field is unpublished (`EXPORT_KEYS` is unchanged, so no contract version moves).
 Its one reader is `sala op retire NAME --from YOU` with no `--words` (`op_own_target_ok`, `lib/op.sh`): **any live session may end a tagged row**, whatever its name and
 whether or not its spawner is live (rule `tag`, note `words: none (throwaway tag set at spawn, retired by any session)`). The tag replaces the name-pattern
-rule and the spawner-gone condition for a tagged row, and opens only the door: the asking session itself, the master, a row with a project, a role or a side mark (even
-one that carries the tag), a row on a project's agents map (the check **fails closed**, as for the master's door below), the bypass flags, `--id` and `--keep-web` are refused as before. "Between turns" is retire's own idle check
+rule and the spawner-gone condition for a tagged row, and opens only the door: the asking session itself, a row with a project, a role or a side mark (even
+one that carries the tag), a row on a project's agents map (the check **fails closed**, as for the any-session door below), the bypass flags, `--id` and `--keep-web` are refused as before. "Between turns" is retire's own idle check
 (`is_idle_reason`: the registry's busy record written by the hooks, else the pane guesses), not a second one: a no-words retire never carries `--busy`, so the plan
 (`retire NAME --dry-run`) refuses a target mid-turn ("is not idle") before anything is queued, and the runner's `salamander retire` refuses one that became busy since (the operation goes
 stuck with nothing ended, no `claude -p` helper); the asker queues it again once the target is idle. **A row with no tag** (spawned before the tag, or by hand) keeps the rules of
-the section below unchanged: its spawner, the master, or any session when the spawner is gone and the name is a throwaway's name. A pane with no row id (before row ids) is still bound by
+the section below unchanged: its spawner, or any session when the spawner is gone and the name is a throwaway's name. A pane with no row id (before row ids) is still bound by
 its name alone, so even a tagged row there must carry a throwaway's name and a fresh agents-map answer: the conservative choice.
 
 ## A throwaway's spawner: `spawned_by`
@@ -97,16 +97,15 @@ same `set` call: the tmux session whose pane holds the spawn by process ancestry
 folder), never the name alone: a symlink or copy of bash called `claude` is not one. A spawn from a plain shell, a detached job, a
 human's pane or the queue's runner sets none. The field is unpublished (`EXPORT_KEYS` is unchanged, so no contract version moves) and has one
 reader: `sala op retire NAME --from YOU` with no `--words` (lib/op.sh, `op_own_retire_ok`) is queued only when NAME is a **throwaway** (a row carrying the `throwaway` tag above is open to any session; the rest of this section is the rule for a row with no tag): the live row named
-exactly NAME has no `project`, no `role` and no `side`, NAME is on no project's agents map (stackshot's project record, `project_record_agent`; for the master and any-session doors below this
+exactly NAME has no `project`, no `role` and no `side`, NAME is on no project's agents map (stackshot's project record, `project_record_agent`; for the any-session door below this
 check **fails closed**: a record that is missing, stale or unreadable is no answer (no other source is asked: `pages.py` is gone), and the retire is refused with "the project record could not confirm that NAME is unlisted"; the spawner door
-goes on without an answer, its row is the proof), and NAME is neither the master nor YOU; and YOU may end it. **Who** (the session that started a throwaway may end it with no words; widened
-so that retiring a throwaway never needs the owner): (a) its spawner, `spawned_by` = YOU; (b) the master session (`SALA_MASTER`), when NAME is a
-throwaway's name or the master is the spawner (covered by (a)); (c) any live Claude session when the row has no `spawned_by`, or the spawner's tmux session is
+goes on without an answer, its row is the proof), and NAME is not YOU; and YOU may end it. **Who** (the session that started a throwaway may end it with no words; widened
+so that retiring a throwaway never needs the owner): (a) its spawner, `spawned_by` = YOU; (b) any live Claude session when the row has no `spawned_by`, or the spawner's tmux session is
 not live (a spawner that was renamed counts as not live: its old name is gone), AND NAME is a throwaway's name (`scratch-*`, `*-check-*`,
 `*-test-*`, `*-probe-*`; a bare `sala spawn` names `scratch-<date>-<word>`). The name alone is never enough: a project, role, side or agents-map entry
-refuses whatever the name, and a name with another live spawner opens only (a) and (b). **No bypass flag (`--busy`, `--skip-writeup`, `--self`, `--leave-items`), no `--id` and no `--keep-web` with no words**: they are
+refuses whatever the name, and a name with another live spawner opens only (a). **No bypass flag (`--busy`, `--skip-writeup`, `--self`, `--leave-items`), no `--id` and no `--keep-web` with no words**: they are
 retire's own bypasses, which only the owner's words allow, refused at queue time (`op_own_flags_ok`) and again by the runner. The marker's note says which rule allowed it (`retired by its
-spawner`, `retired by the master`, `retired by any session: no live spawner`). YOU is checked against the caller placed by process ancestry
+spawner`, `retired by any session: no live spawner`). YOU is checked against the caller placed by process ancestry
 (the same walk), so `--from` and `TMUX_PANE` are only claims; and the target is bound to the row by its process, not by the tmux session name
 alone: `spawn` gives the throwaway's pane and claude the row's id as `SALA_SESSION_ID`, and every process in every pane of the tmux session called NAME (each pane's process and all its descendants) must
 carry that id in its environment, so a session renamed to a dead throwaway's name is refused. A pane from before row ids (an old row: no process in the
@@ -114,7 +113,7 @@ session carries an id) is bound by its name instead, and only when a Claude Code
 throwaway's name and a fresh answer (the project record) says NAME is on no agents map, whichever door let YOU in: a plain program
 under the name, a mix of processes with and without the id, or a pane with no id under a name that is no throwaway's, is refused.
 With no tmux session of that name left the retire is refused at the plan, naming `sala forget-row NAME` (which clears the row and takes the owner's words), and nothing is queued. A rename of the spawner makes the field stale, and a stale or renamed spawner
-counts as not live: a row with a throwaway's name is then retirable by any session (door (c), with the fail-closed agents-map check), while a row
+counts as not live: a row with a throwaway's name is then retirable by any session (door (b), with the fail-closed agents-map check), while a row
 whose name is no throwaway's is refused and takes the owner's words as before.
 
 The marker of a no-words retire stores the row id it was queued for (`ownrow=`), and the runner (`op_run`) judges the retire again before it ends
@@ -126,14 +125,14 @@ tools include `salamander retire`, which would have run with none of these check
 The Bash guard (`lib/guard.py`) reads the same field for the one stop it lets a session make itself (without it a session had to ask the owner to run
 `kill <pid>` by hand for its own throwaway):
 `kill <pid>` (any signal option) of the claude of a throwaway the calling session started. The caller is the tmux session of `TMUX_PANE` in
-the hook's environment (the identity the master check uses; the hook gets the environment Claude was launched with, never the command text,
+the hook's environment (the identity the guard uses; the hook gets the environment Claude was launched with, never the command text,
 so a command cannot set it; no pane, no caller, no allowance). The pid is placed with `tmux list-panes -a` on the
-caller's server (the pid or an ancestor is a pane's process); that session must not be the caller or the master, and `sessions.json`
+caller's server (the pid or an ancestor is a pane's process); that session must not be the caller, and `sessions.json`
 (`$SALA_SESSIONS_FILE`, else beside `$SALA_SIDECAR`, else `$XDG_STATE_HOME/salamander`) must hold exactly one live row of that name with no
 project, role or side and `spawned_by` = the caller, and the pid's own environment must carry the row's id as `SALA_SESSION_ID` (the pid is
 bound to the row by the process, so a session renamed to a dead throwaway's name is denied). Any failed read denies, as before. **The guard's exemption is narrower on purpose than the queue's no-words retire**: it still allows only the
-spawner (`spawned_by` = the caller), never the master or an unowned throwaway, since it ends a process by pid at once with no queue, no runner re-check and
-no project-record look-up; the two paths differ, and the master's or any session's door is `sala op retire`, never `kill <pid>`. A command with another claude pid in it, a name
+spawner (`spawned_by` = the caller), never an unowned throwaway, since it ends a process by pid at once with no queue, no runner re-check and
+no project-record look-up; the two paths differ, and any other session's door is `sala op retire`, never `kill <pid>`. A command with another claude pid in it, a name
 (`pkill`, `killall`), `kill -1` and a process group are denied as before; the deny text says which stop is allowed.
 
 The guard also denies putting a process into another session's tmux, which would run it as that session: `tmux new-window`, `split-window`,
@@ -145,7 +144,7 @@ the victim cannot hide it; the options that take an argument are read off tmux 3
 `-l`); a word that ends in `;` (`owner:\;`) ends a tmux command like a bare `\;`; and a `TMUX_PANE` assignment, `env -u TMUX_PANE` or
 `env -i` in front of a placement command is denied, since tmux takes its default target from it. No `-t`, a target in the caller's own session,
 a target that names nothing, and a private server (`-L`, `-S`) pass; `rename-session` of the caller's own session passes (sala's own rename
-runs from its operation, not from a Claude session's command); the master's own pane is exempt. The deny text says to run it in your own
+runs from its operation, not from a Claude session's command). The deny text says to run it in your own
 session, in a throwaway you start with a bare `sala spawn NAME`, or on a private test server. (`send-keys -t` is not covered: sala's revive and resume sends use it.)
 Known limits, which only a same-user agent that goes out of its way can use: a placement carried by `if-shell`, `run-shell`, `pipe-pane`,
 `source-file` or `bind-key` (the guard reads the command line, not tmux's own command language inside it), and a target given as `-t "$VAR"`
@@ -170,7 +169,7 @@ Added Tue Nov 3rd 2026. `lib/op.sh` decides per verb and arguments what the mark
 the reason): `owner` (the owner's words, the default), `reason` (a recorded reason in place of words) or `throwaway` (the retire door above). Only `revive`, `restore`, `sleep` and `wake` are `reason`, and
 each in one shape: `sala op revive --only NAME [--only NAME]… [--force] (--item board#N | --why "<one line>") --from YOU`, with no `--words`; and
 `sala op restore --only NAME [--only NAME]… (--item board#N | --why "<one line>") --from YOU` (no `--force`, no `--missing`), for a session whose tmux session is gone:
-each NAME is a row of the pane map (not a live registry row) whose conversation is live nowhere, not the master, not the Remote Control session and not the asker, bound by the row's
+each NAME is a row of the pane map (not a live registry row) whose conversation is live nowhere, not the Remote Control session and not the asker, bound by the row's
 conversation id in `ownrow=`. `op --plan restore …` is `restore --dry-run`: it refuses a live tmux session (use revive), a name with no row and a conversation live elsewhere. The runner passes
 the guard by its `sala-op-<id>` unit (no flag or environment marker), and a raw `sala restore` from a Claude session stays refused. Who, the reason and the checks below are the same for both.
 
@@ -178,7 +177,7 @@ Stage 2 of the sleeping sessions (`docs/subcommands.md`, *Sleeping sessions*) ad
 
 - **Who:** any live Claude session, placed by process ancestry (`op_caller_is`, the same placement retire's door uses; `TMUX_PANE` and `--from` are claims only).
   `SALA_OP_REASON_FROM` (empty by default = any session) is a space-separated allow list of session names that narrows it.
-- **What:** every NAME is a live row of the registry, a Claude session, not the master and not the asker. The marker stores each row's id (`ownrow=`).
+- **What:** every NAME is a live row of the registry, a Claude session, not the asker. The marker stores each row's id (`ownrow=`).
 - **The reason:** `--item board#N` or `--why`, one of them, accepted only with revive. `--item` is a **format check only** (`board#` and digits): sala makes no lookup in
   stackshot, so a wrong id passes; the check makes the reason carry something a person can follow, it does not prove the item exists. `--why` is one line,
   at least 3 words, at most 200 characters. The marker keeps `item=` or `reason=` (not `why=`, which the stuck handler already uses), `op --list` shows it, and the result

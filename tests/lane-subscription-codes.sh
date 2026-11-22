@@ -24,7 +24,7 @@
 # No tmux server is started (the private socket never exists), no pane is touched, the live state is never read: isolated HOME, locked.
 # Usage: bash tests/lane-subscription-codes.sh   (exit 0 = pass; ~25 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH SALA_MASTER
+unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH
 unset ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_LANE_FALLBACK SALA_JOB_LANE
 unset AWS_PROFILE AWS_REGION CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_USE_ANTHROPIC_AWS ANTHROPIC_AWS_WORKSPACE_ID ANTHROPIC_AWS_API_KEY
 for v in $(compgen -v | grep -E '^SALA_LANE_(MAX|TEAM|SUBSCRIPTION1|SUBSCRIPTION2|API|BEDROCK|AWSPLATFORM)_'); do unset "$v"; done
@@ -227,7 +227,7 @@ while kill -0 "$WPID" 2>/dev/null && [ $n -lt 300 ]; do
 done
 wait "$WPID"; PIDS=""
 [ "$badreads" = 0 ] && [ "$n" -gt 0 ] && ok "$n reads while the file was being rewritten: every one a whole, valid JSON (atomic: temp file, then mv)" || bad "$badreads of $n reads saw a broken file"
-# the watch's tick keeps the file current (a plain tick, no master, no tmux server)
+# the watch's tick keeps the file current (a plain tick, no tmux server)
 # the tick does the work only when something changed: the file missing, the config newer than it, or sala's own code newer (three bash tests, no process).
 # A config file of this suite's own stands in for ~/.config/salamander/config (SALA_CONFIG=/dev/null has no age of its own to test), and the code is a
 # copy of the tree under $HOME, so the age of lib/common.sh can be set without touching the checkout.

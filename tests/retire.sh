@@ -25,7 +25,7 @@ cleanup() {
 }; trap cleanup EXIT   # set before the temp folder exists
 SANDBOX=$(mktemp -d); export HOME=$SANDBOX; export SALA_CONFIG=/dev/null
 exec 8< "$SANDBOX"; flock -n 8 2>/dev/null   # systemd-tmpfiles' ageing skips a directory held with flock
-as_op_unit   # no master: the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
+as_op_unit   # the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
 mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/projects" "$HOME/.local/bin" "$HOME/.local/share/tmux/resurrect" "$HOME/work"
 touch "$HOME/.claude/salamander-rc.stopped"      # no Remote Control server in the sandbox
 cc -o "$HOME/.local/bin/claude" "$ROOT/tests/fake-claude.c" || { rm -rf "$HOME"; exit 1; }   # the temp HOME goes with this exit (an EXIT trap may not exist yet here)

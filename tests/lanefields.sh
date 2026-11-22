@@ -11,7 +11,7 @@
 # the table and launched on the default). No tmux server is started: the private socket named below never exists, so the
 # table finds no panes and the live fleet is never asked. Isolated HOME. Usage: bash tests/lanefields.sh (exit 0 = pass; ~5 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH SALA_MASTER
+unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH
 unset ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR
 for v in $(compgen -v | grep -E '^SALA_LANE_(MAX|TEAM|API|BEDROCK|AWSPLATFORM)_(LABEL|PROVIDER|CLIENT|ORG|PROJECT|BILLING|PAYMENT|PLAN|ACCOUNT|CREDENTIAL|REGION|STATUS)$'); do unset "$v"; done
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

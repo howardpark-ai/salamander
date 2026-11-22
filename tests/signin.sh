@@ -24,7 +24,7 @@
 # Usage: bash tests/signin.sh   (exit 0 = pass; ~15 s)
 set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_TZ CLAUDE_CONFIG_DIR ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS CLAUDE_CODE_OAUTH_TOKEN
-unset SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_TEAM_DIR SALA_MASTER SALA_CLAUDE SALA_SIGNIN_ALERT
+unset SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_TEAM_DIR SALA_CLAUDE SALA_SIGNIN_ALERT
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 export SALA_SIGNIN_ALERT=on   # lib.sh turns the step off for every other suite (their fake does not answer `auth status`); this is its suite
@@ -36,7 +36,7 @@ export PATH="$HOME/.local/bin:$PATH"
 POSTS="$HOME/posts.txt"; export SALA_NOTIFY_CMD="cat >> $POSTS"
 export SALA_BIN="$ROOT/bin/salamander" SALA_ROOT="$ROOT" SALA_LIMIT_ALERT=off SALA_LIMIT_RESUME=off SALA_AUTO_UPDATE=off SALA_AUTO_RECYCLE=off
 export SALA_SIGNIN_EVERY=0 SALA_SIGNIN_API_EVERY=0   # every tick looks (the intervals have their own checks)
-# the plain `watch` tick below runs the whole tick with no master (nothing is kept alive, everything else runs), so
+# the plain `watch` tick below runs the whole tick (every step of it), so
 # the suite has a private tmux server of its own with one throwaway session — never the fleet's — and no Remote Control server
 SOCK="sala-signin-$$"; unset TMUX; export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"
 eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux
@@ -205,7 +205,7 @@ signed_in "$TEAM" team Example-Org; echo 200 > "$API_CODE"; sw; p=$(lastpost)
 n=$(calls 'auth status'); m=$(apireqs); l=$(mreqs); signed_out "$HOME/.claude"
 SALA_SIGNIN_ALERT=off sw
 [ "$(posts)" = 13 ] && [ "$(calls 'auth status')" = "$n" ] && [ "$(apireqs)" = "$m" ] && [ "$(mreqs)" = "$l" ] && [ "$(stv subscription-1.seen)" = "ok: a Max account" ] && ok "the knob off: nothing asked, nothing posted, the state untouched" || bad "knob off: $(posts) posts, calls $(calls 'auth status') vs $n, state $(stv subscription-1.seen)"
-"$SALA" watch >/dev/null 2>&1   # no master configured: the tick still runs this step before it ends
+"$SALA" watch >/dev/null 2>&1   # the tick still runs this step before it ends
 [ "$(posts)" = 14 ] && has "$(lastpost)" "The Ultra lane is not signed in" && ok "a plain watch tick runs the step" || bad "$(posts) posts after a plain watch: $(lastpost)"
 signed_in "$HOME/.claude" max "someone@example.com's Organization"; sw
 

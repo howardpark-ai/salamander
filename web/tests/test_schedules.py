@@ -1020,7 +1020,7 @@ def _job(name, project, *, lane="none", desc="", plain="every day at 09:00", nxt
 FAKE = {
     "generated": SCH.zone_time(DXB_NOW.timestamp()), "timezone": "Asia/Dubai", "cron": [], "scopes": {"user": True, "system": True},
     "timers": [
-        _job("sala-watch", "projects/demo", lane="subscription-1", desc="Keep the master Claude Code session alive and bridged", plain="every 2 min", last=_at(-1, 8, 15)),
+        _job("sala-watch", "projects/demo", lane="subscription-1", desc="Run the watchdog: the queue, the heals and the post-boot report", plain="every 2 min", last=_at(-1, 8, 15)),
         _job("relay-cache", "projects/misc", lane="none", desc="Relay cache: board items and session links", plain="every 5 min", nxt=_at(1, 8, 15), last=_at(0, 0, 5), state="running", rtext="running now"),
         _job("dusk-run", "projects/shed", lane="api", desc="Nightly cleanup cycle", flags=("not-git",)),
         _job("mint-filters", "projects/misc", desc="Encrypted copy of the state folder", plain="every Sunday at 04:40", state="never", rtext="not yet run since boot"),

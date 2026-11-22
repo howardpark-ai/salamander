@@ -17,7 +17,7 @@ unset TMUX_PANE XDG_STATE_HOME
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, tmux_socket_rm
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null
-as_op_unit   # no master: the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
+as_op_unit   # the guarded verbs this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
 mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/projects/x" "$HOME/.local/bin" "$HOME/.local/share/tmux/resurrect" "$HOME/work"
 touch "$HOME/.claude/salamander-rc.stopped"
 cc -o "$HOME/.local/bin/claude" "$ROOT/tests/fake-claude.c" || { rm -rf "$HOME"; exit 1; }   # the temp HOME goes with this exit (an EXIT trap may not exist yet here)
@@ -53,7 +53,7 @@ workers() { local f n=0; for f in "$HOME"/.claude/salamander-retry*.pid; do [ -s
 regstatus() {  # <tmux session> <status>: what the registry says about that pane's claude
     local c; c=$(claude_pid_under "$(tmux display -p -t "$1" '#{pane_pid}')"); set_reg_status "$c" "$2"; }
 
-echo "== setup: a master and one more pane on the fake claude, both idle, transcripts an hour old"
+echo "== setup: two panes on the fake claude, both idle, transcripts an hour old"
 hand sala-test-m "$UM"; hand sala-test-a "$UA"
 eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux
 age 3600 "$UM" "$UA"
@@ -72,7 +72,7 @@ for cmd in 'echo 5; exit 3' 'echo lots' 'true'; do
     [ "$(launches)" = 0 ] && [ "$(st recycle_wanted_n)" = 0 ] && ok "'$cmd' → 0, nothing launched" || bad "'$cmd': n=$(st recycle_wanted_n), launches=$(launches)"
 done
 
-echo "== 2 board items wait on a busy box (a pane mid-turn, written 1 min ago) → one recycle cued at once, as the master's cue would run it, with one post"
+echo "== 2 board items wait on a busy box (a pane mid-turn, written 1 min ago) → one recycle cued at once, as a session's "recycle claude" would run it, with one post"
 wanted 'echo 2 s1 s2'; fresh_board; age 60 "$UA"; regstatus sala-test-a busy; watch
 [ "$(launches)" = 1 ] && ok "one recycle launched at once, the box not idle" || bad "launches: $(launches) — $(grep auto-recycle "$WLOG" | tail -2)"
 [ "$(st recycle_wanted_n)" = 2 ] && [ "$(st recycle_wanted_ids)" = "s1 s2" ] && ok "count and ids parsed" || bad "parsed: $(st recycle_wanted_n) / $(st recycle_wanted_ids)"

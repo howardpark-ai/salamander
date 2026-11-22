@@ -5,7 +5,7 @@
 #   1. THE RULE, on a table of fake panes (_set_pane_read redefined: session, state, start time), so a fleet of any size costs nothing:
 #      a flag clears when every live pane it waits for has relaunched since its time; a pane that started in the flag's own second, one
 #      with nothing to read, or one not yet back keeps it open; a retired pane does not count (N drops), one gone but still mapped does;
-#      a pane skipped by two recycles clears BOTH flags when it comes back (two ✅ posts, two hook calls); the master's pane is a pane
+#      a pane skipped by two recycles clears BOTH flags when it comes back (two ✅ posts, two hook calls); the invoking pane is a pane
 #      like another; a flag with no live panes at all closes; the open records of the old format are reconciled once (a dry run
 #      first, changing nothing; the old ones close without a post), never closing a flag with a live pane that has not relaunched.
 #   2. THE JOB: a flag raised at 15/20 reads 0/20, the same job relaunches the 15 again, one pointer and one worker; only the job's flag
@@ -91,11 +91,11 @@ pane newborn live $((TT-100)); pane zero live 0; pane blank wait
 set_sync >/dev/null 2>"$HOME/err.txt"
 ! _set_out "$S1b" newborn && _set_out "$S1b" zero && _set_out "$S1b" blank && [ ! -s "$HOME/err.txt" ] && ok "newborn counted; startedAt 0 and an unreadable pane stay out; no error output" || bad "S1b: $(<"$SALA_SET_DIR/$S1b") $(<"$HOME/err.txt")"
 
-echo "== 1c. the master's pane is a pane like another"
+echo "== 1c. the invoking pane is a pane like another"
 reset_sets
-S1c="$((TT-300))-121"; flag "$S1c" 2 1 recycle out=master
-pane master live $((TT-20)); set_sync >/dev/null
-[ "$(set_val "$S1c" closed)" = 1 ] && [ "$(set_val "$S1c" done)" = 2 ] && ok "the master back by its own new process clears the flag" || bad "S1c: $(<"$SALA_SET_DIR/$S1c")"
+S1c="$((TT-300))-121"; flag "$S1c" 2 1 recycle out=self
+pane self live $((TT-20)); set_sync >/dev/null
+[ "$(set_val "$S1c" closed)" = 1 ] && [ "$(set_val "$S1c" done)" = 2 ] && ok "the invoking pane back by its own new process clears the flag" || bad "S1c: $(<"$SALA_SET_DIR/$S1c")"
 
 echo "== 2. a pane skipped by two recycles clears BOTH flags when it comes back: two ✅ posts, two hook calls, 🔄 only for the newest"
 reset_sets

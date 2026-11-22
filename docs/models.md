@@ -13,8 +13,7 @@ session with a model of its own (`rename` moves the row, `retire` drops it), wri
 `models.log`, one line per change, and `model-inplace.tsv`, what a live claude was switched to in place (below). `sala
 model` is the only thing that writes them, and moves the pane the way `sala lane <lane> <session>` does: the row under the
 recycle lock first, then either the in-place switch below or `revive --force --only <session>` (or `revive --self` for the
-invoking pane), with the same guards (a busy pane deferred and retried, `SALA_NO_RELAUNCH` refused, the master's pane when
-a Claude session asks). `--dry-run` writes nothing and relaunches nothing: it prints the row it would record and the path
+invoking pane), with the same guards (a busy pane deferred and retried, `SALA_NO_RELAUNCH` refused). `--dry-run` writes nothing and relaunches nothing: it prints the row it would record and the path
 that applies (*would switch in place* or *would relaunch*, with the reason, then the sweep's verdict). A model id is typed unquoted onto the launch line, so only lowercase letters, digits, dots and
 dashes after `claude-` are taken (a `[1m]` suffix would be a glob to the pane's shell).
 

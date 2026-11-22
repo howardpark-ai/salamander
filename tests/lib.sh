@@ -7,8 +7,8 @@
 #      SALA_EXIT_WAIT    30 → 5   a typed /exit landing (phases: the pane that ignores /exit runs into it)
 #      SALA_EXIT_TERM_WAIT 10 → 3, SALA_EXIT_KILL_WAIT 5 → 3   the wait a claude that ignored /exit gets after SIGTERM, and after SIGKILL
 #                                 (tests/stuckexit.sh; phases.sh turns the step off with SALA_EXIT_END=0 for its pane that ignores /exit)
-#      SALA_RESUME_WAIT  30 → 5   the resumed claude live in its pane (phases and sets-master: the resume that comes up and
-#                                 dies 10 s in is caught inside it, on the one command each that sets 20; sets-master's master
+#      SALA_RESUME_WAIT  30 → 5   the resumed claude live in its pane (phases and sets-self: the resume that comes up and
+#                                 dies 10 s in is caught inside it, on the one command each that sets 20; sets-self's invoking pane
 #                                 registering 6 s in runs past it)
 #      SALA_SELF_WAIT   900 → 20  the self-worker waiting for the invoking pane to go idle (sets sets 3 where it must expire)
 #      SALA_READY_WAIT   90 → 20  a retry worker waiting for a `ready` pane's turn to end
@@ -63,7 +63,7 @@
 #    refuse each pane for a lane mismatch ("runs on the sdk lane but has no lane row") and several suites fail at once. CI's runner carries none of them; this keeps a run from any pane
 #    equal to CI's. A suite that wants one sets it itself, after sourcing this file.
 #
-# 5. THE QUEUE'S CGROUP ("No master session", Thu Oct 15th 2026): with no master configured the guards refuse a
+# 5. THE QUEUE'S CGROUP (Thu Oct 15th 2026): the guards refuse a
 #    fleet verb called by a Claude session (claude_caller in lib/common.sh) and point it to `sala op`, and a suite run from a
 #    Claude session's pane is such a caller. A suite that runs a guarded verb itself on a target that is not sala-test-*
 #    (recycle, revive --force, restore --missing, lane default, provision, adopt, a retire by conversation id) calls

@@ -20,12 +20,12 @@
 #                  stackshot does NOT read it: it merged sala's machine.json until a later release and no longer does; of this store it
 #                  reads only `url` from sessions.json (below). Its own fleet view (clients.py) carries fields sala never writes
 #                  (online, source, setup, updates). No other reader is known; `master` and `master_session` are kept in the file's shape
-#                  and always written as empty strings: there is no master session any more.
+#                  and always written as empty strings (the contract's keys; sala has no such session).
 #                  {"letter","fleet","claude","checked","master","master_session","fleet_ssh"}   checked = ISO-8601 UTC ("Z")
 #                  of the last CHANGE to these facts, not of the last run;
 #                  fleet_ssh = {"<fleet name>": {"letter","ok","since"}} on the driving box, else {}: ok = the box answered
 #                  ssh on the last sweep (online), since = when it last flipped; a box that is offline keeps its last files;
-#                  master and master_session = "" (the master path is retired; the keys stay until the contract's next version)
+#                  `master` and `master_session` = "" (the keys stay until the contract's next version)
 #                  (a "hub" field, the sweep's fast-forward of a Windows box's ops-repo checkout, went with the Windows
 #                  sweep: Thu Oct 15th 2026)
 #   sessions.json  {"<transcript uuid>": {"name","url","seen","machine"}}
@@ -58,7 +58,8 @@
 
 : "${SALA_HEARTBEAT_STATE_DIR:=}"   # LIVE store: a local directory, <dir>/<letter>/{machine,sessions}.json, rewritten on change (the consumer reads it here)
 : "${SALA_HEARTBEAT_REPO:=}"        # optional git checkout the files are also committed into (see SALA_HEARTBEAT_GIT)
-: "${SALA_HEARTBEAT_GIT:=full}"     # what goes into git: full (every file) · master (only this box's master record) · off
+: "${SALA_HEARTBEAT_GIT:=full}"     # what goes into git: full (every file) · off. A config that still says `master` (the retired record-only mode) is read as full
+[ "$SALA_HEARTBEAT_GIT" = master ] && SALA_HEARTBEAT_GIT=full
 : "${SALA_HEARTBEAT_DIR:=}"         # path of the store inside the repo, e.g. ops/board-data
 : "${SALA_HEARTBEAT_LETTER:=}"      # this machine's directory under the store; default: from SALA_FLEET_NAMES
 : "${SALA_HEARTBEAT_NAME:=}"        # this machine's fleet name; default: from SALA_FLEET_NAMES, else hostname
@@ -175,12 +176,6 @@ def publish(letter, machine, sessions):
     docs = {}
     if state: docs[os.path.join(state, letter)] = dumps(machine, sessions)
     if store and gitmode == "full": docs[os.path.join(store, letter)] = dumps(machine, sessions)
-    elif store and gitmode == "master" and letter == E["HB_LETTER"]:
-        # the MASTER RECORD — held in git until the off-box master lookup is settled: who the master
-        # is and its session row, nothing that changes on a quiet day
-        ms = machine.get("master_session") or ""
-        docs[os.path.join(store, letter)] = dumps({k: machine.get(k, "") for k in ("letter", "fleet", "master", "master_session")},
-                                                  {ms: dict(sessions[ms], seen="")} if ms in sessions else {})
     changed = []
     for d, (mtxt, stxt) in docs.items():
         # the path, url and uuid key are a contract with stackshot and reply-links (header, sessions.json)

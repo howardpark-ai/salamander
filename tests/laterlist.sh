@@ -2,7 +2,7 @@
 # The later-relaunch list's limit (Thu Oct 22nd 2026; lib/watch.sh `later_held`, lib/common.sh `later_commands`):
 # a pane on the deferred list that stays held is told again and, past a limit, named in one post. The clock is a fake one: the
 # row's `since` and `told_at` fields are written as hours ago, so no test waits an hour. Checked, against a fake pane whose
-# registry says 'shell' (the turn is over, a background shell runs) and a fake master that watch needs:
+# registry says 'shell' (the turn is over, a background shell runs) and a fake session that watch needs:
 #   - held under an hour: nothing told, nothing posted, no state beyond zeroes in the row;
 #   - held an hour: told again once (the waiting flag raised, the recycle's line pushed to the session's messaging socket and
 #     marked as told so the hook does not say it twice), the count 1 in the row; a second watch tick right after: not again;

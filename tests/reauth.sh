@@ -49,10 +49,10 @@ run Stackshot --done --from example-x
 
 run Stackshot --done --dry-run
 [ "$rc" = 0 ] && [[ $out == *'sala op recycle --force --from <you> --words'* ]] && [ -z "$(ls "$HOME/.local/state/salamander/ops" 2>/dev/null)" ] && ok "--dry-run, no --from: the same line with <you>, nothing queued" || bad "dry-run: rc=$rc $out"
-SALA_CUE_TARGET=sala-test-nomaster-$$ run Stackshot --done --from example-x
+SALA_CUE_TARGET=sala-test-nobody-$ run Stackshot --done --from example-x
 [ "$rc" = 0 ] && [[ $out == *'sala op recycle --force --from example-x'* ]] && ok "a stray SALA_CUE_TARGET changes nothing: the queue line, exit 0" || bad "stray target: rc=$rc $out"
 run --help
-[ "$rc" = 0 ] && [[ $out == *"salamander reauth NAME --done"* ]] && [[ $out == *"queues the forced recycle"* ]] && [[ $out != *master* ]] && [[ $out != *cue* ]] && ok "reauth --help: the queue line, no master or cue" || bad "help: rc=$rc $out"
+[ "$rc" = 0 ] && [[ $out == *"salamander reauth NAME --done"* ]] && [[ $out == *"queues the forced recycle"* ]] && [[ $out != *master* ]] && [[ $out != *cue* ]] && ok "reauth --help: the queue line, no retired verb or cue" || bad "help: rc=$rc $out"
 
 [ "$fail" = 0 ] && echo "reauth: pass" || echo "reauth: FAIL"
 exit $fail

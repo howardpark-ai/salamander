@@ -41,7 +41,7 @@ leaves only when stackshot's next resume writes the file.
 ## What sala does with them
 
 `sala reboot --dry-run` (the acceptance test) and `sala reboot --go` (the real one, only on the owner's word), from the
-master pane:
+pane you run it in:
 
 1. **Pause:** records `T` = now (UTC); runs `pause --at T` on every hook. Any failure → resume all, stop.
 2. **Drain:** waits until every pane except the one running the command is idle (busy ones are held; a pane still busy after the budget

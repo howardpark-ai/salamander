@@ -55,7 +55,7 @@
 #     goes stuck with nothing recreated and no claude -p helper when the marker no longer fits (ids, reason, shape, sender, tmux session back, conversation live elsewhere, row replaced);
 # Usage: bash tests/retire-own.sh   (exit 0 = pass; ~3 min)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_SESSION_ID SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT \
+unset TMUX_PANE XDG_STATE_HOME SALA_SESSION_ID SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT \
       SALA_RELAUNCH_KIND SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH \
       SALA_STACKSHOT_DIR SALA_AGENT_CHECK_SCRIPT SALA_PROJECT_RECORD
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -232,7 +232,7 @@ refuse "the asking session itself (its row names itself)" "is the asking session
 refuse "a name with no row" "has no live registry row under that exact name" "$PO" retire sala-test-ghost --from sala-test-owner
 refuse "the row's id in place of its name" "is not the registry row's own name" "$PO" retire "$(rowq sala-test-own2 id)" --from sala-test-owner
 SALA_MASTER=sala-test-mast enq_as "$PO" retire sala-test-mast --from sala-test-owner
-[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NOWORDS" ] && ok "a SALA_MASTER line left in the config naming it changes nothing: owner's throwaway, queued by its spawner (note '$NOWORDS')" || { bad "retire of the old master's name: rc=$RC — $OUT"; }
+[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NOWORDS" ] && ok "a SALA_MASTER line left in the config naming it changes nothing: owner's throwaway, queued by its spawner (note '$NOWORDS')" || { bad "retire of the name a leftover line holds: rc=$RC — $OUT"; }
 dropall
 enq_as "$PO" rename sala-test-own2 sala-test-renamed --from sala-test-owner
 [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "no --words" && ! has "$OUT" "refused here: " && ok "another verb on owner's own throwaway (rename): still needs words" || { bad "rename: rc=$RC — $OUT"; dropall; }
@@ -418,11 +418,11 @@ refuse "a dead spawner but a name that is no throwaway's" "who is no longer live
 
 echo "== a SALA_MASTER line left in the config opens no door: nobody ends a live spawner's throwaway, a project agent or a side session"
 SALA_MASTER=sala-test-other enq_as "$PX" retire sala-test-own2 --from sala-test-other
-[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "was started by 'sala-test-owner', who is still live" && ok "the session an old config names ends no throwaway of a live spawner" || { bad "old master: rc=$RC queued=$(queued) — $OUT"; dropall; }
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "was started by 'sala-test-owner', who is still live" && ok "the session an old config names ends no throwaway of a live spawner" || { bad "old SALA_MASTER line: rc=$RC queued=$(queued) — $OUT"; dropall; }
 SALA_MASTER=sala-test-other enq_as "$PX" retire sala-test-proj --from sala-test-other
-[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "is a project agent, not a throwaway" && ok "nor a project agent" || { bad "old master, project: rc=$RC queued=$(queued) — $OUT"; dropall; }
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "is a project agent, not a throwaway" && ok "nor a project agent" || { bad "old SALA_MASTER line, project: rc=$RC queued=$(queued) — $OUT"; dropall; }
 SALA_MASTER=sala-test-other enq_as "$PX" retire sala-test-sidey --from sala-test-other
-[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "is a side session" && ok "nor a side session" || { bad "old master, side: rc=$RC queued=$(queued) — $OUT"; dropall; }
+[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "is a side session" && ok "nor a side session" || { bad "old SALA_MASTER line, side: rc=$RC queued=$(queued) — $OUT"; dropall; }
 out=$(spawn sala-test-projnos "$(uuid 104)"); sessions_set sala-test-projnos project=projects/test role=front
 refuse "a no-spawner row with a project and a throwaway name (the name alone is never enough)" "is a project agent, not a throwaway" "$PO" retire sala-test-projnos --from sala-test-owner
 out=$(spawn sala-test-sidenos "$(uuid 105)"); sessions_set sala-test-sidenos side=1
@@ -921,6 +921,6 @@ echo "== the help says it"
 HELP=$("$SALA" op --help 2>&1)
 has "$HELP" "op revive --only NAME… --item board#N --from YOU" && has "$HELP" "--why" && has "$HELP" "SALA_OP_REASON_FROM" && has "$HELP" "format check only" && ok "op --help describes the reason door (format check only, the allow list)" || bad "op --help (revive): $HELP"
 has "$HELP" "throwaway tag" && has "$HELP" "NO words" && ok "op --help describes the exception" || bad "op --help: $HELP"
-has "$HELP" "never with a bypass flag, --keep-web or --id" && has "$HELP" "must confirm NAME is on no agents map" && has "$HELP" "or any session when NAME has no live spawner" && ! has "$HELP" "master" && ok "and its rules: no bypass flag, --keep-web or --id, the older rule for an untagged row, the agents-map check fails closed, no master named" || bad "op --help rules: $HELP"
+has "$HELP" "never with a bypass flag, --keep-web or --id" && has "$HELP" "must confirm NAME is on no agents map" && has "$HELP" "or any session when NAME has no live spawner" && ! has "$HELP" "SALA_MASTER" && ok "and its rules: no bypass flag, --keep-web or --id, the older rule for an untagged row, the agents-map check fails closed, no SALA_MASTER named" || bad "op --help rules: $HELP"
 
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

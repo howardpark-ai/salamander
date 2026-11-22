@@ -84,7 +84,7 @@ Claude Code SessionStart hook (settings.json): {"type": "command", "command": "s
 
 After \`claude update\`:  salamander recycle   (one detached driver, every pane incl. the one you run it from)
 
-Watchdog (the operation queue, the automatic update and recycle, the post-boot report; a master session only if SALA_MASTER names one):
+Watchdog (the operation queue, the automatic update and recycle, the post-boot report):
    cp $ROOT/systemd/sala-watch.{service,timer} ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now sala-watch.timer
 TXT
 

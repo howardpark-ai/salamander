@@ -19,7 +19,7 @@
 # session, page, board item or message is touched.
 # Usage: bash tests/side.sh   (exit 0 = pass; ~60 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
+unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH SALA_SPAWN_REGISTER \
       SALA_AGENT_CHECK SALA_AGENT_CHECK_SCRIPT SALA_SPAWN_ASK_CMD SALA_OP_FROM SALA_OP_WORDS SALA_OP_ID SALA_OP_PLAN SALA_SESSION_ID \
       SALA_SIDE_ITEMS_CMD SALA_SIDE_PAGE_TS_CMD SALA_SIDE_MSG_CMD SALA_BRAIN_DIR SALA_PROJECT_RECORD
@@ -30,7 +30,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 export SALA_SCOPES="example beta gamma" SALA_DEFAULT_SCOPE=gamma
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null SALA_TZ=Etc/UTC
 export SALA_STACKSHOT_WEB=https://board.example.com   # a side session's mandate links its item under this address (empty by default; tests/neutral-defaults.sh checks the empty case)
-as_op_unit   # no master: the retires this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
+as_op_unit   # the retires this suite runs itself stand for the queue's runner (tests/lib.sh, 5)
 mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/projects/x" "$HOME/.local/bin" "$HOME/.local/share/tmux/resurrect" "$HOME/pages/projects" "$HOME/pages/infra" "$HOME/work" "$HOME/brain/projects"
 touch "$HOME/.claude/salamander-rc.stopped"      # no Remote Control server in the sandbox
 mkdir -p "$HOME/.local/share/claude/versions"; cc -o "$HOME/.local/share/claude/versions/9.9.9" "$ROOT/tests/fake-claude.c" || { rm -rf "$HOME"; exit 1; }   # the temp HOME goes with this exit (an EXIT trap may not exist yet here)

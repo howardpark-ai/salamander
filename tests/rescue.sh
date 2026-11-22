@@ -2,7 +2,7 @@
 # The rescue (Wed Oct 14th 2026; lib/revive.sh "THE RESCUE", lib/common.sh lane_out,
 # is_idle_reason and pane_exit under SALA_RESCUE): `lane_out` reading sala's own state (lane_check, the sign-in watch's
 # state, the limit watch's state: a session's own stop decisive, another pane's only for a lane-wide limit), which the lane
-# fallback uses to pick a lane that works; `sala lane --rescue <lane>` (the old rescue of the master) is gone: --rescue is
+# fallback uses to pick a lane that works; `sala lane --rescue <lane>` (the old rescue of one fixed session) is gone: --rescue is
 # only the pane flag, refused without sessions and with --all, and `lane --force` is an unknown option. The stale row: a
 # pane whose /exit opens the exit dialog over
 # rows that are no scheduled task (the fake's FAKE_EXIT_DIALOG, drawn as 2.1.299 draws it) is left alone by a plain relaunch
@@ -14,7 +14,7 @@
 # stubbed to a file; isolated HOME, a private tmux socket, the compiled fake claude. Usage: bash tests/rescue.sh (exit 0 =
 # pass; ~60 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH SALA_MASTER SALA_RESCUE
+unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH SALA_RESCUE
 unset ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, tmux_socket_rm
@@ -72,17 +72,18 @@ signin_state api "wrong: the key is refused (HTTP 401)"
 out=$(lane_out api); [ $? = 0 ] && grep -q 'key is refused' <<< "$out" && ok "the api key refused by the API: api out" || bad "api refused: $out"
 signin_state
 limit_state sala-test-m subscription-2 seven_day
-out=$(lane_out subscription-2 sala-test-m); [ $? = 0 ] && grep -q 'limit watch has sala-test-m stopped on it: Team weekly limit since' <<< "$out" && grep -q 'resets' <<< "$out" && ok "the master's own pane stopped on subscription-2 by the weekly limit: out, named with its reset" || bad "own stop: $out"
+out=$(lane_out subscription-2 sala-test-m); [ $? = 0 ] && grep -q 'limit watch has sala-test-m stopped on it: Team weekly limit since' <<< "$out" && grep -q 'resets' <<< "$out" && ok "a pane's own stop on subscription-2 by the weekly limit: out, named with its reset" || bad "own stop: $out"
 out=$(lane_out subscription-2); [ $? = 0 ] && grep -q 'limit watch has 1 pane stopped on it (sala-test-m): Team weekly limit' <<< "$out" && ok "asked for the lane alone: another pane's lane-wide stop counts" || bad "lane-wide stop: $out"
 lane_out subscription-1 sala-test-m >/dev/null; [ $? = 1 ] && ok "subscription-1: nothing stopped on it, fine" || bad "subscription-1 read as out: $(lane_out subscription-1 sala-test-m)"
 limit_state sala-test-other subscription-2 seven_day_opus
-lane_out subscription-2 sala-test-m >/dev/null; [ $? = 1 ] && ok "another pane stopped by one model's limit (seven_day_opus): not the master's lane going out" || bad "per-model stop of another pane read as out: $(lane_out subscription-2 sala-test-m)"
+lane_out subscription-2 sala-test-m >/dev/null; [ $? = 1 ] && ok "another pane stopped by one model's limit (seven_day_opus): not the lane going out" || bad "per-model stop of another pane read as out: $(lane_out subscription-2 sala-test-m)"
 limit_state sala-test-m subscription-2 seven_day_opus
-out=$(lane_out subscription-2 sala-test-m); [ $? = 0 ] && grep -q 'Team Opus weekly limit' <<< "$out" && ok "the master's own pane stopped by one model's limit: out (its own stop is decisive)" || bad "own per-model stop: $out"
+out=$(lane_out subscription-2 sala-test-m); [ $? = 0 ] && grep -q 'Team Opus weekly limit' <<< "$out" && ok "a pane's own stop by one model's limit: out (its own stop is decisive)" || bad "own per-model stop: $out"
 limit_state sala-test-m api credit
 out=$(lane_out sdk sala-test-m); [ $? = 0 ] && grep -q 'API credit ran out' <<< "$out" && ok "sdk is judged by the api lane's stops (the credit)" || bad "sdk via api: $out"
 limit_state
-[ "$(lanes_working)" = "subscription-1 api subscription-2" ] && ok "lanes_working: subscription-1, api and subscription-2 (bedrock and aws-platform not set up, sdk cannot launch here)" || bad "lanes_working: '$(lanes_working)'"
+w=""; for l in $SALA_LANES_KNOWN; do lane_out "$l" >/dev/null 2>&1 || w="$w$l "; done
+[ "${w% }" = "subscription-1 api subscription-2" ] && ok "lane_out over every known lane: only subscription-1, api and subscription-2 are not out (bedrock and aws-platform not set up, sdk cannot launch here)" || bad "lanes not out: '${w% }'"
 
 echo "== the panes: x a stale dialog, y a live child, z a plain pane, s scheduled rows"
 mk x "$UX" "" -e FAKE_EXIT_DIALOG='shell · sleep 600;subagent · worker'
@@ -93,7 +94,7 @@ fake_up sala-test-x sala-test-y sala-test-z sala-test-s
 
 echo "== sala lane --rescue is only a flag now: refused without sessions and with --all; --force is gone; nothing recorded or relaunched"
 out=$("$SALA" lane --rescue api 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q -- '--rescue needs the sessions it is for' <<< "$out" && ok "lane --rescue <lane> (the old master rescue): refused, the sessions are asked for" || bad "no sessions ($rc): $out"
+[ "$rc" = 1 ] && grep -q -- '--rescue needs the sessions it is for' <<< "$out" && ok "lane --rescue <lane> (the old mode): refused, the sessions are asked for" || bad "no sessions ($rc): $out"
 out=$("$SALA" lane api --all --rescue 2>&1); rc=$?
 [ "$rc" = 1 ] && grep -q 'never --all' <<< "$out" && ok "--rescue with --all: refused" || bad "rescue --all ($rc): $out"
 out=$("$SALA" lane api sala-test-z --force 2>&1); rc=$?

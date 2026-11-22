@@ -4,9 +4,8 @@ How a recycle runs: the one driver rule and the recycle lock, the flags and the 
 
 ## One driver
 `recycle`, and `update` whenever it would recycle this box, run only through the queue: a recycle
-relaunches every pane including the invoking one, and two drivers race the same panes. No pane is exempt, and a
-`SALA_MASTER` line left in a config exempts none (stage 3 of retiring the master: `fleet_guard` replaced `master_guard`, and
-`--not-master` is gone from every verb). A pane that was once the master is an ordinary pane. **The queue holds the rule** (Thu Oct 15th 2026): a call from a
+relaunches every pane including the invoking one, and two drivers race the same panes. No pane is exempt, whatever a config
+says. **The queue holds the rule** (Thu Oct 15th 2026): a call from a
 Claude session — a `claude` process among the caller's ancestors, or a pane that still names itself (`TMUX_PANE`) and runs
 one (`claude_caller`) — is refused and pointed to `sala op <verb> … --from NAME --words "<the owner's words>"` (a verb the
 queue has no shape for yet — `model`, `adopt`, `restore` — is refused with that said); a human's pane shell, a plain

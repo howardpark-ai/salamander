@@ -18,7 +18,7 @@
 # Isolated HOME, a private tmux server started with -f /dev/null, the compiled fake claude, a stub project record (SALA_PROJECT_RECORD); every post lands in a file.
 # Usage: bash tests/unregistered.sh   (exit 0 = pass; ~25 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_RC_SESSION SALA_NO_RELAUNCH SALA_FLEET_HOSTS SALA_UNREGISTERED_CHECK SALA_UNREGISTERED_GRACE SALA_UNREGISTERED_BACKOFF SALA_STACKSHOT_CLIENT
+unset TMUX_PANE XDG_STATE_HOME SALA_RC_SESSION SALA_NO_RELAUNCH SALA_FLEET_HOSTS SALA_UNREGISTERED_CHECK SALA_UNREGISTERED_GRACE SALA_UNREGISTERED_BACKOFF SALA_STACKSHOT_CLIENT
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, tmux_socket_rm
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null SALA_TZ=Etc/UTC
@@ -171,7 +171,7 @@ uw SALA_UNREGISTERED_GRACE=0 SALA_UNREGISTERED_BACKOFF=0
 echo "== e: a plain watch tick runs the step"
 reset
 env SALA_UNREGISTERED_GRACE=0 "$SALA" watch >/dev/null 2>&1
-[ "$(nmiss)" = 1 ] && grep -q "\*$B $HEAD\*" "$POSTS" && ok "a plain tick (no master) posts the missing pane" || bad "plain tick: posts=$(nmiss): $(slurp "$POSTS")"
+[ "$(nmiss)" = 1 ] && grep -q "\*$B $HEAD\*" "$POSTS" && ok "a plain tick posts the missing pane" || bad "plain tick: posts=$(nmiss): $(slurp "$POSTS")"
 
 echo "== f: a record that cannot answer: registry-tag exemptions come before the count, an outage deletes no key, the wording"
 for n in "$B" delta-demo-main; do $T kill-session -t "=$n" 2>/dev/null; done; waitfor "! tmux has-session -t =$B 2>/dev/null && ! tmux has-session -t =delta-demo-main 2>/dev/null" 20

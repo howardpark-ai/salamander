@@ -8,8 +8,8 @@
 #   salamander recycle --when-idle --cancel [ID]               drop one request, or all of them
 #
 # It only records: one marker file per request under $SALA_STATE_DIR/recycle-requests (the time, who asked, why). It
-# never recycles and never needs the master. `sala watch` (lib/watch.sh, AUTO-RECYCLE) starts the recycle the master's
-# cue would at its next run (no whole-box idle wait; a busy pane is skipped and retried once idle),
+# never recycles and never needs a session to be up. `sala watch` (lib/watch.sh, AUTO-RECYCLE) starts the recycle
+# a session's "recycle claude" would at its next run (no whole-box idle wait; a busy pane is skipped and retried once idle),
 # at most once an hour, and clears the markers it served.
 # A request older than 24 h expires with a line in the watch log.
 # TWO GUARDS (Tue Nov 3rd 2026; lib/watch.sh, auto_recycle applies them to a request and to a board flag alike):

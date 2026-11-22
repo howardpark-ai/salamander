@@ -23,7 +23,7 @@
 # verdict holds by construction whether the suite runs from a Claude session's pane or in CI.
 # Usage: bash tests/nomaster.sh   (exit 0 = pass; ~15 s)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
+unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH SALA_BOOT_ID SALA_CONFIG
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, fake_up, tmux_socket_rm; the lane variables unset
@@ -199,22 +199,22 @@ export SALA_BOOT_ID=boot-test-1   # the boot already announced above: a tick on 
 set_master sala-test-a
 : > "$WLOG"; : > "$POSTS"; n0=$(starts "$(uuid 3)")
 "$SALA" watch >/dev/null 2>&1; rc=$?
-P=$(post "master path is retired")
-[ "$rc" = 0 ] && [ "$(posts)" = 1 ] && has "$P" "SALA_MASTER=sala-test-a" && grep -q 'the watchdog no longer keeps, heals or restarts the master' "$WLOG" && [ "$(stv master_retired_warned)" = sala-test-a ] && ok "one tick: exit 0, one post naming the value, one log line, the state key set" || bad "warn tick (rc=$rc): posts $(posts): $(<"$POSTS") / $(<"$WLOG") / $(<"$ST")"
+P=$(post "SALA_MASTER is retired")
+[ "$rc" = 0 ] && [ "$(posts)" = 1 ] && has "$P" "SALA_MASTER=sala-test-a" && grep -q 'SALA_MASTER is retired and ignored' "$WLOG" && [ "$(stv master_retired_warned)" = sala-test-a ] && ok "one tick: exit 0, one post naming the value, one log line, the state key set" || bad "warn tick (rc=$rc): posts $(posts): $(<"$POSTS") / $(<"$WLOG") / $(<"$ST")"
 ! grep -q 'HEAL' "$WLOG" && [ "$(starts "$(uuid 3)")" = "$n0" ] && ok "nothing healed or relaunched for the line" || bad "a heal for the left-over line: $(<"$WLOG")"
 out=$("$SALA" op --plan retire sala-test-a 2>&1); rc=$?
 [ "$rc" = 0 ] && has "$out" "plan: salamander retire sala-test-a" && ! has "$out" "unset" && ! has "$out" "master" && ok "op --plan retire <the left-over line's session>: an ordinary retire, nothing unset first" || bad "plan ($rc): $out"
 out=$("$SALA" retire sala-test-a --dry-run 2>&1); rc=$?
 ! has "$out" "master session" && ! has "$out" "unset" && ok "retire --dry-run <that session>: no master refusal" || bad "retire dry run ($rc): $out"
 "$SALA" watch >/dev/null 2>&1; rc=$?
-[ "$rc" = 0 ] && [ "$(posts)" = 1 ] && [ "$(grep -v NOTIFY "$WLOG" | grep -c 'the watchdog no longer keeps, heals or restarts the master')" = 1 ] && ok "a second tick: no second post, no second log line" || bad "second tick (rc=$rc): posts $(posts) / $(<"$WLOG")"
+[ "$rc" = 0 ] && [ "$(posts)" = 1 ] && [ "$(grep -v NOTIFY "$WLOG" | grep -c 'SALA_MASTER is retired and ignored')" = 1 ] && ok "a second tick: no second post, no second log line" || bad "second tick (rc=$rc): posts $(posts) / $(<"$WLOG")"
 cp "$ST" "$HOME/st.warned"; out=$("$SALA" watch --check 2>&1); rc=$?
-[ "$rc" = 0 ] && has "$out" "SALA_MASTER=sala-test-a is set" && has "$out" "will be removed in a later change" && ! has "$out" "does nothing" && [ "$(tail -1 <<< "$out" | cut -c1-8)" = "healthy:" ] && [ "$(tail -1 <<< "$out" | wc -c)" -le 61 ] && same_file "$ST" "$HOME/st.warned" && [ "$(posts)" = 1 ] && ok "--check: prints the line, exit 0, ends on healthy:, writes no state, posts nothing" || bad "--check with the line ($rc): $out"
+[ "$rc" = 0 ] && has "$out" "SALA_MASTER=sala-test-a is set" && has "$out" "SALA_MASTER is retired and ignored" && ! has "$out" "does nothing" && [ "$(tail -1 <<< "$out" | cut -c1-8)" = "healthy:" ] && [ "$(tail -1 <<< "$out" | wc -c)" -le 61 ] && same_file "$ST" "$HOME/st.warned" && [ "$(posts)" = 1 ] && ok "--check: prints the line, exit 0, ends on healthy:, writes no state, posts nothing" || bad "--check with the line ($rc): $out"
 sed -i '/^master_retired_warned=/d' "$ST"; "$SALA" watch --check >/dev/null 2>&1; [ -z "$(stv master_retired_warned)" ] && ok "--check on a state without the key leaves it without" || bad "--check wrote the key"
 : > "$POSTS"; "$SALA" watch >/dev/null 2>&1   # the key was removed above: this tick says it once more
 [ "$(posts)" = 1 ] && [ "$(stv master_retired_warned)" = sala-test-a ] || bad "re-warn after the key was dropped: posts $(posts), key [$(stv master_retired_warned)]"
 set_master sala-test-b; : > "$POSTS"; "$SALA" watch >/dev/null 2>&1
-P=$(post "master path is retired"); [ "$(posts)" = 1 ] && has "$P" "SALA_MASTER=sala-test-b" && [ "$(stv master_retired_warned)" = sala-test-b ] && ok "a changed value says it again, once" || bad "changed value: posts $(posts): $(<"$POSTS")"
+P=$(post "SALA_MASTER is retired"); [ "$(posts)" = 1 ] && has "$P" "SALA_MASTER=sala-test-b" && [ "$(stv master_retired_warned)" = sala-test-b ] && ok "a changed value says it again, once" || bad "changed value: posts $(posts): $(<"$POSTS")"
 unset_master_line; : > "$POSTS"; "$SALA" watch >/dev/null 2>&1
 [ -z "$(stv master_retired_warned)" ] && [ "$(posts)" = 0 ] && ok "the line emptied: the key dropped, nothing posted" || bad "emptied: key [$(stv master_retired_warned)] posts $(posts): $(<"$POSTS")"
 set_master sala-test-b; : > "$POSTS"; "$SALA" watch >/dev/null 2>&1

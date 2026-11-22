@@ -175,7 +175,7 @@ pkill -P "$KID" 2>/dev/null; kill "$KID" 2>/dev/null; KID=""; rm -f "$HOME/.clau
 
 # ── the ready path end to end: a retry worker, the flag, the Stop hook's empty record, the relaunch ──
 # exit-empty off once a session has started the server: ready_path ends by killing its only session, and the next new-session must
-# not race the server going away (the same failure as tests/sets-master.sh). cleanup kills it.
+# not race the server going away (the same failure as tests/sets-self.sh). cleanup kills it.
 mk() { local n="$1" u="$2"; $T new-session -d -s "sala-test-$n" -c "$HOME" -e FAKE_SESSION_ID="$u" -e FAKE_NAME="$n" -e FAKE_LOG="$FAKE_LOG"; $T set -s exit-empty off; $T send-keys -t "sala-test-$n" 'claude' Enter; }
 ready_path() {  # <pane name> <uuid>
     local n="$1" u="$2" c p n0 out
