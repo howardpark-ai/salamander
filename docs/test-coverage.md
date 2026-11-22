@@ -4538,3 +4538,26 @@ New section `h` of the suite (same isolated HOME, private tmux server, fake clau
 Not checked: that the empty-scan probe is skipped when no key of the watch exists (no process is counted), and a record refresh between two reads of one tick.
 
 The `unregistered` suite has a case `d` for an empty scan, a stale record and ONLY the `unreg_record` key seeded (no `unreg.<name>` key): after the tick the key is still there and nothing is posted, and with a readable record the key goes. The empty-scan probe in `unregistered_tick` counts `unreg_record=*` as a key it could delete; with that pattern dropped from its `held` loop, the probe is skipped, the record is taken as answering, and case `d` fails (it passes with the pattern intact).
+
+### `tests/ledger.sh` +9 checks, `tests/mod.sh` +4, none retired: a running tmux server with no session, and a resume line left unsent (Mon Nov 23rd 2026)
+
+A bare `tmux has-session` (no `-t`) exits 1 on a server that is running but holds no session, which is what tmux.service
+leaves (`exit-empty off`); `restore` and `revive` read that as "no tmux server running". `tmux_server_up` (`lib/common.sh`,
+`tmux list-sessions`) now stands in at `restore`, `revive`, the watch's server check and the wrap-up, continued-in and
+bare-pane ticks. `snapshot.sh` keeps the bare form on purpose (a running server with no session has nothing to save).
+Separately, a resume line typed into a restored pane could sit unsent when the shell (ble.sh) was in multiline mode;
+`resume_send` now looks for the line starting and, when it still sits at the prompt of a shell with no child and no claude
+under it, sends one more Enter (or C-j when the banner shows), at most `SALA_RESUME_SEND_RETRIES` (2) times. A resume that
+does not come up is reported with the last two lines of its pane (`pane_last_line_r`), and `restore` ends with
+`did not come up: <names>`.
+Covered, in `ledger`: the premise (an empty server answers `list-sessions` and a bare `has-session` says 1);
+`restore --missing --dry-run`, `revive` and `restore NAME` on the empty server saying nothing about a missing server and
+doing their work; with no server at all, `tmux_server_up` 1, `restore --missing --dry-run` would refuse, `restore` refused
+and `revive` "nothing to revive"; a restore whose claude refuses to resume: the failure line with the pane's last lines
+(the fake's error above the prompt) and the closing `did not come up: sala-test-b`. In `mod`, with a bash whose Enter is
+bound to a command that logs it and does not accept the line (the stand-in for ble.sh's multiline mode): no banner, a plain
+Enter and then C-j run the line once (two Enters seen); the banner showing, C-j straight away and no second plain Enter;
+`SALA_RESUME_SEND_RETRIES=0` sending nothing more and `pane_last_line_r` reading the sitting line; a line that ran and left
+the shell at its prompt getting no key. About 12 s added to `ledger`, 6 s to `mod`. Not covered, and why: ble.sh itself
+(not installed on the runners; the stand-in reproduces only its effect, an Enter that does not run the line), and the
+watch's server check on an empty server (the same helper; the suites that start no server keep their cases).

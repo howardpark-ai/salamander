@@ -28,7 +28,7 @@ restore_running() { pgrep_mine 'tmux-resurrect/scripts/[r]estore.sh' >/dev/null;
 # session-closed hooks then fire as the panes die, and a save then (with only some sessions left) became `last`,
 # so the boot restored only those. No save between the marker and the reboot: the drain's own snapshot stands (shutting_down: common.sh).
 do_save() {
-    tmux has-session 2>/dev/null || return 0
+    tmux has-session 2>/dev/null || return 0   # bare on purpose, not tmux_server_up: a running server with no session has nothing to save, and an empty save would become `last`
     restore_running && return 0
     shutting_down && return 0
     mkdir -p "$SALA_RESURRECT_DIR"

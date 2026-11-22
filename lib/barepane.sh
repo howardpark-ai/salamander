@@ -58,7 +58,7 @@ bare_tick() {
     [ "${SALA_BARE_REVIVE:-on}" = off ] && return 0
     [ -s "$SALA_SIDECAR" ] || return 0
     on_fleet_server || return 0
-    tmux has-session 2>/dev/null || return 0
+    tmux_server_up || return 0
     if bare_busy; then wlog "bare panes: standing aside — $BARE_BUSY_WHY"; bare_state_reset; return 0; fi
     local k now sess uuid key v first tries last age pp cmd s tbl panes kids i n
     local -A pcount=() pfirst=() hasclaude=() seen=() bfirst=() btries=()

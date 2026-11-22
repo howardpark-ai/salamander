@@ -445,7 +445,7 @@ fi
 CURRENT_BIN=$(readlink -f "$SALA_CLAUDE" 2>/dev/null)
 [ -n "$CURRENT_BIN" ] && [ -x "$CURRENT_BIN" ] || die "claude launcher not found at $SALA_CLAUDE"
 CURRENT_VER=${CURRENT_BIN##*/}
-tmux has-session 2>/dev/null || { echo "no tmux server running; nothing to revive"; exit 0; }
+tmux_server_up || { echo "no tmux server running; nothing to revive"; exit 0; }
 LATEST_SAVE=$(ls -t "$SALA_RESURRECT_DIR"/tmux_resurrect_*.txt 2>/dev/null | head -1)
 
 ANCESTORS=""; p=$$
@@ -921,8 +921,9 @@ verify_pane() {
     resume_wait "$pane" "$uuid" "$SALA_RESUME_WAIT"; rc=$?
     if [ "$rc" != 0 ]; then
         [ "$kind" = claude ] && inbox_release "$uuid" "$hname"
-        if [ "$rc" = 2 ]; then SKIPPED+=("$label: the resume started and died within ${SALA_RESUME_WAIT}s — the pane is back at a shell, the error above its prompt; check manually")
-        else SKIPPED+=("$label: resume didn't start within ${SALA_RESUME_WAIT}s — check manually"); fi
+        local last; pane_last_line_r last "$pane" 2; [ -z "$last" ] || last=" (last lines of the pane: \"$last\")"   # a line still at the prompt, or the error above a fresh one, says why
+        if [ "$rc" = 2 ]; then SKIPPED+=("$label: the resume started and died within ${SALA_RESUME_WAIT}s — the pane is back at a shell, the error above its prompt; check manually$last")
+        else SKIPPED+=("$label: resume didn't start within ${SALA_RESUME_WAIT}s — check manually$last"); fi
         return
     fi
     if [ "$kind" = claude ]; then

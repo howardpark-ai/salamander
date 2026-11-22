@@ -1565,7 +1565,7 @@ if [ "$NO_MASTER" = 0 ] && boot_pending && [ "$BOOT_AGE" -ge "$SALA_BOOT_DEADLIN
 fi
 
 # 1. tmux server
-if ! tmux has-session 2>/dev/null; then
+if ! tmux_server_up; then
     finding "tmux server is down"
     if systemctl --user cat tmux.service >/dev/null 2>&1; then heal server "tmux server down" systemctl --user start tmux.service
     elif [ "$NO_MASTER" = 0 ]; then heal server "tmux server down (no tmux.service)" tmux new-session -d -s "$SALA_MASTER" -c "$(master_dir)"
