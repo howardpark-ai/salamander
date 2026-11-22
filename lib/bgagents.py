@@ -23,9 +23,12 @@ A run, in order:
      first project that is due gets the run's one attempt; the load check comes first and a high load is a skip with nothing taken from the ledger.
   5. The attempt: list the agent (skipped when the project record already has the name, or when this job listed it on an earlier run), then start the
      pane and wait, bounded, for it to be live. A live pane is a start only when it is also PLACED in its project, read three ways (`read_back`): stackshot's
-     project record lists it on the project's agents map as a back agent, roles.json has a live entry for it on the project, and sala's own registry row carries the
-     project and the role back. The three are read again until SALA_BGAGENTS_PLACE_WAIT is up (the record and roles.json are rewritten about every five minutes);
-     a link that disagrees or cannot answer at the deadline fails the attempt (the pane is left running): the reason names the link, the back-off applies, one
+     project record lists it on the project's agents map as a back agent, roles.json has a live entry for it on the project with the role back, and sala's own registry
+     row is the session's own row (the registry also answers a renamed session's old name with the renamed session's row, which is not a placement) and carries the project and the
+     role back. The three are read again until SALA_BGAGENTS_PLACE_WAIT is up (the record and roles.json are rewritten about every five minutes); the registry command is given
+     only the time left to that deadline (at least 5 s for the first read and 1 s for a later one, at most 30 s). A link that disagrees or cannot answer at the deadline fails
+     the attempt (the pane is left running): the reason names the link, the back-off applies, counted from the moment the attempt failed and not from the run's start (the listing, the
+     start and this wait may have used much of it), one
      Slack post (`sala alert`) and, after the attempt, the board item.
   6. After the attempt, at most ONE board item is raised for a project it cannot start (below).
 Failures (each one raises the project's back-off: cooldown, doubled for every failure, up to the cap): a post that failed or timed out (an HTTP 409 and
@@ -412,6 +415,7 @@ def wait_alive(cfg, name):
 # ---- the read-back: is a started session placed in its project? ------------------------------------------------------------------
 
 BACK = "back"
+LOOKUP_MAX, LOOKUP_FIRST, LOOKUP_FLOOR = 30, 5, 1     # the registry command's limit in seconds: at most, at least for the first lookup of a read-back, at least for a later one
 LINKS = ("the record", "roles.json", "sala's row")     # the three places that put a session in its project, in the order they are read
 
 
@@ -464,8 +468,8 @@ def record_link(name, key, role, now):
         return "cannot", "it is unreadable"
 
 
-def roles_link(name, key, now):
-    """Link 2: stackshot's roles.json (SALA_ROLES_FILE, the file sala's Overview Role column and the lane rules read) has a LIVE entry for NAME that names KEY. -> ("ok" | "no" | "cannot", detail)."""
+def roles_link(name, key, role, now):
+    """Link 2: stackshot's roles.json (SALA_ROLES_FILE, the file sala's Overview Role column and the lane rules read) has a LIVE entry for NAME that names KEY and carries ROLE. -> ("ok" | "no" | "cannot", detail)."""
     path = os.environ.get("SALA_ROLES_FILE") or os.path.join(os.path.expanduser("~"), ".local", "state", "stackshot", "roles.json")
     d, why = _fresh_json(path, env_num("SALA_ROLES_FILE_MAX_AGE", 1800), now)
     if d is None:
@@ -476,14 +480,17 @@ def roles_link(name, key, now):
     ent = sessions.get(name)
     if not isinstance(ent, dict) or ent.get("retired") is True or _page_id(ent.get("project")) != _page_id(key):
         return "no", ""
+    if ent.get("role") != role:
+        return "no", "as a %s agent" % role
     return ("ok", "") if ent.get("live") is True else ("no", "as a live session")
 
 
-def row_link(cfg, name, key, role):
-    """Link 3: sala's own registry row for NAME (`sessions resolve NAME --live --json`, the liveness command) carries project KEY and role ROLE. -> ("ok" | "no" | "cannot", detail)."""
+def row_link(cfg, name, key, role, limit=LOOKUP_MAX):
+    """Link 3: sala's own registry row for NAME (`sessions resolve NAME --live --json`, the liveness command) is NAME's own row and carries project KEY and role ROLE. The command also
+    matches a renamed session's old name (the row it answers is the renamed session's), so the row's own name must be NAME. LIMIT: the seconds the command may take. -> ("ok" | "no" | "cannot", detail)."""
     if not cfg["alive_cmd"]:
         return "cannot", "there is no registry command"
-    rc, out, _ = run_split(cfg["alive_cmd"] + [name, "--live", "--json"], 30)
+    rc, out, _ = run_split(cfg["alive_cmd"] + [name, "--live", "--json"], limit)
     if rc == 1:
         return "no", "as a live session"
     if rc != 0:
@@ -494,6 +501,8 @@ def row_link(cfg, name, key, role):
         return "cannot", "its answer is unreadable"
     if not isinstance(row, dict):
         return "cannot", "its answer is unreadable"
+    if row.get("name") != name:
+        return "no", "under its own name (that name belongs to a renamed session)"
     if _page_id(row.get("project")) != _page_id(key):
         return "no", ""
     return ("ok", "") if row.get("role") == role else ("no", "as a %s agent" % role)
@@ -516,8 +525,12 @@ def read_back(cfg, name, key, role=BACK):
     roles.json are rewritten about every five minutes, a fresh start is on neither at once) and it fails only then; a link that cannot answer (missing, stale, unreadable) is a miss, never
     a pass. The one place this lives: a spawn or rename read-back asks the same question."""
     deadline = time.monotonic() + cfg["place_wait"]
+    first = True
     while True:
-        res = (record_link(name, key, role, fresh_now()), roles_link(name, key, fresh_now()), row_link(cfg, name, key, role))
+        # the registry command is bounded by the time left to the deadline (a slow last lookup must not run past SALA_BGAGENTS_PLACE_WAIT), never above its own maximum and never below a floor
+        limit = min(LOOKUP_MAX, max(LOOKUP_FIRST if first else LOOKUP_FLOOR, deadline - time.monotonic()))
+        first = False
+        res = (record_link(name, key, role, fresh_now()), roles_link(name, key, role, fresh_now()), row_link(cfg, name, key, role, limit))
         bad = [(LINKS[i], r[0], r[1]) for i, r in enumerate(res) if r[0] != "ok"]
         if not bad:
             return 0, ""
@@ -542,7 +555,8 @@ def backoff(failures, cfg):
 
 
 def fail(e, key, why, cfg, now, log, led, counts_attempt=False, plain=""):
-    """A project failure: the back-off grows. counts_attempt: a failure the job only observed (relisted, still listed) is one more attempt too, so a project
+    """A project failure: the back-off grows, counted from NOW. Pass the time of the failure itself (`fresh_now()`) where the failure comes after a wait (a post, a start, the read-back:
+    minutes can have gone since the run began), the run's start where the project is only observed. counts_attempt: a failure the job only observed (relisted, still listed) is one more attempt too, so a project
     that never settles is given up like one that never starts. plain: the same failure in one everyday sentence, kept for the board item (last_plain)."""
     if counts_attempt:
         e["attempts"] += 1
@@ -599,7 +613,7 @@ def attempt(cfg, key, prefix, e, now, log, led):
     else:
         ok, created, why, plain = post_agent(cfg, key, name)
         if not ok:
-            fail(e, key, "listing %s failed: %s" % (name, why), cfg, now, log, led, plain=plain)
+            fail(e, key, "listing %s failed: %s" % (name, why), cfg, fresh_now(), log, led, plain=plain)
             return False
         if created:
             e["created"] = True
@@ -621,7 +635,7 @@ def attempt(cfg, key, prefix, e, now, log, led):
             # live is not registered: the pane is left running and the start is NOT counted; the back-off applies as for any failed attempt, and the miss is told once per attempt
             # (the Slack post here, the board item after the attempt), never once per poll of the read-back
             e["awaiting_record"], e["unplaced"] = False, reason
-            fail(e, key, reason, cfg, now, log, led, plain=reason[0].upper() + reason[1:] + ".")
+            fail(e, key, reason, cfg, fresh_now(), log, led, plain=reason[0].upper() + reason[1:] + ".")
             alert(cfg, reason, log)
             return False
         e.update(started_at=now, awaiting_record=False, retire_needed=False, unplaced="", last="started", last_at=now)
@@ -630,7 +644,7 @@ def attempt(cfg, key, prefix, e, now, log, led):
         return False
     e["awaiting_record"] = False
     why = "the start of %s %s" % (name, "timed out" if rc == 124 else ("failed (exit %d: %s)" % (rc, last_line(out, 100))) if rc != 0 else "did not come up (spawn said it was up, but it is not live)")
-    fail(e, key, why, cfg, now, log, led, plain="Starting the agent's session took too long." if rc == 124 else
+    fail(e, key, why, cfg, fresh_now(), log, led, plain="Starting the agent's session took too long." if rc == 124 else
          ("The agent's session could not be started." if rc != 0 else "The agent's session started but did not stay up."))
     if e["created"] and not e["retired"]:
         needed = retire_own_agent(key, name, e, log)
@@ -848,8 +862,10 @@ def unsure(r, cfg):
 
 
 def pending(e):
-    """An agent this job listed whose pane it has not started yet: the want list no longer shows such a project (its agent is on the map), so the ledger drives it."""
-    return bool(e["posted_at"] and not e["started_at"] and not e["retired"])
+    """An agent whose pane the job has not started (counted) yet: the want list no longer shows such a project (its agent is on the map), so the ledger drives it. Either this job listed
+    the agent (`posted_at`), or the agent was already on the map and its pane came up but was not placed in its project (`unplaced`: no listing was made, so `posted_at` stays 0, yet the
+    entry still owes its board item and its next attempt)."""
+    return bool((e["posted_at"] or e["unplaced"]) and not e["started_at"] and not e["retired"])
 
 
 class NullLog:
