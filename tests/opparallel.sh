@@ -358,6 +358,19 @@ tablecheck() {  # <file> <expected first-column names…> → whole lines (two o
     awk -F'\t' 'NF < 2 || NF > 3 || $1 == "" || seen[$1]++ {bad = 1} END {exit bad}' "$f" 2>/dev/null || return 1
     [ "$(cut -f1 "$f" | LC_ALL=C /usr/bin/sort | paste -sd, -)" = "$want" ]
 }
+# the project record's side of a rename round: the rename is decided from the record (common.sh rename_record_plan), so the round's OLD name is on
+# projects/foo's agents map while it runs and gone after; the file is replaced whole (tmp + mv) with a fresh `generated`, as stackshot rewrites it
+rec_agent() {  # add|del <name>
+    python3 -I - "$HOME/projects.json" "$1" "$2" <<'PY'
+import datetime, json, os, sys
+p, how, name = sys.argv[1:4]; d = json.load(open(p))
+d["generated"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+ag = d["projects"]["prj_example"]["agents"]
+if how == "add": ag[name] = {"front": True, "role": "x", "mandate_line": "a round's agent"}
+else: ag.pop(name, None)
+json.dump(d, open(p + ".tmp", "w")); os.replace(p + ".tmp", p)
+PY
+}
 round() {  # <n> <with a rename: 0|1> — the fixtures, the operations, the wait, the checks; sets RFAIL
     local n=$1 four=$2 A B R S S2 UR US IDA IDB IDR IDS ops mx cap=3 id verb other
     A="ptest-a$n"; B="ptest-side-b$n"; R="sala-test-r$n"; S="gamma-foo-s$n"; S2="gamma-foo-t$n"; UR=$(uuid $((100 + n))); US=$(uuid $((200 + n)))
@@ -366,7 +379,7 @@ round() {  # <n> <with a rename: 0|1> — the fixtures, the operations, the wait
     ledger_write add "$R" "$UR" "$R" "$HOME/work"; lane_write "$R" subscription-1; model_write "$R" opus high
     if [ "$four" = 1 ]; then
         hand "$S" "$US"; fake_up "$S" || { bad "round $n: the rename target did not come up"; return; }
-        setname "$S" "$S2"; ledger_write add "$S" "$US" "$S" "$HOME/work"; lane_write "$S" subscription-1; model_write "$S" sonnet; cap=4
+        rec_agent add "$S"; setname "$S" "$S2"; ledger_write add "$S" "$US" "$S" "$HOME/work"; lane_write "$S" subscription-1; model_write "$S" sonnet; cap=4
     fi
     local KEEP=sala-test-c1,sala-test-c2,sala-test-h   # what the map holds again once the round's own sessions are gone
     local LANES_BEFORE MODELS_BEFORE; LANES_BEFORE=$(grep -E "^sala-test-(h|c1|c2)${T_}" "$SALA_LANES" | paste -sd'|' -); MODELS_BEFORE=$(grep -E "^sala-test-(h|c1|c2)${T_}" "$SALA_MODELS" | paste -sd'|' -)
@@ -449,7 +462,8 @@ PY
     [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $A")" = 2 ] && [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $B")" = 0 ] || { ok_ops=0; bad "round $n: pages.py calls for the spawns: $(grep -E "$A|$B" "$HOME/pages-calls.txt" | paste -sd'|' -)"; }
     if [ "$four" = 1 ]; then
         [ "$(lines_of "$HOME/client-calls.txt" "post project-agent-rename projects/foo $S $S2")" = 1 ] || { ok_ops=0; bad "round $n: the stackshot client: $(grep -E "$S" "$HOME/client-calls.txt")"; }
-        [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $S2")" -ge 1 ] || { ok_ops=0; bad "round $n: pages.py was not asked for $S2"; }
+        # the record decided (the entry was on it, the new name was not): pages.py is not asked about either name
+        [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $S2")" = 0 ] && [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $S")" = 0 ] || { ok_ops=0; bad "round $n: pages.py was asked about the rename: $(grep -E "$S|$S2" "$HOME/pages-calls.txt" | paste -sd'|' -)"; }
     fi
     ! awk '$0 !~ /^(resolve [a-z\/-]+|agent-listed [a-z0-9-]+)$/ {bad = 1} END {exit !bad}' "$HOME/pages-calls.txt" || { ok_ops=0; bad "round $n: a torn line in the pages.py log: $(grep -vE '^(resolve [a-z/-]+|agent-listed [a-z0-9-]+)$' "$HOME/pages-calls.txt" | head -3)"; }
     # the resurrect saves: never two at once
@@ -465,6 +479,7 @@ PY
     [ "$ok_ops" = 1 ] && RFAIL=0 || RFAIL=1
     # leave the fleet as it was before the round's fixtures: the spawned sessions go, with their rows
     for id in "$A" "$B" ${four:+$S2}; do $T kill-session -t "=$id" 2>/dev/null; ledger_write retire "$id" >/dev/null 2>&1; lane_drop "$id"; model_drop "$id"; done
+    [ "$four" = 0 ] || rec_agent del "$S"
     [ "$(cut -f1 "$MAP" | LC_ALL=C /usr/bin/sort | paste -sd, -)" = "$KEEP" ] || RFAIL=1
 }
 RFAILS=0

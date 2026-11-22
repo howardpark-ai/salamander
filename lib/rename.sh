@@ -7,9 +7,10 @@
 # pane→conversation map revive resumes from, and SALA_MASTER keep the old one, so the next revive brings the pane back
 # under it. Renames are the master's (sala owns
 # the whole rename, names inside gbrain and the board are stackshot's). In order:
-#   0. NEW not on its project's page: sala has stackshot rename OLD's entry there in place (`post project-agent-rename`, label sala-rename), after the refusals of step 1
+#   0. OLD on a project's agents map and NEW on none, as stackshot's project record says (the record alone decides, no pages.py; common.sh rename_record_plan): sala has stackshot rename OLD's entry there in place (`post project-agent-rename`, label sala-rename), after the refusals of step 1
 #      have passed. The entry keeps its line, place and side; the server decides. A refusal (NEW
-#      already listed, OLD not listed, not the form, a bad prefix) stops the rename with stackshot's reason and nothing renamed. A pane
+#      already listed, OLD not listed, not the form, a bad prefix) stops the rename with stackshot's reason and nothing renamed. NEW already listed, or OLD on no
+#      map (a scratch pane), is no call; a record that cannot answer (stale, missing, unreadable) refuses the rename with its reason, nothing renamed, but --sync goes on and says it on stderr. A pane
 #      whose status cannot be read is unknown, not busy: it goes ahead.
 #   0b. OLD a SIDE SESSION (a record in $SALA_STATE_DIR/side/; common.sh, THE SIDE SESSIONS) renamed to an agent name: it is on no page's agents
 #      map, so there is no entry to rename. A NEW its project does not list is listed as a new front agent through `post project-agent` (label
@@ -63,7 +64,7 @@ if [ "${1:-}" = --sync ]; then
         [ "$age" -ge 60 ] || continue
         re_escape_r sess_re "$sess"; pgrep_mine "bin/(sala|salamander) rename $sess_re " >/dev/null && continue   # this instance's renames only (common.sh)
         [ "$(awk -F= -v k="$uuid" '$1==k {print substr($0, length(k)+2); exit}' "$AST")" = "$name" ] && continue
-        unl=$(agent_unlisted "$name") || unl=""
+        unl=""; rename_record_plan "$sess" "$name" && unl="'$name' is on no project's agents map, and '$sess' is on $RL_HUB's: that entry keeps the old name until it is renamed there (stackshot: project-agent-rename)."
         out=$(SALA_RENAME_SYNC=1 "$SALA_BIN" rename "$sess" "$name" 2>&1); rc=$?
         if [ "$rc" = 4 ]; then   # not in the pane map (below): a throwaway session renamed in its own pane is its own business
             { grep -v "^$uuid=" "$AST"; echo "$uuid=$name"; } > "$AST.tmp.$$" && mv -f "$AST.tmp.$$" "$AST"
@@ -170,10 +171,17 @@ if [ "${SALA_RENAME_SYNC:-}" != 1 ]; then
             rename_side_plan "$OLD" "$NEW" || die "$RL_WHY"
             SDL=1
         fi
-    elif why=$(agent_unlisted "$NEW"); then
-        rename_list_plan "$why" || die "$why (sala could not rename the page entry either: $RL_WHY)"
-        RL=1
+    else
+        # THE PROJECT RECORD DECIDES (common.sh rename_record_plan; no pages.py): OLD on a project's agents map and NEW on none → stackshot renames the
+        # entry; NEW listed, or OLD on no map (a scratch pane) → nothing to rename; a record that cannot answer → refused, nothing renamed
+        rename_record_plan "$OLD" "$NEW"; rrc=$?
+        case "$rrc" in
+            0) RL=1 ;;
+            1) die "rename refused, nothing renamed: stackshot's project record cannot say whether '$OLD' has an entry on a project's agents map ($RL_WHY), so sala cannot tell whether an entry needs renaming; try again once stackshot has rewritten the record (a few minutes)" ;;
+        esac
     fi
+else   # a hand rename (--sync) is followed, never refused: a record that cannot answer is said on stderr and the rename goes on; sync never calls stackshot
+    rename_record_plan "$OLD" "$NEW" || [ "$?" != 1 ] || echo "ℹ stackshot's project record cannot say whether '$OLD' has an entry on a project's agents map ($RL_WHY): the hand rename is followed, its entry (if any) is not renamed" >&2
 fi
 
 have_claude() { cpid=$(claude_pid_under "$(tmux display -p -t "$pane" '#{pane_pid}')" || true); [ -n "$cpid" ]; }

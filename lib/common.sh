@@ -1141,8 +1141,8 @@ agent_unlisted() {
 # Now the rename asks stackshot for the in-place rename of OLD's entry: `client.py post project-agent-rename <project> OLD NEW --sender
 # sala-rename` (the New session form's gate: the label in stackshot's [project_agent] form_senders, honored from this box only, form_machines).
 # The server keeps the entry's mandate, line, place in the map and front/background side, and writes the page through gbrain; sala keeps
-# none of that and copies nothing. The project is the hub page pages.py's refusal names (both its wordings: "(the page whose `display-name:`
-# …" and the older "(steward …"). Outcomes of the call: exit 0 with JSON `result` "renamed" (done) or "already renamed" (OLD gone, NEW listed:
+# none of that and copies nothing. The project is the key the project record gives for OLD (rename_record_plan, below; since the record decides, the
+# pages.py refusal text it was once read from is no longer asked). Outcomes of the call: exit 0 with JSON `result` "renamed" (done) or "already renamed" (OLD gone, NEW listed:
 # done only for a rename sala itself started, a retry after a lost reply; the server keeps no record of OLD, so a mistyped OLD with an existing
 # NEW answers the same; sala remembers what it started in $SALA_RENAME_MARK and refuses an "already renamed" it cannot match to one); exit 1
 # with the reason on stderr (409 NEW already listed or another project's, 404 OLD not listed, 403 not the form, 400 prefix / ambiguous slug /
@@ -1162,12 +1162,6 @@ rename_mark_add() {  # <OLD> <NEW> → remember that sala started this rename (o
     local t="$SALA_RENAME_MARK.$$"; mkdir -p "$(dirname "$SALA_RENAME_MARK")" 2>/dev/null
     { [ -r "$SALA_RENAME_MARK" ] && awk -F'\t' -v min="$(( $(date +%s) - 259200 ))" '$1+0 >= min' "$SALA_RENAME_MARK"; printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$2"; } > "$t" 2>/dev/null \
         && mv -f "$t" "$SALA_RENAME_MARK" 2>/dev/null || rm -f "$t"; true
-}
-# rename_list_plan <the refusal agent_unlisted printed> → rc 0: RL_HUB is the project (its hub page); rc 1: RL_WHY says why sala cannot name it
-rename_list_plan() {
-    local re='is not under `agents:` on ([^ ]+) \((the page|steward)'; RL_HUB="" RL_WHY=""
-    [[ $1 =~ $re ]] || { RL_WHY="the check named no page to rename it on"; return 1; }
-    RL_HUB=${BASH_REMATCH[1]}
 }
 # rename_list_run <OLD> <NEW> → rc 0: RL_RESULT ("renamed" | "already renamed") and RL_DETAIL (side, role and line the server answered) · rc 1: RL_WHY, nothing renamed
 rename_list_run() {
@@ -1459,7 +1453,7 @@ agent_listed_on() {  # <name> <page key> → 0 listed on that page (its mandate 
 # keeper, agents: {<name>: {front, role, mandate_line[, page_owed][, keeper]}}}}, "by_key": {<page key>: <id>}}), rewritten every few minutes
 # (`keeper` stays an agent name; the keeper is a mark on one agent, `keeper: true` on its entry, and a project record may also carry keeper_agent and
 # keeper_source, optional fields sala does not require), so a spawn on the coordinator machine reads a file: no token, no HTTP. It is the FIRST source of the project spawn's agents-map check and of
-# agent_unlisted (plain spawn, rename); pages.py (above) is the fallback when the record cannot answer (missing, unreadable,
+# agent_unlisted (plain spawn; a rename's decision is the record alone, rename_record_plan); pages.py (above) is the fallback when the record cannot answer (missing, unreadable,
 # another schema, older than SALA_PROJECT_RECORD_MAX_AGE, no such project). An agent with `page_owed: true` was registered
 # through `client.py post project-agent` and its page line is still owed: for a spawn that registration is the point, so it
 # counts as listed (the note says the line is owed).
@@ -1467,7 +1461,7 @@ agent_listed_on() {  # <name> <page key> → 0 listed on that page (its mandate 
 : "${SALA_PROJECT_RECORD_MAX_AGE:=600}"    # seconds: the contract says a reader treats an older file as stale (stackshot rewrites it every 5 minutes)
 : "${SALA_ROLES_FILE_MAX_AGE:=1800}"       # seconds: an older file answers nothing (stackshot rewrites it every few minutes)
 project_record_agent() {  # <page key, or empty for any project> <name> [front|back to check] → rc 0 listed (stdout line 1: the mandate line, line 2: the project's -main agent or empty) · 3 the project is in the record and the name is not on its agents map, or (no page key given) the name is on no project of a fresh record (line 1 the why, line 2 the -main agent, empty for no key) · 5 listed with the other role (the why) · 1 the record cannot answer (the why)
-    [ -r "$SALA_PROJECT_RECORD" ] || { echo "no project record at $SALA_PROJECT_RECORD"; return 1; }
+    [ -r "$SALA_PROJECT_RECORD" ] || { if [ -e "$SALA_PROJECT_RECORD" ]; then echo "the project record at $SALA_PROJECT_RECORD is not readable"; else echo "no project record at $SALA_PROJECT_RECORD"; fi; return 1; }
     local out rc
     out=$(python3 -I - "$SALA_PROJECT_RECORD" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" "$2" "${3:-}" 2>&1 <<'PY'
 import datetime, json, sys
@@ -1505,6 +1499,49 @@ PY
 ); rc=$?
     case "$rc" in 0|3|5) printf '%s\n' "$out"; return "$rc" ;; esac
     _lastline "$out"; return 1
+}
+# rename_record_plan <OLD> <NEW> → what `sala rename` does about OLD's entry on its project, decided from the project record ALONE (no pages.py:
+# its "no project page for this name" answer, exit 0, read as "listed", is how a rename of a listed agent once left its entry under the old name).
+# Asks `project_record_agent "" OLD` and `project_record_agent "" NEW`, both of ONE copy of the record (stackshot rewrites the file every few minutes: two reads
+# of it could mix two snapshots):
+#   rc 0  OLD is on a project's agents map and NEW is on none of a fresh record: RL_HUB is that project's key, as the record gives it (the hub page
+#         `post project-agent-rename` takes); the rename asks stackshot to rename the entry
+#   rc 2  nothing to rename, RL_WHY says why: NEW is already listed (the entry is there), OLD is on no project (a scratch pane has no entry), NEW is
+#         exempt from the check (a sala-test-* or *-side-* name, SALA_AGENT_CHECK=off), or there is no stackshot on this box (no record file AND no client.py:
+#         sala runs without it, docs/running-without-stackshot.md)
+#   rc 1  the record cannot answer (missing, an existing file that cannot be read, another schema, stale): RL_WHY is the record's reason; the caller refuses, nothing renamed
+# A side session's rename (OLD a side session, NEW an agent name) is decided elsewhere (lib/rename.sh, rename_side_plan) and never comes here.
+rename_record_plan() {
+    local old=$1 new=$2 snap rc
+    RL_HUB="" RL_WHY=""
+    [ "${SALA_AGENT_CHECK:-on}" = off ] && { RL_WHY="SALA_AGENT_CHECK=off"; return 2; }
+    case "$new" in sala-test-*|*-side-*) RL_WHY="'$new' is never checked (a test or side session name)"; return 2 ;; esac
+    # no stackshot on this box = no record file AND no client (an existing record that cannot be read is the record's own refusal, below)
+    if [ ! -e "$SALA_PROJECT_RECORD" ] && ! stackshot_client >/dev/null; then RL_WHY="no stackshot on this box (no project record, no client.py)"; return 2; fi
+    # ONE copy of the record for both names: stackshot rewrites the file every few minutes, and two reads of it could straddle a rewrite
+    # (OLD from one snapshot, NEW from the next) and plan a rename neither snapshot supports. A copy that cannot be made leaves the file itself,
+    # whose own reading then gives the reason.
+    snap=$(mktemp "${TMPDIR:-/tmp}/sala-rename-record.XXXXXX" 2>/dev/null) || snap=""
+    if [ -n "$snap" ] && cp -- "$SALA_PROJECT_RECORD" "$snap" 2>/dev/null; then
+        SALA_PROJECT_RECORD=$snap _rename_record_plan_read "$old" "$new"; rc=$?
+    else
+        _rename_record_plan_read "$old" "$new"; rc=$?
+    fi
+    [ -z "$snap" ] || rm -f -- "$snap"
+    return "$rc"
+}
+_rename_record_plan_read() {  # <OLD> <NEW> → rename_record_plan's answer from the record SALA_PROJECT_RECORD names (one file, so one snapshot)
+    local old=$1 new=$2 o orc n nrc
+    o=$(project_record_agent "" "$old"); orc=$?
+    n=$(project_record_agent "" "$new"); nrc=$?
+    if [ "$orc" = 1 ] || [ "$nrc" = 1 ]; then RL_WHY=$(_lastline "$([ "$orc" = 1 ] && echo "$o" || echo "$n")"); return 1; fi
+    n=$(printf '%s\n' "$n" | sed -n 1p)   # line 1 only: "listed on <key>"
+    o=$(printf '%s\n' "$o" | sed -n 1p)
+    [ "$nrc" != 0 ] || { RL_WHY="'$new' is already on the agents map of ${n#listed on }"; return 2; }
+    [ "$orc" = 0 ] || { RL_WHY="'$old' is on no project's agents map: there is no entry to rename"; return 2; }
+    RL_HUB=${o#listed on }
+    [ -n "$RL_HUB" ] && [ "$RL_HUB" != "$o" ] || { RL_HUB=""; RL_WHY="the project record gave no project key for '$old' ($o)"; return 1; }
+    return 0
 }
 # sala_notify <message> — out-of-band word to the human (Slack, etc). Every unattended failure uses
 # it: a driver that only writes its log is a failure nobody sees.
