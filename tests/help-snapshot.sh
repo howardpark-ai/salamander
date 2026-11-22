@@ -31,7 +31,7 @@ trap 'rm -rf "${GEN_T:-}"; rm -f "${new:-}" "${tmp:-}"' EXIT
 SNAP=${HELP_SNAPSHOT_FILE:-$HERE/tests/help-snapshot.txt}
 
 # the verbs whose help call is safe (prints text, does nothing else), each as the words before --help
-PROBES=("lane" "model" "reauth" "question" "resume-answer" "recycle" "recycle --when-idle" "revive" "op" "restore"
+PROBES=("lane" "model" "reauth" "question" "resume-answer" "recycle" "recycle --when-idle" "revive" "op" "restore" "sleep" "wake"
         "note" "notice" "sdk-pane" "rc" "settings-apply" "side" "sessions" "job" "ci-runs" "codex-review" "mq" "alert" "mockup" "dm" "bg-agents" "box")
 
 generate() {
