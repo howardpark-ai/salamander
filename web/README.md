@@ -1535,6 +1535,16 @@ ended). The app makes the session on demand instead of a user unit: a unit is no
 copy by hand), and would not bring the session back after a tmux server restart; making it on demand needs nothing outside
 the checkout.
 
+**Where the session is made.** Three places, one function (`tmuxio.ensure_shell_session`), and only for the one configured name:
+(1) **when sala-web starts** (`app.bring_up_shell`, from the lifespan), once, when a tmux server already answers on the app's socket; a
+failure is printed to stderr and never stops the app, and with no tmux server nothing is made (the session would start a bare server
+ahead of sala's own restore of the sessions), so a host that was just moved has its Shell as soon as sala-web is restarted after the
+sessions are back; (2) **each time the drawer opens** (`POST /api/shell/open`, above), which also brings back a Shell that ended while the
+app ran; (3) **when the full-size page opens the Shell** (`/terminal?arg=<SALA_SHELL_SESSION>`, *Copy in the Terminal tab* below, where the full-size page is described): its script
+posts the same call before it sets the frame's address. The Shell is no Claude session, so no revive, restore or pane map brings it back:
+without these it would exist only after the drawer was opened once, and a bookmark or a restored tab would meet ttyd's
+`No tmux session named "<name>"`. `sala-web-ttyd-attach` never makes a session, whatever the name it is given.
+
 **The face.** ttyd 1.7.7's own face (13px, "Consolas,Liberation Mono,Menlo,Courier,monospace") has no Korean glyphs, so every terminal
 frame draws in **D2Coding 14px**, the file the pages themselves load (`static/fonts/D2Coding-Regular.woff2`): the Shell drawer, the
 Terminal tab (Claude session panes) and `terminal.html` for any session. `hookTerminalFont` (`static/termclip.js`, called by
@@ -1608,6 +1618,8 @@ refuse it. Stackshot's session sync reads the registry of Claude sessions, not t
 the phone sheet), `tests/test_terminal_shell_font.py` (the face and the key log: the source, a fake term, and the real ttyd: the font loads,
 the cell is 7px, a Korean letter is two columns, the pane is told the size, real key events reach the log, the Terminal tab is untouched),
 `tests/test_shell_keylog.py` (the endpoint: every field checked, a typed character dropped, the 0600 file and its cap),
+`tests/test_shell_start.py` (the app makes the session when it starts: once, only when a tmux server answers, a failure never stops it; a real private tmux server)
+and `tests/test_shell_open_on_terminal_page.py` (the full-size page opens the Shell before it loads the frame, bounded, and for no other session),
 `tests/test_prefs.py` and `tests/test_header_layout.py`; sala's side in `tests/smoke.sh`.
 
 ## The screen's height
@@ -1886,7 +1898,11 @@ What open browser windows see:
   **Three views have it:** the Terminal tab, the Shell drawer, and the **full-size page** (`GET /terminal?arg=<tmux session>`,
   `static/terminal.html` and `terminal.js`): ttyd's page in a frame that fills the window, hooked like the other two. The drawer's
   "Open full size" link and the old `/?arg=<session>` links (a redirect to `/terminal?arg=...`) open it, in place of ttyd's bare
-  `/tty/` page, which has none of this code. The proxy sends only `/tty` to ttyd and everything else, `/terminal` included, to the
+  `/tty/` page, which has none of this code. When `?arg` is the Shell session (`api/config` `shellSession`) the page first posts
+  `POST api/shell/open`, the drawer's call, and sets the frame's address when it has answered (a bookmark, a restored tab or an old link
+  comes here without the drawer ever opening, and ttyd attaches only to a session that exists); it waits at most 8 s, and loads the frame
+  whatever the answer (a refused or lost call changes nothing but ttyd's own message in the frame). Any other `?arg` is attached as it is:
+  the page never makes a session for another name. The proxy sends only `/tty` to ttyd and everything else, `/terminal` included, to the
   app, so the one login that covers `/` covers the page (`../docs/web-proxy.md`); the frame is the same `/tty/` (the address in
   `GET /api/config`). A person who types `/tty/?arg=...` into a tab by hand still gets ttyd's bare page.
   **A long drag** (a selection longer than the drawer, holding the mouse at the edge while the pane scrolls): Chrome lets a page
@@ -1955,7 +1971,7 @@ part of `web/`.
 | `GET /api/md-image/<sessionId>/<uuid>/<i>/<n>` | the n-th local image (`![caption](/abs/path.png)` or `~/…`, outside code) in the markdown of the assistant text block i of that transcript line, under the same rules as `file-image`; a refusal is a 404 `{ok: false, error: <reason>}` that the page shows as "image not shown: <reason>"; a place the reply does not name is a 404 too (*What it can and cannot do*, "A markdown image of a file on this machine") |
 | `POST /api/upload` | raw image body (`Content-Type: image/png|jpeg|gif|webp`, 20 MB) → `{ok, name, path}`; or any other file, `?name=<its name>` (required for a type that is not an image), streamed to disk, 500 MB at most (413), refused when it would leave under 2 GB free (507), 400 empty → `{ok, name: "<hex>/<safe name>", path, file: true, fileName, size}` (*Any file, not only images*) |
 | `POST /api/s/<pid>/send` | `{"text": "...", "uploads": ["<name as /api/upload returned it>"]}` as `application/json`; with a dialog open, `{"text": "2"}` or `{"text": "esc"}` answers it (`dialogAnswer` in the reply) |
-| `POST /api/shell/open` | `{}` as `application/json` → `{ok, session: "<SALA_SHELL_SESSION>", created}`: makes the shell drawer's tmux session (a plain `bash -l` in the home directory) when it is missing, under a lock; `created` is true when it had to (*The shell drawer*); 403/415 as every POST, 502 when tmux cannot make it |
+| `POST /api/shell/open` | `{}` as `application/json` → `{ok, session: "<SALA_SHELL_SESSION>", created}`: makes the shell drawer's tmux session (a plain `bash -l` in the home directory) when it is missing, under a lock; `created` is true when it had to (*The shell drawer*, *Where the session is made*: the drawer calls it each time it opens, the full-size page when its `?arg` is the Shell session, and the app itself once at start); 403/415 as every POST, 502 when tmux cannot make it |
 | `POST /api/shell/keys` | `{"key": "<name>"}` as `application/json`, `name` one of `Escape`, `Tab`, `Up`, `Down`, `Left`, `Right`, `Enter`, `BSpace`, `C-a`..`C-z` → `{ok, sent}`: `tmux send-keys -t =<SALA_SHELL_SESSION>: <name>`; any other name 400 and nothing sent, 502 when the session is not there; 403/415 as every POST |
 | `POST /api/shell/keylog` | a JSON list of at most 50 events as `application/json` (32 KB at most), from the Shell's terminal frame: `{t, type: keydown\|keyup, key, code, keyCode, isComposing, shift, ctrl, alt, meta}` or `{t, type: compositionstart\|compositionupdate\|compositionend}` (no other field) → `{ok, n}`, n the events kept, one JSON line each in `<state_dir>/shell-keylog.jsonl` (0600, 256 KB at most, the newest half kept past it; *The shell drawer*). It records which non-character keys were pressed and when and that IME activity happened and when, never which letter keys: a key event is kept only when `key` is on the fixed list (`Alt`, `HangulMode`, `Process`, `Enter`, `F1`..`F24`, ...) and `code` is one of those keys' physical names or empty, never a letter, digit, punctuation or numpad key's; an IME event (`key` `Process`, `Unidentified`, `Dead` or `Compose`, `isComposing`, or `keyCode` 229) is stored with `keyCode` 0 and `shift` false, and its `code` only when it names a non-character key (`Lang1` ...), else `""`, whatever the client sent; a composition event with a `data` field (or any other) is dropped, never written; an event of any other shape is dropped, not an error; a body that is not such a list (or over 50 events or 32 KB, or not JSON) is 400; 403/415 as every POST |
 | `GET /api/prefs` | the page's saved preferences, defaults filled in |

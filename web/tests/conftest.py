@@ -174,6 +174,14 @@ def no_real_stackshot_state(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_real_tmux_server(monkeypatch):
+    """Settings() defaults to the user's own tmux server, and the app makes the Shell's session at start (app.bring_up_shell) when a
+    server answers: point the default at a private socket name nothing listens on, so a test that starts an app with `Settings()` never
+    finds a real server (and never makes a session on it). A test that wants a live server passes its own `tmux_socket_name`."""
+    monkeypatch.setenv("SALA_WEB_TMUX_SOCKET", "salaweb-pytest-none")
+
+
+@pytest.fixture(autouse=True)
 def no_real_login_dirs(monkeypatch):
     """The Usage analysis tab (usage.py) reads the second login's transcripts too, from sessions.LANE_DIRS, which is built on the real home
     directory: count none of them, so no test reads this machine's transcripts. A test of the tab sets `usage._login_dirs` itself."""

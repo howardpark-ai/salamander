@@ -95,7 +95,9 @@ def _shell_lock() -> asyncio.Lock:
 
 async def ensure_shell_session(settings: Settings) -> bool:
     """Make sure the Shell drawer's tmux session exists; True when this call created it. ttyd-tmux-attach only
-    attaches to a session that is already there (otherwise it asks), so the drawer calls this before its iframe loads. The
+    attaches to a session that is already there (otherwise it asks), so this is called when sala-web starts (app.bring_up_shell, only
+    when a tmux server answers), by `POST /api/shell/open` (the drawer before its iframe loads, the full-size page before its frame
+    when ?arg is the Shell session). Only the one configured name is ever made here, never another a page asks for. The
     session is a plain login bash in the home directory: `new-session -d -s <SALA_SHELL_SESSION> -c ~ bash -l`. An existing session is
     never restarted or sent anything (`=` makes the name an exact match); both paths only set its window option `scroll-on-clear off`.
     Two calls at once, or a second sala-web, are safe: the loser of the race
@@ -113,6 +115,16 @@ async def ensure_shell_session(settings: Settings) -> bool:
             raise
         await _shell_scroll_on_clear_off(settings)
         return True
+
+
+async def server_running(settings: Settings) -> bool:
+    """True when a tmux server answers on this app's socket. `new-session` would start one, so a caller that must not start a
+    server (sala-web's own start-up, which would otherwise bring up a bare tmux server ahead of sala's restore) asks first."""
+    try:
+        await run_tmux(settings, "list-sessions", "-F", "#{session_name}")
+    except TmuxError:
+        return False
+    return True
 
 
 async def _shell_scroll_on_clear_off(settings: Settings) -> None:
