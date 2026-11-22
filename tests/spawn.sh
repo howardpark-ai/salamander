@@ -844,6 +844,39 @@ creset; echo down > "$HOME/client-mode"; run gamma-rec-nodown --role nodown --ma
 creset; echo noshow > "$HOME/client-mode"; run gamma-rec-noshow --role noshow --mandate "no"
 [ "$RC" = 6 ] && has "$OUT" "does not show it" && [ "$(sessions)" = "$S0" ] && ok "gate: the read-back fails: refused (exit 6), no pane left behind" || bad "gate noshow: rc=$RC sessions=$(sessions) — $OUT"
 rm -f "$HOME/client-mode"
+# the read-back failing leaves a name the record may or may not show: the refusal says to run the same spawn again
+creset; echo noshow > "$HOME/client-mode"; run gamma-rec-noshow2 --role noshow2 --mandate "no"
+[ "$RC" = 6 ] && has "$OUT" "run the same spawn again" && ok "gate: the read-back refusal says how to go on (run the same spawn again)" || bad "gate noshow retry text: rc=$RC — $OUT"
+rm -f "$HOME/client-mode"
+# AFTER the 200 and the read-back the pane cannot be made (a local launch failure): the name is registered and no session exists. The message says so and how to retry,
+# and the same spawn again succeeds without registering twice (the record lists the name now, so the pane simply starts)
+eval "tmux() { if [ -e \"$HOME/tmux-fail-new\" ] && [ \"\${1:-}\" = new-session ]; then return 1; fi; command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux
+creset; fakeenv "$(uuid 45)" gamma-rec-rcv; : > "$HOME/tmux-fail-new"
+run gamma-rec-rcv --role rcv --mandate "rcv work" --lane subscription-1
+rm -f "$HOME/tmux-fail-new"
+[ "$RC" != 0 ] && [ "$(cposts)" = 1 ] && ! tmux has-session -t =gamma-rec-rcv 2>/dev/null && has "$OUT" "'gamma-rec-rcv' is registered with stackshot on projects/foo" && has "$OUT" "run the same spawn again" && has "$OUT" "same --role, --front/--back and --mandate" \
+    && ok "gate: registered, then the pane cannot be made: no session, the message says the name is registered and how to retry (rc $RC)" || bad "gate launch failure: rc=$RC calls=$(cposts) — $OUT"
+fakeenv "$(uuid 45)" gamma-rec-rcv
+run gamma-rec-rcv --role rcv --mandate "rcv work" --lane subscription-1
+[ "$RC" = 0 ] && [ "$(cposts)" = 1 ] && tmux has-session -t =gamma-rec-rcv 2>/dev/null && ! has "$OUT" "is registered with stackshot on projects/foo but" && ok "gate: the same spawn again is idempotent: the pane starts, no second registration" || bad "gate repeat: rc=$RC calls=$(cposts) — $OUT"
+tmux kill-session -t =gamma-rec-rcv 2>/dev/null
+# a retry that names the other side is refused by the record (the registration's side is the record's), nothing registered twice
+creset; : > "$HOME/tmux-fail-new"; run gamma-rec-rcv2 --project projects/foo --role back --mandate "rcv2 work" --lane subscription-1; rm -f "$HOME/tmux-fail-new"
+run gamma-rec-rcv2 --project projects/foo --role front --mandate "rcv2 work" --lane subscription-1
+[ "$RC" != 0 ] && [ "$(cposts)" = 1 ] && has "$OUT" "as a back agent" && ! tmux has-session -t =gamma-rec-rcv2 2>/dev/null && ok "gate: a retry that names the other side is refused by the record, nothing registered twice" || bad "gate repeat other side: rc=$RC calls=$(cposts) — $OUT"
+
+# THE EXEMPTION'S REACH on a project spawn: it skips the requirement to be listed, never the role of a name the record DOES list
+mkrec 5 '{"projects/foo": {"gamma-rec-main": [true, "main"], "gamma-rec-test-role": [false, "back one"], "gamma-rec-probe-front": [true, "front one"]}}'; creset
+run gamma-rec-test-role --project projects/foo --role front --mandate "x" --dry-run
+[ "$RC" = 1 ] && has "$OUT" "lists 'gamma-rec-test-role' on projects/foo as a back agent" && has "$OUT" "not a front agent" && [ "$(cposts)" = 0 ] && ok "exempt name, listed with the other role: a --project spawn is refused (exit 1), as for any name" || bad "exempt role mismatch: rc=$RC — $OUT"
+run gamma-rec-probe-front --project projects/foo --role back --mandate "x" --dry-run
+[ "$RC" = 1 ] && has "$OUT" "lists 'gamma-rec-probe-front' on projects/foo as a front agent" && ok "exempt name (*-probe-*), listed as front, spawned back: refused" || bad "exempt role mismatch 2: rc=$RC — $OUT"
+run gamma-rec-test-role --project projects/foo --role back --mandate "x" --dry-run
+[ "$RC" = 0 ] && has "$OUT" "on its agents map: back one" && ok "exempt name, listed with the same role: passes, the record's line is shown" || bad "exempt role match: rc=$RC — $OUT"
+echo down > "$HOME/client-mode"
+run gamma-rec-test-fresh --project projects/foo --role back --mandate "x" --dry-run
+[ "$RC" = 0 ] && has "$OUT" "not checked (a throwaway's name" && [ "$(cposts)" = 0 ] && ok "exempt name the record does not list: still no registration, no stackshot call" || bad "exempt unlisted project spawn: rc=$RC — $OUT"
+rm -f "$HOME/client-mode"; mkrec 5 "$REC"
 # the queue: an exit 6 is stuck with no claude -p (no pane was made)
 : > "$POSTS"; rm -f "$HOME/helper-runs.txt"; echo 409 > "$HOME/client-mode"
 enq spawn gamma-rec-opq --project projects/foo --role back --mandate "queue work" --from sala-test-h --words "spawn opq"
@@ -932,6 +965,14 @@ for m in 404 garbage; do
 done
 SALA_AGENT_NAME_CMD="" run --suggest-name --project projects/foo --role back --prefix gamma-rec
 [ "$RC" = 0 ] && grep -qE '^gamma-rec-[a-z0-9]+$' <<< "$OUT" && ok "--suggest-name with no name-check command: sala's own suggestion" || bad "suggest no cmd: rc=$RC — $OUT"
+# stackshot ANSWERED and calls none of the candidates valid (taken, a prefix it does not know, a retired, hidden or hub project): no unchecked numbered name comes back,
+# stackshot's own reasons are printed and the exit is nonzero; the unavailable cases above keep sala's own suggestion
+for m in allbad prefix retired hub pending listed; do
+    echo "$m" > "$HOME/namecheck-mode"; run --suggest-name --project projects/foo --role back --prefix gamma-rec
+    [ "$RC" != 0 ] && ! grep -qE '^gamma-rec-[a-z0-9]+$' <<< "$OUT" && grep -qE '^   gamma-rec-[a-z0-9]+: ' <<< "$OUT" && has "$OUT" "stackshot answered and calls none of the names it was asked about valid" && ok "--suggest-name, stackshot answers $m for every candidate: no name returned, its reason printed (exit $RC)" || bad "suggest all invalid ($m): rc=$RC — $OUT"
+done
+echo allbad > "$HOME/namecheck-mode"; run --project projects/foo --role back --mandate "m" --dry-run
+[ "$RC" != 0 ] && has "$OUT" "no free agent name for projects/foo" && ok "a spawn with no NAME and no valid candidate stops (nonzero), no unchecked name used" || bad "spawn no name, none valid: rc=$RC — $OUT"
 unset SALA_AGENT_NAME_CMD; rm -f "$HOME/namecheck-mode"
 unset SALA_STACKSHOT_CLIENT SALA_READBACK_WAIT SALA_READBACK_POLL SALA_PROJECT_RECORD
 [ "$(sessions)" = "$S0" ] && ok "the gate section left no session behind" || bad "gate sessions: $(sessions) (was $S0)"

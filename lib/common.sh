@@ -1223,9 +1223,10 @@ try:
     print(p if isinstance(p, str) else "")
 except Exception: pass' "$1" 2>/dev/null
 }
-RETIRE_PROJ="" RETIRE_PROJ_SRC=""
+RETIRE_PROJ="" RETIRE_PROJ_SRC="" RETIRE_PROJ_WHY=""
 retire_project_of() {  # <session> [<conversation id>] → sets RETIRE_PROJ (the project page key its registry row, else side record, else the roles list gives; empty when none) and RETIRE_PROJ_SRC (where from); no stdout
     local n=$1 u=${2:-} p="" src="" origin c
+    RETIRE_PROJ_WHY=""
     p=$(_row_project "$n")
     [ -n "$p" ] || [ -z "$u" ] || p=$(_row_project "$u")
     [ -z "$p" ] || src="its registry row"
@@ -1241,6 +1242,15 @@ retire_project_of() {  # <session> [<conversation id>] → sets RETIRE_PROJ (the
     if [ -z "$p" ] && [ -r "$SALA_ROLES_FILE" ]; then
         p=$(_roles_project "$n" < "$SALA_ROLES_FILE")
         [ -z "$p" ] || src="stackshot's roles list (the file $SALA_ROLES_FILE)"
+    fi
+    if [ -z "$p" ]; then
+        # a plain spawn registered by name (THE SPAWN GATE): its registry row has no project until `sessions tag --auto` ran, and the roles list may not have it yet.
+        # The project record's agents maps do: the one project that lists the name is its project. Two projects listing it are not guessed between.
+        local rec rrc; rec=$(project_record_agent "" "$n" "" unique); rrc=$?
+        case "$rrc" in
+            0) p=$(sed -n 1p <<< "$rec"); p=${p#listed on }; src="stackshot's project record (the name is on its agents map)" ;;
+            4) RETIRE_PROJ_WHY=$(sed -n 1p <<< "$rec") ;;
+        esac
     fi
     RETIRE_PROJ=$p; RETIRE_PROJ_SRC=$src
 }

@@ -396,4 +396,58 @@ out=$("$SALA" retire sala-rq-side-wren --keep-web 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && ! tmux has-session -t =sala-rq-side-wren 2>/dev/null && ok "exception: a side session: stackshot is not asked, the retire goes on" || bad "exception side: rc=$rc calls=$(ncalls) $out"
 mode ok
 
+echo "== a retire that asked stackshot revalidates BEFORE it types /exit: a pane that became busy while stackshot answered, or a session that replaced it under the same name, is left alone"
+UQ10=0a00001a-0000-4000-8000-0000000000a0 UQ11=0a00001b-0000-4000-8000-0000000000a1 UQ12=0a00001c-0000-4000-8000-0000000000a2
+cat > "$HOME/mid-client.py" <<'PY'
+import glob, os, re, subprocess, sys
+home = os.environ["HOME"]; mode = os.environ.get("MID_MODE", ""); name = sys.argv[4]
+open(home + "/client-calls.txt", "a").write("\x1f".join(sys.argv[1:]) + "\n")
+if mode == "busy":   # the stackshot call takes long: meanwhile a turn starts in the pane
+    for f in glob.glob(home + "/.claude/sessions/*.json"):
+        t = open(f).read()
+        if '"name":"%s"' % name in t: open(f, "w").write(re.sub(r'"status":"[a-z]*"', '"status":"busy"', t, count=1))
+elif mode == "replace":   # the session is closed by someone else and another one takes its name
+    sock = os.environ["SALA_TMUX_SOCKET"]
+    subprocess.run(["tmux", "-S", sock, "kill-session", "-t", "=" + name])
+    subprocess.run(["tmux", "-S", sock, "new-session", "-d", "-s", name, "-c", home + "/work", "-e", "FAKE_SESSION_ID=" + os.environ["MID_UUID"], "-e", "FAKE_NAME=" + name, "-e", "FAKE_LOG=" + os.environ["FAKE_LOG"]])
+    subprocess.run(["tmux", "-S", sock, "send-keys", "-t", "=" + name, "claude", "Enter"])
+print('{"result": "line removed"}')
+PY
+mode ok; : > "$CALLS"; tagged sala-rq10 "$UQ10" projects/foo; c=$(pane_claude sala-rq10)
+out=$(SALA_STACKSHOT_CLIENT="$HOME/mid-client.py" MID_MODE=busy "$SALA" retire sala-rq10 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+[ "$rc" != 0 ] && [ "$(ncalls)" = 1 ] && tmux has-session -t =sala-rq10 2>/dev/null && kill -0 "$c" 2>/dev/null && ! grep -q "^exit $UQ10" "$FAKE_LOG" && ! echo "$out" | grep -q "/exit \.\.\." && echo "$out" | grep -qF "'sala-rq10' is not idle any more" \
+    && echo "$out" | grep -qF "the pane is left as it is" && echo "$out" | grep -qF "stackshot has already taken it off projects/foo's record" && echo "$out" | grep -qF "a retry is safe" && [ -n "$(row sala-rq10)" ] \
+    && ok "a pane that became busy during the ask: no /exit, no kill, the row kept, the message says the record is already off and a retry is safe" || bad "busy after the ask: rc=$rc calls=$(ncalls) $out"
+set_reg_status "$c" idle; n0=$(ncalls)
+out=$("$SALA" retire sala-rq10 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && ! tmux has-session -t =sala-rq10 2>/dev/null && ok "the retry once it is idle: asked again (idempotent on stackshot's side), retired" || bad "retry after busy: rc=$rc $out"
+: > "$CALLS"; tagged sala-rq11 "$UQ11" projects/foo; s0=$(state)
+out=$(SALA_STACKSHOT_CLIENT="$HOME/mid-client.py" MID_MODE=replace MID_UUID="$UQ12" "$SALA" retire sala-rq11 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+waitfor "reg_live '\"sessionId\":\"$UQ12\"'" 40 || echo "  (the replacement fake did not come up)"
+[ "$rc" != 0 ] && [ "$(ncalls)" = 1 ] && tmux has-session -t =sala-rq11 2>/dev/null && ! grep -q "^exit $UQ12" "$FAKE_LOG" && ! echo "$out" | grep -q "/exit \.\.\." && ! echo "$out" | grep -q "tmux session killed" \
+    && echo "$out" | grep -qF "'sala-rq11' is not the session this retire started on" && echo "$out" | grep -qF "stackshot has already taken it off projects/foo's record" \
+    && ok "a session that replaced it under the same name during the ask: left alone (no /exit, no kill), the message says so" || bad "replaced during the ask: rc=$rc calls=$(ncalls) $out"
+kill_wait sala-rq11
+
+echo "== a plain spawn registered by name has no project on its registry row and no roles entry yet: the project RECORD's agents map gives the project, so the entry is taken off"
+python3 - "$HOME/rec.json" <<'PY'
+import datetime, json, sys
+def agents(*ns): return {n: {"front": False, "role": n.rsplit("-", 1)[-1], "mandate_line": "m"} for n in ns}
+t = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+json.dump({"schema": 1, "generated": t, "by_key": {"projects/foo": "prj_1", "projects/bar": "prj_2"},
+           "projects": {"prj_1": {"id": "prj_1", "key": "projects/foo", "agents": agents("sala-rq13", "sala-rq14")}, "prj_2": {"id": "prj_2", "key": "projects/bar", "agents": agents("sala-rq14")}}}, open(sys.argv[1], "w"))
+PY
+UQ13=0a00001d-0000-4000-8000-0000000000a3 UQ14=0a00001e-0000-4000-8000-0000000000a4
+mode ok; rm -f "$HOME/roles-client.json"; : > "$CALLS"; tagged sala-rq13 "$UQ13"; n0=$(ncalls)
+out=$(SALA_PROJECT_RECORD="$HOME/rec.json" SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq13 --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -qF "would ask stackshot FIRST, before the pane is closed, to take 'sala-rq13' off projects/foo's agents" && [ "$(ncalls)" = "$n0" ] && ok "--dry-run: the project the record gives is the one it would ask" || bad "record project dry run: rc=$rc $out"
+out=$(SALA_PROJECT_RECORD="$HOME/rec.json" SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq13 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(lastcall)" = "post project-agent-retire projects/foo sala-rq13 --sender sala-retire" ] && ! tmux has-session -t =sala-rq13 2>/dev/null \
+    && grep -qF "sala-rq13: its project projects/foo came from stackshot's project record (the name is on its agents map)" "$RLOGF" && ! grep -q "sala-rq13: no project known" "$RLOGF" \
+    && ok "no project on the row, none in the roles list: the project record's agents map gives it, stackshot is asked, the source logged" || bad "record project: rc=$rc calls=$(ncalls) last=$(lastcall) log=$(grep sala-rq13 "$RLOGF")"
+# a name on the agents maps of two projects: no guess, no call; the retire is done as before and the log says why
+tagged sala-rq14 "$UQ14"; n0=$(ncalls); l0=$(wc -l < "$RLOGF")
+out=$(SALA_PROJECT_RECORD="$HOME/rec.json" SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq14 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && ! tmux has-session -t =sala-rq14 2>/dev/null && tail -n +$((l0 + 1)) "$RLOGF" | grep -qF "sala-rq14: no project known for it (listed on projects/bar and projects/foo" && ok "a name on two projects' maps: stackshot is not asked (no guess), the log names both" || bad "ambiguous record: rc=$rc calls=$(ncalls) $out $(tail -n +$((l0 + 1)) "$RLOGF")"
+
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }
