@@ -40,6 +40,7 @@ box_main() {
     tmux has-session -t "=$name" 2>/dev/null || { echo "sala box: no live session '$name'" >&2; return 2; }
     pane=$(tmux list-panes -t "$(tmux_win_t "$name")" -F '#{pane_id}' 2>/dev/null | head -1)
     [ -n "$pane" ] || { echo "sala box: session '$name' has no tmux pane" >&2; return 2; }
+    is_sleeping "$name" && { echo "sala box: '$name' is sleeping: no claude is running in its pane, so there is no input box to read" >&2; return 3; }
     cpid=$(claude_pid_under "$(tmux display -p -t "$pane" '#{pane_pid}' 2>/dev/null)" 2>/dev/null)
     [ -n "$cpid" ] || { echo "sala box: no claude in the pane of '$name'" >&2; return 3; }
     typed=$(pane_draft "$pane" "$cpid")

@@ -995,6 +995,17 @@ def table(rows, cols):
     return "\n".join(out)
 
 
+def row_state_shown(r, sleeping_dir):
+    """The STATE column of the text listing: `sleeping` for a live row whose current conversation (the last of its transcripts) has a marker
+    file in the sleeping directory (sala's common.sh, THE SLEEPING SESSIONS). Display only: the row, the registry file and the JSON keep `live`."""
+    st = r.get("state") or "-"
+    ts = r.get("transcripts") or []
+    cur = ts[-1].get("id") if ts and isinstance(ts[-1], dict) else None
+    if st == "live" and sleeping_dir and isinstance(cur, str) and cur and "/" not in cur and not cur.startswith(".") and os.path.isfile(os.path.join(sleeping_dir, cur)):
+        return "sleeping"
+    return st
+
+
 def cmd_list(R, a):
     rows = [r for r in R.rows.values() if a.all or r.get("state") == "live"]
     rows.sort(key=lambda r: (r.get("name") or "", r.get("created") or ""))
@@ -1007,7 +1018,7 @@ def cmd_list(R, a):
     out = []
     for r in rows:
         me = "%s%s" % (r.get("model") or "-", "/" + r["effort"] if r.get("effort") else "")
-        out.append((r["id"][:8], r.get("name") or "-", r.get("state") or "-", norm_lane(r.get("lane")) or "-", me, r.get("project") or "-",
+        out.append((r["id"][:8], r.get("name") or "-", row_state_shown(r, a.sleeping), norm_lane(r.get("lane")) or "-", me, r.get("project") or "-",
                     (r.get("role") or ("side" if r.get("side") else "-")) + (" [slack]" if row_surface(r) else ""),   # a side session (spawn --side) has no role: its column says so; a slack agent's mark follows it
                     len(r.get("transcripts") or []), ",".join(r.get("aliases") or []) or "-"))
     print(table(out, ("ID", "NAME", "STATE", "LANE", "MODEL", "PROJECT", "ROLE", "TRANSCRIPTS", "ALIASES")))
@@ -1186,7 +1197,7 @@ def main():
     p.add_argument("--lane"); p.add_argument("--model"); p.add_argument("--effort")
     p.add_argument("--transcript"); p.add_argument("--why"); p.add_argument("--tmachine", default="")
     p.add_argument("--mint"); p.add_argument("--all", action="store_true"); p.add_argument("--json", action="store_true")
-    p.add_argument("--live", action="store_true"); p.add_argument("--projects", default="")
+    p.add_argument("--live", action="store_true"); p.add_argument("--projects", default=""); p.add_argument("--sleeping", default="")
     p.add_argument("--project"); p.add_argument("--role"); p.add_argument("--surface"); p.add_argument("--project-key", dest="project_key")
     p.add_argument("--dry-run", action="store_true", dest="dry_run")
     p.add_argument("--auto", action="store_true"); p.add_argument("--record", default=""); p.add_argument("--record-max-age", type=int, default=RECORD_MAX_AGE, dest="record_max_age")

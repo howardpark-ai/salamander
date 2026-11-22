@@ -213,7 +213,14 @@ else
         if [ -n "$c" ]; then pane=$pn; panepid=$pp; cpid=$c; break; fi
     done < <(tmux list-panes -s -t "$(tmux_win_t "$name")" -F '#{pane_id} #{pane_pid}')
 fi
-if [ -z "$cpid" ]; then
+# A SLEEPING session (common.sh, THE SLEEPING SESSIONS) runs no claude on purpose and is still a session to retire: there is no /exit to type and no
+# idle check to pass, the tmux session is killed, the row and its marker go, and the claude.ai session is archived from the conversation id the map holds.
+SLEEPING=0
+if [ -z "$cpid" ] && is_sleeping "$name"; then
+    SLEEPING=1; read -r pane panepid < <(tmux list-panes -s -t "$(tmux_win_t "$name")" -F '#{pane_id} #{pane_pid}' | head -1)
+    [ -n "$pane" ] || refuse "'$name' is sleeping but has no pane to act on"
+fi
+if [ -z "$cpid" ] && [ "$SLEEPING" = 0 ]; then
     refuse "'$name' runs no Claude session (none of its panes holds a claude process): to close a plain shell session use: sala close-shell $name"
 fi
 
@@ -248,8 +255,12 @@ if side_is "$name" && [ ! -f "$(side_done_file "$name")" ]; then
 fi
 
 uuid=""; bridge=""; shared=""
-registry_conv_r uuid "$cpid"; uuid_reg=$uuid   # what the registry row itself gave (retire_still_same asks it again after stackshot's answer)
-bridge=$(registry_field "$cpid" bridgeSessionId); [ "$bridge" = null ] && bridge=""
+uuid_reg=""
+if [ "$SLEEPING" = 0 ]; then
+    registry_conv_r uuid "$cpid"; uuid_reg=$uuid   # what the registry row itself gave (retire_still_same asks it again after stackshot's answer)
+    bridge=$(registry_field "$cpid" bridgeSessionId); [ "$bridge" = null ] && bridge=""
+fi
+mapuuid=$(sidecar_uuid_for_session "$name")   # the conversation the pane map holds for it: the sleeping marker's name, cleared with the row
 # a conversation id known only from the map that another row carries too (a scrambled follow left
 # one session on another's) may be that other session's: its claude.ai session is not archived from here
 if [ -z "$uuid" ]; then uuid=$(sidecar_uuid_for_session "$name"); [ -n "$uuid" ] && shared=$(ledger_uuid_rows "$uuid" "$name"); fi
@@ -267,11 +278,17 @@ else
     esac
 fi
 if [ "$DRY" = 1 ]; then   # the live path, read only: every step below as a would-line, in its order
+    if [ "$SLEEPING" = 1 ]; then
+        echo "'$name': sleeping, no claude running, in pane $pane${uuid:+, conversation $uuid}"
+        dry "no /exit to type and no idle check: its claude ended when it went to sleep"
+    else
     echo "'$name': claude pid $cpid in pane $pane${uuid:+, conversation $uuid}${bridge:+, claude.ai session $bridge}"
     why=$(SALA_IDLE_OWN_TURN=$OWN_TURN is_idle_reason "$cpid")
     if [ -n "$why" ] && [ "$BUSY" = 0 ]; then dry "would refuse: '$name' is not idle: $why — wait, or pass --busy to retire it anyway"; dry "nothing was changed"; exit 1; fi
     [ -n "$why" ] && dry "would retire '$name' while it is not idle ($why) — --busy"
-    if [ "$SELF" = 1 ] && [ "$caller" = "$name" ]; then dry "this is the session itself: no /exit would be typed into pane $pane"
+    fi
+    if [ "$SLEEPING" = 1 ]; then :
+    elif [ "$SELF" = 1 ] && [ "$caller" = "$name" ]; then dry "this is the session itself: no /exit would be typed into pane $pane"
     elif [ -z "$(pane_draft "$pane")" ] && ! pane_prompt "$pane"; then
         if drafts_queued "$uuid"; then dry "would send the queued feedback draft(s) of $uuid first (sala feedback drain), then type /exit into pane $pane and wait up to 30s for the shell"
         else dry "would type /exit into pane $pane and wait up to 30s for the shell"; fi
@@ -281,6 +298,7 @@ if [ "$DRY" = 1 ]; then   # the live path, read only: every step below as a woul
     if [ -n "$orow" ]; then dry "would remove its pane-map row from $SALA_SIDECAR (tab-separated): $(printf '%s' "$orow" | tr '\t' ' ') — revive would not resume it again"
     else dry "no pane-map row to remove (the map does not know '$name')"; fi
     lane_dry_line "$name"
+    [ "$SLEEPING" = 0 ] || dry "would clear its sleeping marker${mapuuid:+ ($SALA_SLEEP_DIR/$mapuuid)}"
     dry "would take a resurrect snapshot (salamander snapshot --now), so a reboot would not restore the pane"
     if [ "$KEEP_WEB" = 1 ]; then dry "--keep-web: would leave the claude.ai session${bridge:+ $bridge} as it is"
     elif [ -n "$shared" ]; then dry "would NOT archive on claude.ai: conversation $uuid (from the pane map) is also the row of $shared, so its claude.ai session may be theirs"
@@ -292,7 +310,7 @@ if [ "$DRY" = 1 ]; then   # the live path, read only: every step below as a woul
     dry "nothing was changed"; exit 0
 fi
 
-if [ "$asker" = 1 ] && [ "$SELF" = 1 ] && [ "$BUSY" = 0 ]; then
+if [ "$SLEEPING" = 0 ] && [ "$asker" = 1 ] && [ "$SELF" = 1 ] && [ "$BUSY" = 0 ]; then
     # the queue starts its runner at once, while the asker's turn (the one that queued this) is still running: wait for that turn to end, then the usual idle
     # check below; a pane still busy after SALA_RETIRE_SELF_WAIT seconds (a dialog, a background task) is refused as any busy pane is
     w=0; wmax=${SALA_RETIRE_SELF_WAIT:-300}
@@ -301,7 +319,7 @@ if [ "$asker" = 1 ] && [ "$SELF" = 1 ] && [ "$BUSY" = 0 ]; then
         sleep 2; w=$((w + 2))
     done
 fi
-why=$(SALA_IDLE_OWN_TURN=$OWN_TURN is_idle_reason "$cpid")
+why=""; [ "$SLEEPING" = 1 ] || why=$(SALA_IDLE_OWN_TURN=$OWN_TURN is_idle_reason "$cpid")
 if [ -n "$why" ] && [ "$BUSY" = 0 ]; then die "'$name' is not idle: $why — wait, or pass --busy to retire it anyway"; fi
 [ -n "$why" ] && echo "⚠ retiring '$name' while it is not idle ($why)"
 other_claude_pids() {  # → the pids of the claude processes in the panes of this session other than the one being retired, one per line
@@ -329,6 +347,11 @@ retire_still_same() {  # → 0 the pane is the one the checks above passed; 1 wi
     local np nc nu iw q; RV_WHY=""
     np=$(tmux display -p -t "$pane" '#{session_name} #{pane_pid}' 2>/dev/null) || np=""
     if [ "$np" != "$name $panepid" ]; then RV_WHY="'$name' is not the session this retire started on (its pane $pane is gone, or is another process now)"; return 1; fi
+    if [ "$SLEEPING" = 1 ]; then   # still asleep: no claude has come up in the pane since, and the marker stands
+        nc=$(claude_pid_under "$panepid" || true)
+        if [ -n "$nc" ] || ! is_sleeping "$name"; then RV_WHY="'$name' is not the session this retire started on (it woke up: a claude runs in its pane now)"; return 1; fi
+        return 0
+    fi
     nc=$(claude_pid_under "$panepid" || true)
     if [ "$nc" != "$cpid" ]; then RV_WHY="'$name' is not the session this retire started on (the claude in its pane is another process now)"; return 1; fi
     if [ -n "$uuid" ]; then
@@ -347,7 +370,9 @@ if [ "$ASKED_CALL" = 1 ] && ! retire_still_same; then
     retire_log "$name: left alone after the ask: $RV_WHY"
     die "$RV_WHY: the pane is left as it is; stackshot has already taken it off $proj's record (a retry is safe: stackshot's retire is idempotent, so asking again changes nothing)"
 fi
-if [ "$SELF" = 1 ] && [ "$caller" = "$name" ]; then
+if [ "$SLEEPING" = 1 ]; then
+    echo "'$name': sleeping, no claude to /exit"
+elif [ "$SELF" = 1 ] && [ "$caller" = "$name" ]; then
     # the tmux kill below ends this very process tree: ignore the hangup and a closed pty, and write what is left to the retire log, so the tail (snapshot, archive, stackshot) is done
     trap '' HUP PIPE; mkdir -p "$SALA_LOG_DIR"; exec >> "$SALA_LOG_DIR/salamander-retire.log" 2>&1
     echo "[$(date '+%F %T')] retire --self '$name': no /exit typed into its own pane, the tmux session is killed next"
@@ -364,6 +389,7 @@ if [ -n "$(ledger_row "$name")" ]; then
     if ledger_write retire "$name"; then echo "'$name': pane map row removed (revive will not resume it again)"
     else echo "⚠ '$name': the pane map row could not be removed (see above) — until it is, a restore would bring the session back"; fi
 fi
+[ -z "$mapuuid" ] || sleeping_clear "$mapuuid"   # its sleeping marker with it (common.sh, THE SLEEPING SESSIONS): a later session must not read as asleep
 lane_drop "$name" || true   # its lane row with it (common.sh, lanes): a later session of the same name starts on the default
 model_drop "$name" || true  # its model row too (common.sh, models): a later session of the same name takes its transcript's
 "$SALA_BIN" snapshot --now && echo "'$name': resurrect snapshot taken (a reboot will not restore the pane)"

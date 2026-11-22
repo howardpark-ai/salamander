@@ -136,7 +136,7 @@ done
 [ "$MODE" = list ] || [ "$MODE" = migrate ] || [ "$MODE" = check ] || die "usage: salamander sessions"
 
 if [ "$MODE" = list ]; then
-    sessions_py list ${ALL:+$ALL} ${JSON:+$JSON}; exit $?
+    sessions_py list --sleeping "$SALA_SLEEP_DIR" ${ALL:+$ALL} ${JSON:+$JSON}; exit $?   # --sleeping: the markers' directory, for the STATE column's `sleeping` (display only, never in the JSON)
 fi
 
 # a dry run only reads; a repair or the migration writes the registry under the pane map's lock, on the fleet's tmux server only (the map is its)

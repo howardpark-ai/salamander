@@ -988,7 +988,7 @@ op_mandate_to_file() {  # <id> <name> — THE MANDATE'S TRANSPORT (the header): 
     return 0
 }
 op_main() {
-    local verb="" args=() from="" words="" nowords="" ownrow="" item="" why="" stdin=0 auto=0 mode=add id f ep out rc c _na _i _r
+    local verb="" args=() from="" words="" nowords="" ownrow="" item="" why="" stdin=0 auto=0 mode=add id f ep out rc c _na _i _r _sl=() _ot=() a
     OP_REASON_WHY=""; OP_OWN_WHY=""
     [ $# -gt 0 ] || { op_usage >&2; return 2; }
     case "$1" in
@@ -1031,6 +1031,18 @@ op_main() {
         case "${args[0]}" in -*) ;; *) op_mandate_to_file "$id" "${args[0]}" || return 2 ;; esac
     fi
     op_shape "$verb" ${args[@]+"${args[@]}"} || { echo "the shapes:" >&2; op_shapes >&2; [ -n "$OP_MANDATE_FILE" ] && rm -f "$OP_MANDATE_FILE"; return 2; }
+    # A SLEEPING session (common.sh, THE SLEEPING SESSIONS) is neither revived nor restored: its claude ended on purpose and it wakes in a later stage. Said before any door
+    # (the reason door wants a live registry row, the plan a running claude: a sleeper has neither), and nothing is queued. A mix of sleepers and others queues nothing either:
+    # the others are named in their own call, so no name is dropped quietly.
+    if [ "$verb" = revive ] || [ "$verb" = restore ]; then
+        _sl=(); _ot=()
+        for a in $OP_TARGETS; do if is_sleeping "$a"; then _sl+=("$a"); else _ot+=("$a"); fi; done
+        if [ ${#_sl[@]} -gt 0 ]; then
+            for a in "${_sl[@]}"; do echo "$a: sleeping: wakes in a later stage (its claude ended on purpose; nothing is queued for it)"; done
+            [ ${#_ot[@]} -eq 0 ] && return 0
+            echo "✗ nothing queued: ${_ot[*]} is not asleep; queue it in its own call (sala op $verb --only ${_ot[0]} …)" >&2; return 1
+        fi
+    fi
     if [ "$verb" = reboot ] && [ "$SALA_OP_REBOOT" != on ]; then
         die "reboot is not queued: ${SALA_OWNER_NAME} runs \`sala reboot --go\` in the web UI's Shell; a session shows \`sala reboot --status\` and waits for the word (SALA_OP_REBOOT is off by default and unsupported until a confirmation path is built)"
     fi

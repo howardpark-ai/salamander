@@ -114,6 +114,7 @@ suite side lib/feedback.sh lib/op.sh lib/retire.sh lib/revive.sh lib/sessions.py
 suite signin lib/barepane.sh lib/continuedin.sh lib/note.sh lib/op.sh lib/recycle-request.sh lib/rename.sh lib/settings-apply.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
 suite skills-flags .github/scripts/skills-flags.py lib/lane.sh lib/model.sh lib/note.sh lib/op.sh lib/question.sh lib/rc.sh lib/reauth.sh lib/recycle-request.sh lib/restore.sh lib/revive.sh lib/sdk-pane.sh lib/sessions.sh lib/settings-apply.sh lib/side.sh lib/stuck.sh tests/help-snapshot.sh
 suite slacksafe contrib/briefing/lib.sh lib/alert.sh lib/dm.sh lib/stuck.sh
+suite sleeping lib/adopt.sh lib/barepane.sh lib/box.sh lib/close-shell.sh lib/continuedin.sh lib/forget-row.sh lib/heartbeat.sh lib/lane.sh lib/lanewords.py lib/model.sh lib/note.sh lib/op.sh lib/recycle-request.sh lib/rename.sh lib/restore.sh lib/retire.sh lib/revive.sh lib/sessions.py lib/sessions.sh lib/settings-apply.sh lib/snapshot.sh lib/spawn.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
 suite smoke lib/adopt.sh lib/heartbeat.sh lib/rename.sh lib/revive.sh lib/sessions.py lib/spawn.sh
 suite spawn lib/barepane.sh lib/continuedin.sh lib/lanewords.py lib/op.sh lib/rc.sh lib/retire.sh lib/revive.sh lib/sessions.py lib/sessions.sh lib/settings-apply.sh lib/spawn.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
 suite stackshotpath contrib/question-board.py lib/pr_watcher_cleanup.py lib/side.sh lib/spawn.sh lib/unitjob.py release.sh

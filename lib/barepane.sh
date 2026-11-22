@@ -74,8 +74,11 @@ bare_tick() {
     while IFS=$'\t' read -r sess uuid _; do
         [ -n "$sess" ] || continue
         [ "$sess" = "$SALA_RC_SESSION" ] && continue
+        # a SLEEPING session is a bare shell on purpose (common.sh, THE SLEEPING SESSIONS): never revived, never "could not revive". It is not
+        # marked seen, so the clock loop below clears its bare.* state key (a clock started before it slept would otherwise run on to a revive)
+        is_sleeping "$sess" && continue
         no_relaunch "$sess" && continue
-        [ -n "${pfirst[$sess]+x}" ] || continue                                  # no tmux session: `sala restore --missing` recreates it
+        [ -n "${pfirst[$sess]+x}" ] || continue                                 # no tmux session: `sala restore --missing` recreates it
         [ -z "${hasclaude[$sess]+x}" ] || continue                               # a claude lives under it: healthy
         IFS='|' read -r pp cmd <<< "${pfirst[$sess]}"
         case "$cmd" in bash|sh|zsh|fish|dash) ;; *) continue;; esac              # running something else: not a bare shell
@@ -113,6 +116,7 @@ bare_tick() {
     for i in "${!sorted[@]}"; do
         sess=${sorted[$i]#*|}
         if bare_retired "$sess"; then wlog "bare panes: '$sess' is retired in the session registry — left alone"; continue; fi
+        if is_sleeping "$sess"; then wlog "bare panes: '$sess' went to sleep since it was listed — left alone"; continue; fi   # the marker came after the first loop: never revived, never posted
         if [ ${#go[@]} -lt "$SALA_BARE_MAX" ]; then go+=("$sess"); else later+=("$sess"); fi
     done
     [ ${#later[@]} -gt 0 ] && wlog "bare panes: cap of $SALA_BARE_MAX per tick — ${#later[@]} more wait for a later tick: ${later[*]}"

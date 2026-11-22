@@ -315,7 +315,8 @@ if [ "$MODE" = show ]; then
     while IFS= read -r s; do
         [ -n "$s" ] || continue
         rec=$(lane_row "$s"); eff=$(lane_for_session "$s"); run=$(running_lane "$s"); note=""   # eff: the row, else the default; an sdk row after its window → the lane fallback's pick for sdk
-        if no_relaunch "$s"; then note="$(no_relaunch_fix "$s" "managed outside sala (SALA_NO_RELAUNCH): sala never relaunches it")"
+        if is_sleeping "$s"; then note="sleeping: no claude on purpose, a wake resumes it on $eff"
+        elif no_relaunch "$s"; then note="$(no_relaunch_fix "$s" "managed outside sala (SALA_NO_RELAUNCH): sala never relaunches it")"
         elif ! tmux has-session -t "=$s" 2>/dev/null; then note="no tmux session (a restore brings it back on $eff)"
         elif [ "$run" = "?" ]; then note="its environment cannot be read"
         elif [ "$run" = "-" ]; then note="no claude running (a revive resumes it on $eff)"
@@ -403,11 +404,12 @@ if [ "$MODE" = fallback ]; then
     MV_LIVE=(); MV_DEAD=(); MV_MASTER=""; STAYS=(); PINSK=(); PLAN_ON=(); declare -A CHG=() PREV=()
     while IFS= read -r s; do
         [ -n "$s" ] || continue
-        if no_relaunch "$s"; then STAYS+=("$s"); continue; fi
+        if no_relaunch "$s" && ! is_sleeping "$s"; then STAYS+=("$s"); continue; fi   # a sleeping session is moved on paper below (THE SLEEPING SESSIONS, common.sh)
         if lane_is_pinned "$s"; then PINSK+=("$s"); continue; fi   # held out of a bulk move (common.sh, THE PINNED SESSIONS)
         PLAN_ON+=("$s"); CHG[$s]=$(lane_fallback_model_change "$s" "$fb")   # read now: once the override is written the session no longer reads as Fable
         if [ -n "${CHG[$s]}" ]; then PREV[$s]=$(model_row "$s"); PREV[$s]=${PREV[$s]%%$'\t'*}; fi
-        if [ -n "$M" ] && [ "$s" = "$M" ] && tmux has-session -t "=$s" 2>/dev/null; then MV_MASTER="$s"
+        if is_sleeping "$s"; then MV_DEAD+=("$s")   # no claude to relaunch: the lane row is written, a wake resumes it on the new lane (resume_cmd reads the table)
+        elif [ -n "$M" ] && [ "$s" = "$M" ] && tmux has-session -t "=$s" 2>/dev/null; then MV_MASTER="$s"
         elif tmux has-session -t "=$s" 2>/dev/null; then MV_LIVE+=("$s")
         else MV_DEAD+=("$s"); fi
     done < <(lane_sessions_on "$L")
@@ -415,7 +417,7 @@ if [ "$MODE" = fallback ]; then
     echo "lane fallback: the $(lane_label "$L") lane is dormant ($(lane_dormant_since_words "$L")) → its sessions$([ "$DFLT" = 1 ] && echo " and the default") move to the $(lane_shown "$FBN") lane (one hop; they stay there until moved back: salamander lane $L <session>)$([ "$DRY" = 1 ] && echo " — DRY RUN: nothing recorded, nothing relaunched")"
     for s in ${PLAN_ON[@]+"${PLAN_ON[@]}"}; do
         chg=${CHG[$s]}
-        echo "  $s: $L → $fb$([ -n "$chg" ] && echo ", model ${chg%%$'\t'*} → ${chg#*$'\t'} (${FBN} cannot run ${chg%%$'\t'*})")$([ "$s" = "$MV_MASTER" ] && echo " — the master: by the rescue, last")$(case " ${MV_DEAD[*]-} " in *" $s "*) echo " — no tmux session: recorded only, a restore brings it back on $fb";; esac)"
+        echo "  $s: $L → $fb$([ -n "$chg" ] && echo ", model ${chg%%$'\t'*} → ${chg#*$'\t'} (${FBN} cannot run ${chg%%$'\t'*})")$([ "$s" = "$MV_MASTER" ] && echo " — the master: by the rescue, last")$(case " ${MV_DEAD[*]-} " in *" $s "*) if is_sleeping "$s"; then echo " — sleeping: recorded only, a wake resumes it on $fb"; else echo " — no tmux session: recorded only, a restore brings it back on $fb"; fi;; esac)"
     done
     for s in ${STAYS[@]+"${STAYS[@]}"}; do echo "  $(no_relaunch_line "$s") — stays where it is"; done
     for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
@@ -530,14 +532,14 @@ why=$(lane_check "$LANE") || die "$why — nothing recorded, nothing relaunched"
 OUTSIDE=(); PINSK=()   # OUTSIDE: managed outside sala; PINSK: pinned, held out of a bulk move (common.sh, THE PINNED SESSIONS)
 if [ "$ALL" = 1 ]; then
     all=(); while IFS= read -r s; do [ -n "$s" ] && all+=("$s"); done < <(lane_sessions)
-    for s in ${all[@]+"${all[@]}"}; do if no_relaunch "$s"; then OUTSIDE+=("$s"); elif lane_is_pinned "$s"; then PINSK+=("$s"); else SESS+=("$s"); fi; done
+    for s in ${all[@]+"${all[@]}"}; do if no_relaunch "$s" && ! is_sleeping "$s"; then OUTSIDE+=("$s"); elif lane_is_pinned "$s"; then PINSK+=("$s"); else SESS+=("$s"); fi; done
 else
     seen=(); for s in "${SESS[@]}"; do
         case "$s" in ''|-*|*[[:space:]:]*) die "invalid session name '$s'";; esac
         case " ${seen[*]-} " in *" $s "*) continue;; esac; seen+=("$s")
-        tmux has-session -t "=$s" 2>/dev/null || die "no tmux session '$s'"
+        is_sleeping "$s" || tmux has-session -t "=$s" 2>/dev/null || die "no tmux session '$s'"
         [ "$s" = "$SALA_RC_SESSION" ] && die "'$s' is the Remote Control server's session — it has no lane (salamander rc)"
-        no_relaunch "$s" && die "$(no_relaunch_line "$s") — $(no_relaunch_fix "$s" "it is launched by hand with an environment of its own; take it out of SALA_NO_RELAUNCH to give it a lane")"
+        no_relaunch "$s" && ! is_sleeping "$s" && die "$(no_relaunch_line "$s") — $(no_relaunch_fix "$s" "it is launched by hand with an environment of its own; take it out of SALA_NO_RELAUNCH to give it a lane")"
     done
     SESS=(${seen[@]+"${seen[@]}"})
 fi
@@ -546,9 +548,11 @@ ME=""; [ -n "${TMUX_PANE:-}" ] && ME=$(tmux display -p -t "$TMUX_PANE" '#{sessio
 RESCUEFLAG=""; [ "$RESCUE" = 1 ] && RESCUEFLAG=--rescue   # onto the sweep and the self-worker (lib/revive.sh, THE RESCUE)
 
 # the plan: who moves (recorded on the lane and running on it already → left alone), the env's names, the own pane
-TODO=(); SAME=(); SELF=0
+TODO=(); SAME=(); SELF=0; SLEEPS=()
 for s in ${SESS[@]+"${SESS[@]}"}; do
     rec=$(lane_row "$s"); run=$(running_lane "$s")
+    # a SLEEPING session (common.sh, THE SLEEPING SESSIONS) has no claude to relaunch: only its lane row is written, and a wake resumes it there (resume_cmd reads the table)
+    if is_sleeping "$s"; then SLEEPS+=("$s"); continue; fi
     if [ "$rec" = "$LANE" ] && [ "$run" = "$LANE" ]; then SAME+=("$s"); continue; fi
     if [ -n "$ME" ] && [ "$s" = "$ME" ]; then SELF=1; else TODO+=("$s"); fi
 done
@@ -569,13 +573,14 @@ esac
 for s in ${SESS[@]+"${SESS[@]}"}; do
     rec=$(lane_row "$s"); run=$(running_lane "$s")
     case " ${SAME[*]-} " in *" $s "*) echo "  $s: $LANE, running on it — left alone"; continue;; esac
+    case " ${SLEEPS[*]-} " in *" $s "*) echo "  $s: ${rec:-$(lane_default) (the default)} → $LANE — sleeping: recorded only, nothing relaunched (a wake resumes it on $LANE)"; continue;; esac
     echo "  $s: ${rec:-$(lane_default) (the default)} → $LANE$( [ "$run" != "$LANE" ] && [ "$run" != "-" ] && echo " (runs on $run now)")$( [ "$s" = "$ME" ] && echo " — this command's own pane: relaunched last, once it is idle")"
 done
 for s in ${OUTSIDE[@]+"${OUTSIDE[@]}"}; do echo "  $(no_relaunch_line "$s") — no lane recorded"; done
 for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
 if [ "$ALL" = 0 ]; then for s in "${SESS[@]}"; do pm=$(pinned_moving_note "$s") && echo "  $pm"; done; fi   # a move that names a pinned session moves it, and says so once
 if [ "$DRY" = 1 ]; then
-    if [ $((${#TODO[@]} + SELF)) -eq 0 ]; then echo "[dry-run] every session already runs on the $(lane_shown "$LANE") lane — nothing would be relaunched"; exit 0; fi
+    if [ $((${#TODO[@]} + SELF)) -eq 0 ]; then echo "[dry-run] $([ ${#SLEEPS[@]} -gt 0 ] && echo "only the lane row of ${#SLEEPS[@]} sleeping session(s) would change; the rest already run" || echo "every session already runs") on the $(lane_shown "$LANE") lane — nothing would be relaunched"; exit 0; fi
     if [ "$ALL" = 1 ]; then echo "[dry-run] would record the lane for ${#SESS[@]} session(s) and the default, then: salamander recycle --force (the relaunch verdicts, pane by pane)"; sweep=()
     else echo "[dry-run] would record the lane for ${#SESS[@]} session(s), then: salamander revive --force$(printf -- ' --only %s' ${TODO[@]+"${TODO[@]}"})${RESCUEFLAG:+ $RESCUEFLAG}$([ "$SELF" = 1 ] && echo "; salamander revive --self${RESCUEFLAG:+ $RESCUEFLAG}") (the relaunch verdicts, pane by pane)"
          sweep=(); for s in ${TODO[@]+"${TODO[@]}"}; do sweep+=(--only "$s"); done; fi
@@ -591,7 +596,7 @@ export SALA_RECYCLE_LOCKED=1
 for s in ${SESS[@]+"${SESS[@]}"}; do lane_write "$s" "$LANE" || die "could not record the lane for '$s' (see above) — nothing relaunched"; [ "$(lane_home "$s")" != "$LANE" ] || lane_home_clear "$s"; done   # back on the lane the fallback moved it off: the home row goes
 [ "$ALL" = 1 ] && { lane_set_default "$LANE" || die "the sessions are recorded but the default lane could not be written ($SALA_LANE_DEFAULT_FILE) — nothing relaunched"; }
 echo "recorded: ${#SESS[@]} session(s) on the $(lane_shown "$LANE") lane ($SALA_LANES)$([ "$ALL" = 1 ] && echo "; default lane: $LANE")"
-if [ $((${#TODO[@]} + SELF)) -eq 0 ]; then echo "every one of them already runs on the $(lane_shown "$LANE") lane — nothing relaunched"; exit 0; fi
+if [ $((${#TODO[@]} + SELF)) -eq 0 ]; then echo "$([ ${#SLEEPS[@]} -gt 0 ] && echo "${#SLEEPS[@]} sleeping session(s) recorded only; the rest already run" || echo "every one of them already runs") on the $(lane_shown "$LANE") lane — nothing relaunched"; exit 0; fi
 rc=0
 if [ "$ALL" = 1 ]; then
     "$SALA_BIN" recycle --force $NOTMASTER || rc=$?

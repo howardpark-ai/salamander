@@ -1441,7 +1441,7 @@ unregistered_tick() {
 [ "$OPS_ONLY" = 1 ] && { op_tick; exit 0; }   # `sala watch --ops`: the operation queue alone (lib/op.sh; `sala op` kicks it after a tick already running)
 [ "$SETTINGS_ONLY" = 1 ] && { settings_tick; exit 0; }   # `sala watch --settings`: the settings-apply tick alone (lib/settings-apply.sh)
 [ "$QUESTIONS_ONLY" = 1 ] && { question_sweep_tick; exit 0; }   # `sala watch --questions`: the parked-question sweep alone
-[ "$CHECK_ONLY" = 1 ] || { _claude_panes_r _TICK_PANES; _TICK_PANES_SET=1; }   # one tmux call and one ps pass for the three scans below (limit, net, stuck); nothing acts on a pane in between
+[ "$CHECK_ONLY" = 1 ] || { _claude_panes_r _TICK_PANES; _TICK_PANES_SET=1; }   # one tmux call and one ps pass for the three scans below (limit, net, stuck); nothing acts on a pane in between. Only a pane with a claude process is listed, so a SLEEPING session (common.sh, THE SLEEPING SESSIONS: no claude on purpose) is in none of the three scans, nor in the wrap-up's (lib/wrapup.sh): nothing is read from it, typed into it or woken
 [ "$CHECK_ONLY" = 1 ] || limit_tick   # first, before anything that may end this run: it needs no master, no tmux and no idle box
 [ "$CHECK_ONLY" = 1 ] || net_tick   # the same: no master; tmux down reads as no panes
 [ "$CHECK_ONLY" = 1 ] || signin_tick   # the same: no master, no tmux
@@ -1879,6 +1879,9 @@ deferred_revive() {
         [ "$dset" = - ] && dset=""; : "${told_at:=0}" "${told_n:=0}" "${posted_at:=0}"   # the three after the set id: the later-list state; a row from before has none
         later_row   # an empty set id is written "-": tabs fold in `read`
         # listed since it was deferred (common.sh, no_relaunch): dropped, never relaunched
+        # a session that went to sleep since (common.sh, THE SLEEPING SESSIONS): nothing is waiting for it any more; it leaves the list and the set
+        # without being counted as given up or left behind
+        if is_sleeping "$sess"; then sleeping_uuid_r uuid "$sess" || uuid=""; later_clear; wlog "deferred: $sess is sleeping — dropped"; dres gone "$sess" "$sess is sleeping, so it no longer counts"; continue; fi
         no_relaunch "$sess" && { wlog "deferred: $(no_relaunch_line "$sess") — dropped"; dres gave "$sess" "$(no_relaunch_line "$sess")"; continue; }
         pp=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_pid}' 2>/dev/null | head -1)
         [ -n "$pp" ] || { wlog "deferred: $sess gone — dropped"; dres gave "$sess" "$sess: its tmux session is gone"; continue; }
