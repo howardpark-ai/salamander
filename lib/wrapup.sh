@@ -163,7 +163,6 @@ wrapup_locked() {
     while IFS='|' read -r sess pane pid; do
         [ -n "$sess" ] && [ -n "${isback[$sess]+x}" ] || continue
         [ "$sess" != "${SALA_RC_SESSION:-}" ] || continue
-        [ -z "${SALA_MASTER:-}" ] || [ "$sess" != "$SALA_MASTER" ] || continue
         _key_r k "$sess"
         case "$seenk" in *" $k "*) continue;; esac; seenk="$seenk$k "
         no_relaunch "$sess" && continue                                                   # managed outside sala: nothing is typed into it

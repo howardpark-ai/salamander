@@ -3,13 +3,12 @@
 #
 # WHY: a mass SIGKILL once hit every claude process (exit 137) at once; tmux and
 # its panes stayed up as bare shells and nothing brought them back. revive runs on a reboot, a CLI update or recycle and the
-# deferred list, and watch's own "master pane has no claude" check covered only the master, which can be retired
+# deferred list, and nothing else watched a pane that died on its own
 # A mass SIGKILL looks like this: every pane of the pane map sits at a shell prompt (the pane's foreground command
 # is bash, zsh or the like, no claude under it), the claude panes' last words in the revive log are gone with no /exit, and the
 # tmux server's uptime is far older than the claudes' death. This tick is what heals it.
 #
-# WHAT IT DOES: for every row of the pane map (the master's own session and the Remote Control server's are not here: check 3
-# and the RC code keep them) whose tmux session exists and has exactly one pane, the pane's foreground command a shell, no
+# WHAT IT DOES: for every row of the pane map (the Remote Control server's is not here: the RC code keeps it) whose tmux session exists and has exactly one pane, the pane's foreground command a shell, no
 # claude process under any pane of the session and no child process under the shell, it starts a clock in the watch state
 # (bare.<session> = first-seen epoch, tries, last try). The pane is revived once it has been bare for SALA_BARE_GRACE seconds
 # (default 180: the third tick of the 2-minute timer, so a recycle's brief shell between /exit and the resume, a pane being
@@ -75,7 +74,6 @@ bare_tick() {
     while IFS=$'\t' read -r sess uuid _; do
         [ -n "$sess" ] || continue
         [ "$sess" = "$SALA_RC_SESSION" ] && continue
-        [ -n "${SALA_MASTER:-}" ] && [ "$sess" = "$SALA_MASTER" ] && continue   # check 3 below keeps the master, at once and with its own cooldown
         no_relaunch "$sess" && continue
         [ -n "${pfirst[$sess]+x}" ] || continue                                  # no tmux session: `sala restore --missing` recreates it
         [ -z "${hasclaude[$sess]+x}" ] || continue                               # a claude lives under it: healthy

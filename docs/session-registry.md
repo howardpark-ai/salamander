@@ -74,7 +74,7 @@ display copies: the gate that refuses its retire reads `$SALA_STATE_DIR/side/<na
 ## A throwaway's tag: `throwaway`
 
 Throwaways carry a tag set at spawn, and any session may retire a tagged one at any time between turns.
-A bare `sala spawn` (no `--project`, `--role`, `--side` or `--master`) writes `throwaway` = `"1"` onto the new row through the same `set` call as
+A bare `sala spawn` (no `--project`, `--role` or `--side`) writes `throwaway` = `"1"` onto the new row through the same `set` call as
 `spawned_by` below, **whoever runs it** (a Claude session, a plain shell, a person's pane: the tag does not need a spawner). A spawn with a project, a role or a side flag never
 sets it. `lib/sessions.py` clears it when a row is given a project, a role or a side value (`set`, `tag --project/--role`, and with them the side-end rename, which goes through
 `set`): a row that has become something else is no throwaway, whatever it was born as. The field is unpublished (`EXPORT_KEYS` is unchanged, so no contract version moves).
@@ -90,7 +90,7 @@ its name alone, so even a tagged row there must carry a throwaway's name and a f
 
 ## A throwaway's spawner: `spawned_by`
 
-A bare `sala spawn` (no `--project`, `--role`, `--side` or `--master`) run by a Claude session sets `spawned_by` on the new row, through the
+A bare `sala spawn` (no `--project`, `--role` or `--side`) run by a Claude session sets `spawned_by` on the new row, through the
 same `set` call: the tmux session whose pane holds the spawn by process ancestry, with a Claude Code process on the way up (`spawn_caller` ->
 `ancestry_session`, common.sh; never `TMUX_PANE`, which a caller can set to anything). A Claude Code process is one whose comm is `claude` AND whose
 `/proc/<pid>/exe` is under the account's own `~/.local/share/claude/versions/` (`claude_exe_trusted`; a test's temporary `$HOME` also counts its own

@@ -3,7 +3,6 @@
 #   salamander master           name, tmux/claude state, conversation, bridge, idle — one line each
 #   salamander master --name    just the name (empty + exit 1 when SALA_MASTER is unset)
 #   salamander master --json    {"name","live","tmux","pid","session","bridge","idle_reason"}
-#   salamander master --set NAME designate an existing tmux session as the master (writes SALA_MASTER into the config)
 #   salamander master --unset   no master from now on: SALA_MASTER commented out in the config, the watchdog's records of it
 #                               dropped (nothing heals, recreates or bridges it; the post-boot report goes to Slack)
 #
@@ -18,8 +17,7 @@
 # Exit status: 0 master live (claude running in its pane) · 1 unset · 2 set but not live.
 
 mode="${1:-}"
-case "$mode" in ''|--name|--json|--set|--unset) ;; *) die "usage: salamander master [--name|--json|--set NAME|--unset]" ;; esac
-HOWTO="designate one:  salamander master --set <existing tmux session>     or spawn one under a name stackshot has registered:  salamander spawn <registered name> --master   (a name stackshot does not list is refused: exit 3, or add --project <page key> --role front|back --mandate <one line> to register it first)"
+case "$mode" in ''|--name|--json|--unset) ;; *) die "usage: salamander master [--name|--json|--unset]" ;; esac
 QUEUE="fleet operations go through the queue: sala op <verb> … --from <you> --words \"<${SALA_OWNER_NAME}'s words>\" (sala op --help lists the verbs)"
 st="$SALA_LOG_DIR/salamander-watch.state"
 st_drop() {  # <key>… — those lines out of the watch state (the master's records), the file rewritten once
@@ -27,35 +25,11 @@ st_drop() {  # <key>… — those lines out of the watch state (the master's rec
     [ -s "$st" ] || return 0
     grep -vE "$pat" "$st" > "$st.tmp.$$"; mv -f "$st.tmp.$$" "$st"
 }
-if [ "$mode" = --set ]; then
-    # designate an existing session as the master: write SALA_MASTER into the config (the owner's user config —
-    # this is the one line sala writes there), then point at the watchdog timer if it is not running yet
-    new="${2:-}"; [ -n "$new" ] || die "usage: salamander master --set <tmux session>   ($HOWTO)"
-    tmux has-session -t "=$new" 2>/dev/null || die "no tmux session '$new' — spawn it first under a name stackshot has registered: salamander spawn $new --master (an unlisted name is refused until it is registered: see salamander spawn --help)"
-    claude_pid_under "$(tmux display -p -t "$(tmux list-panes -t "$(tmux_win_t "$new")" -F '#{pane_id}' | head -1)" '#{pane_pid}')" >/dev/null 2>&1 || echo "⚠ '$new' has no claude process right now — the watchdog will revive it from the sidecar, or resume one there yourself"
-    mkdir -p "$(dirname "$SALA_CONFIG")"
-    [ -e "$SALA_CONFIG" ] || { cp "$SALA_ROOT/config.example" "$SALA_CONFIG" 2>/dev/null || >> "$SALA_CONFIG"; }
-    if grep -q '^SALA_MASTER=' "$SALA_CONFIG"; then sed -i.bak "s|^SALA_MASTER=.*|SALA_MASTER=$new|" "$SALA_CONFIG" && rm -f "$SALA_CONFIG.bak"
-    else printf '\nSALA_MASTER=%s   # the master session: recycle driver, kept alive by `salamander watch` (set by: salamander master --set)\n' "$new" >> "$SALA_CONFIG"; fi
-    # its directory, for watch to recreate the session there if it ever disappears (watch keeps it current while it lives);
-    # a --unset's record goes (a master again is not a lost config)
-    npane=$(tmux list-panes -t "$(tmux_win_t "$new")" -F '#{pane_id}' | head -1)
-    ncpid=$(claude_pid_under "$(tmux display -p -t "$npane" '#{pane_pid}')" 2>/dev/null)
-    ndir=$( { [ -n "$ncpid" ] && readlink "/proc/$ncpid/cwd"; } 2>/dev/null || tmux display -p -t "$npane" '#{pane_current_path}')
-    mkdir -p "$SALA_LOG_DIR"; st_drop master_unset
-    if [ -n "$ndir" ]; then _kv_set "$st" "cwd.$new" "$ndir"; fi
-    echo "✅ master = '$new' (SALA_MASTER in $SALA_CONFIG${SALA_MASTER:+, was '$SALA_MASTER'})" directory: ${ndir:-unknown}
-    if command -v systemctl >/dev/null 2>&1 && ! systemctl --user is-active sala-watch.timer >/dev/null 2>&1; then
-        echo "   watchdog not running — enable it: cp $SALA_ROOT/systemd/sala-watch.{service,timer} ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now sala-watch.timer"
-    fi
-    exit 0
-fi
 if [ "$mode" = --unset ]; then
     # NO MASTER (Thu Oct 15th 2026): the one config line sala writes, commented out rather than removed, so the
     # file still says what the knob is; the file is checked to parse and to name no master afterwards. The watchdog's
     # records of the master (its name, conversation, bridge, directory) go, so `watch` and `master` read "unset", never
-    # "config lost"; the when and the name stay as master_unset. The last-good copy (common.sh) is refreshed only while a
-    # master is set, so it is refreshed here once: a later "restore from last-good" must not bring the master back.
+    # "config lost"; the when and the name stay as master_unset.
     [ $# -le 1 ] || die "usage: salamander master --unset   (takes nothing else)"
     old="${SALA_MASTER:-}"
     if [ -z "$old" ] && ! { [ -r "$SALA_CONFIG" ] && grep -q '^SALA_MASTER=' "$SALA_CONFIG"; }; then
@@ -65,36 +39,28 @@ if [ "$mode" = --unset ]; then
     [ -w "$SALA_CONFIG" ] && [ -w "$(dirname "$SALA_CONFIG")" ] || die "$SALA_CONFIG (or its directory) is not writable: SALA_MASTER=$old stays"
     when=$(date +%s); edited="SALA_MASTER commented out in $SALA_CONFIG"
     if grep -q '^SALA_MASTER=' "$SALA_CONFIG"; then
-        sed -i.bak "s|^SALA_MASTER=.*|#SALA_MASTER=                     # unset $(local_human "$when") by \`salamander master --unset\`${old:+ (was $old)}: the operation queue (sala op) runs fleet operations; a master is optional (salamander master --set)|" "$SALA_CONFIG" || die "could not edit $SALA_CONFIG — SALA_MASTER=$old stays (the copy: $SALA_CONFIG.bak)"
+        sed -i.bak "s|^SALA_MASTER=.*|#SALA_MASTER=                     # unset $(local_human "$when") by \`salamander master --unset\`${old:+ (was $old)}: the operation queue (sala op) runs fleet operations; the master path is retired|" "$SALA_CONFIG" || die "could not edit $SALA_CONFIG — SALA_MASTER=$old stays (the copy: $SALA_CONFIG.bak)"
         rm -f "$SALA_CONFIG.bak"
-        bash -n "$SALA_CONFIG" 2>/dev/null || die "$SALA_CONFIG does not parse after the edit — check it by hand (diff against $SALA_CONFIG_LASTGOOD)"
+        bash -n "$SALA_CONFIG" 2>/dev/null || die "$SALA_CONFIG does not parse after the edit — check it by hand"
     else edited="no SALA_MASTER line in $SALA_CONFIG (the value came from the environment of this call)"; fi
     left=$( SALA_MASTER=""; . "$SALA_CONFIG" >/dev/null 2>&1; printf '%s' "${SALA_MASTER:-}" )
     [ -z "$left" ] || die "$SALA_CONFIG still names a master after the edit ($left) — check it by hand"
     mkdir -p "$SALA_LOG_DIR"; touch "$st"
     st_drop master uuid bridge lane_norc ${old:+"cwd\\.$old"}
     { grep -v '^master_unset=' "$st"; echo "master_unset=${old:-?} $when"; } > "$st.tmp.$$" && mv -f "$st.tmp.$$" "$st"
-    cp -f "$SALA_CONFIG" "$SALA_CONFIG_LASTGOOD" 2>/dev/null || true
-    echo "✅ master unset${old:+ (was '$old')}: $edited; the watchdog's records of it dropped ($st); last-good copy refreshed"
+    echo "✅ master unset${old:+ (was '$old')}: $edited; the watchdog's records of it dropped ($st)"
     echo "   from now on nothing heals, recreates or bridges a master session, the post-boot report goes to Slack, and \`sala cue\` points to the queue: $QUEUE"
-    echo "   a master again: $HOWTO"
     exit 0
 fi
 name="${SALA_MASTER:-}"
 if [ -z "$name" ]; then
     case "$mode" in --name) exit 1 ;; --json) echo '{"name": "", "live": false}'; exit 1 ;; esac
     echo "no master: SALA_MASTER is not set in $SALA_CONFIG$([ -r "$SALA_CONFIG" ] || echo ' (the file is missing or unreadable)')"
-    known=$(awk -F= '$1=="master"{print $2}' "$st" 2>/dev/null); kuuid=$(awk -F= '$1=="uuid"{print $2}' "$st" 2>/dev/null)
     unset_rec=$(awk -F= '$1=="master_unset"{print $2}' "$st" 2>/dev/null)
     if [ -n "$unset_rec" ]; then
         echo "unset on purpose, $(local_human "${unset_rec##* }") (was '${unset_rec%% *}'; salamander master --unset): $QUEUE"
-        echo "the watchdog keeps no master alive (it still revives any pane whose claude died); the post-boot report goes to Slack. A master again: $HOWTO"
-    elif [ -n "$known$kuuid" ]; then
-        echo "but this box HAD one: ${known:-?}${kuuid:+ (conversation $kuuid)} per the watchdog state — the config was lost or truncated."
-        [ -r "$SALA_CONFIG_LASTGOOD" ] && echo "restore: diff $SALA_CONFIG $SALA_CONFIG_LASTGOOD  (last-good copy, $(date -r "$SALA_CONFIG_LASTGOOD" '+%Y-%m-%d %H:%M'))  — or re-apply your config"
-        echo "until then: no recycle cue can be delivered; the watchdog heals nothing; the master pane itself may still be running (check: tmux ls). Meant to have none? salamander master --unset records that"
     else
-        echo "never set on this box — a master is optional: $QUEUE. $HOWTO"
+        echo "never set on this box — the master path is retired: $QUEUE"
     fi
     exit 1
 fi
@@ -118,7 +84,7 @@ else
         echo "conversation: ${sid:-?}"
         echo "bridge      : ${bridge:+https://claude.ai/code/}${bridge:-none}"
         echo "idle        : ${why:+no — $why}${why:-yes}"
-    elif [ "$tmux_ok" = true ]; then echo "state       : NOT LIVE — tmux session exists but no claude process (salamander watch heals it within 2 min, or: salamander revive --only $name)"
-    else echo "state       : NOT LIVE — no tmux session '$name' (salamander watch heals it within 2 min)"; fi
+    elif [ "$tmux_ok" = true ]; then echo "state       : NOT LIVE — tmux session exists but no claude process (salamander revive --only $name brings it back)"
+    else echo "state       : NOT LIVE — no tmux session '$name'"; fi
 fi
 [ "$live" = true ] && exit 0 || exit 2

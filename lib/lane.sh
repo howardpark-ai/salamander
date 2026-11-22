@@ -421,7 +421,7 @@ if [ "$MODE" = fallback ]; then
     for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
     [ "$DFLT" = 1 ] && echo "  default lane: $L → $fb (was $L; new sessions and every session without a lane of its own)"
     echo "  jobs: a sala job whose lane is $L runs on $fb while $L is dormant (salamander lane exec resolves it at run time; no unit file is rewritten)"
-    [ "${SALA_EXIT_END:-1}" = 1 ] && echo "  a claude still running ${SALA_EXIT_WAIT}s after its /exit: will end a stuck process (that one pid, SIGTERM then SIGKILL after ${SALA_EXIT_TERM_WAIT}s; never the master or the session running this) and resume the session on $fb"
+    [ "${SALA_EXIT_END:-1}" = 1 ] && echo "  a claude still running ${SALA_EXIT_WAIT}s after its /exit: will end a stuck process (that one pid, SIGTERM then SIGKILL after ${SALA_EXIT_TERM_WAIT}s; never the session running this) and resume the session on $fb"
     if [ "${#PLAN_ON[@]}" -eq 0 ] && [ "$DFLT" = 0 ]; then echo "nothing is on the $(lane_label "$L") lane and it is not the default$([ "${#PINSK[@]}" -gt 0 ] && echo ", bar the pinned ones above"): nothing to move"; exit 0; fi
     if [ "$DRY" = 1 ]; then echo "[dry-run] would record each one's home ($L) and model change, switch the default if it was $L, then: salamander lane $fb <sessions>…$([ -n "$MV_MASTER" ] && echo "; salamander lane --rescue $fb (the master $MV_MASTER)"); nothing written"; exit 0; fi
     ops_guard lane "$L" $NOTMASTER
@@ -469,7 +469,7 @@ if why=$(lane_dormant_refusal "$LANE"); then die "$why"; fi
 if [ "$MODE" = rescue ]; then
     M="${SALA_MASTER:-}"; [ -n "$M" ] || die "no master session is configured (SALA_MASTER): the rescue moves the master, and there is none to move"
     why=$(lane_check "$LANE") || die "$why — nothing recorded, nothing relaunched"   # the target must launch (the header)
-    tmux has-session -t "=$M" 2>/dev/null || die "the master '$M' has no tmux session — salamander watch brings it back (on $(lane_for_session "$M")); to change its lane first: salamander lane $LANE $M --not-master"
+    tmux has-session -t "=$M" 2>/dev/null || die "the master '$M' has no tmux session — bring it back first (salamander revive --only $M brings it back on $(lane_for_session "$M")); to change its lane first: salamander lane $LANE $M --not-master"
     no_relaunch "$M" && die "$(no_relaunch_line "$M") — $(no_relaunch_fix "$M" "the master is launched by hand with an environment of its own; take it out of SALA_NO_RELAUNCH to move it")"
     ME=""; [ -n "${TMUX_PANE:-}" ] && ME=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
     [ "$ME" = "$M" ] && die "this is the master's own pane: the rescue is another session's move. From here the ordinary switch does it — salamander lane $LANE $M — through the self-worker, once this pane is idle (the route that exists)"

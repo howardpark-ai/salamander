@@ -1935,13 +1935,15 @@ cgroup with no Claude session above it, and the cgroup file stands for that. The
 
 ### `tests/nomaster.sh`: new, 56 ("No master session", Thu Oct 15th 2026); 4 added Sun Oct 25th 2026
 
+*Changed Sun Nov 22nd 2026 (the master path retired, stage 1, the last section of this file): the last-good copy, `master --set` and the lost-config checks below are gone, `--unset` and the guards stay, and a left-over `SALA_MASTER` line's one notice is checked.*
+
 The master is optional since the operation queue (a configured master can be retired once the queue works), and retiring it is one queued operation. Every check guards one of two losses, or the operation itself. A master coming
 back from a record after it was unset — `watch` recreating, resuming or bridging it, a last-good restore naming it again —
 is a session nobody asked for driving relaunches: `salamander master --unset` on a temporary config is checked to
 comment the line out and leave the file parsing with the other lines intact (`salamander config` reads none), to drop the
 watchdog's records of the master (name, conversation, bridge, lane, directory) and record `master_unset`, to refresh the
-last-good copy to the unset config, to be idempotent, and to leave the session itself alone; `master`, `--name` and
-`--json` read "unset", and `--set` again clears the record. A fleet verb run raw by a Claude session with nobody holding
+last-good copy to the unset config (removed in the master retirement, stage 1), to be idempotent, and to leave the session itself alone; `master`, `--name` and
+`--json` read "unset", and `--set` again clears the record (removed in the master retirement, stage 1). A fleet verb run raw by a Claude session with nobody holding
 the one-driver rule is two drivers on the same panes: with no master a Claude ancestor is refused with the `sala op …
 --words` line and nothing relaunched (`retire`, `recycle --force`; a verb the queue has no shape for, `restore`, refused
 with that said), while the queue's cgroup, a `sala-test-*` target, `--dry-run`, `--not-master`, `--check`, a human's pane
@@ -1950,15 +1952,15 @@ set and a Claude caller outside tmux, passes as before. The operation: a plain `
 refuse outside the queue, `op --plan` says "would unset SALA_MASTER, then retire", the unit's log has the unset (its output
 included) before the retire, the marker carries `unset_master`, the config names no master, the session is gone, one ✅
 post names the unset; a retire that fails after the unset (the pane busy by then) is stuck with `SALA_MASTER` still
-unset, the session alive and the post saying `master --set` puts it back; an unset that fails (the config's directory
+unset, the session alive and the post saying `master --set` puts it back (removed in the master retirement, stage 1): `master --set` is gone; an unset that fails (the config's directory
 read-only) is stuck with the retire never run and the config untouched. `sala cue`: with a master the words land in its
 inbox; with none exit 1, the pointer, the verb table, one example, and nothing in any inbox or the cue log (a cue that
 silently went nowhere is an operation the owner thinks happened). `watch` with no master: `--check` healthy and exit 0; a
 state that remembers a master with no `master_unset` record is the lost config (exit 1) and healthy once the record is
-back; a plain tick heals nothing, recreates no session, types nothing (no `/remote-control`), posts nothing and writes no
-master record; the post-boot report is one Slack post with revive's summary and not a second one on the next tick; the
+back (removed in the master retirement, stage 1); a plain tick heals nothing, recreates no session, types nothing (no `/remote-control`), posts nothing and writes no
+master record; the post-boot report is one Slack post with revive's summary and not a second one on the next tick (its pinned "no master" wording was removed in the master retirement, stage 1); the
 tmux server down with no `tmux.service` and no master is logged and nothing is started (the bare `tmux new-session -s ""`
-the master's heal would have run). The boot hook's revive with no master, launched by `tmux run-shell` as the resurrect
+the master's heal would have run) (removed in the master retirement, stage 1): that log wording changed. The boot hook's revive with no master, launched by `tmux run-shell` as the resurrect
 hook is: passes the guard, relaunches the panes, leaves the boot record the report reads. Not checked: a real systemd unit
 and cgroup (the stubs stand in; the Claude ancestor is a script named `claude`), a real Slack post, `reauth --done` with
 no master (it returns cue's exit 1 and pointer), the heartbeat's `master ""`.
@@ -2010,7 +2012,7 @@ name listed at queue time and removed before the run → stuck with "exited 3" a
 line", no `claude -p` (none could add it), no session, the keeper asked from the unit with who heard and the owner's words (the runner exports `SALA_OP_FROM`, `SALA_OP_WORDS`), one 🚨 post, the mandate file kept for the next try. Not checked: the real
 `pages.py` against live pages (the stub answers in its shapes: `<key> True|False|None`, `listed on <key>: …`, the exit-3
 line, "nothing to check"), a real stackshot message (`client.py message`), a real register hook, a real systemd unit (the
-stub), a real Slack post, the `--fork` and `--master` paths (unchanged; `tests/mod.sh`, `tests/ledger.sh`).
+stub), a real Slack post, the `--fork` and `--master` paths (unchanged then; `tests/mod.sh`, `tests/ledger.sh`; `spawn --master` was removed in the master retirement, stage 1).
 
 ### `tests/lanefields.sh`: new, 109 (Thu Oct 22nd 2026)
 
@@ -2600,6 +2602,8 @@ the reason as a sentence and the day ("Usage check refused since Tue Jan 6th", "
 server's two "not configured" words held to the page's list. Not checked: the live sign-in output without a subscription, the usage endpoint's status for it, a real Slack post, how the chip looks (no one has seen it in a browser).
 
 ### `tests/pset-target.sh`: new, 28 (`SALA_PSET_TARGET`, Fri Oct 16th 2026)
+
+*Changed Sun Nov 22nd 2026 (the master path retired, stage 1, the last section of this file): there is no master leg; the live-master and not-live-master checks below are gone and a session still named `SALA_MASTER` is checked to hear nothing.*
 
 A provision set's session/owner items go to the master; with no master configured (`SALA_MASTER` unset) a
 configured `SALA_PSET_TARGET`, a front agent, takes the same text with `[for the user]` on its first line. Two fake claudes
@@ -4561,3 +4565,27 @@ Enter and then C-j run the line once (two Enters seen); the banner showing, C-j 
 the shell at its prompt getting no key. About 12 s added to `ledger`, 6 s to `mod`. Not covered, and why: ble.sh itself
 (not installed on the runners; the stand-in reproduces only its effect, an Enter that does not run the line), and the
 watch's server check on an empty server (the same helper; the suites that start no server keep their cases).
+
+### The master path retired, stage 1: what the suites lost and gained (Sun Nov 22nd 2026)
+
+Nothing keeps, heals, bridges or sets a master any more: `watch` has no master checks and no inbox report, `spawn --master`
+and `master --set` are gone, `rename` moves no master, `pset_tell` has no master leg, the last-good config copy is gone. What
+the suites lost is the checks of those flows; the watch-driving suites (`ledger`, `ledger-recycle`, `autorecycle`, `sets`,
+`flags`, `laterlist`, `holdmatch`) only dropped `SALA_MASTER=` from their `watch` lines. Removed checks: `lanes` (the
+watch on the api lane and on a claude.ai lane typing `/remote-control` or not into the master's pane); `retire` (the master
+guard reading the resolved `--id` name); `stuckexit` (the check that `end_stuck_claude` refuses the master); `side`
+(`--side` with `--master`); `smoke` (the master and master-session fields of the heartbeat: `machine.json` now writes both
+empty, asserted live and in the git store); `nomaster` (the last-good copy refreshed by `--unset`, `master --set` clearing
+the record, the lost-config exit 1 and its recovery, the pinned "no master session is configured, so it comes here" report
+text and the old tmux-down log wording); `pset-target` (the live master winning, a master configured but not live leaving
+items pending with `tellfail`, with and without a live target: 4 sections, as there is no master leg to win or to fail).
+`psets` tells a `SALA_PSET_TARGET` session where it told the master (`SALA_CUE_TARGET` is no longer read there).
+
+Added: in `nomaster` a `SALA_MASTER` line left in a config draws exactly one notice per value (one Slack post, one log line,
+the `master_retired_warned` state key), a second tick posts nothing and exits 0, a changed value says it again, an emptied
+line drops the key and posts nothing, the line added again warns again, `watch --check` prints the line, writes no state, posts
+nothing and still exits 0 with its last line leading `healthy:` (provision's step judges the first 60 characters of that
+line), and the plain `--check` with no master prints no warning; in `pset-target` a live session still named `SALA_MASTER`
+hears nothing (no target: the Slack post; with a target: only the target hears); in `barepane` a pane named like the former
+master, its claude killed, is revived once by the bare-pane revive like any other, no master skip in the log. Not checked: a
+real systemd timer tick (the suites run `watch` directly), the Slack post's exact wording.

@@ -48,7 +48,7 @@ st() { awk -F= -v k="$1" '$1==k {print substr($0, length(k)+2); exit}' "$STATE";
 st_put() { { grep -v "^$1=" "$STATE"; echo "$1=$2"; } > "$STATE.t"; mv -f "$STATE.t" "$STATE"; }
 fresh_board() { st_put recycle_wanted_at 0; }    # drop the 10-min cache of the board's answer
 launches() { cat "$LAUNCHES" 2>/dev/null | grep -c 'recycle --update --force'; }
-watch() { SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; }
+watch() { "$SALA" watch >/dev/null 2>&1; }
 workers() { local f n=0; for f in "$HOME"/.claude/salamander-retry*.pid; do [ -s "$f" ] && kill -0 "$(<"$f")" 2>/dev/null && n=$((n+1)); done; echo $n; }   # live retry workers
 regstatus() {  # <tmux session> <status>: what the registry says about that pane's claude
     local c; c=$(claude_pid_under "$(tmux display -p -t "$1" '#{pane_pid}')"); set_reg_status "$c" "$2"; }
@@ -112,7 +112,7 @@ wanted 'echo 3 s1 s2 s3'; fresh_board; watch
 echo "== SALA_AUTO_RECYCLE=off and a 25-h-old request: nothing launched, the old request expires with a log line"
 st_put auto_recycle_at $(( $(date +%s) - 3700 )); wanted 'echo 0'; fresh_board
 "$SALA" recycle --when-idle --from tester "while off" >/dev/null
-SALA_AUTO_RECYCLE=off SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1
+SALA_AUTO_RECYCLE=off "$SALA" watch >/dev/null 2>&1
 [ "$(launches)" = 3 ] && ok "off: nothing launched" || bad "launched while off"
 "$SALA" recycle --when-idle --cancel >/dev/null
 d="$HOME/.local/state/salamander/recycle-requests"; old=$(( $(date +%s) - 90000 ))
@@ -122,7 +122,7 @@ printf '%s\tstale-asker\tlong ago\n' "$old" > "$d/$old-1.req"; watch
 
 echo "== a request while a pane was written 1 min ago, with the old idle settings still in a config → cued at once (no longer read)"
 "$SALA" recycle --when-idle --from tester "a new skill" >/dev/null 2>&1; age 60 "$UM" "$UA"
-SALA_AUTO_IDLE=600 SALA_AUTO_UPDATE_IDLE=1800 SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1
+SALA_AUTO_IDLE=600 SALA_AUTO_UPDATE_IDLE=1800 "$SALA" watch >/dev/null 2>&1
 [ "$(launches)" = 4 ] && ok "one recycle cued at once" || bad "launches=$(launches); $(grep auto-recycle "$WLOG" | tail -1)"
 age 3600 "$UM" "$UA"
 
@@ -189,7 +189,7 @@ export SALA_RECYCLE_REF_REPOS="fx=$FX"; d="$HOME/.local/state/salamander/recycle
 pane_start() { local ep="$1" s c; shift; for s in "$@"; do c=$(claude_pid_under "$(tmux display -p -t "$s" '#{pane_pid}')"); sed -i "s/\"startedAt\":[0-9]*/\"startedAt\":${ep}000/" "$HOME/.claude/sessions/$c.json"; done; }
 reset_guard() { wanted "echo 0"; fresh_board; st_put auto_recycle_at $(( $(date +%s) - 3700 )); st_put auto_recycle_served_ids ""; st_put auto_recycle_first_seen ""; "$SALA" recycle --when-idle --cancel >/dev/null; : > "$POSTS"; }
 HOOKS="$HOME/hookcalls.txt"; : > "$HOOKS"
-watchh() { SALA_POST_RECYCLE_CMD="echo \"\$SALA_RECYCLE_FLAG_AT\" >> $HOOKS" SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; }
+watchh() { SALA_POST_RECYCLE_CMD="echo \"\$SALA_RECYCLE_FLAG_AT\" >> $HOOKS" "$SALA" watch >/dev/null 2>&1; }
 N0=$(date +%s)
 echo "-- the incident: panes relaunched (N0-200) after the flag (N0-300), the change not merged yet"
 pane_start $((N0 - 200)) sala-test-m sala-test-a; reset_guard; r0=$(launches)
@@ -258,7 +258,7 @@ exec "$REAL_CURL" "\$@"
 EOF
 chmod +x "$HOME/.local/bin/curl"; echo '{"version": "9.9.10"}' > "$NPM"
 echo '{"fleet_ssh": {"box-d": {"letter": "d", "ok": true}}}' > "$HOME/fleet0/a/machine.json"; echo '{"claude": "9.9.8"}' > "$HOME/fleet0/d/machine.json"
-auwatch() { SALA_AUTO_UPDATE=on SALA_CLAUDE="$HOME/au/claude" SALA_HEARTBEAT_STATE_DIR="$HOME/fleet0" SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1; }
+auwatch() { SALA_AUTO_UPDATE=on SALA_CLAUDE="$HOME/au/claude" SALA_HEARTBEAT_STATE_DIR="$HOME/fleet0" "$SALA" watch >/dev/null 2>&1; }
 updates() { grep -c 'unit=sala-auto-update-' "$LAUNCHES" 2>/dev/null; }
 relaunches() { grep -c 'unit=sala-auto-relaunch-' "$LAUNCHES" 2>/dev/null; }
 st_put auto_recycle_at "$(date +%s)"   # the auto-recycle stays out of these runs (its hourly limit)
@@ -368,7 +368,7 @@ pwatch() {  # a whole watch tick; one that watch skipped because a revive runs E
     # box-wide: another worktree's suite) is retried, so these checks do not depend on what else runs here
     local n wl; for n in $(seq 1 75); do
         wl=$(wc -l < "$WLOG" 2>/dev/null || echo 0)
-        SALA_MASTER=sala-test-m "$SALA" watch >/dev/null 2>&1
+        "$SALA" watch >/dev/null 2>&1
         tail -n +$((wl + 1)) "$WLOG" | grep -q 'skip: a resurrect restore or a salamander revive is running' || return 0
         sleep 4
     done; }

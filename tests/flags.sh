@@ -312,7 +312,7 @@ RM=$(uuid 46); mk wm "$RM"; fake_up wm; touch -d "@$((TT-3600))" "$HOME/.claude/
 SW="$(date +%s)-901"; set_create "$SW" Recycle recycle 2 1 9.9.9 1 out=ghostpane src=auto fscope=all; set_point recycle "$SW"
 export SALA_AUTO_RECYCLE=on SALA_RECYCLE_GATHER=4 SALA_RECYCLE_GATHER_MAX=40 SALA_RECYCLE_REST=0
 WLG="$HOME/.claude/salamander-watch.log"
-watchrun() { SALA_MASTER=sala-test-wm "$SALA" watch >/dev/null 2>&1; }
+watchrun() { "$SALA" watch >/dev/null 2>&1; }
 launches() { grep -c 'recycle --update --force' "$LAUNCHES" 2>/dev/null; }
 "$SALA" recycle --when-idle --from t "first request" >/dev/null; watchrun
 [ "$(launches)" = 0 ] && grep -q 'auto-recycle: .*waiting for flags to settle' "$WLG" && ok "watch: the job is unfinished, so the request is gathered (not launched), the log says when" || bad "launched $(launches); $(tail -5 "$WLG")"

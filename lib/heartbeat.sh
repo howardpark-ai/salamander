@@ -19,13 +19,13 @@
 #   machine.json   READERS: sala itself (`fleet_ssh` and `claude`: fleet_awake in lib/watch.sh, lib/update.sh, lib/settings-apply.sh).
 #                  stackshot does NOT read it: it merged sala's machine.json until a later release and no longer does; of this store it
 #                  reads only `url` from sessions.json (below). Its own fleet view (clients.py) carries fields sala never writes
-#                  (online, source, setup, updates). No other reader is known; `master` and `master_session` are kept for an off-box
-#                  caller that resolves the master from the store (lib/master.sh), and nothing reads them today.
+#                  (online, source, setup, updates). No other reader is known; `master` and `master_session` are kept in the file's shape
+#                  and always written as empty strings: there is no master session any more.
 #                  {"letter","fleet","claude","checked","master","master_session","fleet_ssh"}   checked = ISO-8601 UTC ("Z")
 #                  of the last CHANGE to these facts, not of the last run;
 #                  fleet_ssh = {"<fleet name>": {"letter","ok","since"}} on the driving box, else {}: ok = the box answered
 #                  ssh on the last sweep (online), since = when it last flipped; a box that is offline keeps its last files;
-#                  master = SALA_MASTER (the operator session `watch` keeps alive; "" when unset), master_session = its conversation uuid while live
+#                  master and master_session = "" (the master path is retired; the keys stay until the contract's next version)
 #                  (a "hub" field, the sweep's fast-forward of a Windows box's ops-repo checkout, went with the Windows
 #                  sweep: Thu Oct 15th 2026)
 #   sessions.json  {"<transcript uuid>": {"name","url","seen","machine"}}
@@ -105,13 +105,6 @@ fi
 
 cver=$("$SALA_CLAUDE" --version 2>/dev/null | awk '{print $1; exit}')
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-# the master session (SALA_MASTER) and its conversation id, so a session that cannot read this box's config — cloud,
-# Cowork, another machine — can still resolve the operator for "recycle claude" from the store
-master="${SALA_MASTER:-}"; master_sid=""
-if [ -n "$master" ] && command -v tmux >/dev/null 2>&1 && tmux has-session -t "=$master" 2>/dev/null; then
-    mp=$(claude_pid_under "$(tmux display -p -t "$(tmux list-panes -t "$(tmux_win_t "$master")" -F '#{pane_id}' | head -1)" '#{pane_pid}')" 2>/dev/null) && master_sid=$(registry_field "$mp" sessionId)
-fi
-
 # FLEET SWEEP: the box that drives the fleet (SALA_FLEET_HOSTS set) collects the other boxes'
 # facts itself, over the same ssh round-trip that is the fleet's liveness signal: CLI version and live sessions
 # answer → "ok" and their files are refreshed; no answer → offline (asleep, off, or stuck behind a Tailscale
@@ -140,11 +133,11 @@ if [ -n "${SALA_FLEET_HOSTS:-}" ]; then
         rm -rf "${fdir:?}"; echo "heartbeat skipped: could not record $h's probe (disk full or over quota?) — nothing published" >&2; exit 1; done
 fi
 
-# BUILD + WRITE. A file changes only when a fact does — version, master, the session set, a name or url, an
+# BUILD + WRITE. A file changes only when a fact does — version, the session set, a name or url, an
 # ssh flip — so a run with nothing new writes nothing and commits nothing (the first cut stamped every run and
 # filled the store repo with commits). Unchanged facts keep their old "checked"/"seen" stamps.
 report=$(HB_NOW="$now" HB_STATE="$state" HB_GITMODE="$SALA_HEARTBEAT_GIT" HB_STORE="${repo:+$repo/$SALA_HEARTBEAT_DIR}" HB_FLEET="${SALA_FLEET_NAMES/#\~/$HOME}" HB_MODE="$mode" \
-    HB_LETTER="$letter" HB_NAME="$name" HB_CVER="$cver" HB_MASTER="$master" HB_MASTER_SID="$master_sid" \
+    HB_LETTER="$letter" HB_NAME="$name" HB_CVER="$cver" \
     HB_PST="$SALA_LOG_DIR/salamander-fleet-ssh.json" HB_FDIR="$fdir" \
     HB_SESSIONS_PY="$SALA_SESSIONS_PY" HB_SESSIONS_FILE="$SALA_SESSIONS_FILE" HB_SESSIONS_LOG="$SALA_SESSIONS_LOG" HB_SESSIONS_ON="$(sessions_on && echo 1 || echo 0)" \
     HB_RENAMES="$SALA_LOG_DIR/salamander-renames.jsonl" HB_URL_PY="$SALA_SESSION_URL_PY" HB_URL_TPL="$(session_url_template)" \
@@ -302,8 +295,8 @@ if fd:
         changed += publish(L, m, rs); summary.append(f"{h} claude {ver or '?'} · {len(rs)}")
     if not dry: json.dump(pst, open(E["HB_PST"], "w"), indent=1, sort_keys=True)
 
-me = {"letter": E["HB_LETTER"], "fleet": E["HB_NAME"], "claude": E["HB_CVER"], "checked": now, "master": E["HB_MASTER"],
-      "master_session": E["HB_MASTER_SID"], "fleet_ssh": fleet}
+me = {"letter": E["HB_LETTER"], "fleet": E["HB_NAME"], "claude": E["HB_CVER"], "checked": now, "master": "",
+      "master_session": "", "fleet_ssh": fleet}
 if not E["HB_CVER"]:
     me["claude"] = load(os.path.join(state or store, E["HB_LETTER"], "machine.json")).get("claude", "")
 changed = publish(E["HB_LETTER"], me, sess) + changed

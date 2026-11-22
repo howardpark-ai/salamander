@@ -6,8 +6,7 @@
 # direct sweep, a recycle bringing each pane back on its own lane, `--all` setting the default and recycling, a new spawn
 # landing on the default, the invoking pane relaunched last by the self-worker; a lane whose key file is missing refused
 # before anything is recorded or relaunched; `--dry-run` recording and relaunching nothing and naming the variables, not
-# the value; a SALA_NO_RELAUNCH session refused by name and left out of `--all`; `watch` on the api lane typing no
-# /remote-control into the master (and typing it on a claude.ai lane: the positive control); rename and retire carrying
+# the value; a SALA_NO_RELAUNCH session refused by name and left out of `--all`; rename and retire carrying
 # or dropping the row. Revive's lane line and the dry runs (lib/revive.sh, THE LANE LINE) are
 # tests/lanes-revive.sh, split out so the two run side by side. Posts stubbed to a file; isolated HOME, a private
 # tmux socket, the compiled fake claude (tests/fake-claude.c, FAKE_LANE_LOG). Usage: bash tests/lanes.sh   (exit 0 = pass; ~60 s)
@@ -183,21 +182,6 @@ grep -q 'nothing would be relaunched' <<< "$out" && ok "a session already on the
 out=$("$SALA" lane subscription-2 --all --dry-run 2>&1); rc=$?
 [ "$rc" = 0 ] && grep -q 'DRY RUN: nothing recorded' <<< "$out" && [ "$(default_file)" = subscription-1 ] && ok "--all --dry-run: exit 0, the default untouched" || bad "--all dry run ($rc): $out / $(default_file)"
 [ -n "$tsv_before" ] && [ "$(slurp "$SALA_LANES")" = "$tsv_before" ] && ok "the switch with --dry-run (sessions, then --all): lanes.tsv unchanged" || bad "lanes.tsv changed under --dry-run: '$tsv_before' → '$(slurp "$SALA_LANES")'"
-
-echo "== watch on the api lane: no bridge check, nothing typed; on a claude.ai lane /remote-control is typed (the control)"
-wait_lock
-$T send-keys -t sala-test-a -l 'run /remote-control to reconnect'; $T send-keys -t sala-test-a Enter
-waitfor "grep -q '^$U1 run /remote-control to reconnect' '$FAKE_TYPED_LOG'" 20 || bad "the fake did not take the typed line"
-SALA_MASTER=sala-test-a "$SALA" watch >/dev/null 2>&1
-! grep -q "^$U1 /remote-control\$" "$FAKE_TYPED_LOG" && ok "master on api, screen says disconnected: watch types no /remote-control" || bad "watch typed /remote-control into an api-lane master: $(<"$FAKE_TYPED_LOG")"
-[ "$(grep -c 'no Remote Control' "$WLOG")" = 1 ] && ok "and says so in its log" || bad "watch log: $(<"$WLOG")"
-SALA_MASTER=sala-test-a "$SALA" watch >/dev/null 2>&1
-[ "$(grep -c 'no Remote Control' "$WLOG")" = 1 ] && ok "once, not on every tick" || bad "watch log after a second tick: $(grep -c 'no Remote Control' "$WLOG") lines"
-out=$(SALA_MASTER=sala-test-a "$SALA" watch --check 2>&1); grep -q 'no Remote Control (the api lane)' <<< "$out" && ok "watch --check: healthy, no Remote Control on the api lane" || bad "watch --check: $out"
-$T send-keys -t sala-test-b -l 'run /remote-control to reconnect'; $T send-keys -t sala-test-b Enter
-waitfor "grep -q '^$U2 run /remote-control to reconnect' '$FAKE_TYPED_LOG'" 20 || bad "the fake did not take the typed line (b)"
-SALA_MASTER=sala-test-b "$SALA" watch >/dev/null 2>&1   # ~20 s: the reconnect's wait for the bridge
-grep -q "^$U2 /remote-control\$" "$FAKE_TYPED_LOG" && ok "master on subscription-1, the same screen: /remote-control typed (the heal still works where it belongs)" || bad "no /remote-control for b: $(<"$FAKE_TYPED_LOG") $(tail -5 "$WLOG")"
 
 echo "== SALA_NO_RELAUNCH: refused by name, left out of --all"
 out=$(SALA_NO_RELAUNCH=sala-test-b "$SALA" lane api sala-test-b 2>&1); rc=$?

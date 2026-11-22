@@ -3,10 +3,9 @@
 #   salamander rename OLD NEW [--dry-run]
 #   (a pane already /renamed to NEW by hand: nothing is typed, sala's records are brought in line)
 #
-# A bare /rename changes only the Claude session's own name: the tmux session (which sala finds the pane by), the
-# pane→conversation map revive resumes from, and SALA_MASTER keep the old one, so the next revive brings the pane back
-# under it. Renames are the master's (sala owns
-# the whole rename, names inside gbrain and the board are stackshot's). In order:
+# A bare /rename changes only the Claude session's own name: the tmux session (which sala finds the pane by) and the
+# pane→conversation map revive resumes from keep the old one, so the next revive brings the pane back
+# under it. sala owns the whole rename (names inside gbrain and the board are stackshot's). In order:
 #   0. OLD on a project's agents map and NEW on none, as stackshot's project record says (the record alone decides, no pages.py; common.sh rename_record_plan): sala has stackshot rename OLD's entry there in place (`post project-agent-rename`, label sala-rename), after the refusals of step 1
 #      have passed. The entry keeps its line, place and side; the server decides. A refusal (NEW
 #      already listed, OLD not listed, not the form, a bad prefix) stops the rename with stackshot's reason and nothing renamed. NEW already listed, or OLD on no
@@ -25,7 +24,7 @@
 #      run directly inside OLD's own pane (TMUX_PANE names it) nothing is typed: a pane cannot type into itself, so only a hand `/rename NEW` there
 #      sets the name. A queued `sala op rename OLD NEW` has no pane (the runner is a unit): it types /rename itself from outside, once the pane is idle,
 #      trying again every minute for 2 h, also when OLD is the pane that asked; op's plan runs this dry run without TMUX_PANE for that reason
-#   3. the tmux session renamed, the map row rewritten, SALA_MASTER moved when OLD was the master, open notes relabelled
+#   3. the tmux session renamed, the map row rewritten, open notes relabelled
 #      (notes and the board follow the conversation id already; cues are delivered, never stored by name)
 #   4. a record in salamander-renames.jsonl and an immediate heartbeat: the fleet state's row for this conversation
 #      carries previous_name + renamed_at, which is how stackshot learns "uuid X was OLD, is now NEW"
@@ -39,10 +38,10 @@ usage="usage: salamander rename OLD NEW [--dry-run]   ·   salamander rename --s
 # or intercept it — so sala follows it within seconds instead: `salamander follow` (lib/follow.py, sala-follow.service) runs this
 # when a session's name actually changes; `salamander watch` runs it too, as the backstop. A pane whose user-set name
 # differs from its tmux session gets the same alignment as `rename OLD NEW` (nothing typed: the name is already set),
-# and the master hears one line. Left alone: a claude started under a minute ago (a `spawn --fork` carries the old
+# and the rename log gets one line. Left alone: a claude started under a minute ago (a `spawn --fork` carries the old
 # name until spawn's own /rename), a pane a `rename` is already working on, and a name sala can't take (another live
 # session has it, or characters tmux refuses) — that one is reported once per name. A name changed and changed back
-# before this runs leaves nothing to do. Exit 3 = the master was renamed (the caller's SALA_MASTER is stale).
+# before this runs leaves nothing to do.
 if [ "${1:-}" = --sync ]; then
     exec 8>"$SALA_LOG_DIR/salamander-rename-sync.lock"; flock -n 8 || exit 0
     recycle_locked && exit 0   # a recycle holds the panes right now (common.sh): names are in flux, follow them next time
@@ -51,15 +50,10 @@ if [ "${1:-}" = --sync ]; then
     # a hand rename is a registry row whose name the user set (nameSource "user"): with no such row there is nothing to follow, and the
     # tmux call and the python scan below are skipped (they were four processes on every watch run)
     cand=0; for f_ in "$SALA_REG_DIR"/*.json; do [ -e "$f_" ] || continue; c_=""; { IFS= read -r -d '' c_ < "$f_"; } 2>/dev/null || :; [[ $c_ =~ \"nameSource\"[[:space:]]*:[[:space:]]*\"user\" ]] && { cand=1; break; }; done
-    tell() {  # <master name> <line> → the master's inbox, else the log
-        local mp="" c sock
-        case "$3" in sala-test-*) echo "[$(date -Is)] (test pane, not reported) $2" >> "$SALA_LOG_DIR/salamander-rename.log"; return ;; esac
-        [ -n "$1" ] && mp=$(tmux list-panes -t "$(tmux_win_t "$1")" -F '#{pane_id}' 2>/dev/null | head -1)
-        c=$([ -n "$mp" ] && claude_pid_under "$(tmux display -p -t "$mp" '#{pane_pid}')" 2>/dev/null)
-        sock=$([ -n "$c" ] && session_socket "$c")
-        { [ -n "$sock" ] && session_push "$sock" "[sala rename] $2"; } || echo "[$(date -Is)] master not reachable: $2" >> "$SALA_LOG_DIR/salamander-rename.log"
+    tell() {  # <line> <session> → the rename log
+        case "$2" in sala-test-*) echo "[$(date -Is)] (test pane, not reported) $1" >> "$SALA_LOG_DIR/salamander-rename.log"; return ;; esac
+        echo "[$(date -Is)] $1" >> "$SALA_LOG_DIR/salamander-rename.log"
     }
-    moved=0
     while IFS='|' read -r sess name uuid age; do
         [ "$age" -ge 60 ] || continue
         re_escape_r sess_re "$sess"; pgrep_mine "bin/(sala|salamander) rename $sess_re " >/dev/null && continue   # this instance's renames only (common.sh)
@@ -71,12 +65,11 @@ if [ "${1:-}" = --sync ]; then
             echo "[$(date -Is)] sync: '$sess' → '$name' (hand rename) left alone: not in the pane map" >> "$SALA_LOG_DIR/salamander-rename.log"
         elif [ "$rc" = 0 ]; then
             echo "[$(date -Is)] sync: '$sess' → '$name' (hand rename): $(echo "$out" | tail -1)" >> "$SALA_LOG_DIR/salamander-rename.log"
-            extra=""; if [ -n "${SALA_MASTER:-}" ] && [ "$sess" = "$SALA_MASTER" ]; then moved=1; SALA_MASTER="$name"; extra=", SALA_MASTER"; fi
-            tell "${SALA_MASTER:-}" "'$sess' was renamed to '$name' by hand; sala lined up its tmux session, revive map$extra and notes.${unl:+ Note: $unl}" "$sess"
+            tell "'$sess' was renamed to '$name' by hand; sala lined up its tmux session, revive map and notes.${unl:+ Note: $unl}" "$sess"
         else
             { grep -v "^$uuid=" "$AST"; echo "$uuid=$name"; } > "$AST.tmp.$$" && mv -f "$AST.tmp.$$" "$AST"
             echo "[$(date -Is)] sync refused: '$sess' → '$name': $out" >> "$SALA_LOG_DIR/salamander-rename.log"
-            tell "${SALA_MASTER:-}" "'$sess' was renamed to '$name' by hand, but sala can't follow: $(echo "$out" | tail -1 | sed 's/^✗ //'). Its tmux session stays '$sess'; a rename to a free name (sala rename) fixes it." "$sess"
+            tell "'$sess' was renamed to '$name' by hand, but sala can't follow: $(echo "$out" | tail -1 | sed 's/^✗ //'). Its tmux session stays '$sess'; a rename to a free name (sala rename) fixes it." "$sess"
         fi
     done < <([ "$cand" = 1 ] && tmux list-panes -a -F '#{pane_id}|#{session_name}|#{pane_pid}' 2>/dev/null | REG="$SALA_REG_DIR" RC="$SALA_RC_SESSION" python3 -c '
 import json, glob, os, sys, time
@@ -99,13 +92,13 @@ for f in glob.glob(os.path.join(os.environ["REG"], "*.json")):
     pid = "%" + t.rsplit("%", 1)[1]
     sess = panes.get(pid)   # the pane id is stable; the session name in "tmux" is the one at start
     # a pane id is per server (a probe on a private tmux socket, pane %1, was once taken for the fleet
-    # %1, and the master was told of a rename that never happened): the claude must run in that fleet pane
+    # %1, and a rename that never happened was reported): the claude must run in that fleet pane
     if sess and not under(os.path.basename(f)[:-5], shells.get(pid, "")): continue
     name, uuid = d.get("name") or "", d.get("sessionId") or ""
     if not sess or not name or not uuid or name == sess or sess == os.environ["RC"] or d.get("nameSource") != "user": continue
     age = int(time.time() - (d.get("startedAt") or 0) / 1000)
     print("%s|%s|%s|%d" % (sess, name, uuid, age))')
-    exit $([ "$moved" = 1 ] && echo 3 || echo 0)
+    exit 0
 fi
 OLD="${1:-}"; NEW="${2:-}"
 case "$OLD$NEW" in '') die "$usage";; esac
@@ -239,7 +232,7 @@ if [ "$DRY" = 1 ]; then
         sdtag=""; [ "$SDL" = 1 ] && sdtag=", the row tagged $RL_HUB / front"
         echo "  the side record of '$OLD' ends (moved to $SALA_SIDE_DIR/retired/, its registry row's side fields cleared$sdtag): '$NEW' is an ordinary session from then on, so the write-up (sala side done, the summary to $(side_val "$OLD" summary_to)) is no longer owed"
     fi
-    echo "  tmux session, pane map${SALA_MASTER:+$([ "$OLD" = "$SALA_MASTER" ] && echo ", SALA_MASTER")}, open notes; then a heartbeat"
+    echo "  tmux session, pane map, open notes; then a heartbeat"
     exit 0
 fi
 
@@ -310,8 +303,6 @@ if [ "$SD" = 1 ]; then   # the side record ends (above): from here on the sessio
         && echo "ℹ '$OLD' is no longer a side session: its record moved to $SALA_SIDE_DIR/retired/, so 'sala side done' and the summary to the origin are no longer owed" \
         || echo "⚠ the side record of '$OLD' could not be moved to $SALA_SIDE_DIR/retired/: move it by hand (the session is renamed)"
 fi
-moved=""
-if [ -n "${SALA_MASTER:-}" ] && [ "$OLD" = "$SALA_MASTER" ]; then "$SALA_BIN" master --set "$NEW" >/dev/null && moved=1; fi
 NOTES="$SALA_LOG_DIR/salamander-notes.tsv"
 if [ -s "$NOTES" ]; then
     ( flock -w 30 9 || exit 1
@@ -341,9 +332,9 @@ for f in glob.glob(os.path.join(os.path.expanduser(sys.argv[2]), "*", "sessions.
 # the session's link under its new name: session_url (common.sh, SESSION LINKS) gives the same link the heartbeat publishes for it, the sala-web link on the
 # box sala-web runs on, the claude.ai one where no template is in force
 url=$(session_url "$NEW" "$bridge")
-msg="'$OLD' is now '$NEW'${moved:+ (still the master)}${url:+ · $url}"
+msg="'$OLD' is now '$NEW'${url:+ · $url}"
 if [ "$ok" = 1 ]; then echo "✅ $msg"
 elif [ "$SELF" = 1 ] && [ "$cur" != "$NEW" ]; then echo "✅ sala's side done: $msg — the Claude session itself is still '${cur:-unset}' until /rename $NEW is typed in this pane"
 else echo "⚠ $msg, with the warnings above"; fi
-[ "$WORKER" = 1 ] && sala_post "✏️ *Renamed $OLD to $NEW*" "${moved:+still the master; }same conversation and claude.ai link"
+[ "$WORKER" = 1 ] && sala_post "✏️ *Renamed $OLD to $NEW*" "same conversation and claude.ai link"
 exit 0

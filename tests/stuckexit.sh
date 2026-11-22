@@ -7,7 +7,7 @@
 #     SIGTERM too: SIGKILL, after the TERM wait. b exits on /exit as any pane does: nothing is signalled, no post names it. c ignores
 #     /exit but its registry row says a turn is running: skipped with the reason, never signalled, still alive.
 #   THE GATES: end_stuck_claude called directly refuses, with a reason and no signal, for a pid that is not the claude under the pane,
-#     a process named claude whose binary is not a Claude Code install, the master session, the pane the caller runs in, a
+#     a process named claude whose binary is not a Claude Code install, the pane the caller runs in, a
 #     registry row that says busy, and SALA_EXIT_END=0 (which also takes the step out of the dry run's text).
 #   THE PLAN: a dry run says "will end a stuck process" (revive and the dormant-lane fallback), and leaves every process alone.
 #   THE DORMANT LANE: with the aws-platform lane dormant, `lane fallback aws-platform` moves its two sessions to bedrock; the one
@@ -102,8 +102,6 @@ ZP=$($T display -p -t "=sala-test-z:" '#{pane_pid}'); ZC=""; for _ in 1 2 3 4 5 
 SPIDS+=("$ZC"); zcomm=""; { read -r zcomm < "/proc/${ZC:-0}/comm"; } 2>/dev/null
 end_stuck_claude "$($T display -p -t "=sala-test-z:" '#{pane_id}')" sala-test-z "$ZC"; rc=$?
 [ "$zcomm" = claude ] && [ "$rc" = 1 ] && has "$STUCK_WHY" "binary" && alive "$ZC" && ok "a process named claude whose binary is not a Claude Code install: refused, still running ($STUCK_WHY)" || bad "named-claude python ($rc, comm '$zcomm'): $STUCK_WHY"
-SALA_MASTER=sala-test-a end_stuck_claude "$IDA" sala-test-a "$PA"; rc=$?
-[ "$rc" = 1 ] && has "$STUCK_WHY" "master" && alive "$PA" && ok "the master session: refused ($STUCK_WHY)" || bad "master ($rc): $STUCK_WHY"
 TMUX_PANE="$IDA" end_stuck_claude "$IDA" sala-test-a "$PA"; rc=$?
 [ "$rc" = 1 ] && has "$STUCK_WHY" "runs in" && alive "$PA" && ok "the pane this command runs in: refused ($STUCK_WHY)" || bad "own pane ($rc): $STUCK_WHY"
 end_stuck_claude "$IDA" sala-test-a "$$"; rc=$?

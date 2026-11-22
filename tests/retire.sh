@@ -3,7 +3,7 @@
 # resolving a conversation id (or its prefix, 8+ hex) with --id to its tmux session and pane, said before anything is done; a registry name no longer a
 # name (refused, --id named); an ambiguous id (two live rows, a prefix on several, a session that also holds another live claude) refused with the
 # candidates and nothing touched; a dead row or one without a tmux pane not acted on; `--dry-run` in every form touching nothing; an orphan row refused by
-# retire (forget-row named) and dropped by `forget-row`; the master guard on the resolved name. The last sections: a retire ASKS stackshot FIRST (a stub client.py: called once with project, name and sender sala-retire, before
+# retire (forget-row named) and dropped by `forget-row`. The last sections: a retire ASKS stackshot FIRST (a stub client.py: called once with project, name and sender sala-retire, before
 # the pane is closed; not in --dry-run; 200 line removed / dropped / not listed and a 404 go on, said in words; 502, 422, 409, 403, 400, a failing client or a timeout REFUSE the retire
 # with stackshot's reason and leave the pane, the row and the lane as they are; a missing client.py or a session with no project goes on; a throwaway's name, a side session and
 # sala's shell are not asked; no second call after the pane is gone). The guardrails (--busy, --skip-writeup, --self, --leave-items, close-shell) are tests/retire-verbs.sh's.
@@ -192,12 +192,6 @@ out=$("$SALA" forget-row sala-test-orph --dry-run 2>&1); rc=$?; echo "$out" | se
 untouched "$s0" "forget-row sala-test-orph --dry-run"
 [ -n "$(row sala-test-orph)" ] && ok "the orphan row still there" || bad "the orphan row went in a dry run"
 out=$("$SALA" forget-row sala-test-orph 2>&1); rc=$?; [ "$rc" = 0 ] && [ -z "$(row sala-test-orph)" ] && [ -z "$(lane_row sala-test-orph)" ] && echo "$out" | grep -q "^forgot 'sala-test-orph'" && ok "for real: the row and its lane row gone" || bad "orphan forget-row: rc=$rc $out"
-
-echo "== the master guard reads the resolved name (--id)"
-hand sala-test-mst "$UM" sala-test-mstname; c=$(pane_claude sala-test-mst); s0=$(state)
-out=$(SALA_MASTER=sala-test-mst "$SALA" retire --id "$UM" 2>&1); rc=$?
-[ "$rc" != 0 ] && echo "$out" | grep -q "'sala-test-mst' is the master session the watchdog keeps alive" && kill -0 "$c" 2>/dev/null && ok "refused by the resolved tmux session's name, the master left alone" || bad "master by conversation id: rc=$rc $out"
-untouched "$s0" "retire --id <master's conversation>"
 
 echo "== the agent entry: a retire tells stackshot to drop the session's agent entry, once, after it succeeded; fails soft"
 # stackshot's client.py, stubbed: logs its arguments (fields split by \x1f) and answers per mode in $HOME/client-mode, as the real one does: exit 0 on

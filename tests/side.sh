@@ -133,7 +133,6 @@ run gamma-foo-side-wren01 --side --project projects/foo --item board#9001 --agen
 run gamma-foo-side-wren01 --side --fork-of gamma-foo-main --project projects/foo; [ "$RC" = 1 ] && has "$OUT" "--fork-of takes no --project" && ok "--fork-of with --project" || bad "fork+project: rc=$RC — $OUT"
 run gamma-foo-side-wren01 --side --fork-of gamma-foo-main --agents a; [ "$RC" = 1 ] && has "$OUT" "--agents is for a start about an item" && ok "--fork-of with --agents" || bad "fork+agents: rc=$RC — $OUT"
 run gamma-foo-side-wren01 --side --fork-of gamma-foo-main --fork "$(uuid 1)"; [ "$RC" = 1 ] && has "$OUT" "--side forks with --fork-of AGENT" && ok "--side with --fork UUID" || bad "side+fork: rc=$RC — $OUT"
-run gamma-foo-side-wren01 --side --project projects/foo --item board#9001 --master; [ "$RC" = 1 ] && has "$OUT" "cannot go together" && ok "--side with --master" || bad "side+master: rc=$RC — $OUT"
 run gamma-foo-wren01 --side --project projects/foo --item board#9001 --dry-run; [ "$RC" = 1 ] && has "$OUT" "contains -side-" && ok "a name without -side-" || bad "name: rc=$RC — $OUT"
 run gamma-foo-side-wren01 --fork-of gamma-foo-main; [ "$RC" = 1 ] && has "$OUT" "go with --side" && ok "--fork-of without --side" || bad "fork-of alone: rc=$RC — $OUT"
 run gamma-foo-side-wren01 --item board#9001; [ "$RC" = 1 ] && has "$OUT" "go with --side" && ok "--item without --side" || bad "item alone: rc=$RC — $OUT"

@@ -1,11 +1,6 @@
-# lib/watch.sh — the watchdog, from a timer: every mapped pane's claude kept alive (bare_tick, below), and, when one is
-# configured, ONE designated session (the master) kept alive and bridged.
-#
-# The master is optional (NO MASTER below). When there is one it is the bootstrap anchor: a Claude Code session with
-# `sala` on its PATH that the user can always reach from claude.ai. Its identity is the tmux SESSION NAME (SALA_MASTER);
-# whatever conversation runs in that pane is the master's — /clear or a resume there is not a fault. Every OTHER mapped pane
-# is checked the same way by bare_tick (lib/barepane.sh), whether or not a master exists. Run from a systemd user
-# timer every couple of minutes (install.sh prints the unit).
+# lib/watch.sh — the watchdog, from a timer: every mapped pane's claude kept alive (bare_tick, below), the operation
+# queue run, the watches and the post-boot report. Run from a systemd user timer every couple of minutes (install.sh
+# prints the unit).
 #
 #   salamander watch            check, heal the FIRST failure found (one action per run), log, notify
 #   salamander watch --check    check only, exit 0 healthy / 1 unhealthy, print the finding
@@ -24,40 +19,27 @@
 #
 # Checks, in order:              Heal:
 #   1. tmux server down          start tmux.service (resurrect restores the layout; its post-restore
-#                                hook is `sala revive`) — or a bare server if there is no unit
-#   2. master tmux session gone  create it, restore its sidecar row from the state file, `revive --only`
-#   3. master pane has no claude `revive --only` (resume its last conversation by UUID; dedupe guard)
-#   3c. ONLY WHEN SALA_IDLE_WRAPUP=on (off by default): a BACKGROUND AGENT idle for SALA_IDLE_WRAPUP_MIN minutes (50) (but no longer than SALA_IDLE_WRAPUP_MAX_AGE, 58) is asked to write down what only it knows, and once that turn has
+#                                hook is `sala revive`); with no unit, nothing is done
+#   2. ONLY WHEN SALA_IDLE_WRAPUP=on (off by default): a BACKGROUND AGENT idle for SALA_IDLE_WRAPUP_MIN minutes (50) (but no longer than SALA_IDLE_WRAPUP_MAX_AGE, 58) is asked to write down what only it knows, and once that turn has
 #                                ended its conversation is cleared (/clear typed; the pane map follows the new conversation), so its next
 #                                wake starts small instead of reloading ~200k tokens after its prompt cache expired. One log line each,
 #                                no post (lib/wrapup.sh). OFF BY DEFAULT (the CLI's own compaction
 #                                is the limit): runs only with SALA_IDLE_WRAPUP=on
-#   3b. ANY mapped pane at a bare shell with no claude for SALA_BARE_GRACE (180 s, three ticks) → `revive --only` for it, at
-#                                most SALA_BARE_MAX (6) panes per tick, one post (lib/barepane.sh; runs with or without a
-#                                master, and is the only pane check a no-master box has). A mass SIGKILL of every claude
+#   3. ANY mapped pane at a bare shell with no claude for SALA_BARE_GRACE (180 s, three ticks) → `revive --only` for it, at
+#                                most SALA_BARE_MAX (6) panes per tick, one post (lib/barepane.sh). A mass SIGKILL of every claude
 #                                leaves tmux up and every pane a bare shell: this heals it
-#   4. bridge down               screen says "run /remote-control to reconnect" / "Remote Control
-#                                disconnected", or no bridge id ≥5 min after launch → type
-#                                /remote-control (only when idle, no prompt showing)
-#   5. post-boot report          once per boot, after revive's first full sweep has finished (or
-#                                SALA_BOOT_GRACE passed without one) and the master is idle (or
-#                                SALA_BOOT_DEADLINE passed): push a report into the master's inbox —
-#                                boot time, kernel, revive summary, SALA_BOOT_AUDIT; no live master by
-#                                the deadline → the notify command gets it instead
+#   4. post-boot report          once per boot, after revive's first full sweep has finished (or
+#                                SALA_BOOT_GRACE passed without one): one Slack post (the notify command) with
+#                                boot time, kernel and the revive summary
 # Never: type into a busy pane or a prompt; kill anything; act while a resurrect restore or a
 # `salamander revive` is running; act twice on the same failure within SALA_WATCH_COOLDOWN.
-# A bridge id that CHANGED since the last healthy run is reported, not fixed (twin hazard).
-# NO MASTER (`salamander master --unset`): a master is optional
-# the operation queue (lib/op.sh) runs fleet operations. With SALA_MASTER unset, checks 2–4 are off — nothing recreates,
-# resumes or bridges a master session, and its cwd.<name> record is gone with the unset — while everything else below runs
-# as before: the queue, the automatic update, relaunch and recycle, the deferred panes, the bare-pane heal, the unmapped
-# report, the rename sync, the tmux server (tmux.service started when it is down; no bare session is made for a master
-# there is none of). Check 5, the post-boot report, goes to Slack as one post per boot, at once (nobody to wait for).
-# `--check` then reports "healthy: no master session". A state that still remembers a master with no master_unset record
-# is a lost config, as before, and `--check` fails on it.
-# State: $SALA_LOG_DIR/salamander-watch.state (uuid, bridge, last action times). Log: salamander-watch.log.
+# The watchdog no longer keeps, heals or restarts a master session; a SALA_MASTER line left in the config is retired
+# (it will be removed in a later change) and gets one notice (THE RETIRED MASTER PATH below; `--check` prints it too).
+# `--check` reports "healthy: …" and exits 0 unless the tmux server is down.
+# The operation queue (lib/op.sh) runs fleet operations.
+# State: $SALA_LOG_DIR/salamander-watch.state (last action times, boot report). Log: salamander-watch.log.
 # Notify: SALA_WATCH_NOTIFY_CMD gets the message on stdin (e.g. a Slack helper).
-# Besides the master, each run may start one automatic relaunch, cued as soon as it is due: the panes still on an older CLI
+# Each run may start one automatic relaunch, cued as soon as it is due: the panes still on an older CLI
 # than the installed one (auto_relaunch) or a recycle that board items or `sala recycle --when-idle` asked for
 # (auto_recycle); the recycle itself skips a busy pane and its retry worker brings that pane back once it is idle. The CLI
 # update itself runs at once too (auto_update).
@@ -92,14 +74,10 @@ UNREG_ONLY=0; [ "${1:-}" = --unregistered ] && UNREG_ONLY=1   # `sala watch --un
 [ -d "$SALA_LOG_DIR" ] || mkdir -p "$SALA_LOG_DIR"; [ -e "$WSTATE" ] || >> "$WSTATE"   # (touch and mkdir -p each tick: two processes; nothing reads the state file's mtime)
 wlog() { local _wt; _iso_now_r _wt; echo "[$_wt] $*" >> "$WLOG"; }
 st_get() { _kv_first "$WSTATE" "$1"; }
-# the master's own directory (recorded by `master --set` and refreshed below while its pane lives): a recreated master
-# session starts there, so a resume finds its transcript and the role directory's CLAUDE.md loads (a master pane
-# spawned with --cwd in a role directory used to come back in $HOME)
-master_dir() { local d; d=$(st_get "cwd.$SALA_MASTER"); [ -n "$d" ] && [ -d "$d" ] && echo "$d" || echo "$HOME"; }
 st_set() { _kv_set "$WSTATE" "$1" "$2"; }   # per-process tmp: the timer run and a --check may overlap
 st_del() { _kv_without "$WSTATE" "$1" > "$WSTATE.tmp.$$" 2>/dev/null; mv -f "$WSTATE.tmp.$$" "$WSTATE"; }
 notify() { wlog "NOTIFY $*"; [ -n "${SALA_WATCH_NOTIFY_CMD:-}${SALA_NOTIFY_CMD:-}" ] && sala_post "$@"; return 0; }   # <headline> [bullet…] (sala_post's shape)
-report_bullets() { boot_report notify | sed 's/^\[sala boot\] //; s/^  - //; s/^  ⤷ //'; }   # the post-boot report, one bullet per line
+report_bullets() { boot_report | sed 's/^\[sala boot\] //; s/^  - //; s/^  ⤷ //'; }   # the post-boot report, one bullet per line
 # wd_launch [--fixed] <unit tag> <log> <sala args…> [-- <systemd-run options…>]: a run that outlives this oneshot, as its own
 # transient unit. KillMode=process: a recycle detaches its driver and exits, and the default control-group kill
 # took the driver down with the unit's main process, so panes were left on the old CLI. The unit is sala-auto-<tag>-<epoch>; --fixed makes it plain sala-auto-<tag>, so systemd refuses a second one
@@ -1481,25 +1459,18 @@ unset _TICK_PANES_SET _TICK_PANES   # what follows may relaunch panes: it reads 
 # master or no master; a runner that ended without a result is settled. One started here counts as this run's automatic
 # launch (OP_LAUNCHED → AUTO_LAUNCHED below), so no auto-update, auto-relaunch or auto-recycle starts beside it in the same run.
 OP_LAUNCHED=0; [ "$CHECK_ONLY" = 1 ] || op_tick
-# NO MASTER (the header): the tick runs on without checks 2–4; the post-boot report goes to Slack. Two readings of an unset
-# SALA_MASTER: never had one, or unset on purpose (`salamander master --unset` leaves master_unset in the state): quiet.
-# HAD one (state remembers it) and no such record: the config was lost, truncated or edited — say so out loud, once a
-# day, fail --check and end the tick, as before. Nothing is healed from memory: the name is the operator's config, not the
-# watchdog's to reinvent.
-NO_MASTER=0
-if [ -z "${SALA_MASTER:-}" ]; then
-    NO_MASTER=1
-    known=$(st_get master); [ -n "$known" ] || known=$(st_get uuid)
-    if [ -n "$known" ] && [ -z "$(st_get master_unset)" ]; then
-        msg="SALA_MASTER is unset but this box had a master (${known}) — config $SALA_CONFIG lost or truncated? restore it: diff against $HOME/.claude/salamander-config.last-good; meant to have none? salamander master --unset records that; the watchdog is doing nothing until then"
-        echo "⚠ $msg"; [ "$CHECK_ONLY" = 1 ] && exit 1
-        last=$(st_get last_config_lost); now=$(date +%s)
-        if [ -z "$last" ] || [ $((now - last)) -ge 86400 ]; then st_set last_config_lost "$now"; notify "🚨 *sala's config lost its master*" "SALA_MASTER is unset, but this box had one ($known)" "the watchdog does nothing until it is back" "restore it from ~/.claude/salamander-config.last-good, or run provision; meant to have none: salamander master --unset" "Details: $SALA_CONFIG"; else wlog "config lost (notified $(( (now - last) / 60 )) min ago): $msg"; fi
-        exit 1
+# THE RETIRED MASTER PATH: the watchdog no longer keeps, heals or restarts the master, and a SALA_MASTER line left in the
+# config is retired and will be removed in a later change. It is said once per value, never an error: a changed value says
+# it again, an emptied one drops the key so a line added later says it again. `--check` prints the line and writes no state. Not said at config load
+# (common.sh runs on every sala call).
+if [ -n "${SALA_MASTER:-}" ]; then
+    MASTER_RETIRED_MSG="SALA_MASTER=$SALA_MASTER is set in $SALA_CONFIG, but the watchdog no longer keeps, heals or restarts the master: the line is retired and will be removed in a later change"
+    if [ "$CHECK_ONLY" = 1 ]; then echo "⚠ $MASTER_RETIRED_MSG"
+    elif [ "$(st_get master_retired_warned)" != "$SALA_MASTER" ]; then
+        st_set master_retired_warned "$SALA_MASTER"; wlog "$MASTER_RETIRED_MSG"
+        notify "ℹ️ *The master path is retired*" "$MASTER_RETIRED_MSG" "the session itself is kept alive like any other mapped pane (the bare-pane revive)"
     fi
-else
-    st_set master "$SALA_MASTER"
-fi
+elif [ "$CHECK_ONLY" = 0 ] && [ -n "$(st_get master_retired_warned)" ]; then st_del master_retired_warned; fi
 finding() { echo "$*"; [ "$CHECK_ONLY" = 1 ] && exit 1; return 0; }
 # heal <kind> <message> <cmd…> — one action per run, cooldown per kind; the run ends after it
 heal() {
@@ -1509,7 +1480,7 @@ heal() {
         wlog "SKIP ($kind within cooldown): $msg"; exit 0
     fi
     st_set "last_$kind" "$now"; wlog "HEAL ($kind): $msg → $*"
-    local what; case "$kind" in server) what="the tmux server";; session) what="the master's tmux session";; claude) what="the master's Claude";; bridge) what="the master's Remote Control link";; *) what="$kind";; esac
+    local what="$kind"; [ "$kind" = server ] && what="the tmux server"
     if "$@"; then notify "🩹 *Watchdog restored $what*" "$msg"; else notify "🚨 *Watchdog could not restore $what*" "$msg" "Details: $WLOG"; fi
     exit 0
 }
@@ -1520,7 +1491,7 @@ busy_elsewhere() {  # a restore or a revive in flight owns the panes right now
     pgrep_mine 'tmux-resurrect/scripts/[r]estore.sh' >/dev/null && return 0
     local ps_ l_ re1='--(retry-worker|self-worker|save-map)|pgrep' re2='--(retry-worker|dry-run)|pgrep'   # (the two grep -v filters are the shell's own: a line that is none of the excluded kinds counts)
     ps_=$(pgrep_mine 'bin/(sala|salamander) revive'); while IFS= read -r l_; do [ -n "$l_" ] && ! [[ $l_ =~ $re1 ]] && return 0; done <<< "$ps_"
-    ps_=$(pgrep_mine 'bin/(sala|salamander) rename '); while IFS= read -r l_; do [ -n "$l_" ] && ! [[ $l_ =~ $re2 ]] && return 0; done <<< "$ps_"   # mid-rename the master's name is in flux
+    ps_=$(pgrep_mine 'bin/(sala|salamander) rename '); while IFS= read -r l_; do [ -n "$l_" ] && ! [[ $l_ =~ $re2 ]] && return 0; done <<< "$ps_"   # mid-rename a session's name is in flux
     return 1
 }
 
@@ -1531,7 +1502,7 @@ if [ "$CHECK_ONLY" = 0 ] && [ -n "$BOOT" ] && [ -z "$(st_get boot_announced)" ];
 fi
 boot_pending() { [ "$CHECK_ONLY" = 0 ] && [ -n "$BOOT" ] && [ "$(st_get boot_announced)" != "$BOOT" ]; }
 boot_done() { st_set boot_announced "$BOOT"; st_set boot_kernel "$(uname -r)"; }
-boot_report() {  # the report text; $1 = how it is delivered ("inbox" | "notify")
+boot_report() {  # the report text, one line per fact; the post-boot report is its only reader
     local rec="" k prev when
     [ "$(head -1 "$SALA_BOOT_REC" 2>/dev/null)" = "$BOOT" ] && rec=$(tail -n +2 "$SALA_BOOT_REC")
     k=$(uname -r); prev=$(st_get boot_kernel)
@@ -1552,24 +1523,14 @@ boot_report() {  # the report text; $1 = how it is delivered ("inbox" | "notify"
     # a clean reboot recreates what did not come back on its own (lib/reboot.sh); after any other boot the gap is named here
     local miss; miss=$(ledger_missing | wc -l | tr -d ' ')
     [ "${miss:-0}" -gt 0 ] && echo "$miss session(s) in the pane map have no tmux session: \`sala restore --missing\` recreates them in their directories and resumes their conversations."
-    [ "$1" = inbox ] || return 0
-    if [ -n "$SALA_BOOT_AUDIT" ]; then echo "Automatic salamander message, once per boot (not ${SALA_OWNER_NAME}'s words). Run the post-boot audit and report in your own pane: $SALA_BOOT_AUDIT"
-    else echo "Automatic salamander message, once per boot (not ${SALA_OWNER_NAME}'s words). Check the box and report in your own pane."; fi
+    return 0
 }
-# a boot whose master never came back: the deadline passes with no live claude in its pane → say it out of band
-if [ "$NO_MASTER" = 0 ] && boot_pending && [ "$BOOT_AGE" -ge "$SALA_BOOT_DEADLINE" ]; then
-    mp=$(tmux list-panes -t "$(tmux_win_t "$SALA_MASTER")" -F '#{pane_id}' 2>/dev/null | head -1)
-    if [ -z "$mp" ] || [ -z "$(claude_pid_under "$(tmux display -p -t "$mp" '#{pane_pid}')" 2>/dev/null)" ]; then
-        boot_done; mapfile -t rb < <(report_bullets); notify "⚠️ *$(hostname) came back up — $SALA_MASTER is not live*" "nobody got the post-boot report $((BOOT_AGE/60)) min after boot; here it is:" "${rb[@]}"
-    fi
-fi
 
 # 1. tmux server
 if ! tmux_server_up; then
     finding "tmux server is down"
     if systemctl --user cat tmux.service >/dev/null 2>&1; then heal server "tmux server down" systemctl --user start tmux.service
-    elif [ "$NO_MASTER" = 0 ]; then heal server "tmux server down (no tmux.service)" tmux new-session -d -s "$SALA_MASTER" -c "$(master_dir)"
-    else wlog "tmux server down: no tmux.service to start, and no master session to start a bare server for — nothing done"; exit 0; fi
+    else wlog "tmux server down: no tmux.service to start — nothing done"; exit 0; fi
 fi
 busy_elsewhere && { [ "$CHECK_ONLY" = 1 ] || bare_state_reset; wlog "skip: a resurrect restore or a salamander revive is running"; exit 0; }   # (the bare-pane clocks start over: lib/barepane.sh)
 # A STALE FREEZE: the roster freeze a recycle or reboot holds on the pane map (common.sh, ledger_freeze)
@@ -1998,93 +1959,10 @@ unmapped_report() {
 }
 [ "$CHECK_ONLY" = 1 ] || unmapped_report
 # a hand /rename leaves sala's records on the old name; sala-rename-sync.path follows it within seconds, this is the backstop
-if [ "$CHECK_ONLY" = 0 ]; then "$SALA_BIN" rename --sync; [ $? = 3 ] && { wlog "rename sync: the master was renamed; the next run checks it under its new name"; exit 0; }; fi
+[ "$CHECK_ONLY" = 1 ] || "$SALA_BIN" rename --sync
 rc_served_snapshot   # the served Remote Control sessions right now, so the next boot's revive knows which should come back
 
-# checks 2–4 are the master's: with none (the header) they are skipped whole — the block below is not re-indented, so its
-# hunks stay where they are; the values the report and the --check line read from it are empty then
-pane=""; panepid=""; cpid=""; uuid=""; mlane=""; bridge=""; expected=""
-if [ "$NO_MASTER" = 0 ]; then
-# 2. master session
-if ! tmux has-session -t "=$SALA_MASTER" 2>/dev/null; then
-    finding "master tmux session '$SALA_MASTER' is missing"
-    uuid=$(st_get uuid)
-    restore_master() {
-        local mdir; mdir=$(ledger_row "$SALA_MASTER" | cut -f4); [ -n "$mdir" ] && [ -d "$mdir" ] || mdir=$(master_dir)   # the map's cwd first
-        tmux new-session -d -s "$SALA_MASTER" -c "$mdir" || return 1
-        # the map keeps a row across a missing tmux session (the map is a ledger — common.sh); when the row is
-        # gone all the same, put the last-known binding back as an honored add, so revive's shell-pane branch (dedupe
-        # guard, effort re-pass) does the resume
-        if [ -n "$uuid" ] && [ -z "$(sidecar_uuid_for_session "$SALA_MASTER")" ]; then
-            ledger_write add "$SALA_MASTER" "$uuid" "$SALA_MASTER" "$mdir" || wlog "the pane map did not take the master's row back"
-        fi
-        "$SALA_BIN" revive --only "$SALA_MASTER" >> "$WLOG" 2>&1
-        wait_for "$(tmux display -p -t "$(tmux_win_t "$SALA_MASTER")" '#{pane_id}')" claude 30
-    }
-    heal session "master tmux session '$SALA_MASTER' missing" restore_master
-fi
-
-pane=$(tmux list-panes -t "$(tmux_win_t "$SALA_MASTER")" -F '#{pane_id}' | head -1)
-panepid=$(tmux display -p -t "$pane" '#{pane_pid}')
-cpid=$(claude_pid_under "$panepid" || true)
-if [ -n "$cpid" ] && [ "$CHECK_ONLY" = 0 ]; then   # a live master: keep its directory on record (written only when it changes)
-    mcwd=$(readlink "/proc/$cpid/cwd" 2>/dev/null || tmux display -p -t "$pane" '#{pane_current_path}')
-    [ -n "$mcwd" ] && [ "$mcwd" != "$(st_get "cwd.$SALA_MASTER")" ] && st_set "cwd.$SALA_MASTER" "$mcwd"
-fi
-
-# 3. claude in the pane
-if [ -z "$cpid" ]; then
-    finding "master tmux pane $pane has no claude process"
-    [ -z "$(pgrep -P "$panepid" 2>/dev/null)" ] || { wlog "master pane busy with a non-claude child; leaving it"; exit 0; }
-    heal claude "master tmux pane '$SALA_MASTER' has no claude process" sh -c "'$SALA_BIN' revive --only '$SALA_MASTER' >> '$WLOG' 2>&1"
-fi
-registry_conv_r uuid "$cpid"
-[ -n "$uuid" ] && st_set uuid "$uuid"
-
-# 4. bridge
-: "${SALA_BRIDGE_SETTLE:=20}"   # seconds after /remote-control is typed before the bridge id is read back (the tests set it short)
-# NO REMOTE CONTROL ON THE API LANE (common.sh, lanes): a claude on a key has no claude.ai
-# login, so no bridge ever comes up there, and the heal below would type /remote-control every cooldown and post a 🚨
-# each time. The lane the master RUNS on decides (its environment; the recorded lane where that cannot be read): on the
-# api lane the bridge is neither read nor healed — said once in the log — and the rest of this run goes on.
-mlane=$(lane_running "$cpid" "$SALA_MASTER")
-bridge=""; expected=$(st_get bridge)
-if lane_rc "$mlane"; then
-    [ -z "$(st_get lane_norc)" ] || st_del lane_norc
-    bridge=$(registry_field "$cpid" bridgeSessionId); [ "$bridge" = null ] && bridge=""
-    [ -n "$bridge" ] || bridge=$(bridge_for_uuid "$uuid")
-    screen=$(tmux capture-pane -p -t "$pane" 2>/dev/null | tail -40)
-    down=0
-    echo "$screen" | grep -qE 'run /remote-control to reconnect|Remote Control disconnected|run /remote-control in this session' && down=1
-    if [ "$down" = 0 ] && [ -z "$bridge" ]; then
-        age=$(proc_etime "$cpid")
-        [ "$age" -ge 300 ] && down=1
-    fi
-    if [ "$down" = 1 ]; then
-        finding "master Remote Control bridge is down (tmux pane $pane)"
-        reconnect() {
-            is_idle "$cpid" || { wlog "master is busy; not typing /remote-control now"; return 1; }
-            prompt_clears "$pane" 5 || { wlog "master shows a prompt; not typing /remote-control now"; return 1; }
-            submit "$pane" "/remote-control"; sleep "$SALA_BRIDGE_SETTLE"   # the bridge takes a while to come up and register
-            b=$(registry_field "$cpid" bridgeSessionId); [ "$b" = null ] && b=""; [ -n "$b" ] || b=$(bridge_for_uuid "$uuid")
-            [ -n "$b" ] || return 1
-            wlog "bridge after reconnect: $b (was ${expected:-none})"; return 0
-        }
-        heal bridge "master '$SALA_MASTER' Remote Control bridge down" reconnect
-    fi
-elif [ "$(st_get lane_norc)" != "$mlane" ]; then
-    [ "$CHECK_ONLY" = 1 ] || st_set lane_norc "$mlane"
-    wlog "bridge: the master runs on the $mlane lane, which has no Remote Control — the bridge check is off until it runs on a claude.ai lane again"
-fi
-if [ -n "$bridge" ]; then
-    if [ -n "$expected" ] && [ "$bridge" != "$expected" ]; then
-        wlog "bridge changed: $expected → $bridge"; notify "⚠️ *$SALA_MASTER moved to a new claude.ai session*" "its Remote Control link now points at a different session" "check claude.ai for a twin; the old one may need archiving" "Details: $WLOG"
-    fi
-    st_set bridge "$bridge"
-fi
-fi   # NO_MASTER: the end of checks 2–4
-# 5. post-boot report: once revive's boot sweep is done and the master is idle, one turn in its inbox; with no master, one
-# Slack post per boot, the same report, at once (the header)
+# 5. post-boot report: once revive's boot sweep is done, one Slack post per boot (the report of the header)
 # A CLEAN REBOOT (`sala reboot --go` left a marker from the previous boot): its boot half runs first, detached — hooks up
 # in order, panes verified against the snapshot, then resume — and its result lines join this report.
 RMARK="$SALA_LOG_DIR/salamander-reboot.marker"; RRESULT="$SALA_LOG_DIR/salamander-reboot.result"
@@ -2105,11 +1983,10 @@ if boot_pending && [ -s "$RMARK" ] && [ "$(_kv_first "$RMARK" boot_id)" != "$BOO
             st_set reboot_after_boot_relaunched "$BOOT"; wlog "clean reboot: boot half gone without a result — relaunching once"; launch_after_boot
         elif [ "$(st_get reboot_after_boot_told)" != "$BOOT" ]; then
             st_set reboot_after_boot_told "$BOOT"
-            m="[sala reboot] the boot half died twice without a result — hooks may still be paused. Run \`sala reboot --status\`, then \`sala reboot --resume\` (log ~/.claude/salamander-reboot.log)."
-            sock=$(session_socket "$cpid"); { [ -n "$sock" ] && session_push "$sock" "$m"; } || notify "🚨 *Reboot boot half died twice*" "inbound notices may still be paused" "run \`sala reboot --status\`, then \`sala reboot --resume\`" "Details: ~/.claude/salamander-reboot.log"
+            notify "🚨 *Reboot boot half died twice*" "inbound notices may still be paused" "run \`sala reboot --status\`, then \`sala reboot --resume\`" "Details: ~/.claude/salamander-reboot.log"
         fi
     fi
-    # its result, once written, is the report's cue: a hook it still watches afterwards is told to the master on its own
+    # its result, once written, is the report's cue
     [ "$(head -1 "$RRESULT" 2>/dev/null)" != "$BOOT" ] && [ "$BOOT_AGE" -lt "$SALA_BOOT_DEADLINE" ] \
         && { wlog "post-boot report: waiting for the clean-reboot boot half"; exit 0; }
 fi
@@ -2117,22 +1994,10 @@ if boot_pending; then
     if [ "$(head -1 "$SALA_BOOT_REC" 2>/dev/null)" != "$BOOT" ] && [ "$BOOT_AGE" -lt "$SALA_BOOT_GRACE" ]; then
         wlog "post-boot report: waiting for revive's boot summary ($((BOOT_AGE/60)) min since boot)"; exit 0
     fi
-    if [ "$NO_MASTER" = 1 ]; then
-        boot_done; mapfile -t rb < <(report_bullets); notify "ℹ️ *$(hostname) came back up — the post-boot report*" "no master session is configured, so it comes here" "${rb[@]}"
-        wlog "post-boot report posted (no master session)"; exit 0
-    fi
-    why=$(is_idle_reason "$cpid"); [ -z "$why" ] && pane_prompt "$pane" && why="a terminal prompt is showing"
-    [ -z "$why" ] && [ -n "$(pane_draft "$pane")" ] && why="unsubmitted text at the prompt"
-    if [ -n "$why" ] && [ "$BOOT_AGE" -lt "$SALA_BOOT_DEADLINE" ]; then wlog "post-boot report: master not idle yet — $why"; exit 0; fi
-    sock=$(session_socket "$cpid")
-    if [ -n "$sock" ] && session_push "$sock" "$(boot_report inbox)"; then
-        boot_done; wlog "post-boot report delivered to '$SALA_MASTER' (pid $cpid)${why:+ past the deadline, while: $why}"
-    else
-        boot_done; mapfile -t rb < <(report_bullets); notify "⚠️ *Post-boot report not delivered to $SALA_MASTER*" "$([ -n "$sock" ] && echo "its inbox refused it" || echo "it has no messaging socket"); here it is:" "${rb[@]}"
-    fi
+    boot_done; mapfile -t rb < <(report_bullets); notify "ℹ️ *$(hostname) came back up — the post-boot report*" "${rb[@]}"
+    wlog "post-boot report posted"; exit 0
 fi
 if [ "$CHECK_ONLY" = 1 ]; then
-    if [ "$NO_MASTER" = 1 ]; then u=$(st_get master_unset); echo "healthy: no master session (SALA_MASTER unset${u:+ on purpose, $(local_human "${u##* }"), was '${u%% *}'}) — no master is kept alive; the operation queue, the watches, the bare-pane revive and the post-boot report (to Slack) run"
-    else echo "healthy: tmux session $SALA_MASTER (pane $pane) · claude pid $cpid on conversation $uuid · $(lane_rc "$mlane" && echo "Remote Control bridge ${bridge:-none}" || echo "no Remote Control (the $mlane lane)")"; fi
+    echo "healthy: queue, watches, bare-pane revive, boot report"
 fi
 exit 0
