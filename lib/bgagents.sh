@@ -10,7 +10,9 @@ usage: sala bg-agents [--dry-run]
           <front agent>` a project), takes AT MOST ONE project that is not in back-off or given up, checks the load (1-minute average under
           SALA_BGAGENTS_MAX_LOAD, 10; at or above it the run skips and takes nothing from the ledger), lists the agent <name prefix>-engineer on the project
           (`client.py post project-agent … --role engineer --back`, the label SALA_BGAGENTS_SENDER, sala-web) and starts its pane
-          (`sala spawn <name> --project <key> --role back --mandate <line>`), then checks it is live. One line a decision. Exit 0 = the run finished (a skip and
+          (`sala spawn <name> --project <key> --role back --mandate <line>`), then checks it is live AND placed in its project: the project record, roles.json
+          and sala's registry row must all place it there as a back agent (read again until SALA_BGAGENTS_PLACE_WAIT, 360 s); a live session one of them does not
+          place is a failed attempt (the reason names the link; its pane is left running; one Slack post and the board item). One line a decision. Exit 0 = the run finished (a skip and
           a failed project too), 1 = a retire is needed (`retire needed: <name>`: an agent this job listed could not be started and no path takes it off
           without the owner's words) or a board item is needed and could not be raised (`board item needed: <project>`, below), 2 = usage or a bad setting.
   --dry-run  the whole decision; nothing is posted, started or written (the want list and the load are read).
@@ -42,7 +44,7 @@ esac
 # the config file is sourced (common.sh), so a `NAME=value` line there is a shell variable, not part of the environment lib/bgagents.py reads: export the
 # settings it takes (a no-op for one that is unset; the systemd service has only PATH in its environment, so the config is its only source)
 export SALA_BGAGENTS SALA_BGAGENTS_COOLDOWN SALA_BGAGENTS_COOLDOWN_MAX SALA_BGAGENTS_MAX_ATTEMPTS SALA_BGAGENTS_MAX_LOAD SALA_BGAGENTS_MANDATE SALA_BGAGENTS_SENDER \
-       SALA_BGAGENTS_LEDGER SALA_BGAGENTS_LOADAVG SALA_BGAGENTS_RECORD_GRACE SALA_BGAGENTS_ALIVE_WAIT SALA_BGAGENTS_POST_TIMEOUT SALA_BGAGENTS_SPAWN_TIMEOUT SALA_BGAGENTS_RAISE_TIMEOUT SALA_BGAGENTS_MAX_PROBES \
+       SALA_BGAGENTS_LEDGER SALA_BGAGENTS_LOADAVG SALA_BGAGENTS_RECORD_GRACE SALA_BGAGENTS_ALIVE_WAIT SALA_BGAGENTS_POST_TIMEOUT SALA_BGAGENTS_SPAWN_TIMEOUT SALA_BGAGENTS_RAISE_TIMEOUT SALA_BGAGENTS_MAX_PROBES SALA_BGAGENTS_PLACE_WAIT SALA_BGAGENTS_PLACE_POLL SALA_ROLES_FILE SALA_ROLES_FILE_MAX_AGE \
        SALA_BGAGENTS_SUBJECT_PREFIX SALA_DEFAULT_SCOPE SALA_SCOPES \
        SALA_PROJECT_RECORD SALA_PROJECT_RECORD_MAX_AGE SALA_TZ SALA_OWNER_NAME SALA_STATE_DIR
 # the six commands: a setting wins (also an empty one: no client), else the stackshot client / this sala (the suites stub them)
@@ -56,5 +58,6 @@ if [ -z "${SALA_BGAGENTS_LIST_CMD+x}" ] || [ -z "${SALA_BGAGENTS_POST_CMD+x}" ] 
 fi
 : "${SALA_BGAGENTS_SPAWN_CMD=$SALA_BIN spawn}"
 : "${SALA_BGAGENTS_ALIVE_CMD=$SALA_BIN sessions resolve}"
-export SALA_BGAGENTS_LIST_CMD SALA_BGAGENTS_POST_CMD SALA_BGAGENTS_ASK_CMD SALA_BGAGENTS_PREFIXES_CMD SALA_BGAGENTS_SPAWN_CMD SALA_BGAGENTS_ALIVE_CMD
+: "${SALA_BGAGENTS_ALERT_CMD=$SALA_BIN alert}"      # the Slack post of a start that is live but not placed in its project (sala's own alert path)
+export SALA_BGAGENTS_LIST_CMD SALA_BGAGENTS_POST_CMD SALA_BGAGENTS_ASK_CMD SALA_BGAGENTS_PREFIXES_CMD SALA_BGAGENTS_SPAWN_CMD SALA_BGAGENTS_ALIVE_CMD SALA_BGAGENTS_ALERT_CMD
 exec python3 -I -S "$SALA_ROOT/lib/bgagents.py" "$@"
