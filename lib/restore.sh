@@ -13,6 +13,8 @@
 # resumed twice). Fleet operation: the master's when a Claude session calls it (ops_guard), like revive and retire. A session
 # queues it instead: `sala op restore --only NAME --why "<reason>" --from YOU` (lib/op.sh); the queue's runner, a sala-op-<id>
 # unit, passes ops_guard like every queued verb, and the queue's plan is this verb's --dry-run.
+# A session whose claude does not come up is reported by revive with the last lines of its pane, and listed at the end ("did not come up: …").
+# The server check is tmux_server_up: a running tmux server with no session is up (tmux.service sets exit-empty off), only no server at all refuses.
 # --dry-run: nothing is changed; the same refusals as the real run, as "[dry-run] would refuse: …" (exit 1), and for a session
 # that can be recreated what the run would do: the tmux session and directory, the conversation, the lane, model and effort the
 # revive after it keeps. Read-only, so it passes the guard from a Claude session like every verb's dry run.
@@ -26,7 +28,7 @@ ops_guard restore "${NAMES[0]:-missing}" $DRYFLAG
 no_server="no tmux server running — start it first (systemctl --user start tmux.service; its resurrect restore and revive may bring the sessions back by themselves), then restore what is still missing"
 if [ "$DRY" = 1 ]; then
     [ "$MISSING" = 1 ] || [ ${#NAMES[@]} -gt 0 ] || die "$usage"
-    tmux has-session 2>/dev/null || { echo "[dry-run] would refuse: $no_server"; echo "[dry-run] nothing was changed"; exit 1; }
+    tmux_server_up || { echo "[dry-run] would refuse: $no_server"; echo "[dry-run] nothing was changed"; exit 1; }
     if [ "$MISSING" = 1 ]; then
         mapfile -t NAMES < <(ledger_missing | cut -f1)
         [ ${#NAMES[@]} -gt 0 ] || { echo "[dry-run] nothing missing: every session in the pane map has its tmux session"; exit 0; }
@@ -42,17 +44,18 @@ if [ "$DRY" = 1 ]; then
     echo "[dry-run] nothing was changed"
     [ "$refused" = 0 ]; exit
 fi
-tmux has-session 2>/dev/null || die "$no_server"
+tmux_server_up || die "$no_server"
 if [ "$MISSING" = 1 ]; then
     mapfile -t NAMES < <(ledger_missing | cut -f1)
     [ ${#NAMES[@]} -gt 0 ] || { echo "nothing missing: every session in the pane map has its tmux session"; exit 0; }
     echo "${#NAMES[@]} session(s) in the pane map have no tmux session: ${NAMES[*]}"
 fi
-back=0; fails=0
+back=0; fails=0; failed=()
 for n in "${NAMES[@]}"; do
     out=$(restore_session "$n"); rc=$?
-    printf '%s\n' "$out" | sed '$d'   # revive's own lines for the pane, if any
-    case "$rc" in 0) echo "✅ $(printf '%s\n' "$out" | tail -1)"; back=$((back+1));; 3) echo "ℹ $(printf '%s\n' "$out" | tail -1)";; *) echo "✗ $(printf '%s\n' "$out" | tail -1)"; fails=$((fails+1));; esac
+    printf '%s\n' "$out" | sed '$d'   # revive's own lines for the pane, if any (a pane whose claude did not come up: its last line is in them, revive's verify_pane)
+    case "$rc" in 0) echo "✅ $(printf '%s\n' "$out" | tail -1)"; back=$((back+1));; 3) echo "ℹ $(printf '%s\n' "$out" | tail -1)";; *) echo "✗ $(printf '%s\n' "$out" | tail -1)"; fails=$((fails+1)); failed+=("$n");; esac
 done
 [ ${#NAMES[@]} -gt 1 ] && echo "restored $back of ${#NAMES[@]}"
+[ "$fails" = 0 ] || echo "did not come up: ${failed[*]}"
 [ "$fails" = 0 ]

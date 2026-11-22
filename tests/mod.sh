@@ -294,6 +294,43 @@ waitfor 'grep -q "^start $UR " "$FAKE_LOG"' 20; sleep 2
 [ "$(grep -c "^start $UR " "$FAKE_LOG")" = 1 ] && [ "$(cat "$HOME/r1.rc" "$HOME/r2.rc" | sort | tr -d '\n')" = 01 ] && [ -z "$(pane_draft_screen "$RP")" ] \
     && ok "two at once into one shell: one typed, one refused, nothing left in the box" || bad "race: starts=$(grep -c "^start $UR " "$FAKE_LOG") rc=$(cat "$HOME/r1.rc" "$HOME/r2.rc" | tr '\n' ' ') box='$(pane_draft_screen "$RP")'"
 
+echo "== resume_send: a line the shell took but did not run (ble.sh's multiline mode) is sent again; a line that ran is not"
+# a bash whose Enter is bound to a command that logs it and does not accept the line (ble.sh in MULTILINE mode, as seen): the line stays
+# at the prompt until C-j. $1 = case name, $2 = 1 to print the banner first, $3 = the line to type. PROMPT_COMMAND counts the prompts drawn
+# (one per accepted line), the Enter binding counts the Enters that reached the shell.
+stuckpane() {
+    local n="$1" ban="$2" s="sala-test-s$1"
+    $T new-session -d -s "$s" -x 100 -y 30 "bash --norc --noprofile -i"
+    tmux send-keys -t "=$s:" "PS1='\$ '; PROMPT_COMMAND='echo p >> $HOME/pc.$n'; bind -x '\"\\C-m\": echo E >> $HOME/en.$n'; clear" Enter
+    waitfor "[ \"\$(grep -c p $HOME/pc.$n 2>/dev/null)\" = 1 ]" 20
+    [ "$ban" = 1 ] && { tmux send-keys -t "=$s:" "printf -- '-- MULTILINE --\\n'" C-j; waitfor "[ \"\$(grep -c p $HOME/pc.$n)\" = 2 ]" 20; }
+    tmux list-panes -t "=$s:" -F '#{pane_id}' | head -1
+}
+US=77777777-0000-4000-8000-000000000007
+SP=$(stuckpane a 0); : > "$HOME/en.a"
+why=$(resume_send "$SP" "$US" "echo ran-a >> $HOME/ran.a; sleep 2"); rc=$?
+waitfor 'grep -q ran-a "$HOME/ran.a" 2>/dev/null' 20
+[ "$rc" = 0 ] && [ "$(grep -c ran-a "$HOME/ran.a")" = 1 ] && [ "$(grep -c E "$HOME/en.a")" = 2 ] \
+    && ok "an Enter that did not run the line, no banner: a second plain Enter, then C-j ran it (once)" || bad "stuck, no banner: rc=$rc why=$why ran=$(slurp "$HOME/ran.a") enters=$(grep -c E "$HOME/en.a")"
+SP=$(stuckpane b 1); : > "$HOME/en.b"
+why=$(resume_send "$SP" "$US" "echo ran-b >> $HOME/ran.b; sleep 2"); rc=$?
+waitfor 'grep -q ran-b "$HOME/ran.b" 2>/dev/null' 20
+[ "$rc" = 0 ] && [ "$(grep -c ran-b "$HOME/ran.b")" = 1 ] && [ "$(grep -c E "$HOME/en.b")" = 1 ] \
+    && ok "the multiline banner showing: C-j straight away, no second plain Enter (the line ran once)" || bad "stuck, banner: rc=$rc why=$why ran=$(slurp "$HOME/ran.b") enters=$(grep -c E "$HOME/en.b")"
+SP=$(stuckpane c 0); : > "$HOME/en.c"
+why=$(SALA_RESUME_SEND_RETRIES=0 resume_send "$SP" "$US" "echo ran-c >> $HOME/ran.c"); rc=$?
+[ "$rc" = 0 ] && [ ! -e "$HOME/ran.c" ] && [ "$(grep -c E "$HOME/en.c")" = 1 ] && pane_last_line_r LL "$SP" && has "$LL" "echo ran-c" \
+    && ok "SALA_RESUME_SEND_RETRIES=0: nothing sent again, the line still at the prompt, and pane_last_line_r reads it" || bad "retries off: rc=$rc why=$why ran=$(slurp "$HOME/ran.c" 2>/dev/null) enters=$(grep -c E "$HOME/en.c") last='${LL:-}'"
+tmux kill-session -t "=sala-test-sa" 2>/dev/null; tmux kill-session -t "=sala-test-sb" 2>/dev/null; tmux kill-session -t "=sala-test-sc" 2>/dev/null
+$T new-session -d -s sala-test-sd -x 100 -y 30 "bash --norc --noprofile -i"
+tmux send-keys -t "=sala-test-sd:" "PS1='\$ '; PROMPT_COMMAND='echo p >> $HOME/pc.d'; clear" Enter
+waitfor '[ "$(grep -c p "$HOME/pc.d" 2>/dev/null)" = 1 ]' 20
+SP=$(tmux list-panes -t =sala-test-sd: -F '#{pane_id}' | head -1)
+why=$(resume_send "$SP" "$US" "echo ran-d >> $HOME/ran.d"); rc=$?
+[ "$rc" = 0 ] && [ "$(grep -c ran-d "$HOME/ran.d")" = 1 ] && [ "$(grep -c p "$HOME/pc.d")" = 2 ] \
+    && ok "a line that ran at once and left the shell at its prompt: no key sent again (one prompt drawn for it)" || bad "ran line: rc=$rc why=$why ran=$(slurp "$HOME/ran.d") prompts=$(grep -c p "$HOME/pc.d")"
+tmux kill-session -t "=sala-test-sd" 2>/dev/null
+
 echo "== spawn: a claude that comes up and dies is a failure, not a session (resume_wait)"
 # a --fork spawn runs `claude --resume <uuid> --fork-session`: the fake's resume comes up, runs a few seconds and dies, as a CLI broken
 # by its update would; until Oct 9th `wait_for … claude` passed in those 3 s and spawn went on to rename and map a dead pane

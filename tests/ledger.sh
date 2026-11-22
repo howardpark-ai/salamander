@@ -289,4 +289,34 @@ out=$("$SALA" restore --missing --dry-run 2>&1); rc=$?
 [ "$rc" = 0 ] && echo "$out" | grep -q 'sala-test-b: would create the tmux session' && ! tmux has-session -t =sala-test-b 2>/dev/null && ok "--missing --dry-run: names what is missing, creates nothing" || bad "dry-run --missing: rc=$rc $out"
 out=$("$SALA" restore --dry-run 2>&1); rc=$?
 [ "$rc" != 0 ] && echo "$out" | grep -q 'usage: salamander restore' && ok "--dry-run with no name: the usage" || bad "dry-run, no name: rc=$rc $out"
+
+echo "== restore: a session whose claude does not come up is listed at the end, with the last lines of its pane"
+tmux set-environment -g FAKE_RESUME_FAIL 1   # the fake's --resume refuses and dies at once, its error above the prompt
+out=$("$SALA" restore sala-test-b 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+tmux set-environment -gu FAKE_RESUME_FAIL
+[ "$rc" != 0 ] && has "$out" "✗ sala-test-b: recreated in" && has "$out" "last lines of the pane: \"" && has "$out" "resume refused (FAKE_RESUME_FAIL)" && [ "$(tail -1 <<< "$out")" = "did not come up: sala-test-b" ] \
+    && ok "the failure line carries the pane's last lines, and the run ends with 'did not come up: sala-test-b'" || bad "restore, claude does not come up: rc=$rc"
+kill_wait sala-test-b
+
+echo "== a tmux server that is running but holds no session (tmux.service sets exit-empty off): it is up, not absent"
+tmux set -s exit-empty off
+for s in $(tmux list-sessions -F '#{session_name}'); do kill_wait "$s"; done
+tmux has-session 2>/dev/null; hs=$?
+tmux list-sessions >/dev/null 2>&1 && [ "$hs" = 1 ] && tmux_server_up && ok "the premise: the server answers list-sessions with no session, and a bare has-session says 1 there" || bad "empty server: has-session=$hs"
+out=$("$SALA" restore --missing --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && ! has "$out" "no tmux server running" && has "$out" "sala-test-b: would create the tmux session" && ok "restore --missing --dry-run on an empty server: the plan, not 'no tmux server running'" || bad "dry-run, empty server: rc=$rc $out"
+out=$("$SALA" revive 2>&1); rc=$?
+[ "$rc" = 0 ] && ! has "$out" "no tmux server running" && ok "revive on an empty server: goes on (nothing to relaunch), not 'no tmux server running'" || bad "revive, empty server: rc=$rc $out"
+out=$("$SALA" restore sala-test-b 2>&1); rc=$?
+[ "$rc" = 0 ] && ! has "$out" "no tmux server running" && tmux has-session -t =sala-test-b 2>/dev/null && ok "restore on an empty server: sala-test-b is back" || bad "restore, empty server: rc=$rc $out"
+kill_wait sala-test-b
+echo "== and no server at all: still said so"
+tmux kill-server; waitfor '! tmux list-sessions >/dev/null 2>&1' 20
+tmux_server_up && bad "tmux_server_up with no server" || ok "tmux_server_up: no server, 1"
+out=$("$SALA" restore --missing --dry-run 2>&1); rc=$?
+[ "$rc" = 1 ] && has "$out" "would refuse: no tmux server running" && ok "restore --missing --dry-run with no server: would refuse" || bad "dry-run, no server: rc=$rc $out"
+out=$("$SALA" restore sala-test-b 2>&1); rc=$?
+[ "$rc" != 0 ] && has "$out" "no tmux server running" && ok "restore with no server: refused" || bad "restore, no server: rc=$rc $out"
+out=$("$SALA" revive 2>&1); rc=$?
+[ "$rc" = 0 ] && has "$out" "no tmux server running; nothing to revive" && ok "revive with no server: nothing to revive" || bad "revive, no server: rc=$rc $out"
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

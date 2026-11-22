@@ -227,7 +227,7 @@ wrapup_tick() {
     wrapup_on || return 0
     [ -s "$SALA_SIDECAR" ] || return 0
     on_fleet_server || return 0
-    tmux has-session 2>/dev/null || return 0
+    tmux_server_up || return 0
     if bare_busy; then [ "${WRAP_DRY:-0}" = 1 ] && echo "standing aside — $BARE_BUSY_WHY"; return 0; fi
     ( flock -n 8 || exit 0; wrapup_locked ) 8>>"$SALA_LOG_DIR/salamander-wrapup.lock"
 }

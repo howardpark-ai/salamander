@@ -106,7 +106,7 @@ cont_tick() {
     [ "${SALA_CONTINUED_IN:-on}" = off ] && return 0
     [ -s "$SALA_SIDECAR" ] || return 0
     on_fleet_server || return 0
-    tmux has-session 2>/dev/null || return 0
+    tmux_server_up || return 0
     ( flock -n 8 || exit 0; cont_locked ) 8>>"$SALA_LOG_DIR/salamander-continuedin.lock"
 }
 cont_locked() {

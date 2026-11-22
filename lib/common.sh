@@ -69,6 +69,8 @@ case $SALA_LOG_DIR in /*) ;; *) SALA_LOG_DIR=$HOME/$SALA_LOG_DIR;; esac   # a re
 : "${SALA_SELF_WAIT:=900}"                         # recycle: how long the self-worker waits for the invoking pane to go idle
 : "${SALA_EXIT_WAIT:=30}"                          # relaunch: seconds to wait for a typed /exit to land (the pane back at its shell)
 : "${SALA_RESUME_WAIT:=30}"                        # relaunch: seconds to wait for the resumed claude to come up in its pane
+: "${SALA_RESUME_LOOK:=5}"                         # relaunch: looks (0.2 s apart) at the pane after the resume line's Enter before asking whether the line is still unsent
+: "${SALA_RESUME_SEND_RETRIES:=2}"                 # relaunch: how many times a resume line found unsent at the prompt gets another Enter / C-j
 : "${SALA_IDLE_SETTLE:=10}"                        # is_idle: a registry row idle for less than this many seconds still counts as busy
 : "${SALA_HOLD_SETTLE:=3}"                         # revive: seconds between the inbox holds (every pane of the sweep) and the first /exit: a line handed out just before the hold becomes a turn the idle re-check sees
 : "${SALA_SPAWN_SETTLE:=3}"                        # spawn: seconds after claude starts before /rename is typed (the composer ready)
@@ -2703,6 +2705,10 @@ ledger_log() {  # <op> <session> <old → new> — one line per change
 # tests/syntax.sh fails on a tmux call that targets a session variable bare; tests/tmux-exact.sh runs the cases.
 # An EMPTY name prints a bare `=`, which tmux refuses: `=:` alone would read as the caller's own session.
 tmux_sess_t() { printf '=%s' "$1"; }                                                    # <session> → `=session`
+# tmux_server_up → 0 when a tmux server answers, with sessions or without. The bare `tmux has-session` (no -t) is NOT that test: it exits 1
+# on a RUNNING server that holds zero sessions (tmux.service sets exit-empty off, so such a server stays up after its last session ends),
+# which read as "no tmux server running". `list-sessions` exits 0 on a server with no session and 1 only when none runs.
+tmux_server_up() { tmux list-sessions >/dev/null 2>&1; }
 tmux_win_t() { if [ -n "${1:-}" ]; then printf '=%s:%s' "$1" "${2:-}"; else printf '='; fi; }   # <session> [window] → `=session:` (its active window and pane) or `=session:window`
 # spawn_in_flight <session> <pane or tmux target> [window seconds] → 0 when the session is a spawn still to land its pane-map row (rename's
 # THE SPAWN WINDOW, and the watch's unmapped report, which waits the same way before it calls a session unmapped): a spawn operation for the
@@ -6049,13 +6055,35 @@ wait_for() {  # $1=pane $2=want ("claude"|"shell"|<cmd>) $3=timeout-secs
     return 1
 }
 
+# resume_unsent <pane> <command> → 0 when the line typed into <pane> still sits at its prompt, never run: the pane's program is a shell, no
+# claude is under it, the shell has no child process (a line that started is a child, a slow one included), and the last line of the screen
+# carries the head of the command (or ble.sh's multiline banner shows). A line that ran and died leaves its error and a fresh prompt below
+# it, so it does not count as unsent.
+resume_unsent() {
+    local pp kids="" last
+    case "$(tmux display -p -t "$1" '#{pane_current_command}' 2>/dev/null)" in bash|sh|zsh|fish) ;; *) return 1;; esac
+    pp=$(tmux display -p -t "$1" '#{pane_pid}' 2>/dev/null); [ -n "$pp" ] || return 1
+    [ -z "$(claude_pid_under "$pp" 2>/dev/null)" ] || return 1
+    _children_r kids "$pp"; [ -z "$kids" ] || return 1
+    shell_stuck "$1" && return 0
+    pane_last_line_r last "$1"; [[ $last == *"${2:0:40}"* ]]
+}
+# pane_last_line_r <var> <pane> [n] → the last <n> (default 1) non-blank lines of the pane's screen (wrapped lines joined), joined with " / ",
+# the whole cut to 240 characters, in <var>. One line is what a line left unsent at the prompt shows; a resume that died shows its error
+# ABOVE the fresh prompt, so verify_pane asks for two.
+pane_last_line_r() {
+    local -a ls=(); local line out="" i n=${3:-1}
+    while IFS= read -r line; do [[ $line == *[![:space:]]* ]] && ls+=("$line"); done < <(tmux capture-pane -p -J -t "$2" 2>/dev/null)
+    for ((i=${#ls[@]}>n ? ${#ls[@]}-n : 0; i<${#ls[@]}; i++)); do out+="${out:+ / }${ls[i]}"; done
+    printf -v "$1" '%s' "${out:0:240}"
+}
 # resume_send <pane> <uuid> <command> → 0 the resume line typed into the pane's shell; 1 not typed, the reason on stdout.
 # Checked at the last moment, under one lock for every sala run: the conversation is not live anywhere and the pane's
 # foreground program is a shell. Two retry workers that woke together both closed and resumed
 # one session; the second line landed in the first one's claude as a draft and blocked every later relaunch.
 # The lock is held until the typed line has started a program (up to 5 s), so the next run sees it.
 resume_send() {
-    local d="$SALA_STATE_DIR" i
+    local d="$SALA_STATE_DIR" i k
     mkdir -p "$d" 2>/dev/null
     (
         flock -w 30 7 || { echo "another sala run held the resume lock for 30 s — resume not typed"; exit 1; }
@@ -6063,6 +6091,19 @@ resume_send() {
         cmd=$(tmux display -p -t "$1" '#{pane_current_command}' 2>/dev/null)
         case "$cmd" in bash|sh|zsh|fish) ;; *) echo "the pane is running '${cmd:-nothing}', not a shell — resume not typed (it would land in that program's input)"; exit 1;; esac
         tmux send-keys -t "$1" "$3" Enter
+        # THE UNSENT LINE (a restored pane on a fleet host: ble.sh in MULTILINE mode took the Enter as a newline, the line sat at the prompt and
+        # no claude ever started): look for the line starting a program for a second; when the pane is still at a shell that runs nothing and
+        # the line is still there unsent (resume_unsent), send the key that submits it, at most SALA_RESUME_SEND_RETRIES times
+        for ((k=0; k<=SALA_RESUME_SEND_RETRIES; k++)); do
+            for ((i=0; i<SALA_RESUME_LOOK; i++)); do
+                case "$(tmux display -p -t "$1" '#{pane_current_command}' 2>/dev/null)" in bash|sh|zsh|fish) _nap 0.2;; *) break 2;; esac
+            done
+            [ "$k" -lt "$SALA_RESUME_SEND_RETRIES" ] && resume_unsent "$1" "$3" || break
+            # a plain Enter first (unless ble.sh's banner shows: its Enter already failed), C-j for the next retry. C-j is accept-line in
+            # readline, zsh and fish as Enter is, and on a prompt with nothing typed it only draws a new one; resume_unsent holds only
+            # for a shell with no child process and no claude under it, so the keys cannot land in a program's input
+            if [ "$k" = 0 ] && ! shell_stuck "$1"; then tmux send-keys -t "$1" Enter; else tmux send-keys -t "$1" C-j; fi
+        done
         for ((i=0; i<25; i++)); do
             case "$(tmux display -p -t "$1" '#{pane_current_command}' 2>/dev/null)" in bash|sh|zsh|fish) _nap 0.2;; *) break;; esac
         done
