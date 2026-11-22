@@ -758,8 +758,9 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   stale, no such project) falls back to interface 7 unchanged, with its exit codes and its "cannot tell" refusal.
   The in-place entry rename of `sala rename OLD NEW` is the exception: the record decides alone, read once (one copy of the file for both names), no `pages.py` fallback (its answer "no project page for this name", exit 0, was once read as "listed" and a rename of a listed agent
   changed only the pane). OLD on a project's agents map (`listed on <key>`) and NEW on none of a fresh record: the entry is renamed through interface 21 on that project's key;
-  NEW already listed, or OLD on no map (a scratch pane): no call, not an error; a record that cannot answer (stale, missing, unreadable) refuses the rename with its reason and renames nothing
-  (`rename --sync`, a hand rename that is followed, goes on and says the reason on stderr; a box with no record file and no stackshot client has nothing to ask and goes on).
+  NEW already listed, or OLD on no map (a scratch pane): no call, not an error; a record that cannot answer (stale, missing, unreadable, behind a directory that denies traversal, or readable but not copyable for the one snapshot) refuses the rename with its reason and renames nothing;
+  so does an OLD on the agents maps of two or more projects, with a reason naming their keys (the record gives no one project as its entry's). `rename --sync`, a hand rename that is followed, goes on and says the reason on stderr; a box whose record is
+  absent (stat says no such file or directory, not any other error) and with no stackshot client has nothing to ask and goes on.
   A side session renamed to an agent name keeps its own path (version 14), and still asks `agent_unlisted` (the record first, `pages.py` when the record cannot answer).
   The same reading rule gives a live session with no role its role (`sala sessions tag --auto`, `back-names`; the
   back agents' lane rule counts from it): a name on exactly one non-retired project's map is that project's agent, `front`
