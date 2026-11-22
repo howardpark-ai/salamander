@@ -229,7 +229,7 @@ printf '#!/bin/sh\nexit 1\n' > "$T/fakepath/gh"
 chmod +x "$T/fakepath/curl" "$T/fakepath/gh"
 rwloop() { env -u BRIEFING_BACKEND -u RELEASE_WATCH_UBUNTU_SESSION -u RELEASE_WATCH_UBUNTU_PAGE -u RELEASE_WATCH_CLI_OWNER PATH="$T/fakepath:$PATH" HOME="$T/home" SALA_CONFIG="$T/no-config" FAKE_DIR="$T" FAKE_SDK=text:DONE BRIEFING_NOW="$NOW" \
     BRIEFING_API_KEY_FILE="$T/key" BRIEFING_API_WORKSPACE_FILE="$T/ws" BRIEFING_SDK_CMD="$T/bin/sdk" \
-    RELEASE_WATCH_STATE="$T/state2" RELEASE_WATCH_RELAY_CWD="$T/home" RELEASE_WATCH_CLAUDE_BIN=/nonexistent RELEASE_WATCH_SALA=/nonexistent \
+    RELEASE_WATCH_STATE="$T/state2" RELEASE_WATCH_RELAY_CWD="$T/home" RELEASE_WATCH_CLAUDE_BIN=/nonexistent \
     "$@" sh "$D/release-watch.sh" 2>/dev/null; }
 rm -rf "$T/state2"; rm -f "$T"/sdk-*
 loopout=$(rwloop)
@@ -250,13 +250,11 @@ printf 'RELEASE_WATCH_UBUNTU_SESSION=demo-ops-main   # from the config\n' > "$T/
 rwloop SALA_CONFIG="$T/rw.config" >/dev/null
 grep -q 'named "demo-ops-main"' "$T/sdk-stdin" 2>/dev/null && ok "main loop: RELEASE_WATCH_UBUNTU_SESSION from the sala config's line" || bad "ubuntults session from the config: $(cat "$T/sdk-stdin" 2>/dev/null)"
 
-# release-watch.sh cli-owner: the Claude Code CLI's upgrade owner is sala's master; with none, RELEASE_WATCH_CLI_OWNER (the environment, else the
-# sala config's line); with that unset too, nobody (empty)
-printf '#!/bin/sh\ncase "$FAKE_MASTER" in\n  "") echo "no master: SALA_MASTER is not set in /x/config" ;;\n  *) echo "master      : $FAKE_MASTER"; echo "state       : live" ;;\nesac\n' > "$T/bin/sala"; chmod +x "$T/bin/sala"
-owner() { env -u RELEASE_WATCH_CLI_OWNER HOME="$T/home" SALA_CONFIG="$T/no-config" RELEASE_WATCH_STATE="$T/state" RELEASE_WATCH_SALA="$T/bin/sala" "$@" sh "$D/release-watch.sh" cli-owner; }
-[ "$(owner FAKE_MASTER=demo-master)" = demo-master ] && ok "cli-owner: the master when sala has one, as before" || bad "cli-owner with a master: $(owner FAKE_MASTER=demo-master)"
-[ "$(owner FAKE_MASTER=)" = "" ] && ok "cli-owner: no master and no RELEASE_WATCH_CLI_OWNER → nobody" || bad "cli-owner with no master: '$(owner FAKE_MASTER=)'"
-[ "$(owner FAKE_MASTER= RELEASE_WATCH_CLI_OWNER=other-owner)" = other-owner ] && ok "cli-owner: RELEASE_WATCH_CLI_OWNER names another owner" || bad "cli-owner override"
+# release-watch.sh cli-owner: the Claude Code CLI's upgrade owner is RELEASE_WATCH_CLI_OWNER (the environment, else the sala config's
+# line); with that unset, nobody (empty)
+owner() { env -u RELEASE_WATCH_CLI_OWNER HOME="$T/home" SALA_CONFIG="$T/no-config" RELEASE_WATCH_STATE="$T/state" "$@" sh "$D/release-watch.sh" cli-owner; }
+[ "$(owner)" = "" ] && ok "cli-owner: no RELEASE_WATCH_CLI_OWNER → nobody" || bad "cli-owner with none: '$(owner)'"
+[ "$(owner RELEASE_WATCH_CLI_OWNER=other-owner)" = other-owner ] && ok "cli-owner: RELEASE_WATCH_CLI_OWNER names the owner" || bad "cli-owner override"
 printf 'RELEASE_WATCH_CLI_OWNER=demo-main\n' > "$T/owner.config"
-[ "$(owner FAKE_MASTER= SALA_CONFIG="$T/owner.config")" = demo-main ] && ok "cli-owner: RELEASE_WATCH_CLI_OWNER from the sala config's line" || bad "cli-owner from the config: '$(owner FAKE_MASTER= SALA_CONFIG="$T/owner.config")'"
+[ "$(owner SALA_CONFIG="$T/owner.config")" = demo-main ] && ok "cli-owner: RELEASE_WATCH_CLI_OWNER from the sala config's line" || bad "cli-owner from the config: '$(owner SALA_CONFIG="$T/owner.config")'"
 exit $fail

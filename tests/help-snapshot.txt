@@ -1,5 +1,5 @@
 ### sala --help (exit 0)
-salamander — the operator for Claude Code across your machines (fleet: versions, heartbeat, master, cues,
+salamander — the operator for Claude Code across your machines (fleet: versions, heartbeat,
 remote /provision) and, on the box that hosts them, named long-lived sessions in tmux that survive reboots
 and CLI updates, resumed by transcript UUID, reachable from Remote Control.
 
@@ -22,7 +22,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander spawn  --suggest-name --side (--fork-of AGENT | --project <page key>)   the side session's name (<prefix>-side-<word><nn>)
   salamander spawn  --list
   salamander recycle [--update] [--force] [--not-master]   relaunch every pane, this one included, from one detached driver
-                                     (while SALA_MASTER is set it is driven from that session only — other panes hand the cue over; with no master `sala op recycle` runs it; --not-master overrides)
+                                     (a Claude session's pane queues it with `sala op recycle`; --not-master overrides)
                                      (--update: `claude update` first — the two halves of "recycle")
                                      (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
                                      (every relaunch — recycle, revive, unpark, restore — passes the user settings' permissions.defaultMode as --permission-mode, because a resumed session otherwise keeps the mode its transcript recorded)
@@ -87,10 +87,6 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander heartbeat [--no-push|--dry-run|--check]   sweep every box over ssh: liveness, CLI version, live sessions → the fleet live store (timer)
   salamander ready [--clear|--list]  from inside a session, as the turn's last call: I may be relaunched now (recycle's fast path; shells may be cut, a running subagent never is: it is named and the relaunch waits for it; a pane on the deferred list counts as waiting)
   salamander unpark NAME [--dry-run]  bring a conversation parked by "← for agents" back into its pane (see lib/unpark.sh)
-  salamander master [--name|--json|--unset]  the master session (SALA_MASTER; retired): is it live; --unset ends it
-                                     (the operation queue replaces it: nothing healed or bridged, the post-boot report to Slack)
-  salamander cue [--from NAME] [--after "<next>"] [--dry-run] "<words>"  hand an operator cue ("recycle claude") to the master (only while SALA_MASTER is set and live; the watchdog no longer revives it); --after leaves a note;
-                                     no master → the pointer to `salamander op` and exit 1, nothing delivered
   salamander op <verb> [args…] --from NAME --words "<the owner's words>"   queue a fleet operation for `watch` to run with no model (lib/op.sh):
                                      recycle [--update] [--force] · update [HOST…|--fleet] · revive [--only NAME]… [--force] ·
                                      retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items] (a side session: refused until `side done` wrote its marker; --skip-writeup the one bypass; NO --words only for a throwaway: a row with the throwaway tag a bare spawn sets, by any session between turns; a row without the tag, by its spawner, by the master or any session when NAME is a scratch-*, *-check-*, *-test-* or *-probe-* name (any session: and no live spawner); never with a bypass flag, --keep-web or --id, and only when the project record confirms NAME is on no agents map) · close-shell NAME [--busy] · forget-row NAME · rename OLD NEW · lane <lane> <session>…|<lane> --all|default <lane>|fallback <lane> ·
@@ -150,8 +146,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      resumed with it; no answer (or none yet from the answer seam: the board's decision by default) → it stays parked, exit 3
   salamander question list | show QID | sweep | file QID   the open questions · one · answer-and-resume every one with an answer · (re)file one
   salamander reauth NAME             any session: the sign-in link for the claude.ai NAME connector, for the owner (lib/reauth.sh)
-  salamander reauth NAME --done [--from ME] [--dry-run]   once signed in: check it, then cue the forced recycle (to the master while one is set)
-                                     (no master: print the `sala op recycle --force … --words` line to queue it, exit 0)
+  salamander reauth NAME --done [--from ME] [--dry-run]   once signed in: check it, then print the `sala op recycle --force … --words` line that queues the forced recycle, exit 0
   salamander alert [--channel NAME] "<headline>" ["<line>"…]   post an alert the way sala's own go (Slack, no Claude turn; for checks run
                                      from a systemd unit — lib/alert.sh); exit 0 posted, 1 post failed, 2 usage, 3 no notify command;
                                      a URL in the headline is moved after the bold: ⚠️ *text* → URL; --channel NAME ([a-z0-9-]+, before the
@@ -241,9 +236,9 @@ usage: salamander model                                                       th
 
   salamander reauth NAME                               print the sign-in link for "claude.ai NAME", for the calling
                                                        session to hand to the owner in its final message; any session
-  salamander reauth NAME --done [--from ME] [--dry-run]   once the owner has signed in: check the connector, then cue the forced
-                                                       recycle through the master (--dry-run: print the cue, send nothing);
-                                                       no master: print the `sala op recycle --force` line to queue it, exit 0
+  salamander reauth NAME --done [--from ME] [--dry-run]   once the owner has signed in: check the connector, then print the
+                                                       `sala op recycle --force` line that queues the forced recycle
+                                                       (--dry-run changes nothing: this verb queues nothing itself), exit 0
 
 ### sala question --help (exit 0)
 Dispatched by bin/salamander as `salamander question …` and `salamander resume-answer`.
@@ -267,7 +262,7 @@ Dispatched by bin/salamander as `salamander question …` and `salamander resume
 
 ### sala recycle --help (exit 0)
   salamander recycle [--update] [--force] [--not-master]   relaunch every pane, this one included, from one detached driver
-                                     (while SALA_MASTER is set it is driven from that session only — other panes hand the cue over; with no master `sala op recycle` runs it; --not-master overrides)
+                                     (a Claude session's pane queues it with `sala op recycle`; --not-master overrides)
                                      (--update: `claude update` first — the two halves of "recycle")
                                      (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
 
@@ -633,4 +628,4 @@ usage: sala box SESSION [--json]
   Read-only (no key is sent, nothing is logged); it works on the caller's own pane too.
   Exit 0 read · 2 usage, no live session of that name, or no tmux pane · 3 no claude in the pane.
 
-### verbs with no help path of their own (listed, not probed; their usage is the sala --help text above): adopt ci-poll close-shell config cue feedback follow forget-row heartbeat hook map master provision ready reboot rename retire snapshot spawn unpark update watch
+### verbs with no help path of their own (listed, not probed; their usage is the sala --help text above): adopt ci-poll close-shell config feedback follow forget-row heartbeat hook map provision ready reboot rename retire snapshot spawn unpark update watch

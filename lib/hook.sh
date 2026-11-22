@@ -13,7 +13,7 @@
 #                               not shown to this session yet, as additionalContext, at its next prompt; nothing else
 #   salamander hook pre-tool    PreToolUse hook (matcher "Bash"): deny a command that would relaunch or update the fleet
 #                               outside sala — reboot, a CLI update, tmux kill-* on the fleet's server or a window/pane put into another session, kill/pkill of a claude
-#                               process — with the fix (`sala cue`) in the reason; the master's pane is exempt (lib/guard.py)
+#                               process — with the fix (`sala op …`) in the reason; the master's pane is exempt (lib/guard.py)
 #   salamander hook notify [--dry-run]   Notification hook (matcher "permission_prompt|elicitation_dialog|elicitation_url_dialog"):
 #                               the instant alert for a pane stopped on a dialog, through the stuck watch's path and
 #                               state, so its 90 s post does not repeat it (lib/stuck.sh sq_instant)

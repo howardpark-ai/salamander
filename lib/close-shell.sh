@@ -43,10 +43,6 @@ if ! tmux has-session -t "=$name" 2>/dev/null; then
     refuse "no tmux session '$name' (close-shell takes the exact name \`tmux list-sessions\` shows, nothing else)"
 fi
 [ "$name" = "$SALA_RC_SESSION" ] && refuse "'$name' is the Remote Control server — use: salamander rc --stop"
-if [ -n "${SALA_MASTER:-}" ] && [ "$name" = "$SALA_MASTER" ]; then
-    if [ "$DRY" = 1 ] && [ "${SALA_OP_PLAN:-}" = 1 ]; then dry "'$name' is the master session the watchdog keeps alive: the queue would unset SALA_MASTER first (salamander master --unset), then close it as below"
-    else refuse "'$name' is the master session the watchdog keeps alive — the queue does it in one operation (sala op close-shell $name --from <you> --words \"<${SALA_OWNER_NAME}'s words>\": unset SALA_MASTER, then close); by hand, salamander master --unset first if you really mean it"; fi
-fi
 
 # every pane of the session: a Claude in any of them is a retire's job; the shell's own children are what --busy is about
 panes=0; kids=""; claude_in=""; own=0

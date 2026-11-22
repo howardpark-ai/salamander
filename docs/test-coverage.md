@@ -4621,3 +4621,32 @@ What it is: the Shell's tmux session (`SALA_SHELL_SESSION`) used to be made only
 Kept (`test_shell_start.py`, fakes for the tmux half): the start calls ensure exactly once when a server answers (not again at shutdown or by a request) and not at all when none does; ensure raising a tmux error, an OSError, a RuntimeError or a timeout, a hang held to the bound (`SHELL_START_WAIT`) and a server check that raises each print one stderr line and the app comes up and serves `api/config`. Kept (the same file, a real private tmux server: a socket of its own in a short `/tmp/hpt-*` TMUX_TMPDIR, an isolated HOME, both temp folders locked while the test runs and removed at the end, the server stopped by its own `kill-server`): with a server up the start makes the Shell session beside the one already there and touches nothing else, a second start leaves the same pane; with no server the start makes none and starts no server (`list-sessions` still fails after it). Kept (`test_shell_open_on_terminal_page.py`, the source): the one call to `api/shell/open` with the drawer's method, headers and body, awaited before `frame.src` is set, only under `arg === shellSession` (read from `api/config`), bounded by an abort at 8 s, and a catch with no throw; the served `/terminal` page loads `terminal.js`. Kept (the same file, the page in a headless Chromium against the app on a loopback port, `ensure_shell_session` replaced by a recorder that can be held or made to fail): with the open held the page has no frame, and once it answers the frame is there with `/tty/?arg=<shell>` and exactly one call was made; a refused open (502) loads the frame anyway; an open that never answers loads the frame after the bound; another session's name, a name that only starts with the Shell's, and no name make no call and load the frame as before. `conftest.py` points the default tmux socket (`SALA_WEB_TMUX_SOCKET`) at a name nothing listens on for every test, so a test that starts an app with `Settings()` and its lifespan can never find the user's own tmux server and make a session on it.
 
 Dropped: the real ttyd behind the full-size page for the Shell (`test_terminal_shell_font.py`'s full-page cases already open `/terminal?arg=<shell>` against a real ttyd, with `ensure_shell_session` replaced, and now go through the open call). Not run here: the browser tests need Chromium, which the test host does not have; they run in CI's web shards. Not checked: a real sala-web restart on a moved host (the start-up half is a unit-level call with a real private tmux server, the page half a browser test).
+
+### The master path retired, stage 2: no verb hands work to a master or unsets one (Mon Nov 23rd 2026)
+
+`sala master` and `sala cue` are gone (unknown subcommands, exit 2), with `lib/master.sh` and `lib/cue.sh`; the queue no
+longer unsets a master before retiring one (`op_shape` has no `OP_UNSET_MASTER`, the runner no unset step, the stuck post and
+the hearing session's message no "master setting was cleared" line), `retire`, `close-shell` and `forget-row` no longer refuse
+the session a config still names as `SALA_MASTER`, `reauth --done` has one branch (print the `sala op recycle --force` line,
+exit 0) and `release-watch.sh` takes its CLI owner from `RELEASE_WATCH_CLI_OWNER` alone. Removed checks, by suite:
+`nomaster` (32 check lines: `sala cue` with a master delivering into its inbox and its `--dry-run`, with none the pointer and
+nothing delivered or logged; a plain `retire <the master>` and its dry run refused outside the queue, `op --plan` saying "would
+unset SALA_MASTER, then retire"; `master --unset` on a real temporary config, 11 lines: the line commented out, the file parsing
+and the other lines intact, `config` reading none, `--name`, `--json` and the plain verb reading "unset", the watchdog's records
+dropped, idempotent, the session untouched; `op retire <the master>` unsetting first, a retire failing after the unset and an
+unset failing, 11 lines: the log order, `unset_master` on the marker, the post); `op` (the stuck-post line for a master retire, 1);
+`opparallel` (the master's retire as a solo operation, 1; the shapes check now expects the retire of a leftover
+`SALA_MASTER`'s live session to be par with the shared lock, while the master's rename stays solo until the guards stage);
+`retire-verbs` (the master refused by `close-shell` and `forget-row`, and the queue's would-unset plan, 3); `reauth` (the master
+dry run and the real hand-over to `sala cue`, 2; the "nothing cued" wording is now "nothing queued"); `briefing/sdk.sh` (the
+fake `sala master` answering `cli-owner`: the master winning over `RELEASE_WATCH_CLI_OWNER`, 1 of its 4 lines, the others now run with no fake).
+Kept as live behavior: the guards with no master, the control with a master set, the boot hook's revive, the leftover-line
+notice, the master doors of `retire-own` and `op_own_target_ok` (stage 3), `pset-target`'s session named like `SALA_MASTER`
+hearing nothing (`psets` already had no `SALA_CUE_TARGET` since stage 1).
+
+Added: `nomaster` checks that `sala master`, `sala master --unset` (config untouched) and `sala cue "<words>"` are unknown
+subcommands with exit 2 and nothing delivered, that `op --plan retire` and `retire --dry-run` of the session a leftover
+`SALA_MASTER` line names are an ordinary retire (no "unset", no "master session" refusal); `reauth` that `--dry-run` without
+`--from` prints the same line with `<you>` and queues nothing, that a stray `SALA_CUE_TARGET` changes nothing and that
+`reauth --help` names no master or cue. `tests/help-snapshot.txt` regenerated (the two verbs' lines, the `recycle` and `reauth`
+wording). Not checked: a box that still has a `sala cue` allow rule or a script calling it (outside this repo).

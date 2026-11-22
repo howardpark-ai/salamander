@@ -14,7 +14,6 @@
 # so a session that crashes before acting on it still gets it — nothing expires and nothing is dropped silently.
 # While a clean reboot's boot half is pending, watch holds off and the boot half delivers once the services
 # are resumed (`--reboot`, which also reports notes whose session is not back).
-# `sala cue --after "<next>" "<words>"` leaves the note and relays the cue in one step (the hand-over form).
 # A handled note is archived, never deleted: one JSON line per note in salamander-notes-archive.jsonl with
 # its created, last-delivered and done times, times delivered, and the session that marked it.
 # Store: $SALA_LOG_DIR/salamander-notes.tsv (id \t session \t uuid \t created \t pid \t delivered \t delivered_at \t text);
@@ -24,7 +23,7 @@ NOTES="$SALA_LOG_DIR/salamander-notes.tsv"; NLOG="$SALA_LOG_DIR/salamander-notes
 [ -d "$SALA_LOG_DIR" ] || mkdir -p "$SALA_LOG_DIR"; [ -e "$NOTES" ] || >> "$NOTES"   # (mkdir and touch on every call: two processes)
 nlog() { local _nt; _iso_now_r _nt; echo "[$_nt] $*" >> "$NLOG"; }
 # The store lock covers only reads and rewrites of the TSV; --deliver scans panes and pushes outside it, so a
-# `sala note` or `sala cue --after` never waits on a delivery (a long scan under the lock once refused cues).
+# `sala note` never waits on a delivery (a long scan under the lock once refused notes).
 lock() { exec 9>"$NOTES.lock"; flock -w 30 9 || die "the note store is locked"; }
 unlock() { flock -u 9; exec 9>&-; }
 [ "${1:-}" = --deliver ] || lock

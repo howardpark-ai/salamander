@@ -7,7 +7,7 @@ What sala is for, its two layers, what it leaves out on purpose, and a first loo
 Two layers:
 
 - **Fleet** — every machine: which Claude Code version each box runs (`update HOST…`, `update --fleet`), which
-  sessions live where and who the master is (`heartbeat`, `master`), handing operator cues to the master (`cue`),
+  sessions live where (`heartbeat`),
   and starting `/provision` on another box (`provision HOST…`). The other boxes need only ssh: the
   heartbeat sweeps them from the driving box.
 - **Sessions** — the box that hosts them: named, long-lived Claude Code sessions in tmux, resumed by transcript

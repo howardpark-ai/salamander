@@ -743,7 +743,7 @@ _set_giveup_pane() {
 # GATHERED until SALA_RECYCLE_GATHER seconds pass with no newer flag (10 min), and never longer than SALA_RECYCLE_GATHER_MAX after
 # the first flag gathered (30 min); then the job starts ONCE: the recycle's sweep opens one new flag, the counter reads 0/N against
 # it, and the older flag's worker stops (one job). A flag from the owner's words (source op-recycle) waits for nothing, and a knob at 0
-# turns the gathering off. What calls `sala recycle` directly (op recycle, provision, update, the master's cue) does not pass here: it
+# turns the gathering off. What calls `sala recycle` directly (op recycle, provision, update) does not pass here: it
 # starts at once, as before. The panes' own rest (SALA_RECYCLE_REST) is the sweep's: lib/revive.sh, rest_applies.
 _job_file() { echo "$SALA_SET_DIR/job.${1:-recycle}"; }
 _job_get() { _kv_first "$(_job_file recycle)" "$1"; }
@@ -1011,7 +1011,7 @@ _pset_tell_text() {  # <id> → the master's message for the items not told yet 
     printf '\n%s\n' "An item that cannot be done: sala provision --settle $id <host> <step> gave \"<why, in plain words>\". sala makes the set's Slack posts from these calls; post nothing yourself. Open items: sala provision --sets"
 }
 _pset_told() { local id="$1" e; shift; for e in "$@"; do _set_drop "$id" tell "$e"; done; _set_dropp "$id" tellfail ""; }
-# _inbox_push <session> <text> → 0 delivered into that session's inbox as a turn (the delivery `sala cue` uses: the pane,
+# _inbox_push <session> <text> → 0 delivered into that session's inbox as a turn (the pane,
 # its claude, its messaging socket); 2 not live, 4 no socket or the push failed
 _inbox_push() {
     local target="$1" pane mpid="" sock
@@ -2326,7 +2326,7 @@ busy_stamp() {  # <uuid> <record id> <stamp> → add the idle flip that followed
 busy_prune() { [ -d "$SALA_BUSY_DIR" ] && find "$SALA_BUSY_DIR" -maxdepth 1 -type f -mtime +3 -delete 2>/dev/null; return 0; }   # watch: records of sessions long gone
 # ── the relaunch-waiting flag (the hook also covers every other relaunch scenario) ──
 # Every relaunch sala starts and has to wait for a pane raises waiting/<uuid> for it: a recycle's retry worker (whatever
-# started the recycle: the master's cue, `update`, `provision`, watch's auto-recycle or its relaunch onto a new CLI) and the
+# started the recycle: `update`, `provision`, watch's auto-recycle or its relaunch onto a new CLI) and the
 # reboot drain. The session's PostToolUse hook then tells it once (relaunch_text), and its Stop hook, ending a turn with
 # nothing in flight, counts as `sala ready` (lib/hook.sh). A crash revive warns nobody: there is no relaunch to wait for.
 # relaunch_kind [kind] → recycle · reboot · update · provision · auto, from the argument or SALA_RELAUNCH_KIND (the starter
@@ -5562,8 +5562,7 @@ local_human() {
 # ── one driver ────────────────────────────────────────────────────────────────
 # master_guard <verb> [args…] → 0 when this invocation may drive a recycle of this box, else dies.
 # A recycle relaunches every pane, the invoking one included; two drivers race the same panes. So a
-# recycle is driven from the MASTER pane (SALA_MASTER) — any other pane hands the cue to it (the
-# recycle procedure does that). Allowed regardless: not inside tmux (a human shell, systemd, cron);
+# recycle is driven from the MASTER pane (SALA_MASTER) — any other pane queues it with `sala op`. Allowed regardless: not inside tmux (a human shell, systemd, cron);
 # --dry-run / --check (read-only); --not-master (explicit override); and a master that is not live
 # (the box must never become unrecyclable — said out loud).
 # NO MASTER ("No master session", Thu Oct 15th 2026): with SALA_MASTER unset the operation queue (lib/op.sh) is
@@ -5631,7 +5630,7 @@ master_guard() {
         echo "⚠ master session '$SALA_MASTER' is not live — allowing '$verb' from '$here' (salamander watch no longer revives the master)" >&2
         sala_post "⚠️ *$verb ran from $here*" "the master $SALA_MASTER was not live, so the guard let it through"; return 0
     fi
-    die "$verb is driven from the master session ('$SALA_MASTER'), not from '$here': hand it the cue with \`sala cue --from <you> \"<${SALA_OWNER_NAME}'s words>\"\` (the recycle procedure does exactly that), so two drivers never race the same panes. Override only if you know why: --not-master"
+    die "$verb is driven from the master session ('$SALA_MASTER'), not from '$here': queue it with \`sala op $verb … --from <you> --words \"<${SALA_OWNER_NAME}'s words>\"\`, so two drivers never race the same panes. Override only if you know why: --not-master"
 }
 
 # ── recycle lock ──────────────────────────────────────────────────────────────

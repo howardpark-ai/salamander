@@ -53,9 +53,8 @@
 #SALA_MASTER=                     # retired: `salamander watch` no longer keeps, heals or restarts the master; the line will be removed in a later change,
                                  #   and one left here draws one notice per value. The operation queue replaces it (`sala op`, SALA_OP_* below): a Claude session's raw
                                  #   fleet verb is refused and pointed to `sala op`, and the post-boot report goes to Slack.
-                                 #   `salamander master --unset` comments the line out
 #SALA_PSET_TARGET=                # optional: a session name (a front agent, e.g. my-project-main) that hears a provision set's items, with
-                                 #   `[for <owner name>]` on its first line so a front agent's pane takes it, into its inbox as `sala cue` delivers.
+                                 #   `[for <owner name>]` on its first line so a front agent's pane takes it, into its inbox.
                                  #   Unset, the target not live, or its push failing: the Slack post (the items count as told).
                                  #   Unset (the default) = exactly the behaviour without the knob
 #SALA_WATCH_COOLDOWN=600          # seconds before watch repeats the same heal

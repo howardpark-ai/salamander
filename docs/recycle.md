@@ -5,7 +5,7 @@ How a recycle runs: the one driver rule and the recycle lock, the flags and the 
 ## One driver
 `recycle`, and `update` whenever it would recycle this box, run only from the **master** pane (`SALA_MASTER`): a recycle
 relaunches every pane including the invoking one, and two drivers race the same panes. From any other tmux pane the
-command refuses and says to hand the cue to the master. Not enforced when not
+command refuses and says to queue it with `sala op`. Not enforced when not
 inside tmux (a shell, systemd, cron), for `--dry-run` / `--check`, with `--not-master`, or when the master itself is not
 live — that last case is allowed and announced, so a dead master never makes the box unrecyclable (`watch` no longer
 keeps a master: its pane is revived by the bare-pane revive like any other). **With no master configured** (Thu Oct 15th 2026) the queue holds the rule: a call from a
