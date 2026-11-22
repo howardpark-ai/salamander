@@ -3,25 +3,21 @@
 How a recycle runs: the one driver rule and the recycle lock, the flags and the recycle job, and the panes sala never relaunches.
 
 ## One driver
-`recycle`, and `update` whenever it would recycle this box, run only from the **master** pane (`SALA_MASTER`): a recycle
-relaunches every pane including the invoking one, and two drivers race the same panes. From any other tmux pane the
-command refuses and says to queue it with `sala op`. Not enforced when not
-inside tmux (a shell, systemd, cron), for `--dry-run` / `--check`, with `--not-master`, or when the master itself is not
-live — that last case is allowed and announced, so a dead master never makes the box unrecyclable (`watch` no longer
-keeps a master: its pane is revived by the bare-pane revive like any other). **With no master configured** (Thu Oct 15th 2026) the queue holds the rule: a call from a
+`recycle`, and `update` whenever it would recycle this box, run only through the queue: a recycle
+relaunches every pane including the invoking one, and two drivers race the same panes. No pane is exempt, and a
+`SALA_MASTER` line left in a config exempts none (stage 3 of retiring the master: `fleet_guard` replaced `master_guard`, and
+`--not-master` is gone from every verb). A pane that was once the master is an ordinary pane. **The queue holds the rule** (Thu Oct 15th 2026): a call from a
 Claude session — a `claude` process among the caller's ancestors, or a pane that still names itself (`TMUX_PANE`) and runs
 one (`claude_caller`) — is refused and pointed to `sala op <verb> … --from NAME --words "<the owner's words>"` (a verb the
 queue has no shape for yet — `model`, `adopt`, `restore` — is refused with that said); a human's pane shell, a plain
 shell, systemd (the watch and its units), cron and the resurrect boot hook (launched by tmux) pass as before, as do
-`sala-test-*` targets, `--dry-run`, `--check` and `--not-master`. Until then a missing master let any pane run the verb
-with a notice. The **operation queue**'s runner (`sala op`) is admitted in the master's place, master or no master: both
+`sala-test-*` targets, `--dry-run` and `--check`. The **operation queue**'s runner (`sala op`) is admitted: both
 guards pass a caller whose cgroup names a `sala-op-<id>` unit (`op_unit_caller`), which is what the queue's one-at-a-time
 runner is — the Bash guard hook (`lib/guard.py`) keeps its logic, so a session typing the raw command is denied as before (one
 exception: `kill <pid>` of the claude of a throwaway that session started itself, found by the registry's `spawned_by`; it also denies `tmux new-window`, `split-window`, `respawn-pane`, `join-pane`, `move-pane`, `break-pane`, `swap-pane`, `swap-window`, `move-window`, `link-window`, `rename-session` and `new-session -t` aimed at another session on the fleet's server, a `TMUX_PANE` assignment in front of one, and a `=name` target with no colon; `docs/session-registry.md` lists what it does not read),
 every deny now pointing to the queue's verb (`sala op update`, `sala op retire <session>`) — except a reboot, which is not
 queued: its deny says the owner runs `sala reboot --go` and the session shows them `sala reboot --status` and waits for
-their word (`master_guard` says the same to a session running `sala reboot` with no master) — with no pane exempt once there
-is no master; the queue's own `claude -p` (the stuck handler, in a `sala-op-<id>-stuck` unit) is not
+their word (`fleet_guard` says the same to a session running `sala reboot`) — with no pane exempt; the queue's own `claude -p` (the stuck handler, in a `sala-op-<id>-stuck` unit) is not
 admitted by it.
 
 Underneath the guard, a **recycle lock** (`flock` on `~/.claude/salamander-recycle.lock`) makes one driver a fact: whatever

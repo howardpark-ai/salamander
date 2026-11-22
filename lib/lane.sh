@@ -4,11 +4,11 @@
 #                                                                   lane recorded for it and the one its claude runs on now
 #   salamander lane --list | --json                                 the lane fields alone: per lane its provider, client, org,
 #                                                                   billing, plan, account, credential, region and status — aligned, or as JSON
-#   salamander lane <lane> <session>… [--dry-run] [--not-master]    record the lane for those sessions, then relaunch them on it (resumed,
+#   salamander lane <lane> <session>… [--dry-run]                      record the lane for those sessions, then relaunch them on it (resumed,
 #                                                                   same conversation); one already running on it is left alone
-#   salamander lane <lane> --all      [--dry-run] [--not-master]    every session sala relaunches, and the default for new ones: one recycle
+#   salamander lane <lane> --all      [--dry-run]                      every session sala relaunches, and the default for new ones: one recycle
 #                                                                   (a PINNED session is skipped and listed: "skipped (pinned to <lane>): <session>")
-#   salamander lane default <lane>    [--dry-run] [--not-master]    the default alone: sessions without a lane of their own take it at their
+#   salamander lane default <lane>    [--dry-run]                      the default alone: sessions without a lane of their own take it at their
 #                                                                   next relaunch; nothing relaunched now
 #   salamander lane pin <session> <lane> | unpin <session> | pins  THE PINNED SESSIONS (common.sh): a pinned session is held out of every bulk move — --all,
 #                                                                   the default's change, the fallback, the back agents' rule — and listed as skipped in each one's output, dry runs
@@ -16,8 +16,7 @@
 #   salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   THE DORMANT RECORD: mark a lane dormant by hand (nothing can run on it for
 #                                                                   now); the record is common.sh's, the watch keeps it. Held until `lane active`. With the lane fallback on
 #                                                                   (SALA_LANE_FALLBACK_AUTO) the sessions on it are also queued onto its fallback (below); --no-fallback records only
-#   salamander lane fallback <lane> [--dry-run]                     THE LANE FALLBACK: move everything on a DORMANT lane — its sessions (the master by the rescue
-#                                                                   route), the default if it was the default, and the jobs from then on — to the lane SALA_LANE_FALLBACK names for it,
+#   salamander lane fallback <lane> [--dry-run]                     THE LANE FALLBACK: move everything on a DORMANT lane — its sessions, the default if it was the default, and the jobs from then on — to the lane SALA_LANE_FALLBACK names for it,
 #                                                                   when that lane is active and ready; --dry-run prints the moves. Exit 4: no usable fallback. For a lane held by a monthly usage
 #                                                                   cap a pane that is mid-turn is first sent ONE Escape (pane_cut_turn, SALA_CUT_WAIT) so it can be relaunched
 #                                                                   A pane whose claude is still running SALA_EXIT_WAIT s after its /exit is ended by its pid (end_stuck_claude, common.sh) and the session
@@ -26,11 +25,8 @@
 #   salamander lane --migrate         [--dry-run]                   THE RENAME'S MIGRATION: rewrite the old name of a renamed lane (awsplatform → aws-platform) in lanes.tsv,
 #                                                                   lane-default, lane-state.tsv and the session registry, once (idempotent, atomic, a backup beside each file;
 #                                                                   common.sh lane_migrate). Nothing needs it to work: every reader reads the old name as the new one
-#   salamander lane --rescue <lane>   [--dry-run] [--force]         THE RESCUE: another session moves the MASTER (SALA_MASTER) to
-#                                                                   <lane> when the master's own lane is out; refused while that lane looks
-#                                                                   fine to sala (--force overrides, said in the log)
 #   salamander lane <lane> <session>… --rescue                      the switch, with a stale background-task row not holding the pane
-#                                                                   (lib/revive.sh, THE RESCUE)
+#                                                                   (lib/revive.sh, THE RESCUE: the pane flag)
 #
 # Lanes: subscription-1 (displayed Ultra; the old word max still works: the login in ~/.claude, nothing on the launch line), api (the key, read by the pane's own shell from
 # SALA_LANE_API_KEY_FILE), subscription-2 (displayed Team; the old word team still works: a second login, in its own CLAUDE_CONFIG_DIR), sdk (an alias of api with client
@@ -43,7 +39,7 @@
 # The lane fields (common.sh, "THE LANE FIELDS") are what --list and --json print. A switch is a relaunch — the CLI
 # picks its auth when it starts — and never a re-auth: the login in ~/.claude is untouched by a per-process key, and a
 # config directory keeps its own. This replaces the hand-made ~/api-session/lane-relaunch.sh (`sala lane api <session>`)
-# and master-to-team.sh (`sala lane subscription-2 <master>`; `team` is read as its old word).
+# and master-to-team.sh (`sala lane subscription-2 <session>`; `team` is read as its old word).
 #
 # HOW IT RELAUNCHES — through the machinery every relaunch uses, with that machinery's guards (a busy pane deferred and
 # retried, SALA_NO_RELAUNCH left alone, the invoking pane last, one driver at a time), nothing of its own:
@@ -52,7 +48,7 @@
 #                pane IS a recycle, so the board hears of it as one.
 #   <session>…   `revive --force --only A --only B`: the direct sweep of just those panes (its retry worker for the transient
 #                skips, the deferred list for background work), then `revive --self` when the invoking pane is among them —
-#                the master, or whoever runs this, goes last. No post-recycle hook: the board is not told a recycle happened.
+#                whoever runs this goes last. No post-recycle hook: the board is not told a recycle happened.
 # THE RECORD COMES FIRST: the lane goes into lanes.tsv (and, with --all, lane-default) under the recycle lock, before any
 # pane is touched, so the relaunch that follows and every later one (a recycle, the boot hook, a retry worker, watch's
 # deferred relaunch, restore) launch on it. A relaunch that cannot start now leaves the record in place and says so.
@@ -61,8 +57,8 @@
 # NAMES of the variables the lane puts on the launch line — never a value: the key is read by the pane's shell from its
 # file when the line runs, and is in that claude's environment and nowhere else.
 # THE DORMANT RECORD (common.sh): a lane with nothing to run on — the Team seat gone, the subscription-1 login no longer on its plan, the API
-# credit used up — is dormant, with its reason and since. A switch (`lane <lane> <session>…`, `--all`), `lane default <lane>` and the
-# rescue REFUSE to move onto a dormant lane, with a plain message; the table shows it with its reason and since; sessions already on
+# credit used up — is dormant, with its reason and since. A switch (`lane <lane> <session>…`, `--all`) and `lane default <lane>`
+# REFUSE to move onto a dormant lane, with a plain message; the table shows it with its reason and since; sessions already on
 # it stay put (nothing relaunches them). `lane dormant` / `lane active` set it by hand and write only the record (no relaunch, so no
 # queue: --dry-run says what would be written and writes nothing).
 # THE LANE FALLBACK (Sat Oct 31st 2026; common.sh, "THE AUTOMATIC LANE FALLBACK"): a dead lane has an automatic mechanism that moves
@@ -72,7 +68,7 @@
 # each session, each model change, the default). `lane fallback` itself does the move: every session whose running lane is the dead
 # one (recorded on it, or on "(default)" while the default is that lane) is recorded on the fallback — its home (the lane it left)
 # in lane-home.tsv — and relaunched through the ordinary switch (`lane <fallback> <session>…`: a busy pane is deferred to the retry
-# worker and relaunched when idle, never interrupted — except on a lane held by a monthly usage cap, where a pane mid-turn is a retry loop that never goes idle and gets ONE Escape first, pane_cut_turn), the master last by the rescue route (`lane --rescue <fallback>`); a Fable
+# worker and relaunched when idle, never interrupted — except on a lane held by a monthly usage cap, where a pane mid-turn is a retry loop that never goes idle and gets ONE Escape first, pane_cut_turn); a Fable
 # session moving onto bedrock is recorded on Opus (models.tsv) in the same move; the default lane follows. "Stay": nothing moves a
 # session back when the lane is active again; `salamander lane <home> <session>` does and clears its home. A job (`lane exec`) whose
 # lane is dormant runs on the fallback for as long as it is, with one line on stderr. One hop; no usable fallback → nothing moves
@@ -80,19 +76,6 @@
 # THE BACK AGENTS' LANE RULE (common.sh; off unless SALA_BACK_LANE_RULE=on): the watch moves the background agents off the home lane near its
 # weekly limit and home when it resets, by queueing the ordinary `sala op lane <lane> <session>… --from sala-watch` (the switch below); a
 # back agent spawned meanwhile launches on the rule's lane; at a second, higher threshold (SALA_BACK_LANE_FRONT_THRESHOLD, default 95) the front agents move onto that lane too, a Fable one with the model change `lane fallback` makes (docs/lanes.md, *The front step*); a step never picks a dormant lane: its fallback takes the agents (or nobody moves). `salamander watch --back-lanes --dry-run` shows a pass. It is not a `lane` verb.
-# THE RESCUE (Wed Oct 14th 2026; asked by the project's coordinator session). The master runs on a lane (subscription-2 today); when
-# that lane's usage is out or its account is dead, the master cannot act, and the session that could move it is not the
-# master: `sala lane <lane> <master>` from there needed --not-master, and the master's own background rows held the
-# relaunch. `salamander lane --rescue <lane>` is that move, sanctioned: it moves ONLY the master (SALA_MASTER), from a
-# session that is not the master (the master's own pane is sent to the ordinary switch, which the self-worker runs once
-# that pane is idle — the route that exists). It refuses while the master's current lane looks fine to sala (lane_out,
-# common.sh: lane_check, the sign-in watch's state, the limit watch's state — no model asked, no request made), and
-# `--force` overrides that with the override in the log; it refuses a target lane that cannot launch (lane_check) or that
-# sala sees out as well. Then the switch's own steps: the recycle lock, the record (lanes.tsv) and one `rescue` line in
-# lanes.log (when, who, from → to, why), the direct sweep (`revive --force --only <master> --not-master --rescue`: the
-# sweep from another pane, the guard overridden on purpose, a stale background-task row not holding the master —
-# lib/revive.sh, THE RESCUE). --dry-run writes and relaunches nothing. The table (no argument) warns under its rows when
-# the master sits on a lane that is out, naming the fix and the lanes that work.
 
 usage() {
     echo "usage: salamander lane                                         the table (default lane; the lane fields; each session: recorded lane, running lane)"
@@ -100,9 +83,9 @@ usage() {
     echo "       salamander lane names [--json] [--write]                  each lane's code, display name and old words (one line each: code TAB display TAB aliases; --json for stackshot; --write keeps \$SALA_STATE_DIR/lane-names.json current)"
     echo "       salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed"
     echo "       salamander lane exec <lane> -- COMMAND [ARG…]             run COMMAND on the lane (a unit's ExecStart): the lane's environment; every other lane's variables are unset, subscription-1 too (never blanked)"
-    echo "       salamander lane <lane> <session>… [--dry-run] [--not-master] [--rescue]   record + relaunch those sessions on the lane (one already on it: left alone)"
-    echo "       salamander lane <lane> --all      [--dry-run] [--not-master]   every session and the default: one recycle --force (a pinned session is skipped and listed)"
-    echo "       salamander lane default <lane>    [--dry-run] [--not-master]   the default alone (applied at each session's next relaunch; a pinned session keeps its pin's lane and is listed)"
+    echo "       salamander lane <lane> <session>… [--dry-run] [--rescue]   record + relaunch those sessions on the lane (one already on it: left alone)"
+    echo "       salamander lane <lane> --all      [--dry-run]   every session and the default: one recycle --force (a pinned session is skipped and listed)"
+    echo "       salamander lane default <lane>    [--dry-run]   the default alone (applied at each session's next relaunch; a pinned session keeps its pin's lane and is listed)"
     echo "       salamander lane pin <session> <lane>   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a move that names it still moves it"
     echo "       salamander lane unpin <session>        take the pin off (bulk moves take the session again)"
     echo "       salamander lane pins                   the pinned sessions and the lane each is held on (the list: \$SALA_LANE_PINS, a TSV: session TAB lane)"
@@ -110,7 +93,6 @@ usage() {
     echo "       salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback ($SALA_LANE_FALLBACK); a pinned session stays and is listed; --dry-run prints the moves; exit 4: no usable fallback"
     echo "       salamander lane active <lane>     [--dry-run]                  mark a lane active again (the only way back for api and sdk)"
     echo "       salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)"
-    echo "       salamander lane --rescue <lane>   [--dry-run] [--force]        move the master (SALA_MASTER) off a lane that is out, from another session"
     echo "  the background agents' lane rule (SALA_BACK_LANE_RULE=on, the front agents too at SALA_BACK_LANE_FRONT_THRESHOLD) moves them by this switch; a dormant target lane is replaced by its fallback; see: salamander watch --back-lanes --dry-run"
     echo "  lanes: $(lane_choices)$(d=$(for l in $SALA_LANES_KNOWN; do lane_dormant "$l" && echo "$l"; done | paste -sd' ' -); [ -n "$d" ] && echo "; dormant: $d")  (subscription-1, shown as $(lane_label subscription-1): the login in ~/.claude · api: the key file · subscription-2, shown as $(lane_label subscription-2): a second login in its own config directory · sdk: api's key through the Agent SDK (client claude-agent-sdk), while the key has credit (a refusal switches it off for 6 hours; the pane then goes to the lane fallback's pick for sdk, bedrock by default) · bedrock: Claude on Amazon Bedrock through the AWS profile ${SALA_LANE_BEDROCK_PROFILE:-(none named: SALA_LANE_BEDROCK_PROFILE)}$(lane_check bedrock >/dev/null 2>&1 || echo ", not set up yet") · aws-platform: Claude Platform on AWS through the AWS profile ${SALA_LANE_AWSPLATFORM_PROFILE:-(none named: SALA_LANE_AWSPLATFORM_PROFILE)} and a workspace id$(lane_check aws-platform >/dev/null 2>&1 || echo ", not set up yet"))"
     echo "  --rescue on a switch: a stale background-task row (the exit dialog, the Stop hook's record, the mod) no longer holds a pane with no child process under its claude"
@@ -169,11 +151,11 @@ case "${1:-}" in
 esac
 
 export SALA_FLAG_SRC=lane   # the flag a relaunch here raises: one pane or a named few, explicit (common.sh, flag_src)
-DRY=0; NOTMASTER=""; ALL=0; LANE=""; SESS=(); MODE=show; args=(); RESCUE=0; FORCE=0; LIST=0; JSON=0; REASON=""; HAVE_REASON=0; MIGRATE=0; NOFB=0
+DRY=0; ALL=0; LANE=""; SESS=(); MODE=show; args=(); RESCUE=0; LIST=0; JSON=0; REASON=""; HAVE_REASON=0; MIGRATE=0; NOFB=0
 while [ $# -gt 0 ]; do
     a="$1"; shift
     case "$a" in
-        --dry-run) DRY=1 ;; --not-master) NOTMASTER=--not-master ;; --all) ALL=1 ;; --rescue) RESCUE=1 ;; --force) FORCE=1 ;; --list) LIST=1 ;; --json) JSON=1 ;; --migrate) MIGRATE=1 ;; --no-fallback) NOFB=1 ;;
+        --dry-run) DRY=1 ;; --all) ALL=1 ;; --rescue) RESCUE=1 ;; --list) LIST=1 ;; --json) JSON=1 ;; --migrate) MIGRATE=1 ;; --no-fallback) NOFB=1 ;;
         --reason) [ $# -gt 0 ] || die "--reason needs the words: salamander lane dormant <lane> --reason \"...\""; REASON="$1"; HAVE_REASON=1; shift ;;
         --reason=*) REASON="${a#--reason=}"; HAVE_REASON=1 ;;
         -h|--help) usage; exit 0 ;;
@@ -183,31 +165,30 @@ while [ $# -gt 0 ]; do
 done
 set -- ${args[@]+"${args[@]}"}
 if [ "$MIGRATE" = 1 ]; then   # the rename's migration (common.sh lane_migrate): takes nothing but --dry-run
-    [ $# -eq 0 ] && [ "$ALL" = 0 ] && [ "$RESCUE" = 0 ] && [ "$FORCE" = 0 ] && [ "$LIST" = 0 ] && [ "$JSON" = 0 ] && [ -z "$NOTMASTER" ] && [ "$HAVE_REASON" = 0 ] || die "--migrate takes only --dry-run: salamander lane --migrate [--dry-run]"
+    [ $# -eq 0 ] && [ "$ALL" = 0 ] && [ "$RESCUE" = 0 ] && [ "$LIST" = 0 ] && [ "$JSON" = 0 ] && [ "$HAVE_REASON" = 0 ] || die "--migrate takes only --dry-run: salamander lane --migrate [--dry-run]"
     lane_migrate $([ "$DRY" = 1 ] && echo --dry-run); exit $?
 fi
 if [ "$LIST" = 1 ] || [ "$JSON" = 1 ]; then   # the lane fields alone: read-only, takes nothing else
-    [ $# -eq 0 ] && [ "$ALL" = 0 ] && [ "$RESCUE" = 0 ] && [ "$FORCE" = 0 ] && [ "$DRY" = 0 ] && [ -z "$NOTMASTER" ] || die "--list and --json take nothing else: salamander lane --list [--json]"
+    [ $# -eq 0 ] && [ "$ALL" = 0 ] && [ "$RESCUE" = 0 ] && [ "$DRY" = 0 ] || die "--list and --json take nothing else: salamander lane --list [--json]"
 fi
 case "${1:-}" in
-    '') [ "$ALL" = 0 ] || die "--all needs a lane: salamander lane <lane> --all"; [ "$RESCUE" = 0 ] || die "--rescue needs a lane: salamander lane --rescue <lane>"; MODE=show
+    '') [ "$ALL" = 0 ] || die "--all needs a lane: salamander lane <lane> --all"; [ "$RESCUE" = 0 ] || die "--rescue goes with a switch: salamander lane <lane> <session>… --rescue"; MODE=show
         if [ "$LIST" = 1 ] || [ "$JSON" = 1 ]; then MODE=list; fi ;;
     default) PINSK=(); MODE=default; LANE="${2:-}"; [ -n "$LANE" ] || die "usage: salamander lane default <lane>   (one of: $SALA_LANES_KNOWN)"
              [ $# -le 2 ] || die "lane default takes one lane, nothing else"; [ "$ALL" = 0 ] || die "lane default takes no --all"; [ "$RESCUE" = 0 ] || die "lane default takes no --rescue" ;;
     fallback) MODE=fallback; LANE="${2:-}"; [ -n "$LANE" ] || die "usage: salamander lane fallback <lane> [--dry-run]   (the dormant lane whose sessions, default and jobs move to its fallback; one of: $SALA_LANES_KNOWN)"
              [ $# -le 2 ] || die "lane fallback takes one lane, nothing else"
-             [ "$ALL" = 0 ] && [ "$RESCUE" = 0 ] && [ "$FORCE" = 0 ] && [ -z "$NOTMASTER" ] && [ "$HAVE_REASON" = 0 ] || die "lane fallback takes only --dry-run" ;;
+             [ "$ALL" = 0 ] && [ "$RESCUE" = 0 ] && [ "$HAVE_REASON" = 0 ] || die "lane fallback takes only --dry-run" ;;
     dormant|active) MODE=state; STATE_TO="$1"; LANE="${2:-}"; [ -n "$LANE" ] || die "usage: salamander lane $1 <lane>$([ "$1" = dormant ] && echo " [--reason TEXT]")   (one of: $SALA_LANES_KNOWN)"
              [ $# -le 2 ] || die "lane $1 takes one lane, nothing else"
-             [ "$ALL" = 0 ] && [ "$RESCUE" = 0 ] && [ "$FORCE" = 0 ] && [ -z "$NOTMASTER" ] || die "lane $1 takes only --dry-run$([ "$1" = dormant ] && echo " and --reason")"
+             [ "$ALL" = 0 ] && [ "$RESCUE" = 0 ] || die "lane $1 takes only --dry-run$([ "$1" = dormant ] && echo " and --reason")"
              [ "$STATE_TO" = dormant ] || [ "$HAVE_REASON" = 0 ] || die "--reason belongs to lane dormant" ;;
-    *) MODE=switch; LANE="$1"; shift; SESS=("$@")
-       [ "$RESCUE" = 1 ] && [ $# -eq 0 ] && [ "$ALL" = 0 ] && MODE=rescue ;;   # `lane --rescue <lane>`: the master's rescue
+    *) MODE=switch; LANE="$1"; shift; SESS=("$@") ;;
 esac
 [ "$HAVE_REASON" = 0 ] || [ "$MODE" = state ] || die "--reason belongs to lane dormant: salamander lane dormant <lane> --reason \"...\""
 [ "$NOFB" = 0 ] || { [ "$MODE" = state ] && [ "$STATE_TO" = dormant ]; } || die "--no-fallback belongs to lane dormant: salamander lane dormant <lane> --no-fallback"
-if [ "$FORCE" = 1 ] && [ "$MODE" != rescue ]; then die "--force belongs to the rescue: salamander lane --rescue <lane> --force"; fi
-if [ "$RESCUE" = 1 ] && [ "$ALL" = 1 ]; then die "--rescue is for the master (salamander lane --rescue <lane>) or named sessions, never --all"; fi
+if [ "$RESCUE" = 1 ] && [ "$ALL" = 1 ]; then die "--rescue is for named sessions (salamander lane <lane> <session>… --rescue), never --all"; fi
+if [ "$RESCUE" = 1 ] && [ "$MODE" = switch ] && [ "${#SESS[@]}" -eq 0 ]; then die "--rescue needs the sessions it is for: salamander lane <lane> <session>… --rescue"; fi
 
 # lane_sessions → every session sala relaunches: the pane map's rows and the live claude panes, minus the Remote Control
 # server's; sorted, once each (the sweep sees the same panes: a map row brings a shell pane back, a live claude is relaunched)
@@ -338,14 +319,6 @@ if [ "$MODE" = show ]; then
         printf '%-30s %-10s %-8s %s\n' SESSION RECORDED RUNNING ''
         for i in "${!T_S[@]}"; do printf '%-30s %-10s %-8s %s\n' "${T_S[$i]}" "${T_REC[$i]}" "${T_RUN[$i]}" "${T_NOTE[$i]}"; done
     fi
-    # THE WARNING (the header): the master on a lane sala sees out, and the way off it from another session
-    if [ -n "${SALA_MASTER:-}" ] && tmux has-session -t "=$SALA_MASTER" 2>/dev/null; then
-        run=$(running_lane "$SALA_MASTER"); case "$run" in -|"?") cur=$(lane_for_session "$SALA_MASTER");; *) cur=$run;; esac
-        if out=$(lane_out "$cur" "$SALA_MASTER"); then
-            w=$(lanes_working); w=${w// /, }
-            echo "⚠ the master $SALA_MASTER sits on the $(lane_shown "$cur") lane, which is out: $(paste -sd';' - <<< "$out" | sed 's/;/; /g') — from another session: salamander lane --rescue <lane> ($([ -n "$w" ] && echo "lanes that work: $w" || echo "no lane works right now: sala sees every one out"))"
-        fi
-    fi
     exit 0
 fi
 
@@ -393,15 +366,14 @@ fi
 # ── the fallback: everything on a dormant lane → its fallback (the header, THE LANE FALLBACK) ──
 # Records, per session, where it came from (lane-home.tsv) and the model change the fallback needs, switches the default when it was
 # the dead lane, then moves the sessions through the ordinary switch below (`lane <fallback> <sessions>`: lane_write, then the
-# idle-aware revive) and the master through the rescue (`lane --rescue <fallback>`). One RESULT line per move: the queue
+# idle-aware revive). One RESULT line per move: the queue
 # (lib/op.sh) turns them into the bullets of its one post. Nothing moves back by itself (the "stay" half of the automatic fallback).
 if [ "$MODE" = fallback ]; then
     L=$(lane_state_id "$LANE")
     lane_dormant "$L" || die "the $(lane_label "$L") lane is not dormant: the fallback moves what sits on a dormant lane — salamander lane dormant $L first (it queues this move itself), or move a session by hand: salamander lane <lane> <session>"
     if ! fb=$(lane_fallback_pick "$L"); then echo "no fallback move: $fb — nothing moved, nothing recorded" >&2; exit 4; fi
     FBN=$(lane_label "$fb")
-    M="${SALA_MASTER:-}"
-    MV_LIVE=(); MV_DEAD=(); MV_MASTER=""; STAYS=(); PINSK=(); PLAN_ON=(); declare -A CHG=() PREV=()
+    MV_LIVE=(); MV_DEAD=(); STAYS=(); PINSK=(); PLAN_ON=(); declare -A CHG=() PREV=()
     while IFS= read -r s; do
         [ -n "$s" ] || continue
         if no_relaunch "$s" && ! is_sleeping "$s"; then STAYS+=("$s"); continue; fi   # a sleeping session is moved on paper below (THE SLEEPING SESSIONS, common.sh)
@@ -409,7 +381,6 @@ if [ "$MODE" = fallback ]; then
         PLAN_ON+=("$s"); CHG[$s]=$(lane_fallback_model_change "$s" "$fb")   # read now: once the override is written the session no longer reads as Fable
         if [ -n "${CHG[$s]}" ]; then PREV[$s]=$(model_row "$s"); PREV[$s]=${PREV[$s]%%$'\t'*}; fi
         if is_sleeping "$s"; then MV_DEAD+=("$s")   # no claude to relaunch: the lane row is written, a wake resumes it on the new lane (resume_cmd reads the table)
-        elif [ -n "$M" ] && [ "$s" = "$M" ] && tmux has-session -t "=$s" 2>/dev/null; then MV_MASTER="$s"
         elif tmux has-session -t "=$s" 2>/dev/null; then MV_LIVE+=("$s")
         else MV_DEAD+=("$s"); fi
     done < <(lane_sessions_on "$L")
@@ -417,7 +388,7 @@ if [ "$MODE" = fallback ]; then
     echo "lane fallback: the $(lane_label "$L") lane is dormant ($(lane_dormant_since_words "$L")) → its sessions$([ "$DFLT" = 1 ] && echo " and the default") move to the $(lane_shown "$FBN") lane (one hop; they stay there until moved back: salamander lane $L <session>)$([ "$DRY" = 1 ] && echo " — DRY RUN: nothing recorded, nothing relaunched")"
     for s in ${PLAN_ON[@]+"${PLAN_ON[@]}"}; do
         chg=${CHG[$s]}
-        echo "  $s: $L → $fb$([ -n "$chg" ] && echo ", model ${chg%%$'\t'*} → ${chg#*$'\t'} (${FBN} cannot run ${chg%%$'\t'*})")$([ "$s" = "$MV_MASTER" ] && echo " — the master: by the rescue, last")$(case " ${MV_DEAD[*]-} " in *" $s "*) if is_sleeping "$s"; then echo " — sleeping: recorded only, a wake resumes it on $fb"; else echo " — no tmux session: recorded only, a restore brings it back on $fb"; fi;; esac)"
+        echo "  $s: $L → $fb$([ -n "$chg" ] && echo ", model ${chg%%$'\t'*} → ${chg#*$'\t'} (${FBN} cannot run ${chg%%$'\t'*})")$(case " ${MV_DEAD[*]-} " in *" $s "*) if is_sleeping "$s"; then echo " — sleeping: recorded only, a wake resumes it on $fb"; else echo " — no tmux session: recorded only, a restore brings it back on $fb"; fi;; esac)"
     done
     for s in ${STAYS[@]+"${STAYS[@]}"}; do echo "  $(no_relaunch_line "$s") — stays where it is"; done
     for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
@@ -425,8 +396,8 @@ if [ "$MODE" = fallback ]; then
     echo "  jobs: a sala job whose lane is $L runs on $fb while $L is dormant (salamander lane exec resolves it at run time; no unit file is rewritten)"
     [ "${SALA_EXIT_END:-1}" = 1 ] && echo "  a claude still running ${SALA_EXIT_WAIT}s after its /exit: will end a stuck process (that one pid, SIGTERM then SIGKILL after ${SALA_EXIT_TERM_WAIT}s; never the session running this) and resume the session on $fb"
     if [ "${#PLAN_ON[@]}" -eq 0 ] && [ "$DFLT" = 0 ]; then echo "nothing is on the $(lane_label "$L") lane and it is not the default$([ "${#PINSK[@]}" -gt 0 ] && echo ", bar the pinned ones above"): nothing to move"; exit 0; fi
-    if [ "$DRY" = 1 ]; then echo "[dry-run] would record each one's home ($L) and model change, switch the default if it was $L, then: salamander lane $fb <sessions>…$([ -n "$MV_MASTER" ] && echo "; salamander lane --rescue $fb (the master $MV_MASTER)"); nothing written"; exit 0; fi
-    ops_guard lane "$L" $NOTMASTER
+    if [ "$DRY" = 1 ]; then echo "[dry-run] would record each one's home ($L) and model change, switch the default if it was $L, then: salamander lane $fb <sessions>…; nothing written"; exit 0; fi
+    ops_guard lane "$L"
     if recycle_locked; then recycle_refuse; fi   # the nested switch takes the lock itself: stand aside now rather than half-way
     # the records first: where each came from, the model the fallback needs, the default
     for s in ${PLAN_ON[@]+"${PLAN_ON[@]}"}; do
@@ -441,17 +412,13 @@ if [ "$MODE" = fallback ]; then
     rc=0
     for s in ${MV_DEAD[@]+"${MV_DEAD[@]}"}; do lane_write "$s" "$fb" || { echo "⚠ could not record the lane for $s" >&2; rc=1; }; done
     # a lane a monthly usage cap stopped: a pane mid-turn there is a retry loop that never goes idle, so the ordinary (idle-aware) relaunch
-    # would skip it for ever. Its turn is cut first (pane_cut_turn, above), the master's too; every other dormant lane keeps the idle-aware move.
+    # would skip it for ever. Its turn is cut first (pane_cut_turn, above); every other dormant lane keeps the idle-aware move.
     if lane_dormant_capped "$L"; then
-        for s in ${MV_LIVE[@]+"${MV_LIVE[@]}"} ${MV_MASTER:+"$MV_MASTER"}; do
+        for s in ${MV_LIVE[@]+"${MV_LIVE[@]}"}; do
             if pane_cut_turn "$s"; then :; else echo "  $s: its turn could not be cut (not busy on its own, a dialog, a draft or a background task): it is relaunched when it is idle" >&2; fi
         done
     fi
-    if [ ${#MV_LIVE[@]} -gt 0 ]; then "$SALA_BIN" lane "$fb" "${MV_LIVE[@]}" $NOTMASTER || rc=$?; fi
-    if [ -n "$MV_MASTER" ]; then
-        # the sessions' relaunch runs on as a detached driver that holds the recycle lock; the master's rescue takes it next, so wait for it to be freed
-        for ((i=0; i<${SALA_LANE_FALLBACK_WAIT:-1800}; i+=5)); do recycle_locked || break; sleep 5; done
-        "$SALA_BIN" lane --rescue "$fb" $NOTMASTER || { echo "⚠ the master $MV_MASTER did not move (the rescue, above): it stays on $L until: salamander lane --rescue $fb, from another session" >&2; rc=1; }; fi
+    if [ ${#MV_LIVE[@]} -gt 0 ]; then "$SALA_BIN" lane "$fb" "${MV_LIVE[@]}" || rc=$?; fi
     for s in ${PLAN_ON[@]+"${PLAN_ON[@]}"}; do
         chg=${CHG[$s]}; got=$(lane_row "$s")
         echo "RESULT $s: $L → $fb$([ -n "$chg" ] && echo ", model ${chg%%$'\t'*} → ${chg#*$'\t'}")$([ "$got" = "$fb" ] || echo " (NOT moved: still recorded on ${got:-the default})")"
@@ -467,45 +434,9 @@ fi
 # a dormant lane is not moved onto (the header): refused before anything is recorded or relaunched — the rescue and the default included
 if why=$(lane_dormant_refusal "$LANE"); then die "$why"; fi
 
-# ── the rescue: the master off a lane that is out, from another session (the header, THE RESCUE) ──
-if [ "$MODE" = rescue ]; then
-    M="${SALA_MASTER:-}"; [ -n "$M" ] || die "no master session is configured (SALA_MASTER): the rescue moves the master, and there is none to move"
-    why=$(lane_check "$LANE") || die "$why — nothing recorded, nothing relaunched"   # the target must launch (the header)
-    tmux has-session -t "=$M" 2>/dev/null || die "the master '$M' has no tmux session — bring it back first (salamander revive --only $M brings it back on $(lane_for_session "$M")); to change its lane first: salamander lane $LANE $M --not-master"
-    no_relaunch "$M" && die "$(no_relaunch_line "$M") — $(no_relaunch_fix "$M" "the master is launched by hand with an environment of its own; take it out of SALA_NO_RELAUNCH to move it")"
-    ME=""; [ -n "${TMUX_PANE:-}" ] && ME=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
-    [ "$ME" = "$M" ] && die "this is the master's own pane: the rescue is another session's move. From here the ordinary switch does it — salamander lane $LANE $M — through the self-worker, once this pane is idle (the route that exists)"
-    run=$(running_lane "$M"); case "$run" in -|"?") cur=$(lane_for_session "$M");; *) cur=$run;; esac   # what it runs on, else what a relaunch would put it on
-    [ "$cur" = "$LANE" ] && die "the master $M runs on the $(lane_shown "$LANE") lane already$([ "$run" = "-" ] && echo " (no claude running: a relaunch resumes it there)") — a rescue moves it to another lane$( w=$(lanes_working); w=${w// /, }; [ -n "$w" ] && echo " (lanes that work: $w)")"
-    if out=$(lane_out "$cur" "$M"); then why="$cur is out: $(paste -sd';' - <<< "$out" | sed 's/;/; /g')"
-    elif [ "$FORCE" = 1 ]; then why="--force: the $(lane_shown "$cur") lane looked fine to sala (lane_check passes, the sign-in watch sees it right or has not looked, the limit watch has nothing stopped on it)"
-    else die "the master $M sits on the $(lane_shown "$cur") lane, which looks fine to sala: lane_check passes, the sign-in watch sees it right (or has not looked), the limit watch has nothing stopped on it — nothing to rescue it from. If you know better (an error sala has not seen yet): salamander lane --rescue $LANE --force, which says so in the log; to move it on an ordinary day: salamander lane $LANE $M --not-master"; fi
-    if tout=$(lane_out "$LANE"); then
-        [ "$FORCE" = 1 ] || die "the $(lane_shown "$LANE") lane is out as well: $(paste -sd';' - <<< "$tout" | sed 's/;/; /g') — pick one that works$( w=$(lanes_working); w=${w// /, }; [ -n "$w" ] && echo ": $w" || echo " (sala sees every lane out right now)"); --force moves it there anyway"
-        why="$why; onto $LANE, which sala sees out too ($(paste -sd';' - <<< "$tout" | sed 's/;/; /g')) — --force"
-    fi
-    echo "rescue: the master $M, $cur → $LANE$([ "$DRY" = 1 ] && echo " — DRY RUN: nothing recorded, nothing relaunched, nothing logged")"
-    echo "  why: $why"
-    echo "  from ${ME:-a shell}: the direct sweep of the master's pane, the guard overridden on purpose (--not-master), a stale background-task row not holding it (--rescue)"
-    if [ "$DRY" = 1 ]; then
-        echo "[dry-run] would record $M on the $(lane_shown "$LANE") lane, log one 'rescue' line in $SALA_LANE_LOG, then: salamander revive --force --only $M --not-master --rescue (the relaunch verdict)"
-        "$SALA_BIN" revive --dry-run --force --only "$M" --not-master --rescue 2>&1 | sed 's/^/    /'
-        exit 0
-    fi
-    recycle_lock "$(lock_who)" 0 || recycle_refuse   # one relaunch driver at a time (common.sh); the sweep inherits fd 9
-    export SALA_RECYCLE_LOCKED=1
-    lane_write "$M" "$LANE" || die "could not record the lane for '$M' (see above) — nothing relaunched"
-    [ "$(lane_home "$M")" != "$LANE" ] || lane_home_clear "$M"
-    lane_log rescue "$M" "$cur → $LANE: $why"
-    echo "recorded: $M on the $(lane_shown "$LANE") lane ($SALA_LANES); logged: rescue ($SALA_LANE_LOG)"
-    "$SALA_BIN" revive --force --only "$M" --not-master --rescue || { rc=$?
-        echo "⚠ the lane is recorded, but the relaunch did not run through (exit $rc, above): the master comes onto $LANE at its next relaunch — salamander revive --force --only $M --not-master --rescue, or salamander watch when its claude is gone" >&2; exit "$rc"; }
-    exit 0
-fi
-
 # ── the default alone ─────────────────────────────────────────────────────────
 if [ "$MODE" = default ]; then
-    ops_guard lane default $NOTMASTER $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation: the master's, when a Claude session asks (common.sh)
+    ops_guard lane default $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation: queued with sala op when a Claude session asks (common.sh)
     why=$(lane_check "$LANE") || die "$why"
     old=$(lane_default)
     [ "$old" = "$LANE" ] && { echo "default lane: $LANE (already)"; exit 0; }
@@ -543,7 +474,7 @@ else
     done
     SESS=(${seen[@]+"${seen[@]}"})
 fi
-ops_guard lane "${SESS[0]:-all}" $NOTMASTER $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): the master's, when a Claude session asks
+ops_guard lane "${SESS[0]:-all}" $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): queued with sala op when a Claude session asks
 ME=""; [ -n "${TMUX_PANE:-}" ] && ME=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
 RESCUEFLAG=""; [ "$RESCUE" = 1 ] && RESCUEFLAG=--rescue   # onto the sweep and the self-worker (lib/revive.sh, THE RESCUE)
 
@@ -599,13 +530,13 @@ echo "recorded: ${#SESS[@]} session(s) on the $(lane_shown "$LANE") lane ($SALA_
 if [ $((${#TODO[@]} + SELF)) -eq 0 ]; then echo "$([ ${#SLEEPS[@]} -gt 0 ] && echo "${#SLEEPS[@]} sleeping session(s) recorded only; the rest already run" || echo "every one of them already runs") on the $(lane_shown "$LANE") lane — nothing relaunched"; exit 0; fi
 rc=0
 if [ "$ALL" = 1 ]; then
-    "$SALA_BIN" recycle --force $NOTMASTER || rc=$?
+    "$SALA_BIN" recycle --force || rc=$?
 else
     if [ ${#TODO[@]} -gt 0 ]; then
         sweep=(); for s in "${TODO[@]}"; do sweep+=(--only "$s"); done
-        "$SALA_BIN" revive --force "${sweep[@]}" $NOTMASTER $RESCUEFLAG || rc=$?
+        "$SALA_BIN" revive --force "${sweep[@]}" $RESCUEFLAG || rc=$?
     fi
-    [ "$SELF" = 1 ] && { "$SALA_BIN" revive --self $NOTMASTER $RESCUEFLAG || rc=$?; }
+    [ "$SELF" = 1 ] && { "$SALA_BIN" revive --self $RESCUEFLAG || rc=$?; }
 fi
 if [ "$rc" != 0 ]; then
     echo "⚠ the lane is recorded, but the relaunch did not run through (exit $rc, above): each pane still on its old lane comes onto $LANE at its next relaunch — salamander revive --force --only <session>, or the next recycle" >&2

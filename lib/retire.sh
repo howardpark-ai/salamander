@@ -64,16 +64,15 @@
 # --dry-run (the same day): nothing typed, killed, written, snapshotted or archived; every action above printed as
 # "[dry-run] would …" with what it would touch (the pane, the pane-map row, the lane and model rows, the snapshot, the
 # claude.ai session), the refusals as "[dry-run] would refuse: …" (exit 1, as the real run would). The resolution runs
-# before it, so `--dry-run --id` shows the choice too. The master guard lets a dry run through from any
+# before it, so `--dry-run --id` shows the choice too. The fleet guard lets a dry run through from any
 # pane, as for every other verb.
 
 usage="usage: salamander retire <tmux-session> | --id <conversation-id>  [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items] [--dry-run]
   a session with no Claude in it: salamander close-shell <tmux-session>; a pane-map row whose tmux session is gone: salamander forget-row <name>"
 name=""; IDARG=""; KEEP_WEB=0; BUSY=0; SKIPW=0; SELF=0; LEAVE=0; DRY=0; DRYFLAG=""
-NOTMASTER=""
 while [ $# -gt 0 ]; do case "$1" in
     --keep-web) KEEP_WEB=1 ;; --busy) BUSY=1 ;; --skip-writeup) SKIPW=1 ;; --self) SELF=1 ;; --leave-items) LEAVE=1 ;;
-    --dry-run) DRY=1; DRYFLAG=--dry-run ;; --not-master) NOTMASTER=--not-master ;;
+    --dry-run) DRY=1; DRYFLAG=--dry-run ;;
     --force) die "--force is gone: it was two different bypasses. Use --busy to retire a session that is not idle (do not wait for it), or --skip-writeup to retire a side session before \`sala side done\` wrote its marker" ;;
     --id) [ $# -ge 2 ] || die "--id needs a conversation id"; IDARG="$2"; shift ;;
     --id=*) IDARG="${1#--id=}" ;;
@@ -167,7 +166,7 @@ $(for line in "${act[@]}"; do cand_line "$line"; done)$(for line in ${out[@]+"${
 }
 given="${name:-$IDARG}"; RESOLVED_PANE=""
 [ -z "$IDARG" ] || registry_resolve "$IDARG"
-ops_guard retire "$name" $NOTMASTER $DRYFLAG
+ops_guard retire "$name" $DRYFLAG
 ledger_frozen_die retire   # a recycle or reboot holds the pane map: a retire whose row could not go would come back
 
 # ── the name is a live tmux session, exactly ──────────────────────────────────────────────────────────────────────────

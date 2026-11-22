@@ -112,7 +112,7 @@ for args in "frob --from t --words x" "recycle --bogus --from t --words x" "rena
             "provision --only 'bad step' --from t --words x" "reboot --go --from t --words x" "revive --only --from t --words x" "retire 'a b' --from t --words x" \
             "model --from t --words x" "model sala-test-a --from t --words x" "model sala-test-a gpt5 --from t --words x" "model sala-test-a 'claude-opus[1m]' --from t --words x" \
             "model sala-test-a opus --effort ultra --from t --words x" "model sala-test-a opus --effort --from t --words x" "model sala-test-a opus --effort low --effort high --from t --words x" \
-            "model sala-test-a opus --record-only --from t --words x" "model sala-test-a opus --dry-run --from t --words x" "model sala-test-a opus --not-master --from t --words x" \
+            "model sala-test-a opus --record-only --from t --words x" "model sala-test-a opus --dry-run --from t --words x" "model sala-test-a opus --bogus --from t --words x" \
             "model sala-test-a --clear opus --from t --words x" "model sala-test-a --effort high --from t --words x" "model 'a b' opus --from t --words x"; do
     eval "enq $args"; [ "$RC" = 2 ] && has "$OUT" "✗" && ok "refused (exit 2): op $args" || bad "op $args: rc=$RC — $OUT"
 done
@@ -180,13 +180,13 @@ ID=$(ls "$OPS"/*.op | head -1 | xargs -n1 basename | sed 's/\.op$//'); "$SALA" o
 echo "== the guards admit a caller inside a sala-op-<id> unit, by its cgroup, and nothing else"
 PA=$(pane a); CG="$HOME/cgroup"
 echo "0::/user.slice/user-1000.slice/user@1000.service/app.slice/sala-op-1760000000-1234.service" > "$CG"
-( export SALA_MASTER=sala-test-h TMUX_PANE="$PA"; master_guard recycle --force ) >/dev/null 2>&1; [ $? != 0 ] && ok "another pane than the master's: master_guard refuses (as before)" || bad "master_guard let another pane through"
-( export SALA_MASTER=sala-test-h TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; master_guard recycle --force ) >/dev/null 2>&1 && ok "inside unit sala-op-<id>: master_guard admits it" || bad "master_guard refused the unit"
-( export SALA_MASTER=sala-test-h TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; ops_guard retire example-x ) >/dev/null 2>&1 && ok "inside unit sala-op-<id>: ops_guard admits it" || bad "ops_guard refused the unit"
+( export TMUX_PANE="$PA"; claude_caller() { return 0; }; fleet_guard recycle --force ) >/dev/null 2>&1; [ $? != 0 ] && ok "a Claude session's pane: fleet_guard refuses (as before)" || bad "fleet_guard let a Claude session's pane through"
+( export TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; claude_caller() { return 0; }; fleet_guard recycle --force ) >/dev/null 2>&1 && ok "inside unit sala-op-<id>: fleet_guard admits it" || bad "fleet_guard refused the unit"
+( export TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; claude_caller() { return 0; }; ops_guard retire example-x ) >/dev/null 2>&1 && ok "inside unit sala-op-<id>: ops_guard admits it" || bad "ops_guard refused the unit"
 echo "0::/user.slice/user-1000.slice/user@1000.service/app.slice/sala-auto-recycle-1760000000.service" > "$CG"
-( export SALA_MASTER=sala-test-h TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; master_guard recycle --force ) >/dev/null 2>&1; [ $? != 0 ] && ok "another unit's cgroup: refused" || bad "master_guard admitted a sala-auto-* unit"
+( export TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; claude_caller() { return 0; }; fleet_guard recycle --force ) >/dev/null 2>&1; [ $? != 0 ] && ok "another unit's cgroup: refused" || bad "fleet_guard admitted a sala-auto-* unit"
 echo "0::/user.slice/user-1000.slice/user@1000.service/app.slice/sala-op-kick-1760000000-1.service" > "$CG"
-( export SALA_MASTER=sala-test-h TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; master_guard recycle --force ) >/dev/null 2>&1; [ $? != 0 ] && ok "the kick unit's cgroup: refused" || bad "master_guard admitted the kick unit"
+( export TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; claude_caller() { return 0; }; fleet_guard recycle --force ) >/dev/null 2>&1; [ $? != 0 ] && ok "the kick unit's cgroup: refused" || bad "fleet_guard admitted the kick unit"
 
 echo "== a recycle about to start absorbs the queued recycle and this box's update: one unit, the flags folded, the hearers told"
 touch "$HOME/norun"; : > "$LAUNCHES"; : > "$POSTS"; rm -f "$HOME/helper-runs.txt"
@@ -210,7 +210,7 @@ grep -q '^key=unset hdr=unset entry=unset cfg=unset cwd=' "$HOME/helper-env.txt"
 A=$(<"$HOME/helper-args.txt"); has "$A" "-p" && has "$A" "--max-turns" && grep -qx 7 "$HOME/helper-args.txt" && grep -q '^Bash(sala:\*),Bash(salamander:\*),.*,Read,Grep,Glob$' "$HOME/helper-args.txt" \
     && grep -qx -- '--allowedTools' "$HOME/helper-args.txt" && ! has "$A" "dangerously" && ! has "$A" "permission-mode" && ok "claude -p: --max-turns 7, --allowedTools sala's verbs and read-only looks, no bypass flag" || bad "helper args: $A"
 B=$(<"$HOME/helper-brief.txt"); has "$B" "op $R1" && has "$B" "recycle --update --force" && has "$B" "\"recycle claude\"" && has "$B" "What happened: its runner (unit sala-op-$R1) ended without a result" && has "$B" "Already tried:" \
-    && has "$B" "SALA-OP: done" && has "$B" "SALA-OP: stuck" && has "$B" "Never --not-master" && ok "the brief: the operation, Rowan's words, what happened, what was tried, the verdict line contract" || bad "brief: $B"
+    && has "$B" "SALA-OP: done" && has "$B" "SALA-OP: stuck" && has "$B" "Never stop a process" && ok "the brief: the operation, Rowan's words, what happened, what was tried, the verdict line contract" || bad "brief: $B"
 P=$(post " · log ~/.claude/salamander-op-$R1.log"); [ -n "$P" ] && [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *update and recycle on $_SALA_HN is stuck*" ] && [ "$(sed -n 2p <<< "$P")" = "The test helper does nothing." ] \
     && [ "$(sed -n 3p <<< "$P")" = "asked by sala-test-h · log ~/.claude/salamander-op-$R1.log" ] && plain_post "$P" && ! has "$P" "recycle claude" && ! has "$P" "folded in" && [ "$(nops)" = 1 ] \
     && ok "one 3-line post: the headline, the helper's one sentence, who asked and the log; no words, no argv, no folded-in list" || bad "post: $P"

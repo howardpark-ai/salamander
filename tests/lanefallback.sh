@@ -13,7 +13,7 @@
 #     (Team's refused usage answer through `watch --signin`) queues the same and claims the "your call" post; with no usable fallback
 #     nothing is queued and the one post carries "not moved automatically: <why>".
 #   THE MOVE, end to end through the queue: every session recorded on the lane (the Fable one on opus, recorded in models.tsv and in the
-#     home record; the master last, by the rescue), the default switched with its home kept under "(default)"; a session of another
+#     home record; a session a leftover SALA_MASTER line names moves like any other), the default switched with its home kept under "(default)"; a session of another
 #     lane stays; ONE Slack post naming the dead lane, the fallback, each session and the model change; no inbox line to sala-watch.
 #   STAY: `lane active` moves nothing; the table's HOME column says where each came from and how to go back; `lane <home> <session>`
 #     moves one back and clears its home row; `lane default <home>` clears the default's; moving back restores no model.
@@ -132,7 +132,7 @@ out=$(lane_fallback_pick bedrock); rc=$?; [ "$rc" = 1 ] && has "$out" "fallback,
 out=$(lane_fallback_pick subscription-1); rc=$?; [ "$rc" = 0 ] && ok "subscription-1 dormant, bedrock fine: subscription-1 falls back to bedrock (one hop each way, never a chain)" || bad "subscription-1 pick ($rc): $out"
 lane_dormant_clear subscription-1 "test"
 
-echo "== setup: a (subscription-1), f (subscription-1, on Fable), m (the master, subscription-1), k (subscription-2); the default lane is subscription-1"
+echo "== setup: a (subscription-1), f (subscription-1, on Fable), m (named by a leftover SALA_MASTER line, subscription-1), k (subscription-2); the default lane is subscription-1"
 mk a "$(uuid 1)"; mk f "$(uuid 2)"; mk m "$(uuid 3)"; mk k "$(uuid 4)"
 fake_up sala-test-a sala-test-f sala-test-m sala-test-k || exit 1
 export SALA_MASTER=sala-test-m
@@ -147,8 +147,8 @@ out=$("$SALA" lane fallback subscription-1 --dry-run 2>&1); rc=$?
 before=$(sumfiles); starts0=$(starts "$(uuid 1)")$(starts "$(uuid 2)")$(starts "$(uuid 3)")
 out=$("$SALA" lane fallback subscription-1 --dry-run 2>&1); rc=$?
 [ "$rc" = 0 ] && has "$out" "lane fallback: the Ultra lane is dormant" && has "$out" "to the Bedrock lane" && has "$out" "one hop" && ok "the plan header names the dead lane and the fallback" || bad "plan ($rc): $out"
-has "$out" "sala-test-a: subscription-1 → bedrock" && has "$out" "sala-test-f: subscription-1 → bedrock, model fable → opus" && has "$out" "sala-test-m: subscription-1 → bedrock" && has "$out" "the master: by the rescue, last" \
-    && ok "each session is named, the Fable one with its model change, the master last by the rescue" || bad "plan lines: $out"
+has "$out" "sala-test-a: subscription-1 → bedrock" && has "$out" "sala-test-f: subscription-1 → bedrock, model fable → opus" && has "$out" "sala-test-m: subscription-1 → bedrock" && ! has "$out" "the master" && ! has "$out" "rescue" \
+    && ok "each session is named, the Fable one with its model change, and the one an old config names is an ordinary line" || bad "plan lines: $out"
 ! has "$out" "sala-test-k:" && ok "the subscription-2 session is not in subscription-1's plan" || bad "k in the plan: $out"
 has "$out" "default lane: subscription-1 → bedrock" && has "$out" "jobs: a sala job whose lane is subscription-1 runs on bedrock while subscription-1 is dormant" && has "$out" "[dry-run]" && ok "the default and the jobs are in the plan, marked dry run" || bad "plan default/jobs: $out"
 [ "$(sumfiles)" = "$before" ] && [ ! -e "$SALA_LANE_HOME" ] && [ "$(starts "$(uuid 1)")$(starts "$(uuid 2)")$(starts "$(uuid 3)")" = "$starts0" ] && [ "$(queued)" = 0 ] \
@@ -206,12 +206,12 @@ tick
 waitfor "[ -f '$DONE/$W2.op' ]" 480 && ok "the operation ran and was archived" || bad "op: $(cat "$OPS/$W2.op" "$DONE/$W2.op" 2>/dev/null) / $(tail -8 "$HOME/.claude/salamander-op-$W2.log" 2>/dev/null)"
 [ "$(mval "$W2" state)" = done ] && ok "state done" || bad "state $(mval "$W2" state): $(mval "$W2" result)"
 wait_lock
-[ "$(lane_row sala-test-a)|$(lane_row sala-test-f)|$(lane_row sala-test-m)|$(lane_row sala-test-k)" = "bedrock|bedrock|bedrock|subscription-2" ] && ok "a, f and the master recorded on bedrock; the subscription-2 session untouched" || bad "rows: $(lane_row sala-test-a)|$(lane_row sala-test-f)|$(lane_row sala-test-m)|$(lane_row sala-test-k)"
+[ "$(lane_row sala-test-a)|$(lane_row sala-test-f)|$(lane_row sala-test-m)|$(lane_row sala-test-k)" = "bedrock|bedrock|bedrock|subscription-2" ] && ok "a, f and m recorded on bedrock; the subscription-2 session untouched" || bad "rows: $(lane_row sala-test-a)|$(lane_row sala-test-f)|$(lane_row sala-test-m)|$(lane_row sala-test-k)"
 waitfor "[ \"\$(proc_lane \"\$(cpid a)\")\" = bedrock ]" 240 && waitfor "[ \"\$(proc_lane \"\$(cpid f)\")\" = bedrock ]" 240 && waitfor "[ \"\$(proc_lane \"\$(cpid m)\")\" = bedrock ]" 240 \
-    && ok "relaunched: a, f and the master (by the rescue) run on bedrock (proc_lane)" || bad "running lanes: $(proc_lane "$(cpid a)") $(proc_lane "$(cpid f)") $(proc_lane "$(cpid m)")"
+    && ok "relaunched: a, f and m (the old master's name) run on bedrock (proc_lane)" || bad "running lanes: $(proc_lane "$(cpid a)") $(proc_lane "$(cpid f)") $(proc_lane "$(cpid m)")"
 [ "$(proc_lane "$(cpid k)")" = subscription-1 ] && [ "$(starts "$(uuid 4)")" = "$starts_k" ] && ok "k was not relaunched" || bad "k: starts $(starts "$(uuid 4)") vs $starts_k"
 [ "$(starts "$(uuid 1)")" -gt "$starts_a" ] && [ "$(starts "$(uuid 2)")" -gt "$starts_f" ] && [ "$(starts "$(uuid 3)")" -gt "$starts_m" ] && ok "each moved session was relaunched" || bad "starts: a $(starts "$(uuid 1)")/$starts_a f $(starts "$(uuid 2)")/$starts_f m $(starts "$(uuid 3)")/$starts_m"
-[ "$(hrow sala-test-a)|$(hrow sala-test-m)" = "subscription-1/-|subscription-1/-" ] && ok "the home record: a and the master came from subscription-1" || bad "homes: $(cat "$SALA_LANE_HOME")"
+[ "$(hrow sala-test-a)|$(hrow sala-test-m)" = "subscription-1/-|subscription-1/-" ] && ok "the home record: a and m came from subscription-1" || bad "homes: $(cat "$SALA_LANE_HOME")"
 [ "$(hrow sala-test-f)" = "subscription-1/fable" ] && [ "$(mrow sala-test-f)" = opus ] && ok "the Fable session: runs on opus (models.tsv), and the home record keeps the model it had (fable)" || bad "f: home $(hrow sala-test-f) model $(mrow sala-test-f)"
 [ "$(mrow sala-test-a)" = "" ] && ok "a session not on Fable gets no model override" || bad "a model: $(mrow sala-test-a)"
 [ "$(lane_default)" = bedrock ] && [ "$(hrow '(default)')" = "subscription-1/-" ] && ok "the default lane moved to bedrock, and its home (subscription-1) is kept" || bad "default: $(lane_default) / $(hrow '(default)')"
@@ -239,7 +239,7 @@ out=$("$SALA" lane subscription-1 sala-test-f 2>&1); wait_lock
 [ -z "$(hrow sala-test-f)" ] && [ "$(mrow sala-test-f)" = opus ] && ok "f back on subscription-1 keeps opus: moving back restores no model" || bad "f after back: home '$(hrow sala-test-f)' model $(mrow sala-test-f)"
 out=$("$SALA" lane default subscription-1 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(lane_default)" = subscription-1 ] && [ -z "$(hrow '(default)')" ] && ok "lane default subscription-1: the default is back, its home row gone" || bad "default back ($rc): $(lane_default) '$(hrow '(default)')': $out"
-[ "$(hrow sala-test-m)" = "subscription-1/-" ] && ok "the master's home row stays until it is moved back (the rescue clears it only when it lands on its home)" || bad "m home: $(hrow sala-test-m)"
+[ "$(hrow sala-test-m)" = "subscription-1/-" ] && ok "m's home row stays until it is moved back" || bad "m home: $(hrow sala-test-m)"
 
 echo "== bedrock → subscription-1: a Fable session needs no model change on subscription-1"
 lane_write sala-test-a bedrock; model_write sala-test-a fable

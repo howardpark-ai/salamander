@@ -90,24 +90,16 @@ changes nothing by itself. A failed box is posted once per fingerprint in the st
 `--check`) is the run's provision with no fleet post, and `SALA_PROVISION_RESULT_DIR` keeps provision's per-box STEP
 lines for it. State: `settings-apply.state` in sala's state directory; a second `--run` while one runs exits 75.
 
-**The rescue** (Wed Oct 14th 2026; `lib/lane.sh` "THE RESCUE", `lib/revive.sh` "THE RESCUE"). The master runs on
-a lane. When that lane's usage is out or its account is dead the master cannot act, and the session that
-could move it is not the master: `sala lane <lane> <master>` from there needed `--not-master`, and the master's own
-background-task rows held the relaunch. `salamander lane --rescue <lane>` is that move, sanctioned. It moves only the
-master (`SALA_MASTER`), from a session that is not the master (from the master's own pane it points at the ordinary
-switch, which the self-worker runs once that pane is idle). It refuses while the master's current lane *looks fine to
-sala*, by three readings sala already has and nothing else (no model asked, no request made; `lane_out` in
-`lib/common.sh`): `lane_check` (the lane cannot launch at all), the sign-in watch's last look (`lane-signin.state`: not
-signed in, another account, the key refused), and the limit watch's state (`salamander-limit.json`: the master's own pane
-stopped on the lane is decisive whatever the limit; another pane's stop counts only for a lane-wide limit — weekly,
-5-hour, credit, workspace, rate — since one model's limit stops only that model's panes). An error sala has not seen yet
-(the watch confirms a stop after `SALA_LIMIT_CONFIRM`) is what `--force` is for: it moves the master anyway and the log
-says so. The target lane must launch (`lane_check`) and must not be out by the same readings (`--force` overrides that
-too). Then the switch's own steps: the recycle lock, the row in `lanes.tsv`, one `rescue` line in `lanes.log` (when, who,
-from → to, why), and the direct sweep of the master's pane — `revive --force --only <master> --not-master --rescue` — so a
-stale background-task row does not hold it. `--dry-run` prints the plan and the sweep's verdict and writes, logs and
-relaunches nothing. The `sala lane` table warns under its rows when the master sits on a lane that is out, naming the
-lane, why, the rescue and the lanes sala sees nothing wrong with.
+**The rescue** (Wed Oct 14th 2026; `lib/revive.sh` "THE RESCUE", `lib/common.sh` `lane_out`). The `salamander lane --rescue <lane>`
+mode, which moved the configured master off a lane that was out, is gone with the master (stage 3 of retiring it): a
+configured `SALA_MASTER` is an ordinary session, moved by `sala lane <lane> <session>…` like any other, and `--force` is not
+an option. `--rescue` is now only the pane flag below, and `lane --rescue <lane>` with no sessions, or with `--all`, is
+refused with a message. `lane_out` (in `lib/common.sh`) still reads sala's own state to say whether a lane is out, by
+three readings sala already has and nothing else (no model asked, no request made): `lane_check` (the lane cannot launch
+at all), the sign-in watch's last look (`lane-signin.state`: not signed in, another account, the key refused), and the
+limit watch's state (`salamander-limit.json`: a session's own stop on the lane is decisive whatever the limit; another
+pane's stop counts only for a lane-wide limit, weekly, 5-hour, credit, workspace or rate, since one model's limit stops
+only that model's panes). The lane fallback uses it to pick a lane that works.
 
 *A stale background-task row* (`--rescue` on `revive --only`, `revive --self` and `sala lane <lane> <session>…`). The
 CLI's task registry keeps a row for a background shell stopped by hand or a subagent long gone, so its `/exit` opens the
@@ -216,7 +208,7 @@ lane it moved to, as after any move. Before the regain time passes, nothing is p
 While a lane is dormant:
 the web Overview card keeps its head (the lane pill and plan name) with one line under it (`No seat since <date>`, with a Dormant chip beside `Details ›`) and asks nothing; spawn's picker (the CLI's
 list of lanes, the web form) leaves it out and `spawn --lane <lane>` is refused, as is a spawn whose default lane is dormant;
-`sala lane <lane> <session>`, `lane <lane> --all`, `lane default <lane>` and the rescue refuse to move onto it in plain words;
+`sala lane <lane> <session>`, `lane <lane> --all`, `lane default <lane>` refuse to move onto it in plain words;
 `sala lane` shows it with its reason and since; `lane_out` counts it out. The sessions still on it are posted once per dormant
 episode (`ld_post_tick` in the watch; "Subscription 2: no seat since …, N sessions are still on it; moving them is your call") and stay
 where they are when the lane has no usable fallback (or `SALA_LANE_FALLBACK_AUTO` is off); otherwise the lane fallback moves them
@@ -249,8 +241,7 @@ and stay there until the owner or a session moves them back. Code: `lib/common.s
   relaunch would skip it for ever. For that lane only, the fallback first sends such a pane ONE Escape (`pane_cut_turn` in `lib/lane.sh`: what the
   user would press to interrupt a turn) and waits up to `SALA_CUT_WAIT` seconds (40) for it to be idle, then relaunches it as any other. The
   Escape goes only to a pane whose registry status is `busy` with no background task under it, no dialog on screen and no unsent text in its
-  box; nothing is typed, and a pane that is left as it is stays on the ordinary rule (relaunched when idle). The master (`SALA_MASTER`) moves last, by
-  the rescue (`lane --rescue`), once the first sweep has let go of the recycle lock. If the default lane is the dead one,
+  box; nothing is typed, and a pane that is left as it is stays on the ordinary rule (relaunched when idle). A session a leftover `SALA_MASTER` line names moves with the others. If the default lane is the dead one,
   it switches too. A session of any other lane is left alone. A pane whose claude is still running after its `/exit` and the wait
   (a client stuck on the dead lane) is ended by its pid and its session resumed on the fallback (*A claude that ignores `/exit`*, above).
 - **The model.** A session on a Fable model moved onto bedrock runs `opus` (Opus 5.5) there, because Fable fails on bedrock

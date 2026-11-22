@@ -10,7 +10,7 @@
 # half do the same on their own for every frozen row whose session is gone; this is the hand-run form, for an unclean
 # boot or a single session. Refused: a name the map does not know (spawn makes a new session, adopt registers a live
 # one), a session that exists (revive --only brings its claude back), a conversation that is live elsewhere (never
-# resumed twice). Fleet operation: the master's when a Claude session calls it (ops_guard), like revive and retire. A session
+# resumed twice). Fleet operation: queued with sala op when a Claude session calls it (ops_guard), like revive and retire. A session
 # queues it instead: `sala op restore --only NAME --why "<reason>" --from YOU` (lib/op.sh); the queue's runner, a sala-op-<id>
 # unit, passes ops_guard like every queued verb, and the queue's plan is this verb's --dry-run.
 # A session whose claude does not come up is reported by revive with the last lines of its pane, and listed at the end ("did not come up: …").

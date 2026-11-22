@@ -70,21 +70,21 @@ case "${1:-}" in
             [ "$(set_val "$id" closed)" = 1 ] && break
             hosts=$(_pset_failed_hosts "$id" | tr '\n' ' '); [ -n "${hosts// /}" ] || break
             pset_log "set $id: retrying$( printf ' %s' $hosts)"
-            SALA_PSET_WORKER="$id" "$SALA_BIN" provision --no-recycle --not-master $hosts >/dev/null 2>&1 </dev/null
+            SALA_PSET_WORKER="$id" "$SALA_BIN" provision --no-recycle $hosts >/dev/null 2>&1 </dev/null
         done
         [ -n "$(_pset_failed_hosts "$id")" ] && _set_locked _pset_expire "$id" worker-end
         pset_log "set $id: retry worker done — $(set_val "$id" done)/$(set_val "$id" total) OK, $(_nlines "$(_pset_items "$id")") item(s) open"
         exit 0 ;;
 esac
 CHECK=0; HOSTS=(); SESSION=0; RECYCLE=1; ONLY=""; QUIET=0
-NOTMASTER=""; PSTART=$(date +%s)
-while [ $# -gt 0 ]; do case "$1" in --check) CHECK=1 ;; --session) SESSION=1 ;; --no-recycle) RECYCLE=0 ;; --not-master) NOTMASTER=--not-master ;;
+PSTART=$(date +%s)
+while [ $# -gt 0 ]; do case "$1" in --check) CHECK=1 ;; --session) SESSION=1 ;; --no-recycle) RECYCLE=0 ;;
     --only) [ -n "${2:-}" ] || die "usage: salamander provision --only STEP[,STEP…] [--check] [HOST…]"; ONLY="$2"; shift ;;
     --quiet) QUIET=1 ;;   # no fleet post: the caller reports (lib/settings-apply.sh); only with --only or --check
     -*) die "usage: salamander provision [--check] [--session] [--no-recycle] [--only STEP[,STEP…]] [--quiet] [HOST…] · --settle <set> <host> <step> ok|gave [\"<note>\"] · --waiting <set> <host> <step> \"<text>\" · --sets" ;; *) HOSTS+=("$1") ;; esac; shift; done
 [ "$QUIET" = 1 ] && [ -z "$ONLY" ] && [ "$CHECK" = 0 ] && die "provision --quiet goes with --only or --check: a whole run's leftovers need their provision set and its post"
-# an operation (it ends in a recycle): the master's, like recycle/update/retire/revive (--check reads only)
-ops_guard provision fleet $NOTMASTER $([ "${CHECK:-0}" = 1 ] && echo --check)
+# an operation (it ends in a recycle): queued with sala op, like recycle/update/retire/revive (--check reads only)
+ops_guard provision fleet $([ "${CHECK:-0}" = 1 ] && echo --check)
 : "${SALA_FLEET_HOSTS:=}"; : "${SALA_PROVISION_TIMEOUT:=1800}"
 : "${SALA_PROVISION_STEPS:=}"   # local script piped to each host (bash -s) before the session: its deterministic steps
 : "${SALA_PROVISION_STEPS_LINUX:=}"   # local script run on a Linux host after SALA_PROVISION_STEPS: the Linux-only steps
@@ -356,6 +356,6 @@ rc=0; prov_failed && rc=1
 # it relaunches the invoking pane too once idle)
 if [ "$CHECK" = 0 ] && [ ${#HOSTS[@]} -eq 0 ] && [ "$RECYCLE" = 1 ]; then
     echo "  → sala recycle --update --force (this box's CLI, then every pane, this one last)"
-    SALA_RELAUNCH_KIND=provision "$SALA_BIN" recycle --update --force $NOTMASTER   # KIND: what a waiting pane is told
+    SALA_RELAUNCH_KIND=provision "$SALA_BIN" recycle --update --force   # KIND: what a waiting pane is told
 fi
 exit "$rc"

@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
-# The rescue (Wed Oct 14th 2026; lib/lane.sh "THE RESCUE", lib/revive.sh "THE RESCUE", lib/common.sh lane_out,
-# is_idle_reason and pane_exit under SALA_RESCUE): another session moves the master off a lane that is out, and a stale
-# background-task row no longer holds a pane whose claude has no child process. What is checked guards the relaunch of the
-# master and the panes a rescue touches: `lane_out` reading sala's own state (lane_check, the sign-in watch's state, the
-# limit watch's state: the master's own stop decisive, another pane's only for a lane-wide limit); `sala lane --rescue`
-# refused while the master's lane looks fine, from the master's own pane, onto a lane that cannot launch or is out, with no
-# master configured; allowed when the limit watch has the master stopped (the master moved while another session runs it,
-# the recycle lock held by the run and its holder line naming the caller, the `rescue` line in lanes.log, the other pane
-# untouched); `--force` moving it anyway and saying so in the log; `--dry-run` writing, logging and relaunching nothing; the
-# table's warning under its rows when the master's lane is out. The stale row: a pane whose /exit opens the exit dialog over
+# The rescue (Wed Oct 14th 2026; lib/revive.sh "THE RESCUE", lib/common.sh lane_out,
+# is_idle_reason and pane_exit under SALA_RESCUE): `lane_out` reading sala's own state (lane_check, the sign-in watch's
+# state, the limit watch's state: a session's own stop decisive, another pane's only for a lane-wide limit), which the lane
+# fallback uses to pick a lane that works; `sala lane --rescue <lane>` (the old rescue of the master) is gone: --rescue is
+# only the pane flag, refused without sessions and with --all, and `lane --force` is an unknown option. The stale row: a
+# pane whose /exit opens the exit dialog over
 # rows that are no scheduled task (the fake's FAKE_EXIT_DIALOG, drawn as 2.1.299 draws it) is left alone by a plain relaunch
 # (Esc, the session stays) and relaunched by `--rescue` (the dialog read off the screen, 'Exit and stop tasks' confirmed,
 # said in the output), through `revive --only` and through `sala lane … --rescue`; a pane with a live child process
@@ -16,7 +12,7 @@
 # it; the mod's background refusal goes by keys under the rescue and stands without it or with a child; scheduled rows alone
 # still take the dialog's Enter without any flag (the control); `--rescue` refused without --only and for a recycle. Posts
 # stubbed to a file; isolated HOME, a private tmux socket, the compiled fake claude. Usage: bash tests/rescue.sh (exit 0 =
-# pass; ~90 s)
+# pass; ~60 s)
 set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_NO_RELAUNCH SALA_MASTER SALA_RESCUE
 unset ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR
@@ -88,83 +84,22 @@ out=$(lane_out sdk sala-test-m); [ $? = 0 ] && grep -q 'API credit ran out' <<< 
 limit_state
 [ "$(lanes_working)" = "subscription-1 api subscription-2" ] && ok "lanes_working: subscription-1, api and subscription-2 (bedrock and aws-platform not set up, sdk cannot launch here)" || bad "lanes_working: '$(lanes_working)'"
 
-echo "== the panes: m the master on subscription-2 (its row subscription-2), o another session, x a stale dialog, y a live child, z a plain pane, s scheduled rows"
-mk m "$UM" "CLAUDE_CONFIG_DIR=$HOME/.claude-team"; mk o "$UO" ""; lane_write sala-test-m team
+echo "== the panes: x a stale dialog, y a live child, z a plain pane, s scheduled rows"
 mk x "$UX" "" -e FAKE_EXIT_DIALOG='shell · sleep 600;subagent · worker'
 mk y "$UY" "" -e FAKE_EXIT_DIALOG='shell · sleep 600' -e FAKE_CHILD=1
 mk z "$UZ" ""; mk s "$US" "" -e FAKE_EXIT_DIALOG='scheduled task · daily at 09:00'
-fake_up sala-test-m sala-test-o sala-test-x sala-test-y sala-test-z sala-test-s
-MP=$(pane m); OP=$(pane o)
-[ "$(proc_lane "$(cpid m)")" = subscription-2 ] && [ "$(lane_row sala-test-m)" = subscription-2 ] && ok "m runs on subscription-2 with its row" || bad "m: $(proc_lane "$(cpid m)") row '$(lane_row sala-test-m)'"
+fake_up sala-test-x sala-test-y sala-test-z sala-test-s
 [ -n "$(work_children "$(cpid y)")" ] && [ -z "$(work_children "$(cpid x)")" ] && ok "y has a live child process (fakechild), x none" || bad "children: y='$(work_children "$(cpid y)")' x='$(work_children "$(cpid x)")'"
 
-echo "== sala lane --rescue: the refusals that record and relaunch nothing"
-export SALA_MASTER=sala-test-m
-out=$(SALA_MASTER= TMUX_PANE="$OP" "$SALA" lane --rescue api 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q 'no master session is configured' <<< "$out" && ok "no master configured: refused" || bad "no master ($rc): $out"
-out=$(TMUX_PANE="$OP" "$SALA" lane --rescue bogus 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q "unknown lane" <<< "$out" && ok "an unknown lane: refused" || bad "bogus ($rc): $out"
-out=$(TMUX_PANE="$OP" "$SALA" lane --rescue bedrock 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q 'no \[example-bedrock\] profile' <<< "$out" && ok "a lane that cannot launch (bedrock, no profile): refused by lane_check" || bad "bedrock ($rc): $out"
-out=$(TMUX_PANE="$OP" "$SALA" lane --rescue api 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q 'sits on the Team lane, which looks fine to sala' <<< "$out" && grep -q -- '--force' <<< "$out" && ok "the master's lane looks fine: refused, --force named" || bad "looks fine ($rc): $out"
-out=$(TMUX_PANE="$MP" "$SALA" lane --rescue api --force 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q "master's own pane" <<< "$out" && grep -q 'salamander lane api sala-test-m' <<< "$out" && ok "from the master's own pane: refused, the ordinary switch (the self-worker) named" || bad "own pane ($rc): $out"
-out=$(TMUX_PANE="$OP" "$SALA" lane --rescue subscription-2 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q 'runs on the Team lane already' <<< "$out" && ok "onto the lane it runs on: refused" || bad "same lane ($rc): $out"
-out=$(TMUX_PANE="$OP" "$SALA" lane api sala-test-o --force 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q -- '--force belongs to the rescue' <<< "$out" && ok "--force on an ordinary switch: refused" || bad "force on switch ($rc): $out"
-out=$(TMUX_PANE="$OP" "$SALA" lane api --all --rescue 2>&1); rc=$?
+echo "== sala lane --rescue is only a flag now: refused without sessions and with --all; --force is gone; nothing recorded or relaunched"
+out=$("$SALA" lane --rescue api 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q -- '--rescue needs the sessions it is for' <<< "$out" && ok "lane --rescue <lane> (the old master rescue): refused, the sessions are asked for" || bad "no sessions ($rc): $out"
+out=$("$SALA" lane api --all --rescue 2>&1); rc=$?
 [ "$rc" = 1 ] && grep -q 'never --all' <<< "$out" && ok "--rescue with --all: refused" || bad "rescue --all ($rc): $out"
-limit_state sala-test-m subscription-2 seven_day; signin_state api "wrong: the key is refused (HTTP 401)"
-out=$(TMUX_PANE="$OP" "$SALA" lane --rescue api 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q 'api lane is out as well' <<< "$out" && grep -q 'key is refused' <<< "$out" && grep -q 'subscription-1' <<< "$out" && ok "the target lane out too (the key refused): refused, the lanes that work named" || bad "target out ($rc): $out"
-signin_state
-[ "$(lane_row sala-test-m)" = subscription-2 ] && [ "$(starts "$UM")" = 1 ] && [ "$(rescues)" = 0 ] && ok "after every refusal: the row subscription-2, no relaunch, no rescue line in lanes.log" || bad "after refusals: row '$(lane_row sala-test-m)' starts $(starts "$UM") rescues $(rescues)"
-
-echo "== the table's warning: the master on a lane that is out"
-limit_state
-out=$("$SALA" lane 2>&1); ! grep -q '⚠ the master' <<< "$out" && ok "no watch state: no warning under the table" || bad "a warning with nothing wrong: $out"
-limit_state sala-test-m subscription-2 seven_day
-out=$("$SALA" lane 2>&1)
-grep -q '⚠ the master sala-test-m sits on the Team lane, which is out: the limit watch has sala-test-m stopped on it: Team weekly limit since' <<< "$out" \
-    && grep -q 'salamander lane --rescue <lane> (lanes that work: subscription-1, api)' <<< "$out" && ok "the master stopped on subscription-2: one line under the table — the lane, why, the rescue, the lanes that work" || bad "table warning: $out"
-
-echo "== allowed when out: the master moved from another session, under the recycle lock, logged"
-tsv0=$(<"$SALA_LANES"); log0=$(loglines)
-out=$(TMUX_PANE="$OP" "$SALA" lane --rescue api --dry-run 2>&1); rc=$?
-[ "$rc" = 0 ] && grep -q 'DRY RUN' <<< "$out" && grep -q '\[dry-run\] would record sala-test-m on the api lane' <<< "$out" && grep -qF "would /exit (9.9.9) and resume $UM on 9.9.9 · lane: subscription-2 → subscription-2" <<< "$out" \
-    && ok "--dry-run: the plan and the sweep's verdict (the row still subscription-2: the dry run records nothing, so the line says subscription-2 → subscription-2)" || bad "dry run ($rc): $out"
-[ "$(<"$SALA_LANES")" = "$tsv0" ] && [ "$(loglines)" = "$log0" ] && [ "$(starts "$UM")" = 1 ] && [ "$(rescues)" = 0 ] && ok "and it wrote nothing: lanes.tsv, lanes.log and the fake's starts unchanged" || bad "dry run wrote: tsv '$(<"$SALA_LANES")' log $log0 → $(loglines) starts $(starts "$UM") rescues $(rescues)"
-TMUX_PANE="$OP" "$SALA" lane --rescue api > "$HOME/rescue.out" 2>&1 & RP=$!
-# THE POLL (a run under the suites' load, Wed Oct 14th 2026: "lock during the rescue" with the file's earlier content): the
-# lock is taken (recycle_lock: flock on fd 9) a moment before its holder line is written (recycle_lock_note: a `date`, then a
-# printf that truncates the file first), and under load that moment is wide enough for a poll to see the lock held and read
-# the file before the line is there (empty, or the previous holder's). So the poll waits for both at once — the lock held
-# and the line naming this caller — rather than for the lock alone and then one read; the line stays once written, so
-# reading it again after the poll is safe. The cap is 30 s (a positive wait: the rescue's own checks before it takes the
-# lock — the lanes' state, the master's process — are a dozen process starts, slow under the same load).
-waitfor '! flock -n "$SALA_RECYCLE_LOCK" true && [ "$(cut -f3 "$SALA_RECYCLE_LOCK" 2>/dev/null)" = sala-test-o ]' 60 && IFS=$'\t' read -r hpid hstart hwho hlog < "$SALA_RECYCLE_LOCK" && [ "$hwho" = sala-test-o ] && ok "the recycle lock is held while the rescue runs, its holder line naming the caller (sala-test-o)" || bad "lock during the rescue: $(slurp "$SALA_RECYCLE_LOCK")"
-wait "$RP"; rc=$?; out=$(<"$HOME/rescue.out")
-[ "$rc" = 0 ] && grep -q 'rescue: the master sala-test-m, subscription-2 → api' <<< "$out" && grep -q 'why: subscription-2 is out: the limit watch has sala-test-m stopped' <<< "$out" && ok "sala lane --rescue api from sala-test-o: exit 0, the plan said" || bad "rescue ($rc): $out"
-waitfor '[ "$(starts "$UM")" = 2 ]' 40 && fake_up sala-test-m && [ "$(lanelog "$UM")" = "key=y hdr=y cfg=-" ] && ok "the master relaunched on api (the key in its environment)" || bad "master after the rescue: starts $(starts "$UM") lane $(lanelog "$UM") $(tail -5 "$RLOG")"
-grep -qF "sala-test-m:0: /exit (9.9.9) → resume $UM · lane: subscription-2 → api" <<< "$out" && ok "the sweep's line: subscription-2 → api" || bad "sweep line: $out"
-[ "$(lane_row sala-test-m)" = api ] && ok "recorded: sala-test-m → api" || bad "row: '$(lane_row sala-test-m)'"
-l=$(grep $'\trescue\t' "$SALA_LANE_LOG" | tail -1)
-[ "$(rescues)" = 1 ] && grep -q $'\trescue\tsala-test-m\tsubscription-2 → api: subscription-2 is out: the limit watch has sala-test-m stopped on it' <<< "$l" && grep -q $'\tsala-test-o$' <<< "$l" && ok "lanes.log: one rescue line — when, rescue, the master, from → to, why, who (sala-test-o)" || bad "lanes.log: $l"
-[ "$(starts "$UO")" = 1 ] && [ -z "$(lane_row sala-test-o)" ] && ok "sala-test-o (the caller) untouched, unrecorded" || bad "o: starts $(starts "$UO") row '$(lane_row sala-test-o)'"
-wait_lock; flock -n "$SALA_RECYCLE_LOCK" true && ok "the lock released once the sweep is done" || bad "lock still held: $(<"$SALA_RECYCLE_LOCK")"
-! grep -qF "$DUMMY" <<< "$out" && ! grep -qsF "$DUMMY" "$SALA_LANE_LOG" "$RLOG" && ok "the key value is in none of the output or the logs" || bad "the key value leaked"
-
-echo "== --force: the lane looks fine, moved anyway, said in the log"
-limit_state
-out=$(TMUX_PANE="$OP" "$SALA" lane --rescue subscription-2 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q 'api lane, which looks fine' <<< "$out" && [ "$(starts "$UM")" = 2 ] && ok "api looks fine now: refused" || bad "api fine ($rc): $out"
-out=$(TMUX_PANE="$OP" "$SALA" lane --rescue subscription-2 --force 2>&1); rc=$?
-[ "$rc" = 0 ] && grep -q 'why: --force: the api lane looked fine to sala' <<< "$out" && ok "--force: the move goes, the override said" || bad "force ($rc): $out"
-waitfor '[ "$(starts "$UM")" = 3 ]' 40 && fake_up sala-test-m && [ "$(lanelog "$UM")" = "key=n hdr=n cfg=$HOME/.claude-team" ] && [ "$(lane_row sala-test-m)" = subscription-2 ] && ok "the master back on subscription-2, recorded" || bad "after --force: starts $(starts "$UM") lane $(lanelog "$UM") row '$(lane_row sala-test-m)'"
-[ "$(rescues)" = 2 ] && grep $'\trescue\t' "$SALA_LANE_LOG" | tail -1 | grep -q 'api → subscription-2: --force: the api lane looked fine' && ok "lanes.log: the rescue line carries the --force" || bad "lanes.log: $(grep $'\trescue\t' "$SALA_LANE_LOG" | tail -1)"
-wait_lock
+out=$("$SALA" lane api sala-test-z --force 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q 'unknown option: --force' <<< "$out" && ok "--force on a switch: an unknown option now" || bad "force on switch ($rc): $out"
+out=$("$SALA" lane --help 2>&1); ! grep -q -- 'lane --rescue <lane>' <<< "$out" && ! grep -q -- 'not-master' <<< "$out" && ok "lane --help: no rescue verb and no --not-master" || bad "lane --help: $out"
+[ "$(starts "$UZ")" = 1 ] && [ "$(rescues)" = 0 ] && [ -z "$(lane_row sala-test-z)" ] && ok "after the refusals: no relaunch, no rescue line in lanes.log, no row" || bad "after refusals: starts $(starts "$UZ") rescues $(rescues) row '$(lane_row sala-test-z)'"
 
 echo "== the stale dialog: a plain relaunch leaves the pane (Esc), --rescue reads the dialog and confirms it"
 out=$("$SALA" revive --force --only sala-test-x 2>&1)

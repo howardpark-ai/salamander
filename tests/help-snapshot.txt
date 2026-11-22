@@ -21,8 +21,8 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      no quiet watch, no auto-retire, no cap — it retires only on the owner's word, and only once `side done` ran
   salamander spawn  --suggest-name --side (--fork-of AGENT | --project <page key>)   the side session's name (<prefix>-side-<word><nn>)
   salamander spawn  --list
-  salamander recycle [--update] [--force] [--not-master]   relaunch every pane, this one included, from one detached driver
-                                     (a Claude session's pane queues it with `sala op recycle`; --not-master overrides)
+  salamander recycle [--update] [--force]   relaunch every pane, this one included, from one detached driver
+                                     (a Claude session's pane queues it with `sala op recycle`)
                                      (--update: `claude update` first — the two halves of "recycle")
                                      (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
                                      (every relaunch — recycle, revive, unpark, restore — passes the user settings' permissions.defaultMode as --permission-mode, because a resumed session otherwise keeps the mode its transcript recorded)
@@ -89,7 +89,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander unpark NAME [--dry-run]  bring a conversation parked by "← for agents" back into its pane (see lib/unpark.sh)
   salamander op <verb> [args…] --from NAME --words "<the owner's words>"   queue a fleet operation for `watch` to run with no model (lib/op.sh):
                                      recycle [--update] [--force] · update [HOST…|--fleet] · revive [--only NAME]… [--force] ·
-                                     retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items] (a side session: refused until `side done` wrote its marker; --skip-writeup the one bypass; NO --words only for a throwaway: a row with the throwaway tag a bare spawn sets, by any session between turns; a row without the tag, by its spawner, by the master or any session when NAME is a scratch-*, *-check-*, *-test-* or *-probe-* name (any session: and no live spawner); never with a bypass flag, --keep-web or --id, and only when the project record confirms NAME is on no agents map) · close-shell NAME [--busy] · forget-row NAME · rename OLD NEW · lane <lane> <session>…|<lane> --all|default <lane>|fallback <lane> ·
+                                     retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items] (a side session: refused until `side done` wrote its marker; --skip-writeup the one bypass; NO --words only for a throwaway: a row with the throwaway tag a bare spawn sets, by any session between turns; a row without the tag, by its spawner, or by any session when NAME is a scratch-*, *-check-*, *-test-* or *-probe-* name (any session: and no live spawner); never with a bypass flag, --keep-web or --id, and only when the project record confirms NAME is on no agents map) · close-shell NAME [--busy] · forget-row NAME · rename OLD NEW · lane <lane> <session>…|<lane> --all|default <lane>|fallback <lane> ·
                                      model <model> [--effort <level>] <session>…|--clear <session>… (several sessions in ONE operation, ONE result notice) or the single-session <session> <model> [--effort <level>]|<session> --clear · provision [--only STEPS] [HOST…] · spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT]
                                      [--lane L] | spawn NAME --side (--fork-of AGENT | --project KEY --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] (a side conversation)
                                      (a TEXT mandate goes to ~/.local/state/salamander/mandates/<id>-NAME.md; a name not
@@ -111,15 +111,13 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      keeps it) and the default for new sessions; no argument: the table (lib/lane.sh)
   salamander lane pin <session> <lane> | unpin <session> | pins   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a bulk move lists it as skipped, a move that names it still moves it (lib/lane.sh)
   salamander lane names [--json] [--write]   each lane's code, display name and old words (one line per lane: code, display, aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current; lib/lane.sh)
-  salamander lane fallback <lane> [--dry-run]   the dormant lane's sessions (a configured master by the rescue, last), its default and, at run time, its jobs move to the lane's fallback
+  salamander lane fallback <lane> [--dry-run]   the dormant lane's sessions, its default and, at run time, its jobs move to the lane's fallback
                                      (SALA_LANE_FALLBACK: subscription-1, subscription-2, aws-platform, api, sdk → bedrock; bedrock → subscription-1; one hop; used only if itself active and ready); a Fable session lands on opus;
                                      lane dormant <lane> and sala's own watch queue it by themselves (--no-fallback: not now); nothing moves back by itself: the table's HOME column, salamander lane <home> <session> (lib/lane.sh)
   salamander lane --migrate [--dry-run]   rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files once; idempotent, backups kept (lib/lane.sh)
-  salamander lane --rescue <lane> [--dry-run] [--force]   another session moves the configured master (SALA_MASTER, while one is still set) off a lane that is out (its usage
-                                     gone or its account dead, by sala's own watches); refused while the lane looks fine
   salamander sdk-pane <uuid> [<session>] [--model M] [--effort E]   the sdk lane's pane program, the line resume_cmd types in place
                                      of `claude --resume`: the Agent SDK on the API credit, until a call is refused, then the lane fallback's pick for sdk (bedrock by default; lib/sdk-pane.sh)
-  salamander model [<session> <model> [--effort <level>] | <session> --clear | <model> [--effort <level>] <session>… | --clear <session>…] [--dry-run] [--not-master]   the model and effort a
+  salamander model [<session> <model> [--effort <level>] | <session> --clear | <model> [--effort <level>] <session>… | --clear <session>…] [--dry-run]   the model and effort a
                                      session is relaunched on, ahead of its transcript's: recorded, then relaunched on them (resumed;
                                      every later relaunch keeps them); --clear: the transcript decides again; no argument: the table (lib/model.sh).
                                      A first word that is a model (opus, sonnet, haiku, fable, claude-…) means several sessions at once:
@@ -130,7 +128,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander hook prompt             UserPromptSubmit hook (no matcher): the `sala notice` lines this session has not been shown yet, as
                                      additionalContext at its next prompt; post-tool delivers them after a tool call too (lib/hook.sh, lib/notice.py)
   salamander hook pre-tool           PreToolUse hook (matcher "Bash"): deny a reboot, CLI update, tmux kill-* on the fleet's server
-                                     or kill of a claude process typed outside sala; the master's pane is exempt (lib/guard.py)
+                                     or kill of a claude process typed outside sala (lib/guard.py)
   salamander hook session-start     SessionStart hook (matcher "*"): records the pane's fresh conversation in the session registry (clear · resume ·
                                      startup; not compact), by SALA_SESSION_ID or the tmux session name; always exit 0, prints nothing (lib/hook.sh)
   salamander hook subagent-stop     SubagentStop hook (matcher "*"): after a subagent handed back, SIGTERM the background shells it
@@ -207,9 +205,9 @@ usage: salamander lane                                         the table (defaul
        salamander lane names [--json] [--write]                  each lane's code, display name and old words (one line each: code TAB display TAB aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current)
        salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed
        salamander lane exec <lane> -- COMMAND [ARG…]             run COMMAND on the lane (a unit's ExecStart): the lane's environment; every other lane's variables are unset, subscription-1 too (never blanked)
-       salamander lane <lane> <session>… [--dry-run] [--not-master] [--rescue]   record + relaunch those sessions on the lane (one already on it: left alone)
-       salamander lane <lane> --all      [--dry-run] [--not-master]   every session and the default: one recycle --force (a pinned session is skipped and listed)
-       salamander lane default <lane>    [--dry-run] [--not-master]   the default alone (applied at each session's next relaunch; a pinned session keeps its pin's lane and is listed)
+       salamander lane <lane> <session>… [--dry-run] [--rescue]   record + relaunch those sessions on the lane (one already on it: left alone)
+       salamander lane <lane> --all      [--dry-run]   every session and the default: one recycle --force (a pinned session is skipped and listed)
+       salamander lane default <lane>    [--dry-run]   the default alone (applied at each session's next relaunch; a pinned session keeps its pin's lane and is listed)
        salamander lane pin <session> <lane>   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a move that names it still moves it
        salamander lane unpin <session>        take the pin off (bulk moves take the session again)
        salamander lane pins                   the pinned sessions and the lane each is held on (the list: $SALA_LANE_PINS, a TSV: session TAB lane)
@@ -217,7 +215,6 @@ usage: salamander lane                                         the table (defaul
        salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback (subscription-1=bedrock subscription-2=bedrock aws-platform=bedrock api=bedrock sdk=bedrock bedrock=subscription-1); a pinned session stays and is listed; --dry-run prints the moves; exit 4: no usable fallback
        salamander lane active <lane>     [--dry-run]                  mark a lane active again (the only way back for api and sdk)
        salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)
-       salamander lane --rescue <lane>   [--dry-run] [--force]        move the master (SALA_MASTER) off a lane that is out, from another session
   the background agents' lane rule (SALA_BACK_LANE_RULE=on, the front agents too at SALA_BACK_LANE_FRONT_THRESHOLD) moves them by this switch; a dormant target lane is replaced by its fallback; see: salamander watch --back-lanes --dry-run
   lanes: subscription-1 api subscription-2 sdk bedrock aws-platform  (subscription-1, shown as Ultra: the login in ~/.claude · api: the key file · subscription-2, shown as Team: a second login in its own config directory · sdk: api's key through the Agent SDK (client claude-agent-sdk), while the key has credit (a refusal switches it off for 6 hours; the pane then goes to the lane fallback's pick for sdk, bedrock by default) · bedrock: Claude on Amazon Bedrock through the AWS profile (none named: SALA_LANE_BEDROCK_PROFILE), not set up yet · aws-platform: Claude Platform on AWS through the AWS profile (none named: SALA_LANE_AWSPLATFORM_PROFILE) and a workspace id, not set up yet)
   --rescue on a switch: a stale background-task row (the exit dialog, the Stop hook's record, the mod) no longer holds a pane with no child process under its claude
@@ -225,11 +222,11 @@ usage: salamander lane                                         the table (defaul
 
 ### sala model --help (exit 0)
 usage: salamander model                                                       the table (each recorded session: record, launched with, last turn)
-       salamander model <session> <model> [--effort <level>] [--dry-run] [--not-master]   record + switch it in place (idle, empty input box) or relaunch it (already on them: left alone)
-       salamander model <session> <model> [--effort <level>] --record-only [--dry-run] [--not-master]   record alone, no relaunch (it holds at the next one)
-       salamander model <session> --clear [--dry-run] [--not-master]          drop the record (the transcript decides at the next relaunch)
-       salamander model <model> [--effort <level>] <session>… [--dry-run] [--not-master]   the same for several sessions at once: one lock, one sweep for the relaunches, one summary (the first word a model = this shape)
-       salamander model --clear <session> <session>… [--dry-run] [--not-master]   drop the records of several sessions
+       salamander model <session> <model> [--effort <level>] [--dry-run]   record + switch it in place (idle, empty input box) or relaunch it (already on them: left alone)
+       salamander model <session> <model> [--effort <level>] --record-only [--dry-run]   record alone, no relaunch (it holds at the next one)
+       salamander model <session> --clear [--dry-run]          drop the record (the transcript decides at the next relaunch)
+       salamander model <model> [--effort <level>] <session>… [--dry-run]   the same for several sessions at once: one lock, one sweep for the relaunches, one summary (the first word a model = this shape)
+       salamander model --clear <session> <session>… [--dry-run]   drop the records of several sessions
   models: opus sonnet haiku fable, or a full model id (claude-…) · efforts: low medium high xhigh max
 
 ### sala reauth --help (exit 0)
@@ -261,8 +258,8 @@ Dispatched by bin/salamander as `salamander question …` and `salamander resume
 ✗ usage: salamander resume-answer QID [--answer TEXT | --answer-file FILE|- | --decline [WHY]] [--free-text] [--dry-run] [-- claude args…]
 
 ### sala recycle --help (exit 0)
-  salamander recycle [--update] [--force] [--not-master]   relaunch every pane, this one included, from one detached driver
-                                     (a Claude session's pane queues it with `sala op recycle`; --not-master overrides)
+  salamander recycle [--update] [--force]   relaunch every pane, this one included, from one detached driver
+                                     (a Claude session's pane queues it with `sala op recycle`)
                                      (--update: `claude update` first — the two halves of "recycle")
                                      (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
 
@@ -285,9 +282,9 @@ usage: salamander revive [--dry-run] [--force] [--only NAME] [--lane-default] [-
 ### sala op --help (exit 0)
   salamander op <verb> [args…] --from NAME --words "<the owner's words>" queue one operation (the verbs below)
   salamander op <verb> [args…] --from NAME --stdin                      the words on stdin (a pane on another box, over ssh)
-  salamander op retire NAME --from YOU                                  NO words: only for a throwaway (tagged at spawn: any session; untagged: its spawner, the master or anyone, a throwaway's name; never a bypass flag, --keep-web or --id)
-  salamander op revive --only NAME… --item board#N --from YOU           NO words: a reason on the record instead (--why "<one line>" for --item; --force allowed): one or more live Claude sessions, never the master or YOU, never a sweep, --rescue or --lane-default
-  salamander op restore --only NAME… --item board#N --from YOU          NO words: a reason on the record (--why "<one line>" for --item): one or more pane-map sessions whose tmux session is gone, never the master or YOU, never --missing or --force
+  salamander op retire NAME --from YOU                                  NO words: only for a throwaway (tagged at spawn: any session; untagged: its spawner, or anyone when it has no live spawner and a throwaway's name; never a bypass flag, --keep-web or --id)
+  salamander op revive --only NAME… --item board#N --from YOU           NO words: a reason on the record instead (--why "<one line>" for --item; --force allowed): one or more live Claude sessions, never YOU, never a sweep, --rescue or --lane-default
+  salamander op restore --only NAME… --item board#N --from YOU          NO words: a reason on the record (--why "<one line>" for --item): one or more pane-map sessions whose tmux session is gone, never YOU, never --missing or --force
   salamander op --plan <verb> [args…]                                   the plan alone: the verb's dry run, nothing queued
   salamander op --list                                                  the queue (and what it is doing)
   salamander op --status <id>                                           one operation's record, queued or archived
@@ -299,20 +296,20 @@ verbs:
   update [HOST…|--fleet]                    this box (= recycle --update --force), named fleet hosts, or the fleet then this box
   revive [--only NAME]… [--force]           bring a session back (--only), or every pane on an older CLI. Needs the owner's words, EXCEPT
                                             `revive --only NAME [--only NAME]… [--force] --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME is a live Claude session of the registry that is neither the master nor YOU, and YOU is the session whose pane holds the call by process ancestry
+                                            every NAME is a live Claude session of the registry that is not YOU, and YOU is the session whose pane holds the call by process ancestry
                                             (not TMUX_PANE; a Claude Code exe, not a name; SALA_OP_REASON_FROM, empty = any session, limits who); never a sweep (no --only), --rescue, --lane-default or any other flag.
                                             --item is a format check only (board#N): sala does not ask the board whether the item exists. The runner checks it all again before it relaunches anything
   restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT
                                             `restore --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME is a pane-map row with no tmux session whose conversation is live nowhere else, is neither the master nor YOU, and YOU is the session whose pane holds the call by process ancestry
+                                            every NAME is a pane-map row with no tmux session whose conversation is live nowhere else, is not YOU, and YOU is the session whose pane holds the call by process ancestry
                                             (as for revive; SALA_OP_REASON_FROM limits who); never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere. The runner checks it all again before it recreates anything
   retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
                                             ends a Claude session for good: NAME is the exact tmux session name, --id names it by conversation id; a side session only after `side done` (--skip-writeup the bypass); --busy retires a pane that is not idle; --self the session this call runs in; --leave-items a session that moves open board items (asked of stackshot first); --force is refused. Needs the owner's words, EXCEPT
                                             a throwaway: `retire NAME --from YOU` with no --words, accepted only when NAME's registry row has no project, no role,
-                                            no side flag, NAME is on no project's agents map and is neither the master nor YOU, and the row carries the throwaway tag (a bare
+                                            no side flag, NAME is on no project's agents map and is not YOU, and the row carries the throwaway tag (a bare
                                             `sala spawn` writes it): then any session may end it, between turns (a pane mid-turn is refused: retire's own idle check, never --busy).
-                                            A row without the tag (made before it) keeps the older rule: YOU is NAME's spawner, or the master (NAME a throwaway's name:
-                                            scratch-*, *-check-*, *-test-*, *-probe-*), or any session when NAME has no live spawner and a throwaway's name;
+                                            A row without the tag (made before it) keeps the older rule: YOU is NAME's spawner, or any session when NAME has no live spawner and a throwaway's name
+                                            (scratch-*, *-check-*, *-test-*, *-probe-*);
                                             never with a bypass flag, --keep-web or --id (add --words for those); for every door but the spawner's the project record
                                             must confirm NAME is on no agents map, and with no answer the retire is refused;
                                             YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name), and every process in NAME's panes carries the row's id (or none does, one is Claude Code, NAME is a throwaway's name and a fresh answer says it is unlisted); the runner checks it again before it ends anything

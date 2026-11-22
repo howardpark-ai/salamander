@@ -49,8 +49,8 @@
 # before (it is the recorded intent); a shell pane runs nowhere ("none"); "?" (environment unreadable) is never a mismatch.
 # A DRY RUN schedules nothing and writes nothing, in every form: the sweep ends after its check phase, `--self` prints what
 # the self-worker would do and starts none, recycle's driver skips the freeze, the self-worker and the retry-worker purge.
-# THE RESCUE (Wed Oct 14th 2026; `--rescue`, with --only or --self; `sala lane … --rescue` and `sala lane --rescue
-# <lane>` pass it): the CLI's task registry keeps a row for a shell stopped by hand or a subagent long gone, so its /exit
+# THE RESCUE (Wed Oct 14th 2026; `--rescue`, with --only or --self; `sala lane … --rescue` passes
+# it): the CLI's task registry keeps a row for a shell stopped by hand or a subagent long gone, so its /exit
 # opens the "Background work is running" dialog over nothing, and exit_wait, which cancels that dialog with Esc unless every
 # row is a scheduled job, left a builder (a stale subagent row) and a maintainer (a stale
 # shell-loop row) on a dead lane with no child process under either. Under --rescue, when NO child process runs under
@@ -61,10 +61,10 @@
 # pass-over is said in the sweep's output (the revive log), and the row's note names it. Never for a recycle: a whole
 # fleet confirmed blind is not a rescue.
 
-DRY=0; FORCE=0; SELF_WORKER=0; SELF_PANE=""; ONLY=""; ONLY_LIST=(); NOTMASTER=""; RESCUE=0; RESCUE_NOTE=""
-# read ahead of the flag loop: `--self` acts the moment the loop reaches it, before a `--not-master` or `--rescue` that
-# follows it on the line would have been seen (lib/lane.sh writes `revive --self $NOTMASTER`)
-for a in "$@"; do case "$a" in --not-master) NOTMASTER=--not-master;; --rescue) RESCUE=1; export SALA_RESCUE=1;; esac; done
+DRY=0; FORCE=0; SELF_WORKER=0; SELF_PANE=""; ONLY=""; ONLY_LIST=(); RESCUE=0; RESCUE_NOTE=""
+# read ahead of the flag loop: `--self` acts the moment the loop reaches it, before a `--rescue` that
+# follows it on the line would have been seen (lib/lane.sh writes `revive --self $RESCUEFLAG`)
+for a in "$@"; do case "$a" in --rescue) RESCUE=1; export SALA_RESCUE=1;; esac; done
 LANE_DEFAULT_OK="${SALA_LANE_DEFAULT_OK:-0}"   # --lane-default (exported for the self-worker and the workers): accept the default for a pane without a row
 # --only may be given more than once (Tue Oct 13th 2026: `sala lane <lane> A B` relaunches just those panes in one
 # sweep); ONLY_LIST holds the names, ONLY the same joined by commas for a set's scope and the messages
@@ -309,7 +309,6 @@ write_sidecar() {  # OBSERVE ONLY: the live registry against the pane map; the o
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run) DRY=1 ;;
-        --not-master) NOTMASTER=--not-master ;;
         --force)   FORCE=1 ;;
         --lane-default) LANE_DEFAULT_OK=1; export SALA_LANE_DEFAULT_OK=1 ;;   # the self-worker and the workers this run starts see it
         --rescue)  RESCUE=1; export SALA_RESCUE=1 ;;   # read ahead too (above); is_idle_reason and pane_exit (common.sh) see it
@@ -326,7 +325,7 @@ while [ $# -gt 0 ]; do
             [ -z "${TMUX_PANE:-}" ] && die "--self must run from inside a tmux pane (TMUX_PANE unset)"
             ss=$(tmux display -p -t "$TMUX_PANE" '#{session_name}')
             no_relaunch "$ss" && die "$(no_relaunch_line "$ss") — --self refused; $(no_relaunch_fix "$ss" "relaunch it the way it was launched")"
-            ops_guard revive "$ss" $NOTMASTER $([ "$DRY" = 1 ] && echo --dry-run)
+            ops_guard revive "$ss" $([ "$DRY" = 1 ] && echo --dry-run)
             # the lane line, before anything is scheduled (the header, THE LANE LINE); the self-worker checks it again when it fires
             scpid=$(claude_pid_under "$(tmux display -p -t "$TMUX_PANE" '#{pane_pid}' 2>/dev/null)")
             lane_plan "$ss" "$scpid" || die "$ss: $([ "$DRY" = 1 ] && echo "[dry-run] --self would be refused" || echo "--self refused") — $LANE_WHY ($LANE_LINE)"
@@ -348,8 +347,8 @@ while [ $# -gt 0 ]; do
             # ONE detached driver: sweep every other pane now, then relaunch the invoking pane once it
             # goes idle. The invoker is just one more pane; no special case in the UX (`sala recycle`).
             mkdir -p "$SALA_LOG_DIR"
-            # remaining flags (--force, --only …) go to the sweep (--not-master is the guard's, dropped here); the invoker is always relaunched
-            sweep_args=(); for a in "${@:2}"; do [ "$a" = --not-master ] || sweep_args+=("$a"); done
+            # remaining flags (--force, --only …) go to the sweep; the invoker is always relaunched
+            sweep_args=("${@:2}")
             # options are checked HERE, before anything starts or is announced (`recycle --help` said
             # "recycle started" and the driver then died on the unknown option)
             i=0; while [ "$i" -lt ${#sweep_args[@]} ]; do case "${sweep_args[$i]}" in
@@ -357,7 +356,7 @@ while [ $# -gt 0 ]; do
                 --rescue) die "--rescue is for one pane at a time (salamander revive --force --only <session> --rescue, or salamander lane … --rescue), never a recycle: a whole fleet's exit dialogs confirmed blind is not a rescue" ;;
                 -h|--help) awk '/^#   salamander recycle \[--update\]/{p=1} p{print} /^#.*\(--force:/{exit}' "$SALA_BIN" | sed 's/^# \{0,1\}//'; exit 0 ;;   # the usage block only: from the recycle line to the --force line, then stop (a sed range restarted at the next "salamander recycle" line and ran to the end of the file)
                 *) die "unknown option for recycle: ${sweep_args[$i]} (see: salamander recycle --help)" ;; esac; i=$((i+1)); done
-            master_guard recycle "${@:2}"
+            fleet_guard recycle "${@:2}"
             # the invoker follows the same rule as every pane: without --force it is relaunched only
             # when it runs an older version than the installed CLI
             selfpane="${TMUX_PANE:-}"
@@ -424,7 +423,7 @@ done
 
 # a direct revive (not recycle's own sweep, not a worker) is a fleet operation: master only when a session calls it
 if [ -z "${SALA_RECYCLE:-}" ] && [ "$SELF_WORKER" = 0 ] && [ -z "${SALA_RETRY_WORKER:-}" ]; then
-    ops_guard revive "${ONLY_LIST[0]:-all}" $NOTMASTER $([ "$DRY" = 1 ] && echo --dry-run)
+    ops_guard revive "${ONLY_LIST[0]:-all}" $([ "$DRY" = 1 ] && echo --dry-run)
 fi
 # the rescue names its panes (the header): a sweep of every pane with it is a recycle in all but name
 [ "$RESCUE" = 1 ] && [ ${#ONLY_LIST[@]} -eq 0 ] && [ "$SELF_WORKER" = 0 ] && die "--rescue needs --only <session> (or --self): it confirms the exit dialog of the named panes only"

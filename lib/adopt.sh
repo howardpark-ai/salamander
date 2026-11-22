@@ -7,7 +7,7 @@
 # `sala watch` reports it once instead of adding it on its own. adopt is the honored path: the session's live claude
 # (its registry row: sessionId, name, cwd) becomes the row, under the tmux session's name. Any other row carrying the
 # same conversation (a session renamed by hand with tmux rename-session) is dropped — one conversation lives in one
-# pane. Fleet operation: the master's when a Claude session calls it (ops_guard), like rename and retire.
+# pane. Fleet operation: queued with sala op when a Claude session calls it (ops_guard), like rename and retire.
 
 name="${1:-}"; case "$name" in ''|-*) die "usage: salamander adopt NAME";; esac
 [ $# -eq 1 ] || die "usage: salamander adopt NAME"

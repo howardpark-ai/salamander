@@ -120,7 +120,7 @@ rr_main() {
             if [ "${SALA_AUTO_RECYCLE:-on}" = on ]; then
                 echo "sala watch starts the recycle at its next run (every 2 min); each busy pane is relaunched once it is idle (at most one an hour; the request expires after 24 h)"
             else
-                echo "⚠ SALA_AUTO_RECYCLE is off in $SALA_CONFIG: nothing will act on it until it is on, or the master runs a recycle"
+                echo "⚠ SALA_AUTO_RECYCLE is off in $SALA_CONFIG: nothing will act on it until it is on, or a recycle is queued (sala op recycle)"
             fi
             ;;
     esac

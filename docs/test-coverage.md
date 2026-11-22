@@ -4668,3 +4668,36 @@ compare after a reboot create no session); the deferred list and a recycle set (
 queues nothing); the wrap-up tick; the `sleeping` display in `sessions` and `spawn --list`; and `sleep_ready` with the one yes and each
 refusal reason a pane can be made to show here (all but "no tmux pane"). Every kill is of one pid whose `/proc/<pid>/exe` is the suite's fake. Not checked: a real
 sleep or wake (stage 2), the watch tick that will call `sleep_ready`, a real stackshot inbox.
+
+### The master path retired, stage 3: the guards stop knowing a master (Mon Nov 23rd 2026)
+
+`master_guard` is `fleet_guard` (its no-master half: the queue's cgroup admitted, `--dry-run` and `--check` through, a
+non-Claude caller through, a Claude session refused with the queue pointer, and for a verb the queue has no shape for, such as
+`adopt`, a reply that names no flag), `ops_guard` calls it, `--not-master` is gone from every verb and every internal call,
+`lane --rescue <lane>` (the old mode), `--force` on `lane`, the lane fallback's master leg and the lane table's warning are
+gone (the `--rescue` pane flag stays), `lib/guard.py` has no master exemption, `lib/hook.sh` no master lines, and
+`lib/op.sh` no master doors (`op_own_target_ok` keeps the spawner, the tag and the any-session rule, and the revive and
+restore doors no "is the master session" refusal). A config that still sets `SALA_MASTER` changes none of this: its session is
+an ordinary pane and the watch's one notice is unchanged.
+
+Removed checks, by suite: `rescue` (the `lane --rescue <lane>` sections, about 23 check lines: the refusal with no master, an
+unknown or unlaunchable lane, the master's lane looking fine, the master's own pane, the lane it runs on, a target out as
+well, `--force` on a switch and with `--rescue`, the table warning, the dry run, the rescue end to end with its lock, row, key
+and `rescue` log line, `--force` off a healthy lane; the master and other panes of the suite); `retire-own` (the master
+doors, 10 lines: the master ending any throwaway, the master and a plain-named row, a tagged row that is the master, the
+revive and restore "is the master session" refusals, the two `mismatch` cases for a session made the master since);
+`guard` (the master pane's exemption, 3 cases); `op` (the `master_guard` cases and the `--not-master` brief line, rewritten
+rather than dropped); `opparallel` (the master's rename as a solo operation: rename is now always parallel-safe under the
+share rule); `lanefallback` (the master moving last, by the rescue); `lanedormant` (`lane --rescue <lane>` refused for a
+dormant lane, now `lane <lane> <session> --rescue`); `nomaster` (the `--not-master` pass case, and the control that a master
+set lets a Claude caller outside tmux through).
+
+Added: `rescue` that `lane --rescue <lane>` is refused for want of sessions, that `--rescue --all` is refused, that `--force`
+is an unknown option and that `lane --help` names neither the mode nor `--not-master`; `retire-own` that a `SALA_MASTER` line
+left in the config changes nothing for a session it names (queued by its spawner as any throwaway), opens no door for a
+session it names to end a live spawner's throwaway, a project agent or a side session, and that `op retire --help` names no
+master; `nomaster` that the same leftover line exempts no Claude caller outside tmux; `guard` and `op` that the leftover line
+exempts nothing and that the guard's reply to `adopt` names no flag; `lanefallback` that a session a leftover line names is
+an ordinary line of the plan. `tests/help-snapshot.txt` regenerated (the `--not-master` and `lane --rescue <lane>` lines and
+the retire, lane fallback, model and hook wording). Kept for stage 4: the `SALA_MASTER` default, `SALA_BOOT_AUDIT`,
+`SALA_HEARTBEAT_GIT=master`, the `unset SALA_MASTER` lines of the suites, `sets-master`'s name and the grep gate.

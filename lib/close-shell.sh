@@ -18,9 +18,9 @@
 
 usage="usage: salamander close-shell <tmux-session> [--busy] [--dry-run]
   a session with a Claude in it: salamander retire <tmux-session>; a pane-map row whose tmux session is gone: salamander forget-row <name>"
-name=""; BUSY=0; DRY=0; DRYFLAG=""; NOTMASTER=""
+name=""; BUSY=0; DRY=0; DRYFLAG=""
 while [ $# -gt 0 ]; do case "$1" in
-    --busy) BUSY=1 ;; --dry-run) DRY=1; DRYFLAG=--dry-run ;; --not-master) NOTMASTER=--not-master ;;
+    --busy) BUSY=1 ;; --dry-run) DRY=1; DRYFLAG=--dry-run ;;
     --force) die "close-shell has no --force: pass --busy to close a shell that is still running something" ;;
     -*) die "unknown option: $1
 $usage" ;;
@@ -33,7 +33,7 @@ refuse() {  # <why> → the refusal as the dry run says it, or the real one's di
     if [ "$DRY" = 1 ]; then dry "would refuse: $1"; dry "nothing was changed"; exit 1; fi
     die "$1"
 }
-ops_guard close-shell "$name" $NOTMASTER $DRYFLAG
+ops_guard close-shell "$name" $DRYFLAG
 ledger_frozen_die close-shell   # a recycle or reboot holds the pane map
 
 if ! tmux has-session -t "=$name" 2>/dev/null; then

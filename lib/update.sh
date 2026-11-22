@@ -6,7 +6,7 @@
 #                                     this machine only if named — "update claude on box1" = `salamander update box1`
 #   salamander update --fleet         every SALA_FLEET_HOSTS host, then this machine
 #   salamander update … --check       report installed versions only; change nothing anywhere
-#   salamander update … --no-recycle  this machine: `claude update` only, no relaunch (no master guard, no recycle lock);
+#   salamander update … --no-recycle  this machine: `claude update` only, no relaunch (no fleet guard, no recycle lock);
 #                                     the panes keep their version until a recycle — watch's at-once auto-update
 #
 # Remote hosts are ssh aliases (key auth, BatchMode) with a POSIX shell (Linux or macOS; sala is off Windows since
@@ -18,9 +18,9 @@
 # Order: remotes first, then the post-update hook (SALA_POST_UPDATE_CMD, e.g. bump a dashboard), then this machine's
 # recycle LAST — it relaunches the pane you ran this from, once idle.
 
-FLEET=0; CHECK=0; NOTMASTER=""; HOSTS=()
+FLEET=0; CHECK=0; HOSTS=()
 AUTO=0; RELEASE=0; NORECYCLE=0
-while [ $# -gt 0 ]; do case "$1" in --fleet) FLEET=1 ;; --check) CHECK=1 ;; --auto) AUTO=1 ;; --release) RELEASE=1 ;; --no-recycle) NORECYCLE=1 ;; --not-master) NOTMASTER=--not-master ;; -*) die "usage: salamander update [HOST…|--fleet] [--check] [--auto [--release]] [--no-recycle] [--not-master]" ;; *) HOSTS+=("$1") ;; esac; shift; done
+while [ $# -gt 0 ]; do case "$1" in --fleet) FLEET=1 ;; --check) CHECK=1 ;; --auto) AUTO=1 ;; --release) RELEASE=1 ;; --no-recycle) NORECYCLE=1 ;; -*) die "usage: salamander update [HOST…|--fleet] [--check] [--auto [--release]] [--no-recycle]" ;; *) HOSTS+=("$1") ;; esac; shift; done
 : "${SALA_FLEET_HOSTS:=}"
 ME=$(hostname); LOCAL=1; REMOTES=()
 if [ "$FLEET" = 1 ]; then
@@ -35,9 +35,9 @@ elif [ ${#HOSTS[@]} -gt 0 ]; then
         else die "unknown host '$h' — this machine is $ME; SALA_FLEET_HOSTS = ${SALA_FLEET_HOSTS:-<empty>}"; fi
     done
 fi
-# the local leg is a recycle of this box: one driver only (see master_guard) — checked before any remote is touched.
+# the local leg is a recycle of this box: one driver only (see fleet_guard) — checked before any remote is touched.
 # --no-recycle relaunches nothing, so it needs neither the guard nor the lock below
-[ "$LOCAL" = 1 ] && [ "$CHECK" = 0 ] && [ "$NORECYCLE" = 0 ] && master_guard update $NOTMASTER
+[ "$LOCAL" = 1 ] && [ "$CHECK" = 0 ] && [ "$NORECYCLE" = 0 ] && fleet_guard update
 # … and the recycle lock (common.sh), held from here through the detached driver the recycle at the end starts (fd 9 crosses
 # the exec). --auto (watch's unit, launched after watch found the lock free) waits for it rather than lose its one try per version
 if [ "$LOCAL" = 1 ] && [ "$CHECK" = 0 ] && [ "$NORECYCLE" = 0 ]; then
@@ -191,4 +191,4 @@ if [ ${#REPORT[@]} -gt 0 ]; then   # one notice in the shared shape: failures fi
 fi
 [ "$LOCAL" = 1 ] && [ "$STALE" -gt 0 ] && [ "$NORECYCLE" = 0 ] || exit 0
 echo "  $ME: relaunching the $STALE pane(s) on an older version (this one last, if it is one of them) ..."
-SALA_RELAUNCH_KIND=update exec "$SALA_BIN" recycle $NOTMASTER   # the CLI is already updated above: only the stale panes, the invoker too only if stale; KIND: what a waiting pane is told
+SALA_RELAUNCH_KIND=update exec "$SALA_BIN" recycle   # the CLI is already updated above: only the stale panes, the invoker too only if stale; KIND: what a waiting pane is told

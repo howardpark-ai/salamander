@@ -13,7 +13,7 @@
 #                               not shown to this session yet, as additionalContext, at its next prompt; nothing else
 #   salamander hook pre-tool    PreToolUse hook (matcher "Bash"): deny a command that would relaunch or update the fleet
 #                               outside sala — reboot, a CLI update, tmux kill-* on the fleet's server or a window/pane put into another session, kill/pkill of a claude
-#                               process — with the fix (`sala op …`) in the reason; the master's pane is exempt (lib/guard.py)
+#                               process — with the fix (`sala op …`) in the reason (lib/guard.py)
 #   salamander hook notify [--dry-run]   Notification hook (matcher "permission_prompt|elicitation_dialog|elicitation_url_dialog"):
 #                               the instant alert for a pane stopped on a dialog, through the stuck watch's path and
 #                               state, so its 90 s post does not repeat it (lib/stuck.sh sq_instant)
@@ -95,8 +95,8 @@ case "${1:-}" in
         _re='reboot|shutdown|kexec|kill|telinit|init[^[:alnum:]_]|update|upgrade|install|claude-code|tmux'
         [[ $_in =~ $_re ]] || exit 0
         _cfg="${SALA_CONFIG:-$HOME/.config/salamander/config}"
-        _out=$( SALA_MASTER=""; [ -r "$_cfg" ] && . "$_cfg" >/dev/null 2>&1; [ -n "${SALA_TMUX_SOCKET:-}" ] && export SALA_TMUX_SOCKET; SALA_OWNER_NAME=$(printf '%s' "${SALA_OWNER_NAME:-}" | tr -cd "[:alnum:] ._'-"); [ -n "$SALA_OWNER_NAME" ] && export SALA_OWNER_NAME   # guard.py names the owner in its denies (same cleaning as common.sh; empty = its default)
-                printf '%s' "$_in" | python3 -I -S "$SALA_ROOT/lib/guard.py" "${SALA_MASTER:-}" 2>/dev/null ) || exit 0
+        _out=$( [ -r "$_cfg" ] && . "$_cfg" >/dev/null 2>&1; [ -n "${SALA_TMUX_SOCKET:-}" ] && export SALA_TMUX_SOCKET; SALA_OWNER_NAME=$(printf '%s' "${SALA_OWNER_NAME:-}" | tr -cd "[:alnum:] ._'-"); [ -n "$SALA_OWNER_NAME" ] && export SALA_OWNER_NAME   # guard.py names the owner in its denies (same cleaning as common.sh; empty = its default)
+                printf '%s' "$_in" | python3 -I -S "$SALA_ROOT/lib/guard.py" 2>/dev/null ) || exit 0
         [ "${_out:0:1}" = "{" ] && printf '%s\n' "$_out"
         exit 0 ;;
     notify)
