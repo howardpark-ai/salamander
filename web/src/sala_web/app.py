@@ -1955,6 +1955,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
     @contextlib.asynccontextmanager
     async def lifespan(app):
         await run_in_threadpool(prune_uploads)
+        await bring_up_shell(settings)
         yield
         shutting_down.set()
 
@@ -1970,6 +1971,22 @@ def create_app(settings: Settings | None = None) -> Starlette:
     app.state.foryou = foryou
     app.state.schedules = schedules
     return app
+
+
+SHELL_START_WAIT = 20   # seconds the start-up waits for tmux before it goes on without the Shell session
+
+
+async def bring_up_shell(settings: Settings) -> None:
+    """At start-up: make the Shell's tmux session (SALA_SHELL_SESSION) when a tmux server is already running, so a page that
+    attaches to it without the drawer (/terminal, a bookmark, a restored tab) finds it. Best effort: a failure is printed and
+    never stops the app. With no tmux server nothing is made (making the session would start a bare server ahead of sala's
+    own restore); the full-size page then asks for the session itself (terminal.js, POST api/shell/open)."""
+    try:
+        if not await asyncio.wait_for(T.server_running(settings), SHELL_START_WAIT):
+            return
+        await asyncio.wait_for(T.ensure_shell_session(settings), SHELL_START_WAIT)
+    except Exception as e:   # best effort by design: tmux missing, a refused command, a timeout
+        print(f"sala-web: could not bring up the Shell session at start: {type(e).__name__}: {e}", file=sys.stderr)
 
 
 def _socket_in_use(path: Path) -> bool:

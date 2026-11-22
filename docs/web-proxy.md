@@ -196,7 +196,7 @@ or path needs that variable set to match (`web/README.md`, *Settings*).
 
 ## Things to know
 
-- The Shell drawer is a plain login shell in its own tmux session, which the web UI creates when the drawer is first opened. Terminal tab
+- The Shell drawer is a plain login shell in its own tmux session, which the web UI creates when it starts (if a tmux server is already running), when the drawer is opened and when the full-size page opens it. Terminal tab
   and drawer attach to the tmux server of your user (the default one); a private tmux server named with `SALA_WEB_TMUX_SOCKET` is read by
   `sala-web-ttyd-attach` too, if the unit gets the same `Environment=` line.
 - ttyd serves one shell per open tab, as your user, with your whole home reachable. Treat the login as the key to the machine.
