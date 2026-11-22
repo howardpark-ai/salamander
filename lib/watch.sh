@@ -1927,7 +1927,7 @@ deferred_revive() {
 [ "$CHECK_ONLY" = 1 ] || wrapup_tick   # runs only when SALA_IDLE_WRAPUP=on (off by default): a background agent idle for SALA_IDLE_WRAPUP_MIN is asked to wrap up, then cleared (lib/wrapup.sh)
 [ "$CHECK_ONLY" = 1 ] || set_prune   # recycle sets: closed ones after 3 days, any after 9 (common.sh)
 [ "$CHECK_ONLY" = 1 ] || { waiting_prune; busy_prune; refusal_prune; }   # relaunch-waiting flags whose owner is gone; busy records of sessions long gone
-[ "$CHECK_ONLY" = 1 ] || inbox_release_stale   # a relaunch that died left its pane's inbox held: free it after 10 min
+[ "$CHECK_ONLY" = 1 ] || { inbox_release_stale; [ "${#INBOX_ORPHANS_FREED[@]}" -eq 0 ] || wlog "inbox: freed ${#INBOX_ORPHANS_FREED[@]} held key(s) that no hold-ledger row accounts for, seen $SALA_INBOX_ORPHAN_SECS s or more: ${INBOX_ORPHANS_FREED[*]}"; }   # a relaunch that died left its pane's inbox held: free it after 10 min; so is a held key no ledger row accounts for (inbox_release_orphans, common.sh)
 # UNMAPPED SESSIONS (the map is a ledger — common.sh): a live claude in a tmux session the pane map
 # does not know (started by hand, outside spawn, or a spawn whose row write failed) is reported once — a log line and one post per session — and never added from
 # here: `sala adopt NAME` is the honored path. A spawn still landing its row is not one (THE SPAWN WINDOW, rename.sh: the row is

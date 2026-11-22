@@ -125,6 +125,25 @@ out=$(SALA_BOOT_ID=boot-now SALA_REBOOT_BOOT_WAIT=-29 SALA_REBOOT_BOOT_GIVEUP=1 
 [ "$(_kv_first "$RS" step)" = boot-waiting ] && [ -z "$(_kv_first "$RS" booted_at)" ] && ok "state: step=boot-waiting, no booted_at" || bad "state after give-up: $(<"$RS")"
 sl=$(status_line "d=$HOME/hook-dead")
 [ "$sl" = "last run: --go · paused at 2026-01-02T03:04:05Z · step boot-waiting" ] && ok "status after the give-up: step boot-waiting" || bad "status after the give-up: $sl"
+# an in-progress step with no marker, last written before this boot, is a run that never finished: --status says so in words and leaves the file alone
+SAVED_RS=$(<"$RS"); SAVED_RM=$(<"$RM"); rm -f "$RM"
+OLDLINE="last run: --go · paused at 2026-01-02T03:04:05Z · step rebooting (an older run that did not finish; no reboot is waiting)"
+printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"; touch -d '2020-01-01 00:00:00 UTC' "$RS"; before=$(cksum < "$RS"); mt=$(stat -c %Y "$RS")
+[ "$(status_line)" = "$OLDLINE" ] && ok "step rebooting, no marker, state older than this boot: says it did not finish and no reboot is waiting" || bad "old rebooting state: $(status_line)"
+[ "$(cksum < "$RS")" = "$before" ] && [ "$(stat -c %Y "$RS")" = "$mt" ] && ok "--status left the state file as it was (content and time)" || bad "state file changed: $(<"$RS")"
+for st in pause drain flush dry-resume; do
+    printf 'mode=--dry-run\npaused_at=2026-01-02T03:04:05Z\nstep=%s\n' "$st" > "$RS"; touch -d '2020-01-01 00:00:00 UTC' "$RS"
+    [ "$(status_line)" = "last run: --dry-run · paused at 2026-01-02T03:04:05Z · step $st (an older run that did not finish; no reboot is waiting)" ] && ok "step $st, old, no marker: the same words" || bad "old $st state: $(status_line)"
+done
+printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"; touch -d '2020-01-01 00:00:00 UTC' "$RS"; printf '%s\n' "$SAVED_RM" > "$RM"
+[ "$(status_line)" = "last run: --go · paused at 2026-01-02T03:04:05Z · step rebooting" ] && ok "the marker present (a reboot is waiting for its boot half): the line as before" || bad "old state with a marker: $(status_line)"
+rm -f "$RM"; printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"
+[ "$(status_line)" = "last run: --go · paused at 2026-01-02T03:04:05Z · step rebooting" ] && ok "a state written after this boot (a run in progress now): the line as before" || bad "fresh rebooting state: $(status_line)"
+for st in booted boot-waiting halted done resumed; do
+    printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=%s\n' "$st" > "$RS"; touch -d '2020-01-01 00:00:00 UTC' "$RS"
+    [ "$(status_line)" = "last run: --go · paused at 2026-01-02T03:04:05Z · step $st" ] && ok "step $st, old, no marker: a finished record, the line as before" || bad "old $st state: $(status_line)"
+done
+printf '%s\n' "$SAVED_RS" > "$RS"; printf '%s\n' "$SAVED_RM" > "$RM"   # as the give-up left them, for what follows
 
 
 echo "== map gaps (2026-10-08): a rename of a session the map does not have is refused, up front"

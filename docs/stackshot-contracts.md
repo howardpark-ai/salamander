@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 49
+contract-version: 50
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -306,6 +306,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **47** — Fri Nov 20th 2026. Interfaces 19, 20 and 11 (the surface of a front agent): a front agent may answer the owner on Slack instead of in sala. In the project record (interface 20) an agent's entry may carry `"surface": "slack"`; absent means `sala`, the only other value, and anything else is refused by sala wherever it reads or writes one. `sala sessions tag --auto` copies it onto the session's registry row (and clears a stale `slack` from a row whose entry has none), and `sala spawn --surface slack` writes it at birth. The registry's session rows (interface 19, `session-registry.json`) carry `"surface": "slack"` only for a slack row, so every other row's shape is as before. In the roles file (interface 11) a session's entry may carry `"surface": "slack"` the same way (only when slack), which sala-web reads for its session list; without it the row's own surface is used. All additive and optional: a reader that ignores the key reads exactly as before.
 - **48** — Sun Nov 22nd 2026. New interface 34 (the spawn gate) and interfaces 21 and 25: every agent session sala creates is on stackshot's project record before its pane exists. `sala spawn` decides from the record first (listed: yes); a name not on it, spawned with `--role` and `--mandate`, is registered through `client.py post project-agent <project> <name> --role <word> --front|--back --mandate <line> --sender sala-spawn` and the pane starts only on the 200; any other answer (or stackshot unreachable) stops the spawn with stackshot's reason and no pane. `sala retire` asks `post project-agent-retire` (`sala-retire`) BEFORE it closes the pane of a session that is on the record: "not listed" goes on, any other refusal stops the retire and leaves the pane alone (it was asked after the fact before). A rename and a registration are read back from the record. `agent_name_check` wraps `GET /client/agent-name` (live since stackshot c554182a; any answer that is not its JSON falls back to sala's own suggestion). Stale wording corrected: stackshot writes the record directly and answers `page_owed: false`, and with `copy_project_lines=false` a retire writes no page block and no timeline line. Nothing stackshot reads or sends changed in shape.
 - **49** — Sun Nov 22nd 2026. Interfaces 7, 8, 20, 21, 25 and 34 (the spawn gate, second half): sala's checks read stackshot's project record alone and stop asking `pages.py`. Interface 7 (`pages.py resolve`, `agent-listed`) is retired: sala no longer runs it, so `SALA_AGENT_CHECK_SCRIPT`, the page-exists check and the `NO-PAGE: <key>` answer (exit 4) are gone, and the stackshot side owes nothing to sala's `pages.py` readers any more. Interface 8 (the spawn keeper ask, `client.py message`) is retired too: nobody is messaged when a spawn is refused, and `SALA_SPAWN_ASK_CMD` and `SALA_SPAWN_ASK_EVERY` are gone. A record that cannot answer (missing, stale, unreadable, another schema, no such project) now **refuses a spawn of a name the exceptions list does not cover** with exit 6 and no pane, where it used to fall back to `pages.py` (project spawn) or go on (plain spawn); a box with no stackshot at all (no record file, no client) is still not checked. A retire whose project cannot be found because the record cannot answer goes on and says so (a warning line and the retire log), and a retire's re-check after stackshot's answer also leaves the pane alone when another pane of the session now runs a claude or the registry row's conversation can no longer be read. Nothing stackshot reads or sends changed in shape; the exit codes of `sala spawn` change (4 is gone, 6 is new for this case).
+- **50** — Mon Nov 23rd 2026. Interface 3 (inbox hold files): `watch` now also frees a key that is in `held-msg.txt` or `held-hub.txt` and that no row of sala's ledger names (neither as uuid nor as session name), once sala has seen it unaccounted for 10 minutes (`SALA_INBOX_ORPHAN_SECS`); the held files carry no times, so sala keeps the first time it saw each such key in `~/.local/state/salamander/inbox-held-unaccounted.tsv` (sala's own file, stackshot never reads it). A key with a ledger row is freed as before, by its row, never by this path. The files are edited under the same lock as every other hold, through the same rewrite (`_hold_edit del`), and the line is logged in the watch log. Until now such a key (left by a host move, a restore from backup or a half-failed release) held its session's queue until someone edited the file. For stackshot nothing changes in shape: it sees a key leave the file, and its next poll delivers what it kept. The file split agreed with stackshot (live on its side): stackshot's reboot resume (`reboot-hooks/reboot-queue.py`) writes only `held-resume-msg.txt` and `held-resume-hub.txt` in the same folder, rewriting each whole (a held key of a retired session is dropped when it writes); sala keeps writing `held-msg.txt` and `held-hub.txt` and its ledger, and the reboot resume never touches them. `inbox.take`, `inbox.blocked` and `push.paused` read the union of the two files per source (`held-msg.txt` with `held-resume-msg.txt`, `held-hub.txt` with `held-resume-hub.txt`), a missing file counting as empty. sala never reads, writes or frees `held-resume-*`: a key the resume holds has no expiry on sala's side, and the 10-minute path above never sees it. Before this split the resume rewrote `held-msg.txt` and `held-hub.txt` themselves, and the keys it left for sessions that did not come back were freed after 10 minutes; they now stay held until stackshot's next resume writes the file.
 
 ## How each entry reads
 
@@ -327,7 +328,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 |---|---|---|---|---|
 | 1 | Heartbeat fleet store (`sessions.json`, `machine.json`) | sala → stackshot (+ a host config repo's link builder) | stable (the url + uuid key); machine.json unverified consumer | `tests/smoke.sh:69` |
 | 2 | Message marker `<!-- sala -->` | sala → stackshot | stable | `tests/mod.sh:162` |
-| 3 | Inbox hold files (`held-msg.txt`, `held-hub.txt`) | sala → stackshot | stable | `tests/phases.sh` |
+| 3 | Inbox hold files (`held-msg.txt`, `held-hub.txt`; stackshot's own `held-resume-msg.txt`, `held-resume-hub.txt`, which sala leaves alone) | sala → stackshot | stable | `tests/phases.sh`, `tests/inboxorphans.sh` |
 | 4 | Post-recycle hook (`client.py recycled`) | sala → stackshot | stable | `tests/autorecycle.sh`, `tests/phases.sh`, `tests/sets.sh`, `tests/flags.sh` |
 | 5 | Recycle-wanted (`client.py recycle-wanted`) | stackshot → sala (sala asks) | stable | `tests/autorecycle.sh` |
 | 6 | Puller-lag file and path unit | stackshot → sala; sala → provision | retired in version 11 | none (the checks went with it) |
@@ -411,7 +412,12 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Mechanism**: `SALA_INBOX_HOLD_DIR` (default a folder under stackshot's state directory, `lib/common.sh`). sala appends a
   pane's keys (its transcript uuid and its name, one per line) to `held-msg.txt` and `held-hub.txt` while it relaunches the
   pane, removes them after, and keeps its own ledger `salamander-inbox-holds.tsv` so `watch` drops a hold older than 10 min
-  that a dead relaunch left (`inbox_release_stale`).
+  that a dead relaunch left (`inbox_release_stale`). A key in those two files that no ledger row names (the ledger and the held
+  files live in different folders) is freed once sala has seen it unaccounted for 10 min (`inbox_release_orphans`, contract 50;
+  first-seen times in sala's `inbox-held-unaccounted.tsv`). Stackshot's reboot resume holds its keys in its own
+  `held-resume-msg.txt` and `held-resume-hub.txt` (rewritten whole, never touching sala's two files); stackshot reads the union of the
+  two files per source, a missing file counting as empty, and sala never reads, writes or frees `held-resume-*` (a resume hold
+  has no expiry on sala's side).
   **When** (contract 23): a sweep writes the keys of every pane it will close at the start of phase 2, before any pane is exited,
   then waits `SALA_HOLD_SETTLE` (3 s) so a line stackshot handed out just before the hold has reached the pane; each close then
   re-reads the pane (`is_idle_reason`: registry status `idle`, idle for `SALA_IDLE_SETTLE`, the Stop hook's busy record, no work
@@ -419,13 +425,13 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   deferred with its hold cleared. The `--self` worker does the same for the master's pane (hold, settle, wait for idle, one last
   look, then the retry worker if it is still busy; its waits stack, up to three times `SALA_SELF_WAIT`, 15 min by default). A pane skipped in phase 1 is
   never held. The hold is cleared for a pane that is skipped, deferred or fails to exit, and after a successful resume.
-- **Owners**: sala `lib/common.sh` `_hold_edit`, `inbox_hold`, `inbox_touch`, `inbox_release`, `inbox_release_stale`;
+- **Owners**: sala `lib/common.sh` `_hold_edit`, `inbox_hold`, `inbox_touch`, `inbox_release`, `inbox_release_stale`, `inbox_release_orphans`;
   callers `lib/revive.sh` (phase 2's hold loop and exit trap, `close_pane`'s re-check and releases, the `--self` worker). stackshot `inbox.py:30` `FLAGS`, its inbox state folder
   (`paused-<src>.json`, `held-<src>.txt`, `release-<src>.txt`), `:146` reads them; `inbox.take` skips held keys.
 - **Absent or changed**: "A missing stackshot is no error: nothing is held" (the comment above `inbox_hold` in `lib/common.sh`): the helpers return 0
   when the directory does not exist. A renamed file or a key format stackshot stops matching means a line delivered during
   a relaunch is dropped, as before the hold existed (the defect it fixes).
-- **Test**: `tests/phases.sh` (hold dir present, all holds written at least the settle before the first `/exit`, a pane that turns busy
+- **Test**: `tests/inboxorphans.sh` (the keys no row names), `tests/nomaster.sh` (the watch's log line); `tests/phases.sh` (hold dir present, all holds written at least the settle before the first `/exit`, a pane that turns busy
   after its hold is deferred and queued for retry, a skipped pane's hold cleared, holds released after the sweep and after a TERM in
   the settle); `tests/sets-master.sh` (the `--self` worker: busy after the hold hands off to the retry worker, an abort releases
   the hold, both with an empty registry name).

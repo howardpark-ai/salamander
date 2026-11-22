@@ -121,7 +121,17 @@ case "$MODE" in
     if [ -s "$RSTATE" ]; then
         # a finished boot half records step booted and its time; a state an older version wrote has no booted_at: the old line
         st=$(st_val step); ba=$(st_val booted_at)
-        echo "last run: $(st_val mode) · paused at $(st_val paused_at) · step $st$([ "$st" = booted ] && [ -n "$ba" ] && echo " (finished $ba)")"
+        # a run still going has a step of its shutdown half (or rebooting, until the boot half ends it) and, once it is past the pause, the
+        # marker; a record of such a step that nothing finished (no marker) and that was last written before this boot reads as
+        # unfinished and over, not as a reboot still in progress. The state file itself is left as it is.
+        stale=""
+        case "$st" in pause|drain|flush|dry-resume|rebooting)
+            if [ ! -e "$RMARK" ]; then
+                sm=$(stat -c %Y "$RSTATE" 2>/dev/null || stat -f %m "$RSTATE" 2>/dev/null); be=$(boot_epoch)
+                [[ $sm =~ ^[0-9]+$ && $be =~ ^[0-9]+$ ]] && [ "$sm" -lt "$be" ] && stale=" (an older run that did not finish; no reboot is waiting)"
+            fi ;;
+        esac
+        echo "last run: $(st_val mode) · paused at $(st_val paused_at) · step $st$([ "$st" = booted ] && [ -n "$ba" ] && echo " (finished $ba)")$stale"
     fi
     notes_line; exit 0 ;;
 --resume)

@@ -31,6 +31,13 @@ in your own log. A verb must finish within its time budget; sala kills it after 
 
 Services with nothing to pause (a plain data store) implement `pause` and `resume` as no-ops that exit 0 with a one-line summary.
 
+**Inbox hold files and `resume`.** stackshot's `resume` holds back the sessions it did not verify in two files of its own in
+the inbox hold folder, `held-resume-msg.txt` and `held-resume-hub.txt`, rewritten whole at each resume (a held key of a retired
+session is dropped when it writes). It never touches `held-msg.txt` and `held-hub.txt`, which are sala's hold files for a pane
+that is relaunching (`docs/stackshot-contracts.md`, interface 3); stackshot reads the union of the two files per source, a missing
+file counting as empty. sala never reads, writes or frees `held-resume-*`: a key held there has no expiry on sala's side and
+leaves only when stackshot's next resume writes the file.
+
 ## What sala does with them
 
 `sala reboot --dry-run` (the acceptance test) and `sala reboot --go` (the real one, only on the owner's word), from the
@@ -62,7 +69,12 @@ So a hook's `status` should exit 3 only when the service is really stopped, not 
 `rebooting` (`--resume` writes `resumed`); the boot half ends it. A finished boot half (the marker retired) records
 `booted` with its finish time, shown as `step booted (finished <ISO>)`; a boot half that gave up on a hook (the marker
 kept) records `boot-waiting`, so the run reads as unfinished for a real reason and not as a stale `rebooting`. A state
-written before the boot half recorded `booted_at` prints the plain line, with no finish time.
+written before the boot half recorded `booted_at` prints the plain line, with no finish time. A state whose step is one of
+`pause`, `drain`, `flush`, `dry-resume` or `rebooting`, with **no marker** and a state file last written before this boot, is a
+run that nothing finished (a boot half that never ran, a state file carried over from another host), so the
+line ends ` (an older run that did not finish; no reboot is waiting)`. A marker present (the boot half still to come), a state
+written since this boot (a run going now) and the finished steps (`booted`, `boot-waiting`, `halted`, `done`, `resumed`) print
+as before. The state file is only read: `--status` never rewrites or removes it.
 
 ## The pane map during a reboot
 
