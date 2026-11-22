@@ -69,18 +69,18 @@
 #                                             takes. Checked here before anything is written: the name (sala's rule: lowercase,
 #                                             digits, dashes, ≤48), the page key's shape, the role, the surface (slack only with the front role: an agent
 #                                             that answers the owner's Slack app messages, started in the directory SALA_SLACK_CWD names), a mandate for a back agent, the
-#                                             lane; the plan is `spawn … --dry-run`, which asks stackshot's pages.py whether the
-#                                             page exists and lists the name — a name not on the page refuses the operation with
-#                                             exit 3 and the `REGISTER:` line with stackshot's register command printed unindented after the refusal (exit 4 and
-#                                             `NO-PAGE:` for a page that does not exist), so the web layer can show the command.
+#                                             lane; the plan is `spawn … --dry-run`, which reads stackshot's project record
+#                                             for the name — a name not on the record (and given no --role and --mandate to register it with) refuses the operation with
+#                                             exit 3 and the `REGISTER:` line with stackshot's register command printed unindented after the refusal (exit 6 when the
+#                                             record cannot answer: missing, stale or unreadable), so the web layer can show the command.
 #                                             THE MANDATE'S TRANSPORT: a TEXT mandate (--mandate or --prompt) is written at queue
 #                                             time to $SALA_STATE_DIR/mandates/<id>-<name>.md and the marker carries that path as
 #                                             the argument (an arg= line holds one line; a mandate's newlines, quotes, non-ASCII text
 #                                             and a leading dash all survive as bytes in the file); a readable FILE given is
 #                                             passed as it is. The file is never moved with the marker: the session reads it at
 #                                             its first prompt, after the operation has ended. A refused or cancelled operation's
-#                                             file is removed. At run time a spawn that exits 3, 4 or 6 (stackshot would not register it) is stuck with no claude -p
-#                                             (only the page's keeper can register the agent).
+#                                             file is removed. At run time a spawn that exits 3 or 6 (the name is not registered with stackshot, stackshot would not register it, or its project
+#                                             record could not answer) is stuck with no claude -p (only stackshot can register the agent, or the record has to be fresh).
 #   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
 #                                             a side conversation (lib/spawn.sh A SIDE SESSION, docs/side-sessions.md): a
 #                                             short-lived session on no page's agents map, a fork of a running agent's conversation
@@ -117,8 +117,8 @@
 # role, side, master, self and agents-map refusals all still apply to a tagged row. A row WITHOUT the tag (made before it) keeps the earlier rules
 # above, spawner / master / any session with no live spawner and a throwaway's name, so nothing live loses the path it has. The agents-map check
 # FAILS CLOSED for the tag, master and any-session doors: the project record (stackshot's projects.json, fresh within SALA_PROJECT_RECORD_MAX_AGE) must say NAME is on no project's
-# agents map, else pages.py agent-listed is asked, and when neither can answer the retire is refused (only the spawner door goes on without an answer:
-# its row is the proof). NO bypass flag (--busy, --skip-writeup, --self, --leave-items, the old --force), NO --keep-web and NO --id with no words (they are retire's bypasses, and a bypass takes the owner's words): refused at queue time and again by the
+# agents map, and when it cannot answer (missing, stale, unreadable) the retire is refused (only the spawner door goes on without an answer:
+# its row is the proof); no page is asked instead. NO bypass flag (--busy, --skip-writeup, --self, --leave-items, the old --force), NO --keep-web and NO --id with no words (they are retire's bypasses, and a bypass takes the owner's words): refused at queue time and again by the
 # runner. The CALLER is placed by process ancestry, not by TMUX_PANE or --from, which a caller can set to anything: the tmux session whose
 # pane holds this call, with a Claude Code process on the way up (comm claude AND an exe under the account's Claude install folder, never the
 # name alone), must be YOU, and a call with no such pane (a plain shell, a detached or orphaned job, a symlink to bash named claude) is refused,
@@ -344,7 +344,7 @@ op_own_retire_ok() {  # <name> <from> → 0 when <from> may queue `retire <name>
     # WITHOUT the tag (made before it), the earlier rules: its spawner (the row's spawned_by); the master session (SALA_MASTER) when the name is a throwaway's (op_throwaway_name)
     # or the master is the spawner; any live Claude session when the row has no spawner, or its spawner is no longer a live tmux session (a renamed
     # spawner is not live), AND the name is a throwaway's. The master and any-session doors FAIL CLOSED on the agents-map check (op_own_confirm_unlisted:
-    # the project record, else pages.py agent-listed, else a refusal), and a retire with no words never carries a bypass flag, --keep-web or --id. A session never retires
+    # the project record alone, else a refusal), and a retire with no words never carries a bypass flag, --keep-web or --id. A session never retires
     # itself. <from> is only a claim, and TMUX_PANE is an environment variable any caller can set, so the caller is placed by PROCESS ANCESTRY
     # (common.sh ancestry_session: this shell's parents up /proc until one is a pane's process in tmux list-panes -a, a Claude Code process on the
     # way: comm claude and an exe under the account's install folder, not the name alone): that session must be <from>. No pane found (a plain
@@ -385,20 +385,9 @@ op_own_list_record() {  # <name> → OP_OWN_LIST (listed · unlisted · unknown)
         *) OP_OWN_LIST=unknown; OP_OWN_LISTWHY=$(_lastline "$rec") ;;   # missing, unreadable, another schema, older than SALA_PROJECT_RECORD_MAX_AGE
     esac
 }
-op_own_list_pages() {  # <name> → when the record could not answer: OP_OWN_LIST from pages.py agent-listed, the path agent_unlisted takes (but SALA_AGENT_CHECK=off and the sala-test-*/*-side-* skips of agent_unlisted do not apply: a gate that cannot answer refuses)
-    local py out rc last; py=$(agent_check_script) || { OP_OWN_LISTWHY="${OP_OWN_LISTWHY:+$OP_OWN_LISTWHY; }no pages.py on this box to ask instead"; return 0; }
-    out=$(timeout 15 python3 "$py" agent-listed "$1" 2>&1); rc=$?; last=$(_lastline "$out")
-    case "$rc" in
-        3) OP_OWN_LIST=unlisted ;;   # an agent-shaped name its project page does not list
-        0) if [ "$last" = "no project page for this name: nothing to check" ]; then OP_OWN_LIST=unlisted   # no project of that prefix: not an agent's name
-           else OP_OWN_LIST=listed; OP_OWN_LISTWHY=$last; fi ;;   # "listed on <page>: …", or the name of a project itself
-        *) OP_OWN_LISTWHY="${OP_OWN_LISTWHY:+$OP_OWN_LISTWHY; }pages.py agent-listed exited $rc: $last" ;;
-    esac
-}
-op_own_confirm_unlisted() {  # <name> → 0 when a FRESH answer (the record, else pages.py) says <name> is on no project's agents map; else 1, the reason in OP_OWN_WHY. FAIL CLOSED: no answer is a refusal.
+op_own_confirm_unlisted() {  # <name> → 0 when a FRESH answer (the project record alone) says <name> is on no project's agents map; else 1, the reason in OP_OWN_WHY. FAIL CLOSED: no answer is a refusal.
     local n=$1
     [ -n "${OP_OWN_LIST:-}" ] || op_own_list_record "$n"
-    [ "$OP_OWN_LIST" != unknown ] || [ -n "${OP_OWN_TRIED:-}" ] || { OP_OWN_TRIED=1; op_own_list_pages "$n"; }   # pages.py once per check
     case "$OP_OWN_LIST" in
         unlisted) return 0 ;;
         listed) OP_OWN_WHY="'$n' is on a project's agents map (${OP_OWN_LISTWHY:-listed}), not a throwaway" ;;
@@ -426,8 +415,8 @@ print("\t".join(str(r.get(k) or "-").replace("\t", " ") for k in ("name", "spawn
     # A name on a project's agents map is an agent whatever its row says (stackshot's project record, a file read: common.sh project_record_agent).
     # Asked here for every rule; a listing refuses. What the record cannot say (missing, stale, unreadable) is left "unknown" for now: the spawner
     # rule goes on as before (its row is the proof), while the master and any-session rules, and a pane with no row id (below), FAIL CLOSED:
-    # they ask pages.py agent-listed and refuse when that cannot confirm the name is unlisted either (op_own_confirm_unlisted).
-    OP_OWN_LIST=""; OP_OWN_LISTWHY=""; OP_OWN_TRIED=""
+    # they refuse when the record cannot confirm the name is unlisted (op_own_confirm_unlisted).
+    OP_OWN_LIST=""; OP_OWN_LISTWHY=""
     op_own_list_record "$n"
     if [ "$OP_OWN_LIST" = listed ]; then OP_OWN_WHY="'$n' is on a project's agents map ($OP_OWN_LISTWHY), not a throwaway"; return 1; fi
     # WHO: the spawner; any session when the row carries the throwaway tag; on an UNTAGGED row (made before the tag), the master (a throwaway's
@@ -655,7 +644,7 @@ op_shapes() {
                                             `sala spawn` writes it): then any session may end it, between turns (a pane mid-turn is refused: retire's own idle check, never --busy).
                                             A row without the tag (made before it) keeps the older rule: YOU is NAME's spawner, or the master (NAME a throwaway's name:
                                             scratch-*, *-check-*, *-test-*, *-probe-*), or any session when NAME has no live spawner and a throwaway's name;
-                                            never with a bypass flag, --keep-web or --id (add --words for those); for every door but the spawner's the project record (else pages.py agent-listed)
+                                            never with a bypass flag, --keep-web or --id (add --words for those); for every door but the spawner's the project record
                                             must confirm NAME is on no agents map, and with no answer the retire is refused;
                                             YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name), and every process in NAME's panes carries the row's id (or none does, one is Claude Code, NAME is a throwaway's name and a fresh answer says it is unlisted); the runner checks it again before it ends anything
   close-shell NAME [--busy]                 ends a tmux session whose panes run no Claude (exact name; refused for the master's own run outside the queue, the RC session and the caller's own session; --busy for a shell still running something). Needs the owner's words
@@ -911,7 +900,7 @@ op_shape() {
         if [ -n "$side" ]; then
             OP_PLAN_NOTE="a side conversation, on no agents map ($([ -n "$forkof" ] && echo "a fork of $forkof's live conversation" || echo "a fresh session about $item of $project")): the dry run finds the agent to fork or the project's page, and checks the name is not live and the lane can launch; the session is made at run time and retires only on ${SALA_OWNER_NAME}'s word, once it ran \`sala side done\`"
         else
-        OP_PLAN_NOTE="a new $role${surface:+ ($surface surface)} agent of $project: the dry run checks that the page exists and lists the name (a name not on the page refuses the operation: exit 3 and the REGISTER: line with stackshot's register command), that the name is not live and that the lane can launch; the session is made at run time"
+        OP_PLAN_NOTE="a new $role${surface:+ ($surface surface)} agent of $project: the dry run reads stackshot's project record for the name (a name not on it refuses the operation: exit 3 and the REGISTER: line with stackshot's register command; a record that cannot answer: exit 6), that the name is not live and that the lane can launch; the session is made at run time"
         fi ;;
     reboot)
         [ $# -eq 0 ] || { op_bad "reboot takes no argument (it is reboot --go, the clean reboot protocol)"; return 1; }
@@ -1105,8 +1094,8 @@ op_main() {
         if [ "$rc" != 0 ]; then
             [ -n "$OP_MANDATE_FILE" ] && rm -f "$OP_MANDATE_FILE"
             echo "✗ refused: the plan (salamander ${OP_PLAN[*]}) did not pass (exit $rc) — nothing queued" >&2
-            case "$verb:$rc" in spawn:3|spawn:4)   # the web layer reads the marker and the command (lib/spawn.sh): once more, unindented, and the verb's own exit code
-                printf '%s\n' "$out" | sed -n '/^\(REGISTER\|NO-PAGE\): /,$p'; return "$rc" ;; esac
+            case "$verb:$rc" in spawn:3)   # the web layer reads the marker and the command (lib/spawn.sh): once more, unindented, and the verb's own exit code
+                printf '%s\n' "$out" | sed -n '/^REGISTER: /,$p'; return "$rc" ;; esac
             return 1
         fi
     fi
@@ -1372,9 +1361,9 @@ op_run() {  # <id> — the unit's main process
             op_finish "$id" stuck "$(op_out_tail "$id" 1)"; return 0
         fi
     fi
-    if [ "$verb" = spawn ] && { [ "$rc" = 3 ] || [ "$rc" = 4 ] || [ "$rc" = 6 ]; }; then   # not on the page (3), no page (4), or stackshot refused or could not be asked to register it (6; no pane was made): only the page's keeper or stackshot can change that, no claude -p
-        if [ "$rc" = 6 ]; then op_finish "$id" stuck "salamander ${OP_RUN[*]} exited 6: $(op_out_tail "$id" 4) (no claude -p: stackshot would not register the agent, so no pane was made; once it is registered, say the words again)"; return 0; fi
-        op_finish "$id" stuck "salamander ${OP_RUN[*]} exited $rc: $(op_out_tail "$id" 4) (no claude -p: only the page's keeper can register the agent; once it is registered, say the words again)"; return 0
+    if [ "$verb" = spawn ] && { [ "$rc" = 3 ] || [ "$rc" = 6 ]; }; then   # not on the record (3), or stackshot refused, could not be asked to register it, or its project record could not answer (6; no pane was made): only stackshot can change that, no claude -p
+        if [ "$rc" = 6 ]; then op_finish "$id" stuck "salamander ${OP_RUN[*]} exited 6: $(op_out_tail "$id" 4) (no claude -p: stackshot would not register the agent or its project record could not answer, so no pane was made; once it is registered or the record is fresh, say the words again)"; return 0; fi
+        op_finish "$id" stuck "salamander ${OP_RUN[*]} exited $rc: $(op_out_tail "$id" 4) (no claude -p: only stackshot can register the agent; once it is registered, say the words again)"; return 0
     fi
     [ "$rc" = 0 ] || { op_stuck "$id" "$(op_run_words) exited $rc: $(op_out_tail "$id" 3)"; return 0; }
     if [ "$OP_LOCK" = own ]; then

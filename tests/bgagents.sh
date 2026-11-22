@@ -46,7 +46,7 @@ MAND='Handles outside events (mail, Slack, GitHub) for this project and builds w
 
 # -- the fakes --------------------------------------------------------------------------------------------------------------------------------
 # list: prints $T/list.txt, exit $T/list.rc. post: logs its arguments; $T/post.mode = ok | same | 409 | 403 | slow. spawn: logs its arguments; $T/spawn.mode =
-# ok | dead (exit 0, never live) | fail (exit 1) | norecord (exit 3). alive: live when the name is a line of $T/alive.txt.
+# ok | dead (exit 0, never live) | fail (exit 1) | norecord (exit 3) | blind (exit 6: stackshot's project record cannot answer, no pane). alive: live when the name is a line of $T/alive.txt.
 cat > "$T/bin/list" <<'EOF'
 #!/usr/bin/env bash
 echo x >> "$T/list.calls"
@@ -71,6 +71,7 @@ case "$(cat "$T/spawn.mode" 2>/dev/null || echo ok)" in
     dead) exit 0 ;;
     fail) echo "claude did not start in $1:0 within 45s" >&2; exit 1 ;;
     norecord) echo "not on the agents map" >&2; exit 3 ;;
+    blind) echo "spawn refused: stackshot's project record cannot answer (it is 3600 s old): retry when it is fresh, or SALA_AGENT_CHECK=off to start it unchecked" >&2; exit 6 ;;
 esac
 EOF
 # a real start puts the new session in its project three ways: stackshot's record lists it (a back agent, front false), roles.json has a live entry for it, and its registry row (the alive stub with --json) carries the project and the role.
@@ -862,6 +863,14 @@ NOW=$((N0+300)) run
 [ "$(led $KEY started_at)" = $((N0+300)) ] && [ "$(led $KEY attempts)" = 1 ] && [ "$(calls "$T/post.log")" = 1 ] && [ "$(calls "$T/spawn.log")" = 2 ] && ok "the start is finished from the ledger although the project is off the list (attempts stay 1, no second listing)" || bad "finish: $(cat "$L") post=$(calls "$T/post.log")"
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo norecord > "$T/spawn.mode"; run; : > "$T/list.txt"
 NOW=$((N0+1000)) run; [ "$RC" = 1 ] && [ "$(led $KEY failures)" = 1 ] && [[ $OUT == *"retire needed"* ]] && ok "the record never caught up (past the grace): a failure and the marked retire" || bad "grace over: rc=$RC [$OUT]"
+
+# -- the record cannot answer (THE SPAWN GATE: sala reads the project record alone and fails closed) -----------------------------------------------
+# A spawn that exits 6 because stackshot's record is stale or missing made no pane: it is a failed start (never "waiting for the record", which is exit 3 within the grace), the reason is on the ledger
+# and in the output, and the job asks no page reader (there is none): the start is counted as NOT placed and says why.
+reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo blind > "$T/spawn.mode"
+run; [ "$RC" = 1 ] && [ "$(led $KEY failures)" = 1 ] && [ "$(led $KEY awaiting_record)" = False ] && [ -z "$(led $KEY started_at)" -o "$(led $KEY started_at)" = 0 ] && [[ $OUT == *"exit 6"* && $OUT == *"project record cannot answer"* ]] \
+    && ok "spawn exit 6 (the record cannot answer): a failed start with the record's reason, never waited out as a lag, no started time" || bad "blind spawn: rc=$RC [$OUT] $(cat "$L")"
+echo ok > "$T/spawn.mode"
 
 # -- placed: a live session is a start only when its project holds it three ways -----------------------------------------------------------------
 # The links: (1) stackshot's project record lists the name on the project as a back agent, (2) roles.json has a live entry for it on the project, (3) sala's registry row (the alive stub's --json answer) carries the project and the role back.

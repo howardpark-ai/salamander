@@ -41,6 +41,7 @@ Exit codes: 0 = the run finished (a skip or a failed project too), 1 = a retire 
 7. **The start.** `sala spawn NAME --project KEY --role back --mandate "<line>"`, then a bounded wait for the session to be live (`SALA_BGAGENTS_ALIVE_WAIT`). A start that exits 3 right after the
    listing means sala's copy of the project record lags (it is refreshed about every five minutes): that is waited out for `SALA_BGAGENTS_RECORD_GRACE` (900 s) without a failure, and finished from
    the ledger at a later run even when stackshot's list has already dropped the project (its agent is on the map now). It becomes a failure after the grace.
+   A start that exits 6 (stackshot's project record cannot answer, or stackshot would not register the name; no pane was made) is a failed start at once, with the record's reason in the log, the Slack post and the board item; it is not waited out as a lag. The job reads "is this name on the project" from the record alone, and a record that cannot answer counts the agent as NOT placed and says why.
    **A live session is not yet a start.** The job counts a start only when the session is also placed in its project, read three ways (`read_back` in `lib/bgagents.py`, one function with a plain
    interface: the session name, the project key and the role, `back` here; it answers 0 when all three agree, else 1 with a reason naming each link that does not):
    1. stackshot's project record (`SALA_PROJECT_RECORD`) lists the name on the project's agents map as a back agent (`front` false);

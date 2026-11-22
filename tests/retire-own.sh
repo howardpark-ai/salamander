@@ -13,7 +13,7 @@
 #     not an empty quote;
 #   - (a review finding; the bypass flags are --busy, --skip-writeup, --self and --leave-items since Sun Nov 1st 2026, with --id and the old --force refused too) the bypass flags and --keep-web are never taken with no words (queue time, flag before or after the name, and the runner on
 #     a marker edited by hand); the agents-map check FAILS CLOSED for the master and any-session doors: a stale, missing or unreadable project
-#     record falls back to pages.py agent-listed (a stub here), and with no answer from either the retire is refused, while the spawner door still
+#     record is a refusal (no page reader is asked: a pages.py stub here is a tripwire that must never run), while the spawner door still
 #     queues; the master needs a throwaway's name unless it started the row; a pane with no row id anywhere passes only under a throwaway's name
 #     with a fresh "unlisted" answer, whichever door let the caller in (a victim with no id renamed onto a dead row's name is refused);
 #   - every other case keeps the refusal, and the refusal says when no words are allowed and why this one is not: a throwaway whose spawner is
@@ -104,8 +104,8 @@ PY
         ;;
     esac
 }
-stub_pages() {  # <name> <exit code> <line> → a stand-in for stackshot's pages.py (SALA_AGENT_CHECK_SCRIPT): `agent-listed NAME` prints the line and exits with the code
-    printf 'import sys\nprint(%s)\nsys.exit(%s)\n' "'$3'" "$2" > "$HOME/pages-$1.py"; echo "$HOME/pages-$1.py"
+stub_pages() {  # <name> <exit code> <line> → a stand-in for stackshot's pages.py (SALA_AGENT_CHECK_SCRIPT), a TRIPWIRE: nothing asks it any more, so a run leaves $HOME/pages-ran
+    printf 'import sys\nopen(%s, "a").write("ran\\n")\nprint(%s)\nsys.exit(%s)\n' "'$HOME/pages-ran'" "'$3'" "$2" > "$HOME/pages-$1.py"; echo "$HOME/pages-$1.py"
 }
 record_set fresh   # the default for the suite: a fresh record that lists no throwaway
 tmux new-session -d -s keep-alive; tmux set-environment -g FAKE_LOG "$FAKE_LOG"
@@ -477,23 +477,16 @@ for st in stale missing garbage; do
     dropall
 done
 record_set stale
+echo "== no page reader is the second opinion any more: with the record stale, a pages.py that says the name is unlisted (or on no page) changes nothing, and it is never run"
 PG_UNL=$(stub_pages unl 3 "not on the agents map of projects/x")
 PG_NOP=$(stub_pages nop 0 "no project page for this name: nothing to check")
-PG_LST=$(stub_pages lst 0 "listed on projects/x: a builder")
-PG_CNT=$(stub_pages cnt 2 "cannot tell: no brain mirror")
-SALA_AGENT_CHECK_SCRIPT=$PG_UNL enq_as "$PO" retire sala-test-nospawn --from sala-test-owner
-[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NW_ANY" ] && ok "stale record, pages.py says the name is not on its page's agents map (exit 3): queued (SALA_AGENT_CHECK=off does not switch this check off)" || bad "pages.py unlisted: rc=$RC — $OUT"
-dropall
-SALA_AGENT_CHECK_SCRIPT=$PG_NOP enq_as "$PO" retire sala-test-nospawn --from sala-test-owner
-[ "$RC" = 0 ] && [ -n "$ID" ] && ok "stale record, pages.py says there is no project page for the name: queued" || bad "pages.py no page: rc=$RC — $OUT"
-dropall
-SALA_AGENT_CHECK_SCRIPT=$PG_UNL SALA_MASTER=sala-test-other enq_as "$PX" retire sala-test-own2 --from sala-test-other
-[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NW_MASTER" ] && ok "stale record, the master's door with pages.py's unlisted answer: queued" || bad "pages.py unlisted, master: rc=$RC — $OUT"
-dropall
-SALA_AGENT_CHECK_SCRIPT=$PG_LST refuse "stale record, pages.py lists the name on a page" "is on a project's agents map" "$PO" retire sala-test-nospawn --from sala-test-owner
-SALA_AGENT_CHECK_SCRIPT=$PG_CNT refuse "stale record, pages.py cannot tell (exit 2)" "pages.py agent-listed exited 2: cannot tell: no brain mirror" "$PO" retire sala-test-nospawn --from sala-test-owner
+rm -f "$HOME/pages-ran"
+SALA_AGENT_CHECK_SCRIPT=$PG_UNL refuse "stale record, a pages.py that answers 'unlisted' (exit 3)" "could not confirm that 'sala-test-nospawn' is unlisted" "$PO" retire sala-test-nospawn --from sala-test-owner
+SALA_AGENT_CHECK_SCRIPT=$PG_NOP refuse "stale record, a pages.py that answers 'no project page'" "could not confirm that 'sala-test-nospawn' is unlisted" "$PO" retire sala-test-nospawn --from sala-test-owner
+SALA_AGENT_CHECK_SCRIPT=$PG_UNL SALA_MASTER=sala-test-other refuse "stale record, the master's door and a pages.py that answers 'unlisted'" "could not confirm that 'sala-test-own2' is unlisted" "$PX" retire sala-test-own2 --from sala-test-other
 record_set fresh
-SALA_AGENT_CHECK_SCRIPT=$PG_UNL refuse "a fresh record that lists the name wins over pages.py's unlisted" "is on a project's agents map" "$PO" retire sala-test-mapped --from sala-test-owner
+SALA_AGENT_CHECK_SCRIPT=$PG_UNL refuse "a fresh record that lists the name refuses whatever a pages.py would say" "is on a project's agents map" "$PO" retire sala-test-mapped --from sala-test-owner
+[ ! -e "$HOME/pages-ran" ] && ok "the pages.py stub was never run (the record is read alone)" || bad "pages.py ran $(wc -l < "$HOME/pages-ran") time(s)"
 
 echo "== the master ends a throwaway's name, or a row it started; not any row (a review finding)"
 out=$(spawn sala-plain-own "$(uuid 121)" "$PO"); out2=$(spawn sala-plain-mastown "$(uuid 122)" "$PX")
@@ -614,7 +607,7 @@ refuse_tag "a tagged row that has a project and a role (the tag does not count)"
 refuse_tag "a tagged row that is a side session" "is a side session" "$PX" retire sala-test-sidey --from sala-test-other
 refuse_tag "a tagged row on a project's agents map (the record lists it)" "is on a project's agents map" "$PX" retire sala-test-mapped --from sala-test-other
 record_set stale
-refuse_tag "a tagged row when the project record is stale and pages.py is not there to ask (fails closed)" "could not confirm that 'sala-plain-tag2' is unlisted" "$PO" retire sala-plain-tag2 --from sala-test-owner
+refuse_tag "a tagged row when the project record is stale (fails closed: no other source is asked)" "could not confirm that 'sala-plain-tag2' is unlisted" "$PO" retire sala-plain-tag2 --from sala-test-owner
 record_set fresh
 enq_as "$PO" retire sala-plain-tag2 --from sala-test-owner --busy
 [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "takes no bypass flag and no --id" && ok "a tagged row still takes no bypass flag and no --keep-web with no words" || { bad "tagged --busy: rc=$RC — $OUT"; dropall; }

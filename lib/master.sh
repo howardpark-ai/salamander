@@ -19,7 +19,7 @@
 
 mode="${1:-}"
 case "$mode" in ''|--name|--json|--set|--unset) ;; *) die "usage: salamander master [--name|--json|--set NAME|--unset]" ;; esac
-HOWTO="designate one:  salamander master --set <existing tmux session>     or spawn one:  salamander spawn <name> --master"
+HOWTO="designate one:  salamander master --set <existing tmux session>     or spawn one under a name stackshot has registered:  salamander spawn <registered name> --master   (a name stackshot does not list is refused: exit 3, or add --project <page key> --role front|back --mandate <one line> to register it first)"
 QUEUE="fleet operations go through the queue: sala op <verb> … --from <you> --words \"<${SALA_OWNER_NAME}'s words>\" (sala op --help lists the verbs)"
 st="$SALA_LOG_DIR/salamander-watch.state"
 st_drop() {  # <key>… — those lines out of the watch state (the master's records), the file rewritten once
@@ -31,7 +31,7 @@ if [ "$mode" = --set ]; then
     # designate an existing session as the master: write SALA_MASTER into the config (the owner's user config —
     # this is the one line sala writes there), then point at the watchdog timer if it is not running yet
     new="${2:-}"; [ -n "$new" ] || die "usage: salamander master --set <tmux session>   ($HOWTO)"
-    tmux has-session -t "=$new" 2>/dev/null || die "no tmux session '$new' — spawn it first: salamander spawn $new --master"
+    tmux has-session -t "=$new" 2>/dev/null || die "no tmux session '$new' — spawn it first under a name stackshot has registered: salamander spawn $new --master (an unlisted name is refused until it is registered: see salamander spawn --help)"
     claude_pid_under "$(tmux display -p -t "$(tmux list-panes -t "$(tmux_win_t "$new")" -F '#{pane_id}' | head -1)" '#{pane_pid}')" >/dev/null 2>&1 || echo "⚠ '$new' has no claude process right now — the watchdog will revive it from the sidecar, or resume one there yourself"
     mkdir -p "$(dirname "$SALA_CONFIG")"
     [ -e "$SALA_CONFIG" ] || { cp "$SALA_ROOT/config.example" "$SALA_CONFIG" 2>/dev/null || >> "$SALA_CONFIG"; }

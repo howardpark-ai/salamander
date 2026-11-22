@@ -8,8 +8,8 @@
 #                                      (--fork UUID is a resume: like a recycle or revive it passes the user settings' permissions.defaultMode as --permission-mode)
 #   salamander spawn  NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
 #                                      a project agent's session (lib/spawn.sh): the name must be registered with stackshot (on the project's agents map) first —
-#                                      not there: exit 3 and `REGISTER: <key>` + stackshot's `post project-agent` command to run (the keeper asked once); no such page: exit 4
-#                                      and `NO-PAGE: <key>`; a back agent needs a mandate and starts on it unasked, in the directory SALA_BACK_CWD names (refused when this machine lacks it), else in $HOME when it is unset (--cwd wins);
+#                                      not there: exit 3 and `REGISTER: <key>` + stackshot's `post project-agent` command to run (with --role and --mandate the spawn registers it itself); stackshot's
+#                                      project record not fresh enough to answer: exit 6 and no pane (retry when it is fresh, or SALA_AGENT_CHECK=off); a back agent needs a mandate and starts on it unasked, in the directory SALA_BACK_CWD names (refused when this machine lacks it), else in $HOME when it is unset (--cwd wins);
 #                                      --surface slack (front only) is a front agent that answers the owner's Slack app messages: it starts in the directory SALA_SLACK_CWD names (refused when that key is unset or the directory is missing; --cwd wins) and its row carries surface: slack; SALA_SPAWN_REGISTER runs after
 #   salamander spawn  --suggest-name --project <page key> --role front|back [--prefix P] [--new]   a free name, never a taken one: <prefix>-main only for a
 #                                      front agent of a project with no agent yet (the record says so, or --new: no page yet), else <prefix>-<random word>;

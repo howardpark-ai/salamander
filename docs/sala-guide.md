@@ -374,7 +374,8 @@ Type the commands in the last column in the web UI's Shell (without the web UI, 
 | Filing a question fails and names `SALA_DEFAULT_SCOPE` | No scope is set | Set `SALA_SCOPES` or `SALA_DEFAULT_SCOPE` (step 4) |
 | The board refuses a question's subject | The scope is not one of the board's subject prefixes | Make the two lists match (step 4) |
 | Filing a question fails with `lists no front agent` | The project page has no `agents:` entry, or the board's registry has not refreshed yet | Add a front agent to the page's `agents:`, then wait up to 10 minutes or refresh the registry at once (step 9) |
-| `spawn --project` says `cannot tell` or exits with `NO-PAGE:` | There is no board, or no such page | Install the board (step 9), or create the page, or set `SALA_AGENT_CHECK=off` |
+| `spawn` exits 6 with `stackshot's project record cannot answer` | Stackshot's project record (`~/.local/state/stackshot/projects.json`) is missing, older than 10 minutes, unreadable, or has no such project | Wait for stackshot to rewrite it (every few minutes) and run the same spawn again, or set `SALA_AGENT_CHECK=off` to start it unchecked. A box with no board at all is not checked |
+| `spawn` exits 3 with `REGISTER:` | The name is not registered with stackshot | Run the `post project-agent` command it prints, or spawn again with `--role` and `--mandate` and sala registers it itself |
 | The web UI's Shell drawer shows the old session name | `SALA_SHELL_SESSION` is read once | `systemctl --user restart sala-web.service` |
 | `systemd-analyze verify` says `sala-web` is "not executable" | `uv sync --frozen` was not run in `web/` | Run it (step 10) |
 | `systemctl --user` cannot reach the user manager | The shell is not a login shell | `export XDG_RUNTIME_DIR=/run/user/$(id -u)` or log in again |

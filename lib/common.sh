@@ -1122,20 +1122,6 @@ inbox_release_stale() {  # holds a relaunch never released (it died): drop those
     while IFS=$'\t' read -r t u n; do [ $((now - ${t:-0})) -ge 600 ] && inbox_release "$u" "$n"; done < <(cat "$SALA_INBOX_LEDGER")
 }
 
-# agent_unlisted <name> → prints the refusal and returns 0 when <name> is an agent name its project page does not list yet
-# (stackshot's `pages.py agent-listed`, exit 3; an agent's `agents:` line must exist before it is spawned
-# or renamed into, so that it is guaranteed to be handled). Anything else — not an agent name, listed, the script missing, a
-# python error, a timeout — returns 1: fail-open, a broken check never blocks a spawn. SALA_AGENT_CHECK=off skips it
-# (tests); sala-test-* names are never checked.
-agent_unlisted() {
-    [ "${SALA_AGENT_CHECK:-on}" = off ] && return 1
-    case "$1" in sala-test-*|*-side-*) return 1 ;; esac   # a side session (THE SIDE SESSIONS below) is on no page's agents map by design
-    project_record_agent "" "$1" >/dev/null && return 1   # stackshot's project record lists the name (on any project): not unlisted, pages.py is not asked
-    local py out rc; py=$(agent_check_script) || return 1
-    out=$(timeout 10 python3 "$py" agent-listed "$1" 2>&1); rc=$?
-    [ "$rc" = 3 ] || return 1
-    _lastline "${out:-'$1' is an agent name its project page does not list yet}"
-}
 # THE RENAME RENAMES ITS ENTRY ON THE PROJECT'S PAGE (Tue Oct 27th 2026; lib/rename.sh): `rename OLD NEW` used to refuse a NEW its
 # project's page does not list, so only the page's keeper could unblock it (each time a trip to the project's -main).
 # Now the rename asks stackshot for the in-place rename of OLD's entry: `client.py post project-agent-rename <project> OLD NEW --sender
@@ -1223,10 +1209,10 @@ try:
     print(p if isinstance(p, str) else "")
 except Exception: pass' "$1" 2>/dev/null
 }
-RETIRE_PROJ="" RETIRE_PROJ_SRC="" RETIRE_PROJ_WHY=""
+RETIRE_PROJ="" RETIRE_PROJ_SRC="" RETIRE_PROJ_WHY="" RETIRE_PROJ_BLIND=""   # RETIRE_PROJ_BLIND: set (with the record's reason) when no project was found AND stackshot's project record could not answer, so "no project" is a guess
 retire_project_of() {  # <session> [<conversation id>] → sets RETIRE_PROJ (the project page key its registry row, else side record, else the roles list gives; empty when none) and RETIRE_PROJ_SRC (where from); no stdout
     local n=$1 u=${2:-} p="" src="" origin c
-    RETIRE_PROJ_WHY=""
+    RETIRE_PROJ_WHY="" RETIRE_PROJ_BLIND=""
     p=$(_row_project "$n")
     [ -n "$p" ] || [ -z "$u" ] || p=$(_row_project "$u")
     [ -z "$p" ] || src="its registry row"
@@ -1250,6 +1236,7 @@ retire_project_of() {  # <session> [<conversation id>] → sets RETIRE_PROJ (the
         case "$rrc" in
             0) p=$(sed -n 1p <<< "$rec"); p=${p#listed on }; src="stackshot's project record (the name is on its agents map)" ;;
             4) RETIRE_PROJ_WHY=$(sed -n 1p <<< "$rec") ;;
+            1) RETIRE_PROJ_WHY="stackshot's project record cannot say which project lists it ($(_lastline "$rec"))"; stackshot_present && RETIRE_PROJ_BLIND=$RETIRE_PROJ_WHY ;;   # a box with no stackshot at all (no record, no client) has nothing to be blind to   # no answer is not "no project": the caller says so
         esac
     fi
     RETIRE_PROJ=$p; RETIRE_PROJ_SRC=$src
@@ -1413,7 +1400,7 @@ rename_side_end() {
 # THE SIDE SESSIONS (quick side conversations; docs/side-sessions.md; lib/spawn.sh --side, lib/side.sh, lib/retire.sh).
 # A side session is a short-lived session of the owner's, started in one step: forked from a running agent (`spawn --side --fork-of
 # AGENT`, named <agent>-side-<word><nn>) or a fresh one about a board item (`spawn --side --project KEY --item board#N`, named
-# <project prefix>-side-<word><nn>). It is on no page's agents map (agent_unlisted lets any *-side-* name pass), has no quiet watch,
+# <project prefix>-side-<word><nn>). It is on no page's agents map (the spawn gate lets any *-side-* name pass: agent_gate_exempt), has no quiet watch,
 # no auto-retire and no cap, and retires only on the owner's word, through `sala op retire`. Its record is one file under
 # $SALA_STATE_DIR/side/: <name>.side (key=value, written by spawn once the session is up) and, once `sala side done` found the
 # write-up in place, <name>.done (the marker retire asks for). The registry row carries side/side_origin/side_item/side_at too, for
@@ -1429,30 +1416,22 @@ item_id_ok() {  # <id> → 0 for a board item id in the forms stackshot shows: b
 }
 side_is() { [ -f "$(side_file "$1")" ]; }   # <session> → 0 when it is a side session (spawn --side made its record)
 # THE PROJECT SPAWN'S CHECKS (Thu Oct 15th 2026; lib/spawn.sh, `spawn NAME --project <page key> --role front|back`).
-# A project agent is registered by its line on its hub page's `agents:` map (a front agent a top-level entry, a background
-# one under `background:`), and sala can read that map only through stackshot's pages.py:
-# `resolve <key>` (does the page exist) and `agent-listed <name>` (is the name on a page). Unlike agent_unlisted these do
-# NOT fail open: a project spawn that cannot be checked is refused ("cannot tell"), since the web form and the queue run
-# it unattended and a session made before its line exists reads no mandate at its first prompt. Both skip nothing for a
-# sala-test-* name (the suites give them a stub script, SALA_AGENT_CHECK_SCRIPT); SALA_AGENT_CHECK=off skips both.
+# A project agent is registered with stackshot (`client.py post project-agent`) and sala reads who is registered from stackshot's project
+# RECORD alone (THE PROJECT RECORD below); the page's own `agents:` block is no longer asked, and no pages.py call is made anywhere. A spawn
+# whose record cannot answer (missing, stale, unreadable, no such project) FAILS CLOSED for a name the closed exception list does not cover
+# (agent_gate_exempt): exit 6, no pane, retry when the record is fresh; SALA_AGENT_CHECK=off skips the check.
 : "${SALA_AGENT_NAME_MAX:=48}"       # an agent name's length cap (sala's rule: tmux's session name, the /rename typed, the heartbeat's rows and
                                      #   sala-web's sidebar carry it; stackshot asks only that it is a key of the page's agents map)
 : "${SALA_PAGE_DIRS:=projects}"   # the page directories a --project key may start with (stackshot.toml [pages] dirs on this instance; config.example)
 # SALA_STACKSHOT_DIR (contract version 11): where stackshot's checkout is, the one place sala's default stackshot commands
-# come from (pages.py here; client.py in spawn.sh, side.sh, release.sh and the parked-question board scripts; sala-web's roles command).
+# come from (client.py in spawn.sh, side.sh, release.sh and the parked-question board scripts; sala-web's roles command).
 # Unset: ~/stackshot, as every default was before. Set EMPTY: this box has no stackshot, and each of those defaults is empty at once
-# (the fail-open paths take their "unset" branch; a project spawn says it cannot tell). An explicit knob (SALA_AGENT_CHECK_SCRIPT,
-# SALA_SPAWN_ASK_CMD, SALA_SIDE_*_CMD, SALA_STACKSHOT_CLIENT, STACKSHOT_CLIENT, SALA_WEB_ROLES_CMD) still wins over the directory.
+# (a plain spawn is then not checked: there is nothing to ask). An explicit knob (SALA_SIDE_*_CMD, SALA_STACKSHOT_CLIENT, STACKSHOT_CLIENT,
+# SALA_WEB_ROLES_CMD) still wins over the directory.
 # Where a program is inside that directory is lib/stackshot-path.sh's one answer (stackshot's package path, else the old root path of a
 # checkout from before the package); every default below and in spawn.sh, side.sh and release.sh asks it.
 . "${BASH_SOURCE[0]%/*}/stackshot-path.sh"
 : "${SALA_STACKSHOT_DIR=$HOME/stackshot}"
-agent_check_script() {  # → the path of stackshot's pages.py (SALA_AGENT_CHECK_SCRIPT, else stackshot/projects/pages.py under SALA_STACKSHOT_DIR, or pages.py there on an older checkout), or 1 with nothing
-    local py="${SALA_AGENT_CHECK_SCRIPT:-}"
-    [ -n "$py" ] || stackshot_prog_r py "${SALA_STACKSHOT_DIR:-}" pages
-    [ -n "$py" ] && [ -f "$py" ] || return 1
-    echo "$py"
-}
 agent_name_ok() {  # <name> → 0 when it is an agent name by sala's rule: lowercase letters, digits and dashes, no dash at either end, at most SALA_AGENT_NAME_MAX
     local n="${1:-}"
     [ -n "$n" ] && [ "${#n}" -le "$SALA_AGENT_NAME_MAX" ] || return 1
@@ -1467,36 +1446,13 @@ page_key_ok() {  # <key> → 0 when it has a hub page key's shape: <dir>/<slug>[
     for d in ${k//\// }; do case "$d" in -*|*-) return 1;; esac; done
     return 0
 }
-page_exists() {  # <key> → 0 the page exists · 1 no such page · 2 cannot tell (no pages.py or brain here, a python error, a timeout), the why on stdout
-    local py out rc; py=$(agent_check_script) || { echo "no pages.py on this box (SALA_AGENT_CHECK_SCRIPT, SALA_STACKSHOT_DIR/stackshot/projects/pages.py)"; return 2; }
-    out=$(timeout 15 python3 "$py" resolve "$1" 2>&1); rc=$?   # prints "<key> True|False|None", exit 0 only for True
-    case "$rc:${out##* }" in
-        0:True) return 0 ;;
-        1:False) echo "no page $1"; return 1 ;;
-        *) echo "pages.py resolve $1 exited $rc: $(_lastline "$out")"; return 2 ;;
-    esac
-}
-agent_listed_on() {  # <name> <page key> → 0 listed on that page (its mandate line on stdout) · 3 not listed there (what pages.py said) · 2 cannot tell (the why)
-    # pages.py agent-listed maps the name to a page by itself and exits 0 for a listed name AND for one it has nothing to check
-    # ("no project page for this name: nothing to check"; before Fri Oct 16th 2026 "no steward page …"), so only its `listed on <this key>: …`
-    # line counts here; a name listed on another page, or one pages.py calls a project's own name, is not on this page either (the coordinator's note, Thu Oct 15th 2026)
-    local py out rc line _l; py=$(agent_check_script) || { echo "no pages.py on this box (SALA_AGENT_CHECK_SCRIPT, SALA_STACKSHOT_DIR/stackshot/projects/pages.py)"; return 2; }
-    out=$(timeout 15 python3 "$py" agent-listed "$1" 2>&1); rc=$?
-    case "$rc" in
-        0) line=""; while IFS= read -r _l; do [[ $_l == *"listed on $2: "* ]] && { line=$_l; break; }; done <<< "$out"   # grep -m1 -F
-           if [ -n "$line" ]; then echo "${line#listed on $2: }"; return 0; fi
-           _lastline "${out:-pages.py said nothing}"; return 3 ;;
-        3) _lastline "${out:-not listed}"; return 3 ;;
-        *) echo "pages.py agent-listed $1 exited $rc: $(_lastline "$out")"; return 2 ;;
-    esac
-}
 # THE PROJECT RECORD (docs/stackshot-contracts.md, interface 20). stackshot publishes the project record at
 # ~/.local/state/stackshot/projects.json (schema 1: {"schema": 1, "generated": "<ISO Z>", "projects": {<prj_xxxxxxxx>: {id, key,
 # keeper, agents: {<name>: {front, role, mandate_line[, page_owed][, keeper]}}}}, "by_key": {<page key>: <id>}}), rewritten every few minutes
 # (`keeper` stays an agent name; the keeper is a mark on one agent, `keeper: true` on its entry, and a project record may also carry keeper_agent and
-# keeper_source, optional fields sala does not require), so a spawn on the coordinator machine reads a file: no token, no HTTP. It is the FIRST source of the project spawn's agents-map check and of
-# agent_unlisted (plain spawn; a rename's decision is the record alone, rename_record_plan); pages.py (above) is the fallback when the record cannot answer (missing, unreadable,
-# another schema, older than SALA_PROJECT_RECORD_MAX_AGE, no such project). An agent with `page_owed: true` was registered
+# keeper_source, optional fields sala does not require), so a spawn on the coordinator machine reads a file: no token, no HTTP. It is the ONLY source of the spawn gate's agents-map check, of a rename's
+# decision (rename_record_plan) and of a retire's project (retire_project_of): a record that cannot answer (missing, unreadable, another schema, older than
+# SALA_PROJECT_RECORD_MAX_AGE, no such project) is no answer, and each caller says what it does then (a spawn fails closed, a retire says so and goes on). An agent with `page_owed: true` was registered
 # through `client.py post project-agent` and its page line is still owed: for a spawn that registration is the point, so it
 # counts as listed (the note says the line is owed).
 : "${SALA_PROJECT_RECORD:=$HOME/.local/state/stackshot/projects.json}"
@@ -1698,6 +1654,14 @@ for n in order:
     if code == "listed": listed = True
     print("%s: %s%s" % (n, ("already on the record: " if code == "listed" else "") + str(r.get("reason") or code or "not valid"), " [%s]" % code if code else ""))
 sys.exit(3 if listed else 2)' "$@"
+}
+record_name_unlisted() {  # <name> → rc 0 stackshot's project record says the name is on NO project's agents map · rc 1 it is listed, or the gate does not apply to it (a throwaway's name, SALA_AGENT_CHECK=off) · rc 2 the record cannot answer (RL_WHY says why). No page is asked.
+    RL_WHY=""
+    [ "${SALA_AGENT_CHECK:-on}" = off ] && return 1
+    agent_gate_exempt "$1" 0 0 >/dev/null && return 1
+    local rec rrc; rec=$(project_record_agent "" "$1" 2>/dev/null); rrc=$?
+    case "$rrc" in 0|4) return 1 ;; 3) return 0 ;; esac
+    RL_WHY=$(_lastline "$rec"); return 2
 }
 # rename_record_plan <OLD> <NEW> → what `sala rename` does about OLD's entry on its project, decided from the project record ALONE (no pages.py:
 # its "no project page for this name" answer, exit 0, read as "listed", is how a rename of a listed agent once left its entry under the old name).

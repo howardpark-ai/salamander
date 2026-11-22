@@ -98,8 +98,7 @@ folder), never the name alone: a symlink or copy of bash called `claude` is not 
 human's pane or the queue's runner sets none. The field is unpublished (`EXPORT_KEYS` is unchanged, so no contract version moves) and has one
 reader: `sala op retire NAME --from YOU` with no `--words` (lib/op.sh, `op_own_retire_ok`) is queued only when NAME is a **throwaway** (a row carrying the `throwaway` tag above is open to any session; the rest of this section is the rule for a row with no tag): the live row named
 exactly NAME has no `project`, no `role` and no `side`, NAME is on no project's agents map (stackshot's project record, `project_record_agent`; for the master and any-session doors below this
-check **fails closed**: a record that is missing, stale or unreadable falls back to `pages.py agent-listed` (the path `agent_unlisted` takes), and when that
-cannot confirm the name is unlisted either, the retire is refused with "the project record could not confirm that NAME is unlisted"; the spawner door
+check **fails closed**: a record that is missing, stale or unreadable is no answer (no other source is asked: `pages.py` is gone), and the retire is refused with "the project record could not confirm that NAME is unlisted"; the spawner door
 goes on without an answer, its row is the proof), and NAME is neither the master nor YOU; and YOU may end it. **Who** (the session that started a throwaway may end it with no words; widened
 so that retiring a throwaway never needs the owner): (a) its spawner, `spawned_by` = YOU; (b) the master session (`SALA_MASTER`), when NAME is a
 throwaway's name or the master is the spawner (covered by (a)); (c) any live Claude session when the row has no `spawned_by`, or the spawner's tmux session is
@@ -112,7 +111,7 @@ spawner`, `retired by the master`, `retired by any session: no live spawner`). Y
 alone: `spawn` gives the throwaway's pane and claude the row's id as `SALA_SESSION_ID`, and every process in every pane of the tmux session called NAME (each pane's process and all its descendants) must
 carry that id in its environment, so a session renamed to a dead throwaway's name is refused. A pane from before row ids (an old row: no process in the
 session carries an id) is bound by its name instead, and only when a Claude Code process (comm `claude`, trusted exe) is among them, NAME is a
-throwaway's name and a fresh answer (the project record, else `pages.py`) says NAME is on no agents map, whichever door let YOU in: a plain program
+throwaway's name and a fresh answer (the project record) says NAME is on no agents map, whichever door let YOU in: a plain program
 under the name, a mix of processes with and without the id, or a pane with no id under a name that is no throwaway's, is refused.
 With no tmux session of that name left the retire is refused at the plan, naming `sala forget-row NAME` (which clears the row and takes the owner's words), and nothing is queued. A rename of the spawner makes the field stale, and a stale or renamed spawner
 counts as not live: a row with a throwaway's name is then retirable by any session (door (c), with the fail-closed agents-map check), while a row

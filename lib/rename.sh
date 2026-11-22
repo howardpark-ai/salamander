@@ -163,14 +163,17 @@ side_is "$OLD" || ! spawn_is_side "$OLD" || spawn_wait "side record" side_is "$O
 RL=0; SD=0; SDL=0
 if [ "${SALA_RENAME_SYNC:-}" != 1 ]; then
     if side_is "$OLD" && [[ $NEW != *-side-* ]]; then
-        # A SIDE SESSION becoming an agent: it is on no page's agents map, so there is no entry to rename in place. NEW unlisted:
-        # sala lists NEW as a new front agent (stackshot's project-agent, listed in its project record) and the side record ends; refused here, in the plan,
-        # when the project cannot be named. NEW already listed (or the check could not tell): no call, the side record ends all the same.
+        # A SIDE SESSION becoming an agent: it is on no page's agents map, so there is no entry to rename in place. NEW unlisted (the project record says
+        # so): sala lists NEW as a new front agent (stackshot's project-agent, listed in its project record) and the side record ends; refused here, in the plan,
+        # when the project cannot be named. NEW already listed, or a throwaway's name (the gate's exceptions): no call, the side record ends all the same. A record that
+        # cannot answer is no answer: refused, nothing renamed (no page is asked instead).
         SD=1
-        if why=$(agent_unlisted "$NEW"); then
-            rename_side_plan "$OLD" "$NEW" || die "$RL_WHY"
-            SDL=1
-        fi
+        record_name_unlisted "$NEW"; rrc=$?
+        case "$rrc" in
+            0) rename_side_plan "$OLD" "$NEW" || die "$RL_WHY"
+               SDL=1 ;;
+            2) die "rename refused, nothing renamed: stackshot's project record cannot say whether '$NEW' is on a project's agents map ($RL_WHY), so sala cannot tell whether the side session needs listing; try again once stackshot has rewritten the record (a few minutes)" ;;
+        esac
     else
         # THE PROJECT RECORD DECIDES (common.sh rename_record_plan; no pages.py): OLD on a project's agents map and NEW on none → stackshot renames the
         # entry; NEW listed, or OLD on no map (a scratch pane) → nothing to rename; a record that cannot answer → refused, nothing renamed

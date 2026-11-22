@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Where sala looks for stackshot's programs (lib/stackshot-path.sh, and the small function in each Python module that needs one).
-# stackshot moved its programs from the root of its checkout into a package (stackshot/fleet/client.py, stackshot/projects/pages.py,
+# stackshot moved its programs from the root of its checkout into a package (stackshot/fleet/client.py,
 # stackshot/web/publish.py, stackshot/tools/open_item_text.py) and keeps a forwarder at each old root path for two weeks; sala's
 # defaults take the package path when that file exists and the old root path when it is the only one, so a box with an older checkout
 # keeps working, and a setting that names the file itself wins over the probe. Checked on fake checkouts in a temp folder, each in four
 # layouts: new only, old only, both, none:
-#   the shell helper (every name, an empty dir, an unknown name, no fork-free surprises with a trailing slash) · stackshot_client and
-#   agent_check_script (common.sh) with SALA_STACKSHOT_DIR on each layout, SALA_STACKSHOT_CLIENT / SALA_AGENT_CHECK_SCRIPT winning ·
-#   the default commands of side.sh and spawn.sh (their own lines, run as written) · the register command spawn prints · release.sh's
+#   the shell helper (every name, an empty dir, an unknown name, no fork-free surprises with a trailing slash; `pages` is no name any more:
+#   sala reads stackshot's project record and runs no pages.py) · stackshot_client (common.sh) with SALA_STACKSHOT_DIR on each layout,
+#   SALA_STACKSHOT_CLIENT winning · the default commands of side.sh (its own lines, run as written) · the register command spawn prints · release.sh's
 #   client · the Python modules (lib/unitjob.py, lib/pr_watcher_cleanup.py, contrib/question-board.py): the client path on each layout,
 #   the explicit setting winning, an empty dir meaning none. The web app's roles command is in web/tests/test_roles_cmd.py.
 # Isolated HOME in a temp folder (locked while the suite runs, removed at the end), no tmux, no process started but bash and python3.
@@ -20,15 +20,15 @@ trap '[ -n "$T" ] && rm -rf "$T"' EXIT
 T=$(mktemp -d "${TMPDIR:-/tmp}/sala-sspath.XXXXXX")
 exec 8< "$T"; flock -n 8 2>/dev/null   # systemd-tmpfiles' ageing skips a directory held with flock
 export HOME="$T/home"; mkdir -p "$HOME/.claude" "$HOME/.config/salamander"
-unset SALA_STACKSHOT_DIR SALA_STACKSHOT_CLIENT STACKSHOT_CLIENT SALA_AGENT_CHECK_SCRIPT SALA_SPAWN_ASK_CMD SALA_SIDE_ITEMS_CMD SALA_SIDE_PAGE_TS_CMD SALA_SIDE_MSG_CMD
+unset SALA_STACKSHOT_DIR SALA_STACKSHOT_CLIENT STACKSHOT_CLIENT SALA_SIDE_ITEMS_CMD SALA_SIDE_PAGE_TS_CMD SALA_SIDE_MSG_CMD
 
 # mk <layout> <dir>: a fake checkout, its files empty (only their presence is read)
 #   new = the package paths · old = the root paths · both = both (the forwarders beside the package) · none = an empty folder
 mk() {
     local l=$1 d=$2 f
     mkdir -p "$d"
-    case "$l" in new|both) for f in stackshot/fleet/client.py stackshot/projects/pages.py stackshot/web/publish.py stackshot/tools/open_item_text.py; do mkdir -p "$d/${f%/*}"; : > "$d/$f"; done ;; esac
-    case "$l" in old|both) mkdir -p "$d/tools"; for f in client.py pages.py publish.py tools/open_item_text.py; do : > "$d/$f"; done ;; esac
+    case "$l" in new|both) for f in stackshot/fleet/client.py stackshot/web/publish.py stackshot/tools/open_item_text.py; do mkdir -p "$d/${f%/*}"; : > "$d/$f"; done ;; esac
+    case "$l" in old|both) mkdir -p "$d/tools"; for f in client.py publish.py tools/open_item_text.py; do : > "$d/$f"; done ;; esac
 }
 LAYOUTS="new old both none"
 for l in $LAYOUTS; do mk "$l" "$T/ss-$l"; done
@@ -39,40 +39,41 @@ sx() { SALA_CONFIG=/dev/null SALA_ROOT="$ROOT" bash -c '. "$SALA_ROOT/lib/common
 echo "== the shell helper: package path when it exists, else the old root path, else the package path"
 want_of() {  # <layout> <name> → the relative path the helper must answer
     case "$1:$2" in
-        new:*|both:*|none:*) case "$2" in client) echo stackshot/fleet/client.py ;; pages) echo stackshot/projects/pages.py ;; publish) echo stackshot/web/publish.py ;; open_item_text) echo stackshot/tools/open_item_text.py ;; esac ;;
-        old:client) echo client.py ;; old:pages) echo pages.py ;; old:publish) echo publish.py ;; old:open_item_text) echo tools/open_item_text.py ;;
+        new:*|both:*|none:*) case "$2" in client) echo stackshot/fleet/client.py ;; publish) echo stackshot/web/publish.py ;; open_item_text) echo stackshot/tools/open_item_text.py ;; esac ;;
+        old:client) echo client.py ;; old:publish) echo publish.py ;; old:open_item_text) echo tools/open_item_text.py ;;
     esac
 }
 for l in $LAYOUTS; do
     all=1
-    for n in client pages publish open_item_text; do
+    for n in client publish open_item_text; do
         got=$(SALA_CONFIG=/dev/null SALA_ROOT="$ROOT" bash -c '. "$SALA_ROOT/lib/common.sh"; stackshot_prog "$1" "$2"' _ "$T/ss-$l" "$n" 2>&1)
         [ "$got" = "$T/ss-$l/$(want_of "$l" "$n")" ] || { all=0; bad "layout $l, $n: '$got'"; }
     done
-    [ "$all" = 1 ] && ok "layout $l: client, pages, publish and open_item_text each at the expected path"
+    [ "$all" = 1 ] && ok "layout $l: client, publish and open_item_text each at the expected path"
 done
 got=$(sx 'stackshot_prog "" client; echo "rc=$?"'); [ "$got" = "rc=1" ] && ok "an empty dir: nothing printed, status 1 (no stackshot on this box)" || bad "empty dir: '$got'"
 got=$(sx 'stackshot_prog "'"$T/ss-new"'" nothing; echo "rc=$?"'); [ "$got" = "rc=2" ] && ok "an unknown name: nothing printed, status 2" || bad "unknown name: '$got'"
+got=$(sx 'stackshot_prog "'"$T/ss-new"'" pages; echo "rc=$?"'); [ "$got" = "rc=2" ] && ok "pages is no name any more (sala runs no pages.py): nothing printed, status 2" || bad "pages name: '$got'"
 got=$(sx 'stackshot_prog "'"$T/ss-new"'/" client'); [ "$got" = "$T/ss-new/stackshot/fleet/client.py" ] && ok "a trailing slash on the dir is not doubled" || bad "trailing slash: '$got'"
-got=$(sx 'stackshot_prog_r v "'"$T/ss-old"'" pages; echo "$v"; stackshot_rel_r r "'"$T/ss-old"'" pages; echo "$r"'); [ "$got" = "$T/ss-old/pages.py
-pages.py" ] && ok "the no-fork forms answer the same (the full path and the relative one)" || bad "_r forms: '$got'"
+got=$(sx 'stackshot_prog_r v "'"$T/ss-old"'" publish; echo "$v"; stackshot_rel_r r "'"$T/ss-old"'" publish; echo "$r"'); [ "$got" = "$T/ss-old/publish.py
+publish.py" ] && ok "the no-fork forms answer the same (the full path and the relative one)" || bad "_r forms: '$got'"
 
-echo "== stackshot_client and agent_check_script: the directory's probe, and a named file wins"
+echo "== stackshot_client: the directory's probe, and a named file wins"
 for l in $LAYOUTS; do
-    c=$(sx 'SALA_STACKSHOT_DIR="'"$T/ss-$l"'"; stackshot_client; echo "rc=$?"'); p=$(sx 'SALA_STACKSHOT_DIR="'"$T/ss-$l"'"; agent_check_script; echo "rc=$?"')
+    c=$(sx 'SALA_STACKSHOT_DIR="'"$T/ss-$l"'"; stackshot_client; echo "rc=$?"')
     case "$l" in
-        none) [ "$c" = "rc=1" ] && [ "$p" = "rc=1" ] && ok "layout none: no client and no pages script (rc 1 each), as a box without the files" || bad "none: client '$c' pages '$p'" ;;
+        none) [ "$c" = "rc=1" ] && ok "layout none: no client (rc 1), as a box without the files" || bad "none: client '$c'" ;;
         old)  [ "$c" = "$T/ss-old/client.py
-rc=0" ] && [ "$p" = "$T/ss-old/pages.py
-rc=0" ] && ok "layout old: the root client.py and pages.py" || bad "old: client '$c' pages '$p'" ;;
+rc=0" ] && ok "layout old: the root client.py" || bad "old: client '$c'" ;;
         *)    [ "$c" = "$T/ss-$l/stackshot/fleet/client.py
-rc=0" ] && [ "$p" = "$T/ss-$l/stackshot/projects/pages.py
-rc=0" ] && ok "layout $l: the package client and pages script (the package wins when both are there)" || bad "$l: client '$c' pages '$p'" ;;
+rc=0" ] && ok "layout $l: the package client (the package wins when both are there)" || bad "$l: client '$c'" ;;
     esac
 done
-: > "$T/named-client.py"; : > "$T/named-pages.py"
-c=$(sx 'SALA_STACKSHOT_DIR="'"$T/ss-new"'" SALA_STACKSHOT_CLIENT="'"$T/named-client.py"'"; stackshot_client'); p=$(sx 'SALA_STACKSHOT_DIR="'"$T/ss-new"'" SALA_AGENT_CHECK_SCRIPT="'"$T/named-pages.py"'"; agent_check_script')
-[ "$c" = "$T/named-client.py" ] && [ "$p" = "$T/named-pages.py" ] && ok "SALA_STACKSHOT_CLIENT and SALA_AGENT_CHECK_SCRIPT win over a directory that has both files" || bad "named: client '$c' pages '$p'"
+: > "$T/named-client.py"
+c=$(sx 'SALA_STACKSHOT_DIR="'"$T/ss-new"'" SALA_STACKSHOT_CLIENT="'"$T/named-client.py"'"; stackshot_client')
+[ "$c" = "$T/named-client.py" ] && ok "SALA_STACKSHOT_CLIENT wins over a directory that has the file" || bad "named: client '$c'"
+c=$(sx 'SALA_STACKSHOT_DIR="'"$T/ss-new"'"; type agent_check_script >/dev/null 2>&1 && echo still-there || echo gone')
+[ "$c" = "gone" ] && ok "agent_check_script is gone (no caller asks for a pages script)" || bad "agent_check_script: '$c'"
 c=$(sx 'SALA_STACKSHOT_DIR="'"$T/ss-new"'" SALA_STACKSHOT_CLIENT="'"$T/no-such-client.py"'"; stackshot_client; echo "rc=$?"')
 [ "$c" = "rc=1" ] && ok "a named client that is not there is not replaced by the directory's (rc 1)" || bad "named missing: '$c'"
 c=$(sx 'SALA_STACKSHOT_DIR=""; stackshot_client; echo "rc=$?"'); [ "$c" = "rc=1" ] && ok "SALA_STACKSHOT_DIR empty: no client even though ~/stackshot could exist" || bad "empty dir: '$c'"
@@ -80,16 +81,11 @@ mk old "$HOME/stackshot"
 c=$(sx 'stackshot_client'); [ "$c" = "$HOME/stackshot/client.py" ] && ok "SALA_STACKSHOT_DIR unset: ~/stackshot, probed the same way (an old checkout there)" || bad "unset dir: '$c'"
 rm -rf "$HOME/stackshot"
 
-echo "== the default commands of side.sh and spawn.sh (their own lines, run as written)"
+echo "== the default commands of side.sh (its own lines, run as written; spawn.sh has none any more: the keeper message is gone)"
 side_defaults() {  # <dir> → the three SALA_SIDE_*_CMD defaults, one per line
     SALA_CONFIG=/dev/null SALA_ROOT="$ROOT" SSDIR="$1" bash -c '. "$SALA_ROOT/lib/common.sh"; SALA_STACKSHOT_DIR=$SSDIR
         eval "$(sed -n "/^stackshot_prog_r _SIDE_CLIENT/,/^: \"\${SALA_SIDE_MSG_CMD=/p" "$SALA_ROOT/lib/side.sh")"
         printf "%s\n%s\n%s\n" "$SALA_SIDE_ITEMS_CMD" "$SALA_SIDE_PAGE_TS_CMD" "$SALA_SIDE_MSG_CMD"' 2>&1
-}
-spawn_default() {  # <dir> → SALA_SPAWN_ASK_CMD's default
-    SALA_CONFIG=/dev/null SALA_ROOT="$ROOT" SSDIR="$1" bash -c '. "$SALA_ROOT/lib/common.sh"; SALA_STACKSHOT_DIR=$SSDIR
-        eval "$(sed -n "/^stackshot_prog_r _SPAWN_CLIENT/,/^: \"\${SALA_SPAWN_ASK_CMD=/p" "$SALA_ROOT/lib/spawn.sh")"
-        printf "%s\n" "$SALA_SPAWN_ASK_CMD"' 2>&1
 }
 for l in new old both; do
     rel=stackshot/fleet/client.py; [ "$l" = old ] && rel=client.py
@@ -98,10 +94,9 @@ python3 $T/ss-$l/$rel get page-ts
 python3 $T/ss-$l/$rel message"
     got=$(side_defaults "$T/ss-$l")
     [ "$got" = "$exp" ] && ok "side.sh, layout $l: items, page-ts and message all go to $rel" || bad "side.sh $l: '$got'"
-    got=$(spawn_default "$T/ss-$l"); [ "$got" = "python3 $T/ss-$l/$rel message" ] && ok "spawn.sh, layout $l: the keeper ask goes to $rel" || bad "spawn.sh $l: '$got'"
+    ! grep -q '^stackshot_prog_r _SPAWN_CLIENT\|SALA_SPAWN_ASK_CMD' "$ROOT/lib/spawn.sh" && ok "spawn.sh, layout $l: no client default of its own (nobody is messaged)" || bad "spawn.sh still names a keeper ask"
 done
 got=$(side_defaults ""); [ -z "$got" ] && ok "side.sh, SALA_STACKSHOT_DIR empty: the three defaults are empty" || bad "side.sh empty: '$got'"
-got=$(spawn_default ""); [ -z "$got" ] && ok "spawn.sh, SALA_STACKSHOT_DIR empty: the keeper ask default is empty" || bad "spawn.sh empty: '$got'"
 got=$(SALA_CONFIG=/dev/null SALA_ROOT="$ROOT" SSDIR="$T/ss-old" bash -c '. "$SALA_ROOT/lib/common.sh"; SALA_STACKSHOT_DIR=$SSDIR; SALA_SIDE_ITEMS_CMD="my own cmd"
         eval "$(sed -n "/^stackshot_prog_r _SIDE_CLIENT/,/^: \"\${SALA_SIDE_MSG_CMD=/p" "$SALA_ROOT/lib/side.sh")"; echo "$SALA_SIDE_ITEMS_CMD"' 2>&1)
 [ "$got" = "my own cmd" ] && ok "a SALA_SIDE_ITEMS_CMD that is set stays as it is" || bad "named side cmd: '$got'"

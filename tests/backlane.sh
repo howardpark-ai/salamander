@@ -325,13 +325,14 @@ rm -f "$ST/lane-state.tsv"
 out=$(SALA_BACK_LANE_RULE=off drv 'back_lane_spawn_lane; echo "rc=$?"'); [ "$out" = "rc=1" ] && ok "rule off: the default lane" || bad "spawn off: $out"
 
 echo "== spawn --dry-run names the rule's lane"
-cat > "$T/fake-pages.py" <<'PY'
-import sys
-if sys.argv[1] == "resolve": print(sys.argv[2], True); sys.exit(0)
-if sys.argv[1] == "agent-listed": print("listed on projects/foo: the test's page"); sys.exit(0)
-sys.exit(1)
+# stackshot's project record (the only thing a spawn's check reads): projects/foo lists lr-back-x as a back agent and lr-front-x as a front agent, written now
+python3 - "$T/lr-projects.json" <<'PY'
+import datetime, json, sys
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+ag = {"lr-back-x": {"front": False, "role": "back", "mandate_line": "a mandate"}, "lr-front-x": {"front": True, "role": "front", "mandate_line": "a front"}}
+json.dump({"schema": 1, "generated": now, "projects": {"prj_foo": {"id": "prj_foo", "key": "projects/foo", "agents": ag}}, "by_key": {"projects/foo": "prj_foo"}}, open(sys.argv[1], "w"))
 PY
-sp() { OUT=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" SALA_AGENT_CHECK_SCRIPT="$T/fake-pages.py" SALA_BIN="$ROOT/bin/salamander" bash "$ROOT/bin/salamander" spawn "$@" 2>&1); RC=$?; }
+sp() { OUT=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" SALA_PROJECT_RECORD="$T/lr-projects.json" SALA_BIN="$ROOT/bin/salamander" bash "$ROOT/bin/salamander" spawn "$@" 2>&1); RC=$?; }
 reg; quota 95 $W1; tick >/dev/null
 sp lr-back-x --project projects/foo --role back --mandate "a mandate" --dry-run
 [ "$RC" = 0 ] && has "$OUT" "[dry-run] lane: the back agents' lane rule has them on the aws-platform lane" && ok "a back agent: the dry run says it launches on aws-platform" || bad "spawn back: rc=$RC $OUT"

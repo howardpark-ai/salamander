@@ -22,9 +22,9 @@ about one project, driven from claude.ai on another machine. The failure modes t
 [Design notes](design-notes.md).
 
 ```
-salamander spawn  demo-docs --mandate ~/mandates/docs.md # named session, mandate read on start (--brief is its older name)
+salamander spawn  scratch-docs --mandate ~/mandates/docs.md # a throwaway session, mandate read on start (--brief is its older name); with stackshot on the box any other name must be registered there first
 salamander spawn  demo-docs-main --project projects/demo-docs --role front --mandate ~/mandates/docs.md
-                                                       # a project agent: the name on the page's agents map first
+                                                       # a project agent: registered with stackshot first (sala does it when --role and --mandate are given)
 salamander spawn                                       # throwaway: scratch-20260101-oak
 salamander spawn  --list                               # every session, version, claude.ai URL
 salamander revive                                      # after a reboot or `claude update`
