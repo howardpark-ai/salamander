@@ -230,5 +230,12 @@ hseed; uw SALA_UNREGISTERED_GRACE=0; uw SALA_UNREGISTERED_GRACE=0
 mkrec 5 delta-demo-main; uw SALA_UNREGISTERED_GRACE=0
 [ "$(nkeys)" = 0 ] && ! grep -q '^unreg_record=' "$WSTATE" && [ ! -s "$POSTS" ] && ok "c: an empty scan and a readable record: both keys go, nothing posted" || bad "c: empty scan, readable: keys=$(grep unreg "$WSTATE") posts=$(slurp "$POSTS")"
 
+# only the outage post's key is seeded (no pane key): the empty-scan probe must still count it as a key it could delete, so a stale record keeps it and a readable one clears it
+mkrec 3600 delta-demo-main
+sed -i '/^unreg[._]/d' "$WSTATE"; printf 'unreg_record=100:0\n' >> "$WSTATE"; : > "$POSTS"; uw SALA_UNREGISTERED_GRACE=0; uw SALA_UNREGISTERED_GRACE=0
+[ ! -s "$POSTS" ] && grep -q '^unreg_record=100:0$' "$WSTATE" && ok "d: stale record, empty scan, only the 'could not check' key seeded: it is kept, nothing posted" || bad "d: only unreg_record, stale: posts=$(slurp "$POSTS") keys=$(grep unreg "$WSTATE")"
+mkrec 5 delta-demo-main; uw SALA_UNREGISTERED_GRACE=0
+! grep -q '^unreg_record=' "$WSTATE" && [ ! -s "$POSTS" ] && ok "d: the same, the record readable again: the key goes, nothing posted" || bad "d: only unreg_record, readable: keys=$(grep unreg "$WSTATE") posts=$(slurp "$POSTS")"
+
 [ "$fail" = 0 ] && echo "unregistered: pass" || echo "unregistered: FAIL"
 exit $fail
