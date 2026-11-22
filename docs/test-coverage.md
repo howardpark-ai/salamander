@@ -84,6 +84,30 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/inboxorphans.sh`: new, 29; `tests/nomaster.sh` +4; `tests/ledger-recycle.sh` +13 (held keys no ledger row names; `sala reboot --status` of an older unfinished run, Mon Nov 23rd 2026)
+
+The path guarded: a pane whose inbox stays held for good. `inbox_hold` writes a pane's keys into stackshot's `held-msg.txt` and `held-hub.txt` and a row into sala's ledger, and
+`inbox_release_stale` freed a hold only through its row. The two live in different folders, so a host move, a restore from backup or a half-failed release left keys with no row; one box had 16 such keys and an empty ledger, and about 97 queued lines for 17 sessions went undelivered for hours. `inbox_release_orphans`
+(called by `inbox_release_stale`, so by every `watch` tick) now frees a held key that no ledger row names once sala has seen it unaccounted for 10 minutes; the held files carry no times, so the
+first-seen time of each such key is kept in a state file. Stackshot's reboot resume writes only its own `held-resume-msg.txt` and `held-resume-hub.txt`; sala never reads, writes or frees them.
+
+- **`inboxorphans.sh`** (new suite; isolated HOME, a temporary hold folder and ledger, never the real ones; the clock faked by pre-seeding the first-seen file; no tmux). A key with no row: the first pass only notes it
+  (the epoch of that pass is stored), seen 594 s ago it stays, seen 601 s ago it is freed from BOTH files and reported, a young key beside it stays held and noted, and the freed one is no longer remembered. A key in
+  one file only is freed too; nothing left to remember removes the first-seen file. A row accounts for its uuid and for its name (a row that names the key only as the name, or only as the uuid), young or two
+  hours old: such keys are untouched, drop out of the first-seen file, and the ledger is not edited. The row path is as before (an old row frees its uuid and name and leaves the ledger, a young one stays, nothing counted as
+  unaccounted), and `inbox_release_stale` with an empty ledger frees an old unaccounted key. A key that left the held files is dropped from the first-seen file and never freed; with nothing held the file goes. A second
+  pass frees nothing, and the same key held again starts its wait over. A first-seen time in the future (the clock stepped back) frees nothing and is brought back to now. A missing hold folder is a no-op. A key with a space,
+  brackets and a star is freed exactly, a garbled ledger line harms nothing. The hold lock: with another process holding it the sweep waits (nothing freed yet) and runs once it is released; the lock is free afterwards and no
+  temporary file is left in the hold folder or the state folder. A `held-resume-msg.txt` and `held-resume-hub.txt` in the same folder, holding keys with no ledger row (one also held by sala), are byte-identical after `inbox_release_orphans`
+  and `inbox_release_stale` ran over sala's own old keys (one assertion).
+- **`nomaster.sh`** (the watch tick): with nothing held the watch log has no `inbox:` line; with one key seen 700 s ago and one 20 s ago the tick frees the old one from both files and logs exactly one line with the count
+  and the key, the young one stays, and the next tick logs nothing.
+- **`ledger-recycle.sh`** (`sala reboot --status`): a state whose step is `rebooting` (or `pause`, `drain`, `flush`, `dry-resume`), with no marker and last written before this boot, ends its line with ` (an older run that did not
+  finish; no reboot is waiting)`; the state file's content and mtime are unchanged by `--status`. The line is as before with the marker present, with a state written since this boot, and for the finished steps
+  (`booted`, `boot-waiting`, `halted`, `done`, `resumed`) of an old state.
+
+Not checked: stackshot's side (a poll after the release), and a real host move; the watch's other steps in the tick.
+
 ### `tests/bgagents.sh`: +9, 271 (Sun Nov 22nd 2026)
 
 Five fixes to the placement read-back of `sala bg-agents`, each with the check that fails without it. (1) `roles.json` is read for its role too: an entry for the right project with the role

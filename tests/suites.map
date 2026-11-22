@@ -58,6 +58,7 @@ suite help-gates .github/scripts/skills-flags.py lib/adopt.sh lib/alert.sh lib/a
 suite help-snapshot lib/alert.sh lib/bgagents.sh lib/box.sh lib/cipoll.sh lib/codex-review.sh lib/dm.sh lib/job.sh lib/lane.sh lib/mockup.sh lib/model.sh lib/mq.sh lib/note.sh lib/notice.sh lib/op.sh lib/question.sh lib/rc.sh lib/reauth.sh lib/recycle-request.sh lib/restore.sh lib/revive.sh lib/sdk-pane.sh lib/sessions.sh lib/settings-apply.sh lib/side.sh lib/stuck.sh tests/help-snapshot.txt
 suite holders lib/holders.py lib/hook.sh lib/ready.sh
 suite holdmatch lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/holders.py lib/note.sh lib/op.sh lib/ready.sh lib/recycle-request.sh lib/rename.sh lib/revive.sh lib/settings-apply.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
+suite inboxorphans
 suite instantalert lib/barepane.sh lib/continuedin.sh lib/hook.sh lib/op.sh lib/settings-apply.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
 suite jobs contrib/backfill-job-projects.sh lib/barepane.sh lib/continuedin.sh lib/job.sh lib/op.sh lib/settings-apply.sh lib/stuck.sh lib/unit-repos.tsv lib/unitjob.py lib/watch.sh lib/wrapup.sh systemd/sala-unit-gaps.path systemd/sala-unit-gaps.service
 suite lane-rename lib/lane.sh lib/op.sh lib/sessions.py lib/spawn.sh

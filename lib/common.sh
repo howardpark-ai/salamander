@@ -350,7 +350,8 @@ session_url() {  # <name> [bridgeSessionId] → the link for that session on thi
 # inbox_hold <uuid> <name> / inbox_release <uuid> <name> [wait] — hold stackshot's inbox for a pane across its relaunch
 # (the board's main session: a line the puller writes into a pane's socket while sala relaunches that pane is
 # accepted and dropped, and nothing can tell). The keys go into stackshot's held-msg.txt and held-hub.txt (inbox.take
-# skips held keys; the next poll after the release delivers them) and into a ledger of our own, so `watch` drops a hold
+# skips held keys, reading the union of these two files and of held-resume-msg.txt / held-resume-hub.txt, which stackshot's
+# reboot resume writes and sala never reads, writes or frees; the next poll after the release delivers them) and into a ledger of our own, so `watch` drops a hold
 # a dead relaunch left behind (inbox_release_stale, after 10 min). release with "wait" first waits up to 30 s for the
 # resumed conversation to be registered with its socket. A missing stackshot is no error: nothing is held.
 # WHEN: a sweep holds EVERY pane it is about to close before it exits ANY of them
@@ -1092,10 +1093,61 @@ inbox_release() {
     [ -f "$SALA_INBOX_LEDGER" ] && { grep -vF -- "	$1	" "$SALA_INBOX_LEDGER" > "$lt"; mv -f "$lt" "$SALA_INBOX_LEDGER"; }
     _hold_unlock; return 0
 }
-inbox_release_stale() {  # holds a relaunch never released (it died): drop those older than 10 min
-    [ -s "$SALA_INBOX_LEDGER" ] || return 0
-    local now t u n; now=$(date +%s)
-    while IFS=$'\t' read -r t u n; do [ $((now - ${t:-0})) -ge 600 ] && inbox_release "$u" "$n"; done < <(cat "$SALA_INBOX_LEDGER")
+inbox_release_stale() {  # holds a relaunch never released (it died): drop those older than 10 min, then the held keys no ledger row accounts for
+    INBOX_ORPHANS_FREED=()
+    if [ -s "$SALA_INBOX_LEDGER" ]; then
+        local now t u n; now=$(date +%s)
+        while IFS=$'\t' read -r t u n; do [ $((now - ${t:-0})) -ge 600 ] && inbox_release "$u" "$n"; done < <(cat "$SALA_INBOX_LEDGER")
+    fi
+    inbox_release_orphans
+}
+# HELD KEYS NO LEDGER ROW ACCOUNTS FOR. inbox_hold writes the keys and the ledger row under one lock, but the ledger lives under
+# sala's log dir and the held files under stackshot's state dir, so a move to another host, a restore from backup or a half-failed
+# release can leave a key in held-msg.txt / held-hub.txt with no row: inbox_release_stale frees by row only, so such a key held its
+# session's inbox for good (one box: 16 keys, an empty ledger, about 97 queued lines undelivered for hours). Stackshot's reboot
+# resume writes its own files, held-resume-msg.txt and held-resume-hub.txt (rewritten whole, for the sessions it did not verify),
+# and never touches these two; sala never reads, writes or frees those, so a resume hold has no expiry on sala's side and is not
+# an orphan here, whatever the ledger says. The held files carry no times, so sala keeps
+# the first time it saw each such key ($SALA_INBOX_ORPHANS, `epoch TAB key`) and frees the key once it has been seen
+# unaccounted for SALA_INBOX_ORPHAN_SECS (600, as a row's age). A row accounts for its uuid and its name, any age (a row's own
+# path is inbox_release_stale's first half and is untouched). Under the hold lock, so a sweep that is holding right now has
+# written its row before this reads: a key without one, seen under the lock, is an orphan. A key that left the files, or that a
+# row now accounts for, is dropped from the first-seen file. INBOX_ORPHANS_FREED lists what was freed (watch logs it).
+: "${SALA_INBOX_ORPHAN_SECS:=600}"
+INBOX_ORPHANS_FREED=()
+inbox_release_orphans() {
+    local of="${SALA_INBOX_ORPHANS:-$SALA_STATE_DIR/inbox-held-unaccounted.tsv}" hm="$SALA_INBOX_HOLD_DIR/held-msg.txt" hh="$SALA_INBOX_HOLD_DIR/held-hub.txt"
+    INBOX_ORPHANS_FREED=()
+    [ -d "$SALA_INBOX_HOLD_DIR" ] || return 0
+    [ -s "$hm" ] || [ -s "$hh" ] || [ -e "$of" ] || return 0   # nothing held, nothing remembered: the common tick costs two tests
+    local now f k t u n out="" old="" tmp; local -a free=(); now=$(date +%s)
+    local -A acc=() first=() seen=()
+    _hold_lock
+    if [ -f "$SALA_INBOX_LEDGER" ]; then
+        while IFS=$'\t' read -r t u n || [ -n "$u" ]; do [ -z "$u" ] || acc[$u]=1; [ -z "$n" ] || acc[$n]=1; done < "$SALA_INBOX_LEDGER"
+    fi
+    if [ -f "$of" ]; then
+        while IFS=$'\t' read -r t k || [ -n "$k" ]; do [ -z "$k" ] || first[$k]=$t; done < "$of"
+        old=$(<"$of")
+    fi
+    for f in "$hm" "$hh"; do
+        [ -f "$f" ] || continue
+        while IFS= read -r k || [ -n "$k" ]; do
+            [ -n "$k" ] || continue
+            [ -z "${acc[$k]:-}" ] || continue
+            [ -z "${seen[$k]:-}" ] || continue
+            t=${first[$k]:-$now}; case $t in ''|*[!0-9]*) t=$now;; esac; [ "$t" -le "$now" ] || t=$now
+            seen[$k]=$t
+            if [ $((now - t)) -ge "$SALA_INBOX_ORPHAN_SECS" ]; then free+=("$k"); else out+="$t"$'\t'"$k"$'\n'; fi
+        done < "$f"
+    done
+    [ ${#free[@]} -eq 0 ] || { _hold_edit del "${free[@]}"; INBOX_ORPHANS_FREED=("${free[@]}"); }
+    if [ -z "$out" ]; then rm -f "$of"
+    elif [ "${out%$'\n'}" != "$old" ]; then
+        mkdir -p "${of%/*}" 2>/dev/null; tmp="$of.${BASHPID:-$$}.$RANDOM"
+        printf '%s' "$out" > "$tmp" && mv -f "$tmp" "$of" || rm -f "$tmp"
+    fi
+    _hold_unlock; return 0
 }
 
 # THE RENAME RENAMES ITS ENTRY ON THE PROJECT'S PAGE (Tue Oct 27th 2026; lib/rename.sh): `rename OLD NEW` used to refuse a NEW its

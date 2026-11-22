@@ -261,6 +261,17 @@ out=$("$SALA" watch --check 2>&1); rc=$?
 [ "$rc" = 0 ] && ! grep -q 'HEAL' "$WLOG" && ! tmux has-session -t =sala-test-m 2>/dev/null && ok "a plain tick: exit 0, no heal, the retired master not recreated" || bad "plain tick (rc=$rc): $(<"$WLOG")"
 [ "$(starts "$(uuid 3)")" = "$n0" ] && [ "$(lines "$FAKE_TYPED_LOG")" = "$t0" ] && ok "nothing relaunched, nothing typed into a pane (no /remote-control)" || bad "starts $(starts "$(uuid 3)") vs $n0; typed: $(tail -3 "$FAKE_TYPED_LOG" 2>/dev/null)"
 [ "$(posts)" = 0 ] && ! grep -q '^master=' "$ST" && [ -z "$(stv master_retired_warned)" ] && ok "nothing posted, no master record and no warning key in the state" || bad "posts $(posts): $(<"$POSTS"); state: $(<"$ST")"
+! grep -q 'inbox:' "$WLOG" && ok "no held key, no inbox line in the watch log" || bad "inbox line with nothing held: $(grep 'inbox:' "$WLOG")"
+# a held key no ledger row accounts for, seen 700 s ago, is freed by the tick and the watch logs it once with the count; a younger one stays
+HOLDD=$(. "$ROOT/lib/common.sh" >/dev/null 2>&1; printf %s "$SALA_INBOX_HOLD_DIR"); mkdir -p "$HOLDD" "$HOME/.local/state/salamander"
+printf 'orphan-old\norphan-young\n' | tee "$HOLDD/held-msg.txt" > "$HOLDD/held-hub.txt"
+printf '%s\torphan-old\n%s\torphan-young\n' "$(( $(date +%s) - 700 ))" "$(( $(date +%s) - 20 ))" > "$HOME/.local/state/salamander/inbox-held-unaccounted.tsv"
+: > "$WLOG"; "$SALA" watch >/dev/null 2>&1
+[ "$(grep -c 'inbox: freed 1 held key(s) that no hold-ledger row accounts for' "$WLOG")" = 1 ] && grep -q 'inbox: freed 1 .*: orphan-old$' "$WLOG" && ok "the tick logged one line: the count and the key" || bad "watch log: $(<"$WLOG")"
+[ "$(cat "$HOLDD/held-msg.txt" "$HOLDD/held-hub.txt" | tr '\n' ' ')" = "orphan-young orphan-young " ] && ok "the old key left both held files, the young one stayed" || bad "held files: $(cat "$HOLDD/held-msg.txt" "$HOLDD/held-hub.txt" | tr '\n' ' ')"
+: > "$WLOG"; "$SALA" watch >/dev/null 2>&1
+! grep -q 'inbox:' "$WLOG" && ok "the next tick logs nothing about it" || bad "second tick: $(grep 'inbox:' "$WLOG")"
+rm -rf "$HOME/.local/state/stackshot"; rm -f "$HOME/.local/state/salamander/inbox-held-unaccounted.tsv"   # nothing of stackshot was here before: the later holds are no-ops again
 
 echo "== the post-boot report with no master: one Slack post per boot, at once, not twice"
 printf 'boot-test-1\n%s\n2 resumed · 0 updated · 1 already running · 0 skipped (target 9.9.9)\n' "$(date +%s)" > "$REC"
