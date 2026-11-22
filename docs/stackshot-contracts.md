@@ -495,12 +495,12 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   `SALA_AGENT_CHECK_SCRIPT`, else `$SALA_STACKSHOT_DIR/stackshot/projects/pages.py` (`~/stackshot/stackshot/projects/pages.py` when the knob is unset; none when it is
   empty). The frozen-copy fallback (a copy of `pages.py` in a host config repo) was dropped in version 11. Knobs `SALA_AGENT_CHECK=on|off`,
   `SALA_PAGE_DIRS` (default `projects`; mirrors stackshot.toml `[pages] dirs`).
-- **Owners**: sala `lib/common.sh:592` `agent_unlisted` (plain spawn and rename: fail-open, only exit 3 refuses, 10 s
-  timeout), `:611` `agent_check_script`, `:631` `page_exists` (15 s), `:640` `agent_listed_on` (15 s; only the
+- **Owners**: sala `lib/common.sh:592` `agent_unlisted` (plain spawn: fail-open, only exit 3 refuses, 10 s
+  timeout; the in-place entry rename of `sala rename` does not ask it, the project record alone decides there: `rename_record_plan`; a side session's rename to an agent name still does), `:611` `agent_check_script`, `:631` `page_exists` (15 s), `:640` `agent_listed_on` (15 s; only the
   `listed on <this key>: ` line counts); `lib/spawn.sh:245-275` (a project spawn: exit 4 `NO-PAGE: <key>`, exit 3
   `REGISTER:` line and register command, `die` on "cannot tell"). stackshot `pages.py:324` `agent_listed`, `:1359-1364` `main`
   (`agent-listed`, `resolve`).
-- **Absent or changed**: a plain `spawn`/`rename` with no `pages.py` proceeds (fail-open). `spawn --project` with neither a
+- **Absent or changed**: a plain `spawn` with no `pages.py` proceeds (fail-open); the in-place entry rename of `sala rename` never asks `pages.py` (interface 20; a side session's rename to an agent name still asks `agent_unlisted`). `spawn --project` with neither a
   usable project record nor `pages.py` (or `pages.py` without the brain mirror) **refuses** ("cannot tell") unless
   `SALA_AGENT_CHECK=off`: the one hard dependency in sala's CLI, now needed only when the record is
   missing, stale, unreadable or lacks the project. It is kept fail-closed on purpose: `docs/running-without-stackshot.md` and the header of `lib/spawn.sh` name `spawn --project` as the one command that needs stackshot and the brain
@@ -753,9 +753,14 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   part of the name after the project's name, from the project's main agent; `<role>` when the record gives none),
   `--front` or `--back` and the mandate's first line (`"<one line>"` when the spawn had none); no instruction to edit the
   page's agents map, which reaches no reader once a project has a record; the keeper asked as before, with that command; a spawn never calls it, `sala rename` of a side session does, since version 14); the name present with the other `front` is refused with exit 1 and the
-  record's role. For `agent_unlisted` (plain spawn, rename) only a listing matters: a name on any project's map is not
+  record's role. For `agent_unlisted` (plain spawn) only a listing matters: a name on any project's map is not
   unlisted and `pages.py` is not asked. Anything else the record cannot answer (file missing or unreadable, another schema,
   stale, no such project) falls back to interface 7 unchanged, with its exit codes and its "cannot tell" refusal.
+  The in-place entry rename of `sala rename OLD NEW` is the exception: the record decides alone, read once (one copy of the file for both names), no `pages.py` fallback (its answer "no project page for this name", exit 0, was once read as "listed" and a rename of a listed agent
+  changed only the pane). OLD on a project's agents map (`listed on <key>`) and NEW on none of a fresh record: the entry is renamed through interface 21 on that project's key;
+  NEW already listed, or OLD on no map (a scratch pane): no call, not an error; a record that cannot answer (stale, missing, unreadable) refuses the rename with its reason and renames nothing
+  (`rename --sync`, a hand rename that is followed, goes on and says the reason on stderr; a box with no record file and no stackshot client has nothing to ask and goes on).
+  A side session renamed to an agent name keeps its own path (version 14), and still asks `agent_unlisted` (the record first, `pages.py` when the record cannot answer).
   The same reading rule gives a live session with no role its role (`sala sessions tag --auto`, `back-names`; the
   back agents' lane rule counts from it): a name on exactly one non-retired project's map is that project's agent, `front`
   true a front agent and false a back agent; a name on no map or on several is left alone. The same single-project reading gives the row its `surface`, for a row with a role as well as one without.

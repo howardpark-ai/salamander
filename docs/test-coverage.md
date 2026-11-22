@@ -4405,3 +4405,23 @@ is the first pane of the live row's tmux session (the lookup `_inbox_push` makes
 - Proof by mutation: with the refusal in `lib/hook.sh` switched off (`if [ -n "$_why_not" ]` made `if false`), `sessions.sh` failed eleven checks (the nine
   refusals, the log-line count and the unknown id) and `wrapup.sh` its throwaway check, while every own-pane check still passed; the check was restored and both
   suites pass.
+
+### `tests/rename.sh` +16, `tests/opparallel.sh` fixture, none retired: the project record alone decides whether a rename has an entry to rename (Sun Nov 22nd 2026)
+
+`sala rename OLD NEW` decided from `agent_unlisted NEW`, which falls back to `pages.py agent-listed` when the project record lists NEW or cannot answer; `pages.py` answered
+"no project page for this name" with exit 0, which was read as "listed", so renaming a listed agent changed only the pane and its entry stayed under the old name. The decision is now `rename_record_plan` (`lib/common.sh`): the record
+alone, `pages.py` never asked, both names read from one copy of the file. The stub `pages.py` logs every ask, the stub `client.py` moves the entry in the project record as stackshot's rewrite would, and the record lists the names the
+in-place cases rename. A section of its own checks: the defect (OLD listed on `projects/bar`, NEW on none, the stub `pages.py` answering "no project page" with exit 0: the plan names `projects/bar`, one `post project-agent-rename
+projects/bar OLD NEW --sender sala-rename` call, the pane and map row follow, `pages.py` not asked); NEW already listed (no call); OLD on no map (no call, not an error); a stale record (refused with the record's reason, in the run and
+in the plan, no call, nothing changed); the same stale record with `SALA_RENAME_SYNC=1` (the hand rename is followed, the reason on stderr, no call); no record file with stackshot's client present (refused with "no project record at"),
+and with no client either (nothing to ask: the pane renamed, since sala runs without stackshot); an existing record that cannot be read (`chmod 000`, no client either: refused with "is not readable", not taken for no stackshot;
+skipped as root); a record rewritten between the two reads (a wrapper swaps the file right after the first read: both names still come from the first snapshot, no plan from a mix, and the second snapshot alone does plan a
+rename, so the two are told apart) and the copy of the record removed after each plan.
+
+`tests/opparallel.sh`: its rename round (every third round) was decided by the page check, so its fixture had no record entry for the old name; with the record deciding, the round lists the old name on `projects/foo` of the fixture
+record while it runs (the file replaced whole with a fresh `generated`, removed after) and expects the client's `post project-agent-rename projects/foo OLD NEW` once and `pages.py` asked about neither name.
+
+Proof by mutation (each run fails the test named): with `lib/rename.sh` and `lib/common.sh` put back to the old `agent_unlisted` / `pages.py` path, the defect run made no call and `pages.py` was asked, and the unlisted-OLD, stale,
+sync and missing-record checks failed too; with the rename also asking `agent_unlisted`, the opparallel round failed on "pages.py was asked about the rename"; with the fixture's record entry removed, the round failed on the missing
+client call; with `-r` in place of `-e` the unreadable-record check failed (the rename went ahead); with the snapshot switched off the mixed-snapshot check failed (a plan from two snapshots); with the copy left behind the
+leftover check failed. The side-session and `sala-test-*` / `*-side-*` paths are unchanged (they still ask `agent_unlisted`).
