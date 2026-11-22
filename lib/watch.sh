@@ -1362,14 +1362,17 @@ lane_names_tick() {
 # "Unregistered" on the board, and nothing else notices (a hand /rename, a pane made outside sala). One post per such pane, a log line, and the pane is
 # then left alone until the back-off ends. WHAT COUNTS: a live claude pane (the table the tick took, a Remote Control child left out) that is not on the
 # spawn gate's closed exceptions list (common.sh agent_gate_exempt, the one list: scratch-*, *-check-*, *-test-*, *-probe-*, a side session, sala's shell;
-# a registry row tagged throwaway or side counts as the exception it is) and that the record says is listed nowhere (project_record_agent "" NAME, rc 3: a file read,
+# a registry row tagged throwaway or side counts as the exception it is: unreg_tag_exempt asks for that tag, one python process, only for a pane the record has no
+# answer for or says is listed nowhere, never for a listed pane) and that the record says is listed nowhere (project_record_agent "" NAME, rc 3: a file read,
 # no pages.py, no HTTP). Listed (rc 0), or listed with the other role (rc 4, rc 5), is fine. WHEN THE RECORD CANNOT ANSWER (rc 1: missing, stale, unreadable)
-# no pane is reported (a stale record would make a false "missing"): one post that the check could not run, at most once per back-off, and nothing is cleared. A box with
+# for a pane that no registry tag exempts, that pane is counted (nbad) and not reported (a stale record would make a false "missing"): one post that the check could not run,
+# at most once per back-off, and in that tick NO key is deleted at all (whether its pane is in this scan or not: tmux down, a pane just gone), so grace and back-off
+# survive the outage; a pane a registry tag exempts is not counted, so a host holding only such panes posts nothing. A box with
 # no stackshot (stackshot_present false) or SALA_AGENT_CHECK=off (the spawn gate's own switch) skips the check silently.
 # TIMING. A pane must have been missing for SALA_UNREGISTERED_GRACE seconds (default 600, the record's own SALA_PROJECT_RECORD_MAX_AGE: stackshot rewrites it every few
 # minutes, so a name registered a moment ago has reached it by then) on consecutive ticks before it is posted; it is posted again every SALA_UNREGISTERED_BACKOFF
 # seconds (default 21600, 6 h) while it is still missing. The state is one key per pane, unreg.<name>=<first seen epoch>:<last post epoch>, in the watch state file; the key goes
-# when the pane is listed, exempt or gone (a tick that cannot read the record keeps every key). SALA_UNREGISTERED_CHECK=off turns the watch off.
+# when the pane is listed, exempt or gone, in a tick where the record answered for every pane (a tick with any pane it could not answer for deletes no key). SALA_UNREGISTERED_CHECK=off turns the watch off.
 # The post says what is true and what to do in plain words, and gives no time of day (only minutes and hours), so no timezone is involved.
 : "${SALA_UNREGISTERED_CHECK:=on}"; : "${SALA_UNREGISTERED_GRACE:=600}"; : "${SALA_UNREGISTERED_BACKOFF:=21600}"
 unreg_due() {  # <state key> <now> → rc 0 when a post is due (first seen at least GRACE ago and none within BACKOFF); the key is stamped; UNREG_AGE = seconds since first seen
@@ -1382,10 +1385,20 @@ unreg_due() {  # <state key> <now> → rc 0 when a post is due (first seen at le
     [ "$last" = 0 ] || [ $((now - last)) -ge "$SALA_UNREGISTERED_BACKOFF" ] || return 1
     st_set "$k" "$first:$now"; return 0
 }
+unreg_tag_exempt() {  # <session> → rc 0 when its registry row tags it a side session or an auto-generated throwaway (the exceptions agent_gate_exempt takes as arguments); the one python process of this watch, asked only when the record has no answer for the pane
+    local row side tw
+    sessions_on || return 1
+    row=$(sessions_py resolve "$1" --live --json 2>/dev/null | python3 -I -c 'import json,sys
+try: r=json.load(sys.stdin)
+except Exception: sys.exit(0)
+print("%s\t%s" % ("1" if r.get("side") else "0", "1" if r.get("throwaway") else "0"))' 2>/dev/null)
+    IFS=$'\t' read -r side tw <<< "$row"
+    agent_gate_exempt "$1" "${side:-0}" "${tw:-0}" >/dev/null
+}
 unregistered_tick() {
     case "$SALA_UNREGISTERED_CHECK" in off|no|false|0) return 0;; esac
     [ "${SALA_AGENT_CHECK:-on}" != off ] && stackshot_present || return 0
-    local pt sess c tm kk k now rec rrc hub pmain role rel row side tw seen=" " keep=" " cand=() nbad=0 why="" l del=() hint cmd
+    local pt sess c tm kk k now rec rrc hub pmain role rel side seen=" " keep=" " cand=() nbad=0 why="" l del=() hint cmd
     _now_r now; _panes_get_r pt
     while IFS='|' read -r sess c; do
         [ -n "$sess" ] && [ "$sess" != "${SALA_RC_SESSION:-}" ] || continue
@@ -1399,18 +1412,12 @@ unregistered_tick() {
         _key_r kk "$sess"; k="unreg.$kk"
         rec=$(project_record_agent "" "$sess"); rrc=$?
         case "$rrc" in
-            1) nbad=$((nbad + 1)); why=$(sed -n 1p <<< "$rec"); keep="$keep$k "; continue ;;   # the record cannot answer: nothing said of this pane, its key kept as it is
+            1) unreg_tag_exempt "$sess" && continue   # a registry tag exempts it whatever the record says: it is not one of the panes the record could not answer for
+               nbad=$((nbad + 1)); why=$(sed -n 1p <<< "$rec"); keep="$keep$k "; continue ;;   # the record cannot answer: nothing said of this pane, its key kept as it is
             3) ;;
             *) continue ;;   # listed (0), or listed with the other role (4, 5): fine; its key goes below
         esac
-        if sessions_on; then   # the registry row may tag it a side session or an auto-generated throwaway: the exceptions agent_gate_exempt takes as arguments
-            row=$(sessions_py resolve "$sess" --live --json 2>/dev/null | python3 -I -c 'import json,sys
-try: r=json.load(sys.stdin)
-except Exception: sys.exit(0)
-print("%s\t%s" % ("1" if r.get("side") else "0", "1" if r.get("throwaway") else "0"))' 2>/dev/null)
-            IFS=$'\t' read -r side tw <<< "$row"
-            agent_gate_exempt "$sess" "${side:-0}" "${tw:-0}" >/dev/null && continue
-        fi
+        unreg_tag_exempt "$sess" && continue   # the registry row may tag it a side session or an auto-generated throwaway
         keep="$keep$k "
         unreg_due "$k" "$now" || continue
         pmain=$(sed -n 2p <<< "$rec"); hub=""; hint=""; role='<role>'
@@ -1432,12 +1439,12 @@ print("%s\t%s" % ("1" if r.get("side") else "0", "1" if r.get("throwaway") else 
             wlog "unregistered: could not check $nbad live agent pane(s): $why"
             notify "⚠️ *Could not check whether live agents are registered on stackshot*" \
                 "$nbad live agent session(s) could not be checked against stackshot's project record: $why" \
-                "no session was reported as unregistered, because an answer from this record would not be trustworthy" \
+                "panes this check could not read an answer for were not reported as unregistered, because an answer from this record would not be trustworthy" \
                 "this repeats every $UNREG_NEXT h while the record still cannot answer; it stops when stackshot's project record is readable and fresh again"
         fi
     else st_del unreg_record; fi
-    # a key whose pane is listed, exempt or gone goes (a record that could not answer kept every key of its panes above)
-    while IFS= read -r l || [ -n "$l" ]; do case "$l" in unreg.*=*) k=${l%%=*}; case "$keep" in *" $k "*) ;; *) del+=("$k");; esac;; esac; done < "$WSTATE"
+    # a key whose pane is listed, exempt or gone goes; but when the record could not answer for any pane (nbad > 0) nothing is deleted, whether the pane is in this scan or not (tmux down, a pane just gone), so grace and back-off survive an outage
+    [ "$nbad" -gt 0 ] || while IFS= read -r l || [ -n "$l" ]; do case "$l" in unreg.*=*) k=${l%%=*}; case "$keep" in *" $k "*) ;; *) del+=("$k");; esac;; esac; done < "$WSTATE"
     for k in ${del[@]+"${del[@]}"}; do st_del "$k"; done
     return 0
 }

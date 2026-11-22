@@ -4515,3 +4515,13 @@ A session can end up live on a box but under Unregistered on stackshot (a hand `
 - **e, clearing.** A pane that gets registered loses its key and posts nothing; missing again it starts a fresh episode and posts; a pane that is gone loses its key; a pane that becomes a side session loses its key; a plain `watch` tick (no master) runs the step and posts the missing pane.
 
 Not checked: the real fleet's record and panes, the real Slack post (every post lands in a file), and the record's refresh timing (the grace is a number the suite sets).
+
+### `tests/unregistered.sh`, three review points on a record that cannot answer (Sun Nov 22nd 2026)
+
+Section `f` of the suite (the same isolated HOME, private tmux server, fake claude and stub record; the panes of the earlier sections that are not exempt are ended first, and a name-less `spawn` makes a tagged throwaway and a second row is tagged a side session in the registry only, with no side record file and no `-side-` in its name). Each case failed on the code before the fix and passes after it.
+
+- **a, the registry tag comes before the count.** A record written an hour ago and only exempt-by-tag panes live (the generated throwaway and the registry-tagged side session): no "could not check" post, no per-pane post, no `unreg.<name>` key and no `unreg_record` key, over two runs.
+- **b, an outage deletes no key.** The same stale record with one non-exempt live pane and a seeded `unreg.<name>` key for a pane that is not live: one "could not check" post that counts the one pane (the tagged panes are not counted), no per-pane post, and both keys still exist afterwards. With a fresh record that lists the live pane the next run deletes both keys and posts nothing; the existing clear cases in section `e` stay green.
+- **c, the wording.** The "could not check" line says the panes this check could not read an answer for were not reported, no longer claims that no session was reported, and carries no time of day or zone. The `d` case that asserted the old sentence asserts the new one.
+
+Not checked: that a healthy tick starts no registry process (the code asks only after the record answered "listed nowhere" or "cannot answer"), and a record refresh between two reads of one tick.

@@ -10,6 +10,9 @@
 #   c  listed, exempt, side, a box with no stackshot, SALA_AGENT_CHECK=off and SALA_UNREGISTERED_CHECK=off: nothing posted, no key
 #   d  a stale, missing or unreadable record: ONE "could not check" post, no per-pane post, every key kept; once per back-off; its key goes when the record answers again
 #   e  a pane that gets registered, goes away or becomes exempt: its state key goes (and posts nothing); a plain watch tick runs the step
+#   f  a record that cannot answer, three review points: (a) only panes a registry tag exempts (a side session, a generated throwaway) are live: no "could not check" post, no per-pane post;
+#      (b) one non-exempt pane is live and a key of a pane that is not live is seeded: both keys survive the outage, and go once a readable record lists the live pane;
+#      (c) the "could not check" line says the panes it could not read an answer for were not reported (and no longer claims that no session was reported)
 # Isolated HOME, a private tmux server started with -f /dev/null, the compiled fake claude, a stub project record (SALA_PROJECT_RECORD); every post lands in a file.
 # Usage: bash tests/unregistered.sh   (exit 0 = pass; ~25 s)
 set -u
@@ -147,7 +150,7 @@ reset; uw SALA_UNREGISTERED_GRACE=0; [ "$(nkeys)" = 1 ] || bad "setup: no key fo
 mkrec 3600 delta-demo-main    # written an hour ago: stale
 uw SALA_UNREGISTERED_GRACE=0; uw SALA_UNREGISTERED_GRACE=0
 [ "$(ncant)" = 1 ] && [ "$(nmiss)" = 0 ] && ok "stale: one 'could not check' post across two runs, no per-pane post" || bad "stale: cant=$(ncant) miss=$(nmiss): $(slurp "$POSTS")"
-grep -q 'stale' "$POSTS" && grep -q 'no session was reported as unregistered' "$POSTS" && ok "it says why, and that nothing was reported" || bad "stale text: $(slurp "$POSTS")"
+grep -q 'stale' "$POSTS" && grep -q 'could not read an answer for were not reported' "$POSTS" && ok "it says why, and that nothing was reported" || bad "stale text: $(slurp "$POSTS")"
 grep -q "^unreg\.$B=" "$WSTATE" && ok "the pane's key is kept (a record that cannot answer clears nothing)" || bad "key lost: $(grep unreg "$WSTATE")"
 grep -q '^unreg_record=' "$WSTATE" && ok "the 'could not check' state key is kept" || bad "no unreg_record key"
 uw SALA_UNREGISTERED_GRACE=0 SALA_UNREGISTERED_BACKOFF=0
@@ -167,6 +170,35 @@ echo "== e: a plain watch tick runs the step"
 reset
 env SALA_UNREGISTERED_GRACE=0 "$SALA" watch >/dev/null 2>&1
 [ "$(nmiss)" = 1 ] && grep -q "\*$B $HEAD\*" "$POSTS" && ok "a plain tick (no master) posts the missing pane" || bad "plain tick: posts=$(nmiss): $(slurp "$POSTS")"
+
+echo "== f: a record that cannot answer: registry-tag exemptions come before the count, an outage deletes no key, the wording"
+for n in "$B" delta-demo-main; do $T kill-session -t "=$n" 2>/dev/null; done; waitfor "! tmux has-session -t =$B 2>/dev/null && ! tmux has-session -t =delta-demo-main 2>/dev/null" 20
+mktag() {  # <FAKE_SESSION_ID> <FAKE_NAME> → the name of a pane a name-less spawn made (its registry row tagged throwaway)
+    $T set-environment -g FAKE_SESSION_ID "$1"; $T set-environment -g FAKE_NAME "$2"; $T set-environment -g FAKE_LOG "$FAKE_LOG"
+    SALA_SPAWN_PREFIX=delta-demo "$SALA" spawn --cwd "$HOME" 2>&1 | grep -oE 'delta-demo-[0-9]{8}-[a-z]+' | head -1
+}
+TG=$(mktag aaaaaaaa-1111-4000-8000-00000000000a gen-demo-t); fake_up gen-demo-t 2>/dev/null
+SG=$(mktag aaaaaaaa-1111-4000-8000-00000000000b gen-demo-s); fake_up gen-demo-s 2>/dev/null
+if [ -n "$TG" ] && [ -n "$SG" ] && [ "$TG" != "$SG" ] && sessions_py set "$SG" side=1 >/dev/null 2>&1; then   # SG: a registry row tagged side, with no side record file and no -side- in its name
+    mkrec 3600 delta-demo-main    # stale
+    reset; uw SALA_UNREGISTERED_GRACE=0; uw SALA_UNREGISTERED_GRACE=0
+    [ "$(ncant)" = 0 ] && [ "$(nmiss)" = 0 ] && [ "$(nkeys)" = 0 ] && [ ! -s "$POSTS" ] && ok "a: stale record, only a registry-tagged side session and a tagged generated throwaway live: no 'could not check' post, no per-pane post, no key" || bad "a: tag-exempt only: cant=$(ncant) miss=$(nmiss) keys=$(nkeys): $(slurp "$POSTS")"
+    ! grep -q '^unreg_record=' "$WSTATE" && ok "a: and no 'could not check' state key" || bad "a: unreg_record: $(grep unreg_ "$WSTATE")"
+    mk "$B" "$D1"; fake_up "$B"
+    GONE=delta-demo-gone-pane
+    sed -i '/^unreg[._]/d' "$WSTATE"   # case b starts clean, whatever a left behind
+    printf 'unreg.%s=100:0\nunreg.%s=100:0\n' "$B" "$GONE" >> "$WSTATE"   # a live pane's key and the key of a pane that is not live
+    : > "$POSTS"; uw SALA_UNREGISTERED_GRACE=0; uw SALA_UNREGISTERED_GRACE=0
+    [ "$(ncant)" = 1 ] && [ "$(nmiss)" = 0 ] && ok "b: stale record, one non-exempt live pane: one 'could not check' post (the tagged panes are not counted), no per-pane post" || bad "b: one bad pane: cant=$(ncant) miss=$(nmiss): $(slurp "$POSTS")"
+    grep -q '1 live agent session(s) could not be checked' "$POSTS" && ok "b: it counts the one pane only" || bad "b: count: $(slurp "$POSTS")"
+    grep -q "^unreg\.$B=" "$WSTATE" && grep -q "^unreg\.$GONE=" "$WSTATE" && ok "b: an outage deletes no key: the live pane's key and the key of a pane that is not live both stay" || bad "b: keys after the outage: $(grep unreg "$WSTATE")"
+    grep -q 'panes this check could not read an answer for were not reported' "$POSTS" && ! grep -q 'no session was reported' "$POSTS" && ok "c: the line says the panes it could not read an answer for were not reported, and no longer claims that no session was reported" || bad "c: wording: $(slurp "$POSTS")"
+    ! grep -qE '[0-9]{1,2}:[0-9]{2}|UTC|KST|20[0-9]{2}' "$POSTS" && ok "c: no time of day or zone in it" || bad "c: a time in the post: $(slurp "$POSTS")"
+    : > "$POSTS"; mkrec 5 delta-demo-main "$B"
+    uw SALA_UNREGISTERED_GRACE=0
+    [ "$(nkeys)" = 0 ] && [ "$(nmiss)" = 0 ] && [ "$(ncant)" = 0 ] && ! grep -q '^unreg_record=' "$WSTATE" && ok "b: a readable record that lists the live pane: the keys of the listed pane and the gone pane go, nothing posted" || bad "b: readable again: keys=$(grep unreg "$WSTATE") miss=$(nmiss) cant=$(ncant)"
+    $T kill-session -t "=$TG" 2>/dev/null; $T kill-session -t "=$SG" 2>/dev/null
+else bad "f: could not set up the tagged panes: throwaway='$TG' side='$SG'"; fi
 
 [ "$fail" = 0 ] && echo "unregistered: pass" || echo "unregistered: FAIL"
 exit $fail
