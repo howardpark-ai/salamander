@@ -2,7 +2,7 @@
 # `sala rename` has stackshot rename OLD's entry on the project's page in place, and a status it cannot read is unknown, not busy (
 # Tue Oct 27th 2026; lib/rename.sh, lib/common.sh "THE RENAME RENAMES ITS ENTRY"). Until then a NEW its project's page did not list was refused
 # (only the page's keeper could unblock it) and a pane whose registry row gave no status was waited on for 2 h. Isolated HOME, a private tmux
-# socket, the compiled fake claude (tests/fake-claude.c). pages.py is a stub (SALA_AGENT_CHECK_SCRIPT) that answers in pages.py's own words, the
+# socket, the compiled fake claude (tests/fake-claude.c). the
 # project record a file in the contract's schema, and stackshot's client.py a stub (SALA_STACKSHOT_CLIENT) that logs its arguments and answers
 # in the real client's words per mode: no network, no stackshot write, no real pane. Cases: a dry run prints the plan and calls nothing; "renamed"
 # (the call is `post project-agent-rename <hub> OLD NEW --sender sala-rename`, nothing else) and the rename goes on; "already renamed" is
@@ -19,8 +19,8 @@
 # on the record or its origin is refused in --dry-run; the origin's project is the fallback; an already listed NEW makes no call; --sync never calls.
 # A --dry-run run directly inside OLD's own pane (TMUX_PANE set) says nothing is typed (a pane cannot type into itself) and names the queued
 # `sala op rename` path that types from outside; with no TMUX_PANE, as the queue's unit runs it, the plan types /rename itself.
-# THE PROJECT RECORD DECIDES (a section of its own): whether a rename has an entry to rename is read from stackshot's project record alone, never from pages.py
-# (the stub logs every ask; a name it answers "no project page", exit 0, once read as listed left the entry under the old name): OLD on a project's agents map and
+# THE PROJECT RECORD DECIDES (a section of its own): whether a rename has an entry to rename is read from stackshot's project record alone (no pages.py exists any more)
+# (a name some page reader answered "no project page", exit 0, once read as listed and left the entry under the old name): OLD on a project's agents map and
 # NEW on none = the call with the record's project key; NEW listed, or OLD on no map = no call; a stale or missing record refuses with its reason, nothing renamed,
 # --sync goes on with the reason on stderr; no record and no stackshot on the box = nothing to ask.
 # Usage: bash tests/rename.sh   (exit 0 = pass; ~40 s)
@@ -68,26 +68,8 @@ PY
 }
 calls() { local n=0 l; [ -r "$CALLS" ] || { echo 0; return; }; { while IFS= read -r l || [ -n "$l" ]; do n=$((n + 1)); done < "$CALLS"; } 2>/dev/null; echo "$n"; }
 
-# stackshot's side, stubbed. pages.py: a name in listed.txt (key TAB name TAB line) is listed, any gamma-foo-* name is not and the refusal is pages.py's
-# own line (hub page and project name in it); the project record: only gamma-foo-main (so no test name is listed by it);
-# client.py: logs its arguments (one line, fields split by \x1f) and answers in the real client's words per mode in $HOME/client-mode:
-# renamed (default; moves the entry in listed.txt), already (200 "already renamed"), 409, 404, 403, unreachable ([0]), garbage (exit 0, not JSON)
-cat > "$HOME/fake-pages.py" <<'PY'
-import os, sys
-home = os.environ["HOME"]; cmd = sys.argv[1]; arg = sys.argv[2] if len(sys.argv) > 2 else ""
-open(home + "/pages-calls.txt", "a").write(" ".join(sys.argv[1:]) + "\n")   # every ask, so a test can say pages.py was not asked
-if cmd == "agent-listed":
-    listed = {}
-    try:
-        for ln in open(home + "/listed.txt"):
-            if ln.strip(): k, n, m = ln.rstrip("\n").split("\t"); listed[n] = (k, m)
-    except FileNotFoundError: pass
-    if arg in listed: print(f"listed on {listed[arg][0]}: {listed[arg][1]}"); sys.exit(0)
-    if arg.startswith("gamma-foo-"):
-        print(f"not listed: {arg} is not under `agents:` on projects/foo (the page whose `display-name:` line is gamma-foo). The line `{arg}: <mandate>` has to be added there first (ask the project's -main agent), then the session can be made."); sys.exit(3)
-    print("no project page for this name: nothing to check"); sys.exit(0)
-sys.exit(1)
-PY
+# stackshot's side, stubbed. The project record: a file in the contract's schema (below); client.py: logs its arguments (one line, fields split by \x1f) and answers in the real
+# client's words per mode in $HOME/client-mode: renamed (default; moves the entry in the record), already (200 "already renamed"), 409, 404, 403, unreachable ([0]), garbage (exit 0, not JSON)
 cat > "$HOME/fake-client.py" <<'PY'
 import json, os, sys
 home = os.environ["HOME"]
@@ -112,7 +94,6 @@ if a[:2] == ["post", "project-agent"]:   # a side session becoming an agent: the
     if amode in arefusals: print(arefusals[amode]); sys.exit(1)
     mand = a[a.index("--mandate") + 1] if "--mandate" in a else ""
     if amode == "norecord": print(f"Recorded in prj_example ({project}): {name}"); sys.exit(0)   # a 200 that changes nothing in the record: what the read-back must catch
-    open(home + "/listed.txt", "a").write("%s\t%s\t%s\n" % (project, name, mand))   # the project record lists it (page_owed) from here on
     if True:
         rp = home + "/projects.json"; rec = json.load(open(rp))
         for pr in rec["projects"].values():
@@ -137,7 +118,6 @@ if mode == "already" and old == "sala-test-o4":   # the earlier rename (sala sta
         if pr["key"] == project and old in pr["agents"]: pr["agents"][new] = pr["agents"].pop(old)
     json.dump(rec, open(rp, "w"))
 if mode == "renamed":
-    open(home + "/listed.txt", "a").write("%s\t%s\t%s\n" % (project, new, line))
     rp = home + "/projects.json"; rec = json.load(open(rp))   # stackshot rewrites its record a few minutes later: the entry moves to NEW
     for pr in rec["projects"].values():
         if pr["key"] == project and old in pr["agents"]: pr["agents"][new] = pr["agents"].pop(old)
@@ -158,7 +138,7 @@ d = {"schema": 1, "generated": datetime.datetime.now(datetime.timezone.utc).strf
      "by_key": {"projects/foo": "prj_example", "projects/bar": "prj_ax"}}
 json.dump(d, open(sys.argv[1], "w"))
 PY
-export SALA_AGENT_CHECK_SCRIPT="$HOME/fake-pages.py" SALA_PROJECT_RECORD="$HOME/projects.json" SALA_STACKSHOT_CLIENT="$HOME/fake-client.py"
+export SALA_PROJECT_RECORD="$HOME/projects.json" SALA_STACKSHOT_CLIENT="$HOME/fake-client.py"
 unset SALA_AGENT_CHECK SALA_RENAME_SENDER
 mode() { printf '%s\n' "$1" > "$HOME/client-mode"; }
 untouched() { tmux has-session -t "=$1" 2>/dev/null && ! tmux has-session -t "=$2" 2>/dev/null && [ "$(slurp "$MAP")" = "$MAP_BEFORE" ]; }   # <OLD> <NEW>: the rename changed nothing
@@ -184,7 +164,7 @@ out=$("$SALA" rename sala-test-o1 gamma-foo-hosting --dry-run 2>&1); rc=$?
 echo "$out" | sed 's/^/    /'
 [ "$rc" = 0 ] && has "$out" "rename 'sala-test-o1' to 'gamma-foo-hosting' on projects/foo's page, in place (stackshot: post project-agent-rename, label sala-rename)" \
     && ok "the plan names the page, the call and the label" || bad "dry run: rc=$rc"
-[ "$(calls)" = 0 ] && [ ! -e "$HOME/listed.txt" ] && ok "no stackshot call made" || bad "calls: $(slurp "$CALLS")"
+[ "$(calls)" = 0 ] && ok "no stackshot call made" || bad "calls: $(slurp "$CALLS")"
 untouched sala-test-o1 gamma-foo-hosting && ok "tmux session and pane map untouched" || bad "after the dry run: $(tmux ls 2>&1 | head -3) / $(slurp "$MAP")"
 
 echo "== --dry-run run directly inside OLD's own pane (TMUX_PANE set): the self text says what is true; run from outside it, the runner's line"
@@ -276,50 +256,46 @@ setname sala-test-o6 gamma-foo-hand
 out=$(SALA_RENAME_SYNC=1 "$SALA" rename sala-test-o6 gamma-foo-hand 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(calls)" = "$n0" ] && tmux has-session -t =gamma-foo-hand 2>/dev/null && ok "followed, no call" || bad "sync: rc=$rc $out"
 
-echo "== the project record decides, pages.py is never asked: OLD on a project's agents map and NEW on none is renamed there"
+echo "== the project record decides: OLD on a project's agents map and NEW on none is renamed there"
 RU1=aaaaaaaa-0000-4000-8000-000000000041 RU2=aaaaaaaa-0000-4000-8000-000000000042 RU3=aaaaaaaa-0000-4000-8000-000000000043 RU4=aaaaaaaa-0000-4000-8000-000000000044 RU5=aaaaaaaa-0000-4000-8000-000000000045 RU6=aaaaaaaa-0000-4000-8000-000000000046 RU7=aaaaaaaa-0000-4000-8000-000000000047 RU8=aaaaaaaa-0000-4000-8000-000000000048 RU9=aaaaaaaa-0000-4000-8000-000000000049
 for i in 1 2 3 4 5 6 7 8 9; do eval "u=\$RU$i"; hand sala-test-r$i "$u" "$HOME/work"; done; fake_up sala-test-r1 sala-test-r2 sala-test-r3 sala-test-r4 sala-test-r5 sala-test-r6 sala-test-r7 sala-test-r8 sala-test-r9
 for i in 1 2 3 4 5 6 7 8 9; do "$SALA" adopt sala-test-r$i >/dev/null 2>&1; done
-pcalls() { [ -s "$HOME/pages-calls.txt" ] && wc -l < "$HOME/pages-calls.txt" || echo 0; }   # how often the pages.py stub was asked
 mode renamed
-# (a) the defect: sala-test-r1 is on projects/bar's agents map, its new name on no map, and pages.py has no page for the name and exits 0 ("listed" to the old reading)
-setname sala-test-r1 delta-ax-engineer
-pg=$(python3 "$HOME/fake-pages.py" agent-listed delta-ax-engineer); prc=$?
-[ "$prc" = 0 ] && has "$pg" "no project page for this name" && ok "the stub pages.py answers the new name with 'no project page' and exit 0 (the answer the old decision read as listed)" || bad "pages stub: rc=$prc $pg"
-n0=$(calls); p0=$(pcalls); MAP_BEFORE=$(slurp "$MAP")
-out=$("$SALA" rename sala-test-r1 delta-ax-engineer --dry-run 2>&1); rc=$?
-[ "$rc" = 0 ] && has "$out" "rename 'sala-test-r1' to 'delta-ax-engineer' on projects/bar's page, in place" && [ "$(calls)" = "$n0" ] && untouched sala-test-r1 delta-ax-engineer \
+# (a) the defect: sala-test-r1 is on projects/bar's agents map, its new name on no map
+setname sala-test-r1 delta-ax-builder
+n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
+out=$("$SALA" rename sala-test-r1 delta-ax-builder --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && has "$out" "rename 'sala-test-r1' to 'delta-ax-builder' on projects/bar's page, in place" && [ "$(calls)" = "$n0" ] && untouched sala-test-r1 delta-ax-builder \
     && ok "the plan names the project the record gives (projects/bar) and calls nothing" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "defect plan: rc=$rc"; }
-out=$("$SALA" rename sala-test-r1 delta-ax-engineer 2>&1); rc=$?
+out=$("$SALA" rename sala-test-r1 delta-ax-builder 2>&1); rc=$?
 echo "$out" | sed 's/^/    /' | cut -c1-260
-[ "$rc" = 0 ] && [ "$(calls)" = $((n0 + 1)) ] && [ "$(tail -1 "$CALLS" | tr '\037' ' ')" = "post project-agent-rename projects/bar sala-test-r1 delta-ax-engineer --sender sala-rename" ] \
-    && has "$out" "'sala-test-r1' is now 'delta-ax-engineer' on projects/bar's page (stackshot, in place)" \
-    && ok "the entry is renamed: one call, post project-agent-rename projects/bar sala-test-r1 delta-ax-engineer --sender sala-rename" || bad "defect run: rc=$rc calls=$(calls) (was $n0): $(tail -1 "$CALLS" | tr '\037' ' ')"
-[ "$(pcalls)" = "$p0" ] && ok "pages.py was not asked at all" || bad "pages.py was asked: $(tail -2 "$HOME/pages-calls.txt")"
-tmux has-session -t =delta-ax-engineer 2>/dev/null && [ -n "$(row delta-ax-engineer)" ] && [ -z "$(row sala-test-r1)" ] && ok "tmux session and map row follow the name" || bad "after the defect rename: $(slurp "$MAP")"
+[ "$rc" = 0 ] && [ "$(calls)" = $((n0 + 1)) ] && [ "$(tail -1 "$CALLS" | tr '\037' ' ')" = "post project-agent-rename projects/bar sala-test-r1 delta-ax-builder --sender sala-rename" ] \
+    && has "$out" "'sala-test-r1' is now 'delta-ax-builder' on projects/bar's page (stackshot, in place)" \
+    && ok "the entry is renamed: one call, post project-agent-rename projects/bar sala-test-r1 delta-ax-builder --sender sala-rename" || bad "defect run: rc=$rc calls=$(calls) (was $n0): $(tail -1 "$CALLS" | tr '\037' ' ')"
+tmux has-session -t =delta-ax-builder 2>/dev/null && [ -n "$(row delta-ax-builder)" ] && [ -z "$(row sala-test-r1)" ] && ok "tmux session and map row follow the name" || bad "after the defect rename: $(slurp "$MAP")"
 # (b) NEW already on a project's agents map: nothing to rename, no call, the rename of the pane goes on
-setname sala-test-r2 gamma-foo-dup; n0=$(calls); p0=$(pcalls)
+setname sala-test-r2 gamma-foo-dup; n0=$(calls)
 out=$("$SALA" rename sala-test-r2 gamma-foo-dup 2>&1); rc=$?
-[ "$rc" = 0 ] && [ "$(calls)" = "$n0" ] && [ "$(pcalls)" = "$p0" ] && tmux has-session -t =gamma-foo-dup 2>/dev/null && ! has "$out" "in place" && ok "NEW already listed: no call, pages.py not asked, the pane renamed" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "listed NEW: rc=$rc calls=$(calls) (was $n0)"; }
+[ "$rc" = 0 ] && [ "$(calls)" = "$n0" ] && tmux has-session -t =gamma-foo-dup 2>/dev/null && ! has "$out" "in place" && ok "NEW already listed: no call, the pane renamed" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "listed NEW: rc=$rc calls=$(calls) (was $n0)"; }
 # (c) OLD on no project's agents map (a scratch pane): no entry to rename, no call, not an error
-setname sala-test-r3 gamma-foo-scratch; n0=$(calls); p0=$(pcalls)
+setname sala-test-r3 gamma-foo-scratch; n0=$(calls)
 out=$("$SALA" rename sala-test-r3 gamma-foo-scratch 2>&1); rc=$?
-[ "$rc" = 0 ] && [ "$(calls)" = "$n0" ] && [ "$(pcalls)" = "$p0" ] && tmux has-session -t =gamma-foo-scratch 2>/dev/null && ! has "$out" "in place" && ok "OLD on no map: no call, pages.py not asked, the pane renamed" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "unlisted OLD: rc=$rc calls=$(calls) (was $n0)"; }
+[ "$rc" = 0 ] && [ "$(calls)" = "$n0" ] && tmux has-session -t =gamma-foo-scratch 2>/dev/null && ! has "$out" "in place" && ok "OLD on no map: no call, the pane renamed" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "unlisted OLD: rc=$rc calls=$(calls) (was $n0)"; }
 # (d) a record that cannot answer (stale) refuses the rename with its reason, nothing renamed; --sync goes on and says it on stderr
 python3 - "$HOME/projects.json" "$HOME/stale.json" <<'PY'
 import datetime, json, sys
 d = json.load(open(sys.argv[1])); d["generated"] = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 json.dump(d, open(sys.argv[2], "w"))
 PY
-setname sala-test-r4 gamma-foo-r4s; n0=$(calls); p0=$(pcalls); MAP_BEFORE=$(slurp "$MAP")
+setname sala-test-r4 gamma-foo-r4s; n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
 out=$(SALA_PROJECT_RECORD="$HOME/stale.json" "$SALA" rename sala-test-r4 gamma-foo-r4s 2>&1); rc=$?
 echo "$out" | sed 's/^/    /' | cut -c1-300
-[ "$rc" != 0 ] && has "$out" "rename refused, nothing renamed: stackshot's project record cannot say whether 'sala-test-r4' has an entry on a project's agents map (the project record is stale" && [ "$(calls)" = "$n0" ] && [ "$(pcalls)" = "$p0" ] \
-    && untouched sala-test-r4 gamma-foo-r4s && ok "stale record: refused with the record's reason, no call, pages.py not asked, nothing changed" || bad "stale record: rc=$rc calls=$(calls) (was $n0)"
+[ "$rc" != 0 ] && has "$out" "rename refused, nothing renamed: stackshot's project record cannot say whether 'sala-test-r4' has an entry on a project's agents map (the project record is stale" && [ "$(calls)" = "$n0" ] \
+    && untouched sala-test-r4 gamma-foo-r4s && ok "stale record: refused with the record's reason, no call, nothing changed" || bad "stale record: rc=$rc calls=$(calls) (was $n0)"
 out=$(SALA_PROJECT_RECORD="$HOME/stale.json" "$SALA" rename sala-test-r4 gamma-foo-r4s --dry-run 2>&1); rc=$?
 [ "$rc" != 0 ] && has "$out" "the project record is stale" && ok "the plan (--dry-run, sala op --plan) refuses the same way" || bad "stale plan: rc=$rc $out"
 out=$(SALA_PROJECT_RECORD="$HOME/stale.json" SALA_RENAME_SYNC=1 "$SALA" rename sala-test-r4 gamma-foo-r4s 2>"$HOME/sync.err"); rc=$?
-[ "$rc" = 0 ] && has "$(slurp "$HOME/sync.err")" "ℹ stackshot's project record cannot say whether 'sala-test-r4' has an entry" && has "$(slurp "$HOME/sync.err")" "the project record is stale" && [ "$(calls)" = "$n0" ] && [ "$(pcalls)" = "$p0" ] \
+[ "$rc" = 0 ] && has "$(slurp "$HOME/sync.err")" "ℹ stackshot's project record cannot say whether 'sala-test-r4' has an entry" && has "$(slurp "$HOME/sync.err")" "the project record is stale" && [ "$(calls)" = "$n0" ] \
     && tmux has-session -t =gamma-foo-r4s 2>/dev/null && ok "--sync with a stale record: the hand rename is followed, the reason is on stderr, no call" || { slurp "$HOME/sync.err" | sed 's/^/    /' | cut -c1-260; bad "sync with a stale record: rc=$rc $out"; }
 # (e) no record file: refused when stackshot's client is there; nothing to ask (and no refusal) on a box with no stackshot at all
 setname sala-test-r5 gamma-foo-r5; n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
@@ -370,10 +346,10 @@ json.dump(d, open(out, "w"))
 PY
 }
 recwith "$HOME/dup.json" sala-test-r7 projects/foo projects/bar
-setname sala-test-r7 gamma-foo-r7; n0=$(calls); p0=$(pcalls); MAP_BEFORE=$(slurp "$MAP")
+setname sala-test-r7 gamma-foo-r7; n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
 out=$(SALA_PROJECT_RECORD="$HOME/dup.json" "$SALA" rename sala-test-r7 gamma-foo-r7 2>&1); rc=$?
 echo "$out" | sed 's/^/    /' | cut -c1-300
-[ "$rc" != 0 ] && has "$out" "rename refused, nothing renamed: 'sala-test-r7' is on the agents maps of more than one project (projects/bar and projects/foo)" && [ "$(calls)" = "$n0" ] && [ "$(pcalls)" = "$p0" ] \
+[ "$rc" != 0 ] && has "$out" "rename refused, nothing renamed: 'sala-test-r7' is on the agents maps of more than one project (projects/bar and projects/foo)" && [ "$(calls)" = "$n0" ] \
     && untouched sala-test-r7 gamma-foo-r7 && ok "OLD on two projects: refused with both keys named, no call, nothing changed" || bad "two projects: rc=$rc calls=$(calls) (was $n0)"
 out=$(SALA_PROJECT_RECORD="$HOME/dup.json" "$SALA" rename sala-test-r7 gamma-foo-r7 --dry-run 2>&1); rc=$?
 [ "$rc" != 0 ] && has "$out" "projects/bar and projects/foo" && ok "the plan (--dry-run, sala op --plan) refuses the same way" || bad "two projects plan: rc=$rc $out"
@@ -581,8 +557,8 @@ tmux has-session -t =gamma-foo-promoted 2>/dev/null && [ -n "$(row gamma-foo-pro
 [ -z "$(rowfield gamma-foo-promoted side)" ] && [ -z "$(rowfield gamma-foo-promoted side_origin)" ] && [ -z "$(rowfield gamma-foo-promoted side_item)" ] && [ -z "$(rowfield gamma-foo-promoted side_at)" ] \
     && [ "$(rowfield gamma-foo-promoted project)" = projects/foo ] && [ "$(rowfield gamma-foo-promoted role)" = front ] \
     && ok "the registry row: side fields cleared, tagged projects/foo / front" || bad "row fields: side=$(rowfield gamma-foo-promoted side) project=$(rowfield gamma-foo-promoted project) role=$(rowfield gamma-foo-promoted role)"
-out=$(agent_unlisted gamma-foo-promoted); rc=$?   # (the stub's listed.txt stands in for the project record's pending entry)
-[ "$rc" = 1 ] && ok "afterwards the name counts as listed (agent_unlisted: no), as the project record's pending entry makes it" || bad "still unlisted: $out"
+out=$(record_name_unlisted gamma-foo-promoted); rc=$?   # (the client stub put the entry on the record)
+[ "$rc" = 1 ] && ok "afterwards the name counts as listed (record_name_unlisted: no), as the project record's entry makes it" || bad "still unlisted: $out"
 
 # (c) stackshot refuses (403, 400, unreachable): nothing renamed, the record and the row kept, the reason printed
 for m in 403 400 409 unreachable; do
@@ -603,6 +579,12 @@ n0=$(calls)
 out=$(SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR= "$SALA" rename sala-test-side-b gamma-foo-refused 2>&1); rc=$?
 [ "$rc" != 0 ] && has "$out" "no stackshot client.py on this box" && [ "$(calls)" = "$n0" ] && untouched sala-test-side-b gamma-foo-refused && [ -f "$(side_file sala-test-side-b)" ] \
     && ok "no client.py: refused, naming it, the side record kept" || bad "no client: rc=$rc $out"
+
+# (c3) the project record cannot answer whether NEW is listed (stale): refused before anything, no call, nothing typed or renamed, the side record kept: a guess would register nothing or twice
+n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
+out=$(SALA_PROJECT_RECORD="$HOME/stale.json" "$SALA" rename sala-test-side-b gamma-foo-refused 2>&1); rc=$?
+[ "$rc" != 0 ] && has "$out" "rename refused, nothing renamed: stackshot's project record cannot say whether 'gamma-foo-refused' is on a project's agents map" && has "$out" "stale" && [ "$(calls)" = "$n0" ] && untouched sala-test-side-b gamma-foo-refused && [ -f "$(side_file sala-test-side-b)" ] \
+    && ok "a side session renamed to an agent name with a stale record: refused with the record's reason, no call, nothing renamed, the side record kept" || { echo "$out" | sed 's/^/    /' | cut -c1-260; bad "side rename, stale record: rc=$rc calls=$(calls) (was $n0)"; }
 
 # (d) no project on the record and none on its origin: refused in the plan, with the reason, before anything started
 n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
@@ -626,7 +608,13 @@ out=$(SALA_RENAME_SYNC=1 "$SALA" rename sala-test-side-b gamma-foo-refused 2>&1)
 [ "$rc" = 0 ] && [ "$(calls)" = "$n0" ] && tmux has-session -t =gamma-foo-refused 2>/dev/null && [ -f "$(side_file sala-test-side-b)" ] && ok "--sync (a hand rename): followed, no call, the record untouched" || bad "sync of a side session: rc=$rc $out"
 
 # (g) NEW already listed on its project (a page line, or a pending entry): no call; the side record still ends, so it is not left behind under the old name
-printf 'projects/foo\tgamma-foo-already\tlisted before\n' >> "$HOME/listed.txt"; n0=$(calls)
+python3 - "$HOME/projects.json" <<'PY'
+import json, sys
+rec = json.load(open(sys.argv[1]))
+rec["projects"]["prj_example"]["agents"]["gamma-foo-already"] = {"front": True, "role": "already", "mandate_line": "listed before"}
+json.dump(rec, open(sys.argv[1], "w"))
+PY
+n0=$(calls)
 out=$("$SALA" rename sala-test-side-e gamma-foo-already 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(calls)" = "$n0" ] && tmux has-session -t =gamma-foo-already 2>/dev/null && [ ! -e "$(side_file sala-test-side-e)" ] && [ -f "$SALA_SIDE_DIR/retired/sala-test-side-e.side" ] \
     && [ -z "$(rowfield gamma-foo-already side)" ] && [ -z "$(rowfield gamma-foo-already project)" ] \

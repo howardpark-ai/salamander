@@ -224,6 +224,16 @@ print({"ok": '{"result": "line removed"}', "dropped": '{"result": "dropped"}', "
 PY
 CALLS="$HOME/client-calls.txt"; RLOGF="$SALA_LOG_DIR/salamander-retire.log"; : > "$CALLS"
 export SALA_STACKSHOT_CLIENT="$HOME/fake-client.py"
+# stackshot's published project record (SALA_PROJECT_RECORD), written <age> seconds ago with one project (projects/foo) and no agents on it: a name that is on no project's map and has
+# no project from its row, the side record or the roles list gets "listed nowhere" from it, which is an answer. A record that cannot answer (missing, stale) is the blind case (4c) below.
+export SALA_PROJECT_RECORD="$HOME/projects.json"
+mkfresh() { python3 - "$1" > "$SALA_PROJECT_RECORD" <<'PY'
+import datetime, json, sys
+t = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=float(sys.argv[1]))
+print(json.dumps({"schema": 1, "generated": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "projects": {"prj_1": {"id": "prj_1", "key": "projects/foo", "agents": {}}}, "by_key": {"projects/foo": "prj_1"}}))
+PY
+}
+mkfresh 0
 mode() { printf '%s\n' "$1" > "$HOME/client-mode"; }
 ncalls() { wc -l < "$CALLS" | tr -d ' '; }
 lastcall() { tail -1 "$CALLS" | tr '\037' ' '; }
@@ -449,5 +459,76 @@ out=$(SALA_PROJECT_RECORD="$HOME/rec.json" SALA_ROLES_FILE="$HOME/no-such-roles.
 tagged sala-rq14 "$UQ14"; n0=$(ncalls); l0=$(wc -l < "$RLOGF")
 out=$(SALA_PROJECT_RECORD="$HOME/rec.json" SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq14 --keep-web 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && ! tmux has-session -t =sala-rq14 2>/dev/null && tail -n +$((l0 + 1)) "$RLOGF" | grep -qF "sala-rq14: no project known for it (listed on projects/bar and projects/foo" && ok "a name on two projects' maps: stackshot is not asked (no guess), the log names both" || bad "ambiguous record: rc=$rc calls=$(ncalls) $out $(tail -n +$((l0 + 1)) "$RLOGF")"
+
+
+echo "== (4a, 4b) after stackshot answered, a second claude in another pane, or a registry row that lost its conversation, leaves the pane alone (the record is already off: a retry is safe)"
+UQ15=0a00001f-0000-4000-8000-0000000000a5 UQ16=0a000020-0000-4000-8000-0000000000a6 UQ17=0a000021-0000-4000-8000-0000000000a7 UQ18=0a000022-0000-4000-8000-0000000000a8
+cat > "$HOME/mid2-client.py" <<'PY'
+import glob, os, re, subprocess, sys, time
+home = os.environ["HOME"]; mode = os.environ.get("MID_MODE", ""); name = sys.argv[4]; sock = os.environ["SALA_TMUX_SOCKET"]
+open(home + "/client-calls.txt", "a").write("\x1f".join(sys.argv[1:]) + "\n")
+if mode == "pane":   # a second claude starts in a new window of the same tmux session while stackshot answers
+    subprocess.run(["tmux", "-S", sock, "new-window", "-d", "-t", "=" + name + ":", "-c", home + "/work", "-e", "FAKE_SESSION_ID=" + os.environ["MID_UUID"], "-e", "FAKE_NAME=" + name + "-b", "-e", "FAKE_LOG=" + os.environ["FAKE_LOG"], "claude"])
+    for _ in range(100):
+        o = subprocess.run(["tmux", "-S", sock, "list-panes", "-s", "-t", "=" + name + ":", "-F", "#{pane_current_command}"], capture_output=True, text=True).stdout
+        if o.split().count("claude") >= 2: break
+        time.sleep(0.1)
+    time.sleep(1)
+elif mode == "noconv":   # the registry row of the session loses its conversation id while stackshot answers
+    for f in glob.glob(home + "/.claude/sessions/*.json"):
+        t = open(f).read()
+        if '"name":"%s"' % name in t: open(f, "w").write(re.sub(r'"sessionId":"[^"]*"', '"sessionId":""', t, count=1))
+print('{"result": "line removed"}')
+PY
+mode ok; : > "$CALLS"; mkfresh 0; tagged sala-rq15 "$UQ15" projects/foo; c=$(pane_claude sala-rq15)
+out=$(SALA_STACKSHOT_CLIENT="$HOME/mid2-client.py" MID_MODE=pane MID_UUID="$UQ16" "$SALA" retire sala-rq15 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+waitfor "reg_live '\"sessionId\":\"$UQ16\"'" 40 || echo "  (the second fake did not come up)"
+[ "$rc" != 0 ] && [ "$(ncalls)" = 1 ] && tmux has-session -t =sala-rq15 2>/dev/null && kill -0 "$c" 2>/dev/null && ! grep -q "^exit $UQ15" "$FAKE_LOG" && ! grep -q "^exit $UQ16" "$FAKE_LOG" && ! echo "$out" | grep -q "/exit \.\.\." && ! echo "$out" | grep -q "tmux session killed" \
+    && echo "$out" | grep -qF "another pane of it now runs a claude" && echo "$out" | grep -qF "the pane is left as it is" && echo "$out" | grep -qF "stackshot has already taken it off projects/foo's record" && echo "$out" | grep -qF "a retry is safe" && [ -n "$(row sala-rq15)" ] \
+    && ok "(4a) a second claude in another pane after the ask: no /exit, no kill, both claudes alive, the row kept, the message names the pane and says the record is already off" || bad "(4a) rc=$rc calls=$(ncalls) $out"
+kill_wait sala-rq15
+mode ok; : > "$CALLS"; tagged sala-rq16 "$UQ17" projects/foo; c=$(pane_claude sala-rq16)
+out=$(SALA_STACKSHOT_CLIENT="$HOME/mid2-client.py" MID_MODE=noconv "$SALA" retire sala-rq16 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+[ "$rc" != 0 ] && [ "$(ncalls)" = 1 ] && tmux has-session -t =sala-rq16 2>/dev/null && kill -0 "$c" 2>/dev/null && ! grep -q "^exit $UQ17" "$FAKE_LOG" && ! echo "$out" | grep -q "/exit \.\.\." \
+    && echo "$out" | grep -qF "can no longer be read from the registry row" && echo "$out" | grep -qF "stackshot has already taken it off projects/foo's record" && [ -n "$(row sala-rq16)" ] \
+    && ok "(4b) a registry row that gave its conversation at the start and gives none after the ask: left alone, no /exit, the row kept, said" || bad "(4b) rc=$rc calls=$(ncalls) $out"
+kill_wait sala-rq16
+# the control: a conversation the registry never gave (known only from the pane map) is no change: the retire goes on
+tagged sala-rq16 "$UQ17" projects/foo
+for f in "$HOME"/.claude/sessions/*.json; do grep -q '"name":"sala-rq16"' "$f" && sed -i 's/"sessionId":"[^"]*"/"sessionId":""/' "$f"; done
+: > "$CALLS"; out=$("$SALA" retire sala-rq16 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && ! tmux has-session -t =sala-rq16 2>/dev/null && ok "(4b control) a registry row with no conversation from the start (the id only in the pane map): not a change, the retire goes on" || bad "(4b control) rc=$rc calls=$(ncalls) $out"
+
+echo "== (4c) no project is known for a name and stackshot's project record cannot answer: loud (a warning, a log line, a dry-run line) and the retire goes on; a record that lists it nowhere, an exempt name and a box with no stackshot stay quiet"
+UQ19=0a000023-0000-4000-8000-0000000000a9 UQ20=0a000024-0000-4000-8000-0000000000aa UQ21=0a000025-0000-4000-8000-0000000000ab
+for how in missing stale; do
+    case "$how" in missing) rm -f "$SALA_PROJECT_RECORD" ;; stale) mkfresh 3600 ;; esac
+    tagged sala-rq19 "$UQ19"; : > "$CALLS"; l0=$(wc -l < "$RLOGF"); s0=$(state)
+    out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq19 --dry-run 2>&1); rc=$?
+    [ "$rc" = 0 ] && echo "$out" | grep -qF "would WARN, not refuse: stackshot cannot be asked to take 'sala-rq19' off a project" && ok "(4c) record $how, --dry-run: the warning said, nothing refused" || bad "(4c) dry run, record $how: rc=$rc $out"
+    untouched "$s0" "retire sala-rq19 --dry-run (record $how)"
+    out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq19 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+    [ "$rc" = 0 ] && [ "$(ncalls)" = 0 ] && ! tmux has-session -t =sala-rq19 2>/dev/null && echo "$out" | grep -qF "⚠ stackshot was NOT asked to take 'sala-rq19' off a project: no project is known for it and stackshot's project record cannot say which project lists it" && echo "$out" | grep -qF "post project-agent-retire <project page key> sala-rq19" \
+        && tail -n +$((l0 + 1)) "$RLOGF" | grep -qF "sala-rq19: WARNING: the retire goes on although stackshot's project record could not say whether 'sala-rq19' is on a project" \
+        && ok "(4c) record $how: the retire goes on, no call, a ⚠ line on stdout with the command to run later, a WARNING line in the retire log" || bad "(4c) record $how: rc=$rc calls=$(ncalls) $out"
+done
+mkfresh 0
+tagged sala-rq19 "$UQ19"; : > "$CALLS"; l0=$(wc -l < "$RLOGF")
+out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq19 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && ! echo "$out" | grep -qF "NOT asked" && ! tail -n +$((l0 + 1)) "$RLOGF" | grep -qF "WARNING" && ok "(4c control) a fresh record that lists the name nowhere is an answer: no warning" || bad "(4c control) rc=$rc $out"
+rm -f "$SALA_PROJECT_RECORD"
+hand sala-test-blind "$UQ20" sala-test-blind; "$SALA" adopt sala-test-blind >/dev/null 2>&1; : > "$CALLS"
+out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-test-blind --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && ! echo "$out" | grep -qF "NOT asked" && ok "(4c exempt) a throwaway's name (*-test-*) with no record: no warning (the gate does not apply to it)" || bad "(4c exempt) rc=$rc $out"
+tagged sala-rq19 "$UQ19"; : > "$CALLS"
+out=$(SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR= SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq19 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && ! echo "$out" | grep -qF "NOT asked" && ok "(4c no stackshot) no record and no client: a box with no stackshot has nothing to be blind to, no warning" || bad "(4c no stackshot) rc=$rc $out"
+# forget-row of an orphan row: the same warning, in the dry run and for real
+ledger_write add sala-rq21 "$UQ21" sala-rq21 "$HOME/work" >/dev/null 2>&1; : > "$CALLS"
+out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" forget-row sala-rq21 --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -qF "would WARN, not refuse: stackshot cannot be asked to take 'sala-rq21' off a project" && [ -n "$(row sala-rq21)" ] && ok "(4c forget-row) --dry-run: the warning said, the row kept" || bad "(4c forget-row dry) rc=$rc $out"
+out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" forget-row sala-rq21 2>&1); rc=$?
+[ "$rc" = 0 ] && [ -z "$(row sala-rq21)" ] && [ "$(ncalls)" = 0 ] && echo "$out" | grep -qF "⚠ stackshot was NOT asked to take 'sala-rq21' off a project" && ok "(4c forget-row) real: the row forgotten, a ⚠ line says stackshot was not asked" || bad "(4c forget-row) rc=$rc calls=$(ncalls) $out"
+mkfresh 0
 
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

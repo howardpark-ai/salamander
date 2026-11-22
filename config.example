@@ -27,18 +27,15 @@
                                  #   (write it as `~/bin/register-agent "$@"` to receive them) and as SALA_SPAWN_NAME, SALA_SPAWN_PROJECT,
                                  #   SALA_SPAWN_ROLE, SALA_SPAWN_MANDATE_FILE, plus SALA_SPAWN_MANDATE_LINE, SALA_SPAWN_UUID, SALA_SPAWN_LANE; its
                                  #   output goes to ~/.claude/salamander-spawn.log; a failure or a hang (60 s) is one ⚠ line, never the exit status.
-                                 #   Unset (the default): a no-op that logs `spawn-register: no hook configured` — the page's agents line, written
-                                 #   by its keeper, is the registration. While it is set, no message asks a keeper for an unlisted name (below)
-#SALA_STACKSHOT_DIR=~/stackshot   # where stackshot's checkout is: the one place the default stackshot commands below come from (stackshot/projects/pages.py,
-                                 #   stackshot/fleet/client.py: the spawn keeper ask, the side-session commands, the parked-question board scripts, release.sh, sala-web's roles).
-                                 #   A checkout from before stackshot moved its programs into a package has them in its root (pages.py, client.py): while that file is
+                                 #   Unset (the default): a no-op that logs `spawn-register: no hook configured` — the spawn gate's own
+                                 #   `post project-agent` (stackshot's project record) is the registration
+#SALA_STACKSHOT_DIR=~/stackshot   # where stackshot's checkout is: the one place the default stackshot commands below come from (stackshot/fleet/client.py: the
+                                 #   spawn gate's register call and name check, the side-session commands, the parked-question board scripts, release.sh, sala-web's roles).
+                                 #   A checkout from before stackshot moved its programs into a package has them in its root (client.py): while that file is
                                  #   all the checkout has, the default is the root path (lib/stackshot-path.sh); the package path wins whenever both exist.
                                  #   Unset: ~/stackshot, as before. Set EMPTY on a box with no stackshot: every one of those defaults is empty at once. The
-                                 #   explicit knobs (SALA_AGENT_CHECK_SCRIPT, SALA_SPAWN_ASK_CMD, SALA_SIDE_*_CMD, SALA_STACKSHOT_CLIENT, STACKSHOT_CLIENT,
+                                 #   explicit knobs (SALA_SIDE_*_CMD, SALA_STACKSHOT_CLIENT, STACKSHOT_CLIENT,
                                  #   SALA_WEB_ROLES_CMD) win over it. release.sh and sala-web read the environment only, not this file
-#SALA_SPAWN_ASK_CMD="python3 ~/stackshot/stackshot/fleet/client.py message"   # the stackshot message that asks the project's keeper for an unlisted name's agents line
-                                 #   (default: `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py message`; `<cmd> <page key> <text> --sender "sala spawn"`, detached, 150 s); set it empty to never ask
-#SALA_SPAWN_ASK_EVERY=3600        # seconds before the same name's keeper is asked again (the stamp: ~/.local/state/salamander/spawn-asked/<name>)
 #SALA_AGENT_NAME_MAX=48           # a project agent's name: lowercase letters, digits and dashes, no dash at either end, at most this many characters
 #SALA_PAGE_DIRS="projects"       # the page directories a --project key may start with, space-separated and quoted (stackshot.toml [pages] dirs on
                                  #   this instance, e.g. SALA_PAGE_DIRS="projects ops"). Default: projects. The web UI reads this line too (after
@@ -47,11 +44,10 @@
                                  #   session's timeline line there; the web UI lists the projects of the new-session form from it (after SALA_WEB_BRAIN_DIR
                                  #   and stackshot's own [paths] brain). Unset or empty (the default): no mirror, so `side done` asks stackshot's client
                                  #   for the page's last change instead and the web UI's project list is empty with that reason
-#SALA_AGENT_CHECK=on              # the agents-map checks through stackshot's pages.py (a project spawn: `resolve` and `agent-listed`, never fail-open;
-                                 #   a plain spawn or rename: `agent-listed`, fail-open); off: skipped (the suites, a box with no brain)
-#SALA_AGENT_CHECK_SCRIPT=~/stackshot/stackshot/projects/pages.py   # where pages.py is (default: $SALA_STACKSHOT_DIR/stackshot/projects/pages.py; the suites point it at a stub). `spawn --project` is
-                                 #   the one command that needs stackshot (its project record or this script) and the brain mirror: with neither it refuses
-                                 #   ("cannot tell"), by design, and SALA_AGENT_CHECK=off is the only bypass
+#SALA_AGENT_CHECK=on              # the spawn gate's check, from stackshot's project record alone (SALA_PROJECT_RECORD, default ~/.local/state/stackshot/projects.json, at most
+                                 #   SALA_PROJECT_RECORD_MAX_AGE seconds old, 600): a listed name starts; an unlisted one with --role and --mandate is registered with stackshot first; a record
+                                 #   that cannot answer (missing, stale, unreadable) refuses the spawn (exit 6, no pane) for any name the closed exception list does not cover. off: not checked
+                                 #   (the suites, a box with no stackshot). `spawn --project` is the one command that needs stackshot, by design; SALA_AGENT_CHECK=off is the only bypass
 #SALA_SNAPSHOT_CMD=              # `snapshot` runs this instead of save.sh directly, e.g. systemctl --user start --no-block tmux-resurrect-save.service
 #SALA_SNAPSHOT_DELAY=4            # seconds `snapshot` waits to coalesce a burst of events into one save
 #SALA_MASTER=                     # optional: a tmux session `salamander watch` keeps alive + bridged (a dedicated operator session). The

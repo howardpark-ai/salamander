@@ -22,7 +22,7 @@ The full requirements, the optional web UI and the tmux-resurrect setup are in [
 First commands:
 
 ```
-sala spawn notes                     # start a named session called "notes"
+sala spawn scratch-notes             # start a throwaway session (a box with stackshot wants any other name registered there: docs/subcommands.md)
 sala spawn --list                    # every session, its version and its claude.ai link
 sala revive                          # bring dead sessions back after a reboot or `claude update`
 sala rc --status                     # the Remote Control server and what it serves

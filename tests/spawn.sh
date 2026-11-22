@@ -3,17 +3,17 @@
 # SPAWN'S CHECKS, lib/op.sh the spawn verb and THE MANDATE'S TRANSPORT): `spawn NAME --project <page key> --role front|back
 # [--mandate FILE|TEXT] [--lane L]`, the one path a web request or `sala op spawn` takes to make a project agent's session.
 # What is checked guards a session from being made wrong or unregistered, never the wording of a line: the argument matrix
-# refused before anything is asked or made; a missing page (exit 4, `NO-PAGE:`), a "cannot tell" (refused, never fail-open,
-# unlike a plain spawn, which keeps its fail-open) and a name not on THAT page's agents map (exit 3, the `REGISTER:` line and the
+# refused before anything is asked or made; a project record that cannot answer (missing, stale, unreadable, no such project: exit 6, no pane, never fail-open
+# for a name the exception list does not cover) and a name not on THAT project's agents map (exit 3, the `REGISTER:` line and the
 # `post project-agent` command with the name, the role, front or back and the mandate's first line cut to 70 characters and
-# shell-quoted, never an `ADD-TO-PAGE:` block or a page edit — the page's keeper asked once by one stackshot message carrying
-# the same command, not again within the hour, and never when a register hook owns registration); a name already live refused with no message; `--dry-run` making, recording and
+# shell-quoted, never an `ADD-TO-PAGE:` block or a page edit, and nobody messaged
+# ); a name already live refused with no message; `--dry-run` making, recording and
 # calling nothing; the real spawn of a front agent (the orientation line typed with the marker and the absolute path, waiting
 # for a confirmation) and of a back agent (starting on it; nobody confirms), the lane row recorded for `--lane`, the register
 # hook's arguments and environment, a hook that fails leaving the spawn done; through the queue: the shape refusals with
 # nothing queued and no mandate file left, the plan, a TEXT mandate written to its file at queue time (newlines, quotes,
 # Japanese, a leading dash kept as bytes) and a FILE passed as it is, a refusal at queue time (exit 3, the register command unindented,
-# nothing queued, the keeper asked with who heard and the owner's words), the end to end (queued → the unit → the session up reading
+# nothing queued), the end to end (queued → the unit → the session up reading
 # its file → done, the file kept), a conflict on one name, and a line removed between the queue and the run → stuck with no
 # claude -p; and, for the side conversation (`spawn NAME --side`), the queue's side: its shape refused at queue time, the plan, the marker's
 # arguments, a conflict, the retire gate on a side session without its write-up (the session itself is tests/side.sh); the start directory
@@ -21,14 +21,14 @@
 # front, plain and side keep $HOME; the dry run and the pane map show it), and the surface (`--surface slack`: a front agent that answers on Slack starts in the directory
 # SALA_SLACK_CWD names, refused with a message naming the key when it is unset or missing, refused with a back role or a side session or a bad value; its row carries
 # surface: slack, spawn --list and sessions mark it, the register command carries --surface slack; through the queue: the shape, the plan, the marker's arguments) and the launch line's Enter (a pane that shows ble.sh's
-# "-- MULTILINE --" banner gets one C-j). pages.py is a stub (SALA_AGENT_CHECK_SCRIPT), the stackshot message a stub (SALA_SPAWN_ASK_CMD), the register
+# "-- MULTILINE --" banner gets one C-j). stackshot's project record is a file this suite writes (SALA_PROJECT_RECORD), the stackshot client a stub, the register
 # hook a stub, systemd-run / systemctl stubs, the claude -p a stub (never the API), Slack a file; isolated HOME, a private
 # tmux socket, the compiled fake claude. No real session, page, message or unit is touched.
 # Usage: bash tests/spawn.sh   (exit 0 = pass; ~60 s)
 set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH SALA_SPAWN_REGISTER \
-      SALA_AGENT_CHECK SALA_AGENT_CHECK_SCRIPT SALA_BACK_CWD SALA_SLACK_CWD SALA_SPAWN_ASK_CMD SALA_SPAWN_ASK_EVERY SALA_OP_FROM SALA_OP_WORDS SALA_OP_ID SALA_OP_PLAN
+      SALA_AGENT_CHECK SALA_BACK_CWD SALA_SLACK_CWD SALA_OP_FROM SALA_OP_WORDS SALA_OP_ID SALA_OP_PLAN
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, fake_up, tmux_socket_rm; the lane variables unset
 # the made-up fleet these checks were written against: three scopes, so a page the project record does not know is named <scope>-<slug>
@@ -72,35 +72,41 @@ cat > "$HOME/fake-helper" <<'EOF'
 #!/bin/bash
 echo "run $(date +%s)" >> "$HOME/helper-runs.txt"; echo "SALA-OP: stuck the test helper does nothing"
 EOF
-# the stub pages.py (stackshot's; SALA_AGENT_CHECK_SCRIPT): `resolve <key>` answers from $HOME/pages/<key>.md; `agent-listed <name>`
-# from $HOME/listed.txt (key<TAB>name<TAB>mandate) with pages.py's own lines; orphan-* names get its "nothing to check";
-# $HOME/pages-cannot-tell makes both unable to tell, $HOME/pages-listed-cannot-tell only agent-listed; every call is logged
-cat > "$HOME/fake-pages.py" <<'PY'
-import os, sys
-home = os.environ["HOME"]; cmd = sys.argv[1]; arg = sys.argv[2] if len(sys.argv) > 2 else ""
-open(home + "/pages-calls.txt", "a").write(" ".join(sys.argv[1:]) + "\n")
-if os.path.exists(home + "/pages-cannot-tell"):
-    if cmd == "resolve": print(arg, None); sys.exit(1)
-    print("cannot tell: no brain mirror on this machine"); sys.exit(2)
-if cmd == "resolve":
-    ex = os.path.exists(f"{home}/pages/{arg}.md"); print(arg, ex); sys.exit(0 if ex else 1)
-if cmd == "agent-listed":
-    if os.path.exists(home + "/pages-listed-cannot-tell"): print("cannot tell: no brain mirror on this machine"); sys.exit(2)
-    listed = {}
-    try:
-        for ln in open(home + "/listed.txt"):
-            if ln.strip(): k, n, m = ln.rstrip("\n").split("\t"); listed[n] = (k, m)
-    except FileNotFoundError: pass
-    if arg in listed: print(f"listed on {listed[arg][0]}: {listed[arg][1]}"); sys.exit(0)
-    if arg.startswith("orphan-"): print("no project page for this name: nothing to check"); sys.exit(0)
-    if arg.startswith("oldorphan-"): print("no steward page for this name: nothing to check"); sys.exit(0)   # stackshot before Fri Oct 16th 2026
-    if arg.startswith("oldfmt-"):   # the refusal as stackshot worded it before Fri Oct 16th 2026
-        print(f"not listed: {arg} is not under `agents:` on projects/foo (steward gamma-foo). The steward adds the line `{arg}: <mandate>` there first, then the session can be made."); sys.exit(3)
-    print(f"not listed: {arg} is not under `agents:` on projects/foo (the page whose `display-name:` line is gamma-foo). The line `{arg}: <mandate>` has to be added there first (ask the project's -main agent), then the session can be made."); sys.exit(3)
-sys.exit(1)
+# the project record every check reads (stackshot's published file, SALA_PROJECT_RECORD): rebuilt, fresh, from $HOME/listed.txt (key<TAB>name<TAB>mandate<TAB>front|back, the side
+# optional) and the page files under $HOME/pages (a page is a project, empty while nothing is listed on it). `list` and `unlist` rebuild it; mkrec (below) writes a record of its own
+# with an age. No pages.py and no keeper message exist any more: stackshot's record alone answers.
+rebuild_rec() { python3 - "$HOME" > "$SALA_PROJECT_RECORD.new" <<'PY' && mv -f "$SALA_PROJECT_RECORD.new" "$SALA_PROJECT_RECORD"
+import datetime, glob, json, os, re, sys
+home = sys.argv[1]; projects = {}; by_key = {}
+def proj(k):
+    if k not in by_key:
+        pid = "prj_%08x" % (len(by_key) + 1); by_key[k] = pid
+        projects[pid] = {"id": pid, "key": k, "keeper": "gamma-foo", "agents": {}}
+    return projects[by_key[k]]
+for f in sorted(glob.glob(home + "/pages/*/*.md")): proj(os.path.relpath(f, home + "/pages")[:-3])
+try:
+    for ln in open(home + "/listed.txt"):
+        if not ln.strip(): continue
+        k, n, m, *s = ln.rstrip("\n").split("\t"); side = (s[0] if s else "") or ("front" if re.search(r"-(main|press|fr|sl|rs|slq|plan)$", n) else "back")
+        proj(k)["agents"][n] = {"front": side == "front", "role": n.rsplit("-", 1)[-1], "mandate_line": m, **({"surface": "slack"} if re.search(r"-(sl|slq)$", n) else {})}
+except FileNotFoundError: pass
+t = datetime.datetime.now(datetime.timezone.utc)
+print(json.dumps({"schema": 1, "generated": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "projects": projects, "by_key": by_key}))
 PY
-ASKS="$HOME/ask-log.txt"   # the stub stackshot message (SALA_SPAWN_ASK_CMD): its arguments, one record per call, '%%' between them
-printf '#!/bin/bash\n{ printf "%%s\\n" "$@"; echo "%%%%"; } >> "$HOME/ask-log.txt"\n' > "$HOME/fake-ask"
+}
+# mkrec <age in seconds> <json {page key: {agent name: [front, mandate line[, page_owed]]}}> → the fake published file, written <age> seconds ago
+mkrec() { python3 - "$1" "$2" > "$SALA_PROJECT_RECORD" <<'PY'
+import json, sys, datetime
+age, spec = float(sys.argv[1]), json.loads(sys.argv[2]); projects, by_key = {}, {}
+for i, (k, ags) in enumerate(spec.items()):
+    pid = "prj_%08x" % (i + 1)
+    projects[pid] = {"id": pid, "key": k, "keeper": "gamma-rec", "agents": {n: {"front": a[0], "role": n.rsplit("-", 1)[-1], "mandate_line": a[1], **({"page_owed": True} if len(a) > 2 else {})} for n, a in ags.items()}}
+    by_key[k] = pid
+t = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=age)
+print(json.dumps({"schema": 1, "generated": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "projects": projects, "by_key": by_key}))
+PY
+}
+REC='{"projects/foo": {"gamma-rec-main": [true, "Rowan contact (record)"], "gamma-rec-worker": [false, "background work (record)"], "gamma-rec-owed": [true, "registered, line owed", true]}, "projects/bar": {"gamma-bar-main": [true, "bar main"]}}'
 cat > "$HOME/fake-register" <<'EOF'
 #!/bin/bash
 # the stub register hook (SALA_SPAWN_REGISTER): its four arguments and the SALA_SPAWN_* environment; $HOME/reg-fail makes it exit 7
@@ -109,12 +115,12 @@ env | grep '^SALA_SPAWN_' | sort > "$HOME/reg-env.txt"
 [ -e "$HOME/reg-fail" ] && exit 7
 exit 0
 EOF
-chmod +x "$HOME/.local/bin/systemd-run" "$HOME/.local/bin/systemctl" "$HOME/fake-helper" "$HOME/fake-ask" "$HOME/fake-register"
+chmod +x "$HOME/.local/bin/systemd-run" "$HOME/.local/bin/systemctl" "$HOME/fake-helper" "$HOME/fake-register"
 export PATH="$HOME/.local/bin:$PATH" FAKE_LOG="$HOME/fake.log"
 POSTS="$HOME/posts.txt"; export SALA_NOTIFY_CMD="{ cat; echo '%%'; } >> $POSTS"
 export SALA_BIN="$ROOT/bin/salamander" SALA_ROOT="$ROOT" SALA_AUTO_UPDATE=off SALA_AUTO_RECYCLE=off
 export SALA_LIMIT_ALERT=off SALA_LIMIT_RESUME=off SALA_STUCK_POST=off
-export SALA_AGENT_CHECK_SCRIPT="$HOME/fake-pages.py" SALA_SPAWN_ASK_CMD="$HOME/fake-ask"   # the check is ON: the stub answers for pages.py
+export SALA_PROJECT_RECORD="$HOME/projects.json"   # the check is ON: stackshot's record (rebuild_rec) answers
 export SALA_OP_CLAUDE="$HOME/fake-helper" SALA_OP_POLL=1 SALA_OP_LOCK_WAIT=5 SALA_OP_SWEEP_WAIT=60 SALA_OP_SETTLE_WAIT=60 SALA_OP_STUCK_TIME=30 SALA_OP_HELPER_CWD="$HOME"
 SALA="$ROOT/bin/salamander"; SOCK="sala-spawn-$$"; T="tmux -L $SOCK -f /dev/null"
 unset TMUX; export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"
@@ -128,25 +134,21 @@ mvals() { local f="$OPS/$1.op"; [ -f "$f" ] || f="$DONE/$1.op"; awk -F= -v k="$2
 queued() { ls "$OPS"/*.op 2>/dev/null | wc -l; }
 nmandates() { ls "$MANDATES"/*.md 2>/dev/null | wc -l; }
 tick() { "$SALA" watch --ops >/dev/null 2>&1; }
-asks() { grep -c '^%%$' "$ASKS" 2>/dev/null || echo 0; }
-nask() { awk -v RS='%%\n' -v h="agent '$1' of" 'index($0, h) {n++} END {print n+0}' "$ASKS" 2>/dev/null; }   # <name> → how many messages asked for it
-ask() { awk -v RS='%%\n' -v h="agent '$1' of" 'index($0, h) {printf "%s", $0; exit}' "$ASKS" 2>/dev/null; }   # <name> → the first message asking for it
-waitask() { waitfor "[ \"\$(nask $1)\" -ge 1 ]" 20; }   # the message is sent detached: wait for it, never a fixed sleep
 runs() { grep -c '^run' "$HOME/helper-runs.txt" 2>/dev/null || echo 0; }
-pcalls() { grep -c . "$HOME/pages-calls.txt" 2>/dev/null || echo 0; }
 sessions() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -v '^keep-alive$' | paste -sd' ' -; }
 fakeenv() { tmux set-environment -g FAKE_SESSION_ID "$1"; tmux set-environment -g FAKE_NAME "$2"; }   # what the next spawned fake claude registers as
-list() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$HOME/listed.txt"; }   # <page key> <name> <mandate>: the stub's agents map
-unlist() { sed -i "/\t$1\t/d" "$HOME/listed.txt"; }
+list() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-}" >> "$HOME/listed.txt"; rebuild_rec; }   # <page key> <name> <mandate> [front|back]: the record's agents map (front unless the name ends -main/-press/-fr/-sl/-rs/-slq/-plan is the default)
+unlist() { sed -i "/\t$1\t/d" "$HOME/listed.txt"; rebuild_rec; }
 cmdline() { grep -m1 '^python3 ~/stackshot/stackshot/fleet/client.py post project-agent ' <<< "$1"; }   # <output> → the register command, the stdout line at column 0 (the refusal's own copy on stderr is not at column 0)
 noaddpage() { ! grep -qE 'ADD-TO-PAGE|^agents:|^ +background:|Add the line|add the line|Please add this' <<< "$1"; }   # <text> → true when it holds no page-edit instruction or YAML block
 touch "$HOME/pages/projects/foo.md" "$HOME/pages/projects/demo-docs.md" "$HOME/pages/example/ops.md"
+: > "$HOME/listed.txt"; rebuild_rec
 tmux new-session -d -s keep-alive   # the server the spawns land on, with the fake's environment
 tmux set-environment -g FAKE_LOG "$FAKE_LOG"; tmux set-environment -g FAKE_TYPED_LOG "$TYPED"
 BACKD="$HOME/back-brief"; mkdir -p "$BACKD"; export SALA_BACK_CWD="$BACKD"   # the background brief's directory: a back agent with no --cwd starts here
-N48=$(printf '%*s' 48 '' | tr ' ' a); N49="${N48}a"; list projects/foo "$N48" "a long name"
+N48=$(printf '%*s' 48 '' | tr ' ' a); N49="${N48}a"; list projects/foo "$N48" "a long name" front
 
-echo "== the argument matrix: refused before anything is asked or made (exit 1, no pages.py call, no session)"
+echo "== the argument matrix: refused before anything is asked or made (exit 1, no stackshot call, no session)"
 run x --role back; [ "$RC" = 1 ] && has "$OUT" "--role needs --project" && ok "--role without --project" || bad "role alone: rc=$RC — $OUT"
 run x --project projects/foo; [ "$RC" = 1 ] && has "$OUT" "--project needs --role front or --role back" && ok "--project without --role" || bad "project alone: rc=$RC — $OUT"
 run x --project projects/foo --role sideways; [ "$RC" = 1 ] && has "$OUT" "--role takes front or back" && ok "--role sideways" || bad "role sideways: rc=$RC — $OUT"
@@ -158,52 +160,52 @@ run x --project projects/foo --role front --mandate ''; [ "$RC" = 1 ] && has "$O
 run x --project projects/foo --role front --brief "$HOME/nope.md"; [ "$RC" = 1 ] && has "$OUT" "brief not readable" && ok "--brief of no such file refused (a file only)" || bad "brief nope: rc=$RC — $OUT"
 run x --project projects/foo --role front --lane nope --dry-run; [ "$RC" = 1 ] && has "$OUT" "is not a lane" && ok "--lane nope refused" || bad "lane nope: rc=$RC — $OUT"
 run x --project projects/foo --role front --effort huge --dry-run; [ "$RC" = 1 ] && has "$OUT" "invalid --effort" && ok "--effort huge refused" || bad "effort: rc=$RC — $OUT"
-[ "$(pcalls)" = 2 ] && grep -q "^agent-listed $N48$" "$HOME/pages-calls.txt" && [ -z "$(sessions)" ] && sleep 1 && [ "$(asks)" = 0 ] && ok "pages.py asked only for the 48-character name (the one that reached the page: resolve, agent-listed); nobody asked, no session made" || bad "pages calls: $(slurp "$HOME/pages-calls.txt"); asks=$(asks); sessions: $(sessions)"
-: > "$HOME/pages-calls.txt"
+[ -z "$(sessions)" ] && ok "the shapes refused above made no session (the 48-character name reached the record and is only a dry run)" || bad "sessions: $(sessions)"
 
-echo "== the page: missing → exit 4 and NO-PAGE:; cannot tell (no brain, no pages.py) → refused, never fail-open; a plain spawn keeps its fail-open"
-run gamma-nope-main --project projects/nope --role front --dry-run
-[ "$RC" = 4 ] && grep -qx 'NO-PAGE: projects/nope' <<< "$OUT" && has "$OUT" "ask a session with gbrain" && ok "no page: exit 4, NO-PAGE: projects/nope, the pointer to a session with gbrain" || bad "no page: rc=$RC — $OUT"
-[ "$(asks)" = 0 ] && ok "no page: nobody asked (there is no keeper to ask)" || bad "asked: $(<"$ASKS")"
-touch "$HOME/pages-cannot-tell"; run gamma-foo-main --project projects/foo --role front --dry-run; rm -f "$HOME/pages-cannot-tell"
-[ "$RC" = 1 ] && has "$OUT" "cannot tell whether the page projects/foo exists" && ok "resolve cannot tell: refused (exit 1)" || bad "cannot tell page: rc=$RC — $OUT"
-touch "$HOME/pages-listed-cannot-tell"; run gamma-foo-main --project projects/foo --role front --dry-run; rm -f "$HOME/pages-listed-cannot-tell"
-[ "$RC" = 1 ] && has "$OUT" "cannot tell whether 'gamma-foo-main' is on the agents map of projects/foo" && ok "agent-listed cannot tell: refused (exit 1)" || bad "cannot tell listed: rc=$RC — $OUT"
-SALA_AGENT_CHECK_SCRIPT="$HOME/nowhere.py" run gamma-foo-main --project projects/foo --role front --dry-run
-[ "$RC" = 1 ] && has "$OUT" "no pages.py on this box" && ok "no pages.py anywhere: a project spawn is refused" || bad "no pages.py: rc=$RC — $OUT"
-SALA_AGENT_CHECK_SCRIPT="$HOME/nowhere.py" run plain-x --dry-run
-[ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn 'plain-x'" && ok "no pages.py anywhere: a plain spawn passes as before (agent_unlisted fails open)" || bad "plain fail-open: rc=$RC — $OUT"
-[ "$(asks)" = 0 ] && [ -z "$(sessions)" ] && ok "none of these asked anyone or made a session" || bad "asks=$(asks) sessions: $(sessions)"
+echo "== the record cannot answer: a project spawn of a name the exception list does not cover is refused (exit 6, no pane); an exempt name, SALA_AGENT_CHECK=off and a box with no stackshot are not"
+mkrec 5 "$REC"; S0=$(sessions)
+recbreak() {  # <how> → the record the checks read, broken that way
+    case "$1" in
+        missing) rm -f "$SALA_PROJECT_RECORD" ;;
+        stale) mkrec 3600 "$REC" ;;
+        garbage) echo '{"schema": 1, "proj' > "$SALA_PROJECT_RECORD" ;;
+        schema2) mkrec 5 "$REC"; sed -i 's/"schema": 1/"schema": 2/' "$SALA_PROJECT_RECORD" ;;
+        nogenerated) mkrec 5 "$REC"; sed -i 's/"generated": "[^"]*", //' "$SALA_PROJECT_RECORD" ;;
+    esac
+}
+declare -A WHY=([missing]="no project record at" [stale]="stale" [garbage]="unreadable" [schema2]="not schema 1" [nogenerated]="unreadable")
+for how in missing stale garbage schema2 nogenerated; do
+    recbreak "$how"
+    run gamma-rec-main --project projects/foo --role front --dry-run
+    [ "$RC" = 6 ] && has "$OUT" "stackshot's project record cannot answer (" && has "$OUT" "${WHY[$how]}" && has "$OUT" "starts no pane" && has "$OUT" "retry when it is fresh" && has "$OUT" "SALA_AGENT_CHECK=off to start it unchecked" && ! has "$OUT" "[dry-run] would spawn" \
+        && ok "record $how: a project spawn is refused (exit 6), no plan, the reason and the way out in the message" || bad "record $how: rc=$RC — $OUT"
+    run gamma-rec-plain --dry-run
+    if [ "$how" = missing ]; then   # no record and no client: a box with no stackshot at all has nothing to ask
+        [ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn 'gamma-rec-plain'" && ok "record $how and no stackshot client: a plain spawn is not checked (a box with no stackshot)" || bad "plain, no stackshot: rc=$RC — $OUT"
+    else
+        [ "$RC" = 6 ] && has "$OUT" "stackshot's project record cannot answer (" && has "$OUT" "${WHY[$how]}" && ok "record $how: a plain spawn of a non-exempt name is refused too (exit 6)" || bad "plain record $how: rc=$RC — $OUT"
+    fi
+    run gamma-rec-test-x --project projects/foo --role front --dry-run
+    [ "$RC" = 0 ] && has "$OUT" "not checked (a throwaway's name" && ok "record $how: a throwaway's name (*-test-*) is exempt: the plan passes" || bad "exempt, record $how: rc=$RC — $OUT"
+    SALA_AGENT_CHECK=off run gamma-rec-main --project projects/foo --role front --dry-run
+    [ "$RC" = 0 ] && has "$OUT" "not checked (SALA_AGENT_CHECK=off)" && ok "record $how: SALA_AGENT_CHECK=off starts it unchecked, as the message says" || bad "check off, record $how: rc=$RC — $OUT"
+done
+mkrec 5 '{"projects/bar": {"gamma-bar-main": [true, "bar main"]}}'
+run gamma-rec-main --project projects/foo --role front --dry-run
+[ "$RC" = 6 ] && has "$OUT" "has no project projects/foo" && ok "a fresh record with no such project: no answer for it (exit 6), never 'no page' (exit 4) and never a page asked" || bad "no such project: rc=$RC — $OUT"
+mkrec 5 "$REC"
+[ "$(sessions)" = "$S0" ] && ok "none of these made a session" || bad "sessions: $(sessions) (was $S0)"
+rebuild_rec
 
-echo "== SALA_STACKSHOT_DIR: the default pages.py comes from it — unset is ~/stackshot, a directory is used, empty is none; an explicit script wins"
-mkdir -p "$HOME/ss" "$HOME/stackshot"; cp "$HOME/fake-pages.py" "$HOME/ss/pages.py"; cp "$HOME/fake-pages.py" "$HOME/stackshot/pages.py"
-run gamma-foo-main --project projects/foo --role front --dry-run; BASE_RC="$RC"; BASE_OUT="$OUT"          # the explicit stub script: the baseline answer
-OUT=$(env -u SALA_AGENT_CHECK_SCRIPT -u SALA_STACKSHOT_DIR "$SALA" spawn gamma-foo-main --project projects/foo --role front --dry-run 2>&1); RC=$?
-[ "$RC" = "$BASE_RC" ] && ! has "$OUT" "no pages.py on this box" && ok "unset: ~/stackshot/pages.py answers as the explicit script did" || bad "unset: rc=$RC (want $BASE_RC) — $OUT"
-OUT=$(env -u SALA_AGENT_CHECK_SCRIPT SALA_STACKSHOT_DIR="$HOME/ss" "$SALA" spawn gamma-foo-main --project projects/foo --role front --dry-run 2>&1); RC=$?
-[ "$RC" = "$BASE_RC" ] && ! has "$OUT" "no pages.py on this box" && ok "a directory: its pages.py answers" || bad "dir: rc=$RC (want $BASE_RC) — $OUT"
-OUT=$(env -u SALA_AGENT_CHECK_SCRIPT SALA_STACKSHOT_DIR= "$SALA" spawn gamma-foo-main --project projects/foo --role front --dry-run 2>&1); RC=$?
-[ "$RC" = 1 ] && has "$OUT" "no pages.py on this box" && ok "empty: no pages.py, a project spawn refused (still fail-closed)" || bad "empty: rc=$RC — $OUT"
-OUT=$(env -u SALA_AGENT_CHECK_SCRIPT SALA_STACKSHOT_DIR= "$SALA" spawn plain-x --dry-run 2>&1); RC=$?
-[ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn 'plain-x'" && ok "empty: a plain spawn still passes (fail-open)" || bad "empty plain: rc=$RC — $OUT"
-OUT=$(SALA_STACKSHOT_DIR= "$SALA" spawn gamma-foo-main --project projects/foo --role front --dry-run 2>&1); RC=$?
-[ "$RC" = "$BASE_RC" ] && ok "an explicit SALA_AGENT_CHECK_SCRIPT wins over an empty directory" || bad "explicit: rc=$RC (want $BASE_RC) — $OUT"
-rm -rf "$HOME/ss" "$HOME/stackshot"
-
-echo "== not listed: exit 3, the register command (no page edit), the keeper asked once by one message and not again within the hour"
+echo "== not listed: exit 3, the register command (no page edit), nobody messaged"
 run gamma-foo-main --project projects/foo --role front --dry-run
 [ "$RC" = 3 ] && has "$OUT" "'gamma-foo-main' is not on the agents map of projects/foo" && ok "a front agent not listed: exit 3" || bad "unlisted front: rc=$RC — $OUT"
 [ "$(sed -n '/^REGISTER: /,$p' <<< "$OUT" | grep -v '^   ' | paste -sd'|' -)" = 'REGISTER: projects/foo|python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-main --role <role> --front --mandate "<one line>"' ] && ok "stdout: REGISTER: projects/foo, then the post project-agent command (project, name, role, --front, the mandate placeholder)" || bad "block: $OUT"
 noaddpage "$OUT" && has "$OUT" "Register it, then spawn again: python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-main" && ok "the refusal names only the register command: no ADD-TO-PAGE, no YAML block, no instruction to edit the page" || bad "page edit in the refusal: $OUT"
-waitask gamma-foo-main && A=$(ask gamma-foo-main) && [ "$(sed -n 1p <<< "$A")" = "projects/foo" ] && grep -q -- '^--sender$' <<< "$A" && grep -qx 'sala spawn' <<< "$A" \
-    && has "$A" "A new front agent 'gamma-foo-main' of projects/foo was asked for" && [ "$(cmdline "$A")" = 'python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-main --role <role> --front --mandate "<one line>"' ] && noaddpage "$A" && ok "one stackshot message to the page key, sender 'sala spawn', the register command inside and no page edit" || bad "ask: $(slurp "$ASKS")"
-run gamma-foo-main --project projects/foo --role front --dry-run
-[ "$RC" = 3 ] && has "$OUT" "not again within 60 min" && sleep 1 && [ "$(nask gamma-foo-main)" = 1 ] && ok "the same name again: refused again, the keeper not asked again" || bad "second: rc=$RC asks=$(nask gamma-foo-main) — $OUT"
 L77="Title: $(printf '%*s' 70 '' | tr ' ' x)"
 run gamma-foo-worker --project projects/foo --role back --mandate "# $L77"$'\n'"second line" --dry-run
 [ "$RC" = 3 ] && [ "$(sed -n '/^REGISTER: /,$p' <<< "$OUT" | grep -v '^   ' | sed -n 1p)" = "REGISTER: projects/foo" ] && cmdline "$OUT" | grep -q -- ' gamma-foo-worker --role <role> --back --mandate ' && noaddpage "$OUT" && ok "a back agent: the command says --back" || bad "back block: $OUT"
 [ "$(cmdline "$OUT")" = "python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-worker --role <role> --back --mandate \"${L77:0:70}\"" ] && ok "the mandate line: the heading's # stripped, cut to 70 characters, double-quoted as the command's --mandate" || bad "value: '$(cmdline "$OUT")'"
-waitask gamma-foo-worker && has "$(ask gamma-foo-worker)" "--mandate <the mandate>" && [ "$(cmdline "$(ask gamma-foo-worker)")" = "python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-worker --role <role> --back --mandate \"${L77:0:70}\"" ] && ok "a second name: its own message with its command, the mandate's place in the words to say" || bad "worker ask: $(ask gamma-foo-worker)"
 K75=$(python3 -c 'print("あ"*75)')
 run gamma-foo-k --project projects/foo --role back --mandate "$K75" --dry-run
 V=$(cmdline "$OUT" | sed 's/.* --mandate "\(.*\)"$/\1/'); [ "$RC" = 3 ] && [ "$(python3 -c 'import sys; print(len(sys.argv[1]))' "$V")" = 70 ] && [ "$V" = "${K75:0:70}" ] && ok "a Japanese line is cut at 70 characters, never mid-character" || bad "korean: '$V'"
@@ -211,21 +213,15 @@ run gamma-foo-d --project projects/foo --role back --mandate "- a list item" --d
 run gamma-foo-p --project projects/foo --role back --mandate "watch the queue" --dry-run; [ "$(cmdline "$OUT" | sed 's/.* --mandate //')" = '"watch the queue"' ] && ok "a plain line: in double quotes" || bad "plain: $OUT"
 run gamma-foo-q --project projects/foo --role back --mandate 'say "hi" to $HOME and `id`' --dry-run
 Q=$(cmdline "$OUT" | sed 's/.* --mandate //'); [ "$RC" = 3 ] && [ "$Q" = '"say \"hi\" to \$HOME and \`id\`"' ] && [ "$(eval "printf %s $Q")" = 'say "hi" to $HOME and `id`' ] && ok "a quote, a dollar sign and a backtick in the mandate: escaped, the shell reads the original back and runs nothing" || bad "shell-special: '$Q'"
-waitask gamma-foo-k && waitask gamma-foo-d && waitask gamma-foo-p && [ "$(nask gamma-foo-k)$(nask gamma-foo-d)$(nask gamma-foo-p)" = 111 ] && ok "each name asked for once" || bad "asks: k=$(nask gamma-foo-k) d=$(nask gamma-foo-d) p=$(nask gamma-foo-p)"
-SALA_OP_FROM=sala-test-h SALA_OP_WORDS="make a scout" run gamma-foo-scout --project projects/foo --role back --mandate "scout" --dry-run
-waitask gamma-foo-scout && has "$(ask gamma-foo-scout)" "was asked for by sala-test-h (\"make a scout\")" && ok "who heard and the owner's words (SALA_OP_FROM, SALA_OP_WORDS) are in the message" || bad "from/words: $(ask gamma-foo-scout)"
 SALA_SPAWN_REGISTER="$HOME/fake-register \"\$@\"" run gamma-foo-hooked --project projects/foo --role front --dry-run
-[ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && sleep 1 && [ "$(nask gamma-foo-hooked)" = 0 ] && grep -q "ask: not sent for projects/foo — SALA_SPAWN_REGISTER is configured" "$SPAWNLOG" && ok "with a register hook configured: refused with the command, nobody asked (registration is the hook's), logged" || bad "hook+unlisted: rc=$RC asks=$(nask gamma-foo-hooked) — $OUT"
-SALA_SPAWN_ASK_CMD= run gamma-foo-quiet --project projects/foo --role front --dry-run
-[ "$RC" = 3 ] && sleep 1 && [ "$(nask gamma-foo-quiet)" = 0 ] && grep -q "spawn gamma-foo-quiet: ask: not sent for projects/foo — SALA_SPAWN_ASK_CMD is empty" "$SPAWNLOG" && ok "SALA_SPAWN_ASK_CMD set empty: refused, nobody asked, logged" || bad "ask cmd empty: rc=$RC asks=$(nask gamma-foo-quiet) — $(grep gamma-foo-quiet "$SPAWNLOG")"
+[ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && ok "with a register hook configured: refused with the command (the hook registers once the session exists)" || bad "hook+unlisted: rc=$RC — $OUT"
 list projects/bar gamma-foo-main "another page's agent"
 run gamma-foo-main --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && ok "listed on another page (projects/bar): not on this one — refused with the command" || bad "other page: rc=$RC — $OUT"
 unlist gamma-foo-main
-run orphan-x --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "nothing to check" && has "$OUT" "REGISTER: projects/foo" && waitask orphan-x && ok "pages.py's 'no project page for this name: nothing to check' (exit 0): not on this page — refused with the command, the keeper asked" || bad "orphan: rc=$RC — $OUT"
-run oldorphan-x --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "nothing to check" && has "$OUT" "REGISTER: projects/foo" && waitask oldorphan-x && ok "the old 'no steward page … nothing to check' (exit 0) still counts as not on this page" || bad "old orphan: rc=$RC — $OUT"
+run orphan-x --project projects/foo --role front --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && ok "a name on no project of the record: not on this one: refused with the command (exit 3)" || bad "orphan: rc=$RC — $OUT"
 [ -z "$(sessions)" ] && [ ! -f "$HOME/reg-args.txt" ] && [ ! -r "$SALA_LANES" ] && ok "none of the refusals made a session, called the hook or wrote a lane row" || bad "sessions: $(sessions) reg: $(slurp "$HOME/reg-args.txt")"
-n=$(pcalls); SALA_AGENT_CHECK=off run gamma-foo-main --project projects/foo --role front --dry-run
-[ "$RC" = 0 ] && [ "$(pcalls)" = "$n" ] && has "$OUT" "not checked (SALA_AGENT_CHECK=off)" && ok "SALA_AGENT_CHECK=off: no pages.py call, the dry run says so" || bad "check off: rc=$RC calls=$(pcalls) — $OUT"
+SALA_AGENT_CHECK=off run gamma-foo-main --project projects/foo --role front --dry-run
+[ "$RC" = 0 ] && has "$OUT" "not checked (SALA_AGENT_CHECK=off)" && ok "SALA_AGENT_CHECK=off: the record is not read, the dry run says so" || bad "check off: rc=$RC — $OUT"
 
 echo "== listed: the dry run passes and makes, records and calls nothing; a name already live is refused with no message"
 list projects/foo gamma-foo-main "Rowan's contact for foo"
@@ -236,13 +232,13 @@ run gamma-foo-main --project projects/foo --role front --lane subscription-1 --m
 [ -z "$(sessions)" ] && [ ! -f "$HOME/reg-args.txt" ] && [ ! -f "$SALA_SIDECAR" ] && ok "the dry runs made no session, no pane-map row, no hook call" || bad "sessions: $(sessions)"
 run --project projects/foo --role front --dry-run; [ "$RC" = 0 ] && has "$OUT" "would spawn 'gamma-foo-main'" && ok "no NAME with --project: the suggested name (gamma-foo-main) is used" || bad "no name: rc=$RC — $OUT"
 tmux new-session -d -s gamma-foo-taken "sleep 300"
-n=$(asks); c=$(pcalls); run gamma-foo-taken --project projects/foo --role front --dry-run
-[ "$RC" = 1 ] && has "$OUT" "tmux session 'gamma-foo-taken' already exists" && sleep 1 && [ "$(asks)" = "$n" ] && [ "$(pcalls)" = "$c" ] && ok "a tmux session of the name: refused before any page is asked, nobody messaged" || bad "live tmux: rc=$RC calls=$(pcalls)/$c — $OUT"
+run gamma-foo-taken --project projects/foo --role front --dry-run
+[ "$RC" = 1 ] && has "$OUT" "tmux session 'gamma-foo-taken' already exists" && ok "a tmux session of the name: refused (nothing asked)" || bad "live tmux: rc=$RC — $OUT"
 tmux kill-session -t =gamma-foo-taken
 tmux new-session -d -s other-pane -c "$HOME" -e FAKE_SESSION_ID="$(uuid 9)" -e FAKE_NAME=gamma-foo-live -e FAKE_LOG="$FAKE_LOG"; tmux send-keys -t other-pane 'claude' Enter
 fake_up gamma-foo-live || bad "the fake under gamma-foo-live did not come up"
 run gamma-foo-live --project projects/foo --role front --dry-run
-[ "$RC" = 1 ] && has "$OUT" "'gamma-foo-live' is already the name of a live session" && sleep 1 && [ "$(asks)" = "$n" ] && [ "$(pcalls)" = "$c" ] && ok "a running claude registered under the name (another pane): refused before any page is asked, nobody messaged" || bad "live registry: rc=$RC calls=$(pcalls)/$c — $OUT"
+[ "$RC" = 1 ] && has "$OUT" "'gamma-foo-live' is already the name of a live session" && ok "a running claude registered under the name (another pane): refused" || bad "live registry: rc=$RC — $OUT"
 tmux kill-session -t =other-pane
 
 echo "== --suggest-name: the convention the pages follow (a suggestion the web form shows, not a check)"
@@ -301,7 +297,8 @@ PY
 SALA_PROJECT_RECORD="$HOME/sugg-stale.json" run --suggest-name --project projects/empty --role front; [ "$RC" = 0 ] && grep -qE '^gamma-empty-[a-z]+$' <<< "$OUT" && [ "$OUT" != gamma-empty-main ] && ok "a stale record (2020) is no ground for -main: a word ($OUT)" || bad "stale record: rc=$RC — $OUT"
 # the real spawn with no NAME keeps the older rule: a front is <prefix>-main (the record's prefix when it knows the project), a back agent a word
 SALA_PROJECT_RECORD="$SUGREC" run --project projects/wiki --role front --dry-run; [ "$RC" = 0 ] && has "$OUT" "would spawn 'wiki-main'" && ok "a real spawn with no NAME, front, project with agents: wiki-main (the older rule, the record's prefix), not a word that is off the map" || bad "real front, no name: rc=$RC — $OUT"
-SALA_PROJECT_RECORD=/nonexistent run --project projects/foo --role front --dry-run; [ "$RC" = 0 ] && has "$OUT" "would spawn 'gamma-foo-main'" && ok "a real spawn with no NAME and no record: gamma-foo-main as before" || bad "real front, no record: rc=$RC — $OUT"
+SALA_PROJECT_RECORD=/nonexistent run --project projects/foo --role front --dry-run; [ "$RC" = 6 ] && has "$OUT" "stackshot's project record cannot answer" && has "$OUT" "'gamma-foo-main'" && ok "a real spawn with no NAME and no record: gamma-foo-main is the name, and the record cannot answer for it: exit 6, no pane (it fails closed)" || bad "real front, no record: rc=$RC — $OUT"
+SALA_AGENT_CHECK=off SALA_PROJECT_RECORD=/nonexistent run --project projects/foo --role front --dry-run; [ "$RC" = 0 ] && has "$OUT" "would spawn 'gamma-foo-main'" && ok "the same with SALA_AGENT_CHECK=off: gamma-foo-main, unchecked" || bad "real front, no record, check off: rc=$RC — $OUT"
 # --prefix long: -main needs room (prefix + 5 <= 48), the number fallback leaves no double dash
 long="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"  # 45 characters: 45 + 5 > 48
 SALA_PROJECT_RECORD=/nonexistent run --suggest-name --project projects/newthing --role front --prefix "$long" --new; [ "$RC" = 0 ] && grep -qE '^a+-[a-z]+$' <<< "$OUT" && [ "${#OUT}" -le 48 ] && ok "a prefix with no room for -main (45 + 5 > 48): a word ($OUT)" || bad "long prefix: rc=$RC — $OUT"
@@ -366,6 +363,7 @@ run gamma-foo-cwd --project projects/foo --role back --mandate "work" --cwd "$HO
 list projects/foo gamma-foo-fr "front cwd"
 run gamma-foo-fr --project projects/foo --role front --dry-run
 [ "$RC" = 0 ] && has "$OUT" "cwd $(cd "$HOME" && pwd -P), model" && ok "front, no --cwd: \$HOME as before" || bad "front dry: rc=$RC — $OUT"
+list projects/foo orphan-cwd "a plain spawn" back
 run orphan-cwd --dry-run
 [ "$RC" = 0 ] && has "$OUT" "cwd $(cd "$HOME" && pwd -P), model" && ok "a plain spawn, no --cwd: \$HOME as before" || bad "plain dry: rc=$RC — $OUT"
 SALA_BACK_CWD="$HOME/no-such-brief-dir" run gamma-foo-cwd --project projects/foo --role back --mandate "work" --dry-run
@@ -394,7 +392,7 @@ SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role front --
 [ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && has "$OUT" "as a front agent on the slack surface of projects/foo" && ok "front --surface slack, no --cwd: the dry run shows the Slack brief's directory and the surface" || bad "slack dry: rc=$RC — $OUT"
 SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role front --surface slack --cwd "$OTHERD" --dry-run
 [ "$RC" = 0 ] && has "$OUT" "cwd $OTHERD, model" && ok "--cwd given: it wins over SALA_SLACK_CWD" || bad "slack --cwd: rc=$RC — $OUT"
-SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role front --surface sala --dry-run
+SALA_SLACK_CWD="$SLACKD" run gamma-foo-fr --project projects/foo --role front --surface sala --dry-run
 [ "$RC" = 0 ] && has "$OUT" "cwd $(cd "$HOME" && pwd -P), model" && ! has "$OUT" "slack" && ok "--surface sala: the default, \$HOME as before, no mention of Slack" || bad "sala dry: rc=$RC — $OUT"
 SALA_SLACK_CWD="$SLACKD" run gamma-foo-fr --project projects/foo --role front --dry-run
 [ "$RC" = 0 ] && has "$OUT" "cwd $(cd "$HOME" && pwd -P), model" && ok "a front agent with no --surface ignores SALA_SLACK_CWD" || bad "no surface: rc=$RC — $OUT"
@@ -422,7 +420,7 @@ SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --side --fork-of gamma-foo-fr --surfac
 [ "$RC" != 0 ] && has "$OUT" "--side takes no --surface" && ok "a side session takes no --surface" || bad "side surface: rc=$RC — $OUT"
 unlist gamma-foo-sl
 SALA_SLACK_CWD="$SLACKD" run gamma-foo-sl --project projects/foo --role front --surface slack --dry-run
-[ "$RC" = 3 ] && grep -qx 'python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-sl --role <role> --front --surface slack --mandate "<one line>"' <<< "$OUT" && ok "an unlisted slack agent: the register command it prints carries --surface slack" || bad "slack register: rc=$RC — $OUT"
+[ "$RC" = 3 ] && grep -qx 'python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-sl --role sl --front --surface slack --mandate "<one line>"' <<< "$OUT" && ok "an unlisted slack agent: the register command it prints carries --surface slack" || bad "slack register: rc=$RC — $OUT"
 run gamma-foo-sl --project projects/foo --role front --dry-run
 [ "$RC" = 3 ] && ! has "$OUT" "--surface" && ok "an unlisted sala agent: the register command carries no --surface" || bad "sala register: rc=$RC — $OUT"
 list projects/foo gamma-foo-sl "chat front"
@@ -499,13 +497,17 @@ rsrun gamma-foo-rs --project projects/foo --role front --dry-run
 rsrun gamma-foo-re --project projects/foo --role front --dry-run
 [ "$RC" != 0 ] && has "$OUT" "empty surface" && ok "a corrupt registry does not change a refusal either" || bad "corrupt registry, record empty: rc=$RC — $OUT"
 mv -f "$REGKEEP" "$SALA_SESSIONS_FILE"
-list projects/foo gamma-foo-rs "page line"   # a record that cannot answer: pages.py's stub answers the listing, and the surface is the flag's alone (spawn must not depend on stackshot being reachable)
+# a record that cannot answer is refused (exit 6) before the surface is read; SALA_AGENT_CHECK=off is the way past it, and then the flag alone decides (a spawn does not depend on the surface the record gives)
 SALA_PROJECT_RECORD=/nonexistent SALA_SLACK_CWD="$SLACKD" run gamma-foo-rs --project projects/foo --role front --dry-run
-[ "$RC" = 0 ] && has "$OUT" "cwd $HOMED, model" && ok "a missing record is no refusal: the flag alone decides" || bad "missing record: rc=$RC — $OUT"
+[ "$RC" = 6 ] && has "$OUT" "project record cannot answer" && ok "a missing record: refused (exit 6), the surface is not read" || bad "missing record: rc=$RC — $OUT"
+SALA_AGENT_CHECK=off SALA_PROJECT_RECORD=/nonexistent SALA_SLACK_CWD="$SLACKD" run gamma-foo-rs --project projects/foo --role front --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $HOMED, model" && ok "a missing record with the check off: no refusal, the flag alone decides" || bad "missing record, check off: rc=$RC — $OUT"
 cp "$SURFREC" "$SURFREC.keep"; python3 -c 'import json,sys; f=sys.argv[1]; d=json.load(open(f)); d["generated"]="2020-01-01T00:00:00Z"; json.dump(d, open(f,"w"))' "$SURFREC"
 rsrun gamma-foo-rs --project projects/foo --role front --surface slack --dry-run
-[ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && ok "a stale record is no refusal: the flag alone decides" || bad "stale record: rc=$RC — $OUT"
-mv "$SURFREC.keep" "$SURFREC"; unlist gamma-foo-rs
+[ "$RC" = 6 ] && has "$OUT" "stale" && ok "a stale record: refused (exit 6)" || bad "stale record: rc=$RC — $OUT"
+SALA_AGENT_CHECK=off rsrun gamma-foo-rs --project projects/foo --role front --surface slack --dry-run
+[ "$RC" = 0 ] && has "$OUT" "cwd $SLACKD, model" && ok "a stale record with the check off: the flag alone decides" || bad "stale record, check off: rc=$RC — $OUT"
+mv "$SURFREC.keep" "$SURFREC"
 OUT=$(env -u SALA_SLACK_CWD SALA_PROJECT_RECORD="$SURFREC" "$SALA" spawn gamma-foo-rs --project projects/foo --role front --dry-run 2>&1); RC=$?
 [ "$RC" != 0 ] && has "$OUT" "SALA_SLACK_CWD" && has "$OUT" "not set" && ! has "$OUT" "[dry-run]" && ok "a slack entry, SALA_SLACK_CWD unset: refused naming the key, never started in \$HOME" || bad "record slack, unset: rc=$RC — $OUT"
 SALA_PROJECT_RECORD="$SURFREC" SALA_SLACK_CWD="$HOME/no-such-slack-dir" run gamma-foo-rs --project projects/foo --role front --dry-run
@@ -535,8 +537,8 @@ SALA_SLACK_CWD="$SLACKD" enq --plan spawn gamma-foo-slq --project projects/foo -
 SALA_SLACK_CWD="$SLACKD" enq spawn gamma-foo-slq --project projects/foo --role front --surface slack --from sala-test-h --words "queue the slack one"
 [ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mvals "$ID" arg | paste -sd'|' -)" = "gamma-foo-slq|--project|projects/foo|--role|front|--surface|slack" ] && ok "the marker's arg= lines carry --surface slack" || bad "slack queued: rc=$RC $(mvals "$ID" arg | paste -sd'|' -) — $OUT"
 "$SALA" op --cancel "$ID" >/dev/null 2>&1
-enq spawn gamma-foo-slq --project projects/foo --role front --surface sala --from sala-test-h --words "queue the sala one"
-[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mvals "$ID" arg | paste -sd'|' -)" = "gamma-foo-slq|--project|projects/foo|--role|front|--surface|sala" ] && ok "--surface sala is accepted: the marker keeps the arguments as typed" || bad "sala queued: rc=$RC $(mvals "$ID" arg | paste -sd'|' -)"
+enq spawn gamma-foo-fr --project projects/foo --role front --surface sala --from sala-test-h --words "queue the sala one"
+[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mvals "$ID" arg | paste -sd'|' -)" = "gamma-foo-fr|--project|projects/foo|--role|front|--surface|sala" ] && ok "--surface sala is accepted: the marker keeps the arguments as typed" || bad "sala queued: rc=$RC $(mvals "$ID" arg | paste -sd'|' -)"
 "$SALA" op --cancel "$ID" >/dev/null 2>&1
 unlist gamma-foo-slq
 
@@ -570,13 +572,12 @@ enq --plan spawn gamma-foo-plan --project projects/foo --role front --mandate $'
 [ "$RC" = 0 ] && has "$OUT" "plan: salamander spawn gamma-foo-plan --project projects/foo --role front --mandate" && has "$OUT" "[dry-run] would spawn 'gamma-foo-plan'" && has "$OUT" "mandate: the text typed as the first message: line one" && has "$OUT" "plan only: nothing queued" && [ "$(nmandates)" = 0 ] && [ "$(queued)" = 0 ] \
     && ok "--plan: the dry run shown with the mandate's first line, nothing queued, no file written" || bad "--plan: rc=$RC — $OUT"
 
-echo "== the queue, a refusal at queue time: not listed → exit 3 with the register command unindented, nothing queued, no file, the keeper asked with who heard and the owner's words; no page → exit 4"
+echo "== the queue, a refusal at queue time: not listed → exit 3 with the register command unindented, nothing queued, no file; a record that cannot answer → exit 6"
 enq spawn gamma-foo-new --project projects/foo --role back --mandate "new work" --from sala-test-h --words "make gamma-foo-new"
-[ "$RC" = 3 ] && has "$OUT" "did not pass (exit 3) — nothing queued" && grep -qx 'REGISTER: projects/foo' <<< "$OUT" && grep -qxF 'python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-new --role <role> --back --mandate "new work"' <<< "$OUT" && noaddpage "$OUT" && ok "exit 3, the REGISTER: line and the command once more at column 0 (the web layer reads it), no ADD-TO-PAGE" || bad "unlisted at queue: rc=$RC — $OUT"
+[ "$RC" = 3 ] && has "$OUT" "did not pass (exit 3) — nothing queued" && grep -qx 'REGISTER: projects/foo' <<< "$OUT" && grep -qxF 'python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-new --role new --back --mandate "new work"' <<< "$OUT" && noaddpage "$OUT" && ok "exit 3, the REGISTER: line and the command once more at column 0 (the web layer reads it), no ADD-TO-PAGE" || bad "unlisted at queue: rc=$RC — $OUT"
 [ "$(queued)" = 0 ] && [ "$(nmandates)" = 0 ] && ok "nothing queued, the mandate file removed" || bad "left: $(ls "$OPS" "$MANDATES" 2>/dev/null)"
-waitask gamma-foo-new && has "$(ask gamma-foo-new)" "was asked for by sala-test-h (\"make gamma-foo-new\")" && [ "$(cmdline "$(ask gamma-foo-new)")" = 'python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-foo-new --role <role> --back --mandate "new work"' ] && ok "the keeper asked: who heard, the owner's words, the register command" || bad "ask: $(ask gamma-foo-new)"
 enq spawn gamma-nope-main --project projects/nope --role front --from t --words w
-[ "$RC" = 4 ] && grep -qx 'NO-PAGE: projects/nope' <<< "$OUT" && [ "$(queued)" = 0 ] && ok "no page at queue time: exit 4, NO-PAGE: at column 0, nothing queued" || bad "no page at queue: rc=$RC — $OUT"
+[ "$RC" = 1 ] && has "$OUT" "did not pass (exit 6)" && has "$OUT" "has no project projects/nope" && [ "$(queued)" = 0 ] && ! grep -q "^NO-PAGE" <<< "$OUT" && ok "a project the record does not have, at queue time: the plan fails (exit 6), nothing queued, no NO-PAGE line" || bad "no project at queue: rc=$RC — $OUT"
 
 echo "== the mandate's transport: a TEXT mandate written to its file at queue time (bytes kept), the marker carrying the path; a FILE passed as it is; cancel removes the file"
 list projects/foo gamma-foo-queued "queued work"
@@ -616,15 +617,14 @@ enq spawn gamma-foo-two --project projects/foo --role back --mandate "second" --
 "$SALA" op --cancel "$C1" >/dev/null 2>&1; [ "$(queued)" = 0 ] && [ ! -f "$MANDATES/$C1-gamma-foo-two.md" ] && ok "the first cancelled, its file gone" || bad "after cancel: $(ls "$OPS" "$MANDATES")"
 rm -f "$HOME/norun"
 
-echo "== the line removed between the queue and the run: stuck with no claude -p, the keeper asked by the unit with who heard, no session made"
+echo "== the line removed between the queue and the run: stuck with no claude -p, no session made"
 : > "$POSTS"; rm -f "$HOME/helper-runs.txt"; list projects/foo gamma-foo-late "late"
 enq spawn gamma-foo-late --project projects/foo --role back --mandate "late work" --from sala-test-h --words "spawn late"
 [ "$RC" = 0 ] && [ -n "$ID" ] && ok "queued op $ID (listed at queue time)" || bad "late enqueue: rc=$RC — $OUT"
 unlist gamma-foo-late
 tick; waitfor "[ -f '$DONE/$ID.op' ]" 120
-[ "$(mval "$ID" state)" = stuck ] && has "$(mval "$ID" result)" "exited 3" && has "$(mval "$ID" result)" "no claude -p: only the page's keeper can register the agent" && ok "stuck: exited 3, the result says only the keeper can register the agent" || bad "late: $(cat "$OPS/$ID.op" "$DONE/$ID.op" 2>/dev/null)"
+[ "$(mval "$ID" state)" = stuck ] && has "$(mval "$ID" result)" "exited 3" && has "$(mval "$ID" result)" "no claude -p: only stackshot can register the agent" && ok "stuck: exited 3, the result says only stackshot can register the agent" || bad "late: $(cat "$OPS/$ID.op" "$DONE/$ID.op" 2>/dev/null)"
 [ "$(runs)" = 0 ] && [ -z "$(mval "$ID" helper)" ] && ! tmux has-session -t =gamma-foo-late 2>/dev/null && ok "no claude -p, no session made" || bad "runs=$(runs) sessions: $(sessions)"
-waitask gamma-foo-late && has "$(ask gamma-foo-late)" "was asked for by sala-test-h (\"spawn late\")" && ok "the keeper asked from the unit, with who heard and the owner's words (SALA_OP_FROM, SALA_OP_WORDS exported by the runner)" || bad "late ask: $(ask gamma-foo-late)"
 [ "$(nposts '🚨 *spawn of gamma-foo-late is stuck*')" = 1 ] && [ "$(nposts '')" = 1 ] && ok "one 🚨 post" || bad "posts: $(<"$POSTS")"
 [ -f "$MANDATES/$ID-gamma-foo-late.md" ] && ok "its mandate file stays (the spawn runs again once the line is there)" || bad "late file gone"
 
@@ -650,8 +650,8 @@ SID="$ID"
 enq spawn gamma-foo-side-mica07 --side --project projects/foo --item board#13 --from t --words "again"
 [ "$RC" != 0 ] && has "$OUT" "names the same session" && [ "$(queued)" = 1 ] && ok "a second spawn of the same name: refused (one session, one op)" || bad "side conflict: rc=$RC — $OUT"
 "$SALA" op --cancel "$SID" >/dev/null 2>&1; [ "$(queued)" = 0 ] && [ "$(nmandates)" = "$NM0" ] && ok "cancelled: the marker archived, the mandate file removed" || bad "after cancel: $(ls "$OPS" "$MANDATES")"
-enq spawn gamma-foo-side-nopage --side --project projects/nope --item board#12 --from t --words w
-[ "$RC" = 4 ] && grep -qx 'NO-PAGE: projects/nope' <<< "$OUT" && [ "$(queued)" = 0 ] && ok "a start about an item of a project with no page: exit 4, NO-PAGE:, nothing queued" || bad "side no page: rc=$RC — $OUT"
+enq --plan spawn gamma-foo-side-nopage --side --project projects/nope --item board#12 --from t --words w
+[ "$RC" = 0 ] && has "$OUT" "plan only: nothing queued" && ! has "$OUT" "NO-PAGE" && [ "$(queued)" = 0 ] && ok "a start about an item of a project the record does not have: not checked (a side session is on no agents map), the plan passes" || bad "side, no project: rc=$RC — $OUT"
 fakeenv "$(uuid 51)" gamma-foo-side-wren51
 run gamma-foo-side-wren51 --side --project projects/foo --item board#12 --no-confirm --cwd "$HOME"; fake_up gamma-foo-side-wren51
 enq retire gamma-foo-side-wren51 --from t --words "close the side one"
@@ -661,109 +661,51 @@ enq --plan retire gamma-foo-side-wren51
 [ "$RC" = 0 ] && has "$OUT" "plan only: nothing queued" && ! has "$OUT" "would refuse" && ok "with the marker the plan passes" || bad "side retire plan with marker: rc=$RC — $OUT"
 tmux kill-session -t =gamma-foo-side-wren51 2>/dev/null; rm -f "$SALA_STATE_DIR/side/gamma-foo-side-wren51".*
 
-echo "== the project record: stackshot's projects.json answers first, pages.py only when the record cannot"
-export SALA_PROJECT_RECORD="$HOME/projects.json"
-ncalls() { wc -l < "$HOME/pages-calls.txt" 2>/dev/null || echo 0; }   # pcalls prints "0" twice for an empty log
+echo "== the project record: stackshot's projects.json answers, and only it"
 S0=$(sessions)
-# mkrec <age in seconds> <json {page key: {agent name: [front, mandate line[, page_owed]]}}> → the fake published file, written <age> seconds ago
-mkrec() { python3 - "$1" "$2" > "$SALA_PROJECT_RECORD" <<'PY'
-import json, sys, datetime
-age, spec = float(sys.argv[1]), json.loads(sys.argv[2]); projects, by_key = {}, {}
-for i, (k, ags) in enumerate(spec.items()):
-    pid = "prj_%08x" % (i + 1)
-    projects[pid] = {"id": pid, "key": k, "keeper": "gamma-rec", "agents": {n: {"front": a[0], "role": n.rsplit("-", 1)[-1], "mandate_line": a[1], **({"page_owed": True} if len(a) > 2 else {})} for n, a in ags.items()}}
-    by_key[k] = pid
-t = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=age)
-print(json.dumps({"schema": 1, "generated": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "projects": projects, "by_key": by_key}))
-PY
-}
-REC='{"projects/foo": {"gamma-rec-main": [true, "Rowan contact (record)"], "gamma-rec-worker": [false, "background work (record)"], "gamma-rec-owed": [true, "registered, line owed", true]}, "projects/bar": {"gamma-bar-main": [true, "bar main"]}}'
-mkrec 5 "$REC"; : > "$HOME/pages-calls.txt"; n=$(asks)
+mkrec 5 "$REC"
 run gamma-rec-main --project projects/foo --role front --dry-run
-[ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn 'gamma-rec-main' as a front agent of projects/foo (on its agents map: Rowan contact (record))" && [ "$(ncalls)" = 0 ] && ok "listed in the record (front): the plan passes, pages.py never called" || bad "record front: rc=$RC calls=$(ncalls) — $OUT"
+[ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn 'gamma-rec-main' as a front agent of projects/foo (on its agents map: Rowan contact (record))" && ok "listed in the record (front): the plan passes" || bad "record front: rc=$RC — $OUT"
 run gamma-rec-worker --project projects/foo --role back --mandate "watch" --dry-run
-[ "$RC" = 0 ] && has "$OUT" "as a back agent of projects/foo (on its agents map: background work (record))" && [ "$(ncalls)" = 0 ] && ok "listed in the record with front: false, spawned --role back: passes" || bad "record back: rc=$RC calls=$(ncalls) — $OUT"
+[ "$RC" = 0 ] && has "$OUT" "as a back agent of projects/foo (on its agents map: background work (record))" && ok "listed in the record with front: false, spawned --role back: passes" || bad "record back: rc=$RC — $OUT"
 run gamma-rec-main --project projects/foo --role back --mandate "watch" --dry-run
-[ "$RC" = 1 ] && has "$OUT" "lists 'gamma-rec-main' on projects/foo as a front agent" && has "$OUT" "not a back agent" && has "$OUT" "--role front" && [ "$(ncalls)" = 0 ] && sleep 1 && [ "$(asks)" = "$n" ] && ok "a front entry spawned --role back: refused (exit 1) from the record's front field, nobody asked" || bad "front as back: rc=$RC — $OUT"
+[ "$RC" = 1 ] && has "$OUT" "lists 'gamma-rec-main' on projects/foo as a front agent" && has "$OUT" "not a back agent" && has "$OUT" "--role front" && ok "a front entry spawned --role back: refused (exit 1) from the record's front field, nobody asked" || bad "front as back: rc=$RC — $OUT"
 run gamma-rec-worker --project projects/foo --role front --dry-run
-[ "$RC" = 1 ] && has "$OUT" "lists 'gamma-rec-worker' on projects/foo as a back agent" && [ "$(ncalls)" = 0 ] && ok "a back entry spawned --role front: refused (exit 1)" || bad "back as front: rc=$RC — $OUT"
+[ "$RC" = 1 ] && has "$OUT" "lists 'gamma-rec-worker' on projects/foo as a back agent" && ok "a back entry spawned --role front: refused (exit 1)" || bad "back as front: rc=$RC — $OUT"
 run gamma-rec-owed --project projects/foo --role front --dry-run
-[ "$RC" = 0 ] && has "$OUT" "registered, line owed (the page's line is still owed: registered through client.py post project-agent)" && [ "$(ncalls)" = 0 ] && ok "page_owed: true (registered through post project-agent): listed, the dry run says the page's line is owed" || bad "page_owed: rc=$RC — $OUT"
+[ "$RC" = 0 ] && has "$OUT" "registered, line owed (the page's line is still owed: registered through client.py post project-agent)" && ok "page_owed: true (registered through post project-agent): listed, the dry run says the page's line is owed" || bad "page_owed: rc=$RC — $OUT"
 run gamma-bar-main --project projects/foo --role front --dry-run
-[ "$RC" = 3 ] && has "$OUT" "'gamma-bar-main' is not on the agents map of projects/foo" && has "$OUT" "main agent: gamma-rec-main" && has "$OUT" "REGISTER: projects/foo" && noaddpage "$OUT" && [ "$(ncalls)" = 0 ] && ok "another project's agent: not listed on this one - exit 3, REGISTER, the project's -main agent named, pages.py not called" || bad "unlisted: rc=$RC calls=$(ncalls) — $OUT"
+[ "$RC" = 3 ] && has "$OUT" "'gamma-bar-main' is not on the agents map of projects/foo" && has "$OUT" "main agent: gamma-rec-main" && has "$OUT" "REGISTER: projects/foo" && noaddpage "$OUT" && ok "another project's agent: not listed on this one - exit 3, REGISTER, the project's -main agent named, pages.py not called" || bad "unlisted: rc=$RC — $OUT"
 has "$OUT" "client.py post project-agent projects/foo gamma-bar-main --role <role> --front" && ok "the refusal names stackshot's register command (post project-agent)" || bad "register hint: $OUT"
 # the role is the part of the name after the project's name, cut by the -main agent the record gives (gamma-rec-main gives gamma-rec-)
 run gamma-rec-scout --project projects/foo --role back --mandate "scout the queue" --dry-run
 [ "$RC" = 3 ] && [ "$(cmdline "$OUT")" = 'python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-rec-scout --role scout --back --mandate "scout the queue"' ] && [ "$(sed -n '/^REGISTER: /,$p' <<< "$OUT" | grep -v '^   ' | grep -c .)" = 2 ] && noaddpage "$OUT" && ok "an unlisted back agent of a project with a -main agent: the command carries --role scout (the part after gamma-rec-), --back and the mandate; stdout is the two lines only" || bad "role cut: rc=$RC — $OUT"
 run gamma-rec-main2 --project projects/foo --role front --dry-run
 [ "$RC" = 3 ] && [ "$(cmdline "$OUT")" = 'python3 ~/stackshot/stackshot/fleet/client.py post project-agent projects/foo gamma-rec-main2 --role main2 --front --mandate "<one line>"' ] && ok "a front agent with no mandate: --role cut the same way, the mandate placeholder" || bad "role cut front: rc=$RC — $OUT"
-waitask gamma-bar-main && A=$(ask gamma-bar-main) && has "$A" "client.py post project-agent projects/foo gamma-bar-main --role <role> --front --mandate" && noaddpage "$A" && ok "the keeper's message carries the register command (words only) and no page edit" || bad "ask text: $A"
-list projects/foo gamma-rec-pages "listed on the page only"
-: > "$HOME/pages-calls.txt"; run gamma-rec-pages --project projects/foo --role front --dry-run
-[ "$RC" = 3 ] && [ "$(ncalls)" = 0 ] && ok "the project is in the record: the record wins over a pages.py that lists the name (no fallback for an unlisted name)" || bad "record wins: rc=$RC calls=$(<"$HOME/pages-calls.txt") — $OUT"
 mkrec 5 '{"projects/foo": {"gamma-rec-solo": [true, "a"], "gamma-rec-b-main": [true, "b"], "gamma-rec-a-main": [true, "a main"], "gamma-rec-0-main": [false, "a back entry ending in -main"]}}'
 run gamma-rec-new --project projects/foo --role front --dry-run
 [ "$RC" = 3 ] && has "$OUT" "main agent: gamma-rec-a-main" && ok "the project's main is a front entry ending in -main (the first of two by name; a back entry ending so does not count)" || bad "main: rc=$RC — $OUT"
 
-echo "== the record cannot answer: pages.py is the fallback, with its own answers and its own 'cannot tell'"
-: > "$HOME/pages-calls.txt"; mkrec 5 '{"projects/bar": {"gamma-bar-main": [true, "bar main"]}}'; list projects/foo gamma-rec-fb "listed on the page"
-run gamma-rec-fb --project projects/foo --role front --dry-run
-[ "$RC" = 0 ] && has "$OUT" "(on its agents map: listed on the page)" && [ "$(ncalls)" = 2 ] && ok "no such project in the record: pages.py answers (resolve, agent-listed)" || bad "no project: rc=$RC calls=$(ncalls) — $OUT"
-run gamma-rec-nope --project projects/nope --role front --dry-run
-[ "$RC" = 4 ] && grep -qx 'NO-PAGE: projects/nope' <<< "$OUT" && ok "no such project in the record and no such page: the fallback's exit 4, NO-PAGE" || bad "no page: rc=$RC — $OUT"
-run gamma-rec-gone --project projects/foo --role front --dry-run
-[ "$RC" = 3 ] && has "$OUT" "'gamma-rec-gone' is not on the agents map of projects/foo" && ok "no such project in the record, name not on the page: the fallback's exit 3" || bad "fallback unlisted: rc=$RC — $OUT"
-for how in missing stale garbage schema2 nogenerated; do
-    : > "$HOME/pages-calls.txt"
-    case "$how" in
-        missing) rm -f "$SALA_PROJECT_RECORD" ;;
-        stale) mkrec 3600 "$REC" ;;
-        garbage) echo '{"schema": 1, "proj' > "$SALA_PROJECT_RECORD" ;;
-        schema2) mkrec 5 "$REC"; sed -i 's/"schema": 1/"schema": 2/' "$SALA_PROJECT_RECORD" ;;
-        nogenerated) mkrec 5 "$REC"; sed -i 's/"generated": "[^"]*", //' "$SALA_PROJECT_RECORD" ;;
-    esac
-    run gamma-rec-main --project projects/foo --role front --dry-run
-    [ "$RC" = 3 ] && [ "$(ncalls)" = 2 ] && ok "record $how: not used, pages.py asked (resolve, agent-listed) and answers (gamma-rec-main is not on its page)" || bad "record $how: rc=$RC calls=$(ncalls) — $OUT"
+echo "== record_name_unlisted (a plain spawn's and rename's question): listed → no; on no project → yes; the record cannot answer → rc 2 with the reason; the exemptions and SALA_AGENT_CHECK=off → no"
+mkrec 5 "$REC"
+record_name_unlisted gamma-rec-worker; rc=$?; [ "$rc" = 1 ] && ok "listed on a project of the record (a back agent): not unlisted" || bad "unlisted listed: rc=$rc"
+record_name_unlisted gamma-rec-owed; rc=$?; [ "$rc" = 1 ] && ok "a name registered through post project-agent (page line owed): not unlisted" || bad "owed: rc=$rc"
+record_name_unlisted gamma-foo-zzz; rc=$?; [ "$rc" = 0 ] && ok "on no project of a fresh record: unlisted (rc 0)" || bad "unlisted: rc=$rc"
+record_name_unlisted gamma-foo-test-zzz; rc=$?; [ "$rc" = 1 ] && ok "a throwaway's name: the gate does not apply (rc 1)" || bad "exempt: rc=$rc"
+SALA_AGENT_CHECK=off record_name_unlisted gamma-foo-zzz; rc=$?; [ "$rc" = 1 ] && ok "SALA_AGENT_CHECK=off: the gate does not apply (rc 1)" || bad "check off: rc=$rc"
+for how in missing stale garbage; do
+    recbreak "$how"; record_name_unlisted gamma-foo-zzz; rc=$?
+    w=${WHY[$how]}; [ "$rc" = 2 ] && [[ $RL_WHY == *"$w"* ]] && ok "record $how: the record cannot answer (rc 2), the reason in RL_WHY ($RL_WHY)" || bad "record $how: rc=$rc why=$RL_WHY"
 done
-mkrec 3600 "$REC"; list projects/foo gamma-rec-stale "page says listed"
-run gamma-rec-stale --project projects/foo --role front --dry-run
-[ "$RC" = 0 ] && has "$OUT" "(on its agents map: page says listed)" && ok "a stale record: the page's answer is used" || bad "stale fallback: rc=$RC — $OUT"
-mkrec 5 "$REC"; touch "$HOME/pages-cannot-tell"
-run gamma-rec-main --project projects/foo --role front --dry-run
-[ "$RC" = 0 ] && ok "pages.py cannot tell but the record can: the record answers" || bad "record beats a blind pages.py: rc=$RC — $OUT"
-rm -f "$HOME/pages-cannot-tell"
-
-echo "== neither source can answer: refused (exit 1), never fail-open"
-rm -f "$SALA_PROJECT_RECORD"; touch "$HOME/pages-cannot-tell"
-run gamma-rec-main --project projects/foo --role front --dry-run
-[ "$RC" = 1 ] && has "$OUT" "cannot tell whether the page projects/foo exists" && has "$OUT" "no project record at" && ok "no record and pages.py cannot resolve: refused, both reasons in the message" || bad "cannot tell 1: rc=$RC — $OUT"
-rm -f "$HOME/pages-cannot-tell"; touch "$HOME/pages-listed-cannot-tell"; mkrec 3600 "$REC"
-run gamma-rec-main --project projects/foo --role front --dry-run
-[ "$RC" = 1 ] && has "$OUT" "cannot tell whether 'gamma-rec-main' is on the agents map of projects/foo" && has "$OUT" "stale" && ok "a stale record and pages.py cannot tell who is listed: refused" || bad "cannot tell 2: rc=$RC — $OUT"
-rm -f "$HOME/pages-listed-cannot-tell"; mkrec 5 '{"projects/bar": {}}'
-SALA_AGENT_CHECK_SCRIPT="$HOME/nowhere.py" run gamma-rec-main --project projects/foo --role front --dry-run
-[ "$RC" = 1 ] && has "$OUT" "no pages.py on this box" && ok "no such project in the record and no pages.py: refused" || bad "cannot tell 3: rc=$RC — $OUT"
-[ "$(sessions)" = "$S0" ] && ok "none of these made a session" || bad "sessions: $(sessions) (was $S0)"
-
-echo "== agent_unlisted (a plain spawn, rename): a name the record lists is not unlisted, pages.py is not asked; anything else is pages.py's as before"
-mkrec 5 "$REC"; : > "$HOME/pages-calls.txt"
-agent_unlisted gamma-rec-worker >/dev/null; rc=$?; [ "$rc" = 1 ] && [ "$(ncalls)" = 0 ] && ok "listed on a project of the record (a back agent): not unlisted, no pages.py call" || bad "unlisted listed: rc=$rc calls=$(ncalls)"
+mkrec 5 "$REC"
 run gamma-rec-worker --dry-run; [ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn 'gamma-rec-worker'" && ok "a plain spawn of a record-listed name passes" || bad "plain listed: rc=$RC — $OUT"
-agent_unlisted gamma-rec-owed >/dev/null; rc=$?; [ "$rc" = 1 ] && ok "a name registered through post project-agent (page line owed): not unlisted" || bad "owed: rc=$rc"
-agent_unlisted gamma-foo-zzz >/dev/null; rc=$?; [ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && ok "not in the record: pages.py is asked and its exit 3 refuses, as before" || bad "unlisted: rc=$rc calls=$(ncalls)"
-# a plain spawn of an unlisted name finds the page in pages.py's refusal, in the current wording and in the one before Fri Oct 16th 2026
 run gamma-rec-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && has "$OUT" "post project-agent projects/foo gamma-rec-zzz --role zzz --front|--back --mandate" && noaddpage "$OUT" && ok "a plain spawn of an unlisted name: the record decides (THE SPAWN GATE), the register command names the project and the role" || bad "plain unlisted: rc=$RC — $OUT"
-# with no record (and no client: a box without stackshot's files) pages.py answers, as before (PR B removes this path): its refusal's wording, the current and the one before Fri Oct 16th 2026
-rm -f "$SALA_PROJECT_RECORD"
-run gamma-foo-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && has "$OUT" "post project-agent projects/foo gamma-foo-zzz --role <role> --front|--back --mandate" && noaddpage "$OUT" && ok "no record: a plain spawn of an unlisted name: the page is read from pages.py's current refusal wording" || bad "plain unlisted no record: rc=$RC — $OUT"
-run oldfmt-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && ok "no record: a plain spawn of an unlisted name: the page is read from the old '(steward …' wording too" || bad "plain unlisted, old wording: rc=$RC — $OUT"
-rm -f "$SALA_PROJECT_RECORD"; agent_unlisted gamma-rec-worker >/dev/null; rc=$?; [ "$rc" = 0 ] && ok "no record: pages.py's answer is used (it does not list the name)" || bad "no record: rc=$rc"
-unset SALA_PROJECT_RECORD
+rebuild_rec
 
-export SALA_PROJECT_RECORD="$HOME/projects.json"
 echo "== THE SPAWN GATE: the record decides first, stackshot's register call is the yes, the pane starts only on it (a stub client.py, no network)"
 # the stub stackshot client (SALA_STACKSHOT_CLIENT): `post project-agent` adds the agent to the fake record unless the mode says otherwise and logs whether the pane existed AT THE CALL;
-# $HOME/client-mode: ok (default) | 409 | 403 | 400 (stackshot's refusal) | down (not reached) | noshow (200, but the record shows nothing)
+# $HOME/client-mode: ok (default) | 409 | 403 | 400 (stackshot's refusal) | down (not reached) | noshow (200, but the record shows nothing) | stale (200, but the published
+# record is an hour old and does not list it yet, and the live answer does not come: the read-back cannot be made)
 cat > "$HOME/fake-client.py" <<'PY'
 import datetime, json, os, subprocess, sys
 home = os.environ["HOME"]; rec = os.environ["SALA_PROJECT_RECORD"]; a = sys.argv[1:]
@@ -780,11 +722,13 @@ if a[:2] == ["post", "project-agent"]:
     open(home + "/client-pane-at-call.txt", "a").write("%s %s\n" % (name, "pane-existed" if r.returncode == 0 else "no-pane"))
     if mode == "down": sys.stderr.write("stackshot: not reached [0] connection refused\n"); sys.exit(1)
     if mode in ("409", "403", "400"): sys.stderr.write("stackshot: agent not registered [%s] stub reason %s for %s\n" % (mode, mode, name)); sys.exit(1)
-    if mode != "noshow":
+    if mode == "stale":   # the published file stays as it was but is an hour old, and it does not list the name yet
+        d = load(); d["generated"] = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"); json.dump(d, open(rec, "w"))
+    elif mode != "noshow":
         d = load(); p = proj(d, key); p["agents"][name] = {"front": "--front" in a, "role": a[a.index("--role") + 1], "mandate_line": a[a.index("--mandate") + 1]}; save(d)
     print(json.dumps({"project": key, "agent": name, "page_owed": False, "note": "registered"})); sys.exit(0)
 if a[:2] == ["get", "project"]:
-    if mode == "down": sys.stderr.write("stackshot: not reached [0] connection refused\n"); sys.exit(1)
+    if mode in ("down", "stale"): sys.stderr.write("stackshot: not reached [0] connection refused\n"); sys.exit(1)
     p = proj(load(), a[2])
     if p is None: sys.stderr.write("stackshot: no such project [404]\n"); sys.exit(1)
     print(json.dumps(p)); sys.exit(0)
@@ -848,6 +792,12 @@ rm -f "$HOME/client-mode"
 creset; echo noshow > "$HOME/client-mode"; run gamma-rec-noshow2 --role noshow2 --mandate "no"
 [ "$RC" = 6 ] && has "$OUT" "run the same spawn again" && ok "gate: the read-back refusal says how to go on (run the same spawn again)" || bad "gate noshow retry text: rc=$RC — $OUT"
 rm -f "$HOME/client-mode"
+# stackshot said yes, and only the READ-BACK cannot be made (its live answer is not there and the published record is an hour old): no pane, and the message says the name IS registered
+cp "$SALA_PROJECT_RECORD" "$HOME/rec-before-stale.json"
+creset; echo stale > "$HOME/client-mode"; run gamma-rec-stale1 --role stale1 --mandate "no"
+[ "$RC" = 6 ] && has "$OUT" "the name IS registered" && has "$OUT" "run the same spawn again" && has "$OUT" "stackshot's project record cannot answer" && [ "$(sessions)" = "$S0" ] && ok "gate: the registration is made and only the read-back cannot be (stale record): exit 6, no pane, the message says the name IS registered" || bad "gate stale read-back: rc=$RC sessions=$(sessions) — $OUT"
+[ "$(grep -c '^post project-agent .* gamma-rec-stale1 ' "$HOME/client-calls.txt")" = 1 ] && ok "gate: exactly one registration call was made for it" || bad "stale: calls $(grep gamma-rec-stale1 "$HOME/client-calls.txt")"
+rm -f "$HOME/client-mode"; cp "$HOME/rec-before-stale.json" "$SALA_PROJECT_RECORD"; rm -f "$HOME/rec-before-stale.json"   # the record as it was (fresh, without the stale one's entry)
 # AFTER the 200 and the read-back the pane cannot be made (a local launch failure): the name is registered and no session exists. The message says so and how to retry,
 # and the same spawn again succeeds without registering twice (the record lists the name now, so the pane simply starts)
 eval "tmux() { if [ -e \"$HOME/tmux-fail-new\" ] && [ \"\${1:-}\" = new-session ]; then return 1; fi; command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux

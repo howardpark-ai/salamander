@@ -196,9 +196,15 @@ lane_dry_line() {  # <session> → what the lane and model rows are, for the dry
 retire_gate_exempt() {  # → 0 when this session is on the closed exceptions list (common.sh, THE SPAWN GATE: a throwaway's name, a side session, sala's shell): stackshot is not asked
     agent_gate_exempt "$name" "$(if side_is "$name"; then echo 1; else echo 0; fi)" 0
 }
+retire_blind_warn() {  # → the loud line for a non-exempt session whose project could not be found because stackshot's project record could not answer: nobody was asked, the entry may stay on a project
+    echo "⚠ stackshot was NOT asked to take '$name' off a project: no project is known for it and $RETIRE_PROJ_BLIND. If '$name' is a project agent its entry stays on the project's record: once the record is fresh, take it off with: python3 $(stackshot_client 2>/dev/null || echo '<stackshot client.py>') post project-agent-retire <project page key> $name --sender $SALA_RETIRE_SENDER"
+}
 agent_dry_line() {  # the stackshot call a real retire makes BEFORE it closes the pane (THE RETIRE ASKS STACKSHOT FIRST, common.sh), for the dry run: said, never made
     local ex
-    if [ -z "${proj:-}" ]; then return 0; fi
+    if [ -z "${proj:-}" ]; then
+        if [ -n "${RETIRE_PROJ_BLIND:-}" ] && ! retire_gate_exempt >/dev/null; then dry "would WARN, not refuse: stackshot cannot be asked to take '$name' off a project (no project is known for it and $RETIRE_PROJ_BLIND)"; fi
+        return 0
+    fi
     if ex=$(retire_gate_exempt); then dry "would not ask stackshot to drop '$name' from $proj's agents: it is $ex"; return 0; fi
     dry "would ask stackshot FIRST, before the pane is closed, to take '$name' off $proj's agents (client.py post project-agent-retire, label $SALA_RETIRE_SENDER): \"not listed\" goes on, any other refusal stops the retire with stackshot's reason and leaves the pane as it is"
 }
@@ -251,7 +257,7 @@ if side_is "$name" && [ ! -f "$(side_done_file "$name")" ]; then
 fi
 
 uuid=""; bridge=""; shared=""
-registry_conv_r uuid "$cpid"
+registry_conv_r uuid "$cpid"; uuid_reg=$uuid   # what the registry row itself gave (retire_still_same asks it again after stackshot's answer)
 bridge=$(registry_field "$cpid" bridgeSessionId); [ "$bridge" = null ] && bridge=""
 # a conversation id known only from the map that another row carries too (a scrambled follow left
 # one session on another's) may be that other session's: its claude.ai session is not archived from here
@@ -307,6 +313,14 @@ fi
 why=$(SALA_IDLE_OWN_TURN=$OWN_TURN is_idle_reason "$cpid")
 if [ -n "$why" ] && [ "$BUSY" = 0 ]; then die "'$name' is not idle: $why — wait, or pass --busy to retire it anyway"; fi
 [ -n "$why" ] && echo "⚠ retiring '$name' while it is not idle ($why)"
+other_claude_pids() {  # → the pids of the claude processes in the panes of this session other than the one being retired, one per line
+    local pp q
+    while read -r pp; do
+        [ -n "$pp" ] && [ "$pp" != "$panepid" ] || continue
+        q=$(claude_pid_under "$pp" || true); [ -z "$q" ] || echo "$q"
+    done < <(tmux list-panes -s -t "$(tmux_win_t "$name")" -F '#{pane_pid}' 2>/dev/null)
+}
+OTHERS_BEFORE=" $(other_claude_pids | tr '\n' ' ')"   # the claudes already in the session's other panes when the ask starts: the kill would end them as it always did, a NEW one is what the ask's wait can bring
 # STACKSHOT FIRST (common.sh, THE RETIRE ASKS STACKSHOT FIRST): a session that is on a project's record is taken off it BEFORE its pane is closed. "not listed" (or nothing to ask) goes on; any other
 # answer refuses the retire with stackshot's reason and leaves the pane exactly as it is (asking again is safe: stackshot's retire is idempotent). The closed exceptions list skips the ask.
 ASKED_CALL=0
@@ -314,16 +328,27 @@ if [ -n "$proj" ]; then
     if ex=$(retire_gate_exempt); then echo "ℹ stackshot is not asked about '$name': it is $ex"; retire_log "$name: not asked ($ex)"
     elif retire_ask_first "$name" "$proj" "${psrc:-}"; then echo "ℹ $RETIRE_ASKED"; [ -z "$RD_RC" ] || ASKED_CALL=1
     else refuse "$RETIRE_ASKED_WHY; the pane is left as it is. Ask again when the cause is gone (the retire asks stackshot again each time), or see $SALA_LOG_DIR/salamander-retire.log"; fi
-else retire_log "$name: no project known for it${RETIRE_PROJ_WHY:+ ($RETIRE_PROJ_WHY)}, so stackshot was not asked to drop an agent entry"; fi
+else
+    retire_log "$name: no project known for it${RETIRE_PROJ_WHY:+ ($RETIRE_PROJ_WHY)}, so stackshot was not asked to drop an agent entry"
+    if [ -n "${RETIRE_PROJ_BLIND:-}" ] && ! retire_gate_exempt >/dev/null; then retire_log "$name: WARNING: the retire goes on although stackshot's project record could not say whether '$name' is on a project ($RETIRE_PROJ_BLIND); its entry, if any, stays on the record"; retire_blind_warn; fi
+fi
 # REVALIDATE AFTER THE ASK: the call can take up to 90 s, long after the idle and identity checks above. Before /exit or the kill the pane is looked at again: a pane that became busy,
 # or a session that replaced it under the same name, is left alone. The record is already off by then, and says so: a retry is safe (stackshot's retire is idempotent).
 retire_still_same() {  # → 0 the pane is the one the checks above passed; 1 with RV_WHY (what changed)
-    local np nc nu iw; RV_WHY=""
+    local np nc nu iw q; RV_WHY=""
     np=$(tmux display -p -t "$pane" '#{session_name} #{pane_pid}' 2>/dev/null) || np=""
     if [ "$np" != "$name $panepid" ]; then RV_WHY="'$name' is not the session this retire started on (its pane $pane is gone, or is another process now)"; return 1; fi
     nc=$(claude_pid_under "$panepid" || true)
     if [ "$nc" != "$cpid" ]; then RV_WHY="'$name' is not the session this retire started on (the claude in its pane is another process now)"; return 1; fi
-    if [ -n "$uuid" ]; then registry_conv_r nu "$cpid"; if [ -n "$nu" ] && [ "$nu" != "$uuid" ]; then RV_WHY="'$name' is not the session this retire started on (its conversation changed from $uuid to $nu)"; return 1; fi; fi
+    if [ -n "$uuid" ]; then
+        registry_conv_r nu "$cpid"
+        if [ -n "$nu" ] && [ "$nu" != "$uuid" ]; then RV_WHY="'$name' is not the session this retire started on (its conversation changed from $uuid to $nu)"; return 1; fi
+        # the registry gave the conversation at the start and gives none now: it can no longer be read, so it cannot be said to be the same one (a conversation known only from the pane map never came from the row: that is no change)
+        if [ -z "$nu" ] && [ -n "$uuid_reg" ]; then RV_WHY="'$name' is not the session this retire started on (its conversation $uuid_reg can no longer be read from the registry row of pid $cpid)"; return 1; fi
+    fi
+    for q in $(other_claude_pids); do
+        case "$OTHERS_BEFORE" in *" $q "*) ;; *) RV_WHY="'$name' is not the session this retire started on (another pane of it now runs a claude, pid $q, which ending the session would end too)"; return 1 ;; esac
+    done
     if [ "$BUSY" = 0 ]; then iw=$(SALA_IDLE_OWN_TURN=$OWN_TURN is_idle_reason "$cpid"); if [ -n "$iw" ]; then RV_WHY="'$name' is not idle any more ($iw)"; return 1; fi; fi
     return 0
 }

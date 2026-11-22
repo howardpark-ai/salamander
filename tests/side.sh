@@ -14,8 +14,8 @@
 # cut diagnostic logged, never a bare 260; an --fyi the client refuses: a ⚠ line, a log entry, the marker written anyway, no second
 # (marked) attempt, no send recorded; projects/<slug> targets plain with the full body and no --fyi, a failing send there leaving no marker); the retire gate
 # (refused in the dry run and for real until the marker, --force the one bypass, a plain session untouched, the record moved after the
-# retire). stackshot's client is a set of stubs (SALA_SIDE_ITEMS_CMD, SALA_SIDE_PAGE_TS_CMD, SALA_SIDE_MSG_CMD), pages.py a stub
-# (SALA_AGENT_CHECK_SCRIPT), the project record a file; the compiled fake claude, a private tmux socket and an isolated HOME. No real
+# retire). stackshot's client is a set of stubs (SALA_SIDE_ITEMS_CMD, SALA_SIDE_PAGE_TS_CMD, SALA_SIDE_MSG_CMD), pages.py a tripwire
+# (SALA_AGENT_CHECK_SCRIPT: nothing asks it any more, and a call to it is logged and fails the suite), the project record a file; the compiled fake claude, a private tmux socket and an isolated HOME. No real
 # session, page, board item or message is touched.
 # Usage: bash tests/side.sh   (exit 0 = pass; ~60 s)
 set -u
@@ -35,16 +35,12 @@ mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/projects/x" "$HOME/.local/bin" 
 touch "$HOME/.claude/salamander-rc.stopped"      # no Remote Control server in the sandbox
 mkdir -p "$HOME/.local/share/claude/versions"; cc -o "$HOME/.local/share/claude/versions/9.9.9" "$ROOT/tests/fake-claude.c" || { rm -rf "$HOME"; exit 1; }   # the temp HOME goes with this exit (an EXIT trap may not exist yet here)
 ln -s "$HOME/.local/share/claude/versions/9.9.9" "$HOME/.local/bin/claude"
-# the stub pages.py (stackshot's; SALA_AGENT_CHECK_SCRIPT): `resolve <key>` answers from $HOME/pages/<key>.md; agent-listed says "not listed" (a side session must not need it)
+# the tripwire where pages.py used to be (SALA_AGENT_CHECK_SCRIPT): sala reads stackshot's project record alone and asks no page, so any call to it is logged in pages-calls.txt and the end of the suite fails on a line there
 cat > "$HOME/fake-pages.py" <<'PY'
 import os, sys
 home = os.environ["HOME"]; cmd = sys.argv[1]; arg = sys.argv[2] if len(sys.argv) > 2 else ""
 open(home + "/pages-calls.txt", "a").write(" ".join(sys.argv[1:]) + "\n")
-if cmd == "resolve":
-    ex = os.path.exists(f"{home}/pages/{arg}.md"); print(arg, ex); sys.exit(0 if ex else 1)
-if cmd == "agent-listed":
-    print(f"not listed: {arg} is not under `agents:` on projects/foo (the page whose `display-name:` line is gamma-foo). The line `{arg}: <mandate>` has to be added there first."); sys.exit(3)
-sys.exit(1)
+print("pages.py is not asked any more", file=sys.stderr); sys.exit(1)
 PY
 # stackshot's client, stubbed. items <agent>: $HOME/items-<agent>.json when it exists, else {"items": []} · page-ts <key>: $HOME/page-ts.json
 # or exit 1 · message <to> - --sender <name>: the arguments and stdin to $HOME/msgs.txt (a record ends with %%), $HOME/msg-fail makes it exit 7
@@ -128,7 +124,7 @@ tmux new-session -d -s keep-alive   # the server the spawns land on, with the fa
 tmux set-environment -g FAKE_LOG "$FAKE_LOG"; tmux set-environment -g FAKE_TYPED_LOG "$TYPED"
 fakeenv() { tmux set-environment -g FAKE_SESSION_ID "$1"; tmux set-environment -g FAKE_NAME "$2"; }
 
-echo "== the argument matrix: refused before anything is made (no session, no page asked for the agents map)"
+echo "== the argument matrix: refused before anything is made (no session, nothing asked of stackshot)"
 run x --side; [ "$RC" = 1 ] && has "$OUT" "--side needs --fork-of AGENT" && ok "--side alone" || bad "side alone: rc=$RC — $OUT"
 run gamma-foo-side-wren01 --side --project projects/foo --role front; [ "$RC" = 1 ] && has "$OUT" "--side takes no --role" && ok "--side with --role" || bad "side role: rc=$RC — $OUT"
 run gamma-foo-side-wren01 --side --project projects/foo; [ "$RC" = 1 ] && has "$OUT" "needs --item board#N" && ok "a start about a project without --item" || bad "no item: rc=$RC — $OUT"
@@ -155,13 +151,12 @@ SALA_PROJECT_RECORD=/nonexistent run --suggest-name --side --project "projects/$
 run --suggest-name --side --fork-of gamma-foo-main-side-old01; [ "$RC" = 0 ] && grep -qE '^gamma-foo-main-side-[a-z]+[0-9]{2}$' <<< "$OUT" && ok "a fork name is made from the agent's name (a side session's own -side- part is cut): $OUT" || bad "suggest fork (name only): rc=$RC — $OUT"
 
 echo "== the dry run of a start about an item: makes, records and calls nothing; the agents map is not asked"
-: > "$HOME/pages-calls.txt"
 run gamma-foo-side-mica07 --side --project projects/foo --item board#12 --agents acme-main,example-x-builder --dry-run
 [ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn 'gamma-foo-side-mica07' as a side session (a fresh start about board#12 of projects/foo, item board#12; on no agents map; its write-up summary goes to acme-main)" \
     && has "$OUT" "mandate: written to $MANDATES/side-gamma-foo-side-mica07.md" && has "$OUT" "naming the agents acme-main,example-x-builder" && ok "the plan names the kind, the item, the summary's receiver, the mandate file and the agents" || bad "dry run: rc=$RC — $OUT"
 [ ! -e "$MANDATES/side-gamma-foo-side-mica07.md" ] && [ ! -e "$SIDE/gamma-foo-side-mica07.side" ] && [ -z "$(sessions)" ] && ! grep -q '^agent-listed' "$HOME/pages-calls.txt" && ok "nothing written, no session, agent-listed never asked" || bad "dry run left: $(ls "$MANDATES" "$SIDE" 2>&1) / $(sessions) / $(<"$HOME/pages-calls.txt")"
 run gamma-foo-side-mica07 --side --project projects/nope --item board#12 --dry-run
-[ "$RC" = 4 ] && grep -qx 'NO-PAGE: projects/nope' <<< "$OUT" && ok "a project with no page: exit 4, NO-PAGE:" || bad "no page: rc=$RC — $OUT"
+[ "$RC" = 0 ] && ! has "$OUT" "NO-PAGE" && [ ! -s "$HOME/pages-calls.txt" ] && ok "a project the record does not list is no refusal (a side session is on no map and no page is asked: the board item names its project)" || bad "unlisted project: rc=$RC — $OUT"
 
 for id in s9 board-tmp-box#3 a5; do   # the forms stackshot shows (its Discuss link carries any of them)
     run gamma-foo-side-mica07 --side --project projects/foo --item "$id" --dry-run
@@ -445,6 +440,9 @@ OUT=$("$SALA" retire "$S" --keep-web 2>&1); RC=$?
 [ "$RC" = 0 ] && has "$OUT" "retired '$S'" && [ -f "$SIDE/retired/$S.done" ] && [ -f "$SIDE/retired/$S.side" ] && ok "a session with its marker: retired without --skip-writeup, record and marker moved" || bad "retire with marker: rc=$RC — $OUT"
 OUT=$("$SALA" retire sala-test-plain --keep-web 2>&1); RC=$?
 [ "$RC" = 0 ] && has "$OUT" "retired 'sala-test-plain'" && ok "a plain session retires as before" || bad "plain retire real: rc=$RC — $OUT"
+
+echo "== the tripwire: nothing in this suite asked pages.py"
+[ ! -s "$HOME/pages-calls.txt" ] && ok "no call to pages.py in the whole run (sala reads stackshot's project record alone)" || bad "pages.py was asked: $(head -3 "$HOME/pages-calls.txt")"
 
 echo "side: $([ "$fail" = 0 ] && echo pass || echo FAIL)"
 exit $fail

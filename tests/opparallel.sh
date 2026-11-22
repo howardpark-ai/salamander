@@ -9,7 +9,7 @@
 #     after the other, and a younger one on that name does not jump ahead of an older one that waits; a solo operation (a recycle, a lane
 #     default, a retire of a registry name or the master, a rename of the master, a marker that fits no shape, a running marker of an older
 #     sala with no class) waits for everything running, and while it waits, or runs, nothing younger starts; it is started when the way is clear.
-#   · THE RACES (real runners on fakes: stub claude, tmux, systemd-run, systemctl, Slack, stackshot's pages.py / client / register hook; many
+#   · THE RACES (real runners on fakes: stub claude, tmux, systemd-run, systemctl, Slack, stackshot's client / register hook and a pages.py tripwire; many
 #     rounds with random small delays in every stub, ticks fired from every direction the product has — the enqueue's start of the watch, the
 #     end-of-op kick, the timer — and two at once): in each round two spawns (a project agent with a TEXT mandate and a side session
 #     about a board item) and a retire, and in some rounds a rename of a project agent, run side by side. After each, the pane map (every
@@ -17,7 +17,7 @@
 #     ledger log, the lane and model tables, the session registry (project, role, side fields; sessions.log empty of errors), the side
 #     records and their mandate files, the markers (done, started <= ended, the class and names, in the archive), the Slack post and the
 #     hearing session's line (one each, naming their own operation), the stub stackshot's logs (the register hook once per project agent with
-#     its own conversation, pages.py and the client once per question) and the resurrect saves (never two at once) come out right and unmixed;
+#     its own conversation and the client once per question; pages.py never) and the resurrect saves (never two at once) come out right and unmixed;
 #     the shared recycle lock holds two runners and refuses a relaunch driver; the concurrency was real (two operations ran at the same time
 #     in the rounds, never more than the cap); a solo operation after running ones starts after the last of them ended and blocks the
 #     retire behind it; SALA_OP_PARALLEL=1 is serial end to end.
@@ -117,26 +117,12 @@ rmdir "$HOME/save.busy" 2>/dev/null
 exit 0
 EOF
 chmod +x "$HOME/fake-save.sh"; export SALA_RESURRECT_SAVE="$HOME/fake-save.sh"
-# stackshot's side, stubbed. pages.py: resolve from $HOME/pages; agent-listed from listed.txt (key TAB name TAB line), gamma-foo-* names are not
-# listed (the rename's client moves the entry); every call is logged as one line. client.py (rename's `post project-agent-rename`): logs its arguments
+# stackshot's side, stubbed. pages.py is a TRIPWIRE: nothing in sala asks it any more (the project record decides), so every call is logged as one line in pages-calls.txt and the round checks fail on one.
+# client.py (rename's `post project-agent-rename`): logs its arguments
 cat > "$HOME/fake-pages.py" <<'PY'
-import os, random, sys, time
-home = os.environ["HOME"]; cmd = sys.argv[1]; arg = sys.argv[2] if len(sys.argv) > 2 else ""
-open(home + "/pages-calls.txt", "a").write(" ".join(sys.argv[1:]) + "\n")
-time.sleep(random.random() * 0.3)
-if cmd == "resolve":
-    ex = os.path.exists(f"{home}/pages/{arg}.md"); print(arg, ex); sys.exit(0 if ex else 1)
-if cmd == "agent-listed":
-    listed = {}
-    try:
-        for ln in open(home + "/listed.txt"):
-            if ln.strip(): k, n, m = ln.rstrip("\n").split("\t"); listed[n] = (k, m)
-    except FileNotFoundError: pass
-    if arg in listed: print(f"listed on {listed[arg][0]}: {listed[arg][1]}"); sys.exit(0)
-    if arg.startswith("gamma-foo-"):
-        print(f"not listed: {arg} is not under `agents:` on projects/foo (the page whose `display-name:` line is gamma-foo). The line `{arg}: <mandate>` has to be added there first (ask the project's -main agent), then the session can be made."); sys.exit(3)
-    print("no project page for this name: nothing to check"); sys.exit(0)
-sys.exit(1)
+import os, sys
+open(os.environ["HOME"] + "/pages-calls.txt", "a").write(" ".join(sys.argv[1:]) + "\n")
+print("pages.py is not asked any more", file=sys.stderr); sys.exit(1)
 PY
 cat > "$HOME/fake-client.py" <<'PY'
 import fcntl, json, os, random, sys, time
@@ -164,7 +150,6 @@ if a[:2] == ["post", "project-agent"]:   # THE SPAWN GATE's registration: the ag
     record(lambda ag: ag.update({a[3]: {"front": "--front" in a, "role": a[a.index("--role") + 1], "mandate_line": mand}}), a[2])
     print(json.dumps({"project": a[2], "agent": a[3], "page_owed": False, "note": "stub"})); sys.exit(0)
 project, old, new = a[2], a[3], a[4]
-open(home + "/listed.txt", "a").write("%s\t%s\t%s\n" % (project, new, "renamed by the stub"))
 record(lambda ag: ag.update({new: ag.pop(old)}) if old in ag else None, project)   # the record shows the entry under NEW from the answer on (the rename is read back)
 print(json.dumps({"project": "prj_example", "key": project, "result": "renamed", "old": old, "new": new, "front": True, "role": "x", "mandate": "renamed by the stub", "note": "stub"}))
 PY
@@ -395,7 +380,7 @@ PY
 round() {  # <n> <with a rename: 0|1> — the fixtures, the operations, the wait, the checks; sets RFAIL
     local n=$1 four=$2 A B R S S2 UR US IDA IDB IDR IDS ops mx cap=3 id verb other
     A="ptest-a$n"; B="ptest-side-b$n"; R="sala-test-r$n"; S="gamma-foo-s$n"; S2="gamma-foo-t$n"; UR=$(uuid $((100 + n))); US=$(uuid $((200 + n)))
-    printf 'projects/pt\t%s\ttext mandate of %s\n' "$A" "$A" >> "$HOME/listed.txt"
+    
     hand "$R" "$UR"; fake_up "$R" || { bad "round $n: the retire target did not come up"; return; }
     ledger_write add "$R" "$UR" "$R" "$HOME/work"; lane_write "$R" subscription-1; model_write "$R" opus high
     if [ "$four" = 1 ]; then
@@ -480,13 +465,11 @@ PY
     # stackshot's side: the register hook once for the project agent, with its own conversation and lane; since THE SPAWN GATE the record decides a project spawn (a name not on it, with its mandate, is registered through the client), so pages.py is not asked at all
     [ "$(lines_of "$HOME/register.log" "name=$A ")" = 1 ] && grep -qx "name=$A project=projects/pt role=front mfile=$SALA_STATE_DIR/mandates/$IDA-$A.md uuid=$ua lane=subscription-1" "$HOME/register.log" || { ok_ops=0; bad "round $n: the register hook: $(grep -E "$A" "$HOME/register.log")"; }
     [ "$(lines_of "$HOME/register.log" "$B")" = 0 ] || { ok_ops=0; bad "round $n: the register hook for the side session: $(grep "$B" "$HOME/register.log")"; }
-    [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $A")" = 0 ] && [ "$(lines_of "$HOME/client-calls.txt" "post project-agent projects/pt $A ")" = 1 ] && [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $B")" = 0 ] || { ok_ops=0; bad "round $n: pages.py calls for the spawns: $(grep -E "$A|$B" "$HOME/pages-calls.txt" | paste -sd'|' -)"; }
+    [ "$(lines_of "$HOME/client-calls.txt" "post project-agent projects/pt $A ")" = 1 ] || { ok_ops=0; bad "round $n: the client's calls for the spawns: $(grep -E "$A|$B" "$HOME/client-calls.txt" | paste -sd'|' -)"; }
     if [ "$four" = 1 ]; then
         [ "$(lines_of "$HOME/client-calls.txt" "post project-agent-rename projects/foo $S $S2")" = 1 ] || { ok_ops=0; bad "round $n: the stackshot client: $(grep -E "$S" "$HOME/client-calls.txt")"; }
-        # the record decided (the entry was on it, the new name was not): pages.py is not asked about either name
-        [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $S2")" = 0 ] && [ "$(lines_of "$HOME/pages-calls.txt" "agent-listed $S")" = 0 ] || { ok_ops=0; bad "round $n: pages.py was asked about the rename: $(grep -E "$S|$S2" "$HOME/pages-calls.txt" | paste -sd'|' -)"; }
     fi
-    ! awk '$0 !~ /^(resolve [a-z\/-]+|agent-listed [a-z0-9-]+)$/ {bad = 1} END {exit !bad}' "$HOME/pages-calls.txt" || { ok_ops=0; bad "round $n: a torn line in the pages.py log: $(grep -vE '^(resolve [a-z/-]+|agent-listed [a-z0-9-]+)$' "$HOME/pages-calls.txt" | head -3)"; }
+    [ ! -s "$HOME/pages-calls.txt" ] || { ok_ops=0; bad "round $n: pages.py was asked (the project record decides, no page is read): $(head -3 "$HOME/pages-calls.txt" | paste -sd'|' -)"; }   # the tripwire
     # the resurrect saves: never two at once
     [ ! -s "$HOME/save-overlap.txt" ] || { ok_ops=0; bad "round $n: two resurrect saves ran at once ($(wc -l < "$HOME/save-overlap.txt") times)"; }
     # the results: one Slack post and one line into the hearing session's inbox per operation, each naming its own operation
@@ -533,7 +516,7 @@ waitfor '[ -e "$HOME/lk3" ]' 40 && ( recycle_lock_shared lt5 0 ) >/dev/null 2>&1
 wait "$LP3"; ( recycle_lock lt6 0 ) >/dev/null 2>&1; rc=$?; [ "$rc" = 0 ] && ok "all released: an exclusive taker gets it" || bad "after release: rc=$rc"
 
 echo "== a solo operation behind running ones, with real runners: it starts after the last of them ended, and the retire queued behind it after it"
-SN="ptest-a-solo"; RN="sala-test-rs"; printf 'projects/pt\t%s\ttext mandate\n' "$SN" >> "$HOME/listed.txt"
+SN="ptest-a-solo"; RN="sala-test-rs"
 hand "$RN" "$(uuid 301)"; fake_up "$RN" && { ledger_write add "$RN" "$(uuid 301)" "$RN" "$HOME/work"; lane_write "$RN" subscription-1; }
 enq spawn "$SN" --project projects/pt --role front --mandate "solo test mandate" --from sala-test-h --words "spawn $SN"; I1=$ID
 enq lane default subscription-1 --from sala-test-h --words "lane default subscription-1"; I2=$ID
@@ -547,7 +530,7 @@ gone "$SN"
 
 echo "== SALA_OP_PARALLEL=1 end to end: the same three operations run one after the other, never two at once"
 export SALA_OP_PARALLEL=1
-PA="ptest-a-ser1"; PB="ptest-a-ser2"; RN="sala-test-rt"; printf 'projects/pt\t%s\ttext mandate\nprojects/pt\t%s\ttext mandate\n' "$PA" "$PB" >> "$HOME/listed.txt"
+PA="ptest-a-ser1"; PB="ptest-a-ser2"; RN="sala-test-rt"
 hand "$RN" "$(uuid 302)"; fake_up "$RN" && { ledger_write add "$RN" "$(uuid 302)" "$RN" "$HOME/work"; lane_write "$RN" subscription-1; }
 enq spawn "$PA" --project projects/pt --role front --mandate "serial test one" --from sala-test-h --words "spawn $PA"; I1=$ID
 enq spawn "$PB" --project projects/pt --role front --mandate "serial test two" --from sala-test-h --words "spawn $PB"; I2=$ID
@@ -572,7 +555,7 @@ echo "== a burst of five spawns: three at a time, the others as the first ones e
 # and then no operation sees one queued at its end, and no kick is asked for. That is the queue working, not a defect, so the burst is run with no
 # other tick: the five are queued before any starts, one tick starts three, and the last two can only follow the kick (SALA_OP_KICK_END=1 here).
 waitfor '! ls "$HOME"/units/*.pending >/dev/null 2>&1' 60   # a one-off tick requested by an earlier section is not still due
-BN=(); for k in 1 2 3 4 5; do BN+=("ptest-a-burst$k"); printf 'projects/pt\tptest-a-burst%s\ttext mandate\n' "$k" >> "$HOME/listed.txt"; done
+BN=(); for k in 1 2 3 4 5; do BN+=("ptest-a-burst$k"); done
 : > "$HOME/systemd-run.txt"; BI=(); touch "$HOME/nowatch"
 for k in 1 2 3 4 5; do enq spawn "${BN[k-1]}" --project projects/pt --role front --mandate "burst mandate $k" --from sala-test-h --words "spawn ${BN[k-1]}"; BI+=("$ID"); done
 rm -f "$HOME/nowatch"; tick

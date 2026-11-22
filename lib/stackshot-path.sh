@@ -6,7 +6,6 @@
 # keeps working and the old paths can be dropped in one place:
 #
 #   client          stackshot/fleet/client.py      (was client.py)
-#   pages           stackshot/projects/pages.py    (was pages.py)
 #   publish         stackshot/web/publish.py       (was publish.py)
 #   open_item_text  stackshot/tools/open_item_text.py   (was tools/open_item_text.py)
 #
@@ -17,7 +16,7 @@
 #   stackshot_prog <dir> <name>           the same on stdout, for `$(…)`.
 #   stackshot_rel_r <var> <dir> <name>    <var> = only the path below <dir> (what a printed command repeats after its own `~/stackshot/`)
 #
-# A setting that names the file itself (SALA_STACKSHOT_CLIENT, STACKSHOT_CLIENT, SALA_AGENT_CHECK_SCRIPT, SALA_SPAWN_ASK_CMD,
+# A setting that names the file itself (SALA_STACKSHOT_CLIENT, STACKSHOT_CLIENT,
 # SALA_SIDE_*_CMD, a command in the config) is used as written, never probed: only the paths derived from the directory go through here.
 stackshot_rel_r() {  # <var> <dir> <name>
     local _new _old
@@ -25,7 +24,6 @@ stackshot_rel_r() {  # <var> <dir> <name>
     [ -n "${2:-}" ] || return 1
     case "${3:-}" in
         client)         _new=stackshot/fleet/client.py;          _old=client.py ;;
-        pages)          _new=stackshot/projects/pages.py;        _old=pages.py ;;
         publish)        _new=stackshot/web/publish.py;           _old=publish.py ;;
         open_item_text) _new=stackshot/tools/open_item_text.py;  _old=tools/open_item_text.py ;;
         *) return 2 ;;

@@ -23,9 +23,10 @@ spawn the queue refuses leaves no file.
 
 What the queue answers (its exit code, lib/op.sh and lib/spawn.sh): 0 queued, `queued op <id>: …` on stdout; 3 the name
 is not on the project's agents map, the refusal on stderr and stackshot's register command on stdout from the `REGISTER:
-<key>` line to the end (the project's keeper was asked once by a stackshot message, said on stderr); 4 no such page,
-`NO-PAGE: <key>`; 1 or 2 refused (a name already live, a shape, a lane that cannot launch), the reason on stderr and in
-the plan's lines marked ✗. The page shows each as it is (text, never markup).
+<key>` line to the end (nobody is messaged: the spawn registers the name itself when it carries a role and a mandate);
+1, 2 or 6 refused (a name already live, a shape, a lane that cannot launch, stackshot's project record not fresh enough
+to answer, stackshot not registering the name), the reason on stderr and in the plan's lines marked ✗. (Exit 4,
+`NO-PAGE: <key>`, is no longer given: sala asks no page; the branch below stays for an older sala on the queue.) The page shows each as it is (text, never markup).
 
 The project list is read from the pages themselves, the files stackshot's pages.py checks a key against (`resolve
 <key>` is `os.path.exists(<brain>/<key>.md)`): every `<dir>/**/*.md` under stackshot's pages checkout for its page dirs,
@@ -65,7 +66,7 @@ MANDATE_MAX = 20 * 1024                                      # bytes of UTF-8
 BODY_MAX = 64 * 1024                                         # the whole JSON body
 OP_ID_RE = re.compile(r"^\d{1,12}-\d{1,9}$")                 # <epoch>-<pid>
 FROM = "sala-web"                                            # the queue's --from: who heard the owner
-QUEUE_TIMEOUT = 90.0        # the plan runs spawn --dry-run: two pages.py calls (15 s each at most) and the tmux checks
+QUEUE_TIMEOUT = 90.0        # the plan runs spawn --dry-run: the record read and the tmux checks
 SUGGEST_TIMEOUT = 20.0
 LANE_DEFAULT_TIMEOUT = 4.0   # `sala lane --json` for the form's "use default (<lane>)": past this the label says "use default" alone
 PAGES_TTL = 30.0
