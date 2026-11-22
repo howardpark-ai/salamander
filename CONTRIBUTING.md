@@ -98,8 +98,8 @@ it reads sala's state only through files (`models.tsv`). A change there takes th
 worktree, a PR, `release.sh`); what differs:
 
 - **tests:** `web/tests/` is a pytest suite, not one of `tests/run.sh`'s. Run it in the worktree's `web/`:
-  `uv sync --frozen && uv run --frozen pytest`, then `node --check` over `src/**/*.js` (vendored files left out). CI's
-  `web-shard` jobs run exactly that for a change under `web/` and skip the suites. The pytest part is split in six shards that run
+  `uv run --frozen pytest` (it syncs from the lockfile itself, so no separate sync is needed), then `node --check` over
+  `src/**/*.js` (vendored files left out). CI's `web-shard` jobs run the same checks for a change under `web/` and skip the suites. The pytest part is split in six shards that run
   side by side (`.github/scripts/web-shard.sh <shard> <n>` deals the `tests/test_*.py` files by their recorded times in
   `web/tests/timings.json`, so a new test file needs no list and no line anywhere: it weighs the median until a refresh records it,
   *Timings* below; each shard runs its files serially, since parallel workers in one job gave

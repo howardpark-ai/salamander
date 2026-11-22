@@ -1840,7 +1840,7 @@ under `web/` and none of sala's suites; a change outside `web/` runs none of the
 
 ```sh
 # in the worktree's web/, before the PR:
-uv sync --frozen && uv run --frozen pytest
+uv run --frozen pytest
 find src -name '*.js' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --check
 ```
 
