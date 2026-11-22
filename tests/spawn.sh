@@ -752,10 +752,189 @@ run gamma-rec-worker --dry-run; [ "$RC" = 0 ] && has "$OUT" "[dry-run] would spa
 agent_unlisted gamma-rec-owed >/dev/null; rc=$?; [ "$rc" = 1 ] && ok "a name registered through post project-agent (page line owed): not unlisted" || bad "owed: rc=$rc"
 agent_unlisted gamma-foo-zzz >/dev/null; rc=$?; [ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && ok "not in the record: pages.py is asked and its exit 3 refuses, as before" || bad "unlisted: rc=$rc calls=$(ncalls)"
 # a plain spawn of an unlisted name finds the page in pages.py's refusal, in the current wording and in the one before Fri Oct 16th 2026
-run gamma-foo-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && has "$OUT" "post project-agent projects/foo gamma-foo-zzz --role <role> --front|--back --mandate" && noaddpage "$OUT" && ok "a plain spawn of an unlisted name: the page is read from the current refusal wording" || bad "plain unlisted: rc=$RC — $OUT"
-run oldfmt-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && ok "a plain spawn of an unlisted name: the page is read from the old '(steward …' wording too" || bad "plain unlisted, old wording: rc=$RC — $OUT"
+run gamma-rec-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && has "$OUT" "post project-agent projects/foo gamma-rec-zzz --role zzz --front|--back --mandate" && noaddpage "$OUT" && ok "a plain spawn of an unlisted name: the record decides (THE SPAWN GATE), the register command names the project and the role" || bad "plain unlisted: rc=$RC — $OUT"
+# with no record (and no client: a box without stackshot's files) pages.py answers, as before (PR B removes this path): its refusal's wording, the current and the one before Fri Oct 16th 2026
+rm -f "$SALA_PROJECT_RECORD"
+run gamma-foo-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && has "$OUT" "post project-agent projects/foo gamma-foo-zzz --role <role> --front|--back --mandate" && noaddpage "$OUT" && ok "no record: a plain spawn of an unlisted name: the page is read from pages.py's current refusal wording" || bad "plain unlisted no record: rc=$RC — $OUT"
+run oldfmt-zzz --dry-run; [ "$RC" = 3 ] && has "$OUT" "REGISTER: projects/foo" && ok "no record: a plain spawn of an unlisted name: the page is read from the old '(steward …' wording too" || bad "plain unlisted, old wording: rc=$RC — $OUT"
 rm -f "$SALA_PROJECT_RECORD"; agent_unlisted gamma-rec-worker >/dev/null; rc=$?; [ "$rc" = 0 ] && ok "no record: pages.py's answer is used (it does not list the name)" || bad "no record: rc=$rc"
 unset SALA_PROJECT_RECORD
+
+export SALA_PROJECT_RECORD="$HOME/projects.json"
+echo "== THE SPAWN GATE: the record decides first, stackshot's register call is the yes, the pane starts only on it (a stub client.py, no network)"
+# the stub stackshot client (SALA_STACKSHOT_CLIENT): `post project-agent` adds the agent to the fake record unless the mode says otherwise and logs whether the pane existed AT THE CALL;
+# $HOME/client-mode: ok (default) | 409 | 403 | 400 (stackshot's refusal) | down (not reached) | noshow (200, but the record shows nothing)
+cat > "$HOME/fake-client.py" <<'PY'
+import datetime, json, os, subprocess, sys
+home = os.environ["HOME"]; rec = os.environ["SALA_PROJECT_RECORD"]; a = sys.argv[1:]
+open(home + "/client-calls.txt", "a").write(" ".join(a) + "\n")
+mode = open(home + "/client-mode").read().strip() if os.path.exists(home + "/client-mode") else "ok"
+def load(): return json.load(open(rec))
+def save(d): d["generated"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"); json.dump(d, open(rec, "w"))
+def proj(d, key):
+    pid = d["by_key"].get(key); return d["projects"].get(pid) if pid else None
+if a[:2] == ["post", "project-agent"]:
+    key, name = a[2], a[3]
+    o = {a[i]: (a[i + 1] if i + 1 < len(a) else "") for i in range(4, len(a)) if a[i].startswith("--")}
+    r = subprocess.run(["tmux", "-S", os.environ["SALA_TMUX_SOCKET"], "has-session", "-t", "=" + name], capture_output=True)
+    open(home + "/client-pane-at-call.txt", "a").write("%s %s\n" % (name, "pane-existed" if r.returncode == 0 else "no-pane"))
+    if mode == "down": sys.stderr.write("stackshot: not reached [0] connection refused\n"); sys.exit(1)
+    if mode in ("409", "403", "400"): sys.stderr.write("stackshot: agent not registered [%s] stub reason %s for %s\n" % (mode, mode, name)); sys.exit(1)
+    if mode != "noshow":
+        d = load(); p = proj(d, key); p["agents"][name] = {"front": "--front" in a, "role": a[a.index("--role") + 1], "mandate_line": a[a.index("--mandate") + 1]}; save(d)
+    print(json.dumps({"project": key, "agent": name, "page_owed": False, "note": "registered"})); sys.exit(0)
+if a[:2] == ["get", "project"]:
+    if mode == "down": sys.stderr.write("stackshot: not reached [0] connection refused\n"); sys.exit(1)
+    p = proj(load(), a[2])
+    if p is None: sys.stderr.write("stackshot: no such project [404]\n"); sys.exit(1)
+    print(json.dumps(p)); sys.exit(0)
+sys.stderr.write("fake client: unexpected %s\n" % " ".join(a)); sys.exit(2)
+PY
+export SALA_STACKSHOT_CLIENT="$HOME/fake-client.py" SALA_READBACK_WAIT=2 SALA_READBACK_POLL=1
+cposts() { local n; n=$(grep -c '^post project-agent ' "$HOME/client-calls.txt" 2>/dev/null); echo "${n:-0}"; }   # (grep -c prints 0 and exits 1: no `|| echo 0`)
+creset() { : > "$HOME/client-calls.txt"; : > "$HOME/client-pane-at-call.txt"; rm -f "$HOME/client-mode"; }
+mkrec 5 "$REC"; creset; S0=$(sessions)
+
+# listed -> the pane starts, stackshot is not asked to register
+fakeenv "$(uuid 41)" gamma-rec-worker
+run gamma-rec-worker --lane subscription-1
+[ "$RC" = 0 ] && [ "$(cposts)" = 0 ] && tmux has-session -t =gamma-rec-worker 2>/dev/null && ok "gate: a name the record lists: the pane starts, no register call" || bad "gate listed: rc=$RC calls=$(cposts) — $OUT"
+tmux kill-session -t =gamma-rec-worker 2>/dev/null
+
+# unlisted, no --role/--mandate: refused (3) with the reason and the register command, no pane, no call
+creset; run gamma-rec-nobody
+[ "$RC" = 3 ] && has "$OUT" "is not on stackshot's project record" && has "$OUT" "REGISTER: projects/foo" && [ -n "$(cmdline "$OUT")" ] && [ "$(cposts)" = 0 ] && [ "$(sessions)" = "$S0" ] && ok "gate: unlisted with no flags: refused (exit 3) with the reason and the register command, no call, no pane" || bad "gate unlisted: rc=$RC calls=$(cposts) sessions=$(sessions) — $OUT"
+run gamma-rec-nobody --role nobody
+[ "$RC" = 3 ] && [ "$(cposts)" = 0 ] && [ "$(sessions)" = "$S0" ] && ok "gate: --role with no --mandate is no registration either: refused, no pane" || bad "gate role only: rc=$RC — $OUT"
+run gamma-zzz-nobody --dry-run
+[ "$RC" = 3 ] && has "$OUT" "no project of the record owns the name" && ok "gate: a name no project of the record owns: refused, the reason says so" || bad "gate no owner: rc=$RC — $OUT"
+
+# unlisted with --role and --mandate: registered with sala-spawn BEFORE the pane exists, the pane starts after the 200, the record is read back
+creset; fakeenv "$(uuid 42)" gamma-rec-zed
+run gamma-rec-zed --role zed --mandate "zed's work" --lane subscription-1
+[ "$RC" = 0 ] && tmux has-session -t =gamma-rec-zed 2>/dev/null && grep -qx "post project-agent projects/foo gamma-rec-zed --role zed --back --mandate zed's work --sender sala-spawn" "$HOME/client-calls.txt" && ok "gate: unlisted with --role/--mandate: post project-agent with the label sala-spawn, a back agent by default, then the pane" || bad "gate register: rc=$RC — $OUT $(cat "$HOME/client-calls.txt")"
+grep -qx "gamma-rec-zed no-pane" "$HOME/client-pane-at-call.txt" && ok "gate: the pane did not exist when stackshot was asked (the pane starts only on the 200)" || bad "gate order: $(cat "$HOME/client-pane-at-call.txt")"
+has "$OUT" "read back from the record" && ok "gate: the registration is read back" || bad "gate read-back line: $OUT"
+tmux kill-session -t =gamma-rec-zed 2>/dev/null
+creset; fakeenv "$(uuid 43)" gamma-rec-fronty
+run gamma-rec-fronty --role fronty --front --mandate "front work" --lane subscription-1
+[ "$RC" = 0 ] && grep -q "post project-agent projects/foo gamma-rec-fronty --role fronty --front --mandate front work --sender sala-spawn" "$HOME/client-calls.txt" && ok "gate: --front lists a front agent" || bad "gate front: rc=$RC — $OUT"
+tmux kill-session -t =gamma-rec-fronty 2>/dev/null
+# a project spawn of a name the record lacks, with a mandate: registered the same way (the role is the part after the project's name)
+creset; fakeenv "$(uuid 44)" gamma-rec-newb
+run gamma-rec-newb --project projects/foo --role back --mandate "newb work" --lane subscription-1
+[ "$RC" = 0 ] && grep -q "post project-agent projects/foo gamma-rec-newb --role newb --back --mandate newb work --sender sala-spawn" "$HOME/client-calls.txt" && ok "gate: a project spawn of a name the record lacks (with its mandate): registered, then the pane" || bad "gate project register: rc=$RC — $OUT $(cat "$HOME/client-calls.txt")"
+tmux kill-session -t =gamma-rec-newb 2>/dev/null
+# a front project agent with no mandate has nothing to list it with: refused as before
+creset; run gamma-rec-nofront --project projects/foo --role front
+[ "$RC" = 3 ] && [ "$(cposts)" = 0 ] && ok "gate: a front project agent with no mandate: refused as before (exit 3), no call" || bad "gate no mandate: rc=$RC — $OUT"
+# --dry-run asks nothing and makes nothing
+creset; run gamma-rec-dry --role dry --mandate "dry" --dry-run
+[ "$RC" = 0 ] && has "$OUT" "stackshot is asked to list it on projects/foo as a back agent" && [ "$(cposts)" = 0 ] && [ "$(sessions)" = "$S0" ] && ok "gate: --dry-run says it would register and asks nothing" || bad "gate dry: rc=$RC calls=$(cposts) — $OUT"
+
+# stackshot's refusal (409, 403, 400): no pane, its reason printed, exit 6
+for st in 409 403 400; do
+    creset; echo "$st" > "$HOME/client-mode"; run gamma-rec-no$st --role r$st --mandate "no"
+    [ "$RC" = 6 ] && has "$OUT" "[$st] stub reason $st" && has "$OUT" "so no session was made" && [ "$(sessions)" = "$S0" ] && ok "gate: stackshot answers $st: stackshot's reason is printed, exit 6, no pane" || bad "gate $st: rc=$RC sessions=$(sessions) — $OUT"
+done
+# stackshot unreachable: refused, no pane
+creset; echo down > "$HOME/client-mode"; run gamma-rec-nodown --role nodown --mandate "no"
+[ "$RC" = 6 ] && has "$OUT" "[0]" && [ "$(sessions)" = "$S0" ] && ok "gate: stackshot not reached: refused (exit 6), no pane" || bad "gate down: rc=$RC — $OUT"
+# 200 but the record does not show it: no pane
+creset; echo noshow > "$HOME/client-mode"; run gamma-rec-noshow --role noshow --mandate "no"
+[ "$RC" = 6 ] && has "$OUT" "does not show it" && [ "$(sessions)" = "$S0" ] && ok "gate: the read-back fails: refused (exit 6), no pane left behind" || bad "gate noshow: rc=$RC sessions=$(sessions) — $OUT"
+rm -f "$HOME/client-mode"
+# the queue: an exit 6 is stuck with no claude -p (no pane was made)
+: > "$POSTS"; rm -f "$HOME/helper-runs.txt"; echo 409 > "$HOME/client-mode"
+enq spawn gamma-rec-opq --project projects/foo --role back --mandate "queue work" --from sala-test-h --words "spawn opq"
+tick; waitfor "[ -f '$DONE/$ID.op' ]" 120
+[ "$(mval "$ID" state)" = stuck ] && has "$(mval "$ID" result)" "exited 6" && has "$(mval "$ID" result)" "stackshot would not register the agent" && [ "$(runs)" = 0 ] && ! tmux has-session -t =gamma-rec-opq 2>/dev/null && ok "gate through the queue: exit 6 is stuck with no claude -p and no pane" || bad "gate op: $(cat "$OPS/$ID.op" "$DONE/$ID.op" 2>/dev/null)"
+rm -f "$HOME/client-mode"
+
+# THE EXCEPTIONS (a closed list, one function): each class skips the check, so a stackshot that is down asks nothing and refuses nothing
+echo down > "$HOME/client-mode"; creset; echo down > "$HOME/client-mode"
+for ex in scratch-abc gamma-rec-check-1 gamma-rec-test-1 gamma-rec-probe-1; do
+    run "$ex" --dry-run
+    [ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn '$ex'" && ok "gate exception: $ex (a throwaway's name): no check" || bad "gate exception $ex: rc=$RC — $OUT"
+done
+run --dry-run; [ "$RC" = 0 ] && has "$OUT" "[dry-run] would spawn 'scratch-" && ok "gate exception: no name at all (an auto-generated throwaway): no check" || bad "gate exception generated: rc=$RC — $OUT"
+run gamma-rec-side-wren70 --side --project projects/foo --item board#9001 --dry-run
+[ "$RC" = 0 ] && ok "gate exception: a side session (spawn --side): no check" || bad "gate exception side: rc=$RC — $OUT"
+[ "$(cposts)" = 0 ] && ok "gate exceptions: stackshot was not asked at all" || bad "gate exceptions asked: $(cat "$HOME/client-calls.txt")"
+SALA_SHELL_SESSION=sala-shell agent_gate_exempt sala-shell 0 0 >/dev/null && ok "gate exception: sala's own shell session (SALA_SHELL_SESSION)" || bad "gate exception shell"
+agent_gate_exempt gamma-rec-zzz 0 0 >/dev/null && bad "gate exception: an ordinary agent name is not exempt" || ok "gate: an ordinary agent name is not on the exceptions list"
+agent_gate_exempt gamma-rec-zzz 1 0 >/dev/null && ok "gate exception: the side flag" || bad "gate exception side flag"
+agent_gate_exempt gamma-rec-zzz 0 1 >/dev/null && ok "gate exception: the generated flag" || bad "gate exception generated flag"
+rm -f "$HOME/client-mode"
+
+echo "== agent_name_check (spawn --suggest-name): stackshot's name check when it answers, sala's own suggestion when it does not (a stub command)"
+cat > "$HOME/fake-namecheck" <<'EOF'
+#!/bin/bash
+# <key> <name> [<name> ...] (stackshot's `client.py get agent-name` form) → stackshot's answer: the FIRST name invalid (taken), the others valid; $HOME/namecheck-mode:
+#   allbad | 404 | garbage | slow | prefix | listed | pending | hub | retired (every name invalid with that code, `listed` only for the first)
+key=$1; shift; echo "$key $(IFS=,; echo "$*")" >> "$HOME/namecheck-calls.txt"
+mode=$(cat "$HOME/namecheck-mode" 2>/dev/null)
+case "$mode" in
+    404) echo "stackshot: no such route [404]" >&2; exit 1 ;;
+    garbage) echo "<html>not json</html>"; exit 0 ;;
+    slow) sleep 30; exit 0 ;;
+esac
+python3 -c '
+import json, sys
+mode, key, ns = sys.argv[1], sys.argv[2], sys.argv[3:]
+texts = {"prefix": "an agent of %s is called gamma-rec-<role>" % key, "listed": "already listed on %s" % key, "pending": "pending for another sender on %s" % key,
+         "hub": "%s is a hub: its agents are not changed" % key, "retired": "%s is retired" % key, "allbad": "taken in stub"}
+if mode in texts:
+    res = [{"name": n, "valid": False, "code": ("listed" if mode == "listed" and i == 0 else "prefix" if mode == "listed" else "taken" if mode == "allbad" else mode), "reason": texts[mode]} for i, n in enumerate(ns)]
+    print(json.dumps({"results": res, "first_free": None, "prefixes": ["gamma-rec"]}))
+else:
+    print(json.dumps({"results": [{"name": n, "valid": i > 0, "code": "ok" if i > 0 else "taken", "reason": "" if i > 0 else "taken in stub"} for i, n in enumerate(ns)], "first_free": ns[1] if len(ns) > 1 else None, "prefixes": ["gamma-rec"]}))
+' "$mode" "$key" "$@"
+EOF
+chmod +x "$HOME/fake-namecheck"; : > "$HOME/namecheck-calls.txt"; rm -f "$HOME/namecheck-mode"
+export SALA_AGENT_NAME_CMD="$HOME/fake-namecheck"
+out=$(agent_name_check projects/foo gamma-rec-a gamma-rec-b gamma-rec-c); rc=$?
+[ "$rc" = 0 ] && [ "$out" = gamma-rec-b ] && [ "$(cat "$HOME/namecheck-calls.txt")" = "projects/foo gamma-rec-a,gamma-rec-b,gamma-rec-c" ] && ok "name check: the first name stackshot calls valid is the answer; the key and the names are passed as one comma list" || bad "name check: rc=$rc out=$out calls=$(cat "$HOME/namecheck-calls.txt")"
+echo allbad > "$HOME/namecheck-mode"; out=$(agent_name_check projects/foo gamma-rec-a gamma-rec-b); rc=$?
+[ "$rc" = 2 ] && has "$out" "gamma-rec-a: taken in stub" && ok "name check: none valid: rc 2 with the reasons" || bad "name check allbad: rc=$rc out=$out"
+# stackshot's live codes (stubs, never the real endpoint): the reason and the code reach the caller; a `listed` name is "already ours" (rc 3, no refusal); pending, hub and retired are not valid
+echo prefix > "$HOME/namecheck-mode"; out=$(agent_name_check projects/foo gamma-foo-zz); rc=$?
+[ "$rc" = 2 ] && [ "$out" = "gamma-foo-zz: an agent of projects/foo is called gamma-rec-<role> [prefix]" ] && ok "name check: a prefix refusal's text and code are printed to the caller (rc 2)" || bad "name check prefix: rc=$rc out=$out"
+echo listed > "$HOME/namecheck-mode"; out=$(agent_name_check projects/foo gamma-rec-a gamma-rec-b); rc=$?
+[ "$rc" = 3 ] && has "$out" "gamma-rec-a: already on the record: already listed on projects/foo [listed]" && ok "name check: a listed name is \"already ours\" (rc 3), not a refusal" || bad "name check listed: rc=$rc out=$out"
+for m in pending hub retired; do
+    echo "$m" > "$HOME/namecheck-mode"; out=$(agent_name_check projects/foo gamma-rec-a); rc=$?
+    [ "$rc" = 2 ] && has "$out" "[$m]" && ok "name check: code $m is not valid (rc 2), the reason printed" || bad "name check $m: rc=$rc out=$out"
+done
+rm -f "$HOME/namecheck-mode"
+many=(); for i in $(seq 1 25); do many+=("gamma-rec-n$i"); done; : > "$HOME/namecheck-calls.txt"
+out=$(agent_name_check projects/foo "${many[@]}"); n=$(cut -d' ' -f2 "$HOME/namecheck-calls.txt" | tr ',' '\n' | wc -l)
+[ "$n" = 20 ] && ok "name check: stackshot's 20-name limit is respected (25 candidates, 20 asked)" || bad "name check limit: asked $n"
+for m in 404 garbage; do
+    echo "$m" > "$HOME/namecheck-mode"; out=$(agent_name_check projects/foo gamma-rec-a gamma-rec-b); rc=$?
+    [ "$rc" = 1 ] && [ -z "$out" ] && ok "name check: an answer that is $m (the route is not live): unavailable, nothing printed" || bad "name check $m: rc=$rc out=$out"
+done
+echo slow > "$HOME/namecheck-mode"; out=$(SALA_AGENT_NAME_TIMEOUT=1 agent_name_check projects/foo gamma-rec-a); rc=$?
+[ "$rc" = 1 ] && ok "name check: a timeout is unavailable" || bad "name check slow: rc=$rc"
+out=$(SALA_AGENT_NAME_CMD="$HOME/nowhere" agent_name_check projects/foo gamma-rec-a); rc=$?
+[ "$rc" = 1 ] && ok "name check: a command that does not exist is unavailable" || bad "name check missing cmd: rc=$rc"
+out=$(SALA_AGENT_NAME_CMD="" agent_name_check projects/foo gamma-rec-a); rc=$?
+[ "$rc" = 1 ] && ok "name check: an empty command is never asked" || bad "name check empty: rc=$rc"
+# --suggest-name uses it: the first candidate stackshot calls invalid is skipped
+rm -f "$HOME/namecheck-mode"; : > "$HOME/namecheck-calls.txt"
+run --suggest-name --project projects/foo --role back --prefix gamma-rec
+n1=$(cut -d' ' -f2 "$HOME/namecheck-calls.txt" | head -1 | cut -d, -f1)
+[ "$RC" = 0 ] && [ -n "$n1" ] && [ "$OUT" != "$n1" ] && has "$(cut -d' ' -f2 "$HOME/namecheck-calls.txt" | head -1)" "$OUT" && ok "--suggest-name: skips the candidate stackshot calls invalid and prints the next ($n1 skipped, $OUT)" || bad "suggest with check: rc=$RC out=$OUT calls=$(cat "$HOME/namecheck-calls.txt")"
+# with the route not live (404, garbage, no client) the suggestion is sala's own, said calmly
+for m in 404 garbage; do
+    echo "$m" > "$HOME/namecheck-mode"; run --suggest-name --project projects/foo --role back --prefix gamma-rec
+    [ "$RC" = 0 ] && grep -qE '^gamma-rec-[a-z0-9]+$' <<< "$OUT" && ! has "$OUT" "stackshot" && ok "--suggest-name with the check $m: sala's own suggestion, nothing alarming ($OUT)" || bad "suggest fallback $m: rc=$RC — $OUT"
+done
+SALA_AGENT_NAME_CMD="" run --suggest-name --project projects/foo --role back --prefix gamma-rec
+[ "$RC" = 0 ] && grep -qE '^gamma-rec-[a-z0-9]+$' <<< "$OUT" && ok "--suggest-name with no name-check command: sala's own suggestion" || bad "suggest no cmd: rc=$RC — $OUT"
+unset SALA_AGENT_NAME_CMD; rm -f "$HOME/namecheck-mode"
+unset SALA_STACKSHOT_CLIENT SALA_READBACK_WAIT SALA_READBACK_POLL SALA_PROJECT_RECORD
+[ "$(sessions)" = "$S0" ] && ok "the gate section left no session behind" || bad "gate sessions: $(sessions) (was $S0)"
 
 [ "$fail" = 0 ] && echo "spawn: pass" || echo "spawn: FAIL"
 exit $fail

@@ -14,7 +14,7 @@
 #      whose status cannot be read is unknown, not busy: it goes ahead.
 #   0b. OLD a SIDE SESSION (a record in $SALA_STATE_DIR/side/; common.sh, THE SIDE SESSIONS) renamed to an agent name: it is on no page's agents
 #      map, so there is no entry to rename. A NEW its project does not list is listed as a new front agent through `post project-agent` (label
-#      sala-web, pending in stackshot's record; the page line stays its keeper's), the project being the record's, else its origin agent's; no
+#      sala-web, listed in stackshot's project record, read back), the project being the record's, else its origin agent's; no
 #      project = refused, in the plan (--dry-run) too. Called after the busy-pane wait of step 1, before /rename is typed; a refusal renames
 #      nothing and keeps the record. After step 3 the side record ends (moved to side/retired/, the registry row's side fields cleared, the row
 #      tagged project / front): no write-up (`side done`, the summary) is owed any more. --sync never does this.
@@ -164,7 +164,7 @@ RL=0; SD=0; SDL=0
 if [ "${SALA_RENAME_SYNC:-}" != 1 ]; then
     if side_is "$OLD" && [[ $NEW != *-side-* ]]; then
         # A SIDE SESSION becoming an agent: it is on no page's agents map, so there is no entry to rename in place. NEW unlisted:
-        # sala lists NEW as a new front agent (stackshot's project-agent, pending in its record) and the side record ends; refused here, in the plan,
+        # sala lists NEW as a new front agent (stackshot's project-agent, listed in its project record) and the side record ends; refused here, in the plan,
         # when the project cannot be named. NEW already listed (or the check could not tell): no call, the side record ends all the same.
         SD=1
         if why=$(agent_unlisted "$NEW"); then
@@ -230,7 +230,7 @@ if [ "$DRY" = 1 ]; then
         echo "  rename '$OLD' to '$NEW' on $RL_HUB's page, in place (stackshot: post project-agent-rename, label $SALA_RENAME_SENDER): the entry keeps its line, place and side; stackshot refuses if '$NEW' is listed or '$OLD' is not"
     fi
     if [ "$SDL" = 1 ]; then
-        echo "  rename: lists '$NEW' on $RL_HUB (front, line: $RL_LINE) and ends the side record (stackshot: post project-agent, role $RL_ROLE, label $SALA_RENAME_LIST_SENDER: a pending agent in its record, the page's own line stays the page keeper's to add; stackshot refuses if the name is taken or does not start with the project's name)"
+        echo "  rename: lists '$NEW' on $RL_HUB (front, line: $RL_LINE) and ends the side record (stackshot: post project-agent, role $RL_ROLE, label $SALA_RENAME_LIST_SENDER: an agent in its project record, written by stackshot directly; stackshot refuses if the name is taken or does not start with the project's name)"
     fi
     if [ "$SD" = 1 ]; then
         sdtag=""; [ "$SDL" = 1 ] && sdtag=", the row tagged $RL_HUB / front"
@@ -245,6 +245,9 @@ if [ "$RL" = 1 ]; then
     rename_list_run "$OLD" "$NEW" || die "rename refused, nothing renamed: $RL_WHY"
     if [ "$RL_RESULT" = renamed ]; then echo "ℹ '$OLD' is now '$NEW' on $RL_HUB's page (stackshot, in place): $RL_DETAIL"
     else echo "ℹ '$NEW' was already listed on $RL_HUB's page in place of '$OLD' (stackshot: already renamed): taken as the retry of the rename sala started earlier ($RL_DETAIL)"; fi
+    # READ BACK (common.sh agent_record_read_back): the record must show NEW listed and OLD gone before anything is typed or renamed here
+    agent_record_read_back "$RL_HUB" "$NEW" "$OLD" || die "stackshot answered the rename of '$OLD' to '$NEW' on $RL_HUB, but the record does not show it ($ARB_WHY): nothing was typed or renamed here; run the rename again (stackshot's answer to a repeat is \"already renamed\"), or check it with: python3 $(stackshot_client) get project $RL_HUB"
+    echo "ℹ read back: the record lists '$NEW' on $RL_HUB and no longer '$OLD'"
 fi
 
 # ── 1. wait for a pane that can take a keystroke (not needed when the session is already called NEW)
@@ -276,7 +279,8 @@ fi
 # retry worker runs this again, and stackshot answers the repeat "as it stands"); a refusal stops the rename here, nothing typed or renamed
 if [ "$SDL" = 1 ]; then
     rename_side_run "$NEW" || die "rename refused, nothing renamed: $RL_WHY"
-    echo "ℹ '$NEW' is listed on $RL_HUB as a front agent (role $RL_ROLE, line: $RL_LINE): pending in stackshot's project record; its line on the page is the page keeper's to add"
+    agent_record_read_back "$RL_HUB" "$NEW" "" front || die "stackshot answered the listing of '$NEW' on $RL_HUB, but the record does not show it ($ARB_WHY): nothing was typed or renamed here; run the rename again (a repeat of the listing is safe), or check it with: python3 $(stackshot_client) get project $RL_HUB"
+    echo "ℹ '$NEW' is listed on $RL_HUB as a front agent (role $RL_ROLE, line: $RL_LINE): in stackshot's project record"
 fi
 
 # ── 2. the Claude session's name

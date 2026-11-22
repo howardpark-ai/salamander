@@ -3,10 +3,10 @@
 # resolving a conversation id (or its prefix, 8+ hex) with --id to its tmux session and pane, said before anything is done; a registry name no longer a
 # name (refused, --id named); an ambiguous id (two live rows, a prefix on several, a session that also holds another live claude) refused with the
 # candidates and nothing touched; a dead row or one without a tmux pane not acted on; `--dry-run` in every form touching nothing; an orphan row refused by
-# retire (forget-row named) and dropped by `forget-row`; the master guard on the resolved name. The last sections: a successful retire tells stackshot to take the session off its project (a stub
-# client.py: called once with project, name and sender sala-retire; not in --dry-run; stackshot's answers since its page-write release: 200 line
-# removed / dropped / not listed, said in words; 502 (the page write failed), 422 and 409 (in progress) said and logged; a failing client or a missing
-# one, or a session with no project, changes nothing about the retire). The guardrails (--busy, --skip-writeup, --self, --leave-items, close-shell) are tests/retire-verbs.sh's.
+# retire (forget-row named) and dropped by `forget-row`; the master guard on the resolved name. The last sections: a retire ASKS stackshot FIRST (a stub client.py: called once with project, name and sender sala-retire, before
+# the pane is closed; not in --dry-run; 200 line removed / dropped / not listed and a 404 go on, said in words; 502, 422, 409, 403, 400, a failing client or a timeout REFUSE the retire
+# with stackshot's reason and leave the pane, the row and the lane as they are; a missing client.py or a session with no project goes on; a throwaway's name, a side session and
+# sala's shell are not asked; no second call after the pane is gone). The guardrails (--busy, --skip-writeup, --self, --leave-items, close-shell) are tests/retire-verbs.sh's.
 # Isolated HOME, a private tmux socket, the compiled fake claude (tests/fake-claude.c).
 # Usage: bash tests/retire.sh   (exit 0 = pass; ~40 s)
 set -u
@@ -214,9 +214,11 @@ open(home + "/client-calls.txt", "a").write("\x1f".join(sys.argv[1:]) + "\n")
 mode = open(home + "/client-mode").read().strip() if os.path.exists(home + "/client-mode") else "ok"
 refused = {"fail": "stackshot: agent not retired [0] URLError: <urlopen error [Errno 111] Connection refused>",
             "409": "stackshot: agent not retired [409] a rename or retire of projects/foo is in progress; try again",
-            "422": "stackshot: agent not retired [422] the agents block is in a shape that cannot be edited in place; nothing was changed: remove sala-test-q2's line from projects/foo by hand",
-            "502": "stackshot: agent not retired [502] gbrain refused the page write for projects/foo (revision moved on); the line of sala-test-q2 is still on the page: ask again",
-            "502tl": "stackshot: agent not retired [502] the line of sala-test-q2 is off projects/foo, but the timeline line was not written (" + "gbrain said no, " * 60 + "): TAIL-MARK add the timeline line by hand"}
+            "422": "stackshot: agent not retired [422] the agents block is in a shape that cannot be edited in place; nothing was changed: remove sala-rq2's line from projects/foo by hand",
+            "403": "stackshot: agent not retired [403] projects/foo is a retired page: its agents are not changed",
+            "400": "stackshot: agent not retired [400] the name is not a valid agent name",
+            "502": "stackshot: agent not retired [502] gbrain refused the page write for projects/foo (revision moved on); the line of sala-rq2 is still on the page: ask again",
+            "502tl": "stackshot: agent not retired [502] the line of sala-rq2 is off projects/foo, but the timeline line was not written (" + "gbrain said no, " * 60 + "): TAIL-MARK add the timeline line by hand"}
 if mode in refused: print(refused[mode]); sys.exit(1)
 print({"ok": '{"result": "line removed"}', "dropped": '{"result": "dropped"}', "notlisted": '{"result": "not listed"}'}.get(mode, mode)); sys.exit(0)
 PY
@@ -230,102 +232,168 @@ UQ4=0a000014-0000-4000-8000-000000000094 UQ5=0a000015-0000-4000-8000-00000000009
 tagged() {  # <session> <uuid> [project] — a session by hand with a registry row (adopt), tagged with a project unless none is given
     hand "$1" "$2" "$1"; "$SALA" adopt "$1" >/dev/null 2>&1; [ -z "${3:-}" ] || "$SALA" sessions tag "$1" --project "$3" --role front >/dev/null 2>&1; }
 mode ok
-tagged sala-test-q1 "$UQ1" projects/foo; s0=$(state); n0=$(ncalls)
-out=$("$SALA" retire sala-test-q1 --dry-run 2>&1); rc=$?
-[ "$rc" = 0 ] && echo "$out" | grep -qF "would tell stackshot to drop 'sala-test-q1' from projects/foo's agents" && [ "$(ncalls)" = "$n0" ] && ok "--dry-run: says the call it would make, makes none" || bad "dry run: rc=$rc calls=$(ncalls) $out"
-untouched "$s0" "retire sala-test-q1 --dry-run"
-out=$("$SALA" retire sala-test-q1 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
-[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(lastcall)" = "post project-agent-retire projects/foo sala-test-q1 --sender sala-retire" ] && ok "retire in a project: project-agent-retire called once, with project, name and sender sala-retire" || bad "retire call: rc=$rc calls=$(ncalls) last=$(lastcall)"
-echo "$out" | grep -q "^retired 'sala-test-q1'; the transcript stays" && echo "$out" | grep -qF "ℹ stackshot removed 'sala-test-q1' from projects/foo's agents (its line is off the page" && ! tmux has-session -t =sala-test-q1 2>/dev/null \
-    && ok "the retire's line first, then stackshot's answer; the session gone" || bad "retire output: $out"
-grep -qF "sala-test-q1: project-agent-retire projects/foo (label sala-retire) → exit 0: {\"result\": \"line removed\"}" "$RLOGF" && ok "the outcome is a line in salamander-retire.log" || bad "retire log: $(cat "$RLOGF" 2>/dev/null)"
+tagged sala-rq1 "$UQ1" projects/foo; s0=$(state); n0=$(ncalls)
+out=$("$SALA" retire sala-rq1 --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -qF "would ask stackshot FIRST, before the pane is closed, to take 'sala-rq1' off projects/foo's agents" && [ "$(ncalls)" = "$n0" ] && ok "--dry-run: says the call it would make, first, makes none" || bad "dry run: rc=$rc calls=$(ncalls) $out"
+untouched "$s0" "retire sala-rq1 --dry-run"
+out=$("$SALA" retire sala-rq1 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(lastcall)" = "post project-agent-retire projects/foo sala-rq1 --sender sala-retire" ] && ok "retire in a project: project-agent-retire called once, with project, name and sender sala-retire" || bad "retire call: rc=$rc calls=$(ncalls) last=$(lastcall)"
+a1=$(lineno "$out" "^ℹ stackshot removed 'sala-rq1' from projects/foo's agents (it is off the project record"); a2=$(lineno "$out" "/exit \.\.\."); a3=$(lineno "$out" "^retired 'sala-rq1'; the transcript stays")
+[ -n "$a1" ] && [ -n "$a2" ] && [ -n "$a3" ] && [ "$a1" -lt "$a2" ] && [ "$a1" -lt "$a3" ] && ! tmux has-session -t =sala-rq1 2>/dev/null \
+    && ok "stackshot's answer comes BEFORE the pane is touched (/exit), then the retire's lines; the session gone" || bad "retire output: $out"
+grep -qF "sala-rq1: project-agent-retire projects/foo (label sala-retire) → exit 0: {\"result\": \"line removed\"}" "$RLOGF" && ok "the outcome is a line in salamander-retire.log" || bad "retire log: $(cat "$RLOGF" 2>/dev/null)"
 
 echo "== the agent entry: none of stackshot's answers fails the retire (200 line removed, dropped, not listed; 502 page write failed, 422, 409 in progress); --busy calls too; the label is overridable"
 for m in dropped notlisted; do   # the other two 200 answers: said in words (the first, line removed, is the q1 case above)
-    mode "$m"; tagged sala-test-q2 "$UQ2" projects/foo; n0=$(ncalls)
-    out=$("$SALA" retire sala-test-q2 --keep-web 2>&1); rc=$?
-    case $m in dropped) want="ℹ stackshot dropped 'sala-test-q2' from projects/foo (it was only pending" ;; *) want="ℹ 'sala-test-q2' is not on projects/foo's agents and not pending in stackshot" ;; esac
-    [ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && echo "$out" | grep -qF "$want" && ! echo "$out" | grep -q "was not told" && ! tmux has-session -t =sala-test-q2 2>/dev/null && ok "answer $m (exit 0): the retire succeeds (rc 0), one call, said in words" || bad "answer $m: rc=$rc calls=$(ncalls) $out"
+    mode "$m"; tagged sala-rq2 "$UQ2" projects/foo; n0=$(ncalls)
+    out=$("$SALA" retire sala-rq2 --keep-web 2>&1); rc=$?
+    case $m in dropped) want="ℹ stackshot dropped 'sala-rq2' from projects/foo (it was only pending" ;; *) want="ℹ 'sala-rq2' is not on projects/foo's agents and not pending in stackshot" ;; esac
+    [ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && echo "$out" | grep -qF "$want" && ! echo "$out" | grep -q "was not told" && ! tmux has-session -t =sala-rq2 2>/dev/null && ok "answer $m (exit 0): the retire succeeds (rc 0), one call, said in words" || bad "answer $m: rc=$rc calls=$(ncalls) $out"
 done
-for m in 422 409; do   # the real client.py exits 1 with the reason on stderr for these: said and logged, the retire untouched
-    mode "$m"; tagged sala-test-q2 "$UQ2" projects/foo; n0=$(ncalls)
-    out=$("$SALA" retire sala-test-q2 --keep-web 2>&1); rc=$?
-    [ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && echo "$out" | grep -q "^retired 'sala-test-q2'; the transcript stays" && echo "$out" | grep -qF "ℹ stackshot refused ($m): " && echo "$out" | grep -qF "; the retire itself is done" && ! echo "$out" | grep -q "was not told" \
-        && ! tmux has-session -t =sala-test-q2 2>/dev/null && [ -z "$(row sala-test-q2)" ] && grep -qF "[$m]" "$RLOGF" && ok "answer $m (exit 1): the retire still succeeds (rc 0), session and row gone, said as a refusal with its reason, logged" || bad "answer $m: rc=$rc calls=$(ncalls) $out"
-done
-mode 502; tagged sala-test-q2 "$UQ2" projects/foo; n0=$(ncalls)
-out=$("$SALA" retire sala-test-q2 --keep-web 2>&1); rc=$?; l=$(echo "$out" | grep "^ℹ")
-[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && echo "$out" | grep -q "^retired 'sala-test-q2'; the transcript stays" && ! tmux has-session -t =sala-test-q2 2>/dev/null && [ -z "$(row sala-test-q2)" ] \
-    && [ "$(echo "$l" | wc -l)" = 1 ] && echo "$l" | grep -qF "ℹ stackshot could not finish taking 'sala-test-q2' off projects/foo's agents (502: gbrain refused the page write for projects/foo" && echo "$l" | grep -qF "the line of sala-test-q2 is still on the page: ask again): the retire itself is done; if the line is still on the page, ask again: python3 $HOME/fake-client.py post project-agent-retire projects/foo sala-test-q2 --sender sala-retire; if the reason says the timeline line was not written, the line is gone" && echo "$l" | grep -qF "add the timeline line by hand" && ! echo "$l" | grep -q "asking again is safe" \
-    && ! echo "$out" | grep -q "was not told" && grep -qF "sala-test-q2: project-agent-retire projects/foo (label sala-retire) → exit 1: stackshot: agent not retired [502] gbrain refused" "$RLOGF" \
-    && ok "answer 502 (exit 1): the retire still succeeds (rc 0), session and row gone, the failure said as its own line with the reason and the command to ask again, logged" || bad "answer 502: rc=$rc calls=$(ncalls) $out"
-mode 502tl; tagged sala-test-q2 "$UQ2" projects/foo; n0=$(ncalls)
-out=$("$SALA" retire sala-test-q2 --keep-web 2>&1); rc=$?; l=$(echo "$out" | grep "^ℹ")
-[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(echo "$l" | wc -l)" = 1 ] && echo "$l" | grep -qF "TAIL-MARK add the timeline line by hand" && echo "$l" | grep -qF "…" && [ "${#l}" -lt 1300 ] \
-    && grep -qF "TAIL-MARK add the timeline line by hand" "$RLOGF" && ok "a long 502 reason is cut in the middle: its end (the timeline-line hint) is kept in the line and in the log" || bad "long 502: rc=$rc len=${#l} $out"
-mode ok; tagged sala-test-q2 "$UQ2" projects/foo; n0=$(ncalls)
-out=$(SALA_RETIRE_SENDER=sala-test-label "$SALA" retire sala-test-q2 --busy --keep-web 2>&1); rc=$?
-[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(lastcall)" = "post project-agent-retire projects/foo sala-test-q2 --sender sala-test-label" ] && ok "--busy retire calls too, with SALA_RETIRE_SENDER as the label" || bad "busy: rc=$rc calls=$(ncalls) last=$(lastcall)"
+refused_retire() {  # <mode> <status shown> — stackshot refuses: the retire stops (rc 1) with its reason, the pane, the row and the lane are as they were, one call, logged
+    local m=$1 st=$2 n0 out rc s1
+    kill_wait sala-rq2; mode "$m"; tagged sala-rq2 "$UQ2" projects/foo; n0=$(ncalls); s1=$(state)
+    out=$("$SALA" retire sala-rq2 --keep-web 2>&1); rc=$?
+    [ "$rc" != 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && echo "$out" | grep -qF "stackshot refused to take 'sala-rq2' off projects/foo ($st): " && echo "$out" | grep -qF "the pane is left as it is" && ! echo "$out" | grep -q "^retired " \
+        && tmux has-session -t =sala-rq2 2>/dev/null && [ -n "$(row sala-rq2)" ] && [ "$(state)" = "$s1" ] && grep -qF "[$st]" "$RLOGF" && ok "answer $m: the retire is REFUSED with stackshot's reason, the pane and the row are left alone, one call, logged" || bad "answer $m: rc=$rc calls=$(ncalls) $out"
+    LAST_REFUSAL=$out
+}
+for m in 422 409; do refused_retire "$m" "$m"; done
+refused_retire 502 502
+echo "$LAST_REFUSAL" | grep -qF "the line of sala-rq2 is still on the page: ask again" && ok "answer 502: the reason carries stackshot's own next step" || bad "502 reason: $LAST_REFUSAL"
+kill_wait sala-rq2; mode 502tl; tagged sala-rq2 "$UQ2" projects/foo; n0=$(ncalls)
+out=$("$SALA" retire sala-rq2 --keep-web 2>&1); rc=$?; l=$(echo "$out" | grep "stackshot refused")
+[ "$rc" != 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && echo "$l" | grep -qF "TAIL-MARK add the timeline line by hand" && echo "$l" | grep -qF "…" && [ "${#l}" -lt 1300 ] && tmux has-session -t =sala-rq2 2>/dev/null \
+    && grep -qF "TAIL-MARK add the timeline line by hand" "$RLOGF" && ok "a long 502 reason is cut in the middle: its end (the timeline-line hint) is kept in the refusal and in the log; the pane is left" || bad "long 502: rc=$rc len=${#l} $out"
+for m in 403 400; do refused_retire "$m" "$m"; done
+kill_wait sala-rq2
+mode ok; tagged sala-rq2 "$UQ2" projects/foo; n0=$(ncalls)
+out=$(SALA_RETIRE_SENDER=sala-test-label "$SALA" retire sala-rq2 --busy --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(lastcall)" = "post project-agent-retire projects/foo sala-rq2 --sender sala-test-label" ] && ok "--busy retire calls too, with SALA_RETIRE_SENDER as the label" || bad "busy: rc=$rc calls=$(ncalls) last=$(lastcall)"
 
 echo "== the agent entry: a failing client (exit 1) and a missing client.py change nothing about the retire"
-mode fail; tagged sala-test-q3 "$UQ3" projects/foo; n0=$(ncalls)
-out=$("$SALA" retire sala-test-q3 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
-[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && echo "$out" | grep -q "^retired 'sala-test-q3'; the transcript stays" && ! tmux has-session -t =sala-test-q3 2>/dev/null && [ -z "$(row sala-test-q3)" ] \
-    && echo "$out" | grep -q "^ℹ stackshot was not told to drop 'sala-test-q3' from projects/foo's agents (exit 1" && grep -q "sala-test-q3: project-agent-retire projects/foo (label sala-retire) → exit 1: stackshot: agent not retired" "$RLOGF" \
-    && ok "client exit 1: the retire still exits 0, the session gone, the row gone; the failure is said and logged" || bad "failing client: rc=$rc calls=$(ncalls) $out"
-mode ok; tagged sala-test-q4 "$UQ4" projects/foo; n0=$(ncalls)
-out=$(SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR= "$SALA" retire sala-test-q4 --keep-web 2>&1); rc=$?
-[ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && ! tmux has-session -t =sala-test-q4 2>/dev/null && grep -q "sala-test-q4: no stackshot client.py on this box" "$RLOGF" && ok "no client.py: the retire is done, one log line, no call" || bad "no client: rc=$rc $out"
+kill_wait sala-rq2; mode fail; tagged sala-rq3 "$UQ3" projects/foo; n0=$(ncalls); s1=$(state)
+out=$("$SALA" retire sala-rq3 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+[ "$rc" != 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && echo "$out" | grep -qF "stackshot could not be asked to take 'sala-rq3' off projects/foo (exit 1" && echo "$out" | grep -qF "the pane is left as it is" && tmux has-session -t =sala-rq3 2>/dev/null && [ -n "$(row sala-rq3)" ] && [ "$(state)" = "$s1" ] \
+    && grep -q "sala-rq3: project-agent-retire projects/foo (label sala-retire) → exit 1: stackshot: agent not retired" "$RLOGF" \
+    && ok "stackshot not reached (exit 1): the retire is REFUSED, the pane and the row are left alone, the failure is said and logged" || bad "failing client: rc=$rc calls=$(ncalls) $out"
+# a 200 whose answer is not stackshot's JSON is unreadable: refused too (a retire never goes on on a yes it cannot read)
+mode garbled; n0=$(ncalls)
+out=$("$SALA" retire sala-rq3 --keep-web 2>&1); rc=$?
+[ "$rc" != 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && tmux has-session -t =sala-rq3 2>/dev/null && ok "an answer that is not stackshot's JSON: refused, the pane left" || bad "garbled answer: rc=$rc $out"
+# a timeout is a refusal too (the call is cut at SALA_RETIRE_ASK_TIMEOUT; stackshot is asked again on the next retire)
+cat > "$HOME/slow-client.py" <<'PY'
+import time; time.sleep(30)
+PY
+n0=$(ncalls); out=$(SALA_STACKSHOT_CLIENT="$HOME/slow-client.py" SALA_RETIRE_ASK_TIMEOUT=2 "$SALA" retire sala-rq3 --keep-web 2>&1); rc=$?
+[ "$rc" != 0 ] && tmux has-session -t =sala-rq3 2>/dev/null && ok "stackshot too slow (a timeout): the retire is refused, the pane left" || bad "timeout: rc=$rc $out"
+# once stackshot answers again, the same retire goes through: the refusal was no state of its own
+mode ok; n0=$(ncalls)
+out=$("$SALA" retire sala-rq3 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && ! tmux has-session -t =sala-rq3 2>/dev/null && [ -z "$(row sala-rq3)" ] && ok "asked again once stackshot answers: the retire goes through (one call)" || bad "retry: rc=$rc $out"
+mode ok; tagged sala-rq4 "$UQ4" projects/foo; n0=$(ncalls)
+out=$(SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR= "$SALA" retire sala-rq4 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && ! tmux has-session -t =sala-rq4 2>/dev/null && grep -q "sala-rq4: no stackshot client.py on this box" "$RLOGF" && ok "no client.py: the retire is done, one log line, no call" || bad "no client: rc=$rc $out"
 
 echo "== the agent entry: a session with no project makes no call (one log line)"
-tagged sala-test-q5 "$UQ5"; n0=$(ncalls)
-out=$("$SALA" retire sala-test-q5 --keep-web 2>&1); rc=$?
-[ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && ! echo "$out" | grep -q "stackshot" && ! tmux has-session -t =sala-test-q5 2>/dev/null && grep -q "sala-test-q5: no project known for it" "$RLOGF" && ok "no project: retired, no call, nothing said, one log line" || bad "no project: rc=$rc calls=$(ncalls) $out"
+tagged sala-rq5 "$UQ5"; n0=$(ncalls)
+out=$("$SALA" retire sala-rq5 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && ! echo "$out" | grep -q "stackshot" && ! tmux has-session -t =sala-rq5 2>/dev/null && grep -q "sala-rq5: no project known for it" "$RLOGF" && ok "no project: retired, no call, nothing said, one log line" || bad "no project: rc=$rc calls=$(ncalls) $out"
 
 echo "== the agent entry: a row without a project (what migrate imported) takes the project from stackshot's roles list: the client first, the file when the client gives none"
 NROLES() { [ -f "$HOME/roles-calls.txt" ] && wc -l < "$HOME/roles-calls.txt" | tr -d ' ' || echo 0; }
 UQ7=0a000017-0000-4000-8000-000000000097 UQ8=0a000018-0000-4000-8000-000000000098 UQ9=0a000019-0000-4000-8000-000000000099
 # (a) the row has a project: the roles list is not read
-mode ok; r0=$(NROLES); tagged sala-test-q1 "$UQ1" projects/foo; n0=$(ncalls)
-out=$("$SALA" retire sala-test-q1 --keep-web 2>&1); rc=$?
-[ "$rc" = 0 ] && [ "$(NROLES)" = "$r0" ] && [ "$(lastcall)" = "post project-agent-retire projects/foo sala-test-q1 --sender sala-retire" ] && grep -qF "sala-test-q1: its project projects/foo came from its registry row" "$RLOGF" \
+mode ok; r0=$(NROLES); tagged sala-rq1 "$UQ1" projects/foo; n0=$(ncalls)
+out=$("$SALA" retire sala-rq1 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(NROLES)" = "$r0" ] && [ "$(lastcall)" = "post project-agent-retire projects/foo sala-rq1 --sender sala-retire" ] && grep -qF "sala-rq1: its project projects/foo came from its registry row" "$RLOGF" \
     && ok "(a) project on the row: used, source logged, the roles list not read" || bad "(a) rc=$rc roles-reads=$(NROLES) last=$(lastcall) $out"
 # (b) no project on the row, the client's roles list gives one
-printf '%s\n' '{"generated": "2026-10-31T00:00:00Z", "sessions": {"sala-test-q7": {"project": "projects/bar", "role": "front"}, "sala-test-other": {"project": "projects/baz"}}}' > "$HOME/roles-client.json"
-tagged sala-test-q7 "$UQ7"; n0=$(ncalls); r0=$(NROLES)
-out=$("$SALA" retire sala-test-q7 --dry-run 2>&1); rc=$?
-[ "$rc" = 0 ] && echo "$out" | grep -qF "would tell stackshot to drop 'sala-test-q7' from projects/bar's agents" && [ "$(ncalls)" = "$n0" ] && ok "(b) --dry-run: the roles list's project is the one it would tell" || bad "(b) dry run: rc=$rc $out"
-out=$("$SALA" retire sala-test-q7 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
-[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(lastcall)" = "post project-agent-retire projects/bar sala-test-q7 --sender sala-retire" ] && ! tmux has-session -t =sala-test-q7 2>/dev/null \
-    && grep -qF "sala-test-q7: its project projects/bar came from stackshot's roles list (client.py get roles)" "$RLOGF" && ! grep -q "sala-test-q7: no project known" "$RLOGF" \
-    && ok "(b) no project on the row: stackshot asked with the roles list's project, the source logged" || bad "(b) rc=$rc calls=$(ncalls) last=$(lastcall) log=$(grep sala-test-q7 "$RLOGF")"
+printf '%s\n' '{"generated": "2026-10-31T00:00:00Z", "sessions": {"sala-rq7": {"project": "projects/bar", "role": "front"}, "sala-test-other": {"project": "projects/baz"}}}' > "$HOME/roles-client.json"
+tagged sala-rq7 "$UQ7"; n0=$(ncalls); r0=$(NROLES)
+out=$("$SALA" retire sala-rq7 --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -qF "would ask stackshot FIRST, before the pane is closed, to take 'sala-rq7' off projects/bar's agents" && [ "$(ncalls)" = "$n0" ] && ok "(b) --dry-run: the roles list's project is the one it would tell" || bad "(b) dry run: rc=$rc $out"
+out=$("$SALA" retire sala-rq7 --keep-web 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(lastcall)" = "post project-agent-retire projects/bar sala-rq7 --sender sala-retire" ] && ! tmux has-session -t =sala-rq7 2>/dev/null \
+    && grep -qF "sala-rq7: its project projects/bar came from stackshot's roles list (client.py get roles)" "$RLOGF" && ! grep -q "sala-rq7: no project known" "$RLOGF" \
+    && ok "(b) no project on the row: stackshot asked with the roles list's project, the source logged" || bad "(b) rc=$rc calls=$(ncalls) last=$(lastcall) log=$(grep sala-rq7 "$RLOGF")"
 # (d) the client gives nothing (exit 1), the file does
-rm -f "$HOME/roles-client.json"; printf '%s\n' '{"sessions": {"sala-test-q8": {"project": "projects/qux", "retired": true}}}' > "$HOME/roles-file.json"
-tagged sala-test-q8 "$UQ8"; n0=$(ncalls)
-out=$(SALA_ROLES_FILE="$HOME/roles-file.json" "$SALA" retire sala-test-q8 --keep-web 2>&1); rc=$?
-[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(lastcall)" = "post project-agent-retire projects/qux sala-test-q8 --sender sala-retire" ] \
-    && grep -qF "sala-test-q8: its project projects/qux came from stackshot's roles list (the file $HOME/roles-file.json)" "$RLOGF" && ok "(d) client failing: the roles file's project used, source logged" || bad "(d) rc=$rc calls=$(ncalls) last=$(lastcall) $out"
+rm -f "$HOME/roles-client.json"; printf '%s\n' '{"sessions": {"sala-rq8": {"project": "projects/qux", "retired": true}}}' > "$HOME/roles-file.json"
+tagged sala-rq8 "$UQ8"; n0=$(ncalls)
+out=$(SALA_ROLES_FILE="$HOME/roles-file.json" "$SALA" retire sala-rq8 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(lastcall)" = "post project-agent-retire projects/qux sala-rq8 --sender sala-retire" ] \
+    && grep -qF "sala-rq8: its project projects/qux came from stackshot's roles list (the file $HOME/roles-file.json)" "$RLOGF" && ok "(d) client failing: the roles file's project used, source logged" || bad "(d) rc=$rc calls=$(ncalls) last=$(lastcall) $out"
 # (c) neither gives one: the client fails, the file is bad JSON / lacks the name / is missing: today's line, no call, the retire done
-printf '%s\n' '{"sessions": {"sala-test-q9": ' > "$HOME/roles-bad.json"
+printf '%s\n' '{"sessions": {"sala-rq9": ' > "$HOME/roles-bad.json"
 for f in "$HOME/roles-bad.json" "$HOME/roles-file.json" "$HOME/no-such-roles.json"; do
-    tagged sala-test-q9 "$UQ9"; n0=$(ncalls); l0=$(wc -l < "$RLOGF")
-    out=$(SALA_ROLES_FILE="$f" "$SALA" retire sala-test-q9 --keep-web 2>&1); rc=$?
-    [ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && ! echo "$out" | grep -q "stackshot" && ! tmux has-session -t =sala-test-q9 2>/dev/null && [ -z "$(row sala-test-q9)" ] \
-        && tail -n +$((l0 + 1)) "$RLOGF" | grep -q "sala-test-q9: no project known for it" && ok "(c) client failing, roles file $(basename "$f"): no project, no call, the retire done, today's log line" || bad "(c) $f: rc=$rc calls=$(ncalls) $out"
+    tagged sala-rq9 "$UQ9"; n0=$(ncalls); l0=$(wc -l < "$RLOGF")
+    out=$(SALA_ROLES_FILE="$f" "$SALA" retire sala-rq9 --keep-web 2>&1); rc=$?
+    [ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && ! echo "$out" | grep -q "stackshot" && ! tmux has-session -t =sala-rq9 2>/dev/null && [ -z "$(row sala-rq9)" ] \
+        && tail -n +$((l0 + 1)) "$RLOGF" | grep -q "sala-rq9: no project known for it" && ok "(c) client failing, roles file $(basename "$f"): no project, no call, the retire done, today's log line" || bad "(c) $f: rc=$rc calls=$(ncalls) $out"
 done
 # the client answering a name the list lacks, and a roles list with no project for it, are no project either
-printf '%s\n' '{"sessions": {"sala-test-q9": {"role": "front"}}}' > "$HOME/roles-client.json"
-tagged sala-test-q9 "$UQ9"; n0=$(ncalls); l0=$(wc -l < "$RLOGF")
-out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-test-q9 --keep-web 2>&1); rc=$?
-[ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && tail -n +$((l0 + 1)) "$RLOGF" | grep -q "sala-test-q9: no project known for it" && ok "(c) the list names the session but gives no project: today's line, no call" || bad "(c) no project in the list: rc=$rc $out"
+printf '%s\n' '{"sessions": {"sala-rq9": {"role": "front"}}}' > "$HOME/roles-client.json"
+tagged sala-rq9 "$UQ9"; n0=$(ncalls); l0=$(wc -l < "$RLOGF")
+out=$(SALA_ROLES_FILE="$HOME/no-such-roles.json" "$SALA" retire sala-rq9 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && tail -n +$((l0 + 1)) "$RLOGF" | grep -q "sala-rq9: no project known for it" && ok "(c) the list names the session but gives no project: today's line, no call" || bad "(c) no project in the list: rc=$rc $out"
 rm -f "$HOME/roles-client.json"
 
 echo "== the agent entry: forget-row of an orphan row calls too (its registry row's project)"
-ledger_write add sala-test-q6 "$UQ6" sala-test-q6 "$HOME/work" >/dev/null 2>&1; "$SALA" sessions tag sala-test-q6 --project projects/foo --role front >/dev/null 2>&1; n0=$(ncalls); s0=$(state)
-out=$("$SALA" forget-row sala-test-q6 --dry-run 2>&1); rc=$?
-[ "$rc" = 0 ] && echo "$out" | grep -qF "would tell stackshot to drop 'sala-test-q6' from projects/foo's agents" && [ "$(ncalls)" = "$n0" ] && ok "orphan --dry-run: the call said, none made" || bad "orphan dry run: rc=$rc $out"
-untouched "$s0" "forget-row sala-test-q6 --dry-run"
-out=$("$SALA" forget-row sala-test-q6 2>&1); rc=$?
-[ "$rc" = 0 ] && [ -z "$(row sala-test-q6)" ] && [ "$(ncalls)" = $((n0 + 1)) ] && echo "$out" | grep -q "^ℹ stackshot removed 'sala-test-q6' from projects/foo's agents" && ok "orphan forget-row: row gone, one call after it" || bad "orphan forget-row: rc=$rc calls=$(ncalls) $out"
+ledger_write add sala-rq6 "$UQ6" sala-rq6 "$HOME/work" >/dev/null 2>&1; "$SALA" sessions tag sala-rq6 --project projects/foo --role front >/dev/null 2>&1; n0=$(ncalls); s0=$(state)
+out=$("$SALA" forget-row sala-rq6 --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -qF "would tell stackshot to drop 'sala-rq6' from projects/foo's agents" && [ "$(ncalls)" = "$n0" ] && ok "orphan --dry-run: the call said, none made" || bad "orphan dry run: rc=$rc $out"
+untouched "$s0" "forget-row sala-rq6 --dry-run"
+out=$("$SALA" forget-row sala-rq6 2>&1); rc=$?
+[ "$rc" = 0 ] && [ -z "$(row sala-rq6)" ] && [ "$(ncalls)" = $((n0 + 1)) ] && echo "$out" | grep -q "^ℹ stackshot removed 'sala-rq6' from projects/foo's agents" && ok "orphan forget-row: row gone, one call after it" || bad "orphan forget-row: rc=$rc calls=$(ncalls) $out"
+
+echo "== the agent entry: asked once, and FIRST (no second call after the pane is gone); a 404 and not listed go on; the closed exceptions are not asked"
+mode ok; : > "$CALLS"; kill_wait sala-rq2
+tagged sala-rq2 "$UQ2" projects/foo
+out=$("$SALA" retire sala-rq2 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && ok "a retire makes exactly one project-agent-retire call (not asked again after the pane is gone)" || bad "one call: rc=$rc calls=$(ncalls) $out"
+# the pane still exists when stackshot is asked: the fake records it
+cat > "$HOME/order-client.py" <<'PY'
+import os, subprocess, sys
+home = os.environ["HOME"]
+r = subprocess.run(["tmux", "-S", os.environ["SALA_TMUX_SOCKET"], "has-session", "-t", "=sala-rq2"], capture_output=True)
+open(home + "/order.txt", "a").write("pane-existed\n" if r.returncode == 0 else "pane-gone\n")
+print('{"result": "line removed"}')
+PY
+rm -f "$HOME/order.txt"; tagged sala-rq2 "$UQ2" projects/foo
+out=$(SALA_STACKSHOT_CLIENT="$HOME/order-client.py" "$SALA" retire sala-rq2 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$HOME/order.txt" 2>/dev/null)" = pane-existed ] && ! tmux has-session -t =sala-rq2 2>/dev/null && ok "stackshot is asked while the pane still exists (retire asks first), and the pane is closed after the answer" || bad "order: rc=$rc order=$(cat "$HOME/order.txt" 2>/dev/null) $out"
+# a refusal leaves the pane in place: the same stub, refusing
+cat > "$HOME/order-refuse.py" <<'PY'
+import os, subprocess, sys
+home = os.environ["HOME"]
+r = subprocess.run(["tmux", "-S", os.environ["SALA_TMUX_SOCKET"], "has-session", "-t", "=sala-rq2"], capture_output=True)
+open(home + "/order.txt", "a").write("pane-existed\n" if r.returncode == 0 else "pane-gone\n")
+print("stackshot: agent not retired [409] in progress"); sys.exit(1)
+PY
+rm -f "$HOME/order.txt"; tagged sala-rq2 "$UQ2" projects/foo; c=$(pane_claude sala-rq2)
+out=$(SALA_STACKSHOT_CLIENT="$HOME/order-refuse.py" "$SALA" retire sala-rq2 --keep-web 2>&1); rc=$?
+[ "$rc" != 0 ] && tmux has-session -t =sala-rq2 2>/dev/null && kill -0 "$c" 2>/dev/null && ok "a refusal leaves the claude running and the pane open (it was not even sent /exit)" || bad "refusal left the pane: rc=$rc $out"
+# not listed and a 404 (no such project) go on
+for m in notlisted; do
+    mode "$m"; n0=$(ncalls); out=$("$SALA" retire sala-rq2 --keep-web 2>&1); rc=$?
+    [ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && ! tmux has-session -t =sala-rq2 2>/dev/null && ok "answer $m: the retire goes on" || bad "answer $m: rc=$rc $out"
+done
+cat > "$HOME/c404.py" <<'PY'
+import sys
+print("stackshot: agent not retired [404] no such project projects/foo"); sys.exit(1)
+PY
+tagged sala-rq2 "$UQ2" projects/foo
+out=$(SALA_STACKSHOT_CLIENT="$HOME/c404.py" "$SALA" retire sala-rq2 --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -qF "stackshot has no project projects/foo (404" && ! tmux has-session -t =sala-rq2 2>/dev/null && ok "a 404 (no such project): the retire goes on, said in words" || bad "404: rc=$rc $out"
+# the exceptions: a throwaway's name, a side session; stackshot is not asked even when it would refuse
+mode 409; n0=$(ncalls)
+hand sala-test-thrw "$UQ4" sala-test-thrw; "$SALA" adopt sala-test-thrw >/dev/null 2>&1; "$SALA" sessions tag sala-test-thrw --project projects/foo --role front >/dev/null 2>&1
+out=$("$SALA" retire sala-test-thrw --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && echo "$out" | grep -qF "stackshot is not asked about 'sala-test-thrw'" && ! tmux has-session -t =sala-test-thrw 2>/dev/null && ok "exception: a throwaway's name (*-test-*): stackshot is not asked, the retire goes on" || bad "exception throwaway: rc=$rc calls=$(ncalls) $out"
+out=$("$SALA" retire sala-test-thrw --dry-run 2>&1); true
+hand sala-rq-side-wren "$UQ5" sala-rq-side-wren; "$SALA" adopt sala-rq-side-wren >/dev/null 2>&1; "$SALA" sessions tag sala-rq-side-wren --project projects/foo --role front >/dev/null 2>&1
+out=$("$SALA" retire sala-rq-side-wren --keep-web 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = "$n0" ] && ! tmux has-session -t =sala-rq-side-wren 2>/dev/null && ok "exception: a side session: stackshot is not asked, the retire goes on" || bad "exception side: rc=$rc calls=$(ncalls) $out"
+mode ok
 
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 47
+contract-version: 48
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -304,6 +304,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   `"keeper": true`; `keeper` stays an agent name. All additive and optional: sala reads none of them and requires none, so a record without them reads as before. The spawn keeper ask (interface 8) is
   addressed to the project's keeper, the mark on one agent (the builder, else the -main agent, when nothing is marked); its command, text and exit codes are unchanged.
 - **47** — Fri Nov 20th 2026. Interfaces 19, 20 and 11 (the surface of a front agent): a front agent may answer the owner on Slack instead of in sala. In the project record (interface 20) an agent's entry may carry `"surface": "slack"`; absent means `sala`, the only other value, and anything else is refused by sala wherever it reads or writes one. `sala sessions tag --auto` copies it onto the session's registry row (and clears a stale `slack` from a row whose entry has none), and `sala spawn --surface slack` writes it at birth. The registry's session rows (interface 19, `session-registry.json`) carry `"surface": "slack"` only for a slack row, so every other row's shape is as before. In the roles file (interface 11) a session's entry may carry `"surface": "slack"` the same way (only when slack), which sala-web reads for its session list; without it the row's own surface is used. All additive and optional: a reader that ignores the key reads exactly as before.
+- **48** — Sun Nov 22nd 2026. New interface 34 (the spawn gate) and interfaces 21 and 25: every agent session sala creates is on stackshot's project record before its pane exists. `sala spawn` decides from the record first (listed: yes); a name not on it, spawned with `--role` and `--mandate`, is registered through `client.py post project-agent <project> <name> --role <word> --front|--back --mandate <line> --sender sala-spawn` and the pane starts only on the 200; any other answer (or stackshot unreachable) stops the spawn with stackshot's reason and no pane. `sala retire` asks `post project-agent-retire` (`sala-retire`) BEFORE it closes the pane of a session that is on the record: "not listed" goes on, any other refusal stops the retire and leaves the pane alone (it was asked after the fact before). A rename and a registration are read back from the record. `agent_name_check` wraps `GET /client/agent-name` (live since stackshot c554182a; any answer that is not its JSON falls back to sala's own suggestion). Stale wording corrected: stackshot writes the record directly and answers `page_owed: false`, and with `copy_project_lines=false` a retire writes no page block and no timeline line. Nothing stackshot reads or sends changed in shape.
 
 ## How each entry reads
 
@@ -356,6 +357,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 | 31 | sala-web saved color combinations (`GET /client/colors/combos`, `POST /client/colors/combos`, `POST /client/colors/combos/delete`) | sala web → stackshot | stable from version 33 (permanent) | `web/tests/test_colors_combos.py`, `test_colortool_wiring.py` (a fake stackshot) |
 | 32 | sala-web usage analysis (`GET /api/usage?week=0\|1\|2`, optional `&fresh=1`; the Digest's `GET /api/usage/digest` with the same query; Explorer's `GET /api/usage/replies`) | sala web → the page it serves (or any reader of the route) | unstable (the Report, Explorer and Digest views; `GET /api/usage/digest` added in 38, `GET /api/usage/replies` in 39) | `web/tests/test_usage.py`, `test_usage_ui.py`, `test_usage_explorer.py`, `test_usage_explorer_ui.py`, `test_usage_digest.py`, `test_usage_digest_ui.py` (fake transcripts) |
 | 33 | sala mockup pages (`sala mockup add\|list\|remove\|clean`, `GET /mockup/<n>`, the `SALA_MOCKUP_REFERENCES` command) | sala → the host's board reader (a command the host names) | unstable (first release) | `tests/mockup.sh`, `web/tests/test_mockup.py` (a stub reader, a real headless browser) |
+| 34 | Spawn gate (`client.py post project-agent … --sender sala-spawn` before a pane exists; `post project-agent-retire` before a pane is closed; `GET /client/agent-name`) | sala → stackshot | stable from version 48 | `tests/spawn.sh`, `tests/retire.sh`, `tests/rename.sh` (a stub `client.py`) |
 
 ## 1. Heartbeat fleet store
 
@@ -742,8 +744,8 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   (`tag --auto` leaves the whole row as it is, no project and no role written, and says why, for a row with a role as well as one without; a back agent named `slack` is left too, and a row whose role is back is never made slack; `spawn` reads the same entry before it chooses the start directory, so a registered Slack agent spawned without `--surface` starts in the Slack brief's directory, a `--surface` that conflicts with the entry is refused, and an entry whose surface sala cannot use (an empty one included) refuses the spawn too, with the reason and the project record named; that lookup, `sessions record-surface`, reads only the project record and never the session registry, so a registry that is missing, corrupt or unreadable changes nothing; a record that is missing, stale or does not list the name refuses nothing, the flag alone decides, and `SALA_SESSIONS=off` does not stop the read). `sala sessions tag --auto` copies it onto the session's row, a record without it clears a stale `slack`.
   `front` is true for a top-level entry of the page's `agents:` map and false for one under `background:`; `role` is the part
   of the name after the project's name (`alex-builder` → `builder`); the project's main agent is the front entry whose
-  name ends in `-main`. `page_owed: true` marks an agent registered through `client.py post project-agent` whose page line is
-  still owed (a claim by one session, not what the page says). Read by sala on the machine that drives only (a file, no token, no HTTP);
+  name ends in `-main`. `page_owed` is optional: stackshot writes the record directly and answers `page_owed: false` for an agent registered now, so a true value only survives in an older record
+  (there it marked an agent whose page line was still owed; sala treats such an agent as listed, as before). Read by sala on the machine that drives only (a file, no token, no HTTP);
   `client.py get project <key>` returns the same record for other machines and is not used by sala.
 - **Reading rule (sala)**: the record answers only when it is readable JSON of schema 1, `generated` is at most
   `SALA_PROJECT_RECORD_MAX_AGE` (600 s) old, and the project key is in it. Then, for `spawn --project K NAME --role R`: the
@@ -812,7 +814,9 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   "stackshot sent an answer that is not the project list". The box then says it could not read the list and still offers
   "+ New project"; a Create stops at the step that needed stackshot, in words, and queues nothing. An older stackshot without
   these routes answers 404 and the form cannot make or list a project. The agent's page line stays owed in stackshot's
-  record (`page_owed`, interface 20); the form says it is recorded and shows nothing to copy.
+  record directly and answers `page_owed: false` (interface 20): nothing is owed on the page and the form shows nothing to copy.
+  `POST /client/project-agent-retire` (`post project-agent-retire`, interface 25) with `copy_project_lines=false` on the project writes NO page block and NO timeline line:
+  the record alone changes (`line removed`, `dropped` or `not listed`), so nothing is left for a page keeper to do.
 - **Test**: `web/tests/test_new_session_projects.py` (the server side against a fake stackshot on 127.0.0.1) and
   `web/tests/test_new_session_scope.py` (the form in a browser against the same fake); `web/tests/fake_stackshot.py` holds the
   shapes above.
@@ -877,8 +881,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 ## 25. Project agent retire
 
 - **Direction**: sala → stackshot (a CLI call sala runs from the machine that drives; stackshot answers over its own HTTP route). Added in version 16.
-- **Mechanism**: `python3 <client.py> post project-agent-retire <project> <name> --sender sala-retire` (`retire_drop_agent`, `lib/common.sh`;
-  called at the end of `lib/retire.sh`; the client is `stackshot_client`: `SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/stackshot/fleet/client.py`). Run under
+- **Mechanism**: `python3 <client.py> post project-agent-retire <project> <name> --sender sala-retire` (`_retire_call`, `lib/common.sh`; since version 48 asked FIRST by `retire_ask_first`, before `lib/retire.sh` types `/exit` or kills the pane, a session on the closed exceptions list excepted (interface 34); `retire_drop_agent` keeps the after-the-fact call for `forget-row`, whose pane is already gone; the client is `stackshot_client`: `SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/stackshot/fleet/client.py`). Run under
   `timeout 90` with stdin `/dev/null` (version 25; 45 before: stackshot now reads and writes the page, which takes longer than the one read it used to make), once per successful retire (not in `--dry-run`, which
   only says "would tell stackshot …"). `<project>` is the hub page key (`projects/<slug>`, `infra/<slug>`): the session's registry row `project`
   (`retire_project_of`, read before the retire marks the row retired), else a side session's record `project`, else its origin agent's, else the
@@ -905,8 +908,8 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   code and stackshot's last line, and the retire's exit status and result unchanged. The "ℹ" line in the retire's output is the 502 line, the "stackshot
   refused (422|409)" line, or "stackshot was not told …" for any other exit (a 404, 400, 403, 503, `[0]` not reached) and for the timeout (90 s, which
   adds that an immediate retry may get a 409 while stackshot finishes)
-  (the session is gone either way). An older stackshot without the verb fails the call the same way. A session left listed that way stays a
-  pending agent until stackshot's side drops it.
+  (the session is gone either way). An older stackshot without the verb fails the call the same way. Since version 48 this fail-soft reading holds only for what is not a refusal: asked first, a retire of a session that is on the record is refused when stackshot refuses or cannot be reached
+  (409, 403, 400, 422, 502, a timeout, `[0]`), with stackshot's reason and the pane left alone; `not listed`, a 404 (no such project) and no project or no client to ask go on. Asking again is the way out of any refusal (the call is idempotent). With `copy_project_lines=false` a retire writes no page block and no timeline line (interface 21).
 - **Items read (version 26)**: before anything is ended `lib/retire.sh` calls `retire_open_items` (`lib/common.sh`): `python3 <client.py> get items <tmux name>`, then `<conversation id>` (`SALA_RETIRE_ITEMS_CMD` replaces the command, as `SALA_SIDE_ITEMS_CMD` does for the side gate; `timeout $SALA_RETIRE_ITEMS_TIMEOUT`, 30 s, stdin closed), reading `{"items": [{"shown": "board#N", "roles": ["mover"|"then"|"needs"], "held": bool, …}]}`. It runs in `--dry-run` too. Tested by `tests/retire-verbs.sh` against a stub that answers items, none, a failure, a hang and garbage.
 - **Test**: `tests/retire.sh` (the agent entry sections; a stub `client.py` that logs its arguments and answers line removed, dropped, not listed, a 502, a 409 (in progress) or exit 1, and answers `get roles` from a file; the project fallback: row project, roles from the client, roles from the file, and none of them; the refusals are exit 1 in the real client, as in the stub's fail mode).
 - **Stable**: yes from version 16 (stackshot's `project-agent-retire` is live).
@@ -1075,6 +1078,24 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Absent or changed**: with no reference command nothing is deleted; a change to the reference line's form, the folder layout or the route's headers bumps the version.
 - **Test**: `tests/mockup.sh` (numbering, refusals, both cleanup rules with a stub reader and fake sizes and ages), `web/tests/test_mockup.py` (the route, its headers and a real headless browser).
 - **Stable**: unstable (first release).
+
+## 34. Spawn gate
+
+- **Direction**: sala → stackshot (CLI calls from the machine that drives; stackshot answers over its own HTTP routes). Added in version 48.
+- **Mechanism**: a session sala creates is on the project record before its pane exists. `lib/spawn.sh` reads the record first (`project_record_agent`, interface 20): listed means yes. Not listed, with
+  `--role <word>` (a plain spawn; `--project K --role front|back` for a project spawn) and `--mandate`, `--front|--back` optional (default back): `agent_register` (`lib/common.sh`) runs
+  `python3 <client.py> post project-agent <project> <name> --role <word> --front|--back [--surface slack] --mandate <one line, 600 at most> --sender sala-spawn` (`SALA_SPAWN_SENDER`; `timeout 90`, stdin closed) right
+  before the pane is made (after every check and the dry run); 200 starts the pane, any other answer prints stackshot's `[status] reason` and exits 6 with no pane (400 a bad field or a name without the project's prefix, 403 a hub or retired
+  page or a sender not allowed, 409 the name taken or on the other side, `[0]` stackshot not reached). Then `agent_record_read_back` reads the record back (`client.py get project <key>`, else the published file, up to
+  `SALA_READBACK_WAIT` = 30 s): the name must be listed on the side asked; if not, the spawn stops with exit 6 and no pane. Not listed and no `--role`/`--mandate`: refused (exit 3), with the reason and the register command (`REGISTER: <key>` on stdout when the
+  project can be told from the name). The closed exceptions list, kept in one function (`agent_gate_exempt`): sala's own shell session (`SALA_SHELL_SESSION`), a side session (`spawn --side`, or a `-side-` name), a spawn's
+  auto-generated throwaway name, and the names `scratch-*`, `*-check-*`, `*-test-*`, `*-probe-*`. Revive, recycle, adopt, restore and the relaunch paths create no session and never come here. A rename is read back the same way after
+  `post project-agent-rename` (NEW listed, OLD gone) and after a side session's listing (NEW listed as a front agent). `sala retire` asks `post project-agent-retire` (interface 25) before the pane is closed.
+  `spawn --suggest-name` asks `agent_name_check`: `GET /client/agent-name?key=<project page key>&names=a,b,c` (live since stackshot c554182a; machine-token bearer auth like the other client reads; CLI `client.py get agent-name <project> <name> [<name> ...]`, 20 names at most, `SALA_AGENT_NAME_CMD` replaces it) answering `{"results": [{name, valid, code, reason}], "first_free", "prefixes"}`; `code` is prefix, format, listed, pending, retired, hidden, hub or limit. It takes no lock and registers nothing, and exits 0 whenever it answers, even when every name is invalid: sala reads `valid`, never the exit code. A name already `listed` reads `valid: false` even where the register would answer 200 "nothing changed": that is "already ours", not a refusal, so the gate decides "listed" from the project record first and the check only suggests names (the wrapper answers rc 3 when none is valid and one is listed). A name `pending` for any sender reads pending, sala's own sender included; a bad-shape name on a hub, hidden or retired project reads hub, hidden or retired; for a project whose id is not in the id file the read may write that id (as `get project` does). `valid: true` means the register will not refuse the name now; a name can be taken between the read and the register, so the register's refusal is still handled and the register call stays the real yes. A 404, no client, a connection error, a timeout or a non-JSON answer is "unavailable" and the suggestion is sala's own (a free tmux name, a free word); stackshot's check does not see tmux, live sessions or retired names of other machines, so sala's own check stays.
+- **Owners**: sala `lib/spawn.sh` (the gate, `spawn_register_plan`, `spawn_register_do`), `lib/common.sh` (`agent_gate_exempt`, `agent_register`, `agent_record_read_back`, `agent_name_check`, `retire_ask_first`), `lib/retire.sh`, `lib/rename.sh`. stackshot: the `project-agent` and `project-agent-retire` routes; the `agent-name` route.
+- **Absent or changed**: stackshot unreachable or refusing stops a spawn that needs the registration (fail-closed: no pane); a box with no stackshot at all (no record file, no client) keeps the older fail-open plain-spawn check. The `pages.py` fallbacks stay until the follow-up that removes them.
+- **Test**: `tests/spawn.sh` (the spawn gate section), `tests/retire.sh` (retire asks first), `tests/rename.sh` (the read-back), each with a stub `client.py` and a private tmux socket.
+- **Stable**: from version 48 (the name check read is live in stackshot since c554182a).
 
 ## Not an interface, but a name
 
