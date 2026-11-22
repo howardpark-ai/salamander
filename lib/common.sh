@@ -1460,12 +1460,24 @@ agent_listed_on() {  # <name> <page key> → 0 listed on that page (its mandate 
 : "${SALA_PROJECT_RECORD:=$HOME/.local/state/stackshot/projects.json}"
 : "${SALA_PROJECT_RECORD_MAX_AGE:=600}"    # seconds: the contract says a reader treats an older file as stale (stackshot rewrites it every 5 minutes)
 : "${SALA_ROLES_FILE_MAX_AGE:=1800}"       # seconds: an older file answers nothing (stackshot rewrites it every few minutes)
-project_record_agent() {  # <page key, or empty for any project> <name> [front|back to check] → rc 0 listed (stdout line 1: the mandate line, line 2: the project's -main agent or empty) · 3 the project is in the record and the name is not on its agents map, or (no page key given) the name is on no project of a fresh record (line 1 the why, line 2 the -main agent, empty for no key) · 5 listed with the other role (the why) · 1 the record cannot answer (the why)
-    [ -r "$SALA_PROJECT_RECORD" ] || { if [ -e "$SALA_PROJECT_RECORD" ]; then echo "the project record at $SALA_PROJECT_RECORD is not readable"; else echo "no project record at $SALA_PROJECT_RECORD"; fi; return 1; }
+_record_stat() {  # <path> → rc 0 it can be stat'ed · 10 it is absent (stat says ENOENT or ENOTDIR) · 11 any other stat error (stdout: the reason). `[ -e ]` is false for both an absent file and one behind a directory that denies traversal (EACCES), so it cannot tell "no record" from "a record sala cannot reach"; without python3 it falls back on `[ -e ]`
     local out rc
-    out=$(python3 -I - "$SALA_PROJECT_RECORD" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" "$2" "${3:-}" 2>&1 <<'PY'
+    out=$(python3 -I -c 'import errno, os, sys
+try: os.stat(sys.argv[1])
+except OSError as e:
+    if e.errno in (errno.ENOENT, errno.ENOTDIR): sys.exit(10)
+    print(os.strerror(e.errno) if e.errno else str(e)); sys.exit(11)' "$1" 2>&1); rc=$?
+    case "$rc" in 0|10) return "$rc" ;; 11) printf '%s\n' "$out"; return 11 ;; esac
+    if [ -e "$1" ]; then return 0; else return 10; fi
+}
+project_record_agent() {  # <page key, or empty for any project> <name> [front|back to check] [unique] → rc 0 listed (stdout line 1: the mandate line, line 2: the project's -main agent or empty) · 3 the project is in the record and the name is not on its agents map, or (no page key given) the name is on no project of a fresh record (line 1 the why, line 2 the -main agent, empty for no key) · 4 (only with `unique` as the fourth argument, no page key) the name is on the agents maps of two or more projects: line 1 names their keys · 5 listed with the other role (the why) · 1 the record cannot answer (the why)
+    if [ ! -r "$SALA_PROJECT_RECORD" ]; then   # absent only when stat says so (a parent that denies traversal makes `-e` false for a file that is there)
+        _record_stat "$SALA_PROJECT_RECORD" >/dev/null; case $? in 10) echo "no project record at $SALA_PROJECT_RECORD" ;; *) echo "the project record at $SALA_PROJECT_RECORD is not readable" ;; esac; return 1
+    fi
+    local out rc
+    out=$(python3 -I - "$SALA_PROJECT_RECORD" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" "$2" "${3:-}" "${4:-}" 2>&1 <<'PY'
 import datetime, json, sys
-path, max_age, key, name, role = sys.argv[1:6]
+path, max_age, key, name, role, uniq = sys.argv[1:7]
 def no(why): print(why); sys.exit(1)
 try:
     d = json.load(open(path, encoding="utf-8"))
@@ -1478,8 +1490,9 @@ try:
     def main_of(p):  # the front entry ending in -main
         return next(iter(sorted(n for n, a in agents_of(p).items() if isinstance(a, dict) and a.get("front") is True and n.endswith("-main"))), "")
     if not key:  # any project: is the name listed anywhere
-        for k in sorted(projects):
-            if isinstance(agents_of(projects[k]).get(name), dict): print("listed on %s" % projects[k].get("key", k)); print(""); sys.exit(0)
+        hits = [projects[k].get("key", k) for k in sorted(projects) if isinstance(agents_of(projects[k]).get(name), dict)]
+        if len(hits) > 1 and uniq == "unique": hits.sort(); print("listed on %s and %s" % (", ".join(hits[:-1]), hits[-1])); print(""); sys.exit(4)   # the first of them is no answer for a caller that must pick one
+        if hits: print("listed on %s" % hits[0]); print(""); sys.exit(0)
         print("the name is on no project of the record"); print(""); sys.exit(3)   # a fresh record that lists it nowhere is an answer: rc 3, not "cannot answer" (op_own_unlisted needs the difference)
     pid = (d.get("by_key") or {}).get(key)
     p = projects.get(pid) if pid else None
@@ -1497,7 +1510,7 @@ except SystemExit: raise
 except Exception as e: no("the project record is unreadable (%s)" % e)
 PY
 ); rc=$?
-    case "$rc" in 0|3|5) printf '%s\n' "$out"; return "$rc" ;; esac
+    case "$rc" in 0|3|4|5) printf '%s\n' "$out"; return "$rc" ;; esac
     _lastline "$out"; return 1
 }
 # rename_record_plan <OLD> <NEW> → what `sala rename` does about OLD's entry on its project, decided from the project record ALONE (no pages.py:
@@ -1507,37 +1520,47 @@ PY
 #   rc 0  OLD is on a project's agents map and NEW is on none of a fresh record: RL_HUB is that project's key, as the record gives it (the hub page
 #         `post project-agent-rename` takes); the rename asks stackshot to rename the entry
 #   rc 2  nothing to rename, RL_WHY says why: NEW is already listed (the entry is there), OLD is on no project (a scratch pane has no entry), NEW is
-#         exempt from the check (a sala-test-* or *-side-* name, SALA_AGENT_CHECK=off), or there is no stackshot on this box (no record file AND no client.py:
-#         sala runs without it, docs/running-without-stackshot.md)
-#   rc 1  the record cannot answer (missing, an existing file that cannot be read, another schema, stale): RL_WHY is the record's reason; the caller refuses, nothing renamed
+#         exempt from the check (a sala-test-* or *-side-* name, SALA_AGENT_CHECK=off), or there is no stackshot on this box (the record is ABSENT, stat says no such
+#         file or directory, AND no client.py: sala runs without it, docs/running-without-stackshot.md)
+#   rc 1  the record cannot answer (missing with a client, a file or a parent directory that cannot be reached or read, another schema, stale, or a readable record
+#         that could not be copied for the one snapshot): RL_WHY is the reason; the caller refuses, nothing renamed
+#   rc 3  OLD is on the agents maps of two or more projects, so no one project is its entry's: RL_WHY names their keys; the caller refuses, nothing renamed
 # A side session's rename (OLD a side session, NEW an agent name) is decided elsewhere (lib/rename.sh, rename_side_plan) and never comes here.
 rename_record_plan() {
-    local old=$1 new=$2 snap rc
+    local old=$1 new=$2 snap rc st why
     RL_HUB="" RL_WHY=""
     [ "${SALA_AGENT_CHECK:-on}" = off ] && { RL_WHY="SALA_AGENT_CHECK=off"; return 2; }
     case "$new" in sala-test-*|*-side-*) RL_WHY="'$new' is never checked (a test or side session name)"; return 2 ;; esac
-    # no stackshot on this box = no record file AND no client (an existing record that cannot be read is the record's own refusal, below)
-    if [ ! -e "$SALA_PROJECT_RECORD" ] && ! stackshot_client >/dev/null; then RL_WHY="no stackshot on this box (no project record, no client.py)"; return 2; fi
+    # no stackshot on this box = the record is ABSENT (stat says no such file or directory) AND there is no client. A record that exists but cannot be reached (a parent
+    # directory that denies traversal, a file that cannot be read) is the record's own refusal, never "no stackshot": the pane rename must not go on over an entry it cannot see.
+    why=$(_record_stat "$SALA_PROJECT_RECORD"); st=$?
+    if [ "$st" = 11 ]; then RL_WHY="the project record at $SALA_PROJECT_RECORD cannot be reached ($why)"; return 1; fi
+    if [ "$st" = 10 ] && ! stackshot_client >/dev/null; then RL_WHY="no stackshot on this box (no project record, no client.py)"; return 2; fi
     # ONE copy of the record for both names: stackshot rewrites the file every few minutes, and two reads of it could straddle a rewrite
-    # (OLD from one snapshot, NEW from the next) and plan a rename neither snapshot supports. A copy that cannot be made leaves the file itself,
-    # whose own reading then gives the reason.
-    snap=$(mktemp "${TMPDIR:-/tmp}/sala-rename-record.XXXXXX" 2>/dev/null) || snap=""
-    if [ -n "$snap" ] && cp -- "$SALA_PROJECT_RECORD" "$snap" 2>/dev/null; then
-        SALA_PROJECT_RECORD=$snap _rename_record_plan_read "$old" "$new"; rc=$?
+    # (OLD from one snapshot, NEW from the next) and plan a rename neither snapshot supports. A readable record that cannot be copied is no answer (the file is
+    # never read twice instead); a record that cannot be read is read as it is, whose own refusal then gives the reason.
+    if [ -r "$SALA_PROJECT_RECORD" ]; then
+        snap=$(mktemp "${TMPDIR:-/tmp}/sala-rename-record.XXXXXX" 2>/dev/null) || snap=""
+        if [ -n "$snap" ] && cp -- "$SALA_PROJECT_RECORD" "$snap" 2>/dev/null; then
+            SALA_PROJECT_RECORD=$snap _rename_record_plan_read "$old" "$new"; rc=$?
+        else
+            RL_WHY="could not take a snapshot of the project record"; rc=1
+        fi
+        [ -z "$snap" ] || rm -f -- "$snap"
     else
         _rename_record_plan_read "$old" "$new"; rc=$?
     fi
-    [ -z "$snap" ] || rm -f -- "$snap"
     return "$rc"
 }
 _rename_record_plan_read() {  # <OLD> <NEW> → rename_record_plan's answer from the record SALA_PROJECT_RECORD names (one file, so one snapshot)
     local old=$1 new=$2 o orc n nrc
-    o=$(project_record_agent "" "$old"); orc=$?
+    o=$(project_record_agent "" "$old" "" unique); orc=$?
     n=$(project_record_agent "" "$new"); nrc=$?
     if [ "$orc" = 1 ] || [ "$nrc" = 1 ]; then RL_WHY=$(_lastline "$([ "$orc" = 1 ] && echo "$o" || echo "$n")"); return 1; fi
     n=$(printf '%s\n' "$n" | sed -n 1p)   # line 1 only: "listed on <key>"
     o=$(printf '%s\n' "$o" | sed -n 1p)
     [ "$nrc" != 0 ] || { RL_WHY="'$new' is already on the agents map of ${n#listed on }"; return 2; }
+    [ "$orc" != 4 ] || { RL_WHY="'$old' is on the agents maps of more than one project ($(printf '%s\n' "$o" | sed -n 1p | sed 's/^listed on //')): sala cannot tell which entry to rename"; return 3; }
     [ "$orc" = 0 ] || { RL_WHY="'$old' is on no project's agents map: there is no entry to rename"; return 2; }
     RL_HUB=${o#listed on }
     [ -n "$RL_HUB" ] && [ "$RL_HUB" != "$o" ] || { RL_HUB=""; RL_WHY="the project record gave no project key for '$old' ($o)"; return 1; }

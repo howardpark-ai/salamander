@@ -232,9 +232,9 @@ out=$(SALA_RENAME_SYNC=1 "$SALA" rename sala-test-o6 gamma-foo-hand 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(calls)" = "$n0" ] && tmux has-session -t =gamma-foo-hand 2>/dev/null && ok "followed, no call" || bad "sync: rc=$rc $out"
 
 echo "== the project record decides, pages.py is never asked: OLD on a project's agents map and NEW on none is renamed there"
-RU1=aaaaaaaa-0000-4000-8000-000000000041 RU2=aaaaaaaa-0000-4000-8000-000000000042 RU3=aaaaaaaa-0000-4000-8000-000000000043 RU4=aaaaaaaa-0000-4000-8000-000000000044 RU5=aaaaaaaa-0000-4000-8000-000000000045 RU6=aaaaaaaa-0000-4000-8000-000000000046
-for i in 1 2 3 4 5 6; do eval "u=\$RU$i"; hand sala-test-r$i "$u" "$HOME/work"; done; fake_up sala-test-r1 sala-test-r2 sala-test-r3 sala-test-r4 sala-test-r5 sala-test-r6
-for i in 1 2 3 4 5 6; do "$SALA" adopt sala-test-r$i >/dev/null 2>&1; done
+RU1=aaaaaaaa-0000-4000-8000-000000000041 RU2=aaaaaaaa-0000-4000-8000-000000000042 RU3=aaaaaaaa-0000-4000-8000-000000000043 RU4=aaaaaaaa-0000-4000-8000-000000000044 RU5=aaaaaaaa-0000-4000-8000-000000000045 RU6=aaaaaaaa-0000-4000-8000-000000000046 RU7=aaaaaaaa-0000-4000-8000-000000000047 RU8=aaaaaaaa-0000-4000-8000-000000000048 RU9=aaaaaaaa-0000-4000-8000-000000000049
+for i in 1 2 3 4 5 6 7 8 9; do eval "u=\$RU$i"; hand sala-test-r$i "$u" "$HOME/work"; done; fake_up sala-test-r1 sala-test-r2 sala-test-r3 sala-test-r4 sala-test-r5 sala-test-r6 sala-test-r7 sala-test-r8 sala-test-r9
+for i in 1 2 3 4 5 6 7 8 9; do "$SALA" adopt sala-test-r$i >/dev/null 2>&1; done
 pcalls() { [ -s "$HOME/pages-calls.txt" ] && wc -l < "$HOME/pages-calls.txt" || echo 0; }   # how often the pages.py stub was asked
 mode renamed
 # (a) the defect: sala-test-r1 is on projects/bar's agents map, its new name on no map, and pages.py has no page for the name and exits 0 ("listed" to the old reading)
@@ -313,6 +313,83 @@ cp "$HOME/mix-v1.json" "$MIXREC"; rm -f "$HOME/mix.swapped"
 [ -e "$HOME/mix.swapped" ] && cmp -s "$HOME/mix-v2.json" "$MIXREC" && [ "$(cut -d' ' -f1,2 "$HOME/mix.res")" = "2 none" ] && has "$(slurp "$HOME/mix.res")" "'gamma-foo-mixnew' is already on the agents map of projects/foo" \
     && ok "a record rewritten between the two reads: both names read from the first snapshot, no rename planned from a mix" || bad "mixed snapshots: swapped=$([ -e "$HOME/mix.swapped" ] && echo yes || echo no) $(slurp "$HOME/mix.res")"
 [ -z "$(ls -A "$HOME/rtmp")" ] && ok "the copy of the record is removed after each plan" || bad "left in TMPDIR: $(ls -A "$HOME/rtmp")"
+# (h) OLD on the agents maps of TWO projects: the record names no one project as its entry's (the first match in sorted order would be an arbitrary one): refused, nothing renamed, both keys named
+recwith() {   # <out file> <name> <project key>…: the fixture record with <name> added to each named project's agents map
+    python3 - "$HOME/projects.json" "$@" <<'PY'
+import json, sys
+src, out, name, keys = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+d = json.load(open(src))
+for p in d["projects"].values():
+    if p["key"] in keys: p["agents"][name] = {"front": True, "role": "engineer", "mandate_line": "a line"}
+json.dump(d, open(out, "w"))
+PY
+}
+recwith "$HOME/dup.json" sala-test-r7 projects/foo projects/bar
+setname sala-test-r7 gamma-foo-r7; n0=$(calls); p0=$(pcalls); MAP_BEFORE=$(slurp "$MAP")
+out=$(SALA_PROJECT_RECORD="$HOME/dup.json" "$SALA" rename sala-test-r7 gamma-foo-r7 2>&1); rc=$?
+echo "$out" | sed 's/^/    /' | cut -c1-300
+[ "$rc" != 0 ] && has "$out" "rename refused, nothing renamed: 'sala-test-r7' is on the agents maps of more than one project (projects/bar and projects/foo)" && [ "$(calls)" = "$n0" ] && [ "$(pcalls)" = "$p0" ] \
+    && untouched sala-test-r7 gamma-foo-r7 && ok "OLD on two projects: refused with both keys named, no call, nothing changed" || bad "two projects: rc=$rc calls=$(calls) (was $n0)"
+out=$(SALA_PROJECT_RECORD="$HOME/dup.json" "$SALA" rename sala-test-r7 gamma-foo-r7 --dry-run 2>&1); rc=$?
+[ "$rc" != 0 ] && has "$out" "projects/bar and projects/foo" && ok "the plan (--dry-run, sala op --plan) refuses the same way" || bad "two projects plan: rc=$rc $out"
+out=$(SALA_PROJECT_RECORD="$HOME/dup.json" SALA_RENAME_SYNC=1 "$SALA" rename sala-test-r7 gamma-foo-r7 2>"$HOME/sync.err"); rc=$?
+[ "$rc" = 0 ] && has "$(slurp "$HOME/sync.err")" "ℹ 'sala-test-r7' is on the agents maps of more than one project (projects/bar and projects/foo)" && [ "$(calls)" = "$n0" ] && tmux has-session -t =gamma-foo-r7 2>/dev/null \
+    && ok "--sync with OLD on two projects: the hand rename is followed, both keys on stderr, no call" || { slurp "$HOME/sync.err" | sed 's/^/    /' | cut -c1-260; bad "sync, two projects: rc=$rc $out"; }
+( export SALA_PROJECT_RECORD="$HOME/dup.json"; rename_record_plan sala-test-r7 gamma-foo-r7x; echo "$? ${RL_HUB:-none} $RL_WHY" > "$HOME/dup.res"
+  recwith "$HOME/dup3.json" sala-test-r7 projects/foo projects/bar; python3 - "$HOME/dup3.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["projects"]["prj_third"] = {"id": "prj_third", "key": "projects/baz", "keeper": "x-main", "agents": {"sala-test-r7": {"front": True, "role": "x", "mandate_line": "l"}}}; d["by_key"]["projects/baz"] = "prj_third"
+json.dump(d, open(sys.argv[1], "w"))
+PY
+  SALA_PROJECT_RECORD="$HOME/dup3.json" rename_record_plan sala-test-r7 gamma-foo-r7x; echo "$? $RL_WHY" > "$HOME/dup3.res" )
+[ "$(cut -d' ' -f1,2 "$HOME/dup.res")" = "3 none" ] && has "$(slurp "$HOME/dup3.res")" "(projects/bar, projects/baz and projects/foo)" \
+    && ok "the plan answers 3 with no project key; three projects are all named" || bad "plan on two and three projects: $(slurp "$HOME/dup.res") / $(slurp "$HOME/dup3.res")"
+# the name on ONE project (case a) still renames in place; NEW listed on a project wins over an OLD on two (nothing to rename, as before)
+recwith "$HOME/dupnew.json" gamma-foo-r7y projects/foo
+( export SALA_PROJECT_RECORD="$HOME/dupnew.json"; rename_record_plan sala-test-r7 gamma-foo-r7y; echo "$? $RL_WHY" > "$HOME/dupnew.res" )
+[ "$(cut -d' ' -f1 "$HOME/dupnew.res")" = 2 ] && ok "OLD on no project and NEW listed: still nothing to rename (rc 2)" || bad "new listed: $(slurp "$HOME/dupnew.res")"
+# (i) a READABLE record that cannot be copied for the one snapshot is no answer: the file is never read twice instead. An unwritable TMPDIR (skipped as root, which writes anywhere)
+recwith "$HOME/snap.json" sala-test-r8 projects/foo
+if [ "$(id -u)" = 0 ]; then echo "  skip an unwritable TMPDIR: running as root, which writes anywhere"; else
+    mkdir -p "$HOME/rtmp-ro"; chmod 500 "$HOME/rtmp-ro"
+    setname sala-test-r8 gamma-foo-r8; n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
+    out=$(TMPDIR="$HOME/rtmp-ro" SALA_PROJECT_RECORD="$HOME/snap.json" "$SALA" rename sala-test-r8 gamma-foo-r8 2>&1); rc=$?
+    echo "$out" | sed 's/^/    /' | cut -c1-300
+    [ "$rc" != 0 ] && has "$out" "rename refused, nothing renamed: stackshot's project record cannot say whether 'sala-test-r8' has an entry on a project's agents map (could not take a snapshot of the project record)" \
+        && [ "$(calls)" = "$n0" ] && untouched sala-test-r8 gamma-foo-r8 && ok "an unwritable TMPDIR with a readable record: refused (could not take a snapshot), no call, nothing changed" || bad "unwritable TMPDIR: rc=$rc calls=$(calls) (was $n0)"
+    ( export TMPDIR="$HOME/rtmp-ro" SALA_PROJECT_RECORD="$HOME/snap.json"; rename_record_plan sala-test-r8 gamma-foo-r8; echo "$? ${RL_HUB:-none} $RL_WHY" > "$HOME/snap.res" )
+    [ "$(slurp "$HOME/snap.res")" = "1 none could not take a snapshot of the project record" ] && ok "the plan answers 1 with that reason and no project key" || bad "snapshot plan: $(slurp "$HOME/snap.res")"
+    cp "$HOME/projects.json" "$HOME/locked2.json"; chmod 000 "$HOME/locked2.json"
+    ( export TMPDIR="$HOME/rtmp-ro" SALA_PROJECT_RECORD="$HOME/locked2.json" SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR=; rename_record_plan sala-test-r8 gamma-foo-r8; echo "$? $RL_WHY" > "$HOME/snap2.res" )
+    has "$(slurp "$HOME/snap2.res")" "the project record at $HOME/locked2.json is not readable" && ! has "$(slurp "$HOME/snap2.res")" "snapshot" && ok "an UNREADABLE record keeps the record's own refusal, whatever TMPDIR is" || bad "unreadable + unwritable TMPDIR: $(slurp "$HOME/snap2.res")"
+    chmod 600 "$HOME/locked2.json"; chmod 700 "$HOME/rtmp-ro"
+fi
+# a copy that fails with a writable TMPDIR (cp itself, a full disk) is the same refusal, and leaves no temp file behind
+( export TMPDIR="$HOME/rtmp" SALA_PROJECT_RECORD="$HOME/snap.json"; cp() { return 1; }; rename_record_plan sala-test-r8 gamma-foo-r8; echo "$? ${RL_HUB:-none} $RL_WHY" > "$HOME/snapcp.res" )
+[ "$(slurp "$HOME/snapcp.res")" = "1 none could not take a snapshot of the project record" ] && [ -z "$(ls -A "$HOME/rtmp")" ] && ok "a failing cp: the same refusal, no temp file left" || bad "failing cp: $(slurp "$HOME/snapcp.res") / $(ls -A "$HOME/rtmp")"
+# (j) a record behind a directory that denies traversal: stat fails with EACCES, which is no "absent" (`[ -e ]` is false for both). With no stackshot client that was taken for a box with no stackshot and the
+# pane rename went on over an entry it could not see; now it is the record's own refusal. ENOENT and ENOTDIR stay "absent" (skipped as root, which traverses any directory)
+if [ "$(id -u)" = 0 ]; then echo "  skip a record behind a denying directory: running as root, which traverses any directory"; else
+    mkdir -p "$HOME/lockdir"; recwith "$HOME/lockdir/p.json" sala-test-r9 projects/foo; chmod 000 "$HOME/lockdir"
+    setname sala-test-r9 gamma-foo-r9; n0=$(calls); MAP_BEFORE=$(slurp "$MAP")
+    out=$(SALA_PROJECT_RECORD="$HOME/lockdir/p.json" SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR= "$SALA" rename sala-test-r9 gamma-foo-r9 2>&1); rc=$?
+    echo "$out" | sed 's/^/    /' | cut -c1-300
+    [ "$rc" != 0 ] && has "$out" "rename refused, nothing renamed: stackshot's project record cannot say" && has "$out" "the project record at $HOME/lockdir/p.json cannot be reached (Permission denied)" && ! has "$out" "no stackshot on this box" \
+        && [ "$(calls)" = "$n0" ] && untouched sala-test-r9 gamma-foo-r9 && ok "a record behind a denying directory, no client.py: refused with its own reason, not taken for no stackshot" || bad "denying parent, no client: rc=$rc calls=$(calls) (was $n0)"
+    out=$(SALA_PROJECT_RECORD="$HOME/lockdir/p.json" "$SALA" rename sala-test-r9 gamma-foo-r9 2>&1); rc=$?
+    [ "$rc" != 0 ] && has "$out" "cannot be reached (Permission denied)" && [ "$(calls)" = "$n0" ] && untouched sala-test-r9 gamma-foo-r9 && ok "the same with stackshot's client present: refused, no call" || bad "denying parent, client present: rc=$rc $out"
+    out=$(SALA_PROJECT_RECORD="$HOME/lockdir/p.json" SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR= "$SALA" rename sala-test-r9 gamma-foo-r9 --dry-run 2>&1); rc=$?
+    [ "$rc" != 0 ] && has "$out" "cannot be reached (Permission denied)" && ok "the plan (--dry-run, sala op --plan) refuses the same way" || bad "denying parent plan: rc=$rc $out"
+    out=$(SALA_PROJECT_RECORD="$HOME/lockdir/p.json" SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR= SALA_RENAME_SYNC=1 "$SALA" rename sala-test-r9 gamma-foo-r9 2>"$HOME/sync.err"); rc=$?
+    [ "$rc" = 0 ] && has "$(slurp "$HOME/sync.err")" "cannot be reached (Permission denied)" && [ "$(calls)" = "$n0" ] && tmux has-session -t =gamma-foo-r9 2>/dev/null && ok "--sync: the hand rename is followed, the reason is on stderr" || bad "denying parent, sync: rc=$rc $out"
+    pr=$(SALA_PROJECT_RECORD="$HOME/lockdir/p.json" project_record_agent "" sala-test-r9); prc=$?
+    [ "$prc" = 1 ] && has "$pr" "the project record at $HOME/lockdir/p.json is not readable" && ! has "$pr" "no project record" && ok "the record reader says 'not readable' for a record behind a denying directory, not 'no project record'" || bad "reader, denying parent: rc=$prc $pr"
+    chmod 700 "$HOME/lockdir"
+fi
+# a path through a regular file is ENOTDIR, which is absent: with no client that is a box with no stackshot, as for a missing file
+: > "$HOME/plainfile"
+( export SALA_PROJECT_RECORD="$HOME/plainfile/p.json" SALA_STACKSHOT_CLIENT="$HOME/nowhere.py" SALA_STACKSHOT_DIR=; rename_record_plan sala-test-r9 gamma-foo-r9z; echo "$? $RL_WHY" > "$HOME/notdir.res" )
+[ "$(cut -d' ' -f1 "$HOME/notdir.res")" = 2 ] && has "$(slurp "$HOME/notdir.res")" "no stackshot on this box" && ok "a record path through a regular file (ENOTDIR) is absent: no stackshot, nothing to ask" || bad "ENOTDIR: $(slurp "$HOME/notdir.res")"
 mode renamed
 
 echo "== a status that cannot be read is unknown, not busy: it goes ahead"

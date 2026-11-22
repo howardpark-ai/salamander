@@ -4434,3 +4434,24 @@ Proof by mutation (each run fails the test named): with `lib/rename.sh` and `lib
 sync and missing-record checks failed too; with the rename also asking `agent_unlisted`, the opparallel round failed on "pages.py was asked about the rename"; with the fixture's record entry removed, the round failed on the missing
 client call; with `-r` in place of `-e` the unreadable-record check failed (the rename went ahead); with the snapshot switched off the mixed-snapshot check failed (a plan from two snapshots); with the copy left behind the
 leftover check failed. The side-session and `sala-test-*` / `*-side-*` paths are unchanged (they still ask `agent_unlisted`).
+
+### `tests/rename.sh` +15, none retired: the project record planner refuses what it cannot place, and tells an absent record from an unreachable one (Sun Nov 22nd 2026)
+
+Three holes in `rename_record_plan` (`lib/common.sh`), each closed with checks that fail without the fix. The fixture record gains three more panes (`sala-test-r7` to `sala-test-r9`) and a helper (`recwith`) that writes a copy of
+the record with a name added to the agents maps of the projects it is given.
+
+- **OLD on two or more projects.** `project_record_agent` answers with the first match in sorted order, so the entry rename went to an arbitrary project. It takes a fourth argument, `unique`, and answers 4 with the keys when
+  the name is on more than one map; the plan answers 3 and `sala rename` refuses with the keys named, nothing renamed (`--sync` goes on and says it on stderr). Checks: the run and the plan refuse with both keys
+  (`projects/bar and projects/foo`) and no call; `--sync` follows the hand rename with the keys on stderr; the plan answers 3 with no project key, and with three projects names all three; NEW already listed with OLD on no map is
+  still "nothing to rename" (rc 2).
+- **A readable record that cannot be copied.** With no snapshot the planner read the live file twice, which brings back the mixed-snapshot case. It now refuses with "could not take a snapshot of the project record" (rc 1, the
+  existing refusal shape); a record that cannot be read keeps the record's own refusal. Checks: an unwritable `TMPDIR` (`chmod 500`, skipped as root) with a readable record is refused in the run, and the plan answers 1 with that
+  reason; an unreadable record with the same `TMPDIR` still says "is not readable"; a failing `cp` with a writable `TMPDIR` gives the same refusal and leaves no temp file.
+- **`-e` is false behind a directory that denies traversal.** With no stackshot client such a record counted as absent and the pane rename went on. The planner now asks stat (`_record_stat`, a small `python3 os.stat`): only
+  ENOENT and ENOTDIR are "absent"; any other error is "the record cannot answer" (rc 1, "cannot be reached (Permission denied)"). `project_record_agent` uses the same helper for its "no project record" and "is not readable"
+  wording. Checks: a record under a `chmod 000` parent is refused with no client, with the client, in the plan, and followed with the reason on stderr under `--sync`; the record reader says "is not readable" for it; a path
+  through a regular file (ENOTDIR) is still absent.
+
+Proof by mutation (each run fails the checks named; the files were restored and the suite passes): with `unique` dropped from the OLD read, the two-project run renamed (one call), the plan, `--sync` and plan-answer checks failed;
+with the snapshot failure falling back to the live file, the unwritable-`TMPDIR`, snapshot-plan and failing-`cp` checks failed; with `[ -e ]` deciding "absent" again, the four denying-parent checks failed (the run went ahead
+with no call refused); with ENOTDIR counted as an error, the ENOTDIR check failed; with the reader's message taken from `[ -e ]`, the reader check failed ("no project record at").
