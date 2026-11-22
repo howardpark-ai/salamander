@@ -146,10 +146,10 @@ the victim cannot hide it; the options that take an argument are read off tmux 3
 `env -i` in front of a placement command is denied, since tmux takes its default target from it. No `-t`, a target in the caller's own session,
 a target that names nothing, and a private server (`-L`, `-S`) pass; `rename-session` of the caller's own session passes (sala's own rename
 runs from its operation, not from a Claude session's command); the master's own pane is exempt. The deny text says to run it in your own
-session, in a throwaway you start with a bare `sala spawn NAME`, or on a private test server. (`send-keys -t` is not covered: sala's cue uses it.)
+session, in a throwaway you start with a bare `sala spawn NAME`, or on a private test server. (`send-keys -t` is not covered: sala's revive and resume sends use it.)
 Known limits, which only a same-user agent that goes out of its way can use: a placement carried by `if-shell`, `run-shell`, `pipe-pane`,
 `source-file` or `bind-key` (the guard reads the command line, not tmux's own command language inside it), and a target given as `-t "$VAR"`
-(the value is not known when the hook reads the command); a rule on those would deny sala's own cue and the web layer. The guard is a
+(the value is not known when the hook reads the command); a rule on those would deny sala's own revive and resume sends and the web layer. The guard is a
 safety net against a mistake, not a boundary against an agent that copies binaries or forges its own environment.
 
 A no-words retire never reaches the `claude -p` helper: when the runner's re-check fails (session replaced, row changed, the

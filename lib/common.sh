@@ -5573,7 +5573,7 @@ local_human() {
 # SIDE SESSIONS add no guarded verb: `spawn --side` is as free as any spawn (not a fleet operation, never guarded here; a session starts
 # one through the queue, `sala op spawn NAME --side …`, with the owner's words), `sala side done` writes only the caller's own record and `sala sessions
 # transcript` only reads. A side session's retire is the ordinary `retire` verb, gated by lib/retire.sh on the write-up marker (--skip-writeup the one bypass).
-# ops_guard <verb> <target> [args…] — fleet operations (retire, revive) belong to the master session (the sala builder builds and
+# ops_guard <verb> <target> [args…] — fleet operations (retire, revive) go through the operation queue (the sala builder builds and
 # tests; it does not run them). Applied only when a Claude session is the caller (a
 # `claude` process among our ancestors): the resurrect boot hook, `sala watch` and a human shell pass untouched. A
 # throwaway target named sala-test-* passes from any pane, so the sala builder can test on its own panes.
@@ -5630,7 +5630,7 @@ master_guard() {
         echo "⚠ master session '$SALA_MASTER' is not live — allowing '$verb' from '$here' (salamander watch no longer revives the master)" >&2
         sala_post "⚠️ *$verb ran from $here*" "the master $SALA_MASTER was not live, so the guard let it through"; return 0
     fi
-    die "$verb is driven from the master session ('$SALA_MASTER'), not from '$here': queue it with \`sala op $verb … --from <you> --words \"<${SALA_OWNER_NAME}'s words>\"\`, so two drivers never race the same panes. Override only if you know why: --not-master"
+    die "$verb is driven from the master session ('$SALA_MASTER'), not from '$here': a Claude session never runs this raw: queue it with \`sala op <verb>\` (see \`sala op --help\`; adopt and restore have their own forms), so two drivers never race the same panes. Override only if you know why: --not-master"
 }
 
 # ── recycle lock ──────────────────────────────────────────────────────────────

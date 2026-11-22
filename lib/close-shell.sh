@@ -12,7 +12,7 @@
 # Refused, with a sentence that names the verb to use:
 #   - a session with a Claude in any pane → `sala retire <name>`
 #   - no tmux session by that name → `sala forget-row <name>` when the pane map still has a row, else a plain "no such session"
-#   - the master session (the watchdog keeps it alive), the Remote Control session, and the session this command runs in (placed by process ancestry)
+#   - the Remote Control session, and the session this command runs in (placed by process ancestry)
 #   - a pane whose shell is still running something, unless --busy: the tmux session may hold a job someone is waiting on
 # --dry-run: nothing is killed or written; every step is said as "[dry-run] would …", the refusals as "[dry-run] would refuse: …" (exit 1).
 

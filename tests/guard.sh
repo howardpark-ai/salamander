@@ -293,7 +293,7 @@ pexpect allow "tmux new-session -d -s scratch 'sleep 1'"        "new-session wit
 pexpect allow "tmux new-window -d -t nosuch-session: 'sleep 1'" "a target that names nothing: cannot be told"
 pexpect allow "tmux -L sala-test-1 -f /dev/null new-window -t thr-other:"  "a private server"
 pexpect allow "tmux list-windows -t thr-other"                  "reading another session is not placing"
-pexpect allow "tmux send-keys -t thr-other: x"                  "send-keys is not covered (sala's cue uses it)"
+pexpect allow "tmux send-keys -t thr-other: x"                  "send-keys is not covered (sala's revive and resume sends use it)"
 v=$(SALA_TMUX_SOCKET="$TSOCK" TMUX="$TSOCK,1,0" hook "tmux new-window -d -t thr-other: 'sleep 1'"); case "$v" in *deny*) ok "deny  no TMUX_PANE (no caller identity) and another session's target" ;; *) bad "no pane: $v" ;; esac
 echo "SALA_MASTER=owner" > "$SALA_CONFIG"
 pexpect allow "tmux new-window -d -t thr-other: 'sleep 1'"      "the master's own pane is exempt"

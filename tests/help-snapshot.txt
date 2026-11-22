@@ -316,7 +316,7 @@ verbs:
                                             never with a bypass flag, --keep-web or --id (add --words for those); for every door but the spawner's the project record
                                             must confirm NAME is on no agents map, and with no answer the retire is refused;
                                             YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name), and every process in NAME's panes carries the row's id (or none does, one is Claude Code, NAME is a throwaway's name and a fresh answer says it is unlisted); the runner checks it again before it ends anything
-  close-shell NAME [--busy]                 ends a tmux session whose panes run no Claude (exact name; refused for the master's own run outside the queue, the RC session and the caller's own session; --busy for a shell still running something). Needs the owner's words
+  close-shell NAME [--busy]                 ends a tmux session whose panes run no Claude (exact name; refused for the RC session and the caller's own session; --busy for a shell still running something). Needs the owner's words
   forget-row NAME                           drops a pane-map row (and its lane and model rows) whose tmux session is gone. Needs the owner's words
   rename OLD NEW
   lane <lane> <session>… | <lane> --all | default <lane> | fallback <lane>

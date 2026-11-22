@@ -1084,6 +1084,6 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 ## Not an interface, but a name
 
 Places that name stackshot without coupling to it (no bump when they change): `lib/reauth.sh` (the connector display name
-"Stackshot" as an example), `lib/cue.sh:16` and `mod/hooks/register.ts:91` (comments), `web/README.md` (prose),
+"Stackshot" as an example), `mod/hooks/register.ts:91` (a comment; `lib/cue.sh:16` held another until the cue was retired), `web/README.md` (prose),
 `docs/test-coverage.md`, `config.example` comments, and the `web/tests` fixtures that carry board
 URLs on placeholder hosts (`board.example.test` and the like) as sample text.
