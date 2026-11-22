@@ -45,7 +45,8 @@
 #   salamander forget-row <name> [--dry-run]   drop a pane-map row whose tmux session is gone (and its lane and model rows)
 #   salamander rename OLD NEW [--dry-run]           rename a live pane end to end (/rename · tmux · map · notes · heartbeat; renames OLD's entry on its project's page via stackshot if the page does not list NEW)
 #   salamander sessions [--all] [--json] | --check [--dry-run] | --migrate [--dry-run]   the session registry (phases 1 and 2; docs/session-registry.md):
-#                                      one row per session with an id that outlives a rename; read-only listing, --check repairs a kill between the
+#                                      one row per session with an id that outlives a rename; read-only listing (a sleeping session's STATE says
+#                                      `sleeping`, with its time under the table and as `sleeping` in --json), --check repairs a kill between the
 #                                      pane map's write and the registry's, --migrate makes the rows of the pane map once (--dry-run first)
 #   salamander sessions record <id|name> --transcript <claude session id> --why clear|resume|start [--machine X]
 #                                      a fresh start of a session: the conversation joins the row's list, once (a repeat is a no-op); an unknown

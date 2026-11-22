@@ -266,10 +266,12 @@ async function loadSessions() {
   perfMark("sessions:rendered", { count: state.byName.size });
   // a reply that arrived while the owner has this session open (and is looking at the page) is read as it lands
   if (state.selected && !document.hidden) markRead(state.selected);
+  for (const [k, w] of waking) { const t = state.byName.get(k); if (!isSleeping(t)) { waking.delete(k); w.state = "woke"; } }   // it is awake (or gone): nothing left to follow
   // keep the selection in step with the registry (a relaunched session gets a new pid)
   if (state.selected) {
     const s = state.byName.get(state.selected);
-    if (s && (!state.current || s.pid !== state.current.pid)) selectSession(state.selected, { force: true });
+    if (isSleeping(s)) { if (state.sleepView !== s.name) selectSession(state.selected, { force: true }); else paintSleeping(s); }   // a sleeper has no pid: it is shown once, not reopened on every poll
+    else if (s && (!state.current || s.pid !== state.current.pid)) selectSession(state.selected, { force: true });
     else if (s) updateHeader(s);
   }
 }
@@ -310,7 +312,7 @@ const marking = new Set();
 // moves a marker down, so the extra call is harmless. The poll-driven call stays guarded by the count (no post every 10 s).
 function markRead(name, { force = false } = {}) {
   const s = name && state.byName.get(name);
-  if (!s || (!force && !s.unread) || marking.has(name)) return;
+  if (!s || isSleeping(s) || (!force && !s.unread) || marking.has(name)) return;   // a sleeper has no live conversation to read
   const was = { unread: !!s.unread, count: s.unread_count };
   s.unread = false; s.unread_count = 0;  // at once, so the count does not wait for the next poll; the server moves the marker
   marking.add(name);
@@ -424,12 +426,13 @@ function sessRow(s) {
   return el("a", {
     class: "sess" + (s.name === state.selected ? " selected" : ""),
     href: "#s=" + encodeURIComponent(s.name),
-    title: `${s.name} · ${s.status}${s.role ? " · " + s.role : ""}${s.parkedJob ? " · " + tl("app.sess.bgJob", { job: s.parkedJob }) : ""}`,
+    title: `${s.name} · ${s.status}${isSleeping(s) && sleptAt(s.sleeping) ? " · " + tl("app.sleeping.since", { when: sleptAt(s.sleeping) }) : ""}${s.role ? " · " + s.role : ""}${s.parkedJob ? " · " + tl("app.sess.bgJob", { job: s.parkedJob }) : ""}`,
     "data-key": s.name, "data-okey": sessKey(s), draggable: "false",
     onclick: (e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) setDrawer(false); },  // hidden now; its history entry goes with the navigation (go)
     // a press that moves reorders it within its project; one that does not is the link's click
     onpointerdown: (e) => dragStart(e, e.currentTarget),
   }, el("span", { class: "dot " + dotClass(s.status) }), el("span", { class: "label", text: s.name }),
+     isSleeping(s) ? el("span", { class: "slp", text: tl("app.sleeping.tag") }) : null,
      s.role && s.role !== "front" ? el("span", { class: "role", text: s.role }) : null,
      rowMenuBtn(s), (() => { const n = unreadOf(s); return n ? unreadChip(n, unreadLabel(n, s.name)) : null; })());  // the ⋯ sits left of the count: the count stays at the row's far right, hovered or not
 }
@@ -538,7 +541,10 @@ function renderSidebar() {
   }
 }
 let listPainted = false;
-const dotClass = (st) => (["busy", "idle", "shell", "waiting"].includes(st) ? st : "");
+const dotClass = (st) => (["busy", "idle", "shell", "waiting", "sleeping"].includes(st) ? st : "");
+// a sleeping session (sala ended its claude on purpose, its pane stays): the server lists it with `sleeping` (the time it went to sleep) and pid 0
+const isSleeping = (s) => !!s && s.sleeping !== undefined;
+const waking = new Map();   // the sleepers the page is waking: name -> { state: asking | queued | failed | late, op, error, since }
 
 /* ---------- drag-reorder of scopes and of projects within their scope (pointer events: mouse and touch) ---------- */
 // The dragged item follows the pointer by a transform and a line marks where it will land; the DOM changes only on
@@ -2278,6 +2284,7 @@ function selectSession(name, { force = false } = {}) {
     if (state.selected && !document.hidden) markRead(state.selected, { force: true });  // a reply that came in while it was open is read too
   }
   state.selected = name;
+  state.sleepView = null;   // showSleeping sets it again for a sleeper
   if (!document.hidden) markRead(name, { force: true });  // opening a session reads its latest reply
   if (switching) restoreDraft(name);
   state.modelInfo = null; updateModelLine();
@@ -2302,11 +2309,71 @@ function selectSession(name, { force = false } = {}) {
     updateJump();
     return;
   }
+  if (isSleeping(s)) { showSleeping(s); return; }
   updateHeader(s);
   chat.replaceChildren(el("div", { class: "empty", text: tl("app.loadingTranscript"), "data-i18n": "app.loadingTranscript" }));
   updateJump();
   if (state.tab === "terminal") loadTerminal(); // otherwise the iframe loads on first open of the tab
   openStream(s);
+}
+
+/* ---------- a sleeping session ----------
+   sala can end the claude of an idle session on purpose and keep its pane and its place in every list (`sala sleep`); the server lists it with
+   `sleeping` (the time it went to sleep) and pid 0, and it shows as "sleeping" in the sidebar and the Overview, never as a dead or crashed
+   session. Opening one wakes it: the page asks api/wake, which queues `sala op wake --only NAME` as the owner's own act, then follows that
+   operation (api/spawn/status) and the sessions list until the session is live again, when the poll above opens it as any live session
+   (a woken session keeps its conversation and its name). Nothing to read or send meanwhile, so no transcript stream is opened. */
+const WAKE_POLL_MS = 2000, WAKE_GIVE_UP_MS = 240000;
+function paintSleeping(s) {
+  if (state.selected !== s.name || state.sleepView !== s.name) return;
+  const w = waking.get(s.name);
+  const when = sleptAt(s.sleeping);
+  const line = !w ? "" : w.state === "failed" ? tl("app.sleeping.failed", { name: s.name, why: w.error || "?" })
+    : w.state === "late" ? tl("app.sleeping.late", { name: s.name }) : w.state === "queued" ? tl("app.sleeping.queued", { name: s.name }) : tl("app.sleeping.waking", { name: s.name });
+  const again = !w || w.state === "failed" || w.state === "late";
+  const box = el("div", { class: "empty sleeping-note", role: "status" },
+    el("p", { text: when ? tl("app.sleeping.body", { name: s.name, when }) : tl("app.sleeping.bodyNoTime", { name: s.name }) }),
+    line ? el("p", { class: "wake-line" + (w && w.state === "failed" ? " failed" : ""), text: line }) : null,
+    again ? el("button", { type: "button", class: "wake-btn", text: tl(w ? "app.sleeping.retry" : "app.sleeping.wake"), onclick: () => wakeSleeper(s.name) }) : null);
+  $("#chat").replaceChildren(box);
+}
+function showSleeping(s) {
+  state.current = null;
+  state.sleepView = s.name;
+  $("#title .dot").className = "dot sleeping";
+  $("#title .dot").title = tl("app.sleeping.tag");
+  $("#title .name").textContent = s.name;
+  clearHeaderBadges();
+  titleBar.status.replaceChildren(el("span", { class: "pill sleeping", text: tl("app.sleeping.tag") }));
+  setTitle(s.name);
+  layoutHeader();
+  paintSleeping(s);
+  updateJump();
+  if (!waking.has(s.name)) wakeSleeper(s.name);   // opening it wakes it
+}
+async function wakeSleeper(name) {
+  const w = { state: "asking", op: "", error: "", since: Date.now() };
+  waking.set(name, w);
+  const repaint = () => { const s = state.byName.get(name); if (isSleeping(s)) paintSleeping(s); };
+  repaint();
+  const out = await nsPost("api/wake", { name });
+  if (waking.get(name) !== w) return;
+  if (out.status === 200 && out.d.ok) { waking.delete(name); await loadSessions(); return; }   // not asleep any more: the list says what it is now
+  if (out.status !== 202 || !out.d.ok) { w.state = "failed"; w.error = String(out.d.error || "HTTP " + out.status); repaint(); return; }
+  w.state = "queued"; w.op = out.d.op; repaint();
+  while (waking.get(name) === w) {
+    await sleep(WAKE_POLL_MS);
+    if (waking.get(name) !== w) return;
+    let st = "";
+    try {
+      const r = await fetch(`api/spawn/status?op=${encodeURIComponent(w.op)}`, { cache: "no-store" });
+      if (r.ok) { const d = await r.json(); st = d.state || ""; if (nsOpPhase(st) === "failed") w.error = d.result || st; }
+    } catch { /* the next tick asks again */ }
+    await loadSessions();   // drops this entry and opens the session when it is live again
+    if (waking.get(name) !== w) return;
+    if (nsOpPhase(st) === "failed") { w.state = "failed"; repaint(); return; }
+    if (Date.now() - w.since > WAKE_GIVE_UP_MS) { w.state = "late"; repaint(); return; }
+  }
 }
 
 // The stream drops when the server restarts (a deploy). EventSource reconnects by itself (the server asks for a

@@ -44,9 +44,13 @@
 #                  sala-web url (reply-links and stackshot read each session's link from here); its rows for an
 #                  unbridged session carry the same fields as a bridged one's. A swept box: a registry file whose pid is
 #                  running and that has a Remote Control bridge — headless runs are left out. seen = when the row last changed.
+#                  A SLEEPING session (common.sh, THE SLEEPING SESSIONS: its claude ended on purpose, its pane and row stay) has no live registry file, so its
+#                  row is made from its marker $SALA_SLEEP_DIR/<conversation uuid> (`<ISO-Z> <name>`), keyed by that conversation uuid, with the same fields
+#                  and one more, "sleeping": "<ISO-Z>" (the time it went to sleep). Only a sleeper's row carries the key; a session that wakes keeps its key
+#                  and loses the field. A marker whose uuid is on no pane-map row is stale and makes no row. This box's own rows only.
 #   session-registry.json  (phase 3 of the session registry; a third file, the live store only, this box's own): {"schema":1,"machine",
 #                  "written","sessions":{"<sala session id>": {id,name,aliases,project,project_key,role,lane,model,effort,pane,cwd,state,created,
-#                  retired_at,transcripts[{id,machine,at,why}]}}}. `written` is refreshed on EVERY run (a stale file is a dead heartbeat, not a quiet
+#                  retired_at,transcripts[{id,machine,at,why}]}}} (+ "surface": "slack" on a slack row, + "sleeping": "<ISO-Z>" on a sleeping one). `written` is refreshed on EVERY run (a stale file is a dead heartbeat, not a quiet
 #                  fleet); retired rows stay. Not published (the last good file stays, one line in sessions.log) when SALA_SESSIONS=off or sessions.json
 #                  is missing or corrupt. docs/session-registry.md; docs/stackshot-contracts.md interface 19: tell the board's main session BEFORE changing it.
 #
@@ -141,7 +145,7 @@ report=$(HB_NOW="$now" HB_STATE="$state" HB_GITMODE="$SALA_HEARTBEAT_GIT" HB_STO
     HB_LETTER="$letter" HB_NAME="$name" HB_CVER="$cver" \
     HB_PST="$SALA_LOG_DIR/salamander-fleet-ssh.json" HB_FDIR="$fdir" \
     HB_SESSIONS_PY="$SALA_SESSIONS_PY" HB_SESSIONS_FILE="$SALA_SESSIONS_FILE" HB_SESSIONS_LOG="$SALA_SESSIONS_LOG" HB_SESSIONS_ON="$(sessions_on && echo 1 || echo 0)" \
-    HB_RENAMES="$SALA_LOG_DIR/salamander-renames.jsonl" HB_URL_PY="$SALA_SESSION_URL_PY" HB_URL_TPL="$(session_url_template)" \
+    HB_RENAMES="$SALA_LOG_DIR/salamander-renames.jsonl" HB_SLEEP_DIR="$SALA_SLEEP_DIR" HB_SIDECAR="$SALA_SIDECAR" HB_URL_PY="$SALA_SESSION_URL_PY" HB_URL_TPL="$(session_url_template)" \
     python3 - "$SALA_REG_DIR" <<'PY'
 import json, glob, os, sys, time
 E =os.environ; now = E["HB_NOW"]; store = E["HB_STORE"]; state = E["HB_STATE"]; gitmode = E["HB_GITMODE"]; dry = E["HB_MODE"] == "dry"
@@ -172,7 +176,7 @@ def publish(letter, machine, sessions):
     if om.get("checked") and strip(om) == strip(machine): machine["checked"] = om["checked"]
     for sid, r in sessions.items():
         p = os_.get(sid) or {}
-        if p.get("seen") and all(p.get(k) == r[k] for k in ("name", "url", "machine")): r["seen"] = p["seen"]
+        if p.get("seen") and all(p.get(k) == r.get(k) for k in ("name", "url", "machine", "sleeping")): r["seen"] = p["seen"]
     docs = {}
     if state: docs[os.path.join(state, letter)] = dumps(machine, sessions)
     if store and gitmode == "full": docs[os.path.join(store, letter)] = dumps(machine, sessions)
@@ -207,7 +211,7 @@ def publish_registry(letter):
         import importlib.util
         sp = importlib.util.spec_from_file_location("sala_sessions", E["HB_SESSIONS_PY"])
         mod = importlib.util.module_from_spec(sp); sp.loader.exec_module(mod)
-        doc = mod.export_doc(E["HB_SESSIONS_FILE"], letter, now)
+        doc = mod.export_doc(E["HB_SESSIONS_FILE"], letter, now, E.get("HB_SLEEP_DIR", ""))
     except Exception as e:
         note("session-registry.json not published, the last good file stays: %s" % e); return
     txt = json.dumps(doc, ensure_ascii=False, indent=1) + "\n"
@@ -250,6 +254,26 @@ for d in regrows:
     rn = renames.get(sid)
     if rn and rn.get("to") == sess[sid]["name"]:   # `sala rename` gave it this name: say what it was, for stackshot
         sess[sid]["previous_name"] = rn.get("from", ""); sess[sid]["renamed_at"] = rn.get("at", "")
+
+# SLEEPING SESSIONS: no live registry file, so a row from each marker (`<ISO-Z> <name>`, the file named by the conversation uuid), unless a live row already has
+# that conversation; only a marker whose uuid is on a pane-map row counts (a stale one is no session)
+sd = E.get("HB_SLEEP_DIR", "")
+if sd and os.path.isdir(sd):
+    mapped = set()
+    try:
+        for line in open(E.get("HB_SIDECAR", ""), encoding="utf-8", errors="replace"):
+            c = line.rstrip("\n").split("\t")
+            if len(c) > 1 and c[1]: mapped.add(c[1])
+    except Exception: pass
+    for u in sorted(os.listdir(sd)):
+        if u.startswith(".") or u in sess or u not in mapped: continue
+        try: t, _, nm = open(os.path.join(sd, u), encoding="utf-8", errors="replace").readline().strip().partition(" ")
+        except Exception: continue
+        nm = nm.strip()
+        if not nm: continue
+        sess[u] = dict(row({"name": nm}, E["HB_LETTER"], E["HB_URL_TPL"]), sleeping=t)
+        rn = renames.get(u)
+        if rn and rn.get("to") == nm: sess[u]["previous_name"] = rn.get("from", ""); sess[u]["renamed_at"] = rn.get("at", "")
 
 # ── the fleet
 letters = {}

@@ -4752,3 +4752,27 @@ the retired `master` value in `lib/heartbeat.sh`, `docs/heartbeat-store.md`, `co
 suites, `SALA_MASTER` (the leftover-line checks), `not-master`, `*master*` (negative assertions) and the suite name `nomaster`
 (also in `CONTRIBUTING.md`); and web/'s look-alikes (the git branch named `master`, stackshot's own "the master box", a fixture
 with the contract keys). The gate plants one line it must reject and one it must accept, so a gate that went blind fails.
+
+### Sleep stage 3: a sleeping session shows as sleeping (Mon Nov 23rd 2026)
+
+New `tests/sleepshow.sh` and `web/tests/test_sleeping_sessions.py`; `tests/sleeping.sh` keeps its checks (one expected text changed: `sala sessions --json`
+now carries a `sleeping` key on the sleeper's row, where stage 1 had none). Stage 3 adds the display and the contract and nothing that sleeps a session on
+its own (the idle tick is stage 5). `tests/sleepshow.sh` runs in a temporary HOME with a hand-made registry, pane map, markers and live registry files, no tmux
+server and no claude, and checks: `sala sessions` says `sleeping` in STATE for the sleeper and `live` for a control, with one line under the table giving
+the time in `SALA_TZ` (Sun Nov 22nd 15:10 KST) and the wake; a retired row and a marker with no registry row add nothing; `sala sessions --json` has the
+`sleeping` key (the marker's ISO-Z time) on the sleeper's row alone with `state` still `live`, the control's keys exactly the registry's, and no key at all
+without a marker directory; the heartbeat's `sessions.json` gets a row for the sleeper keyed by its conversation uuid with `sleeping` added, none for a
+stale marker (no pane-map row) or a retired one, and none twice for a conversation a live row already has; a second run changes no byte; `session-registry.json`
+carries `sleeping` on the sleeper's row only; after a wake (marker removed) the `sessions.json` row is gone and the registry row loses the key; the
+contract text (`contract-version: 51`, its changelog line and no later one, the index row, interface 35 naming the marker directory and line, the `sleeping`
+field in `sessions.json`, `session-registry.json` and `sala sessions --json`, `sala op wake --only NAME` and both doors of the wake); and the `sessions`
+entry of the help. `web/tests/test_sleeping_sessions.py`: `read_sleeping_sessions` (a marker plus a pane-map row is a session with pid 0, status
+`sleeping` and the marker's time; a marker with no pane-map row, a bad name, a dotfile, a conversation or a name a live session already has, and a missing
+marker directory list nothing); `api/sessions` and `api/overview` carry `sleeping` on the sleeper and on no live row; a sleeper has no pid to open, read or
+send to; `POST /api/wake` queues `sala op wake --only NAME --from sala-web --words "<owner>, via the sala web page: …"` and returns the operation id,
+says `awake` and queues nothing for a name that is not asleep (sala is not run), passes a refusal on (409) and an odd answer (502), and refuses a body with no
+valid name (400); the sleep time is written in the page's zone (KST, Dubai in the tests), never UTC (`sleptAt` run in node); and, in a headless Chromium
+where one is installed, the sidebar marks the sleeper `sleeping` with its time in the tooltip and a live session not, the Overview row says `sleeping`
+with the time, and opening a sleeper asks the wake once, follows the queued operation, shows a failure with a retry button and stops following once the
+session is awake. Not checked: stackshot reading the key and waking a session on a message (stage 4), the watch tick that sleeps an idle session (stage 5)
+and a real wake end to end from the page (a real sala, a real claude).

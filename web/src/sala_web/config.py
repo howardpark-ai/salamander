@@ -287,6 +287,17 @@ class Settings:
         return self.state_dir / "uploads"
 
     @property
+    def sleep_dir(self) -> Path:
+        """Where sala keeps its sleeping markers, one file a sleeping session named by its conversation id (SALA_SLEEP_DIR, default
+        <sala state>/sleeping; sala's common.sh, THE SLEEPING SESSIONS). Read-only here."""
+        return Path(sala_setting("SALA_SLEEP_DIR") or self.sala_state_dir / "sleeping")
+
+    @property
+    def pane_map(self) -> Path:
+        """sala's pane map (SALA_SIDECAR, default <sala state>/pane-map.tsv): tmux session, conversation id, name, cwd, tab-separated. Read-only here."""
+        return Path(sala_setting("SALA_SIDECAR") or self.sala_state_dir / "pane-map.tsv")
+
+    @property
     def mockups_dir(self) -> Path:
         """Where `sala mockup add` keeps its numbered pages (<sala state>/mockups); read-only here (mockup.py)."""
         return self.sala_state_dir / "mockups"

@@ -1,6 +1,8 @@
 # lib/sessions.sh — the session registry (phases 1 and 2; docs/session-registry.md; the functions are in common.sh).
 #
-#   salamander sessions [--all] [--json]        the registry, read-only: one line per live session (--all: retired too; --json: the file's rows)
+#   salamander sessions [--all] [--json]        the registry, read-only: one line per live session (--all: retired too; --json: the file's rows). A SLEEPING
+#                                               session (its claude ended on purpose) says `sleeping` in STATE, its time on a line under the table, and in
+#                                               --json a `sleeping` key (the marker's ISO-Z time) on its row alone
 #   salamander sessions --check [--dry-run]     the registry against the pane map: a kill between ledger_write's two writes leaves a row missing,
 #                                               a rename not recorded or a retire not recorded; --check repairs the REGISTRY (never the map) and
 #                                               says what it did, --dry-run only reports. Exit 0 consistent or repaired, 1 drift left (or, with

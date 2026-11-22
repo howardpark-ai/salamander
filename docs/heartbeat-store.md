@@ -10,7 +10,7 @@ directory in a git checkout (`SALA_HEARTBEAT_REPO`, `SALA_HEARTBEAT_DIR`), the m
 `SALA_FLEET_NAMES` (a TSV of `hostname → fleet name → letter`) or `SALA_HEARTBEAT_LETTER`, and the two files follow a
 fixed contract: `machine.json` = `{letter, fleet, claude, checked, master, master_session, fleet_ssh}` (`master` and `master_session` are always written as empty strings: the keys stay for the contract, nothing reads them; `fleet_ssh` on the driving box:
 `{fleet name: {letter, ok, since}}`); `sessions.json` = one entry per live pane keyed by
-its transcript UUID, `{name, url, seen, machine}`, where `url` is the session's link: on the writer's own rows the sala-web link
+its transcript UUID, `{name, url, seen, machine}` (a sleeping session, whose claude ended on purpose, has a row too, with one more key, `"sleeping": "<ISO-Z>"`, its marker's time; docs/subcommands.md, *Sleeping sessions*), where `url` is the session's link: on the writer's own rows the sala-web link
 `SALA_SESSION_URL` gives (Tue Oct 13th 2026), bridged or not; on a swept box's rows the Remote Control address, empty
 while the bridge is down. Session
 identity is the UUID on purpose — it survives resumes, renames and bridge breaks, so a consumer that stores the UUID as

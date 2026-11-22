@@ -125,6 +125,30 @@ def side_words_for(r: "SpawnRequest", now: datetime | None = None) -> str:
     return f"{owner_name()}, via the sala web form: new side conversation {r.name} ({what}), {zone_stamp(now)}"
 
 
+def wake_words(name: str, now: datetime | None = None) -> str:
+    """The queue's `--words` for a wake: the owner opened a sleeping session in the page, said as the page heard it."""
+    return f"{owner_name()}, via the sala web page: opened the sleeping session {name}, {zone_stamp(now)}"
+
+
+def wake_argv(cmd: list[str], name: str, words: str) -> list[str]:
+    """`sala op wake --only NAME --from sala-web --words "…"`: the verb stage 2 added (`sala wake NAME` run by the queue). The words are the owner's own act,
+    opening the session; the queue plans first (it says "not sleeping" for a session that is already awake and queues nothing)."""
+    return [*cmd, "op", "wake", "--only", name, "--from", FROM, "--words", words]
+
+
+def parse_wake(rc: int, stdout: str, stderr: str, name: str) -> tuple[int, dict]:
+    """(status, body) for the page from the queue's exit code and output: 202 with the operation id when it queued the wake, 200 `awake` when sala says the
+    session is not asleep (nothing queued: it woke meanwhile), 409 with sala's words otherwise."""
+    if rc == 0:
+        m = QUEUED_RE.search(stdout)
+        if m:
+            return 202, {"ok": True, "op": m.group(1), "name": name, "output": stdout.strip()[-4000:]}
+        if "not sleeping, nothing to wake" in stdout:
+            return 200, {"ok": True, "code": "awake", "name": name}
+        return 502, {"ok": False, "code": "error", "error": "sala exited 0 without a `queued op` line", "output": stdout[-4000:]}
+    return 409, {"ok": False, "code": "refused", "error": _refusal(stdout, stderr, rc), "exit": rc}
+
+
 # ── what a session follows when the form leaves lane, model or effort empty ─────────────────────────────────
 def claude_defaults(claude_dir: Path) -> dict[str, str]:
     """{"model", "effort"}: what a spawn with no --model and no --effort follows, read from the settings file the CLI reads

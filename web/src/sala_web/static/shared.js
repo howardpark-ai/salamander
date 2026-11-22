@@ -75,6 +75,13 @@ function zoneLabel(d) {
   return zone.name && zone.label && /^GMT[+-]/.test(own) ? zone.label : own;
 }
 
+// the time a session went to sleep (sala's marker, ISO-Z) in the page's zone: "Sun, Nov 22, 15:10 KST"; "" for a word that is no time
+const sleptFmt = zoneFormat(() => SalaI18n.locale(), { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+function sleptAt(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : sleptFmt.format(d) + " " + zoneLabel(d);
+}
+
 // "5 min ago" for a time t (epoch ms): the chat's message stamps (app.js) and the Overview cards' last line (sessions.js updatedFoot)
 function relTime(t) {
   const s = Math.max(0, Math.round((Date.now() - t) / 1000));

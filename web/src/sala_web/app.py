@@ -227,6 +227,9 @@ none itself):
                                   a file under state_dir/mandates/; 202 {"op"} when queued, 409 with "code" not-listed (the
                                   REGISTER line and register command), no-page or refused (the queue's reason), 400 for a shape the backend
                                   would refuse too. The one write to sala: the form is the only way this app makes a session
+  POST /api/wake                  {"name"} -> `sala op wake --only NAME --from sala-web --words "<owner>, via the sala web page: …"` for a
+                                  sleeping session (opening one in the page wakes it); 202 {"op"} when queued, 200 "awake" when the name
+                                  is not asleep (nothing queued), 409 with the queue's reason, 502 when sala cannot be run, 400 for no name
   GET  /api/spawn/status          ?op=<id> -> the queued operation's state from sala's own marker (queued, running, waiting,
                                   done, stuck, …) and its result line; while it is queued, also what it waits behind
                                   ("behind": [{op, verb, arg, state}], "behind_line": "Waiting behind 2 retires …")
@@ -705,8 +708,14 @@ def create_app(settings: Settings | None = None) -> Starlette:
                              "scopes": SC.names(), "defaultScope": SC.default(), **TZ.info()},
                             headers={"Cache-Control": "no-store"})
 
+    def _live_and_sleeping() -> list[S.Session]:
+        """The live sessions, then the sleeping ones (sala ended their claude on purpose and kept their pane: pid 0, status "sleeping"): every list a person
+        reads shows both, and only the live ones have a process to open, read or send to."""
+        live = S.read_live_sessions(settings)
+        return live + S.read_sleeping_sessions(settings, live)
+
     async def list_sessions(request: Request) -> Response:
-        live = await run_in_threadpool(S.read_live_sessions, settings)
+        live = await run_in_threadpool(_live_and_sleeping)
         await run_in_threadpool(lambda: S.attach_agent_ids(live, S.load_agent_rows(settings.sala_state_dir / "sessions.json")))
         r = await roles.get()
         scopes = S.group_sessions(live, r, await run_in_threadpool(S.side_records, settings.sala_state_dir / "side"), await pages.types())
@@ -716,7 +725,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                              "rolesError": roles.last_error})
 
     def _overview_rows(r: dict[str, dict], types: dict[str, str] | None) -> list[dict]:
-        rows = S.overview_rows(S.read_live_sessions(settings), r, S.side_records(settings.sala_state_dir / "side"), types)
+        rows = S.overview_rows(_live_and_sleeping(), r, S.side_records(settings.sala_state_dir / "side"), types)
         records = S.sala_models(settings.sala_models)  # read once per poll; {} when sala keeps no record
         # what the CLI follows with no flag and no record: the default lane's settings.json, as the New session
         # form reads it; one small file, read once per poll like the record ("" for what it cannot read: no default)
@@ -728,7 +737,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
             # a pane with its own CLAUDE_CONFIG_DIR may follow another settings file: no default for it
             cfg = S.pane_config_dir(pid)
             own = bool(cfg) and Path(cfg).resolve() != settings.claude_dir.resolve()
-            row.update(S.running_model(S.launch_flags(pid), records.get(row.pop("tmuxSession")), reply,
+            # a sleeping session has no pane process: its model is sala's record under its name (a record is keyed by the tmux session, which a sleeper keeps under its name)
+            rec_key = row.pop("tmuxSession") or (row["name"] if row.get("sleeping") is not None else "")
+            row.update(S.running_model(S.launch_flags(pid), records.get(rec_key), reply,
                                        row.pop("startedAt"), S.model_env(pid), catalogs.for_pid(pid),
                                        None if own else default))
         return rows
@@ -890,7 +901,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def get_board_items(request: Request) -> Response:
         # the live sessions' names are the keys the board knows them by (the pane name, as the sidebar lists them)
-        live = await run_in_threadpool(S.read_live_sessions, settings)
+        live = await run_in_threadpool(_live_and_sleeping)   # a sleeping session still has its items
         return JSONResponse(await board.get([s.name for s in live]), headers={"Cache-Control": "no-store"})
 
     def _session(request: Request) -> S.Session | None:
@@ -1659,6 +1670,26 @@ def create_app(settings: Settings | None = None) -> Starlette:
         except ValueError:
             return _err(400, "body must be JSON")
 
+    async def wake_post(request: Request) -> Response:
+        """Opening a sleeping session in the page wakes it: the same queued operation as `sala op wake --only NAME`, asked as the owner's own act (words),
+        for a name that is asleep now. 202 {op, name} when queued (the page follows api/spawn/status?op=), 200 `awake` when it is not asleep any more."""
+        body = await read_json_post(request)
+        if isinstance(body, Response):
+            return body
+        name = body.get("name") if isinstance(body, dict) else None
+        if not isinstance(name, str) or not S.SLEEP_NAME_RE.match(name):
+            return _err(400, "name must be the name of a sleeping session")
+        sleepers = await run_in_threadpool(lambda: S.read_sleeping_sessions(settings, S.read_live_sessions(settings)))
+        if name not in {s.name for s in sleepers}:
+            return JSONResponse({"ok": True, "code": "awake", "name": name}, headers={"Cache-Control": "no-store"})
+        argv = SP.wake_argv(SP.resolve_cmd(settings.sala_cmd), name, SP.wake_words(name))
+        try:
+            rc, out, err = await SP.run(argv, SP.QUEUE_TIMEOUT)
+        except (OSError, TimeoutError) as e:
+            return JSONResponse({"ok": False, "code": "error", "error": f"could not run sala: {e}"}, status_code=502)
+        status, payload = SP.parse_wake(rc, out, err, name)
+        return JSONResponse(payload, status_code=status, headers={"Cache-Control": "no-store"})
+
     async def spawn_projects(request: Request) -> Response:
         v = PP.validate_query(dict(request.query_params))
         if isinstance(v[0], int):
@@ -1947,6 +1978,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/api/spawn/project-list", spawn_project_list, methods=["POST"]),
         Route("/api/spawn/project-agent", spawn_project_agent, methods=["POST"]),
         Route("/api/spawn", spawn_post, methods=["POST"]),
+        Route("/api/wake", wake_post, methods=["POST"]),
         # the debug logs (temporary): the timing log by kind
         Route("/api/debug/{kind}", get_debug, methods=["GET"]),
         Route("/api/debug/{kind}", post_debug, methods=["POST"]),

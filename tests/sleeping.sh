@@ -15,7 +15,7 @@
 #  - 5 stale_panes does not list it; 6 lane and model: the table row only, no relaunch (`sala lane X NAME`, `sala model NAME X`), the control's plan relaunches;
 #  - 7 retire, close-shell, forget-row, rename work with no /exit and no live claude and clear the marker (rename rewrites its name text); adopt and box say
 #    "sleeping" instead of "no claude"; 8 `sala op revive|restore --only NAME` says "sleeping: its claude ended on purpose" and queues nothing;
-#  - 9 the wrap-up tick lists no pane with no claude; 10 `sala sessions` and `sala spawn --list` show `sleeping` (display only);
+#  - 9 the wrap-up tick lists no pane with no claude; 10 `sala sessions` and `sala spawn --list` show `sleeping` (display; since stage 3 the JSON adds a `sleeping` key too);
 #  - sleep_ready: yes for an idle, free pane; and each refusal with its reason: no session, already asleep, the Remote Control session, SALA_NO_RELAUNCH,
 #    a side session, no pane-map row, no claude, the sdk lane, idle too short, a busy registry row, a draft in the box, a scheduled job, a queued operation naming it,
 #    a note waiting, the deferred list, an open set, the waiting flag, a stackshot inbox message, a limit stop, a network stop, a question open on its screen.
@@ -134,7 +134,7 @@ run sessions
 a_line=$(grep 'sala-test-a ' <<< "$OUT"); c_line=$(grep 'sala-test-c ' <<< "$OUT")
 has "$a_line" sleeping && ok "sala sessions: a's STATE is 'sleeping'" || bad "sessions a: $a_line"
 has "$c_line" live && ! has "$c_line" sleeping && ok "sala sessions: the control's STATE stays 'live'" || bad "sessions c: $c_line"
-run sessions --json; ! has "$OUT" sleeping && has "$OUT" '"state": "live"' && ok "sala sessions --json: no 'sleeping' (the JSON is the registry's)" || bad "json: $(head -c 300 <<< "$OUT")"
+run sessions --json; has "$OUT" '"state": "live"' && has "$OUT" '"sleeping": "' && [ "$(grep -c '"sleeping"' <<< "$OUT")" = 2 ] && ok "sala sessions --json: a and b carry 'sleeping' (stage 3), state stays live; c has none (tests/sleepshow.sh checks the shape)" || bad "json: $(head -c 300 <<< "$OUT")"
 
 echo "== 1: the bare-pane heal — a clock started before the marker is cleared, the pane never revived, nothing posted"
 a0=$(n_starts 1); b0=$(n_starts 2); c0=$(n_starts 3)
