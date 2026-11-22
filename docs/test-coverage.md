@@ -84,6 +84,17 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/bgagents.sh`: +9, 271 (Sun Nov 22nd 2026)
+
+Five fixes to the placement read-back of `sala bg-agents`, each with the check that fails without it. (1) `roles.json` is read for its role too: an entry for the right project with the role
+front no longer places a back agent. (2) The registry answers a renamed session's old name with the renamed session's row, so a row whose own name is not the session's places nothing. (3) A
+session that was already on the project's map (no listing made) and is not placed, once it has left the want list, still owes its board item and its next attempt: a filing that failed or was
+deferred is tried again, is not lost to the ledger's clean-up of absent projects, and once raised is not filed again. (4) The registry command of each read gets the time left to the read-back's
+deadline, not a fixed half minute, so a slow last read ends the wait at the deadline. (5) The back-off of a failure that came after a wait (the listing, the start, the read-back) counts from the
+failure and not from the run's start. The suite's registry stub can now answer with another name and answer slowly from a given read on (`row.name`, `row.sleep`), and `roles` takes a role.
+The path guarded is the same session count as below: a project whose background agent is counted as started, or never reported, while the registry and stackshot disagree about it. The back-off
+checks of the earlier cases now allow the few seconds the run itself took (the clock of a failure runs on with the process).
+
 ### `tests/bgagents.sh`: +19, 262 (Sun Nov 22nd 2026)
 
 `sala bg-agents` counted a start on liveness alone: a pane that was up counted even when the project did not hold it. A start now counts only when the session is placed in its project

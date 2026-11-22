@@ -44,11 +44,11 @@ Exit codes: 0 = the run finished (a skip or a failed project too), 1 = a retire 
    **A live session is not yet a start.** The job counts a start only when the session is also placed in its project, read three ways (`read_back` in `lib/bgagents.py`, one function with a plain
    interface: the session name, the project key and the role, `back` here; it answers 0 when all three agree, else 1 with a reason naming each link that does not):
    1. stackshot's project record (`SALA_PROJECT_RECORD`) lists the name on the project's agents map as a back agent (`front` false);
-   2. `roles.json` (`SALA_ROLES_FILE`, `~/.local/state/stackshot/roles.json`, the file the Overview's Role column and the lane rules read) has a live entry for the name that names the project (the page key or its bare slug);
-   3. sala's own registry row for the session (`sala sessions resolve NAME --live --json`) carries that project and the role `back`.
+   2. `roles.json` (`SALA_ROLES_FILE`, `~/.local/state/stackshot/roles.json`, the file the Overview's Role column and the lane rules read) has a live entry for the name that names the project (the page key or its bare slug) and carries the role `back`;
+   3. sala's own registry row for the session (`sala sessions resolve NAME --live --json`) is the session's own row (that command also answers a renamed session's old name with the renamed session's row, which places nothing) and carries that project and the role `back`.
 
    The record and `roles.json` are rewritten about every five minutes and a fresh start is on neither at once, so the three are read again every `SALA_BGAGENTS_PLACE_POLL` (5 s) until
-   `SALA_BGAGENTS_PLACE_WAIT` (360 s) is up, and the attempt fails only then. A link that cannot answer (missing, stale, unreadable) is a miss, never a pass. A miss is a failed attempt: no start is
+   `SALA_BGAGENTS_PLACE_WAIT` (360 s) is up, and the attempt fails only then. The registry command of each read gets only the time left to that deadline (at least 5 s for the first read and 1 s for a later one, never more than 30 s), so a slow last read does not run past it. A link that cannot answer (missing, stale, unreadable) is a miss, never a pass. A miss is a failed attempt: no start is
    counted, the back-off applies as for any failure, the pane is **left running** (nothing is retired), and the reason says which link disagrees in one plain sentence, for example
    `example-engineer started but the record does not list it on projects/example` (also `roles.json does not list it…`, `sala's row does not list it…`, or `the record could not be read (it is stale…), so it does not confirm it…`).
    It is told **once per attempt**, not once per read: one Slack post through sala's own alert path (`SALA_BGAGENTS_ALERT_CMD`, default `sala alert`; a failed post is one log line and changes nothing) and the
@@ -59,7 +59,7 @@ Exit codes: 0 = the run finished (a skip or a failed project too), 1 = a retire 
 
 ## Failures, back-off, the cap
 
-A failure raises the project's back-off: `SALA_BGAGENTS_COOLDOWN` seconds (600), doubled for every further failure, up to `SALA_BGAGENTS_COOLDOWN_MAX` (86400). `next_try` is kept
+A failure raises the project's back-off: `SALA_BGAGENTS_COOLDOWN` seconds (600), doubled for every further failure, up to `SALA_BGAGENTS_COOLDOWN_MAX` (86400). It counts from the moment of the failure, not from the start of the run: a listing that timed out, a start that ran long or the read-back's wait (up to 360 s) has used none of it. `next_try` is kept
 in the ledger and no call is made before it. At `SALA_BGAGENTS_MAX_ATTEMPTS` (5) attempts the project is left alone: one log line a run, no call, and `--status` says "given up (board item raised)" or "given up (board item not raised yet)", and the owner is told once (next section).
 Clearing it is the ledger's reset (the project off the list for the cooldown; never while a board item is raised) or `sala bg-agents --reset <project key>` (below, with the board item).
 
@@ -133,7 +133,7 @@ meanwhile skips the entry, for the start and for the raise alike (`another run i
 timeout and the wait for the lock (75 s with the default timeout): then the run that set it is taken as dead. When the first run returns, it writes the item only if the entry on disk still
 carries its request id, is still marked with ITS filing token and the project is still stuck (a retry, which reuses the request id so a repeat files nothing twice, takes the mark over with its own token:
 the first run's late result, a success or a failure, is then set aside, so it neither clears the retry's mark nor changes its back-off; the board answers both with the same item): a start that worked meanwhile is not told to the owner as a failure (the run says the project is no longer stuck and records nothing: not the item, and not a failure either, so a filing that FAILED
-for a project another run has started since counts no failure, sets no back-off and says no "board item needed"; an item the board did file stays on the board). Only a project on the want list, or one whose listed agent has not been started, is asked about; a stuck project that has
+for a project another run has started since counts no failure, sets no back-off and says no "board item needed"; an item the board did file stays on the board). Only a project on the want list, or one whose listed agent has not been started, or one whose started pane is not placed on its project (it was on the map already, so no listing was made; its filing and its next attempt go on after it left the list), is asked about; any other stuck project that has
 left the list is not.
 
 **An agent that is running is no start failure.** A project can reach the cap because it stays on the want list while its agent's session is live (the start failed late, or the pane was
