@@ -44,7 +44,7 @@ case $SALA_LOG_DIR in /*) ;; *) SALA_LOG_DIR=$HOME/$SALA_LOG_DIR;; esac   # a re
 : "${SALA_FLEET_POST_CMD:=}"                      # (older name; SALA_POST_UPDATE_CMD supersedes it)
 : "${SALA_POST_UPDATE_CMD:=$SALA_FLEET_POST_CMD}"  # run after ANY CLI update attempt (local recycle --update, update --fleet, provision): e.g. bump a version dashboard
 : "${SALA_POST_RECYCLE_CMD:=}"                    # run once at the end of every recycle and clean reboot of THIS box (see post_recycle_hook)
-: "${SALA_MASTER:=}"                              # tmux session `watch` keeps alive and bridged (empty = watch does nothing)
+: "${SALA_MASTER:=}"                              # retired: `watch` no longer keeps, heals or restarts the master; the line will be removed in a later change
 : "${SALA_WATCH_COOLDOWN:=600}"                   # seconds before `watch` repeats the same heal
 : "${SALA_WATCH_NOTIFY_CMD:=}"                    # `watch` pipes each heal/alert message into this (sh -c)
 : "${SALA_NO_RELAUNCH:=}"                         # tmux sessions sala never relaunches or restores (space-separated; see no_relaunch)
@@ -82,8 +82,8 @@ SALA_READY_DIR="$HOME/.claude/salamander-ready"     # `ready` markers, one per c
 : "${SALA_READY_TTL:=3600}"                          # a ready marker older than this is ignored
 : "${SALA_READY_WAIT:=90}"                           # retry worker: how long to wait for a `ready` pane's turn to end
 : "${SALA_BOOT_GRACE:=900}"                          # post-boot report: wait this long after boot for revive's summary …
-: "${SALA_BOOT_DEADLINE:=1800}"                      # … and this long for an idle master, then deliver anyway (or notify)
-: "${SALA_BOOT_AUDIT:=}"                             # what the master should check after a boot (appended to the report)
+: "${SALA_BOOT_DEADLINE:=1800}"                      # … and this long for a clean reboot's boot half, then deliver anyway (the boot report has no master step now)
+: "${SALA_BOOT_AUDIT:=}"                             # no longer used: the boot report has no master step, so nothing is appended to it
 SALA_BOOT_REC="$SALA_LOG_DIR/salamander-boot-revive" # the first full revive of each boot: boot id, time, summary
 # THE BUSY RECORD and THE WAITING FLAG (lib/hook.sh): two Claude Code
 # settings hooks give the busy check an exact answer and give a session word of a relaunch waiting for it. Their state:
@@ -5576,7 +5576,7 @@ master_guard() {
     [ "$here" = "$SALA_MASTER" ] && return 0
     mpane=$(tmux list-panes -t "$(tmux_win_t "$SALA_MASTER")" -F '#{pane_id}' 2>/dev/null | head -1)
     if [ -z "$mpane" ] || ! claude_pid_under "$(tmux display -p -t "$mpane" '#{pane_pid}')" >/dev/null 2>&1; then
-        echo "⚠ master session '$SALA_MASTER' is not live — allowing '$verb' from '$here' (salamander watch normally revives the master first)" >&2
+        echo "⚠ master session '$SALA_MASTER' is not live — allowing '$verb' from '$here' (salamander watch no longer revives the master)" >&2
         sala_post "⚠️ *$verb ran from $here*" "the master $SALA_MASTER was not live, so the guard let it through"; return 0
     fi
     die "$verb is driven from the master session ('$SALA_MASTER'), not from '$here': hand it the cue with \`sala cue --from <you> \"<${SALA_OWNER_NAME}'s words>\"\` (the recycle procedure does exactly that), so two drivers never race the same panes. Override only if you know why: --not-master"

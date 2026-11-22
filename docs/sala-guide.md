@@ -188,7 +188,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now sala-watch.timer
 ```
 
-Good result: `systemctl --user list-timers sala-watch.timer` shows a next run within 2 minutes (the first run waits 3 minutes after boot). `sala watch --check` prints `healthy: the operation queue, the watches, the bare-pane revive and the post-boot report (to Slack) run` and exits 0 while a tmux server runs. With no session started yet it prints `tmux server is down` and exits 1: that is expected until the first session of step 6 exists, not a fault.
+Good result: `systemctl --user list-timers sala-watch.timer` shows a next run within 2 minutes (the first run waits 3 minutes after boot). `sala watch --check` prints `healthy: queue, watches, bare-pane revive, boot report` and exits 0 while a tmux server runs. With no session started yet it prints `tmux server is down` and exits 1: that is expected until the first session of step 6 exists, not a fault.
 
 The install check verified both unit files with `systemd-analyze verify --user` and ran `sala watch --check` (it printed a `healthy:` line, as step 7 says). It did not enable the timer, because that needs a live systemd user manager. `TODO(verify)`: `enable --now` and the first timer run.
 

@@ -759,7 +759,7 @@ op_shape() {
         [ $# -eq 2 ] || { op_bad "rename takes exactly OLD NEW"; return 1; }
         op_session_ok "$1" && op_session_ok "$2" || return 1
         OP_RUN=(rename "$1" "$2"); OP_PLAN=("${OP_RUN[@]}" --dry-run); OP_TARGETS="$1 $2"
-        # PARALLEL: yes, both names are tmux session names (rename takes no other); the master's rename rewrites the config (master --set): solo
+        # PARALLEL: yes, both names are tmux session names (rename takes no other); a rename that touches the configured master is solo while SALA_MASTER still routes by name (a rename no longer rewrites the config)
         if [ -z "${SALA_MASTER:-}" ] || { [ "$1" != "$SALA_MASTER" ] && [ "$2" != "$SALA_MASTER" ]; }; then OP_PAR=par; fi ;;
     lane)
         [ $# -ge 2 ] || { op_bad "lane takes <lane> <session>…, <lane> --all, default <lane>, or fallback <lane>"; return 1; }

@@ -50,8 +50,8 @@
                                  #   (the suites, a box with no stackshot). `spawn --project` is the one command that needs stackshot, by design; SALA_AGENT_CHECK=off is the only bypass
 #SALA_SNAPSHOT_CMD=              # `snapshot` runs this instead of save.sh directly, e.g. systemctl --user start --no-block tmux-resurrect-save.service
 #SALA_SNAPSHOT_DELAY=4            # seconds `snapshot` waits to coalesce a burst of events into one save
-#SALA_MASTER=                     # retired: `salamander watch` no longer keeps, heals or bridges a master session, and a line left here only draws
-                                 #   one notice per value. The operation queue replaces it (`sala op`, SALA_OP_* below): a Claude session's raw
+#SALA_MASTER=                     # retired: `salamander watch` no longer keeps, heals or restarts the master; the line will be removed in a later change,
+                                 #   and one left here draws one notice per value. The operation queue replaces it (`sala op`, SALA_OP_* below): a Claude session's raw
                                  #   fleet verb is refused and pointed to `sala op`, and the post-boot report goes to Slack.
                                  #   `salamander master --unset` comments the line out
 #SALA_PSET_TARGET=                # optional: a session name (a front agent, e.g. my-project-main) that hears a provision set's items, with

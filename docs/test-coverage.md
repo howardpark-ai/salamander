@@ -1942,8 +1942,8 @@ back from a record after it was unset — `watch` recreating, resuming or bridgi
 is a session nobody asked for driving relaunches: `salamander master --unset` on a temporary config is checked to
 comment the line out and leave the file parsing with the other lines intact (`salamander config` reads none), to drop the
 watchdog's records of the master (name, conversation, bridge, lane, directory) and record `master_unset`, to refresh the
-last-good copy to the unset config, to be idempotent, and to leave the session itself alone; `master`, `--name` and
-`--json` read "unset", and `--set` again clears the record. A fleet verb run raw by a Claude session with nobody holding
+last-good copy to the unset config (removed in the master retirement, stage 1), to be idempotent, and to leave the session itself alone; `master`, `--name` and
+`--json` read "unset", and `--set` again clears the record (removed in the master retirement, stage 1). A fleet verb run raw by a Claude session with nobody holding
 the one-driver rule is two drivers on the same panes: with no master a Claude ancestor is refused with the `sala op …
 --words` line and nothing relaunched (`retire`, `recycle --force`; a verb the queue has no shape for, `restore`, refused
 with that said), while the queue's cgroup, a `sala-test-*` target, `--dry-run`, `--not-master`, `--check`, a human's pane
@@ -1952,15 +1952,15 @@ set and a Claude caller outside tmux, passes as before. The operation: a plain `
 refuse outside the queue, `op --plan` says "would unset SALA_MASTER, then retire", the unit's log has the unset (its output
 included) before the retire, the marker carries `unset_master`, the config names no master, the session is gone, one ✅
 post names the unset; a retire that fails after the unset (the pane busy by then) is stuck with `SALA_MASTER` still
-unset, the session alive and the post saying `master --set` puts it back; an unset that fails (the config's directory
+unset, the session alive and the post saying `master --set` puts it back (removed in the master retirement, stage 1): `master --set` is gone; an unset that fails (the config's directory
 read-only) is stuck with the retire never run and the config untouched. `sala cue`: with a master the words land in its
 inbox; with none exit 1, the pointer, the verb table, one example, and nothing in any inbox or the cue log (a cue that
 silently went nowhere is an operation the owner thinks happened). `watch` with no master: `--check` healthy and exit 0; a
 state that remembers a master with no `master_unset` record is the lost config (exit 1) and healthy once the record is
-back; a plain tick heals nothing, recreates no session, types nothing (no `/remote-control`), posts nothing and writes no
-master record; the post-boot report is one Slack post with revive's summary and not a second one on the next tick; the
+back (removed in the master retirement, stage 1); a plain tick heals nothing, recreates no session, types nothing (no `/remote-control`), posts nothing and writes no
+master record; the post-boot report is one Slack post with revive's summary and not a second one on the next tick (its pinned "no master" wording was removed in the master retirement, stage 1); the
 tmux server down with no `tmux.service` and no master is logged and nothing is started (the bare `tmux new-session -s ""`
-the master's heal would have run). The boot hook's revive with no master, launched by `tmux run-shell` as the resurrect
+the master's heal would have run) (removed in the master retirement, stage 1): that log wording changed. The boot hook's revive with no master, launched by `tmux run-shell` as the resurrect
 hook is: passes the guard, relaunches the panes, leaves the boot record the report reads. Not checked: a real systemd unit
 and cgroup (the stubs stand in; the Claude ancestor is a script named `claude`), a real Slack post, `reauth --done` with
 no master (it returns cue's exit 1 and pointer), the heartbeat's `master ""`.
@@ -2012,7 +2012,7 @@ name listed at queue time and removed before the run → stuck with "exited 3" a
 line", no `claude -p` (none could add it), no session, the keeper asked from the unit with who heard and the owner's words (the runner exports `SALA_OP_FROM`, `SALA_OP_WORDS`), one 🚨 post, the mandate file kept for the next try. Not checked: the real
 `pages.py` against live pages (the stub answers in its shapes: `<key> True|False|None`, `listed on <key>: …`, the exit-3
 line, "nothing to check"), a real stackshot message (`client.py message`), a real register hook, a real systemd unit (the
-stub), a real Slack post, the `--fork` and `--master` paths (unchanged; `tests/mod.sh`, `tests/ledger.sh`).
+stub), a real Slack post, the `--fork` and `--master` paths (unchanged then; `tests/mod.sh`, `tests/ledger.sh`; `spawn --master` was removed in the master retirement, stage 1).
 
 ### `tests/lanefields.sh`: new, 109 (Thu Oct 22nd 2026)
 

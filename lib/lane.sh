@@ -469,7 +469,7 @@ if why=$(lane_dormant_refusal "$LANE"); then die "$why"; fi
 if [ "$MODE" = rescue ]; then
     M="${SALA_MASTER:-}"; [ -n "$M" ] || die "no master session is configured (SALA_MASTER): the rescue moves the master, and there is none to move"
     why=$(lane_check "$LANE") || die "$why — nothing recorded, nothing relaunched"   # the target must launch (the header)
-    tmux has-session -t "=$M" 2>/dev/null || die "the master '$M' has no tmux session — salamander watch brings it back (on $(lane_for_session "$M")); to change its lane first: salamander lane $LANE $M --not-master"
+    tmux has-session -t "=$M" 2>/dev/null || die "the master '$M' has no tmux session — bring it back first (salamander revive --only $M brings it back on $(lane_for_session "$M")); to change its lane first: salamander lane $LANE $M --not-master"
     no_relaunch "$M" && die "$(no_relaunch_line "$M") — $(no_relaunch_fix "$M" "the master is launched by hand with an environment of its own; take it out of SALA_NO_RELAUNCH to move it")"
     ME=""; [ -n "${TMUX_PANE:-}" ] && ME=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
     [ "$ME" = "$M" ] && die "this is the master's own pane: the rescue is another session's move. From here the ordinary switch does it — salamander lane $LANE $M — through the self-worker, once this pane is idle (the route that exists)"

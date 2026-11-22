@@ -273,7 +273,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now sala-watch.timer
 ```
 
-Check: `systemctl --user list-timers sala-watch.timer --no-pager` shows a NEXT time. Expected: within about 3 minutes after the first start. `sala watch --check` prints `healthy: the operation queue, the watches, the bare-pane revive and the post-boot report (to Slack) run` and exits 0 while a tmux server runs. With no session started yet it prints `tmux server is down` and exits 1: that is expected until the first session of step 6 exists, not a fault.
+Check: `systemctl --user list-timers sala-watch.timer --no-pager` shows a NEXT time. Expected: within about 3 minutes after the first start. `sala watch --check` prints `healthy: queue, watches, bare-pane revive, boot report` and exits 0 while a tmux server runs. With no session started yet it prints `tmux server is down` and exits 1: that is expected until the first session of step 6 exists, not a fault.
 
 Checked on a clean account: `systemd-analyze verify --user` on both files (exit 0) and `sala watch --check` (exit 0, the `healthy:` line). `TODO(verify)`: `daemon-reload`, `enable --now` and the first timer run were not done, because the check used no systemd user manager.
 

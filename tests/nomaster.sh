@@ -255,7 +255,7 @@ wait_lock; fake_up sala-test-h sala-test-a sala-test-b || bad "the panes did not
 
 echo "== watch with no master: --check, a plain tick that heals nothing"
 out=$("$SALA" watch --check 2>&1); rc=$?
-[ "$rc" = 0 ] && [ "$(tail -1 <<< "$out" | cut -c1-8)" = "healthy:" ] && ! has "$out" "retired" && ok "--check: exit 0, the last line leads with healthy: (provision's step reads its first 60 characters), no warning" || bad "--check ($rc): $out"
+[ "$rc" = 0 ] && [ "$(tail -1 <<< "$out" | cut -c1-8)" = "healthy:" ] && [ "$(tail -1 <<< "$out" | wc -c)" -le 61 ] && ! has "$out" "retired" && ok "--check: exit 0, the last line leads with healthy: and is at most 60 characters (provision's step cuts it there), no warning" || bad "--check ($rc): $out"
 : > "$WLOG"; : > "$POSTS"; n0=$(starts "$(uuid 3)"); t0=$(lines "$FAKE_TYPED_LOG")
 "$SALA" watch >/dev/null 2>&1; rc=$?
 [ "$rc" = 0 ] && ! grep -q 'HEAL' "$WLOG" && ! tmux has-session -t =sala-test-m 2>/dev/null && ok "a plain tick: exit 0, no heal, the retired master not recreated" || bad "plain tick (rc=$rc): $(<"$WLOG")"
@@ -275,12 +275,12 @@ set_master sala-test-a
 : > "$WLOG"; : > "$POSTS"; n0=$(starts "$(uuid 3)")
 "$SALA" watch >/dev/null 2>&1; rc=$?
 P=$(post "master path is retired")
-[ "$rc" = 0 ] && [ "$(posts)" = 1 ] && has "$P" "SALA_MASTER=sala-test-a" && grep -q 'master path is retired' "$WLOG" && [ "$(stv master_retired_warned)" = sala-test-a ] && ok "one tick: exit 0, one post naming the value, one log line, the state key set" || bad "warn tick (rc=$rc): posts $(posts): $(<"$POSTS") / $(<"$WLOG") / $(<"$ST")"
+[ "$rc" = 0 ] && [ "$(posts)" = 1 ] && has "$P" "SALA_MASTER=sala-test-a" && grep -q 'the watchdog no longer keeps, heals or restarts the master' "$WLOG" && [ "$(stv master_retired_warned)" = sala-test-a ] && ok "one tick: exit 0, one post naming the value, one log line, the state key set" || bad "warn tick (rc=$rc): posts $(posts): $(<"$POSTS") / $(<"$WLOG") / $(<"$ST")"
 ! grep -q 'HEAL' "$WLOG" && [ "$(starts "$(uuid 3)")" = "$n0" ] && ok "nothing healed or relaunched for the line" || bad "a heal for the left-over line: $(<"$WLOG")"
 "$SALA" watch >/dev/null 2>&1; rc=$?
-[ "$rc" = 0 ] && [ "$(posts)" = 1 ] && [ "$(grep -v NOTIFY "$WLOG" | grep -c 'master path is retired')" = 1 ] && ok "a second tick: no second post, no second log line" || bad "second tick (rc=$rc): posts $(posts) / $(<"$WLOG")"
+[ "$rc" = 0 ] && [ "$(posts)" = 1 ] && [ "$(grep -v NOTIFY "$WLOG" | grep -c 'the watchdog no longer keeps, heals or restarts the master')" = 1 ] && ok "a second tick: no second post, no second log line" || bad "second tick (rc=$rc): posts $(posts) / $(<"$WLOG")"
 cp "$ST" "$HOME/st.warned"; out=$("$SALA" watch --check 2>&1); rc=$?
-[ "$rc" = 0 ] && has "$out" "SALA_MASTER=sala-test-a is set" && [ "$(tail -1 <<< "$out" | cut -c1-8)" = "healthy:" ] && same_file "$ST" "$HOME/st.warned" && [ "$(posts)" = 1 ] && ok "--check: prints the line, exit 0, ends on healthy:, writes no state, posts nothing" || bad "--check with the line ($rc): $out"
+[ "$rc" = 0 ] && has "$out" "SALA_MASTER=sala-test-a is set" && has "$out" "will be removed in a later change" && ! has "$out" "does nothing" && [ "$(tail -1 <<< "$out" | cut -c1-8)" = "healthy:" ] && [ "$(tail -1 <<< "$out" | wc -c)" -le 61 ] && same_file "$ST" "$HOME/st.warned" && [ "$(posts)" = 1 ] && ok "--check: prints the line, exit 0, ends on healthy:, writes no state, posts nothing" || bad "--check with the line ($rc): $out"
 sed -i '/^master_retired_warned=/d' "$ST"; "$SALA" watch --check >/dev/null 2>&1; [ -z "$(stv master_retired_warned)" ] && ok "--check on a state without the key leaves it without" || bad "--check wrote the key"
 : > "$POSTS"; "$SALA" watch >/dev/null 2>&1   # the key was removed above: this tick says it once more
 [ "$(posts)" = 1 ] && [ "$(stv master_retired_warned)" = sala-test-a ] || bad "re-warn after the key was dropped: posts $(posts), key [$(stv master_retired_warned)]"

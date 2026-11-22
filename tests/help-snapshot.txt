@@ -22,7 +22,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander spawn  --suggest-name --side (--fork-of AGENT | --project <page key>)   the side session's name (<prefix>-side-<word><nn>)
   salamander spawn  --list
   salamander recycle [--update] [--force] [--not-master]   relaunch every pane, this one included, from one detached driver
-                                     (driven from the master session only — other panes hand the cue over; --not-master overrides)
+                                     (while SALA_MASTER is set it is driven from that session only — other panes hand the cue over; with no master `sala op recycle` runs it; --not-master overrides)
                                      (--update: `claude update` first — the two halves of "recycle")
                                      (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
                                      (every relaunch — recycle, revive, unpark, restore — passes the user settings' permissions.defaultMode as --permission-mode, because a resumed session otherwise keeps the mode its transcript recorded)
@@ -89,7 +89,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander unpark NAME [--dry-run]  bring a conversation parked by "← for agents" back into its pane (see lib/unpark.sh)
   salamander master [--name|--json|--unset]  the master session (SALA_MASTER; retired): is it live; --unset ends it
                                      (the operation queue replaces it: nothing healed or bridged, the post-boot report to Slack)
-  salamander cue [--from NAME] [--after "<next>"] [--dry-run] "<words>"  hand an operator cue ("recycle claude") to the master; --after leaves a note;
+  salamander cue [--from NAME] [--after "<next>"] [--dry-run] "<words>"  hand an operator cue ("recycle claude") to the master (only while SALA_MASTER is set and live; the watchdog no longer revives it); --after leaves a note;
                                      no master → the pointer to `salamander op` and exit 1, nothing delivered
   salamander op <verb> [args…] --from NAME --words "<the owner's words>"   queue a fleet operation for `watch` to run with no model (lib/op.sh):
                                      recycle [--update] [--force] · update [HOST…|--fleet] · revive [--only NAME]… [--force] ·
@@ -115,11 +115,11 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      keeps it) and the default for new sessions; no argument: the table (lib/lane.sh)
   salamander lane pin <session> <lane> | unpin <session> | pins   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a bulk move lists it as skipped, a move that names it still moves it (lib/lane.sh)
   salamander lane names [--json] [--write]   each lane's code, display name and old words (one line per lane: code, display, aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current; lib/lane.sh)
-  salamander lane fallback <lane> [--dry-run]   the dormant lane's sessions (the master by the rescue, last), its default and, at run time, its jobs move to the lane's fallback
+  salamander lane fallback <lane> [--dry-run]   the dormant lane's sessions (a configured master by the rescue, last), its default and, at run time, its jobs move to the lane's fallback
                                      (SALA_LANE_FALLBACK: subscription-1, subscription-2, aws-platform, api, sdk → bedrock; bedrock → subscription-1; one hop; used only if itself active and ready); a Fable session lands on opus;
                                      lane dormant <lane> and sala's own watch queue it by themselves (--no-fallback: not now); nothing moves back by itself: the table's HOME column, salamander lane <home> <session> (lib/lane.sh)
   salamander lane --migrate [--dry-run]   rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files once; idempotent, backups kept (lib/lane.sh)
-  salamander lane --rescue <lane> [--dry-run] [--force]   another session moves the master (SALA_MASTER) off a lane that is out (its usage
+  salamander lane --rescue <lane> [--dry-run] [--force]   another session moves the configured master (SALA_MASTER, while one is still set) off a lane that is out (its usage
                                      gone or its account dead, by sala's own watches); refused while the lane looks fine
   salamander sdk-pane <uuid> [<session>] [--model M] [--effort E]   the sdk lane's pane program, the line resume_cmd types in place
                                      of `claude --resume`: the Agent SDK on the API credit, until a call is refused, then the lane fallback's pick for sdk (bedrock by default; lib/sdk-pane.sh)
@@ -150,7 +150,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      resumed with it; no answer (or none yet from the answer seam: the board's decision by default) → it stays parked, exit 3
   salamander question list | show QID | sweep | file QID   the open questions · one · answer-and-resume every one with an answer · (re)file one
   salamander reauth NAME             any session: the sign-in link for the claude.ai NAME connector, for the owner (lib/reauth.sh)
-  salamander reauth NAME --done [--from ME] [--dry-run]   once signed in: check it, then cue the forced recycle to the master
+  salamander reauth NAME --done [--from ME] [--dry-run]   once signed in: check it, then cue the forced recycle (to the master while one is set)
                                      (no master: print the `sala op recycle --force … --words` line to queue it, exit 0)
   salamander alert [--channel NAME] "<headline>" ["<line>"…]   post an alert the way sala's own go (Slack, no Claude turn; for checks run
                                      from a systemd unit — lib/alert.sh); exit 0 posted, 1 post failed, 2 usage, 3 no notify command;
@@ -267,7 +267,7 @@ Dispatched by bin/salamander as `salamander question …` and `salamander resume
 
 ### sala recycle --help (exit 0)
   salamander recycle [--update] [--force] [--not-master]   relaunch every pane, this one included, from one detached driver
-                                     (driven from the master session only — other panes hand the cue over; --not-master overrides)
+                                     (while SALA_MASTER is set it is driven from that session only — other panes hand the cue over; with no master `sala op recycle` runs it; --not-master overrides)
                                      (--update: `claude update` first — the two halves of "recycle")
                                      (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
 

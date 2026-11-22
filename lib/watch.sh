@@ -33,9 +33,9 @@
 #                                boot time, kernel and the revive summary
 # Never: type into a busy pane or a prompt; kill anything; act while a resurrect restore or a
 # `salamander revive` is running; act twice on the same failure within SALA_WATCH_COOLDOWN.
-# There is no master session: the master path is retired, and a SALA_MASTER line left in the config only gets one notice
-# (THE RETIRED MASTER PATH below; `--check` prints it too). `--check` reports "healthy: …" and exits 0 unless the tmux
-# server is down.
+# The watchdog no longer keeps, heals or restarts a master session; a SALA_MASTER line left in the config is retired
+# (it will be removed in a later change) and gets one notice (THE RETIRED MASTER PATH below; `--check` prints it too).
+# `--check` reports "healthy: …" and exits 0 unless the tmux server is down.
 # The operation queue (lib/op.sh) runs fleet operations.
 # State: $SALA_LOG_DIR/salamander-watch.state (last action times, boot report). Log: salamander-watch.log.
 # Notify: SALA_WATCH_NOTIFY_CMD gets the message on stdin (e.g. a Slack helper).
@@ -1459,12 +1459,12 @@ unset _TICK_PANES_SET _TICK_PANES   # what follows may relaunch panes: it reads 
 # master or no master; a runner that ended without a result is settled. One started here counts as this run's automatic
 # launch (OP_LAUNCHED → AUTO_LAUNCHED below), so no auto-update, auto-relaunch or auto-recycle starts beside it in the same run.
 OP_LAUNCHED=0; [ "$CHECK_ONLY" = 1 ] || op_tick
-# THE RETIRED MASTER PATH: sala keeps, heals and bridges no master session any more, so a SALA_MASTER line left in the
-# config does nothing. It is said once per value, never an error: a changed value says it again, an emptied one drops the
-# key so a line added later says it again. `--check` prints the line and writes no state. Not said at config load
+# THE RETIRED MASTER PATH: the watchdog no longer keeps, heals or restarts the master, and a SALA_MASTER line left in the
+# config is retired and will be removed in a later change. It is said once per value, never an error: a changed value says
+# it again, an emptied one drops the key so a line added later says it again. `--check` prints the line and writes no state. Not said at config load
 # (common.sh runs on every sala call).
 if [ -n "${SALA_MASTER:-}" ]; then
-    MASTER_RETIRED_MSG="SALA_MASTER=$SALA_MASTER is set in $SALA_CONFIG, but the master path is retired: sala no longer keeps, heals or bridges a master session, so the line does nothing and can be deleted"
+    MASTER_RETIRED_MSG="SALA_MASTER=$SALA_MASTER is set in $SALA_CONFIG, but the watchdog no longer keeps, heals or restarts the master: the line is retired and will be removed in a later change"
     if [ "$CHECK_ONLY" = 1 ]; then echo "⚠ $MASTER_RETIRED_MSG"
     elif [ "$(st_get master_retired_warned)" != "$SALA_MASTER" ]; then
         st_set master_retired_warned "$SALA_MASTER"; wlog "$MASTER_RETIRED_MSG"
@@ -1998,6 +1998,6 @@ if boot_pending; then
     wlog "post-boot report posted"; exit 0
 fi
 if [ "$CHECK_ONLY" = 1 ]; then
-    echo "healthy: the operation queue, the watches, the bare-pane revive and the post-boot report (to Slack) run"
+    echo "healthy: queue, watches, bare-pane revive, boot report"
 fi
 exit 0

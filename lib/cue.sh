@@ -49,7 +49,7 @@ if [ -z "${SALA_CUE_TARGET:-}" ] && [ -n "$here" ] && [ "$here" = "$target" ]; t
 fi
 pane=$(tmux list-panes -t "$(tmux_win_t "$target")" -F '#{pane_id}' 2>/dev/null | head -1)
 mpid=""; [ -n "$pane" ] && mpid=$(claude_pid_under "$(tmux display -p -t "$pane" '#{pane_pid}')" 2>/dev/null)
-[ -n "$mpid" ] || { echo "the master '$target' is not live (no claude in its pane) — nothing was run; salamander watch heals it within 2 minutes, then say the cue again"; exit 2; }
+[ -n "$mpid" ] || { echo "the master '$target' is not live (no claude in its pane) — nothing was run; salamander watch no longer revives the master: bring it back by hand (salamander revive --only $target), then say the cue again"; exit 2; }
 sock=$(session_socket "$mpid")
 [ -n "$sock" ] || { echo "the master '$target' (pid $mpid) has no messaging socket in the registry — cannot deliver; tell ${SALA_OWNER_NAME}, nothing was run"; exit 4; }
 when=$(local_human)
