@@ -71,6 +71,7 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
   check --map F [--lanes F] [--models F] [--dry-run]                         drift between the registry and the pane map: report, repair
 """
 import argparse, datetime, glob, json, os, shutil, sys, tempfile, uuid
+from zoneinfo import ZoneInfo
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the helpers run with -I -S: the script's folder is not on the path by itself
 import lanewords   # the lane words (lib/lanewords.py): an old word is read as the lane's current code
 
@@ -834,10 +835,11 @@ EXPORT_KEYS = ("id", "name", "aliases", "project", "project_key", "role", "lane"
                "state", "created", "retired_at", "transcripts")
 
 
-def export_doc(path, machine, written):
+def export_doc(path, machine, written, sleeping_dir=""):
     """The document the heartbeat publishes as <fleet store>/<letter>/session-registry.json (docs/session-registry.md, phase 3).
     Reads `path` and raises RegistryError when it is missing or not a registry: the caller then keeps the last good file.
-    project is the row's project value (the page key until stackshot has ids), project_key the same value."""
+    project is the row's project value (the page key until stackshot has ids), project_key the same value. `sleeping_dir` is sala's markers' directory:
+    a row whose session is asleep carries `sleeping` (the marker's time)."""
     if not os.path.exists(path):
         raise RegistryError("%s does not exist" % path)
     try:
@@ -862,6 +864,9 @@ def export_doc(path, machine, written):
         pub = {k: o.get(k) for k in EXPORT_KEYS}
         if row_surface(o):   # additive: only a slack row carries the key, so every other row's published shape is as it was
             pub["surface"] = "slack"
+        since = row_sleeping_since(o, sleeping_dir)
+        if since is not None:   # additive too: only a sleeping session's row carries `sleeping` (its marker's ISO-Z time); `state` stays `live`
+            pub["sleeping"] = since
         rows.append(pub)
     rows.sort(key=lambda r: (r.get("created") or "", r.get("name") or "", r["id"]))
     return {"schema": 1, "machine": machine, "written": written, "sessions": {r["id"]: r for r in rows}}
@@ -995,22 +1000,60 @@ def table(rows, cols):
     return "\n".join(out)
 
 
-def row_state_shown(r, sleeping_dir):
-    """The STATE column of the text listing: `sleeping` for a live row whose current conversation (the last of its transcripts) has a marker
-    file in the sleeping directory (sala's common.sh, THE SLEEPING SESSIONS). Display only: the row, the registry file and the JSON keep `live`."""
-    st = r.get("state") or "-"
+def row_sleeping_since(r, sleeping_dir):
+    """The time a live row's session went to sleep (the marker's first word, `<ISO-Z>`; the file's own time when the line has none), or None when it is not
+    asleep: its current conversation (the last of its transcripts) has a marker file in the sleeping directory (sala's common.sh, THE SLEEPING SESSIONS)."""
     ts = r.get("transcripts") or []
     cur = ts[-1].get("id") if ts and isinstance(ts[-1], dict) else None
-    if st == "live" and sleeping_dir and isinstance(cur, str) and cur and "/" not in cur and not cur.startswith(".") and os.path.isfile(os.path.join(sleeping_dir, cur)):
-        return "sleeping"
-    return st
+    if r.get("state") != "live" or not sleeping_dir or not isinstance(cur, str) or not cur or "/" in cur or cur.startswith("."):
+        return None
+    path = os.path.join(sleeping_dir, cur)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            words = f.readline().split()
+        if words:
+            return words[0]
+        return datetime.datetime.fromtimestamp(os.stat(path).st_mtime, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except OSError:
+        return ""
+
+
+def row_state_shown(r, sleeping_dir):
+    """The STATE column of the text listing: `sleeping` for a live row whose session is asleep (row_sleeping_since). The row and the registry file keep `live`;
+    the JSON listing and the heartbeat's files say it in their own `sleeping` key."""
+    return "sleeping" if row_sleeping_since(r, sleeping_dir) is not None else (r.get("state") or "-")
+
+
+def _local_text(iso):
+    """`Sat Nov 21st 15:10 KST` for an ISO-Z time, in SALA_TZ (this machine's own zone when unset), as sala's local_human writes it; the word itself when it is no time."""
+    try:
+        t = datetime.datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    except ValueError:
+        return iso or "an unknown time"
+    z = os.environ.get("SALA_TZ")
+    try:
+        d = t.astimezone(ZoneInfo(z)) if z else t.astimezone()
+    except Exception:
+        d = t.astimezone()
+    n = d.day
+    suf = "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return "%s %s %d%s %s %s" % (d.strftime("%a"), d.strftime("%b"), n, suf, d.strftime("%H:%M"), d.strftime("%Z"))
 
 
 def cmd_list(R, a):
     rows = [r for r in R.rows.values() if a.all or r.get("state") == "live"]
     rows.sort(key=lambda r: (r.get("name") or "", r.get("created") or ""))
     if a.json:
-        print(json.dumps({"schema": 1, "sessions": [clean_row(r) for r in rows]}, indent=2, ensure_ascii=False))   # `surface` only on a slack row
+        out = []
+        for r in rows:
+            o = clean_row(r)
+            since = row_sleeping_since(r, a.sleeping)
+            if since is not None:
+                o["sleeping"] = since   # only a sleeper carries the key (its marker's time, ISO-Z); `state` stays `live`, so every other row's shape is as it was
+            out.append(o)
+        print(json.dumps({"schema": 1, "sessions": out}, indent=2, ensure_ascii=False))   # `surface` only on a slack row
         return
     if not rows:
         print("the session registry is empty (%s)" % R.path)
@@ -1022,6 +1065,10 @@ def cmd_list(R, a):
                     (r.get("role") or ("side" if r.get("side") else "-")) + (" [slack]" if row_surface(r) else ""),   # a side session (spawn --side) has no role: its column says so; a slack agent's mark follows it
                     len(r.get("transcripts") or []), ",".join(r.get("aliases") or []) or "-"))
     print(table(out, ("ID", "NAME", "STATE", "LANE", "MODEL", "PROJECT", "ROLE", "TRANSCRIPTS", "ALIASES")))
+    for r in rows:   # a sleeper's STATE says `sleeping`; its time is one line each under the table
+        since = row_sleeping_since(r, a.sleeping)
+        if since is not None:
+            print("sleeping: %s since %s (its claude ended on purpose, its pane stays; sala wake %s resumes it)" % (r.get("name") or "-", _local_text(since), r.get("name") or "-"))
     n = sum(1 for r in R.rows.values() if r.get("state") == "live")
     print("%d live, %d retired (%s)" % (n, len(R.rows) - n, R.path))
 

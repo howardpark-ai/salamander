@@ -607,6 +607,30 @@ quiet line above it) and is asked again with the next quota check; the rest of t
 sala's lane table has no such lane. The header and the tab's title read `Lane <name>` (the lane's name as sala says it, lower case: `laneLabel`). The page's own title is the label pill and the lane's name in the labels' words, `bedrock lane`, `aws-platform lane` (`laneLabel`, lower case), never the lane table's capitalised label (`Bedrock`, `Claude Platform on AWS`). **Details ›** on a card is in the plain text colour (`--text`), not the lane's colour; it keeps its hover underline and focus ring. The page is asked for at most as often
 as the quota is: when it opens, every minute, and when the tab is shown again.
 
+### Sleeping sessions
+
+A session sala put to sleep (`sala sleep`: its claude ended on purpose, its tmux session, pane and pane-map row stay; a marker file
+`$SALA_SLEEP_DIR/<conversation id>`, default `<sala state>/sleeping/`, holds `<ISO-Z time> <name>`) has no registry file, so
+`read_live_sessions` never lists it. `read_sleeping_sessions` does, read-only, from the markers: a marker counts only while the pane map
+(`SALA_SIDECAR`, default `<sala state>/pane-map.tsv`) has a row with its conversation id (a marker left by a session that is gone is no
+session), and a conversation or a name a live session already has is not listed twice (a wake in flight). The row is a session with pid `0`,
+status `sleeping` and `sleeping` set to the marker's time; `api/sessions` and `api/overview` carry the key on a sleeper and on nothing else.
+Every pid-keyed route (`/api/s/<pid>/...`) finds nothing at pid 0, and spend, usage and the transcript readers never see a sleeper.
+
+- **Sidebar**: a hollow dot, the word *sleeping* beside the name, and *asleep since ...* in the row's tooltip. **Overview**: the status reads
+  *sleeping* and the cell adds *since ...*. The time is the marker's, written in the page's zone (the same zone the rest of the page uses,
+  `zoneFormat`), never UTC and never the box's. A sleeping session is never drawn as idle, shell or a crashed one.
+- **Opening one wakes it.** Selecting a sleeper (a tap in the sidebar, an Overview link, `#s=<name>`) shows its note, not a chat, and asks
+  `POST /api/wake` once; the note says *Waking ...*, then follows the queued operation (`GET /api/spawn/status?op=`) and the sessions list
+  every 2 s. When the session is live again the ordinary poll opens it (a woken session keeps its conversation and its name). A refusal, a
+  stuck operation or four minutes without a wake shows the reason and a *Try again* button; nothing wakes on its own twice.
+- **`POST /api/wake`** `{"name"}` (`application/json`): for a name that is asleep now, runs `sala op wake --only NAME --from sala-web --words
+  "<owner>, via the sala web page: opened the sleeping session NAME, <time>"`, the owner's own act (the queue's words door; the reason door is
+  for a Claude session). 202 `{ok, op, name}` when queued; 200 `{ok, code: "awake"}` when the name is not asleep (nothing is queued and sala
+  is not run); 409 with sala's words when the queue refuses; 502 when sala cannot be run or answers with no `queued op` line; 400 for a body
+  with no valid name.
+- Nothing here puts a session to sleep. The idle tick that does is a later stage; today `sala sleep` is the only way.
+
 ## The header
 
 The title bar is light. It has a **three-column grid**:
@@ -1702,6 +1726,7 @@ accepted when its `Origin` matches the Host it came in on. `tests/test_hosts.py`
 | What | Where |
 |---|---|
 | Live sessions | `~/.claude/sessions/<pid>.json`; entries whose pid is gone (or reused, by `procStart`) are skipped. **One row per session, also for a conversation moved into a background job** (the CLI's "← for agents" view): the pane's claude stays as a viewer (`status` always `shell`, `parkedJobId` = the job's short id) and a second row, `kind` `bg` with that `jobId`, holds the live conversation under the same name. They are folded (`sessions.py` `read_live_sessions`, `job_row`): the pane's row carries the identity (name, tmux, pid), its status is the job's (working / idle / needs input), its `sessionId` is the job's (the transcript, the model and the spend are read from the live conversation), and the job's row is not listed. `/api/sessions` and the Overview carry `parkedJob` (the job id) on such a row only; the Overview's status cell shows the job's status and, beside it, `in background job eeeeeeee`, and the sidebar row's tooltip says the same. A job with no viewer row (the pane's claude gone) stays listed as its own session. `tests/test_parked_sessions.py` |
+| Sleeping sessions | `$SALA_SLEEP_DIR/<conversation id>` (default `<sala state>/sleeping/`; one line, `<ISO-Z time> <name>`) with the pane-map row (`SALA_SIDECAR`, default `<sala state>/pane-map.tsv`) of the same conversation id, read at each list (*Sleeping sessions*); read-only |
 | Roles, projects | `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles` (`~/stackshot` when unset; empty = no stackshot: no command, `rolesError` says so), cached 30 s; on failure the last good answer is kept |
 | Board items | stackshot's client API, `GET <client.url>/client/items?key=<session name>` with the bearer token from `$XDG_CONFIG_HOME/stackshot/client.token`, one read per live session a minute, the last good answer kept per session (*Board items*) |
 | Mockup pages | `$SALA_STATE_DIR/mockups/<n>.html` (default `~/.local/state/salamander/mockups/`), written by `sala mockup add`, read at each request; nothing is cached or listed |
@@ -1985,6 +2010,7 @@ part of `web/`.
 | `POST /api/spawn/project-agent` | `{"project", "name", "role", "front", "mandate"}` (the mandate one line, 600 characters) → stackshot's `post project-agent`; 200 `{ok, id, key, pageOwed, pageYaml, note}`; 403 `code: not-allowed` when stackshot refuses the project (retired or hidden); 409 `exists` (the name is taken); 400 a name that does not start with the project's name |
 | `GET /api/spawn/suggest?project=<key>&role=front\|back[&prefix=<p>][&new=1]` | `{"name"}` from `sala spawn --suggest-name [--prefix p] [--new]`: `<prefix>-main` only for a front agent of a project with no agent yet (sala's record lists it with none, or `new=1` says it has no page yet), else `<prefix>-<random word>` (a word picked at random, not in a fixed order; a missing or stale record gives a word too), never a name that is taken (a tmux session, a running claude, an agent of any project in stackshot's record); `prefix` is the project's real one (its main agent's name without `-main`), which the page sends; 400 for a bad key, role or prefix, 502 when sala could not say |
 | `POST /api/spawn` | `{"project", "role", "name", "mandate"?, "lane"?, "model"?, "effort"?}` as `application/json` (64 KB at most, the mandate 20 KB) → one `sala op spawn …`. 202 `{ok: true, op, name, project, role, output}` when queued; 409 with `code` `not-listed` (`page`, `name`, `role`, `block`: the `REGISTER:` line and stackshot's register command, `keeper`: sala's line or null, `error`), `no-page` (`page`, `error`), `refused` (`error`, `exit`) or `busy` (one spawn in flight); 400 a bad field (`error` says which), 413 too large, 403 cross-origin, 415 not JSON, 502 `code: error` when sala could not be run or did not finish in 90 s. Nothing typed is logged (*New session*) |
+| `POST /api/wake` | `{"name": "<a sleeping session>"}` as `application/json` -> `sala op wake --only NAME --from sala-web --words "..."`. 202 `{ok: true, op, name, output}` when queued (follow `GET /api/spawn/status?op=`); 200 `{ok: true, code: "awake", name}` when the name is not asleep (nothing queued); 409 `{ok: false, code: "refused", error}` with the queue's words; 502 when sala cannot be run; 400 for no valid name (*Sleeping sessions*) |
 | `GET /api/spawn/status?op=<id>` | the queued operation's record from sala's marker: `op`, `state` (queued, running, waiting, done, stuck, absorbed, cancelled), `result`, `args`, `verb`, `from`, `time`, `started`, `ended`, `unit` (the ones the marker has), and, while `state` is queued, `behind` (what is ahead of it in the queue, running first: a list of `{op, verb, arg, state}`) and `behind_line` (one sentence counted by verb, "" when nothing is ahead); 400 for a bad id, 404 for none |
 | `POST /api/debug/<kind>`, `GET /api/debug/<kind>?n=200` | `kind` is `timing`: a record or a list of them (`application/json`, 64 KB at most) appended to `<kind>-debug.log`, 204; the log's last n lines as `text/plain`, the timing log as one readable line a record unless `?raw=1` (temporary; *Timing*) |
 

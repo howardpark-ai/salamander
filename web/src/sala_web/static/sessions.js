@@ -21,8 +21,8 @@ const CARD_RANK = { active: 0, pending: 0, dormant: 1, unconfigured: 2 };  // th
 const SPEND_STALE_MS = 900000;                   // an answer older than this shows "as of": the server counts every 5 minutes
 const PLACEHOLDER_ROWS = 3;                 // a lane's usual limits: session, week, one model's week
 const ROLE_RANK = { front: 1, back: 2 };  // any other role (an old registry row) ranks after back
-const STATUS_DOT = { working: "busy", idle: "idle", shell: "shell", "needs input": "waiting" };
-const STATUS_KEY = { working: "ov.status.working", idle: "ov.status.idle", shell: "ov.status.shell", "needs input": "ov.status.needsInput" };
+const STATUS_DOT = { working: "busy", idle: "idle", shell: "shell", "needs input": "waiting", sleeping: "sleeping" };
+const STATUS_KEY = { working: "ov.status.working", idle: "ov.status.idle", shell: "ov.status.shell", "needs input": "ov.status.needsInput", sleeping: "ov.status.sleeping" };
 const statusText = (s) => (s && Object.hasOwn(STATUS_KEY, s) ? tl(STATUS_KEY[s]) : s || "");   // a status this page does not know shows as the server sent it
 
 const sp = { laneDrag: false, laneRedraw: false, rows: [], key: null, dir: 1, timer: null, qtimer: null, ctimer: null, follow: null, tries: 0,
@@ -161,6 +161,8 @@ function sessionRow(r) {
   link.textContent = r.name;
   const st = span("sp-status " + ({ busy: "working", waiting: "waiting" }[STATUS_DOT[r.status]] || ""), "");
   st.append(span("dot " + (STATUS_DOT[r.status] || ""), ""), statusText(r.status));
+  // a sleeping session (its claude ended on purpose, its pane stays): since when, in the page's zone; opening it wakes it
+  if (r.sleeping !== undefined && sleptAt(r.sleeping)) st.append(span("sp-muted", tl("ov.row.sleepingSince", { when: sleptAt(r.sleeping) }), tl("ov.row.sleepingTip")));
   // a conversation moved into a background job: one row, the job's status above, and where it runs
   if (r.parkedJob) st.append(span("sp-muted", tl("ov.row.inJob", { job: r.parkedJob }), tl("ov.row.jobTitle")));
   tr.append(

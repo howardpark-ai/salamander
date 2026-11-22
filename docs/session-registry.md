@@ -359,7 +359,13 @@ box** (the writer's letter, beside `machine.json` and `sessions.json`). It is bu
   publish for good until it is switched back; the file already there is not deleted.
 - Live store only (never the git store; it carries working directories). A swept box (`SALA_FLEET_HOSTS`) gets no registry file: its
   `sessions.json` is not reachable from the writer.
-- `sessions.json` (the one stackshot's `session_links` reads, keyed by transcript) is **untouched**.
+- **A sleeping session** (`sala sleep`; docs/subcommands.md, *Sleeping sessions*) keeps `"state": "live"` and carries one more key,
+  `"sleeping": "<ISO Z>"` (the time in its marker `$SALA_SLEEP_DIR/<conversation uuid>`, which is the whole fact); no other row has the key.
+  Present from contract version 51 (interface 35 of docs/stackshot-contracts.md). `sala sessions --json` shows the same key; the registry file
+  itself (`sessions.json` in the state directory) never holds it.
+- `sessions.json` of the heartbeat (the one stackshot's `session_links` reads, keyed by transcript) keeps its shape; the only change is that a
+  sleeping session, which has no live claude and so no row before, gets one on its own box, keyed by its conversation uuid, with the same
+  `{name, url, seen, machine}` and `"sleeping": "<ISO Z>"`.
 
 ### The resolver
 

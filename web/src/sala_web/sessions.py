@@ -43,6 +43,7 @@ class Session:
     agent_id: str | None = None  # sala's permanent id for the agent (sessions.json row id; outlives a rename, a recycle, a /clear), else None
     aliases: tuple[str, ...] = ()  # the names the agent had before (the registry row's aliases)
     surface: str | None = None  # "slack" for a front agent that answers the owner on Slack (the registry row's or the roles entry's surface); None is a sala session
+    sleeping: str | None = None  # the ISO-Z time a sleeping session went to sleep (sala's marker); None for every live one. A sleeper has no process: pid 0, status "sleeping"
 
     @property
     def tmux_session(self) -> str:
@@ -79,6 +80,8 @@ class Session:
                 out["aliases"] = list(self.aliases)
         if self.surface == "slack":   # only a slack agent carries the key (absent means sala), so every other session's payload is as it was
             out["surface"] = "slack"
+        if self.sleeping is not None:   # only a sleeping session carries the key, so every other session's payload is as it was
+            out["sleeping"] = self.sleeping
         return out
 
 
@@ -246,6 +249,45 @@ def read_live_sessions(settings: Settings) -> list[Session]:
     # the Shell drawer's tmux session is no Claude session: a registry row that points into it (a claude started by
     # hand inside it) is not listed either, so no list, count or send can ever aim at the owner's shell
     return [s for s in out if s.tmux_session != SHELL_SESSION]
+
+
+SLEEP_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")   # one word that cannot read as an option: what a marker may name, and what a wake may be asked for
+
+
+def read_sleeping_sessions(settings: Settings, live: list[Session]) -> list[Session]:
+    """The sleeping sessions: sala ended their claude on purpose and kept their tmux session and pane-map row (sala's common.sh, THE SLEEPING SESSIONS), so
+    no registry file lists them and read_live_sessions never will. One marker file a session, `<sleeping dir>/<conversation id>`, one line `<ISO-Z time> <name>`;
+    a row of the pane map with that id must exist (a marker left behind by a session that is gone is no session), and it gives the working directory. Each is a
+    Session with pid 0, status "sleeping" and `sleeping` set to the marker's time, so the sidebar and the overview list it and every pid-keyed call
+    (transcript, stream, send) finds nothing at pid 0. A conversation a live session already runs (a wake in flight) or a name a live session already has is
+    not listed twice. Read-only; [] when there is no marker."""
+    try:
+        files = sorted(p for p in settings.sleep_dir.iterdir() if p.is_file() and not p.name.startswith("."))
+    except OSError:
+        return []
+    if not files:
+        return []
+    rows: dict[str, tuple[str, str]] = {}   # conversation id -> (name, cwd)
+    try:
+        for line in settings.pane_map.read_text(encoding="utf-8", errors="replace").splitlines():
+            c = line.split("\t")
+            if len(c) >= 3 and c[1]:
+                rows[c[1]] = (c[2], c[3] if len(c) > 3 else "")
+    except OSError:
+        return []
+    have_sid = {s.session_id for s in live}
+    have_name = {s.name for s in live}
+    out: list[Session] = []
+    for p in files:
+        try:
+            when, _, name = p.read_text(encoding="utf-8", errors="replace").splitlines()[0].partition(" ")
+        except (OSError, IndexError):
+            continue
+        name = name.strip()
+        if p.name not in rows or not name or not SLEEP_NAME_RE.match(name) or p.name in have_sid or name in have_name:
+            continue
+        out.append(Session(pid=0, session_id=p.name, name=name, cwd=rows[p.name][1], status="sleeping", tmux="", sleeping=when or ""))
+    return out
 
 
 # The model a pane runs NOW, for the sessions table. The transcript's latest reply alone lags: a session relaunched on a
@@ -719,7 +761,7 @@ def group_sessions(sessions: list[Session], roles: dict[str, dict], side: dict[s
     return result
 
 
-STATUS_LABEL = {"busy": "working", "shell": "shell", "waiting": "needs input"}
+STATUS_LABEL = {"busy": "working", "shell": "shell", "waiting": "needs input"}   # "sleeping" and "idle" go as they are
 
 
 def overview_rows(sessions: list[Session], roles: dict[str, dict], side: dict[str, dict] | None = None,
@@ -739,6 +781,7 @@ def overview_rows(sessions: list[Session], roles: dict[str, dict], side: dict[st
                     "role": s["role"], "status": STATUS_LABEL.get(s["status"], s["status"]), "lane": s["lane"],
                     **({"parkedJob": s["parkedJob"]} if s.get("parkedJob") else {}),
                     **({"surface": "slack"} if s.get("surface") == "slack" else {}),
+                    **({"sleeping": s["sleeping"]} if s.get("sleeping") is not None else {}),
                 })
     return rows
 
