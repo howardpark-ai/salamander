@@ -21,7 +21,10 @@
 #                               defer the call, park the question, answer it on resume (lib/question.sh, lib/question.py)
 #   salamander hook session-start   SessionStart hook (matcher "*", docs/session-registry.md): record a fresh start of
 #                               this pane's session in the registry: source clear → why clear, resume → resume, startup → start,
-#                               compact → nothing. The row is SALA_SESSION_ID (spawn puts it in the pane), else the pane's tmux
+#                               compact → nothing. The row is SALA_SESSION_ID (spawn puts it in the pane's shell, so every claude started
+#                               there inherits it) — but only for the claude IN that row's own pane (the fleet's tmux server, TMUX_PANE the
+#                               row's first pane: a throwaway on a private server, in another session, pane or window, or outside tmux
+#                               records nothing and prints nothing, one line in sessions.log) — else the pane's tmux
 #                               session name. Exit 0 always, prints nothing (a SessionStart hook's stdout is read as context) — except
 #                               for ONE case: source clear in a live BACK-role row prints one additionalContext line that
 #                               names the agent and its project and sends it to its mandate (below); SALA_CLEAR_CONTEXT=off prints nothing
@@ -169,7 +172,8 @@ case "${1:-}" in
         # session_id (the conversation, a claude session id), source (startup | resume | clear | compact) and cwd. It must never fail
         # a start and never print: a SessionStart hook's stdout is added to the model's context, so all of it goes to /dev/null and
         # the exit status is 0 on every path. Nothing runs for compact (the conversation is the same) or for a headless `claude -p`
-        # (CLAUDE_CODE_ENTRYPOINT=sdk-cli: a run a session starts inherits SALA_SESSION_ID, and is not the session).
+        # (CLAUDE_CODE_ENTRYPOINT=sdk-cli: a run a session starts inherits SALA_SESSION_ID, and is not the session). The same goes for
+        # an interactive claude that is not in the row's own pane (below, THE ROW'S OWN PANE): it inherited the id from a shell and is not the session.
         [ -t 0 ] && { echo "salamander hook session-start reads the SessionStart hook input on stdin (a settings.json hook)" >&2; exit 0; }
         exec 3>&1 >/dev/null 2>&1                 # fd 3 is the hook's real stdout: only the cleared background agent's context line goes there (below)
         [ "${CLAUDE_CODE_ENTRYPOINT:-}" = sdk-cli ] && exit 0
@@ -187,14 +191,37 @@ PY
         case "${_src:-}" in clear) _why=clear ;; resume) _why=resume ;; startup) _why=start ;; *) exit 0 ;; esac
         [ -n "${_sid:-}" ] || exit 0
         _target="${SALA_SESSION_ID:-}"
-        if [ -z "$_target" ]; then            # a pane spawn did not make (adopted, restored) or a registry that was off at its spawn: the row of its tmux session name
+        _t=(); command -v timeout >/dev/null 2>&1 && _t=(timeout 30)
+        if [ -n "$_target" ]; then            # THE ROW'S OWN PANE: the id sits in the pane's shell environment, so every claude started from that shell inherits it, a throwaway on a private tmux server included. Only the claude that IS in the row's pane may name the row
+            . "$SALA_ROOT/lib/common.sh"
+            _why_not=""
+            if [ -z "${TMUX_PANE:-}" ]; then _why_not="the claude is in no tmux pane"
+            elif ! on_fleet_server; then _why_not="the claude is on another tmux server ($FLEET_SOCKET_SEEN)"
+            else
+                IFS= read -r -d '' _py <<'PY' || true
+import json, sys
+try: r = json.load(sys.stdin)
+except Exception: sys.exit(0)
+if isinstance(r, dict) and isinstance(r.get("pane"), str): print(r["pane"])
+PY
+                _rp=$(${_t[@]+"${_t[@]}"} "$SALA_BIN" sessions resolve "$_target" --live --json </dev/null 3>&- 2>/dev/null | python3 -I -S -c "$_py" 2>/dev/null) || _rp=""
+                _own=""; [ -z "$_rp" ] || _own=$(tmux list-panes -t "$(tmux_win_t "$_rp")" -F '#{pane_id}' 2>/dev/null | head -1)   # the row's pane id: the lookup _inbox_push makes
+                if [ -z "$_rp" ]; then _why_not="the row is not live, or not found"
+                elif [ -z "$_own" ]; then _why_not="the row's tmux session has no pane on this server"
+                elif [ "$_own" != "$TMUX_PANE" ]; then _why_not="the claude is in pane $TMUX_PANE, the row's pane is $_own"
+                fi
+            fi
+            if [ -n "$_why_not" ]; then
+                ! sessions_on || sessions_note "hook session-start: conversation ${_sid:0:8} not recorded on row ${_target:0:8}: $_why_not"
+                exit 0
+            fi
+        else                                  # a pane spawn did not make (adopted, restored) or a registry that was off at its spawn: the row of its tmux session name
             [ -n "${TMUX_PANE:-}" ] || exit 0
             . "$SALA_ROOT/lib/common.sh"
             on_fleet_server || exit 0
             _target=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || exit 0
             [ -n "$_target" ] && [ "$_target" != "${SALA_RC_SESSION:-}" ] || exit 0
         fi
-        _t=(); command -v timeout >/dev/null 2>&1 && _t=(timeout 30)
         ${_t[@]+"${_t[@]}"} "$SALA_BIN" sessions record "$_target" --transcript "$_sid" --why "$_why" </dev/null 3>&- || true
         # A CLEARED BACKGROUND AGENT (lib/wrapup.sh clears an idle one when SALA_IDLE_WRAPUP=on; off by default): the conversation it was started with, whose first
         # message sent it to its mandate, is gone. The CLAUDE.md of its directory (the background brief) and the keeper hook's Current

@@ -118,7 +118,9 @@
 # (--project … --role back) spawned while the back agents' lane rule has them off their home lane (SALA_BACK_LANE_RULE=on) takes the rule's lane, and
 # so does a front agent (--role front) spawned while the rule's front step is engaged (it fired in the current weekly window).
 # THE SESSION REGISTRY'S ID (phase 2): before the pane's claude starts, spawn makes (or finds) the registry row and puts its
-# id in the pane's environment as SALA_SESSION_ID, so the session's SessionStart hook can name its row; a spawn that does not come
+# id in the pane's environment as SALA_SESSION_ID, so the session's SessionStart hook can name its row (the hook records only for the
+# claude in that row's own pane: any other claude that inherited the id from the pane's shell, such as a throwaway on a private tmux
+# server, names no row; lib/hook.sh); a spawn that does not come
 # up takes the row back (see the comment at tmux new-session below). SALA_SESSIONS=off: no id, no export.
 # A THROWAWAY'S SPAWNER: a spawn with no --project, --side or --master, run by a Claude session, writes the
 # caller's tmux session name onto the row as spawned_by (common.sh spawn_caller; docs/session-registry.md). `sala op retire NAME --from YOU` takes
@@ -674,7 +676,8 @@ PANE=$(tmux_win_t "$NAME" 0); SIDE_T0=$(date +%s)
 # THE SESSION'S ID (phase 2): the registry row is made BEFORE the pane's claude starts, and its id goes into the pane's
 # environment as SALA_SESSION_ID (tmux new-session -e: the pane's shell, so every later claude typed there carries it, a recycle's
 # resume included; and on the launch line, for a tmux without -e), so the session's own SessionStart hook (`salamander hook
-# session-start`) can name its row. Nothing when SALA_SESSIONS=off or the registry fails: the hook then finds the row by the
+# session-start`) can name its row. The hook acts on the id only for the claude that is in the row's own pane (a claude on another tmux
+# server, in another session, pane or window or outside tmux inherits the id too and is refused; lib/hook.sh). Nothing when SALA_SESSIONS=off or the registry fails: the hook then finds the row by the
 # tmux session name. A spawn that does not come up takes the row back (the exit trap below); a kill leaves it for `sessions --check`.
 SPAWN_SID=$(sessions_prepare "$NAME" "$NAME" "$CWD" 2>/dev/null); SPAWN_UP=""
 trap '[ -z "$SPAWN_UP" ] && [ -n "$SPAWN_SID" ] && sessions_abandon "$SPAWN_SID"' EXIT

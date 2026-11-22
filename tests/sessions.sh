@@ -34,7 +34,7 @@ export SALA_AUTO_UPDATE=off SALA_BIN="$ROOT/bin/salamander" SALA_ROOT="$ROOT" SA
 SALA="$ROOT/bin/salamander"; SOCK="sala-sessions-$$"
 export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"   # no server runs on it: on_fleet_server is true, tmux calls find nothing
 eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux   # never the real server, whatever the environment
-cleanup() { tmux_socket_rm; rm -rf "$HOME" 2>/dev/null; true; }; trap cleanup EXIT
+cleanup() { command tmux -L "$SOCK-other" -f /dev/null kill-server 2>/dev/null; tmux_socket_rm "$SOCK-other"; tmux_socket_rm; rm -rf "$HOME" 2>/dev/null; true; }; trap cleanup EXIT
 . "$ROOT/lib/common.sh"; MAP="$SALA_SIDECAR"; REG="$SALA_SESSIONS_FILE"; RLOG="$SALA_SESSIONS_LOG"
 U1=aaaaaaaa-0000-4000-8000-000000000001 U2=bbbbbbbb-0000-4000-8000-000000000002 U3=cccccccc-0000-4000-8000-000000000003
 U4=dddddddd-0000-4000-8000-000000000004 U5=eeeeeeee-0000-4000-8000-000000000005
@@ -290,9 +290,11 @@ echo "== phase 2: the SessionStart hook (salamander hook session-start)"
 H1=22222222-0000-4000-8000-0000000000b1; H2=22222222-0000-4000-8000-0000000000b2; H3=22222222-0000-4000-8000-0000000000b3; H4=22222222-0000-4000-8000-0000000000b4
 ledger_write add hook1 "$H1" hook1 "$HOME/wh" >/dev/null 2>&1
 HID=$(q hook1 id | tr -d '"')
-hookrun() {  # <source> <session id> [env…] → HOUT (stdout+stderr), HRC; the payload as Claude Code sends it
+tmux new-session -d -s hook1 2>/dev/null     # the row's own pane: a claude there is the session; HOOK_PANE is the pane the hook's claude is in (hookrun)
+HOOK_PANE=$(tmux list-panes -t =hook1: -F '#{pane_id}' 2>/dev/null | head -1)
+hookrun() {  # <source> <session id> [env…] → HOUT (stdout+stderr), HRC; the payload as Claude Code sends it, from the claude in $HOOK_PANE
     local src="$1" sid="$2"; shift 2
-    HOUT=$(printf '{"session_id":"%s","transcript_path":"/x/%s.jsonl","cwd":"/w","hook_event_name":"SessionStart","source":"%s"}' "$sid" "$sid" "$src" | env "$@" "$SALA" hook session-start 2>&1); HRC=$?
+    HOUT=$(printf '{"session_id":"%s","transcript_path":"/x/%s.jsonl","cwd":"/w","hook_event_name":"SessionStart","source":"%s"}' "$sid" "$sid" "$src" | TMUX_PANE="$HOOK_PANE" env "$@" "$SALA" hook session-start 2>&1); HRC=$?
 }
 hookrun clear "$H2" SALA_SESSION_ID="$HID"
 [ "$HRC" = 0 ] && [ -z "$HOUT" ] && [ "$(ntr hook1)" = "2 $H2:clear" ] && ok "source clear → why clear, appended to the row SALA_SESSION_ID names; exit 0, nothing printed" || bad "clear: rc=$HRC out='$HOUT' :: $(ntr hook1)"
@@ -315,14 +317,14 @@ for junk in '' 'not json' '{' '[]' '"x"' '{"session_id":5,"source":"clear"}' '{"
     HOUT=$(printf '%s' "$junk" | SALA_SESSION_ID="$HID" "$SALA" hook session-start 2>&1); HRC=$?
     [ "$HRC" = 0 ] && [ -z "$HOUT" ] && same_file "$REG" "$HOME/reg.before" || bad "garbage '$junk': rc=$HRC out='$HOUT'"
 done; ok "garbage on stdin (empty, text, truncated or wrong-typed JSON, a path in session_id, binary): exit 0, silent, nothing written"
-HOUT=$(printf '{"session_id":"%s","source":"clear"}' "$H2" | SALA_SESSION_ID="$HID" SALA_BIN=/nonexistent/salamander "$SALA" hook session-start 2>&1); HRC=$?
+HOUT=$(printf '{"session_id":"%s","source":"clear"}' "$H2" | TMUX_PANE="$HOOK_PANE" SALA_SESSION_ID="$HID" SALA_BIN=/nonexistent/salamander "$SALA" hook session-start 2>&1); HRC=$?
 [ "$HRC" = 0 ] && [ -z "$HOUT" ] && ok "even with the sala binary it calls missing: exit 0, silent" || bad "missing binary: rc=$HRC '$HOUT'"
-HOUT=$(SALA_SESSION_ID="$HID" "$SALA" hook session-start </dev/null 2>&1); HRC=$?
+HOUT=$(TMUX_PANE="$HOOK_PANE" SALA_SESSION_ID="$HID" "$SALA" hook session-start </dev/null 2>&1); HRC=$?
 [ "$HRC" = 0 ] && [ -z "$HOUT" ] && ok "empty stdin: exit 0, silent" || bad "empty stdin: rc=$HRC '$HOUT'"
 D8="$HOME/hookoff8"; mkdir -p "$D8"
 ( export SALA_SIDECAR="$D8/pane-map.tsv" SALA_SESSIONS=write; unset SALA_SESSIONS_FILE; . "$ROOT/lib/common.sh"; ledger_write add h8 "$H1" h8 /w/h8 >/dev/null 2>&1; python3 -c 'import json,sys; print(list(json.load(open(sys.argv[1]))["sessions"])[0])' "$SALA_SESSIONS_FILE" > "$HOME/h8.id" )
 cp "$D8/sessions.json" "$D8/before.json"
-HOUT=$(printf '{"session_id":"%s","source":"clear"}' "$H2" | SALA_SESSIONS=off SALA_SIDECAR="$D8/pane-map.tsv" SALA_SESSION_ID="$(<"$HOME/h8.id")" "$SALA" hook session-start 2>&1); HRC=$?
+HOUT=$(printf '{"session_id":"%s","source":"clear"}' "$H2" | TMUX_PANE="$HOOK_PANE" SALA_SESSIONS=off SALA_SIDECAR="$D8/pane-map.tsv" SALA_SESSION_ID="$(<"$HOME/h8.id")" "$SALA" hook session-start 2>&1); HRC=$?
 [ "$HRC" = 0 ] && [ -z "$HOUT" ] && same_file "$D8/sessions.json" "$D8/before.json" && ok "SALA_SESSIONS=off: the hook writes nothing" || bad "hook off: rc=$HRC '$HOUT'"
 # the fallback: no SALA_SESSION_ID, the row of the pane's tmux session name (a private server on this suite's socket)
 tmux new-session -d -s hookpane 2>/dev/null
@@ -330,6 +332,45 @@ HP=$(tmux list-panes -t =hookpane -F '#{pane_id}' 2>/dev/null | head -1)
 ledger_write add hookpane "$H1" hookpane "$HOME/wh" >/dev/null 2>&1
 HOUT=$(printf '{"session_id":"%s","source":"clear"}' "$H2" | env -u SALA_SESSION_ID TMUX_PANE="$HP" "$SALA" hook session-start 2>&1); HRC=$?
 [ "$HRC" = 0 ] && [ -z "$HOUT" ] && [ "$(ntr hookpane)" = "2 $H2:clear" ] && ok "no SALA_SESSION_ID: the row named like the pane's tmux session takes it" || bad "fallback: rc=$HRC '$HOUT' :: $(ntr hookpane)"
+
+echo "== phase 2: the hook records only for the claude in the row's own pane (SALA_SESSION_ID is inherited by every claude started from the pane's shell)"
+# A throwaway `claude` on a private tmux server, in another tmux session, in another pane or window of the row's session, or with no tmux at all
+# inherits SALA_SESSION_ID and must name no row. The row hook1 (pane $HOOK_PANE) is the one at stake; sessions.log gets one line per refusal.
+SLOG="$SALA_SESSIONS_LOG"; nref() { grep -c "hook session-start: conversation .* not recorded on row" "$SLOG" 2>/dev/null || true; }
+HN=3072; huid() { HN=$((HN+1)); printf -v CID "22222222-0000-4000-8000-%012x" "$HN"; }   # a fresh conversation id per check, in CID (no subshell: the counter must advance)
+tmux new-session -d -s hookother 2>/dev/null; HPO=$(tmux list-panes -t =hookother: -F '#{pane_id}' | head -1)
+tmux split-window -d -t =hook1: 2>/dev/null; HPS=$(tmux list-panes -t =hook1: -F '#{pane_id}' | tail -1)    # a second pane of the row's window
+tmux new-window -d -t =hook1: 2>/dev/null; HPW=$(tmux list-panes -s -t =hook1 -F '#{pane_id}' | tail -1)    # a second window of the row's session (not the active one)
+cp "$REG" "$HOME/reg.own"; ref0=$(nref)
+refused() {  # <label> <source> <conversation id> [hookrun env…] → ok when exit 0, silent, nothing written
+    local label="$1" src="$2" cid="$3"; shift 3
+    hookrun "$src" "$cid" SALA_SESSION_ID="$HID" "$@"
+    [ "$HRC" = 0 ] && [ -z "$HOUT" ] && same_file "$REG" "$HOME/reg.own" && ok "$label: not recorded, exit 0, silent" || bad "$label: rc=$HRC out='$HOUT' $(ntr hook1)"
+}
+# a throwaway on a private tmux server: its TMUX names that server, and its pane id can be the very id of the row's pane
+PSOCK="$SOCK-other"; PT() { command tmux -L "$PSOCK" -f /dev/null "$@"; }
+PT new-session -d -s throw 2>/dev/null; PP=$(PT list-panes -t =throw: -F '#{pane_id}' | head -1); k=0
+while [ "$PP" != "$HOOK_PANE" ] && [ "$k" -lt 40 ]; do PT new-session -d -s "throw$k" 2>/dev/null; PP=$(PT list-panes -t "=throw$k:" -F '#{pane_id}' | head -1); k=$((k+1)); done
+PTMUX="$(PT display -p '#{socket_path}'),$(PT display -p '#{pid}'),0"
+[ "$PP" = "$HOOK_PANE" ] && ok "setup: a pane on the private server has the row's pane id ($HOOK_PANE)" || bad "setup: private pane $PP never matched $HOOK_PANE"
+for src in clear resume startup; do
+    huid; ( unset -f tmux; refused "a claude on a private tmux server (the row's pane id there), source $src" "$src" "$CID" TMUX_PANE="$PP" TMUX="$PTMUX" )
+done
+huid; refused "the fleet server, another tmux session" clear "$CID" TMUX_PANE="$HPO"
+huid; refused "the fleet server, a second pane of the row's window" clear "$CID" TMUX_PANE="$HPS"
+huid; refused "the fleet server, a second window of the row's session" clear "$CID" TMUX_PANE="$HPW"
+huid; refused "a pane id the server does not have" clear "$CID" TMUX_PANE=%99999
+huid; refused "no tmux at all (no TMUX_PANE)" clear "$CID" TMUX_PANE=
+huid; refused "no tmux at all, source startup" startup "$CID" TMUX_PANE= TMUX=
+[ "$(( $(nref) - ref0 ))" = 9 ] && ok "each refusal is one line in sessions.log" || bad "log lines: $(( $(nref) - ref0 )) of 9: $(tail -3 "$SLOG")"
+huid; hookrun clear "$CID" SALA_SESSION_ID=00000000-0000-4000-8000-000000000000
+[ "$HRC" = 0 ] && [ -z "$HOUT" ] && same_file "$REG" "$HOME/reg.own" && ok "an id that is no live row, from a pane: nothing recorded" || bad "unknown id: rc=$HRC '$HOUT'"
+for src in clear resume startup; do   # the row's own pane, every source: recorded as before
+    case $src in clear) w=clear ;; resume) w=resume ;; startup) w=start ;; esac
+    huid; cid=$CID; hookrun "$src" "$cid" SALA_SESSION_ID="$HID"
+    [ "$HRC" = 0 ] && [ -z "$HOUT" ] && [ "$(ntr hook1 | grep -cE " $cid:$w( |\$)")" = 1 ] && ok "the row's own pane (with a second pane and window beside it), source $src: recorded as $w" || bad "own pane $src: rc=$HRC '$HOUT' :: $(ntr hook1)"
+done
+PT kill-server 2>/dev/null; tmux_socket_rm "$PSOCK"
 tmux kill-server 2>/dev/null
 
 echo "== phase 3: the heartbeat publishes session-registry.json"
