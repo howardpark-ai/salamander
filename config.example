@@ -254,6 +254,13 @@
                                  #   Claude turn. `sala watch --stuck` runs it alone, `--stuck --dry-run` prints what it would post. off or 0 = never
 #SALA_STUCK_CONFIRM=90           # seconds a question must have been on the screen before it is posted (the timer's second tick)
 #SALA_STUCK_RETRIES=2            # a post the notify command refused is tried again on this many later ticks, then given up for that question
+#SALA_UNREGISTERED_CHECK=on      # watch, per pane: one post when a live agent session is on no project's agents map in stackshot's project record (it then shows
+                                 #   under Unregistered on the board: a hand /rename, a pane made outside sala). The spawn gate's one exceptions list is skipped (scratch-*,
+                                 #   *-check-*, *-test-*, *-probe-*, side sessions, sala's shell, a generated throwaway). A record that cannot answer (stale, missing, unreadable)
+                                 #   posts one "could not check" line instead and no per-pane line. Silent on a box with no stackshot, and with SALA_AGENT_CHECK=off.
+                                 #   `sala watch --unregistered` runs it alone. off or 0 = never
+#SALA_UNREGISTERED_GRACE=600     # seconds a pane must have been missing from the record before it is posted (one record refresh: stackshot rewrites it every few minutes)
+#SALA_UNREGISTERED_BACKOFF=21600 # seconds before a pane that is still missing is posted again (6 h); the same for the "could not check" line
 #SALA_STUCK_INSTANT=on           # the Notification hook (`sala hook notify`; docs/stuck-question-recovery.md): the same post at once, about 6 s
                                  #   after a dialog shows, instead of at the watch's 90 s tick; through the watch's own post path and state, so the 90 s post
                                  #   does not repeat it. Needs the hook in settings.json (matcher permission_prompt|elicitation_dialog|elicitation_url_dialog).

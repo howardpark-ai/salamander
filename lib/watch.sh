@@ -20,6 +20,7 @@
 #   salamander watch --continued    only the continued-in follow (cont_tick, lib/continuedin.sh): a pane that moved to a new transcript id keeps its row
 #   salamander watch --back-lanes [--dry-run]   only the back agents' lane rule (back_lane_run, below; SALA_BACK_LANE_RULE=on; common.sh "THE BACK AGENTS' LANE RULE"); --dry-run prints what it would queue (the lane it would really use: a dormant target is replaced by its fallback lane, with the reason), and queues and writes nothing
 #   salamander watch --wrapup [--dry-run]   only the idle wrap-up and clear of background agents (wrapup_tick, lib/wrapup.sh; OFF by default, needs SALA_IDLE_WRAPUP=on); --dry-run prints, per background pane, what it would do or why not, and changes nothing
+#   salamander watch --unregistered   only the unregistered-agent-pane watch (unregistered_tick, below; SALA_UNREGISTERED_CHECK): a live agent pane that is on no project's agents map in stackshot's project record is posted
 #
 # Checks, in order:              Heal:
 #   1. tmux server down          start tmux.service (resurrect restores the layout; its post-restore
@@ -82,6 +83,7 @@ WRAPUP_ONLY=0; [ "${1:-}" = --wrapup ] && WRAPUP_ONLY=1   # `sala watch --wrapup
 SETS_ONLY=0; [ "${1:-}" = --sets ] && SETS_ONLY=1   # `sala watch --sets [--dry-run]`: the flag rule over the open recycle sets alone (common.sh, set_sync)
 BACKLANES_ONLY=0; [ "${1:-}" = --back-lanes ] && BACKLANES_ONLY=1   # `sala watch --back-lanes [--dry-run]`: the back agents' lane rule alone (back_lane_run, below; common.sh)
 CONT_ONLY=0; [ "${1:-}" = --continued ] && CONT_ONLY=1   # `sala watch --continued`: the continued-in follow alone (lib/continuedin.sh; lib/follow.py runs it when a registry row's sessionId changes)
+UNREG_ONLY=0; [ "${1:-}" = --unregistered ] && UNREG_ONLY=1   # `sala watch --unregistered`: the unregistered-agent-pane watch alone (unregistered_tick, below)
 . "$SALA_ROOT/lib/op.sh"
 . "$SALA_ROOT/lib/settings-apply.sh"
 . "$SALA_ROOT/lib/continuedin.sh"
@@ -1356,7 +1358,91 @@ lane_names_tick() {
     [ "$(lane_names_write 2>/dev/null)" = unchanged ] && touch -- "$_f" 2>/dev/null
     return 0
 }
-[ "$STUCK_ONLY" = 1 ] && { stuck_tick; exit 0; }   # `sala watch --stuck [--dry-run]`: the stuck-question watch alone
+# UNREGISTERED AGENT PANES: an agent session that is live here but on no project's agents map in stackshot's project record shows under
+# "Unregistered" on the board, and nothing else notices (a hand /rename, a pane made outside sala). One post per such pane, a log line, and the pane is
+# then left alone until the back-off ends. WHAT COUNTS: a live claude pane (the table the tick took, a Remote Control child left out) that is not on the
+# spawn gate's closed exceptions list (common.sh agent_gate_exempt, the one list: scratch-*, *-check-*, *-test-*, *-probe-*, a side session, sala's shell;
+# a registry row tagged throwaway or side counts as the exception it is) and that the record says is listed nowhere (project_record_agent "" NAME, rc 3: a file read,
+# no pages.py, no HTTP). Listed (rc 0), or listed with the other role (rc 4, rc 5), is fine. WHEN THE RECORD CANNOT ANSWER (rc 1: missing, stale, unreadable)
+# no pane is reported (a stale record would make a false "missing"): one post that the check could not run, at most once per back-off, and nothing is cleared. A box with
+# no stackshot (stackshot_present false) or SALA_AGENT_CHECK=off (the spawn gate's own switch) skips the check silently.
+# TIMING. A pane must have been missing for SALA_UNREGISTERED_GRACE seconds (default 600, the record's own SALA_PROJECT_RECORD_MAX_AGE: stackshot rewrites it every few
+# minutes, so a name registered a moment ago has reached it by then) on consecutive ticks before it is posted; it is posted again every SALA_UNREGISTERED_BACKOFF
+# seconds (default 21600, 6 h) while it is still missing. The state is one key per pane, unreg.<name>=<first seen epoch>:<last post epoch>, in the watch state file; the key goes
+# when the pane is listed, exempt or gone (a tick that cannot read the record keeps every key). SALA_UNREGISTERED_CHECK=off turns the watch off.
+# The post says what is true and what to do in plain words, and gives no time of day (only minutes and hours), so no timezone is involved.
+: "${SALA_UNREGISTERED_CHECK:=on}"; : "${SALA_UNREGISTERED_GRACE:=600}"; : "${SALA_UNREGISTERED_BACKOFF:=21600}"
+unreg_due() {  # <state key> <now> → rc 0 when a post is due (first seen at least GRACE ago and none within BACKOFF); the key is stamped; UNREG_AGE = seconds since first seen
+    local k=$1 now=$2 sv first last
+    _kv_first_r sv "$WSTATE" "$k"
+    case "$sv" in *[!0-9:]*|'') sv="$now:0"; st_set "$k" "$sv";; esac
+    first=${sv%%:*}; last=${sv#*:}; [ -n "$first" ] || first=$now; [ -n "$last" ] || last=0
+    UNREG_AGE=$((now - first)); UNREG_NEXT=$(( SALA_UNREGISTERED_BACKOFF / 3600 ))
+    [ "$UNREG_AGE" -ge "$SALA_UNREGISTERED_GRACE" ] || return 1
+    [ "$last" = 0 ] || [ $((now - last)) -ge "$SALA_UNREGISTERED_BACKOFF" ] || return 1
+    st_set "$k" "$first:$now"; return 0
+}
+unregistered_tick() {
+    case "$SALA_UNREGISTERED_CHECK" in off|no|false|0) return 0;; esac
+    [ "${SALA_AGENT_CHECK:-on}" != off ] && stackshot_present || return 0
+    local pt sess c tm kk k now rec rrc hub pmain role rel row side tw seen=" " keep=" " cand=() nbad=0 why="" l del=() hint cmd
+    _now_r now; _panes_get_r pt
+    while IFS='|' read -r sess c; do
+        [ -n "$sess" ] && [ "$sess" != "${SALA_RC_SESSION:-}" ] || continue
+        case "$seen" in *" $sess "*) continue;; esac; seen="$seen$sess "
+        registry_field_r tm "$c" tmux; [ -n "$tm" ] || continue; is_rc_child "$c" && continue   # a pane session, not a `claude -p` under it
+        if side_is "$sess"; then side=1; else side=0; fi
+        agent_gate_exempt "$sess" "$side" 0 >/dev/null && continue
+        cand+=("$sess")
+    done <<< "$pt"
+    for sess in ${cand[@]+"${cand[@]}"}; do
+        _key_r kk "$sess"; k="unreg.$kk"
+        rec=$(project_record_agent "" "$sess"); rrc=$?
+        case "$rrc" in
+            1) nbad=$((nbad + 1)); why=$(sed -n 1p <<< "$rec"); keep="$keep$k "; continue ;;   # the record cannot answer: nothing said of this pane, its key kept as it is
+            3) ;;
+            *) continue ;;   # listed (0), or listed with the other role (4, 5): fine; its key goes below
+        esac
+        if sessions_on; then   # the registry row may tag it a side session or an auto-generated throwaway: the exceptions agent_gate_exempt takes as arguments
+            row=$(sessions_py resolve "$sess" --live --json 2>/dev/null | python3 -I -c 'import json,sys
+try: r=json.load(sys.stdin)
+except Exception: sys.exit(0)
+print("%s\t%s" % ("1" if r.get("side") else "0", "1" if r.get("throwaway") else "0"))' 2>/dev/null)
+            IFS=$'\t' read -r side tw <<< "$row"
+            agent_gate_exempt "$sess" "${side:-0}" "${tw:-0}" >/dev/null && continue
+        fi
+        keep="$keep$k "
+        unreg_due "$k" "$now" || continue
+        pmain=$(sed -n 2p <<< "$rec"); hub=""; hint=""; role='<role>'
+        if hub=$(project_for_name "$sess"); then
+            pmain=$(project_record_agent "$hub" "$sess" 2>/dev/null | sed -n 2p); role=$(agent_role_word "$sess" "$pmain")
+            hint="its name starts like the project $hub"
+        else hub='<page key>'; hint="no project of the record owns its name, so the project's page key is for the person registering it to name"; fi
+        stackshot_rel_r rel "${SALA_STACKSHOT_DIR:-$HOME/stackshot}" client
+        cmd="python3 ~/stackshot/$rel post project-agent $hub $sess --role $role --front|--back --mandate \"<one line>\""
+        wlog "unregistered: '$sess' is live and on no project's agents map in stackshot's project record (missing for $((UNREG_AGE / 60)) min); $hint"
+        notify "⚠️ *$sess is live but not registered on stackshot*" \
+            "stackshot shows it under Unregistered: its name is on no project's agents map in the project record, so no project knows this session" \
+            "to register it, a session with stackshot access lists it on its project ($hint): $cmd" \
+            "or rename it to a name its project already lists; if it was meant to end, a session retires it" \
+            "it has been missing for $((UNREG_AGE / 60)) min; this reminder repeats every $UNREG_NEXT h while it is still missing, and stops once it is registered, renamed or closed"
+    done
+    if [ "$nbad" -gt 0 ]; then   # the record could not answer for the panes it was asked about: one post per back-off, and no pane reported
+        if unreg_due unreg_record "$now"; then
+            wlog "unregistered: could not check $nbad live agent pane(s): $why"
+            notify "⚠️ *Could not check whether live agents are registered on stackshot*" \
+                "$nbad live agent session(s) could not be checked against stackshot's project record: $why" \
+                "no session was reported as unregistered, because an answer from this record would not be trustworthy" \
+                "this repeats every $UNREG_NEXT h while the record still cannot answer; it stops when stackshot's project record is readable and fresh again"
+        fi
+    else st_del unreg_record; fi
+    # a key whose pane is listed, exempt or gone goes (a record that could not answer kept every key of its panes above)
+    while IFS= read -r l || [ -n "$l" ]; do case "$l" in unreg.*=*) k=${l%%=*}; case "$keep" in *" $k "*) ;; *) del+=("$k");; esac;; esac; done < "$WSTATE"
+    for k in ${del[@]+"${del[@]}"}; do st_del "$k"; done
+    return 0
+}
+[ "$STUCK_ONLY" = 1 ] && { stuck_tick; exit 0; }
+[ "$UNREG_ONLY" = 1 ] && { unregistered_tick; exit 0; }   # `sala watch --unregistered`: the unregistered-agent-pane watch alone   # `sala watch --stuck [--dry-run]`: the stuck-question watch alone
 [ "$OPS_ONLY" = 1 ] && { op_tick; exit 0; }   # `sala watch --ops`: the operation queue alone (lib/op.sh; `sala op` kicks it after a tick already running)
 [ "$SETTINGS_ONLY" = 1 ] && { settings_tick; exit 0; }   # `sala watch --settings`: the settings-apply tick alone (lib/settings-apply.sh)
 [ "$QUESTIONS_ONLY" = 1 ] && { question_sweep_tick; exit 0; }   # `sala watch --questions`: the parked-question sweep alone
@@ -1369,6 +1455,7 @@ lane_names_tick() {
 [ "$CHECK_ONLY" = 1 ] || back_lane_run   # the same: the back agents' lane rule (off unless SALA_BACK_LANE_RULE=on); reads the limit and quota state just written, queues before the queue runs
 [ "$CHECK_ONLY" = 1 ] || lane_names_tick   # the same: lane-names.json (stackshot reads it); a tick that finds nothing changed starts no process for it
 [ "$CHECK_ONLY" = 1 ] || stuck_tick   # the same: no master; tmux down reads as no panes
+[ "$CHECK_ONLY" = 1 ] || unregistered_tick   # the same: no master; a file read per live agent pane (the project record), a post only past its grace and back-off
 unset _TICK_PANES_SET _TICK_PANES   # what follows may relaunch panes: it reads them afresh
 [ "$CHECK_ONLY" = 1 ] || question_sweep_tick   # the same: no master, no tmux; the sweep is its own unit
 [ "$CHECK_ONLY" = 1 ] || settings_tick   # the same: no master, no tmux; a run it starts is its own unit, so nothing below waits on it
