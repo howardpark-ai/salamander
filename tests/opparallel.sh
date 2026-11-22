@@ -7,7 +7,7 @@
 #   · THE DECISIONS (the tick alone: markers written by hand, the units stand-in processes that sleep): par operations start together up to
 #     the cap and not beyond; SALA_OP_PARALLEL=1 (and a bad value's default) is today's one at a time; two operations on one name run one
 #     after the other, and a younger one on that name does not jump ahead of an older one that waits; a solo operation (a recycle, a lane
-#     default, a retire of a registry name or the master, a rename of the master, a marker that fits no shape, a running marker of an older
+#     default, a retire of a registry name, a rename of the master, a marker that fits no shape, a running marker of an older
 #     sala with no class) waits for everything running, and while it waits, or runs, nothing younger starts; it is started when the way is clear.
 #   · THE RACES (real runners on fakes: stub claude, tmux, systemd-run, systemctl, Slack, stackshot's client / register hook and a pages.py tripwire; many
 #     rounds with random small delays in every stub, ticks fired from every direction the product has — the enqueue's start of the watch, the
@@ -268,7 +268,7 @@ tick; [ "$(st "$D4")" = queued ] && ok "while the recycle runs a tick starts not
 endunit "$D3"; setend "$D3" done; tick
 [ "$(st "$D4")" = running ] && ok "the recycle ended: the younger spawn starts" || bad "after the solo: $(st "$D4")"
 
-echo "== what runs alone: a lane default, a retire of a name the registry resolves (no tmux session of that name), a retire of the master, a rename of the master, a marker that fits no shape, a running marker with no class"
+echo "== what runs alone: a lane default, a retire of a name the registry resolves (no tmux session of that name), a rename of the master, a marker that fits no shape, a running marker with no class"
 clear_ops; nextid; D1=$NID; nextid; D2=$NID
 mkop "$D1" lane default subscription-1; mkop "$D2" spawn pa2 --project projects/pt --role front
 tick; [ "$(st "$D1")" = running ] && [ "$(mval "$D1" par)" = solo ] && [ "$(st "$D2")" = queued ] && ok "lane default: alone (nothing starts beside it)" || bad "lane default: $(st "$D1") $(mval "$D1" par) $(st "$D2")"
@@ -276,11 +276,8 @@ clear_ops; nextid; D1=$NID; nextid; D2=$NID
 mkop "$D1" spawn pa1 --project projects/pt --role front; mkop "$D2" retire some-registry-name --keep-web
 tick; [ "$(st "$D1")" = running ] && [ "$(st "$D2")" = queued ] && ok "a retire of a name that is no tmux session or row (it would be resolved from the registry at run time): solo, waits for the spawn" || bad "registry retire: $(st "$D1") $(st "$D2")"
 clear_ops; nextid; D1=$NID; nextid; D2=$NID
-mkop "$D1" retire sala-test-p3 --keep-web; mkop "$D2" spawn pa2 --project projects/pt --role front
-SALA_MASTER=sala-test-p3 tick; [ "$(st "$D1")" = running ] && [ "$(mval "$D1" par)" = solo ] && [ "$(st "$D2")" = queued ] && ok "the master's retire (unset first: a config write): solo" || bad "master retire: $(st "$D1") $(mval "$D1" par) $(st "$D2")"
-clear_ops; nextid; D1=$NID; nextid; D2=$NID
 mkop "$D1" rename sala-test-p3 sala-test-p3z; mkop "$D2" spawn pa2 --project projects/pt --role front
-SALA_MASTER=sala-test-p3 tick; [ "$(st "$D1")" = running ] && [ "$(mval "$D1" par)" = solo ] && [ "$(st "$D2")" = queued ] && ok "the master's rename (master --set): solo" || bad "master rename: $(st "$D1") $(mval "$D1" par) $(st "$D2")"
+SALA_MASTER=sala-test-p3 tick; [ "$(st "$D1")" = running ] && [ "$(mval "$D1" par)" = solo ] && [ "$(st "$D2")" = queued ] && ok "the master's rename: solo" || bad "master rename: $(st "$D1") $(mval "$D1" par) $(st "$D2")"
 clear_ops; nextid; D1=$NID; nextid; D2=$NID
 mkop "$D1" retire; mkop "$D2" spawn pa2 --project projects/pt --role front
 tick; [ "$(st "$D1")" = running ] && [ "$(mval "$D1" par)" = solo ] && [ "$(st "$D2")" = queued ] && ok "a marker that fits no shape: solo (it will be stuck at its own run, alone)" || bad "bad shape: $(st "$D1") $(mval "$D1" par) $(st "$D2")"
@@ -322,8 +319,8 @@ shapeof() { ( op_shape "$@" >/dev/null 2>&1; echo "$OP_PAR|$OP_LOCK|$OP_KEYS" );
 SH=$(SALA_MASTER=sala-test-c1; shapeof spawn newone --project projects/pt --role front; shapeof spawn ptest-side-two --side --fork-of sala-test-c2; shapeof retire sala-test-c2; shapeof retire sala-test-c1; shapeof retire nosuch; shapeof rename sala-test-c2 zz; shapeof rename sala-test-c1 zz
     shapeof recycle; shapeof update; shapeof revive; shapeof lane default subscription-1; shapeof lane subscription-1 sala-test-c2; shapeof model sala-test-c2 opus; shapeof model sala-test-c2 --clear; shapeof provision)
 SH=$(paste -sd';' - <<< "$SH")
-EXP="par|share|newone;par|share|ptest-side-two sala-test-c2;par|share|sala-test-c2;solo|hold|;solo|hold|;par|share|sala-test-c2 zz;solo|hold|;solo|own|;solo|own|;solo|own|;solo|hold|;solo|own|;solo|own|;solo|hold|;solo|own|"
-[ "$SH" = "$EXP" ] && ok "spawn (and a fork: its source too), retire of a live session and rename are par with the shared lock; the master's retire and rename, an unresolved retire, recycle, update, revive, lane, model and provision are solo" || bad "shapes: $SH"
+EXP="par|share|newone;par|share|ptest-side-two sala-test-c2;par|share|sala-test-c2;par|share|sala-test-c1;solo|hold|;par|share|sala-test-c2 zz;solo|hold|;solo|own|;solo|own|;solo|own|;solo|hold|;solo|own|;solo|own|;solo|hold|;solo|own|"
+[ "$SH" = "$EXP" ] && ok "spawn (and a fork: its source too), retire of a live session (a leftover SALA_MASTER's name too) and rename are par with the shared lock; the master's rename, an unresolved retire, recycle, update, revive, lane, model and provision are solo" || bad "shapes: $SH"
 
 # ═══ THE RACES ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 echo "== the races: $ROUNDS rounds of two spawns, a retire and (every third round) a rename, run side by side on fakes, with random delays in every stub"

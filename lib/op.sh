@@ -1,11 +1,6 @@
 # lib/op.sh — the operation queue: fleet operations run by sala's watch with no model, and a one-off `claude -p` only
-# when one of them is stuck (the queue needs no master session). Built beside the master path; since Thu Oct 15th
-# the master is optional: while SALA_MASTER names one, `sala cue` still hands words to it and it still runs the verbs
-# itself; with none, `sala cue` points here, the guards (common.sh, master_guard) send a Claude session here, and `watch`
-# keeps no master alive (it still revives any mapped pane whose claude died, lib/barepane.sh). RETIRING THE MASTER is one operation of this queue: `sala op retire <the master>` — its plan says
-# "would unset SALA_MASTER, then retire", and the runner (op_run) runs `salamander master --unset` first and the retire
-# after it, so the watchdog never heals the pane the retire takes down; a retire that fails after the unset leaves
-# SALA_MASTER unset (said on the marker, in the post and in the hearer's line) and the operation stuck.
+# when one of them is stuck. Since Thu Oct 15th 2026 no master session drives the verbs: the guards (common.sh, master_guard) send a
+# Claude session here, and `watch` keeps no master alive (it still revives any mapped pane whose claude died, lib/barepane.sh).
 #
 # THE USAGE: `op --help` (op_usage) prints from its first `salamander op` line through the `watch --ops` line, so keep it contiguous.
 #   salamander op <verb> [args…] --from NAME --words "<the owner's words>" queue one operation (the verbs below)
@@ -194,8 +189,7 @@
 # each verb in its own branch of op_shape, never by a check beside it: OP_PAR=solo (the default: a verb that says nothing, and
 # any marker the table cannot parse, runs ALONE) or OP_PAR=par with OP_KEYS, the session names the verb touches (OP_TARGETS when
 # it sets none). Today par are spawn, retire and rename, and only where every name is a tmux session name the tick can compare
-# as it stands: a retire by --id (the conversation id is resolved at run time), a retire of the master (SALA_MASTER
-# is unset first: a config write) and a rename of the master are solo. recycle, update, revive, provision, lane (any form),
+# as it stands: a retire by --id (the conversation id is resolved at run time) and a rename of the master are solo. recycle, update, revive, provision, lane (any form),
 # model (any form) and reboot are solo: they relaunch panes under the exclusive recycle lock, or write the config. The tick
 # (op_tick_locked) applies the declarations in one pass, in queue order: it starts a par operation when fewer than
 # SALA_OP_PARALLEL (3; 1 = one at a time, as before) are running, no solo one is running, and none of its names is held by
@@ -205,7 +199,7 @@
 # keys=): a running marker without them (an upgrade mid-run) counts as solo. A recycle about to start absorbs every queued
 # recycle and every queued update of this box alone: their flags fold into it, their markers end as `absorbed` with
 # `into=<id>`, their hearers are told. Inside the unit the runner takes the recycle lock (fd 9, common.sh) before any verb:
-# EXCLUSIVE for a solo operation, held through one that takes none itself (retire of the master, lane default, a provision
+# EXCLUSIVE for a solo operation, held through one that takes none itself (lane default, a provision
 # of named boxes, reboot) and given back at once to one that does (recycle, revive, update's local leg, a lane switch, a
 # model switch, a whole-fleet provision, with SALA_LOCK_WHO=op-<id> and a 10-min wait for a relaunch already running);
 # SHARED (flock -s, recycle_lock_shared) for a par one, so several run side by side while a relaunch driver, which
@@ -647,7 +641,7 @@ op_shapes() {
                                             never with a bypass flag, --keep-web or --id (add --words for those); for every door but the spawner's the project record
                                             must confirm NAME is on no agents map, and with no answer the retire is refused;
                                             YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name), and every process in NAME's panes carries the row's id (or none does, one is Claude Code, NAME is a throwaway's name and a fresh answer says it is unlisted); the runner checks it again before it ends anything
-  close-shell NAME [--busy]                 ends a tmux session whose panes run no Claude (exact name; refused for the master's own run outside the queue, the RC session and the caller's own session; --busy for a shell still running something). Needs the owner's words
+  close-shell NAME [--busy]                 ends a tmux session whose panes run no Claude (exact name; refused for the RC session and the caller's own session; --busy for a shell still running something). Needs the owner's words
   forget-row NAME                           drops a pane-map row (and its lane and model rows) whose tmux session is gone. Needs the owner's words
   rename OLD NEW
   lane <lane> <session>… | <lane> --all | default <lane> | fallback <lane>
@@ -673,14 +667,13 @@ op_host_ok() {  # <host> → 0 when it is this box or a SALA_FLEET_HOSTS name
 op_session_ok() { case "$1" in ''|-*|*[[:space:]:]*) op_bad "'${1:-}' is not a session name"; return 1;; esac; return 0; }
 # op_shape <verb> [args…] → 0 with OP_RUN (the verb's argv), OP_PLAN (its dry run's argv, or none), OP_PLAN_NOTE, OP_LOCK
 # (own: the verb takes the recycle lock itself · hold: the runner keeps it), OP_SET (a relaunch's set follows), OP_KIND
-# (SALA_RELAUNCH_KIND for the waiting line), OP_TARGETS (the sessions it names, for conflicts) and OP_UNSET_MASTER (the
-# target is the master: `salamander master --unset` comes first, the header); 1 with OP_BAD said. THE PARALLEL RULE'S
+# (SALA_RELAUNCH_KIND for the waiting line) and OP_TARGETS (the sessions it names, for conflicts); 1 with OP_BAD said. THE PARALLEL RULE'S
 # DECLARATION (the header) is made by the verb's own branch: OP_PAR=par says it may run beside others, OP_KEYS the names it
 # touches (OP_TARGETS when it names none of its own). The default is solo, and the end of this function turns a par verb back
-# into solo when it touches no name, or is the master's retire (a config write), and gives a par verb OP_LOCK=share.
+# into solo when it touches no name, and gives a par verb OP_LOCK=share.
 op_shape() {
     local verb="${1:-}"; shift || true; local a s flags=() hosts=() only=() sess=() lane="" name="" steps="" me
-    OP_RUN=(); OP_PLAN=(); OP_PLAN_NOTE=""; OP_LOCK=hold; OP_SET=""; OP_KIND=""; OP_TARGETS=""; OP_BAD=""; OP_UNSET_MASTER=""; OP_PAR=solo; OP_KEYS=""; me=$_SALA_HN
+    OP_RUN=(); OP_PLAN=(); OP_PLAN_NOTE=""; OP_LOCK=hold; OP_SET=""; OP_KIND=""; OP_TARGETS=""; OP_BAD=""; OP_PAR=solo; OP_KEYS=""; me=$_SALA_HN
     case "$verb" in
     recycle)
         for a in "$@"; do case "$a" in --update|--force) case " ${flags[*]-} " in *" $a "*) ;; *) flags+=("$a");; esac;; *) op_bad "recycle takes --update and --force only, not '$a'"; return 1;; esac; done
@@ -736,10 +729,6 @@ op_shape() {
             OP_RUN=(retire "$name" ${flags[@]+"${flags[@]}"}); OP_PLAN=("${OP_RUN[@]}" --dry-run); OP_TARGETS="$name"
             # PARALLEL: yes, when the name is a live tmux session, which is all retire acts on
             tmux has-session -t "=$name" 2>/dev/null && OP_PAR=par
-            if [ -n "${SALA_MASTER:-}" ] && [ "$name" = "$SALA_MASTER" ]; then   # the master itself (the header): unset, then retire
-                OP_UNSET_MASTER="$name"
-                OP_PLAN_NOTE="would unset SALA_MASTER, then retire: '$name' is the master session the watchdog keeps alive (salamander master --unset first, so nothing heals, recreates or bridges it again; the post-boot report goes to Slack, \`sala cue\` points to this queue, and a Claude session's raw fleet verb is refused with the same pointer)"
-            fi
         fi ;;
     close-shell|forget-row)
         [ $# -ge 1 ] || { op_bad "$verb needs a session name"; return 1; }
@@ -750,11 +739,7 @@ op_shape() {
         esac; shift; done
         OP_RUN=("$verb" "$name" ${flags[@]+"${flags[@]}"}); OP_PLAN=("${OP_RUN[@]}" --dry-run); OP_TARGETS="$name"
         # PARALLEL: yes, the name is a tmux session name or a pane-map row as it stands
-        { tmux has-session -t "=$name" 2>/dev/null || [ -n "$(ledger_row "$name")" ]; } && OP_PAR=par
-        if [ -n "${SALA_MASTER:-}" ] && [ "$name" = "$SALA_MASTER" ]; then
-            OP_UNSET_MASTER="$name"
-            OP_PLAN_NOTE="would unset SALA_MASTER, then $verb: '$name' is the master session the watchdog keeps alive (salamander master --unset first)"
-        fi ;;
+        { tmux has-session -t "=$name" 2>/dev/null || [ -n "$(ledger_row "$name")" ]; } && OP_PAR=par ;;
     rename)
         [ $# -eq 2 ] || { op_bad "rename takes exactly OLD NEW"; return 1; }
         op_session_ok "$1" && op_session_ok "$2" || return 1
@@ -909,10 +894,10 @@ op_shape() {
     *) op_bad "unknown verb '${verb:-}' (one of: $SALA_OP_VERBS)"; return 1 ;;
     esac
     # the declaration, checked once for every verb (THE PARALLEL RULE, the header): a par verb that names nothing, or that holds the
-    # runner's lock for a master change, is solo; one that stays par takes the recycle lock SHARED
+    # runner's lock, is solo; one that stays par takes the recycle lock SHARED
     if [ "$OP_PAR" = par ]; then
         [ -n "$OP_KEYS" ] || OP_KEYS="$OP_TARGETS"
-        if [ -z "${OP_KEYS// /}" ] || [ -n "$OP_UNSET_MASTER" ] || [ "$OP_LOCK" != hold ]; then OP_PAR=solo; OP_KEYS=""; else OP_LOCK=share; fi
+        if [ -z "${OP_KEYS// /}" ] || [ "$OP_LOCK" != hold ]; then OP_PAR=solo; OP_KEYS=""; else OP_LOCK=share; fi
     fi
     return 0
 }
@@ -1083,8 +1068,8 @@ op_main() {
     echo "plan: salamander ${OP_RUN[*]}"
     [ -n "$OP_PLAN_NOTE" ] && echo "   $OP_PLAN_NOTE"
     if [ ${#OP_PLAN[@]} -gt 0 ]; then
-        # SALA_OP_PLAN=1: the dry run of the master's own retire says "would unset first" and goes on (lib/retire.sh), as
-        # the runner will; every other dry run ignores it
+        # SALA_OP_PLAN=1 marks the dry run as the queue's plan (model.sh reads it for the asker's own session); every other
+        # dry run ignores it
         # the hearer and the owner's words reach the dry run too (SALA_OP_FROM, SALA_OP_WORDS): spawn's message to a page's keeper names them
         # a model switch's and a rename's plan run without TMUX_PANE: the runner's unit has none, so a switch of the asker's own
         # session is relaunched there by `revive --force --only`, and a rename of it is typed from outside once the pane is idle;
@@ -1337,14 +1322,6 @@ op_run() {  # <id> — the unit's main process
     if ! $lk "op-$id" "$SALA_OP_LOCK_WAIT"; then op_stuck "$id" "$(recycle_holder_line) — still held after $(op_dur "$SALA_OP_LOCK_WAIT"), so the operation did not start"; return 0; fi
     [ "$OP_LOCK" = own ] && exec 9>&-
     t0=$(date +%s)
-    if [ -n "$OP_UNSET_MASTER" ]; then
-        # THE MASTER'S OWN RETIRE (the header): SALA_MASTER unset first, under the lock, so no watch tick heals the pane
-        # the retire takes down; the unset is on the marker before the verb runs, and stays whatever the verb does
-        op_say "$id" "'$OP_UNSET_MASTER' is the master session: unsetting SALA_MASTER first (salamander master --unset)"
-        "$SALA_BIN" master --unset 9>&- </dev/null 2>&1 | tee -a "$(op_out "$id")"; rc=${PIPESTATUS[0]}
-        [ "$rc" = 0 ] || { op_stuck "$id" "salamander master --unset exited $rc, so the retire of the master '$OP_UNSET_MASTER' did not start (SALA_MASTER stays): $(op_out_tail "$id" 2)"; return 0; }
-        op_put "$id" unset_master "$OP_UNSET_MASTER"; SALA_MASTER=""; export SALA_MASTER   # the verb below reads the config afresh; the empty export outranks a stale one in this environment
-    fi
     op_say "$id" "running: salamander ${OP_RUN[*]}"
     export SALA_OP_ID="$id" SALA_OP_FROM="$(op_val "$id" from)" SALA_OP_WORDS="$w"   # who asked and the owner's words, for a verb that says so (spawn's message to a page's keeper)
     # 9>&-: a worker the verb detaches must not hold the lock the runner holds; the output streams into the log and into its own copy
@@ -1789,7 +1766,6 @@ op_post() {  # <id> <done|stuck> <sessions counted> <failed or skipped among the
         x=$(op_plain "${x/FAILED:/failed:}"); text+=$'\n'"• ${x:0:110}"
     done
     [ ${#OP_PF[@]} -gt "$cap" ] && text+=$'\n'"and $(( ${#OP_PF[@]} - cap )) more"
-    if [ "$st" = stuck ] && [ -n "$(op_val "$id" unset_master)" ]; then text+=$'\n'"The master setting was cleared first, so nothing keeps a master session alive until it is set again."; fi
     sala_post "$text"$'\n'"$foot"
 }
 op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the hearing session's line, the archive
@@ -1861,11 +1837,10 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
     [ "$ptot" -ge "$pnf" ] || ptot=$pnf
     op_post "$id" "$st" "$ptot" "$pnf" "$ss"   # the one Slack post (THE OP POST, above)
     op_event "$id" "$st" "$n" "$nf" "$line" "$res"   # stackshot hears the end too (THE OP-END EVENT, above); never changes the outcome
-    x=$(op_val "$id" unset_master)
     if [ -n "$nowords" ]; then asked="Queued by $from at $when with no words ($nowords): $(case "$verb" in revive) echo "the session revived the sessions named, for the reason in the note";; restore) echo "the session restored the sessions named, for the reason in the note";; *) echo "the session ended a throwaway (the rule is in the note)";; esac)."
     else asked="Words from ${SALA_OWNER_NAME} (quoted by $from; queued at $when): \"$words\"."; fi
     if [ "$from" = sala-watch ]; then op_log "no reply sent: $id was queued by the watch itself (no session waits on it); the Slack post stands"; op_archive "$id"; op_kick_end; return 0; fi
-    op_tell "$from" "[sala op $id] salamander $line — $st${cnt:+ ($cnt)}: $res.${dl:+$dl$nl}${x:+ SALA_MASTER was unset first: '$x' is no longer the session the watchdog keeps alive.} $asked (Automatic salamander message from the operation queue; the result is posted in Slack too; nothing to reply to.)"
+    op_tell "$from" "[sala op $id] salamander $line — $st${cnt:+ ($cnt)}: $res.${dl:+$dl$nl}$asked (Automatic salamander message from the operation queue; the result is posted in Slack too; nothing to reply to.)"
     op_archive "$id"
     op_kick_end   # the marker is archived: the next queued operation need not wait for the timer's tick
 }

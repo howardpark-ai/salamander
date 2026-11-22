@@ -98,7 +98,7 @@ is no roster; the post-boot report names the rows with no tmux session, and `sal
 ## Session notes (for sessions, not services)
 
 A session whose work continues after the reboot leaves itself a note before the drain: `sala note "<what I do next>"`
-from its own pane, or in one step with the hand-over, `sala cue --after "<what I do next>" "reboot the box"`. Notes are
+from its own pane. Notes are
 not reboot-specific: one comes back after its session's next relaunch of any kind (see `lib/note.sh`). During a clean
 reboot, watch holds off and the boot half delivers the due notes once the hooks are resumed or reported, and posts to Slack
 about any whose session is not back. The shutdown report names the sessions with notes; a dry run changes nothing.

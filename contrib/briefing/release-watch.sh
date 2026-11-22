@@ -33,12 +33,11 @@ STATE=${RELEASE_WATCH_STATE:-$HOME/.release-watch}        # tests repoint both (
 CLAUDE_BIN=${RELEASE_WATCH_CLAUDE_BIN:-$HOME/.local/bin/claude}
 HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)   # sdk_run.py lives beside this file
 RELAY_CWD=${RELEASE_WATCH_RELAY_CWD:-$HOME}   # where the relay turn runs; tests repoint it (CI's user cannot enter the owner's home)
-SALA_CMD=${RELEASE_WATCH_SALA:-sala}                    # asked who the master is (cli_owner); tests repoint it to a fake
 # The name the post gives this machine (lib.sh's briefing_box: SALA_HEARTBEAT_NAME, else the hostname) and this script's three
 # settings, each from the environment, else its line in the sala config (lib.sh's briefing_setting; config.example, the briefings),
 # read in ONE child bash so nothing else of lib.sh (its PATH) reaches this script; its last line is the time zone BRIEFING_TZ names. One value per line; a session name or a
 # page key is one word.
-#   RELEASE_WATCH_CLI_OWNER     the Claude Code CLI's upgrade owner when sala has no master; unset or empty: nobody is pinged
+#   RELEASE_WATCH_CLI_OWNER     the Claude Code CLI's upgrade owner; unset or empty: nobody is pinged
 #   RELEASE_WATCH_UBUNTU_SESSION  the session an Ubuntu LTS upgrade path is relayed to; unset or empty: nobody is pinged
 #   RELEASE_WATCH_UBUNTU_PAGE   the project page with the upgrade plan, named in the notice and the ping; unset or empty: none named
 _rw=$(bash -c '. "$1/lib.sh" >/dev/null 2>&1; briefing_box; echo; for v in RELEASE_WATCH_CLI_OWNER RELEASE_WATCH_UBUNTU_SESSION RELEASE_WATCH_UBUNTU_PAGE; do briefing_setting "$v" | tr -d " \n"; echo; done; briefing_setting SALA_OWNER_NAME | tr -cd "[:alnum:] ._'"'"'-"; echo; echo "$TZ"' _ "$HERE" 2>/dev/null)
@@ -152,13 +151,9 @@ $2";; esac
 # release-watch.sh relay <session> <message>: one relay by hand (and the tests' handle on it); prints the status line.
 if [ "${1:-}" = relay ]; then relay "${2:?usage: release-watch.sh relay <session> <message>}" "${3:?message}"; exit 0; fi
 
-# CLI updates are the sala master's; who that is comes from sala, never a
-# hard-coded name. With no master (`sala master` prints "no master: …", so the lookup is empty) the owner is CLI_OWNER (RELEASE_WATCH_CLI_OWNER, above),
-# who queues the fleet update through `sala op`; with that unset too, nobody is pinged.
-cli_owner() {
-  m=$("$SALA_CMD" master 2>/dev/null | awk '$1=="master"{print $3; exit}')
-  echo "${m:-$CLI_OWNER}"
-}
+# CLI updates are queued through `sala op` by the session that owns them: CLI_OWNER (RELEASE_WATCH_CLI_OWNER, above), never a
+# hard-coded name; with that unset, nobody is pinged.
+cli_owner() { echo "$CLI_OWNER"; }
 # release-watch.sh cli-owner: the session a new Claude Code release is relayed to (and the tests' handle on it).
 if [ "${1:-}" = cli-owner ]; then cli_owner; exit 0; fi
 claudecode_session=$(cli_owner)

@@ -1,22 +1,13 @@
 #!/usr/bin/env bash
-# No master session: the master path is retired (sala no longer keeps, heals or bridges one), and a SALA_MASTER line
-# still in a config only draws one notice. What is checked covers the one operation that still ends a master until its
-# verbs go, the guards, and the watch with and without a left-over line:
-#  - `salamander master --unset` on a real temporary config: the line commented out, the file still parsing and naming no
-#    master, the other lines intact, `salamander config` reading none, the watchdog's old records of the master dropped,
-#    master_unset recorded, idempotent; `master`, `--name`, `--json` reading "unset".
-#  - `sala op retire <the master>` as one operation: a plain `retire <the master>` and its dry run refuse outside the queue;
-#    `op --plan` says "would unset SALA_MASTER, then retire"; the unit unsets first and then retires (the log order, the
-#    marker's unset_master, the config, the session gone, done, the post naming the unset); a retire that fails after the
-#    unset → stuck with SALA_MASTER unset, the session alive, the post saying how to put it back; an unset that fails →
-#    stuck, the retire never started, the config untouched.
+# No master session: the master path is retired (sala no longer keeps, heals, bridges, hands work to or unsets one), and a
+# SALA_MASTER line still in a config only draws one notice. What is checked is the guards and the watch with and without a
+# left-over line:
 #  - the guards with no master (lib/common.sh, claude_caller): a Claude ancestor refused with the `sala op` pointer and
 #    nothing run; the queue's cgroup admitted; a tmux-launched caller (the resurrect boot hook, a human's pane shell)
 #    passes; a sala-test-* target, --dry-run, --not-master and --check pass; a verb the queue has no shape for refused with
 #    that said; `model` (the queue has the verb) refused with the `sala op model` pointer, its --dry-run and the
 #    no-argument table form left open; the control: a master set and a Claude caller outside tmux passes as before.
-#  - `sala cue` with a master (delivered to its inbox) and without (the pointer, the verb table, one example, exit 1,
-#    nothing delivered, nothing logged).
+#  - `sala master` and `sala cue` are unknown subcommands (exit 2, nothing delivered).
 #  - `watch` with no master: `--check` healthy and exit 0; a plain tick heals, recreates and bridges nothing and types
 #    nothing; the post-boot report as one Slack post per boot, not twice; the tmux server down with no tmux.service:
 #    reported, no bare session made.
@@ -30,22 +21,21 @@
 # detached, in the queue's cgroup as the real unit does), the claude -p is a stub, Slack is a file; nothing real is
 # touched. A Claude ancestor is modelled by a script named `claude` (comm = claude, what the ancestry walk reads), so each
 # verdict holds by construction whether the suite runs from a Claude session's pane or in CI.
-# Usage: bash tests/nomaster.sh   (exit 0 = pass; ~70 s)
+# Usage: bash tests/nomaster.sh   (exit 0 = pass; ~15 s)
 set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
-      SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH SALA_BOOT_ID SALA_CUE_TARGET SALA_CONFIG
+      SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH SALA_BOOT_ID SALA_CONFIG
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"   # short timings, ok/bad/waitfor, fake_up, tmux_socket_rm; the lane variables unset
 export HOME=$(mktemp -d); export SALA_TZ=Etc/UTC
 mkdir -p "$HOME/.claude/sessions" "$HOME/.claude/projects/x" "$HOME/.local/bin" "$HOME/.local/share/tmux/resurrect" "$HOME/anc" "$HOME/.config/salamander"
 export SALA_CONFIG="$HOME/.config/salamander/config"   # a real config file, the one --unset edits
 cat > "$SALA_CONFIG" <<'EOF'
-# a test config (tests/nomaster.sh): the master line is the one sala writes and unsets; the rest must survive untouched
+# a test config (tests/nomaster.sh): a left-over master line, commented out where the checks need none
 SALA_MASTER=sala-test-m   # the master
 SALA_KEEP_ONE="kept one"
 SALA_KEEP_TWO=kept-two
 EOF
-cp "$SALA_CONFIG" "$HOME/config.orig"
 touch "$HOME/.claude/salamander-rc.stopped"      # no Remote Control server in the sandbox
 mkdir -p "$HOME/.local/share/claude/versions"; cc -o "$HOME/.local/share/claude/versions/9.9.9" "$ROOT/tests/fake-claude.c" || { rm -rf "$HOME"; exit 1; }   # the temp HOME goes with this exit (an EXIT trap may not exist yet here)
 ln -s "$HOME/.local/share/claude/versions/9.9.9" "$HOME/.local/bin/claude"
@@ -101,106 +91,36 @@ cleanup() {
 }; trap cleanup EXIT
 eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux    # literal socket: the children run set -u
 # lib/common.sh is not sourced here: it would source the config into this shell, and the config changes under the checks
-OPS="$HOME/.local/state/salamander/ops"; DONE="$OPS/done"; SOCKLOG="$HOME/sock-h.log"; MSOCKLOG="$HOME/sock-m.log"
+OPS="$HOME/.local/state/salamander/ops"; DONE="$OPS/done"
 ST="$HOME/.claude/salamander-watch.state"; WLOG="$HOME/.claude/salamander-watch.log"
-REC="$HOME/.claude/salamander-boot-revive"; CUELOG="$HOME/.claude/salamander-cue.log"; LOCK="$HOME/.claude/salamander-recycle.lock"
+REC="$HOME/.claude/salamander-boot-revive"; LOCK="$HOME/.claude/salamander-recycle.lock"
 mk() { local n="$1" u="$2"; shift 2; $T new-session -d -s "sala-test-$n" -c "$HOME" -e FAKE_SESSION_ID="$u" -e FAKE_NAME="sala-test-$n" -e FAKE_LOG="$FAKE_LOG" "$@"; $T send-keys -t "sala-test-$n" 'claude' Enter; }
-cpid() { local pp; pp=$(tmux display -p -t "$1" '#{pane_pid}' 2>/dev/null); [ -n "$pp" ] && pgrep -P "$pp" -x claude | head -1; }   # <tmux session> → its claude's pid (the pane shell's child)
-regstatus() { local c; c=$(cpid "$1"); set_reg_status "$c" "$2"; }   # <tmux session> <status>
 posts() { local n; n=$(grep -c '^%%$' "$POSTS" 2>/dev/null); echo "${n:-0}"; }   # grep -c prints 0 and exits 1 on no match: never `|| echo 0`
-mval() { local f="$OPS/$1.op"; [ -f "$f" ] || f="$DONE/$1.op"; awk -F= -v k="$2" '$1==k {print substr($0, length(k)+2); exit}' "$f" 2>/dev/null; }   # <id> <key>
-queued() { ls "$OPS"/*.op 2>/dev/null | wc -l; }
-tick() { "$SALA" watch --ops >/dev/null 2>&1; }
-oplog() { cat "$HOME/.claude/salamander-op-$1.log" 2>/dev/null; }   # the unit's own log (op_oplog)
 wait_lock() { lock_wait "$LOCK" 120; }
 stv() { awk -F= -v k="$1" '$1==k {print substr($0, length(k)+2); exit}' "$ST" 2>/dev/null; }
 lines() { local n; n=$(grep -c . "$1" 2>/dev/null); echo "${n:-0}"; }
 starts() { local n; n=$(grep -c "^start $1" "$FAKE_LOG" 2>/dev/null); echo "${n:-0}"; }
 
-echo "== setup: the master m, the hearing session h, a and b on the fake claude"
-mk m "$(uuid 1)" -e FAKE_SOCK_LOG="$MSOCKLOG"; mk h "$(uuid 2)" -e FAKE_SOCK_LOG="$SOCKLOG"; mk a "$(uuid 3)"; mk b "$(uuid 4)"
-fake_up sala-test-m sala-test-h sala-test-a sala-test-b || exit 1
-for n in m h a b; do "$SALA" adopt "sala-test-$n" >/dev/null 2>&1 || bad "adopt sala-test-$n failed"; done   # into the pane map, as spawned sessions are: the tick's unmapped report is not under test
-[ "$("$SALA" master --name 2>/dev/null)" = sala-test-m ] && "$SALA" master >/dev/null 2>&1 && ok "the config names sala-test-m as the master, and it is live" || bad "master: $("$SALA" master 2>&1)"
+echo "== setup: the sessions h, a and b on the fake claude (no session m: the config names one that is not running)"
+mk h "$(uuid 2)"; mk a "$(uuid 3)"; mk b "$(uuid 4)"
+fake_up sala-test-h sala-test-a sala-test-b || exit 1
+for n in h a b; do "$SALA" adopt "sala-test-$n" >/dev/null 2>&1 || bad "adopt sala-test-$n failed"; done   # into the pane map, as spawned sessions are: the tick's unmapped report is not under test
 
-echo "== with a master (the control): cue delivers to its inbox; a Claude caller outside tmux passes the guard as before"
-out=$("$SALA" cue --from sala-test-h --dry-run "recycle claude" 2>&1); rc=$?
-[ "$rc" = 0 ] && has "$out" "would deliver to 'sala-test-m'" && ok "cue --dry-run: would deliver to the master" || bad "cue dry run ($rc): $out"
-out=$("$SALA" cue --from sala-test-h "recycle claude" 2>&1); rc=$?
-[ "$rc" = 0 ] && waitfor "grep -q 'recycle claude' '$MSOCKLOG' 2>/dev/null" 20 && grep -q 'cue delivered → sala-test-m' "$CUELOG" && ok "cue: delivered into the master's inbox, logged" || bad "cue ($rc): $out / $(slurp "$MSOCKLOG")"
+echo "== a master set (the control): a Claude caller outside tmux passes the guard as before"
 out=$(under_claude "$SALA" retire nosuch 2>&1); rc=$?
 [ "$rc" != 0 ] && ! has "$out" "fleet operation" && ! has "$out" "sala op" && ok "a master set, a Claude caller outside tmux: the guard passes (retire goes on to its own refusal)" || bad "control ($rc): $out"
 
-echo "== sala retire <the master> outside the queue: refused, its dry run too; op --plan shows the one operation"
-out=$("$SALA" retire sala-test-m 2>&1); rc=$?
-[ "$rc" != 0 ] && has "$out" "the queue does it in one operation" && has "$out" "sala op retire sala-test-m" && ok "retire <the master>: refused, the queue named" || bad "retire master ($rc): $out"
-out=$("$SALA" retire sala-test-m --dry-run 2>&1); rc=$?
-[ "$rc" != 0 ] && has "$out" "the queue does it in one operation" && ok "its dry run outside the queue: refused too" || bad "retire master --dry-run ($rc): $out"
-out=$("$SALA" op --plan retire sala-test-m 2>&1); rc=$?
-[ "$rc" = 0 ] && has "$out" "would unset SALA_MASTER, then retire" && has "$out" "then retire it as below" && [ "$(queued)" = 0 ] && ok "op --plan retire <the master>: would unset SALA_MASTER, then retire; nothing queued" || bad "plan ($rc): $out"
-tmux has-session -t =sala-test-m 2>/dev/null && [ "$("$SALA" master --name 2>/dev/null)" = sala-test-m ] && ok "nothing happened to the master" || bad "the master changed"
+unset_master_line() { sed -i 's/^SALA_MASTER=/#SALA_MASTER=/' "$SALA_CONFIG"; }   # the line a config still carries, commented out (sala neither writes nor unsets it)
+set_master() { printf 'SALA_MASTER=%s\n' "$1" >> "$SALA_CONFIG"; }   # <name> - the line put back by hand; the later line wins
+echo "== no master from here on: the line commented out"; unset_master_line
 
-echo "== salamander master --unset on the config"
-printf 'master=sala-test-m\nuuid=%s\nbridge=session_01FAKE\nlane_norc=api\ncwd.sala-test-m=%s\nlast_server=1\n' "$(uuid 1)" "$HOME" > "$ST"   # as a watch tick leaves them
-out=$("$SALA" master --unset 2>&1); rc=$?
-[ "$rc" = 0 ] && has "$out" "master unset (was 'sala-test-m')" && ok "--unset: exit 0" || bad "--unset ($rc): $out"
-grep -q '^#SALA_MASTER=' "$SALA_CONFIG" && ! grep -q '^SALA_MASTER=' "$SALA_CONFIG" && grep -q 'was sala-test-m' "$SALA_CONFIG" && ok "the line commented out, the old name noted on it" || bad "config: $(<"$SALA_CONFIG")"
-bash -n "$SALA_CONFIG" && grep -q '^SALA_KEEP_ONE="kept one"$' "$SALA_CONFIG" && grep -q '^SALA_KEEP_TWO=kept-two$' "$SALA_CONFIG" && [ "$(lines "$SALA_CONFIG")" = "$(lines "$HOME/config.orig")" ] \
-    && ok "the file parses; the other lines intact; no line added or lost" || bad "config after unset: $(<"$SALA_CONFIG")"
-[ -z "$("$SALA" config 2>/dev/null | awk '$1=="SALA_MASTER"{print $2}')" ] && ok "salamander config reads no master" || bad "config view: $("$SALA" config | grep SALA_MASTER)"
-"$SALA" master --name >/dev/null 2>&1; rc=$?; [ "$rc" = 1 ] && [ -z "$("$SALA" master --name 2>/dev/null)" ] && ok "master --name: empty, exit 1" || bad "--name: rc=$rc"
-out=$("$SALA" master --json 2>/dev/null); rc=$?; [ "$rc" = 1 ] && [ "$out" = '{"name": "", "live": false}' ] && ok "master --json: name empty, live false, exit 1" || bad "--json ($rc): $out"
-out=$("$SALA" master 2>&1); rc=$?
-[ "$rc" = 1 ] && has "$out" "unset on purpose" && has "$out" "was 'sala-test-m'" && has "$out" "sala op" && ! has "$out" "lost or truncated" && ok "master: unset on purpose, the queue named, never 'config lost'" || bad "master ($rc): $out"
-for k in master uuid bridge lane_norc cwd.sala-test-m; do grep -q "^$k=" "$ST" && bad "the state still holds $k (watch would act on it)"; done
-grep -q '^last_server=1$' "$ST" && [ "$(stv master_unset | cut -d' ' -f1)" = sala-test-m ] && ok "the master's records dropped from the watch state, the others kept, master_unset recorded" || bad "state: $(<"$ST")"
-cp "$SALA_CONFIG" "$HOME/config.unset"; out=$("$SALA" master --unset 2>&1); rc=$?
-[ "$rc" = 0 ] && has "$out" "no master to unset" && same_file "$SALA_CONFIG" "$HOME/config.unset" && ok "idempotent: a second --unset changes nothing, exit 0" || bad "second unset ($rc): $out"
-tmux has-session -t =sala-test-m 2>/dev/null && [ -n "$(cpid sala-test-m)" ] && ok "the session itself is untouched by --unset" || bad "the session m changed"
-set_master() { printf 'SALA_MASTER=%s\n' "$1" >> "$SALA_CONFIG"; }   # <name> — the line put back by hand (sala no longer writes it); the later line wins
-set_master sala-test-m
-[ "$("$SALA" master --name 2>/dev/null)" = sala-test-m ] && bash -n "$SALA_CONFIG" && ok "the line put back by hand: the config names it again" || bad "re-added line: $(<"$SALA_CONFIG")"
-
-echo "== sala op retire <the master>: the unit unsets SALA_MASTER first, then retires — one operation"
-: > "$POSTS"
-enq retire sala-test-m --from sala-test-h --words "retire the master"; R="$ID"
-[ -n "$R" ] && has "$OUT" "would unset SALA_MASTER, then retire" && ok "queued op $R, the plan says it unsets first" || bad "enqueue: $OUT"
-tick; waitfor "[ -f '$DONE/$R.op' ]" 120 || bad "op $R did not end: $(slurp "$OPS/$R.op")"
-L=$(oplog "$R"); u=$(grep -n "unsetting SALA_MASTER first" <<< "$L" | head -1 | cut -d: -f1); r=$(grep -n "running: salamander retire sala-test-m" <<< "$L" | head -1 | cut -d: -f1)
-[ -n "$u" ] && [ -n "$r" ] && [ "$u" -lt "$r" ] && has "$L" "master unset (was 'sala-test-m')" && ok "the unit's log: the unset (its output included) before the retire" || bad "unit log: $L"
-[ "$(mval "$R" state)" = done ] && [ "$(mval "$R" unset_master)" = sala-test-m ] && ok "done; unset_master=sala-test-m on the marker" || bad "marker: $(slurp "$DONE/$R.op")"
-! tmux has-session -t =sala-test-m 2>/dev/null && ok "the session is gone" || bad "sala-test-m still lives"
-"$SALA" master --name >/dev/null 2>&1; rc=$?
-[ "$rc" = 1 ] && grep -q '^#SALA_MASTER=' "$SALA_CONFIG" && ! grep -q '^SALA_MASTER=' "$SALA_CONFIG" && [ "$(stv master_unset | cut -d' ' -f1)" = sala-test-m ] && ok "the config names no master; master_unset recorded" || bad "after the op: rc=$rc config: $(<"$SALA_CONFIG") state: $(<"$ST")"
-P=$(post " · log ~/.claude/salamander-op-$R.log"); [ "$P" = "✅ *retired sala-test-m* · asked by sala-test-h · log ~/.claude/salamander-op-$R.log" ] && ok "one post, one line: done (the unset is in the op log and the marker, and the hearing session's message)" || bad "post: [$P] posts file: [$(<"$POSTS")] unit log tail: $(oplog "$R" | tail -6)"
-wait_lock
-
-echo "== a retire that fails after the unset: stuck, SALA_MASTER stays unset, the session alive, the post says how to put it back"
-set_master sala-test-a; [ "$("$SALA" master --name 2>/dev/null)" = sala-test-a ] || bad "could not make a the master"
-: > "$POSTS"; rm -f "$HOME/helper-runs.txt"
-touch "$HOME/norun"; enq retire sala-test-a --from sala-test-h --words "retire a"; R2="$ID"; [ -n "$R2" ] || bad "retire a not queued: $OUT"
-regstatus sala-test-a busy; rm -f "$HOME/norun"   # busy by the time it runs: the retire refuses, after the unset
-tick; waitfor "[ -f '$DONE/$R2.op' ]" 120 || bad "op $R2 did not end: $(slurp "$OPS/$R2.op")"
-[ "$(mval "$R2" state)" = stuck ] && [ "$(mval "$R2" unset_master)" = sala-test-a ] && tmux has-session -t =sala-test-a 2>/dev/null && [ -n "$(cpid sala-test-a)" ] && ok "stuck; the session alive; unset_master on the marker" || bad "marker: $(slurp "$DONE/$R2.op")"
-"$SALA" master --name >/dev/null 2>&1; rc=$?; [ "$rc" = 1 ] && ! grep -q '^SALA_MASTER=' "$SALA_CONFIG" && ok "SALA_MASTER stays unset" || bad "master after the failed retire: rc=$rc"
-P=$(post " · log ~/.claude/salamander-op-$R2.log"); [ "$(sed -n 1p <<< "$P")" = "🚨 *retire of sala-test-a is stuck*" ] && has "$P" "The master setting was cleared first" && ! has "$P" "salamander master" && ok "the post: stuck, and the one line that the master setting was cleared first (no command in it)" || bad "post: $P"
-regstatus sala-test-a idle; wait_lock
-
-echo "== an unset that fails: stuck, the retire never started, the config untouched"
-set_master sala-test-a; [ "$("$SALA" master --name 2>/dev/null)" = sala-test-a ] || bad "could not make a the master again"
-cp "$SALA_CONFIG" "$HOME/config.a"; : > "$POSTS"
-touch "$HOME/norun"; enq retire sala-test-a --from sala-test-h --words "retire a"; R3="$ID"; [ -n "$R3" ] || bad "retire a not queued: $OUT"
-chmod 555 "$HOME/.config/salamander"; rm -f "$HOME/norun"   # the config's directory read-only: the edit cannot be made
-tick; waitfor "[ -f '$DONE/$R3.op' ]" 120 || bad "op $R3 did not end: $(slurp "$OPS/$R3.op")"
-chmod 755 "$HOME/.config/salamander"
-L=$(oplog "$R3")
-[ "$(mval "$R3" state)" = stuck ] && has "$L" "master --unset exited 1" && has "$L" "did not start" && [ -z "$(mval "$R3" unset_master)" ] && ok "stuck: the unset failed, said so; no unset_master on the marker" || bad "marker: $(slurp "$DONE/$R3.op") log: $L"
-! has "$L" "running: salamander retire" && tmux has-session -t =sala-test-a 2>/dev/null && same_file "$SALA_CONFIG" "$HOME/config.a" && [ "$("$SALA" master --name 2>/dev/null)" = sala-test-a ] && ok "the retire never ran; the config untouched; a still the master" || bad "after the failed unset: config $(<"$SALA_CONFIG")"
-wait_lock
-
-echo "== no master from here on"
-"$SALA" master --unset >/dev/null 2>&1 || bad "the unset failed"
-"$SALA" master --name >/dev/null 2>&1; rc=$?; [ "$rc" = 1 ] && tmux has-session -t =sala-test-a 2>/dev/null && ok "unset; a is a plain session" || bad "unset: rc=$rc"
+echo "== sala master and sala cue are gone: unknown subcommands, with or without a master line"
+for v in master cue; do
+    out=$("$SALA" "$v" 2>&1); rc=$?
+    [ "$rc" = 2 ] && has "$out" "unknown subcommand '$v'" && ok "sala $v: unknown subcommand, exit 2" || bad "sala $v ($rc): $out"
+done
+out=$("$SALA" master --unset 2>&1); rc=$?; [ "$rc" = 2 ] && has "$out" "unknown subcommand 'master'" && grep -q '^#SALA_MASTER=' "$SALA_CONFIG" && ok "sala master --unset: unknown too, the config untouched" || bad "master --unset ($rc): $out"
+out=$("$SALA" cue --from sala-test-h "recycle claude" 2>&1); rc=$?; [ "$rc" = 2 ] && has "$out" "unknown subcommand 'cue'" && ok "sala cue \"<words>\": unknown, nothing delivered" || bad "cue ($rc): $out"
 
 echo "== the guards with no master: a Claude caller is refused and pointed to the queue; everyone else passes"
 n0=$(starts "$(uuid 3)")
@@ -236,13 +156,6 @@ waitfor "grep -q '^rc=' '$HOME/shell.out' 2>/dev/null" 40 || bad "the pane shell
 ! grep -q "fleet operation" "$HOME/shell.out" && ok "a human's pane shell (TMUX_PANE set, no claude in it, tmux above): passes" || bad "pane shell: $(<"$HOME/shell.out")"
 tmux run-shell "env -u TMUX_PANE '$SALA' retire nosuch > '$HOME/hook.out' 2>&1; echo rc=\$? >> '$HOME/hook.out'"
 grep -q '^rc=' "$HOME/hook.out" && ! grep -q "fleet operation" "$HOME/hook.out" && ok "a tmux run-shell (the resurrect hook's way): passes" || bad "run-shell: $(slurp "$HOME/hook.out")"
-
-echo "== sala cue with no master: the pointer, nothing delivered"
-c0=$(lines "$CUELOG"); s0=$(lines "$SOCKLOG"); m0=$(lines "$MSOCKLOG")
-out=$("$SALA" cue --from sala-test-h "recycle claude" 2>&1); rc=$?
-[ "$rc" = 1 ] && has "$out" "no master session is configured: a cue has nobody to go to" && has "$out" "sala op <verb> [args…] --from sala-test-h --words" && has "$out" "verbs:" && has "$out" "recycle" && has "$out" "retire" \
-    && has "$out" 'e.g.   sala op recycle --update --force --from sala-test-h --words "recycle claude"' && ok "cue: exit 1, the pointer, the verb table, one example" || bad "cue ($rc): $out"
-[ "$(lines "$CUELOG")" = "$c0" ] && [ "$(lines "$SOCKLOG")" = "$s0" ] && [ "$(lines "$MSOCKLOG")" = "$m0" ] && ok "nothing delivered to any inbox, nothing logged" || bad "cue delivered or logged something"
 
 echo "== the boot hook's revive with no master: launched by tmux, it passes the guard, relaunches the panes, leaves the boot record"
 rm -f "$REC"; h0=$(starts "$(uuid 2)"); a0=$(starts "$(uuid 3)")
@@ -288,6 +201,10 @@ set_master sala-test-a
 P=$(post "master path is retired")
 [ "$rc" = 0 ] && [ "$(posts)" = 1 ] && has "$P" "SALA_MASTER=sala-test-a" && grep -q 'the watchdog no longer keeps, heals or restarts the master' "$WLOG" && [ "$(stv master_retired_warned)" = sala-test-a ] && ok "one tick: exit 0, one post naming the value, one log line, the state key set" || bad "warn tick (rc=$rc): posts $(posts): $(<"$POSTS") / $(<"$WLOG") / $(<"$ST")"
 ! grep -q 'HEAL' "$WLOG" && [ "$(starts "$(uuid 3)")" = "$n0" ] && ok "nothing healed or relaunched for the line" || bad "a heal for the left-over line: $(<"$WLOG")"
+out=$("$SALA" op --plan retire sala-test-a 2>&1); rc=$?
+[ "$rc" = 0 ] && has "$out" "plan: salamander retire sala-test-a" && ! has "$out" "unset" && ! has "$out" "master" && ok "op --plan retire <the left-over line's session>: an ordinary retire, nothing unset first" || bad "plan ($rc): $out"
+out=$("$SALA" retire sala-test-a --dry-run 2>&1); rc=$?
+! has "$out" "master session" && ! has "$out" "unset" && ok "retire --dry-run <that session>: no master refusal" || bad "retire dry run ($rc): $out"
 "$SALA" watch >/dev/null 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(posts)" = 1 ] && [ "$(grep -v NOTIFY "$WLOG" | grep -c 'the watchdog no longer keeps, heals or restarts the master')" = 1 ] && ok "a second tick: no second post, no second log line" || bad "second tick (rc=$rc): posts $(posts) / $(<"$WLOG")"
 cp "$ST" "$HOME/st.warned"; out=$("$SALA" watch --check 2>&1); rc=$?
@@ -297,12 +214,12 @@ sed -i '/^master_retired_warned=/d' "$ST"; "$SALA" watch --check >/dev/null 2>&1
 [ "$(posts)" = 1 ] && [ "$(stv master_retired_warned)" = sala-test-a ] || bad "re-warn after the key was dropped: posts $(posts), key [$(stv master_retired_warned)]"
 set_master sala-test-b; : > "$POSTS"; "$SALA" watch >/dev/null 2>&1
 P=$(post "master path is retired"); [ "$(posts)" = 1 ] && has "$P" "SALA_MASTER=sala-test-b" && [ "$(stv master_retired_warned)" = sala-test-b ] && ok "a changed value says it again, once" || bad "changed value: posts $(posts): $(<"$POSTS")"
-"$SALA" master --unset >/dev/null 2>&1; : > "$POSTS"; "$SALA" watch >/dev/null 2>&1
+unset_master_line; : > "$POSTS"; "$SALA" watch >/dev/null 2>&1
 [ -z "$(stv master_retired_warned)" ] && [ "$(posts)" = 0 ] && ok "the line emptied: the key dropped, nothing posted" || bad "emptied: key [$(stv master_retired_warned)] posts $(posts): $(<"$POSTS")"
 set_master sala-test-b; : > "$POSTS"; "$SALA" watch >/dev/null 2>&1
 [ "$(posts)" = 1 ] && [ "$(stv master_retired_warned)" = sala-test-b ] && ok "the line added again after it was dropped: warns again" || bad "re-added: posts $(posts): $(<"$POSTS")"
 
-"$SALA" master --unset >/dev/null 2>&1   # the bare-pane revive of a pane named like the former master is tests/barepane.sh's
+unset_master_line   # the bare-pane revive of a pane named like the former master is tests/barepane.sh's
 
 echo "== the tmux server down, no tmux.service: reported, no bare session made"
 tmux kill-server 2>/dev/null; sleep 1; : > "$WLOG"; : > "$POSTS"

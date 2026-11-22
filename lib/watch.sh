@@ -742,7 +742,7 @@ lw_locked() {
 #    error is not woken again. A conversation not seen on the error for SALA_NET_LOOKBACK is dropped from the state.
 #  - THE WAKE: only when api.anthropic.com resolves (`getent hosts`, SALA_NET_DNS_WAIT seconds at most; asked only when a
 #    pane is waiting) and the pane is idle (is_idle: a busy or unknown one is left to the next tick), ONE message through the
-#    pane's own messaging socket (session_push, the delivery the usage-limit watch's resume and `sala cue` use: it arrives as
+#    pane's own messaging socket (session_push, the delivery the usage-limit watch's resume uses: it arrives as
 #    a turn, so the session answers; nothing is typed into the pane and no Enter is sent). A pane with no claude process or no
 #    messaging socket is skipped without a word; a push that failed is tried again at the next tick. A recycle in flight
 #    (the lock) pauses the step.

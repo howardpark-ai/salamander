@@ -179,15 +179,6 @@ if ! tmux has-session -t "=$name" 2>/dev/null; then
 fi
 # the guards below read the name the retire runs on: the tmux session, given or resolved
 [ "$name" = "$SALA_RC_SESSION" ] && die "'$name' is the Remote Control server — use: salamander rc --stop"
-# THE MASTER (Thu Oct 15th 2026): retiring the session the watchdog keeps alive is refused here as ever, from
-# the queue included — the queue's runner unsets SALA_MASTER first (salamander master --unset) and only then runs this,
-# as one operation (lib/op.sh, op_run), so by the time it runs the name is no master. Its plan is this dry run, which the
-# queue runs before the unset: with SALA_OP_PLAN=1 (set by `sala op` for the plan alone) the dry run says what the queue
-# would do and goes on; a dry run outside the queue refuses, as the real run does.
-if [ -n "${SALA_MASTER:-}" ] && [ "$name" = "$SALA_MASTER" ]; then
-    if [ "$DRY" = 1 ] && [ "${SALA_OP_PLAN:-}" = 1 ]; then dry "'$name' is the master session the watchdog keeps alive: the queue would unset SALA_MASTER first (salamander master --unset), then retire it as below"
-    else die "'$name' is the master session the watchdog keeps alive — the queue does it in one operation (sala op retire $name --from <you> --words \"<${SALA_OWNER_NAME}'s words>\": unset SALA_MASTER, then retire); by hand, salamander master --unset first if you really mean it"; fi
-fi
 lane_dry_line() {  # <session> → what the lane and model rows are, for the dry run
     local l m; l=$(lane_row "$1"); m=$(model_row "$1")
     if [ -n "$l" ]; then dry "would drop its lane row ($1 → $l) from $SALA_LANES"; else dry "no lane row to drop (a later session of the name starts on the default lane)"; fi

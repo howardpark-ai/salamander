@@ -13,7 +13,7 @@
 #     counts the exact session's own panes and touches nothing, the prefix `work` is refused with the plain sentence and
 #     nothing touched (by retire and by close-shell), a real close of `work-a` leaves `work-ab`, a real close of `0` leaves
 #     the caller's session and pane alone;
-#   - the same sessions through `sala master` (its pane lookup) and `sala unpark`'s refusal of a missing session.
+#   - the same sessions through `sala unpark`'s refusal of a missing session.
 # Isolated HOME, a private tmux socket (sala-tmuxexact-<pid>), no claude: the sessions are plain shells. Every file and the
 # server are removed at the end, pass or fail.
 # Usage: bash tests/tmux-exact.sh   (exit 0 = pass; ~15 s)

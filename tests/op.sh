@@ -524,10 +524,6 @@ P=$(post "$LG$S2.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" 
 fin "$S3" stuck "no tmux session 'sala-test-zz' (exit 1)"
 P=$(post "$LG$S3.log"); [ "$(lines_in "$P")" = 3 ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *rename of sala-test-zz is stuck*" ] && [ "$(sed -n 2p <<< "$P")" = "It did not finish, and nothing retries it: finish it by hand or ask again." ] && plain_post "$P" && ! has "$P" "no tmux session" \
     && ok "no helper line: the fixed sentence (nothing retries it, a person finishes it); the raw failure stays in the log" || bad "no helper line: $P"
-# a stuck master retire: the one extra line that says the master setting is cleared
-: > "$POSTS"; S4=$(sid 204); mkfin "$S4" sala-test-h retire sala-test-zm; echo "unset_master=sala-test-zm" >> "$OPS/$S4.op"
-fin "$S4" stuck "salamander retire exited 1"
-P=$(post "$LG$S4.log"); [ "$(lines_in "$P")" = 4 ] && has "$P" "The master setting was cleared first" && ! has "$P" "salamander master" && plain_post "$P" && ok "a stuck master retire: one more line, the master setting is cleared, no command in it" || bad "master retire: $P"
 # many sessions, failures: five lines at most, then "and N more"
 : > "$POSTS"; S5=$(sid 205); MM=(); for k in 1 2 3 4 5 6 7 8 9; do MM+=("sala-test-m$k"); done
 mkfin "$S5" sala-test-h lane subscription-1 "${MM[@]}"

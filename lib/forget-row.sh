@@ -41,10 +41,6 @@ if tmux has-session -t "=$name" 2>/dev/null; then
     else refuse "tmux session '$name' is live (a shell, no Claude): forget-row is only for a row whose session is gone; to close it use: sala close-shell $name"; fi
 fi
 [ "$name" = "$SALA_RC_SESSION" ] && refuse "'$name' is the Remote Control server's name — use: salamander rc --stop"
-if [ -n "${SALA_MASTER:-}" ] && [ "$name" = "$SALA_MASTER" ]; then
-    if [ "$DRY" = 1 ] && [ "${SALA_OP_PLAN:-}" = 1 ]; then dry "'$name' is the master session the watchdog keeps alive: the queue would unset SALA_MASTER first (salamander master --unset), then forget its row as below"
-    else refuse "'$name' is the master session the watchdog keeps alive — the queue does it in one operation (sala op forget-row $name --from <you> --words \"<${SALA_OWNER_NAME}'s words>\": unset SALA_MASTER, then forget); by hand, salamander master --unset first if you really mean it"; fi
-fi
 orow=$(ledger_row "$name")
 [ -n "$orow" ] || refuse "no pane-map row for '$name' (and no tmux session): nothing to forget"
 ouuid=$(cut -f2 <<< "$orow"); retire_project_of "$name" "$ouuid"; proj=$RETIRE_PROJ; psrc=$RETIRE_PROJ_SRC

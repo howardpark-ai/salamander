@@ -13,9 +13,9 @@
 #     the key is the tmux name and the conversation id;
 #   - self-retire: refused without --self (placed by process ancestry through a trusted claude, never by TMUX_PANE alone); with --self done, no /exit typed
 #     into its own pane, the tail of the output in the retire log; --self from another session changes nothing;
-#   - close-shell: dry run and real (kill, row, lane and model rows, snapshot), the refusals (a Claude pane, the master, the RC session, the caller's own
+#   - close-shell: dry run and real (kill, row, lane and model rows, snapshot), the refusals (a Claude pane, the RC session, the caller's own
 #     session, a prefix, a session still running something), the exact name;
-#   - forget-row: dry run and real (the row, lane and model rows), refusals (a live session either kind, no row, the master, the RC name);
+#   - forget-row: dry run and real (the row, lane and model rows), refusals (a live session either kind, no row, the RC name);
 #   - the queue (`sala op`): close-shell and forget-row are verbs with the same words rules, their plans are the dry runs, the new flags reach the marker.
 # Isolated HOME, a private tmux socket (sala-retverbs-<pid>), the compiled fake claude (tests/fake-claude.c), a stackshot stub (a script); nothing real is
 # touched. Every file, session and process it made is removed at the end, pass or fail.
@@ -353,12 +353,8 @@ run close-shell sala-test-sh2
     && ok "real: the session killed, its row, lane and model rows gone, the snapshot taken" || bad "close-shell real: rc=$RC — $OUT"
 ! has "$OUT" "stackshot" && ok "no stackshot agent-entry call (a shell session is on no agents map)" || bad "close-shell named stackshot: $OUT"
 
-echo "== close-shell refusals: the master, the RC session, the caller's own session, a session still running something"
+echo "== close-shell refusals: the RC session, the caller's own session, a session still running something"
 shell sala-test-m1; s0=$(state)
-SALA_MASTER=sala-test-m1 run close-shell sala-test-m1
-[ "$RC" != 0 ] && has "$OUT" "the master session the watchdog keeps alive" && has "$OUT" "sala op close-shell sala-test-m1" && ok "the master: refused outside the queue, the queue's form named" || bad "master: rc=$RC — $OUT"
-SALA_MASTER=sala-test-m1 SALA_OP_PLAN=1 run close-shell sala-test-m1 --dry-run
-[ "$RC" = 0 ] && has "$OUT" "the queue would unset SALA_MASTER first" && ok "the master's plan (the queue's dry run): would unset SALA_MASTER, then close" || bad "master plan: rc=$RC — $OUT"
 shell "$SALA_RC_SESSION"
 run close-shell "$SALA_RC_SESSION"
 [ "$RC" != 0 ] && has "$OUT" "is the Remote Control server" && ok "the RC session: refused, rc --stop named" || bad "rc: rc=$RC — $OUT"
@@ -395,8 +391,6 @@ run forget-row sala-test-orph
 run forget-row sala-test-orph
 [ "$RC" != 0 ] && has "$OUT" "no pane-map row for 'sala-test-orph'" && ok "again: nothing to forget, refused" || bad "forget-row again: rc=$RC — $OUT"
 ledger_write add sala-test-m2 "$UO" sala-test-m2 "$HOME/work" >/dev/null 2>&1
-SALA_MASTER=sala-test-m2 run forget-row sala-test-m2
-[ "$RC" != 0 ] && has "$OUT" "the master session the watchdog keeps alive" && [ -n "$(row sala-test-m2)" ] && ok "the master's row: refused outside the queue, the row kept" || bad "forget-row master: rc=$RC — $OUT"
 run forget-row "$SALA_RC_SESSION"
 [ "$RC" != 0 ] && has "$OUT" "Remote Control" && ok "the RC session's name: refused" || bad "forget-row rc: rc=$RC — $OUT"
 run forget-row sala-test-m2
