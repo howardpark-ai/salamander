@@ -210,8 +210,10 @@ def test_a_card_drags_by_its_handle_and_the_drag_opens_nothing(world, page, brow
     # a drag back to the first place
     drag(browser, centre(browser, "#q-cards > .lane-subscription-1 .q-grip"), centre(browser, "#q-cards > .lane-subscription-2 .q-head"))
     assert ids(browser)[:3] == ["subscription-1", "subscription-2", "api"]
+    back = ["subscription-1", "subscription-2", "api", "aws-platform", "bedrock"]
+    assert saved_order(world, back) == back   # the page's save is asynchronous: a reload before it lands draws the earlier order
     open_cards(browser, url, tag="again")
-    assert ids(browser) == ["subscription-1", "subscription-2", "api", "aws-platform", "bedrock"]
+    assert ids(browser) == back
 
 
 def test_the_cards_own_links_still_work(world, page, browser):
