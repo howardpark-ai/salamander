@@ -4525,3 +4525,14 @@ Section `f` of the suite (the same isolated HOME, private tmux server, fake clau
 - **c, the wording.** The "could not check" line says the panes this check could not read an answer for were not reported, no longer claims that no session was reported, and carries no time of day or zone. The `d` case that asserted the old sentence asserts the new one.
 
 Not checked: that a healthy tick starts no registry process (the code asks only after the record answered "listed nowhere" or "cannot answer"), and a record refresh between two reads of one tick.
+
+### `tests/unregistered.sh`, an outage tick that reads no pane keeps every key; the side-tag fixture is read back (Sun Nov 22nd 2026)
+
+New section `h` of the suite (same isolated HOME, private tmux server, fake claude and stub record; it follows `f` and uses `f`'s two tagged panes). The watch now takes one record-level answer per tick, independent of the panes: a pane's read that gets "cannot answer", or, when no pane is read at all and a key of the watch exists, one read of the record for a name that is never a real session. While the record cannot answer (or a pane was counted) no `unreg.<name>` key and not the `unreg_record` key is deleted. The cases failed on the code before the change (the keys were deleted) and pass after it.
+
+- **b, only exempt live panes.** A record written an hour ago, a seeded `unreg.<name>` key (its pane is not live) and a seeded `unreg_record` key: with only exempt panes live, first the two exempt by registry tag (the generated throwaway and the side session) with the other exempt names, then only the name-exempt ones, both keys are still there exactly as seeded after two runs and nothing is posted.
+- **a, no live pane at all.** The same seeds after the tmux server is ended (an empty scan): both keys stay, nothing is posted.
+- **c, a readable record.** With a fresh record the same keys go in both situations (tagged and exempt panes live, empty scan) and nothing is posted; the existing clear case of `f` stays green.
+- **The side-tag fixture, `f` case a.** The pane meant to prove the side-tag exemption is read back from the registry before the tick and must be `side=1 throwaway=0` (and the throwaway pane `side=0 throwaway=1`). `sessions_py set <name> side=1` clears the throwaway tag a name-less spawn wrote, so the fixture was already side-only; the read-back now proves it. With the side half of `unreg_tag_exempt` temporarily broken (side passed as 0) case `a` of `f` fails, and it passes with the helper intact.
+
+Not checked: that the empty-scan probe is skipped when no key of the watch exists (no process is counted), and a record refresh between two reads of one tick.

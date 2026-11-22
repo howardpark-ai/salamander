@@ -13,6 +13,8 @@
 #   f  a record that cannot answer, three review points: (a) only panes a registry tag exempts (a side session, a generated throwaway) are live: no "could not check" post, no per-pane post;
 #      (b) one non-exempt pane is live and a key of a pane that is not live is seeded: both keys survive the outage, and go once a readable record lists the live pane;
 #      (c) the "could not check" line says the panes it could not read an answer for were not reported (and no longer claims that no session was reported)
+#   h  an outage tick that reads no pane still deletes no key (the record-level answer): a stale record with (b) only exempt live panes, by tag or by name, or (a) no live pane at all, and a seeded
+#      unreg.<name> key plus a seeded unreg_record key: both stay, nothing is posted; (c) with a readable record the same keys go. f's case a also reads the side tag's fixture back (side=1, throwaway=0)
 # Isolated HOME, a private tmux server started with -f /dev/null, the compiled fake claude, a stub project record (SALA_PROJECT_RECORD); every post lands in a file.
 # Usage: bash tests/unregistered.sh   (exit 0 = pass; ~25 s)
 set -u
@@ -179,7 +181,14 @@ mktag() {  # <FAKE_SESSION_ID> <FAKE_NAME> → the name of a pane a name-less sp
 }
 TG=$(mktag aaaaaaaa-1111-4000-8000-00000000000a gen-demo-t); fake_up gen-demo-t 2>/dev/null
 SG=$(mktag aaaaaaaa-1111-4000-8000-00000000000b gen-demo-s); fake_up gen-demo-s 2>/dev/null
-if [ -n "$TG" ] && [ -n "$SG" ] && [ "$TG" != "$SG" ] && sessions_py set "$SG" side=1 >/dev/null 2>&1; then   # SG: a registry row tagged side, with no side record file and no -side- in its name
+rowtags() {  # <session> → "side throwaway" as the registry row reads back (1 or 0 each): what unreg_tag_exempt itself asks
+    sessions_py resolve "$1" --live --json 2>/dev/null | python3 -I -c 'import json,sys
+try: r=json.load(sys.stdin)
+except Exception: sys.exit(0)
+print("%s %s" % ("1" if r.get("side") else "0", "1" if r.get("throwaway") else "0"))' 2>/dev/null
+}
+if [ -n "$TG" ] && [ -n "$SG" ] && [ "$TG" != "$SG" ] && sessions_py set "$SG" side=1 >/dev/null 2>&1; then   # SG: a registry row tagged side ONLY (set side=1 clears the throwaway tag the name-less spawn put on it; the read-back below proves it), with no side record file and no -side- in its name
+    [ "$(rowtags "$SG")" = "1 0" ] && [ "$(rowtags "$TG")" = "0 1" ] && ok "a: the fixture holds: $SG is side=1 throwaway=0 (side tag only), $TG is side=0 throwaway=1 (throwaway tag only)" || bad "a: fixture rows: SG='$(rowtags "$SG")' (want 1 0) TG='$(rowtags "$TG")' (want 0 1)"
     mkrec 3600 delta-demo-main    # stale
     reset; uw SALA_UNREGISTERED_GRACE=0; uw SALA_UNREGISTERED_GRACE=0
     [ "$(ncant)" = 0 ] && [ "$(nmiss)" = 0 ] && [ "$(nkeys)" = 0 ] && [ ! -s "$POSTS" ] && ok "a: stale record, only a registry-tagged side session and a tagged generated throwaway live: no 'could not check' post, no per-pane post, no key" || bad "a: tag-exempt only: cant=$(ncant) miss=$(nmiss) keys=$(nkeys): $(slurp "$POSTS")"
@@ -197,8 +206,29 @@ if [ -n "$TG" ] && [ -n "$SG" ] && [ "$TG" != "$SG" ] && sessions_py set "$SG" s
     : > "$POSTS"; mkrec 5 delta-demo-main "$B"
     uw SALA_UNREGISTERED_GRACE=0
     [ "$(nkeys)" = 0 ] && [ "$(nmiss)" = 0 ] && [ "$(ncant)" = 0 ] && ! grep -q '^unreg_record=' "$WSTATE" && ok "b: a readable record that lists the live pane: the keys of the listed pane and the gone pane go, nothing posted" || bad "b: readable again: keys=$(grep unreg "$WSTATE") miss=$(nmiss) cant=$(ncant)"
-    $T kill-session -t "=$TG" 2>/dev/null; $T kill-session -t "=$SG" 2>/dev/null
 else bad "f: could not set up the tagged panes: throwaway='$TG' side='$SG'"; fi
+
+echo "== h: an outage tick that reads no pane still keeps every key (one record-level answer per tick, independent of panes)"
+hseed() { sed -i '/^unreg[._]/d' "$WSTATE"; printf 'unreg.%s=100:0\nunreg_record=100:0\n' delta-demo-held >> "$WSTATE"; : > "$POSTS"; }   # a pane's key (the pane is not live) and the outage post's key
+hkept() { grep -q '^unreg\.delta-demo-held=100:0$' "$WSTATE" && grep -q '^unreg_record=100:0$' "$WSTATE"; }   # both exactly as seeded
+$T kill-session -t "=$B" 2>/dev/null; waitfor "! tmux has-session -t =$B 2>/dev/null" 20
+if [ -n "$TG" ] && [ -n "$SG" ]; then
+    mkrec 3600 delta-demo-main    # stale
+    hseed; uw SALA_UNREGISTERED_GRACE=0; uw SALA_UNREGISTERED_GRACE=0
+    [ ! -s "$POSTS" ] && hkept && ok "b: stale record, only exempt live panes (the tagged throwaway and side session, and the exempt names): both keys kept, nothing posted" || bad "b: exempt only: posts=$(slurp "$POSTS") keys=$(grep unreg "$WSTATE")"
+    mkrec 5 delta-demo-main; uw SALA_UNREGISTERED_GRACE=0
+    [ "$(nkeys)" = 0 ] && ! grep -q '^unreg_record=' "$WSTATE" && [ ! -s "$POSTS" ] && ok "c: the same panes, a readable record: both keys go, nothing posted" || bad "c: readable again: keys=$(grep unreg "$WSTATE") posts=$(slurp "$POSTS")"
+    $T kill-session -t "=$TG" 2>/dev/null; $T kill-session -t "=$SG" 2>/dev/null; waitfor "! tmux has-session -t =$TG 2>/dev/null && ! tmux has-session -t =$SG 2>/dev/null" 20
+    mkrec 3600 delta-demo-main
+    hseed; uw SALA_UNREGISTERED_GRACE=0; uw SALA_UNREGISTERED_GRACE=0
+    [ ! -s "$POSTS" ] && hkept && ok "b: stale record, only panes exempt by their names live: both keys kept, nothing posted" || bad "b: name-exempt only: posts=$(slurp "$POSTS") keys=$(grep unreg "$WSTATE")"
+else bad "h: no tagged panes to start from (f's setup failed)"; fi
+$T kill-server 2>/dev/null; waitfor "! tmux has-session 2>/dev/null" 20   # no live pane at all: the scan is empty
+mkrec 3600 delta-demo-main
+hseed; uw SALA_UNREGISTERED_GRACE=0; uw SALA_UNREGISTERED_GRACE=0
+[ ! -s "$POSTS" ] && hkept && ok "a: stale record, no live pane at all (empty scan): both keys kept, nothing posted" || bad "a: empty scan: posts=$(slurp "$POSTS") keys=$(grep unreg "$WSTATE")"
+mkrec 5 delta-demo-main; uw SALA_UNREGISTERED_GRACE=0
+[ "$(nkeys)" = 0 ] && ! grep -q '^unreg_record=' "$WSTATE" && [ ! -s "$POSTS" ] && ok "c: an empty scan and a readable record: both keys go, nothing posted" || bad "c: empty scan, readable: keys=$(grep unreg "$WSTATE") posts=$(slurp "$POSTS")"
 
 [ "$fail" = 0 ] && echo "unregistered: pass" || echo "unregistered: FAIL"
 exit $fail
