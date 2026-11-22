@@ -4,10 +4,10 @@ sala's operation queue (`web/README.md`, *New session*).
 What a wrong answer costs here is a session the owner did not ask for, or one he asked for that never comes: a spawn sent
 with another project, role, name or mandate than the form showed; a mandate that reaches sala changed (a Korean text
 with quotes, a leading dash, a `$(…)`, read back other than typed); typed text that reaches a shell; a second spawn from a
-double tap; a refusal shown as markup; or the queue's own answer (the lines to add to the page, the missing page) lost
+double tap; a refusal shown as markup; or the queue's own answer (the lines to add to the page, the record that cannot answer) lost
 on the way to him. Every check guards one of those. Nothing here runs sala or touches tmux: `sala` is a stand-in script
 in tmp_path that records its argv and the mandate file's text and answers as the queue does in the mode the test set
-(queued, exit 3 with the ADD-TO-PAGE block, exit 4, a refusal, slow, nothing); the project pages are a few files under
+(queued, exit 3 with the ADD-TO-PAGE block, a record that cannot answer, a refusal, slow, nothing); the project pages are a few files under
 a temporary pages checkout; the browser tests run in a headless Chromium when one is installed (conftest.py: `served`,
 `browser`), with api/sessions a stub whose list the test extends to make the new session "appear"."""
 
@@ -139,12 +139,11 @@ if mode == "exit3":
     print("REGISTER: %s" % project)
     print("python3 ~/stackshot/stackshot/fleet/client.py post project-agent %s %s --role main %s --mandate \"<one line>\"   # \"quoted\" & <tagged>" % (project, name, "--back" if role == "back" else "--front"))
     sys.exit(3)
-if mode == "exit4":
+if mode == "norecord":   # stackshot's project record cannot answer: the plan exits 6, and the queue (lib/op.sh) answers 1 with the plan's lines
     print("plan for spawn %s:" % name)
-    print("   ✗ no page %s" % project)
-    sys.stderr.write("✗ refused: the plan for spawn %s did not pass (exit 4) — nothing queued\n" % name)
-    print("NO-PAGE: %s" % project)
-    sys.exit(4)
+    print("   ✗ stackshot's project record cannot answer (no such project %s): retry when it is fresh" % project)
+    sys.stderr.write("✗ refused: the plan for spawn %s did not pass (exit 6) — nothing queued\n" % name)
+    sys.exit(1)
 print("plan for spawn %s:" % name)
 print("   ✓ page %s exists" % project)
 print("   ✗ a tmux session named %s is live already <script>alert(1)</script>" % name)
@@ -422,9 +421,10 @@ def test_what_the_queue_answers_reaches_the_page_as_it_is(env, monkeypatch):
     assert "ADD-TO-PAGE" not in d["block"] and "agents:" not in d["block"]
     assert d["keeper"] == "the project's keeper was asked to register it in one stackshot message (to projects/gamma-harbor)"
     assert "✗ refused" in d["error"] and "not on the page's agents map" in d["error"]
-    s.mode("exit4")
-    d = c.post("/api/spawn", json=body).json()
-    assert d["code"] == "no-page" and d["page"] == "projects/gamma-harbor" and "no page" in d["error"]
+    s.mode("norecord")
+    r = c.post("/api/spawn", json=body)
+    assert r.status_code == 409 and r.json()["code"] == "refused" and r.json()["exit"] == 1
+    assert "project record cannot answer" in r.json()["error"] and "NO-PAGE" not in r.json()["error"]
     s.mode("refuse")
     r = c.post("/api/spawn", json=body)
     assert r.status_code == 409 and r.json()["code"] == "refused" and r.json()["exit"] == 1
@@ -895,21 +895,22 @@ def test_a_name_the_queue_does_not_see_listed_is_said_in_words_and_the_add_to_pa
     assert not ns(browser)["submitDisabled"]   # the form is usable again, for the retry
 
 
-def test_exit_4_and_a_refusal_stay_text(sala, served, browser):
-    sala.mode("exit4")
+def test_a_record_that_cannot_answer_and_a_refusal_stay_text(sala, served, browser):
+    sala.mode("norecord")
     open_form(browser, served)
     pick(browser, "projects/gamma-harbor")
     assert wait_for(browser, "document.querySelector('#ns-name').value === 'gamma-harbor-pink'")
     click(browser, "#ns-submit")
-    g = wait_state(browser, "gamma-harbor-pink: not queued", 25.0)
-    assert "sala does not see the page projects/gamma-harbor yet" in g["status"] and "NO-PAGE" not in g["status"], g
+    assert wait_for(browser, "(document.querySelector('#ns-status pre') || {}).textContent?.includes('project record cannot answer')", 10.0), ns(browser)
+    g = ns(browser)
+    assert "NO-PAGE" not in g["status"] and not g["scriptInStatus"], g
     sala.mode("refuse")
     click(browser, "#ns-submit")
     assert wait_for(browser, "(document.querySelector('#ns-status pre') || {}).textContent?.includes('alert(1)')", 10.0), ns(browser)
     g = ns(browser)
     assert g["pre"] and "<script>alert(1)</script>" in g["pre"] and "✗ refused" in g["pre"] and not g["scriptInStatus"], g
-    # the first create asked the queue four times (once, then 4, 4 and 6 s later: the add step had just changed stackshot's record), the refusal once
-    assert [r["mode"] for r in sala.spawns()] == ["exit4"] * 4 + ["refuse"]
+    # each answer asked the queue once: a refusal is not the record's lag, so the form does not ask again
+    assert [r["mode"] for r in sala.spawns()] == ["norecord", "refuse"]
 
 
 def test_a_second_submit_while_one_runs_is_not_sent(sala, served, browser):
