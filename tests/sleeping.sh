@@ -18,7 +18,8 @@
 #  - 9 the wrap-up tick lists no pane with no claude; 10 `sala sessions` and `sala spawn --list` show `sleeping` (display; since stage 3 the JSON adds a `sleeping` key too);
 #  - sleep_ready: yes for an idle, free pane; and each refusal with its reason: no session, already asleep, the Remote Control session, SALA_NO_RELAUNCH,
 #    a side session, no pane-map row, no claude, the sdk lane, idle too short, a busy registry row, a draft in the box, a scheduled job, a queued operation naming it,
-#    a note waiting, the deferred list, an open set, the waiting flag, a stackshot inbox message, a limit stop, a network stop, a question open on its screen.
+#    a note waiting, the deferred list, an open set, the waiting flag, a stackshot inbox message (routed by `to`, `uuid` or `name` exactly: a line for a longer
+#    name or a text that only mentions the session refuses nothing), a limit stop, a network stop, a question open on its screen.
 # SAFETY: every kill is a `kill -9` of ONE pid whose /proc/<pid>/exe is this suite's own compiled fake and whose environment names this suite's temporary HOME
 # (killfake, kill_fake_claude); the tmux server is a private socket (tmux -L sala-sleeping-<pid> -f /dev/null, SALA_TMUX_SOCKET pointing at it), HOME is a
 # mktemp -d held with flock, the claude is tests/fake-claude.c; no real pane, server, ~/.claude or claude process is read or touched. Posts go to a file.
@@ -298,6 +299,14 @@ SX="$((now0 - 5))-1"; set_create "$SX" Recycle recycle 1 0 9.9.9 1 out=sala-test
 waiting_raise "$(uuid 6)" reboot reboot-1 $$; expect "the relaunch-waiting flag" sala-test-s "relaunch flag"; waiting_clear "$(uuid 6)"
 export SALA_STACKSHOT_INBOX="$HOME/inbox"; r=$(why sala-test-s); [ -z "$r" ] && ok "a missing stackshot inbox directory is no refusal" || bad "no inbox dir: $r"
 mkdir -p "$SALA_STACKSHOT_INBOX/hub"; printf '{"to":"sala-test-s","text":"hello"}\n' > "$SALA_STACKSHOT_INBOX/hub/m1.json"; expect "a stackshot inbox message" sala-test-s "stackshot hub message"; rm -f "$SALA_STACKSHOT_INBOX/hub/m1.json"
+# the routing fields are matched exactly: a line for a longer name or one whose text only mentions the session does not refuse it; a line routed by name or by conversation id does
+mkdir -p "$SALA_STACKSHOT_INBOX/hub" "$SALA_STACKSHOT_INBOX/msg"
+printf '{"id":"x1","src":"msg","to":"sala-test-s-extra","uuid":"","name":"sala-test-s-extra","pid":"","text":"for the longer name","from":"x"}\n' > "$SALA_STACKSHOT_INBOX/msg/x1.json"
+printf '{"id":"x2","src":"hub","to":"somebody-else","uuid":"","name":"somebody-else","pid":"","text":"mentions sala-test-s and %s only in its text","from":"x"}\n' "$(uuid 6)" > "$SALA_STACKSHOT_INBOX/hub/x2.json"
+r=$(why sala-test-s); [ -z "$r" ] && ok "a line for sala-test-s-extra and a text that only mentions the session's name and id do not refuse it" || bad "mention-only lines refused it: $r"
+printf '{"id":"x3","src":"msg","to":"sala-test-s","uuid":"","name":"sala-test-s","pid":"","text":"for s","from":"x"}\n' > "$SALA_STACKSHOT_INBOX/msg/x3.json"; expect "a stackshot msg line routed to its name" sala-test-s "stackshot msg message"; rm -f "$SALA_STACKSHOT_INBOX/msg/x3.json"
+printf '{"id":"x4","src":"hub","to":"somebody-else","uuid":"%s","name":"somebody-else","pid":"","text":"for the conversation","from":"x"}\n' "$(uuid 6)" > "$SALA_STACKSHOT_INBOX/hub/x4.json"; expect "a stackshot hub line routed to its conversation id" sala-test-s "stackshot hub message"; rm -f "$SALA_STACKSHOT_INBOX/hub/x4.json"
+rm -f "$SALA_STACKSHOT_INBOX/msg/x1.json" "$SALA_STACKSHOT_INBOX/hub/x2.json"
 : > "$HOME/t_limit"; expect "stopped on a usage limit" sala-test-s "usage limit"; rm -f "$HOME/t_limit"
 : > "$HOME/t_net"; expect "stopped on a network error" sala-test-s "network"; rm -f "$HOME/t_net"
 _key_r k sala-test-s; printf 's.%s.hash=abc123\n' "$k" > "$SALA_STATE_DIR/stuck.state"; expect "a question open on its screen" sala-test-s "question"; rm -f "$SALA_STATE_DIR/stuck.state"

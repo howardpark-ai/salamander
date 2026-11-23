@@ -14,7 +14,11 @@
 #    candidate again;
 #  - the wake tick (SALA_IDLE_SLEEP off): a sleeper with a message line waiting in the stackshot inbox (a held key too) is woken, one without a line stays asleep, a
 #    notice wakes nothing, a session that is not asleep is untouched, at most SALA_WAKE_PER_RUN per run (the rest on the next), one watch-log line per wake naming
-#    the session and `inbox line waiting`, `watch --wake --dry-run` says whom it would wake and changes nothing, and the inbox files are byte for byte as before.
+#    the session and `inbox line waiting`, `watch --wake --dry-run` says whom it would wake and changes nothing, and the inbox files are byte for byte as before;
+#  - the routing fields: a line for `<name>-extra`, or one whose text only mentions the name or the conversation id, wakes nobody; a line routed by `to`/`name` or by
+#    `uuid` does;
+#  - the retry backoff: with a cap of one the wake and the sleep previews skip a session in backoff and name the one the real run acts on, and the real run does the same;
+#  - the wake re-checks the pane-map row: a candidate whose id is no longer the row's is skipped with no wake and no failure stamp.
 # SAFETY: every kill is a `kill -9` of ONE pid whose /proc/<pid>/exe is this suite's own compiled fake and whose environment names this suite's temporary HOME
 # (kill_fake_claude); the tmux server is a private socket (tmux -L sala-sleeptick-<pid> -f /dev/null, SALA_TMUX_SOCKET pointing at it), HOME is a mktemp -d
 # held with flock, the claude is tests/fake-claude.c; no real pane, server, ~/.claude or claude process is read or touched. Posts go to a file.
@@ -176,6 +180,70 @@ hasclaude r4 && ! asleep 24 && [ "$(n_starts 24)" = "$((r4s + 1))" ] && [ "$(wlo
 tick; [ "$(wlogn 'wake: woke ')" = 3 ] && asleep 25 && asleep 21 && ok "a further tick wakes nobody more (r5 and r1 have no line)" || bad "extra wake: $(grep 'wake:' "$WLOG")"
 SALA_IDLE_SLEEP=on tick; sleep 1
 hasclaude r2 && hasclaude r3 && hasclaude r4 && ok "with the tick on, the three just woken are not put to sleep again" || bad "a woken session slept again"
+
+echo "== the routing fields: a line for a longer name, or a text that only mentions the name, wakes nobody; a line routed by name or by conversation id does"
+# r5 and r1 sleep. The lines below are shaped as stackshot writes them: id, ts, src, to, uuid, name, pid, text, from.
+rm -f "$SALA_STACKSHOT_INBOX"/hub/*.json "$SALA_STACKSHOT_INBOX"/msg/*.json
+printf '{"id":"a1","src":"msg","to":"sala-test-r5-extra","uuid":"","name":"sala-test-r5-extra","pid":"","text":"for the longer name","from":"x"}\n' > "$SALA_STACKSHOT_INBOX/msg/e1.json"
+printf '{"id":"a2","src":"hub","to":"sala-test-n","uuid":"%s","name":"sala-test-n","pid":"","text":"please tell sala-test-r5 and sala-test-r1, also %s","from":"x"}\n' "$(uuid 26)" "$(uuid 21)" > "$SALA_STACKSHOT_INBOX/hub/e2.json"
+SUM1=$(inboxsum); r5s=$(n_starts 25); r1s=$(n_starts 21)
+DRY=$("$SALA" watch --wake --dry-run 2>&1)
+! has "$DRY" "sala-test-r5" && ! has "$DRY" "sala-test-r1" && ok "watch --wake --dry-run: a line for sala-test-r5-extra and a text that only mentions r5, r1 and r1's id name neither" || bad "wake dry (negatives): $DRY"
+tick; sleep 1
+asleep 25 && asleep 21 && ! hasclaude r5 && ! hasclaude r1 && [ "$(n_starts 25)" = "$r5s" ] && [ "$(n_starts 21)" = "$r1s" ] && ok "a full tick woke neither r5 nor r1" || bad "a negative line woke a sleeper"
+printf '{"id":"a3","src":"msg","to":"sala-test-r5","uuid":"%s","name":"sala-test-r5","pid":"","text":"for r5","from":"x"}\n' "$(uuid 25)" > "$SALA_STACKSHOT_INBOX/msg/e3.json"
+DRY=$("$SALA" watch --wake --dry-run 2>&1)
+has "$(grep sala-test-r5 <<< "$DRY")" "would be woken" && ! has "$DRY" "sala-test-r1" && ok "watch --wake --dry-run: a line routed to sala-test-r5 wakes it, and still not r1" || bad "wake dry (r5): $DRY"
+printf '{"id":"a4","src":"hub","to":"somebody-else","uuid":"%s","name":"somebody-else","pid":"","text":"for the conversation of r1","from":"x"}\n' "$(uuid 21)" > "$SALA_STACKSHOT_INBOX/hub/e4.json"
+DRY=$("$SALA" watch --wake --dry-run 2>&1)
+has "$(grep sala-test-r1 <<< "$DRY")" "would be woken" && ok "watch --wake --dry-run: a line routed to r1's conversation id wakes r1 whatever name it carries" || bad "wake dry (r1): $DRY"
+tick
+waitfor 'hasclaude r5 && hasclaude r1' 60
+hasclaude r5 && hasclaude r1 && [ "$(n_starts 25)" = "$((r5s + 1))" ] && [ "$(n_starts 21)" = "$((r1s + 1))" ] && ok "a full tick woke r5 (routed by name) and r1 (routed by conversation id), each once" || bad "r5/r1: starts $(n_starts 25)/$r5s $(n_starts 21)/$r1s; log: $(grep 'wake:' "$WLOG")"
+[ -f "$SALA_STACKSHOT_INBOX/msg/e1.json" ] && [ -f "$SALA_STACKSHOT_INBOX/hub/e2.json" ] && ok "the lines that were not for them are still in the inbox" || bad "an inbox line is gone"
+
+echo "== the retry backoff: the previews skip a session the real run skips, so with a cap of one they name the one the run acts on"
+# every woken session (r1..r5) is awake again with a wake stamp; age the stamps, drop the lines that woke them (the fake pane never takes a line), put r1 and r5 to
+# sleep again and give each a line. r1 comes before r5 in the marker folder (uuid 21 < 25), so it is the first wake candidate.
+rm -f "$SALA_STACKSHOT_INBOX/msg/e3.json" "$SALA_STACKSHOT_INBOX/hub/e4.json"
+for n in 21 22 23 24 25; do printf '%s\n' "$(( $(date +%s) - 4000 ))" > "$SALA_SLEEP_DIR.woke/$(uuid $n)"; done
+"$SALA" sleep sala-test-r1 sala-test-r5 >/dev/null 2>&1
+asleep 21 && asleep 25 && ok "r1 and r5 are asleep again" || bad "r1/r5 not asleep: $(ls "$SALA_SLEEP_DIR")"
+printf '{"id":"b1","src":"msg","to":"sala-test-r1","uuid":"%s","name":"sala-test-r1","pid":"","text":"for r1","from":"x"}\n' "$(uuid 21)" > "$SALA_STACKSHOT_INBOX/msg/e5.json"
+printf '{"id":"b2","src":"msg","to":"sala-test-r5","uuid":"%s","name":"sala-test-r5","pid":"","text":"for r5","from":"x"}\n' "$(uuid 25)" > "$SALA_STACKSHOT_INBOX/msg/e6.json"
+WST="$SALA_LOG_DIR/salamander-watch.state"
+printf 'wakefail.sala-test-r1=%s\n' "$(date +%s)" >> "$WST"      # a wake of r1 failed a moment ago
+export SALA_WAKE_PER_RUN=1
+DRY=$("$SALA" watch --wake --dry-run 2>&1)
+has "$(grep sala-test-r5 <<< "$DRY")" "would be woken" && has "$(grep sala-test-r1 <<< "$DRY")" "skipped" && ! has "$(grep sala-test-r1 <<< "$DRY")" "would be woken" && ok "watch --wake --dry-run, cap 1: r1 (in backoff) is skipped and r5 is the one that would be woken" || bad "wake dry (backoff): $DRY"
+tick
+waitfor 'hasclaude r5' 60
+hasclaude r5 && ! asleep 25 && asleep 21 && ! hasclaude r1 && ok "the real run woke r5, the one the preview named, and left r1 (in backoff) asleep" || bad "backoff run: r5 up=$(hasclaude r5 && echo y) r1 asleep=$(asleep 21 && echo y); log: $(grep 'wake:' "$WLOG")"
+[ "$(wlogn 'wake: sala-test-r1 not woken')" = 0 ] && ok "r1 was not tried at all (no failure line)" || bad "r1 was tried: $(grep 'wake:' "$WLOG")"
+sed -i '/^wakefail\.sala-test-r1=/d' "$WST"
+# the sleep side: the awake sessions r2..r5 are candidates again (their stamps are aged, the lines that woke them are gone); the first in backoff, the cap one
+rm -f "$SALA_STACKSHOT_INBOX/msg/e5.json" "$SALA_STACKSHOT_INBOX/msg/e6.json"
+OUT=$(SALA_SLEEP_PER_TICK=1 "$SALA" sleep --candidates 2>&1); first=$(names "$OUT" | cut -d' ' -f1)
+[ -n "$first" ] && ok "a candidate exists for the sleep preview ($first)" || bad "no sleep candidate: $OUT"
+_key_r kf "$first"; printf 'sleepfail.%s=%s\n' "$kf" "$(date +%s)" >> "$WST"
+OUT=$(SALA_SLEEP_PER_TICK=1 "$SALA" sleep --candidates 2>&1); DRYS=$(SALA_SLEEP_PER_TICK=1 "$SALA" watch --sleep --dry-run 2>&1)
+second=$(grep 'would be put to sleep' <<< "$OUT" | cut -d: -f1); has "$(grep -F "$first:" <<< "$OUT")" "skipped" && [ -n "$second" ] && [ "$second" != "$first" ] && [ "$(grep -c 'would be put to sleep' <<< "$OUT")" = 1 ] && ok "sleep --candidates, cap 1: $first (in backoff) is skipped and $second is the one that would be put to sleep" || bad "sleep preview (backoff): $OUT"
+[ "$(grep 'would be put to sleep' <<< "$DRYS" | cut -d: -f1)" = "$second" ] && ok "watch --sleep --dry-run names the same session" || bad "watch --sleep --dry-run: $DRYS"
+p2=$(wlogn "sleep: put $second to sleep"); p1=$(wlogn "sleep: put $first to sleep")   # both were slept once earlier: count what this run adds
+SALA_IDLE_SLEEP=on SALA_SLEEP_PER_TICK=1 "$SALA" watch --sleep >/dev/null 2>&1
+[ "$(wlogn "sleep: put $second to sleep")" = "$((p2 + 1))" ] && [ "$(wlogn "sleep: put $first to sleep")" = "$p1" ] && [ "$(wlogn 'not put to sleep')" = 0 ] && ok "the real run, cap 1, put $second to sleep, the one the preview named, and did not try $first" || bad "sleep run: $(grep 'sleep:' "$WLOG")"
+
+echo "== the wake re-checks the pane-map row: a candidate whose row no longer holds its conversation id is skipped, with no wake and no failure stamp"
+# wake_candidates is replaced by a fixed line (a candidate picked before the row changed); wake_locked runs in a subshell with the watch's logging and state seams stubbed
+STUB="$HOME/stub.log"; : > "$STUB"; r1s=$(n_starts 21)
+asleep 21 && ok "(r1 is asleep)" || bad "r1 is not asleep before the re-check case"
+( wake_candidates() { printf 'sala-test-r1\t%s\thub\n' "$(uuid 99)"; }; wlog() { echo "log $*" >> "$STUB"; }; st_set() { echo "set $*" >> "$STUB"; }; st_del() { :; }; sleepstate_prune() { :; }
+  wake_locked )
+asleep 21 && ! hasclaude r1 && [ "$(n_starts 21)" = "$r1s" ] && [ ! -s "$STUB" ] && ok "a candidate whose id is not the row's: r1 stays asleep, not woken, nothing logged, no failure stamp" || bad "stale candidate acted: starts $(n_starts 21)/$r1s; stub: $(cat "$STUB")"
+( wake_candidates() { printf 'sala-test-r1\t%s\thub\n' "$(uuid 21)"; }; wlog() { echo "log $*" >> "$STUB"; }; st_set() { echo "set $*" >> "$STUB"; }; st_del() { :; }; sleepstate_prune() { :; }
+  wake_locked )
+waitfor 'hasclaude r1' 60
+hasclaude r1 && ! asleep 21 && [ "$(n_starts 21)" = "$((r1s + 1))" ] && grep -q '^log wake: woke sala-test-r1' "$STUB" && ok "the same candidate with the row's own id is woken" || bad "control wake: starts $(n_starts 21)/$r1s; stub: $(cat "$STUB")"
 
 [ "$fail" = 0 ] && echo "sleeptick: pass" || echo "sleeptick: FAIL"
 exit $fail

@@ -4796,6 +4796,9 @@ the next run the other two, the skipped sessions keep running, and the candidate
 marker folder holds markers only; the wake tick with the idle tick off wakes the sleepers with a line in `hub/` or `msg/` (one with a held key too), each once on its own
 conversation, not past `SALA_WAKE_PER_RUN` (the rest on the next run), not a sleeper with no line, not for a notice, not a session that is not asleep, one
 `wake: woke NAME — inbox line waiting` line each, `watch --wake --dry-run` changes nothing, the inbox files byte for byte as before, and with the idle tick on the three
-just woken are not slept again. Not checked: a real fleet's first run with the tick on (the dry run is how an owner looks first); the sleeper staying asleep across a
+just woken are not slept again; the routing fields are matched exactly (a line for `<name>-extra` and a text that only mentions the name or the conversation id wake and
+refuse nothing, in `tests/sleeptick.sh` and `tests/sleeping.sh`; a line routed by name or by conversation id does); with a cap of one the wake, sleep and
+`--candidates` previews skip a session in retry backoff and name the one the real run acts on, which the real run then does; and the wake skips, without a failure stamp,
+a candidate whose pane-map row no longer holds its conversation id. Not checked: a real fleet's first run with the tick on (the dry run is how an owner looks first); the sleeper staying asleep across a
 reboot is stage 1's (`tests/sleeping.sh`: no revive, restore or heal brings it back); stackshot writing the message line (its own side); a real claude's registry
 row after a resume (the stamp makes the tick independent of it).
