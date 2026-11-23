@@ -125,9 +125,17 @@ def side_words_for(r: "SpawnRequest", now: datetime | None = None) -> str:
     return f"{owner_name()}, via the sala web form: new side conversation {r.name} ({what}), {zone_stamp(now)}"
 
 
-def wake_words(name: str, now: datetime | None = None) -> str:
-    """The queue's `--words` for a wake: the owner opened a sleeping session in the page, said as the page heard it."""
-    return f"{owner_name()}, via the sala web page: opened the sleeping session {name}, {zone_stamp(now)}"
+WAKE_HOWS = {   # why the owner woke it, as the words say it: `how` in the page's POST (none given: it opened the session, the page's first way)
+    "send": "sent a message to the sleeping session",
+    "button": "pressed Wake on the sleeping session",
+}
+
+
+def wake_words(name: str, now: datetime | None = None, how: str | None = None) -> str:
+    """The queue's `--words` for a wake: the owner's own act in the page, said as the page heard it: he sent a message to the sleeping session, pressed
+    its Wake button, or (no `how`) opened it."""
+    what = WAKE_HOWS.get(how or "", "opened the sleeping session")
+    return f"{owner_name()}, via the sala web page: {what} {name}, {zone_stamp(now)}"
 
 
 def wake_argv(cmd: list[str], name: str, words: str) -> list[str]:

@@ -603,6 +603,8 @@
     </section>
     <footer id="composer">
       <button id="jump" class="jump" type="button" aria-label="Jump to the latest message" data-i18n-aria-label="ui.chat.jump" hidden>&#8595;</button>
+      <!-- a sleeping session's chat: it sleeps, and a message wakes it (app.js, "a sleeping session"); drawn by the script, hidden otherwise -->
+      <div id="sleep-band" class="sleep-band" role="status" hidden></div>
       <div id="chips"></div>
       <div id="send-status" role="status"></div>
       <div class="compose-row">

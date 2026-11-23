@@ -89,6 +89,7 @@ def test_free_text_is_refused_with_the_options_listed(pane):
     r = pane["send"]("yes please")
     assert r.status_code == 409
     assert r.json()["error"] == "a dialog is open in the pane: answer with one of 1, 2, 3, 4, or esc; nothing sent"
+    assert "noInputBox" not in r.json()         # a dialog is a pane that is ready: the page does not ask again
     assert pane["sent"] == []
 
 
@@ -96,6 +97,7 @@ def test_no_box_and_no_dialog_keeps_the_old_refusal(pane):
     pane["screen"] = "some output\nno box here\n"
     r = pane["send"]("1")
     assert r.status_code == 409 and r.json()["error"].startswith("no input box in the pane")
+    assert r.json()["noInputBox"] is True       # the page asks again for a session just woken, whose input box is not drawn yet
     assert pane["sent"] == []
 
 

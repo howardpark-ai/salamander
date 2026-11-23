@@ -267,6 +267,7 @@ async function loadSessions() {
   // a reply that arrived while the owner has this session open (and is looking at the page) is read as it lands
   if (state.selected && !document.hidden) markRead(state.selected);
   for (const [k, w] of waking) { const t = state.byName.get(k); if (!isSleeping(t)) { waking.delete(k); w.state = "woke"; } }   // it is awake (or gone): nothing left to follow
+  settleHeld();   // what was held for a session that is live now goes in
   // keep the selection in step with the registry (a relaunched session gets a new pid)
   if (state.selected) {
     const s = state.byName.get(state.selected);
@@ -2287,6 +2288,7 @@ function selectSession(name, { force = false } = {}) {
   }
   state.selected = name;
   state.sleepView = null;   // showSleeping sets it again for a sleeper
+  $("#sleep-band").hidden = true;
   if (!document.hidden) markRead(name, { force: true });  // opening a session reads its latest reply
   if (switching) restoreDraft(name);
   state.modelInfo = null; updateModelLine();
@@ -2322,24 +2324,44 @@ function selectSession(name, { force = false } = {}) {
 /* ---------- a sleeping session ----------
    sala can end the claude of an idle session on purpose and keep its pane and its place in every list (`sala sleep`); the server lists it with
    `sleeping` (the time it went to sleep) and pid 0, and it shows as "sleeping" in the sidebar and the Overview, never as a dead or crashed
-   session. Opening one wakes it: the page asks api/wake, which queues `sala op wake --only NAME` as the owner's own act, then follows that
-   operation (api/spawn/status) and the sessions list until the session is live again, when the poll above opens it as any live session
-   (a woken session keeps its conversation and its name). Nothing to read or send meanwhile, so no transcript stream is opened. */
+   session. Opening one shows its conversation, read from its file on disk (api/sleeping/<name>/transcript), and does NOT wake it: reading is
+   free. A band above the composer says it sleeps and that a message wakes it; the composer works as in a live session. The first message the
+   owner sends is held (a bubble that says it waits) and asks api/wake, which queues `sala op wake --only NAME` as the owner's own act, then the
+   page follows that operation (api/spawn/status) and the sessions list until the session is live again; the poll above then opens it as any live
+   session (a woken session keeps its conversation and its name) and releaseHeld sends the held messages, once each, in order. The band's Wake it
+   button wakes it without a message. A held message is kept in localStorage (salaweb.held) until it is sent, so a reload does not lose it. */
 const WAKE_POLL_MS = 2000, WAKE_GIVE_UP_MS = 240000;
+const HELD_READY_MS = 60000, HELD_READY_POLL_MS = 2000;   // a woken session is listed before its input box is drawn: a held send asks again for this long
+const sleeperHere = () => {   // the sleeping session the chat on screen is, else null
+  const s = state.selected && state.sleepView === state.selected ? state.byName.get(state.selected) : null;
+  return isSleeping(s) ? s : null;
+};
+// the band and the held bubbles follow the wake's state; the conversation above is left alone
 function paintSleeping(s) {
   if (state.selected !== s.name || state.sleepView !== s.name) return;
   const w = waking.get(s.name);
   const when = sleptAt(s.sleeping);
-  const line = !w ? "" : w.state === "failed" ? tl("app.sleeping.failed", { name: s.name, why: w.error || "?" })
+  const line = !w ? tl(when ? "app.sleeping.band" : "app.sleeping.bandNoTime", { name: s.name, when })
+    : w.state === "failed" ? tl("app.sleeping.failed", { name: s.name, why: w.error || "?" })
     : w.state === "late" ? tl("app.sleeping.late", { name: s.name }) : w.state === "queued" ? tl("app.sleeping.queued", { name: s.name }) : tl("app.sleeping.waking", { name: s.name });
   const again = !w || w.state === "failed" || w.state === "late";
-  const box = el("div", { class: "empty sleeping-note", role: "status" },
-    el("p", { text: when ? tl("app.sleeping.body", { name: s.name, when }) : tl("app.sleeping.bodyNoTime", { name: s.name }) }),
-    line ? el("p", { class: "wake-line" + (w && w.state === "failed" ? " failed" : ""), text: line }) : null,
+  const band = $("#sleep-band");
+  band.hidden = false;
+  band.classList.toggle("failed", !!w && w.state === "failed");
+  band.replaceChildren(el("span", { class: "dot sleeping" }),
+    el("span", { class: "wake-line", text: line }),
     again ? el("button", { type: "button", class: "wake-btn", text: tl(w ? "app.sleeping.retry" : "app.sleeping.wake"), onclick: () => wakeSleeper(s.name) }) : null);
-  $("#chat").replaceChildren(box);
 }
-function showSleeping(s) {
+// the chat of a sleeper whose conversation file is not there (or not readable now): the note the page always had, and the held bubbles
+function paintSleepNote(s) {
+  const when = sleptAt(s.sleeping);
+  const chat = $("#chat");
+  chat.replaceChildren(el("div", { class: "empty sleeping-note" }, el("p", { text: when ? tl("app.sleeping.body", { name: s.name, when }) : tl("app.sleeping.bodyNoTime", { name: s.name }) })));
+  for (const p of state.pending) if (p.session === s.name) chat.append(p.node);
+  olderReset(null);
+  updateJump();
+}
+async function showSleeping(s) {
   state.current = null;
   state.sleepView = s.name;
   $("#title .dot").className = "dot sleeping";
@@ -2349,20 +2371,39 @@ function showSleeping(s) {
   titleBar.status.replaceChildren(el("span", { class: "pill sleeping", text: tl("app.sleeping.tag") }));
   setTitle(s.name);
   layoutHeader();
-  paintSleeping(s);
+  $("#chat").replaceChildren(el("div", { class: "empty", text: tl("app.loadingTranscript"), "data-i18n": "app.loadingTranscript" }));
+  olderReset(null);
+  paintSleeping(s);   // opening it wakes nothing: the band says so
   updateJump();
-  if (!waking.has(s.name)) wakeSleeper(s.name);   // opening it wakes it
+  const name = s.name;
+  let d = null;
+  try {
+    const r = await fetch(`api/sleeping/${encodeURIComponent(name)}/transcript`, { cache: "no-store" });
+    if (r.ok) d = await r.json();
+  } catch { /* the note below */ }
+  if (state.selected !== name || state.sleepView !== name) return;   // another session was opened, or it woke, meanwhile
+  const now = state.byName.get(name);
+  if (!isSleeping(now)) return;
+  if (!d || !d.path || !Array.isArray(d.messages)) { paintSleepNote(now); return; }
+  showTail(now, d, false);
 }
-async function wakeSleeper(name) {
+// the owner asks for the wake: `how` is "send" for a message that waits for it, else the Wake button. op: the operation a page that was
+// reloaded had already queued, which is followed and not asked again
+async function wakeSleeper(name, { how = "button", op = "" } = {}) {
   const w = { state: "asking", op: "", error: "", since: Date.now() };
   waking.set(name, w);
-  const repaint = () => { const s = state.byName.get(name); if (isSleeping(s)) paintSleeping(s); };
+  const repaint = () => { redrawHeld(name); const s = state.byName.get(name); if (isSleeping(s)) paintSleeping(s); };
   repaint();
-  const out = await nsPost("api/wake", { name });
-  if (waking.get(name) !== w) return;
-  if (out.status === 200 && out.d.ok) { waking.delete(name); await loadSessions(); return; }   // not asleep any more: the list says what it is now
-  if (out.status !== 202 || !out.d.ok) { w.state = "failed"; w.error = String(out.d.error || "HTTP " + out.status); repaint(); return; }
-  w.state = "queued"; w.op = out.d.op; repaint();
+  if (op) { w.state = "queued"; w.op = op; }
+  else {
+    const out = await nsPost("api/wake", { name, how });
+    if (waking.get(name) !== w) return;
+    if (out.status === 200 && out.d.ok) { waking.delete(name); await loadSessions(); return; }   // not asleep any more: the list says what it is now
+    if (out.status !== 202 || !out.d.ok) { w.state = "failed"; w.error = String(out.d.error || "HTTP " + out.status); repaint(); return; }
+    w.state = "queued"; w.op = out.d.op;
+  }
+  persistHeld();   // the operation's id goes with the held messages
+  repaint();
   while (waking.get(name) === w) {
     await sleep(WAKE_POLL_MS);
     if (waking.get(name) !== w) return;
@@ -2376,6 +2417,79 @@ async function wakeSleeper(name) {
     if (nsOpPhase(st) === "failed") { w.state = "failed"; repaint(); return; }
     if (Date.now() - w.since > WAKE_GIVE_UP_MS) { w.state = "late"; repaint(); return; }
   }
+}
+
+/* ---------- a message held for a sleeper ----------
+   The first send to a sleeping session is a pending bubble in the state "held": nothing is sent to a pane that has no Claude. It waits on the wake
+   (wakeSleeper, "send") and goes through deliver() once the session is listed live, then once the pane draws its input box (the server's
+   noInputBox answer is asked again every HELD_READY_POLL_MS for HELD_READY_MS, nothing typed meanwhile). Sent once: a message leaves "held" for
+   "sending" before its first request, a retry after a refusal is the bubble's own button, and the server's duplicate window refuses a copy. */
+const HELD_KEY = "salaweb.held";
+const releasing = new Set();
+function persistHeld() {
+  const out = {};
+  for (const p of state.pending) {
+    if (!p.hold || p.merged || (p.status !== "held" && p.status !== "sending")) continue;
+    const e = out[p.session] || (out[p.session] = { op: (waking.get(p.session) || {}).op || "", msgs: [] });
+    e.msgs.push({ text: p.text, at: p.sentAt, images: p.images.map((im) => ({ name: im.name, fileName: im.file ? im.file.name : "", size: im.file ? im.file.size : 0 })) });
+  }
+  try { if (Object.keys(out).length) localStorage.setItem(HELD_KEY, JSON.stringify(out)); else localStorage.removeItem(HELD_KEY); } catch { /* storage unavailable */ }
+}
+// the bubbles of what a reload left held come back, and the wake they waited on is followed (its operation id) and not asked twice
+function restoreHeld() {
+  let rec = {};
+  try { rec = JSON.parse(localStorage.getItem(HELD_KEY) || "{}") || {}; } catch { rec = {}; }
+  for (const [name, e] of Object.entries(rec)) {
+    if (!e || !Array.isArray(e.msgs)) continue;
+    for (const m of e.msgs) {
+      if (!m || typeof m.text !== "string") continue;
+      const p = { id: ++pendingSeq, session: name, text: m.text, status: "held", hold: true, sentAt: Number.isFinite(m.at) ? m.at : Date.now(),
+                  images: (Array.isArray(m.images) ? m.images : []).filter((im) => im && typeof im.name === "string")
+                    .map((im) => ({ name: im.name, url: null, file: { name: im.fileName || im.name, size: im.size || 0 } })) };
+      state.pending.push(p);
+      redrawPending(p);
+    }
+    if (typeof e.op === "string" && e.op && isSleeping(state.byName.get(name)) && !waking.has(name)) wakeSleeper(name, { op: e.op });
+  }
+  settleHeld();
+}
+function redrawHeld(name) { for (const p of state.pending) if (p.session === name && p.status === "held") redrawPending(p); }
+// every poll of the list: held messages of a session that is live now go in; of one the list no longer has, they are told as not sent
+function settleHeld() {
+  const names = new Set(state.pending.filter((p) => p.status === "held").map((p) => p.session));
+  for (const name of names) {
+    const s = state.byName.get(name);
+    if (!s) { failHeld(name, tl("app.pend.notLive")); continue; }
+    if (!isSleeping(s)) releaseHeld(name);
+  }
+}
+function failHeld(name, why) {
+  for (const p of state.pending.filter((x) => x.session === name && x.status === "held")) { p.status = "failed"; p.error = why; p.hold = false; redrawPending(p); }
+  persistHeld();
+}
+async function releaseHeld(name) {
+  if (releasing.has(name)) return;
+  releasing.add(name);
+  try {
+    for (;;) {
+      const p = state.pending.find((x) => x.session === name && x.status === "held");   // the oldest first
+      if (!p) return;
+      p.status = "sending"; p.sentAt = Date.now(); p.ready = Date.now() + HELD_READY_MS; redrawPending(p);
+      persistHeld();
+      let out;
+      do {
+        while (state.sending) await sleep(200);   // one request at a time, as the composer's own
+        out = await deliver(p);
+        if (out === "notReady") await sleep(HELD_READY_POLL_MS);
+      } while (out === "notReady" && !p.merged && p.status === "sending");
+      if (p.status === "failed") { failHeld(name, p.error); return; }   // the rest wait on the first: Retry or Edit on each
+    }
+  } finally { releasing.delete(name); }
+}
+function holdForWake(p) {
+  const w = waking.get(p.session);
+  persistHeld();
+  if (!w || w.state === "failed") wakeSleeper(p.session, { how: "send" });
 }
 
 // The stream drops when the server restarts (a deploy). EventSource reconnects by itself (the server asks for a
@@ -2470,7 +2584,7 @@ function showTail(s, d, resumed, t0 = performance.now(), bytes = 0) {
   chat.replaceChildren(frag);
   for (const p of state.pending) if (p.session === s.name) chat.append(p.node);  // not in the transcript yet
   if (!chat.children.length) chat.append(el("div", { class: "empty", ...(d.note ? { text: d.note } : tx("app.noMessages")) }));
-  olderReset(d.messages.length ? s.pid : null, d);  // the line at the top that loads older messages as it comes into view
+  olderReset(d.messages.length ? (isSleeping(s) ? s.name : s.pid) : null, d);  // the line at the top that loads older messages as it comes into view (a sleeper is named, a live session numbered)
   updateInflight();
   if (!resumed) { chatScroll.pinned = true; chatScroll.unseen = false; }
   if (chatScroll.pinned) { if (state.tab === "chat") scrollToBottom(); }
@@ -2571,7 +2685,7 @@ function scrollToBottom() { const p = pane(); p.scrollTop = p.scrollHeight; chat
 function pinToBottom() { if (ahead.active) { goLive(); return; } chatScroll.pinned = true; chatScroll.unseen = false; if (state.tab === "chat") scrollToBottom(); updateJump(); }
 function updateJump() {
   const b = $("#jump");
-  const show = state.tab === "chat" && !!state.current && !chatScroll.pinned && (ahead.active || distFromBottom() > NEAR_BOTTOM);
+  const show = state.tab === "chat" && !!(state.current || sleeperHere()) && !chatScroll.pinned && (ahead.active || distFromBottom() > NEAR_BOTTOM);
   b.hidden = !show;
   b.textContent = chatScroll.unseen ? tl("app.jump.new") : "↓";
   b.classList.toggle("wide", chatScroll.unseen);
@@ -2668,7 +2782,7 @@ async function loadOlder() {
   olderLine();
   let d = null;
   try {
-    const r = await fetch(`api/s/${pid}/transcript?before=${older.before}`);
+    const r = await fetch(`${typeof pid === "string" ? `api/sleeping/${encodeURIComponent(pid)}` : `api/s/${pid}`}/transcript?before=${older.before}`);
     if (r.ok) d = await r.json();
   } catch { /* shown below */ }
   if (gen !== older.gen) return;  // a reset (or another session) replaced the chat meanwhile
@@ -3154,7 +3268,7 @@ function matchPending(m, live) {
   if (!t && !n) return null;
   const ts = Date.parse(m.ts || "");
   const cands = state.pending.filter((p) => {
-    if (p.session !== state.selected) return false;
+    if (p.session !== state.selected || p.status === "held") return false;   // a held message has not been sent: no transcript line is its copy
     if (!Number.isNaN(ts) && ts < p.sentAt - 120000) return false;  // an older identical prompt is not this one
     const pt = normText(p.text);
     if (!pt && !t) return p.images.length === n;
@@ -3166,7 +3280,7 @@ function matchPending(m, live) {
   // Fallback when Claude Code changed the text in a way not foreseen here: the first new prompt of the owner's own
   // (a text block, not a notice) to arrive after a send is that send, so it takes the oldest pending bubble.
   if (!live || !texts.length) return null;
-  return state.pending.find((p) => p.session === state.selected && !isBang(p.text) && (Number.isNaN(ts) || ts >= p.sentAt - 10000)) || null;
+  return state.pending.find((p) => p.session === state.selected && p.status !== "held" && !isBang(p.text) && (Number.isNaN(ts) || ts >= p.sentAt - 10000)) || null;
 }
 
 function dropPending(p, { keepImages = false } = {}) {
@@ -3175,6 +3289,7 @@ function dropPending(p, { keepImages = false } = {}) {
   state.pending = state.pending.filter((x) => x !== p);
   p.node.remove();
   if (!keepImages) for (const im of p.images) if (im.url) URL.revokeObjectURL(im.url);
+  if (p.hold) { p.hold = false; persistHeld(); }
 }
 
 function pendingNode(p) {
@@ -3184,12 +3299,20 @@ function pendingNode(p) {
   const sentFiles = p.images.filter((im) => im.file);
   if (sentFiles.length) box.append(el("div", { class: "sent-files" }, ...sentFiles.map((im) =>
     el("div", { class: "sent-file", title: im.file.name }, fileIcon(), el("span", { class: "sf-name", text: im.file.name }),
-      el("span", { class: "sf-size", text: humanSize(im.file.size) })))));
+      im.file.size ? el("span", { class: "sf-size", text: humanSize(im.file.size) }) : null))));
   if (p.text.trim()) box.append(el("div", { class: "bubble" }, ...linkNodes(p.text)));
   if (p.status === "sending") box.append(el("div", { class: "note", text: tl("app.pend.sending") }));
   else if (p.status === "sent" && p.late) box.append(el("div", { class: "note", text: tl("app.pend.late") }));
   else if (p.status === "queued") box.append(el("div", { class: "note", text: tl("app.pend.queued") }));
-  else if (p.status === "failed") {
+  else if (p.status === "held") {
+    // waiting for the session it was sent to, which is asleep: the wake's state is the band's and the bubble's too; Edit takes the message back
+    const w = waking.get(p.session);
+    const failed = !!w && w.state === "failed";
+    box.append(el("div", { class: "note" + (failed ? " err" : ""), text: failed ? tl("app.pend.heldFailed", { name: p.session, why: w.error || "?" }) : tl("app.pend.held", { name: p.session }) }),
+      el("div", { class: "note-actions" },
+        ...(!w || failed ? [el("button", { type: "button", text: tl(failed ? "app.sleeping.retry" : "app.sleeping.wake"), onclick: () => wakeSleeper(p.session) })] : []),
+        el("button", { type: "button", text: tl("app.pend.edit"), onclick: () => editPending(p) })));
+  } else if (p.status === "failed") {
     // the pane's input box holds text the owner left there: the 409 carried it, it is shown, and Replace sends this message after
     // clearing the box (the server clears it only while it still reads exactly this text)
     const held = typeof p.boxText === "string";
@@ -3242,6 +3365,8 @@ async function deliver(p, retry = false, replace = null) {
       setStatus(() => tl("app.st.dup"), "ok");
       return;
     }
+    // a message that waited for a wake, asked again: the woken session's pane has no input box yet (nothing was typed), so it is asked again for a while
+    if (r.status === 409 && d.noInputBox === true && p.ready && Date.now() < p.ready) return "notReady";
     if (!r.ok || !d.ok) throw new Error(d.error || tl("app.pend.noReason", { status: `${r.status} ${r.statusText}`.trim() }));
     if (d.dialogAnswer) {  // a keypress answering a dialog: it never shows in the transcript, so no bubble waits for it
       dropPending(p);
@@ -3264,6 +3389,8 @@ async function deliver(p, retry = false, replace = null) {
     p.status = "failed"; p.error = e instanceof TypeError ? tl("app.pend.noNet") : e.message || tl("app.pend.unknown"); redrawPending(p);
   } finally {
     state.sending = false; refreshSendButton();
+    if (p.hold && p.status !== "sending" && p.status !== "held") p.hold = false;   // its request is answered: nothing to keep for a reload
+    persistHeld();
   }
 }
 function retryPending(p) {
@@ -3634,7 +3761,8 @@ async function addAttachment(file) {
 }
 
 function send() {
-  const s = state.current;
+  const asleep = state.current ? null : sleeperHere();   // a sleeping session's chat: its first message is held for the wake
+  const s = state.current || asleep;
   if (!s) { setStatus(() => tl("app.pickFirst"), "error"); return; }
   if (state.sending || state.uploads.some((u) => u.uploading)) return;
   const text = getText();
@@ -3642,7 +3770,7 @@ function send() {
   if (!text.trim() && !ups.length) return;
   // show it at once, like claude.ai; the composer empties now and the bubble holds the text if sending fails
   const p = { id: ++pendingSeq, session: s.name, text, images: ups.map((u) => ({ name: u.name, url: u.url, file: u.kind === "file" ? { name: u.fileName, size: u.size } : null })),
-              status: "sending", sentAt: Date.now() };
+              status: asleep ? "held" : "sending", sentAt: Date.now(), ...(asleep ? { hold: true } : {}) };
   state.pending.push(p);
   setText("");
   clearDraft(s.name);   // sent: nothing to come back to
@@ -3653,7 +3781,7 @@ function send() {
   if (empty) empty.remove();
   $("#chat").insertBefore(p.node, $("#chat > .inflight"));  // above the spinner, if one is showing
   pinToBottom();
-  deliver(p);
+  if (asleep) holdForWake(p); else deliver(p);
 }
 
 // Pasted images are clipboardData.files: it holds one File per item of kind "file", the same objects on every read
@@ -4362,6 +4490,7 @@ paintShellTip();
   // item picker alone; nothing of the first paint waits for them
   loadBoard();
   await loadSessions();
+  restoreHeld();   // what a reload left held for a sleeping session comes back before the chat is drawn
   const name = hashName();
   if (name) perfMark("restore", { session: name });
   if (replaceMode() && !name && !overviewFamily() && !newPageHash() && !searchHash()) {

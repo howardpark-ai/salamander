@@ -239,6 +239,14 @@ body.reordering .sess:not(.dragging) { pointer-events: none; }
 .sleeping-note p { margin: 0; }
 .sleeping-note .wake-line.failed { color: var(--waiting); }
 .sleeping-note .wake-btn { margin-top: 4px; }
+/* the band above the composer of a sleeping session: it sleeps and a message wakes it; the wake's own words replace that while it runs or failed */
+#sleep-band { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--hover); color: var(--text); font-size: 13px; }
+#sleep-band[hidden] { display: none; }
+#sleep-band .wake-line { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#sleep-band.failed .wake-line { color: var(--error); }
+#sleep-band .wake-btn { flex: none; font-size: 13px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 4px 12px; cursor: pointer; }
+#sleep-band .wake-btn:hover { background: var(--selected); }
 .toggle { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--border);
   font-size: 13px; color: var(--muted); cursor: pointer; }
 .toggle + .toggle { border-top: 0; padding-top: 0; }   /* two in a row (Show all sessions, Show sleeping sessions) share the one rule above them */

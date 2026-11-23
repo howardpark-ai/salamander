@@ -227,9 +227,12 @@ none itself):
                                   a file under state_dir/mandates/; 202 {"op"} when queued, 409 with "code" not-listed (the
                                   REGISTER line and register command), no-page or refused (the queue's reason), 400 for a shape the backend
                                   would refuse too. The one write to sala: the form is the only way this app makes a session
-  POST /api/wake                  {"name"} -> `sala op wake --only NAME --from sala-web --words "<owner>, via the sala web page: …"` for a
-                                  sleeping session (opening one in the page wakes it); 202 {"op"} when queued, 200 "awake" when the name
-                                  is not asleep (nothing queued), 409 with the queue's reason, 502 when sala cannot be run, 400 for no name
+  GET  /api/sleeping/<name>/transcript
+                                  a sleeping session's conversation from its file on disk, as /api/s/<pid>/transcript gives a live one's
+                                  (?n, ?before, ?around, ?after); 404 for a name that is not asleep, no messages and "path": null when its file is not found
+  POST /api/wake                  {"name", "how"?: "send"|"button"} -> `sala op wake --only NAME --from sala-web --words "<owner>, via the sala web page: …"`
+                                  for a sleeping session (a message sent to one wakes it, and so does its Wake button; opening one does not); 202 {"op"} when
+                                  queued, 200 "awake" when the name is not asleep (nothing queued), 409 with the queue's reason, 502 when sala cannot be run, 400 for no name
   GET  /api/spawn/status          ?op=<id> -> the queued operation's state from sala's own marker (queued, running, waiting,
                                   done, stuck, …) and its result line; while it is queued, also what it waits behind
                                   ("behind": [{op, verb, arg, state}], "behind_line": "Waiting behind 2 retires …")
@@ -970,6 +973,23 @@ def create_app(settings: Settings | None = None) -> Starlette:
         s = _session(request)
         if not s:
             return _err(404, "no live session with that pid")
+        return await _transcript_reply(request, s)
+
+    async def get_sleeper_transcript(request: Request) -> Response:
+        """A sleeping session's conversation, read from its file on disk (the same JSON and the same ?n, ?before, ?around and ?after as the live
+        route): the session has no process, so it is named, not numbered, and found the way the lists find it (the marker of its conversation id
+        and the pane map's row for the directory). Read-only; 404 when no sleeping session has that name, and {"messages": [], "path": null}
+        when the file cannot be found (the page then shows its note)."""
+        name = request.path_params["name"]
+        if not S.SLEEP_NAME_RE.match(name):
+            return _err(404, "no sleeping session with that name")
+        sleepers = await run_in_threadpool(lambda: S.read_sleeping_sessions(settings, S.read_live_sessions(settings)))
+        s = next((x for x in sleepers if x.name == name), None)
+        if s is None:
+            return _err(404, "no sleeping session with that name")
+        return await _transcript_reply(request, s)
+
+    async def _transcript_reply(request: Request, s: S.Session) -> Response:
         path = TR.transcript_path(settings.projects_dir, s.cwd, s.session_id)
         if not path:
             return JSONResponse({"session": s.to_json(), "messages": [], "offset": 0, "path": None})
@@ -1380,7 +1400,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Code's selection dialogs act on at once, no Enter) and "esc" cancels it. Anything else is refused."""
         options, dialog_text = T.dialog(captured)
         if not options:
-            return _err(409, "no input box in the pane (a dialog or menu may be open); nothing sent"), None
+            # nothing was typed. noInputBox lets the page tell a pane that is not ready yet (a session just woken, still loading its conversation)
+            # from every other refusal, and ask again for a few seconds before it gives up
+            return JSONResponse({"ok": False, "error": "no input box in the pane (a dialog or menu may be open); nothing sent",
+                                 "noInputBox": True}, status_code=409), None
         if answered_before == dialog_text:
             return _duplicate(), None
         answer = text.strip()
@@ -1745,8 +1768,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return _err(400, "body must be JSON")
 
     async def wake_post(request: Request) -> Response:
-        """Opening a sleeping session in the page wakes it: the same queued operation as `sala op wake --only NAME`, asked as the owner's own act (words),
-        for a name that is asleep now. 202 {op, name} when queued (the page follows api/spawn/status?op=), 200 `awake` when it is not asleep any more."""
+        """Waking a sleeping session from the page: the same queued operation as `sala op wake --only NAME`, asked as the owner's own act (words: he
+        sent it a message, pressed its Wake button, or `how` is not given and he opened it), for a name that is asleep now. 202 {op, name} when queued (the page follows api/spawn/status?op=), 200 `awake` when it is not asleep any more."""
         body = await read_json_post(request)
         if isinstance(body, Response):
             return body
@@ -1756,7 +1779,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         sleepers = await run_in_threadpool(lambda: S.read_sleeping_sessions(settings, S.read_live_sessions(settings)))
         if name not in {s.name for s in sleepers}:
             return JSONResponse({"ok": True, "code": "awake", "name": name}, headers={"Cache-Control": "no-store"})
-        argv = SP.wake_argv(SP.resolve_cmd(settings.sala_cmd), name, SP.wake_words(name))
+        how = body.get("how") if isinstance(body.get("how"), str) else None   # why: "send" (a message wakes it) or "button"; none: opened
+        argv = SP.wake_argv(SP.resolve_cmd(settings.sala_cmd), name, SP.wake_words(name, how=how))
         try:
             rc, out, err = await SP.run(argv, SP.QUEUE_TIMEOUT)
         except (OSError, TimeoutError) as e:
@@ -2028,6 +2052,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/api/colors/combos", post_colors_combos, methods=["POST"]),
         Route("/api/colors/combos/delete", post_colors_combos_delete, methods=["POST"]),
         Route("/api/s/{pid:int}/transcript", get_transcript),
+        Route("/api/sleeping/{name}/transcript", get_sleeper_transcript),
         Route("/api/s/{pid:int}/stream", stream),
         Route("/api/s/{pid:int}/send", logged("send", send), methods=["POST"]),
         Route("/api/s/{pid:int}/stop", stop_bang, methods=["POST"]),
