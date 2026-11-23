@@ -324,10 +324,15 @@ def test_the_layout_never_scrolls_sideways_and_a_phone_has_44px_targets_and_four
         browser.touch()   # the 44 px targets are the touch size: the look draws controls 32 px under a mouse
     for g in ("agent", "folder", "model", "day", "lane"):                                       # the widest names are the likeliest to push the page
         click(browser, f'#us-group [data-g="{g}"]')
+    # the last group's table and the touch look's 44 px controls finish their layout a moment after the click: measure once the pane has
+    # settled (a pane still wider than the screen after 8 s is the real thing, and `wide` below names what makes it so)
+    browser.evaluate("""new Promise((res) => { const t0 = Date.now(), p = document.querySelector("#overview-pane"); (function poll() {
+      if (p.scrollWidth <= p.clientWidth || Date.now() - t0 > 8000) res(true); else setTimeout(poll, 100); })(); })""")
     m = browser.evaluate("""(() => { const vw = document.documentElement.clientWidth, r = (n) => n.getBoundingClientRect();
       const over = [...document.querySelectorAll("#ov-usage *")].filter((n) => r(n).right > vw + 0.5 && n.getClientRects().length && !n.closest(".us-tw, .us-seg, .us-pw")).map((n) => n.className || n.tagName);
       const small = [...document.querySelectorAll("#ov-usage button, #us-reload, .ov-tab, #us-tbody tr")].filter((n) => n.getClientRects().length && r(n).height < 43.5).map((n) => (n.id || n.className || n.tagName) + ":" + Math.round(r(n).height));
-      return { vw, doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, pane: document.querySelector("#overview-pane").scrollWidth,
+      const pn = document.querySelector("#overview-pane"), wide = [...pn.querySelectorAll("*")].filter((n) => n.getClientRects().length && r(n).right + pn.scrollLeft > pn.clientWidth + 0.5 && !n.closest(".us-tw, .us-seg, .us-pw")).slice(0, 8).map((n) => (n.id || n.className || n.tagName) + ":" + Math.round(r(n).right + pn.scrollLeft));
+      return { vw, wide, scrollLeft: pn.scrollLeft, doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, pane: pn.scrollWidth,
                paneClient: document.querySelector("#overview-pane").clientWidth, over, small,
                tabs: [...document.querySelectorAll(".ov-tab")].map((a) => a.textContent.trim().replace(/\\s+/g, " ")),
                bar: [document.querySelector(".ov-bar").scrollWidth, document.querySelector(".ov-bar").clientWidth],
@@ -335,7 +340,7 @@ def test_the_layout_never_scrolls_sideways_and_a_phone_has_44px_targets_and_four
                clipped: [...document.querySelectorAll(".ov-tab")].filter((a) => a.scrollWidth > a.clientWidth + 1).map((a) => a.id),
                lanes: new Set([...document.querySelectorAll("#us-lanes .us-lane")].map((c) => Math.round(r(c).top))).size,
                cols: [...document.querySelectorAll("#us-thead th")].filter((th) => th.getClientRects().length).length }; })()""")
-    assert m["doc"] <= m["vw"] and m["body"] <= m["vw"] + 1 and m["pane"] <= m["paneClient"], m      # no sideways scroll
+    assert m["doc"] <= m["vw"] and m["body"] <= m["vw"] + 1 and m["pane"] <= m["paneClient"], m      # no sideways scroll ("wide": what reaches past the pane)
     assert m["over"] == [], m["over"]
     assert m["bar"][0] <= m["bar"][1] and m["tabs"][1:] == ["Schedules", "Machines", "Usage analysis"], m                 # four tabs and the Reload fit the bar
     assert m["lastRight"] <= m["reload"][0] and m["clipped"] == [], m                              # the Reload sits beside the last tab, never over it
