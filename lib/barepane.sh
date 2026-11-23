@@ -155,3 +155,81 @@ bare_tick() {
     fi
     return 0
 }
+
+# THE GONE-SESSION FLAG: a mapped session whose tmux SESSION is gone (not a bare shell: bare_tick above needs the session) is said once.
+# A host-wide out-of-memory stop killed one small child in each of three panes' systemd scopes; a scope stops as a whole when one of its
+# processes is killed (OOMPolicy=stop, the user manager's default), so three tmux sessions closed with their claude, the server stayed up,
+# and nothing noticed: bare_tick sees only a session that exists, and `ledger_missing` fed only the post-boot report and `restore --missing`.
+# This tick runs BEFORE watch's busy_elsewhere exit (a revive worker that runs for hours keeps that exit true for hours): a row whose
+# session has been gone for SALA_MISSING_GRACE seconds (default 180, the third tick: a rename, a retire, a spawn or a recycle's brief gap
+# never counts) is posted ONCE per session per incident (gone.<session> = first-seen epoch + the epoch it was posted, 0 before; the key goes
+# the moment the session exists again, the row leaves the map, or it sleeps, so a later loss is a new incident), all the sessions of one
+# tick in one post naming `sala restore --missing`. It NEVER restores anything itself: a restore resumes a conversation, the owner's call.
+# Stands aside (no clock kept, a posted flag stays) while a recycle holds its lock, the pane map is frozen, a resurrect restore runs, a
+# shutdown is under way, or the boot is still inside SALA_BOOT_GRACE with its report not made (that report counts the same gap).
+# Left out, like ledger_missing: a sleeping session, SALA_NO_RELAUNCH, a shell session, the Remote Control server's; and a session the
+# registry marks retired or whose side session wrote its `side done` marker. SALA_MISSING_CHECK=off turns it off. One log line per decision.
+: "${SALA_MISSING_CHECK:=on}" "${SALA_MISSING_GRACE:=180}" "${SALA_MISSING_LIST:=15}"
+
+# gone_busy → 0 (with GONE_BUSY_WHY) when sessions are legitimately absent right now. Not busy_elsewhere: a revive or an operation
+# running says nothing about whether a session should exist, and that exit is the very one this tick must come before.
+gone_busy() {
+    GONE_BUSY_WHY=""
+    if recycle_locked; then GONE_BUSY_WHY="the recycle lock is held"
+    elif ledger_frozen; then GONE_BUSY_WHY="the pane map is frozen ($(ledger_freeze_line))"
+    elif pgrep_mine 'tmux-resurrect/scripts/[r]estore.sh' >/dev/null; then GONE_BUSY_WHY="a resurrect restore is running"
+    elif shutting_down; then GONE_BUSY_WHY="a shutdown is under way"
+    elif boot_pending && [ "${BOOT_AGE:-0}" -lt "${SALA_BOOT_GRACE:-900}" ]; then GONE_BUSY_WHY="the boot report is still to come (it counts the sessions without a tmux session)"
+    fi
+    [ -n "$GONE_BUSY_WHY" ]
+}
+# gone_clear_unposted → forget the clocks of sessions not yet posted (a flag already posted stays: the incident goes on)
+gone_clear_unposted() {
+    local k v first posted; [ -r "$WSTATE" ] || return 0
+    for k in $(grep -o '^gone\.[^=]*' "$WSTATE" 2>/dev/null); do
+        v=$(st_get "$k"); read -r first posted <<< "$v"; [ "${posted:-0}" = 0 ] && st_del "$k"
+    done
+    return 0
+}
+
+gone_tick() {
+    [ "${SALA_MISSING_CHECK:-on}" = off ] && return 0
+    [ -s "$SALA_SIDECAR" ] || return 0
+    on_fleet_server || return 0
+    tmux_server_up || return 0
+    if gone_busy; then wlog "gone sessions: standing aside — $GONE_BUSY_WHY"; gone_clear_unposted; return 0; fi
+    local line sess key v first posted now age n k names
+    local -A seen=()
+    local fresh=() waiting=()
+    now=$(date +%s)
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        sess=${line%%$'\t'*}
+        [ ! -f "$(side_done_file "$sess")" ] || continue                         # a finished side session waits for the owner's retire
+        ! bare_retired "$sess" || continue                                       # retired in the registry: its row is on the way out
+        _key_r key "$sess"; key="gone.$key"; seen[$key]=1
+        v=$(st_get "$key")
+        if [ -z "$v" ]; then
+            st_set "$key" "$now 0"
+            wlog "gone sessions: '$sess' is in the pane map but has no tmux session (first seen) — said if it is still gone ${SALA_MISSING_GRACE}s from now"
+            continue
+        fi
+        read -r first posted <<< "$v"; : "${first:=$now}" "${posted:=0}"
+        [ "$posted" = 0 ] || continue                                            # said already, once for this incident
+        age=$((now - first))
+        if [ "$age" -lt "$SALA_MISSING_GRACE" ]; then waiting+=("$sess"); wlog "gone sessions: '$sess' gone for ${age}s of ${SALA_MISSING_GRACE}s — waiting"; continue; fi
+        fresh+=("$sess"); st_set "$key" "$first $now"
+    done < <(ledger_missing)
+    # an incident ends when the session exists again, leaves the map, sleeps, is retired or is no longer eligible
+    for k in $(grep -o '^gone\.[^=]*' "$WSTATE" 2>/dev/null); do [ -n "${seen[$k]+x}" ] || { st_del "$k"; wlog "gone sessions: ${k#gone.} is back (or no longer eligible) — incident closed"; }; done
+    [ ${#fresh[@]} -gt 0 ] || return 0
+    n=${#fresh[@]}
+    names=$(printf '%s, ' "${fresh[@]:0:$SALA_MISSING_LIST}" | sed 's/, $//'); [ "$n" -gt "$SALA_MISSING_LIST" ] && names="$names, and $((n - SALA_MISSING_LIST)) more"
+    wlog "gone sessions: $n session(s) have been without a tmux session for ${SALA_MISSING_GRACE}s or more — posting: ${fresh[*]}"
+    notify "⚠️ *watch: $n mapped session$([ "$n" = 1 ] || echo s) lost $([ "$n" = 1 ] && echo its || echo their) tmux session: $names*" \
+        "each is in the pane map but has no tmux session (the conversation is not lost: its row keeps the id and the directory)" \
+        "\`sala restore --missing\` recreates $([ "$n" = 1 ] && echo it || echo them) in the same directories and resumes the conversations (\`--dry-run\` lists what it would do); watch does not do it by itself" \
+        "$([ ${#waiting[@]} -gt 0 ] && echo "${#waiting[@]} more are gone for less than ${SALA_MISSING_GRACE}s and are said when they pass it")" \
+        "Details: $WLOG"
+    return 0
+}

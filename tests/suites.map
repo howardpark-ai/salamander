@@ -87,6 +87,7 @@ suite nomaster lib/adopt.sh lib/barepane.sh lib/continuedin.sh lib/feedback.sh l
 suite notice lib/hook.sh lib/notice.py lib/notice.sh
 suite op lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/lane.sh lib/model.sh lib/note.sh lib/op.sh lib/reboot.sh lib/recycle-request.sh lib/rename.sh lib/retire.sh lib/revive.sh lib/sessions.py lib/settings-apply.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh tests/fake-stackshot-client.py
 suite opparallel lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/heartbeat.sh lib/lane.sh lib/op.sh lib/rename.sh lib/retire.sh lib/sessions.py lib/settings-apply.sh lib/snapshot.sh lib/spawn.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
+suite orderpanes lib/revive.sh
 suite parked lib/adopt.sh lib/feedback.sh lib/heartbeat.sh lib/holders.py lib/map.sh lib/revive.sh lib/sessions.py
 suite parkedq lib/hook.sh lib/permission-host.py lib/question.py lib/question.sh lib/stuck.sh tests/fake-claude-p.py
 suite permissions lib/hook.sh lib/permissions.py

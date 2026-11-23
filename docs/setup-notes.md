@@ -26,6 +26,26 @@ The registry file layout, transcript paths (`~/.claude/projects/<cwd-slug>/<uuid
 being cached at launch, the feedback-draft store (`~/.claude/feedback/drafts/*.json`, `status`), `remote-control`'s exit-after-offline behaviour, and the session-archive endpoint. All
 pinned in [`lib/common.sh`](../lib/common.sh) so a CLI change is a one-file fix. Tested against Claude Code 2.1.x.
 
+## A host-wide out-of-memory stop and the panes' systemd scopes
+tmux (3.4 and later, with a systemd user manager) starts each pane's process in its own transient scope, `tmux-spawn-<uuid>.scope`, and
+sets nothing on it, so every scope takes the user manager's `DefaultOOMPolicy`, which is `stop`. When the kernel's out-of-memory killer
+ends ONE process of a scope, even a small child of the pane's shell, systemd stops the whole scope: the claude goes with it, the tmux
+session closes, and the tmux server stays up. Several panes were lost this way in one minute.
+
+The setting is not in this repository: sala does not create these scopes (tmux does), and there is no unit or tmux option that names one
+scope's policy. It belongs to the machine's provisioning, as a drop-in for the user manager:
+
+```
+# ~/.config/systemd/user.conf.d/oom-policy.conf   (or /etc/systemd/user.conf.d/ for every user)
+[Manager]
+DefaultOOMPolicy=continue
+```
+
+It applies to scopes created after the user manager has read it (`systemctl --user daemon-reexec`, or the next time the manager starts);
+check one with `systemctl --user show tmux-spawn-<uuid>.scope -p OOMPolicy`. With `continue` the killed process is the only loss: a pane whose
+claude itself was the one killed is left at a bare shell, which `watch` revives (`SALA_BARE_REVIVE`, *Bare panes*); a session that is gone
+altogether is posted once by `watch` (*Gone sessions*, `SALA_MISSING_CHECK`) and brought back with `sala restore --missing`.
+
 ## Status
 The other boxes need only ssh and a POSIX shell (Linux or macOS); everything that runs locally needs tmux.
 

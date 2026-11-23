@@ -4802,3 +4802,22 @@ refuse nothing, in `tests/sleeptick.sh` and `tests/sleeping.sh`; a line routed b
 a candidate whose pane-map row no longer holds its conversation id. Not checked: a real fleet's first run with the tick on (the dry run is how an owner looks first); the sleeper staying asleep across a
 reboot is stage 1's (`tests/sleeping.sh`: no revive, restore or heal brings it back); stackshot writing the message line (its own side); a real claude's registry
 row after a resume (the stamp makes the tick independent of it).
+
+### Gone sessions in `tests/barepane.sh` +17, and `tests/orderpanes.sh`, a new suite, 7 (Mon Nov 23rd 2026)
+A host-wide out-of-memory stop ended three panes' systemd scopes in one minute: each tmux session closed with its claude, the tmux server stayed
+up, nothing noticed (`bare_tick` only sees a session that exists, and `ledger_missing` fed the post-boot report alone), and the watch had skipped
+every run for a quarter of an hour on its "a revive is running" exit. Two paths could lose a conversation unnoticed, so both are checked.
+`watch`'s `gone_tick` (`lib/barepane.sh`) posts a mapped session whose tmux session is gone once per session per incident, before that exit, and
+restores nothing. In `barepane`, with a fake long revive process holding the exit true (a copy of bash named like `salamander revive`, killed by pid
+only when its `/proc/<pid>/exe` is that copy): the first tick starts a clock for the two killed sessions and not for a sleeping, a retired or a
+side-done one; nothing posts inside `SALA_MISSING_GRACE`; the next tick posts ONE post naming both and `sala restore --missing`, saying watch restores
+nothing, with the busy skip in the log; no tmux session came back by itself; later ticks post nothing more; a session that exists again closes its
+incident (its key goes, the other's stays), and its next loss posts again for it alone; `SALA_MISSING_CHECK=off` keeps no clock and posts nothing, then
+on again, a fresh grace and one post; a held recycle lock keeps no clock (nothing posted, "standing aside" in the log) and the grace starts after it.
+`orderpanes` guards the other half: `ordered_panes` read every pane's whole transcript into one string on every revive to find its bridge id, and a
+conversation of about 850 MB took about 6 GB, the biggest process on the box when the out-of-memory stop came. It now reads from the end in 4 MiB
+pieces, at most 64 MiB back. Checked: the order (the API's time for a bridge id, the mtime otherwise, the last of two records, a record cut by a piece
+boundary found whole), a 600 MB sparse transcript under a 900 MB address-space ceiling with a control showing the old whole-file read fails under it, and
+the reach (`SALA_BRIDGE_SCAN_MAX`: a record further back falls back to the mtime). Not checked: the real sessions API (a file stands in for its answer,
+`SALA_CLOUD_SESSIONS_FILE`), the systemd scope policy itself (a drop-in outside this repository; `docs/setup-notes.md` says where), the exact post wording.
+

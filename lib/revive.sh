@@ -487,10 +487,14 @@ except Exception: pass
 # claude.ai last_event_at per bridged session (cse_… = session_…); empty on any failure → transcript mtime
 cloud = {}
 try:
-    import urllib.request, datetime
-    tok = json.load(open(os.path.expanduser("~/.claude/.credentials.json")))["claudeAiOauth"]["accessToken"]
-    H = {"Authorization": "Bearer " + tok, "anthropic-version": "2023-06-01", "anthropic-client-platform": "cli"}
-    d = json.load(urllib.request.urlopen(urllib.request.Request("https://api.anthropic.com/v1/code/sessions?limit=100", headers=H), timeout=10))
+    import datetime
+    if os.environ.get("SALA_CLOUD_SESSIONS_FILE"):   # the sessions API answer from a file (the tests; no network, no token)
+        d = json.load(open(os.environ["SALA_CLOUD_SESSIONS_FILE"], encoding="utf-8"))
+    else:
+        import urllib.request
+        tok = json.load(open(os.path.expanduser("~/.claude/.credentials.json")))["claudeAiOauth"]["accessToken"]
+        H = {"Authorization": "Bearer " + tok, "anthropic-version": "2023-06-01", "anthropic-client-platform": "cli"}
+        d = json.load(urllib.request.urlopen(urllib.request.Request("https://api.anthropic.com/v1/code/sessions?limit=100", headers=H), timeout=10))
     for x in d.get("data", []):
         t = x.get("last_event_at")
         if x.get("id") and t:
@@ -498,13 +502,28 @@ try:
 except Exception:
     cloud = {}
 import re
-def bridge_of(uuid, hits):  # the last remote_session_change in the transcript → its claude.ai id, no prefix
+# The bridge id is read from the END of the transcript, a piece at a time: the last record is almost always in the newest
+# megabytes. The transcript was once read whole into one string, for every pane on every revive: a conversation of 850 MB
+# took about 6 GB of memory and a host-wide out-of-memory stop followed. Memory is one piece (BR_CHUNK) whatever the size; a
+# transcript whose last bridge record is further from the end than SALA_BRIDGE_SCAN_MAX bytes (64 MiB) has none for this purpose and
+# falls back to its mtime, like a pane with no bridge at all.
+BR = re.compile(rb"\"type\":\"remote_session_change\",\"url\":\"https://claude\.ai/code/(?:session|cse)_([A-Za-z0-9]+)")
+BR_CHUNK, BR_OVER = 4 << 20, 4096   # BR_OVER: a record cut by a piece boundary is whole in the piece before it
+BR_MAX = int(os.environ.get("SALA_BRIDGE_SCAN_MAX") or 64 << 20)
+def last_bridge(path):  # the last remote_session_change in one transcript → its claude.ai id (no prefix), or ""
+    with open(path, "rb") as f:
+        f.seek(0, 2); size = f.tell(); end = size; floor = max(0, size - BR_MAX)
+        while end > floor:
+            start = max(floor, end - BR_CHUNK)
+            f.seek(start); found = BR.findall(f.read(min(end + BR_OVER, size) - start))
+            if found: return found[-1].decode("ascii", "replace")
+            end = start
+    return ""
+def bridge_of(uuid, hits):  # the last remote_session_change in the conversation → its claude.ai id, no prefix
     if not cloud: return ""
     last = ""
     try:
-        for h in hits:
-            for m in re.finditer(r"\"type\":\"remote_session_change\",\"url\":\"https://claude.ai/code/(?:session|cse)_([A-Za-z0-9]+)", open(h, encoding="utf-8", errors="replace").read()):
-                last = m.group(1)
+        for h in hits: last = last_bridge(h) or last
     except Exception: pass
     return last
 rows = []
