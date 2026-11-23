@@ -319,7 +319,7 @@ LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-la
   and a stale or missing record changes nothing: the rows with a stored role are still counted. A role already on a row is never
   overwritten. To fill the registry at once: `sala sessions tag --auto --dry-run` (what it would do), then `sala sessions tag --auto`.
   A row the record places nowhere (a project's own session has no role on its row and is on no agents map) counts by **the roles file**,
-  stackshot's `roles.json` (`SALA_ROLES_FILE`, the same answer as the Overview's Role column), when it is fresh (written within
+  stackshot's roles list (asked of stackshot first through its client, `get roles`; its file copy `roles.json`, `SALA_ROLES_FILE`, is read only when stackshot cannot be reached; the same answer as the Overview's Role column), when it is fresh (the copy written within
   `SALA_ROLES_FILE_MAX_AGE`, default 1800 s): a `front` or `back` entry that is not retired gives that role; an entry whose role is the old `keeper` is not counted
   (the keeper is now a mark on one front or back agent, `"keeper": true` on its entry, and counts with that agent's role; a flagged entry that is retired is not counted),
   and the record comes first. An entry applies only when the row does not contradict it: a row whose project differs from the entry's

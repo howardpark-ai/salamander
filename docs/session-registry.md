@@ -232,8 +232,8 @@ imported by `--migrate`, a spawn without the flags) kept both `null`, and `resol
 ### The roles filled from the project record: `sala sessions tag --auto`
 
 `sala sessions tag --auto [<id|name>] [--dry-run]` fills `project` and `role` of a live row that has none, from the same source of truth
-the spawn checks already read: stackshot's project record (interface 20, `SALA_PROJECT_RECORD`, no older than
-`SALA_PROJECT_RECORD_MAX_AGE`). A name under a project's top-level agents is a front agent of that project, one under its `background:`
+the spawn checks already read: stackshot's project record (interface 20: asked of stackshot first, and the file copy `SALA_PROJECT_RECORD`, no older than
+`SALA_PROJECT_RECORD_MAX_AGE`, read only when stackshot cannot be reached). A name under a project's top-level agents is a front agent of that project, one under its `background:`
 agents a back agent. No new source, no guessing from a name.
 
 - **Without a name** it goes through every live row with no role and prints one line per row (`would tag` / `tagged`, or `left NAME (id8): <reason>`) and a

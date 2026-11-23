@@ -13,9 +13,9 @@ programs are at stackshot's package paths (`stackshot/fleet/client.py`; the upda
 `stackshot/web/publish.py bump`, the mockup pass's `stackshot/tools/open_item_text.py --links`); a checkout from before the package keeps them
 in its root (`client.py`), and sala's defaults use that path while it is the only one there (`lib/stackshot-path.sh`). What needs
 stackshot today: `spawn --project` is **the one command that needs stackshot**: its agents-map check
-reads stackshot's project record alone (`~/.local/state/stackshot/projects.json`, no older than 600 s; no page is read and no `pages.py` is run), and the spawn is
+reads stackshot's project record alone (asked of stackshot first, through its client; only when stackshot cannot be reached the file copy `~/.local/state/stackshot/projects.json` is read, no older than 600 s, and the refusal says how old it was; no page is read and no `pages.py` is run), and the spawn is
 refused (exit 6, no pane) when the record cannot answer. A plain spawn of a name that is not on the exceptions list is checked the same way where stackshot is
-on the box; a box with neither a record file nor a client is not checked. That refusal is by design and stays fail-closed (the web form and the queue run it unattended, and a
+on the box; a box with neither a record file nor a client is not checked. `SALA_RECORD_LIVE=off` reads the copy alone. That refusal is by design and stays fail-closed (the web form and the queue run it unattended, and a
 session made before its agents line exists reads no mandate); `SALA_AGENT_CHECK=off` is the only bypass, for every spawn. There is
 no abstraction over the check: one is built only when a box without stackshot has to make project spawns. The other is `sala reboot` on a box whose `SALA_REBOOT_HOOKS` names stackshot's hooks.
 

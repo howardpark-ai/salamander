@@ -23,7 +23,7 @@ A run, in order:
      first project that is due gets the run's one attempt; the load check comes first and a high load is a skip with nothing taken from the ledger.
   5. The attempt: list the agent (skipped when the project record already has the name, or when this job listed it on an earlier run), then start the
      pane and wait, bounded, for it to be live. A live pane is a start only when it is also PLACED in its project, read three ways (`read_back`): stackshot's
-     project record lists it on the project's agents map as a back agent, roles.json has a live entry for it on the project with the role back, and sala's own registry
+     project record lists it on the project's agents map as a back agent, stackshot's roles list has a live entry for it on the project with the role back, and sala's own registry
      row is the session's own row (the registry also answers a renamed session's old name with the renamed session's row, which is not a placement) and carries the project and the
      role back. The three are read again until SALA_BGAGENTS_PLACE_WAIT is up (the record and roles.json are rewritten about every five minutes); the registry command is given
      only the time left to that deadline (at least 5 s for the first read and 1 s for a later one, at most 30 s). A link that disagrees or cannot answer at the deadline fails
@@ -46,7 +46,7 @@ Settings (environment; lib/bgagents.sh passes the config file's values): SALA_BG
 (86400), SALA_BGAGENTS_MAX_ATTEMPTS (5), SALA_BGAGENTS_MAX_LOAD (10), SALA_BGAGENTS_MANDATE, SALA_BGAGENTS_SENDER (sala-web), SALA_BGAGENTS_LEDGER,
 SALA_BGAGENTS_LOADAVG (/proc/loadavg), SALA_BGAGENTS_RECORD_GRACE (900), SALA_BGAGENTS_ALIVE_WAIT (30), SALA_BGAGENTS_POST_TIMEOUT (120),
 SALA_BGAGENTS_SPAWN_TIMEOUT (300), SALA_BGAGENTS_RAISE_TIMEOUT (30), SALA_BGAGENTS_MAX_PROBES (3), SALA_BGAGENTS_PLACE_WAIT (360) and _PLACE_POLL (5) (the read-back), SALA_ROLES_FILE and
-SALA_ROLES_FILE_MAX_AGE (1800), SALA_BGAGENTS_ALERT_CMD (the Slack post, `sala alert`), and the four commands SALA_BGAGENTS_LIST_CMD, _POST_CMD, _SPAWN_CMD, _ALIVE_CMD (the suites stub them);
+SALA_ROLES_FILE_MAX_AGE (1800: the file copy of the roles list, read only when stackshot cannot be reached; stackshot is asked first, lib/stackshot_record.py, with SALA_RECORD_LIVE, _TTL and _TIMEOUT), SALA_BGAGENTS_ALERT_CMD (the Slack post, `sala alert`), and the four commands SALA_BGAGENTS_LIST_CMD, _POST_CMD, _SPAWN_CMD, _ALIVE_CMD (the suites stub them);
 SALA_PROJECT_RECORD and SALA_PROJECT_RECORD_MAX_AGE (stackshot's project record, as spawn reads it), SALA_TZ (the zone times are shown in),
 SALA_OWNER_NAME (the mandate's default text). SALA_BGAGENTS_NOW is the suites' clock.
 A PROJECT IT CANNOT START NEVER STAYS SILENT, AND IS NOT PUT TO THE OWNER. A failed start is a fault in the job or its setup, not a decision of the owner, so by default
@@ -96,6 +96,9 @@ import tempfile
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))     # run as `python3 -I -S`: no script directory on the path by itself
+import stackshot_record as SR     # the one reader of stackshot's project record and roles list: stackshot first, the file copy only when it does not answer
 
 ROLE = "engineer"
 NAME_MAX = 48
@@ -373,9 +376,19 @@ def load_average(cfg):
         return None
 
 
+def record_path(kind, poll=None):
+    """-> (the path to read, what to add to a "cannot answer" reason): stackshot's own answer (SR.resolve asks it first, under a timeout) else the file copy (SALA_PROJECT_RECORD /
+    SALA_ROLES_FILE), whose age the note says when stackshot was asked and did not answer. POLL: the seconds a live answer may be kept (the read-back reads again every few seconds)."""
+    try:
+        r = SR.resolve(kind, ttl=poll)
+    except Exception:                                   # the reader itself failed: the file copy, as before
+        return SR.default_fallback(kind), ""
+    return r["path"], ("; " + r["note"]) if r["why"] else ""
+
+
 def agent_on_map(key, name, now):
-    """Does stackshot's project record (the file spawn reads) list NAME on KEY? True / False, or None when it cannot answer (missing, stale, unreadable, no such project)."""
-    path = os.environ.get("SALA_PROJECT_RECORD") or os.path.join(os.path.expanduser("~"), ".local", "state", "stackshot", "projects.json")
+    """Does stackshot's project record (stackshot's own answer, else the file copy spawn reads) list NAME on KEY? True / False, or None when it cannot answer (missing, stale, unreadable, no such project)."""
+    path, _note = record_path("projects")
     try:
         with open(path, encoding="utf-8") as f:
             d = json.load(f)
@@ -453,12 +466,12 @@ def _page_id(p):
     return p[len("projects/"):] if p.startswith("projects/") else p
 
 
-def record_link(name, key, role, now):
-    """Link 1: stackshot's project record (the file spawn reads, SALA_PROJECT_RECORD, schema 1) lists NAME on KEY's agents map with ROLE (back = front false). -> ("ok" | "no" | "cannot", detail)."""
-    path = os.environ.get("SALA_PROJECT_RECORD") or os.path.join(os.path.expanduser("~"), ".local", "state", "stackshot", "projects.json")
+def record_link(name, key, role, now, poll=None):
+    """Link 1: stackshot's project record (stackshot's own answer, else the file copy spawn reads, SALA_PROJECT_RECORD, schema 1) lists NAME on KEY's agents map with ROLE (back = front false). -> ("ok" | "no" | "cannot", detail)."""
+    path, note = record_path("projects", poll)
     d, why = _fresh_json(path, env_num("SALA_PROJECT_RECORD_MAX_AGE", 600), now)
     if d is None:
-        return "cannot", why
+        return "cannot", why + note
     try:
         if d.get("schema") != 1:
             return "cannot", "it is not schema 1"
@@ -479,12 +492,12 @@ def record_link(name, key, role, now):
         return "cannot", "it is unreadable"
 
 
-def roles_link(name, key, role, now):
-    """Link 2: stackshot's roles.json (SALA_ROLES_FILE, the file sala's Overview Role column and the lane rules read) has a LIVE entry for NAME that names KEY and carries ROLE. -> ("ok" | "no" | "cannot", detail)."""
-    path = os.environ.get("SALA_ROLES_FILE") or os.path.join(os.path.expanduser("~"), ".local", "state", "stackshot", "roles.json")
+def roles_link(name, key, role, now, poll=None):
+    """Link 2: stackshot's roles list (stackshot's own answer, else roles.json, SALA_ROLES_FILE, the file sala's Overview Role column and the lane rules read) has a LIVE entry for NAME that names KEY and carries ROLE. -> ("ok" | "no" | "cannot", detail)."""
+    path, note = record_path("roles", poll)
     d, why = _fresh_json(path, env_num("SALA_ROLES_FILE_MAX_AGE", 1800), now)
     if d is None:
-        return "cannot", why
+        return "cannot", why + note
     sessions = d.get("sessions")
     if not isinstance(sessions, dict):
         return "cannot", "it has no sessions"
@@ -541,7 +554,8 @@ def read_back(cfg, name, key, role=BACK):
         # the registry command is bounded by the time left to the deadline (a slow last lookup must not run past SALA_BGAGENTS_PLACE_WAIT), never above its own maximum and never below a floor
         limit = min(LOOKUP_MAX, max(LOOKUP_FIRST if first else LOOKUP_FLOOR, deadline - time.monotonic()))
         first = False
-        res = (record_link(name, key, role, fresh_now()), roles_link(name, key, role, fresh_now()), row_link(cfg, name, key, role, limit))
+        poll = cfg["place_poll"]      # a live answer is kept no longer than one poll, so the next read sees a start that stackshot has just recorded
+        res = (record_link(name, key, role, fresh_now(), poll), roles_link(name, key, role, fresh_now(), poll), row_link(cfg, name, key, role, limit))
         bad = [(LINKS[i], r[0], r[1]) for i, r in enumerate(res) if r[0] != "ok"]
         if not bad:
             return 0, ""
@@ -684,8 +698,8 @@ def run_split(cmd, timeout, stdin=None):
 
 
 def record_scope(key):
-    """The project's scope in stackshot's project record (the file spawn reads), whatever its age; "" when it says none."""
-    path = os.environ.get("SALA_PROJECT_RECORD") or os.path.join(os.path.expanduser("~"), ".local", "state", "stackshot", "projects.json")
+    """The project's scope in stackshot's project record (stackshot's own answer, else the file copy spawn reads), whatever the copy's age; "" when it says none."""
+    path, _note = record_path("projects")
     try:
         with open(path, encoding="utf-8") as f:
             d = json.load(f)

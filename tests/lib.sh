@@ -97,6 +97,7 @@ export SALA_LANE_FALLBACK_AUTO=off   # a lane that turns dormant (watch, `lane d
 export SALA_MODEL_INPLACE=off  # `sala model` on an idle pane would type /model into the fake claude, which answers nothing; the suites that
                                # check the relaunch (models.sh, op.sh) keep checking it. tests/modelinplace.sh turns the switch back on
 export SALA_MODEL_INPLACE_SETTLE=0.3 SALA_MODEL_INPLACE_WAIT=8   # and shortens its two waits (production: 1 s, 20 s)
+export SALA_RECORD_LIVE_TTL=0   # stackshot's answer for the project record and the roles list (lib/stackshot_record.py) is asked afresh each time here, never kept for 20 s: a suite changes what its stub client or its file says between two steps; tests/recordlive.sh tests the keeping
 export SALA_RETIRE_ITEMS_CMD='echo {\"items\":[]} #'   # retire asks stackshot what the session moves before it acts (common.sh, RETIRE ASKS FOR OPEN ITEMS FIRST); the suites answer "nothing"
                                # (the trailing # drops the key the command is handed), and no suite reaches a real stackshot. tests/retire-verbs.sh stubs a client with items, none and unreachable
 

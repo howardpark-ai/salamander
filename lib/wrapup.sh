@@ -514,9 +514,10 @@ except ValueError: sys.exit(4)
 # sleep_projects_load → SP_KEYS (the projects with a session that has a tmux session here, in the registry's order) and SP_MEM[<key>] ("name:role name:role …"); 1 with SP_WHY_LOAD when the registry cannot say
 sleep_projects_load() {
     declare -gA SP_MEM=(); SP_KEYS=(); SP_WHY_LOAD=""
-    local out k n r
+    local out k n r rf rr
     sessions_on && [ -r "$SALA_SESSIONS_FILE" ] || { SP_WHY_LOAD="the session registry is off or has no file, so no session is placed in a project"; return 1; }
-    out=$(sessions_py project-sessions --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" --roles "$SALA_ROLES_FILE" --roles-max-age "$SALA_ROLES_FILE_MAX_AGE" 2>/dev/null) || { SP_WHY_LOAD="the session registry could not be read"; return 1; }
+    record_file_r rf projects || true; record_file_r rr roles || true   # stackshot first, the file copy only when it does not answer (common.sh, record_file_r)
+    out=$(sessions_py project-sessions --record "$rf" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" --roles "$rr" --roles-max-age "$SALA_ROLES_FILE_MAX_AGE" 2>/dev/null) || { SP_WHY_LOAD="the session registry could not be read"; return 1; }
     while IFS=$'\t' read -r k n r; do
         [ -n "$k" ] && [ -n "$n" ] || continue
         tmux has-session -t "=$n" 2>/dev/null || continue
