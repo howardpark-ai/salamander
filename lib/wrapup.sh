@@ -263,14 +263,26 @@ sleep_is_front() {
     case "${1:-}" in *-main) return 0;; esac
     back_lane_names front 2>/dev/null | grep -qxF -- "$1"
 }
-# inbox_line_waiting <session> <conversation uuid> → 0 when a message line of stackshot's inbox (hub/ and msg/ under SALA_STACKSHOT_INBOX) names the session or its
-# conversation, with the kind (hub or msg) in INBOX_WAIT_KIND. A held key (the inbox's held-*.txt files) only stops delivery: the line is still waiting, so held
-# or not it counts. THE ONE PREDICATE for "a line waits for it": sleep_ready refuses a session by it, and the watch's wake_tick wakes a sleeper by it.
+# inbox_line_waiting <session> <conversation uuid> → 0 when a message line of stackshot's inbox (hub/ and msg/ under SALA_STACKSHOT_INBOX) is routed to the session or its
+# conversation, with the kind (hub or msg) in INBOX_WAIT_KIND. A line is one JSON file whose routing fields are `to`, `uuid` and `name` (the address as the sender gave it,
+# the transcript id and the pane name); one of them must EQUAL the session name or the uuid. A line for `worker-extra`, or one whose text only mentions `worker`, does not
+# wait for `worker`. A held key (the inbox's held-*.txt files) only stops delivery: the line is still waiting, so held or not it counts.
+# THE ONE PREDICATE for "a line waits for it": sleep_ready refuses a session by it, and the watch's wake_tick wakes a sleeper by it. A cheap grep finds the files that
+# contain either text at all and only those are parsed (a file that is not a JSON object counts for nothing).
 INBOX_WAIT_KIND=""
 inbox_line_waiting() {
-    local tw; INBOX_WAIT_KIND=""
+    local tw cand; INBOX_WAIT_KIND=""
+    [ -n "${1:-}" ] || [ -n "${2:-}" ] || return 1
     for tw in hub msg; do
-        if grep -qsF -e "$1" -e "$2" "$SALA_STACKSHOT_INBOX/$tw"/*.json 2>/dev/null; then INBOX_WAIT_KIND=$tw; return 0; fi
+        mapfile -t cand < <(grep -lsF -e "$1" -e "$2" "$SALA_STACKSHOT_INBOX/$tw"/*.json 2>/dev/null)
+        [ "${#cand[@]}" -gt 0 ] || continue
+        if python3 -I -S -c 'import json, sys
+want = {a for a in sys.argv[1:3] if a}
+for f in sys.argv[3:]:
+    try: d = json.load(open(f, encoding="utf-8"))
+    except Exception: continue
+    if isinstance(d, dict) and any(isinstance(d.get(k), str) and d[k] in want for k in ("to", "uuid", "name")): sys.exit(0)
+sys.exit(1)' "$1" "$2" "${cand[@]}" 2>/dev/null; then INBOX_WAIT_KIND=$tw; return 0; fi
     done
     return 1
 }
@@ -370,6 +382,14 @@ sleep_candidates() {
         printf '%s\t%s\n' "$age" "$sess"
     done <<< "$tbl" | LC_ALL=C sort -s -t$'\t' -k1,1nr
 }
+# _retry_backoff <state key prefix> <session> <retry s> → 0 when the watch's state holds a failure time for the session younger than the retry time (sleepfail.* and wakefail.*,
+# written by sleep_locked and wake_locked). Read only: the passes and their previews share it, so a preview skips the sessions the real run skips. The watch's state file
+# is the one the watch uses (WSTATE), or the same file by its path when the verb runs outside the watch (`sala sleep --candidates`).
+_retry_backoff() {
+    local k v now; _key_r k "$2"; _now_r now
+    v=$(_kv_first "${WSTATE:-$SALA_LOG_DIR/salamander-watch.state}" "$1.$k")
+    [[ $v =~ ^[0-9]+$ ]] && [ $((now - v)) -lt "$3" ]
+}
 # sleep_report → what sleep_tick would do now, one line per ready session; says so when the pass is off
 sleep_report() {
     local c age sess n=0 cap; cap=$(sleep_cap)
@@ -377,6 +397,7 @@ sleep_report() {
     c=$(sleep_candidates)
     [ -n "$c" ] || { echo "no session is ready to sleep (idle for ${SALA_SLEEP_AFTER:-3600}s or more, nothing in flight, not a front agent)"; return 0; }
     while IFS=$'\t' read -r age sess; do
+        if _retry_backoff sleepfail "$sess" "${SALA_SLEEP_RETRY:-1800}"; then echo "$sess: idle $((age / 60)) min — asked lately and not put to sleep, skipped until its retry time ($((${SALA_SLEEP_RETRY:-1800} / 60)) min) has passed"; continue; fi
         n=$((n + 1))
         if [ "$n" -le "$cap" ]; then echo "$sess: idle $((age / 60)) min — would be put to sleep"
         else echo "$sess: idle $((age / 60)) min — ready, waits for a later run (at most $cap per run)"; fi
@@ -391,13 +412,13 @@ sleepstate_prune() {
     done
 }
 sleep_locked() {
-    local age sess k v now n=0 cap out rc last
+    local age sess k now n=0 cap out rc last
     cap=$(sleep_cap); _now_r now
     while IFS=$'\t' read -r age sess; do
         [ -n "$sess" ] || continue
         [ "$n" -lt "$cap" ] || break
-        _key_r k "$sess"; v=$(st_get "sleepfail.$k")
-        if [[ $v =~ ^[0-9]+$ ]] && [ $((now - v)) -lt "${SALA_SLEEP_RETRY:-1800}" ]; then continue; fi   # asked lately and not put to sleep: the next one takes its turn
+        if _retry_backoff sleepfail "$sess" "${SALA_SLEEP_RETRY:-1800}"; then continue; fi   # asked lately and not put to sleep: the next one takes its turn (the preview skips it too)
+        _key_r k "$sess"
         n=$((n + 1))
         out=$("$SALA_BIN" sleep "$sess" 2>&1 </dev/null); rc=$?
         if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q '^✅ '; then
@@ -439,6 +460,7 @@ wake_report() {
     local c sess u kind n=0 cap; cap=$(wake_cap); c=$(wake_candidates)
     [ -n "$c" ] || { echo "no sleeping session has a message line waiting"; return 0; }
     while IFS=$'\t' read -r sess u kind; do
+        if _retry_backoff wakefail "$sess" "${SALA_WAKE_RETRY:-600}"; then echo "$sess: a stackshot $kind message line waits for it — a wake failed lately, skipped until its retry time ($((${SALA_WAKE_RETRY:-600} / 60)) min) has passed"; continue; fi
         n=$((n + 1))
         if [ "$n" -le "$cap" ]; then echo "$sess: a stackshot $kind message line waits for it — would be woken"
         else echo "$sess: a stackshot $kind message line waits for it — waits for a later run (at most $cap per run)"; fi
@@ -446,13 +468,16 @@ wake_report() {
     return 0
 }
 wake_locked() {
-    local sess u kind k v now n=0 cap out rc last
+    local sess u kind k cur now n=0 cap out rc last
     cap=$(wake_cap); _now_r now
     while IFS=$'\t' read -r sess u kind; do
         [ -n "$sess" ] || continue
         [ "$n" -lt "$cap" ] || break
-        _key_r k "$sess"; v=$(st_get "wakefail.$k")
-        if [[ $v =~ ^[0-9]+$ ]] && [ $((now - v)) -lt "${SALA_WAKE_RETRY:-600}" ]; then continue; fi   # a wake that failed lately is not tried again at once
+        if _retry_backoff wakefail "$sess" "${SALA_WAKE_RETRY:-600}"; then continue; fi   # a wake that failed lately is not tried again at once (the preview skips it too)
+        # the candidate was picked by conversation id but `sala wake` acts on the name: the row for the name must still hold that id (a row replaced since is not this
+        # conversation's message; skipped with no failure stamp, the next run picks again)
+        sleeping_uuid_r cur "$sess" && [ "$cur" = "$u" ] || continue
+        _key_r k "$sess"
         n=$((n + 1))
         out=$("$SALA_BIN" wake "$sess" 2>&1 </dev/null); rc=$?
         if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q "^✅ "; then
