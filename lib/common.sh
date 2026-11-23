@@ -6056,49 +6056,90 @@ _box_from_capture() {
     done
     _BOX_GLYPH=$glyph; _BOX_LINE=$last; _BOX_AT=$at; _BOX_N=$n
 }
+# _box_spans → reads _BOX_LINE (set by _box_from_capture) and sets _BOX_TYPED (its non-dim text, cleaned: attributes, mark and
+# outer white space gone) and _BOX_DIMS (its dim spans, one per line, each cleaned the same way). The line is walked escape by
+# escape with the attributes tracked (dim on by 2, off by 22 or a reset; reverse on by 7, off by 27 or a reset; a 38/48/58 colour's
+# own parameters skipped, so the 2 in `38;2;r;g;b` is no dim), so tmux's combined forms (`0;2`, `2;7`) count as the dim they are.
+# Two kinds of cell of Claude Code's own placeholder are not typed text:
+#   - the dim text itself (a suggestion);
+#   - the CURSOR CELL: Claude Code draws the placeholder with its first character reverse-video (the cursor sits on it) and the
+#     rest dim (`ESC[7mO ESC[0;2mnce fixed…` in a capture-pane -e of tmux 3.6). A reverse-video run right before a dim run is the
+#     first character of that dim text, so it joins it. A reverse-video cell anywhere else (the cursor after typed text, on a
+#     typed character) is not followed by dim text and stays typed text, as before.
+_box_spans() {
+    local rem=$_BOX_LINE dim=0 rev=0 txt params p k i n cur="" l
+    local -a st=() sd=() sr=() ps=()
+    _BOX_TYPED=""; _BOX_DIMS=""
+    while [ -n "$rem" ]; do
+        if [[ $rem == $'\e['* ]]; then
+            if [[ $rem =~ ^$'\e'\[([0-9\;]*)m ]]; then
+                params=${BASH_REMATCH[1]}; rem=${rem:${#BASH_REMATCH[0]}}
+                ps=(); [ -z "$params" ] || IFS=';' read -ra ps <<< "$params"
+                [ "${#ps[@]}" -gt 0 ] || ps=("")
+                for ((k=0; k<${#ps[@]}; k++)); do
+                    p=${ps[k]}
+                    case $p in
+                        ""|0|00) dim=0; rev=0 ;;
+                        2|02) dim=1 ;;
+                        22) dim=0 ;;
+                        7|07) rev=1 ;;
+                        27) rev=0 ;;
+                        38|48|58) case ${ps[k+1]:-} in 5) k=$((k+2)) ;; 2) k=$((k+4)) ;; esac ;;
+                    esac
+                done
+                continue
+            fi
+            txt=$'\e'   # some other escape sequence: left in the text, as it always was
+        else
+            txt=${rem%%$'\e'*}
+        fi
+        rem=${rem:${#txt}}
+        st+=("$txt"); sd+=("$dim"); sr+=("$rev")
+    done
+    n=${#st[@]}
+    for ((i=0; i<n; i++)); do
+        if [ "${sd[i]}" = 1 ] || { [ "${sr[i]}" = 1 ] && [ "$((i+1))" -lt "$n" ] && [ "${sd[i+1]}" = 1 ]; }; then
+            cur+=${st[i]}
+        else
+            _box_dim_run "$cur"; cur=""
+            _BOX_TYPED+=${st[i]}
+        fi
+    done
+    _box_dim_run "$cur"
+    _box_clean_r l "$_BOX_TYPED"; _BOX_TYPED=$l
+}
+_box_clean_r() {  # <var> <text> → the text without attributes, no-break spaces as spaces, the box mark and outer white space dropped
+    local _l=$2
+    _sgr_strip_r _l "$_l"; _l=${_l//$'\xc2\xa0'/ }; _lstrip_r _l
+    [[ $_l == "$_BOX_GLYPH"* ]] && _l=${_l#"$_BOX_GLYPH"}
+    _lstrip_r _l
+    while [[ $_l == *[[:space:]] ]]; do _l=${_l%?}; done
+    printf -v "$1" '%s' "$_l"
+}
+_box_dim_run() {   # <one dim run> → appended to _BOX_DIMS, cleaned, when anything is left of it
+    local l
+    [ -n "$1" ] || return 0
+    _box_clean_r l "$1"
+    [ -z "$l" ] || _BOX_DIMS+="${_BOX_DIMS:+$'\n'}$l"
+}
 draft_from_capture() {
     # the python it was (a start per call, 500 in a test run), in the shell. The input line is _box_from_capture's; its dim
-    # spans (the suggestion) and its attributes are removed, its mark dropped.
-    local l out rem post t rest best bt p last glyph cap
+    # spans (the suggestion, the cursor cell on its first character included: _box_spans) are not typed text, its mark is dropped.
+    local cap
     cap=$(cat); _box_from_capture "$cap"
     [ -n "$_BOX_LINE" ] || return 0
-    last=$_BOX_LINE; glyph=$_BOX_GLYPH
-    l=$last; out=""; rem=$l
-    while [[ $rem == *$'\e[2m'* ]]; do   # dim span = suggestion, up to the next reset or the end of the line
-        out+=${rem%%$'\e[2m'*}; post=${rem#*$'\e[2m'}; best=-1; bt=""
-        for t in $'\e[0m' $'\e[22m' $'\e[m'; do
-            if [[ $post == *"$t"* ]]; then rest=${post%%"$t"*}; p=${#rest}; if [ "$best" -lt 0 ] || [ "$p" -lt "$best" ]; then best=$p; bt=$t; fi; fi
-        done
-        if [ "$best" -ge 0 ]; then rem=${post:best+${#bt}}; else rem=""; fi
-    done
-    l=$out$rem
-    _sgr_strip_r l "$l"                                             # remaining attributes
-    l=${l//$'\xc2\xa0'/ }; _lstrip_r l
-    [[ $l == "$glyph"* ]] && l=${l#"$glyph"}
-    _lstrip_r l
-    while [[ $l == *[[:space:]] ]]; do l=${l%?}; done
-    printf '%s\n' "$l"
+    _box_spans
+    printf '%s\n' "$_BOX_TYPED"
 }
 # dim_from_capture (stdin: `capture-pane -e` output) → the DIM text of the input line (the suggestion Claude Code shows in an empty
-# composer), or empty. The same box reading and the same dim spans as draft_from_capture, which drops them: this keeps them, in
-# order, joined by one space when the line holds several. Read-only; draft_from_capture's answer is unchanged by it.
+# composer, its cursor cell included), or empty. The same box reading and the same spans as draft_from_capture, which drops them:
+# this keeps them, in order, joined by one space when the line holds several. Read-only; draft_from_capture's answer is unchanged by it.
 dim_from_capture() {
-    local l rem post t rest best bt p out="" cap
+    local cap out
     cap=$(cat); _box_from_capture "$cap"
     [ -n "$_BOX_LINE" ] || return 0
-    rem=$_BOX_LINE
-    while [[ $rem == *$'\e[2m'* ]]; do   # a dim span runs to the next reset or the end of the line
-        post=${rem#*$'\e[2m'}; best=-1; bt=""
-        for t in $'\e[0m' $'\e[22m' $'\e[m'; do
-            if [[ $post == *"$t"* ]]; then rest=${post%%"$t"*}; p=${#rest}; if [ "$best" -lt 0 ] || [ "$p" -lt "$best" ]; then best=$p; bt=$t; fi; fi
-        done
-        if [ "$best" -ge 0 ]; then l=${post:0:best}; rem=${post:best+${#bt}}; else l=$post; rem=""; fi
-        _sgr_strip_r l "$l"; l=${l//$'\xc2\xa0'/ }; _lstrip_r l
-        [[ $l == "$_BOX_GLYPH"* ]] && l=${l#"$_BOX_GLYPH"}
-        _lstrip_r l
-        while [[ $l == *[[:space:]] ]]; do l=${l%?}; done
-        [ -n "$l" ] && out+="${out:+ }$l"
-    done
+    _box_spans
+    out=${_BOX_DIMS//$'\n'/ }
     [ -z "$out" ] || printf '%s\n' "$out"
 }
 prompt_clears() { local i; for ((i=0; i<${2:-10}; i++)); do pane_prompt "$1" || return 0; sleep 1; done; return 1; }

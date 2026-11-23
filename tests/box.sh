@@ -2,7 +2,7 @@
 # tests/box.sh — `sala box SESSION [--json]` (lib/box.sh) and the helper under it, dim_from_capture (lib/common.sh): what is in a
 # session's pane input box, as empty, suggestion (dim text: Claude Code's own suggested prompt, which counts as empty) or typed.
 #   helper   dim_from_capture on captures with the attributes (`capture-pane -e`): the dim span of the input line is returned, typed
-#            text and a dim completion are told apart, no box and no dim text read as empty, a shell-mode placeholder is dim text; and
+#            text and a dim completion are told apart, no box and no dim text read as empty, a shell-mode placeholder is dim text, so is the placeholder with its cursor cell (reverse first character, dim rest; tmux ESC[0;2m), the cursor after or inside typed text is typed, a colour own 2 is no dim; and
 #            draft_from_capture answers what it always did on the same captures (the suggestion is no draft)
 #   verb     a fake claude pane (a script named claude, on a PRIVATE tmux server) draws a box between two rules: an empty box, a dim
 #            suggestion, typed text, typed text with a dim completion after it, a dim suggestion with typed text after it, each as the
@@ -73,6 +73,19 @@ chk "a dim part first, typed text after it"          "$(screen "${E}[39m${G}${NB
 chk "two dim spans are joined by a space"            "$(screen "${E}[39m${G}${NB}${E}[2mone${E}[0m and ${E}[2mtwo${E}[0m")"        "one two"                   "and"
 chk "a dim notice outside the box is not read"       "$(printf '%s\n' "$GREY" "${E}[39m${G}${NB}" "$GREY" "${E}[2m! Auto-update failed${E}[0m")"  ""     ""
 chk "a shell-mode placeholder (dim) is dim text"     "$(printf '%s\n' "${E}[38;5;211m${R}" "!${NB}${E}[2m${E}[39mTry \"fix typecheck errors\"${E}[0m" "${E}[38;5;211m${R}" "  ${E}[38;5;211m! for shell mode${E}[39m")" 'Try "fix typecheck errors"' ""
+# Claude Code draws its placeholder with the cursor on the first character: that cell is reverse-video, the rest dim. tmux 3.6 writes the
+# change from one to the other as `ESC[0;2m` (a reset and the dim in one sequence), which is not `ESC[2m` alone.
+PH="Once fixed, resend your message"
+chk "the placeholder as tmux captures it (reverse first cell, then ESC[0;2m dim)" "$(screen "${E}[39m${G}${NB}${E}[7mO${E}[0;2mnce fixed, resend your message${E}[0m")" "$PH" ""
+chk "the placeholder with SGR 27 and SGR 22"         "$(screen "${E}[39m${G}${NB}${E}[7mO${E}[27m${E}[2mnce fixed, resend your message${E}[22m")" "$PH" ""
+chk "the placeholder with the cursor cell closed by SGR 0" "$(screen "${E}[39m${G}${NB}${E}[7mO${E}[0m${E}[2mnce fixed, resend your message${E}[0m")" "$PH" ""
+chk "the placeholder, cursor cell dim and reverse at once (ESC[2;7m)" "$(screen "${E}[39m${G}${NB}${E}[2;7mO${E}[0;2mnce fixed, resend your message${E}[0m")" "$PH" ""
+chk "a dim span opened by ESC[0;2m with no cursor cell" "$(screen "${E}[39m${G}${NB}${E}[0;2mrun the fleet cli update${E}[0m")"  "run the fleet cli update"  ""
+chk "typed text with the cursor after it (a reverse blank): typed" "$(screen "${E}[39m${G}${NB}my own unsent note${E}[7m ${E}[0m")"  ""            "my own unsent note"
+chk "typed text with the cursor on one of its letters: typed" "$(screen "${E}[39m${G}${NB}my ${E}[7mo${E}[0mwn note")"           ""                          "my own note"
+chk "typed text, then the cursor on the first letter of a dim completion" "$(screen "${E}[39m${G}${NB}show ${E}[7m/${E}[0;2metc/adduser.conf${E}[0m")" "/etc/adduser.conf" "show"
+chk "a colour's own 2 (38;2;r;g;b) is no dim"        "$(screen "${E}[39m${G}${NB}${E}[38;2;10;20;30mcoloured typed${E}[0m")"       ""                          "coloured typed"
+chk "a 256-colour 2 (38;5;2) is no dim"              "$(screen "${E}[39m${G}${NB}${E}[38;5;2mgreen typed${E}[0m")"                  ""                          "green typed"
 chk "no box on the screen, a dim word elsewhere"     "$(printf '%s\n' "some output ${E}[2mdim${E}[0m" "more")"                      ""                          ""
 chk "an old dim line above the box is not read"      "$(printf '%s\n' "${E}[39m${G}${NB}${E}[2mold${E}[0m" "$GREY" "${E}[39m${G}${NB}" "$GREY")" ""           ""
 
@@ -82,6 +95,7 @@ mkbox sugg "$(screen "${E}[39m${G}${NB}${E}[2mrun the fleet cli update${E}[0m")"
 mkbox typed "$(screen "${E}[39m${G}${NB}my own unsent note")"
 mkbox over "$(screen "${E}[39m${G}${NB}show ${E}[2m/etc/adduser.conf${E}[0m")"
 mkbox after "$(screen "${E}[39m${G}${NB}${E}[2mthe suggestion${E}[0m typed after")"
+mkbox cursor "$(screen "${E}[39m${G}${NB}${E}[7mO${E}[0;2mnce fixed, resend your message${E}[0m")"
 mkbox quote "$(screen "${E}[39m${G}${NB}say \"hi\" \\ there")"
 command tmux -L "$SOCK" -f /dev/null new-session -d -s noclaude -x 100 -y 20 "sleep 600" && command tmux -L "$SOCK" -f /dev/null display -p -t "=noclaude:" '#{pane_pid}' >> "$PANEPIDS"
 
@@ -90,6 +104,8 @@ before=$(snap); screen_before=$(tmux capture-pane -pe -t =sugg:)
 box empty;  [ "$RC" = 0 ] && [ "$OUT" = empty ] && [ -z "$ERR" ] && ok "empty box: 'empty', exit 0" || bad "empty: rc=$RC out='$OUT' err='$ERR'"
 box sugg;   [ "$RC" = 0 ] && [ "$(sed -n 1p <<< "$OUT")" = suggestion ] && [ "$(sed -n 2p <<< "$OUT")" = "Claude Code's own suggestion, not typed by anyone: run the fleet cli update" ] && [ "$(wc -l <<< "$OUT")" = 2 ] \
     && ok "dim suggestion: 'suggestion', its text labelled on the next line" || bad "suggestion: rc=$RC out='$OUT'"
+box cursor; [ "$RC" = 0 ] && [ "$(sed -n 1p <<< "$OUT")" = suggestion ] && [ "$(sed -n 2p <<< "$OUT")" = "Claude Code's own suggestion, not typed by anyone: Once fixed, resend your message" ] && [ "$(wc -l <<< "$OUT")" = 2 ] \
+    && ok "the placeholder with its cursor cell (reverse first character, dim rest): a suggestion, whole" || bad "placeholder with cursor cell: rc=$RC out='$OUT'"
 box typed;  [ "$RC" = 0 ] && [ "$OUT" = $'typed\nmy own unsent note' ] && ok "typed text: 'typed' and the text" || bad "typed: rc=$RC out='$OUT'"
 box over;   [ "$RC" = 0 ] && [ "$OUT" = $'typed\nshow' ] && ok "typed text with a dim completion after it: typed, the typed part" || bad "typed over a suggestion: rc=$RC out='$OUT'"
 box after;  [ "$RC" = 0 ] && [ "$OUT" = $'typed\ntyped after' ] && ok "a dim part, then typed text: typed, the typed part" || bad "typed after a suggestion: rc=$RC out='$OUT'"
@@ -99,6 +115,7 @@ sleep 1
 echo "== --json"
 box --json empty;  [ "$RC" = 0 ] && [ "$OUT" = '{"session":"empty","state":"empty","text":""}' ] && ok "json, empty" || bad "json empty: rc=$RC $OUT"
 box sugg --json;   [ "$RC" = 0 ] && [ "$OUT" = '{"session":"sugg","state":"suggestion","text":"run the fleet cli update"}' ] && ok "json, suggestion (the option may come after the name)" || bad "json suggestion: rc=$RC $OUT"
+box --json cursor; [ "$RC" = 0 ] && [ "$OUT" = '{"session":"cursor","state":"suggestion","text":"Once fixed, resend your message"}' ] && ok "json, the placeholder with its cursor cell" || bad "json cursor: rc=$RC $OUT"
 box --json typed;  [ "$RC" = 0 ] && [ "$OUT" = '{"session":"typed","state":"typed","text":"my own unsent note"}' ] && ok "json, typed" || bad "json typed: rc=$RC $OUT"
 box --json over;   [ "$RC" = 0 ] && [ "$OUT" = '{"session":"over","state":"typed","text":"show"}' ] && ok "json, typed over a suggestion" || bad "json over: rc=$RC $OUT"
 box --json quote;  [ "$RC" = 0 ] && [ "$(python3 -I -c 'import json,sys; d=json.loads(sys.stdin.read()); print(d["state"], d["text"])' <<< "$OUT")" = 'typed say "hi" \ there' ] && ok "json: a quote and a backslash in the text parse back" || bad "json quote: rc=$RC $OUT"
