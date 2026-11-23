@@ -509,7 +509,7 @@
 #SALA_BGAGENTS_PLACE_WAIT=360   # seconds the read-back of a started session keeps reading stackshot's project record, roles.json and sala's registry row before the attempt fails (a session is a start only when all three place it on the project as a back agent; the record and roles.json are rewritten about every five minutes)
 #SALA_BGAGENTS_PLACE_POLL=5     # seconds between two reads of the three
 #SALA_ROLES_FILE=               # the file copy of stackshot's roles list, read only when stackshot cannot be reached. Default: ~/.local/state/stackshot/roles.json; SALA_ROLES_FILE_MAX_AGE (1800 s) is the age after which the copy answers nothing
-#SALA_RECORD_LIVE=on            # on: sala asks stackshot first (its client, `get state-files` and `get roles`) for the project record and the roles list; off: the file copies alone (a box with no stackshot to ask)
+#SALA_RECORD_LIVE=on            # on: sala asks stackshot first (its client, `get projects-record` and `get roles`) for the project record and the roles list; off: the file copies alone (a box with no stackshot to ask)
 #SALA_RECORD_LIVE_TTL=20        # seconds a stackshot answer is kept (a failed ask as long), so one command or watch tick asks once
 #SALA_RECORD_LIVE_TIMEOUT=15    # seconds one ask of stackshot may take before the copy is read instead (the copy's age is said, and one line goes to salamander-record.log)
 #SALA_BGAGENTS_ALERT_CMD=       # the Slack post of a live session that is not placed in its project, called with a headline and one line appended. Unset: this sala's `alert`; set empty: no post

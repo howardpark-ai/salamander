@@ -49,7 +49,7 @@
 #     SALA_SCOPES) in front of the slug (projects/ir → home-ir when home is the default);
 #     with no SALA_SCOPES the slug alone. The answer for a page the record does not know.
 #   · THE PROJECT RECORD ALONE (common.sh, THE PROJECT RECORD; docs/stackshot-contracts.md, interface 20):
-#     stackshot's project record lists each project's agents with `front` true/false. It is asked of stackshot first (its client, `get state-files`; lib/stackshot_record.py);
+#     stackshot's project record lists each project's agents with `front` true/false. It is asked of stackshot first (its client, `get projects-record`; lib/stackshot_record.py);
 #     only when stackshot cannot be reached is the file copy ~/.local/state/stackshot/projects.json read, and its age is said. When the answer is fresh
 #     (the copy: SALA_PROJECT_RECORD_MAX_AGE, 600 s) and has the project, it answers the check: the name on the map and `front` agreeing with --role
 #     → listed (an agent registered through `client.py post project-agent` counts); the name absent → registered with stackshot when the

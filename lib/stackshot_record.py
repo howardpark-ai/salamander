@@ -3,8 +3,10 @@
 
 The record and the list are stackshot's. A file copy of each (~/.local/state/stackshot/projects.json and roles.json) is written by a puller, so it is
 only as new as the puller's last run: when stackshot's server moved, the copy sat 18 hours old while the truth had not moved. So a reader asks
-stackshot by its address first, through stackshot's client (`client.py get state-files` for the whole project record, `client.py get roles` for the
+stackshot by its address first, through stackshot's client (`client.py get projects-record` for the project record, `client.py get roles` for the
 list), and reads the file copy ONLY when stackshot cannot be reached, saying how old that copy is.
+A stackshot that predates `get projects-record` answers 404 "no such read": the record is then asked once more with `get state-files` (its `projects` member is the
+same record), which still works there, and the one line in the record log says that the old read was used; it is never an error.
 
     resolve(kind) -> dict(path, source, note, why)
         kind    "projects" or "roles"
@@ -35,7 +37,8 @@ import time
 
 KINDS = {
     "projects": {"env_file": "SALA_PROJECT_RECORD", "file": "projects.json", "env_age": "SALA_PROJECT_RECORD_MAX_AGE", "age": 600,
-                 "verb": ["get", "state-files"], "what": "project record"},
+                 "verb": ["get", "projects-record"], "what": "project record",
+                 "old_verb": ["get", "state-files"], "old_member": "projects"},   # an older stackshot has no projects-record (404): state-files carries the record as `projects`
     "roles": {"env_file": "SALA_ROLES_FILE", "file": "roles.json", "env_age": "SALA_ROLES_FILE_MAX_AGE", "age": 1800,
               "verb": ["get", "roles"], "what": "roles list"},
 }
@@ -99,14 +102,16 @@ def file_age(path, now=None):
         return None
 
 
-def _extract(kind, text):
-    """-> (the object to keep, "") or (None, why): the answer of the client's verb, checked to have the shape the readers need."""
+def _extract(kind, text, member=None):
+    """-> (the object to keep, "") or (None, why): the answer of the client's verb, checked to have the shape the readers need.
+    member: the key of the answer that holds the record, for the old `get state-files` read (`projects`); None when the answer is the record itself."""
     try:
         d = json.loads(text)
     except ValueError:
         return None, "its answer is not JSON"
     if kind == "projects":
-        d = d.get("projects") if isinstance(d, dict) else None   # state-files: the published projects.json is its `projects`
+        if member:
+            d = d.get(member) if isinstance(d, dict) else None   # state-files: the published projects.json is its `projects`
         if not isinstance(d, dict):
             return None, "it has no project record to give"
         if d.get("schema") != 1 or not isinstance(d.get("projects"), dict):
@@ -117,19 +122,37 @@ def _extract(kind, text):
     return d, ""
 
 
-def fetch(kind, client, timeout):
-    """One ask of stackshot through its client, stdin closed, under a timeout -> (object, "") or (None, why)."""
+def _ask(client, verb, timeout):
+    """One run of the client's verb, stdin closed, under a timeout -> (stdout, "", "") or (None, why, the client's last line)."""
     try:
-        p = subprocess.run([sys.executable or "python3", client] + KINDS[kind]["verb"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        p = subprocess.run([sys.executable or "python3", client] + verb, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE, timeout=timeout, text=True, errors="replace")
     except subprocess.TimeoutExpired:
-        return None, "no answer within %d s" % timeout
+        return None, "no answer within %d s" % timeout, ""
     except OSError as e:
-        return None, "the client cannot be run (%s)" % e.__class__.__name__
+        return None, "the client cannot be run (%s)" % e.__class__.__name__, ""
     if p.returncode != 0:
         last = [x.strip() for x in (p.stderr or p.stdout or "").splitlines() if x.strip()]
-        return None, "the client exited %d%s" % (p.returncode, ": " + last[-1][:160] if last else "")
-    return _extract(kind, p.stdout)
+        text = " ".join((p.stdout or "").split() + (p.stderr or "").split())
+        no_verb = "[404]" in text and "no such read" in text   # the client prints `[404] no such read: …` for a verb stackshot (or the client) does not have
+        return None, "the client exited %d%s" % (p.returncode, ": " + last[-1][:160] if last else ""), ("no such read" if no_verb else "")
+    return p.stdout, "", ""
+
+
+def fetch(kind, client, timeout):
+    """One ask of stackshot through its client, stdin closed, under a timeout -> (object, "", old) or (None, why, old).
+    old is True when the answer came from the older read (a stackshot with no `get projects-record`), so that the caller can say so."""
+    k = KINDS[kind]
+    out, why, gone = _ask(client, k["verb"], timeout)
+    if out is not None:
+        return _extract(kind, out) + (False,)
+    if gone and k.get("old_verb"):
+        out, why2, _ = _ask(client, k["old_verb"], timeout)
+        if out is not None:
+            obj, why3 = _extract(kind, out, k["old_member"])
+            return obj, why3, obj is not None
+        return None, "its client has no `%s` read (404) and `%s` failed: %s" % (" ".join(k["verb"]), " ".join(k["old_verb"]), why2), True
+    return None, why, False
 
 
 def _write_atomic(path, text):
@@ -200,7 +223,10 @@ def resolve(kind, fallback=None, max_age=None, client=None, state_dir=None, log_
             except OSError:
                 why = "it did not answer a moment ago"
         else:
-            obj, why = fetch(kind, client, timeout)
+            obj, why, old = fetch(kind, client, timeout)
+            if old and obj is not None:   # an older stackshot: its `get state-files` was read; one line says so (never an error)
+                _log(log_dir, state_dir, kind + "-old", "%s: stackshot has no `%s` read yet (404 no such read), so `%s` was read instead"
+                     % (k["what"], " ".join(k["verb"]), " ".join(k["old_verb"])), now)
             if obj is not None:
                 try:
                     _write_atomic(memo, json.dumps(obj, ensure_ascii=False))
