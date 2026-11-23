@@ -232,14 +232,15 @@ wrapup_tick() {
 }
 
 # ── SLEEP_READY (the verdict `sala sleep` asks, lib/sleep.sh, and the idle sleep tick of the watch, sleep_tick below) ─────────────────────────────────────────────────
-# sleep_ready <tmux session> → 0 when the session may go to sleep now (common.sh, THE SLEEPING SESSIONS); else 1 with the FIRST refusing reason
+# sleep_ready <tmux session> [project] → 0 when the session may go to sleep now (common.sh, THE SLEEPING SESSIONS); else 1 with the FIRST refusing reason
 # as one short text in SLEEP_WHY and on stdout. It reuses wrap_ready (stage clear: idle in the registry, not waiting on a background job, no background work,
-# no dialog, nothing typed; the wrap-up's own idle-age window and its warm bound do not apply, a sleep comes after an hour) and adds what
+# no dialog, nothing typed; the wrap-up's own idle-age window and its warm bound do not apply) and adds what
 # a sleep must not lose, cheap checks first. A claude that ends takes with it: a scheduled job (cron), a queued or running operation naming
 # it, a note not yet delivered, a pending relaunch (the deferred list, an open recycle set, the waiting flag), a stackshot inbox message
 # for it, a limit or network stop it is sitting on, and a question open on its screen. The session's own kinds are refused first: the
 # Remote Control session, a Remote Control served session, the sdk lane, SALA_NO_RELAUNCH and the shell session, a side session, a front agent (sleep_is_front).
-# SALA_SLEEP_AFTER (3600): the idle age. SALA_STACKSHOT_INBOX: the directory of stackshot's inbox (hub/ and msg/ under it; it may be missing).
+# With the word `project` (the sleep of an inactive project, below: the project is asked as a whole and decides who sleeps) a front agent is no refusal: front agents sleep
+# with their project; every other check is the same. SALA_SLEEP_AFTER (3600): the settle time, how long the session has been idle. SALA_STACKSHOT_INBOX: the directory of stackshot's inbox (hub/ and msg/ under it; it may be missing).
 : "${SALA_STACKSHOT_INBOX:=$HOME/.local/state/stackshot/inbox}"
 SLEEP_WHY=""
 _sleep_no() { SLEEP_WHY=$1; printf '%s\n' "$1"; return 1; }
@@ -296,7 +297,7 @@ sleep_ready() {
     [ "$sess" != "${SALA_RC_SESSION:-}" ] || { _sleep_no "the Remote Control session"; return 1; }
     no_relaunch "$sess" && { _sleep_no "managed outside sala (SALA_NO_RELAUNCH or the web UI's shell)"; return 1; }
     side_is "$sess" && { _sleep_no "a side session"; return 1; }
-    sleep_is_front "$sess" && { _sleep_no "a front agent: the owner talks to it, so it never sleeps"; return 1; }
+    if [ "${2:-}" != project ]; then sleep_is_front "$sess" && { _sleep_no "a front agent: the owner talks to it, so it sleeps only as part of its quiet project"; return 1; }; fi
     sleeping_uuid_r uuid "$sess" || { _sleep_no "not in the pane map"; return 1; }
     pane=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_id}' 2>/dev/null | head -1)
     ppid=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_pid}' 2>/dev/null | head -1)
@@ -348,84 +349,258 @@ sleep_ready() {
 }
 
 # ── THE WATCH'S SLEEP PASSES (stage 5) ───────────────────────────────────────────────────────────────────────────────────────────────────
-# Two passes of the watch, run after wrapup_tick, both through the verbs' own code (`sala sleep NAME`, `sala wake NAME`, run as the CLI as the watch runs
+# Two passes of the watch, run after wrapup_tick, both through the verbs' own code (`sala sleep --project KEY`, `sala wake NAME`, run as the CLI as the watch runs
 # `revive --only`), so the same refusals and the same re-checks apply, and neither needs a queue marker or the owner's words: they are the system's own routine.
 #
-#   sleep_tick  (OFF BY DEFAULT: SALA_IDLE_SLEEP=on|1|yes|true turns it on) puts to sleep the live sessions that sleep_ready accepts (idle for SALA_SLEEP_AFTER,
-#               3600 s, nothing in flight, no front agent, nothing a sleep would lose), the longest idle first, at most SALA_SLEEP_PER_TICK (3) per watch run
-#               so a first run does not stop the whole fleet at once. A session woken less than SALA_SLEEP_AFTER ago is never one (common.sh, THE WAKE STAMP:
-#               the registry row of a resumed claude should read active, the stamp makes sure). A session whose sleep was refused or failed is asked again after
-#               SALA_SLEEP_RETRY (1800) s, and meanwhile the next ones take its place. One watch-log line per session ("sleep: ..."). Off: nothing is read or kept.
+#   sleep_tick  (OFF BY DEFAULT: SALA_IDLE_SLEEP=on|1|yes|true turns it on) puts to sleep INACTIVE PROJECTS (THE SLEEP OF INACTIVE PROJECTS, below): every session of a project
+#               that has had no external anchor notice and no input from its owner for SALA_SLEEP_QUIET (172800 s, 2 days), whose sessions are all idle with nothing in
+#               flight and which is not pinned, the quietest project first, at most SALA_SLEEP_PER_TICK (1) PROJECT per watch run so a first run does not stop the whole
+#               fleet at once. A session woken less than SALA_SLEEP_AFTER ago holds its project back (common.sh, THE WAKE STAMP: the registry row of a resumed claude
+#               should read active, the stamp makes sure). A project whose sleep was refused or failed is asked again after SALA_SLEEP_RETRY (1800) s, and meanwhile the next
+#               ones take its place. One watch-log line per project ("sleep: ..."). Off: nothing is read or kept.
 #   wake_tick   (ALWAYS ON: a sleeper may come from a manual `sala sleep`) wakes a sleeping session that has a message line waiting in stackshot's inbox
 #               (inbox_line_waiting, the predicate sleep_ready uses), at most SALA_WAKE_PER_RUN (5) per run; a failed wake is not retried before SALA_WAKE_RETRY
-#               (600) s. The line stays in the inbox, untouched: the resumed pane takes it. A notice (sala notice) does not wake. One log line per wake.
-#               With nobody asleep it costs a directory check.
+#               (600) s. The line stays in the inbox, untouched: the resumed pane takes it. A notice (sala notice) does not wake. One log line per wake. Waking is per
+#               session: the others of its project stay asleep until a line waits for them. With nobody asleep it costs a directory check.
 # Both stand aside while a revive, retire, rename, spawn, lane, model or reboot or a queued operation runs, the pane map is frozen or a restore runs
 # (bare_busy), and on a tmux server that is not the fleet's; one flock keeps two watch runs apart. `sala watch --sleep [--dry-run]` and
 # `sala watch --wake [--dry-run]` run one alone; a dry run prints what the pass would do, on or off, and changes nothing. `sala sleep --candidates` prints the
-# sleep list.
+# sleep list, one line per project.
 sleep_on() { case "${SALA_IDLE_SLEEP:-off}" in on|1|yes|true) return 0;; esac; return 1; }
-sleep_cap() { case "${SALA_SLEEP_PER_TICK:-3}" in ''|*[!0-9]*) echo 3;; *) echo "$SALA_SLEEP_PER_TICK";; esac; }   # junk = 3; 0 = none
+sleep_cap() { case "${SALA_SLEEP_PER_TICK:-1}" in ''|*[!0-9]*) echo 1;; *) echo "$SALA_SLEEP_PER_TICK";; esac; }   # PROJECTS per run; junk = 1; 0 = none
 wake_cap() { case "${SALA_WAKE_PER_RUN:-5}" in ''|*[!0-9]*) echo 5;; *) echo "$SALA_WAKE_PER_RUN";; esac; }
-# sleep_candidates → `<idle seconds> TAB <session>` for every live session sleep_ready accepts and no wake stamp holds back, the longest idle first.
-# THE list the tick works down, and the one `sala sleep --candidates` and the dry runs print.
-sleep_candidates() {
-    local tbl sess pane pid uuid stamp age w seen=" "
-    _claude_panes_r tbl
-    while IFS='|' read -r sess pane pid; do
-        [ -n "$sess" ] || continue
-        case "$seen" in *" $sess "*) continue;; esac; seen="$seen$sess "
-        sleep_ready "$sess" >/dev/null || continue
-        if sleeping_uuid_r uuid "$sess" && sleeping_woke_age_r w "$uuid" && [ "$w" -lt "${SALA_SLEEP_AFTER:-3600}" ]; then continue; fi
-        registry_field_r stamp "$pid" statusUpdatedAt
-        if [[ ${stamp:0:10} =~ ^[0-9]{10}$ ]]; then _stamp_age_r age "$stamp"; else age=0; fi
-        printf '%s\t%s\n' "$age" "$sess"
-    done <<< "$tbl" | LC_ALL=C sort -s -t$'\t' -k1,1nr
+sleep_quiet() { case "${SALA_SLEEP_QUIET:-172800}" in ''|*[!0-9]*) echo 172800;; *) echo "$SALA_SLEEP_QUIET";; esac; }   # junk = 2 days
+
+# ── THE SLEEP OF INACTIVE PROJECTS ───────────────────────────────────────────────────────────────────────────────────────────────────────
+# The unit of sleep is a PROJECT, never one session: a project's sessions (its front agents and its background agents, as the session registry groups them,
+# `sessions.py project-sessions`) sleep together, and a background agent is never put to sleep alone. A project sleeps when ALL of this holds:
+#   (a) it is QUIET: its last external anchor notice and its owner's last input (a front chat, a board action) are both older than SALA_SLEEP_QUIET (172800 s,
+#       2 days). Audits, router notices and agent-to-agent messages are not activity. Both times come from stackshot, read-only, through ONE function
+#       (sleep_activity_load): `client.py project-activity --json`, or the command SALA_ACTIVITY_CMD names. A project the answer does not list has had neither
+#       (never). It FAILS SAFE: a command that fails, times out, prints nothing or prints something that is not the answer (an empty `projects` object counts
+#       as nothing) means no project sleeps, and the dry run says why, with the command's own stderr line. Two things the call decides, not sala: a CI result on an
+#       agent's own pull request counts as an external anchor notice (it keeps the project awake), and a front agent whose chat stamps do not sync (a Slack-surface
+#       one) is invisible to it, so a project its owner talks to only there can look quiet: pin it;
+#   (b) every one of its sessions that runs a claude is ready: sleep_ready (below, in its project form: the front-agent refusal does not apply, the
+#       settle time SALA_SLEEP_AFTER still does) accepts it, and none was woken less than SALA_SLEEP_AFTER ago; one session with a turn, a background task, a queued
+#       operation, a waiting note or message line, a question and so on holds the whole project awake;
+#   (c) it is not pinned (`sala sleep --pin PROJECT [--why TEXT]`, one file per project under SALA_SLEEP_PIN_DIR, which a reboot keeps).
+# A session with no project in the registry (and the project record and roles file that complete it) is never a candidate for the tick. Waking is per session
+# (wake_tick, below): a message line wakes the one session it is for, and the rest of its project stays asleep.
+SP_KEYS=(); SP_WHY_LOAD=""
+SP_STATE=""; SP_WHY=""; SP_AAGE=-1; SP_OAGE=-1; SP_LIVE=(); SP_NMEM=0; SP_NSLEEP=0
+sleep_project_id_r() {  # <var> <text> → the project key in <var>: the page key without its `projects/` prefix; 1 when it is not a single path-free word
+    local _p=${2:-}; _p=${_p#projects/}
+    [[ $_p =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { printf -v "$1" %s ""; return 1; }
+    printf -v "$1" %s "$_p"
 }
-# _retry_backoff <state key prefix> <session> <retry s> → 0 when the watch's state holds a failure time for the session younger than the retry time (sleepfail.* and wakefail.*,
-# written by sleep_locked and wake_locked). Read only: the passes and their previews share it, so a preview skips the sessions the real run skips. The watch's state file
-# is the one the watch uses (WSTATE), or the same file by its path when the verb runs outside the watch (`sala sleep --candidates`).
+# the pins: one file per project, $SALA_SLEEP_PIN_DIR/<project key>, `<ISO-Z time><TAB><why>`. A folder beside the marker folder, never in it.
+sleep_pin_set() {  # <project key> [why] → 0 written
+    local f="$SALA_SLEEP_PIN_DIR/$1" tmp; mkdir -p "$SALA_SLEEP_PIN_DIR" 2>/dev/null || return 1
+    tmp=$(mktemp "$SALA_SLEEP_PIN_DIR/.pin.XXXXXX") || return 1
+    printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(printf '%s' "${2:-}" | tr -d '\n\t' | cut -c1-300)" > "$tmp" && mv -f "$tmp" "$f" || { rm -f "$tmp"; return 1; }
+}
+sleep_pin_clear() { rm -f "$SALA_SLEEP_PIN_DIR/$1" 2>/dev/null; return 0; }   # <project key>
+sleep_pin_r() {  # <var> <project key> → "<ISO-Z time><TAB><why>" in <var>; 1 when the project is not pinned
+    printf -v "$1" %s ""
+    [ -f "$SALA_SLEEP_PIN_DIR/$2" ] || return 1
+    local _l=""; IFS= read -r _l < "$SALA_SLEEP_PIN_DIR/$2" 2>/dev/null || true
+    printf -v "$1" %s "$_l"
+}
+sleep_pin_list() {  # → one line per pin: `<key> TAB <ISO-Z time> TAB <why>`
+    local f k l t w
+    for f in "$SALA_SLEEP_PIN_DIR"/*; do
+        [ -f "$f" ] || continue; k=${f##*/}; sleep_project_id_r l "$k" && [ "$l" = "$k" ] || continue
+        sleep_pin_r l "$k" || continue; t=${l%%$'\t'*}; w=""; [[ $l == *$'\t'* ]] && w=${l#*$'\t'}
+        printf '%s\t%s\t%s\n' "$k" "$t" "$w"
+    done
+}
+# sleep_ago_r <var> <seconds> → "3 d 4 h" · "5 h 10 min" · "12 min" · "under a minute"; the age as words, never a clock time
+sleep_ago_r() {
+    local s=$2 d h m; d=$((s / 86400)); h=$(( (s % 86400) / 3600 )); m=$(( (s % 3600) / 60 ))
+    if [ "$d" -gt 0 ]; then printf -v "$1" '%s d %s h' "$d" "$h"
+    elif [ "$h" -gt 0 ]; then printf -v "$1" '%s h %s min' "$h" "$m"
+    elif [ "$m" -gt 0 ]; then printf -v "$1" '%s min' "$m"
+    else printf -v "$1" %s "under a minute"; fi
+}
+# sleep_activity_load → 0 with SLEEP_ACT[<project key>]="<anchor epoch or -> <owner epoch or ->" filled; 1 with SLEEP_ACT_WHY saying why nothing may sleep.
+# THE ONE CALL to the activity source. The answer is `{"projects": {"<key>": {"anchor": <epoch|null>, "owner": <epoch|null>}}}` (client.py project-activity --json).
+SLEEP_ACT_WHY=""
+sleep_activity_load() {
+    declare -gA SLEEP_ACT=(); SLEEP_ACT_WHY=""
+    local cmd c out rc parsed k a h errf err
+    cmd=${SALA_ACTIVITY_CMD:-}
+    if [ -z "$cmd" ]; then
+        c=$(stackshot_client) || { SLEEP_ACT_WHY="there is no activity source: SALA_ACTIVITY_CMD is unset and this box has no stackshot client.py"; return 1; }
+        printf -v cmd 'python3 %q project-activity --json' "$c"
+    fi
+    errf=$(mktemp "${TMPDIR:-/tmp}/sala-activity.XXXXXX") || errf=/dev/null   # its stderr is the reason a failed call is shown with
+    out=$(timeout "${SALA_ACTIVITY_TIMEOUT:-30}" sh -c "$cmd" 2>"$errf" </dev/null); rc=$?
+    err=$(grep . "$errf" 2>/dev/null | tail -1 | cut -c1-200); [ "$errf" = /dev/null ] || rm -f "$errf"
+    if [ "$rc" = 124 ]; then SLEEP_ACT_WHY="the activity command did not answer within ${SALA_ACTIVITY_TIMEOUT:-30} s"; return 1; fi
+    if [ "$rc" != 0 ]; then SLEEP_ACT_WHY="the activity command failed (exit $rc${err:+: $err})"; return 1; fi
+    if [ -z "$(printf '%s' "$out" | tr -d ' \t\r\n')" ]; then SLEEP_ACT_WHY="the activity command printed nothing"; return 1; fi
+    parsed=$(printf '%s\n' "$out" | python3 -I -S -c '
+import json, sys
+txt = sys.stdin.read()
+try:
+    d = json.loads(txt)
+except Exception:
+    try: d = json.loads([l for l in txt.splitlines() if l.strip()][-1])
+    except Exception: sys.exit(2)
+p = d.get("projects") if isinstance(d, dict) else None
+if not isinstance(p, dict) or not p: sys.exit(3)
+def ep(v):
+    if v is None: return "-"
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0: raise ValueError
+    return str(int(v))
+try:
+    for k, e in p.items():
+        if not isinstance(k, str) or not isinstance(e, dict): raise ValueError
+        k = k[len("projects/"):] if k.startswith("projects/") else k
+        print("%s\t%s\t%s" % (k, ep(e.get("anchor")), ep(e.get("owner"))))
+except ValueError: sys.exit(4)
+' 2>/dev/null); rc=$?
+    case "$rc" in
+        0) ;;
+        3) SLEEP_ACT_WHY="the activity answer lists no project (an empty answer is not trusted)"; return 1 ;;
+        *) SLEEP_ACT_WHY="the activity answer is not the shape sala reads ({\"projects\": {key: {\"anchor\": epoch|null, \"owner\": epoch|null}}})"; return 1 ;;
+    esac
+    while IFS=$'\t' read -r k a h; do [ -n "$k" ] && SLEEP_ACT[$k]="$a $h"; done <<< "$parsed"
+    return 0
+}
+# sleep_projects_load → SP_KEYS (the projects with a session that has a tmux session here, in the registry's order) and SP_MEM[<key>] ("name:role name:role …"); 1 with SP_WHY_LOAD when the registry cannot say
+sleep_projects_load() {
+    declare -gA SP_MEM=(); SP_KEYS=(); SP_WHY_LOAD=""
+    local out k n r
+    sessions_on && [ -r "$SALA_SESSIONS_FILE" ] || { SP_WHY_LOAD="the session registry is off or has no file, so no session is placed in a project"; return 1; }
+    out=$(sessions_py project-sessions --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" --roles "$SALA_ROLES_FILE" --roles-max-age "$SALA_ROLES_FILE_MAX_AGE" 2>/dev/null) || { SP_WHY_LOAD="the session registry could not be read"; return 1; }
+    while IFS=$'\t' read -r k n r; do
+        [ -n "$k" ] && [ -n "$n" ] || continue
+        tmux has-session -t "=$n" 2>/dev/null || continue
+        [ -n "${SP_MEM[$k]+x}" ] || SP_KEYS+=("$k")
+        SP_MEM[$k]+="$n:$r "
+    done <<< "$out"
+    return 0
+}
+# sleep_project_check <project key> → 0 when the project may be put to sleep now. Always sets SP_STATE (sleeping · awake · pinned), SP_NMEM / SP_NSLEEP (its sessions with
+# a tmux session here, and how many of them sleep), SP_AAGE and SP_OAGE (seconds since its last anchor notice and its owner's last input; -1 = never; -2 = not read),
+# and for a refusal SP_WHY: the FIRST reason it is not a candidate, in this order: pinned · asleep already · no activity reading · not quiet · a session that is not ready.
+# For a candidate SP_LIVE holds the names to put to sleep. Needs sleep_projects_load; sleep_activity_load sets SLEEP_ACT (a failed one leaves SLEEP_ACT_WHY set).
+sleep_project_check() {
+    local key=$1 m n a h now q pin t uuid w
+    SP_STATE=awake; SP_WHY=""; SP_AAGE=-2; SP_OAGE=-2; SP_LIVE=(); SP_NMEM=0; SP_NSLEEP=0; _now_r now; q=$(sleep_quiet)
+    for m in ${SP_MEM[$key]:-}; do
+        n=${m%:*}; SP_NMEM=$((SP_NMEM + 1))
+        if is_sleeping "$n"; then SP_NSLEEP=$((SP_NSLEEP + 1)); else SP_LIVE+=("$n"); fi
+    done
+    if [ -z "${SLEEP_ACT_WHY:-}" ] && declare -p SLEEP_ACT >/dev/null 2>&1; then
+        read -r a h <<< "${SLEEP_ACT[$key]:--  -}"; a=${a:--}; h=${h:--}
+        if [[ $a =~ ^[0-9]+$ ]]; then SP_AAGE=$(( now > a ? now - a : 0 )); else SP_AAGE=-1; fi
+        if [[ $h =~ ^[0-9]+$ ]]; then SP_OAGE=$(( now > h ? now - h : 0 )); else SP_OAGE=-1; fi
+    fi
+    if sleep_pin_r pin "$key"; then
+        SP_STATE=pinned; t=${pin#*$'\t'}; [ "$t" != "$pin" ] || t=""
+        if [ -n "$t" ]; then SP_WHY="pinned ($t): it never sleeps on its own (sala sleep --unpin $key lifts it)"; else SP_WHY="pinned: it never sleeps on its own (sala sleep --unpin $key lifts it)"; fi
+        return 1
+    fi
+    if [ "$SP_NMEM" -gt 0 ] && [ "$SP_NSLEEP" = "$SP_NMEM" ]; then SP_STATE=sleeping; SP_WHY="already asleep"; return 1; fi
+    if [ "$SP_NMEM" = 0 ]; then SP_WHY="no session of it runs here"; return 1; fi
+    if [ -n "${SLEEP_ACT_WHY:-}" ] || ! declare -p SLEEP_ACT >/dev/null 2>&1; then SP_WHY="no reading of its activity: ${SLEEP_ACT_WHY:-the activity source was not asked}, so nothing sleeps"; return 1; fi
+    if [ "$SP_AAGE" -ge 0 ] && [ "$SP_AAGE" -lt "$q" ]; then sleep_ago_r t "$SP_AAGE"; SP_WHY="not quiet: an external anchor notice $t ago (it needs $((q / 3600)) h of quiet)"; return 1; fi
+    if [ "$SP_OAGE" -ge 0 ] && [ "$SP_OAGE" -lt "$q" ]; then sleep_ago_r t "$SP_OAGE"; SP_WHY="not quiet: input from its owner $t ago (it needs $((q / 3600)) h of quiet)"; return 1; fi
+    for n in "${SP_LIVE[@]}"; do
+        sleep_ready "$n" project >/dev/null || { SP_WHY="$n: $SLEEP_WHY"; return 1; }
+        if sleeping_uuid_r uuid "$n" && sleeping_woke_age_r w "$uuid" && [ "$w" -lt "${SALA_SLEEP_AFTER:-3600}" ]; then SP_WHY="$n: woken $((w / 60)) min ago, left alone for $((${SALA_SLEEP_AFTER:-3600} / 60)) min"; return 1; fi
+    done
+    [ "${#SP_LIVE[@]}" -gt 0 ] || { SP_WHY="no session of it runs a claude"; return 1; }
+    return 0
+}
+# sleep_eval_all → asks sleep_project_check of every project in SP_KEYS once (sleep_projects_load and sleep_activity_load come first) and keeps the answers in EV_OK[<key>] (0 = candidate),
+# EV_LIVE[<key>] (the sessions to put to sleep), EV_LINE[<key>] (what the preview says of it) and EV_ORDER, the candidates `<quiet seconds> TAB <key>` (never = a large number),
+# the quietest first. THE one list the tick works down and the one `sala sleep --candidates` and the dry runs print.
+EV_ORDER=""
+sleep_eval_all() {
+    declare -gA EV_OK=() EV_LIVE=() EV_LINE=(); EV_ORDER=""
+    local k a h aw hw state ord=""
+    for k in "${SP_KEYS[@]}"; do
+        sleep_project_check "$k"; EV_OK[$k]=$?
+        if [ "$SP_AAGE" = -2 ]; then aw="not read"; elif [ "$SP_AAGE" -ge 0 ]; then sleep_ago_r aw "$SP_AAGE"; aw="$aw ago"; else aw=never; fi
+        if [ "$SP_OAGE" = -2 ]; then hw="not read"; elif [ "$SP_OAGE" -ge 0 ]; then sleep_ago_r hw "$SP_OAGE"; hw="$hw ago"; else hw=never; fi
+        state=$SP_STATE; [ "$SP_NSLEEP" -gt 0 ] && [ "$state" != sleeping ] && state="$state ($SP_NSLEEP of $SP_NMEM asleep)"
+        EV_LINE[$k]="$k: $state — last anchor notice: $aw; owner's last input: $hw — "
+        if [ "${EV_OK[$k]}" = 0 ]; then
+            a=$SP_AAGE; h=$SP_OAGE; [ "$a" -ge 0 ] || a=9999999999; [ "$h" -ge 0 ] || h=9999999999
+            EV_LIVE[$k]="${SP_LIVE[*]}"
+            ord="$ord$(( a < h ? a : h ))"$'\t'"$k"$'\n'
+        else
+            EV_LINE[$k]+="not a candidate: $SP_WHY"
+        fi
+    done
+    EV_ORDER=$(printf '%s' "$ord" | LC_ALL=C sort -s -t$'\t' -k1,1nr)
+}
+# sleep_candidates → `<quiet seconds> TAB <project key>` for every project sleep_project_check accepts, the quietest first. Nothing is listed when the registry cannot place a
+# session or the activity source cannot answer.
+sleep_candidates() {
+    sleep_projects_load || return 0
+    sleep_activity_load || return 0
+    sleep_eval_all
+    [ -z "$EV_ORDER" ] || printf '%s\n' "$EV_ORDER"
+}
+# _retry_backoff <state key prefix> <session or project> <retry s> → 0 when the watch's state holds a failure time for it younger than the retry time (sleepfail.* and wakefail.*,
+# written by sleep_locked and wake_locked; a sleep's is keyed by the project). Read only: the passes and their previews share it, so a preview skips what the real run skips.
+# The watch's state file is the one the watch uses (WSTATE), or the same file by its path when the verb runs outside the watch (`sala sleep --candidates`).
 _retry_backoff() {
     local k v now; _key_r k "$2"; _now_r now
     v=$(_kv_first "${WSTATE:-$SALA_LOG_DIR/salamander-watch.state}" "$1.$k")
     [[ $v =~ ^[0-9]+$ ]] && [ $((now - v)) -lt "$3" ]
 }
-# sleep_report → what sleep_tick would do now, one line per ready session; says so when the pass is off
+# sleep_report → what sleep_tick would do now: one line per project (sleeping, awake or pinned; how long since its last anchor notice and its owner's last input; the first
+# reason it is not a candidate, or that it would be put to sleep), the candidates marked in the order the tick takes them. Says so when the pass is off or has no activity reading.
 sleep_report() {
-    local c age sess n=0 cap; cap=$(sleep_cap)
-    sleep_on || echo "SALA_IDLE_SLEEP is off: the watch puts nothing to sleep. This is what it would do with it on (at most $cap per watch run):"
-    c=$(sleep_candidates)
-    [ -n "$c" ] || { echo "no session is ready to sleep (idle for ${SALA_SLEEP_AFTER:-3600}s or more, nothing in flight, not a front agent)"; return 0; }
-    while IFS=$'\t' read -r age sess; do
-        if _retry_backoff sleepfail "$sess" "${SALA_SLEEP_RETRY:-1800}"; then echo "$sess: idle $((age / 60)) min — asked lately and not put to sleep, skipped until its retry time ($((${SALA_SLEEP_RETRY:-1800} / 60)) min) has passed"; continue; fi
-        n=$((n + 1))
-        if [ "$n" -le "$cap" ]; then echo "$sess: idle $((age / 60)) min — would be put to sleep"
-        else echo "$sess: idle $((age / 60)) min — ready, waits for a later run (at most $cap per run)"; fi
-    done <<< "$c"
+    local cap q qh n=0 k age; local -A rank=()
+    cap=$(sleep_cap); q=$(sleep_quiet); qh=$((q / 3600))
+    sleep_on || echo "SALA_IDLE_SLEEP is off: the watch puts nothing to sleep. This is what it would do with it on (at most $cap project(s) per watch run; a project must be quiet for $qh h):"
+    sleep_projects_load || { echo "no project can sleep: $SP_WHY_LOAD"; return 0; }
+    [ "${#SP_KEYS[@]}" -gt 0 ] || { echo "no project has a session running here (a session sleeps only as part of its project)"; return 0; }
+    sleep_activity_load || echo "no project can sleep: $SLEEP_ACT_WHY"
+    sleep_eval_all
+    while IFS=$'\t' read -r age k; do
+        [ -n "$k" ] || continue
+        if _retry_backoff sleepfail "$k" "${SALA_SLEEP_RETRY:-1800}"; then rank[$k]=skip; continue; fi
+        n=$((n + 1)); if [ "$n" -le "$cap" ]; then rank[$k]=now; else rank[$k]=later; fi
+    done <<< "$EV_ORDER"
+    for k in "${SP_KEYS[@]}"; do
+        case "${rank[$k]:-}" in
+            now)   echo "${EV_LINE[$k]}would be put to sleep (${EV_LIVE[$k]// /, })" ;;
+            later) echo "${EV_LINE[$k]}ready, waits for a later run (at most $cap project(s) per run; ${EV_LIVE[$k]// /, })" ;;
+            skip)  echo "${EV_LINE[$k]}asked lately and not put to sleep, skipped until its retry time ($((${SALA_SLEEP_RETRY:-1800} / 60)) min) has passed" ;;
+            *)     echo "${EV_LINE[$k]}" ;;
+        esac
+    done
     return 0
 }
-# sleepstate_prune <key prefix> <ttl s> → drops the watch-state keys of that kind whose time is older than the ttl (a retired session leaves its key behind)
-sleepstate_prune() {
+sleepstate_prune() {  # <key prefix> <ttl s> → drops the watch-state keys of that kind whose time is older than the ttl (a retired session or a project leaves its key behind)
     local kk v now; _now_r now
     for kk in $(grep -o "^$1\\.[^=]*" "$WSTATE" 2>/dev/null); do
         v=$(st_get "$kk"); if ! [[ $v =~ ^[0-9]+$ ]] || [ $((now - v)) -ge "$2" ]; then st_del "$kk"; fi
     done
 }
 sleep_locked() {
-    local age sess k now n=0 cap out rc last
+    local age key k now n=0 cap out rc last
     cap=$(sleep_cap); _now_r now
-    while IFS=$'\t' read -r age sess; do
-        [ -n "$sess" ] || continue
+    while IFS=$'\t' read -r age key; do
+        [ -n "$key" ] || continue
         [ "$n" -lt "$cap" ] || break
-        if _retry_backoff sleepfail "$sess" "${SALA_SLEEP_RETRY:-1800}"; then continue; fi   # asked lately and not put to sleep: the next one takes its turn (the preview skips it too)
-        _key_r k "$sess"
+        if _retry_backoff sleepfail "$key" "${SALA_SLEEP_RETRY:-1800}"; then continue; fi   # asked lately and not put to sleep: the next one takes its turn (the preview skips it too)
+        _key_r k "$key"
         n=$((n + 1))
-        out=$("$SALA_BIN" sleep "$sess" 2>&1 </dev/null); rc=$?
-        if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q '^✅ '; then
-            st_del "sleepfail.$k"; wlog "sleep: put $sess to sleep (idle $((age / 60)) min)"
+        out=$("$SALA_BIN" sleep --project "$key" 2>&1 </dev/null); rc=$?
+        if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q '^✅ project '; then
+            st_del "sleepfail.$k"; wlog "sleep: put project $key to sleep ($(printf '%s\n' "$out" | grep -c '^✅ [^p]') session(s); quiet for $((age / 3600)) h)"
         else
             st_set "sleepfail.$k" "$now"; last=$(printf '%s\n' "$out" | grep . | tail -1 | cut -c1-240)
-            wlog "sleep: $sess not put to sleep — ${last:-no answer}; asked again after $((${SALA_SLEEP_RETRY:-1800} / 60)) min"
+            wlog "sleep: project $key not put to sleep — ${last:-no answer}; asked again after $((${SALA_SLEEP_RETRY:-1800} / 60)) min"
         fi
     done < <(sleep_candidates)
     sleepstate_prune sleepfail "${SALA_SLEEP_RETRY:-1800}"

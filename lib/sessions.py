@@ -47,6 +47,12 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
                                                                              with that agent's role; an entry whose role is the old "keeper" is not counted)
   front-names [--record F] [--record-max-age S] [--roles F] [--roles-max-age S]
                                                                              read-only: the same for the live front agents
+  project-sessions [--record F] [--record-max-age S] [--roles F] [--roles-max-age S]
+                                                                             read-only: the live agents grouped by project, one line `<project key> TAB <name> TAB
+                                                                             <front|back>` each (the key without its `projects/` prefix): a live row that is no side
+                                                                             session, whose project is the row's own, else the one the record lists it on, else
+                                                                             the roles file's, and whose role is found as back-names finds it. A row with no project
+                                                                             or no role is left out. The idle sleep tick groups sessions by it
   slack-names                                                                read-only: the names of the live rows whose surface is slack, one per line
   record-surface NAME [--project P] [--record F] [--record-max-age S]
                                                                              read-only: the surface the project record gives the agent NAME (on P's map when
@@ -812,6 +818,33 @@ def _role_names(R, a, want):
     return 0
 
 
+def cmd_project_sessions(R, a):
+    """Read-only: `<project key> TAB <name> TAB <front|back>` for every live agent that has a project and a role, sorted by project then name. The role is
+    found as _role_names finds it; the project is the row's own, else the one the project record lists the name on (derive_role), else the roles file's.
+    The key is the project page key without its `projects/` prefix (_project_id). A side session, a retired row and a row with no project or no role are left out."""
+    try:
+        rec = load_record(a.record, a.record_max_age)
+    except RecordUnavailable:
+        rec = {}
+    try:
+        roles = load_roles(a.roles, a.roles_max_age)
+    except RecordUnavailable:
+        roles = {}
+    out = []
+    for r in R.rows.values():
+        if r.get("state") != "live" or r.get("side") or not r.get("name"):
+            continue
+        key, rrole, _why = derive_role(r, rec)
+        ent = roles.get(r["name"])
+        proj = r.get("project") if isinstance(r.get("project"), str) and r["project"].strip() else (key or (ent[1] if ent else None))
+        role = r.get("role") or rrole or roles_role(r, roles)
+        if proj and role in ("front", "back"):
+            out.append((_project_id(proj), r["name"], role))
+    for proj, name, role in sorted(out):
+        print("%s\t%s\t%s" % (proj, name, role))
+    return 0
+
+
 def cmd_slack_names(R, a):
     """Read-only: the names of the live rows whose surface is slack, one per line (`spawn --list` marks them)."""
     for r in sorted(R.rows.values(), key=lambda r: r.get("name") or ""):
@@ -1239,7 +1272,7 @@ def main():
     p.add_argument("--keep", type=int, default=30)
     p.add_argument("--caller", default="")
     p.add_argument("--machine", default="")
-    p.add_argument("cmd", choices=["dual", "set", "prepare", "abandon", "record", "tag", "list", "resolve", "transcript", "back-names", "front-names", "slack-names", "record-surface", "migrate", "check", "relane"])
+    p.add_argument("cmd", choices=["dual", "set", "prepare", "abandon", "record", "tag", "list", "resolve", "transcript", "back-names", "front-names", "project-sessions", "slack-names", "record-surface", "migrate", "check", "relane"])
     p.add_argument("args", nargs="*")
     p.add_argument("--lane"); p.add_argument("--model"); p.add_argument("--effort")
     p.add_argument("--transcript"); p.add_argument("--why"); p.add_argument("--tmachine", default="")
@@ -1253,11 +1286,11 @@ def main():
     a = p.parse_args()
     R = Registry(a)
     rc = 0
-    if a.cmd in ("resolve", "transcript", "back-names", "front-names", "slack-names", "record-surface"):  # read-only to the letter: not even an error line in sessions.log
+    if a.cmd in ("resolve", "transcript", "back-names", "front-names", "project-sessions", "slack-names", "record-surface"):  # read-only to the letter: not even an error line in sessions.log
         try:
             if a.cmd == "record-surface":   # answers from the project record alone: the registry is never opened, so one that is missing, corrupt or unreadable cannot change the answer (spawn's start directory follows it)
                 return cmd_record_surface(a)
-            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names, "front-names": cmd_front_names, "slack-names": cmd_slack_names}[a.cmd](R.load(), a)
+            return {"resolve": cmd_resolve, "transcript": cmd_transcript, "back-names": cmd_back_names, "front-names": cmd_front_names, "project-sessions": cmd_project_sessions, "slack-names": cmd_slack_names}[a.cmd](R.load(), a)
         except Exception as e:
             print("sessions %s: %s" % (a.cmd, e), file=sys.stderr)
             return 1

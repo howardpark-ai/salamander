@@ -15,7 +15,7 @@
 #   salamander watch --continued    only the continued-in follow (cont_tick, lib/continuedin.sh): a pane that moved to a new transcript id keeps its row
 #   salamander watch --back-lanes [--dry-run]   only the back agents' lane rule (back_lane_run, below; SALA_BACK_LANE_RULE=on; common.sh "THE BACK AGENTS' LANE RULE"); --dry-run prints what it would queue (the lane it would really use: a dormant target is replaced by its fallback lane, with the reason), and queues and writes nothing
 #   salamander watch --wrapup [--dry-run]   only the idle wrap-up and clear of background agents (wrapup_tick, lib/wrapup.sh; OFF by default, needs SALA_IDLE_WRAPUP=on); --dry-run prints, per background pane, what it would do or why not, and changes nothing
-#   salamander watch --sleep [--dry-run]   only the idle sleep tick (sleep_tick, lib/wrapup.sh; OFF by default, needs SALA_IDLE_SLEEP=on); --dry-run prints which sessions it would put to sleep, on or off, and changes nothing
+#   salamander watch --sleep [--dry-run]   only the idle sleep tick (sleep_tick, lib/wrapup.sh; OFF by default, needs SALA_IDLE_SLEEP=on); --dry-run prints which projects it would put to sleep, on or off, and changes nothing
 #   salamander watch --wake [--dry-run]   only the wake of sleepers with a stackshot message line waiting (wake_tick, lib/wrapup.sh; always on); --dry-run prints whom it would wake
 #   salamander watch --unregistered   only the unregistered-agent-pane watch (unregistered_tick, below; SALA_UNREGISTERED_CHECK): a live agent pane that is on no project's agents map in stackshot's project record is posted
 #
@@ -31,7 +31,7 @@
 #                                no post (lib/wrapup.sh). OFF BY DEFAULT (the CLI's own compaction
 #                                is the limit): runs only with SALA_IDLE_WRAPUP=on
 #   2b. wake_tick (always on): a SLEEPING session (lib/sleep.sh; one a person or the tick put to sleep) with a stackshot message line waiting for it is woken, at most SALA_WAKE_PER_RUN (5) per run;
-#                                then sleep_tick, ONLY WHEN SALA_IDLE_SLEEP=on (off by default): a session idle for SALA_SLEEP_AFTER (3600 s) with nothing in flight is put to sleep, at most SALA_SLEEP_PER_TICK (3) per run
+#                                then sleep_tick, ONLY WHEN SALA_IDLE_SLEEP=on (off by default): a PROJECT quiet for SALA_SLEEP_QUIET (172800 s), every session of it idle for SALA_SLEEP_AFTER with nothing in flight, is put to sleep whole, at most SALA_SLEEP_PER_TICK (1) project per run
 #                                (both run `sala wake` / `sala sleep` themselves; one log line each, no post; lib/wrapup.sh)
 #   3. ANY mapped pane at a bare shell with no claude for SALA_BARE_GRACE (180 s, three ticks) → `revive --only` for it, at
 #                                most SALA_BARE_MAX (6) panes per tick, one post (lib/barepane.sh). A mass SIGKILL of every claude
@@ -1946,7 +1946,7 @@ deferred_revive() {
 [ "$CHECK_ONLY" = 1 ] || bare_tick   # every mapped pane at a bare shell for SALA_BARE_GRACE is revived (lib/barepane.sh)
 [ "$CHECK_ONLY" = 1 ] || wrapup_tick   # runs only when SALA_IDLE_WRAPUP=on (off by default): a background agent idle for SALA_IDLE_WRAPUP_MIN is asked to wrap up, then cleared (lib/wrapup.sh)
 [ "$CHECK_ONLY" = 1 ] || wake_tick   # always on: a sleeping session with a stackshot message line waiting is woken (`sala wake`), at most SALA_WAKE_PER_RUN per run (lib/wrapup.sh)
-[ "$CHECK_ONLY" = 1 ] || sleep_tick   # runs only when SALA_IDLE_SLEEP=on (off by default): idle sessions that sleep_ready accepts are put to sleep (`sala sleep`), at most SALA_SLEEP_PER_TICK per run (lib/wrapup.sh)
+[ "$CHECK_ONLY" = 1 ] || sleep_tick   # runs only when SALA_IDLE_SLEEP=on (off by default): an inactive project whose sessions sleep_ready accepts is put to sleep (`sala sleep --project`), at most SALA_SLEEP_PER_TICK projects per run (lib/wrapup.sh)
 [ "$CHECK_ONLY" = 1 ] || set_prune   # recycle sets: closed ones after 3 days, any after 9 (common.sh)
 [ "$CHECK_ONLY" = 1 ] || { waiting_prune; busy_prune; refusal_prune; }   # relaunch-waiting flags whose owner is gone; busy records of sessions long gone
 [ "$CHECK_ONLY" = 1 ] || { inbox_release_stale; [ "${#INBOX_ORPHANS_FREED[@]}" -eq 0 ] || wlog "inbox: freed ${#INBOX_ORPHANS_FREED[@]} held key(s) that no hold-ledger row accounts for, seen $SALA_INBOX_ORPHAN_SECS s or more: ${INBOX_ORPHANS_FREED[*]}"; }   # a relaunch that died left its pane's inbox held: free it after 10 min; so is a held key no ledger row accounts for (inbox_release_orphans, common.sh)
