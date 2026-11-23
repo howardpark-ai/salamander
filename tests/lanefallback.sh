@@ -25,7 +25,7 @@ set -u
 unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_RETRY_WORKER SALA_LOCK_WHO SALA_LOCK_WAIT SALA_RELAUNCH_KIND \
       SALA_FLEET_HOSTS SALA_CGROUP_FILE SALA_OP_QUEUE SALA_OP_REBOOT SALA_OP_STUCK SALA_REBOOT_HOOKS SALA_NO_RELAUNCH SALA_RESCUE SALA_CLAUDE
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS CLAUDE_CONFIG_DIR CLAUDE_CODE_OAUTH_TOKEN SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE \
-      SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_WEB_STATE_DIR SALA_LANE_FALLBACK SALA_FALLBACK_NO_FABLE SALA_FALLBACK_FABLE_MODEL
+      SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_WEB_STATE_DIR SALA_LANE_FALLBACK SALA_FALLBACK_FABLE_MODEL SALA_FABLE_LANES
 unset AWS_PROFILE AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_BEARER_TOKEN_BEDROCK CLAUDE_CODE_USE_BEDROCK ANTHROPIC_BEDROCK_REGION_PREFIX \
       SALA_LANE_BEDROCK_PROFILE SALA_LANE_BEDROCK_CREDENTIALS_FILE
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -245,7 +245,7 @@ echo "== bedrock → subscription-1: a Fable session needs no model change on su
 lane_write sala-test-a bedrock; model_write sala-test-a fable
 lane_dormant_set bedrock "test: no access" hand
 out=$("$SALA" lane fallback bedrock --dry-run 2>&1); rc=$?
-[ "$rc" = 0 ] && has "$out" "the Bedrock lane is dormant" && has "$out" "to the Ultra lane" && has "$out" "sala-test-a: bedrock → subscription-1" && ! has "$out" "model fable → opus" && ok "bedrock → subscription-1: planned, no model line (only bedrock cannot run Fable)" || bad "bedrock plan ($rc): $out"
+[ "$rc" = 0 ] && has "$out" "the Bedrock lane is dormant" && has "$out" "to the Ultra lane" && has "$out" "sala-test-a: bedrock → subscription-1" && ! has "$out" "model fable → opus" && ok "bedrock → subscription-1: planned, no model line (the Ultra lane runs Fable)" || bad "bedrock plan ($rc): $out"
 lane_dormant_clear bedrock "test"; lane_write sala-test-a subscription-1; model_drop sala-test-a
 
 echo "== jobs: a dormant lane's job runs on the fallback, said once on stderr; with no fallback, or the switch off, it runs as it is"

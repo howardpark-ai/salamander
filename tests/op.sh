@@ -306,6 +306,16 @@ enq --plan model sala-test-a haiku --effort high; [ "$RC" = 0 ] && has "$OUT" "p
     && [ "$(queued)" = 0 ] && [ -z "$(mrow sala-test-a)" ] && ok "--plan: the row it would record and the relaunch verdict, nothing queued, nothing recorded" || bad "plan: rc=$RC — $OUT / row '$(mrow sala-test-a)'"
 enq --plan model sala-test-a haiku; [ "$RC" = 0 ] && has "$OUT" "would record the model, then switch the pane in place when it is idle with an empty input box" && has "$OUT" "[dry-run] would relaunch — it cannot be switched in place: in-place switching is off" && ok "--plan: the note names both paths, and the dry run says which applies (this suite has the in-place switch off: tests/modelinplace.sh's)" || bad "plan note: rc=$RC — $OUT"
 enq --plan model sala-test-a --clear; [ "$RC" = 0 ] && has "$OUT" "plan: salamander model sala-test-a --clear" && has "$OUT" "would drop the model record" && ok "--plan --clear: the note, nothing queued" || bad "plan clear: rc=$RC — $OUT"
+# Fable only on the Ultra lane (common.sh, lane_runs_model): refused by the plan, at queue time, with the reason; the batch refuses the lot
+lane_write sala-test-a bedrock
+enq model sala-test-a fable --from t --words x; [ "$RC" = 1 ] && has "$OUT" "Fable runs only on the Ultra lane (subscription-1)" && has "$OUT" "sala-test-a is on the bedrock lane" && has "$OUT" "nothing queued" && [ "$(queued)" = 0 ] && ok "model <session> fable on bedrock: refused at queue time, the reason names the lane" || bad "fable bedrock: rc=$RC — $OUT"
+enq --plan model sala-test-a fable; [ "$RC" = 1 ] && has "$OUT" "Fable runs only on the Ultra lane" && [ -z "$(mrow sala-test-a)" ] && ok "--plan shows the refusal; nothing recorded" || bad "plan fable bedrock: rc=$RC — $OUT"
+enq model fable sala-test-a sala-test-h --from t --words x; [ "$RC" = 1 ] && has "$OUT" "sala-test-a: Fable runs only on the Ultra lane" && [ "$(queued)" = 0 ] && ok "the batch shape: one session off the Ultra lane refuses the whole batch" || bad "batch fable bedrock: rc=$RC — $OUT"
+lane_write sala-test-a aws-platform
+enq model sala-test-a claude-fable-5-1 --from t --words x; [ "$RC" = 1 ] && has "$OUT" "the aws-platform lane" && ok "a full Fable id on aws-platform: refused" || bad "fable aws: rc=$RC — $OUT"
+lane_write sala-test-a subscription-1
+enq --plan model sala-test-a fable; [ "$RC" = 0 ] && has "$OUT" "[dry-run] would record sala-test-a → fable" && [ "$(queued)" = 0 ] && ok "on subscription-1 the plan passes" || bad "plan fable ultra: rc=$RC — $OUT"
+lane_drop sala-test-a
 touch "$HOME/active"
 enq model sala-test-a haiku --effort high --from sala-test-h --words "put a on haiku, high effort"; M1="$ID"
 [ "$RC" = 0 ] && [ -n "$M1" ] && [ "$(mval "$M1" verb)" = model ] && [ "$(mvals "$M1" arg | paste -sd' ' -)" = "sala-test-a haiku --effort high" ] && [ "$(mval "$M1" state)" = queued ] && [ "$(mval "$M1" words)" = "put a on haiku, high effort" ] \
