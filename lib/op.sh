@@ -52,7 +52,8 @@
 #                                             the model and effort a session is relaunched on (lib/model.sh: a verb to change the model / effort of an agent, its
 #                                             own session included). <model>: a family alias (opus · sonnet · haiku · fable) or a
 #                                             `claude-…` id, checked here with model.sh's own model_valid and effort_known; the session
-#                                             must exist (the plan is `model … --dry-run`). --clear drops the record (the transcript
+#                                             must exist and Fable must be on the Ultra lane (subscription-1) only: the plan is `model … --dry-run`, so a refusal shows at
+#                                             queue time. --clear drops the record (the transcript
 #                                             decides again at the next relaunch; nothing relaunched). model.sh's --record-only,
 #                                             and --dry-run are not queue arguments. Switched in place first:
 #                                             a pane that is idle with an empty input box is switched IN PLACE (/model and
@@ -709,7 +710,7 @@ op_shapes() {
   lane <lane> <session>… | <lane> --all | default <lane> | fallback <lane>
                                             fallback <lane>: the dormant lane's sessions, default and jobs move to its fallback lane (SALA_LANE_FALLBACK), ONE notice with a line per session and any model change; the watch queues it by itself the moment a lane turns dormant (a monthly usage cap included, until the regain time; a pane mid-turn on such a lane gets one Escape first); nothing moves back unless a person says so
   model <model> [--effort <level>] <session>… | --clear <session>… | <session> <model> [--effort <level>] | <session> --clear
-                                            the model (opus|sonnet|haiku|fable|claude-…) and effort (low|medium|high|xhigh|max) the sessions run on from now: each switched in place when idle with an empty input box, else relaunched (the relaunches together, in one sweep); ONE result notice for the lot, a line per session; a first word that is a model = the many-session form, else the session comes first (one session); --clear drops the records
+                                            the model (opus|sonnet|haiku|fable|claude-…) and effort (low|medium|high|xhigh|max) the sessions run on from now: each switched in place when idle with an empty input box, else relaunched (the relaunches together, in one sweep); ONE result notice for the lot, a line per session; a first word that is a model = the many-session form, else the session comes first (one session); --clear drops the records. Fable (fable|claude-fable-…) runs only on the Ultra lane (subscription-1): refused at queue time, in the plan, for a session on any other lane (a batch: refused whole). A lane move of a Fable session off Ultra puts it on opus first
   provision [--only STEP[,STEP…]] [HOST…]
   spawn NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
                                             a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd

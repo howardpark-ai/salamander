@@ -4,7 +4,7 @@
 # and CLI updates, resumed by transcript UUID, reachable from Remote Control.
 #
 #   salamander spawn  [NAME] [--mandate FILE|TEXT [--no-confirm]] [--cwd DIR] [--lane L] [--model M] [--effort E] [--fork UUID] [--dry-run]
-#                                      (--brief FILE and --prompt TEXT: the mandate's older names, kept as aliases; --lane L records the lane too; a bare spawn from a Claude session records it on the throwaway's row, spawned_by: that session may later retire it with no words; every bare spawn also writes the throwaway tag, throwaway=1, on the row: any session may retire a tagged row with no words, between turns)
+#                                      (--brief FILE and --prompt TEXT: the mandate's older names, kept as aliases; --lane L records the lane too (--model fable is refused on any lane but Ultra, subscription-1); a bare spawn from a Claude session records it on the throwaway's row, spawned_by: that session may later retire it with no words; every bare spawn also writes the throwaway tag, throwaway=1, on the row: any session may retire a tagged row with no words, between turns)
 #                                      (--fork UUID is a resume: like a recycle or revive it passes the user settings' permissions.defaultMode as --permission-mode)
 #   salamander spawn  NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--dry-run]
 #                                      a project agent's session (lib/spawn.sh): the name must be registered with stackshot (on the project's agents map) first —
@@ -113,7 +113,7 @@
 #                                      sessions it reaches, list how many had it and how many are still due, drop withdraws it for the sessions not yet reached
 #   salamander lane [<lane> <session>…|<lane> --all|default <lane>] [--dry-run] [--rescue]   which account or key each pane's claude runs on
 #                                      (subscription-1 (shown as Ultra; max still works) · api · subscription-2 (shown as Team; team still works) · bedrock (the AWS profile SALA_LANE_BEDROCK_PROFILE names) · aws-platform (Claude Platform on AWS); sdk, an alias of api with client claude-agent-sdk), the switch (recorded, then relaunched on it, resumed; a recycle
-#                                      keeps it) and the default for new sessions; no argument: the table (lib/lane.sh)
+#                                      keeps it) and the default for new sessions; a session on Fable moved off the Ultra lane (a move or the default it follows) is put on opus first; no argument: the table (lib/lane.sh)
 #   salamander lane pin <session> <lane> | unpin <session> | pins   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a bulk move lists it as skipped, a move that names it still moves it (lib/lane.sh)
 #   salamander lane names [--json] [--write]   each lane's code, display name and old words (one line per lane: code, display, aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current; lib/lane.sh)
 #   salamander lane fallback <lane> [--dry-run]   the dormant lane's sessions, its default and, at run time, its jobs move to the lane's fallback
@@ -125,6 +125,7 @@
 #   salamander model [<session> <model> [--effort <level>] | <session> --clear | <model> [--effort <level>] <session>… | --clear <session>…] [--dry-run]   the model and effort a
 #                                      session is relaunched on, ahead of its transcript's: recorded, then relaunched on them (resumed;
 #                                      every later relaunch keeps them); --clear: the transcript decides again; no argument: the table (lib/model.sh).
+#                                      Fable runs only on the Ultra lane (subscription-1): fable for a session on any other lane is refused at plan time, naming the lane (a batch: refused whole).
 #                                      A first word that is a model (opus, sonnet, haiku, fable, claude-…) means several sessions at once:
 #                                      all checked first, one lock, the relaunches in one sweep, one summary with a RESULT line per session
 #   salamander feedback mark | stop | drain PANE [SID]   auto-send Claude-drafted feedback (hooks; see lib/feedback.sh)

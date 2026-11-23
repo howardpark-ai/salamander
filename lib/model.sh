@@ -87,6 +87,7 @@ usage() {
     echo "       salamander model <model> [--effort <level>] <session>… [--dry-run]   the same for several sessions at once: one lock, one sweep for the relaunches, one summary (the first word a model = this shape)"
     echo "       salamander model --clear <session> <session>… [--dry-run]   drop the records of several sessions"
     echo "  models: $SALA_MODEL_FAMILIES, or a full model id (claude-…) · efforts: $SALA_EFFORTS_KNOWN"
+    echo "  Fable runs only on the Ultra lane (${SALA_FABLE_LANES%% *}): fable is refused, in every form and in the plan, for a session on any other lane (a batch is refused whole); move it first: salamander lane ${SALA_FABLE_LANES%% *} <session>"
 }
 
 export SALA_FLAG_SRC=model   # the flag a relaunch here raises: one pane, explicit (common.sh, flag_src)
