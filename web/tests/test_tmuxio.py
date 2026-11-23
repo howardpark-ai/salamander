@@ -350,3 +350,25 @@ def test_box_hidden_reads_the_rules_of_the_box_input_box_reads():
     assert tmuxio.box_hidden(cap) == (False, False)
     cap = "\n".join([RULE, "❯ whole", _more("↓ 1 more"), "answer", RULE, "❯ ", RULE])
     assert tmuxio.box_hidden(cap) == (False, False)
+
+
+PLACEHOLDER = "Once fixed, resend your message"
+
+
+@pytest.mark.parametrize("box_line", [
+    # the capture as tmux writes it: a reverse-video cursor cell, then the dim rest after a combined reset-and-dim
+    "\x1b[39m❯ \x1b[7mO\x1b[0;2mnce fixed, resend your message\x1b[0m",
+    "\x1b[39m❯ \x1b[7mO\x1b[27m\x1b[2mnce fixed, resend your message\x1b[22m",
+    "\x1b[39m❯ \x1b[7mO\x1b[0m\x1b[2mnce fixed, resend your message\x1b[0m",
+    "\x1b[39m❯ \x1b[2;7mO\x1b[0;2mnce fixed, resend your message\x1b[0m",
+])
+def test_the_placeholder_with_a_cursor_cell_counts_as_empty(box_line):
+    cap = "\n".join(["old output", RULE, box_line, RULE, "  footer"])
+    assert tmuxio.input_box(cap) == ("empty", PLACEHOLDER)
+
+
+def test_a_cursor_after_or_inside_typed_text_is_still_text():
+    after = "\n".join([RULE, "\x1b[39m❯ my note\x1b[7m \x1b[0m", RULE])
+    inside = "\n".join([RULE, "\x1b[39m❯ my \x1b[7mn\x1b[0mote", RULE])
+    assert tmuxio.input_box(after)[0] == "text"
+    assert tmuxio.input_box(inside) == ("text", "my note")

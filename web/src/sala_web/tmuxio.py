@@ -201,15 +201,22 @@ async def send_key(settings: Settings, pane: str, key: str) -> None:
 
 
 def _visible_runs(line: str) -> list[tuple[str, bool]]:
-    """Split a captured line (capture-pane -e) into (text, dim) runs, dropping escape sequences."""
+    """Split a captured line (capture-pane -e) into (text, dim) runs, dropping escape sequences.
+
+    Claude Code draws its placeholder with the cursor on the first character: that cell is reverse video and the rest
+    is dim (tmux writes the change as ESC[0;2m). A reverse-video run right before a dim run is the first character of
+    that dim text, so it is returned as dim; a cursor after or inside typed text is not followed by dim text and stays
+    typed.
+    """
     line = OSC_RE.sub("", line)
     line = OTHER_ESC_RE.sub("", line)
-    runs: list[tuple[str, bool]] = []
+    raw: list[tuple[str, bool, bool]] = []
     dim = False
+    rev = False
     pos = 0
     for m in CSI_RE.finditer(line):
         if m.start() > pos:
-            runs.append((line[pos:m.start()], dim))
+            raw.append((line[pos:m.start()], dim, rev))
         pos = m.end()
         if m.group(2) != "m":
             continue
@@ -217,10 +224,16 @@ def _visible_runs(line: str) -> list[tuple[str, bool]]:
         k = 0
         while k < len(params):
             p = params[k]
-            if p in ("", "0", "22"):
+            if p in ("", "0"):
+                dim = rev = False
+            elif p == "22":
                 dim = False
             elif p == "2":
                 dim = True
+            elif p == "7":
+                rev = True
+            elif p == "27":
+                rev = False
             elif p in ("38", "48", "58"):
                 if k + 1 < len(params) and params[k + 1] == "5":
                     k += 2
@@ -228,8 +241,8 @@ def _visible_runs(line: str) -> list[tuple[str, bool]]:
                     k += 4
             k += 1
     if pos < len(line):
-        runs.append((line[pos:], dim))
-    return runs
+        raw.append((line[pos:], dim, rev))
+    return [(t, d or (r and i + 1 < len(raw) and raw[i + 1][1])) for i, (t, d, r) in enumerate(raw)]
 
 
 def plain(line: str) -> str:

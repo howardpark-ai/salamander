@@ -65,7 +65,7 @@ sala is, *Deploying* below.
      dialogs pick an option on its number key), and `esc` is sent as Escape (cancel). Anything else, a number not
      offered, or an image, is refused with the options listed ("a dialog is open in the pane: answer with one of 1,
      2, 3, or esc; nothing sent"). The page drops the message bubble of an answer and says what it sent;
-  3. the input box is empty. Dim text is the placeholder suggestion and counts as empty. If the owner (or anything
+  3. the input box is empty. Dim text is the placeholder suggestion and counts as empty, and so does the placeholder's first character, which Claude Code draws reverse-video as the cursor cell just before the dim rest. If the owner (or anything
      else) left text there, the send is refused with "pane input box is not empty". sala-web never clears it.
      The one exception is the page's *Retry* of a message that failed (the request carries `"retry": true`): when the
      box already holds that very message (equal to it, ignoring whitespace), it is not pasted again, only Enter is sent.
