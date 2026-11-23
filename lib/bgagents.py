@@ -49,7 +49,14 @@ SALA_BGAGENTS_SPAWN_TIMEOUT (300), SALA_BGAGENTS_RAISE_TIMEOUT (30), SALA_BGAGEN
 SALA_ROLES_FILE_MAX_AGE (1800), SALA_BGAGENTS_ALERT_CMD (the Slack post, `sala alert`), and the four commands SALA_BGAGENTS_LIST_CMD, _POST_CMD, _SPAWN_CMD, _ALIVE_CMD (the suites stub them);
 SALA_PROJECT_RECORD and SALA_PROJECT_RECORD_MAX_AGE (stackshot's project record, as spawn reads it), SALA_TZ (the zone times are shown in),
 SALA_OWNER_NAME (the mandate's default text). SALA_BGAGENTS_NOW is the suites' clock.
-A PROJECT IT CANNOT START NEVER STAYS SILENT. When a project reaches the attempt cap ("given up") or the ledger sets retire_needed (an agent this job listed
+A PROJECT IT CANNOT START NEVER STAYS SILENT, AND IS NOT PUT TO THE OWNER. A failed start is a fault in the job or its setup, not a decision of the owner, so by default
+(SALA_BGAGENTS_RAISE=report) the job REPORTS it to sala's builder session instead of filing a decision: one message through stackshot's client (`client.py message <session> -
+--sender sala-bg-agents`, the text on stdin; SALA_BGAGENTS_REPORT_CMD, the session SALA_BGAGENTS_REPORT_TO) naming the project, the agent, the attempts, the LAST REAL ERROR of the
+attempts (the words the failed step gave, kept in the ledger's `last_error`, cut to 300 characters, never a guessed cause) and what to do (`sala bg-agents --reset KEY` once the cause is
+fixed). Everything below that says "board item" or "raised" holds for the report as well, with the report in its place (the ledger's `raised` and `raised_at` record that it went out,
+`raised_item` the session it went to, `raise_token` the id a retry reuses and the message carries as "Report id"; the logs say `report needed: <project>` and `reported to <session>`);
+no prefix, ask line or option is made for it. SALA_BGAGENTS_RAISE=ask keeps the old route, a decision item for the owner, described below.
+When a project reaches the attempt cap ("given up") or the ledger sets retire_needed (an agent this job listed
 whose pane did not start) or `unplaced` (a pane that is live but not placed in its project by the record, roles.json and sala's row), the job raises ONE board item for the owner through stackshot's client (`client.py post question`: a decision item with a short
 ask and three options; the want list's project is its page), once per project: the ledger's `raised` is set with the item's id and the time, and it is set
 again only after a session reset the entry (`--reset`) and it gives up again: a raised entry is NEVER pruned for being off the want list. Once an item is raised the job makes NO start attempt for that project until a
@@ -69,10 +76,12 @@ project makes no new attempt while its pane is alive. When the check cannot say,
 (only a confirmed "not live", exit 1, lets it back into the start path). The checks are made WITHOUT the ledger lock (collect, give it up, ask, take it again, read the ledger again
 from disk), at most SALA_BGAGENTS_MAX_PROBES (3) a run, the least recently checked first.
 
-Settings of the raise: SALA_BGAGENTS_ASK_CMD (the filing command, `client.py post question`), SALA_BGAGENTS_PREFIXES_CMD (`client.py get config`, read for
+Settings of the report: SALA_BGAGENTS_RAISE (report, the default, or ask), SALA_BGAGENTS_REPORT_TO (the session the report goes to: the name of sala's builder session in the
+owner's fleet, set in the owner's config; the repository names none, so unset it says `report needed` and exits 1), SALA_BGAGENTS_REPORT_CMD (the sending command, `client.py message`; the suites stub it).
+Settings of the ask route: SALA_BGAGENTS_ASK_CMD (the filing command, `client.py post question`), SALA_BGAGENTS_PREFIXES_CMD (`client.py get config`, read for
 the instance's subject prefixes), SALA_BGAGENTS_RAISE_TIMEOUT (30 s a call), SALA_BGAGENTS_SUBJECT_PREFIX (the subject's bracket, "[scope] ": unset = the project's own
 scope in the project record, else SALA_DEFAULT_SCOPE, else the first of SALA_SCOPES, the first of them the instance has as a prefix, else the instance's first prefix).
-Exit: 0 = the run finished (also when it skipped or a project failed), 1 = a retire is needed or a board item is needed and could not be raised, 2 = usage or a bad setting.
+Exit: 0 = the run finished (also when it skipped or a project failed), 1 = a retire is needed or a report (a board item, in ask mode) is needed and could not be sent, 2 = usage or a bad setting.
 """
 import fcntl
 import json
@@ -92,7 +101,8 @@ ROLE = "engineer"
 NAME_MAX = 48
 KEY_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$")
 PREFIX_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-ASK_SENDER = "sala-bg-agents"       # the filing script's own label on the board item
+ASK_SENDER = "sala-bg-agents"       # the job's own label on the board item and on the report (a script's label, never a session's name)
+ERROR_MAX = 300                     # the longest real error a report carries; an owner's board item carries 160
 SUBJECT_MAX = 80
 BRACKET_RE = re.compile(r"^\[[A-Za-z0-9._-]+\] $")
 OPTIONS = (("Keep trying later", "A session resets the project's record, and the job tries again from the first attempt."),
@@ -231,7 +241,7 @@ def last_line(text, n=160):
 
 BLANK = {"prefix": "", "agent": "", "attempts": 0, "failures": 0, "next_try": 0, "created": False, "posted_at": 0, "started_at": 0, "retired": False,
          "retire_needed": False, "awaiting_record": False, "last": "", "last_at": 0, "absent_since": 0,
-         "last_plain": "", "raised": False, "raised_at": 0, "raised_item": "", "raise_token": "", "stale": False,
+         "last_plain": "", "last_error": "", "raised": False, "raised_at": 0, "raised_item": "", "raise_token": "", "stale": False,
          "raising_at": 0, "raising_by": "", "raise_failures": 0, "raise_next_try": 0, "probed_at": 0, "unplaced": ""}
 
 
@@ -293,16 +303,17 @@ def raising_now(e, cfg):
 
 
 def state_of(e, cfg, now):
+    n, done, notyet = noun_of(cfg), "raised" if cfg["raise_mode"] == "ask" else "sent", "not raised yet" if cfg["raise_mode"] == "ask" else "not sent yet"
     if raising_now(e, cfg) and not e["raised"]:
-        return "a board item is being filed"
+        return "a %s is being %s" % (n, "filed" if cfg["raise_mode"] == "ask" else "sent")
     if e["stale"] and not e["raised"]:
-        return "agent running, want list stale (no board item raised)"
+        return "agent running, want list stale (no %s %s)" % (n, done)
     if given_up(e, cfg):
-        return "given up (board item %s%s)" % ("raised" if e["raised"] else "not raised yet", ", not on the want list" if e["raised"] and e["absent_since"] else "")
+        return "given up (%s %s%s)" % (n, done if e["raised"] else notyet, ", not on the want list" if e["raised"] and e["absent_since"] else "")
     if e["unplaced"]:
-        return "started but not placed on the project (its pane is left running; %s)" % ("left alone until a session resets it, board item raised" if e["raised"] else "board item not raised yet")
+        return "started but not placed on the project (its pane is left running; %s)" % ("left alone until a session resets it, %s %s" % (n, done) if e["raised"] else "%s %s" % (n, notyet))
     if e["raised"]:
-        return "left alone until a session resets it (board item raised%s%s)" % (", retire needed" if e["retire_needed"] else "", ", not on the want list" if e["absent_since"] else "")
+        return "left alone until a session resets it (%s %s%s%s)" % (n, done, ", retire needed" if e["retire_needed"] else "", ", not on the want list" if e["absent_since"] else "")
     if e["retire_needed"]:
         return "retire needed (the agent's entry stays on the project; the start is tried again)"
     if e["next_try"] > now:
@@ -563,7 +574,7 @@ def fail(e, key, why, cfg, now, log, led, counts_attempt=False, plain=""):
     e["failures"] += 1
     e["next_try"] = int(now + backoff(e["failures"], cfg))
     e["last"], e["last_at"] = "failed: " + why, now
-    e["last_plain"] = plain
+    e["last_plain"], e["last_error"] = plain, why
     if given_up(e, cfg):
         log.say("failed", "%s: %s; attempt %d of %d: given up, left alone from now on" % (key, why, e["attempts"], cfg["max_attempts"]))
     else:
@@ -590,9 +601,8 @@ def post_agent(cfg, key, name):
     if rc == 124:
         return False, False, "the post timed out (it may have gone through: the next attempt looks at the project record first)", "Adding the agent to the project took too long."
     m = re.search(r"\[(\d{3})\]\s*(.*)", out)
-    plain = {"409": "The agent's name is already taken on a project, or waiting there for another sender.",
-             "403": "The project is hidden on the board, so the agent could not be added to it."}.get(m.group(1) if m else "", "Stackshot did not accept the request to add the agent to the project.")
-    return False, False, ("HTTP %s: %s" % (m.group(1), last_line(m.group(2), 120)) if m else "the post failed (exit %d: %s)" % (rc, last_line(out, 120))), plain
+    plain = "Stackshot refused the request to add the agent to the project." if m else "Stackshot did not accept the request to add the agent to the project."     # what happened, never a guessed cause: the error itself is `why`
+    return False, False, ("HTTP %s: %s" % (m.group(1), last_line(m.group(2), 250)) if m else "the post failed (exit %d: %s)" % (rc, last_line(out, 120))), plain
 
 
 def attempt(cfg, key, prefix, e, now, log, led):
@@ -638,7 +648,7 @@ def attempt(cfg, key, prefix, e, now, log, led):
             fail(e, key, reason, cfg, fresh_now(), log, led, plain=reason[0].upper() + reason[1:] + ".")
             alert(cfg, reason, log)
             return False
-        e.update(started_at=now, awaiting_record=False, retire_needed=False, unplaced="", last="started", last_at=now)
+        e.update(started_at=now, awaiting_record=False, retire_needed=False, unplaced="", last="started", last_at=now, last_error="")
         log.say("start", "%s: %s is live and placed on the project (the record, roles.json and sala's row agree)" % (key, name))
         led.save()
         return False
@@ -717,6 +727,36 @@ def subject_prefix(cfg, key):
     return cands[0] if cands else ""
 
 
+def error_text(e, n):
+    """The last real error of the attempts (the words the failed step gave, `last_error`; an older ledger entry has only `last`, "failed: <error>"), on one line, cut to N characters;
+    "" when none was recorded. Never a guessed cause."""
+    err = e["last_error"] or (e["last"][len("failed: "):] if e["last"].startswith("failed: ") else "")
+    err = " ".join(err.split())
+    return err if len(err) <= n else err[:n - 1].rstrip() + "…"
+
+
+def noun_of(cfg):
+    """What the job calls the one thing it sends for a project it cannot start: a board item for the owner (SALA_BGAGENTS_RAISE=ask) or a report to sala's builder session (the default)."""
+    return "board item" if cfg["raise_mode"] == "ask" else "report"
+
+
+def report_parts(cfg, key, e, known=True, token=""):
+    """-> the text of the report sent to sala's builder session (cfg["report_to"]) for a project the job cannot start: the project, the agent, the attempts, the last real error and what to do.
+    token: the report's id (the ledger's `raise_token`, the one a retry of the same report reuses), so a repeat after a timeout is seen to be the same report."""
+    agent = e["agent"] or "%s-%s" % (e["prefix"] or key.split("/", 1)[-1], ROLE)
+    why = ("its attempts reached the maximum and the job has stopped trying" if given_up(e, cfg) else
+           "its session is live but not placed on the project (the pane is left running)" if e["unplaced"] else
+           "the agent is on the project but its session did not start, and no unattended path takes it off")
+    err = error_text(e, ERROR_MAX)
+    lines = ["bg-agents could not give %s its background agent: %s." % (key, why if known else "the start did not finish, and whether the session is live could not be told"),
+             "Agent: %s. Attempts: %d of %d (failures: %d)." % (agent, e["attempts"], cfg["max_attempts"], e["failures"]),
+             "Last error: %s" % (err or "none was recorded."),
+             "This is a fault in the job or its setup, not a decision of the owner. Fix the cause, then run `sala bg-agents --reset %s` so the next run tries the project afresh; until then the job leaves it alone." % key]
+    if token:
+        lines.append("Report id: %s" % token)
+    return "\n".join(lines) + "\n"
+
+
 def item_parts(cfg, key, e, prefix, known=True):
     """-> (subject, ask, text lines, options): the owner's item in everyday words (no exit code, no command). known: the job saw that the agent's session is not running;
     when the liveness check could not say (known False) the item says only what is known: that the start did not finish."""
@@ -730,8 +770,9 @@ def item_parts(cfg, key, e, prefix, known=True):
     stakes = "the project has no background agent until then" if known else "the job does not try again until then"
     ask = "Decide: what to do about the background agent of %s · Recommend: %s · Stakes: %s · By: any time" % (slug, RECOMMENDED, stakes)
     agent = e["agent"] or "%s-%s" % (e["prefix"] or slug, ROLE)
+    err = error_text(e, 160)
     lines = ["%s wants a background agent (%s), and %s." % (slug, agent, "starting it has failed %s" % times if known else "the start did not finish"),
-             "The last problem: %s" % (e["last_plain"] or "no reason was recorded.")]
+             "The last problem: %s%s" % (e["last_plain"] or "no reason was recorded.", " The error it gave: %s" % err if err else "")]
     if given_up(e, cfg):
         lines.append("The job has stopped trying, so the project stays without a background agent until you decide." if known else "The job has stopped trying until you decide.")
     if e["retire_needed"]:
@@ -778,19 +819,25 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
     made without the lock; then it is taken again and the entry is read as it is on disk: the result is written only when that entry still carries this raise's request id (a `--reset`
     that ran meanwhile cleared it, and wins), is still marked as this attempt's (a later filing of the same project, after this one's window ran out, owns it now and this result is
     set aside) and the project still needs the item (a start that worked meanwhile is not told to the owner as a failure)."""
+    ask_mode, noun = cfg["raise_mode"] == "ask", noun_of(cfg)
     if dry:
-        log.say("plan", "%s: would raise one board item for the owner (%s)" % (key, "given up" if given_up(e, cfg) else "its started session is not placed on the project" if e["unplaced"] else "an agent this job listed did not start"))
+        log.say("plan", "%s: would %s (%s)" % (key, "raise one board item for the owner" if ask_mode else "report to %s" % cfg["report_to"],
+                                               "given up" if given_up(e, cfg) else "its started session is not placed on the project" if e["unplaced"] else "an agent this job listed did not start"))
         return True
 
     def failure(x, why):
         x["raise_failures"] += 1
         x["raise_next_try"] = int(now + backoff(x["raise_failures"], cfg))
         x["raising_at"], x["raising_by"] = 0, ""
-        log.say("raise", "board item needed: %s (could not be raised: %s); tried again after %s" % (key, why, local_text(x["raise_next_try"])))
+        log.say("raise", "%s needed: %s (could not be %s: %s); tried again after %s" % (noun, key, "raised" if ask_mode else "sent", why, local_text(x["raise_next_try"])))
         return False
 
-    if not cfg["ask_cmd"]:
-        r = failure(e, "no stackshot client on this machine (SALA_BGAGENTS_ASK_CMD)")
+    if not (cfg["ask_cmd"] if ask_mode else cfg["report_cmd"]):
+        r = failure(e, "no stackshot client on this machine (%s)" % ("SALA_BGAGENTS_ASK_CMD" if ask_mode else "SALA_BGAGENTS_REPORT_CMD"))
+        led.save()
+        return r
+    if not ask_mode and not cfg["report_to"]:
+        r = failure(e, "no session to report to (set SALA_BGAGENTS_REPORT_TO)")
         led.save()
         return r
     if not e["raise_token"]:
@@ -802,9 +849,11 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
     if lock:
         lock.release()
     try:
-        prefix = subject_prefix(cfg, key)
+        prefix = subject_prefix(cfg, key) if ask_mode else ""
         res = None
-        if prefix:
+        if not ask_mode:
+            res = run_split(cfg["report_cmd"] + [cfg["report_to"], "-", "--sender", ASK_SENDER], cfg["raise_timeout"], report_parts(cfg, key, snap, known, token))
+        elif prefix:
             subject, ask, lines, options = item_parts(cfg, key, snap, prefix, known)
             cmd = cfg["ask_cmd"] + ["--project", key, "--subject", subject, "--ask", ask, "--request-id", token, "--sender", ASK_SENDER]
             for label, line in options:
@@ -814,28 +863,33 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
     finally:
         held = lock.retake() if lock else True
     if not held:
-        log.say("raise", "board item needed: %s (could not be raised: the ledger is locked by another process; the item may have been filed and the next try names the same question)" % key)
+        log.say("raise", "%s needed: %s (could not be %s: the ledger is locked by another process; it may have gone out and the next try names the same %s)" % (noun, key, "raised" if ask_mode else "sent", "question" if ask_mode else "report"))
         return False
     item, why = "", ""
     if res is None:
         why = "no subject prefix: set SALA_BGAGENTS_SUBJECT_PREFIX"
     else:
         rc, out, err = res
-        item = (out.split() or [""])[0]
-        if rc != 0 or not item or len(item) > 40:
-            why = "exit %d: %s" % (rc, last_line(err or out, 120)) if rc != 0 else "the client printed no item id"
+        if ask_mode:
+            item = (out.split() or [""])[0]
+            if rc != 0 or not item or len(item) > 40:
+                why = "exit %d: %s" % (rc, last_line(err or out, 120)) if rc != 0 else "the client printed no item id"
+        else:
+            item = cfg["report_to"]
+            if rc != 0:
+                why = "exit %d: %s" % (rc, last_line(err or out, 120))
     cur = Ledger(led.path, False)       # the entry as it is on disk now: a reset (or another run) may have changed it during the call
     ce = cur.projects.get(key)
     if ce is None or ce["raise_token"] != token:
-        log.say("raise", "%s: the record was reset while the board item was being filed%s; the result is not recorded" % (key, " (item %s)" % item if not why else ""))
+        log.say("raise", "%s: the record was reset while the %s was being %s%s; the result is not recorded" % (key, noun, "filed" if ask_mode else "sent", " (%s %s)" % ("item" if ask_mode else "sent to", item) if not why else ""))
         return None
     if ce["raising_by"] != by:
-        log.say("raise", "%s: another filing of this board item took over while this one was in flight (its window ran out); this result is not recorded%s" % (key, "" if why else " (item %s)" % item))
+        log.say("raise", "%s: another %s of this %s took over while this one was in flight (its window ran out); this result is not recorded%s" % (key, "filing" if ask_mode else "sending", noun, "" if why else " (%s %s)" % ("item" if ask_mode else "sent to", item)))
         return None
     if not ce["raised"] and (not needs_item(ce, cfg) or ce["started_at"] != snap["started_at"]):
         ce["raising_at"], ce["raising_by"] = 0, ""      # recovered while the item was filed (another run started the agent): no failure, no back-off, no item for a project that is running
         cur.save()
-        log.say("raise", "%s: the project is no longer stuck (it started while the board item %s); nothing is recorded" % (key, "was being filed" if not why else "was being filed and the filing failed"))
+        log.say("raise", "%s: the project is no longer stuck (it started while the %s %s); nothing is recorded" % (key, noun, ("was being filed" if not why else "was being filed and the filing failed") if ask_mode else ("was being sent" if not why else "was being sent and the sending failed")))
         return None
     if why:
         r = failure(ce, why)
@@ -843,7 +897,11 @@ def raise_item(cfg, key, e, now, log, led, dry, lock=None, known=True):
         return r
     ce.update(raised=True, raised_at=now, raised_item=item, raising_at=0, raising_by="", raise_failures=0, raise_next_try=0)
     cur.save()
-    log.say("raise", "%s: board item %s raised for the owner (%s)" % (key, item, "given up" if given_up(ce, cfg) else "not placed on the project" if ce["unplaced"] else "retire needed"))
+    what = "given up" if given_up(ce, cfg) else "not placed on the project" if ce["unplaced"] else "retire needed"
+    if ask_mode:
+        log.say("raise", "%s: board item %s raised for the owner (%s)" % (key, item, what))
+    else:
+        log.say("raise", "%s: reported to %s (%s; last error: %s)" % (key, item, what, error_text(ce, 160) or "none recorded"))
     return True
 
 
@@ -963,20 +1021,20 @@ def raise_next(cfg, led, listed, now, log, dry, lock, probes):
         e = led.projects[key]
         if e["raise_next_try"] > now:
             held_back += 1
-            log.say("raise", "board item still needed: %s (the last filing failed %d time%s; next try %s)" % (key, e["raise_failures"], "" if e["raise_failures"] == 1 else "s", local_text(e["raise_next_try"])))
+            log.say("raise", "%s still needed: %s (the last %s failed %d time%s; next try %s)" % (noun_of(cfg), key, "filing" if cfg["raise_mode"] == "ask" else "sending", e["raise_failures"], "" if e["raise_failures"] == 1 else "s", local_text(e["raise_next_try"])))
             continue
         r = False if e["unplaced"] else probes.get(e["agent"])      # a session that is live and not placed is the failure itself: the stale check does not hold its item back
         if r is NOT_PROBED or r is CHANGED:
-            log.say("raise", "%s: whether its agent's session is live %s; the board item waits" % (key, unsure(r, cfg)))
+            log.say("raise", "%s: whether its agent's session is live %s; the %s waits" % (key, unsure(r, cfg), noun_of(cfg)))
             continue
         if r is True:
             if not e["stale"] and not dry:
                 e["stale"], e["last"], e["last_at"] = True, STALE_TEXT, now
                 led.save()
-            log.say("stale", "%s: %s (%s is live while the project is still on the want list): no board item raised, no new attempt while its pane is alive" % (key, STALE_TEXT, e["agent"]))
+            log.say("stale", "%s: %s (%s is live while the project is still on the want list): no %s %s, no new attempt while its pane is alive" % (key, STALE_TEXT, e["agent"], noun_of(cfg), "raised" if cfg["raise_mode"] == "ask" else "sent"))
             continue
         if r is None and (e["stale"] or e["started_at"]):       # a pane that is, or may be, running: no failure item for it on a check that cannot say
-            log.say("stale", "%s: whether %s is live could not be told; the entry is left as it is (%s, no board item, no attempt)" % (key, e["agent"], "stale" if e["stale"] else "its pane was started"))
+            log.say("stale", "%s: whether %s is live could not be told; the entry is left as it is (%s, no %s, no attempt)" % (key, e["agent"], "stale" if e["stale"] else "its pane was started", noun_of(cfg)))
             continue
         if r is False and e["stale"] and not dry:
             e["stale"] = False      # its pane is confirmed gone: the project is looked at as any other
@@ -984,7 +1042,7 @@ def raise_next(cfg, led, listed, now, log, dry, lock, probes):
         more = sum(1 for k in waiting[i + 1:] if led.projects[k]["raise_next_try"] <= now)
         res = raise_item(cfg, key, e, now, log, led, dry, lock, known=r is False)
         if more:
-            log.say("raise", "%d more project%s still need%s a board item; one raise a run, the rest wait for the next run" % (more, "" if more == 1 else "s", "s" if more == 1 else ""))
+            log.say("raise", "%d more project%s still need%s a %s; one a run, the rest wait for the next run" % (more, "" if more == 1 else "s", "s" if more == 1 else "", noun_of(cfg)))
         return 1 if res is False else 0
     return 1 if held_back else 0
 
@@ -999,10 +1057,10 @@ def start_one(cfg, cands, listed, led, now, log, dry, probes):
                 log.say("skip", "%s: given up after %d attempts (%s); left alone" % (key, e["attempts"], e["last"] or "no outcome"))
                 continue
             if e["raised"]:     # the owner has been asked: no start attempt until a session resets the record (`--reset`, what "Keep trying later" is); the other two answers leave it so
-                log.say("skip", "%s: board item %s raised; left alone until a session resets the project's record" % (key, e["raised_item"] or "-"))
+                log.say("skip", ("%s: board item %s raised; left alone until a session resets the project's record" if cfg["raise_mode"] == "ask" else "%s: reported to %s; left alone until a session resets the project's record") % (key, e["raised_item"] or "-"))
                 continue
             if raising_now(e, cfg):      # another run is filing the item for this project right now (its lock is given up for the call): no start under it
-                log.say("skip", "%s: another run is filing its board item (since %s); no attempt meanwhile" % (key, local_text(e["raising_at"])))
+                log.say("skip", "%s: another run is %s its %s (since %s); no attempt meanwhile" % (key, "filing" if cfg["raise_mode"] == "ask" else "sending", noun_of(cfg), local_text(e["raising_at"])))
                 continue
             if e["stale"]:
                 r = probes.get(e["agent"])
@@ -1102,7 +1160,7 @@ def one_run(cfg, dry, now, log, lock=None):
     due = [led.projects[k]["agent"] for k in raise_order(cfg, led, listed, now) if led.projects[k]["raise_next_try"] <= now and led.projects[k]["agent"] and not led.projects[k]["unplaced"] and first.results.get(led.projects[k]["agent"], CHANGED) is CHANGED]
     second, led = probe_window(cfg, due, cfg["max_probes"] - len(first.results), led, now, lock, dry)
     if led is None:
-        log.say("skip", "the ledger is locked by another process after the liveness checks; no board item this run")
+        log.say("skip", "the ledger is locked by another process after the liveness checks; no %s this run" % noun_of(cfg))
         return 1 if retire else 0
     first.revalidate(led)
     unraised = raise_next(cfg, led, listed, now, log, dry, lock, ProbeBook(dict(first.results, **second.results)))
@@ -1124,11 +1182,11 @@ def status(cfg):
         if e["last"]:
             extra += "; last: %s (%s)" % (e["last"], local_text(e["last_at"]))
         if e["raised"] and not given_up(e, cfg):
-            extra += "; board item %s raised (%s)" % (e["raised_item"] or "-", local_text(e["raised_at"]))
+            extra += ("; board item %s raised (%s)" if cfg["raise_mode"] == "ask" else "; reported to %s (%s)") % (e["raised_item"] or "-", local_text(e["raised_at"]))
         elif e["raised"]:
-            extra += "; item %s (%s)" % (e["raised_item"] or "-", local_text(e["raised_at"]))
+            extra += "; %s %s (%s)" % ("item" if cfg["raise_mode"] == "ask" else "reported to", e["raised_item"] or "-", local_text(e["raised_at"]))
         if e["raise_failures"] and not e["raised"]:
-            extra += "; the board item could not be filed %d time%s, next try %s" % (e["raise_failures"], "" if e["raise_failures"] == 1 else "s", local_text(e["raise_next_try"]))
+            extra += "; the %s could not be %s %d time%s, next try %s" % (noun_of(cfg), "filed" if cfg["raise_mode"] == "ask" else "sent", e["raise_failures"], "" if e["raise_failures"] == 1 else "s", local_text(e["raise_next_try"]))
         print("%s  %s  attempts %d/%d  failures %d  next try %s  %s%s" % (key, e["agent"] or "-", e["attempts"], cfg["max_attempts"], e["failures"], nxt, state_of(e, cfg, now), extra))
     return 0
 
@@ -1145,13 +1203,15 @@ def config():
         "place_wait": env_num("SALA_BGAGENTS_PLACE_WAIT", 360.0), "place_poll": env_num("SALA_BGAGENTS_PLACE_POLL", 5.0),
         "list_cmd": cmd_words("SALA_BGAGENTS_LIST_CMD"), "post_cmd": cmd_words("SALA_BGAGENTS_POST_CMD"),
         "spawn_cmd": cmd_words("SALA_BGAGENTS_SPAWN_CMD"), "alive_cmd": cmd_words("SALA_BGAGENTS_ALIVE_CMD"),
+        "raise_mode": "ask" if os.environ.get("SALA_BGAGENTS_RAISE", "").strip().lower() == "ask" else "report",
+        "report_cmd": cmd_words("SALA_BGAGENTS_REPORT_CMD"), "report_to": os.environ.get("SALA_BGAGENTS_REPORT_TO", "").strip(),
         "ask_cmd": cmd_words("SALA_BGAGENTS_ASK_CMD"), "alert_cmd": cmd_words("SALA_BGAGENTS_ALERT_CMD"), "prefixes_cmd": cmd_words("SALA_BGAGENTS_PREFIXES_CMD"),
         "subject_prefix": os.environ.get("SALA_BGAGENTS_SUBJECT_PREFIX", ""),
         "default_scope": first_word("SALA_DEFAULT_SCOPE"), "first_scope": first_word("SALA_SCOPES"),
     }
 
 
-RESET_FIELDS = ("attempts", "failures", "next_try", "retire_needed", "raised", "raised_at", "raised_item", "raise_token", "stale", "raising_at", "raising_by", "raise_failures", "raise_next_try", "probed_at", "unplaced", "last", "last_at", "last_plain")
+RESET_FIELDS = ("attempts", "failures", "next_try", "retire_needed", "raised", "raised_at", "raised_item", "raise_token", "stale", "raising_at", "raising_by", "raise_failures", "raise_next_try", "probed_at", "unplaced", "last", "last_at", "last_plain", "last_error")
 USAGE = "usage: sala bg-agents [--dry-run | --status | --reset <project key> [--dry-run]]"
 
 
@@ -1177,7 +1237,7 @@ def reset_project(cfg, key, dry, now, log):
         print("bg-agents: no ledger entry for %s; nothing cleared" % key, file=sys.stderr)
         return 1
     state = "given up" if given_up(e, cfg) else "retire needed" if e["retire_needed"] else "backing off" if e["next_try"] > now else "not stuck"
-    was = "attempts %d, failures %d, %s%s" % (e["attempts"], e["failures"], state, ", board item raised" if e["raised"] else "")
+    was = "attempts %d, failures %d, %s%s" % (e["attempts"], e["failures"], state, (", board item raised" if cfg["raise_mode"] == "ask" else ", report sent") if e["raised"] else "")
     for f in RESET_FIELDS:
         e[f] = BLANK[f]
     log.say("reset", "%s: %s the ledger entry (was: %s); the next run tries it afresh, the agent's entry on the project is left as it is" % (key, "would clear" if dry else "cleared", was))
@@ -1224,6 +1284,12 @@ def main(argv):
         return 0
     if not mandate_ok(cfg["mandate"]):
         print("bg-agents: SALA_BGAGENTS_MANDATE must be one line of at most 600 characters with no control character or backslash; nothing done", file=sys.stderr)
+        return 2
+    if os.environ.get("SALA_BGAGENTS_RAISE", "").strip().lower() not in ("", "report", "ask"):
+        print("bg-agents: SALA_BGAGENTS_RAISE must be report (the default) or ask; nothing done", file=sys.stderr)
+        return 2
+    if cfg["report_to"] and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}", cfg["report_to"]):
+        print("bg-agents: SALA_BGAGENTS_REPORT_TO must be a session's name (letters, digits, . _ : / -); nothing done", file=sys.stderr)
         return 2
     sp = cfg["subject_prefix"]
     if sp:

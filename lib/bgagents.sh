@@ -14,22 +14,24 @@ usage: sala bg-agents [--dry-run]
           and sala's registry row must all place it there as a back agent (read again until SALA_BGAGENTS_PLACE_WAIT, 360 s); a live session one of them does not
           place is a failed attempt (the reason names the link; its pane is left running; one Slack post and the board item). One line a decision. Exit 0 = the run finished (a skip and
           a failed project too), 1 = a retire is needed (`retire needed: <name>`: an agent this job listed could not be started and no path takes it off
-          without the owner's words) or a board item is needed and could not be raised (`board item needed: <project>`, below), 2 = usage or a bad setting.
+          without the owner's words) or a report is needed and could not be sent (`report needed: <project>`, below; `board item needed` in ask mode), 2 = usage or a bad setting.
   --dry-run  the whole decision; nothing is posted, started or written (the want list and the load are read).
   --status   the ledger (<state>/bgagents.json), one line a project: attempts, failures, next try, state. Read-only; works with the switch off.
   --reset    clears one project's ledger entry (attempts, failures, back-off, given up, retire needed, the board item, the last outcome) so the next run tries it afresh; the
           agent's entry on the project is left as it is (the next run sees it already listed and goes to the start). A ledger edit, not a run: it works with the switch off,
           writes atomically, prints one line, and refuses a key with no entry (exit 1). With --dry-run it says what it would clear and writes nothing. It is what a session runs
-          when the owner answers "Keep trying later" on the board item below; the owner never runs it.
+          when the cause is fixed (or, in ask mode, when the owner answers "Keep trying later" on the board item); the owner never runs it.
 
   A project it cannot start is never left silent: when one reaches the attempt cap ("given up") or an agent this job listed did not start (retire needed), the
-  job raises ONE board item for the owner (`client.py post question`: what happened in plain words, and three options), once per project; the ledger keeps
-  it (--status: "given up (board item raised)" or "(board item not raised yet)"). Once raised, the job makes no start attempt for that project until a session
-  resets it (--reset), also while it is off the want list (its entry is never pruned). The raise comes after the run's start attempt, at most one a run, with its own
-  timeout (SALA_BGAGENTS_RAISE_TIMEOUT, 30 s) and without the ledger lock held; the entry is marked while it is filed, so no other run starts the project meanwhile. A
-  project whose agent session is live is not raised for ("agent running, want list stale"); only a confirmed "not live" lets it back into the start path, and at most
-  SALA_BGAGENTS_MAX_PROBES (3) liveness checks are made a run, without the lock. A raise that fails says `board item needed: <project>`, exits 1 and is tried again after
-  its own back-off, the next project taking the run's raise meanwhile. It is no attempt and no failure of the project. --dry-run raises nothing.
+  job REPORTS it to sala's builder session (SALA_BGAGENTS_REPORT_TO; `client.py message`): the project, the agent, the attempts, the last real error the attempts gave
+  and what to do (`sala bg-agents --reset <project key>` once the cause is fixed), once per project. A failed start is a fault in the job or its setup, so it is never
+  put to the owner as a decision; SALA_BGAGENTS_RAISE=ask brings back the old route (ONE board item for the owner through `client.py post question`: what happened and
+  three options). The ledger keeps it (--status: "given up (report sent)" or "(report not sent yet)"; "board item" in ask mode). Once reported, the job makes no start attempt
+  for that project until a session resets it (--reset), also while it is off the want list (its entry is never pruned). The report comes after the run's start attempt, at most
+  one a run, with its own timeout (SALA_BGAGENTS_RAISE_TIMEOUT, 30 s) and without the ledger lock held; the entry is marked while it is sent, so no other run starts the project
+  meanwhile. A project whose agent session is live is not reported ("agent running, want list stale"); only a confirmed "not live" lets it back into the start path, and at most
+  SALA_BGAGENTS_MAX_PROBES (3) liveness checks are made a run, without the lock. A report that fails says `report needed: <project>`, exits 1 and is tried again after
+  its own back-off, the next project taking the run's report meanwhile. It is no attempt and no failure of the project. --dry-run sends nothing.
 
   Ledger and back-off: after a failure the project waits SALA_BGAGENTS_COOLDOWN seconds (600), doubled for every further failure up to
   SALA_BGAGENTS_COOLDOWN_MAX (86400); at SALA_BGAGENTS_MAX_ATTEMPTS (5) attempts it is left alone ("given up"). An entry is cleared only after its project
@@ -45,19 +47,20 @@ esac
 # settings it takes (a no-op for one that is unset; the systemd service has only PATH in its environment, so the config is its only source)
 export SALA_BGAGENTS SALA_BGAGENTS_COOLDOWN SALA_BGAGENTS_COOLDOWN_MAX SALA_BGAGENTS_MAX_ATTEMPTS SALA_BGAGENTS_MAX_LOAD SALA_BGAGENTS_MANDATE SALA_BGAGENTS_SENDER \
        SALA_BGAGENTS_LEDGER SALA_BGAGENTS_LOADAVG SALA_BGAGENTS_RECORD_GRACE SALA_BGAGENTS_ALIVE_WAIT SALA_BGAGENTS_POST_TIMEOUT SALA_BGAGENTS_SPAWN_TIMEOUT SALA_BGAGENTS_RAISE_TIMEOUT SALA_BGAGENTS_MAX_PROBES SALA_BGAGENTS_PLACE_WAIT SALA_BGAGENTS_PLACE_POLL SALA_ROLES_FILE SALA_ROLES_FILE_MAX_AGE \
-       SALA_BGAGENTS_SUBJECT_PREFIX SALA_DEFAULT_SCOPE SALA_SCOPES \
+       SALA_BGAGENTS_SUBJECT_PREFIX SALA_BGAGENTS_RAISE SALA_BGAGENTS_REPORT_TO SALA_DEFAULT_SCOPE SALA_SCOPES \
        SALA_PROJECT_RECORD SALA_PROJECT_RECORD_MAX_AGE SALA_TZ SALA_OWNER_NAME SALA_STATE_DIR
 # the six commands: a setting wins (also an empty one: no client), else the stackshot client / this sala (the suites stub them)
-if [ -z "${SALA_BGAGENTS_LIST_CMD+x}" ] || [ -z "${SALA_BGAGENTS_POST_CMD+x}" ] || [ -z "${SALA_BGAGENTS_ASK_CMD+x}" ] || [ -z "${SALA_BGAGENTS_PREFIXES_CMD+x}" ]; then
+if [ -z "${SALA_BGAGENTS_LIST_CMD+x}" ] || [ -z "${SALA_BGAGENTS_POST_CMD+x}" ] || [ -z "${SALA_BGAGENTS_ASK_CMD+x}" ] || [ -z "${SALA_BGAGENTS_REPORT_CMD+x}" ] || [ -z "${SALA_BGAGENTS_PREFIXES_CMD+x}" ]; then
     _bg_client=$(stackshot_client 2>/dev/null) || _bg_client=""
     [ -n "${SALA_BGAGENTS_LIST_CMD+x}" ] || SALA_BGAGENTS_LIST_CMD="${_bg_client:+python3 $_bg_client background-wanted}"
     [ -n "${SALA_BGAGENTS_POST_CMD+x}" ] || SALA_BGAGENTS_POST_CMD="${_bg_client:+python3 $_bg_client post project-agent}"
     [ -n "${SALA_BGAGENTS_ASK_CMD+x}" ] || SALA_BGAGENTS_ASK_CMD="${_bg_client:+python3 $_bg_client post question}"
+    [ -n "${SALA_BGAGENTS_REPORT_CMD+x}" ] || SALA_BGAGENTS_REPORT_CMD="${_bg_client:+python3 $_bg_client message}"
     [ -n "${SALA_BGAGENTS_PREFIXES_CMD+x}" ] || SALA_BGAGENTS_PREFIXES_CMD="${_bg_client:+python3 $_bg_client get config}"
     unset _bg_client
 fi
 : "${SALA_BGAGENTS_SPAWN_CMD=$SALA_BIN spawn}"
 : "${SALA_BGAGENTS_ALIVE_CMD=$SALA_BIN sessions resolve}"
 : "${SALA_BGAGENTS_ALERT_CMD=$SALA_BIN alert}"      # the Slack post of a start that is live but not placed in its project (sala's own alert path)
-export SALA_BGAGENTS_LIST_CMD SALA_BGAGENTS_POST_CMD SALA_BGAGENTS_ASK_CMD SALA_BGAGENTS_PREFIXES_CMD SALA_BGAGENTS_SPAWN_CMD SALA_BGAGENTS_ALIVE_CMD SALA_BGAGENTS_ALERT_CMD
+export SALA_BGAGENTS_LIST_CMD SALA_BGAGENTS_POST_CMD SALA_BGAGENTS_ASK_CMD SALA_BGAGENTS_REPORT_CMD SALA_BGAGENTS_PREFIXES_CMD SALA_BGAGENTS_SPAWN_CMD SALA_BGAGENTS_ALIVE_CMD SALA_BGAGENTS_ALERT_CMD
 exec python3 -I -S "$SALA_ROOT/lib/bgagents.py" "$@"

@@ -183,9 +183,10 @@
 #                                      project-agent`, label sala-web) and starts the pane (`sala spawn … --role back`); a per-project ledger backs off after a failure (10 min, doubling,
 #                                      24 h cap) and gives up at SALA_BGAGENTS_MAX_ATTEMPTS (5). An agent it listed whose pane did not start is NOT taken off by the job: it says
 #                                      `retire needed: <name>` and exits 1 (no path takes an agent off a project without the owner's words). A project it cannot start (given up, or a retire
-#                                      needed) is raised ONCE as a board item for the owner (`client.py post question`; a failed raise says `board item needed: <project>`, exits 1, is retried).
-#                                      --dry-run decides and does nothing; --status shows the ledger; --reset clears one project's ledger entry (a session runs it when the owner
-#                                      answers "Keep trying later": the next run tries the project afresh; works with the switch off)
+#                                      needed) is a fault in the job, not a decision of the owner: it is REPORTED ONCE to sala's builder session (SALA_BGAGENTS_REPORT_TO, `client.py message`: the project, the attempts,
+#                                      the last real error and `sala bg-agents --reset <key>`; a failed sending says `report needed: <project>`, exits 1, is retried); SALA_BGAGENTS_RAISE=ask
+#                                      keeps the old route, ONE board item for the owner (`client.py post question`). --dry-run decides and does nothing; --status shows the ledger; --reset
+#                                      clears one project's ledger entry (a session runs it once the cause is fixed: the next run tries the project afresh; works with the switch off)
 #   salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
 #                                      the GitHub Actions runs of a repo, read from the file the CI-run poller keeps (no GitHub call): the JSON on
 #                                      stdout, cut to a head commit with --sha; exit 3 = no file for that repo, 4 = older than --max-age (default 120 s):

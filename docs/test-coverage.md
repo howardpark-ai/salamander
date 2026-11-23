@@ -122,6 +122,18 @@ first-seen time of each such key is kept in a state file. Stackshot's reboot res
 
 Not checked: stackshot's side (a poll after the release), and a real host move; the watch's other steps in the tick.
 
+### `tests/bgagents.sh`: +34, 305 (Mon Nov 23rd 2026)
+
+`sala bg-agents` put a project it could not start to the owner as a decision item, and the item blamed a cause the job had invented (a refused listing was told as "the project is hidden on the board"
+although stackshot had said the label was a name, not a session id). A failed start is a fault in the job or its setup, not a decision of the owner, so the default route is now a report to sala's builder
+session (`SALA_BGAGENTS_REPORT_TO`, through the client's `message` verb), and both routes carry the last real error of the attempts (`last_error`), cut to a sane length, never a guessed cause. The path
+guarded is the one the job exists for: a project left without its background agent while the only notice goes to the wrong reader or says the wrong thing, so the fault is never fixed. The existing
+raise checks run under `SALA_BGAGENTS_RAISE=ask` (the old route, kept behind that setting) and three of them now expect the real error in the item. The new checks, each failing on the code before: a
+403 given up after the cap sends ONE message to the named session with the project, agent, attempts, the stackshot error and the reset command, files no question and reads no subject prefix; a second run
+sends nothing; `--reset` and a new give-up report again with a new id; the error is cut to 300 characters on one line, and an entry from an older ledger gives its last outcome; a retire needed, an
+unplaced session and an unknown liveness are each reported in their own words; a live session is not reported; a refused sending says `report needed`, exits 1, waits out its own back-off and retries with
+the same report id; no client or no target says so; no target set (unset or empty) says so and sends nothing; `--dry-run` sends nothing; a bad `SALA_BGAGENTS_RAISE` or target is refused (exit 2); `ask` files the old item.
+
 ### `tests/bgagents.sh`: +9, 271 (Sun Nov 22nd 2026)
 
 Five fixes to the placement read-back of `sala bg-agents`, each with the check that fails without it. (1) `roles.json` is read for its role too: an entry for the right project with the role
