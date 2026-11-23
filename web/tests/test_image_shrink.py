@@ -1,7 +1,8 @@
 """An image the page attaches always reaches the session, whatever its size.
 
 The page redraws an image that is over the server's limit (20 MB) or longer than 4000 px on its long side, on a canvas, and
-sends that instead: a JPEG, or a PNG when a pixel is see-through. A small image goes up untouched. A shrink that cannot
+sends that instead: a JPEG, or a PNG when a pixel is see-through. So is a PNG or WebP over 5 MB that has no see-through pixel (a
+big image from a clipboard is a PNG of 15 MB or more, which the pane's Claude Code drops). A small image goes up untouched. A shrink that cannot
 fit says so in words, and a file that is empty says "came through empty" after one more read.
 
 These run in a headless Chromium (conftest.py: `served`, `browser`) and are skipped without one. The images are made in the
@@ -22,11 +23,12 @@ MAKE = """
 async function makeImage(w, h, kind, mime, name) {
   const c = document.createElement("canvas"); c.width = w; c.height = h;
   const x = c.getContext("2d");
-  if (kind === "noise") {
+  if (kind === "noise" || kind === "noise-hole") {   // noise-hole: the same, with one see-through pixel
     const img = x.createImageData(w, h), buf = new Uint8Array(img.data.buffer);
     for (let i = 0; i < buf.length; i += 65536) crypto.getRandomValues(buf.subarray(i, Math.min(i + 65536, buf.length)));
     for (let i = 3; i < buf.length; i += 4) buf[i] = 255;
     x.putImageData(img, 0, 0);
+    if (kind === "noise-hole") x.clearRect(0, 0, 1, 1);
   } else if (kind === "alpha") {
     x.fillStyle = "rgb(200, 30, 30)"; x.fillRect(Math.floor(w / 4), Math.floor(h / 4), Math.floor(w / 2), Math.floor(h / 2));
   } else {
@@ -166,3 +168,56 @@ def test_a_file_whose_first_read_is_empty_is_read_once_more_and_goes_up(served, 
     assert got["reads"] == 2, got  # the empty read, then the one that worked: no more
     (path,) = stored(served)
     assert ihdr(path.read_bytes())[:2] == (120, 80)
+
+
+# The size rule: a big PNG or WebP with no see-through pixel is re-encoded as a JPEG even when it is within the server's limit and
+# within 4000 px (the pane's Claude Code takes at most 5 MB as base64 and drops an image it cannot shrink). The threshold is
+# lowered in the page (`REENCODE_OVER_BYTES`) to test it with small images; the real size is in the paste test of
+# test_paste_one_chip.py (a 3000 x 4000 PNG of about 15 MB).
+
+def test_a_big_opaque_png_within_the_limit_goes_up_as_a_jpeg(served, browser):
+    start(served, browser)
+    got = browser.evaluate("""(async () => {
+      REENCODE_OVER_BYTES = 200 * 1024;
+      const f = await makeImage(600, 400, "noise", "image/png", "shot.png");
+      const r = await feed(f); r.sourceBytes = f.size; return r; })()""")
+    assert got["chips"] == 1 and got["status"] == "", got
+    assert got["sourceBytes"] > 200 * 1024 and got["sourceBytes"] < 20 * 1024 * 1024, got  # over the threshold, within the limit
+    (path,) = stored(served)
+    data = path.read_bytes()
+    assert path.suffix == ".jpg" and sof(data) == (600, 400) and len(data) < got["sourceBytes"]  # the same pixels, a smaller file
+
+
+def test_a_png_under_the_threshold_goes_up_as_it_is(served, browser):
+    start(served, browser)
+    got = browser.evaluate("""(async () => {
+      REENCODE_OVER_BYTES = 5 * 1024 * 1024;
+      const f = await makeImage(600, 400, "noise", "image/png", "shot.png");
+      const r = await feed(f); r.size = f.size; return r; })()""")
+    assert got["chips"] == 1 and got["status"] == "", got
+    (path,) = stored(served)
+    assert path.suffix == ".png" and path.stat().st_size == got["size"]
+
+
+def test_a_big_png_with_one_see_through_pixel_stays_a_png_as_it_is(served, browser):
+    start(served, browser)
+    got = browser.evaluate("""(async () => {
+      REENCODE_OVER_BYTES = 200 * 1024;
+      const f = await makeImage(600, 400, "noise-hole", "image/png", "cutout.png");
+      const r = await feed(f); r.size = f.size; return r; })()""")
+    assert got["chips"] == 1 and got["status"] == "", got
+    assert got["size"] > 200 * 1024, got
+    (path,) = stored(served)
+    assert path.suffix == ".png" and path.stat().st_size == got["size"] and ihdr(path.read_bytes()) == (600, 400, 6), got
+
+
+def test_a_big_jpeg_within_the_limit_goes_up_as_it_is(served, browser):
+    start(served, browser)
+    got = browser.evaluate("""(async () => {
+      REENCODE_OVER_BYTES = 20 * 1024;
+      const f = await makeImage(600, 400, "noise", "image/jpeg", "photo.jpg");
+      const r = await feed(f); r.size = f.size; return r; })()""")
+    assert got["chips"] == 1 and got["status"] == "", got
+    assert got["size"] > 20 * 1024, got
+    (path,) = stored(served)
+    assert path.suffix == ".jpg" and path.stat().st_size == got["size"]
