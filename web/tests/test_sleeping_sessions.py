@@ -1,6 +1,7 @@
 """Sleeping sessions in the page (sleep stage 3): a session sala put to sleep (its claude ended on purpose, its tmux session, pane and
 pane-map row stay, a marker file named by its conversation id says `<ISO-Z time> <name>`) shows as "sleeping" everywhere the page lists
-sessions, never as a dead or crashed one, and opening it wakes it.
+sessions, never as a dead or crashed one. Opening it shows its conversation and does not wake it; a message, or its Wake button, does
+(web/tests/test_sleeper_transcript.py).
 
 What a wrong answer costs here: a sleeper that looks dead or idle (the owner recycles or retires a session that is only asleep), a sleeper
 missing from the sidebar or the Overview (he cannot find the way to wake it), a stale marker listed as a session (a row nobody can open),
@@ -14,7 +15,7 @@ a plain shell's wake). Held here:
 - `POST /api/wake`: queues `sala op wake --only NAME --from sala-web --words "<owner>, via the sala web page: …"` for a sleeper (202 with the
   op id), says `awake` (200, nothing queued) for a name that is not asleep, answers sala's refusal (409), refuses a bad body (400) and
   never runs sala for a name it did not list;
-- the page: the sleeping state in the sidebar and the Overview (a hollow dot, the word, the time in the page's zone), and opening one asks
+- the page: the sleeping state in the sidebar and the Overview (a hollow dot, the word, the time in the page's zone), and the Wake button asks
   api/wake once and follows the operation (headless Chromium when installed; `sala` is a stand-in script that records its argv).
 `sala` here is always a stand-in script in tmp_path; nothing runs the real one."""
 
@@ -337,15 +338,18 @@ def test_the_overview_row_says_sleeping_since(slept, browser):
     assert NAME in text and "10:10" in text
 
 
-def test_opening_a_sleeper_asks_the_wake_once_and_follows_it(slept_shown, wake, browser):
+def test_opening_a_sleeper_asks_nothing_and_its_wake_button_asks_once_and_follows_it(slept_shown, wake, browser):
     slept = slept_shown
     wake.mode("queued")
     wake.op("queued")
     open_page(browser, slept)
     assert wait_for(browser, SIDEBAR_ROW % json.dumps(NAME) + " !== null")
     browser.evaluate("selectSession(%s, { force: true })" % json.dumps(NAME))
-    assert wait_for(browser, "/queued|Waking/.test(document.querySelector('#chat').textContent)", 15.0)
-    assert wait_for(browser, "document.querySelector('#chat .wake-line') !== null")
+    assert wait_for(browser, "document.querySelector('#sleep-band .wake-btn') !== null", 15.0)
+    time.sleep(2.5)                                                                   # more than one poll of the list
+    assert wake.wakes() == []                                                       # opening it woke nothing
+    browser.evaluate("document.querySelector('#sleep-band .wake-btn').click()")
+    assert wait_for(browser, "/queued|Waking/.test(document.querySelector('#sleep-band').textContent)", 15.0)
     end = time.time() + 15                                                            # the line says "Waking" before the POST is answered
     while not wake.wakes() and time.time() < end:
         time.sleep(0.1)
@@ -354,8 +358,8 @@ def test_opening_a_sleeper_asks_the_wake_once_and_follows_it(slept_shown, wake, 
     assert len(wake.wakes()) == 1
     # a wake that fails shows its words and a button to try again
     wake.op("stuck", "pane gone")
-    assert wait_for(browser, "document.querySelector('#chat .wake-btn') !== null", 20.0)
-    assert browser.evaluate("document.querySelector('#chat .wake-line').classList.contains('failed')")
+    assert wait_for(browser, "document.querySelector('#sleep-band .wake-btn') !== null && document.querySelector('#sleep-band').classList.contains('failed')", 20.0)
+    assert "pane gone" in browser.evaluate("document.querySelector('#sleep-band').textContent")
     # the session is awake: its marker is gone, the next list drops the sleeping entry and the page stops following
     wake.wake_up()
     browser.evaluate("loadSessions()")

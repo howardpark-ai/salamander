@@ -675,14 +675,38 @@ Every pid-keyed route (`/api/s/<pid>/...`) finds nothing at pid 0, and spend, us
   sleepers are back in their usual places, marked sleeping as above. The Overview is not the sidebar and lists every session either way.
   The rule is `sleepersKept` in `shared.js` (between the `<sleeping-words>` markers), which `app.js` applies to each project's rows after
   the "Show all sessions" rule and `tests/test_hide_sleeping.py` runs in node; the same file drives a headless Chromium over `/`.
-- **Opening one wakes it.** Selecting a sleeper (a tap in the sidebar, an Overview link, `#s=<name>`) shows its note, not a chat, and asks
-  `POST /api/wake` once; the note says *Waking ...*, then follows the queued operation (`GET /api/spawn/status?op=`) and the sessions list
-  every 2 s. When the session is live again the ordinary poll opens it (a woken session keeps its conversation and its name). A refusal, a
-  stuck operation or four minutes without a wake shows the reason and a *Try again* button; nothing wakes on its own twice.
-- **`POST /api/wake`** `{"name"}` (`application/json`): for a name that is asleep now, runs `sala op wake --only NAME --from sala-web --words
-  "<owner>, via the sala web page: opened the sleeping session NAME, <time>"`, the owner's own act (the queue's words door; the reason door is
-  for a Claude session). 202 `{ok, op, name}` when queued; 200 `{ok, code: "awake"}` when the name is not asleep (nothing is queued and sala
-  is not run); 409 with sala's words when the queue refuses; 502 when sala cannot be run or answers with no `queued op` line; 400 for a body
+- **Opening one shows its conversation and wakes nothing; a message wakes it ("Wake on send").** Selecting a sleeper (a tap in the sidebar, an
+  Overview link, `#s=<name>`) draws its transcript like a live session's chat, read from the file on disk by `GET /api/sleeping/<name>/transcript`
+  (below); reading is free. A band above the composer (`#sleep-band`) says *asleep since ... Sending a message wakes it, and the message goes in
+  when it is back* with the *Wake it* button, and the composer works as it does for a live session. A sleeper whose file cannot be found (or read)
+  shows the old note in the chat and the same band, never an error page.
+- **The first message sent to a sleeper is held, and goes in once when the session is back.** Send shows the message as a bubble that says *Waiting
+  for NAME to wake* (state `held`; a held message is never matched against the transcript) and asks `POST /api/wake` with `how: "send"`, once (a second
+  message asks for no second wake unless the first ask failed). The band then says *Waking ...*, then follows the queued operation
+  (`GET /api/spawn/status?op=`) and the sessions list every 2 s. When the session is listed live (the ordinary poll opens it; a woken session keeps
+  its conversation and its name) the held messages are sent in order, one at a time, each leaving `held` for `sending` before its first request.
+  A woken pane draws its input box some seconds after its registry file appears, and the server answers a send to a pane with no input box with a 409
+  that carries `noInputBox: true` (nothing was typed); a held message is asked again every 2 s for a minute on that answer alone, and
+  fails with the server's words after that. Every other refusal is the bubble's `Not sent: ...` as for any message, with Retry and Edit. A refused or
+  stuck wake, or four minutes without one, shows the reason in the band (with *Try again*) and in the bubble (*Not sent yet: NAME did not wake (why).
+  The message is kept.*); the message stays held, *Try again* asks for the wake again and the message goes in once it is back, *Edit* puts it back in
+  the composer and nothing is sent. Where the message lives while it waits: the page (`state.pending`) and `localStorage` `salaweb.held`
+  (`{name: {op, msgs: [{text, at, images}]}}`, text and the names of what was uploaded; a pasted image's thumbnail is not kept and shows as a file
+  chip), written when a message is held and removed when its request is answered, dropped or edited back. A reload reads it before the chat is
+  drawn, brings the bubbles back and, with the operation id, follows the queued wake instead of asking for another. A message whose request was
+  in flight at the moment of a reload is held again on the next load; the server's duplicate window (`DUP_WINDOW`, 20 s) refuses a second paste of
+  the same text to the same pane, and the page drops its copy on that answer.
+- **`GET /api/sleeping/<name>/transcript`**: the same JSON and the same `?n`, `?before`, `?around` and `?after` as `GET /api/s/<pid>/transcript`
+  (`session` carries `sleeping` and pid 0), for a name `read_sleeping_sessions` lists: the file is `transcript.transcript_path(<projects dir>,
+  <the pane map's directory>, <the marker's conversation id>)` (the directory's project folder, else any project folder holding that id; a name
+  that is not a conversation id never reaches a path). Read-only; sala is not run. 404 for a name that is not asleep (no marker, a marker with no
+  pane-map row, a live name, a name that is no session name); 200 with `messages: []` and `path: null` when the file is not found. The page reads the
+  newest messages once and older ones as the chat is scrolled up, as for a live session; there is no stream, a sleeper writes nothing.
+- **`POST /api/wake`** `{"name", "how"?}` (`application/json`): for a name that is asleep now, runs `sala op wake --only NAME --from sala-web --words
+  "<owner>, via the sala web page: <what> NAME, <time>"`, the owner's own act (the queue's words door; the reason door is for a Claude session).
+  `how`: `"send"` (*sent a message to the sleeping session*), `"button"` (*pressed Wake on the sleeping session*), anything else or none (*opened the
+  sleeping session*, the page's first way). 202 `{ok, op, name}` when queued; 200 `{ok, code: "awake"}` when the name is not asleep (nothing is queued
+  and sala is not run); 409 with sala's words when the queue refuses; 502 when sala cannot be run or answers with no `queued op` line; 400 for a body
   with no valid name.
 - Nothing here puts a session to sleep. The idle tick that does is a later stage; today `sala sleep` is the only way.
 
@@ -2065,7 +2089,8 @@ part of `web/`.
 | `POST /api/spawn/project-agent` | `{"project", "name", "role", "front", "mandate"}` (the mandate one line, 600 characters) → stackshot's `post project-agent`; 200 `{ok, id, key, pageOwed, pageYaml, note}`; 403 `code: not-allowed` when stackshot refuses the project (retired or hidden); 409 `exists` (the name is taken); 400 a name that does not start with the project's name |
 | `GET /api/spawn/suggest?project=<key>&role=front\|back[&prefix=<p>][&new=1]` | `{"name"}` from `sala spawn --suggest-name [--prefix p] [--new]`: `<prefix>-main` only for a front agent of a project with no agent yet (sala's record lists it with none, or `new=1` says it has no page yet), else `<prefix>-<random word>` (a word picked at random, not in a fixed order; a missing or stale record gives a word too), never a name that is taken (a tmux session, a running claude, an agent of any project in stackshot's record); `prefix` is the project's real one (its main agent's name without `-main`), which the page sends; 400 for a bad key, role or prefix, 502 when sala could not say |
 | `POST /api/spawn` | `{"project", "role", "name", "mandate"?, "lane"?, "model"?, "effort"?}` as `application/json` (64 KB at most, the mandate 20 KB) → one `sala op spawn …`. 202 `{ok: true, op, name, project, role, output}` when queued; 409 with `code` `not-listed` (`page`, `name`, `role`, `block`: the `REGISTER:` line and stackshot's register command, `keeper`: sala's line or null, `error`), `no-page` (`page`, `error`), `refused` (`error`, `exit`) or `busy` (one spawn in flight); 400 a bad field (`error` says which), 413 too large, 403 cross-origin, 415 not JSON, 502 `code: error` when sala could not be run or did not finish in 90 s. Nothing typed is logged (*New session*) |
-| `POST /api/wake` | `{"name": "<a sleeping session>"}` as `application/json` -> `sala op wake --only NAME --from sala-web --words "..."`. 202 `{ok: true, op, name, output}` when queued (follow `GET /api/spawn/status?op=`); 200 `{ok: true, code: "awake", name}` when the name is not asleep (nothing queued); 409 `{ok: false, code: "refused", error}` with the queue's words; 502 when sala cannot be run; 400 for no valid name (*Sleeping sessions*) |
+| `GET /api/sleeping/<name>/transcript` | a sleeping session's conversation from its file on disk, as `GET /api/s/<pid>/transcript` gives a live one's (`?n`, `?before`, `?around`, `?after`); 404 for a name that is not asleep; `messages: []` and `path: null` when its file is not found (*Sleeping sessions*) |
+| `POST /api/wake` | `{"name": "<a sleeping session>", "how"?: "send"\|"button"}` as `application/json` -> `sala op wake --only NAME --from sala-web --words "..."`. 202 `{ok: true, op, name, output}` when queued (follow `GET /api/spawn/status?op=`); 200 `{ok: true, code: "awake", name}` when the name is not asleep (nothing queued); 409 `{ok: false, code: "refused", error}` with the queue's words; 502 when sala cannot be run; 400 for no valid name (*Sleeping sessions*) |
 | `GET /api/spawn/status?op=<id>` | the queued operation's record from sala's marker: `op`, `state` (queued, running, waiting, done, stuck, absorbed, cancelled), `result`, `args`, `verb`, `from`, `time`, `started`, `ended`, `unit` (the ones the marker has), and, while `state` is queued, `behind` (what is ahead of it in the queue, running first: a list of `{op, verb, arg, state}`) and `behind_line` (one sentence counted by verb, "" when nothing is ahead); 400 for a bad id, 404 for none |
 | `POST /api/debug/<kind>`, `GET /api/debug/<kind>?n=200` | `kind` is `timing`: a record or a list of them (`application/json`, 64 KB at most) appended to `<kind>-debug.log`, 204; the log's last n lines as `text/plain`, the timing log as one readable line a record unless `?raw=1` (temporary; *Timing*) |
 

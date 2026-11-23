@@ -220,7 +220,8 @@ def test_the_english_table_is_not_empty_anywhere():
 # ── the lookup and the age words, run in node ──────────────────────────────────────────────────────────────────────
 
 def run_node(program: str) -> object:
-    out = subprocess.run([NODE, "-e", program], capture_output=True, text=True, check=True, timeout=60).stdout
+    # the program goes in on stdin: the two tables and shared.js together passed 128 KB, the most one argument of a command line may hold
+    out = subprocess.run([NODE, "-"], input=program, capture_output=True, text=True, check=True, timeout=60).stdout
     return json.loads(out)
 
 
