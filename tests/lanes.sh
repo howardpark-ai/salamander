@@ -44,6 +44,7 @@ mk() { local n="$1" u="$2"; shift 2; $T new-session -d -s "sala-test-$n" -c "$HO
 lanelog() { grep "^$1 " "$FAKE_LANE_LOG" 2>/dev/null | tail -1 | cut -d' ' -f2-; }   # <uuid> → "key=… hdr=… cfg=…" of its latest start
 cachelog() { grep "^$1 " "$FAKE_CACHE_LOG" 2>/dev/null | tail -1 | cut -d' ' -f2-; }   # <uuid> → "cache1h=<plain switch> cache1h_bedrock=<bedrock switch>" of its latest start ("-" unset)
 default_file() { head -1 "$SALA_LANE_DEFAULT_FILE" 2>/dev/null; }
+slurp_model() { model_row "$1" | cut -f1; }   # <session> → the model its models.tsv row records, or nothing
 U1=$(uuid 1); U2=$(uuid 2); U3=$(uuid 3); UX=$(uuid 9)
 
 echo "== the launch-line prefix per lane: the key file's path, never its value"
@@ -183,11 +184,32 @@ out=$("$SALA" lane subscription-2 --all --dry-run 2>&1); rc=$?
 [ "$rc" = 0 ] && grep -q 'DRY RUN: nothing recorded' <<< "$out" && [ "$(default_file)" = subscription-1 ] && ok "--all --dry-run: exit 0, the default untouched" || bad "--all dry run ($rc): $out / $(default_file)"
 [ -n "$tsv_before" ] && [ "$(slurp "$SALA_LANES")" = "$tsv_before" ] && ok "the switch with --dry-run (sessions, then --all): lanes.tsv unchanged" || bad "lanes.tsv changed under --dry-run: '$tsv_before' → '$(slurp "$SALA_LANES")'"
 
+echo "== Fable runs only on the Ultra lane: a lane move or a new default puts a Fable session on opus first (lane_runs_model, common.sh)"
+model_write sala-test-b fable
+out=$("$SALA" lane subscription-2 sala-test-b --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -q 'sala-test-b: subscription-1 (the default) → subscription-2.*, model fable → opus (Fable runs only on the Ultra lane (subscription-1)' <<< "$out" && [ "$(slurp_model sala-test-b)" = fable ] \
+    && ok "lane subscription-2 <fable session> --dry-run: names the model change and the reason, writes nothing" || bad "fable lane dry run ($rc): $out"
+out=$("$SALA" lane api sala-test-b --dry-run 2>&1)
+grep -q 'model fable → opus' <<< "$out" && ok "the same on the api lane" || bad "fable api dry run: $out"
+out=$("$SALA" lane subscription-1 sala-test-b --dry-run 2>&1)
+! grep -q 'model fable' <<< "$out" && ok "a move to subscription-1 (Ultra): no model change" || bad "fable to ultra: $out"
+out=$("$SALA" lane default subscription-2 --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -q 'sala-test-b: model fable → opus (Fable runs only on the Ultra lane' <<< "$out" && ! grep -q 'sala-test-a: model' <<< "$out" && [ "$(slurp_model sala-test-b)" = fable ] && [ "$(default_file)" = subscription-1 ] \
+    && ok "lane default subscription-2 --dry-run: the session that follows the default is named with its model change (one with a lane of its own is not), nothing written" || bad "fable default dry run ($rc): $out"
+out=$("$SALA" lane default subscription-2 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(slurp_model sala-test-b)" = opus ] && [ "$(default_file)" = subscription-2 ] && ok "lane default subscription-2: the Fable session is recorded on opus, the default changed" || bad "fable default ($rc): $out / model '$(slurp_model sala-test-b)'"
+"$SALA" lane default subscription-1 >/dev/null 2>&1; model_drop sala-test-b
+model_write sala-test-b fable; out=$("$SALA" lane default subscription-1 --dry-run 2>&1)
+! grep -q 'model fable' <<< "$out" && ok "the default on subscription-1 (Ultra): no model change" || bad "fable default to ultra: $out"
+model_drop sala-test-b
+
 echo "== SALA_NO_RELAUNCH: refused by name, left out of --all"
 out=$(SALA_NO_RELAUNCH=sala-test-b "$SALA" lane api sala-test-b 2>&1); rc=$?
 [ "$rc" = 1 ] && [ -z "$(lane_row sala-test-b)" ] && [ "$(starts "$U2")" = 2 ] && ok "a session managed outside sala: refused, nothing recorded" || bad "lane api on a no-relaunch session ($rc): $out"
+model_write sala-test-a fable   # on api now: --all moves it to subscription-2, which cannot run Fable either
 out=$(SALA_NO_RELAUNCH=sala-test-b "$SALA" lane subscription-2 --all 2>&1); rc=$?
 [ "$rc" = 0 ] && ok "sala lane subscription-2 --all: started" || bad "lane subscription-2 --all ($rc): $out"
+[ "$(slurp_model sala-test-a)" = opus ] && grep -q 'sala-test-a: api → subscription-2.*model fable → opus' <<< "$out" && ok "--all: the Fable session was switched to opus first (recorded, and said in the plan)" || bad "fable --all: model '$(slurp_model sala-test-a)' / $out"
 [ "$(lane_row sala-test-a)" = subscription-2 ] && [ -z "$(lane_row sala-test-b)" ] && [ "$(default_file)" = subscription-2 ] && ok "recorded: a → subscription-2, no row for b, the default subscription-2" || bad "rows: $(<"$SALA_LANES"); default $(default_file)"
 waitfor '[ "$(starts "$U1")" = 4 ]' 60 && ok "the recycle relaunched sala-test-a" || bad "a not relaunched by --all: $(tail -20 "$RLOG")"
 wait_lock; fake_up sala-test-a

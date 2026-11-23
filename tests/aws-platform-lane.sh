@@ -213,9 +213,19 @@ grep -q 'after unsetting CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_FOUNDRY ANTHROP
 grep -q 'no Remote Control' <<< "$out" && ok "and it says there is no Remote Control on this lane" || bad "no RC line: $out"
 [ -z "$(lane_row sala-test-a)" ] && [ "$(starts "$U1")" = 1 ] && ok "nothing recorded, nothing relaunched" || bad "after dry run: row '$(lane_row sala-test-a)' starts $(starts "$U1")"
 
+echo "== Fable runs only on the Ultra lane: aws-platform included (lane_runs_model, common.sh)"
+model_write sala-test-a fable
+out=$("$SALA" lane aws-platform sala-test-a --dry-run 2>&1)
+grep -q 'model fable → opus (Fable runs only on the Ultra lane (subscription-1), never on another lane: the aws-platform lane cannot run it)' <<< "$out" && [ "$(model_row sala-test-a | cut -f1)" = fable ] && ok "the move's plan names the switch to opus and the reason; nothing written" || bad "fable plan: $out"
+out=$("$SALA" spawn sala-test-fz --lane aws-platform --model fable --dry-run --cwd "$HOME" 2>&1); rc=$?
+[ "$rc" != 0 ] && grep -q 'Fable runs only on the Ultra lane (subscription-1)' <<< "$out" && ok "spawn --lane aws-platform --model fable: refused" || bad "spawn fable ($rc): $out"
+out=$("$SALA" spawn sala-test-fz --lane aws-platform --model opus --dry-run --cwd "$HOME" 2>&1); rc=$?
+! grep -q 'Fable runs only' <<< "$out" && ok "spawn --lane aws-platform --model opus: not refused for the model" || bad "spawn opus ($rc): $out"
+
 echo "== sala lane aws-platform <session>: recorded, relaunched through the direct sweep"
 [ "$(awsplog "$U1")" = "$NONE" ] && ok "before: the pane's claude has none of the lane's variables" || bad "before: $(awsplog "$U1")"
 out=$("$SALA" lane aws-platform sala-test-a 2>&1); rc=$?
+[ "$(model_row sala-test-a | cut -f1)" = opus ] && ok "the Fable session was recorded on opus before it moved" || bad "model after the move: $(model_row sala-test-a)"
 [ "$rc" = 0 ] && ok "exit 0" || bad "sala lane aws-platform sala-test-a ($rc): $out"
 waitfor '[ "$(starts "$U1")" = 2 ]' 40 && ok "sala-test-a relaunched" || bad "no relaunch: $(<"$FAKE_LOG") $(tail -5 "$RLOG")"
 fake_up sala-test-a

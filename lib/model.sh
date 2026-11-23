@@ -87,6 +87,7 @@ usage() {
     echo "       salamander model <model> [--effort <level>] <session>… [--dry-run]   the same for several sessions at once: one lock, one sweep for the relaunches, one summary (the first word a model = this shape)"
     echo "       salamander model --clear <session> <session>… [--dry-run]   drop the records of several sessions"
     echo "  models: $SALA_MODEL_FAMILIES, or a full model id (claude-…) · efforts: $SALA_EFFORTS_KNOWN"
+    echo "  Fable runs only on the Ultra lane (${SALA_FABLE_LANES%% *}): fable is refused, in every form and in the plan, for a session on any other lane (a batch is refused whole); move it first: salamander lane ${SALA_FABLE_LANES%% *} <session>"
 }
 
 export SALA_FLAG_SRC=model   # the flag a relaunch here raises: one pane, explicit (common.sh, flag_src)
@@ -194,6 +195,7 @@ if [ -n "$BATCH" ]; then
             if [ "$RECORD_ONLY" = 1 ]; then session_known "$s" || BAD+=("unknown session '$s': no tmux session, no pane-map row and no model recorded for it (salamander spawn --list)")
             else is_sleeping "$s" || tmux has-session -t "=$s" 2>/dev/null || BAD+=("unknown session '$s': no tmux session by that name (salamander spawn --list)"); fi
             [ "$s" = "$SALA_RC_SESSION" ] && BAD+=("'$s' is the Remote Control server's session — it has no model of its own (salamander rc)")
+            lane_runs_model "$(lane_for_session "$s")" "$MODEL" || BAD+=("$s: $(lane_fable_refusal "$(lane_for_session "$s")" "$s") (move it to that lane first: salamander lane ${SALA_FABLE_LANES%% *} $s)")   # THE FABLE RULE (common.sh, lane_runs_model)
             no_relaunch "$s" && ! is_sleeping "$s" && BAD+=("$(no_relaunch_line "$s") — $(no_relaunch_fix "$s" "it is launched by hand; take it out of SALA_NO_RELAUNCH to record a model for it")")
         fi
     done
@@ -304,6 +306,8 @@ fi
 # and a wake resumes the conversation on it (resume_cmd reads the table). A batch's child takes this path too, so the batch's sweep never names it.
 if is_sleeping "$SESS"; then RECORD_ONLY=1; echo "ℹ $SESS is sleeping: the model is recorded only, nothing relaunched (a wake resumes it on the record)"; fi
 no_relaunch "$SESS" && ! is_sleeping "$SESS" && die "$(no_relaunch_line "$SESS") — $(no_relaunch_fix "$SESS" "it is launched by hand; take it out of SALA_NO_RELAUNCH to record a model for it")"
+# THE FABLE RULE (common.sh, lane_runs_model): Fable runs only on the Ultra lane — refused here, so the queue's plan (this command's --dry-run) shows it
+lane_runs_model "$(lane_for_session "$SESS")" "$MODEL" || die "$(lane_fable_refusal "$(lane_for_session "$SESS")" "$SESS") — move it to that lane first (salamander lane ${SALA_FABLE_LANES%% *} $SESS); nothing recorded, nothing relaunched"
 ops_guard model "$SESS" $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): queued with sala op when a Claude session asks
 
 # ── the record alone (--record-only) ──────────────────────────────────────────

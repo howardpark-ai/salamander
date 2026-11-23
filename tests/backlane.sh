@@ -40,8 +40,9 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 unset SALA_ROLES_FILE_MAX_AGE SALA_SET SALA_SET_SELF SALA_RECYCLE SALA_NO_RELAUNCH SALA_BACK_LANE_RULE SALA_BACK_LANE_ORDER SALA_BACK_LANE_THRESHOLD SALA_BACK_LANE_MAX_AGE \
-      SALA_BACK_LANE_WORDS SALA_BACK_LANE_STATE SALA_BACK_LANE_FRONT_THRESHOLD SALA_LANE_FALLBACK SALA_FALLBACK_NO_FABLE TMUX TMUX_PANE
-export SALA_BACK_LANE_FRONT_THRESHOLD=off   # the sections up to THE FRONT STEP test the back agents' steps with a front agent registered at the same 95%: that step is off for them
+      SALA_BACK_LANE_WORDS SALA_BACK_LANE_STATE SALA_BACK_LANE_FRONT_THRESHOLD SALA_LANE_FALLBACK SALA_FABLE_LANES TMUX TMUX_PANE
+export SALA_FABLE_LANES="subscription-1 aws-platform"   # the rule's mechanics are tested with a second Fable-capable lane; the default list (Ultra only) is the last section
+export SALA_BACK_LANE_FRONT_THRESHOLD=off  # the sections up to THE FRONT STEP test the back agents' steps with a front agent registered at the same 95%: that step is off for them
 T=""
 trap '[ -n "$T" ] && rm -rf "$T"' EXIT
 T=$(mktemp -d "${TMPDIR:-/tmp}/sala-backlane.XXXXXX")
@@ -700,6 +701,18 @@ quota 95 $((W2 + 7 * 86400)); tick >/dev/null
 [ "$(drv 'back_lane_current')" = aws-platform ] && [ -z "$(drv 'back_lane_get hqueued')" ] && ok "the next step 1 (the agents leave home again) clears hqueued" || bad "step 1 clear: $(drv 'back_lane_current') hq=$(drv 'back_lane_get hqueued')"
 # the back catch-up and the front step off home are untouched
 regf; quota 95 $W1; tick >/dev/null; out=$(tick); [ "$(ops)" = 2 ] && ! has "$out" "catch-up (home)" && ok "off home: no home catch-up line, the existing behavior" || bad "off home: ops=$(ops) $out"
+rm -f "$SALA_ROLES_FILE"
+
+# THE FABLE RULE at its default (SALA_FABLE_LANES=subscription-1): aws-platform cannot run Fable either; everything above ran with it listed, to test the rule's mechanics
+echo "== Fable runs only on the Ultra lane: a Fable back agent stays off aws-platform, a Fable front agent is swapped to opus there, a spawn is swapped"
+rm -f "$ST/lane-state.tsv"; reg; quota 95 $W1; out=$(SALA_FABLE_LANES=subscription-1 tick)
+line=$(head -1 "$FAKE_OPLOG"); [ "$line" = "op|lane|aws-platform|back-a|back-b|--from|sala-watch|--words|$RULE_WORDS|" ] && has "$out" "notice:" && has "$out" "back-fab" && ok "the back step to aws-platform leaves the Fable back agent where it is, with one notice" || bad "default fable lanes, back: $line / $out"
+regf; quota 95 $W1; out=$(SALA_FABLE_LANES=subscription-1 tick)
+has "$out" "model fable -> opus on the aws-platform lane (it cannot run Fable): front-fab" && [ "$(model_of front-fab)" = opus ] && [ "$(home_of front-fab)" = "subscription-1|fable" ] && ok "the front step to aws-platform swaps the Fable front agent to opus and records what it had" || bad "default fable lanes, front: $(model_of front-fab) $(home_of front-fab) / $out"
+SALA_FABLE_LANES=subscription-1 sp lr-front-x --project projects/foo --role front --model fable --dry-run
+[ "$RC" = 0 ] && has "$OUT" "the aws-platform lane cannot run Fable, so it launches on opus" && ok "a Fable front agent spawned while the rule has the front agents on aws-platform launches on opus" || bad "default fable lanes, spawn: rc=$RC $OUT"
+SALA_FABLE_LANES=subscription-1 sp lr-front-x --project projects/foo --role front --lane aws-platform --model fable --dry-run
+[ "$RC" != 0 ] && has "$OUT" "Fable runs only on the Ultra lane (subscription-1)" && ok "an explicit --lane aws-platform --model fable is refused" || bad "default fable lanes, explicit: rc=$RC $OUT"
 rm -f "$SALA_ROLES_FILE"
 
 exit $fail

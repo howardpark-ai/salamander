@@ -132,7 +132,7 @@ t=""; w=""; SALA_LANE_FALLBACK="subscription-1=bedrock" _sdk_fallback_r t w
 [ "$t" = subscription-1 ] && grep -q 'no fallback set' <<< "$w" && SALA_LANE_FALLBACK="sdk=none" _sdk_fallback_r t w && [ "$t" = subscription-1 ] && grep -q 'no fallback set' <<< "$w" && ok "no entry for sdk, or none: subscription-1 as the last resort, said" || bad "no entry: $t / $w"
 model_write sala-test-x fable
 r=$(SALA_LANE_SDK_NOW=$UNTIL resume_cmd "$UX" sala-test-x)
-[ "$(resume_cmd "$UX" sala-test-x)" = "$SALA_BIN sdk-pane $UX sala-test-x --model fable" ] && grep -q -- " --model opus" <<< "$r" && ! grep -q -- "--model fable" <<< "$r" && ok "a Fable session on the bedrock fallback line: --model opus (bedrock cannot run Fable); on the sdk line it stays Fable" || bad "fable on the fallback: $r / $(resume_cmd "$UX" sala-test-x)"
+[ "$(resume_cmd "$UX" sala-test-x)" = "$SALA_BIN sdk-pane $UX sala-test-x --model opus" ] && grep -q -- " --model opus" <<< "$r" && ! grep -q -- "--model fable" <<< "$r" && ok "a Fable session on the bedrock fallback line: --model opus (Fable runs only on the Ultra lane); the sdk line itself is no Ultra lane either: --model opus" || bad "fable on the fallback: $r / $(resume_cmd "$UX" sala-test-x)"
 model_drop sala-test-x
 lane_drop sala-test-x
 out=$("$SALA" lane 2>&1); grep -q 'sdk ready' <<< "$out" && ok "the table: sdk ready" || bad "table: $out"

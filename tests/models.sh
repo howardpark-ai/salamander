@@ -192,6 +192,43 @@ out=$("$SSALA" model haiku --record-only sala-test-a sala-test-b 2>&1); rc=$?
 model_drop sala-test-a; model_drop sala-test-b
 wait_lock
 
+echo "== Fable runs only on the Ultra lane: refused at plan time for a session on any other lane (lane_runs_model, common.sh)"
+fbn() { local c=0; [ -r "$SALA_MODELS" ] && c=$(grep -c . "$SALA_MODELS"); echo "$c"; }   # rows in the table
+for l in bedrock aws-platform subscription-2 api; do
+    lane_write sala-test-a "$l"; : > "$RCALLS"
+    out=$("$SSALA" model sala-test-a fable --dry-run 2>&1); rc=$?
+    [ "$rc" = 1 ] && grep -q 'Fable runs only on the Ultra lane (subscription-1)' <<< "$out" && grep -q "sala-test-a is on the $(lane_shown "$l") lane" <<< "$out" && [ "$(fbn)" = 0 ] && [ ! -s "$RCALLS" ] \
+        && ok "single shape, session on $l: refused in the dry run (the queue's plan), the reason names the lane, nothing written" || bad "fable on $l ($rc): $out"
+done
+lane_write sala-test-a bedrock
+out=$("$SSALA" model sala-test-a claude-fable-5-1 --record-only 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q 'Fable runs only on the Ultra lane' <<< "$out" && [ "$(fbn)" = 0 ] && ok "a full claude-fable-… id is refused the same way, --record-only included" || bad "fable id on bedrock ($rc): $out"
+out=$("$SSALA" model sala-test-a opus --record-only 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(row sala-test-a)" = opus/- ] && ok "another model on bedrock is not refused" || bad "opus on bedrock ($rc): $out"
+model_drop sala-test-a
+out=$("$SSALA" model fable sala-test-a sala-test-b --dry-run 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q '✗ sala-test-a: Fable runs only on the Ultra lane (subscription-1)' <<< "$out" && ! grep -q 'sala-test-b: Fable' <<< "$out" && grep -q 'the batch is refused (1 problem(s) in 2 session(s))' <<< "$out" && [ "$(fbn)" = 0 ] \
+    && ok "batch: one session on bedrock refuses the whole batch (as an unknown session does), only that one named, nothing written" || bad "batch fable ($rc): $out"
+lane_drop sala-test-a
+: > "$RCALLS"
+out=$("$SSALA" model fable sala-test-a sala-test-b --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -q 'model batch: 2 session(s) → fable — DRY RUN' <<< "$out" && ok "batch on the Ultra lane (the default): planned" || bad "batch fable on ultra ($rc): $out"
+out=$("$SSALA" model sala-test-a fable --record-only 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(row sala-test-a)" = fable/- ] && ok "single shape on the Ultra lane: recorded" || bad "fable on ultra ($rc): $out"
+lane_write sala-test-b subscription-1
+out=$("$SSALA" model sala-test-b fable --dry-run 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -qF '[dry-run] would record sala-test-b → fable' <<< "$out" && ok "a session recorded on subscription-1: planned" || bad "fable on recorded ultra ($rc): $out"
+model_drop sala-test-a; lane_drop sala-test-b
+echo "== resume_cmd: a Fable record never reaches a launch line for a lane other than the Ultra lane"
+model_write sala-test-a fable
+lane_write sala-test-a bedrock; r=$(resume_cmd "$U1" sala-test-a)
+grep -q -- '--model opus' <<< "$r" && ! grep -q -- '--model fable' <<< "$r" && ok "on bedrock the line says --model opus (the record stays)" || bad "resume on bedrock: $r"
+lane_write sala-test-a aws-platform; r=$(resume_cmd "$U1" sala-test-a)
+grep -q -- '--model opus' <<< "$r" && ! grep -q -- '--model fable' <<< "$r" && ok "on aws-platform too" || bad "resume on aws-platform: $r"
+lane_write sala-test-a subscription-1; r=$(resume_cmd "$U1" sala-test-a)
+grep -q -- '--model fable' <<< "$r" && ok "on subscription-1 the line keeps --model fable" || bad "resume on ultra: $r"
+lane_drop sala-test-a; model_drop sala-test-a
+
 echo "== retire drops the row"
 model_write sala-test-b haiku low
 "$SALA" retire sala-test-b --keep-web --busy >/dev/null 2>&1; [ -z "$(row sala-test-b)" ] && ok "retired: its model row is gone" || bad "row after retire: '$(row sala-test-b)'"

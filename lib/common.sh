@@ -4124,14 +4124,16 @@ lane_pin_rename() { [ -r "$SALA_LANE_PINS" ] || return 0; _lane_pin_locked _lane
 #                             reason is one alert line.
 #   SALA_LANE_FALLBACK_AUTO   on (default) · off: the AUTOMATIC part — the watch's own detection and `lane dormant` queue the move, and
 #                             a job whose lane is dormant runs on the fallback. `salamander lane fallback <lane>` (a person's form) works either way.
-#   SALA_FALLBACK_NO_FABLE    the lanes a Fable session cannot run on (bedrock: 400 "data retention mode", the trap in memory); a session on
-#                             Fable that moves onto one of them is recorded on SALA_FALLBACK_FABLE_MODEL (opus: Opus 5.5 there).
+#   SALA_FABLE_LANES          the lanes a Fable model may run on: subscription-1 (Ultra) only, by default (on bedrock Fable needs a Marketplace
+#                             subscription the lane's role cannot make, so every turn fails; no other lane is offered it). A session on
+#                             Fable that moves onto any other lane is recorded on SALA_FALLBACK_FABLE_MODEL (opus: Opus 5.5 there), and a
+#                             Fable model is refused for a session whose lane is not in the list (lane_runs_model, below).
 # The record of where a session came from is lane-home.tsv (STATE, beside lanes.tsv): "<session>\t<home lane>\t<when, ISO>\t<model it
 # had, or ->". `salamander lane` shows it as the HOME column while the session sits elsewhere. NOTHING moves a session back when its
 # lane is active again ("stay"): `salamander lane <home> <session>` does, and the switch clears the row. Moving back restores no model.
 : "${SALA_LANE_FALLBACK:=subscription-1=bedrock subscription-2=bedrock aws-platform=bedrock api=bedrock sdk=bedrock bedrock=subscription-1}"
 : "${SALA_LANE_FALLBACK_AUTO:=on}"
-: "${SALA_FALLBACK_NO_FABLE:=bedrock}"
+: "${SALA_FABLE_LANES:=subscription-1}"
 : "${SALA_FALLBACK_FABLE_MODEL:=opus}"
 SALA_LANE_HOME="$SALA_STATE_DIR/lane-home.tsv"
 _fw_default="${SALA_OWNER_NAME}'s standing pick \"Move automatically, stay\": \"Move them to the fallback on their own; they stay there until ${SALA_OWNER_NAME} or a session moves them back.\""
@@ -4182,8 +4184,19 @@ session_on_fable() {  # <session> → 0 when its model is a Fable: the recorded 
     u=$(sidecar_uuid_for_session "$1" 2>/dev/null) || return 1; [ -n "$u" ] || return 1
     [ "$(model_family_for_uuid "$u")" = fable ]
 }
+# THE ONE CHECK: may this model run on this lane? A Fable model (the alias or a claude-fable-… id, any case) runs only on a lane in
+# SALA_FABLE_LANES (subscription-1, Ultra); every other model runs everywhere. Every place that could put a Fable model on a lane asks here:
+# `sala model` (refused at plan time), `sala spawn --model`, a lane move (lane_fallback_model_change below), the lane fallback, the back agents'
+# rule, and the resume line of every relaunch (resume_cmd: a Fable that would launch on another lane launches on SALA_FALLBACK_FABLE_MODEL).
+model_is_fable() { local m=${1,,}; case "$m" in fable|claude-fable-*) return 0;; esac; return 1; }   # <model> → 0 for a Fable alias or id
+lane_runs_fable() { local l; _lane_norm_r l "${1:-}"; [ -n "$l" ] || return 1; case " $SALA_FABLE_LANES " in *" $l "*) return 0;; esac; return 1; }   # <lane> → 0 when Fable may run on it
+lane_runs_model() { model_is_fable "${2:-}" || return 0; lane_runs_fable "${1:-}"; }   # <lane> <model> → 0 when the model may run on the lane
+lane_fable_refusal() {  # <lane> [<session>] → the plain reason a Fable model is refused on the lane (a session's own lane named when one is given)
+    local ul; ul=$(lane_shown "${SALA_FABLE_LANES%% *}")
+    printf 'Fable runs only on the %s lane (%s), never on another lane: %s' "$ul" "${SALA_FABLE_LANES%% *}" "${2:+$2 is on the $(lane_shown "${1:-}") lane}${2:-the $(lane_shown "${1:-}") lane cannot run it}"
+}
 lane_fallback_model_change() {  # <session> <target lane> → "fable<TAB>opus" when the session must change model to run on the lane, else nothing
-    case " $SALA_FALLBACK_NO_FABLE " in *" $(lane_state_id "${2:-}") "*) session_on_fable "$1" && printf 'fable\t%s\n' "$SALA_FALLBACK_FABLE_MODEL";; esac
+    if ! lane_runs_fable "${2:-}"; then session_on_fable "$1" && printf 'fable\t%s\n' "$SALA_FALLBACK_FABLE_MODEL"; fi
     return 0
 }
 # lane_fallback_auto <lane> <signal|hand> → queues the move of everything on a lane that just went dormant. 0 queued (the op's id on
@@ -4230,7 +4243,7 @@ lane_fallback_auto() {
 # THE MOVE is `sala op lane <lane> <session>… --from sala-watch --words "$SALA_BACK_LANE_WORDS"`: the queue, the ordinary switch, a busy
 # pane deferred and retried, ONE Slack post by the operation. Who moves: the live back agents (a tmux session; not SALA_NO_RELAUNCH)
 # whose lane is in the order and on the wrong side of the target (a step forward moves those before it; the way home those off home);
-# a back agent on another lane (api, subscription-2) is left where it is, as is a Fable session when the target is in SALA_FALLBACK_NO_FABLE
+# a back agent on another lane (api, subscription-2) is left where it is, as is a Fable session when the target is outside SALA_FABLE_LANES
 # (it would fail there; one notice says so). The target must be active and ready; else nothing moves and one notice says why, once per window.
 # NEVER ONTO A DORMANT LANE: a step whose target lane is dormant (a monthly usage cap, a seat gone, API credit used up) moves the agents to that
 # lane's FALLBACK instead (lane_fallback_pick, the one table, SALA_LANE_FALLBACK), provided the fallback is active, ready, in the order and
@@ -4249,7 +4262,7 @@ lane_fallback_auto() {
 # the order and before it, once per weekly window (state keys front_window, fqueued, fblocked). Step 1 runs first in the same pass, so a pass that finds the
 # reading at the front threshold with the agents still home moves the back agents and then the front agents onto the lane step 1 chose. A pinned
 # front agent is held out and named; a lane outside the order (api, subscription-2) is left alone; a dormant target is replaced by its fallback and a
-# target that cannot take them holds one notice, as for the back agents. A front agent on Fable bound for a lane in SALA_FALLBACK_NO_FABLE is not left
+# target that cannot take them holds one notice, as for the back agents. A front agent on Fable bound for a lane outside SALA_FABLE_LANES is not left
 # behind (the back agents are): the step does the model swap `sala lane fallback` does, in its order (lane_fallback_model_change read first, the home
 # and the model it had recorded by lane_home_set, then model_write), right before queuing the move (back_lane_front_swap); a swap that cannot be
 # written leaves that session out of the move, with a notice. Moving home restores no model, as for the fallback. A front agent found on the wrong side later
@@ -4425,7 +4438,7 @@ back_lane_substitute() {
 }
 # back_lane_movers <target lane> [back|front] → BL_MOVE (who goes), BL_STAY (a Fable session the target cannot run), BL_PINNED (a pinned session the
 # move would otherwise have taken: held out, THE PINNED SESSIONS above) and, for front, BL_SWAP (the movers whose model the move changes: a Fable
-# front agent bound for a lane in SALA_FALLBACK_NO_FABLE; front agents are never left in BL_STAY); the rule above says who counts
+# front agent bound for a lane outside SALA_FABLE_LANES; front agents are never left in BL_STAY); the rule above says who counts
 BL_MOVE=(); BL_STAY=(); BL_PINNED=(); BL_SWAP=()
 back_lane_pinned_note() {  # → "; skipped (pinned to <lane>): <session>; …" for BL_PINNED, nothing when none
     local s o=""; for s in ${BL_PINNED[@]+"${BL_PINNED[@]}"}; do o="$o; $(pinned_skip_note "$s")"; done; printf '%s' "$o"
@@ -4437,7 +4450,7 @@ back_lane_movers() {
         e=$(lane_for_session "$s"); ei=$(back_lane_idx "$e") || continue            # a lane outside the order is not the rule's
         if [ "$ti" -eq 0 ]; then [ "$ei" -gt 0 ] || continue; else [ "$ei" -lt "$ti" ] || continue; fi
         if lane_is_pinned "$s"; then BL_PINNED+=("$s"); continue; fi                 # held out of a bulk move (THE PINNED SESSIONS)
-        case " $SALA_FALLBACK_NO_FABLE " in *" $t "*) if session_on_fable "$s"; then if [ "$role" = front ]; then BL_SWAP+=("$s"); else BL_STAY+=("$s"); continue; fi; fi;; esac
+        lane_runs_fable "$t" || { if session_on_fable "$s"; then if [ "$role" = front ]; then BL_SWAP+=("$s"); else BL_STAY+=("$s"); continue; fi; fi; }
         BL_MOVE+=("$s")
     done < <(back_lane_names "$role")
     return 0
@@ -4598,7 +4611,7 @@ back_lane_front_home_movers() {
     BL_MOVE=(${mv[@]+"${mv[@]}"}); BL_STAY=(${st[@]+"${st[@]}"}); BL_PINNED=(${pin[@]+"${pin[@]}"})
 }
 # back_lane_front_swap <session> <target lane> → rc 0 when the session may be queued: nothing to change, or the model change `sala lane fallback` makes is
-# written (a Fable session bound for a lane in SALA_FALLBACK_NO_FABLE runs on SALA_FALLBACK_FABLE_MODEL there). The same calls in the same order: the change is
+# written (a Fable session bound for a lane outside SALA_FABLE_LANES runs on SALA_FALLBACK_FABLE_MODEL there). The same calls in the same order: the change is
 # read first (once the override is written the session no longer reads as Fable), its home and the model it had are recorded (lane_home_set), then the
 # override (model_write). rc 1 when the override cannot be written: the session is not queued (it would relaunch on Fable on a lane that cannot run it).
 back_lane_front_swap() {
@@ -5311,12 +5324,13 @@ resume_cmd() {
     fi
     lane=$(lane_for_session "${2:-}")
     # an sdk row after the credit's window launches on the sdk lane's fallback (lane_effective, sdk_fallback_lane): said once per relaunch, here, in lanes.log;
-    # a Fable session is relaunched on the fallback's model when the fallback cannot run Fable (SALA_FALLBACK_NO_FABLE), for this line only
     if [ "$lane" != sdk ] && [ "$(lane_row "${2:-}")" = sdk ]; then
         local fbt fbw=""; _sdk_fallback_r fbt fbw
         lane_log fallback "${2:-}" "sdk → $lane ($(sdk_closed_why)${fbw:+; last resort, the table pick is not usable: $fbw}; the row stays: salamander lane $lane ${2:-<session>} to clear it)"
-        case " $SALA_FALLBACK_NO_FABLE " in *" $lane "*) case "$fam" in fable|claude-fable-*) fam="$SALA_FALLBACK_FABLE_MODEL" ;; esac ;; esac
     fi
+    # THE FABLE RULE (lane_runs_model): a Fable model runs only on the Ultra lane. A Fable session whose line would launch on any other lane (a lane
+    # move, a changed default lane, a revive or restore, the sdk lane's own line and its fallback) launches on SALA_FALLBACK_FABLE_MODEL instead, for this line only
+    lane_runs_model "$lane" "$fam" || fam=$SALA_FALLBACK_FABLE_MODEL
     # the sdk lane's pane program in place of claude (lib/sdk-pane.sh): the model and effort go to it, the key never does
     # (the wrapper reads the lane's files itself); no mod prefix — the SDK's CLI loads the user settings, whose env names the mod
     [ "$lane" = sdk ] && { echo "$SALA_BIN sdk-pane $1 ${2:--}${fam:+ --model $fam}${eff:+ --effort $eff}"; return; }

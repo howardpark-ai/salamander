@@ -17,6 +17,14 @@ invoking pane), with the same guards (a busy pane deferred and retried, `SALA_NO
 that applies (*would switch in place* or *would relaunch*, with the reason, then the sweep's verdict). A model id is typed unquoted onto the launch line, so only lowercase letters, digits, dots and
 dashes after `claude-` are taken (a `[1m]` suffix would be a glob to the pane's shell).
 
+**Fable runs only on the Ultra lane** (`SALA_FABLE_LANES`, `lane_runs_model` in `lib/common.sh`; *Fable runs only on the Ultra lane* in
+docs/lanes.md): `fable` or a `claude-fable-…` id is refused for a session whose lane (its row, its pin, else the default) is not
+`subscription-1`, in every form (`--record-only` and `--dry-run` included, so the queue's plan shows the refusal), before anything is
+recorded: `Fable runs only on the Ultra lane (subscription-1), never on another lane: <session> is on the <lane> lane`, with the move to
+make first. In the batch shape one session off Ultra refuses the whole batch, the way an unknown session does, and each is named. A
+`models.tsv` row that says Fable for a session on another lane (written before this rule, or by hand) is never typed onto its launch line: the
+line says `SALA_FALLBACK_FABLE_MODEL` (opus), and `sala lane <lane>` puts the record on opus.
+
 **Through the operation queue** (Sun Oct 25th 2026; a verb to change an agent's model and effort, self-modification included): `sala op model <session> <model> [--effort <level>] --from NAME --words "<the owner's
 words>"`, or `sala op model <session> --clear …`; since Thu Oct 29th 2026 (so that a batch of model changes does
 not wake a front agent once per session) also `sala op model <model> [--effort <level>] <session>… --from NAME --words "…"`

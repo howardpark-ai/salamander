@@ -241,8 +241,8 @@ and stay there until the owner or a session moves them back. Code: `lib/common.s
   box; nothing is typed, and a pane that is left as it is stays on the ordinary rule (relaunched when idle). If the default lane is the dead one,
   it switches too. A session of any other lane is left alone. A pane whose claude is still running after its `/exit` and the wait
   (a client stuck on the dead lane) is ended by its pid and its session resumed on the fallback (*A claude that ignores `/exit`*, above).
-- **The model.** A session on a Fable model moved onto bedrock runs `opus` (Opus 5.5) there, because Fable fails on bedrock
-  (`SALA_FALLBACK_NO_FABLE`, `SALA_FALLBACK_FABLE_MODEL`). The override goes in `models.tsv` like any `sala model`; moving back
+- **The model.** A session on a Fable model moved onto any lane but Ultra (*Fable runs only on the Ultra lane*, below) runs `opus`
+  (Opus 5.5) there (`SALA_FABLE_LANES`, `SALA_FALLBACK_FABLE_MODEL`). The override goes in `models.tsv` like any `sala model`; moving back
   restores nothing.
 - **Stay.** Nothing moves a session back when the lane is active again. `lane-home.tsv` (state directory: session, home lane,
   when, the model it had before or `-`; the key `(default)` is the default lane's) keeps where each came from, the first home
@@ -258,6 +258,25 @@ and stay there until the owner or a session moves them back. Code: `lib/common.s
 - **Dry run and by hand.** `sala lane fallback <lane> --dry-run` prints the plan (the sessions, a Fable session's model change,
   the default, the jobs) and writes, queues and relaunches nothing. `sala lane fallback <lane>` is the real form
   for a person (it needs the lane to be dormant; exit 4: no usable fallback, nothing recorded).
+
+## Fable runs only on the Ultra lane
+
+A Fable model (`fable`, or a `claude-fable-…` id) runs only on a lane listed in `SALA_FABLE_LANES`, which is `subscription-1` (Ultra)
+alone by default. Any other lane (bedrock, aws-platform, api, sdk, subscription-2) cannot run it: on bedrock Fable needs a Marketplace
+subscription the lane's role cannot make, so every turn fails, and no other lane is offered it. One function says it,
+`lane_runs_model <lane> <model>` (`lib/common.sh`), and every place that could put a Fable model on a lane asks it:
+
+| Where | What happens for a session whose lane is not Ultra |
+|---|---|
+| `sala model <session> fable`, `sala model fable <session>…` (and `sala op model …`, `--record-only`, `--dry-run`) | **Refused** with `Fable runs only on the Ultra lane (subscription-1), never on another lane: <session> is on the <lane> lane`, naming the move to make first. It is refused at plan time, so `sala op --plan model …` shows it and nothing is queued. The batch shape refuses the whole batch if any one session is off Ultra (as for an unknown session), naming each one; nothing is recorded. |
+| `sala lane <lane> <session>…`, `lane <lane> --all` to a lane other than Ultra | A session on Fable is put on `SALA_FALLBACK_FABLE_MODEL` (opus) first: the override goes in `models.tsv`, and the plan (`--dry-run`) names it (`model fable → opus (…)`). Moving back restores no model. A session already running on the lane is left alone. |
+| `sala lane default <lane>` to a lane other than Ultra | Each session that follows the default (no lane of its own, not pinned) and is on Fable is put on opus now, so its next relaunch is not on Fable; the plan names them. |
+| `sala lane fallback <lane>`, the back agents' rule, the sdk lane's credit fallback | As before, with Ultra the only lane that keeps Fable (a Fable back agent stays where it is, a Fable front agent is swapped to opus, below). |
+| `sala spawn --model fable` | Refused for a lane (`--lane`, or the default lane) that is not Ultra; a rule-picked lane is not offered to a Fable model (*Spawn*, below). |
+| Every relaunch line (`resume_cmd`: revive, restore, recycle, wake) | A Fable model whose line would launch on any other lane launches on `SALA_FALLBACK_FABLE_MODEL`, for that line only: a stale record or a transcript can never put Fable on a lane that cannot run it. |
+
+Not covered (a session started with no `--model` runs the CLI's own default, which sala does not read; `sala-web`'s New session form
+still offers every model for every lane, and its spawn is refused by the verb with the reason above).
 
 ## Pinned sessions
 A session can be pinned to a lane. A pinned session is held out of every **bulk** lane move; only a move that names it moves it.
@@ -335,7 +354,7 @@ LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-la
   agents standing before the fallback, a straggler included, go to it). Step 3 needs the home lane active, as before. The outcome line and the
   dry run name the lane actually used and why, for example `step 1 (… the aws-platform lane is dormant (…), so the bedrock lane, its fallback,
   takes them): sala op lane bedrock …`. A new background agent still spawns on the rule's lane only while that lane is active and ready, else on the default lane.
-- **Fable.** A Fable background agent is not moved onto a lane in `SALA_FALLBACK_NO_FABLE` (bedrock): it stays where it is and the
+- **Fable.** A Fable background agent is not moved onto a lane outside `SALA_FABLE_LANES` (any lane but Ultra, by default): it stays where it is and the
   notice names it. The rule does not change a model.
 - **Spawn.** A background agent spawned while the rule has them off home launches on the rule's lane (recorded like `--lane`; `--lane`
   wins; a side session is not the rule's, and a front agent is the rule's only through the front step below).
@@ -366,8 +385,8 @@ background agents on. It runs only while the rule is on, and is its own switch.
   the background agents': `moved: front step (…)`, `would: front step …`, `idle:`, `blocked:` and `notice:`.
 - **A lane that cannot take them** is handled as for step 1: a dormant target moves them to its fallback, and when that is dormant too one
   notice per window and then a quiet `blocked: front step waits …` line, the state unchanged (under its own state key `fblocked`).
-- **Fable.** Unlike a background agent, a front agent on Fable is not left behind. When it is bound for a lane in `SALA_FALLBACK_NO_FABLE`
-  (bedrock), the front step makes the same model change `sala lane fallback` does, just before the operation is queued: it records the
+- **Fable.** Unlike a background agent, a front agent on Fable is not left behind. When it is bound for a lane outside `SALA_FABLE_LANES`
+  (any lane but Ultra, by default), the front step makes the same model change `sala lane fallback` does, just before the operation is queued: it records the
   lane it stands on and its model in the lane-home list (`lane-home.tsv`, as `lane fallback` does; the first home recorded stays) and writes
   the model override `SALA_FALLBACK_FABLE_MODEL` (default opus) for it. The outcome line names it (`model fable -> opus on the bedrock lane (it
   cannot run Fable): <sessions>`). A front agent bound for a lane that runs Fable keeps its model. If the override cannot be written
@@ -437,7 +456,7 @@ lane's alias, so the table's entry for `api` and for `sdk` is one entry (the fir
 refuses (an assistant message with error `billing_error`, or "credit balance" in an error result or the CLI's stderr): the driver
 writes the record and exits 3, the wrapper rewrites the row to the fallback lane, posts once in plain words (the session moved to
 the `<label>` lane, why, and `salamander lane sdk <session>` to come back; no login is claimed for a lane that has none) and runs
-the fallback's line in the pane at once; a Fable session whose fallback cannot run Fable (`SALA_FALLBACK_NO_FABLE`: bedrock) gets the
+the fallback's line in the pane at once; a Fable session whose fallback cannot run Fable (any lane but Ultra, `SALA_FABLE_LANES`) gets the
 same model change the lane fallback records (`SALA_FALLBACK_FABLE_MODEL`, opus), written to `models.tsv` and named in the post.
 The last message may need to be sent again. A turn that ends without an error removes the
 record. A CLI that dies leaves the pane at its shell with a line; the next revive resumes it as any shell pane.
