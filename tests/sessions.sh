@@ -706,6 +706,17 @@ n=$(sessions_py front-names --record "$REC" --record-max-age 600 2>&1 | paste -s
 cp "$REG" "$HOME/reg.before"; : > "$RLOG"
 sessions_py back-names --record "$REC" --record-max-age 600 >/dev/null 2>&1; sessions_py front-names --record "$REC" --record-max-age 600 >/dev/null 2>&1
 same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "back-names and front-names are read-only (file and log unchanged)" || bad "back-names or front-names wrote"
+# project-sessions: the reader of the idle sleep tick, one line per live agent that has a project: <project key> TAB <name> TAB front|back
+ps=$(sessions_py project-sessions --record "$REC" --record-max-age 600 2>&1); bn=" $(sessions_py back-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ') "; fn=" $(sessions_py front-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ') "
+okps=1; nps=0
+while IFS=$'\t' read -r pk pn pr; do
+    [ -n "$pk" ] || continue; nps=$((nps + 1))
+    case "$pk" in projects/*|"") okps=0 ;; esac
+    case "$pr" in back) case "$bn" in *" $pn "*) ;; *) okps=0 ;; esac ;; front) case "$fn" in *" $pn "*) ;; *) okps=0 ;; esac ;; *) okps=0 ;; esac
+done <<< "$ps"
+[ "$okps" = 1 ] && [ "$nps" -gt 0 ] && ok "project-sessions: $nps line(s) of project key (no projects/ prefix), name and role, each role the one back-names / front-names gives that name" || bad "project-sessions: ok=$okps n=$nps — $ps"
+cp "$REG" "$HOME/reg.before"; : > "$RLOG"; sessions_py project-sessions --record "$REC" --record-max-age 600 >/dev/null 2>&1
+same_file "$REG" "$HOME/reg.before" && [ ! -s "$RLOG" ] && ok "project-sessions is read-only (file and log unchanged)" || bad "project-sessions wrote"
 addrec late2 false; n=$(sessions_py back-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')
 [ "$n" = "ba late late2 tagm" ] && [ "$(q late2 role)" = null ] && ok "a row with no role counts by what the record says of it, before anything is written" || bad "back-names, untagged: '$n' role=$(q late2 role)"
 addrec late2 true; n=$(sessions_py front-names --record "$REC" --record-max-age 600 2>&1 | paste -sd' ')

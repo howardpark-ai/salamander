@@ -70,7 +70,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      and the summary was sent (by sala, through stackshot's client) to the origin agent or the project's -main
   salamander adopt NAME                           put a live session made by hand (outside spawn) into the pane map
   salamander restore (NAME… | --missing) [--dry-run]  recreate a session from its pane-map row (tmux session in its cwd, then resumed by uuid); --dry-run shows the plan, a session queues it: op restore
-  salamander sleep NAME… [--dry-run] | --list | --candidates    end the claude of an idle session (nothing in flight; never a front agent), keeping its tmux session and pane-map row; a session queues it: op sleep; --candidates lists what the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) would put to sleep
+  salamander sleep NAME… [--dry-run] | --project KEY [--dry-run] | --list | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins    end the claude of an idle session (nothing in flight; never a front agent by name), keeping its tmux session and pane-map row; a session queues it: op sleep; --project sleeps every session of one project together; --candidates lists, per project, what the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) would put to sleep; --pin holds a project off it
   salamander wake NAME… [--dry-run]               resume a sleeping session by its conversation id (a session queues it: op wake); a name that is not asleep is a message, no action; the watch wakes a sleeper itself when a stackshot message line waits for it
   salamander follow                               resident watcher of the session registry (sala-follow.service): follows hand renames
   salamander snapshot [--now]        event-driven tmux-resurrect save (tmux hooks + Claude SessionStart hook)
@@ -84,7 +84,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander watch --back-lanes [--dry-run]   only the back agents' lane rule (lib/watch.sh back_lane_run; OFF unless SALA_BACK_LANE_RULE=on): --dry-run prints what it would queue (a dormant target is replaced by its fallback lane, named with the reason; the front step too, at SALA_BACK_LANE_FRONT_THRESHOLD, default 95), queues and writes nothing
   salamander watch --continued       only the continued-in follow (lib/continuedin.sh cont_tick): a pane that moved to a new transcript id keeps its row
   salamander watch --wrapup [--dry-run]   only the idle wrap-up and clear of background agents (lib/wrapup.sh; OFF by default, runs only with SALA_IDLE_WRAPUP=on): idle SALA_IDLE_WRAPUP_MIN..SALA_IDLE_WRAPUP_MAX_AGE (50..58) min; --dry-run prints what it would type, writes nothing
-  salamander watch --sleep [--dry-run]   only the idle sleep tick (lib/wrapup.sh sleep_tick; OFF by default, runs only with SALA_IDLE_SLEEP=on): idle SALA_SLEEP_AFTER (3600) s, at most SALA_SLEEP_PER_TICK (3) per run; --dry-run prints what it would put to sleep, on or off, changes nothing
+  salamander watch --sleep [--dry-run]   only the idle sleep tick (lib/wrapup.sh sleep_tick; OFF by default, runs only with SALA_IDLE_SLEEP=on): puts whole inactive PROJECTS to sleep, quiet for SALA_SLEEP_QUIET (172800) s, at most SALA_SLEEP_PER_TICK (1) project per run; --dry-run prints what it would put to sleep, on or off, changes nothing
   salamander watch --wake [--dry-run]    only the wake of sleepers with a stackshot message line waiting (lib/wrapup.sh wake_tick; always on, at most SALA_WAKE_PER_RUN (5) per run); --dry-run prints whom it would wake
   salamander watch --settings        only the settings-apply tick: a changed spec → the settings steps on the boxes behind it (lib/settings-apply.sh)
   salamander settings-apply [--check|--run] [HOST…]   the spec's Claude Code settings steps, applied by sala and never by a session:
@@ -352,9 +352,12 @@ verbs:
 usage: salamander restore (NAME… | --missing) [--dry-run]
 
 ### sala sleep --help (exit 0)
-usage: salamander sleep NAME… [--dry-run] | --list | --candidates
+usage: salamander sleep NAME… [--dry-run] | --project KEY [--dry-run] | --list | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins
   puts idle sessions to sleep: their claude ends, their tmux session and pane-map row stay; salamander wake NAME resumes one
-  --candidates: the sessions the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) would put to sleep; changes nothing
+  --project KEY: every session of one project, together; the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) sleeps a project only when it has had no external
+    anchor notice and no input from its owner for SALA_SLEEP_QUIET (2 days), every one of its sessions is idle with nothing in flight, and it is not pinned
+  --candidates: per project, sleeping, awake or pinned, its two quiet ages and the first reason it is not a candidate; changes nothing
+  --pin KEY [--why TEXT] / --unpin KEY / --pins: hold a project off the automatic sleep, lift it, list the pins (kept across a reboot)
 
 ### sala wake --help (exit 0)
 usage: salamander wake NAME… [--dry-run]

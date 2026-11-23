@@ -97,7 +97,7 @@ cs_print_config() {
              SALA_LANES SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_LANE_SDK_PIN SALA_LANE_SDK_CMD \
              SALA_LANE_BEDROCK_PROFILE SALA_LANE_BEDROCK_CREDENTIALS_FILE SALA_LANE_BEDROCK_PREFIX SALA_LANE_BEDROCK_OPUS_MODEL SALA_LANE_BEDROCK_SONNET_MODEL SALA_LANE_BEDROCK_HAIKU_MODEL \
              SALA_LANE_AWSPLATFORM_PROFILE SALA_LANE_AWSPLATFORM_CREDENTIALS_FILE SALA_LANE_AWSPLATFORM_WORKSPACE_ID SALA_LANE_AWSPLATFORM_OPUS_MODEL SALA_LANE_AWSPLATFORM_SONNET_MODEL SALA_LANE_AWSPLATFORM_HAIKU_MODEL \
-             SALA_LANE_MAX_SUBSCRIPTION SALA_LANE_MAX_ORG SALA_LANE_TEAM_SUBSCRIPTION SALA_LANE_TEAM_ORG SALA_MODELS SALA_JOB_LANE SALA_STACKSHOT_WEB SALA_IDLE_SLEEP SALA_SLEEP_AFTER SALA_SLEEP_PER_TICK; do
+             SALA_LANE_MAX_SUBSCRIPTION SALA_LANE_MAX_ORG SALA_LANE_TEAM_SUBSCRIPTION SALA_LANE_TEAM_ORG SALA_MODELS SALA_JOB_LANE SALA_STACKSHOT_WEB SALA_IDLE_SLEEP SALA_SLEEP_QUIET SALA_SLEEP_AFTER SALA_SLEEP_PER_TICK SALA_ACTIVITY_CMD; do
         printf '%-20s %s\n' "$v" "${!v}"
     done
     printf '%-20s %s\n' "lane default" "$(lane_default)"   # state, not config (sala lane default <lane>; lanes above)
@@ -2137,8 +2137,14 @@ no_relaunch_line() { if is_shell_session "$1"; then echo "$1: not relaunched —
 : "${SALA_SLEEP_DIR:=$SALA_STATE_DIR/sleeping}"
 : "${SALA_SLEEP_AFTER:=3600}"
 # The watch's two sleep passes (lib/wrapup.sh sleep_tick, wake_tick). SALA_IDLE_SLEEP: OFF by default, on|1|yes|true turns the idle sleep tick on (the wake tick
-# below is always on). SALA_SLEEP_PER_TICK: sessions put to sleep per watch run. SALA_WAKE_PER_RUN: sleepers woken per run for a waiting message line.
-: "${SALA_IDLE_SLEEP:=off}" "${SALA_SLEEP_PER_TICK:=3}" "${SALA_WAKE_PER_RUN:=5}" "${SALA_SLEEP_RETRY:=1800}" "${SALA_WAKE_RETRY:=600}"
+# below is always on). The tick sleeps INACTIVE PROJECTS, never one session: SALA_SLEEP_QUIET is how long a project must have had no external anchor notice and no
+# input from its owner (2 days); SALA_SLEEP_PER_TICK is the number of PROJECTS put to sleep per watch run; SALA_SLEEP_AFTER is the settle time each session of
+# the project must have been idle, and the time a woken session is left alone. SALA_ACTIVITY_CMD: the command that prints the projects' last activity
+# (stackshot's `client.py project-activity --json`; unset = that client when this box has one). SALA_SLEEP_PIN_DIR: one file per project held off the tick.
+# SALA_WAKE_PER_RUN: sleepers woken per run for a waiting message line.
+: "${SALA_IDLE_SLEEP:=off}" "${SALA_SLEEP_PER_TICK:=1}" "${SALA_WAKE_PER_RUN:=5}" "${SALA_SLEEP_RETRY:=1800}" "${SALA_WAKE_RETRY:=600}" "${SALA_SLEEP_QUIET:=172800}"
+: "${SALA_ACTIVITY_CMD:=}" "${SALA_ACTIVITY_TIMEOUT:=30}"
+: "${SALA_SLEEP_PIN_DIR:=$SALA_SLEEP_DIR.pins}"
 _sleep_uuid_ok() { [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }   # a marker's file name: one path component, never a path (no slash, no leading dot)
 # sleeping_uuid_r <var> <session or name> → (the var is not one of its own locals: _su _by _l _r _s _u _n t) the conversation id of the pane-map row whose tmux session (else whose name) is that, in <var>; 1 when the map has none
 sleeping_uuid_r() {
