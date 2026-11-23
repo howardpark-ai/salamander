@@ -82,8 +82,8 @@ if a[:2] == ["get", "project"]:   # the READ-BACK: stackshot's live answer for a
     for pr in rec["projects"].values():
         if pr["key"] == a[2]: print(json.dumps(pr)); sys.exit(0)
     print("stackshot: no such project [404]", file=sys.stderr); sys.exit(1)
-if a[:2] == ["get", "state-files"]:   # the project record: sala asks stackshot for it first (lib/stackshot_record.py); this stub does not give it, so the file copy is read (tests/recordlive.sh tests the live answer); not counted
-    print("stackshot: state-files not read [0] URLError: <urlopen error [Errno 111] Connection refused>", file=sys.stderr); sys.exit(1)
+if a[:2] in (["get", "state-files"], ["get", "projects-record"]):   # the project record: sala asks stackshot for it first (lib/stackshot_record.py); this stub does not give it, so the file copy is read (tests/recordlive.sh tests the live answer); not counted
+    print("stackshot: projects-record not read [0] URLError: <urlopen error [Errno 111] Connection refused>", file=sys.stderr); sys.exit(1)
 open(home + "/client-calls.txt", "a").write("\x1f".join(sys.argv[1:]) + "\n")
 mode = open(home + "/client-mode").read().strip() if os.path.exists(home + "/client-mode") else "renamed"
 if a[:2] == ["post", "project-agent"]:   # a side session becoming an agent: the real client prints its refusals on stdout, exit 1

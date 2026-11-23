@@ -1633,7 +1633,7 @@ page_key_ok() {  # <key> → 0 when it has a hub page key's shape: <dir>/<slug>[
 : "${SALA_PROJECT_RECORD_MAX_AGE:=600}"    # seconds: the contract says a reader treats an older file as stale (stackshot rewrites it every 5 minutes)
 : "${SALA_ROLES_FILE_MAX_AGE:=1800}"       # seconds: an older file answers nothing (stackshot rewrites it every few minutes)
 # WHERE THE RECORD AND THE ROLES LIST ARE READ FROM (Mon Nov 23rd 2026; lib/stackshot_record.py, the one reader the shell and Python sides share): stackshot is asked FIRST, by its address, through its client
-# (`client.py get state-files` for the whole project record, `client.py get roles` for the list; under `timeout`, stdin closed), and the file copy (SALA_PROJECT_RECORD, SALA_ROLES_FILE) is read ONLY
+# (`client.py get projects-record` for the project record, `client.py get roles` for the list; under `timeout`, stdin closed), and the file copy (SALA_PROJECT_RECORD, SALA_ROLES_FILE) is read ONLY
 # when stackshot cannot be reached, with the copy's age said (one line in $SALA_LOG_DIR/salamander-record.log, and in the refusal or the source line of the caller that has one). Why: the file is a copy
 # that only a puller writes; after stackshot's server moved it sat 18 hours old while the truth had not moved. The *_MAX_AGE settings still bound the copy: an older one answers nothing.
 # A live answer is kept for SALA_RECORD_LIVE_TTL seconds (20) under $SALA_STATE_DIR/record-live/, so one command or one watch tick that reads the record many times asks once; a failed ask is kept as

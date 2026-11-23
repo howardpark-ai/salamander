@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Where sala reads stackshot's project record and roles list from (lib/stackshot_record.py, `record_file_r` in lib/common.sh, docs/stackshot-contracts.md interface 20).
-# stackshot is asked FIRST, by its address, through its client (`get state-files` for the record, `get roles` for the list, under a timeout, stdin closed); the file copy
+# stackshot is asked FIRST, by its address, through its client (`get projects-record` for the record, `get roles` for the list, under a timeout, stdin closed); the file copy
 # the puller writes is read ONLY when stackshot cannot be reached, and its age is said (the refusal, the source line, one line in salamander-record.log). A stub client
 # (no network, no real stackshot) answers from files this suite writes, or is down, hangs, or answers what sala cannot read. Checked:
 #   the shell reader (project_record_agent, project_for_name, retire_project_of, rename_record_plan, record_note) · the Python reader (lib/stackshot_record.py as a command and
 #   as bgagents.py uses it) · a live answer beats a file copy that says something else, and a file copy is never read while stackshot answers · stackshot down, hanging, not JSON,
 #   with no record to give: the file copy, its age said, the log line (one per five minutes, not one per read) · a stale copy answers nothing and says so · the answer kept for a few
-#   seconds (one ask for many reads) and a failed ask kept as long · the one copy a rename reads for both its names · SALA_RECORD_LIVE=off and no client: the file alone, no ask.
+#   seconds (one ask for many reads) and a failed ask kept as long · the one copy a rename reads for both its names · SALA_RECORD_LIVE=off and no client: the file alone, no ask ·
+#   a stackshot that predates `get projects-record` (404 no such read): `get state-files` is read once instead, its `projects` member is the record, one log line says so, no error;
+#   a stackshot that is merely down is not asked twice.
 # Isolated HOME in a temp folder (locked while the suite runs, removed at the end), no tmux, no process started but bash, python3 and the stub (a `sleep` it starts ends by itself).
 # Usage: bash tests/recordlive.sh   (exit 0 = pass; under a minute)
 set -u
@@ -23,8 +25,10 @@ FILE_REC="$HOME/.local/state/stackshot/projects.json"; FILE_ROLES="$HOME/.local/
 LIVE_REC="$HOME/ss-projects.json"; LIVE_ROLES="$HOME/ss-roles.json"; CALLS="$HOME/ss-calls.txt"; MODE="$HOME/ss-mode"; LOG="$HOME/.claude/salamander-record.log"
 has() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
 
-# the stub stackshot client: `get state-files` gives {"projects": <$LIVE_REC>}, `get roles` gives $LIVE_ROLES; every call is logged with whether stdin was closed;
-# $MODE: ok (default) | down (exit 1, "[0] not reached") | hang (sleeps 30 s) | junk (exit 0, not JSON) | norecord (state-files with "projects": null)
+# the stub stackshot client: `get projects-record` gives the record itself ($LIVE_REC), `get state-files` gives {"projects": <$LIVE_REC>} (what an older stackshot has), `get roles` gives
+# $LIVE_ROLES; every call is logged with whether stdin was closed;
+# $MODE: ok (default) | down (exit 1, "[0] not reached") | hang (sleeps 30 s) | junk (exit 0, not JSON) | norecord (no record in the answer)
+#        | old (an older stackshot: `get projects-record` is "[404] no such read", the client's own line and exit 1; state-files answers) | olddown (as old, and state-files is not reached)
 cat > "$HOME/fake-ss.py" <<'PY'
 import json, os, select, sys, time
 home = os.environ["HOME"]; a = sys.argv[1:]
@@ -34,7 +38,11 @@ mode = open(home + "/ss-mode").read().strip() if os.path.exists(home + "/ss-mode
 if mode == "down": sys.stderr.write("stackshot: not reached [0] connection refused\n"); sys.exit(1)
 if mode == "hang": time.sleep(30)
 if mode == "junk": print("this is not json"); sys.exit(0)
+if a == ["get", "projects-record"]:
+    if mode in ("old", "olddown"): print("[404] no such read: registry | rules | brief | roles | state-files | project"); sys.exit(1)
+    print(json.dumps(None if mode == "norecord" else json.load(open(home + "/ss-projects.json")))); sys.exit(0)
 if a == ["get", "state-files"]:
+    if mode == "olddown": sys.stderr.write("stackshot: state-files not read [0] URLError: connection refused\n"); sys.exit(1)
     print(json.dumps({"host": "stub", "generated": "2026-01-01T00:00:00Z", "projects": None if mode == "norecord" else json.load(open(home + "/ss-projects.json")), "fleet": {}, "versions": None, "advertised_commit": ""})); sys.exit(0)
 if a == ["get", "roles"]:
     print(open(home + "/ss-roles.json").read()); sys.exit(0)
@@ -85,8 +93,8 @@ got=$(sx 'project_record_agent "" alpha-oldcopy; echo "rc=$?"')
 has "$got" "rc=3" && has "$got" "on no project of the record" && ok "a name only the file copy lists: not listed (rc 3): the copy is not read while stackshot answers" || bad "copy-only name: '$got'"
 got=$(sx 'project_record_agent projects/alpha alpha-newcomer back; echo "rc=$?"')
 has "$got" "rc=0" && ok "the spawn gate's own question (the name on the project's map, the role): answered from stackshot" || bad "gate question: '$got'"
-[ "$(calls state-files)" = 3 ] && ok "each read asked stackshot (the answer is not kept here: SALA_RECORD_LIVE_TTL=0)" || bad "ask count: $(calls state-files)"
-grep -q "get state-files stdin-closed" "$CALLS" && ! grep -q "stdin-open" "$CALLS" && ok "every ask ran with stdin closed" || bad "stdin: $(cat "$CALLS")"
+[ "$(calls projects-record)" = 3 ] && ok "each read asked stackshot (the answer is not kept here: SALA_RECORD_LIVE_TTL=0)" || bad "ask count: $(calls projects-record)"
+grep -q "get projects-record stdin-closed" "$CALLS" && ! grep -q "stdin-open" "$CALLS" && ok "every ask ran with stdin closed" || bad "stdin: $(cat "$CALLS")"
 [ ! -s "$LOG" ] && ok "a live answer writes no log line" || bad "log on a live answer: $(cat "$LOG")"
 got=$(sx 'record_note projects')
 [ -z "$got" ] && ok "record_note is empty when stackshot answered" || bad "note on live: '$got'"
@@ -110,7 +118,7 @@ sx 'project_record_agent "" alpha-oldcopy >/dev/null; project_record_agent "" al
 reset; mode junk
 n=$(sx 'record_note projects'); has "$n" "not JSON" && ok "an answer that is not JSON: the note says so" || bad "junk note: '$n'"
 reset; mode norecord
-n=$(sx 'record_note projects'); has "$n" "no project record to give" && ok "state-files with no record in it: the note says so" || bad "norecord note: '$n'"
+n=$(sx 'record_note projects'); has "$n" "no project record to give" && ok "an answer with no record in it: the note says so" || bad "norecord note: '$n'"
 reset; mode hang
 t0=$SECONDS; got=$(SALA_RECORD_LIVE_TIMEOUT=1 sx 'project_record_agent "" alpha-oldcopy; echo "rc=$?"'); t1=$((SECONDS - t0))
 has "$got" "rc=0" && [ "$t1" -lt 10 ] && ok "stackshot hangs: given up after the timeout (${t1} s), the copy answers" || bad "hang: ${t1} s '$got'"
@@ -129,7 +137,7 @@ mkrec "$FILE_REC" 5 projects/alpha:alpha-main:front
 echo "== the answer is kept for a few seconds, a failed ask as long (SALA_RECORD_LIVE_TTL)"
 reset; mode ok
 sx 'SALA_RECORD_LIVE_TTL=60; for i in 1 2 3; do project_record_agent "" alpha-newcomer >/dev/null; done'
-[ "$(calls state-files)" = 1 ] && ok "three reads inside the keeping time: one ask" || bad "kept asks: $(calls state-files)"
+[ "$(calls projects-record)" = 1 ] && ok "three reads inside the keeping time: one ask" || bad "kept asks: $(calls projects-record)"
 mkrec "$LIVE_REC" 5 projects/alpha:alpha-main:front
 got=$(sx 'SALA_RECORD_LIVE_TTL=60; project_record_agent "" alpha-newcomer; echo "rc=$?"')
 has "$got" "rc=0" && ok "within the keeping time the kept answer is read (what stackshot said a moment ago)" || bad "kept answer: '$got'"
@@ -138,14 +146,14 @@ has "$got" "rc=3" && ok "with no keeping time the next read asks again and sees 
 mkrec "$LIVE_REC" 5 projects/alpha:alpha-main:front projects/alpha:alpha-newcomer:back
 reset; mode down
 sx 'SALA_RECORD_LIVE_TTL=60; for i in 1 2 3; do project_record_agent "" alpha-main >/dev/null; done'
-[ "$(calls state-files)" = 1 ] && ok "a failed ask is kept as long: three reads, one ask (a dead server costs one wait, not three)" || bad "failed asks: $(calls state-files)"
+[ "$(calls projects-record)" = 1 ] && ok "a failed ask is kept as long: three reads, one ask (a dead server costs one wait, not three)" || bad "failed asks: $(calls projects-record)"
 
 echo "== one copy for the two names of a rename"
 reset; mode ok
 mkrec "$LIVE_REC" 5 projects/alpha:alpha-main:front projects/alpha:alpha-newcomer:back
 got=$(sx 'rename_record_plan alpha-newcomer alpha-renamed; echo "rc=$? hub=$RL_HUB why=$RL_WHY"')
 has "$got" "rc=0 hub=projects/alpha" && ok "rename_record_plan: OLD on a project, NEW on none (from stackshot's answer)" || bad "rename plan: '$got'"
-[ "$(calls state-files)" = 1 ] && ok "the two names are read from one answer: stackshot is asked once" || bad "rename asks: $(calls state-files)"
+[ "$(calls projects-record)" = 1 ] && ok "the two names are read from one answer: stackshot is asked once" || bad "rename asks: $(calls projects-record)"
 reset; mode down
 got=$(sx 'rename_record_plan alpha-main alpha-renamed; echo "rc=$? hub=$RL_HUB"')
 has "$got" "rc=0 hub=projects/alpha" && ok "stackshot down: the file copy decides the rename (OLD is on it)" || bad "rename on the copy: '$got'"
@@ -204,12 +212,44 @@ has "$got" "cannot | it is stale (written" && has "$got" "stackshot did not answ
 unset SALA_PROJECT_RECORD SALA_ROLES_FILE SALA_STATE_DIR SALA_LOG_DIR
 mkrec "$FILE_REC" 5 projects/alpha:alpha-main:front projects/alpha:alpha-oldcopy:back
 
+echo '== a stackshot that predates `get projects-record`: 404, then `get state-files` once, one log line, no error'
+mkrec "$FILE_REC" 5 projects/alpha:alpha-main:front projects/alpha:alpha-oldcopy:back
+mkrec "$LIVE_REC" 5 projects/alpha:alpha-main:front projects/alpha:alpha-newcomer:back
+reset; mode old
+got=$(sx 'project_record_agent "" alpha-newcomer; echo "rc=$?"')
+[ "$got" = "listed on projects/alpha
+rc=0" ] && ok "old stackshot: the record is read from state-files' projects member (a name only stackshot lists is listed)" || bad "old read: '$got'"
+got=$(sx 'project_record_agent "" alpha-oldcopy; echo "rc=$?"')
+has "$got" "rc=3" && ok "old stackshot: the file copy is not read while it answers" || bad "old copy: '$got'"
+[ "$(calls projects-record)" = 2 ] && [ "$(calls state-files)" = 2 ] && ok "each read asked projects-record first, then state-files once (no repeat of either)" || bad "old calls: $(calls projects-record) / $(calls state-files)"
+n=$(sx 'record_note projects'); [ -z "$n" ] && ok "old stackshot: no note (it answered)" || bad "old note: '$n'"
+[ "$(wc -l < "$LOG")" = 1 ] && has "$(cat "$LOG")" "state-files" && has "$(cat "$LOG")" 'no `get projects-record` read yet' && ok "old stackshot: one log line says the older read was used" || bad "old log: $(cat "$LOG" 2>/dev/null)"
+! has "$(cat "$LOG")" "did not answer" && ok "and it is not worded as a failure" || bad "old log reads as failure"
+reset; mode old
+sx 'SALA_RECORD_LIVE_TTL=60; for i in 1 2 3; do project_record_agent "" alpha-newcomer >/dev/null; done'
+[ "$(calls projects-record)" = 1 ] && [ "$(calls state-files)" = 1 ] && ok "old stackshot inside the keeping time: one ask of each verb" || bad "old kept: $(calls projects-record) / $(calls state-files)"
+reset; mode olddown
+got=$(sx 'project_record_agent "" alpha-oldcopy; echo "rc=$?"; record_note projects')
+has "$got" "rc=0" && has "$got" "stackshot did not answer" && has "$got" 'has no `get projects-record` read (404)' && has "$got" '`get state-files` failed' && ok "old stackshot that is also down: the copy answers, the note names both asks" || bad "olddown: '$got'"
+reset; mode down
+sx 'project_record_agent "" alpha-oldcopy >/dev/null'
+[ "$(calls projects-record)" = 1 ] && [ "$(calls state-files)" = 0 ] && ok "a stackshot that is down (not a 404) is asked once, never with the older read" || bad "down calls: $(calls projects-record) / $(calls state-files)"
+reset; mode old
+out=$(python3 -I "$ROOT/lib/stackshot_record.py" resolve projects --fallback "$FILE_REC" --max-age 600 --client "$SALA_STACKSHOT_CLIENT" --state-dir "$HOME/.local/state/salamander" --log-dir "$HOME/.claude" --ttl 0); rc=$?
+IFS=$'\t' read -r p s n w <<< "$out"
+[ "$rc" = 0 ] && [ "$s" = live ] && [ -z "$n" ] && python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d["schema"]==1 and "alpha-newcomer" in d["projects"][d["by_key"]["projects/alpha"]]["agents"] else 1)' "$p" && ok "the command, old stackshot: source live, the file holds the record itself (not the state-files wrapper)" || bad "command old: rc=$rc '$out'"
+mkroles "$LIVE_ROLES" 5 gamma-worker:projects/live-project:back
+reset; mode old
+got=$(sx 'retire_project_of gamma-worker; echo "$RETIRE_PROJ"')
+[ "$got" = "projects/live-project" ] && ok "old stackshot: the roles list is read as before (get roles is unchanged)" || bad "old roles: '$got'"
+mode ok
+
 echo "== no ask at all: SALA_RECORD_LIVE=off, and a box with no client"
 reset; mode ok
 got=$(SALA_RECORD_LIVE=off sx 'project_record_agent "" alpha-newcomer; echo "rc=$?"')
-has "$got" "rc=3" && [ "$(calls state-files)" = 0 ] && ok "SALA_RECORD_LIVE=off: the copy alone, stackshot is not asked" || bad "live off: '$got' calls=$(calls state-files)"
+has "$got" "rc=3" && [ "$(calls projects-record)" = 0 ] && ok "SALA_RECORD_LIVE=off: the copy alone, stackshot is not asked" || bad "live off: '$got' calls=$(calls projects-record)"
 got=$(SALA_STACKSHOT_CLIENT= sx 'project_record_agent "" alpha-oldcopy; echo "rc=$?"; record_note projects')
-has "$got" "rc=0" && [ "$(calls state-files)" = 0 ] && [ ! -s "$LOG" ] && ok "no client on the box: the copy is read, nothing is asked, nothing is logged (the copy is all there is)" || bad "no client: '$got' log=$(cat "$LOG" 2>/dev/null)"
+has "$got" "rc=0" && [ "$(calls projects-record)" = 0 ] && [ ! -s "$LOG" ] && ok "no client on the box: the copy is read, nothing is asked, nothing is logged (the copy is all there is)" || bad "no client: '$got' log=$(cat "$LOG" 2>/dev/null)"
 has "$got" "$FILE_REC is" && ok "and the note still says how old the copy is" || bad "no client note: '$got'"
 
 [ "$fail" = 0 ] && echo "recordlive: pass" || echo "recordlive: FAIL"

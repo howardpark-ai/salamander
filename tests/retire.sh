@@ -204,8 +204,8 @@ if sys.argv[1:3] == ["get", "roles"]:   # stackshot's roles list (the project fa
     open(home + "/roles-calls.txt", "a").write("get roles\n")
     if not os.path.exists(home + "/roles-client.json"): print("stackshot: roles not read [0] URLError: <urlopen error [Errno 111] Connection refused>", file=sys.stderr); sys.exit(1)
     sys.stdout.write(open(home + "/roles-client.json").read()); sys.exit(0)
-if sys.argv[1:3] == ["get", "state-files"]:   # the project record: sala asks stackshot for it first (lib/stackshot_record.py); this stub does not give it, so the file copy is read (tests/recordlive.sh tests the live answer); not counted
-    print("stackshot: state-files not read [0] URLError: <urlopen error [Errno 111] Connection refused>", file=sys.stderr); sys.exit(1)
+if sys.argv[1:3] in (["get", "state-files"], ["get", "projects-record"]):   # the project record: sala asks stackshot for it first (lib/stackshot_record.py); this stub does not give it, so the file copy is read (tests/recordlive.sh tests the live answer); not counted
+    print("stackshot: projects-record not read [0] URLError: <urlopen error [Errno 111] Connection refused>", file=sys.stderr); sys.exit(1)
 open(home + "/client-calls.txt", "a").write("\x1f".join(sys.argv[1:]) + "\n")
 mode = open(home + "/client-mode").read().strip() if os.path.exists(home + "/client-mode") else "ok"
 refused = {"fail": "stackshot: agent not retired [0] URLError: <urlopen error [Errno 111] Connection refused>",
