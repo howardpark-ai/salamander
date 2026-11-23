@@ -6,9 +6,11 @@ X-Model-Lane=none
 X-Project=sala/salamander
 X-Runs-With=sessions
 X-Model-Note=no model call
+OnFailure=sala-job-failed@%n.service
 
 [Service]
 Type=oneshot
 # the script appends its own output to cron.log in its log directory (lib.sh: BRIEFING_CRON_LOG; BRIEFING_LOGDIR, the sala config's line)
 Environment=BRIEFING_CRON_LOG=1
 ExecStart=%h/salamander/contrib/briefing/aws-limit.sh
+ExecStopPost=-%h/salamander/bin/salamander job alert ok %n

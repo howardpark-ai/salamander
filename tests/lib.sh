@@ -80,6 +80,7 @@ export SALA_EXIT_WAIT=5 SALA_EXIT_TERM_WAIT=3 SALA_EXIT_KILL_WAIT=3 SALA_RESUME_
     SALA_RESUME_GAP=0 SALA_HOLD_SETTLE=0.2 SALA_SPAWN_SETTLE=0.2 SALA_SHELL_SETTLE=0.2 SALA_RENAME_SETTLE=0.2 SALA_BRIDGE_SETTLE=0.5
 export SALA_RECYCLE_GATHER=0 SALA_RECYCLE_GATHER_MAX=0 SALA_RECYCLE_REST=0   # the waits are flags.sh's (the header)
 export SALA_UNIT_GAPS=off      # watch's unit-gap pass reads the real /etc/systemd/system and may message the board; tests/jobs.sh turns it on with temporary folders
+export SALA_JOB_SYSTEMCTL=true   # install.sh links the failure alert's template unit and reloads the user manager; a suite that runs it must never reload the real one (tests/jobs.sh and jobalert.sh set their own stub)
 export SALA_JOB_LANE=max       # sala's own scheduled model calls (the stuck-operation helper, the parked-question sweep) run on bedrock in production;
                                # the suites stub the command, and CI's runner has no bedrock profile. tests/bedrocklane.sh checks the lane
 export SALA_LANE_BEDROCK_PROFILE=example-bedrock SALA_LANE_AWSPLATFORM_PROFILE=example-bedrock   # the AWS profiles have no default (empty = unset); the lane suites use the fixture profile name

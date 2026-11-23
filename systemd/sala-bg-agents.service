@@ -3,7 +3,9 @@ Description=Start the background agent a project wants from the want list, one p
 X-Model-Lane=none
 X-Project=sala/salamander
 X-Runs-With=sessions
+OnFailure=sala-job-failed@%n.service
 
 [Service]
 Type=oneshot
 ExecStart=%h/salamander/bin/salamander bg-agents
+ExecStopPost=-%h/salamander/bin/salamander job alert ok %n

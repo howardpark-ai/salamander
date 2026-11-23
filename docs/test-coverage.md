@@ -84,7 +84,7 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
-### `tests/jobalert.sh` new, 52 (Mon Nov 23rd 2026)
+### `tests/jobalert.sh` new, 59; `tests/webinstall.sh`, `tests/neutral-install.sh` and `tests/sleepshow.sh` changed (Mon Nov 23rd 2026)
 
 The path guarded: a scheduled job that fails and nobody knows. A job's `OnFailure=` starts `systemd/sala-job-failed@.service`, which runs `sala job alert failed UNIT` (a marker file and one `client.py job-failed` call);
 the job's `ExecStopPost=` runs `sala job alert ok UNIT` after every run, which posts `client.py job-ok` only for a success that finds the marker. systemd is played by the suite from the shipped unit files (the job's
@@ -94,7 +94,7 @@ is the one systemd reports, not the clock) and drops the marker; the failing run
 removes the marker; two green runs with no marker post nothing and start no python (a `python3` shim on the path never runs); a unit with no `X-Project=`, or one that is not `scope/project`, posts a single `-`;
 `SALA_UNIT_PROJECT_MAP` and a unit only in the system folder are read; a refusing client leaves the template unit, the helper and the job at exit 0, a refused `job-failed` still drops the marker, a refused `job-ok` keeps it
 and the next success posts it, no client means no marker and one log line, an unwritable state folder still posts; a unit name with a slash, an unknown verb and a non-success `SERVICE_RESULT` are refused or ignored;
-`sala job set-alert` adds the two lines and nothing else (idempotent, `--quiet`, a flow-pr repo only through a worktree, a rendered unit refused); the text function on blank lines, no trailing newline and another `OnFailure=`.
+`sala job set-alert` adds the two lines and nothing else (idempotent, `--quiet`, a flow-pr repo only through a worktree, a rendered unit refused); the text function on blank lines, no trailing newline and another `OnFailure=`; every shipped service that has a timer carries the two lines once and `sala-unit-gaps` (no timer) none; `install.sh` links the template into the user unit folder and reloads once, a second run does nothing, a copy is replaced by the link, nothing is enabled, disabled, started or stopped, and a failing reload only warns. `webinstall` and `neutral-install` used to assert that a plain `install.sh` touches no unit folder and calls no `systemctl`: they now allow exactly the template link and the one `daemon-reload` and still assert that no web unit is written; `sleepshow` pins `contract-version: 53` (interface 36).
 Not covered, and why: a real systemd running the units (a suite never uses a live user manager; `systemd-analyze verify` and a transient `ExecStopPost=` showed `SERVICE_RESULT` = `success` and `exit-code` once, by hand),
 and stackshot's side of the two verbs (not built when this was written; the stub stands for it).
 

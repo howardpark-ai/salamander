@@ -245,6 +245,31 @@ case "$out" in *"is not installed"*) bad "note although installed: $out" ;; *) o
 rm "$T/u/sala-job-failed@.service"; cp "$T/oldjob.orig" "$OLD"; out=$($S job set-alert oldjob --quiet 2>&1)
 case "$out" in *"sala-job-failed@.service is not installed in"*) ok "set-alert notes a template that is not installed" ;; *) bad "no note: $out" ;; esac
 
+# ---- the shipped job units carry the lines ---------------------------------------------------------------------------------------------------------
+n=0; missing=""
+for t in "$ROOT"/systemd/*.timer "$ROOT"/contrib/*/systemd/*.timer; do
+    [ -e "$t" ] || continue; sv=${t%.timer}.service; [ -f "$sv" ] || continue; n=$((n+1))
+    python3 -I -S -c 'import sys; sys.path.insert(0, sys.argv[1]); import jobalert as j; t = open(sys.argv[2], encoding="utf-8").read(); sys.exit(0 if j.with_alert(t) == t and t.count(j.ONFAILURE_LINE) == 1 and t.count(j.STOPPOST_LINE) == 1 else 1)' "$ROOT/lib" "$sv" || missing="$missing ${sv#$ROOT/}"
+done
+[ "$n" -gt 0 ] && [ -z "$missing" ] && ok "every shipped service that has a timer ($n) carries OnFailure= and ExecStopPost= once, in the right sections" || bad "services with a timer but no (or a doubled) alert line:$missing"
+[ ! -e "$ROOT/systemd/sala-unit-gaps.timer" ] && ! grep -q '^OnFailure=' "$ROOT/systemd/sala-unit-gaps.service" && ok "a unit with no timer (sala-unit-gaps) is left alone" || bad "sala-unit-gaps.service changed shape"
+
+# ---- install.sh links the template -----------------------------------------------------------------------------------------------------------------
+export SALA_JOB_USER_DIR=$T/iu BIN_DIR=$T/ibin; : > "$T/ctl.log"
+out=$(bash "$ROOT/install.sh" 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(readlink "$T/iu/sala-job-failed@.service")" = "$ROOT/systemd/sala-job-failed@.service" ] && [ "$(grep -c -- '--user daemon-reload' "$T/ctl.log")" = 1 ] && case "$out" in *"linked $T/iu/sala-job-failed@.service (systemctl --user daemon-reload done)"*) true;; *) false;; esac \
+    && ok "install.sh links the template into the user unit folder and reloads once" || bad "install.sh (exit $rc): $out / $(cat "$T/ctl.log")"
+: > "$T/ctl.log"; out=$(bash "$ROOT/install.sh" 2>&1); rc=$?
+[ "$rc" = 0 ] && [ ! -s "$T/ctl.log" ] && [ "$(readlink "$T/iu/sala-job-failed@.service")" = "$ROOT/systemd/sala-job-failed@.service" ] && case "$out" in *"sala-job-failed"*) false;; *) true;; esac && ok "a second install.sh leaves the link alone: no reload, nothing said" || bad "second install.sh (exit $rc): $out / $(cat "$T/ctl.log")"
+rm "$T/iu/sala-job-failed@.service"; cp "$TPL" "$T/iu/sala-job-failed@.service"; : > "$T/ctl.log"
+bash "$ROOT/install.sh" > /dev/null 2>&1
+[ -L "$T/iu/sala-job-failed@.service" ] && ok "a plain copy of the template is replaced by the link" || bad "the copy stayed"
+! grep -q 'disable\|enable\|start\|stop' "$T/ctl.log" && ok "install.sh only reloads: no enable, disable, start or stop" || bad "ctl: $(cat "$T/ctl.log")"
+printf '#!/bin/sh\nexit 1\n' > "$T/bin/systemctl-bad"; chmod +x "$T/bin/systemctl-bad"; rm "$T/iu/sala-job-failed@.service"
+out=$(SALA_JOB_SYSTEMCTL=$T/bin/systemctl-bad bash "$ROOT/install.sh" 2>&1); rc=$?
+[ "$rc" = 0 ] && [ -L "$T/iu/sala-job-failed@.service" ] && case "$out" in *"daemon-reload did not run through"*) true;; *) false;; esac && ok "no user manager: the link is made, install.sh warns and still exits 0" || bad "failing reload (exit $rc): $out"
+export SALA_JOB_USER_DIR=$T/u; unset BIN_DIR
+
 # ---- with_alert: the text function ----------------------------------------------------------------------------------------------------------------
 res=$(python3 -I -S -c '
 import sys; sys.path.insert(0, sys.argv[1]); import jobalert as j

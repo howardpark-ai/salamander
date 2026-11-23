@@ -267,6 +267,7 @@ ExecStopPost=-%h/salamander/bin/salamander job alert ok %n
   `client.py job-ok <unit> <host> <ISO-Z time of the success>` and removes the marker. A post that did not go keeps the marker, so the next success tries again.
 - **Fails soft.** Both calls end in exit 0 whatever happens (no client on the box, a client without the verb, a refusal, a timeout, an unwritable state folder): one line on stderr
   (the journal of the unit), never a failed job or a failed template unit. `ExecStopPost=` and the template's `ExecStart=` carry a `-` as well.
+- **The contract** with stackshot is interface 36 of [stackshot-contracts.md](stackshot-contracts.md).
 - **The names are in one place.** The client's two verbs are `CLIENT_VERBS` in `lib/jobalert.py`; a rename on stackshot's side is that one line. (`job-failed` and
   `job-ok` are the shape agreed with stackshot; its side of the call is built separately, and until it is a failed post is one log line.)
 
@@ -274,15 +275,15 @@ ExecStopPost=-%h/salamander/bin/salamander job alert ok %n
 service file in git, as `set-project` does (a flow-pr repo needs the worktree as `--checkout`; a unit rendered from a template is refused: its template gets the lines), and prints what to
 commit. Nothing is edited in place on a box by sala beyond that git file, and a unit file outside this repo is the owner repo's to change (below).
 
-**Installing the template.** Like the other units here, by hand and once per box, beside the job units (user scope; a system-scope job needs the same file in `/etc/systemd/system`, installed as root):
-`ln -sf ~/salamander/systemd/sala-job-failed@.service ~/.config/systemd/user/ && systemctl --user daemon-reload`. Until it is there a job's `OnFailure=` starts nothing, and `sala job add` and
-`set-alert` say so.
+**Installing the template.** `install.sh` links it into the user unit folder (`~/.config/systemd/user/sala-job-failed@.service` -> this checkout's `systemd/`) and runs `systemctl --user daemon-reload`;
+a link already in place is left alone and nothing is reloaded, and nothing is enabled, started or disabled. A system-scope job needs the same file in `/etc/systemd/system`, installed as root
+(`sudo systemctl link <the checkout>/systemd/sala-job-failed@.service`). Until the template is there a job's `OnFailure=` starts nothing, and `sala job add` and `set-alert` say so.
 
 **What to add to a job whose unit is not in this repo** (every registry job gets the two lines; the template above serves all of them):
 
 | where | what to do |
 |---|---|
 | a job of a repo with flow main (the config repo's units) | `sala job set-alert NAME` for each job, then the commit steps it prints; `sala job list` names them |
-| a job of a flow-pr repo, this one included (`systemd/*.service` that has a timer) | `sala job set-alert NAME --checkout <worktree>` in a branch, then a pull request |
+| a job of a flow-pr repo (not this one: the `systemd/` and `contrib/briefing/systemd/` services that have a timer carry the two lines already) | `sala job set-alert NAME --checkout <worktree>` in a branch, then a pull request |
 | a unit another repo renders from a template (stackshot's `units/*.in`) | add the same two lines to the template itself (a pull request on that repo); `set-alert` refuses it |
 | a unit with no `X-Project=` | works: the project is posted as `-`; `sala job check` still reports the `no-project` gap |

@@ -42,7 +42,7 @@ usage: sala job add NAME --repo REPO --script PATH --schedule SCHEDULE [--schedu
   set-alert  a failed run reaches stackshot, and the next success closes it: writes OnFailure=sala-job-failed@%n.service into [Unit] and
           ExecStopPost=-%h/salamander/bin/salamander job alert ok %n into [Service] of an existing job's service file in git (`add` writes both into every
           new job), and prints what to commit like set-project (--checkout, --quiet, system scope, a template-rendered unit refused). The template
-          unit systemd/sala-job-failed@.service must be installed beside the job's unit (docs/units.md).
+          unit systemd/sala-job-failed@.service must be linked beside the job's unit (install.sh does; docs/units.md).
   alert   what those two lines run, never by hand: `alert failed UNIT` (the template: drops the marker failed/UNIT in the state folder and posts
           client.py job-failed UNIT HOST TIME PROJECT, TIME = when the run ended, ISO UTC with a Z, PROJECT = the unit's X-Project= or a single -) and
           `alert ok UNIT` (after every run: nothing unless the run succeeded and the marker exists, then client.py job-ok UNIT HOST TIME and the
