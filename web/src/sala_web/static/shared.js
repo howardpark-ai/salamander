@@ -37,6 +37,12 @@ const unreadTotal = (sessions, selected) => sessions.reduce((t, s) => t + unread
 // owner leaves it (its replies count as read the moment it opens, so without this the row would vanish under the pointer).
 const unreadKept = (sessions, selected) => sessions.filter((s) => s.name === selected || unreadOfSession(s, selected) > 0);
 // </unread-words>
+// <sleeping-words> (the tests run what is between these two markers in node)
+// The "Show sleeping sessions" box: of the sessions of one project, a sleeper (the server's `sleeping` key, the time it went to sleep) is
+// listed only with the box checked, or while it is the open session (so the open one never vanishes). A project left with nothing to list
+// is dropped by the caller, which is how a project that only sleeps leaves the list.
+const sleepersKept = (sessions, selected, showSleeping) => (showSleeping ? sessions : sessions.filter((s) => s.name === selected || s.sleeping === undefined));
+// </sleeping-words>
 // asked once at start and again with the Overview's usual refresh; a failed or unreadable answer leaves what the page has
 async function loadLaneNames() {
   try {

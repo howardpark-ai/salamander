@@ -601,6 +601,8 @@ window.SALA_I18N_KO = {
   "ui.side.sessions": "\uc138\uc158",
   "ui.side.showAll": "\ubaa8\ub4e0 \uc138\uc158 \ubcf4\uae30",
   "ui.side.showAllTip": "\ubc31\uadf8\ub77c\uc6b4\ub4dc \uc5d0\uc774\uc804\ud2b8\ub3c4 \ud45c\uc2dc",
+  "ui.side.showSleeping": "\ud734\uba74 \uc138\uc158 \ubcf4\uae30",
+  "ui.side.showSleepingTip": "\ud734\uba74 \uc911\uc778 \uc138\uc158\ub3c4 \ud45c\uc2dc",
   "ui.side.unread": "\uc77d\uc9c0 \uc54a\uc74c",
   "ui.side.unreadTip": "\uc77d\uc9c0 \uc54a\uc740 \uba54\uc2dc\uc9c0\uac00 \uc788\ub294 \uc5d0\uc774\uc804\ud2b8\ub9cc \ubcf4\uae30",
   "ui.side.views": "\ubcf4\uae30",

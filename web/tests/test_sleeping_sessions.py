@@ -28,6 +28,7 @@ import stat
 import subprocess
 import sys
 import time
+import urllib.request
 
 import pytest
 from starlette.testclient import TestClient
@@ -307,7 +308,18 @@ SIDEBAR_ROW = ("(() => { const r = [...document.querySelectorAll('#session-list 
                " return r ? { dot: r.querySelector('.dot').className, tag: (r.querySelector('.slp') || {}).textContent || '', title: r.title } : null; })()")
 
 
-def test_the_sidebar_marks_a_sleeper_sleeping_and_a_live_session_not(slept, browser):
+@pytest.fixture
+def slept_shown(slept):
+    """The same, with the side panel's "Show sleeping sessions" box checked (it is off by default, and then the list leaves a sleeper out: test_hide_sleeping.py)."""
+    req = urllib.request.Request(slept["url"] + "/api/prefs", data=json.dumps({"showSleeping": True}).encode(), method="PUT",
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        assert r.status == 200
+    return slept
+
+
+def test_the_sidebar_marks_a_sleeper_sleeping_and_a_live_session_not(slept_shown, browser):
+    slept = slept_shown
     open_page(browser, slept)
     assert wait_for(browser, SIDEBAR_ROW % json.dumps(NAME) + " !== null")
     row = browser.evaluate(SIDEBAR_ROW % json.dumps(NAME))
@@ -325,7 +337,8 @@ def test_the_overview_row_says_sleeping_since(slept, browser):
     assert NAME in text and "10:10" in text
 
 
-def test_opening_a_sleeper_asks_the_wake_once_and_follows_it(slept, wake, browser):
+def test_opening_a_sleeper_asks_the_wake_once_and_follows_it(slept_shown, wake, browser):
+    slept = slept_shown
     wake.mode("queued")
     wake.op("queued")
     open_page(browser, slept)

@@ -613,6 +613,8 @@ window.SALA_I18N_EN = {
   "ui.side.sessions": "Sessions",
   "ui.side.showAll": "Show all sessions",
   "ui.side.showAllTip": "Also show background agents",
+  "ui.side.showSleeping": "Show sleeping sessions",
+  "ui.side.showSleepingTip": "Also show sleeping sessions",
   "ui.side.unread": "Unread",
   "ui.side.unreadTip": "Show only agents with unread replies",
   "ui.side.views": "Views",

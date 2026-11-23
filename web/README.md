@@ -668,6 +668,13 @@ Every pid-keyed route (`/api/s/<pid>/...`) finds nothing at pid 0, and spend, us
 - **Sidebar**: a hollow dot, the word *sleeping* beside the name, and *asleep since ...* in the row's tooltip. **Overview**: the status reads
   *sleeping* and the cell adds *since ...*. The time is the marker's, written in the page's zone (the same zone the rest of the page uses,
   `zoneFormat`), never UTC and never the box's. A sleeping session is never drawn as idle, shell or a crashed one.
+- **The sidebar leaves sleepers out unless "Show sleeping sessions" is checked.** The box sits under the list, right under "Show all sessions"
+  (`#show-sleeping`, the same markup), and is the pref `showSleeping` (*Preferences*, below): kept on the server so the phone and the desktop
+  agree and a reload keeps it, off by default. Off, a sleeping session has no row, and a project whose sessions all sleep has no heading
+  either; the session that is open stays listed (and its project with it) until the owner leaves it, so the open one never vanishes. On, the
+  sleepers are back in their usual places, marked sleeping as above. The Overview is not the sidebar and lists every session either way.
+  The rule is `sleepersKept` in `shared.js` (between the `<sleeping-words>` markers), which `app.js` applies to each project's rows after
+  the "Show all sessions" rule and `tests/test_hide_sleeping.py` runs in node; the same file drives a headless Chromium over `/`.
 - **Opening one wakes it.** Selecting a sleeper (a tap in the sidebar, an Overview link, `#s=<name>`) shows its note, not a chat, and asks
   `POST /api/wake` once; the note says *Waking ...*, then follows the queued operation (`GET /api/spawn/status?op=`) and the sessions list
   every 2 s. When the session is live again the ordinary poll opens it (a woken session keeps its conversation and its name). A refusal, a
@@ -2078,6 +2085,7 @@ directory, fsync, rename) under a lock, mode 0600.
 | `collapsed` | folded headers: project keys, and scope keys as `scope:<key>` |
 | `laneOrder` | the Overview's lane card ids (`subscription-1`, `subscription-2`, `api`, `aws-platform`, `bedrock`; an old `max` or `team` in a saved order reads as the new code) in the order the owner dragged them; a lane not in it follows the listed ones in the default order (active, dormant, not configured), an id with no card now is ignored |
 | `showAll` | the "Show all sessions" toggle (background agents) |
+| `showSleeping` | the "Show sleeping sessions" box: sleeping sessions are listed in the sidebar only when it is true (the open one always stays); false by default (*Sleeping sessions*). The Overview ignores it |
 | `unreadOnly` | the Unread entry's filter (*The Unread entry*): only the agents with an unread reply, plus the open one; false by default |
 | `shellHeight` | the shell drawer's height in pixels, an integer from 120 to 4000, default 300 (*The shell drawer*) |
 | `lang` | the interface language, `en` (default) or `ko` (*The language*); anything else is refused with a 400 and changes nothing |

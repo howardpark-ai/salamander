@@ -192,7 +192,7 @@ none itself):
                                   the text into the pane, then Enter (with a dialog
                                   open: an option number or "esc" is sent as that one key)
   GET  /api/prefs                 the page's saved preferences (scopeOrder, groupOrder, sessionOrder, collapsed,
-                                  laneOrder, showAll, unreadOnly, showTools, shellHeight, lang)
+                                  laneOrder, showAll, showSleeping, unreadOnly, showTools, shellHeight, lang)
   PUT  /api/prefs                 merge the given keys into them (state_dir/prefs.json, written atomically)
   POST /api/shell/open            make sure the Shell drawer's tmux session (SALA_SHELL_SESSION, default sala-shell) exists (a plain login bash in ~)
   POST /api/shell/keys            {"key"}: one key of the drawer's key row into the shell session, from a fixed list of key names
@@ -321,9 +321,9 @@ DUP_WINDOW = 20.0  # seconds: an identical send to the same pane inside this is 
 PREFS_MAX_BYTES = 64 * 1024
 PREFS_MAX_GROUPS = 500
 PREFS_DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [],
-                  "laneOrder": [], "showAll": False, "unreadOnly": False, "showTools": False, "shellHeight": 300, "lang": "en"}
+                  "laneOrder": [], "showAll": False, "showSleeping": False, "unreadOnly": False, "showTools": False, "shellHeight": 300, "lang": "en"}
 PREFS_LISTS = ("scopeOrder", "groupOrder", "sessionOrder", "collapsed", "laneOrder")
-PREFS_BOOLS = ("showAll", "unreadOnly", "showTools")
+PREFS_BOOLS = ("showAll", "showSleeping", "unreadOnly", "showTools")
 PREFS_LANGS = ("en", "ko")        # the interface languages (static/i18n.js); English is the default
 SHELL_HEIGHT_RANGE = (120, 4000)   # px, the Shell drawer's height on a wide screen; the page keeps it inside the window
 SSE_RETRY_MS = 1000           # EventSource reconnect delay after the stream drops (a restart)

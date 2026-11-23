@@ -241,6 +241,7 @@ body.reordering .sess:not(.dragging) { pointer-events: none; }
 .sleeping-note .wake-btn { margin-top: 4px; }
 .toggle { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--border);
   font-size: 13px; color: var(--muted); cursor: pointer; }
+.toggle + .toggle { border-top: 0; padding-top: 0; }   /* two in a row (Show all sessions, Show sleeping sessions) share the one rule above them */
 .side-note { font-size: 12px; color: var(--faint); padding: 0 16px 8px; }
 .side-note:empty { display: none; }
 /* the color tool's button (colortool.js draws it into #side-colors): last in the panel, under "Show all sessions"; nothing shows in the light theme, where the tool draws nothing */

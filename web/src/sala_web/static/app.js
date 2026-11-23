@@ -57,7 +57,7 @@ const state = {
   es: null,             // EventSource
   defaultScope: "",     // the scope a new project starts in (api/config)
   scopes: [],           // this box's scopes (api/config) and other, each with its project groups; Unregistered last
-  prefs: { scopeOrder: [], groupOrder: [], sessionOrder: [], collapsed: [], laneOrder: [], showAll: false, unreadOnly: false, showTools: false, shellHeight: 300, lang: "en" },  // server-side (api/prefs): follows the owner
+  prefs: { scopeOrder: [], groupOrder: [], sessionOrder: [], collapsed: [], laneOrder: [], showAll: false, showSleeping: false, unreadOnly: false, showTools: false, shellHeight: 300, lang: "en" },  // server-side (api/prefs): follows the owner
   prefsNote: "",
   tab: "chat",
   terminalUrl: "/tty/?arg=",
@@ -277,11 +277,13 @@ async function loadSessions() {
 }
 
 // background agents and Slack agents (the owner talks to a Slack agent in Slack: its payload carries surface "slack") work out of the
-// owner's sight: hidden unless the toggle is on (or one is selected)
+// owner's sight: hidden unless the toggle is on (or one is selected). A sleeping session is hidden the same way, by its own toggle
+// ("Show sleeping sessions", the `showSleeping` pref): the open one stays, so it never vanishes under the owner, and a project whose
+// sessions all sleep leaves the list with them (renderSidebar drops a group with nothing to show). The Overview lists every session.
 const HIDDEN_ROLES = new Set(["back"]);
 const hiddenFromList = (s) => HIDDEN_ROLES.has(s.role) || s.surface === "slack";
 const visibleSessions = (g) => {
-  const shown = orderedSessions(g).filter((s) => state.prefs.showAll || !hiddenFromList(s) || s.name === state.selected);
+  const shown = sleepersKept(orderedSessions(g).filter((s) => state.prefs.showAll || !hiddenFromList(s) || s.name === state.selected), state.selected, state.prefs.showSleeping);
   return state.prefs.unreadOnly ? unreadKept(shown, state.selected) : shown;   // "Unread only": the Unread entry, below
 };
 
@@ -3972,6 +3974,7 @@ setPlaceholder();
 window.matchMedia("(max-width: 760px)").addEventListener("change", setPlaceholder);
 touchMode.addEventListener("change", setPlaceholder);
 $("#show-back").addEventListener("change", (e) => { savePrefs({ showAll: e.target.checked }); renderSidebar(); });
+$("#show-sleeping").addEventListener("change", (e) => { savePrefs({ showSleeping: e.target.checked }); renderSidebar(); });
 // tool calls (and their results) are hidden by default; the class keeps them in the page, so the toggle needs no re-render
 function applyShowTools() { document.body.classList.toggle("hide-tools", !state.prefs.showTools); $("#show-tools").checked = !!state.prefs.showTools; }
 $("#show-tools").addEventListener("change", (e) => { savePrefs({ showTools: e.target.checked }); applyShowTools(); });
@@ -4353,6 +4356,7 @@ paintShellTip();
     }
   } catch { /* storage unavailable */ }
   $("#show-back").checked = !!state.prefs.showAll;
+  $("#show-sleeping").checked = !!state.prefs.showSleeping;
   applyShowTools();
   // the board items are read beside the sessions (the server answers both from its caches), for the New session page's
   // item picker alone; nothing of the first paint waits for them
