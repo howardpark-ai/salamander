@@ -89,6 +89,8 @@ export SALA_LANE_BEDROCK_REGION=us-east-1 SALA_LANE_AWSPLATFORM_REGION=us-east-1
 export SALA_TZ=Etc/UTC     # with no zone set every time sala shows is the machine's local time (CI's runner is UTC); the suites' expected times and labels
                                # are a fixed zone, as a config line would set it. tests/neutral-defaults.sh checks the unset default with this unset
 export SALA_OWNER_NAME=Rowan     # the name runtime text and the `[for <name>]` marker carry; the suites' expected text says Rowan. tests/neutral-defaults.sh checks the unset default ("the owner")
+export SALA_INBOX_MODE=files   # the inbox holds are files here, whatever stackshot URL the box that runs the suites has (auto would pick the server on a client box); tests/inboxserver.sh, sleeping.sh and sleepverbs.sh set it per case
+unset STACKSHOT_URL
 export SALA_SIGNIN_ALERT=off  # the sign-in step is signin.sh's (the header): a 30 s hang per login lane for the other suites
 export SALA_LANE_FALLBACK_AUTO=off   # a lane that turns dormant (watch, `lane dormant`) would queue a move through `sala op` and kick the real systemd-run;
                                # the other suites keep the older "stays where it is" behaviour. tests/lanefallback.sh turns the switch on, with its own stubs

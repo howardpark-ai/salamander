@@ -307,6 +307,21 @@ r=$(why sala-test-s); [ -z "$r" ] && ok "a line for sala-test-s-extra and a text
 printf '{"id":"x3","src":"msg","to":"sala-test-s","uuid":"","name":"sala-test-s","pid":"","text":"for s","from":"x"}\n' > "$SALA_STACKSHOT_INBOX/msg/x3.json"; expect "a stackshot msg line routed to its name" sala-test-s "stackshot msg message"; rm -f "$SALA_STACKSHOT_INBOX/msg/x3.json"
 printf '{"id":"x4","src":"hub","to":"somebody-else","uuid":"%s","name":"somebody-else","pid":"","text":"for the conversation","from":"x"}\n' "$(uuid 6)" > "$SALA_STACKSHOT_INBOX/hub/x4.json"; expect "a stackshot hub line routed to its conversation id" sala-test-s "stackshot hub message"; rm -f "$SALA_STACKSHOT_INBOX/hub/x4.json"
 rm -f "$SALA_STACKSHOT_INBOX/msg/x1.json" "$SALA_STACKSHOT_INBOX/hub/x2.json"
+# on a box that is not stackshot's server (SALA_INBOX_MODE=server, lib/inboxhold.py) the server answers the question: a line waiting there refuses the sleep, nothing waiting allows it,
+# and a server that cannot be asked refuses it too (no answer is never "nothing waits"); the local folder is not looked into. tests/inboxserver.sh has the whole matrix.
+rm -f "$SALA_STACKSHOT_INBOX"/hub/*.json "$SALA_STACKSHOT_INBOX"/msg/*.json
+export FAKE_INBOX_DIR="$HOME/fakeinbox" SALA_INBOX_MODE=server SALA_STACKSHOT_CLIENT="$ROOT/tests/fake-inbox-client.py" SALA_INBOX_TIMEOUT=2 SALA_INBOX_BREAKER=0
+mkdir -p "$FAKE_INBOX_DIR/inbox/hub" "$FAKE_INBOX_DIR/inbox/msg"
+r=$(why sala-test-s); [ -z "$r" ] && ok "server mode, nothing waits on the stackshot server: no refusal" || bad "server nothing waits: $r"
+printf '{"to":"sala-test-s","text":"hello"}\n' > "$FAKE_INBOX_DIR/inbox/msg/m1.json"; expect "a message waiting on the stackshot server" sala-test-s "stackshot msg message"
+printf '{"to":"sala-test-s","text":"hello"}\n' > "$SALA_STACKSHOT_INBOX/hub/m1.json"; rm -f "$FAKE_INBOX_DIR/inbox/msg/m1.json"
+r=$(why sala-test-s); [ -z "$r" ] && ok "a line in the local inbox folder is not looked at in server mode" || bad "server mode read the local folder: $r"
+rm -f "$SALA_STACKSHOT_INBOX/hub/m1.json"
+for how in down e500 hang garbage; do
+    export FAKE_INBOX_FAIL=waiting FAKE_INBOX_HOW=$how SALA_INBOX_TIMEOUT=1
+    expect "a stackshot server that cannot be asked ($how) refuses the sleep" sala-test-s "could not be asked"
+done
+unset FAKE_INBOX_FAIL FAKE_INBOX_HOW SALA_STACKSHOT_CLIENT; export SALA_INBOX_MODE=files; rm -rf "$FAKE_INBOX_DIR"; unset FAKE_INBOX_DIR SALA_INBOX_TIMEOUT
 : > "$HOME/t_limit"; expect "stopped on a usage limit" sala-test-s "usage limit"; rm -f "$HOME/t_limit"
 : > "$HOME/t_net"; expect "stopped on a network error" sala-test-s "network"; rm -f "$HOME/t_net"
 _key_r k sala-test-s; printf 's.%s.hash=abc123\n' "$k" > "$SALA_STATE_DIR/stuck.state"; expect "a question open on its screen" sala-test-s "question"; rm -f "$SALA_STATE_DIR/stuck.state"

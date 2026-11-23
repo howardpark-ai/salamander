@@ -270,10 +270,27 @@ sleep_is_front() {
 # wait for `worker`. A held key (the inbox's held-*.txt files) only stops delivery: the line is still waiting, so held or not it counts.
 # THE ONE PREDICATE for "a line waits for it": sleep_ready refuses a session by it, and the watch's wake_tick wakes a sleeper by it. A cheap grep finds the files that
 # contain either text at all and only those are parsed (a file that is not a JSON object counts for nothing).
+# IN SERVER MODE (SALA_INBOX_MODE, lib/common.sh: this box is not the server's, so the inbox folders here are nobody's) the same question is `client.py get inbox-waiting NAME,UUID`
+# (lib/inboxhold.py), whose predicate is this one: to, uuid, name or pid equals a key, held or not. THE FAIL-SAFE: a server that cannot be asked (not reached in 5 s, an error, an
+# answer in no known shape) is NO ANSWER, never "nothing waits": the function returns 0 (so sleep_ready refuses the sleep) with INBOX_WAIT_UNKNOWN=1 and the reason in
+# INBOX_WAIT_WHY, and wake_candidates, which must not wake a session on a line nobody saw, passes over it. A server without the call (an older stackshot) is asked of the
+# inbox folder on this box when there is one, and is no answer when there is none.
 INBOX_WAIT_KIND=""
+INBOX_WAIT_UNKNOWN=0
+INBOX_WAIT_WHY=""
 inbox_line_waiting() {
-    local tw cand; INBOX_WAIT_KIND=""
+    local tw cand m rc; INBOX_WAIT_KIND=""; INBOX_WAIT_UNKNOWN=0; INBOX_WAIT_WHY=""
     [ -n "${1:-}" ] || [ -n "${2:-}" ] || return 1
+    inbox_mode_r m
+    if [ "$m" = server ]; then
+        _inbox_call waiting "${1:-}" "${2:-}"; rc=$?
+        case $rc in
+            0) INBOX_WAIT_KIND=$INBOX_OUT; return 0 ;;
+            1) return 1 ;;
+            3) [ -d "$SALA_STACKSHOT_INBOX" ] || { INBOX_WAIT_UNKNOWN=1; INBOX_WAIT_WHY="$INBOX_OUT, and this box has no inbox folder to look into instead"; return 0; } ;;   # an older server: the folder here
+            *) INBOX_WAIT_UNKNOWN=1; INBOX_WAIT_WHY=$INBOX_OUT; return 0 ;;
+        esac
+    fi
     for tw in hub msg; do
         mapfile -t cand < <(grep -lsF -e "$1" -e "$2" "$SALA_STACKSHOT_INBOX/$tw"/*.json 2>/dev/null)
         [ "${#cand[@]}" -gt 0 ] || continue
@@ -337,7 +354,10 @@ sleep_ready() {
     waiting_for "$conv" && { _sleep_no "a relaunch flag waits for it (waiting/)"; return 1; }
     waiting_for "$uuid" && { _sleep_no "a relaunch flag waits for it (waiting/)"; return 1; }
     # a stackshot inbox message for it (hub/ and msg/ under the inbox; the directory may not exist on this box)
-    if inbox_line_waiting "$sess" "$uuid"; then _sleep_no "a stackshot $INBOX_WAIT_KIND message waits for it"; return 1; fi
+    if inbox_line_waiting "$sess" "$uuid"; then
+        if [ "$INBOX_WAIT_UNKNOWN" = 1 ]; then _sleep_no "the stackshot server could not be asked whether a message waits for it ($INBOX_WAIT_WHY)"; return 1; fi
+        _sleep_no "a stackshot $INBOX_WAIT_KIND message waits for it"; return 1
+    fi
     # stopped on a limit or on the network: its last turn ended on an error, and the conversation must stay in its pane for the resume that follows
     _sleep_limit_stopped "$sess" "$pid" "$lane" && { _sleep_no "stopped on a usage limit"; return 1; }
     _sleep_net_stopped "$sess" && { _sleep_no "stopped on a network error"; return 1; }
@@ -624,6 +644,7 @@ wake_candidates() {
         [ -n "$u" ] || continue
         sess=$(awk -F'\t' -v u="$u" '$2 == u {print $1; exit}' "$SALA_SIDECAR" 2>/dev/null); [ -n "$sess" ] || continue
         inbox_line_waiting "$sess" "$u" || continue
+        [ "$INBOX_WAIT_UNKNOWN" = 0 ] || continue   # the server could not be asked: no line was seen, so nothing wakes (and no failed wake is counted)
         if tmux has-session -t "=$sess" 2>/dev/null; then
             pp=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_pid}' 2>/dev/null | head -1)
             [ -z "$pp" ] || [ -z "$(claude_pid_under "$pp" 2>/dev/null)" ] || continue

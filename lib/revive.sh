@@ -1014,7 +1014,7 @@ if [ "$nclaude" -gt 0 ]; then
         IFS='|' read -r pane sess label cpid ver uuid lline hname <<<"${ELIG[$i]#"CLAUDE|"}"
         HELD_PAIRS+=("$uuid|$hname|$cpid"); inbox_hold "$uuid" "$hname"; nheld=$((nheld+1))
     done
-    if [ -d "$SALA_INBOX_HOLD_DIR" ]; then
+    if inbox_holding; then   # the hold folder here, or the stackshot server's hold calls (SALA_INBOX_MODE); a hold the server did not answer is said on stderr by inbox_hold, and the pane goes on through close_pane's idle re-check
         echo "[$(date -Is)] phase 2 (hold): inbox held for $nheld claude pane(s) before the first /exit; settling ${SALA_HOLD_SETTLE}s"
         _nap "$SALA_HOLD_SETTLE"
     fi

@@ -130,6 +130,18 @@ run sleep sala-test-s --force
 run sleep sala-test-nosuch
 [ "$RC" = 1 ] && has "$OUT" "no tmux session" && ok "no such session: refused" || bad "sleep nosuch: rc=$RC — $OUT"
 
+echo "== sleep when the stackshot server does not answer (SALA_INBOX_MODE=server, tests/fake-inbox-client.py): refused in one line, nothing changed"
+export FAKE_INBOX_DIR="$HOME/fakeinbox"; mkdir -p "$FAKE_INBOX_DIR/inbox/hub" "$FAKE_INBOX_DIR/inbox/msg"
+SRV="env SALA_INBOX_MODE=server SALA_STACKSHOT_CLIENT=$ROOT/tests/fake-inbox-client.py SALA_INBOX_TIMEOUT=2 SALA_INBOX_BREAKER=0"
+OUT=$($SRV FAKE_INBOX_FAIL=hold FAKE_INBOX_HOW=down "$SALA" sleep sala-test-s 2>&1); RC=$?
+[ "$RC" = 1 ] && has "$OUT" "not put to sleep" && has "$OUT" "inbox could not be held" && hasclaude s && [ ! -e "$SALA_SLEEP_DIR/$US" ] && ok "the hold call fails: sleep s is refused (a sleep may not go on with its inbox open), claude running, no marker ($OUT)" || bad "sleep s, hold down: rc=$RC — $OUT"
+OUT=$($SRV FAKE_INBOX_FAIL=waiting FAKE_INBOX_HOW=down "$SALA" sleep sala-test-s 2>&1); RC=$?
+[ "$RC" = 1 ] && has "$OUT" "could not be asked whether a message waits" && hasclaude s && [ ! -e "$SALA_SLEEP_DIR/$US" ] && ok "the waiting check cannot be asked: refused as 'could not be asked', not taken for nothing waiting" || bad "sleep s, waiting down: rc=$RC — $OUT"
+printf '{"to":"sala-test-s","text":"hello"}\n' > "$FAKE_INBOX_DIR/inbox/msg/m1.json"
+OUT=$($SRV "$SALA" sleep sala-test-s 2>&1); RC=$?
+[ "$RC" = 1 ] && has "$OUT" "a stackshot msg message waits for it" && hasclaude s && ok "a line waiting on the server refuses the sleep, as a line in the local inbox does" || bad "sleep s, line on the server: rc=$RC — $OUT"
+rm -f "$FAKE_INBOX_DIR/inbox/msg/m1.json"; rm -rf "$FAKE_INBOX_DIR"; unset FAKE_INBOX_DIR
+
 echo "== sleep --dry-run of a ready session changes nothing"
 run sleep sala-test-s --dry-run
 [ "$RC" = 0 ] && has "$OUT" "[dry-run]" && has "$OUT" "would hold its stackshot inbox" && hasclaude s && [ ! -e "$SALA_SLEEP_DIR/$US" ] && [ "$(n_starts 6)" = "$s0" ] && ok "s --dry-run: says what it would do, exit 0, claude running, no marker" || bad "sleep s dry: rc=$RC — $OUT"
