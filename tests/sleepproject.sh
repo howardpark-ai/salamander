@@ -20,6 +20,9 @@
 #  - `sala sleep --project`: refused with the reason for a project that is not a candidate (and as a dry run), nothing touched;
 #  - pins: `--pin KEY [--why TEXT]`, `--unpin KEY`, `--pins`; a pinned project never sleeps and is shown as pinned, a `projects/` prefix is read as the key, a bad key is
 #    refused, the files live beside the marker folder, never in it, and an unpinned quiet project is a candidate again;
+#  - keys with a slash (`team/alpha`, as stackshot's project-activity names them): pinned as the file team%2Falpha-style (no sub-folder, no two keys alike, a plain key's file as
+#    before), unpinned and listed decoded, slept and woken with its sessions; the bad keys (traversal, empty words, spaces, shell characters, control bytes) stay refused; a key sala
+#    cannot sleep is no candidate and takes no place in the tick's run; the cap counts a project the run started, not one refused before anything was touched (a stub of the verb);
 #  - waking is per session: a message line for one sleeper wakes that session only, the rest of its project stays asleep, the woken one holds the project back for
 #    SALA_SLEEP_AFTER and sleeps again, alone, once its wake stamp is old.
 # SAFETY: every kill is a `kill -9` of ONE pid whose /proc/<pid>/exe is this suite's own compiled fake and whose environment names this suite's temporary HOME
@@ -142,7 +145,7 @@ run sleep --pins; [ "$RC" = 0 ] && has "$OUT" "no project is pinned" && ok "--pi
 run sleep --pin projects/p-delta --why "keeps its own hours"
 [ "$RC" = 0 ] && has "$OUT" "p-delta: pinned" && has "$OUT" "keeps its own hours" && [ -f "$SALA_SLEEP_DIR.pins/p-delta" ] && ok "--pin projects/p-delta: pinned as p-delta, the file stands in $(basename "$SALA_SLEEP_DIR").pins, beside the marker folder" || bad "pin: rc=$RC $OUT; $(ls -A "$SALA_SLEEP_DIR.pins" 2>&1)"
 run sleep --pins; [ "$RC" = 0 ] && has "$OUT" "p-delta" && has "$OUT" "pinned since" && has "$OUT" "keeps its own hours" && ok "--pins lists it with its time and its reason" || bad "pins: rc=$RC $OUT"
-run sleep --pin "../x"; [ "$RC" != 0 ] && has "$OUT" "not a project key" && [ ! -e "$HOME/x" ] && ok "a key with a slash is refused" || bad "bad key: rc=$RC $OUT"
+run sleep --pin "../x"; [ "$RC" != 0 ] && has "$OUT" "not a project key" && [ ! -e "$HOME/x" ] && ok "a path-traversal key is refused" || bad "bad key: rc=$RC $OUT"
 run sleep --pin p-a --unpin p-b; [ "$RC" != 0 ] && has "$OUT" "stand alone" && ok "--pin and --unpin together are refused" || bad "two modes: rc=$RC $OUT"
 run sleep --pin p-eps sala-test-alp-main; [ "$RC" != 0 ] && has "$OUT" "takes no session name" && ok "--pin with a session name is refused" || bad "pin + name: rc=$RC $OUT"
 run sleep --why because; [ "$RC" != 0 ] && has "$OUT" "--why goes with --pin" && ok "--why alone is refused" || bad "why alone: rc=$RC $OUT"
@@ -221,7 +224,7 @@ OUT=$("$SALA" sleep --project p-beta --dry-run 2>&1); RC=$?; [ "$RC" != 0 ] && h
 OUT=$("$SALA" sleep --project p-delta 2>&1); RC=$?; [ "$RC" != 0 ] && has "$OUT" "pinned" && ok "sleep --project p-delta: refused, it is pinned" || bad "delta: rc=$RC $OUT"
 OUT=$("$SALA" sleep --project p-eps 2>&1); RC=$?; [ "$RC" != 0 ] && has "$OUT" "eps-eng: its last turn left a scheduled job" && ok "sleep --project p-eps: refused, one session has work in flight" || bad "eps: rc=$RC $OUT"
 OUT=$("$SALA" sleep --project p-nosuch 2>&1); RC=$?; [ "$RC" != 0 ] && has "$OUT" "no session of it runs on this box" && ok "a project nothing runs here: refused" || bad "nosuch: rc=$RC $OUT"
-OUT=$("$SALA" sleep --project "a/b" 2>&1); RC=$?; [ "$RC" != 0 ] && has "$OUT" "not a project key" && ok "a bad key: refused" || bad "bad key: rc=$RC $OUT"
+OUT=$("$SALA" sleep --project "a//b" 2>&1); RC=$?; [ "$RC" != 0 ] && has "$OUT" "not a project key" && ok "a bad key: refused" || bad "bad key: rc=$RC $OUT"
 OUT=$("$SALA" sleep --project p-theta sala-test-the-eng 2>&1); RC=$?; [ "$RC" != 0 ] && has "$OUT" "takes no session name" && ok "--project with a session name: refused" || bad "project + name: rc=$RC $OUT"
 OUT=$("$SALA" sleep sala-test-orp-eng --dry-run 2>&1); has "$OUT" "claude pid" && ok "(a person may still name the project-less agent: sala sleep NAME is the per-session verb, unchanged; the tick never picks it)" || bad "orp by name: $OUT"
 [ "$(nmarkers)" = 0 ] && ok "no refusal wrote a marker" || bad "markers: $(ls "$SALA_SLEEP_DIR")"
@@ -286,6 +289,97 @@ OUT=$("$SALA" sleep --candidates 2>&1); L=$(grep '^p-alpha:' <<< "$OUT")
 has "$L" "would be put to sleep (sala-test-alp-eng)" && ok "with the stamp aged, alpha is a candidate again, with its one awake session" || bad "alpha aged: $L"
 SALA_IDLE_SLEEP=on "$SALA" watch --sleep >/dev/null 2>&1
 asleep 41 && asleep 42 && asleep 43 && ! hasclaude alp-eng && ok "the tick puts the last awake session of the project back to sleep (as part of its project)" || bad "alp-eng not asleep again"
+
+echo "== keys with a slash (stackshot's page-style keys, like team/alpha): pins first, then the key's own sessions, a key sala cannot sleep, the tick"
+PD="$SALA_SLEEP_DIR.pins"
+run sleep --pin team/xs --why "talks to it on slack"
+[ "$RC" = 0 ] && has "$OUT" "team/xs: pinned" && [ -f "$PD/team%2Fxs" ] && [ -z "$(find "$PD" -mindepth 1 -type d)" ] && ok "--pin team/xs: one file, team%2Fxs, and no sub-folder under the pin folder" || bad "slash pin: rc=$RC $OUT; $(ls -A "$PD")"
+run sleep --pins; has "$OUT" "team/xs" && has "$OUT" "talks to it on slack" && has "$OUT" "p-delta" && ! has "$OUT" "%2F" && ok "--pins shows it as team/xs (decoded) beside the plain key p-delta, whose file keeps its old name" || bad "pins: $OUT"
+printf '2026-01-01T00:00:00Z\told pin\n' > "$PD/p-legacy"; run sleep --pins; has "$OUT" "p-legacy" && has "$OUT" "old pin" && ok "a pin file written before the slash keys is read as it was" || bad "legacy pin: $OUT"; rm -f "$PD/p-legacy"
+run sleep --pin team_xs; run sleep --pin team.xs; run sleep --pin team__xs; run sleep --pin team-xs
+[ "$(ls -A "$PD" | grep -c .)" = 6 ] && ls "$PD" | grep -qx 'team%2Fxs' && ok "five keys that differ by one byte (team/xs, team_xs, team.xs, team__xs, team-xs) are five files, none shared, with p-delta's: six" || bad "collision: $(ls -A "$PD")"
+KEYS=$(sleep_pin_list | cut -f1 | LC_ALL=C sort | paste -sd' '); [ "$KEYS" = "p-delta team-xs team.xs team/xs team__xs team_xs" ] && ok "--pins lists each of them once under its own key" || bad "pin list: $KEYS"
+run sleep --unpin team_xs; run sleep --unpin team.xs; run sleep --unpin team__xs; run sleep --unpin team-xs
+[ "$(ls -A "$PD" | paste -sd' ')" = "p-delta team%2Fxs" ] && ok "--unpin of a plain key takes only its own file" || bad "unpin plain: $(ls -A "$PD")"
+OUT=$("$SALA" sleep --candidates 2>&1); L=$(grep -F 'team/xs:' <<< "$OUT"); [ -z "$L" ] && ok "(no session of team/xs runs yet: no line for it, only its pin)" || bad "xs line before: $L"
+run sleep --unpin team/xs; [ "$RC" = 0 ] && has "$OUT" "team/xs: unpinned" && [ ! -e "$PD/team%2Fxs" ] && [ -e "$PD/p-delta" ] && ok "--unpin team/xs: its file is gone, p-delta's stays" || bad "unpin slash: rc=$RC $OUT; $(ls -A "$PD")"
+run sleep --unpin team/xs; [ "$RC" = 0 ] && has "$OUT" "was not pinned" && ok "a second --unpin: 'was not pinned'" || bad "unpin twice: rc=$RC $OUT"
+NB=0; for k in '../x' 'a/../b' '/a' 'a/' 'a//b' 'a/.' 'a/.hidden' '.hidden' 'a b' 'a;b' 'a$b' 'a`b`' 'a|b' 'a&b' 'a*b' 'a%2Fb' 'a\b' $'a\nb' $'a\tb' $'a\x01b' 'projects/' ''; do
+    run sleep --pin "$k"; { [ "$RC" != 0 ] && has "$OUT" "not a project key"; } || { NB=$((NB + 1)); bad "pin of a bad key was not refused: $(printf %q "$k") rc=$RC $OUT"; }
+    run sleep --unpin "$k"; { [ "$RC" != 0 ] && has "$OUT" "not a project key"; } || { NB=$((NB + 1)); bad "unpin of a bad key was not refused: $(printf %q "$k") rc=$RC $OUT"; }
+    OUT=$("$SALA" sleep --project "$k" --dry-run 2>&1); RC=$?; { [ "$RC" != 0 ] && has "$OUT" "not a project key"; } || { NB=$((NB + 1)); bad "--project of a bad key was not refused: $(printf %q "$k") rc=$RC $OUT"; }
+done
+[ "$NB" = 0 ] && [ "$(ls -A "$PD" | paste -sd' ')" = "p-delta" ] && [ ! -e "$HOME/x" ] && [ ! -e "$HOME/b" ] && ok "22 bad keys (traversal, leading or trailing or doubled slash, a dot word, spaces, shell characters, a % escape, a newline, a tab, a control byte, empty) are refused by --pin, --unpin and --project; no file was made" || bad "bad keys: $NB not refused; pins $(ls -A "$PD")"
+
+mk xs-main 57 -e FAKE_IDLE_AGE=4000; mk xs-eng 58 -e FAKE_IDLE_AGE=4000; mk bk-main 59 -e FAKE_IDLE_AGE=4000; mk bk-eng 60 -e FAKE_IDLE_AGE=4000
+fake_up sala-test-xs-main sala-test-xs-eng sala-test-bk-main sala-test-bk-eng || exit 1
+for n in xs-main xs-eng bk-main bk-eng; do "$SALA" adopt "sala-test-$n" >/dev/null 2>&1 || bad "adopt sala-test-$n failed"; done
+"$SALA" sessions tag sala-test-xs-main --project projects/team/xs --role front >/dev/null 2>&1 || bad "tag xs-main failed"
+"$SALA" sessions tag sala-test-xs-eng --project projects/team/xs --role back >/dev/null 2>&1 || bad "tag xs-eng failed"
+"$SALA" sessions tag sala-test-bk-main --project 'projects/bad$key' --role front >/dev/null 2>&1 || bad "tag bk-main failed"   # a key the registry takes (no space) and sala cannot sleep
+"$SALA" sessions tag sala-test-bk-eng --project 'projects/bad$key' --role back >/dev/null 2>&1 || bad "tag bk-eng failed"
+for u in 57 58 59 60; do stoprec "$u"; done
+G=$(sessions_py project-sessions 2>&1 | grep -F 'team/xs' | tr '\t\n' '  ' | sed 's/ $//')
+[ "$G" = "team/xs sala-test-xs-eng back team/xs sala-test-xs-main front" ] && ok "the registry groups the two sessions under the key team/xs (the projects/ prefix off, the slash kept)" || bad "project-sessions: $G"
+setact p-alpha $((3 * D)) $((5 * D))  p-beta 3600 -  p-gamma - 3600  p-delta $((9 * D)) $((9 * D))  p-eps $((6 * D)) $((6 * D))  p-theta $((10 * D)) $((12 * D))  p-iota $((8 * D)) -  projects/team/xs $((4 * D)) $((4 * D))
+OUT=$("$SALA" sleep --candidates 2>&1); L=$(grep -F 'team/xs:' <<< "$OUT"); LB=$(grep -F 'bad$key:' <<< "$OUT")
+has "$L" "would be put to sleep (sala-test-xs-eng, sala-test-xs-main)" && has "$L" "last anchor notice: 4 d" && ok "--candidates: team/xs (a projects/ key in the answer, read as team/xs) would be put to sleep, with its quiet ages" || bad "xs candidate: $L"
+has "$LB" "not a candidate" && has "$LB" "not a project key" && ! has "$LB" "would be put to sleep" && [ "$(grep -c 'would be put to sleep' <<< "$OUT")" = 1 ] && ok "--candidates: bad\$key (never active, so the quietest) is not a candidate: it names why, and it takes no place in the order" || bad "bad key candidate: $LB / $OUT"
+OUT=$("$SALA" sleep --project team/xs --dry-run 2>&1); RC=$?; [ "$RC" = 0 ] && has "$OUT" "project team/xs: would put 2 session(s) to sleep together" && has "$OUT" "nothing was changed" && ok "sleep --project team/xs --dry-run: would put 2 sessions to sleep together, exit 0" || bad "xs dry: rc=$RC $OUT"
+OUT=$("$SALA" sleep --project 'bad$key' --dry-run 2>&1); RC=$?; [ "$RC" != 0 ] && has "$OUT" "not a project key" && ok "sleep --project 'bad\$key' --dry-run: refused, as --candidates says" || bad "bad key dry: rc=$RC $OUT"
+run sleep --pin team/xs; OUT=$("$SALA" sleep --candidates 2>&1); L=$(grep -F 'team/xs:' <<< "$OUT")
+has "$L" "pinned" && has "$L" "not a candidate" && has "$L" "sala sleep --unpin team/xs lifts it" && ok "pinned, team/xs shows as pinned with its own unpin command" || bad "xs pinned: $L"
+OUT=$("$SALA" sleep --project team/xs --dry-run 2>&1); RC=$?; [ "$RC" != 0 ] && has "$OUT" "pinned" && ok "sleep --project team/xs --dry-run: refused while pinned" || bad "xs pinned dry: rc=$RC $OUT"
+run sleep --unpin team/xs
+n0=$(nmarkers); mkdir -p "$SALA_STACKSHOT_INBOX/msg"
+SALA_IDLE_SLEEP=on tick
+asleep 57 && asleep 58 && [ "$(nmarkers)" = "$((n0 + 2))" ] && ! hasclaude xs-main && ! hasclaude xs-eng && ok "ONE tick (cap 1) put team/xs to sleep, both sessions together, although bad\$key came first in the order a quiet project is taken (no reading of it)" || bad "xs tick: markers $(ls "$SALA_SLEEP_DIR"); log: $(grep 'sleep:' "$WLOG")"
+hasclaude bk-main && hasclaude bk-eng && [ "$(wlogn 'sleep: put project team/xs to sleep (2 session(s)')" = 1 ] && [ "$(wlogn 'not put to sleep')" = 0 ] && ok "one 'put project team/xs' line, no failure line for the key it cannot sleep, whose sessions run on" || bad "xs log: $(grep 'sleep:' "$WLOG")"
+grep -q '^sleepfail\.' "$SALA_LOG_DIR/salamander-watch.state" 2>/dev/null && bad "a sleepfail key was written: $(grep sleepfail "$SALA_LOG_DIR/salamander-watch.state")" || ok "no retry time was kept for a project the tick never tried"
+OUT=$("$SALA" sleep --candidates 2>&1); L=$(grep -F 'team/xs:' <<< "$OUT"); has "$L" "sleeping" && has "$L" "already asleep" && [ "$(grep -c 'would be put to sleep' <<< "$OUT")" = 0 ] && ok "--candidates and the tick agree: team/xs now sleeps and nothing is left to put to sleep" || bad "after xs: $OUT"
+printf '{"id":"x1","src":"msg","to":"sala-test-xs-eng","uuid":"%s","name":"sala-test-xs-eng","pid":"","text":"for xs-eng","from":"x"}\n' "$(uuid 58)" > "$SALA_STACKSHOT_INBOX/msg/x1.json"
+sx0=$(n_starts 57); sx1=$(n_starts 58)
+tick; waitfor 'hasclaude xs-eng' 60
+hasclaude xs-eng && ! asleep 58 && [ "$(n_starts 58)" = "$((sx1 + 1))" ] && asleep 57 && ! hasclaude xs-main && [ "$(n_starts 57)" = "$sx0" ] && ok "a message line wakes xs-eng alone; xs-main (the front agent) of team/xs stays asleep" || bad "xs wake: starts $(n_starts 58)/$sx1 $(n_starts 57)/$sx0; log: $(grep 'wake:' "$WLOG")"
+rm -f "$SALA_STACKSHOT_INBOX/msg/x1.json"
+
+echo "== the tick's cap counts a project it started, not one refused before anything was touched (the tick's pass, driven with a stub of the verb)"
+STUB="$HOME/stubsala.sh"; UST="$HOME/unit.state"; ULOG="$HOME/unit.log"
+cat > "$STUB" <<'EOF'
+#!/bin/bash
+# the stand-in for `sala sleep --project KEY`: records the key it was asked for, answers as the verb does
+echo "$3" >> "$HOME/stub.calls"
+case "$3" in
+    team/ra) echo "✗ project team/ra: not put to sleep — simulated refusal, nothing touched"; exit 1 ;;
+    team/rb) echo "✅ s1: asleep — simulated"; echo "✅ project team/rb: asleep — 1 session(s): s1"; exit 0 ;;
+    team/rc) echo "✅ s2: asleep — simulated"; echo "✅ project team/rc: asleep — 1 session(s): s2"; exit 0 ;;
+    team/rd) echo "✅ s3: asleep — simulated"; echo "✗ s4: not put to sleep — simulated"; echo "✗ project team/rd: only 1 of 2 sessions asleep — the others are left as they are and are asked again after the retry time"; exit 1 ;;
+    team/re) echo "✗ s5: not put to sleep — simulated failure after the checks"; echo "✗ project team/re: only 0 of 1 sessions asleep — the others are left as they are and are asked again after the retry time"; exit 1 ;;
+    *) echo "✅ s9: asleep — simulated"; echo "✅ project $3: asleep — 1 session(s): s9"; exit 0 ;;
+esac
+EOF
+chmod +x "$STUB"
+unit_tick() {  # <cap> <candidate key>… → the keys the pass asked the verb for, in order; the watch-state keys it left; its log lines
+    ( : > "$HOME/stub.calls"; : > "$UST"; : > "$ULOG"
+      WSTATE=$UST; WLOG=$ULOG; wlog() { echo "$*" >> "$ULOG"; }; st_get() { _kv_first "$WSTATE" "$1"; }; st_set() { _kv_set "$WSTATE" "$1" "$2"; }
+      st_del() { _kv_without "$WSTATE" "$1" > "$WSTATE.tmp.$$" 2>/dev/null; mv -f "$WSTATE.tmp.$$" "$WSTATE"; }
+      cap=$1; shift; cands=$(i=$#; for k in "$@"; do printf '%s\t%s\n' "$((1000 + i))" "$k"; i=$((i - 1)); done)
+      sleep_candidates() { printf '%s\n' "$cands"; }
+      SALA_BIN=$STUB SALA_SLEEP_PER_TICK=$cap sleep_locked
+      echo "calls: $(paste -sd' ' "$HOME/stub.calls")"; echo "state: $(cut -d= -f1 "$UST" | paste -sd' ')"; cat "$ULOG" )
+}
+U=$(unit_tick 1 team/ra team/rb team/rc); L1=$(grep '^calls:' <<< "$U")
+[ "$L1" = "calls: team/ra team/rb" ] && ok "cap 1, ra refused before anything was touched: the pass goes on to rb in the same run, and stops there (rc is not asked)" || bad "cap, refused first: $U"
+grep -q '^state: sleepfail.team_sra$' <<< "$U" && grep -q 'sleep: project team/ra not put to sleep — ✗ project team/ra: not put to sleep' <<< "$U" && grep -q 'sleep: put project team/rb to sleep (1 session(s)' <<< "$U" && ok "the refusal is logged and kept as a retry time under its own key; rb is logged as put to sleep" || bad "cap log: $U"
+U=$(unit_tick 1 team/rd team/rb); [ "$(grep '^calls:' <<< "$U")" = "calls: team/rd" ] && ok "cap 1: a project that was started (one session slept, another failed) uses the run's place; rb waits" || bad "cap, started: $U"
+U=$(unit_tick 1 team/re team/rb); [ "$(grep '^calls:' <<< "$U")" = "calls: team/re" ] && ok "cap 1: a failure after the checks passed (nothing slept) also uses the place" || bad "cap, failed late: $U"
+U=$(unit_tick 2 team/ra team/rb team/rc team/rd); [ "$(grep '^calls:' <<< "$U")" = "calls: team/ra team/rb team/rc" ] && ok "cap 2: a refusal is free, rb and rc take the two places, rd waits" || bad "cap 2: $U"
+U=$(unit_tick 0 team/ra team/rb); [ "$(grep '^calls:' <<< "$U")" = "calls: " ] && ok "cap 0: nothing is asked" || bad "cap 0: $U"
+( WSTATE=$UST; : > "$UST"; _kv_set "$UST" sleepfail.team_sra "$(date +%s)"
+  _retry_backoff sleepfail team/ra 1800 && ! _retry_backoff sleepfail team_ra 1800 && ! _retry_backoff sleepfail team.ra 1800 && ! _retry_backoff sleepfail team/rb 1800 ) && ok "a retry time of team/ra is read for team/ra only, not for team_ra, team.ra or team/rb" || bad "backoff keys"
+SK=$(for k in a/b a.b a_b a_sb a__b a/b/c a-b; do sleep_state_key_r x "$k"; echo "$x"; done | LC_ALL=C sort | uniq -d | paste -sd' ')
+[ -z "$SK" ] && ok "sleep_state_key_r: seven keys that the generic state key would run together are seven different state keys" || bad "state key collision: $SK"
+rm -f "$STUB" "$UST" "$ULOG" "$HOME/stub.calls"
 
 echo "== the unit of the tick is the project: no sleep line ever names a single session"
 ! grep -q 'sleep: put sala-test' "$WLOG" && ok "no 'sleep: put <session>' line in the watch log" || bad "log: $(grep 'sleep: put sala-test' "$WLOG")"

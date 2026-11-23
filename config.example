@@ -235,7 +235,7 @@
                                  #   counts as an anchor notice, so it keeps its project awake; a front agent whose chat stamps do not sync (a Slack-surface one) is invisible to the activity call: pin its project
 #SALA_ACTIVITY_CMD=              # the activity source: a command (run through sh) that prints stackshot's `client.py project-activity --json` answer, {"projects": {KEY: {"anchor": EPOCH|null, "owner": EPOCH|null}}}.
                                  #   Empty = that client call, found through SALA_STACKSHOT_CLIENT / SALA_STACKSHOT_DIR. A failure, an empty or unreadable answer or a timeout (SALA_ACTIVITY_TIMEOUT, 30) sleeps nothing
-#SALA_SLEEP_PIN_DIR=             # where the pins stand, one file per project (default: the sleep state folder's name plus .pins, beside it, so a pin survives a reboot)
+#SALA_SLEEP_PIN_DIR=             # where the pins stand, one file per project (default: the sleep state folder's name plus .pins, beside it, so a pin survives a reboot); a key's slash is written %2F in the file name (team/alpha = team%2Falpha)
 #SALA_SLEEP_AFTER=3600           # seconds every session of a project must have been idle before it may sleep (also the time a woken session is left alone)
 #SALA_SLEEP_PER_TICK=1           # projects put to sleep per watch run (0 = none), the quietest first, so a first run does not stop the whole fleet at once
 #SALA_SLEEP_RETRY=1800           # seconds before a project whose sleep was refused or failed is asked again
