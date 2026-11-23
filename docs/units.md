@@ -18,6 +18,14 @@ shows (`<scope>/<project>`, lower case), so the two tabs name a project the same
 sorts last, and `sala job check` reports it as the gap `no-project`. Set it when the job is added (`sala job add --project`) or later with
 `sala job set-project NAME PROJECT`.
 
+**The placement.** `X-Runs-With=` says where the job runs when the fleet moves to another box, so a move script can enable and disable timers by it: `servers`
+(the job goes with the servers to the other box), `sessions` (it stays with the Claude sessions and sala) or `home` (it only makes sense on the home or personal
+box). It sits in `[Unit]` after `X-Project=`. A job with no `X-Runs-With=`, or one whose value is none of the three, is **unplaced**: `sala job list` shows
+`unplaced` in its RUNS WITH column and `sala job list --unplaced` lists only those. Being unplaced is not a gap: `sala job check` does not report it and
+`sala job add` without `--runs-with` still adds the job and says in its output that the job is unplaced. Set it when the job is added (`sala job add --runs-with
+servers|sessions|home`) or later with `sala job set-runs-with NAME PLACEMENT` (any other value is refused). The units sala ships carry it
+(`tests/units.sh` checks that every `.service` with a timer beside it has exactly one valid `X-Runs-With=`).
+
 **Showing a project under another name.** The units sala ships carry the neutral `X-Project=sala/salamander`, and they are copied byte for byte, so an
 instance does not edit them. `SALA_UNIT_PROJECT_MAP` in the sala config (space-separated `from=to` pairs, for example `sala/salamander=lab/sala`) makes
 `sala job list`, the gap check and the Schedules tab show a unit's `X-Project=` value `from` as `to`. A pair with no `=` or an empty side is ignored,
@@ -26,7 +34,7 @@ still write the value they are given.
 
 `X-` keys in `[Unit]` are ignored by systemd, so the lines are metadata only. `tests/units.sh` checks that every `.service` with an
 `ExecStart` under `systemd/` and `contrib/*/systemd/` has exactly one, with a valid value (and, if it has an `X-Model-Note=`, one that is not empty), that it
-has exactly one `X-Project=<scope/project>`, and that every `.timer` has its `.service`. The lanes are the ones in [lanes.md](lanes.md) (`sala lane --help`); `none` means the unit starts no model call.
+has exactly one `X-Project=<scope/project>`, that a service with a timer beside it has exactly one `X-Runs-With=` of `servers`, `sessions` or `home`, and that every `.timer` has its `.service`. The lanes are the ones in [lanes.md](lanes.md) (`sala lane --help`); `none` means the unit starts no model call.
 The value is what the unit's script runs by default, read from the code; where a variable can move it, a
 `# X-Model-Lane note:` comment in the unit names the variable. **Change the line in the same PR as the change that moves the lane.**
 
@@ -161,9 +169,10 @@ Every scheduled job is a systemd service + timer kept in git in the repo that ow
 (`lib/job.sh`, `lib/unitjob.py`), and a watcher finds the jobs that are not.
 
 ```
-sala job add NAME --repo REPO --script PATH --schedule SCHEDULE [--schedule …] --description "…" --lane LANE --project SCOPE/PROJECT [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
-sala job list                       # our timers: name, repo, schedule, lane, project, in git yes/no
+sala job add NAME --repo REPO --script PATH --schedule SCHEDULE [--schedule …] --description "…" --lane LANE --project SCOPE/PROJECT [--runs-with servers|sessions|home] [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
+sala job list [--unplaced]          # our timers: name, repo, schedule, lane, project, runs with (or unplaced), in git yes/no, scope
 sala job set-project NAME PROJECT [--checkout DIR] [--quiet]   # write X-Project= into the job's git file; prints what to commit
+sala job set-runs-with NAME servers|sessions|home [--checkout DIR] [--quiet]   # write X-Runs-With= the same way
 sala job remove NAME [--checkout DIR]   # disable --now, unlink (what disable already removed is skipped), daemon-reload, reset-failed, delete the repo copies
 sala job relink NAME                # after the pull request that added a job is deployed
 sala job check [--post] [--quiet]   # the gap watcher's pass
@@ -181,7 +190,7 @@ sala job check [--post] [--quiet]   # the gap watcher's pass
   the pull request `sala job relink <name>` points the links at the production checkout. A new unit file under `systemd/` also needs
   `bash tests/suitemap.sh --measure units` (the map names the files a suite opens).
 - **Refused, with the usage line and nothing written:** no or empty `--description`, no or unknown `--lane`, no `--project` or one that is not
-  `scope/project`, an unknown `--repo`, a
+  `scope/project`, a `--runs-with` that is none of `servers`, `sessions`, `home`, an unknown `--repo`, a
   `--script` that is not a file (or is neither executable nor `.py`/`.sh`), a schedule `systemd-analyze` does not accept, a taken name, a
   repo with no unit folder, a `flow pr` repo without a worktree. A `.py` script runs through `uv run --script`.
 - **Schedules** are `OnCalendar` expressions or `OnBootSec=`/`OnUnitActiveSec=` forms (`--schedule` repeats). `OnCalendar` takes a zone

@@ -5,6 +5,7 @@ Description=Mockup pages cleanup: delete pages older than 7 days that no open bo
 # (the script is the installed salamander command).
 X-Model-Lane=none
 X-Project=sala/salamander
+X-Runs-With=sessions
 X-Model-Note=no model call
 
 [Service]

@@ -9,6 +9,7 @@
 Description=Start the follow of every machine the coordinator machine drives that is due
 X-Model-Lane=none
 X-Project=sala/salamander
+X-Runs-With=sessions
 
 [Service]
 Type=oneshot

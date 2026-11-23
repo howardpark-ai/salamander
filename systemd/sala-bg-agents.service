@@ -2,6 +2,7 @@
 Description=Start the background agent a project wants from the want list, one project a run
 X-Model-Lane=none
 X-Project=sala/salamander
+X-Runs-With=sessions
 
 [Service]
 Type=oneshot

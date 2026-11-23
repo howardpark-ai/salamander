@@ -162,12 +162,13 @@
 #                                      board ids (board#N) and session names in TEXT are posted as links, as in every other sala post;
 #                                      prints the posted message's ts; exit 0 posted, 1 Slack said no (its error code), 2 usage, 3 setting or token problem, 4 network
 #   salamander dm --set-token [<app> | --all] | --check <app> | --help   store the app's bot token at a hidden prompt (a terminal only; with no app, or --all, ask for each app in SALA_DM_APPS in turn) · auth.test with it: the bot user and team
-#   salamander job add NAME --repo REPO --script PATH --schedule S… --description "…" --lane LANE [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
+#   salamander job add NAME --repo REPO --script PATH --schedule S… --description "…" --lane LANE [--runs-with servers|sessions|home] [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
 #                                      a scheduled job as a systemd service + timer kept in git (lib/job.sh, docs/units.md): the two files go into the
 #                                      repo's unit folder with Description= and X-Model-Lane=, are linked into ~/.config/systemd/user and enabled; prints the git
 #                                      status and the commit steps (a repo with flow main: straight to main; flow pr: branch + pull request from a worktree, --checkout);
 #                                      --scope system prints the root command, sala never uses sudo; no model call
-#   salamander job list | remove NAME [--checkout DIR] | relink NAME   our timers (repo, schedule, lane, in git) · disable and delete one · after its PR deployed
+#   salamander job list [--unplaced] | remove NAME [--checkout DIR] | relink NAME   our timers (repo, schedule, lane, runs with, in git; --unplaced: the ones with no placement) · disable and delete one · after its PR deployed
+#   salamander job set-runs-with NAME servers|sessions|home [--checkout DIR] [--quiet]   write the job's placement (X-Runs-With=: with the servers, with the sessions and sala, or home only)
 #   salamander job check [--post] [--quiet]   the unit-gap pass (sala-unit-gaps.path, the watch tick): a timer of ours with no Description=, no X-Model-Lane=
 #                                      or not in git is opened once as a board item (client.py post job-gap open; stackshot moves it by the builder of
 #                                      the repo that owns its script) and closed when it is fixed (post job-gap clear)

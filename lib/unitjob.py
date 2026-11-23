@@ -4,11 +4,13 @@
 Standard library only, no model call anywhere; run as `python3 -I -S unitjob.py <verb> …` by lib/job.sh and lib/watch.sh.
 
   add NAME --repo R --script PATH --schedule S [--schedule S …] --description TEXT --lane LANE --project PROJECT
-           [--note TEXT] [--args TEXT] [--scope user|system] [--checkout DIR]
+           [--runs-with servers|sessions|home] [--note TEXT] [--args TEXT] [--scope user|system] [--checkout DIR]
            writes NAME.service and NAME.timer into the repo's unit folder (the repo table, ~/.config/salamander/unit-repos.tsv), links them into the user unit folder,
            daemon-reload, enable --now; the system scope only prints the root command. Prints what to commit; commits nothing.
-  list     our timers (not shipped by a package): name, repo, schedule, lane, project, in git yes/no
+  list [--unplaced]   our timers (not shipped by a package): name, repo, schedule, lane, project, runs with (servers, sessions, home or unplaced), in git yes/no, scope;
+                                 --unplaced: only the jobs with no valid placement
   set-project NAME PROJECT [--checkout DIR] [--quiet]   write X-Project=PROJECT into the service's git file (replacing one, or after X-Model-Lane=); prints what to commit
+  set-runs-with NAME PLACEMENT [--checkout DIR] [--quiet]   write X-Runs-With=PLACEMENT (servers | sessions | home) into the service's git file (replacing one, or after X-Project=); prints what to commit
   remove NAME [--checkout DIR]   disable, unlink (skipping a link disable already removed), daemon-reload, reset-failed, delete the files from the repo checkout; prints what to commit
   relink NAME                    point a job's links at the production checkout once its pull request is deployed
   check [--post] [--quiet]       the gap watcher: our timers with no Description=, no X-Model-Lane=, no X-Project= or not in git; --post opens each gap as one
@@ -28,6 +30,10 @@ import fcntl, os, re, shlex, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # run with -I -S: the script's folder is not on the path by itself
 import lanewords   # the lane words (lib/lanewords.py): an X-Model-Lane= still saying max or team is read as subscription-1 or subscription-2
 
+# where a job runs when the fleet moves: with the servers (they go to another box), with the sessions and sala (they stay), or only on the home box;
+# kept as X-Runs-With= in the service's [Unit]. A job with no valid value is "unplaced" (a flag in add and list, never an error).
+RUNS_WITH = ("servers", "sessions", "home")
+UNPLACED = "unplaced"
 LANES = ("subscription-1", "bedrock", "aws-platform", "api", "subscription-2", "sdk", "none")
 # a job's project, in the label the web UI's Agents table shows in its Project column (sessions.py: scope + "/" + the project's title)
 PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$")
@@ -48,16 +54,19 @@ GAP_WORDS = {"no-description": "has no Description= in its [Unit] section", "no-
              "bad-lane": "has an X-Model-Lane= that is none of " + ", ".join(LANES), "not-git": "is not kept in a git repo", "git-differs": "is a copy that differs from its git file"}
 USAGE = {
     "add": "usage: sala job add NAME --repo REPO --script PATH --schedule SCHEDULE [--schedule SCHEDULE …] --description \"…\" --lane LANE\n"
-           "                    --project PROJECT [--note \"…\"] [--args \"…\"] [--scope user|system] [--checkout DIR]\n"
+           "                    --project PROJECT [--runs-with PLACEMENT] [--note \"…\"] [--args \"…\"] [--scope user|system] [--checkout DIR]\n"
            "  REPO      %s\n  SCHEDULE  an OnCalendar expression (\"*-*-* 03:00:00 UTC\", \"daily\") or OnXxx=value (\"OnBootSec=5min\", \"OnUnitActiveSec=1h\")\n"
            "  LANE      " + " | ".join(LANES) + "   (the model lane the script runs on; none = no model call)\n"
            "  PROJECT   scope/project, as the Agents table's Project column shows it (for example team/demo, team/web-app)\n"
-           "            (the job's category on the Overview's Schedules tab; kept as X-Project= in the service's [Unit])",
+           "            (the job's category on the Overview's Schedules tab; kept as X-Project= in the service's [Unit])\n"
+           "  --runs-with " + " | ".join(RUNS_WITH) + "   where the job runs when the fleet moves (kept as X-Runs-With=): servers = with the servers, sessions = with the\n"
+           "            Claude sessions and sala, home = only on the home box; left out, the job is added and reported unplaced",
     "remove": "usage: sala job remove NAME [--checkout DIR]",
     "relink": "usage: sala job relink NAME",
-    "list": "usage: sala job list",
+    "list": "usage: sala job list [--unplaced]",
     "check": "usage: sala job check [--post] [--quiet]",
     "set-project": "usage: sala job set-project NAME PROJECT [--checkout DIR] [--quiet]",
+    "set-runs-with": "usage: sala job set-runs-with NAME PLACEMENT [--checkout DIR] [--quiet]\n  PLACEMENT  " + " | ".join(RUNS_WITH),
 }
 
 
@@ -374,6 +383,7 @@ def scan(repos):
             rows.append({"scope": scope, "timer": tname, "service": sname, "timer_path": tp, "service_path": sp, "ttext": ttext, "stext": stext,
                          "description": (last_value(sec, "Unit", "Description") or "").strip(), "lane": lanewords.norm_lane((last_value(sec, "Unit", "X-Model-Lane") or "").strip().lower()),
                          "project": mapped_project((last_value(sec, "Unit", "X-Project") or "").strip()),
+                         "runs_with": (last_value(sec, "Unit", "X-Runs-With") or "").strip().lower(),
                          "schedule": schedule_of(ttext), "script": script})
     return rows
 
@@ -604,18 +614,28 @@ def cmd_check(args):
 
 # ---- list -------------------------------------------------------------------------------------------------------------------------------
 
+def placement_of(row):
+    """The placement a list row shows: servers, sessions or home as written in X-Runs-With=, else `unplaced` (no line, or a value that is none of the three)."""
+    return row["runs_with"] if row["runs_with"] in RUNS_WITH else UNPLACED
+
+
 def cmd_list(args):
-    if args:
-        die("list takes no argument", "list")
+    bad = [a for a in args if a != "--unplaced"]
+    if bad:
+        die("unknown argument %s" % bad[0], "list")
+    only_unplaced = "--unplaced" in args
     repos = load_repos()
     rows = []
     for row in scan(repos):
+        placed = placement_of(row)
+        if only_unplaced and placed != UNPLACED:
+            continue
         states = [in_git(row["service_path"], repos, row["script"]), in_git(row["timer_path"], repos, row["script"])]
         repo = next((r for _, _, r, _ in states if r), None) or (repo_of(row["script"], repos) if row["script"] else None)
         git_ok = all(ok for ok, _, _, _ in states)
-        rows.append((row["timer"][:-6], repo or "-", "; ".join(row["schedule"]) or "-", row["lane"] or "-", row["project"] or "-", "yes" if git_ok else "no", row["scope"]))
-    head = ("NAME", "REPO", "SCHEDULE", "LANE", "PROJECT", "IN GIT", "SCOPE")
-    w = [max(len(str(x[i])) for x in rows + [head]) for i in range(7)]
+        rows.append((row["timer"][:-6], repo or "-", "; ".join(row["schedule"]) or "-", row["lane"] or "-", row["project"] or "-", placed, "yes" if git_ok else "no", row["scope"]))
+    head = ("NAME", "REPO", "SCHEDULE", "LANE", "PROJECT", "RUNS WITH", "IN GIT", "SCOPE")
+    w = [max(len(str(x[i])) for x in rows + [head]) for i in range(len(head))]
     for r in [head] + rows:
         say("  ".join(str(c).ljust(w[i]) for i, c in enumerate(r)).rstrip())
     return 0
@@ -730,7 +750,7 @@ def ctl(*args):
 
 def cmd_add(args):
     spec = {"--repo": ("repo", 0), "--script": ("script", 0), "--schedule": ("schedule", 1), "--description": ("description", 0), "--lane": ("lane", 0),
-            "--project": ("project", 0), "--note": ("note", 0), "--args": ("args", 0), "--scope": ("scope", 0), "--checkout": ("checkout", 0)}
+            "--project": ("project", 0), "--runs-with": ("runs_with", 0), "--note": ("note", 0), "--args": ("args", 0), "--scope": ("scope", 0), "--checkout": ("checkout", 0)}
     pos, o = parse_flags(args, spec, "add")
     if len(pos) != 1:
         die("give the job a name (one word, lowercase)", "add")
@@ -756,6 +776,9 @@ def cmd_add(args):
         die("--lane %r is none of: %s (max and team are read as subscription-1 and subscription-2)" % (o["lane"], ", ".join(LANES)), "add")
     if not PROJECT_RE.match(o["project"]) or len(o["project"]) > 80:
         die("--project %r is not scope/project (lower case, as the Agents table's Project column shows it: for example team/demo, team/web-app)" % o["project"], "add")
+    runs_with = o["runs_with"].strip().lower() if "runs_with" in o else None
+    if runs_with is not None and runs_with not in RUNS_WITH:
+        die("--runs-with %r is none of: %s" % (o["runs_with"], ", ".join(RUNS_WITH)), "add")
     note = o.get("note", "").strip()
     if "--note" in args and (not note or "\n" in note or len(note) > 300):
         die("--note is one line of at most 300 characters (leave the flag out for none)", "add")
@@ -785,7 +808,7 @@ def cmd_add(args):
              [os.path.join(d, n) for d in PACKAGED_DIRS["user"] + PACKAGED_DIRS["system"]] if os.path.lexists(p)]
     if taken:
         die("the name %r is taken: %s exists" % (name, tilde(taken[0])), "add", 1)
-    service = ["[Unit]", "Description=" + desc, "X-Model-Lane=" + o["lane"], "X-Project=" + o["project"]] + (["X-Model-Note=" + note] if note else []) + \
+    service = ["[Unit]", "Description=" + desc, "X-Model-Lane=" + o["lane"], "X-Project=" + o["project"]] + (["X-Runs-With=" + runs_with] if runs_with else []) + (["X-Model-Note=" + note] if note else []) + \
               ["", "[Service]", "Type=oneshot", "ExecStart=" + ex, ""]
     timer = ["[Unit]", "Description=%s (timer)" % desc, "", "[Timer]"] + sched + \
             (["Persistent=true"] if any(s.startswith("OnCalendar=") for s in sched) else []) + ["Unit=%s.service" % name, "", "[Install]", "WantedBy=timers.target", ""]
@@ -797,6 +820,8 @@ def cmd_add(args):
             f.write("\n".join(lines))
         written.append(p)
     say("wrote %s" % ", ".join(tilde(p) for p in written))
+    if not runs_with:
+        say("note: %s is unplaced: no --runs-with (%s); place it with `sala job set-runs-with %s <%s>`" % (name, " | ".join(RUNS_WITH), name, "|".join(RUNS_WITH)))
     if not any(re.search(r"\b\d{1,2}:\d{2}\b.*\b[A-Za-z]+/[A-Za-z_]+\b", s) for s in sched if s.startswith("OnCalendar=")) and any(s.startswith("OnCalendar=") for s in sched):
         say("note: an OnCalendar time with no zone runs on the box clock; add a zone name after the time (for example UTC) to pin it to that zone")
     if scope == "system":
@@ -932,92 +957,121 @@ def cmd_relink(args):
     return 0
 
 
-def with_project(text, project):
-    """The service text with `X-Project=<project>` in [Unit]: the line replaced where there is one, else added after X-Model-Lane= (or Description=,
-    or the end of [Unit]). Everything else is kept byte for byte."""
+def with_unit_key(text, key, value, after):
+    """The service text with `<key>=<value>` in [Unit]: the line replaced where there is one, else added after the last line of the first of the `after`
+    prefixes that is there, else just before the blank lines that close [Unit]. Everything else is kept byte for byte.
+    None when the text has no [Unit] section."""
     lines = text.split("\n")
     start = next((i for i, l in enumerate(lines) if l.strip() == "[Unit]"), None)
     if start is None:
         return None
     end = next((i for i in range(start + 1, len(lines)) if lines[i].strip().startswith("[")), len(lines))
-    new = "X-Project=" + project
+    new = "%s=%s" % (key, value)
     for i in range(start + 1, end):
-        if lines[i].strip().startswith("X-Project="):
+        if lines[i].strip().startswith(key + "="):
             lines[i] = new
             return "\n".join(lines)
     at = end
-    for key in ("X-Model-Lane=", "Description="):
-        hit = [i for i in range(start + 1, end) if lines[i].strip().startswith(key)]
+    for k in after:
+        hit = [i for i in range(start + 1, end) if lines[i].strip().startswith(k)]
         if hit:
             at = hit[-1] + 1
             break
-    else:   # neither line: just before the blank lines that close [Unit]
+    else:   # none of them: just before the blank lines that close [Unit]
         while at > start + 1 and not lines[at - 1].strip():
             at -= 1
     lines.insert(at, new)
     return "\n".join(lines)
 
 
+def with_project(text, project):
+    """The service text with `X-Project=<project>` in [Unit]: replaced where there is one, else added after X-Model-Lane= (or Description=)."""
+    return with_unit_key(text, "X-Project", project, ("X-Model-Lane=", "Description="))
+
+
+def with_runs_with(text, placement):
+    """The service text with `X-Runs-With=<placement>` in [Unit]: replaced where there is one, else added after X-Project= (or X-Model-Lane=, or Description=)."""
+    return with_unit_key(text, "X-Runs-With", placement, ("X-Project=", "X-Model-Lane=", "Description="))
+
+
+def set_unit_key(verb, name, key, value, make, o, quiet):
+    """The work of set-project and set-runs-with: write `<key>=<value>` (make(text, value) gives the new text) into the job's service file in its repo and
+    print what to commit. A user-scope job's link is followed to its file in the repo; a system-scope job whose unit file links to it is edited the same way."""
+    repos = load_repos()
+    svc, scope = os.path.join(user_dir(), name + ".service"), "user"
+    if not os.path.lexists(svc):   # a system-scope job whose unit file links to its repo file is edited the same way (no root: the repo file is the user's)
+        svc, scope = os.path.join(system_dir(), name + ".service"), "system"
+    if not os.path.lexists(svc):
+        die("no job %r: no %s.service in %s or %s" % (name, name, tilde(user_dir()), tilde(system_dir())), verb, 1)
+    real = os.path.realpath(svc)
+    if is_packaged(real):
+        die("%s is a package's unit, not ours" % name, verb, 1)
+    if not os.path.islink(svc) or not git_root(real):
+        why = in_git(svc, repos, None)[1] or "its unit file is not a link into a git repo"
+        die("%s: %s; put it in git first (`sala job check` says how), or, for a unit rendered from a template, edit the template" % (name, why), verb, 1)
+    repo = repo_of(real, repos)
+    if not repo:
+        die("%s: its git file %s is in none of the repos in the repo table (%s)" % (name, tilde(real), tilde(repos_path())), verb, 1)
+    rec = repos[repo]
+    if rec["flow"] == "pr":
+        if not o.get("checkout"):
+            die("%s goes by branch and pull request: pass the worktree as --checkout (the copy there is edited, not the production one)" % repo, verb)
+        ck = checkout_for(rec, repo, o, verb)
+        if os.path.realpath(ck) == rec["checkout"]:
+            die("--checkout is the production checkout of %s; use a worktree" % repo, verb)
+        target = os.path.join(ck, os.path.relpath(real, git_root(real)))
+    else:
+        ck = os.path.realpath(os.path.expanduser(o["checkout"])) if o.get("checkout") else rec["checkout"]
+        target = real
+    if not os.path.isfile(target):
+        die("%s is not in %s (the worktree is not on a branch that has the job)" % (tilde(target), tilde(ck)), verb, 1)
+    text = read_text(target)
+    out = make(text, value)
+    if out is None:
+        die("%s has no [Unit] section" % tilde(target), verb, 1)
+    if out == text:
+        say("%s already has %s=%s: nothing to do" % (name, key, value))
+        return 0
+    tmp = target + ".tmp.%d" % os.getpid()
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(out)
+    os.replace(tmp, target)
+    say("set %s=%s in %s" % (key, value, tilde(target)))
+    if scope == "user":   # (systemd reads no X- key: the reload only keeps `systemctl cat` current; a system unit needs root for it and does not need it)
+        ctl("daemon-reload")
+    if not quiet:
+        git_steps(ck, rec, repo, [target], "%s: %s=%s (sala job %s)" % (name, key, value, verb), name)
+    return 0
+
+
 def cmd_set_project(args):
-    quiet = "--quiet" in args   # no git steps (the backfill script prints one set for all its jobs)
+    quiet = "--quiet" in args   # no commit steps (the backfill script prints one set for all its jobs)
     pos, o = parse_flags([a for a in args if a != "--quiet"], {"--checkout": ("checkout", 0)}, "set-project")
     if len(pos) != 2:
         die("give the job's name and its project", "set-project")
     name, project = pos
     if not PROJECT_RE.match(project) or len(project) > 80:
         die("project %r is not scope/project (lower case, as the Agents table's Project column shows it: for example team/demo, team/web-app)" % project, "set-project")
-    repos = load_repos()
-    svc, scope = os.path.join(user_dir(), name + ".service"), "user"
-    if not os.path.lexists(svc):   # a system-scope job whose unit file links to its git file is edited the same way (no root: the git file is the user's)
-        svc, scope = os.path.join(system_dir(), name + ".service"), "system"
-    if not os.path.lexists(svc):
-        die("no job %r: no %s.service in %s or %s" % (name, name, tilde(user_dir()), tilde(system_dir())), "set-project", 1)
-    real = os.path.realpath(svc)
-    if is_packaged(real):
-        die("%s is a package's unit, not ours" % name, "set-project", 1)
-    if not os.path.islink(svc) or not git_root(real):
-        why = in_git(svc, repos, None)[1] or "its unit file is not a link into a git repo"
-        die("%s: %s; put it in git first (`sala job check` says how), or, for a unit rendered from a template, edit the template" % (name, why), "set-project", 1)
-    repo = repo_of(real, repos)
-    if not repo:
-        die("%s: its git file %s is in none of the repos in the repo table (%s)" % (name, tilde(real), tilde(repos_path())), "set-project", 1)
-    rec = repos[repo]
-    if rec["flow"] == "pr":
-        if not o.get("checkout"):
-            die("%s goes by branch and pull request: pass the worktree as --checkout (the copy there is edited, not the production one)" % repo, "set-project")
-        ck = checkout_for(rec, repo, o, "set-project")
-        if os.path.realpath(ck) == rec["checkout"]:
-            die("--checkout is the production checkout of %s; use a worktree" % repo, "set-project")
-        target = os.path.join(ck, os.path.relpath(real, git_root(real)))
-    else:
-        ck = os.path.realpath(os.path.expanduser(o["checkout"])) if o.get("checkout") else rec["checkout"]
-        target = real
-    if not os.path.isfile(target):
-        die("%s is not in %s (the worktree is not on a branch that has the job)" % (tilde(target), tilde(ck)), "set-project", 1)
-    text = read_text(target)
-    out = with_project(text, project)
-    if out is None:
-        die("%s has no [Unit] section" % tilde(target), "set-project", 1)
-    if out == text:
-        say("%s already has X-Project=%s: nothing to do" % (name, project))
-        return 0
-    tmp = target + ".tmp.%d" % os.getpid()
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(out)
-    os.replace(tmp, target)
-    say("set X-Project=%s in %s" % (project, tilde(target)))
-    if scope == "user":   # (systemd reads no X- key: the reload only keeps `systemctl cat` current; a system unit needs root for it and does not need it)
-        ctl("daemon-reload")
-    if not quiet:
-        git_steps(ck, rec, repo, [target], "%s: X-Project=%s (sala job set-project)" % (name, project), name)
-    return 0
+    return set_unit_key("set-project", name, "X-Project", project, with_project, o, quiet)
+
+
+def cmd_set_runs_with(args):
+    quiet = "--quiet" in args
+    pos, o = parse_flags([a for a in args if a != "--quiet"], {"--checkout": ("checkout", 0)}, "set-runs-with")
+    if len(pos) != 2:
+        die("give the job's name and its placement (%s)" % " | ".join(RUNS_WITH), "set-runs-with")
+    name, placement = pos[0], pos[1].strip().lower()
+    if placement not in RUNS_WITH:
+        die("placement %r is none of: %s" % (pos[1], ", ".join(RUNS_WITH)), "set-runs-with")
+    return set_unit_key("set-runs-with", name, "X-Runs-With", placement, with_runs_with, o, quiet)
 
 
 def main(argv):
     verb = argv[0] if argv else ""
-    fn = {"add": cmd_add, "list": cmd_list, "remove": cmd_remove, "relink": cmd_relink, "check": cmd_check, "set-project": cmd_set_project}.get(verb)
+    fn = {"add": cmd_add, "list": cmd_list, "remove": cmd_remove, "relink": cmd_relink, "check": cmd_check, "set-project": cmd_set_project,
+          "set-runs-with": cmd_set_runs_with}.get(verb)
     if fn is None:
-        print("usage: sala job add|list|remove|relink|check|set-project …  (sala job --help)", file=sys.stderr)
+        print("usage: sala job add|list|remove|relink|check|set-project|set-runs-with …  (sala job --help)", file=sys.stderr)
         return 2
     return fn(argv[1:]) or 0
 

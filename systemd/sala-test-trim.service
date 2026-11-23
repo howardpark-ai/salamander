@@ -2,6 +2,7 @@
 Description=Weekly report on the size of the test suites (suite count, serial minutes, slowest suites, test-line growth)
 X-Model-Lane=none
 X-Project=infra/salamander
+X-Runs-With=sessions
 X-Model-Note=weekly, no model call
 
 [Service]

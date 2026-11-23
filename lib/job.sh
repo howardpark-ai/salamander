@@ -4,9 +4,10 @@
 job_usage() {
     cat <<'USAGE'
 usage: sala job add NAME --repo REPO --script PATH --schedule SCHEDULE [--schedule SCHEDULE …] --description "…" --lane LANE
-                    --project PROJECT [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
-       sala job list
+                    --project PROJECT [--runs-with PLACEMENT] [--note "…"] [--args "…"] [--scope user|system] [--checkout DIR]
+       sala job list [--unplaced]
        sala job set-project NAME PROJECT [--checkout DIR] [--quiet]
+       sala job set-runs-with NAME PLACEMENT [--checkout DIR] [--quiet]
        sala job remove NAME [--checkout DIR]
        sala job relink NAME
        sala job check [--post] [--quiet]
@@ -21,9 +22,15 @@ usage: sala job add NAME --repo REPO --script PATH --schedule SCHEDULE [--schedu
           none = no model call). PROJECT: scope/project, written as the Agents table's Project column shows it (team/demo, team/web-app,
           alpha/site, team/docs); it is the job's category on the Overview's Schedules tab. SCHEDULE: an OnCalendar expression ("*-*-* 03:00:00 UTC", "daily") or OnBootSec=5min /
           OnUnitActiveSec=1h (repeat --schedule for several). --note: a few words shown beside the lane (X-Model-Note=).
-  list    our timers (not a package's): name, repo, schedule, lane, project, whether the unit files are in git.
+          PLACEMENT (--runs-with, kept as X-Runs-With= in [Unit]): servers | sessions | home, where the job runs when the fleet moves: servers = it goes with
+          the servers to another box, sessions = it stays with the Claude sessions and sala, home = only on the home box. Left out, the job is still added and
+          the output says it is unplaced; an invalid value is refused.
+  list    our timers (not a package's): name, repo, schedule, lane, project, runs with (servers, sessions, home, or unplaced when the job has no valid
+          placement), whether the unit files are in git, scope. --unplaced: only the jobs with no placement.
   set-project  writes X-Project=PROJECT into a job's service file in git (replaces the line, or adds it after X-Model-Lane=) and prints what to
           commit (--quiet: not that); a flow-pr repo (salamander) needs the worktree as --checkout. A system-scope job (its unit file in /etc/systemd/system links to the git file) is edited the same way, with no root. A unit rendered from a template (stackshot's) is refused: edit the template.
+  set-runs-with  writes X-Runs-With=PLACEMENT (servers | sessions | home) into a job's service file in git (replaces the line, or adds it after X-Project=) and
+          prints what to commit, as set-project does (--checkout, --quiet, system scope, a template-rendered unit refused); any other PLACEMENT is refused.
   remove  disable and stop the timer, unlink the files, delete them from the repo checkout; prints what to commit.
   relink  once a pull request that added a job is deployed, point its links at the production checkout.
   check   the gap watcher's pass: our timers with no Description=, no X-Model-Lane=, no X-Project= or not in git. --post opens each gap as one board
@@ -34,7 +41,7 @@ USAGE
 }
 case "${1:-}" in
     ''|-h|--help|help) job_usage; [ -n "${1:-}" ] || exit 2; exit 0 ;;
-    add|list|remove|relink|check|set-project)   # the stackshot client's place and the state folder go to python only when the config sets them (python defaults the same way)
+    add|list|remove|relink|check|set-project|set-runs-with)   # the stackshot client's place and the state folder go to python only when the config sets them (python defaults the same way)
         [ -n "${SALA_STACKSHOT_DIR+x}" ] && export SALA_STACKSHOT_DIR; [ -n "${SALA_STACKSHOT_CLIENT+x}" ] && export SALA_STACKSHOT_CLIENT; export SALA_STATE_DIR; [ -n "${SALA_JOB_GITHUB+x}" ] && export SALA_JOB_GITHUB; [ -n "${SALA_UNIT_PROJECT_MAP+x}" ] && export SALA_UNIT_PROJECT_MAP
         exec python3 -I -S "$SALA_ROOT/lib/unitjob.py" "$@" ;;
     *) echo "salamander job: unknown verb '$1'" >&2; job_usage >&2; exit 2 ;;

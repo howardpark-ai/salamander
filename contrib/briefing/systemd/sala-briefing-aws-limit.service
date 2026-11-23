@@ -4,6 +4,7 @@ Description=sala briefing — API spend limit: reads Anthropic's "Monthly Claude
 # (docs/overview.md, "The API spend limit"). Settings: BRIEFING_GMAIL_CONNECTOR, BRIEFING_LEAN_PORTAL_URL and SALA_AWS_LIMIT_ORG in the sala config.
 X-Model-Lane=none
 X-Project=sala/salamander
+X-Runs-With=sessions
 X-Model-Note=no model call
 
 [Service]
