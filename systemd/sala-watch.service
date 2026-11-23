@@ -10,8 +10,10 @@ X-Model-Note=+ api key check when an api/sdk session runs
 # X-Model-Lane note: SALA_OP_STUCK=off removes the helper. The lane sign-in watch (SALA_SIGNIN_ALERT, default on) also sends one
 # max_tokens=1 Messages API request an hour with the api lane's key, only while a session's row or the default is api or sdk
 # (lib/watch.sh sw_api_probe); it is a key check, not a session.
+OnFailure=sala-job-failed@%n.service
 
 [Service]
 Type=oneshot
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.local/bin/salamander watch
+ExecStopPost=-%h/salamander/bin/salamander job alert ok %n

@@ -173,6 +173,9 @@
 #   salamander job check [--post] [--quiet]   the unit-gap pass (sala-unit-gaps.path, the watch tick): a timer of ours with no Description=, no X-Model-Lane=
 #                                      or not in git is opened once as a board item (client.py post job-gap open; stackshot moves it by the builder of
 #                                      the repo that owns its script) and closed when it is fixed (post job-gap clear)
+#   salamander job set-alert NAME [--checkout DIR] [--quiet]   a failed run reaches stackshot and the next success closes it (lib/jobalert.py, docs/units.md): writes
+#                                      OnFailure=sala-job-failed@%n.service and ExecStopPost=… job alert ok %n into the job's service file in git (`job add` writes them into every
+#                                      new one) and prints what to commit; `job alert failed|ok UNIT` is what those lines run (client.py job-failed / job-ok, fails soft)
 #   salamander bg-agents [--dry-run | --status | --reset <project key> [--dry-run]]
 #                                      the fleet job that gives a project a background (engineer) agent when stackshot says it wants one (lib/bgagents.sh,
 #                                      lib/bgagents.py, docs/bg-agents.md): off unless SALA_BGAGENTS=on; reads `client.py background-wanted`, takes AT MOST ONE project a run

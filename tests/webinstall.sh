@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # `install.sh --web` and the web UI's ttyd pieces (web/contrib/sala-web-ttyd.service, web/contrib/sala-web-ttyd-attach; the recipe is docs/web-proxy.md, which no suite opens).
-# Checked: a plain install.sh installs no unit and points at --web; --web writes the three units into $XDG_CONFIG_HOME/systemd/user
+# Checked: a plain install.sh installs no web unit (only the failure alert's template link) and points at --web; --web writes the three units into $XDG_CONFIG_HOME/systemd/user
 # (else ~/.config/systemd/user), mode 644, starts and enables nothing; a checkout under $HOME is written as %h/<path>, one outside it
 # as an absolute path, and a path with a character a unit cannot carry safely is refused with nothing written; a second run changes
 # nothing; an unknown option exits 2; the ttyd unit keeps the settings the web UI relies on (a unix socket in a directory of its own,
@@ -39,9 +39,10 @@ for f in install.sh config.example bin lib contrib/compact.tsv web/contrib; do m
 run() { HOME="$H" BIN_DIR="$H/bin" "$@"; }   # install.sh with the fake HOME
 U="$H/.config/systemd/user"
 
-echo "== plain install.sh: no unit, a pointer to --web"
+webunits() { ls "$1" 2>/dev/null | grep -v '^sala-job-failed@' || true; }   # what is in a unit folder besides the failure alert's template link, which every install.sh makes
+echo "== plain install.sh: no web unit, a pointer to --web"
 out=$(run bash "$H/sala/install.sh" 2>&1); rc=$?
-[ "$rc" = 0 ] && [ ! -e "$U" ] && [[ $out == *"install.sh --web"* ]] && ok "no unit written, --web named" || bad "plain install (rc=$rc): $out"
+[ "$rc" = 0 ] && [ -z "$(webunits "$U")" ] && [ -L "$U/sala-job-failed@.service" ] && [[ $out == *"install.sh --web"* ]] && ok "no web unit written (only the template's link), --web named" || bad "plain install (rc=$rc): $out"
 
 echo "== install.sh --web: three units, %h-relative, nothing started"
 out=$(run bash "$H/sala/install.sh" --web 2>&1); rc=$?
@@ -74,11 +75,11 @@ echo "== a path a unit cannot carry safely is refused, nothing written"
 Q="$T/we ird/sala"; mkdir -p "$Q"; for f in install.sh config.example bin lib contrib/compact.tsv web/contrib; do mkdir -p "$Q/$(dirname "$f")"; cp -R "$ROOT/$f" "$Q/$f"; done
 H3="$T/home3"; mkdir -p "$H3"
 out=$(HOME="$H3" BIN_DIR="$H3/bin" bash "$Q/install.sh" --web 2>&1); rc=$?
-[ "$rc" = 1 ] && [ ! -e "$H3/.config/systemd/user" ] && ok "exit 1, no unit folder" || bad "odd path (rc=$rc): $out"
+[ "$rc" = 1 ] && [ -z "$(webunits "$H3/.config/systemd/user")" ] && ok "exit 1, no web unit" || bad "odd path (rc=$rc): $out"
 for odd in 'pc%t' 'dl$x'; do   # a % is a unit specifier and a $ an environment reference in an ExecStart line
     Q2="$T/$odd/sala"; mkdir -p "$Q2"; for f in install.sh config.example bin lib contrib/compact.tsv web/contrib; do mkdir -p "$Q2/$(dirname "$f")"; cp -R "$ROOT/$f" "$Q2/$f"; done
     out=$(HOME="$H3" BIN_DIR="$H3/bin" bash "$Q2/install.sh" --web 2>&1); rc=$?
-    [ "$rc" = 1 ] && [ ! -e "$H3/.config/systemd/user" ] && ok "a path with ${odd//[A-Za-z]/}: exit 1, nothing written" || bad "path $odd (rc=$rc): $out"
+    [ "$rc" = 1 ] && [ -z "$(webunits "$H3/.config/systemd/user")" ] && ok "a path with ${odd//[A-Za-z]/}: exit 1, nothing written" || bad "path $odd (rc=$rc): $out"
 done
 
 echo "== a failed write: no success, no temporary file left"

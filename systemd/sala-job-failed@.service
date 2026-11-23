@@ -1,0 +1,9 @@
+[Unit]
+Description=Tell stackshot that the scheduled job %i failed (the OnFailure= of every job; its next success closes it)
+X-Model-Lane=none
+X-Project=sala/salamander
+
+[Service]
+Type=oneshot
+# the leading - and the helper's own exit 0: a post that cannot go never makes this unit fail
+ExecStart=-%h/salamander/bin/salamander job alert failed %i

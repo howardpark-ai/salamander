@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# install.sh [--web] — symlink bin/salamander into ~/.local/bin, seed the config, print the tmux
-# hook lines. Idempotent. Nothing here touches ~/.tmux.conf or ~/.claude for you.
+# install.sh [--web] — symlink bin/salamander into ~/.local/bin, seed the config, link the failure alert's template unit
+# (sala-job-failed@.service) into the user unit folder, print the tmux hook lines. Idempotent. Nothing here touches ~/.tmux.conf or ~/.claude for you.
 # --web: also copy the web UI's three systemd user units (sala-web.socket, sala-web.service, sala-web-ttyd.service, from web/contrib/)
 # into $XDG_CONFIG_HOME/systemd/user (default ~/.config/systemd/user), with this checkout's path in place of %h/salamander.
 # It starts nothing and enables nothing; the commands to run next are printed (docs/web-proxy.md has the login in front).
@@ -27,6 +27,18 @@ CMPT="${XDG_STATE_HOME:-$HOME/.local/state}/salamander/compact.tsv"
 # old name in sala's files once (idempotent: a second run, or a box that never had the lane, finds nothing; a backup beside each file it changes).
 out=$("$ROOT/bin/salamander" lane --migrate 2>&1) && { case "$out" in nothing*) ;; *) echo "$out";; esac; } \
   || echo "⚠ salamander lane --migrate did not run through (the old lane name awsplatform is still read as aws-platform everywhere): $out"
+# The failure alert's template unit (docs/units.md, "A failed run reaches stackshot"): every job's OnFailure= starts sala-job-failed@<job>.service, so the
+# template is linked into the user unit folder, where the other units here are linked or copied. A link, so a deploy that fast-forwards this checkout updates it;
+# idempotent (a link already pointing here is left alone and nothing is reloaded). Nothing is enabled, started or disabled. SALA_JOB_SYSTEMCTL names another systemctl
+# (the suites point it at a stub), SALA_JOB_USER_DIR another folder.
+TPL=sala-job-failed@.service; UDIR="${SALA_JOB_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
+if [ "$(readlink "$UDIR/$TPL" 2>/dev/null)" != "$ROOT/systemd/$TPL" ]; then
+  mkdir -p "$UDIR" && ln -sf "$ROOT/systemd/$TPL" "$UDIR/$TPL" \
+    && { ${SALA_JOB_SYSTEMCTL:-systemctl} --user daemon-reload >/dev/null 2>&1 \
+         && echo "linked $UDIR/$TPL (systemctl --user daemon-reload done)" \
+         || echo "linked $UDIR/$TPL; ⚠ systemctl --user daemon-reload did not run through (no user manager here?): run it once there is one"; } \
+    || echo "⚠ could not link $TPL into $UDIR: a job's OnFailure= has nothing to start until it is there (docs/units.md)"
+fi
 for dep in tmux python3 claude; do command -v "$dep" >/dev/null || echo "⚠ missing: $dep"; done
 # A terminal-only prompt (feedback-draft review, survey) holds a pane that nobody is watching; recycle
 # sends queued drafts itself, but the settings must keep them from becoming modal prompts.

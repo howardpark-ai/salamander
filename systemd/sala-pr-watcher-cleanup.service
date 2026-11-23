@@ -7,8 +7,10 @@ Description=PR-watcher cleanup — delete the finished one-time scheduled tasks 
 X-Model-Lane=none
 X-Project=sala/salamander
 X-Runs-With=sessions
+OnFailure=sala-job-failed@%n.service
 
 [Service]
 Type=oneshot
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/python3 -I %h/salamander/lib/pr_watcher_cleanup.py
+ExecStopPost=-%h/salamander/bin/salamander job alert ok %n

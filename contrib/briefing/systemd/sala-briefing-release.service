@@ -9,6 +9,7 @@ X-Project=sala/salamander
 X-Runs-With=sessions
 # X-Model-Lane note: BRIEFING_CLAUDE_CONFIG_DIR=<dir> would put the run on the login in that directory (a second login's);
 # The lane's variables (CLAUDE_CODE_USE_BEDROCK, AWS_*, the pinned models) come from `salamander lane exec bedrock`, not from this file.
+OnFailure=sala-job-failed@%n.service
 
 [Service]
 Type=oneshot
@@ -18,3 +19,4 @@ Environment=BRIEFING_CLAUDE_CONFIG_DIR=
 Environment=BRIEFING_CRON_LOG=1
 UnsetEnvironment=ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS
 ExecStart=%h/.local/bin/salamander lane exec bedrock -- %h/salamander/contrib/briefing/release-alert.sh
+ExecStopPost=-%h/salamander/bin/salamander job alert ok %n

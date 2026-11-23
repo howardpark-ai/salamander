@@ -72,6 +72,7 @@ relaunched pane included, would inherit the lane; its own model calls take `SALA
 | `sala-bg-agents.service` | `systemd/` | every 10 min (`OnBootSec=5min`, `OnUnitActiveSec=10min`) | `none` | `salamander bg-agents` ([bg-agents.md](bg-agents.md)): reads the want list and starts the background agent of at most one project a run, then records it; it makes no model call itself (the agent it starts runs on its own lane). Off unless `SALA_BGAGENTS=on` in the config: off prints one line, exits 0 and reads, writes and starts nothing. Installed by `sala job relink sala-bg-agents` after the deploy |
 | `machine-follow.service` | `systemd/` | every 10 min (`machine-follow.timer`) and when `machine-follow.path` fires | `none` | `lib/machine-follow.py` (the dispatcher, no `--host`): fingerprints what the machines follow, starts `machine-follow@<hostname>.service` with `systemctl --user start --no-block` for each machine that is due and has no instance running, then exits (`TimeoutStartSec=5min`); no model call. The unit names have no `sala-` prefix on purpose (*machine-follow*, below); a unit linked by hand like `sala-cipoll.service` |
 | `machine-follow@.service` | `systemd/` | none (a template, started by the dispatcher) | `none` | `lib/machine-follow.py --host %i`: one machine's follow, its step run with its own timeout (the data file); `TimeoutStartSec=3h`, above the largest step plus the settle wait; no `[Install]`, never enabled; no model call |
+| `sala-job-failed@.service` | `systemd/` | none (a template: a job's `OnFailure=` starts `sala-job-failed@<the failing unit>.service`) | `none` | `sala job alert failed %i` (`lib/jobalert.py`): drops the marker `failed/<unit>` in the state folder and makes one stackshot call, `client.py job-failed`; no model call, no polling ([below](#a-failed-run-reaches-stackshot)) |
 | `machine-follow.path` | `systemd/` | triggers `machine-follow.service` | `none` | `PathChanged=` on `~/stackshot/.git/refs/heads/main`, `~/salamander/.git/refs/heads/main`, `~/.bun/install/global/bun.lock` and `~/.local/bin/claude`: a deploy, a knowledge-base install or a CLI update on the driving machine |
 | `machine-follow.timer` | `systemd/` | `OnBootSec=5min`, then every 10 min after the last start | `none` | the fallback for a missed path event and the refresh a machine with `catch_up_minutes` gets |
 
@@ -237,3 +238,52 @@ process; `SALA_UNIT_GAPS=off` turns it off). A burst of unit writes is one run: 
 checks, and the path unit's start limit is 20 starts in 60 s (`TriggerLimitIntervalSec=60s`, `TriggerLimitBurst=20`). A lower limit trips in a burst of unit writes: the path unit goes to `failed` (trigger-limit-hit) and stays dead until it is restarted; recover a failed one with `systemctl --user reset-failed sala-unit-gaps.path && systemctl --user restart sala-unit-gaps.path`. Install the path unit once, like the other units here:
 `ln -sf ~/salamander/systemd/sala-unit-gaps.{path,service} ~/.config/systemd/user/ && systemctl --user daemon-reload &&
 systemctl --user enable --now sala-unit-gaps.path`.
+
+## A failed run reaches stackshot
+
+A scheduled job that fails tells stackshot once, and its next success closes the report. systemd does the telling: no timer and no poll watches the jobs.
+
+```
+[Unit]                                    # of the job's service file
+OnFailure=sala-job-failed@%n.service      # %n = the job's own unit name
+[Service]
+ExecStopPost=-%h/salamander/bin/salamander job alert ok %n
+```
+
+- **A failed run** (any non-success: exit code, signal, timeout) starts the template `systemd/sala-job-failed@.service` for that unit. It runs
+  `sala job alert failed UNIT`, which does two things: it writes the marker `failed/UNIT` in sala's state folder (`~/.local/state/salamander/`, so
+  `~/.local/state/salamander/failed/UNIT`: one line, the time of the failing run and the project), and it posts ONE call to stackshot's client
+  (the client is found as for `sala job check`: `SALA_STACKSHOT_CLIENT`, else `SALA_STACKSHOT_DIR/stackshot/fleet/client.py`, else `~/stackshot/stackshot/fleet/client.py`; the client holds the box's token, sala never reads it):
+
+  ```
+  client.py job-failed <unit> <host> <ISO-Z time of the failing run> <project>
+  ```
+
+  `<unit>` is the unit's name as systemd gives it (`nightly.service`), `<host>` the box's hostname, the time is `ExecMainExitTimestamp` of the unit (else `StateChangeTimestamp`, else now)
+  as `2026-11-23T01:58:38Z`, and `<project>` is the unit's `X-Project=` as the Schedules tab shows it (`SALA_UNIT_PROJECT_MAP` applied), or a single `-` for a unit with none or one that is
+  not `scope/project`: stackshot files that under the general builder. A job that fails again posts again (one call per failing run); stackshot dedups.
+- **A successful run** runs `sala job alert ok UNIT` through `ExecStopPost=`. It does nothing, in no python, unless the marker `failed/UNIT` exists: a one-minute timer's green runs post
+  nothing. With the marker (and `$SERVICE_RESULT` = `success`: `ExecStopPost=` also runs after a failed run, and that one is the template's) it posts
+  `client.py job-ok <unit> <host> <ISO-Z time of the success>` and removes the marker. A post that did not go keeps the marker, so the next success tries again.
+- **Fails soft.** Both calls end in exit 0 whatever happens (no client on the box, a client without the verb, a refusal, a timeout, an unwritable state folder): one line on stderr
+  (the journal of the unit), never a failed job or a failed template unit. `ExecStopPost=` and the template's `ExecStart=` carry a `-` as well.
+- **The contract** with stackshot is interface 36 of [stackshot-contracts.md](stackshot-contracts.md).
+- **The names are in one place.** The client's two verbs are `CLIENT_VERBS` in `lib/jobalert.py`; a rename on stackshot's side is that one line. (`job-failed` and
+  `job-ok` are the shape agreed with stackshot; its side of the call is built separately, and until it is a failed post is one log line.)
+
+**Where the lines come from.** `sala job add` writes both lines into every new service file. `sala job set-alert NAME [--checkout DIR] [--quiet]` writes them into an existing job's
+service file in git, as `set-project` does (a flow-pr repo needs the worktree as `--checkout`; a unit rendered from a template is refused: its template gets the lines), and prints what to
+commit. Nothing is edited in place on a box by sala beyond that git file, and a unit file outside this repo is the owner repo's to change (below).
+
+**Installing the template.** `install.sh` links it into the user unit folder (`~/.config/systemd/user/sala-job-failed@.service` -> this checkout's `systemd/`) and runs `systemctl --user daemon-reload`;
+a link already in place is left alone and nothing is reloaded, and nothing is enabled, started or disabled. A system-scope job needs the same file in `/etc/systemd/system`, installed as root
+(`sudo systemctl link <the checkout>/systemd/sala-job-failed@.service`). Until the template is there a job's `OnFailure=` starts nothing, and `sala job add` and `set-alert` say so.
+
+**What to add to a job whose unit is not in this repo** (every registry job gets the two lines; the template above serves all of them):
+
+| where | what to do |
+|---|---|
+| a job of a repo with flow main (the config repo's units) | `sala job set-alert NAME` for each job, then the commit steps it prints; `sala job list` names them |
+| a job of a flow-pr repo (not this one: the `systemd/` and `contrib/briefing/systemd/` services that have a timer carry the two lines already) | `sala job set-alert NAME --checkout <worktree>` in a branch, then a pull request |
+| a unit another repo renders from a template (stackshot's `units/*.in`) | add the same two lines to the template itself (a pull request on that repo); `set-alert` refuses it |
+| a unit with no `X-Project=` | works: the project is posted as `-`; `sala job check` still reports the `no-project` gap |

@@ -165,7 +165,7 @@ else
 fi
 
 echo "== nothing outside the scratch home was touched"
-[ ! -s "$T/stub.log" ] && ok "no call to tmux, systemctl or loginctl" || bad "stubbed commands were called: $(paste -sd'|' < "$T/stub.log" | cut -c1-300)"
+[ -z "$(grep -v '^systemctl --user daemon-reload$' "$T/stub.log" 2>/dev/null)" ] && ok "no call to tmux, loginctl or systemctl, but the one daemon-reload install.sh runs once it has linked the failure alert's template unit" || bad "stubbed commands were called: $(paste -sd'|' < "$T/stub.log" | cut -c1-300)"
 [ "$(real_cfg_id)" = "$BEFORE" ] && ok "the real sala config is unchanged" || bad "the real sala config changed during the run"
 
 [ "$fail" = 0 ] && echo "neutral-install: pass" || echo "neutral-install: FAIL"
