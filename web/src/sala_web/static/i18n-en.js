@@ -384,7 +384,6 @@ window.SALA_I18N_EN = {
   "ov.row.noReply": "no reply yet",
   "ov.row.noSessions": "No live sessions.",
   "ov.row.notSet": "not set",
-  "ov.row.sleepingSince": "since {when}",
   "ov.row.sleepingTip": "Asleep on purpose: its Claude ended and its pane stays. Opening it shows its conversation; sending it a message wakes it.",
   "ov.row.unregistered": "unregistered",
   "ov.row.versionUnknown": "version unknown",

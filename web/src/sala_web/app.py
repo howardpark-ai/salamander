@@ -580,6 +580,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
     # which front agents have a reply the owner has not opened yet (unread.py): the sidebar's orange count
     read_state = UR.ReadState(settings.state_dir / UR.FILE_NAME, settings.projects_dir)
     catalogs = S.CatalogCache()  # each claude binary's model catalog, scanned once: resolves a bare --model alias
+    wake_plans = S.WakePlans(SP.resolve_cmd(settings.sala_cmd))  # what a wake would launch each sleeper on (sala sleep --list --json), asked only while one sleeps
     # the account lanes that have a quota: subscription-1 is the login in claude_dir (~/.claude), subscription-2 is sala's second login
     quota = Q.QuotaCache({"subscription-1": settings.claude_dir, **S.LANE_DIRS}, state_dir=settings.state_dir)
     credit = CR.CreditCache(settings.admin_key, settings.state_dir / "api-spend.json")
@@ -763,10 +764,22 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # what the CLI follows with no flag and no record: the default lane's settings.json, as the New session
         # form reads it; one small file, read once per poll like the record ("" for what it cannot read: no default)
         default = SP.claude_defaults(settings.claude_dir)
+        # a sleeper's lane and model are what its wake will start (sala's own answer: sleep --list --json), never "unknown" and never an alias with no version
+        plans = wake_plans.get() if any(row.get("sleeping") is not None for row in rows) else {}
+        wake_cat = S.wake_catalog(catalogs, [row["pid"] for row in rows if row["pid"]]) if plans else {}
         for row in rows:
             path = TR.transcript_path(settings.projects_dir, row.pop("cwd"), row["sessionId"])
             reply = models.get(path) if path else {}
             pid = row["pid"]
+            plan = plans.get(row["name"]) if row.get("sleeping") is not None else None
+            if plan and plan["lane"]:
+                row["lane"] = plan["lane"]
+            if plan and plan["model"]:
+                row.pop("tmuxSession", None)
+                row.update(S.running_model({"model": plan["model"], **({"effort": plan["effort"]} if plan["effort"] else {})}, None, {}, None,
+                                           plan["env"], wake_cat, None if row["lane"] == "subscription-2" else default))
+                row.pop("startedAt")
+                continue
             # a pane with its own CLAUDE_CONFIG_DIR may follow another settings file: no default for it
             cfg = S.pane_config_dir(pid)
             own = bool(cfg) and Path(cfg).resolve() != settings.claude_dir.resolve()

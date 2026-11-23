@@ -70,7 +70,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      and the summary was sent (by sala, through stackshot's client) to the origin agent or the project's -main
   salamander adopt NAME                           put a live session made by hand (outside spawn) into the pane map
   salamander restore (NAME… | --missing) [--dry-run]  recreate a session from its pane-map row (tmux session in its cwd, then resumed by uuid); --dry-run shows the plan, a session queues it: op restore
-  salamander sleep NAME… [--dry-run] | --project KEY [--dry-run] | --list | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins    end the claude of an idle session (nothing in flight; never a front agent by name), keeping its tmux session and pane-map row; a session queues it: op sleep; --project sleeps every session of one project together; --candidates lists, per project, what the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) would put to sleep; --pin holds a project off it; its stackshot inbox is held, and checked for a waiting line, through stackshot's server on a box that is not the server's (the stackshot client's push_mode decides; SALA_INBOX_MODE files|server overrides), and a server that cannot be asked refuses the sleep
+  salamander sleep NAME… [--dry-run] | --project KEY [--dry-run] | --list [--json] | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins    end the claude of an idle session (nothing in flight; never a front agent by name), keeping its tmux session and pane-map row; a session queues it: op sleep; --project sleeps every session of one project together; --list --json adds, for each sleeper, the lane and model a wake would launch it on; --candidates lists, per project, what the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) would put to sleep; --pin holds a project off it; its stackshot inbox is held, and checked for a waiting line, through stackshot's server on a box that is not the server's (the stackshot client's push_mode decides; SALA_INBOX_MODE files|server overrides), and a server that cannot be asked refuses the sleep
   salamander wake NAME… [--dry-run]               resume a sleeping session by its conversation id (a session queues it: op wake); a name that is not asleep is a message, no action; the watch wakes a sleeper itself when a stackshot message line waits for it
   salamander follow                               resident watcher of the session registry (sala-follow.service): follows hand renames
   salamander snapshot [--now]        event-driven tmux-resurrect save (tmux hooks + Claude SessionStart hook)
@@ -358,12 +358,13 @@ verbs:
 usage: salamander restore (NAME… | --missing) [--dry-run]
 
 ### sala sleep --help (exit 0)
-usage: salamander sleep NAME… [--dry-run] | --project KEY [--asked] [--dry-run] | --list | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins
+usage: salamander sleep NAME… [--dry-run] | --project KEY [--asked] [--dry-run] | --list [--json] | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins
   puts idle sessions to sleep: their claude ends, their tmux session and pane-map row stay; salamander wake NAME resumes one
   --project KEY: every session of one project, together; the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) sleeps a project only when it has had no external
     anchor notice and no input from its owner for SALA_SLEEP_QUIET (2 days), every one of its sessions is idle with nothing in flight, and it is not pinned
   --asked (with --project; `sala op sleep --project KEY --from YOU --words "<the owner's words>"` queues it): the owner asked for it now, so the quiet rule and the settle time do not apply;
     the activity reading, the pin and every in-flight check still do. A session of the project that asks is put to sleep once its turn has ended (a session cannot run this raw: queue it)
+  --list --json: one JSON array, an object a sleeper (name, conversation, since, and the lane, model, effort and ANTHROPIC_DEFAULT_*_MODEL ids its wake would launch it with, read as the wake's own launch line reads them); changes nothing
   --candidates: per project, sleeping, awake or pinned, its two quiet ages and the first reason it is not a candidate; changes nothing
   --pin KEY [--why TEXT] / --unpin KEY / --pins: hold a project off the automatic sleep, lift it, list the pins (kept across a reboot)
 
