@@ -49,12 +49,13 @@
 #     SALA_SCOPES) in front of the slug (projects/ir → home-ir when home is the default);
 #     with no SALA_SCOPES the slug alone. The answer for a page the record does not know.
 #   · THE PROJECT RECORD ALONE (common.sh, THE PROJECT RECORD; docs/stackshot-contracts.md, interface 20):
-#     stackshot's ~/.local/state/stackshot/projects.json lists each project's agents with `front` true/false. When it is fresh
-#     (SALA_PROJECT_RECORD_MAX_AGE, 600 s) and has the project, it answers the check: the name on the map and `front` agreeing with --role
+#     stackshot's project record lists each project's agents with `front` true/false. It is asked of stackshot first (its client, `get state-files`; lib/stackshot_record.py);
+#     only when stackshot cannot be reached is the file copy ~/.local/state/stackshot/projects.json read, and its age is said. When the answer is fresh
+#     (the copy: SALA_PROJECT_RECORD_MAX_AGE, 600 s) and has the project, it answers the check: the name on the map and `front` agreeing with --role
 #     → listed (an agent registered through `client.py post project-agent` counts); the name absent → registered with stackshot when the
 #     spawn carries --role/--mandate (THE SPAWN GATE below), else exit 3 as below; the other role → exit 1. No page is asked and no
 #     pages.py is run: the page's own `agents:` block is stale by design and is not read.
-#     A record that CANNOT answer (missing, stale, unreadable, no such project) FAILS CLOSED for any name the closed exception list does not
+#     A record that CANNOT answer (stackshot not reached and the copy missing, stale, unreadable, or no such project) FAILS CLOSED for any name the closed exception list does not
 #     cover (agent_gate_exempt): exit 6 and no pane, "stackshot's project record cannot answer (<why>): … retry when it is fresh, or
 #     SALA_AGENT_CHECK=off to start it unchecked". A spawn WITH --role/--mandate registers through `post project-agent` all the same (it
 #     needs no fresh record to register); only its read-back needs one, and a read-back that cannot be made says so and that the name IS
@@ -189,9 +190,9 @@ suggest_prefix() {  # <page key> → the conventional agent-name prefix (the hea
     if [ -n "$scope" ]; then echo "$scope-$slug"; else echo "$slug"; fi   # no scopes configured: the slug alone
 }
 project_record_naming() {  # <page key> → rc 0: line 1 the prefix the project's agents share (its -main agent's name without -main, else the leading dash-parts all its agents' names have; empty for none), line 2 how many agents it has · rc 1 the record cannot say (missing, stale, unreadable, no such project)
-    [ -r "$SALA_PROJECT_RECORD" ] || return 1
-    local out
-    out=$(python3 -I - "$SALA_PROJECT_RECORD" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" 2>/dev/null <<'PY'
+    local rf out
+    record_file_r rf projects || return 1
+    out=$(python3 -I - "$rf" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" 2>/dev/null <<'PY'
 import datetime, json, sys
 path, max_age, key = sys.argv[1:4]
 try:
@@ -437,10 +438,12 @@ if [ -n "$FORK" ]; then
 fi
 REC_SURFACE=""   # the surface the project record gives this name (slack, sala), the one `sessions tag --auto` copies onto the row later: the start directory follows it, not the flag alone
 if [ "$SIDE" = 0 ]; then   # read-only on the record file, so SALA_SESSIONS=off (registry writes and the publish) does not matter here
-    REC_SURFACE=$(sessions_py record-surface "$NAME" ${PROJECT:+--project "$PROJECT"} --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" 2>&1); rsrc=$?
+    record_file_r REC_FILE projects || true   # stackshot's own answer; the file copy only when stackshot does not answer (record_file_r, common.sh)
+    REC_SURFACE=$(sessions_py record-surface "$NAME" ${PROJECT:+--project "$PROJECT"} --record "$REC_FILE" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" 2>&1); rsrc=$?
+    if [ "$REC_SRC" = live ]; then REC_FILE_SAID="stackshot's own answer"; else REC_FILE_SAID=$SALA_PROJECT_RECORD; fi
     case "$rsrc" in
         0) ;;
-        5) die "the project record ($SALA_PROJECT_RECORD) lists '$NAME' with a surface sala cannot use, so it is not spawned (sessions tag --auto would refuse its row): ${REC_SURFACE#sessions record-surface: }" ;;
+        5) die "the project record ($REC_FILE_SAID) lists '$NAME' with a surface sala cannot use, so it is not spawned (sessions tag --auto would refuse its row): ${REC_SURFACE#sessions record-surface: }" ;;
         *) REC_SURFACE="" ;;   # not on a map (3), a missing, stale or unreadable record (4), or any other failure: the flag alone decides; a spawn does not depend on stackshot being reachable
     esac
 fi

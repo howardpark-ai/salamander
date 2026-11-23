@@ -204,6 +204,8 @@ if sys.argv[1:3] == ["get", "roles"]:   # stackshot's roles list (the project fa
     open(home + "/roles-calls.txt", "a").write("get roles\n")
     if not os.path.exists(home + "/roles-client.json"): print("stackshot: roles not read [0] URLError: <urlopen error [Errno 111] Connection refused>", file=sys.stderr); sys.exit(1)
     sys.stdout.write(open(home + "/roles-client.json").read()); sys.exit(0)
+if sys.argv[1:3] == ["get", "state-files"]:   # the project record: sala asks stackshot for it first (lib/stackshot_record.py); this stub does not give it, so the file copy is read (tests/recordlive.sh tests the live answer); not counted
+    print("stackshot: state-files not read [0] URLError: <urlopen error [Errno 111] Connection refused>", file=sys.stderr); sys.exit(1)
 open(home + "/client-calls.txt", "a").write("\x1f".join(sys.argv[1:]) + "\n")
 mode = open(home + "/client-mode").read().strip() if os.path.exists(home + "/client-mode") else "ok"
 refused = {"fail": "stackshot: agent not retired [0] URLError: <urlopen error [Errno 111] Connection refused>",
@@ -326,7 +328,7 @@ rm -f "$HOME/roles-client.json"; printf '%s\n' '{"sessions": {"sala-rq8": {"proj
 tagged sala-rq8 "$UQ8"; n0=$(ncalls)
 out=$(SALA_ROLES_FILE="$HOME/roles-file.json" "$SALA" retire sala-rq8 --keep-web 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(ncalls)" = $((n0 + 1)) ] && [ "$(lastcall)" = "post project-agent-retire projects/qux sala-rq8 --sender sala-retire" ] \
-    && grep -qF "sala-rq8: its project projects/qux came from stackshot's roles list (the file $HOME/roles-file.json)" "$RLOGF" && ok "(d) client failing: the roles file's project used, source logged" || bad "(d) rc=$rc calls=$(ncalls) last=$(lastcall) $out"
+    && grep -qF "sala-rq8: its project projects/qux came from stackshot's roles list (the file copy: stackshot did not answer (" "$RLOGF" && grep -F "sala-rq8: its project" "$RLOGF" | grep -qF "the file copy $HOME/roles-file.json is " && ok "(d) client failing: the roles file's project used, source logged with the copy's age" || bad "(d) rc=$rc calls=$(ncalls) last=$(lastcall) $out"
 # (c) neither gives one: the client fails, the file is bad JSON / lacks the name / is missing: today's line, no call, the retire done
 printf '%s\n' '{"sessions": {"sala-rq9": ' > "$HOME/roles-bad.json"
 for f in "$HOME/roles-bad.json" "$HOME/roles-file.json" "$HOME/no-such-roles.json"; do

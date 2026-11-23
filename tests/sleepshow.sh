@@ -11,8 +11,8 @@
 #    has no `sleeping`, a stale marker (its uuid is on no pane-map row) and a marker whose conversation a live row already has make no second row; a second run
 #    changes no byte (the row keeps its `seen`); `session-registry.json` (interface 19) has `sleeping` on the sleeper's row, `state` still `live`, and on no other
 #    row; after a wake (marker removed) the sleeper's `sessions.json` row is gone and the registry row loses the key;
-#  - the contract text (docs/stackshot-contracts.md): `contract-version: 54`, its changelog lines (51 to 54), the index row and the section "35. Sleeping sessions" name the
-#    marker directory and line, the `sleeping` field in `sessions.json` and `sala sessions --json`, and the wake `sala op wake --only NAME`; no 55th version;
+#  - the contract text (docs/stackshot-contracts.md): `contract-version: 54` or higher, its changelog lines (51 to 54, a later one is no fault), the index row and the section "35. Sleeping sessions" name the
+#    marker directory and line, the `sleeping` field in `sessions.json` and `sala sessions --json`, and the wake `sala op wake --only NAME`;
 #  - the teaching text: docs/subcommands.md and the heartbeat's header say the same, and `sala help` shows the `sleeping` state of `sessions`.
 # SAFETY: HOME is a mktemp -d held with flock and removed on exit; no tmux server, no claude, no network; the heartbeat runs `--no-push` with no fleet hosts.
 # Usage: bash tests/sleepshow.sh   (exit 0 = pass)
@@ -110,8 +110,10 @@ out=$(env SALA_HEARTBEAT_STATE_DIR="$HOME/hb-off" SALA_HEARTBEAT_LETTER=q SALA_H
 
 echo "== the contract text and the teaching text"
 C="$ROOT/docs/stackshot-contracts.md"
-[ "$(sed -n 3p "$C")" = "contract-version: 54" ] && ok "docs/stackshot-contracts.md line 3: contract-version: 54" || bad "version line: $(sed -n 3p "$C")"
-grep -q '^- \*\*51\*\*' "$C" && grep -q '^- \*\*52\*\*' "$C" && grep -q '^- \*\*53\*\*' "$C" && grep -q '^- \*\*54\*\*' "$C" && ! grep -q '^- \*\*55\*\*' "$C" && ok "changelog lines for 51 to 54, none for a later one" || bad "changelog"
+cv=$(sed -n 3p "$C"); cvn=${cv#contract-version: }
+case "$cvn" in ''|*[!0-9]*) cvn=0 ;; esac
+[ "$cv" = "contract-version: $cvn" ] && [ "$cvn" -ge 54 ] && ok "docs/stackshot-contracts.md line 3: contract-version $cvn (54 or higher)" || bad "version line: $cv"
+grep -q '^- \*\*51\*\*' "$C" && grep -q '^- \*\*52\*\*' "$C" && grep -q '^- \*\*53\*\*' "$C" && grep -q '^- \*\*54\*\*' "$C" && ok "changelog lines for 51 to 54 (a later one is allowed)" || bad "changelog"
 grep -q '^| 35 | Sleeping sessions' "$C" && grep -q '^## 35\. Sleeping sessions' "$C" && ok "the index row and the section 35 exist" || bad "index row or section"
 sec=$(awk '/^## 35\. Sleeping sessions/{p=1; next} /^## /{p=0} p' "$C")
 for need in '$SALA_STATE_DIR/sleeping/<conversation uuid>' '<ISO-Z time> <name>' '`sessions.json`' '"sleeping"' 'sala sessions --json' 'sala op wake --only NAME' 'session-registry.json'; do

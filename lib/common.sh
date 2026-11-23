@@ -1375,7 +1375,7 @@ except Exception: pass' 2>/dev/null
 }
 # THE PROJECT FALLBACK (rows `migrate` imported carry `project: None`, and half the retires logged "no project known"): with no project on the row or a
 # side record, the project is the one stackshot's roles list gives the agent's name: `client.py get roles` ({"sessions": {name: {project, role}}}, under
-# `timeout 20`, stdin closed), else the file stackshot's puller writes from the same list (SALA_ROLES_FILE, default ~/.local/state/stackshot/roles.json).
+# `timeout`, stdin closed: record_file_r, below), else, ONLY when stackshot did not answer, the file stackshot's puller writes from the same list (SALA_ROLES_FILE, default ~/.local/state/stackshot/roles.json), its age in the source line.
 # A missing file, bad JSON, a client failure or a name the list lacks is "no project", never an error. The source is logged (retire_drop_agent).
 : "${SALA_ROLES_FILE:=$HOME/.local/state/stackshot/roles.json}"
 _roles_project() {  # <name> (roles JSON on stdin) → the project the roles list gives <name> (stdout; empty when none or unreadable)
@@ -1387,7 +1387,7 @@ except Exception: pass' "$1" 2>/dev/null
 }
 RETIRE_PROJ="" RETIRE_PROJ_SRC="" RETIRE_PROJ_WHY="" RETIRE_PROJ_BLIND=""   # RETIRE_PROJ_BLIND: set (with the record's reason) when no project was found AND stackshot's project record could not answer, so "no project" is a guess
 retire_project_of() {  # <session> [<conversation id>] → sets RETIRE_PROJ (the project page key its registry row, else side record, else the roles list gives; empty when none) and RETIRE_PROJ_SRC (where from); no stdout
-    local n=$1 u=${2:-} p="" src="" origin c
+    local n=$1 u=${2:-} p="" src="" origin rf
     RETIRE_PROJ_WHY="" RETIRE_PROJ_BLIND=""
     p=$(_row_project "$n")
     [ -n "$p" ] || [ -z "$u" ] || p=$(_row_project "$u")
@@ -1397,13 +1397,11 @@ retire_project_of() {  # <session> [<conversation id>] → sets RETIRE_PROJ (the
         [ -n "$p" ] || { [ -z "$origin" ] || p=$(side_origin_project "$origin"); }
         [ -z "$p" ] || src="its side record"
     fi
-    if [ -z "$p" ] && c=$(stackshot_client); then
-        p=$(timeout 20 python3 "$c" get roles 2>/dev/null </dev/null | _roles_project "$n")
-        [ -z "$p" ] || src="stackshot's roles list (client.py get roles)"
-    fi
-    if [ -z "$p" ] && [ -r "$SALA_ROLES_FILE" ]; then
-        p=$(_roles_project "$n" < "$SALA_ROLES_FILE")
-        [ -z "$p" ] || src="stackshot's roles list (the file $SALA_ROLES_FILE)"
+    if [ -z "$p" ] && record_file_r rf roles; then   # stackshot's own list first (client.py get roles); the file copy only when stackshot did not answer, with its age said
+        p=$(_roles_project "$n" < "$rf")
+        if [ -n "$p" ]; then
+            if [ "$REC_SRC" = live ]; then src="stackshot's roles list (client.py get roles)"; else src="stackshot's roles list (the file copy: $REC_NOTE)"; fi
+        fi
     fi
     if [ -z "$p" ]; then
         # a plain spawn registered by name (THE SPAWN GATE): its registry row has no project until `sessions tag --auto` ran, and the roles list may not have it yet.
@@ -1634,6 +1632,38 @@ page_key_ok() {  # <key> → 0 when it has a hub page key's shape: <dir>/<slug>[
 : "${SALA_PROJECT_RECORD:=$HOME/.local/state/stackshot/projects.json}"
 : "${SALA_PROJECT_RECORD_MAX_AGE:=600}"    # seconds: the contract says a reader treats an older file as stale (stackshot rewrites it every 5 minutes)
 : "${SALA_ROLES_FILE_MAX_AGE:=1800}"       # seconds: an older file answers nothing (stackshot rewrites it every few minutes)
+# WHERE THE RECORD AND THE ROLES LIST ARE READ FROM (Mon Nov 23rd 2026; lib/stackshot_record.py, the one reader the shell and Python sides share): stackshot is asked FIRST, by its address, through its client
+# (`client.py get state-files` for the whole project record, `client.py get roles` for the list; under `timeout`, stdin closed), and the file copy (SALA_PROJECT_RECORD, SALA_ROLES_FILE) is read ONLY
+# when stackshot cannot be reached, with the copy's age said (one line in $SALA_LOG_DIR/salamander-record.log, and in the refusal or the source line of the caller that has one). Why: the file is a copy
+# that only a puller writes; after stackshot's server moved it sat 18 hours old while the truth had not moved. The *_MAX_AGE settings still bound the copy: an older one answers nothing.
+# A live answer is kept for SALA_RECORD_LIVE_TTL seconds (20) under $SALA_STATE_DIR/record-live/, so one command or one watch tick that reads the record many times asks once; a failed ask is kept as
+# long, so a dead server costs one wait (SALA_RECORD_LIVE_TIMEOUT, 15 s), not one per reader. SALA_RECORD_LIVE=off reads the copy alone.
+# record_file_r <var> <projects|roles> [--file-only] → <var> is the path to read as the file always was; rc 0 an answer exists (REC_SRC live | file), rc 1 none (<var> is the file copy's path, so "no record at <path>" stays true).
+# REC_NOTE says in words why the copy was read and how old it is (empty for a live answer); REC_WHY is why stackshot did not answer. SALA_RECORD_PIN (a path) is read as it is, nothing asked: a caller that must read
+# ONE copy for several questions (rename_record_plan) pins its snapshot. --file-only never asks (the read-back, which asked `get project` itself just before).
+: "${SALA_RECORD_PY:=$(if [ -n "${SALA_ROOT:-}" ]; then echo "$SALA_ROOT/lib"; else cd "$(dirname "${BASH_SOURCE[0]}")" && pwd; fi)/stackshot_record.py}"
+REC_SRC="" REC_NOTE="" REC_WHY=""
+record_file_r() {
+    local _v=$1 kind=$2 fb max c line p src note why rc=0 a=()
+    REC_SRC="" REC_NOTE="" REC_WHY=""
+    case "$kind" in projects) fb=$SALA_PROJECT_RECORD max=$SALA_PROJECT_RECORD_MAX_AGE ;; roles) fb=$SALA_ROLES_FILE max=$SALA_ROLES_FILE_MAX_AGE ;; *) return 1 ;; esac
+    if [ -n "${SALA_RECORD_PIN:-}" ] && [ "$kind" = projects ]; then printf -v "$_v" '%s' "$SALA_RECORD_PIN"; REC_SRC=file; REC_NOTE="the one copy this command took"; [ -r "$SALA_RECORD_PIN" ]; return; fi
+    printf -v "$_v" '%s' "$fb"
+    command -v python3 >/dev/null 2>&1 && [ -r "$SALA_RECORD_PY" ] || { REC_SRC=file; [ -r "$fb" ]; return; }
+    c=$(stackshot_client 2>/dev/null) || c=""
+    [ "${3:-}" != --file-only ] || a=(--file-only)
+    line=$(python3 -I "$SALA_RECORD_PY" resolve "$kind" --fallback "$fb" --max-age "$max" ${c:+--client "$c"} --state-dir "$SALA_STATE_DIR" --log-dir "$SALA_LOG_DIR" ${a[@]+"${a[@]}"} 2>/dev/null) || rc=$?
+    if [ -z "$line" ]; then REC_SRC=file; [ -r "$fb" ]; return; fi   # the helper itself failed: the file copy as before
+    IFS=$'\t' read -r p src note why <<< "$line"
+    printf -v "$_v" '%s' "$p"; REC_SRC=$src REC_NOTE=$note REC_WHY=$why
+    [ "$src" = live ] || [ "$src" = file ]
+}
+record_file() {  # <projects|roles> [--file-only] → stdout the path (see record_file_r); the rc is its rc
+    local _p rc=0; record_file_r _p "$@" || rc=$?; printf '%s\n' "$_p"; return "$rc"
+}
+record_note() {  # <projects|roles> → stdout the one line that says why the file copy is read and how old it is (empty when stackshot answered); the memo makes this one no second ask
+    local _rn_p; record_file_r _rn_p "$1" >/dev/null 2>&1; printf '%s\n' "$REC_NOTE"
+}
 _record_stat() {  # <path> → rc 0 it can be stat'ed · 10 it is absent (stat says ENOENT or ENOTDIR) · 11 any other stat error (stdout: the reason). `[ -e ]` is false for both an absent file and one behind a directory that denies traversal (EACCES), so it cannot tell "no record" from "a record sala cannot reach"; without python3 it falls back on `[ -e ]`
     local out rc
     out=$(python3 -I -c 'import errno, os, sys
@@ -1645,11 +1675,12 @@ except OSError as e:
     if [ -e "$1" ]; then return 0; else return 10; fi
 }
 project_record_agent() {  # <page key, or empty for any project> <name> [front|back to check] [unique] → rc 0 listed (stdout line 1: the mandate line, line 2: the project's -main agent or empty) · 3 the project is in the record and the name is not on its agents map, or (no page key given) the name is on no project of a fresh record (line 1 the why, line 2 the -main agent, empty for no key) · 4 (only with `unique` as the fourth argument, no page key) the name is on the agents maps of two or more projects: line 1 names their keys · 5 listed with the other role (the why) · 1 the record cannot answer (the why)
-    if [ ! -r "$SALA_PROJECT_RECORD" ]; then   # absent only when stat says so (a parent that denies traversal makes `-e` false for a file that is there)
-        _record_stat "$SALA_PROJECT_RECORD" >/dev/null; case $? in 10) echo "no project record at $SALA_PROJECT_RECORD" ;; *) echo "the project record at $SALA_PROJECT_RECORD is not readable" ;; esac; return 1
+    local rf note out rc
+    record_file_r rf projects; rc=$?; note=$REC_NOTE
+    if [ "$rc" != 0 ]; then   # stackshot did not answer and the file copy is missing: absent only when stat says so (a parent that denies traversal makes `-e` false for a file that is there)
+        _record_stat "$rf" >/dev/null; case $? in 10) echo "no project record at $rf${REC_WHY:+ ($note)}" ;; *) echo "the project record at $rf is not readable${REC_WHY:+ ($note)}" ;; esac; return 1
     fi
-    local out rc
-    out=$(python3 -I - "$SALA_PROJECT_RECORD" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" "$2" "${3:-}" "${4:-}" 2>&1 <<'PY'
+    out=$(python3 -I - "$rf" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" "$2" "${3:-}" "${4:-}" 2>&1 <<'PY'
 import datetime, json, sys
 path, max_age, key, name, role, uniq = sys.argv[1:7]
 def no(why): print(why); sys.exit(1)
@@ -1685,7 +1716,7 @@ except Exception as e: no("the project record is unreadable (%s)" % e)
 PY
 ); rc=$?
     case "$rc" in 0|3|4|5) printf '%s\n' "$out"; return "$rc" ;; esac
-    _lastline "$out"; return 1
+    _lastline "$out${note:+ ($note)}"; return 1   # a copy that cannot answer says how old it is and that stackshot was asked first
 }
 # THE SPAWN GATE (lib/spawn.sh; docs/stackshot-contracts.md, interface 34): every agent session sala creates is on stackshot's project record BEFORE its pane
 # exists. stackshot answers first (the record, then the register call `client.py post project-agent … --sender sala-spawn`); the pane starts only on its yes. Rename and
@@ -1708,9 +1739,9 @@ agent_role_word() {  # <name> <the project's -main agent, or empty> → the role
     if [ -n "$2" ] && [ "$pre" != "$2" ] && [[ $1 == "$pre"-?* ]]; then printf '%s\n' "${1#"$pre"-}"; else printf '%s\n' "${1##*-}"; fi
 }
 project_for_name() {  # <name> → rc 0: the page key of the one project whose name (its -main agent's without -main) is the longest prefix of NAME (stdout) · rc 1: none or ambiguous, or the record cannot say (stdout: why)
-    [ -r "$SALA_PROJECT_RECORD" ] || { echo "no readable project record at $SALA_PROJECT_RECORD"; return 1; }
-    local out rc
-    out=$(python3 -I - "$SALA_PROJECT_RECORD" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" 2>&1 <<'PY'
+    local rf out rc
+    record_file_r rf projects || { echo "no readable project record at $rf${REC_WHY:+ ($REC_NOTE)}"; return 1; }
+    out=$(python3 -I - "$rf" "$SALA_PROJECT_RECORD_MAX_AGE" "$1" 2>&1 <<'PY'
 import datetime, json, sys
 path, max_age, name = sys.argv[1:4]
 def no(why): print(why); sys.exit(1)
@@ -1751,7 +1782,7 @@ agent_register() {
 # every verb); a live answer that is definite decides, an unreadable one (not reached, not JSON) falls to the file.
 : "${SALA_READBACK_WAIT:=30}" "${SALA_READBACK_POLL:=2}"
 agent_record_read_back() {
-    local key=$1 want=$2 gone=${3:-} side=${4:-} c out verdict why="" deadline=$((SECONDS + SALA_READBACK_WAIT)) src
+    local key=$1 want=$2 gone=${3:-} side=${4:-} c out verdict why="" deadline=$((SECONDS + SALA_READBACK_WAIT)) src rf
     ARB_WHY=""
     while :; do
         verdict=""; src=""
@@ -1759,7 +1790,7 @@ agent_record_read_back() {
             verdict=$(_agents_verdict "$key" "$want" "$gone" "$side" <<< "$out"); src="stackshot's live answer"
             case "$verdict" in unreadable*) verdict="" ;; esac
         fi
-        if [ -z "$verdict" ] && [ -r "$SALA_PROJECT_RECORD" ]; then verdict=$(_agents_verdict "$key" "$want" "$gone" "$side" < "$SALA_PROJECT_RECORD"); src="the published project record"; fi
+        if [ -z "$verdict" ] && record_file_r rf projects --file-only; then verdict=$(_agents_verdict "$key" "$want" "$gone" "$side" < "$rf"); src="the project record's file copy ($REC_NOTE)"; fi
         [ -n "$verdict" ] || { verdict="unreadable: neither stackshot's live answer nor the project record could be read"; src="nothing"; }
         case "$verdict" in
             ok) return 0 ;;
@@ -1859,16 +1890,17 @@ rename_record_plan() {
     case "$new" in sala-test-*|*-side-*) RL_WHY="'$new' is never checked (a test or side session name)"; return 2 ;; esac
     # no stackshot on this box = the record is ABSENT (stat says no such file or directory) AND there is no client. A record that exists but cannot be reached (a parent
     # directory that denies traversal, a file that cannot be read) is the record's own refusal, never "no stackshot": the pane rename must not go on over an entry it cannot see.
-    why=$(_record_stat "$SALA_PROJECT_RECORD"); st=$?
-    if [ "$st" = 11 ]; then RL_WHY="the project record at $SALA_PROJECT_RECORD cannot be reached ($why)"; return 1; fi
+    local rf; record_file_r rf projects || true
+    why=$(_record_stat "$rf"); st=$?
+    if [ "$st" = 11 ]; then RL_WHY="the project record at $rf cannot be reached ($why)"; return 1; fi
     if [ "$st" = 10 ] && ! stackshot_client >/dev/null; then RL_WHY="no stackshot on this box (no project record, no client.py)"; return 2; fi
     # ONE copy of the record for both names: stackshot rewrites the file every few minutes, and two reads of it could straddle a rewrite
     # (OLD from one snapshot, NEW from the next) and plan a rename neither snapshot supports. A readable record that cannot be copied is no answer (the file is
     # never read twice instead); a record that cannot be read is read as it is, whose own refusal then gives the reason.
-    if [ -r "$SALA_PROJECT_RECORD" ]; then
+    if [ -r "$rf" ]; then   # stackshot's answer, else the file copy (record_file_r): the snapshot is pinned, so the two names are read from the one copy and stackshot is not asked again
         snap=$(mktemp "${TMPDIR:-/tmp}/sala-rename-record.XXXXXX" 2>/dev/null) || snap=""
-        if [ -n "$snap" ] && cp -- "$SALA_PROJECT_RECORD" "$snap" 2>/dev/null; then
-            SALA_PROJECT_RECORD=$snap _rename_record_plan_read "$old" "$new"; rc=$?
+        if [ -n "$snap" ] && cp -- "$rf" "$snap" 2>/dev/null; then
+            SALA_RECORD_PIN=$snap _rename_record_plan_read "$old" "$new"; rc=$?
         else
             RL_WHY="could not take a snapshot of the project record"; rc=1
         fi
@@ -3455,7 +3487,7 @@ sessions_record() {  # <id|name> <claude session id> <clear|resume|start> [machi
       sessions_py record "$1" --transcript "$2" --why "$3" ${4:+--tmachine "$4"} ) 6>>"$SALA_SIDECAR.lock"
 }
 sessions_tag() {  # <id|name> [--project P] [--role R] [--surface S] [--project-key P] [--dry-run] | --auto [<id|name>] [--dry-run] — fill project/role of a live row; sessions_py's status. A dry run only reads: no lock
-    local ra=(); case " $* " in *" --auto "*) ra=(--record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE");; esac   # --auto: the roles come from stackshot's project record
+    local ra=() rf; case " $* " in *" --auto "*) record_file_r rf projects || true; ra=(--record "$rf" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE");; esac   # --auto: the roles come from stackshot's project record (stackshot first, the file copy when it does not answer)
     case " $* " in *" --dry-run "*) sessions_py tag "$@" ${ra[@]+"${ra[@]}"}; return $? ;; esac
     ( if command -v flock >/dev/null 2>&1; then flock -w 10 6 || { echo "the pane map's lock is held (another write hung?) - nothing written" >&2; exit 1; }; fi
       sessions_py tag "$@" ${ra[@]+"${ra[@]}"} ) 6>>"$SALA_SIDECAR.lock"
@@ -3467,7 +3499,7 @@ sessions_tag() {  # <id|name> [--project P] [--role R] [--surface S] [--project-
 # failure is one line in sessions.log. ALWAYS returns 0: a tick never stops on it.
 sessions_fill_roles() {
     sessions_on || return 0
-    [ -r "$SALA_SESSIONS_FILE" ] && [ -r "$SALA_PROJECT_RECORD" ] || return 0
+    [ -r "$SALA_SESSIONS_FILE" ] && record_file projects >/dev/null || return 0
     local out rc=0
     out=$(sessions_tag --auto 2>&1) || rc=$?
     case "$rc" in 0|4) ;; *) sessions_note "tag --auto failed (exit $rc): $(printf '%s' "$out" | tr '\n\t' '  ' | cut -c1-300)";; esac
@@ -4641,8 +4673,9 @@ for p in panes.values():
 }
 back_lane_names() {  # [back|front] → the live agents of that role (default back), one per line: a registry row with that role and no side, whose tmux session exists; a row with no role counts by what the project record's agents map says of it, else by the roles file (lib/sessions.py back-names, front-names)
     sessions_on && [ -r "$SALA_SESSIONS_FILE" ] || return 0
-    local s names
-    names=$(sessions_py "${1:-back}-names" --record "$SALA_PROJECT_RECORD" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" --roles "$SALA_ROLES_FILE" --roles-max-age "$SALA_ROLES_FILE_MAX_AGE" 2>/dev/null)
+    local s names rf rr
+    record_file_r rf projects || true; record_file_r rr roles || true
+    names=$(sessions_py "${1:-back}-names" --record "$rf" --record-max-age "$SALA_PROJECT_RECORD_MAX_AGE" --roles "$rr" --roles-max-age "$SALA_ROLES_FILE_MAX_AGE" 2>/dev/null)
     while IFS= read -r s; do [ -n "$s" ] && tmux has-session -t "=$s" 2>/dev/null && echo "$s"; done <<< "$names"
     return 0
 }

@@ -44,8 +44,8 @@
                                  #   session's timeline line there; the web UI lists the projects of the new-session form from it (after SALA_WEB_BRAIN_DIR
                                  #   and stackshot's own [paths] brain). Unset or empty (the default): no mirror, so `side done` asks stackshot's client
                                  #   for the page's last change instead and the web UI's project list is empty with that reason
-#SALA_AGENT_CHECK=on              # the spawn gate's check, from stackshot's project record alone (SALA_PROJECT_RECORD, default ~/.local/state/stackshot/projects.json, at most
-                                 #   SALA_PROJECT_RECORD_MAX_AGE seconds old, 600): a listed name starts; an unlisted one with --role and --mandate is registered with stackshot first; a record
+#SALA_AGENT_CHECK=on              # the spawn gate's check, from stackshot's project record alone (asked of stackshot first through its client; only when stackshot cannot be reached, the file copy SALA_PROJECT_RECORD, default ~/.local/state/stackshot/projects.json, at most
+                                 #   SALA_PROJECT_RECORD_MAX_AGE seconds old, 600, its age said): a listed name starts; an unlisted one with --role and --mandate is registered with stackshot first; a record
                                  #   that cannot answer (missing, stale, unreadable) refuses the spawn (exit 6, no pane) for any name the closed exception list does not cover. off: not checked
                                  #   (the suites, a box with no stackshot). `spawn --project` is the one command that needs stackshot, by design; SALA_AGENT_CHECK=off is the only bypass
 #SALA_SNAPSHOT_CMD=              # `snapshot` runs this instead of save.sh directly, e.g. systemctl --user start --no-block tmux-resurrect-save.service
@@ -508,7 +508,10 @@
 #SALA_BGAGENTS_RAISE_TIMEOUT=30  # seconds each of the board item's two calls (the instance's prefixes, the question) may take; the raise comes after the run's start, one a run, and the ledger lock is not held for it (a timeout: `board item needed`, tried again next run)
 #SALA_BGAGENTS_PLACE_WAIT=360   # seconds the read-back of a started session keeps reading stackshot's project record, roles.json and sala's registry row before the attempt fails (a session is a start only when all three place it on the project as a back agent; the record and roles.json are rewritten about every five minutes)
 #SALA_BGAGENTS_PLACE_POLL=5     # seconds between two reads of the three
-#SALA_ROLES_FILE=               # the roles file the read-back reads (stackshot's roles.json). Default: ~/.local/state/stackshot/roles.json; SALA_ROLES_FILE_MAX_AGE (1800 s) is the age after which it answers nothing
+#SALA_ROLES_FILE=               # the file copy of stackshot's roles list, read only when stackshot cannot be reached. Default: ~/.local/state/stackshot/roles.json; SALA_ROLES_FILE_MAX_AGE (1800 s) is the age after which the copy answers nothing
+#SALA_RECORD_LIVE=on            # on: sala asks stackshot first (its client, `get state-files` and `get roles`) for the project record and the roles list; off: the file copies alone (a box with no stackshot to ask)
+#SALA_RECORD_LIVE_TTL=20        # seconds a stackshot answer is kept (a failed ask as long), so one command or watch tick asks once
+#SALA_RECORD_LIVE_TIMEOUT=15    # seconds one ask of stackshot may take before the copy is read instead (the copy's age is said, and one line goes to salamander-record.log)
 #SALA_BGAGENTS_ALERT_CMD=       # the Slack post of a live session that is not placed in its project, called with a headline and one line appended. Unset: this sala's `alert`; set empty: no post
 #SALA_BGAGENTS_MAX_PROBES=3      # the most liveness checks the probe windows of a run make (at least 2), made without the ledger lock, not counting the check of the run's own start attempt; the least recently checked project first, the rest at the next run
 #SALA_BGAGENTS_LIST_CMD=         # the want list's command (the suites stub it). Unset: `python3 <stackshot client> background-wanted`; set empty: no client, the run says so and reads nothing
