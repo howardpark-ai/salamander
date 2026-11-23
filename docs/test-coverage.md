@@ -4902,3 +4902,11 @@ Unchanged and still covered by `sets.sh`, `sets-self.sh`, `autorecycle.sh`, `pha
 flag closes only when every pane is done), the retry window's end deferring a pane, the 3 h limit giving a pane up. Not checked: a
 real automatic CLI update (the env var is set by `update --auto` and `watch`'s auto-relaunch; the set's `routine=1` is checked
 from the env in 10e), how the board shows a pane that is skipped by a partial clear.
+
+### Drain mode: the refusal's first words, `tests/drain.sh` +3 (Mon Nov 23rd 2026)
+
+The default refusal read "Refused: a a background shell command would outlive this turn" because the template had its own "a" before `<call>` and the hook fills `<call>` with a phrase that already starts with an article ("a background subagent", "a monitor", "a background shell command"). The template now reads "Refused: <call> would outlive this turn, and a <what> is waiting for this session", and a `SALA_DRAIN_DENY_TEXT` of the owner's own that uses `<call>` and `<what>` works as before.
+
+Covered: for each of the three calls (background Agent, Monitor, background Bash) the reason starts exactly "[sala] Refused: a background subagent|a monitor|a background shell command would outlive this turn, and a recycle is waiting for this session (", so a doubled article cannot come back; the override check that was already there still shows `<call>` and `<what>` filled in a text of the owner's.
+
+Mutation-checked: putting the "a" back in front of `<call>` in the default text fails all three new checks.

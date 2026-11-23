@@ -8,7 +8,7 @@
 # (a foreground Agent or Bash, run_in_background false, `sala note`, `sala ready`, TaskStop, Read, and a command that merely quotes the word in its text);
 # SALA_DRAIN=off (environment and config file) allows; garbage allows (empty, not JSON, an array, no session id, a short or unsafe id, a cut input);
 # a large input (an Agent prompt of 300 KB) still decided; an unwritable log and a missing flag-reading helper never change an allow into a deny;
-# one log line per refusal with the session and the tool and never the command; the reason's text override; the fleet guard still denies a reboot typed
+# one log line per refusal with the session and the tool and never the command; the reason's text override and the exact start of the default reason for each of the three calls (one article before the call); the fleet guard still denies a reboot typed
 # in a Bash call while a flag is up, and a Bash call that is no guarded word stays allowed; with nothing waiting the hook starts no process (empty PATH);
 # the waiting line says new background work is refused (and says the older request with SALA_DRAIN=off).
 # No tmux, no claude, nothing is killed: the hook reads JSON on stdin, the flags are files under an isolated HOME.
@@ -80,6 +80,11 @@ for t in Monitor Bash; do
     inp=$(pay "$U1" $t "$([ $t = Bash ] && echo "$BG_BASH" || echo "$MON")"); out=$(printf '%s' "$inp" | pre); r=$(reason "$out")
     case $t in Monitor) w="a monitor";; Bash) w="a background shell command";; esac
     [[ $r == *"$w"* ]] && ok "$t: the reason says $w" || bad "$t reason: $r"
+done
+for t in Agent Monitor Bash; do   # the sentence starts exactly so, one article before the call (the default text once read "Refused: a a background ...")
+    case $t in Agent) inp=$(pay "$U1" Agent "$BG_AGENT"); w="a background subagent";; Monitor) inp=$(pay "$U1" Monitor "$MON"); w="a monitor";; Bash) inp=$(pay "$U1" Bash "$BG_BASH"); w="a background shell command";; esac
+    r=$(reason "$(printf '%s' "$inp" | pre)")
+    [[ $r == "[sala] Refused: $w would outlive this turn, and a recycle is waiting for this session ("* ]] && ok "$t: the reason starts \"[sala] Refused: $w would outlive this turn, and a recycle is waiting for this session (\"" || bad "$t: the reason starts wrong: ${r:0:120}"
 done
 python3 -c 'import json, sys; json.loads(sys.argv[1])' "$out" 2>/dev/null && ok "the deny is one valid JSON line" || bad "not JSON: $out"
 [ "$(printf '%s\n' "$out" | wc -l)" = 1 ] && ok "and one line" || bad "lines in the answer"
