@@ -202,7 +202,7 @@ echo silent > "$MODE"; : > "$SALA_MOD_LOG"
 echo "== pane_exit and pane_rename through the mod"
 echo background > "$MODE"; : > "$SALA_MOD_LOG"
 pane_exit "$PANE" "$C" >/dev/null; rc=$?
-[ "$rc" = 2 ] && grep -q "exit sala-test-m via mod (refused: background work)" "$SALA_MOD_LOG" && ok "background work: rc 2, logged" || bad "background: rc=$rc $(<"$SALA_MOD_LOG")"
+[ "$rc" = 2 ] && grep -q "exit sala-test-m via mod (refused: background work; 1 shell is in flight)" "$SALA_MOD_LOG" && ok "background work: rc 2, logged" || bad "background: rc=$rc $(<"$SALA_MOD_LOG")"
 echo turn > "$MODE"; : > "$SALA_MOD_LOG"
 pane_exit "$PANE" "$C" >/dev/null; rc=$?
 [ "$rc" = 4 ] && grep -q "exit sala-test-m via mod (refused: a turn is running)" "$SALA_MOD_LOG" && ok "a running turn: rc 4, logged, no /exit typed" || bad "turn: rc=$rc $(<"$SALA_MOD_LOG")"
@@ -216,6 +216,11 @@ echo turn > "$MODE"; mod_hold "$C" >/dev/null; rc=$?
 [ "$rc" = 1 ] && ok "mod_hold: a turn the mod cannot name is no holder (sala's own checks and the refusal memory take it from there)" || bad "mod_hold unnamed: rc=$rc"
 echo ok > "$MODE"; mod_hold "$C" >/dev/null; rc=$?
 [ "$rc" = 1 ] && ok "mod_hold: a free pane is no holder" || bad "mod_hold free: rc=$rc"
+echo background > "$MODE"; out=$(mod_hold "$C"); rc=$?
+[ "$rc" = 0 ] && [ "$out" = "background work is running: 1 shell is in flight" ] && ok "mod_hold: the mod's background refusal holds the pane too, named by what the list holds" || bad "mod_hold background: rc=$rc '$out'"
+out=$(pane_exit "$PANE" "$C"); rc=$?
+[ "$rc" = 2 ] && [ "$out" = "1 shell is in flight" ] && ok "pane_exit: rc 2, what is in flight on stdout (the skip line's words)" || bad "pane_exit background: rc=$rc '$out'"
+echo ok > "$MODE"
 echo "draft:not sent yet" > "$MODE"
 out=$(pane_exit "$PANE" "$C"); rc=$?
 [ "$rc" = 3 ] && [ "$out" = "not sent yet" ] && ok "a draft: rc 3, its text on stdout" || bad "draft: rc=$rc out='$out'"
@@ -238,8 +243,8 @@ pane_rename "$PANE" "$C" sala-test-renamed; rc=$?
 echo "== recycle of one pane: the exit through the mod, the resume with the mod's folder"
 echo background > "$MODE"; : > "$SALA_MOD_LOG"
 out=$(SALA_RETRY_WORKER=1 "$SALA" revive --only sala-test-m --force 2>&1); echo "$out" | grep -E 'sala-test-m|phase' | sed 's/^/    /'
-echo "$out" | grep -q "sala-test-m:0: background work is running (a shell, monitor or subagent), which /exit would stop — /exit not sent" && proc_alive "$C" \
-    && ok "the mod refuses (background): today's background row, the session untouched" || bad "background recycle: $out"
+echo "$out" | grep -q "sala-test-m:0: background work is running: 1 shell is in flight — left on" && ! grep -q "exit sala-test-m" "$SALA_MOD_LOG" && proc_alive "$C" \
+    && ok "the mod lists background work: the sweep's check says what is in flight before any /exit is asked, the session untouched" || bad "background recycle: $out $(<"$SALA_MOD_LOG")"
 # a turn that started after the idle check (the /exit the mod ran mid-turn reached the model as a
 # prompt, and the pane never exited): no /exit, a skip the retry worker takes up
 echo turn > "$MODE"; : > "$SALA_MOD_LOG"

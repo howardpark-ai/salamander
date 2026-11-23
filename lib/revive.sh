@@ -197,7 +197,7 @@ retry_worker() {
             why=$(printf '%s\n' "$out" | grep -F "$label: " | tail -1 | sed 's/^ *//')
             case "$why" in *": already "*|*"own session"*) res+=(ok "$sess" "$sess already on $(proc_version "$oldpid"), $(set_after "$SET")"); rlog "$label: already current"; continue;; esac
             case "$why" in *"background work is running"*)   # work /exit would stop: watch relaunches it once that work is done; still outstanding in the set
-                defer_add "$sess" "${why#*: }" "$dforce" "$SET"; rlog "$label: holds background work — on the deferred list, watch relaunches it once that work is done"; continue;; esac
+                defer_add "$sess" "${why#*: }" "$dforce" "$SET"; rlog "$label: holds background work (${why#*: }) — on the deferred list, watch relaunches it once that work is done"; continue;; esac
             if [ -n "$why" ] && ! transient_skip "$why"; then res+=(gave "$sess" "$(set_bullet "$why")"); rlog "not transient, giving up — $why"; continue; fi
             rlog "$label: still skipped (retry $tries) — ${why:-no verdict}"; still+=("$pane|$sess|$label|$oldpid|$now|$tries|${why#*: }")
         done
@@ -695,7 +695,7 @@ if [ "$SELF_WORKER" = 1 ]; then
     draft=$(pane_exit "$SELF_PANE" "$cpid"); rc=$?   # the mod first, else /exit typed (lib/common.sh)
     for ((i=0; rc==4 && i<SALA_SELF_WAIT; i+=5)); do [ $((i % 60)) -eq 0 ] && inbox_touch "$uuid" "$hname"; sleep 5; draft=$(pane_exit "$SELF_PANE" "$cpid"); rc=$?; done   # a turn started after the idle check: wait it out
     [ "$rc" = 4 ] && wabort "a turn is still running after $((SALA_SELF_WAIT/60)) min${draft:+ (held by $draft)} — /exit not sent, the session stays on its version"
-    [ "$rc" = 2 ] && wabort "background work is running (a shell, monitor or subagent), which /exit would stop — /exit not sent, the session stays on its version"
+    [ "$rc" = 2 ] && wabort "background work is running (${draft:-a shell, monitor or subagent}), which /exit would stop — /exit not sent, the session stays on its version"
     [ "$rc" = 3 ] && wabort "unsubmitted text is sitting at the prompt: \"$draft\" — /exit not sent, the session stays on its version"
     [ "$rc" = 0 ] || wabort "the pane did not take /exit (composer not empty, or the Enter was dropped twice)"
     RESCUE_NOTE=""; exit_wait "$SELF_PANE" "$SALA_EXIT_WAIT" "$cpid"; rc=$?   # the pid: the rescue's child-process test (the header)
@@ -827,8 +827,10 @@ check_pane() {
         why=$(is_idle_reason "$cpid")
         [ -n "$why" ] && { skip "$label: $why"; return; }
         # the in-session mod's own answer, asked before the exit is: a turn it names (a subagent the registry, the children and the transcripts
-        # could not show) holds the pane, said once here with its holder, and the pane's inbox is never held and released for an exit that is refused
-        why=$(mod_hold "$cpid") && { refusal_note "$(registry_field "$cpid" sessionId)" "$why" >/dev/null; skip "$label: $why — left on $ver"; return; }
+        # could not show) or the background work it lists (a shell, a monitor, a subagent: "4 subagents, 6 monitors and 1 shell are in flight")
+        # holds the pane, said once here with its holder, and the pane's inbox is never held and released for an exit that is refused.
+        # Only a turn is counted in the refusal memory (it thins out the tries of a mod whose turn list is stale); work in flight is not
+        why=$(mod_hold "$cpid") && { case "$why" in "a turn is running"*) refusal_note "$(registry_field "$cpid" sessionId)" "$why" >/dev/null;; esac; skip "$label: $why — left on $ver"; return; }
         # the rescue passed over the Stop hook's record (common.sh, is_idle_reason): said here, so the log shows what was read as stale
         if [ "$RESCUE" = 1 ] && why=$(busy_state "$cpid" "$(registry_field "$cpid" sessionId)" 2>/dev/null) && [ -n "$why" ]; then
             emit ECHO "$label: rescue — $why; no child process runs under the claude, so the record is read as stale and passed over (--rescue)"
@@ -903,7 +905,7 @@ close_pane() {
     fi
     case "$rc" in
         0) ;;
-        2) inbox_release "$uuid" "$hname"; SKIPPED+=("$label: background work is running (a shell, monitor or subagent), which /exit would stop — /exit not sent, left on $ver; sala relaunches it once that work is done"); return ;;
+        2) inbox_release "$uuid" "$hname"; SKIPPED+=("$label: background work is running (${draft:-a shell, monitor or subagent}), which /exit would stop — /exit not sent, left on $ver; sala relaunches it once that work is done"); return ;;
         3) inbox_release "$uuid" "$hname"; skip "$label: unsubmitted text at the prompt (\"$draft\") — /exit would run over it and lose it; submit or clear it, then rerun"; return ;;
         4) inbox_release "$uuid" "$hname"; refusal_note "$uuid" "a turn is running${draft:+: $draft}" >/dev/null
            skip "$label: a turn is running (it started after the idle check${draft:+; held by $draft}) — /exit not sent, left on $ver"; return ;;

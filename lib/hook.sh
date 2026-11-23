@@ -145,8 +145,21 @@ case "${1:-}" in
         _re='"session_id"[[:space:]]*:[[:space:]]*"([^"]+)"'
         if ! [[ $_in =~ $_re ]]; then IFS= read -r -N 3584 _more || true; _in="$_in$_more"; [[ $_in =~ $_re ]] || exit 0; fi
         _sid="${BASH_REMATCH[1]}"
-        _wtext=""
-        if [ -n "$_wait" ] && [ -e "$_wd/$_sid" ] && [ ! -e "$_wd/$_sid.told" ]; then   # a relaunch waits for this session and has not told it yet
+        _wtext=""; _agent=""
+        # WHO MADE THE CALL. A tool call inside a subagent carries agent_id (the rest of the input is read only as far as needed: it is
+        # in the first 8 KB). The waiting line and the notices are for the session's own turn: a call inside a subagent neither tells
+        # nor claims the "told" mark, or the line would go into that subagent's context (a builder that runs subagents all day is
+        # told by whichever of them calls a tool first, and its own turn never is) and the flag would read "told" for ever.
+        _re='^[0-9A-Za-z_-]{8,64}$'; _more=""
+        if [ "$_ev" = PostToolUse ]; then
+            if { [ -n "$_wait" ] && [ -e "$_wd/$_sid" ] && [ ! -e "$_wd/$_sid.told" ]; } \
+               || { [ -s "$_nf" ] && [[ $_sid =~ $_re ]] && [ "$_nf" -nt "$_sd/notices-seen/$_sid" ]; }; then
+                IFS= read -r -N 8192 _more || true
+                _re='"agent_id"[[:space:]]*:'
+                [[ $_in$_more =~ $_re ]] && _agent=1
+            fi
+        fi
+        if [ -n "$_wait" ] && [ -z "$_agent" ] && [ -e "$_wd/$_sid" ] && [ ! -e "$_wd/$_sid.told" ]; then   # a relaunch waits for this session and has not told it yet
             . "$SALA_ROOT/lib/common.sh"
             if waiting_told "$_sid"; then                              # two tool calls at once: the first tells
                 _what=$(waiting_what "$_sid"); [ -n "$_what" ] || _what=recycle
@@ -157,11 +170,7 @@ case "${1:-}" in
         _re='^[0-9A-Za-z_-]{8,64}$'
         if [ -s "$_nf" ] && [[ $_sid =~ $_re ]] && [ "$_nf" -nt "$_sd/notices-seen/$_sid" ]; then   # notices changed since this session last looked: once per session per change
             _due=1
-            if [ "$_ev" = PostToolUse ]; then                          # a tool call inside a subagent carries agent_id: the notice goes to the session's own turn, not into the subagent
-                IFS= read -r -N 8192 _more || true
-                _re='"agent_id"[[:space:]]*:'
-                [[ $_in$_more =~ $_re ]] && { _due=""; _skip=1; }
-            fi
+            [ -n "$_agent" ] && { _due=""; _skip=1; }                  # a tool call inside a subagent: the notice goes to the session's own turn, not into the subagent
         fi
         [ -n "$_due" ] || [ -n "$_wtext" ] || exit 0
         _t=(); command -v timeout >/dev/null 2>&1 && _t=(timeout 10)

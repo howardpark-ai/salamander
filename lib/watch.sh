@@ -1870,7 +1870,7 @@ later_held() {  # in deferred_revive: the pane is held now; told again when due,
         b+=("claude $(proc_version "$c")${rev:+, sala $rev}; told again $told_n time(s)")
         while IFS= read -r line; do [ -n "$line" ] && b+=("holding it: $line"); done <<< "$cmds"
         while IFS= read -r line; do [ -n "$line" ] && b+=("holding it: $line"); done < <(subagent_holders "$c" "$uuid")
-        [ -n "$cmds" ] || case "$held" in "a turn is running"*|"a subagent is running"*) ;; *) b+=("no command could be read (the Stop hook's record has none for this stretch and no child process runs)");; esac
+        [ -n "$cmds" ] || case "$held" in "a turn is running"*|"a subagent is running"*|"background work is running"*) ;; *) b+=("no command could be read (the Stop hook's record has none for this stretch and no child process runs)");; esac
         b+=("sala relaunches it once it is free; to free it sooner, end what holds it in the pane")
         sala_post "⚠️ *$sess not relaunched after $(later_words "$held_for")*" "${b[@]}"
         posted_at=$now; wlog "deferred: $sess held $(later_words "$held_for") — limit post sent"
@@ -1914,7 +1914,7 @@ deferred_revive() {
             continue
         fi
         held=$(is_idle_reason "$c")
-        # the in-session mod's own answer (common.sh, mod_hold): a turn it names holds the pane, said once, and no exit is tried against it
+        # the in-session mod's own answer (common.sh, mod_hold): a turn it names, or the background work it lists, holds the pane, said once with what holds it, and no exit is tried against it (the sweep runs again when the probe says free: the turn ended, the work is done)
         [ -n "$held" ] || held=$(mod_hold "$c" || true)
         if [ -n "$held" ]; then held_say; later_held; keep+=("$row"); continue; fi
         # a pane the retry window deferred for an unsubmitted draft is idle to is_idle_reason: not relaunched while
