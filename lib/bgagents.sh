@@ -55,7 +55,7 @@ _bg_sr=$(stackshot_client 2>/dev/null) && export SALA_STACKSHOT_CLIENT="$_bg_sr"
 if [ -z "${SALA_BGAGENTS_LIST_CMD+x}" ] || [ -z "${SALA_BGAGENTS_POST_CMD+x}" ] || [ -z "${SALA_BGAGENTS_ASK_CMD+x}" ] || [ -z "${SALA_BGAGENTS_REPORT_CMD+x}" ] || [ -z "${SALA_BGAGENTS_PREFIXES_CMD+x}" ]; then
     _bg_client=$(stackshot_client 2>/dev/null) || _bg_client=""
     [ -n "${SALA_BGAGENTS_LIST_CMD+x}" ] || SALA_BGAGENTS_LIST_CMD="${_bg_client:+python3 $_bg_client background-wanted}"
-    [ -n "${SALA_BGAGENTS_POST_CMD+x}" ] || SALA_BGAGENTS_POST_CMD="${_bg_client:+python3 $_bg_client post project-agent}"
+    [ -n "${SALA_BGAGENTS_POST_CMD+x}" ] || SALA_BGAGENTS_POST_CMD="${_bg_client:+python3 $SALA_FORM_PY run $_bg_client post project-agent}"   # the form's call: with a pass when sala has one (lib/stackshot_form.py); a setting is used as written
     [ -n "${SALA_BGAGENTS_ASK_CMD+x}" ] || SALA_BGAGENTS_ASK_CMD="${_bg_client:+python3 $_bg_client post question}"
     [ -n "${SALA_BGAGENTS_REPORT_CMD+x}" ] || SALA_BGAGENTS_REPORT_CMD="${_bg_client:+python3 $_bg_client message}"
     [ -n "${SALA_BGAGENTS_PREFIXES_CMD+x}" ] || SALA_BGAGENTS_PREFIXES_CMD="${_bg_client:+python3 $_bg_client get config}"

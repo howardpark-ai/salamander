@@ -209,6 +209,13 @@
 #   salamander mockup list [--json] | remove N | clean [--dry-run] [--days N] [--max-bytes N]   the stored pages · delete one · the daily pass (sala-mockup-clean.timer):
 #                                      pages older than SALA_MOCKUP_KEEP_DAYS (7) that no open board item links, then the oldest first until the folder is under
 #                                      SALA_MOCKUP_MAX_BYTES (1 GB), linked pages last (SALA_MOCKUP_REFERENCES says how to tell what is linked; unset keeps all)
+#   salamander stackshot-key init | enroll | status
+#                                      sala's own key for stackshot (lib/stackshot-key.sh, lib/stackshot_key.py, docs/stackshot-contracts.md): `enroll` makes an Ed25519 key
+#                                      if there is none (the private half stays in $XDG_STATE_HOME/salamander/stackshot-key, mode 600, never printed) and asks stackshot to trust
+#                                      its public half: it prints the state (pending | approved), the short fingerprint and the board item, and the owner approves it on that item.
+#                                      From then on the New session form's calls (spawn's registration, rename, retire, forget-row, bg-agents, sala-web's form) go with a
+#                                      10-minute pass the key trades for, never blocking: no key, a key still waiting or a server that says no = the machine token, as before.
+#                                      `init` only makes the key; `status` = key present, its short fingerprint and the server's state for it (approved | pending | unknown)
 #   salamander config            print the effective configuration
 #
 # Config: ~/.config/salamander/config (sourced bash; see config.example).
@@ -241,6 +248,7 @@ case "$sub" in
     mq) . "$SALA_ROOT/lib/mq.sh" ;;   # our own merge queue (shadow mode)
     dm) . "$SALA_ROOT/lib/dm.sh"; dm_main "$@"; exit $? ;;   # a message into a Slack app's Direct Message with the owner, as that app (docs/subcommands.md)
     box) . "$SALA_ROOT/lib/box.sh"; box_main "$@"; exit $? ;;   # what is in a session's pane input box: empty, suggestion or typed (docs/subcommands.md)
+    stackshot-key) . "$SALA_ROOT/lib/stackshot-key.sh" ;;   # sala's own key for stackshot and the pass it trades for (docs/stackshot-contracts.md)
     mockup) . "$SALA_ROOT/lib/mockup.sh" ;;   # an HTML mockup as a numbered sala-web page (docs/mockup.md)
     config) cs_print_config ;;
     -h|--help|'') sed -n '2,/^#   salamander config/p' "$SALA_BIN" | sed 's/^# \{0,1\}//'; [ -n "$sub" ] || exit 2 ;;

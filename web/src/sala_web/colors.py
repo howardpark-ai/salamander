@@ -116,10 +116,10 @@ class Calls:
         return PP._request(self.token_path, self.url_path, "GET", "colors/combos", None, None, TIMEOUT)
 
     def save(self, body: dict) -> PP.Reply:
-        return PP._request(self.token_path, self.url_path, "POST", "colors/combos", None, body, TIMEOUT)
+        return PP._request(self.token_path, self.url_path, "POST", "colors/combos", None, body, TIMEOUT, form=True)
 
     def delete(self, body: dict) -> PP.Reply:
-        return PP._request(self.token_path, self.url_path, "POST", "colors/combos/delete", None, body, TIMEOUT)
+        return PP._request(self.token_path, self.url_path, "POST", "colors/combos/delete", None, body, TIMEOUT, form=True)
 
 
 # ── what comes in ────────────────────────────────────────────────────────────

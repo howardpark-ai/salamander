@@ -1317,6 +1317,13 @@ stackshot_client() {  # → the path of stackshot's client (SALA_STACKSHOT_CLIEN
     [ -n "$c" ] && [ -f "$c" ] || return 1
     echo "$c"
 }
+# THE NEW SESSION FORM'S CALLS GO WITH A PASS WHEN SALA HAS ONE (docs/stackshot-contracts.md, "sala's own key"): `post project-agent`, `post project-agent-rename` and
+# `post project-agent-retire` are run as `python3 "$SALA_FORM_PY" run <client.py> post …` instead of `python3 <client.py> post …`. The wrapper (lib/stackshot_form.py) gets a pass
+# from the key sala made (`sala stackshot-key enroll`; lib/stackshot_key.py) and execs the client with it in STACKSHOT_CLIENT_PASS for that child only; with no key, a key still waiting,
+# no server or any refusal it execs the client plainly (the machine token, as before) and logs one line per five minutes in $SALA_LOG_DIR/salamander-stackshot-key.log. Its exit
+# code, output and input are the client's own. A setting that names the command itself (SALA_BGAGENTS_POST_CMD) is used as written. Reads, notices and every other call keep the machine token.
+: "${SALA_FORM_PY:=$(if [ -n "${SALA_ROOT:-}" ]; then echo "$SALA_ROOT/lib"; else cd "$(dirname "${BASH_SOURCE[0]}")" && pwd; fi)/stackshot_form.py}"
+export SALA_LOG_DIR   # the wrapper's log line goes where sala's other logs do, also when the config file (not the environment) set the folder
 rename_mark_has() {  # <OLD> <NEW> → rc 0 when sala started that rename on a page in the last 3 days
     [ -r "$SALA_RENAME_MARK" ] && awk -F'\t' -v o="$1" -v n="$2" -v min="$(( $(date +%s) - 259200 ))" '$1+0 >= min && $2 == o && $3 == n { f = 1 } END { exit !f }' "$SALA_RENAME_MARK"
 }
@@ -1329,7 +1336,7 @@ rename_mark_add() {  # <OLD> <NEW> → remember that sala started this rename (o
 rename_list_run() {
     local old=$1 new=$2 c rc parsed; RL_RESULT="" RL_DETAIL="" RL_WHY=""
     c=$(stackshot_client) || { RL_WHY="no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/stackshot/fleet/client.py)"; return 1; }
-    RL_OUT=$(timeout 330 python3 "$c" post project-agent-rename "$RL_HUB" "$old" "$new" --sender "$SALA_RENAME_SENDER" 2>&1 </dev/null); rc=$?
+    RL_OUT=$(timeout 330 python3 "$SALA_FORM_PY" run "$c" post project-agent-rename "$RL_HUB" "$old" "$new" --sender "$SALA_RENAME_SENDER" 2>&1 </dev/null); rc=$?
     if [ "$rc" = 124 ]; then   # the outcome is unknown: remembered, so that running the rename again recognizes it
         rename_mark_add "$old" "$new"
         RL_WHY="stackshot did not answer within 330 s: the page may or may not be renamed; run the rename again (a retry of this one is recognized)"; return 1
@@ -1424,7 +1431,7 @@ _retire_call() {  # <session> <project> [<where the project came from>] → the 
     if ! page_key_ok "$proj"; then RD_WHY="its project '$proj' is not a hub page key"; retire_log "$n: its project '$proj' is not a hub page key, so stackshot was not asked to drop an agent entry"; return 2; fi
     if ! RD_C=$(stackshot_client); then RD_WHY="no stackshot client.py on this box"; retire_log "$n: no stackshot client.py on this box, so $proj was not asked to drop its agent entry"; return 2; fi
     # 90 s, not the 45 s of the old read-only call: stackshot may read the page, write it back, read it back and add a timeline line (RETIRE DROPS THE AGENT ENTRY, above)
-    RD_FULL=$(timeout "${SALA_RETIRE_ASK_TIMEOUT:-90}" python3 "$RD_C" post project-agent-retire "$proj" "$n" --sender "$SALA_RETIRE_SENDER" 2>&1 </dev/null); RD_RC=$?
+    RD_FULL=$(timeout "${SALA_RETIRE_ASK_TIMEOUT:-90}" python3 "$SALA_FORM_PY" run "$RD_C" post project-agent-retire "$proj" "$n" --sender "$SALA_RETIRE_SENDER" 2>&1 </dev/null); RD_RC=$?
     if [ "$RD_RC" = 124 ]; then RD_FULL="stackshot did not answer within ${SALA_RETIRE_ASK_TIMEOUT:-90} s (the record may or may not be changed; an immediate retry may get a 409 \"in progress\" while stackshot finishes: ask again a little later)"; fi
     RD_OUT=$(_lastline "$RD_FULL")
     # a long answer is cut in the MIDDLE, never at the end: a 502's reason ends with what is left to do (whether the timeline line was written)
@@ -1553,7 +1560,7 @@ rename_side_plan() {
 rename_side_run() {  # <NEW> → lists what rename_side_plan planned: rc 0 (RL_OUT: stackshot's note) · rc 1 (RL_WHY: why not; nothing renamed)
     local c rc; RL_OUT=""
     c=$(stackshot_client) || { RL_WHY="no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/stackshot/fleet/client.py)"; return 1; }
-    RL_OUT=$(timeout 45 python3 "$c" post project-agent "$RL_HUB" "$1" --role "$RL_ROLE" --front --mandate "$RL_LINE" --sender "$SALA_RENAME_LIST_SENDER" 2>&1 </dev/null); rc=$?
+    RL_OUT=$(timeout 45 python3 "$SALA_FORM_PY" run "$c" post project-agent "$RL_HUB" "$1" --role "$RL_ROLE" --front --mandate "$RL_LINE" --sender "$SALA_RENAME_LIST_SENDER" 2>&1 </dev/null); rc=$?
     [ "$rc" = 0 ] && return 0
     [ "$rc" != 124 ] || RL_OUT="stackshot did not answer within 45 s (the call is safe to repeat)"
     RL_WHY="stackshot's project-agent call failed (exit $rc): $(_lastline "$RL_OUT")"; return 1
@@ -1772,7 +1779,7 @@ PY
 agent_register() {
     local c out rc; AR_NOTE="" AR_WHY=""
     c=$(stackshot_client) || { AR_WHY="no stackshot client.py on this box (SALA_STACKSHOT_CLIENT, SALA_STACKSHOT_DIR/stackshot/fleet/client.py), so sala cannot register '$2' with stackshot"; return 1; }
-    out=$(timeout 90 python3 "$c" post project-agent "$1" "$2" --role "$3" "--$4" ${6:+--surface "$6"} --mandate "$5" --sender "$SALA_SPAWN_SENDER" 2>&1 </dev/null); rc=$?
+    out=$(timeout 90 python3 "$SALA_FORM_PY" run "$c" post project-agent "$1" "$2" --role "$3" "--$4" ${6:+--surface "$6"} --mandate "$5" --sender "$SALA_SPAWN_SENDER" 2>&1 </dev/null); rc=$?
     if [ "$rc" = 0 ]; then AR_NOTE=$(_lastline "$out"); return 0; fi
     if [ "$rc" = 124 ]; then AR_WHY="stackshot did not answer within 90 s (the registration may or may not have gone through: asking again is safe, a repeat with the same side and mandate answers 200)"; return 1; fi
     AR_WHY=$(_lastline "${out:-the stackshot client exited $rc with no output}"); return 1

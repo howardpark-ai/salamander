@@ -490,6 +490,9 @@
 #SALA_CODEX_PUBLIC_SCAN=          # the command of the privacy check a review passes before it is posted on a public repo, called as `<command> scan <dir> --repo <name>`
 #                                  (exit 0 and a PASS line = pass). Unset (the default): such a review is withheld and kept in the state folder, never posted unchecked
 #SALA_CODEX_SCAN_TIMEOUT=300      # seconds the privacy check may take; over it the review is withheld
+#SALA_STACKSHOT_PASS=on          # sala's own key for stackshot (`sala stackshot-key enroll`, docs/setup-notes.md): once the board has approved it, the New session form's calls go with
+                                 #   a 10-minute pass the key trades for instead of the machine token. `off` (also 0, no, false) skips the pass step: the machine token, as before.
+                                 #   Never blocks: with no key or no approval the calls keep the machine token. Needs the Python package `cryptography`.
 #SALA_BGAGENTS=off               # `sala bg-agents` (docs/bg-agents.md): the fleet job that lists and starts a project's background engineer agent when stackshot's want list names the project.
                                  #   Anything but `on` (the default: off): a run prints one line and touches nothing. Read from this file, also by the timer's service (whose environment is only PATH)
 #SALA_BGAGENTS_COOLDOWN=600      # seconds a project waits after a failure, doubled for every further failure; also the time a project must be off the want list before its ledger entry is cleared
