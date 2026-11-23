@@ -221,4 +221,5 @@ if [ ${#REPORT[@]} -gt 0 ]; then   # one notice in the shared shape: failures fi
 fi
 [ "$LOCAL" = 1 ] && [ "$STALE" -gt 0 ] && [ "$NORECYCLE" = 0 ] || exit 0
 echo "  $ME: relaunching the $STALE pane(s) on an older version (this one last, if it is one of them) ..."
+[ "$AUTO" = 1 ] && export SALA_FLAG_ROUTINE=1   # the watchdog's update: its flag may close one pane short (common.sh, _set_short_pane)
 SALA_RELAUNCH_KIND=update exec "$SALA_BIN" recycle   # the CLI is already updated above: only the stale panes, the invoker too only if stale; KIND: what a waiting pane is told

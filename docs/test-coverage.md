@@ -4883,3 +4883,22 @@ Covered: the three calls (Agent, its older name Task, Monitor, background Bash, 
 Changed: the exact waiting line in `busyhooks.sh` and `holders.sh`; `tests/help-snapshot.txt` carries the new `hook pre-tool` help.
 
 Not covered, and why: the real CLI's PreToolUse input for a subagent's call (the `agent_id` field is the one the notice suite already relies on, and where the CLI puts it in the object is not assumed: the hook reads the whole input), a background subagent that its own definition starts in the background with no `run_in_background` in the call (the hook cannot see it), the registration of the hook in a machine's `settings.json` (outside this repository; `install.sh` says when the matcher lacks Bash, Agent or Monitor), and how the reason reads to a person (by eye).
+
+### A routine flag closes one pane short (`tests/flags.sh` section 6b and 10e: +29 checks)
+
+One pane that never goes idle used to hold a whole flag open for hours, with its result post, the next flag and the panes' rest
+behind it. A routine flag (src `auto`, or an automatic CLI update, `routine=1` in the set) with N of at least 3 panes now closes at
+N-1 of N, the straggler goes onto the deferred list and the hook names it as skipped. Checked on the fake-pane table (6b): N=5 with 4
+back and one held closes with ONE ✅ post naming the straggler (no "closed at", no claude.ai line), a deferred row carrying the
+set's force, one hook call with the pane as skipped, and a later relaunch of that pane leaves the closed flag alone (no post, no second
+call); an automatic update with `routine=1` and N=3 close too; the same shape stays open for src `op-recycle`, `recycle`, `update`
+(an update from the owner's words has no `routine=1`) and `revive`; N=2 stays open; a flag that already gave a pane up stays open;
+a straggler that is only resting stays open (the deferred list applies no rest); the invoking pane (no left-behind bullet) stays
+open; a straggler the retry window had deferred already keeps its row exactly as it was; the first post of a routine recycle closes
+at once, that of an owner's recycle stays the ⚠️ post. End to end (10e, a real private tmux): a routine recycle of three panes with
+one holding unsent text records `routine=1` and `force=1`, closes at 2/3 with the pane deferred, the retry worker lets go of it
+(log line) and ends, one hook call, and `watch` relaunches the pane once its text is sent, leaving the closed flag as it was.
+Unchanged and still covered by `sets.sh`, `sets-self.sh`, `autorecycle.sh`, `phases.sh` and `laterlist.sh`: the owner's rule (a
+flag closes only when every pane is done), the retry window's end deferring a pane, the 3 h limit giving a pane up. Not checked: a
+real automatic CLI update (the env var is set by `update --auto` and `watch`'s auto-relaunch; the set's `routine=1` is checked
+from the env in 10e), how the board shows a pane that is skipped by a partial clear.

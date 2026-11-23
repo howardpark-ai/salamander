@@ -1639,7 +1639,7 @@ auto_relaunch() {
     recycle_locked && { au_say locked "$what, but $(recycle_holder_line)"; return 0; }
     st_set auto_update_relaunched "$cur"; st_del auto_update_said
     wlog "auto-update: relaunching $what — \`recycle\` (those panes only; a busy one is skipped and retried once idle)"
-    if wd_launch relaunch "$SALA_LOG_DIR/salamander-revive.log" recycle -- --setenv=SALA_LOCK_WHO=auto-update --setenv=SALA_LOCK_WAIT=600 --setenv=SALA_RELAUNCH_KIND=update; then   # KIND: what a waiting pane is told
+    if wd_launch relaunch "$SALA_LOG_DIR/salamander-revive.log" recycle -- --setenv=SALA_LOCK_WHO=auto-update --setenv=SALA_LOCK_WAIT=600 --setenv=SALA_RELAUNCH_KIND=update --setenv=SALA_FLAG_ROUTINE=1; then   # KIND: what a waiting pane is told
         AUTO_LAUNCHED=1; gather_clear
     else
         notify "🚨 *Auto-relaunch could not start*" "$what" "systemd-run refused to launch it; they move at the next recycle" "Details: $WLOG"
