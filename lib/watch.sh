@@ -22,6 +22,9 @@
 # Checks, in order:              Heal:
 #   1. tmux server down          start tmux.service (resurrect restores the layout; its post-restore
 #                                hook is `sala revive`); with no unit, nothing is done
+#   1b. gone sessions (gone_tick, lib/barepane.sh; BEFORE the busy-elsewhere exit, so a long revive worker never blinds it): a pane-map row whose tmux
+#                                session has been gone for SALA_MISSING_GRACE (180 s) is posted ONCE per session per incident, naming `sala restore --missing`;
+#                                nothing is restored by itself. SALA_MISSING_CHECK=off turns it off
 #   2. ONLY WHEN SALA_IDLE_WRAPUP=on (off by default): a BACKGROUND AGENT idle for SALA_IDLE_WRAPUP_MIN minutes (50) (but no longer than SALA_IDLE_WRAPUP_MAX_AGE, 58) is asked to write down what only it knows, and once that turn has
 #                                ended its conversation is cleared (/clear typed; the pane map follows the new conversation), so its next
 #                                wake starts small instead of reloading ~200k tokens after its prompt cache expired. One log line each,
@@ -1541,6 +1544,7 @@ if ! tmux_server_up; then
     if systemctl --user cat tmux.service >/dev/null 2>&1; then heal server "tmux server down" systemctl --user start tmux.service
     else wlog "tmux server down: no tmux.service to start — nothing done"; exit 0; fi
 fi
+[ "$CHECK_ONLY" = 1 ] || gone_tick   # a mapped session whose tmux session is gone is said once: BEFORE the busy exit below, which a long revive worker keeps true for hours (lib/barepane.sh); it restores nothing
 busy_elsewhere && { [ "$CHECK_ONLY" = 1 ] || bare_state_reset; wlog "skip: a resurrect restore or a salamander revive is running"; exit 0; }   # (the bare-pane clocks start over: lib/barepane.sh)
 # A STALE FREEZE: the roster freeze a recycle or reboot holds on the pane map (common.sh, ledger_freeze)
 # is lifted by the run that took it; a driver that died (a kill, a crash) or a boot half that never ran leaves it, and

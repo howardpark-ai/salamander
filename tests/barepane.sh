@@ -45,7 +45,7 @@ SALA="$ROOT/bin/salamander"; SOCK="sala-barepane-$$"; T="tmux -L $SOCK -f /dev/n
 export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"   # this server stands in for the fleet's
 case "$SOCK" in sala-barepane-*) ;; *) echo "barepane: not a private socket - refusing to run"; exit 1;; esac
 LOCK="$HOME/.claude/salamander-recycle.lock"; WLOG="$HOME/.claude/salamander-watch.log"; ST="$HOME/.claude/salamander-watch.state"
-LOCKPID=""; : > "$WLOG"
+LOCKPID=""; BUSYPID=""; : > "$WLOG"
 # killfake <tmux session> → SIGKILL the suite's fake claude under that session's pane, and only it: the pid must be a child of the pane's
 # shell on THIS suite's private server, /proc/<pid>/exe the compiled fake, and its environment this suite's HOME
 killfake() {
@@ -59,6 +59,7 @@ killfake() {
 cleanup() {
     local p
     [ -n "$LOCKPID" ] && kill "$LOCKPID" 2>/dev/null
+    [ -n "$BUSYPID" ] && [ "$HOME/pl1434-bash" -ef "/proc/$BUSYPID/exe" ] && kill "$BUSYPID" 2>/dev/null   # the fake long revive: only a pid whose exe is this suite's own copy of bash
     $T kill-server 2>/dev/null; tmux_socket_rm; sleep 1
     for p in $(pgrep -x claude); do [ "$FAKEBIN" -ef "/proc/$p/exe" ] && grep -qz "^HOME=$HOME\$" "/proc/$p/environ" 2>/dev/null && kill -9 "$p" 2>/dev/null; done
     rm -rf "$HOME" 2>/dev/null; true
@@ -151,6 +152,61 @@ tick; sleep 5; tick
 unset
 waitfor 'hasclaude b' 40 && [ "$(n_starts 2)" = "$((b2 + 1))" ] && ok "b (the name SALA_MASTER still holds): not skipped, revived once on its own conversation" || bad "b: starts $(n_starts 2) vs $b2; $(tail -6 "$WLOG")"
 ! grep -q "SALA_MASTER" <<< "$(grep -i "sala-test-b" "$WLOG" | grep -i "skip\|left alone")" && ok "no skip in the log" || bad "log: $(grep sala-test-b "$WLOG" | tail -3)"
+
+echo "== a mapped session whose tmux session is GONE (gone_tick): said once, ahead of the busy exit, after the grace; restored by nothing"
+unset SALA_MASTER; export SALA_MISSING_GRACE=4
+GSEEN="$HOME/pl1434-gone.seen"
+gone_keys() { grep -c '^gone\.' "$ST" 2>/dev/null || true; }
+# a revive that runs "for hours": a copy of bash (so only this suite's own exe is ever signalled) running a script whose path ends bin/salamander revive …,
+# which is what busy_elsewhere's pgrep matches; it blocks on a fifo it holds open for reading and writing
+cp "$(command -v bash)" "$HOME/pl1434-bash"; mkdir -p "$HOME/pl1434-fake/bin"; mkfifo "$HOME/pl1434-fifo"
+printf '#!/bin/bash\nexec 3<>"$HOME/pl1434-fifo"\nread -t 300 -u 3 x\n' > "$HOME/pl1434-fake/bin/salamander"
+"$HOME/pl1434-bash" "$HOME/pl1434-fake/bin/salamander" revive --only sala-test-zz </dev/null >/dev/null 2>&1 & BUSYPID=$!
+waitfor 'pgrep_mine "bin/(sala|salamander) revive" >/dev/null' 20 && ok "a fake long-running revive is up (the busy exit's own test sees it)" || bad "fake revive not seen"
+sleeping_mark "$(uuid 3)" sala-test-c            # c sleeps: its tmux session is gone on purpose
+for n in a b c d e; do $T kill-session -t "=sala-test-$n"; done
+$T has-session -t =sala-test-a 2>/dev/null && bad "a still has a tmux session"
+tick
+[ "$(wlogn "'sala-test-a' is in the pane map but has no tmux session (first seen)")" = 1 ] && grep -q '^gone.sala-test-a=' "$ST" && grep -q '^gone.sala-test-b=' "$ST" && ok "first tick: a and b seen gone, clocks started" || bad "log/state: $(grep gone "$WLOG" | tail -3) / $(grep gone "$ST")"
+! grep -q '^gone.sala-test-[cde]=' "$ST" && ok "c (sleeping), d (retired in the registry) and e (side done) have no clock" || bad "state: $(grep gone "$ST")"
+[ "$(( $(nposts 'lost their tmux session') + $(nposts 'lost its tmux session') ))" = 0 ] && ok "nothing posted inside the grace" || bad "posts: $(<"$POSTS")"
+sleep 5; tick
+P=$(post "lost their tmux session")
+[ "$(nposts 'lost their tmux session')" = 1 ] && has "$P" "2 mapped sessions lost their tmux session: sala-test-a, sala-test-b" && ok "one post names a and b" || bad "post: $(<"$POSTS")"
+has "$P" 'sala restore --missing' && has "$P" 'watch does not do it by itself' && ok "it names \`sala restore --missing\` and says nothing is restored by itself" || bad "post: $P"
+! has "$P" sala-test-c && ! has "$P" sala-test-d && ! has "$P" sala-test-e && ok "no sleeper, retired or side-done session in it" || bad "post: $P"
+[ "$(wlogn 'skip: a resurrect restore or a salamander revive is running')" -gt 0 ] && ok "the busy exit was true in those ticks (the fake revive), and the flag came out all the same" || bad "no busy skip in the log: $(tail -5 "$WLOG")"
+! $T has-session -t =sala-test-a 2>/dev/null && ! $T has-session -t =sala-test-b 2>/dev/null && ok "watch recreated nothing" || bad "a session came back by itself"
+tick; sleep 2; tick
+[ "$(nposts 'lost their tmux session')" = 1 ] && grep -q '^gone.sala-test-a=[0-9]* [1-9]' "$ST" && ok "later ticks: no second post (once per session per incident)" || bad "posts: $(<"$POSTS"); state $(grep gone "$ST")"
+kill_busy() { [ -n "${BUSYPID:-}" ] && [ "$HOME/pl1434-bash" -ef "/proc/$BUSYPID/exe" ] && kill "$BUSYPID" 2>/dev/null; BUSYPID=""; true; }
+kill_busy
+
+echo "== the incident ends when the session is back; a second loss is a new incident and a new post, for that session only"
+$T new-session -d -s sala-test-a -c "$HOME" || bad "could not recreate a"
+tick
+! grep -q '^gone.sala-test-a=' "$ST" && grep -q '^gone.sala-test-b=' "$ST" && [ "$(wlogn 'gone sessions: sala-test-a is back')" = 1 ] && ok "a's key is gone, b's (still gone, already said) stays" || bad "state: $(grep gone "$ST"); $(tail -3 "$WLOG")"
+$T kill-session -t =sala-test-a; tick; sleep 5; tick
+[ "$(nposts 'lost its tmux session')" = 1 ] && has "$(post 'lost its tmux session')" "1 mapped session lost its tmux session: sala-test-a" && ! has "$(post 'lost its tmux session')" sala-test-b && ok "a is said again alone; b is not said twice" || bad "posts: $(<"$POSTS")"
+
+echo "== SALA_MISSING_CHECK=off says nothing and keeps no clock; on again, a fresh grace and one post"
+$T kill-session -t =sala-test-g; export SALA_MISSING_CHECK=off
+tick; sleep 5; tick
+[ "$(nposts 'lost its tmux session: sala-test-g')" = 0 ] && ! grep -q '^gone.sala-test-g=' "$ST" && ok "off: no clock, no post for g" || bad "state: $(grep gone "$ST"); posts $(<"$POSTS")"
+unset SALA_MISSING_CHECK
+tick; sleep 5; tick
+has "$(post 'lost its tmux session: sala-test-g')" "sala-test-g" && ok "on again: g is said after a fresh grace" || bad "posts: $(<"$POSTS")"
+
+echo "== a recycle lock held (sessions are legitimately absent): no clock, the grace starts after it"
+$T kill-session -t =sala-test-h
+( flock 9; sleep 14 ) 9>>"$LOCK" & LOCKPID=$!
+waitfor 'recycle_locked' 40 || bad "the lock was not taken"
+tick; sleep 5; tick
+! grep -q '^gone.sala-test-h=' "$ST" && [ "$(wlogn 'gone sessions: standing aside — the recycle lock is held')" -ge 2 ] && [ "$(nposts 'lost its tmux session: sala-test-h')" = 0 ] && ok "h: no clock kept and nothing posted while the lock is held" || bad "state: $(grep gone "$ST"); $(tail -4 "$WLOG")"
+wait "$LOCKPID" 2>/dev/null; LOCKPID=""
+tick; grep -q '^gone.sala-test-h=' "$ST" && [ "$(nposts 'lost its tmux session: sala-test-h')" = 0 ] && ok "the lock gone: a fresh clock, not said on the first tick" || bad "state: $(grep gone "$ST"); posts $(<"$POSTS")"
+sleep 5; tick
+has "$(post 'lost its tmux session: sala-test-h')" sala-test-h && ok "said once the grace passed after the lock" || bad "posts: $(<"$POSTS")"
 
 [ "$fail" = 0 ] && echo "barepane: pass" || echo "barepane: FAIL"
 exit $fail

@@ -181,6 +181,9 @@
                                  #   Default: the owner's wording, in lib/common.sh
 #SALA_BOOT_GRACE=900             # watch: post-boot report waits this long after boot for revive's summary …
 #SALA_BOOT_DEADLINE=1800         # … and this long for a clean reboot's boot half
+#SALA_MISSING_CHECK=on           # watch: a pane-map row whose tmux session is gone is posted once (naming `sala restore --missing`); off: never
+#SALA_MISSING_GRACE=180          # … after the session has been gone this many seconds (a rename, a retire or a recycle's brief gap never counts)
+#SALA_BRIDGE_SCAN_MAX=67108864   # revive: how far from the end of a transcript (bytes) the claude.ai bridge id is looked for; further = the pane's mtime orders it
 #SALA_AUTO_UPDATE=on             # watch: update the CLI on its own, at once, when npm has a newer one (every box); this box's panes on an
                                  #   older version than the installed CLI are relaunched at once (`recycle`, those panes only; a busy one once idle)
 #SALA_AUTO_RECYCLE=on            # watch: at once, run the recycle a session's "recycle claude" would (recycle --update --force) when board
