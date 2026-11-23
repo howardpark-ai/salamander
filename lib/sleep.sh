@@ -14,6 +14,7 @@
 # call that made it); for a NAME given by hand also a front agent (a project's -main agent, or a registry row with role front: the owner talks to it). A refusal says why,
 # in one line, and nothing is touched. There is no bypass flag: a busy session is asked again once it is idle.
 #
+# A project KEY is its page key without `projects/`, as stackshot's project-activity names it: words of letters, digits, . _ - joined by single slashes (`solo`, `team/alpha`); a pin keeps a slash as %2F in its file name.
 # THE SLEEP OF A PROJECT (--project KEY; lib/wrapup.sh, THE SLEEP OF INACTIVE PROJECTS): the unit is the project, never one session. Its sessions (front agents too) sleep
 # together, and only when the project is quiet (no external anchor notice and no input from its owner for SALA_SLEEP_QUIET, 2 days; stackshot's `client.py
 # project-activity`, or SALA_ACTIVITY_CMD; no reading, nothing sleeps), every one of its sessions is ready (sleep_ready, in its project form) and it is not pinned.
@@ -47,11 +48,11 @@ NAMES=(); DRY=0; DRYFLAG=""; LIST=0; CAND=0; PROJ=""; PIN=""; UNPIN=""; PINS=0; 
 while [ $# -gt 0 ]; do a="$1"; shift; case "$a" in
     --dry-run) DRY=1; DRYFLAG=--dry-run ;; --list) LIST=1 ;; --candidates) CAND=1 ;; --pins) PINS=1 ;; -h|--help) echo "$usage"; exit 0 ;;
     --project) [ $# -gt 0 ] || die "--project takes a project key
-$usage"; PROJ="$1"; shift ;;
+$usage"; [ -n "$1" ] || die "an empty text is not a project key (the page key without projects/, like team/alpha)"; PROJ="$1"; shift ;;
     --pin) [ $# -gt 0 ] || die "--pin takes a project key
-$usage"; PIN="$1"; shift ;;
+$usage"; [ -n "$1" ] || die "an empty text is not a project key (the page key without projects/, like team/alpha)"; PIN="$1"; shift ;;
     --unpin) [ $# -gt 0 ] || die "--unpin takes a project key
-$usage"; UNPIN="$1"; shift ;;
+$usage"; [ -n "$1" ] || die "an empty text is not a project key (the page key without projects/, like team/alpha)"; UNPIN="$1"; shift ;;
     --why) [ $# -gt 0 ] || die "--why takes a text
 $usage"; WHY="$1"; HAVE_WHY=1; shift ;;
     -*) die "unknown option: $a
@@ -68,7 +69,7 @@ $usage"; fi
 if [ "$DRY" = 1 ] && { [ -n "$PIN" ] || [ -n "$UNPIN" ] || [ "$PINS" = 1 ] || [ "$CAND" = 1 ] || [ "$LIST" = 1 ]; }; then die "--dry-run goes with sleeping sessions (NAME… or --project), not with this option
 $usage"; fi
 if [ -n "$PIN" ] || [ -n "$UNPIN" ]; then
-    sleep_project_id_r key "${PIN:-$UNPIN}" || die "'${PIN:-$UNPIN}' is not a project key (one word, the page key without projects/)"
+    sleep_project_id_r key "${PIN:-$UNPIN}" || die "$(printf '%q' "${PIN:-$UNPIN}") is not a project key (the page key without projects/: words of letters, digits, . _ - joined by single slashes, like team/alpha)"
     if [ -n "$PIN" ]; then
         sleep_pin_set "$key" "$WHY" || die "could not write the pin of $key under $SALA_SLEEP_PIN_DIR"
         echo "✅ $key: pinned — it never sleeps on its own${WHY:+ ($WHY)}; sala sleep --unpin $key lifts it"
@@ -113,7 +114,7 @@ SMODE=""; pkey=""
 if [ -n "$PROJ" ]; then
     # THE SLEEP OF A PROJECT: the whole project is judged first (quiet, not pinned, every session ready) and nothing is touched when it is not a candidate
     SMODE=project
-    sleep_project_id_r pkey "$PROJ" || die "'$PROJ' is not a project key (one word, the page key without projects/)"
+    sleep_project_id_r pkey "$PROJ" || die "$(printf '%q' "$PROJ") is not a project key (the page key without projects/: words of letters, digits, . _ - joined by single slashes, like team/alpha)"
     pref() { if [ "$DRY" = 1 ]; then dry "would refuse: project $pkey: $1"; else echo "✗ project $pkey: not put to sleep — $1"; fi; exit 1; }
     sleep_projects_load || pref "$SP_WHY_LOAD"
     [ -n "${SP_MEM[$pkey]+x}" ] || pref "no session of it runs on this box"

@@ -384,33 +384,49 @@ sleep_quiet() { case "${SALA_SLEEP_QUIET:-172800}" in ''|*[!0-9]*) echo 172800;;
 #   (b) every one of its sessions that runs a claude is ready: sleep_ready (below, in its project form: the front-agent refusal does not apply, the
 #       settle time SALA_SLEEP_AFTER still does) accepts it, and none was woken less than SALA_SLEEP_AFTER ago; one session with a turn, a background task, a queued
 #       operation, a waiting note or message line, a question and so on holds the whole project awake;
-#   (c) it is not pinned (`sala sleep --pin PROJECT [--why TEXT]`, one file per project under SALA_SLEEP_PIN_DIR, which a reboot keeps).
+#   (c) it is not pinned (`sala sleep --pin PROJECT [--why TEXT]`, one file per project under SALA_SLEEP_PIN_DIR, which a reboot keeps; a slash of the key is %2F in the file name),
+#   (d) its key is one sala can sleep (sleep_project_id_r): a key the verb would refuse is never marked a candidate, and a project refused before anything was touched does not use up the run's place.
 # A session with no project in the registry (and the project record and roles file that complete it) is never a candidate for the tick. Waking is per session
 # (wake_tick, below): a message line wakes the one session it is for, and the rest of its project stays asleep.
 SP_KEYS=(); SP_WHY_LOAD=""
 SP_STATE=""; SP_WHY=""; SP_AAGE=-1; SP_OAGE=-1; SP_LIVE=(); SP_NMEM=0; SP_NSLEEP=0
-sleep_project_id_r() {  # <var> <text> → the project key in <var>: the page key without its `projects/` prefix; 1 when it is not a single path-free word
-    local _p=${2:-}; _p=${_p#projects/}
-    [[ $_p =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { printf -v "$1" %s ""; return 1; }
+sleep_project_id_r() {  # <var> <text> → the project key in <var>: the page key without its `projects/` prefix; 1 when it is not a key stackshot can have
+    # A key is one or more words (A-Za-z0-9 first, then A-Za-z0-9._-) joined by single slashes (`solo`, `plain-key-12-34`, `team/alpha`): no empty word, no `..`, no leading or
+    # trailing slash, no space, no shell metacharacter, no control character. At most 200 bytes, so the pin file name (below) stays far inside a file name's 255.
+    local LC_ALL=C _p=${2:-}; _p=${_p#projects/}
+    if [ "${#_p}" -gt 200 ] || ! [[ $_p =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$ ]]; then printf -v "$1" %s ""; return 1; fi
     printf -v "$1" %s "$_p"
 }
-# the pins: one file per project, $SALA_SLEEP_PIN_DIR/<project key>, `<ISO-Z time><TAB><why>`. A folder beside the marker folder, never in it.
-sleep_pin_set() {  # <project key> [why] → 0 written
-    local f="$SALA_SLEEP_PIN_DIR/$1" tmp; mkdir -p "$SALA_SLEEP_PIN_DIR" 2>/dev/null || return 1
-    tmp=$(mktemp "$SALA_SLEEP_PIN_DIR/.pin.XXXXXX") || return 1
-    printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(printf '%s' "${2:-}" | tr -d '\n\t' | cut -c1-300)" > "$tmp" && mv -f "$tmp" "$f" || { rm -f "$tmp"; return 1; }
+# sleep_pin_name_r <var> <project key> → the file name of the key's pin: the key with each `/` written %2F (a key has no % in it, so two keys never share a name and a name never
+# makes a folder; a plain key keeps its old file). sleep_pin_key_r <var> <file name> is the way back: 1 when the name is not the name of a valid key.
+sleep_pin_name_r() { printf -v "$1" %s "${2//\//%2F}"; }
+sleep_pin_key_r() {
+    local _d=${2//%2F//} _k=""
+    sleep_project_id_r _k "$_d" && [ "$_k" = "$_d" ] && [ "${_k//\//%2F}" = "$2" ] || { printf -v "$1" %s ""; return 1; }
+    printf -v "$1" %s "$_k"
 }
-sleep_pin_clear() { rm -f "$SALA_SLEEP_PIN_DIR/$1" 2>/dev/null; return 0; }   # <project key>
+# sleep_state_key_r <var> <project key> → the key as a watch-state key (A-Za-z0-9_- only) that no other project key shares: _ is written _u, / _s and . _p. (The generic
+# _key_r turns every other byte into _, so `a/b`, `a.b` and `a_b` would share one failure time.)
+sleep_state_key_r() { local LC_ALL=C _k=$2; _k=${_k//_/_u}; _k=${_k//\//_s}; _k=${_k//./_p}; printf -v "$1" %s "$_k"; }
+# the pins: one file per project, $SALA_SLEEP_PIN_DIR/<pin name of the key>, `<ISO-Z time><TAB><why>`. A folder beside the marker folder, never in it.
+sleep_pin_set() {  # <project key> [why] → 0 written
+    local nm tmp; sleep_pin_name_r nm "$1"; mkdir -p "$SALA_SLEEP_PIN_DIR" 2>/dev/null || return 1
+    tmp=$(mktemp "$SALA_SLEEP_PIN_DIR/.pin.XXXXXX") || return 1
+    printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(printf '%s' "${2:-}" | tr -d '\n\t' | cut -c1-300)" > "$tmp" && mv -f "$tmp" "$SALA_SLEEP_PIN_DIR/$nm" || { rm -f "$tmp"; return 1; }
+}
+sleep_pin_clear() { local nm; sleep_pin_name_r nm "$1"; rm -f "$SALA_SLEEP_PIN_DIR/$nm" 2>/dev/null; return 0; }   # <project key>
 sleep_pin_r() {  # <var> <project key> → "<ISO-Z time><TAB><why>" in <var>; 1 when the project is not pinned
-    printf -v "$1" %s ""
-    [ -f "$SALA_SLEEP_PIN_DIR/$2" ] || return 1
-    local _l=""; IFS= read -r _l < "$SALA_SLEEP_PIN_DIR/$2" 2>/dev/null || true
+    local _nm _l=""; printf -v "$1" %s ""
+    sleep_project_id_r _l "$2" && [ "$_l" = "$2" ] || return 1   # a text that is not a key is never pinned, and never names a file outside the folder
+    sleep_pin_name_r _nm "$2"; _l=""
+    [ -f "$SALA_SLEEP_PIN_DIR/$_nm" ] || return 1
+    IFS= read -r _l < "$SALA_SLEEP_PIN_DIR/$_nm" 2>/dev/null || true
     printf -v "$1" %s "$_l"
 }
 sleep_pin_list() {  # → one line per pin: `<key> TAB <ISO-Z time> TAB <why>`
-    local f k l t w
+    local f nm k l t w
     for f in "$SALA_SLEEP_PIN_DIR"/*; do
-        [ -f "$f" ] || continue; k=${f##*/}; sleep_project_id_r l "$k" && [ "$l" = "$k" ] || continue
+        [ -f "$f" ] || continue; nm=${f##*/}; sleep_pin_key_r k "$nm" || continue
         sleep_pin_r l "$k" || continue; t=${l%%$'\t'*}; w=""; [[ $l == *$'\t'* ]] && w=${l#*$'\t'}
         printf '%s\t%s\t%s\n' "$k" "$t" "$w"
     done
@@ -488,7 +504,7 @@ sleep_projects_load() {
 # and for a refusal SP_WHY: the FIRST reason it is not a candidate, in this order: pinned · asleep already · no activity reading · not quiet · a session that is not ready.
 # For a candidate SP_LIVE holds the names to put to sleep. Needs sleep_projects_load; sleep_activity_load sets SLEEP_ACT (a failed one leaves SLEEP_ACT_WHY set).
 sleep_project_check() {
-    local key=$1 m n a h now q pin t uuid w
+    local key=$1 m n a h now q pin t uuid w ck
     SP_STATE=awake; SP_WHY=""; SP_AAGE=-2; SP_OAGE=-2; SP_LIVE=(); SP_NMEM=0; SP_NSLEEP=0; _now_r now; q=$(sleep_quiet)
     for m in ${SP_MEM[$key]:-}; do
         n=${m%:*}; SP_NMEM=$((SP_NMEM + 1))
@@ -499,6 +515,8 @@ sleep_project_check() {
         if [[ $a =~ ^[0-9]+$ ]]; then SP_AAGE=$(( now > a ? now - a : 0 )); else SP_AAGE=-1; fi
         if [[ $h =~ ^[0-9]+$ ]]; then SP_OAGE=$(( now > h ? now - h : 0 )); else SP_OAGE=-1; fi
     fi
+    # the same key check `sleep --project` makes first, so a project the tick could never sleep is never marked a candidate (and never spends a run)
+    if ! sleep_project_id_r ck "$key" || [ "$ck" != "$key" ]; then SP_WHY="not a project key sala can sleep ($(printf '%q' "$key")): words of letters, digits, . _ - joined by single slashes"; return 1; fi
     if sleep_pin_r pin "$key"; then
         SP_STATE=pinned; t=${pin#*$'\t'}; [ "$t" != "$pin" ] || t=""
         if [ -n "$t" ]; then SP_WHY="pinned ($t): it never sleeps on its own (sala sleep --unpin $key lifts it)"; else SP_WHY="pinned: it never sleeps on its own (sala sleep --unpin $key lifts it)"; fi
@@ -551,7 +569,7 @@ sleep_candidates() {
 # written by sleep_locked and wake_locked; a sleep's is keyed by the project). Read only: the passes and their previews share it, so a preview skips what the real run skips.
 # The watch's state file is the one the watch uses (WSTATE), or the same file by its path when the verb runs outside the watch (`sala sleep --candidates`).
 _retry_backoff() {
-    local k v now; _key_r k "$2"; _now_r now
+    local k v now; if [ "$1" = sleepfail ]; then sleep_state_key_r k "$2"; else _key_r k "$2"; fi; _now_r now   # a sleep's is keyed by the project key, written so that no two keys share one
     v=$(_kv_first "${WSTATE:-$SALA_LOG_DIR/salamander-watch.state}" "$1.$k")
     [[ $v =~ ^[0-9]+$ ]] && [ $((now - v)) -lt "$3" ]
 }
@@ -587,20 +605,24 @@ sleepstate_prune() {  # <key prefix> <ttl s> → drops the watch-state keys of t
     done
 }
 sleep_locked() {
-    local age key k now n=0 cap out rc last
+    local age key k now n=0 cap out rc last slept
     cap=$(sleep_cap); _now_r now
     while IFS=$'\t' read -r age key; do
         [ -n "$key" ] || continue
         [ "$n" -lt "$cap" ] || break
         if _retry_backoff sleepfail "$key" "${SALA_SLEEP_RETRY:-1800}"; then continue; fi   # asked lately and not put to sleep: the next one takes its turn (the preview skips it too)
-        _key_r k "$key"
-        n=$((n + 1))
+        sleep_state_key_r k "$key"
         out=$("$SALA_BIN" sleep --project "$key" 2>&1 </dev/null); rc=$?
+        slept=$(printf '%s\n' "$out" | grep -c '^✅ [^p]')
         if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q '^✅ project '; then
-            st_del "sleepfail.$k"; wlog "sleep: put project $key to sleep ($(printf '%s\n' "$out" | grep -c '^✅ [^p]') session(s); quiet for $((age / 3600)) h)"
+            n=$((n + 1)); st_del "sleepfail.$k"; wlog "sleep: put project $key to sleep ($slept session(s); quiet for $((age / 3600)) h)"
         else
             st_set "sleepfail.$k" "$now"; last=$(printf '%s\n' "$out" | grep . | tail -1 | cut -c1-240)
             wlog "sleep: project $key not put to sleep — ${last:-no answer}; asked again after $((${SALA_SLEEP_RETRY:-1800} / 60)) min"
+            # The cap keeps a first run from stopping the whole fleet at once, so it counts a project the run started: one with a session put to sleep, or one that failed after
+            # the checks passed. A project refused before anything was touched (the one-line `✗ project KEY: not put to sleep — …` of `sleep --project`, which the checks of
+            # sleep_project_check make the exception) stopped nothing and leaves its place to the next candidate of this run.
+            if [ "$slept" -gt 0 ] || ! printf '%s\n' "$out" | grep -q '^✗ project [^ ]*: not put to sleep — '; then n=$((n + 1)); fi
         fi
     done < <(sleep_candidates)
     sleepstate_prune sleepfail "${SALA_SLEEP_RETRY:-1800}"
