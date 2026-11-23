@@ -82,23 +82,32 @@ auto_untry() {
     ulog "$1: ${2:-skipped as offline — its try for this release is given back; watch tries it again once the heartbeat sees it awake}"
 }
 # behind_npm <version>: true when npm's latest Claude Code is newer than <version> (npm is asked once per run; no answer = false).
-# `claude update` reads the native release channel, which can trail npm for a while: a try that finds nothing to install while npm
-# is ahead was not a real attempt, so --auto gives its marker back and watch's next auto_update run (every 10 min, its own gate)
-# tries again until the channel has the release.
+# `claude update` reads the native release channel, which can trail npm for a while: a try that leaves a box older than npm was
+# not a real attempt at npm's release, so --auto gives its marker back and watch's next auto_update run (every 10 min, its own
+# gate) tries again until the channel has the release. When this run's own lookup gets no answer (a timeout, a body that is not
+# JSON), the version watch launched the unit for (SALA_AUTO_TARGET) stands in: watch had an answer when it decided to launch.
 NPM_LATEST=""; NPM_ASKED=0
 behind_npm() {
     if [ "$NPM_ASKED" = 0 ]; then NPM_ASKED=1
         NPM_LATEST=$(curl -s --max-time 10 https://registry.npmjs.org/@anthropic-ai/claude-code/latest | python3 -c 'import json,sys;print(json.load(sys.stdin).get("version",""))' 2>/dev/null)
+        if [ -z "$NPM_LATEST" ] && [[ "${SALA_AUTO_TARGET:-}" =~ ^[0-9][0-9A-Za-z.+-]*$ ]]; then NPM_LATEST="$SALA_AUTO_TARGET"; fi
     fi
     [ -n "$NPM_LATEST" ] && [ -n "$1" ] && [ "$1" != "$NPM_LATEST" ] && [ "$(printf '%s\n%s\n' "$1" "$NPM_LATEST" | sort -V | tail -1)" = "$NPM_LATEST" ]
 }
-# auto_retry <host> <installed version>: --auto found nothing to install. When npm is ahead the try is given back, and the host
-# is remembered in RETRY so that this retry run says nothing of it (the notice and the version-tracker refresh skip it below).
+# auto_retry <host> <version now installed> <noop|moved>: an --auto try that ended without failing. While npm is still ahead of
+# that version the try is given back, whatever the run did: nothing to install (noop), or a step only part of the way, e.g.
+# 9.9.8 to 9.9.9 while npm has 9.9.10 (moved: the channel releases in steps, and the marker stands for npm's version). A noop host
+# is remembered in RETRY so that this retry run says nothing of it (the notice and the version-tracker refresh skip it below); a
+# host that moved is news and is reported as usual.
 RETRY=" "
 auto_retry() {
     [ "$AUTO" = 1 ] && [ "$CHECK" = 0 ] && behind_npm "$2" || return 0
-    auto_untry "$1" "already current at $2 while npm has $NPM_LATEST (the release channel has not caught up) — its try is given back; watch tries it again at its next run"
-    RETRY="$RETRY$1 "
+    if [ "$3" = moved ]; then
+        auto_untry "$1" "updated to $2 while npm has $NPM_LATEST (the release channel moves in steps) — its try is given back; watch tries it again at its next run"
+    else
+        auto_untry "$1" "already current at $2 while npm has $NPM_LATEST (the release channel has not caught up) — its try is given back; watch tries it again at its next run"
+        RETRY="$RETRY$1 "
+    fi
 }
 REPORT=(); local_ver=$(claude_ver)
 if [ ${#REMOTES[@]} -gt 0 ]; then
@@ -107,8 +116,8 @@ if [ ${#REMOTES[@]} -gt 0 ]; then
         if [ "$kind" = offline ]; then line="$h: offline, skipped"; [ "$AUTO" = 1 ] && [ "$CHECK" = 0 ] && auto_untry "$h"
         elif [ -n "$err" ]; then line="$h: FAILED — $err${before:+ (still $before)}"
         elif [ "$CHECK" = 1 ]; then line="$h: $before"
-        elif [ "$before" = "$after" ]; then line="$h: already current ($after)"; auto_retry "$h" "$after"
-        else line="$h: updated $before → $after — sessions already running there keep $before until restarted by hand"; fi
+        elif [ "$before" = "$after" ]; then line="$h: already current ($after)"; auto_retry "$h" "$after" noop
+        else line="$h: updated $before → $after — sessions already running there keep $before until restarted by hand"; auto_retry "$h" "$after" moved; fi
         REPORT+=("$line"); ulog "$line"; echo "  $line"
     done
 fi
@@ -131,7 +140,7 @@ if [ "$LOCAL" = 1 ]; then
     lb=$(claude_ver)
     if lout=$(cli_update); then   # 9>&-: a child the updater leaves behind must not hold the recycle lock
         la=$(claude_ver)
-        if [ "$lb" != "$la" ]; then line="$ME: updated $lb → $la"; LCHANGED=1; else line="$ME: already current ($la)"; auto_retry "$ME" "$la"; fi
+        if [ "$lb" != "$la" ]; then line="$ME: updated $lb → $la"; LCHANGED=1; auto_retry "$ME" "$la" moved; else line="$ME: already current ($la)"; auto_retry "$ME" "$la" noop; fi
     else line="$ME: FAILED — $(printf '%s' "$lout" | tail -1 | cut -c1-100) (still $lb)"; fi
     now_v=$(claude_ver)
     STALE=$(stale_panes "$now_v" | wc -l | tr -d ' ')
