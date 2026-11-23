@@ -145,7 +145,8 @@ sleep_one() {
         dry "$n: would hold its stackshot inbox, send queued feedback drafts, write its sleeping marker, type /exit into pane $pane and wait up to ${SALA_EXIT_WAIT}s for the shell; the tmux session and the pane-map row stay"
         return 0
     fi
-    inbox_hold "$uuid" "$n"
+    # a hold that was not made (server mode, the stackshot server not answering) is no hold: a sleep with its inbox open would lose the line the puller hands the ended claude, so it is refused (a relaunch may go on after its idle re-check; a sleep may not)
+    if ! inbox_hold "$uuid" "$n" 2>/dev/null; then inbox_release "$uuid" "$n" 2>/dev/null; echo "✗ $n: not put to sleep — its stackshot inbox could not be held: $INBOX_WHY"; return 1; fi
     unmode "$pane"
     if ! send_feedback_drafts "$pane" "$uuid"; then inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — feedback draft(s) are still queued: /exit would stop at the drafts gate (send them by hand, then ask again)"; return 1; fi
     if ! prompt_clears "$pane" 10; then inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — a terminal prompt is showing"; return 1; fi

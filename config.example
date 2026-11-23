@@ -149,6 +149,13 @@
 #SALA_RETRY_EVERY=300           # recycle: retry transiently skipped panes (busy, just idle, draft) this often …
 #SALA_RETRY_WINDOW=7200          # … for this long, then defer (not give up) whoever is still pending
 #SALA_HOLD_SETTLE=3              # revive: seconds between holding the stackshot inbox of every pane of a sweep (or of the invoking pane) and the first /exit; a line handed out just before the hold is a turn by then, which the check before the /exit sees
+#SALA_INBOX_MODE=auto            # where sala holds a session's stackshot inbox and asks whether a line waits for it: auto (the default) = what the stackshot client's own setting says,
+                                 #   `[client] push_mode` of its config ($ANCHOR_PUSH_MODE overrides it): local = files (the hold files of this box, the stackshot server's own), server = stackshot's client
+                                 #   API (`post inbox-hold`, `post inbox-release`, `get inbox-holds`, `get inbox-waiting`), auto = server when the client's URL (STACKSHOT_URL, else the client's own,
+                                 #   else [client] url) names another machine, files otherwise or with no URL. files or server here overrides it for sala alone (docs/subcommands.md, "Inbox holds across machines")
+#SALA_INBOX_HOLD_MINUTES=10      # server mode: how long a hold made through the server lasts after its last touch before the server takes it out itself (1 to 1440; the server refuses 0, so a 0 is sent as 1440)
+#SALA_INBOX_TIMEOUT=5            # server mode: seconds each call to the server may take; a server that does not answer in time is "no answer", never "nothing waits" and never "held"
+#SALA_INBOX_BREAKER=30           # server mode: after a call got no answer the shell does not ask again for this many seconds (0 = always ask)
 #SALA_SELF_WAIT=900              # revive --self: how long its worker waits for the invoking pane to go idle, and again after the hold and again for a turn started after the idle check (so up to three times this); a pane still busy is handed to the retry worker
 #SALA_RECYCLE_GATHER=600         # recycle flags: a flag raised from the board, a --when-idle request or the CLI update while the job is unfinished waits until this
                                  #   many seconds pass with no newer flag … (0 = off; `sala op recycle` never waits)

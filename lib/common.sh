@@ -358,6 +358,45 @@ session_url() {  # <name> [bridgeSessionId] → the link for that session on thi
 # and the /exit typed by keys (no mod to refuse a running turn) killed the turn before the pane acted on it.
 : "${SALA_INBOX_HOLD_DIR:=$HOME/.local/state/stackshot/anchor-hub}"
 SALA_INBOX_LEDGER="$SALA_LOG_DIR/salamander-inbox-holds.tsv"
+# WHERE THE HOLD IS MADE: SALA_INBOX_MODE = files | server | auto (default auto). `files` is what the text above describes (the server's own box: the keys go into the held
+# files). `server` makes the same hold, release and "does a line wait" check as calls to stackshot's client API (lib/inboxhold.py: `client.py post inbox-hold`,
+# `post inbox-release`, `get inbox-holds`, `get inbox-waiting`), for a box that is not the server's, where those folders are nobody's. `auto` leaves it to the stackshot client's own
+# setting, so there is one setting for a box and not two: `[client] push_mode` of its config ($ANCHOR_PUSH_MODE overrides it): local = files, server = server, auto = server when the
+# client's URL ($STACKSHOT_URL, else <secrets>/client.url, else [client] url) names another machine (a host that is not loopback and not this box's own name), else files (also when
+# no URL is known, or the client's settings cannot be read). `files` and `server` here are an override of that. Resolved once per process. A hold made through the server lasts
+# SALA_INBOX_HOLD_MINUTES (10; the server takes at most 1440 and refuses 0, so sala sends 1440 for a 0) from its last touch, then the server takes it out itself; the ledger and
+# inbox_release_stale work as in files mode.
+# THE FAIL-SAFE: a server that cannot be reached within SALA_INBOX_TIMEOUT (5) s, or that answers an error, is NO ANSWER: never "nothing waits", never "held". inbox_hold then
+# returns 1 (INBOX_WHY says why) and `sala sleep` refuses; a relaunch goes on only through its own idle re-check after the hold (lib/revive.sh); the waiting check says a line waits.
+# After a no answer the shell does not ask again for SALA_INBOX_BREAKER (30) s, so a dead server costs one timeout, not one for each pane. A call the client could not deliver just
+# now (its exit 4, retried once by the helper) is no answer too, without that pause: the next turn asks again.
+: "${SALA_INBOX_MODE:=auto}"
+: "${SALA_INBOX_HOLD_MINUTES:=10}"
+: "${SALA_INBOX_BREAKER:=30}"
+SALA_INBOXHOLD_PY="${SALA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/lib/inboxhold.py"
+INBOX_WHY=""; INBOX_OUT=""; INBOX_ELSEWHERE=(); _INBOX_DOWN=0; _INBOX_MODE_KEY=""; _INBOX_MODE_VAL=files
+_inbox_call() {  # <verb> [args…] → lib/inboxhold.py's exit code (0 answered · 1 answered, nothing waits · 2 no answer · 3 the server has no such call · 4 not delivered just now, a later try can); INBOX_OUT = its stdout (the data on 0 and 1, the reason on 2, 3 and 4)
+    local c rc now; c=$(stackshot_client 2>/dev/null) || c=""
+    if [ "$1" != mode ] && [ "$SALA_INBOX_BREAKER" -gt 0 ] 2>/dev/null && [ "$_INBOX_DOWN" -gt 0 ]; then
+        _now_r now; if [ $((now - _INBOX_DOWN)) -lt "$SALA_INBOX_BREAKER" ]; then INBOX_OUT="the stackshot server did not answer a moment ago (not asked again for ${SALA_INBOX_BREAKER}s)"; return 2; fi
+    fi
+    INBOX_OUT=$(SALA_INBOX_CLIENT=$c SALA_INBOX_MODE=$SALA_INBOX_MODE timeout 60 python3 -I -S "$SALA_INBOXHOLD_PY" "$@" 2>/dev/null </dev/null); rc=$?
+    case $rc in 0|1|3|4) ;; *) rc=2; [ -n "$INBOX_OUT" ] || INBOX_OUT="the stackshot client did not run to an answer" ;; esac
+    if [ "$rc" = 2 ] && [ "$1" != mode ]; then _now_r _INBOX_DOWN; fi
+    return $rc
+}
+inbox_mode_r() {  # <var> → files | server (SALA_INBOX_MODE; auto asks lib/inboxhold.py once what the stackshot client's push_mode and URL say)
+    local _m=${SALA_INBOX_MODE:-auto} _k
+    case $_m in files|server) printf -v "$1" '%s' "$_m"; return 0 ;; esac
+    _k="$_m|${STACKSHOT_URL:-}|${ANCHOR_PUSH_MODE:-}|${STACKSHOT_CONFIG:-}|${SALA_STACKSHOT_CLIENT:-}|${SALA_STACKSHOT_DIR-}|${HOME:-}"
+    if [ "$_k" != "$_INBOX_MODE_KEY" ]; then
+        _inbox_call mode; _INBOX_MODE_VAL=files; [ "$INBOX_OUT" = server ] && _INBOX_MODE_VAL=server; _INBOX_MODE_KEY=$_k
+    fi
+    printf -v "$1" '%s' "$_INBOX_MODE_VAL"
+}
+inbox_holding() {  # → 0 when a hold can be made on this box (server mode, or the hold folder exists), 1 when inbox_hold would do nothing
+    local m; inbox_mode_r m; [ "$m" = server ] || [ -d "$SALA_INBOX_HOLD_DIR" ]
+}
 SALA_DEFERRED="$SALA_LOG_DIR/salamander-deferred.tsv"  # panes a relaunch left because they hold scheduled work:
                                                        # session \t since \t why \t claude pid then \t force (1: relaunch even if current)
                                                        # \t set id (the recycle set the pane counts in, see below; empty: none)
@@ -1071,27 +1110,62 @@ _hold_edit() {  # <add|del> <key…> — on both held lists, atomically per file
         mv -f "$tmp" "$f"
     done
 }
-inbox_hold() {
+# _inbox_edit <add|del> <uuid> <name> → 0 done (the server answered, or the files were edited) · 1 not done, INBOX_WHY says why. Server mode only; it runs outside the hold lock (a call takes up to
+# SALA_INBOX_TIMEOUT s). A server that has no such call (an older stackshot) falls back to the files when this box has the hold folder, and is no answer when it has not.
+# A release the server took may name keys that another tool's file still holds (the answer's held_elsewhere: a reboot's resume, a tool on the server's box): they are left to the tool that wrote
+# them, are no failure of the release, and are listed in INBOX_ELSEWHERE.
+_inbox_edit() {
+    local op=$1 rc l k; shift; INBOX_WHY=""; INBOX_ELSEWHERE=()
+    if [ "$op" = add ]; then _inbox_call hold "$SALA_INBOX_HOLD_MINUTES" "$@"; else _inbox_call release "$@"; fi; rc=$?
+    if [ "$rc" = 0 ]; then
+        [ "$op" = del ] && while IFS=$'\t' read -r l k; do [ "$l" = elsewhere ] && [ -n "$k" ] && INBOX_ELSEWHERE+=("$k"); done <<< "$INBOX_OUT"
+        return 0
+    fi
+    if [ "$rc" = 3 ] && [ -d "$SALA_INBOX_HOLD_DIR" ]; then _hold_lock; _hold_edit "$op" "$@"; _hold_unlock; return 0; fi
+    INBOX_WHY=$INBOX_OUT; [ "$rc" != 3 ] || INBOX_WHY="$INBOX_OUT, and this box has no hold folder to use instead"
+    return 1
+}
+_inbox_row_drop() {  # <uuid> — the ledger row of a hold taken off (under the hold lock)
+    local lt="$SALA_INBOX_LEDGER.${BASHPID:-$$}.$RANDOM"   # named once: in a redirect $BASHPID is the forked grep's pid
+    [ -f "$SALA_INBOX_LEDGER" ] && { grep -vF -- "	$1	" "$SALA_INBOX_LEDGER" > "$lt"; mv -f "$lt" "$SALA_INBOX_LEDGER"; }
+    return 0
+}
+inbox_hold() {  # <uuid> <name> → 0 held (in files mode also when there is no hold folder: nothing to hold) · 1 server mode and the hold was NOT made (INBOX_WHY; one line on stderr)
+    local m rc=0; inbox_mode_r m
+    if [ "$m" = server ]; then
+        _hold_lock; printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$2" >> "$SALA_INBOX_LEDGER"; _hold_unlock   # the row first: a hold the server took and we never heard of is still freed by inbox_release_stale
+        _inbox_edit add "$1" "$2" || { rc=1; echo "inbox: the hold of ${2:-$1} was not made: $INBOX_WHY" >&2; }
+        return $rc
+    fi
     [ -d "$SALA_INBOX_HOLD_DIR" ] || return 0
     _hold_lock; _hold_edit add "$1" "$2"; printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$2" >> "$SALA_INBOX_LEDGER"; _hold_unlock
 }
-inbox_touch() {  # <uuid> <name> — a hold still wanted is written again with the time now, so inbox_release_stale (10 min by the ledger row) does not drop it from under a pane that waits longer (a long sweep, the --self re-check wait)
+inbox_touch() {  # <uuid> <name> — a hold still wanted is written again with the time now, so inbox_release_stale (10 min by the ledger row) does not drop it from under a pane that waits longer (a long sweep, the --self re-check wait); in server mode it is the same hold call again, which refreshes the server's time
+    local m; inbox_mode_r m
+    if [ "$m" = server ]; then
+        _hold_lock; _inbox_row_drop "$1"; printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$2" >> "$SALA_INBOX_LEDGER"; _hold_unlock
+        _inbox_edit add "$1" "$2" || echo "inbox: the hold of ${2:-$1} was not refreshed: $INBOX_WHY" >&2
+        return 0
+    fi
     [ -d "$SALA_INBOX_HOLD_DIR" ] || return 0
     _hold_lock
-    local lt="$SALA_INBOX_LEDGER.${BASHPID:-$$}.$RANDOM"
-    [ -f "$SALA_INBOX_LEDGER" ] && { grep -vF -- "	$1	" "$SALA_INBOX_LEDGER" > "$lt"; mv -f "$lt" "$SALA_INBOX_LEDGER"; }
+    _inbox_row_drop "$1"
     _hold_edit add "$1" "$2"; printf '%s\t%s\t%s\n' "$(date +%s)" "$1" "$2" >> "$SALA_INBOX_LEDGER"
     _hold_unlock; return 0
 }
-inbox_release() {
-    [ -d "$SALA_INBOX_HOLD_DIR" ] || return 0
+inbox_release() {  # <uuid> <name> [wait] → always 0: a release the server did not take keeps its ledger row (inbox_release_stale asks again) and the server drops the hold itself after SALA_INBOX_HOLD_MINUTES
+    local m; inbox_mode_r m
+    [ "$m" = server ] || [ -d "$SALA_INBOX_HOLD_DIR" ] || return 0
     if [ "${3:-}" = wait ]; then   # the new process must own a socket before lines may flow again
         local i lp; for i in $(seq 1 30); do lp=$(live_pane_for_uuid "$1" 2>/dev/null) && [ -n "$(session_socket "${lp%% *}")" ] && break; sleep 1; done
     fi
-    _hold_lock; _hold_edit del "$1" "$2"
-    local lt="$SALA_INBOX_LEDGER.${BASHPID:-$$}.$RANDOM"   # named once: in a redirect $BASHPID is the forked grep's pid
-    [ -f "$SALA_INBOX_LEDGER" ] && { grep -vF -- "	$1	" "$SALA_INBOX_LEDGER" > "$lt"; mv -f "$lt" "$SALA_INBOX_LEDGER"; }
-    _hold_unlock; return 0
+    if [ "$m" = server ]; then
+        if _inbox_edit del "$1" "$2"; then _hold_lock; _inbox_row_drop "$1"; _hold_unlock
+            [ ${#INBOX_ELSEWHERE[@]} -eq 0 ] || echo "inbox: ${2:-$1} is still held by another tool (${INBOX_ELSEWHERE[*]}): sala's hold is lifted, the tool that wrote the other lifts it" >&2
+        else echo "inbox: the hold of ${2:-$1} was not released: $INBOX_WHY (it ends on its own within ${SALA_INBOX_HOLD_MINUTES} min of its last refresh; the watch asks again)" >&2; fi
+        return 0
+    fi
+    _hold_lock; _hold_edit del "$1" "$2"; _inbox_row_drop "$1"; _hold_unlock; return 0
 }
 inbox_release_stale() {  # holds a relaunch never released (it died): drop those older than 10 min, then the held keys no ledger row accounts for
     INBOX_ORPHANS_FREED=()
@@ -1113,13 +1187,30 @@ inbox_release_stale() {  # holds a relaunch never released (it died): drop those
 # path is inbox_release_stale's first half and is untouched). Under the hold lock, so a sweep that is holding right now has
 # written its row before this reads: a key without one, seen under the lock, is an orphan. A key that left the files, or that a
 # row now accounts for, is dropped from the first-seen file. INBOX_ORPHANS_FREED lists what was freed (watch logs it).
+# IN SERVER MODE the held keys are what `client.py get inbox-holds` lists (one call a tick; no answer: nothing is freed and the first-seen file is left as it is). Only a hold the server's
+# own call made (origin api) and that has NO time of its own (made until released: the server's setting, not sala's calls, which always carry one) is a candidate: a hold made through the
+# server with a time is taken out by the server itself, and may be another box's relaunch that this box's ledger knows nothing about. A key in another tool's file (origin file) is not
+# one the calls can lift (the release names it in held_elsewhere and leaves it), and a reboot's resume hold (origin resume) is never listed here, as the files are never read.
+# The keys are freed with `post inbox-release` after the lock is let go; a release that is not answered puts them back in the first-seen file with their first time, so the next tick asks again.
 : "${SALA_INBOX_ORPHAN_SECS:=600}"
 INBOX_ORPHANS_FREED=()
 inbox_release_orphans() {
     local of="${SALA_INBOX_ORPHANS:-$SALA_STATE_DIR/inbox-held-unaccounted.tsv}" hm="$SALA_INBOX_HOLD_DIR/held-msg.txt" hh="$SALA_INBOX_HOLD_DIR/held-hub.txt"
+    local m srv=0 kk kv ko ke rc; local -a cand=()
     INBOX_ORPHANS_FREED=()
-    [ -d "$SALA_INBOX_HOLD_DIR" ] || return 0
-    [ -s "$hm" ] || [ -s "$hh" ] || [ -e "$of" ] || return 0   # nothing held, nothing remembered: the common tick costs two tests
+    inbox_mode_r m
+    if [ "$m" = server ]; then
+        _inbox_call holds; rc=$?
+        case $rc in
+            0) srv=1; while IFS=$'\t' read -r kk kv ko ke; do [ "$ko" = api ] && [ "$ke" = - ] && [ -n "$kv" ] && cand+=("$kv"); done <<< "$INBOX_OUT" ;;
+            3) [ -d "$SALA_INBOX_HOLD_DIR" ] || return 0 ;;   # an older server: the files, when this box has them
+            *) return 0 ;;                                    # no answer: nothing is known, nothing is freed
+        esac
+        [ "$srv" = 0 ] || [ ${#cand[@]} -gt 0 ] || [ -e "$of" ] || return 0
+    else
+        [ -d "$SALA_INBOX_HOLD_DIR" ] || return 0
+    fi
+    [ "$srv" = 1 ] || [ -s "$hm" ] || [ -s "$hh" ] || [ -e "$of" ] || return 0   # nothing held, nothing remembered: the common tick costs two tests
     local now f k t u n out="" old="" tmp; local -a free=(); now=$(date +%s)
     local -A acc=() first=() seen=()
     _hold_lock
@@ -1130,24 +1221,36 @@ inbox_release_orphans() {
         while IFS=$'\t' read -r t k || [ -n "$k" ]; do [ -z "$k" ] || first[$k]=$t; done < "$of"
         old=$(<"$of")
     fi
-    for f in "$hm" "$hh"; do
-        [ -f "$f" ] || continue
-        while IFS= read -r k || [ -n "$k" ]; do
-            [ -n "$k" ] || continue
-            [ -z "${acc[$k]:-}" ] || continue
-            [ -z "${seen[$k]:-}" ] || continue
-            t=${first[$k]:-$now}; case $t in ''|*[!0-9]*) t=$now;; esac; [ "$t" -le "$now" ] || t=$now
-            seen[$k]=$t
-            if [ $((now - t)) -ge "$SALA_INBOX_ORPHAN_SECS" ]; then free+=("$k"); else out+="$t"$'\t'"$k"$'\n'; fi
-        done < "$f"
+    if [ "$srv" = 0 ]; then
+        for f in "$hm" "$hh"; do
+            [ -f "$f" ] || continue
+            while IFS= read -r k || [ -n "$k" ]; do cand+=("$k"); done < "$f"
+        done
+    fi
+    for k in ${cand[@]+"${cand[@]}"}; do
+        [ -n "$k" ] || continue
+        [ -z "${acc[$k]:-}" ] || continue
+        [ -z "${seen[$k]:-}" ] || continue
+        t=${first[$k]:-$now}; case $t in ''|*[!0-9]*) t=$now;; esac; [ "$t" -le "$now" ] || t=$now
+        seen[$k]=$t
+        if [ $((now - t)) -ge "$SALA_INBOX_ORPHAN_SECS" ]; then free+=("$k"); else out+="$t"$'\t'"$k"$'\n'; fi
     done
-    [ ${#free[@]} -eq 0 ] || { _hold_edit del "${free[@]}"; INBOX_ORPHANS_FREED=("${free[@]}"); }
+    [ ${#free[@]} -eq 0 ] || [ "$srv" = 1 ] || { _hold_edit del "${free[@]}"; INBOX_ORPHANS_FREED=("${free[@]}"); }
     if [ -z "$out" ]; then rm -f "$of"
     elif [ "${out%$'\n'}" != "$old" ]; then
         mkdir -p "${of%/*}" 2>/dev/null; tmp="$of.${BASHPID:-$$}.$RANDOM"
         printf '%s' "$out" > "$tmp" && mv -f "$tmp" "$of" || rm -f "$tmp"
     fi
-    _hold_unlock; return 0
+    _hold_unlock
+    if [ "$srv" = 1 ] && [ ${#free[@]} -gt 0 ]; then
+        if _inbox_call release "${free[@]}"; then INBOX_ORPHANS_FREED=("${free[@]}")
+        else   # not answered: remembered again with the first time each was seen, so the next tick asks again
+            _hold_lock; mkdir -p "${of%/*}" 2>/dev/null
+            for k in "${free[@]}"; do printf '%s\t%s\n' "${seen[$k]}" "$k" >> "$of"; done
+            _hold_unlock
+        fi
+    fi
+    return 0
 }
 
 # THE RENAME RENAMES ITS ENTRY ON THE PROJECT'S PAGE (Tue Oct 27th 2026; lib/rename.sh): `rename OLD NEW` used to refuse a NEW its
