@@ -31,6 +31,7 @@ import pytest
 # because the checks below were written against it (their expected strings carry its label "+04"); a test of another zone or of
 # none sets or deletes SALA_TZ itself.
 os.environ["SALA_CONFIG"] = "/nonexistent/sala-config-for-tests"
+os.environ["SALA_STACKSHOT_PASS"] = "off"   # the form calls take no pass in the tests (formpass.py); test_formpass.py turns it on against a stand-in
 os.environ.pop("SALA_SHELL_SESSION", None)
 os.environ["SALA_TZ"] = "Asia/Dubai"
 # The scopes are a setting (scopes.py): stackshot's own file under XDG_CONFIG_HOME first, then SALA_SCOPES. Not this box's stackshot

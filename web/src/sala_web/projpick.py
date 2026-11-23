@@ -36,6 +36,7 @@ import urllib.request
 from pathlib import Path
 
 from . import board as B
+from . import formpass as FP
 from . import scopes as SC
 from . import spawn as SP
 
@@ -183,17 +184,29 @@ class Reply:
         return str(d or "")[:400]
 
 
-def _request(token_path: Path, url_path: Path, method: str, path: str, query: dict | None, body: dict | None, timeout: float) -> Reply:
-    """One call, blocking (run it in a thread). Never raises; carries neither the token nor the address in anything it returns."""
+def _request(token_path: Path, url_path: Path, method: str, path: str, query: dict | None, body: dict | None, timeout: float, form: bool = False) -> Reply:
+    """One call, blocking (run it in a thread). Never raises; carries neither the token nor the address in anything it returns.
+    `form`: the call is one of the New session form's (the agent add, the For you list's writes, the color combos writes): it goes with sala's pass
+    (formpass.py) when there is one, and with this machine's token otherwise, also when the server refuses the pass (401 or 403: once, with the token)."""
     try:
         token, base = B.read_token(token_path), B.read_url(url_path)
     except B.ConfigError as e:
         return Reply(-1, {"error": str(e)})
     url = f"{base}/client/{path}" + ("?" + urllib.parse.urlencode(query) if query else "")
-    headers = {"Authorization": f"Bearer {token}", "User-Agent": "sala-web"}
     data = None
     if body is not None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    pw = FP.form_pass(base) if form else None
+    rep = _send(url, method, pw or token, data, timeout)
+    if pw and rep.status in (401, 403):
+        FP.forget(base)      # a server restart ends every pass: trade again next time
+        rep = _send(url, method, token, data, timeout)
+    return rep
+
+
+def _send(url: str, method: str, bearer: str, data: bytes | None, timeout: float) -> Reply:
+    headers = {"Authorization": f"Bearer {bearer}", "User-Agent": "sala-web"}
+    if data is not None:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
 
@@ -234,7 +247,7 @@ class Stackshot:
         return _request(self.token_path, self.url_path, "GET", "item-facts", {"key": "sala-web", "ids": store_id}, None, TIMEOUT_GET)
 
     def add_agent(self, body: dict) -> Reply:
-        return _request(self.token_path, self.url_path, "POST", "project-agent", None, body, TIMEOUT_AGENT)
+        return _request(self.token_path, self.url_path, "POST", "project-agent", None, body, TIMEOUT_AGENT, form=True)
 
 
 # ── what the page gets ───────────────────────────────────────────────────────

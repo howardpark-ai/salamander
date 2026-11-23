@@ -91,6 +91,7 @@ export SALA_TZ=Etc/UTC     # with no zone set every time sala shows is the machi
 export SALA_OWNER_NAME=Rowan     # the name runtime text and the `[for <name>]` marker carry; the suites' expected text says Rowan. tests/neutral-defaults.sh checks the unset default ("the owner")
 export SALA_INBOX_MODE=files   # the inbox holds are files here, whatever stackshot URL the box that runs the suites has (auto would pick the server on a client box); tests/inboxserver.sh, sleeping.sh and sleepverbs.sh set it per case
 unset STACKSHOT_URL
+export SALA_STACKSHOT_PASS=off   # the New session form's calls would ask the real key folder of the box that runs a suite for a pass (lib/stackshot_form.py); tests/stackshotkey.sh, the pass's own suite, turns it on against a stub server
 export SALA_SIGNIN_ALERT=off  # the sign-in step is signin.sh's (the header): a 30 s hang per login lane for the other suites
 export SALA_LANE_FALLBACK_AUTO=off   # a lane that turns dormant (watch, `lane dormant`) would queue a move through `sala op` and kick the real systemd-run;
                                # the other suites keep the older "stays where it is" behaviour. tests/lanefallback.sh turns the switch on, with its own stubs

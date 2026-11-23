@@ -46,6 +46,16 @@ check one with `systemctl --user show tmux-spawn-<uuid>.scope -p OOMPolicy`. Wit
 claude itself was the one killed is left at a bare shell, which `watch` revives (`SALA_BARE_REVIVE`, *Bare panes*); a session that is gone
 altogether is posted once by `watch` (*Gone sessions*, `SALA_MISSING_CHECK`) and brought back with `sala restore --missing`.
 
+## sala's own key for stackshot (optional, per machine)
+
+stackshot can trust sala by a key sala makes and keeps instead of by the machine's name (docs/stackshot-contracts.md, interface 37). Nothing needs it: every call it touches falls back to the machine token.
+
+- **Needs** the Python package `cryptography` for the machine's `python3` (Ubuntu and Debian: `apt install python3-cryptography`). Without it `sala stackshot-key` says so and the calls keep the machine token. sala-web needs nothing more: it asks `lib/stackshot_key.py` for the pass.
+- **Once per machine**: `sala stackshot-key enroll`. It makes the key (`${XDG_STATE_HOME:-~/.local/state}/salamander/stackshot-key/key`, folder 700, file 600, never overwritten, never printed, logged or put on a command line), asks stackshot to trust the public half and prints the state, the short fingerprint and the board item where the owner approves it. Run it again at any time: the same key answers its state. `sala stackshot-key status` shows whether the key is approved (`approved`, `pending` or `unknown`).
+- **Back up nothing and copy nothing.** A machine that loses the key makes and enrolls a new one (the old one simply stops being used). Never copy the key file to another machine: each machine has its own.
+- **What it changes**: the New session form's calls (`post project-agent`, `post project-agent-rename`, `post project-agent-retire`, the For you list's two writes, the color combos writes) go with a pass valid 10 minutes, kept in `${XDG_RUNTIME_DIR:-/tmp}/salamander/stackshot-pass` and reused until 60 s before it ends. Everything else keeps the machine token.
+- **When it does not work**: no pass is used and the call goes with the machine token; one line per five minutes in `$SALA_LOG_DIR/salamander-stackshot-key.log` (default `~/.claude`) says why (no key, waiting for approval, server not reached, refused, `cryptography` missing). `SALA_STACKSHOT_PASS=off` skips the step.
+
 ## Status
 The other boxes need only ssh and a POSIX shell (Linux or macOS); everything that runs locally needs tmux.
 

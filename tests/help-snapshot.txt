@@ -209,6 +209,13 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander mockup list [--json] | remove N | clean [--dry-run] [--days N] [--max-bytes N]   the stored pages · delete one · the daily pass (sala-mockup-clean.timer):
                                      pages older than SALA_MOCKUP_KEEP_DAYS (7) that no open board item links, then the oldest first until the folder is under
                                      SALA_MOCKUP_MAX_BYTES (1 GB), linked pages last (SALA_MOCKUP_REFERENCES says how to tell what is linked; unset keeps all)
+  salamander stackshot-key init | enroll | status
+                                     sala's own key for stackshot (lib/stackshot-key.sh, lib/stackshot_key.py, docs/stackshot-contracts.md): `enroll` makes an Ed25519 key
+                                     if there is none (the private half stays in $XDG_STATE_HOME/salamander/stackshot-key, mode 600, never printed) and asks stackshot to trust
+                                     its public half: it prints the state (pending | approved), the short fingerprint and the board item, and the owner approves it on that item.
+                                     From then on the New session form's calls (spawn's registration, rename, retire, forget-row, bg-agents, sala-web's form) go with a
+                                     10-minute pass the key trades for, never blocking: no key, a key still waiting or a server that says no = the machine token, as before.
+                                     `init` only makes the key; `status` = key present, its short fingerprint and the server's state for it (approved | pending | unknown)
   salamander config            print the effective configuration
 
 ### sala lane --help (exit 0)
@@ -685,5 +692,21 @@ usage: sala box SESSION [--json]
   suggestion exactly like typed text, and a session that takes it for someone's words refuses, quotes or relays text nobody wrote.
   Read-only (no key is sent, nothing is logged); it works on the caller's own pane too.
   Exit 0 read · 2 usage, no live session of that name, or no tmux pane · 3 no claude in the pane.
+
+### sala stackshot-key --help (exit 0)
+usage: sala stackshot-key init
+       sala stackshot-key enroll
+       sala stackshot-key status
+
+  init    makes sala's Ed25519 key for stackshot if there is none (idempotent) and prints its short fingerprint (the first 16 characters). The private half is kept
+          in $XDG_STATE_HOME/salamander/stackshot-key/key (folder 700, file 600), made once and never overwritten, printed, logged or put on a command line.
+  enroll  init, then asks stackshot to trust the key's public half (once per machine). Prints only: the state (pending | approved), the short fingerprint, the board
+          item the server answers and what happens next: the owner approves it on that item. Run it again at any time: the same key answers its state again.
+  status  key present or not, its short fingerprint and the server's state for it, from a signed claim: approved (a pass came back), pending or unknown. No secret.
+
+  Once the key is approved, the New session form's calls (spawn's registration of a project agent, rename, retire, forget-row, bg-agents and sala-web's form) go
+  with a pass the key trades for (valid 10 minutes, reused until 60 s before it ends) instead of the machine token. It never blocks: with no key, a key still
+  waiting, a server that is not reached or one that says no, the call runs with the machine token as before, and one line per five minutes in
+  $SALA_LOG_DIR/salamander-stackshot-key.log says why no pass was used. SALA_STACKSHOT_PASS=off skips the pass step. Everything else sala asks of stackshot keeps the machine token.
 
 ### verbs with no help path of their own (listed, not probed; their usage is the sala --help text above): adopt ci-poll close-shell config feedback follow forget-row heartbeat hook map provision ready reboot rename retire snapshot spawn unpark update watch

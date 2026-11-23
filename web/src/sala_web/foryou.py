@@ -176,10 +176,10 @@ class Calls:
         return PP._request(self.token_path, self.url_path, "GET", "for-you", None, None, TIMEOUT_GET)
 
     def seen(self, body: dict) -> PP.Reply:
-        return PP._request(self.token_path, self.url_path, "POST", "for-you/seen", None, body, TIMEOUT_POST)
+        return PP._request(self.token_path, self.url_path, "POST", "for-you/seen", None, body, TIMEOUT_POST, form=True)
 
     def watch(self, shown: str, body: dict) -> PP.Reply:
-        return PP._request(self.token_path, self.url_path, "POST", watch_path(shown), None, body, TIMEOUT_POST)
+        return PP._request(self.token_path, self.url_path, "POST", watch_path(shown), None, body, TIMEOUT_POST, form=True)
 
 
 def sentence(rep: PP.Reply, what: str, gone: str) -> tuple[int, str]:

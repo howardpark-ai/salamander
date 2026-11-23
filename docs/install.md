@@ -6,7 +6,7 @@ Step-by-step guides: [docs/sala-guide.md](sala-guide.md) (for a person) and [doc
 ```
 git clone https://github.com/howardpark-ai/salamander ~/salamander && ~/salamander/install.sh
 ```
-Needs bash >= 4.4 (`bin/salamander` refuses to run on an older one; macOS ships 3.2: `brew install bash`), `tmux`, `python3` 3.11 or newer (the merge queue and machine-follow read TOML with `tomllib`; the web UI needs 3.12, which `uv` fetches), `claude` on PATH, and `gh` signed in (`gh auth login`) for the CI-run poller and `sala mq`. Linux (reads `/proc`; macOS is untested, and support is a TODO).
+Needs bash >= 4.4 (`bin/salamander` refuses to run on an older one; macOS ships 3.2: `brew install bash`), `tmux`, `python3` 3.11 or newer (the merge queue and machine-follow read TOML with `tomllib`; the web UI needs 3.12, which `uv` fetches), `claude` on PATH, and `gh` signed in (`gh auth login`) for the CI-run poller and `sala mq`. Only for `sala stackshot-key` (sala's own key for the board, optional, [setup-notes](setup-notes.md#salas-own-key-for-stackshot-optional-per-machine)): the Python package `cryptography` (Ubuntu and Debian: `apt install python3-cryptography`). Linux (reads `/proc`; macOS is untested, and support is a TODO).
 Config: `~/.config/salamander/config` ([all keys](../config.example)).
 The web UI (`web/README.md`) is optional: `~/salamander/install.sh --web` copies its three systemd user units (the app, its socket and
 ttyd for the Terminal tab) and prints the commands that start them. The web UI has no login of its own, so put HTTPS and a login in
