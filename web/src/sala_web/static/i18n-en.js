@@ -145,6 +145,8 @@ window.SALA_I18N_EN = {
   "app.pend.boxMore": "More lines are out of view in the pane.",
   "app.pend.edit": "Edit",
   "app.pend.late": "Sent: not in the transcript yet. A shell command is not sent twice; check the Terminal tab.",
+  "app.pend.noNet": "the connection to the server was lost before it answered",
+  "app.pend.noReason": "the server answered {status} and gave no reason",
   "app.pend.notLive": "the session is not live",
   "app.pend.notSent": "Not sent: {error}",
   "app.pend.queued": "Queued: not in the transcript yet",

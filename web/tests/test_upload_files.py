@@ -323,3 +323,20 @@ def test_an_empty_image_body_says_so_in_plain_words(tmp_path):
     r = c.post("/api/upload", content=b"", headers={"Content-Type": "image/png"})
     assert r.status_code == 400 and r.json()["error"] == "that image came through empty"
     assert entries(st) == []
+
+
+def test_a_refused_upload_is_logged_with_its_path_status_and_reason(tmp_path, caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="sala_web")
+    c, st = make(tmp_path, max_upload_bytes=1000)
+    assert c.post("/api/upload", content=b"x" * 2000, headers={"Content-Type": "image/png"}).status_code == 413
+    assert c.post("/api/upload", content=b"", headers={"Content-Type": "image/png"}).status_code == 400
+    assert c.post("/api/upload", content=b"x", headers={"Content-Type": "text/plain"}).status_code == 415
+    assert [r.getMessage() for r in caplog.records if r.name == "sala_web"] == [
+        "upload refused: /api/upload 413 that image is over the limit of 1000 bytes for one image",
+        "upload refused: /api/upload 400 that image came through empty",
+        "upload refused: /api/upload 415 unsupported image type text/plain (a file is sent with ?name=<its name>)",
+    ]
+    caplog.clear()
+    assert c.post("/api/upload", content=b"\x89PNG fake", headers={"Content-Type": "image/png"}).status_code == 200
+    assert not [r for r in caplog.records if r.name == "sala_web"]  # an accepted upload says nothing

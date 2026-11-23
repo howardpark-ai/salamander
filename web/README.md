@@ -159,7 +159,12 @@ sala is, *Deploying* below.
   reading both attached two chips for one paste. One gesture is one chip whichever
   events deliver it: the paste event, `beforeinput` and the `<img>` the browser inserts are the links of one chain, and
   a later link skips the bytes an earlier one attached within the second (size and type; two pastes in a row are two
-  chips). All three feed the same path: uploaded to `$XDG_STATE_HOME/sala-web/uploads/`
+  chips). The window counts from when the later link began, not from the end of its read of the files (a 3000 x 4000 clipboard
+  image is encoded as a PNG of 19 MB each time `files` is read, a second or more, which let the next link look like a new
+  gesture). One event is one gesture on its own side as well: the image Files of one paste or `beforeinput` that hold the same
+  bytes (same type and size, then the bytes compared; a clipboard that offers the picture twice, as `image.png` and under
+  another name) make one chip, and files that are not images are never merged (`distinctPictures` in `static/app.js`;
+  `tests/test_paste_one_chip.py`). All three feed the same path: uploaded to `$XDG_STATE_HOME/sala-web/uploads/`
   (default `~/.local/state/sala-web/uploads/`) under a random name, then their paths are pasted with **bracketed paste**. Claude Code turns a bracketed-pasted image
   path into an `[Image #N]` chip; the same path typed with `send-keys -l` stays raw text (tested on Claude Code
   2.1.296). Uploads older than 30 days are deleted at startup.
@@ -168,10 +173,24 @@ sala is, *Deploying* below.
   server refuses. An image over the server's limit (`max_upload_bytes`, 20 MB) or longer than 4000 px on its long side is then
   redrawn on a canvas, at most 4000 px (under the 4096 px side mobile canvases allow), and re-encoded before it is sent: a PNG
   when any pixel is see-through (JPEG has no alpha), otherwise a JPEG at quality 0.92. Claude scales an image itself, so the session
-  sees the same picture. A result still over the limit steps the JPEG quality down (0.85, 0.75, 0.6) and then the size (to
+  sees the same picture. **A big PNG or WebP is re-encoded even within the limit:** one over 5 MB (`REENCODE_OVER_BYTES`) with no
+  see-through pixel goes up as a JPEG, stepping the quality (0.92, 0.85, 0.75, 0.6) toward 5 MB and sending the smallest result
+  when none gets there, never a smaller picture for a size the pane shrinks itself. A Ctrl+V of a photo hands over its
+  pixels as a PNG (a 3000 x 4000 photo of 5 MB as JPEG is 19 MB as a PNG), and such a PNG never reached the session. Why 5 MB: the
+  pane's Claude Code (2.1.330) limits an image to 5 MB as base64 (3.75 MB of bytes) and 2000 px a side, shrinks a bigger one itself
+  and refuses it ("Unable to resize image") when that fails; JPEGs of 7 to 9.6 MB did reach sessions, a PNG of 19 MB did not
+  (the send answered 200, and the transcript held only the text). A PNG that holds a see-through pixel, a
+  JPEG and a GIF go up as they are when they fit the limit. A result still over the limit steps the JPEG quality down (0.85, 0.75, 0.6) and then the size (to
   75% a step), and an image that cannot be made to fit under the limit is refused in words ("could not be made small enough to
   attach"). A small image, a file the browser cannot decode but the server takes, and an image whose re-encode would not be
   smaller than a file within the limit go up untouched. A GIF that is shrunk loses its animation (the canvas draws one frame).
+  **A refused send or upload is logged.** `send` and `upload` run inside `logged()` (`app.py`): every answer of 400 or more, and every
+  error raised inside, writes one line to stderr (the journal, under systemd) with the request path, the status and the reason,
+  e.g. `WARNING:     sala-web: send refused: /api/s/<pid>/send 409 pane input box is not empty; nothing sent`. The reason is the
+  response's own `error` text on one line, cut at 300 characters; the text that was typed, the text the pane's box held
+  (`boxText`) and the bytes of a file are never written. uvicorn's access line says only "409 Conflict".
+  On the page, a send that fails shows "Not sent: <reason>"; an answer with no reason says so ("the server answered 409 Conflict
+  and gave no reason") and a request that got no answer says "the connection to the server was lost before it answered".
   The server's own 413 names the limit ("that image is over the limit of 20 MB for one image") for a body that still arrives
   over it. `tests/test_image_shrink.py` (headless Chromium) pins each of these.
 - **Any file, not only images.** The attach button's chooser takes everything, a drop takes
@@ -2023,7 +2042,7 @@ part of `web/`.
 | `GET /api/file-image/<sessionId>/<uuid>/<i>/<k>` | the k-th file of the `SendUserFile` call at content block i of that transcript line, when it is a png, jpeg, gif or webp of at most 15 MB under an allowed root and not hidden or secret-named (*What it can and cannot do*, "Images a session sends"); anything else 404 |
 | `GET /api/md-image/<sessionId>/<uuid>/<i>/<n>` | the n-th local image (`![caption](/abs/path.png)` or `~/…`, outside code) in the markdown of the assistant text block i of that transcript line, under the same rules as `file-image`; a refusal is a 404 `{ok: false, error: <reason>}` that the page shows as "image not shown: <reason>"; a place the reply does not name is a 404 too (*What it can and cannot do*, "A markdown image of a file on this machine") |
 | `POST /api/upload` | raw image body (`Content-Type: image/png|jpeg|gif|webp`, 20 MB, 413 with the limit in words; the page shrinks a bigger image first) → `{ok, name, path}`; or any other file, `?name=<its name>` (required for a type that is not an image), streamed to disk, 500 MB at most (413), refused when it would leave under 2 GB free (507), 400 empty → `{ok, name: "<hex>/<safe name>", path, file: true, fileName, size}` (*Any file, not only images*) |
-| `POST /api/s/<pid>/send` | `{"text": "...", "uploads": ["<name as /api/upload returned it>"]}` as `application/json`; with a dialog open, `{"text": "2"}` or `{"text": "esc"}` answers it (`dialogAnswer` in the reply) |
+| `POST /api/s/<pid>/send` | `{"text": "...", "uploads": ["<name as /api/upload returned it>"]}` as `application/json`; with a dialog open, `{"text": "2"}` or `{"text": "esc"}` answers it (`dialogAnswer` in the reply); a refusal (status 400 and up) is logged with its path, status and reason |
 | `POST /api/shell/open` | `{}` as `application/json` → `{ok, session: "<SALA_SHELL_SESSION>", created}`: makes the shell drawer's tmux session (a plain `bash -l` in the home directory) when it is missing, under a lock; `created` is true when it had to (*The shell drawer*, *Where the session is made*: the drawer calls it each time it opens, the full-size page when its `?arg` is the Shell session, and the app itself once at start); 403/415 as every POST, 502 when tmux cannot make it |
 | `POST /api/shell/keys` | `{"key": "<name>"}` as `application/json`, `name` one of `Escape`, `Tab`, `Up`, `Down`, `Left`, `Right`, `Enter`, `BSpace`, `C-a`..`C-z` → `{ok, sent}`: `tmux send-keys -t =<SALA_SHELL_SESSION>: <name>`; any other name 400 and nothing sent, 502 when the session is not there; 403/415 as every POST |
 | `POST /api/shell/keylog` | a JSON list of at most 50 events as `application/json` (32 KB at most), from the Shell's terminal frame: `{t, type: keydown\|keyup, key, code, keyCode, isComposing, shift, ctrl, alt, meta}` or `{t, type: compositionstart\|compositionupdate\|compositionend}` (no other field) → `{ok, n}`, n the events kept, one JSON line each in `<state_dir>/shell-keylog.jsonl` (0600, 256 KB at most, the newest half kept past it; *The shell drawer*). It records which non-character keys were pressed and when and that IME activity happened and when, never which letter keys: a key event is kept only when `key` is on the fixed list (`Alt`, `HangulMode`, `Process`, `Enter`, `F1`..`F24`, ...) and `code` is one of those keys' physical names or empty, never a letter, digit, punctuation or numpad key's; an IME event (`key` `Process`, `Unidentified`, `Dead` or `Compose`, `isComposing`, or `keyCode` 229) is stored with `keyCode` 0 and `shift` false, and its `code` only when it names a non-character key (`Lang1` ...), else `""`, whatever the client sent; a composition event with a `data` field (or any other) is dropped, never written; an event of any other shape is dropped, not an error; a body that is not such a list (or over 50 events or 32 KB, or not JSON) is 400; 403/415 as every POST |
