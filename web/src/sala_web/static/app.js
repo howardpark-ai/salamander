@@ -3437,6 +3437,101 @@ function removeUpload(id) {
   renderChips();
 }
 let uploadSeq = 0;
+
+// An image goes up whole when it is within the server's limit (config.max_upload_bytes, 20 MB) and its long side is at
+// most IMAGE_MAX_SIDE px. Otherwise it is redrawn on a canvas at that size and re-encoded before it is sent: Claude
+// scales an image down itself, so the session sees the same picture. PNG is kept only when a pixel is not opaque (JPEG
+// has no alpha, so the see-through parts would turn solid); every other image becomes a JPEG, which is far smaller for a
+// photo or a screenshot. A result still over the limit steps the quality down (JPEG) and then the size, and an image
+// that cannot be made to fit is refused in words (app.up.imgTooBig).
+let MAX_IMAGE_BYTES = 20 * 1024 * 1024;    // the server's cap (config.max_upload_bytes) for one image; a `let` so a test can lower it
+const IMAGE_MAX_SIDE = 4000;               // under the 4096 px side that mobile canvases allow (16.7 MP)
+const JPEG_QUALITIES = [0.92, 0.85, 0.75, 0.6];
+const SHRINK_STEP = 0.75;                  // each further size step keeps this share of the side
+const MIN_SIDE = 320;                      // below this the picture is of no use: give up
+
+// The picture's pixels, upright (the EXIF turn applied), or null when the browser cannot decode the file.
+async function decodeImage(blob) {
+  try {
+    if (window.createImageBitmap) return await createImageBitmap(blob, { imageOrientation: "from-image" });
+  } catch (e) { /* fall through to an <img>, which also applies the turn */ }
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  } catch (e) {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+const imageSide = (img) => ({ w: img.naturalWidth || img.width, h: img.naturalHeight || img.height });
+
+// True when any pixel is not fully opaque: read in strips, so a 16 MP canvas is never copied out whole.
+function hasTransparency(ctx, w, h) {
+  const strip = Math.max(1, Math.floor(1048576 / w));  // about 1M pixels (4 MB) a read
+  for (let y = 0; y < h; y += strip) {
+    const d = ctx.getImageData(0, y, w, Math.min(strip, h - y)).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] !== 255) return true;
+  }
+  return false;
+}
+const canvasBlob = (canvas, type, quality) => new Promise((res) => canvas.toBlob(res, type, quality));
+
+// The image as it should be sent: the file itself when it needs no shrink, a smaller File when it does, and null when it
+// cannot be made to fit the limit. A file the browser cannot decode goes up as it is when it is within the limit (the
+// server takes it, as before), and counts as one that cannot be made to fit when it is over.
+async function fitImage(file) {
+  const asIs = () => (file.size <= MAX_IMAGE_BYTES ? file : null);
+  const img = await decodeImage(file);
+  if (!img) return asIs();
+  const canvas = document.createElement("canvas");
+  try {
+    const { w: sw, h: sh } = imageSide(img);
+    if (!sw || !sh) return asIs();
+    if (file.size <= MAX_IMAGE_BYTES && Math.max(sw, sh) <= IMAGE_MAX_SIDE) return file;
+    let scale = Math.min(1, IMAGE_MAX_SIDE / Math.max(sw, sh));
+    let png = null;  // decided on the first draw: the pixels do not change between sizes
+    for (;;) {
+      const w = Math.max(1, Math.round(sw * scale)), h = Math.max(1, Math.round(sh * scale));
+      if (Math.max(w, h) < Math.min(MIN_SIDE, Math.max(sw, sh))) return null;
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, w, h);
+      if (png === null) png = file.type !== "image/jpeg" && hasTransparency(ctx, w, h);
+      const type = png ? "image/png" : "image/jpeg";
+      for (const q of png ? [undefined] : JPEG_QUALITIES) {
+        const blob = await canvasBlob(canvas, type, q);
+        if (!blob || blob.type !== type) return asIs();  // a browser without that encoder
+        if (blob.size <= MAX_IMAGE_BYTES) {
+          // a re-encode no smaller than a file the server takes anyway is not worth sending
+          if (file.size <= MAX_IMAGE_BYTES && blob.size >= file.size) return file;
+          const base = (file.name || "image").replace(/\.[^./\\]+$/, "");
+          return new File([blob], base + (png ? ".png" : ".jpg"), { type });
+        }
+      }
+      scale *= SHRINK_STEP;
+    }
+  } finally {
+    if (img.close) img.close();
+    canvas.width = canvas.height = 0;
+  }
+}
+
+// The file's bytes, read once more when the first read comes back empty (a picker or a clipboard sometimes hands over a
+// File whose bytes are not ready yet); an empty second read is the browser's, not the server's.
+async function readImageBytes(file) {
+  let buf = await file.arrayBuffer();
+  if (!buf.byteLength) {
+    await new Promise((r) => setTimeout(r, 150));
+    buf = await file.arrayBuffer();
+  }
+  return buf;
+}
+
 async function addImage(file) {
   if (!file || !/^image\/(png|jpeg|gif|webp)$/.test(file.type)) {
     setStatus(() => tl("app.up.notAttached", { what: file ? file.type || tl("app.up.unknownType") : tl("app.up.noFile") }), "error");
@@ -3446,7 +3541,15 @@ async function addImage(file) {
   state.uploads.push(u);
   renderChips();
   try {
-    const r = await apiFetch("api/upload", { method: "POST", headers: { "Content-Type": file.type }, body: file });
+    const buf = await readImageBytes(file);
+    if (!buf.byteLength) throw new Error(tl("app.up.imgEmpty"));
+    // a File whose own size disagrees with the bytes just read (it said 0, or the first read was empty) is rebuilt from
+    // those bytes, so the shrink and the upload below start from a whole file
+    let send = buf.byteLength === file.size ? file : new File([buf], file.name || "image", { type: file.type });
+    const fit = await fitImage(send);
+    if (!fit) throw new Error(tl("app.up.imgTooBig", { size: humanSize(send.size), limit: humanSize(MAX_IMAGE_BYTES) }));
+    send = fit;
+    const r = await apiFetch("api/upload", { method: "POST", headers: { "Content-Type": send.type }, body: send });
     const d = await r.json();
     if (!r.ok || !d.ok) throw new Error(d.error || r.statusText);
     u.name = d.name;

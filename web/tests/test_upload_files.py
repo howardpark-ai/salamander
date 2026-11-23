@@ -261,7 +261,7 @@ def test_images_keep_their_flat_random_name_and_their_limit(tmp_path):
     r = c.post("/api/upload", params={"name": "../../x.png"}, content=b"\x89PNG", headers={"Content-Type": "image/png"})
     assert r.status_code == 200 and "/" not in r.json()["name"]
     r = c.post("/api/upload", content=b"x" * 2000, headers={"Content-Type": "image/png"})
-    assert r.status_code == 413 and r.json()["error"] == "image too large"
+    assert r.status_code == 413 and r.json()["error"] == "that image is over the limit of 1000 bytes for one image"
     # the image limit does not cap a file
     r = c.post("/api/upload", params={"name": "a.bin"}, content=b"x" * 2000, headers=OCTET)
     assert r.status_code == 200
@@ -304,3 +304,22 @@ def test_prune_removes_an_old_folder_and_a_half_written_one_and_keeps_a_new_one(
         pass
     left = sorted(p.name for p in up.iterdir())
     assert left == sorted(["b" * 32, "c" * 32, "e" * 32, "notes"])
+
+
+@pytest.mark.parametrize("limit, words", [(2 * 1024 * 1024, "2 MB"), (1536 * 1024, "1.5 MB"), (512 * 1024, "512 KB"), (900, "900 bytes")])
+def test_an_image_over_the_limit_is_refused_with_the_limit_in_plain_words(tmp_path, limit, words):
+    c, st = make(tmp_path, max_upload_bytes=limit)
+    r = c.post("/api/upload", content=b"x" * (limit + 1), headers={"Content-Type": "image/jpeg"})
+    assert r.status_code == 413
+    assert r.json()["error"] == f"that image is over the limit of {words} for one image"
+    assert entries(st) == []  # nothing stored for a refused image
+    # an image of exactly the limit is accepted
+    r = c.post("/api/upload", content=b"x" * limit, headers={"Content-Type": "image/jpeg"})
+    assert r.status_code == 200, r.text
+
+
+def test_an_empty_image_body_says_so_in_plain_words(tmp_path):
+    c, st = make(tmp_path)
+    r = c.post("/api/upload", content=b"", headers={"Content-Type": "image/png"})
+    assert r.status_code == 400 and r.json()["error"] == "that image came through empty"
+    assert entries(st) == []

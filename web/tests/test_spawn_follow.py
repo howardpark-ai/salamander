@@ -127,7 +127,8 @@ const loadSessions = async () => {{}};
   console.log(JSON.stringify(out));
 }})();
 """
-    out = subprocess.run([NODE, "-e", prog], capture_output=True, text=True, check=True, timeout=30).stdout
+    # the program goes in on stdin: as an argument it is capped at 128 KB, which the two language tables and shared.js reach
+    out = subprocess.run([NODE, "-"], input=prog, capture_output=True, text=True, check=True, timeout=30).stdout
     return json.loads(out)
 
 
