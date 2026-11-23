@@ -190,7 +190,7 @@
                                  #   background subagent (Agent/Task with run_in_background), a Monitor or a background Bash call: each is refused (never asked) with the way out in
                                  #   the reason. A call inside a subagent is never refused. Needs the hook in settings.json (PreToolUse, matcher "Bash|Agent|Task|Monitor"). Each refusal is
                                  #   one line in ~/.claude/salamander-drain.log (time, tool, session; never the call). off or 0 = nothing is refused, and the waiting line asks instead
-#SALA_DRAIN_DENY_TEXT=          # the reason a refused call gets; <call> becomes a background subagent / a monitor / a background shell command, <what> the relaunch's kind (as above)
+#SALA_DRAIN_DENY_TEXT=          # the reason a refused call gets; <call> becomes a background subagent / a monitor / a background shell command (the article included: write "Refused: <call> would ...", not "Refused: a <call>"), <what> the relaunch's kind (as above)
 #SALA_BOOT_GRACE=900             # watch: post-boot report waits this long after boot for revive's summary …
 #SALA_BOOT_DEADLINE=1800         # … and this long for a clean reboot's boot half
 #SALA_MISSING_CHECK=on           # watch: a pane-map row whose tmux session is gone is posted once (naming `sala restore --missing`); off: never
