@@ -82,6 +82,9 @@ itself first (`settings.json.bak-sala-settings-<stamp>`; the steps keep their ow
 and the key-by-key diff logged after (`~/.claude/salamander-settings-apply.log`: one line per box and run with the spec
 fingerprint and the config-repo commit, the steps' own words, then `path: old → new` per key, a list item as `+`/`-`,
 secret-named keys masked); a settings.json that no longer parses is put back from the backup and the box is a failure.
+A step the apply fixed that provision's check after it finds drifting again (its source, such as a remote head, moved
+while the apply ran) is applied and checked once more before it is called failed; the second pass is logged as such, and a
+step still off after it is a failure whose line carries the check's finding and the first apply's words.
 No CLI update, no recycle, no relaunch: panes take the settings at their next relaunch, as before. A box's first look is
 dry ("would apply …", recorded; applied from the next spec change on), so switching the service on, or adding a host,
 changes nothing by itself. A failed box is posted once per fingerprint in the step's own words; a box still behind

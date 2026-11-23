@@ -20,6 +20,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null SALA_TZ=Etc/UTC
 as_op_unit   # the unit's command runs here, in this shell — its provision stands for the service's unit, which no Claude session launches (tests/lib.sh, 5)
 TOP="$HOME"
+exec {HOME_LOCK}< "$HOME"; flock -n "$HOME_LOCK" 2>/dev/null   # the temp folder is locked while the suite runs (systemd-tmpfiles ageing honors the flock)
 mkdir -p "$HOME/.claude" "$HOME/.local/bin" "$HOME/hosts/t-host-b/.claude" "$HOME/hosts/t-host-c/.claude" "$HOME/knobs" "$HOME/fleet/a" "$HOME/demo-ops/spec"
 trap 'rm -rf "$HOME"' EXIT
 ME=$(hostname)
@@ -39,7 +40,7 @@ chmod +x "$HOME/.local/bin/ssh"
 cat > "$HOME/steps.sh" <<EOF
 #!/usr/bin/env bash
 TOP="$TOP"
-case "\$*" in *--list*) printf 'repo      the checkout\nsettings  the merge,\n          continued\ndeny-rules  deny entries\nguard-hook  the guard\n'; exit 0;; esac
+case "\$*" in *--list*) printf 'repo      the checkout\nsettings  the merge,\n          continued\ndeny-rules  deny entries\nguard-hook  the guard\nplugin    a moving head\n'; exit 0;; esac
 h="\${FAKE_HOST:-$ME}"; echo "\$h \$*" >> "\$TOP/calls.txt"
 CHECK=0; ONLY=""; while [ \$# -gt 0 ]; do case "\$1" in --check) CHECK=1;; --only) ONLY="\$2"; shift;; esac; shift; done
 wants() { [ -z "\$ONLY" ] && return 0; case ",\$ONLY," in *",\$1,"*) return 0;; esac; return 1; }
@@ -64,6 +65,18 @@ if wants settings; then
 fi
 wants deny-rules && { [ -e "\$K/manual-deny.\$h" ] && echo "STEP|manual|deny-rules|an allow entry: Rowan adds it|owner" || echo "STEP|ok|deny-rules|all 4 present"; }
 wants guard-hook && echo "STEP|ok|guard-hook|installed"
+if wants plugin; then   # two lanes, each with an installed sha, against the box's head file (knobs: head.<h>, moves.<h>: the head moves that many times, once per apply, after the apply read it)
+    H=\$(cat "\$K/head.\$h" 2>/dev/null); lanes=""
+    for l in a b; do I=\$(cat "\$TOP/plugin.\$h.\$l" 2>/dev/null || echo none); [ "\$I" = "\$H" ] || lanes="\${lanes:+\$lanes, }lane-\$l \$I -> \$H"; done
+    if [ -z "\$lanes" ]; then echo "STEP|ok|plugin|at head \$H"
+    elif [ "\$CHECK" = 1 ]; then echo "STEP|drift|plugin|behind: \$lanes"
+    else
+        for l in a b; do echo "\$H" > "\$TOP/plugin.\$h.\$l"; done
+        echo "STEP|fixed|plugin|applied: \$lanes"
+        m=\$(cat "\$K/moves.\$h" 2>/dev/null || echo 0)
+        [ "\${m:-0}" -gt 0 ] && { echo \$((m-1)) > "\$K/moves.\$h"; echo "moved\$m" > "\$K/head.\$h"; }
+    fi
+fi
 exit 0
 EOF
 # systemd-run: recorded, and the unit's command run here at once (its own `>> log` redirect inside); systemctl: the unit's state from a marker
@@ -265,6 +278,42 @@ cp "$STATE" "$HOME/state.keep"
     [ "$due_ok" = "$ME" ] && [ -z "$due_fail" ] && [ "$due_old" = "$ME" ]
 ) && ok "a success a minute ago is due on a new spec at once; a failure a minute ago waits the hour; a failure an hour old is due" || bad "retry gate: sa_due does not hold only for failed boxes"
 cp "$HOME/state.keep" "$STATE"; rm -f "$HOME/state.keep"
+
+echo "== a head that moves during the apply: the check after it is no failure, the step is applied once more"
+FP9=$(fp); BOXES="$ME t-host-b"   # this box takes provision's local path, t-host-b its ssh path: both call sites of the second pass
+plugin_reset() { local h l; for h in $BOXES; do echo "head$1" > "$HOME/knobs/head.$h"; echo "$2" > "$HOME/knobs/moves.$h"; for l in a b; do echo old0001 > "$HOME/plugin.$h.$l"; done; done; }   # <head sha> <moves>
+plugin_reset 0001 1; : > "$HOME/calls.txt"; : > "$POSTS"
+SALA_SETTINGS_STEPS=plugin "$SALA" settings-apply --run $BOXES >/dev/null 2>&1; rc=$?
+allok=1; for b in $BOXES; do
+    [ "$(cat "$HOME/plugin.$b.a")" = moved1 ] && [ "$(cat "$HOME/plugin.$b.b")" = moved1 ] || { allok=0; bad "$b: installed $(cat "$HOME/plugin.$b.a") / $(cat "$HOME/plugin.$b.b")"; }
+    [ "$(napply "$b")" = 2 ] && [ "$(grep -c "^$b --check --only" "$HOME/calls.txt")" = 3 ] || { allok=0; bad "$b: runs: $(grep "^$b " "$HOME/calls.txt" | tr '\n' ';')"; }
+    grep -qF "$b: applied spec $FP9" "$LOG" && grep "$b: applied spec $FP9" "$LOG" | grep -qF "plugin: second pass, its source moved during the first: applied: lane-a head0001 -> moved1, lane-b head0001 -> moved1" || { allok=0; bad "$b: log: $(grep "$b:" "$LOG" | tail -3)"; }
+    [ "$(sa_get "done.$b")" = "$FP9" ] && [ -z "$(sa_get "fail.$b")" ] || { allok=0; bad "$b: state: $(<"$STATE")"; }
+done
+[ "$allok" = 1 ] && [ "$rc" = 0 ] && [ ! -s "$POSTS" ] && ok "each box: applied, then applied again for the head that moved meanwhile, the second pass named in the log, done, no post, exit 0" || bad "rc $rc; posts: $(<"$POSTS")"
+grep -qF "the check after the apply finds plugin off again" "$HOME/.claude/salamander-provision-$ME.log" && ok "provision's own log says why it applied the step again" || bad "provision log: $(tail -4 "$HOME/.claude/salamander-provision-$ME.log")"
+
+echo "== a head that settles during the apply: one apply, no second pass"
+plugin_reset 0002 0; : > "$HOME/calls.txt"; : > "$POSTS"; l0=$(wc -l < "$LOG")
+SALA_SETTINGS_STEPS=plugin "$SALA" settings-apply --run $BOXES >/dev/null 2>&1; rc=$?
+allok=1; for b in $BOXES; do
+    [ "$(napply "$b")" = 1 ] && [ "$(grep -c "^$b --check --only" "$HOME/calls.txt")" = 2 ] || { allok=0; bad "$b: runs: $(grep "^$b " "$HOME/calls.txt" | tr '\n' ';')"; }
+done
+[ "$allok" = 1 ] && [ "$rc" = 0 ] && ! tail -n +$((l0+1)) "$LOG" | grep -q "second pass" && ok "one apply and one check after it per box, nothing said about a second pass" || bad "rc $rc; log: $(tail -n +$((l0+1)) "$LOG" | grep 'applied spec')"
+
+echo "== a head that keeps moving: the second pass is the last, one failure naming the lane, the installed and the expected sha"
+plugin_reset 0003 5; : > "$HOME/calls.txt"; : > "$POSTS"
+SALA_SETTINGS_STEPS=plugin "$SALA" settings-apply --run $BOXES >/dev/null 2>&1; rc=$?
+allok=1; for b in $BOXES; do
+    [ "$(napply "$b")" = 2 ] && [ "$(grep -c "^$b --check --only" "$HOME/calls.txt")" = 3 ] || { allok=0; bad "$b: runs: $(grep "^$b " "$HOME/calls.txt" | tr '\n' ';')"; }
+    grep -qF "$b: apply failed (spec $FP9): plugin (still off after a second apply too (its source moved again, or the apply did not hold): the check found behind: lane-a moved5 -> moved4, lane-b moved5 -> moved4; the first apply said: applied: lane-a old0001 -> head0003, lane-b old0001 -> head0003)" "$LOG" || { allok=0; bad "$b: log: $(grep "$b: apply" "$LOG" | tail -1)"; }
+    [ -n "$(sa_get "fail.$b")" ] || { allok=0; bad "$b: no fail recorded"; }
+done
+[ "$allok" = 1 ] && [ "$rc" = 1 ] && [ "$(nposts 'Settings apply failed on')" = 1 ] && grep -qF 'lane-a moved5 -> moved4' <<< "$(post 'Settings apply failed on')" && ok "two applies per box and no more, the failure logged with both findings, one post naming the lanes and the shas, exit 1" || bad "rc $rc; posts: $(<"$POSTS")"
+for b in $BOXES; do echo 0 > "$HOME/knobs/moves.$b"; done; : > "$POSTS"
+SALA_SETTINGS_STEPS=plugin "$SALA" settings-apply --run $BOXES >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ -z "$(sa_get "fail.$ME")" ] && [ "$(sa_get "done.t-host-b")" = "$FP9" ] && [ ! -s "$POSTS" ] && ok "once the head stays put the next run applies it: fail cleared, no post" || bad "rc $rc; state: $(<"$STATE")"
+rm -f "$HOME"/plugin.* "$HOME"/knobs/head.* "$HOME"/knobs/moves.*
 
 echo "== provision --quiet needs --only or --check"
 out=$("$SALA" provision --quiet t-host-b 2>&1); rc=$?

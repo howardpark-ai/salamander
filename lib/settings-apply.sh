@@ -24,7 +24,9 @@
 # THE RUN (sa_run): `provision --quiet --check --only <steps> <boxes>` first (lib/provision.sh: repo, then the steps, read-only;
 # each box's STEP lines land in SALA_PROVISION_RESULT_DIR), then `provision --quiet --only <steps>` for the boxes whose check
 # found a settings step drifting — never for `repo` alone — and provision's own check after the apply (fold_check) says what
-# is still off. Before the apply each box's settings.json is backed up beside itself (settings.json.bak-sala-settings-<stamp>;
+# is still off. A step the apply fixed that the check after it finds drifting again (its source, a remote head, moved while the
+# apply ran) is applied and checked once more (settle_after, lib/provision.sh) before it counts as a failure; one still off after
+# that is a failure whose line carries the check's finding and the first apply's words (the step's own: lane, installed, expected). Before the apply each box's settings.json is backed up beside itself (settings.json.bak-sala-settings-<stamp>;
 # the steps keep their own .bak-provision-* too, where they make one) and snapshotted; after it, the two snapshots are diffed
 # key by key (a value under a key named like a secret, and anything scrub_text masks, is never written) into the log, and
 # a settings.json that no longer parses gets its backup back and the box is a failure. The dry first look: a box the

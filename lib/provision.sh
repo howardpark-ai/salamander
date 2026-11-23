@@ -150,6 +150,40 @@ fold_check() {
         $1 == "STEP" { if (!($3 in off)) print; else if ($2 == "failed") { print; delete off[$3] } }
         END { for (n in off) print "STEP", "failed", n, "still off after the apply: " off[n] }' <(printf '%s\n' "$2") <(printf '%s\n' "$1")
 }
+# moved_steps <apply STEP lines> <check STEP lines> → the names (one per line) of the steps the apply reported fixed that the check
+# after it finds drifting again. A step that reads a moving source (a remote head, a marketplace) at its start can fix
+# what it read while the source moves on, so the check, which reads it afresh, finds the step behind a target it never had
+moved_steps() {
+    awk -F'|' 'FILENAME == ARGV[1] { if ($1 == "STEP" && $2 == "drift") d[$3] = 1; next }
+        $1 == "STEP" && $2 == "fixed" && ($3 in d) { print $3 }' <(printf '%s\n' "$2") <(printf '%s\n' "$1")
+}
+# moved_words <names, comma-joined> <first apply STEP lines> <second pass STEP lines, folded> → the second pass's lines for those
+# steps alone, in words that say it was a second pass: a fixed one says so; one still off says what the check found and what the
+# first apply had said (the step's own words name the lane and the shas)
+moved_words() {
+    awk -F'|' -v OFS='|' -v m=",$1," 'FILENAME == ARGV[1] { if ($1 == "STEP") was[$3] = $4; next }
+        $1 == "STEP" && index(m, "," $3 ",") {
+            if ($2 == "failed" && $4 ~ /^still off after the apply: /) { sub(/^still off after the apply: /, "", $4); $4 = "still off after a second apply too (its source moved again, or the apply did not hold): the check found " $4 "; the first apply said: " was[$3] }
+            else if ($2 != "failed") $4 = "second pass, its source moved during the first: " $4
+            print }' <(printf '%s\n' "$2") <(printf '%s\n' "$3")
+}
+# settle_after <host> <kind: posix|local> <log> <apply STEP lines> <check STEP lines> → SETTLED_STEPS (the apply's lines, folded
+# with the check after it) and SETTLED_CKS (the check's lines). A step the apply fixed that the check then finds drifting is
+# applied and checked once more before it is called failed: its source moved while the apply ran, which is no failure of the
+# apply. Once only: a step still off after the second pass is failed, in words naming both findings
+settle_after() {
+    local h="$1" kind="$2" hlog="$3" steps="$4" cks="$5" moved names s2 c2 f2
+    SETTLED_STEPS=$(fold_check "$steps" "$cks"); SETTLED_CKS="$cks"
+    moved=$(moved_steps "$steps" "$cks" | paste -sd, -); [ -n "$moved" ] || return 0
+    echo "--- the check after the apply finds $moved off again after the apply fixed it (its source moved meanwhile): applying it once more (sala):" >> "$hlog"
+    s2=$(_step_lines "$(ONLY="repo,$moved" run_steps "$h" "$kind" "$hlog")")
+    echo "--- check after the second apply (sala):" >> "$hlog"
+    c2=$(_step_lines "$(CHECK=1 ONLY="repo,$moved" run_steps "$h" "$kind" "$hlog")")
+    f2=$(fold_check "$s2" "$c2")
+    names=",$moved,"
+    SETTLED_STEPS=$({ awk -F'|' -v m="$names" '$1 == "STEP" && !index(m, "," $3 ",")' <<< "$SETTLED_STEPS"; moved_words "$moved" "$steps" "$f2"; })
+    SETTLED_CKS=$({ awk -F'|' -v m="$names" '$1 == "STEP" && !index(m, "," $3 ",")' <<< "$cks"; awk -F'|' -v m="$names" '$1 == "STEP" && index(m, "," $3 ",")' <<< "$c2"; })
+}
 # a manual step's kind, for the terminal lines: "for a session" | "for <the owner>" ("needs you" went away)
 kind_words() { [ "$1" = session ] && echo "for a session" || echo "for ${SALA_OWNER_NAME}"; }
 # check_line <STEP lines> → "N ok · drift: a (…), b · left for <the owner>: c · failed: d" (the check-only report for one box)
@@ -268,7 +302,7 @@ one_host() {
     steps=$(_step_lines "$steps"$'\n'"$cli")
     if [ -n "$ONLY" ]; then   # then the check of the same steps
         echo "--- check after the apply (sala):" >> "$hlog"; cks=$(_step_lines "$(CHECK=1 run_steps "$h" "$kind" "$hlog")")
-        steps=$(fold_check "$steps" "$cks")
+        settle_after "$h" "$kind" "$hlog" "$steps" "$cks"; steps="$SETTLED_STEPS"; cks="$SETTLED_CKS"
     fi
     local smark; IFS=$'\t' read -r smark det <<< "$(steps_det "$steps")"; [ "$smark" = "❌" ] && bad=1
     if [ "$SESSION" = 0 ]; then
@@ -312,7 +346,7 @@ allhosts="$list"
 if [ "$CHECK" = 0 ] && [ "$LOCALRUN" = 1 ]; then   # this box last: its repo fast-forward must not race the copies piped to the others
     me=$(hostname); hlog="$SALA_LOG_DIR/salamander-provision-$me.log"; { echo "=== $(date -Is) salamander provision $me (local)"; } >> "$hlog"
     lsteps=$(run_steps "$me" local "$hlog"); lcks=""
-    if [ -n "$ONLY" ]; then echo "--- check after the apply (sala):" >> "$hlog"; lcks=$(_step_lines "$(CHECK=1 run_steps "$me" local "$hlog")"); lsteps=$(fold_check "$lsteps" "$lcks"); fi
+    if [ -n "$ONLY" ]; then echo "--- check after the apply (sala):" >> "$hlog"; lcks=$(_step_lines "$(CHECK=1 run_steps "$me" local "$hlog")"); settle_after "$me" local "$hlog" "$lsteps" "$lcks"; lsteps="$SETTLED_STEPS"; lcks="$SETTLED_CKS"; fi
     IFS=$'\t' read -r mark det <<< "$(steps_det "$lsteps")"
     line="$me: provisioned — sala: $det$( [ -n "$ONLY" ] && echo " · check after: $(check_line "$lcks")")$( [ ${#HOSTS[@]} -eq 0 ] && [ "$RECYCLE" = 1 ] && echo "; CLI update + recycle next")"; echo "  $line"
     REPORT+=("$line"); POST+=("$mark ${line/: provisioned — /: }")
