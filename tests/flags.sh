@@ -16,13 +16,18 @@
 #      limit), nothing while a flag is open, never twice; the BAD lines the fake writes for a malformed call stay out of its log.
 #   5. THE GATE (fake clock): flags 3 min apart keep gathering, 10 min of silence resets, the 30 min cap resets, an op recycle waits for
 #      nothing, a knob at 0 turns the wait off, one short post per gathering.
+#   6b. CLOSING ONE SHORT: a routine flag (src auto, or the watchdog's CLI update) with N >= 3 closes at N-1 of N when one pane is held:
+#      one ✅ post naming it, the pane on the deferred list, one hook call with it as skipped, the later relaunch leaves the closed flag
+#      alone; an owner's recycle, a plain one, an update from the owner's words, revive, N = 2, a flag that gave a pane up, a pane that
+#      is only resting and the invoking pane stay open as before; the first post does the same. 10e runs it end to end: a retry worker
+#      lets go of the straggler and watch relaunches it from the deferred list.
 #   6. THE REST: the registry's startedAt; a pane started 10 min ago is skipped by a routine recycle and relaunched once its rest is
 #      up, an op recycle skips the rest, a knob at 0 turns it off; the real _set_pane_read on a real pane; two flags and one busy
 #      pane end to end; a lane flag; watch gathering a request behind an unfinished job, then resetting once.
 # Slack stubbed to a file. Isolated HOME, a private tmux socket, the compiled fake claude (tests/fake-claude.c).
 # Usage: bash tests/flags.sh   (exit 0 = pass)
 set -u
-unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_FLAG_SRC
+unset TMUX_PANE XDG_STATE_HOME SALA_SET SALA_SET_SELF SALA_POST_RECYCLE_CMD SALA_RECYCLE SALA_RETRY_WORKER SALA_FLAG_SRC SALA_FLAG_ROUTINE
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/tests/lib.sh"
 export HOME=$(mktemp -d); export SALA_CONFIG=/dev/null SALA_TZ=Etc/UTC
@@ -185,6 +190,66 @@ waitfor '[ "$(hooks)" -ge 1 ]' 20; sleep 1
 : > "$HOOKLOG"; set_recycled "no-such-set" "$RLOG" 1234 a b; waitfor '[ "$(hooks)" -ge 1 ]' 20
 [ "$(hook_with '"flag_at": 1234,')" = 1 ] && [ "$(hook_with '"skipped": \["a", "b"\]')" = 1 ] && nobad && ok "without a set (a sweep that died) the driver's own skipped list stands in, as before" || bad "hooks: $(<"$HOOKLOG")"
 
+echo "== 6b. a routine flag closes one pane short: N-1 of N, the straggler on the deferred list; an owner's flag, N below 3 and the rest do not"
+drow() { awk -F'\t' -v s="$1" -v n="$2" '$1 == s {print $n}' "$SALA_DEFERRED" 2>/dev/null; }   # <session> <column> of its deferred row
+HOLD="busy for 2 h; sala relaunches it once it is free"
+short_case() {   # <id suffix> <total> <done> <src> [extra kv…] — a flag with panes a (just relaunched) and bb (held) outstanding; a is settled
+    local sfx=$1 tot=$2 dn=$3 sv=$4; shift 4
+    reset_sets; : > "$SALA_SIDECAR"; mapped a; mapped bb
+    SS="$((TT-3600))-$sfx"; flag "$SS" "$tot" "$dn" "$sv" out=a out=bb "skip=bb: $HOLD" "$@"; set_point recycle "$SS"
+    pane a live $((TT-30)); pane bb live $((TT-9000))
+    set_resolve "$SS" ok a "a relaunched on 9.9.9, 59 min after the recycle"
+}
+short_case 611 5 3 auto
+[ "$(set_val "$SS" closed)" = 1 ] && [ "$(set_val "$SS" done)/$(set_val "$SS" total)" = 4/5 ] && [ "$(set_count "$SS" out)" = 0 ] && [ "$(set_count "$SS" gave)" = 0 ] && set_vals "$SS" short | grep -q '^bb: ' \
+    && ok "N=5, a routine flag (src auto), 4 back and bb held: the flag closes at 4/5, bb recorded as left behind (short=), nothing given up" || bad "SS: $(<"$SALA_SET_DIR/$SS")"
+[ "$(nposts '4/5 relaunched · set closed')" = 1 ] && [ "$(nposts 'bb still holds')" = 1 ] && [ "$(nposts 'closed at')" = 0 ] && [ "$(nposts 'claude.ai')" = 0 ] \
+    && ok "ONE ✅ post: 4/5 relaunched, set closed, naming bb as still holding (no \"closed at\", no \"check it on claude.ai\")" || bad "posts: $(<"$POSTS")"
+[[ $(post 'bb still holds') == *"sala relaunches it once it is free"* ]] && ok "the post says sala relaunches it once it is free" || bad "post: $(post 'bb still holds')"
+[ "$(grep -c . "$SALA_DEFERRED")" = 1 ] && [ "$(drow bb 6)" = "$SS" ] && [ "$(drow bb 5)" = 0 ] && ok "bb is on the deferred list, one row, its set the closed flag" || bad "deferred: $(<"$SALA_DEFERRED")"
+waitfor '[ "$(hooks)" -ge 1 ]' 20; sleep 1
+[ "$(hooks)" = 1 ] && [ "$(hook_with '"skipped": \["bb"\]')" = 1 ] && [ "$(hook_with "\"flag_at\": $((TT-3600)),")" = 1 ] && nobad && ok "ONE hook call for the flag, bb as skipped" || bad "hook: $(<"$HOOKLOG")"
+: > "$POSTS"; set_resolve "$SS" ok bb "bb relaunched on 9.9.9 once it was free"; set_sync >/dev/null
+[ "$(set_val "$SS" done)" = 4 ] && [ "$(set_val "$SS" closed)" = 1 ] && [ ! -s "$POSTS" ] && [ "$(grep -c . "$SALA_DEFERRED")" = 1 ] && ok "bb back later: the closed flag is not touched (no post), the deferred row stays watch's to settle" || bad "after: $(<"$SALA_SET_DIR/$SS") posts=$(<"$POSTS")"
+sleep 1; [ "$(hooks)" = 1 ] && ok "and no second hook call" || bad "hooks: $(<"$HOOKLOG")"
+
+short_case 612 5 3 update routine=1
+[ "$(set_val "$SS" closed)" = 1 ] && set_vals "$SS" short | grep -q '^bb: ' && ok "the watchdog's CLI update (src update, routine=1) closes one short as well" || bad "SS: $(<"$SALA_SET_DIR/$SS")"
+short_case 613 3 1 auto
+[ "$(set_val "$SS" closed)" = 1 ] && [ "$(nposts '2/3 relaunched · set closed')" = 1 ] && ok "N=3 is the smallest scope: 2/3 closes" || bad "SS: $(<"$SALA_SET_DIR/$SS"); $(<"$POSTS")"
+
+i=0
+for srcv in op-recycle recycle update revive; do
+    i=$((i + 1)); short_case 62$i 5 3 "$srcv"
+    [ "$(set_val "$SS" closed)" = 0 ] && [ "$(set_count "$SS" out)" = 1 ] && _set_out "$SS" bb && [ "$(set_count "$SS" short)" = 0 ] && [ ! -s "$SALA_DEFERRED" ] && [ "$(nposts 'set closed')" = 0 ] && [ "$(nposts '4/5')" = 1 ] \
+        && ok "src $srcv (not routine): 4 of 5 back and bb held: the flag STAYS OPEN, bb outstanding, only the 🔄 post, nothing deferred" || bad "src $srcv: $(<"$SALA_SET_DIR/$SS"); $(<"$POSTS")"
+done
+short_case 631 2 0 auto
+[ "$(set_val "$SS" closed)" = 0 ] && [ "$(set_val "$SS" done)/$(set_val "$SS" total)" = 1/2 ] && _set_out "$SS" bb && [ ! -s "$SALA_DEFERRED" ] && ok "N=2 (one back, one held): stays open as before" || bad "SS: $(<"$SALA_SET_DIR/$SS")"
+short_case 632 5 2 auto "gave=cc: held for 3 h, so this recycle stopped waiting for it"
+[ "$(set_val "$SS" closed)" = 0 ] && _set_out "$SS" bb && ok "a flag that already gave a pane up (3 back, 1 given up, 1 held): stays open, its own rule" || bad "SS: $(<"$SALA_SET_DIR/$SS")"
+short_case 633 5 3 auto "skip=bb: relaunched only 10 min ago (on 9.9.9) — resting until 10:59 UTC; sala relaunches it then (SALA_RECYCLE_REST 30 min)"
+[ "$(set_val "$SS" closed)" = 0 ] && _set_out "$SS" bb && [ ! -s "$SALA_DEFERRED" ] && ok "a straggler that is only resting after a relaunch: stays open (the deferred list applies no rest; the retry worker does)" || bad "SS: $(<"$SALA_SET_DIR/$SS")"
+reset_sets; : > "$SALA_SIDECAR"; mapped a; mapped inv
+SS="$((TT-3600))-634"; flag "$SS" 5 3 auto out=a out=inv; pane a live $((TT-30)); pane inv live $((TT-9000)); set_resolve "$SS" ok a "a relaunched"
+[ "$(set_val "$SS" closed)" = 0 ] && _set_out "$SS" inv && ok "the last pane with no left-behind bullet (the invoking pane, relaunched by its self-worker next): stays open" || bad "SS: $(<"$SALA_SET_DIR/$SS")"
+reset_sets; : > "$SALA_SIDECAR"; mapped a; mapped bb
+printf '%s\t%s\t%s\t%s\t%s\t%s\n' bb "$((TT-5000))" "a turn is running" 0 1 "old-set-1" > "$SALA_DEFERRED"
+SS="$((TT-3600))-635"; flag "$SS" 5 3 auto out=a out=bb "skip=bb: $HOLD"; set_point recycle "$SS"; pane a live $((TT-30)); pane bb live $((TT-9000))
+set_resolve "$SS" ok a "a relaunched"
+[ "$(set_val "$SS" closed)" = 1 ] && [ "$(grep -c . "$SALA_DEFERRED")" = 1 ] && [ "$(drow bb 3)" = "a turn is running" ] && [ "$(drow bb 5)" = 1 ] && [ "$(drow bb 6)" = old-set-1 ] \
+    && ok "a straggler the retry window had deferred already: its row is left exactly as it was (time, why, force, set)" || bad "deferred: $(<"$SALA_DEFERRED")"
+
+reset_sets; : > "$SALA_SIDECAR"; mapped bb
+SS="$((TT-300))-641"; set_create "$SS" Recycle recycle 5 4 9.9.9 0 src=auto fscope=all hook=1 out=bb "skip=bb: registry says 'busy' (a turn is running for 12 min)" force=1
+set_report "$SS"
+[ "$(set_val "$SS" closed)" = 1 ] && [ "$(nposts '4/5 relaunched · set closed')" = 1 ] && [ "$(nposts 'bb still holds')" = 1 ] && [ "$(nposts 'closed at')" = 0 ] && [ "$(drow bb 5)" = 1 ] \
+    && ok "the first post of a routine recycle (4 back, bb busy): one ✅ post, the flag closed, bb deferred with the set's force" || bad "SS: $(<"$SALA_SET_DIR/$SS"); $(<"$POSTS"); $(<"$SALA_DEFERRED")"
+reset_sets; : > "$SALA_SIDECAR"; mapped bb
+SS="$((TT-300))-642"; set_create "$SS" Recycle recycle 5 4 9.9.9 0 src=op-recycle fscope=all hook=1 out=bb "skip=bb: registry says 'busy' (a turn is running for 12 min)"
+set_report "$SS"
+[ "$(set_val "$SS" closed)" = 0 ] && [ "$(nposts '4/5 relaunched')" = 1 ] && [ "$(nposts 'set closed')" = 0 ] && [ ! -s "$SALA_DEFERRED" ] && ok "the first post of an owner's recycle: ⚠️ 4/5, the flag open, nothing deferred (as before)" || bad "SS: $(<"$SALA_SET_DIR/$SS"); $(<"$POSTS")"
+
 echo "== 7. the old-format sets at upgrade: one reconcile, a dry run first"
 reset_sets; : > "$SALA_SIDECAR"; rm -f "$SALA_SET_DIR/.reconciled"
 OLD="$((TT-90000))-701"; ANC="$((TT-200000))-702"; BUSY="$((TT-3000))-703"
@@ -303,6 +368,27 @@ S10d=$(newest_set)
 [ "$(set_val "$S10d" kind)" = Revive ] && [ "$(set_val "$S10d" src)" = lane ] && [ "$(set_val "$S10d" fscope)" = sala-test-re ] && ok "the flag: Revive, src lane, scope that one pane" || bad "set: $(<"$SALA_SET_DIR/$S10d")"
 undraft re; waitfor '[ "$(set_val "$S10d" closed)" = 1 ]' 160 && ok "cleared when that pane relaunched" || bad "set: $(<"$SALA_SET_DIR/$S10d"); $(tail -8 "$RLOG")"
 sleep 1; [ "$(hooks)" = 0 ] && ok "no hook call for a revive flag" || bad "hooks: $(<"$HOOKLOG")"
+wait_lock; waitfor '[ "$(workers)" = 0 ]' 40
+
+echo "== 10e. a routine recycle of three panes, one with unsent text: closes at 2/3, the straggler is deferred, the worker lets go, watch relaunches it once it is free"
+reset_sets; : > "$FAKE_LOG"; rm -f "$HOME"/.claude/sessions/*.json
+$T kill-server 2>/dev/null; sleep 1; tmux_socket_rm; kill_fake_claude "$FAKEBIN"
+RF=$(uuid 47); RG=$(uuid 48); RH=$(uuid 49)
+mk rf "$RF"; mk rg "$RG"; mk rh "$RH"; draft rh; fake_up rf rg rh
+export SALA_RECYCLE_REST=0 SALA_RETRY_EVERY=3 SALA_RETRY_WINDOW=300
+SALA_FLAG_ROUTINE=1 "$SALA" recycle --force >/dev/null 2>&1; wait_lock
+S10e=$(newest_set)
+[ "$(set_val "$S10e" routine)" = 1 ] && [ "$(set_val "$S10e" force)" = 1 ] && ok "the flag record carries routine=1 (from the watchdog's SALA_FLAG_ROUTINE) and the run's --force" || bad "set: $(<"$SALA_SET_DIR/$S10e")"
+waitfor '[ "$(set_val "$S10e" closed)" = 1 ]' 60 && [ "$(set_val "$S10e" done)/$(set_val "$S10e" total)" = 2/3 ] && set_vals "$S10e" short | grep -q '^sala-test-rh' && ok "rf and rg back, rh holding unsent text: the flag closed at 2/3 with rh as the straggler" || bad "set: $(<"$SALA_SET_DIR/$S10e"); $(tail -8 "$RLOG")"
+[ "$(nposts '2/3 relaunched · set closed')" = 1 ] && [ "$(nposts 'closed at')" = 0 ] && ok "one ✅ post for the flag" || bad "posts: $(<"$POSTS")"
+awk -F'\t' '$1 == "sala-test-rh" && $5 == 1 && $6 == "'"$S10e"'" {f=1} END {exit !f}' "$SALA_DEFERRED" && ok "rh is on the deferred list with the run's force, its set the closed flag" || bad "deferred: $(cat "$SALA_DEFERRED" 2>&1)"
+waitfor 'grep -q "closed one short" "$RLOG"' 40 && waitfor '[ "$(workers)" = 0 ]' 40 && ok "the retry worker lets go of rh and ends (it does not try it beside the deferred list)" || bad "worker: $(tail -8 "$RLOG")"
+[ "$(starts "$RH")" = 1 ] && [ "$(starts "$RF")" = 2 ] && [ "$(starts "$RG")" = 2 ] && ok "rf and rg were relaunched, rh was not" || bad "starts: $(starts "$RF") $(starts "$RG") $(starts "$RH")"
+waitfor '[ "$(hooks)" -ge 1 ]' 30; sleep 1
+[ "$(hooks)" = 1 ] && [ "$(hook_with '"skipped": \["sala-test-rh"\]')" = 1 ] && nobad && ok "one hook call, rh as skipped" || bad "hooks: $(<"$HOOKLOG")"
+undraft rh; export SALA_AUTO_RECYCLE=off
+waitfor '"$SALA" watch >/dev/null 2>&1; [ "$(starts "$RH")" = 2 ]' 120 && ok "rh free: watch relaunched it from the deferred list, as before" || bad "rh starts: $(starts "$RH"); $(grep deferred "$HOME/.claude/salamander-watch.log" | tail -4)"
+[ ! -s "$SALA_DEFERRED" ] && [ "$(set_val "$S10e" closed)" = 1 ] && [ "$(set_val "$S10e" done)" = 2 ] && ok "the row is gone, the closed flag untouched" || bad "deferred: $(cat "$SALA_DEFERRED"); set: $(<"$SALA_SET_DIR/$S10e")"
 wait_lock; waitfor '[ "$(workers)" = 0 ]' 40
 
 echo "== 11. watch gathers a request behind an unfinished job, then resets once"

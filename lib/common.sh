@@ -510,7 +510,42 @@ _set_resolve() {
         esac
     done
     [ "$(set_val "$id" reported)" = 1 ] || return 0   # before the first post: its count carries these (set_report)
+    local sb; if sb=$(_set_short_pane "$id"); then _set_short_close "$id" "$sb" ${oks[@]+"${oks[@]}"}; return 0; fi   # a routine flag one pane short of clearing
     _set_close_posts "$id" ${oks[@]+"${oks[@]}"}
+}
+# CLOSING ONE SHORT: a ROUTINE flag (src auto, or a CLI update the watchdog raised: routine=1 in the set) with N panes in scope, N at
+# least 3, closes when exactly one pane is still outstanding and nothing was given up (N-1 of N relaunched): one pane that never goes
+# idle must not hold the flag, its result post, the next flag and the panes' rest open for hours. The straggler goes onto the deferred
+# list, as the retry window's end puts a pane that stays busy (watch relaunches it once it is free and tells it again), and is named
+# in the closing post and, as skipped, in the post-recycle hook. NOT closed one short: a flag from the owner's words (op-recycle, an
+# `sala op update`), revive, lane, model, provision, reboot; N below 3; a flag that already gave a pane up; the invoking pane (no
+# left-behind bullet: its self-worker relaunches it next); a pane resting after a relaunch (the deferred list applies no rest).
+# _set_short_pane <id> → the straggler's bullet "<session>: <why>" when the set closes one short now, else nothing and 1
+_set_short_pane() {
+    local id="$1" N n s b why
+    [ "$(set_val "$id" closed)" != 1 ] && [ "$(set_val "$id" reported)" = 1 ] || return 1
+    case "$(set_val "$id" kind)" in Recycle|Revive) ;; *) return 1;; esac
+    [ "$(set_val "$id" routine)" = 1 ] || [ "$(set_val "$id" src)" = auto ] || return 1
+    N=$(set_val "$id" total); n=$(set_val "$id" done)
+    case "$N$n" in ''|*[!0-9]*) return 1;; esac
+    [ "$N" -ge 3 ] && [ "$n" -eq $((N - 1)) ] && [ "$(set_count "$id" out)" = 1 ] && [ "$(set_count "$id" gave)" = 0 ] || return 1
+    s=$(set_val "$id" out); b=""
+    while IFS= read -r why; do case "$why" in "$s: "*) b="$why";; esac; done < <(set_vals "$id" skip)   # the pane's newest bullet
+    [ -n "$b" ] || return 1
+    case "$b" in *"resting until"*) return 1;; esac
+    printf '%s\n' "$b"
+}
+# _set_short_close <id> <straggler's bullet> [post line…] — under the lock: the straggler leaves out= for short=, the flag closes with
+# its one post (the lines go under the headline, then the straggler's bullet) and its hook call, and the pane joins the deferred list
+# unless a row names it already (that row is left as it is: it keeps its time, its force and its place in the later list's limit).
+_set_short_close() {
+    local id="$1" b="$2" s why; shift 2
+    s="${b%%[: ]*}"; why="${b#"$s"}"; why="${why#:}"; why="${why# }"
+    _set_drop "$id" out "$s"; _set_add "$id" short "$b"; _set_put "$id" closed 1
+    grep -q "^$s"$'\t' "$SALA_DEFERRED" 2>/dev/null || defer_add "$s" "${why:-still busy}" "$(set_val "$id" force)" "$id"
+    _set_cleared_hook "$id"   # once per cleared flag, the straggler as skipped
+    case "$why" in *"sala relaunches it"*) ;; *) why="$why; sala relaunches it once it is free";; esac
+    _set_post "✅ *$(set_val "$id" kind) $(set_val "$id" label) · $(set_val "$id" done)/$(set_val "$id" total) relaunched · set closed*" "$@" "$s still holds, $why"
 }
 # THE BOARD AFTER A LATE RELAUNCH (Mon Oct 12th 2026; reshaped by Wed Oct 28th 2026): the post-recycle hook
 # (below, post_recycle_hook) tells stackshot which panes a recycle left behind, so it keeps their owners' items flagged ("its owner
@@ -532,7 +567,7 @@ _set_cleared_hook() {   # <id> [log] — under the lock, once per flag: started 
     [ "$(set_val "$1" hook)" = 1 ] && [ "$(set_val "$1" hookfired)" != 1 ] || return 0
     _set_put "$1" hookfired 1
     [ "${_SET_QUIET:-0}" != 1 ] || return 0   # the one-time reconcile of old sets: they were reported by the old calls
-    local sk=(); mapfile -t sk < <(set_vals "$1" gave | sed -E 's/^([^: ]*)[: ].*/\1/' | grep .)
+    local sk=(); mapfile -t sk < <({ set_vals "$1" gave; set_vals "$1" short; } | sed -E 's/^([^: ]*)[: ].*/\1/' | grep .)   # given up, or left behind by a close one short
     post_recycle_hook "${2:-$SALA_LOG_DIR/salamander-revive.log}" recycle "$(set_val "$1" t0)" ${sk[@]+"${sk[@]}"}
 }
 # post_group_bullets <"session: reason" bullet…> → the bullets on stdout, panes held for the SAME reason as one line with a count once
@@ -658,6 +693,9 @@ _set_report() {
     local hd n N ver left ng b s bl=() bg=() nt=() it tot
     hd="$(set_val "$id" kind) $(set_val "$id" label)"; n=$(set_val "$id" done); N=$(set_val "$id" total); ver=$(set_val "$id" ver)
     left=$(set_count "$id" out); ng=$(set_count "$id" gave)
+    if [ "$left" -gt 0 ] && b=$(_set_short_pane "$id"); then   # routine, one pane short of clearing: closed at once, the straggler on the deferred list
+        _set_short_close "$id" "$b" "$([ "$n" -gt 0 ] && echo "$(plural "$n" pane) relaunched on $ver")"; return 0
+    fi
     while IFS= read -r b; do
         [ -n "$b" ] || continue; s="${b%%[: ]*}"
         grep -qxF -- "back=$s" "$SALA_SET_DIR/$id" || bl+=("$b")

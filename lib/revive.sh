@@ -166,6 +166,8 @@ retry_worker() {
         for e in "${pending[@]}"; do
             IFS='|' read -r pane sess label oldpid last tries lastwhy <<<"$e"; : "${last:=0}" "${tries:=0}"
             pane_exists "$pane" || { res+=(gave "$sess" "$sess: its pane is gone"); continue; }
+            # the flag closed one short with this pane as the straggler (common.sh, _set_short_close): it is on the deferred list now, watch relaunches it
+            if [ "$(set_val "$SET" closed)" = 1 ] && set_vals "$SET" short | grep -q "^$sess[: ]"; then rlog "$label: the flag closed one short — on the deferred list, watch relaunches it once it is free"; continue; fi
             # listed after this worker started (common.sh, no_relaunch): never relaunched; given up so the set can close
             # a session that went to sleep since: nothing to relaunch, and it no longer counts in the set (not "given up": it is not left behind)
             is_sleeping "$sess" && { res+=(gone "$sess" "$sess is sleeping, so it no longer counts"); rlog "$(sleeping_line "$sess")"; continue; }
@@ -1123,6 +1125,8 @@ if [ -n "$SET" ] && ! set_has "$SET" && { [ "$SET_KIND" = Recycle ] || [ "$START
     done
     for l in ${notes[@]+"${notes[@]}"}; do kv+=("note=$l"); done
     kv+=("src=$(flag_src)" "fscope=${ONLY:-all}")   # the flag (common.sh, "recycle sets"): its source, and its scope - every live pane, or the --only list
+    [ -n "${SALA_FLAG_ROUTINE:-}" ] && kv+=("routine=1")   # raised by the watchdog (an automatic CLI update): may close one pane short (common.sh, _set_short_pane)
+    kv+=("force=$FORCE")   # what the straggler's deferred row carries when the flag closes one short
     kv+=("why=$(relaunch_kind)" "took=$(( $(date +%s) - T0 ))" "timing=check ${D1}s · close ${D2}s · resume ${D3}s")   # why: which relaunch this is, for the waiting flag
     set_create "$SET" "$SET_KIND" "$SET_SCOPE" $(( nback + ${#SKIPPED[@]} + $([ -n "$selfsess" ] && echo 1 || echo 0) )) "$nback" "$CURRENT_VER" "$([ "$SET_KIND" = Revive ] && echo 1 || echo 0)" "${kv[@]}"
     [ "$SET_KIND" = Revive ] && set_point "$SET_SCOPE" "$SET"

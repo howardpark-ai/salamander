@@ -51,6 +51,21 @@ recycles was counted back in only one and the other set stayed open. Now:
   `SALA_RECYCLE_FLAG_AT` are both the flag's `t0`; `SALA_RECYCLE_SKIPPED` names the panes the flag did not get back (none for a
   full clear). A pane that never goes idle cannot hold a flag forever: past `SALA_LATER_LIMIT` (3 h) on the deferred list the flag
   is cleared partly and the hook fires with that pane in skipped.
+- **A routine flag closes one pane short** (`set_resolve` and `set_report` → `_set_short_pane`, `_set_short_close`). One pane that
+  never goes idle (a builder that keeps starting background work) used to hold the whole flag open for hours: its result post,
+  the next flag and the panes' rest waited on it. A ROUTINE flag with exactly one pane outstanding, N (its scope's live panes) of at
+  least 3 and nothing given up, so N-1 of N relaunched, now closes at once: `✅ *Recycle <label> · 4/5 relaunched · set closed*`,
+  with a line `<session> still holds, <why>; sala relaunches it once it is free`. The straggler moves from `out=` to `short=` in the
+  set, goes onto the deferred list (the row the retry window's end writes for a pane that stays busy; a row that names it already
+  is left as it is), and the hook fires with it as skipped. The retry worker stops trying it (`the flag closed one short` in the
+  log), and `watch` relaunches it once it is free and tells it again as for any deferred pane. ROUTINE is `src auto` (the watchdog's
+  auto-recycle) and a CLI update the watchdog raised (`routine=1` in the set, from `SALA_FLAG_ROUTINE=1`, which `watch`'s
+  auto-relaunch and `update --auto` set). Never one short: a recycle or update from the owner's words (`op-recycle`, `sala op
+  update`), a plain `recycle`, revive, lane, model, provision, reboot (they close only when every pane is done); N below 3; a flag
+  that has given a pane up (its "closed at n/N" rule is as before, and so is the 3 h limit for a pane on the list); the invoking pane
+  (its self-worker relaunches it next); a pane that is only resting after a relaunch (the deferred list applies no rest, the retry
+  worker does, so the flag stays open until the rest ends). A pane the retry window already deferred stays as it is: its row is not
+  rewritten, and if it is the last one outstanding the flag closes one short at the next settle or `watch` tick.
 - **One idea of busy** (the recycle's idle check, the in-session mod and `watch` agree on what holds a pane). The mod refuses an exit
   while a turn runs, and a subagent is one: it is no child process of the claude, no task list of the session may show it, and it can
   write nothing for many minutes. So the idle check also reads the subagents' own transcripts
