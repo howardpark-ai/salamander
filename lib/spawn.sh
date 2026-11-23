@@ -573,13 +573,13 @@ spawn_refuse_plain() {  # <why the record did not list it> → the refusal of a 
 # that lane cannot run is launched on SALA_FALLBACK_FABLE_MODEL instead (the front step's swap, which cannot leave a front agent behind), and the note says so.
 BACK_RULE_NOTE=""
 if [ -z "$LANE_OPT" ] && [ -n "$PROJECT" ] && [ "$ROLE" = back ] && [ "$SIDE" = 0 ] && BL_SPAWN=$(back_lane_spawn_lane); then
-    if [[ $MODEL == *fable* ]] && [[ " $SALA_FALLBACK_NO_FABLE " == *" $BL_SPAWN "* ]]; then
+    if model_is_fable "$MODEL" && ! lane_runs_fable "$BL_SPAWN"; then
         BACK_RULE_NOTE="the back agents' lane rule has them on the $(lane_shown "$BL_SPAWN") lane, which cannot run $MODEL: this one takes the default lane"
     else LANE_OPT=$BL_SPAWN; BACK_RULE_NOTE="the back agents' lane rule has them on the $(lane_shown "$BL_SPAWN") lane: this one launches there (--lane overrides)"; fi
 fi
 if [ -z "$LANE_OPT" ] && [ -n "$PROJECT" ] && [ "$ROLE" = front ] && [ "$SIDE" = 0 ] && BL_SPAWN=$(back_lane_front_spawn_lane); then
     LANE_OPT=$BL_SPAWN; BACK_RULE_NOTE="the lane rule's front step is engaged and has the front agents on the $(lane_shown "$BL_SPAWN") lane: this one launches there (--lane overrides)"
-    if [[ $MODEL == *fable* ]] && [[ " $SALA_FALLBACK_NO_FABLE " == *" $BL_SPAWN "* ]]; then
+    if model_is_fable "$MODEL" && ! lane_runs_fable "$BL_SPAWN"; then
         MODEL=$SALA_FALLBACK_FABLE_MODEL; BACK_RULE_NOTE="$BACK_RULE_NOTE; the $(lane_shown "$BL_SPAWN") lane cannot run Fable, so it launches on $MODEL"
     fi
 fi
@@ -596,6 +596,8 @@ else
     # the sdk lane's pane program resumes a conversation; a new one is spawned on subscription-1, then moved (lib/sdk-pane.sh)
     [ "$LANE" = sdk ] && die "the default lane is sdk, which only resumes a conversation — spawn on another default (salamander lane default subscription-1), then: salamander lane sdk $NAME"
 fi
+# THE FABLE RULE (common.sh, lane_runs_model): a Fable model launches only on the Ultra lane; a lane the rules above picked has already swapped it
+lane_runs_model "$LANE" "$MODEL" || die "$(lane_fable_refusal "$LANE"): spawn with --lane ${SALA_FABLE_LANES%% *}, or another model (--model opus)"
 
 [ "$DRY" = 1 ] || ledger_frozen_die spawn   # a recycle or reboot holds the pane map: nothing half-made; a dry run only looks
 tmux has-session -t "=$NAME" 2>/dev/null && die "tmux session '$NAME' already exists"   # '=': exact, not a prefix (demo vs demo-extra)

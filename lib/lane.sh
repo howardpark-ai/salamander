@@ -441,17 +441,29 @@ if [ "$MODE" = default ]; then
     old=$(lane_default)
     [ "$old" = "$LANE" ] && { echo "default lane: $LANE (already)"; exit 0; }
     n=0; for s in $(lane_sessions); do [ -z "$(lane_row "$s")" ] || continue; if lane_is_pinned "$s"; then PINSK+=("$s"); else n=$((n+1)); fi; done   # a pinned session keeps its pin's lane when the default changes
+    # THE FABLE RULE (common.sh, lane_runs_model): a session on Fable that follows the default would take a lane that cannot run it at its next
+    # relaunch; it is put on SALA_FALLBACK_FABLE_MODEL now, as a lane move does (read first: once written it no longer reads as Fable)
+    declare -A CHG=(); FABS=()
+    for s in $(lane_sessions); do
+        [ -z "$(lane_row "$s")" ] && ! lane_is_pinned "$s" || continue
+        if no_relaunch "$s" && ! is_sleeping "$s"; then continue; fi   # managed outside sala (a sleeping session wakes on the default, so it counts)
+        CHG[$s]=$(lane_fallback_model_change "$s" "$LANE"); [ -z "${CHG[$s]}" ] || FABS+=("$s")
+    done
+    fabnote() { local s; for s in ${FABS[@]+"${FABS[@]}"}; do echo "  $s: model ${CHG[$s]%%$'\t'*} → ${CHG[$s]#*$'\t'} ($(lane_fable_refusal "$LANE"))"; done; }
     # --dry-run writes nothing (Wed Oct 14th 2026, a coordinating session: `sala lane default api --dry-run` wrote the default
     # lane — this block never looked at DRY and went straight to lane_set_default)
     if [ "$DRY" = 1 ]; then
         echo "[dry-run] would set the default lane: $LANE (was $old) — $n session(s) without a lane of their own would take it at their next relaunch; nothing recorded"
         for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
+        fabnote
         exit 0
     fi
+    for s in ${FABS[@]+"${FABS[@]}"}; do model_write "$s" "${CHG[$s]#*$'\t'}" || die "could not record the model change for '$s' ($SALA_MODELS): it would relaunch on Fable on a lane that cannot run it — the default is not changed"; done
     lane_set_default "$LANE" || die "could not write the default lane ($SALA_LANE_DEFAULT_FILE)"
     [ "$(lane_home "(default)")" != "$LANE" ] || lane_home_clear "(default)"   # back on the lane the fallback moved it off
     echo "default lane: $LANE (was $old) — $n session(s) without a lane of their own take it at their next relaunch; nothing relaunched now"
     for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
+    fabnote
     echo "  to relaunch them onto it now: salamander lane $LANE <session>…, or salamander lane $LANE --all"
     exit 0
 fi
@@ -477,6 +489,10 @@ fi
 ops_guard lane "${SESS[0]:-all}" $([ "$DRY" = 1 ] && echo --dry-run)   # a fleet operation (common.sh): queued with sala op when a Claude session asks
 ME=""; [ -n "${TMUX_PANE:-}" ] && ME=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
 RESCUEFLAG=""; [ "$RESCUE" = 1 ] && RESCUEFLAG=--rescue   # onto the sweep and the self-worker (lib/revive.sh, THE RESCUE)
+# THE FABLE RULE (common.sh, lane_runs_model): a session on Fable moving to a lane that cannot run it is put on SALA_FALLBACK_FABLE_MODEL first, as the
+# lane fallback does; read now, because once the override is written the session no longer reads as Fable. Moving back restores no model.
+declare -A CHG=()
+for s in ${SESS[@]+"${SESS[@]}"}; do CHG[$s]=$(lane_fallback_model_change "$s" "$LANE"); done
 
 # the plan: who moves (recorded on the lane and running on it already → left alone), the env's names, the own pane
 TODO=(); SAME=(); SELF=0; SLEEPS=()
@@ -505,7 +521,7 @@ for s in ${SESS[@]+"${SESS[@]}"}; do
     rec=$(lane_row "$s"); run=$(running_lane "$s")
     case " ${SAME[*]-} " in *" $s "*) echo "  $s: $LANE, running on it — left alone"; continue;; esac
     case " ${SLEEPS[*]-} " in *" $s "*) echo "  $s: ${rec:-$(lane_default) (the default)} → $LANE — sleeping: recorded only, nothing relaunched (a wake resumes it on $LANE)"; continue;; esac
-    echo "  $s: ${rec:-$(lane_default) (the default)} → $LANE$( [ "$run" != "$LANE" ] && [ "$run" != "-" ] && echo " (runs on $run now)")$( [ "$s" = "$ME" ] && echo " — this command's own pane: relaunched last, once it is idle")"
+    echo "  $s: ${rec:-$(lane_default) (the default)} → $LANE$( [ "$run" != "$LANE" ] && [ "$run" != "-" ] && echo " (runs on $run now)")$( [ "$s" = "$ME" ] && echo " — this command's own pane: relaunched last, once it is idle")$([ -n "${CHG[$s]:-}" ] && echo ", model ${CHG[$s]%%$'\t'*} → ${CHG[$s]#*$'\t'} ($(lane_fable_refusal "$LANE"))")"
 done
 for s in ${OUTSIDE[@]+"${OUTSIDE[@]}"}; do echo "  $(no_relaunch_line "$s") — no lane recorded"; done
 for s in ${PINSK[@]+"${PINSK[@]}"}; do echo "  $(pinned_skip_note "$s")"; done
@@ -524,6 +540,10 @@ fi
 # children (recycle's driver, the direct sweep, the self-worker) inherit fd 9 and keep it until they are done
 recycle_lock "$(lock_who)" 0 || recycle_refuse
 export SALA_RECYCLE_LOCKED=1
+for s in ${SESS[@]+"${SESS[@]}"}; do   # the model change first: no session is ever recorded on a lane that cannot run its model
+    case " ${SAME[*]-} " in *" $s "*) continue;; esac
+    [ -z "${CHG[$s]:-}" ] || model_write "$s" "${CHG[$s]#*$'\t'}" || die "could not record the model change for '$s' ($SALA_MODELS): it would relaunch on Fable on a lane that cannot run it — nothing relaunched"
+done
 for s in ${SESS[@]+"${SESS[@]}"}; do lane_write "$s" "$LANE" || die "could not record the lane for '$s' (see above) — nothing relaunched"; [ "$(lane_home "$s")" != "$LANE" ] || lane_home_clear "$s"; done   # back on the lane the fallback moved it off: the home row goes
 [ "$ALL" = 1 ] && { lane_set_default "$LANE" || die "the sessions are recorded but the default lane could not be written ($SALA_LANE_DEFAULT_FILE) — nothing relaunched"; }
 echo "recorded: ${#SESS[@]} session(s) on the $(lane_shown "$LANE") lane ($SALA_LANES)$([ "$ALL" = 1 ] && echo "; default lane: $LANE")"

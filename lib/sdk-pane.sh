@@ -91,7 +91,7 @@ case "$rc" in
         echo "sala-sdk: the API credit refused this session's turn — on the $FBL lane now$LAST"
         if [ -n "$SESS" ]; then
             lane_write "$SESS" "$FB" || echo "sala-sdk: could not record the lane for '$SESS' (see above); the resume line below is $FBL's for this launch only" >&2
-            # a Fable session cannot run on every fallback (SALA_FALLBACK_NO_FABLE: bedrock): the same model change the lane fallback records
+            # a Fable session cannot run on every fallback (SALA_FABLE_LANES: Ultra only): the same model change the lane fallback records
             CHG=$(lane_fallback_model_change "$SESS" "$FB"); FBMODEL=""
             if [ -n "$CHG" ]; then model_write "$SESS" "${CHG#*$'\t'}" && FBMODEL=" Its model changed from ${CHG%%$'\t'*} to ${CHG#*$'\t'}, which $FBL can run." || echo "sala-sdk: could not record the model change for '$SESS' ($SALA_MODELS): it may resume on a model $FBL cannot run" >&2; fi
             lane_log fallback "$SESS" "sdk → $FB (the credit refused a turn${FBWHY:+; last resort, the table pick is not usable: $FBWHY})${CHG:+; model ${CHG%%$'\t'*} → ${CHG#*$'\t'}}"
