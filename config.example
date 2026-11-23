@@ -249,6 +249,8 @@
                                  #   Empty = that client call, found through SALA_STACKSHOT_CLIENT / SALA_STACKSHOT_DIR. A failure, an empty or unreadable answer or a timeout (SALA_ACTIVITY_TIMEOUT, 30) sleeps nothing
 #SALA_SLEEP_PIN_DIR=             # where the pins stand, one file per project (default: the sleep state folder's name plus .pins, beside it, so a pin survives a reboot); a key's slash is written %2F in the file name (team/alpha = team%2Falpha)
 #SALA_SLEEP_AFTER=3600           # seconds every session of a project must have been idle before it may sleep (also the time a woken session is left alone)
+#SALA_SLEEP_ASKER_WAIT=90        # seconds the queue's runner waits, for a project's sleep the owner asked for in words (`sala op sleep --project KEY --from YOU --words "…"`), for the asking session to end the turn that queued it
+                                 #   (that session is one of the sleepers and sleeps last, once idle); past it the sleep is refused and the session asks again. The words lift the quiet rule and the settle time, nothing else
 #SALA_SLEEP_PER_TICK=1           # projects put to sleep per watch run (0 = none), the quietest first, so a first run does not stop the whole fleet at once
 #SALA_SLEEP_RETRY=1800           # seconds before a project whose sleep was refused or failed is asked again
 #SALA_WAKE_PER_RUN=5             # sleepers woken per watch run for a waiting message line

@@ -240,9 +240,12 @@ wrapup_tick() {
 # for it, a limit or network stop it is sitting on, and a question open on its screen. The session's own kinds are refused first: the
 # Remote Control session, a Remote Control served session, the sdk lane, SALA_NO_RELAUNCH and the shell session, a side session, a front agent (sleep_is_front).
 # With the word `project` (the sleep of an inactive project, below: the project is asked as a whole and decides who sleeps) a front agent is no refusal: front agents sleep
-# with their project; every other check is the same. SALA_SLEEP_AFTER (3600): the settle time, how long the session has been idle. SALA_STACKSHOT_INBOX: the directory of stackshot's inbox (hub/ and msg/ under it; it may be missing).
+# with their project; every other check is the same. SALA_SLEEP_AFTER (3600): the settle time, how long the session has been idle.
+# A sleep the owner asked for in words (`sala op sleep`, lib/sleep.sh THE ASKED SLEEP) waives the settle time: SLEEP_SETTLE_WAIVE holds `all` or the names it is waived for, and those
+# sessions then need only SLEEP_ASKED_SETTLE (3) seconds of idle, so a pane that has just ended its turn is not mistaken for a busy one. A third word, `asker`, asks only what can
+# be known while the asking session is still in the turn that queued the sleep (the static refusals: kind, front agent, no pane, no claude, sdk lane): the plan uses it, the runner asks the whole question once the turn has ended. SALA_STACKSHOT_INBOX: the directory of stackshot's inbox (hub/ and msg/ under it; it may be missing).
 : "${SALA_STACKSHOT_INBOX:=$HOME/.local/state/stackshot/inbox}"
-SLEEP_WHY=""
+SLEEP_WHY=""; SLEEP_SETTLE_WAIVE=""; SLEEP_QUIET_WAIVE=0; SLEEP_ASKER_LATER=""; SLEEP_ASKED_SETTLE=3
 _sleep_no() { SLEEP_WHY=$1; printf '%s\n' "$1"; return 1; }
 # the seams of the two scans that need the watch's own tables: a missing one says "not stopped" (a test replaces either)
 _sleep_limit_stopped() {  # <session> <claude pid> <lane> → 0 when the limit scan finds the pane stopped on a limit
@@ -306,7 +309,7 @@ sys.exit(1)' "$1" "$2" "${cand[@]}" 2>/dev/null; then INBOX_WAIT_KIND=$tw; retur
 }
 _sleep_net_stopped() { local o; o=$(net_stopped_sessions "$1" 2>/dev/null); [ -n "$o" ]; }   # <session> → 0 when its claude is stopped on a network error
 sleep_ready() {
-    local sess="${1:-}" pane ppid pid conv uuid stamp age k v f id lane crons tw st
+    local sess="${1:-}" pane ppid pid conv uuid stamp age k v f id lane crons tw st settle
     SLEEP_WHY=""
     [ -n "$sess" ] || { _sleep_no "no session named"; return 1; }
     tmux has-session -t "=$sess" 2>/dev/null || { _sleep_no "no tmux session '$sess'"; return 1; }
@@ -314,7 +317,7 @@ sleep_ready() {
     [ "$sess" != "${SALA_RC_SESSION:-}" ] || { _sleep_no "the Remote Control session"; return 1; }
     no_relaunch "$sess" && { _sleep_no "managed outside sala (SALA_NO_RELAUNCH or the web UI's shell)"; return 1; }
     side_is "$sess" && { _sleep_no "a side session"; return 1; }
-    if [ "${2:-}" != project ]; then sleep_is_front "$sess" && { _sleep_no "a front agent: the owner talks to it, so it sleeps only as part of its quiet project"; return 1; }; fi
+    if [ "${2:-}" != project ]; then sleep_is_front "$sess" && { _sleep_no "a front agent: the owner talks to it, so it sleeps only with its whole project (sala op sleep --project KEY --from YOU --words \"<the owner's words>\")"; return 1; }; fi
     sleeping_uuid_r uuid "$sess" || { _sleep_no "not in the pane map"; return 1; }
     pane=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_id}' 2>/dev/null | head -1)
     ppid=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_pid}' 2>/dev/null | head -1)
@@ -325,9 +328,12 @@ sleep_ready() {
     _proc_lane_r lane "$pid"
     [ "$lane" != sdk ] || { _sleep_no "on the sdk lane"; return 1; }
     registry_conv_r conv "$pid"; [ -n "$conv" ] && [ "$conv" != null ] || { _sleep_no "no conversation id in its registry row"; return 1; }
+    [ "${3:-}" != asker ] || return 0   # the asking session, still in its turn: the plan's question ends here
     registry_field_r stamp "$pid" statusUpdatedAt
     if [[ ${stamp:0:10} =~ ^[0-9]{10}$ ]]; then _stamp_age_r age "$stamp"; else _sleep_no "no idle time in its registry row"; return 1; fi
-    [ "$age" -ge "${SALA_SLEEP_AFTER:-3600}" ] || { _sleep_no "idle for $((age / 60)) min, not yet ${SALA_SLEEP_AFTER:-3600} s"; return 1; }
+    settle=${SALA_SLEEP_AFTER:-3600}
+    case " ${SLEEP_SETTLE_WAIVE:-} " in *" all "*|*" $sess "*) settle=$SLEEP_ASKED_SETTLE;; esac
+    [ "$age" -ge "$settle" ] || { _sleep_no "idle for $((age / 60)) min, not yet $settle s"; return 1; }
     if ! wrap_ready "$sess" "$pane" "$pid" "$conv" "$age" clear; then _sleep_no "${WRAP_WHY:-not idle}"; return 1; fi
     # a scheduled job: the Stop hook's record of its last turn (a cron dies with the conversation's process)
     _kv_first_r crons "$SALA_BUSY_DIR/$conv" crons
@@ -540,16 +546,24 @@ sleep_project_check() {
     if sleep_pin_r pin "$key"; then
         SP_STATE=pinned; t=${pin#*$'\t'}; [ "$t" != "$pin" ] || t=""
         if [ -n "$t" ]; then SP_WHY="pinned ($t): it never sleeps on its own (sala sleep --unpin $key lifts it)"; else SP_WHY="pinned: it never sleeps on its own (sala sleep --unpin $key lifts it)"; fi
+        [ "${SLEEP_QUIET_WAIVE:-0}" != 1 ] || SP_WHY="${SP_WHY%)}; the owner's words do not lift a pin: unpin it first)"
         return 1
     fi
     if [ "$SP_NMEM" -gt 0 ] && [ "$SP_NSLEEP" = "$SP_NMEM" ]; then SP_STATE=sleeping; SP_WHY="already asleep"; return 1; fi
     if [ "$SP_NMEM" = 0 ]; then SP_WHY="no session of it runs here"; return 1; fi
     if [ -n "${SLEEP_ACT_WHY:-}" ] || ! declare -p SLEEP_ACT >/dev/null 2>&1; then SP_WHY="no reading of its activity: ${SLEEP_ACT_WHY:-the activity source was not asked}, so nothing sleeps"; return 1; fi
-    if [ "$SP_AAGE" -ge 0 ] && [ "$SP_AAGE" -lt "$q" ]; then sleep_ago_r t "$SP_AAGE"; SP_WHY="not quiet: an external anchor notice $t ago (it needs $((q / 3600)) h of quiet)"; return 1; fi
-    if [ "$SP_OAGE" -ge 0 ] && [ "$SP_OAGE" -lt "$q" ]; then sleep_ago_r t "$SP_OAGE"; SP_WHY="not quiet: input from its owner $t ago (it needs $((q / 3600)) h of quiet)"; return 1; fi
+    # THE ASKED SLEEP (lib/sleep.sh): with the owner's words (SLEEP_QUIET_WAIVE=1) the quiet rule does not apply, and neither does the settle time (SLEEP_SETTLE_WAIVE=all); the activity reading above still has to be there
+    if [ "${SLEEP_QUIET_WAIVE:-0}" != 1 ]; then
+        if [ "$SP_AAGE" -ge 0 ] && [ "$SP_AAGE" -lt "$q" ]; then sleep_ago_r t "$SP_AAGE"; SP_WHY="not quiet: an external anchor notice $t ago (it needs $((q / 3600)) h of quiet)"; return 1; fi
+        if [ "$SP_OAGE" -ge 0 ] && [ "$SP_OAGE" -lt "$q" ]; then sleep_ago_r t "$SP_OAGE"; SP_WHY="not quiet: input from its owner $t ago (it needs $((q / 3600)) h of quiet)"; return 1; fi
+    fi
     for n in "${SP_LIVE[@]}"; do
+        if [ -n "${SLEEP_ASKER_LATER:-}" ] && [ "$n" = "$SLEEP_ASKER_LATER" ]; then   # the asking session, still in its turn (the plan): only what is true of it now
+            sleep_ready "$n" project asker >/dev/null || { SP_WHY="$n: $SLEEP_WHY"; return 1; }
+            continue
+        fi
         sleep_ready "$n" project >/dev/null || { SP_WHY="$n: $SLEEP_WHY"; return 1; }
-        if sleeping_uuid_r uuid "$n" && sleeping_woke_age_r w "$uuid" && [ "$w" -lt "${SALA_SLEEP_AFTER:-3600}" ]; then SP_WHY="$n: woken $((w / 60)) min ago, left alone for $((${SALA_SLEEP_AFTER:-3600} / 60)) min"; return 1; fi
+        if [ "${SLEEP_SETTLE_WAIVE:-}" != all ] && sleeping_uuid_r uuid "$n" && sleeping_woke_age_r w "$uuid" && [ "$w" -lt "${SALA_SLEEP_AFTER:-3600}" ]; then SP_WHY="$n: woken $((w / 60)) min ago, left alone for $((${SALA_SLEEP_AFTER:-3600} / 60)) min"; return 1; fi
     done
     [ "${#SP_LIVE[@]}" -gt 0 ] || { SP_WHY="no session of it runs a claude"; return 1; }
     return 0
