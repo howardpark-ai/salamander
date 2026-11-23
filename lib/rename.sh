@@ -30,6 +30,10 @@
 #      carries previous_name + renamed_at, which is how stackshot learns "uuid X was OLD, is now NEW"
 # The registry's own "tmux" field keeps the old session name until that claude restarts (the CLI writes it at start);
 # lookups that matter resolve through the pane id or the process tree, not that name.
+# A SLEEPING session (common.sh, THE SLEEPING SESSIONS) is renamed without waking it: no claude is asked or typed into, and the records that carry its name follow (the
+# pane-map row, the sleeping marker's name text, the lane and model rows, open notes). When its tmux session is gone too (a move to another host, a reboot that did not
+# bring it back) the rename is those records alone: no tmux session is made (a wake makes one) and the rename's own plan and verify never ask tmux about it. Any session
+# that is not sleeping and has no tmux session is refused as before.
 
 usage="usage: salamander rename OLD NEW [--dry-run]   ·   salamander rename --sync"
 
@@ -113,9 +117,17 @@ case "$NEW" in *[!A-Za-z0-9_-]*) die "invalid name '$NEW' (letters, digits, '-' 
 [ "$NEW" = "$SALA_RC_SESSION" ] && die "'$NEW' is the Remote Control server's name"
 is_shell_session "$NEW" && die "'$NEW' is the web UI's shell session (SALA_SHELL_SESSION) — a Claude session cannot take its name; pick another name"
 [ "$OLD" = "$SALA_RC_SESSION" ] && die "'$OLD' is the Remote Control server — its name is SALA_RC_SESSION in the config"
-tmux has-session -t "=$OLD" 2>/dev/null || die "no tmux session '$OLD'"
+# A SLEEPING session (common.sh, THE SLEEPING SESSIONS) may have lost its tmux session (a move to another host, a reboot that did not bring it back): its pane-map
+# row and its marker are all there is of it, and the rename is those records alone. NOTMUX=1: no tmux session is made (a wake recreates one, a rename does not
+# wake) and nothing below asks tmux about OLD. Only a sleeper whose pane-map row is under OLD itself takes this path; any other session with no tmux session is refused as before.
+SLEEPR=0; is_sleeping "$OLD" && SLEEPR=1
+NOTMUX=0
+if ! tmux has-session -t "=$OLD" 2>/dev/null; then
+    if [ "$SLEEPR" = 1 ] && [ -n "$(ledger_row "$OLD")" ]; then NOTMUX=1; else die "no tmux session '$OLD'"; fi
+fi
 tmux has-session -t "=$NEW" 2>/dev/null && die "a tmux session '$NEW' already exists"
-pane=$(tmux list-panes -t "$(tmux_win_t "$OLD")" -F '#{pane_id}' | head -1)
+[ "$NOTMUX" = 0 ] || [ -z "$(ledger_row "$NEW")" ] || die "'$NEW' is already in the pane map, so '$OLD' cannot take its name"
+pane=""; [ "$NOTMUX" = 1 ] || pane=$(tmux list-panes -t "$(tmux_win_t "$OLD")" -F '#{pane_id}' | head -1)
 # THE SPAWN WINDOW (Tue Oct 27th 2026): a spawn writes the row on its way out, after the pane is up with a running
 # claude, so a fresh session renaming itself at once found no row and was refused for good. A session that is a spawn in flight is
 # waited for (SALA_RENAME_MAP_WAIT seconds, default 60, 0 = no wait; polled every 2 s): its row lands, or the same refusal follows. The
@@ -138,6 +150,7 @@ spawn_is_side() {  # <session> → 0 when the spawn is a side one: the in-flight
 }
 mapwait=${SALA_RENAME_MAP_WAIT:-60}; [ "${SALA_RENAME_SYNC:-}" != 1 ] || mapwait=0
 case "$mapwait" in ''|*[!0-9]*) mapwait=60;; esac
+[ "$NOTMUX" = 0 ] || mapwait=0   # a sleeper with no tmux session is no spawn in flight: nothing to wait for
 waitleft=$mapwait
 spawn_wait() {  # <what it waits for> <ready command…> → 0 once the command holds; waits (shared budget) only while a spawn of OLD is in flight
     local what="$1"; shift
@@ -190,7 +203,6 @@ have_uuid() { have_claude && uuid=$(registry_field "$cpid" sessionId) && [ -n "$
 have_row() { [ -n "$(ledger_row "$OLD")" ] || [ -n "$(ledger_uuid_rows "$uuid")" ]; }
 # A SLEEPING session (common.sh, THE SLEEPING SESSIONS) has no claude to ask and none to type /rename into: its conversation id is the pane map's,
 # and the rename is sala's own records alone (the tmux session, the map row, the lane and model rows, the notes, the marker's name). No /exit, no wait.
-SLEEPR=0; is_sleeping "$OLD" && SLEEPR=1
 cpid=""; bridge=""; uuid=""
 if [ "$SLEEPR" = 1 ]; then
     uuid=$(sidecar_uuid_for_session "$OLD"); [ -n "$uuid" ] || die "'$OLD' is sleeping, but its pane-map row has no conversation id"
@@ -228,7 +240,8 @@ status_known() { local st; registry_field_r st "$cpid" status; [ -n "$st" ]; }  
 
 if [ "$DRY" = 1 ]; then
     echo "[dry-run] '$OLD' → '$NEW'  (conversation ${uuid:0:8}…, claude.ai ${bridge:-no bridge})"
-    if [ "$SLEEPR" = 1 ]; then echo "  sleeping: no claude is running, so nothing is typed and no /exit is needed; sala's records follow the new name (the sleeping marker too)"
+    if [ "$NOTMUX" = 1 ]; then echo "  sleeping, and its tmux session is gone: no claude is running, so nothing is typed, no /exit is needed and no tmux session is made (a wake makes one); sala's records follow the new name (the sleeping marker too), and it stays asleep"
+    elif [ "$SLEEPR" = 1 ]; then echo "  sleeping: no claude is running, so nothing is typed and no /exit is needed; sala's records follow the new name (the sleeping marker too)"
     elif [ "$SELF" = 1 ]; then echo "  a direct run inside this pane, which cannot type into itself: nothing typed; ${cur:+session name now '$cur'}${cur:+ — }/rename $NEW has to be typed in the pane by hand if it is not '$NEW' yet (a queued \`sala op rename $OLD $NEW\` types it from outside once the pane is idle)"
     else echo "  type /rename $NEW (pane now: ${cur:-unnamed}; $(if status_known; then why=$(is_idle_reason "$cpid"); echo "${why:-idle}"; else echo "status unknown, not busy: it would go ahead as for an idle pane"; fi))"; fi
     if [ "$RL" = 1 ]; then
@@ -241,7 +254,7 @@ if [ "$DRY" = 1 ]; then
         sdtag=""; [ "$SDL" = 1 ] && sdtag=", the row tagged $RL_HUB / front"
         echo "  the side record of '$OLD' ends (moved to $SALA_SIDE_DIR/retired/, its registry row's side fields cleared$sdtag): '$NEW' is an ordinary session from then on, so the write-up (sala side done, the summary to $(side_val "$OLD" summary_to)) is no longer owed"
     fi
-    echo "  tmux session, pane map, open notes; then a heartbeat"
+    if [ "$NOTMUX" = 1 ]; then echo "  pane map, lane and model rows, open notes; then a heartbeat"; else echo "  tmux session, pane map, open notes; then a heartbeat"; fi
     exit 0
 fi
 
@@ -301,10 +314,10 @@ if [ "$cur" != "$NEW" ]; then
 fi
 
 # ── 3. sala's records
-tmux rename-session -t "=$OLD" "$NEW" || die "tmux would not rename '$OLD' (the session name is '$cur' now) — rename the tmux session by hand"
+if [ "$NOTMUX" = 0 ]; then tmux rename-session -t "=$OLD" "$NEW" || die "tmux would not rename '$OLD' (the session name is '$cur' now) — rename the tmux session by hand"; fi
 # the map row: an honored rename (the map is a ledger — common.sh); a session the map lacks was refused above
 if [ "$SLEEPR" = 1 ]; then rcwd=$(ledger_row "$OLD" | cut -f4); else rcwd=$(registry_field "$cpid" cwd); fi
-[ -n "$rcwd" ] && [ "$rcwd" != null ] || rcwd=$(tmux display -p -t "$pane" '#{pane_current_path}')
+[ -n "$rcwd" ] && [ "$rcwd" != null ] || { [ "$NOTMUX" = 1 ] || rcwd=$(tmux display -p -t "$pane" '#{pane_current_path}'); }
 ledger_write rename "$OLD" "$NEW" "$uuid" "$rcwd" || echo "⚠ the pane map did not take the rename (see above)"
 [ "$SLEEPR" = 0 ] || sleeping_rename "$uuid" "$NEW"   # the marker is keyed by the conversation, so it stands; only its name text follows (common.sh)
 lane_rename "$OLD" "$NEW" || echo "⚠ the lane table did not take the rename: '$NEW' launches on the default lane until \`sala lane <lane> $NEW\` (common.sh, lanes)"   # its lane row follows
@@ -330,7 +343,12 @@ python3 -c 'import json,sys,time; print(json.dumps({"uuid":sys.argv[1],"from":sy
 
 # ── verify
 ok=1; if [ "$SLEEPR" = 1 ]; then nb=$bridge; else nb=$(registry_field "$cpid" bridgeSessionId); fi; [ "$nb" = null ] && nb=""
-tmux has-session -t "=$NEW" 2>/dev/null || { ok=0; echo "⚠ no tmux session '$NEW' after the rename"; }
+if [ "$NOTMUX" = 1 ]; then   # no tmux session was there and none was made: the sleeper is bound under NEW alone, still marked, and OLD resolves to nothing
+    ! tmux has-session -t "=$NEW" 2>/dev/null || { ok=0; echo "⚠ a tmux session '$NEW' appeared during the rename"; }
+    [ -z "$(ledger_row "$OLD")" ] || { ok=0; echo "⚠ the pane map still has a row for '$OLD'"; }
+    is_sleeping "$NEW" || { ok=0; echo "⚠ '$NEW' is not marked sleeping after the rename"; }
+    ! is_sleeping "$OLD" || { ok=0; echo "⚠ '$OLD' still resolves to the sleeping marker"; }
+else tmux has-session -t "=$NEW" 2>/dev/null || { ok=0; echo "⚠ no tmux session '$NEW' after the rename"; }; fi
 [ "$(sidecar_uuid_for_session "$NEW")" = "$uuid" ] || { ok=0; echo "⚠ the pane map does not bind '$NEW' to its conversation"; }
 [ "$nb" = "$bridge" ] || echo "⚠ the claude.ai link changed (${bridge:-none} → ${nb:-none})"
 fs=$(python3 -c 'import json,sys,glob,os

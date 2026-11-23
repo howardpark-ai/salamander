@@ -847,7 +847,7 @@ op_shape() {
         [ $# -eq 2 ] || { op_bad "rename takes exactly OLD NEW"; return 1; }
         op_session_ok "$1" && op_session_ok "$2" || return 1
         OP_RUN=(rename "$1" "$2"); OP_PLAN=("${OP_RUN[@]}" --dry-run); OP_TARGETS="$1 $2"
-        # PARALLEL: yes, both names are tmux session names (rename takes no other)
+        # PARALLEL: yes, both names are session names, as tmux and the pane map know them (a sleeper whose tmux session is gone has its map row alone)
         OP_PAR=par ;;
     lane)
         [ $# -ge 2 ] || { op_bad "lane takes <lane> <session>…, <lane> --all, default <lane>, or fallback <lane>"; return 1; }
@@ -1524,7 +1524,10 @@ op_verify() {  # <id> → 0 when the operation's effect can be seen (or cannot b
         retire) [ "${a[0]:-}" = --id ] || { if tmux has-session -t "=${a[0]:-}" 2>/dev/null; then OP_VERIFY_WHY="'${a[0]}' is still a tmux session"; return 1; fi; } ;;
         close-shell) if tmux has-session -t "=${a[0]:-}" 2>/dev/null; then OP_VERIFY_WHY="'${a[0]}' is still a tmux session"; return 1; fi ;;
         forget-row) if [ -n "$(ledger_row "${a[0]:-}")" ]; then OP_VERIFY_WHY="the pane map still holds a row for '${a[0]}'"; return 1; fi ;;
-        rename) tmux has-session -t "=${a[1]:-}" 2>/dev/null || { OP_VERIFY_WHY="no tmux session '${a[1]:-}'"; return 1; }
+        rename) if tmux has-session -t "=${a[1]:-}" 2>/dev/null; then :
+                elif is_sleeping "${a[1]:-}" && [ -n "$(ledger_row "${a[1]:-}")" ]; then   # a sleeper whose tmux session is gone is renamed in its records alone (lib/rename.sh): no session is made, so the pane map carries the new name, still marked, and none carries the old
+                    [ -z "$(ledger_row "${a[0]:-}")" ] || { OP_VERIFY_WHY="the pane map still holds a row for '${a[0]:-}'"; return 1; }
+                else OP_VERIFY_WHY="no tmux session '${a[1]:-}'"; return 1; fi
                 tmux has-session -t "=${a[0]:-}" 2>/dev/null && { OP_VERIFY_WHY="'${a[0]}' is still a tmux session"; return 1; } ;;
         lane) local _vl; _lane_norm_r _vl "${a[1]:-}"; [ "${a[0]:-}" = default ] && [ "$(lane_default)" != "$_vl" ] && { OP_VERIFY_WHY="the default lane is $(lane_default), not $_vl"; return 1; } ;;
         model) local _vm _vs _vi _vx
