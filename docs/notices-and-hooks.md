@@ -35,6 +35,16 @@ the first 512 bytes of the hook input with the shell's own `read` and compares `
 deliver`), once. A notice is text any process of this user can write into every session's context, so it carries its sender and
 `--from` is required; `tests/notice.sh` covers it.
 
+## Drain mode: a waiting session starts nothing new
+`salamander hook pre-tool` (PreToolUse, matcher `Bash|Agent|Task|Monitor`; `install.sh` says when the matcher is missing one) is the second half of the
+relaunch-waiting line `post-tool` tells a session once (*Recycle*, `docs/recycle.md`, "Drain mode"). While the flag under `waiting/<session id>` stands, the
+session's own turn may not start work that outlives the turn: a background subagent (Agent or Task, `run_in_background` true), a Monitor, a Bash call with
+`run_in_background` true. The hook answers `permissionDecision: deny` with a reason naming the way out (finish the turn, leave `sala note "<next step>"`, `sala ready` as
+the last call; the refusal ends when the relaunch is done), logs one line to `salamander-drain.log` (time, tool, session; never the command), and lets everything else
+through. A call that carries `agent_id` belongs to a subagent and is never denied. It reads the tool name from the first bytes of its input and stats the flag before anything
+else: with nothing waiting, a call of another tool costs the glob test and nothing more, and any failure or doubt allows. `SALA_DRAIN=off` in the config turns it
+off (default on); `SALA_DRAIN_DENY_TEXT` words the reason. `tests/drain.sh` covers it.
+
 ## Hooks out
 - **`SALA_POST_UPDATE_CMD`** runs after every CLI update attempt — `recycle --update`, `update --fleet`, `provision` —
   whether or not a version moved. sala exports the touched hosts as `SALA_UPDATE_HOSTS` (and `SALA_UPDATE_HOST` when

@@ -187,6 +187,9 @@ Edit `~/.claude/settings.json`. Read it first. Keep every existing key. Add thes
     "UserPromptSubmit": [
       {"hooks": [{"type": "command", "command": "~/.local/bin/salamander hook prompt"}]}
     ],
+    "PreToolUse": [
+      {"matcher": "Bash|Agent|Task|Monitor", "hooks": [{"type": "command", "command": "~/.local/bin/salamander hook pre-tool"}]}
+    ],
     "SubagentStop": [
       {"matcher": "*", "hooks": [{"type": "command", "command": "~/.local/bin/salamander hook subagent-stop"}]}
     ],

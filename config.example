@@ -186,6 +186,11 @@
 #SALA_RELAUNCH_WAITING_TEXT=      # the line `salamander hook post-tool` gives a session a relaunch waits for, once per relaunch; <what> becomes
                                  #   the relaunch's kind: recycle · reboot of <host> · CLI update relaunch · provision relaunch · automatic relaunch.
                                  #   Default: the owner's wording, in lib/common.sh
+#SALA_DRAIN=on                   # drain mode (`salamander hook pre-tool`; docs/recycle.md): while a relaunch waits for a session, the session's OWN turn may not start a
+                                 #   background subagent (Agent/Task with run_in_background), a Monitor or a background Bash call: each is refused (never asked) with the way out in
+                                 #   the reason. A call inside a subagent is never refused. Needs the hook in settings.json (PreToolUse, matcher "Bash|Agent|Task|Monitor"). Each refusal is
+                                 #   one line in ~/.claude/salamander-drain.log (time, tool, session; never the call). off or 0 = nothing is refused, and the waiting line asks instead
+#SALA_DRAIN_DENY_TEXT=          # the reason a refused call gets; <call> becomes a background subagent / a monitor / a background shell command, <what> the relaunch's kind (as above)
 #SALA_BOOT_GRACE=900             # watch: post-boot report waits this long after boot for revive's summary …
 #SALA_BOOT_DEADLINE=1800         # … and this long for a clean reboot's boot half
 #SALA_MISSING_CHECK=on           # watch: a pane-map row whose tmux session is gone is posted once (naming `sala restore --missing`); off: never

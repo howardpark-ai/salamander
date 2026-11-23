@@ -77,6 +77,19 @@ recycles was counted back in only one and the other set stayed open. Now:
   waiting and when it resets). A pane relaunched less than `SALA_RECYCLE_REST` (30 min) ago is not relaunched again for a routine
   flag until its rest ends. `sala op recycle` (the owner's words) skips both waits; revive, lane and model flags are not gated. A
   knob at `0` turns that wait off.
+- **Drain mode** (a pane a relaunch waits for starts nothing new): a builder that starts a background subagent or a monitor every few minutes
+  never reaches a turn end with nothing in flight, and a recycle waited on it for hours. While a relaunch waits for a session (its flag
+  under `waiting/`, the file the waiting line is raised from), the session's **own** turn may not start work that outlives the turn: a
+  background subagent (the Agent or Task tool with `run_in_background` true), a Monitor, a Bash call with `run_in_background` true. The PreToolUse hook (`salamander hook pre-tool`, matcher
+  `Bash|Agent|Task|Monitor`) **denies** them (never asks) with a reason that says what to do: finish this turn without starting it, leave
+  `sala note "<next step>"` for anything that must continue after the relaunch, run `sala ready` as the turn's last call, and that the refusal ends when the
+  relaunch is done. Everything else stays allowed: foreground work, `sala note`, `sala ready`, TaskStop, Bash without `run_in_background`, a foreground
+  subagent. A call made inside a subagent (its hook input carries `agent_id`) is the subagent's own and is never denied. The check allows on any doubt (an
+  unreadable input, a session id that is not an id, a failing helper). The waiting line the session is told once (`SALA_RELAUNCH_WAITING_TEXT`) says that a new
+  background subagent, monitor or background shell is refused until the relaunch. `SALA_DRAIN=off` in the config turns it off with no code change (the waiting line
+  then asks again instead of saying it is refused); `SALA_DRAIN_DENY_TEXT` is the reason's wording. Each refusal is one line in `~/.claude/salamander-drain.log`: the time, the tool,
+  the session and the relaunch's kind, never the call's text. It needs the PreToolUse entry in `settings.json` (`install.sh` says when it is missing); the
+  cost with nothing waiting is one glob test. A background subagent whose definition itself says it runs in the background, with no `run_in_background` in the call, is not seen by it.
 - **Two guards** (the watchdog's auto-recycle, for a board flag and a `--when-idle` request alike; each skip is one line in
   `salamander-watch.log`, `auto-recycle: skipped …`). *The change is not live*: a flag that names its change (`--change REF` on a
   request, `~REF` after a board flag's id) is not served while that change is missing from the production checkout's HEAD, whether

@@ -93,6 +93,9 @@ sala needs a few entries in `~/.claude/settings.json`. Add them to the file if i
     "UserPromptSubmit": [
       {"hooks": [{"type": "command", "command": "~/.local/bin/salamander hook prompt"}]}
     ],
+    "PreToolUse": [
+      {"matcher": "Bash|Agent|Task|Monitor", "hooks": [{"type": "command", "command": "~/.local/bin/salamander hook pre-tool"}]}
+    ],
     "SubagentStop": [
       {"matcher": "*", "hooks": [{"type": "command", "command": "~/.local/bin/salamander hook subagent-stop"}]}
     ],
@@ -107,7 +110,7 @@ What each part is for:
 
 - `feedbackDrafts` and `feedbackSurveyRate` keep Claude Code from opening a prompt that only a terminal can answer. A session nobody is watching would hang on it.
 - `permissions.allow` lets sala commands run without a prompt each time. A Claude session cannot add these rules to its own settings, so you add them once yourself.
-- The hooks tell sala when a turn ends, so its busy check is exact, and clean up after subagents. The `UserPromptSubmit` entry lets `sala notice` reach a session at its next prompt (it reaches it at the next tool call without it). The `SessionStart` entry saves the tmux layout.
+- The hooks tell sala when a turn ends, so its busy check is exact, and clean up after subagents. The `PreToolUse` entry is drain mode (`docs/recycle.md`): it refuses a new background subagent, monitor or background shell to a session a relaunch is waiting for, and it also keeps a session from rebooting or updating the fleet outside sala. The `UserPromptSubmit` entry lets `sala notice` reach a session at its next prompt (it reaches it at the next tool call without it). The `SessionStart` entry saves the tmux layout.
 
 Run `~/salamander/install.sh` again. Good result: no `settings.json` warning is left.
 

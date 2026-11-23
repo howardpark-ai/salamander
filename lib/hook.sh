@@ -11,7 +11,10 @@
 #                               notices not shown to this session yet (`sala notice`, lib/notice.sh), in the same block
 #   salamander hook prompt      UserPromptSubmit hook (matcher none; "Telling every session something" in docs/notices-and-hooks.md): the notices
 #                               not shown to this session yet, as additionalContext, at its next prompt; nothing else
-#   salamander hook pre-tool    PreToolUse hook (matcher "Bash"): deny a command that would relaunch or update the fleet
+#   salamander hook pre-tool    PreToolUse hook (matcher "Bash|Agent|Task|Monitor"): (1) DRAIN MODE: while a relaunch waits for this session,
+#                               deny a new background subagent, Monitor or background Bash call of its own turn (a subagent's own calls, carrying
+#                               agent_id, never; SALA_DRAIN=off in the config disables it; the reason says how to leave the work and relaunch);
+#                               (2) deny a Bash command that would relaunch or update the fleet
 #                               outside sala — reboot, a CLI update, tmux kill-* on the fleet's server or a window/pane put into another session, kill/pkill of a claude
 #                               process — with the fix (`sala op …`) in the reason (lib/guard.py)
 #   salamander hook notify [--dry-run]   Notification hook (matcher "permission_prompt|elicitation_dialog|elicitation_url_dialog"):
@@ -86,12 +89,58 @@ _row_check() {
     return 0
 }
 
+# DRAIN MODE's refusal (`pre-tool`, below): <session id> <tool name> <what the call is> → prints the deny JSON and logs it, or prints nothing (allow).
+# Runs only on a call that would be refused, so sourcing common.sh here (the config, SALA_DRAIN, the text) costs nothing on the ordinary path.
+# The log, $SALA_LOG_DIR/salamander-drain.log, gets one line per refusal: the time, the session, the tool and the relaunch's kind, never the call's text.
+_drain_deny() {
+    . "$SALA_ROOT/lib/common.sh" >/dev/null 2>&1 || return 0
+    case "${SALA_DRAIN:-on}" in 0|off|no|false) return 0;; esac
+    waiting_for "$1" || return 0                                       # the flag went down since the glob test: the relaunch is done
+    local _what _t; _what=$(waiting_what "$1"); [ -n "$_what" ] || _what=recycle
+    _t="${SALA_DRAIN_DENY_TEXT//<what>/$_what}"; _t="${_t//<call>/$3}"
+    printf '[%s] drain: refused %s (%s) for session %s; a %s waits for it\n' "$(date +%Y-%m-%dT%H:%M:%S%z)" "$2" "$3" "$1" "$_what" >> "$SALA_LOG_DIR/salamander-drain.log" 2>/dev/null || :
+    _t="${_t//\\/\\\\}"; _t="${_t//\"/\\\"}"; _t="${_t//$'\n'/\\n}"; _t="${_t//$'\t'/\\t}"; _t="${_t//$'\r'/}"
+    printf '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "%s"}}\n' "$_t"
+}
+
 case "${1:-}" in
     pre-tool)
-        # runs before every Bash call of every session: a command naming none of the guarded words costs one cat and a
-        # regex, no python. On a word, guard.py decides (lib/guard.py has the rules); any failure there allows (fail open).
+        # runs before every Bash call of every session, and (since DRAIN MODE, below) before every Agent, Task and Monitor call.
+        # 1. DRAIN MODE: while a relaunch waits for this session (its flag under waiting/), the session's OWN turn may not start work that outlives the
+        #    turn: a background subagent (Agent or Task with run_in_background true), a Monitor, a Bash call with run_in_background true. Denied
+        #    (never ask) with the way out in the reason (SALA_DRAIN_DENY_TEXT); a call carrying agent_id is a subagent's own and is never denied; SALA_DRAIN=off
+        #    in the config turns it off. COST: with nothing waiting, one glob test; a call of another tool than Bash, Agent, Task or Monitor is let through
+        #    after the first bytes. Any doubt allows: an unreadable input, a session id that is no id, a failing helper never denies a call.
+        # 2. THE FLEET GUARD (Bash only): a command naming none of the guarded words costs one regex, no python. On a word, guard.py decides
+        #    (lib/guard.py has the rules); any failure there allows (fail open).
         [ -t 0 ] && { echo "salamander hook pre-tool reads the PreToolUse hook input on stdin (a settings.json hook)" >&2; exit 2; }
-        _in=$(cat) || exit 0
+        _wd="${XDG_STATE_HOME:-$HOME/.local/state}/salamander/waiting"; _wait=""
+        set -- "$_wd"/*; [ -e "$1" ] && _wait=1
+        _in=""; IFS= read -r -N 512 _in || true                          # the tool name leads the JSON (after the ids and the path): the first bytes tell it
+        _re='"tool_name"[[:space:]]*:[[:space:]]*"([^"]+)"'
+        if ! [[ $_in =~ $_re ]]; then IFS= read -r -N 3584 _more || true; _in="$_in${_more:-}"; fi
+        _tool=Bash; [[ $_in =~ $_re ]] && _tool="${BASH_REMATCH[1]}"      # no name at all: a Bash call, as guard.py reads it
+        case "$_tool" in Bash) ;; Agent|Task|Monitor) [ -n "$_wait" ] || exit 0;; *) exit 0;; esac
+        _more=""; IFS= read -r -d '' _more || true; _in="$_in$_more"       # the rest, by the shell (no cat)
+        if [ -n "$_wait" ]; then
+            _re='"session_id"[[:space:]]*:[[:space:]]*"([0-9A-Za-z_-]{8,64})"'; _sid=""; [[ $_in =~ $_re ]] && _sid="${BASH_REMATCH[1]}"
+            _call=""
+            if [ -n "$_sid" ] && [ -e "$_wd/$_sid" ]; then
+                _re='"run_in_background"[[:space:]]*:[[:space:]]*true'
+                case "$_tool" in
+                    Monitor) _call="a monitor" ;;
+                    Agent|Task) [[ $_in =~ $_re ]] && _call="a background subagent" ;;
+                    Bash) [[ $_in =~ $_re ]] && _call="a background shell command" ;;
+                esac
+                _re='"agent_id"[[:space:]]*:'
+                [[ $_in =~ $_re ]] && _call=""                           # a call inside a subagent is the subagent's own, never the session's
+            fi
+            if [ -n "$_call" ]; then
+                _out=$( ( _drain_deny "$_sid" "$_tool" "$_call" ) 2>/dev/null ) || _out=""
+                [ "${_out:0:1}" = "{" ] && { printf '%s\n' "$_out"; exit 0; }
+            fi
+        fi
+        [ "$_tool" = Bash ] || exit 0
         _re='reboot|shutdown|kexec|kill|telinit|init[^[:alnum:]_]|update|upgrade|install|claude-code|tmux'
         [[ $_in =~ $_re ]] || exit 0
         _cfg="${SALA_CONFIG:-$HOME/.config/salamander/config}"
