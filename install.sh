@@ -82,6 +82,16 @@ sys.exit(0 if any('hook subagent-stop' in c.get('command','') for x in h.get('Su
 ⚠ subagent cleanup hook missing — add to ~/.claude/settings.json "hooks" (the spec item registers it; SALA_SUBAGENT_CLEANUP=off disables it):
    "SubagentStop": [{"matcher": "*", "hooks": [{"type": "command", "command": "~/.local/bin/salamander hook subagent-stop"}]}]
 HOOKS
+# Drain mode (lib/hook.sh, docs/recycle.md): PreToolUse → `salamander hook pre-tool` with a matcher that names Bash, Agent (Task on older CLIs) and Monitor,
+# so a session a relaunch waits for cannot start new background work. A pre-tool entry with only "Bash" still guards the fleet but not drain mode.
+python3 -c "
+import json,os,sys; h=json.load(open(os.path.expanduser('~/.claude/settings.json'),encoding='utf-8')).get('hooks',{})
+def ok(x): m=x.get('matcher','').split('|'); return all(t in m for t in ('Bash','Agent','Monitor')) and any('hook pre-tool' in c.get('command','') for c in x.get('hooks',[]))
+sys.exit(0 if any(ok(x) for x in h.get('PreToolUse',[])) else 1)" 2>/dev/null \
+  || cat <<'HOOKS'
+⚠ drain-mode hook missing — add to ~/.claude/settings.json "hooks" (the spec item registers it; SALA_DRAIN=off in the config disables the check; without the entry a session a relaunch waits for can still start background work):
+   "PreToolUse": [{"matcher": "Bash|Agent|Task|Monitor", "hooks": [{"type": "command", "command": "~/.local/bin/salamander hook pre-tool"}]}]
+HOOKS
 cat <<TXT
 ✅ salamander → $BIN/salamander  (alias: sala)
    config: $CFG
