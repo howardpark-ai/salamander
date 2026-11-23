@@ -541,6 +541,9 @@ details.notice { background: transparent; }
 .msg.local.failed .bubble { outline: 1px solid var(--error); }
 .msg.local .note { font-size: 12px; color: var(--faint); margin-top: 4px; }
 .msg.local .note.err { color: var(--error); max-width: 85%; text-align: right; overflow-wrap: anywhere; }
+.msg.local .box-text { margin: 4px 0 0; max-width: 85%; max-height: 8em; overflow: auto; padding: 4px 8px; font: inherit; font-size: 12px;
+  white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; color: var(--text); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; }
 .note-actions { display: flex; gap: 8px; margin-top: 4px; }
 .note-actions button { font-size: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
   padding: 2px 8px; cursor: pointer; }

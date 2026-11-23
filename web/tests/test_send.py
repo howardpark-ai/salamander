@@ -6,8 +6,10 @@ receives to a file, so the test sees exactly what sala-web typed.
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -272,3 +274,132 @@ def test_bang_text_in_a_prompt_box_is_left_alone(tmux_env):
     assert r.status_code == 200, r.text
     want = "\x1b[200~!ls\x1b[201~\n"
     assert _received(tmux_env, want) == want
+
+
+# --- Replace, against a real tmux and a stand-in whose input box edits like Claude Code's (measured on 2.1.330) -------------------
+# The stand-in holds a draft (DRAFT, the cursor at CURSOR or the end), turns on bracketed paste, redraws its box after every key
+# and records what Enter submits. Ctrl+U deletes to the start of the cursor's line (at a line's start, the newline before it),
+# End goes to the end of the line, Delete removes the character after the cursor.
+FAKE_EDIT = r"""
+import json, os, sys, tty
+out, text = sys.argv[1], os.environ.get("DRAFT", "")
+cur = int(os.environ["CURSOR"]) if os.environ.get("CURSOR") else len(text)
+fd = sys.stdin.fileno()
+tty.setraw(fd)
+def draw():
+    rule = "─" * 40
+    body = ("❯ " + text.replace("\n", "\r\n  ")) if text else '❯ \x1b[2mTry "something"\x1b[0m'
+    sys.stdout.write("\x1b[H\x1b[2J" + "old output\r\n" + rule + "\r\n" + body + "\r\n" + rule + "\r\n")
+    sys.stdout.flush()
+sys.stdout.write("\x1b[?2004h")
+draw()
+buf = b""
+paste = None
+while True:
+    chunk = os.read(fd, 4096)
+    if not chunk:
+        break
+    buf += chunk
+    while buf:
+        if paste is not None:
+            end = buf.find(b"\x1b[201~")
+            if end < 0:
+                paste += buf; buf = b""; break
+            paste += buf[:end]; buf = buf[end + 6:]
+            ins = paste.decode().replace("\r", "\n")
+            text, cur, paste = text[:cur] + ins + text[cur:], cur + len(ins), None
+            continue
+        if buf.startswith(b"\x1b[200~"):
+            paste, buf = b"", buf[6:]
+        elif buf[:1] == b"\x1b":
+            m = next((s for s in (b"\x1b[F", b"\x1bOF", b"\x1b[4~", b"\x1b[8~") if buf.startswith(s)), None)
+            if m:
+                e = text.find("\n", cur); cur = len(text) if e < 0 else e
+                buf = buf[len(m):]
+            elif buf.startswith(b"\x1b[3~"):
+                text = text[:cur] + text[cur + 1:]; buf = buf[4:]
+            elif len(buf) < 4:
+                break
+            else:
+                buf = buf[1:]
+        elif buf[:1] == b"\x15":
+            start = text.rfind("\n", 0, cur) + 1
+            if cur > start:
+                text, cur = text[:start] + text[cur:], start
+            elif cur > 0:
+                text, cur = text[:cur - 1] + text[cur:], cur - 1
+            buf = buf[1:]
+        elif buf[:1] == b"\r":
+            with open(out, "a") as f:
+                f.write(json.dumps(text) + "\n")
+            text, cur, buf = "", 0, buf[1:]
+        else:
+            buf = buf[1:]
+    draw()
+"""
+
+
+@pytest.fixture
+def edit_env(tmp_path):
+    sock = f"salaweb-pytest-edit-{os.getpid()}"
+    script = tmp_path / "fake_edit.py"
+    script.write_text(FAKE_EDIT)
+    out = tmp_path / "submitted.txt"
+    base = ["tmux", "-L", sock, "-f", "/dev/null"]
+
+    def start(draft, cursor=None):
+        env = f"DRAFT={shlex.quote(draft)}" + (f" CURSOR={cursor}" if cursor is not None else "")
+        cmd = f"env {env} {shlex.quote(sys.executable)} {shlex.quote(str(script))} {shlex.quote(str(out))}"
+        subprocess.run(base + ["new-session", "-d", "-s", "fake", "-x", "120", "-y", "20", cmd], check=True)
+        info = subprocess.run(base + ["display-message", "-p", "-t", "fake", "#{pane_id} #{pane_pid}"],
+                              check=True, capture_output=True, text=True).stdout.split()
+        pane, pid = info[0], int(info[1])
+        for _ in range(50):
+            cap = subprocess.run(base + ["capture-pane", "-p", "-t", pane], capture_output=True, text=True).stdout
+            if "❯" in cap:
+                break
+            time.sleep(0.1)
+        claude = tmp_path / "claude"
+        (claude / "sessions").mkdir(parents=True)
+        (claude / "projects").mkdir()
+        settings = Settings(socket=tmp_path / "s.sock", state_dir=tmp_path / "state", claude_dir=claude,
+                            tmux_socket_name=sock, roles_cmd=["false"])
+        made = {"base": base, "pane": pane, "pid": pid, "out": out, "settings": settings, "claude": claude}
+        register(made, pid, pane)
+        return TestClient(create_app(settings)), made
+
+    try:
+        yield start
+    finally:
+        subprocess.run(base + ["kill-server"], capture_output=True)
+        (Path(os.environ.get("TMUX_TMPDIR") or "/tmp") / f"tmux-{os.getuid()}" / sock).unlink(missing_ok=True)
+
+
+def _submitted(env):
+    for _ in range(30):
+        if env["out"].exists() and env["out"].read_text():
+            break
+        time.sleep(0.1)
+    return [json.loads(ln) for ln in env["out"].read_text().splitlines()] if env["out"].exists() else []
+
+
+@pytest.mark.parametrize("draft,cursor", [("left over", None), ("one\ntwo\nthree", None), ("alpha beta\ngamma", 3), ("alpha\nbeta", 0)],
+                         ids=["one-line", "three-lines", "cursor-inside", "cursor-at-start"])
+def test_replace_clears_what_the_owner_left_and_sends_only_the_message(edit_env, draft, cursor):
+    client, env = edit_env(draft, cursor)
+    url = f"/api/s/{env['pid']}/send"
+    r = client.post(url, json={"text": "new message"})
+    assert r.status_code == 409 and r.json()["boxText"] == draft, r.text
+    r = client.post(url, json={"text": "new message", "replace": r.json()["boxText"]})
+    assert r.status_code == 200, r.text
+    assert _submitted(env) == ["new message"]  # nothing of the draft went with it
+
+
+def test_replace_refuses_a_box_that_changed_since_the_page_saw_it(edit_env):
+    client, env = edit_env("what is there now")
+    r = client.post(f"/api/s/{env['pid']}/send", json={"text": "new message", "replace": "what the page saw"})
+    assert r.status_code == 409 and r.json()["boxText"] == "what is there now" and r.json()["boxChanged"] is True
+    time.sleep(0.3)
+    assert not env["out"].exists()
+    cap = subprocess.run(env["base"] + ["capture-pane", "-p", "-t", env["pane"]], capture_output=True, text=True).stdout
+    assert "what is there now" in cap  # the box was left as it was

@@ -2,7 +2,7 @@
 
 Endpoints (all read-only except /api/upload, PUT /api/prefs and POST /api/read, which write to the state dir, /api/s/<pid>/send, whose
 only write to tmux is a paste plus Enter into that session's own pane, or one digit or Escape answering a numbered dialog
-open there, POST /api/s/<pid>/stop, whose only write to tmux is Escape (and Ctrl-C) into that session's pane while a `!`
+open there, or, when the request carries the text it saw in the pane's input box, Ctrl+U (End, Delete) emptying that box first, POST /api/s/<pid>/stop, whose only write to tmux is Escape (and Ctrl-C) into that session's pane while a `!`
 command runs there, and POST /api/spawn, which queues a new session through sala's operation queue, `sala op spawn`, and makes
 none itself):
 
@@ -1243,6 +1243,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
         names = body.get("uploads") or []
         if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
             return _err(400, "bad upload names")
+        replace = body.get("replace")
+        if replace is not None and not isinstance(replace, str):
+            return _err(400, "replace must be the text the page saw in the input box")
         paths = [upload_path(n) for n in names]
         if any(p is None for p in paths):
             return _err(400, "bad upload names")
@@ -1265,7 +1268,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 return _duplicate()
             try:
                 resp, answered = await _send_locked(s, pane, text, paths, prev[2] if repeat else None,
-                                                    body.get("retry") is True)
+                                                    body.get("retry") is True, replace)
                 if resp.status_code == 200:
                     last_sent[pane] = (sig, time.monotonic(), answered)
                 return resp
@@ -1275,11 +1278,37 @@ def create_app(settings: Settings | None = None) -> Starlette:
     def _duplicate() -> Response:
         return JSONResponse({"ok": False, "duplicate": True, "error": "already sent a moment ago"}, status_code=409)
 
+    def _box_refused(box_text: str, hidden: tuple[bool, bool], changed: bool = False, why: str | None = None) -> Response:
+        """The 409 for a box that holds text: the text itself rides along (boxText), which is what the page shows and what its
+        Replace sends back as `replace`; boxHidden says lines are out of view, boxChanged that the text was not the one the
+        request saw."""
+        return JSONResponse({"ok": False, "error": why or "pane input box is not empty; nothing sent", "boxText": T.shown_text(box_text),
+                             "boxHidden": any(hidden), "boxChanged": changed}, status_code=409)
+
+    async def _replace_box(pane: str, captured: str, box_text: str, replace: str) -> Response | None:
+        """The box holds text and the request asks to replace it: clear it only when it still reads exactly what the page
+        saw, else refuse with what it reads now. None when it was cleared (the caller reads the pane again); a response when
+        not, with nothing typed."""
+        if T.shown_text(box_text) != replace:
+            return _box_refused(box_text, T.box_hidden(captured), changed=True,
+                                why="the pane input box changed since it was shown; nothing cleared or sent")
+        ok, why = await T.clear_box(settings, pane)
+        if ok:
+            return None
+        fresh = await T.capture(settings, pane)
+        state, now = T.input_box(fresh)
+        if state == "text":
+            return _box_refused(now, T.box_hidden(fresh), changed=T.shown_text(now) != replace, why=f"{why}; nothing typed")
+        return _err(409, f"{why}; nothing typed")
+
     async def _send_locked(s: S.Session, pane: str, text: str, paths: list[Path],
-                           answered_before: str | None, retry: bool = False) -> tuple[Response, str | None]:
+                           answered_before: str | None, retry: bool = False,
+                           replace: str | None = None) -> tuple[Response, str | None]:
         """Paste and submit, or answer the dialog the pane shows. Returns the response and, for a dialog answer,
         the dialog's text (what a repeat of the same answer is compared with). retry is the page's Retry of a message
-        that failed: when the pane's box already holds that very message, it is submitted as it stands, not pasted again."""
+        that failed: when the pane's box already holds that very message, it is submitted as it stands, not pasted again.
+        replace is the text the page saw in a box it was refused for: the box is emptied first, but only while it still
+        reads exactly that (a box the owner has changed since is refused again with its new text, nothing typed)."""
         try:
             ppid = await T.pane_pid(settings, pane)
         except T.TmuxError as e:
@@ -1292,13 +1321,22 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return await _answer_dialog(pane, captured, text, paths, answered_before)
         if answered_before is not None:
             return _duplicate(), None  # the dialog this answered is gone: a copy now would be typed as a prompt
+        hidden = T.box_hidden(captured)
+        if state == "text" and replace is not None and not (retry and not paths and T.retry_matches(box_text, text, *hidden)):
+            refused = await _replace_box(pane, captured, box_text, replace)
+            if refused is not None:
+                return refused, None
+            captured = await T.capture(settings, pane)  # read the emptied box afresh: its shell mode may have changed
+            state, box_text = T.input_box(captured)
+            retry, hidden = False, T.box_hidden(captured)
+            if state == "missing":
+                return _err(409, "the input box disappeared after it was cleared; nothing typed"), None
         if T.shell_mode(captured) and text.lstrip().startswith(T.SHELL):
             # the box is already in shell mode (it starts with "!"): the command's own "!" would be a second one
             text = text.lstrip()[len(T.SHELL):]
             if not text.strip() and not paths:
                 return _err(400, "nothing to send after the ! the pane's shell mode already has"), None
-        return await _paste_and_submit(pane, state, text, paths, box_text if retry else None,
-                                       T.box_hidden(captured)), None
+        return await _paste_and_submit(pane, state, text, paths, box_text if retry else None, hidden, box_text), None
 
     async def _answer_dialog(pane: str, captured: str, text: str, paths: list[Path],
                              answered_before: str | None) -> tuple[Response, str | None]:
@@ -1321,7 +1359,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def _paste_and_submit(pane: str, state: str, text: str, paths: list[Path],
                                 retry_box: str | None = None,
-                                retry_hidden: tuple[bool, bool] = (False, False)) -> Response:
+                                retry_hidden: tuple[bool, bool] = (False, False), box_text: str = "") -> Response:
         if state == "text":
             # a Retry of a message whose paste landed but whose Enter did not (or whose box read "missing" while it
             # scrolled): the box holds that message (all of it, or the part its rules say is hidden), so press Enter.
@@ -1330,7 +1368,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 await T.send_enter(settings, pane)
                 return JSONResponse({"ok": True, "imagesPasted": 0, "imagesAttached": 0, "filesPasted": 0,
                                      "resubmitted": True})
-            return _err(409, "pane input box is not empty; nothing sent")
+            return _box_refused(box_text, retry_hidden)
         attached = 0
         # the pane turns a pasted image path into an attachment chip, which is what is counted; any other file's path
         # stays text (stored images are flat in uploads/, other files one folder down)

@@ -3188,8 +3188,20 @@ function pendingNode(p) {
   else if (p.status === "sent" && p.late) box.append(el("div", { class: "note", text: tl("app.pend.late") }));
   else if (p.status === "queued") box.append(el("div", { class: "note", text: tl("app.pend.queued") }));
   else if (p.status === "failed") {
-    box.append(el("div", { class: "note err", text: tl("app.pend.notSent", { error: p.error }) }),
+    // the pane's input box holds text the owner left there: the 409 carried it, it is shown, and Replace sends this message after
+    // clearing the box (the server clears it only while it still reads exactly this text)
+    const held = typeof p.boxText === "string";
+    if (held) {
+      box.append(el("div", { class: "note err", text: tl(p.boxChanged ? "app.pend.boxChanged" : "app.pend.boxHas") }),
+        el("pre", { class: "box-text", text: p.boxText }),
+        ...(p.boxHidden ? [el("div", { class: "note", text: tl("app.pend.boxMore") })] : []));
+    } else {
+      box.append(el("div", { class: "note err", text: tl("app.pend.notSent", { error: p.error }) }));
+    }
+    box.append(
       el("div", { class: "note-actions" },
+        ...(held ? [el("button", { type: "button", class: "replace-btn", text: tl("app.pend.replace"), title: tl("app.pend.replaceTip"),
+                                   onclick: () => replacePending(p) })] : []),
         // no Retry for a shell command: the failed request may have reached the pane, and a second send would run it twice
         ...(isBang(p.text) ? [] : [el("button", { type: "button", text: tl("app.pend.retry"), onclick: () => retryPending(p) })]),
         el("button", { type: "button", text: tl("app.pend.edit"), onclick: () => editPending(p) })));
@@ -3203,17 +3215,25 @@ function redrawPending(p) {
   p.node = n;
 }
 
-async function deliver(p, retry = false) {
+async function deliver(p, retry = false, replace = null) {
   const s = state.byName.get(p.session);
   state.sending = true; refreshSendButton();
+  delete p.boxText; delete p.boxChanged; delete p.boxHidden;
   try {
     if (!s) throw new Error(tl("app.pend.notLive"));
     const r = await fetch(`api/s/${s.pid}/send`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      // retry: this is the bubble's Retry, so a box that already holds this very message is submitted, not pasted again
-      body: JSON.stringify({ text: p.text, uploads: p.images.map((im) => im.name), ...(retry ? { retry: true } : {}) }),
+      // retry: this is the bubble's Retry, so a box that already holds this very message is submitted, not pasted again.
+      // replace: the text the box held when the send was refused, which the page showed; the server clears the box only
+      // while it still reads exactly that
+      body: JSON.stringify({ text: p.text, uploads: p.images.map((im) => im.name), ...(retry ? { retry: true } : {}),
+                             ...(replace !== null ? { replace } : {}) }),
     });
     const d = await r.json().catch(() => ({}));
+    if (r.status === 409 && typeof d.boxText === "string") {  // text in the pane's box: show it, and offer Replace
+      p.boxText = d.boxText; p.boxChanged = d.boxChanged === true; p.boxHidden = d.boxHidden === true;
+      throw new Error(d.error || r.statusText);
+    }
     if (r.status === 409 && d.duplicate) {  // the server already pasted this exact message moments ago: drop the copy
       p.merged = true; clearTimeout(p.timer); state.pending = state.pending.filter((x) => x !== p);
       if (p.node) p.node.remove();
@@ -3248,6 +3268,13 @@ function retryPending(p) {
   p.status = "sending"; p.sentAt = Date.now(); redrawPending(p);
   pinToBottom();
   deliver(p, true);
+}
+function replacePending(p) {
+  if (state.sending || typeof p.boxText !== "string") return;
+  const seen = p.boxText;
+  p.status = "sending"; p.sentAt = Date.now(); redrawPending(p);
+  pinToBottom();
+  deliver(p, false, seen);
 }
 function editPending(p) {
   dropPending(p, { keepImages: true });
