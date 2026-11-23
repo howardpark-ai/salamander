@@ -2,7 +2,7 @@
 # Sleeping sessions, stage 2 (lib/sleep.sh, lib/wake.sh, lib/op.sh): the verbs that put an idle session to sleep and wake it, and their way through the operation
 # queue. `sala sleep NAME` ends the claude of a session that sleep_ready (lib/wrapup.sh) passes (idle, nothing in flight, never a front agent), keeps its tmux
 # session and pane-map row and writes the marker; `sala wake NAME` takes the marker off and resumes the row's conversation by its uuid through revive. Nothing
-# sleeps on its own: the watch tick is a later stage. What is checked, on a private tmux server with the compiled fake claude:
+# sleeps on its own here: the watch's tick is stage 5 (tests/sleeptick.sh). What is checked, on a private tmux server with the compiled fake claude:
 #  - sleep refuses, with one line saying why and nothing changed (claude still running, no marker): a session not idle for SALA_SLEEP_AFTER, a front agent, the
 #    session the command runs in, a session already asleep; --dry-run says the same as "[dry-run] would refuse: ..." and changes nothing;
 #  - sleep of a ready session ends its claude, keeps the tmux session and the pane-map row byte for byte, writes the marker and `sleep --list` shows it;

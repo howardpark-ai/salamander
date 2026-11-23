@@ -4776,3 +4776,26 @@ where one is installed, the sidebar marks the sleeper `sleeping` with its time i
 with the time, and opening a sleeper asks the wake once, follows the queued operation, shows a failure with a retry button and stops following once the
 session is awake. Not checked: stackshot reading the key and waking a session on a message (stage 4), the watch tick that sleeps an idle session (stage 5)
 and a real wake end to end from the page (a real sala, a real claude).
+
+### Sleep stage 5: the watch's sleep passes (Mon Nov 23rd 2026)
+
+New `tests/sleeptick.sh`; `tests/sleepshow.sh` follows the contract text (version 52, the changelog line for 51 and for 52, none later). Stage 5 adds `sleep_tick`,
+which puts idle sessions to sleep from the watch, **off by default** (`SALA_IDLE_SLEEP=on|1|yes|true` turns it on; the live configs do not set it), and `wake_tick`,
+which is always on and wakes a sleeper that has a stackshot message line waiting. Both run `sala sleep NAME` / `sala wake NAME` as the CLI, as the watch runs
+`revive --only`, so the verbs' refusals and re-checks apply; `sleep_candidates` (`lib/wrapup.sh`) is the one list the tick, `sala sleep --candidates` and
+`watch --sleep --dry-run` share, and `inbox_line_waiting` is the one predicate for a message line that `sleep_ready` and `wake_tick` share. A wake writes a wake stamp
+(`$SALA_SLEEP_DIR.woke/<conversation uuid>`) that keeps the tick off the session for `SALA_SLEEP_AFTER`. `tests/sleeptick.sh` runs on a private tmux socket with the
+compiled fake claude and an isolated, locked and removed HOME. Checked: `sala config` prints `SALA_IDLE_SLEEP` (`off`), `SALA_SLEEP_AFTER` and `SALA_SLEEP_PER_TICK` and
+the values set; `config.example` documents the knob; with the tick off (unset, `off`, garbage) a full tick and `watch --sleep` write no marker, end no claude and log no
+`sleep:` line; `sleep --candidates` and `watch --sleep --dry-run` (on and off) print the same list (five ready sessions, the longest idle first, the first three
+marked as the next run's and the rest as waiting; a front agent, a session idle only a minute, one with a scheduled job, one with no pane-map row and one woken lately are
+not on it), say so when the tick is off, follow `SALA_SLEEP_PER_TICK`, refuse a name beside `--candidates`, and change nothing; with the tick on, `SALA_SLEEP_PER_TICK=0`
+sleeps nothing, a full tick sleeps exactly the first three (marker, claude ended, tmux session and pane-map row byte for byte, one `sleep: put NAME to sleep` line each),
+the next run the other two, the skipped sessions keep running, and the candidates were exactly the sleepers; a woken session is not a candidate and not slept again
+(its registry row still reads idle: the fake keeps its idle age across a resume), and is a candidate again, and slept, once its stamp is older than `SALA_SLEEP_AFTER`; the
+marker folder holds markers only; the wake tick with the idle tick off wakes the sleepers with a line in `hub/` or `msg/` (one with a held key too), each once on its own
+conversation, not past `SALA_WAKE_PER_RUN` (the rest on the next run), not a sleeper with no line, not for a notice, not a session that is not asleep, one
+`wake: woke NAME — inbox line waiting` line each, `watch --wake --dry-run` changes nothing, the inbox files byte for byte as before, and with the idle tick on the three
+just woken are not slept again. Not checked: a real fleet's first run with the tick on (the dry run is how an owner looks first); the sleeper staying asleep across a
+reboot is stage 1's (`tests/sleeping.sh`: no revive, restore or heal brings it back); stackshot writing the message line (its own side); a real claude's registry
+row after a resume (the stamp makes the tick independent of it).

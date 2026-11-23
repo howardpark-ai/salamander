@@ -3,6 +3,7 @@
 #
 #   salamander sleep NAME… [--dry-run]     the named sessions (exact tmux session names)
 #   salamander sleep --list                the sleeping sessions, with the time each went to sleep
+#   salamander sleep --candidates          the sessions the watch's idle sleep tick would put to sleep (SALA_IDLE_SLEEP=on), whether it is on or off; changes nothing
 #
 # WHEN A SESSION MAY SLEEP: sleep_ready (lib/wrapup.sh) says so. It is idle (the registry row says idle and has said so for SALA_SLEEP_AFTER seconds, 3600 by
 # default), holds no background command, task or subagent, has no dialog showing and nothing typed in its input box, and has nothing a sleep would lose: no
@@ -20,19 +21,30 @@
 # THE QUEUE: a session asks with `sala op sleep --only NAME… (--item board#N | --why "<reason>") --from YOU` (lib/op.sh); the queue's runner, a
 # sala-op-<id> unit, passes ops_guard like every queued verb. Run raw from a Claude session this verb is refused and points there.
 #
+# THE WATCH: with SALA_IDLE_SLEEP=on (off by default) the watch's sleep_tick (lib/wrapup.sh) runs this verb itself for the sessions sleep_ready accepts, at most
+# SALA_SLEEP_PER_TICK (3) per run, longest idle first, never one woken less than SALA_SLEEP_AFTER ago; --candidates prints that list. The watch's wake_tick (always on) runs
+# `sala wake` for a sleeper with a stackshot message line waiting.
+#
 # --dry-run: nothing is typed, marked or changed; the same refusals as the real run, as "[dry-run] would refuse: …" (exit 1), and for a session that may sleep
 # what the run would do. Read-only, so it passes the guard from a Claude session like every verb's dry run.
 
-usage="usage: salamander sleep NAME… [--dry-run] | --list
-  puts idle sessions to sleep: their claude ends, their tmux session and pane-map row stay; salamander wake NAME resumes one"
+usage="usage: salamander sleep NAME… [--dry-run] | --list | --candidates
+  puts idle sessions to sleep: their claude ends, their tmux session and pane-map row stay; salamander wake NAME resumes one
+  --candidates: the sessions the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) would put to sleep; changes nothing"
 . "$SALA_ROOT/lib/wrapup.sh"
-NAMES=(); DRY=0; DRYFLAG=""; LIST=0
+NAMES=(); DRY=0; DRYFLAG=""; LIST=0; CAND=0
 for a in "$@"; do case "$a" in
-    --dry-run) DRY=1; DRYFLAG=--dry-run ;; --list) LIST=1 ;; -h|--help) echo "$usage"; exit 0 ;;
+    --dry-run) DRY=1; DRYFLAG=--dry-run ;; --list) LIST=1 ;; --candidates) CAND=1 ;; -h|--help) echo "$usage"; exit 0 ;;
     -*) die "unknown option: $a
 $usage" ;;
     *) NAMES+=("$a") ;;
 esac; done
+if [ "$CAND" = 1 ]; then
+    [ ${#NAMES[@]} -eq 0 ] && [ "$LIST" = 0 ] || die "--candidates takes nothing else
+$usage"
+    sleep_report
+    exit 0
+fi
 if [ "$LIST" = 1 ]; then
     [ ${#NAMES[@]} -eq 0 ] && [ "$DRY" = 0 ] || die "--list takes nothing else
 $usage"

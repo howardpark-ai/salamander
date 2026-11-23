@@ -231,7 +231,7 @@ wrapup_tick() {
     ( flock -n 8 || exit 0; wrapup_locked ) 8>>"$SALA_LOG_DIR/salamander-wrapup.lock"
 }
 
-# ── SLEEP_READY (the verdict `sala sleep` asks, lib/sleep.sh; no watch tick asks it yet) ─────────────────────────────────────────────────
+# ── SLEEP_READY (the verdict `sala sleep` asks, lib/sleep.sh, and the idle sleep tick of the watch, sleep_tick below) ─────────────────────────────────────────────────
 # sleep_ready <tmux session> → 0 when the session may go to sleep now (common.sh, THE SLEEPING SESSIONS); else 1 with the FIRST refusing reason
 # as one short text in SLEEP_WHY and on stdout. It reuses wrap_ready (stage clear: idle in the registry, not waiting on a background job, no background work,
 # no dialog, nothing typed; the wrap-up's own idle-age window and its warm bound do not apply, a sleep comes after an hour) and adds what
@@ -262,6 +262,17 @@ sys.exit(0 if sys.argv[2] in d else 1)' "$SALA_LIMIT_STATE" "$c" 2>/dev/null
 sleep_is_front() {
     case "${1:-}" in *-main) return 0;; esac
     back_lane_names front 2>/dev/null | grep -qxF -- "$1"
+}
+# inbox_line_waiting <session> <conversation uuid> → 0 when a message line of stackshot's inbox (hub/ and msg/ under SALA_STACKSHOT_INBOX) names the session or its
+# conversation, with the kind (hub or msg) in INBOX_WAIT_KIND. A held key (the inbox's held-*.txt files) only stops delivery: the line is still waiting, so held
+# or not it counts. THE ONE PREDICATE for "a line waits for it": sleep_ready refuses a session by it, and the watch's wake_tick wakes a sleeper by it.
+INBOX_WAIT_KIND=""
+inbox_line_waiting() {
+    local tw; INBOX_WAIT_KIND=""
+    for tw in hub msg; do
+        if grep -qsF -e "$1" -e "$2" "$SALA_STACKSHOT_INBOX/$tw"/*.json 2>/dev/null; then INBOX_WAIT_KIND=$tw; return 0; fi
+    done
+    return 1
 }
 _sleep_net_stopped() { local o; o=$(net_stopped_sessions "$1" 2>/dev/null); [ -n "$o" ]; }   # <session> → 0 when its claude is stopped on a network error
 sleep_ready() {
@@ -313,9 +324,7 @@ sleep_ready() {
     waiting_for "$conv" && { _sleep_no "a relaunch flag waits for it (waiting/)"; return 1; }
     waiting_for "$uuid" && { _sleep_no "a relaunch flag waits for it (waiting/)"; return 1; }
     # a stackshot inbox message for it (hub/ and msg/ under the inbox; the directory may not exist on this box)
-    for tw in hub msg; do
-        if grep -qsF -e "$sess" -e "$uuid" "$SALA_STACKSHOT_INBOX/$tw"/*.json 2>/dev/null; then _sleep_no "a stackshot $tw message waits for it"; return 1; fi
-    done
+    if inbox_line_waiting "$sess" "$uuid"; then _sleep_no "a stackshot $INBOX_WAIT_KIND message waits for it"; return 1; fi
     # stopped on a limit or on the network: its last turn ended on an error, and the conversation must stay in its pane for the resume that follows
     _sleep_limit_stopped "$sess" "$pid" "$lane" && { _sleep_no "stopped on a usage limit"; return 1; }
     _sleep_net_stopped "$sess" && { _sleep_no "stopped on a network error"; return 1; }
@@ -324,4 +333,144 @@ sleep_ready() {
     _kv_first_r v "$SALA_STATE_DIR/stuck.state" "s.$k.row"; [ -z "$v" ] || { _sleep_no "a question is open on its screen"; return 1; }
     _kv_first_r v "$SALA_STATE_DIR/stuck.state" "s.$k.hash"; [ -z "$v" ] || { _sleep_no "a question is open on its screen"; return 1; }
     return 0
+}
+
+# ── THE WATCH'S SLEEP PASSES (stage 5) ───────────────────────────────────────────────────────────────────────────────────────────────────
+# Two passes of the watch, run after wrapup_tick, both through the verbs' own code (`sala sleep NAME`, `sala wake NAME`, run as the CLI as the watch runs
+# `revive --only`), so the same refusals and the same re-checks apply, and neither needs a queue marker or the owner's words: they are the system's own routine.
+#
+#   sleep_tick  (OFF BY DEFAULT: SALA_IDLE_SLEEP=on|1|yes|true turns it on) puts to sleep the live sessions that sleep_ready accepts (idle for SALA_SLEEP_AFTER,
+#               3600 s, nothing in flight, no front agent, nothing a sleep would lose), the longest idle first, at most SALA_SLEEP_PER_TICK (3) per watch run
+#               so a first run does not stop the whole fleet at once. A session woken less than SALA_SLEEP_AFTER ago is never one (common.sh, THE WAKE STAMP:
+#               the registry row of a resumed claude should read active, the stamp makes sure). A session whose sleep was refused or failed is asked again after
+#               SALA_SLEEP_RETRY (1800) s, and meanwhile the next ones take its place. One watch-log line per session ("sleep: ..."). Off: nothing is read or kept.
+#   wake_tick   (ALWAYS ON: a sleeper may come from a manual `sala sleep`) wakes a sleeping session that has a message line waiting in stackshot's inbox
+#               (inbox_line_waiting, the predicate sleep_ready uses), at most SALA_WAKE_PER_RUN (5) per run; a failed wake is not retried before SALA_WAKE_RETRY
+#               (600) s. The line stays in the inbox, untouched: the resumed pane takes it. A notice (sala notice) does not wake. One log line per wake.
+#               With nobody asleep it costs a directory check.
+# Both stand aside while a revive, retire, rename, spawn, lane, model or reboot or a queued operation runs, the pane map is frozen or a restore runs
+# (bare_busy), and on a tmux server that is not the fleet's; one flock keeps two watch runs apart. `sala watch --sleep [--dry-run]` and
+# `sala watch --wake [--dry-run]` run one alone; a dry run prints what the pass would do, on or off, and changes nothing. `sala sleep --candidates` prints the
+# sleep list.
+sleep_on() { case "${SALA_IDLE_SLEEP:-off}" in on|1|yes|true) return 0;; esac; return 1; }
+sleep_cap() { case "${SALA_SLEEP_PER_TICK:-3}" in ''|*[!0-9]*) echo 3;; *) echo "$SALA_SLEEP_PER_TICK";; esac; }   # junk = 3; 0 = none
+wake_cap() { case "${SALA_WAKE_PER_RUN:-5}" in ''|*[!0-9]*) echo 5;; *) echo "$SALA_WAKE_PER_RUN";; esac; }
+# sleep_candidates → `<idle seconds> TAB <session>` for every live session sleep_ready accepts and no wake stamp holds back, the longest idle first.
+# THE list the tick works down, and the one `sala sleep --candidates` and the dry runs print.
+sleep_candidates() {
+    local tbl sess pane pid uuid stamp age w seen=" "
+    _claude_panes_r tbl
+    while IFS='|' read -r sess pane pid; do
+        [ -n "$sess" ] || continue
+        case "$seen" in *" $sess "*) continue;; esac; seen="$seen$sess "
+        sleep_ready "$sess" >/dev/null || continue
+        if sleeping_uuid_r uuid "$sess" && sleeping_woke_age_r w "$uuid" && [ "$w" -lt "${SALA_SLEEP_AFTER:-3600}" ]; then continue; fi
+        registry_field_r stamp "$pid" statusUpdatedAt
+        if [[ ${stamp:0:10} =~ ^[0-9]{10}$ ]]; then _stamp_age_r age "$stamp"; else age=0; fi
+        printf '%s\t%s\n' "$age" "$sess"
+    done <<< "$tbl" | LC_ALL=C sort -s -t$'\t' -k1,1nr
+}
+# sleep_report → what sleep_tick would do now, one line per ready session; says so when the pass is off
+sleep_report() {
+    local c age sess n=0 cap; cap=$(sleep_cap)
+    sleep_on || echo "SALA_IDLE_SLEEP is off: the watch puts nothing to sleep. This is what it would do with it on (at most $cap per watch run):"
+    c=$(sleep_candidates)
+    [ -n "$c" ] || { echo "no session is ready to sleep (idle for ${SALA_SLEEP_AFTER:-3600}s or more, nothing in flight, not a front agent)"; return 0; }
+    while IFS=$'\t' read -r age sess; do
+        n=$((n + 1))
+        if [ "$n" -le "$cap" ]; then echo "$sess: idle $((age / 60)) min — would be put to sleep"
+        else echo "$sess: idle $((age / 60)) min — ready, waits for a later run (at most $cap per run)"; fi
+    done <<< "$c"
+    return 0
+}
+# sleepstate_prune <key prefix> <ttl s> → drops the watch-state keys of that kind whose time is older than the ttl (a retired session leaves its key behind)
+sleepstate_prune() {
+    local kk v now; _now_r now
+    for kk in $(grep -o "^$1\\.[^=]*" "$WSTATE" 2>/dev/null); do
+        v=$(st_get "$kk"); if ! [[ $v =~ ^[0-9]+$ ]] || [ $((now - v)) -ge "$2" ]; then st_del "$kk"; fi
+    done
+}
+sleep_locked() {
+    local age sess k v now n=0 cap out rc last
+    cap=$(sleep_cap); _now_r now
+    while IFS=$'\t' read -r age sess; do
+        [ -n "$sess" ] || continue
+        [ "$n" -lt "$cap" ] || break
+        _key_r k "$sess"; v=$(st_get "sleepfail.$k")
+        if [[ $v =~ ^[0-9]+$ ]] && [ $((now - v)) -lt "${SALA_SLEEP_RETRY:-1800}" ]; then continue; fi   # asked lately and not put to sleep: the next one takes its turn
+        n=$((n + 1))
+        out=$("$SALA_BIN" sleep "$sess" 2>&1 </dev/null); rc=$?
+        if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q '^✅ '; then
+            st_del "sleepfail.$k"; wlog "sleep: put $sess to sleep (idle $((age / 60)) min)"
+        else
+            st_set "sleepfail.$k" "$now"; last=$(printf '%s\n' "$out" | grep . | tail -1 | cut -c1-240)
+            wlog "sleep: $sess not put to sleep — ${last:-no answer}; asked again after $((${SALA_SLEEP_RETRY:-1800} / 60)) min"
+        fi
+    done < <(sleep_candidates)
+    sleepstate_prune sleepfail "${SALA_SLEEP_RETRY:-1800}"
+    return 0
+}
+sleep_tick() {
+    if [ "${SLEEP_DRY:-0}" = 1 ]; then sleep_report; return 0; fi
+    sleep_on || return 0
+    [ -s "$SALA_SIDECAR" ] || return 0
+    on_fleet_server || return 0
+    tmux_server_up || return 0
+    bare_busy && return 0
+    ( flock -n 8 || exit 0; sleep_locked ) 8>>"$SALA_LOG_DIR/salamander-sleep.lock"
+}
+# wake_candidates → `<session> TAB <conversation uuid> TAB <kind>` for each sleeper on the pane map with a message line waiting for it (inbox_line_waiting) whose
+# pane runs no claude (a sleep still ending is left to finish). Nothing asleep: a directory check.
+wake_candidates() {
+    local u t nm sess pp
+    [ -d "$SALA_SLEEP_DIR" ] && compgen -G "$SALA_SLEEP_DIR/*" >/dev/null 2>&1 && [ -r "$SALA_SIDECAR" ] || return 0
+    while IFS=$'\t' read -r u t nm; do
+        [ -n "$u" ] || continue
+        sess=$(awk -F'\t' -v u="$u" '$2 == u {print $1; exit}' "$SALA_SIDECAR" 2>/dev/null); [ -n "$sess" ] || continue
+        inbox_line_waiting "$sess" "$u" || continue
+        if tmux has-session -t "=$sess" 2>/dev/null; then
+            pp=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_pid}' 2>/dev/null | head -1)
+            [ -z "$pp" ] || [ -z "$(claude_pid_under "$pp" 2>/dev/null)" ] || continue
+        fi
+        printf '%s\t%s\t%s\n' "$sess" "$u" "$INBOX_WAIT_KIND"
+    done < <(sleeping_list)
+}
+wake_report() {
+    local c sess u kind n=0 cap; cap=$(wake_cap); c=$(wake_candidates)
+    [ -n "$c" ] || { echo "no sleeping session has a message line waiting"; return 0; }
+    while IFS=$'\t' read -r sess u kind; do
+        n=$((n + 1))
+        if [ "$n" -le "$cap" ]; then echo "$sess: a stackshot $kind message line waits for it — would be woken"
+        else echo "$sess: a stackshot $kind message line waits for it — waits for a later run (at most $cap per run)"; fi
+    done <<< "$c"
+    return 0
+}
+wake_locked() {
+    local sess u kind k v now n=0 cap out rc last
+    cap=$(wake_cap); _now_r now
+    while IFS=$'\t' read -r sess u kind; do
+        [ -n "$sess" ] || continue
+        [ "$n" -lt "$cap" ] || break
+        _key_r k "$sess"; v=$(st_get "wakefail.$k")
+        if [[ $v =~ ^[0-9]+$ ]] && [ $((now - v)) -lt "${SALA_WAKE_RETRY:-600}" ]; then continue; fi   # a wake that failed lately is not tried again at once
+        n=$((n + 1))
+        out=$("$SALA_BIN" wake "$sess" 2>&1 </dev/null); rc=$?
+        if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q "^✅ "; then
+            st_del "wakefail.$k"; wlog "wake: woke $sess — inbox line waiting (a stackshot $kind message); the line stays in the inbox for the pane to take"
+        else
+            st_set "wakefail.$k" "$now"; last=$(printf '%s\n' "$out" | grep . | tail -1 | cut -c1-240)
+            wlog "wake: $sess not woken (inbox line waiting) — ${last:-no answer}; tried again after $((${SALA_WAKE_RETRY:-600} / 60)) min"
+        fi
+    done < <(wake_candidates)
+    sleepstate_prune wakefail "${SALA_WAKE_RETRY:-600}"
+    return 0
+}
+wake_tick() {
+    if [ "${SLEEP_DRY:-0}" = 1 ]; then wake_report; return 0; fi
+    [ -d "$SALA_SLEEP_DIR" ] && compgen -G "$SALA_SLEEP_DIR/*" >/dev/null 2>&1 || return 0   # nobody asleep: nothing else is read
+    [ -s "$SALA_SIDECAR" ] || return 0
+    on_fleet_server || return 0
+    tmux_server_up || return 0
+    bare_busy && return 0
+    ( flock -n 8 || exit 0; wake_locked ) 8>>"$SALA_LOG_DIR/salamander-sleep.lock"
 }
