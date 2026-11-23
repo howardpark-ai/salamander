@@ -1572,13 +1572,15 @@ fi
 # launched twice); a box the unit then finds offline — the heartbeat saw it awake, its own 8 s probe a minute later did not
 # — was not tried: update.sh --auto (auto_untry) takes the marker out again, and this function launches the box
 # again on a later run once the heartbeat sees it awake. A real attempt, failed or not, keeps its marker, except one that
-# finds the box already current while npm is ahead (the release channel `claude update` reads trails npm): update.sh gives that
-# marker back too, and the 10-minute gate above is the only pacing of the retry.
+# leaves the box older than npm, finding it already current or moving it only part of the way (the release channel `claude update`
+# reads trails npm and moves in steps): update.sh gives that
+# marker back too, and the 10-minute gate above is the only pacing of the retry. The unit is handed the version this run
+# launched it for (SALA_AUTO_TARGET), which it falls back on when its own npm lookup gets no answer.
 : "${SALA_AUTO_UPDATE:=on}"
 AUTO_LAUNCHED=${OP_LAUNCHED:-0}   # one automatic launch on this box per run: one launched here (an operation of the queue included) leaves the others for a later run
-au_launch() {  # <unit tag> <update args…>
-    local tag="$1"; shift
-    wd_launch "update-$tag" "$SALA_LOG_DIR/salamander-update.log" update "$@" --auto \
+au_launch() {  # <unit tag> <npm's version it is launched for> <update args…>
+    local tag="$1" target="$2"; shift 2
+    wd_launch "update-$tag" "$SALA_LOG_DIR/salamander-update.log" update "$@" --auto -- "--setenv=SALA_AUTO_TARGET=$target" \
         || notify "🚨 *CLI update could not start*" "update of $* was due, but systemd-run refused to launch it" "Details: $WLOG"
 }
 auto_update() {
@@ -1603,7 +1605,7 @@ auto_update() {
     rel=""; [ "$(st_get auto_update_release)" = "$latest" ] || { st_set auto_update_release "$latest"; rel=--release; }
     [ -n "$due" ] || return 0
     wlog "auto-update: $latest → now:$due${rel:+ (release run)}${norc:+ — this box ($cur) its CLI only; its panes relaunch at the next run}"
-    au_launch cli $due $rel $norc
+    au_launch cli "$latest" $due $rel $norc
 }
 # THE RELAUNCH HALF: panes that run an older version than the
 # installed CLI — after the update above, or any other that moved the launcher — are relaunched: `recycle` without

@@ -266,6 +266,7 @@ age 120 "$UA"; age 3600 "$UM"; r0=$(launches)
 auwatch
 [ "$(updates)" = 1 ] && grep 'unit=sala-auto-update-' "$LAUNCHES" | grep -q -- "update box-d $ME --release --no-recycle --auto >>" \
     && ok "npm newer, box busy (a pane active 2 min ago) → ONE update at once: box-d and this box, this box --no-recycle" || bad "updates=$(updates): $(grep update "$LAUNCHES")"
+grep 'unit=sala-auto-update-' "$LAUNCHES" | grep -q -- "--setenv=SALA_AUTO_TARGET=9.9.10 " && ok "the unit is handed the version it was launched for (SALA_AUTO_TARGET)" || bad "no target on the launch: $(grep update "$LAUNCHES")"
 [ "$(relaunches)" = 0 ] && [ "$(launches)" = "$r0" ] && ok "no relaunch, no recycle" || bad "relaunched: $(tail -2 "$LAUNCHES")"
 [ "$(st auto_update_tried)" = 9.9.10 ] && [ "$(st auto_update_tried_box-d)" = 9.9.10 ] && ok "one try per version recorded for both" || bad "tried: $(grep auto_update_tried "$STATE")"
 ln -sfn "$AUV/9.9.10" "$HOME/au/claude"   # the update unit ran: the launcher moved, the panes still run 9.9.9
@@ -284,7 +285,7 @@ cat > "$HOME/.local/bin/ssh" <<EOF
 #!/bin/sh
 for a; do h=\$l; l=\$a; done
 [ -e "$HOME/ssh-down-\$h" ] && exit 255
-case "\$l" in *PSVersionTable*) echo posix;; *) if [ -e "$HOME/ssh-err-\$h" ]; then echo "ERR|boom"; elif [ -e "$HOME/ssh-cur-\$h" ]; then v=\$(cat "$HOME/ssh-cur-\$h"); echo "V|\$v|\$v"; else echo "V|9.9.8|9.9.10"; fi;; esac
+case "\$l" in *PSVersionTable*) echo posix;; *) if [ -e "$HOME/ssh-err-\$h" ]; then echo "ERR|boom"; elif [ -e "$HOME/ssh-cur-\$h" ]; then v=\$(cat "$HOME/ssh-cur-\$h"); echo "V|\$v|\$v"; elif [ -e "$HOME/ssh-step-\$h" ]; then echo "V|9.9.8|\$(cat "$HOME/ssh-step-\$h")"; else echo "V|9.9.8|9.9.10"; fi;; esac
 EOF
 chmod +x "$HOME/.local/bin/ssh"
 # The fleet hosts here are fixtures (box-d, box-x), never a real machine's name: sala treats a host named like THIS box as the local
@@ -337,6 +338,36 @@ echo 9.9.8 > "$HOME/ssh-cur-box-d"; st_put auto_update_tried_box-d 9.9.10; uau b
 [ "$(tried box-d)" = 9.9.10 ] && ok "(e) a manual run without --auto leaves the marker alone" || bad "(e) manual run cleared the marker"
 uau box-d --auto --check
 [ "$(tried box-d)" = 9.9.10 ] && ok "(e) a --check leaves it alone too" || bad "(e) --check cleared the marker"
+echo "== a staged rollout: --auto moves the box only part of the way (9.9.8 → 9.9.9) while npm has 9.9.10 → the try is given back"
+rm -f "$HOME/ssh-cur-box-d"; echo 9.9.9 > "$HOME/ssh-step-box-d"; : > "$POSTS"; ULOGF="$HOME/.claude/salamander-update.log"
+st_put auto_update_tried_box-d 9.9.10; uau box-d --auto
+[ -z "$(tried box-d)" ] && ok "(h) updated 9.9.8 → 9.9.9, npm 9.9.10 → the marker is given back, so the next watch run tries it again" || bad "(h) marker kept: '$(tried box-d)'"
+grep -q "box-d" "$POSTS" && grep -q "9.9.9" "$POSTS" && ok "(h) …and the step itself is reported, as an update" || bad "(h) post: $(<"$POSTS")"
+grep -q 'box-d: updated to 9.9.9 while npm has 9.9.10' "$ULOGF" && ok "(h) …with the reason in the log" || bad "(h) log: $(tail -2 "$ULOGF")"
+echo 9.9.10 > "$HOME/ssh-step-box-d"; st_put auto_update_tried_box-d 9.9.10; uau box-d --auto
+[ "$(tried box-d)" = 9.9.10 ] && ok "(h) updated to npm's latest → the marker stays" || bad "(h) marker '$(tried box-d)'"
+echo 9.9.9 > "$HOME/ssh-step-box-d"; st_put auto_update_tried_box-d 9.9.10; uau box-d --auto --check; uau box-d
+[ "$(tried box-d)" = 9.9.10 ] && ok "(h) a --check and a manual run leave it alone" || bad "(h) cleared: '$(tried box-d)'"
+touch "$HOME/ssh-err-box-d"; uau box-d --auto; rm -f "$HOME/ssh-err-box-d"
+[ "$(tried box-d)" = 9.9.10 ] && ok "(h) a failed attempt still keeps the marker" || bad "(h) failed attempt cleared: '$(tried box-d)'"
+rm -f "$HOME/ssh-step-box-d"
+
+echo "== the unit's own npm lookup gets no answer (timeout, a body that is not JSON): the version watch launched it for stands in"
+echo 9.9.8 > "$HOME/ssh-cur-box-d"; echo 'upstream connect error' > "$NPM"; : > "$POSTS"
+st_put auto_update_tried_box-d 9.9.10; uau box-d --auto
+[ "$(tried box-d)" = 9.9.10 ] && ok "(i) no lookup answer and no target → nothing to compare with: the marker stays" || bad "(i) marker '$(tried box-d)'"
+: > "$POSTS"; st_put auto_update_tried_box-d 9.9.10; SALA_AUTO_TARGET=9.9.10 uau box-d --auto
+[ -z "$(tried box-d)" ] && ok "(i) no lookup answer, target 9.9.10, box current at 9.9.8 → the marker is given back" || bad "(i) marker kept: '$(tried box-d)'"
+[ ! -s "$POSTS" ] && ok "(i) …quietly, as every retry run" || bad "(i) posted: $(<"$POSTS")"
+st_put auto_update_tried_box-d 9.9.10; SALA_AUTO_TARGET=9.9.8 uau box-d --auto
+[ "$(tried box-d)" = 9.9.10 ] && ok "(i) the box is already on the target → the marker stays" || bad "(i) marker '$(tried box-d)'"
+st_put auto_update_tried_box-d 9.9.10; SALA_AUTO_TARGET='9.9.10 && x' uau box-d --auto
+[ "$(tried box-d)" = 9.9.10 ] && ok "(i) a target that is not a version is ignored" || bad "(i) marker '$(tried box-d)'"
+echo '{"version": "9.9.9"}' > "$NPM"; st_put auto_update_tried_box-d 9.9.10; SALA_AUTO_TARGET=9.9.10 uau box-d --auto
+[ -z "$(tried box-d)" ] && ok "(i) an answering lookup still decides first: npm 9.9.9 is ahead of the box here too" || bad "(i) marker '$(tried box-d)'"
+echo '{"version": "9.9.8"}' > "$NPM"; st_put auto_update_tried_box-d 9.9.10; SALA_AUTO_TARGET=9.9.10 uau box-d --auto
+[ "$(tried box-d)" = 9.9.10 ] && ok "(i) …and so does an answer that says the box is current" || bad "(i) marker '$(tried box-d)'"
+echo '{"version": "9.9.10"}' > "$NPM"
 rm -f "$HOME/ssh-cur-box-d" "$HOME/.local/bin/ssh"; st_put auto_update_tried_box-d 9.9.10
 
 echo "== update --no-recycle (watch's at-once leg): the CLI and the post, no relaunch, no recycle lock"
@@ -363,6 +394,21 @@ echo '{"version": "9.9.9"}' > "$NPM"; st_put auto_update_tried 9.9.9; au4 --auto
 [ "$(st auto_update_tried)" = 9.9.9 ] && ok "(g) this box at npm's latest → the marker stays" || bad "(g) marker '$(st auto_update_tried)'"
 echo '{"version": "9.9.10"}' > "$NPM"; st_put auto_update_tried 9.9.10; au4 --no-recycle
 [ "$(st auto_update_tried)" = 9.9.10 ] && ok "(g) a manual run without --auto leaves it alone" || bad "(g) manual run cleared the marker"
+echo 'upstream connect error' > "$NPM"; st_put auto_update_tried 9.9.10; au4 --auto --no-recycle
+[ "$(st auto_update_tried)" = 9.9.10 ] && ok "(i) this box: no lookup answer and no target → the marker stays" || bad "(i) marker '$(st auto_update_tried)'"
+st_put auto_update_tried 9.9.10; SALA_AUTO_TARGET=9.9.10 au4 --auto --no-recycle
+[ -z "$(st auto_update_tried)" ] && ok "(i) this box: no lookup answer, target 9.9.10, current at 9.9.9 → its own marker is given back" || bad "(i) marker kept: '$(st auto_update_tried)'"
+echo '{"version": "9.9.10"}' > "$NPM"
+echo "== this box's own try, a staged rollout: the updater moves it 9.9.8 → 9.9.9 while npm has 9.9.10"
+AU5="$HOME/au5/versions"; mkdir -p "$AU5"
+printf '#!/bin/sh\n[ "$1" = update ] && ln -sfn "%s/9.9.9" "%s/au5/claude" && echo "Successfully updated to 9.9.9"\nexit 0\n' "$AU5" "$HOME" > "$AU5/9.9.8"
+printf '#!/bin/sh\n[ "$1" = update ] && echo "Claude Code is up to date (9.9.9)"\nexit 0\n' > "$AU5/9.9.9"; printf '#!/bin/sh\nexit 0\n' > "$AU5/9.9.10"
+chmod +x "$AU5/9.9.8" "$AU5/9.9.9" "$AU5/9.9.10"
+au5() { SALA_CLAUDE="$HOME/au5/claude" SALA_HEARTBEAT_STATE_DIR= timeout 60 "$SALA" update "$ME" "$@" >/dev/null 2>&1; }
+ln -sfn "$AU5/9.9.8" "$HOME/au5/claude"; st_put auto_update_tried 9.9.10; au5 --auto --no-recycle
+[ "$(basename "$(readlink -f "$HOME/au5/claude")")" = 9.9.9 ] && [ -z "$(st auto_update_tried)" ] && ok "(h) this box updated to 9.9.9, npm 9.9.10 → its own marker is given back" || bad "(h) launcher $(readlink "$HOME/au5/claude"), marker '$(st auto_update_tried)'"
+sed -i 's|9.9.9|9.9.10|g' "$AU5/9.9.8"; ln -sfn "$AU5/9.9.8" "$HOME/au5/claude"; st_put auto_update_tried 9.9.10; au5 --auto --no-recycle
+[ "$(basename "$(readlink -f "$HOME/au5/claude")")" = 9.9.10 ] && [ "$(st auto_update_tried)" = 9.9.10 ] && ok "(h) this box updated to npm's latest → the marker stays" || bad "(h) launcher $(readlink "$HOME/au5/claude"), marker '$(st auto_update_tried)'"
 
 echo "== --update --dry-run: the CLI's updater is never called (Wed Oct 14th 2026: revive --update --dry-run ran claude update)"
 AU3="$HOME/au3/versions"; CALLS="$HOME/au3/calls"; mkdir -p "$AU3"
