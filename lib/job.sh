@@ -11,6 +11,8 @@ usage: sala job add NAME --repo REPO --script PATH --schedule SCHEDULE [--schedu
        sala job remove NAME [--checkout DIR]
        sala job relink NAME
        sala job check [--post] [--quiet]
+       sala job set-alert NAME [--checkout DIR] [--quiet]
+       sala job alert failed|ok UNIT
 
   add     writes NAME.service and NAME.timer into REPO's unit folder (the repo table's user_dir, e.g. ops/NAME/systemd/; salamander: systemd/), with
           Description=, X-Model-Lane= and X-Project= in the service's [Unit]; links them into ~/.config/systemd/user, daemon-reload, enable --now.
@@ -37,6 +39,14 @@ usage: sala job add NAME --repo REPO --script PATH --schedule SCHEDULE [--schedu
           item (client.py post job-gap open, once per timer and gap; its mover is the builder of the repo that owns the script)
           and closes the item when the gap is fixed (post job-gap clear); it also runs from the sala-unit-gaps.path unit and
           from the sala-watch tick.
+  set-alert  a failed run reaches stackshot, and the next success closes it: writes OnFailure=sala-job-failed@%n.service into [Unit] and
+          ExecStopPost=-%h/salamander/bin/salamander job alert ok %n into [Service] of an existing job's service file in git (`add` writes both into every
+          new job), and prints what to commit like set-project (--checkout, --quiet, system scope, a template-rendered unit refused). The template
+          unit systemd/sala-job-failed@.service must be installed beside the job's unit (docs/units.md).
+  alert   what those two lines run, never by hand: `alert failed UNIT` (the template: drops the marker failed/UNIT in the state folder and posts
+          client.py job-failed UNIT HOST TIME PROJECT, TIME = when the run ended, ISO UTC with a Z, PROJECT = the unit's X-Project= or a single -) and
+          `alert ok UNIT` (after every run: nothing unless the run succeeded and the marker exists, then client.py job-ok UNIT HOST TIME and the
+          marker is removed). Both fail soft: a client that is missing or refuses is one log line, exit 0, and the job does not fail for it.
 USAGE
 }
 case "${1:-}" in
@@ -44,5 +54,9 @@ case "${1:-}" in
     add|list|remove|relink|check|set-project|set-runs-with)   # the stackshot client's place and the state folder go to python only when the config sets them (python defaults the same way)
         [ -n "${SALA_STACKSHOT_DIR+x}" ] && export SALA_STACKSHOT_DIR; [ -n "${SALA_STACKSHOT_CLIENT+x}" ] && export SALA_STACKSHOT_CLIENT; export SALA_STATE_DIR; [ -n "${SALA_JOB_GITHUB+x}" ] && export SALA_JOB_GITHUB; [ -n "${SALA_UNIT_PROJECT_MAP+x}" ] && export SALA_UNIT_PROJECT_MAP
         exec python3 -I -S "$SALA_ROOT/lib/unitjob.py" "$@" ;;
+    alert|set-alert)   # lib/jobalert.py. A green run with no failed marker is the common case (every job's ExecStopPost=): it ends here, in no python
+        [ -n "${SALA_STACKSHOT_DIR+x}" ] && export SALA_STACKSHOT_DIR; [ -n "${SALA_STACKSHOT_CLIENT+x}" ] && export SALA_STACKSHOT_CLIENT; export SALA_STATE_DIR; [ -n "${SALA_UNIT_PROJECT_MAP+x}" ] && export SALA_UNIT_PROJECT_MAP
+        [ "${1:-}" = alert ] && [ "${2:-}" = ok ] && [ -n "${3:-}" ] && [ ! -e "$SALA_STATE_DIR/failed/$3" ] && exit 0
+        exec python3 -I -S "$SALA_ROOT/lib/jobalert.py" "$@" ;;
     *) echo "salamander job: unknown verb '$1'" >&2; job_usage >&2; exit 2 ;;
 esac

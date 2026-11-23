@@ -28,6 +28,7 @@ no systemctl call.
 """
 import fcntl, os, re, shlex, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # run with -I -S: the script's folder is not on the path by itself
+import jobalert   # the failure alert's two unit lines (lib/jobalert.py)
 import lanewords   # the lane words (lib/lanewords.py): an X-Model-Lane= still saying max or team is read as subscription-1 or subscription-2
 
 # where a job runs when the fleet moves: with the servers (they go to another box), with the sessions and sala (they stay), or only on the home box;
@@ -812,6 +813,7 @@ def cmd_add(args):
               ["", "[Service]", "Type=oneshot", "ExecStart=" + ex, ""]
     timer = ["[Unit]", "Description=%s (timer)" % desc, "", "[Timer]"] + sched + \
             (["Persistent=true"] if any(s.startswith("OnCalendar=") for s in sched) else []) + ["Unit=%s.service" % name, "", "[Install]", "WantedBy=timers.target", ""]
+    service = jobalert.with_alert_lines(service)   # OnFailure= and ExecStopPost=: a failed run reaches stackshot, the next success closes it (docs/units.md)
     os.makedirs(target, exist_ok=True)
     written = []
     for n, lines in zip(names, (service, timer)):
@@ -822,6 +824,9 @@ def cmd_add(args):
     say("wrote %s" % ", ".join(tilde(p) for p in written))
     if not runs_with:
         say("note: %s is unplaced: no --runs-with (%s); place it with `sala job set-runs-with %s <%s>`" % (name, " | ".join(RUNS_WITH), name, "|".join(RUNS_WITH)))
+    note_tpl = jobalert.template_note(user_dir() if scope == "user" else system_dir())
+    if note_tpl:
+        say(note_tpl)
     if not any(re.search(r"\b\d{1,2}:\d{2}\b.*\b[A-Za-z]+/[A-Za-z_]+\b", s) for s in sched if s.startswith("OnCalendar=")) and any(s.startswith("OnCalendar=") for s in sched):
         say("note: an OnCalendar time with no zone runs on the box clock; add a zone name after the time (for example UTC) to pin it to that zone")
     if scope == "system":

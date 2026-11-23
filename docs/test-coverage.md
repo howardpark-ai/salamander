@@ -84,6 +84,20 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/jobalert.sh` new, 52 (Mon Nov 23rd 2026)
+
+The path guarded: a scheduled job that fails and nobody knows. A job's `OnFailure=` starts `systemd/sala-job-failed@.service`, which runs `sala job alert failed UNIT` (a marker file and one `client.py job-failed` call);
+the job's `ExecStopPost=` runs `sala job alert ok UNIT` after every run, which posts `client.py job-ok` only for a success that finds the marker. systemd is played by the suite from the shipped unit files (the job's
+`ExecStopPost=` lines, then, after a failure, the template's `ExecStart=`, with `%n`, `%i` and `%h` filled in), with a stub `systemctl` and a stub client that takes exactly the two argument shapes and refuses on demand, in a
+temporary tree. The checks: `add` writes both lines once each in the right sections and says when the template is not installed; a failing job posts exactly one `job-failed <unit> <host> <ISO-Z time> <project>` (the time
+is the one systemd reports, not the clock) and drops the marker; the failing run's own `ExecStopPost=` posts nothing; a second failure posts a second line; the next success posts one `job-ok` with the time of the success and
+removes the marker; two green runs with no marker post nothing and start no python (a `python3` shim on the path never runs); a unit with no `X-Project=`, or one that is not `scope/project`, posts a single `-`;
+`SALA_UNIT_PROJECT_MAP` and a unit only in the system folder are read; a refusing client leaves the template unit, the helper and the job at exit 0, a refused `job-failed` still drops the marker, a refused `job-ok` keeps it
+and the next success posts it, no client means no marker and one log line, an unwritable state folder still posts; a unit name with a slash, an unknown verb and a non-success `SERVICE_RESULT` are refused or ignored;
+`sala job set-alert` adds the two lines and nothing else (idempotent, `--quiet`, a flow-pr repo only through a worktree, a rendered unit refused); the text function on blank lines, no trailing newline and another `OnFailure=`.
+Not covered, and why: a real systemd running the units (a suite never uses a live user manager; `systemd-analyze verify` and a transient `ExecStopPost=` showed `SERVICE_RESULT` = `success` and `exit-code` once, by hand),
+and stackshot's side of the two verbs (not built when this was written; the stub stands for it).
+
 ### `tests/inboxorphans.sh`: new, 29; `tests/nomaster.sh` +4; `tests/ledger-recycle.sh` +13 (held keys no ledger row names; `sala reboot --status` of an older unfinished run, Mon Nov 23rd 2026)
 
 The path guarded: a pane whose inbox stays held for good. `inbox_hold` writes a pane's keys into stackshot's `held-msg.txt` and `held-hub.txt` and a row into sala's ledger, and
