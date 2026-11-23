@@ -10,7 +10,7 @@ from sala_web import app as A
 from sala_web.app import create_app
 from sala_web.config import Settings
 
-DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [], "laneOrder": [], "showAll": False, "unreadOnly": False,
+DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [], "laneOrder": [], "showAll": False, "showSleeping": False, "unreadOnly": False,
             "showTools": False, "shellHeight": 300, "lang": "en"}
 
 
@@ -80,6 +80,18 @@ def test_the_unread_filter_is_kept_like_show_all_sessions(env):
     assert c.get("/api/prefs").json()["unreadOnly"] is True
 
 
+def test_show_sleeping_sessions_is_kept_like_show_all_sessions(env):
+    """The sidebar's "Show sleeping sessions" box is a pref of the server's (off by default), so the phone and the desktop agree and a reload keeps it."""
+    c = env["client"]
+    assert c.get("/api/prefs").json()["showSleeping"] is False
+    assert c.put("/api/prefs", json={"showSleeping": True}).json()["showSleeping"] is True
+    assert c.put("/api/prefs", json={"showAll": True}).status_code == 200      # another key leaves it alone
+    assert c.get("/api/prefs").json()["showSleeping"] is True
+    assert json.loads(env["file"].read_text())["showSleeping"] is True
+    assert c.put("/api/prefs", json={"showSleeping": 1}).status_code == 400
+    assert c.get("/api/prefs").json()["showSleeping"] is True
+
+
 def test_the_shell_drawer_height_is_kept_like_the_lane_order(env):
     """Decision: the Shell drawer's height follows the user across browsers, so it is a pref, a whole
     number of pixels; the page keeps it inside the window. Default 300."""
@@ -120,6 +132,7 @@ def test_the_interface_language_is_kept_and_named_in_the_served_page(env):
     {"groupOrder": [f"g{i}" for i in range(A.PREFS_MAX_GROUPS + 1)]},
     {"showAll": "yes"},
     {"unreadOnly": 1},
+    {"showSleeping": "yes"},
     {"scopeOrder": "gamma"},
     {"collapsed": [None]},
     {"theme": "dark"},
