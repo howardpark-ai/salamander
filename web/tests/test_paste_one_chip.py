@@ -117,7 +117,7 @@ SETTLE = """new Promise((res) => { const t0 = Date.now(); let last = -1, since =
   if (n !== last) { last = n; since = Date.now(); }
   if ((!up && n >= 1 && Date.now() - since > %d) || Date.now() - t0 > 90000)
     res({ chips: n, uploading: up, names: state.uploads.map((u) => u.name), status: document.querySelector("#send-status").textContent, log: window.__log });
-  else setTimeout(poll, 100); })(); })()"""
+  else setTimeout(poll, 100); })(); })"""
 
 
 def test_a_real_paste_of_a_big_image_makes_one_chip_and_goes_up_as_a_jpeg(served, browser):

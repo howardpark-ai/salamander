@@ -36,4 +36,4 @@ def test_a_failed_send_says_why(served, browser, mode, words):
     assert browser.evaluate(STUB % mode)
     typed(browser, "hello")
     enter(browser)
-    assert browser.evaluate(NOTE + "()") == words
+    assert browser.evaluate(NOTE) == words
