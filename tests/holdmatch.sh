@@ -92,6 +92,31 @@ has "$r" "Holding the relaunch: 1 subagent running in this session" && has "$r" 
     && ! has "$r" "as soon as this turn ends" && ok "sala ready names the subagent and does not promise a relaunch when the turn ends" || bad "ready: $r"
 kill "$WK" 2>/dev/null; rm -f "$HOME/.claude/salamander-retry.$WK.pid"
 
+echo "== 4. the skip line names its cause, never only 'busy'"
+[ "$(_count_words 1 0 0 0)" = "1 subagent" ] && [ "$(_count_words 4 6 1 0)" = "4 subagents, 6 monitors and 1 shell" ] && [ "$(_count_words 0 2 1 0)" = "2 monitors and 1 shell" ] \
+    && [ "$(_count_words 0 0 0 3)" = "3 other tasks" ] && [ -z "$(_count_words 0 0 0 0)" ] && ok "the counts in words: one kind, two, three, other tasks, nothing" || bad "count words: $(_count_words 4 6 1 0) / $(_count_words 0 2 1 0)"
+[ "$(_inflight_words 1 0 0 0)" = "1 subagent is in flight" ] && [ "$(_inflight_words 4 6 1 0)" = "4 subagents, 6 monitors and 1 shell are in flight" ] && ok "with the verb: is for one, are for several" || bad "inflight words: $(_inflight_words 4 6 1 0)"
+U4=$(uuid 71); fake "sleep 300" "$U4" busy; K4=$FP
+[ "$(is_idle_reason "$K4")" = "registry says 'busy' (a turn is running for 1 min)" ] && ok "a busy row with no record: the turn and its age" || bad "busy, bare: '$(is_idle_reason "$K4")'"
+mksub "$U4" b1 builder "Build the package move"
+[ "$(is_idle_reason "$K4")" = "registry says 'busy' (a turn is running for 1 min; 1 subagent running)" ] && ok "no record, a subagent running by its transcript: it is named" || bad "busy, subagent: '$(is_idle_reason "$K4")'"
+rm -f "$(subdir "$U4")"/agent-b1.*
+mkdir -p "$SALA_BUSY_DIR"
+{ printf 'id=1-1\nepoch=1\nseen=1\nseen_status=busy\ntasks=12\ncrons=0\n'
+  for i in 1 2 3 4; do echo "task=subagent running: step $i (worker-agent)"; done
+  for i in 1 2 3 4 5 6; do echo "task=monitor running: watch $i (mcp/tool)"; done
+  echo "task=shell running: wait for CI (sleep 60)"
+  echo "task=monitor running: live updates for artifact https://claude.ai/artifact/EXAMPLE1 (auto-armed on publish)"
+} > "$SALA_BUSY_DIR/$U4"
+why=$(is_idle_reason "$K4")
+[ "$why" = "registry says 'busy' (a turn is running for 1 min; in flight when its last turn ended: 4 subagents, 6 monitors and 1 shell)" ] && ok "the Stop hook's record counted: 4 subagents, 6 monitors and 1 shell (an artifact watch is not counted)" || bad "busy, record: '$why'"
+case "$why" in *"a background task is running"*|*"background work in flight"*|*"background work is running"*) bad "the busy cause reads as background work to hold_bullet";; *) ok "the words never match what hold_bullet and the retry worker read as background work";; esac
+b=$(hold_bullet sala-q "$K4" "$why"); case "$b" in "sala-q: busy for "*"; sala relaunches it once it is free") ok "a recycle's post keeps its short 'busy for <age>' form";; *) bad "bullet: $b";; esac
+case "$why" in "registry says 'busy' ("*) ok "it still opens with the registry says head, which transient_skip (revive.sh) reads as a retry";; *) bad "head: $why";; esac
+U5=$(uuid 72); fake "sleep 300" "$U5" waiting; K5=$FP
+[ "$(is_idle_reason "$K5")" = "registry says 'waiting' (a dialog is open: the pane waits for an answer)" ] && ok "a waiting row is a dialog, said so" || bad "waiting: '$(is_idle_reason "$K5")'"
+rm -f "$SALA_BUSY_DIR/$U4"
+
 echo "== 3. sala ready sees a pane on the deferred list as waiting"
 rm -f "$(subdir "$U1")"/agent-s1.*; rm -f "$SALA_DEFERRED"
 fake "while [ ! -e $HOME/go2 ]; do sleep 0.2; done; \"$SALA\" ready > $HOME/ready2.txt 2>&1; : > $HOME/ready2.done; wait" "$U2"
@@ -137,6 +162,7 @@ def serve(c):
     if verb == "draft": out["text"] = ""
     elif verb in ("exit", "busy"):
         if m == "named": out = {"reqid": req, "ok": False, "reason": "turn", "holders": HOLD}
+        elif m == "background": out = {"reqid": req, "ok": False, "reason": "background", "tasks": ["subagent running", "subagent running", "monitor running", "shell running"]}
         elif m == "turnold":   # a mod loaded before this release: its turn list is stale, it names nothing and does not know `busy`
             out = {"reqid": req, "ok": False, "reason": "turn"} if verb == "exit" else {"reqid": req, "ok": False, "reason": "unknown"}
     d = next((x for x in run.split(":") if os.path.exists(os.path.join(x, sid + ".json"))), run.split(":")[0])
@@ -168,6 +194,18 @@ out=$(SALA_RETRY_WORKER=1 "$SALA" revive --only sala-test-hm --force 2>&1)
 has "$out" "sala-test-hm:0: $HOLDER — left on 9.9.9" && [ "$(heard_n '[sala-mod] exit')" = 0 ] && ok "a sweep's check says what holds it, before anything is held or typed" || bad "sweep: $out"
 refusal_get rf "$UH"; [ "${rf%%$'\t'*}" -ge 1 ] 2>/dev/null && ok "the refusal is remembered (count $(printf '%s' "${rf%%$'\t'*}"))" || bad "no refusal memory: '$rf'"
 refusal_clear "$UH"
+
+echo "-- the mod lists background work (shells, monitors, subagents no check of sala's sees): held and named, never 'free now'"
+echo background > "$MODE"; : > "$WLOG"; : > "$HEARD"; rm -f "$SALA_REFUSED_DIR/$UH.said"
+BGW="background work is running: 2 subagents, 1 monitor and 1 shell are in flight"
+for i in 1 2 3 4 5 6; do watch_tick; done
+[ "$(nlog "deferred: sala-test-hm held — $BGW" "$WLOG")" = 1 ] && ok "six ticks, ONE log line, with what is in flight" || bad "held lines: $(grep deferred "$WLOG")"
+[ "$(nlog "is free now" "$WLOG")" = 0 ] && [ "$(heard_n '[sala-mod] exit')" = 0 ] && [ "$(heard_n '[sala-mod] busy')" -ge 6 ] && [ "$(cpid hm)" = "$HP" ] \
+    && ok "no 'is free now', no sweep and no exit tried against it: only the probe, the pane untouched" || bad "free now $(nlog "is free now" "$WLOG"), exits $(heard_n '[sala-mod] exit'), probes $(heard_n '[sala-mod] busy'), pid $(cpid hm)"
+out=$(SALA_RETRY_WORKER=1 "$SALA" revive --only sala-test-hm --force 2>&1)
+has "$out" "sala-test-hm:0: $BGW — left on 9.9.9" && [ "$(heard_n '[sala-mod] exit')" = 0 ] && ok "a sweep's check says it too, before anything is held or typed" || bad "sweep: $out"
+refusal_get rf "$UH"; [ -z "$rf" ] && ok "work in flight is not counted in the refusal memory (it only thins out a mod's stale turns)" || bad "refusal memory: '$rf'"
+echo named > "$MODE"; rm -f "$SALA_REFUSED_DIR/$UH.said"
 
 echo "-- an older mod's refusal, a subagent running: never cut, however many ticks"
 echo turnold > "$MODE"; : > "$WLOG"; : > "$HEARD"; mksub "$UH" h1 builder "Build the package move"; touch -d "10 minutes ago" "$(subdir "$UH")"/agent-h1.*   # quiet for 10 min: the 2-minute scratch test does not see it, the transcript does

@@ -172,7 +172,7 @@ point_socket() { python3 -c 'import json,sys; f=sys.argv[1]; d=json.load(open(f)
 stamp() { mkdir -p "$RUN"; printf '{"present":true,"version":1,"sessionId":"%s","at":%s}\n' "$1" "$(date +%s)000" > "$RUN/$1.json"; }
 C=$(cpid z); echo "$UZ" > "$HOME/fakemod.sid"; point_socket "$C"; stamp "$UZ"; echo background > "$MODE"; : > "$SALA_MOD_LOG"; n0=$(grep -c "^$UZ /exit$" "$FAKE_TYPED_LOG" 2>/dev/null || echo 0)
 pane_exit "$(pane z)" "$C" >/dev/null; rc=$?
-[ "$rc" = 2 ] && grep -q 'exit sala-test-z via mod (refused: background work)' "$SALA_MOD_LOG" && [ "$(grep -c "^$UZ /exit$" "$FAKE_TYPED_LOG" 2>/dev/null || echo 0)" = "$n0" ] && ok "no flag: the mod's refusal stands (rc 2), nothing typed" || bad "mod refusal without the flag: rc=$rc $(<"$SALA_MOD_LOG")"
+[ "$rc" = 2 ] && grep -q 'exit sala-test-z via mod (refused: background work; 1 shell is in flight)' "$SALA_MOD_LOG" && [ "$(grep -c "^$UZ /exit$" "$FAKE_TYPED_LOG" 2>/dev/null || echo 0)" = "$n0" ] && ok "no flag: the mod's refusal stands (rc 2), nothing typed" || bad "mod refusal without the flag: rc=$rc $(<"$SALA_MOD_LOG")"
 : > "$SALA_MOD_LOG"
 SALA_RESCUE=1 pane_exit "$(pane z)" "$C" >/dev/null; rc=$?
 [ "$rc" = 0 ] && grep -q 'exit sala-test-z via keys (rescue: the mod refused for background work (\["shell running"\]), but no child process runs under the claude — a stale task row)' "$SALA_MOD_LOG" \
@@ -180,7 +180,7 @@ SALA_RESCUE=1 pane_exit "$(pane z)" "$C" >/dev/null; rc=$?
 waitfor '[ "$(tmux display -p -t "$(pane z)" "#{pane_current_command}")" = bash ]' 20 && ok "z exited on it (no dialog on z: the keys' /exit ended it)" || bad "z still up after the keys' /exit"
 CY=$(cpid y); echo "$UY" > "$HOME/fakemod.sid"; point_socket "$CY"; stamp "$UY"; : > "$SALA_MOD_LOG"
 SALA_RESCUE=1 pane_exit "$(pane y)" "$CY" >/dev/null; rc=$?
-[ "$rc" = 2 ] && grep -q 'exit sala-test-y via mod (refused: background work)' "$SALA_MOD_LOG" && proc_alive "$CY" && ok "SALA_RESCUE=1 with a live child (y): the mod's refusal stands" || bad "mod refusal with a child under the rescue: rc=$rc $(<"$SALA_MOD_LOG")"
+[ "$rc" = 2 ] && grep -q 'exit sala-test-y via mod (refused: background work; 1 shell is in flight)' "$SALA_MOD_LOG" && proc_alive "$CY" && ok "SALA_RESCUE=1 with a live child (y): the mod's refusal stands" || bad "mod refusal with a child under the rescue: rc=$rc $(<"$SALA_MOD_LOG")"
 kill "$FAKEMOD" 2>/dev/null; FAKEMOD=""
 
 echo "== scheduled rows alone: the dialog's Enter without any flag (the control), and the flag's own refusals"

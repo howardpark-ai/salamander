@@ -58,9 +58,12 @@ recycles was counted back in only one and the other set stayed open. Now:
   not finished, was written since this claude started and not longer ago than `SALA_SUBAGENT_STALE` (6 h) is running. It holds the pane,
   also one that said `sala ready` (a ready word covers shells and tasks; a running subagent is never cut), and the skip line, the
   relaunch notice and `sala ready` name it and say it ends with its work. The mod's `busy` probe (the gates of an exit with nothing run)
-  is asked before an exit is tried, so a turn it names is said once with its holder, and the pane's inbox is not held and released for an
+  is asked before an exit is tried, so a turn it names, or the background work it lists, is said once with its holder, and the pane's inbox is not held and released for an
   exit that would be refused. `watch` does the same for the deferred list: one log line when the holder changes, never one per tick, and
-  a try that is skipped again starts no retry worker of its own (the list is the retry).
+  a try that is skipped again starts no retry worker of its own (the list is the retry): a pane the mod holds for background work is not called "free now" and not tried again until the probe says free.
+  The skip line names its cause, never only "busy": `registry says 'busy' (a turn is running for 12 min; in flight when its last turn ended: 4 subagents, 6 monitors and 1 shell)`
+  (counted from the Stop hook's record, else the subagents the transcripts show), `registry says 'waiting' (a dialog is open: the pane waits for an answer)`,
+  `background work is running: 4 subagents, 6 monitors and 1 shell are in flight` (the mod's own list); the retry worker's round lines carry the same text.
 - **A refusal the mod cannot explain** (a mod loaded before its turn list was reconciled names no holder and does not know the probe): every
   refusal for a turn is counted per session (`refused/<uuid>` under the state directory). After `SALA_STALE_TURN_AFTER` (3) of them, while the
   registry, the Stop hook's record, the child processes and the subagents' transcripts all read the pane as idle, the next try goes by

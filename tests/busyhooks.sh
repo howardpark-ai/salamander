@@ -54,7 +54,7 @@ watch_task() { printf '{"id":"%s","type":"monitor","status":"running","descripti
 # every label Claude Code 2.1.296 writes for an artifact watch (zjt; lib/common.sh, THE ARTIFACT WATCH)
 WLABELS=("auto-armed on publish" "attached via /artifacts" "watch requested" "resume requested" "re-armed on session resume" "presence while editing via MCP" "watch requested; auto-replies since stopped")
 ms_ago() { echo "$(( $(date +%s) - $1 ))000"; }   # a registry stamp (ms) from $1 s ago
-LINE='[sala] A <what> is waiting for this session. Bring your work to a checkpoint. Stop your own background watches (TaskStop) and put what they were waiting for in a `sala note "<step>"` before `sala ready`. If a step must wait until after the relaunch, leave it with `sala note "<step>"` (or set the board item'\''s recycle flag), then run `sala ready` as the turn'\''s last call.'
+LINE='[sala] A <what> is waiting for this session. Bring your work to a checkpoint: finish this turn, and start no new subagent, monitor or background task until you are relaunched (each one still running holds the relaunch up). Stop your own background watches (TaskStop) and put what they were waiting for in a `sala note "<step>"` before `sala ready`. If a step must wait until after the relaunch, or work is half done, leave it with `sala note "<step>"` (or set the board item'\''s recycle flag), then run `sala ready` as the turn'\''s last call.'
 workers() { local f n=0; for f in "$HOME"/.claude/salamander-retry*.pid; do [ -s "$f" ] && kill -0 "$(<"$f")" 2>/dev/null && n=$((n+1)); done; echo $n; }
 
 echo "== hook stop: the record from sample payloads — exit 0 and nothing on stdout, whatever comes in"
@@ -166,6 +166,16 @@ waiting_raise "$U1" recycle set-1 $$; out=$(post_hook "{\"session_id\":\"$U1\"}"
 waiting_raise "$U1" update set-2 $$; out=$(post_hook "{\"session_id\":\"$U1\"}")
 grep -q '"additionalContext": "\[sala\] ' <<< "$out" && ok "a new relaunch tells it again" || bad "new set: $out"
 waiting_clear "$U1"; out=$(post_hook "{\"session_id\":\"$U1\"}"); [ -z "$out" ] && [ ! -e "$WAITD/$U1.told" ] && ok "cleared: silent, the told marker gone" || bad "after clear: '$out' $(ls "$WAITD")"
+# THE SUBAGENT'S CALL (a builder that runs subagents all day was told only inside a subagent's context, and never in its own turn)
+waiting_raise "$U1" recycle set-5 $$
+out=$(post_hook "{\"session_id\":\"$U1\",\"agent_id\":\"agent-7\",\"agent_type\":\"general-purpose\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{},\"tool_response\":{}}")
+[ -z "$out" ] && [ ! -e "$WAITD/$U1.told" ] && ok "a tool call inside a subagent (agent_id): silent, and the flag is NOT marked told" || bad "subagent call: out='$out' told=$(ls "$WAITD")"
+out=$(post_hook "{\"session_id\":\"$U1\",\"agent_id\":\"agent-8\",\"tool_name\":\"Read\",\"tool_input\":{},\"tool_response\":{}}"); [ -z "$out" ] && ok "a second subagent's call: still silent" || bad "second subagent call: $out"
+out=$(post_hook "{\"session_id\":\"$U1\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{},\"tool_response\":{}}")
+python3 -c 'import json, sys; h = json.loads(sys.argv[1])["hookSpecificOutput"]; sys.exit(0 if h["additionalContext"] == sys.argv[2] else 1)' "$out" "${LINE//<what>/recycle}" \
+    && [ -e "$WAITD/$U1.told" ] && ok "the session's own next call: told, once" || bad "own call after subagents: '$out'"
+case "$LINE" in *"finish this turn, and start no new subagent, monitor or background task until you are relaunched"*"TaskStop"*"half done"*"sala note"*) ok "the line asks for a checkpoint a builder can meet: finish the turn, start nothing new, a note for half-done work (the TaskStop and note asks kept)";; *) bad "the line: $LINE";; esac
+waiting_clear "$U1"
 waiting_raise "$U2" auto set-3 4194303; waiting_raise "$U3" auto set-3 $$; waiting_told "$U3"; : > "$WAITD/$U1.told"
 waiting_prune
 [ ! -e "$WAITD/$U2" ] && [ -e "$WAITD/$U3" ] && [ -e "$WAITD/$U3.told" ] && [ ! -e "$WAITD/$U1.told" ] && ok "prune: a dead owner's flag and an orphan told marker go, a live owner's flag stays" || bad "prune: $(ls "$WAITD")"

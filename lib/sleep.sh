@@ -155,7 +155,7 @@ sleep_one() {
     scr=$(pane_exit "$pane" "$pid" 2>/dev/null); rc=$?
     case "$rc" in
         0) ;;
-        2) why="background work is running (a shell, monitor or subagent), which /exit would stop" ;;
+        2) why="background work is running (${scr:-a shell, monitor or subagent}), which /exit would stop" ;;
         3) why="unsubmitted text is at the prompt (\"$scr\"), which /exit would run over" ;;
         4) why="a turn is running${scr:+ (held by $scr)}" ;;
         *) why="the pane did not take /exit (composer not empty, or the Enter was dropped twice)" ;;

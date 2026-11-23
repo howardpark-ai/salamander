@@ -89,7 +89,7 @@ SALA_BUSY_DIR="$SALA_STATE_DIR/busy"         # busy/<uuid>: what the Stop hook f
 SALA_WAITING_DIR="$SALA_STATE_DIR/waiting"   # waiting/<uuid>: a relaunch sala started waits for this pane (+ <uuid>.told once its hook said so)
 # the line the PostToolUse hook adds to a waiting session's context, once per relaunch;
 # <what> becomes the relaunch's kind in words (relaunch_what below). One place for the text: here, or the config's override.
-[ -n "${SALA_RELAUNCH_WAITING_TEXT:-}" ] || SALA_RELAUNCH_WAITING_TEXT='[sala] A <what> is waiting for this session. Bring your work to a checkpoint. Stop your own background watches (TaskStop) and put what they were waiting for in a `sala note "<step>"` before `sala ready`. If a step must wait until after the relaunch, leave it with `sala note "<step>"` (or set the board item'\''s recycle flag), then run `sala ready` as the turn'\''s last call.'
+[ -n "${SALA_RELAUNCH_WAITING_TEXT:-}" ] || SALA_RELAUNCH_WAITING_TEXT='[sala] A <what> is waiting for this session. Bring your work to a checkpoint: finish this turn, and start no new subagent, monitor or background task until you are relaunched (each one still running holds the relaunch up). Stop your own background watches (TaskStop) and put what they were waiting for in a `sala note "<step>"` before `sala ready`. If a step must wait until after the relaunch, or work is half done, leave it with `sala note "<step>"` (or set the board item'\''s recycle flag), then run `sala ready` as the turn'\''s last call.'
 
 cs_print_config() {
     for v in SALA_CONFIG SALA_RC_SESSION SALA_SHELL_SESSION SALA_RC_NAME SALA_RC_CAPACITY SALA_RC_RESTART_DELAY SALA_TZ SALA_BACK_CWD SALA_SLACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_OWNER_NAME SALA_LOG_DIR \
@@ -2689,6 +2689,71 @@ subagent_holders() {
 }
 # subagents_why <claude-pid> [uuid] → "a subagent is running: <one>; <two>" when subagent_holders finds any, else nothing
 subagents_why() { local l s=""; while IFS= read -r l; do [ -n "$l" ] && s+="${s:+; }$l"; done < <(subagent_holders "$@"); [ -z "$s" ] || echo "a subagent is running: $s"; }
+# WHAT IS IN FLIGHT, IN WORDS. A skip line that says only "busy" tells nobody what to end. The kinds counted are the CLI's own task
+# types (the Stop hook's record and the in-session mod's refusal both list "<type> <status>"): subagent, monitor, shell; the rest
+# (a workflow, an MCP task) is "other". <n subagents> <n monitors> <n shells> <n others> → "4 subagents, 6 monitors and 1 shell"
+# (nothing when all are 0); _inflight_words adds the verb: "4 subagents, 6 monitors and 1 shell are in flight".
+_count_words() {
+    local -a p=(); local i last
+    [ "${1:-0}" -gt 0 ] && p+=("$(plural "$1" subagent)")
+    [ "${2:-0}" -gt 0 ] && p+=("$(plural "$2" monitor)")
+    [ "${3:-0}" -gt 0 ] && p+=("$(plural "$3" shell)")
+    [ "${4:-0}" -gt 0 ] && p+=("$(plural "$4" "other task")")
+    case ${#p[@]} in
+        0) return 0;;
+        1) printf '%s\n' "${p[0]}";;
+        *) last=${p[${#p[@]}-1]}; for ((i=0; i<${#p[@]}-1; i++)); do printf '%s' "${p[i]}"; [ "$i" -lt $((${#p[@]}-2)) ] && printf ', '; done; printf ' and %s\n' "$last";;
+    esac
+}
+_inflight_words() {  # <n subagents> <n monitors> <n shells> <n others> → "<counts> are in flight", nothing when all are 0
+    local w t=$(( ${1:-0} + ${2:-0} + ${3:-0} + ${4:-0} )); w=$(_count_words "$@"); [ -n "$w" ] || return 0
+    [ "$t" = 1 ] && echo "$w is in flight" || echo "$w are in flight"
+}
+# _record_counts <busy record> → "<subagents> <monitors> <shells> <others>" counted from its task lines (an artifact watch is not
+# work in flight, busy_state's rule)
+_record_counts() {
+    local l t ns=0 nm=0 nh=0 no=0 re="^task=monitor [^:]*: ${SALA_ARTIFACT_WATCH_DESC}( \\([^()]*\\))?\$"
+    while IFS= read -r l; do
+        case "$l" in task=*) ;; *) continue;; esac
+        [[ $l =~ $re ]] && continue
+        t=${l#task=}; t=${t%% *}
+        case "$t" in subagent) ns=$((ns+1));; monitor) nm=$((nm+1));; shell) nh=$((nh+1));; *) no=$((no+1));; esac
+    done < "$1"
+    echo "$ns $nm $nh $no"
+}
+# _mod_task_counts <mod reply json> → the same four counts from the mod's refusal ("tasks": ["subagent running", …]), "0 0 0 0" when unreadable
+_mod_task_counts() {
+    local out; out=$(python3 -c 'import json,sys
+try: t=json.loads(sys.argv[1]).get("tasks")
+except Exception: t=None
+c=[0,0,0,0]
+for x in (t if isinstance(t,list) else []):
+    k=str(x).split(" ")[0]; c[{"subagent":0,"monitor":1,"shell":2}.get(k,3)]+=1
+print(*c)' "$1" 2>/dev/null) || out=""
+    [[ $out =~ ^[0-9]+\ [0-9]+\ [0-9]+\ [0-9]+$ ]] && echo "$out" || echo "0 0 0 0"
+}
+# busy_cause <claude-pid> <registry status> → what a registry row that is not idle stands for. 'waiting' is a dialog open in the pane;
+# 'busy' is a turn, said with its age (the row's last status change) and what the session's Stop hook recorded in flight when its last turn
+# ended (busy/<uuid>: the CLI's own task list, whatever stretch it is for), else the subagents the transcripts show running; any other
+# status keeps the old words. The text never holds the phrases hold_bullet and the retry worker read as background work
+# ("a background task is running", "background work in flight/is running").
+busy_cause() {
+    local st="$2" stamp age="" sid c w="" n ns nm nh no
+    case "$st" in
+        waiting) echo "a dialog is open: the pane waits for an answer"; return 0;;
+        busy) ;;
+        *) echo "a turn or a dialog is running"; return 0;;
+    esac
+    registry_field_r stamp "$1" statusUpdatedAt; [ -n "$stamp" ] && _stamp_age_r age "$stamp"
+    c="a turn is running"; [ -n "$age" ] && c+=" for $(hold_age_words "$age")"
+    registry_field_r sid "$1" sessionId
+    if [ -n "$sid" ] && [ -r "$SALA_BUSY_DIR/$sid" ]; then
+        read -r ns nm nh no <<< "$(_record_counts "$SALA_BUSY_DIR/$sid")"
+        w=$(_count_words "$ns" "$nm" "$nh" "$no"); [ -z "$w" ] || c+="; in flight when its last turn ended: $w"
+    fi
+    if [ -z "$w" ] && [ -n "$sid" ]; then n=$(_nlines "$(subagent_holders "$1" "$sid")"); [ "$n" -gt 0 ] && c+="; $(plural "$n" subagent) running"; fi
+    echo "$c"
+}
 is_idle_reason() {
     local st stamp age sid d hs hl jp jwhy
     registry_field_r st "$1" status; [ -n "$st" ] || { echo "no registry status for pid $1 — cannot confirm idle"; return; }
@@ -2707,7 +2772,7 @@ is_idle_reason() {
     # that the processes on this call's own way up to the claude (the Bash call itself) are not counted as children, and the scratch-folder check is left out
     # (the call's own tool output is what it would find). The settle time and the session's ready word describe an idle stretch and are not read for a turn.
     local own_turn=0; [ "${SALA_IDLE_OWN_TURN:-0}" = 1 ] && [ "$st" = busy ] && own_turn=1
-    [ "$st" = "idle" ] || [ "$own_turn" = 1 ] || { echo "registry says '$st' (a turn or a dialog is running)"; return; }
+    [ "$st" = "idle" ] || [ "$own_turn" = 1 ] || { echo "registry says '$st' ($(busy_cause "$1" "$st"))"; return; }
     registry_field_r stamp "$1" statusUpdatedAt
     if [ "$own_turn" = 0 ]; then
         _stamp_age_r age "$stamp"
@@ -5445,7 +5510,7 @@ mod_request() {
 }
 _mod_who() { local n; n=$(tmux display -p -t "$1" '#{session_name}' 2>/dev/null); echo "${n:-$1}"; }   # <pane> → its session name
 # pane_exit <pane> <claude-pid> → 0 /exit is on its way (the mod took it, or it was typed) · 2 refused: background work is
-# running · 3 refused: a draft is in the composer (its text on stdout) · 4 refused: a turn is running (an /exit run then
+# running (what is in flight on stdout, "4 subagents, 6 monitors and 1 shell are in flight", when the mod lists it) · 3 refused: a draft is in the composer (its text on stdout) · 4 refused: a turn is running (an /exit run then
 # reaches the model as a prompt; what holds it on stdout, when the mod names it) · 1 the keys did not take it. Process death is the caller's to verify, as it always was
 # (exit_wait).
 # THE SDK LANE'S PANE (lib/sdk-pane.sh, contrib/sdk-pane/driver.py): the mod is asked as for any pane, and its
@@ -5483,7 +5548,11 @@ pane_exit() {
                 # stale row's, and the exit goes by keys — the CLI's own dialog then lists the same rows, and exit_wait
                 # confirms it under the same flag and the same test. A live child keeps the refusal.
                 elif [ "${SALA_RESCUE:-0}" = 1 ] && [ -z "$(work_children "$2")" ]; then MOD_WHY="rescue: the mod refused for background work ($(mod_reply_field "$out" tasks)), but no child process runs under the claude — a stale task row"
-                else mod_log "exit $(_mod_who "$1") via mod (refused: background work)"; return 2; fi ;;
+                else
+                    # what is in flight, in words, for the caller's skip line (stdout, as a turn's holders are)
+                    h=$(_inflight_words $(_mod_task_counts "$out"))
+                    mod_log "exit $(_mod_who "$1") via mod (refused: background work${h:+; $h})"; [ -z "$h" ] || printf '%s\n' "$h"; return 2
+                fi ;;
             turn)
                 # the mod names what holds it (a mod from this release on; an older one sends no "holders"): printed for the caller, who puts it in its
                 # skip line. An older mod's list is the one that can hold a turn that ended unseen; after SALA_STALE_TURN_AFTER refusals (close_pane
@@ -5607,11 +5676,29 @@ deferred_row_for() {
 # mod_hold <claude-pid> → 0 and one line on stdout ("a turn is running: <what holds it>") when the in-session mod says a turn is running
 # and names it (the `busy` probe: the gates of an exit, nothing run); 1 for every other answer: free, no mod, a mod that does not know the
 # probe, or one that names no holder. What a sweep and the deferred list ask before they try an exit that would be refused.
+#
+# The probe answers two ways, and so does this. A turn it names: "a turn is running: <holder>". Background work in flight (its "background"
+# refusal, the same gate pane_exit stops at): "background work is running: 4 subagents, 6 monitors and 1 shell are in flight", with the
+# counts of the list the mod holds. Without this second answer sala's idle check called such a pane free, tried the exit and was
+# refused, at every tick (a pane logged "is free now" about 25 times for one session). The two refusals sala itself overrules in
+# pane_exit are overruled here too, so the two never disagree: a refusal for an artifact watch alone (an older mod), and a rescue
+# (SALA_RESCUE=1) with no child process under the claude (a stale task row).
 mod_hold() {
-    local rc=0 h; mod_request "$1" busy || rc=$?
-    [ "$rc" = 1 ] && [ "$(mod_reply_field "$MOD_REPLY" reason)" = turn ] || return 1
-    h=$(mod_reply_field "$MOD_REPLY" holders); [ -n "$h" ] || return 1
-    printf 'a turn is running: %s\n' "$h"
+    local rc=0 h reason c w
+    mod_request "$1" busy || rc=$?
+    [ "$rc" = 1 ] || return 1
+    reason=$(mod_reply_field "$MOD_REPLY" reason)
+    case "$reason" in
+        turn)
+            h=$(mod_reply_field "$MOD_REPLY" holders); [ -n "$h" ] || return 1
+            printf 'a turn is running: %s\n' "$h";;
+        background)
+            mod_refused_watch_only "$MOD_REPLY" "$1" && return 1
+            if [ "${SALA_RESCUE:-0}" = 1 ] && [ -z "$(work_children "$1")" ]; then return 1; fi
+            c=$(_mod_task_counts "$MOD_REPLY"); w=$(_inflight_words $c)
+            printf 'background work is running: %s\n' "${w:-something is in flight (the in-session mod does not list it)}";;
+        *) return 1;;
+    esac
 }
 # mod_refused_watch_only <reply json> <claude-pid> → 0 when a background refusal lists only monitors, as many as this stretch's
 # busy record has artifact watches, and the record has nothing else in flight (busy_state 1)
