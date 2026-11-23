@@ -331,11 +331,15 @@ def test_the_sidebar_marks_a_sleeper_sleeping_and_a_live_session_not(slept_shown
     assert "sleeping" not in live["dot"].split() and live["tag"] == ""
 
 
-def test_the_overview_row_says_sleeping_since(slept, browser):
+def test_the_overview_row_says_sleeping_and_no_time(slept, browser):
+    """The Agents row says only "sleeping" (the time it went to sleep is in the sleeper's own band, and a longer status would widen the table: web/tests/test_table_width.py)."""
     open_page(browser, slept, "#sessions")
     assert wait_for(browser, "[...document.querySelectorAll('#sp-table tr')].some(r => /sleeping/.test(r.textContent))", 15.0)
-    text = browser.evaluate("[...document.querySelectorAll('#sp-table tr')].find(r => /sleeping/.test(r.textContent)).textContent")
-    assert NAME in text and "10:10" in text
+    cells = browser.evaluate("[...document.querySelectorAll('#sp-table tr')].find(r => /sleeping/.test(r.textContent)).children.length && "
+                             "[...[...document.querySelectorAll('#sp-table tr')].find(r => /sleeping/.test(r.textContent)).children].map(c => c.textContent.trim())")
+    assert cells[0] == NAME and cells[3] == "sleeping", cells                      # the status cell is the one word
+    assert "since" not in "".join(cells) and "10:10" not in "".join(cells), cells
+    assert "version unknown" not in "".join(cells), cells
 
 
 def test_opening_a_sleeper_asks_nothing_and_its_wake_button_asks_once_and_follows_it(slept_shown, wake, browser):

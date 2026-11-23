@@ -546,6 +546,12 @@ same reload as the header's icon, which keeps the composer's draft) and **Get He
 (the session that looks after the web UI; with none set the chip is not shown).
 `/sessions`, where the overview used to be its own page, redirects to `/#sessions`.
 
+**The Agents table never scrolls sideways, at any width.** Neither does the lane page's table of sessions. When the columns do not fit the room
+they have, the rows fold into the phone's card layout (`fitTable` in `sessions.js` decides it, on each draw and on each resize of the box; the
+`.fold` class on `.sp-wrap` carries the card rules in `index.html`) instead of scrolling inside the box, and a long cell wraps or is cut with an
+ellipsis, so it never widens the table. The box clips and never scrolls (`overflow: clip`). `tests/test_table_width.py` holds it at 1920, 1280,
+1024, 900, 761, 760 and 390 px, with long names, a long model and a long lane name among sleeping rows.
+
 **The lane cards drag into the order the owner wants.** Each card on the Overview has a
 handle (`⋮⋮`) at the left end of its head. Drag it with a mouse, a finger or a pen and the card takes the place of the card under the pointer; or
 focus the handle and press the arrow keys (left or up one place earlier, right or down one later; the handle keeps the focus). The order is saved
@@ -670,9 +676,17 @@ session), and a conversation or a name a live session already has is not listed 
 status `sleeping` and `sleeping` set to the marker's time; `api/sessions` and `api/overview` carry the key on a sleeper and on nothing else.
 Every pid-keyed route (`/api/s/<pid>/...`) finds nothing at pid 0, and spend, usage and the transcript readers never see a sleeper.
 
-- **Sidebar**: a hollow dot, the word *sleeping* beside the name, and *asleep since ...* in the row's tooltip. **Overview**: the status reads
-  *sleeping* and the cell adds *since ...*. The time is the marker's, written in the page's zone (the same zone the rest of the page uses,
+- **Sidebar**: a hollow dot, the word *sleeping* beside the name, and *asleep since ...* in the row's tooltip. **Overview**: the status cell of a
+  sleeper is the one word *sleeping* (the time it went to sleep is in the sleeper band above the table and in the cell's tooltip, never in the
+  cell). The time is the marker's, written in the page's zone (the same zone the rest of the page uses,
   `zoneFormat`), never UTC and never the box's. A sleeping session is never drawn as idle, shell or a crashed one.
+- **A sleeper's Lane and Model cells are what its wake will start.** A sleeper has no process to read a lane or a launch line from, so
+  `api/overview` asks sala (`sala sleep --list --json`, `lib/sleep.sh`, kept 30 seconds and asked only while a session sleeps) and takes the lane
+  (`lane_for_session`: the `lanes.tsv` row, else the pin, else the default) and the model and effort off the line `resume_cmd` builds, the line a
+  wake types: sala's own functions, no rule of its is copied here. A model family (`opus`) is then resolved to a version as the CLI does on that
+  lane: the lane's own `ANTHROPIC_DEFAULT_<FAMILY>_MODEL` id when it pins one (the AWS lanes), else the catalog of the `claude` a wake starts. A sleeper
+  never reads *version unknown* or an unknown lane; a sala that cannot answer (missing, older, slow) leaves the cells as sala's record and the transcript
+  give them. `tests/test_wake_plan.py`.
 - **The sidebar leaves sleepers out unless "Show sleeping sessions" is checked.** The box sits under the list, right under "Show all sessions"
   (`#show-sleeping`, the same markup), and is the pref `showSleeping` (*Preferences*, below): kept on the server so the phone and the desktop
   agree and a reload keeps it, off by default. Off, a sleeping session has no row, and a project whose sessions all sleep has no heading

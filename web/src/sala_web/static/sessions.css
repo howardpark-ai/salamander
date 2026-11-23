@@ -16,8 +16,10 @@
 #overview-pane .sp-note { font-size: 13px; color: var(--muted); }
 #overview-pane .sp-note:not(:empty) { margin-bottom: 8px; }
 #overview-pane .sp-note.error { color: var(--error); }
-/* phone width: the table scrolls inside this box, never the page */
-#overview-pane .sp-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+/* A table here never scrolls sideways, at any width: this box does not scroll (clip: it only rounds the corners). Where the columns do not fit, sessions.js (fitTable)
+   puts .fold on the box and the rows become cards (index.html, "Agents as cards"); a long cell wraps or is cut with an ellipsis, it never widens the table.
+   The width test (web/tests/test_table_width.py) holds it. The Schedules table keeps its own box (schedules.css). */
+#overview-pane .sp-wrap { overflow: clip; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
 #overview-pane :is(#sp-table, #ld-table) { width: 100%; border-collapse: collapse; font-size: 15px; white-space: nowrap; }
 #overview-pane :is(#sp-table, #ld-table) th, #overview-pane :is(#sp-table, #ld-table) td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 #overview-pane :is(#sp-table, #ld-table) tbody tr:last-child td { border-bottom: 0; }

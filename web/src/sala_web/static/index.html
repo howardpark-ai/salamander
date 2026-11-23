@@ -148,22 +148,25 @@
 #overview-pane .sp-tag, #overview-pane .sp-tag[class*="fam-"], #overview-pane .sp-eff { border: 0; border-radius: 4px; }
 #overview-pane .sp-eff { color: var(--text); background: color-mix(in srgb, var(--accent-solid, var(--accent)) 14%, var(--panel)); }
 
-/* Agents on a phone: a row per agent, nothing scrolls sideways */
-@media (max-width: 760px) {
-  #overview-pane .sp-wrap:has(> #sp-table) { overflow-x: visible; }   /* the Agents table only: the lane and Schedules tables keep scrolling inside their box */
-  #overview-pane #sp-table thead { display: none; }
-  #overview-pane #sp-table, #overview-pane #sp-table tbody { display: block; white-space: normal; }
-  #overview-pane #sp-table tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
-  #overview-pane #sp-table tbody tr:last-child { border-bottom: 0; }
-  #overview-pane #sp-table td { display: block; padding: 0; border: 0; }
-  #overview-pane #sp-table td:nth-child(1) { order: 1; flex: 1 1 60%; min-width: 0; font-size: 15px; }
-  #overview-pane #sp-table td:nth-child(4) { order: 2; font-size: 13px; }
-  #overview-pane #sp-table td:nth-child(2) { order: 3; flex: 1 0 100%; font-size: 13px; color: var(--muted); }
-  #overview-pane #sp-table td:nth-child(3) { display: none; }
-  #overview-pane #sp-table td:nth-child(5) { order: 4; }
-  #overview-pane #sp-table td:nth-child(6) { order: 5; }
-  #overview-pane #sp-table td:nth-child(7) { order: 6; }
-}
+/* Agents as cards: a row per agent, nothing scrolls sideways. sessions.js (fitTable) puts .fold on a table's box when the screen is a phone's (760px and under)
+   or the columns do not fit the box at the width it has: one rule for the phone and for every width in between, so a table never scrolls sideways. In a card a
+   long name, project or label wraps anywhere, and a tag or pill too long for the line is cut with an ellipsis (its title says it whole). Applies to the Agents
+   table and the lane page's table of its sessions (the same seven cells a row). */
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) thead { display: none; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table), #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) tbody { display: block; white-space: normal; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) tbody tr:last-child { border-bottom: 0; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td { display: block; padding: 0; border: 0; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(1) { order: 1; flex: 1 1 60%; font-size: 15px; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(4) { order: 2; font-size: 13px; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(2) { order: 3; flex: 1 0 100%; font-size: 13px; color: var(--muted); }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(3) { display: none; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(5) { order: 4; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(6) { order: 5; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(7) { order: 6; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) .sp-model { display: flex; max-width: 100%; min-width: 0; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) :is(.sp-tag, .sp-pill) { display: inline-block; box-sizing: border-box; max-width: 100%; min-width: 0; vertical-align: middle;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 20px; }
 
 /* the one leftover: the model tag's inner outline */
 #overview-pane .sp-tag[class*="fam-"] { box-shadow: none; }

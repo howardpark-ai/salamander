@@ -106,6 +106,7 @@ worktree, a PR, `release.sh`); what differs:
   load-dependent failures in the browser tests), and the job named `web` gathers them into the one check. A change outside `web/` runs the suites
   and skips it; one under `.github/` runs both (*CI* below). `tests/syntax.sh` and `deploy.sh`'s `bash -n` pass over
   `web/` too: its Python files are parsed, and nothing under it carries a shell shebang.
+- **tables:** a page's tables never scroll sideways, at any width; where columns do not fit, rows fold into cards, and `web/tests/test_table_width.py` guards it, so a design change that would let a table scroll is stopped.
 - **deploy:** the web step above, only for a file under `web/`. The units run the app from the production checkout
   (`ExecStart=%h/salamander/web/.venv/bin/sala-web`, the socket `%t/sala-web/sala-web.sock`); `static/` is served from
   the checkout, so a frontend change is live at the fast-forward, before the restart. A changed unit under

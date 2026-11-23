@@ -3,7 +3,7 @@
 #
 #   salamander sleep NAME… [--dry-run]     the named sessions (exact tmux session names)
 #   salamander sleep --project KEY [--dry-run]   every session of one project, together: what the watch's tick runs (below)
-#   salamander sleep --list                the sleeping sessions, with the time each went to sleep
+#   salamander sleep --list [--json]       the sleeping sessions, with the time each went to sleep; --json adds what a wake would launch each on (lane, model, effort), for the web page's Agents table
 #   salamander sleep --candidates          per project, sleeping / awake / pinned, its two quiet ages and the first reason it is not a candidate; changes nothing
 #   salamander sleep --pin KEY [--why TEXT] · --unpin KEY · --pins     hold a project off the automatic sleep, lift it, list the pins (a plain verb: a pin changes nothing that runs)
 #
@@ -48,18 +48,19 @@
 # --dry-run: nothing is typed, marked or changed; the same refusals as the real run, as "[dry-run] would refuse: …" (exit 1), and for a session that may sleep
 # what the run would do. Read-only, so it passes the guard from a Claude session like every verb's dry run.
 
-usage="usage: salamander sleep NAME… [--dry-run] | --project KEY [--asked] [--dry-run] | --list | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins
+usage="usage: salamander sleep NAME… [--dry-run] | --project KEY [--asked] [--dry-run] | --list [--json] | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins
   puts idle sessions to sleep: their claude ends, their tmux session and pane-map row stay; salamander wake NAME resumes one
   --project KEY: every session of one project, together; the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) sleeps a project only when it has had no external
     anchor notice and no input from its owner for SALA_SLEEP_QUIET (2 days), every one of its sessions is idle with nothing in flight, and it is not pinned
   --asked (with --project; \`sala op sleep --project KEY --from YOU --words \"<the owner's words>\"\` queues it): the owner asked for it now, so the quiet rule and the settle time do not apply;
     the activity reading, the pin and every in-flight check still do. A session of the project that asks is put to sleep once its turn has ended (a session cannot run this raw: queue it)
+  --list --json: one JSON array, an object a sleeper (name, conversation, since, and the lane, model, effort and ANTHROPIC_DEFAULT_*_MODEL ids its wake would launch it with, read as the wake's own launch line reads them); changes nothing
   --candidates: per project, sleeping, awake or pinned, its two quiet ages and the first reason it is not a candidate; changes nothing
   --pin KEY [--why TEXT] / --unpin KEY / --pins: hold a project off the automatic sleep, lift it, list the pins (kept across a reboot)"
 . "$SALA_ROOT/lib/wrapup.sh"
-NAMES=(); DRY=0; DRYFLAG=""; LIST=0; CAND=0; PROJ=""; PIN=""; UNPIN=""; PINS=0; WHY=""; HAVE_WHY=0; ASKED=0
+NAMES=(); DRY=0; DRYFLAG=""; LIST=0; LJSON=0; CAND=0; PROJ=""; PIN=""; UNPIN=""; PINS=0; WHY=""; HAVE_WHY=0; ASKED=0
 while [ $# -gt 0 ]; do a="$1"; shift; case "$a" in
-    --dry-run) DRY=1; DRYFLAG=--dry-run ;; --asked) ASKED=1 ;; --list) LIST=1 ;; --candidates) CAND=1 ;; --pins) PINS=1 ;; -h|--help) echo "$usage"; exit 0 ;;
+    --dry-run) DRY=1; DRYFLAG=--dry-run ;; --asked) ASKED=1 ;; --list) LIST=1 ;; --json) LJSON=1 ;; --candidates) CAND=1 ;; --pins) PINS=1 ;; -h|--help) echo "$usage"; exit 0 ;;
     --project) [ $# -gt 0 ] || die "--project takes a project key
 $usage"; [ -n "$1" ] || die "an empty text is not a project key (the page key without projects/, like team/alpha)"; PROJ="$1"; shift ;;
     --pin) [ $# -gt 0 ] || die "--pin takes a project key
@@ -74,6 +75,8 @@ $usage" ;;
 esac; done
 modes=$(( CAND + LIST + PINS )); [ -z "$PROJ" ] || modes=$((modes + 1)); [ -z "$PIN" ] || modes=$((modes + 1)); [ -z "$UNPIN" ] || modes=$((modes + 1))
 [ "$modes" -le 1 ] || die "--project, --list, --candidates, --pin, --unpin and --pins each stand alone
+$usage"
+[ "$LJSON" = 0 ] || [ "$LIST" = 1 ] || die "--json goes with --list
 $usage"
 [ "$HAVE_WHY" = 0 ] || [ -n "$PIN" ] || die "--why goes with --pin
 $usage"
@@ -106,6 +109,36 @@ if [ "$PINS" = 1 ]; then
 fi
 if [ "$CAND" = 1 ]; then
     sleep_report
+    exit 0
+fi
+# sleep_list_json → the sleepers as one JSON array, each with what its wake would launch it on. The lane is lane_for_session (its lanes.tsv row, else its pin, else
+# the default) and the model, effort and the lane's model ids are read off the line resume_cmd builds for it, the line a wake's revive types: the same two functions,
+# not a copy of their rules. The line itself is never printed (an api lane's holds the path of its key file). SALA_LANE_LOG=/dev/null: resume_cmd says a lane
+# fallback in lanes.log, and a listing the web page reads every minute must not add a line each time.
+sleep_list_json() {
+    local u t nm lane line
+    while IFS=$'\t' read -r u t nm; do
+        [ -n "$u" ] && [ -n "$nm" ] || continue
+        lane=$(lane_for_session "$nm")
+        line=$(SALA_LANE_LOG=/dev/null resume_cmd "$u" "$nm")
+        printf '%s\t%s\t%s\t%s\t%s\n' "$nm" "$u" "$t" "$lane" "$line"
+    done < <(sleeping_list) | python3 -c '
+import json, re, sys
+out = []
+for raw in sys.stdin:
+    p = raw.rstrip("\n").split("\t", 4)
+    if len(p) < 5:
+        continue
+    name, conv, since, lane, line = p
+    m = re.search(r"(?:^|\s)--model\s+(\S+)", line)
+    e = re.search(r"(?:^|\s)--effort\s+(\S+)", line)
+    env = dict(re.findall(r"(?:^|\s)(ANTHROPIC_DEFAULT_[A-Z]+_MODEL)=(\S+)", line))
+    out.append({"name": name, "conversation": conv, "since": since, "lane": lane, "model": m.group(1) if m else None,
+                "effort": e.group(1) if e else None, "env": env})
+print(json.dumps(out, ensure_ascii=False))'
+}
+if [ "$LIST" = 1 ] && [ "$LJSON" = 1 ]; then
+    sleep_list_json
     exit 0
 fi
 if [ "$LIST" = 1 ]; then

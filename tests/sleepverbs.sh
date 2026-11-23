@@ -158,6 +158,24 @@ is_sleeping sala-test-s && ok "is_sleeping says so" || bad "is_sleeping s false"
 case "$($T display -p -t =sala-test-s: '#{pane_current_command}')" in bash|sh|zsh|fish) ok "the pane is back at its shell" ;; *) bad "pane command: $($T display -p -t =sala-test-s: '#{pane_current_command}')" ;; esac
 run sleep --list
 [ "$RC" = 0 ] && has "$OUT" "sala-test-s" && has "$OUT" "asleep since" && has "$OUT" "$US" && ! has "$OUT" "sala-test-d" && ok "sleep --list shows s, when it went to sleep and its conversation" || bad "sleep --list: rc=$RC — $OUT"
+echo "== sleep --list --json: the lane and the model a wake would launch each sleeper on, read as resume_cmd reads them (the web page's Agents table shows them)"
+cp -f "$SALA_LANES" "$HOME/lanes.tsv.keep" 2>/dev/null; cp -f "$SALA_MODELS" "$HOME/models.tsv.keep" 2>/dev/null
+printf 'sala-test-s\tsubscription-2\n' >> "$SALA_LANES"; printf 'sala-test-s\topus\thigh\n' >> "$SALA_MODELS"
+run sleep --list --json
+JS=$(python3 -c 'import json,sys
+d = json.loads(sys.stdin.read()); r = [x for x in d if x["name"] == "sala-test-s"]
+print(len(d), len(r), r[0]["conversation"], r[0]["lane"], r[0]["model"], r[0]["effort"], len(r[0]["env"]), r[0]["since"][:2])' <<< "$OUT" 2>&1)
+[ "$RC" = 0 ] && [ "$JS" = "1 1 $US subscription-2 opus high 0 20" ] && ok "sleep --list --json: one object, the sleeper's lanes.tsv row as its lane, its models.tsv row as model and effort ($JS)" || bad "sleep --list --json: rc=$RC js=$JS — $OUT"
+! has "$OUT" "claude --resume" && ! has "$OUT" "--model" && ok "the launch line itself is never printed" || bad "the json holds the launch line: $OUT"
+rm -f "$SALA_LANES" "$SALA_MODELS"; mv -f "$HOME/lanes.tsv.keep" "$SALA_LANES" 2>/dev/null; mv -f "$HOME/models.tsv.keep" "$SALA_MODELS" 2>/dev/null
+run sleep --list --json
+JS=$(python3 -c 'import json,sys
+d = json.loads(sys.stdin.read()); r = [x for x in d if x["name"] == "sala-test-s"]
+print(r[0]["lane"], r[0]["model"] or "-")' <<< "$OUT" 2>&1)
+[ "$RC" = 0 ] && [ "${JS%% *}" = "$(lane_for_session sala-test-s)" ] && ok "with no row: the default lane, as lane_for_session says ($JS)" || bad "sleep --list --json, no row: rc=$RC js=$JS"
+[ -f "$SALA_SLEEP_DIR/$US" ] && ok "listing it is read-only: the marker is still there" || bad "the marker is gone after --list --json"
+run sleep --json
+[ "$RC" != 0 ] && has "$OUT" "--json goes with --list" && ok "--json alone is refused" || bad "sleep --json: rc=$RC — $OUT"
 run sleep sala-test-s
 [ "$RC" = 1 ] && has "$OUT" "already asleep" && ok "asking again: 'already asleep', refused" || bad "sleep s again: rc=$RC — $OUT"
 sleep 1; [ "$(n_starts 6)" = "$s0" ] && ! hasclaude s && ok "nothing revived it in the meantime" || bad "s started again? starts $(n_starts 6) vs $s0"

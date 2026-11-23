@@ -10,6 +10,7 @@ import json
 import mmap
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -395,10 +396,13 @@ class CatalogCache:
         self._lock = threading.Lock()   # overview polls run in a threadpool: one scan per binary, not one per poll
 
     def for_pid(self, pid: int) -> dict:
-        exe = f"/proc/{pid}/exe"
+        return self.for_exe(f"/proc/{pid}/exe")
+
+    def for_exe(self, exe: str) -> dict:
+        """The catalog of the binary at `exe`: /proc/<pid>/exe for a running process, or the path of the `claude` a wake would start."""
         try:
             st = os.stat(exe)
-            name = os.readlink(exe)
+            name = os.readlink(exe) if exe.startswith("/proc/") else os.path.realpath(exe)
         except OSError:
             return {}
         key = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
@@ -409,6 +413,71 @@ class CatalogCache:
                     got["binary"] = Path(name.removesuffix(" (deleted)")).name
                 self._by_file[key] = got
             return self._by_file[key]
+
+
+# THE SLEEPERS' WAKE PLAN. A sleeping session has no process to read a launch line, an environment or a binary from, so its Agents row says what a wake
+# will start: the lane and the model, as sala resolves them for the wake (`sala sleep --list --json`, lib/sleep.sh: `lane_for_session`, and the model, effort
+# and lane model ids `resume_cmd` puts on the line a wake types). The version of a model family ("opus") is then read as the CLI reads it on that lane: the
+# lane's own ANTHROPIC_DEFAULT_<ALIAS>_MODEL id when it pins one (the AWS lanes), else the catalog of the `claude` the wake starts. None of sala's rules is
+# copied here.
+WAKE_PLAN_TTL = 30.0       # seconds an answer is kept: sala reads each sleeper's transcript for it, and the page asks every 10 s
+WAKE_PLAN_TIMEOUT = 20.0
+_ENV_NAME = re.compile(r"ANTHROPIC_DEFAULT_([A-Z]+)_MODEL")
+
+
+def parse_wake_plans(text: str) -> dict[str, dict]:
+    """{session name: {"lane", "model", "effort", "env": {alias: model}}} from `sala sleep --list --json`; {} for anything that is not that
+    list (an old sala that does not know --json prints its plain list, a failing one nothing). A malformed element is skipped."""
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return {}
+    out: dict[str, dict] = {}
+    for d in doc if isinstance(doc, list) else []:
+        if not isinstance(d, dict) or not isinstance(d.get("name"), str) or not d["name"]:
+            continue
+        env = d.get("env") if isinstance(d.get("env"), dict) else {}
+        out[d["name"]] = {
+            "lane": d["lane"] if isinstance(d.get("lane"), str) and d["lane"] else None,
+            "model": d["model"] if isinstance(d.get("model"), str) and d["model"] else None,
+            "effort": d["effort"] if isinstance(d.get("effort"), str) and d["effort"] else None,
+            "env": {m.group(1).lower(): v for k, v in env.items() if isinstance(v, str) and v and (m := _ENV_NAME.fullmatch(k))},
+        }
+    return out
+
+
+class WakePlans:
+    """`sala sleep --list --json`, kept WAKE_PLAN_TTL seconds and asked only while a session sleeps. A sala that cannot answer (missing, slow, an
+    older one) gives {} for that time, and the rows then keep what sala's record and the transcript say."""
+
+    def __init__(self, cmd: list[str]):
+        self._cmd = cmd
+        self._at: float | None = None
+        self._plans: dict[str, dict] = {}
+        self._lock = threading.Lock()   # overview polls run in a threadpool: one sala run at a time
+
+    def get(self) -> dict[str, dict]:
+        with self._lock:
+            if self._at is not None and time.monotonic() - self._at < WAKE_PLAN_TTL:
+                return self._plans
+            self._at = time.monotonic()
+            try:
+                done = subprocess.run([*self._cmd, "sleep", "--list", "--json"], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                      errors="replace", timeout=WAKE_PLAN_TIMEOUT, check=False)
+                self._plans = parse_wake_plans(done.stdout) if done.returncode == 0 else {}
+            except (OSError, subprocess.SubprocessError):
+                self._plans = {}
+            return self._plans
+
+
+def wake_catalog(catalogs: "CatalogCache", live_pids: list[int]) -> dict:
+    """The model catalog of the `claude` a wake starts: the one on PATH (else in ~/.local/bin, where the installer links it), else the one a live session runs."""
+    got = catalogs.for_exe(shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude"))
+    for pid in live_pids:
+        if got:
+            break
+        got = catalogs.for_pid(pid)
+    return got
 
 
 def sala_models(path: Path) -> dict[str, dict]:

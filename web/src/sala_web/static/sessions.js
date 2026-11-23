@@ -137,7 +137,8 @@ function modelCell(r) {
   const m = modelParts(r.model);
   const n = span("sp-model", "", modelTitle(r));
   n.append(span("sp-tag fam-" + m.family, m.label));
-  if (m.unknown) n.append(" ", span("sp-warn sp-vu", tl("ov.row.versionUnknown")));  // the space: for a screen reader
+  // the space: for a screen reader. A sleeper never says it: its model is the one its wake will start (sala's answer, resolved to a version), and the words would only widen its row
+  if (m.unknown && r.sleeping === undefined) n.append(" ", span("sp-warn sp-vu", tl("ov.row.versionUnknown")));
   if (r.modelSource === "default") n.append(" ", span("sp-muted sp-def", tl("ov.row.default")));
   return n;
 }
@@ -161,8 +162,8 @@ function sessionRow(r) {
   link.textContent = r.name;
   const st = span("sp-status " + ({ busy: "working", waiting: "waiting" }[STATUS_DOT[r.status]] || ""), "");
   st.append(span("dot " + (STATUS_DOT[r.status] || ""), ""), statusText(r.status));
-  // a sleeping session (its claude ended on purpose, its pane stays): since when, in the page's zone; opening it wakes it
-  if (r.sleeping !== undefined && sleptAt(r.sleeping)) st.append(span("sp-muted", tl("ov.row.sleepingSince", { when: sleptAt(r.sleeping) }), tl("ov.row.sleepingTip")));
+  // a sleeping session (its claude ended on purpose, its pane stays) says only "sleeping" here: the time it went to sleep is on its own page (the band above its conversation), so the row stays as narrow as any other
+  if (r.sleeping !== undefined) st.title = tl("ov.row.sleepingTip");
   // a conversation moved into a background job: one row, the job's status above, and where it runs
   if (r.parkedJob) st.append(span("sp-muted", tl("ov.row.inJob", { job: r.parkedJob }), tl("ov.row.jobTitle")));
   tr.append(
@@ -172,10 +173,29 @@ function sessionRow(r) {
     td(st),
     td(modelCell(r)),
     td(effortCell(r)),
-    td(r.lane ? span("sp-pill lane-" + laneNorm(r.lane), cellText.lane(r)) : span("sp-muted", tl("ov.common.unknown"))),
+    td(r.lane ? span("sp-pill lane-" + laneNorm(r.lane), cellText.lane(r), cellText.lane(r)) : span("sp-muted", tl("ov.common.unknown"))),
   );
   return tr;
 }
+// A table here never scrolls sideways, at any width (the owner's rule; web/tests/test_table_width.py holds it). At a phone's width, and at any width where the
+// columns do not fit their box, the box gets .fold and CSS (index.html, "Agents as cards") draws each row as a card, which wraps; otherwise the columns stand.
+// The table is measured with the fold off (its own width: its columns' nowrap text, or the box's when they are narrower), and the check is made again when
+// the box changes width (the window, the sidebar, a font arriving) and after every draw.
+const PHONE = window.matchMedia("(max-width: 760px)");
+const fitted = new WeakMap();   // a table -> the box width it was last fitted at, so a change of height alone (a fold) does not fit it again
+function fitTable(table, force = true) {
+  const wrap = table.parentElement;
+  if (!force && fitted.get(table) === wrap.clientWidth) return;
+  wrap.classList.remove("fold");
+  const w = wrap.clientWidth;
+  fitted.set(table, w);
+  if (PHONE.matches || table.getBoundingClientRect().width > w + 0.5) wrap.classList.add("fold");
+}
+if (typeof ResizeObserver === "function") {
+  const watch = new ResizeObserver((entries) => { for (const e of entries) fitTable(e.target.querySelector("table"), false); });
+  for (const id of ["sp-table", "ld-table"]) watch.observe(document.getElementById(id).parentElement);
+}
+PHONE.addEventListener("change", () => { for (const id of ["sp-table", "ld-table"]) fitTable(document.getElementById(id)); });
 function emptyRow(text) {
   const tr = document.createElement("tr");
   const c = td(text);
@@ -190,6 +210,7 @@ function render() {
   const rows = sorted();
   body.replaceChildren(...rows.map(sessionRow));
   if (!rows.length) body.append(emptyRow(tl("ov.row.noSessions")));
+  fitTable(document.getElementById("sp-table"));
   for (const th of document.querySelectorAll("#sp-table th")) {
     th.setAttribute("aria-sort", th.dataset.key === sp.key ? (sp.dir > 0 ? "ascending" : "descending") : "none");
   }
@@ -979,6 +1000,7 @@ function laneRender() {
   const body = document.querySelector("#ld-table tbody");
   body.replaceChildren(...rows.map(sessionRow));
   if (!rows.length) body.append(emptyRow(tl("ov.lane.noSessions")));
+  fitTable(document.getElementById("ld-table"));
   document.getElementById("ld-count").textContent = tl("ov.lane.count", { n: rows.length });
 }
 
