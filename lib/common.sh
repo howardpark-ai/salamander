@@ -97,7 +97,7 @@ cs_print_config() {
              SALA_LANES SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_LANE_SDK_PIN SALA_LANE_SDK_CMD \
              SALA_LANE_BEDROCK_PROFILE SALA_LANE_BEDROCK_CREDENTIALS_FILE SALA_LANE_BEDROCK_PREFIX SALA_LANE_BEDROCK_OPUS_MODEL SALA_LANE_BEDROCK_SONNET_MODEL SALA_LANE_BEDROCK_HAIKU_MODEL \
              SALA_LANE_AWSPLATFORM_PROFILE SALA_LANE_AWSPLATFORM_CREDENTIALS_FILE SALA_LANE_AWSPLATFORM_WORKSPACE_ID SALA_LANE_AWSPLATFORM_OPUS_MODEL SALA_LANE_AWSPLATFORM_SONNET_MODEL SALA_LANE_AWSPLATFORM_HAIKU_MODEL \
-             SALA_LANE_MAX_SUBSCRIPTION SALA_LANE_MAX_ORG SALA_LANE_TEAM_SUBSCRIPTION SALA_LANE_TEAM_ORG SALA_MODELS SALA_JOB_LANE SALA_STACKSHOT_WEB; do
+             SALA_LANE_MAX_SUBSCRIPTION SALA_LANE_MAX_ORG SALA_LANE_TEAM_SUBSCRIPTION SALA_LANE_TEAM_ORG SALA_MODELS SALA_JOB_LANE SALA_STACKSHOT_WEB SALA_IDLE_SLEEP SALA_SLEEP_AFTER SALA_SLEEP_PER_TICK; do
         printf '%-20s %s\n' "$v" "${!v}"
     done
     printf '%-20s %s\n' "lane default" "$(lane_default)"   # state, not config (sala lane default <lane>; lanes above)
@@ -2136,6 +2136,9 @@ no_relaunch_line() { if is_shell_session "$1"; then echo "$1: not relaunched —
 # SALA_SLEEP_DIR: the knob, so a test uses a private directory. SALA_SLEEP_AFTER: the idle age at which sleep_ready (lib/wrapup.sh) says yes.
 : "${SALA_SLEEP_DIR:=$SALA_STATE_DIR/sleeping}"
 : "${SALA_SLEEP_AFTER:=3600}"
+# The watch's two sleep passes (lib/wrapup.sh sleep_tick, wake_tick). SALA_IDLE_SLEEP: OFF by default, on|1|yes|true turns the idle sleep tick on (the wake tick
+# below is always on). SALA_SLEEP_PER_TICK: sessions put to sleep per watch run. SALA_WAKE_PER_RUN: sleepers woken per run for a waiting message line.
+: "${SALA_IDLE_SLEEP:=off}" "${SALA_SLEEP_PER_TICK:=3}" "${SALA_WAKE_PER_RUN:=5}" "${SALA_SLEEP_RETRY:=1800}" "${SALA_WAKE_RETRY:=600}"
 _sleep_uuid_ok() { [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }   # a marker's file name: one path component, never a path (no slash, no leading dot)
 # sleeping_uuid_r <var> <session or name> → (the var is not one of its own locals: _su _by _l _r _s _u _n t) the conversation id of the pane-map row whose tmux session (else whose name) is that, in <var>; 1 when the map has none
 sleeping_uuid_r() {
@@ -2182,6 +2185,23 @@ sleeping_list() {  # → one line per marker: `<uuid> TAB <time> TAB <name>`
         t=""; n=""; read -r t n < "$f" 2>/dev/null || true
         printf '%s\t%s\t%s\n' "$u" "$t" "$n"
     done
+}
+# THE WAKE STAMP: a woken session reads active for SALA_SLEEP_AFTER, whatever its registry row says. `sala wake` writes the epoch second of the wake to
+# $SALA_SLEEP_DIR.woke/<conversation uuid> (a folder beside the marker folder, not in it: the marker folder holds markers only); the idle sleep tick
+# (sleep_candidates, lib/wrapup.sh) never puts a session to sleep again inside that time. Stamps older than SALA_SLEEP_AFTER are dropped at the next wake.
+sleeping_woke_mark() {  # <conversation uuid> → writes the stamp; best effort (a stamp that cannot be written only costs a session its protection)
+    _sleep_uuid_ok "${1:-}" || return 0
+    local d="$SALA_SLEEP_DIR.woke" now; mkdir -p "$d" 2>/dev/null || return 0
+    find "$d" -maxdepth 1 -type f -mmin "+$(( ${SALA_SLEEP_AFTER:-3600} / 60 + 1 ))" -delete 2>/dev/null
+    _now_r now; printf '%s\n' "$now" > "$d/$1.tmp.$" 2>/dev/null && mv -f "$d/$1.tmp.$" "$d/$1" 2>/dev/null || rm -f "$d/$1.tmp.$" 2>/dev/null
+    return 0
+}
+sleeping_woke_age_r() {  # <var> <conversation uuid> → seconds since its wake in <var>; 1 (var empty) when it has no stamp
+    printf -v "$1" %s ""
+    _sleep_uuid_ok "${2:-}" && [ -r "$SALA_SLEEP_DIR.woke/$2" ] || return 1
+    local _w="" _n; read -r _w < "$SALA_SLEEP_DIR.woke/$2" 2>/dev/null || true
+    [[ $_w =~ ^[0-9]+$ ]] || return 1
+    _now_r _n; printf -v "$1" %s $(( _n - _w ))
 }
 sleeping_line() { echo "$1: sleeping — its claude ended on purpose and its pane stays; not resumed, not relaunched, not counted"; }   # <tmux session>
 # is_under <pid> <root-pid> → 0 when root is an ancestor of (or is) pid

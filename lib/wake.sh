@@ -8,6 +8,7 @@
 # (a reboot that did not bring it back) is recreated first at its row's directory, as restore does (common.sh restore_session).
 # A conversation is never resumed twice: a sleeper whose conversation is live in another pane is left asleep and the refusal says where it runs; one
 # whose own pane already runs its claude (started by hand) just loses its marker. A name that is not asleep gets one line and nothing is done (exit 0).
+# The wake also writes the wake stamp (common.sh, THE WAKE STAMP): the idle sleep tick never puts the session back to sleep inside SALA_SLEEP_AFTER.
 # The marker comes off before the resume: a resume that fails leaves an ordinary bare pane, which the next revive or the watch's heal brings back
 # (retrying it is the system's own job, never a second ask) and the line says so.
 # Fleet operation: queued like the others, `sala op wake --only NAME… (--item board#N | --why "<reason>") --from YOU` (lib/op.sh); the queue's runner, a
@@ -47,7 +48,7 @@ wake_one() {
             return 1
         fi
         if [ "$DRY" = 1 ]; then dry "$n: its claude (pid $lpid) already runs in the pane; a wake would only take the marker off"; return 0; fi
-        sleeping_clear "$uuid"
+        sleeping_clear "$uuid"; sleeping_woke_mark "$uuid"
         echo "✅ $n: awake — its claude (pid $lpid) was already running; the sleeping marker is off"; return 0
     fi
     if tmux has-session -t "=$n" 2>/dev/null; then
@@ -61,7 +62,7 @@ wake_one() {
         fi
         tmux_server_up || { echo "✗ $n: no tmux server running — start it first (systemctl --user start tmux.service); left asleep"; return 1; }
     fi
-    sleeping_clear "$uuid"
+    sleeping_clear "$uuid"; sleeping_woke_mark "$uuid"   # the stamp keeps the idle sleep tick off it for SALA_SLEEP_AFTER (common.sh, THE WAKE STAMP)
     if ! tmux has-session -t "=$n" 2>/dev/null; then
         out=$(restore_session "$n"); rc=$?
         printf '%s\n' "$out" | sed '$d'

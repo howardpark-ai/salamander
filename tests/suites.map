@@ -116,6 +116,7 @@ suite skills-flags .github/scripts/skills-flags.py lib/lane.sh lib/model.sh lib/
 suite slacksafe contrib/briefing/lib.sh lib/alert.sh lib/dm.sh lib/stuck.sh
 suite sleeping lib/adopt.sh lib/barepane.sh lib/box.sh lib/close-shell.sh lib/continuedin.sh lib/forget-row.sh lib/heartbeat.sh lib/lane.sh lib/lanewords.py lib/model.sh lib/note.sh lib/op.sh lib/recycle-request.sh lib/rename.sh lib/restore.sh lib/retire.sh lib/revive.sh lib/sessions.py lib/sessions.sh lib/settings-apply.sh lib/snapshot.sh lib/spawn.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
 suite sleepshow docs/stackshot-contracts.md docs/subcommands.md lib/heartbeat.sh lib/lanewords.py lib/sessions.py lib/sessions.sh
+suite sleeptick config.example lib/adopt.sh lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/lanewords.py lib/note.sh lib/notice.py lib/notice.sh lib/op.sh lib/recycle-request.sh lib/rename.sh lib/revive.sh lib/sessions.py lib/settings-apply.sh lib/sleep.sh lib/stuck.sh lib/wake.sh lib/watch.sh lib/wrapup.sh
 suite sleepverbs lib/adopt.sh lib/feedback.sh lib/lanewords.py lib/op.sh lib/revive.sh lib/sessions.py lib/sleep.sh lib/wake.sh lib/wrapup.sh
 suite smoke lib/adopt.sh lib/heartbeat.sh lib/rename.sh lib/revive.sh lib/sessions.py lib/spawn.sh
 suite spawn lib/barepane.sh lib/continuedin.sh lib/lanewords.py lib/op.sh lib/rc.sh lib/retire.sh lib/revive.sh lib/sessions.py lib/sessions.sh lib/settings-apply.sh lib/spawn.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh

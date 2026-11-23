@@ -220,6 +220,16 @@
 #SALA_CLEAR_WAIT=20              # seconds to wait for the registry row to show the new conversation after /clear
 #SALA_CLEAR_TRIES=3              # /clear is typed this many times before the pane is recorded as failed (no second wrap-up until a new turn)
 #SALA_CLEAR_CONTEXT=on           # hook session-start, source clear: one line telling a cleared background agent who it is and where its mandate is. off = nothing printed
+#SALA_IDLE_SLEEP=off            # watch (lib/wrapup.sh sleep_tick): OFF by default; on|1|yes|true turns it on. When on, each watch run puts to sleep (`sala sleep`: its claude ends, its tmux session and pane-map row stay,
+                                 #   `sala wake NAME` resumes it) the live sessions that have been idle for SALA_SLEEP_AFTER seconds with nothing in flight: no background work, dialog, typed text, scheduled job,
+                                 #   queued operation or note, pending relaunch, stackshot message, limit or network stop, open question; never a front agent (a -main agent or a row with role front), the Remote Control
+                                 #   session, a side session, the sdk lane or a SALA_NO_RELAUNCH session; never one woken less than SALA_SLEEP_AFTER ago. See the list first: `sala sleep --candidates` (or
+                                 #   `sala watch --sleep --dry-run`), on or off. A sleeper with a stackshot message line waiting is woken by the watch itself, on or off (wake_tick, always on).
+#SALA_SLEEP_AFTER=3600           # seconds a session must have been idle before it may sleep (also the time a woken session is left alone)
+#SALA_SLEEP_PER_TICK=3           # sessions put to sleep per watch run (0 = none), the longest idle first, so a first run does not stop the whole fleet at once
+#SALA_SLEEP_RETRY=1800           # seconds before a session whose sleep was refused or failed is asked again
+#SALA_WAKE_PER_RUN=5             # sleepers woken per watch run for a waiting message line
+#SALA_WAKE_RETRY=600             # seconds before a wake that failed is tried again
 #SALA_SIGNIN_ALERT=on            # watch, per lane: one post when a lane is signed in to another account than SALA_LANE_<LANE>_SUBSCRIPTION /
                                  #   _ORG say (subscription-1 in ~/.claude, subscription-2 in its directory: `claude auth status --json`, no API key in its
                                  #   environment) or the api lane's key is refused (401/403) or its file is gone; one when it is right again. Posted
