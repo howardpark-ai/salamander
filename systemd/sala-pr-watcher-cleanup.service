@@ -6,6 +6,7 @@ Description=PR-watcher cleanup — delete the finished one-time scheduled tasks 
 # under `python3 -I` directly instead of through `uv run --script`.
 X-Model-Lane=none
 X-Project=sala/salamander
+X-Runs-With=sessions
 
 [Service]
 Type=oneshot

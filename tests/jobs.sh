@@ -14,6 +14,9 @@
 #            row as example-org/team-config, a detail of at most 600 characters), deduped, at most three a pass, a failed open or clear retried (the
 #            record kept as it was), a fixed gap closed with `post job-gap clear` and its record dropped, a record of the message era opened once,
 #            no client or an old client = exit 0; the sala-watch tick (`watch --unit-gaps`) doing the same, off with SALA_UNIT_GAPS=off
+#   X-Runs-With  `add --runs-with` (a value written once after X-Project=, capitals read as lower case, an invalid or empty one refused with the usage; none given: added
+#            and reported unplaced), `list` (the RUNS WITH column, `unplaced` for a job with no valid value) and `list --unplaced`, `sala job set-runs-with`
+#            (insert, replace, idempotent, --quiet, a pr repo through a worktree, a system-scope job, refusals) and with_runs_with
 #   X-Project the no-project gap in check and check --post, `sala job set-project` (insert, replace, idempotent, --quiet, a pr repo
 #            through a worktree, a system-scope job, refusals), with_project, and contrib/backfill-job-projects.sh (dry run, set, already, skipped, failed)
 # Usage: bash tests/jobs.sh   (exit 0 = pass; a few seconds). The temporary tree is locked while the suite runs and removed at its end.
@@ -127,6 +130,8 @@ grep -q '^OnCalendar=\*-\*-\* 03:30:00 UTC$' "$TMR" && grep -q '^Persistent=true
 [ "$(readlink "$T/u/nightly.service")" = "$SVC" ] && [ "$(readlink "$T/u/nightly.timer")" = "$TMR" ] && ok "linked into the user unit folder" || bad "links: $(ls -l "$T/u")"
 grep -qx -- '--user daemon-reload' "$T/ctl.log" && grep -qx -- '--user enable --now nightly.timer' "$T/ctl.log" && ok "daemon-reload, then enable --now the timer" || bad "systemctl calls: $(cat "$T/ctl.log")"
 case "$out" in *"git -C $T/hub add -- units/nightly/systemd/nightly.service units/nightly/systemd/nightly.timer"*"pull --rebase --autostash"*"hub note nightly"*) ok "prints the git status, the commit steps for a main repo and the repo's note" ;; *) bad "git steps: $out" ;; esac
+case "$out" in *"note: nightly is unplaced: no --runs-with (servers | sessions | home)"*"set-runs-with nightly"*) ok "add without --runs-with: accepted, and the output says the job is unplaced" ;; *) bad "no unplaced note: $out" ;; esac
+! grep -q '^X-Runs-With=' "$SVC" && ok "add without --runs-with: no X-Runs-With= line written" || bad "an X-Runs-With= line without the flag: $(cat "$SVC")"
 [ "$($G -C "$T/hub" log --oneline | wc -l)" = 1 ] && [ -z "$($G -C "$T/hub" diff --cached --name-only)" ] && ok "nothing committed, nothing staged" || bad "add committed or staged something"
 refused "a taken name" 1 "is taken" nightly "${ADD[@]}"
 # a python script and the other schedule forms
@@ -153,6 +158,55 @@ out=$(SALA_CONFIG=$T/map.cfg $S job list 2>&1)
 case "$out" in *nightly*team/cfg*) ok "SALA_UNIT_PROJECT_MAP read from the sala config line" ;; *) bad "project map from config: $out" ;; esac
 out=$(SALA_UNIT_PROJECT_MAP="projects/example=team/docs" $S job check 2>&1)
 case "$out" in *"no-project"*) bad "a mapped project is flagged no-project: $out" ;; *) ok "a mapped project is not a no-project gap" ;; esac
+
+# ---- X-Runs-With=: add --runs-with, list, list --unplaced, set-runs-with ---------------------------------------------------------------
+out=$($S job add placed1 "${ADD[@]}" --runs-with servers 2>&1); rc=$?
+PSVC=$T/hub/units/placed1/systemd/placed1.service
+[ "$rc" = 0 ] && [ "$(grep -c '^X-Runs-With=servers$' "$PSVC")" = 1 ] && [ "$(sed -n '1,/^\[Service\]/p' "$PSVC" | grep -c '^X-Runs-With=')" = 1 ] && [ "$(sed -n 5p "$PSVC")" = 'X-Runs-With=servers' ] \
+    && case "$out" in *unplaced*) false;; *) true;; esac && ok "add --runs-with servers: one X-Runs-With= line in [Unit], right after X-Project=, and no unplaced note" || bad "add --runs-with (exit $rc): $out / $(cat "$PSVC")"
+out=$($S job add placed2 "${ADD[@]}" --runs-with SESSIONS 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -qx 'X-Runs-With=sessions' "$T/hub/units/placed2/systemd/placed2.service" && ok "add --runs-with takes capitals and writes the value in lower case" || bad "add --runs-with SESSIONS (exit $rc): $out"
+refused "an invalid --runs-with" 2 "--runs-with 'elsewhere' is none of: servers, sessions, home" jr1 "${ADD[@]}" --runs-with elsewhere
+refused "an empty --runs-with" 2 "--runs-with '' is none of: servers, sessions, home" jr1 "${ADD[@]}" --runs-with ""
+refused "the usage line names --runs-with" 2 "--runs-with servers | sessions | home" jr1 "${ADD[@]}" --runs-with nope
+out=$($S job list 2>&1)
+case "$out" in "NAME "*"PROJECT "*" RUNS WITH  IN GIT  SCOPE"*) ok "list: a RUNS WITH column between PROJECT and IN GIT" ;; *) bad "list header: $out" ;; esac
+printf '%s\n' "$out" | grep -Eq '^placed1 .*projects/example +servers +yes +user$' && printf '%s\n' "$out" | grep -Eq '^placed2 .*projects/example +sessions +yes +user$' \
+    && printf '%s\n' "$out" | grep -Eq '^nightly .*projects/example +unplaced +yes +user$' && ok "list: the placement of each job, and unplaced for one with none" || bad "list rows: $out"
+out=$($S job list --unplaced 2>&1); rc=$?
+[ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q '^NAME ' && printf '%s\n' "$out" | grep -q '^nightly ' && printf '%s\n' "$out" | grep -q '^pyjob ' && ! printf '%s\n' "$out" | grep -Eq '^placed[12] ' \
+    && ok "list --unplaced: only the jobs with no placement (and the header)" || bad "list --unplaced (exit $rc): $out"
+out=$($S job list --bogus 2>&1); rc=$?
+[ "$rc" = 2 ] && case "$out" in *"unknown argument --bogus"*"usage: sala job list [--unplaced]"*) true;; *) false;; esac && ok "list refuses an unknown argument and prints its usage" || bad "list --bogus (exit $rc): $out"
+# a value in the file that is none of the three reads as unplaced
+PYS_SVC=$T/hub/units/pyjob/systemd/pyjob.service
+sed -i 's|^X-Project=.*|&\nX-Runs-With=bogus|' "$PYS_SVC"
+out=$($S job list --unplaced 2>&1)
+printf '%s\n' "$out" | grep -Eq '^pyjob .*unplaced' && ok "a file with X-Runs-With=bogus is listed as unplaced" || bad "bogus placement: $out"
+# set-runs-with: inserted after X-Project=, the daemon reloaded, the commit steps printed
+cp "$SVC" "$T/nightly.service.orig"; : > "$T/ctl.log"
+out=$($S job set-runs-with nightly sessions 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(sed -n '4,6p' "$SVC")" = $'X-Project=projects/example\nX-Runs-With=sessions\nX-Model-Note=no model' ] && [ "$(grep -c '^X-Runs-With=' "$SVC")" = 1 ] && grep -qx -- '--user daemon-reload' "$T/ctl.log" \
+    && case "$out" in *"set X-Runs-With=sessions in "*"git -C $T/hub add -- units/nightly/systemd/nightly.service"*"nightly: X-Runs-With=sessions (sala job set-runs-with)"*) true;; *) false;; esac \
+    && [ -z "$(diff <(grep -v '^X-Runs-With=' "$SVC") "$T/nightly.service.orig")" ] && ok "set-runs-with: X-Runs-With= added right after X-Project=, the rest untouched, daemon-reload, the git steps printed" || bad "set-runs-with (exit $rc): $out; $(cat "$SVC")"
+$S job list 2>&1 | grep -Eq '^nightly .*projects/example +sessions +yes' && ok "list shows the placement set-runs-with wrote" || bad "list after set-runs-with"
+out=$($S job set-runs-with nightly sessions 2>&1); rc=$?
+[ "$rc" = 0 ] && case "$out" in *"already has X-Runs-With=sessions"*) true;; *) false;; esac && ok "set-runs-with twice with the same value: nothing to do" || bad "set-runs-with again (exit $rc): $out"
+out=$($S job set-runs-with nightly home 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(grep -c '^X-Runs-With=' "$SVC")" = 1 ] && grep -qx 'X-Runs-With=home' "$SVC" && ok "set-runs-with with another value replaces the line (still one)" || bad "set-runs-with replace (exit $rc): $out; $(cat "$SVC")"
+out=$($S job set-runs-with nightly servers --quiet 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -qx 'X-Runs-With=servers' "$SVC" && case "$out" in *"git -C"*) false;; *"set X-Runs-With=servers in "*) true;; *) false;; esac && ok "set-runs-with --quiet: changes the file, prints no git steps" || bad "set-runs-with --quiet (exit $rc): $out"
+cp "$SVC" "$T/nightly.service.keep"
+out=$($S job set-runs-with nightly elsewhere 2>&1); rc=$?
+[ "$rc" = 2 ] && case "$out" in *"placement 'elsewhere' is none of: servers, sessions, home"*"usage: sala job set-runs-with NAME PLACEMENT"*) true;; *) false;; esac && cmp -s "$SVC" "$T/nightly.service.keep" && ok "set-runs-with refuses an invalid placement, prints the usage, writes nothing" || bad "set-runs-with invalid (exit $rc): $out"
+out=$($S job set-runs-with nightly 2>&1); rc=$?
+[ "$rc" = 2 ] && case "$out" in *"give the job's name and its placement"*) true;; *) false;; esac && ok "set-runs-with with no placement is refused" || bad "set-runs-with one argument (exit $rc): $out"
+out=$($S job set-runs-with nothere home 2>&1); rc=$?
+[ "$rc" = 1 ] && case "$out" in *"no job 'nothere'"*) true;; *) false;; esac && ok "set-runs-with refuses a job that does not exist" || bad "set-runs-with unknown job (exit $rc): $out"
+$S job set-runs-with pyjob home --quiet > /dev/null 2>&1
+$S job set-runs-with nightly home --quiet > /dev/null 2>&1
+out=$($S job list --unplaced 2>&1)
+[ "$(printf '%s\n' "$out" | wc -l)" = 1 ] && case "$out" in "NAME "*) true;; *) false;; esac && [ "$(grep -c '^X-Runs-With=' "$PYS_SVC")" = 1 ] && ok "set-runs-with replaces a bogus value; once every job is placed, list --unplaced prints only the header" || bad "all placed: $out"
 
 # ---- add: system scope (prints, calls nothing) --------------------------------------------------------------------------------------
 : > "$T/ctl.log"
@@ -401,6 +455,30 @@ d = u.with_project("[Service]\nExecStart=/x\n", "a/b")
 e = u.with_project("[Unit]\n[Service]\n", "a/b")
 print(a.split("\n")[3], b.count("X-Project="), b.split("\n")[3], c.split("\n")[2], d, e.split("\n")[1], a.endswith("ExecStart=/x\n"))' "$ROOT/lib")
 [ "$wp" = "X-Project=a/b 1 X-Project=c/d X-Project=a/b None X-Project=a/b True" ] && ok "with_project: after X-Model-Lane=, else after Description=, else at the end of [Unit]; replaces a line; no [Unit] = None; the rest kept" || bad "with_project: $wp"
+
+# set-runs-with: a flow-pr repo's job only through a worktree, a system-scope job, a plain copy and a rendered unit refused (the same ground as set-project)
+out=$(penv $S job set-runs-with salx home 2>&1); rc=$?
+[ "$rc" = 2 ] && case "$out" in *"--checkout"*) true;; *) false;; esac && ! grep -q '^X-Runs-With=' "$T/sal/systemd/salx.service" && ok "set-runs-with on a pr repo's job needs --checkout" || bad "set-runs-with pr without checkout (exit $rc): $out"
+out=$(penv $S job set-runs-with salx home --checkout "$T/sal" 2>&1); rc=$?
+[ "$rc" = 2 ] && ! grep -q '^X-Runs-With=' "$T/sal/systemd/salx.service" && ok "set-runs-with refuses the production checkout as --checkout" || bad "set-runs-with pr on production (exit $rc): $out"
+out=$(penv $S job set-runs-with salx home --checkout "$T/sal-wt" 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(sed -n 5p "$T/sal-wt/systemd/salx.service")" = 'X-Runs-With=home' ] && ! grep -q '^X-Runs-With=' "$T/sal/systemd/salx.service" && case "$out" in *"gh pr create"*) true;; *) false;; esac \
+    && ok "set-runs-with on a pr repo: the worktree's copy is edited after X-Project=, the production checkout is not, the pull request steps are printed" || bad "set-runs-with pr (exit $rc): $out"
+: > "$T/ctl.log"
+out=$(penv $S job set-runs-with sysp servers 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -qx 'X-Runs-With=servers' "$SPD/sysp.service" && [ ! -s "$T/ctl.log" ] && ok "set-runs-with on a system-scope job: the git file edited, no systemctl call (no root)" || bad "set-runs-with system (exit $rc): $out; ctl: $(cat "$T/ctl.log")"
+out=$(penv $S job set-runs-with plainj servers 2>&1); rc=$?
+[ "$rc" = 1 ] && case "$out" in *"put it in git first"*) true;; *) false;; esac && cmp -s "$PU/plainj.service" "$T/plainj.orig" && ok "set-runs-with refuses a unit that is not a link into git, writes nothing" || bad "set-runs-with plain copy (exit $rc): $out"
+out=$(penv $S job set-runs-with rr servers 2>&1); rc=$?
+[ "$rc" = 1 ] && cmp -s "$PU/rr.service" "$T/rr.orig" && ok "set-runs-with refuses a unit rendered from a template" || bad "set-runs-with rendered (exit $rc): $out"
+# with_runs_with itself
+wr=$(PYTHONDONTWRITEBYTECODE=1 python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import unitjob as u
+a = u.with_runs_with("[Unit]\nDescription=d\nX-Model-Lane=none\nX-Project=a/b\nX-Model-Note=n\n[Service]\nExecStart=/x\n", "servers")
+b = u.with_runs_with(a, "home")
+c = u.with_runs_with("[Unit]\nDescription=d\nX-Model-Lane=none\n[Service]\nExecStart=/x\n", "sessions")
+d = u.with_runs_with("[Service]\nExecStart=/x\n", "home")
+print(a.split("\n")[4], b.count("X-Runs-With="), b.split("\n")[4], c.split("\n")[3], d, a.endswith("ExecStart=/x\n"), u.RUNS_WITH)' "$ROOT/lib")
+[ "$wr" = "X-Runs-With=servers 1 X-Runs-With=home X-Runs-With=sessions None True ('servers', 'sessions', 'home')" ] && ok "with_runs_with: after X-Project=, else after X-Model-Lane=; replaces a line; no [Unit] = None; the rest kept" || bad "with_runs_with: $wr"
 # the backfill script (contrib/backfill-job-projects.sh): its own folders, a few of the listed names present, all the others missing
 BU=$T/bu; BS=$T/bs; mkdir -p "$BU" "$BS" "$T/hub/units/demo-sync-a" "$T/hub/units/demo-state-copy"; SCRIPT=$T/hub/scripts/job.sh
 NOPROJ=1 unit "$T/hub/units/demo-sync-a" demo-sync-a 'Description=dream' 'X-Model-Lane=bedrock'

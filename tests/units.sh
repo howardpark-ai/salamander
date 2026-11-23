@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Every service unit sala ships under systemd/ and contrib/*/systemd/ names the model lane it runs on: one
 # `X-Model-Lane=<lane>` line in its [Unit] section, the lane one of the vocabulary below, so the Schedules tab of the Overview can list it.
-# An optional `X-Model-Note=<text>` line (at most one, not empty) is shown beside the lane. systemd ignores X- keys in [Unit]; the lines are metadata. The value is read from what the unit's script runs, never guessed
+# A service with a timer also carries one `X-Runs-With=servers|sessions|home` line (where the job runs when the fleet moves). An optional `X-Model-Note=<text>` line (at most one, not empty) is shown beside the lane. systemd ignores X- keys in [Unit]; the lines are metadata. The value is read from what the unit's script runs, never guessed
 # (docs/units.md). Also: each .timer has its .service, a timer's Unit= names a file beside it, and each .service with a timer is covered by the check.
 # Usage: bash tests/units.sh   (exit 0 = pass; under a second; reads files only, writes nothing)
 set -u
@@ -43,7 +43,15 @@ for dir in systemd contrib/*/systemd; do
         [ "$pout" = 0 ] || { bad "$s: X-Project= outside [Unit]"; continue; }
         if [ "${#projs[@]}" = 0 ] && [ -f "${s%.service}.timer" ]; then bad "$s: a job (it has a timer) with no X-Project=<scope/project> in [Unit]"; continue; fi
         if [ "${#projs[@]}" = 1 ] && ! [[ ${projs[0]} =~ ^[a-z][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$ ]]; then bad "$s: X-Project=${projs[0]} is not scope/project (projects/general, beta/pr)"; continue; fi
-        ok "$s: X-Model-Lane=${found[0]}${notes[0]:+ (X-Model-Note: ${notes[0]})}${projs[0]:+ X-Project=${projs[0]}}"
+        # X-Runs-With=servers|sessions|home in [Unit]: where the job runs when the fleet moves (docs/units.md). Required of a service with a timer beside it
+        # (a job: the units sala ships all stay with the sessions and sala); another service may carry one (at most one), never outside [Unit]
+        mapfile -t runs < <(awk '/^\[/ {sec=$0} sec=="[Unit]" && /^X-Runs-With=/ {sub(/^X-Runs-With=/, ""); print}' "$s")
+        rout=$(awk '/^\[/ {sec=$0} sec!="[Unit]" && /^X-Runs-With=/ {c++} END {print c+0}' "$s")
+        if [ "${#runs[@]}" -gt 1 ]; then bad "$s: ${#runs[@]} X-Runs-With= lines in [Unit] (at most one)"; continue; fi
+        [ "$rout" = 0 ] || { bad "$s: X-Runs-With= outside [Unit]"; continue; }
+        if [ "${#runs[@]}" = 0 ] && [ -f "${s%.service}.timer" ]; then bad "$s: a job (it has a timer) with no X-Runs-With=servers|sessions|home in [Unit]"; continue; fi
+        if [ "${#runs[@]}" = 1 ] && ! [[ ${runs[0]} =~ ^(servers|sessions|home)$ ]]; then bad "$s: X-Runs-With=${runs[0]} is none of servers, sessions, home"; continue; fi
+        ok "$s: X-Model-Lane=${found[0]}${notes[0]:+ (X-Model-Note: ${notes[0]})}${projs[0]:+ X-Project=${projs[0]}}${runs[0]:+ X-Runs-With=${runs[0]}}"
     done
 done
 [ "$n" -gt 0 ] || bad "no service units found (run from a checkout)"

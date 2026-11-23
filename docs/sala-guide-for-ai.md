@@ -441,7 +441,7 @@ sala lane --list                       # the lanes and their state; sala lane na
 sala lane pins                         # sessions pinned to a lane (held out of every bulk lane move); pin <session> <lane> / unpin <session> change the list
 sala watch --back-lanes --dry-run      # what the back agents' lane rule (and its front step) would do now; queues and writes nothing
 sala config                            # the effective settings
-sala job list                          # scheduled jobs of ours
+sala job list [--unplaced]            # scheduled jobs of ours, with where each runs when the fleet moves (servers, sessions, home or unplaced)
 sala notice list                       # one-time lines waiting for live sessions; sala notice add "<text>" --from NAME shows one to every live session at its next turn (writes)
 sala ci-runs OWNER/REPO                # the CI poller's file for a repo, if the poller runs
 sala mq status --repo OWNER/REPO      # our merge queue's line, entries and driver (modes shadow, which tests and merges nothing, and on, which merges; off is the default; group mode is retired; docs/mq.md); mq add N… / wait N / drop N / pause / resume / doctor

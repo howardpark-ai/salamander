@@ -5,6 +5,7 @@ Description=salamander watch — keeps the fleet alive: revives panes whose clau
 # parked-question sweep (`claude -p --resume`, lib/question.sh qs_claude). Both run on the SALA_JOB_LANE lane (default bedrock): job_env_args puts the lane's environment on that one claude only, never on the watch itself (a pane it relaunches must not inherit it).
 X-Model-Lane=bedrock
 X-Project=sala/salamander
+X-Runs-With=sessions
 X-Model-Note=+ api key check when an api/sdk session runs
 # X-Model-Lane note: SALA_OP_STUCK=off removes the helper. The lane sign-in watch (SALA_SIGNIN_ALERT, default on) also sends one
 # max_tokens=1 Messages API request an hour with the api lane's key, only while a session's row or the default is api or sdk
