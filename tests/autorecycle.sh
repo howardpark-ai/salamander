@@ -284,7 +284,7 @@ cat > "$HOME/.local/bin/ssh" <<EOF
 #!/bin/sh
 for a; do h=\$l; l=\$a; done
 [ -e "$HOME/ssh-down-\$h" ] && exit 255
-case "\$l" in *PSVersionTable*) echo posix;; *) if [ -e "$HOME/ssh-err-\$h" ]; then echo "ERR|boom"; else echo "V|9.9.8|9.9.10"; fi;; esac
+case "\$l" in *PSVersionTable*) echo posix;; *) if [ -e "$HOME/ssh-err-\$h" ]; then echo "ERR|boom"; elif [ -e "$HOME/ssh-cur-\$h" ]; then v=\$(cat "$HOME/ssh-cur-\$h"); echo "V|\$v|\$v"; else echo "V|9.9.8|9.9.10"; fi;; esac
 EOF
 chmod +x "$HOME/.local/bin/ssh"
 # The fleet hosts here are fixtures (box-d, box-x), never a real machine's name: sala treats a host named like THIS box as the local
@@ -324,7 +324,20 @@ st_put auto_update_tried_box-d 9.9.10; uau box-d --auto --check
 [ "$(tried box-d)" = 9.9.10 ] && ok "a --check leaves the marker alone" || bad "--check cleared the marker"
 uau box-d
 [ "$(tried box-d)" = 9.9.10 ] && ok "a manual update without --auto leaves the marker alone" || bad "manual run cleared the marker"
-rm -f "$HOME/ssh-down-box-d" "$HOME/.local/bin/ssh"; st_put auto_update_tried_box-d 9.9.10
+echo "== an --auto run that finds the box already current while npm is ahead (the release channel trails npm) gives the try back"
+rm -f "$HOME/ssh-down-box-d"; echo 9.9.8 > "$HOME/ssh-cur-box-d"; : > "$POSTS"   # box-d stays on 9.9.8, npm has 9.9.10
+for n in 1 2 3; do st_put auto_update_tried_box-d 9.9.10; uau box-d --auto; done
+[ -z "$(tried box-d)" ] && ok "(d) already current at 9.9.8, npm 9.9.10 → the try is given back, so the next watch run launches it again" || bad "(d) marker kept: '$(tried box-d)'"
+[ ! -s "$POSTS" ] && ok "(d) three such retry runs → no post" || bad "(d) posted: $(<"$POSTS")"
+uau box-d box-x --auto
+grep -q 'box-x updated' "$POSTS" && ! grep -q 'box-d' "$POSTS" && ok "(d) a retry run that also updates another box posts that box only" || bad "(d) mixed post: $(<"$POSTS")"
+echo 9.9.10 > "$HOME/ssh-cur-box-d"; st_put auto_update_tried_box-d 9.9.10; uau box-d --auto
+[ "$(tried box-d)" = 9.9.10 ] && ok "(e) already current at npm's latest → the marker stays (that release is done)" || bad "(e) marker '$(tried box-d)'"
+echo 9.9.8 > "$HOME/ssh-cur-box-d"; st_put auto_update_tried_box-d 9.9.10; uau box-d
+[ "$(tried box-d)" = 9.9.10 ] && ok "(e) a manual run without --auto leaves the marker alone" || bad "(e) manual run cleared the marker"
+uau box-d --auto --check
+[ "$(tried box-d)" = 9.9.10 ] && ok "(e) a --check leaves it alone too" || bad "(e) --check cleared the marker"
+rm -f "$HOME/ssh-cur-box-d" "$HOME/.local/bin/ssh"; st_put auto_update_tried_box-d 9.9.10
 
 echo "== update --no-recycle (watch's at-once leg): the CLI and the post, no relaunch, no recycle lock"
 AU2="$HOME/au2/versions"; mkdir -p "$AU2"
@@ -338,6 +351,18 @@ kill $holder 2>/dev/null; wait $holder 2>/dev/null
 [ "$rc" = 0 ] && [ $(( $(date +%s) - t0 )) -lt 30 ] && ok "done in seconds although a recycle holds the lock" || bad "rc=$rc after $(( $(date +%s) - t0 )) s: $out"
 [ "$(basename "$(readlink -f "$HOME/au2/claude")")" = 9.9.10 ] && ok "the CLI was updated" || bad "launcher: $(readlink "$HOME/au2/claude")"
 sleep 2; [ "$(grep -c '^exit' "$FAKE_LOG" 2>/dev/null)" = "$exits0" ] && ! echo "$out" | grep -q 'relaunching the' && ok "no pane relaunched" || bad "a relaunch ran: $out"
+
+echo "== this box's own try, the same way: the updater finds nothing to install while npm is ahead"
+AU4="$HOME/au4/versions"; mkdir -p "$AU4"
+printf '#!/bin/sh\n[ "$1" = update ] && echo "Claude Code is up to date (9.9.9)"\nexit 0\n' > "$AU4/9.9.9"; chmod +x "$AU4/9.9.9"; ln -sfn "$AU4/9.9.9" "$HOME/au4/claude"
+au4() { SALA_CLAUDE="$HOME/au4/claude" SALA_HEARTBEAT_STATE_DIR= timeout 60 "$SALA" update "$ME" "$@" >/dev/null 2>&1; }
+: > "$POSTS"; st_put auto_update_tried 9.9.10; au4 --auto --no-recycle
+[ -z "$(st auto_update_tried)" ] && ok "(f) this box already current at 9.9.9, npm 9.9.10 → its own marker is given back" || bad "(f) marker kept: '$(st auto_update_tried)'"
+[ ! -s "$POSTS" ] && ok "(f) …with no post" || bad "(f) posted: $(<"$POSTS")"
+echo '{"version": "9.9.9"}' > "$NPM"; st_put auto_update_tried 9.9.9; au4 --auto --no-recycle
+[ "$(st auto_update_tried)" = 9.9.9 ] && ok "(g) this box at npm's latest → the marker stays" || bad "(g) marker '$(st auto_update_tried)'"
+echo '{"version": "9.9.10"}' > "$NPM"; st_put auto_update_tried 9.9.10; au4 --no-recycle
+[ "$(st auto_update_tried)" = 9.9.10 ] && ok "(g) a manual run without --auto leaves it alone" || bad "(g) manual run cleared the marker"
 
 echo "== --update --dry-run: the CLI's updater is never called (Wed Oct 14th 2026: revive --update --dry-run ran claude update)"
 AU3="$HOME/au3/versions"; CALLS="$HOME/au3/calls"; mkdir -p "$AU3"
