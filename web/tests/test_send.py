@@ -403,3 +403,67 @@ def test_replace_refuses_a_box_that_changed_since_the_page_saw_it(edit_env):
     assert not env["out"].exists()
     cap = subprocess.run(env["base"] + ["capture-pane", "-p", "-t", env["pane"]], capture_output=True, text=True).stdout
     assert "what is there now" in cap  # the box was left as it was
+
+
+# ---- every refused send is logged with its path, status and reason, never the typed text ------------------------------------
+
+def _refusals(caplog):
+    return [r.getMessage() for r in caplog.records if r.name == "sala_web"]
+
+
+def test_a_refused_send_is_logged_with_its_path_status_and_reason(tmux_env, caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="sala_web")
+    register(tmux_env, tmux_env["pid"], tmux_env["pane"])
+    client = TestClient(create_app(tmux_env["settings"]))
+    url = f"/api/s/{tmux_env['pid']}/send"
+    typed = "TYPED-TEXT-9137"
+    assert client.post(url, json={"text": typed, "uploads": ["../x"]}).status_code == 400
+    assert client.post(url, json={"text": typed}, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert client.post(url, content=b"{}", headers={"Content-Type": "text/plain"}).status_code == 415
+    assert client.post("/api/s/1/send", json={"text": typed}).status_code == 404
+    assert client.post(url, json={"text": "  ", "uploads": []}).status_code == 400
+    assert _refusals(caplog) == [
+        f"send refused: {url} 400 bad upload names",
+        f"send refused: {url} 403 cross-origin request refused",
+        f"send refused: {url} 415 send takes application/json",
+        "send refused: /api/s/1/send 404 no live session with that pid",
+        f"send refused: {url} 400 nothing to send",
+    ]
+    assert typed not in caplog.text
+    # an accepted send says nothing
+    caplog.clear()
+    assert client.post(url, json={"text": typed}).status_code == 200
+    assert _refusals(caplog) == []
+
+
+def test_a_refused_send_logs_its_reason_but_not_the_text_in_the_pane_box(tmux_env, caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="sala_web")
+    subprocess.run(tmux_env["base"] + ["respawn-pane", "-k", "-t", tmux_env["pane"],
+                   "printf '\\342\\224\\200%.0s' $(seq 40); printf '\\n\\342\\235\\257 BOX-TEXT-5521\\n';"
+                   " printf '\\342\\224\\200%.0s' $(seq 40); sleep 30"], check=True)
+    time.sleep(0.5)
+    pid = int(subprocess.run(tmux_env["base"] + ["display-message", "-p", "-t", tmux_env["pane"], "#{pane_pid}"],
+                             capture_output=True, text=True).stdout)
+    register(tmux_env, pid, tmux_env["pane"])
+    client = TestClient(create_app(tmux_env["settings"]))
+    r = client.post(f"/api/s/{pid}/send", json={"text": "TYPED-TEXT-9137"})
+    assert r.status_code == 409 and r.json()["boxText"] == "BOX-TEXT-5521"  # the page is told what the box holds
+    assert _refusals(caplog) == [f"send refused: /api/s/{pid}/send 409 pane input box is not empty; nothing sent"]
+    assert "BOX-TEXT-5521" not in caplog.text and "TYPED-TEXT-9137" not in caplog.text
+
+
+def test_a_send_that_fails_inside_is_logged_as_a_500_with_its_exception(tmux_env, caplog, monkeypatch):
+    import logging
+    from sala_web import tmuxio as T
+    caplog.set_level(logging.INFO, logger="sala_web")
+    register(tmux_env, tmux_env["pid"], tmux_env["pane"])
+
+    async def boom(*a, **k):
+        raise RuntimeError("it broke\nover two lines")
+    monkeypatch.setattr(T, "pane_pid", boom)
+    client = TestClient(create_app(tmux_env["settings"]), raise_server_exceptions=False)
+    url = f"/api/s/{tmux_env['pid']}/send"
+    assert client.post(url, json={"text": "TYPED-TEXT-9137"}).status_code == 500
+    assert _refusals(caplog) == [f"send refused: {url} 500 RuntimeError: it broke over two lines"]

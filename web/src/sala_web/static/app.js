@@ -3232,7 +3232,7 @@ async function deliver(p, retry = false, replace = null) {
     const d = await r.json().catch(() => ({}));
     if (r.status === 409 && typeof d.boxText === "string") {  // text in the pane's box: show it, and offer Replace
       p.boxText = d.boxText; p.boxChanged = d.boxChanged === true; p.boxHidden = d.boxHidden === true;
-      throw new Error(d.error || r.statusText);
+      throw new Error(d.error || tl("app.pend.noReason", { status: `${r.status} ${r.statusText}`.trim() }));
     }
     if (r.status === 409 && d.duplicate) {  // the server already pasted this exact message moments ago: drop the copy
       p.merged = true; clearTimeout(p.timer); state.pending = state.pending.filter((x) => x !== p);
@@ -3240,7 +3240,7 @@ async function deliver(p, retry = false, replace = null) {
       setStatus(() => tl("app.st.dup"), "ok");
       return;
     }
-    if (!r.ok || !d.ok) throw new Error(d.error || r.statusText);
+    if (!r.ok || !d.ok) throw new Error(d.error || tl("app.pend.noReason", { status: `${r.status} ${r.statusText}`.trim() }));
     if (d.dialogAnswer) {  // a keypress answering a dialog: it never shows in the transcript, so no bubble waits for it
       dropPending(p);
       setStatus(() => (d.dialogAnswer === "Escape" ? tl("app.st.dialogEsc") : tl("app.st.dialogKey", { key: d.dialogAnswer })), "ok");
@@ -3258,7 +3258,8 @@ async function deliver(p, retry = false, replace = null) {
     }, QUEUED_AFTER_MS);
   } catch (e) {
     if (p.merged) return;
-    p.status = "failed"; p.error = e.message || tl("app.pend.unknown"); redrawPending(p);
+    // a request that never got an answer (fetch throws a TypeError: the server restarting, the connection lost) is told in words
+    p.status = "failed"; p.error = e instanceof TypeError ? tl("app.pend.noNet") : e.message || tl("app.pend.unknown"); redrawPending(p);
   } finally {
     state.sending = false; refreshSendButton();
   }
@@ -3438,13 +3439,19 @@ function removeUpload(id) {
 }
 let uploadSeq = 0;
 
-// An image goes up whole when it is within the server's limit (config.max_upload_bytes, 20 MB) and its long side is at
-// most IMAGE_MAX_SIDE px. Otherwise it is redrawn on a canvas at that size and re-encoded before it is sent: Claude
-// scales an image down itself, so the session sees the same picture. PNG is kept only when a pixel is not opaque (JPEG
-// has no alpha, so the see-through parts would turn solid); every other image becomes a JPEG, which is far smaller for a
-// photo or a screenshot. A result still over the limit steps the quality down (JPEG) and then the size, and an image
-// that cannot be made to fit is refused in words (app.up.imgTooBig).
+// An image goes up whole when it is within the server's limit (config.max_upload_bytes, 20 MB), its long side is at
+// most IMAGE_MAX_SIDE px, and it is not a big PNG or WebP (below). Otherwise it is redrawn on a canvas at that size and
+// re-encoded before it is sent: Claude scales an image down itself, so the session sees the same picture. PNG is kept only
+// when a pixel is not opaque (JPEG has no alpha, so the see-through parts would turn solid); every other image becomes a
+// JPEG, which is far smaller for a photo or a screenshot. A result still over the limit steps the quality down (JPEG) and
+// then the size, and an image that cannot be made to fit is refused in words (app.up.imgTooBig).
+// A big PNG or WebP is re-encoded as a JPEG even when it fits the limit: the pane's Claude Code takes an image of at most
+// 5 MB as base64 (3.75 MB of bytes) and 2000 px a side, shrinks a bigger one itself and drops the image when that fails; a
+// Ctrl+V of a 3000 x 4000 photo hands over its pixels as a PNG of 19 MB (the photo's own file was 5 MB of JPEG), which
+// the session never received. A photo or a screenshot is a fraction of that as a JPEG; a PNG that holds a see-through pixel
+// stays as it is (the check reads the pixels), and so does a JPEG or a GIF (a GIF would lose its animation).
 let MAX_IMAGE_BYTES = 20 * 1024 * 1024;    // the server's cap (config.max_upload_bytes) for one image; a `let` so a test can lower it
+let REENCODE_OVER_BYTES = 5 * 1024 * 1024; // a PNG or WebP over this many bytes is re-encoded as a JPEG when it has no see-through pixel; a `let` for a test
 const IMAGE_MAX_SIDE = 4000;               // under the 4096 px side that mobile canvases allow (16.7 MP)
 const JPEG_QUALITIES = [0.92, 0.85, 0.75, 0.6];
 const SHRINK_STEP = 0.75;                  // each further size step keeps this share of the side
@@ -3491,7 +3498,8 @@ async function fitImage(file) {
   try {
     const { w: sw, h: sh } = imageSide(img);
     if (!sw || !sh) return asIs();
-    if (file.size <= MAX_IMAGE_BYTES && Math.max(sw, sh) <= IMAGE_MAX_SIDE) return file;
+    const bigLossless = (file.type === "image/png" || file.type === "image/webp") && file.size > REENCODE_OVER_BYTES;
+    if (file.size <= MAX_IMAGE_BYTES && Math.max(sw, sh) <= IMAGE_MAX_SIDE && !bigLossless) return file;
     let scale = Math.min(1, IMAGE_MAX_SIDE / Math.max(sw, sh));
     let png = null;  // decided on the first draw: the pixels do not change between sizes
     for (;;) {
@@ -3501,18 +3509,28 @@ async function fitImage(file) {
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
       ctx.imageSmoothingQuality = "high";
       ctx.drawImage(img, 0, 0, w, h);
-      if (png === null) png = file.type !== "image/jpeg" && hasTransparency(ctx, w, h);
+      if (png === null) {
+        png = file.type !== "image/jpeg" && hasTransparency(ctx, w, h);
+        // a see-through PNG that is only big, not over the limit or too wide, keeps its alpha as it is
+        if (png && file.size <= MAX_IMAGE_BYTES && Math.max(sw, sh) <= IMAGE_MAX_SIDE) return file;
+      }
       const type = png ? "image/png" : "image/jpeg";
+      const made = (blob) => new File([blob], (file.name || "image").replace(/\.[^./\\]+$/, "") + (png ? ".png" : ".jpg"), { type });
+      // a big PNG or WebP is steered to REENCODE_OVER_BYTES by the quality steps, at the same size in pixels; when no step gets
+      // there, the smallest result within the limit goes up, never a smaller picture for a size the pane shrinks itself
+      const soft = !png && bigLossless ? Math.min(MAX_IMAGE_BYTES, REENCODE_OVER_BYTES) : MAX_IMAGE_BYTES;
+      let best = null;
       for (const q of png ? [undefined] : JPEG_QUALITIES) {
         const blob = await canvasBlob(canvas, type, q);
         if (!blob || blob.type !== type) return asIs();  // a browser without that encoder
-        if (blob.size <= MAX_IMAGE_BYTES) {
-          // a re-encode no smaller than a file the server takes anyway is not worth sending
-          if (file.size <= MAX_IMAGE_BYTES && blob.size >= file.size) return file;
-          const base = (file.name || "image").replace(/\.[^./\\]+$/, "");
-          return new File([blob], base + (png ? ".png" : ".jpg"), { type });
-        }
+        if (blob.size > MAX_IMAGE_BYTES) continue;
+        // a re-encode no smaller than a file the server takes anyway is not worth sending
+        if (file.size <= MAX_IMAGE_BYTES && blob.size >= file.size) continue;
+        if (blob.size <= soft) return made(blob);
+        if (!best || blob.size < best.size) best = blob;
       }
+      if (best) return made(best);
+      if (file.size <= MAX_IMAGE_BYTES) return file;
       scale *= SHRINK_STEP;
     }
   } finally {
@@ -3676,6 +3694,12 @@ const takenFiles = (cd) => clipboardFiles(cd).filter((f) => !leftToBrowser(f));
 // browser run a later link all the same, it carries the same bytes under another File object, so a later link skips
 // what an earlier link attached within the last second, by size and type (nothing else survives the new File). Only a
 // later link checks: two pastes of one image in a row are two chips, so are two <img> in one insertion.
+// The clock of that check is when the later link BEGAN, not when it finished reading its files: a clipboard image of
+// 3000 x 4000 px is encoded as a PNG of 19 MB when `files` is first read, a second or more, once for each link, and a
+// window that ran on past those reads let the second link look like a new gesture.
+// One event is one gesture on its own side as well: the files of a single paste, beforeinput or drop are one picture each,
+// so two image Files in one event that hold the same bytes (a clipboard that offers the picture twice, as image.png and as
+// another name) make one chip (distinctPictures).
 const GESTURE_MS = 1000;
 let gestures = [];  // what a link attached: [{link, size, type, at}], links 1 (paste, drop), 2 (beforeinput), 3 (<img>)
 function noteGesture(link, files) {
@@ -3683,9 +3707,44 @@ function noteGesture(link, files) {
   gestures = gestures.filter((g) => at - g.at < GESTURE_MS);
   for (const f of files) gestures.push({ link, size: f.size, type: f.type, at });
 }
-function fromEarlierLink(link, f) {
-  const at = performance.now();
+function fromEarlierLink(link, f, at = performance.now()) {
   return gestures.some((g) => g.link < link && at - g.at < GESTURE_MS && g.size === f.size && (g.type === f.type || !g.type));
+}
+// An event the handlers took already (one event reaching a handler twice attaches once)
+const takenEvents = new WeakSet();
+// true when two Files hold the same bytes (read whole; a file that cannot be read counts as different)
+async function sameBytes(a, b) {
+  try {
+    const [x, y] = await Promise.all([a.arrayBuffer(), b.arrayBuffer()]);
+    if (x.byteLength !== y.byteLength) return false;
+    const n = x.byteLength >> 2, p = new Uint32Array(x, 0, n), q = new Uint32Array(y, 0, n);
+    for (let i = 0; i < n; i++) if (p[i] !== q[i]) return false;
+    const u = new Uint8Array(x), v = new Uint8Array(y);
+    for (let i = n << 2; i < u.length; i++) if (u[i] !== v[i]) return false;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+// The files of one event without a picture twice: an image File of the same type and size and the same bytes as an earlier one
+// of the event is left out. Files that are not images are never merged. A single file, or files that differ in type or size,
+// are decided without reading a byte, so a lone paste attaches at once.
+async function distinctPictures(files) {
+  const kept = [];
+  for (const f of files) {
+    let twin = false;
+    if (f.type.startsWith("image/")) {
+      for (const k of kept) {
+        if (k.type === f.type && k.size === f.size && await sameBytes(k, f)) { twin = true; break; }
+      }
+    }
+    if (!twin) kept.push(f);
+  }
+  return kept;
+}
+// Attach the pictures of one event (the files are already noted as the gesture's)
+async function attachEvent(files) {
+  (await distinctPictures(files)).forEach(addAttachment);
 }
 // The editor's own handlers run after these (EditorView.domEventHandlers, returning true cancels them): a paste of text,
 // plain or with an HTML flavour, is the editor's, which inserts its plain text as one undo step; images never reach it
@@ -3693,19 +3752,24 @@ function fromEarlierLink(link, f) {
 function composerImageHandlers() {
   return cm6Composer.EditorView.domEventHandlers({
     paste(e) {
+      if (takenEvents.has(e)) return true;
       const files = clipboardFiles(e.clipboardData);   // any file; an image stays a thumbnail (addAttachment)
       if (!files.length) return false;
-      noteGesture(1, files); files.forEach(addAttachment);
+      takenEvents.add(e);
+      noteGesture(1, files); attachEvent(files);
       return true;
     },
     beforeinput(e) {
       const dt = e.dataTransfer;
       if (!dt) return false;
+      if (takenEvents.has(e)) return true;
+      const at = performance.now();   // when this link began: reading a big clipboard image below takes a second or more
       const files = takenFiles(dt);
       if (!files.length) return false;
-      const fresh = files.filter((f) => !fromEarlierLink(2, f));
-      noteGesture(2, fresh);
-      fresh.forEach(addAttachment);
+      takenEvents.add(e);
+      const fresh = files.filter((f) => !fromEarlierLink(2, f, at));
+      noteGesture(2, files);   // all of them, those skipped too: the link after this one counts from the end of this read
+      attachEvent(fresh);
       return true;
     },
     // files dropped on the editor are the window's drop handler's (below); the editor must not read them as text
@@ -3726,6 +3790,7 @@ const IMAGE_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif",
 const lifted = new WeakSet();
 let liftSeq = 0;
 async function liftImage(img) {
+  const at = performance.now();   // when this link began: the fetch below can take a second for a big image
   // CodeMirror's own <img class="cm-widgetBuffer"> beside a widget (a list marker) has no src and is not an image
   if (lifted.has(img) || img.classList.contains("cm-widgetBuffer") || !img.getAttribute("src")) return;
   lifted.add(img);
@@ -3740,7 +3805,7 @@ async function liftImage(img) {
     const given = [blob.type, src.startsWith("data:") ? src.slice(5, src.search(/[;,]/)) : ""].find((t) => IMAGE_EXT[t]);
     const type = given || await sniffImageType(blob) || blob.type;
     const file = new File([blob], `keyboard-${++liftSeq}.${IMAGE_EXT[type] || "img"}`, { type });
-    if (fromEarlierLink(3, file)) return;  // the paste or beforeinput of this gesture attached it already
+    if (fromEarlierLink(3, file, at)) return;  // the paste or beforeinput of this gesture attached it already
     await addImage(file);
   } catch (e) {
     setStatus(() => tl("app.up.readFailed", { msg: e.message || e }), "error");

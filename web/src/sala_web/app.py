@@ -248,6 +248,7 @@ import contextlib
 import dataclasses
 import html as htmllib
 import json
+import logging
 import os
 import re
 import secrets
@@ -452,6 +453,35 @@ def valid_file_ref(ref: str) -> bool:
 
 def _err(status: int, msg: str) -> JSONResponse:
     return JSONResponse({"ok": False, "error": msg}, status_code=status)
+
+
+log = logging.getLogger("sala_web")
+
+
+def refusal_reason(resp: Response) -> str:
+    """The reason a refused response gives, for the log: its JSON `error` on one line, cut at 300 characters. Only that field:
+    the rest of a body (the text a pane's input box held, which is what the owner typed) never reaches the log."""
+    try:
+        err = json.loads(bytes(resp.body)).get("error")
+    except (ValueError, AttributeError, TypeError):
+        err = None
+    return " ".join(str(err).split())[:300] if err else "no reason in the response"
+
+
+def logged(what: str, handler):
+    """Wraps an endpoint so that every refusal (status 400 and up) and every unhandled error is logged with the request path,
+    the status and the reason, and never the request body (the typed text, the file's bytes): uvicorn's access line says
+    "409 Conflict" and nothing more, which left a refused send without a reason anywhere but the page that showed it."""
+    async def run(request: Request) -> Response:
+        try:
+            resp = await handler(request)
+        except Exception as e:
+            log.warning("%s refused: %s 500 %s: %s", what, request.url.path, type(e).__name__, " ".join(str(e).split())[:300])
+            raise
+        if resp.status_code >= 400:
+            log.warning("%s refused: %s %d %s", what, request.url.path, resp.status_code, refusal_reason(resp))
+        return resp
+    return run
 
 
 def _cross_origin(request: Request) -> bool:
@@ -1999,12 +2029,12 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/api/colors/combos/delete", post_colors_combos_delete, methods=["POST"]),
         Route("/api/s/{pid:int}/transcript", get_transcript),
         Route("/api/s/{pid:int}/stream", stream),
-        Route("/api/s/{pid:int}/send", send, methods=["POST"]),
+        Route("/api/s/{pid:int}/send", logged("send", send), methods=["POST"]),
         Route("/api/s/{pid:int}/stop", stop_bang, methods=["POST"]),
         Route("/api/image/{sid}/{uuid}/{i:int}/{j}", image),
         Route("/api/file-image/{sid}/{uuid}/{i:int}/{k:int}", file_image),
         Route("/api/md-image/{sid}/{uuid}/{i:int}/{n:int}", md_image),
-        Route("/api/upload", upload, methods=["POST"]),
+        Route("/api/upload", logged("upload", upload), methods=["POST"]),
         Route("/api/shell/open", shell_open, methods=["POST"]),
         Route("/api/shell/keys", shell_keys, methods=["POST"]),
         Route("/api/shell/keylog", shell_keylog, methods=["POST"]),
@@ -2093,6 +2123,12 @@ def main() -> None:
     if args.tmux_socket is not None:
         settings.tmux_socket_name = args.tmux_socket
     app = create_app(settings)
+    # sala-web's own lines (a refused send or upload with its reason) go to stderr, which systemd keeps in the journal
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(levelname)s:     sala-web: %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.propagate = False
 
     class Server(uvicorn.Server):
         def handle_exit(self, sig, frame):
