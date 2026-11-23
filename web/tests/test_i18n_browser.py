@@ -79,9 +79,16 @@ def choose(browser, lang: str) -> None:
     assert wait_until(browser, f"document.documentElement.lang === '{lang}'")
 
 
-def saved_lang(served) -> str:
-    with urllib.request.urlopen(f"{served['url']}/api/prefs") as r:
-        return json.load(r)["lang"]
+def saved_lang(served, want: str | None = None, seconds: float = 5.0) -> str:
+    """The language in prefs. The page saves it after the switch (asynchronously), so with `want` this waits for it to land
+    and returns the last value read: a reading taken at once can be the earlier one."""
+    end = time.monotonic() + seconds
+    while True:
+        with urllib.request.urlopen(f"{served['url']}/api/prefs") as r:
+            got = json.load(r)["lang"]
+        if want is None or got == want or time.monotonic() >= end:
+            return got
+        time.sleep(0.1)
 
 
 def test_the_page_starts_in_english_with_the_control_showing_it(served, browser):
@@ -92,7 +99,7 @@ def test_the_page_starts_in_english_with_the_control_showing_it(served, browser)
     assert w["searchPh"] == "Search" and w["sendLabel"] == "Send"
     assert w["langPressed"] == ["en:true", "ko:false"], w
     assert w["langTips"] == ["English", "Korean"], w
-    assert saved_lang(served) == "en"
+    assert saved_lang(served, "en") == "en"
 
 
 SWITCH_LOOK = """(() => {
@@ -138,7 +145,7 @@ def test_ko_words_the_chrome_in_korean_saves_it_and_keeps_it_over_a_reload(serve
     assert ko["langPressed"] == ["en:false", "ko:true"], ko
     assert [t for t in ko["langTips"] if HANGUL.search(t)] == ko["langTips"] and len(ko["langTips"]) == 2, ko
     assert wait_until(browser, "true")
-    assert saved_lang(served) == "ko"
+    assert saved_lang(served, "ko") == "ko"
     # a reload: served in Korean from the first paint
     open_page(served, browser)
     again = browser.evaluate(WORDS)
@@ -161,7 +168,7 @@ def test_a_switch_leaves_the_chat_and_the_half_typed_message_alone_and_en_restor
     browser.evaluate('setText("")')   # the composer's hint shows only while it is empty
     assert wait_until(browser, "document.querySelector('#composer .cm-placeholder')")
     assert browser.evaluate(WORDS) == en
-    assert saved_lang(served) == "en"
+    assert saved_lang(served, "en") == "en"
 
 
 def test_the_age_and_the_date_of_a_message_follow_the_language(served, browser):
