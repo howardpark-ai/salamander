@@ -75,10 +75,30 @@ print("".join("\n        ◦ " + l for l in out), end="")'
 # of the watch state, and watch's next auto_update run (every 10 min, once the heartbeat sees the box awake) launches it again.
 # A real attempt, failed or not, keeps its marker: one try per host per release. (awk, so a host name is never a regex.)
 auto_untry() {
-    local st="$SALA_LOG_DIR/salamander-watch.state"
-    [ -s "$st" ] && awk -F= -v k="auto_update_tried_$1" '$1==k {f=1} END {exit !f}' "$st" || return 0
-    awk -F= -v k="auto_update_tried_$1" '$1!=k' "$st" > "$st.tmp.$$" && mv -f "$st.tmp.$$" "$st"
-    ulog "$1: skipped as offline — its try for this release is given back; watch tries it again once the heartbeat sees it awake"
+    local st="$SALA_LOG_DIR/salamander-watch.state" key="auto_update_tried_$1"
+    [ "$1" = "$ME" ] && key=auto_update_tried   # this box's own marker carries no host name
+    [ -s "$st" ] && awk -F= -v k="$key" '$1==k {f=1} END {exit !f}' "$st" || return 0
+    awk -F= -v k="$key" '$1!=k' "$st" > "$st.tmp.$$" && mv -f "$st.tmp.$$" "$st"
+    ulog "$1: ${2:-skipped as offline — its try for this release is given back; watch tries it again once the heartbeat sees it awake}"
+}
+# behind_npm <version>: true when npm's latest Claude Code is newer than <version> (npm is asked once per run; no answer = false).
+# `claude update` reads the native release channel, which can trail npm for a while: a try that finds nothing to install while npm
+# is ahead was not a real attempt, so --auto gives its marker back and watch's next auto_update run (every 10 min, its own gate)
+# tries again until the channel has the release.
+NPM_LATEST=""; NPM_ASKED=0
+behind_npm() {
+    if [ "$NPM_ASKED" = 0 ]; then NPM_ASKED=1
+        NPM_LATEST=$(curl -s --max-time 10 https://registry.npmjs.org/@anthropic-ai/claude-code/latest | python3 -c 'import json,sys;print(json.load(sys.stdin).get("version",""))' 2>/dev/null)
+    fi
+    [ -n "$NPM_LATEST" ] && [ -n "$1" ] && [ "$1" != "$NPM_LATEST" ] && [ "$(printf '%s\n%s\n' "$1" "$NPM_LATEST" | sort -V | tail -1)" = "$NPM_LATEST" ]
+}
+# auto_retry <host> <installed version>: --auto found nothing to install. When npm is ahead the try is given back, and the host
+# is remembered in RETRY so that this retry run says nothing of it (the notice and the version-tracker refresh skip it below).
+RETRY=" "
+auto_retry() {
+    [ "$AUTO" = 1 ] && [ "$CHECK" = 0 ] && behind_npm "$2" || return 0
+    auto_untry "$1" "already current at $2 while npm has $NPM_LATEST (the release channel has not caught up) — its try is given back; watch tries it again at its next run"
+    RETRY="$RETRY$1 "
 }
 REPORT=(); local_ver=$(claude_ver)
 if [ ${#REMOTES[@]} -gt 0 ]; then
@@ -87,7 +107,7 @@ if [ ${#REMOTES[@]} -gt 0 ]; then
         if [ "$kind" = offline ]; then line="$h: offline, skipped"; [ "$AUTO" = 1 ] && [ "$CHECK" = 0 ] && auto_untry "$h"
         elif [ -n "$err" ]; then line="$h: FAILED — $err${before:+ (still $before)}"
         elif [ "$CHECK" = 1 ]; then line="$h: $before"
-        elif [ "$before" = "$after" ]; then line="$h: already current ($after)"
+        elif [ "$before" = "$after" ]; then line="$h: already current ($after)"; auto_retry "$h" "$after"
         else line="$h: updated $before → $after — sessions already running there keep $before until restarted by hand"; fi
         REPORT+=("$line"); ulog "$line"; echo "  $line"
     done
@@ -111,13 +131,13 @@ if [ "$LOCAL" = 1 ]; then
     lb=$(claude_ver)
     if lout=$(cli_update); then   # 9>&-: a child the updater leaves behind must not hold the recycle lock
         la=$(claude_ver)
-        if [ "$lb" != "$la" ]; then line="$ME: updated $lb → $la"; LCHANGED=1; else line="$ME: already current ($la)"; fi
+        if [ "$lb" != "$la" ]; then line="$ME: updated $lb → $la"; LCHANGED=1; else line="$ME: already current ($la)"; auto_retry "$ME" "$la"; fi
     else line="$ME: FAILED — $(printf '%s' "$lout" | tail -1 | cut -c1-100) (still $lb)"; fi
     now_v=$(claude_ver)
     STALE=$(stale_panes "$now_v" | wc -l | tr -d ' ')
     REPORT+=("$line"); ulog "$line (stale panes: $STALE)"; echo "  $line; panes on an older version: $STALE"
 fi
-[ ${#REPORT[@]} -gt 0 ] && post_update_hook "$([ "$FLEET" = 1 ] && echo fleet || echo hosts): $(printf '%s; ' "${REPORT[@]}")" $(printf '%s\n' "${REPORT[@]}" | grep -v 'offline, skipped' | cut -d: -f1)
+[ ${#REPORT[@]} -gt 0 ] && post_update_hook "$([ "$FLEET" = 1 ] && echo fleet || echo hosts): $(printf '%s; ' "${REPORT[@]}")" $(printf '%s\n' "${REPORT[@]}" | grep -v 'offline, skipped' | cut -d: -f1 | awk -v r="$RETRY" 'index(r, " " $0 " ") == 0')
 # --release (the first automatic run for a new version): the boxes this run did not touch are reported too — current or asleep,
 # from the heartbeat store; and nothing is posted unless a box updated or failed
 if [ "$RELEASE" = 1 ] && [ ${#REPORT[@]} -gt 0 ]; then
@@ -142,10 +162,11 @@ print("%s|%s" % ("1" if fs.get("ok") else "0", v))' 2>/dev/null)"
         [ "$local_ver" = "$target" ] && AFTER_LINE="$ME current" || AFTER_LINE="$ME still on $local_ver"   # its update runs at once, in its own run
     fi
 fi
-# a retry run (--auto, no --release) says nothing of a box that is still asleep or flapping: watch tries it again at its next
-# run (auto_untry), so the line would be posted every 10 minutes. The release run's notice names it ("update when awake").
+# a retry run (--auto, no --release) says nothing of a box that is still asleep or flapping, or whose release channel has not
+# caught up with npm: watch tries it again at its next run (auto_untry), so the line would be posted every 10 minutes. The
+# release run's notice names an offline box ("update when awake"); a release run that updated nothing posts nothing at all.
 if [ "$AUTO" = 1 ] && [ "$RELEASE" = 0 ] && [ ${#REPORT[@]} -gt 0 ]; then
-    kept=(); for line in "${REPORT[@]}"; do [ "${line#*: }" = "offline, skipped" ] || kept+=("$line"); done
+    kept=(); for line in "${REPORT[@]}"; do [ "${line#*: }" = "offline, skipped" ] || case "$RETRY" in *" ${line%%:*} "*) ;; *) kept+=("$line") ;; esac; done
     REPORT=(${kept[@]+"${kept[@]}"})
 fi
 if [ ${#REPORT[@]} -gt 0 ]; then   # one notice in the shared shape: failures first, hosts with the same outcome grouped

@@ -1571,7 +1571,9 @@ fi
 # Each host is tried once per version, never downgraded. The try is recorded before the unit launches (so a slow unit is not
 # launched twice); a box the unit then finds offline — the heartbeat saw it awake, its own 8 s probe a minute later did not
 # — was not tried: update.sh --auto (auto_untry) takes the marker out again, and this function launches the box
-# again on a later run once the heartbeat sees it awake. A real attempt, failed or not, keeps its marker.
+# again on a later run once the heartbeat sees it awake. A real attempt, failed or not, keeps its marker, except one that
+# finds the box already current while npm is ahead (the release channel `claude update` reads trails npm): update.sh gives that
+# marker back too, and the 10-minute gate above is the only pacing of the retry.
 : "${SALA_AUTO_UPDATE:=on}"
 AUTO_LAUNCHED=${OP_LAUNCHED:-0}   # one automatic launch on this box per run: one launched here (an operation of the queue included) leaves the others for a later run
 au_launch() {  # <unit tag> <update args…>
