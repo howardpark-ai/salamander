@@ -178,8 +178,9 @@ sala is, *Deploying* below.
   when none gets there, never a smaller picture for a size the pane shrinks itself. A Ctrl+V of a photo hands over its
   pixels as a PNG (a 3000 x 4000 photo of 5 MB as JPEG is 19 MB as a PNG), and such a PNG never reached the session. Why 5 MB: the
   pane's Claude Code (2.1.330) limits an image to 5 MB as base64 (3.75 MB of bytes) and 2000 px a side, shrinks a bigger one itself
-  and refuses it ("Unable to resize image") when that fails; JPEGs of 7 to 9.6 MB did reach sessions, a PNG of 19 MB did not
-  (the send answered 200, and the transcript held only the text). A PNG that holds a see-through pixel, a
+  and refuses it ("Unable to resize image") when that fails. What was seen: a PNG of 19 MB pasted into a pane never reached the model (the send answered 200 and
+  the transcript held only the text), and a JPEG of 2.9 MB sent next did; where between those two sizes a pane stops
+  attaching, and what inside Claude Code dropped the PNG, was not observed, so 5 MB is the conservative limit read from its code. A PNG that holds a see-through pixel, a
   JPEG and a GIF go up as they are when they fit the limit. A result still over the limit steps the JPEG quality down (0.85, 0.75, 0.6) and then the size (to
   75% a step), and an image that cannot be made to fit under the limit is refused in words ("could not be made small enough to
   attach"). A small image, a file the browser cannot decode but the server takes, and an image whose re-encode would not be
