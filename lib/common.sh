@@ -2291,6 +2291,9 @@ no_relaunch_line() { if is_shell_session "$1"; then echo "$1: not relaunched —
 # (stackshot's `client.py project-activity --json`; unset = that client when this box has one). SALA_SLEEP_PIN_DIR: one file per project held off the tick.
 # SALA_WAKE_PER_RUN: sleepers woken per run for a waiting message line.
 : "${SALA_IDLE_SLEEP:=off}" "${SALA_SLEEP_PER_TICK:=1}" "${SALA_WAKE_PER_RUN:=5}" "${SALA_SLEEP_RETRY:=1800}" "${SALA_WAKE_RETRY:=600}" "${SALA_SLEEP_QUIET:=172800}"
+# SALA_SLEEP_ASKER_WAIT: seconds the queue's runner waits, for a sleep the owner asked for in words (lib/sleep.sh, THE ASKED SLEEP), for the ASKING session to end the turn that queued
+# it, before the sleep is refused (the way SALA_MODEL_INPLACE_ASKER_WAIT waits for the asker of a model switch).
+: "${SALA_SLEEP_ASKER_WAIT:=90}"
 : "${SALA_ACTIVITY_CMD:=}" "${SALA_ACTIVITY_TIMEOUT:=30}"
 : "${SALA_SLEEP_PIN_DIR:=$SALA_SLEEP_DIR.pins}"
 _sleep_uuid_ok() { [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }   # a marker's file name: one path component, never a path (no slash, no leading dot)
@@ -5949,7 +5952,7 @@ fleet_guard() {
         restore)
             die "restore is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op restore --only NAME --why \"<one line: why it is needed>\" --from ${here:-<you>} (or --item board#N for --why; ${SALA_OWNER_NAME}'s words are needed only for yourself or a sweep) — and sala's watch runs it; sala op --plan restore --only NAME shows what it would do first" ;;
         sleep|wake)
-            die "$verb is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op $verb --only NAME (--item board#N | --why \"<one line: why>\") --from ${here:-<you>} (no ${SALA_OWNER_NAME}'s words needed) — and sala's watch runs it; sala op --plan $verb --only NAME shows what it would do first" ;;
+            die "$verb is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op $verb --only NAME (--item board#N | --why \"<one line: why>\") --from ${here:-<you>} (no ${SALA_OWNER_NAME}'s words needed)$([ "$verb" = sleep ] && echo "; to put a whole project to sleep now, your own included (it sleeps once your turn has ended), ${SALA_OWNER_NAME} has to ask: sala op sleep --project KEY --from ${here:-<you>} --words \"<${SALA_OWNER_NAME}'s words>\"") — and sala's watch runs it; sala op --plan $verb --only NAME shows what it would do first" ;;
         recycle|update|revive|retire|close-shell|forget-row|rename|lane|model|provision)
             die "$verb is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op $verb … --from ${here:-<you>} --words \"<${SALA_OWNER_NAME}'s words>\" — and sala's watch runs it, one operation at a time; sala op --plan $verb … shows the plan first (the recycle procedure does exactly that)" ;;
         *)  die "$verb is a fleet operation, and a session never runs one itself, and the operation queue has no '$verb' verb yet (lib/op.sh, THE VERBS). Ask ${SALA_OWNER_NAME} to run it from a plain shell" ;;

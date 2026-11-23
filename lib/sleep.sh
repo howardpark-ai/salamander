@@ -30,6 +30,17 @@
 # THE QUEUE: a session asks with `sala op sleep --only NAME… (--item board#N | --why "<reason>") --from YOU` (lib/op.sh); the queue's runner, a
 # sala-op-<id> unit, passes ops_guard like every queued verb. Run raw from a Claude session this verb is refused and points there.
 #
+# THE ASKED SLEEP (the owner wants a project asleep now): `sala op sleep --project KEY --from YOU --words "<the owner's words>"` queues `sleep --project KEY --asked`, which is
+# `--project` with the owner's words behind it: the project's quiet rule (SALA_SLEEP_QUIET) and the settle time (SALA_SLEEP_AFTER, and the left-alone time of a woken session)
+# do not apply, and the whole project sleeps together, its front agents with it. Every other check stays: the activity reading must still be there (no reading, nothing sleeps),
+# the project is not pinned (the owner's words do not lift a pin: `--unpin` first), and every session is ready (idle with nothing in flight, nothing waiting in its inbox, ...).
+# Without --asked a project sleeps by the quiet rule only, as the watch's tick has it. The asking session may be one of the sessions that sleep (the one case the refusal "a sleep
+# would end the call that made it" stood for): the queue's runner is outside every pane, so it waits, as a model switch waits for its asker (lib/model.sh), until the asking session has
+# ended its turn (sleep_ready passes it; up to SALA_SLEEP_ASKER_WAIT seconds, 90), then puts the whole project to sleep with the asker last; a project the asker is not part of
+# sleeps at once. The same wait serves `sala op sleep --only NAME --words …` when NAME is the asker. The plan (`sala op --plan sleep --project KEY`, this verb's --dry-run run in
+# the asking pane under SALA_OP_PLAN) says "the asking session sleeps once idle". The result post goes to Slack; the line into the asker's inbox is not sent to a session that has
+# gone to sleep (it would wake it).
+#
 # THE WATCH: with SALA_IDLE_SLEEP=on (off by default) the watch's sleep_tick (lib/wrapup.sh) runs `sleep --project KEY` itself for the projects that qualify, at most
 # SALA_SLEEP_PER_TICK (1) PROJECT per run, the quietest first; --candidates prints that list. The watch's wake_tick (always on) runs
 # `sala wake` for a sleeper with a stackshot message line waiting.
@@ -37,16 +48,18 @@
 # --dry-run: nothing is typed, marked or changed; the same refusals as the real run, as "[dry-run] would refuse: …" (exit 1), and for a session that may sleep
 # what the run would do. Read-only, so it passes the guard from a Claude session like every verb's dry run.
 
-usage="usage: salamander sleep NAME… [--dry-run] | --project KEY [--dry-run] | --list | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins
+usage="usage: salamander sleep NAME… [--dry-run] | --project KEY [--asked] [--dry-run] | --list | --candidates | --pin KEY [--why TEXT] | --unpin KEY | --pins
   puts idle sessions to sleep: their claude ends, their tmux session and pane-map row stay; salamander wake NAME resumes one
   --project KEY: every session of one project, together; the watch's idle sleep tick (SALA_IDLE_SLEEP=on, off by default) sleeps a project only when it has had no external
     anchor notice and no input from its owner for SALA_SLEEP_QUIET (2 days), every one of its sessions is idle with nothing in flight, and it is not pinned
+  --asked (with --project; \`sala op sleep --project KEY --from YOU --words \"<the owner's words>\"\` queues it): the owner asked for it now, so the quiet rule and the settle time do not apply;
+    the activity reading, the pin and every in-flight check still do. A session of the project that asks is put to sleep once its turn has ended (a session cannot run this raw: queue it)
   --candidates: per project, sleeping, awake or pinned, its two quiet ages and the first reason it is not a candidate; changes nothing
   --pin KEY [--why TEXT] / --unpin KEY / --pins: hold a project off the automatic sleep, lift it, list the pins (kept across a reboot)"
 . "$SALA_ROOT/lib/wrapup.sh"
-NAMES=(); DRY=0; DRYFLAG=""; LIST=0; CAND=0; PROJ=""; PIN=""; UNPIN=""; PINS=0; WHY=""; HAVE_WHY=0
+NAMES=(); DRY=0; DRYFLAG=""; LIST=0; CAND=0; PROJ=""; PIN=""; UNPIN=""; PINS=0; WHY=""; HAVE_WHY=0; ASKED=0
 while [ $# -gt 0 ]; do a="$1"; shift; case "$a" in
-    --dry-run) DRY=1; DRYFLAG=--dry-run ;; --list) LIST=1 ;; --candidates) CAND=1 ;; --pins) PINS=1 ;; -h|--help) echo "$usage"; exit 0 ;;
+    --dry-run) DRY=1; DRYFLAG=--dry-run ;; --asked) ASKED=1 ;; --list) LIST=1 ;; --candidates) CAND=1 ;; --pins) PINS=1 ;; -h|--help) echo "$usage"; exit 0 ;;
     --project) [ $# -gt 0 ] || die "--project takes a project key
 $usage"; [ -n "$1" ] || die "an empty text is not a project key (the page key without projects/, like team/alpha)"; PROJ="$1"; shift ;;
     --pin) [ $# -gt 0 ] || die "--pin takes a project key
@@ -63,6 +76,8 @@ modes=$(( CAND + LIST + PINS )); [ -z "$PROJ" ] || modes=$((modes + 1)); [ -z "$
 [ "$modes" -le 1 ] || die "--project, --list, --candidates, --pin, --unpin and --pins each stand alone
 $usage"
 [ "$HAVE_WHY" = 0 ] || [ -n "$PIN" ] || die "--why goes with --pin
+$usage"
+[ "$ASKED" = 0 ] || [ -n "$PROJ" ] || die "--asked goes with --project
 $usage"
 if [ "$modes" = 1 ] && [ "${#NAMES[@]}" -gt 0 ]; then die "that option takes no session name
 $usage"; fi
@@ -105,12 +120,31 @@ if [ "$LIST" = 1 ]; then
 fi
 [ "${#NAMES[@]}" -gt 0 ] || [ -n "$PROJ" ] || die "$usage"
 if [ -n "$PROJ" ] && [ "$DRY" = 0 ] && ! op_unit_caller && claude_caller; then
-    die "sleep --project is the watch's own routine (SALA_IDLE_SLEEP, off by default), not a verb a session runs: \`sala sleep --project $PROJ --dry-run\` shows what it would do, and \`sala op sleep --only NAME (--item board#N | --why \"<one line>\") --from YOU\` queues one session"
+    die "sleep --project is the watch's own routine (SALA_IDLE_SLEEP, off by default), not a verb a session runs: \`sala sleep --project $PROJ --dry-run\` shows what it would do, and a session asks the queue: \`sala op sleep --project $PROJ --from YOU --words \"<${SALA_OWNER_NAME}'s words>\"\` puts the whole project to sleep now, yours included once your turn has ended (\`sala op sleep --only NAME (--item board#N | --why \"<one line>\") --from YOU\` queues one other session)"
 fi
 ops_guard sleep "${PROJ:-${NAMES[0]}}" $DRYFLAG
 dry() { echo "[dry-run] $*"; }
 caller=$(ancestry_session 2>/dev/null || true); [ -n "$caller" ] || caller=${SALA_OP_FROM:-}   # the session that asks: by process ancestry, else the queue's own record of who asked
-SMODE=""; pkey=""
+SMODE=""; pkey=""; ASKER=""
+SALA_SLEEP_ASKER_WAIT=${SALA_SLEEP_ASKER_WAIT:-90}; case "$SALA_SLEEP_ASKER_WAIT" in ''|*[!0-9]*) SALA_SLEEP_ASKER_WAIT=90;; esac
+# THE ASKING SESSION AMONG THE SLEEPERS (the header, THE ASKED SLEEP): allowed only for the queue (its runner, SALA_OP_ID, or its plan, a dry run under SALA_OP_PLAN that names the asker)
+asker_ok() {  # <name> → 0 when <name> is the asking session and the queue is the one asking
+    [ -n "$caller" ] && [ "$1" = "$caller" ] || return 1
+    [ -n "${SALA_OP_ID:-}" ] && return 0
+    [ "$DRY" = 1 ] && [ "${SALA_OP_PLAN:-}" = 1 ] && [ "${SALA_OP_FROM:-}" = "$1" ]
+}
+# asker_wait <name> → 0 once the asking session passes sleep_ready (its turn has ended); 1 when it does not within SALA_SLEEP_ASKER_WAIT s, or never can (its reason in SLEEP_WHY).
+# The queue's runner starts while the asker is still finishing the turn that queued the sleep; as a model switch does (lib/model.sh), it waits for that one session.
+asker_wait() {
+    local n="$1" deadline said=0; deadline=$(( $(date +%s) + SALA_SLEEP_ASKER_WAIT ))
+    sleep_ready "$n" "$SMODE" asker >/dev/null || return 1   # what a turn's end cannot change (a front agent, no claude, the sdk lane): no wait
+    while ! sleep_ready "$n" "$SMODE" >/dev/null; do
+        [ "$(date +%s)" -lt "$deadline" ] || return 1
+        [ "$said" = 1 ] || { echo "  the asking session '$n' is still in its turn ($SLEEP_WHY): waiting up to ${SALA_SLEEP_ASKER_WAIT}s for it to be idle"; said=1; }
+        sleep 1
+    done
+    return 0
+}
 if [ -n "$PROJ" ]; then
     # THE SLEEP OF A PROJECT: the whole project is judged first (quiet, not pinned, every session ready) and nothing is touched when it is not a candidate
     SMODE=project
@@ -120,18 +154,42 @@ if [ -n "$PROJ" ]; then
     [ -n "${SP_MEM[$pkey]+x}" ] || pref "no session of it runs on this box"
     sleep_activity_load || true   # a failure stays in SLEEP_ACT_WHY, which sleep_project_check turns into the refusal
     for m in ${SP_MEM[$pkey]}; do
-        if [ -n "$caller" ] && [ "${m%:*}" = "$caller" ]; then pref "'$caller' is one of its sessions and the session this command runs in: a sleep would end the call that made it"; fi
+        if [ -n "$caller" ] && [ "${m%:*}" = "$caller" ]; then
+            if [ "$ASKED" = 1 ] && asker_ok "$caller"; then ASKER=$caller
+            else pref "'$caller' is one of its sessions and the session this command runs in: a sleep would end the call that made it (a session asks the queue: sala op sleep --project $pkey --from $caller --words \"<${SALA_OWNER_NAME}'s words>\"; it sleeps once its turn has ended)"; fi
+        fi
     done
+    if [ "$ASKED" = 1 ]; then SLEEP_QUIET_WAIVE=1; SLEEP_SETTLE_WAIVE=all; fi
+    if [ -n "$ASKER" ]; then
+        if [ "$DRY" = 1 ]; then SLEEP_ASKER_LATER=$ASKER
+        else asker_wait "$ASKER" || pref "the asking session '$ASKER' is not ready within ${SALA_SLEEP_ASKER_WAIT}s: $SLEEP_WHY; nothing was touched (ask again once it is idle)"; fi
+    fi
     sleep_project_check "$pkey" || pref "$SP_WHY"
-    NAMES=("${SP_LIVE[@]}")
+    NAMES=()
+    for m in "${SP_LIVE[@]}"; do [ "$m" = "$ASKER" ] || NAMES+=("$m"); done
+    [ -z "$ASKER" ] || NAMES+=("$ASKER")   # the asking session last: the others' results are in before its pane ends
+else
+    for m in "${NAMES[@]}"; do if asker_ok "$m"; then ASKER=$m; SLEEP_SETTLE_WAIVE=$m; fi; done
+    if [ -n "$ASKER" ] && [ "${#NAMES[@]}" -gt 1 ]; then
+        _o=(); for m in "${NAMES[@]}"; do [ "$m" = "$ASKER" ] || _o+=("$m"); done; NAMES=("${_o[@]}" "$ASKER")
+    fi
 fi
 
 # sleep_one <name> → 0 asleep (or, in a dry run, could be) · 1 refused or not done; its one line on stdout, the refusal on stderr in a dry run's form
 sleep_one() {
     local n="$1" pane ppid pid uuid i rc scr why
-    if [ -n "$caller" ] && [ "$caller" = "$n" ]; then
-        if [ "$DRY" = 1 ]; then dry "would refuse: '$n' is the session this command runs in: a sleep would end the call that made it"; else echo "✗ $n: not put to sleep — it is the session this command runs in: a sleep would end the call that made it"; fi
+    if [ -n "$caller" ] && [ "$caller" = "$n" ] && [ "$n" != "$ASKER" ]; then
+        why="it is the session this command runs in: a sleep would end the call that made it (a session asks the queue: sala op sleep --only $n --from $n --words \"<${SALA_OWNER_NAME}'s words>\"; it sleeps once its turn has ended)"
+        if [ "$DRY" = 1 ]; then dry "would refuse: '$n' is $why"; else echo "✗ $n: not put to sleep — $why"; fi
         return 1
+    fi
+    if [ "$n" = "$ASKER" ] && [ "$DRY" = 1 ]; then   # the plan: the asking session is in its turn now, so only what a turn's end cannot change is asked
+        if ! sleep_ready "$n" "$SMODE" asker >/dev/null; then dry "would refuse: $n: $SLEEP_WHY"; return 1; fi
+        dry "$n: the asking session sleeps once idle — the queue's runner waits up to ${SALA_SLEEP_ASKER_WAIT}s for its turn to end, then ends its claude${pkey:+ with the rest of the project}; it wakes with: sala wake $n"
+        return 0
+    fi
+    if [ "$n" = "$ASKER" ] && [ -z "$pkey" ] && ! asker_wait "$n"; then   # (a project's asker was waited for before the project was judged)
+        echo "✗ $n: not put to sleep — it is the asking session and was not ready within ${SALA_SLEEP_ASKER_WAIT}s: $SLEEP_WHY"; return 1
     fi
     if ! sleep_ready "$n" "$SMODE" >/dev/null; then
         if [ "$DRY" = 1 ]; then dry "would refuse: $n: $SLEEP_WHY"; else echo "✗ $n: not put to sleep — $SLEEP_WHY"; fi
@@ -175,9 +233,10 @@ bad=0
 for n in "${NAMES[@]}"; do sleep_one "$n" || bad=$((bad + 1)); done
 if [ -n "$pkey" ]; then
     if [ "$DRY" = 1 ]; then
+        [ "$ASKED" = 0 ] || dry "project $pkey: asked in ${SALA_OWNER_NAME}'s words: the quiet rule (SALA_SLEEP_QUIET) and the settle time (SALA_SLEEP_AFTER) do not apply; the activity reading, the pin and every in-flight check still do"
         [ "$bad" = 0 ] && dry "project $pkey: would put ${#NAMES[@]} session(s) to sleep together: ${NAMES[*]}"
     elif [ "$bad" = 0 ]; then echo "✅ project $pkey: asleep — ${#NAMES[@]} session(s): ${NAMES[*]}"
-    else echo "✗ project $pkey: only $((${#NAMES[@]} - bad)) of ${#NAMES[@]} sessions asleep — the others are left as they are and are asked again after the retry time"; fi
+    else echo "✗ project $pkey: only $((${#NAMES[@]} - bad)) of ${#NAMES[@]} sessions asleep — the others are left as they are and $([ "$ASKED" = 1 ] && echo "stay so until it is asked again" || echo "are asked again after the retry time")"; fi
 fi
 [ "$DRY" = 1 ] && dry "nothing was changed"
 [ ${#NAMES[@]} -gt 1 ] && [ -z "$pkey" ] && echo "$((${#NAMES[@]} - bad)) of ${#NAMES[@]} asleep"
