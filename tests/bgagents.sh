@@ -61,6 +61,7 @@ case "$(cat "$T/post.mode" 2>/dev/null || echo ok)" in
     same) echo '{"project": "prj_1", "note": "example-engineer is already listed on projects/example: nothing changed"}'; exit 0 ;;
     409) echo "[409] example-engineer is already listed on the project as front (engineer): 'x'" >&2; exit 1 ;;
     403) echo "[403] refused: the project is hidden: list it first with post project-list" >&2; exit 1 ;;
+    403name) echo "[403] refused: sender 'sala-web' is a name, and a name proves nothing. Send the asking session's id: pass the session id as the sender" >&2; exit 1 ;;
 esac
 EOF
 cat > "$T/bin/spawn" <<'EOF'
@@ -185,6 +186,14 @@ if [ "$hold" = 1 ]; then
 fi
 exec python3 "$ROOT/tests/fake-stackshot-client.py" post question "$@"
 EOF
+cat > "$T/bin/report" <<'EOF'
+#!/usr/bin/env bash
+# the report command: the stackshot client's `message <to> - --sender <label>`: one line a call in report.calls (the arguments), the text read from stdin kept in report.stdin.N; $T/report.rc forces an exit code (a refusal)
+printf '%s\n' "$*" >> "$T/report.calls"; n=$(wc -l < "$T/report.calls"); cat > "$T/report.stdin.$n"
+rc=$(cat "$T/report.rc" 2>/dev/null || echo 0)
+[ "$rc" = 0 ] || { echo "stackshot: message refused" >&2; exit "$rc"; }
+echo delivered
+EOF
 cat > "$T/bin/prefixes" <<'EOF'
 #!/usr/bin/env bash
 echo x >> "$T/prefixes.calls"
@@ -203,6 +212,7 @@ chmod +x "$T/bin"/*
 export T ROOT FAKE_CLIENT_DIR=$T/fake
 export SALA_BGAGENTS_LIST_CMD=$T/bin/list SALA_BGAGENTS_POST_CMD=$T/bin/post SALA_BGAGENTS_SPAWN_CMD=$T/bin/spawn SALA_BGAGENTS_ALIVE_CMD=$T/bin/alive
 export SALA_BGAGENTS_ASK_CMD=$T/bin/ask SALA_BGAGENTS_PREFIXES_CMD=$T/bin/prefixes SALA_DEFAULT_SCOPE=alpha
+export SALA_BGAGENTS_RAISE=ask   # the sections up to the report section test the owner's decision item (the old route); the report section sets report
 export SALA_BGAGENTS_ALERT_CMD=$T/bin/alert SALA_ROLES_FILE=$T/roles.json SALA_BGAGENTS_PLACE_WAIT=0 SALA_BGAGENTS_PLACE_POLL=0.1
 export SALA_BGAGENTS_LOADAVG=$T/loadavg SALA_BGAGENTS_ALIVE_WAIT=0 SALA_PROJECT_RECORD=$T/projects.json SALA_BGAGENTS_NOW=$N0
 export SALA_BGAGENTS_MAX_ATTEMPTS=5 SALA_BGAGENTS_COOLDOWN=600 SALA_BGAGENTS_COOLDOWN_MAX=86400 SALA_BGAGENTS_MAX_LOAD=10 SALA_BGAGENTS_RECORD_GRACE=900
@@ -435,8 +445,8 @@ NOW=$((t+200000)) run; ITEM=$(qfield 1 all); NOW0=$((t+200000))
 [[ $OUT == *"raised for the owner (given up)"* ]] && ok "the run says so in one line" || bad "raise line: [$OUT]"
 [ "$(qfield 1 project)" = "$KEY" ] && [ "$(qfield 1 sender)" = sala-bg-agents ] && [[ $(qfield 1 subject) == "[alpha] example wants a background agent and its start failed 3 times" ]] && ok "the call: the want list's project page, the sender label, a subject with the bracket and \"<project> wants a background agent and its start failed N times\"" || bad "args: $(qfield 1 subject) / $(qfield 1 project) / $(qfield 1 sender)"
 [ "$(qfield 1 recommended)" = "Keep trying later" ] && [ "$(qfield 1 options | wc -l)" = 3 ] && qfield 1 options | grep -q '^Leave it without one=' && qfield 1 options | grep -q '^I will start it by hand=' && ok "three options (keep trying later, recommended / leave it without one / start it by hand), exactly one recommended" || bad "options: $(qfield 1 options)"
-printf '%s\n' "$ITEM" | grep -qiE 'exit|--|sala |sala$|client|python|spawn|HTTP|409|403|/usr|\.py|\.sh|\$' && bad "the item has an exit code, a command or a path in it: $ITEM" || ok "the item carries no exit code, no raw command, no path"
-[[ $(qfield 1 stdin) == *"example wants a background agent (example-engineer), and starting it has failed 3 times."* && $(qfield 1 stdin) == *"The last problem: The agent's name is already taken on a project, or waiting there for another sender."* && $(qfield 1 stdin) == *"The job has stopped trying"* ]] && ok "the text: what happened and the agent, the last problem in one plain sentence, that the job stopped" || bad "text: $(qfield 1 stdin)"
+printf '%s\n' "$ITEM" | grep -qiE 'exit|--|sala |sala$|client|python|spawn|/usr|\.py|\.sh|\$' && bad "the item has an exit code, a command or a path in it: $ITEM" || ok "the item carries no exit code, no raw command, no path (the stackshot error it quotes is its own words)"
+[[ $(qfield 1 stdin) == *"example wants a background agent (example-engineer), and starting it has failed 3 times."* && $(qfield 1 stdin) == *"The last problem: Stackshot refused the request to add the agent to the project. The error it gave: listing example-engineer failed: HTTP 409: example-engineer is already listed on the project as front (engineer): 'x'"* && $(qfield 1 stdin) != *"already taken"* && $(qfield 1 stdin) == *"The job has stopped trying"* ]] && ok "the text: what happened and the agent, the last problem in one plain sentence with the error stackshot gave (no guessed cause), that the job stopped" || bad "text: $(qfield 1 stdin)"
 [ "$(led $KEY attempts)" = 3 ] && [ "$(led $KEY failures)" = 3 ] && ok "the raise is no attempt and no failure of the project (3 and 3, as before)" || bad "raise counted: $(cat "$L")"
 run --status; [[ $OUT == *"given up (board item raised)"* ]] && ok "--status: \"given up (board item raised)\"" || bad "status raised: [$OUT]"
 # never twice
@@ -450,7 +460,7 @@ run
 [ "$RC" = 1 ] && [[ $OUT == *"retire needed: $NAME"* ]] && [ "$(qcalls)" = 1 ] && [ "$(led $KEY raised)" = True ] && ok "retire needed: ONE board item raised (the run still exits 1 for the retire)" || bad "raise on retire: rc=$RC calls=$(qcalls) [$OUT]"
 [[ $(qfield 1 stdin) == *"The last problem: The agent's session could not be started."* && $(qfield 1 stdin) == *"may not take it off without your word"* && $(qfield 1 stdin) != *"stopped trying"* ]] && ok "its text says the agent is still on the project and the job may not take it off without the owner's word" || bad "retire text: $(qfield 1 stdin)"
 [ "$(qfield 1 subject)" = "[alpha] example wants a background agent and its start failed 1 time" ] && ok "...its subject says \"1 time\", not \"1 times\"" || bad "retire subject: $(qfield 1 subject)"
-printf '%s\n' "$(qfield 1 all)" | grep -qiE 'exit|--|sala |client|python|spawn|HTTP|\.py' && bad "the retire item has a raw word in it: $(qfield 1 all)" || ok "...and, like the other, no exit code or command in it"
+printf '%s\n' "$(qfield 1 all)" | grep -qiE -- '--|sala |client|python|spawn|\.py' && bad "the retire item has a raw word in it: $(qfield 1 all)" || ok "...and, like the other, no command in it"
 run --status; [[ $OUT == *"retire needed"* && $OUT == *"board item board#"* ]] && ok "--status: a retire-needed project shows its raised item" || bad "retire status: [$OUT]"
 NOW=$((N0+601)) run; NOW=$((N0+5000)) run; [ "$(qcalls)" = 1 ] && [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(calls "$T/post.log")" = 1 ] && [[ $OUT == *"board item board#"*"raised; left alone until a session resets"* ]] && ok "once raised, no start is tried again and no second item is raised (one item per project)" || bad "retire second raise: calls=$(qcalls) spawn=$(calls "$T/spawn.log") [$OUT]"
 echo ok > "$T/spawn.mode"; NOW=$((N0+20000)) run; [ "$(qcalls)" = 1 ] && [ "$(calls "$T/spawn.log")" = 1 ] && [ "$(led $KEY retire_needed)" = True ] && ok "...even when a start would work now: the project stays quiet until a session resets it" || bad "after raise: calls=$(qcalls) spawn=$(calls "$T/spawn.log")"
@@ -615,7 +625,7 @@ run; [ "$(calls "$T/post.log")" = 0 ] && [ "$(calls "$T/spawn.log")" = 0 ] && [ 
 for how in "rc7" "nocmd"; do
     reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example
     if [ "$how" = rc7 ]; then echo 7 > "$T/alive.rc"; run; else SALA_BGAGENTS_ALIVE_CMD= run; fi
-    [ "$(qcalls)" = 1 ] && [ "$(led $KEY raised)" = True ] && [[ $(qfield 1 subject) == "[alpha] example wants a background agent and its start did not finish" ]] && [[ $(qfield 1 stdin) == *"and the start did not finish."* && $(qfield 1 stdin) != *"failed"* && $(qfield 1 stdin) != *"without a background agent"* ]] \
+    [ "$(qcalls)" = 1 ] && [ "$(led $KEY raised)" = True ] && [[ $(qfield 1 subject) == "[alpha] example wants a background agent and its start did not finish" ]] && [[ $(qfield 1 stdin) == *"and the start did not finish."* && $(qfield 1 stdin) != *"has failed"* && $(qfield 1 stdin) != *"without a background agent"* ]] \
         && [[ $(qfield 1 ask) == *"Stakes: the job does not try again until then"* ]] && ok "the liveness check cannot say ($how): the item is raised and says only that the start did not finish" || bad "uncertain ($how): calls=$(qcalls) $(qfield 1 all)"
 done
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; patch "$KEY" retire_needed=true; echo 2 > "$T/alive.rc"; run
@@ -846,6 +856,87 @@ late_removal alive
 [ "$LATE_OK" = 0 ] || { [ "$LATE_LOOK" = gone ] && [ "$LATE_WHY" = bound ] && ok "a file removed after the deadline is recorded as bound (liveness stub)" || bad "alive: at its first look the file was [$LATE_LOOK], the hold was read as [$LATE_WHY]"; }
 # (f) the subcommand table describes the shipped timer
 ! grep -q "No timer is shipped" "$ROOT/docs/subcommands.md" && grep -q 'sala-bg-agents.timer' "$ROOT/docs/subcommands.md" && ok "docs/subcommands.md says the timer ships in systemd/ (not that none ships)" || bad "subcommands.md timer sentence"
+
+# -- the report to sala's builder session (the default route): a failed start is a fault in the job, never a decision of the owner ---------------------------------
+# SALA_BGAGENTS_RAISE=report (the default): ONE message through the client's `message` to SALA_BGAGENTS_REPORT_TO with the project, the agent, the attempts, the last REAL error and what to do;
+# no question is filed, nothing asks for a subject prefix; once per project (the ledger's raised, raised_item, raise_token), again only after `--reset` and a new give-up
+export SALA_BGAGENTS_RAISE=report SALA_BGAGENTS_REPORT_TO=alpha-builder SALA_BGAGENTS_REPORT_CMD=$T/bin/report
+rcalls() { calls "$T/report.calls"; }
+rfield() { cat "$T/report.stdin.$1" 2>/dev/null; }   # the text of the nth report
+rclean() { rm -f "$T"/report.calls "$T"/report.stdin.* "$T/report.rc" "$T/prefixes.calls" "$T/ask.keys" "$T/fake/calls.jsonl"; }
+RSHORT="HTTP 403: refused: sender 'sala-web' is a name, and a name proves nothing."
+RERR="HTTP 403: refused: sender 'sala-web' is a name, and a name proves nothing. Send the asking session's id: pass the session id as the sender"
+t=$N0; rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo 403name > "$T/post.mode"; export SALA_BGAGENTS_MAX_ATTEMPTS=3
+NOW=$t run; NOW=$((t+100000)) run
+[ "$(rcalls)" = 0 ] && [ "$(led $KEY raised)" = False ] && ok "report: two failed attempts of three: nothing sent yet" || bad "report early: $(cat "$L")"
+NOW=$((t+200000)) run; NOW0=$((t+200000))
+[ "$RC" = 0 ] && [ "$(rcalls)" = 1 ] && [ "$(qcalls)" = 0 ] && [ "$(led $KEY raised)" = True ] && [ "$(led $KEY raised_at)" = "$NOW0" ] && [ "$(led $KEY raised_item)" = alpha-builder ] && ok "given up: ONE report in that run (exit 0), no question filed, the ledger keeps that it went out, when and to whom" || bad "report on give-up: rc=$RC reports=$(rcalls) questions=$(qcalls) [$OUT] $(cat "$L")"
+[ "$(cat "$T/report.calls")" = "alpha-builder - --sender sala-bg-agents" ] && ok "the call: the client's message verb to the session named by SALA_BGAGENTS_REPORT_TO, text from stdin, the job's label" || bad "report args: [$(cat "$T/report.calls")]"
+[ ! -e "$T/prefixes.calls" ] && [ ! -e "$T/ask.keys" ] && ok "no subject prefix is read and the filing command is never called" || bad "ask path touched"
+[[ $OUT == *"example: reported to alpha-builder (given up; last error: listing example-engineer failed: $RSHORT"* ]] && ok "the run says so in one line, with the last real error" || bad "report line: [$OUT]"
+R1=$(rfield 1)
+[[ $R1 == *"$KEY"* && $R1 == *"Agent: example-engineer. Attempts: 3 of 3 (failures: 3)."* && $R1 == *"Last error: listing example-engineer failed: $RERR"* && $R1 == *"sala bg-agents --reset $KEY"* ]] && ok "the text names the project, the agent, the attempts, the last real error as stackshot gave it and the reset command" || bad "report text: $R1"
+[[ $R1 != *hidden* && $R1 != *"already taken"* ]] && ok "...and no guessed cause" || bad "guessed cause: $R1"
+[[ $R1 == *"not a decision of the owner"* ]] && ok "...and says it is a fault in the job, not a decision of the owner" || bad "fault line: $R1"
+RID1=$(sed -n 's/^Report id: //p' <<<"$R1"); [ "$RID1" = "$(led $KEY raise_token)" ] && [[ $RID1 == bgagents-projects-example-* ]] && ok "the text carries the ledger's request id as the report's id" || bad "report id: [$RID1] $(led $KEY raise_token)"
+[ "$(led $KEY attempts)" = 3 ] && [ "$(led $KEY failures)" = 3 ] && ok "the report is no attempt and no failure of the project (3 and 3, as before)" || bad "report counted: $(cat "$L")"
+run --status; [[ $OUT == *"given up (report sent)"* && $OUT == *"reported to alpha-builder"* ]] && ok "--status: \"given up (report sent)\"" || bad "status reported: [$OUT]"
+NOW=$((t+300000)) run; NOW=$((t+9999999)) run
+[ "$(rcalls)" = 1 ] && [[ $OUT == *"given up after 3 attempts"* ]] && ok "a second run does not report again: the project is left alone" || bad "second report: reports=$(rcalls) [$OUT]"
+run --reset "$KEY" >/dev/null; [ "$(led $KEY raised)" = False ] && [ -z "$(led $KEY raised_item)" ] && [ -z "$(led $KEY raise_token)" ] && [ -z "$(led $KEY last_error)" ] && ok "--reset clears that the report went out, its id and the last error" || bad "reset: $(cat "$L")"
+t2=$((t+20000000)); NOW=$t2 run; NOW=$((t2+100000)) run; NOW=$((t2+200000)) run
+[ "$(rcalls)" = 2 ] && [ "$(qcalls)" = 0 ] && [ "$(led $KEY raised)" = True ] && [ "$(sed -n 's/^Report id: //p' <<<"$(rfield 2)")" != "$RID1" ] && [[ $(rfield 2) == *"Attempts: 3 of 3"* ]] && ok "after --reset and a new give-up the project is reported again, with a new id" || bad "report after reset: reports=$(rcalls) $(cat "$L")"
+
+# the real error is cut to a sane length, in one line
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example
+LONG=$(printf 'x%.0s' $(seq 1 700)); patch "$KEY" "last_error=\"first line\\nsecond   $LONG\""
+run; ERRLINE=$(grep '^Last error: ' <<<"$(rfield 1)")
+[ "$(rcalls)" = 1 ] && [ "$(wc -l <<<"$ERRLINE")" = 1 ] && [[ $ERRLINE == "Last error: first line second xxx"* && $ERRLINE == *"…" ]] && [ "${#ERRLINE}" -le 330 ] && ok "a long error is cut to 300 characters on one line (ends with an ellipsis)" || bad "long error: ${#ERRLINE} [$ERRLINE]"
+# a ledger written before last_error existed: the error is read from the last outcome
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; run
+[[ $(rfield 1) == *"Last error: listing x failed: HTTP 409: x"* ]] && ok "an older ledger entry (no last_error): the error is the last outcome's" || bad "old entry: $(rfield 1)"
+# a start that failed (retire needed), a session not placed, the liveness unknown
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo fail > "$T/spawn.mode"; run
+[ "$RC" = 1 ] && [[ $OUT == *"retire needed: $NAME"* ]] && [ "$(rcalls)" = 1 ] && [ "$(qcalls)" = 0 ] && [[ $(rfield 1) == *"its session did not start"* && $(rfield 1) == *"Last error: the start of $NAME failed (exit 1: claude did not start in $NAME:0 within 45s)"* && $(rfield 1) == *"Attempts: 1 of 3 (failures: 1)."* ]] && ok "retire needed: one report with the start's own error (the run still exits 1 for the retire)" || bad "report on retire: rc=$RC reports=$(rcalls) [$OUT] $(rfield 1)"
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo ok > "$T/spawn.mode"; echo record > "$T/place.skip"; record "$KEY" other-agent; run
+[ "$(rcalls)" = 1 ] && [[ $(rfield 1) == *"live but not placed on the project"* ]] && ok "an unplaced session: one report that says so, with the read-back's reason as the error" || bad "report unplaced: reports=$(rcalls) $(rfield 1) [$OUT]"
+rm -f "$T/place.skip"
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; echo 7 > "$T/alive.rc"; run
+[ "$(rcalls)" = 1 ] && [[ $(rfield 1) == *"the start did not finish, and whether the session is live could not be told"* ]] && ok "the liveness check cannot say: the report says only that the start did not finish" || bad "report uncertain: $(rfield 1)"
+rm -f "$T/alive.rc"
+# a live session is no failure: nothing reported
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; echo "$NAME" > "$T/alive.txt"; run
+[ "$(rcalls)" = 0 ] && [ "$(led $KEY stale)" = True ] && [[ $OUT == *"no report sent"* ]] && ok "a project whose agent session is live is not reported (stale)" || bad "report stale: reports=$(rcalls) [$OUT]"
+
+# the report fails: raised stays false, exit 1, no failure of the project, the same id on the retry after its own back-off
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; echo 1 > "$T/report.rc"; run
+[ "$RC" = 1 ] && grep -q "report needed: $KEY (could not be sent: exit 1: stackshot: message refused)" <<<"$OUT" && [ "$(led $KEY raised)" = False ] && [ "$(led $KEY failures)" = 5 ] && ok "the client refuses: \`report needed: PROJECT\` said, exit 1, nothing recorded as sent, no failure counted" || bad "report fails: rc=$RC [$OUT] $(cat "$L")"
+run --status; [[ $OUT == *"given up (report not sent yet)"* ]] && ok "--status: \"given up (report not sent yet)\"" || bad "status not sent: [$OUT]"
+NOW=$((N0+60)) run; [ "$(rcalls)" = 1 ] && [[ $OUT == *"report still needed: $KEY (the last sending failed 1 time; next try "* ]] && ok "a failed sending waits out its own back-off" || bad "report back-off: reports=$(rcalls) [$OUT]"
+rm -f "$T/report.rc"; NOW=$((N0+700)) run
+[ "$(rcalls)" = 2 ] && [ "$(sed -n 's/^Report id: //p' <<<"$(rfield 2)")" = "$(sed -n 's/^Report id: //p' <<<"$(rfield 1)")" ] && [ "$(led $KEY raised)" = True ] && [ "$RC" = 0 ] && ok "the next run sends it, with the same report id" || bad "report retry: rc=$RC reports=$(rcalls) [$OUT]"
+# no sending command, no target
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; SALA_BGAGENTS_REPORT_CMD= run
+[ "$RC" = 1 ] && [[ $OUT == *"report needed: $KEY (could not be sent: no stackshot client on this machine (SALA_BGAGENTS_REPORT_CMD))"* ]] && ok "no client on the box: \`report needed\`, exit 1" || bad "no report cmd: rc=$RC [$OUT]"
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; SALA_BGAGENTS_REPORT_TO= run
+[ "$RC" = 1 ] && [ "$(rcalls)" = 0 ] && [[ $OUT == *"no session to report to (set SALA_BGAGENTS_REPORT_TO)"* ]] && ok "an empty SALA_BGAGENTS_REPORT_TO: nothing sent, said, exit 1" || bad "no target: rc=$RC [$OUT]"
+# the target is a setting the repository gives no default for: unset, it is the same as empty
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; ( unset SALA_BGAGENTS_REPORT_TO; run; [ "$RC" = 1 ] && [ ! -e "$T/report.calls" ] && [[ $OUT == *"no session to report to (set SALA_BGAGENTS_REPORT_TO)"* ]] && echo yes ) > "$T/o" 2>&1
+[ "$(cat "$T/o")" = yes ] && ok "SALA_BGAGENTS_REPORT_TO unset: nothing sent, said, exit 1 (no name is built into the job)" || bad "unset target: [$(cat "$T/o")]"
+# --dry-run sends nothing
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; seed "$KEY" example; run --dry-run
+[ "$(rcalls)" = 0 ] && [[ $OUT == *"would report to alpha-builder (given up)"* ]] && ok "--dry-run: the report is planned (to whom, why), nothing is sent" || bad "dry report: reports=$(rcalls) [$OUT]"
+# a bad setting is refused (exit 2, nothing done)
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; SALA_BGAGENTS_RAISE=maybe run
+[ "$RC" = 2 ] && [ "$(calls "$T/post.log")" = 0 ] && [ ! -e "$L" ] && ok "SALA_BGAGENTS_RAISE=maybe: refused (exit 2, nothing done)" || bad "bad raise: rc=$RC [$OUT]"
+SALA_BGAGENTS_REPORT_TO='two words' run; [ "$RC" = 2 ] && ok "a SALA_BGAGENTS_REPORT_TO that is not a session's name is refused (exit 2)" || bad "bad target: rc=$RC [$OUT]"
+# SALA_BGAGENTS_RAISE=ask keeps the old behaviour: one decision item for the owner, no message
+rclean; reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; echo 403name > "$T/post.mode"; t=$N0
+NOW=$t SALA_BGAGENTS_RAISE=ask run; NOW=$((t+100000)) SALA_BGAGENTS_RAISE=ask run; NOW=$((t+200000)) SALA_BGAGENTS_RAISE=ask run
+[ "$(qcalls)" = 1 ] && [ "$(rcalls)" = 0 ] && [ "$(led $KEY raised)" = True ] && [[ $(led $KEY raised_item) == board#* ]] && [[ $OUT == *"board item board#"*"raised for the owner (given up)"* ]] && ok "SALA_BGAGENTS_RAISE=ask: one board item for the owner, no report (the old route)" || bad "ask mode: questions=$(qcalls) reports=$(rcalls) [$OUT]"
+[[ $(qfield 1 stdin) == *"The last problem: Stackshot refused the request to add the agent to the project. The error it gave: listing example-engineer failed: $RSHORT"* && $(qfield 1 stdin) != *hidden* ]] && ok "...and its text carries the last real error too, not a guessed cause" || bad "ask text: $(qfield 1 stdin)"
+SALA_BGAGENTS_RAISE=ask run --status; [[ $OUT == *"given up (board item raised)"* ]] && ok "...and --status speaks of the board item" || bad "ask status: [$OUT]"
+export SALA_BGAGENTS_MAX_ATTEMPTS=5 SALA_BGAGENTS_RAISE=ask; unset SALA_BGAGENTS_REPORT_TO
 
 # -- agent already on the map ------------------------------------------------------------------------------------------------------------------
 reset; printf '%s\n' "$KEY example example-main" > "$T/list.txt"; record "$KEY" "$NAME"
