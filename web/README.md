@@ -163,6 +163,17 @@ sala is, *Deploying* below.
   (default `~/.local/state/sala-web/uploads/`) under a random name, then their paths are pasted with **bracketed paste**. Claude Code turns a bracketed-pasted image
   path into an `[Image #N]` chip; the same path typed with `send-keys -l` stays raw text (tested on Claude Code
   2.1.296). Uploads older than 30 days are deleted at startup.
+  **An image always fits.** `addImage` (`static/app.js`) reads the file's bytes first (`arrayBuffer()`, once more after 150 ms when the
+  first read is empty) and says "That image came through empty" when the second is empty too, instead of sending a body the
+  server refuses. An image over the server's limit (`max_upload_bytes`, 20 MB) or longer than 4000 px on its long side is then
+  redrawn on a canvas, at most 4000 px (under the 4096 px side mobile canvases allow), and re-encoded before it is sent: a PNG
+  when any pixel is see-through (JPEG has no alpha), otherwise a JPEG at quality 0.92. Claude scales an image itself, so the session
+  sees the same picture. A result still over the limit steps the JPEG quality down (0.85, 0.75, 0.6) and then the size (to
+  75% a step), and an image that cannot be made to fit under the limit is refused in words ("could not be made small enough to
+  attach"). A small image, a file the browser cannot decode but the server takes, and an image whose re-encode would not be
+  smaller than a file within the limit go up untouched. A GIF that is shrunk loses its animation (the canvas draws one frame).
+  The server's own 413 names the limit ("that image is over the limit of 20 MB for one image") for a body that still arrives
+  over it. `tests/test_image_shrink.py` (headless Chromium) pins each of these.
 - **Any file, not only images.** The attach button's chooser takes everything, a drop takes
   every file, and a paste takes every `File` on the clipboard (`clipboardFiles`; `clipboardImages` is its image subset);
   a png, jpeg, gif or webp keeps the image path above (thumbnail, flat random name, 20 MB). **An on-screen keyboard's
@@ -2011,7 +2022,7 @@ part of `web/`.
 | `GET /api/image/<sessionId>/<uuid>/<i>/<j>` | an image block from a transcript |
 | `GET /api/file-image/<sessionId>/<uuid>/<i>/<k>` | the k-th file of the `SendUserFile` call at content block i of that transcript line, when it is a png, jpeg, gif or webp of at most 15 MB under an allowed root and not hidden or secret-named (*What it can and cannot do*, "Images a session sends"); anything else 404 |
 | `GET /api/md-image/<sessionId>/<uuid>/<i>/<n>` | the n-th local image (`![caption](/abs/path.png)` or `~/…`, outside code) in the markdown of the assistant text block i of that transcript line, under the same rules as `file-image`; a refusal is a 404 `{ok: false, error: <reason>}` that the page shows as "image not shown: <reason>"; a place the reply does not name is a 404 too (*What it can and cannot do*, "A markdown image of a file on this machine") |
-| `POST /api/upload` | raw image body (`Content-Type: image/png|jpeg|gif|webp`, 20 MB) → `{ok, name, path}`; or any other file, `?name=<its name>` (required for a type that is not an image), streamed to disk, 500 MB at most (413), refused when it would leave under 2 GB free (507), 400 empty → `{ok, name: "<hex>/<safe name>", path, file: true, fileName, size}` (*Any file, not only images*) |
+| `POST /api/upload` | raw image body (`Content-Type: image/png|jpeg|gif|webp`, 20 MB, 413 with the limit in words; the page shrinks a bigger image first) → `{ok, name, path}`; or any other file, `?name=<its name>` (required for a type that is not an image), streamed to disk, 500 MB at most (413), refused when it would leave under 2 GB free (507), 400 empty → `{ok, name: "<hex>/<safe name>", path, file: true, fileName, size}` (*Any file, not only images*) |
 | `POST /api/s/<pid>/send` | `{"text": "...", "uploads": ["<name as /api/upload returned it>"]}` as `application/json`; with a dialog open, `{"text": "2"}` or `{"text": "esc"}` answers it (`dialogAnswer` in the reply) |
 | `POST /api/shell/open` | `{}` as `application/json` → `{ok, session: "<SALA_SHELL_SESSION>", created}`: makes the shell drawer's tmux session (a plain `bash -l` in the home directory) when it is missing, under a lock; `created` is true when it had to (*The shell drawer*, *Where the session is made*: the drawer calls it each time it opens, the full-size page when its `?arg` is the Shell session, and the app itself once at start); 403/415 as every POST, 502 when tmux cannot make it |
 | `POST /api/shell/keys` | `{"key": "<name>"}` as `application/json`, `name` one of `Escape`, `Tab`, `Up`, `Down`, `Left`, `Right`, `Enter`, `BSpace`, `C-a`..`C-z` → `{ok, sent}`: `tmux send-keys -t =<SALA_SHELL_SESSION>: <name>`; any other name 400 and nothing sent, 502 when the session is not there; 403/415 as every POST |

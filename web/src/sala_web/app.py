@@ -1138,6 +1138,12 @@ def create_app(settings: Settings | None = None) -> Starlette:
             "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; sandbox"})
 
+    def _human_bytes(n: int) -> str:
+        """A byte count in plain words for a refusal: 20 MB, 512 KB, 900 bytes."""
+        if n >= 1048576:
+            return f"{n / 1048576:g} MB"
+        return f"{n / 1024:g} KB" if n >= 1024 else f"{n} bytes"
+
     async def upload(request: Request) -> Response:
         if _cross_origin(request):
             return _err(403, "cross-origin request refused")
@@ -1151,9 +1157,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
         async for chunk in request.stream():
             body += chunk
             if len(body) > settings.max_upload_bytes:
-                return _err(413, "image too large")
+                return _err(413, f"that image is over the limit of {_human_bytes(settings.max_upload_bytes)} for one image")
         if not body:
-            return _err(400, "empty body")
+            return _err(400, "that image came through empty")
         settings.uploads_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         name = f"{secrets.token_hex(16)}.{ext}"
         dest = settings.uploads_dir / name
