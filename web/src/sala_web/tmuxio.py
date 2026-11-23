@@ -1,6 +1,7 @@
 """The only tmux access sala-web has: read a pane (display, capture-pane), paste into it (load-buffer,
 paste-buffer -p, send-keys Enter), answer a numbered dialog in it (send-keys of one digit, or Escape), and stop a running
-`!` command (send-keys of Escape, then Ctrl-C).
+`!` command (send-keys of Escape, then Ctrl-C), and, only when the page's Replace asks for it, empty the input box of text
+the owner left there (send-keys of Ctrl+U, End and Delete: clear_box).
 
 Nothing here kills, renames or restarts a session, window or pane. The one thing it creates is the Shell drawer's own tmux
 session, `sala-shell` (sala's SALA_SHELL_SESSION) (ensure_shell_session): a plain login bash, never a Claude pane, and the one place
@@ -349,6 +350,24 @@ def input_box(captured: str) -> tuple[str, str]:
     return ("text" if visible or glyph is None else "empty"), "".join(all_text).replace(" ", " ").strip()
 
 
+def _box_rows(captured: str) -> tuple[str, ...]:
+    """The rows between the input box's rules as plain text, trailing spaces dropped: what clear_box compares to see whether a
+    key changed the box. input_box's text strips the blank line a Ctrl+U leaves behind, so it cannot tell that key from none."""
+    lines = captured.split("\n")
+    used = _used_box(lines)
+    if used is None:
+        return ()
+    first, bottom, _ = used
+    return tuple(plain(ln).replace("\u00a0", " ").rstrip() for ln in lines[first:bottom])
+
+
+def shown_text(box_text: str) -> str:
+    """The text input_box read, as the page shows it and as Replace echoes it back: the two spaces Claude Code indents every
+    line after the first with (they sit under the "\u276f ") are dropped, so the lines read as the owner typed them."""
+    first, *rest = box_text.split("\n")
+    return "\n".join([first, *(ln[2:] if ln.startswith("  ") else ln for ln in rest)])
+
+
 RETRY_MIN_PARTIAL = 12  # characters a part of the retried message must have to count as the message
 
 
@@ -518,3 +537,80 @@ def live_text(captured: str, command: str = "", max_lines: int = LIVE_LINES) -> 
     while lines and not lines[0].strip():
         lines.pop(0)
     return "\n".join(ln[:LIVE_LINE_CHARS] for ln in lines[-max_lines:])
+
+
+# --- clearing the input box (the page's Replace) ----------------------------------------------------------------------------
+# Measured on Claude Code 2.1.330 in a pane of its own (private tmux socket, isolated HOME, nothing submitted): Ctrl+U deletes
+# from the cursor to the start of its line, and at a line's start it deletes the newline before it, so it clears a box of N
+# lines from the end in 2N-1 presses and Backspace adds nothing; End moves the cursor to the end of its line, and Delete
+# removes what lies after the cursor. A paste of four lines or more is one "[Pasted text #1 +3 lines]" chip, which one Ctrl+U
+# removes. Ctrl+C would clear the box in one key but also stops a running turn, and on a box already empty it arms "Press Ctrl-C
+# again to exit"; a double Escape did not clear it in the same measurement. So neither is used.
+EDIT_KEYS = frozenset({"C-u", "End", "Delete"})
+CLEAR_MAX_KEYS = 120       # the keys one clear may send in all; past it the box is reported as not cleared
+CLEAR_SETTLE = 0.06        # seconds a redraw gets before the box is read after a key
+CLEAR_STALL_SETTLE = 0.15  # the second look at a box that did not change, before the key is judged to have done nothing
+# the keys tried, in this order, each time the one before changed nothing: Ctrl+U (the cursor is at the end of the text), End
+# then Ctrl+U (the cursor is inside it), Delete (text lies after the cursor); a key that changes the box starts the plan again
+CLEAR_PLAN = (("C-u",), ("End", "C-u"), ("Delete",))
+
+
+async def send_edit_key(settings: Settings, pane: str, key: str) -> None:
+    """One editing key into the pane's input box, from EDIT_KEYS only (Ctrl+U, End, Delete). Only the page's Replace sends
+    them, and only to clear the box. Nothing else is ever sent this way."""
+    _check_pane(pane)
+    if key not in EDIT_KEYS:
+        raise TmuxError(f"refusing to send key {key!r}")
+    await run_tmux(settings, "send-keys", "-t", pane, key)
+
+
+async def clear_box(settings: Settings, pane: str) -> tuple[bool, str]:
+    """Empty the pane's input box with CLEAR_PLAN's keys, reading the box after every key and stopping as soon as it reads
+    empty. Returns (True, "") when it is empty, else (False, why): the box went away, no key changed it, or CLEAR_MAX_KEYS were
+    sent. It types nothing else, so a caller that gets False has put no message into a half-cleared box."""
+    sent = 0
+
+    async def look() -> tuple[str, str, tuple[str, ...]]:
+        captured = await capture(settings, pane)
+        state, text = input_box(captured)
+        return state, text, _box_rows(captured)
+
+    async def press(key: str, before: tuple[str, ...]) -> tuple[str, str, tuple[str, ...]]:
+        # the box after the key; a box that looks unchanged is read once more (a slow redraw is not a key that did nothing)
+        nonlocal sent
+        sent += 1
+        await send_edit_key(settings, pane, key)
+        await asyncio.sleep(CLEAR_SETTLE)
+        now = await look()
+        if holds(now[0], now[2]) and now[2] == before:
+            await asyncio.sleep(CLEAR_STALL_SETTLE)
+            now = await look()
+        return now
+
+    def holds(state: str, rows: tuple[str, ...]) -> bool:
+        # a box that reads "text", or reads empty but still has a blank row after the first: the newline a Ctrl+U left, which
+        # would put the message on a second line (a placeholder that wraps has no blank row)
+        return state == "text" or (state == "empty" and any(not r.strip() for r in rows[1:]))
+
+    state, text, rows = await look()
+    while holds(state, rows):
+        progressed = False
+        for step in CLEAR_PLAN:
+            if sent + len(step) > CLEAR_MAX_KEYS:
+                return False, f"the input box still holds text after {sent} keys"
+            for key in step:
+                state, _, now_rows = await press(key, rows)
+                if state == "missing":
+                    break
+            if state == "missing":
+                break
+            if now_rows != rows:
+                rows, progressed = now_rows, True
+                break
+        if state == "missing":
+            break
+        if not progressed:
+            return False, "the input box did not clear (Ctrl+U, End and Delete changed nothing)"
+    if state == "missing":
+        return False, "the input box disappeared while clearing it"
+    return True, ""

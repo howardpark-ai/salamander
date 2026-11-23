@@ -42,7 +42,8 @@ sala is, *Deploying* below.
   session* below; the form also asks stackshot to make a project and its page, or to list one again, and to add the
   agent to the project, before it queues the session); it never kills, renames or restarts a tmux session, window or pane, or a Claude session, and it
   never starts one itself.** The only write to tmux is a paste plus Enter into the selected session's own pane
-  (`tmux load-buffer`, `tmux paste-buffer -p`, `tmux send-keys Enter`), or one keypress answering a dialog open
+  (`tmux load-buffer`, `tmux paste-buffer -p`, `tmux send-keys Enter`), the keys that empty that pane's input box when the page's
+  *Replace* asks for it (`tmux send-keys` of `C-u`, `End` and `Delete`, nothing else; below), or one keypress answering a dialog open
   there (below). Everything else is read-only (`display-message`, `capture-pane`). **The one exception is the shell
   drawer's own session, `SALA_SHELL_SESSION` (default `sala-shell`; *The shell drawer*):** the app makes that one tmux session itself
   (`tmux new-session -d -s <SALA_SHELL_SESSION> bash -l`, only when it does not exist) and sends fixed key names to it
@@ -66,14 +67,30 @@ sala is, *Deploying* below.
      offered, or an image, is refused with the options listed ("a dialog is open in the pane: answer with one of 1,
      2, 3, or esc; nothing sent"). The page drops the message bubble of an answer and says what it sent;
   3. the input box is empty. Dim text is the placeholder suggestion and counts as empty, and so does the placeholder's first character, which Claude Code draws reverse-video as the cursor cell just before the dim rest. If the owner (or anything
-     else) left text there, the send is refused with "pane input box is not empty". sala-web never clears it.
-     The one exception is the page's *Retry* of a message that failed (the request carries `"retry": true`): when the
+     else) left text there, the send is refused with 409 "pane input box is not empty; nothing sent", and the answer carries
+     what the box holds: `boxText` (the lines as the owner typed them, without Claude Code's two-space indent), `boxHidden`
+     (lines are out of view in the pane) and `boxChanged` (false here). **A send never clears the box by itself.** The page's
+     failed bubble shows `boxText` and offers *Replace* beside *Retry* and *Edit*; Replace sends the same message again with
+     `"replace": "<the text it showed>"`. The server then reads the box again: when it still equals `replace` exactly, it
+     empties it and pastes the message into the empty box as any send does; when it differs, the answer is a new 409 with the
+     box's new text (`boxChanged: true`) and **nothing is cleared or typed**, so the user decides again on what is there now.
+     The box is emptied with `Ctrl+U`, which in Claude Code deletes from the cursor to the start of its line and, at a line's
+     start, the newline before it (a box of N lines takes 2N-1 presses from its end; measured on Claude Code 2.1.330 in a
+     pane of its own, nothing submitted), with `End` when the cursor sits inside the text and `Delete` when text lies after
+     it. The box is read after every key and the keys stop as soon as it reads empty (also with no blank row left behind,
+     which would start the message on a second line). After 120 keys, or when no key changes the box, or when the box goes
+     away, the answer is a 409 ("... nothing typed") and the message is **never pasted into a half-cleared box**. `Ctrl+C` is
+     not used: it also stops a running turn. What `Ctrl+U` removes stays in Claude Code's kill buffer (`Ctrl+Y` in the pane
+     pastes it back). The numbered-dialog answers and the shell-mode (`!`) handling below run on the emptied box as on any
+     other. sala's own `tui_send` (the typed commands of the shell scripts) is not this path and still refuses a box with
+     real text.
+     Apart from Replace, the one exception is the page's *Retry* of a message that failed (the request carries `"retry": true`): when the
      box already holds that very message (equal to it, ignoring whitespace), it is not pasted again, only Enter is sent.
      A box that shows only part of a long message counts when the part is at least 12 characters and its own rule says
      that side is hidden: its tail when the top rule says `↑ N more`, its head when the bottom rule says `↓ N more`,
      a slice from the middle when both do. A fully visible box must equal the message, so the owner's own shorter
      text, even when it is the head or tail of the retried message, is never submitted. Any other text in the box is
-     still refused.
+     still refused (with its text, for Replace).
 - **Older messages load as the chat is scrolled to its top.** A session's chat opens with the last 200 messages of its
   transcript (`TAIL_N`, `transcript.read_tail_page`); the stream's `reset` also carries `before`, a cursor (the byte offset
   in the transcript where those messages begin), and `start` (the file's start is already in). A line at the top of the
