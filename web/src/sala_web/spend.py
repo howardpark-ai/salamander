@@ -11,7 +11,8 @@ AWS credential is read: sala's lane table is asked only whether the lane is set 
 THE METHOD (the same rates and the same dedupe as a separate fleet spend report script, if the operator keeps one):
 - a streamed reply is several transcript lines with one message id whose output_tokens grows block by block, and a session
   moved to another lane or forked copies its history: each message id is counted once, taking the largest value of every
-  token field (the complete usage), across every file; a hand count that took the first line read output tokens short;
+  token field (the complete usage) across the lines of a message, and across files the first file read keeps a copied message; a
+  hand count that took the first line read output tokens short;
 - subagent transcripts (<session>/subagents/**/*.jsonl) belong to the session whose directory holds them and are counted;
 - 5-minute and 1-hour cache writes are priced apart (usage.cache_creation.ephemeral_{5m,1h}_input_tokens; an older row with
   only cache_creation_input_tokens is taken as 5-minute); cache reads at the cache-read rate;
@@ -35,19 +36,34 @@ lane. (c) A session named in lanes.log whose transcript cannot be matched (no re
 and the card says how many. (d) Only transcripts under the default config directory (claude_dir/projects) are read.
 
 KEEPING IT CHEAP. Only the sessions that are or were on an AWS lane are read (the others cannot hold a message of these lanes),
-files untouched since the month began are skipped, and every file is read from where the last read stopped: the cache in
-the state dir (spend-scan.json) holds, per file, its inode, the offset after its last complete line and the month's
-messages as (id, time, model, five token counts). Nothing else leaves a transcript: no prompt, no reply text, no tool input.
+files untouched since the month began are skipped, and every file is read from where the last read stopped. The count keeps NO list of
+messages: the cache in the state dir (spend-scan.sqlite3, a SQLite file) holds, per transcript, its inode, the offset after its last
+complete line and its TOTALS so far (per lane and model: how many messages and the five token counts), and for the whole month the set of
+the ids of the messages already counted. A read takes the lines a transcript gained, closes each message into that transcript's totals
+(on the lane its session was on at the message's time; an id already in the set is a fork's copy of a message counted before, and is not
+counted again) and writes totals, set and offset in one transaction. The card is the sum of the totals, priced at the end. So a count's
+memory is a few hundred messages (the ones of the transcript being read), whatever the month holds, and nothing limits how many messages
+there are. Across transcripts the first one to count a message keeps it (a copy of a finished reply carries the same counts, so which one does not change
+the figures; it decides which session the message is listed under). The newest few messages of a transcript stay open
+(TAIL_KEEP) and are counted from there until a later read closes them, so the rest of a streamed reply that arrives after a count is merged
+into the message it belongs to (the largest of each count), not counted twice. A transcript that was replaced, shrank or is no longer one of
+the AWS sessions' (rare: transcripts only grow) cannot be taken out of totals the copies' dedupe rests on: the month is then read again
+from the first byte. The one thing that can grow without end is the set of ids, on disk (about 60 bytes a message); the file is held under
+MAX_STORE_BYTES, which is a disk limit about a hundred months' messages away, not a count of messages. The cache an earlier release kept
+as JSON (spend-scan.json) is read once into the new file and removed; one that cannot be read is dropped and the month is read again.
 The first read of a big session can take a while: the answer is "pending" until it lands (swr.py), and it runs in a thread.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import re
+import sqlite3
 from bisect import bisect_right
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -58,8 +74,13 @@ from . import swr as SWR
 LANES = ("aws-platform", "bedrock")
 TTL = 300.0           # one count per 5 minutes, however many pages ask
 ERROR_RETRY = 60.0    # a count that failed is tried again a minute later
-SCAN_VERSION = 1
-MAX_RECORDS = 250_000  # messages kept in memory and in the cache file; more is an error on the card, not a slow crash
+SCAN_VERSION = 2      # the SQLite cache's layout; the JSON cache of version 1 is only ever read to be converted
+SCAN_FILE = "spend-scan.sqlite3"
+LEGACY_SCAN_FILE = "spend-scan.json"   # the cache before SCAN_VERSION 2: converted once, then removed
+LEGACY_MAX_BYTES = 64_000_000          # an old cache past this (it held 27 MB at its own cap) is not read whole: the month is read again
+MAX_STORE_BYTES = 2 << 30   # what the cache file may grow to: a disk limit (the id set is most of it, about 60 bytes a message), not a count of messages
+PENDING_MAX = 64            # messages of one transcript held at once while it is read; the oldest is closed into the totals
+TAIL_KEEP = 4               # the newest messages of a transcript stay open between two reads (see KEEPING IT CHEAP)
 KEEP_OBSERVED = 20     # lane sightings kept per session
 
 # $ per MTok: input, cache write 5m, cache write 1h, cache read, output: the models' list prices. A separate fleet
@@ -310,14 +331,20 @@ def usage_tokens(u: dict) -> list[int]:
     return out
 
 
-def read_new(path: Path, entry: dict, since_ms: float) -> int:
-    """Read what was appended to a transcript since entry["off"], adding the month's messages to entry["recs"] ({message id:
-    [epoch ms, model, five token counts…]}; a message seen again keeps the larger of each count). Only whole lines are read:
-    the offset stops at the last newline, so a line still being written is read next time. Returns the bytes read."""
+_TOKEN_MAX = 1 << 60   # a count past this is not a count (and would not fit SQLite's integer): clamped
+_TCOLS = ("t0", "t1", "t2", "t3", "t4")
+
+
+def read_new(path: Path, off: int, since_ms: float, pending: dict, fold: Callable[[str, list], None]) -> int:
+    """Read what was appended to a transcript since `off`. A message is a record [epoch ms, model, five token counts] in `pending` ({message id:
+    record}, in the order its ids were first seen; the caller seeds it with the messages the last read left open): a line of a message already in
+    it keeps the larger of each count (a streamed reply's complete usage) and the last line's time and model. When more than PENDING_MAX
+    messages are held, the oldest is closed: `fold(id, record)`. What is left in `pending` stays for the caller to close or keep open. Only
+    whole lines are read: the offset stops at the last newline, so a line still being written is read next time. The memory is PENDING_MAX
+    records, whatever the size of the transcript. Returns the offset after the last whole line."""
+    pos = off
     with open(path, "rb") as fh:
-        fh.seek(entry["off"])
-        pos = entry["off"]
-        recs = entry["recs"]
+        fh.seek(off)
         for raw in fh:
             if not raw.endswith(b"\n"):
                 break
@@ -336,59 +363,235 @@ def read_new(path: Path, entry: dict, since_ms: float) -> int:
             model = m.get("model")
             mid = m.get("id") or d.get("requestId")
             t = parse_iso(d.get("timestamp"))
-            if not mid or not isinstance(model, str) or model == "<synthetic>" or t is None or t * 1000 < since_ms:
+            if not isinstance(mid, str) or not isinstance(model, str) or model == "<synthetic>" or t is None or t * 1000 < since_ms:
                 continue
-            tok = usage_tokens(m["usage"])
-            old = recs.get(mid)
+            try:
+                tok = [min(v, _TOKEN_MAX) for v in usage_tokens(m["usage"])]
+            except OverflowError:   # a count of "Infinity"
+                continue
+            old = pending.get(mid)
             if old is not None:   # a streamed block of the same message: the largest value of each count is the whole reply's
                 tok = [max(a, b) for a, b in zip(old[2:], tok)]
-            recs[mid] = [int(t * 1000), model, *tok]
-        n = pos - entry["off"]
-        entry["off"] = pos
-        return n
+            pending[mid] = [int(t * 1000), model, *tok]   # an id seen again keeps its place
+            while len(pending) > PENDING_MAX:
+                k = next(iter(pending))
+                fold(k, pending.pop(k))
+    return pos
 
 
-class ScanCache:
-    """Per file: inode, offset and the month's messages; saved as JSON in the state dir."""
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS files (fid INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, ino INTEGER NOT NULL, off INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS ids (mid TEXT PRIMARY KEY) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS tally (fid INTEGER NOT NULL, lane TEXT NOT NULL, model TEXT NOT NULL, calls INTEGER NOT NULL,
+    t0 INTEGER NOT NULL, t1 INTEGER NOT NULL, t2 INTEGER NOT NULL, t3 INTEGER NOT NULL, t4 INTEGER NOT NULL,
+    PRIMARY KEY (fid, lane, model)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS tails (fid INTEGER NOT NULL, mid TEXT NOT NULL, ms INTEGER NOT NULL, model TEXT NOT NULL,
+    t0 INTEGER NOT NULL, t1 INTEGER NOT NULL, t2 INTEGER NOT NULL, t3 INTEGER NOT NULL, t4 INTEGER NOT NULL,
+    PRIMARY KEY (fid, mid)) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS tails_mid ON tails (mid);
+"""
+_TALLY_UPSERT = ("INSERT INTO tally(fid, lane, model, calls, t0, t1, t2, t3, t4) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                 "ON CONFLICT(fid, lane, model) DO UPDATE SET calls = calls + excluded.calls, "
+                 + ", ".join(f"{c} = {c} + excluded.{c}" for c in _TCOLS))
+
+
+class _Folder:
+    """Closes messages of one transcript into its totals: a message whose id no transcript has closed before, and none holds open, is counted, on the lane
+    its session was on at the message's time (an id seen before is a copy of it, a fork's history, and is not counted again); `flush` writes the totals."""
+
+    def __init__(self, db: sqlite3.Connection, fid: int, timeline: "Timeline"):
+        self.db, self.fid, self.timeline = db, fid, timeline
+        self.sums: dict[tuple[str, str], list[int]] = {}
+
+    def __call__(self, mid: str, rec: list) -> None:
+        if self.db.execute("SELECT 1 FROM tails WHERE mid = ? AND fid != ?", (mid, self.fid)).fetchone():
+            return   # another transcript still holds this message open (a fork's copy of the parent's newest replies): it keeps it
+        if self.db.execute("INSERT OR IGNORE INTO ids VALUES (?)", (mid,)).rowcount != 1:
+            return
+        lane = self.timeline.lane_at(rec[0] / 1000.0)
+        if lane not in LANES:
+            return
+        s = self.sums.setdefault((lane, normalize_model(rec[1])), [0] * 6)
+        s[0] += 1
+        for i in range(5):
+            s[i + 1] += rec[2 + i]
+
+    def flush(self) -> None:
+        if self.sums:
+            self.db.executemany(_TALLY_UPSERT, [(self.fid, lane, model, *s) for (lane, model), s in self.sums.items()])
+            self.sums.clear()
+
+    def keep_open(self, pending: dict) -> None:
+        """Close all but the newest TAIL_KEEP messages and store those as the transcript's open messages: the next read of the file may carry
+        the rest of a streamed reply, which is then merged into them instead of counted a second time."""
+        while len(pending) > TAIL_KEEP:
+            k = next(iter(pending))
+            self(k, pending.pop(k))
+        self.flush()
+        self.db.execute("DELETE FROM tails WHERE fid = ?", (self.fid,))
+        self.db.executemany("INSERT INTO tails VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [(self.fid, k, *v) for k, v in pending.items()])
+
+
+class ScanStore:
+    """The month's read cache: a SQLite file in the state dir (None: in memory), used by one count from one thread. It holds NO message list.
+    Per transcript: its inode, the offset after its last complete line, the totals of the messages closed so far (per lane and model: how many
+    and the five token counts) and the few messages still open (TAIL_KEEP, newest). For the whole month: the set of the ids of the messages
+    closed, which is what keeps a fork's copied history from being counted twice. A transcript's new lines, its offset, its totals and its
+    open messages are written in one transaction, so a count stopped half way leaves the file as it was before that transcript."""
 
     def __init__(self, path: Path | None, month: str):
         self.path = path
         self.month = month
-        self.files: dict[str, dict] = {}
-        self.dirty = False
-        if path is None:
-            return
+        if path is not None:
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.close(os.open(path, os.O_RDWR | os.O_CREAT, 0o600))   # owner-only, as the rest of the state dir
+        self.db = sqlite3.connect(str(path) if path is not None else ":memory:", timeout=30, isolation_level=None)
         try:
-            doc = json.loads(path.read_text())
-        except (OSError, ValueError):
-            return
-        if isinstance(doc, dict) and doc.get("v") == SCAN_VERSION and doc.get("month") == month and isinstance(doc.get("files"), dict):
-            self.files = {k: v for k, v in doc["files"].items() if isinstance(v, dict) and isinstance(v.get("recs"), dict)}
+            self.db.executescript("PRAGMA temp_store = FILE; PRAGMA cache_size = -8192; PRAGMA synchronous = NORMAL;" + _SCHEMA)
+            self.fresh = self._meta("v") is None   # nothing in it yet: the place to read an older release's cache into
+            if not self.fresh and (self._meta("v") != SCAN_VERSION or self._meta("month") != self.month):
+                self.reset()   # a new month, or a layout this code does not know
+                self.fresh = True
+            if self._meta("v") is None:
+                with self.tx():
+                    self.db.execute("INSERT OR REPLACE INTO meta VALUES ('v', ?)", (SCAN_VERSION,))
+                    self.db.execute("INSERT OR REPLACE INTO meta VALUES ('month', ?)", (month,))
+        except BaseException:
+            self.db.close()
+            raise
 
-    def scan(self, path: Path, since_ms: float) -> int:
-        """Bring one file's entry up to its end; the bytes read. A file that shrank or was replaced is read again from 0."""
+    def _meta(self, k: str):
+        row = self.db.execute("SELECT v FROM meta WHERE k = ?", (k,)).fetchone()
+        return row[0] if row else None
+
+    @contextmanager
+    def tx(self):
+        self.db.execute("BEGIN")
+        try:
+            yield
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
+        self.db.execute("COMMIT")
+
+    def reset(self) -> None:
+        """Forget everything: the month is read again from the first byte. Used when what the totals rest on is gone (a transcript replaced or
+        removed: its messages cannot be taken out of the totals, nor the copies other transcripts skipped because of them put back)."""
+        with self.tx():
+            for t in ("tails", "tally", "ids", "files", "meta"):
+                self.db.execute(f"DELETE FROM {t}")
+            self.db.execute("INSERT INTO meta VALUES ('v', ?)", (SCAN_VERSION,))
+            self.db.execute("INSERT INTO meta VALUES ('month', ?)", (self.month,))
+
+    def settle(self, wanted: dict[str, str]) -> bool:
+        """Start the whole month again (`reset`) when a transcript the cache holds is no longer one of `wanted` ({path: session id}), has been
+        replaced (another inode) or has shrunk. True when it did. Rare: transcripts only grow."""
+        for _fid, path, ino, off in self.db.execute("SELECT fid, path, ino, off FROM files").fetchall():
+            try:
+                st = os.stat(path)
+            except OSError:
+                st = None
+            if path not in wanted or st is None or st.st_ino != ino or st.st_size < off:
+                self.reset()
+                return True
+        return False
+
+    def scan(self, path: Path, since_ms: float, timeline: "Timeline") -> int:
+        """Bring one transcript up to its end; the bytes read."""
         key = str(path)
         st = path.stat()
-        e = self.files.get(key)
-        if e is None or e.get("ino") != st.st_ino or e.get("off", 0) > st.st_size:
-            e = self.files[key] = {"ino": st.st_ino, "off": 0, "recs": {}}
-        if e["off"] >= st.st_size:
+        row = self.db.execute("SELECT fid, ino, off FROM files WHERE path = ?", (key,)).fetchone()
+        if row is not None and row[2] >= st.st_size:
             return 0
-        n = read_new(path, e, since_ms)
-        self.dirty = True
-        return n
+        with self.tx():
+            if row is None:
+                fid = self.db.execute("INSERT INTO files(path, ino, off) VALUES (?, ?, 0)", (key, st.st_ino)).lastrowid
+                off = 0
+            else:
+                fid, off = row[0], row[2]
+            fold = _Folder(self.db, fid, timeline)
+            pending = {mid: [ms, model, *tok] for mid, ms, model, *tok in
+                       self.db.execute("SELECT mid, ms, model, t0, t1, t2, t3, t4 FROM tails WHERE fid = ?", (fid,))}
+            pos = read_new(path, off, since_ms, pending, fold)
+            fold.keep_open(pending)
+            self.db.execute("UPDATE files SET off = ? WHERE fid = ?", (pos, fid))
+        return pos - off
 
-    def records(self) -> int:
-        return sum(len(e["recs"]) for e in self.files.values())
-
-    def save(self) -> None:
-        if self.path is None or not self.dirty:
-            return
+    def adopt_legacy(self, legacy: Path, wanted: dict[str, str], timelines: dict[str, "Timeline"]) -> bool:
+        """Read the cache an earlier release kept as JSON ({"v": 1, "month", "files": {path: {"ino", "off", "recs": {id: [ms, model, five counts]}}}})
+        into this one, once, and remove it: its transcripts keep the offset they were read to, so nothing is read again. Only for a cache with
+        nothing in it yet. The file is read whole (the old release held it whole too, under its own cap), but one past LEGACY_MAX_BYTES is not:
+        it is dropped and the month is read again; so is one of another month or version or that is not JSON. True when messages were adopted."""
+        if not self.fresh:
+            return False
+        adopted = False
         try:
-            SWR.write_atomic(self.path, {"v": SCAN_VERSION, "month": self.month, "files": self.files})
+            size = legacy.stat().st_size
         except OSError:
-            return
-        self.dirty = False
+            return False
+        doc = None
+        if size <= LEGACY_MAX_BYTES:
+            try:
+                doc = json.loads(legacy.read_text())
+            except (OSError, ValueError, RecursionError):
+                doc = None
+        files = doc.get("files") if isinstance(doc, dict) and doc.get("v") == 1 and doc.get("month") == self.month else None
+        if isinstance(files, dict):
+            with self.tx():
+                for key in sorted(files):   # the first transcript by path keeps a message, as the old release counted it
+                    e = files[key]
+                    sid = wanted.get(key)
+                    recs = e.get("recs") if isinstance(e, dict) else None
+                    if sid is None or not isinstance(recs, dict) or not isinstance(e.get("ino"), int) or not isinstance(e.get("off"), int):
+                        continue
+                    fid = self.db.execute("INSERT INTO files(path, ino, off) VALUES (?, ?, ?)", (key, e["ino"], e["off"])).lastrowid
+                    fold = _Folder(self.db, fid, timelines[sid])
+                    pending = {}
+                    for mid, r in recs.items():
+                        if (isinstance(mid, str) and isinstance(r, list) and len(r) == 7 and isinstance(r[1], str)
+                                and all(isinstance(x, (int, float)) and 0 <= x < _TOKEN_MAX for x in (r[0], *r[2:]))):
+                            pending[mid] = [int(r[0]), r[1], *[int(x) for x in r[2:]]]
+                            adopted = True
+                            while len(pending) > PENDING_MAX:
+                                k = next(iter(pending))
+                                fold(k, pending.pop(k))
+                    fold.keep_open(pending)
+        doc = files = None
+        try:
+            legacy.unlink()
+        except OSError:
+            pass
+        self.fresh = False
+        return adopted
+
+    def check_size(self) -> None:
+        """The cache file is held under MAX_STORE_BYTES: past it the count says so in plain words rather than fill the disk."""
+        pages = self.db.execute("PRAGMA page_count").fetchone()[0] - self.db.execute("PRAGMA freelist_count").fetchone()[0]
+        if pages * self.db.execute("PRAGMA page_size").fetchone()[0] > MAX_STORE_BYTES:
+            raise SpendError("there are too many messages to count")
+
+    def totals(self, wanted: dict[str, str], timelines: dict[str, "Timeline"]):
+        """The month's figures, one row at a time: (session id, lane, model, messages, five token counts) for each transcript of `wanted`
+        ({path: session id}), each lane and each model, with the transcript's open messages added (the ones no other transcript has closed; the first
+        transcript by path keeps a message two hold open). Only the lanes of LANES; the model as `normalize_model` writes it."""
+        for path, lane, model, calls, *tok in self.db.execute(
+                "SELECT f.path, t.lane, t.model, t.calls, t.t0, t.t1, t.t2, t.t3, t.t4 FROM tally t JOIN files f ON f.fid = t.fid ORDER BY f.path, t.lane, t.model"):
+            if path in wanted:
+                yield wanted[path], lane, model, calls, tok
+        seen: set[str] = set()   # the open messages of all transcripts: a few per transcript that grew lately
+        for path, mid, ms, model, *tok in self.db.execute(
+                "SELECT f.path, t.mid, t.ms, t.model, t.t0, t.t1, t.t2, t.t3, t.t4 FROM tails t JOIN files f ON f.fid = t.fid "
+                "WHERE NOT EXISTS (SELECT 1 FROM ids i WHERE i.mid = t.mid) ORDER BY f.path, t.mid"):
+            if path not in wanted or mid in seen:
+                continue
+            seen.add(mid)
+            lane = timelines[wanted[path]].lane_at(ms / 1000.0)
+            if lane in LANES:
+                yield wanted[path], lane, normalize_model(model), 1, tok
+
+    def close(self) -> None:
+        self.db.close()
 
 
 def transcript_files(projects: Path, sid: str, since: float) -> list[Path]:
@@ -527,6 +730,49 @@ def note_live(observed: dict, live: list, now_ms: int) -> bool:
     return changed
 
 
+def _count(scan_path: Path | None, month: str, since_ms: float, sids: list[str], files: dict[str, list[Path]],
+           lanes_of_sid: dict[str, "Timeline"]) -> tuple[dict, int, set[str]]:
+    """Bring the cache up to the transcripts' ends and add its totals up: ({lane: {usd, calls, models, sessions, unpriced}}, the bytes read, the
+    sessions with a transcript read). The totals are read from the cache one row at a time (the count holds no list of messages)."""
+    wanted = {str(p): sid for sid, ps in files.items() for p in ps}
+    store = ScanStore(scan_path, month)
+    try:
+        if scan_path is not None:
+            store.adopt_legacy(scan_path.with_name(LEGACY_SCAN_FILE), wanted, lanes_of_sid)
+        store.settle(wanted)
+        scanned = 0
+        found: set[str] = set()
+        for sid in sids:
+            for p in files[sid]:
+                try:
+                    scanned += store.scan(p, since_ms, lanes_of_sid[sid])
+                except OSError:
+                    del wanted[str(p)]   # gone since it was listed: not counted this time
+                    continue
+                found.add(sid)
+            store.check_size()
+        acc = {lane: {"usd": 0.0, "calls": 0, "models": {}, "sessions": {}, "unpriced": {}} for lane in LANES}
+        for sid, lane, model, calls, tok in store.totals(wanted, lanes_of_sid):
+            a = acc[lane]
+            usd = price(model, tok)
+            a["calls"] += calls
+            s = a["sessions"].setdefault(sid, {"usd": 0.0, "calls": 0})
+            s["calls"] += calls
+            if usd is None:
+                u = a["unpriced"].setdefault(model, {"calls": 0, "tokens": 0})
+                u["calls"] += calls
+                u["tokens"] += sum(tok)
+                continue
+            a["usd"] += usd
+            s["usd"] += usd
+            m = a["models"].setdefault(model, {"usd": 0.0, "calls": 0})
+            m["usd"] += usd
+            m["calls"] += calls
+        return acc, scanned, found
+    finally:
+        store.close()
+
+
 def compute(settings, live: list, configured: dict[str, bool | None], now: datetime, scan_path: Path | None,
             observed_path: Path | None) -> dict:
     """The answer for both lanes (blocking: run it in a thread). Raises SpendError."""
@@ -544,61 +790,19 @@ def compute(settings, live: list, configured: dict[str, bool | None], now: datet
 
     # the sessions to read: the ones any record puts on an AWS lane, now or at some time
     sids = sorted(i for i in facts.names if facts.aws_lanes_of(i))
-    cache = ScanCache(scan_path, month)
     lanes_of_sid = {i: facts.timeline(i) for i in sids}
-    scanned = 0
-    found: set[str] = set()
-    wanted: set[str] = set()
-    for sid in sids:
-        for p in transcript_files(projects, sid, start.timestamp()):
-            try:
-                scanned += cache.scan(p, since_ms)
-            except OSError:
-                continue
-            found.add(sid)
-            wanted.add(str(p))
-        if cache.records() > MAX_RECORDS:
-            raise SpendError("there are too many messages to count")
-    for k in [k for k in cache.files if k not in wanted]:   # a file no AWS session owns (any more) is not kept
-        del cache.files[k]
-        cache.dirty = True
-    cache.save()
-
-    # one message once, whichever file holds it: the largest of each count (a fork copies history), the first file by path
-    # keeps it; then the lane at the message's time and the price
-    merged: dict[str, tuple[str, list]] = {}
-    for path in sorted(cache.files):
-        sid = sid_of(projects, path) if path.startswith(str(projects) + os.sep) else None
-        if sid not in lanes_of_sid:
-            continue
-        for mid, r in cache.files[path]["recs"].items():
-            old = merged.get(mid)
-            if old is None:
-                merged[mid] = (sid, list(r))
-            else:
-                old[1][2:] = [max(a, b) for a, b in zip(old[1][2:], r[2:])]
-
-    acc = {lane: {"usd": 0.0, "calls": 0, "models": {}, "sessions": {}, "unpriced": {}} for lane in LANES}
-    for sid, r in merged.values():
-        lane = lanes_of_sid[sid].lane_at(r[0] / 1000.0)
-        if lane not in acc:
-            continue
-        a = acc[lane]
-        model = normalize_model(r[1])
-        usd = price(model, r[2:])
-        a["calls"] += 1
-        s = a["sessions"].setdefault(sid, {"usd": 0.0, "calls": 0})
-        s["calls"] += 1
-        if usd is None:
-            u = a["unpriced"].setdefault(model, {"calls": 0, "tokens": 0})
-            u["calls"] += 1
-            u["tokens"] += sum(r[2:])
-            continue
-        a["usd"] += usd
-        s["usd"] += usd
-        m = a["models"].setdefault(model, {"usd": 0.0, "calls": 0})
-        m["usd"] += usd
-        m["calls"] += 1
+    files = {sid: transcript_files(projects, sid, start.timestamp()) for sid in sids}
+    try:
+        acc, scanned, found = _count(scan_path, month, since_ms, sids, files, lanes_of_sid)
+    except sqlite3.DatabaseError as e:
+        # a cache file that is not a database (or a damaged one) is only a cache: dropped, and the month read again once. Anything else
+        # (a full disk, a lock another process holds: OperationalError) is not that, and is reported as it is.
+        if type(e) is not sqlite3.DatabaseError or scan_path is None:
+            raise
+        for suffix in ("", "-journal", "-wal", "-shm"):
+            with contextlib.suppress(OSError):
+                scan_path.with_name(scan_path.name + suffix).unlink()
+        acc, scanned, found = _count(scan_path, month, since_ms, sids, files, lanes_of_sid)
 
     # sessions named in lanes.log on an AWS lane whose transcript could not be matched (no registry row and not live)
     named_ids = {n for ns in facts.names.values() for n in ns}
@@ -649,7 +853,7 @@ class SpendCache:
         self.settings = settings
         self.live = live
         self.lane_status = lane_status
-        self.scan_path = sd / "spend-scan.json"
+        self.scan_path = sd / SCAN_FILE
         self.observed_path = sd / "spend-lanes.json"
         self._swr = SWR.Revalidating(sd / "spend-aws.json", TTL, ERROR_RETRY, {"lanes": []},
                                      valid=lambda d: isinstance(d.get("lanes"), list) and isinstance(d.get("month"), str))

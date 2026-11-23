@@ -60,7 +60,7 @@ none itself):
                                   a lane the dormant record lists keeps its figures (nothing is asked for them) and its entry gains
                                   "dormant": {reason, since}; before the first count it is just {"lane", "dormant"}. The last answer at once,
                                   refreshed in a thread every 5 minutes and kept in state_dir/spend-aws.json (swr.py; the
-                                  per-file read cache is spend-scan.json, the live lane sightings spend-lanes.json); "pending"
+                                  per-file read cache is spend-scan.sqlite3, the live lane sightings spend-lanes.json); "pending"
                                   until the first count lands, "error" in plain words when it cannot be counted.
                                   The aws-platform entry also carries "api_limit": {limit, tier, pausedUntil, emailDate, fetchedAt,
                                   org, stale, staleDays, pauseEnded} or null: the limit Anthropic's threshold emails announce, from

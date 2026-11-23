@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import threading
 import time
 from dataclasses import dataclass
@@ -95,7 +96,7 @@ class World:
 
     def count(self, live=(), configured=None, now=NOW, cache=True):
         return SPD.compute(self.settings, list(live), configured or {}, now,
-                           self.state / "spend-scan.json" if cache else None, self.state / "spend-lanes.json" if cache else None)
+                           self.state / SPD.SCAN_FILE if cache else None, self.state / "spend-lanes.json" if cache else None)
 
     def lane(self, got, lane):
         return next(x for x in got["lanes"] if x["lane"] == lane)
@@ -279,10 +280,14 @@ def test_nothing_but_numbers_and_names_is_kept_or_returned(w):
     got = w.count(live=[Live(A, "aws-one", "aws-platform", 1_790_000_000_000)])
     assert SECRET not in json.dumps(got)
     for f in w.state.iterdir():
-        assert SECRET not in f.read_text(), f.name
-    saved = json.loads((w.state / "spend-scan.json").read_text())
-    rec = next(iter(next(iter(saved["files"].values()))["recs"].values()))
-    assert rec[1] == "claude-sonnet-5-5" and all(isinstance(x, int) for x in rec[2:]) and len(rec) == 7     # time, model, five counts
+        assert SECRET.encode() not in f.read_bytes(), f.name
+    db = sqlite3.connect(w.state / SPD.SCAN_FILE)
+    try:
+        tally = db.execute("SELECT lane, model, calls, t0, t1, t2, t3, t4 FROM tally").fetchall()
+        tails = db.execute("SELECT mid, model, t0, t1, t2, t3, t4 FROM tails").fetchall()
+    finally:
+        db.close()
+    assert tally == [] and tails == [("m", "claude-sonnet-5-5", 5, 0, 0, 0, 7)]     # the one message is still open: its model and five counts, nothing else
 
 
 # ── the lane a message was on ────────────────────────────────────────────────
@@ -424,7 +429,7 @@ def test_a_broken_cache_is_ignored(w):
     w.registry("aws-one", A, lane="aws-platform")
     w.transcript(A, line("m1", "claude-sonnet-5-5", "2026-10-12T00:00:00Z", out=100_000))
     w.state.mkdir()
-    (w.state / "spend-scan.json").write_text("{not json")
+    (w.state / SPD.SCAN_FILE).write_bytes(b"this is not a database" * 100)
     (w.state / "spend-lanes.json").write_text('{"sessions": {"x": 5}}')
     assert w.lane(w.count(), "aws-platform")["monthUsd"] == pytest.approx(1.0)
 
