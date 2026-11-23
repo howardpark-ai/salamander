@@ -170,7 +170,7 @@ refused "an invalid --runs-with" 2 "--runs-with 'elsewhere' is none of: servers,
 refused "an empty --runs-with" 2 "--runs-with '' is none of: servers, sessions, home" jr1 "${ADD[@]}" --runs-with ""
 refused "the usage line names --runs-with" 2 "--runs-with servers | sessions | home" jr1 "${ADD[@]}" --runs-with nope
 out=$($S job list 2>&1)
-case "$out" in "NAME "*"PROJECT  RUNS WITH  IN GIT  SCOPE"*) ok "list: a RUNS WITH column between PROJECT and IN GIT" ;; *) bad "list header: $out" ;; esac
+case "$out" in "NAME "*"PROJECT "*" RUNS WITH  IN GIT  SCOPE"*) ok "list: a RUNS WITH column between PROJECT and IN GIT" ;; *) bad "list header: $out" ;; esac
 printf '%s\n' "$out" | grep -Eq '^placed1 .*projects/example +servers +yes +user$' && printf '%s\n' "$out" | grep -Eq '^placed2 .*projects/example +sessions +yes +user$' \
     && printf '%s\n' "$out" | grep -Eq '^nightly .*projects/example +unplaced +yes +user$' && ok "list: the placement of each job, and unplaced for one with none" || bad "list rows: $out"
 out=$($S job list --unplaced 2>&1); rc=$?
