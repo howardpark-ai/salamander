@@ -95,8 +95,16 @@ PYL
         IFS=$'\t' read -r id sess uuid at pid n dat text <<< "$row"
         [ -n "$id" ] || continue
         cpid=$(printf '%s\n' "$live" | awk -F'|' -v u="$uuid" '$1==u {print $2; exit}')
+        # a note the RELAUNCH wrote for the session (a pause: the text starts "[paused] ") says so; any other is the session's own
+        if [ "${text:0:9}" = "[paused] " ]; then
+            intro="This session was just relaunched (recycle, revive or reboot). At $(local_human "$at") ($(ago "$at")) the relaunch paused its turn and left it this note, written by the relaunch from what it could read: \"${text:9}\" — judge what still holds and carry on; nobody needs to cue you. Once it is handled, run \`sala note --done $id\`; until then it comes back after every relaunch."
+            tail_="(Automatic salamander message; the note was written by the relaunch, not by this session or ${SALA_OWNER_NAME}.)"
+        else
+            intro="This session was just relaunched (recycle, revive or reboot). At $(local_human "$at") ($(ago "$at")) it left itself this note: \"$text\" — judge whether it still holds and carry on with it; nobody needs to cue you. Once it is handled, run \`sala note --done $id\`; until then it comes back after every relaunch."
+            tail_="(Automatic salamander message; the note is this session's own words, not ${SALA_OWNER_NAME}'s.)"
+        fi
         if [ -n "$cpid" ] && [ "$cpid" != "$pid" ] && sock=$(session_socket "$cpid") && [ -n "$sock" ] \
-           && session_push "$sock" "[sala note $id] This session was just relaunched (recycle, revive or reboot). At $(local_human "$at") ($(ago "$at")) it left itself this note: \"$text\" — judge whether it still holds and carry on with it; nobody needs to cue you. Once it is handled, run \`sala note --done $id\`; until then it comes back after every relaunch.$( [ "$n" -gt 0 ] && echo " (Delivered ${n}× before.)") (Automatic salamander message; the note is this session's own words, not ${SALA_OWNER_NAME}'s.)"; then
+           && session_push "$sock" "[sala note $id] $intro$( [ "$n" -gt 0 ] && echo " (Delivered ${n}× before.)") $tail_"; then
             n=$((n+1)); upd+=("$id"$'\t'"$cpid"$'\t'"$n"$'\t'"$(date +%s)"); nlog "delivered ($n×): $sess $id: $text"; sent+=("$sess")
         elif [ -z "$cpid" ] && [ "$REBOOT" = 1 ]; then lost+=("$sess: \"$text\"")
         fi

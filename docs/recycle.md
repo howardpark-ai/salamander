@@ -105,6 +105,35 @@ recycles was counted back in only one and the other set stayed open. Now:
   then asks again instead of saying it is refused); `SALA_DRAIN_DENY_TEXT` is the reason's wording. Each refusal is one line in `~/.claude/salamander-drain.log`: the time, the tool,
   the session and the relaunch's kind, never the call's text. It needs the PreToolUse entry in `settings.json` (`install.sh` says when it is missing); the
   cost with nothing waiting is one glob test. A background subagent whose definition itself says it runs in the background, with no `run_in_background` in the call, is not seen by it.
+- **The pause** (a relaunch does not wait for ever for a busy pane;): drain mode cannot help a turn that is already running, and a
+  builder whose turn ran 28 minutes with a subagent waiting on a release held a recycle for three hours. A relaunch (a recycle, a revive, a
+  lane or model move, a CLI-update recycle: every path through `revive`) now waits `SALA_PAUSE_AFTER` seconds (**default 900, 15 min**; `0`
+  or `off` keeps the old wait) for a pane its turn or its background work holds, and then **pauses** it: ONE Escape takes the pane out of its
+  turn, the relaunch goes on through the ordinary path (drafts drained, `/exit`, resume by the conversation's id), and **a note written for
+  the session by the relaunch** (`sala note`'s store; delivered at once after the resume, else at watch's next tick) says what it was doing: the
+  time, the last line it was working from, the descriptions of the subagents and tool calls in flight (`lib/pauseinfo.py` reads descriptions
+  only, never a command or a tool result; a token is masked), the background processes the relaunch ended, and the messages held for it
+  (sender and first line). The wait is a clock per conversation (`pause/<id>.wait`): started by the first pass that finds the pane held,
+  refreshed by every pass, stopped by a pass that finds it free; a pane last seen held more than `SALA_PAUSE_GAP` (30 min) ago starts again,
+  so a pane that is busy on and off is not paused. The recycle's first sweep only starts it; the retry worker wakes for the deadline
+  (instead of its next `SALA_RETRY_EVERY` tick) and watch's deferred list does the same for a pane deferred for background work.
+  - *Who may be paused* (`SALA_PAUSE_SCOPE`, **default `background`**: only the back agents (the
+    registry's role); a front agent is never paused and keeps waiting for its turn to end; `all`: every session, front agents included; `off`: nobody). *Who never is*: the pane the recycle runs from (and the pane
+    that asked for a relaunch, once its worker has it), a pane running a `sala op` of its own, a pane with unsent text or a dialog showing,
+    a pane with a client attached that was active in the last `SALA_PAUSE_QUIET` (120 s), and the sessions in `SALA_NO_PAUSE` (work that
+    cannot be redone). Each waits for idle as before, and the output says why it was not paused.
+  - *The interrupt* is one Escape, sent only to a pane whose registry row says busy and that shows no dialog (a second Escape on an idle
+    box can open the CLI's rewind menu). The pane must be idle in the registry within `SALA_PAUSE_IDLE_WAIT` (20 s); if it is not, nothing
+    more is sent, no `/exit` is typed into a pane still in its turn, the pane is waited for as before and the clock starts over. Background
+    work does not hold a paused pane for `SALA_PAUSE_TTL` (15 min): subagents and background shells end with the relaunch (the CLI's
+    "Exit and stop tasks" is confirmed, and the note says so); a release that runs in its own systemd unit goes on.
+  - *While it waits* (before the deadline) the pane's stackshot inbox is **held** (the hold a sweep takes right before an `/exit`, refreshed by
+    every pass), so a new message queues instead of starting a turn; the relaunch releases it, and watch's 10-minute stale drop frees it if
+    the relaunch never comes. A pane that is never paused is not held.
+  - *Where it shows*: the recycle's row for the pane ends "paused at 13:12, resumes on relaunch"; the closure line of a retried pane says it
+    too; `sala op`'s Slack post and the line the asking session hears name each paused session on a line of its own (never counted as a
+    failure); `sala recycle --dry-run` says "would wait N min, then pause its turn (one Escape)" or why it would not. `tests/pause.sh`
+    covers it.
 - **Two guards** (the watchdog's auto-recycle, for a board flag and a `--when-idle` request alike; each skip is one line in
   `salamander-watch.log`, `auto-recycle: skipped …`). *The change is not live*: a flag that names its change (`--change REF` on a
   request, `~REF` after a board flag's id) is not served while that change is missing from the production checkout's HEAD, whether

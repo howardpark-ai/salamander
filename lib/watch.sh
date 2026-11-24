@@ -1882,13 +1882,29 @@ later_held() {  # in deferred_revive: the pane is held now; told again when due,
     fi
     later_row
 }
+# pause_watch_due <session> <uuid> <claude pid> <held words> → 0 when the deferred pane's pause is due and revive --only should be tried for it now (THE PAUSE,
+# common.sh). Every call starts or refreshes the pane's clock and holds its inbox while it runs (the refusals of pause_refusal_r come first: a pane that
+# must not be paused is neither clocked nor held); once due it is let through at most once in 10 min, so a pane the pause was refused for is not tried every tick.
+pause_watch_due() {
+    local sess="$1" u="$2" c="$3" why="$4" a t ref pane f m
+    [ -n "$u" ] || return 1
+    pause_after_r a; [ "$a" -gt 0 ] || return 1
+    pause_scope_ok "$sess" && pause_reason_ok "$why" || return 1
+    pane=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_id}' 2>/dev/null | head -1); [ -n "$pane" ] || return 1
+    pause_refusal_r ref "$pane" "$sess" "$c"; [ -z "$ref" ] || return 1
+    pause_hold "$u" "$(registry_field "$c" name)"
+    pause_clock_r t "$u"; [ "$t" -ge "$a" ] || return 1
+    f="$SALA_PAUSE_DIR/$u.tried"
+    if [ -e "$f" ]; then m=$(stat -c %Y "$f" 2>/dev/null || echo 0); [ $(( $(date +%s) - m )) -ge 600 ] || return 1; fi
+    : > "$f"; return 0
+}
 # DEFERRED PANES (lib/revive.sh): a pane a relaunch left because it held scheduled work is relaunched here once that work
 # is done; it leaves the list once it is current, its session or claude is gone, or after 8 days. A row that names its
 # recycle set (common.sh, "recycle sets") settles there: the pane counted as left behind until
 # now, its relaunch post carries the set's label and count and may close the set, and the 8-day drop is a give-up of it.
 deferred_revive() {
     [ -s "$SALA_DEFERRED" ] || return 0
-    local cur sess since why opid force dset told_at told_n posted_at uuid held pp c nc ver keep=() now row rf rn rl gap; cur=$(basename "$(readlink -f "$SALA_CLAUDE")"); now=$(date +%s)
+    local cur sess since why opid force dset told_at told_n posted_at uuid held pp c nc ver keep=() now row rf rn rl gap pausing=0 pw; cur=$(basename "$(readlink -f "$SALA_CLAUDE")"); now=$(date +%s)
     dres() { set_has "$dset" && set_resolve "$dset" "$@"; }   # <ok|gave> <bullet> → 0 when the pane's set took it
     later_row() { row="$sess"$'\t'"$since"$'\t'"$why"$'\t'"${opid:-0}"$'\t'"${force:-0}"$'\t'"${dset:--}"$'\t'"$told_at"$'\t'"$told_n"$'\t'"$posted_at"; }
     while IFS=$'\t' read -r sess since why opid force dset told_at told_n posted_at; do
@@ -1916,6 +1932,9 @@ deferred_revive() {
         held=$(is_idle_reason "$c")
         # the in-session mod's own answer (common.sh, mod_hold): a turn it names, or the background work it lists, holds the pane, said once with what holds it, and no exit is tried against it (the sweep runs again when the probe says free: the turn ended, the work is done)
         [ -n "$held" ] || held=$(mod_hold "$c" || true)
+        # THE PAUSE (common.sh): a deferred pane held this long by a turn or its background work is tried by `revive --only`, which pauses its turn (revive.sh pause_try)
+        pausing=0; if [ -n "$held" ] && pause_watch_due "$sess" "$uuid" "$c" "$held" </dev/null; then pausing=1; wlog "deferred: $sess held ($held) for the pause's deadline — revive --only pauses its turn"; held=""; fi
+        if [ -z "$held" ] && [ "$pausing" = 0 ] && [ -n "$uuid" ]; then pause_clock_clear "$uuid"; fi   # free: the pause's clock stops
         if [ -n "$held" ]; then held_say; later_held; keep+=("$row"); continue; fi
         # a pane the retry window deferred for an unsubmitted draft is idle to is_idle_reason: not relaunched while
         # the draft stands, and not tried again on every tick (each try would start a retry worker)
@@ -1926,14 +1945,15 @@ deferred_revive() {
         refusal_get rf "$uuid"; IFS=$'\t' read -r rn _ rl _ <<< "$rf"; : "${rn:=0}" "${rl:=0}"
         gap=0; [ "$rn" -gt $((SALA_STALE_TURN_AFTER * 2)) ] && gap=1800 || { [ "$rn" -gt "$SALA_STALE_TURN_AFTER" ] && gap=600; }
         if [ "$gap" -gt 0 ] && [ $((now - rl)) -lt "$gap" ] && ! { [ -n "$uuid" ] && ready_for "$uuid"; }; then keep+=("$row"); continue; fi   # a session's own `ready` is tried at once
-        wlog "deferred: $sess is free now — revive --only$( [ "${force:-0}" = 1 ] && echo ' --force')$( [ "$rn" -gt 0 ] && echo " (try $((rn + 1)))")"
+        wlog "deferred: $sess is $([ "$pausing" = 1 ] && echo 'held and its pause is due' || echo 'free now') — revive --only$( [ "${force:-0}" = 1 ] && echo ' --force')$( [ "$rn" -gt 0 ] && echo " (try $((rn + 1)))")"
         # SALA_SET: a pane this relaunch leaves to a retry worker stays in its set. SALA_DEFERRED_TRY: this list is the retry, so a try
         # that is skipped again starts no retry worker of its own (each one used to: a worker every tick for the same pane)
         SALA_DEFERRED_TRY=1 SALA_SET="$dset" "$SALA_BIN" revive --only "$sess" $( [ "${force:-0}" = 1 ] && echo --force ) </dev/null >> "$WLOG" 2>&1   # stdin is the list being read
         nc=$(claude_pid_under "$pp")
         if [ -n "$nc" ] && [ "$nc" != "$c" ]; then
             later_clear; wlog "deferred: $sess relaunched"
-            dres ok "$sess" "$sess relaunched on $(proc_version "$nc") once it was free, $(set_after "$dset" 2>/dev/null)" \
+            pw=""; [ -z "$uuid" ] || pw=$(pause_words "$uuid"); pw=${pw:+, $pw}   # a pane whose turn was paused says so
+            dres ok "$sess" "$sess relaunched on $(proc_version "$nc") once it was free, $(set_after "$dset" 2>/dev/null)$pw" \
                 || sala_post "✅ *Recycle: $sess relaunched*" "it is free now; it had been deferred since $(local_human "$since")"
         else keep+=("$row"); fi
     done < "$SALA_DEFERRED"
@@ -1948,7 +1968,7 @@ deferred_revive() {
 [ "$CHECK_ONLY" = 1 ] || wake_tick   # always on: a sleeping session with a stackshot message line waiting is woken (`sala wake`), at most SALA_WAKE_PER_RUN per run (lib/wrapup.sh)
 [ "$CHECK_ONLY" = 1 ] || sleep_tick   # runs only when SALA_IDLE_SLEEP=on (off by default): an inactive project whose sessions sleep_ready accepts is put to sleep (`sala sleep --project`), at most SALA_SLEEP_PER_TICK projects per run (lib/wrapup.sh)
 [ "$CHECK_ONLY" = 1 ] || set_prune   # recycle sets: closed ones after 3 days, any after 9 (common.sh)
-[ "$CHECK_ONLY" = 1 ] || { waiting_prune; busy_prune; refusal_prune; }   # relaunch-waiting flags whose owner is gone; busy records of sessions long gone
+[ "$CHECK_ONLY" = 1 ] || { waiting_prune; busy_prune; refusal_prune; pause_prune; }   # relaunch-waiting flags whose owner is gone; busy records of sessions long gone
 [ "$CHECK_ONLY" = 1 ] || { inbox_release_stale; [ "${#INBOX_ORPHANS_FREED[@]}" -eq 0 ] || wlog "inbox: freed ${#INBOX_ORPHANS_FREED[@]} held key(s) that no hold-ledger row accounts for, seen $SALA_INBOX_ORPHAN_SECS s or more: ${INBOX_ORPHANS_FREED[*]}"; }   # a relaunch that died left its pane's inbox held: free it after 10 min; so is a held key no ledger row accounts for (inbox_release_orphans, common.sh)
 # UNMAPPED SESSIONS (the map is a ledger — common.sh): a live claude in a tmux session the pane map
 # does not know (started by hand, outside spawn, or a spawn whose row write failed) is reported once — a log line and one post per session — and never added from

@@ -1974,6 +1974,11 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
         fi ;; esac
         pnf=${#OP_PF[@]}
     fi
+    # THE PAUSE (common.sh): a session whose busy turn the relaunch paused (one Escape; a note tells it what it was doing) is named in the
+    # post and in the hearing session's line, a line of its own each, outside the cap and never counted as a failure
+    if [ -n "${set:-}" ] && set_has "$set"; then
+        while IFS= read -r y; do [ -n "$y" ] || continue; OP_PL+=("$y"); dl+="$nl  - $y"; done < <(set_vals "$set" paused)
+    fi
     [ "$ptot" -ge "$pnf" ] || ptot=$pnf
     op_post "$id" "$st" "$ptot" "$pnf" "$ss"   # the one Slack post (THE OP POST, above)
     op_event "$id" "$st" "$n" "$nf" "$line" "$res"   # stackshot hears the end too (THE OP-END EVENT, above); never changes the outcome

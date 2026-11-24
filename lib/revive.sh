@@ -61,7 +61,7 @@
 # pass-over is said in the sweep's output (the revive log), and the row's note names it. Never for a recycle: a whole
 # fleet confirmed blind is not a rescue.
 
-DRY=0; FORCE=0; SELF_WORKER=0; SELF_PANE=""; ONLY=""; ONLY_LIST=(); RESCUE=0; RESCUE_NOTE=""
+DRY=0; FORCE=0; SELF_WORKER=0; SELF_PANE=""; ONLY=""; ONLY_LIST=(); RESCUE=0; RESCUE_NOTE=""; PAUSE_NOTE=""
 # read ahead of the flag loop: `--self` acts the moment the loop reaches it, before a `--rescue` that
 # follows it on the line would have been seen (lib/lane.sh writes `revive --self $RESCUEFLAG`)
 for a in "$@"; do case "$a" in --rescue) RESCUE=1; export SALA_RESCUE=1;; esac; done
@@ -119,6 +119,11 @@ exit_wait() {
             list=$(sed -n '/will stop when you exit/,/❯ 1\./p' <<< "$scr" | sed '1d;$d')
             if [ -n "$list" ] && ! grep -qvE '^[[:space:]]*(scheduled|task)\b' <<< "$list" && grep -q '❯ 1\. Exit and stop tasks' <<< "$scr"; then
                 tmux send-keys -t "$1" Enter   # option 1 is selected: exit; the resume brings the jobs back
+            elif [ -n "${3:-}" ] && pause_active "$3" && grep -q '❯ 1\. Exit and stop tasks' <<< "$scr"; then
+                # A PAUSED PANE (common.sh, THE PAUSE): its turn was interrupted so the relaunch could go on, and the work this dialog lists is what
+                # the relaunch cuts (a subagent the resume note tells the session to dispatch again, a shell, a monitor)
+                PAUSE_NOTE="the exit dialog listed background work ($(printf '%s\n' "$list" | sed 's/^[[:space:]]*//' | paste -sd';' - | sed 's/;/; /g')), stopped by the pause"
+                tmux send-keys -t "$1" Enter
             elif [ "$RESCUE" = 1 ] && [ -n "${3:-}" ] && [ -z "$(work_children "$3")" ] && grep -q '❯ 1\. Exit and stop tasks' <<< "$scr"; then
                 RESCUE_NOTE="the exit dialog listed background work ($(printf '%s\n' "$list" | sed 's/^[[:space:]]*//' | paste -sd';' - | sed 's/;/; /g')), but no child process ran under the claude: stale rows, 'Exit and stop tasks' confirmed (--rescue)"
                 tmux send-keys -t "$1" Enter
@@ -133,7 +138,7 @@ exit_wait() {
 # retry_worker [FLAGS…] -- "pane|session|label|claude-pid"…  (detached; see RETRY above). SALA_SET names the set it settles
 # its panes in; a worker started without one (by hand) makes a set of its own.
 retry_worker() {
-    local flags=() e pane sess label oldpid last tries lastwhy panepid npid nv out why still res dl round=0 dforce
+    local flags=() e pane sess label oldpid last tries lastwhy panepid npid nv out why still res dl round=0 dforce nap pn pus _cv pw
     while [ $# -gt 0 ] && [ "$1" != "--" ]; do flags+=("$1"); shift; done; shift || true
     local pending=("$@") deadline=$(( $(date +%s) + SALA_RETRY_WINDOW )) SET="${SALA_SET:-}" pidf="$SALA_LOG_DIR/salamander-retry.$$.pid" kind
     rlog() { echo "[$(date -Is)] retry: $*"; }
@@ -160,7 +165,10 @@ retry_worker() {
     dforce=0; [[ " ${flags[*]-} " == *" --force "* ]] && dforce=1   # what a deferred pane's row carries (defer_add)
     trap 'woke=1; kill "${sp:-}" 2>/dev/null' USR1          # `sala ready` in a pending pane, or its Stop hook's record, wakes the worker
     while [ ${#pending[@]} -gt 0 ] && [ "$(date +%s)" -lt "$deadline" ]; do
-        woke=0; sleep "$SALA_RETRY_EVERY" & sp=$!; wait "$sp" 2>/dev/null; sp=""
+        # the sleep ends at the next retry, or earlier when a pane's pause clock runs out before it (pause_next_in_r; never under 30 s)
+        nap=$SALA_RETRY_EVERY; pus=(); for e in "${pending[@]}"; do IFS='|' read -r _ _ _ oldpid _ <<< "$e"; registry_conv_r _cv "$oldpid"; pus+=("$_cv"); done
+        pause_next_in_r pn ${pus[@]+"${pus[@]}"}; if [ "$pn" -ge 0 ] && [ "$pn" -lt "$nap" ]; then nap=$(( pn < 30 ? 30 : pn )); fi
+        woke=0; sleep "$nap" & sp=$!; wait "$sp" 2>/dev/null; sp=""
         still=(); res=(); dl=(); now=$(date +%s); [ "$woke" = 1 ] && rlog "woken (a pending pane said \`sala ready\`, or its Stop hook saw nothing in flight)"
         set_superseded "$SET" && { rlog "a newer $kind took over ($(cat "$(_set_scope_file "$(set_val "$SET" scope)")" 2>/dev/null)) — stopping"; exit 0; }
         for e in "${pending[@]}"; do
@@ -188,14 +196,21 @@ retry_worker() {
                     rlog "$label: said ready, held only by background shells (registry 'shell')${hl:+ ($hl)} — on the deferred list, watch relaunches it once they are done"; continue
                 fi
                 [ "$w" -ge "$SALA_READY_WAIT" ] && rlog "$label: ready by its own word but still not idle after ${SALA_READY_WAIT}s — $(is_idle_reason "$oldpid")"
-            elif [ $((now - last)) -ge "$SALA_RETRY_EVERY" ]; then due=1; fi
+            elif [ $((now - last)) -ge "$SALA_RETRY_EVERY" ]; then due=1
+            # THE PAUSE (common.sh): a pane whose clock has run out is tried now, not at the next SALA_RETRY_EVERY (at most every 2 min: a pane
+            # the pause refused is not tried over and over)
+            elif [ -n "$uuid" ] && [ $((now - last)) -ge 120 ] && pause_due "$uuid"; then due=1; rlog "$label: the pause's deadline is reached — tried now"; fi
             [ "$due" = 1 ] || { still+=("$pane|$sess|$label|$oldpid|$last|$tries|$lastwhy"); continue; }
             round=$((round+1)); tries=$((tries+1))
             panepid=$(tmux display -p -t "$pane" '#{pane_pid}' 2>/dev/null); npid=$(claude_pid_under "$panepid")
-            if [ -n "$npid" ] && [ "$npid" != "$oldpid" ]; then res+=(ok "$sess" "$sess relaunched meanwhile, on $(proc_version "$npid"), $(set_after "$SET")"); rlog "$label: already relaunched (pid $oldpid → $npid)"; continue; fi
+            pw=""; [ -z "$uuid" ] || pw=$(pause_words "$uuid"); pw=${pw:+, $pw}   # THE PAUSE: a pane whose turn was paused says so in its closure line
+            if [ -n "$npid" ] && [ "$npid" != "$oldpid" ]; then res+=(ok "$sess" "$sess relaunched meanwhile, on $(proc_version "$npid"), $(set_after "$SET")$pw"); rlog "$label: already relaunched (pid $oldpid → $npid)"; continue; fi
             out=$(SALA_RETRY_WORKER=1 "$SALA_BIN" revive --only "$sess" ${flags[@]+"${flags[@]}"} 2>&1); printf '%s\n' "$out" | grep -F "$label" | sed 's/^ */    /'
             npid=$(claude_pid_under "$(tmux display -p -t "$pane" '#{pane_pid}' 2>/dev/null)")
-            if [ -n "$npid" ] && [ "$npid" != "$oldpid" ]; then nv=$(proc_version "$npid"); res+=(ok "$sess" "$sess relaunched on $nv, retry $tries, $(set_after "$SET")"); rlog "$label: relaunched on $nv"; continue; fi
+            if [ -n "$npid" ] && [ "$npid" != "$oldpid" ]; then
+                nv=$(proc_version "$npid"); pw=""; [ -z "$uuid" ] || pw=$(pause_words "$uuid"); pw=${pw:+, $pw}
+                res+=(ok "$sess" "$sess relaunched on $nv, retry $tries, $(set_after "$SET")$pw"); rlog "$label: relaunched on $nv${pw}"; continue
+            fi
             why=$(printf '%s\n' "$out" | grep -F "$label: " | tail -1 | sed 's/^ *//')
             case "$why" in *": already "*|*"own session"*) res+=(ok "$sess" "$sess already on $(proc_version "$oldpid"), $(set_after "$SET")"); rlog "$label: already current"; continue;; esac
             case "$why" in *"background work is running"*)   # work /exit would stop: watch relaunches it once that work is done; still outstanding in the set
@@ -654,7 +669,7 @@ if [ "$SELF_WORKER" = 1 ]; then
         # detached, not exec'd: the driver waits on this pid, and an exec'd worker would keep the recycle lock for its whole 2 h
         # window. Its own pid file, the same set as the driver's worker: the two coexist (this one's start once
         # stopped the driver's worker)
-        SALA_SET="$DSET" setsid "$SALA_BIN" revive --retry-worker --force -- "$SELF_PANE|$sess|$label|$cpid" </dev/null >>"$LOG" 2>&1 9>&- &
+        SALA_SET="$DSET" SALA_NO_PAUSE_PANE="$SELF_PANE" setsid "$SALA_BIN" revive --retry-worker --force -- "$SELF_PANE|$sess|$label|$cpid" </dev/null >>"$LOG" 2>&1 9>&- &
         [ -n "${SALA_RECYCLE_SKIPPED_FILE:-}" ] && [ -n "$sess" ] && echo "$sess" >> "$SALA_RECYCLE_SKIPPED_FILE"   # not relaunched by this recycle
         exit 0
     }
@@ -762,11 +777,59 @@ run_job() {  # <result file> <function> [args…] — a background subshell with
     JOBS+=($!)
 }
 wait_jobs() { wait ${JOBS[@]+"${JOBS[@]}"} 2>/dev/null; JOBS=(); }   # this phase's jobs only (a bare `wait` would also wait for a detached hook)
+# pause_try <pane> <sess> <label> <cpid> <why> → 0 when the pane's turn was paused just now (the caller reads the pane again: it is idle, its background
+# work no longer holds it), 1 otherwise. <why> is what holds the pane (is_idle_reason's words, or the mod's), empty for a pane that is free. THE PAUSE (common.sh):
+# a pane held for a turn or its background work has a clock; every pass starts or refreshes it, holds the pane's inbox while it runs (pause_hold) and
+# fires it once it is SALA_PAUSE_AFTER old. The recycle's first sweep only starts it; the retry worker's passes and watch's (the deferred list) get there.
+# A dry run reads the clock and writes nothing. A refusal (pause_refusal_r) or an interrupt that did not take leaves the pane waiting as before, said once
+# the clock is due.
+pause_try() {
+    local pane="$1" sess="$2" label="$3" cpid="$4" why="${5:-}" a uuid hname held ref pm
+    pause_after_r a; [ "$a" -gt 0 ] || return 1
+    registry_conv_r uuid "$cpid"; [ -n "$uuid" ] && [ "$uuid" != null ] || return 1
+    hname=$(registry_field "$cpid" name)
+    if [ -z "$why" ]; then   # free: the clock stops, and the inbox hold the wait took comes off (a sweep that goes on holds it again itself)
+        pause_clock_age_r held "$uuid"
+        if [ "$held" -ge 0 ] && [ "$DRY" != 1 ]; then pause_clock_clear "$uuid"; inbox_release "$uuid" "$hname" 2>/dev/null; fi
+        return 1
+    fi
+    pause_reason_ok "$why" || return 1
+    if ! pause_scope_ok "$sess"; then
+        if [ "$DRY" = 1 ]; then   # the plan names the rule: a front agent is never paused unless the scope says all
+            case "${SALA_PAUSE_SCOPE:-background}" in
+                off|no|false|0) ref="the pause is off (SALA_PAUSE_SCOPE=off)";;
+                *) ref="SALA_PAUSE_SCOPE=${SALA_PAUSE_SCOPE:-background} pauses only the back agents; a front agent is never paused and waits for its turn to end (SALA_PAUSE_SCOPE=all pauses every session)";;
+            esac
+            emit ECHO "[dry-run] $label: held ($why); it would not be paused: $ref"
+        fi
+        return 1
+    fi
+    if [ "$DRY" = 1 ]; then
+        pause_clock_age_r held "$uuid"
+        if [ "$a" -ge 60 ]; then pm="$(( a / 60 )) min"; else pm="$a s"; fi
+        pause_refusal_r ref "$pane" "$sess" "$cpid"
+        if [ -n "$ref" ]; then emit ECHO "[dry-run] $label: held ($why); it would not be paused: $ref"
+        else emit ECHO "[dry-run] $label: held ($why); the relaunch would wait $pm$([ "$held" -gt 0 ] && echo " (it has waited $(( held / 60 )) min already)") for it, then pause its turn (one Escape), relaunch it and leave it a note saying what it was doing"; fi
+        return 1
+    fi
+    pause_refusal_r ref "$pane" "$sess" "$cpid"
+    if [ -n "$ref" ]; then pause_clock_age_r held "$uuid"; [ "$held" -lt "$a" ] || emit ECHO "$label: not paused — $ref; it is waited for as before"; return 1; fi
+    pause_hold "$uuid" "$hname"
+    pause_clock_r held "$uuid"
+    [ "$held" -ge "$a" ] || return 1
+    if pause_pane "$pane" "$sess" "$cpid" "$uuid"; then
+        emit ECHO "$label: paused after $(hold_age_words "$held") of holding the relaunch ($why) — its turn was interrupted with one Escape; it is relaunched next and a note leaves it what it was doing"
+        set_paused "${SALA_SET:-}" "$sess: paused at $(local_clock "$PAUSE_AT") after $(hold_age_words "$PAUSE_HELD") of holding the relaunch"
+        return 0
+    fi
+    emit ECHO "$label: not paused — $PAUSE_WHY; it is waited for as before"
+    return 1
+}
 # check_pane <pane> <sess> <win> <title> <cmd> <panepid> <cwd> — phase 1: the per-pane gates (the serial loop's body up to the
 # first keystroke, `continue` → return). A pane that passes them emits CLAUDE pane|sess|label|cpid|ver|uuid|name, or
 # SHELL pane|sess|label|uuid|resume command for a post-restore shell, which only needs phase 3.
 check_pane() {
-    local pane="$1" sess="$2" win="$3" title="$4" cmd="$5" panepid="$6" cwd="$7" label="$2:$3" cpid="" ver uuid why draft served spid busy out sid st web sver first rest
+    local pane="$1" sess="$2" win="$3" title="$4" cmd="$5" panepid="$6" cwd="$7" label="$2:$3" cpid="" ver uuid why mh draft served spid busy out sid st web sver first rest
     if [ "$sess" = "$SALA_RC_SESSION" ]; then
         if [ -e "$SALA_LOG_DIR/salamander-rc.stopped" ]; then   # stopped or retired (on the coordinator machine): a server someone
             OK+=("$label: Remote Control server stopped (sala rc --start resumes it) — left alone"); return   # runs by hand is theirs
@@ -826,13 +889,20 @@ check_pane() {
         fi
         # the lane line (the header, THE LANE LINE): a mismatch with no row refuses this pane, dry run and real alike
         lane_plan "$sess" "$cpid" || { SKIPPED+=("$label: not relaunched — $LANE_WHY ($LANE_LINE)"); return; }
-        why=$(is_idle_reason "$cpid")
+        why=$(is_idle_reason "$cpid"); mh=""
+        [ -n "$why" ] || { mh=$(mod_hold "$cpid") || mh=""; }
+        # THE PAUSE (common.sh): a pane held by its turn or its background work has a clock; one that has held the relaunch SALA_PAUSE_AFTER seconds is paused
+        # here (one Escape, a note for the session), and the checks below then read it again, now out of its turn
+        if pause_try "$pane" "$sess" "$label" "$cpid" "${why:-$mh}"; then
+            why=$(is_idle_reason "$cpid"); mh=""
+            [ -n "$why" ] || { mh=$(mod_hold "$cpid") || mh=""; }
+        fi
         [ -n "$why" ] && { skip "$label: $why"; return; }
         # the in-session mod's own answer, asked before the exit is: a turn it names (a subagent the registry, the children and the transcripts
         # could not show) or the background work it lists (a shell, a monitor, a subagent: "4 subagents, 6 monitors and 1 shell are in flight")
         # holds the pane, said once here with its holder, and the pane's inbox is never held and released for an exit that is refused.
         # Only a turn is counted in the refusal memory (it thins out the tries of a mod whose turn list is stale); work in flight is not
-        why=$(mod_hold "$cpid") && { case "$why" in "a turn is running"*) refusal_note "$(registry_field "$cpid" sessionId)" "$why" >/dev/null;; esac; skip "$label: $why — left on $ver"; return; }
+        if [ -n "$mh" ]; then why=$mh; case "$why" in "a turn is running"*) refusal_note "$(registry_field "$cpid" sessionId)" "$why" >/dev/null;; esac; skip "$label: $why — left on $ver"; return; fi
         # the rescue passed over the Stop hook's record (common.sh, is_idle_reason): said here, so the log shows what was read as stale
         if [ "$RESCUE" = 1 ] && why=$(busy_state "$cpid" "$(registry_field "$cpid" sessionId)" 2>/dev/null) && [ -n "$why" ]; then
             emit ECHO "$label: rescue — $why; no child process runs under the claude, so the record is read as stale and passed over (--rescue)"
@@ -914,7 +984,7 @@ close_pane() {
         *) inbox_release "$uuid" "$hname"; skip "$label: the pane did not take /exit (composer not empty, or the Enter was dropped twice)"; return ;;
     esac
     ready_clear "$uuid"; waiting_clear "$uuid"   # the relaunch consumes the ready marker and takes the waiting flag down
-    RESCUE_NOTE=""; exit_wait "$pane" "$SALA_EXIT_WAIT" "$cpid"; rc=$?   # the pid: the rescue's child-process test (the header)
+    RESCUE_NOTE=""; PAUSE_NOTE=""; exit_wait "$pane" "$SALA_EXIT_WAIT" "$cpid"; rc=$?   # the pid: the rescue's child-process test (the header)
     [ "$rc" = 2 ] && { inbox_release "$uuid" "$hname"; SKIPPED+=("$label: background work is running (a shell, monitor or subagent), which /exit would stop — /exit cancelled, left on $ver; sala relaunches it once that work is done"); return; }
     if [ "$rc" = 1 ]; then
         # THE STUCK CLAUDE (common.sh, end_stuck_claude): the /exit was typed and the claude is still running after the wait. That one
@@ -934,6 +1004,7 @@ close_pane() {
     fi
     [ "$rc" = 0 ] || { inbox_release "$uuid" "$hname"; SKIPPED+=("$label: claude didn't exit within ${SALA_EXIT_WAIT}s — a /exit may be queued behind a prompt; attach and check before rerunning"); return; }
     [ -n "$RESCUE_NOTE" ] && emit ECHO "$label: rescue — $RESCUE_NOTE"
+    [ -n "$PAUSE_NOTE" ] && emit ECHO "$label: pause — $PAUSE_NOTE"
     dedupe_ok "$uuid" "$label" || { inbox_release "$uuid" "$hname"; return; }
     # a parked pane resumes with --name <session>: the job's conversation carries the job's own title, which would become the pane's registry name;
     # so does a pane whose row name differs from its session and is not a hand rename (named, above)
@@ -955,7 +1026,10 @@ verify_pane() {
     if [ "$kind" = claude ]; then
         inbox_release "$uuid" "$hname" wait
         newver=$(proc_version "$RESUMED_PID"); refusal_clear "$uuid"   # a relaunch ends the refusal memory (common.sh)
-        UPDATED+=("$label: $ver → $newver$(lane_note "${label%:*}")")   # the lane named when it is not subscription-1 (common.sh, lanes)
+        local pw; pw=$(pause_words "$uuid")   # THE PAUSE (common.sh): a pane whose turn was paused says so in its row; the note it was left is handed over now, not at watch's next tick
+        UPDATED+=("$label: $ver → $newver$(lane_note "${label%:*}")${pw:+ · $pw}")   # the lane named when it is not subscription-1 (common.sh, lanes)
+        pause_clock_clear "$uuid"
+        if [ -n "$pw" ]; then pause_resumed "$uuid"; "$SALA_BIN" note --deliver >/dev/null 2>&1 || true; fi
         # a recurring job is carried across the recycle (the resume re-arms it), and the session is told once, in one line, to move it
         local rec np sock; rec=$(scheduled_jobs 0 "$uuid" | awk -F'\t' '$2=="recurring" {printf "%s (%s), ", $1, $4}')
         if [ -n "$rec" ] && np=$(claude_pid_under "$(tmux display -p -t "$pane" '#{pane_pid}')") && sock=$(session_socket "$np") && [ -n "$sock" ]; then
@@ -1124,6 +1198,7 @@ if [ -n "$SET" ] && ! set_has "$SET" && { [ "$SET_KIND" = Recycle ] || [ "$START
         kv+=("skip=$b"); case "$outs" in *" ${l%%:*} "*) ;; *) kv+=("gave=$b");; esac
     done
     for l in ${notes[@]+"${notes[@]}"}; do kv+=("note=$l"); done
+    for l in ${UPDATED[@]+"${UPDATED[@]}"}; do case "$l" in *" · paused at "*) kv+=("paused=${l%%:*}: paused at ${l##* · paused at }");; esac; done   # THE PAUSE: the panes this sweep paused (the set did not exist yet when they were)
     kv+=("src=$(flag_src)" "fscope=${ONLY:-all}")   # the flag (common.sh, "recycle sets"): its source, and its scope - every live pane, or the --only list
     [ -n "${SALA_FLAG_ROUTINE:-}" ] && kv+=("routine=1")   # raised by the watchdog (an automatic CLI update): may close one pane short (common.sh, _set_short_pane)
     kv+=("force=$FORCE")   # what the straggler's deferred row carries when the flag closes one short

@@ -93,6 +93,7 @@ suite opparallel lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/heartbea
 suite orderpanes lib/revive.sh
 suite parked lib/adopt.sh lib/feedback.sh lib/heartbeat.sh lib/holders.py lib/map.sh lib/revive.sh lib/sessions.py
 suite parkedq lib/hook.sh lib/permission-host.py lib/question.py lib/question.sh lib/stuck.sh tests/fake-claude-p.py
+suite pause lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/holders.py lib/note.sh lib/op.sh lib/pauseinfo.py lib/recycle-request.sh lib/rename.sh lib/revive.sh lib/settings-apply.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh
 suite permissions lib/hook.sh lib/permissions.py
 suite permmode lib/feedback.sh lib/revive.sh lib/sessions.py lib/spawn.sh lib/stackshot_record.py
 suite phases lib/feedback.sh lib/revive.sh

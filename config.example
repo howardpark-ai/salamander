@@ -148,6 +148,14 @@
                                  #   aws-platform's status is DERIVED like bedrock's; its launch line starts with `env -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_FOUNDRY -u ANTHROPIC_AWS_API_KEY`
 #SALA_RETRY_EVERY=300           # recycle: retry transiently skipped panes (busy, just idle, draft) this often …
 #SALA_RETRY_WINDOW=7200          # … for this long, then defer (not give up) whoever is still pending
+#SALA_PAUSE_AFTER=900            # the pause (docs/recycle.md): a relaunch that has waited this many seconds for a pane its turn or its background work holds interrupts the turn with ONE Escape,
+                                 #   relaunches the session and leaves it a note (written by the relaunch) of what it was doing. 0 or off = wait for idle as before; default 900 (15 min)
+#SALA_PAUSE_SCOPE=background     # whose turn may be paused: background (only the back agents; a front agent is never paused and waits for its turn to end; the default) · all (every session, front agents included) · off
+#SALA_NO_PAUSE=                  # tmux sessions (space-separated) whose turn is never interrupted: they hold work that cannot be redone and wait for idle as before
+#SALA_PAUSE_IDLE_WAIT=20         # seconds the one Escape gets to bring the pane out of its turn; past that nothing more is sent and the pane is waited for as before
+#SALA_PAUSE_QUIET=120            # a pane with a client attached that was active this recently is somebody's: never interrupted
+#SALA_PAUSE_GAP=1800             # the busy clock restarts when the pane was last seen held longer ago than this (busy continuously, not on and off)
+#SALA_PAUSE_TTL=900              # seconds a paused pane's background work stops holding the relaunch (the relaunch must follow within it)
 #SALA_HOLD_SETTLE=3              # revive: seconds between holding the stackshot inbox of every pane of a sweep (or of the invoking pane) and the first /exit; a line handed out just before the hold is a turn by then, which the check before the /exit sees
 #SALA_INBOX_MODE=auto            # where sala holds a session's stackshot inbox and asks whether a line waits for it: auto (the default) = what the stackshot client's own setting says,
                                  #   `[client] push_mode` of its config ($ANCHOR_PUSH_MODE overrides it): local = files (the hold files of this box, the stackshot server's own), server = stackshot's client
