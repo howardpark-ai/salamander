@@ -26,6 +26,11 @@ event takes no matcher):
 
 Without it a notice still arrives, at the next tool call, which is the more frequent of the two.
 
+`sala notice add` takes the text as one quoted argument. `-h`, `--help` and `help` as the first word after `add` print the usage and exit 0
+without posting anything, and a text that starts with `-` is refused (exit 2, nothing posted, one line saying the text looks like an
+option): a mistyped `sala notice add --help` once posted a notice reading "--help" to every live session. A text such as `- a bullet` or
+`-5 degrees` is refused too, by design: start it with another character. `--from` and `--until` are unchanged and may come before or after the text.
+
 State is under `~/.local/state/salamander`: `notices.tsv` (id, created, sender, until, text; atomic writes under `notices.lock`),
 `notices.seq` (the last id, so an id is never reused) and `notices-seen/<session id>` (the last notice id handled for that session).
 Expired notices are pruned on `add` and by `watch`; with none left every `notices-seen` file goes, and the files of sessions that are

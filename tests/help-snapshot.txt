@@ -384,7 +384,7 @@ usage: salamander wake NAME… [--dry-run]
 ✗ usage: salamander note "<next step>" | --done [<id>] | --list [--archived]
 
 ### sala notice --help (exit 0)
-usage: sala notice add "<text>" --from <sender> [--until <when>]
+usage: sala notice add "<text>" --from <sender> [--until <when>]     (-h, --help or help as the first word after add prints this)
        sala notice list [--json]
        sala notice drop <id>
 
@@ -393,7 +393,8 @@ usage: sala notice add "<text>" --from <sender> [--until <when>]
           one block, oldest first. A session whose conversation started after the notice was created skips it (it loaded the
           current rules and memory at its start). --from is required: your own session name. --until: when it expires, an
           epoch, a span (90m, 12h, 7d) or an ISO 8601 time (no zone = UTC); default 7 days. Prints the id and how many live
-          sessions it will reach.
+          sessions it will reach. A text that starts with "-" is refused (exit 2, nothing posted) because it looks like an option
+          ("--help", "-5 degrees" and "- a bullet" alike): start the text with another character.
   list    the active notices, each with how many live sessions have had it (or started after it) and how many are still due.
   drop    withdraws a notice: a session not yet reached never gets it.
   Delivery needs the hooks `hook post-tool` (PostToolUse, already registered) and `hook prompt` (UserPromptSubmit; docs/notices-and-hooks.md,

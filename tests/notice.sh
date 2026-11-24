@@ -165,6 +165,38 @@ for n in $("$SALA" notice list --json | python3 -c 'import json, sys; print(*[d[
 out=$("$SALA" notice list); [ "$out" = "no active notices" ] && ok "list: no active notices" || bad "list empty: $out"
 [ "$(slurp "$ST/notices.seq")" -ge 11 ] && ok "the id counter is kept, so an id is never reused" || bad "seq: $(slurp "$ST/notices.seq")"
 
+echo "== add: help words and a dash-first text never post (a real incident: \"sala notice add --help\" posted \"--help\" to every session)"
+before=$(slurp "$NF" 2>/dev/null); seq_before=$(slurp "$ST/notices.seq" 2>/dev/null)
+for h in --help -h help; do
+    out=$("$SALA" notice add "$h" 2>&1); rc=$?
+    [ "$rc" = 0 ] && [[ $out == *"usage: sala notice add"* ]] && [ "$(slurp "$NF" 2>/dev/null)" = "$before" ] && ok "add $h: usage, exit 0, store unchanged" || bad "add $h: rc=$rc $out"
+    out=$("$SALA" notice add "$h" --from tester 2>&1); rc=$?
+    [ "$rc" = 0 ] && [[ $out == *"usage: sala notice add"* ]] && [ "$(slurp "$NF" 2>/dev/null)" = "$before" ] && ok "add $h --from tester: usage, exit 0, store unchanged" || bad "add $h --from: rc=$rc $out"
+    out=$(python3 -I -S "$ROOT/lib/notice.py" add "$h" --from tester 2>&1); rc=$?
+    [ "$rc" = 0 ] && [ "$(slurp "$NF" 2>/dev/null)" = "$before" ] && ok "lib/notice.py add $h (the second guard): exit 0, store unchanged" || bad "py add $h: rc=$rc $out"
+done
+for t in -5 "-5 degrees" "- a bullet" "-x"; do
+    out=$("$SALA" notice add "$t" --from tester 2>&1); rc=$?
+    [ "$rc" = 2 ] && [[ $out == *"starts with '-'"* ]] && [ "$(slurp "$NF" 2>/dev/null)" = "$before" ] && ok "text '$t': refused, exit 2, store unchanged" || bad "text '$t': rc=$rc $out"
+done
+for t in --help -h; do
+    out=$("$SALA" notice add --from tester "$t" 2>&1); rc=$?
+    [ "$rc" = 2 ] && [[ $out == *"starts with '-'"* ]] && [ "$(slurp "$NF" 2>/dev/null)" = "$before" ] && ok "--from tester then '$t' as the text: refused, exit 2, nothing posted" || bad "from then '$t': rc=$rc $out"
+done
+out=$("$SALA" notice add --from tester --until 2h "-5 degrees" 2>&1); rc=$?
+[ "$rc" = 2 ] && [ "$(slurp "$NF" 2>/dev/null)" = "$before" ] && ok "a dash-first text after the flags: refused too" || bad "dash after flags: rc=$rc $out"
+out=$("$SALA" notice add "x --help" --from tester --until 1h 2>&1); rc=$?
+[ "$rc" = 0 ] && ok "a dash inside the text is fine" || bad "dash inside: rc=$rc $out"
+"$SALA" notice drop "$("$SALA" notice list --json | python3 -c 'import json, sys; print(json.load(sys.stdin)[-1]["id"])')" >/dev/null
+out=$("$SALA" notice add "plain text" --from tester 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(count_notices)" = 1 ] && ok "a normal text still posts" || bad "normal: rc=$rc $out"
+out=$("$SALA" notice add --from tester --until 3h "flags first" 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(count_notices)" = 2 ] && ok "flags in front of the text still work" || bad "flags first: rc=$rc $out"
+out=$("$SALA" notice add "mixed order" --until 30m --from tester 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(count_notices)" = 3 ] && ok "--until before --from after the text still works" || bad "mixed: rc=$rc $out"
+for n in $("$SALA" notice list --json | python3 -c 'import json, sys; print(*[d["id"] for d in json.load(sys.stdin)])'); do "$SALA" notice drop "$n" >/dev/null; done
+[ "$(count_notices)" = 0 ] && ok "cleaned up: no notice left" || bad "left over: $(slurp "$NF")"
+
 echo "== the help text"
 out=$("$SALA" notice --help); [[ $out == *"sala notice add"* ]] && [[ $out == *"hook prompt"* ]] && ok "notice --help" || bad "help: $out"
 out=$("$SALA" hook 2>&1); [[ $out == *"salamander hook prompt"* ]] && ok "hook usage lists prompt" || bad "hook usage: $out"
