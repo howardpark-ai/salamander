@@ -32,6 +32,7 @@ none docs/ci-runs.md docs/merge-queues.md docs/mockup.md docs/mq.md docs/permiss
 text syntax lanefields
 # firstline: opens every tracked file for line 1 only.
 firstline syntax
+suite agentstate config.example docs/heartbeat-store.md docs/stackshot-contracts.md lib/agentstate.py lib/heartbeat.sh lib/lanewords.py lib/sessions.py lib/stackshot_form.py lib/stackshot_key.py
 suite autorecycle lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/note.sh lib/op.sh lib/recycle-request.sh lib/rename.sh lib/revive.sh lib/sessions.py lib/settings-apply.sh lib/spawn.sh lib/stuck.sh lib/update.sh lib/watch.sh lib/wrapup.sh
 suite aws-platform-lane lib/feedback.sh lib/lane.sh lib/revive.sh lib/sessions.py lib/spawn.sh lib/stackshot_record.py
 suite backlane lib/barepane.sh lib/continuedin.sh lib/op.sh lib/settings-apply.sh lib/spawn.sh lib/stackshot_record.py lib/stuck.sh lib/watch.sh lib/wrapup.sh

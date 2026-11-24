@@ -53,6 +53,15 @@
 #                  retired_at,transcripts[{id,machine,at,why}]}}} (+ "surface": "slack" on a slack row, + "sleeping": "<ISO-Z>" on a sleeping one). `written` is refreshed on EVERY run (a stale file is a dead heartbeat, not a quiet
 #                  fleet); retired rows stay. Not published (the last good file stays, one line in sessions.log) when SALA_SESSIONS=off or sessions.json
 #                  is missing or corrupt. docs/session-registry.md; docs/stackshot-contracts.md interface 19: tell the board's main session BEFORE changing it.
+#   agent-state.json  (a fourth file, the live store only, this box's own; interface 38): {"schema":1,"written":<epoch s>,"agents":{"<agent name>": {"state":"busy|idle|unknown",
+#                  "since","why","pane":"turn|idle|shell|sleeping|unknown","read":true|false,"subagents":[{"id","description","brief","at","quiet"?,"unreadable"?,"meta_at"?}]}}}: one entry per
+#                  live or sleeping row of the session registry; the keys are named once, in lib/agentstate.py (ENTRY_KEYS). state = busy when the pane is in a turn or a subagent applies, idle when
+#                  the pane is idle, shell or asleep and none does, unknown when the subagents or the pane cannot be read (never idle). `subagents` is stackshot's own
+#                  `running(session, roots, now)` (stackshot/audit/subagent_tie.py), imported from its checkout (SALA_STACKSHOT_CHECKOUT), never reimplemented; a brief is cut to 2048 bytes.
+#                  Rewritten on EVERY run (`written`), atomically, and NEVER into the store repo (a brief is free text). Then posted: SALA_AGENT_STATE_POST_CMD (default `client.py post agent-state --file <path>`,
+#                  through lib/stackshot_form.py), at most SALA_AGENT_STATE_TIMEOUT seconds; a failure is one line per five minutes in salamander-agent-state.log, never a failed heartbeat. A run
+#                  whose import of stackshot's module fails writes nothing new (the last good file stays). SALA_AGENT_STATE=off skips both. docs/stackshot-contracts.md interface 38: tell
+#                  the board's main session BEFORE changing it.
 #
 # Portability: plain bash + python3 + git on the writer; a swept box needs only ssh and a POSIX shell (Linux or macOS) — no
 # salamander, git or python there. Schedule it on the writer: systemd/sala-heartbeat.timer (every 5 min) or
@@ -69,6 +78,17 @@
 : "${SALA_HEARTBEAT_NAME:=}"        # this machine's fleet name; default: from SALA_FLEET_NAMES, else hostname
 : "${SALA_FLEET_NAMES:=}"           # TSV  <os hostname>\t<fleet name>\t<letter>  ('#' comments), hostname case-insensitive
 : "${SALA_HEARTBEAT_STALE:=1800}"   # --check: seconds after which the last heartbeat counts as missing
+# AGENT STATE (agent-state.json, header above; lib/agentstate.py): on by default; the post command is the stackshot client unless a setting names one (an empty setting: no post)
+: "${SALA_AGENT_STATE:=on}"           # off: no agent-state.json and no post
+: "${SALA_AGENT_STATE_TIMEOUT:=30}"   # seconds the post command may run
+: "${SALA_STACKSHOT_CHECKOUT:=${SALA_STACKSHOT_DIR:-$HOME/stackshot}}"   # stackshot's production checkout: its audit/subagent_tie.py is imported from here, read only
+: "${SALA_AGENT_STATE_TRANSCRIPTS:=$SALA_PROJECTS:${SALA_LANE_TEAM_DIR:-$HOME/.claude-team}/projects}"   # where Claude Code keeps the transcripts on this box (`:` separated)
+: "${SALA_AGENT_STATE_MAX_BODY:=900000}"   # stackshot refuses a body over 1 MB: over this many bytes the briefs are shortened
+if [ -z "${SALA_AGENT_STATE_POST_CMD+x}" ]; then
+    _as_client=$(stackshot_client 2>/dev/null) || _as_client=""
+    SALA_AGENT_STATE_POST_CMD="${_as_client:+python3 $SALA_FORM_PY run $_as_client post agent-state --file}"   # the same call shape as the bgagents post: with a pass when sala has one
+    unset _as_client
+fi
 
 mode=run
 case "${1:-}" in
@@ -146,6 +166,8 @@ report=$(HB_NOW="$now" HB_STATE="$state" HB_GITMODE="$SALA_HEARTBEAT_GIT" HB_STO
     HB_PST="$SALA_LOG_DIR/salamander-fleet-ssh.json" HB_FDIR="$fdir" \
     HB_SESSIONS_PY="$SALA_SESSIONS_PY" HB_SESSIONS_FILE="$SALA_SESSIONS_FILE" HB_SESSIONS_LOG="$SALA_SESSIONS_LOG" HB_SESSIONS_ON="$(sessions_on && echo 1 || echo 0)" \
     HB_RENAMES="$SALA_LOG_DIR/salamander-renames.jsonl" HB_SLEEP_DIR="$SALA_SLEEP_DIR" HB_SIDECAR="$SALA_SIDECAR" HB_URL_PY="$SALA_SESSION_URL_PY" HB_URL_TPL="$(session_url_template)" \
+    HB_AS_ON="$SALA_AGENT_STATE" HB_AS_CMD="$SALA_AGENT_STATE_POST_CMD" HB_AS_TIMEOUT="$SALA_AGENT_STATE_TIMEOUT" HB_AS_CHECKOUT="${SALA_STACKSHOT_CHECKOUT/#\~/$HOME}" \
+    HB_AS_ROOTS="${SALA_AGENT_STATE_TRANSCRIPTS//\~/$HOME}" HB_AS_MAX_BODY="$SALA_AGENT_STATE_MAX_BODY" HB_AS_LOGDIR="$SALA_LOG_DIR" HB_AS_PY="$SALA_ROOT/lib/agentstate.py" \
     python3 - "$SALA_REG_DIR" <<'PY'
 import json, glob, os, sys, time
 E =os.environ; now = E["HB_NOW"]; store = E["HB_STORE"]; state = E["HB_STATE"]; gitmode = E["HB_GITMODE"]; dry = E["HB_MODE"] == "dry"
@@ -216,9 +238,23 @@ def publish_registry(letter):
         note("session-registry.json not published, the last good file stays: %s" % e); return
     txt = json.dumps(doc, ensure_ascii=False, indent=1) + "\n"
     p = os.path.join(state, letter, "session-registry.json")
-    if dry: print(f"== {p}\n{txt}", file=sys.stderr); return
+    if dry: print(f"== {p}\n{txt}", file=sys.stderr); return doc
     try: write_if_changed(p, txt)
     except Exception as e: note("session-registry.json not written: %s" % e)
+    return doc
+
+def publish_agent_state(letter, doc, panes):
+    """AGENT STATE (header, agent-state.json; docs/stackshot-contracts.md interface 38): <live store>/<letter>/agent-state.json from the registry rows `doc` just published and the live panes of this
+    box, then handed to stackshot. All of it in lib/agentstate.py, which never raises; here only the load. A dry run prints the counts and nothing else; --no-push writes the file and posts nothing."""
+    if not doc or E.get("HB_AS_ON", "on").lower() in ("off", "0", "no", "false"): return
+    try:
+        import importlib.util
+        sp = importlib.util.spec_from_file_location("sala_agentstate", E["HB_AS_PY"])
+        mod = importlib.util.module_from_spec(sp); sp.loader.exec_module(mod)
+        line = mod.publish(E, letter, list((doc.get("sessions") or {}).values()), panes, E["HB_MODE"])
+    except Exception as e:
+        print("heartbeat: agent-state not published (%s)" % e.__class__.__name__, file=sys.stderr); return
+    if line and dry: print("== " + line, file=sys.stderr)
 
 changed, summary = [], []
 renames = {}   # uuid → its latest `sala rename` record (lib/rename.sh)
@@ -229,6 +265,7 @@ try:
 except Exception: pass
 # ── this box
 sess = {}
+panes = []     # the CLI registry's live panes of this box, for AGENT STATE: {ids, sessionId, name, kind, status, at}
 regrows = []
 for f in glob.glob(os.path.join(sys.argv[1], "*.json")):
     d = load(f); pid = os.path.basename(f)[:-5]; sid = d.get("sessionId") or ""
@@ -243,13 +280,15 @@ for d in regrows:
     # A PANE PARKED ON A BACKGROUND JOB: the pane's row keeps the pre-move conversation, the live one is the job's row
     # (kind bg, no tmux, jobId = the pane's parkedJobId, which also holds the Remote Control bridge). One entry, keyed by the live
     # conversation, under the pane's name; the job's row is not an entry of its own (it has no tmux, so the loop skips it).
-    pj = d.get("parkedJobId")
+    pj = d.get("parkedJobId"); pane0, live = d, d   # AGENT STATE (below) reads the pane's own row, and the job's status for a parked pane (its own is always `shell`)
     if pj:
         for j in regrows:
             if j is not d and j.get("sessionId") and (j.get("jobId") == pj or j.get("sessionId") == pj):
-                sid = j["sessionId"]
+                sid = j["sessionId"]; live = j
                 if not d.get("bridgeSessionId") and j.get("bridgeSessionId"): d = dict(d, bridgeSessionId=j["bridgeSessionId"])
                 break
+    panes.append({"ids": [pane0.get("sessionId") or "", sid], "sessionId": sid, "name": pane0.get("name") or "", "kind": pane0.get("kind"), "status": live.get("status") or "",
+                  "at": live.get("statusUpdatedAt") or live.get("updatedAt") or 0})
     sess[sid] = row(d, E["HB_LETTER"], E["HB_URL_TPL"])   # this box's own row: its link template (SESSION LINKS above)
     rn = renames.get(sid)
     if rn and rn.get("to") == sess[sid]["name"]:   # `sala rename` gave it this name: say what it was, for stackshot
@@ -319,7 +358,8 @@ me = {"letter": E["HB_LETTER"], "fleet": E["HB_NAME"], "claude": E["HB_CVER"], "
 if not E["HB_CVER"]:
     me["claude"] = load(os.path.join(state or store, E["HB_LETTER"], "machine.json")).get("claude", "")
 changed = publish(E["HB_LETTER"], me, sess) + changed
-publish_registry(E["HB_LETTER"])   # this box's registry only: a swept box's sessions.json is not reachable from here
+reg_doc = publish_registry(E["HB_LETTER"])   # this box's registry only: a swept box's sessions.json is not reachable from here
+publish_agent_state(E["HB_LETTER"], reg_doc, panes)   # …and so is the agent state: this box's registered agents
 print(json.dumps({"changed": changed, "n": len(sess), "fleet": summary}))
 PY
 ) || die "heartbeat: python3 failed"
