@@ -5016,3 +5016,11 @@ Covered: the knobs and their defaults (900 s, scope `background`, `0` and `off`)
 Changed: `tests/lib.sh`, `tests/help-snapshot.txt` (the recycle line in `sala --help`), `tests/suites.map`.
 
 Not covered, and why: a real Claude turn (the fake claude records its keys; whether a real turn stops at Escape is the staged probe's question, see the PR); the server-mode inbox note names only the kind of waiting line (the stackshot server keeps the sender and first line, which sala cannot read cheaply); the 10-minute stale drop of an inbox hold is `watch`'s and covered by its own suite.
+
+### A paused pane exits by keys and a later relaunch never reports an earlier pause: `tests/pause.sh` (Tue Nov 24th 2026)
+
+Covered, in `tests/pause.sh`: the paused pane's `/exit` goes by keys at once (the mod log line says "via keys (paused: …)"), checked end to end on the pane that is paused and relaunched and directly with `pane_exit` against a recording stand-in for the mod, which answers ok to everything: a paused pane's exit never reaches it and its `/exit` is typed once and the claude leaves, while an unpaused pane's exit is asked of the mod and nothing is typed; a pause marker that names another claude's pid does not make a pane paused; a pane relaunched by a pause and then relaunched again with no turn running: its row does not say "paused at", the earlier `.resumed` marker is gone, no second note and no second Escape, and `pause_words` reads nothing; the note says "N process(es) had run under the pane" without calling them background work.
+
+Changed: `tests/pause.sh` (the note-wording check, the three new sections).
+
+Not covered, and why: the CLI's own interrupted-tool state (the fake claude leaves on `/exit` in any state; that the mod's `/exit` does nothing there was measured on a real claude in the staged probe).

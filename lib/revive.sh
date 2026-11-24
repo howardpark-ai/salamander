@@ -1026,10 +1026,11 @@ verify_pane() {
     if [ "$kind" = claude ]; then
         inbox_release "$uuid" "$hname" wait
         newver=$(proc_version "$RESUMED_PID"); refusal_clear "$uuid"   # a relaunch ends the refusal memory (common.sh)
-        local pw; pw=$(pause_words "$uuid")   # THE PAUSE (common.sh): a pane whose turn was paused says so in its row; the note it was left is handed over now, not at watch's next tick
+        local pw; pw=$(pause_words "$uuid" live)   # THE PAUSE (common.sh): a pane THIS relaunch paused says so in its row; the note it was left is handed over now, not at watch's next tick
         UPDATED+=("$label: $ver → $newver$(lane_note "${label%:*}")${pw:+ · $pw}")   # the lane named when it is not subscription-1 (common.sh, lanes)
         pause_clock_clear "$uuid"
-        if [ -n "$pw" ]; then pause_resumed "$uuid"; "$SALA_BIN" note --deliver >/dev/null 2>&1 || true; fi
+        # a relaunch that did not pause the pane forgets the .resumed marker an earlier relaunch left (it would read as this one's pause for 30 min)
+        if [ -n "$pw" ]; then pause_resumed "$uuid"; "$SALA_BIN" note --deliver >/dev/null 2>&1 || true; else rm -f "$SALA_PAUSE_DIR/$uuid.resumed" 2>/dev/null; fi
         # a recurring job is carried across the recycle (the resume re-arms it), and the session is told once, in one line, to move it
         local rec np sock; rec=$(scheduled_jobs 0 "$uuid" | awk -F'\t' '$2=="recurring" {printf "%s (%s), ", $1, $4}')
         if [ -n "$rec" ] && np=$(claude_pid_under "$(tmux display -p -t "$pane" '#{pane_pid}')") && sock=$(session_socket "$np") && [ -n "$sock" ]; then
