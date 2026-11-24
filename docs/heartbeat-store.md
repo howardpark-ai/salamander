@@ -16,3 +16,9 @@ while the bridge is down. Session
 identity is the UUID on purpose — it survives resumes, renames and bridge breaks, so a consumer that stores the UUID as
 an owner resolves the current name and URL at render time. `checked` and `seen` are the times of the last change, not
 of the last run: a run that finds nothing new leaves the files, and the repo, untouched.
+
+Two more files are written to the live store only, for this box's own letter, never into git: `session-registry.json` (docs/session-registry.md) and `agent-state.json`. The second says, for each
+live or sleeping agent of the session registry, whether it is busy, idle or unknown (`state`, since when, `why`), what its pane is doing (`pane`: turn, idle, shell, sleeping) and which subagents run (`subagents`, from
+stackshot's own `running()`, imported from its checkout: `SALA_STACKSHOT_CHECKOUT`). Unlike `machine.json` and `sessions.json` it is rewritten on every run (`written` moves), and it is then posted to stackshot
+(`SALA_AGENT_STATE_POST_CMD`, `SALA_AGENT_STATE_TIMEOUT`; a failure is one log line per five minutes, never a failed heartbeat). `SALA_AGENT_STATE=off` turns both off. The shape, the staleness rule a reader applies and the
+size limit are docs/stackshot-contracts.md, interface 38.

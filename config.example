@@ -379,6 +379,15 @@
                                  #   (contrib/briefing) name this machine by it in their posts ("Details: <log> on <name>", "<name> runs <version>")
                                  #   and drop a CLAUDE.md echo line "On <name> (…" from a digest. Unset or empty: the hostname
 #SALA_HEARTBEAT_STALE=1800        # `heartbeat --check` fails when the last one is older than this (seconds)
+#SALA_AGENT_STATE=on             # the heartbeat also writes <live store>/<letter>/agent-state.json (each registered agent: busy | idle | unknown, its running subagents; never into git) and hands it to
+                                 #   stackshot. off = neither. Needs the session registry (SALA_SESSIONS) and stackshot's checkout; docs/stackshot-contracts.md, interface 38
+#SALA_AGENT_STATE_POST_CMD=      # the command that gets the file's path as its LAST argument. Unset: `python3 lib/stackshot_form.py run <stackshot client.py> post agent-state --file` (the client found as for
+                                 #   SALA_BGAGENTS_POST_CMD); empty = write the file, post nothing. A failure (an unknown verb, a 404, no network, a non-zero exit) is one line per five minutes in
+                                 #   $SALA_LOG_DIR/salamander-agent-state.log and never fails the heartbeat
+#SALA_AGENT_STATE_TIMEOUT=30     # seconds that command may run before it is stopped
+#SALA_STACKSHOT_CHECKOUT=~/stackshot   # stackshot's production checkout: its audit/subagent_tie.py (running(), Unreadable) is imported from here, read only (default $SALA_STACKSHOT_DIR, else ~/stackshot)
+#SALA_AGENT_STATE_TRANSCRIPTS=~/.claude/projects:~/.claude-team/projects   # where Claude Code keeps the transcripts on this box, `:` separated (default: the two here)
+#SALA_AGENT_STATE_MAX_BODY=900000      # stackshot refuses a body over 1 MB: over this many bytes the subagent briefs are shortened (longest first, to 512 bytes, then none)
 #SALA_SESSION_URL='https://sala.example.com/#s={name}'   # the link of a session on THIS box: the heartbeat's url for its own rows and
                                  #   the rename notice. {name} = the session's name, percent-encoded as encodeURIComponent does.
                                  #   Unset or empty (the default): the claude.ai Remote Control link of a bridged session, none for an unbridged one.
