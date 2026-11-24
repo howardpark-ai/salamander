@@ -21,7 +21,7 @@ stackshot's own code decides which subagents are running: this module IMPORTS `s
 default $SALA_STACKSHOT_DIR, else ~/stackshot), never copies its rules and never writes into that checkout (no bytecode, no git). The one rule kept here is the audit's own filter
 for a pane that is not in a turn (`applies`), copied with its source named. Standard library only; the heartbeat loads this file and calls `publish` in its own process.
 
-Settings (heartbeat.sh passes them in HB_AS_*): SALA_AGENT_STATE=off writes and posts nothing; SALA_AGENT_STATE_POST_CMD is the command the file's path is appended to (empty = no post);
+Settings (heartbeat.sh passes them in HB_AS_*): SALA_AGENT_STATE=off writes and posts nothing; SALA_AGENT_STATE_POST_CMD is the command the file's path is appended to (empty = no post; the default is the stackshot client's `post agent-state --file` with the machine token and STACKSHOT_CLIENT_PASS unset, since a pass opens only the New session form's calls);
 SALA_AGENT_STATE_TIMEOUT is how long that command may run (30 s); SALA_STACKSHOT_CHECKOUT; SALA_AGENT_STATE_TRANSCRIPTS (the roots of Claude Code's transcripts, `:` separated);
 SALA_AGENT_STATE_MAX_BODY (900000 bytes: stackshot refuses a body over 1 MB). A failure to import, write or post logs ONE line per five minutes to
 $SALA_LOG_DIR/salamander-agent-state.log and never fails the heartbeat."""

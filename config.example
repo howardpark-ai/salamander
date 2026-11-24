@@ -381,8 +381,8 @@
 #SALA_HEARTBEAT_STALE=1800        # `heartbeat --check` fails when the last one is older than this (seconds)
 #SALA_AGENT_STATE=on             # the heartbeat also writes <live store>/<letter>/agent-state.json (each registered agent: busy | idle | unknown, its running subagents; never into git) and hands it to
                                  #   stackshot. off = neither. Needs the session registry (SALA_SESSIONS) and stackshot's checkout; docs/stackshot-contracts.md, interface 38
-#SALA_AGENT_STATE_POST_CMD=      # the command that gets the file's path as its LAST argument. Unset: `python3 lib/stackshot_form.py run <stackshot client.py> post agent-state --file` (the client found as for
-                                 #   SALA_BGAGENTS_POST_CMD); empty = write the file, post nothing. A failure (an unknown verb, a 404, no network, a non-zero exit) is one line per five minutes in
+#SALA_AGENT_STATE_POST_CMD=      # the command that gets the file's path as its LAST argument. Unset: `env -u STACKSHOT_CLIENT_PASS python3 <stackshot client.py> post agent-state --file` (the machine token, never a pass: a pass opens only the New session form's
+                                 #   calls; the client found as for SALA_BGAGENTS_POST_CMD); empty = write the file, post nothing. A failure (an unknown verb, a 404, no network, a non-zero exit) is one line per five minutes in
                                  #   $SALA_LOG_DIR/salamander-agent-state.log and never fails the heartbeat
 #SALA_AGENT_STATE_TIMEOUT=30     # seconds that command may run before it is stopped
 #SALA_STACKSHOT_CHECKOUT=~/stackshot   # stackshot's production checkout: its audit/subagent_tie.py (running(), Unreadable) is imported from here, read only (default $SALA_STACKSHOT_DIR, else ~/stackshot)
