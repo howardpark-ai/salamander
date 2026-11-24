@@ -59,7 +59,7 @@
 #                  the pane is idle, shell or asleep and none does, unknown when the subagents or the pane cannot be read (never idle). `subagents` is stackshot's own
 #                  `running(session, roots, now)` (stackshot/audit/subagent_tie.py), imported from its checkout (SALA_STACKSHOT_CHECKOUT), never reimplemented; a brief is cut to 2048 bytes.
 #                  Rewritten on EVERY run (`written`), atomically, and NEVER into the store repo (a brief is free text). Then posted: SALA_AGENT_STATE_POST_CMD (default `client.py post agent-state --file <path>`,
-#                  through lib/stackshot_form.py), at most SALA_AGENT_STATE_TIMEOUT seconds; a failure is one line per five minutes in salamander-agent-state.log, never a failed heartbeat. A run
+#                  with the machine token: never through lib/stackshot_form.py, and with STACKSHOT_CLIENT_PASS unset, since a pass opens only the New session form's calls), at most SALA_AGENT_STATE_TIMEOUT seconds; a failure is one line per five minutes in salamander-agent-state.log, never a failed heartbeat. A run
 #                  whose import of stackshot's module fails writes nothing new (the last good file stays). SALA_AGENT_STATE=off skips both. docs/stackshot-contracts.md interface 38: tell
 #                  the board's main session BEFORE changing it.
 #
@@ -86,7 +86,7 @@
 : "${SALA_AGENT_STATE_MAX_BODY:=900000}"   # stackshot refuses a body over 1 MB: over this many bytes the briefs are shortened
 if [ -z "${SALA_AGENT_STATE_POST_CMD+x}" ]; then
     _as_client=$(stackshot_client 2>/dev/null) || _as_client=""
-    SALA_AGENT_STATE_POST_CMD="${_as_client:+python3 $SALA_FORM_PY run $_as_client post agent-state --file}"   # the same call shape as the bgagents post: with a pass when sala has one
+    SALA_AGENT_STATE_POST_CMD="${_as_client:+env -u STACKSHOT_CLIENT_PASS python3 $_as_client post agent-state --file}"   # the machine token, never a pass: stackshot answers 403 to a pass on any call but the New session form's (so not the bgagents post's wrapper)
     unset _as_client
 fi
 

@@ -290,12 +290,18 @@ echo "== the default post command is the stackshot client's \`post agent-state -
 cat > "$HOME/client.py" <<'PY'
 import json, os, sys
 open(os.environ["HOME"] + "/client.argv", "w").write(json.dumps(sys.argv[1:]))
+open(os.environ["HOME"] + "/client.pass", "w").write("set" if "STACKSHOT_CLIENT_PASS" in os.environ else "unset")
 print('{"ok":true,"agents":3}')
 PY
-out=$(env -u SALA_AGENT_STATE_POST_CMD SALA_HEARTBEAT_STATE_DIR="$LIVE" SALA_HEARTBEAT_GIT=off SALA_HEARTBEAT_LETTER=q SALA_HEARTBEAT_NAME=sbox SALA_SESSIONS=write \
+# a pass in the heartbeat's own environment must not reach the client: stackshot answers 403 to a pass on any call but the New session form's
+out=$(env -u SALA_AGENT_STATE_POST_CMD STACKSHOT_CLIENT_PASS=not-a-real-pass SALA_HEARTBEAT_STATE_DIR="$LIVE" SALA_HEARTBEAT_GIT=off SALA_HEARTBEAT_LETTER=q SALA_HEARTBEAT_NAME=sbox SALA_SESSIONS=write \
     SALA_STACKSHOT_CHECKOUT="$STUB" SALA_STACKSHOT_CLIENT="$HOME/client.py" "$SALA" heartbeat 2>&1); rc=$?
-[ "$rc" = 0 ] && [ "$(cat "$HOME/client.argv" 2>/dev/null)" = "[\"post\", \"agent-state\", \"--file\", \"$AS\"]" ] && ok "the client got: post agent-state --file <the file>, through stackshot_form.py" || bad "default cmd: rc=$rc argv=$(cat "$HOME/client.argv" 2>/dev/null) $out"
-rm -f "$HOME/client.argv"; : > "$ASLOG"; rm -f "$LOGD"/salamander-agent-state.*.mark
+[ "$rc" = 0 ] && [ "$(cat "$HOME/client.argv" 2>/dev/null)" = "[\"post\", \"agent-state\", \"--file\", \"$AS\"]" ] && ok "the client got: post agent-state --file <the file>" || bad "default cmd: rc=$rc argv=$(cat "$HOME/client.argv" 2>/dev/null) $out"
+[ "$(cat "$HOME/client.pass" 2>/dev/null)" = unset ] && ok "STACKSHOT_CLIENT_PASS was unset for the client, though the heartbeat had one" || bad "the client saw a pass: $(cat "$HOME/client.pass" 2>/dev/null)"
+dline=$(grep -F 'SALA_AGENT_STATE_POST_CMD="${_as_client' "$ROOT/lib/heartbeat.sh")
+dcode=${dline%%\"   \#*}   # the assignment, without its trailing comment
+[ -n "$dline" ] && ! grep -q 'SALA_FORM_PY\|stackshot_form' <<<"$dcode" && grep -q 'env -u STACKSHOT_CLIENT_PASS python3' <<<"$dcode" && ok "the default command is the bare client under env -u STACKSHOT_CLIENT_PASS, no form wrapper" || bad "default command line: $dline"
+rm -f "$HOME/client.argv" "$HOME/client.pass"; : > "$ASLOG"; rm -f "$LOGD"/salamander-agent-state.*.mark
 out=$(env -u SALA_AGENT_STATE_POST_CMD SALA_HEARTBEAT_STATE_DIR="$LIVE" SALA_HEARTBEAT_GIT=off SALA_HEARTBEAT_LETTER=q SALA_HEARTBEAT_NAME=sbox SALA_SESSIONS=write \
     SALA_STACKSHOT_CHECKOUT="$STUB" SALA_STACKSHOT_CLIENT="$HOME/none.py" "$SALA" heartbeat 2>&1); rc=$?
 [ "$rc" = 0 ] && [ -s "$AS" ] && [ ! -e "$HOME/client.argv" ] && ok "no stackshot client on the box: the file is written, no post, no failure" || bad "no client: rc=$rc"
