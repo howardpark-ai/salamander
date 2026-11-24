@@ -12,7 +12,9 @@
 #     bring it out of its turn (nothing more is typed, no /exit);
 #   - off keeps the old wait; scope off and background (no back-agent role here) keep a front agent waiting; the dry run says what it would do;
 #   - lib/pauseinfo.py: the descriptions of the calls in flight and the last line, never a command or a result; the inbox's sender and first line;
-#   - a deferred pane (watch) is paused the same way, once its clock runs out.
+#   - a deferred pane (watch) is paused the same way, once its clock runs out;
+#   - a paused pane's /exit goes by keys at once, never through the mod (which answers ok to an interrupted turn and leaves the claude up),
+#     while an unpaused pane's still goes through the mod; a later relaunch of a pane that was paused earlier never says "paused".
 # Slack stubbed to a file; isolated HOME, a private tmux socket, the compiled fake claude (tests/fake-claude.c). Usage: bash tests/pause.sh
 # (exit 0 = pass; ~2 min)
 set -u
@@ -110,7 +112,7 @@ rm -f "$IB"/msg/*.json "$IB"/hub/*.json
 
 echo "== the note's words"
 txt=$(pause_note_text "recycle" 1700000000 900 <<< $'trigger\tbuild it\nsubagent\tbuilder: PR 12\npending\tAgent: Build page\nstarted\tBash: Wait for the unit\nprocs\t2\t600\ninbox\tinfra-x\tplease look\ninbox\t(and 1 more)\t')
-for w in '[paused] Your turn was paused by a recycle' 'The last line you were working from: "build it"' 'Subagents running when it was paused' 'builder: PR 12' 'Calls of that turn still waiting for a result: Agent: Build page' 'Wait for the unit' '2 background process(es)' 'infra-x: "please look"' 'in its own systemd unit goes on without you'; do
+for w in '[paused] Your turn was paused by a recycle' 'The last line you were working from: "build it"' 'Subagents running when it was paused' 'builder: PR 12' 'Calls of that turn still waiting for a result: Agent: Build page' 'Wait for the unit' '2 process(es) had run under the pane' 'infra-x: "please look"' 'in its own systemd unit goes on without you'; do
     has "$txt" "$w" && ok "the note says: $w" || bad "note lacks '$w': $txt"
 done
 txt=$(pause_note_text "recycle" 1700000000 60 <<< $'inboxkind\tmsg'); has "$txt" 'A msg line was waiting in your inbox' && ok "a server-mode box (no inbox folder): the note says a line waits" || bad "inboxkind: $txt"
@@ -150,7 +152,27 @@ grep -qF "$UA" "$HM" 2>/dev/null && bad "the inbox is still held: $(cat "$HM")" 
 [ ! -e "$PD/$UA.wait" ] && [ ! -e "$PD/$UA.paused" ] && [ -s "$PD/$UA.resumed" ] && ok "the clock is gone, the pause is over (resumed marker)" || bad "pause files: $(ls "$PD")"
 waitfor '[ "$(nsock "$UA")" -ge 1 ]' 40 && ok "the note reached the relaunched session (delivered through its messaging socket)" || { "$SALA" note --deliver >/dev/null 2>&1; waitfor '[ "$(nsock "$UA")" -ge 1 ]' 20 && ok "the note reached the relaunched session (delivered by the next tick)" || bad "not delivered: $(cat "$FAKE_SOCK_LOG" 2>/dev/null | tail -3)"; }
 has "$(slurp "$FAKE_SOCK_LOG")" 'written by the relaunch' && ok "and it says the relaunch wrote it, not the session" || bad "delivery text: $(tail -2 "$FAKE_SOCK_LOG")"
+[ "$(grep -c 'sala-test-a via keys (paused: the interrupted turn does not take the mod' "$SALA_MOD_LOG" 2>/dev/null)" = 1 ] && ok "the paused pane's /exit went by keys at once (the mod's log says so), not through the mod" || bad "mod log: $(cat "$SALA_MOD_LOG" 2>/dev/null)"
 wait_lock
+
+echo "== x, y: pane_exit by keys for a paused pane, through the mod for any other (a recording stand-in for the mod)"
+UX=$(uuid 38); UY=$(uuid 39)
+mk x "$UX" -e FAKE_ESC_IDLE=1; mk y "$UY" -e FAKE_ESC_IDLE=1; fake_up sala-test-x sala-test-y
+ORIG_MR=$(declare -f mod_request); MODREQ="$HOME/modreq.log"; : > "$MODREQ"
+mod_request() { echo "$1 $2" >> "$MODREQ"; MOD_WHY=ok; MOD_REPLY='{"ok":true}'; return 0; }   # the mod answers ok to everything, as it did in the paused pane
+XP=$(tmux display -p -t sala-test-x '#{pane_id}'); YP=$(tmux display -p -t sala-test-y '#{pane_id}'); XPID=$(cpid x); YPID=$(cpid y)
+mkdir -p "$PD"; printf 'at=%s\npid=%s\nsession=sala-test-x\nheld=0\n' "$(date +%s)" "$XPID" > "$PD/$UX.paused"
+pause_active "$XPID" && ok "(control: the pane x reads as paused)" || bad "pane x not paused: $(cat "$PD/$UX.paused")"
+pane_exit "$XP" "$XPID"; rc=$?
+[ "$rc" = 0 ] && ! grep -q ' exit$' "$MODREQ" && ok "a paused pane: the mod is not asked for the exit" || bad "paused exit: rc $rc, mod asked: $(cat "$MODREQ")"
+[ "$(typed "$UX" /exit)" = 1 ] && waitfor '! proc_alive "$XPID"' 20 && ok "its /exit was typed once and the claude left" || bad "x: /exit typed $(typed "$UX" /exit), alive: $(proc_alive "$XPID" && echo yes || echo no)"
+has "$(slurp "$SALA_MOD_LOG")" 'sala-test-x via keys (paused: the interrupted turn does not take the mod' && ok "the mod log names the keys and why" || bad "mod log: $(tail -3 "$SALA_MOD_LOG")"
+pane_exit "$YP" "$YPID"; rc=$?
+[ "$rc" = 0 ] && grep -qx "$YPID exit" "$MODREQ" && ok "an unpaused pane: the mod is asked for the exit" || bad "unpaused exit: rc $rc, mod asked: $(cat "$MODREQ")"
+[ "$(typed "$UY" /exit)" = 0 ] && proc_alive "$YPID" && has "$(slurp "$SALA_MOD_LOG")" 'sala-test-y via mod (ok)' && ok "its exit went through the mod (nothing typed, the mod log says so)" || bad "y: /exit typed $(typed "$UY" /exit) $(tail -2 "$SALA_MOD_LOG")"
+printf 'at=%s\npid=%s\nsession=sala-test-y\nheld=0\n' "$(date +%s)" "$((YPID + 1))" > "$PD/$UY.paused"   # a marker that names another claude: not this one's pause
+pause_active "$YPID" && bad "a marker naming another pid counted" || ok "a pause marker naming another claude does not make this pane paused"
+rm -f "$PD/$UX.paused" "$PD/$UY.paused"; eval "$ORIG_MR"
 
 echo "== d: unsent text at the prompt is never interrupted"
 $T send-keys -t sala-test-d -l 'half typed sentence'; sleep 1
@@ -204,6 +226,16 @@ has "$(slurp "$WLOG")" 'sala-test-w held' && has "$(slurp "$WLOG")" "pause's dea
 waitfor '[ "$(starts "$UW")" = 2 ]' 40 && [ "$(escs "$UW")" = 1 ] && ok "one Escape, the pane relaunched" || bad "w: escs $(escs "$UW") starts $(starts "$UW")"
 grep -qF "$UW" "$NOTES" && ok "its note is written" || bad "no note for w: $(cat "$NOTES")"
 [ ! -s "$SALA_DEFERRED" ] && ok "the row left the deferred list (relaunched)" || bad "deferred: $(cat "$SALA_DEFERRED")"
+
+echo "== w again: a LATER relaunch of the same, now idle and unpaused, pane never says it was paused"
+[ -s "$PD/$UW.resumed" ] && ok "(control: the earlier pause's marker is still on record, young)" || bad "no .resumed marker to test against: $(ls "$PD")"
+revive_only sala-test-w
+waitfor '[ "$(starts "$UW")" = 3 ]' 40 && fake_up sala-test-w && has "$OUT" 'sala-test-w:0: 9.9.9 → 9.9.9' && ok "a plain relaunch of the idle pane ran (same conversation)" || bad "relaunch 2: starts $(starts "$UW") $OUT"
+has "$OUT" 'paused at' && bad "the later relaunch's row carries the earlier pause: $OUT" || ok "its row does not say paused"
+[ ! -e "$PD/$UW.resumed" ] && [ ! -e "$PD/$UW.paused" ] && ok "the earlier pause's marker is gone" || bad "pause files: $(ls "$PD")"
+[ "$(grep -c "$UW" "$NOTES" 2>/dev/null)" = 1 ] && [ "$(escs "$UW")" = 1 ] && ok "no second note, no second Escape" || bad "notes/escs: $(grep -c "$UW" "$NOTES") $(escs "$UW")"
+[ -z "$(pause_words "$UW")" ] && ok "pause_words reads nothing for it, for the closure lines read after this relaunch either" || bad "pause_words: $(pause_words "$UW")"
+wait_lock
 
 echo "== r: the retry worker wakes for the pause's deadline, not at its next SALA_RETRY_EVERY (300 s)"
 revive_only sala-test-r; age_clock "$UR" 100; wait_lock

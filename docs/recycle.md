@@ -112,7 +112,7 @@ recycles was counted back in only one and the other set stayed open. Now:
   turn, the relaunch goes on through the ordinary path (drafts drained, `/exit`, resume by the conversation's id), and **a note written for
   the session by the relaunch** (`sala note`'s store; delivered at once after the resume, else at watch's next tick) says what it was doing: the
   time, the last line it was working from, the descriptions of the subagents and tool calls in flight (`lib/pauseinfo.py` reads descriptions
-  only, never a command or a tool result; a token is masked), the background processes the relaunch ended, and the messages held for it
+  only, never a command or a tool result; a token is masked), how many processes had run under the pane, and the messages held for it
   (sender and first line). The wait is a clock per conversation (`pause/<id>.wait`): started by the first pass that finds the pane held,
   refreshed by every pass, stopped by a pass that finds it free; a pane last seen held more than `SALA_PAUSE_GAP` (30 min) ago starts again,
   so a pane that is busy on and off is not paused. The recycle's first sweep only starts it; the retry worker wakes for the deadline
@@ -126,14 +126,20 @@ recycles was counted back in only one and the other set stayed open. Now:
     box can open the CLI's rewind menu). The pane must be idle in the registry within `SALA_PAUSE_IDLE_WAIT` (20 s); if it is not, nothing
     more is sent, no `/exit` is typed into a pane still in its turn, the pane is waited for as before and the clock starts over. Background
     work does not hold a paused pane for `SALA_PAUSE_TTL` (15 min): subagents and background shells end with the relaunch (the CLI's
-    "Exit and stop tasks" is confirmed, and the note says so); a release that runs in its own systemd unit goes on.
+    "Exit and stop tasks" is confirmed, and the note says so); a release that runs in its own systemd unit goes on. **A paused pane is exited
+    by keys**: after the Escape the CLI sits in its interrupted-tool state ("Interrupted · What should Claude do instead?"), where the mod's
+    `/exit` is answered ok and then does nothing (the claude stayed up until the 30 s wait ended it by its pid), so the relaunch types `/exit`
+    into the box at once and does not ask the mod (the draft check before it still runs; the mod log says "via keys (paused: …)"). Any other
+    pane still goes through the mod.
   - *While it waits* (before the deadline) the pane's stackshot inbox is **held** (the hold a sweep takes right before an `/exit`, refreshed by
     every pass), so a new message queues instead of starting a turn; the relaunch releases it, and watch's 10-minute stale drop frees it if
     the relaunch never comes. A pane that is never paused is not held.
   - *Where it shows*: the recycle's row for the pane ends "paused at 13:12, resumes on relaunch"; the closure line of a retried pane says it
     too; `sala op`'s Slack post and the line the asking session hears name each paused session on a line of its own (never counted as a
-    failure); `sala recycle --dry-run` says "would wait N min, then pause its turn (one Escape)" or why it would not. `tests/pause.sh`
-    covers it.
+    failure); `sala recycle --dry-run` says "would wait N min, then pause its turn (one Escape)" or why it would not. **A later relaunch
+    never reports an earlier pause**: only the relaunch that paused the pane says so (its row, closure line and posts); a relaunch of the same
+    pane within the next 30 minutes that did not pause it (the pane idle and unpaused) says nothing and clears the earlier relaunch's
+    `pause/<id>.resumed` marker. `tests/pause.sh` covers it.
 - **Two guards** (the watchdog's auto-recycle, for a board flag and a `--when-idle` request alike; each skip is one line in
   `salamander-watch.log`, `auto-recycle: skipped …`). *The change is not live*: a flag that names its change (`--change REF` on a
   request, `~REF` after a board flag's id) is not served while that change is missing from the production checkout's HEAD, whether

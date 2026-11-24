@@ -2691,7 +2691,7 @@ waiting_prune() {  # watch: a flag whose owner is gone (a killed worker, a reboo
 #     under, so it is due the moment the conversation is live on another pid (lib/note.sh delivers it, at once after the resume and at
 #     watch's next tick). It carries the time of the pause, the last line the session was working from, the descriptions of the subagents
 #     and tool calls in flight (lib/pauseinfo.py: descriptions only, never a command or a tool result) and the count of background
-#     processes cut.
+#     processes that had run under the pane.
 SALA_PAUSE_DIR="$SALA_STATE_DIR/pause"
 : "${SALA_STACKSHOT_INBOX:=$HOME/.local/state/stackshot/inbox}"   # stackshot's inbox (hub/ and msg/ under it), read for the note's list of held messages; lib/wrapup.sh sets the same default
 pause_after_r() {  # <var> → SALA_PAUSE_AFTER in seconds; 0 = off (0, off, no, false); anything that is not a number reads as the default
@@ -2821,7 +2821,7 @@ pause_note_text() {
             subagent) subs+="${subs:+; }$a";;
             pending) calls+="${calls:+; }$a";;
             started) bg+="${bg:+; }$a";;
-            procs) procs="$a background process(es) had run under the pane for up to $(hold_age_words "$b")";;
+            procs) procs="$a process(es) had run under the pane for up to $(hold_age_words "$b")";;
             inbox) msgs+="${msgs:+; }${a:-someone}${b:+: \"$b\"}";;
             inboxkind) mkind="$a";;
         esac
@@ -2882,9 +2882,15 @@ pause_hold() {  # <uuid> <session name> → the pane's stackshot inbox is held w
     inbox_touch "$1" "$2" 2>/dev/null
     return 0
 }
-pause_words() {  # <uuid> → "paused at 13:12, resumes on relaunch" for a pane whose pause is on record (.paused or .resumed), nothing otherwise
-    local f at n; _now_r n
-    for f in "$SALA_PAUSE_DIR/$1.paused" "$SALA_PAUSE_DIR/$1.resumed"; do
+# A relaunch says "paused" only when IT paused the pane. The marker is .paused while the pausing relaunch runs and .resumed once that relaunch
+# has closed (pause_resumed), so the closure lines read after it (the retry worker's, watch's deferred list) can still say it. A LATER relaunch
+# of the same pane, now idle and unpaused, is told apart by where it asks: verify_pane (lib/revive.sh) reads `live` (the .paused marker only:
+# this very relaunch's pause) and, finding none, removes the .resumed marker of the earlier one, so the row of a relaunch that did not pause
+# the pane, and the closure lines read after it, never carry the earlier pause. Without `live`, both markers count (the pausing relaunch's closure lines).
+pause_words() {  # <uuid> [live] → "paused at 13:12, resumes on relaunch" for a pane whose pause is on record (.paused, and .resumed unless `live`), nothing otherwise
+    local f at n fs=("$SALA_PAUSE_DIR/$1.paused"); _now_r n
+    [ "${2:-}" = live ] || fs+=("$SALA_PAUSE_DIR/$1.resumed")
+    for f in "${fs[@]}"; do
         [ -r "$f" ] || continue; _kv_first_r at "$f" at; [[ $at =~ ^[0-9]+$ ]] || continue
         [ $(( n - at )) -le 1800 ] || continue   # a pause that old belongs to an earlier relaunch
         printf 'paused at %s, resumes on relaunch\n' "$(local_clock "$at")"; return 0
@@ -5973,6 +5979,15 @@ pane_exit() {
     local out rc reason scr h
     # the screen first: a draft it shows counts even when the mod's prompt box is empty (see pane_draft)
     scr=$(pane_draft_screen "$1"); [ -n "$scr" ] && ! printf '%s' "$scr" | grep -Eq "$SALA_OWN_RESIDUE" && { mod_log "exit $(_mod_who "$1") not sent (the screen shows a draft)"; printf '%s\n' "$scr"; return 3; }
+    # A PAUSED PANE (THE PAUSE): the Escape left the CLI in its interrupted-tool state ("Interrupted · What should Claude do instead?"),
+    # where the mod's /exit is answered ok and then does nothing (measured on a real claude: the process stayed up until exit_wait's
+    # SIGTERM 30 s later), while /exit typed into the box leaves at once. So a paused pane's exit goes by keys straight away and the mod is
+    # not asked: the mod's refusals (background work, a turn) are what the pause overrules anyway, and the draft check above still ran.
+    if pause_active "$2"; then
+        proc_alive "$2" || { mod_log "exit $(_mod_who "$1") not sent (the claude is gone)"; return 0; }
+        mod_log "exit $(_mod_who "$1") via keys (paused: the interrupted turn does not take the mod's /exit)"
+        tui_send "$1" "/exit"; return
+    fi
     mod_request "$2" exit; rc=$?; out="$MOD_REPLY"
     if [ "$rc" = 0 ]; then
         if [ "$(proc_lane "$2")" = sdk ]; then
@@ -5992,9 +6007,8 @@ pane_exit() {
                 # and one loaded before its follow-up for any label but "auto-armed on publish": when
                 # its refusal names monitors only and this stretch's busy record says those are all such
                 # watches, the exit goes by keys, which the CLI's exit dialog does not hold for one (it lists none)
-                # A PAUSED PANE (THE PAUSE): the background work is what the relaunch cuts; the exit goes by keys and the CLI's own dialog is confirmed (exit_wait)
-                if pause_active "$2"; then MOD_WHY="paused: the relaunch cuts the background work ($(mod_reply_field "$out" tasks))"
-                elif mod_refused_watch_only "$out" "$2"; then MOD_WHY="the mod refused for the artifact watch alone (a mod loaded before the fix)"
+                # (a paused pane never gets here: its exit went by keys above, and the CLI's own dialog is confirmed by exit_wait)
+                if mod_refused_watch_only "$out" "$2"; then MOD_WHY="the mod refused for the artifact watch alone (a mod loaded before the fix)"
                 # THE RESCUE (lib/revive.sh --rescue): the mod's list is the Stop hook's copy of the CLI's task
                 # registry, stale for a shell stopped by hand; with no child process under the claude the refusal is a
                 # stale row's, and the exit goes by keys — the CLI's own dialog then lists the same rows, and exit_wait
@@ -6011,9 +6025,7 @@ pane_exit() {
                 # sets SALA_STALE_TURN_OK) with nothing named, and while sala's own check (the registry, the Stop record, the children, the
                 # subagents' transcripts) still reads the pane as idle, the exit goes by keys: the CLI's exit dialog guards what runs
                 h=$(mod_reply_field "$out" holders)
-                if pause_active "$2" && [ -z "$(is_idle_reason "$2")" ]; then
-                    MOD_WHY="paused: the registry reads the pane as out of its turn, and the mod's turn list ($h) is what the relaunch cuts"
-                elif [ -z "$h" ] && [ "${SALA_STALE_TURN_OK:-0}" = 1 ] && [ -z "$(is_idle_reason "$2")" ]; then
+                if [ -z "$h" ] && [ "${SALA_STALE_TURN_OK:-0}" = 1 ] && [ -z "$(is_idle_reason "$2")" ]; then
                     MOD_WHY="the mod refused for a turn it could not name, ${SALA_STALE_TURN_N:-several} times, while the registry, the Stop record, the child processes and the subagent transcripts all read the pane as idle (a mod loaded before its turn list was reconciled)"
                 else mod_log "exit $(_mod_who "$1") via mod (refused: a turn is running${h:+; held by $h})"; printf '%s\n' "$h"; return 4; fi ;;
             draft) scr=$(mod_reply_field "$out" text | tr '\n' ' ' | sed 's/[[:space:]]*$//')
