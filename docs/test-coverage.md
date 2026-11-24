@@ -5024,3 +5024,13 @@ Covered, in `tests/pause.sh`: the paused pane's `/exit` goes by keys at once (th
 Changed: `tests/pause.sh` (the note-wording check, the three new sections).
 
 Not covered, and why: the CLI's own interrupted-tool state (the fake claude leaves on `/exit` in any state; that the mod's `/exit` does nothing there was measured on a real claude in the staged probe).
+
+### `sala notice add --help` never posts a notice: `tests/notice.sh` (Tue Nov 24th 2026)
+
+A mistyped `sala notice add --help` once posted a notice whose text was "--help" to every live session. `-h`, `--help` and `help` as the first word after `add` now print the usage and exit 0 (in `lib/notice.sh`, with the same guard in `lib/notice.py add`), and a text that starts with `-` is refused with exit 2 and a one-line message; neither stores anything. The refusal covers `-5 degrees` and `- a bullet` on purpose.
+
+Covered, in `tests/notice.sh`: `--help`, `-h` and `help`, alone and with `--from`, and through `lib/notice.py` directly, print the usage, exit 0 and leave the store unchanged; `-5`, `-5 degrees`, `- a bullet` and `-x` as the text exit 2 with the message and store nothing; `--help` or `-h` as the text after `--from` exits 2 and stores nothing; a dash-first text after both flags is refused; a dash inside a text (`x --help`) is posted; a normal text, flags in front of the text and flags in the other order still post. The suite runs in a locked temporary HOME with its own state folder, so no real notice is posted; everything is removed at the end, pass or fail.
+
+Changed: `lib/notice.sh`, `lib/notice.py`, `docs/notices-and-hooks.md`, `tests/help-snapshot.txt` (the verb's help).
+
+Not covered, and why: nothing the change touches is left out; the delivery of a posted notice is unchanged and covered above.

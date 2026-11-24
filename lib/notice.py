@@ -201,7 +201,18 @@ def prune_locked(now):
     return len(rows) - len(keep)
 
 
+class Help(Exception):
+    """add was asked for its help: print it, post nothing, exit 0."""
+
+
+class Usage(Refuse):
+    """A call that is not a notice at all (exit 2, nothing posted)."""
+
+
 def cmd_add(args):
+    if args and args[0] in ("-h", "--help", "help"):
+        print("usage: sala notice add \"<text>\" --from <sender> [--until <when>]  (see: sala notice --help)", file=sys.stderr)
+        raise Help()
     sender = until = None
     words = []
     i = 0
@@ -223,6 +234,8 @@ def cmd_add(args):
     if len(words) != 1:
         raise Refuse("give the text as one quoted argument")
     text = words[0]
+    if text.startswith("-"):
+        raise Usage("notice text starts with '-': looks like an option; start the text with another character, or check sala notice --help")
     check_text(text)
     now = int(time.time())
     end = parse_when(until, now) if until is not None else now + DEFAULT_TTL
@@ -345,9 +358,11 @@ def main(argv):
         return 0
     try:
         {"add": cmd_add, "list": cmd_list, "drop": cmd_drop, "prune": cmd_prune}[verb](rest)
+    except Help:
+        return 0
     except Refuse as e:
         print("✗ %s" % e, file=sys.stderr)
-        return 1
+        return 2 if isinstance(e, Usage) else 1
     except KeyError:
         return 2
     return 0
