@@ -291,6 +291,7 @@ from . import lanes as LN
 from . import lanestate as LS
 from . import machines as MCH
 from . import mockup as MK
+from . import modbox as MB
 from . import oplog as OL
 from . import pageversion as PV
 from . import projpick as PP
@@ -1430,6 +1431,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
         captured = await T.capture(settings, pane)
         state, box_text = T.input_box(captured)
         if state == "missing":
+            # a Retry of a message that was pasted while the screen could not be read as a box: the box itself may still hold it
+            if retry and replace is None and not paths and answered_before is None and await _mod_confirms(s.pid, captured, text, "retry"):
+                await T.send_enter(settings, pane)
+                return JSONResponse({"ok": True, "imagesPasted": 0, "imagesAttached": 0, "filesPasted": 0,
+                                     "resubmitted": True, "confirmedByMod": True}), None
             return await _answer_dialog(pane, captured, text, paths, answered_before)
         if answered_before is not None:
             return _duplicate(), None  # the dialog this answered is gone: a copy now would be typed as a prompt
@@ -1448,7 +1454,24 @@ def create_app(settings: Settings | None = None) -> Starlette:
             text = text.lstrip()[len(T.SHELL):]
             if not text.strip() and not paths:
                 return _err(400, "nothing to send after the ! the pane's shell mode already has"), None
-        return await _paste_and_submit(pane, state, text, paths, box_text if retry else None, hidden, box_text), None
+        return await _paste_and_submit(s.pid, pane, state, text, paths, box_text if retry else None, hidden, box_text), None
+
+    async def _mod_confirms(pid: int, captured: str, pasted: str, where: str) -> bool:
+        """The screen cannot be read as an input box. True only when the box itself, asked through the pane's mod (modbox.py),
+        holds exactly what was pasted (whitespace ignored, as a Retry's compare does: the screen wraps and indents, the box's
+        own text does not) and the screen shows no numbered dialog, whose Enter would answer it. Every other case, the mod
+        missing, old, silent or saying something else included, is False: the caller then refuses as it always did. The text
+        is never logged."""
+        if T.dialog(captured)[0]:
+            return False
+        got = await MB.draft(settings, pid)
+        if got is None:
+            return False
+        if not T.retry_matches(got, pasted):
+            log.info("send: the input box was not readable on the screen (%s) and the mod's prompt text is not the message; refused", where)
+            return False
+        log.info("send: the input box was not readable on the screen (%s); the mod's prompt text is the message, Enter pressed", where)
+        return True
 
     async def _answer_dialog(pane: str, captured: str, text: str, paths: list[Path],
                              answered_before: str | None) -> tuple[Response, str | None]:
@@ -1472,7 +1495,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         await T.send_key(settings, pane, key)
         return JSONResponse({"ok": True, "dialogAnswer": key, "imagesPasted": 0, "imagesAttached": 0}), dialog_text
 
-    async def _paste_and_submit(pane: str, state: str, text: str, paths: list[Path],
+    async def _paste_and_submit(pid: int, pane: str, state: str, text: str, paths: list[Path],
                                 retry_box: str | None = None,
                                 retry_hidden: tuple[bool, bool] = (False, False), box_text: str = "") -> Response:
         if state == "text":
@@ -1499,12 +1522,18 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if text.strip():
             await T.paste(settings, pane, (" " if paths else "") + text)
         await asyncio.sleep(0.3)
-        state, _ = T.input_box(await T.capture(settings, pane))
+        captured = await T.capture(settings, pane)
+        state, _ = T.input_box(captured)
+        by_mod = False
         if state == "missing":
-            return _err(409, "the input box disappeared while pasting; pasted but not submitted")
+            # the screen cannot be read as a box: Enter only when the box's own text, from the pane's mod, is what was pasted
+            pasted = " ".join(str(p) for p in paths) + (" " if paths and text.strip() else "") + (text if text.strip() else "")
+            if not await _mod_confirms(pid, captured, pasted, "paste"):
+                return _err(409, "the input box disappeared while pasting; pasted but not submitted")
+            by_mod = True
         await T.send_enter(settings, pane)
-        return JSONResponse({"ok": True, "imagesPasted": images, "imagesAttached": max(attached, 0),
-                             "filesPasted": len(paths) - images})
+        done = {"ok": True, "imagesPasted": images, "imagesAttached": max(attached, 0), "filesPasted": len(paths) - images}
+        return JSONResponse({**done, "confirmedByMod": True} if by_mod else done)
 
     async def stop_bang(request: Request) -> Response:
         """Stop the `!` command running in the session's pane: Escape, and, if the command still runs STOP_WAIT

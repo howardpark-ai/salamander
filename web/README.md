@@ -93,6 +93,21 @@ sala is, *Deploying* below.
      a slice from the middle when both do. A fully visible box must equal the message, so the owner's own shorter
      text, even when it is the head or tail of the retried message, is never submitted. Any other text in the box is
      still refused (with its text, for Replace).
+     **When the screen cannot be read as a box, the pane's mod is asked what the box holds** (`modbox.py`). A box that scrolled, or a
+     layout the reader does not know, reads "missing" after the paste (the message is in the pane, unsent), and before it a Retry
+     of that message found no box either. The in-session mod (`mod/`, loaded into every pane sala launches or resumes) answers a
+     `draft` request with the prompt box's own text, no screen involved: the server finds the session's registry row
+     (`<claude dir>/sessions/<pid>.json`), checks the mod's presence stamp (`$XDG_RUNTIME_DIR/sala/mod/<session id>.json`, else
+     `<sala state>/mod/`: present, for that session, version 1 or later, written no earlier than 2 s before the process started,
+     the tests sala's shell side makes), pushes one `[sala-mod] draft <id>` line to the session's messaging socket and waits at
+     most 2 s for the reply file, without holding the event loop. Enter is pressed only when the screen shows no numbered dialog
+     (an Enter would answer it) and the mod's text is exactly what was pasted, compared as a Retry compares (whitespace ignored:
+     the box's text has no indent and no wraps). The Enter is logged (`send: the input box was not readable on the screen (paste)
+     ...`, or `(retry)`, never the text) and the answer carries `"confirmedByMod": true`. A Retry reaches this only for a message
+     with no files and no `replace`. Everything else is refused exactly as before: a pane with no stamp, an old one or an old mod,
+     no socket, no reply in time, a reply that is not ok, or any other text. The box's text for a pasted-text chip
+     (`[Pasted text #1 +N lines]`), an attached image (`[Image #1]`) or shell mode (the `!` is not part of it) is not the message
+     either, so those are refused too. Nothing else asks the mod, and no key is sent but that one Enter.
 - **Older messages load as the chat is scrolled to its top.** A session's chat opens with the last 200 messages of its
   transcript (`TAIL_N`, `transcript.read_tail_page`); the stream's `reset` also carries `before`, a cursor (the byte offset
   in the transcript where those messages begin), and `start` (the file's start is already in). A line at the top of the
