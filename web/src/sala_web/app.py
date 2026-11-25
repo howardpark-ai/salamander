@@ -281,6 +281,7 @@ from starlette.staticfiles import StaticFiles
 
 from . import board as B
 from . import chatpage as CP
+from . import yourmove as YM
 from . import colors as CLR
 from . import credit as CR
 from . import debuglog as DL
@@ -630,6 +631,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
     # the board items of every live session: one round of client-API reads a minute, served from the cache
     board = B.BoardCache(settings.stackshot_token, settings.stackshot_url, settings.stackshot_web,
                          settings.state_dir / "board-items.json")
+    # the owner's whole Your move list for the chat page's strip (yourmove.py): one background read per 30 s with the same token
+    your_move_cache = YM.YourMoveCache(settings.stackshot_token, settings.stackshot_url, settings.state_dir / "your-move.json")
     # stackshot's For you list (foryou.py): one read a minute, Seen and Watch / Mute through the same token
     foryou_calls = FY.Calls(settings.stackshot_token, settings.stackshot_url)
     foryou = FY.ForYouCache(foryou_calls)
@@ -688,7 +691,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def api_chat(request: Request) -> Response:
         # everything the chat page shows, in one answer (chatpage.assemble): read-only. The session is the one SALA_CHAT_SESSION names, found by name
-        # among the live and sleeping sessions; the board feed is the shared cache's (the same read as /api/board/items), never a second round
+        # among the live and sleeping sessions; the strip's list is stackshot's whole Your move read (yourmove.py, cached, read in the background), else the shared board cache's feed (the same read as /api/board/items), never a second round
         name = chat_session()
         page, styles = page_versions()
         head = {"version": page, "styles": styles, **TZ.info()}
@@ -697,10 +700,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
         rows = await run_in_threadpool(_live_and_sleeping)
         sess = next((x for x in rows if x.name == name), None)
         board_doc = await board.get([x.name for x in rows])
+        your_move = your_move_cache.items()   # the strip's list: stackshot's whole Your move read, None -> the board feed
         doc = await run_in_threadpool(lambda: CP.assemble(
             name=name, display=chat_name(), owner=owner_name(), sess=sess, projects_dir=settings.projects_dir, zone=TZ.zone(),
             now_ms=int(time.time() * 1000), host=request.headers.get("host", ""), mockups_dir=settings.mockups_dir,
-            motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache))
+            motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move))
         return JSONResponse({**doc, **head}, headers={"Cache-Control": "no-store"})
 
     def _page(name: str) -> Response:
@@ -2187,6 +2191,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
     app.state.spend = spend
     app.state.usage = usage
     app.state.board = board
+    app.state.your_move = your_move_cache
     app.state.foryou = foryou
     app.state.schedules = schedules
     return app

@@ -3,7 +3,7 @@
 Pure functions over what the server already reads, so each can be tested alone:
 
   cards(text, host, mockups_dir)   the link cards under a message: a /mockup/<n> link of this site and a claude.ai artifact link
-  waiting(board_doc)               the owner's moves from the board feed (board.py's cache), as the board sent them
+  waiting(board_doc, your_move)    the owner's moves: stackshot's whole Your move list (yourmove.py) when there is one, else the board feed (board.py's cache)
   visible_window(entries, n)       the last `n` shown entries and the kept-back lines among them
 
 No external address is ever fetched from here: a mockup's title is read from the local mockup store (the first 64 KB of its file), and an
@@ -94,10 +94,14 @@ def cards(text: str, host: str, mockups_dir: Path) -> list[dict]:
     return out
 
 
-def waiting(board_doc: dict) -> list[dict]:
-    """The owner's moves from the board feed: every row board.py marks `waiting` (the mover is the owner with no `via`, or an older
-    stackshot's needs-a-decision-and-not-held), over every session the cache holds, each item once (by id), in the board's own order.
-    Rows are passed through as the board sent them (id, subject, url): nothing here writes, rewrites or filters them."""
+def waiting(board_doc: dict, your_move: list[dict] | None = None) -> list[dict]:
+    """The owner's moves. `your_move` is stackshot's whole Your move list as yourmove.py keeps it (every item of the group, none dropped,
+    in the page's own order): when it is a list, even an empty one, that is the answer, passed on as it is. With None (never read, or the
+    reads have failed for too long) the strip falls back to the board feed: every row board.py marks `waiting` (the mover is the owner
+    with no `via`, or an older stackshot's needs-a-decision-and-not-held), over every session the cache holds, each item once (by id),
+    in the board's own order. Rows are passed through as sent (id, subject, url): nothing here writes, rewrites, re-sorts or caps them."""
+    if your_move is not None:
+        return [dict(w) for w in your_move]
     out: list[dict] = []
     seen: set[str] = set()
     sessions = board_doc.get("sessions") if isinstance(board_doc, dict) else None
@@ -132,10 +136,10 @@ SHOWN_MAX = 60   # shown entries (what he typed, replies, marked replies) the pa
 
 
 def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, zone, now_ms: int, host: str, mockups_dir: Path,
-             motion_dir: Path, board_doc: dict, cache: dict) -> dict:
+             motion_dir: Path, board_doc: dict, cache: dict, your_move: list[dict] | None = None) -> dict:
     """The whole answer of GET /api/chat for the configured session `name` (`sess`: its Session, live or sleeping, or None when sala has no such
     session). `cache` (a dict kept by the caller) holds the last read of a transcript, keyed by its size and time, so a poll of an unchanged
-    file costs a stat."""
+    file costs a stat. `your_move`: the owner's whole Your move list when stackshot's read has one (yourmove.py), else None."""
     entries: list[dict] = []
     kept_today, floor = 0, False
     present = "absent"
@@ -174,5 +178,5 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
             "pid": sess.pid if sess is not None and present == "live" else 0,
             "busy": status in ("busy", "waiting"),
             "entries": out_entries, "keptToday": kept_today, "keptTodayFloor": floor,
-            "waiting": waiting(board_doc), "motion": MO.read_lines(motion_dir, name),
+            "waiting": waiting(board_doc, your_move), "motion": MO.read_lines(motion_dir, name),
             "now": now_ms}
