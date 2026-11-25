@@ -497,17 +497,37 @@ def sala_models(path: Path) -> dict[str, dict]:
     return out
 
 
+def _ts_ms(ts: object) -> float | None:
+    """A timestamp as epoch milliseconds: a transcript line's ISO string (Z or an offset; none = UTC) or a number already in
+    epoch ms. None when it is neither or does not read."""
+    if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+        return float(ts)
+    if not isinstance(ts, str):
+        return None
+    try:
+        when = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when.timestamp() * 1000
+
+
 def _after_start(ts: object, started_at: int | None) -> bool:
     """Is the transcript line's ISO timestamp after the process start (epoch ms)? False when either is unknown."""
     if not isinstance(ts, str) or started_at is None:
         return False
-    try:
-        when = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except ValueError:
+    when = _ts_ms(ts)
+    return when is not None and when >= started_at
+
+
+def _reply_is_newer(reply: dict, record: dict, started_at: int | None) -> bool:
+    """Is the latest reply later than the launch (the process start) and than the record's own time, when the record carries
+    one ("ts": epoch ms or ISO)? False when the reply has no readable time or the start is unknown: nothing to compare."""
+    if not _after_start(reply.get("ts"), started_at):
         return False
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    return when.timestamp() * 1000 >= started_at
+    made = _ts_ms(record.get("ts"))
+    return made is None or _ts_ms(reply["ts"]) >= made
 
 
 def is_alias(model: object) -> bool:
@@ -572,7 +592,10 @@ def pane_config_dir(pid: int) -> str:
 def running_model(launch: dict, record: dict | None, reply: dict, started_at: int | None,
                   env: dict | None = None, catalog: dict | None = None, default: dict | None = None) -> dict:
     """{"model", "effort", "modelSource", "effortSource", "modelAlias"} of what a pane runs now (None where nothing says).
-    The model: the launch line's, else sala's record, else the latest reply's ("launch", "record", "reply"); when none of
+    The model: the launch line's, else sala's record, else the latest reply's ("launch", "record", "reply"), except that a
+    reply newer than the launch (started_at) and than the record's own "ts" (epoch ms or ISO, when the record has one) names
+    the model whatever those say (a /model typed in the pane after it started): modelSource "reply", modelAlias None; a reply
+    with no readable time, or an older one, changes nothing. When none of
     the three names one (a session on the default model that sala's idle wrap-up just cleared), the CLI's default
     (`default["model"]`, spawn.claude_defaults: the default lane's settings.json), modelSource "default".
     A bare alias from any of them (opus) is resolved (resolve_alias: a newer reply of its family, the env override `env`,
@@ -580,7 +603,7 @@ def running_model(launch: dict, record: dict | None, reply: dict, started_at: in
     {"name": the alias, "from": "launch", "record" or "default", "via": "reply", "env", "catalog" or None, "binary": the
     CLI version whose catalog answered}. Unresolved, the model stays the alias with via None, which the page marks
     "version unknown". The effort: the launch line's, the record's, the reply's, else `default["effort"]`, effortSource
-    naming which ("launch", "record", "reply", "default"); the default's effort is taken only when the model is the
+    naming which ("launch", "record", "reply", "default"), with a newer reply's effort, when it carries one, first; the default's effort is taken only when the model is the
     default one or of the default model's family (after an alias is resolved: `--model opus` resolved to claude-opus-5-5
     is of opus), since it is that family's setting: another family's pane keeps effort None. A default that is empty or
     missing is no default: the model and effort stay None, as before."""
@@ -597,6 +620,12 @@ def running_model(launch: dict, record: dict | None, reply: dict, started_at: in
         alias = {"name": model, "from": source, "via": via,
                  "binary": (catalog or {}).get("binary") if via == "catalog" else None}
         model, source = full or model, "default" if source == "default" else "alias"
+    # a reply newer than the launch (and than the record) is what the pane runs now, whatever the launch line or the record
+    # say: a /model typed in the pane. The same model keeps the marks it already has (launch, or an alias a reply resolved).
+    newer = _reply_is_newer(reply, record, started_at)
+    reply_model = reply.get("model")
+    if newer and isinstance(reply_model, str) and reply_model and not is_alias(reply_model) and reply_model != model:
+        model, source, alias = reply_model, "reply", None
     effort = effort_source = None
     # the default's effort belongs to the default model's family (claude_defaults reads it from that family's settings): it
     # fills the gap only when the model is the default itself, or of the same family once an alias is resolved
@@ -608,6 +637,8 @@ def running_model(launch: dict, record: dict | None, reply: dict, started_at: in
         if isinstance(d.get("effort"), str) and d["effort"]:
             effort, effort_source = d["effort"], src
             break
+    if newer and isinstance(reply.get("effort"), str) and reply["effort"] and reply["effort"] != effort:
+        effort, effort_source = reply["effort"], "reply"
     return {"model": model, "effort": effort, "modelSource": source, "effortSource": effort_source, "modelAlias": alias}
 
 

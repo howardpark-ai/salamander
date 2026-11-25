@@ -168,14 +168,100 @@ def test_running_model_alias_takes_the_reply_version_only_when_newer_and_of_the_
     got = S.running_model({"model": "opus", "effort": "medium"}, record,
                           {"model": "claude-opus-5-5", "effort": "medium", "ts": BEFORE}, STARTED)
     assert got["model"] == "opus" and got["modelSource"] == "alias" and got["modelAlias"]["via"] is None
-    # a reply of another family (a skill's pinned turn, say): the alias stays
-    assert S.running_model({"model": "sonnet"}, None, {"model": "claude-opus-5-5", "ts": AFTER}, STARTED)["model"] == "sonnet"
+    # a reply of another family does not resolve the alias; a reply newer than the launch names the model itself (a /model typed in the pane)
+    got = S.running_model({"model": "sonnet"}, None, {"model": "claude-opus-5-5", "ts": AFTER}, STARTED)
+    assert (got["model"], got["modelSource"], got["modelAlias"]) == ("claude-opus-5-5", "reply", None)
+    got = S.running_model({"model": "sonnet"}, None, {"model": "claude-opus-5-5", "ts": BEFORE}, STARTED)
+    assert (got["model"], got["modelSource"]) == ("sonnet", "alias")
     # no timestamp on the reply, or no start time known: never newer
     assert S.running_model({"model": "opus"}, None, {"model": "claude-opus-5-5"}, STARTED)["model"] == "opus"
     assert S.running_model({"model": "opus"}, None, {"model": "claude-opus-5-5", "ts": AFTER}, None)["model"] == "opus"
     assert S.running_model({"model": "opus"}, None, {"model": "claude-opus-5-5", "ts": "yesterday"}, STARTED)["model"] == "opus"
-    # a full id on the line is shown as it is, whatever the reply says
-    assert S.running_model({"model": "claude-sonnet-5"}, None, {"model": "claude-opus-5-5", "ts": AFTER}, STARTED)["model"] == "claude-sonnet-5"
+    # a full id on the line is shown as it is, unless a reply newer than the launch says another model
+    assert S.running_model({"model": "claude-sonnet-5"}, None, {"model": "claude-opus-5-5", "ts": BEFORE}, STARTED)["model"] == "claude-sonnet-5"
+    assert S.running_model({"model": "claude-sonnet-5"}, None, {"model": "claude-opus-5-5", "ts": AFTER}, STARTED)["model"] == "claude-opus-5-5"
+
+
+def test_running_model_a_reply_newer_than_the_launch_names_the_model():
+    # launched with --model opus, then the session's own /model switched it: its replies name the model it runs now
+    fable = {"model": "claude-fable-5-2", "ts": AFTER}
+    got = S.running_model({"model": "opus"}, None, fable, STARTED, {}, CATALOG)
+    assert got == {"model": "claude-fable-5-2", "effort": None, "modelSource": "reply", "effortSource": None, "modelAlias": None}
+    # also over a launch line that names a full id, and over sala's record
+    assert S.running_model({"model": "claude-opus-5-5"}, None, fable, STARTED)["model"] == "claude-fable-5-2"
+    got = S.running_model({"model": "opus"}, {"model": "sonnet", "effort": None}, fable, STARTED, {}, CATALOG)
+    assert (got["model"], got["modelSource"], got["modelAlias"]) == ("claude-fable-5-2", "reply", None)
+    # a reply older than the launch (the previous run's last turn): the launch line's order as before
+    got = S.running_model({"model": "opus"}, None, {"model": "claude-fable-5-2", "ts": BEFORE}, STARTED, {}, CATALOG)
+    assert (got["model"], got["modelSource"]) == ("claude-opus-5-5", "alias")
+    # a reply with no timestamp, a timestamp that does not read, or no start time to compare it with: as before
+    for reply, started in (({"model": "claude-fable-5-2"}, STARTED), ({"model": "claude-fable-5-2", "ts": "yesterday"}, STARTED),
+                           ({"model": "claude-fable-5-2", "ts": AFTER}, None)):
+        got = S.running_model({"model": "opus"}, None, reply, started, {}, CATALOG)
+        assert (got["model"], got["modelSource"]) == ("claude-opus-5-5", "alias")
+    # the same model as the launch's keeps the launch's marks
+    got = S.running_model({"model": "claude-opus-5-5"}, None, {"model": "claude-opus-5-5", "ts": AFTER}, STARTED)
+    assert (got["model"], got["modelSource"]) == ("claude-opus-5-5", "launch")
+    # a reply newer than the launch also beats the default's model
+    got = S.running_model({}, None, fable, STARTED, {}, {}, {"model": "claude-opus-5-5", "effort": "high"})
+    assert (got["model"], got["modelSource"], got["effort"]) == ("claude-fable-5-2", "reply", None)
+
+
+def test_running_model_a_reply_against_the_record_goes_by_time():
+    record = {"model": "claude-sonnet-5-5", "effort": None, "ts": "2026-10-14T09:38:00.000Z"}
+    middle = {"model": "claude-fable-5-2", "ts": "2026-10-14T09:37:00.000Z"}   # after the launch, before the record
+    # no launch flag: the record sala set later than that reply wins
+    got = S.running_model({}, record, middle, STARTED)
+    assert (got["model"], got["modelSource"]) == ("claude-sonnet-5-5", "record")
+    # a reply newer than the record beats it
+    got = S.running_model({}, record, {"model": "claude-fable-5-2", "ts": AFTER}, STARTED)
+    assert (got["model"], got["modelSource"], got["modelAlias"]) == ("claude-fable-5-2", "reply", None)
+    # a record's time can be epoch milliseconds too (09:38:00Z)
+    ms = {**record, "ts": 1791970680000}
+    assert S.running_model({}, ms, middle, STARTED)["modelSource"] == "record"
+    assert S.running_model({}, ms, {"model": "claude-fable-5-2", "ts": AFTER}, STARTED)["modelSource"] == "reply"
+    # a record that carries no time is judged by the launch alone: a reply newer than the launch names the model
+    got = S.running_model({}, {"model": "claude-sonnet-5-5", "effort": None}, middle, STARTED)
+    assert (got["model"], got["modelSource"]) == ("claude-fable-5-2", "reply")
+    # an older reply loses to the record, as before
+    got = S.running_model({}, {"model": "claude-sonnet-5-5", "effort": None}, {"model": "claude-fable-5-2", "ts": BEFORE}, STARTED)
+    assert (got["model"], got["modelSource"]) == ("claude-sonnet-5-5", "record")
+
+
+def test_running_model_a_newer_reply_names_the_effort_only_when_it_carries_one():
+    fable = {"model": "claude-fable-5-2", "effort": "xhigh", "ts": AFTER}
+    got = S.running_model({"model": "opus", "effort": "medium"}, None, fable, STARTED, {}, CATALOG)
+    assert (got["model"], got["modelSource"], got["effort"], got["effortSource"]) == ("claude-fable-5-2", "reply", "xhigh", "reply")
+    # no effort on the reply: the launch's stays
+    got = S.running_model({"model": "opus", "effort": "medium"}, None, {"model": "claude-fable-5-2", "ts": AFTER}, STARTED, {}, CATALOG)
+    assert (got["model"], got["effort"], got["effortSource"]) == ("claude-fable-5-2", "medium", "launch")
+    # an older reply's effort never beats the launch's
+    got = S.running_model({"model": "opus", "effort": "medium"}, None, {**fable, "ts": BEFORE}, STARTED, {}, CATALOG)
+    assert (got["effort"], got["effortSource"]) == ("medium", "launch")
+    # the same effort as the launch's keeps the launch's mark
+    got = S.running_model({"model": "opus", "effort": "xhigh"}, None, fable, STARTED, {}, CATALOG)
+    assert (got["effort"], got["effortSource"]) == ("xhigh", "launch")
+
+
+def test_running_model_names_the_model_a_slash_model_switched_to(tmp_path):
+    # a transcript shaped like the incident: a pane launched with --model opus, a /model line, then replies on the new model
+    p = tmp_path / "t.jsonl"
+
+    def line(d):
+        return json.dumps(d) + "\n"
+
+    p.write_text(
+        assistant("claude-opus-5-5", timestamp="2026-10-14T09:30:00.000Z")
+        + line({"type": "user", "uuid": "m1", "timestamp": "2026-10-14T09:52:00.000Z",
+                "message": {"role": "user", "content": "<command-name>/model</command-name>\n<command-args>fable</command-args>"}})
+        + line({"type": "user", "uuid": "m2", "timestamp": "2026-10-14T09:52:01.000Z",
+                "message": {"role": "user", "content": "<local-command-stdout>Set model to Fable 5.2</local-command-stdout>"}})
+        + assistant("claude-fable-5-2", effort="high", timestamp="2026-10-14T09:53:00.000Z")
+        + assistant("claude-fable-5-2", effort="high", timestamp="2026-10-14T09:54:00.000Z"))
+    reply = TR.latest_model(p)
+    assert reply == {"model": "claude-fable-5-2", "effort": "high", "ts": "2026-10-14T09:54:00.000Z"}
+    got = S.running_model({"model": "opus"}, {"model": "opus", "effort": None}, reply, STARTED, {}, CATALOG)
+    assert got == {"model": "claude-fable-5-2", "effort": "high", "modelSource": "reply", "effortSource": "reply", "modelAlias": None}
 
 
 def test_running_model_falls_back_to_the_record_then_the_reply():
