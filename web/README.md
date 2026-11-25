@@ -1559,6 +1559,52 @@ Cache-Control: private, no-cache
 `tests/test_mockup.py` checks the route and the headers and drives a real headless Chromium through a page that tries to reach the API, read the cookie and open a socket, and renders the page at a 390 px phone width.
 A page should carry `<meta name="viewport" content="width=device-width, initial-scale=1">`; the server sends the file as it is and changes nothing in it.
 
+## The chat page
+
+`GET /chat` is one configured session as one conversation: what its owner typed, the final reply of each turn he started, the few things that wait on him and what the session says it is doing. It is its own page (`static/chat.html`,
+`chat.css`, `chat.js`), built on the same chat look as the main page, installable like it (the same manifest and worker) and drawn for a 360 px phone first. It sits behind the same sign-in as every page (the proxy's), and its one write, a
+message, goes through the main chat's own path.
+
+**The setting.** The session is `SALA_CHAT_SESSION` in sala's config (one session name; empty by default, and then the page says that no session is configured; no name is written in the code). The name the page uses for it is
+`SALA_CHAT_NAME` (at most 40 characters; default: the part of the session name after its last hyphen, capitalized). Both are read on each request, so no restart. The owner's name in the labels is `SALA_OWNER_NAME`. Times are in the
+zone `GET /api/config` and `GET /api/chat` name (`SALA_TZ`, through `shared.js`'s `zoneFormat`), and strings go through the page's i18n like every page's.
+
+**What shows.** Only what the owner typed (the composer, or the pane's keys) and the FINAL reply of each turn he started. No tool call and no text written on the way to one. A reply that is still being written shows when the session
+is idle, and never while it works with no stop reason yet.
+
+**What does not, and the one exception.** A turn something else started (another session, the board, sala, a background task, a plugin) is hidden. It shows only when its final reply opens with `[for <owner>]`, with the mark taken off
+and the label "<Name>, on his own" on the message. Every other hidden turn is **kept back**: the switch "Show what <Name> kept back" lists them in place, in time order, one quiet line each (time, source in plain words, a short clipped
+phrase of what it was, the reply's last line after an arrow), and "N kept back today" (today in the page's zone) is always visible, with "N+" when the transcript read did not reach back to midnight. A line the rule does not
+recognize is kept back too, never dropped.
+
+**The rule that tells the two apart** is read from the line's own record of where its text came from, never from its words, and was established from real transcripts. It is stated in the docstring of `chatturns.py` and in the pull
+request that added the page. In short: a `user` line with `origin.kind` `human` (typed, or typed while the session was busy and queued), an `attachment` of type `queued_command` with `origin.kind` `human`, and a slash command typed
+in the pane are the owner's. `origin.kind` `peer` (another session, the board's and sala's messages arrive this way), `task-notification`, `plugin`, the meta lines with no origin and an `sdk` prompt are delivered. Tool results, sidechain
+lines and compaction summaries are no turn. An unknown origin kind counts as delivered. Lines are read in file order (a queued line's own timestamp is when it was taken up, so never sort by time); a delivered line joins an open turn
+and starts a hidden one only when none is open; a hook's follow-up after a closed turn belongs to that turn.
+
+**Waiting on you.** The owner's moves from the board feed `board.py` already reads (`GET /api/board/items`'s cache): the rows marked `waiting` (mover is the owner with no `via`), each linking to the item's own address, deduplicated by id
+over every live and sleeping session. That is NOT every project: the feed is asked per session, so an item no session of this machine is tied to is not in it. A row that was not there when the page opened carries a "new" tag. Empty
+reads "nothing waiting". No model writes or filters these lines.
+
+**In motion.** The lines the session sets for itself with `sala motion add "<line>"` (`lib/motion.py`, [docs/subcommands.md](../docs/subcommands.md)): one small JSON file per session under `<sala state>/motion/<session>.json`, at most 8
+lines of at most 120 characters, each in force for 24 hours. `motion.py` only reads it (a link or a file that is not the format is left out). Empty reads "nothing right now".
+
+**Link cards.** A `/mockup/<n>` link (a path, or an address on this site) and a claude.ai artifact link become cards under the message (title, one line saying what it is, "opens a page"). A mockup's title is read from the local mockup
+store; an artifact's is the link text. The server never fetches an external address, and any other link stays an ordinary link. Links open in a new tab with `rel="noopener noreferrer"`.
+
+**Sending.** The composer posts to `POST /api/s/<pid>/send`, the main chat's path, with its guards and its duplicate window. A sleeping session shows a plain sentence and a wake button (`POST /api/wake`, then `GET /api/spawn/status`
+until it is live); an absent one says so.
+
+**Live.** `GET /api/chat` is the one read. The session's existing stream (`api/s/<pid>/stream`) only nudges a debounced re-read, and a poll every 30 s (while the tab is visible) covers a sleeping session, which has no stream. The
+page's styles are swapped in place and a changed page version shows the same "Reload" strip as the main page.
+
+**No sideways scroll, at any width from 320 px up.** This is a rule, not a nicety. Every box that holds text may shrink (`min-width: 0`), every run of text may break anywhere (`overflow-wrap: anywhere`), a code block wraps its lines,
+a table is laid out fixed in the message's width, and the page clips. `tests/test_chat_no_sideways_scroll.py` holds it in a headless Chromium at 1280, 360 and 320 px with a 300-character word, a long address, a wide code block, a wide
+table, a long item subject, a long motion line and a long kept-back line (GitHub CI runs it; the test box has no browser).
+
+Not in this page: the views, any change to how sessions are routed, and a check on turns nobody marked.
+
 ## Operation log pages
 
 `GET /op/<id>` serves the log of one `sala op` operation (salamander's `lib/op.sh`), as `text/plain; charset=utf-8`. The operation's Slack post ends in a link to it, `<https://<host>/op/<id>|log>`, when sala's web
@@ -2088,6 +2134,8 @@ part of `web/`.
 | `GET /` | the page |
 | `GET /manifest.webmanifest` | the web app manifest (*Install as an app*), `application/manifest+json` |
 | `GET /sw.js` | the service worker, at the root so its scope is the whole site; `text/javascript`, never cached |
+| `GET /chat` | the chat page (*The chat page*): one configured session (`SALA_CHAT_SESSION`) as one conversation |
+| `GET /api/chat` | everything the chat page shows: `{configured, session, name, owner, present: live\|sleeping\|absent, status, pid, busy, entries, keptToday, keptTodayFloor, waiting, motion, now, version, styles, timezone, tzLabel, tzOffsetMin}`; `{configured: false, …}` when no session is set; `no-store`. `entries` are `me`, `reply`, `own` (with `cards`) and `kept` (with `src`, `what`, `did`, `open`) |
 | `GET /mockup/<n>` | a mockup page `sala mockup add` stored (*Mockup pages*); `text/html; charset=utf-8`, 404 for an unknown number, the sandbox headers on every response |
 | `GET /op/<id>` | the log of one `sala op` operation (*Operation log pages*); `text/plain; charset=utf-8`, the last 256 KB, 404 `no such log` for anything else, the private headers on every response |
 | `GET /sessions` | redirects to `/#sessions`, the Overview |

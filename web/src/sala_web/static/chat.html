@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="{{lang}}" class="chat-html">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="light dark">
+<!-- the page's version and the style sheets' own, as on the main page: a different page version shows the update strip (chat.js), a different
+     styles version is swapped in place -->
+<meta name="sala-web-version" content="{{build}}">
+<meta name="sala-web-styles" content="{{sv}}">
+<title>chat</title>
+<!-- The chat page: one configured session (SALA_CHAT_SESSION) as one conversation. The page is drawn by chat.js from GET /api/chat; what each part
+     shows and how a turn is told from another is in web/README.md (*The chat page*) and in chatturns.py. Installable like the main page: the same
+     manifest and icons. No external font or script: the font stack is style.css's. -->
+<link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
+<meta name="theme-color" content="#fafaf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161617" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="static/icons/apple-touch-icon.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f1f21'/%3E%3Cpath d='M9 11l6 5-6 5M18 22h6' stroke='%23f0a06a' stroke-width='4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="static/style.css?v={{sv}}">
+<link rel="stylesheet" href="static/chat.css?v={{sv}}">
+<!-- the color tool's stored look (colortool.js and sala's wiring), applied before the first paint, as on the main page; no button here -->
+<script src="static/colortool.js?v={{v}}"></script>
+<script src="static/colortool-sala.js?v={{v}}"></script>
+<script src="static/vendor/marked.min.js?v={{v}}"></script>
+<script src="static/vendor/purify.min.js?v={{v}}"></script>
+</head>
+<body class="chat-page">
+<div class="cp" id="cp"></div>
+<script src="static/i18n-en.js?v={{v}}"></script>
+<script src="static/i18n-ko.js?v={{v}}"></script>
+<script src="static/i18n.js?v={{v}}"></script>
+<script src="static/shared.js?v={{v}}"></script>
+<script src="static/chat.js?v={{v}}"></script>
+</body>
+</html>

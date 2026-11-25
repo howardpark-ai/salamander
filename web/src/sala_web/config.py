@@ -75,6 +75,26 @@ def help_session() -> str:
     return v if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", v) else ""
 
 
+_SESSION_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def chat_session() -> str:
+    """The one session the chat page (/chat) is for: sala's setting SALA_CHAT_SESSION, one session name (letters, digits, dot, underscore,
+    dash; at most 64). "" (the default, and any other value) = nothing is configured, and the page says so. Read on each call."""
+    v = sala_setting("SALA_CHAT_SESSION").strip()
+    return v if _SESSION_NAME_RE.fullmatch(v) else ""
+
+
+def chat_name() -> str:
+    """The name the chat page calls that session: sala's setting SALA_CHAT_NAME (one line of at most 40 characters). Default: the part of the
+    session's name after its last hyphen, capitalized ("" when no session is configured). Read on each call."""
+    v = " ".join(sala_setting("SALA_CHAT_NAME").split())[:40]
+    if v:
+        return v
+    last = chat_session().rsplit("-", 1)[-1]
+    return last[:1].upper() + last[1:]
+
+
 def owner_name() -> str:
     """What the page's own text and the words it queues call the human running this machine: sala's setting SALA_OWNER_NAME
     (default "the owner"; one line of at most 40 characters). Read on each call, like brand_suffix."""
@@ -301,6 +321,11 @@ class Settings:
     def mockups_dir(self) -> Path:
         """Where `sala mockup add` keeps its numbered pages (<sala state>/mockups); read-only here (mockup.py)."""
         return self.sala_state_dir / "mockups"
+
+    @property
+    def motion_dir(self) -> Path:
+        """Where `sala motion` keeps each session's short "in motion" lines (<sala state>/motion/<session>.json); read-only here (motion.py)."""
+        return self.sala_state_dir / "motion"
 
     @property
     def mandates_dir(self) -> Path:
