@@ -1670,6 +1670,27 @@ table, a long item subject, a long motion line and a long kept-back line (GitHub
 
 Not in this page: the views, any change to how sessions are routed, and a check on turns nobody marked.
 
+### The chat session in sala's own view (first of four steps; `/chat` stays as it is for now)
+
+The chat session is meant to be sala's own view of a session, opened on the session `SALA_CHAT_SESSION` names, not a second page drawn to look like it. The rule behind it: a new screen in a tool the owner already uses is that tool's own
+view, extended. So the header, the thread, the composer (box, attach button, image paste), the spacing, the buttons and the spinner of a working session are the ones every session has, from the same code. What the chat session adds is this
+list, and a difference outside it is a defect:
+
+- **Its entry**, the first line of the sidebar's views, above New session: a chat-bubble icon, the session's display name (`GET /api/chat`, so `SALA_CHAT_NAME`), a small "chat", a dot while it works and a red count of what waits on the owner
+  (the red of the Waiting on you chips, not the orange unread count). It is hidden when no chat session is set, links to `#s=<session>`, is marked selected (`aria-current="page"`) while the session is open, and closes a phone's drawer.
+  The marks are read from `GET /api/chat` every 25 s while the page is visible, whether or not the session is open. While the entry exists the session's own row is left out of the list (the Overview still lists it) and its unread
+  replies stay out of the Unread total. A long name is cut with an ellipsis.
+- **The strip**, above the thread, only while the open session is the chat session (the server marks it with `"chat": true` in `GET /api/sessions`, for that session alone): Waiting on you, In motion, and the kept-back switch with its
+  count ("N+" when the read did not reach back to midnight). It sits in `#chat-pane` before `#chat`, outside it, because the thread's redraws replace `#chat`'s children. It is read on opening and again, debounced, after the stream
+  says something changed. Its rules live in `style.css` under `#chat-strip`: they are copies of the first page's, which stays as it is until it is retired.
+- **The assistant's text capped to the left** (`body.chat-session`, 68ch), as on the first page.
+
+**Not active in this step:** the kept-back switch is drawn off and says "not active yet", because the server does not tell the view which turns the owner did not start, so every turn shows as in any session. Link cards are not drawn.
+The first page (`/chat`, `chat.html`, `chat.js`, `chat.css`) is untouched, and the later steps make the switch work, add the link cards and retire it.
+
+**No sideways scroll**, at any width, with the drawer open or shut: `tests/test_chat_session_view_ui.py` holds it at 1280, 390, 360 and 320 px with hostile text in the thread, a waiting subject and a motion line. (A markdown table wider
+than the thread scrolls inside its own block, as in every session; the page never does.) The same file holds that the chat session and another session, given the same transcript, differ only in the strip and the cap.
+
 ## Operation log pages
 
 `GET /op/<id>` serves the log of one `sala op` operation (salamander's `lib/op.sh`), as `text/plain; charset=utf-8`. The operation's Slack post ends in a link to it, `<https://<host>/op/<id>|log>`, when sala's web

@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import scopes as SC
-from .config import SHELL_SESSION, Settings
+from .config import SHELL_SESSION, Settings, chat_session
 from .spend import normalize_model
 
 ROLE_ORDER = {"front": 0, "back": 1}  # any other role (an old registry row) sorts after back
@@ -83,6 +83,8 @@ class Session:
             out["surface"] = "slack"
         if self.sleeping is not None:   # only a sleeping session carries the key, so every other session's payload is as it was
             out["sleeping"] = self.sleeping
+        if self.name and self.name == chat_session():   # only the chat session (SALA_CHAT_SESSION) carries the key: the page adds its strip to that session's view
+            out["chat"] = True
         return out
 
 

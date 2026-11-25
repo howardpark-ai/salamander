@@ -242,6 +242,120 @@ async function saveList(key, compute) {
   return true;
 }
 
+/* ---------- the chat session ----------
+   One session is the owner's chat: the one sala's setting SALA_CHAT_SESSION names. Its page is sala's own view of a session, nothing else: the same
+   header, thread, composer (CodeMirror box, attach button, image paste, Send), spacing and buttons. Three things are added to it, and a difference
+   outside this list is a defect:
+   - its entry, the first line of the sidebar's views (#side-chat, above New session): the session's display name from GET api/chat, a small "chat", a
+     working dot while it works and a red count of the owner's moves that wait. A link to #s=<the session>, so a click is an ordinary go(). The session's
+     own row in the list is hidden while the entry exists (visibleSessions), and its unread count stays out of the Unread total (the entry carries the
+     count that matters). The Overview still lists it. The marks are read every CHAT_MARKS_MS while the page is visible, whether or not the session is open;
+     while it is open they are also read when the stream says something changed (chatStripSoon) and on open;
+   - its strip (#chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner, what is in
+     motion, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the server marks the session in
+     api/sessions, sessions.py) and scrolls with the thread. The switch is not active yet: every turn is shown;
+   - the assistant's messages sit to the left at the first page's measure (style.css, body.chat-session).
+   Everything the strip shows is read from api/chat, which keeps its shape; the first page (/chat, chat.js) is untouched for now. */
+const CHAT_MARKS_MS = 25000, CHAT_STRIP_MS = 350;
+const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null };   // data: the last answer of api/chat
+const chatEntryOn = () => !!(chatView.data && chatView.data.configured);
+// the session row the entry stands for: hidden from the list while the entry exists
+const isChatRow = (s) => !!s && s.chat === true && chatEntryOn();
+const chatSelected = () => { const s = state.selected && state.byName.get(state.selected); return !!(s && s.chat === true); };
+const unreadSessions = () => liveSessions().filter((s) => !isChatRow(s));
+async function loadChatMarks() {
+  if (chatView.reading) { chatView.again = true; return; }
+  chatView.reading = true;
+  try {
+    const r = await fetch("api/chat", { cache: "no-store" });
+    if (r.ok) chatMarks(await r.json());
+  } catch { /* the marks stay as they were; the next read asks again */ }
+  chatView.reading = false;
+  if (chatView.again) { chatView.again = false; loadChatMarks(); }
+}
+function pollChatMarks() { if (!document.hidden) loadChatMarks(); }
+// the stream said something changed in the open session: its strip is read again, at most once in CHAT_STRIP_MS
+function chatStripSoon() {
+  if (chatView.soon || document.hidden || !chatSelected()) return;
+  chatView.soon = setTimeout(() => { chatView.soon = 0; loadChatMarks(); }, CHAT_STRIP_MS);
+}
+// what api/chat said last: the entry and, while the chat session is open, the strip
+function chatMarks(d) {
+  if (!d || typeof d !== "object") return;
+  const was = chatEntryOn();
+  chatView.data = d;
+  if (d.configured) {
+    const ids = new Set((d.waiting || []).map((w) => w.id));
+    if (chatView.seen === null) chatView.seen = ids;
+    else for (const id of ids) if (!chatView.seen.has(id)) { chatView.seen.add(id); chatView.fresh.add(id); }   // a move that came since the last answer is "new"
+  }
+  if (was !== chatEntryOn()) renderSidebar(); else paintChatEntry();   // the session's own row comes or goes with the entry
+  chatSync();
+}
+function paintChatEntry() {
+  const a = $("#side-chat"), d = chatView.data, on = chatEntryOn();
+  a.hidden = !on;
+  if (!on) { a.classList.remove("selected"); a.removeAttribute("aria-current"); return; }
+  a.setAttribute("href", "#s=" + encodeURIComponent(d.session));
+  a.querySelector(".label").textContent = d.name;
+  const waiting = (d.waiting || []).length, busy = d.present === "live" && !!d.busy;
+  const dot = a.querySelector(".dot"), chip = a.querySelector(".wchip");
+  dot.hidden = !busy;
+  dot.title = tl("chat.state.busy");
+  chip.hidden = !waiting;
+  chip.textContent = waiting > 99 ? "99+" : String(waiting);
+  chip.title = tl("ui.side.chatWait", { n: waiting });
+  chip.setAttribute("aria-label", chip.title);
+  const here = state.selected === d.session;
+  a.classList.toggle("selected", here);
+  if (here) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+}
+// the strip and the body's class follow the open session: on for a session with the flag. The class (left cap, the pane's column) needs only the
+// flag; the strip also needs what api/chat said. It is read at once when the strip comes on.
+function chatSync() {
+  const flagged = chatSelected();
+  document.body.classList.toggle("chat-session", flagged);
+  const strip = $("#chat-strip"), was = !strip.hidden, on = flagged && chatEntryOn();
+  strip.hidden = !on;
+  if (on) { paintChatStrip(); if (!was) loadChatMarks(); }
+}
+// the strip's pieces are made once; a read changes their text
+function buildChatStrip() {
+  const waitList = el("ul", { class: "wait-list" }), waitNote = el("p", { class: "wait-err" });
+  const wait = el("section", { class: "wait", ...tx("chat.wait.h", null, "aria-label") },
+    el("div", { class: "sec-head" }, el("b", { ...tx("chat.wait.h") }), el("span", { ...tx("chat.wait.sub") })), waitList, waitNote,
+    el("p", { class: "wait-cap", ...tx("chat.wait.note") }));
+  const moList = el("ul", { class: "mo-list" });
+  const motion = el("section", { class: "motion", ...tx("chat.motion.h", null, "aria-label") }, el("span", { class: "lbl", ...tx("chat.motion.h") }), moList);
+  // the switch is the first page's, but it does nothing yet: every turn is shown, so it is drawn off and says so
+  const sw = el("input", { type: "checkbox", id: "chat-strip-kept", disabled: true, "aria-disabled": "true" });
+  const swText = el("span"), countEl = el("span", { class: "count" });
+  const kept = el("div", { class: "kept-row" },
+    el("label", { class: "kept-toggle off", for: "chat-strip-kept" }, sw, swText, countEl, el("span", { class: "soon", ...tx("ui.chat.keptOff") })));
+  $("#chat-strip").replaceChildren(wait, motion, kept);
+  chatView.ui = { waitList, waitNote, moList, swText, countEl };
+}
+function chatWaitRow(w) {
+  const subj = el("span", { class: "wait-subj" });
+  subj.append(w.url ? el("a", { href: w.url, target: "_blank", rel: "noopener noreferrer", text: w.subject || w.id }) : document.createTextNode(w.subject || w.id));
+  if (chatView.fresh.has(w.id)) subj.append(el("span", { class: "new", ...tx("chat.wait.new") }));
+  const kids = [subj];
+  if (w.url) kids.push(el("a", { class: "answer", href: w.url, target: "_blank", rel: "noopener noreferrer", ...tx("chat.wait.answer") }));
+  return el("li", { class: "wait-row" }, ...kids);
+}
+function paintChatStrip() {
+  const d = chatView.data;
+  if (!chatEntryOn()) return;
+  if (!chatView.ui) buildChatStrip();
+  const u = chatView.ui, waiting = d.waiting || [], motion = d.motion || [];
+  u.waitList.replaceChildren(...waiting.map(chatWaitRow));
+  if (!waiting.length) u.waitList.append(el("li", { class: "wait-none", ...tx("chat.wait.none") }));
+  u.moList.replaceChildren(...(motion.length ? motion.map((m) => el("li", { class: "mo", text: m.text })) : [el("li", { class: "mo none", ...tx("chat.motion.none") })]));
+  u.swText.textContent = tl("chat.kept.toggle", { name: d.name });
+  u.countEl.textContent = tl(d.keptTodayFloor ? "chat.kept.floor" : "chat.kept.count", { n: d.keptToday | 0 });
+}
+SalaI18n.onChange(() => { if (chatEntryOn()) { paintChatEntry(); if (!$("#chat-strip").hidden) paintChatStrip(); } });
+
 /* ---------- sidebar ---------- */
 let rolesNote = "";
 function showSideNote() { $("#side-note").textContent = [rolesNote, state.prefsNote].map((x) => (typeof x === "function" ? x() : x)).filter(Boolean).join(" "); }
@@ -266,6 +380,7 @@ async function loadSessions() {
   for (const sc of state.scopes) for (const g of sc.groups) for (const s of g.sessions) state.byName.set(s.name, s);
   rolesNote = data.rolesError ? () => tl("app.roles.unavailable") : ""; showSideNote();
   renderSidebar();
+  chatSync();   // the open session may have gained or lost the chat flag
   nsOwnSeen(); sdOwnSeen();   // a session one of the two forms just queued may be in the list now
   perfMark("sessions:rendered", { count: state.byName.size });
   // a reply that arrived while the owner has this session open (and is looking at the page) is read as it lands
@@ -288,7 +403,8 @@ async function loadSessions() {
 const HIDDEN_ROLES = new Set(["back"]);
 const hiddenFromList = (s) => HIDDEN_ROLES.has(s.role) || s.surface === "slack";
 const visibleSessions = (g) => {
-  const shown = sleepersKept(orderedSessions(g).filter((s) => state.prefs.showAll || !hiddenFromList(s) || s.name === state.selected), state.selected, state.prefs.showSleeping);
+  // the chat session's own row is never here while its entry exists (the open one included): the entry stands for it
+  const shown = sleepersKept(orderedSessions(g).filter((s) => !isChatRow(s) && (state.prefs.showAll || !hiddenFromList(s) || s.name === state.selected)), state.selected, state.prefs.showSleeping);
   return state.prefs.unreadOnly ? unreadKept(shown, state.selected) : shown;   // "Unread only": the Unread entry, below
 };
 
@@ -335,7 +451,7 @@ function paintUnreadEntry() {
   b.setAttribute("aria-pressed", String(on));
   b.querySelector(".label").textContent = tl(on ? "app.unread.only" : "ui.side.unread");
   b.title = tl(on ? "app.unread.tipOn" : "ui.side.unreadTip");
-  const n = unreadTotal(liveSessions(), state.selected), old = b.querySelector(".ucount");
+  const n = unreadTotal(unreadSessions(), state.selected), old = b.querySelector(".ucount");   // the chat session's count is the entry's, not this total's
   if (old) old.remove();
   if (n) b.append(unreadChip(n, unreadLabel(n, tl("app.unread.allAgents"))));
 }
@@ -537,10 +653,11 @@ function renderSidebar() {
       header("scope-title", sKey, sc.title, sc.flat ? tl("app.scope.noProject") : tl("app.scope.tip", { key: sc.key }), folded, all), body));
   }
   // the filter on and nothing unread (the open agent, if any, is the one row above): the line says so
-  if (state.prefs.unreadOnly && !unreadTotal(liveSessions(), state.selected)) nav.append(el("div", { class: "empty", role: "status", text: tl("app.unread.none") }));
+  if (state.prefs.unreadOnly && !unreadTotal(unreadSessions(), state.selected)) nav.append(el("div", { class: "empty", role: "status", text: tl("app.unread.none") }));
   else if (!nav.children.length) nav.append(el("div", { class: "empty", text: tl("app.sess.none") }));
   nav.scrollTop = keepTop;
   paintUnreadEntry();
+  paintChatEntry();
   if (rowMenu && !rowButton(rowMenu.name)) closeRowMenu();  // its session is gone (or folded away): the menu goes with it
   if (!listPainted) {  // the first paint of the list: after the next frame has been drawn (timing, above)
     listPainted = true;
@@ -2148,6 +2265,7 @@ function leaveSession() {
   state.termLoadedFor = null;
   $("#terminal-pane").replaceChildren();
   $("#chat").replaceChildren(el("div", { class: "empty", text: tl("app.pickSession"), "data-i18n": "app.pickSession" }));
+  chatSync();
 }
 function showOverview() {
   perfMark("overview");
@@ -2303,6 +2421,7 @@ function selectSession(name, { force = false } = {}) {
   setConn("sse", false);
   clearStatus();
   renderSidebar();
+  chatSync();   // the strip, for the chat session
   const chat = $("#chat");
   if (!s) {
     state.current = null;
@@ -2543,6 +2662,7 @@ function openStream(s, { resume = false } = {}) {
       return;
     }
     showTail(s, d, resumed, t0, e.data.length);
+    chatStripSoon();
   });
   es.addEventListener("append", (e) => {
     const d = JSON.parse(e.data);
@@ -2555,6 +2675,7 @@ function openStream(s, { resume = false } = {}) {
     if (chatScroll.pinned) { if (state.tab === "chat") scrollToBottom(); }
     else if (added) chatScroll.unseen = true;
     updateJump();
+    chatStripSoon();
   });
   es.addEventListener("live", (e) => {
     if (state.es !== es) return;
@@ -2566,6 +2687,7 @@ function openStream(s, { resume = false } = {}) {
     const d = JSON.parse(e.data);
     if (state.current && state.current.pid === s.pid) { state.current.status = d.status; updateHeader(state.current); }
     const row = state.byName.get(s.name); if (row) { row.status = d.status; renderSidebar(); }
+    chatStripSoon();
   });
   es.addEventListener("gone", () => {
     perfMark("stream:gone");
@@ -4216,7 +4338,7 @@ window.matchMedia("(max-width: 760px)").addEventListener("change", (e) => {   //
   sideApply();
 });
 // the overview row closes the sliding sidebar as a session row does (also when the overview is already open)
-for (const id of ["#side-ovw", "#side-new"]) $(id).addEventListener("click", (e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) setDrawer(false); });
+for (const id of ["#side-chat", "#side-ovw", "#side-new"]) $(id).addEventListener("click", (e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) setDrawer(false); });
 
 /* ---------- the sidebar's search box ----------
    At the top of the sidebar on every page (the drawer's top on a phone). Enter opens the Search results page with the box's
@@ -4529,6 +4651,7 @@ paintShellTip();
   // the board items are read beside the sessions (the server answers both from its caches), for the New session page's
   // item picker alone; nothing of the first paint waits for them
   loadBoard();
+  loadChatMarks();   // the sidebar's chat entry: its name and marks, whichever view opens first
   await loadSessions();
   restoreHeld();   // what a reload left held for a sleeping session comes back before the chat is drawn
   const name = hashName();
@@ -4549,8 +4672,10 @@ paintShellTip();
   setInterval(loadSessions, 10000);
   setInterval(checkVersion, 60000);
   setInterval(() => { if (!document.hidden) loadBoard(); }, BOARD_MS);
+  setInterval(pollChatMarks, CHAT_MARKS_MS);   // whether or not the chat session is open; a hidden page asks nothing
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
+    pollChatMarks();
     if (state.selected) { loadSessions(); }  // a reply that landed while the page was hidden is read now that it is in view
     if (Date.now() - board.lastAt > 5000) loadBoard();
   });
