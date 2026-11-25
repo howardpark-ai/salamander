@@ -12,17 +12,22 @@ WHAT SHOWS. Two kinds of turn, read from the session's transcript (~/.claude/pro
 
 TYPED VERSUS DELIVERED. This rule was established from real transcripts (a count over the recent transcripts of one machine, read-only;
 the shapes below are what they hold) and is the only thing that decides who started a turn. It reads the line's own record of where the
-text came from, never its words:
+text came from, never its words (the one exception is sala's own mark, below):
 
   typed (the person)
     - a `user` line with origin.kind == "human" (not isMeta, not isCompactSummary), whatever its promptSource: "typed" (the composer's paste
-      and the pane's keys alike) or "queued" (typed while the session was busy and run later);
+      and the pane's keys alike) or "queued" (typed while the session was busy and run later), unless it carries sala's mark (below);
     - an `attachment` line of type queued_command with origin.kind == "human" (typed while the session was busy: its text is the
       attachment's `prompt`; its own timestamp is when the session took it up, which is why lines are read in FILE order and never sorted
       by time);
     - a `user` line with no origin that is a slash command the person typed in the pane (`<command-name>` / `<command-message>` text, not
       isMeta). Its `<local-command-stdout>` / `<local-command-caveat>` lines are the command's output, not a turn start.
   delivered (something else)
+    - a line whose text STARTS with sala's mark, `<!-- sala -->` and a space (leading whitespace aside, after the reminder and paste
+      cleanups), whatever its origin or promptSource says. sala types its own lines into a session's pane (a spawn's mandate line, a wake
+      line, a wrap-up text), and the CLI records them as origin "human" / promptSource "typed", the same as the person's keys; every line
+      sala types carries the mark, and only the mark tells them apart. Its source is "sala". A mark in the middle of a message does not
+      count: the person may type that text themselves. The kept-back line's "what it was" is the text after the mark;
     - origin.kind == "peer" (isMeta): text "Another Claude session sent a message:" and then a header: `from: NAME`, `[stackshot message]
       from NAME ...`, `[stackshot] ...`, `[anchor] ...`, `[sala op|note|notice ...] ...`, or a `<cross-session-message ...>` tag. The same
       three forms arrive as a queued_command attachment with origin peer;
@@ -33,6 +38,7 @@ text came from, never its words:
   skipped (neither: no turn, no line anywhere)
     - tool results, sidechain (subagent) lines, compaction summaries (isCompactSummary / isVisibleInTranscriptOnly, whatever their
       turnOrigin says), and every line that is not a user, assistant or queued_command line.
+  The person typing into a turn that a sala line started still takes it over, as for any delivered turn (see TURNS).
   A line this rule does not recognize at all (an unknown origin kind) counts as DELIVERED, so it is kept back and counted, never lost.
 
 TURNS. Lines are read in file order. The typed text starts a turn, or joins the open one (the person typing while the session works; a
@@ -71,6 +77,8 @@ _TASK_SUMMARY = re.compile(r"<summary>(.*?)</summary>", re.S)
 _FOOTER_START = re.compile(r"^(?:Write-up|Board|Page)s?\b\s*[:\[]|^Board\s+(?:board|[a-z]\d)", re.I)
 _MD_LINK = re.compile(r"\[([^\]\n]*)\]\([^)\n]*\)")
 _CONTINUATION_TEXT = ("Stop hook feedback:",)
+SALA_MARK = "<!-- sala -->"      # lib/common.sh SALA_MSG_MARK, docs/stackshot-contracts.md interface 2: fixed, the start of every line sala types
+_SALA_MARK_AT_START = re.compile(r"^\s*" + re.escape(SALA_MARK) + r"(?:\s+|$)")
 
 
 def _ms(ts: object) -> int | None:
@@ -145,6 +153,11 @@ def classify_user(d: dict) -> dict | None:
     ts = _ms(d.get("timestamp"))
     kind = origin.get("kind") if isinstance(origin, dict) else None
     base = {"text": text, "images": images, "ts": ts, "uuid": uuid}
+    marked = _SALA_MARK_AT_START.match(text)
+    if marked:
+        # sala typed this into the pane: recorded as the person's keys, but delivered (module docstring); the mark never reaches a phrase
+        body = text[marked.end():].strip()
+        return {**base, "text": body, "by": "other", "src": {"kind": "sala", "name": ""}, "cont": False}
     if kind == "human" and not meta:
         return {**base, "by": "human"}
     if origin is None and not meta and prompt_source != "sdk":
@@ -194,7 +207,7 @@ def _source(kind: object, text: str, meta: bool) -> tuple[dict, bool]:
 
 def _phrase(entry: dict) -> str:
     """A short clipped phrase of what a delivered message was: its first line past the header, no markup."""
-    text = entry.get("text") or ""
+    text = _SALA_MARK_AT_START.sub("", entry.get("text") or "")
     if text.startswith(TR.PEER_PREFIX):
         text = text[len(TR.PEER_PREFIX):].strip()
     m = _TASK_SUMMARY.search(text)
