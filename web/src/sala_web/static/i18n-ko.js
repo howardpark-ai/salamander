@@ -527,7 +527,6 @@ window.SALA_I18N_KO = {
   "time.now": "\ubc29\uae08",
   "ui.banner.updated": "sala\uac00 \uc5c5\ub370\uc774\ud2b8\ub418\uc5c8\uc2b5\ub2c8\ub2e4.",
   "ui.chat.jump": "\ucd5c\uc2e0 \uba54\uc2dc\uc9c0\ub85c \uc774\ub3d9",
-  "ui.chat.keptOff": "\uc544\uc9c1 \uc791\ub3d9\ud558\uc9c0 \uc54a\uc74c",
   "ui.chat.pick": "\uc67c\ucabd\uc5d0\uc11c \uc138\uc158\uc744 \uc120\ud0dd\ud558\uc138\uc694.",
   "ui.cmp.attach": "\ud30c\uc77c \ucca8\ubd80",
   "ui.cmp.drop": "\ud30c\uc77c\uc744 \ub193\uc73c\uba74 \ucca8\ubd80\ub429\ub2c8\ub2e4",

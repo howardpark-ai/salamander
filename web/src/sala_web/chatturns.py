@@ -271,11 +271,12 @@ def reply_of(d: dict, strict: bool) -> dict | None:
 
 
 class Turn:
-    __slots__ = ("by", "user", "src", "replies", "open", "start_ts", "uuid")
+    __slots__ = ("by", "user", "src", "replies", "open", "start_ts", "uuid", "taken")
 
     def __init__(self, by: str, user: dict | None, src: dict | None, ts: int | None, uuid: str):
         self.by, self.user, self.src, self.replies, self.open = by, user, src, [], True
         self.start_ts, self.uuid = ts, uuid
+        self.taken = False       # something else started it and the person spoke into it: it is theirs now, and its first line stays on record
 
 
 def build_turns(lines, strict: bool = False) -> list[Turn]:
@@ -299,7 +300,7 @@ def build_turns(lines, strict: bool = False) -> list[Turn]:
         if e["by"] == "human":
             if cur is not None and cur.open:
                 if cur.by != "human":    # they spoke into a turn something else started: it is theirs now
-                    cur.by, cur.src = "human", None
+                    cur.by, cur.src, cur.taken = "human", None, True
                 if cur.user is None:
                     cur.user = e
                 else:
@@ -408,12 +409,16 @@ def entries(turns: list[Turn], owner: str, limit: int = 120) -> list[dict]:
     return out
 
 
-def kept_today(turns: list[Turn], owner: str, midnight_ms: int) -> int:
-    """How many hidden turns started today (since `midnight_ms`) and were not marked for the person."""
+def kept_today(turns: list[Turn], owner: str, midnight_ms: int, with_taken: bool = False) -> int:
+    """How many hidden turns started today (since `midnight_ms`) and were not marked for the person. `with_taken`: a turn something else started
+    that the person then spoke into counts too (the chat session's view keeps its first line, chatkeep.py), which the first page does not."""
     mark = _mark_re(owner)
     n = 0
     for t in turns:
-        if t.by == "human" or (t.start_ts or 0) < midnight_ms:
+        if (t.start_ts or 0) < midnight_ms:
+            continue
+        if t.by == "human":
+            n += 1 if (with_taken and t.taken) else 0
             continue
         last = next((r for r in reversed(t.replies) if r["text"]), None)
         if last is not None and mark.match(last["text"]) and mark.sub("", last["text"], count=1).strip():

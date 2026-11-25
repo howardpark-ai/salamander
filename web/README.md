@@ -1670,7 +1670,7 @@ table, a long item subject, a long motion line and a long kept-back line (GitHub
 
 Not in this page: the views, any change to how sessions are routed, and a check on turns nobody marked.
 
-### The chat session in sala's own view (first of four steps; `/chat` stays as it is for now)
+### The chat session in sala's own view (two of four steps; `/chat` stays as it is for now)
 
 The chat session is meant to be sala's own view of a session, opened on the session `SALA_CHAT_SESSION` names, not a second page drawn to look like it. The rule behind it: a new screen in a tool the owner already uses is that tool's own
 view, extended. So the header, the thread, the composer (box, attach button, image paste), the spacing, the buttons and the spinner of a working session are the ones every session has, from the same code. What the chat session adds is this
@@ -1685,10 +1685,24 @@ list, and a difference outside it is a defect:
   says something changed. Its rules live in `style.css` under `#chat-strip`: they are copies of the first page's, which stays as it is until it is retired.
 - **The assistant's text capped to the left** (`body.chat-session`, 68ch), as on the first page.
 
-**Not active in this step:** the kept-back switch is drawn off and says "not active yet", because the server does not tell the view which turns the owner did not start, so every turn shows as in any session. Link cards are not drawn.
-The first page (`/chat`, `chat.html`, `chat.js`, `chat.css`) is untouched, and the later steps make the switch work, add the link cards and retire it.
+**The kept-back switch works (second of four steps).** The server keeps back every turn the owner did not start, for the chat session alone (`chatkeep.py`; another session's transcript and stream are as they were). The rule of who started a turn
+is the first page's own (`chatturns.py`): a line he typed, or a slash command, starts his turn; a message another session delivered, a hook or a script (a line with sala's mark, a peer, a task notice, a plugin, an sdk prompt) starts one he did not,
+and a line the rule does not recognize counts as delivered, so it is kept back and counted, never shown and never lost.
 
-**No sideways scroll**, at any width, with the drawer open or shut: `tests/test_chat_session_view_ui.py` holds it at 1280, 390, 360 and 320 px with hostile text in the thread, a waiting subject and a motion line. (A markdown table wider
+- **A turn he started** streams whole, as in any session: its narration, tool calls and results as they arrive. A reply that opens with his mark (`[for <owner>]`) is drawn without it.
+- **A turn he did not start** is ONE message in place of its lines, `{uuid, role: "kept", ts, blocks: [], kept: {src: {kind, name}, what, did, open}}`: where it came from, what it was, and what the session did (`did` is the first line of the
+  turn's last reply, `open: true` while the turn is still going). When the turn ends the message is sent again with the same `uuid` and the page replaces the line, never adds a second. A turn whose reply opens with his mark shows that reply alone and
+  its line is withdrawn (`{uuid, role: "kept", gone: true}`). When he speaks into such a turn it becomes his: the line stays, closed, and everything after shows. The turn's own tool calls and narration are never sent.
+- **The thread's reads all give the same thread.** `GET /api/s/<pid>/transcript` (the last page, `before`, `around`, `after`) and the stream's `reset` and `append` run the same state machine, so a page holds whole turns (a cursor is the start of
+  a turn) and the stream cut anywhere gives what the history gives. Lines are read in file order.
+- **The page** draws each kept line with the one renderer every session uses (`renderMessage`, role `kept`: a quiet line with the time, the source, what it was and what the session did), hidden by default (`#chat .msg.kept`) and shown while the strip's
+  switch is on (`body.chat-kept-on`). The switch is a real checkbox, off at first, and the count beside it is `keptLines` of `GET /api/chat` (the number of kept lines today, a turn he then spoke into included), so it is the number of lines
+  the switch shows. The count sits in the strip, outside `#chat`, and is read again when the stream says something changed. Link cards are not drawn yet.
+
+The first page (`/chat`, `chat.html`, `chat.js`, `chat.css`) is untouched; the later steps add the link cards and retire it.
+
+**No sideways scroll**, at any width, with the drawer open or shut: `tests/test_chat_session_view_ui.py` holds it at 1280, 390, 360 and 320 px with hostile text in the thread, a waiting subject and a motion line, and
+`tests/test_chat_kept_ui.py` holds it again with the switch off and on and hostile text in the kept lines. (A markdown table wider
 than the thread scrolls inside its own block, as in every session; the page never does.) The same file holds that the chat session and another session, given the same transcript, differ only in the strip and the cap.
 
 ## Operation log pages
@@ -2221,7 +2235,7 @@ part of `web/`.
 | `GET /manifest.webmanifest` | the web app manifest (*Install as an app*), `application/manifest+json` |
 | `GET /sw.js` | the service worker, at the root so its scope is the whole site; `text/javascript`, never cached |
 | `GET /chat` | the chat page (*The chat page*): one configured session (`SALA_CHAT_SESSION`) as one conversation |
-| `GET /api/chat` | everything the chat page shows: `{configured, session, name, owner, present: live\|sleeping\|absent, status, pid, busy, entries, keptToday, keptTodayFloor, waiting, motion, now, version, styles, timezone, tzLabel, tzOffsetMin}`; `{configured: false, …}` when no session is set; `no-store`. `entries` are `me`, `reply`, `own` (with `cards`) and `kept` (with `src`, `what`, `did`, `open`) |
+| `GET /api/chat` | everything the chat page shows: `{configured, session, name, owner, present: live\|sleeping\|absent, status, pid, busy, entries, keptToday, keptTodayFloor, keptLines, waiting, motion, now, version, styles, timezone, tzLabel, tzOffsetMin}`; `{configured: false, …}` when no session is set; `no-store`. `entries` are `me`, `reply`, `own` (with `cards`) and `kept` (with `src`, `what`, `did`, `open`) |
 | `GET /mockup/<n>` | a mockup page `sala mockup add` stored (*Mockup pages*); `text/html; charset=utf-8`, 404 for an unknown number, the sandbox headers on every response |
 | `GET /op/<id>` | the log of one `sala op` operation (*Operation log pages*); `text/plain; charset=utf-8`, the last 256 KB, 404 `no such log` for anything else, the private headers on every response |
 | `GET /sessions` | redirects to `/#sessions`, the Overview |

@@ -5181,5 +5181,28 @@ activity, and no strip and no class for any other session; one composer and an i
 title, composer, send and attach buttons, the owner's bubble, copy button, messages and font size give the same boxes and computed style, only the assistant's text width differs); and no sideways scroll at 1280, 390, 360 and 320 px, drawer
 shut and open, with a 300-character word, a long address, wide code and a wide table in the thread and long text in waiting subjects and motion lines.
 
-Not covered, and why: the kept-back switch (inactive in this step: the server does not yet tell the view which turns the owner did not start), link cards, and the retirement of the first page, which are the next steps; the look of the
+Not covered, and why: link cards and the retirement of the first page, which are the next steps; the look of the
 strip on a real phone (the checks measure boxes and computed style, a screenshot shows the look).
+
+### The chat session in sala's own view, second step (the kept-back switch): `web/tests/test_chatkeep.py`, `test_chat_kept_ui.py` (browser), new; `test_chat_session_view.py`, `test_chat_session_view_ui.py` changed
+
+Changed: the stage-one tests that held the switch disabled ("not active yet", the `keptOff` string) now hold it live: a checkbox with a change handler that sets the view's flag and `chatSync` toggles `body.chat-kept-on`, the strip's count read
+from `keptLines` first; the strings of the kept lines (`chat.kept.open`, `chat.src.*`) exist in both languages; one renderer (`renderMessage` with role `kept`, no `innerHTML`, never counted as a new message) and the rules that hide a kept
+line unless the switch is on and never scroll by their own overflow.
+
+Kept (`test_chatkeep.py`, no browser; the rule and the reads): a turn the owner started shows whole (tool calls and results), and a message delivered into it is shown as sala shows it, not kept; a hidden turn is ONE kept message with the
+source, what it was and what the session did, and none of its own lines or tool calls show; the five kinds of source (another session, sala's mark, an origin the rule does not know, a turn the owner then spoke into), the unknown one kept back
+and counted, and a user line with no origin at all (not what Claude Code records for typed text) kept back while the same line with the human origin shows; a hidden turn for the owner shows its reply alone with the mark off and has no kept line, and the mark is never drawn in his own turn either (a reply that is only the mark keeps its text); a hidden turn still working is an
+open line and its reply lands on the same uuid, a reply for the owner that lands later withdraws the line; a reply still being written does not close a turn while the session works; the count of the switch (`kept_today` with the taken-over
+turns) equals the number of kept lines for the whole transcript and for a transcript cut at each of 19 points, and the first page's own count is as it was; the stream cut at each of 19 points gives the thread the history gives; older pages
+(five page sizes, three read windows) make the whole thread with no repeat and every cursor a line's start, newer pages the same, a page around a line holds the turn it is in, a turn longer than a page is never cut, a look-back that finds no
+closing reply still reads every line, lines that are not messages and a line still being written are skipped; over HTTP (the real server): the chat session's transcript carries the kept lines and another session's is as it was, a cursor that
+is not a line start is a 400, and the stream sends the thread and then the lines that come in. A mutation (the rule that keeps a delivered turn back replaced by "show it") was run once: 18 tests failed, then it was restored.
+Kept (`test_chat_kept_ui.py`, a headless Chromium at 1280x800 and 390x844, else skipped; GitHub CI runs it; it was written and collected on a box whose Chromium does not start, so CI is its first run): the switch is live and off at first, the kept
+lines are in the thread and hidden, the owner's turns and a tool call show, a click shows every line and a second click hides them, the count in the strip is the number of lines, no `[for ...]` or sala mark and no hidden turn's own line is in
+the page at all; a hidden turn that arrives while the page is open adds its line and the count, its reply lands on the same line, and a reply for the owner shows itself and takes the line away; the owner's own turn streams as it arrives; the
+header stays when the thread scrolls and there is one composer; and no sideways scroll at 1280, 390, 360 and 320 px, drawer shut and open, switch off and on, with a 300-character word, a long address, wide code and a wide table in the owner's
+turns and long text in the kept lines.
+
+Not covered, and why: a real transcript (the rule was established from real ones and the tests use made-up lines in their shapes); the look of a kept line on a real phone (the checks measure boxes); the browser tests on the box that wrote
+them (its Chromium does not start headless there, CI runs them); link cards and the retirement of the first page, the next steps.

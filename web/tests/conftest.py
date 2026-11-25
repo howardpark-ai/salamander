@@ -120,11 +120,15 @@ NOTICE = ("Another Claude session sent a message:\nfrom: demo\n\n"
           "Alex's go on [board#16](https://board.example.test/items/16); see https://example.com/notice too.")
 
 
-def transcript_line(t: str, content: list, uuid: str, meta: bool = False, model: str | None = None) -> str:
+def transcript_line(t: str, content: list, uuid: str, meta: bool = False, model: str | None = None, human: bool = False) -> str:
+    """One transcript line. `human`: a line the person typed (Claude Code records `origin: {kind: human}` for it; the chat session keeps back a user line without one)."""
     msg: dict = {"role": t, "content": content}
     if model:
         msg["model"] = model
     d: dict = {"type": t, "uuid": uuid, "timestamp": "2026-10-14T03:00:00.000Z", "message": msg}
+    if human:
+        d["origin"] = {"kind": "human"}
+        d["promptSource"] = "typed"
     if meta:
         d["isMeta"] = True
     return json.dumps(d) + "\n"
