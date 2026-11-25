@@ -43,6 +43,7 @@
   "tests/machinefollow.sh": 3.0,
   "tests/mockup.sh": 11.0,
   "tests/mod.sh": 58.0,
+  "tests/motion.sh": 6.0,
   "tests/modelinplace.sh": 122.5,
   "tests/models.sh": 62.0,
   "tests/monthlycap.sh": 22.0,

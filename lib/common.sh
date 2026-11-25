@@ -26,6 +26,8 @@ SALA_CONFIG="${SALA_CONFIG:-$HOME/.config/salamander/config}"
 : "${SALA_SCOPES:=}"                              # the scopes sessions are named by (<scope>-<project>-…), space-separated; empty = none. The web UI takes them from this first, and from stackshot's own settings file only when this is empty or unset
 : "${SALA_DEFAULT_SCOPE:=}"                       # the scope a page outside every scope's directory is named in; empty = the first of SALA_SCOPES
 : "${SALA_HELP_SESSION:=}"                       # web UI only: the session the overview's Get Help chip opens; empty = no chip
+: "${SALA_CHAT_SESSION:=}"                       # web UI only: the one session the chat page (/chat) is for; empty = the page says none is configured
+: "${SALA_CHAT_NAME:=}"                          # web UI only: what the chat page calls that session; empty = the part of the session name after its last hyphen, capitalized
 : "${SALA_BRAND_SUFFIX:=}"                        # web UI only: what follows "salamander" in its title bar (salamander : <suffix>); empty = "salamander" alone
 : "${SALA_OWNER_NAME:=the owner}"                # what runtime text calls the human running this machine ("the owner" reads naturally in "<name>'s words"); it is also the name in the `[for <name>]` line-1 marker, so it must equal stackshot's [instance] owner. The web app reads it the same way
 # cleaned once, here: the name lands inside double-quoted strings, a remote shell's -p "..." and sed/awk programs, so only letters, digits, space . _ ' - stay
@@ -106,7 +108,7 @@ unset _sala_drain_words
 [ -n "${SALA_DRAIN_DENY_TEXT:-}" ] || SALA_DRAIN_DENY_TEXT='[sala] Refused: <call> would outlive this turn, and a <what> is waiting for this session (anything still running holds the relaunch up). Finish this turn without starting it. Leave `sala note "<next step>"` for anything that must continue after the relaunch, and run `sala ready` as the turn'\''s last call. This refusal ends when the relaunch is done.'
 
 cs_print_config() {
-    for v in SALA_CONFIG SALA_RC_SESSION SALA_SHELL_SESSION SALA_RC_NAME SALA_RC_CAPACITY SALA_RC_RESTART_DELAY SALA_TZ SALA_BACK_CWD SALA_SLACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_OWNER_NAME SALA_LOG_DIR \
+    for v in SALA_CONFIG SALA_RC_SESSION SALA_SHELL_SESSION SALA_RC_NAME SALA_RC_CAPACITY SALA_RC_RESTART_DELAY SALA_TZ SALA_BACK_CWD SALA_SLACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_CHAT_SESSION SALA_CHAT_NAME SALA_OWNER_NAME SALA_LOG_DIR \
              SALA_RESURRECT_DIR SALA_RESURRECT_SAVE SALA_CLAUDE SALA_SPAWN_PREFIX SALA_SNAPSHOT_CMD SALA_SNAPSHOT_DELAY SALA_FLEET_HOSTS SALA_POST_UPDATE_CMD SALA_POST_RECYCLE_CMD SALA_WATCH_COOLDOWN SALA_WATCH_NOTIFY_CMD SALA_RETRY_EVERY SALA_RETRY_WINDOW SALA_READY_TTL SALA_READY_WAIT SALA_RELAUNCH_WAITING_TEXT SALA_DRAIN SALA_DRAIN_DENY_TEXT SALA_BOOT_GRACE SALA_BOOT_DEADLINE SALA_HEARTBEAT_REPO SALA_HEARTBEAT_DIR SALA_FLEET_NAMES SALA_REG_DIR SALA_PROJECTS SALA_STATE_DIR SALA_SIDECAR SALA_LEDGER_LOG SALA_SESSIONS SALA_SESSIONS_FILE SALA_MOD_DIR SALA_MOD_WAIT \
              SALA_LANES SALA_LANE_API_KEY_FILE SALA_LANE_API_WORKSPACE_FILE SALA_LANE_API_MCP_CONFIG SALA_LANE_TEAM_DIR SALA_LANE_SDK_PIN SALA_LANE_SDK_CMD \
              SALA_LANE_BEDROCK_PROFILE SALA_LANE_BEDROCK_CREDENTIALS_FILE SALA_LANE_BEDROCK_PREFIX SALA_LANE_BEDROCK_OPUS_MODEL SALA_LANE_BEDROCK_SONNET_MODEL SALA_LANE_BEDROCK_HAIKU_MODEL \

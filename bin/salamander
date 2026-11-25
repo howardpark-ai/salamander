@@ -216,6 +216,10 @@
 #   salamander mockup list [--json] | remove N | clean [--dry-run] [--days N] [--max-bytes N]   the stored pages · delete one · the daily pass (sala-mockup-clean.timer):
 #                                      pages older than SALA_MOCKUP_KEEP_DAYS (7) that no open board item links, then the oldest first until the folder is under
 #                                      SALA_MOCKUP_MAX_BYTES (1 GB), linked pages last (SALA_MOCKUP_REFERENCES says how to tell what is linked; unset keeps all)
+#   salamander motion add "<line>" | done "<line>"|N | clear | list [--json]   [--for NAME]
+#                                      the few short lines a session sets itself to say what is in motion right now (lib/motion.sh, lib/motion.py): at most 8, each at
+#                                      most 120 characters, each gone after 24 hours; one small file per session under $SALA_STATE_DIR/motion. sala-web's chat page shows
+#                                      them under "In motion"; the default session is the one the command runs in, --for NAME names another
 #   salamander stackshot-key init | enroll | status
 #                                      sala's own key for stackshot (lib/stackshot-key.sh, lib/stackshot_key.py, docs/stackshot-contracts.md): `enroll` makes an Ed25519 key
 #                                      if there is none (the private half stays in $XDG_STATE_HOME/salamander/stackshot-key, mode 600, never printed) and asks stackshot to trust
@@ -258,6 +262,7 @@ case "$sub" in
     machines) . "$SALA_ROOT/lib/machines.sh"; machines_main "$@"; exit $? ;;   # the fleet's machines from the owner's files, read-only (docs/subcommands.md)
     host) . "$SALA_ROOT/lib/machines.sh"; host_main "$@"; exit $? ;;   # which machine hosts sala or stackshot: the holds script's host and set-host (docs/subcommands.md)
     stackshot-key) . "$SALA_ROOT/lib/stackshot-key.sh" ;;   # sala's own key for stackshot and the pass it trades for (docs/stackshot-contracts.md)
+    motion) . "$SALA_ROOT/lib/motion.sh" ;;   # the lines a session sets itself for the chat page's "In motion" (docs/subcommands.md)
     mockup) . "$SALA_ROOT/lib/mockup.sh" ;;   # an HTML mockup as a numbered sala-web page (docs/mockup.md)
     config) cs_print_config ;;
     -h|--help|'') sed -n '2,/^#   salamander config/p' "$SALA_BIN" | sed 's/^# \{0,1\}//'; [ -n "$sub" ] || exit 2 ;;

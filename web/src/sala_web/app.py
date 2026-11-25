@@ -10,6 +10,10 @@ none itself):
                                   session, #sessions the sessions overview (every live session's role, status, model
                                   and lane, with account usage and API spend above them)
   GET  /terminal                  the full-size terminal: ttyd's page in a frame filling the window, ?arg=<tmux session> (static/terminal.html)
+  GET  /chat                      the chat page: one configured session (SALA_CHAT_SESSION) as one conversation (static/chat.html; web/README.md,
+                                  *The chat page*); GET /api/chat is its data: what the owner typed, the final reply of each turn he started,
+                                  the one-line record of every turn something else started, his moves from the board feed, the session's own
+                                  `sala motion` lines, and link cards (read-only; it sends nothing, the page's composer uses /api/s/<pid>/send)
   GET  /manifest.webmanifest      the web app manifest (the page is installable as an app; static/manifest.webmanifest)
   GET  /sw.js                     the service worker, at the root so its scope is the whole site (static/sw.js)
   GET  /mockup/<n>                a page `sala mockup add` stored under that number (mockup.py; 404 for any other address under /mockup), as
@@ -276,6 +280,7 @@ from starlette.routing import Mount, Route, request_response
 from starlette.staticfiles import StaticFiles
 
 from . import board as B
+from . import chatpage as CP
 from . import colors as CLR
 from . import credit as CR
 from . import debuglog as DL
@@ -304,7 +309,7 @@ from . import transcript as TR
 from . import unread as UR
 from . import usage as USG
 from . import usage_digest as USGD
-from .config import SHELL_SESSION, Settings, brand_suffix, help_session, log_dir, owner_name
+from .config import SHELL_SESSION, Settings, brand_suffix, chat_name, chat_session, help_session, log_dir, owner_name
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
@@ -673,6 +678,29 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # window, so that the clipboard code (static/termclip.js) is on it; bare /tty/ in a tab has none. Under the same login as
         # "/" (the proxy sends only /tty to ttyd, everything else here), and ?arg=<tmux session> is read by the page, not here.
         return _page("terminal.html")
+
+    async def chat_page(request: Request) -> Response:
+        # the chat page: one configured session as one conversation (static/chat.html), under the same login as "/" (the proxy's)
+        return _page("chat.html")
+
+    chat_cache: dict = {}
+
+    async def api_chat(request: Request) -> Response:
+        # everything the chat page shows, in one answer (chatpage.assemble): read-only. The session is the one SALA_CHAT_SESSION names, found by name
+        # among the live and sleeping sessions; the board feed is the shared cache's (the same read as /api/board/items), never a second round
+        name = chat_session()
+        page, styles = page_versions()
+        head = {"version": page, "styles": styles, **TZ.info()}
+        if not name:
+            return JSONResponse({"configured": False, **head}, headers={"Cache-Control": "no-store"})
+        rows = await run_in_threadpool(_live_and_sleeping)
+        sess = next((x for x in rows if x.name == name), None)
+        board_doc = await board.get([x.name for x in rows])
+        doc = await run_in_threadpool(lambda: CP.assemble(
+            name=name, display=chat_name(), owner=owner_name(), sess=sess, projects_dir=settings.projects_dir, zone=TZ.zone(),
+            now_ms=int(time.time() * 1000), host=request.headers.get("host", ""), mockups_dir=settings.mockups_dir,
+            motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache))
+        return JSONResponse({**doc, **head}, headers={"Cache-Control": "no-store"})
 
     def _page(name: str) -> Response:
         # the title bar's text is in the served page (paintBrand only repaints it), so a reload shows no flash of the bare name.
@@ -2048,6 +2076,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
     routes = [
         Route("/", index),
         Route("/terminal", terminal_page),
+        Route("/chat", chat_page),
+        Route("/api/chat", api_chat),
         Route("/manifest.webmanifest", manifest),
         Route("/sw.js", service_worker),
         # everything under /mockup (any method, any depth) is answered by mockup_page, so no answer of this prefix lacks the sandbox headers

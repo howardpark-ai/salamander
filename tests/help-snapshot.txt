@@ -216,6 +216,10 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander mockup list [--json] | remove N | clean [--dry-run] [--days N] [--max-bytes N]   the stored pages · delete one · the daily pass (sala-mockup-clean.timer):
                                      pages older than SALA_MOCKUP_KEEP_DAYS (7) that no open board item links, then the oldest first until the folder is under
                                      SALA_MOCKUP_MAX_BYTES (1 GB), linked pages last (SALA_MOCKUP_REFERENCES says how to tell what is linked; unset keeps all)
+  salamander motion add "<line>" | done "<line>"|N | clear | list [--json]   [--for NAME]
+                                     the few short lines a session sets itself to say what is in motion right now (lib/motion.sh, lib/motion.py): at most 8, each at
+                                     most 120 characters, each gone after 24 hours; one small file per session under $SALA_STATE_DIR/motion. sala-web's chat page shows
+                                     them under "In motion"; the default session is the one the command runs in, --for NAME names another
   salamander stackshot-key init | enroll | status
                                      sala's own key for stackshot (lib/stackshot-key.sh, lib/stackshot_key.py, docs/stackshot-contracts.md): `enroll` makes an Ed25519 key
                                      if there is none (the private half stays in $XDG_STATE_HOME/salamander/stackshot-key, mode 600, never printed) and asks stackshot to trust
@@ -623,6 +627,22 @@ usage: sala mockup add FILE|-
           SALA_MOCKUP_REFERENCES says how to tell what is linked: unset = keep every page (both rules) and say why; none = nobody links a page;
           otherwise a command (run without a shell) whose output holds the open items' text: every /mockup/<n> in it counts as linked. A command
           that fails keeps every page (exit 1). --dry-run deletes nothing.
+
+### sala motion --help (exit 0)
+usage: sala motion add "<line>" [--for NAME]
+       sala motion done "<line>"|N [--for NAME]
+       sala motion clear [--for NAME]
+       sala motion list [--json] [--for NAME]
+
+  add     puts a line on the session's list: one line of text, at most 120 characters (a longer one is refused, never cut). At most 8 lines are
+          kept; a ninth is refused with a sentence. A line already listed only has its 24 hours started again.
+  done    takes a line off, by its exact text or by its number in `list`.
+  clear   takes every line off.
+  list    the lines still in force, numbered ("nothing right now" when there are none); --json: the same as an array of {n, text, at}.
+
+  The session is the one this command runs in; --for NAME says another's (and is required outside a session). A line expires 24 hours after it was
+  set; an expired line is not listed and the next write drops it. The lines are the session's own words: nothing else writes them and no model
+  filters them. Stored as one small file per session under $SALA_STATE_DIR/motion (mode 700, files 600), written whole and renamed into place.
 
 ### sala dm --help (exit 0)
 usage: sala dm <app> [--thread <ts>] [TEXT|-]

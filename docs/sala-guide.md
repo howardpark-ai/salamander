@@ -138,6 +138,8 @@ Use your own values. The table says what each setting does and what happens when
 | `SALA_TZ` | An IANA zone, for example `Europe/Berlin`. Used for spawn names, logs and every time the web UI shows. | Your machine's local time. The web UI then shows each viewer's own zone. |
 | `SALA_BRAND_SUFFIX` | What follows "salamander" in the web UI's title bar: "salamander : alex's box". At most 40 characters. | "salamander" alone. |
 | `SALA_HELP_SESSION` | The name of a session that the web UI's overview opens from its "Get Help" chip. | No chip. |
+| `SALA_CHAT_SESSION` | The name of the one session the web UI's chat page (`/chat`) is for. | The page says no session is configured. |
+| `SALA_CHAT_NAME` | What the chat page calls that session. | The part of the session name after its last hyphen, capitalized. |
 | `SALA_SHELL_SESSION` | The tmux session of the web UI's Shell drawer. It is a plain `bash -l`, not a Claude session. sala leaves it alone and refuses it as a session name. | `sala-shell`. |
 
 Three of these must agree with your board, if you have one:

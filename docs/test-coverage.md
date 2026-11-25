@@ -5094,3 +5094,20 @@ Covered, in `tests/deploy.sh` (throwaway origin and clone, a fake `uv` and `syst
 Covered in a browser (`test_page_version_browser.py`; GitHub CI runs it, the test box does not): after every file is touched (a restart) the version check shows no strip and nothing reloads; one more line in `app.js` shows the strip with its Reload; a rule added to `style.css` is in force within moments with one link per sheet, no strip, the window's marker and the composer's text kept; a changed title suffix, zone and Shell name are on the page after the same check.
 
 Not covered, and why: a real service restart (the unit is the host's; the commit's absence from the version is held on two apps with different commits); a `<style>` block in `index.html`, which is part of the page and so asks for a reload (a decision, noted in `web/README.md`).
+
+### `sala motion` and the chat page: `tests/motion.sh`, new; `web/tests/test_chatturns.py`, `test_chatpage.py`, `test_chat_no_sideways_scroll.py` (browser), new
+
+`sala motion` keeps a session's short "in motion" lines in one small file that two programs touch (the CLI writes, sala-web reads), and the chat page decides what its owner is shown from a transcript. The checks stay where a wrong answer
+hides a message or breaks a file.
+
+Covered (`tests/motion.sh`, a locked temporary tree removed by a trap): add, done by text and by number, clear, list and `list --json`; the limits (8 lines, 120 characters) refuse rather than cut; a line older than 24 hours is gone from
+`list` and the next write drops it; a repeat renews the clock; `--for NAME` and the caller's own session; a bad name, a file that is not the format, a malformed row among good ones; the file's mode (600 in a 700 folder), no temporary file left behind, and that six writers
+at once all land in a whole file (the lock and the rename); the exit codes (0, 1, 2) and the usage text.
+
+Covered (`web/tests/test_chatturns.py`, from fixture lines of the shapes real transcripts hold): who started a turn (typed, queued while busy, a slash command; peer, task notification, plugin, no origin, sdk, an unknown kind), tool
+results, sidechain lines and compaction stubs as no turn, only the final reply showing, narration before a tool call never showing, the `[for <owner>]` mark showing a hidden turn without the mark and no other mark doing so, a hook's
+follow-up joining its turn, the kept line's source in plain words and its last line without the footer notes, today's count in the zone, and a half-written last line. (`test_chatpage.py`): the settings, the link cards (and that nothing is
+fetched), the board lines once each over every session, the motion reader, and `GET /chat` and `GET /api/chat` served.
+
+Not covered, and why: the page's look and behavior in a browser except the width rule (`test_chat_no_sideways_scroll.py`, which GitHub CI runs; the test box has no browser); a real transcript (the rule was established from them and the
+shapes are in the fixtures, but a test never reads one).
