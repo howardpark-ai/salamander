@@ -16,28 +16,66 @@
 #overview-pane .sp-note { font-size: 13px; color: var(--muted); }
 #overview-pane .sp-note:not(:empty) { margin-bottom: 8px; }
 #overview-pane .sp-note.error { color: var(--error); }
-/* A table here never scrolls sideways, at any width: this box does not scroll (clip: it only rounds the corners). Where the columns do not fit, sessions.js (fitTable)
-   puts .fold on the box and the rows become cards (index.html, "Agents as cards"); a long cell wraps or is cut with an ellipsis, it never widens the table.
-   The width test (web/tests/test_table_width.py) holds it. The Schedules table keeps its own box (schedules.css). */
+/* A table here never scrolls sideways, at any width (the owner's rule; web/tests/test_agents_no_sideways_scroll.py and test_table_width.py hold it). The box does
+   not scroll (clip: it only rounds the corners), and the table is laid out fixed: the column widths below add up to the box's width, so a long name, model or
+   lane is cut with an ellipsis (a tag, a pill, a header and a cell each cut their own text) and never widens the table. At a phone's width (760px and under)
+   sessions.js (fitTable) puts .fold on the box and the rows become cards (index.html, "Agents as cards"). The Schedules table keeps its own box (schedules.css). */
 #overview-pane .sp-wrap { overflow: clip; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
-#overview-pane :is(#sp-table, #ld-table) { width: 100%; border-collapse: collapse; font-size: 15px; white-space: nowrap; }
-#overview-pane :is(#sp-table, #ld-table) th, #overview-pane :is(#sp-table, #ld-table) td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
-#overview-pane :is(#sp-table, #ld-table) tbody tr:last-child td { border-bottom: 0; }
-#overview-pane :is(#sp-table, #ld-table) tbody tr:hover { background: var(--hover); }
+#overview-pane :is(#sp-table, #ld-table) { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 15px; white-space: nowrap; }
+#overview-pane :is(#sp-table, #ld-table) .c-name { width: 25%; }
+#overview-pane :is(#sp-table, #ld-table) .c-role { width: 8%; }
+#overview-pane :is(#sp-table, #ld-table) .c-surface { width: 11%; }
+#overview-pane :is(#sp-table, #ld-table) .c-status { width: 13%; }
+#overview-pane :is(#sp-table, #ld-table) .c-model { width: 17%; }
+#overview-pane :is(#sp-table, #ld-table) .c-effort { width: 12%; }
+#overview-pane :is(#sp-table, #ld-table) .c-lane { width: 14%; }
+#overview-pane :is(#sp-table, #ld-table) th, #overview-pane :is(#sp-table, #ld-table) td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border);
+  overflow: hidden; text-overflow: ellipsis; }
+#overview-pane :is(#sp-table, #ld-table) tbody:last-child tr:last-child td { border-bottom: 0; }
+#overview-pane :is(#sp-table, #ld-table) tbody tr:not(.ag-g):hover { background: var(--hover); }
 #overview-pane :is(#sp-table, #ld-table) th { background: var(--side-bg); font-size: 12px; font-weight: 600; color: var(--muted); padding: 0; }
-#overview-pane #sp-table th button { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 4px; width: 100%;
+#overview-pane #sp-table th button { all: unset; box-sizing: border-box; display: block; width: 100%; overflow: hidden; text-overflow: ellipsis;
   padding: 8px 12px; cursor: pointer; }
+@media (max-width: 1000px) { #overview-pane :is(#sp-table, #ld-table) td { padding-inline: 8px; } #overview-pane #sp-table th button, #overview-pane #ld-table th { padding-inline: 8px; } }
 #overview-pane #sp-table th button:hover { color: var(--text); }
 #overview-pane #sp-table th button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-#overview-pane #sp-table th button::after { content: ""; width: 10px; color: var(--faint); }
+#overview-pane #sp-table th button::after { content: ""; display: inline-block; width: 10px; margin-left: 4px; color: var(--faint); }
 #overview-pane #sp-table th[aria-sort="ascending"] button::after { content: "\25B4"; }
 #overview-pane #sp-table th[aria-sort="descending"] button::after { content: "\25BE"; }
 #overview-pane #sp-table th[aria-sort="ascending"] button, #overview-pane #sp-table th[aria-sort="descending"] button { color: var(--text); }
-#overview-pane :is(#sp-table, #ld-table) a { color: var(--text); font-weight: 400; text-decoration: none; }
+#overview-pane :is(#sp-table, #ld-table) a { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-weight: 400; text-decoration: none; }
 #overview-pane :is(#sp-table, #ld-table) a:hover { color: var(--link); text-decoration: underline; }
+/* a tag or a pill is cut with its own ellipsis when its cell is narrower than its words (its title says it whole) */
+#overview-pane :is(#sp-table, #ld-table) :is(.sp-tag, .sp-pill) { display: inline-block; box-sizing: border-box; max-width: 100%; min-width: 0; vertical-align: middle;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 20px; }
+#overview-pane :is(#sp-table, #ld-table) .sp-model { display: flex; max-width: 100%; min-width: 0; overflow: hidden; }
+/* the Surface column: "slack" in the accent colour, "sala" in the text's; the dash of a row with no surface is muted */
+#overview-pane .ag-slack { color: var(--accent); }
+/* GROUP BY: three toggle buttons above the list, then a heading row per group (a button that folds the group's rows) */
+#overview-pane .ag-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+#overview-pane .ag-lbl { font-size: 13px; color: var(--muted); }
+#overview-pane .ag-seg { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+#overview-pane .ag-chip { box-sizing: border-box; min-height: var(--ctl, 32px); padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel);
+  color: var(--muted); font: inherit; font-size: 13px; line-height: 1; cursor: pointer; }
+#overview-pane .ag-chip:hover { background: var(--hover); color: var(--text); }
+#overview-pane .ag-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#overview-pane .ag-chip[aria-pressed="true"] { border-color: var(--accent-solid, var(--accent)); color: var(--accent-solid, var(--accent)); font-weight: 600;
+  background: color-mix(in srgb, var(--accent-solid, var(--accent)) 12%, var(--panel)); }
+@media (max-width: 760px) { #overview-pane .ag-bar { align-items: flex-start; flex-direction: column; } #overview-pane .ag-chip { min-height: max(40px, var(--ctl, 32px)); padding: 0 16px; } }
+#overview-pane #sp-table tr.ag-g td { padding: 0; background: var(--selected); }
+#overview-pane #sp-table .ag-gh { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; cursor: pointer;
+  color: var(--text); font-size: 13px; font-weight: 600; }
+#overview-pane #sp-table .ag-gh:hover { background: var(--hover); }
+#overview-pane #sp-table .ag-gh:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#overview-pane #sp-table .ag-gname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#overview-pane #sp-table .ag-gn { color: var(--faint); font-weight: 400; }
+#overview-pane #sp-table .ag-chev { flex: none; width: 7px; height: 7px; margin-right: 2px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg) translate(-1px, -1px); }
+#overview-pane #sp-table .ag-gh[aria-expanded="false"] .ag-chev { transform: rotate(-45deg); }
 #overview-pane .sp-muted { color: var(--faint); }
 #overview-pane .sp-warn { color: var(--busy); }
-#overview-pane .sp-status { display: inline-flex; align-items: center; gap: 8px; }
+#overview-pane .sp-status { display: flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; }
+#overview-pane .sp-status > span:not(.dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #overview-pane .sp-status.working { color: var(--busy); }
 #overview-pane .sp-status.waiting { color: var(--waiting); }
 #overview-pane .sp-pill { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 12px;

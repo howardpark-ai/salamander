@@ -10,7 +10,7 @@ from sala_web import app as A
 from sala_web.app import create_app
 from sala_web.config import Settings
 
-DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [], "laneOrder": [], "showAll": False, "showSleeping": False, "unreadOnly": False,
+DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [], "laneOrder": [], "agentsGroup": "", "agentsFolded": [], "showAll": False, "showSleeping": False, "unreadOnly": False,
             "showTools": False, "shellHeight": 300, "lang": "en"}
 
 

@@ -57,7 +57,7 @@ const state = {
   es: null,             // EventSource
   defaultScope: "",     // the scope a new project starts in (api/config)
   scopes: [],           // this box's scopes (api/config) and other, each with its project groups; Unregistered last
-  prefs: { scopeOrder: [], groupOrder: [], sessionOrder: [], collapsed: [], laneOrder: [], showAll: false, showSleeping: false, unreadOnly: false, showTools: false, shellHeight: 300, lang: "en" },  // server-side (api/prefs): follows the owner
+  prefs: { scopeOrder: [], groupOrder: [], sessionOrder: [], collapsed: [], laneOrder: [], agentsGroup: "", agentsFolded: [], showAll: false, showSleeping: false, unreadOnly: false, showTools: false, shellHeight: 300, lang: "en" },  // server-side (api/prefs): follows the owner
   prefsNote: "",
   tab: "chat",
   terminalUrl: "/tty/?arg=",
@@ -232,7 +232,11 @@ async function saveList(key, compute) {
   }
   const next = compute(cur);
   const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
-  if (n === listSaves[key] && !same(next, state.prefs[key])) { state.prefs[key] = next; if (key !== "laneOrder") renderSidebar(); }
+  if (n === listSaves[key] && !same(next, state.prefs[key])) {
+    state.prefs[key] = next;
+    if (key === "agentsFolded") overview.redraw();   // the Agents list's folded groups
+    else if (key !== "laneOrder") renderSidebar();
+  }
   if (same(next, cur)) return true;   // the server has it already
   await savePrefs({ [key]: next });
   return true;
@@ -4485,6 +4489,7 @@ paintShellTip();
   } catch { /* storage unavailable */ }
   $("#show-back").checked = !!state.prefs.showAll;
   $("#show-sleeping").checked = !!state.prefs.showSleeping;
+  overview.redraw();   // the Agents list's saved grouping and folds, if the list was drawn before the prefs came
   applyShowTools();
   // the board items are read beside the sessions (the server answers both from its caches), for the New session page's
   // item picker alone; nothing of the first paint waits for them

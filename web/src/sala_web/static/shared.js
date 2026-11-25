@@ -43,6 +43,31 @@ const unreadKept = (sessions, selected) => sessions.filter((s) => s.name === sel
 // is dropped by the caller, which is how a project that only sleeps leaves the list.
 const sleepersKept = (sessions, selected, showSleeping) => (showSleeping ? sessions : sessions.filter((s) => s.name === selected || s.sleeping === undefined));
 // </sleeping-words>
+// <agent-group-words> (the tests run what is between these two markers in node, with the lane words above)
+// The Agents list's "Group by": three ways to split the rows; a lit button clicked again goes back to the plain list ("" is that choice). The
+// rows come in already sorted (the header's sort) and each group keeps that order inside it. The groups are in a fixed order and an empty one
+// is left out (a group exists only because a row has its key); a key the order does not name goes after the ones it does, and the rows with
+// no value at all ("" for a missing role, lane or status) go last.
+//   status: needs input, working, shell, idle, sleeping      role: front, back, then any other role word
+//   lane:   the lane cards' order on the page (the caller passes the lane ids as the cards stand; a lane without a card goes last)
+const AGENT_GROUPS = ["status", "lane", "role"];
+const AGENT_STATUS_ORDER = ["needs input", "working", "shell", "idle", "sleeping"];
+const AGENT_ROLE_ORDER = ["front", "back"];
+const agentGroupKey = (by, r) => (by === "status" ? r.status || "" : by === "lane" ? (r.lane ? laneNorm(r.lane) : "") : by === "role" ? r.role || "" : "");
+function agentGroups(rows, by, laneIds) {
+  if (!AGENT_GROUPS.includes(by)) return [];
+  const order = by === "status" ? AGENT_STATUS_ORDER : by === "role" ? AGENT_ROLE_ORDER : (laneIds || []).map(laneNorm);
+  const rank = (k) => (k === "" ? order.length + 1 : order.includes(k) ? order.indexOf(k) : order.length);
+  const groups = new Map();
+  for (const r of rows) {
+    const k = agentGroupKey(by, r);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  }
+  return [...groups].map(([key, rs]) => ({ key, rows: rs }))
+    .sort((a, b) => rank(a.key) - rank(b.key) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+// </agent-group-words>
 // asked once at start and again with the Overview's usual refresh; a failed or unreadable answer leaves what the page has
 async function loadLaneNames() {
   try {

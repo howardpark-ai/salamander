@@ -27,6 +27,7 @@ const statusText = (s) => (s && Object.hasOwn(STATUS_KEY, s) ? tl(STATUS_KEY[s])
 
 const sp = { laneDrag: false, laneRedraw: false, rows: [], key: null, dir: 1, timer: null, qtimer: null, ctimer: null, follow: null, tries: 0,
   qcards: [], ccard: null, scards: [], active: false,  // key null: the server's order (the sidebar's)
+  laneIds: [],   // the lane cards' order as drawn (drawCards): the order of the Agents list's lane groups
   loaded: false, note: null, qerr: null,    // loaded: sp.rows is an answer; note: the sessions line's key and vars; qerr: the cards' load error, so a language change draws them again
   quota: null, credit: null, spend: null,  // the last answers of api/quota (its lanes), api/credit and api/spend, the details page draws its card from them
   lane: null };                            // the lane whose details page is open: {id, record, state, error, loaded}
@@ -35,7 +36,6 @@ const projectLabel = (r) => (r.projectTitle ? r.scope + "/" + r.projectTitle : "
 
 const cellText = {
   name: (r) => r.name,
-  project: (r) => projectLabel(r),
   role: (r) => r.role || "",
   status: (r) => r.status || "",
   model: (r) => (r.model ? modelLabel(r.model) : ""),
@@ -92,6 +92,8 @@ const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 // a column's sort value: a string, a number, or an array compared element by element; "" is a blank, last either way
 const sortVal = {
   role: (r) => (r.role in ROLE_RANK ? ROLE_RANK[r.role] : 9),
+  // sala before slack; a row with no surface (a back agent, no role) is blank, last either way
+  surface: (r) => (r.role === "front" ? (r.surface === "slack" ? 1 : 0) : ""),
   // the family (in FAMILIES' order, others after), then the version; a version unknown after the known ones
   model: (r) => {
     if (!r.model) return "";
@@ -160,16 +162,21 @@ function sessionRow(r) {
   const link = document.createElement("a");
   link.href = "#s=" + encodeURIComponent(r.name);  // opens it in this page: the hash change leaves the overview
   link.textContent = r.name;
+  link.title = r.projectTitle ? projectLabel(r) : tl("ov.row.unregistered");   // the project is the name's tooltip, no column of its own
   const st = span("sp-status " + ({ busy: "working", waiting: "waiting" }[STATUS_DOT[r.status]] || ""), "");
-  st.append(span("dot " + (STATUS_DOT[r.status] || ""), ""), statusText(r.status));
+  st.append(span("dot " + (STATUS_DOT[r.status] || ""), ""), span("sp-stext", statusText(r.status)));
   // a sleeping session (its claude ended on purpose, its pane stays) says only "sleeping" here: the time it went to sleep is on its own page (the band above its conversation), so the row stays as narrow as any other
   if (r.sleeping !== undefined) st.title = tl("ov.row.sleepingTip");
   // a conversation moved into a background job: one row, the job's status above, and where it runs
   if (r.parkedJob) st.append(span("sp-muted", tl("ov.row.inJob", { job: r.parkedJob }), tl("ov.row.jobTitle")));
+  // the surface: where a front agent answers the owner, "sala" (the default, the key absent) or "slack"; a dash for any other row
+  const front = r.role === "front";
+  const surface = td(front ? span(r.surface === "slack" ? "ag-slack" : "", r.surface === "slack" ? "slack" : "sala") : span("sp-muted", "–"));
+  if (!front) surface.className = "ag-dash";   // a phone's card leaves the dash out
   tr.append(
     td(link),
-    td(r.projectTitle ? span("", projectLabel(r), r.project) : span("sp-muted", tl("ov.row.unregistered"))),
     td(r.role ? r.role : span("sp-muted", tl("ov.common.none"))),
+    surface,
     td(st),
     td(modelCell(r)),
     td(effortCell(r)),
@@ -205,12 +212,70 @@ function emptyRow(text) {
   return tr;
 }
 
+// GROUP BY (the buttons above the list; shared.js agentGroups holds the order). The choice and the folded groups are api/prefs' agentsGroup ("" is the plain
+// list, the default) and agentsFolded (keys "<by>:<value>", so a fold belongs to the way of grouping it was made in); a value the page does not know reads as "".
+// A group is a heading row (a button, aria-expanded) that folds and unfolds its rows; the header's sort works inside each group.
+const prefsNow = () => (typeof state !== "undefined" && state.prefs) || {};
+const groupBy = () => (AGENT_GROUPS.includes(prefsNow().agentsGroup) ? prefsNow().agentsGroup : "");
+const foldedGroups = () => (Array.isArray(prefsNow().agentsFolded) ? prefsNow().agentsFolded : []);
+function groupLabel(by, key) {
+  if (by === "status") return key ? statusText(key) : tl("ov.common.unknown");
+  if (by === "lane") return key ? laneLabel(key) : tl("ov.common.unknown");
+  return key || tl("ov.group.noRole");
+}
+const focusHeading = (k) => {
+  const b = [...document.querySelectorAll("#sp-table button[data-gkey]")].find((x) => x.dataset.gkey === k);
+  if (b) b.focus({ preventScroll: true });
+};
+function groupBody(by, g) {
+  const k = by + ":" + g.key, open = !foldedGroups().includes(k);
+  const tb = document.createElement("tbody");
+  const tr = document.createElement("tr");
+  tr.className = "ag-g";
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "ag-gh";
+  b.dataset.gkey = k;
+  b.setAttribute("aria-expanded", String(open));
+  b.append(span("ag-chev", ""));
+  if (by === "status") b.append(span("dot " + (STATUS_DOT[g.key] || ""), ""));
+  b.append(span("ag-gname", groupLabel(by, g.key)), span("ag-gn", String(g.rows.length)));
+  b.addEventListener("click", () => {
+    const want = !open;   // the saved list is set to the wanted state, never flipped: another device may have changed it since
+    saveList("agentsFolded", (cur) => (want ? cur.filter((x) => x !== k) : cur.includes(k) ? cur : [...cur, k]));
+    render();
+    focusHeading(k);   // a click does not focus a button in every browser (Safari, a scripted click), and render() made a new one: the focus stays on the heading it was on
+  });
+  const c = td(b);
+  c.colSpan = 7;
+  tr.append(c);
+  tb.append(tr);
+  if (open) tb.append(...g.rows.map(sessionRow));
+  return tb;
+}
+for (const b of document.querySelectorAll("#ag-bar [data-by]")) {
+  b.addEventListener("click", () => {
+    savePrefs({ agentsGroup: groupBy() === b.dataset.by ? "" : b.dataset.by });   // a lit button again: back to the plain list
+    render();
+  });
+}
+
 function render() {
-  const body = document.querySelector("#sp-table tbody");
+  const table = document.getElementById("sp-table");
   const rows = sorted();
-  body.replaceChildren(...rows.map(sessionRow));
-  if (!rows.length) body.append(emptyRow(tl("ov.row.noSessions")));
-  fitTable(document.getElementById("sp-table"));
+  const by = groupBy();
+  const held = table.contains(document.activeElement) && document.activeElement.dataset.gkey;   // a redraw keeps the focus on the heading it was on
+  for (const tb of table.querySelectorAll("tbody")) tb.remove();
+  if (by && rows.length) table.append(...agentGroups(rows, by, sp.laneIds).map((g) => groupBody(by, g)));
+  else {
+    const body = document.createElement("tbody");
+    body.append(...rows.map(sessionRow));
+    if (!rows.length) body.append(emptyRow(tl("ov.row.noSessions")));
+    table.append(body);
+  }
+  if (held) focusHeading(held);
+  for (const b of document.querySelectorAll("#ag-bar [data-by]")) b.setAttribute("aria-pressed", String(b.dataset.by === by));
+  fitTable(table);
   for (const th of document.querySelectorAll("#sp-table th")) {
     th.setAttribute("aria-sort", th.dataset.key === sp.key ? (sp.dir > 0 ? "ascending" : "descending") : "none");
   }
@@ -862,6 +927,10 @@ function drawCards() {
     if (head && !head.querySelector(".q-grip")) head.prepend(laneGrip(c));
   }
   document.getElementById("q-cards").replaceChildren(...cards);
+  const ids = cards.map(cardLane);
+  const moved = ids.join() !== sp.laneIds.join();
+  sp.laneIds = ids;
+  if (moved && sp.loaded && groupBy() === "lane") render();   // the lane groups follow the cards' order
   stripRender(cards);
   laneRender();
 }
@@ -1073,5 +1142,7 @@ function stop() {
   clearInterval(sp.ctimer);
   clearTimeout(sp.follow);
 }
-return { start, stop, showLane, laneId };
+// app.js: the saved choice of grouping or folds has changed under the page (the prefs arrived, another device saved): draw the list again from what it holds
+function redraw() { if (sp.loaded) render(); }
+return { start, stop, showLane, laneId, redraw };
 })();

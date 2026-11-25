@@ -36,7 +36,7 @@ import lanewords   # the lane words (lib/lanewords.py): an X-Model-Lane= still s
 RUNS_WITH = ("servers", "sessions", "home")
 UNPLACED = "unplaced"
 LANES = ("subscription-1", "bedrock", "aws-platform", "api", "subscription-2", "sdk", "none")
-# a job's project, in the label the web UI's Agents table shows in its Project column (sessions.py: scope + "/" + the project's title)
+# a job's project, in the label the web UI's Agents table shows as an agent's name tooltip (sessions.py: scope + "/" + the project's title)
 PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -58,7 +58,7 @@ USAGE = {
            "                    --project PROJECT [--runs-with PLACEMENT] [--note \"…\"] [--args \"…\"] [--scope user|system] [--checkout DIR]\n"
            "  REPO      %s\n  SCHEDULE  an OnCalendar expression (\"*-*-* 03:00:00 UTC\", \"daily\") or OnXxx=value (\"OnBootSec=5min\", \"OnUnitActiveSec=1h\")\n"
            "  LANE      " + " | ".join(LANES) + "   (the model lane the script runs on; none = no model call)\n"
-           "  PROJECT   scope/project, as the Agents table's Project column shows it (for example team/demo, team/web-app)\n"
+           "  PROJECT   scope/project, as an agent's name tooltip on the Agents table shows it (for example team/demo, team/web-app)\n"
            "            (the job's category on the Overview's Schedules tab; kept as X-Project= in the service's [Unit])\n"
            "  --runs-with " + " | ".join(RUNS_WITH) + "   where the job runs when the fleet moves (kept as X-Runs-With=): servers = with the servers, sessions = with the\n"
            "            Claude sessions and sala, home = only on the home box; left out, the job is added and reported unplaced",
@@ -450,7 +450,7 @@ def gap_fix(g):
     fix = {"no-description": "add a `Description=<what it does>` line to [Unit] of %s" % svc,
            "no-lane": "add `X-Model-Lane=<lane>` to [Unit] of %s (one of: %s)" % (svc, ", ".join(LANES)),
            "bad-lane": "set `X-Model-Lane=` in [Unit] of %s to one of: %s" % (svc, ", ".join(LANES)),
-           "no-project": "run `sala job set-project %s <scope/project>` (the Agents table's Project column shows the scope/project, e.g. team/demo), or add `X-Project=<scope/project>` to [Unit] of %s" % (g["unit"][:-6], svc),
+           "no-project": "run `sala job set-project %s <scope/project>` (an agent's name tooltip on the Agents table shows the scope/project, e.g. team/demo), or add `X-Project=<scope/project>` to [Unit] of %s" % (g["unit"][:-6], svc),
            "not-git": "keep %s and %s in the repo's unit folder and link them into the unit folder (`sala job add` does it for a new job)" % (svc, g["unit"]),
            "git-differs": "make the git file the source (commit the change, or link the unit file to it): `ln -sf <the git file> <the unit file>`, then `systemctl --user daemon-reload`"}[g["code"]]
     if g["scope"] == "system":   # /etc/systemd/system is root's: root commands for a person to run, never run by sala
@@ -776,7 +776,7 @@ def cmd_add(args):
     if o["lane"] not in LANES:
         die("--lane %r is none of: %s (max and team are read as subscription-1 and subscription-2)" % (o["lane"], ", ".join(LANES)), "add")
     if not PROJECT_RE.match(o["project"]) or len(o["project"]) > 80:
-        die("--project %r is not scope/project (lower case, as the Agents table's Project column shows it: for example team/demo, team/web-app)" % o["project"], "add")
+        die("--project %r is not scope/project (lower case, as an agent's name tooltip on the Agents table shows it: for example team/demo, team/web-app)" % o["project"], "add")
     runs_with = o["runs_with"].strip().lower() if "runs_with" in o else None
     if runs_with is not None and runs_with not in RUNS_WITH:
         die("--runs-with %r is none of: %s" % (o["runs_with"], ", ".join(RUNS_WITH)), "add")
@@ -1056,7 +1056,7 @@ def cmd_set_project(args):
         die("give the job's name and its project", "set-project")
     name, project = pos
     if not PROJECT_RE.match(project) or len(project) > 80:
-        die("project %r is not scope/project (lower case, as the Agents table's Project column shows it: for example team/demo, team/web-app)" % project, "set-project")
+        die("project %r is not scope/project (lower case, as an agent's name tooltip on the Agents table shows it: for example team/demo, team/web-app)" % project, "set-project")
     return set_unit_key("set-project", name, "X-Project", project, with_project, o, quiet)
 
 

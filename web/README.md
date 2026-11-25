@@ -529,8 +529,8 @@ pure functions in `shared.js` (`unreadOfSession`, `unreadTotal`, `unreadKept`, b
 `tests/test_unread_filter.py` runs in node; the same file drives a headless Chromium over `/`, at a phone's and a desktop's width.
 
 Above the list, **Overview** opens in the main area in place of a session (`#sessions`; a session is
-`#s=<name>`; what Back, Forward and a reload do with them is under *Back*): every live session's project, role, status, model and lane
-in a sortable table, each account lane's usage limits and one **API (metered)** card above it: what the API key
+`#s=<name>`; what Back, Forward and a reload do with them is under *Back*): every live session's role, surface, status, model, effort and lane
+in a sortable table (the project is the name's tooltip, "unregistered" for a session with no project; *Group by*, below), each account lane's usage limits and one **API (metered)** card above it: what the API key
 spent today and this month in the `SALA_TZ` zone (the metered and sdk lanes bill the same key, so one figure for both), the latest
 hours labelled as estimated (the Billing link is on the API lane's details page, not on the card). Tokens of a model the cost report has no rate for yet are priced at list prices (`spend.PRICES`, a dated id such as `claude-haiku-4-5-20251001` counting as its family) and counted in both figures; the card says so in one quiet line, `Partly estimated at list price`, and lists no tokens. The details page carries the table *Usage without a confirmed rate yet* (model, kind, tokens, list-price cost, a total row; a model's rows that round to `$0.00` merged into one) from `listPriced`; a row leaves it once the cost report covers the model. Tokens of a model that has no list price either are in no figure: the card says so in a short notice (a warning colour) and the table lists them as `not counted`, never as `$0`. The cards are drawn in one pass from `api/quota` and `api/credit`
 together, with same-size placeholders before the first answer, so none lands late; both endpoints answer at once
@@ -546,11 +546,23 @@ same reload as the header's icon, which keeps the composer's draft) and **Get He
 (the session that looks after the web UI; with none set the chip is not shown).
 `/sessions`, where the overview used to be its own page, redirects to `/#sessions`.
 
-**The Agents table never scrolls sideways, at any width.** Neither does the lane page's table of sessions. When the columns do not fit the room
-they have, the rows fold into the phone's card layout (`fitTable` in `sessions.js` decides it, on each draw and on each resize of the box; the
-`.fold` class on `.sp-wrap` carries the card rules in `index.html`) instead of scrolling inside the box, and a long cell wraps or is cut with an
-ellipsis, so it never widens the table. The box clips and never scrolls (`overflow: clip`). `tests/test_table_width.py` holds it at 1920, 1280,
-1024, 900, 761, 760 and 390 px, with long names, a long model and a long lane name among sleeping rows.
+**The Agents table never scrolls sideways, at any width.** Neither does the lane page's table of sessions. Both tables are laid out fixed
+(`table-layout: fixed`, the seven column widths in `sessions.css` add up to the box), so a long name, model or lane is cut with an ellipsis and never
+widens the table; at a phone's width (760 px and under) the rows fold into cards (`fitTable` in `sessions.js` decides it, on each draw and on each resize
+of the box; the `.fold` class on `.sp-wrap` carries the card rules in `index.html`: the header row is hidden, a group heading is the card's full width,
+the controls are 40 px high at least), and the same fold is the safety where the columns ever do not fit. The box clips and never scrolls
+(`overflow: clip`). `tests/test_agents_no_sideways_scroll.py` holds it for the plain list and for each grouping, at 1920 to 320 px with long names,
+models and lanes; `tests/test_table_width.py` holds both tables with sleeping rows.
+
+**The columns and Group by.** The Agents table's columns are Agent, Role, Surface, Status, Model, Effort and Lane; there is no Project column, the project
+(`scope/project`, or "unregistered") is the tooltip of the agent's name, and the lane page's table has the same columns. **Surface** says where a front
+agent answers its owner: `sala`, or `slack` (in the accent colour) for a row the server marks `surface: "slack"`; a back agent and a row with no role show a
+dash (a phone's card leaves the dash out). Above the table, **Group by** has three buttons, Status, Lane and Role, a toggle group (`aria-pressed`): a lit one
+clicked again is the plain list, which is the default. A group is a heading row, a button (`aria-expanded`) with a chevron, the group's name and its count; it
+folds and unfolds its rows, an empty group is left out, the header's sort works inside each group; each count is of the group's rows, folded or not. The order is fixed: by Status needs input, working, shell, idle, sleeping; by Lane the lane cards' order (the saved `laneOrder` included, a lane with
+no card last), named as the Lane column names it; by Role front, back, any other word, then "no role". The grouping and the folded groups are saved in
+`api/prefs` (`agentsGroup`, `agentsFolded`), so they follow the owner across browsers; a fresh browser shows the plain list. The order and membership are
+`agentGroups` in `shared.js`.
 
 **The lane cards drag into the order the owner wants.** Each card on the Overview has a
 handle (`⋮⋮`) at the left end of its head. Drag it with a mouse, a finger or a pen and the card takes the place of the card under the pointer; or
@@ -1116,7 +1128,7 @@ sorted column (no category, no next run, no last run, no lane) comes last in bot
 drags; the saved preferences `scheduleOrder` and `scheduleFolded` are gone (a `PUT api/prefs` with them is refused).
 
 **The Category is the job's own project**. It is the `X-Project=<scope/project>` line in the **service** unit's `[Unit]` section
-(`schedules.py` `model_project`, API field `project`, `null` when absent), stored as the label the Agents tab's Project column shows
+(`schedules.py` `model_project`, API field `project`, `null` when absent), stored as the label an agent's name tooltip on the Agents tab shows
 (*projects/demo-docs*, *work/docs*, *home/garden*), so the two tabs name a project the same way. A job gets it when it is added
 (`sala job add --project`, `docs/units.md`) and the page holds no table that places a job: nothing in `schedules.py` or `schedules.js`
 maps a name to a category, and the category order is read off the jobs on screen (the projects A-Z, a job with none last). A job with no
@@ -2128,6 +2140,8 @@ directory, fsync, rename) under a lock, mode 0600.
 | `sessionOrder` | the agents in the order the owner dragged them; a session moves only within its project. One flat list, like `groupOrder`, of sala's permanent agent ids (`agentId`, the registry row's id in `sessions.json`: minted once, it outlives a `sala rename`, a recycle that resumes a new conversation and a `/clear`), and of the session's name for one the registry has no row for. A list saved before the ids holds names: the page reads each as the agent that has the name now, or had it (the row's `aliases`), and saves the list once as ids. A session not in the list follows the listed ones of its project in the default order (a new agent goes last), an entry that is not live is ignored. Entries of agents that ended stay (a returning one finds its place) but at most 100 of them, and never at the cost of a live one: past that, or past the 500 the server takes, the page cuts the gone ones from the end when it saves (Every list in the prefs (the orders, `collapsed`) is saved from the server's current list read at that moment, never from the page's copy (defaults when the file was missing or the read failed, old when another device saved since), and only the key that changed is sent; a drag of agents writes only its own project's entries; when the stored prefs cannot be read nothing is saved and the side panel says so.) |
 | `collapsed` | folded headers: project keys, and scope keys as `scope:<key>` |
 | `laneOrder` | the Overview's lane card ids (`subscription-1`, `subscription-2`, `api`, `aws-platform`, `bedrock`; an old `max` or `team` in a saved order reads as the new code) in the order the owner dragged them; a lane not in it follows the listed ones in the default order (active, dormant, not configured), an id with no card now is ignored |
+| `agentsGroup` | how the Agents list is grouped: `""` (the plain list, the default), `status`, `lane` or `role`; anything else is refused with a 400 and changes nothing (a saved file's unknown value reads as `""`) |
+| `agentsFolded` | the Agents list's folded groups as `<grouping>:<value>` keys (`role:back`, `status:idle`; the empty value is `role:`), so a fold belongs to the grouping it was made in |
 | `showAll` | the "Show all sessions" toggle (background agents) |
 | `showSleeping` | the "Show sleeping sessions" box: sleeping sessions are listed in the sidebar only when it is true (the open one always stays); false by default (*Sleeping sessions*). The Overview ignores it |
 | `unreadOnly` | the Unread entry's filter (*The Unread entry*): only the agents with an unread reply, plus the open one; false by default |

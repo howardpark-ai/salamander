@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # contrib/backfill-job-projects.sh — the one-time backfill of `X-Project=<scope/project>` for the jobs that exist today (docs/units.md).
 #
-# Each job stores its own project (the category on the Overview's Schedules tab, written as the Agents table's Project column shows it) in the
+# Each job stores its own project (the category on the Overview's Schedules tab, written as an agent's name tooltip on the Agents table shows it) in the
 # [Unit] section of its service file. A new job gets it from `sala job add --project`; this script gives the existing ones theirs by running
 # `sala job set-project NAME PROJECT --quiet` for each, from the box's map (SALA_BACKFILL_MAP, below). A job that is not in the map is left
 # alone, so `sala job check` reports it as `no-project` and the owner decides. The mapping lives in that file and nowhere in the code.
