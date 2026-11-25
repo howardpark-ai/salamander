@@ -793,6 +793,20 @@ Held in a headless Chromium at 412 px with touch emulation: the row 48 px, the b
 the button and a point just outside it not, the Shell button still at least 44 px; and at 1280 px with a mouse: the row 50 px, the button 32 x 32, no `::after` box.
 `test_look_browser.py` now expects a drawn 30 px Send under a finger (it expected 44). Not covered, and why: a physical phone's touch handling (the tap area is read from the layout and a hit test, not from a real finger).
 
+### `web/tests/test_slim_touch_rule.py` new, 8, and `web/tests/test_slim_touch.py` new, 4: a one-line row's button is slim under a finger on every page (Wed Nov 25th 2026)
+
+The slim 30 px button with a 44 px tap area lived only in `index.html`'s own style (Send, then Reload as a second copy), so `/chat`, which does not load that style, kept a tall 44 px Send. The rule is now one
+class, `.slim-touch`, in `style.css` (which every page loads), and the style guide in `web/README.md` says a one-line row's button takes the class and never a copy. A wrong answer is a second copy of the rule
+in a page's style, a Send or Reload on a page that does not load `style.css`, a button without the class, a tap area under 44 px, a button drawn taller than 30 px, or a page that scrolls sideways.
+`test_slim_touch_rule.py` is pure text: the rule is in `style.css` once (the `--ctl: 30px` rule and the `::after` box with `inset: -7px`, in one coarse-pointer block), `inset: -7px` is nowhere else under `static/`,
+`index.html` and `chat.css` size neither Send nor Reload under a finger, `#send`, `#reload-btn` and the Send `chat.js` builds carry the class, and every page with a Send or Reload loads `style.css`.
+`test_slim_touch.py` holds it in a headless Chromium on a touch screen: the main page's Send and Reload drawn 30 px high with a 44 px `::after` box at 412 and 320 px, `/chat`'s Send drawn 30 x 30 with a 44 x 44 box
+and the compose row no taller than 52 px, no sideways scroll on either page at 412 and 320 px, and `/chat`'s Send 32 x 32 with no `::after` box under a mouse at 1280 px.
+`/chat`'s Send is the main page's Send: the text test holds that `chat.css` has no `.send-btn` rule that sets a background, color, opacity, size or border (such a rule outranked `style.css`'s disabled pair, so a dimmed
+Send stayed orange on `/chat` and went gray on the main page), that `chat.js` draws the arrow `index.html` draws (24 grid, `M12 20V4M6 10l6-6 6 6`), and that `--ctl` is defined once, in `style.css`; the browser test reads the disabled Send's
+background, color, opacity and size on both pages, light and dark. Not covered, and why: a physical phone's touch
+handling (the tap area is read from the layout, not from a finger; the hit test is held for the main page in `test_composer_touch_row.py` and `test_update_banner_look.py`).
+
 ### `tests/spawn.sh` and `web/tests/test_new_session.py`: an unlisted project agent is refused with the register command, not a page edit (Sat Nov 7th 2026)
 
 `spawn --project` used to refuse a name not on the project's agents map with `ADD-TO-PAGE: <key>` and the YAML to add to the page, which no longer

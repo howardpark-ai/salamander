@@ -171,7 +171,7 @@
     const chat = el("div", { class: "chat" }, thread);
 
     const ta = el("textarea", { class: "compose-input", rows: "1", enterkeyhint: "send", autocomplete: "off", spellcheck: "true" });
-    const send = el("button", { type: "button", class: "send-btn", ...tx("chat.send", null, "aria-label") },
+    const send = el("button", { type: "button", class: "send-btn slim-touch", ...tx("chat.send", null, "aria-label") },
       svg());
     const row = el("div", { class: "compose-row" }, ta, send);
     const note = el("p", { class: "compose-note", role: "status" });
@@ -194,9 +194,9 @@
   function svg() {
     const ns = "http://www.w3.org/2000/svg";
     const s = document.createElementNS(ns, "svg");
-    for (const [k, v] of Object.entries({ width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) s.setAttribute(k, v);
+    for (const [k, v] of Object.entries({ width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) s.setAttribute(k, v);
     const p = document.createElementNS(ns, "path");
-    p.setAttribute("d", "M8 13V3M4 7l4-4 4 4");
+    p.setAttribute("d", "M12 20V4M6 10l6-6 6 6");   // the arrow of index.html's Send, the same path on the same 24 grid
     s.append(p);
     return s;
   }

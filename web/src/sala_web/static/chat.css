@@ -107,11 +107,6 @@ body.chat-page .compose-row:focus-within { border-color: var(--faint); }
 body.chat-page .compose-input { flex: 1 1 auto; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 16px; line-height: 24px;
   padding: 4px 4px; max-height: 40vh; overflow-y: auto; overflow-wrap: anywhere; }
 body.chat-page .compose-input::placeholder { color: var(--faint); }
-body.chat-page .send-btn { flex: none; width: 32px; height: 32px; border-radius: 8px; border: 0; display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
-  background: var(--accent-solid, var(--accent)); color: var(--accent-on-solid, var(--accent-text)); }
-body.chat-page .send-btn:disabled { cursor: default; opacity: .45; }
-body.chat-page .send-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-body.chat-page .send-btn svg { display: block; }
 body.chat-page .compose-note { max-width: 920px; margin: 8px auto 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 body.chat-page .compose-note.error { color: var(--error); }
 body.chat-page .compose-sleep { max-width: 920px; margin-inline: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; color: var(--muted); }
@@ -126,7 +121,6 @@ body.chat-page .cp-btn:disabled { cursor: default; opacity: .45; }
   body.chat-page .msg.user .bubble { max-width: 92%; }
 }
 @media (pointer: coarse) {
-  body.chat-page .send-btn { width: 44px; height: 44px; }
   body.chat-page .cp-btn { min-height: 44px; }
   body.chat-page .kept-toggle { min-height: 44px; }
   body.chat-page :is(.pane-link, .answer) { padding-block: 12px; }
