@@ -79,7 +79,9 @@ pause_clock_r v "$UA"; [ "$v" = 0 ] && [ -s "$PD/$UA.wait" ] && ok "the first pa
 age_clock "$UA" 100; pause_clock_age_r v "$UA"; [ "$v" -ge 100 ] && pause_due "$UA" && ok "a clock with 100 s on it is due at 6 s" || bad "aged → $v"
 printf '%s %s\n' "$(( $(date +%s) - 4000 ))" "$(( $(date +%s) - 3000 ))" > "$PD/$UA.wait"; pause_clock_age_r v "$UA"; [ "$v" = -1 ] && ! pause_due "$UA" && ok "last seen held 3000 s ago (over SALA_PAUSE_GAP): the clock is stale, not due" || bad "stale → $v"
 pause_clock_r v "$UA"; [ "$v" = 0 ] && ok "and the next pass restarts it: busy continuously, not on and off" || bad "restart → $v"
-age_clock "$UA" 4; pause_next_in_r v "$UA" "" "$UD"; [ "$v" = 2 ] && ok "pause_next_in_r: 2 s to go on a 4 s clock (the retry worker's sleep)" || bad "next_in → $v"
+# age_clock stamps the clock from the wall clock and pause_next_in_r reads the wall clock again: when a second boundary falls between the two
+# reads (a loaded runner), the clock reads 5 s old and 1 s is left, never more than 2. So 1 or 2 are both right; anything else is a defect.
+age_clock "$UA" 4; pause_next_in_r v "$UA" "" "$UD"; { [ "$v" = 2 ] || [ "$v" = 1 ]; } && ok "pause_next_in_r: 2 s to go on a 4 s clock, or 1 s when a second ticked between the two clock reads (the retry worker's sleep)" || bad "next_in → $v"
 pause_clock_clear "$UA"; pause_next_in_r v "$UA"; [ "$v" = -1 ] && ok "a cleared clock: none" || bad "cleared → $v"
 
 echo "== lib/pauseinfo.py: descriptions and the last line, never a command or a result"
