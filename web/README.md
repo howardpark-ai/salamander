@@ -1984,7 +1984,10 @@ A change takes the salamander repo's path (`../CONTRIBUTING.md`): a branch in a 
 below run in its `web/`, a PR against `main`, and `release.sh <pr>`, run by the releaser, which waits for CI, merges
 and runs `deploy.sh` in the production checkout. For a file under `web/` the deploy fast-forwards `main` (static/ is
 live from here on), runs `uv sync --frozen` in `web/` and restarts `sala-web.service` (the restart drops no request:
-the socket is systemd's). CI, the `web` job of `.github/workflows/tests.yml`, runs the same checks for a change
+the socket is systemd's). A change under `web/` that only holds tests or documents (`web/tests/`, `web/docs/`, `*.md`,
+`web/LICENSE*`, `web/.gitignore`) does neither: a running server reads none of them, so it is not synced or restarted for
+it. The list is `web_file_inert` in `../deploy.sh`, the one place, held by `../tests/deploy.sh`; a change that also touches
+any other file under `web/` (code, the page's files, `uv.lock`, a unit, `tools/`) runs the step as before. CI, the `web` job of `.github/workflows/tests.yml`, runs the same checks for a change
 under `web/` and none of sala's suites; a change outside `web/` runs none of these.
 
 ```sh
@@ -1995,11 +1998,22 @@ find src -name '*.js' -not -path '*/vendor/*' -print0 | xargs -0 -n1 node --chec
 
 What open browser windows see:
 
-- **The server's build version** is the newest mtime under `static/` plus the commit the process started from
-  (`GET /api/config` → `version`; the first event of every SSE stream, `event: version`; and a `<meta>` in the page).
-  A fast-forward rewrites the changed static files, so even a static-only deploy, live without a restart, changes it.
-- **The page** compares it with the version it loaded, at the start of every stream, every 60 s, and when the tab
-  comes back into view or gets focus. A newer build shows a strip at the top, "sala was updated. Reload". The page
+- **The page's version** is a hash of the content of the page's own files, `pageversion.py`: every file under `static/`
+  (the HTML shells, the scripts, the vendor files, the fonts and icons, the manifest, the service worker) by path and bytes, the
+  style sheets (`*.css`) left out. It carries no file time and no commit, so the same files give the same version, and a
+  release that only changes server code, tests or documents (a restart) leaves it as it was. It is `version` in
+  `GET /api/config`, in the first event of every SSE stream (`event: version`) and in a `<meta name="sala-web-version">`
+  in the page; the scripts' `?v=` is the same value. The style sheets have a version of their own, `styles` (the same three
+  places, `<meta name="sala-web-styles">`, and the sheets' `?v=`), a hash of the `*.css` files. A `<style>` block inside
+  `index.html` or `terminal.html` is part of that HTML file, so a change to it is a page change.
+- **The page** compares both with the ones it loaded, at the start of every stream, every 60 s, and when the tab
+  comes back into view or gets focus. A different page version shows a strip at the top, "sala was updated. Reload". A
+  different styles version never does: the page copies each local sheet's `<link>` with the new `?v=` right after the old
+  one and removes the old one when the copy has loaded (`swapStyles` in `app.js`), so the new styles are in force with
+  no reload, and the scroll position, the composer's text and the open views stay as they were; a copy that fails to load
+  is dropped, the old sheet stays and the next check tries again. The same check (`applyConfig` in `app.js`, the one the
+  page also runs at start) re-reads what `/api/config` tells and applies it: the title bar's suffix, the zone every time
+  is shown in, the scopes, the Shell's names; a changed zone redraws the Overview and the relative times. The page
   reloads by itself only when nothing can be lost: the tab is hidden, the composer is empty, and no upload or unsent
   message is pending (at most once a minute per tab, so it cannot loop). The composer's text is kept in
   `localStorage` per session across any reload and put back after it (*Back*; attached images are not).
@@ -2077,7 +2091,7 @@ part of `web/`.
 | `GET /mockup/<n>` | a mockup page `sala mockup add` stored (*Mockup pages*); `text/html; charset=utf-8`, 404 for an unknown number, the sandbox headers on every response |
 | `GET /op/<id>` | the log of one `sala op` operation (*Operation log pages*); `text/plain; charset=utf-8`, the last 256 KB, 404 `no such log` for anything else, the private headers on every response |
 | `GET /sessions` | redirects to `/#sessions`, the Overview |
-| `GET /api/config` | `terminalUrl`, the build `version` and the `commit`, `shellSession` (sala's `SALA_SHELL_SESSION`, default `sala-shell`), `host` (this machine's short hostname) and the time zone every time in the page is shown in: `timezone` (`SALA_TZ`, `""` = the viewer's own zone), `tzLabel` (the zone's abbreviation now: IST, CEST, UTC) and `tzOffsetMin` (its UTC offset in minutes now) |
+| `GET /api/config` | `terminalUrl`, the page's `version` and its style sheets' `styles` (hashes of the files' content, *Deploying*; a change of `version` makes an open page ask for a reload, a change of `styles` is swapped in place) and the server's `commit`, `shellSession` (sala's `SALA_SHELL_SESSION`, default `sala-shell`), `host` (this machine's short hostname) and the time zone every time in the page is shown in: `timezone` (`SALA_TZ`, `""` = the viewer's own zone), `tzLabel` (the zone's abbreviation now: IST, CEST, UTC) and `tzOffsetMin` (its UTC offset in minutes now) |
 | `GET /api/sessions` | live sessions as `scopes` → project `groups` → `sessions` (front agents first; a role other than front or back sorts after them); `Unregistered` last; also `groups`, the same projects as a flat list; every session carries `agentId` (sala's permanent id for the agent, from the registry `sessions.json`: the key of the saved order; absent when the registry has no row) and `aliases` (the names the agent had, only with `agentId` and when it has any), and `unread_count` (an integer, 0 to 10: the replies written since the owner last opened it, front agents only; 10 means 10 or more and the page shows 9+) and `unread` (`unread_count > 0`) (*The unread reply count*, *Sidebar*) |
 | `GET /api/quota` | each account lane's (subscription-1, subscription-2) usage limits from Anthropic's usage endpoint, with the sign-in token read from the lane's `.credentials.json` (never refreshed, written or kept). Served at once from the last good answer per lane (`refreshing`, `pending` as for `/api/credit`), refreshed every 5 minutes in the background and kept in `state_dir/quota-<lane>.json` (a file an earlier version saved as `quota-max.json` or `quota-team.json` is read while the new one is not there; limits, plan, `fetchedAt` and a pending wait only). `fetchedAt` (epoch ms) is the last good reading and stays on the answer while refreshes fail; a lane the dormant record lists is `{lane, dormant, plan?, fetchedAt?}` with the `fetchedAt` of its saved answer, absent when it never answered (the card's last line, "updated 7 min ago"). A failed refresh keeps the lane's answer and adds `error` (plain words), `errorKind` and `nextTry` (epoch ms): `rate_limited` is a 429, tried again when its `Retry-After` says (seconds or an HTTP date, clamped to a minute and 3 hours), else after 2, 4, 8, 16, then 30 minutes; `failed` is another status, no network or an unreadable answer, after 1, 2, 4, 8, 16, then 30 minutes; `sign_in` is no sign-in on the lane or one expired, nothing sent, looked at again at the next poll. A success resets the series; each lane counts its own; the wait is saved with the answer (`nextTry`, `errorKind`), so a restart keeps waiting and sends nothing until it is over. |
 | `GET /api/lane-names` | the lanes' display names as sala says them: `{"lanes": [{"code", "display", "aliases"}]}` (`lanenames.py`). Taken from `sala lane names --json` (4 s at most), else `lane-names.json` in sala's state directory, else the last good table this process had, else the codes alone (display = code); kept 60 s. This app holds no display name of its own; the page draws a lane's pill from here (`laneLabel` in `shared.js`, lower case). Read-only; no path, no secret |

@@ -61,7 +61,7 @@ def sums(m: dict) -> tuple[float, float]:
 def test_the_markup_has_the_explorer_panel_its_files_and_usage_js_has_the_view_hook():
     from sala_web.app import STATIC
     html = (STATIC / "index.html").read_text()
-    assert 'href="static/usage-explorer.css?v={{v}}"' in html and 'src="static/usage-explorer.js?v={{v}}"' in html
+    assert 'href="static/usage-explorer.css?v={{sv}}"' in html and 'src="static/usage-explorer.js?v={{v}}"' in html
     assert html.index("static/usage.js?") < html.index("static/usage-explorer.js?"), "usage.js first: Explorer registers itself with it"
     for i in ("ex-ctl", "ex-body", "ex-sides", "ex-table", "ex-replies", "ex-notes", "ex-note", "ex-upd"):
         assert f'id="{i}"' in html

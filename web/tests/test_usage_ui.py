@@ -142,7 +142,7 @@ def test_the_markup_has_the_tab_after_machines_its_panel_its_files_and_the_hash_
     assert re.search(r'<a id="ov-tab-usage"[^>]*href="#usage"[^>]*aria-selected="false"', html)
     assert re.findall(r'<a id="ov-tab-(\w+)"', html)[-1] == "usage"
     assert "Usage analysis" in html and 'id="ov-usage"' in html and 'id="us-reload"' in html
-    assert 'href="static/usage.css?v={{v}}"' in html and 'src="static/usage.js?v={{v}}"' in html
+    assert 'href="static/usage.css?v={{sv}}"' in html and 'src="static/usage.js?v={{v}}"' in html
     js = (STATIC / "app.js").read_text()
     assert "usageHash" in js and "usage.start()" in js and "usage.stop()" in js and '"usage"' in js
 

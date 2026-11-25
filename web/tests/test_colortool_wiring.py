@@ -167,8 +167,8 @@ def test_each_page_loads_the_tool_then_the_wiring_once_and_only_the_main_pages_s
     assert body.rstrip().endswith(INIT + "\n</body>\n</html>") and body.index("static/app.js") < body.index(INIT)
     served = {"main": client.get("/").text, "terminal": client.get("/terminal?arg=x").text}
     for what, page in served.items():
-        assert len(re.findall(r'<script src="static/colortool\.js\?v=\d+"></script>', page)) == 1, what
-        assert len(re.findall(r'<script src="static/colortool-sala\.js\?v=\d+"></script>', page)) == 1, what
+        assert len(re.findall(r'<script src="static/colortool\.js\?v=[0-9a-f]+"></script>', page)) == 1, what
+        assert len(re.findall(r'<script src="static/colortool-sala\.js\?v=[0-9a-f]+"></script>', page)) == 1, what
         assert page.count(INIT) == (0 if what == "terminal" else 1), what
     # the mount: the last thing in the side panel, under "Show all sessions" and the note, and nothing else in the page
     side = served["main"].split('<aside id="sidebar">', 1)[1].split("</aside>", 1)[0]
