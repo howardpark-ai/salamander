@@ -372,3 +372,34 @@ def test_a_cursor_after_or_inside_typed_text_is_still_text():
     inside = "\n".join([RULE, "\x1b[39m❯ my \x1b[7mn\x1b[0mote", RULE])
     assert tmuxio.input_box(after)[0] == "text"
     assert tmuxio.input_box(inside) == ("text", "my note")
+
+
+# ---- overlay: what the screen positively shows over the prompt box (captured from Claude Code 2.1.332 in a real pane) ------------------
+
+@pytest.mark.parametrize("name", ["capture-overlay-model-picker.txt", "capture-overlay-history-search.txt",
+                                  "capture-overlay-transcript.txt", "capture-dialog.txt", "capture-menu.txt"])
+def test_overlay_is_seen_for_a_picker_a_search_a_transcript_a_dialog_and_a_menu(name):
+    assert tmuxio.overlay((FIX / name).read_text()) is True
+
+
+@pytest.mark.parametrize("name", ["capture-empty.txt", "capture-content.txt", "capture-fleet-busy.txt", "capture-shell-mode.txt",
+                                  "capture-shell-mode-empty.txt", "capture-narrow-name-rule.txt", "capture-narrow-app-main-50col.txt"])
+def test_overlay_is_not_seen_for_any_screen_of_a_prompt_box(name):
+    assert tmuxio.overlay((FIX / name).read_text()) is False
+
+
+def test_overlay_is_not_seen_where_no_box_can_be_found_and_nothing_is_drawn_over_it():
+    assert tmuxio.overlay("working on something, no box on this screen\n") is False
+    assert tmuxio.overlay("") is False
+
+
+def test_overlay_ignores_a_numbered_message_above_a_box_and_a_footer_quoted_higher_up():
+    quoted = "\n".join(["❯ 1. fix this", "  2. and that", "● done", RULE, "❯ ", RULE, "  auto mode on", ""])
+    assert tmuxio.dialog(quoted)[0] == ["1", "2"]          # the dialog reader alone is fooled: the rules below the list tell
+    assert tmuxio.overlay(quoted) is False
+    higher = "\n".join(["a line that says Esc to cancel", "and Showing detailed transcript", RULE, "❯ ", RULE, "  auto mode on", ""])
+    assert tmuxio.overlay(higher) is False
+
+
+def test_overlay_footer_on_a_narrow_pane_runs_onto_two_lines():
+    assert tmuxio.overlay("\n".join(["  Search prompts", "  ctrl+s to change scope · Esc", "  to cancel", ""])) is True

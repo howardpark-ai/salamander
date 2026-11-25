@@ -329,6 +329,9 @@ TAIL_N = 200
 SEARCH_PARALLEL = 2           # transcript searches that may run at once (each reads a lot; a third is refused with a sentence)
 SEARCH_DEFAULT_HOURS = 24
 DUP_WINDOW = 20.0  # seconds: an identical send to the same pane inside this is a double submit
+MOD_SEND_MAX = 16_000      # characters a message may have to go in through the pane's mod (measured to 5 KB; a longer one is pasted as before)
+MOD_ENTER_WAIT = 1.5       # seconds the box is watched after the Enter for it to stop holding the message
+MOD_ENTER_POLL = 0.15
 PREFS_MAX_BYTES = 64 * 1024
 PREFS_MAX_GROUPS = 500
 PREFS_DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [],
@@ -1391,11 +1394,13 @@ def create_app(settings: Settings | None = None) -> Starlette:
     def _duplicate() -> Response:
         return JSONResponse({"ok": False, "duplicate": True, "error": "already sent a moment ago"}, status_code=409)
 
-    def _box_refused(box_text: str, hidden: tuple[bool, bool], changed: bool = False, why: str | None = None) -> Response:
+    def _box_refused(box_text: str, hidden: tuple[bool, bool], changed: bool = False, why: str | None = None,
+                     exact: bool = False) -> Response:
         """The 409 for a box that holds text: the text itself rides along (boxText), which is what the page shows and what its
         Replace sends back as `replace`; boxHidden says lines are out of view, boxChanged that the text was not the one the
-        request saw."""
-        return JSONResponse({"ok": False, "error": why or "pane input box is not empty; nothing sent", "boxText": T.shown_text(box_text),
+        request saw. `exact`: the text is the pane mod's own reading of the box, which has no indent to take off."""
+        return JSONResponse({"ok": False, "error": why or "pane input box is not empty; nothing sent",
+                             "boxText": box_text if exact else T.shown_text(box_text),
                              "boxHidden": any(hidden), "boxChanged": changed}, status_code=409)
 
     async def _replace_box(pane: str, captured: str, box_text: str, replace: str) -> Response | None:
@@ -1429,6 +1434,16 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if not S.is_same_or_descendant(s.pid, ppid):
             return _err(409, f"pane {pane} does not belong to session {s.name}; nothing sent"), None
         captured = await T.capture(settings, pane)
+        # the pane's mod, when it answers, says what the prompt box holds and whether a dialog holds the keys: the box is then
+        # judged by the box itself and the screen only refuses (_send_by_mod); with no answer, or a send it does not take
+        # (files, a shell command, a long text), everything below runs as it always did
+        probe = None
+        if not paths and MB.normalize(text) and len(text) <= MOD_SEND_MAX and not text.lstrip().startswith(T.SHELL):
+            probe = await MB.fill(settings, s.pid, "", "insert")
+        if probe is not None:
+            done = await _send_by_mod(s, pane, captured, probe, text, paths, answered_before, retry, replace)
+            if done is not None:
+                return done
         state, box_text = T.input_box(captured)
         if state == "missing":
             # a Retry of a message that was pasted while the screen could not be read as a box: the box itself may still hold it
@@ -1455,6 +1470,76 @@ def create_app(settings: Settings | None = None) -> Starlette:
             if not text.strip() and not paths:
                 return _err(400, "nothing to send after the ! the pane's shell mode already has"), None
         return await _paste_and_submit(s.pid, pane, state, text, paths, box_text if retry else None, hidden, box_text), None
+
+    # what the page has always been told when the message did not end up submitted (the paste path's own words)
+    NOT_SUBMITTED = "the input box disappeared while pasting; pasted but not submitted"
+
+    async def _send_by_mod(s: S.Session, pane: str, captured: str, probe: MB.Filled, text: str, paths: list[Path],
+                           answered_before: str | None, retry: bool,
+                           replace: str | None) -> tuple[Response, str | None] | None:
+        """The pane's mod answered (`probe` is its answer to an empty insert: what the box holds, and whether a dialog holds
+        the keys). The box is judged by the box itself, never by finding it on the screen; the screen only refuses, when it
+        positively shows something over the box (T.overlay), and a screen where no box can be found is no reason to refuse.
+
+        Returns (response, dialog text) when the send is settled here, or None to let the screen-reading path run exactly as it
+        always did: a send the mod path does not take (files, whose image chips only a paste makes; a shell command, which a
+        fill would send as a plain prompt; a pane already in shell mode; a long text), a mod that cannot fill (no composer, an
+        unanswered fill) and a box that holds text the screen reads as text too (its rule for a box with text is unchanged:
+        refuse, or Enter for a Retry of that very message, or Replace). Nothing is typed before the answers say it is safe, and
+        after an Enter that did not take, the text is cleared, never submitted twice."""
+        if probe.refusal == "dialog" or T.overlay(captured):
+            return await _answer_dialog(pane, captured, text, paths, answered_before)
+        if probe.refusal is not None or not probe.is_filled:
+            return None
+        if answered_before is not None:
+            return _duplicate(), None  # the dialog this answered is gone: a copy now would be typed as a prompt
+        want = MB.normalize(text)
+        if T.shell_mode(captured):
+            return None
+        draft = probe.text
+        if draft.strip():
+            if T.input_box(captured)[0] == "text":
+                return None
+            # the screen cannot see the draft the mod reports (a scrolled box, a layout it does not know): the mod's text is the box
+            if retry and T.retry_matches(draft, text):
+                return await _enter_by_mod(s.pid, pane, MB.normalize(draft), resubmitted=True), None
+            if replace is None or not T.retry_matches(draft, replace):
+                return _box_refused(draft, (False, False), changed=replace is not None, exact=True,
+                                    why="the pane input box changed since it was shown; nothing cleared or sent" if replace is not None else None), None
+            cleared = await MB.fill(settings, s.pid, "", "replace")
+            if cleared is None or not cleared.is_filled or cleared.text.strip():
+                return _box_refused(cleared.text if cleared is not None and cleared.text.strip() else draft, (False, False),
+                                    changed=True, exact=True, why="the input box still holds text; nothing typed"), None
+        filled = await MB.fill(settings, s.pid, text, "replace")
+        if filled is None or filled.refusal == "dialog" or not filled.is_filled or MB.normalize(filled.text) != want:
+            # the box did not take the message as it is (or the mod did not say): leave nothing of it there
+            await MB.fill(settings, s.pid, "", "replace")
+            log.info("send: the pane's box did not take the message through the mod; cleared, nothing sent")
+            return _err(409, NOT_SUBMITTED), None
+        return await _enter_by_mod(s.pid, pane, want, resubmitted=False), None
+
+    async def _enter_by_mod(pid: int, pane: str, want: str, resubmitted: bool) -> Response:
+        """The box holds `want` (as the mod read it). One Enter, then the box is read again through the mod: no longer that text
+        (empty, or anything else) means it went in; still that text for MOD_ENTER_WAIT seconds means an overlay took the Enter, so
+        the text is cleared and the message reported not sent. The Enter is never pressed a second time."""
+        await T.send_enter(settings, pane)
+        deadline = time.monotonic() + MOD_ENTER_WAIT
+        held = False
+        while True:
+            await asyncio.sleep(MOD_ENTER_POLL)
+            now = await MB.draft(settings, pid)
+            if now is not None:
+                held = MB.normalize(now) == want
+                if not held:
+                    break
+            if time.monotonic() >= deadline:
+                break
+        if held:
+            await MB.fill(settings, pid, "", "replace")
+            log.info("send: the Enter did not submit the box's text (an overlay may have taken it); cleared, not sent")
+            return _err(409, NOT_SUBMITTED)
+        done = {"ok": True, "imagesPasted": 0, "imagesAttached": 0, "filesPasted": 0, "confirmedByMod": True}
+        return JSONResponse({**done, "resubmitted": True} if resubmitted else done)
 
     async def _mod_confirms(pid: int, captured: str, pasted: str, where: str) -> bool:
         """The screen cannot be read as an input box. True only when the box itself, asked through the pane's mod (modbox.py),

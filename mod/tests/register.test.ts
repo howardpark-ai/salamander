@@ -10,6 +10,8 @@ type World = {
   commands: { command: string; args: string }[]
   draft: string
   agents: AgentInfo[]
+  fills: { text: string; mode: string }[]
+  dialog: boolean
   replied: (reqid: string) => Promise<Record<string, unknown>>
 }
 
@@ -21,12 +23,25 @@ const agent = (id: string, status: AgentInfo['status'], type = 'general-purpose'
 })
 
 function world(on: On, sessionId = 'S1'): World {
-  const w: World = { files: new Map(), commands: [], draft: '', agents: [], replied: async () => ({}) }
+  const w: World = { files: new Map(), commands: [], draft: '', agents: [], fills: [], dialog: false, replied: async () => ({}) }
   const waiters = new Map<string, (v: Record<string, unknown>) => void>()
   mock.env(on, { XDG_RUNTIME_DIR: '/run/user/test', HOME: '/home/t' })
   on('session.id', () => ({ value: sessionId }))
   on('clock.now', () => ({ value: 1_700_000_000_000 }))
   on('prompt.read', () => ({ value: { text: w.draft, cursor: w.draft.length } }))
+  on('fs.read', ($, e) => {
+    const text = w.files.get(e.path)
+    if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
+    return { value: text }
+  })
+  // the engine's own answer of $.prompt.fill: the box takes the text as the CLI does (hidden code points dropped), a dialog refuses it
+  on('prompt.fill', ($, e) => {
+    if (w.dialog) return { isFilled: false, refusal: 'dialog', text: w.draft, cursor: w.draft.length }
+    w.fills.push({ text: e.text, mode: e.mode })
+    const text = e.text.replace(/[\u200b\u0000\u0007\u001b]/g, '')
+    w.draft = e.mode === 'append' || e.mode === 'insert' ? w.draft + text : text
+    return { isFilled: true, text: w.draft, cursor: w.draft.length }
+  })
   on('fs.write', ($, e) => {
     w.files.set(e.path, e.text)
     return { value: undefined }
@@ -72,6 +87,74 @@ test('draft: the prompt box text comes back, the line never reaches the transcri
   expect(got).toEqual({ consumed: 'sala: draft request r1' })
   expect(await reply).toEqual({ reqid: 'r1', ok: true, text: 'half a thought' })
   expect(w.files.has(`${DIR}/S1.r1.reply.json`)).toBe(true)
+})
+
+// the payload sala wrote for a fill request, the file the mod reads and removes
+const payload = (w: World, reqid: string, body: unknown) =>
+  w.files.set(`${DIR}/S1.${reqid}.fill.json`, typeof body === 'string' ? body : JSON.stringify(body))
+
+test('fill: the text and mode come from the payload file, the box takes it, the answer is the engine\'s and the payload is gone', async ($, on) => {
+  const w = world(on)
+  const text = 'line "one"\nline two \\ \u200b\uD55C\uAD6D\uC5B4 \u{1F389}'
+  payload(w, 'f1', { text, mode: 'replace' })
+  const reply = w.replied('f1')
+  expect(await $.session.receive(peer('[sala-mod] fill f1\n(an automatic control line)'))).toEqual({ consumed: 'sala: fill request f1' })
+  const got = await reply
+  expect(got).toMatchObject({ reqid: 'f1', ok: true, isFilled: true, text: 'line "one"\nline two \\ \uD55C\uAD6D\uC5B4 \u{1F389}' })
+  expect(w.fills).toEqual([{ text, mode: 'replace' }])
+  expect(w.files.has(`${DIR}/S1.f1.fill.json`)).toBe(false)
+})
+
+test('fill: an empty insert is the probe: nothing changes, the box and no refusal come back', async ($, on) => {
+  const w = world(on)
+  w.draft = 'owner words'
+  payload(w, 'f2', { text: '', mode: 'insert' })
+  const reply = w.replied('f2')
+  await $.session.receive(peer('[sala-mod] fill f2'))
+  expect(await reply).toEqual({ reqid: 'f2', ok: true, isFilled: true, text: 'owner words', cursor: 11 })
+  expect(w.draft).toBe('owner words')
+})
+
+// the kit's engine strips a cause a hook writes itself (only the engine's own `next` answer carries one), so the `refusal: 'dialog'` of a
+// real session is measured in a real pane, not here; what is held here is that a refusal's `isFilled: false` and the untouched draft
+// reach the reply as they are, with no `refusal` key made up
+test('fill: a refused fill is passed on as the engine says it, the draft untouched', async ($, on) => {
+  const w = world(on)
+  w.draft = 'kept'
+  w.dialog = true
+  payload(w, 'f3', { text: 'new', mode: 'replace' })
+  const reply = w.replied('f3')
+  await $.session.receive(peer('[sala-mod] fill f3'))
+  expect(await reply).toEqual({ reqid: 'f3', ok: true, isFilled: false, text: 'kept', cursor: 4 })
+  expect(w.draft).toBe('kept')
+})
+
+test('fill: no payload, a payload that is not JSON, a text that is not text and a mode not known are all refused and fill nothing', async ($, on) => {
+  const w = world(on)
+  const cases: [string, unknown][] = [
+    ['g1', undefined],
+    ['g2', '{not json'],
+    ['g3', { text: 5, mode: 'replace' }],
+    ['g4', { text: 'x', mode: 'swap' }],
+    ['g5', { mode: 'replace' }],
+  ]
+  for (const [id, body] of cases) {
+    if (body !== undefined) payload(w, id, body)
+    const reply = w.replied(id)
+    await $.session.receive(peer(`[sala-mod] fill ${id}`))
+    expect(await reply).toEqual({ reqid: id, ok: false, reason: 'payload' })
+  }
+  expect(w.fills).toEqual([])
+})
+
+test('fill: a payload with no mode is a replace', async ($, on) => {
+  const w = world(on)
+  w.draft = 'before'
+  payload(w, 'f4', { text: 'after' })
+  const reply = w.replied('f4')
+  await $.session.receive(peer('[sala-mod] fill f4'))
+  expect((await reply).text).toBe('after')
+  expect(w.fills).toEqual([{ text: 'after', mode: 'replace' }])
 })
 
 test('exit: refused over a draft, refused while a background shell runs, else answered ok and /exit run', async ($, on) => {

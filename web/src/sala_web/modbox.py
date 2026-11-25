@@ -27,6 +27,8 @@ import re
 import secrets
 import stat
 import time
+import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 
 from .config import Settings
@@ -131,8 +133,11 @@ async def _push(sock: str, text: str) -> bool:
                 pass
 
 
-async def draft(settings: Settings, pid: int, wait: float = REPLY_WAIT) -> str | None:
-    """The text of the prompt box of the claude with this pid, as the mod reads it, or None when the mod could not say."""
+async def _ask(settings: Settings, pid: int, verb: str, payload: dict | None = None, wait: float = REPLY_WAIT) -> dict | None:
+    """One request to the pane's mod and its reply, or None for every way this can fail. `payload`, when given, goes to a
+    file beside the reply (<session id>.<reqid>.fill.json, written whole under a temp name, owner-only): a line on the
+    socket cannot carry a newline, and the text of a message is never on the line, which a pane whose mod did not load would
+    show its model. The mod reads the file and removes it; it is removed here too, whatever happened."""
     found = await asyncio.to_thread(target, settings, pid)
     if found is None:
         return None
@@ -141,8 +146,11 @@ async def draft(settings: Settings, pid: int, wait: float = REPLY_WAIT) -> str |
     if not REQID_RE.fullmatch(reqid):
         return None
     reply = folder / f"{sid}.{reqid}.reply.json"
+    body = folder / f"{sid}.{reqid}.fill.json"
     try:
-        if not await _push(sock, f"{MARK} draft {reqid}\n{NOTE}"):
+        if payload is not None and not await asyncio.to_thread(_write_private, body, payload):
+            return None
+        if not await _push(sock, f"{MARK} {verb} {reqid}\n{NOTE}"):
             return None
         deadline = time.monotonic() + wait
         while True:
@@ -153,8 +161,74 @@ async def draft(settings: Settings, pid: int, wait: float = REPLY_WAIT) -> str |
                 return None
             await asyncio.sleep(POLL)
     finally:
-        await asyncio.to_thread(lambda: reply.unlink(missing_ok=True))
-    text = got.get("text")
-    if got.get("ok") is not True or got.get("reqid") != reqid or not isinstance(text, str):
+        await asyncio.to_thread(lambda: (reply.unlink(missing_ok=True), body.unlink(missing_ok=True)))
+    if got.get("ok") is not True or got.get("reqid") != reqid:
         return None
-    return text
+    return got
+
+
+def _write_private(path: Path, value: dict) -> bool:
+    """`value` as JSON in `path`, owner-only, whole or not at all (a temp name beside it, then a rename)."""
+    tmp = path.with_name(path.name + f".tmp-{secrets.token_hex(4)}")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(value, f, ensure_ascii=False)
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
+
+
+async def draft(settings: Settings, pid: int, wait: float = REPLY_WAIT) -> str | None:
+    """The text of the prompt box of the claude with this pid, as the mod reads it, or None when the mod could not say."""
+    got = await _ask(settings, pid, "draft", wait=wait)
+    text = None if got is None else got.get("text")
+    return text if isinstance(text, str) else None
+
+
+@dataclass(frozen=True)
+class Filled:
+    """The mod's answer to a `fill` (the engine's own answer of `$.prompt.fill`): whether the box took the text, why not when
+    the engine refused (`refusal`: "dialog" while a typed dialog or the permission dialog holds the keys, "no_composer",
+    "unanswered"), the box's text afterwards (the current draft when refused) and the caret."""
+    is_filled: bool
+    refusal: str | None
+    text: str
+    cursor: int
+
+
+FILL_MODES = ("replace", "append", "insert")
+MAX_FILL = 128 * 1024      # characters a fill carries; a longer message is not asked about (the reply holds it back as well)
+
+
+async def fill(settings: Settings, pid: int, text: str, mode: str = "replace", wait: float = REPLY_WAIT) -> Filled | None:
+    """Put `text` in the prompt box of the claude with this pid through its mod (mode: replace, append or insert at the
+    caret), or None when the mod could not say: no mod, a mod older than the verb (it answers "unknown", or not at all),
+    no reply in time, a reply that is not ok or not shaped as an answer. `fill("", "insert")` changes nothing and says what
+    the box holds and whether a dialog holds the keys: the probe. The box is the CLI's own: it drops zero-width characters,
+    NUL, BEL and ESC and turns CRLF into LF, so `Filled.text` is what to compare, never `text`."""
+    if mode not in FILL_MODES or len(text) > MAX_FILL:
+        return None
+    got = await _ask(settings, pid, "fill", {"text": text, "mode": mode}, wait)
+    if got is None:
+        return None
+    done, refusal, box, cursor = got.get("isFilled"), got.get("refusal"), got.get("text"), got.get("cursor")
+    if (not isinstance(done, bool) or not isinstance(box, str) or isinstance(cursor, bool) or not isinstance(cursor, int)
+            or not (refusal is None or isinstance(refusal, str))):
+        return None
+    return Filled(done, refusal, box, cursor)
+
+
+def normalize(text: str) -> str:
+    """A text as the CLI's prompt box holds it, for comparing what was filled with what was meant: CRLF and CR become LF, the
+    code points a terminal draws as nothing (zero-width characters, NUL, BEL, ESC, every other control and format character
+    but newline and tab) are dropped, accents are NFC, and the end is trimmed (Enter drops the trailing spaces and newlines of
+    what it submits). Leading spaces are kept: they are the owner's."""
+    t = text.replace("\r\n", "\n").replace("\r", "\n")
+    t = "".join(c for c in t if c in "\n\t" or unicodedata.category(c) not in ("Cc", "Cf"))
+    return unicodedata.normalize("NFC", t).rstrip()
