@@ -1570,7 +1570,7 @@ message, goes through the main chat's own path.
 zone `GET /api/config` and `GET /api/chat` name (`SALA_TZ`, through `shared.js`'s `zoneFormat`), and strings go through the page's i18n like every page's.
 
 **What shows.** Only what the owner typed (the composer, or the pane's keys) and the FINAL reply of each turn he started. No tool call and no text written on the way to one. A reply that is still being written shows when the session
-is idle, and never while it works with no stop reason yet.
+is idle, and never while it works with no stop reason yet. The owner's mark, `[for <owner>]`, is taken off a reply that opens with it in every turn, one he started included (a reply that is only the mark keeps its text, so no reply is dropped). In a hidden turn whose reply is only the mark, the kept-back line shows no mark after its arrow: the mark never reaches a kept line.
 
 **What does not, and the one exception.** A turn something else started (another session, the board, sala, a background task, a plugin) is hidden. It shows only when its final reply opens with `[for <owner>]`, with the mark taken off
 and the label "<Name>, on his own" on the message. Every other hidden turn is **kept back**: the switch "Show what <Name> kept back" lists them in place, in time order, one quiet line each (time, source in plain words, a short clipped
