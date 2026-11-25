@@ -4,7 +4,7 @@
 # one allow line) and leaves the dialog alone (prints nothing, exit 0) for what must stay a person's. Payloads are fed to the real
 # verb, `salamander hook permission-request`, as the CLI sends them (tool_name, tool_input, permission_mode, session_id, cwd).
 #  1. APPROVED: Bash ls, Read, Edit of an ordinary repo file, WebFetch, an MCP tool, a Bash command that merely says "token" or
-#     "hooks" in prose, a ~ inside the home that is no rule, an Edit whose CONTENT mentions CLAUDE.md (the content is the work).
+#     "hooks" in prose, a Python call `_steps.key(1)` (a `.key(` is code, not a key file), a ~ inside the home that is no rule, an Edit whose CONTENT mentions CLAUDE.md (the content is the work).
 #     Each prints one line that parses as JSON with decision.behavior allow, exit 0.
 #  2. LEFT: AskUserQuestion, ExitPlanMode, a tool that asks (name), Edit of ~/.claude/settings.json, a repo's
 #     .claude/settings.local.json, ~/.claude.json, Write of CLAUDE.md, .mcp.json, a hooks directory, a hook
@@ -99,7 +99,18 @@ left "Bash: source .env"                      "$(mk Bash '{"command":"set -a; . 
 left "Write .env.local"                       "$(mk Write "{\"file_path\":\"$HOME/repo/.env.local\",\"content\":\"A=1\"}")" "credentials"
 left "Read api-token.json"                    "$(mk Read '{"file_path":"/srv/app/api-token.json"}')" "credentials"
 left "Read a .pem"                            "$(mk Read '{"file_path":"/srv/app/server.pem"}')" "credentials"
-left "Bash: stackshot token file"             "$(mk Bash '{"command":"cat /home/alex/stackshot/stackshot-token.txt"}')" "credentials"
+left "Bash: cat server.key"                   "$(mk Bash '{"command":"cat server.key"}')" "key file"
+left "Read a .key"                            "$(mk Read '{"file_path":"/srv/app/server.key"}')" "key file"
+left "Bash: a.key followed by a closing paren" "$(mk Bash '{"command":"(cat a.key)"}')" "key file"
+left "Bash: secrets/prod.key;"                "$(mk Bash '{"command":"cp secrets/prod.key; ls"}')" "key file"
+left "Bash: cat a.key | x"                    "$(mk Bash '{"command":"cat a.key | x"}')" "key file"
+left "Bash: a.key then a space and ("         "$(mk Bash '{"command":"cat a.key (x)"}')" "key file"
+left "Bash: a.pem right before a paren"       "$(mk Bash '{"command":"echo a.pem(1)"}')" "key file"
+left "Bash: a.p12"                            "$(mk Bash '{"command":"openssl pkcs12 -in a.p12"}')" "key file"
+allowed "Bash: x.key.bak (never a key file here)" "$(mk Bash '{"command":"ls x.key.bak"}')"
+allowed "Bash: a Python call _steps.key(x) is code" "$(mk Bash '{"command":"python3 -c \"import _steps; _steps.key(1)\""}')"
+allowed "Bash: pytest-style assertEqual(_steps.key(1), 2)" "$(mk Bash '{"command":"self.assertEqual(_steps.key(1), 2)"}')"
+left "Bash: stackshot token file"            "$(mk Bash '{"command":"cat /home/alex/stackshot/stackshot-token.txt"}')" "credentials"
 left "an MCP input naming ~/.ssh"             "$(mk mcp__fs__read '{"path":"~/.ssh/config"}')" "credentials"
 
 echo "== left: the mode and the input"
