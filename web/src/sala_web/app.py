@@ -192,7 +192,7 @@ none itself):
                                   the text into the pane, then Enter (with a dialog
                                   open: an option number or "esc" is sent as that one key)
   GET  /api/prefs                 the page's saved preferences (scopeOrder, groupOrder, sessionOrder, collapsed,
-                                  laneOrder, showAll, showSleeping, unreadOnly, showTools, shellHeight, lang)
+                                  laneOrder, agentsGroup, agentsFolded, showAll, showSleeping, unreadOnly, showTools, shellHeight, lang)
   PUT  /api/prefs                 merge the given keys into them (state_dir/prefs.json, written atomically)
   POST /api/shell/open            make sure the Shell drawer's tmux session (SALA_SHELL_SESSION, default sala-shell) exists (a plain login bash in ~)
   POST /api/shell/keys            {"key"}: one key of the drawer's key row into the shell session, from a fixed list of key names
@@ -324,9 +324,10 @@ DUP_WINDOW = 20.0  # seconds: an identical send to the same pane inside this is 
 PREFS_MAX_BYTES = 64 * 1024
 PREFS_MAX_GROUPS = 500
 PREFS_DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [],
-                  "laneOrder": [], "showAll": False, "showSleeping": False, "unreadOnly": False, "showTools": False, "shellHeight": 300, "lang": "en"}
-PREFS_LISTS = ("scopeOrder", "groupOrder", "sessionOrder", "collapsed", "laneOrder")
+                  "laneOrder": [], "agentsGroup": "", "agentsFolded": [], "showAll": False, "showSleeping": False, "unreadOnly": False, "showTools": False, "shellHeight": 300, "lang": "en"}
+PREFS_LISTS = ("scopeOrder", "groupOrder", "sessionOrder", "collapsed", "laneOrder", "agentsFolded")
 PREFS_BOOLS = ("showAll", "showSleeping", "unreadOnly", "showTools")
+PREFS_AGENT_GROUPS = ("", "status", "lane", "role")   # how the Agents list is grouped ("" is the plain list); the page's AGENT_GROUPS (static/shared.js)
 PREFS_LANGS = ("en", "ko")        # the interface languages (static/i18n.js); English is the default
 SHELL_HEIGHT_RANGE = (120, 4000)   # px, the Shell drawer's height on a wide screen; the page keeps it inside the window
 SSE_RETRY_MS = 1000           # EventSource reconnect delay after the stream drops (a restart)
@@ -525,6 +526,11 @@ def _validate_prefs(body: object) -> dict | str:
         if isinstance(h, bool) or not isinstance(h, int) or not SHELL_HEIGHT_RANGE[0] <= h <= SHELL_HEIGHT_RANGE[1]:
             return f"shellHeight must be a whole number from {SHELL_HEIGHT_RANGE[0]} to {SHELL_HEIGHT_RANGE[1]}"
         out["shellHeight"] = h
+    if "agentsGroup" in body:
+        g = body["agentsGroup"]
+        if not isinstance(g, str) or g not in PREFS_AGENT_GROUPS:
+            return "agentsGroup must be one of: " + ", ".join(repr(x) for x in PREFS_AGENT_GROUPS)
+        out["agentsGroup"] = g
     if "lang" in body:
         if body["lang"] not in PREFS_LANGS:
             return f"lang must be one of {', '.join(PREFS_LANGS)}"

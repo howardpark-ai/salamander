@@ -6,14 +6,14 @@ service unit:
 
 ```
 X-Model-Lane=<lane>      # subscription-1, bedrock, aws-platform, api, subscription-2, sdk or none (older lane words are still read as aliases)
-X-Project=<scope/project> # the job's project, as the Agents tab's Project column shows it: projects/demo-docs, team/docs …
+X-Project=<scope/project> # the job's project, as an agent's name tooltip on the Agents tab shows it: projects/demo-docs, team/docs …
 ```
 
 An optional `X-Model-Note=<text>` line in `[Unit]` (at most one) is the tooltip of the lane chip on the Schedules tab, for a call the lane
 alone does not say (`sala-watch.service` uses it for the hourly api key check).
 
 **The project.** `X-Project=` is the job's Category on the Schedules tab: the tab is one table, sorted by Category and then Job by
-default, and the Category is this line, never a mapping kept in the web code. The value is stored as the label the Agents tab's Project column
+default, and the Category is this line, never a mapping kept in the web code. The value is stored as the label an agent's name tooltip on the Agents tab
 shows (`<scope>/<project>`, lower case), so the two tabs name a project the same way. A job with no `X-Project=` shows "—" as its Category,
 sorts last, and `sala job check` reports it as the gap `no-project`. Set it when the job is added (`sala job add --project`) or later with
 `sala job set-project NAME PROJECT`.

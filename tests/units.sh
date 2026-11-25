@@ -35,7 +35,7 @@ for dir in systemd contrib/*/systemd; do
         if [ "${#notes[@]}" -gt 1 ]; then bad "$s: ${#notes[@]} X-Model-Note= lines in [Unit] (at most one)"; continue; fi
         [ "$nout" = 0 ] || { bad "$s: X-Model-Note= outside [Unit]"; continue; }
         if [ "${#notes[@]}" = 1 ] && [ -z "${notes[0]//[[:space:]]/}" ]; then bad "$s: X-Model-Note= is empty (leave the line out instead)"; continue; fi
-        # X-Project=<scope/project> in [Unit]: the job's category on the Overview's Schedules tab, written as the Agents table's Project column shows it.
+        # X-Project=<scope/project> in [Unit]: the job's category on the Overview's Schedules tab, written as an agent's name tooltip on the Agents table shows it.
         # Required of a service with a timer beside it (a job); another service may carry one (at most one), never outside [Unit]
         mapfile -t projs < <(awk '/^\[/ {sec=$0} sec=="[Unit]" && /^X-Project=/ {sub(/^X-Project=/, ""); print}' "$s")
         pout=$(awk '/^\[/ {sec=$0} sec!="[Unit]" && /^X-Project=/ {c++} END {print c+0}' "$s")

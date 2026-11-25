@@ -15,7 +15,7 @@ the first answer is {"pending": true} and the page asks again until the first re
                                                          the batch does not return is asked alone, as before): the timer's On… lines, and the service's
                                                          `X-Model-Lane=` key in [Unit] (systemd ignores X- keys), its
                                                          `X-Project=` (the job's category: the project, written as the Agents
-                                                         table's Project column shows it) and its optional `X-Model-Note=`
+                                                         table's name tooltip shows it) and its optional `X-Model-Note=`
                                                          (shown beside the lane; never a flag)
   crontab -l                                            the user's crontab lines (all of them are flagged: move to a timer)
   git -C <dir> rev-parse / remote get-url / symbolic-ref   where a unit file or script lives, to build its GitHub link
@@ -65,7 +65,7 @@ TTL = 30.0           # seconds: a reading older than this is read again in the b
 ERROR_RETRY = 30.0   # a failed read is tried again this long after
 LANES = ("subscription-1", "bedrock", "aws-platform", "api", "subscription-2", "sdk", "none")   # the values of X-Model-Lane; a unit on disk may still say max or team, which model_lane reads as the new codes (lanestate.RENAMED)
 LANE_KEY = "X-Model-Lane"
-PROJECT_KEY = "X-Project"   # the job's project: scope/project, as the Agents table's Project column shows it
+PROJECT_KEY = "X-Project"   # the job's project: scope/project, as an agent's name tooltip on the Agents table shows it
 NOTE_KEY = "X-Model-Note"   # optional, beside the lane
 NOTE_MAX = 300
 CRON_FLAG = "cron: move to a timer"
@@ -206,7 +206,7 @@ def model_note(cat_text: str) -> str | None:
 
 def model_project(cat_text: str) -> str | None:
     """The value of `X-Project=` in the [Unit] section (the last one wins, as a drop-in would): the job's project as the Agents table's
-    Project column writes it ("projects/demo"); None if absent or empty."""
+    name tooltip writes it ("projects/demo"); None if absent or empty."""
     found = None
     for k, v in unit_sections(cat_text).get("Unit", []):
         if k == PROJECT_KEY:

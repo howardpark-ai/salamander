@@ -105,9 +105,9 @@ def open_overview(served, browser, dark: bool = True) -> None:
     assert browser.evaluate(WAIT_ROWS) == len(ROWS)
 
 
-def test_the_table_has_an_effort_column_right_after_model():
+def test_the_table_has_an_effort_column_right_after_model_and_no_project_column():
     keys = re.findall(r'<th data-key="(\w+)" aria-sort="none"><button type="button"(?: data-i18n="[\w.]+")?>(\w+)</button></th>', INDEX.split('id="ov-schedules"')[0])   # the Agents tab's table; the Schedules tab has its own
-    assert keys == [("name", "Agent"), ("project", "Project"), ("role", "Role"), ("status", "Status"),
+    assert keys == [("name", "Agent"), ("role", "Role"), ("surface", "Surface"), ("status", "Status"),
                     ("model", "Model"), ("effort", "Effort"), ("lane", "Lane")], keys
     assert '<td colspan="7" class="sp-empty"' in INDEX
     js = (STATIC / "sessions.js").read_text()
@@ -218,7 +218,7 @@ def check_no_page_overflow(m: dict, vw: int) -> None:
     assert m["vw"] == vw, m
     assert m["docScroll"] <= vw and m["bodyScroll"] <= vw and m["paneScroll"] <= m["paneClient"], m
     assert 0 <= m["wrapLeft"] and m["wrapRight"] <= vw, m
-    assert [t["key"] for t in m["ths"]] == ["name", "project", "role", "status", "model", "effort", "lane"], m
+    assert [t["key"] for t in m["ths"]] == ["name", "role", "surface", "status", "model", "effort", "lane"], m
 
 
 def test_no_sideways_page_scroll_at_phone_and_desktop_width(served, browser):

@@ -21,7 +21,7 @@ usage: sala job add NAME --repo REPO --script PATH --schedule SCHEDULE [--schedu
           and pull request, from a worktree given as --checkout. A repo with no unit folder (stackshot renders its units from templates)
           is refused with the reason. Refused too: a missing or invalid --description, --lane or --project, an unknown REPO, a --script that is
           not a file, a taken NAME. LANE: subscription-1 | bedrock | aws-platform | api | subscription-2 | sdk | none (max and team still work) (the model lane the script runs on;
-          none = no model call). PROJECT: scope/project, written as the Agents table's Project column shows it (team/demo, team/web-app,
+          none = no model call). PROJECT: scope/project, written as an agent's name tooltip on the Agents table shows it (team/demo, team/web-app,
           alpha/site, team/docs); it is the job's category on the Overview's Schedules tab. SCHEDULE: an OnCalendar expression ("*-*-* 03:00:00 UTC", "daily") or OnBootSec=5min /
           OnUnitActiveSec=1h (repeat --schedule for several). --note: a few words shown beside the lane (X-Model-Note=).
           PLACEMENT (--runs-with, kept as X-Runs-With= in [Unit]): servers | sessions | home, where the job runs when the fleet moves: servers = it goes with

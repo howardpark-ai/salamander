@@ -149,24 +149,25 @@
 #overview-pane .sp-eff { color: var(--text); background: color-mix(in srgb, var(--accent-solid, var(--accent)) 14%, var(--panel)); }
 
 /* Agents as cards: a row per agent, nothing scrolls sideways. sessions.js (fitTable) puts .fold on a table's box when the screen is a phone's (760px and under)
-   or the columns do not fit the box at the width it has: one rule for the phone and for every width in between, so a table never scrolls sideways. In a card a
-   long name, project or label wraps anywhere, and a tag or pill too long for the line is cut with an ellipsis (its title says it whole). Applies to the Agents
-   table and the lane page's table of its sessions (the same seven cells a row). */
-#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) thead { display: none; }
+   (or, as a safety, when the columns do not fit the box): the header row is hidden and each row is a wrapped card, the name first with the status beside it, then
+   the role and the surface (a dash is left out), then the model, effort and lane. A long name wraps anywhere, and a tag or pill too long for the line is cut with
+   an ellipsis (its title says it whole). A group's heading row is a full-width button, 40px high at least. Applies to the Agents table and the lane page's table of
+   its sessions (the same seven cells a row). */
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) thead, #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) colgroup { display: none; }
 #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table), #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) tbody { display: block; white-space: normal; }
 #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
-#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) tbody tr:last-child { border-bottom: 0; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) tbody:last-child tr:last-child { border-bottom: 0; }
 #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td { display: block; padding: 0; border: 0; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(1) { order: 1; flex: 1 1 60%; font-size: 15px; }
 #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(4) { order: 2; font-size: 13px; }
-#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(2) { order: 3; flex: 1 0 100%; font-size: 13px; color: var(--muted); }
-#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(3) { display: none; }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:is(:nth-child(2), :nth-child(3)) { order: 3; font-size: 13px; color: var(--muted); }
+#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td.ag-dash { display: none; }
 #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(5) { order: 4; }
 #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(6) { order: 5; }
 #overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) td:nth-child(7) { order: 6; }
-#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) .sp-model { display: flex; max-width: 100%; min-width: 0; }
-#overview-pane .sp-wrap.fold :is(#sp-table, #ld-table) :is(.sp-tag, .sp-pill) { display: inline-block; box-sizing: border-box; max-width: 100%; min-width: 0; vertical-align: middle;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 20px; }
+#overview-pane .sp-wrap.fold #sp-table tr.ag-g { display: block; padding: 0; background: var(--selected); }
+#overview-pane .sp-wrap.fold #sp-table tr.ag-g td { display: block; }
+#overview-pane .sp-wrap.fold #sp-table .ag-gh { min-height: 40px; padding-block: 8px; }
 
 /* the one leftover: the model tag's inner outline */
 #overview-pane .sp-tag[class*="fam-"] { box-shadow: none; }
@@ -300,13 +301,23 @@
         </div>
         <div id="ov-agents" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-sessions">
           <div id="sp-note" class="sp-note" role="status"></div>
+          <!-- Group by: Status, Lane or Role, a toggle group (a lit button again is the plain list, the default); the choice and the folded groups are saved in api/prefs (sessions.js) -->
+          <div id="ag-bar" class="ag-bar" role="group" aria-labelledby="ag-lbl">
+            <span id="ag-lbl" class="ag-lbl" data-i18n="ui.ov.groupBy">Group by</span>
+            <span class="ag-seg">
+              <button type="button" class="ag-chip" data-by="status" aria-pressed="false" data-i18n="common.status">Status</button>
+              <button type="button" class="ag-chip" data-by="lane" aria-pressed="false" data-i18n="common.lane">Lane</button>
+              <button type="button" class="ag-chip" data-by="role" aria-pressed="false" data-i18n="common.role">Role</button>
+            </span>
+          </div>
           <div class="sp-wrap">
             <table id="sp-table">
+              <colgroup><col class="c-name"><col class="c-role"><col class="c-surface"><col class="c-status"><col class="c-model"><col class="c-effort"><col class="c-lane"></colgroup>
               <thead>
                 <tr>
                   <th data-key="name" aria-sort="none"><button type="button" data-i18n="ui.col.agent">Agent</button></th>
-                  <th data-key="project" aria-sort="none"><button type="button" data-i18n="ui.col.project">Project</button></th>
                   <th data-key="role" aria-sort="none"><button type="button" data-i18n="common.role">Role</button></th>
+                  <th data-key="surface" aria-sort="none"><button type="button" data-i18n="ui.col.surface">Surface</button></th>
                   <th data-key="status" aria-sort="none"><button type="button" data-i18n="common.status">Status</button></th>
                   <th data-key="model" aria-sort="none"><button type="button" data-i18n="common.model">Model</button></th>
                   <th data-key="effort" aria-sort="none"><button type="button" data-i18n="common.effort">Effort</button></th>
@@ -430,7 +441,8 @@
         <section class="ld-sec" aria-labelledby="ld-h-sessions"><h2 id="ld-h-sessions" class="ld-h" data-i18n="ui.ld.sessions">Sessions on this lane</h2>
           <div class="sp-wrap">
             <table id="ld-table">
-              <thead><tr><th data-i18n="common.session">Session</th><th data-i18n="ui.col.project">Project</th><th data-i18n="common.role">Role</th><th data-i18n="common.status">Status</th><th data-i18n="common.model">Model</th><th data-i18n="common.effort">Effort</th><th data-i18n="common.lane">Lane</th></tr></thead>
+              <colgroup><col class="c-name"><col class="c-role"><col class="c-surface"><col class="c-status"><col class="c-model"><col class="c-effort"><col class="c-lane"></colgroup>
+              <thead><tr><th data-i18n="common.session">Session</th><th data-i18n="common.role">Role</th><th data-i18n="ui.col.surface">Surface</th><th data-i18n="common.status">Status</th><th data-i18n="common.model">Model</th><th data-i18n="common.effort">Effort</th><th data-i18n="common.lane">Lane</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
