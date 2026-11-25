@@ -1587,9 +1587,12 @@ the owner typing into that turn still takes it over. `origin.kind` `peer` (anoth
 lines and compaction summaries are no turn. An unknown origin kind counts as delivered. Lines are read in file order (a queued line's own timestamp is when it was taken up, so never sort by time); a delivered line joins an open turn
 and starts a hidden one only when none is open; a hook's follow-up after a closed turn belongs to that turn.
 
-**Waiting on you.** The owner's moves from the board feed `board.py` already reads (`GET /api/board/items`'s cache): the rows marked `waiting` (mover is the owner with no `via`), each linking to the item's own address, deduplicated by id
-over every live and sleeping session. That is NOT every project: the feed is asked per session, so an item no session of this machine is tied to is not in it. A row that was not there when the page opened carries a "new" tag. Empty
-reads "nothing waiting". No model writes or filters these lines.
+**Waiting on you.** The owner's moves, every item of stackshot's Your move group, read with `GET /client/your-move` (`yourmove.py`): all of them, in the board home page's own order (the longest wait first), with no cap and no re-sort,
+each linking to the item's own address, each id once. The read is made in the background at most once per 30 s (3 s timeout, this machine's token, never logged or saved), so the page never waits on it, and the last good list is kept
+under the state dir (`your-move.json`, text only). When a read fails the last good list stands for 10 minutes; with none that young (never read, or the reads failing for longer) the strip falls back to the board feed `board.py`
+already reads (`GET /api/board-items`'s cache): the rows marked `waiting` (mover is the owner with no `via`), deduplicated by id over every live and sleeping session, which is NOT every project (that feed is asked per session, so an
+item no session of this machine is tied to is not in it): the strip is never emptier than it was before the read existed. An empty Your move group is an empty strip. A row that was not there when the page opened carries a "new"
+tag. Empty reads "nothing waiting". No model writes or filters these lines.
 
 **In motion.** The lines the session sets for itself with `sala motion add "<line>"` (`lib/motion.py`, [docs/subcommands.md](../docs/subcommands.md)): one small JSON file per session under `<sala state>/motion/<session>.json`, at most 8
 lines of at most 120 characters, each in force for 24 hours. `motion.py` only reads it (a link or a file that is not the format is left out). Empty reads "nothing right now".

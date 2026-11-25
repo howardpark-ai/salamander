@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 60
+contract-version: 61
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -321,6 +321,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 
 - **59** — Wed Nov 25th 2026. Interface 30 (Machines tab files): which machines the tab lists, with their names and letters, now comes from sala's own machine list (`machine_list()` in `lib/machines.py`, also printed by the new `sala machines [--json]`, and `sala host sala|stackshot` reads or sets the host record through the owner's holds script) instead of the web app reading the fleet names TSV (interface 16) on its own. The list reads the fleet names TSV and, beside it, the tailnet candidates, the ssh fleet config, the `[[hosts]]` records and the follow list, read-only. Nothing visible changes: the tab shows the same cards in the same order, and the versions, failures and follow lines still come from the files named in the interface. stackshot's side is unchanged, and the new commands are not interfaces yet (a later version lists them).
 - **60** — Wed Nov 25th 2026. New interface 39 (machines). The heartbeat writes `machines.json` beside `agent-state.json` in the live store (this box's own letter, never into the store repo): sala's machine list (`machine_list()` in `lib/machines.py`, the one reader of the owner's machine files, the same list `sala machines --json` prints) with the machine files that were named and could not be read. Every run rewrites it, then hands it to stackshot with `POST /client/machines` when the list changed since the last good post and otherwise every 10 minutes, so stackshot can show the list's age (stackshot's route is stackshot's to build in a later stage, so a 404 or any failure is one log line per five minutes and never a failed heartbeat). Interfaces 1, 30 and 38 are unchanged.
+- **61** — Wed Nov 25th 2026. New interface 40 (the owner's whole Your move list). The chat page's Waiting on you strip reads stackshot's `GET /client/your-move` (every item of the board home page's Your move group, no cap, in the page's own order) instead of taking the owner's moves from the per-session board feed of interface 10, which lists only the moves some session of this box is tied to. The feed stays as the fallback. Interface 10 is unchanged.
 
 ## How each entry reads
 
@@ -379,6 +380,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 | 37 | A caller's own key (`sala stackshot-key`, `POST /keys/enroll`, `POST /keys/pass`; the pass on the New session form's calls) | sala → stackshot | unstable (first release; stackshot's routes are the contract it is written against) | `tests/stackshotkey.sh` (a stub server that checks the claim as the contract says), `web/tests/test_formpass.py` |
 | 38 | Agent state (`agent-state.json` in the live store, `POST /client/agent-state`; `SALA_AGENT_STATE_POST_CMD`) | sala → stackshot | unstable (first release; stackshot's route is being built) | `tests/agentstate.sh` (a stub stackshot checkout and a stub post command; the parity section needs the real checkout) |
 | 39 | Machines (`machines.json` in the live store, `POST /client/machines`; `SALA_MACHINES_POST_CMD`) | sala → stackshot | unstable (first release; stackshot's route is not built yet, a 404 is expected) | `tests/machinespost.sh` (a made-up fleet folder, a stub post command) |
+| 40 | sala-web's Your move list (`GET /client/your-move`) | sala web → stackshot | stable (the route is live) | `web/tests/test_yourmove.py`, `test_chatpage.py` (a fake stackshot) |
 
 ## 1. Heartbeat fleet store
 
@@ -1227,6 +1229,16 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Absent or changed**: `SALA_MACHINES_POST=off`: nothing is written or posted. A failure to build, write or post (no machine file readable, an unwritable store, a failing command, a 404 while the route is not live, a timeout): one line per five minutes in `$SALA_LOG_DIR/salamander-machines.log`, the heartbeat neither fails nor waits longer than the timeout, and the last good file stays where no new one could be written.
 - **Test**: `tests/machinespost.sh` (a made-up fleet folder and a stub post command: the body's keys and shape against `machine_list()`, the atomic file, a changed list posted at once and an unchanged one not again inside 10 minutes but after, a failing or 404 command and a command that does not exist logged once per five minutes without failing the heartbeat, a slow one stopped, off, `--dry-run` and `--no-push`, an empty list not written or posted, a body over the limit, the default command and that no pass or secret reaches the command, the file or the log).
 - **Stable**: unstable (first release; stackshot's route is not built yet).
+
+## 40. sala-web's Your move list
+
+- **Direction**: sala's web app → stackshot (HTTP). Added in version 61.
+- **Mechanism**: `GET <url>/client/your-move`, header `Authorization: Bearer <token>`, `User-Agent: sala-web`, 3 s timeout, no key and no query. Token and address as interface 10 reads them (`$XDG_CONFIG_HOME/stackshot/client.token`, `client.url`, `STACKSHOT_URL` first). Answer: `{"items": [{"shown", "subject", "url", "ask", "updated"}]}`: every open item the owner moves now, the group the board home page draws under Your move, with no cap, in the page's own order (the owner's longest wait first; not newest first). `shown` is the id as a person reads it, `url` the item's page, `ask` the open ask line or `""`, `updated` epoch seconds. An empty group is `{"items": []}`. sala-web keeps `shown` (as `id`), `subject` and `url`, in the order sent, each id once, and passes none of the others on (the strip shows nothing else). The chat page's Waiting on you strip is that list, with no re-sort and no cap; an empty list is an empty strip.
+- **Cache**: read in the background at most once per 30 s however many pages poll (a page view never makes a request of its own); the last good list is kept under `state_dir/your-move.json` as text (id, subject, url; never the token) so a restart has it. A failed read keeps the last good list for 10 minutes and says nothing is wrong; with no good list younger than that (never read yet, or the reads have failed for longer), the strip falls back to the board feed of interface 10, so it is never emptier than before this read.
+- **Owners**: sala `web/src/sala_web/yourmove.py` (whole file), `chatpage.py` (`waiting`), `app.py` (`api_chat`). stackshot `docs/client-contract.md`, *The owner's whole Your move group*.
+- **Absent or changed**: no token file, a 401, an unreachable server, a non-JSON answer or an answer without an `items` list: the cached list while it is under 10 minutes old, else the board feed. A stackshot that predates the route answers 404 and the strip stays on the feed. The rest of sala-web is unaffected. Fail-open.
+- **Test**: `web/tests/test_yourmove.py` (the parse, the cache and its bounds, the read against a stand-in on a real socket, `GET /api/chat` end to end), `web/tests/test_chatpage.py` (`waiting`); `conftest.py` points token and URL at missing files so no test reaches the board.
+- **Stable**: yes (the route is live).
 
 ## Not an interface, but a name
 

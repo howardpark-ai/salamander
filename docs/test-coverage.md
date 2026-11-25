@@ -5109,5 +5109,12 @@ results, sidechain lines and compaction stubs as no turn, only the final reply s
 follow-up joining its turn, the kept line's source in plain words and its last line without the footer notes, today's count in the zone, and a half-written last line. (`test_chatpage.py`): the settings, the link cards (and that nothing is
 fetched), the board lines once each over every session, the motion reader, and `GET /chat` and `GET /api/chat` served.
 
+The strip's source (Wed Nov 25th 2026): Waiting on you used to be the board feed's `waiting` rows, which the feed gives only for the moves some session of the box is tied to (one move shown of five at one point); it is now stackshot's whole Your move list
+(`web/src/sala_web/yourmove.py`, `GET /client/your-move`, interface 40 of `docs/stackshot-contracts.md`). Covered, with no browser (`web/tests/test_yourmove.py`, 21 tests, and five more in `test_chatpage.py`): the parse (every item in the order sent, none dropped, no cap at 150,
+a row without an id or a repeat left out, a url that is not http(s) or a path left empty, an answer that is no list refused); the cache (the first answer is None so the page uses the feed while the first read lands, one read per 30 s however many pages ask, an empty group is an answer
+and an empty strip, a failed read keeping the last good list for ten minutes and the feed after that, a 401, a broken answer or a missing token file never leaking the token or crashing, the state file holding text with no token and a restart serving it); the read against a stand-in stackshot on a real socket
+(the bearer token, the path with no query, 25 items, a 401, a 503 and a non-JSON answer with neither the token nor the address in the message); `GET /api/chat` end to end (seven moves in the list's order where the feed has two, 25 moves, an empty list over a feed that has rows, the read failing: the cached list, then the feed's two after ten
+minutes and the feed alone when nothing was ever read). Not covered: a real stackshot, the page's look (the strip's markup and script are unchanged).
+
 Not covered, and why: the page's look and behavior in a browser except the width rule (`test_chat_no_sideways_scroll.py`, which GitHub CI runs; the test box has no browser); a real transcript (the rule was established from them and the
 shapes are in the fixtures, but a test never reads one).

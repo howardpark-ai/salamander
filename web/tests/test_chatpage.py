@@ -5,7 +5,8 @@ What is held:
   - the display name defaults to the part of the session name after its last hyphen, capitalized, and SALA_CHAT_NAME replaces it;
   - cards: a /mockup/<n> link and a claude.ai artifact link become cards, any other link none, nothing is fetched (the mockup's title is read from
     the local store);
-  - waiting: the board's rows with a move for the owner, each item once over every session, the board's words passed through;
+  - waiting: stackshot's whole Your move list when there is one (every item, none dropped or re-sorted, no cap, an empty list an empty strip), else the
+    board's rows with a move for the owner, each item once over every session, the board's words passed through;
   - motion: the session's own lines, at most 8, each at most 120 characters, an old one gone, a hand-made file that is not the format harmless;
   - /api/chat for a live session carries the turns by the rule in chatturns.py, the board lines and the motion lines in one answer.
 All names are invented."""
@@ -121,6 +122,41 @@ def test_waiting_is_the_boards_own_rows_once_each_over_every_session():
 
 def test_waiting_is_empty_for_no_board_or_a_board_that_failed():
     assert CP.waiting({}) == [] and CP.waiting({"error": "no token"}) == [] and CP.waiting(None) == []
+
+
+def entry(i):
+    return {"id": f"item#{i}", "subject": f"[x] move {i}", "url": f"https://tracker.example.test/t/{i}"}
+
+
+def test_waiting_is_the_your_move_list_whole_and_in_its_order_when_there_is_one():
+    feed = {"sessions": {"chat-a": {"items": [row(9, "[x] only this one")], "waiting": 1}}}
+    mine = [entry(i) for i in (7, 3, 5, 1, 6, 2, 4)]          # not sorted: the strip keeps the page's own order
+    got = CP.waiting(feed, mine)
+    assert got == mine and len(got) == 7                      # seven moves, where the feed has one; none dropped, none re-sorted
+    assert [w["id"] for w in got] == ["item#7", "item#3", "item#5", "item#1", "item#6", "item#2", "item#4"]
+    assert set(got[0]) == {"id", "subject", "url"}            # the entry the page's script reads
+
+
+def test_waiting_has_no_cap_over_twenty_moves():
+    mine = [entry(i) for i in range(1, 61)]
+    assert [w["id"] for w in CP.waiting({}, mine)] == [f"item#{i}" for i in range(1, 61)]
+
+
+def test_waiting_with_an_empty_your_move_list_is_an_empty_strip_not_the_feed():
+    feed = {"sessions": {"chat-a": {"items": [row(1, "[x] a stale row")], "waiting": 1}}}
+    assert CP.waiting(feed, []) == []
+
+
+def test_waiting_falls_back_to_the_feed_when_there_is_no_your_move_list():
+    feed = {"sessions": {"chat-a": {"items": [row(1, "[x] decide A")], "waiting": 1}}}
+    assert [w["id"] for w in CP.waiting(feed, None)] == ["item#1"] and CP.waiting(feed) == CP.waiting(feed, None)
+
+
+def test_assemble_carries_the_your_move_list_as_the_strip(tmp_path):
+    mine = [entry(i) for i in range(1, 8)]
+    doc = CP.assemble(name="chat-test-ada", display="Ada", owner="Rowan", sess=None, projects_dir=tmp_path, zone=None, now_ms=1_800_000_000_000,
+                      host=HOST, mockups_dir=tmp_path, motion_dir=tmp_path, board_doc={"sessions": {}}, cache={}, your_move=mine)
+    assert doc["waiting"] == mine
 
 
 # ---------- motion ----------
