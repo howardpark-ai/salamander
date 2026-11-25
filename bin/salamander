@@ -65,6 +65,12 @@
 #   salamander box SESSION [--json]    read-only: what is in a session's pane input box, as one of three states on the first line: empty · suggestion (dim text,
 #                                      Claude Code's own suggested prompt that nobody typed; counts as empty; its text follows, labelled) · typed (non-dim text, someone's unsent
 #                                      words; the text follows). A session reads a pane's box with this command, never with raw capture-pane. Exit 0 read, 2 no live session or pane, 3 no claude in the pane
+#   salamander machines [--json]       read-only: the fleet's machines, one line each: name, board letter, hostname, ssh alias, the host roles it holds (sala-host, stackshot-host),
+#                                      retired or not, and which machine files name it; a machine one file names and another does not is listed with the missing parts empty.
+#                                      Reads the owner's files (SALA_FLEET_NAMES and the files beside it, SALA_MACHINE_FOLLOW_MACHINES); needs no running sala and no sala-web. Exit 0, 2 usage or no files named
+#   salamander host ROLE [--field FIELD | --set HOST]   which machine hosts sala or stackshot now (ROLE: sala | stackshot): the holds script's `host`, so hostname|ipv4|ipv6|ssh, or one value with
+#                                      --field hostname|ipv4|ipv6|ssh; --set HOST records a new host (only a move does that) through the script's `set-host`, which locks, refuses an unlisted host and
+#                                      writes nothing then. Its output and exit code pass through unchanged; no running sala or sala-web is needed
 #   salamander side done [--name NAME] [--item board#N] [--item-updated EPOCH|ISO] [--summary FILE|TEXT|-] [--summary-to NAME|projects/SLUG] [--dry-run]
 #                                      a side session's write-up gate (lib/side.sh), run by the session itself before it ends: the marker retire asks for
 #                                      is written only when the board item changed since the start, the project page has a timeline line from the session,
@@ -249,6 +255,8 @@ case "$sub" in
     mq) . "$SALA_ROOT/lib/mq.sh" ;;   # our own merge queue (shadow mode)
     dm) . "$SALA_ROOT/lib/dm.sh"; dm_main "$@"; exit $? ;;   # a message into a Slack app's Direct Message with the owner, as that app (docs/subcommands.md)
     box) . "$SALA_ROOT/lib/box.sh"; box_main "$@"; exit $? ;;   # what is in a session's pane input box: empty, suggestion or typed (docs/subcommands.md)
+    machines) . "$SALA_ROOT/lib/machines.sh"; machines_main "$@"; exit $? ;;   # the fleet's machines from the owner's files, read-only (docs/subcommands.md)
+    host) . "$SALA_ROOT/lib/machines.sh"; host_main "$@"; exit $? ;;   # which machine hosts sala or stackshot: the holds script's host and set-host (docs/subcommands.md)
     stackshot-key) . "$SALA_ROOT/lib/stackshot-key.sh" ;;   # sala's own key for stackshot and the pass it trades for (docs/stackshot-contracts.md)
     mockup) . "$SALA_ROOT/lib/mockup.sh" ;;   # an HTML mockup as a numbered sala-web page (docs/mockup.md)
     config) cs_print_config ;;

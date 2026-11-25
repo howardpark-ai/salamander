@@ -11,11 +11,18 @@ Sources (all read-only; a missing or unreadable one makes the tab say "no readin
                                   failed one is a line inside its card.
   clients/advertised-commit       <stackshot state>/clients/advertised-commit: the commit stackshot's server tells every box to follow
                                   (40 hex characters). Absent or unreadable: the server's commit is unknown.
-  fleet-names.tsv                 stackshot.toml [paths] fleet_names: os hostname, fleet name, board letter, tab-separated.
+  fleet-names.tsv                 stackshot.toml [paths] fleet_names: os hostname, fleet name, board letter, tab-separated. Read through
+                                  lib/machines.py `machine_list()` (below), which also reads the other machine files.
   stackshot.toml                  [fleet] publisher_letter (the machine that runs stackshot), [machines_panel] ssh_hosts (machines with
                                   no fleet letter), [paths] state / fleet_names; the Settings fields name where each file is (config.py).
   machine-follow/machines.toml    the machines that follow the coordinator (run_on; one [machines.<host>] table each).
   machine-follow/<host>.json      when each one last followed (at_epoch), written by machine-follow.
+
+WHICH machines there are, with their names and letters, comes from sala's own list of the fleet, `machine_list()` in lib/machines.py (the fleet names
+file, and beside it the candidates, ssh and host-record files, with the follow list: the machines registry the CLI's `sala machines` prints). A
+retired machine (its letter reserved in the names file) is no card of its own: it shows only while stackshot's fleet state still names its letter. A
+machine the list knows by name alone, with no letter, is not made a card here yet: that stays with stackshot's `[machines_panel] ssh_hosts` and the fleet
+state until the versions and the online rows move too. The versions, the failures and the follow line still come from the files above.
 
 The order and the merge are stackshot's own, written again from its code so that the two pages agree and no machine is named here:
 
@@ -39,9 +46,11 @@ The answer carries text only: no token, key or file path, and a failure reason h
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
+import sys
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -143,18 +152,42 @@ def _fact_epoch(v: Any) -> float | None:
 
 # ---- which machines, in which order (stackshot fleet.py) -------------------------------------------------------------
 
-def fleet_names(s: Settings) -> dict[str, str]:
-    """letter -> fleet name: the names file first, then the fleet state's own `fleet` name of each letter that has one."""
-    out: dict[str, str] = {}
-    if s.fleet_names_file is not None:
+def _machines_lib():
+    """lib/machines.py of the sala checkout this app runs from (as formpass.py finds lib/stackshot_key.py), loaded once; None when it is not there."""
+    mod = sys.modules.get("sala_lib_machines")
+    if mod is not None:
+        return mod
+    for p in (Path(__file__).resolve().parents[3] / "lib" / "machines.py", Path.home() / "salamander" / "lib" / "machines.py"):
+        if not p.is_file():
+            continue
         try:
-            with open(s.fleet_names_file, encoding="utf-8") as f:
-                for ln in f:
-                    c = ln.rstrip("\n").split("\t")
-                    if ln.strip() and not ln.startswith("#") and len(c) >= 3:
-                        out[c[2].strip()] = c[1].strip()
-        except (OSError, UnicodeDecodeError):
-            pass
+            spec = importlib.util.spec_from_file_location("sala_lib_machines", p)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules["sala_lib_machines"] = mod
+            spec.loader.exec_module(mod)
+            return mod
+        except Exception:
+            sys.modules.pop("sala_lib_machines", None)
+    return None
+
+
+def machine_list(s: Settings) -> list[dict]:
+    """The fleet's machines as sala's registry reads them (lib/machines.py `machine_list`) from the files this app is set to read; [] when the module is missing."""
+    lib = _machines_lib()
+    if lib is None:
+        return []
+    try:
+        return lib.machine_list(s.fleet_names_file, s.follow_machines_file)
+    except Exception:
+        return []
+
+
+def fleet_names(s: Settings) -> dict[str, str]:
+    """letter -> fleet name: the registry's machines that have a letter (a retired one is left out), then the fleet state's own `fleet` name of each letter that has one."""
+    out: dict[str, str] = {}
+    for m in machine_list(s):
+        if m.get("letter") and not m.get("retired"):
+            out[m["letter"]] = m["name"]
     fleet_dir = s.stackshot_state / "clients" / "fleet"
     try:
         letters = sorted(p.name for p in fleet_dir.iterdir() if p.is_dir() and len(p.name) == 1)

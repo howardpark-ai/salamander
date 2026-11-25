@@ -375,6 +375,9 @@
 #SALA_HEARTBEAT_REPO=             # optional: also commit the store into this git checkout (empty = off)
 #SALA_HEARTBEAT_DIR=              # store path inside that repo; files land in <dir>/<letter>/{machine,sessions}.json
 #SALA_FLEET_NAMES=~/fleet-names.tsv   # TSV: <os hostname>\t<fleet name>\t<letter>; or set SALA_HEARTBEAT_LETTER / SALA_HEARTBEAT_NAME
+                                 #   `sala machines` and `sala host` (docs/subcommands.md) read the machine files that sit beside this one under its folder: claude/tailnet-route/candidates.conf,
+                                 #   ssh/fleet.conf, claude/host-move/machine-holds.toml and claude/host-move/machine_holds.py (the host record's own reader and writer); the follow list is
+                                 #   SALA_MACHINE_FOLLOW_MACHINES. A file that is not there reads as empty (`host` needs the script)
 #SALA_HEARTBEAT_NAME=             # this machine's fleet name (the heartbeat's; else from SALA_FLEET_NAMES, else the hostname). The briefings
                                  #   (contrib/briefing) name this machine by it in their posts ("Details: <log> on <name>", "<name> runs <version>")
                                  #   and drop a CLAUDE.md echo line "On <name> (…" from a digest. Unset or empty: the hostname
