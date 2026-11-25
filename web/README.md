@@ -1577,9 +1577,13 @@ and the label "<Name>, on his own" on the message. Every other hidden turn is **
 phrase of what it was, the reply's last line after an arrow), and "N kept back today" (today in the page's zone) is always visible, with "N+" when the transcript read did not reach back to midnight. A line the rule does not
 recognize is kept back too, never dropped.
 
-**The rule that tells the two apart** is read from the line's own record of where its text came from, never from its words, and was established from real transcripts. It is stated in the docstring of `chatturns.py` and in the pull
-request that added the page. In short: a `user` line with `origin.kind` `human` (typed, or typed while the session was busy and queued), an `attachment` of type `queued_command` with `origin.kind` `human`, and a slash command typed
-in the pane are the owner's. `origin.kind` `peer` (another session, the board's and sala's messages arrive this way), `task-notification`, `plugin`, the meta lines with no origin and an `sdk` prompt are delivered. Tool results, sidechain
+**The rule that tells the two apart** is read from the line's own record of where its text came from, never from its words (the one exception is sala's own mark, below), and was established from real transcripts. It is stated in
+the docstring of `chatturns.py` and in the pull request that added the page. In short: a `user` line with `origin.kind` `human` (typed, or typed while the session was busy and queued), an `attachment` of type `queued_command` with
+`origin.kind` `human`, and a slash command typed in the pane are the owner's, unless the text starts with sala's mark. **sala's mark:** sala itself types lines into a session's pane (a spawn's mandate line, a wake line, a wrap-up text),
+and the CLI records them as `origin.kind` `human` / `promptSource` `typed`, the same as the owner's keys. Every line sala types starts with `<!-- sala -->` and a space (`SALA_MSG_MARK` in `lib/common.sh`, interface 2 of
+[docs/stackshot-contracts.md](../docs/stackshot-contracts.md)), and that is the only thing that tells them apart: a user line or queued command whose text starts with it (leading whitespace aside) is delivered from sala, whatever its
+origin says, so it starts a hidden turn (the kept-back line says "from sala" and gives the text after the mark; a reply that opens with `[for <owner>]` still shows, without the mark). A mark in the middle of a message does not count, and
+the owner typing into that turn still takes it over. `origin.kind` `peer` (another session, the board's and sala's messages arrive this way), `task-notification`, `plugin`, the meta lines with no origin and an `sdk` prompt are delivered. Tool results, sidechain
 lines and compaction summaries are no turn. An unknown origin kind counts as delivered. Lines are read in file order (a queued line's own timestamp is when it was taken up, so never sort by time); a delivered line joins an open turn
 and starts a hidden one only when none is open; a hook's follow-up after a closed turn belongs to that turn.
 

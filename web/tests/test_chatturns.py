@@ -5,7 +5,8 @@ fixtures here are small, made-up lines of exactly those shapes. Names and texts 
 
 What is held:
   - typed (origin.kind human; a queued_command attachment with origin human; a slash command typed in the pane) starts the owner's turn;
-  - delivered (peer, task-notification, plugin, the meta lines with no origin, an sdk prompt, an unknown kind) starts a hidden turn;
+  - delivered (peer, task-notification, plugin, the meta lines with no origin, an sdk prompt, an unknown kind, and any line whose text starts
+    with sala's mark `<!-- sala -->` and a space, whatever its origin says) starts a hidden turn;
   - tool results, sidechain lines and compaction stubs are no turn at all;
   - only the FINAL reply of a turn shows: narration before a tool call (stop_reason tool_use) never does;
   - a hidden turn shows only when its final reply opens with the owner's mark, `[for Rowan]`, and then without the mark;
@@ -195,6 +196,68 @@ def test_what_is_no_turn_start_is_skipped_and_what_is_not_recognized_is_kept_bac
 def test_a_typed_message_in_a_queued_attachment_is_the_owners_and_a_peer_one_is_not():
     es = entries([queued("typed while busy", 1), assistant("ok", 2), queued("Another Claude session sent a message:\nfrom: chat-other\n\nx", 3, origin="peer"), assistant("ok", 4)])
     assert kinds(es) == ["me", "reply", "kept"]
+
+
+# ---------- lines sala types into the pane: recorded as the owner's keys, told apart by the mark ----------
+
+MARK = "<!-- sala -->"
+MANDATE = MARK + " Read /tmp/chat-test/brief.md in full - that is your mandate. Then wait for the first job."
+
+
+def test_a_line_sala_typed_starts_a_hidden_turn_and_the_kept_line_says_from_sala_without_the_mark():
+    es = entries([human(MANDATE, 1), assistant("Read it. Waiting for the first job.", 2)])
+    assert kinds(es) == ["kept"]
+    k = es[0]
+    assert k["src"] == {"kind": "sala", "name": ""}
+    assert k["what"].startswith("Read /tmp/chat-test/brief.md in full") and "<!--" not in k["what"] and "sala -->" not in k["what"]
+    assert k["did"] == "Read it. Waiting for the first job." and k["open"] is False
+
+
+def test_the_reply_of_a_sala_line_shows_as_own_without_the_mark_only_when_it_opens_with_the_owners_mark():
+    es = entries([human(MANDATE, 1), assistant("[for Rowan] The brief needs a decision from you.", 2)])
+    assert kinds(es) == ["own"] and es[0]["text"] == "The brief needs a decision from you."
+    assert kinds(entries([human(MANDATE, 1), assistant("Nothing for Rowan. [for Rowan] hi", 2)])) == ["kept"]
+    assert kinds(entries([human(MANDATE, 1), assistant("[for Someone] hi", 2)])) == ["kept"]
+
+
+def test_the_mark_after_leading_whitespace_still_counts():
+    es = entries([human("  \n" + MARK + " wake up, a job is waiting", 1), assistant("ok", 2)])
+    assert kinds(es) == ["kept"] and es[0]["src"]["kind"] == "sala" and es[0]["what"] == "wake up, a job is waiting"
+
+
+def test_a_mark_in_the_middle_of_a_message_is_no_mark_and_the_message_stays_the_owners():
+    for text in ("Why does the page show " + MARK + " in a message?", "Note: " + MARK + " Read the file", "a\n" + MARK + " b"):
+        es = entries([human(text, 1), assistant("Looking.", 2)])
+        assert kinds(es) == ["me", "reply"] and es[0]["text"] == text, text
+
+
+def test_a_marked_line_in_a_queued_attachment_with_origin_human_is_delivered_too():
+    es = entries([queued(MARK + " wake line: check the inbox", 1), assistant("Checked.", 2),
+                  queued("typed by the owner", 3), assistant("Fine.", 4)])
+    assert kinds(es) == ["kept", "me", "reply"]
+    assert es[0]["src"]["kind"] == "sala" and es[0]["what"] == "wake line: check the inbox"
+
+
+def test_a_marked_line_while_a_turn_is_open_joins_it_and_adds_no_line():
+    es = entries([human("start", 1), assistant("working", 1, stop="tool_use", tool=True), tool_result(1),
+                  human(MARK + " wake line", 2), assistant("done", 3)])
+    assert kinds(es) == ["me", "reply"]
+
+
+def test_the_owner_speaking_into_a_turn_a_sala_line_started_takes_it_over():
+    es = entries([human(MANDATE, 1), assistant("Reading.", 1, stop="tool_use", tool=True), tool_result(1),
+                  human("wait, change of plan", 2), assistant("Switching.", 3)])
+    assert kinds(es) == ["me", "reply"] and es[0]["text"] == "wait, change of plan"
+
+
+def test_a_marked_line_is_not_counted_as_the_owners_and_kept_today_counts_it():
+    turns = CT.build_turns([human(MANDATE, 1), assistant("ok", 2)])
+    assert CT.kept_today(turns, OWNER, 0) == 1
+
+
+def test_a_marker_with_nothing_after_it_is_still_a_sala_line_and_the_phrase_has_no_mark():
+    es = entries([human(MARK, 1), assistant("ok", 2)])
+    assert kinds(es) == ["kept"] and es[0]["src"]["kind"] == "sala" and es[0]["what"] == ""
 
 
 # ---------- the kept line's words ----------
