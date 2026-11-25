@@ -4,9 +4,11 @@ the one-line record of every turn something else started.
 WHAT SHOWS. Two kinds of turn, read from the session's transcript (~/.claude/projects/<slug>/<sessionId>.jsonl):
 
   1. A turn the person started: what they typed (a bubble) and the FINAL reply of the turn (a message). No tool call, no narration, no
-     text a reply wrote on its way to a tool call.
+     text a reply wrote on its way to a tool call. A reply that opens with the owner's mark, `[for <owner>]`, shows without it (the mark
+     is never displayed, in any turn); a reply that is only the mark keeps its text, never dropped.
   2. A turn something else started (another session, the board, sala, a background task, a plugin) whose final reply opens with the
-     owner's mark, `[for <owner>]` (the mark is taken off; the message carries the label "<name>, on his own"). Every other such turn is
+     owner's mark, `[for <owner>]` (the mark is taken off; the message carries the label "<name>, on his own"). A reply that is only the mark shows nothing and its kept
+     line's "did" is empty: the mark never reaches a kept line either. Every other such turn is
      HIDDEN, and each hidden turn is one quiet line under the "kept back" switch (never dropped: the count and the line are the check
      against silence).
 
@@ -388,7 +390,9 @@ def entries(turns: list[Turn], owner: str, limit: int = 120) -> list[dict]:
                     x = r["extra_user"]
                     out.append({"k": "me", "ts": x["ts"], "id": x["uuid"], "text": x["text"][:TEXT_MAX], "images": x["images"]})
                 elif r["text"]:
-                    out.append({"k": "reply", "ts": r["ts"], "id": r["uuid"], "text": r["text"]})
+                    # the owner's mark is never displayed, in his own turns either; a reply that is only the mark keeps its text, never dropped
+                    body = mark.sub("", r["text"], count=1).strip()
+                    out.append({"k": "reply", "ts": r["ts"], "id": r["uuid"], "text": body or r["text"]})
             continue
         last = next((r for r in reversed(t.replies) if r["text"]), None)
         if last is not None and mark.match(last["text"]):
@@ -398,7 +402,8 @@ def entries(turns: list[Turn], owner: str, limit: int = 120) -> list[dict]:
                 continue
         src = t.src or {"kind": "other", "name": ""}
         out.append({"k": "kept", "ts": t.start_ts, "id": t.uuid, "src": {"kind": src["kind"], "name": src.get("name", "")},
-                    "what": _phrase(src) if src.get("text") is not None else "", "did": _last_line(last["text"]) if last else "",
+                    "what": _phrase(src) if src.get("text") is not None else "",
+                    "did": _last_line(mark.sub("", last["text"], count=1)) if last else "",   # the owner's mark never reaches a kept line
                     "open": last is None})
     return out
 

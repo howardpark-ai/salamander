@@ -5105,7 +5105,7 @@ Covered (`tests/motion.sh`, a locked temporary tree removed by a trap): add, don
 at once all land in a whole file (the lock and the rename); the exit codes (0, 1, 2) and the usage text.
 
 Covered (`web/tests/test_chatturns.py`, from fixture lines of the shapes real transcripts hold): who started a turn (typed, queued while busy, a slash command; peer, task notification, plugin, no origin, sdk, an unknown kind; a line sala typed, which the CLI records as the owner's keys and which only its `<!-- sala -->` mark gives away: hidden, in the middle of a message it is no mark, and the owner speaking into it takes the turn), tool
-results, sidechain lines and compaction stubs as no turn, only the final reply showing, narration before a tool call never showing, the `[for <owner>]` mark showing a hidden turn without the mark and no other mark doing so, a hook's
+results, sidechain lines and compaction stubs as no turn, only the final reply showing, narration before a tool call never showing, the `[for <owner>]` mark showing a hidden turn without the mark and no other mark doing so, the mark also taken off a reply in a turn the owner started (a reply that is only the mark keeps its text), a hook's
 follow-up joining its turn, the kept line's source in plain words and its last line without the footer notes, today's count in the zone, and a half-written last line. (`test_chatpage.py`): the settings, the link cards (and that nothing is
 fetched), the board lines once each over every session, the motion reader, and `GET /chat` and `GET /api/chat` served.
 

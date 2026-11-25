@@ -260,6 +260,46 @@ def test_a_marker_with_nothing_after_it_is_still_a_sala_line_and_the_phrase_has_
     assert kinds(es) == ["kept"] and es[0]["src"]["kind"] == "sala" and es[0]["what"] == ""
 
 
+# ---------- the owner's mark is never displayed, in his own turns either ----------
+
+def test_a_reply_in_a_turn_the_owner_started_loses_a_leading_owner_mark():
+    es = entries([human("status?", 1), assistant("[for Rowan] hello", 2)])
+    assert kinds(es) == ["me", "reply"] and es[1]["text"] == "hello"
+    for reply, body in (("[FOR rowan]: Done.", "Done."), ("  [for owner]\nThe deck is in.", "The deck is in."), ("[for the owner] ok", "ok")):
+        es = entries([human("status?", 1), assistant(reply, 2)])
+        assert es[1]["k"] == "reply" and es[1]["text"] == body, reply
+
+
+def test_a_reply_that_is_only_the_mark_keeps_its_text_and_a_mark_in_the_middle_stays():
+    es = entries([human("status?", 1), assistant("[for Rowan]", 2)])
+    assert kinds(es) == ["me", "reply"] and es[1]["text"] == "[for Rowan]"
+    es = entries([human("status?", 1), assistant("Noted. [for Rowan] hi", 2)])
+    assert es[1]["text"] == "Noted. [for Rowan] hi"
+    es = entries([human("status?", 1), assistant("[for Someone] hi", 2)])
+    assert es[1]["text"] == "[for Someone] hi"
+
+
+def test_every_reply_of_a_turn_a_hook_sent_back_loses_its_mark_and_a_sala_turn_is_unchanged():
+    hook = {"type": "user", "uuid": _id(), "timestamp": ts(3), "isMeta": True, "message": {"role": "user", "content": "Stop hook feedback:\n[hook]: add"}}
+    es = entries([human("go", 1), assistant("[for Rowan] first", 2), hook, assistant("[for Rowan] second", 4)])
+    assert [e["text"] for e in es] == ["go", "first", "second"]
+    es = entries([human(MANDATE, 1), assistant("[for Rowan] The brief needs you.", 2)])
+    assert kinds(es) == ["own"] and es[0]["text"] == "The brief needs you."
+    es = entries([human(MANDATE, 1), assistant("[for Rowan]", 2)])
+    assert kinds(es) == ["kept"]
+
+
+def test_the_owners_mark_never_reaches_a_kept_lines_did():
+    peer_line = "Another Claude session sent a message:\nfrom: chat-other\n\nhi"
+    for reply in ("[for Rowan]", "[for rowan]:  \n", "  [FOR OWNER]"):
+        es = entries([peer(peer_line, 1), assistant(reply, 2)])
+        assert kinds(es) == ["kept"] and es[0]["did"] == "" and es[0]["open"] is False, reply
+    es = entries([peer(peer_line, 1), assistant("[for Someone] hi", 2)])
+    assert es[0]["did"] == "[for Someone] hi"       # another name's mark is no owner mark: unchanged
+    es = entries([peer(peer_line, 1), assistant("Handled. [for Rowan] hi", 2)])
+    assert es[0]["did"] == "Handled. [for Rowan] hi"  # only a leading mark is taken off
+
+
 # ---------- the kept line's words ----------
 
 def test_the_replys_last_line_skips_the_footer_notes():
