@@ -206,6 +206,84 @@ def test_one_trailing_rule_character_is_enough(line):
     assert tmuxio._is_rule(line)
 
 
+# --- two labels in the top rule: "↑ N more" and the session name, as Claude Code draws a long message's box ---------
+
+NAMES = ["demo-ui-panel", "demo-builder-multiuser-ab", "n" * 39 + "x", "long-" * 11]  # 13, 25, 40 and 55 characters
+
+
+def _two_labels(width: int, name: str, more: str = "↑ 1 more") -> str | None:
+    """The top rule at `width` columns: rule, " ↑ 1 more ", rule, " name ", rule. None when the labels do not fit the
+    width (the shortest rule around them is 3 + 2 + 1 characters)."""
+    r = width - len(f" {more} ") - len(f" {name} ")
+    if r < 6:
+        return None
+    j, m = max(1, r // 4), max(2, r // 4)
+    line = "─" * (r - j - m) + f" {more} " + "─" * m + f" {name} " + "─" * j
+    assert len(line) == width
+    return line
+
+
+@pytest.mark.parametrize("width", [60, 80, 100])
+@pytest.mark.parametrize("name", NAMES)
+def test_top_rule_with_the_more_label_and_a_session_name_is_a_rule(width, name):
+    line = _two_labels(width, name)
+    if line is None:
+        pytest.skip("the labels do not fit this width")
+    assert tmuxio._is_rule("\x1b[38;5;244m" + line + "\x1b[39m")
+
+
+@pytest.mark.parametrize("width", [60, 80, 100])
+@pytest.mark.parametrize("name", NAMES)
+def test_box_with_a_two_label_top_rule_is_found(width, name):
+    # before: "missing", and a send was refused with "no input box in the pane" although the text was pasted
+    top = _two_labels(width, name)
+    if top is None:
+        pytest.skip("the labels do not fit this width")
+    cap = "\n".join(["old output", top, "❯ ", "─" * width, "  ? for shortcuts"])
+    assert tmuxio.input_box(cap)[0] == "text"  # a box that says "↑ 1 more" holds text, as for any scrolled box
+    bottom = _two_labels(width, name, "↓ 1 more")  # the bottom rule of a box with more lines below the view
+    cap = "\n".join(["old output", "─" * width, "❯ first", "  second", bottom, "  footer"])
+    assert tmuxio.input_box(cap) == ("text", "first\n  second")
+
+
+@pytest.mark.parametrize("width", [60, 80, 100])
+def test_every_name_of_1_to_60_characters_that_fits_the_width_is_found(width):
+    # a name of 60 characters does not fit 60 columns beside "↑ 1 more": Claude Code cannot draw it whole, so no line is made
+    fitted = 0
+    for n in range(1, 61):
+        top = _two_labels(width, "a" + "-b" * ((n - 1) // 2) + "c" * ((n - 1) % 2))
+        if top is None:
+            continue
+        fitted += 1
+        assert tmuxio._is_rule(top), top
+        assert tmuxio.input_box("\n".join([top, "❯ ", "─" * width, "  footer"]))[0] == "text", top
+    assert fitted >= 42
+
+
+def test_two_label_rule_with_a_down_label_and_the_name_is_a_rule():
+    assert tmuxio._is_rule("─" * 20 + " ↓ 2 more " + "─" * 20 + " demo-builder " + "─" * 10)
+
+
+@pytest.mark.parametrize("line", [
+    "see ─ the docs ─ for more",                                      # prose that holds a few rule characters
+    "see ── the docs ── for more text here",
+    "|---|---|---|",                                                  # a markdown table separator
+    "| --- | --- |",
+    "|:---|:---:|---:|",
+    "─── a ──",                                                        # 8 characters
+    "─── a ───",                                                       # 9 characters
+    "── ↑ 1 more ──── name ──",                                        # a run of only 2 at the start
+    "──── ↑ 1 more ──── name",                                         # none at the end
+    "──── ↑ 1 more ─ name ──",                                         # a single rule character between the labels
+    "──── ↑ 1 more ──── name ──── and ──── then ──── more ─",          # four labels
+    "──── see the notes below, they matter a lot to us ──── name ──",  # a long label that is not one word
+    "──── ↑ 1 more ──── name with spaces that is far too long to be one ──",
+    "──── ↑ 1 more ──── " + "x" * 70 + " ──",                          # one word, but longer than any session name
+])
+def test_prose_table_separators_and_malformed_rules_are_not_rules(line):
+    assert not tmuxio._is_rule(line)
+
+
 # --- a box scrolled past its glyph line: "↑ N more" in the top rule, no "❯" line in view ---------------------------
 
 def _more(label: str, width: int = 60) -> str:
