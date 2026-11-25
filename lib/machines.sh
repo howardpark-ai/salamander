@@ -10,7 +10,9 @@ usage: sala machines [--json]
   Lists the fleet's machines, one line each: name, board letter, hostname, ssh alias, the host roles it holds (sala-host, stackshot-host), whether it is
   retired, and which of the machine files name it. A machine one file names and another does not is still listed, with the missing parts shown as a dash.
   A last line "not read: ..." names a file that was looked for and could not be read.
-  --json    one object instead: {"schema":1,"machines":[{name,hostname,letter,ssh,addresses,roles,retired,sources}],"not_read":[...]}.
+  --json    one object instead: {"schema":1,"machines":[{name,hostname,letter,ssh,addresses,roles,retired,sources,online,last_seen,versions,checked}],"not_read":[...]}.
+            The last four are readings, as the heartbeat posts them: online and last_seen from `tailscale status --json` (null = not read), versions (this
+            machine's own claude and sala; {} = none read) and checked (epoch seconds).
 
   The files are the owner's: the fleet names file (SALA_FLEET_NAMES in sala's config) and, beside it, the tailnet candidates, the ssh fleet config, the
   host record and, for the follow list, SALA_MACHINE_FOLLOW_MACHINES. Read-only; it needs no running sala and no sala-web.
@@ -36,7 +38,7 @@ USAGE
 machines_main() {
     case "${1:-}" in -h|--help) machines_usage; return 0 ;; esac
     command -v python3 >/dev/null 2>&1 || { echo "sala machines: python3 is not installed" >&2; return 2; }
-    SALA_FLEET_NAMES="${SALA_FLEET_NAMES:-}" SALA_MACHINE_FOLLOW_MACHINES="${SALA_MACHINE_FOLLOW_MACHINES:-}" python3 "$SALA_ROOT/lib/machines.py" list "$@"
+    SALA_FLEET_NAMES="${SALA_FLEET_NAMES:-}" SALA_MACHINE_FOLLOW_MACHINES="${SALA_MACHINE_FOLLOW_MACHINES:-}" SALA_CLAUDE="${SALA_CLAUDE:-}" python3 "$SALA_ROOT/lib/machines.py" list "$@"
 }
 
 host_main() {

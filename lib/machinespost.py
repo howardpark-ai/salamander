@@ -5,9 +5,12 @@ stackshot's board server runs on another machine and reads none of the owner's m
 `machine_list()` in lib/machines.py (`read_list` there, which also says which named files could not be read): sala decides, stackshot only shows. The file is
 `<live store>/<letter>/machines.json`, written atomically on EVERY heartbeat run beside agent-state.json and never into git, then posted:
 
-  {"schema": 1, "written": <epoch s>, "machines": [<machine_list() entries, keys exactly as machines.KEYS>], "not_read": [<file names named and not read>]}
+  {"schema": 1, "written": <epoch s>, "machines": [<machine_list() entries, keys as machines.KEYS, then machines.READING_KEYS>], "not_read": [<file names named and not read>]}
 
-Posted when the list (machines and not_read, not `written`) differs from the last one stackshot was given, and otherwise every REPOST_AFTER seconds (10 minutes) so stackshot can show
+Each entry carries four readings after the file facts (`read_with_readings` in lib/machines.py): `online` and `last_seen` from this box's `tailscale status --json` (null = not read),
+`versions` ({"claude", "sala"} on this box's own row, {} on every other) and `checked` (epoch s, the same second as `written`). `checked` is a clock, so the fingerprint leaves it out.
+
+Posted when the list (machines without `checked`, and not_read; not `written`) differs from the last one stackshot was given, and otherwise every REPOST_AFTER seconds (10 minutes) so stackshot can show
 the list's age. The memory of the last good post is a small file in the log folder (STAMP_NAME: the list's fingerprint and the time), not in the store. A list with no machine in it
 (no machine file could be read) is not written or posted: it would blank stackshot's view. The post is the one interface 38 uses (agentstate.post: the command with the file's path as its
 last argument, a process-group timeout, one log line per five minutes), through the machine token and never a pass. The default command is the stackshot client's `post machines --file`;
@@ -49,13 +52,14 @@ def _load(name: str):
 
 
 def build(machines: list, not_read: list, now: float) -> dict:
-    """The body: machine_list()'s entries as they are, and the files named and not read."""
+    """The body: the entries `read_with_readings` gives (machine_list()'s keys, then the four readings), and the files named and not read."""
     return {"schema": SCHEMA, "written": int(now), "machines": machines, "not_read": list(not_read)}
 
 
 def fingerprint(doc: dict) -> str:
-    """What makes two lists the same: the machines and not_read, never `written`."""
-    return hashlib.sha256(json.dumps([doc["machines"], doc["not_read"]], sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+    """What makes two lists the same: the machines and not_read, never `written` and never a machine's `checked` (both only say when the list was read)."""
+    machines = [{k: v for k, v in m.items() if k != "checked"} for m in doc["machines"]]
+    return hashlib.sha256(json.dumps([machines, doc["not_read"]], sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def dump(doc: dict) -> str:
@@ -102,8 +106,8 @@ def publish(E: dict, letter: str, mode: str) -> str:
         names, follow = E.get("HB_MP_NAMES") or None, E.get("HB_MP_FOLLOW") or None
         if not state or not (names or follow):
             return ""      # no live store to write in, or no machine file named (a standalone install): nothing to say
-        machines, not_read = mc.read_list(names, follow)
         now = time.time()
+        machines, not_read = mc.read_with_readings(names, follow, now=now, claude=E.get("HB_CVER") or None, name=E.get("HB_NAME") or None)
         doc = build(machines, not_read, now)
         if not machines:
             if mode == "dry":

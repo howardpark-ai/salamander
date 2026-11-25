@@ -23,6 +23,14 @@ missing from another is listed with the missing parts empty, never an error; a f
   retired    true where the names file says so (its comment line for the machine's letter)
   sources    the files it came from, in the order above: fleet-names.tsv, candidates.conf, fleet.conf, machine-holds.toml, machines.toml
 
+A second, separate call adds readings to each entry (`read_with_readings`: what the heartbeat posts and `sala machines --json` prints; `machine_list()` itself runs no program, so the
+web tab and `sala host` are untouched). Four keys, after the ones above, each optional for a reader (absent or null means unknown):
+
+  online     true / false / null: the tailnet shows the machine connected at the reading (`tailscale status --json`, run on this box: no ssh, no network of its own); null = no reading
+  last_seen  epoch seconds of the last moment the tailnet knew the machine online, or null (null while it is online, and when unknown)
+  versions   {text: text}, at most 16 entries: what sala read on the machine itself, so only on the box making the reading ({"claude": ..., "sala": <short commit>}); {} = sala read nothing
+  checked    epoch seconds the entry was read; an entry whose `checked` is older than the post that carries it is stale
+
 The machines are in the names file's order (retired ones after the others), then those only the other files name, in the order the files are read. Names meet
 without regard to case, and a hostname the names file lists (`HOST-OS10`) meets its fleet name. Standard library only; nothing is ever written here.
 `python3 lib/machines.py list [--json]` and `host ...` are what the two CLI verbs run; the paths come from SALA_FLEET_NAMES and SALA_MACHINE_FOLLOW_MACHINES
@@ -33,9 +41,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import signal
+import socket
 import subprocess
 import sys
+import time
 import tomllib
+from datetime import datetime
 from pathlib import Path
 
 NAMES_FILE = "fleet-names.tsv"
@@ -53,7 +66,10 @@ LAYOUT = {   # where each file is, relative to the data folder (the folder of th
 }
 ROLES = ("sala-host", "stackshot-host")
 KEYS = ("name", "hostname", "letter", "ssh", "addresses", "roles", "retired", "sources")
+READING_KEYS = ("online", "last_seen", "versions", "checked")   # what `read_with_readings` adds after KEYS on each entry, in this order
 SCHEMA = 1
+MAX_VERSIONS = 16               # a row's `versions` holds at most this many entries
+TAILSCALE_TIMEOUT = 10          # seconds `tailscale status --json` may take
 _RETIRED = re.compile(r"#\s*([A-Za-z0-9])\s*=\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*,\s*retired\b")
 
 
@@ -212,6 +228,169 @@ def _list(p: dict) -> tuple[list[dict], list[str]]:
     return out, b.missed
 
 
+# ---- the readings: the tailnet's view of each machine, and the versions this box can read of itself ----------------------
+def _run(cmd: list[str], timeout: float, env: dict | None = None) -> str | None:
+    """A command's standard output when it exits 0 inside `timeout` seconds, else None. It runs in its own process group, which a timeout stops as a whole (by group id, never by name);
+    a command that is not there, cannot be run or prints nothing gives None too. Standard input is closed and standard error dropped."""
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, start_new_session=True, text=True, errors="replace")
+    except (OSError, ValueError):
+        return None
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        try:
+            proc.communicate(timeout=5)
+        except Exception:      # noqa: BLE001  — the group is gone; nothing more to wait for
+            pass
+        return None
+    except Exception:          # noqa: BLE001
+        return None
+    return out if proc.returncode == 0 and out and out.strip() else None
+
+
+def tailnet_status(timeout: float = TAILSCALE_TIMEOUT, binary: str = "tailscale") -> dict | None:
+    """`tailscale status --json` as a dict; None when tailscale is not on the PATH, fails, takes longer than `timeout` or prints no JSON object."""
+    path = shutil.which(binary)
+    if not path:
+        return None
+    out = _run([path, "status", "--json"], timeout)
+    if out is None:
+        return None
+    try:
+        d = json.loads(out)
+    except ValueError:
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def _epoch(v) -> int | None:
+    """Epoch seconds of an RFC 3339 time (tailscale's LastSeen); None for anything else, and for the year-1 zero time tailscale writes for never."""
+    if not isinstance(v, str) or not v.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(v.strip())
+        if dt.year < 1971 or dt.tzinfo is None:
+            return None
+        return int(dt.timestamp())
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _node_names(node: dict) -> set[str]:
+    """The names a tailnet node answers to, lower-cased: its HostName and the first label of its DNSName."""
+    out = set()
+    h = node.get("HostName")
+    if isinstance(h, str) and h:
+        out.add(h.lower())
+    d = node.get("DNSName")
+    if isinstance(d, str) and d.strip("."):
+        out.add(d.strip(".").split(".")[0].lower())
+    return out
+
+
+def _row_names(m: dict) -> set[str]:
+    """The names a machine entry answers to, lower-cased: its fleet name, OS hostname and ssh alias (never an address: some entries have none in the tailnet file)."""
+    return {str(m.get(k)).lower() for k in ("name", "hostname", "ssh") if m.get(k)}
+
+
+def cap_versions(d) -> dict:
+    """`versions` as the contract has it: text to text, empty values dropped, at most MAX_VERSIONS entries (the first ones)."""
+    out: dict[str, str] = {}
+    if isinstance(d, dict):
+        for k, v in d.items():
+            if isinstance(k, str) and isinstance(v, str) and k and v and len(out) < MAX_VERSIONS:
+                out[k] = v
+    return out
+
+
+def add_readings(machines: list[dict], status: dict | None, now: float, self_names=(), versions: dict | None = None) -> list[dict]:
+    """The entries, each with the four reading keys (READING_KEYS) after its own. `status` is `tailscale status --json` as a dict (None = no reading: every online and last_seen null);
+    `self_names` are the names this box goes by (a row that answers to one of them, or to the tailnet's own Self node, is this box); `versions` is what this box read about itself, given to
+    that row only (every other row gets {}). A row no tailnet node answers to has online and last_seen null: nothing is guessed. The entries given are not changed."""
+    me = {n.lower() for n in self_names if isinstance(n, str) and n}
+    peers: list[tuple[set[str], dict]] = []
+    self_node = None
+    if isinstance(status, dict):
+        s = status.get("Self")
+        if isinstance(s, dict):
+            self_node = s
+            me |= _node_names(s)
+        pr = status.get("Peer")
+        if isinstance(pr, dict):
+            peers = [(_node_names(n), n) for n in pr.values() if isinstance(n, dict)]
+    mine = cap_versions(versions)
+    checked = int(now)
+    out = []
+    for m in machines:
+        names = _row_names(m)
+        online = last_seen = None
+        vers: dict = {}
+        if names & me:
+            vers = dict(mine)
+            if self_node is not None:      # the tailnet answered, and this box is the one asking
+                o = self_node.get("Online")
+                online = o if isinstance(o, bool) else True
+        else:
+            hits = [n for ns, n in peers if ns & names]
+            if hits:
+                # a machine registered twice (a stale node): an online one wins, else the one seen last
+                hits.sort(key=lambda n: (n.get("Online") is True, _epoch(n.get("LastSeen")) or 0), reverse=True)
+                n = hits[0]
+                if isinstance(n.get("Online"), bool):
+                    online = n["Online"]
+                    last_seen = None if online else _epoch(n.get("LastSeen"))
+        out.append(dict(m, online=online, last_seen=last_seen, versions=vers, checked=checked))
+    return out
+
+
+def claude_version(binary: str | None = None, timeout: float = 10) -> str:
+    """The first word of `claude --version` ("" when it cannot be run): this box's CLI version."""
+    out = _run([shutil.which(binary or "claude") or (binary or "claude"), "--version"], timeout)
+    return out.split()[0] if out and out.split() else ""
+
+
+def sala_commit(root: str | Path | None = None) -> str:
+    """The short commit of the sala checkout `lib/` lives in ("" when it is not a git checkout or git cannot be run)."""
+    root = Path(root) if root else Path(__file__).resolve().parent.parent
+    out = _run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"], 5, dict(os.environ, GIT_OPTIONAL_LOCKS="0"))
+    return out.split()[0] if out and out.split() else ""
+
+
+def self_names(name: str | None = None) -> list[str]:
+    """The names this box goes by: the caller's own (the heartbeat's fleet name), the OS hostname and its first label."""
+    out = [name] if name else []
+    try:
+        h = socket.gethostname()
+    except OSError:
+        h = ""
+    if h:
+        out += [h, h.split(".")[0]]
+    return out
+
+
+def read_with_readings(fleet_names=None, follow=None, *, candidates=None, ssh=None, holds=None, now: float | None = None, claude: str | None = None,
+                       name: str | None = None, root=None, tailscale_timeout: float = TAILSCALE_TIMEOUT) -> tuple[list[dict], list[str]]:
+    """`read_list` with the four reading keys on each entry (add_readings): the tailnet's status read once, and this box's own versions on the row that is this box (`claude` is its CLI version,
+    empty or None leaves that key out; `sala` is the short commit of the checkout `root`, default the one this file is in). `name` is the fleet name this box goes by, when the caller knows it
+    (the heartbeat does). Never raises for a missing tool or file. This is the list the heartbeat posts and `sala machines --json` prints."""
+    machines, missed = read_list(fleet_names, follow, candidates=candidates, ssh=ssh, holds=holds)
+    if not machines:
+        return machines, missed
+    versions = {}
+    if claude:
+        versions["claude"] = claude
+    commit = sala_commit(root)
+    if commit:
+        versions["sala"] = commit
+    now = time.time() if now is None else now
+    return add_readings(machines, tailnet_status(tailscale_timeout), now, self_names(name), versions), missed
+
+
 # ---- the CLI verbs -----------------------------------------------------------------------------------------------------
 def _env_paths() -> dict[str, Path | None]:
     return paths(os.environ.get("SALA_FLEET_NAMES"), os.environ.get("SALA_MACHINE_FOLLOW_MACHINES"))
@@ -233,10 +412,12 @@ def cmd_list(argv: list[str]) -> int:
     if not any(p.get(k) for k in ("fleet_names", "follow")):
         print("sala machines: no machine files are named: set SALA_FLEET_NAMES (the fleet names file; the other files are looked for beside it) in sala's config", file=sys.stderr)
         return 2
-    machines, missed = _list(p)
-    if as_json:
+    if as_json:   # the list the heartbeat posts: the entries and, on each, the tailnet's reading and this box's versions
+        machines, missed = read_with_readings(p.get("fleet_names"), p.get("follow"), candidates=p.get("candidates"), ssh=p.get("ssh"), holds=p.get("holds"),
+                                              claude=claude_version(os.environ.get("SALA_CLAUDE") or None))
         print(json.dumps({"schema": SCHEMA, "machines": machines, "not_read": missed}, indent=2))
         return 0
+    machines, missed = _list(p)
     rows = [("NAME", "LETTER", "HOSTNAME", "SSH", "ROLES", "STATE", "FROM")]
     for m in machines:
         rows.append((m["name"], _cell(m["letter"]), _cell(m["hostname"]), _cell(m["ssh"]), _cell(",".join(m["roles"])), "retired" if m["retired"] else "-", ",".join(m["sources"])))
