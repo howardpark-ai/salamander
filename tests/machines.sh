@@ -10,8 +10,12 @@
 #    and so is every field and the line with no field; `--set` of a host the candidates do not list is refused with the script's text and exit code and changes nothing; of a listed one
 #    changes only the record, and the machine list then shows the role on the new host
 #  - both verbs run with no tmux server, no sala-web and no running sala, and write nothing into the machine files
-# Cleanup: the temporary folder (prefix sc1565-) is held with flock while the suite runs and removed on exit, pass or fail; no process is started that outlives a command and none is killed.
-# Usage: bash tests/machines.sh   (exit 0 = pass; a few seconds)
+#  - the four readings each entry gets in `sala machines --json` and in the heartbeat's post (online, last_seen, versions, checked; docs/stackshot-contracts.md interface 39), against a `tailscale`
+#    stand-in first on the PATH: a peer matched by fleet name, hostname or ssh alias against its HostName or DNS label in any case (never by address), online and offline with a last seen time,
+#    a stale duplicate node, no match, no Peer list, junk, a failing, missing or hanging tailscale (null, never a guess), this box's own versions on its own row only, the 16-entry cap
+# Cleanup: the temporary folder (prefix sc1565-) is held with flock while the suite runs and removed on exit, pass or fail; the one process that outlives a command is the stand-in tailscale's
+# `sleep` in the hang case, which the reader stops by its process group (the suite only checks, with kill -0, that it is gone); nothing is killed by name.
+# Usage: bash tests/machines.sh   (exit 0 = pass; some 15 s, ten of them the hanging tailscale)
 set -u
 unset TMUX TMUX_PANE XDG_STATE_HOME SALA_MASTER SALA_FLEET_NAMES SALA_MACHINE_FOLLOW_MACHINES MACHINE_HOLDS_TOML MACHINE_HOLDS_CANDIDATES MACHINE_HOLDS_HUB TNR_CONF
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -25,6 +29,28 @@ export HOME=$T/home SALA_CONFIG=/dev/null SALA_TZ=Etc/UTC XDG_RUNTIME_DIR=$T/run
 mkdir -p "$HOME" "$XDG_RUNTIME_DIR" "$TMUX_TMPDIR"
 export SALA_BIN="$ROOT/bin/salamander" SALA_ROOT="$ROOT"
 SALA="$ROOT/bin/salamander"
+# a `tailscale` stand-in first on the PATH (no run reads this machine's real tailnet): `status --json` prints $HOME/ts.json, or by $HOME/ts.mode fails, prints junk, or hangs (its pid in $HOME/ts.pid)
+mkdir -p "$T/shim"
+cat > "$T/shim/tailscale" <<'SH'
+#!/bin/bash
+[ "$*" = "status --json" ] || exit 2
+case "$(cat "$HOME/ts.mode" 2>/dev/null || echo ok)" in
+    ok) cat "$HOME/ts.json" ;;
+    fail) echo "failed to connect to local tailscaled" >&2; exit 1 ;;
+    junk) echo "this is not json" ;;
+    list) echo '[1, 2]' ;;
+    hang) echo $$ > "$HOME/ts.pid"; exec sleep 60 ;;
+esac
+SH
+chmod +x "$T/shim/tailscale"; export PATH="$T/shim:$PATH"; echo ok > "$HOME/ts.mode"
+printf '#!/bin/sh\necho "2.1.332 (Claude Code)"\n' > "$HOME/claude-stub"; chmod +x "$HOME/claude-stub"; export SALA_CLAUDE="$HOME/claude-stub"   # `claude --version`, so no run starts a real claude
+python3 - "$HOME/ts.json" <<'PY'
+import json, sys
+node = lambda host, dns, online, seen: {"HostName": host, "DNSName": dns, "Online": online, "LastSeen": seen}
+json.dump({"Self": node("ALPHA-OS", "alpha-os.example.invalid.", True, "2026-11-25T02:00:00Z"),
+           "Peer": {"nodekey:b": node("Beta-OS", "beta-os.example.invalid.", False, "2026-11-25T01:00:00Z"),
+                    "nodekey:e": node("localhost", "Example-Eps.example.invalid.", True, "2026-11-25T01:59:00Z")}}, open(sys.argv[1], "w"))
+PY
 D=$T/data   # the owner's data folder: the fleet names file and, beside it, the others
 mkdir -p "$D/claude/tailnet-route" "$D/ssh" "$D/claude/host-move" "$D/claude/machine-follow"
 
@@ -165,8 +191,8 @@ case "$out" in *"not read"*) bad "a file reported unread on a full fleet: $out" 
 js=$(bash "$SALA" machines --json 2>&1); rc=$?
 [ "$rc" = 0 ] && ok "sala machines --json: exit 0" || bad "--json exit $rc"
 want=$(ML 'm')
-printf '%s' "$js" | python3 -c 'import json, sys; d = json.load(sys.stdin); sys.exit(0 if d["machines"] == json.loads(sys.argv[1]) and d["schema"] == 1 and d["not_read"] == [] else 1)' "$want" \
-    && ok "--json holds exactly machine_list's machines, schema 1 and nothing unread" || bad "--json differs from machine_list"
+printf '%s' "$js" | python3 -c 'import json, sys; d = json.load(sys.stdin); sys.exit(0 if [{k: v for k, v in m.items() if k not in ("online", "last_seen", "versions", "checked")} for m in d["machines"]] == json.loads(sys.argv[1]) and d["schema"] == 1 and d["not_read"] == [] else 1)' "$want" \
+    && ok "--json holds exactly machine_list's machines (each with the four reading keys besides), schema 1 and nothing unread" || bad "--json differs from machine_list"
 SALA_MACHINE_FOLLOW_MACHINES=$T/nowhere.toml bash "$SALA" machines | grep -q 'not read: machines.toml' && ok "a follow file named and not there is said on the last line" || bad "no 'not read' line"
 SALA_MACHINE_FOLLOW_MACHINES=$T/nowhere.toml bash "$SALA" machines --json | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d["not_read"] == ["machines.toml"] and len(d["machines"]) == 6 else 1)' && ok "--json: not_read names it, and the other machines are still there" || bad "--json not_read"
 out=$(SALA_FLEET_NAMES= SALA_MACHINE_FOLLOW_MACHINES= bash "$SALA" machines 2>&1); rc=$?
@@ -174,6 +200,97 @@ out=$(SALA_FLEET_NAMES= SALA_MACHINE_FOLLOW_MACHINES= bash "$SALA" machines 2>&1
 out=$(bash "$SALA" machines --bogus 2>&1); rc=$?; [ "$rc" = 2 ] && ok "a bad option is exit 2" || bad "bad option: rc=$rc"
 out=$(bash "$SALA" machines --help 2>&1); rc=$?; [ "$rc" = 0 ] && case "$out" in "usage: sala machines"*) true ;; *) false ;; esac && ok "--help: the usage, exit 0" || bad "--help rc=$rc"
 [ "$(sum)" = "$before" ] && ok "the machine files are as they were (read-only)" || bad "a machine file changed"
+
+echo "== the readings on each machine (online, last_seen, versions, checked): sala machines --json, and add_readings on canned tailnet answers"
+SALA_SHA=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || true)
+t0=$(date +%s); js=$(SALA_CLAUDE="$HOME/claude-stub" bash "$SALA" machines --json 2>&1); rc=$?; t1=$(date +%s)
+r=$(printf '%s' "$js" | python3 -c '
+import json, sys
+d = json.load(sys.stdin); sha, t0, t1 = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+rows = {m["name"]: m for m in d["machines"]}
+want = {"claude": "2.1.332"}
+if sha: want["sala"] = sha
+import calendar
+print([rows["example-alpha"]["online"], rows["example-alpha"]["last_seen"], rows["example-alpha"]["versions"] == want],
+      [rows["example-beta"]["online"], rows["example-beta"]["last_seen"] == calendar.timegm((2026, 11, 25, 1, 0, 0)), rows["example-beta"]["versions"]],
+      [rows["example-eps"]["online"], rows["example-eps"]["last_seen"], rows["example-eps"]["versions"]],
+      [rows["example-gamma"]["online"], rows["example-gamma"]["last_seen"], rows["example-gamma"]["versions"]],
+      all(t0 <= m["checked"] <= t1 for m in d["machines"]), all(list(m)[-4:] == ["online", "last_seen", "versions", "checked"] for m in d["machines"]))' "$SALA_SHA" "$t0" "$t1")
+[ "$rc" = 0 ] && [ "$r" = "[True, None, True] [False, True, {}] [True, None, {}] [None, None, {}] True True" ] \
+    && ok "--json: the box the tailnet calls Self (its hostname in other letters) is online with versions claude and sala; an offline peer has its last_seen; one found by its DNS label is online; one no node matches is null; every entry ends with the four keys" || bad "--json readings: rc=$rc $r"
+bash "$SALA" machines | grep -q 'online' && bad "the text form grew a readings column" || ok "the text form is as before (no readings column)"
+python3 -I - "$ROOT/lib" "$T" "$HOME" <<'PY' && ok "add_readings: matched by fleet name, hostname or ssh alias against HostName or the DNS label in any case, never by address; online wins over a stale duplicate node; no status, junk, no Peer list or an unknown Online give null; the input is not changed" || bad "add_readings cases"
+import copy, sys
+sys.path.insert(0, sys.argv[1]); import machines as mc
+row = lambda name, hostname="", ssh="", addresses=(): {"name": name, "hostname": hostname, "letter": "", "ssh": ssh, "addresses": list(addresses), "roles": [], "retired": False, "sources": []}
+node = lambda host, dns="", online=True, seen=None: {"HostName": host, "DNSName": dns, "Online": online, "LastSeen": seen}
+ms = [row("alpha", "ALPHA-OS"), row("beta", "", "beta-ssh"), row("gamma", "gamma-os", "", ["192.0.2.9", "2001:db8::9"]), row("delta"), row("eps")]
+before = copy.deepcopy(ms)
+st = {"Self": node("box-1"), "Peer": {"k1": node("alpha-os", "", True, "2026-11-25T01:00:00Z"), "k2": node("x", "BETA-SSH.example.invalid.", False, "2026-11-25T01:00:00+09:00"),
+      "k3": node("other-name", "other.example.invalid.", True), "k4": node("eps", "", False, "2026-11-20T00:00:00Z"), "k5": node("EPS", "", False, "2026-11-24T00:00:00Z"), "k6": node("delta", "", False, "garbage")}}
+out = mc.add_readings(ms, st, 1795470000.9, ["box-1"], {"claude": "9"})
+assert ms == before, "the input changed"
+g = {m["name"]: m for m in out}
+assert all(list(m) == list(mc.KEYS) + list(mc.READING_KEYS) and m["checked"] == 1795470000 for m in out)
+assert (g["alpha"]["online"], g["alpha"]["last_seen"]) == (True, None)                              # HostName in another case; online: no last_seen
+assert (g["beta"]["online"], g["beta"]["last_seen"]) == (False, mc._epoch("2026-11-24T16:00:00Z"))   # found by its ssh alias against the DNS label; LastSeen with an offset
+assert (g["gamma"]["online"], g["gamma"]["last_seen"]) == (None, None)                               # its addresses are in no node: not matched by address
+assert (g["delta"]["online"], g["delta"]["last_seen"]) == (False, None)                              # offline and a LastSeen that is no time: null
+assert (g["eps"]["online"], g["eps"]["last_seen"]) == (False, mc._epoch("2026-11-24T00:00:00Z"))    # two old nodes of one machine: the one seen last
+assert all(m["versions"] == {} for m in out), "no row is this box"
+me = {m["name"]: m for m in mc.add_readings([row("box-1")], st, 5, ["BOX-1"], {"claude": "9"})}
+assert me["box-1"]["versions"] == {"claude": "9"} and me["box-1"]["online"] is True and me["box-1"]["last_seen"] is None
+assert mc.add_readings([row("box-1")], {"Self": dict(node("box-1"), Online=False)}, 5, ["box-1"])[0]["online"] is False
+assert mc.add_readings([row("box-1")], None, 5, ["box-1"], {"claude": "9"})[0]["online"] is None      # no reading of the tailnet: this box is not guessed online either
+assert mc.add_readings([row("box-1")], None, 5, ["box-1"], {"claude": "9"})[0]["versions"] == {"claude": "9"}   # but what it read of itself stays
+for bad in ({}, {"Peer": None}, {"Peer": []}, {"Self": "x", "Peer": {"k": 3}}, {"Peer": {"k": {"HostName": "alpha-os", "Online": "yes"}}}, {"Peer": {"k": {"HostName": "alpha-os"}}}):
+    o = mc.add_readings([row("alpha", "alpha-os")], bad, 5)
+    assert (o[0]["online"], o[0]["last_seen"], o[0]["versions"]) == (None, None, {}), bad
+assert mc.add_readings([], st, 5) == []
+# last_seen: a time with an offset; the zero time, a bare date-time (no zone) and anything else is no time
+assert mc._epoch("2026-11-25T01:00:00+09:00") == mc._epoch("2026-11-24T16:00:00Z") and mc._epoch("2026-11-25T01:00:00.123456789Z") == mc._epoch("2026-11-25T01:00:00Z")
+assert all(mc._epoch(v) is None for v in ("0001-01-01T00:00:00Z", "2026-11-25T01:00:00", "", "x", None, 5, ["2026-11-25T01:00:00Z"]))
+PY
+python3 -I - "$ROOT/lib" <<'PY' && ok "versions: text to text, empty and non-text entries dropped, at most 16 entries (the first 16 stay), on this box's row only" || bad "versions cap"
+import sys
+sys.path.insert(0, sys.argv[1]); import machines as mc
+many = {"k%02d" % i: "v%d" % i for i in range(20)}
+assert len(mc.cap_versions(many)) == 16 and list(mc.cap_versions(many)) == ["k%02d" % i for i in range(16)]
+assert mc.cap_versions({"a": "1", "b": 2, 3: "c", "d": "", "": "e", "f": None}) == {"a": "1"} and mc.cap_versions(None) == {} and mc.cap_versions([("a", "b")]) == {}
+assert len(mc.cap_versions({"k%02d" % i: "v" for i in range(16)})) == 16
+row = lambda n: {"name": n, "hostname": n, "letter": "", "ssh": "", "addresses": [], "roles": [], "retired": False, "sources": []}
+o = mc.add_readings([row("me"), row("you")], {"Self": {"HostName": "me", "Online": True}}, 1, [], many)
+assert len(o[0]["versions"]) == 16 and o[1]["versions"] == {}
+PY
+# tailscale itself: missing, failing, junk, not an object, hanging (stopped after the timeout, process group and all)
+python3 -I - "$ROOT/lib" "$HOME" <<'PY' && ok "tailnet_status: None when the binary is not there; the dict when it answers" || bad "tailnet_status basic"
+import sys
+sys.path.insert(0, sys.argv[1]); import machines as mc
+assert mc.tailnet_status(binary="no-such-tailscale-binary-s1565") is None
+d = mc.tailnet_status()
+assert isinstance(d, dict) and d["Self"]["HostName"] == "ALPHA-OS", d
+PY
+for mode in fail junk list; do
+    echo $mode > "$HOME/ts.mode"
+    python3 -I - "$ROOT/lib" <<'PY' && ok "tailnet_status: tailscale $mode gives None" || bad "tailnet_status $mode"
+import sys
+sys.path.insert(0, sys.argv[1]); import machines as mc
+assert mc.tailnet_status() is None
+PY
+done
+echo hang > "$HOME/ts.mode"; rm -f "$HOME/ts.pid"
+t0=$SECONDS; python3 -I - "$ROOT/lib" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1]); import machines as mc
+assert mc.tailnet_status(timeout=1) is None
+PY
+rc=$?; dt=$((SECONDS - t0))
+tp=$(cat "$HOME/ts.pid" 2>/dev/null || echo 0)
+[ "$rc" = 0 ] && [ "$dt" -lt 15 ] && [ "$tp" -gt 1 ] && ! kill -0 "$tp" 2>/dev/null && ok "a tailscale that hangs is stopped at the timeout (1 s here, 10 s by default; took ${dt}s) and its process is gone" || bad "hang: rc=$rc dt=$dt pid=$tp"
+js=$(bash "$SALA" machines --json 2>&1); rc=$?
+r=$(printf '%s' "$js" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(len(d["machines"]), {(m["online"], m["last_seen"]) for m in d["machines"]} == {(None, None)})')
+[ "$rc" = 0 ] && [ "$r" = "7 True" ] && ok "sala machines --json with tailscale hanging: exit 0 after the default 10 s, every online and last_seen null" || bad "--json with tailscale hanging: rc=$rc $r"
+echo ok > "$HOME/ts.mode"
 
 echo "== sala host"
 holds() { MACHINE_HOLDS_TOML=$D/claude/host-move/machine-holds.toml MACHINE_HOLDS_CANDIDATES=$D/claude/tailnet-route/candidates.conf python3 "$D/claude/host-move/machine_holds.py" "$@"; }
