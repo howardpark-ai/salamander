@@ -20,6 +20,10 @@ result and the live stream agree. A read starts from a point where no turn is op
 hold whole turns, so a page never cuts a turn in two and the cursor of an older page is always the start of a turn. A line that belongs to no turn
 (the file starts there, or the look back found no closing reply) is shown, never dropped.
 
+A reply of this session that links a /mockup/<n> page of this site or a claude.ai artifact carries `cards` (with_cards: the first page's own rule, chatpage.cards,
+read from the reply's text blocks alone, nothing fetched): [{"kind": "mockup" | "artifact", "url", "title", and "n" for a mockup}], which the page draws as link
+cards under the reply. A message without such a link has no `cards` key.
+
 The count of the switch is chatturns.kept_today (the same rule, over the turns of today); a test holds that it equals the kept lines.
 """
 
@@ -28,6 +32,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from . import chatpage as CP
 from . import chatturns as CT
 from . import transcript as TR
 
@@ -56,6 +61,20 @@ def _strip_mark(m: dict, mark) -> dict:
                 b["text"] = body
             break
     return m
+
+
+def with_cards(msgs: list[dict], host: str, mockups_dir: Path) -> list[dict]:
+    """`msgs` (a read's messages, built fresh by each read) with `cards` added to every reply that holds a link to a mockup page of this site (`host`) or to a
+    claude.ai artifact: chatpage.cards over the reply's text blocks, in order, each address once, at most CARDS_MAX. A mockup's title is read from the local store
+    (`mockups_dir`), an artifact's is its link text; nothing is fetched. Only a reply (role "assistant") gets cards, and a reply with no such link has no key."""
+    for m in msgs:
+        if m.get("role") != "assistant":
+            continue
+        text = "\n".join(b.get("text") or "" for b in m.get("blocks", []) if b.get("kind") == "text")
+        c = CP.cards(text, host, mockups_dir) if text else []
+        if c:
+            m["cards"] = c
+    return msgs
 
 
 class Keeper:

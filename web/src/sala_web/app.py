@@ -170,10 +170,14 @@ none itself):
                                   (chatkeep.py; web/README.md, *The chat session in sala's own view*): each is ONE message {uuid,
                                   role "kept", ts, blocks [], kept: {src: {kind, name}, what, did, open}} in place of its lines, a page holds
                                   whole turns (every cursor is the start of a turn), and a turn he started is whole. A page may also
-                                  hold {uuid, role "kept", gone: true}: the line of that uuid is withdrawn (its reply was for him)
+                                  hold {uuid, role "kept", gone: true}: the line of that uuid is withdrawn (its reply was for him).
+                                  A reply of that session that links a /mockup/<n> page of this site or a claude.ai artifact also
+                                  carries `cards` (chatkeep.with_cards, the first page's own rule): [{kind: "mockup" | "artifact",
+                                  url, title, n (mockup only)}], at most 6, each address once; nothing is fetched
   GET  /api/s/<pid>/stream        SSE: "version", "reset" with the last 200 messages, then "append", "status" and "live" events
                                   (the chat session's carry the same kept lines as its transcript: a kept message sent again with its
-                                  uuid replaces the first, one with "gone" withdraws it).
+                                  uuid replaces the first, one with "gone" withdraws it; a reply that links a mockup or an artifact
+                                  carries its `cards`, as in the transcript).
                                   "live" is the pane of a running `!` command: Claude Code writes a `!` command's
                                   output to the transcript only when the command ends (2.1.312: no record before) and its pane
                                   keeps the input box, so the stream looks at the pane (a capture every 2 s, every 0.75 s while
@@ -1075,7 +1079,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if sum(x is not None for x in (before, around, after)) > 1:
             return _err(400, "give one of before, around and after")
         if _is_chat(s):   # the chat session: the turns its owner did not start are kept back (chatkeep.py), the same pages otherwise
-            return await _chat_transcript_reply(s, path, n, before, around, after)
+            return await _chat_transcript_reply(s, path, n, before, around, after, request.headers.get("host", ""))
         # a page around a line (a Search result's pos) or after a cursor a page gave: a byte offset into this session's own
         # transcript, checked as `before` is; `after` is the cursor for the next newer page, `end` that the live end is in
         if around is not None:
@@ -1105,21 +1109,26 @@ def create_app(settings: Settings | None = None) -> Starlette:
     def _is_chat(s: S.Session) -> bool:
         return bool(s.name) and s.name == chat_session()
 
-    async def _chat_transcript_reply(s: S.Session, path: Path, n: int, before, around, after) -> Response:
-        """_transcript_reply for the chat session: the same JSON, from chatkeep (whole turns per page, a hidden turn one "kept" message)."""
+    async def _chat_transcript_reply(s: S.Session, path: Path, n: int, before, around, after, host: str = "") -> Response:
+        """_transcript_reply for the chat session: the same JSON, from chatkeep (whole turns per page, a hidden turn one "kept" message), a reply that links a
+        mockup page of this site or a claude.ai artifact carrying its `cards` (chatkeep.with_cards)."""
         owner, strict = owner_name(), s.status in ("busy", "waiting")
         try:
             if around is not None:
                 d = await run_in_threadpool(CK.read_around, path, s.session_id, owner, around, n, strict)
+                await run_in_threadpool(CK.with_cards, d["messages"], host, settings.mockups_dir)
                 return JSONResponse({"session": s.to_json(), **d})
             if after is not None:
                 msgs, cursor, at_end = await run_in_threadpool(CK.read_after, path, s.session_id, owner, after, n, strict)
+                await run_in_threadpool(CK.with_cards, msgs, host, settings.mockups_dir)
                 return JSONResponse({"session": s.to_json(), "messages": msgs, "after": cursor, "end": at_end})
             if before is None:
                 msgs, cursor, off, _kp = await run_in_threadpool(CK.read_tail_page, path, s.session_id, owner, n, strict)
+                await run_in_threadpool(CK.with_cards, msgs, host, settings.mockups_dir)
                 return JSONResponse({"session": s.to_json(), "messages": msgs, "offset": off, "path": str(path),
                                      "before": cursor, "start": cursor == 0})
             msgs, cursor, at_start = await run_in_threadpool(CK.read_before, path, s.session_id, owner, before, n, strict)
+            await run_in_threadpool(CK.with_cards, msgs, host, settings.mockups_dir)
         except TR.BadCursor as e:
             return _err(400, str(e))
         return JSONResponse({"session": s.to_json(), "messages": msgs, "before": cursor, "start": at_start})
@@ -1139,6 +1148,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             page, styles = page_versions()
             yield ev("version", {"version": page, "styles": styles})
             s = s0
+            host = request.headers.get("host", "")   # a link to a mockup page "on this site" is read against it (the chat session's cards)
             path: Path | None = None
             off = 0
             status = None
@@ -1180,6 +1190,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                             if _is_chat(s):
                                 msgs, cursor, off, keeper = await run_in_threadpool(
                                     CK.read_tail_page, path, s.session_id, owner_name(), TAIL_N, status in ("busy", "waiting"))
+                                await run_in_threadpool(CK.with_cards, msgs, host, settings.mockups_dir)
                             else:
                                 keeper = None
                                 msgs, cursor, off = await run_in_threadpool(TR.read_tail_page, path, s.session_id, TAIL_N)
@@ -1205,6 +1216,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                         before = off
                         if keeper is not None:
                             msgs, off = await run_in_threadpool(CK.read_from, path, keeper, off, status in ("busy", "waiting"))
+                            await run_in_threadpool(CK.with_cards, msgs, host, settings.mockups_dir)
                         else:
                             msgs, off = await run_in_threadpool(TR.read_from, path, s.session_id, off)
                         if msgs:

@@ -1670,7 +1670,7 @@ table, a long item subject, a long motion line and a long kept-back line (GitHub
 
 Not in this page: the views, any change to how sessions are routed, and a check on turns nobody marked.
 
-### The chat session in sala's own view (two of four steps; `/chat` stays as it is for now)
+### The chat session in sala's own view (three of four steps; `/chat` stays as it is for now)
 
 The chat session is meant to be sala's own view of a session, opened on the session `SALA_CHAT_SESSION` names, not a second page drawn to look like it. The rule behind it: a new screen in a tool the owner already uses is that tool's own
 view, extended. So the header, the thread, the composer (box, attach button, image paste), the spacing, the buttons and the spinner of a working session are the ones every session has, from the same code. What the chat session adds is this
@@ -1697,12 +1697,22 @@ and a line the rule does not recognize counts as delivered, so it is kept back a
   a turn) and the stream cut anywhere gives what the history gives. Lines are read in file order.
 - **The page** draws each kept line with the one renderer every session uses (`renderMessage`, role `kept`: a quiet line with the time, the source, what it was and what the session did), hidden by default (`#chat .msg.kept`) and shown while the strip's
   switch is on (`body.chat-kept-on`). The switch is a real checkbox, off at first, and the count beside it is `keptLines` of `GET /api/chat` (the number of kept lines today, a turn he then spoke into included), so it is the number of lines
-  the switch shows. The count sits in the strip, outside `#chat`, and is read again when the stream says something changed. Link cards are not drawn yet.
+  the switch shows. The count sits in the strip, outside `#chat`, and is read again when the stream says something changed.
 
-The first page (`/chat`, `chat.html`, `chat.js`, `chat.css`) is untouched; the later steps add the link cards and retire it.
+**Link cards (third of four steps).** A reply of the chat session that links a `/mockup/<n>` page of this site (a path, or an address on the host the request came to) or a claude.ai artifact (`https://claude.ai/artifact/<id>` or `/code/artifact/<id>`) is drawn with a
+card under its text, for every reply the session's reads send (the last page, an older, a newer, a page around a line, the stream's `reset` and `append`) and for no other session's. The server adds the data: `chatkeep.with_cards` runs the first
+page's own rule (`chatpage.cards`: each address once, at most six, a mockup's title from the local mockup store, an artifact's from the link text, any other link none) over the reply's text blocks and puts `cards` on the message,
+`[{kind: "mockup" | "artifact", url, title, n (a mockup only)}]`; a message with no such link has no `cards` key and another session's messages never have one. Nothing is fetched, by the server or by the page. The page draws each card in
+`renderMessage`, the one renderer every session uses (`linkCard` in `app.js`, called for an assistant message that has `cards`), as one `<a class="link-card">` under the reply's text and before its copy row: the title (or, with none, the kind of
+page), the kind in a smaller line ("Mockup 7", "Claude artifact") and "opens a page". It opens in a new tab with `rel="noopener noreferrer"`, the keyboard reaches it like any link, and a card whose address is neither shape is not drawn (the link
+stays the plain link in the text). The words are the keys `chat.card.*` in English and Korean and follow a language change in place. It is sala's own card look: the panel gray, the border and the 8 px corner of the tool-call folds, the
+themes' tokens (so it follows the dark and light palettes and the stored color look), the accent focus ring, no color of its own. Like everything in the view it never makes the page wider: the card shrinks to the thread (420 px at most) and every
+line of it breaks anywhere. The first page keeps drawing its own cards until it is retired.
+
+The first page (`/chat`, `chat.html`, `chat.js`, `chat.css`) is untouched; the last step retires it.
 
 **No sideways scroll**, at any width, with the drawer open or shut: `tests/test_chat_session_view_ui.py` holds it at 1280, 390, 360 and 320 px with hostile text in the thread, a waiting subject and a motion line, and
-`tests/test_chat_kept_ui.py` holds it again with the switch off and on and hostile text in the kept lines. (A markdown table wider
+`tests/test_chat_kept_ui.py` holds it again with the switch off and on and hostile text in the kept lines, and `tests/test_chat_link_cards_ui.py` with hostile text in the cards (a 300-character title, a long address). (A markdown table wider
 than the thread scrolls inside its own block, as in every session; the page never does.) The same file holds that the chat session and another session, given the same transcript, differ only in the strip and the cap.
 
 ## Operation log pages
