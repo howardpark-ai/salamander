@@ -1570,7 +1570,7 @@ message, goes through the main chat's own path.
 zone `GET /api/config` and `GET /api/chat` name (`SALA_TZ`, through `shared.js`'s `zoneFormat`), and strings go through the page's i18n like every page's.
 
 **What shows.** Only what the owner typed (the composer, or the pane's keys) and the FINAL reply of each turn he started. No tool call and no text written on the way to one. A reply that is still being written shows when the session
-is idle, and never while it works with no stop reason yet.
+is idle, and never while it works with no stop reason yet. While the session is live and working (`busy` in `GET /api/chat`), the main view's small spinner (`.inflight`, `.spinner` from `style.css`, the same label and reduced-motion rule) shows under the last message, and it is gone when the session is not.
 
 **What does not, and the one exception.** A turn something else started (another session, the board, sala, a background task, a plugin) is hidden. It shows only when its final reply opens with `[for <owner>]`, with the mark taken off
 and the label "<Name>, on his own" on the message. Every other hidden turn is **kept back**: the switch "Show what <Name> kept back" lists them in place, in time order, one quiet line each (time, source in plain words, a short clipped

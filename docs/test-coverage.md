@@ -5109,5 +5109,13 @@ results, sidechain lines and compaction stubs as no turn, only the final reply s
 follow-up joining its turn, the kept line's source in plain words and its last line without the footer notes, today's count in the zone, and a half-written last line. (`test_chatpage.py`): the settings, the link cards (and that nothing is
 fetched), the board lines once each over every session, the motion reader, and `GET /chat` and `GET /api/chat` served.
 
-Not covered, and why: the page's look and behavior in a browser except the width rule (`test_chat_no_sideways_scroll.py`, which GitHub CI runs; the test box has no browser); a real transcript (the rule was established from them and the
+Not covered, and why: the page's look and behavior in a browser except the width rule (`test_chat_no_sideways_scroll.py`, which GitHub CI runs; the test box has no browser) and the working spinner (below); a real transcript (the rule was established from them and the
 shapes are in the fixtures, but a test never reads one).
+
+### The chat page's working spinner: `web/tests/test_chatpage.py` (one test added), `web/tests/test_chat_working_spinner.py` (browser), new
+
+While the chat page's session is live and busy, the page shows the main view's small spinner under the last message. A wrong answer costs a working session that reads as idle, a spinner that outlives the work, two spinners, a list that jumps or draws every message again when the flag flips, or a phone page that scrolls sideways.
+
+Covered (`test_chatpage.py`, no browser): chat.js builds the `.inflight` / `.spinner` pair, draws it from a live and busy session, labels it with `app.working`; chat.html loads style.css, which holds the spinner and its reduced-motion rule; chat.css has no spinner look of its own; the label exists in both languages. Covered (`test_chat_working_spinner.py`, headless Chromium, else skipped; GitHub CI runs it): a live busy session shows exactly one spinner (16 px, inline-block, spinning, role status, labeled), after the last message and above the composer; an idle one, a sleeping one and one that is not running show none, even when the answer says busy; the spinner comes and goes as `api/chat` flips `busy` while the message nodes stay the same ones, and its own node stays across a redraw while busy; a page at its bottom stays at its bottom as the spinner appears and goes; no sideways scroll with the spinner showing at 1280, 360 and 320 px.
+
+Not covered, and why: a message just sent from the page adds no spinner of its own (the session's busy flag says when it works; a pending message that never reaches the transcript would otherwise keep a spinner for two minutes), so there is no test for it; the look of the spin itself (a screenshot shows it, a test would only copy the CSS).

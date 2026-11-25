@@ -169,6 +169,8 @@
 
     const thread = el("div", { class: "thread", role: "log" });
     const chat = el("div", { class: "chat" }, thread);
+    // the working spinner of the main view (style.css .inflight / .spinner), kept out of the thread so the thread's redraw never restarts the spin; in the page only while the session works
+    const inflight = el("div", { class: "inflight", role: "status" }, el("span", { class: "spinner" }));
 
     const ta = el("textarea", { class: "compose-input", rows: "1", enterkeyhint: "send", autocomplete: "off", spellcheck: "true" });
     const send = el("button", { type: "button", class: "send-btn", ...tx("chat.send", null, "aria-label") },
@@ -179,7 +181,7 @@
     const composer = el("div", { class: "composer" }, row, sleepBox, note);
 
     root.replaceChildren(update, bar, wait, motion, chat, composer);
-    ui = { update, dot, nameEl, stateEl, sw, swText, countEl, pane, waitList, waitNote, moList, thread, ta, send, row, note, sleepBox, composer };
+    ui = { update, dot, nameEl, stateEl, sw, swText, countEl, pane, waitList, waitNote, moList, thread, chat, inflight, ta, send, row, note, sleepBox, composer };
 
     const coarse = matchMedia("(pointer: coarse)").matches;
     ta.addEventListener("keydown", (ev) => {
@@ -282,7 +284,19 @@
     if (!nodes.length) nodes.push(el("p", { class: "empty", ...tx("chat.empty") }));
     S.nodes = next;
     ui.thread.replaceChildren(...nodes);
+    drawInflight();
     if (wasPinned) scrollEnd();
+  }
+
+  // a small spinner under the last message while the session works, as the main view shows (app.js updateInflight): there while the session is live and busy, gone
+  // otherwise. A message sent from this page that the transcript does not show yet adds none: the session's own busy flag says when it works.
+  function drawInflight() {
+    const d = S.data, n = ui.inflight;
+    if (d && d.present === "live" && d.busy) {
+      const label = tl("app.working");
+      if (n.getAttribute("aria-label") !== label) { n.setAttribute("aria-label", label); n.setAttribute("title", label); }
+      if (n.parentNode !== ui.chat) ui.chat.append(n);
+    } else if (n.parentNode) n.remove();
   }
 
   function drawComposer() {

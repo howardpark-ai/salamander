@@ -238,3 +238,24 @@ def test_the_pages_script_sets_no_html_from_what_a_session_wrote_and_reaches_no_
     for bad in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
         assert bad not in js, bad
     assert not re.findall(r"""fetch\(\s*["'`]https?:""", js) and "EventSource(\"http" not in js   # only this site's own api/ paths
+
+
+def test_the_page_carries_the_main_views_working_spinner_and_draws_it_from_the_busy_flag():
+    """The chat page shows the same small spinner as the main view while its session works (browser side: test_chat_working_spinner.py): chat.js draws the
+    `.inflight` / `.spinner` pair from api/chat's `busy` and `present`, chat.html loads style.css (which owns the look and its reduced-motion rule) and the label
+    is a string both languages have. A page that stopped carrying any of it would show a working session as idle."""
+    from sala_web.app import STATIC
+    js = (STATIC / "chat.js").read_text(encoding="utf-8")
+    html = (STATIC / "chat.html").read_text(encoding="utf-8")
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    chat_css = (STATIC / "chat.css").read_text(encoding="utf-8")
+    assert '"inflight"' in js and '"spinner"' in js, "chat.js no longer builds the main view's .inflight / .spinner"
+    assert re.search(r'present === "live"\s*&&\s*d\.busy', js), "the spinner is no longer drawn from a live, busy session"
+    assert 'tl("app.working")' in js and 'role: "status"' in js
+    assert re.search(r'<link rel="stylesheet" href="static/style\.css', html), "chat.html no longer loads style.css, which holds .spinner"
+    assert re.search(r"\.inflight\s*\{", css) and re.search(r"\.spinner\s*\{[^}]*animation: spin", css)
+    assert re.search(r"prefers-reduced-motion: reduce\)\s*\{\s*\.spinner", css), "style.css lost the spinner's reduced-motion rule"
+    assert ".spinner" not in chat_css and ".inflight" not in chat_css, "the chat page has its own spinner look; it shares the main view's"
+    for lang in ("en", "ko"):
+        table = (STATIC / f"i18n-{lang}.js").read_text(encoding="utf-8")
+        assert re.search(r'"app\.working":\s*"[^"]+"', table), f"i18n-{lang}.js has no app.working"
