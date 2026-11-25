@@ -48,16 +48,24 @@ def test_config_carries_the_build_version(env):
     assert r.status_code == 200
     d = r.json()
     v = env["app"].state.build_version()
-    assert d["version"] == v and v
-    assert v.split("-")[0].isdigit()  # static mtime first, then the commit when run from a checkout
+    sv = env["app"].state.styles_version()
+    assert d["version"] == v and v and d["styles"] == sv and sv
+    assert re.fullmatch(r"[0-9a-f]{12}", v) and re.fullmatch(r"[0-9a-f]{12}", sv)  # a hash of the page's files, not a time or a commit
     assert r.headers["cache-control"] == "no-store"
-    # the page carries the same version, so a freshly loaded page never sees itself as outdated
+    # the page carries the same versions, so a freshly loaded page never sees itself as outdated
     html = env["client"].get("/").text
     assert f'<meta name="sala-web-version" content="{v}">' in html
+    assert f'<meta name="sala-web-styles" content="{sv}">' in html
     assert "{{" not in html
+    # the style sheets' links carry the styles version, everything else the page's (pageversion.py): a style-only change
+    # moves the one and never the other
+    css = re.findall(r'<link rel="stylesheet" href="(static/[^"]+\.css)\?v=([^"]+)"', html)
+    assert css and {q for _, q in css} == {sv}
+    scripts = re.findall(r'<script src="(static/[^"]+\.js)\?v=([^"]+)"', html)
+    assert scripts and {q for _, q in scripts} == {v}
 
 
-def test_version_follows_a_static_change(env, monkeypatch, tmp_path):
+def test_version_follows_the_content_of_the_page_not_the_files_times(env, monkeypatch, tmp_path):
     static = tmp_path / "static"
     static.mkdir()
     f = static / "app.js"
@@ -65,9 +73,10 @@ def test_version_follows_a_static_change(env, monkeypatch, tmp_path):
     os.utime(f, (1_000_000, 1_000_000))
     monkeypatch.setattr(A, "STATIC", static)
     v1 = env["client"].get("/api/config").json()["version"]
-    os.utime(f, (2_000_000, 2_000_000))  # a fast-forward rewrote the file
-    v2 = env["client"].get("/api/config").json()["version"]
-    assert v1.startswith("1000000") and v2.startswith("2000000")
+    os.utime(f, (2_000_000, 2_000_000))  # a fast-forward rewrote the file with the same bytes
+    assert env["client"].get("/api/config").json()["version"] == v1
+    f.write_text("y")  # one byte of the page changed
+    assert env["client"].get("/api/config").json()["version"] != v1
 
 
 def test_stream_starts_with_retry_and_version_and_ends_at_shutdown(env):
@@ -77,7 +86,7 @@ def test_stream_starts_with_retry_and_version_and_ends_at_shutdown(env):
         body = r.read().decode()
     assert body.startswith(f"retry: {A.SSE_RETRY_MS}\n\n")
     evs = events(body)
-    assert evs[0] == ("version", {"version": env["app"].state.build_version()})
+    assert evs[0] == ("version", {"version": env["app"].state.build_version(), "styles": env["app"].state.styles_version()})
 
 
 def test_open_stream_ends_soon_after_shutdown_starts(env):

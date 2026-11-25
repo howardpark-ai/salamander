@@ -21,7 +21,8 @@ none itself):
                                   one; 405 for any method but GET and HEAD): shown as the file is, not parsed or redacted, behind the same
                                   sign-in as the rest of the site (the proxy's); every answer under /op carries Cache-Control private,
                                   no-store, nosniff, Referrer-Policy no-referrer and a Content-Security-Policy of default-src 'none'; sandbox
-  GET  /api/config                settings the page needs (terminal URL prefix, the title-bar suffix, the scopes) and the build version
+  GET  /api/config                settings the page needs (terminal URL prefix, the title-bar suffix, the scopes, the zone) and the page's
+                                  version and its style sheets' (pageversion.py: hashes of the files' content, not of their times)
   GET  /sessions                  redirects to /#sessions (the overview was its own page before it moved into /)
   GET  /api/sessions              live sessions grouped by project; each carries "unread_count" (the replies a front
                                   agent has written since the owner opened it, at most 10; the sidebar's orange count) and
@@ -286,6 +287,7 @@ from . import lanestate as LS
 from . import machines as MCH
 from . import mockup as MK
 from . import oplog as OL
+from . import pageversion as PV
 from . import projpick as PP
 from . import quota as Q
 from . import schedules as SCH
@@ -646,15 +648,19 @@ def create_app(settings: Settings | None = None) -> Starlette:
     # set when the server starts shutting down (a restart): open SSE streams end at once instead of holding the stop
     shutting_down = threading.Event()
 
-    def _asset_version() -> str:
-        # newest mtime under static/: a deploy changes it, so the page's asset URLs change and no cached copy is used
-        return str(int(max(p.stat().st_mtime for p in STATIC.rglob("*") if p.is_file())))
+    def page_versions() -> tuple[str, str]:
+        # (page, styles): hashes of the content of static/'s files, the style sheets apart (pageversion.py). Neither the files'
+        # times nor the commit are in them: a restart that changes nothing the browser loads leaves both as they were
+        return PV.versions(STATIC)
 
     def build_version() -> str:
-        # what an open page compares with the version it loaded: a fast-forward changes the static mtimes at once
-        # (static/ is served from the tree), a restart changes the commit
-        v = _asset_version()
-        return f"{v}-{commit}" if commit else v
+        # what an open page compares with the version it loaded: only a change to the page itself (a script, a shell, a
+        # vendor file, an icon) differs; a style-only change is applied in place by the page (styles_version) and a
+        # server-only change shows nothing
+        return page_versions()[0]
+
+    def styles_version() -> str:
+        return page_versions()[1]
 
     async def index(request: Request) -> Response:
         # /?arg=<tmux session> was ttyd's own URL before sala-web took the host: keep those links working
@@ -672,7 +678,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # the title bar's text is in the served page (paintBrand only repaints it), so a reload shows no flash of the bare name.
         suffix = brand_suffix()
         brand = htmllib.escape("salamander : " + suffix if suffix else "salamander")
-        html = ((STATIC / name).read_text().replace("{{build}}", build_version()).replace("{{v}}", _asset_version())
+        page, styles = page_versions()
+        html = ((STATIC / name).read_text().replace("{{build}}", page).replace("{{v}}", page).replace("{{sv}}", styles)
                 .replace("{{brand}}", brand).replace("{{owner}}", htmllib.escape(owner_name()))
                 .replace("{{lang}}", _read_prefs(prefs_path)["lang"]))   # the saved language is in the served page: no flash of the other
         # the overview's Get Help chip opens the session SALA_HELP_SESSION names; with none set the chip is not in the page
@@ -743,7 +750,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # shellSession and host name the Shell drawer (sala's SALA_SHELL_SESSION and this machine); timezone (SALA_TZ, "" = the
         # viewer's own zone), tzLabel and tzOffsetMin say which zone every time shown is in (tz.py); brand is the suffix of the
         # title bar's "salamander" (SALA_BRAND_SUFFIX, "" = none), scopes and defaultScope the project scopes (scopes.py)
-        return JSONResponse({"terminalUrl": settings.terminal_url, "version": build_version(), "commit": commit,
+        page, styles = page_versions()
+        return JSONResponse({"terminalUrl": settings.terminal_url, "version": page, "styles": styles, "commit": commit,
                              "shellSession": SHELL_SESSION, "host": socket.gethostname().split(".")[0], "brand": brand_suffix(),
                              "scopes": SC.names(), "defaultScope": SC.default(), **TZ.info()},
                             headers={"Cache-Control": "no-store"})
@@ -1059,7 +1067,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         async def gen():
             # reconnect quickly after the stream drops; then tell the page which build it is talking to
             yield f"retry: {SSE_RETRY_MS}\n\n"
-            yield ev("version", {"version": build_version()})
+            page, styles = page_versions()
+            yield ev("version", {"version": page, "styles": styles})
             s = s0
             path: Path | None = None
             off = 0
@@ -2113,6 +2122,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
     app.state.settings = settings
     app.state.shutting_down = shutting_down
     app.state.build_version = build_version
+    app.state.styles_version = styles_version
     app.state.quota = quota
     app.state.credit = credit
     app.state.spend = spend

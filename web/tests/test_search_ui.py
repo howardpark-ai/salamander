@@ -149,7 +149,7 @@ def test_the_markup_has_the_box_in_the_sidebar_the_page_of_its_own_and_no_overvi
     form = side[side.index('<form id="side-search"'):side.index("</form>")]
     assert 'role="search"' in form and len(re.findall(r"<input", form)) == 1 and 'type="search"' in form
     assert '<section id="search-pane" class="pane"' in index and 'id="se-form"' in index
-    assert 'static/search.js?v={{v}}' in index and 'static/search.css?v={{v}}' in index
+    assert 'static/search.js?v={{v}}' in index and 'static/search.css?v={{sv}}' in index
 
 
 def test_ctrl_k_and_slash_focus_the_box_and_escape_leaves_it(served, browser):

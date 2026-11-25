@@ -2523,7 +2523,7 @@ function openStream(s, { resume = false } = {}) {
   });
   es.addEventListener("version", (e) => {
     if (!events++) perfMark("stream:first-event");  // the server's first event on every stream
-    try { noteVersion(JSON.parse(e.data).version); } catch { /* ignore */ }
+    try { const d = JSON.parse(e.data); noteVersion(d.version, d.styles); } catch { /* ignore */ }
   });
   es.addEventListener("reset", (e) => {
     const t0 = performance.now();
@@ -3981,16 +3981,39 @@ window.addEventListener("drop", (e) => {
 });
 
 /* ---------- deploys: the reload banner, the connection state, drafts across a reload ---------- */
-// The page remembers the build it loaded (rendered into the HTML) and compares it with the server's: at the start of
-// every stream, every 60 s, and when the tab comes back into view. A newer build shows the banner; the page reloads
-// by itself only when nothing can be lost (tab hidden, composer empty, no upload or unsent message), else it waits
-// for the click. The Terminal iframe is left alone until the page reloads.
+// The page remembers the version it loaded (rendered into the HTML) and compares it with the server's: at the start of
+// every stream, every 60 s, and when the tab comes back into view. The version is a hash of the page's own files (the
+// style sheets left out: pageversion.py), so only a change to the page shows the banner; a server restart that changes
+// none of them shows nothing. The page reloads by itself only when nothing can be lost (tab hidden, composer empty, no
+// upload or unsent message), else it waits for the click. The Terminal iframe is left alone until the page reloads.
+// The style sheets have a version of their own: a change there is swapped into the open page (swapStyles), no banner, no
+// reload, nothing of the scroll position or the composer lost.
 const LOADED_VERSION = document.querySelector('meta[name="sala-web-version"]')?.content || "";
-const upd = { available: false, lastCheck: 0 };
+const LOADED_STYLES = document.querySelector('meta[name="sala-web-styles"]')?.content || "";
+const upd = { available: false, lastCheck: 0, styles: LOADED_STYLES, configSeen: false };
 const AUTO_RELOAD_GAP_MS = 60000;  // never more than one automatic reload a minute in a tab (no reload loop)
 
-function noteVersion(v) {
+// A new style version: every local sheet's <link> is copied with the new ?v=, put right after the old one (the cascade order holds)
+// and the old one removed when the copy has loaded, so the page is never unstyled and nothing reloads. A copy that fails to load goes
+// and the old sheet stays; the version is not taken as seen, so the next check tries again.
+function swapStyles(v) {
+  if (!v || !LOADED_STYLES || v === upd.styles) return;
+  const before = upd.styles;
+  upd.styles = v;
+  perfMark("styles", { from: before, to: v });
+  for (const old of document.querySelectorAll('link[rel="stylesheet"]')) {
+    const m = /^(static\/[^?&]+\.css)(?:[?&]|$)/.exec(old.getAttribute("href") || "");
+    if (!m) continue;
+    const n = old.cloneNode(false);
+    n.setAttribute("href", m[1] + "?v=" + encodeURIComponent(v));
+    n.addEventListener("load", () => old.remove());
+    n.addEventListener("error", () => { n.remove(); if (upd.styles === v) upd.styles = before; });
+    old.after(n);
+  }
+}
+function noteVersion(v, styles) {
   perfMark("version", { server: v || "", loaded: LOADED_VERSION, same: v === LOADED_VERSION });
+  if (styles) swapStyles(styles);
   if (!v || !LOADED_VERSION || v === LOADED_VERSION) return;
   upd.available = true;
   $("#update-banner").hidden = false;
@@ -4010,11 +4033,32 @@ function maybeAutoReload() {
 }
 // cause: who asked (auto, banner, menu, overview), marked for the timing log before the page goes
 function reloadPage(cause) { perfMark("reload", { cause: cause || "unknown" }); saveDraft(); location.reload(); }
+// What api/config tells: read at start and again by every version check (the 60 s one, a tab coming back, a focus), so a
+// changed title suffix, zone, scope list or Shell name shows without a reload.
+function applyConfig(c) {
+  if (c.terminalUrl) state.terminalUrl = c.terminalUrl;
+  if (c.shellSession) state.shellSession = c.shellSession;
+  if (typeof c.host === "string") state.host = c.host;
+  if (Array.isArray(c.scopes)) {
+    const scopes = c.scopes.filter((x) => typeof x === "string");
+    const changed = scopes.join() !== ns.scopes.join();
+    ns.scopes = scopes;
+    if (changed) nsRenderScopes();
+  }
+  if (typeof c.defaultScope === "string") state.defaultScope = c.defaultScope;
+  paintBrand(typeof c.brand === "string" ? c.brand : "");
+  const zoneWas = zone.name + "|" + zone.label + "|" + zone.offsetMin;
+  applyZone(c);
+  if (upd.configSeen && zoneWas !== zone.name + "|" + zone.label + "|" + zone.offsetMin) { overview.redraw(); tickStamps(); }   // a zone changed under the open page: the times drawn are drawn again
+  upd.configSeen = true;
+  paintShellNames();
+  noteVersion(c.version, c.styles);
+}
 async function checkVersion() {
   upd.lastCheck = Date.now();
   try {
     const r = await fetch("api/config", { cache: "no-store" });
-    if (r.ok) noteVersion((await r.json()).version);
+    if (r.ok) applyConfig(await r.json());
   } catch { /* the server is restarting: the next check or the stream will tell */ }
 }
 const checkSoon = () => { if (Date.now() - upd.lastCheck > 5000) checkVersion(); };
@@ -4464,16 +4508,7 @@ paintShellTip();
     (async () => {
       try {
         upd.lastCheck = Date.now();
-        const c = await (await apiFetch("api/config", { cache: "no-store" })).json();
-        if (c.terminalUrl) state.terminalUrl = c.terminalUrl;
-        if (c.shellSession) state.shellSession = c.shellSession;
-        if (typeof c.host === "string") state.host = c.host;
-        if (Array.isArray(c.scopes)) ns.scopes = c.scopes.filter((x) => typeof x === "string");
-        if (typeof c.defaultScope === "string") state.defaultScope = c.defaultScope;
-        paintBrand(typeof c.brand === "string" ? c.brand : "");
-        applyZone(c);
-        paintShellNames();
-        noteVersion(c.version);
+        applyConfig(await (await apiFetch("api/config", { cache: "no-store" })).json());
       } catch { /* default */ }
     })(),
     loadPrefs(),

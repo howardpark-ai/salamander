@@ -323,7 +323,7 @@ def test_the_page_has_the_third_tab_its_panel_its_files_and_the_hash_registered_
     html = (STATIC / "index.html").read_text()
     assert re.search(r'<a id="ov-tab-machines"[^>]*href="#machines"[^>]*aria-selected="false"', html)
     assert [m for m in re.findall(r'<a id="ov-tab-(\w+)"', html)] == ["sessions", "schedules", "machines", "usage"]         # Machines after Agents and Schedules, Usage analysis last
-    assert 'id="ov-machines"' in html and 'id="mc-reload"' in html and 'href="static/machines.css?v={{v}}"' in html and 'src="static/machines.js?v={{v}}"' in html
+    assert 'id="ov-machines"' in html and 'id="mc-reload"' in html and 'href="static/machines.css?v={{sv}}"' in html and 'src="static/machines.js?v={{v}}"' in html
     js = (STATIC / "app.js").read_text()
     assert 'const OV_TABS = ["sessions", "schedules", "machines", "usage"]' in js and "machinesHash" in js and "machines.start()" in js and "machines.stop()" in js
     assert 'a.hash === "#machines"' in js                                    # a click on the tab's link is sala's own (go)

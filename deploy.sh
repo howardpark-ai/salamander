@@ -15,6 +15,8 @@
 # `systemctl --user restart sala-web.service` (systemd holds the socket, so the restart drops no request). Nothing of
 # that runs for a change elsewhere, and a web-only change runs nothing of sala's install (install.sh is re-run only for
 # the files below). Without a web/pyproject.toml the step is a line and nothing else, so this is inert until web/ exists.
+# A change under web/ that only holds tests or documents (web_file_inert, below: web/tests/, web/docs/, *.md, ...) runs
+# nothing either: a running server reads neither, so sala-web is not restarted for it (an open page is told nothing).
 #
 # The drift check refuses a checkout with uncommitted changes to tracked files (untracked files are only listed, and
 # .claude/ not even that), one not on main, or one with commits that are not on origin/main.
@@ -38,7 +40,7 @@ case "${1:-}" in
     --check) MODE=check ;;
     --dry-run) MODE=dry ;;
     --web) MODE=web ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "usage: deploy.sh [--check | --dry-run | --web]" >&2; exit 2 ;;
 esac
 g() { git -C "$CO" "$@"; }
@@ -66,6 +68,15 @@ deploy_web() {
     echo "web: venv synced (uv sync --frozen in web/), sala-web.service restarted"
 }
 if [ "$MODE" = web ]; then deploy_web || exit 1; exit 0; fi
+
+# The one place that says which files under web/ leave sala-web alone: tests and documents, which a running server reads
+# neither of. Anything else under web/ (code, the page's files, the lockfile, the units, tools) restarts it.
+web_file_inert() {
+    case "$1" in
+        web/tests/*|web/docs/*|web/*.md|web/LICENSE*|web/.gitignore) return 0 ;;
+    esac
+    return 1
+}
 
 # The shell files of a revision: tracked *.sh, bin/salamander, and anything whose first line is a sh/bash shebang.
 shell_files_at() {
@@ -143,16 +154,18 @@ files="$(g diff --name-only "$OLD" "$NEW")"
 ncommits="$(g rev-list --count "$OLD..$NEW")"; nfiles="$(echo "$files" | grep -c . || true)"
 echo "deploying $(short "$OLD")..$(short "$NEW") to $CO, $ncommits commit(s):"; g log --oneline "$OLD..$NEW" | sed 's/^/  /'
 echo "files:"; echo "$files" | sed 's/^/  /'
-install=0; web=0; notes=()
+install=0; web=0; web_inert=0; notes=()
 while IFS= read -r f; do
     case "$f" in
-        web/*|lib/webunits.sh) web=1 ;;   # the web app (and lib/webunits.sh, the web step's own code): deploy_web after the fast-forward; nothing of sala's install for it
+        web/*|lib/webunits.sh)   # the web app (and lib/webunits.sh, the web step's own code): deploy_web after the fast-forward; nothing of sala's install for it
+            if web_file_inert "$f"; then web_inert=1; else web=1; fi ;;
         install.sh|config.example) install=1 ;;
         systemd/*) notes+=("$f changed: the installed copy in ~/.config/systemd/user is not updated by a deploy; copy it and daemon-reload by hand, and restart the unit when it suits") ;;
         lib/follow.*|lib/common.sh|bin/salamander) notes+=("$f changed: sala-follow.service is resident and keeps the code it started with until its next restart (a deploy restarts nothing)") ;;
     esac
 done <<< "$files"
 [ $install = 1 ] && echo "install.sh: re-run (install.sh or config.example changed)" || echo "install.sh: not needed"
+[ $web = 1 ] || [ $web_inert = 0 ] || echo "web/: only tests or documents under web/ changed: sala-web is not restarted"
 [ $web = 0 ] || echo "web/: a file under web/ changed: after the fast-forward, uv sync --frozen in web/ and a restart of sala-web.service"
 [ $web = 0 ] || ! old_web="$(web_legacy_name)" || echo "web/: the web units are installed under their old name ($old_web.*): the web step migrates them to sala-web instead of the restart"
 [ ${#notes[@]} = 0 ] || printf 'note: %s\n' "${notes[@]}" | awk '!seen[$0]++'

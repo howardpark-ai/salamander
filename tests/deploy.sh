@@ -6,7 +6,8 @@
 # for the production checkout (SALA_DEPLOY_CHECKOUT), with a fake `uv` and a fake `systemctl` on PATH that only log what
 # they were asked, so no real unit, venv or checkout is touched. Checks: web/ without a pyproject (a line, nothing run),
 # a web-only change (its dry run says it and runs nothing; for real: synced, restarted, nothing of sala's install), a
-# lib-only change (neither; sala's note as before), install.sh changed (re-run as before), both, the web step failing
+# lib-only change (neither; sala's note as before), a change under web/ that only holds tests or documents (nothing synced or
+# restarted: deploy.sh web_file_inert; any other file under web/ still restarts, and so does a change that mixes the two), install.sh changed (re-run as before), both, the web step failing
 # after the fast-forward (exit 1, the sala side landed, the last line names --web), --web by hand, nothing to deploy; and the drift check's
 # fetch time, written in SALA_TZ's zone (the environment or sala's config file) with the zone's own label, else in this machine's local time;
 # and an install whose web units still have their old name (lib/webunits.sh): its dry run says so, the deploy migrates them
@@ -59,7 +60,7 @@ out=$(env -u SALA_TZ SALA_CONFIG="$HOME/tz-config" SALA_DEPLOY_CHECKOUT="$PROD" 
 [[ $out == *"origin/main as last fetched ("*" CE"[ST]")"* ]] && ok "SALA_TZ only in sala's config file: read from there" || bad "zone in config: $out"
 
 echo "== web/ without a pyproject"
-commit webreadme web/README.md; : > "$FAKE_LOG"; deploy
+commit webpre web/src/pre.py; : > "$FAKE_LOG"; deploy
 [ "$rc" = 0 ] && [[ $out == *"web: no web/pyproject.toml"* ]] && [ ! -s "$FAKE_LOG" ] && landed \
     && ok "a web/ file with no pyproject: landed, said, nothing synced or restarted" || bad "no pyproject: rc=$rc calls=$(calls) $out"
 
@@ -84,6 +85,34 @@ echo "== both"
 commit both lib/common.sh web/src/app.py; : > "$FAKE_LOG"; deploy
 [ "$rc" = 0 ] && [ "$(calls)" = "$WEB_CALLS" ] && [[ $out == *"note: lib/common.sh changed"* ]] && [[ $out == *"web: sala-web synced and restarted"* ]] && landed \
     && ok "both: sala's path as before and the web step after it" || bad "both: rc=$rc calls=$(calls) $out"
+
+echo "== a change under web/ that only holds tests or documents leaves sala-web alone; any other file there restarts it"
+# deploy.sh's web_file_inert is the one place that lists them: web/tests/, web/docs/, *.md, web/LICENSE*, web/.gitignore
+web_case() {  # <file> <inert|restarts>: the file committed alone, its dry run, then a real deploy
+    commit "case $1" "$1"; : > "$FAKE_LOG"; deploy --dry-run; local dry="$out" drc=$rc
+    deploy
+    if [ "$2" = inert ]; then
+        [ "$drc" = 0 ] && [[ $dry == *"only tests or documents under web/ changed: sala-web is not restarted"* ]] && [[ $dry != *"sala-web synced and restarted"* ]] \
+            && [ "$rc" = 0 ] && [[ $out != *"web: venv"* ]] && [[ $out != *"sala-web synced"* ]] && [ ! -s "$FAKE_LOG" ] && landed \
+            && ok "$1: landed, no uv sync, no restart" || bad "$1 (inert): drc=$drc rc=$rc calls=$(calls) dry=$dry out=$out"
+    else
+        [ "$drc" = 0 ] && [[ $dry == *"web: sala-web synced and restarted"* ]] && [[ $dry != *"only tests or documents"* ]] \
+            && [ "$rc" = 0 ] && [ "$(calls)" = "$WEB_CALLS" ] && landed \
+            && ok "$1: landed, uv sync --frozen, then the restart" || bad "$1 (restarts): drc=$drc rc=$rc calls=$(calls) dry=$dry out=$out"
+    fi
+}
+for f in web/tests/test_x.py web/tests/deep/more/helper.py web/tests/fixtures/capture.txt web/docs/notes.md web/NOTES.md web/vendor-src/cm6-composer/README.md web/LICENSE web/.gitignore; do
+    web_case "$f" inert
+done
+for f in web/src/sala_web/app.py web/src/sala_web/static/app.js web/src/sala_web/static/style.css web/src/sala_web/static/index.html web/uv.lock web/tools/make_icons.py web/testsupport.py; do
+    web_case "$f" restarts
+done
+commit mixed web/tests/test_y.py web/src/sala_web/app.py; : > "$FAKE_LOG"; deploy
+[ "$rc" = 0 ] && [ "$(calls)" = "$WEB_CALLS" ] && [[ $out == *"web: sala-web synced and restarted"* ]] && [[ $out != *"only tests or documents"* ]] && landed \
+    && ok "tests and code in one change: the code decides, the restart runs" || bad "mixed: rc=$rc calls=$(calls) $out"
+commit docsonly README.md docs/guide.md tests/other.sh web/README.md; : > "$FAKE_LOG"; deploy
+[ "$rc" = 0 ] && [ ! -s "$FAKE_LOG" ] && [[ $out != *"web: venv"* ]] && [[ $out != *"sala-web synced"* ]] && landed \
+    && ok "documents and tests outside and under web/: nothing synced or restarted" || bad "docs only: rc=$rc calls=$(calls) $out"
 
 echo "== the web step failing"
 commit webfail web/src/app.py; : > "$FAKE_LOG"; FAKE_UV_FAIL=1 deploy

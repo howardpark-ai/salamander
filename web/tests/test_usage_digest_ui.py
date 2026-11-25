@@ -60,7 +60,7 @@ def digest(browser) -> dict:
 def test_the_markup_has_the_digest_panel_and_both_files_with_the_cache_busting_version():
     from sala_web.app import STATIC
     html = (STATIC / "index.html").read_text()
-    assert 'href="static/usage-digest.css?v={{v}}"' in html and 'src="static/usage-digest.js?v={{v}}"' in html
+    assert 'href="static/usage-digest.css?v={{sv}}"' in html and 'src="static/usage-digest.js?v={{v}}"' in html
     assert html.index("static/usage.js?v") < html.index("static/usage-digest.js?v") < html.index("static/app.js?v")   # usage.js calls it, app.js starts the tab
     for ident in ("us-dg-weeks", "us-dg-range", "us-dg-body", "us-dg-text", "us-dg-scope", "us-dg-upd"):
         assert f'id="{ident}"' in html

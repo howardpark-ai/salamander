@@ -111,9 +111,13 @@ worktree, a PR, `release.sh`); what differs:
   (`ExecStart=%h/salamander/web/.venv/bin/sala-web`, the socket `%t/sala-web/sala-web.sock`); `static/` is served from
   the checkout, so a frontend change is live at the fast-forward, before the restart. A changed unit under
   `web/contrib/` is copied into `~/.config/systemd/user` by hand, like one under `systemd/`.
-- **the build version** an open page compares (`/api/config` → `version`): the newest mtime under
-  `web/src/sala_web/static/` plus the short commit of the checkout, which the app asks git for from its own directory
-  (`git -C`, so the repository's `.git` two levels above `web/` is found).
+- **the page's version** an open page compares (`/api/config` → `version`): a hash of the content of the files under
+  `web/src/sala_web/static/`, the style sheets apart (`web/src/sala_web/pageversion.py`); no file time, no commit. A release
+  that changes only server code, tests or documents leaves it, so an open page shows no "Reload" strip; a change to a script or
+  markup changes it and does; a change to a `*.css` file changes only `styles`, which the page swaps in place with no reload.
+  The commit stays in `/api/config` as `commit`, for whoever asks which code runs.
+- **what a deploy restarts:** `deploy.sh` runs the web step (sync, restart) for a file under `web/` except tests and documents
+  (`web_file_inert`: `web/tests/`, `web/docs/`, `*.md`, `web/LICENSE*`, `web/.gitignore`); a change of only those restarts nothing.
 
 ## The suites
 
