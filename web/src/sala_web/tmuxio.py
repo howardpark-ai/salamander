@@ -250,14 +250,24 @@ def plain(line: str) -> str:
     return "".join(t for t, _ in _visible_runs(line))
 
 
-def _is_rule(line: str) -> bool:
-    """A horizontal rule: mostly rule characters, or a long run of them, a short label, and rule characters again.
+RULE_LABEL_MAX = 40       # the longest label with spaces in it (a label like "↑ 1 more", or a short name)
+RULE_NAME_MAX = 64        # the longest label that is one word, which is how a session name reads
+RULE_LABELS_MAX = 3       # "↑ N more" and the session name are what Claude Code draws; one spare
+RULE_GAP_RE = re.compile(RULE_CHAR + "{2,}")
 
-    Claude Code draws the session name inside the rule above the input box ("──── name ─────"). At 50 columns a
-    24-character name leaves about 52% of the line as rule characters, under the 60% a plain rule needs, and the
-    pane can draw a single rule character after the label ("───────── example-main ─"). So a line that
-    starts with a run of 3 or more rule characters and ends with 1 or more, around one short label set off by
-    spaces, counts too, with rule characters at least 40% of the line and the whole line at least 10 characters.
+
+def _is_rule(line: str) -> bool:
+    """A horizontal rule: mostly rule characters, or a run of them, one or more labels, and rule characters again.
+
+    Claude Code draws labels inside the rule of the input box: the session name ("──── name ─────"), and, on the top
+    rule of a box that has scrolled, "↑ N more" in front of it ("──── ↑ 1 more ──── name ──"). A long name or a narrow
+    pane leaves far less than the 60% of rule characters a plain rule needs (a 25-character name at 80 columns leaves
+    about 20%), and the pane can draw a single rule character after the last label ("───────── example-main ─").
+    So a line counts too when it starts with a run of 3 or more rule characters, ends with 1 or more, and between
+    them holds up to three labels set off by spaces and separated by runs of 2 or more rule characters. A label is
+    either at most 40 characters or a single word of at most 64 (a session name; prose has spaces). Rule characters
+    must be at least 40% of the line around one label and at least 10% around several (the labels take most of the
+    width there), and the whole line at least 10 characters.
     """
     s = plain(line).replace("\u00a0", " ").strip()
     if len(s) < 10:
@@ -267,10 +277,18 @@ def _is_rule(line: str) -> bool:
         return True
     lead = len(s) - len(s.lstrip(RULE_CHAR))
     trail = len(s) - len(s.rstrip(RULE_CHAR))
-    if lead < 3 or trail < 1 or n < 0.4 * len(s):
+    if lead < 3 or trail < 1:
         return False
-    label = s[lead:len(s) - trail]
-    return label[:1] == " " and label[-1:] == " " and len(label.strip()) <= 40
+    labels = RULE_GAP_RE.split(s[lead:len(s) - trail])
+    if len(labels) > RULE_LABELS_MAX or n < (0.4 if len(labels) == 1 else 0.1) * len(s):
+        return False
+    for label in labels:
+        word = label.strip()
+        if label[:1] != " " or label[-1:] != " " or not word:
+            return False
+        if len(word) > RULE_LABEL_MAX and (len(word) > RULE_NAME_MAX or word.split() != [word]):
+            return False
+    return True
 
 
 def _glyph(line: str) -> str | None:

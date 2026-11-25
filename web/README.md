@@ -54,8 +54,10 @@ sala is, *Deploying* below.
      ancestor of it, because a `%N` alone does not say which tmux server it is on (a probe on a private server
      records `%0` too);
   2. the pane shows Claude Code's input box (a `❯` line between two horizontal rules). A rule is a line that is
-     mostly `─`, or one that starts and ends with a run of `─` (3 or more each) around a short label, since Claude
-     Code draws the session name in the rule above the box and in a 50-column pane that is only about half `─`. In
+     mostly `─`, or one that starts with a run of `─` (3 or more) and ends with one or more, around up to three
+     labels (a short label, or one word up to 64 characters, which is how a session name reads) separated by runs of
+     2 or more `─`, since Claude Code draws the session name in the rule above the box, with `↑ N more` in front of
+     it once a long message has scrolled the box, and a long name or a narrow pane leaves little of the line as `─`. In
      shell mode (after `!` is typed) the box's first glyph is `!`, not `❯`, and a command sent then loses its own
      leading `!` so the box does not get a second one. A long message makes the box scroll: its top rule then says
      `↑ N more` and the `❯` line is out of view, which still counts as a box (holding text) when a rule closes it, so
