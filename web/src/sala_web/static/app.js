@@ -3365,11 +3365,32 @@ function renderMessage(m, { live = false, into = null, tools = null, older = fal
     const t = thumbs(images);
     if (m.role === "user") box.prepend(t); else box.append(t);
   }
+  if (m.role === "assistant" && Array.isArray(m.cards)) box.append(...m.cards.map(linkCard).filter(Boolean));   // only the chat session's replies carry `cards` (chatkeep.py)
   if (!box.children.length) return false;
   const copy = texts.join("\n\n").trim();
   if (copy) box.append(copyBar(copy, m.ts));  // no text, no copy/time row
   appendToChat(box, into);
   return true;
+}
+
+// A link card under a chat-session reply (chatkeep.with_cards): a /mockup/<n> page of this site or a claude.ai artifact the reply links. It is one <a>, so it takes
+// the keyboard's focus, and opens in a new tab with rel noopener. What it shows is what the server sent (the title, from the local mockup store or the link text,
+// and what kind of page it is); nothing is fetched here. A card whose address is neither shape is not drawn and the link stays the plain link in the text.
+// Its words are the strings the first page already had (chat.card.*); `tx` words them again in place when the language changes.
+function linkCard(c) {
+  if (!c || typeof c !== "object") return null;
+  let href, label;
+  if (c.kind === "mockup" && Number.isSafeInteger(c.n) && c.n > 0) {
+    href = "mockup/" + c.n;   // relative: the page may sit under a path prefix
+    label = tx("chat.card.mockup", { n: c.n });
+  } else if (c.kind === "artifact" && /^https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+\/?$/.test(String(c.url))) {
+    href = c.url;
+    label = tx("chat.card.artifact");
+  } else return null;
+  const kids = [c.title ? el("span", { class: "lc-t", text: String(c.title) }) : el("span", { class: "lc-t", ...label })];
+  if (c.title) kids.push(el("span", { class: "lc-l", ...label }));
+  kids.push(el("span", { class: "lc-o", ...tx("chat.card.opens") }));
+  return el("a", { class: "link-card", href, target: "_blank", rel: "noopener noreferrer" }, ...kids);
 }
 
 // the chat session's kept-back turns (chatkeep.py): one quiet line each, in the thread where the turn started, drawn only while the strip's switch is on

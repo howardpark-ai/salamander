@@ -5181,7 +5181,7 @@ activity, and no strip and no class for any other session; one composer and an i
 title, composer, send and attach buttons, the owner's bubble, copy button, messages and font size give the same boxes and computed style, only the assistant's text width differs); and no sideways scroll at 1280, 390, 360 and 320 px, drawer
 shut and open, with a 300-character word, a long address, wide code and a wide table in the thread and long text in waiting subjects and motion lines.
 
-Not covered, and why: link cards and the retirement of the first page, which are the next steps; the look of the
+Not covered, and why: the retirement of the first page, the last step (link cards are the third step, below); the look of the
 strip on a real phone (the checks measure boxes and computed style, a screenshot shows the look).
 
 ### The chat session in sala's own view, second step (the kept-back switch): `web/tests/test_chatkeep.py`, `test_chat_kept_ui.py` (browser), new; `test_chat_session_view.py`, `test_chat_session_view_ui.py` changed
@@ -5205,4 +5205,25 @@ header stays when the thread scrolls and there is one composer; and no sideways 
 turns and long text in the kept lines.
 
 Not covered, and why: a real transcript (the rule was established from real ones and the tests use made-up lines in their shapes); the look of a kept line on a real phone (the checks measure boxes); the browser tests on the box that wrote
-them (its Chromium does not start headless there, CI runs them); link cards and the retirement of the first page, the next steps.
+them (its Chromium does not start headless there, CI runs them); the retirement of the first page, the last step (link cards are the third step, below).
+
+### The chat session in sala's own view, third step (link cards): `web/tests/test_chat_link_cards.py`, `test_chat_link_cards_ui.py` (browser), new
+
+Kept (`test_chat_link_cards.py`, no browser, 32 tests): `chatkeep.with_cards` gives a reply the cards of the first page's own rule over its text blocks, in order: a mockup link (a path, or an address on the host the request came to, titled from the
+local mockup store) and a claude.ai artifact link (titled by its link text), each address once, a tool call's text not read, an address on another site or a host that is not this one's no card, any other link none; a message that is not a reply
+(a user message, a kept line) and a reply with no such link have no `cards` key and are not otherwise changed; at most six; nothing is fetched (the network calls are patched to fail); a hostile link text is cut to a title and stays a string.
+Over HTTP (the real server): the chat session's transcript (the last page, `after`, `around`) and its stream (`reset`, and each `append`) carry `cards`, a reply for the owner (his mark off) carries them too, and another session's transcript
+and stream carry none. `linkCard` (the function's own text from `app.js`, run in node with `el` and `tx` recorded): a card is one `<a>` with class, address, `target="_blank"` and `rel="noopener noreferrer"`, the title as text (markup in it is
+not markup), the kind and "opens a page" by their i18n keys, no title makes the kind the title; fifteen addresses and shapes that are not a card (a `javascript:` address, a look-alike host, an address with the artifact URL inside another, `http`,
+a query, no address, a mockup number that is zero, a string or a fraction, an unknown kind, no kind, null, a string, a number) are not drawn. The page's text: one renderer draws a reply's cards under its text and before its copy row, the
+function has no `innerHTML`, fetch or `window.open`, the three strings exist in both languages with Korean as escapes, the card's rules are all under `#chat`, use only sala's tokens (no color of their own), give the panel, border, 8 px corner,
+`min(100%, 420px)` width, the hover and the accent focus ring, break text anywhere and never scroll by their own overflow, and the first page's script and sheet are as they were.
+Kept (`test_chat_link_cards_ui.py`, a headless Chromium at 1280x800 and 390x844, else skipped; GitHub CI runs it; it was written and collected on a box whose Chromium does not start, so CI is its first run): three links in a reply make three
+cards under the text with the right address, title and kind, a new tab, `rel` noopener, and the two links that are not cards stay plain links in the text; a card takes the keyboard's focus; a card has the panel color, border and corner of a
+tool-call fold and its three lines read at 4.5:1 or better, in the dark and in the light palette; a language change words a card in place; a reply that arrives while the page is open gets its cards; another session given the same transcript
+has plain links and no card; and no sideways scroll at 1280, 390, 360 and 320 px, drawer shut and open, with a 300-character word and a long address in a card's title, a 300-character mockup title, long artifact addresses, and a long address
+and a long word as plain text in the same reply (the page, the pane, the strip, every box of the thread, and each card and each line of it).
+Two mutations were run once: the card's artifact pattern loosened to any `https://` address (3 of the not-a-card cases failed), and the reply-only check of `with_cards` removed (the user message and kept line cases failed); both were restored.
+
+Not covered, and why: the look of a card on a real phone (the checks measure boxes, computed style and contrast); the browser tests on the box that wrote them (its Chromium does not start headless there, CI runs them); the retirement of the
+first page, the last step.
