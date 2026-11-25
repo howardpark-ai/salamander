@@ -119,7 +119,7 @@
 # transcript, so the original is never shared with a second writer; archive the original after.
 # --lane L launches on that lane in place of the default and records the row (common.sh, lanes), so every later relaunch
 # keeps it; without it the session follows the default lane and nothing is recorded, as before. One exception: a background agent
-# (--project … --role back) spawned while the back agents' lane rule has them off their home lane (SALA_BACK_LANE_RULE=on) takes the rule's lane, and
+# (--project … --role back) spawned while the back agents' lane rule is on (SALA_BACK_LANE_RULE=on) takes the rule's lane (the home lane while they stand at home), and
 # so does a front agent (--role front) spawned while the rule's front step is engaged (it fired in the current weekly window).
 # THE SESSION REGISTRY'S ID (phase 2): before the pane's claude starts, spawn makes (or finds) the registry row and puts its
 # id in the pane's environment as SALA_SESSION_ID, so the session's SessionStart hook can name its row (the hook records only for the
@@ -569,7 +569,7 @@ spawn_refuse_plain() {  # <why the record did not list it> → the refusal of a 
 # and records the row at once. A lane that cannot launch (its key file or config directory gone) is refused
 # here, before the tmux session is made and before stackshot is asked about the name (a refusal the box can give alone
 # never costs a stackshot call).
-# THE BACK AGENTS' LANE RULE (common.sh): a background agent spawned while the rule has the back agents off their home lane lands on the rule's lane
+# THE BACK AGENTS' LANE RULE (common.sh): a background agent spawned while the rule is on lands on the rule's lane (the home lane while the back agents stand at home)
 # (as --lane would: recorded, so every relaunch keeps it, and the rule's move home finds it). An explicit --lane wins; a front agent, a side session and
 # a throwaway are not the rule's; a Fable model is left on the default when the rule's lane cannot run Fable; a rule lane that is dormant or not ready is skipped.
 # A FRONT agent (--role front, not --side) spawned while the rule's front step is engaged takes the rule's lane the same way (back_lane_front_spawn_lane); a Fable model

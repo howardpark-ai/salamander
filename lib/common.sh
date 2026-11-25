@@ -4777,7 +4777,7 @@ lane_fallback_auto() {
 # lane's FALLBACK instead (lane_fallback_pick, the one table, SALA_LANE_FALLBACK), provided the fallback is active, ready, in the order and
 # further from home than where the agents stand (back_lane_substitute); the rule's lane then becomes the fallback, and the outcome line and the
 # dry run name the lane actually used and why. With no such fallback nothing moves and one notice says why. The catch-up does the same.
-# A back agent SPAWNED while the rule has them off home lands on the rule's lane (spawn.sh, back_lane_spawn_lane). A failed, missing, stale or
+# A back agent SPAWNED lands on the rule's lane, the home lane while they stand at home (spawn.sh, back_lane_spawn_lane). A failed, missing, stale or
 # expired reading, or a dormant home lane, moves nobody. THE CATCH-UP (`back_lane_catchup`): a step fires once per window, so while the rule
 # has the agents off home a pass that finds one still on the wrong side (it had no role, or no pane, when the step fired) moves it to the rule's
 # lane, once per step (state key `queued`: <lane>|<window>|<names>).
@@ -4972,10 +4972,23 @@ BL_MOVE=(); BL_STAY=(); BL_PINNED=(); BL_SWAP=()
 back_lane_pinned_note() {  # → "; skipped (pinned to <lane>): <session>; …" for BL_PINNED, nothing when none
     local s o=""; for s in ${BL_PINNED[@]+"${BL_PINNED[@]}"}; do o="$o; $(pinned_skip_note "$s")"; done; printf '%s' "$o"
 }
+# back_lane_left_alone <session> → 0 when the rule never moves it: sala's own shell session or a name in SALA_NO_RELAUNCH (no_relaunch's cases). A SLEEPING session is not
+# left alone: its claude ended on purpose, so the move is only its lane row, written by the same `sala op lane` (lib/lane.sh relaunches nothing for a sleeper) and a wake
+# resumes it on that lane (resume_cmd reads the table). Pins, the order, the Fable rule and a dormant target apply to it as to a live one.
+back_lane_left_alone() {
+    is_sleeping "$1" && ! is_shell_session "$1" && { case " ${SALA_NO_RELAUNCH//[$'\t\n']/ } " in *" $1 "*) return 0;; esac; return 1; }
+    no_relaunch "$1"
+}
+# back_lane_sleep_note <lane> <name>… → "; N sleeping: recorded only, they wake on the <lane> lane: <names>" for the sleeping ones among the names, nothing when none
+back_lane_sleep_note() {
+    local l=$1 n sl=(); shift
+    for n in "$@"; do is_sleeping "$n" && sl+=("$n"); done
+    [ "${#sl[@]}" -eq 0 ] || printf '; %d sleeping: recorded only, they wake on the %s lane: %s' "${#sl[@]}" "$(lane_shown "$l")" "${sl[*]}"
+}
 back_lane_movers() {
     BL_MOVE=(); BL_STAY=(); BL_PINNED=(); BL_SWAP=(); local role=${2:-back} t ti s e ei; back_lane_order || return 1; t=$(lane_state_id "$1") || return 1; ti=$(back_lane_idx "$t") || return 1
     while IFS= read -r s; do
-        [ -n "$s" ] || continue; no_relaunch "$s" && continue
+        [ -n "$s" ] || continue; back_lane_left_alone "$s" && continue
         e=$(lane_for_session "$s"); ei=$(back_lane_idx "$e") || continue            # a lane outside the order is not the rule's
         if [ "$ti" -eq 0 ]; then [ "$ei" -gt 0 ] || continue; else [ "$ei" -lt "$ti" ] || continue; fi
         if lane_is_pinned "$s"; then BL_PINNED+=("$s"); continue; fi                 # held out of a bulk move (THE PINNED SESSIONS)
@@ -5017,12 +5030,12 @@ back_lane_catchup() {
     back_lane_movers "$tgt" || return 0
     for n in ${BL_MOVE[@]+"${BL_MOVE[@]}"}; do case ",$qn," in *",$n,"*) ;; *) late+=("$n");; esac; done
     [ "${#late[@]}" -gt 0 ] || return 0
-    if [ "$dry" = 1 ]; then echo "would: catch-up: sala op lane $tgt ${late[*]} --from sala-watch --words \"…\" (the back agent(s) the rule's move has not queued yet$sub; a dry run writes and queues nothing)$(back_lane_pinned_note)"; return 0; fi
+    if [ "$dry" = 1 ]; then echo "would: catch-up: sala op lane $tgt ${late[*]} --from sala-watch --words \"…\" (the back agent(s) the rule's move has not queued yet$sub; a dry run writes and queues nothing)$(back_lane_sleep_note "$tgt" "${late[@]}")$(back_lane_pinned_note)"; return 0; fi
     out=$("$SALA_BIN" op lane "$tgt" "${late[@]}" --from sala-watch --words "$SALA_BACK_LANE_WORDS" 2>&1) || { echo "blocked: catch-up not queued: $(printf '%s' "$out" | tail -1)"; return 0; }
     id=$(printf '%s\n' "$out" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)
     back_lane_put queued "$tgt|$w0|${qn:+$qn,}$(IFS=,; echo "${late[*]}")"
     lane_log backlane "$tgt" "catch-up: ${#late[@]} back agent(s) queued onto $tgt (op ${id:-?})"
-    echo "moved: catch-up: ${#late[@]} back agent(s) the rule had not moved (${late[*]}) to the $(lane_shown "$tgt") lane$sub, op ${id:-?} queued$(back_lane_pinned_note)"
+    echo "moved: catch-up: ${#late[@]} back agent(s) the rule had not moved (${late[*]}) to the $(lane_shown "$tgt") lane$sub, op ${id:-?} queued$(back_lane_sleep_note "$tgt" "${late[@]}")$(back_lane_pinned_note)"
 }
 # back_lane_tick [--dry-run] → one pass of the rule; prints one line per outcome, "<tag>: <text>" (the watch logs them; `notice:` lines are posted):
 #   idle (nothing to do, with why when a reading was refused) · moved (the operation queued) · advanced (state moved, nobody to move) ·
@@ -5101,7 +5114,7 @@ back_lane_tick_steps() {
         return 0
     fi
     if [ "$dry" = 1 ]; then
-        echo "would: step $stp ($why): sala op lane $target ${BL_MOVE[*]}${BL_FMOVE[*]:+${BL_MOVE[*]:+ }${BL_FMOVE[*]}} --from sala-watch --words \"…\"; then the rule's lane is the $(lane_shown "$target") lane (a dry run writes and queues nothing)${BL_FMOVE[*]:+; the front agent(s) among them: ${BL_FMOVE[*]}}${BL_STAY[*]:+; Fable stays (the $(lane_shown "$target") lane cannot run it): ${BL_STAY[*]}}$(back_lane_pinned_note)"
+        echo "would: step $stp ($why): sala op lane $target ${BL_MOVE[*]}${BL_FMOVE[*]:+${BL_MOVE[*]:+ }${BL_FMOVE[*]}} --from sala-watch --words \"…\"; then the rule's lane is the $(lane_shown "$target") lane (a dry run writes and queues nothing)${BL_FMOVE[*]:+; the front agent(s) among them: ${BL_FMOVE[*]}}${BL_STAY[*]:+; Fable stays (the $(lane_shown "$target") lane cannot run it): ${BL_STAY[*]}}$(back_lane_sleep_note "$target" ${BL_MOVE[@]+"${BL_MOVE[@]}"} ${BL_FMOVE[@]+"${BL_FMOVE[@]}"})$(back_lane_pinned_note)"
         return 0
     fi
     out=$("$SALA_BIN" op lane "$target" ${BL_MOVE[@]+"${BL_MOVE[@]}"} ${BL_FMOVE[@]+"${BL_FMOVE[@]}"} --from sala-watch --words "$SALA_BACK_LANE_WORDS" 2>&1) || {
@@ -5114,7 +5127,7 @@ back_lane_tick_steps() {
     # the front agents this step took are queued: the home catch-up (same pass) must not queue them again while their busy panes finish moving
     [ "$stp" != 3 ] || [ "$picked" != "$target" ] || [ "${#BL_FMOVE[@]}" -eq 0 ] || back_lane_put hqueued "$target|$key|$(IFS=,; echo "${BL_FMOVE[*]}")"
     lane_log backlane "$target" "step $stp: ${#BL_MOVE[@]} back agent(s)${BL_FMOVE[*]:+ and ${#BL_FMOVE[@]} front agent(s)} queued onto $target (op ${id:-?}): $why"
-    echo "moved: step $stp ($why): ${#BL_MOVE[@]} back agent(s)${BL_FMOVE[*]:+ and ${#BL_FMOVE[@]} front agent(s)} to the $(lane_shown "$target") lane, op ${id:-?} queued (the operation posts once when it is done)$(back_lane_pinned_note)"
+    echo "moved: step $stp ($why): ${#BL_MOVE[@]} back agent(s)${BL_FMOVE[*]:+ and ${#BL_FMOVE[@]} front agent(s)} to the $(lane_shown "$target") lane, op ${id:-?} queued (the operation posts once when it is done)$(back_lane_sleep_note "$target" ${BL_MOVE[@]+"${BL_MOVE[@]}"} ${BL_FMOVE[@]+"${BL_FMOVE[@]}"})$(back_lane_pinned_note)"
     [ "${#BL_STAY[@]}" -eq 0 ] || echo "notice: ${#BL_STAY[@]} Fable back agent(s) did not move to the $(lane_shown "$target") lane (it cannot run Fable): ${BL_STAY[*]}"
     return 0
 }
@@ -5233,7 +5246,7 @@ back_lane_front_fire() {
         return 0
     fi
     if [ "$dry" = 1 ]; then
-        echo "would: front step ($why): sala op lane $target ${BL_MOVE[*]} --from sala-watch --words \"…\"$(back_lane_front_swapnote "$target" "${BL_MOVE[@]}") (a dry run writes and queues nothing)$(back_lane_pinned_note)"
+        echo "would: front step ($why): sala op lane $target ${BL_MOVE[*]} --from sala-watch --words \"…\"$(back_lane_front_swapnote "$target" "${BL_MOVE[@]}") (a dry run writes and queues nothing)$(back_lane_sleep_note "$target" "${BL_MOVE[@]}")$(back_lane_pinned_note)"
         return 0
     fi
     back_lane_front_send "$target" "${BL_MOVE[@]}" || rc=$?
@@ -5246,7 +5259,7 @@ back_lane_front_fire() {
     esac
     back_lane_put front_window "$win"; back_lane_put fqueued "$target|$win|$(IFS=,; echo "${BL_FSENT[*]}")"; back_lane_put fblocked ""
     lane_log backlane "$target" "front step: ${#BL_FSENT[@]} front agent(s) queued onto $target (op ${BL_OPID:-?}): $why"
-    echo "moved: front step ($why): ${#BL_FSENT[@]} front agent(s) to the $(lane_shown "$target") lane, op ${BL_OPID:-?} queued (the operation posts once when it is done)$(back_lane_front_swapnote "$target" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
+    echo "moved: front step ($why): ${#BL_FSENT[@]} front agent(s) to the $(lane_shown "$target") lane, op ${BL_OPID:-?} queued (the operation posts once when it is done)$(back_lane_front_swapnote "$target" "${BL_FSENT[@]}")$(back_lane_sleep_note "$target" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
     [ "${#BL_FFAIL[@]}" -eq 0 ] || back_lane_front_failnote "$target" "$win"
     return 0
 }
@@ -5269,7 +5282,7 @@ back_lane_front_catchup() {
     back_lane_movers "$tgt" front || return 0
     for n in ${BL_MOVE[@]+"${BL_MOVE[@]}"}; do case ",$qn," in *",$n,"*) ;; *) late+=("$n");; esac; done
     [ "${#late[@]}" -gt 0 ] || return 0
-    if [ "$dry" = 1 ]; then echo "would: front catch-up: sala op lane $tgt ${late[*]} --from sala-watch --words \"…\" (the front agent(s) the rule's move has not queued yet$sub$(back_lane_front_swapnote "$tgt" "${late[@]}"); a dry run writes and queues nothing)$(back_lane_pinned_note)"; return 0; fi
+    if [ "$dry" = 1 ]; then echo "would: front catch-up: sala op lane $tgt ${late[*]} --from sala-watch --words \"…\" (the front agent(s) the rule's move has not queued yet$sub$(back_lane_front_swapnote "$tgt" "${late[@]}"); a dry run writes and queues nothing)$(back_lane_sleep_note "$tgt" "${late[@]}")$(back_lane_pinned_note)"; return 0; fi
     local rc=0; back_lane_front_send "$tgt" "${late[@]}" || rc=$?
     case "$rc" in
         1) echo "blocked: front catch-up not queued: $(printf '%s' "$BL_OPOUT" | tail -1)"; return 0;;
@@ -5277,7 +5290,7 @@ back_lane_front_catchup() {
     esac
     back_lane_put fqueued "$tgt|$fw|${qn:+$qn,}$(IFS=,; echo "${BL_FSENT[*]}")"
     lane_log backlane "$tgt" "front catch-up: ${#BL_FSENT[@]} front agent(s) queued onto $tgt (op ${BL_OPID:-?})"
-    echo "moved: front catch-up: ${#BL_FSENT[@]} front agent(s) the rule had not moved (${BL_FSENT[*]}) to the $(lane_shown "$tgt") lane$sub, op ${BL_OPID:-?} queued$(back_lane_front_swapnote "$tgt" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
+    echo "moved: front catch-up: ${#BL_FSENT[@]} front agent(s) the rule had not moved (${BL_FSENT[*]}) to the $(lane_shown "$tgt") lane$sub, op ${BL_OPID:-?} queued$(back_lane_front_swapnote "$tgt" "${BL_FSENT[@]}")$(back_lane_sleep_note "$tgt" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
     [ "${#BL_FFAIL[@]}" -eq 0 ] || back_lane_front_failnote "$tgt" "$fw"
     return 0
 }
@@ -5304,7 +5317,7 @@ back_lane_front_home_catchup() {
     back_lane_movers "$home" front || return 0
     for n in ${BL_MOVE[@]+"${BL_MOVE[@]}"}; do case ",$qn," in *",$n,"*) ;; *) late+=("$n");; esac; done
     [ "${#late[@]}" -gt 0 ] || return 0
-    if [ "$dry" = 1 ]; then echo "would: front catch-up (home): sala op lane $home ${late[*]} --from sala-watch --words \"…\" (the front agent(s) the step home had not taken; a dry run writes and queues nothing)$(back_lane_pinned_note)"; return 0; fi
+    if [ "$dry" = 1 ]; then echo "would: front catch-up (home): sala op lane $home ${late[*]} --from sala-watch --words \"…\" (the front agent(s) the step home had not taken; a dry run writes and queues nothing)$(back_lane_sleep_note "$home" "${late[@]}")$(back_lane_pinned_note)"; return 0; fi
     back_lane_front_send "$home" "${late[@]}" || rc=$?
     case "$rc" in
         1) echo "blocked: front catch-up (home) not queued: $(printf '%s' "$BL_OPOUT" | tail -1)"; return 0;;
@@ -5312,15 +5325,16 @@ back_lane_front_home_catchup() {
     esac
     back_lane_put hqueued "$home|$f0|${qn:+$qn,}$(IFS=,; echo "${BL_FSENT[*]}")"
     lane_log backlane "$home" "front catch-up (home): ${#BL_FSENT[@]} front agent(s) queued onto $home (op ${BL_OPID:-?})"
-    echo "moved: front catch-up (home): ${#BL_FSENT[@]} front agent(s) the step home had not taken (${BL_FSENT[*]}) to the $(lane_shown "$home") lane, op ${BL_OPID:-?} queued$(back_lane_front_swapnote "$home" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
+    echo "moved: front catch-up (home): ${#BL_FSENT[@]} front agent(s) the step home had not taken (${BL_FSENT[*]}) to the $(lane_shown "$home") lane, op ${BL_OPID:-?} queued$(back_lane_front_swapnote "$home" "${BL_FSENT[@]}")$(back_lane_sleep_note "$home" "${BL_FSENT[@]}")$(back_lane_pinned_note)"
     [ "${#BL_FFAIL[@]}" -eq 0 ] || back_lane_front_failnote "$home" "$win"
     return 0
 }
-# back_lane_spawn_lane → the lane a NEW back agent spawns on while the rule has the back agents off home (stdout, rc 0); rc 1 when the rule is
-# off, the back agents stand at home, or the rule's lane cannot take it (dormant, not ready)
+# back_lane_spawn_lane → the lane a NEW back agent spawns on: the lane the rule has the back agents on (stdout, rc 0), the home lane included while they stand at home, so a new
+# agent starts where the rule keeps the others (recorded like --lane, so the rule's later steps find it, whatever the default lane is); rc 1 when the rule is off or the
+# rule's lane cannot take it (dormant, not ready), and the default lane applies as before
 back_lane_spawn_lane() {
     back_lane_on || return 1; back_lane_order || return 1
-    local c; c=$(back_lane_current); [ "$c" != "${BL_ORDER[0]}" ] || return 1
+    local c; c=$(back_lane_current)
     lane_dormant "$c" && return 1; lane_check "$c" >/dev/null 2>&1 || return 1
     echo "$c"
 }

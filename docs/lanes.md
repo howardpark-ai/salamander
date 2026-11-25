@@ -310,7 +310,11 @@ home when the limit resets. **Off by default** (`SALA_BACK_LANE_RULE=off`: nothi
 LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-lanes`), `lib/spawn.sh`; test `tests/backlane.sh`.
 
 - **Who.** The live background agents: registry rows with role `back` and no side session, with a tmux session,
-  not `SALA_NO_RELAUNCH` and not pinned (*Pinned sessions*; a pinned one is listed as `skipped (pinned to <lane>): <session>` on the outcome line). A front agent (until the front step below), a side session, a job (`lane exec`, `sala job`) and the default lane are never touched, and a
+  not `SALA_NO_RELAUNCH` and not pinned (*Pinned sessions*; a pinned one is listed as `skipped (pinned to <lane>): <session>` on the outcome line).
+  **A sleeping agent counts** (its claude ended on purpose, its pane stays; *Sleeping sessions*): every step and catch-up of the rule, the front step's
+  included, puts it in the same operation as the live ones, and `sala op lane` only records its lane row for it and relaunches nothing, so a
+  wake resumes it on the lane the rule left it on. The outcome lines say so (`; 2 sleeping: recorded only, they wake on the Ultra lane: <names>`),
+  in the dry run too. Pins, the order, the Fable rule and a dormant target apply to it as to a live agent; a name in `SALA_NO_RELAUNCH` is left alone. A front agent (until the front step below), a side session, a job (`lane exec`, `sala job`) and the default lane are never touched, and a
   background agent on a lane outside the order (api, subscription-2) is left where it is.
 - **A row with no role** (an imported or adopted one, a bare spawn) counts by stackshot's project record, the source `spawn --project`
   already checks (interface 20: a name under a project's `background:` agents is a background agent, a top-level one a front agent):
@@ -359,8 +363,11 @@ LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-la
   takes them): sala op lane bedrock …`. A new background agent still spawns on the rule's lane only while that lane is active and ready, else on the default lane.
 - **Fable.** A Fable background agent is not moved onto a lane outside `SALA_FABLE_LANES` (any lane but Ultra, by default): it stays where it is and the
   notice names it. The rule does not change a model.
-- **Spawn.** A background agent spawned while the rule has them off home launches on the rule's lane (recorded like `--lane`; `--lane`
-  wins; a side session is not the rule's, and a front agent is the rule's only through the front step below).
+- **Spawn.** A background agent spawned while the rule is on launches on the rule's lane (recorded like `--lane`): the second or third lane
+  while they stand off home, and the **home lane while they stand at home**, never the default lane (a new agent starts where the rule keeps the
+  others, and its row lets the rule's steps find it). `--lane` wins; a side session is not the rule's, and a front agent is the rule's only
+  through the front step below; a home (or rule) lane that is dormant or not ready leaves the default lane, as before. The default lane setting
+  itself, pinned sessions and jobs are not changed. The dry run says which lane the rule gave it.
 - **Dry run.** `sala watch --back-lanes --dry-run` prints what a pass would do (every outcome, idle ones too) and queues and writes nothing.
   To stage a step without live state, point it at fixtures: `SALA_WEB_STATE_DIR` (a folder with a `quota-subscription-1.json`),
   `SALA_BACK_LANE_STATE` (a file) and `SALA_LIMIT_STATE` (a limit-watch state with a stopped pane), with `SALA_BACK_LANE_RULE=on`.
@@ -379,7 +386,7 @@ background agents on. It runs only while the rule is on, and is its own switch.
 - **Step 1 first.** A pass that finds the reading at or above the front threshold with the background agents still home runs step 1, and
   the front step then runs on the lane step 1 chose (the second lane, or its fallback), in the same pass: two operations, the background agents first.
   If step 1 cannot be taken (its notice says why), the front step waits: the front agents stay while the background agents are still home.
-- **Who.** The live front agents: registry rows with role `front` (or, with no role, listed as a front agent by stackshot's project record,
+- **Who.** The live (and sleeping, as for the background agents: recorded only, with the same model swap below) front agents: registry rows with role `front` (or, with no role, listed as a front agent by stackshot's project record,
   the registry reader `front-names`), no side session, with a tmux session, not `SALA_NO_RELAUNCH`, on a lane in the
   order and before the target. A pinned session is held out and named (`skipped (pinned to <lane>): <session>`); a front agent on a lane
   outside the order (api, subscription-2) is left where it is.
