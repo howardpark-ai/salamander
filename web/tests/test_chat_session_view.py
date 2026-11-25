@@ -108,6 +108,20 @@ def test_the_strip_is_a_sibling_before_chat_and_not_inside_it():
     assert "chat-strip" not in body_of(APP_JS, "function showTail(") and "chat-strip" not in body_of(APP_JS, "function leaveSession(")
 
 
+def test_what_waits_on_the_owner_is_a_pinned_line_before_the_strip_in_the_pane():
+    pane = INDEX[INDEX.index('<section id="chat-pane"'):INDEX.index("</section>", INDEX.index('<section id="chat-pane"'))]
+    assert re.search(r'<div id="chat-strip-wait"[^>]*hidden></div>', pane), "closed until the page has something to say"
+    assert pane.index('<div id="chat-strip-wait"') < pane.index('<div id="chat-strip"') < pane.index('<div id="chat">'), "a direct child of the scrolling pane, first"
+    pin = " ".join(b for s, b in rules(STYLE) if s == "#chat-strip-wait")
+    assert "position: sticky" in pin and "top: 0" in pin and "max-height: 40vh" in pin, pin
+    assert re.search(r"#chat-strip-wait \.wait \{[^}]*overflow-y: auto", STYLE) and re.search(r"#chat-strip-wait \.wait \{[^}]*overflow-x: hidden", STYLE)
+    build = body_of(APP_JS, "function buildChatStrip()")
+    assert 'el("button", { type: "button", class: "wait-toggle", "aria-expanded": "false"' in build and '"aria-controls": "chat-strip-wait-panel"' in build
+    assert 'class: "wait", id: "chat-strip-wait-panel", hidden: true' in build, "a page load starts with the list closed"
+    paint = body_of(APP_JS, "function paintChatWait()")
+    assert '$("#chat-strip-wait").hidden = !n;' in paint and '"aria-expanded"' in paint and '"chat.strip.line"' in paint, "nothing waiting: no line"
+
+
 def test_the_composer_is_sala_s_own_and_nothing_here_draws_another():
     ids = re.findall(r'\sid="([^"]+)"', INDEX)
     assert len(ids) == len(set(ids)), sorted({i for i in ids if ids.count(i) > 1})
@@ -164,7 +178,8 @@ def test_the_switch_works_and_the_count_floors_with_a_plus():
     paint = body_of(APP_JS, "function paintChatStrip()")
     assert '"chat.kept.floor" : "chat.kept.count"' in paint and "d.keptLines ?? d.keptToday" in paint
     assert 'classList.toggle("chat-kept-on", flagged && chatView.kept)' in body_of(APP_JS, "function chatSync()")
-    for key in ("chat.wait.h", "chat.wait.sub", "chat.wait.none", "chat.wait.note", "chat.wait.answer", "chat.wait.new", "chat.motion.h", "chat.motion.none", "chat.kept.toggle"):
+    for key in ("chat.wait.h", "chat.wait.sub", "chat.wait.note", "chat.wait.answer", "chat.wait.new", "chat.motion.h", "chat.motion.none", "chat.kept.toggle",
+                "chat.strip.line", "chat.strip.expand", "chat.strip.collapse"):
         assert f'"{key}"' in APP_JS, key
 
 
@@ -220,7 +235,7 @@ def test_the_new_strings_are_in_english_and_in_korean_as_escapes(key):
     assert re.search(r"\\u[0-9a-f]{4}", line) and line.isascii(), line
 
 
-@pytest.mark.parametrize("key", ["chat.wait.h", "chat.wait.sub", "chat.wait.none", "chat.wait.note", "chat.wait.answer", "chat.wait.new", "chat.motion.h", "chat.motion.none",
+@pytest.mark.parametrize("key", ["chat.wait.h", "chat.wait.sub", "chat.wait.note", "chat.wait.answer", "chat.wait.new", "chat.motion.h", "chat.motion.none", "chat.strip.line", "chat.strip.expand", "chat.strip.collapse",
                                  "chat.kept.toggle", "chat.kept.count", "chat.kept.floor", "chat.kept.open", "chat.state.busy",
                                  "chat.src.sala", "chat.src.board", "chat.src.session", "chat.src.task", "chat.src.system", "chat.src.other"])
 def test_the_strips_strings_are_in_both_languages(key):

@@ -251,16 +251,18 @@ async function saveList(key, compute) {
      own row in the list is hidden while the entry exists (visibleSessions), and its unread count stays out of the Unread total (the entry carries the
      count that matters). The Overview still lists it. The marks are read every CHAT_MARKS_MS while the page is visible, whether or not the session is open;
      while it is open they are also read when the stream says something changed (chatStripSoon) and on open;
-   - its strip (#chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner, what is in
-     motion, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the server marks the session in
-     api/sessions, sessions.py) and scrolls with the thread. The switch shows and hides the kept-back lines in the thread (below);
+   - its strip (#chat-strip-wait and #chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner,
+     what is in motion, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the server marks the session in
+     api/sessions, sessions.py). What waits on the owner is PINNED: #chat-strip-wait is sticky at the top of the pane, one line ("Waiting on you · 3", a button)
+     that opens the list, height-capped; with nothing waiting it is not drawn. The motion lines and the switch scroll with the thread. The switch shows and
+     hides the kept-back lines in the thread (below);
    - the assistant's messages sit to the left at a 68ch measure (style.css, body.chat-session).
    - the turns the owner did not start are kept back by the SERVER (chatkeep.py: the transcript reads and the stream of this one session carry one "kept" message
      in place of each such turn, and the turns he started whole, as for any session). A kept message is one quiet line in the thread (renderKept); the strip's
      switch shows or hides them all (body.chat-kept-on), with their count of today (api/chat keptLines). Nothing here decides who started a turn.
    Everything the strip shows is read from api/chat. /chat is only an address now: the server redirects it to #s=<the session> (app.py). */
 const CHAT_MARKS_MS = 25000, CHAT_STRIP_MS = 350;
-const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines)
+const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false, waitOpen: false };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines); waitOpen: the pinned line is opened (closed at every page load)
 const chatEntryOn = () => !!(chatView.data && chatView.data.configured);
 // the session row the entry stands for: hidden from the list while the entry exists
 const isChatRow = (s) => !!s && s.chat === true && chatEntryOn();
@@ -321,14 +323,21 @@ function chatSync() {
   document.body.classList.toggle("chat-kept-on", flagged && chatView.kept);
   const strip = $("#chat-strip"), was = !strip.hidden, on = flagged && chatEntryOn();
   strip.hidden = !on;
+  if (!on) $("#chat-strip-wait").hidden = true;
   if (on) { paintChatStrip(); if (!was) loadChatMarks(); }
 }
 // the strip's pieces are made once; a read changes their text
 function buildChatStrip() {
   const waitList = el("ul", { class: "wait-list" }), waitNote = el("p", { class: "wait-err" });
-  const wait = el("section", { class: "wait", ...tx("chat.wait.h", null, "aria-label") },
+  const wait = el("section", { class: "wait", id: "chat-strip-wait-panel", hidden: true, ...tx("chat.wait.h", null, "aria-label") },
     el("div", { class: "sec-head" }, el("b", { ...tx("chat.wait.h") }), el("span", { ...tx("chat.wait.sub") })), waitList, waitNote,
     el("p", { class: "wait-cap", ...tx("chat.wait.note") }));
+  // the pinned line: one real button with the count; it opens and closes the list under it (aria-expanded), and closed is how every page load starts
+  const waitLine = el("span", { class: "wait-line" });
+  const waitToggle = el("button", { type: "button", class: "wait-toggle", "aria-expanded": "false", "aria-controls": "chat-strip-wait-panel" },
+    waitLine, el("span", { class: "chev", "aria-hidden": "true" }));
+  waitToggle.addEventListener("click", () => { chatView.waitOpen = !chatView.waitOpen; paintChatWait(); });
+  $("#chat-strip-wait").replaceChildren(waitToggle, wait);
   const moList = el("ul", { class: "mo-list" });
   const motion = el("section", { class: "motion", ...tx("chat.motion.h", null, "aria-label") }, el("span", { class: "lbl", ...tx("chat.motion.h") }), moList);
   // the switch: shows or hides the kept-back lines of the thread (a class on the body; the server already holds back the turns the owner did not start)
@@ -338,8 +347,17 @@ function buildChatStrip() {
   const swText = el("span"), countEl = el("span", { class: "count" });
   const kept = el("div", { class: "kept-row" },
     el("label", { class: "kept-toggle", for: "chat-strip-kept" }, sw, swText, countEl));
-  $("#chat-strip").replaceChildren(wait, motion, kept);
-  chatView.ui = { waitList, waitNote, moList, swText, countEl };
+  $("#chat-strip").replaceChildren(motion, kept);
+  chatView.ui = { waitList, waitNote, waitLine, waitToggle, wait, moList, swText, countEl };
+}
+// the pinned line and its list: not drawn with nothing waiting; the list shows only while the line is opened
+function paintChatWait() {
+  const u = chatView.ui, n = ((chatView.data && chatView.data.waiting) || []).length, open = chatView.waitOpen && n > 0;
+  $("#chat-strip-wait").hidden = !n;
+  u.wait.hidden = !open;
+  u.waitLine.textContent = tl("chat.strip.line", { n });
+  u.waitToggle.setAttribute("aria-expanded", String(open));
+  u.waitToggle.title = tl(open ? "chat.strip.collapse" : "chat.strip.expand");
 }
 function chatWaitRow(w) {
   const subj = el("span", { class: "wait-subj" });
@@ -355,7 +373,7 @@ function paintChatStrip() {
   if (!chatView.ui) buildChatStrip();
   const u = chatView.ui, waiting = d.waiting || [], motion = d.motion || [];
   u.waitList.replaceChildren(...waiting.map(chatWaitRow));
-  if (!waiting.length) u.waitList.append(el("li", { class: "wait-none", ...tx("chat.wait.none") }));
+  paintChatWait();
   u.moList.replaceChildren(...(motion.length ? motion.map((m) => el("li", { class: "mo", text: m.text })) : [el("li", { class: "mo none", ...tx("chat.motion.none") })]));
   u.swText.textContent = tl("chat.kept.toggle", { name: d.name });
   u.countEl.textContent = tl(d.keptTodayFloor ? "chat.kept.floor" : "chat.kept.count", { n: (d.keptLines ?? d.keptToday) | 0 });

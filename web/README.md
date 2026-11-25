@@ -1639,7 +1639,7 @@ each linking to the item's own address, each id once. The read is made in the ba
 under the state dir (`your-move.json`, text only). When a read fails the last good list stands for 10 minutes; with none that young (never read, or the reads failing for longer) the strip falls back to the board feed `board.py`
 already reads (`GET /api/board-items`'s cache): the rows marked `waiting` (mover is the owner with no `via`), deduplicated by id over every live and sleeping session, which is NOT every project (that feed is asked per session, so an
 item no session of this machine is tied to is not in it): the strip is never emptier than it was before the read existed. An empty Your move group is an empty strip. A row that was not there when the page opened carries a "new"
-tag. Empty reads "nothing waiting". No model writes or filters these lines.
+tag. The list is pinned: it is one line at the top of the pane, under the header, that never scrolls away with the thread ("Waiting on you · 3", a button: closed at every page load, one click, tap or Enter opens the list under it, which is at most 40vh high and scrolls inside itself). An empty group draws no line. No model writes or filters these lines.
 
 **In motion.** The lines the session sets for itself with `sala motion add "<line>"` (`lib/motion.py`, [docs/subcommands.md](../docs/subcommands.md)): one small JSON file per session under `<sala state>/motion/<session>.json`, at most 8
 lines of at most 120 characters, each in force for 24 hours. `motion.py` only reads it (a link or a file that is not the format is left out). Empty reads "nothing right now".

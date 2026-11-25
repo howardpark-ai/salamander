@@ -14,7 +14,7 @@ in the page's own order (the owner's longest wait first). This module reads it a
     the Authorization header and in no error text, log line or file.
 
 An item is passed on as {"id": shown, "subject", "url"} (the strip's entry shape; the page uses nothing else), in the order stackshot sent,
-each id once, none dropped and none re-sorted. An empty group is an empty list, which is an answer (the strip reads "nothing waiting").
+each id once, none dropped and none re-sorted. An empty group is an empty list, which is an answer (the strip draws no pinned line).
 """
 
 from __future__ import annotations
