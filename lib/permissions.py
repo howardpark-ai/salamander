@@ -46,7 +46,7 @@ CREDENTIALS = [
     (r"\.env(\.[\w.-]*)?(?![\w-])",                      ".env file"),               # .env, .env.local, prod.env (a process.env mention in a command too: the cost of a net)
     (r"(gbrain|stackshot)[\w./-]*(token|secret|credential|api[-_]?key|\.env)", "gbrain/stackshot credentials"),
     (r"(?<![\w-])id_(rsa|dsa|ecdsa|ed25519)",            "private key"),
-    (r"[\w-]\.(pem|p12|pfx|key)(?![\w.-])",              "key file"),
+    (r"[\w-]\.(pem|p12|pfx|key(?!\())(?![\w.-])",         "key file"),               # a `.key(` is a call in code (`_steps.key(1)`), not a file; `.key (`, `.key)` and `.pem(` stay key files
     (r"private[-_ ]?key",                                "private key"),
     (r"(token|secret|credential|passw(or)?d)s?[\w.-]*\.(json|txt|key|pem|env|ya?ml|toml|ini|conf|cfg|token|secret|dat|db)(?![\w-])", "secret file name"),
     (r"(?<![\w-])\.[\w-]*(token|secret|credential)",     "secret dotfile"),          # .api-token, .my-token (a jq `.token` reads as one: the cost of a net)

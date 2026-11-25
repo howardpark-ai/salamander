@@ -3332,14 +3332,14 @@ a hook, a credential, a question) or a harmless prompt left to wait for them. Th
 real verb and checks stdout and the exit status each time, in an isolated HOME; no tmux, no claude.
 Kept: approved with exactly the one allow line, parsed as JSON: Bash `ls`, Read, Edit of an ordinary repo file, a relative path under the
 cwd, WebFetch, an MCP tool, acceptEdits mode; not approved by mistake the other way: an Edit whose content names CLAUDE.md (only the target
-counts), an Agent prompt that names a settings file, the words "tokenizer" and "hook" in a command, a Grep for "token", a `.aws` inside a
+counts), an Agent prompt that names a settings file, the words "tokenizer" and "hook" in a command, a Grep for "token", a Python call `_steps.key(1)` (a `.key(` is code, not a key file), `x.key.bak`, a `.aws` inside a
 hostname. Left (empty stdout, exit 0, the log line naming the reason): AskUserQuestion, ExitPlanMode, a tool named like one that asks,
 Edit and Write of `~/.claude/settings.json` (absolute and `~`), a repo's `.claude/settings.local.json`, `~/.claude.json`, CLAUDE.md,
 `.mcp.json`, a hooks directory, `sed -i` on settings, `>> CLAUDE.md`, managed settings, `cd ~/.claude && cat
 settings.json`, `..` traversal into settings (an absolute path, a path relative to the payload's cwd, and a command), `$HOME` and quotes
 inside a path, an MCP input naming settings, a symlink to settings (realpath), an Edit of a hook script that the settings wire (and an Edit
 of one that is not wired, and a Read of the wired one, are approved), `cat ~/.ssh/id_ed25519`, `.aws`, `.gnupg`, an API token file, `.env`,
-`.env.local`, a token json, a `.pem`, a stackshot token file, an MCP input naming `~/.ssh`; plan mode; garbage, a JSON
+`.env.local`, a token json, a `.pem`, a `.key` (read and in a command, also before a closing paren or a space and paren, `.pem` before a paren, `.p12`), a stackshot token file, an MCP input naming `~/.ssh`; plan mode; garbage, a JSON
 list and empty stdin; a payload with no (or a non-string) tool_name; `SALA_PERMISSION_APPROVE=off|0|no|false|OFF`. The switch unset or `on`
 approves again. The log: one line per decision (the count equals the runs, empty and garbage input included), time, allowed or left, tool,
 reason, the session's first 8 characters, agent (payload `agent_type`, else `SALA_SESSION_ID`), the input cut to 80 characters; a bearer
