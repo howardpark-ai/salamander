@@ -153,6 +153,15 @@ textarea, select, [contenteditable]:not([contenteditable="false"]) { font-size: 
 .sess.side-ovw { padding-left: 8px; gap: 8px; }
 .side-ovw svg { flex: none; color: var(--muted); }
 .side-ovw.selected svg { color: var(--text); }
+/* the chat entry, the first line of the views (index.html #side-chat; app.js "the chat view"): the chat session's display name and a small "chat", a
+   working dot while it works and a red count of what waits on the owner. The name gives way first (its ellipsis), never the marks or a squeezed
+   nothing: it keeps a floor of its own, and a long name still shows its first letters at the drawer's narrowest */
+.side-chat[hidden] { display: none; }
+.side-chat .label { min-width: 48px; }
+.side-chat .role { flex: none; }
+.wchip { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; padding: 0 8px; border-radius: 8px;
+  font-size: 12px; font-weight: 600; line-height: 1; box-sizing: border-box; white-space: nowrap; background: var(--waiting); color: var(--waiting-text); }
+.wchip[hidden], .side-chat .dot[hidden] { display: none; }
 .scope { margin-top: 12px; }
 .scope:first-child { margin-top: 4px; }
 .scope-body { padding-left: 0; }
@@ -369,6 +378,13 @@ body.hide-tools .msg.tools-only { display: none; }
 body.overview-open #chat-pane, body.overview-open #terminal-pane, body.overview-open #composer,
 body.overview-open #menu-reload, body.overview-open #top-tools, body.overview-open #top-menu-btn, body.overview-open #title .dot { display: none; }
 body.overview-open #overview-pane { display: block; }
+/* the chat view (#chat): the conversation of the page's session (chat.js, drawn into .cv), inside sala's frame. The pane is its scroller, so the title
+   bar stays where it is; the composer stays and is sala's own (app.js sends it to that session), and the jump button, the session menu and
+   Reload are of a session's page, not of this one. The title bar's state dot stays, as in a session */
+#cview-pane { overflow-y: auto; overflow-x: hidden; }
+body.chat-open #chat-pane, body.chat-open #terminal-pane, body.chat-open #composer > .jump,
+body.chat-open #menu-reload, body.chat-open #top-tools, body.chat-open #top-menu-btn { display: none; }
+body.chat-open #cview-pane { display: block; }
 /* the New session page (#new) takes the main area the same way; the form inside is its one scroller (.np) */
 body.new-open #chat-pane, body.new-open #terminal-pane, body.new-open #composer, body.new-open #overview-pane,
 body.new-open #menu-reload, body.new-open #top-tools, body.new-open #top-menu-btn, body.new-open #title .dot { display: none; }

@@ -9,7 +9,13 @@
    - Send: the existing POST api/s/<pid>/send (the main chat's path: the same guards, the same duplicate window, the same answers), not a second one.
    - A sleeping session: a sentence and the main chat's wake (POST api/wake, then api/spawn/status until the session is live).
    - No sideways scroll at any width: chat.css; text that came from a session is set with textContent or through marked + DOMPurify, never as markup of its own.
-   - Times are in the zone api/chat names (the server's zone setting), through shared.js's zoneFormat. */
+   - Times are in the zone api/chat names (the server's zone setting), through shared.js's zoneFormat.
+
+   TWO HOMES, ONE DRAWING CODE. On chat.html (body.chat-page) the script starts itself and owns the window: its own bar, its own small composer,
+   the window as the scroller. Inside sala's page (index.html, the #chat view; app.js, "the chat view") it is loaded on the first open and does
+   not start: app.js calls window.SalaChat.mount(host, opts) once, then show() and hide() as the view opens and closes. There the bar holds only
+   the kept-back switch and the pane link, the pane (opts.scroller) is the scroller, the composer is sala's own (app.js sends through
+   SalaChat.send, the same path doSend takes) and the update strip is the main page's. */
 (() => {
   const $ = (sel, root = document) => root.querySelector(sel);
   const el = (tag, attrs = {}, ...kids) => {
@@ -31,8 +37,12 @@
   const KEPT_KEY = "salaweb.chat.kept";
   const POLL_MS = 30000, DEBOUNCE_MS = 350, WAKE_POLL_MS = 2000, WAKE_GIVE_UP_MS = 240000, PIN_PX = 90, PENDING_MS = 120000;   // a sent message stays as a pending bubble until the transcript shows it, at most this long
 
+  const EMBED = !document.body.classList.contains("chat-page");   // inside sala's page (mounted by app.js), not the page of its own
+  const opts = {};       // EMBED: {scroller, onData(d), onState()}, set by mount
+  let active = !EMBED;   // the page draws, reads and streams only while it is shown
+
   const S = {
-    data: null,            // the last good answer of api/chat
+    data: null,           // the last good answer of api/chat
     error: "",             // the last read that failed ("" = fine)
     kept: false,           // the switch: show the kept-back lines
     seenWait: null,        // ids of the owner's moves already shown (null until the first answer): one that is not in it is "new"
@@ -106,6 +116,9 @@
     return tl("chat.src.other");
   }
 
+  // "[image]" or "[image ×2]" after (or instead of) a message's words: the pictures are in the transcript, not drawn here
+  const imagesNote = (n, afterText) => document.createTextNode((afterText ? " " : "") + "[" + tl("chat.image") + (n > 1 ? " ×" + n : "") + "]");
+
   function entryNode(e, d) {
     if (e.k === "kept") {
       const kids = [el("time", { text: stamp(e.ts) }), el("span", { class: "src", text: sourceText(e.src) })];
@@ -117,7 +130,7 @@
     const ts = el("div", { class: "ts", text: stamp(e.ts) });
     if (e.k === "me") {
       const body = [...linkNodes(e.text || "")];
-      if (e.images) body.push(document.createTextNode((body.length ? " " : "") + "[" + tl("chat.image") + (e.images > 1 ? " ×" + e.images : "") + "]"));
+      if (e.images) body.push(imagesNote(e.images, body.length > 0));
       return el("div", { class: "msg user" }, el("div", { class: "bubble" }, ...body), ...cardsOf(e), ts);
     }
     const kids = [];
@@ -134,11 +147,11 @@
   const keyOf = (e, i) => [e.k, e.id || "i" + i, e.ts || 0, hash((e.text || "") + (e.what || "") + (e.did || "") + (e.open ? "o" : "") + JSON.stringify(e.cards || []))].join(":");
 
   /* ---------- the page ---------- */
-  const root = $("#cp");
+  let root = EMBED ? null : $("#cp");   // EMBED: the view's host element, set by mount
   let ui = null;   // the pieces that stay while data changes
 
   function build() {
-    const update = el("div", { class: "cp-update", hidden: true, role: "status" },
+    const update = EMBED ? null : el("div", { class: "cp-update", hidden: true, role: "status" },   // inside sala the main page has its own strip
       el("span", { ...tx("chat.update") }),
       el("button", { type: "button", class: "cp-btn", ...tx("chat.reload"), onclick: () => location.reload() }));
     const dot = el("i", { "aria-hidden": "true" });
@@ -155,7 +168,7 @@
     const countEl = el("span", { class: "count" });
     const pane = el("a", { class: "pane-link", target: "_blank", rel: "noopener noreferrer", ...tx("chat.pane") });
     const bar = el("div", { class: "bar" },
-      el("h2", { class: "bar-name" }, dot, nameEl, stateEl),
+      EMBED ? null : el("h2", { class: "bar-name" }, dot, nameEl, stateEl),   // inside sala the title bar names the session and shows its state
       el("label", { class: "kept-toggle", for: "kept-switch" }, sw, swText, countEl), pane);
 
     const waitList = el("ul", { class: "wait-list" });
@@ -170,16 +183,18 @@
     const thread = el("div", { class: "thread", role: "log" });
     const chat = el("div", { class: "chat" }, thread);
 
-    const ta = el("textarea", { class: "compose-input", rows: "1", enterkeyhint: "send", autocomplete: "off", spellcheck: "true" });
-    const send = el("button", { type: "button", class: "send-btn", ...tx("chat.send", null, "aria-label") },
+    // inside sala the box and the Send button are sala's own composer (app.js): only the wake line and the note are drawn here
+    const ta = EMBED ? null : el("textarea", { class: "compose-input", rows: "1", enterkeyhint: "send", autocomplete: "off", spellcheck: "true" });
+    const send = EMBED ? null : el("button", { type: "button", class: "send-btn", ...tx("chat.send", null, "aria-label") },
       svg());
-    const row = el("div", { class: "compose-row" }, ta, send);
+    const row = EMBED ? null : el("div", { class: "compose-row" }, ta, send);
     const note = el("p", { class: "compose-note", role: "status" });
     const sleepBox = el("div", { class: "compose-sleep" });
     const composer = el("div", { class: "composer" }, row, sleepBox, note);
 
-    root.replaceChildren(update, bar, wait, motion, chat, composer);
+    root.replaceChildren(...[update, bar, wait, motion, chat, composer].filter(Boolean));
     ui = { update, dot, nameEl, stateEl, sw, swText, countEl, pane, waitList, waitNote, moList, thread, ta, send, row, note, sleepBox, composer };
+    if (EMBED) return;
 
     const coarse = matchMedia("(pointer: coarse)").matches;
     ta.addEventListener("keydown", (ev) => {
@@ -207,6 +222,7 @@
   }
   function refreshSend() {
     const d = S.data;
+    if (EMBED) { if (opts.onState) opts.onState(); return; }   // sala's own Send button asks canSend()
     ui.send.disabled = S.sending || !d || d.present !== "live" || !ui.ta.value.trim();
   }
 
@@ -221,7 +237,7 @@
     applyZone(d);
     if (!d.configured) { drawNone(); return; }
     if (!ui) build();
-    document.title = d.name;
+    if (!EMBED) document.title = d.name;
     // the bar
     ui.nameEl.textContent = d.name;
     const st = d.present === "live" ? (d.busy ? "busy" : "idle") : d.present === "sleeping" ? "asleep" : "absent";
@@ -276,7 +292,7 @@
     // what he sent from this page and the transcript does not show yet
     S.pending = S.pending.filter((p) => Date.now() - p.at < PENDING_MS && !list.some((e) => e.k === "me" && (e.text || "").trim() === p.text.trim() && (e.ts || 0) >= p.at - 10000));
     for (const p of S.pending) {
-      const b = el("div", { class: "bubble pending" }, ...linkNodes(p.text));
+      const b = el("div", { class: "bubble pending" }, ...linkNodes(p.text), p.images ? imagesNote(p.images, p.text.length > 0) : null);
       nodes.push(el("div", { class: "msg user" }, b, el("div", { class: "ts", text: stamp(p.at) })));
     }
     if (!nodes.length) nodes.push(el("p", { class: "empty", ...tx("chat.empty") }));
@@ -288,11 +304,13 @@
   function drawComposer() {
     const d = S.data;
     const live = d.present === "live";
-    ui.row.hidden = !live;
+    if (ui.row) ui.row.hidden = !live;
     ui.sleepBox.replaceChildren();
     ui.sleepBox.hidden = live;
-    ui.ta.placeholder = tl("chat.composer.ph", { name: d.name });
-    ui.ta.setAttribute("aria-label", tl("chat.composer.ph", { name: d.name }));
+    if (ui.ta) {
+      ui.ta.placeholder = tl("chat.composer.ph", { name: d.name });
+      ui.ta.setAttribute("aria-label", tl("chat.composer.ph", { name: d.name }));
+    }
     if (!live) {
       const w = S.wake;
       let text = d.present === "sleeping" ? tl("chat.asleep", { name: d.name }) : tl("chat.absent", { name: d.name });
@@ -306,16 +324,22 @@
         ui.sleepBox.append(el("button", { type: "button", class: "cp-btn", disabled: busy || null, text: tl("chat.wake", { name: d.name }), onclick: wake }));
       }
     }
-    ui.note.textContent = S.note;
+    ui.note.textContent = EMBED ? "" : S.note;   // inside sala a refused message is told in the composer's own status line (app.js)
     ui.note.className = "compose-note" + (S.noteError ? " error" : "");
-    ui.note.hidden = !S.note;
+    ui.note.hidden = EMBED || !S.note;
     refreshSend();
   }
 
-  function scrollEnd() { window.scrollTo(0, document.documentElement.scrollHeight); }
-  addEventListener("scroll", () => {
-    S.pinned = innerHeight + scrollY >= document.documentElement.scrollHeight - PIN_PX;
-  }, { passive: true });
+  // the scroller is the window on the page of its own and the view's pane inside sala (the title bar and the composer stay where they are)
+  function scrollEnd() {
+    if (EMBED) opts.scroller.scrollTop = opts.scroller.scrollHeight;
+    else window.scrollTo(0, document.documentElement.scrollHeight);
+  }
+  const onScroll = () => {
+    const s = opts.scroller;
+    S.pinned = EMBED ? s.clientHeight + s.scrollTop >= s.scrollHeight - PIN_PX : innerHeight + scrollY >= document.documentElement.scrollHeight - PIN_PX;
+  };
+  if (!EMBED) addEventListener("scroll", onScroll, { passive: true });
 
   /* ---------- reading ---------- */
   async function load() {
@@ -328,6 +352,7 @@
       S.data = await r.json();
       S.error = "";
       noteVersion(S.data.version, S.data.styles);
+      if (opts.onData) opts.onData(S.data);   // inside sala: the sidebar's entry and the title bar follow what was just read
       draw();
       if (first) scrollEnd();
       openStream();
@@ -347,7 +372,7 @@
 
   // the existing stream says only that something changed; the page then reads api/chat once
   function openStream() {
-    const pid = S.data && S.data.configured && S.data.present === "live" ? S.data.pid : 0;
+    const pid = active && S.data && S.data.configured && S.data.present === "live" ? S.data.pid : 0;
     if (pid === S.esPid) return;
     if (S.es) { S.es.close(); S.es = null; }
     S.esPid = pid;
@@ -376,6 +401,7 @@
     }
   }
   function noteVersion(v, styles) {
+    if (EMBED) return;   // the main page checks its own version and shows its own strip
     if (styles) swapStyles(styles);
     if (!v || !LOADED_VERSION || v === LOADED_VERSION) return;
     S.updateSeen = true;
@@ -383,16 +409,20 @@
   }
 
   /* ---------- sending: the main chat's path ---------- */
+  // the page's own box: what it holds goes through submit; the box is emptied the moment the server has taken the message
   async function doSend() {
+    await submit(ui.ta.value.trim(), [], () => { ui.ta.value = ""; grow(); });
+  }
+  // text and the names of files already uploaded (api/upload, sala's composer) go to POST api/s/<pid>/send; true once the server has the message
+  async function submit(text, uploads, onSent) {
     const d = S.data;
-    const text = ui.ta.value.trim();
-    if (S.sending || !d || d.present !== "live" || !text) return;
+    if (S.sending || !d || d.present !== "live" || (!text && !uploads.length)) return false;
     S.sending = true; S.note = ""; S.noteError = false;
     refreshSend();
     const at = Date.now();
     let ok = false;
     try {
-      const r = await fetch(`api/s/${d.pid}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, uploads: [] }) });
+      const r = await fetch(`api/s/${d.pid}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, uploads }) });
       const j = await r.json().catch(() => ({}));
       if (r.status === 409 && j.duplicate) ok = true;   // the server pasted this very message moments ago: nothing more to do
       else if (!r.ok || !j.ok) throw new Error(j.error || tl("chat.sendFailed", { why: `${r.status} ${r.statusText}`.trim() }));
@@ -403,13 +433,13 @@
     }
     S.sending = false;
     if (ok) {
-      S.pending.push({ text, at });
-      ui.ta.value = "";
-      grow();
+      S.pending.push({ text, at, images: uploads.length });
+      if (onSent) onSent();
       S.pinned = true;
       schedule(600);
     }
     if (S.data && ui) { drawThread(); drawComposer(); }
+    return ok;
   }
 
   /* ---------- waking a sleeper: the main chat's wake ---------- */
@@ -446,8 +476,36 @@
   }
 
   /* ---------- start ---------- */
-  SalaI18n.onChange(() => { if (S.data) { S.nodes = new Map(); draw(); } });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(0); });
-  setInterval(() => { if (!document.hidden) load(); }, POLL_MS);
-  load();
+  function start() {
+    SalaI18n.onChange(() => { if (S.data) { S.nodes = new Map(); draw(); } });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden && active) schedule(0); });
+    setInterval(() => { if (!document.hidden && active) load(); }, POLL_MS);
+  }
+
+  if (!EMBED) { start(); load(); return; }
+
+  /* ---------- inside sala's page (index.html, app.js "the chat view") ---------- */
+  window.SalaChat = {
+    // once: the host element the view is drawn in and its options (scroller: the element that scrolls; onData(d): called with every answer of
+    // api/chat; onState(): called when what Send may do changed)
+    mount(host, o) {
+      if (root) return;
+      root = host;
+      Object.assign(opts, o);
+      opts.scroller.addEventListener("scroll", onScroll, { passive: true });
+      start();
+    },
+    // the view is on screen: it lands at the end of the thread, reads at once and streams
+    show() {
+      active = true; S.pinned = true;
+      if (S.data && ui) { drawThread(); scrollEnd(); openStream(); }
+      load();
+    },
+    // the view is gone: no stream, no poll (app.js keeps the sidebar's marks fresh itself)
+    hide() { active = false; clearTimeout(S.timer); openStream(); },
+    canSend: () => !S.sending && !!S.data && S.data.present === "live",
+    send: (text, uploads) => submit(text, uploads, null),
+    note: () => S.note,
+    data: () => S.data,
+  };
 })();

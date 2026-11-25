@@ -80,6 +80,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f1f21'/%3E%3Cpath d='M9 11l6 5-6 5M18 22h6' stroke='%23f0a06a' stroke-width='4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="static/style.css?v={{sv}}">
+<link rel="stylesheet" href="static/chat.css?v={{sv}}">
 <link rel="stylesheet" href="static/sessions.css?v={{sv}}">
 <link rel="stylesheet" href="static/schedules.css?v={{sv}}">
 <link rel="stylesheet" href="static/machines.css?v={{sv}}">
@@ -196,10 +197,12 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
       <input id="side-q" type="search" name="q" maxlength="200" placeholder="Search" data-i18n-placeholder="common.search" aria-label="Search the transcripts" data-i18n-aria-label="ui.side.searchLabel" aria-keyshortcuts="Control+K /" title="Search the transcripts (Ctrl+K or /)" data-i18n-title="ui.side.searchTip" enterkeyhint="search" spellcheck="false" autocapitalize="off">
     </form>
-    <!-- above the session list, like claude.ai's entries above recent chats: New session first (the form that
-         queues `sala op spawn`, a page of its own in the main area at #new; app.js "new session"), then the
-         overview, which opens in the main area -->
+    <!-- above the session list, like claude.ai's entries above recent chats: the chat first (the page's configured session
+         as one conversation, a view of its own at #chat; app.js "the chat view"; hidden until api/chat says a session is set, its
+         name, working dot and red count come from that answer), then New session (the form that queues `sala op spawn`, a
+         page of its own in the main area at #new; app.js "new session"), then the overview, which opens in the main area -->
     <nav class="side-top" aria-label="Views" data-i18n-aria-label="ui.side.views">
+      <a id="side-chat" class="sess side-ovw side-chat" href="#chat" hidden title="Chat with the session set for the chat page, with what waits on you" data-i18n-title="ui.side.chatTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span class="label"></span><span class="role" data-i18n="ui.side.chatRole">chat</span><span class="dot busy" hidden></span><span class="wchip" hidden></span></a>
       <a id="side-new" class="sess side-ovw side-new" href="#new" title="Start a new session of a project through sala's queue" data-i18n-title="ui.side.newTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg><span class="label" data-i18n="ui.newSession">New session</span></a>
       <a id="side-ovw" class="sess side-ovw" href="#sessions" title="Every live session, account usage and API spend" data-i18n-title="ui.side.ovwTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/></svg><span class="label" data-i18n="common.overview">Overview</span></a>
       <!-- the Unread filter: the total of the unread reply counts; a tap turns "Unread only" on (the session list then holds only the agents with an unread reply), a second tap turns it off. A toggle, not a view: it opens no page (app.js "the unread reply count") -->
@@ -270,6 +273,9 @@
       <div id="chat"><div class="empty" data-i18n="ui.chat.pick">Pick a session on the left.</div></div>
     </section>
     <section id="terminal-pane" class="pane"></section>
+    <!-- the chat view (#chat): chat.js draws the page's session as one conversation into #cv, loaded on the first open (app.js "the chat view");
+         this pane is its scroller, the title bar and the composer round it are sala's own -->
+    <section id="cview-pane" class="pane" aria-label="Chat" data-i18n-aria-label="ui.chat.title"><div id="cv" class="cv"></div></section>
     <!-- the sessions overview (#sessions): sessions.js fills it and polls only while it is shown -->
     <section id="overview-pane" class="pane" aria-label="Overview" data-i18n-aria-label="common.overview">
       <div class="sp">

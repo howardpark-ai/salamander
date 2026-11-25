@@ -900,6 +900,9 @@ the width and the display mode, so a resize or a rotation changes the next actio
   phone the drawer's own entry is walked back over first, as for any view. Leaving it for another view (a session row, the
   Open button after a create) replaces its entry in replace mode and pushes in push mode. It is not remembered as the last
   view. An entry of an older build that recorded the popover layer (`"new"`) reads as no layers.
+- **The chat view (`#chat`) is a view of its own**, like the New session page: a link, so a reload and a shared link open it; an
+  entry in push mode, the one entry replaced in replace mode (a phone), not remembered as the last view. Every other view switches
+  it off, and it switches them off (`setChatPage`). *The chat view* below.
 - **A lane's details page (`#lane=<id>`) is a view of the Overview**: it follows the same rules, a peer view
   in replace mode (one entry, replaced), an entry of its own in push mode. Its **Back** button returns to the Overview: in
   push mode, when the page was opened from the Overview, it is the browser's Back (the entry under it is the Overview), else
@@ -1607,7 +1610,26 @@ page's styles are swapped in place and a changed page version shows the same "Re
 a table is laid out fixed in the message's width, and the page clips. `tests/test_chat_no_sideways_scroll.py` holds it in a headless Chromium at 1280, 360 and 320 px with a 300-character word, a long address, a wide code block, a wide
 table, a long item subject, a long motion line and a long kept-back line (GitHub CI runs it; the test box has no browser).
 
-Not in this page: the views, any change to how sessions are routed, and a check on turns nobody marked.
+Not in this page: any change to how sessions are routed, and a check on turns nobody marked.
+
+### The chat view
+
+The same conversation is also a **view inside sala's own page**, at `#chat`, with sala's sidebar, title bar and composer, on a desktop and on a phone. `/chat` stays as the page of its own (installable, no sidebar); both draw the
+thread with **one** script, `chat.js` (and one set of rules, `chat.css`: `body.chat-page` for the page, `.cv` for the view). Nothing is copied: the view is that script mounted in `#cv` inside `#cview-pane`.
+
+- **The entry** is the first line of the sidebar's views, above New session: a chat-bubble icon, the session's display name (from `GET /api/chat`) with a small "chat", a working dot while it works (the dot the sidebar and the Overview use)
+  and a red count of the owner's moves that wait (`--waiting`, the same red as the unread-for-you chips; not the orange count of unread replies). It is hidden until `/api/chat` says a session is configured. The name keeps a floor of 48 px
+  and gives way to its ellipsis first, so at the drawer's narrowest (`min(300px, 85vw)`) a long name still shows its first letters beside the marks. The marks are read from `/api/chat` every 25 s while the page is visible, whether or not
+  the view is open (the open view reads it itself); a hidden tab asks nothing.
+- **The title bar is sala's own** and stays where it is: only the thread scrolls (`#cview-pane` is the scroller). It carries the session's name, its state dot and the "working" badge; the view's own bar, under it, keeps the kept-back switch
+  with its count and the pane link. A session's transcript, Reload and the ⋯ menu are not shown (`body.chat-open`).
+- **The composer is sala's own**, not a second one: the CodeMirror box, the attach button, an image pasted into it (a chip, uploaded through `api/upload`), Send, the draft kept per session. Send posts to `POST /api/s/<pid>/send` of the chat
+  session through `SalaChat.send` in `chat.js`, the very function the page of its own sends through, with the names of the files the composer uploaded. The text stays in the box until the server has the message; a refusal is told in the
+  composer's status line; the message shows in the thread as a pending bubble until the transcript has it. **What is different from a session's own chat, on purpose:** the view has no Replace offer for text already in the pane's box, no Retry
+  on the bubble, and a sleeping session is woken with the wake line the page of its own shows (Send is off until it is live) instead of holding the first message for the wake; an image in a sent message shows in the thread as "[image]", as on
+  the page of its own. The same send handles a duplicate (the server pasted this very message moments ago) as sent.
+- **No sideways scroll** at any width, in the view and with the drawer open (`tests/test_chat_view.py`).
+- **Left for a later change:** `/chat` is not redirected into the view yet.
 
 ## Operation log pages
 

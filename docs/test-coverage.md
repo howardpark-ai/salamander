@@ -5109,5 +5109,27 @@ results, sidechain lines and compaction stubs as no turn, only the final reply s
 follow-up joining its turn, the kept line's source in plain words and its last line without the footer notes, today's count in the zone, and a half-written last line. (`test_chatpage.py`): the settings, the link cards (and that nothing is
 fetched), the board lines once each over every session, the motion reader, and `GET /chat` and `GET /api/chat` served.
 
-Not covered, and why: the page's look and behavior in a browser except the width rule (`test_chat_no_sideways_scroll.py`, which GitHub CI runs; the test box has no browser); a real transcript (the rule was established from them and the
+Not covered, and why: the page's look and behavior in a browser except the width rule (`test_chat_no_sideways_scroll.py`, which GitHub CI runs; the test box has no browser) and the chat view (below); a real transcript (the rule was established from them and the
 shapes are in the fixtures, but a test never reads one).
+
+### The chat as a view inside sala's page: `web/tests/test_chat_view.py` (the first half no browser, the rest browser), new; `web/tests/test_unread_filter.py`, one selector changed (Wed Nov 25th 2026)
+
+The session the server is set to talk to opens at `#chat` inside sala's own frame, with its entry as the first line of the sidebar's views. A wrong answer costs a chat the owner has to leave sala to read, a title bar that scrolls away with the
+thread, a composer that cannot take a pasted image, a name squeezed to nothing in the narrow drawer, a count that shows nothing waiting, and a sideways scroll bar on a phone.
+
+Covered, no browser: the entry is the first of `.side-top`, above New session, with its icon, label, "chat", working dot and count hooks, hidden until api/chat answers; the view has a pane of its own (`#cview-pane`, an id the session's pane does not
+share) and every id of the page is still unique; the composer is in the page once (`#composer`, `#attach`, `#send`, `#chips`) and the view draws none of its own; chat.js is loaded on the first open, not by the page; app.js routes `#chat`,
+names it in `shownHash`, `retitle`, the in-page link list and the drawer-close handler, keeps a launch at `#chat` off the Overview, and every other view switches it off; the marks are polled on a 20 to 30 s timer that checks `document.hidden`
+and runs whether or not the view is open; Send goes through the chat module's `send`, which is the function the page's own box sends through; chat.js is one file that defines each drawing function once and exposes `mount`, `show`, `hide`,
+`canSend` and `send`, and the page of its own still starts itself; the view scrolls in its pane and the page in its window; the view's rules hide a session's pane, Reload and the ⋯ menu and keep the composer and the title bar's dot; no
+`overflow-x: scroll` or `auto` comes in with the view's rules; the count uses the waiting red, not the orange count. `test_i18n.py` holds the five new strings in both languages.
+
+Covered, in a headless Chromium (else skipped; GitHub CI runs it), at 1280 x 800 and 390 x 844 with api/chat and the chat session's send replaced in the page: the entry is one line above New session with its icon, name, "chat", working dot and a
+count in the waiting colour; the marks follow a changed answer (a dot only while it works, the count and its singular and plural words); the entry is hidden for no configured session; a click opens `#chat`, sets `.selected` and
+`aria-current="page"`, names the session in the title bar with the working badge, and a phone's drawer closes; leaving for the Overview clears both; the title bar's and the composer's boxes do not move while the thread scrolls from its end to its
+start; sala's composer is visible with its attach button and an image pasted into it makes one chip; Send posts to the chat session with the typed text and the uploaded file's name, empties the box and the chips and shows the pending bubble; a sleeping
+session shows the wake line with Send off; a draft is kept for the chat session over a visit to the Overview; no sideways scroll (page, body, pane, and every box of the main area and the sidebar) at 1280, 390 and 320 px, view and drawer open,
+live and sleeping, with a 300-character word, a long address, wide code and a table, a 40-letter name and a long unbroken draft, and the long name keeping at least 48 px with its ellipsis in the drawer.
+
+Not covered, and why: the Replace offer, Retry and a held first message, which the view does not have (the page of its own has none of them either); a real session's stream (the stream is replaced by the poll in these tests); the spacing of the entry
+against a screenshot (the look is held by the type scale test, not by a picture); `/chat` itself, which is not yet redirected into the view and keeps its own tests.

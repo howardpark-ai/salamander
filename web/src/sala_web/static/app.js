@@ -1969,6 +1969,10 @@ const overviewFamily = () => overviewHash() || laneHashId() !== null;
 const sideHash = (h = location.hash) => h.startsWith("#side=");   // a side conversation: the New session page's other form
 const newHash = (h = location.hash) => h === "#new";
 const newPageHash = (h = location.hash) => newHash(h) || sideHash(h);   // either form of the New session page
+// #chat: the chat view, the page's configured session as one conversation inside sala's own frame (below, "the chat view")
+const chatHash = (h = location.hash) => h === "#chat";
+const chatOpen = () => document.body.classList.contains("chat-open");
+const chatView = { mod: null, loading: null, data: null };   // mod: window.SalaChat once chat.js is loaded; data: the last answer of api/chat
 // the view last shown, kept across launches (the installed app reopens on it)
 const LAST_VIEW = "salaweb.lastView";
 function rememberView(h) { try { localStorage.setItem(LAST_VIEW, h); } catch { /* storage unavailable */ } }
@@ -1976,6 +1980,7 @@ function rememberedView() { try { return localStorage.getItem(LAST_VIEW) || ""; 
 // the page for the hash: the overview once, or a session (selectSession is a no-op for the open one)
 function route() {
   if (newPageHash()) { showNewPage(); sdMode(); }
+  else if (chatHash()) showChatPage();
   else if (searchHash()) showSearchPage();
   else if (overviewFamily()) {
     if (!document.body.classList.contains("overview-open")) showOverview();
@@ -2071,7 +2076,7 @@ function syncLayers(st, back) {
   return false;
 }
 // the hash of the page shown now (what route() last drew)
-const shownHash = () => (document.body.classList.contains("new-open") ? (sideHash() ? location.hash : "#new") : document.body.classList.contains("search-open") ? searchAt
+const shownHash = () => (chatOpen() ? "#chat" : document.body.classList.contains("new-open") ? (sideHash() ? location.hash : "#new") : document.body.classList.contains("search-open") ? searchAt
   : document.body.classList.contains("overview-open")
   ? (overview.laneId() !== null ? "#lane=" + encodeURIComponent(overview.laneId()) : TAB_HASH[overviewTab] || "#sessions")
   : (state.selected ? "#s=" + encodeURIComponent(state.selected) : ""));
@@ -2104,7 +2109,7 @@ document.addEventListener("click", (e) => {
   if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
   const a = e.target.closest("a[href]");
   if (!a || (a.target && a.target !== "_self" && a.target !== "_blank") || a.origin !== location.origin || a.pathname !== location.pathname || a.search !== location.search) return;
-  if (!(a.hash === "#sessions" || a.hash === "#schedules" || a.hash === "#machines" || searchHash(a.hash) || a.hash === "#new" || sideHash(a.hash) || a.hash.startsWith("#s=") || laneHashId(a.hash) !== null)) return;
+  if (!(a.hash === "#sessions" || a.hash === "#schedules" || a.hash === "#machines" || searchHash(a.hash) || a.hash === "#new" || a.hash === "#chat" || sideHash(a.hash) || a.hash.startsWith("#s=") || laneHashId(a.hash) !== null)) return;
   e.preventDefault();
   // the lane page's Back button, when the Overview is the entry under it: the browser's Back, so the history keeps no
   // second Overview entry; else it is the link it looks like
@@ -2154,6 +2159,7 @@ function showOverview() {
   leaveSession();
   setNewPage(false);
   setSearchPage(false);
+  setChatPage(false);
   setOverview(true);
   renderSidebar();
   setTitle(tl("common.overview"));
@@ -2170,6 +2176,7 @@ function showNewPage() {
   leaveSession();
   setOverview(false);
   setSearchPage(false);
+  setChatPage(false);
   setNewPage(true);
   renderSidebar();
   setTitle(tl("ui.newSession"));
@@ -2188,6 +2195,7 @@ function showSearchPage() {
     leaveSession();
     setOverview(false);
     setNewPage(false);
+    setChatPage(false);
     setSearchPage(true);
     renderSidebar();
     setTitle(tl("common.search"));
@@ -2216,6 +2224,122 @@ function setNewPage(on) {
   if (on) { $("#side-new").setAttribute("aria-current", "page"); setTopMenu(false); nsShow(); }
   else { $("#side-new").removeAttribute("aria-current"); nsHide(); document.body.classList.remove("side-mode"); }
 }
+/* ---------- the chat view ----------
+   #chat: the conversation of the one session the server is set to talk to (SALA_CHAT_SESSION; the page /chat is the same thing as a page of its own),
+   drawn by chat.js from GET api/chat into #cv, inside sala's own frame: the sidebar, the title bar, and the composer below. It is a view like the
+   Overview and the New session page (body.chat-open hides what is a session's own: the transcript, Reload, the ⋯ menu), except that the composer
+   stays and is sala's: the CodeMirror box, the attach button, image paste and the chips are the ones every session has.
+   - The sidebar's first line is its entry (#side-chat): hidden until api/chat says a session is set, then the session's display name, a working
+     dot while it works and a red count of what waits on the owner. The marks are read every CHAT_MARKS_MS while the page is visible, whether or
+     not the view is open (while it is open chat.js reads api/chat itself and hands every answer to chatMarks).
+   - chat.js is loaded the first time the view opens (chatModule), then mounted once; show() and hide() follow the view. The pane (#cview-pane)
+     is the scroller, so the title bar and the composer never move.
+   - Send goes through chat.js (SalaChat.send), the same POST api/s/<pid>/send the page of its own uses, with the names of the files this composer
+     uploaded (api/upload): the text stays in the box until the server has taken the message, a refusal is told in the status line above the box,
+     the message shows as a pending bubble in the thread until the transcript has it. What a session's own chat does more is left out on
+     purpose (the Replace offer, Retry on the bubble, a held first message for a sleeper: the view shows the wake line instead, as the page does).
+   - The draft in the box is kept per session like a session's (draftName). */
+const CHAT_MARKS_MS = 25000;
+function chatModule() {
+  if (!chatView.loading) chatView.loading = new Promise((resolve, reject) => {
+    const own = document.querySelector('script[src*="static/app.js"]');
+    const s = el("script", { src: (own ? own.getAttribute("src") : "static/app.js").replace("static/app.js", "static/chat.js") });
+    s.addEventListener("load", () => {
+      chatView.mod = window.SalaChat;
+      chatView.mod.mount($("#cv"), { scroller: $("#cview-pane"), onData: chatMarks, onState: refreshSendButton });
+      resolve(chatView.mod);
+    });
+    s.addEventListener("error", () => { chatView.loading = null; s.remove(); reject(new Error("chat.js")); });
+    document.head.append(s);
+  });
+  return chatView.loading;
+}
+// what api/chat said last: the sidebar's entry (and, while the view is open, the title bar)
+function chatMarks(d) {
+  const first = !chatView.data;
+  chatView.data = d;
+  if (first && chatOpen() && d && d.session) restoreDraft(d.session);   // the view was opened before the first answer: the draft comes back now
+  const a = $("#side-chat"), on = !!(d && d.configured);
+  a.hidden = !on;
+  if (!on) { if (chatOpen()) chatHeader(d); return; }
+  const waiting = (d.waiting || []).length, busy = d.present === "live" && !!d.busy;
+  a.querySelector(".label").textContent = d.name;
+  const dot = a.querySelector(".dot"), chip = a.querySelector(".wchip");
+  dot.hidden = !busy;
+  dot.title = tl("chat.state.busy");
+  chip.hidden = !waiting;
+  chip.textContent = String(waiting);
+  chip.title = tl("ui.side.chatWait", { n: waiting });
+  chip.setAttribute("aria-label", chip.title);
+  if (chatOpen()) chatHeader(d);
+}
+SalaI18n.onChange(() => { if (chatView.data) chatMarks(chatView.data); });
+// the title bar of the view: the session's name, its state dot and the "working" badge, as a session's page has them
+function chatHeader(d) {
+  const on = !!(d && d.configured), name = on ? d.name : tl("ui.chat.title");
+  const st = !on ? "" : d.present === "live" ? (d.busy ? "busy" : "idle") : d.present === "sleeping" ? "sleeping" : "";
+  setTitle(name);
+  $("#title .name").textContent = name;
+  $("#title .dot").className = "dot " + st;
+  $("#title .dot").title = st === "busy" ? tl("chat.state.busy") : st === "idle" ? tl("chat.state.idle") : st === "sleeping" ? tl("chat.state.asleep") : "";
+  clearHeaderBadges();
+  if (st === "busy") titleBar.status.append(el("span", { class: "pill busy", text: tl("app.hdr.working") }));
+  layoutHeader();
+}
+function showChatPage() {
+  if (chatOpen()) return;
+  perfMark("chat");
+  leaveSession();
+  setOverview(false);
+  setNewPage(false);
+  setSearchPage(false);
+  setChatPage(true);
+  renderSidebar();
+  chatHeader(chatView.data);
+  updateJump();
+}
+function setChatPage(on) {
+  if (chatOpen() === on) return;
+  if (!on && getText()) { saveDraft(); setText(""); refreshSendButton(); }   // while the class still says whose draft it is
+  document.body.classList.toggle("chat-open", on);
+  const a = $("#side-chat");
+  a.classList.toggle("selected", on);
+  if (on) {
+    a.setAttribute("aria-current", "page");
+    setTopMenu(false);
+    $("#sleep-band").hidden = true;
+    restoreDraft(draftName());
+    chatModule().then((m) => { if (chatOpen()) m.show(); })
+      .catch(() => { $("#cv").replaceChildren(el("p", { class: "cp-none", text: tl("chat.error") })); });
+  } else {
+    a.removeAttribute("aria-current");
+    if (chatView.mod) chatView.mod.hide();
+  }
+  refreshSendButton();
+}
+async function pollChatMarks() {
+  if (document.hidden || (chatOpen() && chatView.mod)) return;   // the open view reads api/chat itself
+  try {
+    const r = await fetch("api/chat", { cache: "no-store" });
+    if (r.ok) chatMarks(await r.json());
+  } catch { /* the marks stay as they were; the next poll asks again */ }
+}
+// the box's text and the files it uploaded go to the chat session; the box and the chips are emptied once the server has the message
+async function chatSend() {
+  const m = chatView.mod;
+  if (!m || !m.canSend() || state.uploads.some((u) => u.uploading)) return;
+  const text = getText().trim(), names = state.uploads.filter((u) => u.name).map((u) => u.name);
+  if (!text && !names.length) return;
+  clearStatus();
+  const owner = draftName();
+  if (await m.send(text, names)) {
+    if (owner) clearDraft(owner);
+    if (chatOpen()) { setText(""); state.uploads = []; renderChips(); }   // not when another view took the composer while the request was out
+  } else if (m.note() && chatOpen()) setStatus(m.note(), "error");
+  refreshSendButton();
+}
+// whose draft the box holds: the open session's, or the chat session's while the chat view is open
+const draftName = () => state.selected || (chatOpen() && chatView.data ? chatView.data.session : null);
 // the header's name and the tab's title: "Overview", or "Lane <label>" on a lane's details page
 // a language change: the title and name of the view that is open, in the new language
 function retitle() {
@@ -2223,6 +2347,7 @@ function retitle() {
   if (on("overview-open")) setOverviewTitle();
   else if (on("new-open")) sdMode();
   else if (on("search-open")) { setTitle(tl("common.search")); $("#title .name").textContent = tl("common.search"); }
+  else if (on("chat-open")) chatHeader(chatView.data);
   else if (state.current && state.selected) updateHeader(state.current);
   else {
     setTitle(state.selected || "sala");
@@ -2280,6 +2405,7 @@ function setOverview(on) {
 }
 
 function selectSession(name, { force = false } = {}) {
+  setChatPage(false);   // first: the chat's draft is kept under its own session before the composer is given to this one
   setOverview(false);
   setNewPage(false);
   setSearchPage(false);
@@ -3507,7 +3633,8 @@ function setStatus(msg, kind) { const n = $("#send-status"); statusFn = typeof m
 function clearStatus() { setStatus("", ""); }
 function refreshSendButton() {
   const uploading = state.uploads.some((u) => u.uploading);
-  $("#send").disabled = state.sending || uploading || (!getText().trim() && !state.uploads.some((u) => u.name));
+  $("#send").disabled = state.sending || uploading || (!getText().trim() && !state.uploads.some((u) => u.name))
+    || (chatOpen() && !(chatView.mod && chatView.mod.canSend()));   // the chat view's session must be live to take a message
   // the attach button stays usable while an upload is in flight (a second photo can be picked), busy-marked meanwhile
   const att = $("#attach");
   att.disabled = state.sending;
@@ -3765,6 +3892,7 @@ async function addAttachment(file) {
 }
 
 function send() {
+  if (chatOpen()) { chatSend(); return; }
   const asleep = state.current ? null : sleeperHere();   // a sleeping session's chat: its first message is held for the wake
   const s = state.current || asleep;
   if (!s) { setStatus(() => tl("app.pickFirst"), "error"); return; }
@@ -4071,7 +4199,7 @@ const checkSoon = () => { if (Date.now() - upd.lastCheck > 5000) checkVersion();
 const DRAFT_MAX = 20000, DRAFT_MS = 400;
 const draftKey = (name) => "salaweb.draft." + name;
 let draftTimer = null;
-function saveDraft(name = state.selected) {
+function saveDraft(name = draftName()) {
   clearTimeout(draftTimer); draftTimer = null;
   if (!name) return;
   try {
@@ -4098,7 +4226,7 @@ function restoreDraft(name) {
 }
 // leaving the session the composer belongs to (another session, the Overview): its text is kept and the box emptied
 function leaveComposer() {
-  if (!state.selected) return;
+  if (!draftName()) return;
   saveDraft();
   if (getText()) { setText(""); refreshSendButton(); }
 }
@@ -4216,7 +4344,7 @@ window.matchMedia("(max-width: 760px)").addEventListener("change", (e) => {   //
   sideApply();
 });
 // the overview row closes the sliding sidebar as a session row does (also when the overview is already open)
-for (const id of ["#side-ovw", "#side-new"]) $(id).addEventListener("click", (e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) setDrawer(false); });
+for (const id of ["#side-chat", "#side-ovw", "#side-new"]) $(id).addEventListener("click", (e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) setDrawer(false); });
 
 /* ---------- the sidebar's search box ----------
    At the top of the sidebar on every page (the drawer's top on a phone). Enter opens the Search results page with the box's
@@ -4529,15 +4657,16 @@ paintShellTip();
   // the board items are read beside the sessions (the server answers both from its caches), for the New session page's
   // item picker alone; nothing of the first paint waits for them
   loadBoard();
+  pollChatMarks();   // the sidebar's chat entry: its name and marks, whichever view opens first
   await loadSessions();
   restoreHeld();   // what a reload left held for a sleeping session comes back before the chat is drawn
   const name = hashName();
   if (name) perfMark("restore", { session: name });
-  if (replaceMode() && !name && !overviewFamily() && !newPageHash() && !searchHash()) {
+  if (replaceMode() && !name && !overviewFamily() && !newPageHash() && !chatHash() && !searchHash()) {
     // a phone or the installed app launched with no view: the view it was last on (a session still live), else the Overview
     const last = rememberedView(), lastName = hashName(last);
     navWrite(nav.cur, lastName !== null && state.byName.has(lastName) ? last : "#sessions", false);
-  } else if (!replaceMode() && name === null && !overviewFamily() && !newPageHash() && !searchHash()) {
+  } else if (!replaceMode() && name === null && !overviewFamily() && !newPageHash() && !chatHash() && !searchHash()) {
     // a wide browser launched with no view: the Overview, not an empty "Select a session" page; the launch entry is
     // rewritten (replaceState), so Back is what it is for a #sessions deep link
     navWrite(nav.cur, "#sessions", false);
@@ -4549,8 +4678,10 @@ paintShellTip();
   setInterval(loadSessions, 10000);
   setInterval(checkVersion, 60000);
   setInterval(() => { if (!document.hidden) loadBoard(); }, BOARD_MS);
+  setInterval(pollChatMarks, CHAT_MARKS_MS);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;
+    pollChatMarks();
     if (state.selected) { loadSessions(); }  // a reply that landed while the page was hidden is read now that it is in view
     if (Date.now() - board.lastAt > 5000) loadBoard();
   });

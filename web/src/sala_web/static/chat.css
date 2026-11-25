@@ -1,105 +1,107 @@
 /* The chat page (chat.html, chat.js; web/README.md, *The chat page*): one session as one conversation. Colors and fonts are style.css's variables
-   (sala's own tokens, light and dark, and the stored color look), so this file holds layout only. Every rule is scoped to body.chat-page.
+   (sala's own tokens, light and dark, and the stored color look), so this file holds layout only. Every rule is scoped to body.chat-page (the page of its own) or to .cv (the same
+   thread inside sala's page, where the chat view is drawn: index.html #cview-pane, app.js "the chat view"); the rules of the page's own composer
+   (.composer, .compose-row, .compose-input, .send-btn) and its frame (html.chat-html, .cp, .cp-update) are the page's alone.
 
    NO SIDEWAYS SCROLL, at any width from 320 px up (web/tests/test_chat_no_sideways_scroll.py holds it): every box that holds text may shrink
    (min-width: 0), every run of text may break anywhere (overflow-wrap: anywhere), and code and tables wrap instead of scrolling. Only the
    page scrolls, and only down. */
 html.chat-html, html.chat-html body.chat-page { height: auto; min-height: 100%; overflow: visible; }
 body.chat-page { overflow-x: clip; --safe-b: env(safe-area-inset-bottom, 0px); }
-body.chat-page :is(h1, h2, h3, p, ul) { margin: 0; padding: 0; }
-body.chat-page ul { list-style: none; }
-body.chat-page button { font: inherit; color: inherit; }
+:is(body.chat-page, .cv) :is(h1, h2, h3, p, ul) { margin: 0; padding: 0; }
+:is(body.chat-page, .cv) ul { list-style: none; }
+:is(body.chat-page, .cv) button { font: inherit; color: inherit; }
 body.chat-page .cp { max-width: 920px; min-height: 100dvh; margin-inline: auto; display: flex; flex-direction: column; min-width: 0;
   padding-left: max(0px, env(safe-area-inset-left, 0px)); padding-right: max(0px, env(safe-area-inset-right, 0px)); }
-body.chat-page .cp-none { padding: 32px 16px; color: var(--muted); overflow-wrap: anywhere; max-width: 60ch; }
+:is(body.chat-page, .cv) .cp-none { padding: 32px 16px; color: var(--muted); overflow-wrap: anywhere; max-width: 60ch; }
 body.chat-page .cp-update { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 16px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--text); font-size: 13px; }
-body.chat-page [hidden] { display: none !important; }
+:is(body.chat-page, .cv) [hidden] { display: none !important; }
 
-body.chat-page .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 16px; border-bottom: 1px solid var(--border); min-width: 0;
+:is(body.chat-page, .cv) .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 16px; border-bottom: 1px solid var(--border); min-width: 0;
   padding-top: max(12px, env(safe-area-inset-top, 0px)); }
-body.chat-page .bar-name { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; margin-right: auto; min-width: 0; overflow-wrap: anywhere; }
-body.chat-page .bar-name i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--other, var(--faint)); }
-body.chat-page .bar-name i.idle { background: var(--idle); }
-body.chat-page .bar-name i.busy { background: var(--busy); }
-body.chat-page .bar-state { font-size: 12px; font-weight: 400; color: var(--faint); }
-body.chat-page .kept-toggle { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: 13px; color: var(--muted); cursor: pointer; min-height: 28px; max-width: 100%; }
-body.chat-page .kept-toggle > span { min-width: 0; overflow-wrap: anywhere; }
-body.chat-page .kept-toggle input { flex: none; width: 16px; height: 16px; margin: 0; cursor: pointer; }
-body.chat-page .kept-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-body.chat-page .count { display: inline-block; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link));
+:is(body.chat-page, .cv) .bar-name { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; margin-right: auto; min-width: 0; overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .bar-name i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--other, var(--faint)); }
+:is(body.chat-page, .cv) .bar-name i.idle { background: var(--idle); }
+:is(body.chat-page, .cv) .bar-name i.busy { background: var(--busy); }
+:is(body.chat-page, .cv) .bar-state { font-size: 12px; font-weight: 400; color: var(--faint); }
+:is(body.chat-page, .cv) .kept-toggle { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: 13px; color: var(--muted); cursor: pointer; min-height: 28px; max-width: 100%; }
+:is(body.chat-page, .cv) .kept-toggle > span { min-width: 0; overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .kept-toggle input { flex: none; width: 16px; height: 16px; margin: 0; cursor: pointer; }
+:is(body.chat-page, .cv) .kept-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:is(body.chat-page, .cv) .count { display: inline-block; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link));
   font-variant-numeric: tabular-nums; max-width: 100%; overflow-wrap: anywhere; }
-body.chat-page .pane-link { font-size: 13px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; padding: 4px 0; }
-body.chat-page .pane-link:hover { color: var(--text); }
-body.chat-page :is(.pane-link, .answer, .card, .cp-btn, .cp-update button):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:is(body.chat-page, .cv) .pane-link { font-size: 13px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; padding: 4px 0; }
+:is(body.chat-page, .cv) .pane-link:hover { color: var(--text); }
+:is(body.chat-page, .cv) :is(.pane-link, .answer, .card, .cp-btn, .cp-update button):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-body.chat-page .wait { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel); min-width: 0; }
-body.chat-page .sec-head { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; font-size: 12px; color: var(--faint); }
-body.chat-page .sec-head b { color: var(--text); font-weight: 600; }
-body.chat-page .wait-list { display: flex; flex-direction: column; min-width: 0; }
-body.chat-page .wait-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
-body.chat-page .wait-row:first-child { border-top: 0; }
-body.chat-page .wait-subj { flex: 1 1 260px; min-width: 0; font-size: 13px; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; overflow-wrap: anywhere; }
-body.chat-page .wait-subj::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--waiting); transform: translateY(-1px); }
-body.chat-page .wait-subj a { color: inherit; text-decoration: none; min-width: 0; overflow-wrap: anywhere; }
-body.chat-page .wait-subj a:hover { text-decoration: underline; }
-body.chat-page .new { display: inline-block; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link)); }
-body.chat-page .answer { flex: none; font-size: 13px; color: var(--link); text-decoration: underline; text-underline-offset: 2px; padding: 2px 0; }
-body.chat-page .wait-none { font-size: 13px; color: var(--faint); }
-body.chat-page .wait-cap { font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
-body.chat-page .wait-err { font-size: 12px; color: var(--warn); overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .wait { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel); min-width: 0; }
+:is(body.chat-page, .cv) .sec-head { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; font-size: 12px; color: var(--faint); }
+:is(body.chat-page, .cv) .sec-head b { color: var(--text); font-weight: 600; }
+:is(body.chat-page, .cv) .wait-list { display: flex; flex-direction: column; min-width: 0; }
+:is(body.chat-page, .cv) .wait-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
+:is(body.chat-page, .cv) .wait-row:first-child { border-top: 0; }
+:is(body.chat-page, .cv) .wait-subj { flex: 1 1 260px; min-width: 0; font-size: 13px; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .wait-subj::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--waiting); transform: translateY(-1px); }
+:is(body.chat-page, .cv) .wait-subj a { color: inherit; text-decoration: none; min-width: 0; overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .wait-subj a:hover { text-decoration: underline; }
+:is(body.chat-page, .cv) .new { display: inline-block; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link)); }
+:is(body.chat-page, .cv) .answer { flex: none; font-size: 13px; color: var(--link); text-decoration: underline; text-underline-offset: 2px; padding: 2px 0; }
+:is(body.chat-page, .cv) .wait-none { font-size: 13px; color: var(--faint); }
+:is(body.chat-page, .cv) .wait-cap { font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .wait-err { font-size: 12px; color: var(--warn); overflow-wrap: anywhere; }
 
-body.chat-page .motion { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; padding: 8px 16px; border-bottom: 1px solid var(--border); font-size: 13px; min-width: 0; }
-body.chat-page .motion .lbl { font-size: 12px; color: var(--faint); font-weight: 600; white-space: nowrap; }
-body.chat-page .mo-list { display: flex; flex-wrap: wrap; gap: 2px 16px; min-width: 0; flex: 1 1 200px; }
-body.chat-page .mo { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
-body.chat-page .mo::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; border: 1.5px dashed var(--busy); transform: translateY(-1px); }
-body.chat-page .mo.none { color: var(--faint); }
-body.chat-page .mo.none::before { display: none; }
+:is(body.chat-page, .cv) .motion { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; padding: 8px 16px; border-bottom: 1px solid var(--border); font-size: 13px; min-width: 0; }
+:is(body.chat-page, .cv) .motion .lbl { font-size: 12px; color: var(--faint); font-weight: 600; white-space: nowrap; }
+:is(body.chat-page, .cv) .mo-list { display: flex; flex-wrap: wrap; gap: 2px 16px; min-width: 0; flex: 1 1 200px; }
+:is(body.chat-page, .cv) .mo { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .mo::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; border: 1.5px dashed var(--busy); transform: translateY(-1px); }
+:is(body.chat-page, .cv) .mo.none { color: var(--faint); }
+:is(body.chat-page, .cv) .mo.none::before { display: none; }
 
-body.chat-page .chat { flex: 1 1 auto; min-height: 320px; min-width: 0; padding: 12px 16px 16px; }
-body.chat-page .thread { max-width: 920px; margin-inline: auto; display: flex; flex-direction: column; min-width: 0; }
-body.chat-page .empty { color: var(--faint); font-size: 13px; padding: 12px 0; }
-body.chat-page .msg { margin: 8px 0; min-width: 0; }
-body.chat-page .msg > * { max-width: 100%; min-width: 0; }
-body.chat-page .msg.user { display: flex; flex-direction: column; align-items: flex-end; }
-body.chat-page .msg.user .bubble { background: var(--user-bubble); border-radius: 8px; padding: 8px 16px; max-width: 85%; overflow-wrap: anywhere; white-space: pre-wrap; }
-body.chat-page .msg.user .bubble.pending { opacity: .7; }
-body.chat-page .msg.user + .msg.assistant, body.chat-page .msg.assistant + .msg.user, body.chat-page .kept + .msg, body.chat-page .msg + .kept { margin-top: 16px; }
-body.chat-page .msg.assistant .md { font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; max-width: 68ch; }
-body.chat-page .ts { font-size: 12px; color: var(--faint); margin: 2px 4px 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-body.chat-page .msg.assistant .ts { margin-left: 0; }
-body.chat-page .own { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 2px; overflow-wrap: anywhere; }
-body.chat-page .own::before { content: ""; flex: none; width: 12px; border-top: 1px solid var(--faint); }
+:is(body.chat-page, .cv) .chat { flex: 1 1 auto; min-height: 320px; min-width: 0; padding: 12px 16px 16px; }
+:is(body.chat-page, .cv) .thread { max-width: 920px; margin-inline: auto; display: flex; flex-direction: column; min-width: 0; }
+:is(body.chat-page, .cv) .empty { color: var(--faint); font-size: 13px; padding: 12px 0; }
+:is(body.chat-page, .cv) .msg { margin: 8px 0; min-width: 0; }
+:is(body.chat-page, .cv) .msg > * { max-width: 100%; min-width: 0; }
+:is(body.chat-page, .cv) .msg.user { display: flex; flex-direction: column; align-items: flex-end; }
+:is(body.chat-page, .cv) .msg.user .bubble { background: var(--user-bubble); border-radius: 8px; padding: 8px 16px; max-width: 85%; overflow-wrap: anywhere; white-space: pre-wrap; }
+:is(body.chat-page, .cv) .msg.user .bubble.pending { opacity: .7; }
+:is(body.chat-page, .cv) .msg.user + .msg.assistant, :is(body.chat-page, .cv) .msg.assistant + .msg.user, :is(body.chat-page, .cv) .kept + .msg, :is(body.chat-page, .cv) .msg + .kept { margin-top: 16px; }
+:is(body.chat-page, .cv) .msg.assistant .md { font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; max-width: 68ch; }
+:is(body.chat-page, .cv) .ts { font-size: 12px; color: var(--faint); margin: 2px 4px 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .msg.assistant .ts { margin-left: 0; }
+:is(body.chat-page, .cv) .own { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 2px; overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .own::before { content: ""; flex: none; width: 12px; border-top: 1px solid var(--faint); }
 
 /* what a reply or a message holds never makes the page wider: a long line breaks, a code block wraps, a table is laid out in the column's width */
-body.chat-page .md { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
-body.chat-page .md :is(p, li, td, th, h1, h2, h3, h4, blockquote, a) { overflow-wrap: anywhere; word-break: break-word; }
-body.chat-page .md pre { overflow: clip; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; }
-body.chat-page .md pre code { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-body.chat-page .md code { overflow-wrap: anywhere; word-break: break-word; }
-body.chat-page .md table { display: table; width: 100%; max-width: 100%; table-layout: fixed; overflow: clip; }
-body.chat-page .md :is(th, td) { overflow-wrap: anywhere; word-break: break-word; }
-body.chat-page .md :is(img, svg, video, iframe) { max-width: 100%; height: auto; }
-body.chat-page .md :is(ul, ol) { padding-left: 1.4em; }
-body.chat-page .codebox { min-width: 0; max-width: 100%; }
+:is(body.chat-page, .cv) .md { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .md :is(p, li, td, th, h1, h2, h3, h4, blockquote, a) { overflow-wrap: anywhere; word-break: break-word; }
+:is(body.chat-page, .cv) .md pre { overflow: clip; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; }
+:is(body.chat-page, .cv) .md pre code { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+:is(body.chat-page, .cv) .md code { overflow-wrap: anywhere; word-break: break-word; }
+:is(body.chat-page, .cv) .md table { display: table; width: 100%; max-width: 100%; table-layout: fixed; overflow: clip; }
+:is(body.chat-page, .cv) .md :is(th, td) { overflow-wrap: anywhere; word-break: break-word; }
+:is(body.chat-page, .cv) .md :is(img, svg, video, iframe) { max-width: 100%; height: auto; }
+:is(body.chat-page, .cv) .md :is(ul, ol) { padding-left: 1.4em; }
+:is(body.chat-page, .cv) .codebox { min-width: 0; max-width: 100%; }
 
-body.chat-page .card { display: flex; flex-direction: column; gap: 1px; margin-top: 8px; width: fit-content; max-width: min(100%, 420px); min-width: 0; text-align: left;
+:is(body.chat-page, .cv) .card { display: flex; flex-direction: column; gap: 1px; margin-top: 8px; width: fit-content; max-width: min(100%, 420px); min-width: 0; text-align: left;
   background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; text-decoration: none; color: inherit; }
-body.chat-page .msg.user .card { align-self: flex-end; }
-body.chat-page .card:hover { background: var(--hover); }
-body.chat-page .card-t { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
-body.chat-page .card-l { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-body.chat-page .card-o { font-size: 12px; color: var(--link); }
+:is(body.chat-page, .cv) .msg.user .card { align-self: flex-end; }
+:is(body.chat-page, .cv) .card:hover { background: var(--hover); }
+:is(body.chat-page, .cv) .card-t { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .card-l { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .card-o { font-size: 12px; color: var(--link); }
 
 /* what the session kept back: one quiet line each, far quieter than a message */
-body.chat-page .kept { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; margin: 4px 0; padding: 2px 0 2px 12px; border-left: 2px dotted var(--border); font-size: 12px;
+:is(body.chat-page, .cv) .kept { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; margin: 4px 0; padding: 2px 0 2px 12px; border-left: 2px dotted var(--border); font-size: 12px;
   line-height: 1.5; color: var(--faint); min-width: 0; overflow-wrap: anywhere; }
-body.chat-page .kept + .kept { margin-top: 0; }
-body.chat-page .kept time { font-variant-numeric: tabular-nums; white-space: nowrap; }
-body.chat-page .kept .src { overflow-wrap: anywhere; }
-body.chat-page .kept .what { color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
-body.chat-page .kept .did { overflow-wrap: anywhere; min-width: 0; }
-body.chat-page .kept .did::before { content: "\2192\00a0"; }
+:is(body.chat-page, .cv) .kept + .kept { margin-top: 0; }
+:is(body.chat-page, .cv) .kept time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+:is(body.chat-page, .cv) .kept .src { overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .kept .what { color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
+:is(body.chat-page, .cv) .kept .did { overflow-wrap: anywhere; min-width: 0; }
+:is(body.chat-page, .cv) .kept .did::before { content: "\2192\00a0"; }
 
 body.chat-page .composer { position: sticky; bottom: 0; border-top: 1px solid var(--border); padding: 10px 16px calc(10px + var(--safe-b)); background: var(--bg); min-width: 0; }
 body.chat-page .compose-row { max-width: 920px; margin-inline: auto; display: flex; align-items: flex-end; gap: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px; min-width: 0; }
@@ -112,22 +114,31 @@ body.chat-page .send-btn { flex: none; width: 32px; height: 32px; border-radius:
 body.chat-page .send-btn:disabled { cursor: default; opacity: .45; }
 body.chat-page .send-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 body.chat-page .send-btn svg { display: block; }
-body.chat-page .compose-note { max-width: 920px; margin: 8px auto 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-body.chat-page .compose-note.error { color: var(--error); }
-body.chat-page .compose-sleep { max-width: 920px; margin-inline: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; color: var(--muted); }
-body.chat-page .compose-sleep span { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
-body.chat-page .cp-btn { font-size: 13px; padding: 8px 12px; border-radius: 8px; cursor: pointer; border: 1px solid var(--faint); background: transparent; color: var(--text); min-height: 32px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
-body.chat-page .cp-btn:hover:not(:disabled) { background: var(--hover); }
-body.chat-page .cp-btn:disabled { cursor: default; opacity: .45; }
+:is(body.chat-page, .cv) .compose-note { max-width: 920px; margin: 8px auto 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .compose-note.error { color: var(--error); }
+:is(body.chat-page, .cv) .compose-sleep { max-width: 920px; margin-inline: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; color: var(--muted); }
+:is(body.chat-page, .cv) .compose-sleep span { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+:is(body.chat-page, .cv) .cp-btn { font-size: 13px; padding: 8px 12px; border-radius: 8px; cursor: pointer; border: 1px solid var(--faint); background: transparent; color: var(--text); min-height: 32px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+:is(body.chat-page, .cv) .cp-btn:hover:not(:disabled) { background: var(--hover); }
+:is(body.chat-page, .cv) .cp-btn:disabled { cursor: default; opacity: .45; }
 
 @media (max-width: 640px) {
-  body.chat-page .chat { padding-inline: 12px; }
-  body.chat-page :is(.bar, .wait, .motion, .composer, .cp-update) { padding-inline: 12px; }
-  body.chat-page .msg.user .bubble { max-width: 92%; }
+  :is(body.chat-page, .cv) .chat { padding-inline: 12px; }
+  :is(body.chat-page, .cv) :is(.bar, .wait, .motion, .composer, .cp-update) { padding-inline: 12px; }
+  :is(body.chat-page, .cv) .msg.user .bubble { max-width: 92%; }
 }
 @media (pointer: coarse) {
   body.chat-page .send-btn { width: 44px; height: 44px; }
-  body.chat-page .cp-btn { min-height: 44px; }
-  body.chat-page .kept-toggle { min-height: 44px; }
-  body.chat-page :is(.pane-link, .answer) { padding-block: 12px; }
+  :is(body.chat-page, .cv) .cp-btn { min-height: 44px; }
+  :is(body.chat-page, .cv) .kept-toggle { min-height: 44px; }
+  :is(body.chat-page, .cv) :is(.pane-link, .answer) { padding-block: 12px; }
 }
+
+/* ---- the chat view inside sala's page (index.html #cview-pane, app.js "the chat view") ----
+   The pane is the scroller and sala's own title bar and composer stay in place round it; .cv is the thread's column. Its bar holds only the
+   kept-back switch and the pane link (the title bar names the session), the box and Send are sala's, and the footer holds the wake line. */
+.cv { max-width: 920px; min-width: 0; min-height: 100%; margin-inline: auto; display: flex; flex-direction: column; }
+div.cv .bar { justify-content: flex-end; padding-top: 12px; }
+div.cv .chat { min-height: 0; }
+div.cv .composer { padding: 0 16px; min-width: 0; }
+.cv .compose-sleep:not([hidden]) { padding: 12px 0; }
