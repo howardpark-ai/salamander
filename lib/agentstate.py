@@ -229,12 +229,13 @@ def load_tie(checkout: str):
             pass
 
 
-def note(log_dir: str, kind: str, msg: str, now: float | None = None, gap: float = LOG_GAP) -> None:
-    """One line in salamander-agent-state.log, at most one per `gap` seconds for each `kind` (the mark is a file beside the log). Never raises; never holds a secret."""
+def note(log_dir: str, kind: str, msg: str, now: float | None = None, gap: float = LOG_GAP, log_name: str = LOG_NAME, tag: str = "agent-state") -> None:
+    """One line in salamander-agent-state.log, at most one per `gap` seconds for each `kind` (the mark is a file beside the log). Never raises; never holds a secret.
+    `log_name` and `tag` let another snapshot (lib/machinespost.py) keep its own log and marks with this same code: the mark is `<log name without .log>.<kind>.mark`."""
     try:
         now = time.time() if now is None else now
         os.makedirs(log_dir, exist_ok=True)
-        mark = os.path.join(log_dir, "salamander-agent-state.%s.mark" % kind)
+        mark = os.path.join(log_dir, "%s.%s.mark" % (log_name[:-4] if log_name.endswith(".log") else log_name, kind))
         try:
             if 0 <= now - os.stat(mark).st_mtime < gap:
                 return
@@ -243,8 +244,8 @@ def note(log_dir: str, kind: str, msg: str, now: float | None = None, gap: float
         with open(mark, "w", encoding="utf-8"):
             pass
         os.utime(mark, (now, now))
-        with open(os.path.join(log_dir, LOG_NAME), "a", encoding="utf-8") as f:
-            f.write("[%s] agent-state: %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(now)), " ".join(str(msg).split())[:400]))
+        with open(os.path.join(log_dir, log_name), "a", encoding="utf-8") as f:
+            f.write("[%s] %s: %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(now)), tag, " ".join(str(msg).split())[:400]))
     except OSError:
         pass
 
@@ -265,21 +266,23 @@ def write_atomic(path: str, text: str) -> None:
             pass
 
 
-def post(cmd: str, path: str, timeout: float, log_dir: str) -> None:
+def post(cmd: str, path: str, timeout: float, log_dir: str, log_name: str = LOG_NAME, tag: str = "agent-state") -> bool:
     """Hand the file to stackshot: `cmd` (shell words) with the file's path as its last argument, at most `timeout` seconds (then its process group is killed). Anything but a clean answer is ONE
     log line per five minutes and nothing else: exit status other than 0, a timeout, a command that cannot start, or an answer on stdout that is JSON and says ok is not true (stackshot answers
-    200 {ok, agents}). Never raises."""
+    200 {ok, agents}). Returns True only when the command ran and answered cleanly, False for no command or any failure. Never raises. `log_name` and `tag` as in `note`."""
+    def say(msg: str) -> None:
+        note(log_dir, "post", msg, log_name=log_name, tag=tag)
     try:
         words = shlex.split(cmd or "")
     except ValueError:
         words = []
     if not words:
-        return
+        return False
     try:
         p = subprocess.Popen(words + [path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace", start_new_session=True)
     except OSError as e:
-        note(log_dir, "post", "not handed to stackshot: the post command cannot start (%s)" % e.__class__.__name__)
-        return
+        say("not handed to stackshot: the post command cannot start (%s)" % e.__class__.__name__)
+        return False
     try:
         out, err = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -291,18 +294,20 @@ def post(cmd: str, path: str, timeout: float, log_dir: str) -> None:
             p.communicate(timeout=5)
         except Exception:      # noqa: BLE001
             pass
-        note(log_dir, "post", "not handed to stackshot: the post command ran longer than %s s and was stopped" % timeout)
-        return
+        say("not handed to stackshot: the post command ran longer than %s s and was stopped" % timeout)
+        return False
     tail = " ".join((err or out or "").split())[-160:]
     if p.returncode != 0:
-        note(log_dir, "post", "not handed to stackshot: the post command exited %d%s" % (p.returncode, (": " + tail) if tail else ""))
-        return
+        say("not handed to stackshot: the post command exited %d%s" % (p.returncode, (": " + tail) if tail else ""))
+        return False
     try:
         ans = json.loads((out or "").strip())
     except ValueError:
-        return
+        return True
     if isinstance(ans, dict) and ans.get("ok") is not True:
-        note(log_dir, "post", "not handed to stackshot: the answer was not ok (%s)" % " ".join(str(ans)[:120].split()))
+        say("not handed to stackshot: the answer was not ok (%s)" % " ".join(str(ans)[:120].split()))
+        return False
+    return True
 
 
 def publish(E: dict, letter: str, rows: list, panes: list, mode: str) -> str:
