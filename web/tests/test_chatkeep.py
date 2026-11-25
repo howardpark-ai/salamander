@@ -222,7 +222,7 @@ def test_the_count_of_the_switch_is_the_number_of_kept_lines(tmp_path):
     kept = [m for m in msgs if m["role"] == CK.KEPT]
     assert len(kept) == 4
     assert CT.kept_today(CT.build_turns(lines), OWNER, 0, with_taken=True) == 4
-    assert CT.kept_today(CT.build_turns(lines), OWNER, 0) == 3, "the first page's own count is as it was: a turn the owner took over is his"
+    assert CT.kept_today(CT.build_turns(lines), OWNER, 0) == 3, "the count without the taken-over turns is as it was: a turn the owner took over is his"
 
 
 @pytest.mark.parametrize("cut", range(1, 20))

@@ -1,4 +1,4 @@
-"""The chat page's "In motion" lines: what a session set for itself with `sala motion` (lib/motion.py, docs/subcommands.md).
+"""The chat session's "In motion" lines: what a session set for itself with `sala motion` (lib/motion.py, docs/subcommands.md).
 
 One small JSON file per session, <sala state>/motion/<session>.json: {"v": 1, "lines": [{"text": str, "at": epoch seconds}]}. The CLI is the
 only writer (an exclusive lock, a temporary file renamed into place); this module only reads, so it never sees half a file. A line is in

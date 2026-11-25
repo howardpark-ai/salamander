@@ -26,8 +26,8 @@ SALA_CONFIG="${SALA_CONFIG:-$HOME/.config/salamander/config}"
 : "${SALA_SCOPES:=}"                              # the scopes sessions are named by (<scope>-<project>-…), space-separated; empty = none. The web UI takes them from this first, and from stackshot's own settings file only when this is empty or unset
 : "${SALA_DEFAULT_SCOPE:=}"                       # the scope a page outside every scope's directory is named in; empty = the first of SALA_SCOPES
 : "${SALA_HELP_SESSION:=}"                       # web UI only: the session the overview's Get Help chip opens; empty = no chip
-: "${SALA_CHAT_SESSION:=}"                       # web UI only: the one session the chat page (/chat) is for; empty = the page says none is configured
-: "${SALA_CHAT_NAME:=}"                          # web UI only: what the chat page calls that session; empty = the part of the session name after its last hyphen, capitalized
+: "${SALA_CHAT_SESSION:=}"                       # web UI only: the one session that is the owner's chat (its sidebar entry and strip; /chat opens it); empty = none is configured
+: "${SALA_CHAT_NAME:=}"                          # web UI only: what the chat session's entry calls it; empty = the part of the session name after its last hyphen, capitalized
 : "${SALA_BRAND_SUFFIX:=}"                        # web UI only: what follows "salamander" in its title bar (salamander : <suffix>); empty = "salamander" alone
 : "${SALA_OWNER_NAME:=the owner}"                # what runtime text calls the human running this machine ("the owner" reads naturally in "<name>'s words"); it is also the name in the `[for <name>]` line-1 marker, so it must equal stackshot's [instance] owner. The web app reads it the same way
 # cleaned once, here: the name lands inside double-quoted strings, a remote shell's -p "..." and sed/awk programs, so only letters, digits, space . _ ' - stay

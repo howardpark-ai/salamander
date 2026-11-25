@@ -1554,17 +1554,14 @@ one row per agent, and controls are 44 px (32 px with a mouse); a button in a on
 is **one rule, written once, in `static/style.css`**: the class `.slim-touch` (inside `@media (pointer: coarse)`) sets `--ctl` to 30 px on the element, so a size
 written as `var(--ctl)` is 30 px, and gives it a 44 px tap area as an `::after` box (`position: absolute; inset: -7px`, on a `position: relative` button) that
 reaches 7 px past the drawn button on every side and takes no room; the row's 8 px padding holds the 7 px. **A page never copies the rule: a one-line row's
-button takes the class.** Today it is on the main page's Send (`#send`) and the update strip's Reload (`#reload-btn`) in `index.html`, on `/chat`'s Send
-(`chat.js` builds it) and on the color tool's two sample Send buttons. **There is one Send**: `/chat`'s is the main page's, not a lookalike. `chat.css` has no `.send-btn` rule at all (a
-`body.chat-page .send-btn` rule outranks `style.css`'s and is how `/chat` once had a thicker arrow and a dimmed Send that stayed orange instead of going gray), so `style.css`'s `.send-btn` and
-`.send-btn:disabled` (the disabled pair `--dis-bg`, `--dis-fg`, `--dis-op`, in both themes and the color tool) draw it, and `chat.js` draws the arrow of `index.html`'s Send (the 24 grid, 2 px round stroke, path
-`M12 20V4M6 10l6-6 6 6`). Every
+button takes the class.** Today it is on the main page's Send (`#send`) and the update strip's Reload (`#reload-btn`) in `index.html` and on the color tool's two sample Send buttons.
+**There is one Send**: the chat session's is the main page's, because the chat session is opened in the main page (*The chat session*); no page of its own draws one. `style.css`'s `.send-btn` and
+`.send-btn:disabled` (the disabled pair `--dis-bg`, `--dis-fg`, `--dis-op`, in both themes and the color tool) draw it. Every
 page loads `style.css`, so a new page or a new button gets it by adding the class; `--ctl` itself (32 px, 44 px under a finger) is defined once, in `style.css`'s `:root`, for every page; a new button whose size does not read `--ctl` needs its size to (that is
 how Send and Reload are written). With a mouse or a pen nothing changes (32 px, no `::after` box). `tests/test_slim_touch.py` holds it in a headless
-Chromium on a 412 px touch screen (Send and Reload on the main page and Send on `/chat`: 30 px tall, a tap area of 44 px, no sideways scroll at 412 and 320 px;
-desktop unchanged), and `tests/test_slim_touch_rule.py` holds it in the text (the rule once in `style.css`, no copy in `index.html` or `chat.css`, every page
-with a Send or Reload loads `style.css`, `chat.css` draws no Send of its own, `chat.js` draws `index.html`'s arrow); the browser test also reads that `/chat`'s disabled Send has the main page's background, color, opacity
-and size, light and dark.
+Chromium on a 412 px touch screen (Send and Reload on the main page: 30 px tall, a tap area of 44 px, no sideways scroll at 412 and 320 px;
+desktop unchanged), and `tests/test_slim_touch_rule.py` holds it in the text (the rule once in `style.css`, no copy in `index.html`, every page
+with a Send or Reload loads `style.css`, and the retired chat page's files stay gone).
 
 **Not drawn in this look:** the Terminal view's own page (`/terminal` is `terminal.html`) and the contents of the Shell drawer and the
 Terminal tab (ttyd's page in a frame: the frame's chrome follows the look, what it shows does not). The `/tty/` address is absolute.
@@ -1617,26 +1614,18 @@ Cache-Control: private, no-cache
 `tests/test_mockup.py` checks the route and the headers and drives a real headless Chromium through a page that tries to reach the API, read the cookie and open a socket, and renders the page at a 390 px phone width.
 A page should carry `<meta name="viewport" content="width=device-width, initial-scale=1">`; the server sends the file as it is and changes nothing in it.
 
-## The chat page
+## The chat session
 
-`GET /chat` is one configured session as one conversation: what its owner typed, the final reply of each turn he started, the few things that wait on him and what the session says it is doing. It is its own page (`static/chat.html`,
-`chat.css`, `chat.js`), built on the same chat look as the main page, installable like it (the same manifest and worker) and drawn for a 360 px phone first. It sits behind the same sign-in as every page (the proxy's), and its one write, a
-message, goes through the main chat's own path.
+`SALA_CHAT_SESSION` names the one session that is the owner's chat. It is **sala's own view of a session** (*The chat session in sala's own view*, below), not a page of its own. `GET /chat` is only an address now:
+it answers a 302 to `./#s=<the session>`, relative so that it works under whatever path prefix the app is mounted at (with no session set, to `./`, the main page), and there is no page, script or style sheet behind it. The page it used to be
+(`chat.html`, `chat.js`, `chat.css`) is retired. `GET /api/chat` stays, as the data of the entry and the strip. The session sits behind the same sign-in as every page (the proxy's), and its one write, a message, goes through the
+main chat's own composer and path.
 
-**The setting.** The session is `SALA_CHAT_SESSION` in sala's config (one session name; empty by default, and then the page says that no session is configured; no name is written in the code). The name the page uses for it is
-`SALA_CHAT_NAME` (at most 40 characters; default: the part of the session name after its last hyphen, capitalized). Both are read on each request, so no restart. The owner's name in the labels is `SALA_OWNER_NAME`. Times are in the
-zone `GET /api/config` and `GET /api/chat` name (`SALA_TZ`, through `shared.js`'s `zoneFormat`), and strings go through the page's i18n like every page's.
-
-**What shows.** Only what the owner typed (the composer, or the pane's keys) and the FINAL reply of each turn he started. No tool call and no text written on the way to one. A reply that is still being written shows when the session
-is idle, and never while it works with no stop reason yet. The owner's mark, `[for <owner>]`, is taken off a reply that opens with it in every turn, one he started included (a reply that is only the mark keeps its text, so no reply is dropped). In a hidden turn whose reply is only the mark, the kept-back line shows no mark after its arrow: the mark never reaches a kept line.
-
-**What does not, and the one exception.** A turn something else started (another session, the board, sala, a background task, a plugin) is hidden. It shows only when its final reply opens with `[for <owner>]`, with the mark taken off
-and the label "<Name>, on his own" on the message. Every other hidden turn is **kept back**: the switch "Show what <Name> kept back" lists them in place, in time order, one quiet line each (time, source in plain words, a short clipped
-phrase of what it was, the reply's last line after an arrow), and "N kept back today" (today in the page's zone) is always visible, with "N+" when the transcript read did not reach back to midnight. A line the rule does not
-recognize is kept back too, never dropped.
+**The setting.** The session is `SALA_CHAT_SESSION` in sala's config (one session name; empty by default, and then there is no entry and no strip; no name is written in the code). The name the entry shows for it is
+`SALA_CHAT_NAME` (at most 40 characters; default: the part of the session name after its last hyphen, capitalized). Both are read on each request, so no restart. The owner's name in the kept-back lines and in the `[for <owner>]` mark is `SALA_OWNER_NAME`.
 
 **The rule that tells the two apart** is read from the line's own record of where its text came from, never from its words (the one exception is sala's own mark, below), and was established from real transcripts. It is stated in
-the docstring of `chatturns.py` and in the pull request that added the page. In short: a `user` line with `origin.kind` `human` (typed, or typed while the session was busy and queued), an `attachment` of type `queued_command` with
+the docstring of `chatturns.py` and here. In short: a `user` line with `origin.kind` `human` (typed, or typed while the session was busy and queued), an `attachment` of type `queued_command` with
 `origin.kind` `human`, and a slash command typed in the pane are the owner's, unless the text starts with sala's mark. **sala's mark:** sala itself types lines into a session's pane (a spawn's mandate line, a wake line, a wrap-up text),
 and the CLI records them as `origin.kind` `human` / `promptSource` `typed`, the same as the owner's keys. Every line sala types starts with `<!-- sala -->` and a space (`SALA_MSG_MARK` in `lib/common.sh`, interface 2 of
 [docs/stackshot-contracts.md](../docs/stackshot-contracts.md)), and that is the only thing that tells them apart: a user line or queued command whose text starts with it (leading whitespace aside) is delivered from sala, whatever its
@@ -1655,22 +1644,7 @@ tag. Empty reads "nothing waiting". No model writes or filters these lines.
 **In motion.** The lines the session sets for itself with `sala motion add "<line>"` (`lib/motion.py`, [docs/subcommands.md](../docs/subcommands.md)): one small JSON file per session under `<sala state>/motion/<session>.json`, at most 8
 lines of at most 120 characters, each in force for 24 hours. `motion.py` only reads it (a link or a file that is not the format is left out). Empty reads "nothing right now".
 
-**Link cards.** A `/mockup/<n>` link (a path, or an address on this site) and a claude.ai artifact link become cards under the message (title, one line saying what it is, "opens a page"). A mockup's title is read from the local mockup
-store; an artifact's is the link text. The server never fetches an external address, and any other link stays an ordinary link. Links open in a new tab with `rel="noopener noreferrer"`.
-
-**Sending.** The composer posts to `POST /api/s/<pid>/send`, the main chat's path, with its guards and its duplicate window. A sleeping session shows a plain sentence and a wake button (`POST /api/wake`, then `GET /api/spawn/status`
-until it is live); an absent one says so.
-
-**Live.** `GET /api/chat` is the one read. The session's existing stream (`api/s/<pid>/stream`) only nudges a debounced re-read, and a poll every 30 s (while the tab is visible) covers a sleeping session, which has no stream. The
-page's styles are swapped in place and a changed page version shows the same "Reload" strip as the main page.
-
-**No sideways scroll, at any width from 320 px up.** This is a rule, not a nicety. Every box that holds text may shrink (`min-width: 0`), every run of text may break anywhere (`overflow-wrap: anywhere`), a code block wraps its lines,
-a table is laid out fixed in the message's width, and the page clips. `tests/test_chat_no_sideways_scroll.py` holds it in a headless Chromium at 1280, 360 and 320 px with a 300-character word, a long address, a wide code block, a wide
-table, a long item subject, a long motion line and a long kept-back line (GitHub CI runs it; the test box has no browser).
-
-Not in this page: the views, any change to how sessions are routed, and a check on turns nobody marked.
-
-### The chat session in sala's own view (three of four steps; `/chat` stays as it is for now)
+### The chat session in sala's own view
 
 The chat session is meant to be sala's own view of a session, opened on the session `SALA_CHAT_SESSION` names, not a second page drawn to look like it. The rule behind it: a new screen in a tool the owner already uses is that tool's own
 view, extended. So the header, the thread, the composer (box, attach button, image paste), the spacing, the buttons and the spinner of a working session are the ones every session has, from the same code. What the chat session adds is this
@@ -1682,11 +1656,11 @@ list, and a difference outside it is a defect:
   replies stay out of the Unread total. A long name is cut with an ellipsis.
 - **The strip**, above the thread, only while the open session is the chat session (the server marks it with `"chat": true` in `GET /api/sessions`, for that session alone): Waiting on you, In motion, and the kept-back switch with its
   count ("N+" when the read did not reach back to midnight). It sits in `#chat-pane` before `#chat`, outside it, because the thread's redraws replace `#chat`'s children. It is read on opening and again, debounced, after the stream
-  says something changed. Its rules live in `style.css` under `#chat-strip`: they are copies of the first page's, which stays as it is until it is retired.
-- **The assistant's text capped to the left** (`body.chat-session`, 68ch), as on the first page.
+  says something changed. Its rules live in `style.css` under `#chat-strip`.
+- **The assistant's text capped to the left** (`body.chat-session`, 68ch).
 
-**The kept-back switch works (second of four steps).** The server keeps back every turn the owner did not start, for the chat session alone (`chatkeep.py`; another session's transcript and stream are as they were). The rule of who started a turn
-is the first page's own (`chatturns.py`): a line he typed, or a slash command, starts his turn; a message another session delivered, a hook or a script (a line with sala's mark, a peer, a task notice, a plugin, an sdk prompt) starts one he did not,
+**The kept-back switch.** The server keeps back every turn the owner did not start, for the chat session alone (`chatkeep.py`; another session's transcript and stream are as they were). The rule of who started a turn
+is `chatturns.py`'s: a line he typed, or a slash command, starts his turn; a message another session delivered, a hook or a script (a line with sala's mark, a peer, a task notice, a plugin, an sdk prompt) starts one he did not,
 and a line the rule does not recognize counts as delivered, so it is kept back and counted, never shown and never lost.
 
 - **A turn he started** streams whole, as in any session: its narration, tool calls and results as they arrive. A reply that opens with his mark (`[for <owner>]`) is drawn without it.
@@ -1699,21 +1673,22 @@ and a line the rule does not recognize counts as delivered, so it is kept back a
   switch is on (`body.chat-kept-on`). The switch is a real checkbox, off at first, and the count beside it is `keptLines` of `GET /api/chat` (the number of kept lines today, a turn he then spoke into included), so it is the number of lines
   the switch shows. The count sits in the strip, outside `#chat`, and is read again when the stream says something changed.
 
-**Link cards (third of four steps).** A reply of the chat session that links a `/mockup/<n>` page of this site (a path, or an address on the host the request came to) or a claude.ai artifact (`https://claude.ai/artifact/<id>` or `/code/artifact/<id>`) is drawn with a
-card under its text, for every reply the session's reads send (the last page, an older, a newer, a page around a line, the stream's `reset` and `append`) and for no other session's. The server adds the data: `chatkeep.with_cards` runs the first
-page's own rule (`chatpage.cards`: each address once, at most six, a mockup's title from the local mockup store, an artifact's from the link text, any other link none) over the reply's text blocks and puts `cards` on the message,
+**Link cards.** A reply of the chat session that links a `/mockup/<n>` page of this site (a path, or an address on the host the request came to) or a claude.ai artifact (`https://claude.ai/artifact/<id>` or `/code/artifact/<id>`) is drawn with a
+card under its text, for every reply the session's reads send (the last page, an older, a newer, a page around a line, the stream's `reset` and `append`) and for no other session's. The server adds the data: `chatkeep.with_cards` runs
+`chatpage.cards`'s rule (each address once, at most six, a mockup's title from the local mockup store, an artifact's from the link text, any other link none) over the reply's text blocks and puts `cards` on the message,
 `[{kind: "mockup" | "artifact", url, title, n (a mockup only)}]`; a message with no such link has no `cards` key and another session's messages never have one. Nothing is fetched, by the server or by the page. The page draws each card in
 `renderMessage`, the one renderer every session uses (`linkCard` in `app.js`, called for an assistant message that has `cards`), as one `<a class="link-card">` under the reply's text and before its copy row: the title (or, with none, the kind of
 page), the kind in a smaller line ("Mockup 7", "Claude artifact") and "opens a page". It opens in a new tab with `rel="noopener noreferrer"`, the keyboard reaches it like any link, and a card whose address is neither shape is not drawn (the link
 stays the plain link in the text). The words are the keys `chat.card.*` in English and Korean and follow a language change in place. It is sala's own card look: the panel gray, the border and the 8 px corner of the tool-call folds, the
 themes' tokens (so it follows the dark and light palettes and the stored color look), the accent focus ring, no color of its own. Like everything in the view it never makes the page wider: the card shrinks to the thread (420 px at most) and every
-line of it breaks anywhere. The first page keeps drawing its own cards until it is retired.
+line of it breaks anywhere.
 
-The first page (`/chat`, `chat.html`, `chat.js`, `chat.css`) is untouched; the last step retires it.
+**What `/api/chat` carries.** `{configured, session, name, present: live|sleeping|absent, busy, keptToday, keptTodayFloor, keptLines, waiting, motion}`, and only that: the entry and the strip are all that read it. The thread, the composer, a sleeping
+session's wake and the spinner of a working one are the session's own view's, from `api/sessions`, the transcript and the stream.
 
 **No sideways scroll**, at any width, with the drawer open or shut: `tests/test_chat_session_view_ui.py` holds it at 1280, 390, 360 and 320 px with hostile text in the thread, a waiting subject and a motion line, and
 `tests/test_chat_kept_ui.py` holds it again with the switch off and on and hostile text in the kept lines, and `tests/test_chat_link_cards_ui.py` with hostile text in the cards (a 300-character title, a long address). (A markdown table wider
-than the thread scrolls inside its own block, as in every session; the page never does.) The same file holds that the chat session and another session, given the same transcript, differ only in the strip and the cap.
+than the thread scrolls inside its own block, as in every session; the page never does.) The same file holds that the chat session and another session, given the same transcript, differ only in the strip and the cap, and that a working chat session shows the spinner every session shows. `tests/test_chat_retired_ui.py` holds that `/chat` lands in the session's own view (and at the app's own page with no session set), that the spinner of a working chat session is the shared one, and that no width from 1280 to 320 px scrolls sideways there.
 
 ## Operation log pages
 
@@ -2244,8 +2219,8 @@ part of `web/`.
 | `GET /` | the page |
 | `GET /manifest.webmanifest` | the web app manifest (*Install as an app*), `application/manifest+json` |
 | `GET /sw.js` | the service worker, at the root so its scope is the whole site; `text/javascript`, never cached |
-| `GET /chat` | the chat page (*The chat page*): one configured session (`SALA_CHAT_SESSION`) as one conversation |
-| `GET /api/chat` | everything the chat page shows: `{configured, session, name, owner, present: live\|sleeping\|absent, status, pid, busy, entries, keptToday, keptTodayFloor, keptLines, waiting, motion, now, version, styles, timezone, tzLabel, tzOffsetMin}`; `{configured: false, …}` when no session is set; `no-store`. `entries` are `me`, `reply`, `own` (with `cards`) and `kept` (with `src`, `what`, `did`, `open`) |
+| `GET /chat` | an address kept for the chat session (`SALA_CHAT_SESSION`): a 302 to `./#s=<session>`, relative to the app's own prefix (to `./` with none set); no page of its own (*The chat session*) |
+| `GET /api/chat` | what the chat session's entry and strip show: `{configured, session, name, present: live\|sleeping\|absent, busy, keptToday, keptTodayFloor, keptLines, waiting, motion}`; `{configured: false}` when no session is set; `no-store` |
 | `GET /mockup/<n>` | a mockup page `sala mockup add` stored (*Mockup pages*); `text/html; charset=utf-8`, 404 for an unknown number, the sandbox headers on every response |
 | `GET /op/<id>` | the log of one `sala op` operation (*Operation log pages*); `text/plain; charset=utf-8`, the last 256 KB, 404 `no such log` for anything else, the private headers on every response |
 | `GET /sessions` | redirects to `/#sessions`, the Overview |

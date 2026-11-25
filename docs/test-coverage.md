@@ -819,12 +819,10 @@ The slim 30 px button with a 44 px tap area lived only in `index.html`'s own sty
 class, `.slim-touch`, in `style.css` (which every page loads), and the style guide in `web/README.md` says a one-line row's button takes the class and never a copy. A wrong answer is a second copy of the rule
 in a page's style, a Send or Reload on a page that does not load `style.css`, a button without the class, a tap area under 44 px, a button drawn taller than 30 px, or a page that scrolls sideways.
 `test_slim_touch_rule.py` is pure text: the rule is in `style.css` once (the `--ctl: 30px` rule and the `::after` box with `inset: -7px`, in one coarse-pointer block), `inset: -7px` is nowhere else under `static/`,
-`index.html` and `chat.css` size neither Send nor Reload under a finger, `#send`, `#reload-btn` and the Send `chat.js` builds carry the class, and every page with a Send or Reload loads `style.css`.
-`test_slim_touch.py` holds it in a headless Chromium on a touch screen: the main page's Send and Reload drawn 30 px high with a 44 px `::after` box at 412 and 320 px, `/chat`'s Send drawn 30 x 30 with a 44 x 44 box
-and the compose row no taller than 52 px, no sideways scroll on either page at 412 and 320 px, and `/chat`'s Send 32 x 32 with no `::after` box under a mouse at 1280 px.
-`/chat`'s Send is the main page's Send: the text test holds that `chat.css` has no `.send-btn` rule that sets a background, color, opacity, size or border (such a rule outranked `style.css`'s disabled pair, so a dimmed
-Send stayed orange on `/chat` and went gray on the main page), that `chat.js` draws the arrow `index.html` draws (24 grid, `M12 20V4M6 10l6-6 6 6`), and that `--ctl` is defined once, in `style.css`; the browser test reads the disabled Send's
-background, color, opacity and size on both pages, light and dark. Not covered, and why: a physical phone's touch
+`index.html` sizes neither Send nor Reload under a finger, `#send` and `#reload-btn` carry the class, and every page with a Send or Reload loads `style.css` (when this row was written `/chat` was a page of its own with its own Send; its checks went
+with the page, see the fourth step of the chat session below).
+`test_slim_touch.py` holds it in a headless Chromium on a touch screen: the main page's Send and Reload drawn 30 px high with a 44 px `::after` box at 412 and 320 px, no sideways scroll at 412 and 320 px, and the Send 32 x 32 with no `::after` box under a mouse at 1280 px.
+The text test also holds that `--ctl` is defined once, in `style.css`. Not covered, and why: a physical phone's touch
 handling (the tap area is read from the layout, not from a finger; the hit test is held for the main page in `test_composer_touch_row.py` and `test_update_banner_look.py`).
 
 ### `tests/spawn.sh` and `web/tests/test_new_session.py`: an unlisted project agent is refused with the register command, not a page edit (Sat Nov 7th 2026)
@@ -5129,7 +5127,7 @@ Covered in a browser (`test_page_version_browser.py`; GitHub CI runs it, the tes
 
 Not covered, and why: a real service restart (the unit is the host's; the commit's absence from the version is held on two apps with different commits); a `<style>` block in `index.html`, which is part of the page and so asks for a reload (a decision, noted in `web/README.md`).
 
-### `sala motion` and the chat page: `tests/motion.sh`, new; `web/tests/test_chatturns.py`, `test_chatpage.py`, `test_chat_no_sideways_scroll.py` (browser), new
+### `sala motion` and the chat page: `tests/motion.sh`, new; `web/tests/test_chatturns.py`, `test_chatpage.py`, `test_chat_no_sideways_scroll.py` (browser), new (the page and its browser test are retired: the fourth step of the chat session, below)
 
 `sala motion` keeps a session's short "in motion" lines in one small file that two programs touch (the CLI writes, sala-web reads), and the chat page decides what its owner is shown from a transcript. The checks stay where a wrong answer
 hides a message or breaks a file.
@@ -5141,7 +5139,7 @@ at once all land in a whole file (the lock and the rename); the exit codes (0, 1
 Covered (`web/tests/test_chatturns.py`, from fixture lines of the shapes real transcripts hold): who started a turn (typed, queued while busy, a slash command; peer, task notification, plugin, no origin, sdk, an unknown kind; a line sala typed, which the CLI records as the owner's keys and which only its `<!-- sala -->` mark gives away: hidden, in the middle of a message it is no mark, and the owner speaking into it takes the turn), tool
 results, sidechain lines and compaction stubs as no turn, only the final reply showing, narration before a tool call never showing, the `[for <owner>]` mark showing a hidden turn without the mark and no other mark doing so, the mark also taken off a reply in a turn the owner started (a reply that is only the mark keeps its text), a hook's
 follow-up joining its turn, the kept line's source in plain words and its last line without the footer notes, today's count in the zone, and a half-written last line. (`test_chatpage.py`): the settings, the link cards (and that nothing is
-fetched), the board lines once each over every session, the motion reader, and `GET /chat` and `GET /api/chat` served.
+fetched), the board lines once each over every session, the motion reader, and `GET /chat` and `GET /api/chat` served (`GET /chat` is a redirect now, see the fourth step below).
 
 The strip's source (Wed Nov 25th 2026): Waiting on you used to be the board feed's `waiting` rows, which the feed gives only for the moves some session of the box is tied to (one move shown of five at one point); it is now stackshot's whole Your move list
 (`web/src/sala_web/yourmove.py`, `GET /client/your-move`, interface 40 of `docs/stackshot-contracts.md`). Covered, with no browser (`web/tests/test_yourmove.py`, 21 tests, and five more in `test_chatpage.py`): the parse (every item in the order sent, none dropped, no cap at 150,
@@ -5150,7 +5148,7 @@ and an empty strip, a failed read keeping the last good list for ten minutes and
 (the bearer token, the path with no query, 25 items, a 401, a 503 and a non-JSON answer with neither the token nor the address in the message); `GET /api/chat` end to end (seven moves in the list's order where the feed has two, 25 moves, an empty list over a feed that has rows, the read failing: the cached list, then the feed's two after ten
 minutes and the feed alone when nothing was ever read). Not covered: a real stackshot, the page's look (the strip's markup and script are unchanged).
 
-Not covered, and why: the page's look and behavior in a browser except the width rule (`test_chat_no_sideways_scroll.py`, which GitHub CI runs; the test box has no browser); a real transcript (the rule was established from them and the
+Not covered, and why: the page's look and behavior in a browser except the width rule (then `test_chat_no_sideways_scroll.py`, now `test_chat_retired_ui.py`; GitHub CI runs it, the test box has no browser); a real transcript (the rule was established from them and the
 shapes are in the fixtures, but a test never reads one).
 
 ### The readings on each machine row: `tests/machines.sh` and `tests/machinespost.sh`, extended (Wed Nov 25th 2026)
@@ -5173,7 +5171,7 @@ count; `#chat-strip` is one element, before `#chat` in `#chat-pane` and not insi
 page's script and sheet are not loaded; the flag drives `chatSync`, `selectSession`, `leaveSession` and `loadSessions` re-decide it, the session's row is hidden only while the entry exists, its unread count stays out of the Unread
 total; the marks are read from `api/chat` on a 25 s timer that skips a hidden page and runs while the session is closed, the strip is read again after stream activity, debounced; the entry's href, selected and `aria-current`, and the drawer
 closing after it; the switch is drawn disabled and says "not active yet"; the strip's rules are all scoped to `#chat-strip`, the left cap is one rule under `body.chat-session`, the entry's name keeps a floor width, the waiting chip is the red
-`--waiting`, nothing added scrolls by its own overflow; the new strings exist in English and, as escapes only, in Korean; and the first page still carries its own copy of the pieces the strip copied and knows nothing of the strip (the retirement removes that test).
+`--waiting`, nothing added scrolls by its own overflow; the new strings exist in English and, as escapes only, in Korean; and the first page still carried its own copy of the pieces the strip copied (the fourth step removed that test with the page).
 Kept (`test_chat_session_view_ui.py`, a headless Chromium at 1280x800 and 390x844, else skipped; GitHub CI runs it): the entry above New session with its marks following a changed answer, hidden with no session set, a 40-character name cut
 by its ellipsis with the marks whole (also at 360 and 320 px, inside `min(300px, 85vw)`), a click opening `#s=<name>` with selected and `aria-current` and a phone's drawer closing, one row only for the session (the Overview still lists it, the
 ordinary row back with no chat session set); the strip showing two waiting moves, a motion line and the switch off with its count, a new move marked "new", the strip surviving the thread being replaced and read again after stream
@@ -5181,7 +5179,7 @@ activity, and no strip and no class for any other session; one composer and an i
 title, composer, send and attach buttons, the owner's bubble, copy button, messages and font size give the same boxes and computed style, only the assistant's text width differs); and no sideways scroll at 1280, 390, 360 and 320 px, drawer
 shut and open, with a 300-character word, a long address, wide code and a wide table in the thread and long text in waiting subjects and motion lines.
 
-Not covered, and why: the retirement of the first page, the last step (link cards are the third step, below); the look of the
+Not covered, and why: the retirement of the first page (the fourth step, below); the look of the
 strip on a real phone (the checks measure boxes and computed style, a screenshot shows the look).
 
 ### The chat session in sala's own view, second step (the kept-back switch): `web/tests/test_chatkeep.py`, `test_chat_kept_ui.py` (browser), new; `test_chat_session_view.py`, `test_chat_session_view_ui.py` changed
@@ -5194,7 +5192,7 @@ Kept (`test_chatkeep.py`, no browser; the rule and the reads): a turn the owner 
 source, what it was and what the session did, and none of its own lines or tool calls show; the five kinds of source (another session, sala's mark, an origin the rule does not know, a turn the owner then spoke into), the unknown one kept back
 and counted, and a user line with no origin at all (not what Claude Code records for typed text) kept back while the same line with the human origin shows; a hidden turn for the owner shows its reply alone with the mark off and has no kept line, and the mark is never drawn in his own turn either (a reply that is only the mark keeps its text); a hidden turn still working is an
 open line and its reply lands on the same uuid, a reply for the owner that lands later withdraws the line; a reply still being written does not close a turn while the session works; the count of the switch (`kept_today` with the taken-over
-turns) equals the number of kept lines for the whole transcript and for a transcript cut at each of 19 points, and the first page's own count is as it was; the stream cut at each of 19 points gives the thread the history gives; older pages
+turns) equals the number of kept lines for the whole transcript and for a transcript cut at each of 19 points, and the count without the taken-over turns is as it was; the stream cut at each of 19 points gives the thread the history gives; older pages
 (five page sizes, three read windows) make the whole thread with no repeat and every cursor a line's start, newer pages the same, a page around a line holds the turn it is in, a turn longer than a page is never cut, a look-back that finds no
 closing reply still reads every line, lines that are not messages and a line still being written are skipped; over HTTP (the real server): the chat session's transcript carries the kept lines and another session's is as it was, a cursor that
 is not a line start is a 400, and the stream sends the thread and then the lines that come in. A mutation (the rule that keeps a delivered turn back replaced by "show it") was run once: 18 tests failed, then it was restored.
@@ -5205,11 +5203,11 @@ header stays when the thread scrolls and there is one composer; and no sideways 
 turns and long text in the kept lines.
 
 Not covered, and why: a real transcript (the rule was established from real ones and the tests use made-up lines in their shapes); the look of a kept line on a real phone (the checks measure boxes); the browser tests on the box that wrote
-them (its Chromium does not start headless there, CI runs them); the retirement of the first page, the last step (link cards are the third step, below).
+them (its Chromium does not start headless there, CI runs them); the retirement of the first page (the fourth step, below).
 
 ### The chat session in sala's own view, third step (link cards): `web/tests/test_chat_link_cards.py`, `test_chat_link_cards_ui.py` (browser), new
 
-Kept (`test_chat_link_cards.py`, no browser, 32 tests): `chatkeep.with_cards` gives a reply the cards of the first page's own rule over its text blocks, in order: a mockup link (a path, or an address on the host the request came to, titled from the
+Kept (`test_chat_link_cards.py`, no browser, 32 tests): `chatkeep.with_cards` gives a reply the cards of `chatpage.cards`'s rule over its text blocks, in order: a mockup link (a path, or an address on the host the request came to, titled from the
 local mockup store) and a claude.ai artifact link (titled by its link text), each address once, a tool call's text not read, an address on another site or a host that is not this one's no card, any other link none; a message that is not a reply
 (a user message, a kept line) and a reply with no such link have no `cards` key and are not otherwise changed; at most six; nothing is fetched (the network calls are patched to fail); a hostile link text is cut to a title and stays a string.
 Over HTTP (the real server): the chat session's transcript (the last page, `after`, `around`) and its stream (`reset`, and each `append`) carry `cards`, a reply for the owner (his mark off) carries them too, and another session's transcript
@@ -5217,7 +5215,7 @@ and stream carry none. `linkCard` (the function's own text from `app.js`, run in
 not markup), the kind and "opens a page" by their i18n keys, no title makes the kind the title; fifteen addresses and shapes that are not a card (a `javascript:` address, a look-alike host, an address with the artifact URL inside another, `http`,
 a query, no address, a mockup number that is zero, a string or a fraction, an unknown kind, no kind, null, a string, a number) are not drawn. The page's text: one renderer draws a reply's cards under its text and before its copy row, the
 function has no `innerHTML`, fetch or `window.open`, the three strings exist in both languages with Korean as escapes, the card's rules are all under `#chat`, use only sala's tokens (no color of their own), give the panel, border, 8 px corner,
-`min(100%, 420px)` width, the hover and the accent focus ring, break text anywhere and never scroll by their own overflow, and the first page's script and sheet are as they were.
+`min(100%, 420px)` width, the hover and the accent focus ring, break text anywhere and never scroll by their own overflow, and no second page's script is loaded.
 Kept (`test_chat_link_cards_ui.py`, a headless Chromium at 1280x800 and 390x844, else skipped; GitHub CI runs it; it was written and collected on a box whose Chromium does not start, so CI is its first run): three links in a reply make three
 cards under the text with the right address, title and kind, a new tab, `rel` noopener, and the two links that are not cards stay plain links in the text; a card takes the keyboard's focus; a card has the panel color, border and corner of a
 tool-call fold and its three lines read at 4.5:1 or better, in the dark and in the light palette; a language change words a card in place; a reply that arrives while the page is open gets its cards; another session given the same transcript
@@ -5225,5 +5223,23 @@ has plain links and no card; and no sideways scroll at 1280, 390, 360 and 320 px
 and a long word as plain text in the same reply (the page, the pane, the strip, every box of the thread, and each card and each line of it).
 Two mutations were run once: the card's artifact pattern loosened to any `https://` address (3 of the not-a-card cases failed), and the reply-only check of `with_cards` removed (the user message and kept line cases failed); both were restored.
 
-Not covered, and why: the look of a card on a real phone (the checks measure boxes, computed style and contrast); the browser tests on the box that wrote them (its Chromium does not start headless there, CI runs them); the retirement of the
-first page, the last step.
+Not covered, and why: the look of a card on a real phone (the checks measure boxes, computed style and contrast); the browser tests on the box that wrote them (its Chromium does not start headless there, CI runs them).
+
+### The chat session in sala's own view, fourth step (the first page retired): `web/tests/test_chat_retired_ui.py` (browser), new; `test_chatpage.py`, `test_chatturns.py`, `test_chat_session_view.py`, `test_chat_link_cards.py`, `test_slim_touch*.py` changed; `test_chat_no_sideways_scroll.py` removed
+
+`/chat` was a page of its own (`chat.html`, `chat.js`, `chat.css`) beside sala's view of the same session. It is now an address that leads into the view, and the page and everything only it used are gone: the three files, 22 strings of the page's
+(the page's states, composer, wake and update sentences), `chatpage.visible_window` and `chatturns.entries` (they built the page's thread, which the view draws itself from `chatkeep.py`), the `entries`, `pid`, `status`, `owner`, `now`, `version`, `styles`
+and zone fields of `GET /api/chat` (nothing the entry and the strip read), and the first page's tests. What stays, and why: `GET /api/chat` (the entry and the strip read it), `chatturns.py`'s rule of who started a turn and `chatpage.cards` (the kept-back lines
+and link cards of the view are built from them), and the `chat.*` strings the strip uses. A wrong answer is a dead `/chat` link, a redirect to the host's root (the app may sit under a prefix), the old page served beside the new, a leftover that
+keeps a deleted page's code alive, or a chat session that does not show it is working.
+
+Kept (`test_chatpage.py`, no browser): `/chat` answers a 302 with `Location: ./#s=<the session>` (relative, never starting with `/`), `./` with no session set; followed, it lands on sala's page with the strip in it and no `chat.js` or `chat.css`;
+`/static/chat.html`, `chat.js` and `chat.css` are a 404; `/api/chat` with no session set is exactly `{configured: false}` and with one has exactly the keys the entry and the strip read (no thread, no pid), the count of kept-back lines and the moves
+and motion lines as before. `test_slim_touch_rule.py` holds that the three files stay gone. `test_chatturns.py` reads a transcript through a small helper in the test file now (the rule's own checks are unchanged).
+Kept (`test_chat_retired_ui.py`, a headless Chromium, else skipped; GitHub CI runs it; it was written on a box whose Chromium does not start, so CI is its first run): `/chat` loads the main page at `#s=<the session>` with the session selected and its
+strip showing, and at the app's own page with no session set; a working chat session shows the spinner every session shows (the existing `test_a_working_chat_session_shows_the_sessions_own_spinner` in `test_chat_session_view_ui.py` holds the same
+against the real stream) and an idle one does not; and no sideways scroll at 1280, 390, 360 and 320 px after the redirect.
+A mutation was run once (the redirect made absolute): the relative-redirect tests failed, then it was restored.
+
+Not covered, and why: the look on a real phone (a rendered side-by-side of the chat session and another session at 1280 and 390 px was made for the pull request, not kept as a test); the browser tests on the box that wrote them (its Chromium does not
+start headless there, CI runs them).

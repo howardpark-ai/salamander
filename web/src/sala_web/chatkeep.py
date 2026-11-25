@@ -20,7 +20,7 @@ result and the live stream agree. A read starts from a point where no turn is op
 hold whole turns, so a page never cuts a turn in two and the cursor of an older page is always the start of a turn. A line that belongs to no turn
 (the file starts there, or the look back found no closing reply) is shown, never dropped.
 
-A reply of this session that links a /mockup/<n> page of this site or a claude.ai artifact carries `cards` (with_cards: the first page's own rule, chatpage.cards,
+A reply of this session that links a /mockup/<n> page of this site or a claude.ai artifact carries `cards` (with_cards: chatpage.cards,
 read from the reply's text blocks alone, nothing fetched): [{"kind": "mockup" | "artifact", "url", "title", and "n" for a mockup}], which the page draws as link
 cards under the reply. A message without such a link has no `cards` key.
 

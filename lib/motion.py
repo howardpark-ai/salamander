@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """lib/motion.py — `sala motion`: the few short lines a session sets itself to say what is in motion right now (docs/subcommands.md).
 
-sala-web's chat page (web/README.md, *The chat page*) shows them under "In motion". Nobody else writes them and no model filters them: the
+sala-web's chat session view (web/README.md, *The chat session in sala's own view*) shows them under "In motion". Nobody else writes them and no model filters them: the
 session that sets a line is the session that shows it.
 
   add "<line>"          put a line on the list (one line of text, at most 120 characters; a line already there only has its clock renewed)

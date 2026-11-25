@@ -1,4 +1,4 @@
-"""The chat page's turns (chatturns.py): who started a turn, what shows, what is kept back.
+"""The chat session's turns (chatturns.py): who started a turn, what shows, what is kept back.
 
 The rule was established from real transcripts (the module's docstring has it and the shapes below are the ones those transcripts hold); the
 fixtures here are small, made-up lines of exactly those shapes. Names and texts are invented (`chat-test`, `chat-other`, "Rowan").
@@ -67,7 +67,35 @@ def tool_result(minute=0):
 
 
 def entries(lines, owner=OWNER, strict=False):
-    return CT.entries(CT.build_turns(lines, strict), owner)
+    return view(CT.build_turns(lines, strict), owner)
+
+
+def view(turns, owner=OWNER):
+    """The rule's plain view of a transcript, one entry per thing the owner would read: what he typed ("me"), the final reply of a turn he started ("reply"),
+    a marked reply of a turn something else started ("own") and one quiet line for every other hidden turn ("kept"). The chat session's thread is drawn by
+    chatkeep.Keeper (test_chatkeep.py holds that); this view is only how these tests read what build_turns decided."""
+    mark = CT._mark_re(owner)
+    out = []
+    for t in turns:
+        if t.by == "human":
+            if t.user is not None:
+                out.append({"k": "me", "ts": t.user["ts"], "id": t.user["uuid"], "text": t.user["text"], "images": t.user["images"]})
+            for r in t.replies:
+                if r.get("extra_user"):
+                    x = r["extra_user"]
+                    out.append({"k": "me", "ts": x["ts"], "id": x["uuid"], "text": x["text"], "images": x["images"]})
+                elif r["text"]:
+                    out.append({"k": "reply", "ts": r["ts"], "id": r["uuid"], "text": mark.sub("", r["text"], count=1).strip() or r["text"]})
+            continue
+        last = next((r for r in reversed(t.replies) if r["text"]), None)
+        if last is not None and mark.match(last["text"]) and mark.sub("", last["text"], count=1).strip():
+            out.append({"k": "own", "ts": last["ts"], "id": last["uuid"], "text": mark.sub("", last["text"], count=1).strip()})
+            continue
+        src = t.src or {"kind": "other", "name": ""}
+        out.append({"k": "kept", "ts": t.start_ts, "id": t.uuid, "src": {"kind": src["kind"], "name": src.get("name", "")},
+                    "what": CT._phrase(src) if src.get("text") is not None else "",
+                    "did": CT._last_line(mark.sub("", last["text"], count=1)) if last else "", "open": last is None})
+    return out
 
 
 def kinds(es):
@@ -344,4 +372,4 @@ def test_a_half_written_last_line_and_foreign_lines_are_skipped(tmp_path):
     p = tmp_path / "t.jsonl"
     p.write_text(json.dumps(human("hello", 1)) + "\n" + json.dumps({"type": "summary", "x": 1}) + "\nnot json\n" + json.dumps(assistant("hi", 2)) + '\n{"type": "assistant", "mess')
     turns, _ = CT.read_turns(p, int(datetime(2026, 10, 14, 12, tzinfo=timezone.utc).timestamp() * 1000), ZoneInfo("UTC"))
-    assert [e["k"] for e in CT.entries(turns, OWNER)] == ["me", "reply"]
+    assert [e["k"] for e in view(turns)] == ["me", "reply"]

@@ -1,14 +1,17 @@
-"""The chat page's server side: GET /chat, GET /api/chat, the settings that name the session, the link cards, the board lines, the motion lines.
+"""The chat session's server side: GET /chat (an address that leads into sala's own view), GET /api/chat (the data of the entry and the strip), the settings that
+name the session, the link cards, the board lines, the motion lines.
 
 What is held:
-  - nothing configured (the default): /api/chat says so and the page loads; the session name is never in the code, only in SALA_CHAT_SESSION;
+  - nothing configured (the default): /api/chat says so and /chat leads to the sessions' own page; the session name is never in the code, only in SALA_CHAT_SESSION;
+  - /chat is a redirect, relative to wherever the app is mounted, to #s=<the session> (or to the app's own page with none set), and serves no page of its own;
   - the display name defaults to the part of the session name after its last hyphen, capitalized, and SALA_CHAT_NAME replaces it;
   - cards: a /mockup/<n> link and a claude.ai artifact link become cards, any other link none, nothing is fetched (the mockup's title is read from
     the local store);
   - waiting: stackshot's whole Your move list when there is one (every item, none dropped or re-sorted, no cap, an empty list an empty strip), else the
     board's rows with a move for the owner, each item once over every session, the board's words passed through;
   - motion: the session's own lines, at most 8, each at most 120 characters, an old one gone, a hand-made file that is not the format harmless;
-  - /api/chat for a live session carries the turns by the rule in chatturns.py, the board lines and the motion lines in one answer.
+  - /api/chat for a live session carries what the entry and the strip draw (name, live or not, working, the count of kept-back lines, the board lines, the
+    motion lines) in one answer, and nothing the session's own view draws itself (no thread, no pid).
 All names are invented."""
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -155,7 +159,7 @@ def test_waiting_falls_back_to_the_feed_when_there_is_no_your_move_list():
 def test_assemble_carries_the_your_move_list_as_the_strip(tmp_path):
     mine = [entry(i) for i in range(1, 8)]
     doc = CP.assemble(name="chat-test-ada", display="Ada", owner="Rowan", sess=None, projects_dir=tmp_path, zone=None, now_ms=1_800_000_000_000,
-                      host=HOST, mockups_dir=tmp_path, motion_dir=tmp_path, board_doc={"sessions": {}}, cache={}, your_move=mine)
+                      motion_dir=tmp_path, board_doc={"sessions": {}}, cache={}, your_move=mine)
     assert doc["waiting"] == mine
 
 
@@ -199,29 +203,54 @@ def get(url: str):
         return r.status, r.headers, r.read()
 
 
-def test_the_chat_page_is_served_and_names_no_session_and_no_external_address(served):
-    status, headers, body = get(served["url"] + "/chat")
-    page = body.decode()
-    assert status == 200 and "static/chat.js" in page and "static/chat.css" in page
-    assert "{{" not in page   # every placeholder was filled
-    assert "https://" not in page.replace("http://www.w3.org/2000/svg", "")   # no external font, script or style
-    assert NAME not in page
+class _NoFollow(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def get_raw(url: str):
+    """(status, Location, body) of one request, a redirect not followed."""
+    try:
+        with urllib.request.build_opener(_NoFollow).open(url, timeout=20) as r:
+            return r.status, r.headers.get("Location"), r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers.get("Location"), e.read()
+
+
+def test_the_chat_address_redirects_into_the_session_s_own_view_relative_to_the_app(served, monkeypatch):
+    monkeypatch.setenv("SALA_CHAT_SESSION", NAME)
+    status, location, body = get_raw(served["url"] + "/chat")
+    assert status in (302, 307) and location == "./#s=" + NAME and body == b""
+    assert not location.startswith("/"), "relative to the app's own prefix, never the host's root"
+
+
+def test_the_chat_address_with_no_session_set_leads_to_the_app_s_own_page(served, monkeypatch):
+    monkeypatch.delenv("SALA_CHAT_SESSION", raising=False)
+    status, location, _ = get_raw(served["url"] + "/chat")
+    assert status in (302, 307) and location == "./"
+
+
+def test_the_redirect_lands_on_sala_s_page_and_no_page_of_its_own_is_served(served, monkeypatch):
+    monkeypatch.setenv("SALA_CHAT_SESSION", NAME)
+    with urllib.request.urlopen(served["url"] + "/chat", timeout=20) as r:      # followed: the app's own page
+        page = r.read().decode()
+        assert r.status == 200 and r.geturl() == served["url"] + "/#s=" + NAME
+    assert 'id="chat-strip"' in page and "static/chat.js" not in page and "static/chat.css" not in page
+    for gone in ("chat.html", "chat.js", "chat.css"):
+        assert get_raw(served["url"] + "/static/" + gone)[0] == 404, gone
 
 
 def test_api_chat_without_a_configured_session_says_so(served, monkeypatch):
     monkeypatch.delenv("SALA_CHAT_SESSION", raising=False)
     status, headers, body = get(served["url"] + "/api/chat")
     d = json.loads(body)
-    assert status == 200 and d["configured"] is False and d["version"] and d["styles"] and "tzLabel" in d
+    assert status == 200 and d == {"configured": False}
     assert headers["Cache-Control"] == "no-store"
 
 
-def test_api_chat_for_a_live_session_has_the_turns_the_board_lines_and_the_motion_lines(served, monkeypatch):
+def test_api_chat_for_a_live_session_has_what_the_entry_and_the_strip_draw_and_nothing_else(served, monkeypatch):
     monkeypatch.setenv("SALA_CHAT_SESSION", NAME)
     monkeypatch.setenv("SALA_OWNER_NAME", "Rowan")
-    mock_root = served["settings"].mockups_dir
-    mock_root.mkdir(parents=True, exist_ok=True)
-    (mock_root / "4.html").write_text("<title>Four</title>")
     write_motion(served["settings"].motion_dir, NAME, [{"text": "drawing slide 4", "at": int(time.time())}])
     now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
 
@@ -240,37 +269,16 @@ def test_api_chat_for_a_live_session_has_the_turns_the_board_lines_and_the_motio
         + line({"type": "assistant", "uuid": "a3", "message": {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "Noted."}]}}))
     status, headers, body = get(served["url"] + "/api/chat")
     d = json.loads(body)
-    assert status == 200 and d["configured"] is True and d["present"] == "live" and d["session"] == NAME
-    assert d["name"] == "Fake" and d["owner"] == "Rowan"
-    assert [e["k"] for e in d["entries"]] == ["me", "reply", "kept"]
-    me, reply, kept = d["entries"]
-    assert me["text"] == "show me /mockup/4" and me["cards"][0]["title"] == "Four"
-    assert reply["text"] == "Here: [page](/mockup/4)" and reply["cards"][0]["n"] == 4
-    assert kept["src"] == {"kind": "session", "name": "chat-other"} and kept["what"] == "FYI the build is green." and kept["did"] == "Noted."
-    assert d["keptToday"] == 1 and d["keptTodayFloor"] is False
+    assert status == 200 and d["configured"] is True and d["present"] == "live" and d["session"] == NAME and d["name"] == "Fake"
+    assert set(d) == {"configured", "session", "name", "present", "busy", "keptToday", "keptTodayFloor", "keptLines", "waiting", "motion"}, sorted(d)
+    assert d["keptToday"] == 1 and d["keptTodayFloor"] is False and d["keptLines"] == 1
     assert [m["text"] for m in d["motion"]] == ["drawing slide 4"]
-    assert d["waiting"] == [] and d["pid"] > 0 and d["busy"] is False
+    assert d["waiting"] == [] and d["busy"] is False
 
 
 def test_api_chat_for_a_session_sala_does_not_have_says_absent(served, monkeypatch):
     monkeypatch.setenv("SALA_CHAT_SESSION", "chat-test-nobody")
     d = json.loads(get(served["url"] + "/api/chat")[2])
-    assert d["configured"] is True and d["present"] == "absent" and d["entries"] == [] and d["pid"] == 0 and d["name"] == "Nobody"
+    assert d["configured"] is True and d["present"] == "absent" and d["busy"] is False and d["name"] == "Nobody"
 
 
-def test_the_page_uses_the_manifest_and_the_worker_the_other_pages_do_and_names_its_sheets_and_scripts_by_version(served):
-    page = get(served["url"] + "/chat")[2].decode()
-    assert 'rel="manifest" href="manifest.webmanifest"' in page
-    sheets = re.findall(r'<link rel="stylesheet" href="(static/[^"]+)"', page)
-    assert sheets and all(re.search(r"\.css\?v=[0-9a-f]+$", h) for h in sheets)
-    scripts = re.findall(r'<script src="(static/[^"]+)"', page)
-    assert scripts and all(re.search(r"\.js\?v=[0-9a-f]+$", h) for h in scripts)
-    assert get(served["url"] + "/sw.js")[0] == 200   # one worker for the whole site, with no fetch handler: nothing page-specific
-
-
-def test_the_pages_script_sets_no_html_from_what_a_session_wrote_and_reaches_no_other_site():
-    from sala_web.app import STATIC
-    js = (STATIC / "chat.js").read_text(encoding="utf-8")
-    for bad in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
-        assert bad not in js, bad
-    assert not re.findall(r"""fetch\(\s*["'`]https?:""", js) and "EventSource(\"http" not in js   # only this site's own api/ paths
