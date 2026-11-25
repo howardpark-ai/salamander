@@ -556,8 +556,10 @@ models and lanes; `tests/test_table_width.py` holds both tables with sleeping ro
 
 **The columns and Group by.** The Agents table's columns are Agent, Role, Surface, Status, Model, Effort and Lane; there is no Project column, the project
 (`scope/project`, or "unregistered") is the tooltip of the agent's name, and the lane page's table has the same columns. **Surface** says where a front
-agent answers its owner: `sala`, or `slack` (in the accent colour) for a row the server marks `surface: "slack"`; a back agent and a row with no role show a
-dash (a phone's card leaves the dash out). Above the table, **Group by** has three buttons, Status, Lane and Role, a toggle group (`aria-pressed`): a lit one
+agent answers its owner: `sala`, or `slack` (in the accent colour) for a row the server marks `surface: "slack"`, each after a 16 px icon (sala's own app icon,
+`static/icons/icon-192.png`, and the Slack logo, `static/icons/slack-logo.svg`, a trademark of Slack Technologies, LLC, kept with its notice in
+`static/icons/NOTICE.md`; decorative, the word beside it says it and is still the sort key); a back agent and a row with no role show a bare dash, with no
+icon (a phone's card leaves the dash out). Above the table, **Group by** has three buttons, Status, Lane and Role, a toggle group (`aria-pressed`): a lit one
 clicked again is the plain list, which is the default. A group is a heading row, a button (`aria-expanded`) with a chevron, the group's name and its count; it
 folds and unfolds its rows, an empty group is left out, the header's sort works inside each group; each count is of the group's rows, folded or not. The order is fixed: by Status needs input, working, shell, idle, sleeping; by Lane the lane cards' order (the saved `laneOrder` included, a lane with
 no card last), named as the Lane column names it; by Role front, back, any other word, then "no role". The grouping and the folded groups are saved in
