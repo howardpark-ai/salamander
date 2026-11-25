@@ -253,11 +253,14 @@ async function saveList(key, compute) {
      while it is open they are also read when the stream says something changed (chatStripSoon) and on open;
    - its strip (#chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner, what is in
      motion, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the server marks the session in
-     api/sessions, sessions.py) and scrolls with the thread. The switch is not active yet: every turn is shown;
+     api/sessions, sessions.py) and scrolls with the thread. The switch shows and hides the kept-back lines in the thread (below);
    - the assistant's messages sit to the left at the first page's measure (style.css, body.chat-session).
+   - the turns the owner did not start are kept back by the SERVER (chatkeep.py: the transcript reads and the stream of this one session carry one "kept" message
+     in place of each such turn, and the turns he started whole, as for any session). A kept message is one quiet line in the thread (renderKept); the strip's
+     switch shows or hides them all (body.chat-kept-on), with their count of today (api/chat keptLines). Nothing here decides who started a turn.
    Everything the strip shows is read from api/chat, which keeps its shape; the first page (/chat, chat.js) is untouched for now. */
 const CHAT_MARKS_MS = 25000, CHAT_STRIP_MS = 350;
-const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null };   // data: the last answer of api/chat
+const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines)
 const chatEntryOn = () => !!(chatView.data && chatView.data.configured);
 // the session row the entry stands for: hidden from the list while the entry exists
 const isChatRow = (s) => !!s && s.chat === true && chatEntryOn();
@@ -315,6 +318,7 @@ function paintChatEntry() {
 function chatSync() {
   const flagged = chatSelected();
   document.body.classList.toggle("chat-session", flagged);
+  document.body.classList.toggle("chat-kept-on", flagged && chatView.kept);
   const strip = $("#chat-strip"), was = !strip.hidden, on = flagged && chatEntryOn();
   strip.hidden = !on;
   if (on) { paintChatStrip(); if (!was) loadChatMarks(); }
@@ -327,11 +331,13 @@ function buildChatStrip() {
     el("p", { class: "wait-cap", ...tx("chat.wait.note") }));
   const moList = el("ul", { class: "mo-list" });
   const motion = el("section", { class: "motion", ...tx("chat.motion.h", null, "aria-label") }, el("span", { class: "lbl", ...tx("chat.motion.h") }), moList);
-  // the switch is the first page's, but it does nothing yet: every turn is shown, so it is drawn off and says so
-  const sw = el("input", { type: "checkbox", id: "chat-strip-kept", disabled: true, "aria-disabled": "true" });
+  // the switch: shows or hides the kept-back lines of the thread (a class on the body; the server already holds back the turns the owner did not start)
+  const sw = el("input", { type: "checkbox", id: "chat-strip-kept" });
+  sw.checked = chatView.kept;
+  sw.addEventListener("change", () => { chatView.kept = sw.checked; chatSync(); });
   const swText = el("span"), countEl = el("span", { class: "count" });
   const kept = el("div", { class: "kept-row" },
-    el("label", { class: "kept-toggle off", for: "chat-strip-kept" }, sw, swText, countEl, el("span", { class: "soon", ...tx("ui.chat.keptOff") })));
+    el("label", { class: "kept-toggle", for: "chat-strip-kept" }, sw, swText, countEl));
   $("#chat-strip").replaceChildren(wait, motion, kept);
   chatView.ui = { waitList, waitNote, moList, swText, countEl };
 }
@@ -352,7 +358,7 @@ function paintChatStrip() {
   if (!waiting.length) u.waitList.append(el("li", { class: "wait-none", ...tx("chat.wait.none") }));
   u.moList.replaceChildren(...(motion.length ? motion.map((m) => el("li", { class: "mo", text: m.text })) : [el("li", { class: "mo none", ...tx("chat.motion.none") })]));
   u.swText.textContent = tl("chat.kept.toggle", { name: d.name });
-  u.countEl.textContent = tl(d.keptTodayFloor ? "chat.kept.floor" : "chat.kept.count", { n: d.keptToday | 0 });
+  u.countEl.textContent = tl(d.keptTodayFloor ? "chat.kept.floor" : "chat.kept.count", { n: (d.keptLines ?? d.keptToday) | 0 });
 }
 SalaI18n.onChange(() => { if (chatEntryOn()) { paintChatEntry(); if (!$("#chat-strip").hidden) paintChatStrip(); } });
 
@@ -3297,6 +3303,7 @@ function updateModelLine() {
 // host's tool calls by id, so a result finds its call without a scan of everything rendered before it
 // older: m is from a page before the ones shown (loadOlder): it says nothing of the current model and answers no pending bubble
 function renderMessage(m, { live = false, into = null, tools = null, older = false } = {}) {
+  if (m.role === "kept") return renderKept(m, into);
   if (!older && m.role === "assistant" && m.model) { state.modelInfo = { model: m.model, effort: m.effort || "" }; updateModelLine(); }
   const host = into || $("#chat");
   if (!older && m.role === "user") { const p = matchPending(m, live); if (p) dropPending(p); }
@@ -3363,6 +3370,35 @@ function renderMessage(m, { live = false, into = null, tools = null, older = fal
   if (copy) box.append(copyBar(copy, m.ts));  // no text, no copy/time row
   appendToChat(box, into);
   return true;
+}
+
+// the chat session's kept-back turns (chatkeep.py): one quiet line each, in the thread where the turn started, drawn only while the strip's switch is on
+// (style.css, .msg.kept). The server sends a line again with its uuid when the turn's reply lands (it takes the first one's place) and {gone: true} when the turn
+// turned out to be for the owner (its reply shows instead). Never counted as a new message: a hidden line is no news.
+function keptSource(src) {
+  const k = src && src.kind;
+  if (k === "sala") return tl("chat.src.sala");
+  if (k === "board") return tl("chat.src.board");
+  if (k === "session" && src.name) return tl("chat.src.session", { name: src.name });
+  if (k === "task") return tl("chat.src.task");
+  if (k === "system") return tl("chat.src.system");
+  return tl("chat.src.other");
+}
+function renderKept(m, into) {
+  // a page of history (a detached host) holds each line once, the server has folded a line sent again into the first; only the live chat has an earlier copy to replace
+  const old = !into && m.uuid ? $("#chat").querySelector(`:scope > .msg.kept[data-uuid="${CSS.escape(m.uuid)}"]`) : null;
+  if (m.gone) { if (old) old.remove(); return false; }
+  const k = m.kept || {};
+  const kids = [];
+  const t = stamp(m.ts);
+  if (t) kids.push(t);
+  kids.push(el("span", { class: "src", text: keptSource(k.src) }));
+  if (k.what) kids.push(el("span", { class: "what", text: k.what }));
+  if (k.open) kids.push(el("span", { class: "did", ...tx("chat.kept.open") }));
+  else if (k.did) kids.push(el("span", { class: "did", text: k.did }));
+  const box = el("div", { class: "msg kept", "data-uuid": m.uuid }, ...kids);
+  if (old) old.replaceWith(box); else appendToChat(box, into);
+  return false;
 }
 
 /* ---------- optimistic send: the message shows at once, then merges with the transcript's copy ---------- */

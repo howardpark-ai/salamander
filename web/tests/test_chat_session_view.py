@@ -5,8 +5,8 @@ image paste), spacing and buttons. What it adds is a short list, and a differenc
   - its entry, the first line of the sidebar's views above New session, with its name, a small "chat", a working dot and a red count of what waits on the owner;
   - the strip above the thread (what waits on the owner, what is in motion, the kept-back switch with its count), outside #chat because showTail replaces #chat's children;
   - the assistant's messages capped to the left, as on the first page.
-The server marks the session with `"chat": true` in api/sessions, and only that session: every other session's payload is as it was. The kept-back switch is drawn
-but does nothing yet (every turn is shown), and the first page (/chat, chat.html, chat.js, chat.css) is untouched until it is retired.
+The server marks the session with `"chat": true` in api/sessions, and only that session: every other session's payload is as it was. The kept-back switch
+works (the server keeps the turns the owner did not start back: test_chatkeep.py; the page draws each as one quiet line the switch shows or hides), and the first page (/chat, chat.html, chat.js, chat.css) is untouched until it is retired.
 
 What a wrong answer costs: a second page drawn to look like sala's, a strip that showTail wipes on the first stream event, a name squeezed to nothing in the narrow drawer,
 two rows for one session, a sideways scroll bar on a phone, or a first page that stopped working before its replacement is live.
@@ -156,10 +156,13 @@ def test_the_entry_names_the_session_from_api_chat_and_the_drawer_closes_after_i
     assert 'for (const id of ["#side-chat", "#side-ovw", "#side-new"])' in APP_JS
 
 
-def test_the_switch_is_drawn_but_inactive_and_the_count_floors_with_a_plus():
+def test_the_switch_works_and_the_count_floors_with_a_plus():
     build = body_of(APP_JS, "function buildChatStrip()")
-    assert "disabled: true" in build and 'class: "kept-toggle off"' in build and 'tx("ui.chat.keptOff")' in build
-    assert '"chat.kept.floor" : "chat.kept.count"' in body_of(APP_JS, "function paintChatStrip()")
+    assert "disabled" not in build and "keptOff" not in build and "not active" not in build, "the switch is live: nothing says it is off"
+    assert 'addEventListener("change"' in build and "chatView.kept = sw.checked" in build and 'class: "kept-toggle"' in build
+    paint = body_of(APP_JS, "function paintChatStrip()")
+    assert '"chat.kept.floor" : "chat.kept.count"' in paint and "d.keptLines ?? d.keptToday" in paint
+    assert 'classList.toggle("chat-kept-on", flagged && chatView.kept)' in body_of(APP_JS, "function chatSync()")
     for key in ("chat.wait.h", "chat.wait.sub", "chat.wait.none", "chat.wait.note", "chat.wait.answer", "chat.wait.new", "chat.motion.h", "chat.motion.none", "chat.kept.toggle"):
         assert f'"{key}"' in APP_JS, key
 
@@ -222,7 +225,7 @@ def test_the_first_page_keeps_its_own_copy_of_what_the_strip_copied():
 
 
 # ── the words ────────────────────────────────────────────────────────────────
-@pytest.mark.parametrize("key", ["ui.side.chatRole", "ui.side.chatTip", "ui.side.chatWait.one", "ui.side.chatWait.other", "ui.chat.keptOff"])
+@pytest.mark.parametrize("key", ["ui.side.chatRole", "ui.side.chatTip", "ui.side.chatWait.one", "ui.side.chatWait.other"])
 def test_the_new_strings_are_in_english_and_in_korean_as_escapes(key):
     ko_key = key.replace(".one", ".other")
     assert f'"{key}": ' in EN and f'"{ko_key}": ' in KO
@@ -231,6 +234,19 @@ def test_the_new_strings_are_in_english_and_in_korean_as_escapes(key):
 
 
 @pytest.mark.parametrize("key", ["chat.wait.h", "chat.wait.sub", "chat.wait.none", "chat.wait.note", "chat.wait.answer", "chat.wait.new", "chat.motion.h", "chat.motion.none",
-                                 "chat.kept.toggle", "chat.kept.count", "chat.kept.floor", "chat.state.busy"])
+                                 "chat.kept.toggle", "chat.kept.count", "chat.kept.floor", "chat.kept.open", "chat.state.busy",
+                                 "chat.src.sala", "chat.src.board", "chat.src.session", "chat.src.task", "chat.src.system", "chat.src.other"])
 def test_the_strips_strings_are_the_first_pages_own(key):
     assert f'"{key}": ' in EN and f'"{key}": ' in KO
+
+
+def test_the_kept_lines_are_drawn_by_one_function_in_sala_s_own_renderer_and_hidden_unless_the_switch_is_on():
+    assert 'if (m.role === "kept") return renderKept(m, into);' in body_of(APP_JS, "function renderMessage(")
+    kept = body_of(APP_JS, "function renderKept(")
+    assert "m.gone" in kept and "old.replaceWith(box)" in kept and "appendToChat(box, into)" in kept and "return false" in kept   # never counted as a new message
+    assert "innerHTML" not in kept, "what a session wrote is set as text"
+    assert APP_JS.count("function renderMessage(") == 1 and "chat.js" not in INDEX and "chat.css" not in INDEX, "no second renderer, no second page"
+    shown = [b for s, b in rules(STYLE) if s == "#chat .msg.kept"]
+    assert shown and "display: none" in shown[0], "off by default, whatever the session"
+    on = [b for s, b in rules(STYLE) if s == "body.chat-kept-on #chat .msg.kept"]
+    assert on and "display: flex" in on[0] and not re.search(r"overflow(-x)?\s*:\s*(scroll|auto)", on[0])

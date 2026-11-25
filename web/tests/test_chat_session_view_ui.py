@@ -7,7 +7,7 @@ Held here, at 1280 x 800 and 390 x 844 (the width rule also at 360 and 320), wit
   - the entry is the first line of the views above New session, with its name, "chat", a working dot and a red count; it is hidden when no session is configured;
   - a click opens #s=<name> (selected, aria-current), a phone's drawer closes, the session's own row is hidden while the entry exists and shown when it does not,
     and the Overview still lists the session;
-  - the strip shows what waits on the owner, what is in motion and the kept-back switch (drawn off) with its count, sits before #chat in #chat-pane, survives the thread
+  - the strip shows what waits on the owner, what is in motion and the kept-back switch with its count, sits before #chat in #chat-pane, survives the thread
     being replaced, and is hidden for any other session;
   - one composer, and an image pasted into it is one chip; a working session shows the spinner with no code of its own;
   - the chat session and another session, given the same transcript, differ only in the strip and the cap (header, composer, bubbles, copy button, buttons);
@@ -62,12 +62,13 @@ def stub(doc: dict) -> str:
 
 def hostile_transcript() -> str:
     reply = f"Here: {WORD}\n\n{URL}\n\n```\n{CODE}\n```\n\n{TABLE}\n`{'c' * 200}`\n"
-    return (transcript_line("user", [{"type": "text", "text": f"{WORD} {URL}"}], "h-1")
+    # the owner's own turn (a line he typed: the chat session keeps back a user line that has no human origin; the hostile text inside a kept line is test_chat_kept_ui.py's)
+    return (transcript_line("user", [{"type": "text", "text": f"{WORD} {URL}"}], "h-1", human=True)
             + transcript_line("assistant", [{"type": "text", "text": reply}], "h-2", model="claude-opus-5-5"))
 
 
 def code_transcript() -> str:
-    return (transcript_line("user", [{"type": "text", "text": "show me the code"}], "p-1")
+    return (transcript_line("user", [{"type": "text", "text": "show me the code"}], "p-1", human=True)
             + transcript_line("assistant", [{"type": "text", "text": "Here it is.\n\n```sh\nsala ls\n```\n\nAnd a second paragraph that is long enough to wrap onto a few "
                                              "lines in a narrow window, so the width of the text matters.\n"}], "p-2", model="claude-opus-5-5"))
 
@@ -210,7 +211,7 @@ STRIP = """(() => { const s = document.querySelector('#chat-strip'), pane = docu
   return { hidden: s.hidden, parent: s.parentElement.id, before: !!(s.compareDocumentPosition(chat) & Node.DOCUMENT_POSITION_FOLLOWING), inside: chat.contains(s),
            cls: document.body.classList.contains('chat-session'), position: getComputedStyle(s).position,
            waiting: t('.wait-row .wait-subj'), answers: t('.wait-row .answer'), fresh: t('.wait-subj .new'), motion: t('.mo'), count: t('.count'),
-           switchOff: !!sw && sw.disabled && !sw.checked, switchText: t('.kept-toggle > span'), msgs: chat.querySelectorAll(':scope > .msg').length }; })()"""
+           switchOn: !!sw && !sw.disabled && !sw.checked, switchText: t('.kept-toggle > span'), msgs: chat.querySelectorAll(':scope > .msg').length }; })()"""
 
 
 @pytest.mark.parametrize("size", SIZES)
@@ -221,7 +222,7 @@ def test_the_strip_shows_what_waits_what_is_in_motion_and_the_kept_back_switch_w
     assert s["parent"] == "chat-pane" and s["before"] and not s["inside"] and s["cls"] and s["position"] == "static", s    # scrolls with the thread
     assert s["waiting"] == ["Approve the demo budget", "Pick a venue"] and s["answers"] == ["Answer", "Answer"], s
     assert s["motion"] == ["drawing slide 4"] and s["count"] == ["12+ kept back today"], s
-    assert s["switchOff"] and s["switchText"][0].startswith("Show what Ada kept back") and "not active yet" in s["switchText"], s
+    assert s["switchOn"] and s["switchText"][0].startswith("Show what Ada kept back") and "not active yet" not in s["switchText"], s
     assert s["fresh"] == [], s                                  # the first answer's moves are not "new"
     # a move that came since is marked new; the strip follows the answer
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { waiting: window.__chat.waiting.concat([{ id: 'item#3', subject: 'A third move', url: '' }]), motion: [] }); loadChatMarks(); ''")

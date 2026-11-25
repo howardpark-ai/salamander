@@ -12,7 +12,8 @@ none itself):
   GET  /terminal                  the full-size terminal: ttyd's page in a frame filling the window, ?arg=<tmux session> (static/terminal.html)
   GET  /chat                      the chat page: one configured session (SALA_CHAT_SESSION) as one conversation (static/chat.html; web/README.md,
                                   *The chat page*); GET /api/chat is its data: what the owner typed, the final reply of each turn he started,
-                                  the one-line record of every turn something else started, his moves from the board feed, the session's own
+                                  the one-line record of every turn something else started (`keptToday`, and `keptLines`: how many kept-back lines the
+                                  session's own view draws today, which also counts a turn he then spoke into), his moves from the board feed, the session's own
                                   `sala motion` lines, and link cards (read-only; it sends nothing, the page's composer uses /api/s/<pid>/send)
   GET  /manifest.webmanifest      the web app manifest (the page is installable as an app; static/manifest.webmanifest)
   GET  /sw.js                     the service worker, at the root so its scope is the whole site (static/sw.js)
@@ -164,8 +165,15 @@ none itself):
                                   ?around=<cursor> (a line's start: a Search result's pos) gives about n/2 messages before that line
                                   and the rest from it on, with `before`/`start` and `after` (the cursor for the next newer page)/`end`
                                   (true: the end of the file is in); ?after=<cursor> gives the n messages from it on, `after` and
-                                  `end`. One of before, around and after; each cursor is checked the same way (400 when bad)
-  GET  /api/s/<pid>/stream        SSE: "version", "reset" with the last 200 messages, then "append", "status" and "live" events.
+                                  `end`. One of before, around and after; each cursor is checked the same way (400 when bad).
+                                  For the chat session (SALA_CHAT_SESSION) alone the turns its owner did not start are kept back
+                                  (chatkeep.py; web/README.md, *The chat session in sala's own view*): each is ONE message {uuid,
+                                  role "kept", ts, blocks [], kept: {src: {kind, name}, what, did, open}} in place of its lines, a page holds
+                                  whole turns (every cursor is the start of a turn), and a turn he started is whole. A page may also
+                                  hold {uuid, role "kept", gone: true}: the line of that uuid is withdrawn (its reply was for him)
+  GET  /api/s/<pid>/stream        SSE: "version", "reset" with the last 200 messages, then "append", "status" and "live" events
+                                  (the chat session's carry the same kept lines as its transcript: a kept message sent again with its
+                                  uuid replaces the first, one with "gone" withdraws it).
                                   "live" is the pane of a running `!` command: Claude Code writes a `!` command's
                                   output to the transcript only when the command ends (2.1.312: no record before) and its pane
                                   keeps the input box, so the stream looks at the pane (a capture every 2 s, every 0.75 s while
@@ -280,6 +288,7 @@ from starlette.routing import Mount, Route, request_response
 from starlette.staticfiles import StaticFiles
 
 from . import board as B
+from . import chatkeep as CK
 from . import chatpage as CP
 from . import yourmove as YM
 from . import colors as CLR
@@ -1065,6 +1074,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         after = request.query_params.get("after")
         if sum(x is not None for x in (before, around, after)) > 1:
             return _err(400, "give one of before, around and after")
+        if _is_chat(s):   # the chat session: the turns its owner did not start are kept back (chatkeep.py), the same pages otherwise
+            return await _chat_transcript_reply(s, path, n, before, around, after)
         # a page around a line (a Search result's pos) or after a cursor a page gave: a byte offset into this session's own
         # transcript, checked as `before` is; `after` is the cursor for the next newer page, `end` that the live end is in
         if around is not None:
@@ -1087,6 +1098,28 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # transcript; the path is the server's, never the client's)
         try:
             msgs, cursor, at_start = await run_in_threadpool(TR.read_before, path, s.session_id, before, n)
+        except TR.BadCursor as e:
+            return _err(400, str(e))
+        return JSONResponse({"session": s.to_json(), "messages": msgs, "before": cursor, "start": at_start})
+
+    def _is_chat(s: S.Session) -> bool:
+        return bool(s.name) and s.name == chat_session()
+
+    async def _chat_transcript_reply(s: S.Session, path: Path, n: int, before, around, after) -> Response:
+        """_transcript_reply for the chat session: the same JSON, from chatkeep (whole turns per page, a hidden turn one "kept" message)."""
+        owner, strict = owner_name(), s.status in ("busy", "waiting")
+        try:
+            if around is not None:
+                d = await run_in_threadpool(CK.read_around, path, s.session_id, owner, around, n, strict)
+                return JSONResponse({"session": s.to_json(), **d})
+            if after is not None:
+                msgs, cursor, at_end = await run_in_threadpool(CK.read_after, path, s.session_id, owner, after, n, strict)
+                return JSONResponse({"session": s.to_json(), "messages": msgs, "after": cursor, "end": at_end})
+            if before is None:
+                msgs, cursor, off, _kp = await run_in_threadpool(CK.read_tail_page, path, s.session_id, owner, n, strict)
+                return JSONResponse({"session": s.to_json(), "messages": msgs, "offset": off, "path": str(path),
+                                     "before": cursor, "start": cursor == 0})
+            msgs, cursor, at_start = await run_in_threadpool(CK.read_before, path, s.session_id, owner, before, n, strict)
         except TR.BadCursor as e:
             return _err(400, str(e))
         return JSONResponse({"session": s.to_json(), "messages": msgs, "before": cursor, "start": at_start})
@@ -1120,6 +1153,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             # given (None: the page shows nothing); live_every = seconds between two captures (slow again after three looks
             # that find nothing though the record says a command runs, a stale record)
             bang: dict | None = None
+            keeper: CK.Keeper | None = None   # the chat session's state (chatkeep.py): the turns its owner did not start are kept back
             pane: str | None = None
             live_sent: dict | None = None
             last_live = 0.0
@@ -1143,7 +1177,12 @@ def create_app(settings: Settings | None = None) -> Starlette:
                         s = cur
                         path = TR.transcript_path(settings.projects_dir, s.cwd, s.session_id)
                         if path is not None:
-                            msgs, cursor, off = await run_in_threadpool(TR.read_tail_page, path, s.session_id, TAIL_N)
+                            if _is_chat(s):
+                                msgs, cursor, off, keeper = await run_in_threadpool(
+                                    CK.read_tail_page, path, s.session_id, owner_name(), TAIL_N, status in ("busy", "waiting"))
+                            else:
+                                keeper = None
+                                msgs, cursor, off = await run_in_threadpool(TR.read_tail_page, path, s.session_id, TAIL_N)
                             # before: the cursor for an older page (GET transcript?before=); start: there is none
                             yield ev("reset", {"session": s.to_json(), "messages": msgs, "before": cursor, "start": cursor == 0})
                             announced_empty = False
@@ -1164,7 +1203,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
                         continue
                     if size > off:
                         before = off
-                        msgs, off = await run_in_threadpool(TR.read_from, path, s.session_id, off)
+                        if keeper is not None:
+                            msgs, off = await run_in_threadpool(CK.read_from, path, keeper, off, status in ("busy", "waiting"))
+                        else:
+                            msgs, off = await run_in_threadpool(TR.read_from, path, s.session_id, off)
                         if msgs:
                             yield ev("append", {"messages": msgs})
                         if off > before:

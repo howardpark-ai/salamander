@@ -539,7 +539,6 @@ window.SALA_I18N_EN = {
   "time.now": "just now",
   "ui.banner.updated": "sala was updated.",
   "ui.chat.jump": "Jump to the latest message",
-  "ui.chat.keptOff": "not active yet",
   "ui.chat.pick": "Pick a session on the left.",
   "ui.cmp.attach": "Attach files",
   "ui.cmp.drop": "Drop files to attach",

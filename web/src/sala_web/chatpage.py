@@ -141,7 +141,7 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
     session). `cache` (a dict kept by the caller) holds the last read of a transcript, keyed by its size and time, so a poll of an unchanged
     file costs a stat. `your_move`: the owner's whole Your move list when stackshot's read has one (yourmove.py), else None."""
     entries: list[dict] = []
-    kept_today, floor = 0, False
+    kept_today, kept_lines, floor = 0, 0, False
     present = "absent"
     status = ""
     if sess is not None:
@@ -158,14 +158,15 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
                 stamp = None
             hit = cache.get(str(path))
             if stamp is not None and hit is not None and hit[0] == stamp:
-                entries, kept_today, floor = hit[1], hit[2], hit[3]
+                entries, kept_today, floor, kept_lines = hit[1], hit[2], hit[3], hit[4]
             elif stamp is not None:
                 turns, reached = CT.read_turns(path, now_ms, zone, strict)
                 entries = visible_window(CT.entries(turns, owner, limit=len(turns)), SHOWN_MAX)
                 kept_today, floor = CT.kept_today(turns, owner, midnight), not reached
+                kept_lines = CT.kept_today(turns, owner, midnight, with_taken=True)
                 if len(cache) > 8:
                     cache.clear()
-                cache[str(path)] = (stamp, entries, kept_today, floor)
+                cache[str(path)] = (stamp, entries, kept_today, floor, kept_lines)
     out_entries = []
     for e in entries:
         e = dict(e)
@@ -177,6 +178,6 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
     return {"configured": True, "session": name, "name": display, "owner": owner, "present": present, "status": status,
             "pid": sess.pid if sess is not None and present == "live" else 0,
             "busy": status in ("busy", "waiting"),
-            "entries": out_entries, "keptToday": kept_today, "keptTodayFloor": floor,
+            "entries": out_entries, "keptToday": kept_today, "keptTodayFloor": floor, "keptLines": kept_lines,
             "waiting": waiting(board_doc, your_move), "motion": MO.read_lines(motion_dir, name),
             "now": now_ms}

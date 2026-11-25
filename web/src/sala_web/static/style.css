@@ -371,6 +371,15 @@ body.hide-tools .msg.tools-only { display: none; }
 body.chat-session #chat-pane { flex-direction: column; }
 body.chat-session #chat-pane > :is(#chat-strip, #chat) { flex: none; }
 body.chat-session #chat .msg.assistant .md { max-width: 68ch; }
+/* the kept-back turns (app.js renderKept): one quiet line each, far quieter than a message, drawn only while the strip's switch is on (body.chat-kept-on). NO SIDEWAYS
+   SCROLL: the line may shrink and its text breaks anywhere. */
+#chat .msg.kept { display: none; }
+body.chat-kept-on #chat .msg.kept { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; margin: 4px 0; padding: 2px 0 2px 12px; border-left: 2px dotted var(--border);
+  font-size: 12px; line-height: 1.5; color: var(--faint); min-width: 0; overflow-wrap: anywhere; }
+body.chat-kept-on #chat .msg.kept + .msg.kept { margin-top: 0; }
+body.chat-kept-on #chat .msg.kept :is(.src, .what, .did) { min-width: 0; overflow-wrap: anywhere; max-width: 100%; }
+body.chat-kept-on #chat .msg.kept .what { color: var(--muted); }
+body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
 /* The strip's rules are the first page's (chat.css: .wait, .motion, .kept-toggle and what they hold), copied here and scoped to #chat-strip, so that
    page keeps working unchanged until it is retired; the retirement removes the old copy. NO SIDEWAYS SCROLL at any width: every box may shrink
    (min-width: 0) and every run of text breaks anywhere (overflow-wrap: anywhere). */
@@ -406,8 +415,6 @@ body.chat-session #chat .msg.assistant .md { max-width: 68ch; }
 #chat-strip .kept-toggle > span { min-width: 0; overflow-wrap: anywhere; }
 #chat-strip .kept-toggle input { flex: none; width: 16px; height: 16px; margin: 0; cursor: pointer; }
 #chat-strip .kept-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-#chat-strip .kept-toggle.off, #chat-strip .kept-toggle.off input { cursor: default; opacity: .7; }
-#chat-strip .kept-toggle .soon { font-size: 12px; color: var(--faint); }
 #chat-strip .count { display: inline-block; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link));
   font-variant-numeric: tabular-nums; max-width: 100%; overflow-wrap: anywhere; }
 #chat-strip a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
