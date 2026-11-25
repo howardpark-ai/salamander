@@ -108,6 +108,30 @@ sala is, *Deploying* below.
      no socket, no reply in time, a reply that is not ok, or any other text. The box's text for a pasted-text chip
      (`[Pasted text #1 +N lines]`), an attached image (`[Image #1]`) or shell mode (the `!` is not part of it) is not the message
      either, so those are refused too. Nothing else asks the mod, and no key is sent but that one Enter.
+     **A pane whose mod can fill the box is not read off the screen at all (`modbox.fill`, the mod's `fill` verb).** The screen
+     misread the box three times (a scrolled box, a placeholder, a top rule with two labels), so a Send or a Retry first asks the
+     mod, through `$.prompt.fill`, with an empty text and mode `insert`: a probe that changes nothing and answers the box's own
+     text and whether a dialog holds the keys (`refusal: "dialog"`: the typed dialogs `/model`, `/help`, `/config`, `/resume`,
+     `/status`, `/theme`, `/hooks`, `/memory`, `/usage`, `/rewind`, `/plugin`, `/permissions`, the Esc-Esc rewind and the
+     permission dialog). The text and the mode go to the mod in a small owner-only file beside the reply
+     (`<session id>.<id>.fill.json`, written whole and removed by both sides), never on the socket line, so any text survives
+     (newlines, quotes, Korean, emoji, 5 KB); a mod older than the verb answers `unknown` or nothing, which reads as no answer,
+     and the send then goes the screen-reading way above, exactly as for a pane with no mod. When the mod answers: (1) a
+     refusal `dialog`, or a screen that positively shows something over the box (`tmuxio.overlay`: a numbered dialog with
+     nothing under it, or the last line of the screen saying `Esc to cancel` (the model picker on `Alt+P`, the prompt history
+     search on `Ctrl+R`) or `Showing detailed transcript` (`Ctrl+O`), all read on Claude Code 2.1.332), is refused in the
+     dialog's own words, and a lone option number still answers a numbered dialog; **a screen where no box can be found is no
+     reason to refuse**. (2) A draft in the box keeps today's rule: refused with its text for Replace (a pasted-text chip and an
+     `[Image #N]` marker count as a draft), cleared first when Replace carries exactly that text, and a Retry of that very message
+     presses only Enter. (3) The message is put in with `fill` (mode `replace`: no pasted-text chip comes up, however many lines),
+     and the text the box answers is compared with the message after what the CLI does to it (`modbox.normalize`: CRLF to LF,
+     zero-width characters, NUL, BEL and ESC dropped, trailing whitespace trimmed); a difference, or a box that did not take
+     it, clears the box and the answer is the paste path's 409 "pasted but not submitted". (4) Enter is pressed through tmux
+     once. (5) The box is read again through the mod for up to 1.5 s: not holding the message any more means it went in
+     (`"confirmedByMod": true`); still holding it means an overlay took the Enter, so the text is cleared, the same 409 is
+     answered, and **Enter is never pressed a second time**. Files, a `!` command, a message over 16000 characters and a pane
+     already in shell mode are not taken by this path and are pasted as before (a pasted file path becomes an image chip only by
+     paste, and a filled `!` line would be sent as a plain prompt). The messages the owner sees are the same ones as before.
 - **Older messages load as the chat is scrolled to its top.** A session's chat opens with the last 200 messages of its
   transcript (`TAIL_N`, `transcript.read_tail_page`); the stream's `reset` also carries `before`, a cursor (the byte offset
   in the transcript where those messages begin), and `start` (the file's start is already in). A line at the top of the

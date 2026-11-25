@@ -174,3 +174,93 @@ def test_a_stamp_written_just_before_the_process_started_still_counts(env):
 
 def test_the_process_start_of_a_dead_pid_is_none():
     assert MB.process_start(2 ** 22 + 12345) is None
+
+
+# ---- fill: put a text in the box through the mod -------------------------------------------------------------------------------
+
+def test_fill_puts_the_text_in_and_says_what_the_box_holds(env):
+    m = env["make"](fill_mode="ok")
+    text = "one\ntwo \"q\" \\ é\n\n  three"
+    got = asyncio.run(MB.fill(env["settings"], PID, text, "replace"))
+    assert got == MB.Filled(True, None, text, len(text))
+    assert m.fills == [(text, "replace")]
+    assert m.replies_left() == []        # the reply is gone
+    assert not list(m.run_dir.glob("*.fill.json*"))   # and so is the payload
+
+
+def test_fill_of_nothing_by_insert_is_the_probe_and_changes_nothing(env):
+    m = env["make"](fill_mode="ok", text="owner words")
+    got = asyncio.run(MB.fill(env["settings"], PID, "", "insert"))
+    assert got == MB.Filled(True, None, "owner words", 11) and m.text == "owner words"
+
+
+def test_fill_under_a_dialog_says_so_and_leaves_the_draft(env):
+    m = env["make"](fill_mode="ok", dialog=True, text="draft")
+    got = asyncio.run(MB.fill(env["settings"], PID, "new", "replace"))
+    assert got is not None and got.refusal == "dialog" and got.is_filled is False and got.text == "draft"
+    assert m.text == "draft"
+
+
+def test_the_payload_never_rides_on_the_socket_line(env):
+    m = env["make"](fill_mode="ok")
+    asyncio.run(MB.fill(env["settings"], PID, "SECRET-WORDS", "replace"))
+    assert m.lines and all("SECRET-WORDS" not in ln for ln in m.lines)
+
+
+@pytest.mark.parametrize("fill_mode", ["unknown", "silent", "badjson"])
+def test_fill_of_a_mod_that_has_no_such_verb_or_says_nothing_useful_is_none(env, fill_mode):
+    env["make"](fill_mode=fill_mode)
+    start = time.monotonic()
+    assert asyncio.run(MB.fill(env["settings"], PID, "x", "replace", wait=0.4)) is None
+    assert time.monotonic() - start < 3
+
+
+@pytest.mark.parametrize("kw", [{"stamp": False}, {"version": 0}, {"stamp_at_ms": 1_000_000}, {"row": False}])
+def test_fill_with_no_mod_to_ask_is_none_and_nobody_is_asked(env, kw):
+    m = env["make"](fill_mode="ok", **kw)
+    assert asyncio.run(MB.fill(env["settings"], PID, "x", "replace")) is None
+    assert m.fill_requests == 0
+
+
+def test_fill_refuses_a_mode_it_does_not_know_and_a_text_too_long_without_asking(env):
+    m = env["make"](fill_mode="ok")
+    assert asyncio.run(MB.fill(env["settings"], PID, "x", "swap")) is None
+    assert asyncio.run(MB.fill(env["settings"], PID, "x" * (MB.MAX_FILL + 1), "replace")) is None
+    assert m.fill_requests == 0
+
+
+@pytest.mark.parametrize("reply", [{"isFilled": "yes", "text": "", "cursor": 0}, {"isFilled": True, "text": 5, "cursor": 0},
+                                   {"isFilled": True, "text": "", "cursor": "0"}, {"isFilled": True, "text": "", "cursor": True},
+                                   {"isFilled": True, "text": "", "cursor": 0, "refusal": 5}])
+def test_fill_with_a_reply_not_shaped_as_an_answer_is_none(env, reply, monkeypatch):
+    env["make"](fill_mode="ok")
+
+    async def fake_ask(settings, pid, verb, payload=None, wait=MB.REPLY_WAIT):
+        return {"ok": True, "reqid": "x", **reply}
+
+    monkeypatch.setattr(MB, "_ask", fake_ask)
+    assert asyncio.run(MB.fill(env["settings"], PID, "x", "replace")) is None
+
+
+def test_the_payload_file_is_private_and_removed_when_the_mod_never_answers(env):
+    m = env["make"](fill_mode="silent")
+    seen = []
+    real = MB._write_private
+
+    def spy(path, value):
+        ok = real(path, value)
+        seen.append((path.name, oct(path.stat().st_mode & 0o777)))
+        return ok
+
+    env["monkeypatch"].setattr(MB, "_write_private", spy)
+    assert asyncio.run(MB.fill(env["settings"], PID, "x", "replace", wait=0.3)) is None
+    assert seen and seen[0][0].endswith(".fill.json") and seen[0][1] == "0o600"
+    assert not list(m.run_dir.glob("*.fill.json*"))
+
+
+@pytest.mark.parametrize("sent,box", [
+    ("a\r\nb", "a\nb"), ("a\rb", "a\nb"), ("a​b", "ab"), ("a\x00b\x07c\x1bd", "abcd"), ("hello   \n\n  \n", "hello"),
+    ("  lead", "  lead"), ("tab\there", "tab\there"), ("é", "é"),
+])
+def test_normalize_is_what_the_cli_keeps_of_a_text(sent, box):
+    assert MB.normalize(sent) == box

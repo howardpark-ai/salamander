@@ -481,6 +481,32 @@ def dialog(captured: str) -> tuple[list[str], str]:
     return options, text
 
 
+# What Claude Code 2.1.332 draws in the last line of the screen when something sits over the prompt box and a key goes to it, not
+# to the box (a real-pane check): the model picker (Alt+P) "... Enter to save · Esc to cancel", the prompt history search (Ctrl+R)
+# "ctrl+s to change scope · Esc to cancel", the detailed transcript (Ctrl+O) "Showing detailed transcript · ctrl+o to toggle ...".
+# The prompt box's own footer never says either, so the last two non-blank lines (a footer wrapped on a narrow pane runs onto two)
+# are the only place looked in: a line quoted higher up the conversation is not an overlay.
+OVERLAY_FOOTER_RE = re.compile(r"Esc\s+to\s+cancel\s*$|Showing\s+detailed\s+transcript\b")
+
+
+def overlay(captured: str) -> bool:
+    """True when the screen positively shows something over the prompt box that would take an Enter instead of it: a numbered
+    dialog with nothing drawn below it (the model picker is one; a numbered line in the conversation above a prompt box, such
+    as the owner's own "1. fix this", has the box's rules below it and is not), or the footer of a picker, the history search
+    or the transcript view (OVERLAY_FOOTER_RE). False for everything else, a screen where no prompt box can be found
+    included: the pane's mod says what the box holds, the screen only refuses."""
+    raw = captured.split("\n")
+    lines = [plain(ln).replace("\u00a0", " ").strip() for ln in raw]
+    tail = [ln for ln in lines if ln][-2:]
+    if OVERLAY_FOOTER_RE.search(" ".join(tail)):
+        return True
+    if not dialog(captured)[0]:
+        return False
+    focused = next((i for i in range(len(lines) - 1, -1, -1)
+                    if lines[i].strip(BOX_SIDES).strip().startswith(PROMPT) and OPTION_RE.match(lines[i].strip(BOX_SIDES).strip())), None)
+    return focused is not None and not any(_is_rule(raw[i]) for i in range(focused + 1, len(raw)))
+
+
 def _is_timer(line: str) -> bool:
     """True for the elapsed-time line of a running command ("+14 lines (18s)", "(4s)", "Running… (3s)"), whatever
     indent or "⎿" glyph it carries: it ticks every second, so it marks the command and is never part of its text."""

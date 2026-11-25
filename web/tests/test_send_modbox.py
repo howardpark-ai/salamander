@@ -42,6 +42,17 @@ def draw(kind):
         sys.stdout.write("old output\n" + RULE + "\n❯ the pasted words are in the box\n" + RULE + "\n")
     elif kind == "dialog":
         sys.stdout.write("old output\n" + RULE + "\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n")
+    elif kind == "picker":     # the model picker (Alt+P): a numbered list over the box, its footer last
+        sys.stdout.write("old output\n" + RULE + "\n  Select model\n    1. Default       Use the default model\n"
+                         "  ❯ 2. Sonnet 5.5 ✔  Custom Sonnet model\n    3. Haiku 5.5     Custom Haiku model\n"
+                         "  s to use this session only · Enter to save · Esc to cancel\n")
+    elif kind == "search":     # the prompt history search (Ctrl+R)
+        sys.stdout.write("old output\n" + RULE + "\n  Search prompts · everywhere\n  No prompts yet\n  ╭" + "─" * 30 + "╮\n"
+                         "  │ ⌕ Filter history…" + " " * 12 + "│\n  ╰" + "─" * 30 + "╯\n  ctrl+s to change scope · Esc to cancel\n")
+    elif kind == "transcript":  # the detailed transcript view (Ctrl+O)
+        sys.stdout.write("old output\n  Showing detailed transcript · ctrl+o to toggle · ↑/↓ to scroll · v to open in vi\n")
+    elif kind == "quoted":     # the owner's own numbered message further up, a real empty box below it
+        sys.stdout.write("❯ 1. fix this\n  2. and that\n● done\n" + RULE + "\n❯ \x1b[2mTry \"something\"\x1b[0m\n" + RULE + "\n  auto mode on\n")
     else:
         sys.stdout.write("working on something, no box on this screen\n")
     sys.stdout.flush()

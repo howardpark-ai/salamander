@@ -1,5 +1,5 @@
 // sala's in-session helper. Loaded into every pane sala launches or resumes, through CLAUDE_CODE_PLUGIN_DIRS
-// (lib/common.sh, mod_env_prefix). It answers three requests sala sends over the session's own inbox, so sala no longer
+// (lib/common.sh, mod_env_prefix). It answers the requests sala sends over the session's own inbox, so sala no longer
 // types /exit or /rename into the pane or reads the composer off the screen for them:
 //
 //   [sala-mod] exit <reqid>           refused while a draft sits in the prompt box, a turn is running or background
@@ -11,6 +11,19 @@
 //                                     sala asks it before it tries a relaunch, so its idle check and this one agree
 //   [sala-mod] rename <reqid> <name>  /rename <name> run as if typed, answered once it has run
 //   [sala-mod] draft <reqid>          the prompt box's text
+//   [sala-mod] fill <reqid>           put a text in the prompt box (sala-web's Send: it judges the box by the box itself, and
+//                                     reads the screen only to refuse when it shows a dialog). The text and the mode
+//                                     (replace, the default, append or insert) are in a payload file beside the reply,
+//                                     <sessionId>.<reqid>.fill.json {text, mode}, never on the line, so newlines, quotes
+//                                     and any character survive; the mod reads it and removes it. The reply is
+//                                     {reqid, ok: true, isFilled, refusal?, text, cursor}, the engine's own answer of
+//                                     $.prompt.fill: `text` is what the box holds afterwards (the CLI drops zero-width
+//                                     characters, NUL, BEL and ESC and turns CRLF into LF), `refusal` is "dialog" while a
+//                                     typed dialog or the permission dialog holds the keys (the box is then untouched and
+//                                     `text` its current draft). fill with an empty text and mode insert changes nothing
+//                                     and reads the box and its refusal: a probe. A request with no readable payload is
+//                                     answered ok: false, reason "payload". A mod older than this verb answers "unknown"
+//                                     (or not at all), which the caller reads as no answer.
 //
 // The request is one line on the session's messaging socket (lib/common.sh session_push), which arrives here as a
 // session.receive delivery from a peer; it is consumed, so it never reaches the transcript or the model. Anything not
@@ -51,7 +64,18 @@ const ENDED = new Set(['completed', 'failed', 'killed', 'stopped', 'cancelled', 
 const ARTIFACT_WATCH = /^live updates for artifact (https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+) \((?:auto-armed on publish|attached via \/artifacts|watch requested|resume requested|re-armed on session resume|presence while editing via MCP|watch requested; auto-replies since stopped)\)$/
 
 type Turn = { id: string; agent?: string }
-type Reply = { reqid: string; ok: boolean; reason?: string; text?: string; tasks?: string[]; holders?: string }
+type Reply = {
+  reqid: string
+  ok: boolean
+  reason?: string
+  text?: string
+  tasks?: string[]
+  holders?: string
+  isFilled?: boolean
+  refusal?: string
+  cursor?: number
+}
+const FILL_MODES = new Set(['replace', 'append', 'insert'])
 
 async function runDir($: EngineInterface): Promise<string> {
   const xdg = await $.env.get('XDG_RUNTIME_DIR')
@@ -163,6 +187,29 @@ async function handle($: EngineInterface, verb: string, reqid: string, arg: stri
     case 'draft': {
       const { text } = await $.prompt.read()
       return reply($, { reqid, ok: true, text })
+    }
+    case 'fill': {
+      // the payload is a file sala wrote for this request, {text, mode}: a line on the socket cannot carry a newline
+      const path = `${await runDir($)}/${await $.session.id()}.${reqid}.fill.json`
+      let want: { text?: unknown; mode?: unknown } = {}
+      try {
+        want = JSON.parse(await $.fs.read(path)) as typeof want
+      } catch {
+        want = {}
+      }
+      await $.process.run(['rm', '-f', path], { timeoutMs: 1000 }).catch(() => undefined)
+      const mode = want.mode === undefined ? 'replace' : want.mode
+      if (typeof want.text !== 'string' || typeof mode !== 'string' || !FILL_MODES.has(mode))
+        return reply($, { reqid, ok: false, reason: 'payload' })
+      const filled = await $.prompt.fill({ text: want.text, mode: mode as 'replace' | 'append' | 'insert' })
+      return reply($, {
+        reqid,
+        ok: true,
+        isFilled: filled.isFilled,
+        ...(filled.refusal === undefined ? {} : { refusal: filled.refusal }),
+        text: filled.text,
+        cursor: filled.cursor,
+      })
     }
     default:
       return reply($, { reqid, ok: false, reason: 'unknown' })
