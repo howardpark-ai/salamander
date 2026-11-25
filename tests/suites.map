@@ -79,6 +79,7 @@ suite ledger-recycle lib/adopt.sh lib/feedback.sh lib/forget-row.sh lib/heartbea
 suite limitwatch lib/alert.sh lib/barepane.sh lib/continuedin.sh lib/op.sh lib/settings-apply.sh lib/stuck.sh lib/watch.sh lib/wrapup.sh tests/fixtures/limit-billing.jsonl tests/fixtures/limit-weekly.jsonl tests/fixtures/limit-workspace.jsonl
 suite machinefollow lib/machine-follow.py systemd/machine-follow.path systemd/machine-follow.service systemd/machine-follow.timer systemd/machine-follow@.service tests/machinefollow_scenario.py
 suite machines lib/machines.py lib/machines.sh
+suite machinespost config.example docs/heartbeat-store.md docs/stackshot-contracts.md lib/agentstate.py lib/heartbeat.sh lib/machines.py lib/machinespost.py
 suite mockup lib/mockup.py lib/mockup.sh systemd/sala-mockup-clean.service systemd/sala-mockup-clean.timer
 suite mod lib/feedback.sh lib/hook.sh lib/revive.sh lib/sessions.py lib/spawn.sh lib/stackshot_record.py
 suite modelinplace lib/feedback.sh lib/model.sh lib/op.sh lib/revive.sh lib/sessions.py tests/fake-settings.py

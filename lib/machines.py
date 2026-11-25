@@ -122,11 +122,17 @@ class _Book:
 def machine_list(fleet_names=None, follow=None, *, candidates=None, ssh=None, holds=None) -> list[dict]:
     """Every machine the files name, as the entries described at the top of this file. `fleet_names` and `follow` are paths (or None); the other three
     default to the places beside the names file (paths()). Never raises for a missing or malformed file."""
+    return read_list(fleet_names, follow, candidates=candidates, ssh=ssh, holds=holds)[0]
+
+
+def read_list(fleet_names=None, follow=None, *, candidates=None, ssh=None, holds=None) -> tuple[list[dict], list[str]]:
+    """`machine_list` and, with it, the files that were named and could not be read (the file names, as `sala machines` says them): what the heartbeat posts to stackshot
+    (lib/machinespost.py) and `sala machines --json` carries as `not_read`. The one reader; nothing else builds the list."""
     p = paths(fleet_names, follow)
     for k, v in (("candidates", candidates), ("ssh", ssh), ("holds", holds)):
         if v is not None:
             p[k] = _path(v)
-    return _list(p)[0]
+    return _list(p)
 
 
 def _list(p: dict) -> tuple[list[dict], list[str]]:

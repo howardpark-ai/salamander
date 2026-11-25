@@ -62,6 +62,11 @@
 #                  with the machine token: never through lib/stackshot_form.py, and with STACKSHOT_CLIENT_PASS unset, since a pass opens only the New session form's calls), at most SALA_AGENT_STATE_TIMEOUT seconds; a failure is one line per five minutes in salamander-agent-state.log, never a failed heartbeat. A run
 #                  whose import of stackshot's module fails writes nothing new (the last good file stays). SALA_AGENT_STATE=off skips both. docs/stackshot-contracts.md interface 38: tell
 #                  the board's main session BEFORE changing it.
+#   machines.json  (a fifth file, the live store only, this box's own, beside agent-state.json; interface 39): {"schema":1,"written":<epoch s>,"machines":[{"name","hostname","letter","ssh","addresses","roles","retired","sources"}],
+#                  "not_read":[<machine file names that were named and could not be read>]}: sala's machine list, `machine_list()` in lib/machines.py (the one reader of the owner's machine files, the one `sala machines --json` prints), built and
+#                  posted by lib/machinespost.py. Rewritten on EVERY run (`written`), atomically, never into the store repo. Posted with `POST /client/machines` (SALA_MACHINES_POST_CMD, default `client.py post machines --file <path>`, the machine
+#                  token, never a pass) when the list changed since the last good post, else every 10 minutes (so stackshot can show the list's age); stackshot's route is its own to build, a 404 until then is one line per five minutes in
+#                  salamander-machines.log and never a failed heartbeat. A list with no machine in it is neither written nor posted. SALA_MACHINES_POST=off skips both. docs/stackshot-contracts.md interface 39: tell the board's main session BEFORE changing it.
 #
 # Portability: plain bash + python3 + git on the writer; a swept box needs only ssh and a POSIX shell (Linux or macOS) — no
 # salamander, git or python there. Schedule it on the writer: systemd/sala-heartbeat.timer (every 5 min) or
@@ -88,6 +93,17 @@ if [ -z "${SALA_AGENT_STATE_POST_CMD+x}" ]; then
     _as_client=$(stackshot_client 2>/dev/null) || _as_client=""
     SALA_AGENT_STATE_POST_CMD="${_as_client:+env -u STACKSHOT_CLIENT_PASS python3 $_as_client post agent-state --file}"   # the machine token, never a pass: stackshot answers 403 to a pass on any call but the New session form's (so not the bgagents post's wrapper)
     unset _as_client
+fi
+
+# MACHINES (machines.json, header above; lib/machinespost.py): on by default; the post command is the stackshot client unless a setting names one (an empty setting: no post)
+: "${SALA_MACHINES_POST:=on}"           # off: no machines.json and no post
+: "${SALA_MACHINES_POST_TIMEOUT:=30}"   # seconds the post command may run
+: "${SALA_MACHINES_POST_MAX_BODY:=900000}"   # stackshot refuses a body over 1 MB: over this many bytes the file is written and not posted
+: "${SALA_MACHINE_FOLLOW_MACHINES:=}"   # the follow list (lib/machines.py): where the machine list reads it
+if [ -z "${SALA_MACHINES_POST_CMD+x}" ]; then
+    _mp_client=$(stackshot_client 2>/dev/null) || _mp_client=""
+    SALA_MACHINES_POST_CMD="${_mp_client:+env -u STACKSHOT_CLIENT_PASS python3 $_mp_client post machines --file}"   # the machine token, never a pass (as for agent state)
+    unset _mp_client
 fi
 
 mode=run
@@ -168,6 +184,8 @@ report=$(HB_NOW="$now" HB_STATE="$state" HB_GITMODE="$SALA_HEARTBEAT_GIT" HB_STO
     HB_RENAMES="$SALA_LOG_DIR/salamander-renames.jsonl" HB_SLEEP_DIR="$SALA_SLEEP_DIR" HB_SIDECAR="$SALA_SIDECAR" HB_URL_PY="$SALA_SESSION_URL_PY" HB_URL_TPL="$(session_url_template)" \
     HB_AS_ON="$SALA_AGENT_STATE" HB_AS_CMD="$SALA_AGENT_STATE_POST_CMD" HB_AS_TIMEOUT="$SALA_AGENT_STATE_TIMEOUT" HB_AS_CHECKOUT="${SALA_STACKSHOT_CHECKOUT/#\~/$HOME}" \
     HB_AS_ROOTS="${SALA_AGENT_STATE_TRANSCRIPTS//\~/$HOME}" HB_AS_MAX_BODY="$SALA_AGENT_STATE_MAX_BODY" HB_AS_LOGDIR="$SALA_LOG_DIR" HB_AS_PY="$SALA_ROOT/lib/agentstate.py" \
+    HB_MP_ON="$SALA_MACHINES_POST" HB_MP_CMD="$SALA_MACHINES_POST_CMD" HB_MP_TIMEOUT="$SALA_MACHINES_POST_TIMEOUT" HB_MP_MAX_BODY="$SALA_MACHINES_POST_MAX_BODY" HB_MP_LOGDIR="$SALA_LOG_DIR" \
+    HB_MP_NAMES="${SALA_FLEET_NAMES/#\~/$HOME}" HB_MP_FOLLOW="${SALA_MACHINE_FOLLOW_MACHINES/#\~/$HOME}" HB_MP_PY="$SALA_ROOT/lib/machinespost.py" \
     python3 - "$SALA_REG_DIR" <<'PY'
 import json, glob, os, sys, time
 E =os.environ; now = E["HB_NOW"]; store = E["HB_STORE"]; state = E["HB_STATE"]; gitmode = E["HB_GITMODE"]; dry = E["HB_MODE"] == "dry"
@@ -254,6 +272,19 @@ def publish_agent_state(letter, doc, panes):
         line = mod.publish(E, letter, list((doc.get("sessions") or {}).values()), panes, E["HB_MODE"])
     except Exception as e:
         print("heartbeat: agent-state not published (%s)" % e.__class__.__name__, file=sys.stderr); return
+    if line and dry: print("== " + line, file=sys.stderr)
+
+def publish_machines(letter):
+    """MACHINES (header, machines.json; docs/stackshot-contracts.md interface 39): <live store>/<letter>/machines.json from sala's machine list (lib/machines.py), then handed to stackshot when it changed or
+    10 minutes have passed. All of it in lib/machinespost.py, which never raises; here only the load. A dry run prints the counts and nothing else; --no-push writes the file and posts nothing."""
+    if E.get("HB_MP_ON", "on").lower() in ("off", "0", "no", "false"): return
+    try:
+        import importlib.util
+        sp = importlib.util.spec_from_file_location("sala_machinespost", E["HB_MP_PY"])
+        mod = importlib.util.module_from_spec(sp); sp.loader.exec_module(mod)
+        line = mod.publish(E, letter, E["HB_MODE"])
+    except Exception as e:
+        print("heartbeat: machines not published (%s)" % e.__class__.__name__, file=sys.stderr); return
     if line and dry: print("== " + line, file=sys.stderr)
 
 changed, summary = [], []
@@ -360,6 +391,7 @@ if not E["HB_CVER"]:
 changed = publish(E["HB_LETTER"], me, sess) + changed
 reg_doc = publish_registry(E["HB_LETTER"])   # this box's registry only: a swept box's sessions.json is not reachable from here
 publish_agent_state(E["HB_LETTER"], reg_doc, panes)   # …and so is the agent state: this box's registered agents
+publish_machines(E["HB_LETTER"])   # …and the machine list: the fleet's machines, as sala reads them
 print(json.dumps({"changed": changed, "n": len(sess), "fleet": summary}))
 PY
 ) || die "heartbeat: python3 failed"
