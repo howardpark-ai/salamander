@@ -128,8 +128,8 @@
   var SEND = '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 16V4M5 9l5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   var PREVIEW = [
     '<div class="banner"><span>sala was updated.</span><button type="button">Reload</button></div>',
-    '<button type="button" class="send-btn" aria-label="Send">' + SEND + '</button>',
-    '<button type="button" class="send-btn" aria-label="Send (disabled)" disabled>' + SEND + '</button>',
+    '<button type="button" class="send-btn slim-touch" aria-label="Send">' + SEND + '</button>',
+    '<button type="button" class="send-btn slim-touch" aria-label="Send (disabled)" disabled>' + SEND + '</button>',
     '<button type="button" class="shell-btn">Shell</button>',
     '<span class="ucount">3</span>',
     '<span class="pill role-front">front</span>',

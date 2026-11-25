@@ -606,8 +606,19 @@ details.notice { background: transparent; }
    without a rebuild of the bundle. Both themes: --text is the theme's text colour */
 #composer .cm-li-mark { color: var(--text); }
 #composer .cm-li-bullet::before { background-color: var(--text); }
-.send-btn { flex: none; width: 30px; height: 30px; border-radius: 8px; border: 0; background: var(--accent-solid, var(--accent));
+.send-btn { flex: none; width: var(--ctl, 30px); height: var(--ctl, 30px); border-radius: 8px; border: 0; background: var(--accent-solid, var(--accent));
   color: var(--accent-on-solid, var(--accent-text)); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+:root { --ctl: 32px; }   /* a control's size: 32px with a mouse, 44px under a finger; every page loads it (it was in index.html's look block, which /chat does not load) */
+@media (pointer: coarse) { :root { --ctl: 44px; } }
+/* The slim touch control: the one place a one-line row's button stays slim under a finger (the style guide, web/README.md). Every other control takes the
+   44px --ctl on a phone; a button in a one-line row (the composer's Send, the update strip's Reload) takes this class instead, so the row does not grow.
+   It sets --ctl to 30px on the element (a size written as var(--ctl) is then 30px; chat.css's Send, index.html's look block and Reload do), and its
+   44px tap area is an ::after box that reaches 7px past the drawn button on every side and takes no room, the way the paperclip's negative margins give it
+   44px. The row's own 8px padding holds the 7px. A page never copies this rule: it adds the class. Mouse and pen: nothing changes. */
+@media (pointer: coarse) {
+  .slim-touch { --ctl: 30px; position: relative; }
+  .slim-touch::after { content: ""; position: absolute; inset: -7px; }
+}
 .model-line { margin-top: 8px; padding: 0 4px; font-size: 13px; color: var(--text); text-align: right; }
 .model-line[hidden] { display: none; }
 /* the idle Send: in the light theme the solid button faded to .45; in the dark theme --dis-bg, --dis-fg and --dis-op (1) are set above and the button is exactly those two colors, no fade on top (the color tool sets them too when a disabled field is picked) */

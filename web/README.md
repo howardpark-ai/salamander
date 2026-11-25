@@ -1494,7 +1494,7 @@ zooms back out: an input that takes typed text, a textarea, a select and the com
 without a patch, and a field rule elsewhere sets no font size of its own; the one exception is the color tool's hex box, whose pinned `colortool.js` declares 16 px itself, on purpose), two weights (400 and 600, 500 on tags), sentence case, a 4 px grid, 4 and 8 px
 corners, one 920 px column, D2Coding for code, stackshot's icons (a 24 grid, a 2 px round stroke), two button levels, tinted tags without
 an outline, links without an underline until hover, and the orange accent (`#f0a06a` dark, `#ad4608` light). On a phone the Agents table is
-one row per agent, and controls are 44 px (32 px with a mouse).
+one row per agent, and controls are 44 px (32 px with a mouse); a button in a one-line row is the one exception, the slim touch control below.
 
 **Where it lives.** It is in the sources, not applied on top of them:
 
@@ -1503,10 +1503,27 @@ one row per agent, and controls are 44 px (32 px with a mouse).
   hairlines and stay), radii of 4 or 8 px (a pill and 2 px stay), and the 920 px column. A new rule is written that way too.
 - `static/index.html` ends its `<head>` with one `<style id="look">`, after every stylesheet link, so it wins the cascade. It holds the
   `@font-face` for the code face and what a rule on the scale cannot make: the two button levels, the tinted tags, the link rule, the
-  orange, the update strip's Reload as a solid main button, the 32 and 44 px controls (`--ctl`, by pointer; the composer's Send is the exception under a finger: drawn 30 px with a 44 px tap area that takes no room, so the one-line row stays 48 px), lane cards three to a row, Agents as rows on a phone, the scroll gutter. The page's
+  orange, the update strip's Reload as a solid main button, the 32 and 44 px controls (`--ctl`, by pointer; a button in a one-line row (the composer's Send, the update strip's Reload) is the exception under a finger: it takes `.slim-touch` from `style.css`, see *The slim touch control*), lane cards three to a row, Agents as rows on a phone, the scroll gutter. The page's
   inline icons are drawn on the 24 grid, and `app.js` draws its check mark at the same 2 px stroke.
 - `static/fonts/D2Coding-Regular.woff2` is the code face; `OFL.txt` beside it is its licence (the SIL Open Font License 1.1), which
   travels with the font.
+
+**The slim touch control (`.slim-touch`).** A phone's controls are 44 px (`--ctl`), but a button in a one-line row would grow the row by 14 px
+(the composer's row from 48 to 62 px, the update strip from about 47 to 61 px). Such a button is drawn slim under a finger and keeps a full tap area, and that
+is **one rule, written once, in `static/style.css`**: the class `.slim-touch` (inside `@media (pointer: coarse)`) sets `--ctl` to 30 px on the element, so a size
+written as `var(--ctl)` is 30 px, and gives it a 44 px tap area as an `::after` box (`position: absolute; inset: -7px`, on a `position: relative` button) that
+reaches 7 px past the drawn button on every side and takes no room; the row's 8 px padding holds the 7 px. **A page never copies the rule: a one-line row's
+button takes the class.** Today it is on the main page's Send (`#send`) and the update strip's Reload (`#reload-btn`) in `index.html`, on `/chat`'s Send
+(`chat.js` builds it) and on the color tool's two sample Send buttons. **There is one Send**: `/chat`'s is the main page's, not a lookalike. `chat.css` has no `.send-btn` rule at all (a
+`body.chat-page .send-btn` rule outranks `style.css`'s and is how `/chat` once had a thicker arrow and a dimmed Send that stayed orange instead of going gray), so `style.css`'s `.send-btn` and
+`.send-btn:disabled` (the disabled pair `--dis-bg`, `--dis-fg`, `--dis-op`, in both themes and the color tool) draw it, and `chat.js` draws the arrow of `index.html`'s Send (the 24 grid, 2 px round stroke, path
+`M12 20V4M6 10l6-6 6 6`). Every
+page loads `style.css`, so a new page or a new button gets it by adding the class; `--ctl` itself (32 px, 44 px under a finger) is defined once, in `style.css`'s `:root`, for every page; a new button whose size does not read `--ctl` needs its size to (that is
+how Send and Reload are written). With a mouse or a pen nothing changes (32 px, no `::after` box). `tests/test_slim_touch.py` holds it in a headless
+Chromium on a 412 px touch screen (Send and Reload on the main page and Send on `/chat`: 30 px tall, a tap area of 44 px, no sideways scroll at 412 and 320 px;
+desktop unchanged), and `tests/test_slim_touch_rule.py` holds it in the text (the rule once in `style.css`, no copy in `index.html` or `chat.css`, every page
+with a Send or Reload loads `style.css`, `chat.css` draws no Send of its own, `chat.js` draws `index.html`'s arrow); the browser test also reads that `/chat`'s disabled Send has the main page's background, color, opacity
+and size, light and dark.
 
 **Not drawn in this look:** the Terminal view's own page (`/terminal` is `terminal.html`) and the contents of the Shell drawer and the
 Terminal tab (ttyd's page in a frame: the frame's chrome follows the look, what it shows does not). The `/tty/` address is absolute.
@@ -1529,9 +1546,9 @@ the worker registered). What they do not cover is in `docs/test-coverage.md`.
 (`--panel`) with a `--border` hairline under it, so it follows the dark and the light theme and the color tool, and carries no orange
 of its own; it used to mix the accent 14% into the background, which came out brown on the dark theme. Reload (`#reload-btn`, drawn in
 the `look` style) is the solid accent button (`--accent-solid`, else `--accent`, with `--accent-on-solid`), so the eye goes there; it keeps
-the 2 px focus outline for a keyboard. Under a finger (`pointer: coarse`) Reload is drawn 30 px tall, so the strip stays one slim row of about 47 px
+the 2 px focus outline for a keyboard. Under a finger (`pointer: coarse`) Reload takes the shared `.slim-touch` class (*The slim touch control*) and is drawn 30 px tall, so the strip stays one slim row of about 47 px
 (at the touch size of 44 px it was about 61 px), and its tap area stays 44 x 44 px: an `::after` box reaches 7 px past the drawn button on every
-side and takes no room, the way the composer's Send button does; with a mouse it is drawn at the 32 px control size, as before.
+side and takes no room (the class's rule, not a copy of it); with a mouse it is drawn at the 32 px control size, as before.
 `tests/test_update_banner_look.py` holds the colors, the contrast (4.5:1 or better), the strip's height in both themes, and the phone's drawn
 size and tap area.
 
