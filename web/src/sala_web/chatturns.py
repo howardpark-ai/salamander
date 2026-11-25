@@ -1,5 +1,5 @@
-"""The chat page's turns (GET /chat, GET /api/chat): what the person typed to one session, the final reply of each turn they started, and
-the one-line record of every turn something else started.
+"""The chat session's turns (chatkeep.py draws the thread from this rule, chatpage.py counts the kept-back lines of GET /api/chat from it): what the person
+typed to one session, the final reply of each turn they started, and the one-line record of every turn something else started.
 
 WHAT SHOWS. Two kinds of turn, read from the session's transcript (~/.claude/projects/<slug>/<sessionId>.jsonl):
 
@@ -371,47 +371,9 @@ def read_turns(path: Path, now_ms: int, zone: object, strict: bool = False) -> t
         window = min(window * 4, WINDOW_CAP)
 
 
-def entries(turns: list[Turn], owner: str, limit: int = 120) -> list[dict]:
-    """The page's entries, in file order, from the last `limit` turns. Each is one of:
-      {"k": "me", "ts", "id", "text", "images"}                           what the person typed
-      {"k": "reply", "ts", "id", "text"}                                  the final reply of a turn they started
-      {"k": "own", "ts", "id", "text"}                                    a marked reply of a turn something else started
-      {"k": "kept", "ts", "id", "src": {kind, name}, "what", "did", "open"}  a hidden turn, one quiet line
-    A turn the person started shows its replies that end a turn (more than one when a hook sent the turn back); an unmarked hidden turn shows
-    nothing but its kept line."""
-    mark = _mark_re(owner)
-    out: list[dict] = []
-    for t in turns[-limit:]:
-        if t.by == "human":
-            u = t.user
-            if u is not None:
-                out.append({"k": "me", "ts": u["ts"], "id": u["uuid"], "text": u["text"][:TEXT_MAX], "images": u["images"]})
-            for r in t.replies:
-                if r.get("extra_user"):
-                    x = r["extra_user"]
-                    out.append({"k": "me", "ts": x["ts"], "id": x["uuid"], "text": x["text"][:TEXT_MAX], "images": x["images"]})
-                elif r["text"]:
-                    # the owner's mark is never displayed, in his own turns either; a reply that is only the mark keeps its text, never dropped
-                    body = mark.sub("", r["text"], count=1).strip()
-                    out.append({"k": "reply", "ts": r["ts"], "id": r["uuid"], "text": body or r["text"]})
-            continue
-        last = next((r for r in reversed(t.replies) if r["text"]), None)
-        if last is not None and mark.match(last["text"]):
-            body = mark.sub("", last["text"], count=1).strip()
-            if body:
-                out.append({"k": "own", "ts": last["ts"], "id": last["uuid"], "text": body})
-                continue
-        src = t.src or {"kind": "other", "name": ""}
-        out.append({"k": "kept", "ts": t.start_ts, "id": t.uuid, "src": {"kind": src["kind"], "name": src.get("name", "")},
-                    "what": _phrase(src) if src.get("text") is not None else "",
-                    "did": _last_line(mark.sub("", last["text"], count=1)) if last else "",   # the owner's mark never reaches a kept line
-                    "open": last is None})
-    return out
-
-
 def kept_today(turns: list[Turn], owner: str, midnight_ms: int, with_taken: bool = False) -> int:
     """How many hidden turns started today (since `midnight_ms`) and were not marked for the person. `with_taken`: a turn something else started
-    that the person then spoke into counts too (the chat session's view keeps its first line, chatkeep.py), which the first page does not."""
+    that the person then spoke into counts too (the chat session's view keeps its first line, chatkeep.py)."""
     mark = _mark_re(owner)
     n = 0
     for t in turns:

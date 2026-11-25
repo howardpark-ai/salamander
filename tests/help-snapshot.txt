@@ -218,7 +218,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      SALA_MOCKUP_MAX_BYTES (1 GB), linked pages last (SALA_MOCKUP_REFERENCES says how to tell what is linked; unset keeps all)
   salamander motion add "<line>" | done "<line>"|N | clear | list [--json]   [--for NAME]
                                      the few short lines a session sets itself to say what is in motion right now (lib/motion.sh, lib/motion.py): at most 8, each at
-                                     most 120 characters, each gone after 24 hours; one small file per session under $SALA_STATE_DIR/motion. sala-web's chat page shows
+                                     most 120 characters, each gone after 24 hours; one small file per session under $SALA_STATE_DIR/motion. sala-web's chat session view shows
                                      them under "In motion"; the default session is the one the command runs in, --for NAME names another
   salamander stackshot-key init | enroll | status
                                      sala's own key for stackshot (lib/stackshot-key.sh, lib/stackshot_key.py, docs/stackshot-contracts.md): `enroll` makes an Ed25519 key

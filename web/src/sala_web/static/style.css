@@ -367,7 +367,7 @@ body.hide-tools .msg.tools-only { display: none; }
 #chat { width: 100%; max-width: 920px; margin: 0 auto; padding: 20px 16px 48px; }
 /* The chat session's view (the open session has the `chat` flag; app.js "the chat session"): sala's own view with three additions. The class is the body's.
    1. the strip (#chat-strip), above the thread and outside #chat, scrolling with it: the pane stacks its two children in a column instead of a row;
-   2. the assistant's messages sit to the left, capped at the first page's measure (chat.css: .msg.assistant .md, 68ch), the owner's bubble stays right as sala draws it. */
+   2. the assistant's messages sit to the left, capped at a 68ch measure, the owner's bubble stays right as sala draws it. */
 body.chat-session #chat-pane { flex-direction: column; }
 body.chat-session #chat-pane > :is(#chat-strip, #chat) { flex: none; }
 body.chat-session #chat .msg.assistant .md { max-width: 68ch; }
@@ -391,9 +391,8 @@ body.chat-kept-on #chat .msg.kept + .msg.kept { margin-top: 0; }
 body.chat-kept-on #chat .msg.kept :is(.src, .what, .did) { min-width: 0; overflow-wrap: anywhere; max-width: 100%; }
 body.chat-kept-on #chat .msg.kept .what { color: var(--muted); }
 body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
-/* The strip's rules are the first page's (chat.css: .wait, .motion, .kept-toggle and what they hold), copied here and scoped to #chat-strip, so that
-   page keeps working unchanged until it is retired; the retirement removes the old copy. NO SIDEWAYS SCROLL at any width: every box may shrink
-   (min-width: 0) and every run of text breaks anywhere (overflow-wrap: anywhere). */
+/* The strip (app.js buildChatStrip): the waiting rows, the motion lines and the kept-back switch, all scoped to #chat-strip. NO SIDEWAYS SCROLL at any
+   width: every box may shrink (min-width: 0) and every run of text breaks anywhere (overflow-wrap: anywhere). */
 #chat-strip { width: 100%; max-width: 920px; margin: 0 auto; min-width: 0; box-sizing: border-box; }
 #chat-strip[hidden] { display: none; }
 #chat-strip :is(h3, p, ul) { margin: 0; padding: 0; }
@@ -683,11 +682,11 @@ details.notice { background: transparent; }
 #composer .cm-li-bullet::before { background-color: var(--text); }
 .send-btn { flex: none; width: var(--ctl, 30px); height: var(--ctl, 30px); border-radius: 8px; border: 0; background: var(--accent-solid, var(--accent));
   color: var(--accent-on-solid, var(--accent-text)); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
-:root { --ctl: 32px; }   /* a control's size: 32px with a mouse, 44px under a finger; every page loads it (it was in index.html's look block, which /chat does not load) */
+:root { --ctl: 32px; }   /* a control's size: 32px with a mouse, 44px under a finger; every page loads it */
 @media (pointer: coarse) { :root { --ctl: 44px; } }
 /* The slim touch control: the one place a one-line row's button stays slim under a finger (the style guide, web/README.md). Every other control takes the
    44px --ctl on a phone; a button in a one-line row (the composer's Send, the update strip's Reload) takes this class instead, so the row does not grow.
-   It sets --ctl to 30px on the element (a size written as var(--ctl) is then 30px; chat.css's Send, index.html's look block and Reload do), and its
+   It sets --ctl to 30px on the element (a size written as var(--ctl) is then 30px: Send and Reload do), and its
    44px tap area is an ::after box that reaches 7px past the drawn button on every side and takes no room, the way the paperclip's negative margins give it
    44px. The row's own 8px padding holds the 7px. A page never copies this rule: it adds the class. Mouse and pen: nothing changes. */
 @media (pointer: coarse) {

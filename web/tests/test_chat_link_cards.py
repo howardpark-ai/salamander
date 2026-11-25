@@ -2,7 +2,7 @@
 
 The chat session (SALA_CHAT_SESSION) is sala's own view of a session. A reply of that session that links a /mockup/<n> page of this site or a claude.ai artifact is drawn with a
 card under it, by the one renderer every session uses (renderMessage), from data the server put on the message. Held here:
-  - chatkeep.with_cards: a reply's `cards` are the first page's own rule (chatpage.cards) over the reply's text blocks: the two kinds, each address once, at most six, a mockup's
+  - chatkeep.with_cards: a reply's `cards` are chatpage.cards's rule over the reply's text blocks: the two kinds, each address once, at most six, a mockup's
     title from the local store, an artifact's from the link text, no other link a card, a message that is not a reply and a reply with no such link have no `cards` key, and
     nothing is fetched;
   - over HTTP (the real server): the chat session's transcript (the last page, an older page, a newer page, a page around a line) and its stream (the reset and each append)
@@ -73,7 +73,7 @@ def test_a_reply_that_links_a_mockup_and_an_artifact_carries_both_cards_in_order
                           {"kind": "artifact", "url": ART, "title": "the plan"}]
 
 
-def test_the_cards_are_the_first_pages_own_rule_over_the_replys_text_blocks(tmp_path):
+def test_the_cards_are_chatpages_rule_over_the_replys_text_blocks(tmp_path):
     store(tmp_path / "m", 3, "Three")
     text = "[a](/mockup/3) and /mockup/3 again, https://elsewhere.example.test/mockup/3, https://example.com/page, [x](https://claude.ai/chat/abc)"
     m = reply(text, "and a second block with " + ART)
@@ -295,9 +295,3 @@ def test_the_cards_rules_are_sala_s_tokens_in_one_block_with_a_focus_ring_and_no
     text = " ".join(b for s, b in mine if s == "#chat .link-card > span")
     assert "overflow-wrap: anywhere" in text and "min-width: 0" in text
     assert "var(--link)" in " ".join(b for s, b in mine if s.endswith(".lc-o")) and "var(--muted)" in " ".join(b for s, b in mine if s.endswith(".lc-l"))
-
-
-def test_the_first_page_is_untouched_by_the_cards():
-    js = (STATIC / "chat.js").read_text(encoding="utf-8")
-    css = (STATIC / "chat.css").read_text(encoding="utf-8")
-    assert "link-card" not in js and "link-card" not in css and "function cardNode(c)" in js and "body.chat-page .card {" in css

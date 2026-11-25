@@ -36,13 +36,11 @@ CODE = "const veryLongLine = " + "someFunction(argumentNumberOne, argumentNumber
 TABLE = "| " + " | ".join(f"column-{i}-with-a-long-heading" for i in range(8)) + " |\n|" + "---|" * 8 + "\n| " + " | ".join("x" * 40 for _ in range(8)) + " |\n"
 PHONE, DESKTOP = (390, 844), (1280, 800)
 SIZES = [pytest.param(PHONE, id="phone"), pytest.param(DESKTOP, id="desktop")]
-NOW = int(time.time() * 1000)
 
 
 def api_chat(**over) -> dict:
     """What GET api/chat answers for the chat session (chatpage.assemble's shape), with what a test changes."""
-    d = {"configured": True, "session": NAME, "name": "Ada", "owner": "Rowan", "present": "live", "status": "idle", "pid": 4242, "busy": False,
-         "version": "v", "styles": "s", "timezone": "Asia/Dubai", "tzLabel": "+04", "tzOffsetMin": 240, "now": NOW, "entries": [],
+    d = {"configured": True, "session": NAME, "name": "Ada", "present": "live", "busy": False,
          "keptToday": 7, "keptTodayFloor": False,
          "waiting": [{"id": "item#1", "subject": "Approve the demo budget", "url": "https://example.com/moves/1"},
                      {"id": "item#2", "subject": "Pick a venue", "url": "https://example.com/moves/2"}],
@@ -121,7 +119,7 @@ ENTRY = """(() => { const a = document.querySelector('#side-chat'), q = (s) => a
 # ── the entry ────────────────────────────────────────────────────────────────
 @pytest.mark.parametrize("size", SIZES)
 def test_the_entry_is_the_first_line_above_new_session_with_its_marks(served, browser, monkeypatch, size):
-    open_page(browser, served, monkeypatch, size, api_chat(busy=True, status="busy"), hash_="#sessions", ready=False)
+    open_page(browser, served, monkeypatch, size, api_chat(busy=True), hash_="#sessions", ready=False)
     show_panel(browser)
     assert wait_for(browser, "!document.querySelector('#side-chat').hidden", 8.0)
     e = browser.evaluate(ENTRY)
@@ -147,7 +145,7 @@ def test_the_entry_is_hidden_when_no_chat_session_is_configured(served, browser,
 
 @pytest.mark.parametrize("size", SIZES)
 def test_a_long_name_is_cut_by_the_ellipsis_and_the_marks_stay_whole(served, browser, monkeypatch, size):
-    open_page(browser, served, monkeypatch, size, api_chat(name="A" * 40, busy=True, status="busy"), hash_="#sessions", ready=False)
+    open_page(browser, served, monkeypatch, size, api_chat(name="A" * 40, busy=True), hash_="#sessions", ready=False)
     widths = [size[0]] if not phone(size) else [390, 360, 320]
     for w in widths:
         browser.send("Emulation.setDeviceMetricsOverride", {"width": w, "height": size[1], "deviceScaleFactor": 1, "mobile": phone(size)})
@@ -274,7 +272,7 @@ def test_a_working_chat_session_shows_the_sessions_own_spinner(served, browser, 
         d = json.loads(f.read_text())
         d["status"] = "busy"
         f.write_text(json.dumps(d))
-    open_page(browser, served, monkeypatch, DESKTOP, api_chat(busy=True, status="busy"))
+    open_page(browser, served, monkeypatch, DESKTOP, api_chat(busy=True))
     assert wait_for(browser, "!!document.querySelector('#chat > .inflight .spinner')", 15.0)
     assert browser.evaluate("document.querySelectorAll('#chat-strip .spinner').length") == 0
 
@@ -347,7 +345,7 @@ def check(m: dict, where: str) -> None:
 @pytest.mark.parametrize("drawer", [False, True], ids=["drawer-shut", "drawer-open"])
 def test_no_sideways_scroll_with_hostile_text_in_the_thread_the_strip_and_the_entry(served, browser, monkeypatch, width, drawer):
     transcript_file(served).write_text(hostile_transcript())
-    doc = api_chat(name="A" * 40, busy=True, status="busy", keptToday=123456, keptTodayFloor=True,
+    doc = api_chat(name="A" * 40, busy=True, keptToday=123456, keptTodayFloor=True,
                    waiting=[{"id": f"item#{i}", "subject": "[demo] " + "an item subject that keeps going and going " * 8 + WORD, "url": URL} for i in range(3)],
                    motion=[{"text": WORD + " " + "m" * 100, "at": int(time.time())} for _ in range(6)])
     open_page(browser, served, monkeypatch, (width, 800 if width > 700 else 844), doc)

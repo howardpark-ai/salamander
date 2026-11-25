@@ -1,10 +1,10 @@
-"""The chat page's data (GET /api/chat; the page is static/chat.html, chat.css, chat.js; web/README.md, *The chat page*).
+"""The data behind the chat session's entry and strip (GET /api/chat; web/README.md, *The chat session in sala's own view*).
 
 Pure functions over what the server already reads, so each can be tested alone:
 
-  cards(text, host, mockups_dir)   the link cards under a message: a /mockup/<n> link of this site and a claude.ai artifact link
+  cards(text, host, mockups_dir)   the link cards under a message: a /mockup/<n> link of this site and a claude.ai artifact link (chatkeep.with_cards)
   waiting(board_doc, your_move)    the owner's moves: stackshot's whole Your move list (yourmove.py) when there is one, else the board feed (board.py's cache)
-  visible_window(entries, n)       the last `n` shown entries and the kept-back lines among them
+  assemble(...)                    the whole answer: whether a session is set, its name, whether it is live, sleeping or absent and works, the count of kept-back lines, the moves, the motion lines
 
 No external address is ever fetched from here: a mockup's title is read from the local mockup store (the first 64 KB of its file), and an
 artifact link's title is the link text or nothing (the page says "Claude artifact").
@@ -16,7 +16,6 @@ import html
 import os
 import re
 import stat
-import time
 from pathlib import Path
 
 from . import chatturns as CT
@@ -118,29 +117,11 @@ def waiting(board_doc: dict, your_move: list[dict] | None = None) -> list[dict]:
     return out
 
 
-def visible_window(entries: list[dict], n: int) -> list[dict]:
-    """The entries from the n-th shown one (me, reply, own) counted from the end to the end: the kept-back lines before it are dropped, those
-    after it stay. Fewer than n shown entries: all of them."""
-    shown = 0
-    cut = 0
-    for i in range(len(entries) - 1, -1, -1):
-        if entries[i]["k"] != "kept":
-            shown += 1
-            if shown >= n:
-                cut = i
-                break
-    return entries[cut:]
-
-
-SHOWN_MAX = 60   # shown entries (what he typed, replies, marked replies) the page holds; the kept-back lines between them come along
-
-
-def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, zone, now_ms: int, host: str, mockups_dir: Path,
+def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, zone, now_ms: int,
              motion_dir: Path, board_doc: dict, cache: dict, your_move: list[dict] | None = None) -> dict:
     """The whole answer of GET /api/chat for the configured session `name` (`sess`: its Session, live or sleeping, or None when sala has no such
     session). `cache` (a dict kept by the caller) holds the last read of a transcript, keyed by its size and time, so a poll of an unchanged
-    file costs a stat. `your_move`: the owner's whole Your move list when stackshot's read has one (yourmove.py), else None."""
-    entries: list[dict] = []
+    file costs a stat (the strip's counts are all it keeps). `your_move`: the owner's whole Your move list when stackshot's read has one (yourmove.py), else None."""
     kept_today, kept_lines, floor = 0, 0, False
     present = "absent"
     status = ""
@@ -158,26 +139,14 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
                 stamp = None
             hit = cache.get(str(path))
             if stamp is not None and hit is not None and hit[0] == stamp:
-                entries, kept_today, floor, kept_lines = hit[1], hit[2], hit[3], hit[4]
+                kept_today, floor, kept_lines = hit[1], hit[2], hit[3]
             elif stamp is not None:
                 turns, reached = CT.read_turns(path, now_ms, zone, strict)
-                entries = visible_window(CT.entries(turns, owner, limit=len(turns)), SHOWN_MAX)
                 kept_today, floor = CT.kept_today(turns, owner, midnight), not reached
                 kept_lines = CT.kept_today(turns, owner, midnight, with_taken=True)
                 if len(cache) > 8:
                     cache.clear()
-                cache[str(path)] = (stamp, entries, kept_today, floor, kept_lines)
-    out_entries = []
-    for e in entries:
-        e = dict(e)
-        if e["k"] in ("me", "reply", "own"):
-            c = cards(e.get("text") or "", host, mockups_dir)
-            if c:
-                e["cards"] = c
-        out_entries.append(e)
-    return {"configured": True, "session": name, "name": display, "owner": owner, "present": present, "status": status,
-            "pid": sess.pid if sess is not None and present == "live" else 0,
-            "busy": status in ("busy", "waiting"),
-            "entries": out_entries, "keptToday": kept_today, "keptTodayFloor": floor, "keptLines": kept_lines,
-            "waiting": waiting(board_doc, your_move), "motion": MO.read_lines(motion_dir, name),
-            "now": now_ms}
+                cache[str(path)] = (stamp, kept_today, floor, kept_lines)
+    return {"configured": True, "session": name, "name": display, "present": present, "busy": status in ("busy", "waiting"),
+            "keptToday": kept_today, "keptTodayFloor": floor, "keptLines": kept_lines,
+            "waiting": waiting(board_doc, your_move), "motion": MO.read_lines(motion_dir, name)}

@@ -254,11 +254,11 @@ async function saveList(key, compute) {
    - its strip (#chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner, what is in
      motion, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the server marks the session in
      api/sessions, sessions.py) and scrolls with the thread. The switch shows and hides the kept-back lines in the thread (below);
-   - the assistant's messages sit to the left at the first page's measure (style.css, body.chat-session).
+   - the assistant's messages sit to the left at a 68ch measure (style.css, body.chat-session).
    - the turns the owner did not start are kept back by the SERVER (chatkeep.py: the transcript reads and the stream of this one session carry one "kept" message
      in place of each such turn, and the turns he started whole, as for any session). A kept message is one quiet line in the thread (renderKept); the strip's
      switch shows or hides them all (body.chat-kept-on), with their count of today (api/chat keptLines). Nothing here decides who started a turn.
-   Everything the strip shows is read from api/chat, which keeps its shape; the first page (/chat, chat.js) is untouched for now. */
+   Everything the strip shows is read from api/chat. /chat is only an address now: the server redirects it to #s=<the session> (app.py). */
 const CHAT_MARKS_MS = 25000, CHAT_STRIP_MS = 350;
 const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines)
 const chatEntryOn = () => !!(chatView.data && chatView.data.configured);
@@ -3376,7 +3376,7 @@ function renderMessage(m, { live = false, into = null, tools = null, older = fal
 // A link card under a chat-session reply (chatkeep.with_cards): a /mockup/<n> page of this site or a claude.ai artifact the reply links. It is one <a>, so it takes
 // the keyboard's focus, and opens in a new tab with rel noopener. What it shows is what the server sent (the title, from the local mockup store or the link text,
 // and what kind of page it is); nothing is fetched here. A card whose address is neither shape is not drawn and the link stays the plain link in the text.
-// Its words are the strings the first page already had (chat.card.*); `tx` words them again in place when the language changes.
+// Its words are the strings chat.card.*; `tx` words them again in place when the language changes.
 function linkCard(c) {
   if (!c || typeof c !== "object") return null;
   let href, label;

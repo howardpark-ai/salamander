@@ -10,11 +10,13 @@ none itself):
                                   session, #sessions the sessions overview (every live session's role, status, model
                                   and lane, with account usage and API spend above them)
   GET  /terminal                  the full-size terminal: ttyd's page in a frame filling the window, ?arg=<tmux session> (static/terminal.html)
-  GET  /chat                      the chat page: one configured session (SALA_CHAT_SESSION) as one conversation (static/chat.html; web/README.md,
-                                  *The chat page*); GET /api/chat is its data: what the owner typed, the final reply of each turn he started,
-                                  the one-line record of every turn something else started (`keptToday`, and `keptLines`: how many kept-back lines the
-                                  session's own view draws today, which also counts a turn he then spoke into), his moves from the board feed, the session's own
-                                  `sala motion` lines, and link cards (read-only; it sends nothing, the page's composer uses /api/s/<pid>/send)
+  GET  /chat                      an address kept for the chat session (SALA_CHAT_SESSION): a 302 to `./#s=<session>` (sala's own view of it; web/README.md,
+                                  *The chat session in sala's own view*), or to `./` when no session is set. Relative, so it resolves against the host and
+                                  the path prefix the browser used. GET /api/chat is the data of the session's entry and strip, and of nothing else:
+                                  {configured, session, name, present: live|sleeping|absent, busy, keptToday, keptTodayFloor, keptLines (how many
+                                  kept-back lines the session's own view draws today, which also counts a turn he then spoke into), waiting (his moves:
+                                  stackshot's Your move list, else the board feed), motion (the session's own `sala motion` lines)}; with no session set
+                                  just {configured: false} (read-only; it sends nothing, the composer uses /api/s/<pid>/send)
   GET  /manifest.webmanifest      the web app manifest (the page is installable as an app; static/manifest.webmanifest)
   GET  /sw.js                     the service worker, at the root so its scope is the whole site (static/sw.js)
   GET  /mockup/<n>                a page `sala mockup add` stored under that number (mockup.py; 404 for any other address under /mockup), as
@@ -172,7 +174,7 @@ none itself):
                                   whole turns (every cursor is the start of a turn), and a turn he started is whole. A page may also
                                   hold {uuid, role "kept", gone: true}: the line of that uuid is withdrawn (its reply was for him).
                                   A reply of that session that links a /mockup/<n> page of this site or a claude.ai artifact also
-                                  carries `cards` (chatkeep.with_cards, the first page's own rule): [{kind: "mockup" | "artifact",
+                                  carries `cards` (chatkeep.with_cards, chatpage.cards's rule): [{kind: "mockup" | "artifact",
                                   url, title, n (mockup only)}], at most 6, each address once; nothing is fetched
   GET  /api/s/<pid>/stream        SSE: "version", "reset" with the last 200 messages, then "append", "status" and "live" events
                                   (the chat session's carry the same kept lines as its transcript: a kept message sent again with its
@@ -647,7 +649,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
     # the board items of every live session: one round of client-API reads a minute, served from the cache
     board = B.BoardCache(settings.stackshot_token, settings.stackshot_url, settings.stackshot_web,
                          settings.state_dir / "board-items.json")
-    # the owner's whole Your move list for the chat page's strip (yourmove.py): one background read per 30 s with the same token
+    # the owner's whole Your move list for the chat session's strip (yourmove.py): one background read per 30 s with the same token
     your_move_cache = YM.YourMoveCache(settings.stackshot_token, settings.stackshot_url, settings.state_dir / "your-move.json")
     # stackshot's For you list (foryou.py): one read a minute, Seen and Watch / Mute through the same token
     foryou_calls = FY.Calls(settings.stackshot_token, settings.stackshot_url)
@@ -700,28 +702,29 @@ def create_app(settings: Settings | None = None) -> Starlette:
         return _page("terminal.html")
 
     async def chat_page(request: Request) -> Response:
-        # the chat page: one configured session as one conversation (static/chat.html), under the same login as "/" (the proxy's)
-        return _page("chat.html")
+        # /chat was a page of its own; the chat session is sala's own view now, so the address leads there. Relative (like /sessions below): the app may
+        # sit under a path prefix, and "./" resolves against whatever host and prefix the browser used. The name is a session name (config.chat_session:
+        # letters, digits, dot, underscore, dash), so it needs no escaping. With no session set it opens the main page.
+        name = chat_session()
+        return RedirectResponse("./#s=" + name if name else "./", status_code=302)
 
     chat_cache: dict = {}
 
     async def api_chat(request: Request) -> Response:
-        # everything the chat page shows, in one answer (chatpage.assemble): read-only. The session is the one SALA_CHAT_SESSION names, found by name
+        # what the chat session's entry and strip show, in one answer (chatpage.assemble): read-only. The session is the one SALA_CHAT_SESSION names, found by name
         # among the live and sleeping sessions; the strip's list is stackshot's whole Your move read (yourmove.py, cached, read in the background), else the shared board cache's feed (the same read as /api/board/items), never a second round
         name = chat_session()
-        page, styles = page_versions()
-        head = {"version": page, "styles": styles, **TZ.info()}
         if not name:
-            return JSONResponse({"configured": False, **head}, headers={"Cache-Control": "no-store"})
+            return JSONResponse({"configured": False}, headers={"Cache-Control": "no-store"})
         rows = await run_in_threadpool(_live_and_sleeping)
         sess = next((x for x in rows if x.name == name), None)
         board_doc = await board.get([x.name for x in rows])
         your_move = your_move_cache.items()   # the strip's list: stackshot's whole Your move read, None -> the board feed
         doc = await run_in_threadpool(lambda: CP.assemble(
             name=name, display=chat_name(), owner=owner_name(), sess=sess, projects_dir=settings.projects_dir, zone=TZ.zone(),
-            now_ms=int(time.time() * 1000), host=request.headers.get("host", ""), mockups_dir=settings.mockups_dir,
+            now_ms=int(time.time() * 1000),
             motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move))
-        return JSONResponse({**doc, **head}, headers={"Cache-Control": "no-store"})
+        return JSONResponse(doc, headers={"Cache-Control": "no-store"})
 
     def _page(name: str) -> Response:
         # the title bar's text is in the served page (paintBrand only repaints it), so a reload shows no flash of the bare name.

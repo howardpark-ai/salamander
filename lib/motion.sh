@@ -1,4 +1,4 @@
-# lib/motion.sh — `sala motion`: the short lines a session sets itself to say what is in motion right now; sala-web's chat page shows them under
+# lib/motion.sh — `sala motion`: the short lines a session sets itself to say what is in motion right now; sala-web's chat session view shows them in its strip under
 # "In motion" (web/README.md). Sourced by bin/salamander; the work is lib/motion.py (standard library, no model call).
 motion_usage() {
     cat <<'USAGE'

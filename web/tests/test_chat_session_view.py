@@ -4,12 +4,13 @@ The rule: the session the server is set to talk to (SALA_CHAT_SESSION) is opened
 image paste), spacing and buttons. What it adds is a short list, and a difference outside the list is a defect:
   - its entry, the first line of the sidebar's views above New session, with its name, a small "chat", a working dot and a red count of what waits on the owner;
   - the strip above the thread (what waits on the owner, what is in motion, the kept-back switch with its count), outside #chat because showTail replaces #chat's children;
-  - the assistant's messages capped to the left, as on the first page.
+  - the assistant's messages capped to the left (68ch).
 The server marks the session with `"chat": true` in api/sessions, and only that session: every other session's payload is as it was. The kept-back switch
-works (the server keeps the turns the owner did not start back: test_chatkeep.py; the page draws each as one quiet line the switch shows or hides), and the first page (/chat, chat.html, chat.js, chat.css) is untouched until it is retired.
+works (the server keeps the turns the owner did not start back: test_chatkeep.py; the page draws each as one quiet line the switch shows or hides). The page of its own that
+/chat used to be is retired (test_chatpage.py holds the redirect).
 
 What a wrong answer costs: a second page drawn to look like sala's, a strip that showTail wipes on the first stream event, a name squeezed to nothing in the narrow drawer,
-two rows for one session, a sideways scroll bar on a phone, or a first page that stopped working before its replacement is live.
+two rows for one session, or a sideways scroll bar on a phone.
 
 Held here without a browser: the payload, and the text of the page, its script and its style sheet. All names are invented."""
 
@@ -113,7 +114,7 @@ def test_the_composer_is_sala_s_own_and_nothing_here_draws_another():
     for one in ("composer", "composer-editor", "attach", "file-input", "send", "chips"):
         assert ids.count(one) == 1, one
     assert "<textarea" not in re.search(r'<div id="chat-strip".*?</div>', INDEX).group(0)
-    assert "static/chat.js" not in INDEX and "static/chat.css" not in INDEX, "the first page's script and sheet are not loaded into sala's page"
+    assert "static/chat.js" not in INDEX and "static/chat.css" not in INDEX, "no second page's script and sheet are loaded into sala's page"
     assert "static/chat.js" not in APP_JS and "SalaChat" not in APP_JS
 
 
@@ -186,15 +187,15 @@ def test_the_left_cap_is_one_rule_on_the_assistants_text_under_the_chat_session_
 
 
 def test_the_strip_s_rules_are_scoped_to_it_and_the_entry_has_a_floor_for_its_name():
-    first_page = re.compile(r"\.(wait|wait-\w+|sec-head|motion|mo|mo-list|kept-toggle|kept-row|answer|new|count)(?![\w-])")
-    start = STYLE.index("The strip's rules are the first page's")
+    bare_names = re.compile(r"\.(wait|wait-\w+|sec-head|motion|mo|mo-list|kept-toggle|kept-row|answer|new|count)(?![\w-])")
+    start = STYLE.index("The strip (app.js buildChatStrip)")
     block = STYLE[STYLE.index("*/", start) + 2:STYLE.index("@media (pointer: coarse) { #chat-strip")]
     for sel, _ in rules(block):
         sel = sel.strip()
         assert sel.startswith("#chat-strip") and ", " not in re.sub(r"\([^)]*\)", "", sel).replace(", #chat-strip", ""), sel
-    for sel, _ in rules(STYLE):                 # and the first page's bare class names are nowhere else in the sheet
+    for sel, _ in rules(STYLE):                 # and the strip's bare class names are nowhere else in the sheet
         for part in re.sub(r"\([^)]*\)", "()", sel).split(","):
-            assert not first_page.match(part.strip()), part
+            assert not bare_names.match(part.strip()), part
     entry = " ".join(b for s, b in rules(STYLE) if s == ".side-chat .label")
     assert "min-width: 48px" in entry, "a long name gives way to its ellipsis, never to nothing"
     chip = " ".join(b for s, b in rules(STYLE) if s.startswith(".wchip") and "hidden" not in s)
@@ -210,20 +211,6 @@ def test_nothing_the_chat_session_adds_scrolls_sideways():
     assert "overflow-wrap: anywhere" in strip and "min-width: 0" in strip
 
 
-def test_the_first_page_keeps_its_own_copy_of_what_the_strip_copied():
-    """The strip's rules and pieces were copied into sala's own page, not moved: /chat (chat.html, chat.js, chat.css) still carries its own and knows nothing of the
-    strip or the body class, so it works as before until a later step retires it (that step removes this test)."""
-    css = (STATIC / "chat.css").read_text(encoding="utf-8")
-    js = (STATIC / "chat.js").read_text(encoding="utf-8")
-    html = (STATIC / "chat.html").read_text(encoding="utf-8")
-    for piece in (".kept-toggle", ".wait-list", ".mo-list", ".sec-head"):
-        assert f"body.chat-page {piece}" in css, piece
-    for piece in ('"wait-list"', '"mo-list"', '"kept-toggle"'):
-        assert piece in js, piece
-    for name, text in (("chat.css", css), ("chat.js", js), ("chat.html", html)):
-        assert "chat-strip" not in text and "chat-session" not in text and "side-chat" not in text, name
-
-
 # ── the words ────────────────────────────────────────────────────────────────
 @pytest.mark.parametrize("key", ["ui.side.chatRole", "ui.side.chatTip", "ui.side.chatWait.one", "ui.side.chatWait.other"])
 def test_the_new_strings_are_in_english_and_in_korean_as_escapes(key):
@@ -236,7 +223,7 @@ def test_the_new_strings_are_in_english_and_in_korean_as_escapes(key):
 @pytest.mark.parametrize("key", ["chat.wait.h", "chat.wait.sub", "chat.wait.none", "chat.wait.note", "chat.wait.answer", "chat.wait.new", "chat.motion.h", "chat.motion.none",
                                  "chat.kept.toggle", "chat.kept.count", "chat.kept.floor", "chat.kept.open", "chat.state.busy",
                                  "chat.src.sala", "chat.src.board", "chat.src.session", "chat.src.task", "chat.src.system", "chat.src.other"])
-def test_the_strips_strings_are_the_first_pages_own(key):
+def test_the_strips_strings_are_in_both_languages(key):
     assert f'"{key}": ' in EN and f'"{key}": ' in KO
 
 

@@ -79,14 +79,14 @@ _SESSION_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
 def chat_session() -> str:
-    """The one session the chat page (/chat) is for: sala's setting SALA_CHAT_SESSION, one session name (letters, digits, dot, underscore,
-    dash; at most 64). "" (the default, and any other value) = nothing is configured, and the page says so. Read on each call."""
+    """The one session that is the owner's chat: sala's setting SALA_CHAT_SESSION, one session name (letters, digits, dot, underscore,
+    dash; at most 64). "" (the default, and any other value) = nothing is configured: no entry, no strip, and /chat opens the main page. Read on each call."""
     v = sala_setting("SALA_CHAT_SESSION").strip()
     return v if _SESSION_NAME_RE.fullmatch(v) else ""
 
 
 def chat_name() -> str:
-    """The name the chat page calls that session: sala's setting SALA_CHAT_NAME (one line of at most 40 characters). Default: the part of the
+    """The name the chat session's entry calls it: sala's setting SALA_CHAT_NAME (one line of at most 40 characters). Default: the part of the
     session's name after its last hyphen, capitalized ("" when no session is configured). Read on each call."""
     v = " ".join(sala_setting("SALA_CHAT_NAME").split())[:40]
     if v:

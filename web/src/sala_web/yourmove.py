@@ -1,4 +1,4 @@
-"""The owner's whole "Your move" group, for the chat page's Waiting on you strip.
+"""The owner's whole "Your move" group, for the chat session's Waiting on you strip.
 
 The board feed (board.py) is asked once per live session, so it lists only the moves some session of this machine is tied to. stackshot
 serves the whole group in one read, `GET <server>/client/your-move` with this machine's token as a bearer (the same token and address
