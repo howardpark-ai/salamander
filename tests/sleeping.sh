@@ -201,6 +201,8 @@ has "$sp" sala-test-d && ! has "$sp" sala-test-a && ! has "$sp" sala-test-b && o
 echo "== 6: lane and model — the table row only, no relaunch"
 run lane team sala-test-a
 [ "$RC" = 0 ] && has "$OUT" sleeping && [ "$(lane_row sala-test-a)" = subscription-2 ] && ! hasclaude a && [ "$(n_starts 1)" = "$a0" ] && ok "sala lane team a: row written, 'sleeping' said, nothing relaunched" || bad "lane a: rc=$RC row=$(lane_row sala-test-a) — $OUT"
+run lane team sala-test-a --dry-run
+[ "$RC" = 0 ] && has "$OUT" "sleeping: recorded only, nothing relaunched (a wake resumes it on" && ! has "$OUT" "revive --force --only sala-test-a" && ok "the plan of a lane move (the back agents' rule queues this operation) names a sleeper as recorded only and relaunches nothing" || bad "lane a plan: rc=$RC — $OUT"
 run lane team sala-test-c --dry-run
 [ "$RC" = 0 ] && has "$OUT" "revive --force --only sala-test-c" && ok "the control c's lane plan relaunches it" || bad "lane c dry: rc=$RC — $OUT"
 run model sala-test-a sonnet --effort medium

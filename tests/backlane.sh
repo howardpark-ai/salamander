@@ -29,12 +29,17 @@
 #   NEVER ONTO A DORMANT LANE: a step whose target lane is dormant moves the agents to that lane's fallback (the lane fallback table) and says so, in the
 #     operation, the rule's lane, the log and the dry run; nobody moves, with one notice per window, when the fallback is dormant too, not ready, outside the
 #     order, the home lane or unset (also in the dry run); an unrelated dormant lane changes nothing; step 2 and the catch-up follow the same rule.
-#   SPAWN: a back agent spawned while the rule has them off home takes the rule's lane (back_lane_spawn_lane; `spawn --dry-run` says so).
+#   SPAWN: a back agent spawned while the rule is on takes the rule's lane, the home lane while the back agents stand at home (back_lane_spawn_lane; `spawn --dry-run` says so);
+#     --lane wins, a front agent and a side session are untouched, a home lane that is dormant or not ready leaves the default lane.
 #   DRY RUN: `watch --back-lanes --dry-run` prints what each step would do and queues and writes nothing.
 #   FRONT HOME CATCH-UP: at home after step 3, a live front agent left off home is queued onto the home lane once per window (state hqueued); not when
 #     step 3 has not fired in this window, with a stale, missing, at-threshold or above-threshold reading, a dormant or not ready home lane, the front step
 #     off or invalid; a pinned one is held out and named; the front agents step 3 itself took are not queued again in the same pass or the next; a
 #     refused operation gives a blocked line and a retry; the dry run names the agent and writes nothing; the next step 1 clears hqueued.
+#   SLEEPING AGENTS: a sleeping back (or front) agent (a pane-map row and a marker in the suite's own state folder) is moved on paper by every step and
+#     catch-up of the rule, in the same operation as the live ones, and the lines name it ("N sleeping: recorded only, they wake on the <lane> lane"), in the
+#     dry run too; a pinned one is held out and named, a SALA_NO_RELAUNCH one left alone, a Fable one stays where the target cannot run it, a dormant target
+#     goes to its fallback; a repeat pass queues nothing for it; nothing that relaunches (revive, recycle, restore, wake) is ever queued.
 # Isolated HOME in a temp folder (locked while the suite runs, removed at the end). Usage: bash tests/backlane.sh   (exit 0 = pass; a few seconds)
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -316,7 +321,9 @@ rm -f "$T/payload.json"
 
 echo "== spawn takes the rule's lane"
 reg; quota 95 $W1
-out=$(drv 'back_lane_spawn_lane; echo "rc=$?"'); [ "$out" = "rc=1" ] && ok "at home: no rule lane (rc 1)" || bad "spawn at home: $out"
+rm -f "$STATE"; out=$(drv 'back_lane_spawn_lane; echo "rc=$?"'); [ "$out" = $'subscription-1\nrc=0' ] && ok "at home (no state yet): a new back agent takes the home lane" || bad "spawn at home: $out"
+echo subscription-1 > "$FAKE_LC"; out=$(drv 'back_lane_spawn_lane; echo "rc=$?"'); rm -f "$FAKE_LC"; [ "$out" = "rc=1" ] && ok "at home, the home lane not ready: the default lane" || bad "spawn home not ready: $out"
+printf 'subscription-1\tdormant\ttest\t%s\t\tx\n' "$NOW" > "$ST/lane-state.tsv"; out=$(drv 'back_lane_spawn_lane; echo "rc=$?"'); rm -f "$ST/lane-state.tsv"; [ "$out" = "rc=1" ] && ok "at home, the home lane dormant: the default lane" || bad "spawn home dormant: $out"
 tick >/dev/null
 out=$(drv 'back_lane_spawn_lane; echo "rc=$?"'); [ "$out" = $'aws-platform\nrc=0' ] && ok "after step 1: a new back agent takes aws-platform" || bad "spawn aws: $out"
 echo aws-platform > "$FAKE_LC"; out=$(drv 'back_lane_spawn_lane; echo "rc=$?"'); [ "$out" = "rc=1" ] && ok "the rule's lane not ready: the default lane" || bad "spawn not ready: $out"
@@ -345,8 +352,16 @@ sp lr-back-x --project projects/foo --role back --mandate "a mandate" --model fa
 [ "$RC" = 0 ] && has "$OUT" "lane rule" && ok "a Fable model on aws-platform follows the rule (aws-platform runs Fable)" || bad "spawn fable: rc=$RC $OUT"
 drv 'back_lane_put lane subscription-1' >/dev/null
 sp lr-back-x --project projects/foo --role back --mandate "a mandate" --dry-run
-[ "$RC" = 0 ] && ! has "$OUT" "lane rule" && ok "with the back agents home: the default lane, no note" || bad "spawn home: rc=$RC $OUT"
-
+[ "$RC" = 0 ] && has "$OUT" "[dry-run] lane: the back agents' lane rule has them on the Ultra lane" && ok "with the back agents home: a back agent launches on the home lane, and the note says so" || bad "spawn home: rc=$RC $OUT"
+sp lr-back-x --project projects/foo --role back --mandate "a mandate" --lane bedrock --dry-run
+[ "$RC" = 0 ] && ! has "$OUT" "lane rule" && ok "at home, --lane wins over the rule" || bad "spawn home --lane: rc=$RC $OUT"
+sp lr-front-x --project projects/foo --role front --dry-run
+[ "$RC" = 0 ] && ! has "$OUT" "lane rule" && ! has "$OUT" "front step" && ok "at home, a front agent is untouched (the default lane, no note)" || bad "spawn home front: rc=$RC $OUT"
+sp lr-side-quiet01 --side --project projects/foo --item s1 --dry-run
+[ "$RC" = 0 ] && ! has "$OUT" "lane rule" && ok "at home, a side session is untouched" || bad "spawn home side: rc=$RC $OUT"
+printf 'subscription-1\tdormant\ttest\t%s\t\tx\n' "$NOW" > "$ST/lane-state.tsv"; printf 'bedrock\n' > "$ST/lane-default"   # the default lane is another one (the suite's own default is the home lane)
+sp lr-back-x --project projects/foo --role back --mandate "a mandate" --dry-run
+rm -f "$ST/lane-state.tsv" "$ST/lane-default"; [ "$RC" = 0 ] && ! has "$OUT" "lane rule" && has "$OUT" "bedrock" && ok "at home with the home lane dormant: the default lane as before, no note" || bad "spawn home dormant: rc=$RC $OUT"
 echo "== a back agent with no role in the registry counts by the project record's agents map"
 # rl-back (listed under background:), rl-front (listed as front), rl-none (listed nowhere), rl-side (a side session) and rl-old (a stored role: front, though the record lists it
 # as background) have no role in the registry, as the rows of the one-time import had none; the record is stackshot's projects.json (interface 20)
@@ -702,6 +717,83 @@ quota 95 $((W2 + 7 * 86400)); tick >/dev/null
 # the back catch-up and the front step off home are untouched
 regf; quota 95 $W1; tick >/dev/null; out=$(tick); [ "$(ops)" = 2 ] && ! has "$out" "catch-up (home)" && ok "off home: no home catch-up line, the existing behavior" || bad "off home: ops=$(ops) $out"
 rm -f "$SALA_ROLES_FILE"
+
+echo "== sleeping agents: the rule moves them on paper (their lane row), nothing relaunched, and the lines say so"
+export SALA_BACK_LANE_FRONT_THRESHOLD=off   # the back agents' steps alone; the front step has its own check at the end
+# sreg: reg with no sleeper; addsleeper <name> <lane> <role> [1 = its tmux session is there]: an agent asleep (a pane-map row and a sleeping marker in the suite's own state folder, no claude)
+sreg() { reg; rm -rf "$ST/sleeping" "$ST/pane-map.tsv" "$ST/lane-pins.tsv" "$ST/lane-home.tsv"; }
+addsleeper() {
+    python3 -I -S - "$SESSIONS" "$1" "${3:-back}" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); n = sys.argv[2]
+d["sessions"][n] = {"id": n, "name": n, "state": "live", "role": sys.argv[3], "side": None, "project": "projects/x", "created": "z" + n}; json.dump(d, open(sys.argv[1], "w"))
+PY
+    mkdir -p "$ST/sleeping"; printf '%s\tuuid-%s\t%s\t%s\n' "$1" "$1" "$1" "$T" >> "$ST/pane-map.tsv"; printf '2026-11-23T06:55:00Z %s\n' "$1" > "$ST/sleeping/uuid-$1"
+    [ "${4:-1}" != 1 ] || echo "$1" >> "$FAKE_LIVE"
+    grep -v "^$1	" "$FAKE_LANES" > "$T/lanes.t"; printf '%s\t%s\n' "$1" "$2" >> "$T/lanes.t"; cp "$T/lanes.t" "$FAKE_LANES"
+}
+lastop() { tail -1 "$FAKE_OPLOG"; }
+drydry() { ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1; }
+# step 1: a sleeper on the home lane is in the operation, named as recorded only
+sreg; addsleeper back-sl1 subscription-1; quota 95 $W1; before=$(cat "$STATE" 2>/dev/null); out=$(drydry)
+has "$out" "would: step 1" && has "$out" "back-a back-b back-fab back-sl1 --from sala-watch" && has "$out" "1 sleeping: recorded only, they wake on the aws-platform lane: back-sl1" && [ "$(ops)" = 0 ] && [ "$(lane_of back-sl1)" = subscription-1 ] && ok "step 1 dry run: the sleeper is in the list and named as recorded only; nothing queued, its row untouched" || bad "sleep dry: ops=$(ops) $out"
+out=$(tick)
+[ "$(ops)" = 1 ] && [ "$(lastop)" = "op|lane|aws-platform|back-a|back-b|back-fab|back-sl1|--from|sala-watch|--words|$RULE_WORDS|" ] && has "$out" "moved: step 1" && has "$out" "1 sleeping: recorded only, they wake on the aws-platform lane: back-sl1" && ok "step 1: one operation carries the live back agents and the sleeper, the line names it as recorded only" || bad "sleep step 1: ops=$(ops) $(lastop) / $out"
+[ "$(lane_of back-sl1)" = aws-platform ] && ok "the sleeper's lane row now says aws-platform (a wake resumes it there)" || bad "sleeper row: $(lane_of back-sl1)"
+out=$(tick); [ "$(ops)" = 1 ] && has "$out" "idle:" && ok "a repeat tick queues nothing: the sleeper is not 'not moved yet'" || bad "sleep repeat: ops=$(ops) $out"
+# a sleeper whose row stays unchanged (the operation was queued but did not write yet) is not queued twice either: the catch-up's queued list holds it
+sreg; addsleeper back-sl1 subscription-1; quota 95 $W1; touch "$FAKE_NOMOVE"; tick >/dev/null; out=$(tick)
+[ "$(ops)" = 1 ] && ok "the sleeper's row not yet written: still queued once (the queued list), no retry loop" || bad "sleep nomove: ops=$(ops) $out"
+rm -f "$FAKE_NOMOVE"
+# a sleeper only: the operation is for it alone (a sleeping agent spawned after the step, found by the off-home catch-up)
+sreg; quota 95 $W1; tick >/dev/null; addsleeper back-sl2 subscription-1; out=$(tick)
+[ "$(ops)" = 2 ] && [ "$(lastop)" = "op|lane|aws-platform|back-sl2|--from|sala-watch|--words|$RULE_WORDS|" ] && has "$out" "moved: catch-up" && has "$out" "1 sleeping: recorded only, they wake on the aws-platform lane: back-sl2" && ok "the off-home catch-up takes a sleeper that was home, once, and says it is recorded only" || bad "sleep catch-up: ops=$(ops) $(lastop) / $out"
+# step 2: the sleeper standing on aws-platform goes to bedrock with the live ones
+sreg; addsleeper back-sl1 subscription-1; quota 95 $W1; tick >/dev/null; drv "back_lane_put moved_at $M" >/dev/null; pane_stop aws-platform workspace $((NOW - 60)); out=$(tick)
+[ "$(ops)" = 2 ] && has "$(lastop)" "|bedrock|back-a|back-b|back-sl1|" && has "$out" "1 sleeping: recorded only, they wake on the bedrock lane: back-sl1" && ok "step 2: the sleeper moves on to bedrock, named as recorded only" || bad "sleep step 2: ops=$(ops) $(lastop) / $out"
+rm -f "$SALA_LIMIT_STATE"
+# step 3: sleepers on bedrock and aws-platform go home in the same operation; the one already home is not in it
+sreg; addsleeper back-sl1 bedrock; addsleeper back-sl2 aws-platform; addsleeper back-sl3 subscription-1; quota 95 $W1; tick >/dev/null
+grep -v '^back-sl3	' "$FAKE_LANES" > "$T/lanes.t"; printf 'back-sl3\tsubscription-1\n' >> "$T/lanes.t"; cp "$T/lanes.t" "$FAKE_LANES"
+quota 10 $W2; out=$(tick)
+[ "$(ops)" = 2 ] && [ "$(lastop)" = "op|lane|subscription-1|back-a|back-b|back-fab|back-sl1|back-sl2|--from|sala-watch|--words|$RULE_WORDS|" ] && has "$out" "moved: step 3" && has "$out" "2 sleeping: recorded only, they wake on the Ultra lane: back-sl1 back-sl2" && ok "step 3: the sleepers recorded off home go home with the live agents; the line names them" || bad "sleep step 3: ops=$(ops) $(lastop) / $out"
+[ "$(lane_of back-sl1)" = subscription-1 ] && [ "$(lane_of back-sl2)" = subscription-1 ] && ok "their lane rows say the home lane" || bad "step 3 rows: $(lane_of back-sl1) $(lane_of back-sl2)"
+out=$(tick); [ "$(ops)" = 2 ] && ok "a repeat tick queues nothing" || bad "step 3 repeat: ops=$(ops) $out"
+case "$(drv 'back_lane_get hqueued')$(drv 'back_lane_get queued')" in *back-sl*) bad "a sleeper is in a bookkeeping list that waits for it: $(cat "$STATE")";; *) ok "no list that waits for a pane holds a sleeper after step 3 (queued is the names asked, never a wait)";; esac
+grep -qE '^op\|(revive|recycle|restore|wake)' "$FAKE_OPLOG" && bad "a relaunching operation was queued" || ok "no revive, recycle, restore or wake is queued: the only operation is the lane switch"
+# who is left: a sleeping pinned one is skipped and named; a sleeping Fable one stays where the target cannot run Fable; a SALA_NO_RELAUNCH one is left alone; one with no pane row is not a sleeper
+sreg; printf 'back-slp\tsubscription-1\n' > "$ST/lane-pins.tsv"; addsleeper back-slp subscription-1; addsleeper back-slnr subscription-1; addsleeper back-slok subscription-1
+quota 95 $W1; out=$(SALA_NO_RELAUNCH=back-slnr tick)
+[ "$(lastop)" = "op|lane|aws-platform|back-a|back-b|back-fab|back-slok|--from|sala-watch|--words|$RULE_WORDS|" ] && has "$out" "skipped (pinned to subscription-1): back-slp" && [ "$(lane_of back-slp)" = subscription-1 ] && [ "$(lane_of back-slnr)" = subscription-1 ] && ok "a sleeping pinned agent is held out and named; a SALA_NO_RELAUNCH sleeper is left alone; the other sleeper moves" || bad "sleep who: $(lastop) / $out"
+sreg; addsleeper back-slf subscription-1; printf 'back-slf\tfable\txhigh\n' >> "$ST/models.tsv"; quota 95 $W1; out=$(SALA_FABLE_LANES=subscription-1 tick)
+[ "$(lastop)" = "op|lane|aws-platform|back-a|back-b|--from|sala-watch|--words|$RULE_WORDS|" ] && has "$out" "back-slf" && [ "$(lane_of back-slf)" = subscription-1 ] && ok "a sleeping Fable back agent stays where the target cannot run Fable (notice names it)" || bad "sleep fable: $(lastop) / $out"
+sreg; addsleeper back-slf subscription-1; printf 'back-slf\tfable\txhigh\n' >> "$ST/models.tsv"; quota 95 $W1; out=$(tick)
+has "$(lastop)" "back-slf" && ok "on a target that runs Fable it moves" || bad "sleep fable ok: $(lastop) / $out"
+sreg; addsleeper back-slx subscription-1 back 0; quota 95 $W1; out=$(tick)
+! has "$(lastop)" "back-slx" && ok "a sleeper whose tmux session is gone is not listed (the rule lists panes); a wake brings its pane back on its recorded lane" || bad "sleep no pane: $(lastop)"
+# a dormant target: the sleeper goes to the fallback with the live ones (the same substitution)
+sreg; addsleeper back-sl1 subscription-1; quota 95 $W1; dormant aws-platform; out=$(tick)
+has "$(lastop)" "|bedrock|back-a|back-b|back-sl1|" && ok "a dormant target: the sleeper goes to the fallback with the others" || bad "sleep dormant: $(lastop) / $out"
+rm -f "$ST/lane-state.tsv"
+# the front step: a sleeping front agent is recorded onto the rule's lane with the live ones
+sreg; addsleeper front-sl1 subscription-1 front; export SALA_BACK_LANE_FRONT_THRESHOLD=95; quota 95 $W1; out=$(tick)
+has "$out" "moved: front step" && has "$out" "1 sleeping: recorded only, they wake on the aws-platform lane: front-sl1" && [ "$(lane_of front-sl1)" = aws-platform ] && ok "the front step moves a sleeping front agent on paper too, and says so" || bad "sleep front: $(lastop) / $out"
+# a sleeping Fable front agent bound for a lane that cannot run Fable gets the same model swap as a live one (records only: models.tsv and lane-home.tsv); a sleeping pinned front agent is held out and named
+sreg; addsleeper front-slf subscription-1 front; printf 'front-slf\tfable\txhigh\n' >> "$ST/models.tsv"; addsleeper front-slp subscription-1 front; printf 'front-slp\tsubscription-1\n' > "$ST/lane-pins.tsv"
+quota 95 $W1; out=$(SALA_FABLE_LANES=subscription-1 tick)
+has "$out" "model fable -> opus on the aws-platform lane (it cannot run Fable): front-slf" && has "$out" "1 sleeping: recorded only, they wake on the aws-platform lane: front-slf" && [ "$(model_of front-slf)" = opus ] && [ "$(home_of front-slf)" = "subscription-1|fable" ] && [ "$(lane_of front-slf)" = aws-platform ] && ok "a sleeping Fable front agent: model fable -> opus recorded, its home lane recorded, its lane row moved, the line says so" || bad "sleep front fable: $(model_of front-slf) $(home_of front-slf) $(lane_of front-slf) / $out"
+has "$out" "skipped (pinned to subscription-1): front-slp" && [ "$(lane_of front-slp)" = subscription-1 ] && ok "a sleeping pinned front agent is held out and named" || bad "sleep front pinned: $out"
+# step 3 takes a sleeping front agent home with the others; the front catch-up (off home) takes a sleeping one found late
+sreg; addsleeper front-sl2 bedrock front; quota 95 $W1; tick >/dev/null; grep -v '^front-sl2	' "$FAKE_LANES" > "$T/lanes.t"; printf 'front-sl2\tbedrock\n' >> "$T/lanes.t"; cp "$T/lanes.t" "$FAKE_LANES"
+quota 10 $W2; out=$(tick)
+has "$out" "moved: step 3" && has "$out" "1 sleeping: recorded only, they wake on the Ultra lane: front-sl2" && [ "$(lane_of front-sl2)" = subscription-1 ] && ok "step 3 takes a sleeping front agent home in the same operation, and says so" || bad "sleep front step 3: $out / $(lane_of front-sl2)"
+sreg; quota 95 $W1; tick >/dev/null; addsleeper front-sl3 subscription-1 front; out=$(tick)
+has "$out" "moved: front catch-up" && has "$out" "1 sleeping: recorded only, they wake on the aws-platform lane: front-sl3" && [ "$(lane_of front-sl3)" = aws-platform ] && ok "the front catch-up takes a sleeping front agent found late, recorded only" || bad "sleep front catch-up: $out"
+sreg; quota 10 $W2; drv 'back_lane_put f0 '"$W2"'; back_lane_put lane subscription-1' >/dev/null; export SALA_BACK_LANE_FRONT_THRESHOLD=95
+addsleeper front-sl4 bedrock front; out=$(tick)
+has "$out" "moved: front catch-up (home)" && has "$out" "1 sleeping: recorded only, they wake on the Ultra lane: front-sl4" && [ "$(lane_of front-sl4)" = subscription-1 ] && ok "the front home catch-up takes a sleeping front agent left off home, recorded only" || bad "sleep front home catch-up: $out"
+unset SALA_BACK_LANE_FRONT_THRESHOLD
+sreg
 
 # THE FABLE RULE at its default (SALA_FABLE_LANES=subscription-1): aws-platform cannot run Fable either; everything above ran with it listed, to test the rule's mechanics
 echo "== Fable runs only on the Ultra lane: a Fable back agent stays off aws-platform, a Fable front agent is swapped to opus there, a spawn is swapped"
