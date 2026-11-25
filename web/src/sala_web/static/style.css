@@ -153,6 +153,15 @@ textarea, select, [contenteditable]:not([contenteditable="false"]) { font-size: 
 .sess.side-ovw { padding-left: 8px; gap: 8px; }
 .side-ovw svg { flex: none; color: var(--muted); }
 .side-ovw.selected svg { color: var(--text); }
+/* the chat entry, the first line of the views (index.html #side-chat; app.js "the chat session"): the chat session's display name and a small "chat", a
+   working dot while it works and a red count of what waits on the owner. The name gives way first (its ellipsis), never the marks, and it keeps a floor
+   of its own so a long name still shows its first letters at the drawer's narrowest */
+.side-chat[hidden] { display: none; }
+.side-chat .label { min-width: 48px; }
+.side-chat .role { flex: none; }
+.wchip { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; padding: 0 8px; border-radius: 8px;
+  font-size: 12px; font-weight: 600; line-height: 1; box-sizing: border-box; white-space: nowrap; background: var(--waiting); color: var(--waiting-text); }
+.wchip[hidden], .side-chat .dot[hidden] { display: none; }
 .scope { margin-top: 12px; }
 .scope:first-child { margin-top: 4px; }
 .scope-body { padding-left: 0; }
@@ -356,6 +365,54 @@ body.hide-tools .msg.tools-only { display: none; }
 .pane.active { display: flex; }
 #chat-pane { overflow-y: auto; overflow-x: hidden; align-items: flex-start; }  /* no stretch: #chat grows with its content, so its bottom padding comes after the last message */
 #chat { width: 100%; max-width: 920px; margin: 0 auto; padding: 20px 16px 48px; }
+/* The chat session's view (the open session has the `chat` flag; app.js "the chat session"): sala's own view with three additions. The class is the body's.
+   1. the strip (#chat-strip), above the thread and outside #chat, scrolling with it: the pane stacks its two children in a column instead of a row;
+   2. the assistant's messages sit to the left, capped at the first page's measure (chat.css: .msg.assistant .md, 68ch), the owner's bubble stays right as sala draws it. */
+body.chat-session #chat-pane { flex-direction: column; }
+body.chat-session #chat-pane > :is(#chat-strip, #chat) { flex: none; }
+body.chat-session #chat .msg.assistant .md { max-width: 68ch; }
+/* The strip's rules are the first page's (chat.css: .wait, .motion, .kept-toggle and what they hold), copied here and scoped to #chat-strip, so that
+   page keeps working unchanged until it is retired; the retirement removes the old copy. NO SIDEWAYS SCROLL at any width: every box may shrink
+   (min-width: 0) and every run of text breaks anywhere (overflow-wrap: anywhere). */
+#chat-strip { width: 100%; max-width: 920px; margin: 0 auto; min-width: 0; box-sizing: border-box; }
+#chat-strip[hidden] { display: none; }
+#chat-strip :is(h3, p, ul) { margin: 0; padding: 0; }
+#chat-strip ul { list-style: none; }
+#chat-strip .wait { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel); min-width: 0; }
+#chat-strip .sec-head { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; font-size: 12px; color: var(--faint); }
+#chat-strip .sec-head b { color: var(--text); font-weight: 600; }
+#chat-strip .wait-list { display: flex; flex-direction: column; min-width: 0; }
+#chat-strip .wait-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
+#chat-strip .wait-row:first-child { border-top: 0; }
+#chat-strip .wait-subj { flex: 1 1 260px; min-width: 0; font-size: 13px; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; overflow-wrap: anywhere; }
+#chat-strip .wait-subj::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--waiting); transform: translateY(-1px); }
+#chat-strip .wait-subj a { color: inherit; text-decoration: none; min-width: 0; overflow-wrap: anywhere; }
+#chat-strip .wait-subj a:hover { text-decoration: underline; }
+#chat-strip .new { display: inline-block; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link)); }
+#chat-strip .answer { flex: none; font-size: 13px; color: var(--link); text-decoration: underline; text-underline-offset: 2px; padding: 2px 0; }
+#chat-strip .wait-none { font-size: 13px; color: var(--faint); }
+#chat-strip .wait-cap { font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
+#chat-strip .wait-err { font-size: 12px; color: var(--warn); overflow-wrap: anywhere; }
+#chat-strip .wait-err:empty { display: none; }
+#chat-strip .motion { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; padding: 8px 16px; border-bottom: 1px solid var(--border); font-size: 13px; min-width: 0; }
+#chat-strip .motion .lbl { font-size: 12px; color: var(--faint); font-weight: 600; white-space: nowrap; }
+#chat-strip .mo-list { display: flex; flex-wrap: wrap; gap: 2px 16px; min-width: 0; flex: 1 1 200px; }
+#chat-strip .mo { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+#chat-strip .mo::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; border: 1.5px dashed var(--busy); transform: translateY(-1px); }
+#chat-strip .mo.none { color: var(--faint); }
+#chat-strip .mo.none::before { display: none; }
+#chat-strip .kept-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 16px; border-bottom: 1px solid var(--border); min-width: 0; }
+#chat-strip .kept-toggle { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: 13px; color: var(--muted); cursor: pointer; min-height: 28px; max-width: 100%; }
+#chat-strip .kept-toggle > span { min-width: 0; overflow-wrap: anywhere; }
+#chat-strip .kept-toggle input { flex: none; width: 16px; height: 16px; margin: 0; cursor: pointer; }
+#chat-strip .kept-toggle input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#chat-strip .kept-toggle.off, #chat-strip .kept-toggle.off input { cursor: default; opacity: .7; }
+#chat-strip .kept-toggle .soon { font-size: 12px; color: var(--faint); }
+#chat-strip .count { display: inline-block; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link));
+  font-variant-numeric: tabular-nums; max-width: 100%; overflow-wrap: anywhere; }
+#chat-strip a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) { #chat-strip :is(.wait, .motion, .kept-row) { padding-inline: 12px; } }
+@media (pointer: coarse) { #chat-strip .kept-toggle { min-height: 44px; } #chat-strip .answer { padding-block: 12px; } }
 .top-toggle input { margin: 0; }
 #side-open { height: 32px; display: inline-flex; align-items: center; }
 /* the session is working: a small spinner under the last message */

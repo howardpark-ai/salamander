@@ -5159,3 +5159,22 @@ Covered, in `tests/machinespost.sh` (the heartbeat run for real in a sandbox hom
 Changed: `lib/machines.sh` and `tests/help-snapshot.txt` (the `--json` usage line), `docs/subcommands.md`, `docs/heartbeat-store.md`, `docs/stackshot-contracts.md`.
 
 Not covered, and why: a real tailnet (the stand-in answers, in tailscale's JSON shape: Self, Peer, HostName, DNSName, Online, LastSeen); the real `claude --version` (the stand-in prints one); a tailscale missing from the PATH at the heartbeat level (only `publish()` and the reader are run with a PATH that has none, since a test box may have it installed); anything on stackshot's side (the receiver draws a row stale after 900 s; that is its own to build and test).
+
+### The chat session in sala's own view, first step: `web/tests/test_chat_session_view.py`, `test_chat_session_view_ui.py` (browser), new
+
+Kept (`test_chat_session_view.py`, no browser): `Session.to_json` carries `"chat": true` for the session `SALA_CHAT_SESSION` names and for no other (no other key differs, a sleeping chat session carries it, a name that merely starts the same
+or a setting that is empty, unset or not a name does not), and `GET /api/sessions` marks that one session only. The page's text: the entry is the first line of the sidebar's views above New session with its icon, label, "chat", dot and
+count; `#chat-strip` is one element, before `#chat` in `#chat-pane` and not inside it, and `showTail` and `leaveSession` never touch it; ids are unique and the composer, attach button, file input and send button each exist once; the old
+page's script and sheet are not loaded; the flag drives `chatSync`, `selectSession`, `leaveSession` and `loadSessions` re-decide it, the session's row is hidden only while the entry exists, its unread count stays out of the Unread
+total; the marks are read from `api/chat` on a 25 s timer that skips a hidden page and runs while the session is closed, the strip is read again after stream activity, debounced; the entry's href, selected and `aria-current`, and the drawer
+closing after it; the switch is drawn disabled and says "not active yet"; the strip's rules are all scoped to `#chat-strip`, the left cap is one rule under `body.chat-session`, the entry's name keeps a floor width, the waiting chip is the red
+`--waiting`, nothing added scrolls by its own overflow; the new strings exist in English and, as escapes only, in Korean; and the first page still carries its own copy of the pieces the strip copied and knows nothing of the strip (the retirement removes that test).
+Kept (`test_chat_session_view_ui.py`, a headless Chromium at 1280x800 and 390x844, else skipped; GitHub CI runs it): the entry above New session with its marks following a changed answer, hidden with no session set, a 40-character name cut
+by its ellipsis with the marks whole (also at 360 and 320 px, inside `min(300px, 85vw)`), a click opening `#s=<name>` with selected and `aria-current` and a phone's drawer closing, one row only for the session (the Overview still lists it, the
+ordinary row back with no chat session set); the strip showing two waiting moves, a motion line and the switch off with its count, a new move marked "new", the strip surviving the thread being replaced and read again after stream
+activity, and no strip and no class for any other session; one composer and an image paste making one chip; the spinner of a working chat session; a parity test (the same transcript opened as the chat session and as another one: header,
+title, composer, send and attach buttons, the owner's bubble, copy button, messages and font size give the same boxes and computed style, only the assistant's text width differs); and no sideways scroll at 1280, 390, 360 and 320 px, drawer
+shut and open, with a 300-character word, a long address, wide code and a wide table in the thread and long text in waiting subjects and motion lines.
+
+Not covered, and why: the kept-back switch (inactive in this step: the server does not yet tell the view which turns the owner did not start), link cards, and the retirement of the first page, which are the next steps; the look of the
+strip on a real phone (the checks measure boxes and computed style, a screenshot shows the look).

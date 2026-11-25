@@ -90,7 +90,7 @@ SESS = """(() => {
 UNREAD = {"example-alpha-main": 2, "example-beta-main": 1, "example-gamma-main": 3}          # total 6
 ROWS = "[...document.querySelectorAll('#session-list .sess')].map((r) => r.dataset.key)"
 HEADS = "[...document.querySelectorAll('#session-list .group-title')].map((h) => [h.dataset.ckey, h.getAttribute('aria-expanded')])"
-ENTRY = """(() => { const b = document.querySelector('#side-unread'), c = b.querySelector('.ucount'), top = [...document.querySelectorAll('.side-top > *')].map((e) => e.id);
+ENTRY = """(() => { const b = document.querySelector('#side-unread'), c = b.querySelector('.ucount'), top = [...document.querySelectorAll('.side-top > *:not([hidden])')].map((e) => e.id);
   return { top, pressed: b.getAttribute('aria-pressed'), label: b.querySelector('.label').textContent, selected: b.classList.contains('selected'),
            count: c ? c.textContent : null, countLabel: c ? c.getAttribute('aria-label') : null, tag: b.tagName,
            empty: [...document.querySelectorAll('#session-list .empty')].map((e) => e.textContent) }; })()"""
