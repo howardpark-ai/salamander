@@ -51,6 +51,11 @@
 #overview-pane :is(#sp-table, #ld-table) .sp-model { display: flex; max-width: 100%; min-width: 0; overflow: hidden; }
 /* the Surface column: "slack" in the accent colour, "sala" in the text's; the dash of a row with no surface is muted */
 #overview-pane .ag-slack { color: var(--accent); }
+/* an icon before the word (sessions.js surfaceCell): the icon is 16px and never squeezed by a long word, the word keeps the ellipsis */
+#overview-pane .ag-surf { display: flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; }
+#overview-pane .ag-surf img { flex: none; width: 16px; height: 16px; }
+#overview-pane .ag-surf .ag-ico-sala { border-radius: 4px; }
+#overview-pane .ag-surf-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* GROUP BY: three toggle buttons above the list, then a heading row per group (a button that folds the group's rows) */
 #overview-pane .ag-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
 #overview-pane .ag-lbl { font-size: 13px; color: var(--muted); }

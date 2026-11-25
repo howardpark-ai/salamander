@@ -102,6 +102,11 @@ def test_the_list_is_plain_by_default_with_a_surface_column_and_the_project_in_t
     assert cells["scratch-20261125-amber"]["surface"] == "–" and cells["scratch-20261125-amber"]["role"] == "none"   # no role: a dash
     accent = browser.evaluate("(() => { const s = document.createElement('span'); s.style.color = getComputedStyle(document.documentElement).getPropertyValue('--accent'); document.body.append(s); const c = getComputedStyle(s).color; s.remove(); return c; })()")
     assert cells["example-alpha-slack"]["color"] == accent != cells["example-alpha-main"]["color"], (cells["example-alpha-slack"], accent)
+    # an icon before the word, 16px by 16, once it has loaded: sala's own (a 192px file shown small) and the Slack logo; a dash row has none
+    assert wait_for(browser, "[...document.querySelectorAll('#sp-table td:nth-child(3) img')].every((i) => i.complete)")
+    icons = browser.evaluate("[...document.querySelectorAll('#sp-table td:nth-child(3) img')].map((i) => [i.alt, i.clientWidth, i.clientHeight, i.src.split('/').pop(), i.naturalWidth])")
+    assert sorted(i[3] for i in icons) == ["icon-192.png"] * 3 + ["slack-logo.svg"] and all(i[:3] == ["", 16, 16] for i in icons), icons   # the three sala rows, the one slack row
+    assert all(i[4] == 192 for i in icons if i[3] == "icon-192.png"), icons
     # the project is the name's tooltip: scope/project; no project: the word unregistered
     assert cells["example-alpha-main"]["tip"] == "example/alpha" and cells["example-beta-main"]["tip"] == "example/beta"
     assert cells["scratch-20261125-amber"]["tip"] == "unregistered"

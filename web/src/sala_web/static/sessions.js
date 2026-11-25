@@ -156,6 +156,27 @@ function effortCell(r) {
   return n;
 }
 
+// The Surface cell, the same in the Agents table, the lane page's table and a phone's card: where a front agent answers the owner, "sala" (the default, the
+// key absent) or "slack", each with its own mark before the word (sala's app icon, the Slack logo: decorative, alt "", the word beside it says it); a dash for
+// any other row, which a phone's card leaves out. The word stays the cell's text and the column's sort key.
+const SURFACE_ICON = { sala: "static/icons/icon-192.png", slack: "static/icons/slack-logo.svg" };
+function surfaceCell(r) {
+  if (r.role !== "front") {
+    const dash = td(span("sp-muted", "–"));
+    dash.className = "ag-dash";
+    return dash;
+  }
+  const which = r.surface === "slack" ? "slack" : "sala";
+  const icon = document.createElement("img");
+  icon.className = "ag-ico-" + which;
+  icon.src = SURFACE_ICON[which];
+  icon.alt = "";
+  icon.width = icon.height = 16;
+  const cell = span("ag-surf" + (which === "slack" ? " ag-slack" : ""), "");
+  cell.append(icon, span("ag-surf-t", which));
+  return td(cell);
+}
+
 // one session's row, the same in the overview's table and in a lane's details page
 function sessionRow(r) {
   const tr = document.createElement("tr");
@@ -169,14 +190,10 @@ function sessionRow(r) {
   if (r.sleeping !== undefined) st.title = tl("ov.row.sleepingTip");
   // a conversation moved into a background job: one row, the job's status above, and where it runs
   if (r.parkedJob) st.append(span("sp-muted", tl("ov.row.inJob", { job: r.parkedJob }), tl("ov.row.jobTitle")));
-  // the surface: where a front agent answers the owner, "sala" (the default, the key absent) or "slack"; a dash for any other row
-  const front = r.role === "front";
-  const surface = td(front ? span(r.surface === "slack" ? "ag-slack" : "", r.surface === "slack" ? "slack" : "sala") : span("sp-muted", "–"));
-  if (!front) surface.className = "ag-dash";   // a phone's card leaves the dash out
   tr.append(
     td(link),
     td(r.role ? r.role : span("sp-muted", tl("ov.common.none"))),
-    surface,
+    surfaceCell(r),
     td(st),
     td(modelCell(r)),
     td(effortCell(r)),
