@@ -140,6 +140,7 @@ Use your own values. The table says what each setting does and what happens when
 | `SALA_HELP_SESSION` | The name of a session that the web UI's overview opens from its "Get Help" chip. | No chip. |
 | `SALA_CHAT_SESSION` | The name of the one session that is the owner's chat in the web UI (its sidebar entry and strip; `/chat` opens it). | None is configured. |
 | `SALA_CHAT_NAME` | What the chat session's entry calls it. | The part of the session name after its last hyphen, capitalized. |
+| `SALA_CHAT_LAYER` | `on` draws the chat session's page as a chat: your messages and the replies to you, with no tool calls or working notes. Every other session looks as before. Reload the page after changing it. | Off. The chat session opens like every other session. |
 | `SALA_SHELL_SESSION` | The tmux session of the web UI's Shell drawer. It is a plain `bash -l`, not a Claude session. sala leaves it alone and refuses it as a session name. | `sala-shell`. |
 
 Three of these must agree with your board, if you have one:

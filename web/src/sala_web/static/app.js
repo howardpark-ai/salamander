@@ -349,6 +349,7 @@ function chatSync() {
   strip.hidden = !on;
   if (!on) $("#chat-strip-wait").hidden = true;
   if (on) { paintChatStrip(); if (!was) loadChatMarks(); }
+  if (window.SalaThreadLayer) SalaThreadLayer.sync();   // in the page only with the setting SALA_CHAT_LAYER (chatlayer.js)
 }
 // the strip's pieces are made once; a read changes their text
 function buildChatStrip() {
@@ -2803,6 +2804,7 @@ function openStream(s, { resume = false } = {}) {
   let opens = 0;
   let resumeReset = false;
   let events = 0;
+  const layer = window.SalaThreadLayer && SalaThreadLayer.takes(s) ? SalaThreadLayer : null;   // the chat session's own layer draws this thread
   es.addEventListener("open", () => {
     opens++;
     perfMark("stream:opened", { opens });
@@ -2826,6 +2828,7 @@ function openStream(s, { resume = false } = {}) {
     perfMark("stream:reset", { count: d.messages.length, bytes: e.data.length, resumed: resumeReset });
     const resumed = resumeReset;
     resumeReset = false;
+    if (layer) { layer.reset(s, d, resumed); chatStripSoon(); return; }
     const sid = d.session ? d.session.sessionId : null;
     if (ahead.active && ahead.pid === s.pid) {
       // the chat is open far back (a Search result): it stays where it is read, and this tail waits for the newer pages to meet it
@@ -2842,6 +2845,7 @@ function openStream(s, { resume = false } = {}) {
   });
   es.addEventListener("append", (e) => {
     const d = JSON.parse(e.data);
+    if (layer) { layer.append(s, d); chatStripSoon(); return; }
     if (ahead.active && ahead.pid === s.pid) { ahead.buffer.push(...d.messages); return; }   // shown when the newer pages reach the live end
     const empty = $("#chat > .empty");
     if (empty && d.messages.length) empty.remove();
@@ -2854,7 +2858,7 @@ function openStream(s, { resume = false } = {}) {
     chatStripSoon();
   });
   es.addEventListener("live", (e) => {
-    if (state.es !== es) return;
+    if (state.es !== es || layer) return;   // the layer draws no command's live block
     let d; try { d = JSON.parse(e.data); } catch { return; }
     if (ahead.active && ahead.pid === s.pid) { ahead.live = d; return; }   // the live block belongs under the live end, not this page
     applyLive(d);
@@ -2863,6 +2867,7 @@ function openStream(s, { resume = false } = {}) {
     const d = JSON.parse(e.data);
     if (state.current && state.current.pid === s.pid) { state.current.status = d.status; updateHeader(state.current); }
     const row = state.byName.get(s.name); if (row) { row.status = d.status; renderSidebar(); }
+    if (layer) layer.status(s);
     chatStripSoon();
   });
   es.addEventListener("gone", () => {

@@ -337,7 +337,7 @@ from . import transcript as TR
 from . import unread as UR
 from . import usage as USG
 from . import usage_digest as USGD
-from .config import SHELL_SESSION, Settings, brand_suffix, chat_name, chat_session, help_session, log_dir, owner_name
+from .config import SHELL_SESSION, Settings, brand_suffix, chat_layer, chat_name, chat_session, help_session, log_dir, owner_name
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
@@ -759,6 +759,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
         chat = chat_session()
         html = (html.replace("{{chatSession}}", htmllib.escape(chat)) if chat
                 else re.sub(r"<!--chatboot-->.*?<!--/chatboot-->\n", "", html, flags=re.S))
+        # the chat session's own client layer (static/chatlayer.*) is in the page only with SALA_CHAT_LAYER on: off, its two lines leave no trace
+        if not chat_layer():
+            html = re.sub(r"<!--chat-layer-->.*?<!--/chat-layer-->\n?", "", html, flags=re.S)
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
     async def sessions_page(request: Request) -> Response:

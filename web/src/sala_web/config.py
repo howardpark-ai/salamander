@@ -95,6 +95,13 @@ def chat_name() -> str:
     return last[:1].upper() + last[1:]
 
 
+def chat_layer() -> bool:
+    """Whether the chat session's page is drawn by its own client layer (static/chatlayer.js: the thread of GET /api/chat/thread): sala's setting
+    SALA_CHAT_LAYER; on, 1, yes or true turns it on, anything else leaves it off (the default), and the page then holds neither of the layer's files. With
+    no SALA_CHAT_SESSION the layer draws nothing. Read at each page load, so a changed config line shows at the next reload."""
+    return sala_setting("SALA_CHAT_LAYER").strip().lower() in ("on", "1", "yes", "true")
+
+
 def owner_name() -> str:
     """What the page's own text and the words it queues call the human running this machine: sala's setting SALA_OWNER_NAME
     (default "the owner"; one line of at most 40 characters). Read on each call, like brand_suffix."""
