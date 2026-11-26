@@ -5,9 +5,10 @@
    app.js's, as for every session, and so is the live block of a running "!" command (applyLive). app.js hands over in four places: chatSync (sync here) and the open stream's reset, append and status events.
    Answering a waiting item under a reply is chatanswer.js's: render() asks it what stands under each message.
 
-   WHAT IS DRAWN is GET api/chat/thread?replies=1 (chatthread.py states the rule: the owner's messages and the replies to them, with a reply's sent images,
-   asked questions, API error and interrupt) and the page's own pending bubbles. No line of the stream is drawn as a message here. A question is drawn here
-   (askedNode: the session view has no drawing of one) to be read; it is answered as any dialog is, from the composer or the Terminal tab.
+   WHAT IS DRAWN is GET api/chat/thread?replies=1 (chatthread.py states the rule: the owner's messages and the replies to them, with a reply's sent files,
+   asked questions and their answers, API error, interrupt and command output) and the page's own pending bubbles. No line of the stream is drawn as a
+   message here. The session view has no drawing of a question, its answer or a sent file that is no image, so they are drawn here (OWN). A question is
+   answered as any dialog is, from the composer or the Terminal tab.
 
    STAYING LIVE needs no stream of its own: the session's stream already says when the transcript or the status changed. Each reset, append and status
    event asks for the newest page again (one read at a time, MIN_GAP_MS apart) and merges it by uuid into what is shown. The newest page is read, and not
@@ -69,7 +70,7 @@ window.SalaThreadLayer = (() => {
 
   /* ---------- state ---------- */
   // one object per opened thread: a read that comes back for another one (`mine !== st`) is dropped
-  const fresh = () => ({ name: null, gone: false, sid: null, items: [], before: null, start: false, loaded: false, busy: false, turn: null, bangs: [],
+  const fresh = () => ({ name: null, gone: false, sid: null, items: [], before: null, start: false, loaded: false, busy: false, turn: null, ending: null,
     reading: false, again: false, soon: 0, retry: 0, delay: RETRY_MS, readAt: 0, failed: false,
     olderBusy: false, olderFailed: false, olderAt: 0, focusing: false, nodes: new Map() });
   let st = fresh();
@@ -134,18 +135,21 @@ window.SalaThreadLayer = (() => {
     if (st.name !== s.name) return;
     noteModel(d.messages);
     track(d.messages);
-    // a "!" command's bubble is also answered by the transcript's line: kept until the next read, which may bring the line itself
-    for (const m of d.messages) if (m.role === "user" && m.blocks.some((b) => b.kind === "command" && isBang(b.text))) st.bangs.push(m);
+    // the output of a "!" command: its live block, named here by its title, goes when the output box is drawn (refresh)
+    const block = $("#live-bang");
+    if (block && d.messages.some(hasOutputBox)) st.ending = block.title;
     paintMark();
     soon();
   }
+  const hasOutputBox = (m) => m.blocks.some((b) => b.kind === "bang_output");
   function status(s) {
     if (st.name === s.name) soon();
   }
   // the open turn's last written text: a message of the owner's, or a kept line (a turn something else started), ends it
+  const NO_WORDS = ["tool_result", "notice", "bang_output"];   // a line of these alone is a call's or a command's output, not a message
   function track(msgs) {
     for (const m of msgs) {
-      if (m.role === "kept" || (m.role === "user" && m.blocks.some((b) => b.kind !== "tool_result" && b.kind !== "notice"))) st.turn = null;
+      if (m.role === "kept" || (m.role === "user" && m.blocks.some((b) => !NO_WORDS.includes(b.kind)))) st.turn = null;
       else if (m.role === "assistant") {
         const text = m.blocks.filter((b) => b.kind === "text").map((b) => b.text).join("\n").trim();
         if (text) st.turn = { uuid: m.uuid, text };
@@ -190,10 +194,15 @@ window.SalaThreadLayer = (() => {
       mine.busy = !!page.busy; mine.loaded = true; mine.failed = false; mine.delay = RETRY_MS;
       // the transcript's copy of a message takes its pending bubble's place
       for (const m of mine.items) if (ownWords(m) && !had.has(m.uuid)) { const p = matchPending(m, !first); if (p) dropPending(p); }
-      for (const m of mine.bangs.splice(0)) { const p = matchPending(m, true); if (p) dropPending(p); }
       const end = mine.items.length ? mine.items[mine.items.length - 1].uuid : null;
       if (!first && end !== last && !chatScroll.pinned) chatScroll.unseen = true;
       render();
+      // the output box takes the live block's place, as in the session view; a block the next command has since taken stays
+      const block = $("#live-bang");
+      if (mine.ending !== null && mine.items.some((m) => !had.has(m.uuid) && hasOutputBox(m))) {
+        if (block && block.title === mine.ending) applyLive(null);
+        mine.ending = null;
+      }
     } catch {
       if (mine !== st) return;
       mine.failed = true;
@@ -248,9 +257,21 @@ window.SalaThreadLayer = (() => {
   function askedNode(q) {
     const part = (tag, cls, text) => (text ? el(tag, { class: cls }, ...linkNodes(text)) : null);
     return el("div", { class: "cl-ask" }, part("div", "cl-ask-head", q.header), part("div", "cl-ask-q", q.question),
+      q.multiSelect ? el("div", { class: "cl-ask-multi", ...tx("chat.ask.multi") }) : null,
       el("ol", { class: "cl-ask-opts" }, ...q.options.map((o) => el("li", {}, part("div", "cl-ask-label", o.label),
         part("div", "cl-ask-desc", o.description), part("pre", "cl-ask-preview", o.preview)))));
   }
+  // what a question was answered with, each after its question, as a message on the owner's side
+  function answeredNode(b) {
+    return el("div", { class: "bubble cl-answer" }, ...b.answers.map((a) => el("div", { class: "cl-answer-one" },
+      el("div", { class: "cl-answer-q" }, ...linkNodes(a.question)), el("div", {}, ...linkNodes(a.answer)))));
+  }
+  // a file a reply sent that is no image: its name and the caption written with it (no route serves the file itself)
+  function fileNode(b) {
+    return el("div", { class: "cl-file" }, el("div", { class: "sent-file" }, fileIcon(), el("span", { class: "sf-name", text: b.name })),
+      b.caption ? el("div", { class: "cl-file-cap" }, ...linkNodes(b.caption)) : null);
+  }
+  const OWN = { question: askedNode, answer: answeredNode, file_sent: fileNode };   // the blocks renderMessage draws nothing for
   // a message's node, drawn by the session view's own renderMessage and kept while the message is unchanged
   function nodeOf(m) {
     const sig = JSON.stringify(m), have = st.nodes.get(m.uuid);
@@ -258,10 +279,13 @@ window.SalaThreadLayer = (() => {
     const frag = document.createDocumentFragment();
     renderMessage(m, { into: frag, older: true });
     let node = frag.firstElementChild;
-    const asked = m.blocks.filter((b) => b.kind === "question");
-    if (asked.length) {
-      if (!node) node = el("div", { class: "msg " + m.role, "data-uuid": m.uuid });   // renderMessage draws nothing for questions alone
-      node.append(...asked.map(askedNode));
+    const own = m.blocks.filter((b) => OWN[b.kind]);
+    if (own.length) {
+      if (!node) node = el("div", { class: "msg " + m.role, "data-uuid": m.uuid });   // renderMessage draws nothing for these alone
+      node.append(...own.map((b) => OWN[b.kind](b)));
+      const asked = own.filter((b) => b.kind === "question");
+      // how to answer: chatlayer.css shows it while no message of the thread follows the question
+      if (asked.length) node.append(el("div", { class: "cl-ask-how", ...tx(asked.some((q) => q.multiSelect) ? "chat.ask.howMulti" : "chat.ask.how") }));
     }
     st.nodes.set(m.uuid, { sig, node });
     return node;
@@ -328,8 +352,8 @@ window.SalaThreadLayer = (() => {
     ui.older.textContent = st.olderBusy ? tl("app.older.loading") : st.start ? tl("app.older.start") : st.olderFailed ? tl("app.older.failed") : "";
     ui.older.classList.toggle("at-start", st.start && !st.olderBusy);
   }
-  // a message the owner wrote: the interrupt line stands on their side of the thread and is none
-  const ownWords = (m) => m.role === "user" && !m.interrupt;
+  // a message the owner wrote: the interrupt line, a command's output and a question's answer stand on their side of the thread and are none
+  const ownWords = (m) => m.role === "user" && !m.interrupt && !m.output && !m.answer;
   // the owner's last message: the one still on its way, else the newest in the thread
   function ownerLast() {
     const sent = state.pending.filter((p) => p.session === st.name && p.status !== "failed" && p.status !== "held");

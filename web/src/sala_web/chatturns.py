@@ -23,7 +23,9 @@ text came from, never its words (the one exception is sala's own mark, below):
       attachment's `prompt`; its own timestamp is when the session took it up, which is why lines are read in FILE order and never sorted
       by time);
     - a `user` line with no origin that is a slash command the person typed in the pane (`<command-name>` / `<command-message>` text, not
-      isMeta). Its `<local-command-stdout>` / `<local-command-caveat>` lines are the command's output, not a turn start.
+      isMeta). Its `<local-command-stdout>` / `<local-command-caveat>` lines are the command's output, not a turn start;
+    - a `user` line with no origin that is a `!` shell command the person typed in the pane (`<bash-input>` text, not isMeta). Its
+      `<bash-stdout>` / `<bash-stderr>` line is the command's output, not a turn start (TURNS says how such a turn ends).
   delivered (something else)
     - a line whose text STARTS with sala's mark, `<!-- sala -->` and a space (leading whitespace aside, after the reminder and paste
       cleanups), whatever its origin or promptSource says. sala types its own lines into a session's pane (a spawn's mandate line, a wake
@@ -49,6 +51,8 @@ only when no turn is open, and joins the open one otherwise. A turn closes at a 
 stop_reason is neither "tool_use" (the text was written on the way to a tool call: narration) nor missing while the session works
 (unfinished). A hook's follow-up after a closed turn (Stop-hook feedback, a plugin's message) belongs to that turn, so a person's turn that
 a hook sends back for one more reply shows both replies. The "final reply" of a hidden turn is its last one.
+A `!` command may be answered by nothing at all: one that found no turn open ends its turn at its output line, so the next delivered line
+starts a hidden turn of its own, and a line the session's model writes before that takes the person's turn up again (the reply is theirs).
 
 A BACKGROUND TASK'S NOTICE is shown nowhere in the chat session (running a subagent is fine, and the view need not show it): a `<task-notification>`
 line (origin task-notification, or a queued_command of that mode) that joins a turn the person started draws no row, and one that starts a turn of its
@@ -84,6 +88,7 @@ _TASK_SUMMARY = re.compile(r"<summary>(.*?)</summary>", re.S)
 _FOOTER_START = re.compile(r"^(?:Write-up|Board|Page)s?\b\s*[:\[]|^Board\s+(?:board|[a-z]\d)", re.I)
 _MD_LINK = re.compile(r"\[([^\]\n]*)\]\([^)\n]*\)")
 _CONTINUATION_TEXT = ("Stop hook feedback:",)
+_BANG_OUTPUT = ("<bash-stdout>", "<bash-stderr>")
 SALA_MARK = "<!-- sala -->"      # lib/common.sh SALA_MSG_MARK, docs/stackshot-contracts.md interface 2: fixed, the start of every line sala types
 _SALA_MARK_AT_START = re.compile(r"^\s*" + re.escape(SALA_MARK) + r"(?:\s+|$)")
 
@@ -129,11 +134,25 @@ def _is_tool_result(d: dict, content: object) -> bool:
     return isinstance(content, list) and bool(content) and isinstance(content[0], dict) and content[0].get("type") == "tool_result"
 
 
+def bang_output(d: dict) -> bool:
+    """Whether a line is the output Claude Code records for a `!` command the person typed in the pane."""
+    if d.get("type") != "user" or d.get("isSidechain") or d.get("isMeta") or d.get("origin") is not None:
+        return False
+    msg = d.get("message")
+    return _clean(_texts(msg.get("content") if isinstance(msg, dict) else None)[0]).startswith(_BANG_OUTPUT)
+
+
+def from_model(d: dict) -> bool:
+    """Whether an assistant line is the session's model at work: not a subagent's, and not a line Claude Code wrote itself (model <synthetic>)."""
+    msg = d.get("message")
+    return not d.get("isSidechain") and isinstance(msg, dict) and msg.get("model") != "<synthetic>"
+
+
 def classify_user(d: dict) -> dict | None:
     """One `user` or queued_command line -> {"by": "human" | "other", "text", "images", "src": {...}, "cont": bool, "ts", "uuid"}, or None for a
     line that is no turn start (a tool result, a sidechain, a compaction stub, a command's own output). "src" (delivered lines) says where
     it came from: {"kind": "sala" | "board" | "session" | "other" | "task" | "system", "name": str}. "cont": a hook's follow-up, which belongs
-    to the turn before it. This is the rule of the module docstring."""
+    to the turn before it. "bang" (present on one alone): the person's `!` shell command. This is the rule of the module docstring."""
     t = d.get("type")
     if t == "attachment":
         a = d.get("attachment")
@@ -169,11 +188,13 @@ def classify_user(d: dict) -> dict | None:
         return {**base, "by": "human"}
     if origin is None and not meta and prompt_source != "sdk":
         stripped = text.lstrip()
+        if stripped.startswith("<bash-input>"):
+            return {**base, "by": "human", "text": "! " + TR._tag_inner(stripped, "bash-input"), "bang": True}
         if stripped.startswith(("<command-name>", "<command-message>")):
             name = TR._tag_inner(stripped, "command-name") or TR._tag_inner(stripped, "command-message")
             args = TR._tag_inner(stripped, "command-args")
             return {**base, "by": "human", "text": (name + " " + args).strip()}
-        if stripped.startswith(("<local-command-stdout>", "<local-command-stderr>", "<local-command-caveat>", "<bash-stdout>", "<bash-stderr>")):
+        if stripped.startswith(("<local-command-stdout>", "<local-command-stderr>", "<local-command-caveat>", *_BANG_OUTPUT)):
             return None   # the output of a command the person ran: part of no turn
         if not text and not images:
             return None
@@ -289,9 +310,13 @@ def build_turns(lines, strict: bool = False) -> list[Turn]:
     """Turns from parsed transcript lines (dicts), in file order (the module docstring has the rule)."""
     turns: list[Turn] = []
     cur: Turn | None = None
+    bang: bool | None = None         # a `!` command whose output is still to come: whether a turn was open as it was typed
+    stopped = False                  # the turn ended at that output with no reply: a line of the model's takes it up again
     for d in lines:
         if not isinstance(d, dict):
             continue
+        if stopped and d.get("type") == "assistant" and from_model(d):
+            cur.open, stopped = True, False
         r = reply_of(d, strict)
         if r is not None:
             if cur is not None:
@@ -302,7 +327,12 @@ def build_turns(lines, strict: bool = False) -> list[Turn]:
             continue
         e = classify_user(d)
         if e is None:
+            if bang is not None and bang_output(d):
+                if not bang:
+                    cur.open, stopped = False, True
+                bang = None
             continue
+        bang, stopped = (cur is not None and cur.open) if e.get("bang") else None, False
         if e["by"] == "human":
             if cur is not None and cur.open:
                 if cur.by != "human":    # they spoke into a turn something else started: it is theirs now

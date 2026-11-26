@@ -28,7 +28,7 @@ from conftest import NAME, transcript_file
 from sala_web import chatkeep as CK
 from sala_web import chatturns as CT
 from sala_web import transcript as TR
-from test_chatturns import OWNER, assistant, human, peer, queued, tool_result
+from test_chatturns import OWNER, assistant, bang, bang_result, human, peer, queued, tool_result
 
 SID = "11111111-2222-3333-4444-555555555555"
 
@@ -230,6 +230,47 @@ def test_the_count_holds_for_a_transcript_cut_anywhere(tmp_path, cut):
     lines = scenario()[:cut]
     _, msgs = whole(tmp_path, lines)
     assert len([m for m in msgs if m["role"] == CK.KEPT]) == CT.kept_today(CT.build_turns(lines), OWNER, 0, with_taken=True)
+
+
+# ── the owner's "!" command ──────────────────────────────────────────────────
+def banged() -> list[dict]:
+    """The owner's "!" commands: after a closed turn with nothing answering, answered, and typed into a delivered turn."""
+    news = "Another Claude session sent a message:\nfrom: chat-other\n\nnews"
+    return [
+        human("go", 1), assistant("Done.", 2),
+        bang("ls one", 3), bang_result("a.txt", 3),
+        peer(news, 4), assistant("Filed.", 4),
+        bang("ls two", 5), bang_result("b.txt", 5), assistant("Two files.", 6),
+        peer(news, 7), assistant("Checking.", 7, stop="tool_use", tool=True), tool_result(7),
+        bang("ls three", 8), bang_result("c.txt", 8), assistant("Seen.", 9),
+    ]
+
+
+def test_a_bang_command_its_output_and_the_answer_show_and_the_next_delivered_turn_is_kept_back(tmp_path):
+    _, msgs = whole(tmp_path, banged())
+    seen = [(m["role"], m["blocks"][0]["kind"], m["blocks"][0].get("text")) for m in msgs if m["role"] != CK.KEPT]
+    assert seen == [
+        ("user", "text", "go"), ("assistant", "text", "Done."),
+        ("user", "command", "! ls one"), ("user", "bang_output", "a.txt"),
+        ("user", "command", "! ls two"), ("user", "bang_output", "b.txt"), ("assistant", "text", "Two files."),
+        ("user", "command", "! ls three"), ("user", "bang_output", "c.txt"), ("assistant", "text", "Seen."),
+    ]
+    assert [m["kept"]["did"] for m in msgs if m["role"] == CK.KEPT] == ["Filed.", ""]
+
+
+@pytest.mark.parametrize("cut", range(1, 16))
+def test_with_bang_commands_the_count_and_the_stream_hold_wherever_the_transcript_is_cut(tmp_path, cut):
+    lines = banged()
+    _, first = whole(tmp_path, lines[:cut])
+    assert len([m for m in first if m["role"] == CK.KEPT]) == CT.kept_today(CT.build_turns(lines[:cut]), OWNER, 0, with_taken=True)
+    _, full = whole(tmp_path, lines)
+    p = tmp_path / f"{SID}.jsonl"
+    write(p, lines[:cut])
+    head, _, off, kp = CK.read_tail_page(p, SID, OWNER, 10_000)
+    with p.open("a", encoding="utf-8") as f:
+        f.write("".join(json.dumps(d) + "\n" for d in lines[cut:]))
+    more, _ = CK.read_from(p, kp, off)
+    assert fold(head + more) == full
 
 
 # ── every read gives the same thread ─────────────────────────────────────────

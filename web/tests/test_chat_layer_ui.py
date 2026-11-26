@@ -24,6 +24,10 @@ Held here, against the real server:
     it stays under the thread, and goes with the command's end, a reconnect or another session;
   - the images a reply sent (drawn as the session view draws them), the questions it asked with their numbered options, an API error and an interrupt are in the
     thread, with no sideways scroll at the four widths; the interrupt line takes no pending bubble and sets no language;
+  - a "!" or slash command and its output are in the thread, the output taking the live block's place and the command's line its pending bubble's; a command's
+    output leaves the open turn's words beside the working mark;
+  - a sent file that is no image shows its name and caption with nothing to tap; a question says whether it takes several answers and how to answer it until a
+    message of the thread follows; the answers show on the owner's side and take no pending bubble; no sideways scroll at the four widths with any of these;
   - off, the chat session and another one are drawn by the session view; on, the other session's page is the same, opened directly or from the chat.
 
 What a wrong answer costs: the owner reads the session's own working lines as answers, a reply never arrives or arrives twice, a phone page that scrolls
@@ -53,7 +57,7 @@ from test_chat_link_cards_ui import ART, mockup, reply_text
 from test_chat_onit_ui import CHEVRON, MOVE_PANEL, MOVE_TAB, ONIT_PANEL, ONIT_TAB, PIN, WIDE, click, cp, key, promises, state, waiting
 from test_chat_onit_ui import hostile as onit_hostile
 from test_chat_session_view_ui import CODE, DESKTOP, MEASURE, PHONE, SIZES, TABLE, URL, WORD, api_chat, check, open_page
-from test_chat_thread import OVERLOADED, api_error, asked, call, interrupt, task
+from test_chat_thread import ASK, OVERLOADED, answered, api_error, asked, banged, call, command_output, interrupt, local, task
 from test_chatturns import assistant, human, peer, tool_result
 from test_composer_attach import WAIT_CHIPS, pick
 from test_sleeping_sessions import wake  # noqa: F401  (a fixture: the stand-in sala and its sleeping markers)
@@ -970,6 +974,113 @@ def test_a_command_running_while_the_thread_loads_ends_up_under_the_thread_with_
     assert browser.evaluate(LIVE_LAST)
     browser.evaluate("window.__hold = false; ''")
     assert wait_for(browser, f"document.querySelectorAll('#chat > .msg').length >= 30 && {LIVE_LAST} && {STOP_REACHED}", 30.0), browser.evaluate(LIVE_BLOCK)
+
+
+# each message of the transcript: whose it is and the words of its command line, its command's output or its text
+COMMANDS = """[...document.querySelectorAll('#chat > .msg:not(.local)')].map((m) => [m.classList.contains('user') ? 'me' : 'reply',
+  [...m.querySelectorAll(':scope > .cmd, :scope > .bang-out pre, :scope > details.notice pre, :scope > .bubble, :scope > .md')]
+    .map((n) => n.textContent.trim()).join(' / ')])"""
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_a_commands_line_and_output_are_in_the_layers_thread_and_the_output_takes_the_live_blocks_place(served, browser, monkeypatch, size):
+    write(served, human("go on", 1), assistant("Done.", 2))
+    open_chat(browser, served, monkeypatch, size)
+    thread_is(browser, [["me", "go on"], ["reply", "Done."]])
+    send(browser, "! ls demo")
+    assert browser.evaluate(PENDING) == ["! ls demo"]
+    live(browser, {"running": True, "command": "ls demo", "uuid": "b-1", "text": "a.txt"})
+    assert browser.evaluate("!!document.querySelector('#live-bang')")
+    # the records alone end the block: no event of the stream says the command is over here
+    append(served, *banged("ls demo", 3, "a.txt"), assistant("One file.", 4))
+    want = [["me", "go on"], ["reply", "Done."], ["me", "! ls demo"], ["me", "a.txt"], ["reply", "One file."]]
+    assert wait_for(browser, f"{COMMANDS}.length === {len(want)} && !document.querySelector('#live-bang')", 20.0), browser.evaluate(COMMANDS)
+    assert browser.evaluate(COMMANDS) == want
+    assert browser.evaluate(PENDING) == [] and browser.evaluate("state.pending.length") == 0, "the command's line takes its bubble's place"
+    # a slash command that ran locally
+    append(served, *local("/model", 5))
+    want += [["me", "/model"], ["me", "done"]]
+    assert wait_for(browser, f"{COMMANDS}.length === {len(want)}", 20.0), browser.evaluate(COMMANDS)
+    assert browser.evaluate(COMMANDS) == want
+
+
+@pytest.mark.parametrize("served", [{"status": "busy"}], indirect=True)
+def test_a_commands_output_leaves_the_open_turns_words_beside_the_mark(served, browser, monkeypatch):
+    write(served, human(KO_OWNER, 1), assistant(KO_TURN, 2, stop="tool_use", tool=True), tool_result(2))
+    open_chat(browser, served, monkeypatch)
+    assert wait_for(browser, f"(({MARK}) || {{}}).turn === {json.dumps(KO_TURN)}", 20.0), browser.evaluate(MARK)
+    # the stream's append hands the line over as the transcript's page would
+    output = {"uuid": "o-1", "role": "user", "blocks": [{"kind": "bang_output", "label": "command output", "text": "plain output", "truncated": False}]}
+    handed = f"SalaThreadLayer.append(state.byName.get(state.selected), {{ messages: [{json.dumps(output)}] }}); ({MARK}).turn"
+    assert browser.evaluate(handed) == KO_TURN
+
+
+HOW = "[...document.querySelectorAll('#chat .cl-ask-how')].map((n) => [n.textContent, n.getClientRects().length > 0])"
+HOW_ONE = "To answer, send an option's number here or use the Terminal tab. To answer in your own words, send esc first, then your message."
+HOW_MANY = "To answer, use the Terminal tab. To answer in your own words, send esc first, then your message."
+SENT_FILE = """[...document.querySelectorAll('#chat > .msg.assistant > .cl-file')].map((f) => [f.querySelector('.sf-name').textContent,
+  f.querySelector('.cl-file-cap').textContent, f.querySelectorAll('a, button').length, !!f.querySelector('svg')])"""
+ANSWERS = "[...document.querySelectorAll('#chat > .msg.user > .cl-answer .cl-answer-one')].map((n) => [...n.children].map((c) => c.textContent))"
+
+
+@pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
+@pytest.mark.parametrize("size", SIZES)
+def test_a_sent_file_a_question_and_its_answer_show_and_how_to_answer_stands_until_the_thread_moves_on(served, browser, monkeypatch, size):
+    report = call("SendUserFile", {"files": ["/w/demo/report.docx"], "caption": "The figures", "status": "normal"}, 1)
+    write(served, human("send it", 1), report, tool_result(1), assistant("Sent.", 2), human("pick one", 3), asked(4))
+    open_chat(browser, served, monkeypatch, size)
+    assert wait_for(browser, f"{LAYERED} && {HOW}.length === 1", 20.0), browser.evaluate(THREAD)
+    assert browser.evaluate(SENT_FILE) == [["report.docx", "The figures", 0, True]]
+    notes = "[...document.querySelectorAll('#chat .cl-ask')].map((q) => (q.querySelector('.cl-ask-multi') || {}).textContent || '')"
+    assert browser.evaluate(notes) == ["", "You can pick more than one."]
+    assert browser.evaluate(HOW) == [[HOW_MANY, True]]
+    # a message on its way leaves the words on screen
+    send(browser, "esc")
+    assert browser.evaluate(PENDING) == ["esc"]
+    assert browser.evaluate(HOW) == [[HOW_MANY, True]]
+    append(served, answered({"Which colour?": "Blue", "Which size?": ["Small"]}, 5))
+    assert wait_for(browser, f"{ANSWERS}.length === 2", 20.0), browser.evaluate(THREAD)
+    assert browser.evaluate(ANSWERS) == [["Which colour?", "Blue"], ["Which size?", "Small"]]
+    assert browser.evaluate(HOW) == [[HOW_MANY, False]]
+    assert browser.evaluate(PENDING) == ["esc"], "the answer's line is no copy of a message on its way"
+    append(served, assistant("Blue it is.", 6), human("and again", 7), asked(8, ASK[:1]))
+    assert wait_for(browser, f"{HOW}.length === 2", 20.0), browser.evaluate(THREAD)
+    assert browser.evaluate(HOW) == [[HOW_MANY, False], [HOW_ONE, True]]
+
+
+# a box of a message that ends outside the window or holds more across than itself
+MESSAGES_WIDE = """(() => { const vw = document.documentElement.clientWidth, out = [], wide = [];
+  for (const n of document.querySelectorAll('#chat > .msg, #chat > .msg *')) {
+    if (!n.getClientRects().length || n.closest('svg')) continue;
+    const r = n.getBoundingClientRect();
+    if (r.width && (r.right > vw + 0.5 || r.left < -0.5)) out.push(n.tagName + '.' + n.className + ' ' + Math.round(r.left) + '-' + Math.round(r.right));
+    if (n.clientWidth && n.scrollWidth > n.clientWidth + 1) wide.push(n.tagName + '.' + n.className + ' ' + n.scrollWidth + '>' + n.clientWidth);
+  }
+  const count = (s) => document.querySelectorAll('#chat ' + s).length;
+  return { out: out.slice(0, 8), wide: wide.slice(0, 8), drawn: ['.cl-file', '.cl-answer', '.cmd', '.bang-out', 'details.notice', '.cl-ask', '.cl-ask-how'].map(count) }; })()"""
+
+
+@pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
+@pytest.mark.parametrize("width", [1280, 390, 360, 320])
+def test_no_sideways_scroll_with_commands_their_output_sent_files_and_answers(served, browser, monkeypatch, width):
+    asking = f"{WORD} {URL}"
+    questions = [{"header": WORD, "question": asking, "multiSelect": True, "options": [{"label": WORD, "description": CODE}]}]
+    files = call("SendUserFile", {"files": ["/w/demo/" + "f" * 200 + ".docx"], "caption": f"{URL} {WORD}", "status": "normal"}, 1)
+    write(served, human("send it", 1), files, tool_result(1), asked(2, questions), answered({asking: f"{CODE} {WORD} {URL}"}, 3, questions),
+          assistant("Taken.", 4), *banged(f"demo {WORD} {URL}", 5, LIVE_TEXT),
+          *local(f"/{WORD}", 6, output=lambda _, minute: command_output(LIVE_TEXT, minute)), human("again", 7), asked(8, questions))
+    open_chat(browser, served, monkeypatch, (width, 800 if width > 700 else 844), doc=strip_doc())
+    if width < 700:
+        browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
+    ready = f"{LAYERED} && document.querySelectorAll('#chat .cl-ask').length === 2 && document.querySelectorAll('#chat-strip-wait .wait-row').length === 2"
+    assert wait_for(browser, ready, 30.0), browser.evaluate(MESSAGES_WIDE)
+    browser.evaluate("document.querySelectorAll('#chat details').forEach((d) => { d.open = true; }); ''")   # what a fold holds, too
+    browser.settle("document.querySelector('#chat')")
+    m, got = browser.evaluate(MEASURE), browser.evaluate(MESSAGES_WIDE)
+    assert m["vw"] == width, m
+    check(m, f"{width} px with commands, files and answers")
+    assert got == {"out": [], "wide": [], "drawn": [1, 1, 2, 1, 1, 2, 2]}, (width, got)
 
 
 # ── every other page ─────────────────────────────────────────────────────────
