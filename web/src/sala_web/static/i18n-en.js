@@ -284,7 +284,7 @@ window.SALA_I18N_EN = {
   "chat.onit.late": "{n} older than 2 days",
   "chat.onit.line": "On it · {n}",
   "chat.onit.none": "Nothing in progress right now",
-  "chat.onit.note": "This is what Aaron has said he will report back on in this chat. Once he has, it leaves the list.",
+  "chat.onit.note": "This is what the assistant has said it will report back on in this chat. Once it has, it leaves the list.",
   "chat.onit.since": "since {t}",
   "chat.onit.tab": "On it",
   "chat.onit.tabs": "Chat lists",

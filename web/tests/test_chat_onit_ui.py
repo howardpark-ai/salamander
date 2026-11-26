@@ -49,7 +49,7 @@ CHEVRON = "document.querySelector('#chat-strip-wait .wait-chev')"
 HELP_BTN = "document.querySelector('#chat-strip-wait .wait-help')"
 MOVE_PANEL, ONIT_PANEL = "chat-strip-wait-panel", "chat-strip-onit-panel"
 NOTHING = "Nothing in progress right now"
-NOTE = "This is what Aaron has said he will report back on in this chat. Once he has, it leaves the list."
+NOTE = "This is what the assistant has said it will report back on in this chat. Once it has, it leaves the list."
 HELP_LABEL = "About this list"
 
 
