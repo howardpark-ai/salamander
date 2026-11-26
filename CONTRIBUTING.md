@@ -523,6 +523,29 @@ Two rules keep the suites from growing without anyone looking:
   runs only after a `TRIGGER` line, never on a calendar.** The script's docstring says exactly what is counted and what the command
   reads; `tests/trimreport.sh` checks it.
 
+**The deep scan (what a `TRIGGER` line asks for).** The same steps every time, so one scan is comparable with the next:
+
+1. *Measure.* From a branch off `origin/main`, list the suites (`tests/*.sh` that CI runs, `web/tests/test_*.py`) with their lines, and take
+   each suite's weekly growth (`per_suite_change`) and seconds (`timed`, in minutes) from the report's state file
+   (`${XDG_STATE_HOME:-~/.local/state}/salamander/test-trim/state.json`; count and read only). The top growers, and any pair of suites
+   whose `docs/test-coverage.md` entries overlap, are read first; the rest are read for the two questions below.
+2. *Find, by reading the test bodies.* (a) A **duplicate**: a test asserting what another asserts, with the same function or endpoint, the
+   same inputs and the same expected result (a different input, edge, layer or scenario is not a duplicate; a sibling suite per lane or
+   mode shares wording and not code). (b) A **dead** test: one for a function, flag, endpoint, file, DOM id or style the code no longer has
+   (grep `bin/`, `lib/`, `web/src/` for the thing under test; a test that only asserts something is gone is an absence guard and stays
+   unless another check guards it). Python names a test imports are checked mechanically: parse `web/src/sala_web/*.py` for the names
+   each test file reaches through `from sala_web import x`.
+3. *Trim only what is clearly redundant.* Delete the duplicate and keep the better-named test; never delete the sole check of a
+   behaviour, and never delete a test only because it is slow or flaky (those go on a list in the PR). Each deletion must be explainable in one
+   line; a parametrized duplicate is a duplicate list entry. Prefer a whole suite over single lines when a suite has nothing left: its
+   seconds are the saving CI sees (a single `assert` is under a second).
+4. *Keep the records.* Update `docs/test-coverage.md` and `web/README.md` where they name a removed test, run `bash tests/suitemap.sh
+   --check` (a changed suite's line in `tests/suites.map` is measured again, as the check's message says), then run every changed suite
+   on the test box (browser tests only in CI).
+5. *Report in the PR:* this recipe, one line per removed test (what it duplicated, or the thing that is gone), the lines and seconds
+   removed per suite, what was found and left (slow, flaky, overlapping but not identical), and the test-line count before and after
+   (`trim_report.py --dry-run`).
+
 Why a script of its own: the repository is public and self-contained, its suites are shell and pytest files, and their times come
 from two things it already has, the committed record (`timings.json`) and the merge queue's logs; what a trigger opens, and where,
 differs per instance, so that part stays outside the repository, behind `on_trigger`.

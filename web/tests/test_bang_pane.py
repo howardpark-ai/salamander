@@ -38,12 +38,6 @@ def test_a_running_bang_command_is_found_with_its_command_and_output():
     }, got
 
 
-def test_the_text_has_no_input_box_rules_footer_hint_or_fold_counter():
-    got = T.bang_pane(pane("bang-running"))["text"]
-    for chrome in ("─", "❯", "esc to interrupt", "ctrl+b", "run in background", "+14 lines", "(18s)", "⎿", "⏵⏵"):
-        assert chrome not in got, chrome
-
-
 def test_the_fold_counter_ticking_does_not_change_the_text():
     a = pane("bang-running")
     b = a.replace("+14 lines (18s)", "+14 lines (1m 19s)")

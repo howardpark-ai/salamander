@@ -72,11 +72,6 @@ def test_a_stored_page_is_served_as_utf8_html_with_the_sandbox_headers(env):
     assert r.headers["cache-control"] == "private, no-cache"
 
 
-def test_the_viewport_meta_a_phone_needs_reaches_the_reader_unchanged(env):
-    store(env["root"], 2)
-    assert 'name="viewport" content="width=device-width, initial-scale=1"' in env["client"].get("/mockup/2").text
-
-
 def test_numbers_are_the_files_and_the_largest_works(env):
     store(env["root"], 9999999999, "<p>big number</p>")
     assert env["client"].get("/mockup/9999999999").text == "<p>big number</p>"

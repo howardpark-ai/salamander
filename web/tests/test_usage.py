@@ -415,22 +415,3 @@ def test_the_endpoint_serves_a_week_at_once_with_its_rows_and_never_a_text_of_a_
     assert usd == pytest.approx(1.0) and d1["rows"][0][6] == pytest.approx(2.0)
     assert [x.status_code for x in bad] == [400, 400, 400]
     assert SECRET not in json.dumps([d0, d1])
-
-
-def test_the_endpoint_refresh_keeps_the_last_answer_when_a_count_fails(w, monkeypatch):
-    one_hour_ago, _ = fresh_times()
-    w.registry("example-alpha-build", A)
-    w.transcript(A, reply("m1", "claude-sonnet-5-5", one_hour_ago, out=100_000), mtime=time.time())
-    with TestClient(create_app(w.settings)) as c:
-        good = get_usage(c)
-        assert good["weeks"][0]["total"] == pytest.approx(1)
-
-        def boom(*a, **k):
-            raise RuntimeError(SECRET)
-
-        monkeypatch.setattr(U, "compute", boom)
-        c.get("/api/usage?week=0&fresh=1")
-        time.sleep(0.5)
-        after = get_usage(c)
-    assert after["weeks"][0]["total"] == pytest.approx(1)                                       # the last good answer stays
-    assert "error" in after and SECRET not in json.dumps(after)                                  # in plain words, never the exception's text

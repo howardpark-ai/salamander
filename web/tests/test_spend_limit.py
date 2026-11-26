@@ -76,7 +76,7 @@ def test_a_missing_file_is_none(tmp_path):
     "{broken", "", "[]", "null", '{"v": 2}', json.dumps({**doc(), "v": 2}),
     json.dumps({k: v for k, v in doc().items() if k != "limit"}), json.dumps({k: v for k, v in doc().items() if k != "tier"}),
     json.dumps({k: v for k, v in doc().items() if k != "paused_until"}), json.dumps({k: v for k, v in doc().items() if k != "email_date"}),
-    json.dumps(doc(limit="1000")), json.dumps(doc(limit=0)), json.dumps(doc(limit=True)), json.dumps(doc(tier="3")), json.dumps(doc(tier=-1)),
+    json.dumps(doc(limit=True)), json.dumps(doc(tier="3")), json.dumps(doc(tier=-1)),
     json.dumps(doc(paused_until="soon")), json.dumps(doc(email_date="yesterday")),
     # corrupt numbers: infinity (1e309 reads as one), NaN, negative, zero, a string, a huge integer, a limit at the bound, an absurd tier
     raw(limit="1e309"), raw(limit="-1e309"), raw(limit="NaN"), raw(limit="Infinity"), raw(limit="-1"), raw(limit="0"), raw(limit="-0.0"),

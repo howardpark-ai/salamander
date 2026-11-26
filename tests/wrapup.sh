@@ -196,7 +196,6 @@ tick
 [ "$(wstate wrap.sala-test-p | cut -d' ' -f1)" = retry ] && grep -q "the wrap-up typed into sala-test-p produced no turn" "$WLOG" && ok "p: dropped to retry, said in the log" || bad "p: $(wstate wrap.sala-test-p); $(tail -3 "$WLOG")"
 tick; tick
 [ "$(nwrap 22)" = 0 ] && [ "$(nclear 22)" = 0 ] && ok "p is not asked again before SALA_WRAPUP_RETRY" || bad "p wraps $(nwrap 22) clears $(nclear 22)"
-[ "$(nwrap 21)" = 1 ] && ok "o (state dropped, still eligible) is asked afresh" || ok "o: wraps $(nwrap 21) (asked afresh or still waiting)"
 
 echo "== a /clear the CLI does not take: tried SALA_CLEAR_TRIES times, then dropped"
 mk q 31 -e FAKE_NO_CLEAR=1; fake_up sala-test-q || exit 1

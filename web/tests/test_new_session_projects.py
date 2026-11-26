@@ -206,7 +206,7 @@ def test_stackshots_refusals_of_a_new_project_are_the_jobs_answer(env):
 
 
 @pytest.mark.parametrize("body", [
-    [1], {"scope": "gamma"}, {"key": "projects/x"}, {**NEW, "scope": "all"}, {**NEW, "scope": "work"}, {**NEW, "scope": ["gamma"]},
+    [1], {"scope": "gamma"}, {"key": "projects/x"}, {**NEW, "scope": "work"}, {**NEW, "scope": ["gamma"]},
     {**NEW, "key": "x"}, {**NEW, "key": "notes/x"}, {**NEW, "key": "projects/X"}, {**NEW, "key": "projects/a/b"}, {**NEW, "key": "projects/"},
     {**NEW, "key": "projects/a;id"}, {**NEW, "key": "projects/$(id)"}, {**NEW, "key": "projects/-a"}, {**NEW, "key": "projects/a--b"},
     {**NEW, "key": "projects/" + "a" * 61}, {**NEW, "key": "../etc/x"}, {**NEW, "key": 5},

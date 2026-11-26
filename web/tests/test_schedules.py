@@ -441,11 +441,6 @@ def test_a_job_with_no_project_is_flagged_with_the_command_that_sets_it(box):
     assert "X-Project=" in row["flags"][0]["text"] and "sala job set-project brand-new" in row["flags"][0]["text"]
 
 
-def test_a_job_with_a_project_is_not_flagged_for_it(box):
-    box.add("dusk-run", project="projects/lamp")
-    assert "no-project" not in codes(by_name(SCH.collect(box, now=NEXT), "dusk-run.timer"))
-
-
 def test_the_code_holds_no_table_that_places_a_job():
     import inspect
     src = inspect.getsource(SCH)

@@ -9,7 +9,7 @@ export BRIEFING_GMAIL_CONNECTOR=demo   # a made-up connector word (config.exampl
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); D=$ROOT/contrib/briefing
 fail=0; ok() { echo "  ok   $*"; }; bad() { echo "  FAIL $*"; fail=1; }
 export BRIEFING_BACKEND=cli   # the `claude -p` path under test; the Agent SDK window is tests/briefing/sdk.sh's
-T=$(mktemp -d); trap 'kill "${SRV:-}" 2>/dev/null; rm -rf "$T"' EXIT
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export BRIEFING_LOGDIR="$T/logs"   # unset, lib.sh would migrate the real old ~/.cache directory
 mkdir -p "$T/home" "$T/bin" "$T/logs"
 cat > "$T/bin/claude" <<'FAKE'
@@ -30,8 +30,7 @@ PY
 exit "${FAKE_RC:-0}"
 FAKE
 chmod +x "$T/bin/claude"
-# the posts are stubbed below; the real post_slack case at the end reaches only a listener on 127.0.0.1 (a dead local port until then:
-# a missed stub fails here, not at Slack)
+# the posts are stubbed below; the API base is a dead local port, so a missed stub fails here, not at Slack (the real post_slack is botpost.sh's)
 export BRIEFING_BOT_APP_SALA_ADMIN=adm-app BRIEFING_BOT_CHANNEL_SALA_ADMIN=D0ADMIN SALA_DM_TOKEN_DIR=$T/tok SALA_DM_API_BASE=http://127.0.0.1:9/api
 mkdir -p "$T/tok"; printf '%s\n' fake-guard-test-token > "$T/tok/slack-bot-token-adm-app"; chmod 600 "$T/tok/slack-bot-token-adm-app"
 
@@ -70,34 +69,4 @@ expect "claude exit 1" "$out" "$posts" "calls=3 rc=1" "ended with an error" "one
 
 rm -f "$T/posts"; out=$(case_run auth 1 0 "Google Workspace demo connector needs re-authorization."); posts=$(cat "$T/posts" 2>/dev/null)
 expect "auth sentinel" "$out" "$posts" "deliver=1" "didn't run"
-
-# the real post_slack, against a listener on 127.0.0.1: the JSON shape
-PORT_FILE=$T/port
-python3 - "$PORT_FILE" "$T/body" <<'PY' &
-import http.server, sys
-port_file, body_file = sys.argv[1], sys.argv[2]
-class H(http.server.BaseHTTPRequestHandler):
-    def do_POST(self):
-        data = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-        open(body_file, "wb").write(data)
-        self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
-    def log_message(self, *a): pass
-s = http.server.HTTPServer(("127.0.0.1", 0), H)
-open(port_file, "w").write(str(s.server_address[1]))
-s.handle_request()
-PY
-SRV=$!
-for _ in $(seq 50); do [ -s "$PORT_FILE" ] && break; sleep 0.1; done
-if [ -s "$PORT_FILE" ]; then
-    resp=$(HOME="$T/home" SALA_DM_API_BASE=http://127.0.0.1:$(cat "$PORT_FILE")/api BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR= BRIEFING_COMMIT_REPOS= bash -c '. "$1/lib.sh" 2>/dev/null; post_slack "plain text"' _ "$D" "$T" 2>&1)
-    wait "$SRV" 2>/dev/null; SRV=
-    [ "$resp" = ok ] && ok "post_slack: listener answered" || bad "post_slack response: $resp"
-    python3 - "$T/body" <<'PY' && ok "post_slack: the JSON payload Slack accepts (text, unfurls off)" || bad "post_slack body: $(cat "$T/body" 2>/dev/null)"
-import json, sys
-d = json.load(open(sys.argv[1], encoding="utf-8"))
-assert d == {"channel": "D0ADMIN", "text": "plain text", "unfurl_links": False, "unfurl_media": False}, d
-PY
-else
-    bad "the 127.0.0.1 listener did not start"
-fi
 exit $fail
