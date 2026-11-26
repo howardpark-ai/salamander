@@ -266,7 +266,9 @@
     </header>
     <section id="chat-pane" class="pane active">
       <!-- the chat session's strip (app.js "the chat session"): what waits on the owner, what is in motion and the kept-back switch, above the thread and OUTSIDE #chat
-           (showTail replaces #chat's children); shown only while the open session is the chat session, and it scrolls with the thread -->
+           (showTail replaces #chat's children); shown only while the open session is the chat session. What waits on the owner (#chat-strip-wait) is pinned at the
+           top of the pane, one line that opens the list; the rest of the strip scrolls with the thread -->
+      <div id="chat-strip-wait" class="cstrip-wait" hidden></div>
       <div id="chat-strip" class="cstrip" hidden></div>
       <div id="chat"><div class="empty" data-i18n="ui.chat.pick">Pick a session on the left.</div></div>
     </section>

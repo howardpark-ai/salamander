@@ -78,7 +78,7 @@ def test_arriving_through_chat_no_width_scrolls_sideways(served, browser, monkey
                    motion=[{"text": WORD + " " + "m" * 100, "at": int(time.time())} for _ in range(6)])
     size = (width, 800 if width > 700 else 844)
     open_page(browser, served, monkeypatch, size, doc, hash_="chat")
-    assert wait_for(browser, "document.querySelectorAll('#chat-strip .wait-row').length === 3 && document.querySelectorAll('#chat-strip .mo').length === 6", 10.0)
+    assert wait_for(browser, "document.querySelectorAll('#chat-strip-wait .wait-row').length === 3 && document.querySelectorAll('#chat-strip .mo').length === 6", 10.0)
     if width < 700:
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
         assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
