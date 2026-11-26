@@ -115,6 +115,9 @@ def test_the_sanitizer_keeps_its_defaults_but_for_what_acts_or_restyles():
     # what a reply is to keep is on neither list
     kept = {"svg", "math", "video", "audio", "source", "track", "img", "details", "summary", "map", "area", "label", "font"}
     assert not kept & set(cfg["FORBID_TAGS"]) and "style" not in cfg["FORBID_ATTR"]
+    # a video keeps what its controls offer; what asks for picture in picture without the reader goes
+    assert not {"controls", "controlslist", "disablepictureinpicture", "playsinline"} & set(cfg["FORBID_ATTR"])
+    assert "autopictureinpicture" in cfg["FORBID_ATTR"]
 
 
 @needs_node
@@ -240,9 +243,9 @@ process.stdout.write(JSON.stringify({ asked, removed, first, second: div.attrs, 
     assert got["asked"] == ["<p>y</p>", True]
     assert got["removed"][:2] == ["live", "style cursor"]
     assert got["first"]["div"] == {"id": "md1-x", "style": "cursor: url(a)"} and got["second"] == {"id": "md2-x"}
-    assert got["first"]["video"] == {"src": "v", "controlslist": "nofullscreen", "disablepictureinpicture": "", "playsinline": ""}
+    assert got["first"]["video"] == {"src": "v"}   # full screen and picture in picture stay as its controls offer them
     assert got["first"]["task"] == {"type": "checkbox", "disabled": ""}
-    assert got["listeners"] == ["fullscreenchange"]
+    assert got["listeners"] == []   # nothing waits to leave a full screen the reader opened
     opened = {"href": "#a", "xlink:href": "#b", "target": "_blank", "rel": "noopener noreferrer"}
     assert got["links"] == [opened, opened, opened, {}, {"href": "#a", "xlink:href": "#b"}]
     assert got["seen"] == [[["hidden", "popover"], False], [[], True], [["open"], False], [[], False]]

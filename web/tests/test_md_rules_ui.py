@@ -5,7 +5,8 @@
 A reply that tries each way out of its box changes nothing outside it: no pixel, no place or size, no computed style, nothing
 in the top layer, and a stand-in for a frame drawn on the chat page is what a tap on it finds. A reply draws no control of the
 page's, answers to none of its names and moves none of its drawings. What a session writes (markdown, drawings, video, audio,
-formulas, its own colours) lays out where it did without the containment.
+formulas, its own colours) lays out where it did without the containment. A video's controls still offer full screen and
+picture in picture.
 """
 
 from __future__ import annotations
@@ -243,14 +244,14 @@ def test_a_reply_neither_acts_on_the_page_nor_answers_to_its_names(served, brows
         links: q("a, area").map((a) => [a.localName, a.getAttribute("target"), a.getAttribute("rel")]),
         math: q("math [href], math[href]").length,
         usemap: [m.querySelector("img").getAttribute("usemap"), "#" + m.querySelector("map").getAttribute("name")],
-        video: (() => { const v = m.querySelector("video"); return [v.getAttribute("controlslist"), v.disablePictureInPicture, v.playsInline ?? v.hasAttribute("playsinline")]; })(),
+        video: m.querySelector("video").getAttributeNames().sort(),
         sheets: document.styleSheets.length - T.was.sheets, moved: location.hash !== T.was.hash,
       }; })()""")
     assert got["tags"] == [] and got["inputs"] == [["checkbox", True]] and got["named"] == [] and got["classes"] == [] and got["attrs"] == [], got
     assert got["open"] == 0 and got["editable"] == 0 and got["pictures"] == 0 and got["focus"] and got["ahead"] == 0, got
     assert got["composer"] and got["chat"] == 1 and got["role"] and got["sheets"] == 0 and not got["moved"], got
     assert len(got["links"]) >= 4 and all(link[1:] == ["_blank", "noopener noreferrer"] for link in got["links"]), got["links"]
-    assert got["math"] == 0 and got["usemap"][0] == got["usemap"][1] and got["video"] == ["nofullscreen", True, True], got
+    assert got["math"] == 0 and got["usemap"][0] == got["usemap"][1] and got["video"] == ["controls", "height", "width"], got
     # what a dropped element said is still there to read; what was never on screen still is not
     for words in ("popover words", "open words", "named words", "typed", "first", "Approve", "opener", "After."):
         assert words in got["text"], words
@@ -279,14 +280,18 @@ def test_a_reply_s_animation_moves_nothing_of_the_page_s(served, browser):
     assert moved > 0
 
 
-def test_a_reply_s_video_never_takes_the_whole_screen(served, browser):
+def test_a_reply_s_video_keeps_full_screen_and_picture_in_picture(served, browser):
+    """Its controls offer both, as those of a video the page makes itself do: neither is switched off on the element, and full
+    screen, asked for with the reader's tap, opens, covers the window and stays."""
     staged(browser, served)
     put(browser, "Words.\n\n<video controls width=\"120\" height=\"60\"></video>")
     ask = """(async (v) => { let asked = "ok"; try { await v.requestFullscreen(); } catch (e) { asked = e.name; }
       await new Promise((r) => setTimeout(r, 1500));
-      const full = !!document.fullscreenElement; if (full) await document.exitFullscreen();
-      let pip = "refused"; try { await v.requestPictureInPicture(); pip = "opened"; } catch {}
-      return { asked, full, pip }; })"""
+      const full = document.fullscreenElement === v, r = v.getBoundingClientRect();
+      const covers = r.left <= 0 && r.top <= 0 && r.right >= innerWidth - 1 && r.bottom >= innerHeight - 1;
+      if (document.fullscreenElement) await document.exitFullscreen();
+      return { asked, full, covers, offered: [v.controls, v.controlsList.contains("nofullscreen"), v.disablePictureInPicture,
+        v.hasAttribute("playsinline")] }; })"""
 
     def tapped(video: str) -> dict:
         r = browser.send("Runtime.evaluate", {"awaitPromise": True, "returnByValue": True, "userGesture": True,
@@ -294,9 +299,10 @@ def test_a_reply_s_video_never_takes_the_whole_screen(served, browser):
         return r["result"]["value"]
 
     got = tapped('T.msg.querySelector("video")')
-    assert not got["full"] and got["pip"] == "refused", got
-    mine = tapped('(() => { const v = document.createElement("video"); document.getElementById("chat").append(v); return v; })()')
-    assert mine["asked"] == "ok" and mine["full"], mine
+    own = tapped('(() => { const v = document.createElement("video"); v.controls = true; v.width = 120; v.height = 60;'
+                 ' document.getElementById("chat").append(v); return v; })()')
+    assert own == {"asked": "ok", "full": True, "covers": True, "offered": [True, False, False, False]}, own
+    assert got == own, (got, own)
 
 
 def test_wide_content_scrolls_inside_its_box(served, browser):
@@ -485,7 +491,6 @@ def test_drawings_media_formulas_and_colours_are_kept_as_written(served, browser
     text = "\n\n".join(LOOKS[k] for k in ("colours", "drawing", "media", "formula"))
     got = browser.evaluate(f"""(() => {{ const html = marked.parse(mdPrep({json.dumps(text)}), {{ gfm: true, breaks: true }});
       const tree = (n) => [...n.querySelectorAll("*")].map((e) => [e.localName, [...e.attributes]
-        .filter((a) => !["controlslist", "disablepictureinpicture", "playsinline"].includes(a.name))
         .map((a) => a.name + "=" + a.value.replace(/md\\d+-/g, "")).sort().join(";")]);
       const defaults = document.createElement("div"); defaults.append(DOMPurify.sanitize(html, {{ RETURN_DOM_FRAGMENT: true }}));
       const ours = document.createElement("div"); ours.append(mdSanitize(html));

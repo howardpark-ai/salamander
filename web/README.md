@@ -2401,7 +2401,9 @@ markdown, rendered by `marked` and sanitized by `DOMPurify` (`md()`: every link 
 `rel="noopener noreferrer"`; a `javascript:` URL loses its href). A reply keeps what `DOMPurify` keeps by default, drawings
 (`svg`), video, audio, formulas (`math`) and its own inline `style` included, and its box (`.md`, `style.css`) has layout and
 paint containment: nothing the reply draws, positioned, fixed, moved, scaled, raised, shadowed or pulled by a negative margin,
-paints, takes a click or stretches the page outside the box, and what is wider than the box scrolls inside it. A box that
+paints, takes a click or stretches the page outside the box, and what is wider than the box scrolls inside it. The one
+exception is a video's full screen and picture in picture: its controls offer both as they do anywhere, the browser draws
+them over the page, and the reader starts them. A box that
 contains does not let the margins at its edges merge with the space around it, so `mdEdges()` (`app.js`) hands the margins
 of the elements down its top and bottom edges to the box itself, which keeps the spacing; a numbered list that reaches four
 digits, whose numbers would hang left past the box's edge, is indented further (`mdHang()`), and a box that holds a formula
@@ -2414,8 +2416,8 @@ their controls (the words stay; the only input is a task list's disabled checkbo
 elements by those. Every `id` and `name`, and every pointer at one (`url(#…)`, a drawing's `href="#…"`, an animation's
 target and the events it waits on, `usemap`, `headers` and the `aria-*` lists of ids), gets a prefix of the reply's own; an
 animation that names its target any other way loses it. A `tabindex` above 0 becomes 0; a pointer picture
-(`cursor: url(…)`), `-webkit-user-modify`, `anchor-name` and `view-transition-name` leave inline style; a video gets no full
-screen and no picture in picture (the page leaves full screen if a browser opens it all the same); a formula's element is no
+(`cursor: url(…)`), `-webkit-user-modify`, `anchor-name` and `view-transition-name` leave inline style; a video's
+`autopictureinpicture`, which asks for picture in picture without the reader, goes; a formula's element is no
 link. Text shown as written is not affected. `tests/test_md_rules.py` (node) holds the rules and `test_md_rules_ui.py` (the
 page, a headless Chromium) tries each way out of the box. Before `marked` sees the text, `mdPrep()` (`shared.js`, pure, tested in node and in the page) puts a blank line before a numbered item that CommonMark would leave as paragraph text: a list may interrupt a paragraph only at "1.", so "Next steps:\n6. x\n7. y" drew as lines, flush left, beside indented lists. It acts only on a line-start `N.` or `N)` (N 2 to 999) outside a code fence, under prose (no list item or indented line in the block above), when the reply has an item numbered N-1 or N+1, and whose text does not start with another `N.`; dates such as `2026. 1. 5.` and `5. 1. 2026.`, a lone number and numbers mid-sentence stay text. A line right under a bullet stays that bullet's continuation. A reply's footer, the labeled note lines a session leaves last (each with its `- `
 bullets), renders apart from the body (`replyNodes()`, `.md.footer`): 0.85 of the body's

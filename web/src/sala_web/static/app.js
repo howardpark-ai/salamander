@@ -121,13 +121,9 @@ function mdSanitize(html) {
       else if (kept !== was) e.setAttribute(name, kept);
     }
     if (e.hasAttribute("style")) { if (e.style) mdStyle(e.style); else e.removeAttribute("style"); }   // none to edit: none to keep
-    // the browser's full screen and picture in picture draw a video over the page
-    if (tag === "video") for (const [k, v] of [["controlslist", "nofullscreen"], ["disablepictureinpicture", ""], ["playsinline", ""]]) e.setAttribute(k, v);
   }
   return nodes;
 }
-// a reply never takes the whole screen: a browser that offers it all the same (a double tap on a video) is brought straight back
-document.addEventListener("fullscreenchange", () => { if (document.fullscreenElement?.closest(".md")) document.exitFullscreen().catch(() => {}); });
 // A reply's box is a formatting context of its own (style.css .md), so a margin inside it no longer merges with the space
 // around the box. Each element down the box's top and bottom edge that has such a margin gives it up (.md-start, .md-end)
 // and the box takes the largest of them (--md-start, --md-end), so the space around a reply is what it was. The box's own

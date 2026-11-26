@@ -194,7 +194,8 @@ function noSingleTildeStrike(markedLib) {
 // inline style included, and its box holds whatever it paints (.md in style.css: layout and paint containment). md() in
 // app.js hands MD_PURIFY, mdAttr and mdStyle to what takes out the rest: what no box can hold, what would act or pass for a
 // control of the page, and what would answer to one of the page's own names. A new case goes into tests/test_md_rules.py
-// and tests/test_md_rules_ui.py.
+// and tests/test_md_rules_ui.py. The one thing drawn past the box: a video's full screen and picture in picture, which its
+// controls offer and the reader starts; autopictureinpicture, which asks for the second by itself, goes.
 const MD_PURIFY = Object.freeze({
   RETURN_DOM_FRAGMENT: true,
   ALLOW_DATA_ATTR: false,   // the page's scripts find their own elements by data-*

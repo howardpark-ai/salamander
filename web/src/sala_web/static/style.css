@@ -554,7 +554,8 @@ body.side-mode #sd-form { display: block; }
 .live-note.err { color: var(--error); }
 /* a reply's box holds what the reply draws: with layout and paint containment nothing in it (positioned, fixed, moved,
    scaled, raised, shadowed or pulled by a negative margin) paints, takes a click or stretches the page outside the box.
-   What is wider than the box scrolls inside it; nothing makes it scroll down. The margins at its edges: app.js mdEdges */
+   What is wider than the box scrolls inside it; nothing makes it scroll down. A video the reader opens full screen or in
+   picture in picture is drawn by the browser over the page all the same. The margins at its edges: app.js mdEdges */
 .md { overflow-wrap: anywhere; contain: content; overflow-x: auto; overflow-y: hidden; margin: var(--md-start, 0px) 0 var(--md-end, 0px); }
 .md.md:not(.ruled) .md-start { margin-top: 0; }   /* .md twice: above every .md rule that gives a margin */
 .md.md .md-end { margin-bottom: 0; }
