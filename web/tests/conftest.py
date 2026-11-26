@@ -440,9 +440,26 @@ def browser():
     binary = chromium_binary()
     if not binary:
         pytest.skip("no headless Chromium (chromium / google-chrome on PATH, or playwright's chrome-headless-shell)")
+    import time as _t
+    t0 = _t.perf_counter()
     try:
         c = CDP(binary, 390, 844)
     except RuntimeError as e:
         pytest.skip(f"{binary} did not start headless here: {e}")
+    LAUNCH_TIMES.append(_t.perf_counter() - t0)
     yield c
+    t1 = _t.perf_counter()
     c.close()
+    CLOSE_TIMES.append(_t.perf_counter() - t1)
+
+
+LAUNCH_TIMES: list = []
+CLOSE_TIMES: list = []
+
+
+def pytest_terminal_summary(terminalreporter):
+    if LAUNCH_TIMES:
+        n = len(LAUNCH_TIMES)
+        terminalreporter.write_line(
+            f"PROBE launches={n} launch_total={sum(LAUNCH_TIMES):.2f}s launch_mean={sum(LAUNCH_TIMES)/n:.3f}s launch_max={max(LAUNCH_TIMES):.3f}s "
+            f"close_total={sum(CLOSE_TIMES):.2f}s close_mean={sum(CLOSE_TIMES)/max(1,len(CLOSE_TIMES)):.3f}s")
