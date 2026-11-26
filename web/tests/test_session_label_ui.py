@@ -18,6 +18,8 @@ GitHub CI runs it. All names are invented."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from test_board_items_ui import wait_for
@@ -32,6 +34,11 @@ LABEL = "Demo One"
 READ = """(() => { const n = document.querySelector('#title .name'), t = n.querySelector('[title]');
   return { header: n.textContent, tip: t ? t.getAttribute('title') : null, ownTip: n.getAttribute('title'), tipNodes: n.querySelectorAll('[title]').length,
            entry: document.querySelector('#side-chat .label').textContent, docTitle: document.title, hash: location.hash, selected: state.selected }; })()"""
+
+
+def full(browser) -> str:
+    """The whole READ as one JSON line, for a failure message: pytest cuts a long dict short, and the tab's title (`docTitle`) was the part a failed run did not show."""
+    return json.dumps(browser.evaluate(READ), sort_keys=True)
 
 
 def say(text: str) -> str:
@@ -61,14 +68,14 @@ def test_the_chat_session_header_and_tab_title_say_what_the_sidebar_entry_says(s
 @pytest.mark.parametrize("size", SIZES)
 def test_a_renamed_label_is_drawn_again_in_the_entry_the_header_and_the_tab(served, browser, monkeypatch, size):
     open_page(browser, served, monkeypatch, size, api_chat(session=NAME, name=LABEL), chat=NAME, hash_="#s=" + NAME)
-    assert wait_for(browser, say(LABEL), 10.0), browser.evaluate(READ)
+    assert wait_for(browser, say(LABEL), 10.0), full(browser)
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { name: 'Demo Three' }); loadChatMarks(); ''")      # the read the 25-second poll makes
-    assert wait_for(browser, say("Demo Three"), 10.0), browser.evaluate(READ)
+    assert wait_for(browser, say("Demo Three"), 10.0), full(browser)
     got = browser.evaluate(READ)
     assert got["tip"] == NAME and got["hash"] == "#s=" + NAME and got["selected"] == NAME, got
     # the label goes (the chat session is no longer configured): the name again, and no tooltip
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { configured: false }); loadChatMarks(); ''")
-    assert wait_for(browser, says_name(NAME), 10.0), browser.evaluate(READ)
+    assert wait_for(browser, says_name(NAME), 10.0), full(browser)
 
 
 @pytest.mark.parametrize("served", [{"name": NAME}], indirect=True)
