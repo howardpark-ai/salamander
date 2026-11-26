@@ -28,15 +28,24 @@ from ttyd_harness import ALT, CTRL, SHIFT, press, real_ttyd
 
 # ---------------------------------------------------------------- the handler, against a fake term
 
+# the session page's own condition for the suite's page wait: the app has the session open, so its Terminal tab can be shown
+SESSION_OPEN = "typeof state !== 'undefined' && !!state.current"
+
+# click the Terminal tab (the frame is made in the click); a stand-in URL, when one is given, takes the place of ttyd's
 OPEN_TERMINAL = """
-new Promise((res) => { const t0 = Date.now(); (function poll() {
-  if (typeof state !== "undefined" && state.current) {
-    state.terminalUrl = "about:blank#";   // a same-origin frame stands in for ttyd
-    document.querySelector("#top .tab[data-tab=terminal]").click();
-    res(!!document.querySelector("#terminal-pane iframe"));
-  } else if (Date.now() - t0 > 15000) res(false); else setTimeout(poll, 50);
-})(); })
+(standIn) => { if (standIn) state.terminalUrl = standIn;
+  document.querySelector("#top .tab[data-tab=terminal]").click();
+  return !!document.querySelector("#terminal-pane iframe"); }
 """
+
+
+def open_terminal(browser, url: str, stand_in: str = "") -> None:
+    """Open the fake session at `url` and then its Terminal tab. The app's scripts run only once the stylesheet in the page's head
+    has answered, and index.html takes that one from a CDN: on a slow network the session opens long after the navigation, so this
+    waits for it with `wait_ready`, whose limit allows for that and whose failure names the page's state."""
+    browser.open(f"{url}/#s={NAME}")
+    browser.wait_ready(SESSION_OPEN)
+    assert browser.evaluate("(%s)(%s)" % (OPEN_TERMINAL.strip(), json.dumps(stand_in))) is True
 
 # a fake xterm.js that records the custom key handlers attached to it (as xterm.js has one slot, the last one is the live one)
 INSTALL = """
@@ -68,8 +77,7 @@ def attached(browser) -> int:
 
 @pytest.fixture
 def fake(served, browser):
-    browser.open(f"{served['url']}/#s={NAME}")
-    assert browser.evaluate(OPEN_TERMINAL) is True
+    open_terminal(browser, served["url"], stand_in="about:blank#")   # a same-origin frame stands in for ttyd
     return browser
 
 
@@ -143,13 +151,7 @@ def real(served, browser):
         url = f"http://127.0.0.1:{port}"
         browser.call("Browser.grantPermissions", {"origin": url, "permissions": ["clipboardReadWrite", "clipboardSanitizedWrite"]})
         browser.send("Emulation.setFocusEmulationEnabled", {"enabled": True})
-        browser.open(f"{url}/#s={NAME}")
-        assert browser.evaluate("""new Promise((res) => { const t0 = Date.now(); (function poll() {
-          if (typeof state !== "undefined" && state.current) {
-            document.querySelector("#top .tab[data-tab=terminal]").click();
-            res(!!document.querySelector("#terminal-pane iframe"));
-          } else if (Date.now() - t0 > 15000) res(false); else setTimeout(poll, 50);
-        })(); })""") is True
+        open_terminal(browser, url)
         # ttyd's page has connected and drawn the pane (READY is on its screen), the app's hook has had its look at the new term (it polls
         # every 250 ms: a person cannot press a key inside that gap, a test can; up to 3 s, and no failure here, so that a build without the
         # hook fails at its own assertion), and the terminal has the focus

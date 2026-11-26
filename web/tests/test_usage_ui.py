@@ -324,15 +324,15 @@ def test_the_layout_never_scrolls_sideways_and_a_phone_has_44px_targets_and_four
         browser.touch()   # the 44 px targets are the touch size: the look draws controls 32 px under a mouse
     for g in ("agent", "folder", "model", "day", "lane"):                                       # the widest names are the likeliest to push the page
         click(browser, f'#us-group [data-g="{g}"]')
-    # the last group's table and the touch look's 44 px controls finish their layout a moment after the click: measure once the pane has
-    # settled (a pane still wider than the screen after 8 s is the real thing, and `wide` below names what makes it so)
-    browser.evaluate("""new Promise((res) => { const t0 = Date.now(), p = document.querySelector("#overview-pane"); (function poll() {
-      if (p.scrollWidth <= p.clientWidth || Date.now() - t0 > 8000) res(true); else setTimeout(poll, 100); })(); })""")
+    # the page's typeface comes from outside, and a part of it is asked for only when text first needs it, so the frames after a click may still be drawn
+    # in the machine's own, wider one, which the tab bar is not fitted to: measure once the typeface is in and the pane has stopped moving
+    browser.settle("document.getElementById('overview-pane')")
     m = browser.evaluate("""(() => { const vw = document.documentElement.clientWidth, r = (n) => n.getBoundingClientRect();
       const over = [...document.querySelectorAll("#ov-usage *")].filter((n) => r(n).right > vw + 0.5 && n.getClientRects().length && !n.closest(".us-tw, .us-seg, .us-pw")).map((n) => n.className || n.tagName);
       const small = [...document.querySelectorAll("#ov-usage button, #us-reload, .ov-tab, #us-tbody tr")].filter((n) => n.getClientRects().length && r(n).height < 43.5).map((n) => (n.id || n.className || n.tagName) + ":" + Math.round(r(n).height));
       const pn = document.querySelector("#overview-pane"), wide = [...pn.querySelectorAll("*")].filter((n) => n.getClientRects().length && r(n).right + pn.scrollLeft > pn.clientWidth + 0.5 && !n.closest(".us-tw, .us-seg, .us-pw")).slice(0, 8).map((n) => (n.id || n.className || n.tagName) + ":" + Math.round(r(n).right + pn.scrollLeft));
-      return { vw, wide, scrollLeft: pn.scrollLeft, doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, pane: pn.scrollWidth,
+      const typeface = [...document.fonts].filter((f) => f.family.includes("Pretendard") && f.status === "loaded").length;
+      return { typeface, vw, wide, scrollLeft: pn.scrollLeft, doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, pane: pn.scrollWidth,
                paneClient: document.querySelector("#overview-pane").clientWidth, over, small,
                tabs: [...document.querySelectorAll(".ov-tab")].map((a) => a.textContent.trim().replace(/\\s+/g, " ")),
                bar: [document.querySelector(".ov-bar").scrollWidth, document.querySelector(".ov-bar").clientWidth],
@@ -342,8 +342,9 @@ def test_the_layout_never_scrolls_sideways_and_a_phone_has_44px_targets_and_four
                cols: [...document.querySelectorAll("#us-thead th")].filter((th) => th.getClientRects().length).length }; })()""")
     assert m["doc"] <= m["vw"] and m["body"] <= m["vw"] + 1 and m["pane"] <= m["paneClient"], m      # no sideways scroll ("wide": what reaches past the pane)
     assert m["over"] == [], m["over"]
-    assert m["bar"][0] <= m["bar"][1] and m["tabs"][1:] == ["Schedules", "Machines", "Usage analysis"], m                 # four tabs and the Reload fit the bar
-    assert m["lastRight"] <= m["reload"][0] and m["clipped"] == [], m                              # the Reload sits beside the last tab, never over it
+    drawn = f"loaded faces of the page's typeface: {m['typeface']} (at 0 the machine's own draws the tabs); {m}"
+    assert m["bar"][0] <= m["bar"][1] and m["tabs"][1:] == ["Schedules", "Machines", "Usage analysis"], drawn             # four tabs and the Reload fit the bar
+    assert m["lastRight"] <= m["reload"][0] and m["clipped"] == [], drawn                          # the Reload sits beside the last tab, never over it
     if name == "phone":
         assert m["small"] == [], m["small"]                                                         # every control a comfortable target
         assert m["lanes"] == 2 and m["cols"] == 2, m                                                # one card to a line; the table keeps its name and its cost
@@ -351,3 +352,26 @@ def test_the_layout_never_scrolls_sideways_and_a_phone_has_44px_targets_and_four
         assert m["lanes"] == 1 and m["cols"] == 5, m                                                # the lane cards side by side; all five columns
     assert errors(browser) == []
     screenshot(browser, f"usage-{size['width']}.png", 3000)
+
+
+# a stand-in for a typeface wider than the page's own, so that this machine's fonts do not decide what the test sees: the page's typeface comes from
+# outside, and until it has loaded (or when it never does) the machine's own draws these controls
+WIDER = """(() => { const s = document.createElement("style"); s.textContent = "#ov-usage .us-seg button { letter-spacing: .3em; }";
+  document.head.appendChild(s); return true; })()"""
+
+
+def test_a_control_or_a_table_wider_than_a_phone_scrolls_inside_itself_and_never_the_page(served, browser):
+    open_tab(served, browser, PHONE)
+    browser.touch()
+    assert browser.evaluate(WIDER) is True
+    for g in ("agent", "folder", "model", "day", "lane"):
+        click(browser, f'#us-group [data-g="{g}"]')
+    browser.settle("document.getElementById('overview-pane')")
+    m = browser.evaluate("""(() => { document.querySelector("#us-notes details").open = true;     // (a click above draws the notes anew, closed)
+      const pn = document.querySelector("#overview-pane"), sizes = (s) => { const n = document.querySelector(s); return [n.scrollWidth, n.clientWidth]; };
+      return { pane: pn.scrollWidth, client: pn.clientWidth, weeks: sizes("#us-weeks"), group: sizes("#us-group"), prices: sizes("#us-notes .us-pw") }; })()""")
+    wide = ("weeks", "group", "prices")
+    assert all(m[k][0] > m["client"] for k in wide), m                    # each really holds more than the screen is wide
+    assert m["pane"] <= m["client"], m                                    # the page does not scroll sideways
+    assert all(m[k][1] <= m["client"] for k in wide), m                   # each is held to the panel and scrolls inside itself
+    assert errors(browser) == []
