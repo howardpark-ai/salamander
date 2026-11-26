@@ -1,11 +1,12 @@
-"""The reply rules in the page (static/shared.js MD_PURIFY, mdAttr and mdStyle; app.js mdSanitize and mdEdges; style.css
-.md; test_md_rules.py runs the rules in node). The real DOMPurify and the real layout in a headless Chromium (conftest.py:
+"""The reply rules in the page (static/shared.js MD_PURIFY, mdAttr, mdStyle and mdFitStyle; app.js mdSanitize, mdEdges and
+mdFit; style.css .md; test_md_rules.py runs the rules in node). The real DOMPurify and the real layout in a headless Chromium (conftest.py:
 `served`, `browser`; skipped without one).
 
 A reply that tries each way out of its box changes nothing outside it: no pixel, no place or size, no computed style, nothing
 in the top layer, and a stand-in for a frame drawn on the chat page is what a tap on it finds. A reply draws no control of the
 page's, answers to none of its names and moves none of its drawings. What a session writes (markdown, drawings, video, audio,
-formulas, its own colours) lays out where it did without the containment. A video's controls still offer full screen and
+formulas, its own colours) lays out where it did without the containment. No reply box scrolls sideways: what is wide
+comes down to it or wraps, and what still does not fit is cut at its edge. A video's controls still offer full screen and
 picture in picture.
 """
 
@@ -92,13 +93,13 @@ SETUP = r"""(() => {
   const looks = (list) => list.map((e) => { const s = getComputedStyle(e); return PROPS.map((p) => s[p]).join("|"); });
   const inside = (x, y, r) => x >= Math.floor(r.left) && x < Math.ceil(r.right) && y >= Math.floor(r.top) && y < Math.ceil(r.bottom);
   const T = window.T = { msg: null, was: null };
-  T.put = async (text) => {
+  T.put = async (text, last = false) => {
     T.msg?.remove(); T.msg = null;
     under.scrollIntoView({ block: "end" }); await raf(); await new Promise((r) => setTimeout(r, 100));   // as scrolled as after
     const list = outside(); T.was = { list, looks: looks(list), sheets: document.styleSheets.length, focus: document.activeElement, hash: location.hash,
       composer: document.getElementById("composer"), role: document.querySelector('input[name="ns-role"]:checked')?.value ?? null };
     const m = T.msg = el("div", { class: "msg assistant t-msg" });
-    m.append(...replyNodes(text, false));
+    m.append(...replyNodes(text, last));
     chat.insertBefore(m, under);
     await new Promise((r) => setTimeout(r, 300));
     under.scrollIntoView({ block: "end" }); await raf();
@@ -176,8 +177,8 @@ def staged(browser, served):
     assert browser.evaluate(SETUP) == "ready"
 
 
-def put(browser, text: str) -> list[dict]:
-    return browser.evaluate(f"T.put({json.dumps(text)})")
+def put(browser, text: str, last: bool = False) -> list[dict]:
+    return browser.evaluate(f"T.put({json.dumps(text)}, {json.dumps(last)})")
 
 
 def red(browser) -> dict:
@@ -305,15 +306,89 @@ def test_a_reply_s_video_keeps_full_screen_and_picture_in_picture(served, browse
     assert got == own, (got, own)
 
 
-def test_wide_content_scrolls_inside_its_box(served, browser):
+# each wider than a phone's box in its own way; what is titled "fit" has to come down to the box or wrap, the rest is cut
+LONG = "abcdefgh" * 120
+WIDE = {
+    "a width": '<div title="fit" style="width:3000px;text-align:right">far end</div>',
+    "a width among other style": '<div title="fit" style="color: teal; width: 3000px; text-align:right">far end</div>',
+    "a least width": '<div title="fit" style="min-width:3000px;text-align:right">far end</div>',
+    "a drawing": '<svg title="fit" width="3000" height="200"><rect width="3000" height="200"/></svg>',
+    "a drawing sized by style": '<svg title="fit" style="width:3000px" viewBox="0 0 300 20"><rect width="300" height="20"/></svg>',
+    "a video": '<video title="fit" controls width="3000" height="1000"></video>',
+    "a rule": '<hr title="fit" width="3000">',
+    "a string": LONG,
+    "a string in an element": f'<p title="fit">{LONG} <code>{LONG}</code></p>',
+    "a link": "https://example.com/" + LONG,
+    "a line held by style": f'<div title="fit" style="white-space:nowrap">{"word " * 120}</div>',
+    "a line held by its tag": f'<nobr title="fit">{"word " * 120}</nobr>',
+    "preformatted by style": f'<div title="fit" style="white-space:pre">{LONG}</div>',
+    "a scroll box of its own": '<div style="overflow:auto;max-height:60px"><div style="position:relative;left:3000px">far</div></div>',
+    "a scroll box up and down": '<div style="overflow-y:auto;max-height:60px"><div style="margin-left:3000px">far</div></div>',
+    "a margin": '<div style="margin-left:3000px">far</div>',
+    "placed out of the flow": f'<div style="position:absolute;left:0;width:3000px;white-space:nowrap">{LONG}</div>&nbsp;',
+}
+SIDEWAYS = r"""(() => {
+  const boxes = [...T.msg.querySelectorAll(".md")], pane = document.getElementById("chat-pane");
+  const moves = (e) => { e.scrollLeft = 1e6; const got = e.scrollLeft; e.scrollLeft = 0; return got; };
+  return { overflow: boxes.map((d) => getComputedStyle(d).overflowX), moved: boxes.map(moves),
+    // nothing in a reply, a table and a code block aside, is a box the reader can scroll sideways
+    inner: boxes.flatMap((d) => [...d.querySelectorAll("*")]).filter((e) => !e.closest("table, pre") &&
+      ["auto", "scroll"].includes(getComputedStyle(e).overflowX) && e.scrollWidth > e.clientWidth).map((e) => e.localName),
+    fit: boxes.flatMap((d) => [...d.querySelectorAll('[title="fit"]')]).length,
+    past: boxes.flatMap((d) => { const edge = d.getBoundingClientRect().right + 1;
+      return [...d.querySelectorAll('[title="fit"]')].filter((e) => { const words = document.createRange(); words.selectNodeContents(e);
+        return [e.getBoundingClientRect(), ...words.getClientRects()].some((r) => r.right > edge); }).map((e) => e.localName); }),
+    page: [pane.scrollWidth <= pane.clientWidth, document.documentElement.scrollWidth <= innerWidth] };
+})()"""
+
+
+def test_no_reply_box_scrolls_sideways(served, browser):
+    """At a phone's width, whatever a reply draws wide, in its body or its footer."""
     staged(browser, served)
-    put(browser, 'Words.\n\n<div style="width:3000px;text-align:right">far end</div>\n\n<svg width="3000" height="20"><rect width="3000" height="20"/></svg>')
-    got = browser.evaluate("""(() => { const d = T.msg.querySelector(".md"), pane = document.getElementById("chat-pane");
-      const before = [d.scrollWidth > d.clientWidth + 2000, pane.scrollWidth <= pane.clientWidth, document.documentElement.scrollWidth <= innerWidth,
-                      d.scrollHeight <= d.clientHeight + 1];
-      d.scrollLeft = d.scrollWidth; const box = d.getBoundingClientRect(), svg = d.querySelector("svg").getBoundingClientRect();
-      return [...before, svg.right <= box.right + 1]; })()""")
-    assert got == [True, True, True, True, True], got
+    assert browser.evaluate("innerWidth") == 390
+    cases = [(name, f"Words.\n\n{html}\n", False) for name, html in WIDE.items()]
+    footer = f'Done.\n\nBoard:\n- {WIDE["a width"]}\n- {WIDE["a drawing"]}\n\nWrite-up: {LONG}'
+    assert len(put(browser, footer, True)) == 2   # the body and the footer, each a box
+    cases.append(("all in a footer", footer, True))
+    off = {}
+    for name, text, last in cases:
+        put(browser, text, last)
+        got = browser.evaluate(SIDEWAYS)
+        assert got["overflow"] and got["fit"] == text.count('title="fit"'), (name, "a case lost its mark: it proves nothing", got)
+        if set(got["overflow"]) != {"clip"} or any(got["moved"]) or got["inner"] or got["past"] or got["page"] != [True, True]:
+            off[name] = got
+    assert off == {}, off
+
+
+def test_a_wide_drawing_and_video_shrink_whole_and_ones_that_fit_keep_their_size(served, browser):
+    staged(browser, served)
+    sizes = """[...T.msg.querySelectorAll("svg, video, rect")].map((e) => { const r = e.getBoundingClientRect(); return [r.width, r.height]; })"""
+    drawn = '<svg width="{w}" height="{h}"><rect width="{w}" height="{h}"/></svg>\n\n<video controls width="{w}" height="{h}"></video>'
+    put(browser, "Words.\n\n" + drawn.format(w=260, h=130))
+    assert browser.evaluate(sizes) == [[260, 130]] * 3
+    box = put(browser, "Words.\n\n" + drawn.format(w=3000, h=1500))[0]["width"]
+    got = browser.evaluate(sizes)
+    assert len(got) == 3 and all(abs(w - box) <= 1 and abs(h - box / 2) <= 1 for w, h in got), (box, got)
+
+
+def test_a_wide_formula_is_drawn_smaller_to_show_whole(served, browser):
+    """One that fits keeps its size, one a little too wide comes down to the box, and one several times the box's width is
+    drawn at half size, where the box cuts it: none makes the box scroll."""
+    staged(browser, served)
+    formula = '<math{how}><mrow><mi>a</mi><mspace width="{w}px"></mspace><mi>b</mi></mrow></math>'
+    shown = """[...T.msg.querySelectorAll("math")].map((m) => { const box = m.closest(".md").getBoundingClientRect();
+      const parts = [...m.querySelectorAll("mi")].map((e) => e.getBoundingClientRect());
+      return [Number(m.style.zoom || 1), Math.min(...parts.map((r) => r.left)) >= box.left - 1 && Math.max(...parts.map((r) => r.right)) <= box.right + 1]; })"""
+    for how in ("", ' display="block"'):
+        put(browser, "Words.\n\n" + formula.format(how=how, w=100))
+        assert browser.evaluate(shown) == [[1, True]], how
+        put(browser, "Words.\n\n" + formula.format(how=how, w=440))
+        [[zoom, whole]] = browser.evaluate(shown)
+        assert 0.5 < zoom < 1 and whole, (how, zoom, whole)
+        put(browser, "Words.\n\n" + formula.format(how=how, w=3000))
+        assert browser.evaluate(shown) == [[0.5, False]], how
+        got = browser.evaluate(SIDEWAYS)
+        assert got["overflow"] == ["clip"] and got["moved"] == [0] and got["page"] == [True, True], (how, got)
 
 
 # what a session writes: markdown, with the nestings that put a margin at a box's edge, and the formatting a reply keeps
@@ -552,7 +627,7 @@ def test_a_reply_read_from_the_transcript_leaves_the_page_as_it_was(served, brow
       return { contain: s.contain, scroll: [s.overflowX, s.overflowY], wide: document.documentElement.scrollWidth - innerWidth,
         top: document.elementFromPoint(innerWidth / 2, 10)?.closest(".md") ? "reply" : "page",
         side: b.width <= innerWidth, tall: b.height < 20000 }; })()""")
-    assert got == {"contain": "content", "scroll": ["auto", "hidden"], "wide": 0, "top": "page", "side": True, "tall": True}, got
+    assert got == {"contain": "content", "scroll": ["clip", "clip"], "wide": 0, "top": "page", "side": True, "tall": True}, got
 
 
 def test_a_tool_result_goes_to_the_page_s_own_tool_card(served, browser):

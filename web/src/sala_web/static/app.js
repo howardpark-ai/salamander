@@ -170,6 +170,48 @@ function mdHang(box) {
     if (most > 0 && over > 0) list.style.setProperty("--md-hang", `${over * 7 / 10}em`);
   }
 }
+// What a reply draws wider than its box comes down to it or wraps, since a reply's box never scrolls sideways (style.css
+// .md, which stops at the box's width what the reply gives a width in its style): inline style that would hold it wide is
+// edited (shared.js mdFitStyle), and a drawing or a video with a width attribute stops at the box's width too, keeping its
+// shape when both sizes are in pixels. One of 200 or less, narrower than any reply's box, is left as it is (an icon in a
+// flex row would otherwise shrink or stretch with the row). Tables and code blocks keep their own ways.
+function mdFit(box) {
+  for (const e of box.querySelectorAll("[style], svg[width], video[width]")) {
+    if (e.closest("table, pre") || e.parentElement.closest("svg, math")) continue;
+    if (e.hasAttribute("style")) mdFitStyle(e.style);
+    if (!e.matches("svg[width], video[width]")) continue;
+    const [w, h] = ["width", "height"].map((a) => (e.getAttribute(a) || "").trim().replace(/px$/i, ""));
+    if (w.endsWith("%") || Number(w) <= 200 || /absolute|fixed/i.test(e.style.position)) continue;
+    e.style.maxWidth ||= "100%";
+    if (!(Number(w) > 0 && Number(h) > 0) || e.style.width || e.style.height) continue;
+    if (e.localName === "svg" && !e.hasAttribute("viewBox")) e.setAttribute("viewBox", `0 0 ${w} ${h}`);   // so it shrinks whole
+    e.style.aspectRatio = `${w} / ${h}`;
+    e.style.height = "auto";
+  }
+}
+// A formula cannot wrap: one wider than the room left in its box is drawn smaller. One that would show whole up to the
+// window's edge is drawn as small as that takes; a wider one at half size at the least, and the box cuts the rest.
+function mdFitFormulas(box) {
+  const edge = box.getBoundingClientRect().right;
+  for (const m of box.querySelectorAll("math")) {
+    if (!m.style || m.parentElement.closest("table, math, svg")) continue;
+    m.style.removeProperty("zoom");   // its own size first
+    const at = m.getBoundingClientRect();
+    if (!at.width) continue;   // not on screen: a closed fold
+    const parts = [at, ...[...m.children].map((c) => c.getBoundingClientRect()).filter((r) => r.width)];
+    const wide = Math.max(...parts.map((r) => r.right)) - Math.min(...parts.map((r) => r.left)), room = edge - at.left;
+    if (wide <= room + 1 || room <= 1) continue;
+    m.style.zoom = Math.max(at.left + wide <= innerWidth ? 0 : 0.5, Math.floor((room - 1) / wide * 1000) / 1000);
+  }
+}
+// Boxes with a formula are fitted once laid out, and again whenever their size changes (the window, a fold opening). A frame
+// later: fitting changes the box's height, which the observer may not do inside its own call.
+let mdFormulaBoxes = null;
+function mdWatchFormulas(box) {
+  if (!box.querySelector("math")) return;
+  mdFormulaBoxes ||= new ResizeObserver((seen) => requestAnimationFrame(() => { for (const s of seen) mdFitFormulas(s.target); }));
+  mdFormulaBoxes.observe(box);
+}
 // A markdown image in a reply that names a file on this machine (![caption](/home/…/mock.png) or ![caption](~/…)): the
 // server hands each such image of a text block a URL (b.localImages: {src as written, url}); the image is drawn inline
 // there, lazy, tap to open it full size, the caption under it. When the server refuses it or cannot find the file, a
@@ -224,6 +266,8 @@ function md(text, offered = null) {
     }
     mdEdges(d);
     mdHang(d);
+    mdFit(d);
+    mdWatchFormulas(d);
     return d;
   } catch {
     return el("div", { class: "md", style: "white-space:pre-wrap", text });
@@ -243,6 +287,7 @@ function replyNodes(text, last, offered = null) {
   for (const n of notes) footer.append(...md(n, offered).childNodes);
   mdEdges(footer);
   mdHang(footer);
+  mdWatchFormulas(footer);
   const out = body ? [md(body, offered), footer] : [footer];
   if (tail) { const t = md(tail, offered); t.classList.add("tail"); out.push(t); }
   return out;

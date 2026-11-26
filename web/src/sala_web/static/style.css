@@ -554,9 +554,10 @@ body.side-mode #sd-form { display: block; }
 .live-note.err { color: var(--error); }
 /* a reply's box holds what the reply draws: with layout and paint containment nothing in it (positioned, fixed, moved,
    scaled, raised, shadowed or pulled by a negative margin) paints, takes a click or stretches the page outside the box.
-   What is wider than the box scrolls inside it; nothing makes it scroll down. A video the reader opens full screen or in
-   picture in picture is drawn by the browser over the page all the same. The margins at its edges: app.js mdEdges */
-.md { overflow-wrap: anywhere; contain: content; overflow-x: auto; overflow-y: hidden; margin: var(--md-start, 0px) 0 var(--md-end, 0px); }
+   The box never scrolls, sideways or down: what is wider comes down to it or wraps (the max-width and nobr rules below,
+   app.js mdFit and mdFitFormulas), and what still does not fit is cut at its edge. A video the reader opens full screen or
+   in picture in picture is drawn by the browser over the page all the same. The margins at its edges: app.js mdEdges */
+.md { overflow-wrap: anywhere; contain: content; overflow: clip; margin: var(--md-start, 0px) 0 var(--md-end, 0px); }
 .md.md:not(.ruled) .md-start { margin-top: 0; }   /* .md twice: above every .md rule that gives a margin */
 .md.md .md-end { margin-bottom: 0; }
 .md ol.md-hang { padding-inline-start: calc(40px + var(--md-hang)); }   /* long list numbers (app.js mdHang); 40px: the browser's own */
@@ -564,6 +565,10 @@ body.side-mode #sd-form { display: block; }
 /* a focus ring inside the element's own edges, where the box does not cut it */
 .md :is(a, area, summary, video, audio):focus-visible { outline-offset: -2px; }
 .md th, .md td { overflow-wrap: normal; word-break: keep-all; }  /* 'anywhere' let tables squeeze a column to one letter */
+/* media, and anything the reply gives a width in its style, stops at the box's width (a drawing's width attribute: app.js
+   mdFit); what it places out of the flow is only cut. Tables and code blocks keep their own ways */
+.md :is(video, audio, canvas, marquee, hr, [style^="width" i], [style*=";width" i], [style*=" width" i]):not(table, table *, pre, pre *, .codebox *, [style*="absolute" i], [style*="fixed" i]) { max-width: 100%; }
+.md nobr:not(table *, pre *) { white-space: normal; }
 .msg.assistant .md { font-size: 15px; line-height: 1.65; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }

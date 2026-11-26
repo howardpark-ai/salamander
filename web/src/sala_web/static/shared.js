@@ -239,6 +239,33 @@ function mdStyle(style) {   // an element's own style declaration, edited in pla
   for (const p of MD_STYLE_OFF) if (style.getPropertyValue(p)) style.removeProperty(p);
   if (!mdCursor(style.getPropertyValue("cursor"))) style.removeProperty("cursor");
 }
+// Inline style that would hold content wider than the box, which never scrolls sideways (app.js mdFit, which leaves tables
+// and code blocks out): a least width stops at the box's, a line kept from wrapping wraps, and a scroll box of the reply's
+// own does not scroll sideways. An element that cuts its own line off (overflow hidden or clip, as with an ellipsis) keeps
+// the line.
+function mdFitStyle(style) {   // an element's own style declaration, edited in place
+  const get = (p) => style.getPropertyValue(p).trim().toLowerCase();
+  const least = get("min-width"), x = get("overflow-x");
+  // 200px or less fits any reply's box and stays; a value min() cannot take (auto, max-content) stays off
+  if (least && !(least.endsWith("px") && parseFloat(least) <= 200)) {
+    style.removeProperty("min-width");
+    style.setProperty("min-width", `min(${least}, 100%)`);
+  }
+  if (x === "hidden" || x === "clip") return;
+  // any of these makes the element one that can scroll sideways: that is cut off, and up and down stays as it was
+  const y = get("overflow-y");
+  if ([x, y].some((v) => ["auto", "scroll", "hidden"].includes(v))) {
+    if ((x === "auto" || x === "scroll") && (y === "" || y === "visible")) style.setProperty("overflow-y", "auto");
+    style.setProperty("overflow-x", "clip");
+  }
+  const space = get("white-space");
+  if (space === "nowrap" || space === "pre") style.setProperty("white-space", space === "pre" ? "pre-wrap" : "normal");
+  if (get("text-wrap") === "nowrap" || get("text-wrap-mode") === "nowrap") {
+    style.removeProperty("text-wrap");
+    style.removeProperty("text-wrap-mode");
+  }
+  if (get("overflow-wrap")) style.removeProperty("overflow-wrap");   // the box's own: anywhere
+}
 // the one input a reply keeps: a task list's box as marked writes it, a checkbox nobody can tick
 const mdTaskBox = (type, disabled) => !!disabled && String(type || "").toLowerCase() === "checkbox";
 // </md-rules>

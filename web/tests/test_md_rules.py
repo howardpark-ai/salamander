@@ -199,6 +199,38 @@ process.stdout.write(JSON.stringify([
 
 
 @needs_node
+def test_inline_style_that_would_hold_content_wide_is_made_to_fit():
+    """mdFitStyle on a stand-in declaration (test_md_rules_ui.py measures the layout in the page)."""
+    script = r"""
+const run = (props) => { const had = new Map(Object.entries(props));
+  mdFitStyle({ getPropertyValue: (p) => had.get(p) || "", removeProperty: (p) => { had.delete(p); }, setProperty: (p, v) => { had.set(p, v); } });
+  return Object.fromEntries(had); };
+process.stdout.write(JSON.stringify([
+  // a least width stops at the box's, but for one every box has room for
+  run({ "min-width": "3000px" }), run({ "min-width": "40em" }), run({ "min-width": "200px" }), run({ "min-width": "0px" }),
+  // a line kept from wrapping wraps
+  run({ "white-space": "nowrap" }), run({ "white-space": "pre" }), run({ "white-space": "pre-wrap", "overflow-wrap": "normal" }),
+  run({ "text-wrap-mode": "nowrap" }), run({ "text-wrap": "nowrap" }),
+  // a scroll box of the reply's own keeps its up and down, and does not scroll sideways
+  run({ "overflow-x": "auto", "overflow-y": "auto" }), run({ "overflow-x": "scroll" }), run({ "overflow-y": "auto" }),
+  run({ "overflow-y": "hidden" }),
+  // an element that cuts its own line off keeps it
+  run({ "overflow-x": "hidden", "overflow-y": "hidden", "white-space": "nowrap", "text-overflow": "ellipsis" }),
+  // and the rest is as written
+  run({ color: "red", width: "3000px", "overflow-x": "visible", "overflow-y": "clip" }),
+]));
+"""
+    assert json.loads(run_node(RULES + script)) == [
+        {"min-width": "min(3000px, 100%)"}, {"min-width": "min(40em, 100%)"}, {"min-width": "200px"}, {"min-width": "0px"},
+        {"white-space": "normal"}, {"white-space": "pre-wrap"}, {"white-space": "pre-wrap"}, {}, {},
+        {"overflow-x": "clip", "overflow-y": "auto"}, {"overflow-x": "clip", "overflow-y": "auto"},
+        {"overflow-x": "clip", "overflow-y": "auto"}, {"overflow-x": "clip", "overflow-y": "hidden"},
+        {"overflow-x": "hidden", "overflow-y": "hidden", "white-space": "nowrap", "text-overflow": "ellipsis"},
+        {"color": "red", "width": "3000px", "overflow-x": "visible", "overflow-y": "clip"},
+    ]
+
+
+@needs_node
 def test_the_only_input_is_a_disabled_checkbox():
     cases = [("checkbox", True), ("CheckBox", True), ("checkbox", False), ("text", True), ("password", True), ("radio", True),
              ("submit", True), ("button", True), ("image", True), ("file", True), ("hidden", True), (" checkbox", True),

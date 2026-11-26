@@ -2401,9 +2401,15 @@ markdown, rendered by `marked` and sanitized by `DOMPurify` (`md()`: every link 
 `rel="noopener noreferrer"`; a `javascript:` URL loses its href). A reply keeps what `DOMPurify` keeps by default, drawings
 (`svg`), video, audio, formulas (`math`) and its own inline `style` included, and its box (`.md`, `style.css`) has layout and
 paint containment: nothing the reply draws, positioned, fixed, moved, scaled, raised, shadowed or pulled by a negative margin,
-paints, takes a click or stretches the page outside the box, and what is wider than the box scrolls inside it. The one
+paints, takes a click or stretches the page outside the box. The one
 exception is a video's full screen and picture in picture: its controls offer both as they do anywhere, the browser draws
-them over the page, and the reader starts them. A box that
+them over the page, and the reader starts them. No reply box scrolls sideways. What is wider comes down to the box or wraps:
+media, and anything the reply gives a width in its style, stops at the box's width (`style.css`); `mdFit()` does the same for
+a drawing or a video with a wide `width` attribute, keeping its shape, and edits inline style that would hold content wide, a
+least width, a line kept from wrapping, a scroll box of the reply's own (`mdFitStyle()` in `shared.js`); a formula, which
+cannot wrap, is drawn smaller (`mdFitFormulas()`, at half size at the least once it is wider than the window had room for).
+What still does not fit, such as content placed or pushed past the edge, is cut at the box's edge. Tables and code blocks
+keep their own ways: a table wider than the box scrolls inside itself, and a code block wraps. A box that
 contains does not let the margins at its edges merge with the space around it, so `mdEdges()` (`app.js`) hands the margins
 of the elements down its top and bottom edges to the box itself, which keeps the spacing; a numbered list that reaches four
 digits, whose numbers would hang left past the box's edge, is indented further (`mdHang()`), and a box that holds a formula
