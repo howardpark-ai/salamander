@@ -17,6 +17,16 @@ body.chat-layer #chat .cl-mark .spinner { flex: none; }
 body.chat-layer #chat .cl-turn { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; color: var(--muted); }
 body.chat-layer #chat .live-note { overflow-wrap: anywhere; }   /* what Stop answered, under a running command: it may hold a long word */
 
+/* a question the session asks (chatlayer.js askedNode), as written, every run of text wrapping */
+body.chat-layer #chat .cl-ask { border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; margin: 4px 0; overflow-wrap: anywhere; }
+body.chat-layer #chat .cl-ask :is(div, pre) { white-space: pre-wrap; }
+body.chat-layer #chat .cl-ask-head { font-size: 12px; color: var(--muted); }
+body.chat-layer #chat .cl-ask-q { font-size: 15px; font-weight: 600; }
+body.chat-layer #chat .cl-ask-opts { margin: 8px 0 0; padding-left: 24px; }
+body.chat-layer #chat .cl-ask-opts li { margin-top: 8px; }
+body.chat-layer #chat .cl-ask-desc { font-size: 13px; color: var(--muted); }
+body.chat-layer #chat .cl-ask pre.cl-ask-preview { margin: 4px 0 0; font: 12px/1.45 var(--mono); }
+
 /* no sideways scroll, inside a block either. A table stays a table while it fits, its words whole where they can be; one that does not fit is drawn
    row by row (chatlayer.js fitTables) */
 body.chat-layer #chat .md table { display: table; max-width: 100%; overflow: visible; }

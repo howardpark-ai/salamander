@@ -18,6 +18,18 @@ with the two endings below; what a final reply is, chatturns.reply_of's (strict)
 Everything else yields nothing: tool calls and their results, thinking (the kind labelled narration too), text written on the way to a tool call, the
 delivered messages themselves, hook and plugin lines, a command's own output. There are no kept lines.
 
+THE REST OF A REPLY (`replies=1` on the route, which the page's layer sends; without it the answer holds the three above alone). Four more things show,
+each only in a turn the owner started (a delivered turn's are kept back, as the chat session's own page keeps them), each read as transcript.parse_line
+reads the line:
+
+  - the images of a SendUserFile call: its file_image blocks alone (neither the call nor a file of any other kind);
+  - the questions of an AskUserQuestion call: a block {"kind": "question", "header", "question", "options": [{"label", "description", "preview"}]} each, the
+    options in the order the session's dialog numbers them. It is read here and answered as every dialog is: the number or "esc" sent as a message;
+  - the line a request that ended in an API error leaves (an assistant line of model <synthetic> with isApiErrorMessage true): its text;
+  - the interrupt line of the turn (below), on the owner's side of the thread and marked {"interrupt": true}: they did not write its words.
+
+None of them starts, ends or reopens a turn.
+
 A TURN WITH NO REPLY. Two things Claude Code records end a turn without one, so that the next delivered line starts a turn of its own and its reply needs
 the mark. A message the owner types afterwards is theirs as always, and an assistant line with no new message before it takes the ended turn up again.
 
@@ -93,13 +105,33 @@ def _from_cli(d: dict) -> str | None:
     return "output" if text.startswith(_OUTPUT) else None
 
 
+def _questions(content: object) -> list[dict]:
+    """A block of kind "question" for each question of the AskUserQuestion calls among a message's content blocks."""
+    def words(d: dict, key: str) -> str:
+        return d[key] if isinstance(d.get(key), str) else ""
+
+    out = []
+    for call in content if isinstance(content, list) else []:
+        if not isinstance(call, dict) or call.get("type") != "tool_use" or call.get("name") != "AskUserQuestion":
+            continue
+        asked = call["input"].get("questions") if isinstance(call.get("input"), dict) else None
+        for q in asked if isinstance(asked, list) else []:
+            if not isinstance(q, dict) or not words(q, "question"):
+                continue
+            options = q.get("options") if isinstance(q.get("options"), list) else []
+            out.append({"kind": "question", "header": words(q, "header"), "question": words(q, "question"),
+                        "options": [{k: words(o, k) for k in ("label", "description", "preview")} for o in options if isinstance(o, dict)]})
+    return out
+
+
 class Selector(CK.Keeper):
     """chatkeep.Keeper's turn state with only the thread's messages let through, and with the two ends of a turn that have no reply (an interrupt, a
     command that only ran locally). feed(line) -> the messages that line adds (at most one), shaped as transcript.parse_line makes them; `open` says
-    whether a turn is open after the lines fed so far."""
+    whether a turn is open after the lines fed so far. `rest`: the rest of a reply is let through too (module docstring)."""
 
-    def __init__(self, session_id: str, owner: str):
+    def __init__(self, session_id: str, owner: str, rest: bool = False):
         super().__init__(session_id, owner)
+        self.rest = rest
         self.before: tuple | None = None    # (open, by) as the owner's command found them, while its local output may still follow
         self.stopped = False                # the turn ended with no reply: an assistant line takes it up again
 
@@ -128,7 +160,8 @@ class Selector(CK.Keeper):
         if cli == "interrupt" and self.open and self.by == "human":
             self.before = None
             self._stop()
-            return []
+            m = TR.parse_line(d, self.sid) if self.rest else None
+            return [{**m, "interrupt": True}] if m else []
         e = CT.classify_user(d)
         if e is None:                    # no turn starts or changes at it
             return []
@@ -155,13 +188,25 @@ class Selector(CK.Keeper):
             if self.stopped:
                 self.stopped, self.open = False, True
         r = CT.reply_of(d, True)
-        if r is None:                    # narration, a tool call, thinking: the turn goes on
-            return []
+        if r is None:                    # narration, a tool call, thinking, an API error: the turn goes on
+            return self._rest_of(d) if self.rest else []
         unplaced = self.by is None
         out = super().feed(_words_only(d), True)
         if unplaced and not (self.mark.match(r["text"]) and self.mark.sub("", r["text"], count=1).strip()):
             return []
         return [m for m in out if m["role"] == "assistant"]
+
+    def _rest_of(self, d: dict) -> list[dict]:
+        """What a line that is no final reply still shows of a reply to the owner: the images and questions of its calls, or an API error's words."""
+        m = TR.parse_line(d, self.sid) if self.by == "human" else None      # None for a sidechain or a meta line too
+        if m is None:
+            return []
+        msg = d["message"]
+        if msg.get("model") == "<synthetic>":
+            blocks = [b for b in m["blocks"] if b["kind"] == "text"] if d.get("isApiErrorMessage") is True else []
+        else:
+            blocks = [b for b in m["blocks"] if b["kind"] == "file_image"] + _questions(msg.get("content"))
+        return [{**m, "blocks": blocks}] if blocks else []
 
 
 # ── reading ──────────────────────────────────────────────────────────────────
@@ -241,13 +286,13 @@ def _items(path: Path, start: int, end: int, sel: Selector) -> list[dict]:
     return items
 
 
-def _scan(path: Path, sid: str, owner: str, start: int, end: int) -> tuple[list[list[dict]], Selector]:
+def _scan(path: Path, sid: str, owner: str, start: int, end: int, rest: bool = False) -> tuple[list[list[dict]], Selector]:
     """(the messages of the lines in [start, end), grouped by turn as chatkeep groups them, the selector in the state it reaches)."""
-    sel = Selector(sid, owner)
+    sel = Selector(sid, owner, rest)
     return CK._groups(_items(path, start, end, sel)), sel
 
 
-def read_back(path: Path, sid: str, owner: str, end: int, n: int) -> tuple[list[dict], int, Selector]:
+def read_back(path: Path, sid: str, owner: str, end: int, n: int, rest: bool = False) -> tuple[list[dict], int, Selector]:
     """The last `n` or more messages that end before byte `end` (a line's start), in whole turns; the cursor of the next older page (0 when the file's start
     is in); and the selector in the state it reaches at `end`. Each segment starts at a turn's start, so an earlier one needs nothing of a later one."""
     groups: list[list[dict]] = []
@@ -255,7 +300,7 @@ def read_back(path: Path, sid: str, owner: str, end: int, n: int) -> tuple[list[
     stop, window = end, WINDOW_FIRST
     while True:
         start = _turn_start(path, max(0, stop - window))
-        found, sel = _scan(path, sid, owner, start, stop)
+        found, sel = _scan(path, sid, owner, start, stop, rest)
         if state is None:
             state = sel
         groups[:0] = found
@@ -276,20 +321,20 @@ def read_back(path: Path, sid: str, owner: str, end: int, n: int) -> tuple[list[
     return [it["m"] for g in taken for it in g], cursor, state
 
 
-def read_tail_page(path: Path, sid: str, owner: str, n: int) -> tuple[list[dict], int, int, Selector]:
+def read_tail_page(path: Path, sid: str, owner: str, n: int, rest: bool = False) -> tuple[list[dict], int, int, Selector]:
     """(messages, cursor, end, selector): the newest page; `end` and the selector are where read_from goes on from."""
     end = TR.complete_end(path)
-    msgs, cursor, sel = read_back(path, sid, owner, end, n)
+    msgs, cursor, sel = read_back(path, sid, owner, end, n, rest)
     return msgs, cursor, end, sel
 
 
-def read_before(path: Path, sid: str, owner: str, before: object, n: int) -> tuple[list[dict], int, bool]:
+def read_before(path: Path, sid: str, owner: str, before: object, n: int, rest: bool = False) -> tuple[list[dict], int, bool]:
     """An older page: (messages, the new cursor, whether the file's start is in). A bad cursor raises TR.BadCursor."""
-    msgs, cursor, _ = read_back(path, sid, owner, TR.check_cursor(path, before), n)
+    msgs, cursor, _ = read_back(path, sid, owner, TR.check_cursor(path, before), n, rest)
     return msgs, cursor, cursor == 0
 
 
-def read_fwd(path: Path, sid: str, owner: str, start: int, n: int) -> tuple[list[dict], int, int]:
+def read_fwd(path: Path, sid: str, owner: str, start: int, n: int, rest: bool = False) -> tuple[list[dict], int, int]:
     """The `n` or more messages of the turns from byte `start` (a turn's start) on, whole turns: (messages, the cursor to go on from, the end of the
     complete lines)."""
     end = TR.complete_end(path)
@@ -298,7 +343,7 @@ def read_fwd(path: Path, sid: str, owner: str, start: int, n: int) -> tuple[list
     while True:
         stop = min(end, start + window)
         reached = stop >= end
-        found, _ = _scan(path, sid, owner, base, stop)
+        found, _ = _scan(path, sid, owner, base, stop, rest)
         whole = end if reached else _turn_start(path, stop)      # every turn that starts before this byte was read to its end
         groups = [g for g in found if g[0]["off"] >= start]
         taken: list[list[dict]] = []
@@ -314,13 +359,13 @@ def read_fwd(path: Path, sid: str, owner: str, start: int, n: int) -> tuple[list
         window *= 2
 
 
-def read_after(path: Path, sid: str, owner: str, after: object, n: int) -> tuple[list[dict], int, bool]:
+def read_after(path: Path, sid: str, owner: str, after: object, n: int, rest: bool = False) -> tuple[list[dict], int, bool]:
     """A newer page: (messages, the new cursor, whether the end of the file is in). A bad cursor raises TR.BadCursor."""
-    msgs, cursor, end = read_fwd(path, sid, owner, TR.check_cursor(path, after), n)
+    msgs, cursor, end = read_fwd(path, sid, owner, TR.check_cursor(path, after), n, rest)
     return msgs, cursor, cursor >= end
 
 
-def read_around(path: Path, sid: str, owner: str, at: object, n: int) -> dict:
+def read_around(path: Path, sid: str, owner: str, at: object, n: int, rest: bool = False) -> dict:
     """A page around the line that starts at byte `at`, whole turns: the turn the line is in and newer ones, older ones before it, with the cursors and
     flags GET transcript?around= gives. A bad cursor raises TR.BadCursor."""
     at = TR.check_cursor(path, at)
@@ -329,8 +374,8 @@ def read_around(path: Path, sid: str, owner: str, at: object, n: int) -> dict:
         f.readline()
         past = min(f.tell(), TR.complete_end(path))
     turn = _turn_start(path, past)
-    older, before, _ = read_back(path, sid, owner, turn, max(1, n // 2))
-    newer, after, end = read_fwd(path, sid, owner, turn, max(1, n - len(older)))
+    older, before, _ = read_back(path, sid, owner, turn, max(1, n // 2), rest)
+    newer, after, end = read_fwd(path, sid, owner, turn, max(1, n - len(older)), rest)
     return {"messages": older + newer, "before": before, "start": before == 0, "after": after, "end": after >= end}
 
 
@@ -348,42 +393,43 @@ def is_open(path: Path, sid: str, owner: str) -> bool:
     return _scan(path, sid, owner, _turn_start(path, end), end)[1].open
 
 
-def tail(path: Path, sid: str, owner: str, n: int, cache: dict) -> tuple[list[dict], int, int, bool]:
+def tail(path: Path, sid: str, owner: str, n: int, cache: dict, rest: bool = False) -> tuple[list[dict], int, int, bool]:
     """read_tail_page as the route asks for it: (messages, cursor, end, open), kept in `cache` (a dict the caller keeps) while the file's size and time are
     unchanged, so a poll of a quiet session costs a stat. The messages are the cache's own: a caller copies one before it adds to it."""
     st = path.stat()
-    key = (str(path), n)
+    key = (str(path), n, rest)
     stamp = (st.st_size, st.st_mtime_ns, sid, owner)
     hit = cache.get(key)
     if hit is None or hit[0] != stamp:
-        msgs, cursor, end, sel = read_tail_page(path, sid, owner, n)
+        msgs, cursor, end, sel = read_tail_page(path, sid, owner, n, rest)
         if len(cache) >= CACHE_MAX:
             cache.clear()
         cache[key] = hit = (stamp, (msgs, cursor, end, sel.open))
     return hit[1]
 
 
-def answer(*, name: str, sess, projects_dir: Path, owner: str, n: int, before, around, after, host: str, mockups_dir: Path, cache: dict) -> dict:
+def answer(*, name: str, sess, projects_dir: Path, owner: str, n: int, before, around, after, host: str, mockups_dir: Path, cache: dict,
+           rest: bool = False) -> dict:
     """The answer of GET /api/chat/thread for the configured chat session `name` (`sess`: its Session, live or sleeping, or None when sala has no such
     session); at most one of `before`, `around` and `after` is given, and a bad one raises TR.BadCursor. {"session", "messages", the paging keys the
     transcript route gives for that kind of read, "busy": a turn is open and the session is working, "cards": {uuid: the link cards of that reply}}; each
-    reply that has cards also carries them as `cards`, as the session's page draws them."""
+    reply that has cards also carries them as `cards`, as the session's page draws them. `rest`: the route's `replies=1` (module docstring)."""
     path = TR.transcript_path(projects_dir, sess.cwd, sess.session_id) if sess is not None else None
     if path is None:
         return {"session": name, "messages": [], "offset": 0, "before": 0, "start": True, "busy": False, "cards": {}}
     sid = sess.session_id
     working = sess.status in ("busy", "waiting")
     if before is None and around is None and after is None:
-        msgs, cursor, end, open_ = tail(path, sid, owner, n, cache)
+        msgs, cursor, end, open_ = tail(path, sid, owner, n, cache, rest)
         page = {"messages": msgs, "offset": end, "before": cursor, "start": cursor == 0}
     else:
         if around is not None:
-            page = read_around(path, sid, owner, around, n)
+            page = read_around(path, sid, owner, around, n, rest)
         elif after is not None:
-            msgs, cursor, at_end = read_after(path, sid, owner, after, n)
+            msgs, cursor, at_end = read_after(path, sid, owner, after, n, rest)
             page = {"messages": msgs, "after": cursor, "end": at_end}
         else:
-            msgs, cursor, at_start = read_before(path, sid, owner, before, n)
+            msgs, cursor, at_start = read_before(path, sid, owner, before, n, rest)
             page = {"messages": msgs, "before": cursor, "start": at_start}
         open_ = working and is_open(path, sid, owner)
     msgs = CK.with_cards([dict(m) for m in page["messages"]], host, mockups_dir)

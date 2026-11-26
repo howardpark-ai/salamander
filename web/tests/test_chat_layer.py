@@ -146,7 +146,8 @@ def test_no_api_answer_depends_on_the_setting_for_the_chat_session_or_another(se
              peer("Another Claude session sent a message:\nfrom: demo-third\n\nBuilt.", 3), assistant("Noted.", 4)]
     write(transcript_file(served), lines)
     other = add_session(served, OTHER, OTHER_SID, lines)
-    paths = ["/api/sessions", "/api/chat", "/api/chat/thread", f"/api/s/{os.getpid()}/transcript", f"/api/s/{other}/transcript"]
+    paths = ["/api/sessions", "/api/chat", "/api/chat/thread", "/api/chat/thread?replies=1", f"/api/s/{os.getpid()}/transcript",
+             f"/api/s/{other}/transcript"]
     off = {p: get(served["url"] + p)[2] for p in paths}
     monkeypatch.setenv("SALA_CHAT_LAYER", "on")
     assert {p: get(served["url"] + p)[2] for p in paths} == off
