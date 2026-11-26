@@ -2,8 +2,9 @@
    body.chat-layer (the class is on while the layer draws the open thread), so no other session's page changes. */
 body.chat-layer #chat > .inflight { display: none; }       /* the layer draws its own working mark */
 body.chat-layer #chat-strip .kept-row { display: none; }   /* the layer's thread has no kept-back line for the switch to show */
-/* while the thread loads, the strip's rows would paint above the loading line and then scroll out of view as the thread arrives, which reads as a flash */
-body.chat-layer #chat-strip:has(+ #chat > .empty[data-i18n="app.loadingTranscript"]) { display: none; }
+/* above a thread that is not in yet (the loading line, or a message still on its way) the strip's rows would paint and then scroll out of view as the thread
+   arrives, which reads as a flash. chatlayer.js marks #chat once the thread is in, or its read failed */
+body.chat-layer #chat-strip:has(+ #chat:not([data-cl-in])) { display: none; }
 
 body.chat-layer #chat > .cl-older { color: var(--faint); font-size: 12px; text-align: center; min-height: 28px; line-height: 20px; }
 body.chat-layer #chat > .cl-older.at-start { border-bottom: 1px solid var(--border); margin-bottom: 8px; }

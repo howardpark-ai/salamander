@@ -24,6 +24,8 @@ window.SalaThreadLayer = (() => {
   const GAP_PAGES = 10;     // older pages followed to reach what is held, before what is held is let go
   const FOCUS_PAGES = 40;   // older pages read to reach the entry a Search result names
   const TURN_MAX = 200;
+  const IN = "data-cl-in";  // on #chat while the thread is in, or its read failed: chatlayer.css shows the strip's rows only then
+  const LOADING = '.empty[data-i18n="app.loadingTranscript"]';
 
   /* ---------- pure parts (held by web/tests/test_chat_layer.py in node) ---------- */
   const CODE_BLOCK = /```[\s\S]*?(```|$)/g;
@@ -80,15 +82,24 @@ window.SalaThreadLayer = (() => {
     clearTimeout(st.soon); clearTimeout(st.retry);
     if (ui) { ui.olderObs.disconnect(); for (const n of [ui.older, ui.fail, ui.mark]) n.remove(); }
     st = fresh();
+    markIn(false);
+  }
+  // true when the mark changed: the strip's rows came or went
+  function markIn(on) {
+    const chat = $("#chat");
+    if (chat.hasAttribute(IN) === on) return false;
+    chat.toggleAttribute(IN, on);
+    return true;
   }
   // called from chatSync: the selection or the list of sessions may have changed
   function sync() {
     const s = state.selected ? state.byName.get(state.selected) : null;
     if (!s && st.name !== null && st.name === state.selected) {
       // the open session left the list: sala keeps its thread on screen then, so it stays here too, under the layer's rules, and nothing more is read for it
-      const { name } = st;
+      const { name } = st, marked = $("#chat").hasAttribute(IN);
       clear();
       st.name = name; st.gone = true;
+      markIn(marked);
       return;
     }
     const flipped = !!(s && seen && seen.name === s.name && seen.chat !== (s.chat === true));
@@ -271,9 +282,10 @@ window.SalaThreadLayer = (() => {
     if (st.failed) want.push(ui.fail);
     want.push(...pending);
     if (st.busy) want.push(ui.mark);
+    const marked = markIn(st.loaded || st.failed);   // before the scroll below, which then counts the strip's height
     paintOlder();
     paintMark();
-    if (place(chat, want)) {
+    if (place(chat, want) || marked) {
       if (pinned) { if (state.tab === "chat") scrollToBottom(); }
       else if (keep) restoreAnchor(keep);
     }
@@ -354,8 +366,11 @@ window.SalaThreadLayer = (() => {
     ui.mark = el("div", { class: "cl-mark", role: "status", ...tx("app.working", null, "title"), ...tx("app.working", null, "aria-label") },
       el("span", { class: "spinner" }), ui.turn);
     // a bubble the composer's send adds goes above the working mark, and may change the language the mark is held against
-    new MutationObserver(() => {
-      if (st.name === null || ui.mark.parentNode !== chat) return;
+    new MutationObserver((records) => {
+      if (st.name === null) return;
+      // app.js putting its loading line here (the open session opened once more): not in again, also when a message sent right then takes the line away
+      if (records.some((r) => [...r.addedNodes].some((n) => n.nodeType === 1 && n.matches(LOADING)))) markIn(false);
+      if (ui.mark.parentNode !== chat) return;
       for (let n = ui.mark.nextElementSibling; n; n = n.nextElementSibling) {
         if (n.classList.contains("msg")) { chat.append(ui.mark); break; }
       }

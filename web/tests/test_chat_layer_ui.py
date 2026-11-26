@@ -11,8 +11,8 @@ Held here, against the real server:
   - the working mark: the open turn's words beside it only in the language of the owner's last message, else the bare mark;
   - older messages come as the reader scrolls up, and the place is kept;
   - a failed read, a reconnect, a long absence, a language change, a reload, a session asleep, not running or gone from the list;
-  - while the thread loads (a cold load, a reload, a switch inside the page), no frame has the strip's rows above the loading line; they are there once the
-    thread is;
+  - while the thread loads (a cold load, a reload, a switch inside the page, the open session opened again), no frame has the strip's rows above it, a message
+    still on its way or not; they are there once the thread is, or once its read failed;
   - no sideways scroll at 1280, 390, 360 and 320 px with long words, long addresses, wide tables, wide code and images, and as the width changes;
   - the composer sends the same request with the setting on and off;
   - off, the chat session and another one are drawn by the session view; on, the other session's page is the same, opened directly or from the chat.
@@ -139,8 +139,13 @@ def thread_is(browser, want: list, timeout: float = 20.0) -> None:
     assert browser.evaluate(THREAD) == want
 
 
+def typed(text: str) -> str:
+    """The script that writes a message and taps Send: setText alone leaves the button off, as the app's own callers know."""
+    return f"setText({json.dumps(text)}); refreshSendButton(); document.querySelector('#send').click(); ''"
+
+
 def send(browser, text: str) -> None:
-    browser.evaluate(f"setText({json.dumps(text)}); document.querySelector('#send').click(); ''")
+    browser.evaluate(typed(text))
 
 
 def mixed() -> list[dict]:
@@ -314,8 +319,11 @@ def test_older_messages_come_as_the_reader_scrolls_up_and_the_place_is_kept(serv
 # ── trouble ──────────────────────────────────────────────────────────────────
 def test_a_failed_read_says_so_offers_retry_and_tries_again_by_itself(served, browser, monkeypatch):
     write(served, human("go on", 1), assistant("Done.", 2))
-    open_chat(browser, served, monkeypatch, fail=True, ready=False)
+    open_chat(browser, served, monkeypatch, fail=True, ready=False, doc=strip_doc())
     assert wait_for(browser, "!!document.querySelector('#chat > .cl-fail')", 20.0)
+    # a read that failed is not a thread still loading: the strip's rows are there
+    assert wait_for(browser, "document.querySelectorAll('#chat-strip .mo').length >= 1 && "
+                             "document.querySelector('#chat-strip').getClientRects().length > 0", 20.0)
     assert browser.evaluate("[document.querySelectorAll('#chat > .msg').length, document.querySelectorAll('#chat > .empty').length]") == [0, 0]
     assert browser.evaluate("document.querySelector('#chat .cl-fail span').textContent")
     browser.evaluate("window.__fail = false; document.querySelector('#chat .cl-fail button').click(); ''")
@@ -423,8 +431,8 @@ def test_a_sleeping_chat_session_is_shown_as_sala_shows_it_and_the_layer_returns
 
 
 # ── while the thread loads ───────────────────────────────────────────────────
-# Before any script of the page: the thread's reads wait while window.__hold, and every frame in which the strip's rows are laid out above the loading line
-# is noted.
+# Before any script of the page: the thread's reads wait while window.__hold, and every frame of the layer's page in which the strip's rows are laid out while
+# no message of the thread is there yet is noted.
 HOLD = """(() => {
   if (window.__above) return;
   window.__above = []; window.__hold = true; window.__held = 0;
@@ -435,8 +443,9 @@ HOLD = """(() => {
     return new Promise((res, rej) => { (function wait() { if (window.__hold) setTimeout(wait, 30); else real(u, o).then(res, rej); })(); });
   };
   const look = () => {
-    const line = document.querySelector('#chat > .empty[data-i18n="app.loadingTranscript"]'), s = document.querySelector('#chat-strip');
-    if (line && s && s.getClientRects().length) window.__above.push(s.textContent.trim().slice(0, 40));
+    const s = document.querySelector('#chat-strip');
+    if (s && s.getClientRects().length && document.body.classList.contains('chat-layer') && !document.querySelector('#chat > .msg:not(.local)'))
+      window.__above.push(s.textContent.trim().slice(0, 40));
     requestAnimationFrame(look);
   };
   requestAnimationFrame(look);
@@ -480,8 +489,59 @@ def test_the_strips_rows_are_never_on_screen_above_a_loading_thread(served, brow
     browser.evaluate("window.__above = []; window.__held = 0; window.__hold = true; ''")
     browser.evaluate(f"go('#s={NAME}'); ''")
     held_then_shown(browser)
-    # and in the very task that opens it, before anything has arrived
-    assert browser.evaluate(f"selectSession('{NAME}', {{ force: true }}); {ABOVE}") == [True, False]
+    # the open session opened again where it is, its thread already read
+    browser.evaluate("window.__above = []; window.__held = 0; window.__hold = true; ''")
+    browser.evaluate(f"selectSession('{NAME}', {{ force: true }}); ''")
+    held_then_shown(browser)
+
+
+# [messages of the thread, lines that stand for an empty one (the loading line among them), the strip is laid out]
+UNDER = """[document.querySelectorAll('#chat > .msg:not(.local)').length, document.querySelectorAll('#chat > .empty').length,
+    document.querySelector('#chat-strip').getClientRects().length > 0]"""
+
+
+def under_a_bubble(browser, sent: list[str]) -> None:
+    """A thread whose read is held, with messages on their way and so no loading line: none of the strip's rows is on screen until the thread is in."""
+    assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat > .msg.local').length === {len(sent)} && "
+                             "document.querySelectorAll('#chat-strip .mo').length >= 1", 30.0)
+    assert browser.evaluate(FRAMES)
+    assert browser.evaluate(PENDING) == sent
+    assert browser.evaluate(UNDER) == [0, 0, False]
+    assert browser.evaluate("!document.querySelector('#chat-strip').hidden")
+
+
+def arrives(browser, sent: list[str]) -> None:
+    browser.evaluate("window.__hold = false; ''")
+    thread_is(browser, SHOWN + [["me", text] for text in sent])
+    assert browser.evaluate(FRAMES)
+    assert browser.evaluate(UNDER) == [len(SHOWN), 0, True]
+    assert browser.evaluate("window.__above") == []
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_a_message_on_its_way_does_not_bring_the_strips_rows_onto_a_loading_thread(served, browser, monkeypatch, size):
+    write(served, *mixed())
+    add_session(served, OTHER, "22222222-3333-4444-5555-666666666666", other_lines())
+    browser.send("Page.enable")
+    browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": HOLD})
+    # sent while the first read is out: the bubble takes the loading line's place
+    open_chat(browser, served, monkeypatch, size, ready=False, doc=strip_doc())
+    assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat-strip .mo').length >= 1 && {ABOVE}[0]", 30.0)
+    first, second = "Sent while loading.", "And one more."
+    send(browser, first)
+    under_a_bubble(browser, [first])
+    # away and back with it still on its way: the thread is drawn with the bubble and no loading line
+    browser.evaluate(f"go('#s={OTHER}'); ''")
+    other_ready(browser)
+    browser.evaluate("window.__above = []; window.__held = 0; window.__hold = true; ''")
+    browser.evaluate(f"go('#s={NAME}'); ''")
+    under_a_bubble(browser, [first])
+    arrives(browser, [first])
+    # opened again where it is, and a message sent in that very task
+    browser.evaluate("window.__above = []; window.__held = 0; window.__hold = true; ''")
+    browser.evaluate(f"selectSession('{NAME}', {{ force: true }}); {typed(second)}")
+    under_a_bubble(browser, [first, second])
+    arrives(browser, [first, second])
 
 
 def test_a_loading_thread_the_layer_does_not_draw_has_the_strip_it_has_today(served, browser, monkeypatch):
@@ -547,9 +607,11 @@ def check_layer(browser, width: int) -> dict:
 
 
 def hostile_ready(browser) -> None:
-    assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length >= 3 && !!document.querySelector('#chat .cl-turn:not([hidden])') && "
-                             "!!document.querySelector('#chat .msg img') && [...document.querySelectorAll('#chat .msg img')].every((i) => i.complete) && "
-                             "document.querySelectorAll('#chat-strip-wait .wait-row').length === 2", 30.0), browser.evaluate(INSIDE)
+    # the message's picture is lazy and far above the end of the thread: it is asked for here, so that it is measured at its own size
+    ready = ("(() => { const p = [...document.querySelectorAll('#chat .msg img')]; p.forEach((i) => { i.loading = 'eager'; }); "
+             "return document.querySelectorAll('#chat > .msg').length >= 3 && !!document.querySelector('#chat .cl-turn:not([hidden])') && "
+             "p.length >= 1 && p.every((i) => i.complete && i.naturalWidth > 0) && document.querySelectorAll('#chat-strip-wait .wait-row').length === 2; })()")
+    assert wait_for(browser, ready, 30.0), browser.evaluate(INSIDE)
 
 
 def strip_doc() -> dict:
