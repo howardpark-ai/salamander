@@ -84,6 +84,10 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `web/tests/conftest.py`: the `browser` fixture shares one Chromium per pytest session (Fri Nov 27th 2026)
+
+What changed: the fixture used to start a headless Chromium and close it for every test that asked for `browser` (a CI run measured about 0.5 s to start and 0.17 s to close, over 1300 times). It now starts one Chromium per pytest session and gives each test a browser context of its own in it (new context, one page, disposed after the test), so cookies, storage, cache, permissions and open pages never carry over; `Browser.grantPermissions` is pointed at the test's own context, and a Chromium that died is replaced for the next test. The viewport, the dark media setting, the events a test reads and every test's own setup are as they were. Three kinds of test still start a Chromium of their own: `test_the_desktop_layout_is_unchanged` (`test_composer_fit.py`, a different window), `test_the_marks_the_render_and_the_recorder` (`test_timing_debug.py`: it reads the resource timings of a first load, which in a shared Chromium lacked the app's own files), and every test in a file that grants `clipboardReadWrite` (the clipboard belongs to the browser process, not to a context, so a text another test copied would be there to read). No assertion, test or check was added, removed or changed.
+
 ### `tests/release.sh`: the one retry of GitHub's merge queue (Thu Nov 26th 2026)
 
 The path guarded: a PR dropped from the queue because the merge group failed its required checks (most often a flaky test) waited for a hand re-release; `release.sh` now queues the same head once more. A wrong answer queues a PR that must not go in (moved, conflicting, a draft, red), queues for ever, or hides the failed run.
