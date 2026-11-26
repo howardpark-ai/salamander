@@ -1,0 +1,10 @@
+{
+  "name": "dompurify-vendor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The pinned DOMPurify release whose dist/purify.min.js is web/src/sala_web/static/vendor/purify.min.js; see README.md.",
+  "license": "(MPL-2.0 OR Apache-2.0)",
+  "dependencies": {
+    "dompurify": "3.5.0"
+  }
+}

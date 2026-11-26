@@ -93,9 +93,86 @@ async function apiFetch(url, opts = {}, { tries = 5 } = {}) {
 /* ---------- markdown ---------- */
 if (window.marked) noSingleTildeStrike(marked);  // only ~~x~~ strikes; a lone ~ is text (shared.js)
 if (window.DOMPurify) {
-  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-    if (node.tagName === "A") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
+  DOMPurify.addHook("uponSanitizeElement", (node, data) => {
+    if (node.nodeType !== 1) return;
+    // what is not on screen stays off it: a popover is only hidden, a dialog that is not open goes with its words
+    if (node.hasAttribute("popover")) node.setAttribute("hidden", "");
+    if (data.tagName === "dialog" && !node.hasAttribute("open")) node.replaceChildren();
   });
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    // every link opens in a new tab, a drawing's and an image map's too; a formula's element is no link
+    if (node.namespaceURI === "http://www.w3.org/1998/Math/MathML") { node.removeAttribute("href"); node.removeAttribute("xlink:href"); }
+    else if (node.localName === "a" || node.localName === "area") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
+  });
+}
+// marked's HTML as the nodes a reply may show (the rules are MD_PURIFY, mdAttr and mdStyle in shared.js); the sanitized
+// nodes themselves, not their HTML to parse a second time (the same tree; measured as a slice of a long history's render,
+// Wed Oct 14th 2026)
+let mdReplies = 0;   // each one's names get a prefix of their own
+function mdSanitize(html) {
+  const nodes = DOMPurify.sanitize(html, MD_PURIFY);
+  const prefix = `md${++mdReplies}-`;
+  for (const e of nodes.querySelectorAll("*")) {
+    const tag = e.localName.toLowerCase();
+    if (tag === "input" && !mdTaskBox(e.getAttribute("type"), e.hasAttribute("disabled"))) { e.remove(); continue; }
+    for (const name of e.getAttributeNames()) {
+      const was = e.getAttribute(name), kept = mdAttr(tag, name.toLowerCase(), was, prefix);
+      if (kept === null) e.removeAttribute(name);
+      else if (kept !== was) e.setAttribute(name, kept);
+    }
+    if (e.hasAttribute("style")) { if (e.style) mdStyle(e.style); else e.removeAttribute("style"); }   // none to edit: none to keep
+    // the browser's full screen and picture in picture draw a video over the page
+    if (tag === "video") for (const [k, v] of [["controlslist", "nofullscreen"], ["disablepictureinpicture", ""], ["playsinline", ""]]) e.setAttribute(k, v);
+  }
+  return nodes;
+}
+// a reply never takes the whole screen: a browser that offers it all the same (a double tap on a video) is brought straight back
+document.addEventListener("fullscreenchange", () => { if (document.fullscreenElement?.closest(".md")) document.exitFullscreen().catch(() => {}); });
+// A reply's box is a formatting context of its own (style.css .md), so a margin inside it no longer merges with the space
+// around the box. Each element down the box's top and bottom edge that has such a margin gives it up (.md-start, .md-end)
+// and the box takes the largest of them (--md-start, --md-end), so the space around a reply is what it was. The box's own
+// children have none there already (.md > :first-child, :last-child). [top, bottom] by class or tag, as style.css and the
+// browser set them.
+const MD_EDGE_MARGINS = Object.freeze({
+  codebox: ["0px", ".7em"], "md-local": ["8px", "8px"], p: ["0px", ".7em"], table: [".5em", ".5em"], blockquote: [".5em", ".5em"],
+  hr: [".5em", ".5em"], ul: ["1em", "1em"], ol: ["1em", "1em"], menu: ["1em", "1em"], dl: ["1em", "1em"], figure: ["1em", "1em"],
+  h1: ["1.34em", "1.34em"], h2: ["1.245em", "1.245em"], h3: ["1.17em", "1.17em"], h4: ["1.33em", "1.33em"], h5: ["1.386em", "1.386em"],
+  h6: ["1.561em", "1.561em"],
+});
+const MD_LISTS = "ul, ol, menu";   // a list inside a list has no margin of its own
+const MD_CLOSED = "table, pre, details, fieldset, svg, math, video";   // what is inside these stays inside
+function mdEdges(box) {
+  for (const [side, first, next, at] of [["start", "firstChild", "nextSibling", 0], ["end", "lastChild", "previousSibling", 1]]) {
+    for (const e of box.querySelectorAll(`.md-${side}`)) e.classList.remove(`md-${side}`);
+    const margins = new Set();
+    for (let parent = box, deeper = false, listed = false; parent; deeper = true) {
+      let n = parent[first];
+      while (n && (n.nodeType === 8 || (n.nodeType === 3 && !n.data.trim()))) n = n[next];
+      if (!n || n.nodeType !== 1) break;
+      const list = n.matches(MD_LISTS);
+      const key = ["codebox", "md-local"].find((c) => n.classList.contains(c)) || n.localName;
+      // a code block keeps its margin as the box's own child too (.md .codebox is above .md > :last-child)
+      if ((deeper || key === "codebox") && Object.hasOwn(MD_EDGE_MARGINS, key) && !(list && listed)) {
+        n.classList.add(`md-${side}`);
+        margins.add(MD_EDGE_MARGINS[key][at]);
+      }
+      listed = listed || list;
+      parent = n.matches(MD_CLOSED) ? null : n;
+    }
+    if (margins.size) box.style.setProperty(`--md-${side}`, `max(${[...margins].join(", ")})`);
+    else box.style.removeProperty(`--md-${side}`);
+  }
+}
+// A list number of four digits or more ("2026. " opens a list in markdown) hangs further left than a list's indent, past the
+// box's edge, where the box would cut it: such a list is indented further (style.css ol.md-hang), .7em for each digit past three.
+function mdHang(box) {
+  for (const list of box.querySelectorAll("ol")) {
+    if (list.parentElement.closest(MD_LISTS)) continue;   // a list inside a list has the outer one's indent too
+    const most = Math.max(list.start + list.childElementCount - 1, ...[...list.children].map((li) => li.value || 0));
+    const over = String(most).length - 3;
+    list.classList.toggle("md-hang", most > 0 && over > 0);
+    if (most > 0 && over > 0) list.style.setProperty("--md-hang", `${over * 7 / 10}em`);
+  }
 }
 // A markdown image in a reply that names a file on this machine (![caption](/home/…/mock.png) or ![caption](~/…)): the
 // server hands each such image of a text block a URL (b.localImages: {src as written, url}); the image is drawn inline
@@ -140,9 +217,7 @@ function md(text, offered = null) {
   try {
     const html = marked.parse(mdPrep(text), { gfm: true, breaks: true });  // a single newline is a line break, as claude.ai renders it
     const d = el("div", { class: "md" });
-    // the sanitized nodes themselves, not their HTML to parse a second time (the same tree; measured as a slice of a
-    // long history's render, Wed Oct 14th 2026)
-    d.append(DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true }));
+    d.append(mdSanitize(html));
     localImages(d, offered);
     // a copy button in the top-right corner of each fenced code block (outside the <pre>, so it does not scroll away)
     for (const p of d.querySelectorAll("pre")) {
@@ -151,6 +226,8 @@ function md(text, offered = null) {
       p.replaceWith(box);
       box.append(p, copyButton(raw, "code-copy"));
     }
+    mdEdges(d);
+    mdHang(d);
     return d;
   } catch {
     return el("div", { class: "md", style: "white-space:pre-wrap", text });
@@ -168,6 +245,8 @@ function replyNodes(text, last, offered = null) {
   if (!notes.length) return [md(text, offered)];
   const footer = el("div", { class: "md footer" + (body ? " ruled" : "") });
   for (const n of notes) footer.append(...md(n, offered).childNodes);
+  mdEdges(footer);
+  mdHang(footer);
   const out = body ? [md(body, offered), footer] : [footer];
   if (tail) { const t = md(tail, offered); t.classList.add("tail"); out.push(t); }
   return out;

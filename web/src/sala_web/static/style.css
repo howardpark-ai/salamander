@@ -546,7 +546,15 @@ body.side-mode #sd-form { display: block; }
 .live-out { font: 12px/1.45 var(--font); margin: 8px 0 0; max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .live-note { font-size: 12px; color: var(--faint); margin-top: 4px; }
 .live-note.err { color: var(--error); }
-.md { overflow-wrap: anywhere; }
+/* a reply's box holds what the reply draws: with layout and paint containment nothing in it (positioned, fixed, moved,
+   scaled, raised, shadowed or pulled by a negative margin) paints, takes a click or stretches the page outside the box.
+   What is wider than the box scrolls inside it; nothing makes it scroll down. The margins at its edges: app.js mdEdges */
+.md { overflow-wrap: anywhere; contain: content; overflow-x: auto; overflow-y: hidden; margin: var(--md-start, 0px) 0 var(--md-end, 0px); }
+.md.md:not(.ruled) .md-start { margin-top: 0; }   /* .md twice: above every .md rule that gives a margin */
+.md.md .md-end { margin-bottom: 0; }
+.md ol.md-hang { padding-inline-start: calc(40px + var(--md-hang)); }   /* long list numbers (app.js mdHang); 40px: the browser's own */
+/* a focus ring inside the element's own edges, where the box does not cut it */
+.md :is(a, area, summary, video, audio):focus-visible { outline-offset: -2px; }
 .md th, .md td { overflow-wrap: normal; word-break: keep-all; }  /* 'anywhere' let tables squeeze a column to one letter */
 .msg.assistant .md { font-size: 15px; line-height: 1.65; }
 .md > :first-child { margin-top: 0; }
@@ -604,7 +612,7 @@ body.side-mode #sd-form { display: block; }
 .md.footer a[href]::after { content: ""; position: absolute; inset: -3px 0; }
 .md.footer a[href].wrapped::after { display: none; }
 /* the closing paragraph after a footer (the ask the rulebook puts last; replyNodes' tail): body text, a gap, no rule */
-.msg.assistant .md.tail { margin-top: 8px; }
+.msg.assistant .md.tail { margin-top: max(8px, var(--md-start, 0px)); }
 
 details.fold { margin: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
 details.fold > summary { cursor: pointer; list-style: none; padding: 4px 8px; font-size: 13px; color: var(--muted);

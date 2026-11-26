@@ -2378,7 +2378,25 @@ path against Claude Code itself, start one on a private server
 
 The frontend is `src/sala_web/static/` (one HTML file, vanilla JS, CSS, no build step). A reply (and its thinking) is
 markdown, rendered by `marked` and sanitized by `DOMPurify` (`md()`: every link opens in a new tab with
-`rel="noopener noreferrer"`; a `javascript:` URL loses its href). Before `marked` sees the text, `mdPrep()` (`shared.js`, pure, tested in node and in the page) puts a blank line before a numbered item that CommonMark would leave as paragraph text: a list may interrupt a paragraph only at "1.", so "Next steps:\n6. x\n7. y" drew as lines, flush left, beside indented lists. It acts only on a line-start `N.` or `N)` (N 2 to 999) outside a code fence, under prose (no list item or indented line in the block above), when the reply has an item numbered N-1 or N+1, and whose text does not start with another `N.`; dates such as `2026. 1. 5.` and `5. 1. 2026.`, a lone number and numbers mid-sentence stay text. A line right under a bullet stays that bullet's continuation. A reply's footer, the labeled note lines a session leaves last (each with its `- `
+`rel="noopener noreferrer"`; a `javascript:` URL loses its href). A reply keeps what `DOMPurify` keeps by default, drawings
+(`svg`), video, audio, formulas (`math`) and its own inline `style` included, and its box (`.md`, `style.css`) has layout and
+paint containment: nothing the reply draws, positioned, fixed, moved, scaled, raised, shadowed or pulled by a negative margin,
+paints, takes a click or stretches the page outside the box, and what is wider than the box scrolls inside it. A box that
+contains does not let the margins at its edges merge with the space around it, so `mdEdges()` (`app.js`) hands the margins
+of the elements down its top and bottom edges to the box itself, which keeps the spacing; a numbered list that reaches four
+digits, whose numbers would hang left past the box's edge, is indented further (`mdHang()`). What no box can hold, what would
+act or pass for a control of the page, and what would answer to a name of the page's own goes (`MD_PURIFY`, `mdAttr` and
+`mdStyle` in `shared.js`, `mdSanitize()` in `app.js`): style sheets (a drawing's too), `link`, `meta`, `base`; forms and
+their controls (the words stay; the only input is a task list's disabled checkbox) and dialogs (an open one's words stay);
+`popover` and the attributes that open one or press something else (a popover's words stay hidden); `autofocus`,
+`accesskey`, `contenteditable`; every `data-*` and every class but a code block's `language-…`, since the page finds its own
+elements by those. Every `id` and `name`, and every pointer at one (`url(#…)`, a drawing's `href="#…"`, an animation's
+target and the events it waits on, `usemap`, `headers` and the `aria-*` lists of ids), gets a prefix of the reply's own; an
+animation that names its target any other way loses it. A `tabindex` above 0 becomes 0; a pointer picture
+(`cursor: url(…)`), `-webkit-user-modify`, `anchor-name` and `view-transition-name` leave inline style; a video gets no full
+screen and no picture in picture (the page leaves full screen if a browser opens it all the same); a formula's element is no
+link. Text shown as written is not affected. `tests/test_md_rules.py` (node) holds the rules and `test_md_rules_ui.py` (the
+page, a headless Chromium) tries each way out of the box. Before `marked` sees the text, `mdPrep()` (`shared.js`, pure, tested in node and in the page) puts a blank line before a numbered item that CommonMark would leave as paragraph text: a list may interrupt a paragraph only at "1.", so "Next steps:\n6. x\n7. y" drew as lines, flush left, beside indented lists. It acts only on a line-start `N.` or `N)` (N 2 to 999) outside a code fence, under prose (no list item or indented line in the block above), when the reply has an item numbered N-1 or N+1, and whose text does not start with another `N.`; dates such as `2026. 1. 5.` and `5. 1. 2026.`, a lone number and numbers mid-sentence stay text. A line right under a bullet stays that bullet's continuation. A reply's footer, the labeled note lines a session leaves last (each with its `- `
 bullets), renders apart from the body (`replyNodes()`, `.md.footer`): 0.85 of the body's
 16px in `--muted` (AA in both themes: 5.6:1 light, 7.1:1 dark), under a 1px `--border` rule when a body precedes it,
 each note a block of its own so adjacent notes keep their lines (markdown alone ran several of them into one
@@ -2420,5 +2438,6 @@ scrolls up, which shows a jump-to-bottom button; a sent message shows at once as
 the transcript's copy when it arrives (matched on its text, ignoring `[Image #N]` chips and Claude Code's
 `<pasted_content>` wrapper, else the first new prompt after the send); scope and project headers reorder by dragging
 (pointer events, so touch works too) and fold on a click. `marked` 12.0.2 and
-`DOMPurify` 3.1.6 are vendored in `static/vendor/`. `tools/make_icons.py` redraws the app icons (*Install as an
+`DOMPurify` 3.5.0 are vendored in `static/vendor/` (DOMPurify's pin, lockfile, license, checksum and how to move it:
+`vendor-src/dompurify/README.md`). `tools/make_icons.py` redraws the app icons (*Install as an
 app*); nothing under `tools/` runs in the app.
