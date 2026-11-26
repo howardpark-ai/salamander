@@ -11,6 +11,8 @@ Held here, against the real server:
   - the working mark: the open turn's words beside it only in the language of the owner's last message, else the bare mark;
   - older messages come as the reader scrolls up, and the place is kept;
   - a failed read, a reconnect, a long absence, a language change, a reload, a session asleep, not running or gone from the list;
+  - while the thread loads (a cold load, a reload, a switch inside the page), no frame has the strip's rows above the loading line; they are there once the
+    thread is;
   - no sideways scroll at 1280, 390, 360 and 320 px with long words, long addresses, wide tables, wide code and images, and as the width changes;
   - the composer sends the same request with the setting on and off;
   - off, the chat session and another one are drawn by the session view; on, the other session's page is the same, opened directly or from the chat.
@@ -418,6 +420,84 @@ def test_a_sleeping_chat_session_is_shown_as_sala_shows_it_and_the_layer_returns
     browser.evaluate("loadSessions()")
     assert wait_for(browser, f"{LAYERED} && document.querySelector('#sleep-band').hidden", 20.0)
     thread_is(browser, SHOWN)
+
+
+# ── while the thread loads ───────────────────────────────────────────────────
+# Before any script of the page: the thread's reads wait while window.__hold, and every frame in which the strip's rows are laid out above the loading line
+# is noted.
+HOLD = """(() => {
+  if (window.__above) return;
+  window.__above = []; window.__hold = true; window.__held = 0;
+  const real = window.fetch.bind(window);
+  window.fetch = (u, o) => {
+    if (!String(u).startsWith('api/chat/thread') || !window.__hold) return real(u, o);
+    window.__held++;
+    return new Promise((res, rej) => { (function wait() { if (window.__hold) setTimeout(wait, 30); else real(u, o).then(res, rej); })(); });
+  };
+  const look = () => {
+    const line = document.querySelector('#chat > .empty[data-i18n="app.loadingTranscript"]'), s = document.querySelector('#chat-strip');
+    if (line && s && s.getClientRects().length) window.__above.push(s.textContent.trim().slice(0, 40));
+    requestAnimationFrame(look);
+  };
+  requestAnimationFrame(look);
+})()"""
+
+# [the loading line is in the thread, the strip is laid out]
+ABOVE = """[!!document.querySelector('#chat > .empty[data-i18n="app.loadingTranscript"]'), document.querySelector('#chat-strip').getClientRects().length > 0]"""
+FRAMES = "new Promise((res) => { let n = 6; (function next() { if (n--) requestAnimationFrame(next); else res(true); })(); })"
+
+
+def held_then_shown(browser) -> None:
+    """A thread whose read is held: the strip has its rows and none of them is on screen; then the thread arrives and the strip is there."""
+    assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat-strip .mo').length >= 1 && {ABOVE}[0]", 30.0)
+    assert browser.evaluate(FRAMES)
+    assert browser.evaluate(ABOVE) == [True, False]
+    assert browser.evaluate("!document.querySelector('#chat-strip').hidden && document.querySelector('#chat-strip-wait').getClientRects().length > 0"), \
+        "only the rows that scroll with the thread are held back: the pinned line stays"
+    browser.evaluate("window.__hold = false; ''")
+    thread_is(browser, SHOWN)
+    assert browser.evaluate(FRAMES)
+    assert browser.evaluate(ABOVE) == [False, True]
+    assert browser.evaluate("document.querySelector('#chat-strip .mo').getClientRects().length > 0")
+    assert browser.evaluate("window.__above") == []
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_the_strips_rows_are_never_on_screen_above_a_loading_thread(served, browser, monkeypatch, size):
+    write(served, *mixed())
+    add_session(served, OTHER, "22222222-3333-4444-5555-666666666666", other_lines())
+    browser.send("Page.enable")
+    browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": HOLD})
+    # a cold load
+    open_chat(browser, served, monkeypatch, size, ready=False, doc=strip_doc())
+    held_then_shown(browser)
+    # a reload
+    browser.reload()
+    held_then_shown(browser)
+    # a switch inside the page: to another session and back
+    browser.evaluate(f"go('#s={OTHER}'); ''")
+    other_ready(browser)
+    browser.evaluate("window.__above = []; window.__held = 0; window.__hold = true; ''")
+    browser.evaluate(f"go('#s={NAME}'); ''")
+    held_then_shown(browser)
+    # and in the very task that opens it, before anything has arrived
+    assert browser.evaluate(f"selectSession('{NAME}', {{ force: true }}); {ABOVE}") == [True, False]
+
+
+def test_a_loading_thread_the_layer_does_not_draw_has_the_strip_it_has_today(served, browser, monkeypatch):
+    """Off, the chat session's loading line has the strip above it, as it did; another session has no strip, off or on."""
+    write(served, *mixed())
+    add_session(served, OTHER, "22222222-3333-4444-5555-666666666666", other_lines())
+    other = {}
+    for layer in ("off", "on"):
+        open_chat(browser, served, monkeypatch, PHONE, layer=layer, doc=strip_doc())
+        assert wait_for(browser, "document.querySelectorAll('#chat-strip .mo').length >= 1", 20.0)
+        if layer == "off":
+            assert browser.evaluate(f"selectSession('{NAME}', {{ force: true }}); {ABOVE}") == [True, True]
+        browser.evaluate(f"go('#s={OTHER}'); ''")
+        other_ready(browser)
+        other[layer] = browser.evaluate(f"selectSession('{OTHER}', {{ force: true }}); {ABOVE}.concat(document.body.classList.contains('chat-layer'))")
+    assert other["on"] == other["off"] == [True, False, False]
 
 
 # ── no sideways scroll ───────────────────────────────────────────────────────
