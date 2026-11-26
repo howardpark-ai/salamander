@@ -1633,9 +1633,18 @@ main chat's own composer and path.
 
 **The label in the header and the tab title.** While the open session is the chat session, the header's name (`#title .name`) and the tab's title say the same text as the entry (for a session `demo-one` labelled `Demo One`: `Demo One`), from one
 function, `sessionLabelFrom` (`static/shared.js`, run in node by the tests), called in `updateHeader` (`app.js`) behind the chat session's own test (`isChatRow`) and nowhere else. The real name is the header's tooltip (the `title` of a span inside the name,
-which the next write of the name's text removes). Every other session, every other view and the chat session before `api/chat` has answered (or with none configured) are drawn exactly as before: the name, no tooltip. A label renamed while the page is open
+which the next write of the name's text removes). Every other session, every other view and the chat session before `api/chat` has answered (or with none configured) are drawn exactly as before: the name, no tooltip (on a load of the chat session's own address that name is not shown while `api/chat` is on its way, next paragraph). A label renamed while the page is open
 is drawn again by the entry's own 25-second read of `api/chat` (`chatMarks`). The span has its own ellipsis rule (`#title .name > span[title]`, `style.css`), so a long label is cut inside the bar and no box of the header ends outside the window. `tests/test_session_label.py` (the function and the script's text) and `tests/test_session_label_ui.py` (a
 headless Chromium) hold it.
+
+**The load of its address.** The served markup is the page with no session ("Select a session", "Pick a session on the left."), in English until the script has applied the saved language, and `app.js` opens a session only after its reads. So that the chat
+session's address does not show that first, `static/chatboot.js`, run in the head before the first paint, hides the header's name and the markup's placeholder on a load that is on its way to the chat session: `#s=<the session>` (what `/chat` redirects to,
+and what a reload asks for), or a phone's or the installed app's launch with no address whose remembered view is that. It is visibility only (no box moves and nothing new is drawn), and `app.js`'s own loading line shows as soon as it is written, in the
+saved language. It lets go when the page draws anything else (not running, asleep, the Overview, another session), when the chat is open and `api/chat` has answered (the header then says the label), on an uncaught error or a refused promise, and at the
+latest 10 s after the document was read (30 s from the start). Every other address is left alone. Only the server knows the session: `_page()` (`app.py`) names it in the script tag's `data-chat-session`, and drops the tag when none is set. The script
+reads the page and writes one attribute on `<html>` and one `<style>` of its own; no other script knows of it. What it does not cover: the browser tab's title and the session's row in the side panel can carry the bare name until `api/chat` answers; a
+sleeping chat session's header says the bare name, as on any open; if `api/chat` cannot be read, the name shows once the time limit passes. `tests/test_chat_boot.py` (what is served, and the script in node) and `tests/test_chat_boot_ui.py` (a headless
+Chromium, every frame from the first) hold it.
 
 **The rule that tells the two apart** is read from the line's own record of where its text came from, never from its words (the one exception is sala's own mark, below), and was established from real transcripts. It is stated in
 the docstring of `chatturns.py` and here. In short: a `user` line with `origin.kind` `human` (typed, or typed while the session was busy and queued), an `attachment` of type `queued_command` with
