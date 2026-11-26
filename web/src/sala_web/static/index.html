@@ -95,6 +95,8 @@
 <script src="static/vendor/marked.min.js?v={{v}}"></script>
 <script src="static/vendor/purify.min.js?v={{v}}"></script>
 <script src="static/vendor/cm6-composer.min.js?v={{v}}"></script>
+<!--chatboot--><!-- on the chat session's address nothing of the page with no session shows while it loads (chatboot.js); the server drops this block when no chat session is set -->
+<script src="static/chatboot.js?v={{v}}" data-chat-session="{{chatSession}}"></script><!--/chatboot-->
 <!-- the look's additions: the code face (D2Coding, served from static/fonts, so code looks the same on every device) and what a plain stylesheet rule does not make
      (two button levels, tinted tags, the link rule, the orange, the 32 and 44 px controls, one row per agent on a phone). Last in the head, after every stylesheet link, so it wins the cascade -->
 <style id="look">@font-face{font-family:"D2Coding";src:url("static/fonts/D2Coding-Regular.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}

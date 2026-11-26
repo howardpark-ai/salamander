@@ -755,6 +755,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
         help_ = help_session()
         html = (html.replace("{{help}}", htmllib.escape(help_)) if help_
                 else re.sub(r"<!--help-->.*?<!--/help-->", "", html, flags=re.S))
+        # static/chatboot.js, which keeps the chat session's address from showing another view while it loads, is told the session; with none set the page has no such script
+        chat = chat_session()
+        html = (html.replace("{{chatSession}}", htmllib.escape(chat)) if chat
+                else re.sub(r"<!--chatboot-->.*?<!--/chatboot-->\n", "", html, flags=re.S))
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
     async def sessions_page(request: Request) -> Response:
