@@ -112,6 +112,7 @@ class FakeStackshot:
         # the owner's whole Your move group (`GET /client/your-move`: {"items": [{shown, subject, url, ask, updated}]}, in the page's order) and a forced answer
         self.your_move: list[dict] = []
         self.your_move_reply: tuple[int, object] | None = None
+        self.your_move_group: object = None     # the answer's "group" ({"en", "ko"}), whatever a test puts there; None leaves the key out (an older stackshot)
         self.seen_without_rows = False     # answer a seen call without `rows` (a shape tolerance)
         self.watch_without_flags = False
         self._lock = threading.Lock()
@@ -152,7 +153,10 @@ class FakeStackshot:
                     if outer.your_move_reply:
                         return self._send(*outer.your_move_reply)
                     with outer._lock:
-                        return self._send(200, {"items": list(outer.your_move)})
+                        body = {"items": list(outer.your_move)}
+                        if outer.your_move_group is not None:
+                            body["group"] = outer.your_move_group
+                        return self._send(200, body)
                 if u.path == "/client/item-facts":
                     ids = [i for i in q.get("ids", "").split(",") if i]
                     return self._send(200, {"items": {i: outer.item_facts[i] for i in ids if i in outer.item_facts}})

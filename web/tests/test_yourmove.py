@@ -1,6 +1,7 @@
 """The chat page's Your move strip reads stackshot's whole Your move list (yourmove.py), not the per-session board feed.
 
-What is held: the parse (every item in the order sent, each id once, no cap, a row without an id left out, an answer that is no list
+What is held: the group's name that rides on the answer (`group`: {"en", "ko"}, taken whole or not at all: both words 1..40 characters once stripped, no control
+character, no markup; an older stackshot's answer with none, or a bad one, is no group and never an error), kept with the list, in the state file and in GET /api/chat; the parse (every item in the order sent, each id once, no cap, a row without an id left out, an answer that is no list
 refused); the cache (answered at once from the last good list, a refresh in the background, the first answer None so the page falls back
 to the feed, an empty list an answer); a failed read keeping the last good list for ten minutes and the feed after that; the state file
 carrying no token; the read itself against a stand-in stackshot on a real socket (bearer token, the path, a 401); and GET /api/chat end to
@@ -40,15 +41,16 @@ def ids(rows):
 class FakeRead:
     """stackshot's read: answers `reply` (a list of rows, or an exception to raise), counts the calls, keeps what it was given."""
 
-    def __init__(self, reply):
+    def __init__(self, reply, group=None):
         self.reply = reply
+        self.group = group          # the answer's "group", whatever it is; None leaves the key out (an older stackshot)
         self.calls = []
 
     def __call__(self, url, token):
         self.calls.append((url, token))
         if isinstance(self.reply, BaseException):
             raise self.reply
-        return {"items": self.reply}
+        return {"items": self.reply} if self.group is None else {"items": self.reply, "group": self.group}
 
 
 def cache_for(tmp_path, fetch, state=True):
@@ -310,3 +312,131 @@ def test_with_no_list_ever_read_the_strip_is_the_feeds(chat_app):
     with TestClient(app) as c:
         d = chat(c, expect=["item#1", "item#2"])
     assert [w["subject"] for w in d["waiting"]] == ["[x] feed 1", "[x] feed 2"]
+
+
+# ---------- the group's name: stackshot's own words for the strip ----------
+
+def cp(*codes):
+    return "".join(chr(c) for c in codes)
+
+
+KO_LABEL = cp(0xACB0, 0xC815)          # a made-up Korean label for the renamed group
+GOOD = {"en": "Decide demo", "ko": KO_LABEL}
+
+
+def test_parse_group_takes_a_well_formed_group_whole_and_strips_the_words():
+    assert YM.parse_group({"items": [], "group": GOOD}) == GOOD
+    assert YM.parse_group({"items": [], "group": {"en": "  Decide  ", "ko": f" {KO_LABEL} ", "extra": 1}}) == {"en": "Decide", "ko": KO_LABEL}
+    assert YM.parse_group({"group": {"en": "x" * 40, "ko": "y"}}) == {"en": "x" * 40, "ko": "y"}          # 40 is the longest
+    assert YM.parse_group({"group": {"en": "Same", "ko": "Same"}}) == {"en": "Same", "ko": "Same"}        # no catalog: ko equals en, still a group
+
+
+@pytest.mark.parametrize("group", [
+    None, "Your move", 7, [], ["a", "b"], {}, {"en": "Only"}, {"ko": "Only"}, {"en": "a", "ko": None}, {"en": 1, "ko": 2}, {"en": ["a"], "ko": "b"},
+    {"en": "", "ko": "b"}, {"en": "a", "ko": "   "}, {"en": "x" * 41, "ko": "b"}, {"en": "a", "ko": "y" * 41},
+    {"en": "<b>Group</b>", "ko": "b"}, {"en": "a", "ko": "x > y"},
+    {"en": "line\nbreak", "ko": "b"}, {"en": "a", "ko": "tab\there"}, {"en": "nul\x00", "ko": "b"}, {"en": "a\n", "ko": "b"},
+    {"en": "zero" + chr(0x200B) + "width", "ko": "b"}, {"en": "a", "ko": "bidi" + chr(0x202E) + "flip"}, {"en": "esc\x1b[31m", "ko": "b"},
+])
+def test_parse_group_is_no_group_for_anything_else_and_never_raises(group):
+    assert YM.parse_group({"items": [], "group": group}) is None
+
+
+@pytest.mark.parametrize("body", [None, [], "text", 3, {}, {"items": []}])
+def test_parse_group_is_no_group_when_the_answer_has_none(body):
+    assert YM.parse_group(body) is None
+
+
+def test_the_group_rides_with_the_list_and_a_bad_group_leaves_the_list_alone(tmp_path):
+    cache = cache_for(tmp_path, FakeRead([move(1), move(2)], group=GOOD))
+    got = run(settle(cache))
+    assert ids(got) == ["item#1", "item#2"] and cache.group() == GOOD
+    for i, bad in enumerate(({"en": "<i>x</i>", "ko": "y"}, {"en": "only"}, "text")):
+        (tmp_path / f"o{i}").mkdir()
+        other = cache_for(tmp_path / f"o{i}", FakeRead([move(1)], group=bad))
+        assert ids(run(settle(other))) == ["item#1"] and other.group() is None
+
+
+def test_an_older_stackshot_has_no_group_and_a_later_answer_without_one_drops_it(tmp_path):
+    fake = FakeRead([move(1)])
+    cache = cache_for(tmp_path, fake)
+    assert ids(run(settle(cache))) == ["item#1"] and cache.group() is None
+
+    async def go():
+        fake.group = GOOD
+        cache._swr.expire()
+        await settle(cache)
+        first = cache.group()
+        fake.group = None                       # stackshot rolled back to a version that sends none
+        cache._swr.expire()
+        await settle(cache)
+        return first, cache.group()
+    first, after = run(go())
+    assert first == GOOD and after is None
+
+
+def test_a_failed_read_keeps_the_last_good_group_and_it_goes_with_the_list_after_ten_minutes(tmp_path, monkeypatch):
+    fake = FakeRead([move(1)], group=GOOD)
+    cache = cache_for(tmp_path, fake)
+
+    async def go():
+        await settle(cache)
+        fake.reply = RuntimeError("stackshot unreachable (refused)")
+        t0 = time.time()
+        out = []
+        for later in (60, YM.STALE_MAX + 5):
+            monkeypatch.setattr(YM, "time", types.SimpleNamespace(time=lambda later=later: t0 + later))
+            cache._swr.expire()
+            await settle(cache)
+            out.append(cache.group())
+        return out
+    inside, outside = run(go())
+    assert inside == GOOD and outside is None
+
+
+def test_the_saved_state_carries_the_group_a_restart_serves_it_and_an_old_or_edited_file_has_none(tmp_path):
+    saved = tmp_path / "state" / "your-move.json"
+    run(settle(cache_for(tmp_path, FakeRead([move(1)], group=GOOD))))
+    assert json.loads(saved.read_text())["group"] == GOOD and TOKEN not in saved.read_text()
+    assert cache_for(tmp_path, FakeRead(RuntimeError("down"))).group() == GOOD
+    doc = json.loads(saved.read_text())
+    del doc["group"]                                                  # a file an older sala wrote
+    saved.write_text(json.dumps(doc))
+    again = cache_for(tmp_path, FakeRead(RuntimeError("down")))
+    assert ids(again.items()) == ["item#1"] and again.group() is None
+    doc["group"] = {"en": "<b>x</b>", "ko": "y"}                      # a hand-edited file is read again, not trusted
+    saved.write_text(json.dumps(doc))
+    assert cache_for(tmp_path, FakeRead(RuntimeError("down"))).group() is None
+
+
+def test_the_stand_in_answer_with_a_group_reaches_api_chat_and_a_later_bad_one_drops_it(chat_app):
+    app, feed, stack = chat_app
+    stack.your_move = [move(1)]
+    stack.your_move_group = GOOD
+    with TestClient(app) as c:
+        d = chat(c, expect=["item#1"])
+        assert d["group"] == GOOD and d["waiting"][0]["id"] == "item#1"
+        stack.your_move_group = {"en": "Renamed", "ko": "<bad>"}      # a bad group on a later read: no group, the list stays
+        app.state.your_move._swr.expire()
+        for _ in range(300):
+            d = chat(c, expect=["item#1"])
+            if d["group"] is None:
+                break
+            time.sleep(0.02)
+        assert d["group"] is None and d["waiting"][0]["id"] == "item#1"
+
+
+def test_api_chat_has_no_group_for_an_older_stackshot(chat_app):
+    app, feed, stack = chat_app
+    stack.your_move = [move(1)]                                       # no group key in the answer
+    with TestClient(app) as c:
+        assert chat(c, expect=["item#1"])["group"] is None
+
+
+def test_api_chat_has_no_group_while_the_strip_is_the_feeds(chat_app):
+    app, feed, stack = chat_app
+    stack.your_move_group = GOOD
+    stack.your_move_reply = (500, "boom")                             # no list read: the feed's rows, and no group
+    with TestClient(app) as c:
+        d = chat(c, expect=["item#1", "item#2"])
+    assert d["group"] is None
