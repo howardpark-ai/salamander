@@ -17,7 +17,7 @@
  * permission dialog, a menu, as the test wrote it — and waits for ONE key, as the CLI's dialogs hold the pane; any key clears
  * the screen and the loop looks at the file again: rewritten, the new dialog shows; removed, the ❯ prompt is back) ·
  * FAKE_ESC_IDLE=1 (the composer reads raw keys, as under FAKE_MODEL_MODE, and an Esc turns a busy registry row idle with a fresh stamp,
- * as the CLI's Esc ends a running turn; one "esc <uuid> <epoch.micros>" line in FAKE_LOG) · FAKE_IDLE_AGE=<secs> (the registry row's statusUpdatedAt is that old at start; default 60) · FAKE_TURN_MS=<ms> (a typed
+ * as the CLI's Esc ends a running turn; one "esc <uuid> <epoch.micros>" line in FAKE_LOG; FAKE_ESC_IDLE=stay takes and logs the Esc and the turn goes on, the row stays busy) · FAKE_IDLE_AGE=<secs> (the registry row's statusUpdatedAt is that old at start; default 60) · FAKE_TURN_MS=<ms> (a typed
  * message that is not a slash command is a turn: the row says busy for that long, then idle with a fresh stamp; unset, a message changes
  * nothing, as before) · FAKE_NO_CLEAR=1 (a /clear is typed and logged and nothing changes) · `/clear` (probed on 2.1.312: the SAME registry row, same pid, name and nameSource kept, gets a NEW
  * sessionId and a fresh idle stamp; the screen is cleared; one "clear <new uuid> <epoch.micros>" line in FAKE_LOG). */
@@ -111,7 +111,8 @@ static int composer_line(char *buf, size_t sz) {
             if (getenv("FAKE_ESC_IDLE") && g_cursid) {
                 const char *el = getenv("FAKE_LOG"); FILE *f = el ? fopen(el, "a") : NULL;
                 if (f) { struct timeval tv; gettimeofday(&tv, NULL); fprintf(f, "esc %s %ld.%06ld\n", g_cursid, (long)tv.tv_sec, (long)tv.tv_usec); fclose(f); }
-                write_row(g_cursid, "idle", (long)time(NULL));
+                const char *ei = getenv("FAKE_ESC_IDLE");
+                if (strcmp(ei, "stay") != 0) write_row(g_cursid, "idle", (long)time(NULL));   /* FAKE_ESC_IDLE=stay: the Esc is taken and logged, the turn goes on (the row stays busy) */
             }
             continue;
         }

@@ -8,8 +8,12 @@
 #   - before the deadline: nothing is sent, the pane waits as before, its stackshot inbox is held; at the deadline: one Escape, the pane
 #     relaunched (same conversation), the held inbox released, the note written for the session and handed over after the resume, the row
 #     and the set say "paused at …", the exit dialog's background work stopped by the pause;
-#   - who is never paused: a pane with unsent text, a session in SALA_NO_PAUSE, the pane the recycle runs from, a pane whose Escape does not
-#     bring it out of its turn (nothing more is typed, no /exit);
+#   - who is never paused: a pane with unsent text, a session in SALA_NO_PAUSE, the pane the recycle runs from;
+#   - a pause that does not take (the Escape does not bring the pane out of its turn): nothing more is typed, no /exit, the clock KEEPS running,
+#     the failed try is recorded (pause/<id>.failed) and the pause is tried again after SALA_PAUSE_RETRY s, by the sweep and by watch alike, and
+#     after SALA_PAUSE_TRIES failed tries every SALA_PAUSE_AFTER s; a pane found free clears the record;
+#   - the deferred-pane bullet: made again from the pane for every post (its age is the pause clock's when that is longer than the registry's),
+#     and it says when the pause comes (and that it is being retried once that time has passed);
 #   - off keeps the old wait; scope off and background (no back-agent role here) keep a front agent waiting; the dry run says what it would do;
 #   - lib/pauseinfo.py: the descriptions of the calls in flight and the last line, never a command or a result; the inbox's sender and first line;
 #   - a deferred pane (watch) is paused the same way, once its clock runs out;
@@ -32,7 +36,7 @@ printf '#!/bin/sh\necho "$*" >> "%s/systemd-run.txt"\n' "$HOME" > "$HOME/.local/
 export PATH="$HOME/.local/bin:$PATH" FAKE_LOG="$HOME/fake.log" FAKE_SOCK_LOG="$HOME/sock.log" FAKE_TYPED_LOG="$HOME/typed.log"
 POSTS="$HOME/posts.txt"; export SALA_NOTIFY_CMD="{ cat; echo '%%'; } >> $POSTS"
 export SALA_BIN="$ROOT/bin/salamander" SALA_ROOT="$ROOT" SALA_AUTO_UPDATE=off SALA_AUTO_RECYCLE=off SALA_AGENT_CHECK=off SALA_MOD_WAIT=1
-export SALA_PAUSE_SCOPE=all SALA_PAUSE_AFTER=6 SALA_PAUSE_IDLE_WAIT=4 SALA_IDLE_SETTLE=2 SALA_PAUSE_QUIET=0   # the production values are 900, 20, 10 and 120
+export SALA_PAUSE_SCOPE=all SALA_PAUSE_AFTER=6 SALA_PAUSE_IDLE_WAIT=4 SALA_IDLE_SETTLE=2 SALA_PAUSE_QUIET=0 SALA_PAUSE_RETRY=10 SALA_PAUSE_TRIES=2   # the production values are 900, 20, 10, 120, 120 and 5
 export SALA_DEFERRED_TRY=1   # a direct `revive --only` that skips a busy pane starts no retry worker of its own: the passes are the test's, and the retry worker is started by hand where it is checked
 SALA="$ROOT/bin/salamander"; SOCK="sala-pause-$$"; T="tmux -L $SOCK -f /dev/null"; WLOG="$HOME/.claude/salamander-watch.log"
 unset TMUX; export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"
@@ -53,7 +57,7 @@ typed() { local n; n=$(grep -c "^$1 $2\$" "$FAKE_TYPED_LOG" 2>/dev/null); echo "
 age_clock() { mkdir -p "$PD"; printf '%s %s\n' "$(( $(date +%s) - ${2:-100} ))" "$(date +%s)" > "$PD/$1.wait"; }   # <uuid> [secs] → its clock has run that long
 revive_only() { OUT=$("$SALA" revive --force --only "$1" 2>&1); RC=$?; }
 nsock() { grep -c "^$1 .*sala note" "$FAKE_SOCK_LOG" 2>/dev/null || true; }
-UA=$(uuid 31); UD=$(uuid 32); UN=$(uuid 33); UI=$(uuid 34); UW=$(uuid 35); UE=$(uuid 36); UR=$(uuid 37)
+UA=$(uuid 31); UD=$(uuid 32); UN=$(uuid 33); UI=$(uuid 34); UW=$(uuid 35); UE=$(uuid 36); UR=$(uuid 37); UH=$(uuid 40)
 
 echo "== the knobs"
 SALA_PAUSE_AFTER=off pause_after_r v; [ "$v" = 0 ] && ok "SALA_PAUSE_AFTER=off reads as 0 (the old wait)" || bad "off → $v"
@@ -121,9 +125,9 @@ txt=$(pause_note_text "recycle" 1700000000 60 <<< $'inboxkind\tmsg'); has "$txt"
 
 echo "== the panes: a (the pause), d (a draft), n (SALA_NO_PAUSE), i (an Escape that does nothing), e (the switches), w (deferred), r (the retry worker)"
 mk a "$UA" -e FAKE_ESC_IDLE=1 -e FAKE_EXIT_DIALOG='subagent · worker'
-mk d "$UD" -e FAKE_ESC_IDLE=1; mk n "$UN" -e FAKE_ESC_IDLE=1; mk i "$UI"; mk e "$UE" -e FAKE_ESC_IDLE=1; mk w "$UW" -e FAKE_ESC_IDLE=1; mk r "$UR" -e FAKE_ESC_IDLE=1
-fake_up sala-test-a sala-test-d sala-test-n sala-test-i sala-test-e sala-test-w sala-test-r
-for p in a d n i e w r; do busy "$p"; done
+mk d "$UD" -e FAKE_ESC_IDLE=1; mk n "$UN" -e FAKE_ESC_IDLE=1; mk i "$UI" -e FAKE_ESC_IDLE=stay; mk e "$UE" -e FAKE_ESC_IDLE=1; mk w "$UW" -e FAKE_ESC_IDLE=1; mk r "$UR" -e FAKE_ESC_IDLE=1; mk h "$UH"
+fake_up sala-test-a sala-test-d sala-test-n sala-test-i sala-test-e sala-test-w sala-test-r sala-test-h
+for p in a d n i e w r h; do busy "$p"; done
 # the transcript the note reads: the pane's cwd is $HOME
 TD="$SALA_PROJECTS/$(slug_for_cwd "$HOME")"; mkdir -p "$TD"; cp "$J" "$TD/$UA.jsonl"
 
@@ -194,11 +198,69 @@ SALA_SKIP_PANE="$(tmux display -p -t sala-test-n '#{pane_id}')" pause_refusal_r 
 SALA_NO_PAUSE_PANE="$(tmux display -p -t sala-test-n '#{pane_id}')" pause_refusal_r v "$(tmux display -p -t sala-test-n '#{pane_id}')" sala-test-n "$(cpid n)"; has "$v" 'pane that asked for this relaunch' && ok "and SALA_NO_PAUSE_PANE (the self-worker's hand-off)" || bad "no-pause-pane refusal: $v"
 wait_lock
 
-echo "== i: an Escape that does not bring the pane out of its turn: nothing more is sent, no /exit"
+echo "== i: an Escape that does not bring the pane out of its turn: nothing more is sent, no /exit; the clock keeps running; the pause is tried again"
 age_clock "$UI" 100; revive_only sala-test-i
 has "$OUT" 'not paused — one Escape did not bring the pane out of its turn within 4s' && ok "the Escape did nothing: said, the pane waits as before" || bad "no-idle: $OUT"
-[ "$(typed "$UI" /exit)" = 0 ] && [ "$(starts "$UI")" = 1 ] && [ ! -e "$PD/$UI.paused" ] && [ ! -e "$PD/$UI.wait" ] && ok "no /exit typed into a pane still in its turn; the pause marker removed, the clock restarted" || bad "i: /exit $(typed "$UI" /exit) starts $(starts "$UI") $(ls "$PD")"
+has "$OUT" 'the pause is tried again in 1 min (failed try 1)' && ok "the line says the pause is tried again, and which try failed" || bad "no retry words: $OUT"
+[ "$(typed "$UI" /exit)" = 0 ] && [ "$(starts "$UI")" = 1 ] && [ ! -e "$PD/$UI.paused" ] && ok "no /exit typed into a pane still in its turn; the pause marker removed" || bad "i: /exit $(typed "$UI" /exit) starts $(starts "$UI") $(ls "$PD")"
+pause_clock_age_r v "$UI"; [ "$v" -ge 100 ] && ok "the clock was NOT cleared by the failure: it still has its 100+ s on it" || bad "clock after a failed pause: $v"
+[ "$(escs "$UI")" = 1 ] && ok "exactly one Escape was sent" || bad "escs after try 1: $(escs "$UI")"
+read -r ft fc < "$PD/$UI.failed"; [ "$fc" = 1 ] && [ $(( $(date +%s) - ft )) -le 30 ] && ok "the failed try is recorded: when, and 1 try" || bad "failed record: '$(cat "$PD/$UI.failed" 2>/dev/null)'"
+pause_due "$UI" && bad "due again at once after a failed try" || ok "not due while the retry wait runs (pause_due)"
+pause_next_in_r v "$UI"; [ "$v" -ge 5 ] && [ "$v" -le 10 ] && ok "the retry worker's sleep counts the retry wait ($v s, not the 1 s the clock alone leaves)" || bad "next_in with a failed try: $v"
+wait_lock; revive_only sala-test-i
+has "$OUT" 'not paused' && bad "a pass inside the retry wait tried the pause again: $OUT" || ok "a pass inside the retry wait sends nothing (no second try)"
+[ "$(escs "$UI")" = 1 ] && ok "no second Escape inside the retry wait" || bad "escs inside the wait: $(escs "$UI")"
+read -r ft fc < "$PD/$UI.failed"; [ "$fc" = 1 ] && ok "and the record still says 1 failed try" || bad "record after a pass inside the wait: $ft $fc"
+printf '%s %s\n' "$(( $(date +%s) - 20 ))" 1 > "$PD/$UI.failed"; pause_due "$UI" && ok "the retry wait over: due again, the clock still counting" || bad "not due after the retry wait"
+wait_lock; revive_only sala-test-i
+[ "$(escs "$UI")" = 2 ] && has "$OUT" '(failed try 2)' && ok "tried again: one more Escape, and the line says it was the second failed try" || bad "retry: $OUT"
+[ "$(typed "$UI" /exit)" = 0 ] && ok "still no /exit typed" || bad "/exit typed: $(typed "$UI" /exit)"
+printf '%s %s\n' "$(( $(date +%s) - 20 ))" 2 > "$PD/$UI.failed"; pause_retry_in_r v "$UI"; [ "$v" = 0 ] && ok "(control: 20 s after the last failed try, the SALA_PAUSE_RETRY wait of 10 s is over)" || bad "retry in $v"
+printf '%s %s\n' "$(( $(date +%s) - 2 ))" 1 > "$PD/$UI.failed"; pause_retry_in_r v "$UI"; [ "$v" -ge 7 ] && ok "before SALA_PAUSE_TRIES it is SALA_PAUSE_RETRY (10 s) after the last: $v s to go" || bad "retry gap before TRIES: $v"
+printf '%s %s\n' "$(( $(date +%s) - 2 ))" 2 > "$PD/$UI.failed"; pause_retry_in_r v "$UI"; [ "$v" -le 5 ] && ok "from SALA_PAUSE_TRIES on it is SALA_PAUSE_AFTER (6 s) after the last: $v s to go" || bad "retry gap from TRIES: $v"
+age_clock "$UI" 100; pause_clock_r v "$UI"; [ -e "$PD/$UI.failed" ] && ok "a pass that refreshes the running clock keeps the record" || bad "record gone on a refresh"
+printf '%s %s\n' "$(( $(date +%s) - 4000 ))" "$(( $(date +%s) - 3000 ))" > "$PD/$UI.wait"; pause_clock_r v "$UI"; [ ! -e "$PD/$UI.failed" ] && ok "a clock that starts over (last seen held over SALA_PAUSE_GAP ago) forgets the failed tries of the old stretch" || bad "record kept across a restart"
+age_clock "$UI" 100; pause_failed "$UI"; pause_clock_clear "$UI"; [ ! -e "$PD/$UI.failed" ] && [ ! -e "$PD/$UI.wait" ] && ok "a pane found free (clock cleared) clears the record too" || bad "clear: $(ls "$PD")"
 wait_lock
+
+echo "== i again: watch's deferred list tries a pause that did not take again after SALA_PAUSE_RETRY s, not after 10 min"
+now=$(date +%s)
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' sala-test-i "$((now - 600))" "background work is running (a subagent)" "$(cpid i)" 1 - 0 0 0 > "$SALA_DEFERRED"
+rm -f "$PD/$UI".*; age_clock "$UI" 100
+n=$(escs "$UI")
+"$SALA" watch >/dev/null 2>&1
+waitfor '[ -s "$PD/$UI.failed" ]' 40 && read -r ft fc < "$PD/$UI.failed" && [ "$fc" = 1 ] && [ "$(escs "$UI")" = "$(( n + 1 ))" ] && ok "watch: the deadline reached, one Escape, the failed try recorded" || bad "watch 1: $(ls "$PD") $(tail -3 "$WLOG")"
+wait_lock; "$SALA" watch >/dev/null 2>&1; sleep 2
+read -r ft fc < "$PD/$UI.failed"; [ "$fc" = 1 ] && [ "$(escs "$UI")" = "$(( n + 1 ))" ] && ok "the next tick inside the retry wait: no new try, no Escape" || bad "watch 2: tries $fc"
+printf '%s %s\n' "$(( $(date +%s) - 20 ))" 1 > "$PD/$UI.failed"; touch -d '20 seconds ago' "$PD/$UI.tried"
+"$SALA" watch >/dev/null 2>&1
+waitfor '[ "$(escs "$UI")" = "$(( n + 2 ))" ]' 40 && ok "after the retry wait (and not 10 min later): tried again, one more Escape" || bad "watch 3: $(cat "$PD/$UI.failed") $(tail -3 "$WLOG")"
+: > "$SALA_DEFERRED"; rm -f "$PD/$UI".*; wait_lock
+
+echo "== the deferred-pane bullet: made again for every post; the pause's clock is the age; it says when the pause comes"
+KH=$(cpid h); rm -f "$PD/$UH".*
+b=$(SALA_PAUSE_AFTER=900 hold_bullet sala-test-h "$KH" "registry says 'busy'")
+case "$b" in "sala-test-h: busy"*" (sala pauses it at 15 min held); sala relaunches it once it is free") ok "a pane that may be paused: its bullet says when ($b)";; *) bad "bullet: $b";; esac
+age_clock "$UH" 2400
+b=$(SALA_PAUSE_AFTER=900 hold_bullet sala-test-h "$KH" "registry says 'busy'")
+case "$b" in "sala-test-h: busy for 40 min (past the 15 min pause point, sala is retrying the pause); sala relaunches it once it is free") ok "the age is the pause clock's (40 min) when it is longer than the registry's, and the bullet says the pause is overdue";; *) bad "clock bullet: $b";; esac
+b=$(SALA_PAUSE_AFTER=900 SALA_PAUSE_SCOPE=background hold_bullet sala-test-h "$KH" "registry says 'busy'")
+case "$b" in "sala-test-h: busy for 40 min; sala relaunches it once it is free") ok "scope background and no back-agent role: the bullet says nothing of a pause (a front agent is never paused)";; *) bad "front bullet: $b";; esac
+b=$(SALA_PAUSE_AFTER=off hold_bullet sala-test-h "$KH" "registry says 'busy'")
+case "$b" in "sala-test-h: busy for 40 min; sala relaunches it once it is free") ok "the pause off: nothing of a pause either";; *) bad "pause off bullet: $b";; esac
+b=$(SALA_PAUSE_AFTER=900 hold_bullet_fresh sala-test-h "sala-test-h: busy for 33 min; sala relaunches it once it is free")
+has "$b" "busy for 40 min (past the 15 min pause point" && ok "a stored bullet is made again from the pane: 40 min, not the stored 33" || bad "fresh: $b"
+b=$(hold_bullet_fresh sala-test-h "sala-test-h: relaunched only 15 min ago (on 2.1.317); sala relaunches it then")
+[ "$b" = "sala-test-h: relaunched only 15 min ago (on 2.1.317); sala relaunches it then" ] && ok "a bullet that is no held-pane bullet passes through as it was" || bad "fresh passthrough: $b"
+b=$(hold_bullet_fresh sala-test-gone "sala-test-gone: busy for 33 min; sala relaunches it once it is free")
+[ "$b" = "sala-test-gone: busy for 33 min; sala relaunches it once it is free" ] && ok "a pane that cannot be read now keeps its stored bullet (never one with no age)" || bad "fresh, no pane: $b"
+set_create 9999-2 Recycle all 2 0 9.9.9 1 "out=sala-test-h" "skip=sala-test-h: busy for 33 min; sala relaunches it once it is free"
+out=$(SALA_PAUSE_AFTER=900 _set_pending_bullets 9999-2 2>&1)
+has "$out" "sala-test-h: busy for 40 min (past the 15 min pause point" && ! has "$out" "33 min" && ok "the follow-up's bullet is the live one, not the first post's" || bad "pending bullets: $out"
+out=$(post_group_bullets "a: busy for 1 min (sala pauses it at 15 min held); sala relaunches it once it is free" "b: busy for 2 min (sala pauses it at 15 min held); sala relaunches it once it is free" "c: busy (sala pauses it at 15 min held); sala relaunches it once it is free" "d: busy; sala relaunches it once it is free" "e: busy for 9 min; sala relaunches it once it is free" "f: busy for 7 min (past the 15 min pause point, sala is retrying the pause); sala relaunches it once it is free" 2>&1)
+has "$out" "6 sessions" && ok "six panes held busy, with or without an age or a pause note: grouped into one line ($out)" || bad "grouped: $out"
+rm -f "$PD/$UH".*
 
 echo "== e: the dry run, off, the scope"
 rm -f "$PD/$UE.wait"; OUT=$("$SALA" revive --dry-run --force --only sala-test-e 2>&1)

@@ -1936,7 +1936,7 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
                 [ -n "$y" ] || continue; s="${y%%[: ]*}"
                 grep -qxF -- "$s" <<< "$ss" || continue
                 grep -qxF -- "back=$s" "$SALA_SET_DIR/$set" && continue
-                printf '%s\n' ${fb[@]+"${fb[@]}"} | grep -q "^$s[: ]" || fb+=("$y")
+                printf '%s\n' ${fb[@]+"${fb[@]}"} | grep -q "^$s[: ]" || fb+=("$(hold_bullet_fresh "$s" "$y")")
             done < <(set_vals "$set" gave; set_vals "$set" skip)
             while IFS= read -r s; do
                 [ -n "$s" ] && grep -qxF -- "$s" <<< "$ss" || continue
@@ -1964,7 +1964,7 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
                 while IFS= read -r y; do
                     [ -n "$y" ] || continue; s="${y%%[: ]*}"
                     grep -qxF -- "back=$s" "$SALA_SET_DIR/$set" && continue
-                    printf '%s\n' ${OP_PF[@]+"${OP_PF[@]}"} | grep -q "^$s[: ]" || OP_PF+=("$y")
+                    printf '%s\n' ${OP_PF[@]+"${OP_PF[@]}"} | grep -q "^$s[: ]" || OP_PF+=("$(hold_bullet_fresh "$s" "$y")")
                 done < <(set_vals "$set" gave; set_vals "$set" skip)
                 while IFS= read -r s; do
                     [ -n "$s" ] || continue

@@ -159,6 +159,8 @@
 #SALA_PAUSE_QUIET=120            # a pane with a client attached that was active this recently is somebody's: never interrupted
 #SALA_PAUSE_GAP=1800             # the busy clock restarts when the pane was last seen held longer ago than this (busy continuously, not on and off)
 #SALA_PAUSE_TTL=900              # seconds a paused pane's background work stops holding the relaunch (the relaunch must follow within it)
+#SALA_PAUSE_RETRY=120            # seconds before a pause that did not take (the Escape did not bring the pane out of its turn, or it was not idle once interrupted) is tried again; the clock keeps running meanwhile
+#SALA_PAUSE_TRIES=5              # how many failed tries are retried at SALA_PAUSE_RETRY; later ones are SALA_PAUSE_AFTER apart (never given up)
 #SALA_HOLD_SETTLE=3              # revive: seconds between holding the stackshot inbox of every pane of a sweep (or of the invoking pane) and the first /exit; a line handed out just before the hold is a turn by then, which the check before the /exit sees
 #SALA_INBOX_MODE=auto            # where sala holds a session's stackshot inbox and asks whether a line waits for it: auto (the default) = what the stackshot client's own setting says,
                                  #   `[client] push_mode` of its config ($ANCHOR_PUSH_MODE overrides it): local = files (the hold files of this box, the stackshot server's own), server = stackshot's client
@@ -184,8 +186,12 @@
                                  #   the commands holding it (the Stop hook's record, else its child processes; scrubbed, cut). Nothing is relaunched or given up
                                  #   earlier than before; the 8-day drop of the list stands
 #SALA_SUBAGENT_STALE=21600      # recycle, watch, `sala ready`: a subagent whose transcript is not marked finished, written since this claude started and not
-                                 #   longer ago than this (6 h) is running: it holds the pane and is never cut. It is named in the skip line, in watch's one log line
-                                 #   and in `sala ready`. A subagent that crashed (it never writes "finished") stops counting after this
+                                 #   longer ago than this (6 h) can be running; it IS running while it also wrote within SALA_SUBAGENT_QUIET or a process under the
+                                 #   pane was started by it. A running subagent holds the pane and is never cut; it is named in the skip line, in watch's one log line
+                                 #   and in `sala ready`. A subagent that crashed (it never writes "finished") stops counting after the quiet time
+#SALA_SUBAGENT_QUIET=1800        # seconds a subagent may write nothing and still count as running with no process of its own under the pane (30 min)
+                                 #   A subagent known to have ended (a completed, killed, failed or stopped notice in the session's transcript, or a last transcript line that is a
+                                 #   final answer) holds nothing at all, however recently it wrote; this quiet time is the backstop for one with no such sign
 #SALA_STALE_TURN_AFTER=3         # watch, recycle: the in-session mod refused the exit this many times for a turn it cannot name (a mod loaded before its turn list
                                  #   was reconciled), the registry, the Stop record, the children and the subagents all read the pane as idle: the next try goes by
                                  #   keys, logged so. Tries after that thin out: one in 10 min, then one in 30 min, until the pane relaunches (the 8-day drop stands)
