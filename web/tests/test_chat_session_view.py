@@ -203,6 +203,18 @@ def test_the_left_cap_is_one_rule_on_the_assistants_text_under_the_chat_session_
     assert len(caps) == 1 and "max-width: 68ch" in caps[0][1] and "#chat" in caps[0][0], caps
 
 
+def test_the_strip_is_not_drawn_above_a_thread_that_is_still_loading():
+    key = "app.loadingTranscript"
+    hide = [(s, " ".join(b.split())) for s, b in rules(STYLE) if key in s]
+    assert hide == [(f'body.chat-session #chat-strip:has(+ #chat > .empty[data-i18n="{key}"])', "display: none;")], "one rule, on the strip alone: the pinned line stays"
+    # what the selector matches is what app.js draws, for a live session and for a sleeping one, and no other place writes that line
+    line = f'el("div", {{ class: "empty", text: tl("{key}"), "data-i18n": "{key}" }})'
+    assert line in body_of(APP_JS, "function selectSession(") and line in body_of(APP_JS, "async function showSleeping(")
+    assert APP_JS.count(line) == 2 and APP_JS.count(f'"{key}"') == 4
+    assert '$("#chat-strip").replaceChildren(motion, kept);' in APP_JS      # what the rule takes away: In motion and the switch; the pinned part is another element
+    assert re.search(r'<div id="chat-strip"[^>]*></div>\s*<div id="chat">', INDEX), "`+ #chat`: the strip is the element right before the thread"
+
+
 def test_the_strip_s_rules_are_scoped_to_it_and_the_entry_has_a_floor_for_its_name():
     bare_names = re.compile(r"\.(wait|wait-\w+|sec-head|motion|mo|mo-list|kept-toggle|kept-row|answer|new|count)(?![\w-])")
     start = STYLE.index("The strip (app.js buildChatStrip)")

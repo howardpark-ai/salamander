@@ -372,6 +372,7 @@ body.hide-tools .msg.tools-only { display: none; }
 body.chat-session #chat-pane { flex-direction: column; }
 body.chat-session #chat-pane > :is(#chat-strip-wait, #chat-strip, #chat) { flex: none; }
 body.chat-session #chat .msg.assistant .md { max-width: 68ch; }
+body.chat-session #chat-strip:has(+ #chat > .empty[data-i18n="app.loadingTranscript"]) { display: none; }  /* not above a thread still loading: it would paint at the top, then scroll away */
 /* Link cards (app.js linkCard): a /mockup/<n> page or a claude.ai artifact a chat-session reply links, drawn under the reply's text. One <a> in sala's own card look
    (the panel gray, the border and the 8px corner of details.fold), the colors sala's tokens, so both palettes and the stored color look follow. NO SIDEWAYS SCROLL: the
    card may shrink to the thread's width (never wider than 420px), every line of it breaks anywhere, whatever a title holds. Focus is the ring every sala control has. */

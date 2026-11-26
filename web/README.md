@@ -1682,7 +1682,10 @@ list, and a difference outside it is a defect:
   replies stay out of the Unread total. A long name is cut with an ellipsis.
 - **The strip**, above the thread, only while the open session is the chat session (the server marks it with `"chat": true` in `GET /api/sessions`, for that session alone): Your move, On it (above), In motion, and the kept-back switch with its
   count ("N+" when the read did not reach back to midnight). It sits in `#chat-pane` before `#chat`, outside it, because the thread's redraws replace `#chat`'s children. It is read on opening and again, debounced, after the stream
-  says something changed. Its rules live in `style.css` under `#chat-strip`. The pinned part of it (Your move and, beside it, On it) is its own element, `#chat-strip-wait`.
+  says something changed. Its rules live in `style.css` under `#chat-strip`. The pinned part of it (Your move and, beside it, On it) is its own element, `#chat-strip-wait`. While the thread's loading line stands (a load, a reload, a switch
+  to the chat, a sleeping chat session whose conversation is being read), In motion and the switch (`#chat-strip`) are not drawn: they would paint at the top of the pane and scroll out of view as the thread arrived. One rule on the
+  `body.chat-session` class holds it (`:has()` on that line, no script); the pinned part (the one line, or the bar of two tabs) is drawn as ever. If the thread never arrives they stay away with the loading line; a thread, "no messages" or a
+  sleeper's note in its place brings them back. Opening a Search result far back in the chat writes a loading line of its own after the first one, and the two rows can show above that one. `tests/test_chat_boot_ui.py` holds it frame by frame.
 - **The assistant's text capped to the left** (`body.chat-session`, 68ch).
 
 **The kept-back switch.** The server keeps back every turn the owner did not start, for the chat session alone (`chatkeep.py`; another session's transcript and stream are as they were). The rule of who started a turn
