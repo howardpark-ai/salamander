@@ -359,8 +359,8 @@ function buildChatStrip() {
     el("p", { class: "wait-cap", ...tx("chat.wait.note") }));
   // the second list and the bar of two tabs over both: closed is how every page load starts
   const onitSum = el("p", { class: "wait-sum", hidden: true }), onitList = el("ul", { class: "wait-list" }), onitNone = el("p", { class: "wait-empty", ...tx("chat.onit.none") });
-  const onit = el("section", { class: "wait", id: "chat-strip-onit-panel", hidden: true, role: "tabpanel", "aria-labelledby": "chat-strip-tab-onit" }, onitSum, onitList, onitNone,
-    el("p", { class: "wait-cap", ...tx("chat.onit.note") }));
+  // the help line of this list is not drawn under it: it sits behind a (?) in the bar and shows only while that is pressed (chatHelp)
+  const onit = el("section", { class: "wait", id: "chat-strip-onit-panel", hidden: true, role: "tabpanel", "aria-labelledby": "chat-strip-tab-onit" }, onitSum, onitList, onitNone);
   const tab = (key, panel, ...kids) => {
     const b = el("button", { type: "button", class: "wait-tab", role: "tab", id: "chat-strip-tab-" + key, "data-list": key, "aria-selected": "false", "aria-controls": panel }, ...kids);
     b.addEventListener("click", () => chatPickList(key));
@@ -372,7 +372,14 @@ function buildChatStrip() {
   tabs.addEventListener("keydown", chatTabKeys);
   const chevron = el("button", { type: "button", class: "wait-chev", "aria-expanded": "false" }, el("span", { class: "chev", "aria-hidden": "true" }));
   chevron.addEventListener("click", chatToggleList);
-  const bar = el("div", { class: "wait-bar" }, tabs, chevron);
+  const help = el("button", { type: "button", class: "wait-help", hidden: true, "aria-expanded": "false", "aria-controls": "chat-strip-onit-help", ...tx("chat.onit.help", null, "aria-label") },
+    el("span", { class: "q", "aria-hidden": "true", text: "?" }));
+  const pop = el("div", { class: "wait-pop", id: "chat-strip-onit-help", role: "note", hidden: true, ...tx("chat.onit.note") });
+  help.addEventListener("click", () => chatHelp(pop.hidden));
+  // a press anywhere else (on the line itself too) closes it, and so does Escape; a press on the button is the button's own toggle
+  document.addEventListener("click", (e) => { if (!pop.hidden && !help.contains(e.target)) chatHelp(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.isComposing && !pop.hidden) { chatHelp(false); if (pop.contains(document.activeElement)) help.focus(); } });
+  const bar = el("div", { class: "wait-bar" }, tabs, help, chevron, pop);
   $("#chat-strip-wait").replaceChildren(bar, wait, onit);
   // the switch: shows or hides the kept-back lines of the thread (a class on the body; the server already holds back the turns the owner did not start)
   const sw = el("input", { type: "checkbox", id: "chat-strip-kept" });
@@ -382,7 +389,13 @@ function buildChatStrip() {
   const kept = el("div", { class: "kept-row" },
     el("label", { class: "kept-toggle", for: "chat-strip-kept" }, sw, swText, countEl));
   $("#chat-strip").replaceChildren(kept);
-  chatView.ui = { waitList, waitNote, wait, onit, onitSum, onitList, onitNone, moveTab, moveLine, onitTab, onitLine, lateDot, chevron, swText, countEl };
+  chatView.ui = { waitList, waitNote, wait, onit, onitSum, onitList, onitNone, help, pop, moveTab, moveLine, onitTab, onitLine, lateDot, chevron, swText, countEl };
+}
+// the (?) of the second list, in the bar only while that list is open: shows the list's help line in a small box under the bar, or hides it again
+function chatHelp(on) {
+  const u = chatView.ui;
+  u.pop.hidden = !on;
+  u.help.setAttribute("aria-expanded", String(on));
 }
 // the chevron beside the tabs closes the open list, or opens the one last open
 function chatToggleList() { chatView.waitOpen = !chatView.waitOpen; paintChatWait(); }
@@ -418,6 +431,8 @@ function paintChatWait() {
 function paintChatBar(onIt, n, group, open) {
   const u = chatView.ui;
   u.onit.hidden = !(open && chatView.waitTab === "onit");
+  u.help.hidden = u.onit.hidden;
+  if (u.help.hidden) chatHelp(false);
   const now = Date.now(), late = onIt.filter((m) => chatBackTone(m, now)).length, lateTip = late ? tl("chat.onit.late", { n: late }) : "";
   u.onitLine.textContent = tl("chat.onit.line", { n: onIt.length });
   u.onitTab.setAttribute("aria-label", lateTip ? u.onitLine.textContent + ", " + lateTip : u.onitLine.textContent);

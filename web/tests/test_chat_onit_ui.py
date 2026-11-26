@@ -11,7 +11,10 @@ second list is what the chat session has promised to report back and has not yet
   - a row: the topic as plain text (no id, no link, no name) and under it since when, with the days of a late one (amber past two days, red past five), no "new"
     tag; the late count over the list; with nothing in progress the tab is a quiet 0 and the list says so; with both lists empty nothing is drawn;
   - a line the session takes off leaves the list, and the count and the dot follow; nothing of the lines is drawn anywhere else in the strip;
-  - a Korean page names the tab and words the rows, the empty line and the footnote in Korean;
+  - the list's help line is behind a (?) in the bar, there only while that list is open: a button with an accessible name and aria-expanded, a press shows the line in a
+    small box under the bar and a second press, a press anywhere else, Escape, and the list closing or the other tab opening shut it; a read leaves it as it is; it is
+    never drawn on its own, and the box stays inside the window, wraps and adds no sideways scroll (at 1280, 390, 360 and 320 px, in English and in Korean);
+  - a Korean page names the tab and words the rows, the empty line, the (?) and its help line in Korean;
   - a session that is not the chat session has no tabs, looks the same whether there are lines or not, and the same again with every style rule of the strip's
     pinned box taken out of the page, with a mouse and on a touch screen;
   - markup in a line is text;
@@ -43,13 +46,20 @@ PIN = "document.querySelector('#chat-strip-wait')"
 MOVE_TAB = "document.querySelector('#chat-strip-tab-move')"
 ONIT_TAB = "document.querySelector('#chat-strip-tab-onit')"
 CHEVRON = "document.querySelector('#chat-strip-wait .wait-chev')"
+HELP_BTN = "document.querySelector('#chat-strip-wait .wait-help')"
 MOVE_PANEL, ONIT_PANEL = "chat-strip-wait-panel", "chat-strip-onit-panel"
 NOTHING = "Nothing in progress right now"
-NOTE = "Things promised in this chat, to be reported back here. Each one leaves the list once it has been reported."
+NOTE = "This is what Aaron has said he will report back on in this chat. Once he has, it leaves the list."
+HELP_LABEL = "About this list"
 
 
 def cp(*codes) -> str:
     return "".join(chr(c) for c in codes)
+
+
+NOTE_KO = cp(0xC774, 0x20, 0xCC44, 0xD305, 0xC5D0, 0xC11C, 0x20, 0xACB0, 0xACFC, 0xB97C, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xAE30, 0xB85C, 0x20, 0xD55C, 0x20,
+             0xC77C, 0xC785, 0xB2C8, 0xB2E4, 0x2E, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xACE0, 0x20, 0xB098, 0xBA74, 0x20, 0xBAA9, 0xB85D, 0xC5D0, 0xC11C, 0x20,
+             0xBE60, 0xC9D1, 0xB2C8, 0xB2E4, 0x2E)
 
 
 def line(text: str, ago: float = 60) -> dict:
@@ -202,7 +212,7 @@ ROWS = """(() => { const probe = (v) => { const i = document.createElement('i');
   const warn = probe('--warn'), red = probe('--waiting'), tone = (n) => { const c = getComputedStyle(n).color; return c === warn ? 'amber' : c === red ? 'red' : ''; };
   const p = document.querySelector('#chat-strip-onit-panel'), shown = (n) => !!n && n.getClientRects().length > 0, sum = p.querySelector('.wait-sum');
   return { sum: shown(sum) ? sum.textContent : null, empty: shown(p.querySelector('.wait-empty')) ? p.querySelector('.wait-empty').textContent : null,
-    list: shown(p.querySelector('.wait-list')), note: p.querySelector('.wait-cap').textContent,
+    list: shown(p.querySelector('.wait-list')), caps: p.querySelectorAll('.wait-cap').length,
     rows: [...p.querySelectorAll('.wait-row')].map((r) => { const a = r.querySelector('a'), id = r.querySelector('.wait-id'), t = r.querySelector('.wait-link, .wait-title');
       return { cls: r.className, id: id ? id.textContent : null, title: t.textContent, href: a ? a.getAttribute('href') : null, target: a ? a.target : null, tags: r.querySelectorAll('.new').length,
         under: r.querySelector('.wait-meta').getBoundingClientRect().top >= r.querySelector('.wait-subj').getBoundingClientRect().bottom - 0.5,
@@ -214,7 +224,7 @@ def test_a_row_shows_the_topic_since_when_and_how_late(served, browser, monkeypa
     open_strip(browser, served, monkeypatch, size)
     click(browser, ONIT_TAB)
     got = browser.evaluate(ROWS)
-    assert got["sum"] == "2 older than 2 days" and got["empty"] is None and got["list"] and got["note"] == NOTE, got
+    assert got["sum"] == "2 older than 2 days" and got["empty"] is None and got["list"] and got["caps"] == 0, got
     rows = got["rows"]
     assert [r["cls"] for r in rows] == ["wait-row back-row late", "wait-row back-row red", "wait-row back-row", "wait-row back-row"], rows
     assert [(r["id"], r["title"], r["href"]) for r in rows] == [(None, f"Promise {n}", None) for n in (11, 12, 13, 14)], rows      # plain text: no id, no link
@@ -253,7 +263,7 @@ def test_with_nothing_in_progress_the_tab_is_a_quiet_zero_and_with_both_lists_em
     assert s["bar"] and [t["text"] for t in s["tabs"]] == ["Your move · 2", "On it · 0"] and [t["zero"] for t in s["tabs"]] == [False, True] and not s["dot"], s
     click(browser, ONIT_TAB)
     got = browser.evaluate(ROWS)
-    assert state(browser)["open"] == [ONIT_PANEL] and got["empty"] == NOTHING and got["note"] == NOTE and not got["list"] and got["sum"] is None and got["rows"] == [], got
+    assert state(browser)["open"] == [ONIT_PANEL] and got["empty"] == NOTHING and got["caps"] == 0 and not got["list"] and got["sum"] is None and got["rows"] == [], got
     # only the second list has rows: the bar stands, the owner's tab is the quiet one
     change(browser, waiting=[], motion=[line("one")])
     assert wait_for(browser, f"{MOVE_TAB}.textContent.trim() === 'Your move · 0' && {ONIT_TAB}.textContent.trim() === 'On it · 1'", 10.0)
@@ -266,7 +276,7 @@ def test_with_nothing_in_progress_the_tab_is_a_quiet_zero_and_with_both_lists_em
 
 
 @pytest.mark.parametrize("size", SIZES)
-def test_a_korean_page_names_the_tab_and_words_the_rows_the_empty_line_and_the_footnote(served, browser, monkeypatch, size):
+def test_a_korean_page_names_the_tab_and_words_the_rows_the_empty_line_and_the_help_line(served, browser, monkeypatch, size):
     open_strip(browser, served, monkeypatch, size)
     click(browser, ONIT_TAB)
     browser.evaluate("SalaI18n.setLang('ko'); ''")
@@ -276,12 +286,121 @@ def test_a_korean_page_names_the_tab_and_words_the_rows_the_empty_line_and_the_f
     assert s["tabs"][0]["text"] == cp(0xB0B4, 0x20, 0xCC28, 0xB840) + " · 2" and s["tablist"] == cp(0xCC44, 0xD305, 0x20, 0xBAA9, 0xB85D) and s["open"] == [ONIT_PANEL], s
     got = browser.evaluate(ROWS)
     assert got["rows"][0]["title"] == "Promise 11" and got["rows"][0]["meta"][0]["text"].endswith(cp(0xBD80, 0xD130)), got
-    assert got["note"] == cp(0xC774, 0x20, 0xCC44, 0xD305, 0xC5D0, 0xC11C, 0x20, 0xACB0, 0xACFC, 0xB97C, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xAE30, 0xB85C, 0x20, 0xD55C, 0x20,
-                             0xC77C, 0xC785, 0xB2C8, 0xB2E4, 0x2E, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xACE0, 0x20, 0xB098, 0xBA74, 0x20, 0xBAA9, 0xB85D, 0xC5D0, 0xC11C, 0x20,
-                             0xBE60, 0xC9D1, 0xB2C8, 0xB2E4, 0x2E), got
+    assert got["caps"] == 0, got
+    click(browser, HELP_BTN)
+    h = browser.evaluate(HELP)
+    assert h["label"] == cp(0xC774, 0x20, 0xBAA9, 0xB85D, 0x20, 0xC124, 0xBA85) and h["text"] == NOTE_KO and h["expanded"] == "true" and h["pop"], h
     change(browser, motion=[])
     nothing = cp(0xC9C0, 0xAE08, 0x20, 0xC9C4, 0xD589, 0x20, 0xC911, 0xC778, 0x20, 0xC77C, 0xC774, 0x20, 0xC5C6, 0xC2B5, 0xB2C8, 0xB2E4)
     assert wait_for(browser, f"document.querySelector('#{ONIT_PANEL} .wait-empty').textContent === {json.dumps(nothing)}", 10.0), browser.evaluate(ROWS)
+
+
+# ── the (?) and its help line ────────────────────────────────────────────────
+HELP = """(() => { const p = document.querySelector('#chat-strip-wait'), b = p.querySelector('.wait-help'), pop = p.querySelector('.wait-pop'), vw = document.documentElement.clientWidth;
+  const shown = (n) => !!n && n.getClientRects().length > 0, r = pop.getBoundingClientRect(), bar = p.querySelector('.wait-bar').getBoundingClientRect();
+  return { btn: shown(b), expanded: b.getAttribute('aria-expanded'), label: b.getAttribute('aria-label'), controls: b.getAttribute('aria-controls'), type: b.type, tag: b.tagName,
+    inTabs: !!b.closest('[role=tablist]'), inBar: !!b.closest('.wait-bar'), pop: shown(pop), popId: pop.id, text: pop.textContent, role: pop.getAttribute('role'),
+    box: shown(pop) ? { left: r.left, right: r.right, bottom: r.bottom, w: r.width, vw, vh: innerHeight, below: r.top >= bar.bottom - 0.5, scrollW: pop.scrollWidth, clientW: pop.clientWidth } : null,
+    elsewhere: document.body.innerText.includes(__NOTE__), caps: [...p.querySelectorAll('.wait-cap')].map((c) => c.closest('.wait').id) }; })()""".replace("__NOTE__", json.dumps(NOTE))
+
+
+def helped(browser) -> dict:
+    return browser.evaluate(HELP)
+
+
+def on_second_list(browser) -> None:
+    """The second list is the open one (a press on its tab opens it; a press on it while open would close it)."""
+    if state(browser)["open"] != [ONIT_PANEL]:
+        click(browser, ONIT_TAB)
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_the_help_line_is_behind_a_question_mark_that_shows_it_on_a_press_and_not_on_its_own(served, browser, monkeypatch, size):
+    open_strip(browser, served, monkeypatch, size)
+    # closed, or on the first list: no (?), no line, and the line is nowhere on the page
+    h = helped(browser)
+    assert not h["btn"] and not h["pop"] and not h["elsewhere"] and h["expanded"] == "false", h
+    click(browser, MOVE_TAB)
+    h = helped(browser)
+    assert not h["btn"] and not h["pop"] and not h["elsewhere"] and h["caps"] == [MOVE_PANEL], h              # the first list's own footnote is another line
+    # the second list: the (?) is in the bar (not among the tabs), named by its words, shut, and the line is not drawn
+    click(browser, ONIT_TAB)
+    browser.settle(PIN)
+    h = helped(browser)
+    assert h["btn"] and (h["tag"], h["type"]) == ("BUTTON", "button") and h["inBar"] and not h["inTabs"], h
+    assert h["label"] == HELP_LABEL and h["controls"] == h["popId"] == "chat-strip-onit-help" and h["role"] == "note", h
+    assert h["expanded"] == "false" and not h["pop"] and not h["elsewhere"] and h["caps"] == [MOVE_PANEL], h
+    # a press shows exactly the line, under the bar; a second press shuts it
+    click(browser, HELP_BTN)
+    h = helped(browser)
+    assert h["expanded"] == "true" and h["pop"] and h["text"] == NOTE and h["box"]["below"], h
+    click(browser, HELP_BTN)
+    h = helped(browser)
+    assert h["expanded"] == "false" and not h["pop"] and not h["elsewhere"], h
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_the_help_line_shuts_on_a_press_elsewhere_on_escape_and_with_its_list(served, browser, monkeypatch, size):
+    open_strip(browser, served, monkeypatch, size)
+    click(browser, ONIT_TAB)
+    # a press anywhere else, the line itself included
+    for away in ("document.querySelector('#chat-strip-onit-panel .wait-row')", "document.querySelector('#chat')", "document.body", "document.querySelector('#chat-pane')",
+                 "document.querySelector('#chat-strip-wait .wait-pop')"):
+        click(browser, HELP_BTN)
+        assert helped(browser)["pop"], away
+        click(browser, away)
+        h = helped(browser)
+        assert not h["pop"] and h["expanded"] == "false", (away, h)
+    # Escape shuts it, with the focus on the (?) and Enter to open it; with nothing shown Escape changes nothing
+    browser.evaluate(HELP_BTN + ".focus(); ''")
+    key(browser, "Enter", "Enter", 13, "\r")
+    assert wait_for(browser, "!document.querySelector('#chat-strip-wait .wait-pop').hidden", 5.0), helped(browser)
+    key(browser, "Escape", "Escape", 27)
+    assert wait_for(browser, "document.querySelector('#chat-strip-wait .wait-pop').hidden", 5.0), helped(browser)
+    h = helped(browser)
+    assert h["expanded"] == "false" and browser.evaluate("document.activeElement.className") == "wait-help", h
+    key(browser, "Escape", "Escape", 27)
+    assert state(browser)["open"] == [ONIT_PANEL]
+    # a read leaves it shown; it goes with its list (the other tab, the chevron, a press on the open tab) and the (?) goes too
+    for leave in (MOVE_TAB, CHEVRON, ONIT_TAB):
+        on_second_list(browser)
+        click(browser, HELP_BTN)
+        change(browser, motion=promises()[:3])
+        assert wait_for(browser, f"{ONIT_TAB}.textContent.trim() === 'On it · 3'", 10.0)
+        assert helped(browser)["pop"], "a read leaves it shown"
+        change(browser, motion=promises())
+        assert wait_for(browser, f"{ONIT_TAB}.textContent.trim() === 'On it · 4'", 10.0)
+        click(browser, leave)
+        h = helped(browser)
+        assert not h["pop"] and h["expanded"] == "false" and not h["btn"] and not h["elsewhere"], (leave, h)
+    # and it does not come back by itself when the list is opened again
+    on_second_list(browser)
+    h = helped(browser)
+    assert h["btn"] and not h["pop"] and h["expanded"] == "false", h
+
+
+@pytest.mark.parametrize("width", WIDTHS)
+@pytest.mark.parametrize("lang", ["en", "ko"])
+def test_the_help_line_stays_inside_the_window_wraps_and_adds_no_sideways_scroll(served, browser, monkeypatch, width, lang):
+    group = {"en": "G" * 40, "ko": cp(0xACB0) * 40}
+    open_strip(browser, served, monkeypatch, (width, 800 if width > 700 else 844), waiting=waiting(12, long=True), motion=hostile(12), group=group)
+    if width < 700:
+        phone(browser, width)
+    if lang == "ko":
+        browser.evaluate("SalaI18n.setLang('ko'); ''")
+    click(browser, ONIT_TAB)
+    click(browser, HELP_BTN)
+    browser.settle(PIN)
+    h = helped(browser)
+    where = f"{width} px, {lang}: {h}"
+    assert h["pop"] and h["text"] == (NOTE if lang == "en" else NOTE_KO), where
+    box = h["box"]
+    assert box["left"] >= 0 and box["right"] <= box["vw"] + 0.5 and box["bottom"] <= box["vh"] and box["w"] <= 320.5 and box["below"], where
+    assert box["scrollW"] <= box["clientW"] + 1, f"the line scrolls sideways: {where}"
+    assert box["w"] <= width - 24 + 0.5, where                                                              # never wider than the bar less 12 px each side
+    got = browser.evaluate(WIDE)
+    assert got["doc"][0] <= got["doc"][1] and got["body"][0] <= got["body"][1] and got["pane"][0] <= got["pane"][1] and got["over"] == [] and got["wide"] == [] and got["outRow"] == [], (where, got)
+    check(browser.evaluate(MEASURE), where)
 
 
 # ── the app's own answer ─────────────────────────────────────────────────────
@@ -366,7 +485,7 @@ WIDE = """(() => { const root = document.scrollingElement, p = document.querySel
   const outRow = [];
   for (const row of [...p.querySelectorAll('.wait-row')].filter(shown)) { const rr = row.getBoundingClientRect();
     for (const n of row.querySelectorAll('.wait-id, .wait-link, .wait-title, .wait-meta, .wait-meta > span')) { const r = n.getBoundingClientRect(); if (r.right > rr.right + 0.5 || r.left < rr.left - 0.5) outRow.push(name(n)); } }
-  const parts = [...p.querySelectorAll('.wait-tab, .wait-chev')].filter(shown).map((n) => n.getBoundingClientRect());
+  const parts = [...p.querySelectorAll('.wait-tab, .wait-help, .wait-chev')].filter(shown).map((n) => n.getBoundingClientRect());
   const overlap = parts.some((a, i) => parts.slice(i + 1).some((b) => a.right > b.left + 0.5 && b.right > a.left + 0.5));
   return { vw, doc: [root.scrollWidth, root.clientWidth], body: [document.body.scrollWidth, document.body.clientWidth], pane: [pane.scrollWidth, pane.clientWidth], over, wide, outRow, overlap,
            open: [...p.querySelectorAll('.wait')].filter(shown).map((w) => w.id), parts: parts.length }; })()"""
@@ -388,7 +507,7 @@ def test_no_sideways_scroll_with_the_bar_closed_and_on_each_tab_and_hostile_text
     browser.settle(PIN)
     where = f"{width} px, drawer {'open' if drawer else 'shut'}, {which}"
     got = browser.evaluate(WIDE)
-    assert got["vw"] == width and got["parts"] == 3 and got["open"] == {"closed": [], "move": [MOVE_PANEL], "onit": [ONIT_PANEL]}[which], (where, got)
+    assert got["vw"] == width and got["parts"] == (4 if which == "onit" else 3) and got["open"] == {"closed": [], "move": [MOVE_PANEL], "onit": [ONIT_PANEL]}[which], (where, got)
     assert got["doc"][0] <= got["doc"][1] and got["body"][0] <= got["body"][1] and got["pane"][0] <= got["pane"][1], f"{where}: the page or the pane scrolls sideways: {got}"
     assert got["over"] == [] and got["wide"] == [] and got["outRow"] == [] and not got["overlap"], f"{where}: something of the strip is wider than its place: {got}"
     check(browser.evaluate(MEASURE), where)
@@ -420,6 +539,7 @@ def test_on_a_touch_screen_the_tabs_the_chevron_and_every_row_give_a_44px_target
     assert wait_for(browser, "matchMedia('(pointer: coarse)').matches", 10.0)
     read = """(() => { const p = document.querySelector('#chat-strip-wait'), box = (n) => n.getBoundingClientRect(), shown = (n) => n.getClientRects().length > 0;
       return { tabs: [...p.querySelectorAll('.wait-tab')].map((t) => box(t).height), chev: [box(p.querySelector('.wait-chev')).width, box(p.querySelector('.wait-chev')).height],
+               help: shown(p.querySelector('.wait-help')) ? [box(p.querySelector('.wait-help')).width, box(p.querySelector('.wait-help')).height] : null,
                rows: [...p.querySelectorAll('.wait-row')].filter(shown).map((r) => box(r).height), links: [...p.querySelectorAll('.wait-link')].filter(shown).map((a) => box(a).height) }; })()"""
     for tab, rows, links in ((ONIT_TAB, 4, 0), (MOVE_TAB, 2, 2)):
         click(browser, tab)
@@ -427,6 +547,8 @@ def test_on_a_touch_screen_the_tabs_the_chevron_and_every_row_give_a_44px_target
         got = browser.evaluate(read)
         assert len(got["tabs"]) == 2 and all(h >= 43.9 for h in got["tabs"] + got["chev"] + got["rows"]), got
         assert len(got["rows"]) == rows and len(got["links"]) == links and all(h >= 44 for h in got["links"]), got
+        # the (?) is on the second tab only, and gives a finger 44 px too
+        assert (got["help"] is not None) == (tab == ONIT_TAB) and all(v >= 43.9 for v in (got["help"] or [44])), got
 
 
 # The first list's title links as a finger meets them (the second list has none). Each link is scrolled to the middle of the list; at five places along each of its

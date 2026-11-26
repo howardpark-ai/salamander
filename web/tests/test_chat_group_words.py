@@ -59,7 +59,8 @@ const state = { selected: "" };
 let entryOn = true;
 const chatEntryOn = () => entryOn;
 const chatView = { data: null, waitOpen: false, waitTab: "move", waitRove: "move", ui: Object.fromEntries(
-  ["wait", "onit", "onitSum", "onitList", "onitNone", "moveTab", "moveLine", "onitTab", "onitLine", "lateDot", "chevron"].map((k) => [k, mkEl()])) };
+  ["wait", "onit", "onitSum", "onitList", "onitNone", "moveTab", "moveLine", "onitTab", "onitLine", "lateDot", "chevron", "help", "pop"].map((k) => [k, mkEl()])) };
+const chatHelp = () => {};   // the (?) of the second list: not under test here
 %(group_word)s
 %(group_name)s
 %(entry)s

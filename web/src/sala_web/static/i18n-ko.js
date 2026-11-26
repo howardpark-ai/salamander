@@ -277,6 +277,7 @@ window.SALA_I18N_KO = {
   "chat.kept.open": "\uc544\uc9c1 \uc9c4\ud589 \uc911",
   "chat.kept.toggle": "{name} \uc138\uc158\uc774 \ubcf4\ub958\ud55c \ub0b4\uc6a9 \ubcf4\uae30",
   "chat.onit.days": "{n}\uc77c\uc9f8",
+  "chat.onit.help": "\uc774 \ubaa9\ub85d \uc124\uba85",
   "chat.onit.late": "2\uc77c \ub118\uc740 \uac83 {n}\uac74",
   "chat.onit.line": "\uc9c4\ud589 \uc911 \u00b7 {n}",
   "chat.onit.none": "\uc9c0\uae08 \uc9c4\ud589 \uc911\uc778 \uc77c\uc774 \uc5c6\uc2b5\ub2c8\ub2e4",

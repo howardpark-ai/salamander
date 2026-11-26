@@ -249,11 +249,51 @@ def test_the_new_strings_are_in_english_and_in_korean_as_escapes(key):
     assert re.search(r"\\u[0-9a-f]{4}", line) and line.isascii(), line
 
 
-@pytest.mark.parametrize("key", ["chat.wait.note", "chat.wait.new", "chat.onit.none", "chat.onit.note", "chat.strip.line", "chat.strip.expand", "chat.strip.collapse",
+@pytest.mark.parametrize("key", ["chat.wait.note", "chat.wait.new", "chat.onit.none", "chat.onit.note", "chat.onit.help", "chat.strip.line", "chat.strip.expand", "chat.strip.collapse",
                                  "chat.kept.toggle", "chat.kept.count", "chat.kept.floor", "chat.kept.open", "chat.state.busy",
                                  "chat.src.sala", "chat.src.board", "chat.src.session", "chat.src.task", "chat.src.system", "chat.src.other"])
 def test_the_strips_strings_are_in_both_languages(key):
     assert f'"{key}": ' in EN and f'"{key}": ' in KO
+
+
+# The second list's help line is behind a (?), not drawn under the list (the browser side is test_chat_onit_ui.py).
+def test_the_second_lists_help_line_is_the_one_the_owner_chose_in_both_languages_as_escapes():
+    en = re.search(r'"chat\.onit\.note": "([^"]*)"', EN).group(1)
+    assert en == "This is what Aaron has said he will report back on in this chat. Once he has, it leaves the list."
+    assert re.search(r'"chat\.onit\.help": "About this list"', EN)
+    ko_note = re.search(r'"chat\.onit\.note": "([^"]*)"', KO).group(1)
+    ko_help = re.search(r'"chat\.onit\.help": "([^"]*)"', KO).group(1)
+    assert ko_note.isascii() and ko_help.isascii() and "\\u" in ko_note and "\\u" in ko_help, "Korean stays escapes in the file"
+    # the sentence the owner chose, in code points (the file holds no Hangul)
+    want = "".join(chr(c) for c in (0xC774, 0x20, 0xCC44, 0xD305, 0xC5D0, 0xC11C, 0x20, 0xACB0, 0xACFC, 0xB97C, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xAE30, 0xB85C, 0x20, 0xD55C, 0x20,
+                                    0xC77C, 0xC785, 0xB2C8, 0xB2E4, 0x2E, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xACE0, 0x20, 0xB098, 0xBA74, 0x20, 0xBAA9, 0xB85D, 0xC5D0, 0xC11C, 0x20,
+                                    0xBE60, 0xC9D1, 0xB2C8, 0xB2E4, 0x2E))
+    assert json.loads('"' + ko_note + '"') == want
+
+
+def test_the_help_line_is_a_pressed_button_and_a_hidden_box_never_a_line_under_the_list():
+    build = body_of(APP_JS, "function buildChatStrip()")
+    onit = build[build.index('id: "chat-strip-onit-panel"'):]
+    onit = onit[:onit.index("const tab = ")]
+    assert "chat.onit.note" not in onit and "wait-cap" not in onit, "no always-visible version under the second list"
+    assert 'class: "wait-help", hidden: true, "aria-expanded": "false", "aria-controls": "chat-strip-onit-help"' in build
+    assert 'tx("chat.onit.help", null, "aria-label")' in build
+    assert 'class: "wait-pop", id: "chat-strip-onit-help", role: "note", hidden: true, ...tx("chat.onit.note")' in build
+    assert 'help.addEventListener("click", () => chatHelp(pop.hidden))' in build, "a press on the (?) toggles"
+    assert 'document.addEventListener("click"' in build and 'e.key === "Escape"' in build, "a press elsewhere and Escape shut it"
+    assert "tabs, help, chevron, pop" in build, "in the bar, not among the tabs"
+    assert "u.help.hidden = u.onit.hidden;" in body_of(APP_JS, "function paintChatBar(") and "chatHelp(false)" in body_of(APP_JS, "function paintChatBar("), "it goes with its list"
+    assert '"aria-expanded", String(on)' in body_of(APP_JS, "function chatHelp(")
+
+
+def test_the_help_box_is_hidden_by_default_wraps_and_stays_inside_the_bar():
+    rule = " ".join(b for s, b in rules(STYLE) if s == "#chat-strip-wait .wait-pop")
+    assert "position: absolute" in rule and "top: 100%" in rule and "right: 12px" in rule, rule
+    assert "max-width: min(320px, calc(100% - 24px))" in rule and "overflow-wrap: anywhere" in rule and "white-space" not in rule, rule
+    assert any(s == "#chat-strip-wait .wait-pop[hidden]" and "display: none" in b for s, b in rules(STYLE)), "it is not drawn until pressed"
+    assert any(s == "#chat-strip-wait .wait-help[hidden]" and "display: none" in b for s, b in rules(STYLE))
+    assert "position: relative" in " ".join(b for s, b in rules(STYLE) if s == "#chat-strip-wait .wait-bar")
+    assert not re.search(r"#chat-strip-wait \.wait-pop[^{]*\{[^}]*overflow-x: (auto|scroll)", STYLE), "no sideways scroll"
 
 
 def test_the_answer_link_is_gone_and_the_title_is_the_one_link_to_the_item():

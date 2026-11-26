@@ -424,8 +424,19 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
 #chat-strip-wait .wait-chev { flex: none; display: flex; align-items: center; justify-content: center; width: 44px; min-height: 36px; margin-left: auto; padding: 0; background: none; border: 0; border-radius: 0; cursor: pointer; }
 #chat-strip-wait .wait-chev .chev { margin: 0; }
 #chat-strip-wait .wait-chev[aria-expanded="true"] .chev { transform: translateY(1px) rotate(-135deg); }
-#chat-strip-wait :is(.wait-tab, .wait-chev):hover { background: var(--hover); }
-#chat-strip-wait :is(.wait-tab, .wait-chev):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The (?) of the second list sits beside the chevron while that list is open, and a press on it shows the list's help line in a small box under the bar, inside the bar's
+   width (right edge 12 px in, at most 320 px wide and never wider than the bar less 24 px, its text wrapping), shown by that press alone. */
+#chat-strip-wait .wait-bar { position: relative; }
+#chat-strip-wait .wait-help { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; min-height: 36px; margin-left: auto; padding: 0; background: none; border: 0; border-radius: 0; color: var(--muted); cursor: pointer; }
+#chat-strip-wait .wait-help[hidden] { display: none; }
+#chat-strip-wait .wait-help:not([hidden]) + .wait-chev { margin-left: 0; }
+#chat-strip-wait .wait-help .q { box-sizing: border-box; width: 18px; height: 18px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 12px; font-weight: 700; line-height: 15px; text-align: center; }
+#chat-strip-wait .wait-help[aria-expanded="true"] { color: var(--text); }
+#chat-strip-wait .wait-pop { position: absolute; z-index: 1; top: 100%; right: 12px; box-sizing: border-box; width: max-content; max-width: min(320px, calc(100% - 24px)); margin-top: 4px; padding: 8px 12px; font-size: 12px; line-height: 1.5;
+  color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, .16); overflow-wrap: anywhere; }
+#chat-strip-wait .wait-pop[hidden] { display: none; }
+#chat-strip-wait :is(.wait-tab, .wait-chev, .wait-help):hover { background: var(--hover); }
+#chat-strip-wait :is(.wait-tab, .wait-chev, .wait-help):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 #chat-strip-wait .wait-list[hidden] { display: none; }
 #chat-strip-wait .wait { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; width: 100%; max-width: 920px; margin: 0 auto; padding: 4px 16px 12px; min-width: 0; min-height: 0; box-sizing: border-box; overflow-x: hidden; overflow-y: auto;
   /* THE LIST SCROLLS, AND MORE IS BELOW: a soft band of the text colour in the last 24px of what shows (the shadow, fixed to the box's edge), which a cover of the panel colour
@@ -477,7 +488,7 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
    the screen: padded to just over 44 px, and under the 45 px from one one-line row to the next, so two links' areas do not meet. Off the 4 px grid for that reason.
    The link is lifted (position: relative) above whatever follows its title, which would otherwise take the taps on its lower part. */
 @media (max-width: 640px) { #chat-strip .kept-row { padding-inline: 12px; } #chat-strip-wait :is(.wait, .wait-tab) { padding-inline: 12px; } }
-@media (pointer: coarse) { #chat-strip .kept-toggle { min-height: 44px; } #chat-strip-wait :is(.wait-tab, .wait-chev) { min-height: 44px; } #chat-strip-wait .wait-row { padding-block: 12px; min-height: 44px; box-sizing: border-box; } #chat-strip-wait .wait-link { position: relative; padding-block: calc((44.5px - 1.15em) / 2); } }
+@media (pointer: coarse) { #chat-strip .kept-toggle { min-height: 44px; } #chat-strip-wait :is(.wait-tab, .wait-chev, .wait-help) { min-height: 44px; } #chat-strip-wait .wait-help { width: 44px; } #chat-strip-wait .wait-row { padding-block: 12px; min-height: 44px; box-sizing: border-box; } #chat-strip-wait .wait-link { position: relative; padding-block: calc((44.5px - 1.15em) / 2); } }
 .top-toggle input { margin: 0; }
 #side-open { height: 32px; display: inline-flex; align-items: center; }
 /* the session is working: a small spinner under the last message */
