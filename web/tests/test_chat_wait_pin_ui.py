@@ -1,8 +1,8 @@
-"""The chat session's "Waiting on you" line is pinned under the header, in a headless Chromium (the text of the page is test_chat_session_view.py; the rest of the
+"""The chat session's "Your move" line is pinned under the header, in a headless Chromium (the text of the page is test_chat_session_view.py; the rest of the
 strip is test_chat_session_view_ui.py and test_chat_kept_ui.py).
 
 The rule: what waits on the owner never scrolls away with the thread. #chat-strip-wait is the first child of #chat-pane and sticks to the top of the pane, right under
-sala's header. Closed it is one line, a real button with the count ("Waiting on you · 3", aria-expanded false); one click, tap or Enter opens the list under it, and
+sala's header. Closed it is one line, a real button with the count ("Your move · 3", aria-expanded false); one click, tap or Enter opens the list under it, and
 the whole pinned box stays within 40vh, the list scrolling up and down inside it. With nothing waiting no line is drawn. The motion lines and the kept-back switch
 still scroll with the thread. Held here at 1280 x 800 and 390 x 844 (the width rule also at 360 and 320), with api/chat replaced in the page and a real transcript:
   - closed by default: one line with the count, the list hidden, a button the keyboard can use; a click and Enter open and close it, and a read of the strip does not
@@ -28,7 +28,7 @@ from conftest import CHAT_READY, NAME, transcript_file, transcript_line
 from test_board_items_ui import wait_for
 from test_chat_session_view_ui import DESKTOP, MEASURE, SIZES, URL, WORD, api_chat, check, drawer_open, open_page
 
-LINE = "Waiting on you · 3"
+LINE = "Your move · 3"
 PIN = "document.querySelector('#chat-strip-wait')"
 BTN = "document.querySelector('#chat-strip-wait .wait-toggle')"
 WIDTHS = [1280, 390, 360, 320]
@@ -88,7 +88,7 @@ def test_closed_by_default_one_line_with_the_count_and_a_real_button(served, bro
     assert s["pinShown"] and not s["hidden"] and s["pos"] == "sticky", s
     assert s["tag"] == "BUTTON" and s["type"] == "button" and s["text"] == LINE and s["expanded"] == "false", s
     assert not s["listShown"] and s["pinH"] <= 48, s                    # one line: the list is not drawn, the box is as high as its button
-    assert s["title"] == "Show what is waiting on you", s
+    assert s["title"] == "Show your move list", s
     assert browser.evaluate(BTN + ".getAttribute('aria-controls') === document.querySelector('#chat-strip-wait .wait').id")
 
 
@@ -101,7 +101,7 @@ def test_a_click_opens_the_list_and_a_second_closes_it_and_a_read_of_the_strip_l
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { waiting: window.__chat.waiting.concat([{ id: 'item#9', subject: 'A late move', url: '' }]) }); loadChatMarks(); ''")
     assert wait_for(browser, f"{PIN}.querySelectorAll('.wait-row').length === 4", 10.0)
     s = state(browser)
-    assert s["expanded"] == "true" and s["listShown"] and s["text"] == "Waiting on you · 4", s     # a read changes the count and keeps the list open
+    assert s["expanded"] == "true" and s["listShown"] and s["text"] == "Your move · 4", s     # a read changes the count and keeps the list open
     click(browser)
     s = state(browser)
     assert s["expanded"] == "false" and not s["listShown"] and s["pinShown"], s
@@ -126,7 +126,7 @@ def test_with_nothing_waiting_no_line_is_drawn_and_it_comes_back_with_a_move(ser
     assert s["hidden"] and not s["pinShown"] and s["pinH"] == 0, s
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { waiting: [{ id: 'item#1', subject: 'One move', url: '' }] }); loadChatMarks(); ''")
     assert wait_for(browser, f"!{PIN}.hidden", 10.0)
-    assert state(browser)["text"] == "Waiting on you · 1"
+    assert state(browser)["text"] == "Your move · 1"
 
 
 # ── pinned ───────────────────────────────────────────────────────────────────

@@ -252,3 +252,65 @@ def test_the_kept_lines_are_drawn_by_one_function_in_sala_s_own_renderer_and_hid
     assert shown and "display: none" in shown[0], "off by default, whatever the session"
     on = [b for s, b in rules(STYLE) if s == "body.chat-kept-on #chat .msg.kept"]
     assert on and "display: flex" in on[0] and not re.search(r"overflow(-x)?\s*:\s*(scroll|auto)", on[0])
+
+
+# ── stackshot's name for the group: "Your move" ──────────────────────────────
+# The strip, the list heading, their titles and the sidebar chip name the owner's group as stackshot does ("Your move"; Korean: its own
+# label), in both languages. The retired wording ("Waiting on you" and the Korean phrase built on "waiting") is in neither table for them.
+def cp(*codes: int) -> str:
+    return "".join(chr(c) for c in codes)
+
+
+MY_TURN = cp(0xB0B4, 0x20, 0xCC28, 0xB840)                   # stackshot's own Korean label for the group
+RETIRED_KO = cp(0xAE30, 0xB2E4, 0xB9AC, 0xB294)               # the stem of the retired Korean phrase
+MOVE_KEYS = ["chat.strip.line", "chat.wait.h", "chat.strip.expand", "ui.side.chatTip", "ui.side.chatWait.one", "ui.side.chatWait.other"]
+
+
+def table(src: str) -> dict[str, str]:
+    """Key -> text of an i18n table; the Korean one holds its text as \\uXXXX escapes, which JSON reads back."""
+    return {m.group(1): json.loads(f'"{m.group(2)}"') for m in re.finditer(r'^\s*"([\w.]+)": "((?:[^"\\]|\\.)*)",?\s*$', src, flags=re.M)}
+
+
+EN_T, KO_T = table(EN), table(KO)
+
+
+def test_the_english_labels_are_stackshots_name_for_the_group():
+    assert EN_T["chat.strip.line"] == "Your move · {n}"
+    assert EN_T["chat.wait.h"] == "Your move"
+    assert EN_T["chat.strip.expand"] == "Show your move list"
+    assert EN_T["chat.strip.collapse"] == "Hide the list"
+    assert EN_T["ui.side.chatWait.one"].format(n=1) == "1 item in Your move"
+    assert EN_T["ui.side.chatWait.other"].format(n=3) == "3 items in Your move"
+    assert "move list" in EN_T["ui.side.chatTip"]
+
+
+def test_the_korean_labels_are_stackshots_label_for_the_group():
+    assert KO_T["chat.strip.line"] == MY_TURN + " · {n}"
+    assert KO_T["chat.wait.h"] == MY_TURN
+    assert KO_T["chat.strip.expand"].startswith(MY_TURN) and KO_T["chat.strip.expand"] != MY_TURN
+    assert KO_T["ui.side.chatWait.other"].format(n=3).startswith(MY_TURN + " 3")
+    assert MY_TURN in KO_T["ui.side.chatTip"]
+    assert "ui.side.chatWait.one" not in KO_T, "Korean has one plural form"
+
+
+@pytest.mark.parametrize("key", MOVE_KEYS)
+def test_neither_language_still_holds_the_retired_phrase_for_these_keys(key):
+    if key in EN_T:
+        assert not re.search(r"waiting on you|waits on you|move waiting|moves waiting", EN_T[key], flags=re.I), (key, EN_T[key])
+    if key in KO_T:
+        assert RETIRED_KO not in KO_T[key], (key, KO_T[key])
+    assert key in EN_T or key.replace(".one", ".other") in KO_T
+
+
+def test_no_string_of_either_table_says_waiting_on_you():
+    for name, t in (("en", EN_T), ("ko", KO_T)):
+        for key, text in t.items():
+            assert not re.search(r"waiting on you|waits on you", text, flags=re.I), (name, key, text)
+    assert not [k for k, v in KO_T.items() if k.startswith(("chat.strip.", "chat.wait.", "ui.side.chatWait", "ui.side.chatTip")) and RETIRED_KO in v]
+
+
+def test_the_page_words_the_line_the_titles_and_the_chip_through_those_keys():
+    paint = body_of(APP_JS, "function paintChatWait()")
+    assert 'tl("chat.strip.line", { n })' in paint and 'tl(open ? "chat.strip.collapse" : "chat.strip.expand")' in paint
+    assert 'tl("ui.side.chatWait", { n: waiting })' in body_of(APP_JS, "function paintChatEntry()")
+    assert '...tx("chat.wait.h")' in body_of(APP_JS, "function buildChatStrip()")

@@ -253,7 +253,7 @@ async function saveList(key, compute) {
      while it is open they are also read when the stream says something changed (chatStripSoon) and on open;
    - its strip (#chat-strip-wait and #chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner,
      what is in motion, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the server marks the session in
-     api/sessions, sessions.py). What waits on the owner is PINNED: #chat-strip-wait is sticky at the top of the pane, one line ("Waiting on you · 3", a button)
+     api/sessions, sessions.py). What waits on the owner is PINNED: #chat-strip-wait is sticky at the top of the pane, one line ("Your move · 3", a button)
      that opens the list, height-capped; with nothing waiting it is not drawn. The motion lines and the switch scroll with the thread. The switch shows and
      hides the kept-back lines in the thread (below);
    - the assistant's messages sit to the left at a 68ch measure (style.css, body.chat-session).
