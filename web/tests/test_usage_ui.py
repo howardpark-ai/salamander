@@ -352,3 +352,26 @@ def test_the_layout_never_scrolls_sideways_and_a_phone_has_44px_targets_and_four
         assert m["lanes"] == 1 and m["cols"] == 5, m                                                # the lane cards side by side; all five columns
     assert errors(browser) == []
     screenshot(browser, f"usage-{size['width']}.png", 3000)
+
+
+# a stand-in for a typeface wider than the page's own, so that this machine's fonts do not decide what the test sees: the page's typeface comes from
+# outside, and until it has loaded (or when it never does) the machine's own draws these controls
+WIDER = """(() => { const s = document.createElement("style"); s.textContent = "#ov-usage .us-seg button { letter-spacing: .3em; }";
+  document.head.appendChild(s); return true; })()"""
+
+
+def test_a_control_or_a_table_wider_than_a_phone_scrolls_inside_itself_and_never_the_page(served, browser):
+    open_tab(served, browser, PHONE)
+    browser.touch()
+    assert browser.evaluate(WIDER) is True
+    for g in ("agent", "folder", "model", "day", "lane"):
+        click(browser, f'#us-group [data-g="{g}"]')
+    browser.settle("document.getElementById('overview-pane')")
+    m = browser.evaluate("""(() => { document.querySelector("#us-notes details").open = true;     // (a click above draws the notes anew, closed)
+      const pn = document.querySelector("#overview-pane"), sizes = (s) => { const n = document.querySelector(s); return [n.scrollWidth, n.clientWidth]; };
+      return { pane: pn.scrollWidth, client: pn.clientWidth, weeks: sizes("#us-weeks"), group: sizes("#us-group"), prices: sizes("#us-notes .us-pw") }; })()""")
+    wide = ("weeks", "group", "prices")
+    assert all(m[k][0] > m["client"] for k in wide), m                    # each really holds more than the screen is wide
+    assert m["pane"] <= m["client"], m                                    # the page does not scroll sideways
+    assert all(m[k][1] <= m["client"] for k in wide), m                   # each is held to the panel and scrolls inside itself
+    assert errors(browser) == []

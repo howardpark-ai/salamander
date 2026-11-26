@@ -5401,3 +5401,11 @@ command that does not end in time stopped.
 Not covered, and why: the real `gh` and real logs (no network in the suites; the log reading itself is `update_timings.py`'s, checked
 by `tests/deal.sh` on the same shapes); the unit file's command line under systemd; what a command that takes the triggers does with
 them (it is not in this repository).
+
+### The Usage report on a phone never scrolls the page sideways: `web/tests/test_usage_ui.py` (browser) changed, one test new (Thu Nov 26th 2026)
+
+The Report's grid had an `auto` column, so one item wider than the panel stretched the column and the page scrolled sideways: the opened price table on a phone, and the group control while the page typeface (it comes from outside; the machine's own is wider) had not drawn it. The column is now held to the panel and both scroll inside themselves (`static/usage.css`). The layout test also failed in CI now and then, measuring before that typeface had arrived: it now waits with the browser fixture's `settle` (fonts loaded, the panel still) where it polled up to 8 s for the panel to fit.
+
+Kept (`test_usage_ui.py`, a headless Chromium, else skipped; GitHub CI runs it): at 390x844 with touch, the week and group controls made wider than the screen by letter spacing (a stand-in, so the machine's fonts do not decide) and the price table opened: each holds more than the screen is wide, each stays within it and scrolls inside itself, and the page does not scroll sideways.
+
+Not covered, and why: the Explorer's and the Digest's own columns, which this change leaves as they were; a typeface that never arrives (the tabs, drawn in the machine's own, may then not fit their bar: the layout test fails there and says no face had loaded); a real phone's browser (touch is emulated).
