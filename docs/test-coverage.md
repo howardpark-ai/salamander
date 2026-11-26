@@ -84,6 +84,12 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/release.sh`: the one retry of GitHub's merge queue (Thu Nov 26th 2026)
+
+The path guarded: a PR dropped from the queue because the merge group failed its required checks (most often a flaky test) waited for a hand re-release; `release.sh` now queues the same head once more. A wrong answer queues a PR that must not go in (moved, conflicting, a draft, red), queues for ever, or hides the failed run.
+Covered, against the fake `gh` (it now serves a removal per pass, a merge group commit's own check runs, the re-read of the PR, and a queue answer or an enqueue refusal for the n-th ask): the retry and then a merge, with the log and the one report naming the failed run, its url and jobs; a second such drop, naming both runs, with no third try; the second pass never reading the first removal as its own; a later failure after the retry (another removal reason, a refused enqueue, a close, a deploy) still naming the first run; each case that is never retried (`docs/merge-queues.md`, *The one retry*), counted by the enqueue calls; and that no line before the last holds `done:` or `FAILED`, which log waiters stop at, a job name holding them included. A fake `sleep` keeps these cases free of real waiting.
+Not covered, and why: GitHub's real timeline and check runs (the shapes were read from real removals), and the queue itself.
+
 ### `web/tests/test_chat_boot.py` new, 43; `web/tests/test_chat_boot_ui.py` new, 57; `web/tests/test_chat_session_view.py` +1 (Thu Nov 26th 2026)
 
 The path guarded: a load of the chat session's address painted the page with no session first ("Select a session", "Pick a session on the left.", in English whatever the saved language) until `app.js` had read its lists, and could show the session's bare name before its label came. `static/chatboot.js` hides the two from the first paint on that one address. A wrong answer flashes another view on it, leaves a header or a thread blank, or changes another session's load.
