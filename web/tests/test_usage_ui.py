@@ -65,18 +65,24 @@ def fake_replies(served: dict):
 
 def warm(served: dict) -> None:
     """A fresh server has no count (a visit makes none: the daily job and the tab's Reload do): make one the way Reload does (`fresh=1`) and wait
-    for it, so the page opens on figures."""
+    for it, so the page opens on figures. The wait is a deadline (60 s, a count takes about 0.2 s on a quiet machine), not a number of reads, and a
+    failure says how long it waited, how many reads it made and the last answer."""
     fresh = ""
-    for _ in range(100):
+    start = time.monotonic()
+    reads = 0
+    d: dict = {}
+    while time.monotonic() - start < 60:
         with urllib.request.urlopen(served["url"] + "/api/usage?week=0" + fresh) as r:
             d = json.load(r)
+        reads += 1
         fresh = ""
         if d.get("noCount"):
             fresh = "&fresh=1"
         elif not d.get("pending") and not d.get("refreshing"):
             return
         time.sleep(0.1)
-    raise AssertionError(f"the count never finished: { {k: d.get(k) for k in ('noCount', 'pending', 'refreshing', 'error', 'stale')} }")
+    raise AssertionError(f"the count never finished: {time.monotonic() - start:.1f} s, {reads} reads, last answer "
+                         f"{ {k: d.get(k) for k in ('noCount', 'pending', 'refreshing', 'error', 'stale')} }")
 
 
 def open_tab(served, browser, size: dict, hash_: str = "#usage", ready: bool = True) -> None:
