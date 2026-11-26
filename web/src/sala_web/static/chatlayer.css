@@ -1,0 +1,29 @@
+/* The chat session's own layer (chatlayer.js). The server puts this sheet in the page only when SALA_CHAT_LAYER is on, and every rule is under
+   body.chat-layer (the class is on while the layer draws the open thread), so no other session's page changes. */
+body.chat-layer #chat > .inflight { display: none; }       /* the layer draws its own working mark */
+body.chat-layer #chat-strip .kept-row { display: none; }   /* the layer's thread has no kept-back line for the switch to show */
+
+body.chat-layer #chat > .cl-older { color: var(--faint); font-size: 12px; text-align: center; min-height: 28px; line-height: 20px; }
+body.chat-layer #chat > .cl-older.at-start { border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+body.chat-layer #chat > .cl-fail { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin: 8px 0;
+  font-size: 12px; color: var(--error); }
+body.chat-layer #chat .cl-fail button { font-size: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px 12px; color: var(--text); cursor: pointer; }
+body.chat-layer #chat > .cl-mark { display: flex; align-items: center; gap: 8px; padding: 8px 0 0; min-width: 0; }
+body.chat-layer #chat .cl-mark .spinner { flex: none; }
+body.chat-layer #chat .cl-turn { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; color: var(--muted); }
+
+/* no sideways scroll, inside a block either. A table stays a table while it fits, its words whole where they can be; one that does not fit is drawn
+   row by row (chatlayer.js fitTables) */
+body.chat-layer #chat .md table { display: table; max-width: 100%; overflow: visible; }
+body.chat-layer #chat .md :is(th, td) { overflow-wrap: break-word; }
+body.chat-layer #chat .md table.cl-stacked,
+body.chat-layer #chat .md table.cl-stacked :is(caption, thead, tbody, tfoot, tr, th, td) { display: block; width: auto; }
+body.chat-layer #chat .md table.cl-stacked.cl-labelled thead { display: none; }
+body.chat-layer #chat .md table.cl-stacked tr { border: 1px solid var(--border); border-radius: 8px; margin: 0 0 8px; padding: 4px 0; }
+body.chat-layer #chat .md table.cl-stacked :is(th, td) { border: 0; padding: 0 8px; text-align: left; overflow-wrap: anywhere; word-break: normal; }
+body.chat-layer #chat .md table.cl-stacked td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
+body.chat-layer #chat .md pre { overflow-x: hidden; }   /* a code block wraps (style.css) */
+body.chat-layer #chat .md :is(ul, ol) :is(ul, ol) :is(ul, ol) { padding-left: 12px; }   /* a deep list stays on a phone */
+body.chat-layer #chat .md :is([style], [width]) { max-width: 100% !important; }   /* HTML written into a reply, with a width of its own */
+body.chat-layer #chat .md nobr { white-space: normal; }
