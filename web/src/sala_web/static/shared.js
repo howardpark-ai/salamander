@@ -37,6 +37,14 @@ const unreadTotal = (sessions, selected) => sessions.reduce((t, s) => t + unread
 // owner leaves it (its replies count as read the moment it opens, so without this the row would vanish under the pointer).
 const unreadKept = (sessions, selected) => sessions.filter((s) => s.name === selected || unreadOfSession(s, selected) > 0);
 // </unread-words>
+// <label-words> (the tests run what is between these two markers in node)
+// The name a person is shown for a session: ONE function for every place the page draws it (the sidebar's entry, the header, the tab title, the
+// sleeping band, the Overview's rows, a search hit, the terminal frame's title). `chat` is the last answer of api/chat. The chat session has a
+// label there (SALA_CHAT_NAME, else its name's last word capitalized); every other session, and the chat session while api/chat has not answered
+// or has no session configured, is drawn under its own name. The real name is never replaced: it stays the key of every route, call, link and
+// message, and the header's tooltip says it.
+const sessionLabelFrom = (chat, name) => (chat && chat.configured === true && typeof chat.name === "string" && chat.name && chat.session === name ? chat.name : name);
+// </label-words>
 // <sleeping-words> (the tests run what is between these two markers in node)
 // The "Show sleeping sessions" box: of the sessions of one project, a sleeper (the server's `sleeping` key, the time it went to sleep) is
 // listed only with the box checked, or while it is the open session (so the open one never vanishes). A project left with nothing to list

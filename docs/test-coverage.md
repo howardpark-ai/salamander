@@ -5252,3 +5252,19 @@ A mutation was run once (the redirect made absolute): the relative-redirect test
 
 Not covered, and why: the look on a real phone (a rendered side-by-side of the chat session and another session at 1280 and 390 px was made for the pull request, not kept as a test); the browser tests on the box that wrote them (its Chromium does not
 start headless there, CI runs them).
+
+### The chat session's label in the header and the tab title: `web/tests/test_session_label.py`, `test_session_label_ui.py` (browser), new; `test_name.py`, `test_agents_groups.py`, `test_chat_session_view_ui.py` changed
+
+The sidebar's entry calls the chat session by its label; the header at the top of the session view and the tab's title said its raw name. Both now take the label from the same function as the entry (`sessionLabelFrom` in `shared.js`, through `sessionLabel` in `app.js`), and so does every other place the name is drawn as a
+title for a person (rows, the sleeping band, the Overview's rows, the spend cards, a search hit, the terminal frame's title, a kept-back line's source); the real name stays the route, the calls, the links and the queued messages, and is the header's tooltip. A wrong answer is a header that disagrees with the
+entry, a link or message sent to the label, or a label that stays stale in the header after a rename.
+
+Kept (`test_session_label.py`, no browser; the function runs in node): a labelled chat session reads as its label, any other session as its own name, no answer yet, none configured, a `configured` that is not `true`, an empty or non-text label and a missing session all read as the real name, and a renamed label is read live;
+there is one label function and no other code reads `api/chat`'s name to draw a session; the entry, the header (name and tooltip) and the tab title, the sleeper's header and band and note, the not-running line, the held-message notes, the rows, the strip's switch, the three terminal-frame title writes, the kept-back source, the Overview rows
+(and their sort), the spend lists and the search hit all go through it; the route, the row's `data-key` and tooltip, the entry's href and the Overview link keep the real name; `chatMarks` notices a label that came, changed or went and `relabel` draws the header, the Overview, the frame, the held notes and the band again; no string key was added.
+Kept (`test_session_label_ui.py`, a headless Chromium at 1280x800 and 390x844, else skipped; GitHub CI runs it; it was written on a box with no Chromium, so CI is its first run): for a session `demo-one` labelled `Demo One`, the header's text, the entry's text and `document.title` are the same label, the header's `title` attribute is the real name, and the hash,
+`state.selected` and the entry's href are the real name; a rename of the label changes the entry, the header and the tab title together (polled, never a fixed wait) and the hash stays, and the label going back to none gives the name and no tooltip; with no label the header and tab say the name with no tooltip, and a label for another session leaves
+this one alone; the Overview's row says the label, links to `#s=<name>` and leads its tooltip with the real name; a 150-character label is cut by the header's ellipsis inside the bar with the whole text kept, and the page is never wider than the screen at 1280, 390, 360 and 320 px.
+Changed: `test_name.py` expects the tab title through `sessionLabel`; `test_agents_groups.py` the Overview row's tooltip line; the parity test of the chat session against another session no longer compares the title's width and start (the label's text differs from the name's by design).
+
+Not covered, and why: the browser tests on the box that wrote them (its Chromium does not start headless there; CI runs them); the label in a Korean-language page (the label is text from `api/chat`, never translated, and no string was added).

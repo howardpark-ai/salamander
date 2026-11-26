@@ -268,6 +268,18 @@ const chatEntryOn = () => !!(chatView.data && chatView.data.configured);
 const isChatRow = (s) => !!s && s.chat === true && chatEntryOn();
 const chatSelected = () => { const s = state.selected && state.byName.get(state.selected); return !!(s && s.chat === true); };
 const unreadSessions = () => liveSessions().filter((s) => !isChatRow(s));
+/* The name drawn for a session, from ONE function (shared.js sessionLabelFrom, fed by api/chat): the sidebar's entry, the header, the tab title, the
+   sleeping band, the Overview's rows, a search hit and the terminal frame's title all call it. The chat session reads as its entry does ("Ada"), any
+   other session, and the chat session until api/chat answers, as its own name. Only what is DRAWN changes: state.selected, #s=<name>, every api call,
+   link and queued message keep the real name, which the header's tooltip gives (setHeaderName). A label that comes, changes or goes draws these again (relabel). */
+function sessionLabel(name) { return sessionLabelFrom(chatView.data, name); }
+// the header's name: `text` is drawn, `real` (the session's own name, when a label stands in for it) is its tooltip; a view that is no session has no tooltip
+function setHeaderName(text, real) {
+  const n = $("#title .name");
+  n.textContent = text;
+  if (real && real !== text) n.title = real; else n.removeAttribute("title");
+}
+const chatLabelKey = () => { const d = chatView.data; return d && d.configured ? d.session + "\n" + d.name : ""; };
 async function loadChatMarks() {
   if (chatView.reading) { chatView.again = true; return; }
   chatView.reading = true;
@@ -287,7 +299,7 @@ function chatStripSoon() {
 // what api/chat said last: the entry and, while the chat session is open, the strip
 function chatMarks(d) {
   if (!d || typeof d !== "object") return;
-  const was = chatEntryOn();
+  const was = chatEntryOn(), key = chatLabelKey();
   chatView.data = d;
   if (d.configured) {
     const ids = new Set((d.waiting || []).map((w) => w.id));
@@ -296,13 +308,24 @@ function chatMarks(d) {
   }
   if (was !== chatEntryOn()) renderSidebar(); else paintChatEntry();   // the session's own row comes or goes with the entry
   chatSync();
+  if (chatLabelKey() !== key) relabel();
+}
+// the label came, changed or went (api/chat answered after the page drew the session's name): every title drawn from it is drawn again
+function relabel() {
+  if (state.current || sleeperHere() || state.byName.size) retitle();   // the header and the tab title (not before the first list: a session not listed yet is not "not running")
+  overview.redraw();
+  const frame = $("#terminal-pane iframe");
+  if (frame && state.current) frame.title = tl("term.frameTitleFor", { name: sessionLabel(state.current.name) });
+  for (const p of state.pending) if (p.status === "held") redrawPending(p);
+  const sl = sleeperHere();
+  if (sl) paintSleeping(sl);
 }
 function paintChatEntry() {
   const a = $("#side-chat"), d = chatView.data, on = chatEntryOn();
   a.hidden = !on;
   if (!on) { a.classList.remove("selected"); a.removeAttribute("aria-current"); return; }
   a.setAttribute("href", "#s=" + encodeURIComponent(d.session));
-  a.querySelector(".label").textContent = d.name;
+  a.querySelector(".label").textContent = sessionLabel(d.session);
   const waiting = (d.waiting || []).length, busy = d.present === "live" && !!d.busy;
   const dot = a.querySelector(".dot"), chip = a.querySelector(".wchip");
   dot.hidden = !busy;
@@ -375,7 +398,7 @@ function paintChatStrip() {
   u.waitList.replaceChildren(...waiting.map(chatWaitRow));
   paintChatWait();
   u.moList.replaceChildren(...(motion.length ? motion.map((m) => el("li", { class: "mo", text: m.text })) : [el("li", { class: "mo none", ...tx("chat.motion.none") })]));
-  u.swText.textContent = tl("chat.kept.toggle", { name: d.name });
+  u.swText.textContent = tl("chat.kept.toggle", { name: sessionLabel(d.session) });
   u.countEl.textContent = tl(d.keptTodayFloor ? "chat.kept.floor" : "chat.kept.count", { n: (d.keptLines ?? d.keptToday) | 0 });
 }
 SalaI18n.onChange(() => { if (chatEntryOn()) { paintChatEntry(); if (!$("#chat-strip").hidden) paintChatStrip(); } });
@@ -578,10 +601,10 @@ function sessRow(s) {
     onclick: (e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) setDrawer(false); },  // hidden now; its history entry goes with the navigation (go)
     // a press that moves reorders it within its project; one that does not is the link's click
     onpointerdown: (e) => dragStart(e, e.currentTarget),
-  }, el("span", { class: "dot " + dotClass(s.status) }), el("span", { class: "label", text: s.name }),
+  }, el("span", { class: "dot " + dotClass(s.status) }), el("span", { class: "label", text: sessionLabel(s.name) }),
      isSleeping(s) ? el("span", { class: "slp", text: tl("app.sleeping.tag") }) : null,
      s.role && s.role !== "front" ? el("span", { class: "role", text: s.role }) : null,
-     rowMenuBtn(s), (() => { const n = unreadOf(s); return n ? unreadChip(n, unreadLabel(n, s.name)) : null; })());  // the ⋯ sits left of the count: the count stays at the row's far right, hovered or not
+     rowMenuBtn(s), (() => { const n = unreadOf(s); return n ? unreadChip(n, unreadLabel(n, sessionLabel(s.name))) : null; })());  // the ⋯ sits left of the count: the count stays at the row's far right, hovered or not
 }
 
 /* ---------- a session row's ⋯ menu (Fork lives here, not in the header, whose fold is measured to the pixel) ----------
@@ -598,7 +621,7 @@ let rowMenu = null;  // {name, node}
 function rowMenuBtn(s) {
   if (!rowMenuItems(s).length) return null;
   const b = el("span", { class: "sess-more", role: "button", tabindex: "0", "aria-haspopup": "menu", "aria-expanded": String(!!rowMenu && rowMenu.name === s.name),
-                         "aria-label": tl("app.sess.actions", { name: s.name }), title: tl("app.sess.forkTip"), text: "⋯" });
+                         "aria-label": tl("app.sess.actions", { name: sessionLabel(s.name) }), title: tl("app.sess.forkTip"), text: "⋯" });
   const open_ = (e) => { e.preventDefault(); e.stopPropagation(); if (rowMenu && rowMenu.name === s.name) closeRowMenu(true); else openRowMenu(s, b, e.type === "keydown"); };
   b.addEventListener("pointerdown", (e) => e.stopPropagation());  // not the start of a drag-reorder
   b.addEventListener("click", open_);
@@ -630,7 +653,7 @@ function rowMenuKey(e) {
 }
 function openRowMenu(s, btn, byKey) {
   closeRowMenu();
-  const node = el("div", { class: "row-menu", role: "menu", "aria-label": tl("app.sess.actions", { name: s.name }) },
+  const node = el("div", { class: "row-menu", role: "menu", "aria-label": tl("app.sess.actions", { name: sessionLabel(s.name) }) },
     ...rowMenuItems(s).map((it) => el("a", { class: "row-menu-item", role: "menuitem", href: it.href, title: it.hint,
       onclick: () => { closeRowMenu(); setDrawer(false); } }, el("span", { text: it.label }), el("span", { class: "hint", text: it.hint }))));
   document.body.append(node);
@@ -914,7 +937,7 @@ function updateHeader(s) {
   state.current = s;
   $("#title .dot").className = "dot " + dotClass(s.status);
   $("#title .dot").title = s.status || "";
-  $("#title .name").textContent = s.name;
+  setHeaderName(sessionLabel(s.name), s.name);
   // the bar keeps the dynamic badge only (working / needs input); the menu's Session section has the static facts: its
   // role, its lane, and the tmux name only when it differs (the session name already says scope and project). The status
   // badge may sit in that section's row list (folded), so the rows are replaced, not the whole list
@@ -926,7 +949,7 @@ function updateHeader(s) {
     s.role ? sessionRow(tl("common.role"), el("span", { class: "pill role-" + s.role, text: s.role })) : null,
     s.lane ? sessionRow(tl("common.lane"), el("span", { class: "pill lane-" + laneNorm(s.lane), title: tl("app.hdr.laneTip"), text: laneLabel(s.lane) })) : null,
     s.tmuxSession && s.tmuxSession !== s.name ? sessionRow("tmux", el("span", { class: "pill mono", title: tl("app.hdr.tmuxTip"), text: s.tmuxSession })) : null].filter(Boolean));
-  setTitle(s.name);
+  setTitle(sessionLabel(s.name));
   layoutHeader();
   updateInflight();
 }
@@ -1880,7 +1903,7 @@ function sdMode() {
   document.body.classList.toggle("side-mode", on);
   const t = tl(on ? "ui.ns.quick" : "ui.newSession");
   setTitle(t);
-  $("#title .name").textContent = t;
+  setHeaderName(t);
   for (const [id, current] of [["#np-new", !on], ["#np-quick", on]]) {   // the switch at the top of the page, the same on both forms
     const a = $(id);
     if (current) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
@@ -2299,7 +2322,7 @@ function showOverview() {
   setOverview(true);
   renderSidebar();
   setTitle(tl("common.overview"));
-  $("#title .name").textContent = tl("common.overview");
+  setHeaderName(tl("common.overview"));
   clearHeaderBadges();
   layoutHeader();
   updateJump();
@@ -2315,7 +2338,7 @@ function showNewPage() {
   setNewPage(true);
   renderSidebar();
   setTitle(tl("ui.newSession"));
-  $("#title .name").textContent = tl("ui.newSession");
+  setHeaderName(tl("ui.newSession"));
   clearHeaderBadges();
   layoutHeader();
   updateJump();
@@ -2333,7 +2356,7 @@ function showSearchPage() {
     setSearchPage(true);
     renderSidebar();
     setTitle(tl("common.search"));
-    $("#title .name").textContent = tl("common.search");
+    setHeaderName(tl("common.search"));
     clearHeaderBadges();
       layoutHeader();
     updateJump();
@@ -2364,11 +2387,12 @@ function retitle() {
   const on = (c) => document.body.classList.contains(c);
   if (on("overview-open")) setOverviewTitle();
   else if (on("new-open")) sdMode();
-  else if (on("search-open")) { setTitle(tl("common.search")); $("#title .name").textContent = tl("common.search"); }
+  else if (on("search-open")) { setTitle(tl("common.search")); setHeaderName(tl("common.search")); }
   else if (state.current && state.selected) updateHeader(state.current);
+  else if (sleeperHere()) paintSleepHead(sleeperHere());
   else {
-    setTitle(state.selected || "sala");
-    $("#title .name").textContent = state.selected ? tl("app.notRunning", { name: state.selected }) : tl("ui.hdr.selectSession");
+    setTitle(state.selected ? sessionLabel(state.selected) : "sala");
+    setHeaderName(state.selected ? tl("app.notRunning", { name: sessionLabel(state.selected) }) : tl("ui.hdr.selectSession"), state.selected);
     layoutHeader();
   }
 }
@@ -2383,7 +2407,7 @@ SalaI18n.onChange(() => {
 function setOverviewTitle() {
   const id = overview.laneId(), t = id === null ? tl("common.overview") : tl("app.laneTitle", { name: laneLabel(id) });
   setTitle(t);
-  $("#title .name").textContent = t;
+  setHeaderName(t);
 }
 /* the Overview's four tabs: "sessions" (Agents, #sessions), "schedules" (#schedules), "machines" (#machines) and "usage" (Usage analysis, #usage). The pane's data-tab shows the
    one panel (sessions.css); the Schedules, Machines and Usage tabs read their api when they open, and again on their Reload, never by themselves, so
@@ -2449,8 +2473,8 @@ function selectSession(name, { force = false } = {}) {
   const chat = $("#chat");
   if (!s) {
     state.current = null;
-    setTitle(name || "sala");
-    $("#title .name").textContent = name ? tl("app.notRunning", { name }) : tl("ui.hdr.selectSession");
+    setTitle(name ? sessionLabel(name) : "sala");
+    setHeaderName(name ? tl("app.notRunning", { name: sessionLabel(name) }) : tl("ui.hdr.selectSession"), name);
     clearHeaderBadges();
       $("#title .dot").className = "dot";
     layoutHeader();
@@ -2488,9 +2512,10 @@ function paintSleeping(s) {
   if (state.selected !== s.name || state.sleepView !== s.name) return;
   const w = waking.get(s.name);
   const when = sleptAt(s.sleeping);
-  const line = !w ? tl(when ? "app.sleeping.band" : "app.sleeping.bandNoTime", { name: s.name, when })
-    : w.state === "failed" ? tl("app.sleeping.failed", { name: s.name, why: w.error || "?" })
-    : w.state === "late" ? tl("app.sleeping.late", { name: s.name }) : w.state === "queued" ? tl("app.sleeping.queued", { name: s.name }) : tl("app.sleeping.waking", { name: s.name });
+  const who = sessionLabel(s.name);
+  const line = !w ? tl(when ? "app.sleeping.band" : "app.sleeping.bandNoTime", { name: who, when })
+    : w.state === "failed" ? tl("app.sleeping.failed", { name: who, why: w.error || "?" })
+    : w.state === "late" ? tl("app.sleeping.late", { name: who }) : w.state === "queued" ? tl("app.sleeping.queued", { name: who }) : tl("app.sleeping.waking", { name: who });
   const again = !w || w.state === "failed" || w.state === "late";
   const band = $("#sleep-band");
   band.hidden = false;
@@ -2503,21 +2528,24 @@ function paintSleeping(s) {
 function paintSleepNote(s) {
   const when = sleptAt(s.sleeping);
   const chat = $("#chat");
-  chat.replaceChildren(el("div", { class: "empty sleeping-note" }, el("p", { text: when ? tl("app.sleeping.body", { name: s.name, when }) : tl("app.sleeping.bodyNoTime", { name: s.name }) })));
+  chat.replaceChildren(el("div", { class: "empty sleeping-note" }, el("p", { text: when ? tl("app.sleeping.body", { name: sessionLabel(s.name), when }) : tl("app.sleeping.bodyNoTime", { name: sessionLabel(s.name) }) })));
   for (const p of state.pending) if (p.session === s.name) chat.append(p.node);
   olderReset(null);
   updateJump();
 }
+function paintSleepHead(s) {
+  $("#title .dot").className = "dot sleeping";
+  $("#title .dot").title = tl("app.sleeping.tag");
+  setHeaderName(sessionLabel(s.name), s.name);
+  clearHeaderBadges();
+  titleBar.status.replaceChildren(el("span", { class: "pill sleeping", text: tl("app.sleeping.tag") }));
+  setTitle(sessionLabel(s.name));
+  layoutHeader();
+}
 async function showSleeping(s) {
   state.current = null;
   state.sleepView = s.name;
-  $("#title .dot").className = "dot sleeping";
-  $("#title .dot").title = tl("app.sleeping.tag");
-  $("#title .name").textContent = s.name;
-  clearHeaderBadges();
-  titleBar.status.replaceChildren(el("span", { class: "pill sleeping", text: tl("app.sleeping.tag") }));
-  setTitle(s.name);
-  layoutHeader();
+  paintSleepHead(s);
   $("#chat").replaceChildren(el("div", { class: "empty", text: tl("app.loadingTranscript"), "data-i18n": "app.loadingTranscript" }));
   olderReset(null);
   paintSleeping(s);   // opening it wakes nothing: the band says so
@@ -3418,7 +3446,7 @@ function keptSource(src) {
   const k = src && src.kind;
   if (k === "sala") return tl("chat.src.sala");
   if (k === "board") return tl("chat.src.board");
-  if (k === "session" && src.name) return tl("chat.src.session", { name: src.name });
+  if (k === "session" && src.name) return tl("chat.src.session", { name: sessionLabel(src.name) });
   if (k === "task") return tl("chat.src.task");
   if (k === "system") return tl("chat.src.system");
   return tl("chat.src.other");
@@ -3509,7 +3537,7 @@ function pendingNode(p) {
     // waiting for the session it was sent to, which is asleep: the wake's state is the band's and the bubble's too; Edit takes the message back
     const w = waking.get(p.session);
     const failed = !!w && w.state === "failed";
-    box.append(el("div", { class: "note" + (failed ? " err" : ""), text: failed ? tl("app.pend.heldFailed", { name: p.session, why: w.error || "?" }) : tl("app.pend.held", { name: p.session }) }),
+    box.append(el("div", { class: "note" + (failed ? " err" : ""), text: failed ? tl("app.pend.heldFailed", { name: sessionLabel(p.session), why: w.error || "?" }) : tl("app.pend.held", { name: sessionLabel(p.session) }) }),
       el("div", { class: "note-actions" },
         ...(!w || failed ? [el("button", { type: "button", text: tl(failed ? "app.sleeping.retry" : "app.sleeping.wake"), onclick: () => wakeSleeper(p.session) })] : []),
         el("button", { type: "button", text: tl("app.pend.edit"), onclick: () => editPending(p) })));
@@ -3639,7 +3667,7 @@ function loadTerminal() {
   if (!s) { host.replaceChildren(el("div", { class: "empty", ...tx("app.pickFirst") })); return; }
   if (state.termLoadedFor === s.tmuxSession && host.querySelector("iframe")) return;
   state.termLoadedFor = s.tmuxSession;
-  const frame = el("iframe", { src: state.terminalUrl + encodeURIComponent(s.tmuxSession), title: tl("term.frameTitleFor", { name: s.name }), allow: "clipboard-read; clipboard-write" });
+  const frame = el("iframe", { src: state.terminalUrl + encodeURIComponent(s.tmuxSession), title: tl("term.frameTitleFor", { name: sessionLabel(s.name) }), allow: "clipboard-read; clipboard-write" });
   host.replaceChildren(frame);
   hookTerminalClipboard(frame);
   hookTerminalFont(frame);   // D2Coding 14px, as in the Shell; the key log is the Shell's alone
@@ -3688,7 +3716,7 @@ SalaI18n.onChange(() => {   // the words around the draft change; the draft itse
   setPlaceholder();
   renderChips();
   const frame = $("#terminal-pane iframe");
-  if (frame && state.current) frame.title = tl("term.frameTitleFor", { name: state.current.name });
+  if (frame && state.current) frame.title = tl("term.frameTitleFor", { name: sessionLabel(state.current.name) });
 });
 const getText = () => composer.state.doc.toString();
 // the text replaced as a textarea's value= does: no change event, no undo step (the history starts over), the caret at the end

@@ -150,7 +150,7 @@ def test_the_agents_table_has_no_project_column_and_surface_follows_role():
     lane_head = INDEX.split('id="ld-table"')[1].split("</thead>")[0]
     assert re.findall(r'data-i18n="([\w.]+)"', lane_head) == ["common.session", "common.role", "ui.col.surface", "common.status", "common.model", "common.effort", "common.lane"]
     assert "cellText.project" not in JS and "projectLabel(r), r.project" not in JS   # the project is the name's tooltip alone
-    assert 'link.title = r.projectTitle ? projectLabel(r) : tl("ov.row.unregistered")' in JS
+    assert 'const tip = r.projectTitle ? projectLabel(r) : tl("ov.row.unregistered")' in JS
 
 
 def test_the_group_buttons_are_a_pressed_toggle_group_and_the_headings_are_expandable_buttons():

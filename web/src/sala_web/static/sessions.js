@@ -35,7 +35,7 @@ const sp = { laneDrag: false, laneRedraw: false, rows: [], key: null, dir: 1, ti
 const projectLabel = (r) => (r.projectTitle ? r.scope + "/" + r.projectTitle : "");
 
 const cellText = {
-  name: (r) => r.name,
+  name: (r) => sessionLabel(r.name),   // what the row draws (the sort follows it)
   role: (r) => r.role || "",
   status: (r) => r.status || "",
   model: (r) => (r.model ? modelLabel(r.model) : ""),
@@ -182,8 +182,9 @@ function sessionRow(r) {
   const tr = document.createElement("tr");
   const link = document.createElement("a");
   link.href = "#s=" + encodeURIComponent(r.name);  // opens it in this page: the hash change leaves the overview
-  link.textContent = r.name;
-  link.title = r.projectTitle ? projectLabel(r) : tl("ov.row.unregistered");   // the project is the name's tooltip, no column of its own
+  link.textContent = sessionLabel(r.name);   // the label the sidebar shows (app.js); the real name is the link's address and, when they differ, leads the tooltip
+  const tip = r.projectTitle ? projectLabel(r) : tl("ov.row.unregistered");   // the project is the name's tooltip, no column of its own
+  link.title = link.textContent !== r.name ? r.name + " \u00b7 " + tip : tip;
   const st = span("sp-status " + ({ busy: "working", waiting: "waiting" }[STATUS_DOT[r.status]] || ""), "");
   st.append(span("dot " + (STATUS_DOT[r.status] || ""), ""), span("sp-stext", statusText(r.status)));
   // a sleeping session (its claude ended on purpose, its pane stays) says only "sleeping" here: the time it went to sleep is on its own page (the band above its conversation), so the row stays as narrow as any other
@@ -785,9 +786,9 @@ function spendCardBody(lane, a, opts = {}) {
       if (s.live) {
         node = document.createElement("a");
         node.href = "#s=" + encodeURIComponent(s.name);
-        node.textContent = s.name;
+        node.textContent = sessionLabel(s.name);
       } else {
-        node = span("sp-muted", s.name, tl("ov.s.notRunning"));
+        node = span("sp-muted", sessionLabel(s.name), tl("ov.s.notRunning"));
       }
       list.append(spendRow(node, s.usd, s.share, s.name));
     }

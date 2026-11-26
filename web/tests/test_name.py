@@ -49,7 +49,7 @@ def test_the_manifest_and_the_scripts_name_it_sala(client):
     m = client.get("/manifest.webmanifest").json()
     assert m["name"] == "sala" and m["short_name"] == "sala"
     js = (STATIC / "app.js").read_text()
-    assert 'let wantTitle = "sala";' in js and 'setTitle(name || "sala")' in js
+    assert 'let wantTitle = "sala";' in js and 'setTitle(name ? sessionLabel(name) : "sala")' in js
     assert 'document.querySelector(\'meta[name="sala-web-version"]\')' in js  # reads the meta the page carries
 
 

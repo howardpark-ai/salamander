@@ -827,7 +827,7 @@ piece of code (`hoverPin` in `app.js`), held by `tests/test_header_hover.py`. Th
 - what has **folded** out of the bar (below): **Shell** as a row with its icon and word, Reload as a row with
   its word, the status badge as a "Status" row at the end of the Session section.
 
-The name comes first: it is never cut while anything else is still in the bar. On every resize of the header, and
+The name is the session's label when it has one (*The chat session*, "One label"; its tooltip is the real name), else the session's own name. The name comes first: it is never cut while anything else is still in the bar. On every resize of the header, and
 whenever the name, the badge or the fonts change, the page puts everything back into the bar and moves items into the
 **⋯** menu one at a time until the name has its full width: **Shell first** (the drawer is also on Ctrl+`, and
 the menu row opens and closes it exactly as the button does), then Reload (a desktop browser has its own; the item is
@@ -1623,6 +1623,15 @@ main chat's own composer and path.
 
 **The setting.** The session is `SALA_CHAT_SESSION` in sala's config (one session name; empty by default, and then there is no entry and no strip; no name is written in the code). The name the entry shows for it is
 `SALA_CHAT_NAME` (at most 40 characters; default: the part of the session name after its last hyphen, capitalized). Both are read on each request, so no restart. The owner's name in the kept-back lines and in the `[for <owner>]` mark is `SALA_OWNER_NAME`.
+
+**One label, drawn everywhere the name is a title.** The name the entry shows is the session's **label**, and the page reads it from one function: `sessionLabelFrom` (`static/shared.js`, run in node by the tests), called through `sessionLabel` in `app.js`
+with the last answer of `api/chat`. The header at the top of the session view and the tab's title say the same text as the entry (for a session `demo-one` labelled `Demo One`: `Demo One`); so do the sidebar's rows and their ⋯ menu's label, the unread
+chip's words, the sleeping band and note, the held-message notes, the Overview's and the lane page's session rows (the sort follows what is drawn), the spend cards' session lists, a search hit's name and its link's tooltip, the terminal frame's title and
+the "from <name>" of a kept-back line. A session with no label (every other session, the chat session before `api/chat` has answered, or none configured) is drawn under its own name. Only what is **drawn** changes: the real name stays the route (`#s=<name>`),
+`state.selected`, every api call, every link and every queued message, and where it is something a person types or copies (the New session form's pickers) it is drawn as it is. While a label stands in for the name, the header's tooltip (the `title` of `#title .name`)
+and the first words of an Overview row's tooltip give the real name; with no label there is no tooltip. A label renamed while the page is open (the entry's read of `api/chat` runs every 25 s) is drawn again in all of those places (`relabel`). The header's name is
+cut by its ellipsis like any long name (*The header*), so a long label never widens the page. No string was added for it (the same keys are fed the label); `tests/test_session_label.py` (the function and the script's text) and
+`tests/test_session_label_ui.py` (a headless Chromium) hold it.
 
 **The rule that tells the two apart** is read from the line's own record of where its text came from, never from its words (the one exception is sala's own mark, below), and was established from real transcripts. It is stated in
 the docstring of `chatturns.py` and here. In short: a `user` line with `origin.kind` `human` (typed, or typed while the session was busy and queued), an `attachment` of type `queued_command` with

@@ -141,7 +141,7 @@ function hitRow(h) {
   const kind = (h.kind === "tools" && h.tool ? tl(KIND_WORD.tools) + " · " + h.tool : KIND_WORD[h.kind] ? tl(KIND_WORD[h.kind]) : h.kind);
   const meta = el("div", { class: "se-meta" },
     el("span", { class: "se-t", title: h.at || null, text: h.when || "" }),
-    el("span", { class: "se-name", text: h.name }),
+    el("span", { class: "se-name", text: sessionLabel(h.name) }),
     el("span", { class: "se-role " + h.role, text: ROLE_WORD[h.role] ? tl(ROLE_WORD[h.role]) : h.role }),
     h.sub ? el("span", { class: "se-sub", text: tl("srch.hit.sub") }) : null,
     live ? null : el("span", { class: "se-gone", text: tl("srch.hit.gone") }),
@@ -149,7 +149,7 @@ function hitRow(h) {
   const body = el("div", { class: "se-x" + (h.kind === "tools" ? " code" : "") }, ...snippetNodes(h.snippet));
   const li = el("li", { class: "se-hit" + (live ? " open" : ""), "data-agent": h.agent });
   if (!live) { li.append(meta, body); return li; }
-  const a = el("a", { class: "se-link", href: "#s=" + encodeURIComponent(h.name), title: tl("srch.hit.open", { name: h.name }) }, meta, body);
+  const a = el("a", { class: "se-link", href: "#s=" + encodeURIComponent(h.name), title: tl("srch.hit.open", { name: sessionLabel(h.name) }) }, meta, body);
   a.addEventListener("click", (e) => {
     if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
