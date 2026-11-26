@@ -1733,6 +1733,10 @@ that read; `busy` is an open turn of a working session, `cards` maps a reply's u
 messages than asked while `start` is false; the end of the conversation is cached until the transcript's size or time changes. With no session set the answer is `{configured: false}`; the session is the configured one alone, live or sleeping
 (read from its file, never woken), and nothing in a request names another.
 
+**The rest of a reply** (`?replies=1`; the layer sends it, and without it the answer is exactly as above): four more things, each only in a turn the owner started, so a delivered turn's stay back with the rest of that turn. The images of a `SendUserFile` call (its `file_image` blocks, as the session's page draws them; a file of any
+other kind stays in the tool call, there as here). The questions of an `AskUserQuestion` call, one `{"kind": "question", "header", "question", "options": [{"label", "description", "preview"}]}` block each, the options in the order the call gives them, which is how the session's dialog numbers them (the entries the dialog adds after them are not in the transcript, and the block does not say whether
+a question takes several answers). The line a request that ended in an API error leaves (an assistant line of model `<synthetic>` with `isApiErrorMessage`): its text. And the interrupt line of their turn, a `user` message marked `"interrupt": true`. None of them starts, ends or reopens a turn.
+
 **No sideways scroll**, at any width, with the drawer open or shut: `tests/test_chat_session_view_ui.py` holds it at 1280, 390, 360 and 320 px with hostile text in the thread, a waiting subject and a motion line, and
 `tests/test_chat_kept_ui.py` holds it again with the switch off and on and hostile text in the kept lines, and `tests/test_chat_link_cards_ui.py` with hostile text in the cards (a 300-character title, a long address). (A markdown table wider
 than the thread scrolls inside its own block, as in every session; the page never does.) The same file holds that the chat session and another session, given the same transcript, differ only in the strip and the cap, and that a working chat session shows the spinner every session shows. `tests/test_chat_retired_ui.py` holds that `/chat` lands in the session's own view (and at the app's own page with no session set), that the spinner of a working chat session is the shared one, and that no width from 1280 to 320 px scrolls sideways there.
@@ -1752,6 +1756,9 @@ With `SALA_CHAT_LAYER` set to `on` (`1`, `yes` and `true` do the same; **off by 
 **Older messages** are read with `before` as the top of the thread comes near, and again while a short page leaves it in reach; the view holds the place. A Search result that names an older entry reads back to it (at most 40 pages).
 
 **A sent message** shows at once as the composer's pending bubble and gives way when a read of the thread brings the transcript's copy (the same match every session uses).
+
+**The rest of a reply** is read with every page of the thread (`?replies=1`, above). A sent image is drawn by `renderMessage`, as in the session view. A question is drawn by the layer (`askedNode`; the session view has no drawing of one and shows the call's input in a tool card): its header, the question and the numbered options with their descriptions and previews,
+as plain text with links, to read. It is answered as any dialog is, with nothing new on the page: the option's number or `esc` sent from the composer, or the Terminal tab. An API error's text stands as a reply and the interrupt line on the owner's side, in the words the transcript has; that line takes no pending bubble's place and does not set the working mark's language.
 
 **The working mark** (the shared spinner) shows while the thread says `busy`. Beside it stands the first line of what the open turn wrote last (from the stream's `append`, cut to 200 characters, one line with an ellipsis), only when that line is in the language of the owner's last message (the pending one if there is one): `langOf` says Korean when three words in ten or more hold Hangul and Latin when seven in ten or more are Latin ones, code and addresses aside; anything else matches nothing, and the spinner stands alone. The stream holds none of the text of a turn the owner did not start, so the mark of such a turn is the spinner alone.
 
@@ -1802,6 +1809,15 @@ Content-Security-Policy: default-src 'none'; sandbox
 
 `tests/test_oplog.py` checks the route, the cut, the refusals and the headers over a log folder it makes; `tests/op.sh` checks the post's closing line with the address set and unset. Nothing deletes an operation's log file
 (`lib/op.sh` removes only the marker, by moving it to `ops/done/`), so an old post's link works for as long as the file is kept.
+
+## A sign-in that ends
+
+A proxy that signs the browser in ([web-proxy.md](../docs/web-proxy.md)) may answer 401 to everything but a page load once its sign-in has ended. `static/signin.js`, loaded first by the main page and the full-size terminal page, then loads
+the page again, once, so the proxy can send it to its sign-in. sala-web itself answers no request with 401, and without such an answer the script does nothing.
+
+- **What asks**: a 401 on any read of `api/`, an event stream that stopped, a refused upload, a terminal frame whose own read is refused or that comes up without a terminal. Each is confirmed with one read of `api/config`; only a 401 there reloads.
+- **No loop**: after a reload nothing reloads again until `api/config` has answered and a minute has passed. With storage blocked nothing reloads.
+- **Kept over the sign-in**: the composer's draft, text typed into the page's fields, messages that did not go out (back as not-sent bubbles), uploaded attachments and the address' fragment. Not kept: an attachment still uploading or refused, an image's thumbnail, and what was picked in the New session forms.
 
 ## Install as an app
 
@@ -2306,7 +2322,7 @@ part of `web/`.
 | `GET /sw.js` | the service worker, at the root so its scope is the whole site; `text/javascript`, never cached |
 | `GET /chat` | an address kept for the chat session (`SALA_CHAT_SESSION`): a 302 to `./#s=<session>`, relative to the app's own prefix (to `./` with none set); no page of its own (*The chat session*) |
 | `GET /api/chat` | what the chat session's entry and strip show: `{configured, session, name, present: live\|sleeping\|absent, busy, keptToday, keptTodayFloor, keptLines, waiting, motion}`, with `onIt` while the read of the second list is available (*The chat session*); `{configured: false}` when no session is set; `no-store` |
-| `GET /api/chat/thread?n=&before=&after=&around=` | the chat session's own thread, the owner's messages and the replies to them (read by the chat session's own layer): `{session, messages, offset, before, start, busy, cards}` (paged reads carry their own paging keys); `{configured: false}` when no session is set; 400 on a bad query; `no-store` (*The chat session*) |
+| `GET /api/chat/thread?n=&before=&after=&around=` | the chat session's own thread, the owner's messages and the replies to them (read by the chat session's own layer): `{session, messages, offset, before, start, busy, cards}` (paged reads carry their own paging keys); `{configured: false}` when no session is set; `?replies=1` adds the sent images, asked questions, API errors and interrupts of those replies; 400 on a bad query; `no-store` (*The chat session*) |
 | `GET /mockup/<n>` | a mockup page `sala mockup add` stored (*Mockup pages*); `text/html; charset=utf-8`, 404 for an unknown number, the sandbox headers on every response |
 | `GET /op/<id>` | the log of one `sala op` operation (*Operation log pages*); `text/plain; charset=utf-8`, the last 256 KB, 404 `no such log` for anything else, the private headers on every response |
 | `GET /sessions` | redirects to `/#sessions`, the Overview |
