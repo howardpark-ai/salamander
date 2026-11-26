@@ -3,6 +3,7 @@
    file and chatlayer.css in the page only then). It copies nothing of the session view. The header, the composer with its pending bubbles and its send,
    the drawing of a message (renderMessage, so replyNodes and linkCard), the scroll behaviour, the pinned "your move" strip and the sidebar entry are
    app.js's, as for every session, and so is the live block of a running "!" command (applyLive). app.js hands over in four places: chatSync (sync here) and the open stream's reset, append and status events.
+   Answering a waiting item under a reply is chatanswer.js's: render() asks it what stands under each message.
 
    WHAT IS DRAWN is GET api/chat/thread (chatthread.py states the rule: the owner's messages and the replies to them) and the page's own pending bubbles.
    No line of the stream is drawn as a message here.
@@ -274,7 +275,10 @@ window.SalaThreadLayer = (() => {
     const chat = $("#chat"), pinned = chatScroll.pinned;
     const keep = !pinned && state.tab === "chat" ? scrollAnchor() : null;
     const pending = state.pending.filter((p) => p.session === st.name && p.node).map((p) => p.node);
-    const messages = st.items.map(nodeOf).filter(Boolean);
+    const drawn = st.items.map((m) => [m, nodeOf(m)]).filter(([, node]) => node);
+    // what the answer frames' part (chatanswer.js) puts under a reply that names a waiting item: elements of their own, after the message's
+    const under = window.SalaAnswerFrame ? SalaAnswerFrame.thread(drawn.map(([m]) => m), redraw) : null;
+    const messages = drawn.flatMap(([m, node]) => [node, ...((under && under.get(m.uuid)) || [])]);
     const paged = st.loaded && st.before !== null && (messages.length > 0 || !st.start);
     const want = [...(paged ? [ui.older] : []), ...messages];
     if (!messages.length && !pending.length && !st.failed) {
@@ -299,6 +303,11 @@ window.SalaThreadLayer = (() => {
       const mine = st;
       requestAnimationFrame(() => { if (mine === st && !mine.olderFailed && olderInReach()) loadOlderThread(); });   // a short page: the next one too
     }
+  }
+  // the answer frames' part is handed this, and calls it when the items it knows change: the thread drawn again, once it is in and while app.js has no loading line there
+  function redraw() {
+    const chat = $("#chat");
+    if (st.loaded && !st.gone && chat.hasAttribute(IN) && !chat.querySelector(":scope > " + LOADING)) render();
   }
   function paintOlder() {
     if (!ui) return;

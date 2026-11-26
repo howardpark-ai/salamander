@@ -519,7 +519,9 @@ function paintChatStrip() {
   if (!chatEntryOn()) return;
   if (!chatView.ui) buildChatStrip();
   const u = chatView.ui, waiting = d.waiting || [], motion = d.motion || [];
-  u.waitList.replaceChildren(...waiting.map((w) => chatWaitRow(w)));
+  // chatanswer.js (in the page only with the setting SALA_CHAT_LAYER) draws these rows itself, so one of them can hold the item's answer frame
+  if (window.SalaAnswerFrame) SalaAnswerFrame.strip(u.waitList, waiting, chatWaitRow);
+  else u.waitList.replaceChildren(...waiting.map((w) => chatWaitRow(w)));
   const now = Date.now();
   u.onitList.replaceChildren(...(Array.isArray(d.onIt) ? d.onIt : []).map((w) => chatBackRow(w, now)));
   paintChatWait();
