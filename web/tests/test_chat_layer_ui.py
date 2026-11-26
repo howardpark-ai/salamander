@@ -13,6 +13,9 @@ Held here, against the real server:
   - a failed read, a reconnect, a long absence, a language change, a reload, a session asleep, not running or gone from the list;
   - while the thread loads (a cold load, a reload, a switch inside the page, the open session opened again), no frame has the strip's rows above it, a message
     still on its way or not; they are there once the thread is, or once its read failed;
+  - the chat's address with the setting off and on, by test_chat_boot_ui.py's own frame recorder and checks (static/chatboot.js and the loading rule of
+    style.css): a load and a reload show no other view, no frame has the rows without a message under them, on a load, a reload, a switch from another session
+    and a sleeping chat session, and they stay away with a thread that never arrives;
   - the pinned bar of two tabs (test_chat_onit_ui.py holds the bar itself) has the same markup, boxes, paint and behavior with the setting on and off, stays and
     works while the thread loads, and brings no sideways scroll, closed or on either tab;
   - no sideways scroll at 1280, 390, 360 and 320 px with long words, long addresses, wide tables, wide code and images, and as the width changes;
@@ -36,6 +39,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+import test_chat_boot_ui as boot
 from conftest import CHAT_READY, CWD, NAME, SID, transcript_file
 from test_board_items_ui import wait_for
 from test_chat_layer import OTHER, add_session
@@ -130,11 +134,15 @@ def open_chat(browser, served, monkeypatch, size=PHONE, layer: str | None = "on"
     browser.send("Page.enable")
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": SPY % ("true" if fail else "false")})
     if doc is not None:
-        # api/chat (the strip) answers `doc`; api/chat/thread stays the server's
-        browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": """(() => { const real = window.fetch.bind(window);
-          window.fetch = (u, o) => String(u) === 'api/chat'
-            ? Promise.resolve(new Response(JSON.stringify(%s), { headers: { 'Content-Type': 'application/json' } })) : real(u, o); })()""" % json.dumps(doc)})
+        browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": strip_only(doc)})
     open_page(browser, served, monkeypatch, size, hash_=hash_, ready=ready)
+
+
+def strip_only(doc: dict) -> str:
+    """The script that makes api/chat (the strip) answer `doc`; api/chat/thread stays the server's."""
+    return """(() => { const real = window.fetch.bind(window);
+      window.fetch = (u, o) => String(u) === 'api/chat'
+        ? Promise.resolve(new Response(JSON.stringify(%s), { headers: { 'Content-Type': 'application/json' } })) : real(u, o); })()""" % json.dumps(doc)
 
 
 def thread_is(browser, want: list, timeout: float = 20.0) -> None:
@@ -548,20 +556,112 @@ def test_a_message_on_its_way_does_not_bring_the_strips_rows_onto_a_loading_thre
     arrives(browser, [first, second])
 
 
-def test_a_loading_thread_the_layer_does_not_draw_has_the_strip_it_has_today(served, browser, monkeypatch):
-    """Off, the chat session's loading line has the strip above it, as it did; another session has no strip, off or on."""
+def test_a_session_opened_again_has_the_same_loading_state_with_the_setting_off_and_on(served, browser, monkeypatch):
+    """The chat session's loading line has no row of the strip above it (off by style.css, on by the layer's sheet too); another session has no strip."""
     write(served, *mixed())
     add_session(served, OTHER, "22222222-3333-4444-5555-666666666666", other_lines())
-    other = {}
+    chat, other = {}, {}
     for layer in ("off", "on"):
         open_chat(browser, served, monkeypatch, PHONE, layer=layer, doc=strip_doc())
         assert wait_for(browser, "document.querySelectorAll('#chat-strip .mo').length >= 1", 20.0)
-        if layer == "off":
-            assert browser.evaluate(f"selectSession('{NAME}', {{ force: true }}); {ABOVE}") == [True, True]
+        chat[layer] = browser.evaluate(f"selectSession('{NAME}', {{ force: true }}); {ABOVE}")
         browser.evaluate(f"go('#s={OTHER}'); ''")
         other_ready(browser)
         other[layer] = browser.evaluate(f"selectSession('{OTHER}', {{ force: true }}); {ABOVE}.concat(document.body.classList.contains('chat-layer'))")
+    assert chat["on"] == chat["off"] == [True, False]
     assert other["on"] == other["off"] == [True, False, False]
+
+
+# ── the first paint of the chat's address ────────────────────────────────────
+# static/chatboot.js and style.css's loading rule are in the page with the setting off and on; the recorder, the delays and the checks are test_chat_boot_ui.py's
+LAYERS = ["off", "on"]
+ROWS_SHOWN = {"off": boot.ROWS, "on": boot.ROWS - 1}     # the layer's sheet hides the kept-back switch: its thread has no kept-back line
+
+
+def long_thread() -> list[dict]:
+    """A thread many screens long, every turn the owner's own, each with its final reply."""
+    return [line for i in range(1, 31) for line in (human(f"question {i}", i), assistant(f"answer {i}\n\nand more of it", i))]
+
+
+def rows_only_over_messages(seen: list[dict]) -> None:
+    assert not any(f["rows"] and not f["msgs"] for f in seen), [f for f in seen if f["rows"] and not f["msgs"]][:3]
+
+
+@pytest.mark.parametrize("layer", LAYERS)
+@pytest.mark.parametrize("size", SIZES)
+def test_a_load_and_a_reload_of_the_chat_address_show_no_other_view_with_the_setting_off_and_on(served, browser, monkeypatch, size, layer):
+    write(served, *long_thread())
+    monkeypatch.setenv("SALA_CHAT_LAYER", layer)
+    boot.prepare(browser, served, monkeypatch)
+    boot.load(browser, served, monkeypatch, size, "#s=" + NAME)
+    for again in (False, True):
+        if again:
+            browser.evaluate("window.__stale = true; ''")
+            browser.send("Page.reload")
+        boot.until(browser, "!window.__stale && " + boot.CHAT_DRAWN)
+        seen = boot.frames(browser)
+        boot.check_chat_load(seen, "en")        # nothing of another view, the loading line, then the chat under its label
+        rows_only_over_messages(seen)
+        assert browser.evaluate(LAYERED) is (layer == "on")
+
+
+@pytest.mark.parametrize("layer", LAYERS)
+@pytest.mark.parametrize("size", SIZES)
+def test_the_rows_wait_for_the_thread_on_the_chat_address_with_the_setting_off_and_on(served, browser, monkeypatch, size, layer):
+    """api/chat answers at once and the thread comes late, so the strip is on all the while the loading line stands."""
+    write(served, *long_thread())
+    boot.second_session(served)
+    monkeypatch.setenv("SALA_CHAT_LAYER", layer)
+    boot.prepare(browser, served, monkeypatch, reads=boot.QUICK, stream_ms=boot.LATE_STREAM_MS, extra=[strip_only(api_chat(name=boot.LABEL))])
+    boot.load(browser, served, monkeypatch, size, "#s=" + NAME)
+    for step in ("a load", "a reload", "from another session"):
+        if step == "a reload":
+            browser.evaluate("window.__stale = true; ''")
+            browser.send("Page.reload")
+        elif step == "from another session":
+            browser.evaluate("location.hash = 's=demo-other'; ''")
+            boot.until(browser, f"{boot.NAME_EL}.textContent === 'demo-other' && document.querySelector('#chat').textContent.includes('{boot.OTHER_SAYS}')")
+            browser.evaluate("window.__frames.length = 0; document.querySelector('#side-chat').click(); ''")
+        boot.until(browser, "!window.__stale && " + boot.CHAT_DRAWN)
+        seen = boot.frames(browser)
+        boot.check_rows(seen)       # no frame has the loading line and the rows together; the strip was on and the pinned line drawn while it stood
+        rows_only_over_messages(seen)
+        assert seen[-1]["rows"] == ROWS_SHOWN[layer] and seen[-1]["msgs"] >= 1, (step, seen[-1])
+        assert browser.evaluate(LAYERED) is (layer == "on"), step
+        boot.check_rows_above_a_long_thread(browser)
+
+
+@pytest.mark.parametrize("layer", LAYERS)
+def test_a_thread_that_never_arrives_keeps_the_rows_away_with_the_setting_off_and_on(served, browser, monkeypatch, layer):
+    monkeypatch.setenv("SALA_CHAT_LAYER", layer)
+    boot.prepare(browser, served, monkeypatch, reads=boot.QUICK, stream_ms=600_000, extra=[strip_only(api_chat(name=boot.LABEL))])
+    boot.load(browser, served, monkeypatch, PHONE, "#s=" + NAME)
+    boot.until(browser, f"location.protocol === 'http:' && !!{boot.NAME_EL} && {boot.NAME_EL}.textContent === '{boot.LABEL}' && {boot.LET_GO} && "
+                        "!document.querySelector('#chat-strip').hidden && !document.querySelector('#chat-strip-wait').hidden")
+    time.sleep(1.0)
+    seen = boot.frames(browser)
+    boot.check_rows(seen)
+    last = seen[-1]
+    assert (last["loading"], last["on"], last["rows"], last["bar"]) == (True, True, 0, True), last
+
+
+@pytest.mark.parametrize("layer", LAYERS)
+def test_a_sleeping_chat_session_has_its_rows_with_the_setting_off_and_on(wake, served, browser, monkeypatch, layer):  # noqa: F811
+    """The layer takes no sleeping session, so the rows come with the sleeper's thread as without it."""
+    wake.sleeper(name="demo-asleep", cwd=CWD)
+    transcript_file(served).with_name(boot.SLEEP_UUID + ".jsonl").write_text(boot.long_thread())
+    monkeypatch.setenv("SALA_CHAT_LAYER", layer)
+    boot.prepare(browser, served, monkeypatch, reads=boot.QUICK, stream_ms=boot.LATE_STREAM_MS,
+                 extra=[strip_only(api_chat(session="demo-asleep", name=boot.LABEL))])
+    boot.load(browser, served, monkeypatch, PHONE, "#s=demo-asleep", chat="demo-asleep")
+    boot.until(browser, "location.protocol === 'http:' && !!document.querySelector('#chat > .msg') && !document.querySelector('#chat-strip').hidden && "
+                        "!document.querySelector('#chat-strip-wait').hidden")
+    seen = boot.frames(browser)
+    boot.check_rows(seen)
+    rows_only_over_messages(seen)
+    assert seen[-1]["rows"] == boot.ROWS, seen[-1]
+    assert not browser.evaluate(LAYERED)
+    boot.check_rows_above_a_long_thread(browser)
 
 
 # ── no sideways scroll ───────────────────────────────────────────────────────
@@ -698,7 +798,7 @@ def bar_walk(browser) -> list:
 @pytest.mark.parametrize("size", SIZES)
 def test_the_pinned_bar_and_both_tabs_look_and_work_the_same_with_the_setting_on_and_off(served, browser, monkeypatch, size):
     # long enough for the pane to scroll in both views, so that a scroll bar takes the same room in each
-    write(served, *[line for i in range(1, 31) for line in (human(f"question {i}", i), assistant(f"answer {i}\n\nand more of it", i))])
+    write(served, *long_thread())
     doc = api_chat(waiting=waiting(), onIt=promises())
     walks = {}
     for layer in ("off", "on"):
