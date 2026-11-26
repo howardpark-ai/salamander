@@ -633,8 +633,11 @@ cat > "$T/pty-paste.py" <<'PY'
 import os, pty, select, signal, sys, termios, time
 out, inp, mark, gap, mode = sys.argv[1], sys.argv[2], sys.argv[3].encode(), float(sys.argv[4]), sys.argv[5]; cmd = sys.argv[6:]
 lines = open(inp).read().split("\n")[:-1]   # one pasted line each, sent `gap` seconds apart whatever the terminal shows
+hit = os.environ.get("DMTEST_SIGREAD", "")   # mode "window": the mark the preloaded read() leaves when it raises the signal itself
 pid, fd = pty.fork()
-if pid == 0: os.execvp(cmd[0], cmd)
+if pid == 0:
+    if mode == "window": os.environ["LD_PRELOAD"] = os.environ["DMTEST_SIGSO"]
+    os.execvp(cmd[0], cmd)
 echo = lambda: bool(termios.tcgetattr(fd)[3] & termios.ECHO)
 buf = b""; sent = 0; t0 = None; end = time.time() + 30; killed = False
 while time.time() < end:
@@ -645,16 +648,24 @@ while time.time() < end:
         buf += d
     if t0 is None and buf.count(mark) >= 1 and not echo(): t0 = time.time()   # the first prompt is up and the terminal is quiet: start
     if t0 is not None:
-        if mode == "term" and not killed: os.kill(pid, signal.SIGTERM); killed = True
+        due = mode == "term" or (mode == "window" and time.time() >= t0 + 1 and not os.path.exists(hit))   # window: none from here once the preload has raised it
+        if due and not killed: os.kill(pid, signal.SIGTERM); killed = True
         elif mode == "paste" and sent < len(lines) and time.time() >= t0 + sent * gap: os.write(fd, lines[sent].encode() + b"\n"); sent += 1
-else:
-    os.kill(pid, signal.SIGKILL); os.waitpid(pid, 0); open(out, "wb").write(buf); sys.exit(99)
+else:   # the deadline: say which stage it was in and what the command was doing
+    if t0 is None: stage = "the first prompt never showed with echo off"
+    elif mode == "paste": stage = f"{sent} of {len(lines)} lines sent, the command still running"
+    elif killed: stage = "the prompt showed and SIGTERM was sent, the command did not end"
+    else: stage = "the prompt showed and the preload raised SIGTERM at a read of the empty terminal, the command did not end"
+    state = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0]; wchan = open(f"/proc/{pid}/wchan").read()
+    was = "on" if echo() else "off"
+    print(f"pty-paste.py: 30 s deadline in mode {mode}: {stage} (echo {was}, process state {state}, wchan {wchan})", file=sys.stderr)
+    os.kill(pid, signal.SIGKILL); os.waitpid(pid, 0); open(out, "wb").write(buf); open(out + ".echo", "w").write(was); sys.exit(99)
 _, st = os.waitpid(pid, 0)
 open(out, "wb").write(buf.replace(b"\r", b""))
 open(out + ".echo", "w").write("on" if echo() else "off")
 sys.exit(os.waitstatus_to_exitcode(st))
 PY
-ptypaste() { local mode=$1 mark=$2; shift 2; PTRC=; PATH="$T/slowbin:$PATH" python3 -I "$T/pty-paste.py" "$T/pty.out" "$T/pty.in" "$mark" 0.25 "$mode" bash "$ROOT/bin/salamander" dm "$@"; PTRC=$?; PTOUT=$(<"$T/pty.out"); PTECHO=$(<"$T/pty.out.echo"); cat "$T/pty.out" >> "$AUDIT/output"; }   # <paste|term> <prompt marker> <sala dm args…>
+ptypaste() { local mode=$1 mark=$2; shift 2; PTRC=; PATH="$T/slowbin:$PATH" python3 -I "$T/pty-paste.py" "$T/pty.out" "$T/pty.in" "$mark" 0.25 "$mode" bash "$ROOT/bin/salamander" dm "$@"; PTRC=$?; PTOUT=$(<"$T/pty.out"); PTECHO=$(<"$T/pty.out.echo"); cat "$T/pty.out" >> "$AUDIT/output"; }   # <paste|term|window> <prompt marker> <sala dm args…>
 TP1=xoxb-TEST-PASTE-1111; TP2=xoxb-TEST-PASTE-2222; TP3=xoxb-TEST-PASTE-3333
 pleaks() { grep -qF -e "$TP1" -e "$TP2" -e "$TP3" "$T/pty.out"; }
 rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; rm -f "$T/pty.out.echo"
@@ -670,6 +681,42 @@ feed "$TP2"; ptypaste paste 'then Enter: ' --set-token beta-app
 rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; rm -f "$T/pty.out.echo"
 feed "$TP1"; ptypaste term "$M3" --set-token
 [ "$PTRC" = 143 ] && [ "$PTECHO" = on ] && [ -z "$(ls -A "$T/tok")" ] && ok "SIGTERM at a prompt: the terminal's echo is restored, exit 143, nothing stored" || bad "sigterm: rc=$PTRC echo=$PTECHO $(ls -A "$T/tok")"
+# The worst moment for that signal: the prompt is up, bash is about to read, nothing is typed. Bash only notes it there, and a read that waits for a line
+# holds it, echo off, until one comes. A preloaded read() raises SIGTERM exactly then (once, leaving a mark); a command that never reads the empty
+# terminal leaves no mark, and the driver sends the signal itself a second after the prompt. Either way the command must end. Both prompts.
+cat > "$T/sigread.c" <<'C'
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <sys/syscall.h>
+#include <termios.h>
+#include <unistd.h>
+/* acts on a read() of stdin when it is a terminal in line mode with nothing to read: a prompt's read (the drain on the way out reads in raw mode) */
+ssize_t read(int fd, void *buf, size_t n) {
+    const char *mark = getenv("DMTEST_SIGREAD");
+    struct termios t; struct pollfd p = {0, POLLIN, 0};
+    if (mark && fd == 0 && tcgetattr(0, &t) == 0 && (t.c_lflag & ICANON) && poll(&p, 1, 0) == 0) {
+        int m = open(mark, O_WRONLY | O_CREAT | O_EXCL, 0600);
+        if (m >= 0) { close(m); raise(SIGTERM); }
+    }
+    return syscall(SYS_read, fd, buf, n);
+}
+ssize_t __read_chk(int fd, void *buf, size_t n, size_t size) { (void)size; return read(fd, buf, n); }
+C
+cc -shared -fPIC -o "$T/sigread.so" "$T/sigread.c" || bad "the read() preload does not build"
+# The preload has to reach this bash's own read(), or the two checks pass without ever trying that moment: a bare `read` must make it leave its mark.
+rm -f "$T/sigread.mark"
+DMTEST_SIGSO="$T/sigread.so" DMTEST_SIGREAD="$T/sigread.mark" python3 -I "$T/pty-paste.py" "$T/pty.out" "$T/pty.in" 'probe:' 0.25 window bash -c 'stty -echo; printf probe:; read -r x'
+[ -e "$T/sigread.mark" ] || bad "the read() preload does not reach bash's read(): the checks of SIGTERM at a prompt's read would prove nothing here"
+sigwindow() {   # <prompt marker> <sala dm args…> → 0 when the command ended with 143, echo on, nothing stored
+    rm -rf "$T/tok"; mkdir -p "$T/tok"; chmod 700 "$T/tok"; rm -f "$T/pty.out.echo" "$T/sigread.mark"
+    DMTEST_SIGSO="$T/sigread.so" DMTEST_SIGREAD="$T/sigread.mark" ptypaste window "$@"
+    [ "$PTRC" = 143 ] && [ "$PTECHO" = on ] && [ -z "$(ls -A "$T/tok")" ]
+}
+sigwindow "$M3" --set-token && ok "SIGTERM as a prompt's read would start (every app): the command ends, exit 143, echo restored, nothing stored" || bad "sigterm window (every app): rc=$PTRC echo=$PTECHO $(ls -A "$T/tok")"
+sigwindow 'then Enter: ' --set-token beta-app && ok "SIGTERM as a prompt's read would start (one app): the command ends, exit 143, echo restored, nothing stored" || bad "sigterm window (one app): rc=$PTRC echo=$PTECHO $(ls -A "$T/tok")"
 # At a terminal where echo cannot be turned off, no prompt is shown: a prompt with echo on would show a pasted token. A fake `stty` first on PATH
 # fails, in two ways (every call, or only `stty -echo` after a good `stty -g`, which must then put the saved settings back); both prompt paths
 # (no app, one app) refuse with one line on stderr and exit 2 before anything is asked, and nothing is stored.

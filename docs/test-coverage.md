@@ -90,6 +90,15 @@ The path guarded: a PR dropped from the queue because the merge group failed its
 Covered, against the fake `gh` (it now serves a removal per pass, a merge group commit's own check runs, the re-read of the PR, and a queue answer or an enqueue refusal for the n-th ask): the retry and then a merge, with the log and the one report naming the failed run, its url and jobs; a second such drop, naming both runs, with no third try; the second pass never reading the first removal as its own; a later failure after the retry (another removal reason, a refused enqueue, a close, a deploy) still naming the first run; each case that is never retried (`docs/merge-queues.md`, *The one retry*), counted by the enqueue calls; and that no line before the last holds `done:` or `FAILED`, which log waiters stop at, a job name holding them included. A fake `sleep` keeps these cases free of real waiting.
 Not covered, and why: GitHub's real timeline and check runs (the shapes were read from real removals), and the queue itself.
 
+### `tests/dm.sh`: +2, 233 (Thu Nov 26th 2026)
+
+A signal that lands as a hidden prompt of `sala dm --set-token` is about to read. Kept because the command could outlive SIGTERM with the terminal's echo off, waiting at a token prompt until a line was typed.
+Checked, in a pty, for both prompts (every app, one app): a preloaded `read()` raises SIGTERM the first time it is called on a line-mode terminal with nothing queued; the command ends, exit 143, echo on, nothing stored.
+A command that never reads the empty terminal leaves no mark, and the driver sends the signal itself a second after the prompt; so a bare `read` is probed first, and the suite fails when the preload does not reach it
+(shown with the preload's `read` renamed: the two checks then pass, the probe fails). Both checks were shown to fail on the previous `lib/dm.sh` (the driver's 30 s deadline, echo off);
+the timing-based SIGTERM check passed on it in the same run. The driver's deadline now says which stage it was in (no prompt, lines left, signal sent or raised) with the echo flag, process state and wait channel.
+Not covered, and why: a signal during the second read bash makes after a Ctrl-D typed in the middle of a line.
+
 ### `web/tests/test_turn_state.py`: new, 34: the wheel means a turn in progress (Thu Nov 26th 2026)
 
 The path guarded: the web app's wheel, busy dots and "working" words took the registry's `busy`, which the CLI also writes while only background work runs after a turn ended, so a session waiting at its prompt read as busy and out of reach. `turnstate.py` reads the transcript for such a row (`web/README.md`, *The wheel: a turn in progress*). The worse wrong answer is hiding a turn that runs. Made-up transcript lines and registry rows in the shapes of CLI 2.1.332; no tmux, no browser, nothing outside pytest's temp folder is written.
@@ -5416,3 +5425,11 @@ command that does not end in time stopped.
 Not covered, and why: the real `gh` and real logs (no network in the suites; the log reading itself is `update_timings.py`'s, checked
 by `tests/deal.sh` on the same shapes); the unit file's command line under systemd; what a command that takes the triggers does with
 them (it is not in this repository).
+
+### The Usage report on a phone never scrolls the page sideways: `web/tests/test_usage_ui.py` (browser) changed, one test new (Thu Nov 26th 2026)
+
+The Report's grid had an `auto` column, so one item wider than the panel stretched the column and the page scrolled sideways: the opened price table on a phone, and the group control while the page typeface (it comes from outside; the machine's own is wider) had not drawn it. The column is now held to the panel and both scroll inside themselves (`static/usage.css`). The layout test also failed in CI now and then, measuring before that typeface had arrived: it now waits with the browser fixture's `settle` (fonts loaded, the panel still) where it polled up to 8 s for the panel to fit.
+
+Kept (`test_usage_ui.py`, a headless Chromium, else skipped; GitHub CI runs it): at 390x844 with touch, the week and group controls made wider than the screen by letter spacing (a stand-in, so the machine's fonts do not decide) and the price table opened: each holds more than the screen is wide, each stays within it and scrolls inside itself, and the page does not scroll sideways.
+
+Not covered, and why: the Explorer's and the Digest's own columns, which this change leaves as they were; a typeface that never arrives (the tabs, drawn in the machine's own, may then not fit their bar: the layout test fails there and says no face had loaded); a real phone's browser (touch is emulated).

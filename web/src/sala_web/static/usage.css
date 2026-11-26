@@ -19,7 +19,10 @@
   --us-fam-fable: #f9a8d4; --us-fam-opus: #c4b5fd; --us-fam-sonnet: #93c5fd; --us-fam-haiku: #86efac;
 }
 #ov-usage [hidden] { display: none; }
-#ov-usage :is(#us-v-report, #us-body):not([hidden]) { display: grid; gap: 12px; align-content: start; min-width: 0; }
+/* the Report's column is never wider than the panel, so what holds more than a line has room for (the group control, a table) scrolls inside itself.
+   With the default `auto` column one wide item stretched the column and the pane with it: the group control on a phone whose page typeface had not
+   loaded (the machine's own is wider), or the opened price table */
+#ov-usage :is(#us-v-report, #us-body):not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; min-width: 0; }
 #ov-usage button { font: inherit; color: inherit; }
 #ov-usage button:focus-visible, #ov-usage summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #ov-usage .us-note { font-size: 13px; color: var(--muted); margin: 0; }
@@ -115,7 +118,7 @@
 #ov-usage .us-empty { color: var(--faint); text-align: center; padding: 24px; }
 
 /* the notes under the report */
-#ov-usage .us-notes { font-size: 12px; color: var(--faint); line-height: 1.5; display: grid; gap: 4px; }
+#ov-usage .us-notes { font-size: 12px; color: var(--faint); line-height: 1.5; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 #ov-usage .us-notes p { margin: 0; }
 #ov-usage .us-notes b { color: var(--muted); font-weight: 600; }
 #ov-usage .us-notes details { margin-top: 4px; }
