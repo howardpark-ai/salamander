@@ -506,6 +506,8 @@ def needs_own_chromium(request) -> bool:
     """A test file that reads the clipboard (it grants clipboardReadWrite) keeps a Chromium of its own per test: the clipboard is one for
     the whole browser process, not one per browser context, so a text another test copied would be there to read."""
     path = str(request.module.__file__)
+    if request.node.name == "test_the_marks_the_render_and_the_recorder":
+        return True   # reads the page's resource timings of a first load; in a shared Chromium the app's own files were not in them
     if path not in _OWN_LAUNCH:
         _OWN_LAUNCH[path] = "clipboardReadWrite" in Path(path).read_text(encoding="utf-8")
     return _OWN_LAUNCH[path]
