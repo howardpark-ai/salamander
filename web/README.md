@@ -1729,7 +1729,7 @@ delivered message's reply needs the mark: an interrupt of their turn (the transc
 which leaves the turn as the command found it, closed, still theirs and working, or still delivered. A message they type afterwards is theirs, and a command the session answers is theirs with its answer. A turn that ends with no such line (an
 interrupt that wrote none, a command with neither output nor reply, an API error, a restart) cannot be told apart from one still working: the next reply counts as theirs.
 The answer is `{session, messages, offset, before, start, busy, cards}` for the end of the conversation (`?n=`, 200 by default) and, with `?before=`, `?after=` or `?around=`, the paging keys the transcript route gives for
-that read; `busy` is an open turn of a working session, `cards` maps a reply's uuid to its link cards (the reply carries them too). Pages hold whole turns and end after 4 MB of transcript once they hold a message, so a page can hold fewer
+that read; `busy` is an open turn of a working session (one with a turn in progress or a question to answer: *The wheel: a turn in progress*), `cards` maps a reply's uuid to its link cards (the reply carries them too). Pages hold whole turns and end after 4 MB of transcript once they hold a message, so a page can hold fewer
 messages than asked while `start` is false; the end of the conversation is cached until the transcript's size or time changes. With no session set the answer is `{configured: false}`; the session is the configured one alone, live or sleeping
 (read from its file, never woken), and nothing in a request names another.
 
@@ -2042,7 +2042,7 @@ accepted when its `Origin` matches the Host it came in on. `tests/test_hosts.py`
 
 | What | Where |
 |---|---|
-| Live sessions | `~/.claude/sessions/<pid>.json`; entries whose pid is gone (or reused, by `procStart`) are skipped. **One row per session, also for a conversation moved into a background job** (the CLI's "← for agents" view): the pane's claude stays as a viewer (`status` always `shell`, `parkedJobId` = the job's short id) and a second row, `kind` `bg` with that `jobId`, holds the live conversation under the same name. They are folded (`sessions.py` `read_live_sessions`, `job_row`): the pane's row carries the identity (name, tmux, pid), its status is the job's (working / idle / needs input), its `sessionId` is the job's (the transcript, the model and the spend are read from the live conversation), and the job's row is not listed. `/api/sessions` and the Overview carry `parkedJob` (the job id) on such a row only; the Overview's status cell shows the job's status and, beside it, `in background job eeeeeeee`, and the sidebar row's tooltip says the same. A job with no viewer row (the pane's claude gone) stays listed as its own session. `tests/test_parked_sessions.py` |
+| Live sessions | `~/.claude/sessions/<pid>.json`; entries whose pid is gone (or reused, by `procStart`) are skipped. **One row per session, also for a conversation moved into a background job** (the CLI's "← for agents" view): the pane's claude stays as a viewer (`status` always `shell`, `parkedJobId` = the job's short id) and a second row, `kind` `bg` with that `jobId`, holds the live conversation under the same name. They are folded (`sessions.py` `read_live_sessions`, `job_row`): the pane's row carries the identity (name, tmux, pid), its status is the job's (working / idle / needs input), its `sessionId` is the job's (the transcript, the model and the spend are read from the live conversation), and the job's row is not listed. `/api/sessions` and the Overview carry `parkedJob` (the job id) on such a row only; the Overview's status cell shows the job's status and, beside it, `in background job eeeeeeee`, and the sidebar row's tooltip says the same. A job with no viewer row (the pane's claude gone) stays listed as its own session. `tests/test_parked_sessions.py`. A `busy` status means a turn in progress (*The wheel: a turn in progress*) |
 | Sleeping sessions | `$SALA_SLEEP_DIR/<conversation id>` (default `<sala state>/sleeping/`; one line, `<ISO-Z time> <name>`) with the pane-map row (`SALA_SIDECAR`, default `<sala state>/pane-map.tsv`) of the same conversation id, read at each list (*Sleeping sessions*); read-only |
 | Roles, projects | `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles` (`~/stackshot` when unset; empty = no stackshot: no command, `rolesError` says so), cached 30 s; on failure the last good answer is kept |
 | Board items | stackshot's client API, `GET <client.url>/client/items?key=<session name>` with the bearer token from `$XDG_CONFIG_HOME/stackshot/client.token`, one read per live session a minute, the last good answer kept per session (*Board items*) |
@@ -2066,6 +2066,28 @@ The transcript parser shows `user` and `assistant` lines, prompts queued while b
 attachments), and messages from other sessions (as folded notices). It skips meta lines, system reminders,
 sidechains, compact summaries and every other line type. The first load reads backwards from the end of the file
 (transcripts can be very large), then the SSE stream tails it.
+
+### The wheel: a turn in progress
+
+The spinning wheel, the busy dots, the `working` badge, the chat's working mark and the Overview's `working` count mean one thing: a turn is in progress in
+that session. The registry's `status` alone does not say that: CLI 2.1.332 keeps it `busy` while only background work (subagents, workflows, teammates) runs
+after the turn has ended and the pane waits at its prompt. `turnstate.py` answers it in one place, asked by `read_live_sessions`, so every page and route say
+the same: a `busy` row whose last turn is over reads `idle`. Nothing on screen marks the background work. `waiting`, `shell`, `idle` and `sleeping` are as
+the registry says, and the chat's entry and its working mark also show for `waiting`, a question to answer. sala's own busy checks (recycle, sleep, retire,
+the typing guards), where background work counts, do not read this.
+
+The source is the transcript, where the CLI records how a turn ended; the pane's screen text changes between CLI versions and is cut in a narrow pane, and
+the registry's `statusUpdatedAt` also moves without a turn. A turn is over when the last main-chain line that says anything of it is a `system` line of subtype
+`turn_duration`, the interrupt line (unless a message written within 2 s before it went into the turn with it, which then goes on) or the line of a request that
+ended in an API error. A later `user` or `assistant` line is a turn running, whoever started it (a typed message, a task notification, another session's
+message). A subagent's lines, a compaction's, and a slash command the CLI ran by itself (its name line and its output) say nothing either way.
+
+**When the file does not say, the registry stands and the wheel spins:** no transcript, no such line within the last 32 MB, or a turn whose end the CLI did not
+write (it holds `turn_duration` back while an in-process teammate runs). A row that turned `busy` after the end, less than 30 s ago, is believed too, because a
+new turn's first line may not be written yet. Two cases can read wrong: a compaction in a session with background work writes nothing until it is done, so past
+those 30 s the wheel is off while it runs; and a new turn in such a session, whose row was `busy` all along, shows when its first line is written. Cost: only a
+`busy` row is looked at, an unchanged transcript costs one `stat`, and a grown one is read from its end back to where the last look stopped.
+`tests/test_turn_state.py` covers it.
 
 ## Run
 
