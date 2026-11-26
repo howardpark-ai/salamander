@@ -1140,7 +1140,6 @@ unset SALA_BGAGENTS_LEDGER
 # -- the help and the entry ----------------------------------------------------------------------------------------------------------------------
 $S --help > "$T/h" 2>&1; rc=$?; [ "$rc" = 0 ] && grep -q '^usage: sala bg-agents' "$T/h" && grep -q 'SALA_BGAGENTS_MAX_LOAD' "$T/h" && ok "--help prints the usage (exit 0)" || bad "help rc=$rc"
 bash "$ROOT/bin/salamander" --help | grep -q 'salamander bg-agents' && ok "sala --help lists the subcommand" || bad "top-level help"
-grep -rn 'board#[0-9]' "$ROOT/lib/bgagents.py" "$ROOT/lib/bgagents.sh" "$ROOT/tests/bgagents.sh" "$ROOT/docs/bg-agents.md" 2>/dev/null | grep -v 'board#[0-9]*[^0-9]*$' >/dev/null; \
     ! grep -nE 'board#[0-9]' "$ROOT/lib/bgagents.py" "$ROOT/lib/bgagents.sh" "$ROOT/tests/bgagents.sh" "$ROOT/docs/bg-agents.md" 2>/dev/null | grep -v 'grep' >/dev/null && ok "no literal board id in the job's files" || bad "a literal board id is in a new file"
 
 echo "bgagents: $([ $fail = 0 ] && echo pass || echo FAIL)"

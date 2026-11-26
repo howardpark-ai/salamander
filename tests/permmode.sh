@@ -99,12 +99,6 @@ waitfor '[ "$(starts "$U1")" = 3 ]' 60 && ok "relaunched again" || bad "starts a
 wait_lock; fake_up sala-test-a
 a2=$(argv_of "$(cpid a)")
 has "$a2" "--resume $U1" && ! has "$a2" "--permission-mode" && ok "defaultMode unset: the relaunch has no flag: $a2" || bad "argv after unset: $a2"
-printf '{"permissions":{"defaultMode":"x y"}}\n' > "$SET"
-"$SALA" recycle --force >/dev/null 2>&1 || bad "third recycle --force did not start"
-waitfor '[ "$(starts "$U1")" = 4 ]' 60 && ok "relaunched a third time" || bad "starts after third recycle: $(starts "$U1") $(tail -20 "$RLOG")"
-wait_lock; fake_up sala-test-a
-a3=$(argv_of "$(cpid a)")
-has "$a3" "--resume $U1" && ! has "$a3" "--permission-mode" && ok "a garbage defaultMode: the relaunch has no flag: $a3" || bad "argv after garbage: $a3"
 
 echo "== spawn --fork (a resume) carries the flag; a new spawn does not"
 echo '{"type":"user"}' > "$HOME/.claude/projects/x/$UF.jsonl"   # spawn --fork wants the conversation's transcript

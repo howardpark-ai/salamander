@@ -117,25 +117,6 @@ def test_the_hyphen_is_safe_where_the_name_is_a_token_in_the_page_s_code():
     assert 'const laneNorm' in shared and '"aws-platform"' in shared
 
 
-NODE_NORM = r"""
-const fs = require('fs');
-const src = fs.readFileSync(process.argv[1], 'utf8');
-const m = /\/\/ <lane-words>[^\n]*\n([\s\S]*?)\/\/ <\/lane-words>/.exec(src);
-eval(m[1] + 'globalThis.laneNorm = laneNorm; globalThis.LANE_LABEL = LANE_LABEL;');
-console.log(JSON.stringify([laneNorm('awsplatform'), laneNorm('aws-platform'), laneNorm('max'), laneNorm(undefined), laneNorm(null),
-                            LANE_LABEL[laneNorm('awsplatform')], LANE_LABEL['aws-platform']]));
-"""
-
-
-def test_laneNorm_in_node():
-    import shutil, subprocess
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("no node")
-    out = subprocess.run([node, "-e", NODE_NORM, str(STATIC / "shared.js")], capture_output=True, text=True, check=True).stdout
-    assert json.loads(out) == [NEW, NEW, "subscription-1", None, None, "aws-platform", "aws-platform"], out
-
-
 def test_a_saved_link_to_the_old_name_opens_the_lane_s_page(stub_sala, world, page, browser):
     p = open_lane(browser, page(), "#lane=awsplatform")
     assert p["title"] == "aws-platform" + "aws-platform lane" and p["record"]["Project"] == "wrkspc_01EXAMPLE", p

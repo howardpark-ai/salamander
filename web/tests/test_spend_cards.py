@@ -242,26 +242,6 @@ def test_a_dormant_lane_with_nothing_spent_shows_zero_not_blank(world, aws, page
     assert b["figure"] == "$0.00" and b["est"] == "Estimate at list prices since " + SINCE_WORDS, b
 
 
-def test_the_spend_answer_of_a_dormant_lane_has_its_figures_and_the_record(world, aws):
-    populate(aws)
-    record(world["rec"], ("aws-platform", "dormant", "no workspace", SINCE, "", "hand"))
-    with TestClient(world["app"]) as c:
-        for _ in range(200):
-            r = c.get("/api/spend").json()
-            if r.get("lanes") and any(x.get("monthUsd") for x in r["lanes"]):
-                break
-            time.sleep(0.05)
-        got = {x["lane"]: x for x in r["lanes"]}
-        assert got["aws-platform"]["dormant"] == {"reason": "no workspace", "since": SINCE}, r
-        assert got["aws-platform"]["monthUsd"] == 5.0 and got["aws-platform"]["sessions"], r      # the figures stay, "dormant" is added
-        assert "dormant" not in got["bedrock"] and got["bedrock"]["monthUsd"] == 0.5
-        # before the first count lands the dormant lane is a stub the card draws as pending
-        fresh = {"lanes": [], "pending": True}
-        world["app"].state.spend._swr.state = fresh
-        stub = c.get("/api/spend").json()
-        assert {"lane": "aws-platform", "dormant": {"reason": "no workspace", "since": SINCE}, "api_limit": None} in stub["lanes"], stub
-
-
 def test_models_without_a_price_and_sessions_without_a_transcript_are_said_in_plain_words(world, aws, page, browser):
     populate(aws)
     aws.transcript(B, line("u1", "claude-opus-4-8", WHEN, out=5), line("u2", "claude-opus-4-8", WHEN, out=5))

@@ -110,7 +110,6 @@ export SALA_WAKE_PER_RUN=2
 DRY=$("$SALA" watch --wake --dry-run 2>&1)
 has "$(grep sala-test-r2 <<< "$DRY")" "would be woken" && has "$(grep sala-test-r3 <<< "$DRY")" "would be woken" && has "$(grep sala-test-r4 <<< "$DRY")" "waits for a later run" && ! has "$DRY" "sala-test-r5" && ! has "$DRY" "sala-test-n" && ok "watch --wake --dry-run: r2 and r3 would be woken, r4 waits (cap 2), r5 (no line) and n (awake) are not named" || bad "wake dry: $DRY"
 asleep 22 && asleep 23 && [ "$(inboxsum)" = "$SUM0" ] && [ "$(wlogn 'wake:')" = 0 ] && ok "the dry run changed nothing: still asleep, inbox as before, nothing logged" || bad "dry run changed state"
-[ "${SALA_IDLE_SLEEP:-off}" = off ] && ok "(the tick is off for these runs: SALA_IDLE_SLEEP is the default)" || bad "SALA_IDLE_SLEEP is $SALA_IDLE_SLEEP"
 tick
 waitfor 'hasclaude r2 && hasclaude r3' 60
 hasclaude r2 && hasclaude r3 && ! asleep 22 && ! asleep 23 && [ "$(n_starts 22)" = "$((r2s + 1))" ] && [ "$(n_starts 23)" = "$((r3s + 1))" ] && ok "a full tick (the tick off) woke r2 and r3, each once, on their own conversations; r3's key was held and it woke all the same" || bad "r2/r3: starts $(n_starts 22)/$r2s $(n_starts 23)/$r3s; log: $(grep 'wake:' "$WLOG")"

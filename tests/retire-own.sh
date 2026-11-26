@@ -234,8 +234,6 @@ refuse "the row's id in place of its name" "is not the registry row's own name" 
 SALA_MASTER=sala-test-mast enq_as "$PO" retire sala-test-mast --from sala-test-owner
 [ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" nowords)" = "$NOWORDS" ] && ok "a SALA_MASTER line left in the config naming it changes nothing: owner's throwaway, queued by its spawner (note '$NOWORDS')" || { bad "retire of the name a leftover line holds: rc=$RC — $OUT"; }
 dropall
-enq_as "$PO" rename sala-test-own2 sala-test-renamed --from sala-test-owner
-[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "no --words" && ! has "$OUT" "refused here: " && ok "another verb on owner's own throwaway (rename): still needs words" || { bad "rename: rc=$RC — $OUT"; dropall; }
 enq_as "$PO" retire sala-test-own2 sala-test-own1 --from sala-test-owner   # two names: not the retire shape
 [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && ok "a retire of two names is refused by the shape" || { bad "two names: rc=$RC — $OUT"; dropall; }
 
@@ -715,8 +713,6 @@ for v in "recycle" "update" "close-shell $RB" "forget-row sala-test-ghost" "rena
 done
 enq_as "$PO" retire "$RB" --from sala-test-owner --item board#9007
 [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "accepted only with revive" && ok "a retire with an item is refused at shape time, not read as a throwaway retire" || { bad "retire + item: rc=$RC — $OUT"; dropall; }
-enq_as "$PO" retire sala-test-theirs --from sala-test-owner
-[ "$RC" != 0 ] && [ "$(queued)" = 0 ] && has "$OUT" "was started by 'sala-test-other', who is still live" && ok "retire's throwaway door unchanged: another session's throwaway is still refused" || { bad "retire door: rc=$RC — $OUT"; dropall; }
 
 echo "== the policy table and the stuck helper's rules"
 POL=$( . "$ROOT/lib/op.sh"; for c in "recycle" "update" "revive" "revive --force" "revive --only a" "revive --only a --force" "revive --only a --only b --force" "revive --only a --rescue" "revive --only" "retire a" "retire --id x" \

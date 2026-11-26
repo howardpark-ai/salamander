@@ -287,9 +287,6 @@ PY
 rc=$?; dt=$((SECONDS - t0))
 tp=$(cat "$HOME/ts.pid" 2>/dev/null || echo 0)
 [ "$rc" = 0 ] && [ "$dt" -lt 15 ] && [ "$tp" -gt 1 ] && ! kill -0 "$tp" 2>/dev/null && ok "a tailscale that hangs is stopped at the timeout (1 s here, 10 s by default; took ${dt}s) and its process is gone" || bad "hang: rc=$rc dt=$dt pid=$tp"
-js=$(bash "$SALA" machines --json 2>&1); rc=$?
-r=$(printf '%s' "$js" | python3 -c 'import json, sys; d = json.load(sys.stdin); print(len(d["machines"]), {(m["online"], m["last_seen"]) for m in d["machines"]} == {(None, None)})')
-[ "$rc" = 0 ] && [ "$r" = "7 True" ] && ok "sala machines --json with tailscale hanging: exit 0 after the default 10 s, every online and last_seen null" || bad "--json with tailscale hanging: rc=$rc $r"
 echo ok > "$HOME/ts.mode"
 
 echo "== sala host"

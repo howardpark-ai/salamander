@@ -172,23 +172,6 @@ def test_the_endpoint_filters_on_repeated_names_as_alternatives_and_ignores_name
     assert both["total"] == 2 and one["total"] == 1 and one["rows"][0][3] == "claude-opus-5"
 
 
-def test_after_a_restart_the_saved_rows_and_the_saved_replies_are_served_at_once_and_nothing_is_counted(w, monkeypatch):
-    one_hour_ago, _ = fresh_times()
-    w.registry("example-alpha-build", A)
-    w.transcript(A, reply("m1", "claude-sonnet-5-5", one_hour_ago, out=100_000), mtime=time.time())
-    with TestClient(create_app(w.settings)) as c:
-        get_usage(c, "week=0")
-        before = replies_of(c)
-        assert before["total"] == 1                                                                # the first server counted: its replies are there
-    assert (w.state / "usage-replies.json").is_file()                                              # and saved them
-    monkeypatch.setattr(U, "compute", lambda *a, **k: (_ for _ in ()).throw(AssertionError("a visit counted")))
-    with TestClient(create_app(w.settings)) as c:                                                  # a new process, the state dir as it was left
-        rows = c.get("/api/usage?week=0").json()
-        assert not rows.get("pending") and rows["weeks"][0]["total"] == pytest.approx(1)           # the saved answer, at once
-        got = c.get("/api/usage/replies?week=0").json()                                            # the saved records, read from their file: no wait, no count
-    assert got == before
-
-
 def test_an_answer_saved_before_the_replies_file_existed_says_no_count_for_the_replies_and_counts_nothing(w, monkeypatch):
     one_hour_ago, _ = fresh_times()
     w.registry("example-alpha-build", A)

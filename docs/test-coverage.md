@@ -5410,3 +5410,33 @@ command that does not end in time stopped.
 Not covered, and why: the real `gh` and real logs (no network in the suites; the log reading itself is `update_timings.py`'s, checked
 by `tests/deal.sh` on the same shapes); the unit file's command line under systemd; what a command that takes the triggers does with
 them (it is not in this repository).
+
+### A deep scan of the suites: 23 test lines and about 20 seconds of serial time removed, no behaviour left unchecked (Thu Nov 26th 2026)
+
+The weekly report asked for a scan (`+2,780` test lines in a week against a limit of `1,300`; the recipe is *Keeping the suites trim* in
+CONTRIBUTING.md). Every suite was read for tests that repeat another test's function, inputs and expected result, and for tests of
+code that is gone; almost every look-alike checked a different input, edge, layer or mode. Two findings stand out: the week's growth
+is new feature tests, not repeats, and no test imports or names anything the code has lost (a mechanical check of every
+`from sala_web import x` name against `web/src/sala_web/`). What went, each with the check that keeps its protection:
+
+- `test_spend_cards.py` the dormant-lane `/api/spend` answer (kept: `test_spend.py`'s dormant-lane test, same row, same asserts);
+  `test_spend_limit.py` two corrupt-file cases written twice (the `raw(...)` spelling stays); `test_usage.py` the endpoint refresh
+  that fails and keeps the last answer (kept: `test_usage_count.py`, which also compares the rows and the stamp); `test_usage_explorer.py`
+  the restart that serves the saved rows (kept: `test_usage_count.py`, which adds the digest and the count of calls).
+- `test_bang_pane.py` the check that no screen chrome is in the text (the kept test compares the whole text, so any chrome fails it);
+  `test_mockup.py` the viewport meta (the kept test compares the page byte for byte); `test_lane_rename.py` the node check of
+  `laneNorm` and its script (kept: `test_lane_subscription_codes.py`, same inputs plus the labels); `test_schedules.py` a job with a
+  project not flagged (the clean job of the collector test has the default project and asserts no flag); `test_new_session_projects.py`
+  the `scope: all` case of the bad-body list (the dedicated test asserts the same 400, no stackshot call, and more).
+- `permmode.sh` the third recycle with a garbage `defaultMode` (about 9 s; the unit check and the `resume_cmd` check keep the value out of
+  the line, and the unset case keeps the recycle path); `machines.sh` the `sala machines --json` run against a hanging tailscale (about
+  10 s; the process-stop check just above it and `machinespost.sh`'s hang case keep the timeout, the other modes keep the nulls);
+  `retire-own.sh` a no-words rename and a retire of another's throwaway that repeat checks of the same section (`refuse` at the top and
+  the no-words loop); `reauth.sh` the stray `SALA_CUE_TARGET`, a variable nothing reads (the plain run above it is the same check);
+  `sleeptick.sh` a check of the harness's own variable that cannot fail; `wrapup.sh` a check that prints `ok` on both branches;
+  `bgagents.sh` a discarded `grep` whose result nothing used; `briefing/guard.sh` the loopback listener check of `post_slack`'s
+  payload (`briefing/botpost.sh` asserts the same body, header and request count).
+
+Not done, and why: the scan listed more than a hundred more one-line repeats in the shell suites (each under a second); they were left
+because the repeat was of a neighbouring case, not of the same case, or the saving was too small to be worth a doubt. Slow and
+flaky tests were listed in the PR, not touched.
