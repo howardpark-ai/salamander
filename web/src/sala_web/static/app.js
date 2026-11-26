@@ -254,15 +254,16 @@ async function saveList(key, compute) {
    - its strip (#chat-strip-wait and #chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner,
      what is in motion, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the server marks the session in
      api/sessions, sessions.py). What waits on the owner is PINNED: #chat-strip-wait is sticky at the top of the pane, one line ("<group> · 3", a button; the group's name is the one stackshot serves)
-     that opens the list, height-capped; with nothing waiting it is not drawn. The motion lines and the switch scroll with the thread. The switch shows and
-     hides the kept-back lines in the thread (below);
+     that opens the list, height-capped; with nothing waiting it is not drawn. When api/chat also carries `onIt` (the items the session is contact of or
+     observer on), that line is a bar of two tabs, the group's and "On it", with a chevron: one list open at a time, drawn while either list has a row.
+     The motion lines and the switch scroll with the thread. The switch shows and hides the kept-back lines in the thread (below);
    - the assistant's messages sit to the left at a 68ch measure (style.css, body.chat-session).
    - the turns the owner did not start are kept back by the SERVER (chatkeep.py: the transcript reads and the stream of this one session carry one "kept" message
      in place of each such turn, and the turns he started whole, as for any session). A kept message is one quiet line in the thread (renderKept); the strip's
      switch shows or hides them all (body.chat-kept-on), with their count of today (api/chat keptLines). Nothing here decides who started a turn.
    Everything the strip shows is read from api/chat. /chat is only an address now: the server redirects it to #s=<the session> (app.py). */
 const CHAT_MARKS_MS = 25000, CHAT_STRIP_MS = 350;
-const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false, waitOpen: false };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines); waitOpen: the pinned line is opened (closed at every page load)
+const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false, waitOpen: false, waitTab: "move", waitRove: "move" };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines); waitOpen: a pinned list is opened (closed at every page load); waitTab: which one, or the one last opened; waitRove: the tab the Tab key reaches
 const chatEntryOn = () => !!(chatView.data && chatView.data.configured);
 // the session row the entry stands for: hidden from the list while the entry exists
 const isChatRow = (s) => !!s && s.chat === true && chatEntryOn();
@@ -359,8 +360,24 @@ function buildChatStrip() {
   const waitLine = el("span", { class: "wait-line" });
   const waitToggle = el("button", { type: "button", class: "wait-toggle", "aria-expanded": "false", "aria-controls": "chat-strip-wait-panel" },
     waitLine, el("span", { class: "chev", "aria-hidden": "true" }));
-  waitToggle.addEventListener("click", () => { chatView.waitOpen = !chatView.waitOpen; paintChatWait(); });
-  $("#chat-strip-wait").replaceChildren(waitToggle, wait);
+  waitToggle.addEventListener("click", chatToggleList);
+  // the second list and the bar of two tabs that stands in the pinned line's place while api/chat carries it
+  const onitSum = el("p", { class: "wait-sum", hidden: true }), onitList = el("ul", { class: "wait-list" }), onitNone = el("p", { class: "wait-empty", ...tx("chat.onit.none") });
+  const onit = el("section", { class: "wait", id: "chat-strip-onit-panel", hidden: true, role: "tabpanel", "aria-labelledby": "chat-strip-tab-onit" }, onitSum, onitList, onitNone,
+    el("p", { class: "wait-cap", ...tx("chat.onit.note") }));
+  const tab = (key, panel, ...kids) => {
+    const b = el("button", { type: "button", class: "wait-tab", role: "tab", id: "chat-strip-tab-" + key, "data-list": key, "aria-selected": "false", "aria-controls": panel }, ...kids);
+    b.addEventListener("click", () => chatPickList(key));
+    return b;
+  };
+  const moveLine = el("span", { class: "wait-tab-line" }), onitLine = el("span", { class: "wait-tab-line" }), lateDot = el("span", { class: "wait-latedot", "aria-hidden": "true", hidden: true });
+  const moveTab = tab("move", "chat-strip-wait-panel", moveLine), onitTab = tab("onit", "chat-strip-onit-panel", onitLine, lateDot);
+  const tabs = el("div", { class: "wait-tabs", role: "tablist", ...tx("chat.onit.tabs", null, "aria-label") }, moveTab, onitTab);
+  tabs.addEventListener("keydown", chatTabKeys);
+  const chevron = el("button", { type: "button", class: "wait-chev", "aria-expanded": "false" }, el("span", { class: "chev", "aria-hidden": "true" }));
+  chevron.addEventListener("click", chatToggleList);
+  const bar = el("div", { class: "wait-bar", hidden: true }, tabs, chevron);
+  $("#chat-strip-wait").replaceChildren(waitToggle, bar, wait, onit);
   const moList = el("ul", { class: "mo-list" });
   const motion = el("section", { class: "motion", ...tx("chat.motion.h", null, "aria-label") }, el("span", { class: "lbl", ...tx("chat.motion.h") }), moList);
   // the switch: shows or hides the kept-back lines of the thread (a class on the body; the server already holds back the turns the owner did not start)
@@ -371,26 +388,129 @@ function buildChatStrip() {
   const kept = el("div", { class: "kept-row" },
     el("label", { class: "kept-toggle", for: "chat-strip-kept" }, sw, swText, countEl));
   $("#chat-strip").replaceChildren(motion, kept);
-  chatView.ui = { waitList, waitNote, waitLine, waitToggle, wait, moList, swText, countEl };
+  chatView.ui = { waitList, waitNote, waitLine, waitToggle, wait, onit, onitSum, onitList, onitNone, bar, moveTab, moveLine, onitTab, onitLine, lateDot, chevron, moList, swText, countEl };
 }
-// the pinned line and its list: not drawn with nothing waiting; the list shows only while the line is opened
+// the pinned line (or the chevron beside the tabs) closes the open list, or opens the one last open
+function chatToggleList() { chatView.waitOpen = !chatView.waitOpen; paintChatWait(); }
+// a tab opens its list; a press on the open one's tab closes it
+function chatPickList(key) {
+  const again = chatView.waitOpen && chatView.waitTab === key;
+  Object.assign(chatView, { waitTab: key, waitRove: key, waitOpen: !again });
+  paintChatWait();
+}
+// the arrow keys, Home and End move between the tabs, as in a tab list; Enter or Space (a button's own click) opens the one reached
+function chatTabKeys(e) {
+  const tabs = [chatView.ui.moveTab, chatView.ui.onitTab], i = tabs.indexOf(e.target);
+  const to = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: tabs.length - 1 }[e.key];
+  if (i < 0 || to === undefined) return;
+  e.preventDefault();
+  const next = tabs[(to + tabs.length) % tabs.length];
+  chatView.waitRove = next.dataset.list;
+  for (const t of tabs) t.setAttribute("tabindex", t === next ? "0" : "-1");
+  next.focus();
+}
+// the pinned line and its list: not drawn with nothing in it; a list shows only while it is opened. With no second list (api/chat has no `onIt`) it is the one
+// line and the owner's moves; with one it is the bar of two tabs (paintChatBar), drawn while either list has a row
 function paintChatWait() {
-  const u = chatView.ui, n = ((chatView.data && chatView.data.waiting) || []).length, open = chatView.waitOpen && n > 0;
-  $("#chat-strip-wait").hidden = !n;
-  u.wait.hidden = !open;
-  const group = chatGroupName(chatView.data && chatView.data.group);
+  const u = chatView.ui, d = chatView.data || {}, n = (d.waiting || []).length, onIt = Array.isArray(d.onIt) ? d.onIt : null;
+  if (!onIt) Object.assign(chatView, { waitOpen: chatView.waitOpen && chatView.waitTab === "move", waitTab: "move", waitRove: "move" });   // an open second list closes as it goes
+  const shown = n > 0 || !!(onIt && onIt.length), open = chatView.waitOpen && shown;
+  $("#chat-strip-wait").hidden = !shown;
+  u.wait.hidden = !(open && chatView.waitTab === "move");
+  const group = chatGroupName(d.group);
   u.waitLine.textContent = tl("chat.strip.line", { n, group });
   u.wait.setAttribute("aria-label", u.waitLine.textContent);
   u.waitToggle.setAttribute("aria-expanded", String(open));
   u.waitToggle.title = tl(open ? "chat.strip.collapse" : "chat.strip.expand", { group });
+  paintChatBar(onIt, n, group, open);
 }
-function chatWaitRow(w) {
+// the two tabs, their counts, the late dot and the chevron; the second list's own lines. `onIt` null: the bar is away and the first list is no tab's panel
+function paintChatBar(onIt, n, group, open) {
+  const u = chatView.ui;
+  u.waitToggle.hidden = !!onIt;
+  u.bar.hidden = !onIt;
+  u.onit.hidden = !(onIt && open && chatView.waitTab === "onit");
+  if (!onIt) { u.wait.removeAttribute("role"); u.wait.removeAttribute("aria-labelledby"); return; }
+  u.wait.setAttribute("role", "tabpanel");
+  u.wait.setAttribute("aria-labelledby", "chat-strip-tab-move");
+  const now = Date.now(), late = onIt.filter((w) => chatBackTone(w, now)).length, lateTip = late ? tl("chat.onit.late", { n: late }) : "";
+  u.moveLine.textContent = u.waitLine.textContent;
+  u.onitLine.textContent = tl("chat.onit.line", { n: onIt.length });
+  u.onitTab.setAttribute("aria-label", lateTip ? u.onitLine.textContent + ", " + lateTip : u.onitLine.textContent);
+  u.lateDot.hidden = !late;
+  u.lateDot.title = lateTip;
+  u.onitSum.hidden = !late;
+  u.onitSum.textContent = lateTip;
+  u.onitList.hidden = !onIt.length;
+  u.onitNone.hidden = onIt.length > 0;
+  for (const [key, tab, count] of [["move", u.moveTab, n], ["onit", u.onitTab, onIt.length]]) {
+    tab.setAttribute("aria-selected", String(open && chatView.waitTab === key));
+    tab.setAttribute("tabindex", chatView.waitRove === key ? "0" : "-1");
+    tab.classList.toggle("zero", !count);
+  }
+  const listName = chatView.waitTab === "onit" ? tl("chat.onit.tab") : group;
+  u.chevron.setAttribute("aria-expanded", String(open));
+  u.chevron.setAttribute("aria-controls", chatView.waitTab === "onit" ? "chat-strip-onit-panel" : "chat-strip-wait-panel");
+  u.chevron.title = tl(open ? "chat.strip.collapse" : "chat.strip.expand", { group: listName });
+  u.chevron.setAttribute("aria-label", u.chevron.title);
+}
+// A row of the second list is late when its item's state has stood for more than CHAT_LATE_DAYS, red past CHAT_RED_DAYS. A held item waits for its day by
+// design and is never late, and neither is one with no time.
+const CHAT_LATE_DAYS = 2, CHAT_RED_DAYS = 5;
+const chatBackAge = (w, now) => (!w.held && w.since ? (now / 1000 - w.since) / 86400 : 0);
+function chatBackTone(w, now) {
+  const days = chatBackAge(w, now);
+  return days > CHAT_RED_DAYS ? "red" : days > CHAT_LATE_DAYS ? "late" : "";
+}
+// "Mon Jan 5th"; in Korean the formatter's month, day and weekday, with no space before the bracket. `fmt` formats those three
+const CHAT_DAY_PARTS = { weekday: "short", month: "short", day: "numeric" };
+function chatDayWords(d, fmt) {
+  if (SalaI18n.lang === "ko") return fmt.format(d).replace(" (", "(");
+  const p = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value])), n = Number(p.day), tens = n % 100;
+  return p.weekday + " " + p.month + " " + n + (tens >= 11 && tens <= 13 ? "th" : { 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th");
+}
+// since when, in the page's zone: today the time, in the six days before it the weekday and the time, older the date
+const CHAT_YMD = zoneFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" });
+const CHAT_HM = zoneFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const CHAT_WEEKDAY = zoneFormat(() => SalaI18n.locale(), { weekday: "short" });
+const CHAT_DAY = zoneFormat(() => SalaI18n.locale(), CHAT_DAY_PARTS);
+function chatSinceText(seconds, now) {
+  const d = new Date(seconds * 1000), days = (Date.parse(CHAT_YMD.format(now)) - Date.parse(CHAT_YMD.format(d))) / 86400000;
+  const t = days <= 0 ? CHAT_HM.format(d) : days < 7 ? CHAT_WEEKDAY.format(d) + " " + CHAT_HM.format(d) : chatDayWords(d, CHAT_DAY);
+  return tl("chat.onit.since", { t });
+}
+// the day a held item comes back is a calendar day as sent: it is worded in UTC, so no zone moves it
+const chatDayAsSent = (iso) => chatDayWords(new Date(iso + "T00:00:00Z"), new Intl.DateTimeFormat(SalaI18n.locale(), { ...CHAT_DAY_PARTS, timeZone: "UTC" }));
+// who moves a row, as a person reads it: this session by the name in its header; a builder's or a main agent's session by its project and role, which is a name
+// and no word of the interface, so it reads the same in both languages ("x-demo-engineer" reads "demo builder", "x-demo-main" reads "demo main": of three parts
+// or more the first, the scope, is left out); any other name as sent
+function chatMoverName(mover, d) {
+  if (mover === d.session) return d.name;
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*-(engineer|main)$/.test(mover)) return mover;
+  const parts = mover.split("-"), role = parts.pop() === "engineer" ? "builder" : "main";
+  return [...(parts.length > 1 ? parts.slice(1) : parts), role].join(" ");
+}
+// a row of the second list: the id and the title as the first list draws them, then who moves it (the name as sent is its tooltip), since when, the days of a
+// late one, and the day a held one comes back. All of it is set as text.
+function chatBackRow(w, now) {
+  const d = chatView.data, tone = chatBackTone(w, now), meta = el("span", { class: "wait-meta" });
+  if (w.mover) meta.append(el("span", { class: "who", title: w.mover, text: chatMoverName(w.mover, d) }));
+  if (w.since) meta.append(el("span", { class: tone, text: chatSinceText(w.since, now) }));
+  if (tone) meta.append(el("span", { class: tone + " age", text: tl("chat.onit.days", { n: Math.floor(chatBackAge(w, now)) }) }));
+  if (w.held && w.until) meta.append(el("span", { class: "park", text: tl("chat.onit.parked", { d: chatDayAsSent(w.until) }) }));
+  const row = chatWaitRow(w, false);
+  row.classList.add("back-row");
+  if (tone) row.classList.add(tone);
+  row.append(meta);
+  return row;
+}
+function chatWaitRow(w, tagNew = true) {
   // the board id (as stackshot wrote it) is a plain label before the title; the whole title is the one link to the item (no url: plain text). A row with no subject
   // shows the id as its title, once.
   const subj = el("span", { class: "wait-subj" }), title = w.subject || w.id;
   if (w.id && w.subject) subj.append(el("span", { class: "wait-id", text: w.id }));
   subj.append(w.url ? el("a", { class: "wait-link", href: w.url, target: "_blank", rel: "noopener noreferrer", text: title }) : el("span", { class: "wait-title", text: title }));
-  if (chatView.fresh.has(w.id)) subj.append(el("span", { class: "new", ...tx("chat.wait.new") }));
+  if (tagNew && chatView.fresh.has(w.id)) subj.append(el("span", { class: "new", ...tx("chat.wait.new") }));
   return el("li", { class: "wait-row" }, subj);
 }
 function paintChatStrip() {
@@ -398,7 +518,9 @@ function paintChatStrip() {
   if (!chatEntryOn()) return;
   if (!chatView.ui) buildChatStrip();
   const u = chatView.ui, waiting = d.waiting || [], motion = d.motion || [];
-  u.waitList.replaceChildren(...waiting.map(chatWaitRow));
+  u.waitList.replaceChildren(...waiting.map((w) => chatWaitRow(w)));
+  const now = Date.now();
+  u.onitList.replaceChildren(...(Array.isArray(d.onIt) ? d.onIt : []).map((w) => chatBackRow(w, now)));
   paintChatWait();
   u.moList.replaceChildren(...(motion.length ? motion.map((m) => el("li", { class: "mo", text: m.text })) : [el("li", { class: "mo none", ...tx("chat.motion.none") })]));
   u.swText.textContent = tl("chat.kept.toggle", { name: d.name });

@@ -120,7 +120,8 @@ def test_what_waits_on_the_owner_is_a_pinned_line_before_the_strip_in_the_pane()
     assert 'el("button", { type: "button", class: "wait-toggle", "aria-expanded": "false"' in build and '"aria-controls": "chat-strip-wait-panel"' in build
     assert 'class: "wait", id: "chat-strip-wait-panel", hidden: true' in build, "a page load starts with the list closed"
     paint = body_of(APP_JS, "function paintChatWait()")
-    assert '$("#chat-strip-wait").hidden = !n;' in paint and '"aria-expanded"' in paint and '"chat.strip.line"' in paint, "nothing waiting: no line"
+    assert '$("#chat-strip-wait").hidden = !shown;' in paint and '"aria-expanded"' in paint and '"chat.strip.line"' in paint, "nothing in either list: no line"
+    assert "shown = n > 0 || !!(onIt && onIt.length)" in paint, "with no second list, nothing waiting is still no line"
 
 
 def test_the_composer_is_sala_s_own_and_nothing_here_draws_another():
