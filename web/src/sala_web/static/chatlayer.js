@@ -2,10 +2,11 @@
 /* The chat session's own layer: what draws that session's thread when sala's setting SALA_CHAT_LAYER is on (config.py chat_layer; the server puts this
    file and chatlayer.css in the page only then). It copies nothing of the session view. The header, the composer with its pending bubbles and its send,
    the drawing of a message (renderMessage, so replyNodes and linkCard), the scroll behaviour, the pinned "your move" strip and the sidebar entry are
-   app.js's, as for every session. app.js hands over in five places: chatSync (sync here) and the open stream's reset, append, live and status events.
+   app.js's, as for every session, and so is the live block of a running "!" command (applyLive). app.js hands over in four places: chatSync (sync here) and the open stream's reset, append and status events.
 
-   WHAT IS DRAWN is GET api/chat/thread (chatthread.py states the rule: the owner's messages and the replies to them) and the page's own pending bubbles.
-   No line of the stream is drawn as a message here.
+   WHAT IS DRAWN is GET api/chat/thread?replies=1 (chatthread.py states the rule: the owner's messages and the replies to them, with a reply's sent images,
+   asked questions, API error and interrupt) and the page's own pending bubbles. No line of the stream is drawn as a message here. A question is drawn here
+   (askedNode: the session view has no drawing of one) to be read; it is answered as any dialog is, from the composer or the Terminal tab.
 
    STAYING LIVE needs no stream of its own: the session's stream already says when the transcript or the status changed. Each reset, append and status
    event asks for the newest page again (one read at a time, MIN_GAP_MS apart) and merges it by uuid into what is shown. The newest page is read, and not
@@ -120,6 +121,7 @@ window.SalaThreadLayer = (() => {
       chatScroll.pinned = true; chatScroll.unseen = false;
     }
     wire();
+    applyLive(null);    // a reset takes the live block with it, as in the session view: the stream sends it again while the command runs
     olderReset(null);   // the session view's paging of the whole transcript stays off here
     noteModel(d.messages);
     st.turn = null;
@@ -152,7 +154,8 @@ window.SalaThreadLayer = (() => {
 
   /* ---------- reading the thread ---------- */
   async function read(name, query) {
-    const r = await fetch("api/chat/thread" + query, { cache: "no-store", signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
+    const url = "api/chat/thread" + query + (query ? "&" : "?") + "replies=1";
+    const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const d = await r.json();
     if (!d || d.session !== name || !Array.isArray(d.messages)) throw new Error("not this session's thread");
@@ -185,7 +188,7 @@ window.SalaThreadLayer = (() => {
       if (messages.length || page.offset || !mine.items.length) Object.assign(mine, mergePage(mine, { messages, before: back.before, start: !!back.start }));
       mine.busy = !!page.busy; mine.loaded = true; mine.failed = false; mine.delay = RETRY_MS;
       // the transcript's copy of a message takes its pending bubble's place
-      for (const m of mine.items) if (m.role === "user" && !had.has(m.uuid)) { const p = matchPending(m, !first); if (p) dropPending(p); }
+      for (const m of mine.items) if (ownWords(m) && !had.has(m.uuid)) { const p = matchPending(m, !first); if (p) dropPending(p); }
       for (const m of mine.bangs.splice(0)) { const p = matchPending(m, true); if (p) dropPending(p); }
       const end = mine.items.length ? mine.items[mine.items.length - 1].uuid : null;
       if (!first && end !== last && !chatScroll.pinned) chatScroll.unseen = true;
@@ -240,21 +243,34 @@ window.SalaThreadLayer = (() => {
   }
 
   /* ---------- drawing ---------- */
+  // a question of an AskUserQuestion call, its options numbered as the session's dialog numbers them; words as written, links tappable
+  function askedNode(q) {
+    const part = (tag, cls, text) => (text ? el(tag, { class: cls }, ...linkNodes(text)) : null);
+    return el("div", { class: "cl-ask" }, part("div", "cl-ask-head", q.header), part("div", "cl-ask-q", q.question),
+      el("ol", { class: "cl-ask-opts" }, ...q.options.map((o) => el("li", {}, part("div", "cl-ask-label", o.label),
+        part("div", "cl-ask-desc", o.description), part("pre", "cl-ask-preview", o.preview)))));
+  }
   // a message's node, drawn by the session view's own renderMessage and kept while the message is unchanged
   function nodeOf(m) {
     const sig = JSON.stringify(m), have = st.nodes.get(m.uuid);
     if (have && have.sig === sig) return have.node;
     const frag = document.createDocumentFragment();
     renderMessage(m, { into: frag, older: true });
-    const node = frag.firstElementChild;
+    let node = frag.firstElementChild;
+    const asked = m.blocks.filter((b) => b.kind === "question");
+    if (asked.length) {
+      if (!node) node = el("div", { class: "msg " + m.role, "data-uuid": m.uuid });   // renderMessage draws nothing for questions alone
+      node.append(...asked.map(askedNode));
+    }
     st.nodes.set(m.uuid, { sig, node });
     return node;
   }
-  // #chat holds `want`, in order; only what differs is touched. The session view's own spinner stays (hidden by chatlayer.css). True when anything moved
+  // #chat holds `want`, in order; only what differs is touched. The session view's own spinner (hidden by chatlayer.css) and its live block of a running
+  // "!" command stay, under what is drawn. True when anything moved
   function place(chat, want) {
     const keep = new Set(want);
     let changed = false;
-    for (const n of [...chat.children]) if (!keep.has(n) && !n.classList.contains("inflight")) { n.remove(); changed = true; }
+    for (const n of [...chat.children]) if (!keep.has(n) && !n.matches(".inflight, .live-bang")) { n.remove(); changed = true; }
     let at = chat.firstElementChild;
     for (const n of want) {
       if (n === at) { at = at.nextElementSibling; continue; }
@@ -303,12 +319,14 @@ window.SalaThreadLayer = (() => {
     ui.older.textContent = st.olderBusy ? tl("app.older.loading") : st.start ? tl("app.older.start") : st.olderFailed ? tl("app.older.failed") : "";
     ui.older.classList.toggle("at-start", st.start && !st.olderBusy);
   }
+  // a message the owner wrote: the interrupt line stands on their side of the thread and is none
+  const ownWords = (m) => m.role === "user" && !m.interrupt;
   // the owner's last message: the one still on its way, else the newest in the thread
   function ownerLast() {
     const sent = state.pending.filter((p) => p.session === st.name && p.status !== "failed" && p.status !== "held");
     if (sent.length) return sent[sent.length - 1].text;
     for (let i = st.items.length - 1; i >= 0; i--) {
-      if (st.items[i].role === "user") return st.items[i].blocks.filter((b) => b.kind === "text").map((b) => b.text).join("\n");
+      if (ownWords(st.items[i])) return st.items[i].blocks.filter((b) => b.kind === "text").map((b) => b.text).join("\n");
     }
     return "";
   }

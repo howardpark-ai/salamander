@@ -23,7 +23,8 @@ none itself):
                                   nothing else, ?n=200 with at most one of ?before=, ?after= and ?around= as the transcript route takes them (400 on a bad one)
                                   -> {session, messages, offset, before, start, busy, cards} (an older, newer or around page carries that read's own paging
                                   keys in place of offset); {configured: false} with no session set. The session is the configured one alone: nothing of the
-                                  request names a session. Read-only
+                                  request names a session. ?replies=1 adds the rest of a reply (the page's layer sends it): sent images, asked questions,
+                                  an API error's line and an interrupt. Read-only
   GET  /manifest.webmanifest      the web app manifest (the page is installable as an app; static/manifest.webmanifest)
   GET  /sw.js                     the service worker, at the root so its scope is the whole site (static/sw.js)
   GET  /mockup/<n>                a page `sala mockup add` stored under that number (mockup.py; 404 for any other address under /mockup), as
@@ -2282,13 +2283,14 @@ def create_app(settings: Settings | None = None) -> Starlette:
         before, around, after = (request.query_params.get(k) for k in ("before", "around", "after"))
         if sum(x is not None for x in (before, around, after)) > 1:
             return _err(400, "give one of before, around and after")
+        rest = request.query_params.get("replies") == "1"   # the images, questions, API errors and interrupts of the replies too
         host = request.headers.get("host", "")   # a link to a mockup page "on this site" is read against it (the reply's cards)
         rows = await run_in_threadpool(_live_and_sleeping)
         sess = next((x for x in rows if x.name == name), None)
         try:
             doc = await run_in_threadpool(lambda: CTH.answer(
                 name=name, sess=sess, projects_dir=settings.projects_dir, owner=owner_name(), n=n, before=before, around=around, after=after,
-                host=host, mockups_dir=settings.mockups_dir, cache=thread_cache))
+                host=host, mockups_dir=settings.mockups_dir, cache=thread_cache, rest=rest))
         except TR.BadCursor as e:
             return _err(400, str(e))
         return JSONResponse(doc, headers={"Cache-Control": "no-store"})
