@@ -565,13 +565,17 @@ def test_with_a_mouse_a_title_link_has_no_padding_of_its_own(served, browser, mo
 
 
 # The selected tab's underline against its list: at rest where the list's first line starts, then scrolled to the end: how far under the underline the list is
-# cut, and what of the list answers in the 4 px under it.
+# cut, what of the list answers in the 4 px under it, and (`below`) at how many of the same places across it answers just under the cut, so an empty `inside` is
+# not a probe that finds nothing anywhere. elementFromPoint answers for the 1 px square that starts at its point, so the last place wholly in the gap is 3 px
+# under the underline: from 3.5 the square already reaches the list.
 CUT = """(() => { const w = document.getElementById('__PANEL__'); w.style.scrollBehavior = 'auto'; w.scrollTop = 0;
   const under = document.querySelector('#chat-strip-wait .wait-tab[aria-selected="true"]').getBoundingClientRect().bottom;
   const first = [...w.children].find((n) => n.getClientRects().length).getBoundingClientRect().top;
-  w.scrollTop = w.scrollHeight; const r = w.getBoundingClientRect(), inside = [];
-  for (const x of [r.left + 20, r.left + r.width / 2, r.right - 20]) for (const dy of [0.5, 1.5, 2.5, 3.5]) { const n = document.elementFromPoint(x, under + dy); if (n && n.closest('.wait')) inside.push([x, dy, n.className]); }
-  return { rest: first - under, gap: r.top - under, scrolled: Math.round(w.scrollTop), inside }; })()"""
+  w.scrollTop = w.scrollHeight; const r = w.getBoundingClientRect(), inside = []; let below = 0;
+  const list = (x, y) => { const n = document.elementFromPoint(x, y); return n && n.closest('.wait') ? n : null; };
+  for (const x of [r.left + 20, r.left + r.width / 2, r.right - 20]) { for (const dy of [0, 1, 2, 3]) { const n = list(x, under + dy); if (n) inside.push([x, dy, n.className]); }
+    if (list(x, r.top + 1)) below++; }
+  return { rest: first - under, gap: r.top - under, scrolled: Math.round(w.scrollTop), inside, below }; })()"""
 
 
 @pytest.mark.parametrize("size", SIZES)
@@ -583,5 +587,5 @@ def test_a_list_scrolled_to_its_end_is_cut_below_the_selected_tabs_underline_not
         click(browser, tab)
         browser.settle(PIN)
         got = browser.evaluate(CUT.replace("__PANEL__", panel))
-        assert got["scrolled"] > 0 and got["gap"] >= 3.5 and got["inside"] == [], (panel, got)
+        assert got["scrolled"] > 0 and got["gap"] >= 3.5 and got["inside"] == [] and got["below"] == 3, (panel, got)
         assert 3.5 <= got["rest"] <= 6.5, (panel, "at rest the list starts about where it did", got)
