@@ -13,10 +13,15 @@ and 320), with api/chat replaced in the page (but for the case of an item that b
   - while the read is unavailable the strip is the one line, and the bar comes and goes with the read;
   - an item that becomes the owner's move stays in the second tab until the first list holds it, then leaves it, the counts and the late dot following;
   - a Korean page names the tab and words the rows in Korean;
-  - a session that is not the chat session has no tabs, and looks the same whether the list is there or not;
+  - a session that is not the chat session has no tabs, looks the same whether the list is there or not, and the same again with every style rule of the strip's
+    pinned box taken out of the page, with a mouse and on a touch screen;
   - markup in every field is text;
   - NO SIDEWAYS SCROLL, at 1280, 390, 360 and 320 px, closed and on each tab, with long ids, subjects, movers, group names and dates; open, the box stays within
-    40vh and the list scrolls inside it; on a touch screen the tabs, the chevron and every row give 44 px.
+    40vh and the list scrolls inside it; on a touch screen the tabs, the chevron and every row give 44 px;
+  - on a touch screen, 390 x 844 and 1280 x 800, on both lists a finger anywhere along a title link has 44 px of that link (read with elementFromPoint), no two
+    links' areas overlap, the line under a title takes none of those taps, the rest of the row is no link and a one-line row is no taller; with a mouse the
+    link has no padding of its own;
+  - under the bar a list scrolled to its end is cut 4 px below the selected tab's underline, never on it.
 
 What a wrong answer costs: a promise nobody sees, a bar that pushes the thread off a phone, a list the keyboard cannot reach, a page that scrolls sideways, a chat
 change that leaks into every session's view. Runs in a headless Chromium when one is installed (conftest.py: `served`, `browser`), else is skipped; GitHub CI runs
@@ -379,13 +384,30 @@ def test_an_item_that_becomes_the_owners_move_leaves_the_second_tab_and_its_coun
 
 
 # ── only the chat session ────────────────────────────────────────────────────
+# Every element outside the pinned box, as laid out, then again with every style rule that names the box deleted from the page's sheets: in one evaluation, so
+# nothing else can move between the two. (A sheet from another origin cannot be read and holds none of the app's rules.)
+UNSTYLED = """(() => {
+  const read = () => [...document.querySelectorAll('body, body *')].filter((n) => !n.closest('#chat-strip-wait')).map((n) => { const r = n.getBoundingClientRect(), c = getComputedStyle(n);
+    return [n.tagName, n.id, n.getAttribute('class'), r.left, r.top, r.width, r.height, c.display, c.position, c.zIndex, c.paddingTop, c.paddingBottom, c.marginTop, c.marginBottom, c.overflowY].join(' '); });
+  const before = read(); let gone = 0;
+  const strip = (list) => { for (let i = list.cssRules.length - 1; i >= 0; i--) { const r = list.cssRules[i];
+    if (r.selectorText !== undefined) { if (r.selectorText.includes('#chat-strip-wait')) { list.deleteRule(i); gone++; } } else if (r.cssRules) strip(r); } };
+  for (const sheet of document.styleSheets) { try { sheet.cssRules; } catch (e) { continue; } strip(sheet); }
+  const after = read();
+  return { gone, nodes: before.length, changed: before.map((x, i) => [x, after[i]]).filter(([a, b]) => a !== b).slice(0, 5) }; })()"""
+
+
+@pytest.mark.parametrize("finger", [False, True], ids=["mouse", "touch"])
 @pytest.mark.parametrize("size", SIZES)
-def test_a_second_session_has_no_tabs_and_looks_the_same_with_the_list_there_or_not(served, browser, monkeypatch, size):
+def test_a_second_session_has_no_tabs_and_looks_the_same_with_the_list_there_or_not(served, browser, monkeypatch, size, finger):
     transcript_file(served).write_text(code_transcript())
     seen = []
     for extra in ({}, {"onIt": promises()}):
         open_page(browser, served, monkeypatch, size, api_chat(session="demo-someone-else", waiting=waiting(), **extra), chat="demo-someone-else")
         assert wait_for(browser, "!document.querySelector('#side-chat').hidden", 8.0)
+        if finger:
+            browser.touch()
+        assert wait_for(browser, f"matchMedia('(pointer: coarse)').matches === {json.dumps(finger)}", 10.0)
         browser.settle("document.querySelector('#chat')")
         strip = browser.evaluate("""(() => { const p = document.querySelector('#chat-strip-wait');
           return { hidden: p.hidden, rects: p.getClientRects().length, tabs: document.querySelectorAll('#chat-pane [role=tab], #chat-pane [role=tablist]').length, kids: p.children.length,
@@ -393,6 +415,8 @@ def test_a_second_session_has_no_tabs_and_looks_the_same_with_the_list_there_or_
         assert strip == {"hidden": True, "rects": 0, "tabs": 0, "kids": 0, "strip": True}, (extra, strip)
         seen.append((browser.evaluate(MEASURE_PARITY), browser.evaluate("""Math.round(document.querySelector('#chat').getBoundingClientRect().top
           - document.querySelector('#chat-pane').getBoundingClientRect().top + document.querySelector('#chat-pane').scrollTop)""")))
+        bare = browser.evaluate(UNSTYLED)
+        assert bare["gone"] > 40 and bare["nodes"] > 40 and bare["changed"] == [], (extra, bare)      # no rule of the box reaches this session's view
     assert seen[0] == seen[1], seen
 
 
@@ -472,6 +496,96 @@ def test_on_a_touch_screen_the_tabs_the_chevron_and_every_row_give_a_44px_target
     got = browser.evaluate("""(() => { const p = document.querySelector('#chat-strip-wait'), box = (n) => n.getBoundingClientRect();
       return { tabs: [...p.querySelectorAll('.wait-tab')].map((t) => box(t).height), chev: [box(p.querySelector('.wait-chev')).width, box(p.querySelector('.wait-chev')).height],
                rows: [...p.querySelectorAll('#chat-strip-onit-panel .wait-row')].map((r) => box(r).height),
-               pads: [...p.querySelectorAll('#chat-strip-onit-panel .wait-link')].map((a) => getComputedStyle(a).paddingTop) }; })()""")
+               links: [...p.querySelectorAll('#chat-strip-onit-panel .wait-link')].map((a) => box(a).height) }; })()""")
     assert len(got["tabs"]) == 2 and all(h >= 43.9 for h in got["tabs"] + got["chev"] + got["rows"]), got
-    assert got["pads"] == ["12px"] * 3, got
+    assert len(got["links"]) == 3 and all(h >= 44 for h in got["links"]), got
+
+
+# One list's title links as a finger meets them. Each link is scrolled to the middle of the list; at five places along each of its lines the run of pixels that
+# elementFromPoint gives to that same link is counted upwards and downwards (`short`: the places with under 44). `overlap`: two links' boxes that cross.
+# `under`: the links whose box reaches onto the line under the title, `taken`: the places there that something else answers. `row`: whether a point of the row
+# beside its link answers as the link. `heights`: the rows whose title and line under it are one line each.
+TAPS = """(() => { const w = document.getElementById('__PANEL__'); w.style.scrollBehavior = 'auto';
+  const links = [...w.querySelectorAll('.wait-link')], lines = (a) => [...a.getClientRects()].filter((r) => r.width >= 2);
+  const boxes = links.map(lines), overlap = [], short = [], taken = [], row = [], heights = []; let under = 0;
+  boxes.forEach((one, i) => boxes.slice(i + 1).forEach((other, k) => { for (const a of one) for (const b of other) {
+    const x = Math.min(a.right, b.right) - Math.max(a.left, b.left), y = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (x > 0.1 && y > 0.1) overlap.push([i, i + 1 + k, y]); } }));
+  links.forEach((a, i) => {
+    const q = a.getBoundingClientRect(), b = w.getBoundingClientRect(); w.scrollTop += Math.round((q.top + q.bottom - b.top - b.bottom) / 2);
+    const own = (x, y) => document.elementFromPoint(x, y) === a;
+    lines(a).forEach((r, n) => { for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      const x = r.left + 1 + (r.width - 2) * t, mid = Math.floor((r.top + r.bottom) / 2); let up = mid, down = mid, high = 0;
+      if (own(x, mid)) { while (own(x, up - 1)) up--; while (own(x, down + 1)) down++; high = down - up + 1; }
+      if (high < 44) short.push([i, n, t, high]); } });
+    const li = a.closest('.wait-row'), lr = li.getBoundingClientRect(), m = li.querySelector('.wait-meta'), all = lines(a), first = all[0], last = all[all.length - 1];
+    if (m) { const top = m.getBoundingClientRect().top;
+      if (last.bottom > top + 1) { under++; for (const t of [0, 0.5, 1]) for (const y of [top + 0.5, last.bottom - 1]) if (!own(last.left + 1 + (last.width - 2) * t, y)) taken.push([i, t, y - top]); } }
+    const now = a.getBoundingClientRect();
+    for (const x of [lr.left + 3, lr.right - 3]) if (x < now.left - 1 || x > now.right + 1) row.push(own(x, (first.top + first.bottom) / 2));
+    if (all.length === 1 && (!m || m.getBoundingClientRect().height < 20)) heights.push(li.getBoundingClientRect().height);
+  });
+  return { links: links.length, wrapped: boxes.filter((x) => x.length > 1).length, overlap, short, under, taken, row, heights }; })()"""
+
+
+def tight_rows() -> dict:
+    """Both lists: one-line rows next to each other, where tap areas are closest, and one title that wraps."""
+    subjects = ["Short one", "Short two", "Short three", "A title that wraps: " + "an item subject that keeps going and going " * 6, "Short five", "Short six"]
+    first = [{"id": f"demo#{i}", "subject": t, "url": f"https://example.com/moves/{i}"} for i, t in enumerate(subjects, 1)]
+    second = [promise(20 + i, subject=t, since=int(time.time()) - (3 * DAY + 3600 if i == 1 else 60)) for i, t in enumerate(subjects, 1)]
+    return {"waiting": first, "onIt": second}
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_on_a_touch_screen_every_title_link_has_44px_of_its_own_and_the_line_under_it_takes_no_tap(served, browser, monkeypatch, size):
+    open_strip(browser, served, monkeypatch, size, **tight_rows())
+    if size[0] < 700:
+        phone(browser, size[0])
+    browser.touch()
+    assert wait_for(browser, "matchMedia('(pointer: coarse)').matches", 10.0)
+    # the tallest a one-line row may be: 12 + 20 + 12 and its rule on the first list, 16 more for the line under the title on the second
+    seen = {}
+    for tab, panel, tallest in ((MOVE_TAB, MOVE_PANEL, 45), (ONIT_TAB, ONIT_PANEL, 61)):
+        click(browser, tab)
+        browser.settle(PIN)
+        seen[panel] = browser.evaluate(TAPS.replace("__PANEL__", panel)), tallest
+    for panel, (got, tallest) in seen.items():      # both lists are measured before either is judged, so a failure shows both
+        assert got["links"] == 6 and got["wrapped"] >= 1, seen
+        assert got["short"] == [], ("under 44 px of the link's own at these places (link, line, how far along, px)", panel, seen)
+        assert got["overlap"] == [], (panel, seen)
+        assert got["under"] == (6 if panel == ONIT_PANEL else 0) and got["taken"] == [], (panel, seen)
+        assert got["row"] and not any(got["row"]), ("only the link is the link, not its row", panel, seen)
+        assert len(got["heights"]) >= 4 and max(got["heights"]) <= tallest + 0.5, (panel, seen)
+
+
+def test_with_a_mouse_a_title_link_has_no_padding_of_its_own(served, browser, monkeypatch):
+    open_strip(browser, served, monkeypatch, DESKTOP, **tight_rows())
+    assert browser.evaluate("matchMedia('(pointer: coarse)').matches") is False
+    got = browser.evaluate("""[...document.querySelectorAll('#chat-strip-wait .wait-link')].map((a) => { const c = getComputedStyle(a); return [c.paddingTop, c.paddingBottom, c.position].join(' '); })""")
+    assert got == ["0px 0px static"] * 12, got
+
+
+# The selected tab's underline against its list: at rest where the list's first line starts, then scrolled to the end: how far under the underline the list is
+# cut, what of the list answers in the 4 px under it, and (`below`) at how many of the same places across it answers just under the cut, so an empty `inside` is
+# not a probe that finds nothing anywhere. elementFromPoint answers for the 1 px square that starts at its point, so the last place wholly in the gap is 3 px
+# under the underline: from 3.5 the square already reaches the list.
+CUT = """(() => { const w = document.getElementById('__PANEL__'); w.style.scrollBehavior = 'auto'; w.scrollTop = 0;
+  const under = document.querySelector('#chat-strip-wait .wait-tab[aria-selected="true"]').getBoundingClientRect().bottom;
+  const first = [...w.children].find((n) => n.getClientRects().length).getBoundingClientRect().top;
+  w.scrollTop = w.scrollHeight; const r = w.getBoundingClientRect(), inside = []; let below = 0;
+  const list = (x, y) => { const n = document.elementFromPoint(x, y); return n && n.closest('.wait') ? n : null; };
+  for (const x of [r.left + 20, r.left + r.width / 2, r.right - 20]) { for (const dy of [0, 1, 2, 3]) { const n = list(x, under + dy); if (n) inside.push([x, dy, n.className]); }
+    if (list(x, r.top + 1)) below++; }
+  return { rest: first - under, gap: r.top - under, scrolled: Math.round(w.scrollTop), inside, below }; })()"""
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_a_list_scrolled_to_its_end_is_cut_below_the_selected_tabs_underline_not_on_it(served, browser, monkeypatch, size):
+    open_strip(browser, served, monkeypatch, size, waiting=waiting(30), onIt=hostile(30))
+    if size[0] < 700:
+        phone(browser, size[0])
+    for tab, panel in ((MOVE_TAB, MOVE_PANEL), (ONIT_TAB, ONIT_PANEL)):
+        click(browser, tab)
+        browser.settle(PIN)
+        got = browser.evaluate(CUT.replace("__PANEL__", panel))
+        assert got["scrolled"] > 0 and got["gap"] >= 3.5 and got["inside"] == [] and got["below"] == 3, (panel, got)
+        assert 3.5 <= got["rest"] <= 6.5, (panel, "at rest the list starts about where it did", got)

@@ -254,10 +254,10 @@ def test_on_a_touch_screen_every_row_and_its_title_link_give_a_44px_target(serve
     assert wait_for(browser, "matchMedia('(pointer: coarse)').matches", 10.0)
     click(browser)
     browser.settle(PIN)
-    # the title is inline text (it wraps), so the 44 px is the row's own height, and the link's padding fills what the line leaves of it
+    # the title is inline text (it wraps), so the row has its own 44 px and the link's padding gives the link's box as much (what a finger hits: test_chat_onit_ui.py)
     got = browser.evaluate("""(() => [...document.querySelectorAll('#chat-strip-wait .wait-row')].map((row) => { const a = row.querySelector('a'), r = row.getBoundingClientRect(), q = a.getBoundingClientRect();
-      return { row: Math.round(r.height * 10) / 10, link: Math.round(q.height * 10) / 10, pad: getComputedStyle(a).paddingTop }; }))()""")
-    assert len(got) == 3 and all(g["row"] >= 44 and g["pad"] == "12px" and g["link"] >= 36 for g in got), got
+      return { row: Math.round(r.height * 10) / 10, link: Math.round(q.height * 10) / 10 }; }))()""")
+    assert len(got) == 3 and all(g["row"] >= 44 and g["link"] >= 44 for g in got), got
 
 
 @pytest.mark.parametrize("size", SIZES)
