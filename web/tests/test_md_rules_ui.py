@@ -419,27 +419,44 @@ SHOT = r"""(async (text, how) => {
   const boxes = [...m.querySelectorAll(".md, ol, ul")].map((e) => { const r = e.getBoundingClientRect();
     return [e.className || e.localName, tenth(r.x), tenth(r.y), tenth(r.width), tenth(r.height), e.scrollWidth, e.clientWidth, e.scrollHeight, e.clientHeight]; });
   return { rows: [Math.floor(b.top) - 6, Math.ceil(b.bottom) + 6], boxes }; })"""
-# how many pixels of two shots differ in those rows; when any do, the rectangle that holds them and a picture of it from
-# both shots, the first above the second, for the failure to show
+# how many pixels of two shots differ in those rows. Each run of drawn rows (rows either shot draws on, bare background
+# above and below) is compared as it is and one pixel up or down, and the closest counts: a clipped box can draw a line one
+# pixel from where the unclipped one draws it (the same pixels, a row apart), while what a box cuts off is missing at every
+# one of the three. When any differ, the rectangle that holds them and a picture of it from both shots, the first above the
+# second, for the failure to show
 DIFF = r"""(async (a, b, top, bottom) => {
   const read = async (png) => { const img = await createImageBitmap(new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], { type: "image/png" }));
     const c = new OffscreenCanvas(img.width, img.height), g = c.getContext("2d"); g.drawImage(img, 0, 0); return [c, g.getImageData(0, top, img.width, bottom - top)]; };
-  const [first, x] = await read(a), [second, y] = await read(b); let n = 0, at = null;
-  for (let i = 0; i < x.data.length; i += 4) {
-    if (Math.abs(x.data[i] - y.data[i]) + Math.abs(x.data[i + 1] - y.data[i + 1]) + Math.abs(x.data[i + 2] - y.data[i + 2]) <= 60) continue;
-    const px = (i / 4) % x.width, py = top + Math.floor(i / 4 / x.width); n++;
-    at = at ? [Math.min(at[0], px), Math.min(at[1], py), Math.max(at[2], px), Math.max(at[3], py)] : [px, py, px, py];
+  const [first, x] = await read(a), [second, y] = await read(b), w = x.width, h = x.data.length / 4 / w;
+  const pixel = (img, col, row) => img.data.subarray((row * w + col) * 4, (row * w + col) * 4 + 3);
+  const ground = pixel(x, 0, 0);   // the corner shows the stage's background
+  const far = (p, q) => Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]) > 60;
+  const drawn = (row) => { for (let col = 0; col < w; col++) if (far(pixel(x, col, row), ground) || far(pixel(y, col, row), ground)) return true; return false; };
+  let n = 0, at = null;
+  for (let s = 0; s < h; s++) {
+    if (!drawn(s)) continue;
+    let e = s; while (e + 1 < h && drawn(e + 1)) e++;
+    const of = (img, col, row) => (row < s || row > e ? ground : pixel(img, col, row));   // this run's rows alone
+    let off = null;
+    for (const dy of [0, -1, 1]) {
+      const here = [];
+      for (let row = s - 1; row <= e + 1; row++) for (let col = 0; col < w; col++) if (far(of(x, col, row), of(y, col, row + dy))) here.push([col, top + row]);
+      if (!off || here.length < off.length) off = here;
+    }
+    for (const [col, row] of off) at = at ? [Math.min(at[0], col), Math.min(at[1], row), Math.max(at[2], col), Math.max(at[3], row)] : [col, row, col, row];
+    n += off.length; s = e;
   }
   if (n <= 4) return { n };
-  const left = Math.max(0, at[0] - 24), up = Math.max(0, at[1] - 12), w = Math.min(240, at[2] - left + 24), h = Math.min(60, at[3] - up + 12);
-  const both = new OffscreenCanvas(w, h * 2 + 2), g = both.getContext("2d"); g.fillStyle = "red"; g.fillRect(0, 0, w, h * 2 + 2);
-  g.drawImage(first, left, up, w, h, 0, 0, w, h); g.drawImage(second, left, up, w, h, 0, h + 2, w, h);
+  const left = Math.max(0, at[0] - 24), up = Math.max(0, at[1] - 12), wide = Math.min(240, at[2] - left + 24), high = Math.min(60, at[3] - up + 12);
+  const both = new OffscreenCanvas(wide, high * 2 + 2), g = both.getContext("2d"); g.fillStyle = "red"; g.fillRect(0, 0, wide, high * 2 + 2);
+  g.drawImage(first, left, up, wide, high, 0, 0, wide, high); g.drawImage(second, left, up, wide, high, 0, high + 2, wide, high);
   const bytes = new Uint8Array(await (await both.convertToBlob({ type: "image/png" })).arrayBuffer());
   return { n, at, crop: btoa(Array.from(bytes, (c) => String.fromCharCode(c)).join("")) }; })"""
 
 
 def test_long_list_numbers_and_formulas_show_whole(served, browser):
-    """The pixels of such a reply are those of the same layout with nothing cutting it; without mdHang's indent they are not."""
+    """The pixels of such a reply are those of the same layout with nothing cutting it, a line at most one pixel up or down
+    (DIFF); without mdHang's indent they are not."""
     open_session(browser, served)
     browser.settle("document.getElementById('chat')")
 
