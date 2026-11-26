@@ -13,6 +13,8 @@ Held here, against the real server:
   - a failed read, a reconnect, a long absence, a language change, a reload, a session asleep, not running or gone from the list;
   - while the thread loads (a cold load, a reload, a switch inside the page, the open session opened again), no frame has the strip's rows above it, a message
     still on its way or not; they are there once the thread is, or once its read failed;
+  - the pinned bar of two tabs (test_chat_onit_ui.py holds the bar itself) has the same markup, boxes, paint and behavior with the setting on and off, stays and
+    works while the thread loads, and brings no sideways scroll, closed or on either tab;
   - no sideways scroll at 1280, 390, 360 and 320 px with long words, long addresses, wide tables, wide code and images, and as the width changes;
   - the composer sends the same request with the setting on and off;
   - off, the chat session and another one are drawn by the session view; on, the other session's page is the same, opened directly or from the chat.
@@ -38,6 +40,8 @@ from conftest import CHAT_READY, CWD, NAME, SID, transcript_file
 from test_board_items_ui import wait_for
 from test_chat_layer import OTHER, add_session
 from test_chat_link_cards_ui import ART, mockup, reply_text
+from test_chat_onit_ui import CHEVRON, MOVE_PANEL, MOVE_TAB, ONIT_PANEL, ONIT_TAB, PIN, WIDE, click, cp, key, promises, state, waiting
+from test_chat_onit_ui import hostile as onit_hostile
 from test_chat_session_view_ui import CODE, DESKTOP, MEASURE, PHONE, SIZES, TABLE, URL, WORD, api_chat, check, open_page
 from test_chat_thread import task
 from test_chatturns import assistant, human, peer, tool_result
@@ -656,6 +660,101 @@ def test_a_changed_width_lays_the_tables_out_again(served, browser, monkeypatch)
         assert browser.evaluate(small) == [False, "table-header-group"], width               # a table that fits stays a table
         if mobile:
             assert browser.evaluate(wide) == [True, "none", "block", "column-0-with-a-long-heading"], width
+
+
+# ── the pinned bar of two tabs ───────────────────────────────────────────────
+# The box pinned over the thread (the bar, its two tabs, the chevron, the open list): its markup, and every element's box and paint, the dots before them too
+PINNED = """(() => { const props = ['display', 'position', 'fontSize', 'fontWeight', 'lineHeight', 'color', 'backgroundColor', 'backgroundImage', 'paddingTop',
+    'paddingLeft', 'marginTop', 'borderBottomWidth', 'borderBottomColor', 'outlineStyle', 'overflowX', 'overflowY', 'overflowWrap', 'maxHeight', 'zIndex'];
+  const p = document.querySelector('#chat-strip-wait');
+  return { html: p.outerHTML, boxes: [p, ...p.querySelectorAll('*')].map((n) => { const cs = getComputedStyle(n), r = n.getBoundingClientRect(), dot = getComputedStyle(n, '::before');
+    return [n.tagName, n.getAttribute('class') || '', ...[r.left, r.top, r.width, r.height].map((v) => Math.round(v)), ...props.map((v) => cs[v]), dot.content,
+            dot.backgroundColor].join('|'); }) }; })()"""
+
+
+def bar_walk(browser) -> list:
+    """The pinned box through its states, each noted: closed, each tab open, the chevron closing the list and opening it again, the open one's tab closing it, and
+    the keyboard moving to the other tab and opening it."""
+    seen = []
+
+    def note(step: str) -> None:
+        browser.settle(PIN)
+        seen.append((step, state(browser), browser.evaluate(PINNED)))
+
+    note("closed")
+    for step, node in (("On it", ONIT_TAB), ("Your move", MOVE_TAB), ("the chevron closes", CHEVRON), ("the chevron opens", CHEVRON), ("its tab closes", MOVE_TAB)):
+        click(browser, node)
+        note(step)
+    browser.evaluate(MOVE_TAB + ".focus(); ''")
+    key(browser, "ArrowRight", "ArrowRight", 39)
+    key(browser, "Enter", "Enter", 13, "\r")
+    assert wait_for(browser, f"{ONIT_TAB}.getAttribute('aria-selected') === 'true'", 5.0), state(browser)
+    note("the keyboard")
+    return seen
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_the_pinned_bar_and_both_tabs_look_and_work_the_same_with_the_setting_on_and_off(served, browser, monkeypatch, size):
+    # long enough for the pane to scroll in both views, so that a scroll bar takes the same room in each
+    write(served, *[line for i in range(1, 31) for line in (human(f"question {i}", i), assistant(f"answer {i}\n\nand more of it", i))])
+    doc = api_chat(waiting=waiting(), onIt=promises())
+    walks = {}
+    for layer in ("off", "on"):
+        open_chat(browser, served, monkeypatch, size, layer=layer, doc=doc)
+        assert wait_for(browser, f"{LAYERED} === {json.dumps(layer == 'on')} && !{PIN}.hidden && document.querySelectorAll('#chat > .msg').length >= 30", 30.0)
+        walks[layer] = bar_walk(browser)
+    assert [s["open"] for _, s, _ in walks["on"]] == [[], [ONIT_PANEL], [MOVE_PANEL], [], [MOVE_PANEL], [], [ONIT_PANEL]], walks["on"]
+    assert all(s["pin"] and s["bar"] and [r["rows"] for r in s["panels"]] == [2, 4] for _, s, _ in walks["on"]), walks["on"]
+    for off, on in zip(walks["off"], walks["on"], strict=True):
+        assert on == off, off[0]
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_the_pinned_bar_stays_and_works_while_the_thread_loads(served, browser, monkeypatch, size):
+    write(served, *mixed())
+    browser.send("Page.enable")
+    browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": HOLD})
+    open_chat(browser, served, monkeypatch, size, ready=False, doc=api_chat(waiting=waiting(), onIt=promises()))
+    assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat-strip .mo').length >= 1 && !{PIN}.hidden && {ABOVE}[0]", 30.0)
+    assert browser.evaluate(FRAMES)
+    s = state(browser)
+    assert s["pin"] and s["bar"] and s["open"] == [] and browser.evaluate(ABOVE) == [True, False], s
+    for node, panel, rows in ((ONIT_TAB, ONIT_PANEL, 4), (MOVE_TAB, MOVE_PANEL, 2)):
+        click(browser, node)
+        s = state(browser)
+        assert s["open"] == [panel] and [p["rows"] for p in s["panels"] if p["id"] == panel] == [rows], s
+    assert browser.evaluate(ABOVE) == [True, False]
+    browser.evaluate("window.__hold = false; ''")
+    thread_is(browser, SHOWN)
+    assert browser.evaluate(FRAMES)
+    s = state(browser)
+    assert s["bar"] and s["open"] == [MOVE_PANEL] and browser.evaluate(ABOVE) == [False, True], s    # the list opened while loading is still open
+    assert browser.evaluate("window.__above") == []
+
+
+@pytest.mark.parametrize("served", [{"status": "busy"}], indirect=True)
+@pytest.mark.parametrize("width", [1280, 390, 360, 320])
+def test_no_sideways_scroll_with_the_pinned_bar_closed_and_on_each_tab(served, browser, monkeypatch, width):
+    write(served, *hostile(served))
+    doc = api_chat(name="A" * 40, busy=True, group={"en": "G" * 40, "ko": cp(0xACB0) * 40}, waiting=waiting(12, long=True), onIt=onit_hostile(12),
+                   motion=[{"text": WORD, "at": int(time.time())}])
+    open_chat(browser, served, monkeypatch, (width, 800 if width > 700 else 844), doc=doc)
+    if width < 700:
+        browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
+    assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length >= 3 && !!document.querySelector('#chat .cl-turn:not([hidden])') && "
+                             "!!document.querySelector('#chat .msg img') && "
+                             "[...document.querySelectorAll('#chat .msg img')].every((i) => i.complete && i.naturalWidth > 0) && "
+                             "document.querySelectorAll('#chat-strip-wait .wait-row').length === 24", 30.0), browser.evaluate(INSIDE)
+    for which, node, panels in (("closed", None, []), ("Your move", MOVE_TAB, [MOVE_PANEL]), ("On it", ONIT_TAB, [ONIT_PANEL])):
+        if node:
+            click(browser, node)
+        browser.settle(PIN)
+        got, where = browser.evaluate(WIDE), f"{width} px, {which}"
+        assert got["vw"] == width and got["parts"] == 3 and got["open"] == panels, (where, got)
+        assert got["doc"][0] <= got["doc"][1] and got["body"][0] <= got["body"][1] and got["pane"][0] <= got["pane"][1], (where, got)
+        assert got["over"] == [] and got["wide"] == [] and got["outRow"] == [] and not got["overlap"], (where, got)
+        check_layer(browser, width)
 
 
 # ── every other page ─────────────────────────────────────────────────────────
