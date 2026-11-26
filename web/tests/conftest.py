@@ -15,6 +15,7 @@ import glob
 import json
 import os
 import re
+from pathlib import Path
 import select
 import shutil
 import socket
@@ -306,6 +307,12 @@ class CDP:
         tid = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]
         self.session = self.call("Target.attachToTarget", {"targetId": tid, "flatten": True})["sessionId"]
 
+    def __getattr__(self, name: str):
+        # only reached for a name this object lacks: a page in a shared Chromium reads the connection's own (buf, r, w, _recv, ...)
+        if name != "parent" and self.__dict__.get("parent") is not None:
+            return getattr(self.parent, name)
+        raise AttributeError(name)
+
     def call(self, method: str, params: dict | None = None, session: str | None = None) -> dict:
         if self.parent is not None:
             if method == "Browser.grantPermissions" and "browserContextId" not in (params or {}):
@@ -492,13 +499,33 @@ def _shared_chromium_at_end():
     SharedChromium.stop()
 
 
+_OWN_LAUNCH: dict[str, bool] = {}
+
+
+def needs_own_chromium(request) -> bool:
+    """A test file that reads the clipboard (it grants clipboardReadWrite) keeps a Chromium of its own per test: the clipboard is one for
+    the whole browser process, not one per browser context, so a text another test copied would be there to read."""
+    path = str(request.module.__file__)
+    if path not in _OWN_LAUNCH:
+        _OWN_LAUNCH[path] = "clipboardReadWrite" in Path(path).read_text(encoding="utf-8")
+    return _OWN_LAUNCH[path]
+
+
 @pytest.fixture
-def browser():
+def browser(request):
     """A headless Chromium page at a phone's width (390 x 844), in a browser context of its own in the session's one Chromium; skipped
-    when none is installed or it cannot start."""
+    when none is installed or it cannot start. A test file that reads the clipboard gets a Chromium of its own (needs_own_chromium)."""
     binary = chromium_binary()
     if not binary:
         pytest.skip("no headless Chromium (chromium / google-chrome on PATH, or playwright's chrome-headless-shell)")
+    if needs_own_chromium(request):
+        try:
+            c = CDP(binary, 390, 844)
+        except RuntimeError as e:
+            pytest.skip(f"{binary} did not start headless here: {e}")
+        yield c
+        c.close()
+        return
     try:
         try:
             c = CDP(binary, 390, 844, parent=SharedChromium.get(binary))
