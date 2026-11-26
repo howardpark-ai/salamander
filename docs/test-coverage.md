@@ -84,6 +84,21 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/release.sh`: the one retry of GitHub's merge queue (Thu Nov 26th 2026)
+
+The path guarded: a PR dropped from the queue because the merge group failed its required checks (most often a flaky test) waited for a hand re-release; `release.sh` now queues the same head once more. A wrong answer queues a PR that must not go in (moved, conflicting, a draft, red), queues for ever, or hides the failed run.
+Covered, against the fake `gh` (it now serves a removal per pass, a merge group commit's own check runs, the re-read of the PR, and a queue answer or an enqueue refusal for the n-th ask): the retry and then a merge, with the log and the one report naming the failed run, its url and jobs; a second such drop, naming both runs, with no third try; the second pass never reading the first removal as its own; a later failure after the retry (another removal reason, a refused enqueue, a close, a deploy) still naming the first run; each case that is never retried (`docs/merge-queues.md`, *The one retry*), counted by the enqueue calls; and that no line before the last holds `done:` or `FAILED`, which log waiters stop at, a job name holding them included. A fake `sleep` keeps these cases free of real waiting.
+Not covered, and why: GitHub's real timeline and check runs (the shapes were read from real removals), and the queue itself.
+
+### `tests/dm.sh`: +2, 233 (Thu Nov 26th 2026)
+
+A signal that lands as a hidden prompt of `sala dm --set-token` is about to read. Kept because the command could outlive SIGTERM with the terminal's echo off, waiting at a token prompt until a line was typed.
+Checked, in a pty, for both prompts (every app, one app): a preloaded `read()` raises SIGTERM the first time it is called on a line-mode terminal with nothing queued; the command ends, exit 143, echo on, nothing stored.
+A command that never reads the empty terminal leaves no mark, and the driver sends the signal itself a second after the prompt; so a bare `read` is probed first, and the suite fails when the preload does not reach it
+(shown with the preload's `read` renamed: the two checks then pass, the probe fails). Both checks were shown to fail on the previous `lib/dm.sh` (the driver's 30 s deadline, echo off);
+the timing-based SIGTERM check passed on it in the same run. The driver's deadline now says which stage it was in (no prompt, lines left, signal sent or raised) with the echo flag, process state and wait channel.
+Not covered, and why: a signal during the second read bash makes after a Ctrl-D typed in the middle of a line.
+
 ### `web/tests/test_turn_state.py`: new, 34: the wheel means a turn in progress (Thu Nov 26th 2026)
 
 The path guarded: the web app's wheel, busy dots and "working" words took the registry's `busy`, which the CLI also writes while only background work runs after a turn ended, so a session waiting at its prompt read as busy and out of reach. `turnstate.py` reads the transcript for such a row (`web/README.md`, *The wheel: a turn in progress*). The worse wrong answer is hiding a turn that runs. Made-up transcript lines and registry rows in the shapes of CLI 2.1.332; no tmux, no browser, nothing outside pytest's temp folder is written.
@@ -4084,6 +4099,8 @@ each of Model and Agent compared with both sides adding up to their columns; the
 closing on a second tap; the list capped at 200 with its total; a failed read of the replies and a retry; a failed read of the usage keeping the last figures; the table's sort; a registry name staying
 text; Reload; no console error; no sideways scroll, the two side cards side by side and every control 44 px on a phone. Set `SALA_USAGE_SHOTS` to leave a screenshot of each width.
 
+Flaky once, and what the helper says now (`test_a_long_list_is_capped_at_200_and_says_how_many_there_are_in_all`, through `warm` in `test_usage_ui.py`, which every Usage browser test calls to make the first count): in one merge-queue run the count was still running after the 100 reads, about 10 s, that `warm` allowed, while it takes about 0.2 s on a quiet machine, and the cause of the stall is not found (not reproduced in repeats under load). `warm` now waits on a 60 s deadline and, when that runs out, its failure says how long it waited, how many reads it made and the last answer, so a slow count and a stuck one tell apart. What the tests hold is unchanged.
+
 Changed: `test_usage_ui.py` asserts Explorer is built (it no longer says *coming next*).
 
 Not covered, and why: the real transcripts of a production machine (the counts are the Report's), a physical phone (the width is emulated), and how the wording reads to a person (by eye).
@@ -5302,6 +5319,8 @@ Kept (`test_session_label_ui.py`, a headless Chromium at 1280x800 and 390x844, e
 The label sits in a span inside the name, which has its own ellipsis rule (`#title .name > span[title]` in `style.css`, the one CSS line of the change): without it the span's own box ran past the window and the sideways-scroll measure of `test_chat_session_view_ui.py` and `test_chat_retired_ui.py` failed; the long-label test now runs that measure at 1280, 390, 360 and 320 px.
 Changed: the parity test of the chat session against another session no longer compares the title's width and start (the label's text differs from the name's by design); every other box and style is still compared.
 
+Flaky once, and what the test says now (`test_session_label_ui.py`, `test_a_renamed_label_is_drawn_again_in_the_entry_the_header_and_the_tab`): in two full-suite CI runs the last wait, for the name and no tooltip after the label goes away, ran out after 10 s with the header already reading the name and no tooltip, so only the tab's title can have differed, and the failure text was cut short before it. 75 repeats of the test alone, idle and under CPU load, and six runs of four related browser files under load all passed, so the cause is not found. The test is unchanged in what it holds; its three waits now put the whole read (header, tooltip, entry, tab title, route, selection) into the failure message as one JSON line, so the next failure names the part that differed.
+
 Not covered, and why: the browser tests on the box that wrote them (no Chromium there; CI runs them); a sleeping chat session, which keeps its name in the header as every sleeper does; the label in a Korean-language page (it is text from `api/chat`, never translated, and no string was added).
 
 ### The strip's words for the group come from stackshot: `web/tests/test_chat_group_words.py`, `test_yourmove.py`, `test_chatpage.py`, `test_chat_session_view.py` changed; `test_chat_wait_pin_ui.py` (browser) changed (Thu Nov 26th 2026)
@@ -5379,6 +5398,15 @@ Kept (a headless Chromium against the real server with a stand-in proxy in front
 
 Not covered, and why: a real provider's sign-in; a real ttyd's reconnect; the installed app on Android and iPhone; the proxy example of `docs/web-proxy.md`, which needs the proxy's own binaries (run by hand once).
 
+### Answering a waiting item in the chat: `web/tests/test_chat_answer.py`, `test_chat_answer_ui.py` (browser), new (Thu Nov 26th 2026)
+
+With the setting `SALA_CHAT_LAYER` on, `static/chatanswer.js` puts the board's answer frame in the strip's row of a waiting item and under the newest reply that names it. A wrong answer is an answer lost when the page repaints a frame, another page's message moving the owner's buttons, a usable link hidden behind a frame that never comes, a keyboard hiding what is typed about, a page changed with the setting off, or a sideways scroll on a phone.
+
+Kept (`test_chat_answer.py`, no browser; the pure functions run in node): off, the served page names neither file; on, they stand on the layer's two include lines, before `app.js`; `app.js` and `chatlayer.js` each hand over in one place and no other file knows the module; the module names no board address, posts to a named origin only and sets no `sandbox`; every rule of the sheet is under the chat session's body class; which address is a board item's and where its frame is; what in a reply names an item; which messages are the board's, with the height held to its range.
+Kept (`test_chat_answer_ui.py`, a headless Chromium against the real server and a stand-in frame page served from a second origin, else skipped; GitHub CI runs it): a row opens and closes by a tap, one at a time, its frame made once and kept, a row without a board address as before; strip repaints (order, new words, new and gone rows, both tabs, a language change) and a growing thread load no frame again and remove none; the newest reply holds the frame and the older one goes after the newer has spoken; messages of another source, kind, version, item or state, from the page's own window, from a frame the page did not make and from the frame's window at another origin change nothing; a reply's markup makes no frame, takes no card's look and covers no card; silence leaves the plain link and a late message restores the frame; sending, answered and closed in the strip and under the replies; one reload per changed question; the refresh and theme messages; the keyboard layout with the composer focused over a shorter touch screen and with a frame saying it is typed in, and none for a mouse; no sideways scroll at 1280, 390, 360 and 320 px with frames open; off, the rows are the plain ones; a second session has none of it, and coming back makes one frame; with a finger, under the bar of two tabs (390x844 and 1280x800), a plain row's title link, a card's title and its link to the board each have 44 px of their own, a plain row is no taller than before, and the list is cut 4 px below the selected tab's underline, with the keyboard up too, where the open title stays at the list's top; a running `!` command's live block stays under the cards, and neither it, a thread growing above it nor a reconnect moves or remakes a frame.
+
+Not covered, and why: the board's real frame and its sign-in (the stand-in speaks the message shape only); a real phone's on-screen keyboard (the viewport is set by the test); two frames of one item sharing their state, which is the board's page's own; Firefox and Safari.
+
 ### `tests/trimreport.sh`: +42 checks (74 → 116), none retired: the report reads the queue's times and hands its triggers on (Thu Nov 26th 2026)
 
 The weekly report could not act: its times came from the committed timings files, which are rebuilt by hand, and a `TRIGGER` line
@@ -5413,3 +5441,11 @@ Covered, in `tests/pause.sh`: a pane whose Escape is taken and whose turn goes o
 Changed: `tests/pause.sh` (the failed-Escape section, which used to assert that the clock restarted; the set `SALA_PAUSE_RETRY=10`, `SALA_PAUSE_TRIES=2`), `tests/fake-claude.c` (`FAKE_ESC_IDLE=stay`), `tests/help-snapshot.txt` (the pause line of `sala --help`).
 
 Not covered, and why: a real Claude subagent's transcript timing (the rule is checked against files written as the CLI writes them; whether a real subagent stays silent for 30 min is not staged); stopping a live subagent on a failed pause (sala has no stop other than the exit dialog's "Exit and stop tasks", which the pause already uses once the turn has ended, so a pane that keeps a turn after the Escape is tried again and never cut); the post's wording as Slack shows it.
+
+### The Usage report on a phone never scrolls the page sideways: `web/tests/test_usage_ui.py` (browser) changed, one test new (Thu Nov 26th 2026)
+
+The Report's grid had an `auto` column, so one item wider than the panel stretched the column and the page scrolled sideways: the opened price table on a phone, and the group control while the page typeface (it comes from outside; the machine's own is wider) had not drawn it. The column is now held to the panel and both scroll inside themselves (`static/usage.css`). The layout test also failed in CI now and then, measuring before that typeface had arrived: it now waits with the browser fixture's `settle` (fonts loaded, the panel still) where it polled up to 8 s for the panel to fit.
+
+Kept (`test_usage_ui.py`, a headless Chromium, else skipped; GitHub CI runs it): at 390x844 with touch, the week and group controls made wider than the screen by letter spacing (a stand-in, so the machine's fonts do not decide) and the price table opened: each holds more than the screen is wide, each stays within it and scrolls inside itself, and the page does not scroll sideways.
+
+Not covered, and why: the Explorer's and the Digest's own columns, which this change leaves as they were; a typeface that never arrives (the tabs, drawn in the machine's own, may then not fit their bar: the layout test fails there and says no face had loaded); a real phone's browser (touch is emulated).

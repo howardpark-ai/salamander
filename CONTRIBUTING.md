@@ -37,6 +37,10 @@ does not have.
    live release is also reported to stackshot (`client.py released --pr <PR url> --sha <merge commit>`), which settles the items whose
    step is `release PR #N`; stackshot refuses it until its server accepts this repository (then it is only logged), and a failure of
    it never fails the release.
+   A PR the queue drops because the merge group failed its required checks is put in the queue once more by the same run,
+   when the head is still the queued commit and the PR is still open, ready, mergeable and green (every condition:
+   `docs/merge-queues.md`, *The one retry*). The log and the report name the failed run, so a flaky test stays visible;
+   a second such drop fails the release with both runs. No other failure is retried.
    `release.sh --status [<pr>]` shows a run; logs are under `~/.local/state/salamander/releases/`.
    A PR somebody already merged (by hand) is found at step 1: `release.sh <pr>` skips the merge, waits
    for the check runs on its merge commit on main (a failing one stops it before the deploy), then deploys and reports "merged
@@ -433,6 +437,11 @@ variables, so a variable is never a place for anything private: the clean-text d
   tested, so a rerun would test the same tree twice.
 - **A release takes the commit the queue tested:** `release.sh` puts the PR in the queue pinned to its head, waits for MERGED and deploys the merge commit the queue made. Its `--merged <pr>` path, for a PR merged some other way, waits
   for the check runs of that commit and judges each check by its newest run: the queue's passes, then the push run's `changes` pass and its skipped `suites` and `web`, which is a pass.
+- **A newer push to a pull request cancels that pull request's run still going, and nothing else is ever cancelled.** `tests.yml` and `clean-text.yml` carry a `concurrency` group keyed by the PR number, with
+  `cancel-in-progress` true for the `pull_request` event only; every other event (`merge_group`, a push to `queue/**`, a push to `main`) gets its own group, the run id, so a queue entry is never cancelled by another run.
+  `release.sh` reads the check runs of the PR's current head commit only, and a cancelled run of an older head sits on that older commit, so it never counts against the new head; on one commit the newest run of a check name decides, so a
+  run cancelled by a newer run of the same commit (a reopened PR, an edited body for `clean-text`) is superseded by it. The one gap is the moment between the two on one commit: a cancelled check with no newer one yet reads as `cancel`, which `release.sh`
+  reports as a failed check, and a release started again a minute later passes. The release also waits while the CI-run poller's file shows any run of the head not completed, which covers it once the newer run is listed there.
 
 Several things keep CI small:
 
@@ -486,7 +495,11 @@ Several things keep CI small:
   count changes, after adding or removing a number of tests that moves a family by a tenth (a new heavy web test file, a suite that
   grew from seconds to minutes), or when a family's slowest shard is clearly longer than the others in a run (the shards of one run
   should end within a minute or two of each other). Commit the two files by themselves, in a pull request of their own; a change to them
-  runs only `tests/deal.sh`, `tests/webshard.sh` and `tests/trimreport.sh`, and the web shards when `web/` changed. It needs no schedule: a stale record
+  runs only `tests/deal.sh`, `tests/webshard.sh` and `tests/trimreport.sh`, and the web shards when `web/` changed. The updater rewrites both files, so to refresh one family
+  put the other back with `git checkout -- <file>`. From a machine where `gh` is not signed in, save the logs of the runs (`gh run view <id> --log > <name>.txt`, a name that
+  does not end in `.log`, which `.gitignore` skips) and pass them with `--from-logs`. To check a refresh, compare the web estimate of the old record dealt over the new times with the durations of the
+  `web-shard (n)` jobs of a recent queue run: on Nov 26th 2026 the old record predicted 7.6, 6.8, 11.7, 16.9, 8.0 and 15.5 minutes against jobs of 7.2, 6.4, 13.0, 17.4, 8.7 and 15.8, and the refreshed record
+  predicts 11.1 minutes for every shard, which is the mean, so the floor is the mean and not the biggest file (`tests/test_chat_boot_ui.py`, 5.5 minutes, runs alone in a shard and is under it). It needs no schedule: a stale record
   costs wall time, never a wrong result (the weekly size report reads the queue's logs itself, *Keeping the suites trim*).
 - **`clean-text.yml` is a workflow of its own** (*Clean commit and PR text*, above): a PR's title and body can change with no
   push, and `tests.yml` would run every suite again for each edit. It runs on

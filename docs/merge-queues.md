@@ -21,10 +21,28 @@ Use one queue at a time. With GitHub's queue active, keep the host file at `off`
 - **`.github/mergequeue.toml`**, the sala queue's rules, read from `origin/main`: `base = "main"`, `queue_mode = "chain"`, `queue_prefix = "queue/main/"`, `required = ["gate"]`, `suites = "all"`.
   It takes effect once it is on `main`.
 - **`release.sh`** asks GitHub whether `main` has a merge queue (`repository.mergeQueue(branch: "main")`). With one it enqueues the PR pinned to the head commit
-  (the GraphQL mutation `enqueuePullRequest`; `gh pr merge` cannot be used, it asks for auto-merge, which is off here), waits until the PR reads MERGED (a removal is read from the PR's timeline and fails the release with GitHub's reason),
+  (the GraphQL mutation `enqueuePullRequest`; `gh pr merge` cannot be used, it asks for auto-merge, which is off here), waits until the PR reads MERGED (a removal is read from the PR's timeline and fails the release with GitHub's reason, but for *The one retry*, below),
   then deploys from the merge commit as for a direct merge. Without one it merges directly, as before. `SALA_RELEASE_MERGE=auto|direct|queue` (default `auto`) overrides the question:
-  `direct` never asks and merges at once (the way back that needs no API call), `queue` fails when `main` has no queue. `SALA_RELEASE_QUEUE_WAIT` (default 7200 s) is how long it waits for the merge.
+  `direct` never asks and merges at once (the way back that needs no API call), `queue` fails when `main` has no queue. `SALA_RELEASE_QUEUE_WAIT` (default 7200 s) is how long it waits for the merge, in each pass through the queue (*The one retry*, below).
   After a `sala mq` merge, `release.sh --merged <pr>` deploys.
+
+## The one retry
+
+Most drops for failed checks pass the next time on the very same head (flaky browser tests), so `release.sh` queues such a PR once more by itself. Once per release run, and only when all of this holds, each read again after the removal:
+
+1. GitHub's removal reason (`RemovedFromMergeQueueEvent.reason` in the PR's timeline) is `failed_checks`.
+2. The merge group GitHub removed (the event's `beforeCommit`) has the queued head among its parents, and its check runs show at least one failed job of a workflow run. This is where the run's id, url and failed job names come from.
+3. The PR is open, not a draft and mergeable (an `UNKNOWN` mergeability is asked again, up to 12 times, at most 10 s apart).
+4. Its head is the commit that was queued.
+5. The PR's own check runs pass now (a pending, failed or cancelled one is not green).
+6. `main` still has the merge queue.
+
+Anything that cannot be read counts as "does not hold". The PR is then enqueued again, pinned to the same head.
+
+- **Never retried:** a merge conflict, a removal by hand, a branch protection failure, any other reason or no reason in the timeline, an entry that never showed, a closed PR, the queue wait running out, a refused or errored enqueue call (handled as before), a deploy failure, a direct merge, `--merged`.
+- **What the log says:** the failed run (id, url) with its failed jobs (and how many were still running, since GitHub removes an entry at the first required failure), then `queuing PR #N again, …`. When a drop for failed checks is not retried, the failure line ends `not queued again: <why>`. No line before the last holds `done:` or `FAILED`, so a waiter on the log is not woken early.
+- **What the report says:** a green one ends `· queued twice: the first merge group failed its required checks (<run>, failed jobs: …) · log …`; a second drop for failed checks reads `FAILED at merge queue: removed from the merge queue: the merge group failed its required checks twice, the second time after the one retry (first: <run>…; second: <run>…); …`; any other failure after the retry carries `(this release queued the PR a second time, …)`.
+- **Time:** each pass has its own `SALA_RELEASE_QUEUE_WAIT` from its enqueue, so a release waits at most twice that (4 h at the default) for the queue. A pass ends much sooner when the entry's checks finish; the queue gives them 60 minutes to respond (`check_response_timeout_minutes`, below).
 
 ## What stays outside the repository
 

@@ -17,6 +17,11 @@ on:
     types: [opened, edited, synchronize, reopened]
 permissions:
   contents: read
+# As tests.yml: a newer event of the same pull request (a push, an edit of the title or body) cancels the run still going, whose text is out of date; the check
+# of the same name on the head is judged by its newest run (release.sh), so the cancelled older run does not count. Pull requests only, so nothing else is affected.
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 jobs:
   clean-text:
     runs-on: ubuntu-latest
