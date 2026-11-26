@@ -678,6 +678,8 @@ def bar_walk(browser) -> list:
     seen = []
 
     def note(step: str) -> None:
+        # the chevron turns over .12s (style.css .chev) while the box stands still, so settle alone would let a walk be measured mid-turn
+        assert wait_for(browser, f"{PIN}.getAnimations({{ subtree: true }}).length === 0", 10.0), (step, state(browser))
         browser.settle(PIN)
         seen.append((step, state(browser), browser.evaluate(PINNED)))
 
