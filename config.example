@@ -190,6 +190,8 @@
                                  #   pane was started by it. A running subagent holds the pane and is never cut; it is named in the skip line, in watch's one log line
                                  #   and in `sala ready`. A subagent that crashed (it never writes "finished") stops counting after the quiet time
 #SALA_SUBAGENT_QUIET=1800        # seconds a subagent may write nothing and still count as running with no process of its own under the pane (30 min)
+                                 #   A subagent known to have ended (a completed, killed, failed or stopped notice in the session's transcript, or a last transcript line that is a
+                                 #   final answer) holds nothing at all, however recently it wrote; this quiet time is the backstop for one with no such sign
 #SALA_STALE_TURN_AFTER=3         # watch, recycle: the in-session mod refused the exit this many times for a turn it cannot name (a mod loaded before its turn list
                                  #   was reconciled), the registry, the Stop record, the children and the subagents all read the pane as idle: the next try goes by
                                  #   keys, logged so. Tries after that thin out: one in 10 min, then one in 30 min, until the pane relaunches (the 8-day drop stands)

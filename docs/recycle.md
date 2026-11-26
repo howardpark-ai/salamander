@@ -74,7 +74,10 @@ recycles was counted back in only one and the other set stayed open. Now:
   last `SALA_SUBAGENT_QUIET` (30 min) or has a process under the pane that it started (a background shell it waits for; `lib/holders.py`
   names the subagent that started a process) is **live**, and a live subagent is running. One that is quiet for longer with no such process stopped without saying so (a subagent
   that crashed or was cut by an interrupt never writes `finished`, and its transcript stays), so it holds nothing: a subagent that last wrote
-  four hours before its session's turn ended no longer holds the recycle for the six hours the old rule gave it. Where this reads a live
+  four hours before its session's turn ended no longer holds the recycle for the six hours the old rule gave it. A subagent known to have ended
+  holds nothing however recently it wrote: the session's own transcript carries a `<task-notification>` for it whose status is `completed`,
+  `killed`, `failed` or `stopped` (a killed one never gets `finished`), or its own transcript's last line is an assistant answer that ended its turn.
+  The quiet time is the backstop for a subagent with neither sign. Where this reads a live
   subagent as stopped, the in-session mod, which reads the CLI's own task list, still refuses the exit for it: the cost is one refused try, never a cut subagent. A live subagent holds the pane,
   also one that said `sala ready` (a ready word covers shells and tasks; a running subagent is never cut), and the skip line, the
   relaunch notice and `sala ready` name it and say it ends with its work. The mod's `busy` probe (the gates of an exit with nothing run)

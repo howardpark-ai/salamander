@@ -3189,9 +3189,31 @@ _ancestor_pids() {  # → this shell and every process above it, one pid per lin
 # refused try, never a cut subagent.
 : "${SALA_SUBAGENT_STALE:=21600}"
 : "${SALA_SUBAGENT_QUIET:=1800}"
+# A subagent that ended is not live however recently it wrote (its last write is its end), so two more signs of an end count
+# besides the meta's "finished" (a killed or stopped one never gets it; on real transcripts every unfinished subagent that was
+# killed had its status in the parent's notification and a user entry as its last line):
+#   - the parent session transcript (<projects>/<slug>/<uuid>.jsonl) holds a <task-notification> whose <task-id> is the subagent's
+#     id and whose <status> is completed, killed, failed or stopped (read from the last SALA_SUBAGENT_NOTE_BYTES of it);
+#   - the subagent's own last transcript line is an assistant entry with "stop_reason":"end_turn" or "stop_sequence" (its answer).
+# A subagent with neither sign is live while it wrote within SALA_SUBAGENT_QUIET (or has a process of its own under the pane).
+# A subagent resumed after its notice is read as ended until the CLI writes a new notice: the in-session mod, which reads the
+# CLI's own task list, still refuses the exit for it, so the cost is one refused try, never a cut subagent.
+: "${SALA_SUBAGENT_NOTE_BYTES:=4000000}"
+# subagents_ended <parent transcript> -> the ids of the subagents the session was told ended, one per line
+subagents_ended() {
+    local p="$1" nb="$SALA_SUBAGENT_NOTE_BYTES"; [[ $nb =~ ^[0-9]+$ ]] || nb=4000000
+    [ -r "$p" ] || return 0
+    tail -c "$nb" "$p" 2>/dev/null | grep -oP '<task-id>[A-Za-z0-9]+</task-id>.{0,700}?<status>[a-z_]+</status>' 2>/dev/null \
+        | sed -nE 's#^<task-id>([A-Za-z0-9]+)</task-id>.*<status>(completed|killed|failed|stopped)</status>$#\1#p' | sort -u
+}
+# subagent_last_final <transcript> -> 0 when its last line is an assistant entry that ended its turn (its final answer)
+subagent_last_final() {
+    local l; l=$(tail -n 1 "$1" 2>/dev/null) || return 1
+    [[ $l == *'"type":"assistant"'* && $l =~ \"stop_reason\":\"(end_turn|stop_sequence)\" ]]
+}
 # subagent_holders <claude-pid> [uuid] → one line per live subagent ("subagent <type>: <description> (last wrote under <n> min ago)"), nothing when none
 subagent_holders() {
-    local sid="${2:-}" cwd d f m body age lim et mt type desc now ws quiet id hl="" hlr=0
+    local sid="${2:-}" cwd d f m body age lim et mt type desc now ws quiet id hl="" hlr=0 ended="" endr=0
     [ -n "$sid" ] || registry_field_r sid "$1" sessionId; [ -n "$sid" ] || return 0
     cwd=$(proc_cwd "$1") || return 0; [ -n "$cwd" ] || return 0
     d="$SALA_PROJECTS/$(slug_for_cwd "$cwd")/$sid/subagents"; [ -d "$d" ] || return 0
@@ -3204,10 +3226,13 @@ subagent_holders() {
         [ -n "$f" ] || continue
         m=${f%.jsonl}.meta.json; [ -r "$m" ] || continue   # no meta: not one the CLI registered; the 2-minute scratch test sees a fresh one
         body=$(<"$m"); [[ $body =~ \"finished\"[[:space:]]*:[[:space:]]*true ]] && continue
+        id=${f##*/agent-}; id=${id%.jsonl}
+        [ "$endr" = 1 ] || { ended=$(subagents_ended "${d%/*}.jsonl"); endr=1; }
+        [[ $'\n'$ended$'\n' == *$'\n'"$id"$'\n'* ]] && continue   # the session was told it ended (completed, killed, failed, stopped)
+        subagent_last_final "$f" && continue                       # its transcript ends on a final answer
         mt=$(stat -c %Y "$f" 2>/dev/null) || continue; ws=$(( now - mt )); [ "$ws" -ge 0 ] || ws=0
         if [ "$ws" -gt "$quiet" ]; then   # quiet for long: live only while a process under the pane is one it started
             if [ "$hlr" = 0 ]; then hl=$(holders_run "$1" 50); hlr=1; fi
-            id=${f##*/agent-}; id=${id%.jsonl}
             [[ $hl == *"started by a subagent (${id:0:8})"* ]] || continue
         fi
         type=""; desc=""

@@ -94,6 +94,31 @@ holders_run() { printf '1\npid 99, up 2400 s, task tk1: sleep 5000\n'; }   # a p
 eval "$ORIG_HR"
 mksub "$U1" s1 builder "Build the package move"; touch -d '4 minutes ago' "$(subdir "$U1")"/agent-s1.*
 [ "$(is_idle_reason "$K1")" = "a subagent is running: subagent builder: Build the package move (last wrote under 5 min ago)" ] && ok "wrote 4 min ago: live with no process lookup" || bad "4 min: '$(is_idle_reason "$K1")'"
+PARENT="$HOME/.claude/projects/$SLUG/$U1.jsonl"   # the session's own transcript, where the CLI writes a subagent's end notice
+note() { printf '{"type":"queue-operation","content":"<task-notification>\\n<task-id>%s</task-id>\\n<tool-use-id>toolu_x</tool-use-id>\\n<output-file>/tmp/x</output-file>\\n<status>%s</status>\\n<summary>s</summary>\\n</task-notification>"}\n' "$1" "$2" >> "$PARENT"; }
+RUNNING="a subagent is running: subagent builder: Build the package move (last wrote under 1 min ago)"
+echo "-- a subagent that ended holds nothing, however recently it wrote; one that did not end still does"
+mksub "$U1" s1 builder "Build the package move"; rm -f "$PARENT"
+[ "$(is_idle_reason "$K1")" = "$RUNNING" ] && ok "wrote just now, no end sign: running" || bad "running: '$(is_idle_reason "$K1")'"
+note s1 completed
+[ -z "$(is_idle_reason "$K1")" ] && ok "wrote seconds ago, the session was told it completed (no finished in its meta): not live" || bad "completed notice: '$(is_idle_reason "$K1")'"
+rm -f "$PARENT"; note s1 killed
+[ -z "$(is_idle_reason "$K1")" ] && ok "wrote seconds ago, the session was told it was killed: not live" || bad "killed notice: '$(is_idle_reason "$K1")'"
+rm -f "$PARENT"; note s1 failed
+[ -z "$(is_idle_reason "$K1")" ] && ok "a failed notice ends it too" || bad "failed notice: '$(is_idle_reason "$K1")'"
+rm -f "$PARENT"; note zz9 killed; note s1 running
+[ "$(is_idle_reason "$K1")" = "$RUNNING" ] && ok "another subagent's end notice, or a non-final status, does not end this one" || bad "other notice: '$(is_idle_reason "$K1")'"
+rm -f "$PARENT"
+printf '{"type":"user"}\n{"type":"assistant","message":{"role":"assistant","stop_reason":"end_turn"}}\n' > "$(subdir "$U1")/agent-s1.jsonl"
+[ -z "$(is_idle_reason "$K1")" ] && ok "wrote seconds ago, its transcript ends on a final answer (end_turn): not live" || bad "final answer: '$(is_idle_reason "$K1")'"
+printf '{"type":"user"}\n{"type":"assistant","message":{"role":"assistant","stop_reason":"tool_use"}}\n' > "$(subdir "$U1")/agent-s1.jsonl"
+[ "$(is_idle_reason "$K1")" = "$RUNNING" ] && ok "an assistant entry that calls a tool is no final answer: running" || bad "tool_use: '$(is_idle_reason "$K1")'"
+mksub "$U1" s1 builder "Build the package move"; touch -d '45 minutes ago' "$(subdir "$U1")"/agent-s1.*
+[ -z "$(is_idle_reason "$K1")" ] && ok "the quiet backstop stays: no end sign, quiet for 45 min, no process: not live" || bad "backstop: '$(is_idle_reason "$K1")'"
+mksub "$U1" s1 builder "Build the package move"; note s1 killed
+holders_run() { printf '1\npid 99, up 2400 s, task tk1, started by a subagent (s1): sleep 5000\n'; }
+[ -z "$(is_idle_reason "$K1")" ] && ok "a killed subagent's leftover process does not make it live either" || bad "killed with process: '$(is_idle_reason "$K1")'"
+eval "$ORIG_HR"; rm -f "$PARENT"
 mksub "$U1" s1 builder "Build the package move"
 n=$(relaunch_text recycle "$K1"); has "$n" "Holding the relaunch: 1 subagent running in this session" && has "$n" "subagent builder: Build the package move" \
     && has "$n" "sala never cuts a running subagent" && ok "the relaunch notice names it and says it is not cut" || bad "notice: $n"
