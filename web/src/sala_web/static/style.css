@@ -553,6 +553,7 @@ body.side-mode #sd-form { display: block; }
 .md.md:not(.ruled) .md-start { margin-top: 0; }   /* .md twice: above every .md rule that gives a margin */
 .md.md .md-end { margin-bottom: 0; }
 .md ol.md-hang { padding-inline-start: calc(40px + var(--md-hang)); }   /* long list numbers (app.js mdHang); 40px: the browser's own */
+.md:has(math) { padding-block: .5em; }   /* a formula's strokes reach a few pixels past its height: room for them in the box */
 /* a focus ring inside the element's own edges, where the box does not cut it */
 .md :is(a, area, summary, video, audio):focus-visible { outline-offset: -2px; }
 .md th, .md td { overflow-wrap: normal; word-break: keep-all; }  /* 'anywhere' let tables squeeze a column to one letter */

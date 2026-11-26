@@ -72,7 +72,8 @@ After.
 # a page for the checks: filler to scroll in, a frame under the reply and one over the page, a drawing of the page's own
 SETUP = r"""(() => {
   const calm = document.createElement("style");   // the page's own motion off, so two looks at it can be compared
-  calm.textContent = "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important }";
+  calm.textContent = "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important }" +
+    "#jump { display: none !important }";   // the page's jump-to-latest button comes and goes with the scroll
   document.head.append(calm);
   const chat = document.getElementById("chat");
   const block = (h, id) => { const d = document.createElement("div"); d.id = id; d.style.height = h + "px"; return d; };
@@ -92,7 +93,7 @@ SETUP = r"""(() => {
   const T = window.T = { msg: null, was: null };
   T.put = async (text) => {
     T.msg?.remove(); T.msg = null;
-    await raf();
+    under.scrollIntoView({ block: "end" }); await raf(); await new Promise((r) => setTimeout(r, 100));   // as scrolled as after
     const list = outside(); T.was = { list, looks: looks(list), sheets: document.styleSheets.length, focus: document.activeElement, hash: location.hash,
       composer: document.getElementById("composer"), role: document.querySelector('input[name="ns-role"]:checked')?.value ?? null };
     const m = T.msg = el("div", { class: "msg assistant t-msg" });
@@ -130,7 +131,8 @@ SETUP = r"""(() => {
       for (const fx of [.05, .5, .95]) for (const fy of [.1, .5, .9]) {
         const x = r.left + r.width * fx, y = r.top + r.height * fy;
         if (id === "t-under" && !inside(x, y, pane)) continue;   // the frame in the chat shows only inside the pane
-        pts.push(document.elementFromPoint(x, y)?.id ?? null);
+        const e = document.elementFromPoint(x, y);
+        pts.push(e && T.msg.contains(e) ? "reply " + e.localName : e?.id ?? null);
       }
       frames[id] = pts;
     }
@@ -188,7 +190,7 @@ def holds(browser, name: str):
     hits = browser.evaluate("T.hits()")
     assert hits["strays"] == [], (name, "a tap outside the box finds the reply", hits)
     for frame, found in hits["frames"].items():
-        assert found and set(found) == {frame}, (name, "something lies over a frame", frame, found)
+        assert frame in found and not [f for f in found if str(f).startswith("reply")], (name, "the reply lies over a frame", frame, found)
     layer = browser.evaluate("""({ open: document.querySelectorAll(":popover-open, :modal").length, full: !!document.fullscreenElement,
       overlay: [...T.msg.querySelectorAll("*")].filter((e) => (getComputedStyle(e).overlay || "none") !== "none").length })""")
     assert layer == {"open": 0, "full": False, "overlay": 0}, (name, layer)
@@ -386,27 +388,31 @@ def test_what_a_session_writes_lays_out_as_it_did(served, browser):
     assert off == {}, off
 
 
-NUMBERED = {
+# what reaches furthest to a box's edges
+WHOLE = {
     "a year": "2026. kickoff\n2027. launch",
     "a short date": "261126. notes of the day",
     "up to a hundred": "98. a\n99. b\n100. c",
     "in a quote": "> 2026. quoted",
     "in a footer": "Done.\n\nWrite-up: none.\n- note\n\n2026. is the year?",
+    "formulas": LOOKS["formula"],
+    "a formula first": '<math display="block"><mfrac><mi>a</mi><msqrt><mi>b</mi></msqrt></mfrac></math>\n\nafter',
 }
+# the reply alone on a fixed stage, so that two looks at it are at the same place whatever the page scrolls meanwhile
 SHOT = r"""(async (text, how) => {
-  const chat = document.getElementById("chat"), raf = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const raf = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   if (!document.getElementById("t-calm")) { const c = document.createElement("style"); c.id = "t-calm";
     c.textContent = "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important }"; document.head.append(c); }
-  document.getElementById("t-off")?.remove();
-  chat.querySelectorAll(".t-look").forEach((e) => e.remove());
-  const m = el("div", { class: "msg assistant t-look" }); m.append(...replyNodes(text, true));
-  const room = el("div", { class: "t-look", style: "height:600px" });
-  chat.append(m, room);
+  document.getElementById("t-off")?.remove(); document.getElementById("t-stage")?.remove();
+  const m = el("div", { class: "msg assistant" }); m.append(...replyNodes(text, true));
+  const stage = el("div", { id: "t-stage", style: "position:fixed;left:0;top:100px;width:100%;height:600px;box-sizing:border-box;" +
+    "padding:8px 16px;z-index:2147483647;background:var(--bg)" });
+  stage.append(m); document.body.append(stage);
   if (how.includes("whole")) { const off = document.createElement("style"); off.id = "t-off";
-    off.textContent = ".t-look .md { contain: none !important; overflow: visible !important }"; document.head.append(off); }
+    off.textContent = "#t-stage .md { contain: none !important; overflow: visible !important }"; document.head.append(off); }
   if (how.includes("bare")) for (const l of m.querySelectorAll("ol")) l.classList.remove("md-hang");
-  await document.fonts.ready; m.scrollIntoView({ block: "center" }); await raf(); await new Promise((r) => setTimeout(r, 200));
-  const b = m.getBoundingClientRect(); return [Math.floor(b.top) - 2, Math.ceil(b.bottom) + 2]; })"""
+  m.getBoundingClientRect(); await document.fonts.ready; await raf(); await new Promise((r) => setTimeout(r, 200));
+  const b = m.getBoundingClientRect(); return [Math.floor(b.top) - 6, Math.ceil(b.bottom) + 6]; })"""
 DIFF = r"""(async (a, b, top, bottom) => {
   const read = async (png) => { const img = await createImageBitmap(new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], { type: "image/png" }));
     const c = new OffscreenCanvas(img.width, img.height), g = c.getContext("2d"); g.drawImage(img, 0, 0); return g.getImageData(0, top, img.width, bottom - top).data; };
@@ -415,8 +421,8 @@ DIFF = r"""(async (a, b, top, bottom) => {
   return n; })"""
 
 
-def test_a_long_list_number_shows_whole(served, browser):
-    """The pixels of a numbered reply are those of the same layout with nothing cutting it; without mdHang's indent they are not."""
+def test_long_list_numbers_and_formulas_show_whole(served, browser):
+    """The pixels of such a reply are those of the same layout with nothing cutting it; without mdHang's indent they are not."""
     open_session(browser, served)
     browser.settle("document.getElementById('chat')")
 
@@ -428,9 +434,9 @@ def test_a_long_list_number_shows_whole(served, browser):
         assert a[1] == b[1], (a[1], b[1])
         return browser.evaluate(f"{DIFF}({json.dumps(a[0])}, {json.dumps(b[0])}, {a[1][0]}, {a[1][1]})")
 
-    got = {name: differ(shot(text, "held"), shot(text, "whole")) for name, text in NUMBERED.items()}
+    got = {name: differ(shot(text, "held"), shot(text, "whole")) for name, text in WHOLE.items()}
     assert max(got.values()) <= 4, got
-    assert differ(shot(NUMBERED["a short date"], "bare"), shot(NUMBERED["a short date"], "bare whole")) > 20
+    assert differ(shot(WHOLE["a short date"], "bare"), shot(WHOLE["a short date"], "bare whole")) > 20
 
 
 def test_drawings_media_formulas_and_colours_are_kept_as_written(served, browser):

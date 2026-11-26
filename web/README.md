@@ -2384,7 +2384,8 @@ paint containment: nothing the reply draws, positioned, fixed, moved, scaled, ra
 paints, takes a click or stretches the page outside the box, and what is wider than the box scrolls inside it. A box that
 contains does not let the margins at its edges merge with the space around it, so `mdEdges()` (`app.js`) hands the margins
 of the elements down its top and bottom edges to the box itself, which keeps the spacing; a numbered list that reaches four
-digits, whose numbers would hang left past the box's edge, is indented further (`mdHang()`). What no box can hold, what would
+digits, whose numbers would hang left past the box's edge, is indented further (`mdHang()`), and a box that holds a formula
+has half an em of room above and below, since a formula's strokes reach past its height. What no box can hold, what would
 act or pass for a control of the page, and what would answer to a name of the page's own goes (`MD_PURIFY`, `mdAttr` and
 `mdStyle` in `shared.js`, `mdSanitize()` in `app.js`): style sheets (a drawing's too), `link`, `meta`, `base`; forms and
 their controls (the words stay; the only input is a task list's disabled checkbox) and dialogs (an open one's words stay);
