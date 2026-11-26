@@ -3685,16 +3685,23 @@ const composer = cm6Composer.createEditor($("#composer-editor"), {
   extensions: [composerImageHandlers()],
 });
 const input = composer.contentDOM;   // the editable, #input
-SalaI18n.onChange(() => {   // the words around the draft change; the draft itself is not touched
+// The composer's own words (the box's name and its placeholder) are the page's language NOW. cm6Composer.resetDoc rebuilds the editor's state from the
+// extensions it was created with, which hold the words of the moment of creation, so every setText (a send, a session switch, a draft put back) would
+// bring those back: English on a Korean page made before the saved language arrived, or the long placeholder after the window narrowed. These words are
+// therefore set in one place, painted at start, on a language, width or touch-mode change, and after every setText.
+function paintComposerWords() {
   input.setAttribute("aria-label", tl("app.composer.label"));
   setPlaceholder();
+}
+SalaI18n.onChange(() => {   // the words around the draft change; the draft itself is not touched
+  paintComposerWords();
   renderChips();
   const frame = $("#terminal-pane iframe");
   if (frame && state.current) frame.title = tl("term.frameTitleFor", { name: state.current.name });
 });
 const getText = () => composer.state.doc.toString();
 // the text replaced as a textarea's value= does: no change event, no undo step (the history starts over), the caret at the end
-function setText(v) { cm6Composer.resetDoc(composer, v); }
+function setText(v) { cm6Composer.resetDoc(composer, v); paintComposerWords(); }
 function selectionOf() { const r = composer.state.selection.main; return { start: r.from, end: r.to, backward: r.head < r.anchor }; }
 function selectOffsets(start, end, backward = false) {
   const len = composer.state.doc.length, a = Math.max(0, Math.min(start, len)), b = Math.max(0, Math.min(end, len));
@@ -4345,7 +4352,7 @@ document.addEventListener("click", (e) => { if (!e.target.closest("#top-tools, #
 // Escape closes the menu and the top layer (one per press); not one an IME is handling (a Korean composition in the mandate box)
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.isComposing) { setTopMenu(false); closeTopLayer(); } });
 function setPlaceholder() { cm6Composer.setPlaceholder(composer, placeholderFor()); }
-setPlaceholder();
+paintComposerWords();
 window.matchMedia("(max-width: 760px)").addEventListener("change", setPlaceholder);
 touchMode.addEventListener("change", setPlaceholder);
 $("#show-back").addEventListener("change", (e) => { savePrefs({ showAll: e.target.checked }); renderSidebar(); });
