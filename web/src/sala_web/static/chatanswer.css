@@ -1,0 +1,57 @@
+/* Answering a waiting item from the chat session's page (chatanswer.js): a card in the strip's row of the item and under the newest reply that names it,
+   holding the board's frame. In the page only with the setting SALA_CHAT_LAYER, and every rule is under the chat session's body class, so no other
+   session's page is touched. A card's rules name where it stands (a row of the strip, or a direct child of #chat), so a class written into a reply's own
+   HTML matches none of them. NO SIDEWAYS SCROLL at any width: every box may shrink and every run of text breaks anywhere. */
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row) > .ans-card { position: relative; box-sizing: border-box; min-width: 0; max-width: 100%; padding: 8px 12px 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--panel); color: var(--text); font-size: 15px; line-height: 22px; overflow-wrap: anywhere; }
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row).ans-done > .ans-card { border-left-color: var(--idle); }
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row) .ans-head { display: flex; align-items: flex-start; gap: 8px; width: 100%; min-width: 0; box-sizing: border-box; margin: 0; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--text); text-align: left; }
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row) p.ans-head { display: block; }
+body.chat-session #chat-strip-wait .wait-row button.ans-head { position: relative; min-height: 22px; cursor: pointer; }
+body.chat-session #chat-strip-wait .wait-row button.ans-head::after { content: ""; position: absolute; left: -12px; right: -12px; top: -8px; bottom: -4px; }   /* the tap area: the card's top */
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row) :is(button.ans-head, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+body.chat-session #chat-strip-wait .wait-row .ans-name { flex: 1 1 auto; min-width: 0; }
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row) .ans-card .wait-id { margin-inline-end: 8px; font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--muted); }
+body.chat-session #chat > .ans-under .wait-link { min-width: 0; color: inherit; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row) p.ans-line { margin: 4px 0 0; font-size: 13px; line-height: 20px; color: var(--text); }
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row) p.ans-line[hidden] { display: none; }
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row) p.ans-line.ans-ok::before { content: "\2713\00a0"; color: var(--idle); }
+body.chat-session #chat-strip-wait .wait-row .ans-body { margin-top: 8px; min-width: 0; }
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row) .ans-slot { min-width: 0; }
+body.chat-session :is(#chat > .ans-under, #chat-strip-wait .wait-row) .ans-slot > .ans-frame { display: block; width: 100%; max-width: 100%; min-width: 0; margin: 0; border: 0; }
+body.chat-session #chat-strip-wait .wait-row p.ans-more { margin: 4px 0 0; font-size: 13px; line-height: 20px; }
+body.chat-session #chat-strip-wait .wait-row .ans-board { display: inline-block; padding: 4px 0; color: var(--link); }
+
+/* the strip's rows: a list with a row that can be answered spaces its rows instead of ruling them; such a row is the card, and the plain row again (the dot and the
+   title link, with its usual room) when there is nothing to pick or no frame to show */
+body.chat-session #chat-strip-wait .ans-list { display: flex; flex-direction: column; gap: 12px; }
+body.chat-session #chat-strip-wait .ans-list > .wait-row { flex: none; position: relative; border-top: 0; }
+body.chat-session #chat-strip-wait .ans-list > .wait-row.ans:not(.ans-plain) { display: block; min-height: 0; padding: 0; }
+body.chat-session #chat-strip-wait .ans-list > .wait-row.ans:not(.ans-plain)::before { content: none; }
+body.chat-session #chat-strip-wait .wait-row.ans:not(.ans-plain) > .wait-subj { display: none; }
+body.chat-session #chat-strip-wait .wait-row .ans-head > .chev { margin-top: 4px; }
+body.chat-session #chat-strip-wait .wait-row .ans-head[aria-expanded="true"] > .chev { margin-top: 8px; transform: translateY(1px) rotate(-135deg); }
+/* a frame that is not shown keeps its width and goes on loading, out of the way: the card of a silent or closed item's row, the frame of such a card under a
+   reply, and an older reply's frame while the newer one starts */
+body.chat-session :is(#chat-strip-wait .wait-row.ans-plain > .ans-card, #chat > .ans-under.ans-plain .ans-slot, #chat > .ans-under:not(.ans-newest) .ans-slot) {
+  position: absolute; left: 0; right: 0; height: 0; min-height: 0; margin: 0; padding: 0; border: 0; overflow: hidden; visibility: hidden; }
+
+/* under a reply. A reply's own markup (an inline style can place an element anywhere) stays under the cards: each message is painted as a layer of its own */
+body.chat-session #chat > .msg { isolation: isolate; }
+body.chat-session #chat > .ans-under { position: relative; z-index: 1; box-sizing: border-box; width: 100%; max-width: 560px; min-width: 0; margin: 8px 0 0; }
+body.chat-session #chat > .ans-under + .msg.user { margin-top: 16px; }
+
+@media (pointer: coarse) {
+  body.chat-session #chat-strip-wait .wait-row button.ans-head { min-height: 44px; margin: -8px 0 -4px; padding-top: 8px; }
+  body.chat-session #chat-strip-wait .wait-row .ans-board { padding: 12px 0; }
+  body.chat-session #chat > .ans-under .wait-link { padding-block: 12px; }
+}
+
+/* THE KEYBOARD UP with a row open (body.ans-kbd, chatanswer.js layout): the strip takes the pane but about three lines of the thread, its list scrolls inside, and
+   the open row's title stays at the top of it, on one line */
+body.chat-session.ans-kbd #chat-strip-wait { max-height: var(--ans-max); }
+body.chat-session.ans-kbd #chat-strip-wait .wait { padding-top: 0; }
+body.chat-session.ans-kbd #chat-strip-wait .ans-list { padding-top: 4px; }
+body.chat-session.ans-kbd #chat-strip-wait .wait-row.ans-open > .ans-card > button.ans-head { position: sticky; top: 0; z-index: 1; width: calc(100% + 24px); margin: -8px -12px 0; padding: 8px 12px 4px; background: var(--panel); border-bottom: 1px solid var(--border); border-radius: 0 8px 0 0; }
+body.chat-session.ans-kbd #chat-strip-wait .wait-row.ans-open > .ans-card > button.ans-head::after { left: 0; right: 0; top: 0; bottom: 0; }
+body.chat-session.ans-kbd #chat { padding-bottom: 8px; }
+body.chat-session.ans-kbd #chat-strip-wait .wait-row.ans-open .ans-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
