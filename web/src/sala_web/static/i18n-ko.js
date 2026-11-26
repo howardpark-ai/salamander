@@ -622,7 +622,7 @@ window.SALA_I18N_KO = {
   "ui.shell.resize": "Shell \ud06c\uae30 \uc870\uc808",
   "ui.shell.up": "\uc704",
   "ui.side.chatRole": "\ucc44\ud305",
-  "ui.side.chatTip": "\ucc44\ud305 \uc138\uc158 \uc5f4\uae30, \ub0b4 \ucc28\ub840 \ubaa9\ub85d \ubcf4\uae30",
+  "ui.side.chatTip": "\ucc44\ud305 \uc138\uc158 \uc5f4\uae30, {group} \ubaa9\ub85d \ubcf4\uae30",
   "ui.side.chatWait.other": "{group} {n}\uac74",
   "ui.side.close": "\uc138\uc158 \ubaa9\ub85d \ub2eb\uae30",
   "ui.side.newTip": "\ud504\ub85c\uc81d\ud2b8\uc5d0 \uc0c8 \uc138\uc158 \uc2dc\uc791",

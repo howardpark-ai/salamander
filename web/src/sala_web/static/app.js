@@ -303,7 +303,7 @@ function chatMarks(d) {
 // the chat session's label as api/chat last gave it ("" when none): it changes when the label comes, is renamed or goes
 const chatLabelKey = () => (chatEntryOn() ? chatView.data.session + "\n" + chatView.data.name : "");
 
-// The group's name in the strip's words (the pinned line, its titles, the panel's label, the sidebar chip) is the one stackshot serves with the list (api/chat `group`:
+// The group's name in the strip's words (the pinned line, its titles, the panel's label) and on the sidebar's entry (its tooltip, its chip) is the one stackshot serves with the list (api/chat `group`:
 // {en, ko}), so a rename there reaches these words with no change here. sala's own copy ("chat.group") is the fallback only: no served group, a malformed one, or a Korean
 // page whose served ko equals its en (stackshot has no Korean catalog, and an English word under a Korean page is worse). It is drawn with textContent, never as markup.
 function chatGroupWord(v) {
@@ -323,13 +323,16 @@ function paintChatEntry() {
   if (!on) { a.classList.remove("selected"); a.removeAttribute("aria-current"); return; }
   a.setAttribute("href", "#s=" + encodeURIComponent(d.session));
   a.querySelector(".label").textContent = d.name;
+  const group = chatGroupName(d.group);
+  // the tooltip is painted here only: its text takes {group}, and the markup's applier has no served name to fill it with
+  a.title = tl("ui.side.chatTip", { group });
   const waiting = (d.waiting || []).length, busy = d.present === "live" && !!d.busy;
   const dot = a.querySelector(".dot"), chip = a.querySelector(".wchip");
   dot.hidden = !busy;
   dot.title = tl("chat.state.busy");
   chip.hidden = !waiting;
   chip.textContent = waiting > 99 ? "99+" : String(waiting);
-  chip.title = tl("ui.side.chatWait", { n: waiting, group: chatGroupName(d.group) });
+  chip.title = tl("ui.side.chatWait", { n: waiting, group });
   chip.setAttribute("aria-label", chip.title);
   const here = state.selected === d.session;
   a.classList.toggle("selected", here);

@@ -535,6 +535,8 @@ RENAMED = "Decide demo"
 KO_LABEL = "".join(chr(c) for c in (0xACB0, 0xC815, 0x20, 0xB370, 0xBAA8))
 OWN_KO = "".join(chr(c) for c in (0xB0B4, 0x20, 0xCC28, 0xB840))
 CHIP = "document.querySelector('#side-chat .wchip')"
+TIP = "document.querySelector('#side-chat').title"
+TIP_EN = "Open the chat session, with the list: "
 
 
 def line_is(text: str) -> str:
@@ -557,12 +559,13 @@ def test_a_renamed_group_is_the_name_of_the_closed_bar_the_titles_the_label_and_
     s = state(browser)
     assert s["title"] == "Show the list: " + RENAMED and s["expanded"] == "false", s
     assert wait_for(browser, f"{CHIP}.title === {json.dumps('3 items in ' + RENAMED)}", 10.0), browser.evaluate(CHIP + ".title")
+    assert browser.evaluate(TIP) == TIP_EN + RENAMED
     click(browser)
     assert wait_for(browser, f"{BTN}.title === {json.dumps('Hide the list: ' + RENAMED)}", 5.0), state(browser)
     assert browser.evaluate("document.querySelector('#chat-strip-wait .wait').getAttribute('aria-label')") == RENAMED + " · 3"
     click(browser)
     assert wait_for(browser, f"{BTN}.getAttribute('aria-expanded') === 'false'", 5.0)
-    assert "Your move" not in browser.evaluate("document.querySelector('#chat-strip-wait').textContent + ' ' + " + BTN + ".title + ' ' + " + CHIP + ".title")
+    assert "Your move" not in browser.evaluate("document.querySelector('#chat-strip-wait').textContent + ' ' + " + BTN + ".title + ' ' + " + CHIP + ".title + ' ' + " + TIP)
     m = browser.evaluate(MEASURE)
     assert m["waiting"] == 3, m
     check(m, f"a renamed group at {size[0]} px")
@@ -574,15 +577,19 @@ def test_a_korean_page_shows_the_served_korean_label_or_sala_s_own_when_it_equal
     browser.evaluate("SalaI18n.setLang('ko'); ''")
     assert wait_for(browser, line_is(KO_LABEL + " · 3"), 10.0), state(browser)          # repainted from what the strip holds, no new read
     assert wait_for(browser, f"{BTN}.title.startsWith({json.dumps(KO_LABEL)}) && {CHIP}.title.startsWith({json.dumps(KO_LABEL)})", 5.0)
+    assert wait_for(browser, f"{TIP}.includes({json.dumps(KO_LABEL)}) && !{TIP}.includes('{{group}}')", 5.0), browser.evaluate(TIP)
     set_group(browser, {"en": RENAMED, "ko": RENAMED})                                      # stackshot has no Korean catalog: ko equals en
     assert wait_for(browser, line_is(OWN_KO + " · 3"), 10.0), state(browser)
+    assert wait_for(browser, f"{TIP}.includes({json.dumps(OWN_KO)})", 5.0), browser.evaluate(TIP)
     browser.evaluate("SalaI18n.setLang('en'); ''")
     assert wait_for(browser, line_is(RENAMED + " · 3"), 10.0), state(browser)
+    assert wait_for(browser, f"{TIP} === {json.dumps(TIP_EN + RENAMED)}", 5.0), browser.evaluate(TIP)
 
 
 def test_a_group_that_changes_on_a_later_read_repaints_and_a_bad_one_is_no_group(served, browser, monkeypatch):
     open_group(browser, served, monkeypatch, DESKTOP, None)
     assert wait_for(browser, line_is(LINE), 10.0), state(browser)                           # no group: sala's own words
+    assert wait_for(browser, f"{TIP} === {json.dumps(TIP_EN + 'Your move')}", 5.0), browser.evaluate(TIP)
     set_group(browser, {"en": RENAMED, "ko": KO_LABEL})
     assert wait_for(browser, line_is(RENAMED + " · 3"), 10.0), state(browser)
     set_group(browser, {"en": "Decide again", "ko": KO_LABEL})
