@@ -1792,6 +1792,15 @@ Content-Security-Policy: default-src 'none'; sandbox
 `tests/test_oplog.py` checks the route, the cut, the refusals and the headers over a log folder it makes; `tests/op.sh` checks the post's closing line with the address set and unset. Nothing deletes an operation's log file
 (`lib/op.sh` removes only the marker, by moving it to `ops/done/`), so an old post's link works for as long as the file is kept.
 
+## A sign-in that ends
+
+A proxy that signs the browser in ([web-proxy.md](../docs/web-proxy.md)) may answer 401 to everything but a page load once its sign-in has ended. `static/signin.js`, loaded first by the main page and the full-size terminal page, then loads
+the page again, once, so the proxy can send it to its sign-in. sala-web itself answers no request with 401, and without such an answer the script does nothing.
+
+- **What asks**: a 401 on any read of `api/`, an event stream that stopped, a refused upload, a terminal frame whose own read is refused or that comes up without a terminal. Each is confirmed with one read of `api/config`; only a 401 there reloads.
+- **No loop**: after a reload nothing reloads again until `api/config` has answered and a minute has passed. With storage blocked nothing reloads.
+- **Kept over the sign-in**: the composer's draft, text typed into the page's fields, messages that did not go out (back as not-sent bubbles), uploaded attachments and the address' fragment. Not kept: an attachment still uploading or refused, an image's thumbnail, and what was picked in the New session forms.
+
 ## Install as an app
 
 The page is an installable web app (on Android Chrome it installs as an app, not as a shortcut). What makes it one:
