@@ -253,7 +253,7 @@ async function saveList(key, compute) {
      while it is open they are also read when the stream says something changed (chatStripSoon) and on open;
    - its strip (#chat-strip-wait and #chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner,
      what is in motion, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the server marks the session in
-     api/sessions, sessions.py). What waits on the owner is PINNED: #chat-strip-wait is sticky at the top of the pane, one line ("Your move · 3", a button)
+     api/sessions, sessions.py). What waits on the owner is PINNED: #chat-strip-wait is sticky at the top of the pane, one line ("<group> · 3", a button; the group's name is the one stackshot serves)
      that opens the list, height-capped; with nothing waiting it is not drawn. The motion lines and the switch scroll with the thread. The switch shows and
      hides the kept-back lines in the thread (below);
    - the assistant's messages sit to the left at a 68ch measure (style.css, body.chat-session).
@@ -302,6 +302,21 @@ function chatMarks(d) {
 }
 // the chat session's label as api/chat last gave it ("" when none): it changes when the label comes, is renamed or goes
 const chatLabelKey = () => (chatEntryOn() ? chatView.data.session + "\n" + chatView.data.name : "");
+
+// The group's name in the strip's words (the pinned line, its titles, the panel's label, the sidebar chip) is the one stackshot serves with the list (api/chat `group`:
+// {en, ko}), so a rename there reaches these words with no change here. sala's own copy ("chat.group") is the fallback only: no served group, a malformed one, or a Korean
+// page whose served ko equals its en (stackshot has no Korean catalog, and an English word under a Korean page is worse). It is drawn with textContent, never as markup.
+function chatGroupWord(v) {
+  if (typeof v !== "string" || /[<>]/.test(v) || /\p{C}/u.test(v)) return null;
+  const s = v.trim(), n = [...s].length;
+  return n >= 1 && n <= 40 ? s : null;
+}
+function chatGroupName(group) {
+  const en = group && typeof group === "object" ? chatGroupWord(group.en) : null, ko = group && typeof group === "object" ? chatGroupWord(group.ko) : null;
+  if (en === null || ko === null) return tl("chat.group");
+  if (SalaI18n.lang === "ko") return ko !== en ? ko : tl("chat.group");
+  return en;
+}
 function paintChatEntry() {
   const a = $("#side-chat"), d = chatView.data, on = chatEntryOn();
   a.hidden = !on;
@@ -314,7 +329,7 @@ function paintChatEntry() {
   dot.title = tl("chat.state.busy");
   chip.hidden = !waiting;
   chip.textContent = waiting > 99 ? "99+" : String(waiting);
-  chip.title = tl("ui.side.chatWait", { n: waiting });
+  chip.title = tl("ui.side.chatWait", { n: waiting, group: chatGroupName(d.group) });
   chip.setAttribute("aria-label", chip.title);
   const here = state.selected === d.session;
   a.classList.toggle("selected", here);
@@ -334,7 +349,7 @@ function chatSync() {
 // the strip's pieces are made once; a read changes their text
 function buildChatStrip() {
   const waitList = el("ul", { class: "wait-list" }), waitNote = el("p", { class: "wait-err" });
-  // no heading of its own: the pinned line above already says "Your move · N", and paintChatWait gives the panel that text as its aria-label
+  // no heading of its own: the pinned line above already says "<group> · N", and paintChatWait gives the panel that text as its aria-label
   const wait = el("section", { class: "wait", id: "chat-strip-wait-panel", hidden: true }, waitList, waitNote,
     el("p", { class: "wait-cap", ...tx("chat.wait.note") }));
   // the pinned line: one real button with the count; it opens and closes the list under it (aria-expanded), and closed is how every page load starts
@@ -360,10 +375,11 @@ function paintChatWait() {
   const u = chatView.ui, n = ((chatView.data && chatView.data.waiting) || []).length, open = chatView.waitOpen && n > 0;
   $("#chat-strip-wait").hidden = !n;
   u.wait.hidden = !open;
-  u.waitLine.textContent = tl("chat.strip.line", { n });
+  const group = chatGroupName(chatView.data && chatView.data.group);
+  u.waitLine.textContent = tl("chat.strip.line", { n, group });
   u.wait.setAttribute("aria-label", u.waitLine.textContent);
   u.waitToggle.setAttribute("aria-expanded", String(open));
-  u.waitToggle.title = tl(open ? "chat.strip.collapse" : "chat.strip.expand");
+  u.waitToggle.title = tl(open ? "chat.strip.collapse" : "chat.strip.expand", { group });
 }
 function chatWaitRow(w) {
   // the board id (as stackshot wrote it) is a plain label before the title; the whole title is the one link to the item (no url: plain text). A row with no subject

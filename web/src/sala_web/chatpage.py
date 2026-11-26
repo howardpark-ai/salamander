@@ -118,10 +118,11 @@ def waiting(board_doc: dict, your_move: list[dict] | None = None) -> list[dict]:
 
 
 def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, zone, now_ms: int,
-             motion_dir: Path, board_doc: dict, cache: dict, your_move: list[dict] | None = None) -> dict:
+             motion_dir: Path, board_doc: dict, cache: dict, your_move: list[dict] | None = None, group: dict | None = None) -> dict:
     """The whole answer of GET /api/chat for the configured session `name` (`sess`: its Session, live or sleeping, or None when sala has no such
     session). `cache` (a dict kept by the caller) holds the last read of a transcript, keyed by its size and time, so a poll of an unchanged
-    file costs a stat (the strip's counts are all it keeps). `your_move`: the owner's whole Your move list when stackshot's read has one (yourmove.py), else None."""
+    file costs a stat (the strip's counts are all it keeps). `your_move`: the owner's whole Your move list when stackshot's read has one (yourmove.py), else None.
+    `group`: stackshot's own name for that group, {"en", "ko"}, when its answer carried one (yourmove.py), else None: the strip's words use it in place of sala's own."""
     kept_today, kept_lines, floor = 0, 0, False
     present = "absent"
     status = ""
@@ -149,4 +150,4 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
                 cache[str(path)] = (stamp, kept_today, floor, kept_lines)
     return {"configured": True, "session": name, "name": display, "present": present, "busy": status in ("busy", "waiting"),
             "keptToday": kept_today, "keptTodayFloor": floor, "keptLines": kept_lines,
-            "waiting": waiting(board_doc, your_move), "motion": MO.read_lines(motion_dir, name)}
+            "waiting": waiting(board_doc, your_move), "group": group, "motion": MO.read_lines(motion_dir, name)}

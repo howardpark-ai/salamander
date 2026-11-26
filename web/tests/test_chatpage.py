@@ -270,7 +270,8 @@ def test_api_chat_for_a_live_session_has_what_the_entry_and_the_strip_draw_and_n
     status, headers, body = get(served["url"] + "/api/chat")
     d = json.loads(body)
     assert status == 200 and d["configured"] is True and d["present"] == "live" and d["session"] == NAME and d["name"] == "Fake"
-    assert set(d) == {"configured", "session", "name", "present", "busy", "keptToday", "keptTodayFloor", "keptLines", "waiting", "motion"}, sorted(d)
+    assert set(d) == {"configured", "session", "name", "present", "busy", "keptToday", "keptTodayFloor", "keptLines", "waiting", "group", "motion"}, sorted(d)
+    assert d["group"] is None                      # no stackshot read answered here: the page's own words
     assert d["keptToday"] == 1 and d["keptTodayFloor"] is False and d["keptLines"] == 1
     assert [m["text"] for m in d["motion"]] == ["drawing slide 4"]
     assert d["waiting"] == [] and d["busy"] is False

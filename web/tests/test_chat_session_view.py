@@ -351,19 +351,21 @@ def table(src: str) -> dict[str, str]:
 EN_T, KO_T = table(EN), table(KO)
 
 
-def test_the_english_labels_are_stackshots_name_for_the_group():
-    assert EN_T["chat.strip.line"] == "Your move · {n}"
-    assert EN_T["chat.strip.expand"] == "Show your move list"
-    assert EN_T["chat.strip.collapse"] == "Hide the list"
-    assert EN_T["ui.side.chatWait.one"].format(n=1) == "1 item in Your move"
-    assert EN_T["ui.side.chatWait.other"].format(n=3) == "3 items in Your move"
+def test_the_english_words_are_the_fallback_name_and_a_parameter_for_the_served_one():
+    assert EN_T["chat.group"] == "Your move"                      # sala's own copy: the fallback only
+    assert EN_T["chat.strip.line"] == "{group} \u00b7 {n}"
+    assert EN_T["chat.strip.expand"] == "Show the list: {group}"
+    assert EN_T["chat.strip.collapse"] == "Hide the list: {group}"
+    assert EN_T["ui.side.chatWait.one"].format(n=1, group="Your move") == "1 item in Your move"
+    assert EN_T["ui.side.chatWait.other"].format(n=3, group="Your move") == "3 items in Your move"
     assert "move list" in EN_T["ui.side.chatTip"]
 
 
-def test_the_korean_labels_are_stackshots_label_for_the_group():
-    assert KO_T["chat.strip.line"] == MY_TURN + " · {n}"
-    assert KO_T["chat.strip.expand"].startswith(MY_TURN) and KO_T["chat.strip.expand"] != MY_TURN
-    assert KO_T["ui.side.chatWait.other"].format(n=3).startswith(MY_TURN + " 3")
+def test_the_korean_words_are_the_fallback_label_and_a_parameter_for_the_served_one():
+    assert KO_T["chat.group"] == MY_TURN
+    assert KO_T["chat.strip.line"] == "{group} \u00b7 {n}"
+    assert KO_T["chat.strip.expand"].startswith("{group} ") and KO_T["chat.strip.collapse"].startswith("{group} ")
+    assert KO_T["ui.side.chatWait.other"].format(n=3, group=MY_TURN) == MY_TURN + " 3" + cp(0xAC74)
     assert MY_TURN in KO_T["ui.side.chatTip"]
     assert "ui.side.chatWait.one" not in KO_T, "Korean has one plural form"
 
@@ -386,6 +388,6 @@ def test_no_string_of_either_table_says_waiting_on_you():
 
 def test_the_page_words_the_line_the_titles_and_the_chip_through_those_keys():
     paint = body_of(APP_JS, "function paintChatWait()")
-    assert 'tl("chat.strip.line", { n })' in paint and 'tl(open ? "chat.strip.collapse" : "chat.strip.expand")' in paint
-    assert 'tl("ui.side.chatWait", { n: waiting })' in body_of(APP_JS, "function paintChatEntry()")
+    assert 'tl("chat.strip.line", { n, group })' in paint and 'tl(open ? "chat.strip.collapse" : "chat.strip.expand", { group })' in paint
+    assert 'tl("ui.side.chatWait", { n: waiting, group: chatGroupName(d.group) })' in body_of(APP_JS, "function paintChatEntry()")
     assert "chat.wait.h" not in APP_JS, "the open list has no heading of its own: the pinned line says it"

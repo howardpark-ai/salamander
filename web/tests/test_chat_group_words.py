@@ -1,0 +1,224 @@
+"""The chat strip's words for the owner's group are the ones stackshot serves, with sala's own copy only as the fallback.
+
+The rule: the group's name in the chat session's pinned strip (the pinned line, its expand and collapse titles, the panel's label) and on the sessions-drawer chip is
+a parameter, `{group}`, filled from `group: {en, ko}` of GET /api/chat (the answer of stackshot's `GET /client/your-move`, yourmove.py). A rename in stackshot reaches
+every one of those words with no change here. sala's own copy ("chat.group") is used only when no group is served, a served one is malformed (not both words, a word
+under 1 or over 40 characters once stripped, a control character, markup), or the page is Korean and the served `ko` equals the served `en` (stackshot has no Korean
+catalog: an English word under a Korean page is worse). It is drawn as text, never as markup.
+
+Held here without a browser:
+  - the real functions of app.js (chatGroupName, paintChatEntry, paintChatWait) run in node against a stand-in for the few nodes they touch: a served group overrides the
+    fallback in English and Korean, a renamed group shows in every word of the strip, every kind of bad group and a throw-away value falls back without an exception, a
+    served ko equal to en falls back to sala's Korean for a Korean page and not for an English one, a change of language or of the served group repaints;
+  - the text: no string of the strip carries the group's literal words except the fallback table (so a stray hard-coded copy cannot come back), `{group}` is used by
+    those strip keys alone (no other view's string takes it or changed its words), and the served name is never written with innerHTML.
+The page in a browser (a renamed group at 390 and 1280 px, no sideways scroll, a Korean page) is test_chat_wait_pin_ui.py. All names are invented; Korean is escaped."""
+
+from __future__ import annotations
+
+import json
+import re
+
+import pytest
+
+from i18n_node import STATIC, prelude
+from test_chat_session_view import EN_T, KO_T, body_of, cp
+from test_i18n import needs_node, run_node
+
+APP_JS = (STATIC / "app.js").read_text(encoding="utf-8")
+INDEX = (STATIC / "index.html").read_text(encoding="utf-8")
+
+OWN_EN = "Your move"
+OWN_KO = cp(0xB0B4, 0x20, 0xCC28, 0xB840)
+SERVED_EN = "Decide"
+SERVED_KO = cp(0xACB0, 0xC815)                # a made-up Korean label for the renamed group
+GROUP = {"en": SERVED_EN, "ko": SERVED_KO}
+
+# the keys that carry the group's name as a parameter: the strip's line and titles, and the chip's title
+GROUP_KEYS = {"chat.strip.line", "chat.strip.expand", "chat.strip.collapse", "ui.side.chatWait.one", "ui.side.chatWait.other"}
+
+
+def piece(pattern: str) -> str:
+    m = re.search(pattern, APP_JS, re.S)
+    assert m, pattern
+    return m.group(0)
+
+
+MODEL = r"""
+const mkEl = () => ({ hidden: false, textContent: "", title: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; },
+  classList: { toggle() {}, remove() {} } });
+const parts = { ".label": mkEl(), ".dot": mkEl(), ".wchip": mkEl() };
+const side = mkEl(); side.querySelector = (s) => parts[s];
+const pin = mkEl();
+const nodes = { "#side-chat": side, "#chat-strip-wait": pin };
+const $ = (s) => nodes[s];
+const state = { selected: "" };
+const chatEntryOn = () => true;
+const chatView = { data: null, waitOpen: false, ui: { waitLine: mkEl(), wait: mkEl(), waitToggle: mkEl() } };
+%(group_word)s
+%(group_name)s
+%(entry)s
+%(wait)s
+// what app.js wires on a language change: the entry and the strip are painted again from what they already hold
+SalaI18n.onChange(() => { paintChatEntry(); paintChatWait(); });
+const read = () => ({ line: chatView.ui.waitLine.textContent, aria: chatView.ui.wait.attrs["aria-label"], title: chatView.ui.waitToggle.title,
+                      chip: parts[".wchip"].title, chipAria: parts[".wchip"].attrs["aria-label"], lang: SalaI18n.lang });
+function paint(c) {
+  SalaI18n.setLang(c.lang);
+  chatView.data = { session: "demo-one", name: "Demo", waiting: Array.from({ length: c.n }, (_, i) => ({ id: "demo#" + (i + 1) })), group: c.group };
+  chatView.waitOpen = !!c.open;
+  paintChatEntry(); paintChatWait();
+  return read();
+}
+const cases = %(cases)s;
+console.log(JSON.stringify(cases.map((c) => (c.steps ? c.steps.map(paint) : paint(c)))));
+"""
+
+
+def run_cases(cases: list[dict], page_lang: str = "en") -> list:
+    prog = prelude(page_lang) + MODEL % {
+        "group_word": piece(r"function chatGroupWord\(v\) \{.*?\n\}\n"),
+        "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
+        "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
+        "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
+        "cases": json.dumps(cases),
+    }
+    return run_node(prog)
+
+
+def one(group, lang="en", n=3, open_=False) -> dict:
+    return run_cases([{"group": group, "lang": lang, "n": n, "open": open_}])[0]
+
+
+# ── a served group overrides the fallback, everywhere the name appears ───────────────────────────
+@needs_node
+@pytest.mark.parametrize("lang,name", [("en", SERVED_EN), ("ko", SERVED_KO)])
+def test_a_served_group_is_the_name_in_every_word_of_the_strip_in_both_languages(lang, name):
+    closed, opened = one(GROUP, lang), one(GROUP, lang, open_=True)
+    assert closed["line"] == f"{name} · 3" and closed["aria"] == closed["line"], closed
+    assert name in closed["title"] and name in opened["title"] and closed["title"] != opened["title"], (closed, opened)
+    assert name in closed["chip"] and closed["chipAria"] == closed["chip"], closed
+    for out in (closed, opened):
+        assert OWN_EN not in " ".join(out.values()) and OWN_KO not in " ".join(out.values()), out        # none of sala's own words is left
+
+
+@needs_node
+def test_the_chip_title_keeps_its_singular_and_plural_forms_with_the_served_name():
+    assert one(GROUP, "en", n=1)["chip"] == "1 item in Decide" and one(GROUP, "en", n=3)["chip"] == "3 items in Decide"
+    assert one(GROUP, "ko", n=3)["chip"] == f"{SERVED_KO} 3" + cp(0xAC74)
+
+
+@needs_node
+def test_without_a_served_group_sala_s_own_words_stand_exactly_as_before():
+    en, ko = one(None, "en"), one(None, "ko")
+    assert en["line"] == "Your move · 3" and en["chip"] == "3 items in Your move", en
+    assert ko["line"] == OWN_KO + " · 3" and ko["chip"] == OWN_KO + " 3" + cp(0xAC74), ko
+
+
+@needs_node
+def test_a_rename_shows_in_the_strip_the_chip_and_the_titles_and_the_next_read_changes_it_again():
+    steps = [{"group": GROUP, "lang": "en", "n": 2}, {"group": {"en": "Decide demo", "ko": SERVED_KO}, "lang": "en", "n": 2},
+             {"group": None, "lang": "en", "n": 2}, {"group": {"en": "Back", "ko": "b"}, "lang": "en", "n": 2, "open": True}]
+    got = run_cases([{"steps": steps}])[0]
+    assert [g["line"] for g in got] == ["Decide · 2", "Decide demo · 2", "Your move · 2", "Back · 2"]
+    assert [g["chip"] for g in got] == ["2 items in Decide", "2 items in Decide demo", "2 items in Your move", "2 items in Back"]
+    assert got[3]["title"] == "Hide the list: Back"
+
+
+# ── a bad group is no group ──────────────────────────────────────────────────────────────────
+BAD = [None, "Your move", 7, True, [], [SERVED_EN, SERVED_KO], {}, {"en": SERVED_EN}, {"ko": SERVED_KO}, {"en": SERVED_EN, "ko": None}, {"en": 1, "ko": 2},
+       {"en": "", "ko": SERVED_KO}, {"en": SERVED_EN, "ko": "   "}, {"en": "x" * 41, "ko": SERVED_KO}, {"en": SERVED_EN, "ko": "y" * 41},
+       {"en": "<b>Decide</b>", "ko": SERVED_KO}, {"en": SERVED_EN, "ko": "a > b"}, {"en": "two\nlines", "ko": SERVED_KO}, {"en": SERVED_EN, "ko": "tab\there"},
+       {"en": "zero" + chr(0x200B) + "width", "ko": SERVED_KO}, {"en": SERVED_EN, "ko": "bidi" + chr(0x202E) + "flip"}, {"en": ["a"], "ko": {"x": 1}}]
+
+
+@needs_node
+def test_a_missing_malformed_over_long_or_markup_group_falls_back_to_sala_s_own_words_and_never_throws():
+    got = run_cases([{"group": g, "lang": lang, "n": 3} for g in BAD for lang in ("en", "ko")])
+    for (g, lang), out in zip([(g, lang) for g in BAD for lang in ("en", "ko")], got):
+        own = OWN_EN if lang == "en" else OWN_KO
+        assert out["line"] == f"{own} · 3" and own in out["chip"], (g, lang, out)
+
+
+@needs_node
+def test_forty_characters_and_surrounding_spaces_are_accepted_and_the_words_are_trimmed():
+    assert one({"en": "x" * 40, "ko": "y"})["line"] == "x" * 40 + " · 3"
+    assert one({"en": "  Decide  ", "ko": f" {SERVED_KO} "}, "ko")["line"] == f"{SERVED_KO} · 3"
+    assert one({"en": "x" * 40, "ko": "y"}, "en")["line"] != OWN_EN + " · 3"
+
+
+@needs_node
+def test_a_served_name_with_markup_like_or_brace_text_is_text_only():
+    # a name is data: `{n}` or `$&` in it is not filled or expanded again, and `&amp;` is not decoded (nothing here writes markup)
+    out = one({"en": "{n} $& &amp;", "ko": "k"}, "en", n=3)
+    assert out["line"] == "{n} $& &amp; · 3" and out["chip"] == "3 items in {n} $& &amp;"
+
+
+# ── Korean page, served ko equal to served en ────────────────────────────────────────────────
+@needs_node
+def test_a_korean_page_uses_sala_s_korean_when_stackshot_has_no_korean_catalog_and_an_english_page_uses_the_served_word():
+    same = {"en": "Decide", "ko": "Decide"}             # no catalog configured: ko equals en
+    assert one(same, "ko")["line"] == OWN_KO + " · 3" and one(same, "ko")["chip"].startswith(OWN_KO + " 3")
+    assert one(same, "en")["line"] == "Decide · 3"
+    assert one({"en": "Decide", "ko": " Decide "}, "ko")["line"] == OWN_KO + " · 3"        # equal once stripped
+
+
+@needs_node
+def test_a_change_of_language_repaints_the_strip_and_the_chip_in_the_other_languages_served_word():
+    # the language hook: paint once in English, switch to Korean with no new read, the hook repaints from what is held
+    prog = prelude("en") + MODEL.split("const cases =")[0] % {
+        "group_word": piece(r"function chatGroupWord\(v\) \{.*?\n\}\n"),
+        "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
+        "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
+        "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
+    } + """
+const out = [paint({ group: %s, lang: "en", n: 3 })];
+SalaI18n.setLang("ko"); out.push(read());
+SalaI18n.setLang("en"); out.push(read());
+console.log(JSON.stringify(out));
+""" % json.dumps(GROUP)
+    got = run_node(prog)
+    assert [g["line"] for g in got] == ["Decide · 3", f"{SERVED_KO} · 3", "Decide · 3"]
+    assert got[1]["chip"].startswith(f"{SERVED_KO} 3") and got[1]["title"].startswith(SERVED_KO + " ")
+
+
+# ── the text: no stray hard-coded copy, no other view's string takes the parameter ─────────────
+def test_only_the_fallback_row_and_the_drawer_link_s_tooltip_carry_the_group_s_literal_words():
+    en = {k for k, v in EN_T.items() if re.search(r"your move", v, re.I)}
+    ko = {k for k, v in KO_T.items() if OWN_KO in v}
+    # chat.group is sala's own copy (the fallback); ui.side.chatTip is the drawer link's own tooltip (outside the strip: the pinned line, its titles and the chip)
+    assert en == {"chat.group", "ui.side.chatTip"}, sorted(en)
+    assert ko == {"chat.group", "ui.side.chatTip"}, sorted(ko)
+    assert EN_T["chat.group"] == OWN_EN and KO_T["chat.group"] == OWN_KO
+
+
+def test_the_group_parameter_is_in_the_strip_s_keys_and_in_no_other_string():
+    assert {k for k, v in EN_T.items() if "{group}" in v} == GROUP_KEYS
+    assert {k for k, v in KO_T.items() if "{group}" in v} == {k.replace(".one", ".other") for k in GROUP_KEYS}
+    for t in (EN_T, KO_T):
+        assert not [k for k, v in t.items() if "{group}" in v and not k.startswith(("chat.strip.", "ui.side.chatWait"))]
+
+
+def test_no_script_or_markup_of_the_page_holds_the_group_s_words_outside_the_fallback_table():
+    assert not re.search(r"your move", APP_JS, re.I), "app.js words the group only through tl() and the served name"
+    assert OWN_KO not in APP_JS
+    for name in ("shared.js", "sessions.js", "machines.js", "schedules.js", "search.js", "usage.js"):
+        assert OWN_KO not in (STATIC / name).read_text(encoding="utf-8") and not re.search(r"your move", (STATIC / name).read_text(encoding="utf-8"), re.I), name
+    strip = re.search(r'<div id="chat-strip-wait"[^>]*>(.*?)</div>', INDEX, re.S)
+    assert strip and strip.group(1).strip() == "", "the pinned strip's markup holds no words of its own"
+
+
+def test_the_served_name_is_drawn_as_text_only_and_the_group_reaches_the_strip_through_two_painters():
+    for head in ("function chatGroupWord(", "function chatGroupName(", "function paintChatEntry()", "function paintChatWait()"):
+        fn = body_of(APP_JS, head)
+        assert not re.search(r"innerHTML|insertAdjacentHTML|outerHTML|document\.write", fn), head
+    assert len(re.findall(r"chatGroupName\(", APP_JS)) == 3          # its definition and the two painters (the chip's call, the pinned line's)
+    # the one language hook repaints both when the language changes, and every read of api/chat paints them again (a changed served group)
+    assert "paintChatEntry(); if (!$(\"#chat-strip\").hidden) paintChatStrip();" in APP_JS
+    assert "function chatMarks(d)" in APP_JS and "else paintChatEntry();" in body_of(APP_JS, "function chatMarks(d)")
+
+
+def test_the_group_parameter_is_given_only_by_these_calls_of_app_js():
+    calls = [line.strip() for line in APP_JS.splitlines() if "tl(" in line and re.search(r"\{[^}]*\bgroup\b", line)]
+    assert len(calls) == 3, calls
+    assert all(("chat.strip." in c or "ui.side.chatWait" in c) for c in calls), calls

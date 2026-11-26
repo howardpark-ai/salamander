@@ -720,10 +720,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
         sess = next((x for x in rows if x.name == name), None)
         board_doc = await board.get([x.name for x in rows])
         your_move = your_move_cache.items()   # the strip's list: stackshot's whole Your move read, None -> the board feed
+        group = your_move_cache.group()       # stackshot's own name for the group ({"en", "ko"}), None -> the page's own words
         doc = await run_in_threadpool(lambda: CP.assemble(
             name=name, display=chat_name(), owner=owner_name(), sess=sess, projects_dir=settings.projects_dir, zone=TZ.zone(),
             now_ms=int(time.time() * 1000),
-            motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move))
+            motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move, group=group))
         return JSONResponse(doc, headers={"Cache-Control": "no-store"})
 
     def _page(name: str) -> Response:

@@ -113,7 +113,7 @@ def test_closed_by_default_one_line_with_the_count_and_a_real_button(served, bro
     assert s["pinShown"] and not s["hidden"] and s["pos"] == "sticky", s
     assert s["tag"] == "BUTTON" and s["type"] == "button" and s["text"] == LINE and s["expanded"] == "false", s
     assert not s["listShown"] and s["pinH"] <= 48, s                    # one line: the list is not drawn, the box is as high as its button
-    assert s["title"] == "Show your move list", s
+    assert s["title"] == "Show the list: Your move", s
     assert browser.evaluate(BTN + ".getAttribute('aria-controls') === document.querySelector('#chat-strip-wait .wait').id")
 
 
@@ -122,7 +122,7 @@ def test_a_click_opens_the_list_and_a_second_closes_it_and_a_read_of_the_strip_l
     open_pin(browser, served, monkeypatch, size)
     click(browser)
     s = state(browser)
-    assert s["expanded"] == "true" and s["listShown"] and s["rows"] == 3 and s["title"] == "Hide the list", s
+    assert s["expanded"] == "true" and s["listShown"] and s["rows"] == 3 and s["title"] == "Hide the list: Your move", s
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { waiting: window.__chat.waiting.concat([{ id: 'item#9', subject: 'A late move', url: '' }]) }); loadChatMarks(); ''")
     assert wait_for(browser, f"{PIN}.querySelectorAll('.wait-row').length === 4", 10.0)
     s = state(browser)
@@ -526,3 +526,68 @@ def test_a_new_tag_that_wraps_starts_where_the_id_starts_and_one_after_the_title
     p = browser.evaluate(PIN_WIDTHS)
     assert p["vw"] == width and p["doc"][0] <= p["doc"][1] and p["pane"][0] <= p["pane"][1] and p["list"][0] <= p["list"][1] and p["over"] == [] and p["outRow"] == [], where
     check(browser.evaluate(MEASURE), where)
+
+
+# ── the group's name is the one stackshot serves ──────────────────────────────
+# api/chat carries `group: {en, ko}` (stackshot's own name for the group). The pinned line, its titles, the panel's label and the drawer chip use it in place of sala's own
+# words; a Korean page uses the served ko, or sala's own Korean when that equals the served en (no Korean catalog); a bad group is no group. All polled, no fixed sleeps.
+RENAMED = "Decide demo"
+KO_LABEL = "".join(chr(c) for c in (0xACB0, 0xC815, 0x20, 0xB370, 0xBAA8))
+OWN_KO = "".join(chr(c) for c in (0xB0B4, 0x20, 0xCC28, 0xB840))
+CHIP = "document.querySelector('#side-chat .wchip')"
+
+
+def line_is(text: str) -> str:
+    return f"{BTN}.textContent.trim() === {json.dumps(text)}"
+
+
+def set_group(browser, group) -> None:
+    browser.evaluate("window.__chat = Object.assign({}, window.__chat, { group: " + json.dumps(group) + " }); loadChatMarks(); ''")
+
+
+def open_group(browser, served, monkeypatch, size, group) -> None:
+    open_page(browser, served, monkeypatch, size, api_chat(waiting=moves(), group=group))
+    assert wait_for(browser, f"!{PIN}.hidden", 15.0)
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_a_renamed_group_is_the_name_of_the_closed_bar_the_titles_the_label_and_the_chip(served, browser, monkeypatch, size):
+    open_group(browser, served, monkeypatch, size, {"en": RENAMED, "ko": KO_LABEL})
+    assert wait_for(browser, line_is(RENAMED + " · 3"), 10.0), state(browser)
+    s = state(browser)
+    assert s["title"] == "Show the list: " + RENAMED and s["expanded"] == "false", s
+    assert wait_for(browser, f"{CHIP}.title === {json.dumps('3 items in ' + RENAMED)}", 10.0), browser.evaluate(CHIP + ".title")
+    click(browser)
+    assert wait_for(browser, f"{BTN}.title === {json.dumps('Hide the list: ' + RENAMED)}", 5.0), state(browser)
+    assert browser.evaluate("document.querySelector('#chat-strip-wait .wait').getAttribute('aria-label')") == RENAMED + " · 3"
+    click(browser)
+    assert wait_for(browser, f"{BTN}.getAttribute('aria-expanded') === 'false'", 5.0)
+    assert "Your move" not in browser.evaluate("document.querySelector('#chat-strip-wait').textContent + ' ' + " + BTN + ".title + ' ' + " + CHIP + ".title")
+    m = browser.evaluate(MEASURE)
+    assert m["waiting"] == 3, m
+    check(m, f"a renamed group at {size[0]} px")
+
+
+def test_a_korean_page_shows_the_served_korean_label_or_sala_s_own_when_it_equals_the_english(served, browser, monkeypatch):
+    open_group(browser, served, monkeypatch, DESKTOP, {"en": RENAMED, "ko": KO_LABEL})
+    assert wait_for(browser, line_is(RENAMED + " · 3"), 10.0)
+    browser.evaluate("SalaI18n.setLang('ko'); ''")
+    assert wait_for(browser, line_is(KO_LABEL + " · 3"), 10.0), state(browser)          # repainted from what the strip holds, no new read
+    assert wait_for(browser, f"{BTN}.title.startsWith({json.dumps(KO_LABEL)}) && {CHIP}.title.startsWith({json.dumps(KO_LABEL)})", 5.0)
+    set_group(browser, {"en": RENAMED, "ko": RENAMED})                                      # stackshot has no Korean catalog: ko equals en
+    assert wait_for(browser, line_is(OWN_KO + " · 3"), 10.0), state(browser)
+    browser.evaluate("SalaI18n.setLang('en'); ''")
+    assert wait_for(browser, line_is(RENAMED + " · 3"), 10.0), state(browser)
+
+
+def test_a_group_that_changes_on_a_later_read_repaints_and_a_bad_one_is_no_group(served, browser, monkeypatch):
+    open_group(browser, served, monkeypatch, DESKTOP, None)
+    assert wait_for(browser, line_is(LINE), 10.0), state(browser)                           # no group: sala's own words
+    set_group(browser, {"en": RENAMED, "ko": KO_LABEL})
+    assert wait_for(browser, line_is(RENAMED + " · 3"), 10.0), state(browser)
+    set_group(browser, {"en": "Decide again", "ko": KO_LABEL})
+    assert wait_for(browser, line_is("Decide again · 3"), 10.0), state(browser)
+    for bad in ({"en": "<b>x</b>", "ko": KO_LABEL}, {"en": "x" * 41, "ko": KO_LABEL}, {"en": RENAMED}, "text", None):
+        set_group(browser, bad)
+        assert wait_for(browser, line_is(LINE), 10.0), (bad, state(browser))
+        assert browser.evaluate("document.querySelectorAll('#chat-strip-wait b').length") == 0

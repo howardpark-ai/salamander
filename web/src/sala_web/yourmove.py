@@ -13,6 +13,11 @@ in the page's own order (the owner's longest wait first). This module reads it a
   - the answer is kept under the state dir as text (id, subject, url) so a restart has it too: never the token. The token goes only in
     the Authorization header and in no error text, log line or file.
 
+The answer also carries the group's own name, "group": {"en", "ko"}, which the page draws in the strip's words (the pinned line, its
+titles, the sidebar chip) in place of its own copy, so a rename in stackshot cannot leave the old words here. `parse_group` accepts only a
+dict with a string `en` and a string `ko`, each 1..40 characters once stripped, no control character and no markup; anything else, or
+no `group` key (an older stackshot), is None: no group, never an error, and the page uses its own words.
+
 An item is passed on as {"id": shown, "subject", "url"} (the strip's entry shape; the page uses nothing else), in the order stackshot sent,
 each id once, none dropped and none re-sorted. An empty group is an empty list, which is an answer (the strip draws no pinned line).
 """
@@ -22,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -35,6 +41,7 @@ TIMEOUT = 3.0        # the read's own timeout: the page never waits on it, the b
 STALE_MAX = 600.0    # the last good list stands this long (seconds) while the read keeps failing
 SUBJECT_MAX = 300
 SHOWN_MAX = 80
+GROUP_MAX = 40       # the longest word of the group's name taken, in characters, once stripped
 
 
 def fetch_your_move(url: str, token: str) -> object:
@@ -76,6 +83,25 @@ def parse(body: object) -> list[dict]:
     return out
 
 
+def _group_word(v: object) -> str | None:
+    """One word of the group's name: a string of 1..GROUP_MAX characters once stripped, with no control or format character (a newline, a
+    zero-width mark, a bidi override: checked before the strip) and no markup (`<` or `>`); else None."""
+    if not isinstance(v, str) or "<" in v or ">" in v or any(unicodedata.category(c).startswith("C") for c in v):
+        return None
+    v = v.strip()
+    return v if 1 <= len(v) <= GROUP_MAX else None
+
+
+def parse_group(body: object) -> dict | None:
+    """The group's name of one answer, {"en", "ko"}, or None: no `group` (an older stackshot), or one that is not a dict with both words
+    well formed. Never raises: a bad name is no name, and the list is still the answer."""
+    g = body.get("group") if isinstance(body, dict) else None
+    if not isinstance(g, dict):
+        return None
+    en, ko = _group_word(g.get("en")), _group_word(g.get("ko"))
+    return {"en": en, "ko": ko} if en is not None and ko is not None else None
+
+
 class YourMoveCache:
     """The owner's Your move list, served at once from the last good answer and refreshed in the background once it is TTL old."""
 
@@ -85,16 +111,29 @@ class YourMoveCache:
         self.fetch = fetch
         self._swr = SWR.Revalidating(state_path, TTL, ERROR_RETRY, {"items": []}, valid=lambda d: isinstance(d.get("items"), list))
 
-    def items(self) -> list[dict] | None:
-        """The list now (a refresh started when one is due, never waited for): the last good answer while it is no older than STALE_MAX,
-        else None (never read, or the reads have been failing for too long) and the caller uses the board feed."""
+    def _current(self) -> dict | None:
+        """The last good answer while it is no older than STALE_MAX (a refresh started when one is due, never waited for), else None."""
         doc = self._swr.serve(self._refresh)
         fetched = doc.get("fetchedAt")
         if not isinstance(fetched, int) or not isinstance(doc.get("items"), list):
             return None
         if time.time() - fetched / 1000 > STALE_MAX:
             return None
-        return doc["items"]
+        return doc
+
+    def items(self) -> list[dict] | None:
+        """The list now (a refresh started when one is due, never waited for): the last good answer while it is no older than STALE_MAX,
+        else None (never read, or the reads have been failing for too long) and the caller uses the board feed."""
+        doc = self._current()
+        return None if doc is None else doc["items"]
+
+    def group(self) -> dict | None:
+        """The group's name {"en", "ko"} of the answer `items()` serves, or None (an older stackshot sent none, or a bad one, or there is no
+        answer): the page then uses its own words."""
+        doc = self._current()
+        g = None if doc is None else doc.get("group")
+        ok = isinstance(g, dict) and _group_word(g.get("en")) is not None and _group_word(g.get("ko")) is not None   # a saved file is read again, not trusted
+        return {"en": g["en"], "ko": g["ko"]} if ok else None
 
     async def _refresh(self) -> dict:
         try:
@@ -103,7 +142,7 @@ class YourMoveCache:
             raise SWR.Failed(str(e)) from None
         try:
             body = await asyncio.to_thread(self.fetch, url, token)
-            return {"items": parse(body)}
+            return {"items": parse(body), "group": parse_group(body)}
         except B.Unauthorized:
             raise SWR.Failed(B.REFUSED) from None
         except RuntimeError as e:
