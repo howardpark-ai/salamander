@@ -11,7 +11,7 @@ and 320), with api/chat replaced in the page (but for the case of an item that b
   - a row: the id and the title as the link, who, since when, the days of a late one (amber past two days, red past five), the day a held one comes back, no
     "new" tag; the late count over the list; with nothing owed the tab is a quiet 0 and the list says so; with both lists empty nothing is drawn;
   - while the read is unavailable the strip is the one line, and the bar comes and goes with the read;
-  - an item that becomes the owner's move leaves the second tab at a later read and shows in the first, the count and the late dot following;
+  - an item that becomes the owner's move stays in the second tab until the first list holds it, then leaves it, the counts and the late dot following;
   - a Korean page names the tab and words the rows in Korean;
   - a session that is not the chat session has no tabs, and looks the same whether the list is there or not;
   - markup in every field is text;
@@ -243,8 +243,8 @@ def test_a_row_shows_who_since_when_how_late_and_the_day_a_held_one_comes_back(s
     assert [m["cls"] for m in held] == ["who", "", "park"] and held[2]["text"] == "parked until Tue Jan 12th", held
     assert held[0]["text"] == "Ada" and held[0]["tip"] == NAME and not [m for m in held if m["tone"]], held          # the chat session by the header's name
     assert [m["cls"] for m in fresh] == [""] and re.fullmatch(r"since ([A-Z][a-z]{2} )?\d\d:\d\d", fresh[0]["text"]), fresh      # no mover: no word for one
-    # an item new to the first list since the page's first answer is tagged "new" there and never in the second, also when both hold it (the server answers so
-    # while the first list's own read is unavailable)
+    # an item new to the first list since the page's first answer is tagged "new" there; a row of the second list never carries the tag, one with the same id
+    # included (the page's own rule: the server's answer never holds an item in both)
     change(browser, onIt=promises() + [promise(3)], waiting=waiting(3))
     assert wait_for(browser, f"{PIN}.querySelectorAll('#{ONIT_PANEL} .wait-row').length === 5", 10.0)
     assert browser.evaluate(f"[document.querySelectorAll('#{ONIT_PANEL} .new').length, document.querySelectorAll('#{MOVE_PANEL} .new').length]") == [0, 1]
@@ -360,9 +360,13 @@ def test_an_item_that_becomes_the_owners_move_leaves_the_second_tab_and_its_coun
     assert s["dot"] and s["tabs"][1]["label"] == "On it · 2, 1 older than 2 days", s
     click(browser, ONIT_TAB)
     assert [r["id"] for r in browser.evaluate(ROWS)["rows"]] == ["demo#1", "demo#2"]
-    # the late one becomes the owner's move
+    # the late one becomes the owner's move, and only the second read has seen it: it stays where it is, late as before
+    stack.involved = {NAME: [{**involved(1, "your-move", 3 * DAY + 3600), "mover": "swift-demo-name"}, involved(2)]}
+    assert read_until(browser, f"document.querySelector('#{ONIT_PANEL}').textContent.includes('swift-demo-name')"), state(browser)
+    assert browser.evaluate(counts(1, 2)) and state(browser)["dot"], state(browser)
+    assert [r["id"] for r in browser.evaluate(ROWS)["rows"]] == ["demo#1", "demo#2"]
+    # the first list's read follows
     stack.your_move = [ref(9), ref(1)]
-    stack.involved = {NAME: [involved(1, "your-move", 3 * DAY + 3600), involved(2)]}
     assert read_until(browser, counts(2, 1)), state(browser)
     s = state(browser)
     assert not s["dot"] and s["tabs"][1]["label"] == "On it · 1" and s["open"] == [ONIT_PANEL], s
