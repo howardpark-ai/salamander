@@ -1704,6 +1704,19 @@ line of it breaks anywhere.
 **What `/api/chat` carries.** `{configured, session, name, present: live|sleeping|absent, busy, keptToday, keptTodayFloor, keptLines, waiting, motion}`, and only that: the entry and the strip are all that read it. The thread, the composer, a sleeping
 session's wake and the spinner of a working one are the session's own view's, from `api/sessions`, the transcript and the stream.
 
+**The chat session's own thread** (`GET /api/chat/thread`, `chatthread.py`; no page reads it yet, and no other read of any session changes). The conversation alone: what the owner wrote and what was answered to them, as a
+selection over the same transcript. What the owner wrote is whatever `chatturns.py`'s rule calls theirs, with no second list: a line with origin `human` whatever its `promptSource` (not meta, not a compaction summary, not carrying sala's mark),
+the `queued_command` attachment of a message typed while the session was busy, and a slash command typed in the pane, each drawn as the session's page draws it. Of the replies it holds the final ones of a turn they started (every line
+`chatturns.reply_of` calls final, whatever stopped it, so a reply cut off at `max_tokens` counts; its text blocks alone) and, of any other turn, only a reply that opens with `[for <owner>]`, the mark taken off. There are no tool calls,
+thinking, narration, delivered messages, command output or kept lines. Turns are `chatkeep.Keeper`'s, so a message they type into an open delivered turn takes it over, with two endings the session's page does not have, after which a later
+delivered message's reply needs the mark: an interrupt of their turn (the transcript's `[Request interrupted by user]` or `... for tool use]` line), and a command of theirs that only ran locally (its output recorded with no reply before it),
+which leaves the turn as the command found it, closed, still theirs and working, or still delivered. A message they type afterwards is theirs, and a command the session answers is theirs with its answer. A turn that ends with no such line (an
+interrupt that wrote none, a command with neither output nor reply, an API error, a restart) cannot be told apart from one still working: the next reply counts as theirs.
+The answer is `{session, messages, offset, before, start, busy, cards}` for the end of the conversation (`?n=`, 200 by default) and, with `?before=`, `?after=` or `?around=`, the paging keys the transcript route gives for
+that read; `busy` is an open turn of a working session, `cards` maps a reply's uuid to its link cards (the reply carries them too). Pages hold whole turns and end after 4 MB of transcript once they hold a message, so a page can hold fewer
+messages than asked while `start` is false; the end of the conversation is cached until the transcript's size or time changes. With no session set the answer is `{configured: false}`; the session is the configured one alone, live or sleeping
+(read from its file, never woken), and nothing in a request names another.
+
 **No sideways scroll**, at any width, with the drawer open or shut: `tests/test_chat_session_view_ui.py` holds it at 1280, 390, 360 and 320 px with hostile text in the thread, a waiting subject and a motion line, and
 `tests/test_chat_kept_ui.py` holds it again with the switch off and on and hostile text in the kept lines, and `tests/test_chat_link_cards_ui.py` with hostile text in the cards (a 300-character title, a long address). (A markdown table wider
 than the thread scrolls inside its own block, as in every session; the page never does.) The same file holds that the chat session and another session, given the same transcript, differ only in the strip and the cap, and that a working chat session shows the spinner every session shows. `tests/test_chat_retired_ui.py` holds that `/chat` lands in the session's own view (and at the app's own page with no session set), that the spinner of a working chat session is the shared one, and that no width from 1280 to 320 px scrolls sideways there.
@@ -2239,6 +2252,7 @@ part of `web/`.
 | `GET /sw.js` | the service worker, at the root so its scope is the whole site; `text/javascript`, never cached |
 | `GET /chat` | an address kept for the chat session (`SALA_CHAT_SESSION`): a 302 to `./#s=<session>`, relative to the app's own prefix (to `./` with none set); no page of its own (*The chat session*) |
 | `GET /api/chat` | what the chat session's entry and strip show: `{configured, session, name, present: live\|sleeping\|absent, busy, keptToday, keptTodayFloor, keptLines, waiting, motion}`; `{configured: false}` when no session is set; `no-store` |
+| `GET /api/chat/thread?n=&before=&after=&around=` | the chat session's own thread, the owner's messages and the replies to them: `{session, messages, offset, before, start, busy, cards}` (paged reads carry their own paging keys); `{configured: false}` when no session is set; 400 on a bad query; `no-store` (*The chat session*) |
 | `GET /mockup/<n>` | a mockup page `sala mockup add` stored (*Mockup pages*); `text/html; charset=utf-8`, 404 for an unknown number, the sandbox headers on every response |
 | `GET /op/<id>` | the log of one `sala op` operation (*Operation log pages*); `text/plain; charset=utf-8`, the last 256 KB, 404 `no such log` for anything else, the private headers on every response |
 | `GET /sessions` | redirects to `/#sessions`, the Overview |
