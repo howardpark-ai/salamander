@@ -518,7 +518,7 @@ usage: salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
 
   ci-runs  the GitHub Actions runs of <owner/repo> from the file the poller keeps (~/.local/state/salamander/ci-runs/<owner>__<repo>.json,
            format in docs/ci-runs.md): the file's JSON on stdout ({"repo","updated","updated_iso","runs":[…]}), the runs cut to those whose head
-           commit starts with SHA (7 or more characters) when --sha is given (none: "runs":[], exit 0), or one tab-separated line a run with --text.
+           commit starts with SHA (7 or more characters) when --sha is given (none: "runs":[], exit 0), or one tab-separated line a run with --text (id, status/conclusion, branch, sha, name; the header holds the run url prefix once: url = prefix + id).
            No GitHub call is made. Exit 0 = the file is fresh; 3 = no file for that repo (the poller does not poll it, or has not run);
            4 = the file is older than --max-age seconds (default 120; 0 = no limit), the poller is not keeping it fresh; 5 = unreadable;
            2 = usage. On 3 and 4 nothing is printed on stdout and the reason on stderr: read GitHub yourself.
