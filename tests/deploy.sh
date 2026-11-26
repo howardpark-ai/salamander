@@ -81,6 +81,11 @@ echo 'echo again' >> "$WORK/install.sh"; push install2; : > "$FAKE_LOG"; deploy
 [ "$rc" = 0 ] && [[ $out == *"install.sh: re-run"* ]] && [[ $out == *"install: installed"* ]] && [ ! -s "$FAKE_LOG" ] && landed \
     && ok "install.sh changed: re-run as before, nothing of the web's" || bad "install: rc=$rc calls=$(calls) $out"
 
+echo "== a file with a null byte in its first line, and release.sh's mark for install.sh"
+printf 'bin\0ary\nrest\n' > "$WORK/blob"; printf '#!/bin/bash\0x\n' > "$WORK/blob2"; echo 'echo "rel=${SALA_RELEASE_RUN-unset}"' >> "$WORK/install.sh"; push nul; : > "$FAKE_LOG"; SALA_RELEASE_RUN=1 deploy
+[ "$rc" = 0 ] && [[ $out != *"null byte"* ]] && [[ $out != *warning* ]] && [[ $out == *"install: rel=1"* ]] && landed \
+    && ok "a null byte in a tracked file's first line: no 'ignored null byte' warning; the deploy passes SALA_RELEASE_RUN on to install.sh" || bad "nul: rc=$rc $out"
+
 echo "== both"
 commit both lib/common.sh web/src/app.py; : > "$FAKE_LOG"; deploy
 [ "$rc" = 0 ] && [ "$(calls)" = "$WEB_CALLS" ] && [[ $out == *"note: lib/common.sh changed"* ]] && [[ $out == *"web: sala-web synced and restarted"* ]] && landed \

@@ -293,9 +293,19 @@ def cmd_runs(argv):
         return err[0]
     runs = [r for r in data["runs"] if sha_match(r, sha)] if sha else data["runs"]
     if text:
-        print("# %s, updated %s (%ds ago), %d run(s)%s" % (data.get("repo", repo), data.get("updated_iso", "?"), data["_age"], len(runs), (" of " + sha) if sha else ""))
+        # the run's url is one prefix and the run id when every row says so (GitHub's own form): the prefix goes once in the header, column 7 is dropped
+        # a row with any other url (a renamed repo, an odd file) keeps column 7 on every row, and the header names no prefix
+        pre = None
+        if runs:
+            u = str(runs[0].get("html_url") or "")
+            i = str(runs[0].get("id"))
+            if i and u.endswith(i) and all(str(r.get("html_url") or "") == u[:len(u) - len(i)] + str(r.get("id")) for r in runs):
+                pre = u[:len(u) - len(i)]
+        print("# %s, updated %s (%ds ago), %d run(s)%s%s" % (data.get("repo", repo), data.get("updated_iso", "?"), data["_age"], len(runs), (" of " + sha) if sha else "",
+                                                          (", run url = %s<id>" % pre) if pre else ""))
         for r in runs:
-            print("%s\t%s/%s\t%s\t%s\t%s\t%s" % (r.get("id"), r.get("status"), r.get("conclusion") or "-", r.get("head_branch"), (r.get("head_sha") or "")[:7], r.get("name"), r.get("html_url")))
+            row = "%s\t%s/%s\t%s\t%s\t%s" % (r.get("id"), r.get("status"), r.get("conclusion") or "-", r.get("head_branch"), (r.get("head_sha") or "")[:7], r.get("name"))
+            print(row if pre else row + "\t%s" % r.get("html_url"))
     else:
         out = {k: v for k, v in data.items() if k != "_age"}
         out["runs"] = runs

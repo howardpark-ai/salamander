@@ -95,6 +95,9 @@ HOOKS
 cat <<TXT
 ✅ salamander → $BIN/salamander  (alias: sala)
    config: $CFG
+TXT
+# the setup hints (tmux, Claude Code, systemd) are for a person running this by hand: release.sh sets SALA_RELEASE_RUN=1 for its deploy, which reruns this file on a host that has them already
+[ -n "${SALA_RELEASE_RUN:-}" ] || cat <<TXT
 
 tmux-resurrect hooks (add to ~/.tmux.conf; keep \`claude\` OUT of @resurrect-processes):
    set -g @resurrect-hook-post-save-all    'salamander revive --save-map'

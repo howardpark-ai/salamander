@@ -25,6 +25,7 @@
 # sets it).
 # install.sh is re-run only when install.sh or config.example changed: it is idempotent and restarts nothing (two
 # symlinks into this checkout, the config seeded only when missing, warnings; web units of the old name migrated, lib/webunits.sh).
+# release.sh sets SALA_RELEASE_RUN=1 for its deploy, and install.sh then leaves out its tmux, Claude Code and systemd setup hints (warnings stay); a run by hand prints them.
 # bin/salamander is linked, not copied, so a change to it needs no install. The systemd units are copied by hand, so a change under systemd/ is reported, not installed.
 # Never restarts the tmux server, a session or a unit of sala's: the long-running pieces (sala-follow.service, a recycle's
 # retry worker) keep the code they started with until their own next start, and the `note:` lines say so. The one unit
@@ -85,7 +86,7 @@ shell_files_at() {
         case "$f" in
             *.sh|bin/salamander) echo "$f" ;;
             *.py|*.md|*.c|*.plist|*.service|*.timer|*.yml|LICENSE|.gitignore) ;;
-            *) first="$(g show "$rev:$f" 2>/dev/null | sed -n 1p)"; [[ "$first" =~ ^#!.*[/\ ](ba)?sh(\ |$) ]] && echo "$f" ;;
+            *) first="$(g show "$rev:$f" 2>/dev/null | sed -n 1p | tr -d '\0')"; [[ "$first" =~ ^#!.*[/\ ](ba)?sh(\ |$) ]] && echo "$f" ;;
         esac
     done
 }
