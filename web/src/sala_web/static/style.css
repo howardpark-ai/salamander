@@ -292,6 +292,7 @@ body.reordering .sess:not(.dragging) { pointer-events: none; }
 .top-end { grid-column: 3; justify-self: end; display: flex; align-items: center; gap: 8px; }
 #title .dot { align-self: center; flex: none; }
 #title .name { flex: 0 1 auto; min-width: 0; font-size: 15px; line-height: 20px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#title .name > span[title] { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }   /* the chat session's label (updateHeader), whose tooltip is the real name: cut by its own ellipsis, so its box ends inside the bar */
 #top-status { flex: none; display: flex; align-items: center; gap: 8px; line-height: 1; font-size: 12px; color: var(--faint); }
 #top-status:empty { display: none; }
 #title .crumb { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }

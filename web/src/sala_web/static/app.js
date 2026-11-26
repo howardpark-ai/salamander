@@ -287,7 +287,7 @@ function chatStripSoon() {
 // what api/chat said last: the entry and, while the chat session is open, the strip
 function chatMarks(d) {
   if (!d || typeof d !== "object") return;
-  const was = chatEntryOn();
+  const was = chatEntryOn(), label = chatLabelKey(), wasHere = isChatRow(state.current);   // wasHere: the open session wore the label before this answer
   chatView.data = d;
   if (d.configured) {
     const ids = new Set((d.waiting || []).map((w) => w.id));
@@ -296,7 +296,12 @@ function chatMarks(d) {
   }
   if (was !== chatEntryOn()) renderSidebar(); else paintChatEntry();   // the session's own row comes or goes with the entry
   chatSync();
+  // the label came, changed or went while the chat session is open (it wore it before this answer, or does now): its header and the tab title are drawn again
+  // (updateHeader; no other session has a label). "Went" needs wasHere: once the entry is off, isChatRow is false and the old label would stay
+  if (chatLabelKey() !== label && (wasHere || isChatRow(state.current))) updateHeader(state.current);
 }
+// the chat session's label as api/chat last gave it ("" when none): it changes when the label comes, is renamed or goes
+const chatLabelKey = () => (chatEntryOn() ? chatView.data.session + "\n" + chatView.data.name : "");
 function paintChatEntry() {
   const a = $("#side-chat"), d = chatView.data, on = chatEntryOn();
   a.hidden = !on;
@@ -917,6 +922,10 @@ function updateHeader(s) {
   $("#title .dot").className = "dot " + dotClass(s.status);
   $("#title .dot").title = s.status || "";
   $("#title .name").textContent = s.name;
+  // the open session IS the chat session (isChatRow): the header's name and the tab's title say the label the sidebar's entry shows, and the real name is
+  // the name's tooltip (a span inside it, which the next write of the name's text removes). Any other session: the line above, its name, no tooltip
+  const shown = isChatRow(s) ? sessionLabelFrom(chatView.data, s.name) : s.name;
+  if (shown !== s.name) $("#title .name").replaceChildren(el("span", { title: s.name, text: shown }));
   // the bar keeps the dynamic badge only (working / needs input); the menu's Session section has the static facts: its
   // role, its lane, and the tmux name only when it differs (the session name already says scope and project). The status
   // badge may sit in that section's row list (folded), so the rows are replaced, not the whole list
@@ -928,7 +937,7 @@ function updateHeader(s) {
     s.role ? sessionRow(tl("common.role"), el("span", { class: "pill role-" + s.role, text: s.role })) : null,
     s.lane ? sessionRow(tl("common.lane"), el("span", { class: "pill lane-" + laneNorm(s.lane), title: tl("app.hdr.laneTip"), text: laneLabel(s.lane) })) : null,
     s.tmuxSession && s.tmuxSession !== s.name ? sessionRow("tmux", el("span", { class: "pill mono", title: tl("app.hdr.tmuxTip"), text: s.tmuxSession })) : null].filter(Boolean));
-  setTitle(s.name);
+  setTitle(shown);
   layoutHeader();
   updateInflight();
 }

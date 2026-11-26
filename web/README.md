@@ -1631,6 +1631,12 @@ main chat's own composer and path.
 **The setting.** The session is `SALA_CHAT_SESSION` in sala's config (one session name; empty by default, and then there is no entry and no strip; no name is written in the code). The name the entry shows for it is
 `SALA_CHAT_NAME` (at most 40 characters; default: the part of the session name after its last hyphen, capitalized). Both are read on each request, so no restart. The owner's name in the kept-back lines and in the `[for <owner>]` mark is `SALA_OWNER_NAME`.
 
+**The label in the header and the tab title.** While the open session is the chat session, the header's name (`#title .name`) and the tab's title say the same text as the entry (for a session `demo-one` labelled `Demo One`: `Demo One`), from one
+function, `sessionLabelFrom` (`static/shared.js`, run in node by the tests), called in `updateHeader` (`app.js`) behind the chat session's own test (`isChatRow`) and nowhere else. The real name is the header's tooltip (the `title` of a span inside the name,
+which the next write of the name's text removes). Every other session, every other view and the chat session before `api/chat` has answered (or with none configured) are drawn exactly as before: the name, no tooltip. A label renamed while the page is open
+is drawn again by the entry's own 25-second read of `api/chat` (`chatMarks`). The span has its own ellipsis rule (`#title .name > span[title]`, `style.css`), so a long label is cut inside the bar and no box of the header ends outside the window. `tests/test_session_label.py` (the function and the script's text) and `tests/test_session_label_ui.py` (a
+headless Chromium) hold it.
+
 **The rule that tells the two apart** is read from the line's own record of where its text came from, never from its words (the one exception is sala's own mark, below), and was established from real transcripts. It is stated in
 the docstring of `chatturns.py` and here. In short: a `user` line with `origin.kind` `human` (typed, or typed while the session was busy and queued), an `attachment` of type `queued_command` with
 `origin.kind` `human`, and a slash command typed in the pane are the owner's, unless the text starts with sala's mark. **sala's mark:** sala itself types lines into a session's pane (a spawn's mandate line, a wake line, a wrap-up text),
