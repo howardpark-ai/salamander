@@ -269,9 +269,9 @@ def test_the_answer_link_is_gone_and_the_title_is_the_one_link_to_the_item():
     assert 'class: "wait-title", text: title' in row and "w.subject || w.id" in row
     assert "innerHTML" not in row, "what the board wrote is set as text"
     assert row.count('el("a"') == 1, "one link a row, never a second one beside the title"
-    # the look: the title link keeps the visible focus ring and the same 12 px of padding the old link had on a touch screen; the id wraps inside the row
+    # the look: the title link keeps the visible focus ring, on a touch screen its box is padded to the 44 px target and lifted above the line under it; the id wraps inside the row
     assert "#chat-strip-wait a:focus-visible" in STYLE
-    assert re.search(r"@media \(pointer: coarse\) \{[^\n]*#chat-strip-wait \.wait-row \{ padding-block: 12px; min-height: 44px; box-sizing: border-box; \} #chat-strip-wait \.wait-link \{ padding-block: 12px; \}", STYLE)
+    assert re.search(r"@media \(pointer: coarse\) \{[^\n]*#chat-strip-wait \.wait-row \{ padding-block: 12px; min-height: 44px; box-sizing: border-box; \} #chat-strip-wait \.wait-link \{ position: relative; padding-block: calc\(\(44\.5px - 1\.15em\) / 2\); \}", STYLE)
     idrule = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .wait-id")
     assert "overflow-wrap: anywhere" in idrule and "user-select" not in idrule and "display" not in idrule, idrule     # inline text: it wraps with the title
     linkrule = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .wait-link")
