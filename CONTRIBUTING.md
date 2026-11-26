@@ -37,6 +37,10 @@ does not have.
    live release is also reported to stackshot (`client.py released --pr <PR url> --sha <merge commit>`), which settles the items whose
    step is `release PR #N`; stackshot refuses it until its server accepts this repository (then it is only logged), and a failure of
    it never fails the release.
+   A PR the queue drops because the merge group failed its required checks is put in the queue once more by the same run,
+   when the head is still the queued commit and the PR is still open, ready, mergeable and green (every condition:
+   `docs/merge-queues.md`, *The one retry*). The log and the report name the failed run, so a flaky test stays visible;
+   a second such drop fails the release with both runs. No other failure is retried.
    `release.sh --status [<pr>]` shows a run; logs are under `~/.local/state/salamander/releases/`.
    A PR somebody already merged (by hand) is found at step 1: `release.sh <pr>` skips the merge, waits
    for the check runs on its merge commit on main (a failing one stops it before the deploy), then deploys and reports "merged

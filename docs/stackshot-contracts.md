@@ -559,6 +559,8 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   empty: no client, the message is only logged; from the environment, the script reads no config), `tell()` runs
   `python3 "$CLIENT" message <project page key> "<text>" --sender release`; texts
   `[release] PR #N merged and deployed — <title> — main at <sha>; changed: …` and `[release] PR #N FAILED at <step>: …`.
+  A release that queued the PR a second time (`docs/merge-queues.md`, *The one retry*) says so in free text after those starts: appended to the green one
+  after what changed (`· queued twice: …`), inside the red one's reason; both name the failed run and still end `· log <path>`.
   After a successful deploy and before that message, `report_live` runs
   `python3 "$CLIENT" released --pr https://github.com/<owner>/<repo>/pull/<n> --sha <merge commit>` (stackshot `client.py released`): the merge commit is main's
   for a PR that was already merged, else what `gh pr view --json mergeCommit` names after the merge, else the first-parent merge of that PR in the checkout.

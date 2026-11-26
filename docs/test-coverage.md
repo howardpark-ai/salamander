@@ -84,6 +84,12 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/release.sh`: the one retry of GitHub's merge queue (Thu Nov 26th 2026)
+
+The path guarded: a PR dropped from the queue because the merge group failed its required checks (most often a flaky test) waited for a hand re-release; `release.sh` now queues the same head once more. A wrong answer queues a PR that must not go in (moved, conflicting, a draft, red), queues for ever, or hides the failed run.
+Covered, against the fake `gh` (it now serves a removal per pass, a merge group commit's own check runs, the re-read of the PR, and a queue answer or an enqueue refusal for the n-th ask): the retry and then a merge, with the log and the one report naming the failed run, its url and jobs; a second such drop, naming both runs, with no third try; the second pass never reading the first removal as its own; a later failure after the retry (another removal reason, a refused enqueue, a close, a deploy) still naming the first run; each case that is never retried (`docs/merge-queues.md`, *The one retry*), counted by the enqueue calls; and that no line before the last holds `done:` or `FAILED`, which log waiters stop at, a job name holding them included. A fake `sleep` keeps these cases free of real waiting.
+Not covered, and why: GitHub's real timeline and check runs (the shapes were read from real removals), and the queue itself.
+
 ### `tests/dm.sh`: +2, 233 (Thu Nov 26th 2026)
 
 A signal that lands as a hidden prompt of `sala dm --set-token` is about to read. Kept because the command could outlive SIGTERM with the terminal's echo off, waiting at a token prompt until a line was typed.
