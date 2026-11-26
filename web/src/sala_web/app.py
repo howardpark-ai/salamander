@@ -17,6 +17,11 @@ none itself):
                                   kept-back lines the session's own view draws today, which also counts a turn he then spoke into), waiting (his moves:
                                   stackshot's Your move list, else the board feed), motion (the session's own `sala motion` lines)}; with no session set
                                   just {configured: false} (read-only; it sends nothing, the composer uses /api/s/<pid>/send)
+  GET  /api/chat/thread           the chat session's own thread (chatthread.py, whose docstring is the rule): the owner's messages and the replies to them and
+                                  nothing else, ?n=200 with at most one of ?before=, ?after= and ?around= as the transcript route takes them (400 on a bad one)
+                                  -> {session, messages, offset, before, start, busy, cards} (an older, newer or around page carries that read's own paging
+                                  keys in place of offset); {configured: false} with no session set. The session is the configured one alone: nothing of the
+                                  request names a session. Read-only
   GET  /manifest.webmanifest      the web app manifest (the page is installable as an app; static/manifest.webmanifest)
   GET  /sw.js                     the service worker, at the root so its scope is the whole site (static/sw.js)
   GET  /mockup/<n>                a page `sala mockup add` stored under that number (mockup.py; 404 for any other address under /mockup), as
@@ -296,6 +301,7 @@ from starlette.staticfiles import StaticFiles
 from . import board as B
 from . import chatkeep as CK
 from . import chatpage as CP
+from . import chatthread as CTH
 from . import yourmove as YM
 from . import colors as CLR
 from . import credit as CR
@@ -2248,12 +2254,39 @@ def create_app(settings: Settings | None = None) -> Starlette:
                     pass
         SP.prune_mandates(settings.mandates_dir, UPLOAD_MAX_AGE_DAYS)  # a spawned session read its mandate long ago
 
+    thread_cache: dict = {}
+
+    async def api_chat_thread(request: Request) -> Response:
+        # the chat session's own thread (chatthread.py): read-only. The session is the one SALA_CHAT_SESSION names and no other (nothing of the request names a
+        # session), found as GET /api/chat finds it, among the live and sleeping ones; with none set, that route's empty answer
+        name = chat_session()
+        if not name:
+            return JSONResponse({"configured": False}, headers={"Cache-Control": "no-store"})
+        try:
+            n = max(1, min(int(request.query_params.get("n", TAIL_N)), 2000))
+        except ValueError:
+            return _err(400, "n is not an integer")
+        before, around, after = (request.query_params.get(k) for k in ("before", "around", "after"))
+        if sum(x is not None for x in (before, around, after)) > 1:
+            return _err(400, "give one of before, around and after")
+        host = request.headers.get("host", "")   # a link to a mockup page "on this site" is read against it (the reply's cards)
+        rows = await run_in_threadpool(_live_and_sleeping)
+        sess = next((x for x in rows if x.name == name), None)
+        try:
+            doc = await run_in_threadpool(lambda: CTH.answer(
+                name=name, sess=sess, projects_dir=settings.projects_dir, owner=owner_name(), n=n, before=before, around=around, after=after,
+                host=host, mockups_dir=settings.mockups_dir, cache=thread_cache))
+        except TR.BadCursor as e:
+            return _err(400, str(e))
+        return JSONResponse(doc, headers={"Cache-Control": "no-store"})
+
     static_app = RevalidatedStatic(directory=STATIC)
     routes = [
         Route("/", index),
         Route("/terminal", terminal_page),
         Route("/chat", chat_page),
         Route("/api/chat", api_chat),
+        Route("/api/chat/thread", api_chat_thread),
         Route("/manifest.webmanifest", manifest),
         Route("/sw.js", service_worker),
         # everything under /mockup (any method, any depth) is answered by mockup_page, so no answer of this prefix lacks the sandbox headers
