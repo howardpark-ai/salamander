@@ -1,6 +1,6 @@
 # sala ↔ stackshot: the interface contracts
 
-contract-version: 63
+contract-version: 64
 
 Every interface between sala (this repo) and stackshot (`howardpark-ai/stackshot`), in both directions, and the scripts of a host config repo
 that sit between them. One document, one version number. This is step 2 of the goal "sala runs, installs and is
@@ -324,6 +324,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **61** — Wed Nov 25th 2026. New interface 40 (the owner's whole Your move list). The chat page's Waiting on you strip reads stackshot's `GET /client/your-move` (every item of the board home page's Your move group, no cap, in the page's own order) instead of taking the owner's moves from the per-session board feed of interface 10, which lists only the moves some session of this box is tied to. The feed stays as the fallback. Interface 10 is unchanged.
 - **62** — Wed Nov 25th 2026. Interface 39 (machines): each row of `machines` gains four optional keys, `online`, `last_seen`, `versions` and `checked` (the tailnet's view of the machine, the versions sala read on the posting box itself, and when the row was read). Schema stays 1 and a receiver that ignores unknown keys is unaffected; absent or null means unknown. The fingerprint that decides when the list is posted leaves `checked` out, so the post still goes on a change or every 10 minutes. Interfaces 1, 30 and 38 are unchanged.
 - **63** — Thu Nov 26th 2026. Interface 40 (the owner's whole Your move list): sala-web now also reads the answer's `group`, `{"en", "ko"}`, stackshot's own name for the group, and draws it in the chat strip's words (the pinned line, its titles, the drawer chip) in place of its own copy, which stays only as the fallback. Optional: an older stackshot with no `group`, or one that is malformed, leaves the strip on sala's own words. `items` is read as before.
+- **64** — Thu Nov 26th 2026. New interface 41 (the open items the chat session is the contact of or an observer on): sala-web reads `GET /client/involved?key=<the configured chat session name>` for a second tab, On it, of the chat page's pinned strip. An item the strip's first list shows is left out of that tab. Optional: while the read is unavailable (a server without it answers 404) the strip is as before. Interfaces 10 and 40 are unchanged.
 
 ## How each entry reads
 
@@ -383,6 +384,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 | 38 | Agent state (`agent-state.json` in the live store, `POST /client/agent-state`; `SALA_AGENT_STATE_POST_CMD`) | sala → stackshot | unstable (first release; stackshot's route is being built) | `tests/agentstate.sh` (a stub stackshot checkout and a stub post command; the parity section needs the real checkout) |
 | 39 | Machines (`machines.json` in the live store, `POST /client/machines`; `SALA_MACHINES_POST_CMD`) | sala → stackshot | unstable (first release; stackshot's route is not built yet, a 404 is expected) | `tests/machinespost.sh` (a made-up fleet folder, a stub post command) |
 | 40 | sala-web's Your move list (`GET /client/your-move`) | sala web → stackshot | stable (the route is live) | `web/tests/test_yourmove.py`, `test_chatpage.py` (a fake stackshot) |
+| 41 | sala-web's On it list (`GET /client/involved`) | sala web → stackshot | stable (the route is live) | `web/tests/test_involved.py` (a fake stackshot), `test_chat_onit_ui.py` |
 
 ## 1. Heartbeat fleet store
 
@@ -1245,6 +1247,16 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
 - **Owners**: sala `web/src/sala_web/yourmove.py` (whole file), `chatpage.py` (`waiting`), `app.py` (`api_chat`). stackshot `docs/client-contract.md`, *The owner's whole Your move group*.
 - **Absent or changed**: no token file, a 401, an unreachable server, a non-JSON answer or an answer without an `items` list: the cached list while it is under 10 minutes old, else the board feed. A stackshot that predates the route answers 404 and the strip stays on the feed; one that predates `group`, or sends a bad one, leaves the strip's words as sala's own. The rest of sala-web is unaffected. Fail-open.
 - **Test**: `web/tests/test_yourmove.py` (the parse, the cache and its bounds, the read against a stand-in on a real socket, `GET /api/chat` end to end), `web/tests/test_chatpage.py` (`waiting`); `conftest.py` points token and URL at missing files so no test reaches the board.
+- **Stable**: yes (the route is live).
+
+## 41. sala-web's On it list
+
+- **Direction**: sala's web app → stackshot (HTTP). Added in version 64.
+- **Mechanism**: `GET <url>/client/involved?key=<name>`, headers, timeout, token and address as interface 40. `<name>` is the chat session's configured name (`SALA_CHAT_SESSION`), never one a request names; with no chat session configured nothing is read. Answer: `{"items": [...]}`, the open items that session is the contact of or an observer on, with no cap, the last write first; an unknown name is `{"items": []}` and a blank one 400. Of each item sala-web consumes `shown` (the id as a person reads it), `subject`, `url` (the item's page; a bare path where stackshot has no board address, and sala-web keeps only a whole http(s) address, so the title is then plain text), `mover` (a string naming who moves the item now, `""` when it cannot be read), `held` (true while the item waits by design), `until` (the day a held item comes back, `YYYY-MM-DD`, or null) and `state_updated` (epoch seconds of the item's last change of state, or null). It passes none of the others on. The tab lists the items in the order sent, each id once, without those the strip's first list shows in the same `GET /api/chat` answer, matched by id, whether that list is interface 40's read (one kept through a failed read included) or the board feed of interface 10. Nothing else this read says of an item takes it off the tab, so each item of this read is in exactly one of the two lists, although the reads are cached apart. A row's since and lateness are counted from `state_updated`: late after 2 days, red after 5, never while `held`, never with no time.
+- **Cache**: as interface 40: read in the background at most once per 30 s however many pages poll, the last good list kept under `state_dir/involved.json` as text (the fields above and the name it was read for; never the token), and handed out for that name only. A failed read keeps the last good list for 10 minutes and says nothing is wrong; after that, or with nothing read yet, `GET /api/chat` carries no `onIt` and the strip is the one line of interface 40, with no tab bar and no error text.
+- **Owners**: sala `web/src/sala_web/involved.py` (whole file), `chatpage.py` (`onIt`), `app.py` (`api_chat`), `static/app.js` (the strip). stackshot `docs/client-contract.md`, *The open items a session is the contact of or an observer on*.
+- **Absent or changed**: no token file, a 401, a 404 (a stackshot without the route), an unreachable server, a non-JSON answer or an answer without an `items` list: the cached list while it is under 10 minutes old, else no second tab. A missing field leaves its part of the row out. Fail-open: the rest of the chat page and of sala-web is unaffected.
+- **Test**: `web/tests/test_involved.py` (the parse, the cache and its bounds, the read against a stand-in on a real socket, `GET /api/chat` end to end, the row helpers in node), `web/tests/test_chat_onit_ui.py` (the strip in a browser); `conftest.py` points token and URL at missing files so no test reaches the board.
 - **Stable**: yes (the route is live).
 
 ## Not an interface, but a name

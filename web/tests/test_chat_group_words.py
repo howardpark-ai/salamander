@@ -7,7 +7,7 @@ under 1 or over 40 characters once stripped, a control character, markup), or th
 catalog: an English word under a Korean page is worse). It is drawn as text, never as markup.
 
 Held here without a browser:
-  - the real functions of app.js (chatGroupName, paintChatEntry, paintChatWait) run in node against a stand-in for the few nodes they touch: a served group overrides the
+  - the real functions of app.js (chatGroupName, paintChatEntry, paintChatWait with paintChatBar, on an answer with no second list) run in node against a stand-in for the few nodes they touch: a served group overrides the
     fallback in English and Korean, a renamed group shows in every word of the strip, every kind of bad group and a throw-away value falls back without an exception, a
     served ko equal to en falls back to sala's Korean for a Korean page and not for an English one, a change of language or of the served group repaints;
   - the entry's tooltip is set by its painter alone: the markup gives it no title and names no `{group}` key for any element, so `{group}` is never drawn unfilled
@@ -58,11 +58,12 @@ const $ = (s) => nodes[s];
 const state = { selected: "" };
 let entryOn = true;
 const chatEntryOn = () => entryOn;
-const chatView = { data: null, waitOpen: false, ui: { waitLine: mkEl(), wait: mkEl(), waitToggle: mkEl() } };
+const chatView = { data: null, waitOpen: false, waitTab: "move", waitRove: "move", ui: { waitLine: mkEl(), wait: mkEl(), waitToggle: mkEl(), bar: mkEl(), onit: mkEl() } };
 %(group_word)s
 %(group_name)s
 %(entry)s
 %(wait)s
+%(bar)s
 // what app.js wires on a language change: the entry and the strip are painted again from what they already hold
 SalaI18n.onChange(() => { paintChatEntry(); paintChatWait(); });
 const read = () => ({ line: chatView.ui.waitLine.textContent, aria: chatView.ui.wait.attrs["aria-label"], title: chatView.ui.waitToggle.title,
@@ -85,6 +86,7 @@ def run_cases(cases: list[dict], page_lang: str = "en") -> list:
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
+        "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
         "cases": json.dumps(cases),
     }
     return run_node(prog)
@@ -186,6 +188,7 @@ def test_a_change_of_language_repaints_the_strip_and_the_chip_in_the_other_langu
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
+        "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
     } + """
 const out = [paint({ group: %s, lang: "en", n: 3 })];
 SalaI18n.setLang("ko"); out.push(read());
@@ -206,6 +209,7 @@ def test_before_the_first_answer_and_with_no_chat_session_the_entry_is_hidden_wi
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
+        "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
     } + """
 const out = [], keep = () => out.push({ hidden: side.hidden, tip: side.title });
 entryOn = false; paintChatEntry(); keep();                              // no answer yet
@@ -273,5 +277,5 @@ def test_the_served_name_is_drawn_as_text_only_and_the_group_reaches_the_strip_t
 
 def test_the_group_parameter_is_given_only_by_these_calls_of_app_js():
     calls = [line.strip() for line in APP_JS.splitlines() if "tl(" in line and re.search(r"\{[^}]*\bgroup\b", line)]
-    assert len(calls) == 4, calls
+    assert len(calls) == 5, calls      # the tooltip, the chip, the pinned line, its title and the chevron's title (the second tab's name takes the same place there)
     assert all(any(head in c for head in KEY_HEADS) for c in calls), calls

@@ -113,6 +113,9 @@ class FakeStackshot:
         self.your_move: list[dict] = []
         self.your_move_reply: tuple[int, object] | None = None
         self.your_move_group: object = None     # the answer's "group" ({"en", "ko"}), whatever a test puts there; None leaves the key out (an older stackshot)
+        # what a session is on (`GET /client/involved?key=<session>`: {"items": [...]}, an unknown key empty): rows by key; None is a stackshot without the read (404)
+        self.involved: dict[str, list[dict]] | None = None
+        self.involved_reply: tuple[int, object] | None = None
         self.seen_without_rows = False     # answer a seen call without `rows` (a shape tolerance)
         self.watch_without_flags = False
         self._lock = threading.Lock()
@@ -157,6 +160,13 @@ class FakeStackshot:
                         if outer.your_move_group is not None:
                             body["group"] = outer.your_move_group
                         return self._send(200, body)
+                if u.path == "/client/involved" and (outer.involved is not None or outer.involved_reply):
+                    if outer.involved_reply:
+                        return self._send(*outer.involved_reply)
+                    if not q.get("key", "").strip():
+                        return self._send(400, "key is required")
+                    with outer._lock:
+                        return self._send(200, {"items": list(outer.involved.get(q["key"], []))})
                 if u.path == "/client/item-facts":
                     ids = [i for i in q.get("ids", "").split(",") if i]
                     return self._send(200, {"items": {i: outer.item_facts[i] for i in ids if i in outer.item_facts}})

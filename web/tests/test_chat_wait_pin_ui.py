@@ -476,7 +476,7 @@ def test_a_list_that_scrolls_shows_a_band_at_its_bottom_edge_until_its_end_is_in
     gone = poll(lambda: band(browser), lambda v: v <= 6)
     assert gone <= 6, ("at the end of the list the band is gone", gone, browser.evaluate(BAND))
     # the footnote stays, and at the end nothing covers the last row's title link (the band is a background, painted under the rows)
-    assert browser.evaluate(PIN + ".querySelectorAll('.wait-cap').length") == 1
+    assert browser.evaluate(PIN + ".querySelectorAll('#chat-strip-wait-panel .wait-cap').length") == 1
     last = poll(lambda: browser.evaluate(LINK_AT.replace("__INDEX__", "7")), lambda g: g["seen"])
     assert last["seen"] and last["covered"] is False and last["id"] == "demo#8", last
     assert browser.evaluate("getComputedStyle(document.querySelector('#chat-strip-wait .wait'), '::after').content") in ("none", "normal")
