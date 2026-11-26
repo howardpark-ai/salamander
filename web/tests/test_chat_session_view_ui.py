@@ -127,10 +127,10 @@ def test_the_entry_is_the_first_line_above_new_session_with_its_marks(served, br
     assert e["bottom"] <= e["newTop"] + 1 and e["svgs"] == 1, e
     assert (e["label"], e["role"], e["dot"], e["chip"], e["href"]) == ("Ada", "chat", True, "2", "#s=" + NAME), e
     assert e["chipBg"] == e["waiting"], e                    # the red of the waiting chips, not the orange unread count
-    # the marks follow a changed answer: no working dot, one move waiting, the singular word
+    # the marks follow a changed answer: no working dot, one item in Your move, the singular word
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { busy: false, waiting: window.__chat.waiting.slice(0, 1) }); loadChatMarks(); ''")
     assert wait_for(browser, "document.querySelector('#side-chat .dot').hidden && document.querySelector('#side-chat .wchip').textContent === '1'", 8.0)
-    assert browser.evaluate("document.querySelector('#side-chat .wchip').title") == "1 move waiting on you"
+    assert browser.evaluate("document.querySelector('#side-chat .wchip').title") == "1 item in Your move"
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { waiting: [] }); loadChatMarks(); ''")
     assert wait_for(browser, "document.querySelector('#side-chat .wchip').hidden", 8.0)
 

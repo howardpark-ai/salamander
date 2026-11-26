@@ -1634,12 +1634,12 @@ the owner typing into that turn still takes it over. `origin.kind` `peer` (anoth
 lines and compaction summaries are no turn. An unknown origin kind counts as delivered. Lines are read in file order (a queued line's own timestamp is when it was taken up, so never sort by time); a delivered line joins an open turn
 and starts a hidden one only when none is open; a hook's follow-up after a closed turn belongs to that turn.
 
-**Waiting on you.** The owner's moves, every item of stackshot's Your move group, read with `GET /client/your-move` (`yourmove.py`): all of them, in the board home page's own order (the longest wait first), with no cap and no re-sort,
+**Your move.** (Korean: stackshot's own label for the group.) The owner's moves, every item of stackshot's Your move group, read with `GET /client/your-move` (`yourmove.py`): all of them, in the board home page's own order (the longest wait first), with no cap and no re-sort,
 each linking to the item's own address, each id once. The read is made in the background at most once per 30 s (3 s timeout, this machine's token, never logged or saved), so the page never waits on it, and the last good list is kept
 under the state dir (`your-move.json`, text only). When a read fails the last good list stands for 10 minutes; with none that young (never read, or the reads failing for longer) the strip falls back to the board feed `board.py`
 already reads (`GET /api/board-items`'s cache): the rows marked `waiting` (mover is the owner with no `via`), deduplicated by id over every live and sleeping session, which is NOT every project (that feed is asked per session, so an
 item no session of this machine is tied to is not in it): the strip is never emptier than it was before the read existed. An empty Your move group is an empty strip. A row that was not there when the page opened carries a "new"
-tag. The list is pinned: it is one line at the top of the pane, under the header, that never scrolls away with the thread ("Waiting on you · 3", a button: closed at every page load, one click, tap or Enter opens the list under it, which is at most 40vh high and scrolls inside itself). An empty group draws no line. No model writes or filters these lines.
+tag. The list is pinned: it is one line at the top of the pane, under the header, that never scrolls away with the thread ("Your move · 3", a button: closed at every page load, one click, tap or Enter opens the list under it, which is at most 40vh high and scrolls inside itself). An empty group draws no line. No model writes or filters these lines.
 
 **In motion.** The lines the session sets for itself with `sala motion add "<line>"` (`lib/motion.py`, [docs/subcommands.md](../docs/subcommands.md)): one small JSON file per session under `<sala state>/motion/<session>.json`, at most 8
 lines of at most 120 characters, each in force for 24 hours. `motion.py` only reads it (a link or a file that is not the format is left out). Empty reads "nothing right now".
@@ -1651,10 +1651,10 @@ view, extended. So the header, the thread, the composer (box, attach button, ima
 list, and a difference outside it is a defect:
 
 - **Its entry**, the first line of the sidebar's views, above New session: a chat-bubble icon, the session's display name (`GET /api/chat`, so `SALA_CHAT_NAME`), a small "chat", a dot while it works and a red count of what waits on the owner
-  (the red of the Waiting on you chips, not the orange unread count). It is hidden when no chat session is set, links to `#s=<session>`, is marked selected (`aria-current="page"`) while the session is open, and closes a phone's drawer.
+  (the red of the Your move chips, not the orange unread count). It is hidden when no chat session is set, links to `#s=<session>`, is marked selected (`aria-current="page"`) while the session is open, and closes a phone's drawer.
   The marks are read from `GET /api/chat` every 25 s while the page is visible, whether or not the session is open. While the entry exists the session's own row is left out of the list (the Overview still lists it) and its unread
   replies stay out of the Unread total. A long name is cut with an ellipsis.
-- **The strip**, above the thread, only while the open session is the chat session (the server marks it with `"chat": true` in `GET /api/sessions`, for that session alone): Waiting on you, In motion, and the kept-back switch with its
+- **The strip**, above the thread, only while the open session is the chat session (the server marks it with `"chat": true` in `GET /api/sessions`, for that session alone): Your move, In motion, and the kept-back switch with its
   count ("N+" when the read did not reach back to midnight). It sits in `#chat-pane` before `#chat`, outside it, because the thread's redraws replace `#chat`'s children. It is read on opening and again, debounced, after the stream
   says something changed. Its rules live in `style.css` under `#chat-strip`.
 - **The assistant's text capped to the left** (`body.chat-session`, 68ch).

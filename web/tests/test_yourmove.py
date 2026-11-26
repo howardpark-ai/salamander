@@ -1,4 +1,4 @@
-"""The chat page's Waiting on you strip reads stackshot's whole Your move list (yourmove.py), not the per-session board feed.
+"""The chat page's Your move strip reads stackshot's whole Your move list (yourmove.py), not the per-session board feed.
 
 What is held: the parse (every item in the order sent, each id once, no cap, a row without an id left out, an answer that is no list
 refused); the cache (answered at once from the last good list, a refresh in the background, the first answer None so the page falls back
