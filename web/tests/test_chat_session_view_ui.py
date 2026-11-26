@@ -209,7 +209,7 @@ STRIP = """(() => { const s = document.querySelector('#chat-strip'), pane = docu
   const sw = s.querySelector('#chat-strip-kept');
   return { hidden: s.hidden, parent: s.parentElement.id, before: !!(s.compareDocumentPosition(chat) & Node.DOCUMENT_POSITION_FOLLOWING), inside: chat.contains(s),
            cls: document.body.classList.contains('chat-session'), position: getComputedStyle(s).position,
-           waiting: tw('.wait-row .wait-subj'), answers: tw('.wait-row .answer'), fresh: tw('.wait-subj .new'), pinned: getComputedStyle(w).position, pinHidden: w.hidden,
+           waiting: tw('.wait-row .wait-link'), ids: tw('.wait-row .wait-id'), hrefs: [...w.querySelectorAll('.wait-row .wait-link')].map((a) => a.getAttribute('href')), answers: w.querySelectorAll('.answer').length, fresh: tw('.wait-subj .new'), pinned: getComputedStyle(w).position, pinHidden: w.hidden,
            pinParent: w.parentElement.id, pinBefore: !!(w.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING), motion: t('.mo'), count: t('.count'),
            switchOn: !!sw && !sw.disabled && !sw.checked, switchText: t('.kept-toggle > span'), msgs: chat.querySelectorAll(':scope > .msg').length }; })()"""
 
@@ -221,7 +221,8 @@ def test_the_strip_shows_what_waits_what_is_in_motion_and_the_kept_back_switch_w
     s = browser.evaluate(STRIP)
     assert s["parent"] == "chat-pane" and s["before"] and not s["inside"] and s["cls"] and s["position"] == "static", s    # the motion lines and the switch scroll with the thread
     assert s["pinned"] == "sticky" and not s["pinHidden"] and s["pinParent"] == "chat-pane" and s["pinBefore"], s          # what waits is pinned, before the rest of the strip
-    assert s["waiting"] == ["Approve the demo budget", "Pick a venue"] and s["answers"] == ["Answer", "Answer"], s
+    assert s["waiting"] == ["Approve the demo budget", "Pick a venue"] and s["ids"] == ["item#1", "item#2"], s       # the id as a label, the title as the link
+    assert s["hrefs"] == ["https://example.com/moves/1", "https://example.com/moves/2"] and s["answers"] == 0, s
     assert s["motion"] == ["drawing slide 4"] and s["count"] == ["12+ kept back today"], s
     assert s["switchOn"] and s["switchText"][0].startswith("Show what Ada kept back") and "not active yet" not in s["switchText"], s
     assert s["fresh"] == [], s                                  # the first answer's moves are not "new"

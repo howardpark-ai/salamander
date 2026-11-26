@@ -178,7 +178,7 @@ def test_the_switch_works_and_the_count_floors_with_a_plus():
     paint = body_of(APP_JS, "function paintChatStrip()")
     assert '"chat.kept.floor" : "chat.kept.count"' in paint and "d.keptLines ?? d.keptToday" in paint
     assert 'classList.toggle("chat-kept-on", flagged && chatView.kept)' in body_of(APP_JS, "function chatSync()")
-    for key in ("chat.wait.h", "chat.wait.sub", "chat.wait.note", "chat.wait.answer", "chat.wait.new", "chat.motion.h", "chat.motion.none", "chat.kept.toggle",
+    for key in ("chat.wait.note", "chat.wait.new", "chat.motion.h", "chat.motion.none", "chat.kept.toggle",
                 "chat.strip.line", "chat.strip.expand", "chat.strip.collapse"):
         assert f'"{key}"' in APP_JS, key
 
@@ -235,11 +235,58 @@ def test_the_new_strings_are_in_english_and_in_korean_as_escapes(key):
     assert re.search(r"\\u[0-9a-f]{4}", line) and line.isascii(), line
 
 
-@pytest.mark.parametrize("key", ["chat.wait.h", "chat.wait.sub", "chat.wait.note", "chat.wait.answer", "chat.wait.new", "chat.motion.h", "chat.motion.none", "chat.strip.line", "chat.strip.expand", "chat.strip.collapse",
+@pytest.mark.parametrize("key", ["chat.wait.note", "chat.wait.new", "chat.motion.h", "chat.motion.none", "chat.strip.line", "chat.strip.expand", "chat.strip.collapse",
                                  "chat.kept.toggle", "chat.kept.count", "chat.kept.floor", "chat.kept.open", "chat.state.busy",
                                  "chat.src.sala", "chat.src.board", "chat.src.session", "chat.src.task", "chat.src.system", "chat.src.other"])
 def test_the_strips_strings_are_in_both_languages(key):
     assert f'"{key}": ' in EN and f'"{key}": ' in KO
+
+
+def test_the_answer_link_is_gone_and_the_title_is_the_one_link_to_the_item():
+    # the strings: no "Answer" in either table, and the page asks for none (a leftover key is a dead string; a use of a missing key shows its raw name)
+    assert '"chat.wait.answer"' not in EN and '"chat.wait.answer"' not in KO and "chat.wait.answer" not in APP_JS
+    assert not re.search(r"\.answer\b", STYLE), "no rule of the old Answer link stays in the style sheet"
+    assert 'class: "answer"' not in APP_JS
+    row = body_of(APP_JS, "function chatWaitRow(")
+    # the id as stackshot wrote it, set as text, before the title; the whole title is the link, opening in a new tab the safe way; with no address the title is plain text
+    assert 'el("span", { class: "wait-id", text: w.id })' in row and "if (w.id && w.subject)" in row
+    assert row.index("wait-id") < row.index("wait-link")
+    assert 'class: "wait-link", href: w.url, target: "_blank", rel: "noopener noreferrer", text: title' in row
+    assert 'class: "wait-title", text: title' in row and "w.subject || w.id" in row
+    assert "innerHTML" not in row, "what the board wrote is set as text"
+    assert row.count('el("a"') == 1, "one link a row, never a second one beside the title"
+    # the look: the title link keeps the visible focus ring and the same 12 px of padding the old link had on a touch screen; the id wraps inside the row
+    assert "#chat-strip-wait a:focus-visible" in STYLE
+    assert re.search(r"@media \(pointer: coarse\) \{[^\n]*#chat-strip-wait \.wait-row \{ padding-block: 12px; min-height: 44px; box-sizing: border-box; \} #chat-strip-wait \.wait-link \{ padding-block: 12px; \}", STYLE)
+    idrule = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .wait-id")
+    assert "overflow-wrap: anywhere" in idrule and "user-select" not in idrule and "display" not in idrule, idrule     # inline text: it wraps with the title
+    linkrule = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .wait-link")
+    assert "overflow-wrap: anywhere" in linkrule and "display" not in linkrule, "the title is inline text, so it wraps as text does"
+
+
+def test_the_open_list_has_no_heading_and_the_panel_is_named_by_the_pinned_line():
+    for table_ in (EN_T, KO_T):
+        assert "chat.wait.h" not in table_ and "chat.wait.sub" not in table_, "the heading's strings are gone from both tables"
+    assert "chat.wait.h" not in APP_JS and "chat.wait.sub" not in APP_JS and "sec-head" not in APP_JS
+    assert not re.search(r"\.sec-head\b", STYLE), "no rule of the old heading row stays"
+    build = body_of(APP_JS, "function buildChatStrip()")
+    assert 'class: "wait", id: "chat-strip-wait-panel", hidden: true }, waitList, waitNote,' in build, "the panel starts with the list, no heading"
+    assert 'u.wait.setAttribute("aria-label", u.waitLine.textContent)' in body_of(APP_JS, "function paintChatWait()")
+    assert EN_T["chat.wait.note"] and KO_T["chat.wait.note"], "the footnote stays"
+
+
+def test_a_row_hangs_from_its_dot_and_the_box_is_a_clean_cover():
+    row = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .wait-row")
+    assert "display: grid" in row and "grid-template-columns: 8px minmax(0, 1fr)" in row, "two columns: the dot, the content (which may shrink)"
+    dot = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .wait-row::before")
+    assert "height: 20px" in dot and "radial-gradient" in dot, "the dot is as high as the first line, the circle in its middle"
+    subj = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .wait-subj")
+    assert "display: block" in subj and "line-height: 20px" in subj and "flex" not in subj, "the content is one block of inline text, not flex items"
+    assert not [sel for sel, _ in rules(STYLE) if sel == "#chat-strip-wait .wait-subj::before"], "no second dot"
+    box = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait")
+    assert "background: var(--panel)" in box and "border-bottom: 1px solid var(--border)" in box and "box-shadow: 0 4px 16px" in box and "max-height: 40vh" in box
+    wait = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .wait")
+    assert re.search(r"padding: \d+px 16px 12px", wait) and "overflow-y: auto" in wait, "the list's own scroll ends with 12px of room under the last row"
 
 
 def test_the_kept_lines_are_drawn_by_one_function_in_sala_s_own_renderer_and_hidden_unless_the_switch_is_on():
@@ -263,7 +310,7 @@ def cp(*codes: int) -> str:
 
 MY_TURN = cp(0xB0B4, 0x20, 0xCC28, 0xB840)                   # stackshot's own Korean label for the group
 RETIRED_KO = cp(0xAE30, 0xB2E4, 0xB9AC, 0xB294)               # the stem of the retired Korean phrase
-MOVE_KEYS = ["chat.strip.line", "chat.wait.h", "chat.strip.expand", "ui.side.chatTip", "ui.side.chatWait.one", "ui.side.chatWait.other"]
+MOVE_KEYS = ["chat.strip.line", "chat.strip.expand", "ui.side.chatTip", "ui.side.chatWait.one", "ui.side.chatWait.other"]
 
 
 def table(src: str) -> dict[str, str]:
@@ -276,7 +323,6 @@ EN_T, KO_T = table(EN), table(KO)
 
 def test_the_english_labels_are_stackshots_name_for_the_group():
     assert EN_T["chat.strip.line"] == "Your move · {n}"
-    assert EN_T["chat.wait.h"] == "Your move"
     assert EN_T["chat.strip.expand"] == "Show your move list"
     assert EN_T["chat.strip.collapse"] == "Hide the list"
     assert EN_T["ui.side.chatWait.one"].format(n=1) == "1 item in Your move"
@@ -286,7 +332,6 @@ def test_the_english_labels_are_stackshots_name_for_the_group():
 
 def test_the_korean_labels_are_stackshots_label_for_the_group():
     assert KO_T["chat.strip.line"] == MY_TURN + " · {n}"
-    assert KO_T["chat.wait.h"] == MY_TURN
     assert KO_T["chat.strip.expand"].startswith(MY_TURN) and KO_T["chat.strip.expand"] != MY_TURN
     assert KO_T["ui.side.chatWait.other"].format(n=3).startswith(MY_TURN + " 3")
     assert MY_TURN in KO_T["ui.side.chatTip"]
@@ -313,4 +358,4 @@ def test_the_page_words_the_line_the_titles_and_the_chip_through_those_keys():
     paint = body_of(APP_JS, "function paintChatWait()")
     assert 'tl("chat.strip.line", { n })' in paint and 'tl(open ? "chat.strip.collapse" : "chat.strip.expand")' in paint
     assert 'tl("ui.side.chatWait", { n: waiting })' in body_of(APP_JS, "function paintChatEntry()")
-    assert '...tx("chat.wait.h")' in body_of(APP_JS, "function buildChatStrip()")
+    assert "chat.wait.h" not in APP_JS, "the open list has no heading of its own: the pinned line says it"
