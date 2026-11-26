@@ -15,6 +15,7 @@ body.chat-layer #chat .cl-fail button { font-size: 12px; background: var(--panel
 body.chat-layer #chat > .cl-mark { display: flex; align-items: center; gap: 8px; padding: 8px 0 0; min-width: 0; }
 body.chat-layer #chat .cl-mark .spinner { flex: none; }
 body.chat-layer #chat .cl-turn { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; color: var(--muted); }
+body.chat-layer #chat .live-note { overflow-wrap: anywhere; }   /* what Stop answered, under a running command: it may hold a long word */
 
 /* no sideways scroll, inside a block either. A table stays a table while it fits, its words whole where they can be; one that does not fit is drawn
    row by row (chatlayer.js fitTables) */

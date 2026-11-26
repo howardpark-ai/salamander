@@ -2858,7 +2858,7 @@ function openStream(s, { resume = false } = {}) {
     chatStripSoon();
   });
   es.addEventListener("live", (e) => {
-    if (state.es !== es || layer) return;   // the layer draws no command's live block
+    if (state.es !== es) return;
     let d; try { d = JSON.parse(e.data); } catch { return; }
     if (ahead.active && ahead.pid === s.pid) { ahead.live = d; return; }   // the live block belongs under the live end, not this page
     applyLive(d);

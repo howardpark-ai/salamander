@@ -2,7 +2,7 @@
 /* The chat session's own layer: what draws that session's thread when sala's setting SALA_CHAT_LAYER is on (config.py chat_layer; the server puts this
    file and chatlayer.css in the page only then). It copies nothing of the session view. The header, the composer with its pending bubbles and its send,
    the drawing of a message (renderMessage, so replyNodes and linkCard), the scroll behaviour, the pinned "your move" strip and the sidebar entry are
-   app.js's, as for every session. app.js hands over in five places: chatSync (sync here) and the open stream's reset, append, live and status events.
+   app.js's, as for every session, and so is the live block of a running "!" command (applyLive). app.js hands over in four places: chatSync (sync here) and the open stream's reset, append and status events.
 
    WHAT IS DRAWN is GET api/chat/thread (chatthread.py states the rule: the owner's messages and the replies to them) and the page's own pending bubbles.
    No line of the stream is drawn as a message here.
@@ -120,6 +120,7 @@ window.SalaThreadLayer = (() => {
       chatScroll.pinned = true; chatScroll.unseen = false;
     }
     wire();
+    applyLive(null);    // a reset takes the live block with it, as in the session view: the stream sends it again while the command runs
     olderReset(null);   // the session view's paging of the whole transcript stays off here
     noteModel(d.messages);
     st.turn = null;
@@ -250,11 +251,12 @@ window.SalaThreadLayer = (() => {
     st.nodes.set(m.uuid, { sig, node });
     return node;
   }
-  // #chat holds `want`, in order; only what differs is touched. The session view's own spinner stays (hidden by chatlayer.css). True when anything moved
+  // #chat holds `want`, in order; only what differs is touched. The session view's own spinner (hidden by chatlayer.css) and its live block of a running
+  // "!" command stay, under what is drawn. True when anything moved
   function place(chat, want) {
     const keep = new Set(want);
     let changed = false;
-    for (const n of [...chat.children]) if (!keep.has(n) && !n.classList.contains("inflight")) { n.remove(); changed = true; }
+    for (const n of [...chat.children]) if (!keep.has(n) && !n.matches(".inflight, .live-bang")) { n.remove(); changed = true; }
     let at = chat.firstElementChild;
     for (const n of want) {
       if (n === at) { at = at.nextElementSibling; continue; }

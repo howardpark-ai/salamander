@@ -20,6 +20,8 @@ Held here, against the real server:
     works while the thread loads, and brings no sideways scroll, closed or on either tab;
   - no sideways scroll at 1280, 390, 360 and 320 px with long words, long addresses, wide tables, wide code and images, and as the width changes;
   - the composer sends the same request with the setting on and off;
+  - a running "!" command has the session view's live block with its Stop button, looking as with the setting off, with no sideways scroll at the four widths;
+    it stays under the thread, and goes with the command's end, a reconnect or another session;
   - off, the chat session and another one are drawn by the session view; on, the other session's page is the same, opened directly or from the chat.
 
 What a wrong answer costs: the owner reads the session's own working lines as answers, a reply never arrives or arrives twice, a phone page that scrolls
@@ -41,6 +43,8 @@ import pytest
 
 import test_chat_boot_ui as boot
 from conftest import CHAT_READY, CWD, NAME, SID, transcript_file
+from test_bang_live import LIVE_EVENT
+from test_bang_live import STATE as LIVE_BLOCK
 from test_board_items_ui import wait_for
 from test_chat_layer import OTHER, add_session
 from test_chat_link_cards_ui import ART, mockup, reply_text
@@ -857,6 +861,113 @@ def test_no_sideways_scroll_with_the_pinned_bar_closed_and_on_each_tab(served, b
         assert got["doc"][0] <= got["doc"][1] and got["body"][0] <= got["body"][1] and got["pane"][0] <= got["pane"][1], (where, got)
         assert got["over"] == [] and got["wide"] == [] and got["outRow"] == [] and not got["overlap"], (where, got)
         check_layer(browser, width)
+
+
+# ── a running "!" command ────────────────────────────────────────────────────
+# The block is the session view's own (app.js applyLive and stopLive). A `live` event is given to the open stream's own listener, as test_bang_live.py gives it.
+LIVE_TEXT = f"{WORD}\n{URL}\n{CODE}\n\t\t{'-' * 400}\n{'=' * 90}  {'word ' * 80}\n" + "\n".join(f"step {i}" for i in range(60))
+LIVE_RUNNING = {"running": True, "command": f"demo {WORD} {URL}", "uuid": "b-1", "text": LIVE_TEXT}
+WAITING = {"running": True, "command": "sleep 20", "uuid": "b-1", "text": "code: ABCD-1234"}
+LONG_ERROR = "tmux failed: /srv/demo/work/" + "socket" * 60
+# the block as it looks: its markup, and each part's place across, size and paint
+LIVE_LOOK = """(() => { const props = ['display', 'fontFamily', 'fontSize', 'lineHeight', 'color', 'backgroundColor', 'paddingTop', 'paddingLeft', 'marginTop',
+    'marginBottom', 'borderTopWidth', 'borderTopLeftRadius', 'whiteSpace', 'maxHeight', 'overflowX', 'overflowY'];
+  const b = document.querySelector('#live-bang');
+  return { html: b.outerHTML, boxes: [b, ...b.querySelectorAll('*')].map((n) => { const cs = getComputedStyle(n), r = n.getBoundingClientRect();
+    return [n.className, Math.round(r.left), Math.round(r.width), Math.round(r.height), ...props.map((p) => cs[p])].join('|'); }) }; })()"""
+# a part of the block that ends outside the window, or holds more across than its box (cut off, or scrolling sideways)
+LIVE_WIDE = """(() => { const vw = document.documentElement.clientWidth, b = document.querySelector('#live-bang');
+  const all = [b, ...b.querySelectorAll('*')].filter((n) => n.getClientRects().length);
+  return { parts: all.length, out: all.filter((n) => { const r = n.getBoundingClientRect(); return r.right > vw + 0.5 || r.left < -0.5; }).map((n) => n.className),
+           wide: all.filter((n) => n.clientWidth && n.scrollWidth > n.clientWidth + 1).map((n) => n.className + ' ' + n.scrollWidth + '>' + n.clientWidth) }; })()"""
+# one block, and nothing that is shown stands under it
+LIVE_LAST = """(() => { const shown = [...document.querySelector('#chat').children].filter((n) => n.getClientRects().length);
+  return document.querySelectorAll('#live-bang').length === 1 && shown.pop() === document.querySelector('#live-bang'); })()"""
+# Stop is on screen and nothing covers it
+STOP_REACHED = """(() => { const b = document.querySelector('#live-bang .live-stop'), r = b.getBoundingClientRect();
+  return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === b; })()"""
+# Stop's request is noted, and refused with a long word in the reason
+STOP_SPY = """(() => { const real = window.fetch; window.__stops = [];
+  window.fetch = (u, o) => { if (!String(u).endsWith('/stop')) return real(u, o); window.__stops.push([String(u), o.method, o.body]);
+    return Promise.resolve(new Response(JSON.stringify({ ok: false, error: %s }), { status: 502 })); }; return true; })()"""
+
+
+def live(browser, event: dict) -> None:
+    browser.evaluate(LIVE_EVENT % json.dumps(event))
+
+
+@pytest.mark.parametrize("width", [1280, 390, 360, 320])
+def test_a_running_command_has_the_session_views_live_block_and_stop_and_no_sideways_scroll(served, browser, monkeypatch, width):
+    write(served, *long_thread())   # long enough for the pane to scroll in both views, so that a scroll bar takes the same room in each
+    looks = {}
+    for layer in ("off", "on"):
+        open_chat(browser, served, monkeypatch, (width, 800 if width > 700 else 844), layer=layer)
+        if width < 700:
+            browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+            assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
+        assert wait_for(browser, f"{LAYERED} === {json.dumps(layer == 'on')} && document.querySelectorAll('#chat > .msg').length >= 30", 30.0)
+        assert browser.evaluate(LIVE_BLOCK) is None
+        live(browser, LIVE_RUNNING)
+        got = browser.evaluate(LIVE_BLOCK)
+        assert got == {"out": LIVE_TEXT, "stop": "Stop", "last": True, "label": "Running in the terminal", "note": "", "n": 1}, (layer, got)
+        browser.settle("document.querySelector('#live-bang')")
+        looks[layer] = browser.evaluate(LIVE_LOOK)
+    assert looks["on"] == looks["off"]
+    assert browser.evaluate(STOP_REACHED), "a command that starts leaves the reader at the end, with Stop in view"
+    browser.evaluate(STOP_SPY % json.dumps(LONG_ERROR))
+    browser.evaluate("document.querySelector('#live-bang .live-stop').click(); ''")
+    assert wait_for(browser, f"document.querySelector('#live-bang .live-note').textContent === {json.dumps(LONG_ERROR)}", 10.0), browser.evaluate(LIVE_BLOCK)
+    assert browser.evaluate("window.__stops") == [[f"api/s/{os.getpid()}/stop", "POST", "{}"]]
+    browser.settle("document.querySelector('#chat')")
+    m, block = browser.evaluate(MEASURE), browser.evaluate(LIVE_WIDE)
+    assert m["vw"] == width, m
+    check(m, f"{width} px with a running command")
+    assert block["parts"] == 6 and block["out"] == [] and block["wide"] == [], (width, block)
+
+
+def test_the_live_block_stays_under_the_growing_thread_and_goes_with_its_end_a_reconnect_or_another_session(served, browser, monkeypatch):
+    write(served, human("go on", 1), assistant("Done.", 2))
+    add_session(served, OTHER, "22222222-3333-4444-5555-666666666666", other_lines())
+    open_chat(browser, served, monkeypatch)
+    rows = [["me", "go on"], ["reply", "Done."]]
+    thread_is(browser, rows)
+    live(browser, WAITING)
+    assert browser.evaluate(LIVE_LAST)
+    browser.evaluate("window.__block = document.querySelector('#live-bang'); ''")
+    # a message sent, a transcript that grows, a session at work: what the layer draws goes above the block, which is never made again
+    send(browser, "and now?")
+    session_status(served, "busy")
+    append(served, human("typed in the pane", 3), assistant("Noted.", 4), human("one more", 5))
+    thread_is(browser, rows + [["me", "typed in the pane"], ["reply", "Noted."], ["me", "one more"], ["me", "and now?"]])
+    assert wait_for(browser, f"!!document.querySelector('#chat > .cl-mark') && {LIVE_LAST}", 20.0), browser.evaluate(LIVE_BLOCK)
+    live(browser, {**WAITING, "text": "code: ABCD-1234\nwaiting"})
+    got = browser.evaluate(LIVE_BLOCK)
+    assert got["out"] == "code: ABCD-1234\nwaiting" and got["n"] == 1, got
+    assert browser.evaluate("window.__block === document.querySelector('#live-bang')")
+    live(browser, {"running": False})
+    assert browser.evaluate(LIVE_BLOCK) is None
+    # a reconnect takes the block with its reset, as in the session view (the stream sends it again while the command runs), and keeps the thread
+    live(browser, WAITING)
+    browser.evaluate("window.__s = state.current; state.es.close(); openStream(window.__s, { resume: true }); ''")
+    assert wait_for(browser, "!document.querySelector('#live-bang')", 20.0)
+    assert browser.evaluate("document.querySelectorAll('#chat > .msg:not(.local)').length") == 5
+    live(browser, WAITING)
+    assert wait_for(browser, LIVE_LAST, 10.0), browser.evaluate(LIVE_BLOCK)
+    browser.evaluate(f"go('#s={OTHER}'); ''")
+    other_ready(browser)
+    assert browser.evaluate(LIVE_BLOCK) is None
+
+
+def test_a_command_running_while_the_thread_loads_ends_up_under_the_thread_with_stop_in_view(served, browser, monkeypatch):
+    write(served, *long_thread())
+    browser.send("Page.enable")
+    browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": HOLD})
+    open_chat(browser, served, monkeypatch, ready=False)
+    assert wait_for(browser, "window.__held >= 1 && !!document.querySelector('#chat > .empty')", 30.0)
+    live(browser, WAITING)
+    assert browser.evaluate(LIVE_LAST)
+    browser.evaluate("window.__hold = false; ''")
+    assert wait_for(browser, f"document.querySelectorAll('#chat > .msg').length >= 30 && {LIVE_LAST} && {STOP_REACHED}", 30.0), browser.evaluate(LIVE_BLOCK)
 
 
 # ── every other page ─────────────────────────────────────────────────────────
