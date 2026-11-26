@@ -13,7 +13,11 @@ recognize counts as delivered):
   - a hidden turn whose reply opens with the owner's mark, `[for <owner>]`, is shown as that reply alone, the mark taken off, and its kept line
     is withdrawn: {"uuid", "role": "kept", "gone": true} (the mark is never displayed, in any turn);
   - the owner speaking into a turn something else started makes it his: its kept line stays (the delivered message is on record) with "open"
-    false, and everything from there on is shown.
+    false, and everything from there on is shown;
+  - a background task's notice (a `<task-notification>` line: a subagent or a background command finished) is not drawn at all: not as the pill it is in a
+    turn the owner started, and not as a kept line when it starts a turn of its own (that turn's lines stay back, as any hidden turn's, and a reply that
+    opens with the owner's mark still shows). Such a turn is not counted either (chatturns.kept_today skips `Turn.task`), so the count stays the number
+    of lines. Only this view drops it; the transcript file and every other session's reads keep it.
 
 One state machine does all of it (Keeper), fed the transcript's lines in FILE order, so a page of history, an older page, a page around a Search
 result and the live stream agree. A read starts from a point where no turn is open (just after a closing reply, found by looking back), and pages
@@ -130,12 +134,15 @@ class Keeper:
                 self._start("human")
             return out + self._shown(d)
         # delivered: it joins an open turn, goes on a closed one as a hook's follow-up, or starts a hidden turn
+        task = e["src"].get("kind") == "task"      # a background task's notice: drawn nowhere in this view
         if self.open:
-            return [] if self.by == "other" else self._shown(d)
+            return [] if self.by == "other" or task else self._shown(d)
         if e.get("cont") and self.by is not None and self.replies:
             self.open = True
             return [] if self.by == "other" else self._shown(d)
         self._start("other")
+        if task:
+            return []          # a hidden turn with no kept line (and no count: chatturns.kept_today); its reply for the owner still shows
         uuid = e.get("uuid") or f"kept-{e.get('ts') or self.turn}"
         src = {**e["src"], "text": e["text"], "images": e["images"]}
         self.kept = _kept_msg(uuid, d.get("timestamp"), e["src"], CT._phrase(src), "", True)

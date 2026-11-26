@@ -425,6 +425,13 @@ span out of the flow with CSS was no cure, since Chromium then paints no caret a
 own tap and handle cannot be driven here; `tests/test_composer_caret.py` finds the caret in a screenshot for each place the
 selection can be, and checks the placeholder's place, its ellipsis at 360 px and its going with a composition.
 
+**The words follow the page's language.** The placeholder (the short text on a phone, the long one wide, the touch variant on a tablet) and the
+editable's `aria-label` are set in one place, `paintComposerWords` in `app.js`: at start, on every language change, on a width or touch-mode change
+(the placeholder) and after every `setText`. `setText` is the one caller of `resetDoc`, which builds the editor's state again from the extensions it
+was created with, and those hold the words of the moment of creation; before `paintComposerWords` a send, a session switch or a draft put back brought
+them back, so a page made before the saved language arrived (or in the other language) showed English over a Korean page. `tests/test_composer_words.py`
+holds the cause (a model of `resetDoc` running the real functions in node) and `tests/test_composer_words_ui.py` the page.
+
 ### The bundle
 
 `static/vendor/cm6-composer.min.js` is CodeMirror 6 (`@codemirror/state` 6.7.6, `view` 6.43.13, `commands` 6.11.1, with
@@ -1667,6 +1674,11 @@ and a line the rule does not recognize counts as delivered, so it is kept back a
 - **A turn he did not start** is ONE message in place of its lines, `{uuid, role: "kept", ts, blocks: [], kept: {src: {kind, name}, what, did, open}}`: where it came from, what it was, and what the session did (`did` is the first line of the
   turn's last reply, `open: true` while the turn is still going). When the turn ends the message is sent again with the same `uuid` and the page replaces the line, never adds a second. A turn whose reply opens with his mark shows that reply alone and
   its line is withdrawn (`{uuid, role: "kept", gone: true}`). When he speaks into such a turn it becomes his: the line stays, closed, and everything after shows. The turn's own tool calls and narration are never sent.
+- **A background task's notice is not drawn at all.** A `<task-notification>` line (a subagent or a background command finished) is the one delivered line this view
+  leaves out: in a turn he started it draws no row (the ordinary notice fold of every other session's view), and when it starts a turn of its own that turn has no kept
+  line and is not counted (`Turn.task`, `chatturns.kept_today`), so the count is still the number of lines. The turn's own lines stay back as any hidden turn's, a reply
+  that opens with his mark still shows, and the transcript file and every other session's reads are untouched. It is the server's filter (`chatkeep.Keeper`), so a row
+  never flashes on the page.
 - **The thread's reads all give the same thread.** `GET /api/s/<pid>/transcript` (the last page, `before`, `around`, `after`) and the stream's `reset` and `append` run the same state machine, so a page holds whole turns (a cursor is the start of
   a turn) and the stream cut anywhere gives what the history gives. Lines are read in file order.
 - **The page** draws each kept line with the one renderer every session uses (`renderMessage`, role `kept`: a quiet line with the time, the source, what it was and what the session did), hidden by default (`#chat .msg.kept`) and shown while the strip's
