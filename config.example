@@ -23,6 +23,7 @@
 #SALA_HELP_SESSION=               # web UI: the session the overview's "Get Help" chip opens (a session name, e.g. the one that looks after sala's web UI). Default: empty = the page shows no such chip
 #SALA_CHAT_SESSION=              # web UI: the one session that is the owner's chat: its sidebar entry and strip, and /chat opens it (a session name). Default: empty = none is configured
 #SALA_CHAT_NAME=                 # web UI: what the chat session's entry calls it (at most 40 characters). Default: the part of the session's name after its last hyphen, capitalized
+#SALA_CHAT_LAYER=off             # web UI: OFF by default; on|1|yes|true turns it on. On: the chat session's thread is drawn by its own layer, with the owner's messages and the replies to them only (GET /api/chat/thread); every other session is drawn as before. Takes effect at the next page load, no restart
 #SALA_OWNER_NAME=               # what runtime text calls the person running this machine ("the owner's words", "waiting for the owner's answer"). Default: "the owner". It is also the name inside the `[for <name>]` first line of a message to a front agent, which stackshot builds from its own [instance] owner: set the two to the same value or leave both unset
 #SALA_SPAWN_REGISTER=             # a project agent's register hook (`spawn NAME --project <page key> --role front|back`, lib/spawn.sh):
                                  #   run by `sh -c` once the session is up and mapped, with the name, page key, role and mandate file path as $1..$4

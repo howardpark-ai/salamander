@@ -81,6 +81,7 @@ All of these go in `~/.config/salamander/config`. Defaults are in `config.exampl
 | `SALA_HELP_SESSION` | a session name (`[A-Za-z0-9][A-Za-z0-9._-]{0,63}`) the "Get Help" chip opens | empty: no chip; an invalid name is the same as empty | each call |
 | `SALA_CHAT_SESSION` | a session name (`[A-Za-z0-9][A-Za-z0-9._-]{0,63}`): the one session that is the owner's chat in the web UI (its sidebar entry and strip; `/chat` opens it) | empty: none is configured; an invalid name is the same as empty | each call |
 | `SALA_CHAT_NAME` | what the chat session's entry calls it, at most 40 characters | the part of the session name after its last hyphen, capitalized | each call |
+| `SALA_CHAT_LAYER` | `on`, `1`, `yes` or `true`: the web UI draws the chat session's thread with its own layer, the owner's messages and the replies to them only. It does nothing without `SALA_CHAT_SESSION` | empty: off; any other value is off too | each page load (a page already open keeps what it was served with until it is reloaded) |
 | `SALA_SHELL_SESSION` | the tmux session of the web UI's Shell drawer. A plain `bash -l`, not a Claude session. `spawn` and `rename` refuse the name | `sala-shell` | **once, when `sala-web.service` starts: restart it after a change** |
 
 Match the board when there is one:
