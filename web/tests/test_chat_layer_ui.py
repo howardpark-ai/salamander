@@ -575,7 +575,8 @@ def hostile(served) -> list[dict]:
     deep = "".join(f"{'  ' * i}- level {i} {'d' * 60}\n" for i in range(7))
     reply = (f"Here: {WORD}\n\n{URL}\n\n[{'a long link text ' * 12}{WORD}]({URL})\n\n```\n{CODE}\n{WORD}\n```\n\n{TABLE}\n{pair}\n{deep}\n"
              f"`{'c' * 200}`\n\n# {WORD}\n\n> {WORD}\n\nThe page: [{'t' * 150}](/mockup/3)\n")
-    return [human([{"type": "text", "text": f"{WORD} {URL}"}, image], 1), assistant(reply, 2),
+    # the picture's own message has a uuid as a transcript writes it: the image route refuses the helpers' short ids
+    return [human([{"type": "text", "text": f"{WORD} {URL}"}, image], 1, uuid="33333333-4444-4555-8666-777777777777"), assistant(reply, 2),
             human("keep going " + WORD, 3), assistant("Working through " + "a long line of turn text " * 20, 3, stop="tool_use", tool=True), tool_result(3)]
 
 
@@ -607,11 +608,10 @@ def check_layer(browser, width: int) -> dict:
 
 
 def hostile_ready(browser) -> None:
-    # the message's picture is lazy and far above the end of the thread: it is asked for here, so that it is measured at its own size
-    ready = ("(() => { const p = [...document.querySelectorAll('#chat .msg img')]; p.forEach((i) => { i.loading = 'eager'; }); "
-             "return document.querySelectorAll('#chat > .msg').length >= 3 && !!document.querySelector('#chat .cl-turn:not([hidden])') && "
-             "p.length >= 1 && p.every((i) => i.complete && i.naturalWidth > 0) && document.querySelectorAll('#chat-strip-wait .wait-row').length === 2; })()")
-    assert wait_for(browser, ready, 30.0), browser.evaluate(INSIDE)
+    assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length >= 3 && !!document.querySelector('#chat .cl-turn:not([hidden])') && "
+                             "!!document.querySelector('#chat .msg img') && "
+                             "[...document.querySelectorAll('#chat .msg img')].every((i) => i.complete && i.naturalWidth > 0) && "
+                             "document.querySelectorAll('#chat-strip-wait .wait-row').length === 2", 30.0), browser.evaluate(INSIDE)
 
 
 def strip_doc() -> dict:
