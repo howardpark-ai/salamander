@@ -84,6 +84,12 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `web/tests/test_turn_state.py`: new, 34: the wheel means a turn in progress (Thu Nov 26th 2026)
+
+The path guarded: the web app's wheel, busy dots and "working" words took the registry's `busy`, which the CLI also writes while only background work runs after a turn ended, so a session waiting at its prompt read as busy and out of reach. `turnstate.py` reads the transcript for such a row (`web/README.md`, *The wheel: a turn in progress*). The worse wrong answer is hiding a turn that runs. Made-up transcript lines and registry rows in the shapes of CLI 2.1.332; no tmux, no browser, nothing outside pytest's temp folder is written.
+Held: each shape that ends a turn reads `idle` (a `turn_duration` line, also with lines after it that say nothing; an interrupt, at a tool call or not; an API error; a slash command the CLI ran by itself and a compaction after the end; the CLI's own empty reply); each shape of a running turn reads `busy` (a message just taken, another session's message, a task notification, a long silent tool call, a reply whose end is not written, a Stop hook's follow-up, a compaction in the middle, a slash command that prompts or is not answered yet, a local command run during a turn, a message after or with an interrupt); `waiting`, `shell`, `idle` and an unknown status are untouched; unsure stays `busy` (no transcript, an empty one, nothing that says either way, a line half written, an end further back than a look reads); a row that has only just turned `busy` after the end is believed for 30 s; a growing transcript is followed from where the last look stopped, a command whose two lines arrive apart is still one command, and a replaced file is read whole; a parked pane's job is judged by the job's own transcript; and `/api/sessions`, the Overview's rows, the stream's read (`find_session`), `/api/chat` and `/api/chat/thread` give the same answer.
+Not covered, and why: a real CLI writing a real registry row and transcript (the lines are made up; under a CLI that writes none of the end shapes the registry's answer stands), and the page's drawing, which takes the status as before (the browser tests).
+
 ### `web/tests/test_chat_boot.py` new, 43; `web/tests/test_chat_boot_ui.py` new, 57; `web/tests/test_chat_session_view.py` +1 (Thu Nov 26th 2026)
 
 The path guarded: a load of the chat session's address painted the page with no session first ("Select a session", "Pick a session on the left.", in English whatever the saved language) until `app.js` had read its lists, and could show the session's bare name before its label came. `static/chatboot.js` hides the two from the first paint on that one address. A wrong answer flashes another view on it, leaves a header or a thread blank, or changes another session's load.
@@ -5381,3 +5387,26 @@ Kept (`test_chat_answer.py`, no browser; the pure functions run in node): off, t
 Kept (`test_chat_answer_ui.py`, a headless Chromium against the real server and a stand-in frame page served from a second origin, else skipped; GitHub CI runs it): a row opens and closes by a tap, one at a time, its frame made once and kept, a row without a board address as before; strip repaints (order, new words, new and gone rows, both tabs, a language change) and a growing thread load no frame again and remove none; the newest reply holds the frame and the older one goes after the newer has spoken; messages of another source, kind, version, item or state, from the page's own window, from a frame the page did not make and from the frame's window at another origin change nothing; a reply's markup makes no frame, takes no card's look and covers no card; silence leaves the plain link and a late message restores the frame; sending, answered and closed in the strip and under the replies; one reload per changed question; the refresh and theme messages; the keyboard layout with the composer focused over a shorter touch screen and with a frame saying it is typed in, and none for a mouse; no sideways scroll at 1280, 390, 360 and 320 px with frames open; off, the rows are the plain ones; a second session has none of it, and coming back makes one frame; with a finger, under the bar of two tabs (390x844 and 1280x800), a plain row's title link, a card's title and its link to the board each have 44 px of their own, a plain row is no taller than before, and the list is cut 4 px below the selected tab's underline, with the keyboard up too, where the open title stays at the list's top; a running `!` command's live block stays under the cards, and neither it, a thread growing above it nor a reconnect moves or remakes a frame.
 
 Not covered, and why: the board's real frame and its sign-in (the stand-in speaks the message shape only); a real phone's on-screen keyboard (the viewport is set by the test); two frames of one item sharing their state, which is the board's page's own; Firefox and Safari.
+
+### `tests/trimreport.sh`: +42 checks (74 → 116), none retired: the report reads the queue's times and hands its triggers on (Thu Nov 26th 2026)
+
+The weekly report could not act: its times came from the committed timings files, which are rebuilt by hand, and a `TRIGGER` line
+ended in the journal. `--fresh-timings` and the thresholds file's `on_trigger` command change that. A wrong answer is a report that
+passes old numbers off as new ones, a job that writes into the checkout it runs on, a run that gets no numbers and still records a
+week, or a trigger that is lost because the command that should take it failed.
+
+Fakes only, in the same temporary folder: a stand-in `gh` first on `PATH` that serves made-up queue logs and records its calls, and
+a stand-in command that keeps what it reads and exits as told. Covered (15): the median over the runs laid over the committed number, a
+suite in no log keeping its committed one, the slowest list and the source line, the runs kept in the record, nothing changed or added
+in the checkout (neither timings file, no `__pycache__`), the repository from `gh` or from `--github`, no `gh` call without the flag;
+every way of getting no numbers (the list or the repository call failing, too few suites in a log, no web time where there are web
+tests, no `gh`) exiting 1 with no report and the record untouched, a checkout with no web tests needing no web time, an unreadable
+committed file. Covered (27): the command run once with its arguments, the fields it reads, its output after the report and under
+`--json`, not run under `--dry-run` or with no trigger; a failing or missing command exiting 3 with the report printed and the record
+kept, the trigger owed to every later run until a command takes it (also past a config with no command, merged with a new one, the
+newer numbers winning), damaged owed entries dropped; a leading `~`, the `[salamander]` table winning, each bad value exiting 2, and a
+command that does not end in time stopped.
+
+Not covered, and why: the real `gh` and real logs (no network in the suites; the log reading itself is `update_timings.py`'s, checked
+by `tests/deal.sh` on the same shapes); the unit file's command line under systemd; what a command that takes the triggers does with
+them (it is not in this repository).
