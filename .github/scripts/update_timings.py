@@ -30,6 +30,9 @@ Usage (stdlib only; `gh` signed in for the first form), from the root of a check
   --label TEXT  with --from-logs: what the logs are, recorded in the file's "source" (default "saved logs")
   --dry-run  prints what would change and the estimated worst shard for each family; writes nothing.
 It always ends with those estimates, which are the numbers to quote in a pull request (CONTRIBUTING.md, *Timings*).
+
+trim_report.py --fresh-timings (the weekly size report) imports run_logs, collect and merge to time the suites from the newest queue runs
+without writing either file.
 """
 import datetime
 import json
@@ -105,8 +108,22 @@ def sample(text):
     return suites, web
 
 
-def merge(old, samples, root_prefix):
-    """The new {key: seconds}: the median of the samples' numbers, the old number for a key no sample shows, a key whose file is gone dropped."""
+def collect(logs):
+    """{family: [{key: seconds}, ...]}: what each (run id, log text) shows of each family; a log that shows nothing of a family adds nothing
+    to it, and the suites count only from a log that ran at least MIN_SUITES of them."""
+    per = {family: [] for family in FILES}
+    for _, text in logs:
+        s, w = sample(text)
+        if len(s) >= MIN_SUITES:
+            per["suites"].append(s)
+        if w:
+            per["web"].append(w)
+    return per
+
+
+def merge(old, samples, root_prefix, root=None):
+    """The new {key: seconds}: the median of the samples' numbers, the old number for a key no sample shows, a key whose file is gone
+    from the checkout at `root` (default: the current folder's) dropped. Writes nothing: trim_report.py --fresh-timings reads it too."""
     seen = {}
     for s in samples:
         for k, v in s.items():
@@ -114,7 +131,8 @@ def merge(old, samples, root_prefix):
     new = dict(old)
     for k, v in seen.items():
         new[k] = round(statistics.median(v), 1)
-    return {k: v for k, v in sorted(new.items()) if os.path.exists(os.path.join(ROOT, root_prefix + k))}
+    root = ROOT if root is None else root
+    return {k: v for k, v in sorted(new.items()) if os.path.exists(os.path.join(root, root_prefix + k))}
 
 
 def write(path, timings, note):
@@ -207,13 +225,7 @@ def main(argv):
     if not logs:
         print("update_timings.py: no log to read", file=sys.stderr)
         return 1
-    per = {"suites": [], "web": []}
-    for _, text in logs:
-        s, w = sample(text)
-        if len(s) >= MIN_SUITES:
-            per["suites"].append(s)
-        if w:
-            per["web"].append(w)
+    per = collect(logs)
     status = 0
     for family, (path, prefix, _) in FILES.items():
         try:

@@ -519,7 +519,9 @@ function paintChatStrip() {
   if (!chatEntryOn()) return;
   if (!chatView.ui) buildChatStrip();
   const u = chatView.ui, waiting = d.waiting || [], motion = d.motion || [];
-  u.waitList.replaceChildren(...waiting.map((w) => chatWaitRow(w)));
+  // chatanswer.js (in the page only with the setting SALA_CHAT_LAYER) draws these rows itself, so one of them can hold the item's answer frame
+  if (window.SalaAnswerFrame) SalaAnswerFrame.strip(u.waitList, waiting, chatWaitRow);
+  else u.waitList.replaceChildren(...waiting.map((w) => chatWaitRow(w)));
   const now = Date.now();
   u.onitList.replaceChildren(...(Array.isArray(d.onIt) ? d.onIt : []).map((w) => chatBackRow(w, now)));
   paintChatWait();
@@ -2816,7 +2818,7 @@ function openStream(s, { resume = false } = {}) {
     if (state.es !== es) return;
     perfMark("stream:error", { state: es.readyState });
     setConn("sse", true);
-    if (es.readyState === EventSource.CLOSED) scheduleReopen(s.name);
+    if (es.readyState === EventSource.CLOSED) { window.SalaSignin?.check(); scheduleReopen(s.name); }   // no status here: an ended sign-in?
   });
   es.addEventListener("version", (e) => {
     if (!events++) perfMark("stream:first-event");  // the server's first event on every stream
@@ -4104,6 +4106,7 @@ function addFile(file) {
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.upload.onprogress = (e) => { u.loaded = e.loaded; paintFileChip(u); };
     xhr.onload = () => {
+      if (xhr.status === 401) window.SalaSignin?.check();
       let d = {};
       try { d = JSON.parse(xhr.responseText); } catch (e) { /* not JSON: a proxy's page */ }
       if (xhr.status >= 200 && xhr.status < 300 && d.ok) { u.name = d.name; u.uploading = false; u.xhr = null; u.loaded = u.size; renderChips(); }
@@ -4462,6 +4465,31 @@ function leaveComposer() {
   if (!state.selected) return;
   saveDraft();
   if (getText()) { setText(""); refreshSendButton(); }
+}
+
+// What a sign-in reload (signin.js) would lose besides the saved drafts: messages that did not go out (a held one is kept already), the files
+// attached to the composer, and the rest of a draft longer than DRAFT_MAX. After the sign-in the messages are back as not-sent bubbles (Retry,
+// Edit; one that did arrive merges with the transcript's copy) and the files as chips.
+function keptForSignIn() {
+  const unsent = state.pending.filter((p) => !p.hold && (p.status === "failed" || p.status === "sending")).map((p) => ({
+    session: p.session, text: p.text, at: p.sentAt, error: p.status === "failed" ? p.error : tl("app.pend.noNet"),
+    images: p.images.map((im) => ({ name: im.name, file: im.file || { name: im.name, size: 0 } })) }));
+  const files = state.uploads.filter((u) => u.name).map((u) => ({ name: u.name, fileName: u.fileName || u.name, size: u.size }));
+  const text = getText(), long = state.selected && text.length > DRAFT_MAX ? { session: state.selected, text } : null;
+  return unsent.length || files.length || long ? { unsent, files, long } : null;
+}
+function restoreFromSignIn(kept) {
+  for (const m of kept.unsent) {
+    const p = { id: ++pendingSeq, session: m.session, text: m.text, status: "failed", error: m.error, sentAt: m.at,
+                images: m.images.map((im) => ({ ...im, url: null })) };
+    state.pending.push(p);
+    redrawPending(p);
+    if (p.session === state.selected) $("#chat").append(p.node);
+  }
+  for (const f of kept.files) state.uploads.push({ id: ++uploadSeq, kind: "file", name: f.name, fileName: f.fileName, size: f.size, uploading: false });
+  if (kept.files.length) renderChips();
+  const long = kept.long;
+  if (long && long.session === state.selected && getText() === long.text.slice(0, DRAFT_MAX)) { setText(long.text); refreshSendButton(); }
 }
 
 // "Reconnecting…" in the header while the stream or the API is unreachable; shown only if it lasts past 800 ms,
@@ -4905,6 +4933,7 @@ paintShellTip();
     navWrite(nav.cur, "#sessions", false);
   }
   route();  // the overview or the session; the session's draft goes back into the composer (selectSession)
+  window.SalaSignin?.keeps({ save: keptForSignIn, restore: restoreFromSignIn });
   if (nav.reload) { const n = nav.reload; nav.reload = 0; navBack(n); }  // layers the page had before a reload are left: Back then leaves
   refreshSendButton();
   shellRestore();

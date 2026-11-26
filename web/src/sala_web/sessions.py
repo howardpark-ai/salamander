@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import scopes as SC
+from . import turnstate as TS
 from .config import SHELL_SESSION, Settings, chat_session
 from .spend import normalize_model
 
@@ -202,7 +203,8 @@ def read_live_sessions(settings: Settings) -> list[Session]:
     the pane's claude stays as a viewer (status "shell", `parkedJobId`) and the registry holds a second row, the job's, under
     the same name. They are ONE session: the pane's row carries the identity (pane, name) and is marked
     `parked_job`; its status is the job's (the viewer's own is always "shell"), its sessionId the job's conversation (the
-    transcript and the model are read from there), and the job's row is not listed. A job with no pane row stays listed."""
+    transcript and the model are read from there), and the job's row is not listed. A job with no pane row stays listed.
+    A status of "busy" means a turn in progress: a "busy" row whose turn is over (background work alone) reads "idle" (turnstate.py)."""
     out: list[Session] = []
     names = live_tmux_names()
     rows: list[dict] = []
@@ -231,6 +233,7 @@ def read_live_sessions(settings: Settings) -> list[Session]:
         parked = d.get("parkedJobId") if isinstance(d.get("parkedJobId"), str) and d.get("parkedJobId") else None
         job = jobs.get(pid)
         status, sid, updated = d.get("status", "unknown"), d.get("sessionId", ""), d.get("updatedAt")
+        since = (job or d).get("statusUpdatedAt")
         if job is not None:
             status = job.get("status", "unknown")
             sid = job.get("sessionId") or sid
@@ -242,7 +245,7 @@ def read_live_sessions(settings: Settings) -> list[Session]:
             session_id=sid,
             name=d.get("name") or f"pid-{pid}",
             cwd=d.get("cwd", ""),
-            status=status,
+            status=TS.shown_status(settings.projects_dir, d.get("cwd", ""), sid, status, since),
             tmux=_with_live_name(d.get("tmux", ""), names),
             updated_at=updated,
             lane=proc_lane(pid),
