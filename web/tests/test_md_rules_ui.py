@@ -146,10 +146,11 @@ SETUP = r"""(() => {
     const now = looks(T.was.list);
     const restyled = T.was.list.map((e, i) => (e.isConnected && now[i] !== T.was.looks[i] ? [e.id || e.localName, T.was.looks[i], now[i]] : null))
       .filter(Boolean).slice(0, 5);
-    const full = read();
-    for (const d of T.msg.querySelectorAll(":scope > .md")) { const h = d.getBoundingClientRect().height; d.replaceChildren(); d.style.height = h + "px"; }
+    const full = read(), kept = [...T.msg.querySelectorAll(":scope > .md")].map((d) => [d, [...d.childNodes], d.getBoundingClientRect().height]);
+    for (const [d, , h] of kept) { d.replaceChildren(); d.style.height = h + "px"; }
     await raf();
     const empty = read();
+    for (const [d, nodes] of kept) { d.style.removeProperty("height"); d.append(...nodes); }   // the reply as it was, for more checks
     return { restyled, sheets: [T.was.sheets, document.styleSheets.length], moved: full.rects.filter((r, i) => r !== empty.rects[i]).slice(0, 5),
              count: [full.rects.length, empty.rects.length], scroll: [full.scroll, empty.scroll] };
   };
@@ -230,7 +231,7 @@ def test_a_reply_neither_acts_on_the_page_nor_answers_to_its_names(served, brows
         tags: q("style, link, meta, base, form, select, textarea, dialog, iframe, object, embed, button:not(.code-copy)").map((e) => e.localName),
         inputs: q("input").map((i) => [i.type, i.disabled]),
         named: q("[id], [name]").map((e) => e.getAttribute("id") ?? e.getAttribute("name")).filter((v) => !/^md\\d+-/.test(v)),
-        classes: q("[class]").map((e) => e.getAttribute("class")).filter((c) => !/^(md-start|md-end| )+$/.test(c)),
+        classes: q(".md [class]").map((e) => e.getAttribute("class")).filter((c) => !/^(md-start|md-end| )+$/.test(c)),
         attrs: [...new Set(all.flatMap((e) => e.getAttributeNames()))].filter((n) => /^(data-|on)|^(popover|command|commandfor|interestfor|autofocus|accesskey|contenteditable|for|autopictureinpicture)$/.test(n)),
         open: document.querySelectorAll(":popover-open, :modal").length,
         editable: all.filter((e) => e.isContentEditable || ![undefined, "read-only"].includes(getComputedStyle(e).webkitUserModify)).length,
@@ -408,17 +409,33 @@ SHOT = r"""(async (text, how) => {
   const stage = el("div", { id: "t-stage", style: "position:fixed;left:0;top:100px;width:100%;height:600px;box-sizing:border-box;" +
     "padding:8px 16px;z-index:2147483647;background:var(--bg)" });
   stage.append(m); document.body.append(stage);
-  if (how.includes("whole")) { const off = document.createElement("style"); off.id = "t-off";
-    off.textContent = "#t-stage .md { contain: none !important; overflow: visible !important }"; document.head.append(off); }
+  // "unclipped": the same formatting contexts with nothing clipping them; "whole": no containment at all
+  const contain = how.includes("unclipped") ? "layout" : how.includes("whole") ? "none" : "";
+  if (contain) { const off = document.createElement("style"); off.id = "t-off";
+    off.textContent = `#t-stage .md { contain: ${contain} !important; overflow: visible !important }`; document.head.append(off); }
   if (how.includes("bare")) for (const l of m.querySelectorAll("ol")) l.classList.remove("md-hang");
   m.getBoundingClientRect(); await document.fonts.ready; await raf(); await new Promise((r) => setTimeout(r, 200));
-  const b = m.getBoundingClientRect(); return [Math.floor(b.top) - 6, Math.ceil(b.bottom) + 6]; })"""
+  const b = m.getBoundingClientRect(), tenth = (v) => Math.round(v * 10) / 10;
+  const boxes = [...m.querySelectorAll(".md, ol, ul")].map((e) => { const r = e.getBoundingClientRect();
+    return [e.className || e.localName, tenth(r.x), tenth(r.y), tenth(r.width), tenth(r.height), e.scrollWidth, e.clientWidth, e.scrollHeight, e.clientHeight]; });
+  return { rows: [Math.floor(b.top) - 6, Math.ceil(b.bottom) + 6], boxes }; })"""
+# how many pixels of two shots differ in those rows; when any do, the rectangle that holds them and a picture of it from
+# both shots, the first above the second, for the failure to show
 DIFF = r"""(async (a, b, top, bottom) => {
   const read = async (png) => { const img = await createImageBitmap(new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], { type: "image/png" }));
-    const c = new OffscreenCanvas(img.width, img.height), g = c.getContext("2d"); g.drawImage(img, 0, 0); return g.getImageData(0, top, img.width, bottom - top).data; };
-  const x = await read(a), y = await read(b); let n = 0;
-  for (let i = 0; i < x.length; i += 4) if (Math.abs(x[i] - y[i]) + Math.abs(x[i + 1] - y[i + 1]) + Math.abs(x[i + 2] - y[i + 2]) > 60) n++;
-  return n; })"""
+    const c = new OffscreenCanvas(img.width, img.height), g = c.getContext("2d"); g.drawImage(img, 0, 0); return [c, g.getImageData(0, top, img.width, bottom - top)]; };
+  const [first, x] = await read(a), [second, y] = await read(b); let n = 0, at = null;
+  for (let i = 0; i < x.data.length; i += 4) {
+    if (Math.abs(x.data[i] - y.data[i]) + Math.abs(x.data[i + 1] - y.data[i + 1]) + Math.abs(x.data[i + 2] - y.data[i + 2]) <= 60) continue;
+    const px = (i / 4) % x.width, py = top + Math.floor(i / 4 / x.width); n++;
+    at = at ? [Math.min(at[0], px), Math.min(at[1], py), Math.max(at[2], px), Math.max(at[3], py)] : [px, py, px, py];
+  }
+  if (n <= 4) return { n };
+  const left = Math.max(0, at[0] - 24), up = Math.max(0, at[1] - 12), w = Math.min(240, at[2] - left + 24), h = Math.min(60, at[3] - up + 12);
+  const both = new OffscreenCanvas(w, h * 2 + 2), g = both.getContext("2d"); g.fillStyle = "red"; g.fillRect(0, 0, w, h * 2 + 2);
+  g.drawImage(first, left, up, w, h, 0, 0, w, h); g.drawImage(second, left, up, w, h, 0, h + 2, w, h);
+  const bytes = new Uint8Array(await (await both.convertToBlob({ type: "image/png" })).arrayBuffer());
+  return { n, at, crop: btoa(Array.from(bytes, (c) => String.fromCharCode(c)).join("")) }; })"""
 
 
 def test_long_list_numbers_and_formulas_show_whole(served, browser):
@@ -426,17 +443,24 @@ def test_long_list_numbers_and_formulas_show_whole(served, browser):
     open_session(browser, served)
     browser.settle("document.getElementById('chat')")
 
-    def shot(text: str, how: str):
-        rows = browser.evaluate(f"{SHOT}({json.dumps(text)}, {json.dumps(how)})")
-        return browser.send("Page.captureScreenshot", {"format": "png"})["data"], rows
+    def shot(text: str, how: str) -> dict:
+        got = browser.evaluate(f"{SHOT}({json.dumps(text)}, {json.dumps(how)})")
+        return {**got, "png": browser.send("Page.captureScreenshot", {"format": "png"})["data"]}
 
-    def differ(a, b) -> int:
-        assert a[1] == b[1], (a[1], b[1])
-        return browser.evaluate(f"{DIFF}({json.dumps(a[0])}, {json.dumps(b[0])}, {a[1][0]}, {a[1][1]})")
+    def differ(a: dict, b: dict) -> dict:
+        assert a["rows"] == b["rows"], (a["boxes"], b["boxes"])
+        return browser.evaluate(f"{DIFF}({json.dumps(a['png'])}, {json.dumps(b['png'])}, {a['rows'][0]}, {a['rows'][1]})")
 
-    got = {name: differ(shot(text, "held"), shot(text, "whole")) for name, text in WHOLE.items()}
-    assert max(got.values()) <= 4, got
-    assert differ(shot(WHOLE["a short date"], "bare"), shot(WHOLE["a short date"], "bare whole")) > 20
+    off = {}
+    for name, text in WHOLE.items():
+        held = shot(text, "held")
+        for how in ("held", "unclipped", "whole"):
+            other = shot(text, how)
+            got = differ(held, other)
+            if got["n"] > 4:
+                off[f"{name}, against {how}"] = {**got, "boxes": held["boxes"], "other boxes": other["boxes"]}
+    assert not off, json.dumps(off)
+    assert differ(shot(WHOLE["a short date"], "bare"), shot(WHOLE["a short date"], "bare unclipped"))["n"] > 20
 
 
 def test_drawings_media_formulas_and_colours_are_kept_as_written(served, browser):
