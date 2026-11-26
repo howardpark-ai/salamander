@@ -412,7 +412,12 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
 #chat-strip-wait .wait-line { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 #chat-strip-wait .chev { flex: none; width: 7px; height: 7px; margin-right: 4px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translateY(-2px) rotate(45deg); }
 #chat-strip-wait .wait-toggle[aria-expanded="true"] .chev { transform: translateY(1px) rotate(-135deg); }
-#chat-strip-wait .wait { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; width: 100%; max-width: 920px; margin: 0 auto; padding: 4px 16px 12px; min-width: 0; min-height: 0; box-sizing: border-box; overflow-x: hidden; overflow-y: auto; }
+#chat-strip-wait .wait { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; width: 100%; max-width: 920px; margin: 0 auto; padding: 4px 16px 12px; min-width: 0; min-height: 0; box-sizing: border-box; overflow-x: hidden; overflow-y: auto;
+  /* THE LIST SCROLLS, AND MORE IS BELOW: a soft band of the text colour in the last 24px of what shows (the shadow, fixed to the box's edge), which a cover of the panel colour
+     (attached to the content, at its end) wipes out as the end comes in view, so at the end it is gone. Both are background layers of the list itself, painted under its text
+     and borders: they never cover a row, add no box and no width, and work on a phone's Safari and Chrome (local and scroll attachments); a browser that does not know color-mix drops the
+     whole declaration and shows nothing. */
+  background: linear-gradient(to top, var(--panel) 60%, transparent) bottom / 100% 48px no-repeat local, linear-gradient(to bottom, transparent, color-mix(in srgb, var(--text) 20%, transparent)) bottom / 100% 24px no-repeat scroll; }
 #chat-strip-wait .wait-list { display: flex; flex-direction: column; min-width: 0; }
 /* A row hangs from its dot: two columns, the dot and the content. The content is ONE block of inline text (the id, the title link, the "new" tag), so it wraps as text does and a
    wrapped line starts at the content's left edge (under the id, past the dot), never under the dot; the dot is a box as high as the first line (20px) with the circle
@@ -425,7 +430,10 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
 #chat-strip-wait .wait-title { overflow-wrap: anywhere; }
 #chat-strip-wait .wait-link { color: inherit; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
 #chat-strip-wait .wait-link:hover { text-decoration-color: currentColor; }
-#chat-strip-wait .new { display: inline-block; margin-inline-start: 8px; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link)); }
+/* The 8px between the text and the "new" tag belongs to the text before it, so it is kept only when the tag follows on the same line: a tag that wraps starts at the content's left edge,
+   under the id and the wrapped title lines, with no margin of its own pushing it right. */
+#chat-strip-wait :is(.wait-link, .wait-title):has(+ .new) { margin-inline-end: 8px; }
+#chat-strip-wait .new { display: inline-block; margin-inline-start: 0; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link)); }
 #chat-strip-wait .wait-cap { font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
 #chat-strip-wait .wait-err { font-size: 12px; color: var(--warn); overflow-wrap: anywhere; }
 #chat-strip-wait .wait-err:empty { display: none; }

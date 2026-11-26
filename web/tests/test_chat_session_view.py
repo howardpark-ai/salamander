@@ -289,6 +289,36 @@ def test_a_row_hangs_from_its_dot_and_the_box_is_a_clean_cover():
     assert re.search(r"padding: \d+px 16px 12px", wait) and "overflow-y: auto" in wait, "the list's own scroll ends with 12px of room under the last row"
 
 
+def test_the_open_list_shows_that_it_scrolls_with_a_bottom_band_that_the_end_of_the_list_wipes_out():
+    wait = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .wait")
+    bg = re.search(r"background:\s*([^;]+);", wait)
+    assert bg, "the list's own scroll has a cue: background layers on the list itself"
+    cover, shadow = (x.strip() for x in re.split(r",\s*(?=linear-gradient)", bg.group(1)))
+    # the cover is the first layer (painted over the shadow), attached to the content (local), at its end, in the panel colour, as high as it needs to wipe the shadow out
+    cover_h = int(re.search(r"bottom / 100% (\d+)px no-repeat local$", cover).group(1))
+    solid = int(re.search(r"var\(--panel\) (\d+)%", cover).group(1))
+    # the shadow is the second: fixed to the visible box's bottom edge (scroll), 24 px of the text colour fading in towards the edge
+    shadow_h = int(re.search(r"bottom / 100% (\d+)px no-repeat scroll$", shadow).group(1))
+    assert shadow_h == 24 and "color-mix(in srgb, var(--text)" in shadow and shadow.startswith("linear-gradient(to bottom, transparent,"), shadow
+    assert cover.startswith("linear-gradient(to top, var(--panel)"), cover
+    assert cover_h * solid / 100 >= shadow_h, "at the end of the list the cover's solid part is at least as high as the shadow, so nothing of the band is left"
+    assert cover_h % 4 == 0 and shadow_h % 4 == 0, "the 4 px grid"
+    # nothing is added over the rows: no pseudo-element on the list, no mask, no new box; the sideways scroll stays off
+    assert not [sel for sel, _ in rules(STYLE) if re.match(r"#chat-strip-wait \.wait(-list)?::(before|after)", sel)]
+    assert "mask" not in wait and "overflow-x: hidden" in wait and "overflow-y: auto" in wait
+    assert "var(--panel)" in next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait"), "the cover's colour is the box's own"
+
+
+def test_a_new_tag_that_wraps_starts_at_the_content_s_left_edge_and_the_gap_belongs_to_the_text_before_it():
+    tag = next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .new")
+    assert "margin-inline-start: 0" in tag and "margin-inline-start: 8px" not in tag and "display: inline-block" in tag, "no margin of its own to carry to a line start"
+    gap = [b for sel, b in rules(STYLE) if sel == "#chat-strip-wait :is(.wait-link, .wait-title):has(+ .new)"]
+    assert len(gap) == 1 and re.fullmatch(r"\s*margin-inline-end: 8px;\s*", gap[0]), "8 px after the title, kept only when the tag follows it (a margin at the end of an inline box stays at the end of its last line)"
+    # the titles still start after the id, by design: the id's own end margin is untouched
+    assert "margin-inline-end: 8px" in next(b for sel, b in rules(STYLE) if sel == "#chat-strip-wait .wait-id")
+    assert 'subj.append(el("span", { class: "new", ...tx("chat.wait.new") }))' in body_of(APP_JS, "function chatWaitRow(") and "new Text" not in body_of(APP_JS, "function chatWaitRow(")
+
+
 def test_the_kept_lines_are_drawn_by_one_function_in_sala_s_own_renderer_and_hidden_unless_the_switch_is_on():
     assert 'if (m.role === "kept") return renderKept(m, into);' in body_of(APP_JS, "function renderMessage(")
     kept = body_of(APP_JS, "function renderKept(")

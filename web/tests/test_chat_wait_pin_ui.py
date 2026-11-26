@@ -17,6 +17,10 @@ still scroll with the thread. Held here at 1280 x 800 and 390 x 844 (the width r
     title as plain text, a row with no subject shows the id once as its title); the title is a keyboard-focusable link with a 44 px touch target on a touch screen;
   - the header and the composer are where they were with the line there or not, and a session that is not the chat session has no line and a thread that starts
     at the top of the pane;
+  - the open list shows that it scrolls: at 390 px with eight long moves a soft band of the text colour sits on the list's last 24 px at first open (read as a pixel of a
+    screenshot, in the gutter beside the rows where no text or line is, against a pixel of the same gutter near the top), and it is gone once the list is scrolled to its end,
+    where the last row's title link is not covered; no sideways scroll with it showing;
+  - a "new" tag that wraps onto a line of its own starts at the left edge of the id (the content's left edge), and one that follows the title on the same line keeps its 8 px gap;
   - NO SIDEWAYS SCROLL, at 1280, 390, 360 and 320 px, closed and open, with long item text (an 80-character id, a 300-character word, a long address): the page, the
     pane, the pinned box, its list and every id and title inside its row are never wider than the window.
 
@@ -25,8 +29,10 @@ scrolls sideways. Runs in a headless Chromium when one is installed (conftest.py
 
 from __future__ import annotations
 
+import base64
 import json
 import time
+import zlib
 
 import pytest
 
@@ -402,3 +408,121 @@ def test_the_open_box_covers_the_thread_cleanly_and_the_last_row_has_room_under_
     END = """(() => { const w = document.querySelector('#chat-strip-wait .wait'); w.style.scrollBehavior = 'auto'; w.scrollTop = w.scrollHeight; const rows = w.querySelectorAll('.wait-row');
       return Math.round(w.getBoundingClientRect().bottom - rows[rows.length - 1].getBoundingClientRect().bottom); })()"""
     assert wait_for(browser, f"{END} >= 12", 3.0), browser.evaluate(END)
+
+
+# ── the list scrolls and more is below: a cue at its bottom edge; a wrapped "new" tag starts at the content's left edge ──────────────────────────────────────────────────────────
+# The cue is background layers on the list (style.css), so it is read as what it paints: a pixel of a screenshot in the list's left gutter (inside the padding, where no row text,
+# hairline or dot is) 4 px above its bottom edge, against a pixel of the same gutter 4 px under its top edge (the band is the last 24 px only). A screenshot of the page, 4 x 4 px at
+# scale 1, is a PNG of eight-bit RGB or RGBA: its first pixel is the first three bytes after the filter byte of row 0, whatever the filter is (nothing is to its left or above it).
+BAND = """(() => { const w = document.querySelector('#chat-strip-wait .wait'), r = w.getBoundingClientRect();
+  return { x: Math.round(r.left) + 2, bottom: Math.floor(r.bottom) - 4, top: Math.ceil(r.top) + 4, sx: window.scrollX, sy: window.scrollY,
+           rest: Math.round(w.scrollHeight - w.clientHeight - w.scrollTop), room: w.scrollHeight - w.clientHeight, shown: w.getClientRects().length > 0 }; })()"""
+TO_END = "(() => { const w = document.querySelector('#chat-strip-wait .wait'); w.style.scrollBehavior = 'auto'; w.scrollTop = w.scrollHeight; return Math.round(w.scrollTop); })()"
+TO_TOP = "(() => { const w = document.querySelector('#chat-strip-wait .wait'); w.style.scrollBehavior = 'auto'; w.scrollTop = 0; return Math.round(w.scrollTop); })()"
+
+
+def pixel(browser, x: int, y: int, sx: float = 0, sy: float = 0) -> tuple[int, int, int]:
+    got = browser.send("Page.captureScreenshot", {"format": "png", "clip": {"x": x + sx, "y": y + sy, "width": 4, "height": 4, "scale": 1}})
+    png, pos, idat, kind, depth = base64.b64decode(got["data"]), 8, b"", None, None
+    while pos < len(png):
+        n, name = int.from_bytes(png[pos:pos + 4], "big"), png[pos + 4:pos + 8]
+        if name == b"IHDR":
+            depth, kind = png[pos + 16], png[pos + 17]
+        elif name == b"IDAT":
+            idat += png[pos + 8:pos + 8 + n]
+        pos += 12 + n
+    assert depth == 8 and kind in (2, 6), (depth, kind)
+    raw = zlib.decompress(idat)
+    return raw[1], raw[2], raw[3]
+
+
+def band(browser) -> int:
+    """How far the pixel 4 px above the list's bottom edge is from the pixel 4 px under its top edge (the sum of the channels' differences): 0 with no band."""
+    b = browser.evaluate(BAND)
+    low, high = pixel(browser, b["x"], b["bottom"], b["sx"], b["sy"]), pixel(browser, b["x"], b["top"], b["sx"], b["sy"])
+    return sum(abs(p - q) for p, q in zip(low, high))
+
+
+def poll(read, ok, timeout: float = 5.0):
+    """The value `read()` gives once `ok(value)` holds, else the last one (the caller asserts): a wait on what the page does, never a fixed sleep."""
+    end, v = time.time() + timeout, read()
+    while not ok(v) and time.time() < end:
+        time.sleep(0.1)
+        v = read()
+    return v
+
+
+def phone(browser, width: int) -> None:
+    browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+    assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
+
+
+@pytest.mark.parametrize("width", [390, 360])
+def test_a_list_that_scrolls_shows_a_band_at_its_bottom_edge_until_its_end_is_in_view(served, browser, monkeypatch, width):
+    open_pin(browser, served, monkeypatch, (width, 844), waiting=moves(8, long=True))
+    phone(browser, width)
+    click(browser)
+    browser.settle(PIN)
+    assert wait_for(browser, f"{PIN}.querySelectorAll('.wait-row').length === 8", 10.0)
+    first = poll(lambda: browser.evaluate(BAND), lambda b: b["shown"] and b["room"] > 48)
+    assert first["shown"] and first["room"] > 48, ("the eight long moves overflow the 40vh box, so there is more below", first)
+    # first open: more is below, and the band says so (the scroll position is read, not assumed: what counts is what is left below)
+    at_first = poll(lambda: band(browser), lambda v: v >= 24)
+    assert browser.evaluate(BAND)["rest"] > 29 and at_first >= 24, ("a list with more below shows the band", at_first, browser.evaluate(BAND))
+    # scrolled to its end: nothing is below and nothing of the band is left
+    browser.evaluate(TO_END)
+    end = poll(lambda: browser.evaluate(BAND), lambda b: b["rest"] <= 1)
+    assert end["rest"] <= 1, end
+    gone = poll(lambda: band(browser), lambda v: v <= 6)
+    assert gone <= 6, ("at the end of the list the band is gone", gone, browser.evaluate(BAND))
+    # the footnote stays, and at the end nothing covers the last row's title link (the band is a background, painted under the rows)
+    assert browser.evaluate(PIN + ".querySelectorAll('.wait-cap').length") == 1
+    last = poll(lambda: browser.evaluate(LINK_AT.replace("__INDEX__", "7")), lambda g: g["seen"])
+    assert last["seen"] and last["covered"] is False and last["id"] == "demo#8", last
+    assert browser.evaluate("getComputedStyle(document.querySelector('#chat-strip-wait .wait'), '::after').content") in ("none", "normal")
+    # and back up: the band returns with more below
+    browser.evaluate(TO_TOP)
+    back = poll(lambda: band(browser), lambda v: v >= 24)
+    assert back >= 24, back
+    # no sideways scroll with the band showing
+    p = browser.evaluate(PIN_WIDTHS)
+    assert p["vw"] == width and p["listShown"] is True, p
+    assert p["doc"][0] <= p["doc"][1] and p["body"][0] <= p["body"][1] and p["pane"][0] <= p["pane"][1], p
+    assert p["pin"][0] <= p["pin"][1] and p["list"][0] <= p["list"][1] and p["btn"][0] <= p["btn"][1], p
+    assert p["over"] == [] and p["outRow"] == [], p
+    check(browser.evaluate(MEASURE), f"{width} px, the band showing")
+
+
+# A row that is "new" (a move that came after the page's first answer) gets the tag. The title's text is swapped for a run of one letter, longer by one letter each time, until the
+# tag no longer fits after it and wraps onto a line of its own (a tag is as wide as 'new' plus 16 px of padding, much more than one letter, so some length leaves it alone on a
+# line); then the tag's left edge is read against the id's (the first thing of the row's content) and the content's.
+WRAP = """(() => { const tag = document.querySelector('#chat-strip-wait .wait-row .new'), row = tag.closest('.wait-row'), link = row.querySelector('.wait-link'),
+  id = row.querySelector('.wait-id'), subj = row.querySelector('.wait-subj'), left = (n) => n.getBoundingClientRect().left, out = { same: null, wrapped: null, rows: 0 };
+  const last = () => { const l = [...link.getClientRects()]; return l[l.length - 1]; };
+  link.textContent = 'm';
+  { const t = tag.getBoundingClientRect(), l = last(); out.same = { gap: t.left - l.right, onLine: !(t.top > l.bottom - 1) }; }
+  for (let n = 1; n <= 90; n++) { link.textContent = 'm'.repeat(n); const t = tag.getBoundingClientRect(), l = last();
+    if (t.top > l.bottom - 1) { out.wrapped = { n, tagLeft: t.left, idLeft: left(id), contentLeft: left(subj), lines: link.getClientRects().length }; break; } }
+  out.rows = document.querySelectorAll('#chat-strip-wait .wait-row').length; return out; })()"""
+
+
+@pytest.mark.parametrize("width", [390, 360, 320])
+def test_a_new_tag_that_wraps_starts_where_the_id_starts_and_one_after_the_title_keeps_its_gap(served, browser, monkeypatch, width):
+    open_pin(browser, served, monkeypatch, (width, 844))
+    phone(browser, width)
+    click(browser)
+    browser.settle(PIN)
+    browser.evaluate("window.__chat = Object.assign({}, window.__chat, { waiting: window.__chat.waiting.concat([{ id: 'demo#9', subject: 'Late', url: 'https://example.com/moves/9' }]) }); loadChatMarks(); ''")
+    assert wait_for(browser, f"{PIN}.querySelectorAll('.wait-row .new').length === 1", 10.0)
+    got = browser.evaluate(WRAP)
+    where = f"{width} px: {got}"
+    assert got["rows"] == 4, where
+    # on the same line the tag keeps the 8 px of the text before it
+    assert got["same"]["onLine"] and 7 <= got["same"]["gap"] <= 9, where
+    # wrapped, it starts at the content's left edge: the id's left, which is where every wrapped title line starts
+    w = got["wrapped"]
+    assert w is not None, ("some length of the title leaves the tag alone on a line", where)
+    assert abs(w["tagLeft"] - w["idLeft"]) <= 0.5 and abs(w["idLeft"] - w["contentLeft"]) <= 0.5, where
+    p = browser.evaluate(PIN_WIDTHS)
+    assert p["vw"] == width and p["doc"][0] <= p["doc"][1] and p["pane"][0] <= p["pane"][1] and p["list"][0] <= p["list"][1] and p["over"] == [] and p["outRow"] == [], where
+    check(browser.evaluate(MEASURE), where)
