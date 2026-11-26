@@ -634,7 +634,7 @@ window.SALA_I18N_EN = {
   "ui.shell.resize": "Resize the shell",
   "ui.shell.up": "Up",
   "ui.side.chatRole": "chat",
-  "ui.side.chatTip": "Open the chat session, with your move list",
+  "ui.side.chatTip": "Open the chat session, with the list: {group}",
   "ui.side.chatWait.one": "{n} item in {group}",
   "ui.side.chatWait.other": "{n} items in {group}",
   "ui.side.close": "Close session list",

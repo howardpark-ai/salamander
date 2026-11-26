@@ -91,10 +91,11 @@ def test_the_entry_is_the_first_line_of_the_views_above_new_session():
     ids = re.findall(r'<(?:a|button) id="(side-[a-z]+)"', top)
     assert ids[0] == "side-chat" and ids.index("side-chat") < ids.index("side-new") < ids.index("side-ovw"), ids
     entry = re.search(r'<a id="side-chat"[^>]*>.*?</a>', top, re.S).group(0)
-    assert 'class="sess side-ovw side-chat"' in entry and " hidden " in entry, "a row like the others, hidden until api/chat says a session is set"
+    assert 'class="sess side-ovw side-chat"' in entry and entry.split(">", 1)[0].endswith(" hidden"), "a row like the others, hidden until api/chat says a session is set"
     assert re.search(r'<svg width="18" height="18" viewBox="0 0 24 24"[^>]*stroke-width="2" stroke-linecap="round" stroke-linejoin="round"', entry)
     assert entry.count('class="label"') == 1 and 'class="role"' in entry and 'class="dot busy" hidden' in entry and 'class="wchip" hidden' in entry
-    assert 'data-i18n="ui.side.chatRole"' in entry and 'data-i18n-title="ui.side.chatTip"' in entry
+    assert 'data-i18n="ui.side.chatRole"' in entry
+    assert " title=" not in entry.split(">", 1)[0] and "data-i18n-title" not in entry, "the tooltip takes the served group's name: only paintChatEntry sets it"
     assert "#chat" not in entry, "its href is the session's own #s=<name>, set from api/chat"
 
 
@@ -358,7 +359,7 @@ def test_the_english_words_are_the_fallback_name_and_a_parameter_for_the_served_
     assert EN_T["chat.strip.collapse"] == "Hide the list: {group}"
     assert EN_T["ui.side.chatWait.one"].format(n=1, group="Your move") == "1 item in Your move"
     assert EN_T["ui.side.chatWait.other"].format(n=3, group="Your move") == "3 items in Your move"
-    assert "move list" in EN_T["ui.side.chatTip"]
+    assert EN_T["ui.side.chatTip"] == "Open the chat session, with the list: {group}"
 
 
 def test_the_korean_words_are_the_fallback_label_and_a_parameter_for_the_served_one():
@@ -366,7 +367,7 @@ def test_the_korean_words_are_the_fallback_label_and_a_parameter_for_the_served_
     assert KO_T["chat.strip.line"] == "{group} \u00b7 {n}"
     assert KO_T["chat.strip.expand"].startswith("{group} ") and KO_T["chat.strip.collapse"].startswith("{group} ")
     assert KO_T["ui.side.chatWait.other"].format(n=3, group=MY_TURN) == MY_TURN + " 3" + cp(0xAC74)
-    assert MY_TURN in KO_T["ui.side.chatTip"]
+    assert KO_T["ui.side.chatTip"].count("{group}") == 1 and MY_TURN not in KO_T["ui.side.chatTip"]
     assert "ui.side.chatWait.one" not in KO_T, "Korean has one plural form"
 
 
@@ -389,5 +390,7 @@ def test_no_string_of_either_table_says_waiting_on_you():
 def test_the_page_words_the_line_the_titles_and_the_chip_through_those_keys():
     paint = body_of(APP_JS, "function paintChatWait()")
     assert 'tl("chat.strip.line", { n, group })' in paint and 'tl(open ? "chat.strip.collapse" : "chat.strip.expand", { group })' in paint
-    assert 'tl("ui.side.chatWait", { n: waiting, group: chatGroupName(d.group) })' in body_of(APP_JS, "function paintChatEntry()")
+    entry = body_of(APP_JS, "function paintChatEntry()")
+    assert "const group = chatGroupName(d.group);" in entry
+    assert 'a.title = tl("ui.side.chatTip", { group });' in entry and 'tl("ui.side.chatWait", { n: waiting, group })' in entry
     assert "chat.wait.h" not in APP_JS, "the open list has no heading of its own: the pinned line says it"
