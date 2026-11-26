@@ -11,6 +11,8 @@ thread does with them:
     command turns out to have run locally (which leaves the turn as the command found it), so a later delivered message's reply needs the mark;
   - a page, an older page, a newer page, a page around a line and a tail read followed by appends cut at every line give the same thread; pages hold whole
     turns, every cursor is a line's start, and a long transcript is not read whole for one page;
+  - with replies=1, also, in the owner's turns alone: the images of a SendUserFile call, the questions of an AskUserQuestion call, an API error's line and the
+    interrupt line (marked); no turn starts, ends or reopens at one, and the answer without it holds none;
   - the route: nothing with no chat session set, the configured session alone (live or sleeping), 400 for a bad query.
 
 What a wrong answer costs: another session's words or a tool's output in the thread, a message of the owner's or its answer missing, a page that repeats or
@@ -675,6 +677,189 @@ def test_the_tail_page_is_read_again_only_when_the_file_changed(tmp_path, monkey
     for n in range(20, 40):
         T.tail(p, SID, OWNER, n, cache)
     assert len(cache) <= T.CACHE_MAX
+
+
+# ── the rest of a reply (replies=1) ──────────────────────────────────────────
+ASK = [{"header": "Colour", "question": "Which colour?", "multiSelect": False,
+        "options": [{"label": "Red", "description": "warm"}, {"label": "Blue", "description": "cool", "preview": "<b>swatch</b>"}]},
+       {"header": "Size", "question": "Which size?", "multiSelect": True, "options": [{"label": "Small"}]}]
+ASKED = [{"kind": "question", "header": "Colour", "question": "Which colour?",
+          "options": [{"label": "Red", "description": "warm", "preview": ""}, {"label": "Blue", "description": "cool", "preview": "<b>swatch</b>"}]},
+         {"kind": "question", "header": "Size", "question": "Which size?", "options": [{"label": "Small", "description": "", "preview": ""}]}]
+OVERLOADED = "API Error: 529 Overloaded"
+
+
+def call(name: str, inp: dict, minute: int = 0) -> dict:
+    """An assistant line that holds one tool call, as a transcript writes each block of a reply."""
+    d = assistant("", minute, stop="tool_use")
+    d["message"]["content"] = [{"type": "tool_use", "id": f"call-{minute}", "name": name, "input": inp}]
+    return d
+
+
+def sent(*names: str, minute: int = 0) -> dict:
+    return call("SendUserFile", {"files": [f"/w/demo/{n}" for n in names], "caption": "The drawings", "status": "normal"}, minute)
+
+
+def asked(minute: int = 0, questions: object = ASK) -> dict:
+    return call("AskUserQuestion", {"questions": questions}, minute)
+
+
+def api_error(text: str = OVERLOADED, minute: int = 0) -> dict:
+    d = assistant(text, minute, stop="stop_sequence")
+    d["message"]["model"] = "<synthetic>"
+    return d | {"isApiErrorMessage": True, "error": "server_error"}
+
+
+def rest_lines() -> list[dict]:
+    """One owner turn of each kind, a delivered turn that holds them all, and a turn after it."""
+    return [
+        human("draw it", 1), sent("a.png", "b.docx", "c.jpg", minute=1), tool_result(1), assistant("Drawn.", 2),
+        human("pick one", 3), asked(3), tool_result(3), assistant("Picked.", 4),
+        human("go", 5), api_error(minute=5),
+        human("again", 6), *work(6), interrupt(6, tool=True),
+        peer(PEER + "news", 7), sent("hidden.png", minute=7), asked(7), tool_result(7), api_error(minute=7), interrupt(7),
+        assistant("[for Rowan] Filed.", 8),
+        human("last", 9), assistant("Done.", 9),
+    ]
+
+
+def shape(msgs: list[dict]) -> list[tuple]:
+    """(role, each block's kind and what it says) of each message."""
+    word = {"text": "text", "file_image": "name", "question": "question"}
+    return [(m["role"], *[(b["kind"], b[word[b["kind"]]]) for b in m["blocks"]]) for m in msgs]
+
+
+def rest(tmp_path, lines: list[dict]):
+    p = tmp_path / f"{SID}.jsonl"
+    write(p, lines)
+    msgs, _, _, sel = T.read_tail_page(p, SID, OWNER, 10_000, True)
+    return msgs, sel
+
+
+def test_the_rest_of_a_reply_shows_in_the_owners_turns_and_only_when_asked_for(tmp_path):
+    lines = rest_lines()
+    msgs, sel = rest(tmp_path, lines)
+    assert shape(msgs) == [
+        ("user", ("text", "draw it")),
+        ("assistant", ("file_image", "a.png"), ("file_image", "c.jpg")),
+        ("assistant", ("text", "Drawn.")),
+        ("user", ("text", "pick one")),
+        ("assistant", ("question", "Which colour?"), ("question", "Which size?")),
+        ("assistant", ("text", "Picked.")),
+        ("user", ("text", "go")),
+        ("assistant", ("text", OVERLOADED)),
+        ("user", ("text", "again")),
+        ("user", ("text", "[Request interrupted by user for tool use]")),
+        ("assistant", ("text", "Filed.")),
+        ("user", ("text", "last")),
+        ("assistant", ("text", "Done.")),
+    ]
+    assert [m.get("interrupt", False) for m in msgs] == [False] * 9 + [True] + [False] * 3 and sel.open is False
+    images = msgs[1]["blocks"]
+    assert [b["caption"] for b in images] == ["The drawings", ""]
+    assert images[0]["url"].startswith(f"api/file-image/{SID}/{msgs[1]['uuid']}/0/0") and images[1]["url"].endswith("/0/2")
+    assert msgs[4]["blocks"] == ASKED
+    assert "b.docx" not in json.dumps(msgs) and "tool_use" not in json.dumps(msgs) and "hidden.png" not in json.dumps(msgs)
+    plain, _ = thread(tmp_path, lines)
+    assert said(plain) == [("user", "draw it"), ("assistant", "Drawn."), ("user", "pick one"), ("assistant", "Picked."), ("user", "go"), ("user", "again"),
+                           ("assistant", "Filed."), ("user", "last"), ("assistant", "Done.")]
+    assert plain == [m for m in msgs if not m.get("interrupt") and all(b["kind"] == "text" for b in m["blocks"]) and m["blocks"][0]["text"] != OVERLOADED]
+
+
+@pytest.mark.parametrize("line", [
+    api_error("No response requested.") | {"isApiErrorMessage": False},
+    {k: v for k, v in api_error().items() if k != "isApiErrorMessage"},
+    sent("a.png") | {"isSidechain": True},
+    asked() | {"isSidechain": True},
+    api_error() | {"isSidechain": True},
+    sent("a.png") | {"isMeta": True},
+    sent("report.docx", "notes.txt"),
+    call("Bash", {"command": "ls", "files": ["/w/demo/a.png"], "questions": ASK}),
+    call("SendUserFile", {"files": "a.png"}),
+    asked(questions="Which colour?"),
+    asked(questions=[None, "x", {"header": "No question", "options": []}, {"question": 7}]),
+    call("AskUserQuestion", None),
+], ids=["synthetic", "synthetic-unmarked", "sidechain-sent", "sidechain-asked", "sidechain-error", "meta", "no-image", "another-tool", "files-not-a-list",
+        "questions-not-a-list", "no-question", "no-input"])
+def test_what_is_none_of_the_four_stays_out(tmp_path, line):
+    msgs, _ = rest(tmp_path, [human("go", 1), line])
+    assert said(msgs) == [("user", "go")]
+
+
+def test_a_question_with_odd_options_keeps_the_ones_it_can_number(tmp_path):
+    msgs, _ = rest(tmp_path, [human("go", 1), asked(1, [{"question": "Ready?", "options": "yes"}, {"question": "Sure?", "options": [{"label": 5}]}])])
+    assert [b["options"] for b in msgs[1]["blocks"]] == [[], [{"label": "", "description": "", "preview": ""}]]
+
+
+@pytest.mark.parametrize("lines", [
+    [sent("a.png"), asked(), api_error()],
+    [peer(PEER + "news", 1), sent("a.png", minute=1), asked(1), api_error(minute=1), interrupt(1)],
+    [human("<!-- sala --> wake up", 1), sent("a.png", minute=1), api_error(minute=1)],
+], ids=["no-turn", "another-session", "sala"])
+def test_the_rest_of_a_turn_the_owner_did_not_start_stays_back(tmp_path, lines):
+    assert rest(tmp_path, lines)[0] == []
+
+
+def test_an_interrupt_after_the_reply_shows_nothing(tmp_path):
+    assert said(rest(tmp_path, [human("go", 1), assistant("Done.", 2), interrupt(3)])[0]) == [("user", "go"), ("assistant", "Done.")]
+
+
+@pytest.mark.parametrize("lines", [
+    [human("go", 1), sent("a.png", minute=1)],
+    [human("go", 1), asked(1)],
+    [human("go", 1), api_error(minute=1)],
+    [human("go", 1), interrupt(1)],
+    [human("go", 1), interrupt(1), asked(2)],
+    [peer(PEER + "news", 1), sent("a.png", minute=1)],
+    [human("go", 1), assistant("Done.", 2), api_error(minute=3)],
+], ids=["sent", "asked", "api-error", "interrupt", "work-again", "delivered", "closed"])
+def test_the_rest_of_a_reply_changes_no_turn(tmp_path, lines):
+    p = tmp_path / f"{SID}.jsonl"
+    write(p, lines)
+    states = [(s.open, s.by, s.turn, s.stopped) for s in (T._scan(p, SID, OWNER, 0, TR.complete_end(p), flag)[1] for flag in (False, True))]
+    assert states[0] == states[1], states
+
+
+@pytest.mark.parametrize("n", [1, 3, 500])
+def test_pages_and_appends_with_the_rest_of_the_replies_are_the_whole_read(tmp_path, sizes, n):
+    p = tmp_path / f"{SID}.jsonl"
+    raw = [(json.dumps(d) + "\n").encode() for d in rest_lines() + endings_lines() + rest_lines()]
+    p.write_bytes(b"".join(raw))
+    want = [it["m"] for g in T._scan(p, SID, OWNER, 0, TR.complete_end(p), True)[0] for it in g]
+    got, cursor, _, _ = T.read_tail_page(p, SID, OWNER, n, True)
+    while cursor:
+        older, cursor, _ = T.read_before(p, SID, OWNER, cursor, n, True)
+        got = older + got
+    assert got == want
+    got, cursor, at_end = [], 0, False
+    while not at_end:
+        more, cursor, at_end = T.read_after(p, SID, OWNER, cursor, n, True)
+        got += more
+    assert got == want
+    around = T.read_around(p, SID, OWNER, len(b"".join(raw[:len(raw) // 2])), n, True)["messages"]
+    assert around and any(want[i:i + len(around)] == around for i in range(len(want)))
+    for k in range(0, len(raw) + 1, 3):
+        p.write_bytes(b"".join(raw[:k]))
+        msgs, _, end, sel = T.read_tail_page(p, SID, OWNER, n, True)
+        p.write_bytes(b"".join(raw))
+        both = msgs + T.read_from(p, sel, end)[0]
+        assert both == want[len(want) - len(both):], k
+
+
+def test_the_route_adds_the_rest_of_the_replies_for_replies_1_alone(served, monkeypatch):
+    monkeypatch.setenv("SALA_CHAT_SESSION", NAME)
+    monkeypatch.setenv("SALA_OWNER_NAME", OWNER)
+    write(transcript_file(served), rest_lines())
+    base = served["url"] + "/api/chat/thread"
+    plain = get(base)[2]
+    full_ = get(base + "?replies=1")[2]
+    assert list(full_) == list(plain) and len(full_["messages"]) == 13 and len(plain["messages"]) == 9
+    assert get(base)[2] == plain and get(base + "?replies=1")[2] == full_, "each is cached apart from the other"
+    for query in ("?replies=0", "?replies=", "?replies=yes"):
+        assert get(base + query)[2] == plain, query
+    for query in ("?after=0&n=500", f"?before={full_['offset']}&n=500", "?around=0&n=500"):
+        assert len(get(f"{base}{query}&replies=1")[2]["messages"]) == 13, query
+        assert len(get(base + query)[2]["messages"]) == 9, query
 
 
 # ── the route ────────────────────────────────────────────────────────────────
