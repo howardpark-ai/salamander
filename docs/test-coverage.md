@@ -5347,6 +5347,14 @@ The pinned bar of two tabs with the layer on (same file; the bar itself is `test
 
 Not covered, and why: a thread whose page holds fewer messages than asked while older ones remain, in the browser (the paging is held by `test_chat_thread.py`; the layer follows `before` whatever a page holds); a running `!` command, which the layer does not draw; the 40-page limit on reading back to a Search result's entry, and the follow to such an entry; a phone's on-screen keyboard; Firefox and Safari.
 
+### The chat strip's rows under a finger, and a list cut under the tabs: `web/tests/test_chat_onit_ui.py` (browser) changed; `test_chat_wait_pin_ui.py` (browser) and `test_chat_session_view.py` follow (Thu Nov 26th 2026)
+
+On a touch screen a title link's tap area was about 40 px on the first list and 30 px on the second, where the line under the title lay over its lower part; and under the bar of tabs a list scrolled down was cut right on the selected tab's underline. Under a coarse pointer the link's box is now padded to just over 44 px and lifted above that line, with no row taller; under the bar the list starts 4 px lower and is cut there.
+
+Kept (`test_chat_onit_ui.py`, a headless Chromium, else skipped; GitHub CI runs it): at 390x844 and 1280x800 with touch, on both lists, one-line rows next to each other and a wrapped title: at five places along every line of every link `elementFromPoint` gives that link at least 44 px of height, no two links' boxes cross, the places on the line under a title answer as the link, a point of the row beside the link does not, a one-line row is at most 45 px (61 px with the line under it); with a mouse the link has no padding; at both sizes a thirty-row list scrolled to its end starts at least 3.5 px under the selected tab and nothing of it answers in between, and at rest it starts about where it did; a second session, with a mouse and with touch, is laid out the same with every style rule naming the pinned box deleted from the page.
+
+Not covered, and why: a real finger and a phone's own browser (touch is emulated); a fallback typeface whose box is far from 1.15em (the padding assumes about that, as the page's face and the usual system faces have it).
+
 ### A reply stays inside its own box: `web/tests/test_md_rules.py`, `test_md_rules_ui.py` (browser), new; `test_reply_footer.py` follows (Thu Nov 26th 2026)
 
 A reply keeps what the sanitizer keeps by default, drawings, video, audio, formulas and inline style included. Its box has layout and paint containment, and `MD_PURIFY`, `mdAttr`, `mdStyle` (`shared.js`) and `mdSanitize` (`app.js`) take out what no box holds, what acts and what would answer to a name of the page's. A wrong rule is a reply that paints or takes a tap over the page's own parts, restyles it, opens over it, draws a control or is found by one of the page's own lookups; or ordinary formatting that disappears, moves or is cut.
