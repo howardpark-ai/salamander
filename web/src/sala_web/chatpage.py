@@ -4,6 +4,7 @@ Pure functions over what the server already reads, so each can be tested alone:
 
   cards(text, host, mockups_dir)   the link cards under a message: a /mockup/<n> link of this site and a claude.ai artifact link (chatkeep.with_cards)
   waiting(board_doc, your_move)    the owner's moves: stackshot's whole Your move list (yourmove.py) when there is one, else the board feed (board.py's cache)
+  on_it_rows(on_it, your_move)     the second list: what the session is on, without what the first list shows
   assemble(...)                    the whole answer: whether a session is set, its name, whether it is live, sleeping or absent and works, the count of kept-back lines, the moves, the motion lines,
                                    and what the session is on (involved.py) while that read is available
 
@@ -118,6 +119,13 @@ def waiting(board_doc: dict, your_move: list[dict] | None = None) -> list[dict]:
     return out
 
 
+def on_it_rows(on_it: list[dict], your_move: list[dict] | None) -> list[dict]:
+    """The second list's rows, in the order given. While the first list's own read is there (`your_move` is a list, even an empty one), a row
+    stackshot lists under the owner's move (`yours`, involved.py) is left out: it shows in the first list. With None (that read is unavailable
+    and the strip draws the board feed) every row stays, as read. The mark is not passed on."""
+    return [{k: v for k, v in r.items() if k != "yours"} for r in on_it if your_move is None or not r.get("yours")]
+
+
 def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, zone, now_ms: int,
              motion_dir: Path, board_doc: dict, cache: dict, your_move: list[dict] | None = None, group: dict | None = None,
              on_it: list[dict] | None = None) -> dict:
@@ -125,8 +133,8 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
     session). `cache` (a dict kept by the caller) holds the last read of a transcript, keyed by its size and time, so a poll of an unchanged
     file costs a stat (the strip's counts are all it keeps). `your_move`: the owner's whole Your move list when stackshot's read has one (yourmove.py), else None.
     `group`: stackshot's own name for that group, {"en", "ko"}, when its answer carried one (yourmove.py), else None: the strip's words use it in place of sala's own.
-    `on_it`: the open items the session is contact of or observer on (involved.py), passed on as `onIt`, an empty list included; with None (that read is
-    unavailable) the answer has no such key, and the strip is the one list."""
+    `on_it`: the open items the session is contact of or observer on (involved.py), passed on as `onIt` (on_it_rows: without those on the owner's move
+    while `your_move` is a list), an empty list included; with None (that read is unavailable) the answer has no such key, and the strip is the one list."""
     kept_today, kept_lines, floor = 0, 0, False
     present = "absent"
     status = ""
@@ -156,5 +164,5 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
            "keptToday": kept_today, "keptTodayFloor": floor, "keptLines": kept_lines,
            "waiting": waiting(board_doc, your_move), "group": group, "motion": MO.read_lines(motion_dir, name)}
     if on_it is not None:
-        doc["onIt"] = [dict(r) for r in on_it]
+        doc["onIt"] = on_it_rows(on_it, your_move)
     return doc

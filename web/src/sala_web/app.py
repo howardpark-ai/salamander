@@ -16,7 +16,8 @@ none itself):
                                   {configured, session, name, present: live|sleeping|absent, busy, keptToday, keptTodayFloor, keptLines (how many
                                   kept-back lines the session's own view draws today, which also counts a turn he then spoke into), waiting (his moves:
                                   stackshot's Your move list, else the board feed), motion (the session's own `sala motion` lines), onIt (the open items
-                                  the session is contact of or observer on, involved.py; the key is left out while that read is unavailable)}; with no
+                                  the session is contact of or observer on, involved.py, without those on his move while the Your move list is there;
+                                  the key is left out while that read is unavailable)}; with no
                                   session set just {configured: false} (read-only; it sends nothing, the composer uses /api/s/<pid>/send)
   GET  /api/chat/thread           the chat session's own thread (chatthread.py, whose docstring is the rule): the owner's messages and the replies to them and
                                   nothing else, ?n=200 with at most one of ?before=, ?after= and ?around= as the transcript route takes them (400 on a bad one)

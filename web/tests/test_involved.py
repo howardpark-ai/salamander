@@ -5,7 +5,8 @@ day and a time kept only when they are one, an answer that is no list refused); 
 nothing until a first answer, an empty list an answer, a failed read keeping the last good list for ten minutes and nothing after, an answer never handed out for
 another session than the one it was read for, a state file with no token); the read itself against a stand-in stackshot on a real socket (bearer token, the path,
 the key, a 401, a 404); GET /api/chat end to end (the key `onIt` only while the read is available, the session's name from the setting and never from a request,
-nothing read with no chat session, a second session changing nothing); and, in node, the page's own helpers for a row: late after two days and red after five,
+nothing read with no chat session, a second session changing nothing, an item stackshot lists under the owner's move left out of `onIt` while the Your move
+read is there and kept while it is not); and, in node, the page's own helpers for a row: late after two days and red after five,
 never for a held or timeless one, since when, the day a held one comes back, who moves it, all as text.
 The page in a browser is test_chat_onit_ui.py. The client API is a fake; the real token file is never read (conftest points the defaults at missing files). All names
 are invented; Korean is built from code points."""
@@ -25,6 +26,7 @@ from i18n_node import STATIC, prelude
 from sala_web import board as B
 from sala_web import involved as IV
 from sala_web import sessions as S
+from sala_web import yourmove as YM
 from sala_web.app import create_app
 from sala_web.config import Settings
 from test_i18n import needs_node, run_node
@@ -53,6 +55,11 @@ def row(n, **kw):
     return d
 
 
+def kept(n, yours=False, **kw):
+    """A row as the parse and the cache keep it: the page's row and the mark of the owner's move."""
+    return {**row(n, **kw), "yours": yours}
+
+
 def ids(rows):
     return [r["id"] for r in rows]
 
@@ -62,7 +69,13 @@ def ids(rows):
 def test_parse_keeps_every_item_in_the_order_sent_with_only_the_fields_the_tab_uses():
     got = IV.parse({"items": [item(7), item(3, subject="  two \n  words "), item(5, list="your-move", mover="demo owner"),
                               item(2, held=True, until="2027-01-12", list="waiting")]})
-    assert got == [row(7), row(3, subject="two words"), row(5, mover="demo owner"), row(2, held=True, until="2027-01-12")]
+    assert got == [kept(7), kept(3, subject="two words"), kept(5, mover="demo owner", yours=True), kept(2, held=True, until="2027-01-12")]
+
+
+@pytest.mark.parametrize("where", [None, "", "agents", "waiting", "Your-Move", "your-move ", True, ["your-move"], {"your-move": 1}])
+def test_parse_marks_only_the_exact_list_name_as_the_owners_move(where):
+    assert IV.parse({"items": [item(1, list=where)]})[0]["yours"] is False
+    assert IV.parse({"items": [{k: v for k, v in item(1).items() if k != "list"}]})[0]["yours"] is False
 
 
 def test_parse_has_no_cap_and_an_empty_answer_is_an_empty_list():
@@ -334,13 +347,84 @@ def asked(stack):
 
 def test_api_chat_carries_the_chat_sessions_list_as_on_it(chat_app):
     app, stack = chat_app
-    stack.involved = {SESSION: [item(2, list="your-move", mover="demo owner"), item(1, held=True, until="2027-01-12")], OTHER: [item(50)]}
-    stack.your_move = [{"shown": "demo#2", "subject": "[x] promise 2", "url": "https://tracker.example.test/promises/2"}]
+    stack.involved = {SESSION: [item(2), item(1, held=True, until="2027-01-12", list="waiting")], OTHER: [item(50)]}
+    stack.your_move = [mine(9)]
     with client_for(app, stack) as c:
         d = chat(c, until=lambda d: "onIt" in d and d["waiting"])
-    assert d["onIt"] == [row(2, mover="demo owner"), row(1, held=True, until="2027-01-12")]
-    assert ids(d["waiting"]) == ["demo#2"]                       # an item on the owner's move too is in both: what each read returns
+    assert d["onIt"] == [row(2), row(1, held=True, until="2027-01-12")]                # the page's row: no mark and no list name
+    assert ids(d["waiting"]) == ["demo#9"]
     assert asked(stack) and all(q == {"key": SESSION} for q in asked(stack))
+
+
+def mine(n):
+    """A row of stackshot's Your move answer."""
+    return {"shown": f"demo#{n}", "subject": f"[x] promise {n}", "url": f"https://tracker.example.test/promises/{n}"}
+
+
+def test_an_item_on_the_owners_move_is_in_the_first_list_only_and_leaves_the_second_at_a_later_read(chat_app):
+    app, stack = chat_app
+    stack.involved = {SESSION: [item(3), item(2), item(1, list="waiting")]}
+    stack.your_move = [mine(9)]
+    with client_for(app, stack) as c:
+        before = chat(c, until=lambda d: "onIt" in d and d["waiting"])
+        assert ids(before["onIt"]) == ["demo#3", "demo#2", "demo#1"] and ids(before["waiting"]) == ["demo#9"]
+        stack.involved = {SESSION: [item(2, list="your-move", mover="demo owner"), item(3), item(1, list="waiting")]}
+        stack.your_move = [mine(9), mine(2)]
+        app.state.involved._swr.expire()
+        app.state.your_move._swr.expire()
+        after = chat(c, until=lambda d: len(d["waiting"]) == 2 and len(d.get("onIt", [])) == 2)
+    assert ids(after["onIt"]) == ["demo#3", "demo#1"] and ids(after["waiting"]) == ["demo#9", "demo#2"]
+    assert not [r for r in after["onIt"] if "yours" in r or "list" in r]
+
+
+def test_the_list_name_decides_and_not_the_ids_of_the_first_list(chat_app):
+    app, stack = chat_app
+    # an id in both answers but not marked stays (the two reads are cached apart); a marked one goes although the first list does not hold it
+    stack.involved = {SESSION: [item(2), item(1, list="your-move")]}
+    stack.your_move = [mine(2)]
+    with client_for(app, stack) as c:
+        d = chat(c, until=lambda d: "onIt" in d and d["waiting"])
+        assert ids(d["onIt"]) == ["demo#2"] and ids(d["waiting"]) == ["demo#2"]
+        stack.your_move = []                                                            # an empty first list is a list that was read
+        app.state.your_move._swr.expire()
+        d = chat(c, until=lambda d: "onIt" in d and not d["waiting"])
+    assert ids(d["onIt"]) == ["demo#2"]
+
+
+def test_a_list_that_is_all_on_the_owners_move_is_an_empty_on_it(chat_app):
+    app, stack = chat_app
+    stack.involved = {SESSION: [item(1, list="your-move")]}
+    stack.your_move = [mine(1)]
+    with client_for(app, stack) as c:
+        d = chat(c, until=lambda d: "onIt" in d and d["waiting"])
+    assert d["onIt"] == [] and ids(d["waiting"]) == ["demo#1"]
+
+
+@pytest.mark.parametrize("reply", [(404, "no such read"), (500, "boom"), (200, "not json")])
+def test_while_the_first_lists_read_is_unavailable_the_second_is_as_read(chat_app, reply):
+    app, stack = chat_app
+    stack.involved = {SESSION: [item(2, list="your-move", mover="demo owner"), item(1)]}
+    stack.your_move_reply = reply
+    with client_for(app, stack) as c:
+        d = chat(c, until=lambda d: "onIt" in d)
+    assert d["onIt"] == [row(2, mover="demo owner"), row(1)]
+
+
+def test_a_first_list_kept_through_a_failure_still_takes_its_items_and_once_gone_the_second_is_whole(chat_app, monkeypatch):
+    app, stack = chat_app
+    stack.involved = {SESSION: [item(2, list="your-move"), item(1)]}
+    stack.your_move = [mine(2)]
+    with client_for(app, stack) as c:
+        assert ids(chat(c, until=lambda d: "onIt" in d and d["waiting"])["onIt"]) == ["demo#1"]
+        stack.your_move_reply = (502, "bad gateway")
+        app.state.your_move._swr.expire()
+        d = chat(c)
+        assert ids(d["onIt"]) == ["demo#1"] and ids(d["waiting"]) == ["demo#2"]
+        t0 = time.time()
+        monkeypatch.setattr(YM, "time", types.SimpleNamespace(time=lambda: t0 + YM.STALE_MAX + 30))
+        app.state.your_move._swr.expire()
+        d = chat(c, until=lambda d: len(d.get("onIt", [])) == 2)
+    assert ids(d["onIt"]) == ["demo#2", "demo#1"]
 
 
 def test_an_empty_answer_is_an_empty_on_it(chat_app):

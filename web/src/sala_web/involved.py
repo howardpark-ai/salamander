@@ -1,8 +1,8 @@
 """The open items the chat session is the contact of or an observer on, for the second tab of the chat strip ("On it").
 
 stackshot serves them in one read, `GET <server>/client/involved?key=<session>` with this machine's token as a bearer (the same token and address
-files board.py reads): {"items": [{"shown", "subject", "url", "mover", "held", "until", "state_updated", ...}]}, open items only, no cap, the last
-written first. The key is the chat session's configured name (config.chat_session) and nothing else: no request of a page names it. This module reads
+files board.py reads): {"items": [{"shown", "subject", "url", "mover", "list", "held", "until", "state_updated", ...}]}, open items only, no cap, the
+last written first. The key is the chat session's configured name (config.chat_session) and nothing else: no request of a page names it. This module reads
 and keeps the answer the way yourmove.py keeps the Your move list (swr.py):
 
   - one refresh per TTL in the background, whatever the number of pages polling; a page view never makes a request of its own and is served at once
@@ -13,7 +13,9 @@ and keeps the answer the way yourmove.py keeps the Your move list (swr.py):
   - the answer is kept under the state dir as text so a restart has it too: never the token, which goes only in the Authorization header and in no
     error text, log line or file.
 
-A row is passed on as {"id": shown, "subject", "url", "mover", "held", "until", "since": state_updated}, in the order sent, each id once. `url` is kept
+A row is kept as {"id": shown, "subject", "url", "mover", "held", "until", "since": state_updated, "yours": whether `list` is "your-move"}, in the order
+sent, each id once. `yours` marks an item stackshot lists under the owner's move: chatpage.py leaves it out while the Your move read is there (it shows in
+that list), and the mark itself goes to no page. `url` is kept
 only when it is a whole http(s) address (a server with no web address of its own sends a bare path, which would lead to sala's own host: no link then).
 `until` is a day "YYYY-MM-DD" or None, `since` epoch seconds or None. An empty list is an answer (the tab says there is nothing).
 """
@@ -96,7 +98,8 @@ def parse(body: object) -> list[dict]:
         out.append({"id": shown, "subject": " ".join(str(it.get("subject") or "").split())[:YM.SUBJECT_MAX],
                     "url": url[:500] if url.startswith(("http://", "https://")) else "",
                     "mover": " ".join(mover.split())[:MOVER_MAX] if isinstance(mover, str) else "",
-                    "held": it.get("held") is True, "until": _day(it.get("until")), "since": _seconds(it.get("state_updated"))})
+                    "held": it.get("held") is True, "until": _day(it.get("until")), "since": _seconds(it.get("state_updated")),
+                    "yours": it.get("list") == "your-move"})
     return out
 
 

@@ -3,7 +3,7 @@ while that read is unavailable, is test_chat_wait_pin_ui.py).
 
 The rule: when api/chat carries `onIt`, the pinned line is a bar of two tabs, the owner's group and "On it", with a chevron, and one list is open at a time,
 inside the same 40vh box; without it the strip is the one line as before, with nothing said. Held here at 1280 x 800 and 390 x 844 (the width rule also at 360
-and 320), with api/chat replaced in the page:
+and 320), with api/chat replaced in the page (but for the case of an item that becomes the owner's move, which the app answers itself from a stand-in stackshot):
   - closed: both counts in a bar as high as the line it replaces, no list, an amber dot while a row is late (never for a held one), said in the tab's name too;
   - a tab opens its list and closes it again, the other tab switches, the chevron closes the open list and opens the one last open, a read keeps it open;
   - a tab list for the keyboard and a screen reader: role tablist, tab and tabpanel, aria-selected on the open one, one tab in the Tab order, the arrows, Home and
@@ -11,6 +11,7 @@ and 320), with api/chat replaced in the page:
   - a row: the id and the title as the link, who, since when, the days of a late one (amber past two days, red past five), the day a held one comes back, no
     "new" tag; the late count over the list; with nothing owed the tab is a quiet 0 and the list says so; with both lists empty nothing is drawn;
   - while the read is unavailable the strip is the one line, and the bar comes and goes with the read;
+  - an item that becomes the owner's move leaves the second tab at a later read and shows in the first, the count and the late dot following;
   - a Korean page names the tab and words the rows in Korean;
   - a session that is not the chat session has no tabs, and looks the same whether the list is there or not;
   - markup in every field is text;
@@ -30,6 +31,9 @@ import time
 import pytest
 
 from conftest import NAME, transcript_file
+from fake_stackshot import FakeStackshot
+from sala_web import involved as IV
+from sala_web import yourmove as YM
 from test_board_items_ui import wait_for
 from test_chat_session_view_ui import DESKTOP, MEASURE, MEASURE_PARITY, SIZES, URL, WORD, api_chat, check, code_transcript, drawer_open, open_page
 
@@ -239,7 +243,8 @@ def test_a_row_shows_who_since_when_how_late_and_the_day_a_held_one_comes_back(s
     assert [m["cls"] for m in held] == ["who", "", "park"] and held[2]["text"] == "parked until Tue Jan 12th", held
     assert held[0]["text"] == "Ada" and held[0]["tip"] == NAME and not [m for m in held if m["tone"]], held          # the chat session by the header's name
     assert [m["cls"] for m in fresh] == [""] and re.fullmatch(r"since ([A-Z][a-z]{2} )?\d\d:\d\d", fresh[0]["text"]), fresh      # no mover: no word for one
-    # an item that came to the owner's move since the page's first answer is tagged "new" in the first list only, though both lists hold it
+    # an item new to the first list since the page's first answer is tagged "new" there and never in the second, also when both hold it (the server answers so
+    # while the first list's own read is unavailable)
     change(browser, onIt=promises() + [promise(3)], waiting=waiting(3))
     assert wait_for(browser, f"{PIN}.querySelectorAll('#{ONIT_PANEL} .wait-row').length === 5", 10.0)
     assert browser.evaluate(f"[document.querySelectorAll('#{ONIT_PANEL} .new').length, document.querySelectorAll('#{MOVE_PANEL} .new').length]") == [0, 1]
@@ -307,6 +312,66 @@ def test_a_korean_page_names_the_tab_and_words_the_rows(served, browser, monkeyp
     assert rows[2]["meta"][2]["text"] == "1" + cp(0xC6D4) + " 12" + cp(0xC77C) + "(" + cp(0xD654) + ")" + cp(0xAE4C, 0xC9C0, 0x20, 0xBCF4, 0xB958), rows
     # the owner picked the tab's name knowing the lines under the bar are headed with the same word: that heading is unchanged
     assert browser.evaluate("document.querySelector('#chat-strip .motion .lbl').textContent") == tab
+
+
+# ── what becomes the owner's move ────────────────────────────────────────────
+@pytest.fixture
+def board_served(tmp_path, monkeypatch, request):
+    """(`served`, a stand-in stackshot it reads): the page's api/chat is the app's own answer, and both lists' reads follow the stand-in at once."""
+    monkeypatch.setattr(IV, "TTL", 0.2)                   # before the app is made: a cache takes its TTL then
+    monkeypatch.setattr(YM, "TTL", 0.2)
+    stack = FakeStackshot(tmp_path / "board-cfg")
+    try:
+        monkeypatch.setenv("SALA_WEB_STACKSHOT_TOKEN", str(stack.token_file))
+        monkeypatch.setenv("SALA_WEB_STACKSHOT_URL", str(stack.url_file))
+        yield request.getfixturevalue("served"), stack
+    finally:
+        stack.close()
+
+
+def read_until(browser, expr: str, timeout: float = 20.0) -> bool:
+    """The page reads api/chat again and again until `expr` holds (an answer comes from the cache, so a change of the board shows a read or two later)."""
+    end = time.time() + timeout
+    while time.time() < end:
+        browser.evaluate("loadChatMarks(); ''")
+        if wait_for(browser, expr, 0.5):
+            return True
+    return False
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_an_item_that_becomes_the_owners_move_leaves_the_second_tab_and_its_count_and_dot_follow(board_served, browser, monkeypatch, size):
+    served, stack = board_served
+
+    def ref(n: int) -> dict:
+        return {"shown": f"demo#{n}", "subject": f"Promise {n}", "url": f"https://example.com/promises/{n}"}
+
+    def involved(n: int, where: str = "agents", age: float = 60) -> dict:
+        return {**ref(n), "mover": "x-demo-engineer", "list": where, "held": False, "until": None, "state_updated": time.time() - age}
+
+    def counts(move: int, onit: int) -> str:
+        return f"{MOVE_TAB}.textContent.trim() === 'Your move · {move}' && {ONIT_TAB}.textContent.trim() === 'On it · {onit}'"
+
+    stack.your_move = [ref(9)]
+    stack.involved = {NAME: [involved(1, age=3 * DAY + 3600), involved(2)]}
+    open_page(browser, served, monkeypatch, size)
+    assert read_until(browser, counts(1, 2)), state(browser)
+    s = state(browser)
+    assert s["dot"] and s["tabs"][1]["label"] == "On it · 2, 1 older than 2 days", s
+    click(browser, ONIT_TAB)
+    assert [r["id"] for r in browser.evaluate(ROWS)["rows"]] == ["demo#1", "demo#2"]
+    # the late one becomes the owner's move
+    stack.your_move = [ref(9), ref(1)]
+    stack.involved = {NAME: [involved(1, "your-move", 3 * DAY + 3600), involved(2)]}
+    assert read_until(browser, counts(2, 1)), state(browser)
+    s = state(browser)
+    assert not s["dot"] and s["tabs"][1]["label"] == "On it · 1" and s["open"] == [ONIT_PANEL], s
+    got = browser.evaluate(ROWS)
+    assert [r["id"] for r in got["rows"]] == ["demo#2"] and got["sum"] is None, got
+    click(browser, MOVE_TAB)
+    tagged = browser.evaluate(f"[...document.querySelectorAll('#{MOVE_PANEL} .wait-row')].filter((r) => r.textContent.includes('demo#1'))"
+                              ".map((r) => !!r.querySelector('.new'))")
+    assert tagged == [True], state(browser)
 
 
 # ── only the chat session ────────────────────────────────────────────────────
