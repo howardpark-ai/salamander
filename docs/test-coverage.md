@@ -5372,3 +5372,26 @@ With a proxy in front that answers 401 once its sign-in has ended, `static/signi
 Kept (a headless Chromium against the real server with a stand-in proxy in front, else skipped; GitHub CI runs it): a refused send reloads once, and after the sign-in the address' fragment, the composer's draft, a field of the New session form and the unsent message with its file are back; a stream that stops asks, and an attached file stays; a refused upload asks; requests still refused after the reload never reload again, one a minute or more after a good answer does; a terminal frame that reads its token again, or comes up refused, reloads the page; 502, 403 and 503, one refused request with `api/config` answering, a terminal service that is down, and blocked storage reload nothing. Without a browser: both pages load the script before what reads the address or asks the server, and no module of sala answers 401.
 
 Not covered, and why: a real provider's sign-in; a real ttyd's reconnect; the installed app on Android and iPhone; the proxy example of `docs/web-proxy.md`, which needs the proxy's own binaries (run by hand once).
+
+### `tests/trimreport.sh`: +42 checks (74 → 116), none retired: the report reads the queue's times and hands its triggers on (Thu Nov 26th 2026)
+
+The weekly report could not act: its times came from the committed timings files, which are rebuilt by hand, and a `TRIGGER` line
+ended in the journal. `--fresh-timings` and the thresholds file's `on_trigger` command change that. A wrong answer is a report that
+passes old numbers off as new ones, a job that writes into the checkout it runs on, a run that gets no numbers and still records a
+week, or a trigger that is lost because the command that should take it failed.
+
+Fakes only, in the same temporary folder: a stand-in `gh` first on `PATH` that serves made-up queue logs and records its calls, and
+a stand-in command that keeps what it reads and exits as told. Covered (15): the median over the runs laid over the committed number, a
+suite in no log keeping its committed one, the slowest list and the source line, the runs kept in the record, nothing changed or added
+in the checkout (neither timings file, no `__pycache__`), the repository from `gh` or from `--github`, no `gh` call without the flag;
+every way of getting no numbers (the list or the repository call failing, too few suites in a log, no web time where there are web
+tests, no `gh`) exiting 1 with no report and the record untouched, a checkout with no web tests needing no web time, an unreadable
+committed file. Covered (27): the command run once with its arguments, the fields it reads, its output after the report and under
+`--json`, not run under `--dry-run` or with no trigger; a failing or missing command exiting 3 with the report printed and the record
+kept, the trigger owed to every later run until a command takes it (also past a config with no command, merged with a new one, the
+newer numbers winning), damaged owed entries dropped; a leading `~`, the `[salamander]` table winning, each bad value exiting 2, and a
+command that does not end in time stopped.
+
+Not covered, and why: the real `gh` and real logs (no network in the suites; the log reading itself is `update_timings.py`'s, checked
+by `tests/deal.sh` on the same shapes); the unit file's command line under systemd; what a command that takes the triggers does with
+them (it is not in this repository).
