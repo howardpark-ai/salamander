@@ -329,8 +329,8 @@ function chatSync() {
 // the strip's pieces are made once; a read changes their text
 function buildChatStrip() {
   const waitList = el("ul", { class: "wait-list" }), waitNote = el("p", { class: "wait-err" });
-  const wait = el("section", { class: "wait", id: "chat-strip-wait-panel", hidden: true, ...tx("chat.wait.h", null, "aria-label") },
-    el("div", { class: "sec-head" }, el("b", { ...tx("chat.wait.h") }), el("span", { ...tx("chat.wait.sub") })), waitList, waitNote,
+  // no heading of its own: the pinned line above already says "Your move · N", and paintChatWait gives the panel that text as its aria-label
+  const wait = el("section", { class: "wait", id: "chat-strip-wait-panel", hidden: true }, waitList, waitNote,
     el("p", { class: "wait-cap", ...tx("chat.wait.note") }));
   // the pinned line: one real button with the count; it opens and closes the list under it (aria-expanded), and closed is how every page load starts
   const waitLine = el("span", { class: "wait-line" });
@@ -356,16 +356,18 @@ function paintChatWait() {
   $("#chat-strip-wait").hidden = !n;
   u.wait.hidden = !open;
   u.waitLine.textContent = tl("chat.strip.line", { n });
+  u.wait.setAttribute("aria-label", u.waitLine.textContent);
   u.waitToggle.setAttribute("aria-expanded", String(open));
   u.waitToggle.title = tl(open ? "chat.strip.collapse" : "chat.strip.expand");
 }
 function chatWaitRow(w) {
-  const subj = el("span", { class: "wait-subj" });
-  subj.append(w.url ? el("a", { href: w.url, target: "_blank", rel: "noopener noreferrer", text: w.subject || w.id }) : document.createTextNode(w.subject || w.id));
+  // the board id (as stackshot wrote it) is a plain label before the title; the whole title is the one link to the item (no url: plain text). A row with no subject
+  // shows the id as its title, once.
+  const subj = el("span", { class: "wait-subj" }), title = w.subject || w.id;
+  if (w.id && w.subject) subj.append(el("span", { class: "wait-id", text: w.id }));
+  subj.append(w.url ? el("a", { class: "wait-link", href: w.url, target: "_blank", rel: "noopener noreferrer", text: title }) : el("span", { class: "wait-title", text: title }));
   if (chatView.fresh.has(w.id)) subj.append(el("span", { class: "new", ...tx("chat.wait.new") }));
-  const kids = [subj];
-  if (w.url) kids.push(el("a", { class: "answer", href: w.url, target: "_blank", rel: "noopener noreferrer", ...tx("chat.wait.answer") }));
-  return el("li", { class: "wait-row" }, ...kids);
+  return el("li", { class: "wait-row" }, subj);
 }
 function paintChatStrip() {
   const d = chatView.data;

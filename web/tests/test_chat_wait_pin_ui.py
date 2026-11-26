@@ -8,11 +8,17 @@ still scroll with the thread. Held here at 1280 x 800 and 390 x 844 (the width r
   - closed by default: one line with the count, the list hidden, a button the keyboard can use; a click and Enter open and close it, and a read of the strip does not
     close it; with nothing waiting no line is drawn;
   - on a long thread, scrolled to the bottom and to the top, the pinned box's top is the header's bottom, closed and open; open it is never taller than 40vh, the
-    list scrolls inside it, and every Answer link stays a link at the address it was given and is not covered;
+    list scrolls inside it, and every row shows its id and its title as the one link to the item (the address it was given, a new tab, no "Answer" link), not covered;
+  - the open list has no heading row of its own (the pinned line is the one heading; the panel's aria-label is the line's text), and each row hangs from its dot: the dot
+    is on the title's first line (never alone on a line, also for a 300-character word and a long Korean title with a long address at 1280, 390, 360 and 320), and a
+    wrapped line starts at the content's left edge, under the id, never under the dot;
+  - the box covers the thread cleanly: opaque panel colour, a 1 px bottom border and a soft shadow, and the list's own scroll ends with 12 px under the last row;
+  - each row shows the board id as a plain, selectable label before the title (the id as written; a row with no id shows the title alone, a row with no address shows the
+    title as plain text, a row with no subject shows the id once as its title); the title is a keyboard-focusable link with a 44 px touch target on a touch screen;
   - the header and the composer are where they were with the line there or not, and a session that is not the chat session has no line and a thread that starts
     at the top of the pane;
-  - NO SIDEWAYS SCROLL, at 1280, 390, 360 and 320 px, closed and open, with long item text (a 300-character word, a long address): the page, the pane, the pinned box and
-    its list are never wider than the window.
+  - NO SIDEWAYS SCROLL, at 1280, 390, 360 and 320 px, closed and open, with long item text (an 80-character id, a 300-character word, a long address): the page, the
+    pane, the pinned box, its list and every id and title inside its row are never wider than the window.
 
 What a wrong answer costs: a line a long thread carries thousands of pixels away, a list that covers the thread on a phone, a button the keyboard cannot reach, a page that
 scrolls sideways. Runs in a headless Chromium when one is installed (conftest.py: `served`, `browser`), else is skipped; GitHub CI runs it. All names are invented."""
@@ -39,7 +45,7 @@ def moves(n: int = 3, long: bool = False) -> list[dict]:
     out = []
     for i in range(n):
         subject = f"Move {i + 1} " + (("an item subject that keeps going and going " * 6) + WORD + " " + URL if long else "to answer")
-        out.append({"id": f"item#{i + 1}", "subject": subject, "url": f"https://example.com/moves/{i + 1}"})
+        out.append({"id": f"demo#{i + 1}", "subject": subject, "url": f"https://example.com/moves/{i + 1}"})
     return out
 
 
@@ -72,6 +78,19 @@ def state(browser) -> dict:
                title: b.title, pinTop: r.top, pinH: r.height, pinW: r.width, headBottom: top.bottom, paneTop: pane.top, vh: window.innerHeight,
                listScroll: [w.scrollHeight, w.clientHeight], listOverflow: [getComputedStyle(w).overflowY, getComputedStyle(w).overflowX],
                pos: getComputedStyle(p).position, rows: p.querySelectorAll('.wait-row').length }; })()""")
+
+
+# The index-th row's id label and title link, after the link is scrolled to the way a person would (the list's own scroll, `nearest`; a row may be taller than the box on a
+# phone, so what is measured is the slice of the link that shows inside the box). `seen`: some of the link is inside the box and the point in the middle of that slice
+# lands on the link (nothing covers it) and the id label is real text of the same row, before the link. Pure reads apart from the scroll: poll it, never sleep.
+LINK_AT = """(() => { const rows = document.querySelectorAll('#chat-strip-wait .wait-row'), row = rows[__INDEX__], a = row.querySelector('a'), id = row.querySelector('.wait-id'),
+  w = document.querySelector('#chat-strip-wait .wait'); w.style.scrollBehavior = 'auto'; a.scrollIntoView({ block: 'nearest' });
+  const r = a.getBoundingClientRect(), b = document.querySelector('#chat-strip-wait').getBoundingClientRect(), wr = w.getBoundingClientRect();
+  const top = Math.max(r.top, wr.top), bottom = Math.min(r.bottom, wr.bottom), ok = bottom - top >= Math.min(r.height, 16) && top >= b.top - 0.5 && bottom <= b.bottom + 0.5;
+  const hit = ok ? document.elementFromPoint(r.left + Math.min(r.width, 40) / 2, (top + bottom) / 2) : null;
+  return { seen: ok && !!hit && (hit === a || a.contains(hit)), covered: ok ? !(hit === a || a.contains(hit)) : null, h: b.height, rows: rows.length,
+           id: id ? id.textContent : null, idIsText: !!id && id.firstChild.nodeType === 3 && getComputedStyle(id).userSelect !== 'none', idBefore: !!id && !!(id.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING),
+           text: a.textContent, href: a.getAttribute('href'), target: a.target, rel: a.rel, tab: a.tabIndex, box: [Math.round(b.top), Math.round(b.bottom)], link: [Math.round(r.top), Math.round(r.bottom)] }; })()"""
 
 
 def scroll_pane(browser, to_bottom: bool) -> int:
@@ -152,33 +171,87 @@ def test_on_a_long_thread_the_line_stays_at_the_header_whether_the_thread_is_at_
 
 
 @pytest.mark.parametrize("size", SIZES)
-def test_open_it_is_never_taller_than_40vh_the_list_scrolls_inside_and_the_answers_are_links(served, browser, monkeypatch, size):
+def test_open_it_is_never_taller_than_40vh_the_list_scrolls_inside_and_the_titles_are_links(served, browser, monkeypatch, size):
     open_pin(browser, served, monkeypatch, size, waiting=moves(30, long=True))
     click(browser)
     s = state(browser)
     assert s["pinH"] <= 0.4 * s["vh"] + 0.5, s
     assert s["listScroll"][0] > s["listScroll"][1], f"thirty long moves do not fit: the list scrolls inside the box: {s}"
     assert s["listOverflow"] == ["auto", "hidden"], s                   # up and down only
-    got = browser.evaluate("""(() => { const a = document.querySelector('#chat-strip-wait .wait-row .answer'), r = a.getBoundingClientRect(), w = document.querySelector('#chat-strip-wait').getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return { href: a.getAttribute('href'), target: a.target, text: a.textContent, inside: r.top >= w.top && r.bottom <= w.bottom, covered: hit !== a && !a.contains(hit) }; })()""")
-    assert got == {"href": "https://example.com/moves/1", "target": "_blank", "text": "Answer", "inside": True, "covered": False}, got
+    assert browser.evaluate("document.querySelectorAll('#chat-strip-wait .answer').length") == 0
+    assert wait_for(browser, "(" + LINK_AT.replace("__INDEX__", "0") + ").seen", 3.0), browser.evaluate(LINK_AT.replace("__INDEX__", "0"))
+    got = browser.evaluate(LINK_AT.replace("__INDEX__", "0"))
+    assert got["id"] == "demo#1" and got["text"].startswith("Move 1 an item subject") and got["href"] == "https://example.com/moves/1", got
+    assert got["target"] == "_blank" and got["rel"] == "noopener noreferrer", got
+    assert got["seen"] and not got["covered"], got
     # the list scrolls: the last move is reachable, the box does not grow and the thread's own scroll does not move
     before = browser.evaluate("document.querySelector('#chat-pane').scrollTop")
-    # the list reaches its end and the box does not grow. A row of a long word and a long address may be taller than the box on a phone, and its Answer link sits on the row's
-    # first line (baseline alignment), so the link is brought into view the way a person would: scrolled to inside the list, then measured.
+    # the list reaches its end and the box does not grow. A row of a long word and a long address may be taller than the box on a phone (its title is the whole link), so the
+    # link is brought into view the way a person would (scrollIntoView, nearest), polled, and then measured: what shows of it is inside the box and nothing covers it.
     END = """(() => { const w = document.querySelector('#chat-strip-wait .wait'); w.style.scrollBehavior = 'auto'; w.scrollTop = w.scrollHeight;
       return { top: Math.round(w.scrollTop), max: Math.round(w.scrollHeight - w.clientHeight), h: document.querySelector('#chat-strip-wait').getBoundingClientRect().height }; })()"""
     end = browser.evaluate(END)
     assert end["top"] == end["max"] > 0 and end["h"] <= 0.4 * s["vh"] + 0.5, end
-    REACH = """(() => { const rows = document.querySelectorAll('#chat-strip-wait .wait-row'), a = rows[rows.length - 1].querySelector('.answer'), w = document.querySelector('#chat-strip-wait .wait');
-      w.style.scrollBehavior = 'auto'; a.scrollIntoView({ block: 'nearest' });
-      const r = a.getBoundingClientRect(), b = document.querySelector('#chat-strip-wait').getBoundingClientRect();
-      return { inside: r.top >= b.top && r.bottom <= b.bottom + 1, answer: [Math.round(r.top), Math.round(r.bottom)], box: [Math.round(b.top), Math.round(b.bottom)], h: b.height }; })()"""
-    assert wait_for(browser, "(" + REACH + ").inside", 3.0), browser.evaluate(REACH)       # polled: the scroll may take a frame or two to land
-    last = browser.evaluate(REACH)
-    assert last["inside"] and last["h"] <= 0.4 * s["vh"] + 0.5, last
+    reach = LINK_AT.replace("__INDEX__", "29")
+    assert wait_for(browser, "(" + reach + ").seen", 3.0), browser.evaluate(reach)       # polled: the scroll may take a frame or two to land
+    last = browser.evaluate(reach)
+    assert last["id"] == "demo#30" and last["href"] == "https://example.com/moves/30", last
+    assert last["seen"] and not last["covered"] and last["h"] <= 0.4 * s["vh"] + 0.5, last
     assert browser.evaluate("document.querySelector('#chat-pane').scrollTop") == before
+
+
+ROWS = """(() => [...document.querySelectorAll('#chat-strip-wait .wait-row')].map((row) => { const id = row.querySelector('.wait-id'), a = row.querySelector('a'), t = row.querySelector('.wait-title');
+  return { id: id ? id.textContent : null, idText: id ? id.firstChild.nodeType === 3 : null, link: a ? a.textContent : null, href: a ? a.getAttribute('href') : null,
+           plain: t ? t.textContent : null, anchors: row.querySelectorAll('a').length, answers: row.querySelectorAll('.answer').length, text: row.querySelector('.wait-subj').textContent }; }))()"""
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_each_row_shows_its_id_and_the_title_is_the_link_and_a_row_missing_a_part_shows_the_rest(served, browser, monkeypatch, size):
+    waiting = [{"id": "demo#1", "subject": "With an address", "url": "https://example.com/moves/1"},
+               {"id": "demo#2", "subject": "No address", "url": ""},
+               {"id": "", "subject": "No id", "url": "https://example.com/moves/3"},
+               {"id": "demo#4", "subject": "", "url": "https://example.com/moves/4"}]
+    open_pin(browser, served, monkeypatch, size, waiting=waiting)
+    click(browser)
+    rows = browser.evaluate(ROWS)
+    assert rows == [
+        {"id": "demo#1", "idText": True, "link": "With an address", "href": "https://example.com/moves/1", "plain": None, "anchors": 1, "answers": 0, "text": "demo#1With an address"},
+        {"id": "demo#2", "idText": True, "link": None, "href": None, "plain": "No address", "anchors": 0, "answers": 0, "text": "demo#2No address"},
+        {"id": None, "idText": None, "link": "No id", "href": "https://example.com/moves/3", "plain": None, "anchors": 1, "answers": 0, "text": "No id"},
+        {"id": None, "idText": None, "link": "demo#4", "href": "https://example.com/moves/4", "plain": None, "anchors": 1, "answers": 0, "text": "demo#4"},
+    ], rows
+    # a new row carries the "new" tag after its link; the link and the id are still there
+    browser.evaluate("window.__chat = Object.assign({}, window.__chat, { waiting: window.__chat.waiting.concat([{ id: 'demo#9', subject: 'A late move', url: 'https://example.com/moves/5' }]) }); loadChatMarks(); ''")
+    assert wait_for(browser, f"{PIN}.querySelectorAll('.wait-row').length === 5", 10.0)
+    last = browser.evaluate("(() => { const r = [...document.querySelectorAll('#chat-strip-wait .wait-row')].pop(); return [...r.querySelector('.wait-subj').children].map((n) => n.className + ':' + n.textContent); })()")
+    assert last == ["wait-id:demo#9", "wait-link:A late move", "new:new"], last
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_the_title_link_is_in_the_tab_order_the_id_is_selectable_text_and_the_ring_rule_is_there(served, browser, monkeypatch, size):
+    open_pin(browser, served, monkeypatch, size)
+    click(browser)
+    s = browser.evaluate("""(() => { const a = document.querySelector('#chat-strip-wait .wait-link'), id = document.querySelector('#chat-strip-wait .wait-id'); a.focus();
+      const sel = window.getSelection(); sel.removeAllRanges(); const range = document.createRange(); range.selectNodeContents(id); sel.addRange(range);
+      return { tab: a.tabIndex, focused: document.activeElement === a, display: getComputedStyle(a).display, pe: getComputedStyle(a).pointerEvents, idUserSelect: getComputedStyle(id).userSelect,
+               selected: sel.toString(), idInLink: a.contains(id), links: document.querySelectorAll('#chat-strip-wait a').length }; })()""")
+    assert s["tab"] >= 0 and s["focused"] and s["pe"] != "none" and s["idUserSelect"] != "none", s
+    assert s["selected"] == "demo#1" and not s["idInLink"] and s["links"] == 3, s       # the id can be selected and copied; one link per row
+
+
+@pytest.mark.parametrize("width", [390, 360, 320])
+def test_on_a_touch_screen_every_row_and_its_title_link_give_a_44px_target(served, browser, monkeypatch, width):
+    open_pin(browser, served, monkeypatch, (width, 844), waiting=moves(3))
+    browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+    assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
+    browser.touch()
+    assert wait_for(browser, "matchMedia('(pointer: coarse)').matches", 10.0)
+    click(browser)
+    browser.settle(PIN)
+    # the title is inline text (it wraps), so the 44 px is the row's own height, and the link's padding fills what the line leaves of it
+    got = browser.evaluate("""(() => [...document.querySelectorAll('#chat-strip-wait .wait-row')].map((row) => { const a = row.querySelector('a'), r = row.getBoundingClientRect(), q = a.getBoundingClientRect();
+      return { row: Math.round(r.height * 10) / 10, link: Math.round(q.height * 10) / 10, pad: getComputedStyle(a).paddingTop }; }))()""")
+    assert len(got) == 3 and all(g["row"] >= 44 and g["pad"] == "12px" and g["link"] >= 36 for g in got), got
 
 
 @pytest.mark.parametrize("size", SIZES)
@@ -212,16 +285,20 @@ def test_another_session_has_no_line_and_its_thread_starts_at_the_top_of_the_pan
 # ── no sideways scroll ───────────────────────────────────────────────────────
 PIN_WIDTHS = """(() => { const root = document.scrollingElement, p = document.querySelector('#chat-strip-wait'), w = p.querySelector('.wait'), b = p.querySelector('.wait-toggle'),
   pane = document.querySelector('#chat-pane'), over = [];
+  const outRow = [];
+  for (const row of p.querySelectorAll('.wait-row')) { const rr = row.getBoundingClientRect(); for (const n of row.querySelectorAll('.wait-id, .wait-link, .wait-title, .new')) { const r = n.getBoundingClientRect(); if (r.right > rr.right + 0.5 || r.left < rr.left - 0.5) outRow.push(n.className + ' ' + Math.round(r.left) + '-' + Math.round(r.right) + ' in ' + Math.round(rr.left) + '-' + Math.round(rr.right)); } }
   for (const n of p.querySelectorAll('*')) { if (!n.getClientRects().length) continue; const r = n.getBoundingClientRect(); if (r.right > document.documentElement.clientWidth + 0.5 || r.left < -0.5) over.push(n.className + ' ' + Math.round(r.left) + '-' + Math.round(r.right)); }
   return { doc: [root.scrollWidth, root.clientWidth], body: [document.body.scrollWidth, document.body.clientWidth], pane: [pane.scrollWidth, pane.clientWidth],
-           pin: [p.scrollWidth, p.clientWidth], list: [w.scrollWidth, w.clientWidth], btn: [b.scrollWidth, b.clientWidth], listShown: w.getClientRects().length > 0, over, vw: document.documentElement.clientWidth }; })()"""
+           pin: [p.scrollWidth, p.clientWidth], list: [w.scrollWidth, w.clientWidth], btn: [b.scrollWidth, b.clientWidth], listShown: w.getClientRects().length > 0, over, outRow, ids: p.querySelectorAll('.wait-id').length, vw: document.documentElement.clientWidth }; })()"""
 
 
 @pytest.mark.parametrize("opened", [False, True], ids=["closed", "open"])
 @pytest.mark.parametrize("drawer", [False, True], ids=["drawer-shut", "drawer-open"])
 @pytest.mark.parametrize("width", WIDTHS)
 def test_no_sideways_scroll_with_the_line_closed_and_open_and_long_item_text(served, browser, monkeypatch, width, drawer, opened):
-    open_pin(browser, served, monkeypatch, (width, 800 if width > 700 else 844), waiting=moves(5, long=True))
+    waiting = moves(5, long=True)
+    waiting[0]["id"] = "item#" + "1" * 75            # stackshot's longest shown id (80 characters) in front of a 300-character word
+    open_pin(browser, served, monkeypatch, (width, 800 if width > 700 else 844), waiting=waiting)
     assert wait_for(browser, f"{PIN}.querySelectorAll('.wait-row').length === 5", 10.0)
     if width < 700:
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
@@ -233,10 +310,10 @@ def test_no_sideways_scroll_with_the_line_closed_and_open_and_long_item_text(ser
     browser.settle(PIN)
     where = f"{width} px, drawer {'open' if drawer else 'shut'}, line {'open' if opened else 'closed'}"
     p = browser.evaluate(PIN_WIDTHS)
-    assert p["vw"] == width and p["listShown"] is opened, (where, p)
+    assert p["vw"] == width and p["listShown"] is opened and p["ids"] == 5, (where, p)
     assert p["doc"][0] <= p["doc"][1] and p["body"][0] <= p["body"][1] and p["pane"][0] <= p["pane"][1], f"{where}: the page or the pane scrolls sideways: {p}"
     assert p["pin"][0] <= p["pin"][1] and p["list"][0] <= p["list"][1] and p["btn"][0] <= p["btn"][1], f"{where}: the line or its list scrolls sideways: {p}"
-    assert p["over"] == [], f"{where}: something of the line ends outside the window: {p}"
+    assert p["over"] == [] and p["outRow"] == [], f"{where}: something of the line ends outside the window or its row: {p}"
     check(browser.evaluate(MEASURE), where)
 
 
@@ -252,3 +329,76 @@ def test_the_open_list_does_not_cover_the_thread_on_a_phone(served, browser, mon
     assert s["pinH"] <= 0.4 * s["vh"] + 0.5, s
     # what is left of the pane under the open line is the thread's: a quarter of the window at least
     assert browser.evaluate("document.querySelector('#chat-pane').getBoundingClientRect().height - document.querySelector('#chat-strip-wait').getBoundingClientRect().height") > 0.25 * s["vh"], s
+
+
+# ── the open list: one heading (the line), rows that hang from their dot, a clean cover ──────────────────────────────────────────────────────────────────────────────────────────
+# A long real-looking Korean title (escapes only: no Hangul in this file) and a long address, a 300-character word, a short title: the dot sits on the first line of the title,
+# never alone, and a wrapped line starts at the content's left edge (under the id, past the dot), never under the dot.
+KO_TITLE = ("[hp] \ud50c\ub8e8\ub9ac\uc6c0 \ub0c9\uc7a5\uace0 LG \ucee8\ubc84\ud130\ube14 1\ub3c4\uc5b4 3\ub300 \uc8fc\ubb38\ud558\uace0 \uc785\uc8fc \uc804\uc5d0 \uc124\uce58\ud558\uae30 "
+            "\ud50c\ub8e8\ub9ac\uc6c0 \ub0c9\uc7a5\uace0 LG \ucee8\ubc84\ud130\ube14 1\ub3c4\uc5b4 3\ub300 \uc8fc\ubb38\ud558\uace0 \uc785\uc8fc \uc804\uc5d0 \uc124\uce58\ud558\uae30 ") + URL
+
+HANG = """(() => [...document.querySelectorAll('#chat-strip-wait .wait-row')].map((row) => {
+  const cs = getComputedStyle(row), before = getComputedStyle(row, '::before'), r = row.getBoundingClientRect(), subj = row.querySelector('.wait-subj'), sr = subj.getBoundingClientRect(),
+    link = row.querySelector('.wait-link') || row.querySelector('.wait-title'), text = [row.querySelector('.wait-id'), link].filter(Boolean),
+    first = text[0].getClientRects()[0], dotTop = r.top + parseFloat(cs.paddingTop) + parseFloat(cs.borderTopWidth), dotH = parseFloat(before.height), rects = [...link.getClientRects()];
+  return { dotW: before.width, dotH, dotMid: Math.round((dotTop + dotH / 2) * 10) / 10, firstTop: Math.round(first.top * 10) / 10, firstBottom: Math.round(first.bottom * 10) / 10,
+           contentLeft: Math.round(sr.left * 10) / 10, rowLeft: r.left, lines: rects.length, lefts: rects.map((q) => Math.round(q.left * 10) / 10), subjH: sr.height, over: sr.right > r.right + 0.5 }; }))()"""
+
+
+def hang_rows() -> list[dict]:
+    return [{"id": "demo#1", "subject": WORD, "url": "https://example.com/moves/1"},
+            {"id": "demo#2", "subject": KO_TITLE, "url": "https://example.com/moves/2"},
+            {"id": "demo#3", "subject": "A short move", "url": "https://example.com/moves/3"},
+            {"id": "", "subject": KO_TITLE, "url": ""}]
+
+
+@pytest.mark.parametrize("width", WIDTHS)
+def test_the_dot_sits_on_the_first_line_of_the_title_and_wrapped_lines_start_under_the_id_not_the_dot(served, browser, monkeypatch, width):
+    open_pin(browser, served, monkeypatch, (width, 800 if width > 700 else 844), waiting=hang_rows())
+    if width < 700:
+        browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
+    click(browser)
+    browser.settle(PIN)
+    rows = browser.evaluate(HANG)
+    assert len(rows) == 4
+    for i, g in enumerate(rows):
+        where = f"{width} px, row {i}: {g}"
+        assert g["dotW"] == "8px" and g["dotH"] == 20, where
+        # the dot's middle is inside the first line of the row's text (the id, else the title): never a dot on a line of its own
+        assert g["firstTop"] - 2 <= g["dotMid"] <= g["firstBottom"] + 2, where
+        # the content starts to the right of the dot (an 8 px dot and an 8 px gap), and nothing of it leaves the row
+        assert g["contentLeft"] >= g["rowLeft"] + 16 - 0.5 and not g["over"], where
+        # every wrapped line of the title starts at the content's left edge (under the id), the first one at or after it (it follows the id)
+        assert g["lefts"][0] >= g["contentLeft"] - 0.5 and all(abs(x - g["contentLeft"]) <= 1 for x in g["lefts"][1:]), where
+    assert rows[0]["lines"] > 1 and rows[1]["lines"] > 1 and rows[3]["lines"] > 1, ("the long titles wrap, so the check above has lines to compare", rows)
+    assert rows[2]["lines"] == 1 and rows[2]["subjH"] <= 20.5, rows[2]
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_the_open_list_has_no_heading_row_and_is_named_by_the_line(served, browser, monkeypatch, size):
+    open_pin(browser, served, monkeypatch, size)
+    click(browser)
+    got = browser.evaluate("""(() => { const w = document.querySelector('#chat-strip-wait .wait'), kids = [...w.children].map((n) => n.tagName + '.' + n.className);
+      return { kids, headings: w.querySelectorAll('h1, h2, h3, h4, h5, h6, .sec-head').length, text: w.textContent, label: w.getAttribute('aria-label'),
+               line: document.querySelector('#chat-strip-wait .wait-line').textContent, note: !!w.querySelector('.wait-cap') }; })()""")
+    assert got["kids"][0] == "UL.wait-list" and got["headings"] == 0 and "straight from the board" not in got["text"], got
+    assert got["label"] == got["line"] == LINE and got["note"], got           # one heading only: the pinned line; the footnote stays
+
+
+@pytest.mark.parametrize("width", WIDTHS)
+def test_the_open_box_covers_the_thread_cleanly_and_the_last_row_has_room_under_it(served, browser, monkeypatch, width):
+    open_pin(browser, served, monkeypatch, (width, 800 if width > 700 else 844), waiting=moves(30, long=True))
+    if width < 700:
+        browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
+    click(browser)
+    browser.settle(PIN)
+    box = browser.evaluate("""(() => { const p = document.querySelector('#chat-strip-wait'), cs = getComputedStyle(p), w = p.querySelector('.wait'), ws = getComputedStyle(w);
+      const alpha = (c) => { const a = c.slice(c.indexOf('(') + 1, c.lastIndexOf(')')).split(',').map((x) => parseFloat(x)); return a.length > 3 ? a[3] : 1; };
+      return { alpha: alpha(cs.backgroundColor), border: cs.borderBottomWidth + ' ' + cs.borderBottomStyle, shadow: cs.boxShadow, pos: cs.position, padBottom: ws.paddingBottom }; })()""")
+    assert box["alpha"] == 1 and box["border"] == "1px solid" and box["shadow"] != "none" and box["pos"] == "sticky" and box["padBottom"] == "12px", box
+    # at the end of the list the last row is not clipped by the box's edge: 12 px of padding follow it (polled: the scroll lands a frame later)
+    END = """(() => { const w = document.querySelector('#chat-strip-wait .wait'); w.style.scrollBehavior = 'auto'; w.scrollTop = w.scrollHeight; const rows = w.querySelectorAll('.wait-row');
+      return Math.round(w.getBoundingClientRect().bottom - rows[rows.length - 1].getBoundingClientRect().bottom); })()"""
+    assert wait_for(browser, f"{END} >= 12", 3.0), browser.evaluate(END)
