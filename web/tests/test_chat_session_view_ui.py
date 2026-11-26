@@ -309,7 +309,8 @@ def test_the_chat_session_and_another_session_differ_only_in_the_strip_and_the_c
     other = browser.evaluate(MEASURE_PARITY)
     for key in ("header", "title", "composer", "input", "send", "attach", "bubble", "copy", "userMsg", "assistantMsg", "ts", "fontSize"):
         a, b = chat[key], other[key]
-        follows_cap = {"copy": {"left"}, "assistantMsg": {"h"}, "ts": {"w", "h"}}.get(key, set())   # the cap narrows the text, so a paragraph wraps in more lines (taller) and the copy button, at its block's right edge, moves in
+        # the header's name says the chat session's label (its entry's text) and the other session's its name, so the text's width and where the centred name starts differ
+        follows_cap = {"copy": {"left"}, "assistantMsg": {"h"}, "ts": {"w", "h"}, "title": {"w", "left"}}.get(key, set())   # the cap narrows the text, so a paragraph wraps in more lines (taller) and the copy button, at its block's right edge, moves in
         assert a is not None and b is not None, (key, a, b)          # every measured node is on both pages
         if isinstance(a, dict):                                       # a box: its geometry and computed style, key by key, minus what follows the cap
             a, b = {k: v for k, v in a.items() if k not in follows_cap}, {k: v for k, v in b.items() if k not in follows_cap}
