@@ -733,6 +733,48 @@ as the quota is: when it opens, every minute, and when the tab is shown again.
 A session sala put to sleep (`sala sleep`: its claude ended on purpose, its tmux session, pane and pane-map row stay; a marker file
 `$SALA_SLEEP_DIR/<conversation id>`, default `<sala state>/sleeping/`, holds `<ISO-Z time> <name>`) has no registry file, so
 `read_live_sessions` never lists it. `read_sleeping_sessions` does, read-only, from the markers: a marker counts only while the pane map
+### Messages held by the server (the outbox)
+
+A message sent from any sala web page goes to the session even while a turn runs (Claude Code queues what is typed mid-turn). What the pane cannot
+take yet is **held on the server**, not in the browser, and typed when the pane can take it, in the order it was sent. A reload, a second tab and a
+phone read the same list. The code is `outbox.py` (the store and the reading of the transcript, no tmux) and the outbox block of `app.py` (the routes,
+the sender and the transcript check); the page does not use it yet: the visible design is not chosen, so the routes below are the API a page will call later.
+
+- **States of a message.** `held` (waiting: `reason` says for what), `typing` (being pasted into the pane now), `queued` (typed and submitted; the
+  session has it, in its input queue or taken, and no transcript line shows it yet), `delivered` (a transcript line shows the session took it),
+  `withdrawn` (the owner cancelled or edited it before it was typed), `failed` (`error` says why; the text stays, so Edit takes it back).
+- **Reasons of a held message** (`REASONS` in `outbox.py`): `asleep` (the session sleeps: the page asks for the wake), `gone` (no session of that name is
+  listed now: it may be relaunching), `pane` (its pane is not found, or is not the session's own), `tmux` (tmux did not answer), `noInput` (the pane shows
+  no input box: a menu, a screen being drawn, a woken session still loading), `dialog` (a permission or question dialog is open), `draft` (the terminal's
+  input box holds text that sala could not clear; `detail` is that text, and nothing is typed into it), `ahead` (an earlier message waits first: only the oldest held message is tried).
+  A message held for `gone`, `pane` or `tmux` for 30 minutes (`OUTBOX_GIVE_UP`) becomes `failed` with its text kept.
+- **The sender.** One loop (`outbox_loop`, a tick of `OUTBOX_TICK` seconds and a kick on every new message) walks the sessions that have work. For each, in
+  order, when the session is live, its pane is its own, the pane shows an input box and no dialog or overlay is up, the oldest held
+  message is typed (text found in the box is cleared first, with the keys the page's Replace uses, and kept in `outbox-cleared.jsonl`; it is not waited for; `POST /api/s/<pid>/send` itself still refuses a box with text, as before) through the same code as `POST /api/s/<pid>/send` (`_send_locked` with `clear_stray`, under the pane's send lock) and becomes `queued`. It does **not** read the
+  web `busy` status: a turn in progress does not hold a message (Claude Code queues it). A pasted message the pane did not submit (`pasted`) is submitted
+  only while the box holds exactly its text, else it is `failed`: never typed twice.
+- **Delivered, and lost.** A transcript user line (or a `queued_command` line, or a line that joins several queued messages) with the message's text,
+  stamped no earlier than the message was sent (3 s of slack), marks it `delivered`. A `queued` message whose session process has ended before any such
+  line is **resent once, only on positive evidence**: an `enqueue` line of the transcript's `queue-operation` rows carrying exactly its text, with no
+  `remove`, `dequeue` or `popAll` line that took its place in the queue (first in, first out). An enqueue made during a compaction has no content and is
+  no evidence. This reads Claude Code's own bookkeeping (2.1.332), which is not a documented contract: a shape it does not recognise is not acted on.
+- **Answers pass at once.** A message that is a lone option number or `esc` while a dialog shows that option is pressed immediately (`dialogAnswer`) and is
+  never kept. A `!` command is never held: `POST /api/outbox/<name>` refuses it (400, `bang: true`) and it goes through `POST /api/s/<pid>/send`.
+- **Edit and Cancel.** Only a `held` or `failed` message can be taken back: the text is not in the pane yet. Edit = withdraw it first, then the new text
+  joins at the end of the list (it does not keep its place). Once the text is typed the answer is **409 `tooLate`** ("too late: ...; nothing was changed"),
+  and nothing is pressed. Taking a message back out of the CLI's own queue (the Up key) is a later step.
+- **Text in the terminal's box.** It is never the owner's, so it is cleared and the message goes in, never held behind it (`draft` is held only when the
+  keys could not clear it). What was cleared is appended to `<state dir>/outbox-cleared.jsonl` before the keys go in: one JSON line `{t, session, text}`,
+  mode 600, the newest half kept when the file passes 256 KB.
+- **On disk.** `<state dir>/outbox/<session name>.json`, one file a session, written whole to a temporary file and renamed into place, the folder mode 700
+  and the files 600; an odd name is made a safe file name (never a path) with a short hash; a corrupt file reads as an empty list (the next write replaces it), not a crash. A message left `typing`
+  by a stopped server is `failed` (it may or may not have gone in; its text stays). Delivered, withdrawn and failed entries stay 6 hours, at most 200 a
+  session. A shutdown lets the sender finish the message it is typing.
+- **The page.** Not built here: no page calls these routes yet, so nothing on a page changes (its own browser-side hold of a message to a sleeper, the
+  60 s *Queued* guess and the dimming stay as they were). `GET /api/outbox/<name>` and the stream's `outbox` event (`{"messages": [...]}`, at open and at
+  each change) carry the list for a page to use later; a message asked for with a `cid` is one message however often it is asked.
+- **Tests.** `tests/test_outbox.py` (the store and the transcript matching), `tests/test_outbox_send.py` (the routes and the sender against a made-up pane).
+
 (`SALA_SIDECAR`, default `<sala state>/pane-map.tsv`) has a row with its conversation id (a marker left by a session that is gone is no
 session), and a conversation or a name a live session already has is not listed twice (a wake in flight). The row is a session with pid `0`,
 status `sleeping` and `sleeping` set to the marker's time; `api/sessions` and `api/overview` carry the key on a sleeper and on nothing else.
@@ -2398,7 +2440,11 @@ part of `web/`.
 | `GET /api/file-image/<sessionId>/<uuid>/<i>/<k>` | the k-th file of the `SendUserFile` call at content block i of that transcript line, when it is a png, jpeg, gif or webp of at most 15 MB under an allowed root and not hidden or secret-named (*What it can and cannot do*, "Images a session sends"); anything else 404 |
 | `GET /api/md-image/<sessionId>/<uuid>/<i>/<n>` | the n-th local image (`![caption](/abs/path.png)` or `~/…`, outside code) in the markdown of the assistant text block i of that transcript line, under the same rules as `file-image`; a refusal is a 404 `{ok: false, error: <reason>}` that the page shows as "image not shown: <reason>"; a place the reply does not name is a 404 too (*What it can and cannot do*, "A markdown image of a file on this machine") |
 | `POST /api/upload` | raw image body (`Content-Type: image/png|jpeg|gif|webp`, 20 MB, 413 with the limit in words; the page shrinks a bigger image first) → `{ok, name, path}`; or any other file, `?name=<its name>` (required for a type that is not an image), streamed to disk, 500 MB at most (413), refused when it would leave under 2 GB free (507), 400 empty → `{ok, name: "<hex>/<safe name>", path, file: true, fileName, size}` (*Any file, not only images*) |
-| `POST /api/s/<pid>/send` | `{"text": "...", "uploads": ["<name as /api/upload returned it>"]}` as `application/json`; with a dialog open, `{"text": "2"}` or `{"text": "esc"}` answers it (`dialogAnswer` in the reply); a refusal (status 400 and up) is logged with its path, status and reason |
+| `POST /api/s/<pid>/send` | `{"text": "...", "uploads": ["<name as /api/upload returned it>"]}` as `application/json`; with a dialog open, `{"text": "2"}` or `{"text": "esc"}` answers it (`dialogAnswer` in the reply); text in the pane's input box is cleared first and kept in `<state dir>/outbox-cleared.jsonl`, and a box the keys cannot empty is a 409 with `boxText` and nothing typed; a refusal (status 400 and up) is logged with its path, status and reason |
+| `GET /api/outbox/<name>` | the messages the server holds for a session (live or sleeping), oldest first: `{ok, messages: [{id, cid, text, uploads, state, reason, detail, error, created, updated, sentAt, attempts, resent}], version}`; the same list is the stream's `outbox` event (*Messages held by the server*) |
+| `POST /api/outbox/<name>` | `{"text", "uploads": [...], "cid"?: "<[A-Za-z0-9_-]{1,64}>"}` as `application/json` -> `{ok, message, messages}`: the message is typed at once when the pane can take it, else held (`message.state`, `message.reason`); a lone option number or `esc` over a dialog is pressed at once (`{ok, dialogAnswer}`, not kept); a `!` command is refused (400, `bang: true`; it goes through `/send`); a `cid` the list has returns that message; 404 for a name that is not a live or sleeping session |
+| `POST /api/outbox/<name>/<id>/cancel` | take back a held or failed message: 200 `{ok, message, messages}` (state `withdrawn`, text and uploads as they were); 409 `{ok: false, tooLate: true, state, error, message}` once it is typed (nothing changed); 404 for an unknown id |
+| `POST /api/outbox/<name>/<id>/edit` | `{"text", "uploads": [...]}` as `application/json`: withdraw the old message first, then the new one joins at the end: 200 `{ok, message, withdrawn, messages}`; 409 `tooLate` as above, nothing changed |
 | `POST /api/shell/open` | `{}` as `application/json` → `{ok, session: "<SALA_SHELL_SESSION>", created}`: makes the shell drawer's tmux session (a plain `bash -l` in the home directory) when it is missing, under a lock; `created` is true when it had to (*The shell drawer*, *Where the session is made*: the drawer calls it each time it opens, the full-size page when its `?arg` is the Shell session, and the app itself once at start); 403/415 as every POST, 502 when tmux cannot make it |
 | `POST /api/shell/keys` | `{"key": "<name>"}` as `application/json`, `name` one of `Escape`, `Tab`, `Up`, `Down`, `Left`, `Right`, `Enter`, `BSpace`, `C-a`..`C-z` → `{ok, sent}`: `tmux send-keys -t =<SALA_SHELL_SESSION>: <name>`; any other name 400 and nothing sent, 502 when the session is not there; 403/415 as every POST |
 | `POST /api/shell/keylog` | a JSON list of at most 50 events as `application/json` (32 KB at most), from the Shell's terminal frame: `{t, type: keydown\|keyup, key, code, keyCode, isComposing, shift, ctrl, alt, meta}` or `{t, type: compositionstart\|compositionupdate\|compositionend}` (no other field) → `{ok, n}`, n the events kept, one JSON line each in `<state_dir>/shell-keylog.jsonl` (0600, 256 KB at most, the newest half kept past it; *The shell drawer*). It records which non-character keys were pressed and when and that IME activity happened and when, never which letter keys: a key event is kept only when `key` is on the fixed list (`Alt`, `HangulMode`, `Process`, `Enter`, `F1`..`F24`, ...) and `code` is one of those keys' physical names or empty, never a letter, digit, punctuation or numpad key's; an IME event (`key` `Process`, `Unidentified`, `Dead` or `Compose`, `isComposing`, or `keyCode` 229) is stored with `keyCode` 0 and `shift` false, and its `code` only when it names a non-character key (`Lang1` ...), else `""`, whatever the client sent; a composition event with a `data` field (or any other) is dropped, never written; an event of any other shape is dropped, not an error; a body that is not such a list (or over 50 events or 32 KB, or not JSON) is 400; 403/415 as every POST |

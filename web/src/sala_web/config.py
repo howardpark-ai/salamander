@@ -314,6 +314,11 @@ class Settings:
         return self.state_dir / "uploads"
 
     @property
+    def outbox_dir(self) -> Path:
+        """Where the outbox keeps the messages sent from the pages, one file a session (outbox.py): sala-web's own state, mode 700."""
+        return self.state_dir / "outbox"
+
+    @property
     def sleep_dir(self) -> Path:
         """Where sala keeps its sleeping markers, one file a sleeping session named by its conversation id (SALA_SLEEP_DIR, default
         <sala state>/sleeping; sala's common.sh, THE SLEEPING SESSIONS). Read-only here."""
