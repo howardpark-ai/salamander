@@ -200,7 +200,9 @@ none itself):
                                   and, if the command still runs a second later, Ctrl-C -> {"ok", "sent": ["Escape"[, "C-c"]]}.
                                   409 and nothing sent when no `!` command is running (or the pane is not the session's), 403
                                   cross-origin, 415 without application/json
-  GET  /api/image/<sid>/<uuid>/<i>/<j>   an image block from a transcript
+  GET  /api/image/<sid>/<uuid>/<i>/<j>   an image block from a transcript: png, jpeg, gif or webp by the line's media type
+                                  (any other type is the 404 of no image), with nosniff and a Content-Security-Policy of
+                                  default-src 'none'; sandbox, as on the two image routes below
   GET  /api/file-image/<sid>/<uuid>/<i>/<k>   the k-th file of the SendUserFile call at block i of a transcript line,
                                   when it is an image under the home directory or /tmp/claude-<uid> (sentimages.py:
                                   png, jpeg, gif or webp by its first bytes, 15 MB at most, no hidden or secret-named
@@ -336,6 +338,8 @@ from .config import SHELL_SESSION, Settings, brand_suffix, chat_name, chat_sessi
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
+# on every answer that carries a session's image: whatever the bytes are, a browser opening the URL shows an image or nothing
+IMAGE_HEADERS = {"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox"}
 UPLOAD_RE = re.compile(r"^[0-9a-f]{32}\.(png|jpg|gif|webp)$")
 UPLOAD_MAX_AGE_DAYS = 30
 # Any other file: stored as uploads/<32 hex>/<safe name>, the folder random per upload, the name the file's own
@@ -1271,10 +1275,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return _err(404, "no transcript")
         got = await run_in_threadpool(TR.find_image, path, uuid, int(request.path_params["i"]),
                                       int(request.path_params["j"]))
-        if not got:
+        # the type is whatever the transcript line says: only the raster types in IMAGE_TYPES are answered
+        if not got or got[0] not in IMAGE_TYPES:
             return _err(404, "no image")
         mt, data = got
-        return Response(data, media_type=mt, headers={"Cache-Control": "private, max-age=86400"})
+        return Response(data, media_type=mt, headers={"Cache-Control": "private, max-age=86400", **IMAGE_HEADERS})
 
     async def file_image(request: Request) -> Response:
         sid = request.path_params["sid"]
@@ -1290,10 +1295,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if not got:
             return _err(404, "no image")
         mt, data = got
-        # nosniff and a sandboxing CSP: whatever the bytes are, a browser opening this URL shows an image or nothing
-        return Response(data, media_type=mt, headers={
-            "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "default-src 'none'; sandbox"})
+        return Response(data, media_type=mt, headers={"Cache-Control": "private, max-age=300", **IMAGE_HEADERS})
 
     async def md_image(request: Request) -> Response:
         """An image a reply names in its markdown (![caption](/abs/path.png)): served only for the n-th local image of that
@@ -1312,9 +1314,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if isinstance(got, str):
             return _err(404, got)
         mt, data = got
-        return Response(data, media_type=mt, headers={
-            "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "default-src 'none'; sandbox"})
+        return Response(data, media_type=mt, headers={"Cache-Control": "private, max-age=300", **IMAGE_HEADERS})
 
     def _human_bytes(n: int) -> str:
         """A byte count in plain words for a refusal: 20 MB, 512 KB, 900 bytes."""

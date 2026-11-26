@@ -679,7 +679,8 @@ def find_image(path: Path, uuid: str, i: int, j: int) -> tuple[str, bytes] | Non
                 src = b["source"]
                 if src.get("type") != "base64":
                     return None
-                return src.get("media_type") or "image/png", base64.b64decode(src["data"])
+                mt = src.get("media_type") or "image/png"
+                return (mt, base64.b64decode(src["data"])) if isinstance(mt, str) else None
             except (ValueError, KeyError, IndexError, TypeError):
                 return None
     return None
