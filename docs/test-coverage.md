@@ -84,6 +84,15 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/dm.sh`: +2, 233 (Thu Nov 26th 2026)
+
+A signal that lands as a hidden prompt of `sala dm --set-token` is about to read. Kept because the command could outlive SIGTERM with the terminal's echo off, waiting at a token prompt until a line was typed.
+Checked, in a pty, for both prompts (every app, one app): a preloaded `read()` raises SIGTERM the first time it is called on a line-mode terminal with nothing queued; the command ends, exit 143, echo on, nothing stored.
+A command that never reads the empty terminal leaves no mark, and the driver sends the signal itself a second after the prompt; so a bare `read` is probed first, and the suite fails when the preload does not reach it
+(shown with the preload's `read` renamed: the two checks then pass, the probe fails). Both checks were shown to fail on the previous `lib/dm.sh` (the driver's 30 s deadline, echo off);
+the timing-based SIGTERM check passed on it in the same run. The driver's deadline now says which stage it was in (no prompt, lines left, signal sent or raised) with the echo flag, process state and wait channel.
+Not covered, and why: a signal during the second read bash makes after a Ctrl-D typed in the middle of a line.
+
 ### `web/tests/test_chat_boot.py` new, 43; `web/tests/test_chat_boot_ui.py` new, 57; `web/tests/test_chat_session_view.py` +1 (Thu Nov 26th 2026)
 
 The path guarded: a load of the chat session's address painted the page with no session first ("Select a session", "Pick a session on the left.", in English whatever the saved language) until `app.js` had read its lists, and could show the session's bare name before its label came. `static/chatboot.js` hides the two from the first paint on that one address. A wrong answer flashes another view on it, leaves a header or a thread blank, or changes another session's load.
