@@ -508,7 +508,7 @@ except Exception: print("?")')"
             say "merged"
         fi
     fi
-    out="$(SALA_DEPLOY_LOCK_WAIT=900 ./deploy.sh 2>&1)"; local rc=$?; echo "$out"
+    out="$(SALA_RELEASE_RUN=1 SALA_DEPLOY_LOCK_WAIT=900 ./deploy.sh 2>&1)"; local rc=$?; echo "$out"
     sha="$(git rev-parse --short HEAD)"
     [ $rc -eq 0 ] || fail "deploy" "$(echo "$out" | tail -1) (main is merged; the production checkout is at $sha; run ./deploy.sh there once the cause is fixed)"
     changed="$(echo "$out" | sed -n 's/^changed: //p' | tail -1)"; changed="${changed:-see the log}"

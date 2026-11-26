@@ -79,6 +79,9 @@ scan "seeded config" "$H/.config/salamander/config"
 printf '# edited by the new owner\n' >> "$H/.config/salamander/config"
 sx bash "$ROOT/install.sh" > "$OUT/install2.txt" 2>&1; rc=$?
 [ "$rc" = 0 ] && grep -qx '# edited by the new owner' "$H/.config/salamander/config" && ok "a second run is idempotent: the edited config is kept" || bad "second install rc=$rc, edited line kept: $(grep -c 'edited by the new owner' "$H/.config/salamander/config")"
+sx env SALA_RELEASE_RUN=1 bash "$ROOT/install.sh" > "$OUT/install-rel.txt" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q '^✅ salamander' "$OUT/install-rel.txt" && ! grep -q 'tmux-resurrect\|After `claude update`\|Watchdog\|SessionStart hook' "$OUT/install-rel.txt" && grep -q 'tmux-resurrect' "$OUT/install2.txt" && grep -q 'After `claude update`' "$OUT/install2.txt" && grep -q 'Watchdog' "$OUT/install2.txt" \
+    && ok "install.sh run by release.sh (SALA_RELEASE_RUN=1) prints its result line and none of the tmux, Claude Code and systemd hints; a run by hand still prints them ($(wc -c < "$OUT/install2.txt") bytes against $(wc -c < "$OUT/install-rel.txt"))" || bad "release install rc=$rc: $(cat "$OUT/install-rel.txt")"
 sx bash "$ROOT/install.sh" --web > "$OUT/install-web.txt" 2>&1; rc=$?
 [ "$rc" = 0 ] && ok "install.sh --web exits 0" || bad "install.sh --web rc=$rc: $(tail -3 "$OUT/install-web.txt")"
 U="$H/.config/systemd/user"; n=0
