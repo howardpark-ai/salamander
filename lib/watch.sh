@@ -1884,9 +1884,9 @@ later_held() {  # in deferred_revive: the pane is held now; told again when due,
 }
 # pause_watch_due <session> <uuid> <claude pid> <held words> → 0 when the deferred pane's pause is due and revive --only should be tried for it now (THE PAUSE,
 # common.sh). Every call starts or refreshes the pane's clock and holds its inbox while it runs (the refusals of pause_refusal_r come first: a pane that
-# must not be paused is neither clocked nor held); once due it is let through at most once in 10 min, so a pane the pause was refused for is not tried every tick.
+# must not be paused is neither clocked nor held); once due it is let through at most once in 10 min, so a pane the pause was refused for is not tried every tick; a pause that did not take (pause_failed) is let through again after SALA_PAUSE_RETRY s.
 pause_watch_due() {
-    local sess="$1" u="$2" c="$3" why="$4" a t ref pane f m
+    local sess="$1" u="$2" c="$3" why="$4" a t r ref pane f m
     [ -n "$u" ] || return 1
     pause_after_r a; [ "$a" -gt 0 ] || return 1
     pause_scope_ok "$sess" && pause_reason_ok "$why" || return 1
@@ -1894,8 +1894,9 @@ pause_watch_due() {
     pause_refusal_r ref "$pane" "$sess" "$c"; [ -z "$ref" ] || return 1
     pause_hold "$u" "$(registry_field "$c" name)"
     pause_clock_r t "$u"; [ "$t" -ge "$a" ] || return 1
-    f="$SALA_PAUSE_DIR/$u.tried"
-    if [ -e "$f" ]; then m=$(stat -c %Y "$f" 2>/dev/null || echo 0); [ $(( $(date +%s) - m )) -ge 600 ] || return 1; fi
+    pause_retry_in_r r "$u"; [ "$r" -le 0 ] || return 1   # a pause that did not take (common.sh, pause_failed) waits SALA_PAUSE_RETRY s, then is tried again
+    f="$SALA_PAUSE_DIR/$u.tried"; pause_tries_r r "$u"; r=$(( r > 0 ? ${SALA_PAUSE_RETRY:-120} : 600 ))   # once in 10 min, or once per SALA_PAUSE_RETRY s while the tries are failing
+    if [ -e "$f" ]; then m=$(stat -c %Y "$f" 2>/dev/null || echo 0); [ $(( $(date +%s) - m )) -ge "$r" ] || return 1; fi
     : > "$f"; return 0
 }
 # DEFERRED PANES (lib/revive.sh): a pane a relaunch left because it held scheduled work is relaunched here once that work

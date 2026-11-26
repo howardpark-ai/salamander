@@ -58,6 +58,8 @@ case $SALA_LOG_DIR in /*) ;; *) SALA_LOG_DIR=$HOME/$SALA_LOG_DIR;; esac   # a re
 : "${SALA_PAUSE_QUIET:=120}"                       # pause: a pane with a client attached that was active this recently is somebody's, never interrupted
 : "${SALA_PAUSE_GAP:=1800}"                        # pause: the busy clock restarts when the pane was last seen busy longer ago than this (busy continuously, not on and off)
 : "${SALA_PAUSE_TTL:=900}"                         # pause: seconds a paused pane's marker holds (the relaunch must follow within it)
+: "${SALA_PAUSE_RETRY:=120}"                       # pause: seconds before a pause that did not take (the Escape did not bring the pane out of its turn, or the pane was not idle once interrupted) is tried again, for the first SALA_PAUSE_TRIES tries
+: "${SALA_PAUSE_TRIES:=5}"                         # pause: how many failed tries are retried at SALA_PAUSE_RETRY; later ones are SALA_PAUSE_AFTER apart (the clock is never cleared by a failure)
 : "${SALA_NO_PAUSE:=}"                             # tmux sessions whose turn is never interrupted (space-separated): they hold work that cannot be redone; they wait for idle as before
 : "${SALA_LATER_RETELL:=3600}"                     # watch, deferred list: seconds a held pane waits before it is told again
 : "${SALA_LATER_RETELL_MAX:=3}"                    # watch, deferred list: how many times it is told again, at most
@@ -601,7 +603,7 @@ post_group_bullets() {
         k = "rest|" lead "|" v "|" r; ver[k] = v; rule[k] = r
         if (!(k in n) || m < lo[k]) lo[k] = m
         if (!(k in n) || m > hi[k]) hi[k] = m
-      } else if (why ~ /^busy( for [^;]*)?; sala relaunches it once it is free$/) k = "busy|" lead
+      } else if (why ~ /^busy( [^;]*)?; sala relaunches it once it is free$/) k = "busy|" lead
       else if (why ~ /^its [0-9]+ background tasks? ran for .*; sala relaunches it once they finish$/) k = "tasks|" lead
       else { k = "same|" lead "|" why; text[k] = why }
       key[NR] = k; led[k] = lead; n[k]++; tot++ }
@@ -625,7 +627,8 @@ post_group_bullets() {
 # from the set's own record, no new state. Each outstanding pane (out=) carries the reason of the first post's left-behind
 # bullet (skip=, "<session>: <why>") as "<session>: still waiting, <why>" ("not relaunched yet" when the first post named none: the
 # invoking pane), except a held pane's bullet (hold_bullet: "<session>: busy for 2 h; sala relaunches it once it is free"),
-# which is the whole line, as the first post and the deferred post worded it; each given-up
+# which is the whole line, as the first post and the deferred post worded it, but made again from the pane for this post
+# (hold_bullet_fresh: its age is what it is now, never the first post's); each given-up
 # pane (gave=) as "<session>: given up, <why>". Nothing outstanding prints nothing (the closing posts carry the given-up
 # panes themselves). Capped at SALA_SET_PENDING_MAX (12) bullets, then "…and N more"; a reason longer than 240 characters is
 # cut, so a post stays well under Slack's size limit.
@@ -637,7 +640,7 @@ _set_pending_bullets() {
         [ -n "$s" ] || continue; why=""
         while IFS= read -r b; do case "$b" in "$s: "*) why="${b#"$s: "}";; esac; done < <(set_vals "$id" skip)   # the newest bullet of the pane (the deferred post adds a fresher one)
         case "$why" in   # a held pane's bullet (hold_bullet) is already the whole line, the same words as in the first post and the deferred post
-            *"; sala relaunches it once it is free"|*"; sala relaunches it once they finish") all+=("$s: $why");;
+            *"; sala relaunches it once it is free"|*"; sala relaunches it once they finish") all+=("$(hold_bullet_fresh "$s" "$s: $why")");;   # made again from the pane now: the age is the one of this post, not of the first
             *) all+=("$s: still waiting, ${why:-not relaunched yet}");;
         esac
     done < <(set_vals "$id" out)
@@ -2679,7 +2682,7 @@ waiting_prune() {  # watch: a flag whose owner is gone (a killed worker, a reboo
 #   · THE INTERRUPT (pane_interrupt): ONE Escape, sent only to a pane whose registry row says busy and that shows no dialog; a second
 #     Escape on an idle box can open the CLI's rewind menu. The pane must be idle in the registry within SALA_PAUSE_IDLE_WAIT seconds;
 #     otherwise nothing more is sent, no /exit is typed into a pane that is still in its turn, and the pane is waited for as before
-#     (the clock restarts: the next try is a full SALA_PAUSE_AFTER later). A pane that is idle already and held only by background work
+#     (the clock keeps running and the next try is SALA_PAUSE_RETRY s later: pause_failed). A pane that is idle already and held only by background work
 #     (a monitor, a shell, a subagent) needs no Escape.
 #   · WHO MAY BE PAUSED (SALA_PAUSE_SCOPE, default `background`): only the back agents (the registry's role, back_lane_names); a front
 #     agent is never paused and waits for its turn to end as before; `all`: every session, front agents included; `off`: nobody
@@ -2714,7 +2717,7 @@ pause_no() { case " ${SALA_NO_PAUSE//[$'\t\n']/ } " in *" $1 "*) return 0;; esac
 pause_clock_r() {  # <var> <uuid> → seconds this pane has been continuously held; starts the clock when there is none (or it is stale) and refreshes it
     local _f="$SALA_PAUSE_DIR/$2.wait" _s="" _l="" _n; _now_r _n
     { read -r _s _l < "$_f"; } 2>/dev/null || :
-    if ! [[ $_s =~ ^[0-9]+$ && $_l =~ ^[0-9]+$ ]] || [ $(( _n - _l )) -gt "$SALA_PAUSE_GAP" ]; then _s=$_n; fi
+    if ! [[ $_s =~ ^[0-9]+$ && $_l =~ ^[0-9]+$ ]] || [ $(( _n - _l )) -gt "$SALA_PAUSE_GAP" ]; then _s=$_n; rm -f "$SALA_PAUSE_DIR/$2.failed" 2>/dev/null; fi   # a new stretch: the failed tries of the old one are forgotten
     mkdir -p "$SALA_PAUSE_DIR" 2>/dev/null
     printf '%s %s\n' "$_s" "$_n" > "$_f.t.${BASHPID:-$$}" 2>/dev/null && mv -f "$_f.t.${BASHPID:-$$}" "$_f"
     printf -v "$1" '%s' $(( _n - _s ))
@@ -2724,16 +2727,49 @@ pause_clock_age_r() {  # <var> <uuid> → seconds on the clock, read only; -1 wh
     { read -r _s _l < "$_f"; } 2>/dev/null || :
     if [[ $_s =~ ^[0-9]+$ && $_l =~ ^[0-9]+$ ]] && [ $(( _n - _l )) -le "$SALA_PAUSE_GAP" ]; then printf -v "$1" '%s' $(( _n - _s )); else printf -v "$1" '%s' -1; fi
 }
-pause_clock_clear() { [ -n "${1:-}" ] && rm -f "$SALA_PAUSE_DIR/$1.wait" 2>/dev/null; return 0; }   # <uuid>
-pause_due() {  # <uuid> → 0 when the pane's clock has run SALA_PAUSE_AFTER seconds (read only: the retry worker and watch ask before they try a pane)
-    local a t; pause_after_r a; [ "$a" -gt 0 ] || return 1
-    pause_clock_age_r t "$1"; [ "$t" -ge "$a" ]
+pause_clock_clear() { [ -n "${1:-}" ] && rm -f "$SALA_PAUSE_DIR/$1.wait" "$SALA_PAUSE_DIR/$1.failed" 2>/dev/null; return 0; }   # <uuid> (the pane is free or was relaunched: the clock and the failed tries go)
+# A PAUSE THAT DID NOT TAKE (the Escape did not bring the pane out of its turn, or the pane was not idle once interrupted) KEEPS THE CLOCK RUNNING
+# (the pane has held the relaunch that long, whatever its turn does next, a restart of the turn included) and is tried again: pause/<uuid>.failed
+# ("<when> <tries>") says when the last try failed and how many have; the next one is SALA_PAUSE_RETRY s after it (120 s) for the first
+# SALA_PAUSE_TRIES (5) failed tries, then SALA_PAUSE_AFTER s apart. Nothing is given up: the pane is tried until it is free, paused or relaunched.
+pause_failed() {  # <uuid> → one more failed try, now
+    local f="$SALA_PAUSE_DIR/$1.failed" _t="" _c="" _n; _now_r _n
+    { read -r _t _c < "$f"; } 2>/dev/null || :
+    [[ $_c =~ ^[0-9]+$ ]] || _c=0
+    mkdir -p "$SALA_PAUSE_DIR" 2>/dev/null
+    printf '%s %s\n' "$_n" $(( _c + 1 )) > "$f.t.${BASHPID:-$$}" 2>/dev/null && mv -f "$f.t.${BASHPID:-$$}" "$f"
+    return 0
 }
-pause_next_in_r() {  # <var> <uuid>… → seconds until the first of these panes' clocks is due, or -1 (none is running): the retry worker's sleep
-    local _v="$1" a t u best=-1; shift; pause_after_r a; [ "$a" -gt 0 ] || { printf -v "$_v" '%s' -1; return 0; }
+pause_retry_in_r() {  # <var> <uuid> → seconds until the next try is allowed after a failed one; 0 when none failed or the wait is over
+    local _v="$1" _f="$SALA_PAUSE_DIR/$2.failed" _t="" _c="" _n _g _a; _now_r _n
+    { read -r _t _c < "$_f"; } 2>/dev/null || :
+    if ! [[ $_t =~ ^[0-9]+$ && $_c =~ ^[0-9]+$ ]]; then printf -v "$_v" '%s' 0; return 0; fi
+    _g=$SALA_PAUSE_RETRY; [[ $_g =~ ^[0-9]+$ ]] || _g=120
+    if [ "$_c" -ge "${SALA_PAUSE_TRIES:-5}" ] 2>/dev/null; then pause_after_r _a; if [ "$_a" -gt 0 ]; then _g=$_a; fi; fi
+    _g=$(( _t + _g - _n )); [ "$_g" -gt 0 ] || _g=0
+    printf -v "$_v" '%s' "$_g"
+}
+pause_retry_words() {  # <uuid> → "; the pause is tried again in 2 min (failed try 1)" for the line that says a pause did not take
+    local r c; pause_retry_in_r r "$1"; pause_tries_r c "$1"
+    printf '; the pause is tried again in %s (failed try %s)' "$(hold_age_words "$r")" "$c"
+}
+pause_tries_r() {  # <var> <uuid> → how many tries of this stretch failed so far
+    local _f="$SALA_PAUSE_DIR/$2.failed" _t="" _c=""
+    { read -r _t _c < "$_f"; } 2>/dev/null || :
+    [[ $_c =~ ^[0-9]+$ ]] || _c=0
+    printf -v "$1" '%s' "$_c"
+}
+pause_due() {  # <uuid> → 0 when the pane's clock has run SALA_PAUSE_AFTER seconds and no failed try is still being waited out (read only: the retry worker and watch ask before they try a pane)
+    local a t r; pause_after_r a; [ "$a" -gt 0 ] || return 1
+    pause_clock_age_r t "$1"; [ "$t" -ge "$a" ] || return 1
+    pause_retry_in_r r "$1"; [ "$r" -le 0 ]
+}
+pause_next_in_r() {  # <var> <uuid>… → seconds until the first of these panes' clocks is due (a failed try's retry wait included), or -1 (none is running): the retry worker's sleep
+    local _v="$1" a t u r best=-1; shift; pause_after_r a; [ "$a" -gt 0 ] || { printf -v "$_v" '%s' -1; return 0; }
     for u in "$@"; do
         [ -n "$u" ] || continue; pause_clock_age_r t "$u"; [ "$t" -ge 0 ] || continue
-        t=$(( a - t )); [ "$t" -ge 1 ] || t=1
+        t=$(( a - t )); pause_retry_in_r r "$u"; [ "$r" -le "$t" ] || t=$r   # the later of the two
+        [ "$t" -ge 1 ] || t=1
         if [ "$best" -lt 0 ] || [ "$t" -lt "$best" ]; then best=$t; fi
     done
     printf -v "$_v" '%s' "$best"
@@ -2864,15 +2900,15 @@ pause_pane() {
     mkdir -p "$SALA_PAUSE_DIR" 2>/dev/null; f="$SALA_PAUSE_DIR/$uuid.paused"
     printf 'at=%s\npid=%s\nsession=%s\nheld=%s\n' "$PAUSE_AT" "$cpid" "$sess" "$PAUSE_HELD" > "$f.t.${BASHPID:-$$}" && mv -f "$f.t.${BASHPID:-$$}" "$f"   # first: the state the checks below read
     if ! pane_interrupt "$pane" "$cpid"; then
-        rm -f "$f"; pause_clock_clear "$uuid"   # the clock starts over: the next try is a full SALA_PAUSE_AFTER away
+        rm -f "$f"; pause_failed "$uuid"   # the clock keeps running (the pane has held the relaunch that long); the next try is SALA_PAUSE_RETRY s away
         registry_field_r txt "$cpid" status
-        PAUSE_WHY="one Escape did not bring the pane out of its turn within ${SALA_PAUSE_IDLE_WAIT}s (registry says '$txt'), so nothing more was sent and /exit stays unsent"; return 1
+        PAUSE_WHY="one Escape did not bring the pane out of its turn within ${SALA_PAUSE_IDLE_WAIT}s (registry says '$txt'), so nothing more was sent and /exit stays unsent$(pause_retry_words "$uuid")"; return 1
     fi
     for ((i = 0; i < SALA_IDLE_SETTLE + 6; i++)); do [ -z "$(is_idle_reason "$cpid")" ] && break; sleep 1; done   # the registry's idle settle
     txt=$(is_idle_reason "$cpid")
     if [ -n "$txt" ]; then
-        rm -f "$f"; pause_clock_clear "$uuid"
-        PAUSE_WHY="the pane was not idle once its turn was interrupted ($txt)"; return 1
+        rm -f "$f"; pause_failed "$uuid"
+        PAUSE_WHY="the pane was not idle once its turn was interrupted ($txt)$(pause_retry_words "$uuid")"; return 1
     fi
     kind=$(relaunch_what "$(relaunch_kind)")
     ctx+=$'\n'"$(pause_inbox_lines "$sess" "$uuid")"   # read now: what was held through the wait and arrived while the turn was cut
@@ -3055,10 +3091,22 @@ holders_summary_r() {
 # hold_bullet <session> <claude pid> <raw reason> → the bullet above on stdout; return 1 (nothing printed) for a reason that is neither
 # kind (a draft, a prompt, a rest, a refusal…), which the caller words as before. The reason picks the kind: a registry 'shell' state or a
 # background task / work / agent → "background tasks" when processes hold the pane now (the oldest one's run time is the age), else
-# "busy"; a turn or a dialog (registry busy, "a turn is running") → "busy", its age the time since the registry's last status change.
-# A pane that is idle in the registry and held by work no process shows has no age worth stating: "busy; sala relaunches it once it is free".
+# "busy"; a turn or a dialog (registry busy, "a turn is running") → "busy", its age how long the pane has HELD the relaunch: the longer of the
+# time since the registry's last status change and the pause's clock (pause_clock_age_r), which a turn that ends and starts again does not
+# reset. A pane that may be paused says when ("(sala pauses it at 15 min held)", and once that time has passed "(past the 15 min pause point,
+# sala is retrying the pause)"): pause_bullet_r. A pane that is idle in the registry and held by work no process shows, with no clock,
+# has no age worth stating: "busy; sala relaunches it once it is free".
+# The age is read when the bullet is made, so a post that repeats an old bullet makes it again (hold_bullet_fresh).
+pause_bullet_r() {  # <var> <session> <uuid> → " (sala pauses it at 15 min held)" for a pane the pause may end, else nothing
+    local _a _t; printf -v "$1" '%s' ""
+    pause_after_r _a; [ "$_a" -gt 0 ] || return 0
+    pause_scope_ok "${2%%:*}" || return 0
+    _t=-1; [ -z "${3:-}" ] || pause_clock_age_r _t "$3"
+    if [ "$_t" -ge "$_a" ]; then printf -v "$1" ' (past the %s pause point, sala is retrying the pause)' "$(hold_age_words "$_a")"
+    else printf -v "$1" ' (sala pauses it at %s held)' "$(hold_age_words "$_a")"; fi
+}
 hold_bullet() {
-    local sess="$1" pid="${2:-}" why="${3:-}" kind n=0 secs=0 st="" stamp="" age="" sm
+    local sess="$1" pid="${2:-}" why="${3:-}" kind n=0 secs=0 st="" stamp="" age="" sm uu="" pw="" pc=-1
     case "$why" in
         "parked in background job"*) return 1;;
         *"registry says 'shell'"*|*"a background task is running"*|*"background work in flight"*|*"background work is running"*|*"background agent or task wrote"*) kind=tasks;;
@@ -3066,14 +3114,31 @@ hold_bullet() {
         *) return 1;;
     esac
     if [ -n "$pid" ] && [ "$pid" != 0 ]; then
+        registry_conv_r uu "$pid"; [ "$uu" != null ] || uu=""
+        pause_bullet_r pw "$sess" "$uu"
         if [ "$kind" = tasks ]; then holders_summary_r sm "$pid"; read -r n secs <<< "$sm"; fi
         if [ "${n:-0}" -ge 1 ]; then
-            printf '%s: its %s ran for %s; sala relaunches it once they finish\n' "$sess" "$(plural "$n" "background task")" "$(hold_age_words "$secs")"; return 0
+            printf '%s: its %s ran for %s%s; sala relaunches it once they finish\n' "$sess" "$(plural "$n" "background task")" "$(hold_age_words "$secs")" "$pw"; return 0
         fi
         registry_field_r st "$pid" status; registry_field_r stamp "$pid" statusUpdatedAt
         if [ -n "$st" ] && [ "$st" != idle ] && [ -n "$stamp" ]; then _stamp_age_r age "$stamp"; fi
+        [ -z "$uu" ] || pause_clock_age_r pc "$uu"
+        if [ "$pc" -gt "${age:--1}" ]; then age=$pc; fi   # held since the clock started, not since the turn last restarted
     fi
-    printf '%s: busy%s; sala relaunches it once it is free\n' "$sess" "${age:+ for $(hold_age_words "$age")}"
+    printf '%s: busy%s%s; sala relaunches it once it is free\n' "$sess" "${age:+ for $(hold_age_words "$age")}" "$pw"
+}
+# hold_bullet_fresh <session> <stored bullet> → the bullet made again from the pane as it is now (its age and pause words live), for a post that
+# repeats a bullet stored when the set's first post went out; the stored one when it is no held-pane bullet or the pane cannot be read.
+hold_bullet_fresh() {
+    local sess="$1" b="$2" why n
+    case "$b" in
+        "$sess: busy"*"; sala relaunches it once it is free") why="a turn is running";;
+        "$sess: its "*" ran for "*"; sala relaunches it once they finish") why="a background task is running";;
+        *) printf '%s\n' "$b"; return 0;;
+    esac
+    n=$(hold_bullet_sess "$sess" "$why") && [ -n "$n" ] || n="$b"
+    case "$n" in "$sess: busy; sala relaunches it once it is free") n="$b";; esac   # the claude could not be read just now (a relaunch in between): no age at all is worse than a stale one
+    printf '%s\n' "$n"
 }
 # hold_bullet_sess <session> <raw reason> → hold_bullet for the claude now in that tmux session (the sweep's rows carry no pid)
 hold_bullet_sess() {
@@ -3112,29 +3177,44 @@ _ancestor_pids() {  # → this shell and every process above it, one pid per lin
 # minutes (it waits on a long tool call), so the registry, the children and the 2-minute scratch test all read the pane as
 # idle while the session's in-session mod (mod/hooks/register.ts) refuses the /exit for it. The transcript of every subagent
 # the CLI starts is a file, <projects>/<slug>/<uuid>/subagents/agent-<id>.jsonl, with an <id>.meta.json beside it whose
-# "finished" field is written when it ends. One that is not finished, was written since this claude started (an older one belonged
-# to a process that is gone: a resume leaves its files behind) and for less than SALA_SUBAGENT_STALE s (default 6 h; a subagent
-# that crashed never writes "finished") is running. Same definition as the mod's, so the two cannot disagree for long.
+# "finished" field is written when it ends. WHAT IS LIVE (the one rule; a subagent that crashed or was cut by an interrupt never
+# writes "finished", and its transcript stays for ever):
+#   · the meta does not say finished, AND the transcript was written since this claude started (an older one belonged to a process
+#     that is gone: a resume leaves its files behind) and not longer ago than SALA_SUBAGENT_STALE s (default 6 h), AND
+#   · it wrote within the last SALA_SUBAGENT_QUIET s (default 30 min: a subagent that waits on a tool call or a model answer writes
+#     within minutes), OR a process under the pane's claude was started by it (lib/holders.py, "started by a subagent (<id>)": a
+#     background shell it began and waits for: real work that writes nothing for as long as it runs).
+# A subagent that is quiet for longer and has no such process is not live: it stopped without saying so. Where the rule is wrong
+# the in-session mod, which reads the CLI's own task list, still refuses the exit for a running one, so the cost of a miss is one
+# refused try, never a cut subagent.
 : "${SALA_SUBAGENT_STALE:=21600}"
-# subagent_holders <claude-pid> [uuid] → one line per running subagent ("<type>: <description> (quiet <n> min)"), nothing when none
+: "${SALA_SUBAGENT_QUIET:=1800}"
+# subagent_holders <claude-pid> [uuid] → one line per live subagent ("subagent <type>: <description> (last wrote under <n> min ago)"), nothing when none
 subagent_holders() {
-    local sid="${2:-}" cwd d f m body age lim et mt type desc
+    local sid="${2:-}" cwd d f m body age lim et mt type desc now ws quiet id hl="" hlr=0
     [ -n "$sid" ] || registry_field_r sid "$1" sessionId; [ -n "$sid" ] || return 0
     cwd=$(proc_cwd "$1") || return 0; [ -n "$cwd" ] || return 0
     d="$SALA_PROJECTS/$(slug_for_cwd "$cwd")/$sid/subagents"; [ -d "$d" ] || return 0
     # how long this claude has run: the registry row's startedAt (ms), else the process's own age
-    lim=$SALA_SUBAGENT_STALE; registry_field_r et "$1" startedAt; _now_r age
-    if [[ $et =~ ^[0-9]+$ ]]; then et=$(( age - et / 1000 )); else et=$(proc_etime "$1" 2>/dev/null || echo 0); fi
+    lim=$SALA_SUBAGENT_STALE; registry_field_r et "$1" startedAt; _now_r now
+    if [[ $et =~ ^[0-9]+$ ]]; then et=$(( now - et / 1000 )); else et=$(proc_etime "$1" 2>/dev/null || echo 0); fi
     [ "$et" -gt 0 ] 2>/dev/null && [ "$et" -lt "$lim" ] && lim=$et
+    quiet=$SALA_SUBAGENT_QUIET; [[ $quiet =~ ^[0-9]+$ ]] || quiet=1800
     while IFS= read -r f; do
         [ -n "$f" ] || continue
         m=${f%.jsonl}.meta.json; [ -r "$m" ] || continue   # no meta: not one the CLI registered; the 2-minute scratch test sees a fresh one
         body=$(<"$m"); [[ $body =~ \"finished\"[[:space:]]*:[[:space:]]*true ]] && continue
+        mt=$(stat -c %Y "$f" 2>/dev/null) || continue; ws=$(( now - mt )); [ "$ws" -ge 0 ] || ws=0
+        if [ "$ws" -gt "$quiet" ]; then   # quiet for long: live only while a process under the pane is one it started
+            if [ "$hlr" = 0 ]; then hl=$(holders_run "$1" 50); hlr=1; fi
+            id=${f##*/agent-}; id=${id%.jsonl}
+            [[ $hl == *"started by a subagent (${id:0:8})"* ]] || continue
+        fi
         type=""; desc=""
         [[ $body =~ \"agentType\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]] && type=${BASH_REMATCH[1]}
         [[ $body =~ \"description\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]] && desc=${BASH_REMATCH[1]}
         age="over 6 h"
-        for mt in 1 5 15 60 180 360; do [ -n "$(find "$f" -mmin -"$mt" -print -quit 2>/dev/null)" ] && { age="under $mt min"; break; }; done
+        for mt in 1 5 15 60 180 360; do [ "$ws" -lt $(( mt * 60 )) ] && { age="under $mt min"; break; }; done
         printf 'subagent %s%s (last wrote %s ago)\n' "${type:-?}" "${desc:+: ${desc:0:80}}" "$age"
     done < <(find "$d" -maxdepth 1 -name 'agent-*.jsonl' -mmin -"$(( lim / 60 + 1 ))" -print 2>/dev/null | sort)
 }

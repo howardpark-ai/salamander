@@ -7,9 +7,10 @@
 # tick, logging "is free now" over a hundred times with the same refusal. Later `sala ready` said no recycle was waiting, because the
 # set had given the pane up (SALA_LATER_LIMIT) while the deferred list still wanted it. Three observations, each reproduced here:
 #  1. A running subagent is seen. Its transcript (<projects>/<slug>/<uuid>/subagents/agent-<id>.jsonl, with a .meta.json that says
-#     "finished" once it ends) is read: an unfinished one written since this claude started, and not older than SALA_SUBAGENT_STALE, holds
-#     the pane, even for a session that said ready. A finished one, one from before this process (a resume leaves them behind) and a
-#     pane with none do not. `sala ready` names it and does not promise a relaunch "as soon as this turn ends"; the relaunch notice
+#     "finished" once it ends) is read: an unfinished one written since this claude started, and not older than SALA_SUBAGENT_STALE, that
+#     wrote within SALA_SUBAGENT_QUIET (30 min) or has a process under the pane that it started (a longer-quiet one with none stopped
+#     without saying so), holds the pane, even for a session that said ready. A finished one, one from before this process (a resume
+#     leaves them behind) and a pane with none do not. `sala ready` names it and does not promise a relaunch "as soon as this turn ends"; the relaunch notice
 #     (relaunch_text) names it too.
 #  2. watch's deferred list asks the mod first (the `busy` probe, mod_hold): a turn the mod names holds the pane, said ONCE in the
 #     log with the holder, and no exit is tried against it, so no "is free now" line and no retry worker per tick. A pane held only by a
@@ -80,6 +81,19 @@ mksub "$U1" s1 builder "Build the package move"; touch -d '3 hours ago' "$(subdi
 [ -z "$(is_idle_reason "$K1")" ] && ok "a transcript older than this claude (a resume leaves them behind): not running" || bad "old transcript: '$(is_idle_reason "$K1")'"
 mksub "$U1" s1 builder "Build the package move"; touch -d '10 minutes ago' "$(subdir "$U1")"/agent-s1.*
 [ "$(is_idle_reason "$K1")" = "a subagent is running: subagent builder: Build the package move (last wrote under 15 min ago)" ] && ok "quiet for 10 minutes (a long tool call) and not finished: still running" || bad "quiet subagent: '$(is_idle_reason "$K1")'"
+mksub "$U1" s1 builder "Build the package move"; touch -d '45 minutes ago' "$(subdir "$U1")"/agent-s1.*
+[ -z "$(is_idle_reason "$K1")" ] && ok "quiet for 45 min (over SALA_SUBAGENT_QUIET, 30 min) with no process under the pane: a subagent that stopped without a finish line is not live" || bad "45 min quiet, no process: '$(is_idle_reason "$K1")'"
+[ "$(SALA_SUBAGENT_QUIET=7200 is_idle_reason "$K1")" = "a subagent is running: subagent builder: Build the package move (last wrote under 60 min ago)" ] && ok "SALA_SUBAGENT_QUIET=7200: the same 45 min is live again" || bad "QUIET=7200: '$(SALA_SUBAGENT_QUIET=7200 is_idle_reason "$K1")'"
+ORIG_HR=$(declare -f holders_run)
+holders_run() { printf '1\npid 99, up 2400 s, task tk1, started by a subagent (s1): sleep 5000\n'; }   # a process of this subagent runs under the pane
+[ "$(is_idle_reason "$K1")" = "a subagent is running: subagent builder: Build the package move (last wrote under 60 min ago)" ] && ok "quiet for 45 min but a process under the pane was started by it: live (the process is the proof)" || bad "45 min quiet, its process: '$(is_idle_reason "$K1")'"
+holders_run() { printf '1\npid 99, up 2400 s, task tk1, started by a subagent (zz9): sleep 5000\n'; }   # another subagent's process
+[ -z "$(is_idle_reason "$K1")" ] && ok "a process started by ANOTHER subagent does not make this one live" || bad "other subagent's process: '$(is_idle_reason "$K1")'"
+holders_run() { printf '1\npid 99, up 2400 s, task tk1: sleep 5000\n'; }   # a process no subagent started
+[ -z "$(is_idle_reason "$K1")" ] && ok "a process no subagent started does not either" || bad "plain process: '$(is_idle_reason "$K1")'"
+eval "$ORIG_HR"
+mksub "$U1" s1 builder "Build the package move"; touch -d '4 minutes ago' "$(subdir "$U1")"/agent-s1.*
+[ "$(is_idle_reason "$K1")" = "a subagent is running: subagent builder: Build the package move (last wrote under 5 min ago)" ] && ok "wrote 4 min ago: live with no process lookup" || bad "4 min: '$(is_idle_reason "$K1")'"
 mksub "$U1" s1 builder "Build the package move"
 n=$(relaunch_text recycle "$K1"); has "$n" "Holding the relaunch: 1 subagent running in this session" && has "$n" "subagent builder: Build the package move" \
     && has "$n" "sala never cuts a running subagent" && ok "the relaunch notice names it and says it is not cut" || bad "notice: $n"
