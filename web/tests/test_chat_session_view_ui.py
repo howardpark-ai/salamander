@@ -7,12 +7,12 @@ Held here, at 1280 x 800 and 390 x 844 (the width rule also at 360 and 320), wit
   - the entry is the first line of the views above New session, with its name, "chat", a working dot and a red count; it is hidden when no session is configured;
   - a click opens #s=<name> (selected, aria-current), a phone's drawer closes, the session's own row is hidden while the entry exists and shown when it does not,
     and the Overview still lists the session;
-  - the strip shows what waits on the owner, what is in motion and the kept-back switch with its count, sits before #chat in #chat-pane, survives the thread
+  - the strip shows what waits on the owner, what is in progress and the kept-back switch with its count, sits before #chat in #chat-pane, survives the thread
     being replaced, and is hidden for any other session;
   - one composer, and an image pasted into it is one chip; a working session shows the spinner with no code of its own;
   - the chat session and another session, given the same transcript, differ only in the strip and the cap (header, composer, bubbles, copy button, buttons);
-  - no sideways scroll with hostile text (a 300-character word, a long address, wide code, a wide table) in the thread, a waiting subject and a motion line,
-    with the drawer open and shut.
+  - no sideways scroll with hostile text (a 300-character word, a long address, wide code, a wide table) in the thread, a waiting subject and a promised
+    line, with the drawer open and shut.
 
 What a wrong answer costs: a chat page that looks almost like sala's and drifts from it, a strip a stream event wipes, two rows for one session, a name squeezed to
 nothing in the drawer, a phone page that scrolls sideways. Runs in a headless Chromium when one is installed (conftest.py: `served`, `browser`), else is skipped; GitHub
@@ -210,37 +210,38 @@ STRIP = """(() => { const s = document.querySelector('#chat-strip'), pane = docu
   return { hidden: s.hidden, parent: s.parentElement.id, before: !!(s.compareDocumentPosition(chat) & Node.DOCUMENT_POSITION_FOLLOWING), inside: chat.contains(s),
            cls: document.body.classList.contains('chat-session'), position: getComputedStyle(s).position,
            waiting: tw('.wait-row .wait-link'), ids: tw('.wait-row .wait-id'), hrefs: [...w.querySelectorAll('.wait-row .wait-link')].map((a) => a.getAttribute('href')), answers: w.querySelectorAll('.answer').length, fresh: tw('.wait-subj .new'), pinned: getComputedStyle(w).position, pinHidden: w.hidden,
-           pinParent: w.parentElement.id, pinBefore: !!(w.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING), motion: t('.mo'), count: t('.count'),
+           pinParent: w.parentElement.id, pinBefore: !!(w.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING), motion: tw('#chat-strip-onit-panel .back-row .wait-title'),
+           none: [...w.querySelectorAll('#chat-strip-onit-panel .wait-empty')].filter((n) => !n.hidden).map((n) => n.textContent.trim()), count: t('.count'),
            switchOn: !!sw && !sw.disabled && !sw.checked, switchText: t('.kept-toggle > span'), msgs: chat.querySelectorAll(':scope > .msg').length }; })()"""
 
 
 @pytest.mark.parametrize("size", SIZES)
-def test_the_strip_shows_what_waits_what_is_in_motion_and_the_kept_back_switch_with_its_count(served, browser, monkeypatch, size):
+def test_the_strip_shows_what_waits_what_is_in_progress_and_the_kept_back_switch_with_its_count(served, browser, monkeypatch, size):
     open_page(browser, served, monkeypatch, size, api_chat(keptToday=12, keptTodayFloor=True))
-    assert wait_for(browser, "!document.querySelector('#chat-strip').hidden && document.querySelectorAll('#chat-strip-wait .wait-row').length === 2", 10.0)
+    assert wait_for(browser, "!document.querySelector('#chat-strip').hidden && document.querySelectorAll('#chat-strip-wait-panel .wait-row').length === 2", 10.0)
     s = browser.evaluate(STRIP)
-    assert s["parent"] == "chat-pane" and s["before"] and not s["inside"] and s["cls"] and s["position"] == "static", s    # the motion lines and the switch scroll with the thread
+    assert s["parent"] == "chat-pane" and s["before"] and not s["inside"] and s["cls"] and s["position"] == "static", s    # the switch scrolls with the thread
     assert s["pinned"] == "sticky" and not s["pinHidden"] and s["pinParent"] == "chat-pane" and s["pinBefore"], s          # what waits is pinned, before the rest of the strip
     assert s["waiting"] == ["Approve the demo budget", "Pick a venue"] and s["ids"] == ["item#1", "item#2"], s       # the id as a label, the title as the link
     assert s["hrefs"] == ["https://example.com/moves/1", "https://example.com/moves/2"] and s["answers"] == 0, s
-    assert s["motion"] == ["drawing slide 4"] and s["count"] == ["12+ kept back today"], s
+    assert s["motion"] == ["drawing slide 4"] and s["none"] == [] and s["count"] == ["12+ kept back today"], s
     assert s["switchOn"] and s["switchText"][0].startswith("Show what Ada kept back") and "not active yet" not in s["switchText"], s
     assert s["fresh"] == [], s                                  # the first answer's moves are not "new"
     # a move that came since is marked new; the strip follows the answer
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { waiting: window.__chat.waiting.concat([{ id: 'item#3', subject: 'A third move', url: '' }]), motion: [] }); loadChatMarks(); ''")
-    assert wait_for(browser, "document.querySelectorAll('#chat-strip-wait .wait-row').length === 3", 8.0)
+    assert wait_for(browser, "document.querySelectorAll('#chat-strip-wait-panel .wait-row').length === 3", 8.0)
     s = browser.evaluate(STRIP)
-    assert s["fresh"] == ["new"] and s["motion"] == ["nothing right now"], s
+    assert s["fresh"] == ["new"] and s["motion"] == [] and s["none"] == ["Nothing in progress right now"], s
 
 
 def test_the_strip_survives_the_thread_being_replaced_and_is_read_again_after_stream_activity(served, browser, monkeypatch):
     open_page(browser, served, monkeypatch, DESKTOP, api_chat())
-    assert wait_for(browser, "document.querySelectorAll('#chat-strip-wait .wait-row').length === 2", 10.0)
+    assert wait_for(browser, "document.querySelectorAll('#chat-strip-wait-panel .wait-row').length === 2", 10.0)
     browser.evaluate("window.__reads = 0; const f = window.fetch; window.fetch = (u, o) => { if (String(u).startsWith('api/chat')) window.__reads++; return f(u, o); }; "
-                     "window.__chat = Object.assign({}, window.__chat, { waiting: [] }); selectSession(state.selected, { force: true }); ''")
+                     "window.__chat = Object.assign({}, window.__chat, { waiting: [], motion: [] }); selectSession(state.selected, { force: true }); ''")
     browser.wait_ready(CHAT_READY)          # the stream's reset replaced #chat's children
     assert wait_for(browser, "document.querySelectorAll('#chat-strip-wait .wait-row').length === 0 && document.querySelector('#chat-strip-wait').hidden", 10.0), \
-        "the strip was read again after the stream said something changed; with nothing waiting no pinned line is drawn"
+        "the strip was read again after the stream said something changed; with both lists empty nothing is pinned"
     s = browser.evaluate(STRIP)
     assert not s["hidden"] and s["parent"] == "chat-pane" and s["msgs"] >= 1 and browser.evaluate("window.__reads") >= 1, s
 
@@ -335,7 +336,7 @@ MEASURE = r"""(() => {
   const pane = document.getElementById('chat-pane'), strip = document.getElementById('chat-strip'), pin = document.getElementById('chat-strip-wait');
   return { vw, page: [root.scrollWidth, root.clientWidth], body: [document.body.scrollWidth, document.body.clientWidth], pane: [pane.scrollWidth, pane.clientWidth],
            strip: [strip.scrollWidth, strip.clientWidth, strip.getBoundingClientRect().right], pin: [pin.scrollWidth, pin.clientWidth, pin.getBoundingClientRect().right], outside: out.slice(0, 8), scrollers, open,
-           waiting: pin.querySelectorAll('.wait-row').length, motion: strip.querySelectorAll('.mo').length, msgs: document.querySelectorAll('#chat > .msg').length }; })()"""
+           waiting: pin.querySelectorAll('#chat-strip-wait-panel .wait-row').length, motion: pin.querySelectorAll('#chat-strip-onit-panel .back-row').length, msgs: document.querySelectorAll('#chat > .msg').length }; })()"""
 
 
 def check(m: dict, where: str) -> None:
@@ -355,7 +356,8 @@ def test_no_sideways_scroll_with_hostile_text_in_the_thread_the_strip_and_the_en
                    waiting=[{"id": f"item#{i}", "subject": "[demo] " + "an item subject that keeps going and going " * 8 + WORD, "url": URL} for i in range(3)],
                    motion=[{"text": WORD + " " + "m" * 100, "at": int(time.time())} for _ in range(6)])
     open_page(browser, served, monkeypatch, (width, 800 if width > 700 else 844), doc)
-    assert wait_for(browser, "document.querySelectorAll('#chat-strip-wait .wait-row').length === 3 && document.querySelectorAll('#chat-strip .mo').length === 6", 10.0)
+    assert wait_for(browser, "document.querySelectorAll('#chat-strip-wait-panel .wait-row').length === 3 && document.querySelectorAll('#chat-strip-onit-panel .back-row').length === 6", 10.0)
+    browser.evaluate("document.querySelector('#chat-strip-tab-onit').click(); ''")          # the promised lines' list is the open one while the page is measured
     if width < 700:
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
         assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)

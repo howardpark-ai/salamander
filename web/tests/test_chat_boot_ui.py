@@ -8,9 +8,8 @@ English and Korean, at 1280 x 800 and 390 x 844 (also 360 and 320):
   - another session's load is the same with a chat session set as with none, and no other address is held;
   - it never stays held: not running, asleep, a failed read and a script error each end on the page as it is without this;
   - going to the chat session inside the page, from another session or the Overview, shows only where it came from and the chat;
-  - the rows the chat page keeps above its thread (what is in motion, the kept-back switch) are in no frame that shows the thread's loading line, on a load, a reload,
-    a switch inside the page and a sleeping chat session, while the pinned line of the owner's moves is (on a load, a reload and a thread that never arrives also
-    as the bar of two tabs); once a thread or a note stands in the loading line's place
+  - the row the chat page keeps above its thread (the kept-back switch) is in no frame that shows the thread's loading line, on a load, a reload,
+    a switch inside the page and a sleeping chat session, while the pinned bar of two tabs is; once a thread or a note stands in the loading line's place
     the rows are there, scrolled out of view above a long thread; with a thread that never arrives they stay away; another session never has them;
   - no frame scrolls sideways.
 
@@ -34,7 +33,6 @@ from sala_web import app as APP
 from sala_web import sessions as S
 from test_back_button import STANDALONE
 from test_chat_session_view import EN_T, KO_T
-from test_chat_onit_ui import promises
 from test_chat_session_view_ui import DESKTOP, PHONE, SIZES, api_chat, stub
 from test_sleeping_sessions import SLEEP_UUID, wake  # noqa: F401 (a fixture)
 
@@ -58,7 +56,7 @@ RECORDER = """(() => {
     if (name) frames.push({ t: performance.now(), head: text(name), chat: text(chat).slice(0, 400), raw: name.textContent,
       pick: !!document.querySelector('#chat > [data-i18n="ui.chat.pick"]'), msgs: document.querySelectorAll("#chat > .msg").length,
       loading: !!document.querySelector('#chat > .empty[data-i18n="app.loadingTranscript"]'), on: !!strip && !strip.hidden,
-      rows: strip ? [...strip.querySelectorAll(".motion, .kept-row")].filter(seen).length : 0, bar: !!bar && seen(bar),
+      rows: strip ? [...strip.querySelectorAll(".kept-row")].filter(seen).length : 0, bar: !!bar && seen(bar),
       tabs: bar ? [...bar.querySelectorAll("[role=tab]")].filter(seen).length : 0,
       below: pane ? Math.round(pane.scrollHeight - pane.scrollTop - pane.clientHeight) : 0, wide: pane ? pane.scrollWidth - pane.clientWidth : 0,
       hold: root.hasAttribute("data-chat-boot"), over: root.scrollWidth - root.clientWidth });
@@ -369,8 +367,8 @@ def test_going_to_the_chat_session_inside_the_page_shows_no_other_view_on_the_wa
 # api/chat answers at once (a stand-in with two moves that wait) and the thread comes late, so the strip is on all the while the loading line stands
 QUICK = [["api/sleeping/", 1200], ["api/sessions", 300], ["api/", 100]]
 LATE_STREAM_MS = 1200
-ROWS = 2     # what is in motion, and the kept-back switch
-PINNED = [pytest.param(0, id="one-line"), pytest.param(2, id="two-tabs")]     # the pinned part's two forms, by the tabs it shows
+ROWS = 1     # the kept-back switch
+TABS = 2     # the pinned part is a bar of two tabs
 
 PANE = """(() => { const box = (s) => document.querySelector(s).getBoundingClientRect(), p = document.querySelector('#chat-pane');
   return { paneTop: box('#chat-pane').top, paneBottom: box('#chat-pane').bottom, stripTop: box('#chat-strip').top, stripBottom: box('#chat-strip').bottom,
@@ -385,37 +383,36 @@ def long_thread() -> str:
                    for i in range(30))
 
 
-def prepare_rows(browser, served, monkeypatch, session=NAME, stream_ms=LATE_STREAM_MS, fail=(), tabs=0) -> None:
-    second = {"onIt": promises()} if tabs else {}                                 # with the second list, the pinned part is the bar of two tabs
-    prepare(browser, served, monkeypatch, fail=fail, reads=QUICK, stream_ms=stream_ms, extra=[stub(api_chat(session=session, name=LABEL, **second))])
+def prepare_rows(browser, served, monkeypatch, session=NAME, stream_ms=LATE_STREAM_MS, fail=()) -> None:
+    prepare(browser, served, monkeypatch, fail=fail, reads=QUICK, stream_ms=stream_ms, extra=[stub(api_chat(session=session, name=LABEL))])
 
 
-def check_rows(seen: list[dict], tabs=0) -> None:
+def check_rows(seen: list[dict]) -> None:
     for f in seen:
         assert not (f["loading"] and f["rows"]), f                   # never above a thread still loading
         assert f["over"] <= 0 and f["wide"] <= 0, f
     # the case was staged: the strip was on (api/chat had answered) while the loading line stood, which is where its rows showed; the pinned part stood there too
     waited = [f for f in seen if f["loading"] and f["on"]]
     assert waited, "the strip was never on while the thread loaded"
-    assert all(f["bar"] and f["tabs"] == tabs for f in waited), waited[:3]
+    assert all(f["bar"] and f["tabs"] == TABS for f in waited), waited[:3]
 
 
-def check_rows_above_a_long_thread(browser) -> None:
-    """The thread is in and the view is at its end: the rows are in the pane, scrolled out above; at the top they are under the pinned line."""
+def check_rows_above_a_long_thread(browser, rows: int = ROWS) -> None:
+    """The thread is in and the view is at its end: the strip is in the pane, scrolled out above; at the top it is under the pinned bar. `rows`: how many of its rows
+    show (none with the chat layer on, whose sheet hides the kept-back switch: the strip then takes no height)."""
     end = browser.evaluate(PANE)
-    assert end["stripH"] > 0 and end["top"] > 0 and end["below"] <= 1 and end["wide"] <= 0, end
+    assert (end["stripH"] > 0) is (rows > 0) and end["top"] > 0 and end["below"] <= 1 and end["wide"] <= 0, end
     assert end["stripBottom"] <= end["paneTop"] + 1, end
     assert end["barH"] > 0 and abs(end["barTop"] - end["paneTop"]) <= 1, end
     top = browser.evaluate(f"(document.querySelector('#chat-pane').scrollTop = 0, {PANE})")     # one call: nothing scrolls between the two
-    assert top["barBottom"] - 1 <= top["stripTop"] < top["stripBottom"] <= top["paneBottom"], top
+    assert top["barBottom"] - 1 <= top["stripTop"] <= top["stripBottom"] <= top["paneBottom"], top
     assert abs(top["barTop"] - top["paneTop"]) <= 1, top
 
 
-@pytest.mark.parametrize("tabs", PINNED)
 @pytest.mark.parametrize("size", SIZES)
-def test_the_rows_above_the_thread_wait_for_it_on_a_load_and_a_reload(served, browser, monkeypatch, size, tabs):
+def test_the_rows_above_the_thread_wait_for_it_on_a_load_and_a_reload(served, browser, monkeypatch, size):
     transcript_file(served).write_text(long_thread())
-    prepare_rows(browser, served, monkeypatch, tabs=tabs)
+    prepare_rows(browser, served, monkeypatch)
     load(browser, served, monkeypatch, size, "#s=" + NAME)
     for again in (False, True):
         if again:
@@ -423,8 +420,8 @@ def test_the_rows_above_the_thread_wait_for_it_on_a_load_and_a_reload(served, br
             browser.send("Page.reload")
         until(browser, "!window.__stale && " + CHAT_DRAWN)
         seen = frames(browser)
-        check_rows(seen, tabs)
-        assert (seen[-1]["rows"], seen[-1]["tabs"]) == (ROWS, tabs), seen[-1]
+        check_rows(seen)
+        assert (seen[-1]["rows"], seen[-1]["tabs"]) == (ROWS, TABS), seen[-1]
         check_rows_above_a_long_thread(browser)
 
 
@@ -454,18 +451,17 @@ def test_the_rows_above_the_thread_wait_for_it_on_a_switch_inside_the_page(serve
     assert not any(f["over"] > 0 or f["wide"] > 0 for f in seen), seen[-1]
 
 
-@pytest.mark.parametrize("tabs", PINNED)
 @pytest.mark.parametrize("size", [*SIZES, pytest.param((320, 844), id="narrowest")])
-def test_a_thread_that_never_arrives_keeps_the_rows_away_and_the_pinned_line(served, browser, monkeypatch, size, tabs):
-    prepare_rows(browser, served, monkeypatch, stream_ms=600_000, tabs=tabs)
+def test_a_thread_that_never_arrives_keeps_the_rows_away_and_the_pinned_bar(served, browser, monkeypatch, size):
+    prepare_rows(browser, served, monkeypatch, stream_ms=600_000)
     load(browser, served, monkeypatch, size, "#s=" + NAME)
     until(browser, f"location.protocol === 'http:' && !!{NAME_EL} && {NAME_EL}.textContent === '{LABEL}' && {LET_GO} && "
                    "!document.querySelector('#chat-strip').hidden && !document.querySelector('#chat-strip-wait').hidden")
     time.sleep(1.0)
     seen = frames(browser)
-    check_rows(seen, tabs)
+    check_rows(seen)
     last = seen[-1]
-    assert (last["loading"], last["on"], last["rows"], last["bar"], last["tabs"]) == (True, True, 0, True, tabs), last
+    assert (last["loading"], last["on"], last["rows"], last["bar"], last["tabs"]) == (True, True, 0, True, TABS), last
 
 
 @pytest.mark.parametrize("fail", [(), ("api/sleeping/",)], ids=["the-thread-arrives", "the-read-fails"])

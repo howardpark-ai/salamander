@@ -225,7 +225,7 @@ def open_answer(browser, served, monkeypatch, waiting: list[dict], replies=("Not
     wait(browser, f"!document.querySelector('#chat-strip').hidden && {ROWS}.length === {len(waiting)}")
     if waiting and listed:
         wait(browser, "!document.querySelector('#chat-strip-wait').hidden")
-        click(browser, "document.querySelector('#chat-strip-wait .wait-toggle')")
+        click(browser, MOVE_TAB)
         wait(browser, "!document.querySelector('#chat-strip-wait-panel').hidden")
 
 
@@ -296,7 +296,7 @@ def test_no_repaint_and_no_growing_thread_moves_or_remakes_a_live_frame(served, 
     wait(browser, f"{row(3)}.getBoundingClientRect().top < {row(1)}.getBoundingClientRect().top")
     assert order() == ["item#3", "item#2", "item#1"]
     same("a re-ordered list")
-    change(browser, waiting=[frames.row(4, "A new one"), rows[2], frames.row(2, "Pick a bigger venue"), rows[0]], onIt=promises())
+    change(browser, waiting=[frames.row(4, "A new one"), rows[2], frames.row(2, "Pick a bigger venue"), rows[0]], motion=promises())
     wait(browser, f"{ROWS}.length === 4 && {row(2)}.querySelector('.ans-name').textContent.includes('bigger')")
     assert order() == ["item#4", "item#3", "item#2", "item#1"]
     same("a new row and new words")
@@ -605,7 +605,7 @@ def test_under_the_bar_of_tabs_every_target_gives_a_finger_44px_and_the_list_is_
     rows = [frames.row(1), elsewhere(2), elsewhere(3), frames.row(4, "Pick a venue"), frames.row(5, "Nobody speaks")] + [elsewhere(n) for n in range(6, 21)]
     frames.first["5"] = None
     open_answer(browser, served, monkeypatch, rows, size=size, timing={"silent": 4000})
-    change(browser, onIt=promises())
+    change(browser, motion=promises())
     wait(browser, f"!!{MOVE_TAB}")
     browser.evaluate(f"if (document.querySelector('#chat-strip-wait-panel').hidden) {MOVE_TAB}.click(); ''")
     wait(browser, "document.querySelector('#chat-strip-wait-panel').getClientRects().length > 0")

@@ -3,7 +3,7 @@
 The rule: the session the server is set to talk to (SALA_CHAT_SESSION) is opened like every other session, with the same header, thread, composer (box, attach button,
 image paste), spacing and buttons. What it adds is a short list, and a difference outside the list is a defect:
   - its entry, the first line of the sidebar's views above New session, with its name, a small "chat", a working dot and a red count of what waits on the owner;
-  - the strip above the thread (what waits on the owner, what is in motion, the kept-back switch with its count), outside #chat because showTail replaces #chat's children;
+  - the strip above the thread (what waits on the owner, what is in progress, the kept-back switch with its count), outside #chat because showTail replaces #chat's children;
   - the assistant's messages capped to the left (68ch).
 The server marks the session with `"chat": true` in api/sessions, and only that session: every other session's payload is as it was. The kept-back switch
 works (the server keeps the turns the owner did not start back: test_chatkeep.py; the page draws each as one quiet line the switch shows or hides). The page of its own that
@@ -109,7 +109,7 @@ def test_the_strip_is_a_sibling_before_chat_and_not_inside_it():
     assert "chat-strip" not in body_of(APP_JS, "function showTail(") and "chat-strip" not in body_of(APP_JS, "function leaveSession(")
 
 
-def test_what_waits_on_the_owner_is_a_pinned_line_before_the_strip_in_the_pane():
+def test_what_waits_on_the_owner_is_in_a_pinned_bar_before_the_strip_in_the_pane():
     pane = INDEX[INDEX.index('<section id="chat-pane"'):INDEX.index("</section>", INDEX.index('<section id="chat-pane"'))]
     assert re.search(r'<div id="chat-strip-wait"[^>]*hidden></div>', pane), "closed until the page has something to say"
     assert pane.index('<div id="chat-strip-wait"') < pane.index('<div id="chat-strip"') < pane.index('<div id="chat">'), "a direct child of the scrolling pane, first"
@@ -117,11 +117,11 @@ def test_what_waits_on_the_owner_is_a_pinned_line_before_the_strip_in_the_pane()
     assert "position: sticky" in pin and "top: 0" in pin and "max-height: 40vh" in pin, pin
     assert re.search(r"#chat-strip-wait \.wait \{[^}]*overflow-y: auto", STYLE) and re.search(r"#chat-strip-wait \.wait \{[^}]*overflow-x: hidden", STYLE)
     build = body_of(APP_JS, "function buildChatStrip()")
-    assert 'el("button", { type: "button", class: "wait-toggle", "aria-expanded": "false"' in build and '"aria-controls": "chat-strip-wait-panel"' in build
-    assert 'class: "wait", id: "chat-strip-wait-panel", hidden: true' in build, "a page load starts with the list closed"
+    assert 'class: "wait-tabs", role: "tablist"' in build and 'el("button", { type: "button", class: "wait-chev", "aria-expanded": "false" }' in build
+    assert 'class: "wait", id: "chat-strip-wait-panel", hidden: true' in build and 'class: "wait", id: "chat-strip-onit-panel", hidden: true' in build, "a page load starts closed"
     paint = body_of(APP_JS, "function paintChatWait()")
-    assert '$("#chat-strip-wait").hidden = !shown;' in paint and '"aria-expanded"' in paint and '"chat.strip.line"' in paint, "nothing in either list: no line"
-    assert "shown = n > 0 || !!(onIt && onIt.length)" in paint, "with no second list, nothing waiting is still no line"
+    assert '$("#chat-strip-wait").hidden = !shown;' in paint and '"chat.strip.line"' in paint and '"aria-expanded"' in body_of(APP_JS, "function paintChatBar(")
+    assert "shown = n > 0 || onIt.length > 0" in paint, "nothing in either list: nothing is pinned"
 
 
 def test_the_composer_is_sala_s_own_and_nothing_here_draws_another():
@@ -180,7 +180,7 @@ def test_the_switch_works_and_the_count_floors_with_a_plus():
     paint = body_of(APP_JS, "function paintChatStrip()")
     assert '"chat.kept.floor" : "chat.kept.count"' in paint and "d.keptLines ?? d.keptToday" in paint
     assert 'classList.toggle("chat-kept-on", flagged && chatView.kept)' in body_of(APP_JS, "function chatSync()")
-    for key in ("chat.wait.note", "chat.wait.new", "chat.motion.h", "chat.motion.none", "chat.kept.toggle",
+    for key in ("chat.wait.note", "chat.wait.new", "chat.onit.none", "chat.onit.note", "chat.kept.toggle",
                 "chat.strip.line", "chat.strip.expand", "chat.strip.collapse"):
         assert f'"{key}"' in APP_JS, key
 
@@ -206,17 +206,17 @@ def test_the_left_cap_is_one_rule_on_the_assistants_text_under_the_chat_session_
 def test_the_strip_is_not_drawn_above_a_thread_that_is_still_loading():
     key = "app.loadingTranscript"
     hide = [(s, " ".join(b.split())) for s, b in rules(STYLE) if key in s]
-    assert hide == [(f'body.chat-session #chat-strip:has(+ #chat > .empty[data-i18n="{key}"])', "display: none;")], "one rule, on the strip alone: the pinned line stays"
+    assert hide == [(f'body.chat-session #chat-strip:has(+ #chat > .empty[data-i18n="{key}"])', "display: none;")], "one rule, on the strip alone: the pinned bar stays"
     # what the selector matches is what app.js draws, for a live session and for a sleeping one, and no other place writes that line
     line = f'el("div", {{ class: "empty", text: tl("{key}"), "data-i18n": "{key}" }})'
     assert line in body_of(APP_JS, "function selectSession(") and line in body_of(APP_JS, "async function showSleeping(")
     assert APP_JS.count(line) == 2 and APP_JS.count(f'"{key}"') == 4
-    assert '$("#chat-strip").replaceChildren(motion, kept);' in APP_JS      # what the rule takes away: In motion and the switch; the pinned part is another element
+    assert '$("#chat-strip").replaceChildren(kept);' in APP_JS      # what the rule takes away: the switch; the pinned part is another element
     assert re.search(r'<div id="chat-strip"[^>]*></div>\s*<div id="chat">', INDEX), "`+ #chat`: the strip is the element right before the thread"
 
 
 def test_the_strip_s_rules_are_scoped_to_it_and_the_entry_has_a_floor_for_its_name():
-    bare_names = re.compile(r"\.(wait|wait-\w+|sec-head|motion|mo|mo-list|kept-toggle|kept-row|answer|new|count)(?![\w-])")
+    bare_names = re.compile(r"\.(wait|wait-\w+|sec-head|back-row|kept-toggle|kept-row|answer|new|count)(?![\w-])")
     start = STYLE.index("The strip (app.js buildChatStrip)")
     block = STYLE[STYLE.index("*/", start) + 2:STYLE.index("@media (pointer: coarse) { #chat-strip")]
     for sel, _ in rules(block):
@@ -249,7 +249,7 @@ def test_the_new_strings_are_in_english_and_in_korean_as_escapes(key):
     assert re.search(r"\\u[0-9a-f]{4}", line) and line.isascii(), line
 
 
-@pytest.mark.parametrize("key", ["chat.wait.note", "chat.wait.new", "chat.motion.h", "chat.motion.none", "chat.strip.line", "chat.strip.expand", "chat.strip.collapse",
+@pytest.mark.parametrize("key", ["chat.wait.note", "chat.wait.new", "chat.onit.none", "chat.onit.note", "chat.strip.line", "chat.strip.expand", "chat.strip.collapse",
                                  "chat.kept.toggle", "chat.kept.count", "chat.kept.floor", "chat.kept.open", "chat.state.busy",
                                  "chat.src.sala", "chat.src.board", "chat.src.session", "chat.src.task", "chat.src.system", "chat.src.other"])
 def test_the_strips_strings_are_in_both_languages(key):
@@ -278,14 +278,14 @@ def test_the_answer_link_is_gone_and_the_title_is_the_one_link_to_the_item():
     assert "overflow-wrap: anywhere" in linkrule and "display" not in linkrule, "the title is inline text, so it wraps as text does"
 
 
-def test_the_open_list_has_no_heading_and_the_panel_is_named_by_the_pinned_line():
+def test_the_open_list_has_no_heading_and_the_panel_is_named_by_its_tab_s_words():
     for table_ in (EN_T, KO_T):
         assert "chat.wait.h" not in table_ and "chat.wait.sub" not in table_, "the heading's strings are gone from both tables"
     assert "chat.wait.h" not in APP_JS and "chat.wait.sub" not in APP_JS and "sec-head" not in APP_JS
     assert not re.search(r"\.sec-head\b", STYLE), "no rule of the old heading row stays"
     build = body_of(APP_JS, "function buildChatStrip()")
-    assert 'class: "wait", id: "chat-strip-wait-panel", hidden: true }, waitList, waitNote,' in build, "the panel starts with the list, no heading"
-    assert 'u.wait.setAttribute("aria-label", u.waitLine.textContent)' in body_of(APP_JS, "function paintChatWait()")
+    assert '"aria-labelledby": "chat-strip-tab-move" }, waitList, waitNote,' in build, "the panel starts with the list, no heading"
+    assert 'u.wait.setAttribute("aria-label", u.moveLine.textContent)' in body_of(APP_JS, "function paintChatWait()")
     assert EN_T["chat.wait.note"] and KO_T["chat.wait.note"], "the footnote stays"
 
 
@@ -402,8 +402,9 @@ def test_no_string_of_either_table_says_waiting_on_you():
 
 def test_the_page_words_the_line_the_titles_and_the_chip_through_those_keys():
     paint = body_of(APP_JS, "function paintChatWait()")
-    assert 'tl("chat.strip.line", { n, group })' in paint and 'tl(open ? "chat.strip.collapse" : "chat.strip.expand", { group })' in paint
+    assert 'tl("chat.strip.line", { n, group })' in paint
+    assert 'tl(open ? "chat.strip.collapse" : "chat.strip.expand", { group: listName })' in body_of(APP_JS, "function paintChatBar(")
     entry = body_of(APP_JS, "function paintChatEntry()")
     assert "const group = chatGroupName(d.group);" in entry
     assert 'a.title = tl("ui.side.chatTip", { group });' in entry and 'tl("ui.side.chatWait", { n: waiting, group })' in entry
-    assert "chat.wait.h" not in APP_JS, "the open list has no heading of its own: the pinned line says it"
+    assert "chat.wait.h" not in APP_JS, "the open list has no heading of its own: its tab says it"

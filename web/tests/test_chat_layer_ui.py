@@ -339,8 +339,8 @@ def test_a_failed_read_says_so_offers_retry_and_tries_again_by_itself(served, br
     write(served, human("go on", 1), assistant("Done.", 2))
     open_chat(browser, served, monkeypatch, fail=True, ready=False, doc=strip_doc())
     assert wait_for(browser, "!!document.querySelector('#chat > .cl-fail')", 20.0)
-    # a read that failed is not a thread still loading: the strip's rows are there
-    assert wait_for(browser, "document.querySelectorAll('#chat-strip .mo').length >= 1 && "
+    # a read that failed is not a thread still loading: the strip is there
+    assert wait_for(browser, "document.querySelectorAll('#chat-strip-onit-panel .back-row').length >= 1 && "
                              "document.querySelector('#chat-strip').getClientRects().length > 0", 20.0)
     assert browser.evaluate("[document.querySelectorAll('#chat > .msg').length, document.querySelectorAll('#chat > .empty').length]") == [0, 0]
     assert browser.evaluate("document.querySelector('#chat .cl-fail span').textContent")
@@ -475,17 +475,16 @@ FRAMES = "new Promise((res) => { let n = 6; (function next() { if (n--) requestA
 
 
 def held_then_shown(browser) -> None:
-    """A thread whose read is held: the strip has its rows and none of them is on screen; then the thread arrives and the strip is there."""
-    assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat-strip .mo').length >= 1 && {ABOVE}[0]", 30.0)
+    """A thread whose read is held: api/chat has answered and the strip under the pinned part is not on screen; then the thread arrives and the strip is there."""
+    assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat-strip-onit-panel .back-row').length >= 1 && {ABOVE}[0]", 30.0)
     assert browser.evaluate(FRAMES)
     assert browser.evaluate(ABOVE) == [True, False]
     assert browser.evaluate("!document.querySelector('#chat-strip').hidden && document.querySelector('#chat-strip-wait').getClientRects().length > 0"), \
-        "only the rows that scroll with the thread are held back: the pinned line stays"
+        "only what scrolls with the thread is held back: the pinned part stays"
     browser.evaluate("window.__hold = false; ''")
     thread_is(browser, SHOWN)
     assert browser.evaluate(FRAMES)
     assert browser.evaluate(ABOVE) == [False, True]
-    assert browser.evaluate("document.querySelector('#chat-strip .mo').getClientRects().length > 0")
     assert browser.evaluate("window.__above") == []
 
 
@@ -521,7 +520,7 @@ UNDER = """[document.querySelectorAll('#chat > .msg:not(.local)').length, docume
 def under_a_bubble(browser, sent: list[str]) -> None:
     """A thread whose read is held, with messages on their way and so no loading line: none of the strip's rows is on screen until the thread is in."""
     assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat > .msg.local').length === {len(sent)} && "
-                             "document.querySelectorAll('#chat-strip .mo').length >= 1", 30.0)
+                             "document.querySelectorAll('#chat-strip-onit-panel .back-row').length >= 1", 30.0)
     assert browser.evaluate(FRAMES)
     assert browser.evaluate(PENDING) == sent
     assert browser.evaluate(UNDER) == [0, 0, False]
@@ -544,7 +543,7 @@ def test_a_message_on_its_way_does_not_bring_the_strips_rows_onto_a_loading_thre
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": HOLD})
     # sent while the first read is out: the bubble takes the loading line's place
     open_chat(browser, served, monkeypatch, size, ready=False, doc=strip_doc())
-    assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat-strip .mo').length >= 1 && {ABOVE}[0]", 30.0)
+    assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat-strip-onit-panel .back-row').length >= 1 && {ABOVE}[0]", 30.0)
     first, second = "Sent while loading.", "And one more."
     send(browser, first)
     under_a_bubble(browser, [first])
@@ -569,7 +568,7 @@ def test_a_session_opened_again_has_the_same_loading_state_with_the_setting_off_
     chat, other = {}, {}
     for layer in ("off", "on"):
         open_chat(browser, served, monkeypatch, PHONE, layer=layer, doc=strip_doc())
-        assert wait_for(browser, "document.querySelectorAll('#chat-strip .mo').length >= 1", 20.0)
+        assert wait_for(browser, "document.querySelectorAll('#chat-strip-onit-panel .back-row').length >= 1", 20.0)
         chat[layer] = browser.evaluate(f"selectSession('{NAME}', {{ force: true }}); {ABOVE}")
         browser.evaluate(f"go('#s={OTHER}'); ''")
         other_ready(browser)
@@ -581,7 +580,7 @@ def test_a_session_opened_again_has_the_same_loading_state_with_the_setting_off_
 # ── the first paint of the chat's address ────────────────────────────────────
 # static/chatboot.js and style.css's loading rule are in the page with the setting off and on; the recorder, the delays and the checks are test_chat_boot_ui.py's
 LAYERS = ["off", "on"]
-ROWS_SHOWN = {"off": boot.ROWS, "on": boot.ROWS - 1}     # the layer's sheet hides the kept-back switch: its thread has no kept-back line
+ROWS_SHOWN = {"off": boot.ROWS, "on": boot.ROWS - 1}     # the layer's sheet hides the kept-back switch: its thread has no kept-back line, so nothing scrolls with it
 
 
 def long_thread() -> list[dict]:
@@ -634,7 +633,7 @@ def test_the_rows_wait_for_the_thread_on_the_chat_address_with_the_setting_off_a
         rows_only_over_messages(seen)
         assert seen[-1]["rows"] == ROWS_SHOWN[layer] and seen[-1]["msgs"] >= 1, (step, seen[-1])
         assert browser.evaluate(LAYERED) is (layer == "on"), step
-        boot.check_rows_above_a_long_thread(browser)
+        boot.check_rows_above_a_long_thread(browser, ROWS_SHOWN[layer])
 
 
 @pytest.mark.parametrize("layer", LAYERS)
@@ -721,7 +720,7 @@ def hostile_ready(browser) -> None:
     assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length >= 3 && !!document.querySelector('#chat .cl-turn:not([hidden])') && "
                              "!!document.querySelector('#chat .msg img') && "
                              "[...document.querySelectorAll('#chat .msg img')].every((i) => i.complete && i.naturalWidth > 0) && "
-                             "document.querySelectorAll('#chat-strip-wait .wait-row').length === 2", 30.0), browser.evaluate(INSIDE)
+                             "document.querySelectorAll('#chat-strip-wait-panel .wait-row').length === 2", 30.0), browser.evaluate(INSIDE)
 
 
 def strip_doc() -> dict:
@@ -805,7 +804,7 @@ def bar_walk(browser) -> list:
 def test_the_pinned_bar_and_both_tabs_look_and_work_the_same_with_the_setting_on_and_off(served, browser, monkeypatch, size):
     # long enough for the pane to scroll in both views, so that a scroll bar takes the same room in each
     write(served, *long_thread())
-    doc = api_chat(waiting=waiting(), onIt=promises())
+    doc = api_chat(waiting=waiting(), motion=promises())
     walks = {}
     for layer in ("off", "on"):
         open_chat(browser, served, monkeypatch, size, layer=layer, doc=doc)
@@ -822,8 +821,8 @@ def test_the_pinned_bar_stays_and_works_while_the_thread_loads(served, browser, 
     write(served, *mixed())
     browser.send("Page.enable")
     browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": HOLD})
-    open_chat(browser, served, monkeypatch, size, ready=False, doc=api_chat(waiting=waiting(), onIt=promises()))
-    assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat-strip .mo').length >= 1 && !{PIN}.hidden && {ABOVE}[0]", 30.0)
+    open_chat(browser, served, monkeypatch, size, ready=False, doc=api_chat(waiting=waiting(), motion=promises()))
+    assert wait_for(browser, f"window.__held >= 1 && document.querySelectorAll('#chat-strip-onit-panel .back-row').length >= 1 && !{PIN}.hidden && {ABOVE}[0]", 30.0)
     assert browser.evaluate(FRAMES)
     s = state(browser)
     assert s["pin"] and s["bar"] and s["open"] == [] and browser.evaluate(ABOVE) == [True, False], s
@@ -844,8 +843,7 @@ def test_the_pinned_bar_stays_and_works_while_the_thread_loads(served, browser, 
 @pytest.mark.parametrize("width", [1280, 390, 360, 320])
 def test_no_sideways_scroll_with_the_pinned_bar_closed_and_on_each_tab(served, browser, monkeypatch, width):
     write(served, *hostile(served))
-    doc = api_chat(name="A" * 40, busy=True, group={"en": "G" * 40, "ko": cp(0xACB0) * 40}, waiting=waiting(12, long=True), onIt=onit_hostile(12),
-                   motion=[{"text": WORD, "at": int(time.time())}])
+    doc = api_chat(name="A" * 40, busy=True, group={"en": "G" * 40, "ko": cp(0xACB0) * 40}, waiting=waiting(12, long=True), motion=onit_hostile(12))
     open_chat(browser, served, monkeypatch, (width, 800 if width > 700 else 844), doc=doc)
     if width < 700:
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
@@ -1136,7 +1134,7 @@ def test_no_sideways_scroll_with_sent_images_questions_an_api_error_and_an_inter
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
         assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
     ready = (f"(() => {{ const f = {FIGURES}; return f.length === 2 && f.some((x) => x[1] === 2400) && f.some((x) => !!x[2]) && "
-             "document.querySelectorAll('#chat .cl-ask').length === 1 && document.querySelectorAll('#chat-strip-wait .wait-row').length === 2; })()")
+             "document.querySelectorAll('#chat .cl-ask').length === 1 && document.querySelectorAll('#chat-strip-wait-panel .wait-row').length === 2; })()")
     assert wait_for(browser, ready, 30.0), browser.evaluate(REST_WIDE)
     browser.settle("document.querySelector('#chat')")
     m, rest = browser.evaluate(MEASURE), browser.evaluate(REST_WIDE)

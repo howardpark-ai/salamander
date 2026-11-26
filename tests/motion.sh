@@ -2,11 +2,11 @@
 # tests/motion.sh — `sala motion` (lib/motion.sh, lib/motion.py; docs/subcommands.md). Everything runs in one temporary tree (locked while the suite
 # runs, removed at its end); nothing touches the real state folder, systemd or the board. No process is killed, no tmux.
 #   add       a line is stored in <state>/motion/<session>.json (folder 700, file 600) and nothing else is left in the folder but the lock; the same line
-#             again renews its clock instead of listing twice; white space is folded to single spaces; an empty line, a line of 121 characters and a
-#             ninth line are refused with a sentence and change nothing; exactly 120 characters and exactly 8 lines are taken
+#             again changes nothing (not listed twice, and `at` stays the time it was first added); white space is folded to single spaces; an empty line,
+#             a line of 121 characters and a ninth line are refused with a sentence and change nothing; exactly 120 characters and exactly 8 lines are taken
 #   done      by exact text and by number; an unknown line or number is refused; the lines after it move up
 #   clear     empties the list; list says "nothing right now"; --json is an array of {n, text, at}
-#   expiry    a line is gone 24 hours after it was set (the clock injected): not listed, and the next write drops it from the file; one second earlier it stays
+#   kept      nothing expires a line (the clock injected): a month later it is listed and a write keeps it with its first time; only done and clear take it off
 #   session   --for NAME names the session; with none and outside a session the command asks for it (exit 1); a name that is not one is refused;
 #             one session's lines are not another's; a file that is not the format reads as no lines
 #   parallel  several adds at once under the lock: every one lands, none is lost, the file is always whole JSON
@@ -33,10 +33,12 @@ out=$($S add "Slide 4 is being redrawn" --for chat-test 2>"$T/err"); rc=$?
 python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d=={"v":1,"lines":[{"text":"Slide 4 is being redrawn","at":int(sys.argv[2])}]}, d' "$D/chat-test.json" "$NOW" \
     && ok "the file is the documented JSON" || bad "file content: $(cat "$D/chat-test.json")"
 ls -A "$D" | grep -v '^\.lock$' | grep -v '^chat-test\.json$' | grep -q . && bad "add left something besides the file and the lock: $(ls -A "$D")" || ok "add leaves no temporary file"
-out=$($S add "Slide 4 is being redrawn" --for chat-test 2>&1); has "$out" "already listed" && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; print(len(json.load(sys.stdin)))')" = 1 ] \
-    && ok "the same line again is not listed twice" || bad "duplicate add: [$out]"
-SALA_MOTION_NOW=$((NOW + 600)) $S add "Slide 4 is being redrawn" --for chat-test >/dev/null 2>&1
-[ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; print(json.load(sys.stdin)[0]["at"])')" = $((NOW + 600)) ] && ok "the same line again renews its clock" || bad "renew: $(cat "$D/chat-test.json")"
+before=$(cat "$D/chat-test.json")
+out=$(SALA_MOTION_NOW=$((NOW + 600)) $S add "  Slide 4 is   being redrawn " --for chat-test 2>&1); rc=$?
+[ "$rc" = 0 ] && has "$out" "already listed" && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; print(len(json.load(sys.stdin)))')" = 1 ] \
+    && ok "the same line again is not listed twice" || bad "duplicate add: rc=$rc [$out]"
+[ "$(cat "$D/chat-test.json")" = "$before" ] && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; print(json.load(sys.stdin)[0]["at"])')" = "$NOW" ] \
+    && ok "the same line again keeps the time it was first added" || bad "re-add moved the time: $(cat "$D/chat-test.json")"
 $S clear --for chat-test >/dev/null
 $S add "  two   spaces
 and a newline  " --for chat-test >/dev/null 2>&1
@@ -76,13 +78,16 @@ $S add "one" --for chat-test >/dev/null; $S add "two" --for chat-test >/dev/null
 python3 -I -c 'import json,sys; r=json.loads(sys.argv[1]); assert [x["n"] for x in r]==[1,2] and [x["text"] for x in r]==["one","two"] and all(isinstance(x["at"],int) for x in r), r' "$($S list --json --for chat-test)" \
     && ok "list --json is an array of {n, text, at}" || bad "json shape"
 
-# -- expiry ----------------------------------------------------------------------------------------------------------------------------------
+# -- kept ------------------------------------------------------------------------------------------------------------------------------------
 $S clear --for chat-test >/dev/null
 $S add "old line" --for chat-test >/dev/null
-SALA_MOTION_NOW=$((NOW + 86400 - 1)) $S list --for chat-test | grep -q 'old line' && ok "a line one second short of 24 hours is still listed" || bad "expired early"
-[ "$(SALA_MOTION_NOW=$((NOW + 86400)) $S list --for chat-test)" = "nothing right now" ] && ok "a line 24 hours old is not listed" || bad "not expired"
-SALA_MOTION_NOW=$((NOW + 86400)) $S add "new line" --for chat-test >/dev/null
-python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); assert [x["text"] for x in d["lines"]]==["new line"], d' "$D/chat-test.json" && ok "the next write drops an expired line from the file" || bad "expired line kept: $(cat "$D/chat-test.json")"
+later=$((NOW + 30 * 86400))
+[ "$(SALA_MOTION_NOW=$later $S list --for chat-test)" = "1. old line" ] && ok "a line a month old is still listed" || bad "expired: [$(SALA_MOTION_NOW=$later $S list --for chat-test)]"
+SALA_MOTION_NOW=$later $S add "new line" --for chat-test >/dev/null
+python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); n=int(sys.argv[2]); assert [(x["text"], x["at"]) for x in d["lines"]]==[("old line", n), ("new line", n + 30 * 86400)], d' "$D/chat-test.json" "$NOW" \
+    && ok "a write keeps the old line with its first time" || bad "old line dropped or moved: $(cat "$D/chat-test.json")"
+SALA_MOTION_NOW=$later $S done "old line" --for chat-test >/dev/null 2>&1
+[ "$(SALA_MOTION_NOW=$later $S list --for chat-test)" = "1. new line" ] && ok "done takes an old line off" || bad "done old: [$($S list --for chat-test)]"
 
 # -- session ---------------------------------------------------------------------------------------------------------------------------------
 $S clear --for chat-test >/dev/null
