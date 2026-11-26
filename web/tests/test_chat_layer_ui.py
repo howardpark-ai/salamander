@@ -992,7 +992,9 @@ def test_a_commands_line_and_output_are_in_the_layers_thread_and_the_output_take
     live(browser, {"running": True, "command": "ls demo", "uuid": "b-1", "text": "a.txt"})
     assert browser.evaluate("!!document.querySelector('#live-bang')")
     # the records alone end the block: no event of the stream says the command is over here
-    append(served, *banged("ls demo", 3, "a.txt"), assistant("One file.", 4))
+    command, output = banged("ls demo", 3, "a.txt")
+    command["timestamp"] = now()   # a bubble is taken only by a line recorded around its send
+    append(served, command, output, assistant("One file.", 4))
     want = [["me", "go on"], ["reply", "Done."], ["me", "! ls demo"], ["me", "a.txt"], ["reply", "One file."]]
     assert wait_for(browser, f"{COMMANDS}.length === {len(want)} && !document.querySelector('#live-bang')", 20.0), browser.evaluate(COMMANDS)
     assert browser.evaluate(COMMANDS) == want
