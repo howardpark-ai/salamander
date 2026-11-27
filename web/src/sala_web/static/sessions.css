@@ -257,7 +257,7 @@
 #overview-pane .lane-chip-unconfigured { color: color-mix(in srgb, var(--muted) 75%, var(--text)); border-color: var(--faint); background: transparent; }
 #overview-pane .lane-chip-pending { visibility: hidden; }   /* the stand-in before the first answer: the same room, nothing to see */
 
-/* a lane's details page (#lane=<id>): the same pane, instead of the overview while body has lane-open */
+/* a lane's details page (/lane/<id>): the same pane, instead of the overview while body has lane-open */
 #overview-pane .ld { display: none; }
 body.lane-open #overview-pane .ld { display: block; }
 body.lane-open #overview-pane .sp:not(.ld) { display: none; }
@@ -277,7 +277,7 @@ body.lane-open #overview-pane .sp:not(.ld) { display: none; }
 #overview-pane #ld-usage .q-card { max-width: 480px; }
 #overview-pane #ld-table th { padding: 8px 12px; }
 
-/* the Overview's four tabs: Agents (#sessions), Schedules (#schedules), Machines (#machines) and Usage analysis (#usage). The pane's data-tab (app.js setOverviewTab) shows
+/* the Overview's four tabs: Agents (/overview), Schedules (/schedules), Machines (/machines) and Usage analysis (/usage). The pane's data-tab (app.js setOverviewTab) shows
    one panel; the tab bar is a row of links, the open one underlined, with Reload at the right end on the Schedules, Machines and Usage tabs (each its own button; the Agents
    tab updates live and keeps the head's own Reload) */
 #overview-pane .ov-bar { display: flex; align-items: flex-end; gap: 8px 12px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }

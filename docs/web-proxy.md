@@ -202,8 +202,9 @@ cookie_expire = "168h"          # then a new sign-in
 upstreams = ["static://202"]    # it answers Caddy's questions only; the traffic goes through Caddy
 ```
 
-Leave `skip_provider_button` off: oauth2-proxy's sign-in page is what carries the part of an address after `#` (a link to one session,
-`/#s=<name>`) through a first sign-in, since a browser never sends it to a server. Leave `cookie_refresh` unset: a renewed cookie does
+Leave `skip_provider_button` off: oauth2-proxy's sign-in page is what carries the part of an address after `#` through a first sign-in,
+since a browser never sends it to a server: a link of before the page's views had paths (`/#s=<name>`) needs it. A view's own address
+(`/s/<name>`) is in the sign-in's `rd`. Leave `cookie_refresh` unset: a renewed cookie does
 not reach the browser through `forward_auth`.
 
 `~/.config/systemd/user/oauth2-proxy.service` (the socket is mode 0600 in a 0700 directory, which systemd removes when the unit stops):

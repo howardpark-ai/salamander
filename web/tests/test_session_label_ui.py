@@ -33,7 +33,7 @@ LABEL = "Demo One"
 # the tooltip is the title attribute of the span inside the name (a view that is no chat session writes the name's text and the span is gone)
 READ = """(() => { const n = document.querySelector('#title .name'), t = n.querySelector('[title]');
   return { header: n.textContent, tip: t ? t.getAttribute('title') : null, ownTip: n.getAttribute('title'), tipNodes: n.querySelectorAll('[title]').length,
-           entry: document.querySelector('#side-chat .label').textContent, docTitle: document.title, hash: location.hash, selected: state.selected }; })()"""
+           entry: document.querySelector('#side-chat .label').textContent, docTitle: document.title, hash: SalaAddress.here(), selected: state.selected }; })()"""
 
 
 def full(browser) -> str:
@@ -97,7 +97,7 @@ def test_another_session_keeps_its_name_in_the_header_the_tab_and_the_overview(s
     # the Overview's row for it is its name, as ever
     browser.evaluate("location.hash = '#sessions'; ''")
     show_panel(browser)
-    sel = f"#overview-pane a[href=\"#s={OTHER}\"]"
+    sel = f"#overview-pane a[href=\"s/{OTHER}\"]"
     assert wait_for(browser, f"!!document.querySelector('{sel}') && document.querySelector('{sel}').textContent === {OTHER!r}", 12.0), browser.evaluate(
         "[...document.querySelectorAll('#overview-pane a')].map((a) => a.getAttribute('href') + '=' + a.textContent).slice(0, 12)")
 

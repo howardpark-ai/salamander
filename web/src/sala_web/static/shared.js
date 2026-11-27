@@ -3,7 +3,7 @@
    (linkTokens, splitFooter); loaded before either. */
 // <lane-words> (the tests run what is between these two markers in node)
 // Lanes that were renamed: awsplatform became aws-platform, max became subscription-1 and team subscription-2.
-// An answer, a saved link (#lane=max), a saved view (the lane order in the prefs) or a pane that still carries the old word reads as the new one: the
+// An answer, a saved link (lane/max, or the older #lane=max), a saved view (the lane order in the prefs) or a pane that still carries the old word reads as the new one: the
 // same table as web/src/sala_web/lanestate.py RENAMED, and the one place the page reads a lane word through. Nothing stored is rewritten; a write says the new code.
 const LANE_RENAMED = { awsplatform: "aws-platform", max: "subscription-1", team: "subscription-2" };
 const laneNorm = (l) => (typeof l === "string" && Object.hasOwn(LANE_RENAMED, l) && LANE_RENAMED[l]) || l;

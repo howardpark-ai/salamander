@@ -48,7 +48,7 @@ def test_a_navigation_on_the_retired_host_is_served_like_on_any_host_not_redirec
         r = get(c, "/", host)
         assert r.status_code == 200 and "<title>sala</title>" in r.text and "location" not in r.headers, host
         assert get(c, "/", host, method="HEAD").status_code == 200, host
-        assert get(c, "/sessions", host).status_code == 302 and get(c, "/sessions", host).headers["location"] == "./#sessions"
+        assert get(c, "/sessions", host).status_code == 302 and get(c, "/sessions", host).headers["location"] == "./overview"
         assert get(c, "/manifest.webmanifest", host, accept="application/manifest+json,*/*").status_code == 200, host
         assert get(c, "/sw.js", host, accept="*/*").status_code == 200, host
         assert get(c, "/api/config", host, accept="*/*").status_code == 200, host

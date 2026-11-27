@@ -241,7 +241,7 @@ SALA_LANE_BEDROCK_PROFILE=example-bedrock
 SALA_LANE_AWSPLATFORM_PROFILE=example-bedrock
 SALA_LANE_MAX_ACCOUNT=alice@example.com
 SALA_LANE_BEDROCK_ORG="AWS account via Example Reseller"
-SALA_SESSION_URL='https://sala.example.com/#s={name}'
+SALA_SESSION_URL='https://sala.example.com/s/{name}'
 SALA_STACKSHOT_WEB=https://board.example.com
 EOF
 [ "$(sh_in "$CFG" 'echo "$SALA_JOB_LANE"')" = bedrock ] && ok "SALA_JOB_LANE=bedrock in the config wins" || bad "job lane with config"
@@ -255,8 +255,8 @@ for v in off no 0 maybe; do SALA_SETTINGS_APPLY=$v sh_in "$EMPTY" 'sa_on' >/dev/
 printf '[example-bedrock]\naws_access_key_id = x\n' > "$T/creds"   # only the header line is looked for
 out=$(SALA_LANE_BEDROCK_CREDENTIALS_FILE="$T/creds" sh_in "$CFG" 'lane_check bedrock; echo "rc=$?"')
 case "$out" in *"profile is not set"*) bad "bedrock with the profile named still says it is not set: $out";; *) ok "bedrock with the profile named: no longer 'not set' (${out##*$'\n'})";; esac
-[ "$(sh_in "$CFG" 'session_url_template')" = 'https://sala.example.com/#s={name}' ] && ok "SALA_SESSION_URL from the config is the template" || bad "template with config"
-[ "$(sh_in "$CFG" 'session_url alice')" = 'https://sala.example.com/#s=alice' ] && ok "the session link uses it" || bad "link with config: $(sh_in "$CFG" 'session_url alice')"
+[ "$(sh_in "$CFG" 'session_url_template')" = 'https://sala.example.com/s/{name}' ] && ok "SALA_SESSION_URL from the config is the template" || bad "template with config"
+[ "$(sh_in "$CFG" 'session_url alice')" = 'https://sala.example.com/s/alice' ] && ok "the session link uses it" || bad "link with config: $(sh_in "$CFG" 'session_url alice')"
 [ "$(SALA_SESSION_URL= sh_in "$EMPTY" 'session_url alice bridge_01Abc')" = "https://claude.ai/code/session_01Abc" ] && ok "SALA_SESSION_URL set empty is the claude.ai link too" || bad "empty template"
 
 echo "== a side session's mandate: the board link only when the address is set"

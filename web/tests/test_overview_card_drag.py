@@ -205,7 +205,7 @@ def test_a_card_drags_by_its_handle_and_the_drag_opens_nothing(world, page, brow
     assert ids(browser) == ["subscription-2", "api", "subscription-1", "aws-platform", "bedrock"]
     want = ["subscription-2", "api", "subscription-1", "aws-platform", "bedrock"]
     assert saved_order(world, want) == want
-    assert browser.evaluate("location.hash") == "#sessions"
+    assert browser.evaluate("SalaAddress.here()") == "#sessions"
     assert browser.evaluate("document.querySelectorAll('.q-dragging').length") == 0
     # a drag back to the first place
     drag(browser, centre(browser, "#q-cards > .lane-subscription-1 .q-grip"), centre(browser, "#q-cards > .lane-subscription-2 .q-head"))
@@ -223,7 +223,7 @@ def test_the_cards_own_links_still_work(world, page, browser):
     browser.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
     browser.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "buttons": 1, "clickCount": 1})
     browser.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0, "clickCount": 1})
-    assert wait_for(browser, "location.hash === '#lane=subscription-2'")
+    assert wait_for(browser, "SalaAddress.here() === '#lane=subscription-2'")
     assert ids_on_details(browser) == 0   # and the details page's card has no handle
 
 

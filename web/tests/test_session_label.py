@@ -93,7 +93,7 @@ def test_every_other_view_and_session_keeps_its_old_header_and_title_code():
 
 
 def test_the_real_name_stays_the_key_of_the_route_and_the_entry_link():
-    assert 'a.setAttribute("href", "#s=" + encodeURIComponent(d.session));' in body_of(APP_JS, "function paintChatEntry()")
+    assert 'a.setAttribute("href", "s/" + encodeURIComponent(d.session));' in body_of(APP_JS, "function paintChatEntry()")
     assert "state.current = s;" in body_of(APP_JS, "function updateHeader(s)")                           # the session object is the real one
 
 

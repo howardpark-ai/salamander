@@ -220,7 +220,7 @@ def test_a_draft_survives_a_reload(served, browser):
     key_js = "localStorage.getItem('salaweb.draft.' + %s)" % json.dumps(NAME)
     browser.evaluate("new Promise((r) => setTimeout(r, 600))")  # saved 400 ms after the last keystroke, and kept in this browser
     assert browser.evaluate(key_js) == " 초안 draft \nline 2"
-    # a real reload (opening the same #s= URL again would be a hash navigation)
+    # a real reload of the same page
     browser.reload(CHAT_READY)
     s = browser.evaluate(STATE)
     assert s["text"] == " 초안 draft \nline 2" and not s["empty"] and s["sendEnabled"] and s["lines"] == 2, s

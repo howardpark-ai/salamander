@@ -34,7 +34,7 @@ printf '%s' "$PAGE" > "$T/in/a.html"
 out=$($S add "$T/in/a.html" 2>"$T/err"); rc=$?
 [ "$rc" = 0 ] && [ "$out" = "/mockup/1" ] && ok "add: first page is 1; with no SALA_SESSION_URL the path alone is printed" || bad "add 1: rc=$rc out=[$out]"
 grep -q 'SALA_SESSION_URL' "$T/err" && ok "add: without an address a note on stderr says what to prefix" || bad "add: no stderr note without SALA_SESSION_URL"
-export SALA_SESSION_URL='https://sala.example.com/#s={name}'
+export SALA_SESSION_URL='https://sala.example.com/s/{name}'
 out=$($S add "$T/in/a.html" 2>"$T/err"); [ "$out" = "https://sala.example.com/mockup/2" ] && [ ! -s "$T/err" ] && ok "add: the address is SALA_SESSION_URL's scheme and host; stdout holds the URL and nothing else" || bad "add 2: out=[$out] err=[$(cat "$T/err")]"
 out=$($S "$T/in/a.html" 2>/dev/null); [ "$out" = "https://sala.example.com/mockup/3" ] && ok "sala mockup FILE is add" || bad "bare FILE form: [$out]"
 out=$(printf '%s' "$PAGE" | $S add - 2>/dev/null); [ "$out" = "https://sala.example.com/mockup/4" ] && [ "$(cat "$D/4.html")" = "$PAGE" ] && ok "add -: stdin is stored as it came" || bad "stdin add: [$out]"

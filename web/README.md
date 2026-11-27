@@ -525,7 +525,7 @@ where the row will land, a drop over another project's rows ends at the end of i
 order, the folds and the sessions' order are saved in the prefs.
 
 A row has a **⋯** at its end, left of the unread count, which stays at the far right whether the ⋯ shows or not (shown on hover or focus, and on the open session's row; on a touch screen only on the open one)
-whose menu holds **Fork**: a link to `#side=from:<name>` that opens the Quick session form with the fork of that session filled
+whose menu holds **Fork**: a link to `side?from:<name>` that opens the Quick session form with the fork of that session filled
 in (*Quick sessions* below). It is in the row's menu and not in the session header, whose fold is measured to the pixel. It is
 offered for a session with a tmux pane (`tmuxSession`) and not on the sdk lane (no pane to take a conversation from); a quick
 session can be forked too, as `lib/spawn.sh` allows.
@@ -576,8 +576,8 @@ The on/off is the pref `unreadOnly` (*Preferences*, below), kept on the server l
 pure functions in `shared.js` (`unreadOfSession`, `unreadTotal`, `unreadKept`, between the `<unread-words>` markers) that `app.js` calls and
 `tests/test_unread_filter.py` runs in node; the same file drives a headless Chromium over `/`, at a phone's and a desktop's width.
 
-Above the list, **Overview** opens in the main area in place of a session (`#sessions`; a session is
-`#s=<name>`; what Back, Forward and a reload do with them is under *Back*): every live session's role, surface, status, model, effort and lane
+Above the list, **Overview** opens in the main area in place of a session (`/overview`; a session is
+`/s/<name>`; what Back, Forward and a reload do with them is under *Back*): every live session's role, surface, status, model, effort and lane
 in a sortable table (the project is the name's tooltip, "unregistered" for a session with no project; *Group by*, below), each account lane's usage limits and one **API (metered)** card above it: what the API key
 spent today and this month in the `SALA_TZ` zone (the metered and sdk lanes bill the same key, so one figure for both), the latest
 hours labelled as estimated (the Billing link is on the API lane's details page, not on the card). Tokens of a model the cost report has no rate for yet are priced at list prices (`spend.PRICES`, a dated id such as `claude-haiku-4-5-20251001` counting as its family) and counted in both figures; the card says so in one quiet line, `Partly estimated at list price`, and lists no tokens. The details page carries the table *Usage without a confirmed rate yet* (model, kind, tokens, list-price cost, a total row; a model's rows that round to `$0.00` merged into one) from `listPriced`; a row leaves it once the cost report covers the model. Tokens of a model that has no list price either are in no figure: the card says so in a short notice (a warning colour) and the table lists them as `not counted`, never as `$0`. The cards are drawn in one pass from `api/quota` and `api/credit`
@@ -592,7 +592,7 @@ and the same red count as the sidebar's sits after the name of a session with an
 case: the table is for finding what needs the owner). The header's Reload and ⋯ menu are hidden there, so the overview's head carries two chips of its own: **Reload** (the
 same reload as the header's icon, which keeps the composer's draft) and **Get Help**, which opens the session named by `SALA_HELP_SESSION`
 (the session that looks after the web UI; with none set the chip is not shown).
-`/sessions`, where the overview used to be its own page, redirects to `/#sessions`.
+`/sessions`, where the overview used to be its own page, redirects to `/overview`.
 
 **The Agents table never scrolls sideways, at any width.** Neither does the lane page's table of sessions. Both tables are laid out fixed
 (`table-layout: fixed`, the seven column widths in `sessions.css` add up to the box), so a long name, model or lane is cut with an ellipsis and never
@@ -693,7 +693,7 @@ words, with no figure. Before the first count lands the card is quiet (`api/spen
 **Lane codes and names.** A lane's code is what is stored and sent: `subscription-1`, `subscription-2`, `api`, `bedrock`, `aws-platform` (and `sdk`, which reads as `api`).
 Older lane words (`max`, `team`, `awsplatform`) are still read as **aliases on every read** (`lanestate.RENAMED`, `lanestate.norm`
 and `renamed` on the server, `laneNorm` in `shared.js`): sala's files written before the rename (`lane-state.tsv`, `lanes.tsv`, `lanes.log`, `spend-lanes.json`), a saved
-link (`#lane=max`), a saved `laneOrder`, a form loaded before the change, a schedule's `X-Model-Lane=max` and a saved `quota-max.json` all read as the new code. Nothing stored is
+link (`/lane/max`, or the older `#lane=max`), a saved `laneOrder`, a form loaded before the change, a schedule's `X-Model-Lane=max` and a saved `quota-max.json` all read as the new code. Nothing stored is
 rewritten, and everything this app writes uses the new codes (`quota-subscription-1.json`, a spawn's lane). What a lane is *called* on a page is sala's to say, not this app's:
 `GET /api/lane-names` (below) gives each lane's display name, `laneLabel(code)` in `shared.js` draws it in lower case on a pill (api, sdk, aws-platform and bedrock keep their own
 words in `LANE_LABEL`), and no display name is written in this package. The CSS has `.lane-subscription-1` and `.lane-subscription-2` (colours `--lane-subscription-1`, `--lane-subscription-2`),
@@ -701,15 +701,15 @@ with `.lane-max` and `.lane-team` kept beside them so a page loaded before still
 are not renamed. Tests: `tests/test_lane_subscription_codes.py`.
 
 **A lane's details page.** Each lane card has **Details ›** at the right
-end of its head (the dormant ones too), a link to `#lane=<id>` (`subscription-1`, `subscription-2`, `api`; the API card is the api lane, which
+end of its head (the dormant ones too), a link to `/lane/<id>` (`subscription-1`, `subscription-2`, `api`; the API card is the api lane, which
 the sdk lane's sessions share). The page is a view of the Overview's pane, drawn in place of the cards and the table
 while `body` has `lane-open`, and polls what the Overview polls, so its usage and its sessions are the cards' own
 answers drawn by the cards' own code and nothing new is asked of Anthropic. It shows, in the header, **Back** (a link to
-`#sessions`; in a browser, when the Overview is the entry under the page, the browser's Back instead, so the history does
+`/overview`; in a browser, when the Overview is the entry under the page, the browser's Back instead, so the history does
 not grow a second Overview entry) and **Reload**; then
 - **Status**: the words are lower case like the status pill (`active`, `dormant`, `not configured`): active, dormant with its reason and the day it began in the `SALA_TZ` zone (`lane-state.tsv`, as the card's one line says it:
   `no seat since Mon Jan 5th`), or not set up (the lane table says so; no session can be put on it), or "not available
-  just now" when sala's record could not be read. The api lane (`#lane=api` or `#lane=sdk`) with no row in
+  just now" when sala's record could not be read. The api lane (`/lane/api` or `/lane/sdk`) with no row in
   `lane-state.tsv` is also dormant while the shared API-credit record holds a refusal (`apicredit.py`): the same pill, and
   the card's line `No credit on the API key since Mon Jan 5th` with the refusal's day, as on the Overview;
 - **Record**: the lane's row of sala's lane table, as `sala lane --json` prints it (`lane_fields_tsv` in `lib/common.sh`):
@@ -724,10 +724,10 @@ not grow a second Overview entry) and **Reload**; then
   line says "No usage check is made for it, and the New session form does not offer it." for subscription-1 and subscription-2, and only "The New
   session form does not offer it." for a per-use lane, which is still read. A lane that is dormant only by the API-credit
   record has no such line: the New session form reads `lane-state.tsv` only, so it still offers that lane;
-- **Sessions on this lane**: the Overview's rows for the lane, each linked to its session (`#s=<name>`).
+- **Sessions on this lane**: the Overview's rows for the lane, each linked to its session (`/s/<name>`).
 
 A table sala cannot print blanks the Record section only ("The lane record is not available just now.", the reason in a
-quiet line above it) and is asked again with the next quota check; the rest of the page stays. `#lane=<unknown>` says
+quiet line above it) and is asked again with the next quota check; the rest of the page stays. `/lane/<unknown>` says
 sala's lane table has no such lane. The header and the tab's title read `Lane <name>` (the lane's name as sala says it, lower case: `laneLabel`). The page's own title is the label pill and the lane's name in the labels' words, `bedrock lane`, `aws-platform lane` (`laneLabel`, lower case), never the lane table's capitalised label (`Bedrock`, `Claude Platform on AWS`). **Details ›** on a card is in the plain text colour (`--text`), not the lane's colour; it keeps its hover underline and focus ring. The page is asked for at most as often
 as the quota is: when it opens, every minute, and when the tab is shown again.
 
@@ -854,7 +854,7 @@ Every pid-keyed route (`/api/s/<pid>/...`) finds nothing at pid 0, and spend, us
   The rule is `sleepersKept` in `shared.js` (between the `<sleeping-words>` markers), which `app.js` applies to each project's rows after
   the "Show all sessions" rule and `tests/test_hide_sleeping.py` runs in node; the same file drives a headless Chromium over `/`.
 - **Opening one shows its conversation and wakes nothing; a message wakes it ("Wake on send").** Selecting a sleeper (a tap in the sidebar, an
-  Overview link, `#s=<name>`) draws its transcript like a live session's chat, read from the file on disk by `GET /api/sleeping/<name>/transcript`
+  Overview link, `/s/<name>`) draws its transcript like a live session's chat, read from the file on disk by `GET /api/sleeping/<name>/transcript`
   (below); reading is free. A band above the composer (`#sleep-band`) says *asleep since ... Sending a message wakes it, and the message goes in
   when it is back* with the *Wake it* button, and the composer works as it does for a live session. A sleeper whose file cannot be found (or read)
   shows the old note in the chat and the same band, never an error page.
@@ -1000,11 +1000,22 @@ request), and a stackshot refusal comes back as a plain sentence, never a trace;
 calls are interface 22 of `docs/stackshot-contracts.md`; the test is `tests/test_foryou.py` (the shapes, the server). If a page is
 wanted again, it starts from these routes.
 
+## Addresses
+
+Every view has a path of its own: `/s/<name>` (a session), `/overview`, `/schedules`, `/machines`, `/usage`, `/lane/<id>`,
+`/new`, `/side?<what to prefill>` and `/search?<query>`. The server answers each with the page it serves at `/`, by the same handler
+(`GET /s/` with no name, and any other path, is a 404), so a reload and a shared link open the view and a sign-in proxy treats them as
+it treats `/`. All of them are relative to the app's root, so a proxy may serve the app under a path prefix: the page carries a
+`<base href>` (`./`, or `../` on `s/<name>` and `lane/<id>`), which `static/address.js` fixes to the root's full address before the
+page's address changes. A link of before these paths (`/#s=<name>`, `/#sessions`, `/#side=<id>`, …) still opens its view: the server
+only sees `/`, and the page rewrites the address to the view's path in place, adding no history entry (`tests/test_addresses.py`,
+`tests/test_addresses_ui.py`).
+
 ## Back
 
 What the browser's Back does. Two modes, chosen at every decision from
 the width and the display mode, so a resize or a rotation changes the next action while the entries already made stay
-(`app.js`, "selection, hash, history"; `tests/test_back_button.py`):
+(`app.js`, "selection, address, history"; `tests/test_back_button.py`):
 
 - **A phone, and the installed app at any width, replace.** A phone is the drawer layout (`max-width: 760px`) in any
   browser; the installed app is `display-mode: standalone`. The sessions and the Overview are peer views of one history
@@ -1024,34 +1035,34 @@ the width and the display mode, so a resize or a rotation changes the next actio
   them without a push, and Forward re-opens their layers over the view that is shown. Widening the window past the drawer pops its entry. The layers are a registry
   (`defineLayer`), so another kind is one more definition; sala has no image viewer (thumbnails open in a new tab).
 - **sala opens on the view it was last on** in replace mode, with the sidebar closed: the session last shown if it is
-  still live, else the Overview (a `localStorage` key, written on every view). A deep link (`#s=<name>`,
-  `#sessions`) wins over it. The view is written to the launch entry, so a reload keeps it. A wide browser (push mode) has no
-  last view: with no hash it opens on the Overview, `#sessions` written over the launch entry (`replaceState`, no entry
-  added), so Back from it leaves sala as for a `#sessions` deep link.
+  still live, else the Overview (a `localStorage` key, written on every view). A deep link (`/s/<name>`,
+  `/overview`) wins over it. The view is written to the launch entry, so a reload keeps it. A wide browser (push mode) has no
+  last view: on the bare root it opens on the Overview, `/overview` written over the launch entry (`replaceState`, no entry
+  added), so Back from it leaves sala as for an `/overview` deep link.
 - **A reload leaves the layers.** The record is kept over a reload, but the page walks back over the entries of the
   layers it had open (a same-document traversal in Chromium) and shows none, so Back then leaves with no dead entry under
   it. An entry of the first build (`depth`, `base`, `overlays`) is read as no layers.
 - **The Chat/Terminal toggle touches no history**, and neither does the ⋯ menu, a dropdown a tap outside closes. The
   keyboard going up or down closes no layer.
-- **A hash change made outside sala's links** (the address bar, a script) is the browser's own push: that entry is
+- **An older `#...` address typed or set in an open page** (the address bar, a script) is the browser's own push: that entry is
   taken as it is and recorded. It is not walked back over: an entry without a record is also what an older sala left in
-  a tab still open, and a Back onto one of those must show that page. Every in-page link to `#s=<name>` or `#sessions`
+  a tab still open, and a Back onto one of those must show that page. Every in-page link to a view (`s/<name>`, `overview`)
   stays a real `<a href>` (Ctrl/Cmd/Shift/middle click open a tab); a plain click on one follows the rules. That holds for
-  a link in a reply too: every link there is `target=_blank`, but one to sala's own page and route (a bare
-  `#s=<name>`, or the full `https://sala.example.com/#s=<name>`) is taken by sala like the sidebar's, so on a phone the
+  a link in a reply too: every link there is `target=_blank`, but one to a view of sala's own (a relative
+  `s/<name>` or the full `https://sala.example.com/s/<name>`, or either in the older `#s=<name>` form) is taken by sala like the sidebar's, so on a phone the
   installed app does not open Chrome's in-app view; a link to another origin (stackshot, GitHub) or another path still opens
   outside sala. A
   session link whose session is gone says so and carries a link to the Overview.
-- **The New session page (`#new`) is a view of its own** (a full page, not a
+- **The New session page (`/new`) is a view of its own** (a full page, not a
   pop-up), not a layer: it has a link, so a reload and a shared link open it. Opening it is an entry in either mode (a
   phone too, where the other views replace), so **Back returns to the view it was opened from**, and from the drawer on a
   phone the drawer's own entry is walked back over first, as for any view. Leaving it for another view (a session row, the
   Open button after a create) replaces its entry in replace mode and pushes in push mode. It is not remembered as the last
   view. An entry of an older build that recorded the popover layer (`"new"`) reads as no layers.
-- **A lane's details page (`#lane=<id>`) is a view of the Overview**: it follows the same rules, a peer view
+- **A lane's details page (`/lane/<id>`) is a view of the Overview**: it follows the same rules, a peer view
   in replace mode (one entry, replaced), an entry of its own in push mode. Its **Back** button returns to the Overview: in
   push mode, when the page was opened from the Overview, it is the browser's Back (the entry under it is the Overview), else
-  it is a link that goes to `#sessions` by the rules above. It is not remembered as the last view (a phone reopens on the
+  it is a link that goes to `/overview` by the rules above. It is not remembered as the last view (a phone reopens on the
   Overview or a session). `tests/test_lane_details.py`.
 - **Unsent text is kept per session.** What the owner typed is saved in `localStorage` (one key per session, text only,
   20,000 characters at most) 400 ms after the last keystroke, when the owner leaves the session, and when the page goes; it
@@ -1069,7 +1080,7 @@ standalone web app.
 ## New session
 
 The sidebar's first row, above the Overview, is **New session** (a page
-of its own, not a pop-up): a link to `#new`, which fills the main
+of its own, not a pop-up): a link to `/new`, which fills the main
 area where the chat sits (the sidebar stays beside it, and its rows work), with the form that starts a project's session.
 The page has its own link, so Back returns from it and a reload or a shared link opens it (*Back* above). **It is one
 centered column**, about
@@ -1148,7 +1159,7 @@ project page, the lane must be able to launch, one live session per name). What 
   Platform on AWS, shown "aws-platform"), each in its own colour, ahead of the API key and the config directory.
   The older word `awsplatform` (salamander `lane --migrate` rewrites it) is still read
   here as `aws-platform` in sala's files written before (`lanes.log`, `lanes.tsv`, `lane-state.tsv`, `sessions.json`, the saved
-  sightings in `spend-lanes.json`), in a saved link or view (`#lane=awsplatform`), in a spawn payload and in `GET /api/lanes/awsplatform`
+  sightings in `spend-lanes.json`), in a saved link or view (`#lane=awsplatform`, the form of that time), in a spawn payload and in `GET /api/lanes/awsplatform`
   (which answers `"lane": "aws-platform"`); `lanestate.ALIASES`, `spend.canonical`, `spawn.LANE_RENAMED` and the page's `laneNorm`
   (`shared.js`) are the four places. A saved UI setting never embeds the lane name, so none is stranded (checked: `prefs.json` and the
   `localStorage` keys carry none; the saved last view may hold `#lane=awsplatform`, which `laneHashId` reads as the new name).
@@ -1212,7 +1223,7 @@ ID] [--agents A,B] [--mandate FILE] --from sala-web --words …`. The words say 
 conversation NAME (about board#N in projects/demo-docs), 14:05 Mon Jan 5th UTC". The shapes are checked in `spawn.py` as `lib/op.sh` checks
 them (a fork takes no project and no agents; a start about a project needs its item; no role; a name with `-side-`).
 
-It has a form of its own on the New session page, shown while the hash is `#side=…` (the New session form otherwise). **A segmented
+It has a form of its own on the New session page, shown while the address is `/side?…` (the New session form otherwise). **A segmented
 switch, New session | Quick session, sits at the very top of the page, the same on both forms** (the look of the scope
 selector; there are no loose text links between the forms). The form has two independent, optional fields, each a picker with
 a search box and the project list's look (a one-line summary with an arrow that opens a header row and a list):
@@ -1229,10 +1240,11 @@ The backend takes one of the two at least (`--fork-of`, or `--project` with `--i
 item and no project, the form says what is missing in words and Start waits. A failed start shows the reason the server gave,
 in the form, in a box of its own.
 
-- **`#side=<id>`, the Discuss link of stackshot** (`https://sala.example.com/#side=board#N`): the id is everything after `side=`,
-  in any form the board shows (it may hold a `#` itself; an optional `&project=<key>&agents=<a,b>` after it fills those two). The
-  form opens with the item chosen.
-- **`#side=from:<name>`**, a link to a fork: the form with that session chosen to fork. Start queues
+- **`/side?<id>`, the Discuss link of stackshot** (`https://sala.example.com/side?board%23N`): the id is everything after `side?`
+  up to the first `&`, in any form the board shows (a `#` in it is written `%23`; a bare one is read too, and the page rewrites it;
+  an optional `&project=<key>&agents=<a,b>` after the id fills those two). The form opens with the item chosen. The older link
+  `/#side=<id>` still works.
+- **`/side?from:<name>`**, a link to a fork: the form with that session chosen to fork. Start queues
   `--fork-of <name>`. No button in the session header (its fold is measured to the pixel): the **Fork** entry of a session row's ⋯
   menu in the sidebar is this link.
 
@@ -1244,9 +1256,9 @@ session, the typed name stays (`sdOwnSeen`).
 
 ## Schedules
 
-The Overview holds four tabs under the lane cards: **Agents** (the default, `#sessions`; the sessions
-table, whose first column reads *Agent*), **Schedules** (`#schedules`; once a page of its own under the sidebar's Schedules
-entry, which is gone) **Machines** (`#machines`, *Machines*, below) and **Usage analysis** (`#usage`, *Usage analysis*, below). Search is not a tab: it is the sidebar's search box and a page of its own (*Search*, below). An old `#schedules` link opens the Overview with the Schedules tab selected; the tab is a link, so the back button and
+The Overview holds four tabs under the lane cards: **Agents** (the default, `/overview`; the sessions
+table, whose first column reads *Agent*), **Schedules** (`/schedules`; once a page of its own under the sidebar's Schedules
+entry, which is gone) **Machines** (`/machines`, *Machines*, below) and **Usage analysis** (`/usage`, *Usage analysis*, below). Search is not a tab: it is the sidebar's search box and a page of its own (*Search*, below). An old `#schedules` link opens the Overview with the Schedules tab selected; the tab is a link, so the back button and
 a copied address keep it. The Schedules tab lists every scheduled job of ours on the machine, as systemd and cron hold it (`schedules.py`, `GET /api/schedules`,
 `static/schedules.js`, `static/schedules.css`); no database, nothing written. **It draws at once, from the last reading, and refreshes
 behind it, as the lane cards do** (`swr.py`): systemd is asked about every job with a few short commands, which
@@ -1369,7 +1381,7 @@ server sends back only the matches, as short snippets, never a transcript.
   leaves it. **Enter** opens the results page in a new browser tab, so the page and the chat you were on stay as they are; in the
   installed app and at a phone's width (where a new window would land in Chrome's in-app view, outside sala), and when the
   browser blocks the new tab, it opens in place.
-- **The results page** is a page of its own, `#search?q=…&hours=…&front=…&back=…&sub=…&unknown=…&messages=…&tools=…&output=…&thinking=…`
+- **The results page** is a page of its own, `/search?q=…&hours=…&front=…&back=…&sub=…&unknown=…&messages=…&tools=…&output=…&thinking=…`
   (`from` and `to` in place of `hours` for picked dates): the same parameters `GET /api/search` takes. The When, Agents and Content
   filters are on this page only, above the results, under **the page's own query box** (the same look as the sidebar's, the full width of the page on a phone, filled from the address). **Enter** in it searches again with the new query and the filters as they are, and rewrites the address in place like a filter (an empty query does nothing, as in the sidebar's box; the sidebar's box takes the new query too). Ctrl+K and **/** still go to the sidebar's box, which a wide screen shows while it has the cursor. A search started from the sidebar's box takes the **last 6 hours, front agents only,
   messages only** (every other box off). Changing a filter searches again and rewrites the address in place (no new history entry).
@@ -1410,7 +1422,7 @@ Tests: `tests/test_search.py` (the core over a fixture tree), `tests/test_search
 
 ## Machines
 
-The third Overview tab (`#machines`, next to Agents and Schedules) shows which version of each tool every machine runs: **Machines**, one card per machine, with a
+The third Overview tab (`/machines`, next to Agents and Schedules) shows which version of each tool every machine runs: **Machines**, one card per machine, with a
 footer that says how old the reading is ("updated 4 min ago", the age of `site/versions.json`). sala reads no runner file. It is a view: no button or field in it, apart from the tab bar's Reload. It **reads when the tab opens and when
 Reload is pressed, and at no other time**; a local timer re-words only the footer's age. On a phone the cards stack to one column and the page never scrolls sideways at 390 px (the tab bar's Reload is its icon alone there, so the four tabs fit).
 Code: `machines.py`, `GET /api/machines`, `static/machines.js`, `static/machines.css`, the tab and panel in `static/index.html`, the tab routing in `static/app.js`.
@@ -1437,7 +1449,7 @@ In the cards "latest ✓" is green (`--state-active`) and a pending update is `-
 
 ## Usage analysis
 
-The fourth Overview tab (`#usage`, after Agents, Schedules and Machines) shows **what the Claude Code replies on this machine cost, at list prices**, by week, day, lane,
+The fourth Overview tab (`/usage`, after Agents, Schedules and Machines) shows **what the Claude Code replies on this machine cost, at list prices**, by week, day, lane,
 model, project, agent and folder. One data layer (`usage.py`, `GET /api/usage`) sits under three views, switched by the small control at the top of the tab: **Report** (the
 default), **Explorer** and **Digest**. This release builds the data layer, the tab and all three views. The tab shows **dollars
 only**: the server keeps the token counts on each row and the page never shows them. Other machines are not counted: the tab says so.
@@ -1731,7 +1743,7 @@ doctype. A link in a reply is **not** rewritten and the manifest is not changed:
 ## The chat session
 
 `SALA_CHAT_SESSION` names the one session that is the owner's chat. It is **sala's own view of a session** (*The chat session in sala's own view*, below), not a page of its own; with `SALA_CHAT_LAYER` on, the thread inside that view is drawn by *The chat session's own layer* (below). `GET /chat` is only an address now:
-it answers a 302 to `./#s=<the session>`, relative so that it works under whatever path prefix the app is mounted at (with no session set, to `./`, the main page), and there is no page, script or style sheet behind it. The page it used to be
+it answers a 302 to `./s/<the session>`, relative so that it works under whatever path prefix the app is mounted at (with no session set, to `./`, the main page), and there is no page, script or style sheet behind it. The page it used to be
 (`chat.html`, `chat.js`, `chat.css`) is retired. `GET /api/chat` stays, as the data of the entry and the strip. The session sits behind the same sign-in as every page (the proxy's), and its one write, a message, goes through the
 main chat's own composer and path.
 
@@ -1745,7 +1757,7 @@ is drawn again by the entry's own 25-second read of `api/chat` (`chatMarks`). Th
 headless Chromium) hold it.
 
 **The load of its address.** The served markup is the page with no session ("Select a session", "Pick a session on the left."), in English until the script has applied the saved language, and `app.js` opens a session only after its reads. So that the chat
-session's address does not show that first, `static/chatboot.js`, run in the head before the first paint, hides the header's name and the markup's placeholder on a load that is on its way to the chat session: `#s=<the session>` (what `/chat` redirects to,
+session's address does not show that first, `static/chatboot.js`, run in the head before the first paint, hides the header's name and the markup's placeholder on a load that is on its way to the chat session: `/s/<the session>` (what `/chat` redirects to,
 and what a reload asks for), or a phone's or the installed app's launch with no address whose remembered view is that. It is visibility only (no box moves and nothing new is drawn), and `app.js`'s own loading line shows as soon as it is written, in the
 saved language. It lets go when the page draws anything else (not running, asleep, the Overview, another session), when the chat is open and `api/chat` has answered (the header then says the label), on an uncaught error or a refused promise, and at the
 latest 10 s after the document was read (30 s from the start). Every other address is left alone. Only the server knows the session: `_page()` (`app.py`) names it in the script tag's `data-chat-session`, and drops the tag when none is set. The script
@@ -1781,7 +1793,7 @@ view, extended. So the header, the thread, the composer (box, attach button, ima
 list, and a difference outside it is a defect:
 
 - **Its entry**, the first line of the sidebar's views, above New session: a chat-bubble icon, the session's display name (`GET /api/chat`, so `SALA_CHAT_NAME`), a small "chat", a dot while it works and a red count of what waits on the owner
-  (the red of the Your move chips, not the orange unread count). It is hidden when no chat session is set, links to `#s=<session>`, is marked selected (`aria-current="page"`) while the session is open, and closes a phone's drawer.
+  (the red of the Your move chips, not the orange unread count). It is hidden when no chat session is set, links to `/s/<session>`, is marked selected (`aria-current="page"`) while the session is open, and closes a phone's drawer.
   The marks are read from `GET /api/chat` every 25 s while the page is visible, whether or not the session is open. While the entry exists the session's own row is left out of the list (the Overview still lists it) and its unread
   replies stay out of the Unread total. A long name is cut with an ellipsis.
 - **The strip**, above the thread, only while the open session is the chat session (the server marks it with `"chat": true` in `GET /api/sessions`, for that session alone): Your move, On it (above), and the kept-back switch with its
@@ -2473,14 +2485,15 @@ part of `web/`.
 | Method, path | |
 |---|---|
 | `GET /` | the page |
+| `GET /s/<name>`, `/overview`, `/schedules`, `/machines`, `/usage`, `/lane/<id>`, `/new`, `/side`, `/search` | the same page, by the same handler: a view's own path (*Addresses*) |
 | `GET /manifest.webmanifest` | the web app manifest (*Install as an app*), `application/manifest+json` |
 | `GET /sw.js` | the service worker, at the root so its scope is the whole site; `text/javascript`, never cached |
-| `GET /chat` | an address kept for the chat session (`SALA_CHAT_SESSION`): a 302 to `./#s=<session>`, relative to the app's own prefix (to `./` with none set); no page of its own (*The chat session*) |
+| `GET /chat` | an address kept for the chat session (`SALA_CHAT_SESSION`): a 302 to `./s/<session>`, relative to the app's own prefix (to `./` with none set); no page of its own (*The chat session*) |
 | `GET /api/chat` | what the chat session's entry and strip show: `{configured, session, name, present: live\|sleeping\|absent, busy, keptToday, keptTodayFloor, keptLines, waiting, group, motion}` (*The chat session*); `{configured: false}` when no session is set; `no-store` |
 | `GET /api/chat/thread?n=&before=&after=&around=` | the chat session's own thread, the owner's messages and the replies to them (read by the chat session's own layer): `{session, messages, offset, before, start, busy, cards}` (paged reads carry their own paging keys); `{configured: false}` when no session is set; `?replies=1` adds the sent images, asked questions, API errors and interrupts of those replies; 400 on a bad query; `no-store` (*The chat session*) |
 | `GET /mockup/<n>` | a mockup page `sala mockup add` stored (*Mockup pages*); `text/html; charset=utf-8`, 404 for an unknown number, the sandbox headers on every response |
 | `GET /op/<id>` | the log of one `sala op` operation (*Operation log pages*); `text/plain; charset=utf-8`, the last 256 KB, 404 `no such log` for anything else, the private headers on every response |
-| `GET /sessions` | redirects to `/#sessions`, the Overview |
+| `GET /sessions` | redirects to `./overview`, the Overview |
 | `GET /api/config` | `terminalUrl`, the page's `version` and its style sheets' `styles` (hashes of the files' content, *Deploying*; a change of `version` makes an open page ask for a reload, a change of `styles` is swapped in place) and the server's `commit`, `shellSession` (sala's `SALA_SHELL_SESSION`, default `sala-shell`), `host` (this machine's short hostname) and the time zone every time in the page is shown in: `timezone` (`SALA_TZ`, `""` = the viewer's own zone), `tzLabel` (the zone's abbreviation now: IST, CEST, UTC) and `tzOffsetMin` (its UTC offset in minutes now) |
 | `GET /api/sessions` | live sessions as `scopes` → project `groups` → `sessions` (front agents first; a role other than front or back sorts after them); `Unregistered` last; also `groups`, the same projects as a flat list; every session carries `agentId` (sala's permanent id for the agent, from the registry `sessions.json`: the key of the saved order; absent when the registry has no row) and `aliases` (the names the agent had, only with `agentId` and when it has any), and `unread_count` (an integer, 0 to 10: the replies written since the owner last opened it, front agents only; 10 means 10 or more and the page shows 9+) and `unread` (`unread_count > 0`) (*The unread reply count*, *Sidebar*) |
 | `GET /api/quota` | each account lane's (subscription-1, subscription-2) usage limits from Anthropic's usage endpoint, with the sign-in token read from the lane's `.credentials.json` (never refreshed, written or kept). Served at once from the last good answer per lane (`refreshing`, `pending` as for `/api/credit`), refreshed every 5 minutes in the background and kept in `state_dir/quota-<lane>.json` (a file an earlier version saved as `quota-max.json` or `quota-team.json` is read while the new one is not there; limits, plan, `fetchedAt` and a pending wait only). `fetchedAt` (epoch ms) is the last good reading and stays on the answer while refreshes fail; a lane the dormant record lists is `{lane, dormant, plan?, fetchedAt?}` with the `fetchedAt` of its saved answer, absent when it never answered (the card's last line, "updated 7 min ago"). A failed refresh keeps the lane's answer and adds `error` (plain words), `errorKind` and `nextTry` (epoch ms): `rate_limited` is a 429, tried again when its `Retry-After` says (seconds or an HTTP date, clamped to a minute and 3 hours), else after 2, 4, 8, 16, then 30 minutes; `failed` is another status, no network or an unreadable answer, after 1, 2, 4, 8, 16, then 30 minutes; `sign_in` is no sign-in on the lane or one expired, nothing sent, looked at again at the next poll. A success resets the series; each lane counts its own; the wait is saved with the answer (`nextTry`, `errorKind`), so a restart keeps waiting and sends nothing until it is over. |

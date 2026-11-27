@@ -180,7 +180,7 @@ function load({ hash = '#s=demo-chat', session = 'demo-chat', body = null, narro
         throw new Error('a selector the stand-in does not know: ' + s);
       },
     },
-    location: { hash },
+    SalaAddress: { here: () => hash },   // static/address.js: the view the address names
     window: { matchMedia: (q) => ({ matches: (q === '(max-width: 760px)' && narrow) || (q === '(display-mode: standalone)' && standalone) }) },
     localStorage: { getItem: (k) => { if (noStorage) throw new Error('no storage'); return k === 'salaweb.lastView' ? last : null; } },
     MutationObserver: class { constructor(f) { changed = f; } observe() { seen.watching = true; } disconnect() { seen.watching = false; } },

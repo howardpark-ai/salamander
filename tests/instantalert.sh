@@ -27,7 +27,7 @@ export PATH="$HOME/.local/bin:$PATH" FAKE_LOG="$HOME/fake.log"
 POSTS="$HOME/posts.txt"; export SALA_NOTIFY_CMD="cat >> $POSTS"
 export SALA_BIN="$ROOT/bin/salamander" SALA_ROOT="$ROOT" SALA_AUTO_UPDATE=off SALA_AUTO_RECYCLE=off SALA_AGENT_CHECK=off
 export SALA_LIMIT_ALERT=off SALA_LIMIT_RESUME=off SALA_SIGNIN_ALERT=off
-export SALA_SESSION_URL='https://sala.example.test/#s={name}' SALA_STUCK_CONFIRM=1000 SALA_STUCK_RETRIES=2
+export SALA_SESSION_URL='https://sala.example.test/s/{name}' SALA_STUCK_CONFIRM=1000 SALA_STUCK_RETRIES=2
 SALA="$ROOT/bin/salamander"; SOCK="sala-instant-$$"; T="tmux -L $SOCK -f /dev/null"
 unset TMUX; export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"
 WLOG="$HOME/.claude/salamander-watch.log"; STATE="$HOME/.local/state/salamander/stuck.state"
@@ -73,7 +73,7 @@ out=$(nf stuck "$PERM"); p=$(lastpost)
 [ "$(posts)" = 1 ] && ok "one post, no wait for SALA_STUCK_CONFIRM (1000 s)" || bad "$(posts) posts: $(slurp "$POSTS"); hook said: $out"
 has "$(head -1 <<< "$p")" "sala-test-stuck is waiting for an answer in its terminal" && ok "the headline names the session (the watch's own wording)" || bad "headline: $(head -1 <<< "$p")"
 has "$p" "it asks: Bash command · curl -H " && has "$p" " · Fetch the thing · Do you want to proceed?" && ok "the question read off the pane: title, command, question" || bad "post: $p"
-has "$p" "answer it in sala: https://sala.example.test/#s=sala-test-stuck" && ok "the session's link" || bad "no link: $p"
+has "$p" "answer it in sala: https://sala.example.test/s/sala-test-stuck" && ok "the session's link" || bad "no link: $p"
 ! has "$p" "$TOKEN" && has "$p" "Authorization: …" && ok "the token in the command masked" || bad "the token in the post: $p"
 [ -z "$out" ] && ok "the hook printed nothing" || bad "the hook printed: $out"
 [ -n "$(stv s.sala-test-stuck.hash)" ] && [ -n "$(stv s.sala-test-stuck.posted)" ] && [ -n "$(stv s.sala-test-stuck.since)" ] && [ "$(stv s.sala-test-stuck.tries)" = 0 ] && ok "the watch's keys written: hash, since, posted, tries" || bad "state: $(slurp "$STATE")"

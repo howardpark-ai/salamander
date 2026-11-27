@@ -1,5 +1,5 @@
 "use strict";
-/* The Overview's Machines tab (#machines): the machines with the versions each runs and how it stays current, as api/machines reports
+/* The Overview's Machines tab (/machines): the machines with the versions each runs and how it stays current, as api/machines reports
    them (machines.py). It shows stackshot's LAST reading: nothing here asks GitHub or a machine, and the footer says how old the reading
    is ("updated 4 min ago"). The tab reads when it opens (app.js calls machines.start()) and when Reload is pressed, never by itself;
    the one timer only re-words the footer's age (no request). When the source is missing the tab says "No reading yet".

@@ -753,7 +753,7 @@ The two forms (`lib/spawn.sh` `suggest_name`, `web/src/sala_web/spawn.py`, `app.
 `style.css`, `docs/side-sessions.md`). A wrong answer here is a suggested name that is taken (a running session, a registry agent, a name
 stackshot holds) or has the wrong prefix (`work-wiki` for a project whose agents are `wiki-*`), a `-main` suggested for a project that
 already has one, a failed create that says nothing, a default that says "use default" without the value, a project box too tall for a phone,
-a Quick session started with no item and no fork, a deep link (`#side=<id>`, `#side=from:<name>`) that stops working, a session order that is
+a Quick session started with no item and no fork, a deep link (`side?<id>`, `side?from:<name>`, and the older `#side=…` forms) that stops working, a session order that is
 lost on reload, a drag that moves a session into another project, or an element added to the session header (its fold is measured to the pixel).
 `tests/spawn.sh` (+26): `--suggest-name` with the project record (prefix from the agents' names, never from the page key; `-main` only when
 the record has no agent; 12 runs of a front on a project with agents, 30 runs of a back with seven names taken by the map or by tmux; `--prefix`
@@ -970,7 +970,7 @@ Fork moved from a header button to a **⋯** at the end of each sidebar row, bec
 to the pixel. A wrong answer is a fork of another session than the row's, a fork offered where it cannot work (a session with no tmux pane
 to take a conversation from: the sdk lane's), a menu that stays open over the page or opens the session under it, a session started by
 the menu itself, or an element added to the header. Kept: the ⋯ only on the rows that can be forked (a quick session is forkable, as
-`lib/spawn.sh` allows; the sdk lane's row has none); the menu offering Fork with `#side=from:<name>` for that very row, whole on the screen,
+`lib/spawn.sh` allows; the sdk lane's row has none); the menu offering Fork with `side?from:<name>` for that very row, whole on the screen,
 the click not following the row's link; the link opening the Quick session form with the fork filled in and nothing spawned; a quick session's
 own menu; Escape, a click elsewhere, a second click, and the keyboard (Enter opens it with the entry focused, Escape gives the focus back to the
 button: that check found the button hidden once the menu closed, so it kept no focus, and the order in `closeRowMenu` was changed); a phone
@@ -2221,7 +2221,7 @@ session's failing read keeps that session's last answer and marks the round `par
 bearer header. Page (`test_board_items_ui.py`, headless Chromium, the three APIs stubbed): the chip sits after the
 name and outside the fold (markup and the `FOLD` list parsed); the sidebar rows carry no board count (a later change
 removed it: the rows show the unread reply count, `test_unread_count.py` below; the board count lives on the header chip
-and the Overview); a tap on the chip opens that session's sheet (the hash and the sidebar unchanged) with the rows in order,
+and the Overview); a tap on the chip opens that session's sheet (the address and the sidebar unchanged) with the rows in order,
 each the item's page in a new tab with `noopener`, the tags saying whose move it is, the held one under its line, 44 px
 rows, a bottom sheet inside the screen on a phone that scrolls inside itself with 40 items, Escape and the scrim
 closing it and the focus going back; the chip at 320, 390, 760, 1000, 1100 and 1280 px beside a whole name, inside the
@@ -2367,7 +2367,7 @@ and drops a sheet that was another session's; a reload with the drawer or the sh
 traversal, the page the reload made) with no dead entry, Back leaving; a launch with no view opening the remembered
 session with the sidebar closed, written into the launch entry (a reload keeps it, Back leaves), the Overview when
 remembered, when nothing is remembered and when the remembered session is gone, a deep link winning over it; every view
-written to the remembered one; a dead session link saying so with a link to the Overview that replaces it; a hash set
+written to the remembered one; a dead session link saying so with a link to the Overview that replaces it; an older `#…` address set
 from outside and a link in the page (the first the browser's push, recorded; the second a replace); widening past the
 drawer popping its entry, the mode read at the next decision (a row pushes at 1280 px, replaces again at 390) with the
 entries already made staying; Chat/Terminal and the ⋯ menu adding no entry and changing no record; the keyboard going up
@@ -2660,7 +2660,7 @@ scroll, and a long refusal wrapped inside the sheet. Not checked: a proxy's requ
 ### `web/tests/test_new_session_page.py`: new, 6 (the form as a page, Sat Oct 24th 2026)
 
 The form is a full page, not a pop-up. It moved from a popover and a bottom
-sheet to the page `#new` in the main area (`web/README.md`, *New session* and *Back*). What a wrong answer costs: a project
+sheet to the page `/new` in the main area (`web/README.md`, *New session* and *Back*). What a wrong answer costs: a project
 description cut short so two projects look alike before one is picked, an ordinary create that needs scrolling so Create or the
 Open button is out of sight, a pop-up left behind in the code, a page that breaks the sidebar beside it. Headless Chromium,
 `FakeStackshot` behind the app. A title of 120 characters is shown whole (computed `white-space`, `text-overflow`, no line clamp,
@@ -2671,11 +2671,11 @@ steps and the Open button inside the viewport at every stage after it (the foot 
 on the page, so the fields may scroll under it; a new project's two-line note makes them scroll a little before Create too), the
 list scrolling inside its box; a phone has one column (the name under the
 list) and the form scrolls, the document does not, with no sideways scroll; the sidebar stays usable (New session is marked, a
-session row leaves the page, New session opens it again on `#new`); the source holds no `new-sheet`, `new-scrim`, `nsOpen`,
-`nsClose` or `defineLayer("new")`, routes `#new` as a view and keeps `placePopover` for the items sheet. Changed with it, in
-`test_new_session.py`: the markup test (a link to `#new`, the `new-pane` section, the form), the button test (now the page at
+session row leaves the page, New session opens it again on `/new`); the source holds no `new-sheet`, `new-scrim`, `nsOpen`,
+`nsClose` or `defineLayer("new")`, routes the `#new` view and keeps `placePopover` for the items sheet. Changed with it, in
+`test_new_session.py`: the markup test (a link to `/new`, the `new-pane` section, the form), the button test (now the page at
 phone and desktop widths, the composer gone, no sideways scroll at 320) and the Back test (renamed
-`test_back_returns_from_the_page_and_the_link_opens_it_again`: an entry in push and replace mode, Forward, a reload on `#new`
+`test_back_returns_from_the_page_and_the_link_opens_it_again`: an entry in push and replace mode, Forward, a reload on `/new`
 opens the page, a phone through the drawer, an old `"new"` layer record read as none); `test_new_session_scope.py` reads the form
 and pane geometry; `test_back_button.py` (the page is an entry, no layer) and `test_sidebar_hover.py` (the sidebar goes as usual
 while the page is up, the page stays). Not checked: a real phone's keyboard, a real stackshot.
@@ -3132,7 +3132,7 @@ table cannot be read; counted every five minutes, a failure tried again after on
 `test_spend_cards.py` (10 state tests and 21 width tests, headless Chromium): a lane with spend shows the month as `$x.xx`, the line
 "Estimate at list prices since <day>", a model row and a session row each with their amount and share, a live session linked to its page
 and one not running muted; a configured lane with no usage is Active with $0.00; the Overview lists the top five and says "and 2 more ›"
-to the details page, which lists all; the `#lane=aws-platform` details page draws the card and its own sessions table; a lane not set up
+to the details page, which lists all; the `lane/aws-platform` details page draws the card and its own sessions table; a lane not set up
 says "Not set up on this machine." with the "Not configured" chip; a dormant lane is a head and one line; unpriced models and sessions
 whose transcript was not found are said in plain words; a count that cannot be made says so on the card and recovers on the next ask;
 before the first count the card is quiet (the same lines, blank, at the height of an answered card, so nothing below it moves); a
@@ -3715,7 +3715,7 @@ reads on a phone, and a transcript so far behind that 10 replies lie past 16 MB 
 On a phone, a sala link inside a reply opened Chrome's in-app view, not sala. Every link a reply renders is `target=_blank`
 (md() in `app.js`) and the click handler that routes `#s=` and `#sessions` links through `go()` skipped any link with a target. It now
 lets `_blank` through, still bounded by its same-origin, same-path, sala-route test. The test renders a reply with `md()` and
-dispatches clicks: a bare `#s=<name>`, the full-origin URL and `#sessions` plain-clicked are sala's (`defaultPrevented`) and leave the
+dispatches clicks: a bare `#s=<name>`, the full-origin URL, `#sessions`, and the paths `/s/<name>` and `overview` plain-clicked are sala's (`defaultPrevented`) and leave the
 sidebar click's history (a phone's one entry becomes the view, a browser pushes one); ctrl, cmd, shift, alt and a middle click on the
 same link are left to the browser; a stackshot link, a GitHub link and another path of sala's own origin are left to the browser; every
 link keeps `target=_blank` and `rel="noopener noreferrer"`. It fails on the old `app.js` and passes on the new one. Not checked: the
@@ -3823,7 +3823,7 @@ Changed (the default window is 6 h, Mon Nov 2nd 2026; +2 parametrised cases): a 
 
 What it is: Enter in the sidebar's search box opens the Search results page in a new browser tab (`static/app.js`, the box's submit handler; `search.js` `boxHash`), so the page and chat in the tab it was typed in are not replaced. A wrong answer costs a search that still replaces the page, a new tab that does not open the search, a search that does nothing where the browser blocks the tab, or a new window in the installed app or on a phone, which lands in Chrome's in-app view outside sala.
 
-Kept: in headless Chromium (else skipped), at 1280 px: Enter opens one new tab at the same address whose hash holds the search with the box's defaults, showing its three results, with `window.opener` cleared; the first tab keeps its chat, scroll, half-typed message, address and history length, made no search call and has the box blurred; a blank Enter opens nothing. At 390 px and in the installed app (the `display-mode: standalone` query answered true in the page, as in `test_back_button.py`): the results open in place, `window.open` never called, no second tab. Where `window.open` answers null: the results open in place. The tests of the results page itself, which start a search through the box, run with `window.open` answering null (they test the page, and the box's new tab is tested on its own), so they follow the in-place path.
+Kept: in headless Chromium (else skipped), at 1280 px: Enter opens one new tab at the search page's address, which holds the search with the box's defaults, showing its three results, with `window.opener` cleared; the first tab keeps its chat, scroll, half-typed message, address and history length, made no search call and has the box blurred; a blank Enter opens nothing. At 390 px and in the installed app (the `display-mode: standalone` query answered true in the page, as in `test_back_button.py`): the results open in place, `window.open` never called, no second tab. Where `window.open` answers null: the results open in place. The tests of the results page itself, which start a search through the box, run with `window.open` answering null (they test the page, and the box's new tab is tested on its own), so they follow the in-place path.
 
 Not checked: a real browser's pop-up blocker (headless Chromium lets the tab open from a real key press; the null answer is simulated), a real installed app.
 
@@ -5247,7 +5247,7 @@ total; the marks are read from `api/chat` on a 25 s timer that skips a hidden pa
 closing after it; the switch is drawn disabled and says "not active yet"; the strip's rules are all scoped to `#chat-strip`, the left cap is one rule under `body.chat-session`, the entry's name keeps a floor width, the waiting chip is the red
 `--waiting`, nothing added scrolls by its own overflow; the new strings exist in English and, as escapes only, in Korean; and the first page still carried its own copy of the pieces the strip copied (the fourth step removed that test with the page).
 Kept (`test_chat_session_view_ui.py`, a headless Chromium at 1280x800 and 390x844, else skipped; GitHub CI runs it): the entry above New session with its marks following a changed answer, hidden with no session set, a 40-character name cut
-by its ellipsis with the marks whole (also at 360 and 320 px, inside `min(300px, 85vw)`), a click opening `#s=<name>` with selected and `aria-current` and a phone's drawer closing, one row only for the session (the Overview still lists it, the
+by its ellipsis with the marks whole (also at 360 and 320 px, inside `min(300px, 85vw)`), a click opening `s/<name>` with selected and `aria-current` and a phone's drawer closing, one row only for the session (the Overview still lists it, the
 ordinary row back with no chat session set); the strip showing two waiting moves, a motion line and the switch off with its count, a new move marked "new", the strip surviving the thread being replaced and read again after stream
 activity, and no strip and no class for any other session; one composer and an image paste making one chip; the spinner of a working chat session; a parity test (the same transcript opened as the chat session and as another one: header,
 title, composer, send and attach buttons, the owner's bubble, copy button, messages and font size give the same boxes and computed style, only the assistant's text width differs); and no sideways scroll at 1280, 390, 360 and 320 px, drawer
@@ -5334,10 +5334,10 @@ and zone fields of `GET /api/chat` (nothing the entry and the strip read), and t
 and link cards of the view are built from them), and the `chat.*` strings the strip uses. A wrong answer is a dead `/chat` link, a redirect to the host's root (the app may sit under a prefix), the old page served beside the new, a leftover that
 keeps a deleted page's code alive, or a chat session that does not show it is working.
 
-Kept (`test_chatpage.py`, no browser): `/chat` answers a 302 with `Location: ./#s=<the session>` (relative, never starting with `/`), `./` with no session set; followed, it lands on sala's page with the strip in it and no `chat.js` or `chat.css`;
+Kept (`test_chatpage.py`, no browser): `/chat` answers a 302 with `Location: ./s/<the session>` (relative, never starting with `/`), `./` with no session set; followed, it lands on sala's page with the strip in it and no `chat.js` or `chat.css`;
 `/static/chat.html`, `chat.js` and `chat.css` are a 404; `/api/chat` with no session set is exactly `{configured: false}` and with one has exactly the keys the entry and the strip read (no thread, no pid), the count of kept-back lines and the moves
 and motion lines as before. `test_slim_touch_rule.py` holds that the three files stay gone. `test_chatturns.py` reads a transcript through a small helper in the test file now (the rule's own checks are unchanged).
-Kept (`test_chat_retired_ui.py`, a headless Chromium, else skipped; GitHub CI runs it; it was written on a box whose Chromium does not start, so CI is its first run): `/chat` loads the main page at `#s=<the session>` with the session selected and its
+Kept (`test_chat_retired_ui.py`, a headless Chromium, else skipped; GitHub CI runs it; it was written on a box whose Chromium does not start, so CI is its first run): `/chat` loads the main page at `/s/<the session>` with the session selected and its
 strip showing, and at the app's own page with no session set; a working chat session shows the spinner every session shows (the existing `test_a_working_chat_session_shows_the_sessions_own_spinner` in `test_chat_session_view_ui.py` holds the same
 against the real stream) and an idle one does not; and no sideways scroll at 1280, 390, 360 and 320 px after the redirect.
 A mutation was run once (the redirect made absolute): the relative-redirect tests failed, then it was restored.
@@ -5469,7 +5469,7 @@ Not covered, and why: Firefox and Safari; the browser's own controls drawn for v
 
 With a proxy in front that answers 401 once its sign-in has ended, `static/signin.js` loads the page again, once. A wrong answer is a dead page, a reload that repeats, typed text or an unsent message lost with the reload, or a signed-in page reloaded.
 
-Kept (a headless Chromium against the real server with a stand-in proxy in front, else skipped; GitHub CI runs it): a refused send reloads once, and after the sign-in the address' fragment, the composer's draft, a field of the New session form and the unsent message with its file are back; a stream that stops asks, and an attached file stays; a refused upload asks; requests still refused after the reload never reload again, one a minute or more after a good answer does; a terminal frame that reads its token again, or comes up refused, reloads the page; 502, 403 and 503, one refused request with `api/config` answering, a terminal service that is down, and blocked storage reload nothing. Without a browser: both pages load the script before what reads the address or asks the server, and no module of sala answers 401.
+Kept (a headless Chromium against the real server with a stand-in proxy in front, else skipped; GitHub CI runs it): a refused send reloads once, and after the sign-in the page's address, the composer's draft, a field of the New session form and the unsent message with its file are back; a stream that stops asks, and an attached file stays; a refused upload asks; requests still refused after the reload never reload again, one a minute or more after a good answer does; a terminal frame that reads its token again, or comes up refused, reloads the page; 502, 403 and 503, one refused request with `api/config` answering, a terminal service that is down, and blocked storage reload nothing. Without a browser: both pages load the script before what asks the server, and no module of sala answers 401.
 
 Not covered, and why: a real provider's sign-in; a real ttyd's reconnect; the installed app on Android and iPhone; the proxy example of `docs/web-proxy.md`, which needs the proxy's own binaries (run by hand once).
 
@@ -5594,3 +5594,15 @@ The catch-up queued a back agent off Ultra one minute after a lane move to Ultra
 Covered, in `tests/backlane.sh` (fakes only, in the suite's locked and removed temp folder): with a straggler at home and the figure at 0% the pass queues nothing, and queues it again once the figure is back over the threshold; a straggler with a `set` line from a shell or from a queued operation `from` another session after `moved_at` is skipped while one set by an operation `from sala-watch` and one set before `moved_at` still go.
 
 Not covered, and why: the real `sala op lane` writing the `set` line (the fake only records the move; the line is written into `lanes.log` by the test in the form `lane_log` writes it).
+
+### Page addresses without "#": `web/tests/test_addresses.py`, `test_addresses_ui.py` (browser), new (Fri Nov 27th 2026)
+
+Each view of the page has a path of its own (`web/README.md`, *Addresses*), and an address of before (`/#s=<name>`) is rewritten to it in the browser. A wrong answer is a reload or a shared link that opens a 404 or another view, a view served with fewer checks than `/`, a page whose scripts and API calls resolve under the view's folder or outside a proxy's path prefix, a saved link that stops working, or a Back that skips or repeats a view.
+
+Kept (`test_addresses.py`, no browser; the address script runs in node): every view's path answers as `/` does (the same page and headers apart from `<base>`, the same methods, the same `?arg=` redirect with its query whole, the same record of the visit); the base leads back to the root under a path prefix; paths that are no view are a 404, `/s/` included; `/chat` and `/sessions` redirect relatively to a view's path; the help link and every other page link in the served page are paths the server answers; each view form and its path turn into each other at the host's root and under a prefix, and a link of before is rewritten at the load with the history state kept.
+
+Kept (`test_addresses_ui.py`, a headless Chromium, else skipped; GitHub CI runs it): a reload on `/s/<name>` at both widths shows the session with nothing asked for under the view's folder; links of before for a session, the Overview, a tab, the New session page, a lane and a search open the view at its path in place; Back and Forward walk the paths before and after a reload; under a path prefix nothing is asked for outside it.
+
+Changed with it: the web tests that read the old addresses (they read the view through `SalaAddress.here()`, and links and `/chat`'s `Location` are the paths), and `test_signin.py` (the proxy sends the browser back to the page asked for; the script no longer notes and restores the part after `#`).
+
+Not covered, and why: a real proxy's sign-in return to a path with a query; a session named `.` or `..`, whose path a browser collapses.

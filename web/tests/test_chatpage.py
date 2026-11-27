@@ -3,7 +3,7 @@ name the session, the link cards, the board lines, the motion lines (what the se
 
 What is held:
   - nothing configured (the default): /api/chat says so and /chat leads to the sessions' own page; the session name is never in the code, only in SALA_CHAT_SESSION;
-  - /chat is a redirect, relative to wherever the app is mounted, to #s=<the session> (or to the app's own page with none set), and serves no page of its own;
+  - /chat is a redirect, relative to wherever the app is mounted, to s/<the session> (or to the app's own page with none set), and serves no page of its own;
   - the display name defaults to the part of the session name after its last hyphen, capitalized, and SALA_CHAT_NAME replaces it;
   - cards: a /mockup/<n> link and a claude.ai artifact link become cards, any other link none, nothing is fetched (the mockup's title is read from
     the local store);
@@ -219,7 +219,7 @@ def get_raw(url: str):
 def test_the_chat_address_redirects_into_the_session_s_own_view_relative_to_the_app(served, monkeypatch):
     monkeypatch.setenv("SALA_CHAT_SESSION", NAME)
     status, location, body = get_raw(served["url"] + "/chat")
-    assert status in (302, 307) and location == "./#s=" + NAME and body == b""
+    assert status in (302, 307) and location == "./s/" + NAME and body == b""
     assert not location.startswith("/"), "relative to the app's own prefix, never the host's root"
 
 
@@ -233,7 +233,7 @@ def test_the_redirect_lands_on_sala_s_page_and_no_page_of_its_own_is_served(serv
     monkeypatch.setenv("SALA_CHAT_SESSION", NAME)
     with urllib.request.urlopen(served["url"] + "/chat", timeout=20) as r:      # followed: the app's own page
         page = r.read().decode()
-        assert r.status == 200 and r.geturl() == served["url"] + "/#s=" + NAME
+        assert r.status == 200 and r.geturl() == served["url"] + "/s/" + NAME
     assert 'id="chat-strip"' in page and "static/chat.js" not in page and "static/chat.css" not in page
     for gone in ("chat.html", "chat.js", "chat.css"):
         assert get_raw(served["url"] + "/static/" + gone)[0] == 404, gone

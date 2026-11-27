@@ -1,6 +1,6 @@
 "use strict";
 /* sala-web frontend: session sidebar, chat transcript over SSE, terminal iframe, composer, and the sessions overview
-   (#sessions) in the same main area. No build step. laneLabel and modelLabel come from shared.js, overview from
+   (/overview) in the same main area. No build step. laneLabel and modelLabel come from shared.js, overview from
    sessions.js. */
 
 /* ---------- timing (temporary, Wed Oct 14th 2026; README "Timing"; remove with static/timing-debug.js) ----------
@@ -52,7 +52,7 @@ const el = (tag, attrs = {}, ...kids) => {
 
 const state = {
   byName: new Map(),
-  selected: null,       // session name (kept in the URL hash)
+  selected: null,       // session name (kept in the address, /s/<name>)
   current: null,        // the selected session object (pid etc.)
   es: null,             // EventSource
   defaultScope: "",     // the scope a new project starts in (api/config)
@@ -367,7 +367,7 @@ async function saveList(key, compute) {
    header, thread, composer (CodeMirror box, attach button, image paste, Send), spacing and buttons. Three things are added to it, and a difference
    outside this list is a defect:
    - its entry, the first line of the sidebar's views (#side-chat, above New session): the session's display name from GET api/chat, a small "chat", a
-     working dot while it works and a red count of the owner's moves that wait. A link to #s=<the session>, so a click is an ordinary go(). The session's
+     working dot while it works and a red count of the owner's moves that wait. A link to /s/<the session>, so a click is an ordinary go(). The session's
      own row in the list is hidden while the entry exists (visibleSessions), and its unread count stays out of the Unread total (the entry carries the
      count that matters). The Overview still lists it. The marks are read every CHAT_MARKS_MS while the page is visible, whether or not the session is open;
      while it is open they are also read when the stream says something changed (chatStripSoon) and on open;
@@ -381,7 +381,7 @@ async function saveList(key, compute) {
    - the turns the owner did not start are kept back by the SERVER (chatkeep.py: the transcript reads and the stream of this one session carry one "kept" message
      in place of each such turn, and the turns he started whole, as for any session). A kept message is one quiet line in the thread (renderKept); the strip's
      switch shows or hides them all (body.chat-kept-on), with their count of today (api/chat keptLines). Nothing here decides who started a turn.
-   Everything the strip shows is read from api/chat. /chat is only an address now: the server redirects it to #s=<the session> (app.py). */
+   Everything the strip shows is read from api/chat. /chat is only an address now: the server redirects it to /s/<the session> (app.py). */
 const CHAT_MARKS_MS = 25000, CHAT_STRIP_MS = 350;
 const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false, waitOpen: false, waitTab: "move", waitRove: "move" };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines); waitOpen: a pinned list is opened (closed at every page load); waitTab: which one, or the one last opened; waitRove: the tab the Tab key reaches
 const chatEntryOn = () => !!(chatView.data && chatView.data.configured);
@@ -442,7 +442,7 @@ function paintChatEntry() {
   const a = $("#side-chat"), d = chatView.data, on = chatEntryOn();
   a.hidden = !on;
   if (!on) { a.classList.remove("selected"); a.removeAttribute("aria-current"); return; }
-  a.setAttribute("href", "#s=" + encodeURIComponent(d.session));
+  a.setAttribute("href", "s/" + encodeURIComponent(d.session));
   a.querySelector(".label").textContent = d.name;
   const group = chatGroupName(d.group);
   // the tooltip is painted here only: its text takes {group}, and the markup's applier has no served name to fill it with
@@ -857,10 +857,10 @@ function header(cls, ckey, title, tip, collapsed, sessions) {
   return h;
 }
 function sessRow(s) {
-  // a real link, so Ctrl/Cmd/middle-click and "open in new tab" work; a plain click just follows the hash
+  // a real link, so Ctrl/Cmd/middle-click and "open in new tab" work; a plain click is sala's own (go)
   return el("a", {
     class: "sess" + (s.name === state.selected ? " selected" : ""),
-    href: "#s=" + encodeURIComponent(s.name),
+    href: "s/" + encodeURIComponent(s.name),
     title: `${s.name} · ${s.status}${isSleeping(s) && sleptAt(s.sleeping) ? " · " + tl("app.sleeping.since", { when: sleptAt(s.sleeping) }) : ""}${s.role ? " · " + s.role : ""}${s.parkedJob ? " · " + tl("app.sess.bgJob", { job: s.parkedJob }) : ""}`,
     "data-key": s.name, "data-okey": sessKey(s), draggable: "false",
     onclick: (e) => { if (!(e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0)) setDrawer(false); },  // hidden now; its history entry goes with the navigation (go)
@@ -874,14 +874,14 @@ function sessRow(s) {
 
 /* ---------- a session row's ⋯ menu (Fork lives here, not in the header, whose fold is measured to the pixel) ----------
    The ⋯ at the end of a row, left of the item count (on hover or focus, and always on the open session's row; on a touch screen only there, since
-   nothing hovers) opens a small menu under it. Its one entry now is Fork: a link to #side=from:<name>, which opens the Quick
+   nothing hovers) opens a small menu under it. Its one entry now is Fork: a link to /side?from:<name>, which opens the Quick
    session form with the fork of that session filled in (the same form and queue as the deep link; nothing is started until
    Start quick session is pressed there). A row gets the ⋯ only when something can be done with it: a fork continues the
    conversation of a live claude (lib/spawn.sh side_origin: a tmux session with one in it), so a session with no tmux pane (the
    sdk lane's, which has no transcript to continue) has none. A quick session itself can be forked, as lib/spawn.sh allows
    (the new name is cut at the earlier -side-). */
 const canFork = (s) => !!(s && s.tmuxSession && s.lane !== "sdk");
-const rowMenuItems = (s) => [canFork(s) ? { label: tl("app.sess.fork"), hint: tl("app.sess.forkHint"), href: "#side=from:" + s.name } : null].filter(Boolean);
+const rowMenuItems = (s) => [canFork(s) ? { label: tl("app.sess.fork"), hint: tl("app.sess.forkHint"), href: "side?from:" + encodeURIComponent(s.name) } : null].filter(Boolean);
 let rowMenu = null;  // {name, node}
 function rowMenuBtn(s) {
   if (!rowMenuItems(s).length) return null;
@@ -1388,7 +1388,7 @@ function nsFirstScope() {
   let saved = null;
   try { saved = localStorage.getItem("sala.ns.scope"); } catch { /* private window */ }
   if (saved && (saved === NS_ALL || ns.scopes.includes(saved))) return saved;
-  const from = state.selected || ns.from;   // the page for #new has no session selected: the one it was opened from
+  const from = state.selected || ns.from;   // the page at /new has no session selected: the one it was opened from
   const sc = state.scopes.find((x) => x.groups.some((g) => g.sessions.some((s) => s.name === from)));
   return sc && ns.scopes.includes(sc.key) ? sc.key : ns.scopes.includes(state.defaultScope) ? state.defaultScope : ns.scopes[0] || NS_ALL;
 }
@@ -1918,7 +1918,7 @@ function nsBusyButton(btn, busy) {
 // who a twice-failed start is reported to: the session SALA_HELP_SESSION names (the Get Help chip's, which the server puts
 // in the page only when it is set); none set, the words name no session
 function tellHelp() {
-  const a = document.getElementById("sp-help"), h = a ? decodeURIComponent((a.getAttribute("href") || "").replace(/^#s=/, "")) : "";
+  const a = document.getElementById("sp-help"), h = a ? decodeURIComponent((a.getAttribute("href") || "").replace(/^s\//, "")) : "";
   return h ? tl("app.ns.tell", { who: h }) : tl("app.ns.tellDefault");
 }
 function nsProgressList(res) {
@@ -1952,10 +1952,10 @@ function nsQueuedKids(res, opts) {
   const headline = { queued: "app.ns.st.queued", starting: "app.ns.st.starting", ready: "app.ns.st.ready", failed: "app.ns.st.failed", late: "app.ns.st.late" }[res.state];
   const state = el("div", { class: "ns-state " + (failed ? "failed" : res.state), text: `${res.name}: ${headline ? tl(headline) : res.state}` });
   if (res.state === "ready") {
-    // a plain in-page link: the click goes through go() ("selection, hash, history"), which closes the
+    // a plain in-page link: the click goes through go() ("selection, address, history"), which closes the
     // drawer by its history entry before it opens the session. Beside the headline: the main thing on the screen
     kids.push(el("div", { class: "ns-top" }, state,
-      el("a", { class: "ns-link ns-open", href: "#s=" + encodeURIComponent(res.name) }, document.createTextNode(tl("app.ns.open") + " "), el("span", { class: "ns-key", text: res.name }))));
+      el("a", { class: "ns-link ns-open", href: "s/" + encodeURIComponent(res.name) }, document.createTextNode(tl("app.ns.open") + " "), el("span", { class: "ns-key", text: res.name }))));
   } else kids.push(state);
   kids.push(nsProgressList(res));
   if (opts.steps) kids.push(opts.steps);
@@ -2018,7 +2018,7 @@ function nsRenderStatus() {
   if (res.kind === "queued") nsFocusOpen(nsEl.status, res);
   if (nsEl.submit.getAttribute("aria-busy") !== String(nsBusyOf(res) || ns.pending)) nsValidate();   // Start's button follows the session's progress
 }
-// The page for #new is shown and hidden by the route (setNewPage, "selection, hash, history"): nsShow when it is drawn,
+// The page at /new is shown and hidden by the route (setNewPage, "selection, address, history"): nsShow when it is drawn,
 // nsHide when another view takes the main area. What was typed and the last result stay in the page across the two.
 function nsShow() {
   if (ns.open) return;
@@ -2044,7 +2044,7 @@ SalaI18n.onChange(() => {
 function nsHide() { ns.open = false; }
 
 /* QUICK SESSIONS (called side conversations inside sala and in the API: `side`, `fork_of`, `item`; docs/side-sessions.md;
-   renamed on the page). The New session page's other form (#sd-form, shown while the hash is #side=…): a short
+   renamed on the page). The New session page's other form (#sd-form, shown while the address is /side…): a short
    talk with the owner started in one step, through the same queue as the New session form (POST api/spawn with side: true). Two fields,
    BOTH OPTIONAL and independent, each a picker built like the project box (a one-line summary with an arrow, a search box, a header
    row and a list; a typed id is accepted too):
@@ -2054,9 +2054,9 @@ function nsHide() { ns.open = false; }
    · SESSION TO FORK: the live sessions the page lists. The new session continues that one's conversation.
    Either alone, or both (a fork about an item): sala's backend needs one of the two to know what the talk is about (a start with
    neither has no page to scope it to and no conversation to continue; lib/spawn.sh), so the form says so and keeps Start off until
-   one is chosen. The Discuss link of stackshot, <sala's address>/#side=<id> (e.g. https://sala.example.com/#side=<id>), opens the form with the item chosen. The id is
-   everything after "side=", whatever it looks like: board#N, an older sN, a temporary board-tmp-box#N (it may itself hold a
-   "#"). The link #side=from:<name> opens it with that session chosen (no button in the session header: its fold is measured to the
+   one is chosen. The Discuss link of stackshot, <sala's address>/side?<id> (e.g. https://sala.example.com/side?item%2338), opens the form with the item chosen. The id is
+   everything after "side?" up to the first "&", whatever it looks like: board#N, an older sN, a temporary board-tmp-box#N (it may itself hold a
+   "#", written %23; a bare one is read too, and so is the older link /#side=<id>). The link side?from:<name> opens it with that session chosen (no button in the session header: its fold is measured to the
    pixel). A blank name is the suggested one (<prefix>-side-<word><nn>, api/spawn/suggest?side=1). */
 const SD_ITEM_RE = /^(?:board#\d+|board-tmp-[a-z0-9]+(?:-[a-z0-9]+)*#\d+|[a-z]\d+)$/;
 const SD_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -2071,7 +2071,7 @@ const sd = { applied: null, pending: false, result: null, track: null, tick: nul
 const sdItemId = () => sdEl.item.value.trim();
 const sdForkName = () => sdEl.fork.value.trim();
 function sdDecode(t) { try { return decodeURIComponent(t); } catch { return t; } }
-// "#side=<id>[&project=<key>&agents=<a,b>]" or "#side=from:<name>" -> { kind, item | from, project, agents }; an empty value is the blank form.
+// the view "#side=<id>[&project=<key>&agents=<a,b>]" or "#side=from:<name>" (the address side?…, address.js) -> { kind, item | from, project, agents }; an empty value is the blank form.
 // The id is everything up to the first "&" (an id has none), and it may hold "#".
 function sdParse(h) {
   const rest = h.slice("#side=".length), amp = rest.indexOf("&");
@@ -2180,7 +2180,7 @@ function sdChanged(which, key) {
   sdValidate();
   if (which === "item" && key) sdLookup().then(sdSuggest); else sdSuggest();
 }
-// the hash decides which form the page shows; its values are put into the form once per hash (route() calls again for the same one)
+// the address decides which form the page shows; its values are put into the form once per address (route() calls again for the same one)
 function sdMode() {
   const on = sideHash();
   document.body.classList.toggle("side-mode", on);
@@ -2192,9 +2192,9 @@ function sdMode() {
     if (current) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
   if (!on) { sd.applied = null; return; }
-  if (sd.applied === location.hash) return;
-  sd.applied = location.hash;
-  sdApply(sdParse(location.hash));
+  if (sd.applied === here()) return;
+  sd.applied = here();
+  sdApply(sdParse(here()));
 }
 async function sdApply(p) {
   sdEl.name.value = ""; sd.nameEdited = false;
@@ -2358,9 +2358,11 @@ nsEl.modelOther.addEventListener("input", nsValidate);
 nsEl.summary.addEventListener("click", () => nsFold(!ns.folded));   // the arrow: fold or open the project box
 nsEl.form.addEventListener("submit", nsSubmit);
 
-/* ---------- selection, hash, history ----------
-   #s=<name> opens a session, #sessions the overview; no hash opens the overview in a wide browser (push mode; the hash
-   is rewritten to #sessions in place), a phone or the installed app opens on the view it was last on (below).
+/* ---------- selection, address, history ----------
+   /s/<name> opens a session, /overview the overview; the bare root opens the overview in a wide browser (push mode; the address
+   is rewritten to /overview in place), a phone or the installed app opens on the view it was last on (below). Every view's address
+   is a path (static/address.js, which also reads the addresses of before, /#s=<name>); the code below names a view by its short
+   "#..." form (#s=<name>, #sessions), reads the shown one with here() and writes the address in one place, navWrite.
 
    What Back does (revised twice). Two
    modes, read live at every decision (a resize or a rotation changes the next action; entries already made stay):
@@ -2382,56 +2384,58 @@ nsEl.form.addEventListener("submit", nsSubmit);
    viewer; sala has none, thumbnails open in a new tab) is one more defineLayer.
    A phone or the installed app opens on the view it was last on (localStorage salaweb.lastView, written on every view),
    with the sidebar closed: a session still live, else the Overview. The result is written to the launch entry, so a
-   reload keeps it. A wide browser (push mode) has no last view to keep: with no hash it opens on the Overview, #sessions
-   written over the launch entry with replaceState (no entry added, so the nav base is #sessions and Back from it leaves
-   sala, as for a #sessions deep link). A deep link (#s=<name>, #sessions) wins over it. A reload with layers recorded leaves them (the
+   reload keeps it. A wide browser (push mode) has no last view to keep: on the bare root it opens on the Overview, /overview
+   written over the launch entry with replaceState (no entry added, so the nav base is the Overview and Back from it leaves
+   sala, as for an /overview deep link). A deep link (/s/<name>, /overview) wins over it. A reload with layers recorded leaves them (the
    entries under the page are walked back over at once): Back then leaves, with no dead entry under it.
-   A hash change sala did not make (the address bar, a script; every link in the page goes through go) arrives as the
+   An address change sala did not make (an old "#..." address typed into the open page, a script; every link in the page goes through go) arrives as the
    browser's own pushed entry with no state. It is taken as it is and recorded. history.state is {sala: {layers, idx}},
    idx growing with every push so a popstate knows whether it travelled back or forward; layers the open layers, bottom
    first ("drawer"). An entry of an earlier build may also list an items sheet ({sheet: name}), a layer that is gone: navRecord drops what is not defined. An entry of the first build (depth, base, overlays) reads as no layers. The
    Chat/Terminal toggle and the ⋯ menu touch no history (the menu is a dropdown a tap outside closes, not a page).
    Tests: tests/test_back_button.py. */
-function hashName(h = location.hash) {
+// the shown view, as its "#..." form ("" for none)
+function here() { return SalaAddress.here(); }
+function hashName(h = here()) {
   const m = /(?:^|&)s=([^&]*)/.exec(h.slice(1));
   if (!m) return null;
   try { return decodeURIComponent(m[1]); } catch { return m[1]; }
 }
-const schedulesHash = (h = location.hash) => h === "#schedules";        // the Overview's Schedules tab (it was a page of its own once, so an old link lands here)
-// #search?q=…: the Search results page, a page of its own (search.js); the query and the filters are in the address
-const searchHash = (h = location.hash) => h === "#search" || h.startsWith("#search?");
-const machinesHash = (h = location.hash) => h === "#machines";              // the Overview's Machines tab
-const usageHash = (h = location.hash) => h === "#usage";                    // the Overview's Usage analysis tab
-const overviewHash = () => location.hash === "#sessions" || schedulesHash() || machinesHash() || usageHash();   // any of the Overview's four tabs
+const schedulesHash = (h = here()) => h === "#schedules";        // the Overview's Schedules tab (it was a page of its own once, so an old link lands here)
+// /search?q=…: the Search results page, a page of its own (search.js); the query and the filters are in the address
+const searchHash = (h = here()) => h === "#search" || h.startsWith("#search?");
+const machinesHash = (h = here()) => h === "#machines";              // the Overview's Machines tab
+const usageHash = (h = here()) => h === "#usage";                    // the Overview's Usage analysis tab
+const overviewHash = () => here() === "#sessions" || schedulesHash() || machinesHash() || usageHash();   // any of the Overview's four tabs
 const TAB_HASH = { sessions: "#sessions", schedules: "#schedules", machines: "#machines", usage: "#usage" };    // each tab's link
-// #lane=<id>: a lane's details page, a view of the Overview's pane; null for any other hash
-function laneHashId(h = location.hash) {
+// /lane/<id>: a lane's details page, a view of the Overview's pane; null for any other view
+function laneHashId(h = here()) {
   const m = /^#lane=([^&]*)$/.exec(h);
   if (!m) return null;
   try { return laneNorm(decodeURIComponent(m[1])) || null; } catch { return laneNorm(m[1]) || null; }
 }
 const overviewFamily = () => overviewHash() || laneHashId() !== null;
-// #new: the New session page, a view of its own in the main area (not a layer: it has a link, so a reload and a
+// /new: the New session page, a view of its own in the main area (not a layer: it has a link, so a reload and a
 // shared link open it); every in-page navigation to it is an entry (go), so Back returns to the view it was opened from
-const sideHash = (h = location.hash) => h.startsWith("#side=");   // a side conversation: the New session page's other form
-const newHash = (h = location.hash) => h === "#new";
-const newPageHash = (h = location.hash) => newHash(h) || sideHash(h);   // either form of the New session page
+const sideHash = (h = here()) => h.startsWith("#side=");   // a side conversation: the New session page's other form
+const newHash = (h = here()) => h === "#new";
+const newPageHash = (h = here()) => newHash(h) || sideHash(h);   // either form of the New session page
 // the view last shown, kept across launches (the installed app reopens on it)
 const LAST_VIEW = "salaweb.lastView";
 function rememberView(h) { try { localStorage.setItem(LAST_VIEW, h); } catch { /* storage unavailable */ } }
 function rememberedView() { try { return localStorage.getItem(LAST_VIEW) || ""; } catch { return ""; } }
-// the page for the hash: the overview once, or a session (selectSession is a no-op for the open one)
+// the page for the address: the overview once, or a session (selectSession is a no-op for the open one)
 function route() {
   if (newPageHash()) { showNewPage(); sdMode(); }
   else if (searchHash()) showSearchPage();
   else if (overviewFamily()) {
     if (!document.body.classList.contains("overview-open")) showOverview();
     overview.showLane(laneHashId());  // a lane's details page, or (null) the Overview itself
-    // #schedules, #machines and #usage open the Overview on their tabs
+    // /schedules, /machines and /usage open the Overview on their tabs
     setOverviewTab(laneHashId() !== null ? "sessions" : schedulesHash() ? "schedules" : machinesHash() ? "machines" : usageHash() ? "usage" : "sessions");
     setOverviewTitle();
   } else selectSession(hashName());
-  if (overviewHash() || hashName()) rememberView(location.hash);
+  if (overviewHash() || hashName()) rememberView(here());
 }
 // phone portrait in any browser, or the installed app at any width: one entry for the views. Else a browser with its
 // own Back button: an entry per view.
@@ -2450,7 +2454,7 @@ const navRecord = (s) => {
 };
 function navWrite(st, hash, push) {
   nav.cur = st;
-  try { history[push ? "pushState" : "replaceState"]({ sala: st }, "", location.pathname + location.search + (hash || "")); }
+  try { history[push ? "pushState" : "replaceState"]({ sala: st }, "", SalaAddress.url(hash || "")); }
   catch { /* a browser refusing (too many writes in a row): the page still changes */ }
 }
 function navBack(n) {
@@ -2464,12 +2468,12 @@ function hideLayers() { for (const l of Object.values(layers)) if (l.isOpen()) l
 function navStuck() {
   nav.busy = null;
   hideLayers();
-  navWrite({ layers: [], idx: (navRecord(history.state) || nav.cur).idx }, location.hash, false);
+  navWrite({ layers: [], idx: (navRecord(history.state) || nav.cur).idx }, here(), false);
   const h = nav.pending;
   nav.pending = null;
   if (h !== null) go(h); else route();
 }
-// an in-page navigation to #s=<name> or #sessions, by the rules above; push: an entry in either mode (a search result opened
+// an in-page navigation to a view (#s=<name>, #sessions), by the rules above; push: an entry in either mode (a search result opened
 // from the results page, so Back from its chat returns to the results on a phone too)
 function go(hash, { push = false } = {}) {
   const st = nav.cur, down = st.layers.length;  // the layer entries on top of this one
@@ -2478,9 +2482,9 @@ function go(hash, { push = false } = {}) {
     if (!nav.busy) navBack(down);
     return;
   }
-  if (hash === location.hash) { route(); return; }  // where we are already
+  if (hash === here()) { route(); return; }  // where we are already
   const fromOverview = Object.values(TAB_HASH).includes(shownHash());
-  if (replaceMode() && !push && !newPageHash(hash)) navWrite({ layers: [], idx: st.idx }, hash, false);   // the page for #new is an entry in either mode: Back returns from it
+  if (replaceMode() && !push && !newPageHash(hash)) navWrite({ layers: [], idx: st.idx }, hash, false);   // the page at /new is an entry in either mode: Back returns from it
   else navWrite({ layers: [], idx: ++nav.idx }, hash, true);
   // a lane's page opened from the Overview in push mode: the entry under it is the Overview, so its Back button is the browser's Back
   nav.laneIdx = fromOverview && !replaceMode() && laneHashId(hash) !== null ? nav.idx : -1;
@@ -2488,10 +2492,10 @@ function go(hash, { push = false } = {}) {
 }
 function pushLayer(r) {
   if (nav.busy) return;  // a pop in flight: this entry is about to go; nothing to put on it
-  navWrite({ layers: [...nav.cur.layers, r], idx: ++nav.idx }, location.hash, true);
+  navWrite({ layers: [...nav.cur.layers, r], idx: ++nav.idx }, here(), true);
 }
 function retagLayer(kind, r) {
-  navWrite({ layers: nav.cur.layers.map((x) => (layerKind(x) === kind ? r : x)), idx: nav.cur.idx }, location.hash, false);
+  navWrite({ layers: nav.cur.layers.map((x) => (layerKind(x) === kind ? r : x)), idx: nav.cur.idx }, here(), false);
 }
 function popLayer(kind) {
   const st = nav.cur, top = st.layers[st.layers.length - 1];
@@ -2499,7 +2503,7 @@ function popLayer(kind) {
   // closed under another layer, or while a pop is in flight: out of this entry's record; its own entry below is
   // then stale, and a Back onto it skips it
   const left = st.layers.filter((x) => layerKind(x) !== kind);
-  if (left.length !== st.layers.length) navWrite({ layers: left, idx: st.idx }, location.hash, false);
+  if (left.length !== st.layers.length) navWrite({ layers: left, idx: st.idx }, here(), false);
 }
 // Escape: the top layer, one per press (the record's order, else whatever is open, the last defined first)
 function closeTopLayer() {
@@ -2517,46 +2521,47 @@ function syncLayers(st, back) {
   for (const x of st.layers) if (!layerOpen(x)) layers[layerKind(x)].show(x);
   return false;
 }
-// the hash of the page shown now (what route() last drew)
-const shownHash = () => (document.body.classList.contains("new-open") ? (sideHash() ? location.hash : "#new") : document.body.classList.contains("search-open") ? searchAt
+// the view of the page shown now (what route() last drew)
+const shownHash = () => (document.body.classList.contains("new-open") ? (sideHash() ? here() : "#new") : document.body.classList.contains("search-open") ? searchAt
   : document.body.classList.contains("overview-open")
   ? (overview.laneId() !== null ? "#lane=" + encodeURIComponent(overview.laneId()) : TAB_HASH[overviewTab] || "#sessions")
   : (state.selected ? "#s=" + encodeURIComponent(state.selected) : ""));
 window.addEventListener("popstate", (e) => {
   const was = nav.cur;
-  if (!was) return;  // before init: init routes from the hash and the state it finds
+  if (!was) return;  // before init: init routes from the address and the state it finds
   clearTimeout(nav.busy); nav.busy = null;
   let st = navRecord(e.state);
   if (!st) {
-    // an entry without a record (above): the same place again is a same-hash navigation that wiped the record, put
+    // an entry without a record (above): the same place again is a same-view navigation that wiped the record, put
     // back; else the entry is taken as it is and recorded
-    if (location.hash === shownHash()) { navWrite(was, location.hash, false); return; }
+    if (here() === shownHash()) { navWrite(was, here(), false); return; }
     nav.pending = null;
     st = { layers: [], idx: ++nav.idx };
-    navWrite(st, location.hash, false);
-  } else if (replaceMode() && st.layers.length && location.hash !== shownHash()) {
+    navWrite(st, here(), false);
+  } else if (replaceMode() && st.layers.length && here() !== shownHash()) {
     // a Forward entry of a view since replaced: it keeps the view that is shown and re-opens its layers over it
     navWrite(st, shownHash(), false);
   } else nav.cur = st;
   if (syncLayers(st, st.idx < was.idx)) return;
   if (nav.pending !== null) { const h = nav.pending; nav.pending = null; go(h); return; }
-  if (location.hash !== shownHash()) route();  // a layer's entry has the page's own hash: nothing to redraw
+  if (here() !== shownHash()) route();  // a layer's entry has the page's own address: nothing to redraw
 });
-// a plain click on an in-page link to a session or the overview is sala's (go); a modified click, another target or
-// another page is the browser's. A link with target=_blank still counts when it points at sala's own page and route
+// a plain click on a link to one of the page's views is sala's (go); a modified click, another target or
+// another address is the browser's. A link with target=_blank still counts when it points at one of sala's own views
 // (a link in a reply: every link there is made target=_blank, for the off-origin ones): on a phone the
 // installed app would open it in Chrome's in-app view, on a desktop in a new tab, and it should stay in sala. The
-// same-page, same-route test below is what keeps a stackshot or GitHub link (another origin) outside.
+// same-origin, own-view test below (SalaAddress.read) is what keeps a stackshot or GitHub link (another origin), a mockup page or the terminal outside.
 document.addEventListener("click", (e) => {
   if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
   const a = e.target.closest("a[href]");
-  if (!a || (a.target && a.target !== "_self" && a.target !== "_blank") || a.origin !== location.origin || a.pathname !== location.pathname || a.search !== location.search) return;
-  if (!(a.hash === "#sessions" || a.hash === "#schedules" || a.hash === "#machines" || searchHash(a.hash) || a.hash === "#new" || sideHash(a.hash) || a.hash.startsWith("#s=") || laneHashId(a.hash) !== null)) return;
+  if (!a || (a.target && a.target !== "_self" && a.target !== "_blank") || a.origin !== location.origin) return;
+  const view = SalaAddress.read(a);
+  if (!view) return;
   e.preventDefault();
   // the lane page's Back button, when the Overview is the entry under it: the browser's Back, so the history keeps no
   // second Overview entry; else it is the link it looks like
   if (a.id === "ld-back" && !replaceMode() && nav.laneIdx === nav.cur.idx && !nav.cur.layers.length && !nav.busy) { navBack(1); return; }
-  go(a.hash);
+  go(view);
 });
 // the sidebar drawer: a phone's sidebar slides over the page. Open or not is the body's class, whatever the width (the
 // widening handler runs after the media query flipped)
@@ -2578,7 +2583,7 @@ defineLayer("drawer", { isOpen: drawerIsOpen, show: () => { if (narrow()) showDr
   nav.reload = st ? st.layers.length : 0;
   nav.cur = { layers: [], idx: st ? st.idx : 0 };
   nav.idx = nav.cur.idx;
-  if (!st) navWrite(nav.cur, location.hash, false);
+  if (!st) navWrite(nav.cur, here(), false);
 })();
 
 // a page (the overview, the New session page) replaces the session in the main area: its stream and terminal close, and
@@ -2610,7 +2615,7 @@ function showOverview() {
   layoutHeader();
   updateJump();
 }
-// the New session page (#new): shown once; route() calls it again for a same-hash navigation and it changes nothing
+// the New session page (/new): shown once; route() calls it again for a same-view navigation and it changes nothing
 function showNewPage() {
   if (document.body.classList.contains("new-open")) return;
   perfMark("new");
@@ -2626,11 +2631,11 @@ function showNewPage() {
   layoutHeader();
   updateJump();
 }
-// the Search results page (#search?…): shown for every address of it; search.js draws the search the address describes (a filter
+// the Search results page (/search?…): shown for every address of it; search.js draws the search the address describes (a filter
 // change on the page rewrites the address in place, replaceHash, and searchAt follows it)
 let searchAt = "";
 function showSearchPage() {
-  searchAt = location.hash;
+  searchAt = here();
   if (!document.body.classList.contains("search-open")) {
     perfMark("search");
     leaveSession();
@@ -2644,7 +2649,7 @@ function showSearchPage() {
       layoutHeader();
     updateJump();
   }
-  search.show(location.hash);
+  search.show(here());
 }
 function setSearchPage(on) {
   if (document.body.classList.contains("search-open") === on) return;
@@ -2653,7 +2658,7 @@ function setSearchPage(on) {
 }
 // the page's own address changed in place (a filter on the Search page): the entry is rewritten, no entry is added
 function replaceHash(h) {
-  if (h === location.hash) return;
+  if (h === here()) return;
   searchAt = h;
   navWrite(nav.cur, h, false);
 }
@@ -2691,7 +2696,7 @@ function setOverviewTitle() {
   setTitle(t);
   $("#title .name").textContent = t;
 }
-/* the Overview's four tabs: "sessions" (Agents, #sessions), "schedules" (#schedules), "machines" (#machines) and "usage" (Usage analysis, #usage). The pane's data-tab shows the
+/* the Overview's four tabs: "sessions" (Agents, /overview), "schedules" (/schedules), "machines" (/machines) and "usage" (Usage analysis, /usage). The pane's data-tab shows the
    one panel (sessions.css); the Schedules, Machines and Usage tabs read their api when they open, and again on their Reload, never by themselves, so
    schedules.start() / machines.start() / usage.start() run on the change to the tab only and .stop() on any change away (the Overview closing included).
    Search is not a tab: it is the sidebar's box and a page of its own (search.js) */
@@ -2761,7 +2766,7 @@ function selectSession(name, { force = false } = {}) {
       $("#title .dot").className = "dot";
     layoutHeader();
     // a session link that outlived its session (an old bookmark, a stale launch view): the way out is a link, not Back
-    chat.replaceChildren(name ? el("div", { class: "empty" }, el("span", { text: tl("app.notLive"), "data-i18n": "app.notLive" }), " ", el("a", { href: "#sessions", text: tl("app.openOverview"), "data-i18n": "app.openOverview" }))
+    chat.replaceChildren(name ? el("div", { class: "empty" }, el("span", { text: tl("app.notLive"), "data-i18n": "app.notLive" }), " ", el("a", { href: "overview", text: tl("app.openOverview"), "data-i18n": "app.openOverview" }))
                               : el("div", { class: "empty", text: tl("app.pickSession"), "data-i18n": "app.pickSession" }));
     updateJump();
     return;
@@ -4803,7 +4808,7 @@ for (const el of [$("#side-edge"), $("#sidebar"), $("#side-open")]) {
   el.addEventListener("mouseleave", sideLeave);
 }
 // the drawer is a page of its own on a phone: opened by a tap it has a history entry, and Back closes it ("selection,
-// hash, history" above); a row tapped in it only hides it, the navigation's own history step closes its entry
+// address, history" above); a row tapped in it only hides it, the navigation's own history step closes its entry
 $("#side-open").addEventListener("click", () => {
   if (narrow()) { openDrawer(); return; }
   side.pin = !side.pin;
@@ -4846,7 +4851,7 @@ $("#side-search").addEventListener("submit", (e) => {
   const h = search.boxHash(sideQ.value);
   if (!h) return;
   if (!replaceMode()) {
-    const w = window.open(location.href.split("#")[0] + h, "_blank");   // not the "noopener" feature: it always answers null, and null is how a block is told
+    const w = window.open(SalaAddress.url(h), "_blank");   // not the "noopener" feature: it always answers null, and null is how a block is told
     if (w) { w.opener = null; sideQ.blur(); return; }
   }
   setDrawer(false);   // hidden now; its history entry goes with the navigation (go)
@@ -5111,7 +5116,7 @@ retitle();
 paintShellTip();
 
 (async function init() {
-  perfMark("init", { controlled: !!(navigator.serviceWorker && navigator.serviceWorker.controller), hash: location.hash.slice(0, 40) });
+  perfMark("init", { controlled: !!(navigator.serviceWorker && navigator.serviceWorker.controller), hash: here().slice(0, 40) });
   await Promise.all([
     (async () => {
       try {
@@ -5148,7 +5153,7 @@ paintShellTip();
     navWrite(nav.cur, lastName !== null && state.byName.has(lastName) ? last : "#sessions", false);
   } else if (!replaceMode() && name === null && !overviewFamily() && !newPageHash() && !searchHash()) {
     // a wide browser launched with no view: the Overview, not an empty "Select a session" page; the launch entry is
-    // rewritten (replaceState), so Back is what it is for a #sessions deep link
+    // rewritten (replaceState), so Back is what it is for an /overview deep link
     navWrite(nav.cur, "#sessions", false);
   }
   route();  // the overview or the session; the session's draft goes back into the composer (selectSession)

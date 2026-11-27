@@ -101,7 +101,7 @@ window.salaTiming = (() => {
     try { standalone = window.matchMedia("(display-mode: standalone)").matches; } catch { /* none */ }
     rec("hello", 0, { ua: shortUa(), uaFull: (navigator.userAgent || "").slice(0, 200),
       uaData: ua ? { platform: ua.platform, mobile: ua.mobile, brands: (ua.brands || []).map((b) => b.brand + "/" + b.version).join(" ") } : null,
-      standalone, visibility: document.visibilityState, referrer: shortUrl(document.referrer), hash: location.hash.slice(0, 40),
+      standalone, visibility: document.visibilityState, referrer: shortUrl(document.referrer), hash: (window.SalaAddress ? SalaAddress.here() : location.hash).slice(0, 40),
       controlled: !!(navigator.serviceWorker && navigator.serviceWorker.controller),
       version: (document.querySelector('meta[name="sala-web-version"]') || {}).content || null,
       nav: navInfo(), cores: navigator.hardwareConcurrency || null, memory: navigator.deviceMemory || null,

@@ -19,7 +19,7 @@ def test_the_overview_head_has_reload_and_get_help():
     head = INDEX[INDEX.index('<div class="sp-head">'):INDEX.index('<section id="quota"')]
     assert '<button id="sp-reload" class="sp-btn" type="button" aria-label="Reload the page"' in head
     # the file holds the chip with the session placeholder, inside markers the server drops when SALA_HELP_SESSION is unset
-    assert re.search(r'<!--help--><a id="sp-help" class="sp-btn sp-help" href="#s=\{\{help\}\}" title="[^"]*\{\{help\}\}[^"]*" data-i18n-title="ui.ov.helpTip" data-i18n-arg="\{\{help\}\}"><svg ', head)
+    assert re.search(r'<!--help--><a id="sp-help" class="sp-btn sp-help" href="s/\{\{help\}\}" title="[^"]*\{\{help\}\}[^"]*" data-i18n-title="ui.ov.helpTip" data-i18n-arg="\{\{help\}\}"><svg ', head)
     assert head.index("<!--help-->") < head.index('id="sp-help"') < head.index("<!--/help-->")
     assert ">Get Help</span></a>" in head and head.index('id="sp-reload"') < head.index('id="sp-help"')
     assert "Ask demo-web" not in INDEX and "sp-ask" not in INDEX
@@ -71,7 +71,7 @@ def check_chips(m: dict, vw: int) -> None:
         assert c["inHead"] and c["svg"] and c["border"] >= 1 and c["radius"] >= 8, (k, c)   # a chip with the look's 8 px corners
         assert 0 <= c["left"] and c["right"] <= vw, (k, c)
     assert m["reload"]["text"] == "Reload" and m["help"]["text"] == "Get Help", m
-    assert m["help"]["href"] == "#s=help-session" and "help-session" in m["help"]["title"], m
+    assert m["help"]["href"] == "s/help-session" and "help-session" in m["help"]["title"], m
     # Reload first, Get Help after it, on one row
     assert m["reload"]["right"] <= m["help"]["left"] and abs(m["reload"]["top"] - m["help"]["top"]) < 1, m
 
@@ -86,11 +86,11 @@ def test_overview_reload_and_get_help_in_the_browser(served, browser):
     # Reload: a reload navigation that comes back to the overview
     browser.evaluate("window.__old = true; document.querySelector('#sp-reload').click(); ''")
     assert wait_overview(browser)
-    nav = browser.evaluate("performance.getEntriesByType('navigation')[0].type + ' ' + location.hash")
+    nav = browser.evaluate("performance.getEntriesByType('navigation')[0].type + ' ' + SalaAddress.here()")
     assert nav == "reload #sessions", nav
     # Get Help opens help-session in place of the overview
     browser.evaluate("document.querySelector('#sp-help').click(); ''")
-    got = browser.evaluate("""new Promise((res) => setTimeout(() => res({ hash: location.hash,
+    got = browser.evaluate("""new Promise((res) => setTimeout(() => res({ hash: SalaAddress.here(),
       open: document.body.classList.contains("overview-open") }), 300))""")
     assert got == {"hash": "#s=help-session", "open": False}, got
     # a wide screen: the same two chips at the head's right end, under a mouse

@@ -19,7 +19,7 @@ import conftest
 from conftest import CHAT_READY, NAME
 from sala_web import app as A
 
-CHAT = f"#s={NAME}"
+CHAT = f"/s/{NAME}"   # the chat session's page
 RELOADED = "salaweb.signin.reload"
 LEFTOVERS = "Object.keys(localStorage).concat(Object.keys(sessionStorage)).filter((k) => k.startsWith('salaweb.signin'))"
 # ttyd's page, as far as signin.js looks: window.term once it is up, and the token read it makes before each reconnect
@@ -89,7 +89,7 @@ def until(check, what: str, secs: float = 20) -> None:
 
 
 def open_chat(served, browser) -> None:
-    browser.open(f"{served['url']}/{CHAT}")
+    browser.open(served["url"] + CHAT)
     browser.wait_ready(CHAT_READY)
     browser.evaluate("window.__marker = 1; ''")
 
@@ -100,16 +100,16 @@ def attach(browser) -> None:
 
 
 def sign_in(proxy, browser) -> None:
-    """At the sign-in page, then back to sala's first page as a provider that dropped the address' fragment would send the browser."""
+    """At the sign-in page, then back to the page that was asked for, as a provider sends the browser after a sign-in."""
     until(lambda: browser.evaluate("document.title === 'sign in'"), f"not sent to the sign-in; page loads: {proxy.loads}")
     time.sleep(0.5)
     assert len(proxy.loads) == 2, proxy.loads   # the first load and one reload
     proxy.deny = None
-    browser.evaluate("location.replace('/'); ''")
+    browser.evaluate(f"location.replace({proxy.loads[-1]!r}); ''")
     browser.wait_ready(CHAT_READY)
 
 
-def test_both_pages_load_it_before_what_reads_the_address_or_asks_and_sala_itself_sends_no_401():
+def test_both_pages_load_it_before_what_asks_and_sala_itself_sends_no_401():
     tag = '<script src="static/signin.js?v={{v}}"></script>'
     for name, later in (("index.html", ("static/chatboot.js", "static/app.js")), ("terminal.html", ("static/terminal.js",))):
         text = (A.STATIC / name).read_text(encoding="utf-8")
@@ -129,14 +129,14 @@ def test_a_signed_in_page_and_one_whose_server_fails_are_left_alone(proxy, serve
     proxy.status, proxy.deny = 401, lambda path: path == "/api/sessions"
     assert browser.evaluate("fetch('api/sessions').then((r) => r.status)") == 401
     time.sleep(1.5)
-    assert proxy.loads == ["/"] and browser.evaluate("window.__marker") == 1
+    assert proxy.loads == [CHAT] and browser.evaluate("window.__marker") == 1
     assert browser.evaluate(LEFTOVERS) == []
     # where the reload cannot be remembered there is none: it could repeat for ever
     browser.evaluate("Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; ''")
     proxy.deny = api
     browser.evaluate("SalaSignin.check(); ''")
     time.sleep(1.5)
-    assert proxy.loads == ["/"] and browser.evaluate("window.__marker") == 1
+    assert proxy.loads == [CHAT] and browser.evaluate("window.__marker") == 1
 
 
 def test_a_refused_send_reloads_once_and_after_the_sign_in_nothing_typed_is_gone(proxy, served, browser):
@@ -152,11 +152,11 @@ def test_a_refused_send_reloads_once_and_after_the_sign_in_nothing_typed_is_gone
     bubble = browser.evaluate("document.querySelector('#chat > .msg.local.failed').textContent")
     assert "first message" in bubble and "notes.txt" in bubble, bubble
     assert browser.evaluate("[...document.querySelectorAll('#chat > .msg.local.failed button')].some((b) => b.textContent === tl('app.pend.retry'))")
-    assert browser.evaluate("location.hash") == CHAT
+    assert browser.evaluate("location.pathname") == CHAT
     assert browser.evaluate("getText()") == "an unfinished draft"
     assert browser.evaluate("document.getElementById('ns-mandate').value") == "half a mandate"
     assert browser.evaluate(LEFTOVERS) == [RELOADED]   # what was kept is taken once
-    assert proxy.loads == ["/", "/", "/"]
+    assert proxy.loads == [CHAT] * 3
 
 
 def test_a_stream_that_stops_asks_whether_the_sign_in_ended_and_the_attached_file_stays(proxy, served, browser):
@@ -164,40 +164,40 @@ def test_a_stream_that_stops_asks_whether_the_sign_in_ended_and_the_attached_fil
     attach(browser)
     browser.evaluate("setText('kept draft'); ''")
     # the stream, api/config and the page alone are refused: nothing else the page asks within this test could notice
-    proxy.deny = lambda path: path in ("/", "/api/config") or path.endswith("/stream")
+    proxy.deny = lambda path: path in (CHAT, "/api/config") or path.endswith("/stream")
     browser.evaluate("state.es.close(); openStream(state.current); ''")
     sign_in(proxy, browser)
     until(lambda: browser.evaluate("document.querySelectorAll('#chips > *').length === 1"), "the attached file is not back")
     assert browser.evaluate("state.uploads[0].fileName") == "notes.txt"
-    assert browser.evaluate("getText()") == "kept draft" and browser.evaluate("location.hash") == CHAT
+    assert browser.evaluate("getText()") == "kept draft" and browser.evaluate("location.pathname") == CHAT
 
 
 def test_a_refused_upload_asks_whether_the_sign_in_ended(proxy, served, browser):
     open_chat(served, browser)
     # the upload, api/config and the page alone are refused: nothing else the page asks within this test could notice
-    proxy.deny = lambda path: path in ("/", "/api/config", "/api/upload")
+    proxy.deny = lambda path: path in (CHAT, "/api/config", "/api/upload")
     browser.evaluate("addFile(new File(['x'], 'notes.txt', { type: 'text/plain' })); ''")
     sign_in(proxy, browser)
-    assert browser.evaluate("location.hash") == CHAT
+    assert browser.evaluate("location.pathname") == CHAT
 
 
 def test_requests_still_refused_after_the_reload_never_reload_it_again(proxy, served, browser):
     proxy.deny = api   # the page itself loads, its requests stay refused
-    browser.open(f"{served['url']}/{CHAT}")
+    browser.open(served["url"] + CHAT)
     reloaded = ("performance.getEntriesByType('navigation')[0].type === 'reload' && document.readyState === 'complete'"
                 " && typeof checkVersion === 'function'")
     until(lambda: len(proxy.loads) == 2 and browser.evaluate(reloaded), f"no reload: {proxy.loads}", 60)
     for _ in range(3):
         browser.evaluate("(async () => { SalaSignin.check(); await fetch('api/sessions'); await checkVersion(); })()")
         time.sleep(0.7)
-    assert proxy.loads == ["/", "/"]
+    assert proxy.loads == [CHAT] * 2
     # signed in again, then out again at once: not yet; a minute after the last reload, once more
     proxy.deny = None
     assert browser.evaluate("fetch('api/config').then((r) => r.status)") == 200
     proxy.deny = api
     browser.evaluate("fetch('api/config'); ''")
     time.sleep(1.5)
-    assert proxy.loads == ["/", "/"]
+    assert proxy.loads == [CHAT] * 2
     browser.evaluate(f"""(() => {{
       const g = JSON.parse(sessionStorage.getItem('{RELOADED}'));
       sessionStorage.setItem('{RELOADED}', JSON.stringify({{ ...g, at: g.at - 61000 }}));
@@ -205,7 +205,7 @@ def test_requests_still_refused_after_the_reload_never_reload_it_again(proxy, se
     }})()""")
     until(lambda: len(proxy.loads) == 3, f"no reload for a later sign-out: {proxy.loads}")
     time.sleep(1.5)
-    assert proxy.loads == ["/", "/", "/"]
+    assert proxy.loads == [CHAT] * 3
 
 
 FRAME_UP = ("(() => { const f = document.querySelector('#term-full iframe');"

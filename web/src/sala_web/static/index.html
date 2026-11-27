@@ -2,6 +2,9 @@
 <html lang="{{lang}}">
 <head>
 <meta charset="utf-8">
+<!-- the app's root, for every relative address in the page: "./", or "../" on a view's address a folder below it (app.py _page). static/address.js
+     then fixes it to the full address, so that it stays the root's while the page's address changes -->
+<base href="{{base}}">
 <!-- viewport-fit=cover: the installed app draws to the screen's edges (under Android's gesture bar); what sits there
      pads itself with env(safe-area-inset-*) in style.css -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
@@ -90,6 +93,8 @@
 <link rel="stylesheet" href="static/termclip.css?v={{sv}}">
 <link rel="stylesheet" href="static/dialogcard.css?v={{sv}}">
 <!--chat-layer--><link rel="stylesheet" href="static/chatlayer.css?v={{sv}}"><link rel="stylesheet" href="static/chatanswer.css?v={{sv}}"><!--/chat-layer-->
+<!-- the views' addresses (address.js): before any script that reads the address or writes it -->
+<script src="static/address.js?v={{v}}"></script>
 <!-- the color tool: stackshot's shared file, pinned byte for byte (colortool.js, with its sha256 beside it), then sala's own wiring, which applies the stored
      look here in the head so the first paint already has it (no flash). After the stylesheets: it reads their colors. The button is started at the end of the body -->
 <script src="static/colortool.js?v={{v}}"></script>
@@ -198,14 +203,14 @@
       <input id="side-q" type="search" name="q" maxlength="200" placeholder="Search" data-i18n-placeholder="common.search" aria-label="Search the transcripts" data-i18n-aria-label="ui.side.searchLabel" aria-keyshortcuts="Control+K /" title="Search the transcripts (Ctrl+K or /)" data-i18n-title="ui.side.searchTip" enterkeyhint="search" spellcheck="false" autocapitalize="off">
     </form>
     <!-- above the session list, like claude.ai's entries above recent chats: New session first (the form that
-         queues `sala op spawn`, a page of its own in the main area at #new; app.js "new session"), then the
+         queues `sala op spawn`, a page of its own in the main area at /new; app.js "new session"), then the
          overview, which opens in the main area -->
     <nav class="side-top" aria-label="Views" data-i18n-aria-label="ui.side.views">
       <!-- the chat entry: the first line of the views, hidden until api/chat says a chat session is set (app.js "the chat session"). A link to that session's own view
-           (#s=<name>, set from api/chat), with its display name, a small "chat", a working dot while it works and a red count of what waits on the owner -->
-      <a id="side-chat" class="sess side-ovw side-chat" href="#sessions" hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span class="label"></span><span class="role" data-i18n="ui.side.chatRole">chat</span><span class="dot busy" hidden></span><span class="wchip" hidden></span></a>
-      <a id="side-new" class="sess side-ovw side-new" href="#new" title="Start a new session of a project through sala's queue" data-i18n-title="ui.side.newTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg><span class="label" data-i18n="ui.newSession">New session</span></a>
-      <a id="side-ovw" class="sess side-ovw" href="#sessions" title="Every live session, account usage and API spend" data-i18n-title="ui.side.ovwTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/></svg><span class="label" data-i18n="common.overview">Overview</span></a>
+           (/s/<name>, set from api/chat), with its display name, a small "chat", a working dot while it works and a red count of what waits on the owner -->
+      <a id="side-chat" class="sess side-ovw side-chat" href="overview" hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span class="label"></span><span class="role" data-i18n="ui.side.chatRole">chat</span><span class="dot busy" hidden></span><span class="wchip" hidden></span></a>
+      <a id="side-new" class="sess side-ovw side-new" href="new" title="Start a new session of a project through sala's queue" data-i18n-title="ui.side.newTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg><span class="label" data-i18n="ui.newSession">New session</span></a>
+      <a id="side-ovw" class="sess side-ovw" href="overview" title="Every live session, account usage and API spend" data-i18n-title="ui.side.ovwTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/></svg><span class="label" data-i18n="common.overview">Overview</span></a>
       <!-- the Unread filter: the total of the unread reply counts; a tap turns "Unread only" on (the session list then holds only the agents with an unread reply), a second tap turns it off. A toggle, not a view: it opens no page (app.js "the unread reply count") -->
       <button id="side-unread" type="button" class="sess side-ovw side-unread" aria-pressed="false" title="Show only agents with unread replies" data-i18n-title="ui.side.unreadTip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M6 12h12M10 18h4"/></svg><span class="label" data-i18n="ui.side.unread">Unread</span></button>
     </nav>
@@ -279,7 +284,7 @@
       <div id="chat"><div class="empty" data-i18n="ui.chat.pick">Pick a session on the left.</div></div>
     </section>
     <section id="terminal-pane" class="pane"></section>
-    <!-- the sessions overview (#sessions): sessions.js fills it and polls only while it is shown -->
+    <!-- the sessions overview (/overview): sessions.js fills it and polls only while it is shown -->
     <section id="overview-pane" class="pane" aria-label="Overview" data-i18n-aria-label="common.overview">
       <div class="sp">
         <div class="sp-head">
@@ -288,7 +293,7 @@
                the way to the session that builds sala, as two chips -->
           <div class="sp-actions">
             <button id="sp-reload" class="sp-btn" type="button" aria-label="Reload the page" data-i18n-aria-label="ui.hdr.reloadPage" title="Reload" data-i18n-title="common.reload"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span data-i18n="common.reload">Reload</span></button>
-            <!--help--><a id="sp-help" class="sp-btn sp-help" href="#s={{help}}" title="Open {{help}}, the session that looks after sala's web UI: ask it for help or changes here" data-i18n-title="ui.ov.helpTip" data-i18n-arg="{{help}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.7 2.4c-.8.4-1.2 1-1.2 1.8v.3"/><path d="M12 17h.01"/></svg><span data-i18n="ui.ov.getHelp">Get Help</span></a><!--/help-->
+            <!--help--><a id="sp-help" class="sp-btn sp-help" href="s/{{help}}" title="Open {{help}}, the session that looks after sala's web UI: ask it for help or changes here" data-i18n-title="ui.ov.helpTip" data-i18n-arg="{{help}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 1 1 3.7 2.4c-.8.4-1.2 1-1.2 1.8v.3"/><path d="M12 17h.01"/></svg><span data-i18n="ui.ov.getHelp">Get Help</span></a><!--/help-->
           </div>
         </div>
         <section id="quota" class="q" aria-label="Account usage and API spend" data-i18n-aria-label="ui.ov.quotaLabel">
@@ -298,14 +303,14 @@
           <div id="q-cards" class="q-cards"></div>
           <div id="q-note" class="q-note" role="status"></div>
         </section>
-        <!-- the four tabs of the Overview: Agents (#sessions, the default), Schedules (#schedules), Machines (#machines) and Usage analysis (#usage). They are links, so
+        <!-- the four tabs of the Overview: Agents (/overview, the default), Schedules (/schedules), Machines (/machines) and Usage analysis (/usage). They are links, so
              Back, a reload and a shared link reach a tab; app.js sets data-tab on the pane and starts or stops the Schedules, Machines and Usage readings -->
         <div class="ov-bar">
           <div class="ov-tabs" role="tablist" aria-label="Overview" data-i18n-aria-label="common.overview">
-            <a id="ov-tab-sessions" class="ov-tab" role="tab" href="#sessions" aria-selected="true" aria-controls="ov-agents"><span data-i18n="ui.ov.agents">Agents</span> <span id="ov-n-agents" class="ov-n"></span></a>
-            <a id="ov-tab-schedules" class="ov-tab" role="tab" href="#schedules" aria-selected="false" aria-controls="ov-schedules" tabindex="-1"><span data-i18n="ui.ov.schedules">Schedules</span> <span id="ov-n-schedules" class="ov-n"></span></a>
-            <a id="ov-tab-machines" class="ov-tab" role="tab" href="#machines" aria-selected="false" aria-controls="ov-machines" tabindex="-1"><span data-i18n="common.machines">Machines</span> <span id="ov-n-machines" class="ov-n"></span></a>
-            <a id="ov-tab-usage" class="ov-tab" role="tab" href="#usage" aria-selected="false" aria-controls="ov-usage" tabindex="-1"><span class="ov-tl" data-i18n="ui.ov.usage">Usage analysis</span></a>
+            <a id="ov-tab-sessions" class="ov-tab" role="tab" href="overview" aria-selected="true" aria-controls="ov-agents"><span data-i18n="ui.ov.agents">Agents</span> <span id="ov-n-agents" class="ov-n"></span></a>
+            <a id="ov-tab-schedules" class="ov-tab" role="tab" href="schedules" aria-selected="false" aria-controls="ov-schedules" tabindex="-1"><span data-i18n="ui.ov.schedules">Schedules</span> <span id="ov-n-schedules" class="ov-n"></span></a>
+            <a id="ov-tab-machines" class="ov-tab" role="tab" href="machines" aria-selected="false" aria-controls="ov-machines" tabindex="-1"><span data-i18n="common.machines">Machines</span> <span id="ov-n-machines" class="ov-n"></span></a>
+            <a id="ov-tab-usage" class="ov-tab" role="tab" href="usage" aria-selected="false" aria-controls="ov-usage" tabindex="-1"><span class="ov-tl" data-i18n="ui.ov.usage">Usage analysis</span></a>
           </div>
           <button id="sc-reload" class="sp-btn ov-reload" type="button" aria-label="Read the schedules again" data-i18n-aria-label="ui.ov.scReload" title="Read again" data-i18n-title="ui.ov.readAgain"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span data-i18n="common.reload">Reload</span></button>
           <button id="mc-reload" class="sp-btn ov-reload" type="button" aria-label="Read the machines again" data-i18n-aria-label="ui.ov.mcReload" title="Read again" data-i18n-title="ui.ov.readAgain"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span class="ov-rl" data-i18n="common.reload">Reload</span></button>
@@ -340,7 +345,7 @@
             </table>
           </div>
         </div>
-        <!-- the Schedules tab (#schedules, one sortable table): every timer and cron line on this machine, read
+        <!-- the Schedules tab (/schedules, one sortable table): every timer and cron line on this machine, read
              live from systemd and cron (api/schedules; the jobs that are ours, not the package-shipped ones); schedules.js fills it.
              It reads once when the tab opens and again on Reload, never by itself. One table: a heading sorts, again reverses; the
              Category is the job's own X-Project=. On a phone the rows are cards and the sort menu sits above them (schedules.css) -->
@@ -381,7 +386,7 @@
             </div>
           </section>
         </div>
-        <!-- the Machines tab (#machines): the machines with their versions; machines.js fills it from api/machines (stackshot's last
+        <!-- the Machines tab (/machines): the machines with their versions; machines.js fills it from api/machines (stackshot's last
              reading, nothing is asked of GitHub). It reads when the tab opens and on Reload (machines.css) -->
         <div id="ov-machines" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-machines">
           <div id="mc-note" class="mc-note" role="status"></div>
@@ -392,7 +397,7 @@
           </section>
           <div id="mc-upd" class="mc-upd"></div>
         </div>
-        <!-- the Usage analysis tab (#usage): what the Claude Code replies on this machine cost, at list prices (usage.py, api/usage). Three views over one data
+        <!-- the Usage analysis tab (/usage): what the Claude Code replies on this machine cost, at list prices (usage.py, api/usage). Three views over one data
              layer: Report, Explorer and Digest (all built: usage.js, usage-explorer.js, usage-digest.js, usage_digest.py). usage.js fills it; it reads when the tab opens, on a change of week and on Reload (usage.css) -->
         <div id="ov-usage" class="ov-panel" role="tabpanel" aria-labelledby="ov-tab-usage">
           <div id="us-views" class="us-seg us-views" role="tablist" aria-label="Usage analysis views" data-i18n-aria-label="ui.us.views"></div>
@@ -433,11 +438,11 @@
           </div>
         </div>
       </div>
-      <!-- a lane's details page (#lane=<id>): the same pane, shown instead of the view above while body has
+      <!-- a lane's details page (/lane/<id>): the same pane, shown instead of the view above while body has
            lane-open; sessions.js fills it from the answers the cards use and from api/lanes/<id> -->
       <div id="ld" class="sp ld" aria-label="Lane details" data-i18n-aria-label="ui.ld.label">
         <div class="sp-head">
-          <a id="ld-back" class="sp-btn" href="#sessions" aria-label="Back to the Overview" data-i18n-aria-label="ui.ld.backTip" title="Back to the Overview" data-i18n-title="ui.ld.backTip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span data-i18n="ui.ld.back">Back</span></a>
+          <a id="ld-back" class="sp-btn" href="overview" aria-label="Back to the Overview" data-i18n-aria-label="ui.ld.backTip" title="Back to the Overview" data-i18n-title="ui.ld.backTip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span data-i18n="ui.ld.back">Back</span></a>
           <span id="ld-title" class="ld-title"></span>
           <span id="ld-count" class="sp-count"></span>
           <div class="sp-actions">
@@ -461,7 +466,7 @@
         </section>
       </div>
     </section>
-    <!-- the Search results page (#search?q=…&hours=…&front=…): a page of its own in the main area, opened by Enter in the sidebar's
+    <!-- the Search results page (/search?q=…&hours=…&front=…): a page of its own in the main area, opened by Enter in the sidebar's
          search box (#side-search). The query and every filter are in the address, so a reload, Back and a shared link open the same
          search; the query box at its top and every filter run it again and rewrite the address in place (search.js, api/search). The number beside
          each box is what that box adds to the answer, given the other group's boxes -->
@@ -505,9 +510,9 @@
         <button id="se-more" class="se-more" type="button" hidden></button>
       </div>
     </section>
-    <!-- the New session page (#new): a view of the
+    <!-- the New session page (/new): a view of the
          main area like the Overview, with a link of its own, so Back, a reload and a shared link reach it (app.js, "new
-         session" and "selection, hash, history"). It queues `sala op spawn` through POST api/spawn and makes nothing itself.
+         session" and "selection, address, history"). It queues `sala op spawn` through POST api/spawn and makes nothing itself.
          At the very top, the same on both forms: the switch "New session | Quick session", built like the scope
          chips; it is outside the two forms, so it never moves when one is swapped for the other. Then one centered column
          (about 760 px; full width on a phone), top to bottom: the scope (the configured scopes, then all) and one box over stackshot's
@@ -523,8 +528,8 @@
       <nav id="np-switch" class="np-switch" aria-label="Kind of session" data-i18n-aria-label="ui.ns.kind">
         <div class="np-col">
           <div class="ns-scopes np-seg">
-            <a id="np-new" class="ns-chip" href="#new" aria-current="page" data-i18n="ui.newSession">New session</a>
-            <a id="np-quick" class="ns-chip" href="#side=" title="A quick talk about a board item, or a fork of a running session" data-i18n-title="ui.ns.quickTip" data-i18n="ui.ns.quick">Quick session</a>
+            <a id="np-new" class="ns-chip" href="new" aria-current="page" data-i18n="ui.newSession">New session</a>
+            <a id="np-quick" class="ns-chip" href="side" title="A quick talk about a board item, or a fork of a running session" data-i18n-title="ui.ns.quickTip" data-i18n="ui.ns.quick">Quick session</a>
           </div>
         </div>
       </nav>
@@ -581,8 +586,8 @@
       <!-- A QUICK SESSION (called a side conversation inside sala; docs/side-sessions.md): the same page and the same queue
            (api/spawn), another form. A board item and a session to fork are two optional fields, each a picker built like the
            project box (the open items and the running sessions the page knows, a search box, a typed id accepted too); one of the
-           two is needed. The Discuss link #side=<id> opens it with the item chosen (its project and owner looked up), the link
-           #side=from:<name> with the session. A blank name is the suggested one. -->
+           two is needed. The Discuss link /side?<id> opens it with the item chosen (its project and owner looked up), the link
+           /side?from:<name> with the session. A blank name is the suggested one. -->
       <form id="sd-form" class="np ns-form" novalidate autocomplete="off">
         <div class="np-col">
           <p class="ns-hint sd-lead" data-i18n="ui.sd.lead">A short talk, started in one step. Pick a board item, a running session to fork, or both.</p>

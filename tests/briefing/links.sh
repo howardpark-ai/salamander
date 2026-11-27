@@ -16,7 +16,7 @@ SS=https://board.example.com/items
 export BRIEFING_GITHUB_BASE=https://github.com/example-org   # the GitHub account the repo links point into (an invented one)
 
 # a session links to sala's own session link, bridged or not; an unknown name stays plain
-SALA=https://sala.example.com/#s=
+SALA=https://sala.example.com/s/
 printf "SALA_SESSION_URL=%s\n" "${SALA}{name}" > "$T/config"; export SALA_CONFIG=$T/config   # the units do not set the link: they read it from the sala config
 printf 'NAME                     VERSION    BRIDGE\nalpha-main               2.1.306    session_01ABC\nbeta-engineer            2.1.306    —\nx.*                      2.1.306    session_01XYZ\na+b(1)                   2.1.306    —\nold-shell                (shell)    claude exited — revive: salamander revive --only old-shell   (sidecar 1234abcd…)\n?                        2.1.306    —\n' > "$T/sessions"
 unset SALA_SESSION_URL SALA_FLEET_HOSTS

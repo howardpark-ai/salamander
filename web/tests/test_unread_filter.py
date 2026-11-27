@@ -165,7 +165,7 @@ def test_the_entry_sits_under_overview_with_the_total_and_a_tap_filters_the_list
     assert dict(browser.evaluate(HEADS)) == {"projects/alpha": "true", "projects/beta": "true", "projects/gamma": "true"}, browser.evaluate(HEADS)
     assert browser.evaluate("document.querySelector('#side-unread').getBoundingClientRect().top > document.querySelector('#side-ovw').getBoundingClientRect().bottom - 1")
     # the entry is a toggle: the drawer stays open on a phone, and no page is opened
-    assert browser.evaluate(SIDE_IN) and browser.evaluate("location.hash") == "#sessions"
+    assert browser.evaluate(SIDE_IN) and browser.evaluate("SalaAddress.here()") == "#sessions"
     # a tap on a heading folds nothing while the filter is on: the saved folds are as they were
     browser.evaluate("document.querySelector('#session-list .group-title').click(); ''")
     assert get_prefs(served)["collapsed"] == ["projects/gamma"]

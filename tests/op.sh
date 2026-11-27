@@ -894,13 +894,13 @@ SALA_OP_QUEUE=off SALA_OP_STUCK=off runop "$K8"; [ "$(kicks)" = 0 ] && ok "SALA_
 
 echo "== the post's closing line: with sala's web address set the log is a link to sala-web's page of it (/op/<id>); with none, or an address that is not http(s), the path as before"
 touch "$HOME/norun"; KL=$((K0+30))
-for tpl in 'https://sala.example/#s={name}' 'https://sala.example:8443/x/#s={name}' UNSET '' 'ssh://sala.example/#s={name}'; do
+for tpl in 'https://sala.example/s/{name}' 'https://sala.example:8443/x/s/{name}' UNSET '' 'ssh://sala.example/s/{name}'; do
     KL=$((KL+1)); KI="$KL-$KL"; mkop "$KI" model sala-test-a --clear; : > "$POSTS"; SALA_OP_STUCK=off tick
     if [ "$tpl" = UNSET ]; then SALA_OP_STUCK=off runop "$KI"; else SALA_SESSION_URL="$tpl" SALA_OP_STUCK=off runop "$KI"; fi
     P=$(post "asked by sala-test-h"); L=$(sed -n '$p' <<< "$P")
     case "$tpl" in
-        'https://sala.example/#s={name}') want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · <https://sala.example/op/$KI|log>" ;;
-        'https://sala.example:8443/x/#s={name}') want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · <https://sala.example:8443/op/$KI|log>" ;;
+        'https://sala.example/s/{name}') want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · <https://sala.example/op/$KI|log>" ;;
+        'https://sala.example:8443/x/s/{name}') want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · <https://sala.example:8443/op/$KI|log>" ;;
         *) want="✅ *cleared the model of sala-test-a* · asked by sala-test-h · log ~/.claude/salamander-op-$KI.log" ;;
     esac
     [ "$P" = "$want" ] && [ "$(nposts "asked by sala-test-h")" = 1 ] && ok "SALA_SESSION_URL='${tpl:-<empty>}': one line, the log as expected" || bad "post for '$tpl': [$P] want [$want]"
@@ -917,14 +917,14 @@ oplink() {  # <name> <want: link|path> <folder under $HOME> <cwd> <address> <env
     [ "$P" = "$w" ] && [ -f "$HOME/$dir/salamander-op-$KI.out" ] && ok "$nm" || bad "$nm: [$P] want [$w] / $(ls "$HOME/$dir" 2>&1 | tr '\n' ' ')"
 }
 mkdir -p "$HOME/custom-logs" "$HOME/rel-logs" "$HOME/cli-only" "$HOME/env-logs"
-oplink "SALA_LOG_DIR moved in the default config, address set: the link" link custom-logs "$HOME" 'https://sala.example/#s={name}' SALA_CONFIG="$DEFCFG"
+oplink "SALA_LOG_DIR moved in the default config, address set: the link" link custom-logs "$HOME" 'https://sala.example/s/{name}' SALA_CONFIG="$DEFCFG"
 oplink "SALA_LOG_DIR moved in the default config, no address: the path in the moved folder" link custom-logs "$HOME" '' SALA_CONFIG="$DEFCFG"
 printf 'SALA_LOG_DIR=rel-logs\n' > "$DEFCFG"
-oplink "a relative SALA_LOG_DIR in the config, run from another folder: under \$HOME, and the link" link rel-logs / 'https://sala.example/#s={name}' SALA_CONFIG="$DEFCFG"
-oplink "a CLI-only SALA_CONFIG naming another folder: the path, no link to a page that would 404" path cli-only "$HOME" 'https://sala.example/#s={name}' SALA_CONFIG="$HOME/cli.conf"
+oplink "a relative SALA_LOG_DIR in the config, run from another folder: under \$HOME, and the link" link rel-logs / 'https://sala.example/s/{name}' SALA_CONFIG="$DEFCFG"
+oplink "a CLI-only SALA_CONFIG naming another folder: the path, no link to a page that would 404" path cli-only "$HOME" 'https://sala.example/s/{name}' SALA_CONFIG="$HOME/cli.conf"
 rm -f "$DEFCFG"
-oplink "a CLI-only SALA_LOG_DIR in the environment: the path, no link" path env-logs "$HOME" 'https://sala.example/#s={name}' SALA_CONFIG=/dev/null SALA_LOG_DIR="$HOME/env-logs"
-oplink "a CLI-only relative SALA_LOG_DIR in the environment: under \$HOME, the path, no link" path env-logs / 'https://sala.example/#s={name}' SALA_CONFIG=/dev/null SALA_LOG_DIR=env-logs
+oplink "a CLI-only SALA_LOG_DIR in the environment: the path, no link" path env-logs "$HOME" 'https://sala.example/s/{name}' SALA_CONFIG=/dev/null SALA_LOG_DIR="$HOME/env-logs"
+oplink "a CLI-only relative SALA_LOG_DIR in the environment: under \$HOME, the path, no link" path env-logs / 'https://sala.example/s/{name}' SALA_CONFIG=/dev/null SALA_LOG_DIR=env-logs
 rm -f "$HOME/norun"
 
 [ "$fail" = 0 ] && echo "op: pass" || echo "op: FAIL"

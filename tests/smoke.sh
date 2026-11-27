@@ -323,9 +323,9 @@ links() { out=$(SALA_HEARTBEAT_STATE_DIR="$HOME/link-live" SALA_FLEET_NAMES="$HO
 url() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], {}).get("url", "<no row>"))' "$HOME/link-live/$1/sessions.json" "$2" 2>/dev/null || echo "<no file>"; }
 links
 [ "$(url q "$UUID")" = "https://claude.ai/code/session_01FAKE" ] && [ "$(url q "$UE")" = "" ] && ok "this box, no SALA_SESSION_URL (sala's default names no web UI): the claude.ai link, \"\" while the bridge is down" || bad "default url: smoke '$(url q "$UUID")', enc '$(url q "$UE")'"
-SALA_SESSION_URL='https://sala.example.com/#s={name}' links
-[ "$(url q "$UUID")" = "https://sala.example.com/#s=smoke" ] && ok "this box, bridged, SALA_SESSION_URL set: the web UI's link" || bad "q/smoke url: $(url q "$UUID")"
-[ "$(url q "$UE")" = "https://sala.example.com/#s=enc%20test%2B%C3%BC%26x(1)!" ] && ok "this box, no bridge: listed, with the web UI's link, the name encoded as encodeURIComponent does" || bad "q/enc url: $(url q "$UE")"
+SALA_SESSION_URL='https://sala.example.com/s/{name}' links
+[ "$(url q "$UUID")" = "https://sala.example.com/s/smoke" ] && ok "this box, bridged, SALA_SESSION_URL set: the web UI's link" || bad "q/smoke url: $(url q "$UUID")"
+[ "$(url q "$UE")" = "https://sala.example.com/s/enc%20test%2B%C3%BC%26x(1)!" ] && ok "this box, no bridge: listed, with the web UI's link, the name encoded as encodeURIComponent does" || bad "q/enc url: $(url q "$UE")"
 python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); a, b = s[sys.argv[2]], s[sys.argv[3]]; sys.exit(not (set(a) == set(b) == {"name", "url", "seen", "machine"} and a["name"] == sys.argv[4]))' \
     "$HOME/link-live/q/sessions.json" "$UE" "$UUID" "$EN" && ok "the unbridged row has the bridged row's fields (name, url, seen, machine), nothing else" || bad "row fields: $(<"$HOME/link-live/q/sessions.json")"
 printf 'V:9.9.9 (Claude Code)\nS:4243|1|{"sessionId":"44444444-4444-4444-8444-444444444444","name":"remote-nobridge","tmux":"rn:@2.%%2"}\nS:4242|1|{"sessionId":"%s","name":"remote-one","bridgeSessionId":"session_01REMOTE","tmux":"remote-one:@1.%%1"}\n' "$RU" > "$HOME/hosts/lin1.out"; links
@@ -337,6 +337,6 @@ SALA_SESSION_URL= links
 SALA_SESSION_URL='https://t.example/open?s={name}&x=1' links
 [ "$(url q "$UE")" = "https://t.example/open?s=enc%20test%2B%C3%BC%26x(1)!&x=1" ] && [ "$(url l "$RU")" = "https://claude.ai/code/session_01REMOTE" ] \
     && ok "a template of the config's: {name} replaced, encoded; the swept row still claude.ai" || bad "custom template: enc '$(url q "$UE")', remote '$(url l "$RU")'"
-got=$(SALA_FLEET_HOSTS=x SALA_SESSION_URL='https://sala.example.com/#s={name}' session_url "a/b?c#d ~*'" session_01X); [ "$got" = "https://sala.example.com/#s=a%2Fb%3Fc%23d%20~*'" ] && ok "session_url: / ? # and space encoded, ~ * ' kept (encodeURIComponent)" || bad "session_url: $got"
+got=$(SALA_FLEET_HOSTS=x SALA_SESSION_URL='https://sala.example.com/s/{name}' session_url "a/b?c#d ~*'" session_01X); [ "$got" = "https://sala.example.com/s/a%2Fb%3Fc%23d%20~*'" ] && ok "session_url: / ? # and space encoded, ~ * ' kept (encodeURIComponent)" || bad "session_url: $got"
 got=$(SALA_FLEET_HOSTS= session_url smoke session_01X); [ "$got" = "https://claude.ai/code/session_01X" ] && ok "session_url, not the driving box and unset: the claude.ai link" || bad "session_url standalone: $got"
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

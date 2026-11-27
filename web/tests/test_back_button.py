@@ -3,7 +3,7 @@
 - two modes, read live at every decision: REPLACE on a phone (max-width 760px) in any browser and in the installed app
   (display-mode standalone) at any width, PUSH in a desktop or tablet browser or a phone wider than 760px;
 - replace mode: the sessions and the Overview are peer views of ONE history entry (no history between them); Back closes
-  the open layer (the sidebar drawer, the one layer there is), one Back (the New session page, #new, is a view with
+  the open layer (the sidebar drawer, the one layer there is), one Back (the New session page, /new, is a view with
   an entry of its own in either mode, so Back returns from it); nothing open:
   Back leaves sala; nothing intercepts that Back (no beforeunload);
 - push mode: every view is an entry, so Back and Forward walk the sessions visited; the sidebar is part of the page, so there is no layer at all;
@@ -31,6 +31,7 @@ import json
 import re
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -56,7 +57,7 @@ SETTLED = """typeof nav === 'undefined' || (!nav.busy && nav.pending === null &&
   && (() => { const r = document.getElementById("sidebar").getBoundingClientRect();
               return innerWidth > 760 || (document.body.classList.contains("side-open") ? r.left === 0 : r.right <= 0); })())"""
 PAGE = """(() => typeof nav === 'undefined' ? { sala: false, href: location.href, hash: location.hash, len: history.length } : {
-  sala: true, href: location.href, hash: location.hash, len: history.length, state: history.state && history.state.sala,
+  sala: true, href: location.href, hash: SalaAddress.here(), len: history.length, state: history.state && history.state.sala,
   overview: document.body.classList.contains("overview-open"), selected: state.selected,
   drawer: document.body.classList.contains("side-open"), newOpen: ns.open, msgs: document.querySelectorAll("#chat > .msg").length,
   name: document.querySelector("#title .name").textContent, tab: state.tab, replace: replaceMode(),
@@ -99,8 +100,19 @@ def reload(browser, extra: str = "") -> None:
     browser.reload(f"{READY} && ({extra})" if extra else READY)
 
 
+def view_of(url: str) -> str:
+    """The view a history entry's address names, in the page's "#..." form (static/address.js). No entry of sala's keeps a "#" in its
+    address."""
+    assert "#" not in url, url
+    path = urlsplit(url).path[1:]
+    for head, form in (("s/", "#s="), ("lane/", "#lane=")):
+        if path.startswith(head):
+            return form + path[len(head):]
+    return {"": "", "overview": "#sessions"}.get(path, "#" + path)
+
+
 def hist(browser) -> dict:
-    """The page (PAGE) with the tab's history: `entries` the hashes of sala's entries after the sentinel (the Forward
+    """The page (PAGE) with the tab's history: `entries` the views (view_of) of sala's entries after the sentinel (the Forward
     entries a Back leaves included, until a push truncates them), `past` those up to the current one, `i` the position
     (0 the first), `left` when the tab is on the sentinel."""
     h = browser.send("Page.getNavigationHistory")
@@ -110,7 +122,7 @@ def hist(browser) -> dict:
     if got["sala"] and got["selected"] == FAKE and not got["msgs"]:   # the fake session's chat arrives over the stream: wait for it
         wait_for(browser, "document.querySelectorAll('#chat > .msg').length >= 1", 10.0)
         got = browser.evaluate(PAGE)
-    got["entries"] = [u[u.index("#"):] if "#" in u else "" for u in urls[s + 1:]]
+    got["entries"] = [view_of(u) for u in urls[s + 1:]]
     got["i"] = h["currentIndex"] - s - 1
     got["past"] = got["entries"][:got["i"] + 1]
     got["left"] = h["currentIndex"] == s
@@ -188,11 +200,11 @@ def open_drawer(browser) -> None:
 
 
 def row(name: str) -> str:
-    return f"#session-list .sess[href='#s={name}']"
+    return f"#session-list .sess[href='s/{name}']"
 
 
 def table(name: str) -> str:
-    return f"#sp-table a[href='#s={name}']"
+    return f"#sp-table a[href='s/{name}']"
 
 
 def in_session(h: dict, name: str) -> None:
@@ -377,7 +389,7 @@ def test_a_session_link_that_outlived_its_session_has_a_way_to_the_overview(serv
     assert back(browser)["left"]
 
 
-def test_a_hash_set_from_outside_is_taken_as_the_browser_made_it_and_a_link_in_the_page_follows_the_rules(served, browser):
+def test_an_older_address_set_from_outside_is_taken_as_the_browser_made_it_and_a_link_in_the_page_follows_the_rules(served, browser):
     open_app(browser, served, f"#s={A}")
     # the address bar or a script: the browser's own push, recorded as it is
     browser.evaluate(f"location.hash = '#s={B}'; ''")
@@ -387,7 +399,7 @@ def test_a_hash_set_from_outside_is_taken_as_the_browser_made_it_and_a_link_in_t
     in_session(h, B)
     assert h["entries"] == [f"#s={A}", f"#s={B}"] and h["i"] == 1 and h["state"]["layers"] == [], h
     # a link in the page (here put into the chat) is sala's: the entry is replaced, none added
-    browser.evaluate(f"""const a = document.createElement("a"); a.href = "#s={C}"; a.id = "probe-link"; a.textContent = "C";
+    browser.evaluate(f"""const a = document.createElement("a"); a.href = "s/{C}"; a.id = "probe-link"; a.textContent = "C";
       document.getElementById("chat").append(a); ''""")
     browser.evaluate("document.getElementById('probe-link').click(); ''")
     settle(browser)
@@ -569,7 +581,7 @@ def test_a_desktop_browser_pushes_a_view_per_entry_and_back_walks_the_sessions_v
     # nothing is laid over the view in push mode (the items popover that was a layer here was removed): no layer in the record
     h = hist(browser)
     assert h["i"] == 1 and h["state"]["layers"] == [], h
-    # the New session page is a view with a link of its own (#new, an entry in either mode), not a layer: Back returns from it
+    # the New session page is a view with a link of its own (/new, an entry in either mode), not a layer: Back returns from it
     tap(browser, "#side-new")
     h = hist(browser)
     assert h["newOpen"] and h["hash"] == "#new" and h["state"]["layers"] == [] and h["i"] == 2 and h["entries"][-1] == "#new" and not h["drawer"], h
@@ -632,13 +644,13 @@ def test_a_phone_in_landscape_wider_than_the_drawer_layout_pushes_like_a_browser
 
 def test_modified_clicks_and_links_to_other_pages_are_the_browser_s(served, browser):
     open_app(browser, served, "#sessions")
-    assert wait_for(browser, "!!document.querySelector('#sp-table a[href^=\"#s=\"]')")
+    assert wait_for(browser, "!!document.querySelector('#sp-table a[href^=\"s/\"]')")
     # a click is dispatched and what sala left of it read at the window (after sala's handler), then stopped there so
     # the browser opens nothing in the test
     probe = """((sel, init) => { const a = document.querySelector(sel); let left = null;
       window.addEventListener("click", (e) => { left = !e.defaultPrevented; e.preventDefault(); }, { once: true });
       a.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, ...init })); return left; })"""
-    link = f"#sp-table a[href='#s={A}']"
+    link = f"#sp-table a[href='s/{A}']"
     for init in ({"ctrlKey": True}, {"metaKey": True}, {"shiftKey": True}, {"altKey": True}):
         assert browser.evaluate(probe + f"({json.dumps(link)}, {json.dumps(init)})") is True, init   # the browser's: a new tab
     assert hist(browser)["entries"] == ["#sessions"]
@@ -650,13 +662,13 @@ def test_modified_clicks_and_links_to_other_pages_are_the_browser_s(served, brow
     assert h["past"] == [f"#s={A}"], h
 
 
-REPLY_LINKS = {"bare": "#s=demo", "full": "{origin}/#s=demo", "overview": "#sessions",
+REPLY_LINKS = {"bare": "#s=demo", "full": "{origin}/#s=demo", "overview": "#sessions", "path": "{origin}/s/demo", "page": "overview",
                "stack": "https://board.example.test/items/133", "gh": "https://github.com/example-org/salamander/pull/1",
                "api": "{origin}/api/sessions"}
 
 
 @pytest.mark.parametrize("width", [390, 1280])
-@pytest.mark.parametrize("kind", ["bare", "full", "overview"])
+@pytest.mark.parametrize("kind", ["bare", "full", "overview", "path", "page"])
 def test_a_link_in_a_reply_to_sala_s_own_page_stays_in_sala(served, browser, width, kind):
     """every link in a reply is target=_blank (md() in app.js), and the installed app on a phone opened a link
     to sala in Chrome's in-app view, a desktop in a new tab. A plain click on a link to sala's own page and route is
@@ -690,7 +702,7 @@ def test_a_link_in_a_reply_to_sala_s_own_page_stays_in_sala(served, browser, wid
     assert browser.evaluate(probe + f"({json.dumps(pick(kind))}, {{}})") is False
     settle(browser)
     h = hist(browser)
-    if kind == "overview":
+    if kind in ("overview", "page"):
         on_overview(h)
         want = ["#sessions"] if width <= 760 else [f"#s={A}", "#sessions"]
     else:

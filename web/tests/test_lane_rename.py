@@ -139,5 +139,5 @@ def test_laneNorm_in_node():
 def test_a_saved_link_to_the_old_name_opens_the_lane_s_page(stub_sala, world, page, browser):
     p = open_lane(browser, page(), "#lane=awsplatform")
     assert p["title"] == "aws-platform" + "aws-platform lane" and p["record"]["Project"] == "wrkspc_01EXAMPLE", p
-    assert browser.evaluate("location.hash") in ("#lane=awsplatform", "#lane=aws-platform")
+    assert browser.evaluate("SalaAddress.here()") in ("#lane=awsplatform", "#lane=aws-platform")
     assert "lane-aws-platform" in browser.evaluate("document.querySelector('#ld-title .sp-pill').className")

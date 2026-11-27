@@ -125,7 +125,7 @@ def test_the_entry_is_the_first_line_above_new_session_with_its_marks(served, br
     e = browser.evaluate(ENTRY)
     assert e["vis"][:3] == ["side-chat", "side-new", "side-ovw"], e
     assert e["bottom"] <= e["newTop"] + 1 and e["svgs"] == 1, e
-    assert (e["label"], e["role"], e["dot"], e["chip"], e["href"]) == ("Ada", "chat", True, "2", "#s=" + NAME), e
+    assert (e["label"], e["role"], e["dot"], e["chip"], e["href"]) == ("Ada", "chat", True, "2", "s/" + NAME), e
     assert e["chipBg"] == e["waiting"], e                    # the red of the waiting chips, not the orange unread count
     # the marks follow a changed answer: no working dot, one item in Your move, the singular word
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { busy: false, waiting: window.__chat.waiting.slice(0, 1) }); loadChatMarks(); ''")
@@ -165,7 +165,7 @@ def test_a_click_opens_the_sessions_own_view_and_a_phones_drawer_closes(served, 
     show_panel(browser)
     assert wait_for(browser, "!document.querySelector('#side-chat').hidden", 8.0)
     browser.evaluate("document.querySelector('#side-chat').click(); ''")
-    assert wait_for(browser, "location.hash === '#s=" + NAME + "'", 8.0)
+    assert wait_for(browser, "SalaAddress.here() === '#s=" + NAME + "'", 8.0)
     browser.wait_ready(CHAT_READY)
     e = browser.evaluate(ENTRY)
     assert e["selected"] and e["current"] == "page", e
@@ -186,7 +186,7 @@ def test_the_sessions_row_is_hidden_while_the_entry_exists_and_the_overview_stil
     wait_for(browser, "typeof state !== 'undefined' && state.byName.has('" + NAME + "')", 8.0)
     row = f"document.querySelectorAll('#session-list .sess[data-key=\"{NAME}\"]').length"
     assert browser.evaluate(row) == 0
-    assert wait_for(browser, f"!!document.querySelector('#overview-pane a[href=\"#s={NAME}\"]')", 10.0), "the Overview lists it and links to #s=<name>"
+    assert wait_for(browser, f"!!document.querySelector('#overview-pane a[href=\"s/{NAME}\"]')", 10.0), "the Overview lists it and links to s/<name>"
     # open: still no second row
     browser.evaluate(f"go('#s={NAME}'); ''")
     browser.wait_ready(CHAT_READY)

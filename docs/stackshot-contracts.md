@@ -394,7 +394,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   one subdirectory per machine letter, two files:
   - `sessions.json`: `{"<transcript uuid>": {"name", "url", "seen", "machine"[, "previous_name", "renamed_at"]}}`.
     `url` is the session's link: on the writer's own rows the web link `SALA_SESSION_URL` gives (default empty, so the claude.ai address or `""`; a template such as
-    `https://sala.example.com/#s={name}` with `{name}` percent-encoded as `encodeURIComponent` does,
+    `https://sala.example.com/s/{name}` with `{name}` percent-encoded as `encodeURIComponent` does,
     `lib/common.sh:107-112`), on a swept box's rows the claude.ai Remote Control address or `""` while the bridge is down.
     `previous_name` + `renamed_at` (ISO-8601 UTC) only on a row of the driving machine `salamander rename` renamed (`lib/heartbeat.sh:39-41`,
     written at `:311` from `salamander-renames.jsonl`, `lib/rename.sh:197`). `sleeping` (ISO-Z; version 51) only on the row of a sleeping session, which the heartbeat makes from its marker (interface 35).

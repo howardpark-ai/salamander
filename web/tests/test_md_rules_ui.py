@@ -96,7 +96,7 @@ SETUP = r"""(() => {
   T.put = async (text, last = false) => {
     T.msg?.remove(); T.msg = null;
     under.scrollIntoView({ block: "end" }); await raf(); await new Promise((r) => setTimeout(r, 100));   // as scrolled as after
-    const list = outside(); T.was = { list, looks: looks(list), sheets: document.styleSheets.length, focus: document.activeElement, hash: location.hash,
+    const list = outside(); T.was = { list, looks: looks(list), sheets: document.styleSheets.length, focus: document.activeElement, url: location.href,
       composer: document.getElementById("composer"), role: document.querySelector('input[name="ns-role"]:checked')?.value ?? null };
     const m = T.msg = el("div", { class: "msg assistant t-msg" });
     m.append(...replyNodes(text, last));
@@ -246,7 +246,7 @@ def test_a_reply_neither_acts_on_the_page_nor_answers_to_its_names(served, brows
         math: q("math [href], math[href]").length,
         usemap: [m.querySelector("img").getAttribute("usemap"), "#" + m.querySelector("map").getAttribute("name")],
         video: m.querySelector("video").getAttributeNames().sort(),
-        sheets: document.styleSheets.length - T.was.sheets, moved: location.hash !== T.was.hash,
+        sheets: document.styleSheets.length - T.was.sheets, moved: location.href !== T.was.url,
       }; })()""")
     assert got["tags"] == [] and got["inputs"] == [["checkbox", True]] and got["named"] == [] and got["classes"] == [] and got["attrs"] == [], got
     assert got["open"] == 0 and got["editable"] == 0 and got["pictures"] == 0 and got["focus"] and got["ahead"] == 0, got

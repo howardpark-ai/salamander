@@ -136,7 +136,7 @@ function hookTerminalClipboard(frame) {
 const TERM_FONT_URL = (() => {
   const own = document.currentScript && document.currentScript.src;
   try { return new URL("fonts/D2Coding-Regular.woff2" + new URL(own).search, own).href; }
-  catch { return new URL("static/fonts/D2Coding-Regular.woff2", location.href).href; }
+  catch { return new URL("static/fonts/D2Coding-Regular.woff2", document.baseURI).href; }
 })();
 const TERM_FONT_FAMILY = '"D2Coding", Consolas, monospace';
 const TERM_FONT_SIZE = 14;

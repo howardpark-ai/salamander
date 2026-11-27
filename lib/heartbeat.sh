@@ -196,7 +196,7 @@ def load(p):
 exec(E["HB_URL_PY"])   # session_url(name, bridge, tpl): the one definition, in lib/common.sh
 # SESSION LINKS (Tue Oct 13th 2026: term links replace the remote-control links, and the link comes from sala): a row of THIS box carries its session's sala-web link (tpl = SALA_SESSION_URL, or sala-web's address when this
 # box drives the fleet), bridged or not. A swept box's rows are built without tpl and keep the claude.ai link: sala-web reaches
-# only the panes of the box it runs on. The name in the link is the registry name, the one sala-web matches #s= against.
+# only the panes of the box it runs on. The name in the link is the registry name, the one sala-web matches the /s/ of the link against.
 def row(d, letter, tpl=""):
     name = d.get("name") or ""
     return {"name": name, "url": session_url(name, d.get("bridgeSessionId") or "", tpl), "seen": now, "machine": letter}

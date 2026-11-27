@@ -1,5 +1,5 @@
 """A lane's details page : each lane card on the Overview has a "Details ›"
-link in its head, to `#lane=<id>`, a view of the Overview's pane with a Back button. The page shows the lane's record (sala's
+link in its head, to `lane/<id>`, a view of the Overview's pane with a Back button. The page shows the lane's record (sala's
 lane table, `sala lane --json`, through `GET /api/lanes/<id>`), its state (lane-state.tsv: active, dormant and why, not set
 up), its usage as the card shows it (the same answers and the same drawing code) and the sessions on the lane, each linked.
 
@@ -208,7 +208,7 @@ def test_sala_missing_is_the_same_clear_answer(world, monkeypatch, tmp_path):
 def test_the_page_has_the_pieces_once():
     for i in ("ld", "ld-back", "ld-title", "ld-count", "ld-reload", "ld-note", "ld-line", "ld-record", "ld-usage", "ld-table"):
         assert INDEX.count(f'id="{i}"') == 1, i
-    assert '<a id="ld-back" class="sp-btn" href="#sessions"' in INDEX
+    assert '<a id="ld-back" class="sp-btn" href="overview"' in INDEX
     assert '$("#ld-reload").addEventListener("click", () => reloadPage("overview"));' in APP_JS     # the cause test_timing_debug.py lists
     for secret_word in ("credentials.json", "accessToken", "refreshToken"):
         assert secret_word not in SESSIONS_JS.split("A LANE'S DETAILS PAGE")[1]
@@ -229,7 +229,7 @@ LANE_PAGE = """(() => {
   const q = (s) => document.querySelector(s), all = (s) => [...document.querySelectorAll(s)];
   const vw = document.documentElement.clientWidth, pane = q("#overview-pane");
   const dl = q("#ld-record dl");
-  return { hash: location.hash, laneOpen: document.body.classList.contains("lane-open"), overviewOpen: document.body.classList.contains("overview-open"),
+  return { hash: SalaAddress.here(), laneOpen: document.body.classList.contains("lane-open"), overviewOpen: document.body.classList.contains("overview-open"),
     shown: getComputedStyle(q("#ld")).display !== "none", listHidden: getComputedStyle(q("#overview-pane > .sp:not(.ld)")).display === "none",
     title: q("#ld-title .sp-pill:not(.lane-chip)").textContent + q("#ld-title .ld-name").textContent, name: q("#title .name").textContent, docTitle: document.title, count: q("#ld-count").textContent,
     note: q("#ld-note").textContent,
@@ -285,7 +285,7 @@ def test_every_lane_card_has_a_details_link_in_its_head_dormant_ones_too(stub_sa
     assert set(by) == {"lane-subscription-1", "lane-subscription-2", "lane-api", "lane-bedrock", "lane-aws-platform"}, got   # the two AWS spend cards too
     for lane, c in (("subscription-1", by["lane-subscription-1"]), ("subscription-2", by["lane-subscription-2"]), ("api", by["lane-api"]),
                     ("bedrock", by["lane-bedrock"]), ("aws-platform", by["lane-aws-platform"])):
-        assert c["href"] == f"#lane={lane}" and c["text"] == "Details ›" and c["inHead"], c
+        assert c["href"] == f"lane/{lane}" and c["text"] == "Details ›" and c["inHead"], c
         assert c["label"].startswith("Details of the ") and c["label"].endswith(" lane"), c
         # at the head's right end (the card pads 16 px); the API card has no Billing link here, it is on the details page
         assert c["rightEdge"] <= 20, c
@@ -309,11 +309,11 @@ def test_the_max_page_has_its_record_its_state_its_limits_and_its_own_sessions(s
     assert p["usage"]["emptyHeadKids"] == 0 and p["usage"]["pills"] == ["ultra"], p["usage"]            # no empty stand-in left in its head; the lane label stays
     assert "ultraMax (20x)" in p["usage"]["text"], p["usage"]                               # the plan name stays on the details page
     # only the sessions on this lane, in the overview's order, each a link to the session
-    assert [s["link"] for s in p["sessions"]] == ["#s=on-max-a", "#s=on-max-b"] and p["count"] == "2 live sessions", p["sessions"]
+    assert [s["link"] for s in p["sessions"]] == ["s/on-max-a", "s/on-max-b"] and p["count"] == "2 live sessions", p["sessions"]
     assert all("ultra" in s["lane"] for s in p["sessions"])
     # a phone: nothing wider than the screen, the Back chip a full control (32 px here; the look makes it 44 px under a coarse pointer, which a headless page cannot emulate)
     assert p["docScroll"] <= p["vw"] and p["paneScroll"] <= p["paneClient"] and p["right"] <= p["vw"], p
-    assert p["back"] == {"href": "#sessions", "text": "Back", "h": p["back"]["h"]} and p["back"]["h"] >= 32, p["back"]
+    assert p["back"] == {"href": "overview", "text": "Back", "h": p["back"]["h"]} and p["back"]["h"] >= 32, p["back"]
     assert world["calls"].count(TOKEN) == 2                                           # one usage check per lane, as the Overview makes them: the page asks nothing more
 
 
@@ -326,7 +326,7 @@ def test_the_api_page_has_the_spend_the_billing_link_and_the_sdk_sessions_and_no
     assert p["usage"]["figs"] == ["$1.00", "$2.00"] and p["usage"]["bill"] == ["https://platform.claude.com/settings/billing"], p["usage"]
     assert "Spent today" in p["usage"]["text"] and p["usage"]["details"] == 0 and p["usage"]["chips"] == []
     assert p["usage"]["emptyHeadKids"] == 0 and p["headPills"] == 1 and p["usage"]["pills"] == ["metered", "sdk"], p["usage"]   # the billing link is the card's only right end now
-    assert [s["link"] for s in p["sessions"]] == ["#s=on-api", "#s=on-sdk"], p["sessions"]
+    assert [s["link"] for s in p["sessions"]] == ["s/on-api", "s/on-sdk"], p["sessions"]
     assert [s["lane"] for s in p["sessions"]] == ["metered", "sdk"], p["sessions"]     # the pill says which client
     assert world["spend"]                                                              # the figures are credit.py's, asked once for the card
 
@@ -340,7 +340,7 @@ def test_a_dormant_lane_says_so_and_why_and_its_usage_is_the_cards_one_line(stub
     assert p["usage"]["emptyHeadKids"] == 0, p["usage"]
     assert p["usage"]["dormant"] == ["No seat since Mon Jan 5th"] and p["usage"]["bars"] == 0, p["usage"]
     assert p["record"]["Organization"] == "ExampleOrg" and "Plan" not in p["record"]        # an empty field is left out
-    assert [s["link"] for s in p["sessions"]] == ["#s=on-team"], p["sessions"]
+    assert [s["link"] for s in p["sessions"]] == ["s/on-team"], p["sessions"]
     api = open_lane(browser, page(), "#lane=api", ready="document.querySelector('#ld-usage')")
     assert api["chip"] == "active" and api["line"] == ""                              # the others are not dormant
 
@@ -398,7 +398,7 @@ def test_an_unknown_lane_says_so(stub_sala, world, page, browser):
 # ── Back ─────────────────────────────────────────────────────────────────────
 def test_in_a_browser_the_details_link_pushes_and_the_back_button_is_the_browsers_back(stub_sala, served, browser):
     open_app(browser, served, "#sessions", width=1280)
-    tap(browser, "a.q-details[href='#lane=subscription-1']")
+    tap(browser, "a.q-details[href='lane/subscription-1']")
     h = hist(browser)
     assert h["hash"] == "#lane=subscription-1" and h["overview"] and h["entries"] == ["#sessions", "#lane=subscription-1"] and h["i"] == 1, h
     assert wait_for(browser, "document.body.classList.contains('lane-open')")
@@ -426,22 +426,22 @@ def test_on_a_phone_the_lane_page_replaces_the_view_and_one_back_leaves(stub_sal
     assert wait_for(browser, "document.readyState !== 'loading' && !!document.getElementById('q-strip') && getComputedStyle(document.getElementById('q-strip')).display !== 'none'")
     tap(browser, "#q-strip")     # a phone folds the lane cards into one chip strip: a tap opens them
     assert wait_for(browser, "document.getElementById('quota').classList.contains('q-open')")
-    tap(browser, "a.q-details[href='#lane=api']")
+    tap(browser, "a.q-details[href='lane/api']")
     h = hist(browser)
     assert h["hash"] == "#lane=api" and h["entries"] == ["#lane=api"] and h["replace"], h        # one entry, replaced
     tap(browser, "#ld-back")
     h = hist(browser)
     assert h["hash"] == "#sessions" and h["entries"] == ["#sessions"] and h["name"] == "Overview", h
-    tap(browser, "a.q-details[href='#lane=subscription-1']")
+    tap(browser, "a.q-details[href='lane/subscription-1']")
     assert hist(browser)["hash"] == "#lane=subscription-1"
     assert back(browser)["left"]      # Back left sala: nothing walked between the views
 
 
 def test_a_session_opened_from_the_lane_page_comes_back_to_it_in_a_browser(stub_sala, served, browser):
     open_app(browser, served, "#sessions", width=1280)
-    tap(browser, "a.q-details[href='#lane=subscription-1']")
-    assert wait_for(browser, "!!document.querySelector('#ld-table a[href^=\"#s=\"]')")
-    tap(browser, "#ld-table a[href^='#s=']")
+    tap(browser, "a.q-details[href='lane/subscription-1']")
+    assert wait_for(browser, "!!document.querySelector('#ld-table a[href^=\"s/\"]')")
+    tap(browser, "#ld-table a[href^='s/']")
     h = hist(browser)
     assert h["hash"].startswith("#s=") and not h["overview"], h
     h = back(browser)

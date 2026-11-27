@@ -8,11 +8,14 @@ command runs there, POST /api/s/<pid>/send-now, whose only write to tmux is Ctrl
 behind one running step, and POST /api/spawn, which queues a new session through sala's operation queue, `sala op spawn`, and makes
 none itself):
 
-  GET  /                          the page (/?arg=<tmux session> redirects to /terminal); #s=<name> opens a
-                                  session, #sessions the sessions overview (every live session's role, status, model
-                                  and lane, with account usage and API spend above them)
+  GET  /                          the page (/?arg=<tmux session> redirects to /terminal)
+  GET  /s/<name>, /overview,      the same page, by the same handler: each view of it has an address of its own (static/address.js): a session,
+       /schedules, /machines,     the sessions overview (every live session's role, status, model and lane, with account usage and API spend
+       /usage, /lane/<id>,        above them) and its other tabs, a lane's details, the New session page and its quick form, the search
+       /new, /side, /search       results. The page reads the view from the address. /s/ with no name is a 404. An address of before
+                                  (/#s=<name>, /#sessions) reaches the server as "/"; the page rewrites it to the view's path
   GET  /terminal                  the full-size terminal: ttyd's page in a frame filling the window, ?arg=<tmux session> (static/terminal.html)
-  GET  /chat                      an address kept for the chat session (SALA_CHAT_SESSION): a 302 to `./#s=<session>` (sala's own view of it; web/README.md,
+  GET  /chat                      an address kept for the chat session (SALA_CHAT_SESSION): a 302 to `./s/<session>` (sala's own view of it; web/README.md,
                                   *The chat session in sala's own view*), or to `./` when no session is set. Relative, so it resolves against the host and
                                   the path prefix the browser used. GET /api/chat is the data of the session's entry and strip, and of nothing else:
                                   {configured, session, name, present: live|sleeping|absent, busy, keptToday, keptTodayFloor, keptLines (how many
@@ -39,7 +42,7 @@ none itself):
                                   no-store, nosniff, Referrer-Policy no-referrer and a Content-Security-Policy of default-src 'none'; sandbox
   GET  /api/config                settings the page needs (terminal URL prefix, the title-bar suffix, the scopes, the zone) and the page's
                                   version and its style sheets' (pageversion.py: hashes of the files' content, not of their times)
-  GET  /sessions                  redirects to /#sessions (the overview was its own page before it moved into /)
+  GET  /sessions                  redirects to ./overview (the overview was its own page before it moved into /)
   GET  /api/sessions              live sessions grouped by project; each carries "unread_count" (the replies a front
                                   agent has written since the owner opened it, at most 10; the sidebar's orange count) and
                                   "unread" (count > 0); unread.py; and "agentId" (sala's permanent id for the agent,
@@ -263,7 +266,7 @@ none itself):
                                   on, the effort levels, the name and mandate limits
   GET  /api/spawn/suggest         ?project=<key>&role=front|back[&prefix=<agent-name prefix>][&new=1] (or ?side=1&fork_of=<agent> | &project=<key>) -> {"name"}, from `sala spawn --suggest-name`
   GET  /api/spawn/item            ?id=<board#N | board-tmp-box#N | sN> -> {"ok", "item", "project", "owner", "status"} from stackshot's item-facts:
-                                  what the Discuss link (#side=<id>) prefills a side conversation's form with
+                                  what the Discuss link (side?<id>) prefills a side conversation's form with
   GET  /api/spawn/projects        ?scope=<one of the scopes>|all[&q=<text>] -> the scope's listed projects (all: every
                                   scope's, each row with its own scope), and with q its hidden matches too, from
                                   stackshot's `GET /client/projects` (projpick.py)
@@ -741,9 +744,18 @@ def create_app(settings: Settings | None = None) -> Starlette:
     async def index(request: Request) -> Response:
         # /?arg=<tmux session> was ttyd's own URL before sala-web took the host: keep those links working
         if "arg" in request.query_params:
-            return RedirectResponse("/terminal?" + request.url.query, status_code=302)
+            return RedirectResponse("/terminal?" + request.scope["query_string"].decode("latin-1"), status_code=302)   # as sent: request.url is rebuilt from the decoded path, where a "?" or "#" of a name would cut the query off
         WS.note(request, settings)   # `sala where`: the box this visit came from (wheresight.py); background, throttled, never fails the page
-        return _page("index.html")
+        # every view's address serves this page. s/<name> and lane/<id> are a folder below the app's root, so the page's <base> climbs back up;
+        # counted on the path as sent, where a %2F inside a name is no step
+        sent = request.scope.get("raw_path") or request.url.path.encode()
+        return _page("index.html", base="../" * (sent.split(b"?")[0].count(b"/") - 1) or "./")
+
+    async def session_page(request: Request) -> Response:
+        # the route takes any rest, since a name may hold "/" (sent as %2F, decoded before routing)
+        if not request.path_params["name"]:
+            return Response("Not Found", status_code=404, media_type="text/plain")
+        return await index(request)
 
     async def terminal_page(request: Request) -> Response:
         # the full-size terminal (the Shell drawer's "Open full size", the old /?arg= links): ttyd's page in a frame that fills the
@@ -757,7 +769,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # sit under a path prefix, and "./" resolves against whatever host and prefix the browser used. The name is a session name (config.chat_session:
         # letters, digits, dot, underscore, dash), so it needs no escaping. With no session set it opens the main page.
         name = chat_session()
-        return RedirectResponse("./#s=" + name if name else "./", status_code=302)
+        return RedirectResponse("./s/" + name if name else "./", status_code=302)
 
     chat_cache: dict = {}
 
@@ -778,14 +790,15 @@ def create_app(settings: Settings | None = None) -> Starlette:
             motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move, group=group))
         return JSONResponse(doc, headers={"Cache-Control": "no-store"})
 
-    def _page(name: str) -> Response:
+    def _page(name: str, base: str = "./") -> Response:
         # the title bar's text is in the served page (paintBrand only repaints it), so a reload shows no flash of the bare name.
         suffix = brand_suffix()
         brand = htmllib.escape("salamander : " + suffix if suffix else "salamander")
         page, styles = page_versions()
         html = ((STATIC / name).read_text().replace("{{build}}", page).replace("{{v}}", page).replace("{{sv}}", styles)
                 .replace("{{brand}}", brand).replace("{{owner}}", htmllib.escape(owner_name()))
-                .replace("{{lang}}", _read_prefs(prefs_path)["lang"]))   # the saved language is in the served page: no flash of the other
+                .replace("{{lang}}", _read_prefs(prefs_path)["lang"])   # the saved language is in the served page: no flash of the other
+                .replace("{{base}}", base))
         # the overview's Get Help chip opens the session SALA_HELP_SESSION names; with none set the chip is not in the page
         help_ = help_session()
         html = (html.replace("{{help}}", htmllib.escape(help_)) if help_
@@ -802,7 +815,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
     async def sessions_page(request: Request) -> Response:
         # the overview is a view of the main page now; links and bookmarks to the old page land on it. Relative, so
         # it resolves against whatever host and path prefix the browser used
-        return RedirectResponse("./#sessions", status_code=302)
+        return RedirectResponse("./overview", status_code=302)
 
     async def manifest(request: Request) -> Response:
         # The web app manifest, at the root: its start_url and scope ("./") resolve against its own URL, so the app
@@ -2645,7 +2658,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         return _err(*bad) if bad else JSONResponse({"name": name}, headers={"Cache-Control": "no-store"})
 
     async def spawn_item(request: Request) -> Response:
-        """?id=<the item as stackshot shows it> -> {"item", "project", "owner", "status"}: what the Discuss link (#side=<id>) prefills the form with."""
+        """?id=<the item as stackshot shows it> -> {"item", "project", "owner", "status"}: what the Discuss link (side?<id>) prefills the form with."""
         raw = (request.query_params.get("id") or "").strip()
         sid = SP.store_id(raw)
         if not sid:
@@ -3008,6 +3021,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
     static_app = RevalidatedStatic(directory=STATIC)
     routes = [
         Route("/", index),
+        # the page's other views (static/address.js): one handler with "/", so they are served alike
+        *(Route(path, index) for path in ("/overview", "/schedules", "/machines", "/usage", "/lane/{id}", "/new", "/side", "/search")),
+        Route("/s/{name:path}", session_page),
         Route("/terminal", terminal_page),
         Route("/chat", chat_page),
         Route("/api/chat", api_chat),

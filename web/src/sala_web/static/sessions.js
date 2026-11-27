@@ -1,5 +1,5 @@
 "use strict";
-/* The sessions overview, a view of index.html's main area (#sessions): every live session's project, role, status,
+/* The sessions overview, a view of index.html's main area (/overview): every live session's project, role, status,
    model and lane, from api/overview every 10 s; above it, each account lane's usage limits from api/quota every 60 s,
    and the API key's spend (metered and sdk lanes) from api/credit every 15 minutes, the server's cache age, and the
    AWS lanes' month-to-date spend (an estimate at list prices) from api/spend every 60 s. It polls
@@ -181,7 +181,7 @@ function surfaceCell(r) {
 function sessionRow(r) {
   const tr = document.createElement("tr");
   const link = document.createElement("a");
-  link.href = "#s=" + encodeURIComponent(r.name);  // opens it in this page: the hash change leaves the overview
+  link.href = "s/" + encodeURIComponent(r.name);  // opens it in this page (app.js's link handler), which leaves the overview
   link.textContent = r.name;
   link.title = r.projectTitle ? projectLabel(r) : tl("ov.row.unregistered");   // the project is the name's tooltip, no column of its own
   const st = span("sp-status " + ({ busy: "working", waiting: "waiting" }[STATUS_DOT[r.status]] || ""), "");
@@ -391,11 +391,11 @@ function dayWords(iso) {  // "Mon Jan 5th"; in Korean the month, day and weekday
   const suf = tens >= 11 && tens <= 13 ? "th" : { 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th";
   return p.weekday + " " + p.month + " " + n + suf;
 }
-// "Details ›" at the right end of a card's head: the lane's details page, #lane=<id>; app.js follows it
+// "Details ›" at the right end of a card's head: the lane's details page, /lane/<id>; app.js follows it
 function detailsLink(lane) {
   const a = document.createElement("a");
   a.className = "q-details";
-  a.href = "#lane=" + encodeURIComponent(lane);
+  a.href = "lane/" + encodeURIComponent(lane);
   a.textContent = tl("ov.details");
   a.setAttribute("aria-label", tl("ov.detailsOf", { lane: laneLabel(lane) }));
   return a;
@@ -784,7 +784,7 @@ function spendCardBody(lane, a, opts = {}) {
       let node;
       if (s.live) {
         node = document.createElement("a");
-        node.href = "#s=" + encodeURIComponent(s.name);
+        node.href = "s/" + encodeURIComponent(s.name);
         node.textContent = s.name;
       } else {
         node = span("sp-muted", s.name, tl("ov.s.notRunning"));
@@ -794,7 +794,7 @@ function spendCardBody(lane, a, opts = {}) {
     if (shown.length < sess.length) {
       const more = document.createElement("a");
       more.className = "s-more";
-      more.href = "#lane=" + encodeURIComponent(lane);
+      more.href = "lane/" + encodeURIComponent(lane);
       more.textContent = tl("ov.s.more", { n: sess.length - shown.length });
       list.append(more);
     }
@@ -996,7 +996,7 @@ async function loadCards(which = { quota: true, credit: true, spend: true }, fol
   }
 }
 
-/* A LANE'S DETAILS PAGE (#lane=<id>, a view of the same pane as the overview, so it polls what the overview polls
+/* A LANE'S DETAILS PAGE (/lane/<id>, a view of the same pane as the overview, so it polls what the overview polls
    and draws its usage and its sessions from the same answers with the same helpers). Its own part is the lane's record
    and state, from api/lanes/<id> (sala's lane table; the server takes every file path out of it), asked when the page
    opens and with the quota check after that. It shows: the state (a pill in the head, and a line under it unless there is nothing true to add: laneHead), the record, the
@@ -1114,7 +1114,7 @@ async function laneLoad() {
   laneRender();
 }
 
-// the details page of a lane opens (id), or closes (null); app.js calls it when the hash is #lane=<id> or anything else
+// the details page of a lane opens (id), or closes (null); app.js calls it when the address is /lane/<id> or anything else
 function showLane(id) {
   id = laneNorm(id);   // #lane=awsplatform, a link saved before the rename, opens the aws-platform page
   document.body.classList.toggle("lane-open", id != null);

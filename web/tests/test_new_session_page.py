@@ -92,7 +92,7 @@ def test_an_ordinary_create_needs_no_scrolling_on_a_desktop(sala, served, browse
     in_view(browser, "starting")
     browser.evaluate("window.__names = ['gamma-harbor-main']; ''")
     g = wait_state(browser, "ready")
-    assert g["link"] == "#s=gamma-harbor-main", g
+    assert g["link"] == "s/gamma-harbor-main", g
     f = in_view(browser, "ready")
     assert f["linkBottom"] > 0                                                           # the Open button is on the page
     # the lane fold open: Create and the steps stay on the screen, the fields scroll under them
@@ -118,7 +118,7 @@ def test_a_new_project_create_with_all_three_steps_and_the_open_button_fits_too(
     browser.evaluate("window.__names = ['beta-fresh-idea-main']; ''")
     sala.marker("running")
     g = wait_state(browser, "ready", 30.0)
-    assert g["link"] == "#s=beta-fresh-idea-main" and len(g["steps"]) == 3, g
+    assert g["link"] == "s/beta-fresh-idea-main" and len(g["steps"]) == 3, g
     assert in_view(browser, "ready, three steps and the Open button")["linkBottom"] > 0
 
 
@@ -151,8 +151,8 @@ def test_nothing_of_the_pop_up_is_left_and_the_page_is_routed_like_a_view():
     for gone in ("new-sheet", "new-scrim", "nsOpen", "nsClose", "placePopover(nsEl", 'defineLayer("new"'):
         assert gone not in APP_JS and gone not in INDEX, gone
     assert ".new-sheet" not in CSS and "aria-expanded" not in re.search(r'<a id="side-new"[^>]*>', INDEX).group(0)
-    assert 'const newHash = (h = location.hash) => h === "#new";' in APP_JS
-    assert 'a.hash === "#new"' in APP_JS                                                # a plain click on the link is sala's (go)
+    assert 'const newHash = (h = here()) => h === "#new";' in APP_JS
+    assert 'const view = SalaAddress.read(a);' in APP_JS                                 # a plain click on the link is sala's (go)
     assert "body.new-open #new-pane { display: flex; flex-direction: column; }" in CSS
     # the popover helper was the items sheet's alone and went with it
     assert "function placePopover(" not in APP_JS and "placeSheet" not in APP_JS

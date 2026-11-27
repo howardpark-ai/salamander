@@ -30,7 +30,7 @@ export PATH="$HOME/.local/bin:$PATH" FAKE_LOG="$HOME/fake.log"
 POSTS="$HOME/posts.txt"; export SALA_NOTIFY_CMD="cat >> $POSTS"
 export SALA_BIN="$ROOT/bin/salamander" SALA_ROOT="$ROOT" SALA_AUTO_UPDATE=off SALA_AUTO_RECYCLE=off SALA_AGENT_CHECK=off
 export SALA_LIMIT_ALERT=off SALA_LIMIT_RESUME=off SALA_SIGNIN_ALERT=off   # the other watches: not under test
-export SALA_SESSION_URL='https://sala.example.test/#s={name}' SALA_STUCK_CONFIRM=0 SALA_STUCK_RETRIES=2
+export SALA_SESSION_URL='https://sala.example.test/s/{name}' SALA_STUCK_CONFIRM=0 SALA_STUCK_RETRIES=2
 SALA="$ROOT/bin/salamander"; SOCK="sala-stuckpost-$$"; T="tmux -L $SOCK -f /dev/null"
 unset TMUX; export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"
 WLOG="$HOME/.claude/salamander-watch.log"; STATE="$HOME/.local/state/salamander/stuck.state"; ATTEMPTS="$HOME/attempts.txt"
@@ -86,7 +86,7 @@ sw; p=$(lastpost)
 [ "$(posts)" = 1 ] && ok "one post" || bad "$(posts) posts: $(slurp "$POSTS")"
 has "$(head -1 <<< "$p")" "sala-test-stuck is waiting for an answer in its terminal" && ok "the headline names the session" || bad "headline: $(head -1 <<< "$p")"
 has "$p" "it asks: Bash command · curl -H " && has "$p" " · Fetch the thing · Do you want to proceed?" && ok "the question: the dialog's title, command and question" || bad "post: $p"
-has "$p" "answer it in sala: https://sala.example.test/#s=sala-test-stuck" && ok "the web UI's link for that session, under the app's name (sala)" || bad "no link: $p"
+has "$p" "answer it in sala: https://sala.example.test/s/sala-test-stuck" && ok "the web UI's link for that session, under the app's name (sala)" || bad "no link: $p"
 ! has "$p" "$TOKEN" && has "$p" "Authorization: …" && ok "the token in the command masked" || bad "the token in the post: $p"
 ! grep -q 'sala-test-idle\|sala-test-busy' "$POSTS" && ok "the idle pane and the busy pane: not posted" || bad "$(grep 'sala-test-idle\|sala-test-busy' "$POSTS")"
 H1=$(stv s.sala-test-stuck.hash); [ -n "$H1" ] && [ -n "$(stv s.sala-test-stuck.posted)" ] && ok "state: the question's hash and the post remembered" || bad "state: $(slurp "$STATE")"
@@ -143,7 +143,7 @@ bash_q "curl $HOOK -d x" "Post to the hook" > "$PF"; tmux send-keys -t sala-test
 waitfor 'screen stuck | grep -q "Post to the hook"' 20 || bad "the sixth dialog did not show"
 n=$(grep -c . "$WLOG"); s=$(<"$STATE")
 out=$("$SALA" watch --stuck --dry-run 2>&1)
-has "$out" "would post for sala-test-stuck:" && has "$out" "it asks: Bash command · curl https://hooks.slack.com/… -d x · Post to the hook · Do you want to proceed?" && has "$out" "answer it in sala: https://sala.example.test/#s=sala-test-stuck" \
+has "$out" "would post for sala-test-stuck:" && has "$out" "it asks: Bash command · curl https://hooks.slack.com/… -d x · Post to the hook · Do you want to proceed?" && has "$out" "answer it in sala: https://sala.example.test/s/sala-test-stuck" \
     && ok "the dry run prints the post, the webhook masked" || bad "dry run: $out"
 [ "$(posts)" = 5 ] && [ "$(grep -c . "$WLOG")" = "$n" ] && [ "$(<"$STATE")" = "$s" ] && ok "nothing posted, logged or written" || bad "$(posts) posts; log +$(( $(grep -c . "$WLOG") - n )); state: $(<"$STATE")"
 sw; [ "$(posts)" = 6 ] && ok "the real tick after it: posted" || bad "$(posts) posts"

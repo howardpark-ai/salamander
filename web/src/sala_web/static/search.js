@@ -1,6 +1,6 @@
 "use strict";
 /* Search: the sidebar's search box (#side-search, on every page) and the Search results page (#search-pane, a page of its own at
-   #search?q=…). Enter in the box opens the page, in a new tab where the browser allows it (app.js), with the box's defaults: the last 6 hours, front agents only, messages only. The page
+   /search?q=…). Enter in the box opens the page, in a new tab where the browser allows it (app.js), with the box's defaults: the last 6 hours, front agents only, messages only. The page
    is the results list under its own query box (#se-query) and the When / Agents / Content filters; Enter in that box runs the search again
    with the filters as they are, and an empty query does nothing, as in the sidebar's box. The query and every filter are in the
    address (the same parameters api/search takes), so a reload, Back and a shared link open the same search; changing a filter runs
@@ -36,7 +36,7 @@ const $in = (sel) => document.querySelector("#search-pane " + sel);
 const num = (n) => SalaI18n.number(Number(n));
 const errText = (er) => tl("srch.err.failed", { error: er.status ? tl("common.serverAnswered", { status: er.status }) : er.detail });
 
-/* ---------- the address: #search?<the api/search parameters> ---------- */
+/* ---------- the address: search?<the api/search parameters> (the view "#search?…", address.js) ---------- */
 function params(f) {
   const p = new URLSearchParams();
   p.set("q", f.q);
@@ -149,7 +149,7 @@ function hitRow(h) {
   const body = el("div", { class: "se-x" + (h.kind === "tools" ? " code" : "") }, ...snippetNodes(h.snippet));
   const li = el("li", { class: "se-hit" + (live ? " open" : ""), "data-agent": h.agent });
   if (!live) { li.append(meta, body); return li; }
-  const a = el("a", { class: "se-link", href: "#s=" + encodeURIComponent(h.name), title: tl("srch.hit.open", { name: h.name }) }, meta, body);
+  const a = el("a", { class: "se-link", href: "s/" + encodeURIComponent(h.name), title: tl("srch.hit.open", { name: h.name }) }, meta, body);
   a.addEventListener("click", (e) => {
     if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
