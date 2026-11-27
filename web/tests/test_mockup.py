@@ -294,6 +294,15 @@ def test_the_icon_is_inside_the_one_bar_and_has_a_name_and_no_other_row(env):
     assert "About these versions" not in block
 
 
+def test_the_version_bar_is_one_row_and_only_its_time_may_be_cut():
+    block = MK.version_block(3, V_OLD)
+    assert block.count("<div") == 1 and block.endswith("</span></div>") and 'background:#161617;display:flex">' in block
+    link, when = re.findall(r'<(?:a href="[^"]*"|span data-sala-when) style="([^"]*)"', block)
+    assert link.endswith(";flex:none")                                                  # the link keeps its own width
+    for part in ["flex:1;", "min-width:0;", "height:44px;", "padding:0 16px 0 0;", "text-align:right;", "overflow:hidden;", "text-overflow:ellipsis"]:
+        assert part in when, part
+
+
 def test_the_list_is_newest_first_in_korea_time_and_links_each_version_by_its_id(env):
     root = env["root"]
     store(root, 4)
@@ -557,5 +566,15 @@ def test_in_a_real_browser_the_history_icon_shares_the_back_row_and_its_list_cov
     assert browser.evaluate("document.querySelector('[data-sala-when]').textContent") == "Until Fri Nov 27th 23:27 KST"
     assert browser.evaluate("document.querySelector('[data-sala-back] a').href") == served["url"] + "/mockup/1"
     assert browser.evaluate("document.querySelector('[data-sala-versions]')") is None                # no history inside a version
+    row = json.loads(browser.evaluate(
+        "(() => { const q = (s) => document.querySelector(s); const a = q('[data-sala-back] > a'); const r = (el) => el.getBoundingClientRect();"
+        "return JSON.stringify({bar: r(q('[data-sala-back]')), link: r(a), when: r(q('[data-sala-when]')), whole: a.scrollWidth <= a.clientWidth,"
+        "pad: getComputedStyle(q('[data-sala-when]')).paddingRight, sw: document.documentElement.scrollWidth}); })()"))
+    bar, link, when = row["bar"], row["link"], row["when"]
+    assert abs(bar["height"] - 44) <= 0.5 and abs(link["height"] - 44) <= 0.5 and abs(when["height"] - 44) <= 0.5, row   # one row
+    assert abs(link["top"] - bar["top"]) <= 0.5 and abs(when["top"] - bar["top"]) <= 0.5, row
+    assert abs(link["left"] - bar["left"]) <= 0.5 and abs(when["right"] - bar["right"]) <= 0.5 and row["pad"] == "16px", row
+    assert link["right"] <= when["left"] + 0.5 and when["width"] > 0, row                           # side by side, no overlap
+    assert row["whole"] is True and when["right"] <= 390 and row["sw"] <= 390, row                  # the link is never cut, nothing sideways
     browser.evaluate("document.querySelector('[data-sala-back] a').click()")
     wait_for(browser, "location.pathname.endsWith('/mockup/1')")

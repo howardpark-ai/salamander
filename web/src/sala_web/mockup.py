@@ -136,11 +136,13 @@ def history_block(n: int, ids: list) -> str:
 
 
 def version_block(n: int, vid: str) -> str:
-    """The bar of a version view: a way back to the current page (`../../<n>` is relative to /mockup/<n>/versions/<id>), and until when the version was the page."""
-    return ('<div data-sala-back style="%s">'
-            '<a href="../../%d" style="%s">&larr; Current page</a>'
-            '<span data-sala-when style="all:initial;display:block;box-sizing:border-box;padding:0 16px 0 0;font:400 14px/44px system-ui,'
-            'sans-serif;color:#bbb;white-space:nowrap">Until %s</span></div>'
+    """The bar of a version view, one row: a way back to the current page (`../../<n>` is relative to /mockup/<n>/versions/<id>) at the left, and at
+    the right until when the version was the page. In a row too narrow for both, the time is cut with an ellipsis, never the link."""
+    return ('<div data-sala-back style="%sdisplay:flex">'
+            '<a href="../../%d" style="%s;flex:none">&larr; Current page</a>'
+            '<span data-sala-when style="all:initial;display:block;box-sizing:border-box;flex:1;min-width:0;height:44px;padding:0 16px 0 0;'
+            'font:400 14px/44px system-ui,sans-serif;color:#bbb;text-align:right;white-space:nowrap;overflow:hidden;'
+            'text-overflow:ellipsis">Until %s</span></div>'
             % (_BAR_STYLE, n, _ROW_STYLE, html.escape(kst_label(vid))))
 
 

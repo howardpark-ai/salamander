@@ -76,9 +76,9 @@ replaces is lost, and a crash between the two writes leaves the old page in its 
 When page N has a saved earlier version, the served page (`/mockup/<n>`) shows one small history icon at the right end of the "Back to sala" row. A
 tap opens the list of earlier versions below that row, newest first. Each reads "Until <time>" in Korea time (for example "Until Wed Oct 28th 14:07
 KST"): the time that version was replaced, not the time it was made. A tap on one opens it at `/mockup/<n>/versions/<id>`, where `<id>` is that time
-in UTC as the file is named, such as `20261127T142709.123456Z`. That view is read-only, has the same sandbox headers as the page, says the same
-"Until <time>", and its bar has "Current page" to go back to `/mockup/<n>`. There is no restore button and no diff: `sala mockup undo N` is the
-only way to put a version back.
+in UTC as the file is named, such as `20261127T142709.123456Z`. That view is read-only and has the same sandbox headers as the page. Its bar is one
+44 px row: "Current page" at the left, to go back to `/mockup/<n>`, and the same "Until <time>" at the right (on a screen too narrow for both, the
+time is cut with an ellipsis, never the link). There is no restore button and no diff: `sala mockup undo N` is the only way to put a version back.
 
 - With no saved earlier version there is no icon, and the page is served as before.
 - The list is in the page's flow, never over the page's content, and each of its rows is at least 44 px high.
