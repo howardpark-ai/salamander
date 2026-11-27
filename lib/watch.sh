@@ -37,7 +37,7 @@
 #                                most SALA_BARE_MAX (6) panes per tick, one post (lib/barepane.sh). A mass SIGKILL of every claude
 #                                leaves tmux up and every pane a bare shell: this heals it
 #   4. post-boot report          once per boot, after revive's first full sweep has finished (or
-#                                SALA_BOOT_GRACE passed without one): one Slack post (the notify command) with
+#                                SALA_BOOT_GRACE passed without one): one post (the notify command) with
 #                                boot time, kernel and the revive summary
 # Never: type into a busy pane or a prompt; kill anything; act while a resurrect restore or a
 # `salamander revive` is running; act twice on the same failure within SALA_WATCH_COOLDOWN.
@@ -2007,7 +2007,7 @@ unmapped_report() {
 [ "$CHECK_ONLY" = 1 ] || "$SALA_BIN" rename --sync
 rc_served_snapshot   # the served Remote Control sessions right now, so the next boot's revive knows which should come back
 
-# 5. post-boot report: once revive's boot sweep is done, one Slack post per boot (the report of the header)
+# 5. post-boot report: once revive's boot sweep is done, one post per boot (the report of the header)
 # A CLEAN REBOOT (`sala reboot --go` left a marker from the previous boot): its boot half runs first, detached — hooks up
 # in order, panes verified against the snapshot, then resume — and its result lines join this report.
 RMARK="$SALA_LOG_DIR/salamander-reboot.marker"; RRESULT="$SALA_LOG_DIR/salamander-reboot.result"

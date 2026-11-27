@@ -9,7 +9,7 @@
 # defaults to it here too.
 # Lives in salamander contrib/briefing/.
 . "$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/lib.sh"   # sets BRIEFING_DIR
-BRIEFING_CHANNEL="${BRIEFING_CHANNEL:-reports}"   # this job posts to the reports channel; BRIEFING_CHANNEL in the unit environment names another (README.md, Slack channels)
+BRIEFING_CHANNEL="${BRIEFING_CHANNEL:-reports}"   # this job posts as the `reports` channel key (BRIEFING_BOT_APP_REPORTS); BRIEFING_CHANNEL in the unit environment names another (README.md, Slack channels)
 ts=${1-}
 [[ $ts =~ ^[0-9]+\.[0-9]+$ ]] || { echo "reply.sh: bad thread_ts '$ts' (want digits.digits, e.g. 1760000000.123456)" >&2; exit 2; }
 if [ $# -lt 2 ] || [ "$2" = - ]; then text=$(cat); else text=$2; fi

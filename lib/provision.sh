@@ -36,7 +36,7 @@
 #     ssh <host> 'claude --dangerously-skip-permissions -p "/provision"'
 # all hosts in parallel; the full output lands in $SALA_LOG_DIR/salamander-provision-<host>.log. The prompt asks the
 # run to end with one fixed line, `SALA-SUMMARY: <OK | N fixed (…) · N needs you (…) · N failed (…)>`, and the report
-# (terminal + one Slack post, one host per line with a status mark) carries that line, or "see log" when it is
+# (terminal + one post, one host per line with a status mark) carries that line, or "see log" when it is
 # missing (the last free-form line — "…Did it work?" — made the post unreadable).
 #
 # Why it lives in sala: the remote command spawns a headless agent with permissions skipped, which
@@ -208,7 +208,7 @@ steps_det() {
     done <<< "$1"
     printf '%s\t%s' "$mark" "${det:+$det · }$okn steps ok"
 }
-# fleet_post <result dir> <host…> → the Slack post (phone-width): a tally header, hosts with the same result and the
+# fleet_post <result dir> <host…> → the post (phone-width): a tally header, hosts with the same result and the
 # same changes grouped on one line, each change in plain words with counts (never raw keys, never cut), failures and
 # needs-you first, and where the per-host detail is (the raw one-line-per-host post
 # was hardly legible).

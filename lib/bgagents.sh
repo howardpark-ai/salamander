@@ -12,7 +12,7 @@ usage: sala bg-agents [--dry-run]
           (`client.py post project-agent … --role engineer --back`, the label SALA_BGAGENTS_SENDER, sala-web) and starts its pane
           (`sala spawn <name> --project <key> --role back --mandate <line>`), then checks it is live AND placed in its project: the project record, roles.json
           and sala's registry row must all place it there as a back agent (read again until SALA_BGAGENTS_PLACE_WAIT, 360 s); a live session one of them does not
-          place is a failed attempt (the reason names the link; its pane is left running; one Slack post and the board item). One line a decision. Exit 0 = the run finished (a skip and
+          place is a failed attempt (the reason names the link; its pane is left running; one post to sala's alert destination and the board item). One line a decision. Exit 0 = the run finished (a skip and
           a failed project too), 1 = a retire is needed (`retire needed: <name>`: an agent this job listed could not be started and no path takes it off
           without the owner's words) or a report is needed and could not be sent (`report needed: <project>`, below; `board item needed` in ask mode), 2 = usage or a bad setting.
   --dry-run  the whole decision; nothing is posted, started or written (the want list and the load are read).
