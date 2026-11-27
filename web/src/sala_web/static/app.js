@@ -281,6 +281,7 @@ function md(text, offered = null) {
 // node as before; `last` is false for a text block another text block follows, since a footer ends the reply. The
 // copy button gets the text itself, so copying is unchanged.
 function replyNodes(text, last, offered = null) {
+  if (window.SalaAnswerFrame) text = SalaAnswerFrame.hideMarks(text);   // the card marker lines (chatanswer.js) are not shown; the stored text keeps them
   const { body, notes, tail } = last ? splitFooter(text) : { body: text, notes: [], tail: "" };
   if (!notes.length) return [md(text, offered)];
   const footer = el("div", { class: "md footer" + (body ? " ruled" : "") });
