@@ -37,6 +37,11 @@ which phrases it found and takes no number. Name each design instead (One-line s
 page and a letter on the board can mean different designs, a name cannot. Only the visible text counts: script and style bodies, comments, tags and
 attributes (`class="variant-a"`) are skipped, and a lowercase letter or a sentence that ends before a capital ("the options. A new line") is not a hit.
 There is no override flag: a name is always possible.
+A page that opens a new window is refused too: a `<a>`, `<area>`, `<form>` or `<base>` whose `target`, or a `<button>` or `<input>` whose `formtarget`, names anything other
+than `_self`, `_top` or `_parent` (or no target at all), compared case-insensitively with surrounding whitespace removed. `add` and `update` both say which tag and target they
+found, that a sala mockup page cannot open a new window, and to remove the attribute so the link opens in the same window; nothing is saved and no number is taken.
+Detection uses Python's standard HTML parser, so text inside `<script>`, `<style>` and comments does not count. New windows (`target`, `window.open`) never work on
+these pages: the check above only catches the markup, so a script that calls `window.open` is not refused, and it does not open a window either.
 Put `<meta name="viewport" content="width=device-width, initial-scale=1">` in the page's `<head>` so a phone lays it out at its own width instead of a zoomed-out
 desktop page; `add` prints a note on stderr when the meta is missing, and changes nothing in the file.
 
@@ -131,4 +136,4 @@ A command that prints nothing readable but exits 0 means nothing is linked. The 
 
 All three are read from `~/.config/salamander/config` (a plain `NAME=value` line) or from the environment; a line in the config wins over the environment, as for every sala setting. The daily `sala-mockup-clean.service` has only `PATH` in its environment, so for it the config file is the one source.
 
-Tests: `tests/mockup.sh` (numbering, atomic counter, refusals, `update` and its versions, `history`, `undo`, `remove` with its link refusal and `--force`, both cleanup rules with a stub reader and fake sizes and ages, the unit files) and `web/tests/test_mockup.py` (the route, its headers, a revision served on the next load, a real headless browser).
+Tests: `tests/mockup.sh` (numbering, atomic counter, refusals, new-window targets on `add` and `update`, `update` and its versions, `history`, `undo`, `remove` with its link refusal and `--force`, both cleanup rules with a stub reader and fake sizes and ages, the unit files) and `web/tests/test_mockup.py` (the route, its headers, a revision served on the next load, a real headless browser).

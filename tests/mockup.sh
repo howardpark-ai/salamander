@@ -7,6 +7,9 @@
 #   lettered  a page whose visible text letters its designs (Variant A, Option B, Design C, Layout D, a non-breaking space, the Korean words built from
 #             escapes) is refused naming the phrases and saying to name the designs; named designs, a design word with no letter, a sentence ending before a
 #             capital, a lowercase letter, and "Variant A" inside script, style, a comment or a class/id attribute are taken
+#   newwin    a link, area, form, base (target) or button, input (formtarget) naming a window other than this one (_blank, _new, a frame name, any case or
+#             spacing) is refused by add and by update, one line naming the tag, nothing written, no number taken, no version saved; _self, _top, _parent,
+#             no target or an empty one are taken, and _blank inside a script string, a comment or plain text is taken
 #   list      table and --json; the versions folder is not a page
 #   update    replaces page N in place (same number and address, the same output, the same checks) and saves the page it replaces
 #             as a version (versions/N/<UTC time>.html); history lists the versions, newest first; undo restores the newest one and saves
@@ -107,6 +110,45 @@ accepted let-style '<title>t</title><style>/* Design C */ .x::after{content:"Lay
 accepted let-comment '<title>t</title><!-- Variant A --><p>x</p>'
 accepted let-attr '<title>t</title><p class="variant-a" id="option-B" title="x">x</p>'
 accepted let-word '<title>t</title><p>Optional A or the Variants B</p>'
+
+# a page that opens a new window (a target or formtarget naming a window other than this one): refused by add, nothing written, no number taken;
+# the message names the tag and the attribute as written, one line
+newwin() {   # NAME CONTENT WANT: refused = exit 1, one line holding WANT, the counter and the pages unchanged
+    local name=$1 want=$3 c0 n0 rc
+    c0=$(cat "$D/counter"); n0=$(ls "$D" | grep -c '\.html$')
+    printf '%s' "$2" > "$T/in/$name.html"
+    $S add "$T/in/$name.html" >"$T/out" 2>"$T/err"; rc=$?
+    if [ "$rc" = 1 ] && [ ! -s "$T/out" ] && [ "$(wc -l < "$T/err")" = 1 ] && grep -qF "$want" "$T/err" \
+        && grep -q 'cannot open a new window' "$T/err" && grep -q 'remove the' "$T/err" \
+        && [ "$(cat "$D/counter")" = "$c0" ] && [ "$(ls "$D" | grep -c '\.html$')" = "$n0" ]; then ok "new window: $name is refused by add (names $want)"
+    else bad "new window $name: rc=$rc err=[$(cat "$T/err")] counter $c0 -> $(cat "$D/counter")"; fi
+}
+newwin nw-a '<title>t</title><a href="x" target="_blank">x</a>' '<a target="_blank">'
+newwin nw-area '<map><area href="x" target="_blank"></map>' '<area target="_blank">'
+newwin nw-form '<form target="_new"></form>' '<form target="_new">'
+newwin nw-base '<base href="x" target="_blank">' '<base target="_blank">'
+newwin nw-button '<button formtarget="_blank">x</button>' '<button formtarget="_blank">'
+newwin nw-input '<input type="submit" formtarget=" _Blank ">' '<input formtarget="_Blank">'
+newwin nw-caps '<a href="x" target="_BLANK">x</a>' '<a target="_BLANK">'
+newwin nw-named '<a href="x" target="frame1">x</a>' '<a target="frame1">'
+newwin nw-second '<a href="x" target="_self">x</a><a href="y" target="_blank">y</a>' '<a target="_blank">'
+accepted tgt-self '<title>t</title><a href="x" target="_self">x</a>'
+accepted tgt-top-parent '<title>t</title><a href="x" target="_top">x</a><a href="y" target=" _PARENT ">y</a>'
+accepted tgt-none '<title>t</title><a href="x">x</a><a href="y" target="">y</a><a href="z" target>z</a><button formtarget="_self">b</button><input formtarget="_top">'
+accepted tgt-script '<title>t</title><script>var s = "<a target=\"_blank\">"; window.open("x", "_blank")</script><p>x</p>'
+accepted tgt-comment '<title>t</title><!-- <a href="x" target="_blank">x</a> --><p>x</p>'
+accepted tgt-text '<title>t</title><p>Use target="_blank" in your link, or formtarget=_blank.</p>'
+
+# update refuses the same page: the stored page and its versions are unchanged, no number taken
+out=$($S add "$T/in/a.html" 2>/dev/null); u=${out##*/}
+printf '%s' '<title>t</title><a href="x" target="_blank">x</a>' > "$T/in/upd-new-window.html"
+v0=$(ls "$D/versions/$u" 2>/dev/null | wc -l); c0=$(cat "$D/counter")
+$S update "$u" "$T/in/upd-new-window.html" >"$T/out" 2>"$T/err"; rc=$?
+if [ "$rc" = 1 ] && [ ! -s "$T/out" ] && grep -qF '<a target="_blank">' "$T/err" && grep -q 'cannot open a new window' "$T/err" \
+    && cmp -s "$D/$u.html" "$T/in/a.html" && [ "$(ls "$D/versions/$u" 2>/dev/null | wc -l)" = "$v0" ] && [ "$(cat "$D/counter")" = "$c0" ]; then
+    ok "new window: update refuses a page that opens a new window (page $u unchanged, no version, no number)"
+else bad "new window update: rc=$rc err=[$(cat "$T/err")]"; fi
+$S remove "$u" >/dev/null
 $S --x >/dev/null 2>&1; [ $? = 2 ] && ok "an unknown option is a usage error (exit 2)" || bad "unknown option exit"
 $S >/dev/null 2>&1; [ $? = 2 ] && ok "no argument prints the usage and exits 2" || bad "no-argument exit"
 $S --help 2>&1 | grep -q 'max-bytes' && ok "--help describes the cap" || bad "help lacks --max-bytes"

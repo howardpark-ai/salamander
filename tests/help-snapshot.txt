@@ -534,8 +534,9 @@ usage: sala mockup add FILE|-
           script or stylesheet); data: images work, and Google Fonts (fonts.googleapis.com, fonts.gstatic.com). Put
           <meta name="viewport" content="width=device-width, initial-scale=1"> in the page so a phone shows it at its own width (add notes when it is missing).
           Refused: an empty file, one over 5 MiB, one that is not UTF-8 or holds a NUL byte, a page that letters its designs
-          (Variant A, Option B: name them instead, the same words as the board's options; no override). Numbers go up by one and are never given twice, also after a
-          page is deleted. The address is SALA_SESSION_URL's scheme and host; without that setting the path /mockup/<n> is printed and a note says so.
+          (Variant A, Option B: name them instead, the same words as the board's options; no override), a link, form or button whose target or
+          formtarget opens a new window (remove the attribute: the link opens in the same window). New windows (target, window.open) never work on
+          these pages. Numbers go up by one and are never given twice, also after a page is deleted. The address is SALA_SESSION_URL's scheme and host; without that setting the path /mockup/<n> is printed and a note says so.
           Pages are stored under $SALA_STATE_DIR/mockups (mode 700), on this machine only.
   list    the stored pages: number, size, age, address (--json: the same as an array).
   update  a revision: replaces stored page N in place, so it keeps its number and its address (the same checks as add, the same output).
