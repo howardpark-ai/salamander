@@ -4,18 +4,19 @@
   where.py show [--json]            the record, one line (or the record plus age_s as JSON); "no record" when there is none
   where.py set BOX [--by SESSION]   record BOX (via "told"); a different box also replaces the where-notice, the same box only refreshes "at"
   where.py clear                    remove the record and its notice
+  where.py seen ADDRESS             the third source: the web UI saw the owner's address (X-Forwarded-For); records its box with via "web"
   where.py scan                     the second source: the newest ssh-attached tmux client of the last 10 minutes, mapped to a fleet box
 
 The record, $SALA_STATE_DIR/where.json (default ~/.local/state/salamander, the folder lib/notice.py uses):
-  {"box": "<fleet name>", "at": <epoch seconds>, "via": "told" | "ssh", "by": "<session name or empty>"}
+  {"box": "<fleet name>", "at": <epoch seconds>, "via": "told" | "ssh" | "web", "by": "<session name or empty>"}
 written whole to a temp file in the same folder, then renamed. where.lock serializes every read-modify-write.
 
 The notice is one `sala notice` (lib/notice.py) from the sender "sala-where", expiring in 12 hours; a change of box drops the old one first,
-so only the latest stays. Times are shown in the zone of the TZ this process runs with.
+so only the latest stays. Times are shown in Korean Standard Time (Asia/Seoul, "13:45 KST"), whatever TZ the process runs with.
 The scan fails silently: no tmux, no tailscale, an unreadable client environment or an unknown address changes nothing.
 Test hooks: SALA_WHERE_ENVIRON_DIR (read <dir>/<pid>/environ instead of /proc/<pid>/environ).
 """
-import contextlib, fcntl, json, os, subprocess, sys, time
+import contextlib, datetime, fcntl, json, os, subprocess, sys, time, zoneinfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
@@ -25,6 +26,11 @@ LOCK = os.path.join(STATE, "where.lock")
 SENDER = "sala-where"
 STALE_S = 12 * 3600
 SCAN_WINDOW_S = 600
+# every time sala where prints or posts is Korean Standard Time, whatever TZ the process runs with
+try:
+    ZONE = zoneinfo.ZoneInfo("Asia/Seoul")
+except Exception:   # no tz database on the box: Korea has no daylight saving, a fixed +9 is the same clock
+    ZONE = datetime.timezone(datetime.timedelta(hours=9))
 
 
 @contextlib.contextmanager
@@ -40,7 +46,7 @@ def read_record():
         with open(RECORD, encoding="utf-8") as fh:
             d = json.load(fh)
         if isinstance(d, dict) and isinstance(d.get("box"), str) and d["box"] and isinstance(d.get("at"), (int, float)):
-            return {"box": d["box"], "at": int(d["at"]), "via": d.get("via") if d.get("via") in ("told", "ssh") else "told", "by": str(d.get("by") or "")}
+            return {"box": d["box"], "at": int(d["at"]), "via": d.get("via") if d.get("via") in ("told", "ssh", "web") else "told", "by": str(d.get("by") or "")}
     except (OSError, ValueError):
         pass
     return None
@@ -60,7 +66,8 @@ def write_record(rec):
 
 
 def clock(at):
-    return time.strftime("%H:%M %Z", time.localtime(at))
+    """The time of day of epoch AT in Korean Standard Time, "13:45 KST" (zoneinfo, not the TZ variable)."""
+    return datetime.datetime.fromtimestamp(at, ZONE).strftime("%H:%M ") + "KST"
 
 
 def age_words(age):
@@ -120,7 +127,7 @@ def drop_notices():
 
 def post_notice(box, at):
     text = ("the owner is now on %s (since %s). A step for his machine, a browser pick or a step bound to his network goes to that box. "
-            "Read it with sala where." % (box, time.strftime("%H:%M", time.localtime(at))))
+            "Read it with sala where." % (box, clock(at)))
     notice("add", text, "--from", SENDER, "--until", "12h")
 
 
@@ -143,6 +150,8 @@ def line(rec, now):
     age = max(0, int(now - rec["at"]))
     if rec["via"] == "ssh":
         how = "seen over ssh"
+    elif rec["via"] == "web":
+        how = "seen in the web UI"
     else:
         how = "told by %s" % rec["by"] if rec["by"] else "told"
     s = "the owner is on %s (%s, %s, %s)" % (rec["box"], how, clock(rec["at"]), age_words(age))
@@ -291,6 +300,40 @@ def scan():
         return None
 
 
+def seen(addr):
+    """The third source: the web UI's request came from ADDR. -> the box it recorded, or None. Silent on every failure.
+    A box the machine list does not know is ignored and overwrites nothing. A "told" record under STALE_S old wins over another box;
+    "ssh" and "web" sightings are equals, the newest wins (a web sighting is always now)."""
+    try:
+        import ipaddress
+        addr = str(ipaddress.ip_address(addr.strip()))
+        box = box_of_address(addr, fleet())
+        if not box:
+            return None
+        now = int(time.time())
+        with locked():
+            rec = read_record()
+            if rec and rec["box"] != box and rec["via"] == "told" and now - rec["at"] <= STALE_S:
+                return None
+            if rec and rec["box"] == box:
+                apply(box, rec["via"], rec["by"], now)
+                return None
+            apply(box, "web", "", now)
+            return box
+    except Exception:
+        return None
+
+
+def cmd_seen(args):
+    if len(args) != 1:
+        print("usage: sala where seen <address>", file=sys.stderr)
+        return 2
+    box = seen(args[0])
+    if box:
+        print("the owner is on %s (seen in the web UI)" % box)
+    return 0
+
+
 def cmd_scan(args):
     if args:
         print("usage: sala where --scan", file=sys.stderr)
@@ -311,6 +354,8 @@ def main(argv):
         return cmd_set(rest)
     if verb == "clear":
         return cmd_clear(rest)
+    if verb == "seen":
+        return cmd_seen(rest)
     if verb in ("--scan", "scan"):
         return cmd_scan(rest)
     print("sala where: unknown argument '%s'" % verb, file=sys.stderr)

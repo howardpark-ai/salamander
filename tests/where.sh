@@ -3,10 +3,11 @@
 # Checks: a read with no record; set (a fleet name, case-insensitive; the record's four fields; one notice); the same box again only
 # refreshes "at" and adds no second notice; a different box leaves exactly one where-notice (the old one dropped; other notices kept);
 # an unknown box refused with the known names listed and nothing written; set with no fleet names file refused; the stale marker after
-# 12 hours; --json with age_s; the time shown in the zone of TZ; clear removes the record and its notice; the scan against a fake tmux,
+# 12 hours; --json with age_s; the time shown in KST whatever TZ is, in the plain line and in the notice; clear removes the record and its notice; the scan against a fake tmux,
 # a fake tailscale and a fake environ folder (SALA_WHERE_ENVIRON_DIR): a new box from the newest client, an older client than the
 # record ignored, a client idle for more than 10 minutes ignored, an unreadable or SSH_CONNECTION-less environ, an unknown address,
-# no tmux and no tailscale all silent and change nothing; a plain read runs the scan first; the usage text.
+# no tmux and no tailscale all silent and change nothing; a plain read runs the scan first; `where seen` (the web UI's sighting: via web, same box
+# refreshes, newest of ssh/web wins, a told record under 12 hours is kept, unknown/malformed/missing address records nothing); KST times; the usage text.
 # Cleanup: the temporary folder is locked with flock while the suite runs and removed on exit, pass or fail. No process is started
 # beyond the stand-ins, none is killed, and the tmux stand-in is a shell script (no tmux server is reached).
 # Usage: bash tests/where.sh   (exit 0 = pass; seconds)
@@ -64,7 +65,7 @@ out=$("$SALA" where set Box-B --by sess-one 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(field box)" = box-b ] && [ "$(field via)" = told ] && [ "$(field by)" = sess-one ] && ok "set records box, via, by" || bad "set: rc=$rc $out"
 [ "$(count_notices)" = 1 ] && ok "one notice" || bad "notices after set: $(count_notices)"
 grep -q 'the owner is now on box-b (since ' "$NF" && grep -q 'Read it with sala where' "$NF" && ok "notice text" || bad "notice text: $(cat "$NF")"
-out=$("$SALA" where); [[ $out == "the owner is on box-b (told by sess-one, "*" UTC, just now)" ]] && ok "read line: $out" || bad "read line: $out"
+out=$("$SALA" where); [[ $out == "the owner is on box-b (told by sess-one, "*" KST, just now)" ]] && ok "read line: $out" || bad "read line: $out"
 out=$("$SALA" where --json); python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["box"]=="box-b" and d["age_s"]<5 and set(d)=={"box","at","via","by","age_s"}' "$out" && ok "--json has the record plus age_s" || bad "json: $out"
 ls "$ST"/where.json.tmp.* >/dev/null 2>&1 && bad "temp file left behind" || ok "no temp file left behind"
 
@@ -98,8 +99,15 @@ out=$("$SALA" where); [[ $out == *"13h ago) (stale)" ]] && ok "stale marker: $ou
 setrec box-a $((NOW - 2 * 3600)) told sess-one
 out=$("$SALA" where); [[ $out == *"2h ago)" ]] && [[ $out != *stale* ]] && ok "fresh: no marker" || bad "fresh: $out"
 setrec box-a 1700000000 told ""
-out=$(TZ=Asia/Seoul "$SALA" where); [[ $out == *"(told, 07:13 KST, "* ]] && ok "time in the zone of TZ" || bad "tz: $out"
-out=$(TZ=Etc/UTC "$SALA" where); [[ $out == *"(told, 22:13 UTC, "* ]] && ok "same instant in UTC" || bad "utc: $out"
+out=$(TZ=Asia/Seoul "$SALA" where); [[ $out == *"(told, 07:13 KST, "* ]] && ok "time in KST" || bad "kst: $out"
+out=$(TZ=Etc/UTC "$SALA" where); [[ $out == *"(told, 07:13 KST, "* ]] && [[ $out != *UTC* ]] && ok "same under TZ=UTC: KST, no UTC" || bad "utc: $out"
+out=$(TZ=America/New_York "$SALA" where); [[ $out == *"(told, 07:13 KST, "* ]] && ok "same under another TZ" || bad "ny: $out"
+echo "-- the notice carries the KST time too"
+"$SALA" where clear >/dev/null 2>&1
+python3 -I -S -c 'import sys; sys.path.insert(0, sys.argv[1]); import where; where.post_notice("box-a", 1700000000)' "$ROOT/lib" >/dev/null 2>&1
+grep -q 'the owner is now on box-a (since 07:13 KST)' "$NF" && ! grep -q 'UTC' "$NF" && ok "notice: since 07:13 KST, no UTC" || bad "notice time: $(cat "$NF" 2>/dev/null)"
+TZ=Etc/UTC python3 -I -S -c 'import sys; sys.path.insert(0, sys.argv[1]); import where; assert where.clock(1700000000) == "07:13 KST"' "$ROOT/lib" && ok "clock() ignores TZ" || bad "clock under UTC"
+"$SALA" where clear >/dev/null 2>&1
 
 echo "== clear"
 "$SALA" where set box-a >/dev/null 2>&1
@@ -149,6 +157,42 @@ echo "-- a plain read runs the scan first"
 setrec box-a $((NOW - 1000)) told s
 : > "$T/clients"; client 4020 $((NOW - 10)) 198.51.100.3
 out=$("$SALA" where); [[ $out == "the owner is on box-c (seen over ssh, "* ]] && ok "plain read scans first" || bad "plain read: $out"
+
+echo "== seen (the web UI's sighting, via web)"
+"$SALA" where clear >/dev/null 2>&1; before=$(count_notices)
+out=$("$SALA" where seen 198.51.100.2); rc=$?
+[ "$rc" = 0 ] && [ "$(field box)" = box-b ] && [ "$(field via)" = web ] && [ "$(field by)" = "" ] && [ "$(count_notices)" = $((before + 1)) ] && ok "a known address records its box via web, one notice: $out" || bad "seen: rc=$rc $out $(cat "$REC" 2>/dev/null)"
+out=$("$SALA" where); [[ $out == "the owner is on box-b (seen in the web UI, "* ]] && ok "read line for web: $out" || bad "web line: $out"
+echo "-- the same box refreshes only"
+setrec box-b $((NOW - 500)) web ""; n0=$(count_notices)
+"$SALA" where seen 198.51.100.2 >/dev/null
+[ "$(field box)" = box-b ] && [ "$(field at)" -ge $((NOW - 5)) ] && [ "$(count_notices)" = "$n0" ] && ok "same box: at refreshed, no notice" || bad "seen same: $(cat "$REC")"
+echo "-- ssh and web are equals: the newest wins"
+setrec box-a $((NOW - 100)) ssh ""
+"$SALA" where seen 198.51.100.3 >/dev/null
+[ "$(field box)" = box-c ] && [ "$(field via)" = web ] && ok "a web sighting replaces an older ssh record" || bad "web over ssh: $(cat "$REC")"
+setrec box-a $((NOW - 100)) web ""
+"$SALA" where seen 198.51.100.3 >/dev/null
+[ "$(field box)" = box-c ] && [ "$(field via)" = web ] && ok "a web sighting replaces an older web record" || bad "web over web: $(cat "$REC")"
+echo "-- a told record under 12 hours old wins; a stale one does not"
+setrec box-a $((NOW - 3600)) told sess-one; cp "$REC" "$T/rec.before"; n0=$(count_notices)
+"$SALA" where seen 198.51.100.3 >/dev/null
+cmp -s "$REC" "$T/rec.before" && [ "$(count_notices)" = "$n0" ] && ok "told within its window is not overwritten" || bad "told kept: $(cat "$REC")"
+setrec box-a $((NOW - 13 * 3600)) told sess-one
+"$SALA" where seen 198.51.100.3 >/dev/null
+[ "$(field box)" = box-c ] && [ "$(field via)" = web ] && ok "a stale told record is replaced" || bad "told stale: $(cat "$REC")"
+echo "-- nothing recorded: an unknown, a malformed or a missing address"
+setrec box-a $((NOW - 1000)) ssh ""; cp "$REC" "$T/rec.before"; n0=$(count_notices)
+unchanged() {  # <label> <args...>: run `where seen`, expect exit 0, no output, record and notices unchanged
+    local label=$1; shift
+    out=$("$SALA" where seen "$@" 2>&1); rc=$?
+    [ "$rc" = 0 ] && [ -z "$out" ] && cmp -s "$REC" "$T/rec.before" && [ "$(count_notices)" = "$n0" ] && ok "$label" || bad "$label: rc=$rc out=$out"; }
+unchanged "an address no machine has (a phone, a public address)" 203.0.113.50
+unchanged "not an address" not-an-ip
+unchanged "an empty address" ""
+touch "$T/nots"; unchanged "tailscale fails and the machine list has no address" 198.51.100.3; rm -f "$T/nots"
+out=$("$SALA" where seen 2>&1); [ $? = 2 ] && ok "seen with no address: usage" || bad "seen usage: $out"
+rm -f "$REC"; "$SALA" where seen 203.0.113.50 >/dev/null; [ ! -e "$REC" ] && ok "an unknown address records nothing" || bad "unknown wrote a record"
 
 echo "== usage"
 out=$("$SALA" where --help); [[ $out == *"sala where set <box>"* ]] && [[ $out == *"--scan"* ]] && ok "where --help" || bad "help: $out"
