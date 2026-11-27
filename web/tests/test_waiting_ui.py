@@ -40,7 +40,7 @@ STUB = """(() => { window.__box = []; window.__posts = []; window.__netDown = fa
   };
   return true; })()"""
 BUBBLES = """[...document.querySelectorAll("#chat > .msg.local")].map((n) => ({ text: n.querySelector(".bubble")?.textContent, cls: n.className,
-  line: n.querySelector(".waiting-line .st span")?.textContent || "", buttons: [...n.querySelectorAll(".note-actions button")].map((b) => b.textContent),
+  line: n.querySelector(".waiting-line .st span")?.textContent || "", buttons: [...n.querySelectorAll(".note-actions button:not(.send-now-help)")].map((b) => b.textContent),
   note: n.querySelector(".note.err")?.textContent || "", time: !!n.querySelector(".stamp"), copy: !!n.querySelector(".copy-btn"),
   border: n.querySelector(".bubble") ? getComputedStyle(n.querySelector(".bubble")).borderTopStyle : "" }))"""
 STATUS = "document.querySelector('#send-status').textContent"

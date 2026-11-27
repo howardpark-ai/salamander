@@ -6,7 +6,8 @@ transcript lines are the parts of its records the check reads. The one key the r
 What a wrong answer costs: a command or a call cancelled (a hook still before it, a later call of a reply, background tasks off, a `!`
 command), a draft submitted, a subagent's command lost. Held here: the chord is pressed once, and only, when the screen shows a waiting
 message under the running step's background hint with an empty input line and no dialog, and the transcript's latest reply is complete
-with exactly one call unfinished; every other screen and transcript answers 409 with its reason and presses nothing.
+with exactly one call unfinished; every other screen and transcript answers 409 with its reason and presses nothing; a second press
+for the same pane right after the first (another page's) is refused; and every refusal has a code the page words in each language.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,6 +24,8 @@ import pytest
 from starlette.testclient import TestClient
 
 import sala_web.app as AP
+from i18n_node import STATIC
+from test_i18n import EN, HANGUL, KO
 from sala_web import sendnow as SN
 from sala_web import sessions as S
 from sala_web import tmuxio as T
@@ -103,7 +108,7 @@ def test_the_safe_screen_is_allowed(captured):
 @pytest.mark.parametrize("captured, why", REFUSED.values(), ids=REFUSED.keys())
 def test_every_other_screen_is_refused_with_its_reason(captured, why):
     got = SN.screen_refusal(captured)
-    assert got and why in got and got.endswith(SN.NOTHING), got
+    assert got and why in got and got.endswith(SN.NOTHING) and got in SN.CODES, got
 
 
 # --- the transcript ---------------------------------------------------------------------------------------------------------
@@ -208,7 +213,7 @@ def env(tmp_path, monkeypatch):
     (claude / "sessions" / f"{pid}.json").write_text(json.dumps(
         {"pid": pid, "sessionId": SID, "cwd": "/tmp", "name": NAME, "status": "busy", "tmux": f"me:@0.{PANE}",
          "procStart": S.proc_start(pid)}))
-    e = SimpleNamespace(screen=screen(), chords=[], owner=pid, broken=False, pid=pid, transcript=project / f"{SID}.jsonl")
+    e = SimpleNamespace(screen=screen(), chords=[], owner=pid, broken=False, slow=0.0, pid=pid, transcript=project / f"{SID}.jsonl")
     write(e.transcript, ONE_STEP)
 
     async def pane_pid(_s, pane_id):
@@ -221,6 +226,7 @@ def env(tmp_path, monkeypatch):
     async def send_now_chord(_s, pane_id):
         if e.broken:
             raise T.TmuxError("tmux send-keys: gone")
+        await asyncio.sleep(e.slow)
         e.chords.append(pane_id)
 
     async def never(*_a, **_kw):
@@ -243,7 +249,10 @@ def env(tmp_path, monkeypatch):
 
 def refused(env, why: str, status: int = 409, **kw) -> None:
     r = env.post(**kw)
-    assert r.status_code == status and why in r.json()["error"], (r.status_code, r.text)
+    got = r.json()
+    assert r.status_code == status and why in got["error"], (r.status_code, r.text)
+    sentence = next(s for s, code in SN.CODES.items() if code == got["code"])   # the code the page words it by is this sentence's
+    assert got["error"] == sentence.format(detail=got.get("detail")), got
     assert env.chords == []
 
 
@@ -285,3 +294,44 @@ def test_only_this_pages_json_posts_are_taken(env):
     refused(env, "cross-origin", status=403, headers={"origin": "https://elsewhere.example"})
     refused(env, "application/json", status=415, json=None, content="{}", headers={"content-type": "text/plain"})
     refused(env, "no live session", status=404, pid=999999999)
+
+
+def test_a_second_press_right_after_the_first_presses_nothing(env, monkeypatch):
+    assert env.post().status_code == 200
+    r = env.post()                       # another page's press, the screen still showing the message as waiting
+    assert r.status_code == 409 and r.json() == {"ok": False, "error": SN.JUST_PRESSED, "code": "again"}, r.text
+    assert env.chords == [PANE]
+    monkeypatch.setattr(AP, "SEND_NOW_WINDOW", 0.0)      # the window over
+    assert env.post().status_code == 200
+    assert env.chords == [PANE, PANE]
+
+
+def test_two_presses_at_once_send_the_keys_once(env):
+    env.slow = 0.3                       # the first press is still at tmux when the second arrives: it waits for the pane's lock
+    with ThreadPoolExecutor(2) as pool:
+        got = list(pool.map(lambda _: env.post(), range(2)))
+    assert sorted((r.status_code, r.json().get("code", "")) for r in got) == [(200, ""), (409, "again")], [r.text for r in got]
+    assert env.chords == [PANE]
+
+
+def test_a_refused_press_starts_no_window(env):
+    env.screen, why = REFUSED["a permission dialog"]
+    refused(env, why)
+    env.screen = screen()
+    assert env.post().status_code == 200 and env.chords == [PANE]
+
+
+def test_a_press_tmux_failed_counts_for_the_window(env):
+    env.broken = True                    # the keys may have reached the pane all the same
+    refused(env, "tmux failed", status=502)
+    env.broken = False
+    refused(env, SN.JUST_PRESSED)
+
+
+def test_the_page_words_every_refusal_the_route_can_give():
+    listed = re.findall(r'(\w+): "app\.sendnow\.why\.(\w+)"', (STATIC / "app.js").read_text())
+    assert sorted(listed) == sorted((code, code) for code in SN.CODES.values())
+    for sentence, code in SN.CODES.items():
+        key = f"app.sendnow.why.{code}"
+        assert EN[key] == sentence, key
+        assert HANGUL.search(KO[key]), key

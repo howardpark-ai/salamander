@@ -67,9 +67,26 @@
     p.sig = signature(p);
     const st = el("span", { class: "st" });
     st.append(svgNode(ICON), el("span", {}, el("b", { text: v.words }), v.reason ? " · " + v.reason : ""));
-    return el("div", { class: "waiting-line" }, st,
-      v.buttons.length ? el("div", { class: "note-actions" }, ...v.buttons.map(([text, onclick, cls]) => el("button", { type: "button", class: cls, text, onclick }))) : null);
+    const button = ([text, onclick, cls]) => {
+      const now = cls === "send-now";
+      const b = el("button", { type: "button", class: cls, text, onclick, ...(now ? tx("app.sendnow.tip", null, "title") : {}) });
+      return now ? withHelp(b) : [b];
+    };
+    return el("div", { class: "waiting-line" }, st, v.buttons.length ? el("div", { class: "note-actions" }, ...v.buttons.flatMap(button)) : null);
   }
+  // What Send now does, as a tooltip: on the button itself where a pointer hovers, and where nothing does (a phone: a tap on the
+  // button sends) behind a (?) beside it, whose tap shows the same words over the line. A tap anywhere else, or Escape, shuts it.
+  function withHelp(b) {
+    const pop = el("span", { class: "send-now-pop", role: "note", hidden: true, ...tx("app.sendnow.tip") });
+    const help = el("button", { type: "button", class: "send-now-help", text: "?", "aria-expanded": "false", ...tx("app.sendnow.help", null, "aria-label") });
+    help.addEventListener("click", () => { const open = pop.hidden; shutHelp(); pop.hidden = !open; help.setAttribute("aria-expanded", String(open)); });
+    return [b, help, pop];
+  }
+  function shutHelp() {
+    for (const h of document.querySelectorAll('.send-now-help[aria-expanded="true"]')) { h.setAttribute("aria-expanded", "false"); h.nextElementSibling.hidden = true; }
+  }
+  document.addEventListener("click", (e) => { if (!e.target.closest(".send-now-help")) shutHelp(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.isComposing) shutHelp(); });
 
   // each bubble of `name` drawn again if what it says changed (a button under the owner's finger is not replaced for nothing)
   function repaint(name) {

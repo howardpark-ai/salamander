@@ -702,6 +702,13 @@ details.notice { background: transparent; }
 .waiting-line .st svg { flex: none; margin-top: 2px; }
 .waiting-line .st b, .waiting-line .st svg { color: var(--busy); }
 .waiting-line .note-actions { margin-top: 0; flex-wrap: wrap; justify-content: flex-end; }
+/* "Send now" has its words in a tooltip; where nothing hovers (a phone) a (?) beside it shows them on a tap, over the line (waiting.js) */
+.msg.local .waiting-line { position: relative; }
+.waiting-line .send-now-help { display: none; min-width: 32px; }
+@media (pointer: coarse) and (hover: none) { .waiting-line .send-now-help { display: block; } }
+.send-now-pop { position: absolute; z-index: 1; right: 0; bottom: 100%; box-sizing: border-box; width: max-content; max-width: min(280px, 80vw); margin-bottom: 4px; padding: 8px 12px; line-height: 1.5; text-align: left;
+  color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, .16); overflow-wrap: anywhere; }
+.send-now-pop[hidden] { display: none; }
 .msg.local.failed .bubble { outline: 1px solid var(--error); }
 .msg.local .note { font-size: 12px; color: var(--faint); margin-top: 4px; }
 .msg.local .note.err { color: var(--error); max-width: 85%; text-align: right; overflow-wrap: anywhere; }

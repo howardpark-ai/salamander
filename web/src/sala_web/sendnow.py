@@ -1,6 +1,6 @@
 """Send now (POST /api/s/<pid>/send-now): whether Claude Code's chord that sends the waiting messages at once, Ctrl+X Ctrl+S
 (its action chat:sendNow), may be pressed in a session's pane. Nothing here touches a pane: a screen and a transcript go in, a refusal
-(a sentence for the page) or None comes out.
+(one of the sentences below, each with a code in CODES) or None comes out.
 
 Measured on Claude Code 2.1.332 in sessions made for the measurement (not a documented contract). The safe case: one step runs in the
 foreground (a command, a subagent) and shows the hint that it can move to the background, the reply that asked for it is fully written,
@@ -44,6 +44,9 @@ NO_STEP = f"no running step that can move to the background, so sending now coul
 BANG = f"a ! command is running or waiting, and sending now would cancel the running step; {NOTHING}"
 NOT_ONE_STEP = f"Claude is not on a single running step (it may still be writing its reply), so sending now could cancel one; {NOTHING}"
 NO_TRANSCRIPT = f"the transcript cannot be read, so what is running is not known; {NOTHING}"
+BANG_MODE = f"the input line is in ! mode; {NOTHING}"
+AGENT_SCREEN = f"the terminal shows a subagent's own screen, where sending now loses its command; {NOTHING}"
+WRITING = f"the transcript is being written; {NOTHING}"
 # by the reason the outbox's readiness check gives (outbox.REASONS)
 NOT_READY = {
     "dialog": f"a dialog is open in the pane; {NOTHING}",
@@ -51,6 +54,21 @@ NOT_READY = {
     "noInput": f"the terminal shows no input line; {NOTHING}",
 }
 UNREADABLE = f"the session's pane cannot be read; {NOTHING}"
+# the route's own
+JUST_PRESSED = f"send now was pressed in this session a moment ago; {NOTHING}"
+CROSS_ORIGIN = "cross-origin request refused"
+NOT_JSON = "send-now takes application/json"
+NOT_LIVE = "no live session with that pid"
+NO_PANE = "session has no tmux pane on record"
+TMUX_FAILED = "tmux failed: {detail}"
+# Every refusal the route answers, with the "code" it sends beside the sentence: the page words it in its own language by
+# that code (static/app.js SEND_NOW_WHY, the keys app.sendnow.why.<code>, whose English is the sentence here).
+CODES = {
+    CROSS_ORIGIN: "crossOrigin", NOT_JSON: "notJson", NOT_LIVE: "notLive", NO_PANE: "noPane", TMUX_FAILED: "tmux",
+    JUST_PRESSED: "again", NOT_READY["dialog"]: "dialog", NOT_READY["draft"]: "draft", NOT_READY["noInput"]: "noInput",
+    UNREADABLE: "unreadable", BANG_MODE: "bangMode", AGENT_SCREEN: "agentScreen", NO_QUEUED: "noQueued", NO_STEP: "noStep",
+    BANG: "bang", NOT_ONE_STEP: "notOneStep", NO_TRANSCRIPT: "noTranscript", WRITING: "writing",
+}
 
 
 def screen_refusal(captured: str) -> str | None:
@@ -61,9 +79,9 @@ def screen_refusal(captured: str) -> str | None:
     if state != "empty":
         return NOT_READY["draft" if state == "text" else "noInput"]
     if T.shell_mode(captured):
-        return f"the input line is in ! mode; {NOTHING}"
+        return BANG_MODE
     if box_text.startswith(AGENT_BOX):
-        return f"the terminal shows a subagent's own screen, where sending now loses its command; {NOTHING}"
+        return AGENT_SCREEN
     lines = [T.plain(ln).replace("\xa0", " ").rstrip() for ln in T.above_box(captured)]
     queued = [i for i, ln in enumerate(lines) if QUEUED_RE.match(ln)]
     if len(queued) != 1:
@@ -102,7 +120,7 @@ def transcript_refusal(path: Path | None) -> str | None:
     except OSError:
         return NO_TRANSCRIPT
     if not raw.endswith(b"\n"):
-        return f"the transcript is being written; {NOTHING}"
+        return WRITING
     lines = raw.split(b"\n")
     if size > TAIL_BYTES:
         lines = lines[1:]                  # the first line is a part
