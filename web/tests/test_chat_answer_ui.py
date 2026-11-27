@@ -13,6 +13,8 @@ Held here:
   - a message from another origin, another window or about another item, or not of the board's shape, changes nothing; a height is held to a range;
   - markup a reply writes makes no frame, takes no card's look and does not cover a card;
   - a frame that says nothing leaves the plain link, and a late message brings the frame back;
+  - a frame whose first word is "answered" (no question shown before) makes its item plain in every place; an open question after that shows normally; an
+    answer after a sign-out is the same as a fresh one; a newer reply's such frame leaves the older card's mark; a frame is hidden until its first word;
   - answered and sending show in the strip and under the replies; a closed item is the plain link;
   - a changed question loads its frame once more, and not in a loop; the list's changes and the theme are posted to the frames;
   - with the keyboard up the open list takes the room, the thread keeps about three lines, and the open item's title stays in view;
@@ -343,6 +345,87 @@ def test_the_newest_reply_holds_the_frame_and_the_older_frame_goes_once_the_newe
     assert line(browser, card(0)) == browser.evaluate("SalaI18n.t('chat.answer.pointer')")
     assert line(browser, card(1)) is None
     assert frames.count("1") == 2, frames.loads
+
+
+# ── a frame that never showed a question ─────────────────────────────────────
+def plain_looks(browser, n: int) -> list:
+    """[row plain, row done, card plain, card done, card line] of the item `n`'s row and its newest card."""
+    return browser.evaluate(f"""(() => {{ const r = {row(n)}, c = {CARDS}.filter((x) => x.classList.contains('ans-newest')).at(-1) ?? {card(-1)};
+      return [r.classList.contains('ans-plain'), r.classList.contains('ans-done'), c.classList.contains('ans-plain'), c.classList.contains('ans-done'),
+        c.querySelector('.ans-line').hidden ? null : c.querySelector('.ans-line').textContent]; }})()""")
+
+
+def test_a_frames_first_word_of_an_answer_shows_the_item_plain_in_every_place(served, browser, monkeypatch, frames):
+    frames.first["1"] = {"state": "answered", "height": 200}
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.", "item#1 again."))
+    ready(frames, "1")
+    wait(browser, f"{row(1)}.classList.contains('ans-plain') && {CARDS}.every((c) => c.classList.contains('ans-plain'))")
+    got = browser.evaluate(f"""(() => {{ const r = {row(1)}, cs = {CARDS};
+      return [r.classList.contains('ans-done'), cs.map((c) => [c.classList.contains('ans-done'), c.querySelector('.ans-line').hidden, c.querySelectorAll('iframe').length]),
+        {SHOWN}(r.querySelector('button.ans-head')), {SHOWN}(r.querySelector(':scope > .wait-subj a.wait-link')), {SHOWN}({card_frame(-1)})]; }})()""")
+    assert got == [False, [[False, True, 0], [False, True, 1]], False, True, False], got
+    assert frames.count("1") == 1, frames.loads
+
+
+def test_an_item_that_showed_a_question_then_answers_shows_the_answer_in_every_place(served, browser, monkeypatch, frames):
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    ready(frames, "1")
+    wait(browser, f"{card_frame(0)}.style.height === '200px'")
+    say(browser, card_frame(0), state="answered")
+    wait(browser, f"{row(1)}.classList.contains('ans-done') && {card(0)}.classList.contains('ans-done')")
+    assert plain_looks(browser, 1) == [False, True, False, True, None], plain_looks(browser, 1)
+    assert line(browser, row(1)) == browser.evaluate("SalaI18n.t('chat.answer.answered')")
+
+
+def test_a_newer_reply_whose_frame_first_says_answered_is_plain_and_the_older_card_keeps_its_mark(served, browser, monkeypatch, frames):
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    ready(frames, "1")
+    wait(browser, f"{card_frame(0)}.style.height === '200px'")
+    say(browser, card_frame(0), state="answered")
+    wait(browser, f"{card(0)}.classList.contains('ans-done')")
+    browser.evaluate(f"window.__old = {card_frame(0)}; ''")
+    frames.first["1"] = {"state": "answered", "height": 200}
+    append(served, human("And now?", 3), assistant("item#1 again.", 3))
+    wait(browser, f"{CARDS}.length === 2")
+    ready(frames, "1", 2)
+    wait(browser, "!window.__old.isConnected")
+    got = browser.evaluate(f"[{card(0)}.classList.contains('ans-plain'), {card(0)}.classList.contains('ans-done'), {card(1)}.classList.contains('ans-plain'), "
+                           f"{card(1)}.classList.contains('ans-done'), {SHOWN}({card(1)}.querySelector('iframe') ?? null)]")
+    assert got == [False, True, True, False, False], got
+    assert line(browser, card(0)) == browser.evaluate("SalaI18n.t('chat.answer.answered')") and line(browser, card(1)) is None
+
+
+def test_after_a_plain_answer_a_real_question_shows_normally(served, browser, monkeypatch, frames):
+    frames.first["1"] = {"state": "answered", "height": 200}
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    ready(frames, "1")
+    wait(browser, f"{row(1)}.classList.contains('ans-plain') && {card(0)}.classList.contains('ans-plain')")
+    frames.first["1"] = {"state": "open", "height": 200}
+    append(served, human("And now?", 3), assistant("item#1 needs you.", 3))
+    wait(browser, f"{CARDS}.length === 2")
+    ready(frames, "1", 2)
+    wait(browser, f"{SHOWN}({card_frame(1)}) && {card_frame(1)}.style.height === '200px' && !{card(1)}.classList.contains('ans-plain')")
+    assert browser.evaluate(f"[!{row(1)}.classList.contains('ans-plain'), {SHOWN}({row(1)}.querySelector('button.ans-head'))]") == [True, True]
+
+
+def test_signed_out_then_an_answer_shows_the_item_plain_as_a_fresh_answer_does(served, browser, monkeypatch, frames):
+    frames.first["1"] = {"state": "signed_out", "height": 200}
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    ready(frames, "1")
+    wait(browser, f"{card_frame(0)}.style.height === '200px'")
+    say(browser, card_frame(0), state="answered")
+    wait(browser, f"{row(1)}.classList.contains('ans-plain') && {card(0)}.classList.contains('ans-plain')")
+    assert plain_looks(browser, 1) == [True, False, True, False, None], plain_looks(browser, 1)
+    assert browser.evaluate(f"{SHOWN}({card_frame(0)})") is False
+
+
+def test_a_frame_that_has_not_spoken_is_hidden_until_its_first_word(served, browser, monkeypatch, frames):
+    frames.first["1"] = None
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    ready(frames, "1")
+    assert browser.evaluate(f"getComputedStyle({card_frame(0)}).visibility") == "hidden"
+    say(browser, card_frame(0), state="open", height=200)
+    wait(browser, f"getComputedStyle({card_frame(0)}).visibility === 'visible'")
 
 
 # ── messages ─────────────────────────────────────────────────────────────────

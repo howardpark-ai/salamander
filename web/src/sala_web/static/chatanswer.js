@@ -25,6 +25,7 @@ window.SalaAnswerFrame = (() => {
   const FIRST = 160, LOW = 40, HIGH = 2000;        // a frame's height before it says one, and the range a said one is held to
   const THREAD = 72;                               // about three lines
   const STATES = new Set(["open", "sending", "answered", "changed", "closed", "signed_out"]);
+  const ASKS = new Set(["open", "sending", "changed"]);   // the states of a frame that has shown a question
   const LINES = { answered: "chat.answer.answered", sending: "chat.answer.sending", changed: "chat.answer.changed" };
 
   /* ---------- pure parts (held by web/tests/test_chat_answer.py in node) ---------- */
@@ -67,8 +68,9 @@ window.SalaAnswerFrame = (() => {
     const frame = el("iframe", { class: "ans-frame", ...tx("chat.answer.frame", { id: it.id }, "title") });
     frame.style.height = FIRST + "px";
     frame.setAttribute("src", source(it));
+    frame.style.visibility = "hidden";   // until its first report: the board's own content (an old answer, say) is not seen; the frame still loads and runs
     const box = { it, frame, origin: it.at.origin, item: it.at.item, theme: theme(), reported: false, silent: false, typing: false,
-      timer: 0, reloaded: false, reloadedAt: 0 };
+      timer: 0, reloaded: false, reloadedAt: 0, asked: false, quiet: false };   // asked: it has shown a question; quiet: its last word is an answer it never asked
     frames.set(frame, box);
     arm(box);
     return box;
@@ -111,7 +113,13 @@ window.SalaAnswerFrame = (() => {
     if (!m) return;
     clearTimeout(box.timer);
     Object.assign(box, { reported: true, silent: false, typing: m.typing });
-    box.it.state = m.state;
+    box.frame.style.visibility = "";
+    // a frame that never showed a question does not make its answer the item's: an answer to an old question is not one to show. Its card and row are plain
+    if (ASKS.has(m.state)) box.asked = true;
+    box.quiet = m.state === "answered" && !box.asked;
+    if (!box.quiet) box.it.state = m.state;
+    // a quiet answer shows the item plain where nothing has been asked: the older cards and the rows too. An item that has an answer or a question keeps it
+    else if (["", "closed", "signed_out"].includes(box.it.state)) box.it.state = "closed";
     repaint(box.it);
     if (m.height) keepPlace(box.frame, () => { box.frame.style.height = m.height + "px"; });
     retheme();
@@ -131,7 +139,8 @@ window.SalaAnswerFrame = (() => {
     updateJump();
   }
   // every place of an item shows the last state any of its frames said (a shut row's frame need not say it again); silence is each frame's own
-  const plain = (it, box) => it.state === "closed" || !!(box && box.silent);   // nothing to pick, or no frame: the title link, as with no frame at all
+  // nothing to pick, or no frame: the title link, as with no frame at all. `own`: the box is the one of this place (a row's, or the newest card's), and a quiet one is plain too
+  const plain = (it, box, own) => it.state === "closed" || !!(box && (box.silent || (own && box.quiet)));
   function say(node, key) {
     node.hidden = !key;
     if (key) node.setAttribute("data-i18n", key); else node.removeAttribute("data-i18n");
@@ -142,10 +151,10 @@ window.SalaAnswerFrame = (() => {
   function paintRow(it) {
     const r = it.row;
     if (!r) return;
-    const s = it.state, off = plain(it, r.box), open = openId === it.id && !off;
+    const s = it.state, off = plain(it, r.box, true), open = openId === it.id && !off;
     r.li.classList.toggle("ans-plain", off);
     r.li.classList.toggle("ans-open", open);
-    r.li.classList.toggle("ans-done", s === "answered");
+    r.li.classList.toggle("ans-done", s === "answered" && !(r.box && r.box.quiet));
     r.head.setAttribute("aria-expanded", String(open));
     r.body.hidden = openId !== it.id;
     say(r.line, off ? null : s === "changed" || !open ? LINES[s] : null);   // an open row's frame says the rest itself
@@ -155,10 +164,10 @@ window.SalaAnswerFrame = (() => {
   const newestOf = (it) => cardsOf(it).find((c) => c.newest);
   function paintCard(c) {
     const it = c.it, top = newestOf(it), box = top && top.box;
-    const s = it.state, off = plain(it, box);
+    const s = it.state, off = plain(it, box, c.newest);
     c.node.classList.toggle("ans-newest", c.newest);
     c.node.classList.toggle("ans-plain", off);
-    c.node.classList.toggle("ans-done", s === "answered");
+    c.node.classList.toggle("ans-done", s === "answered" && !(c.newest && box && box.quiet));
     const words = it.id + "\n" + it.subject + "\n" + it.url;
     if (c.words !== words) {
       c.words = words;
