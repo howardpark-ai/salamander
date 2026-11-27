@@ -793,8 +793,9 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
   end), and the status line says when Claude had read it first (that bubble then offers no
   button while its transcript line is on the way), or when it could not be taken back. A failed one keeps *Retry* and *Edit*, which
   withdraw it on the server first. The list comes from the stream's `outbox` event (`{"messages": [...]}`, at open and at each change) and, for a
-  sleeper, from `GET /api/outbox/<name>` on each poll, so a reload and a second device draw the same bubbles; a bubble drawn from the list goes to
-  the end of the chat. A bubble goes when the transcript shows its message, 3 s after the list says `delivered` when no such line came, or when the
+  sleeper, from `GET /api/outbox/<name>` on each poll, so a reload and a second device draw the same bubbles; a waiting bubble stays at the bottom: above
+  the working mark is what has reached Claude, below it what still waits, so a reply and a message Claude has just read go in above the mark (while
+  Claude asks, the waiting ones stand above the question card). A bubble goes when the transcript shows its message, 3 s after the list says `delivered` when no such line came, or when the
   message is withdrawn. A message asked for with a `cid` is one message however often it is asked.
 - **Tests.** `tests/test_outbox.py` (the store and the transcript matching), `tests/test_outbox_send.py` (the routes and the sender against a made-up pane), `tests/test_waiting_ui.py` (the page, in a headless Chromium).
 
@@ -1867,7 +1868,7 @@ A waiting question shows as the shared card under the thread (*A waiting questio
 
 The composer cannot type into the dialog's own free-text entry, here or in the session view. An API error's text stands as a reply and the interrupt line on the owner's side, in the words the transcript has. The interrupt line, a command's output and an answer are not messages the owner wrote: they take no pending bubble's place and do not set the working mark's language.
 
-**The working mark** (the shared spinner) shows while the thread says `busy`. Beside it stands the first line of what the open turn wrote last (from the stream's `append`, cut to 200 characters, one line with an ellipsis), only when that line is in the language of the owner's last message (the pending one if there is one): `langOf` says Korean when three words in ten or more hold Hangul and Latin when seven in ten or more are Latin ones, code and addresses aside; anything else matches nothing, and the spinner stands alone. The stream holds none of the text of a turn the owner did not start, so the mark of such a turn is the spinner alone.
+**The working mark** (the shared spinner) shows while the thread says `busy`, above the first waiting message (below it is what Claude has not read). Beside it stands the first line of what the open turn wrote last (from the stream's `append`, cut to 200 characters, one line with an ellipsis), only when that line is in the language of the owner's last message (the pending one if there is one): `langOf` says Korean when three words in ten or more hold Hangul and Latin when seven in ten or more are Latin ones, code and addresses aside; anything else matches nothing, and the spinner stands alone. The stream holds none of the text of a turn the owner did not start, so the mark of such a turn is the spinner alone.
 
 **No sideways scroll**, at any width and inside a message's blocks too: long words and links wrap, code blocks wrap, images and HTML with a width of its own are held to the column, and a table that does not fit is drawn row by row with each cell after its column's heading (`fitTables`). `tests/test_chat_layer.py` (the setting, the page it serves, the layer's pure functions in node) and `tests/test_chat_layer_ui.py` (a headless Chromium, 1280, 390, 360 and 320 px) hold this section.
 

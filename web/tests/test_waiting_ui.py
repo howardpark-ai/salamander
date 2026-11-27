@@ -185,6 +185,55 @@ def test_the_transcripts_copy_takes_the_bubbles_place(served, browser):
     assert bubbles(browser) == []
 
 
+# the bottom of the chat, top to bottom: the working mark, the question card, each waiting bubble and anything that has reached Claude
+ORDER = """[...document.querySelector("#chat").children].filter((n) => n.matches(".msg, .inflight, .q-card")).map((n) =>
+  n.matches(".inflight") ? "mark" : n.matches(".q-card") ? "card" : n.matches(".msg.waiting") ? "waiting " + n.querySelector(".bubble").textContent : n.textContent)"""
+REPLY = ("renderMessage({ role: 'assistant', uuid: 'z-1', ts: new Date().toISOString(), blocks: [{ kind: 'text', text: 'a later reply' }] }, "
+         "{ live: true }); ''")
+
+
+def tail(browser, n: int) -> list[str]:
+    return browser.evaluate(ORDER)[-n:]
+
+
+@pytest.mark.parametrize("served", [{"status": "busy"}], indirect=True)
+def test_what_waits_stands_below_the_working_mark_and_what_arrives_goes_above_it(served, browser):
+    opened(browser, served)
+    assert wait_for(browser, "!!document.querySelector('#chat > .inflight')", 10.0)
+    for i, text in enumerate(("first", "second"), 1):
+        send(browser, text)
+        assert wait_for(browser, f"document.querySelectorAll('#chat > .msg.waiting .note-actions').length === {i}", 5.0), bubbles(browser)
+    assert tail(browser, 3) == ["mark", "waiting first", "waiting second"], browser.evaluate(ORDER)
+    browser.evaluate(REPLY)
+    got = tail(browser, 4)
+    assert "a later reply" in got[0] and got[1:] == ["mark", "waiting first", "waiting second"], got
+    browser.evaluate("updateInflight(); updateInflight(); ''")   # each status event paints it again
+    assert tail(browser, 4) == got
+
+
+@pytest.mark.parametrize("served", [{"status": "busy"}], indirect=True)
+def test_a_failed_message_stays_above_the_mark_until_it_is_sent_again_and_then_joins_the_end(served, browser):
+    opened(browser, served)
+    assert wait_for(browser, "!!document.querySelector('#chat > .inflight')", 10.0)
+    one, two = msg(1, "broke", "failed", error="the pane went away"), msg(2, "still queued")
+    show(browser, one, two)
+    got = tail(browser, 3)
+    assert got[0].startswith("broke") and got[1:] == ["mark", "waiting still queued"], got
+    press(browser, "broke", "Retry")
+    browser.evaluate(f"__answer(200, {json.dumps({'ok': True, 'messages': [two, {**one, 'state': 'withdrawn'}]})}); ''")
+    assert wait_for(browser, f"JSON.stringify({ORDER}.slice(-3)) === '[\"mark\",\"waiting still queued\",\"waiting broke\"]'", 5.0), browser.evaluate(ORDER)
+
+
+@pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
+def test_what_waits_stands_above_the_question_card(served, browser):
+    opened(browser, served)
+    browser.evaluate("document.querySelector('#chat').append(el('div', { class: 'q-card' })); ''")   # the fake session has no pane to read a card from
+    show(browser, msg(1, "from the server", "held", "dialog"))
+    send(browser, "typed here")
+    assert wait_for(browser, "document.querySelectorAll('#chat > .msg.waiting').length === 2", 5.0), bubbles(browser)
+    assert tail(browser, 3) == ["waiting from the server", "waiting typed here", "card"], browser.evaluate(ORDER)
+
+
 def test_a_failed_message_is_withdrawn_before_it_is_sent_again(served, browser):
     opened(browser, served)
     show(browser, msg(1, "broke", "failed", error="the pane went away"))

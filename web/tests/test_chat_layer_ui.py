@@ -107,6 +107,7 @@ THREAD = """[...document.querySelectorAll('#chat > .msg')].map((m) => [
 MARK = """(() => { const m = document.querySelector('#chat > .cl-mark'); if (!m) return null; const t = m.querySelector('.cl-turn');
   return { spinner: !!m.querySelector('.spinner'), turn: t.hidden ? '' : t.textContent, title: m.title,
            after: [...document.querySelectorAll('#chat > .msg')].every((n) => !!(n.compareDocumentPosition(m) & Node.DOCUMENT_POSITION_FOLLOWING)),
+           over: m.nextElementSibling === document.querySelector('#chat > .msg.waiting'),
            others: [...document.querySelectorAll('#chat > .inflight')].filter((n) => getComputedStyle(n).display !== 'none').length }; })()"""
 
 PENDING = "[...document.querySelectorAll('#chat > .msg.local')].map((n) => n.querySelector('.bubble').textContent)"
@@ -338,7 +339,15 @@ def test_a_message_just_sent_sets_the_language_the_mark_is_held_against(served, 
     send(browser, "go on in English please")
     assert wait_for(browser, f"document.querySelector('#chat .cl-turn').textContent === {json.dumps(EN_TURN)}", 10.0), browser.evaluate(MARK)
     m = browser.evaluate(MARK)
-    assert m["after"], "the mark stays under the bubble"
+    assert m["over"], "the mark stands above the waiting bubble"
+    # the turn's reply arrives and another turn starts: both are what reached Claude, so both go in above the mark
+    append(served, assistant("A later note.", 2), human("and one more", 3), assistant(EN_TURN, 3, stop="tool_use", tool=True), tool_result(3))
+    assert wait_for(browser, "[...document.querySelectorAll('#chat > .msg:not(.local)')].some((n) => n.textContent.includes('A later note.'))", 20.0)
+    order = ("(() => { const all = [...document.querySelector('#chat').children], at = (f) => all.findIndex(f); "
+             "const arrived = at((n) => n.matches('.msg') && n.textContent.includes('and one more')); "
+             "return arrived >= 0 && arrived < at((n) => n.matches('.cl-mark')) && "
+             "at((n) => n.matches('.cl-mark')) + 1 === at((n) => n.matches('.msg.waiting')); })()")
+    assert wait_for(browser, order, 10.0), browser.evaluate(THREAD)
 
 
 # ── older messages ───────────────────────────────────────────────────────────

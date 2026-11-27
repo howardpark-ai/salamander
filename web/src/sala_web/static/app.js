@@ -1190,14 +1190,27 @@ function updateHeader(s) {
   layoutHeader();
   updateInflight();
 }
-// in flight: a small spinner under the last message while the session works, as claude.ai shows
+// in flight: a small spinner while the session works, as claude.ai shows: under what has reached Claude, above what still waits
+function placeInflight() {
+  const chat = $("#chat"), n = chat.querySelector(":scope > .inflight");
+  const first = n && chat.querySelector(":scope > .cl-mark, :scope > .msg.waiting");   // .cl-mark: the dedicated chat's own mark, which this hidden one stays above
+  if (n && n.nextElementSibling !== first) chat.insertBefore(n, first);   // neither: at the end
+}
+// a bubble goes to its side of the spinner: a waiting one to the bottom, any other above the spinner. Both stay above a running command's
+// block and the question card
+function placeBubble(node) {
+  const chat = $("#chat");
+  const under = node.classList.contains("waiting") ? ":scope > .live-bang, :scope > .q-card" : ":scope > .inflight, :scope > .live-bang, :scope > .q-card";
+  chat.insertBefore(node, chat.querySelector(under));
+  placeInflight();
+}
 function updateInflight() {
   const chat = $("#chat");
   if (window.SalaQuestionCard) SalaQuestionCard.sync(ahead.active ? null : state.current);   // the card of a question the session waits on (dialogcard.js)
   let n = chat.querySelector(":scope > .inflight");
   if (!(state.current && state.current.status === "busy") || ahead.active) { if (n) n.remove(); return; }   // far back: it shows at the live end
-  if (!n) n = el("div", { class: "inflight", role: "status", title: tl("app.working"), "aria-label": tl("app.working") }, el("span", { class: "spinner" }));
-  if (chat.lastElementChild !== n) chat.append(n);
+  if (!n) chat.append(el("div", { class: "inflight", role: "status", title: tl("app.working"), "aria-label": tl("app.working") }, el("span", { class: "spinner" })));
+  placeInflight();
 }
 
 /* ---------- board items ----------
@@ -3782,7 +3795,8 @@ function dropPending(p, { keepImages = false } = {}) {
 
 function pendingNode(p) {
   const waits = SalaWaiting.waits(p);
-  const box = el("div", { class: "msg user local " + p.status + (waits ? " waiting" : "") + (p.status === "queued" || p.status === "waiting" ? "" : " pending") });
+  // "pending" keeps a bubble at the bottom: what the transcript gets meanwhile goes in above it (appendToChat)
+  const box = el("div", { class: "msg user local " + p.status + (waits ? " waiting" : "") + " pending" });
   const t = thumbs(p.images.filter((im) => !im.file).map((im) => im.url));
   if (t) box.append(t);
   const sentFiles = p.images.filter((im) => im.file);
@@ -3850,6 +3864,7 @@ function redrawPending(p) {
   const n = pendingNode(p);
   if (p.node && p.node.isConnected) p.node.replaceWith(n);
   p.node = n;
+  placeInflight();   // a bubble that began or stopped waiting
 }
 
 async function deliver(p, retry = false, replace = null) {
@@ -4316,7 +4331,7 @@ function send() {
   redrawPending(p);
   const empty = $("#chat > .empty");
   if (empty) empty.remove();
-  $("#chat").insertBefore(p.node, $("#chat > .inflight"));  // above the spinner, if one is showing
+  placeBubble(p.node);
   pinToBottom();
   if (ob) SalaWaiting.post(p);
   else if (asleep) holdForWake(p);

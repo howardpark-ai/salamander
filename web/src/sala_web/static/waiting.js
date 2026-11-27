@@ -76,13 +76,13 @@
     redrawPending(p);
     p.sig = signature(p);
   }
-  // a bubble the page did not have is put at the end of its chat, above the working mark or the question card
+  // a bubble the page did not have is put into its chat on its side of the working mark
   function place(p) {
     if (state.selected !== p.session || ahead.active) return;
     const chat = $("#chat");
     const empty = chat.querySelector(":scope > .empty:not(.sleeping-note)");
     if (empty) empty.remove();
-    chat.insertBefore(p.node, chat.querySelector(":scope > .inflight, :scope > .live-bang, :scope > .q-card"));
+    placeBubble(p.node);
     if (chatScroll.pinned && state.tab === "chat") scrollToBottom();
   }
 
@@ -236,6 +236,7 @@
     Object.assign(p, { status: "sending", sentAt: Date.now(), restored: false });
     delete p.state; delete p.updated;
     redraw(p);
+    placeBubble(p.node);   // it joins at the end of the line
     pinToBottom();
     post(p);
   }

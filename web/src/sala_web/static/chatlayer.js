@@ -356,6 +356,7 @@ window.SalaThreadLayer = (() => {
     for (const n of [...chat.children]) if (!keep.has(n) && !n.matches(".inflight, .live-bang, .q-card")) { n.remove(); changed = true; }
     let at = chat.firstElementChild;
     for (const n of want) {
+      while (at && at !== n && at.matches(".inflight")) at = at.nextElementSibling;   // hidden here, and left where app.js keeps it
       if (n === at) { at = at.nextElementSibling; continue; }
       chat.insertBefore(n, at);
       changed = true;
@@ -382,8 +383,9 @@ window.SalaThreadLayer = (() => {
       else if (st.start) want.push(emptyLine("app.noMessages"));
     }
     if (st.failed) want.push(ui.fail);
-    want.push(...pending);
-    if (st.busy) want.push(ui.mark);
+    // the working mark stands between what has reached Claude and what still waits: above the first waiting bubble
+    const first = pending.findIndex((n) => n.classList.contains("waiting")), at = first < 0 ? pending.length : first;
+    want.push(...pending.slice(0, at), ...(st.busy ? [ui.mark] : []), ...pending.slice(at));
     const marked = markIn(st.loaded || st.failed);   // before the scroll below, which then counts the strip's height
     paintOlder();
     paintMark();
@@ -475,15 +477,16 @@ window.SalaThreadLayer = (() => {
     };
     ui.mark = el("div", { class: "cl-mark", role: "status", ...tx("app.working", null, "title"), ...tx("app.working", null, "aria-label") },
       el("span", { class: "spinner" }), ui.turn);
-    // a bubble the composer's send adds goes above the working mark, and may change the language the mark is held against
+    // a bubble the composer's send adds takes its side of the working mark, and may change the language the mark is held against
     new MutationObserver((records) => {
       if (st.name === null) return;
       // app.js putting its loading line here (the open session opened once more): not in again, also when a message sent right then takes the line away
       if (records.some((r) => [...r.addedNodes].some((n) => n.nodeType === 1 && n.matches(LOADING)))) markIn(false);
       if (ui.mark.parentNode !== chat) return;
-      for (let n = ui.mark.nextElementSibling; n; n = n.nextElementSibling) {
-        if (n.classList.contains("msg")) { chat.append(ui.mark); break; }
-      }
+      const first = chat.querySelector(":scope > .msg.waiting");
+      let over = !!first && ui.mark.nextElementSibling !== first;
+      for (let n = ui.mark.nextElementSibling; !first && n && !over; n = n.nextElementSibling) over = n.classList.contains("msg");
+      if (over) chat.insertBefore(ui.mark, first);   // no waiting message: at the end
       paintMark();
     }).observe(chat, { childList: true });
     new ResizeObserver(fitSoon).observe(chat);
