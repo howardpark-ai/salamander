@@ -2,8 +2,8 @@
 
 The rules held here, in the session view and in the chat session's view:
   - while the session's status is "waiting" and api/s/<pid>/dialog says a card, the thread ends with a card: the question's words, a button for each option
-    (a question of one answer) or a checkbox row for each (a question of several) with one Send (Next, in the page's language, when the pane's button is
-    Next), and a Cancel; the options are not a numbered list;
+    (a question of one answer) or a checkbox row for each (a question of several) with one Send and a hint that names it (both say Next, in the page's
+    language, when the pane's button is Next), and a Cancel; the options are not a numbered list;
   - one tap on a button sends that option's number with the words of the question; ticking boxes and tapping Send sends the picks, in order; Cancel sends esc;
   - when the pane shows no question the card is gone; a session that does not wait has no card;
   - every tap target is at least 44 px tall;
@@ -124,13 +124,16 @@ def test_boxes_and_one_send_answer_a_question_of_several(served, browser, monkey
 
 @pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
 @pytest.mark.parametrize("lang", ["en", "ko"])
-def test_the_send_button_of_a_question_that_is_not_the_last_reads_next_in_the_pages_language(served, browser, monkeypatch, lang):
+def test_the_send_button_and_its_hint_of_a_question_that_is_not_the_last_say_next_in_the_pages_language(served, browser, monkeypatch, lang):
     open_card(browser, served, monkeypatch, 390, {**multi(3), "button": "Submit"}, False)
     browser.evaluate(f"SalaI18n.setLang('{lang}'); ''")
-    for button, key in (("Next", "app.st.cardNext"), ("Submit", "app.st.cardSend")):
+    for button, key, hint in (("Next", "app.st.cardNext", "app.st.cardMultiNext"), ("Submit", "app.st.cardSend", "app.st.cardMulti")):
         # other words each time, so the card is drawn again in the chosen language
         browser.evaluate(f"window.__card = {json.dumps({**multi(3), 'button': button, 'text': 'Pick ' + button})}; window.SalaQuestionCard.poll(); ''")
         assert wait_for(browser, f"(document.querySelector('#chat > .q-card .q-send') || {{}}).textContent === SalaI18n.t('{key}')", 10.0)
+        shown, want, named = browser.evaluate(f"[document.querySelector('#chat > .q-card .q-hint').textContent, SalaI18n.t('{hint}'), SalaI18n.t('{key}')]")
+        other = browser.evaluate(f"SalaI18n.t('{'app.st.cardSend' if button == 'Next' else 'app.st.cardNext'}')")
+        assert shown == want and named in shown and other not in shown, (button, shown)
     words = browser.evaluate("[SalaI18n.t('app.st.cardNext'), SalaI18n.t('app.st.cardSend'), SalaI18n.lang]")
     assert words[2] == lang and words[0] != words[1] and (words[0] == "Next") == (lang == "en")
 

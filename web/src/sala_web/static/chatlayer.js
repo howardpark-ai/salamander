@@ -10,7 +10,8 @@
    message here. The session view has no drawing of a question, its answer or a sent file that is no image, so they are drawn here (OWN).
 
    A WAITING QUESTION is answered on the shared card under the thread (dialogcard.js). What the card carries of the open question is not drawn here a
-   second time (fitAsks, onCard); the thread's own drawing, with a line that says how to answer, stands where no card does or the card cannot answer.
+   second time (fitAsks, onCard); the thread's own drawing stands where no card does or the card does not show the question whole, with a line that says how
+   to answer only where no card answers it (cardAnswers).
 
    STAYING LIVE needs no stream of its own: the session's stream already says when the transcript or the status changed. Each reset, append and status
    event asks for the newest page again (one read at a time, MIN_GAP_MS apart) and merges it by uuid into what is shown. The newest page is read, and not
@@ -299,29 +300,35 @@ window.SalaThreadLayer = (() => {
   /* ---------- the open question and the card that answers it ---------- */
   // words alone: the pane breaks its lines anywhere and shows markdown's marks as styles
   const bare = (t) => String(t || "").replace(/[\s*`]+/g, "");
-  // true when the shared card (dialogcard.js) shows this question and its buttons can answer it. Every other case keeps the thread's own drawing, so
-  // nothing the owner needs for an answer goes out of sight
-  function onCard(q, card) {
+  // the review that ends a call of several questions: it lists each answered question, and its two buttons send or cancel them
+  const isReview = (card) => card.kind === "choice" && card.options.length === 2 && card.options[0].label === "Submit answers";
+  const previews = (q) => q.options.some((o) => o.preview);
+  // true when the shared card (dialogcard.js) is this question's and its buttons can answer it, whether or not it shows the question whole
+  function cardAnswers(q, card) {
     if (!card || !bare(q.question) || !bare(card.title).includes(bare(q.question))) return false;
-    const opts = card.options;
-    // the review that ends a call of several questions: it lists each answered question, and its two buttons send or cancel them
-    if (card.kind === "choice" && opts.length === 2 && opts[0].label === "Submit answers") return true;
-    // the card draws no preview: the thread's drawing is where the owner reads them
-    if (q.options.some((o) => o.preview)) return false;
+    if (isReview(card)) return true;
     // a question of several answers needs the card of several, whose Send sets the marks and goes on through the pane's row under the options (the card's
     // `button`: "Next" before the call's last question, "Submit" on it); a card of one answer cannot
     if (card.kind !== (q.multiSelect ? "multi" : "choice")) return false;
+    // one answer with previews: a number alone only moves that dialog's focus, so only the card the server read as that layout (`preview`, whose number is
+    // followed by Enter) answers it; its options are labels, without their descriptions
+    const column = !q.multiSelect && previews(q);
+    if (column && card.preview !== true) return false;
     return q.options.every((o, i) => {
-      if (!opts[i]) return false;
-      const shown = bare(opts[i].label + opts[i].description);
-      return shown.startsWith(bare(o.label)) && shown.includes(bare(o.description));
+      const opt = card.options[i];
+      if (!opt) return false;
+      const shown = bare(opt.label + opt.description);
+      return shown.startsWith(bare(o.label)) && (column || shown.includes(bare(o.description)));
     });
   }
+  // true when the card answers the question and shows it whole, so the thread draws no second copy. The card draws no preview: the thread's drawing is where
+  // the owner reads them
+  const onCard = (q, card) => cardAnswers(q, card) && (isReview(card) || !previews(q));
   // the how-to line while the card has said nothing: a number sent from the composer picks an option, except where one number is no answer
   const howKey = (questions) => (questions.some((q) => q.multiSelect || q.options.some((o) => o.preview)) ? "chat.ask.howMulti" : "chat.ask.how");
   // The open question (no message of the thread follows it): what the card carries of it is not drawn a second time, and a message with nothing else to
-  // show is hidden whole. Its how-to line shows only while the card carries none of its questions; once the server has said what the pane shows and
-  // that is not this question, the line names the Terminal tab alone. True when anything changed
+  // show is hidden whole. Its how-to line shows only while the card can answer none of its questions; once the server has said what the pane shows and
+  // no card answers them, the line names the Terminal tab alone. True when anything changed
   function fitAsks() {
     const card = window.SalaQuestionCard ? SalaQuestionCard.standing() : undefined;
     const all = [...$("#chat").querySelectorAll(":scope > .msg:not(.local)")], open = all[all.length - 1];
@@ -334,7 +341,7 @@ window.SalaThreadLayer = (() => {
       nodes.forEach((node, i) => hide(node, carried[i]));
       const key = n === open && card !== undefined ? "chat.ask.howTerm" : howKey(questions);
       if (how.dataset.i18n !== key) { how.dataset.i18n = key; how.textContent = tl(key); changed = true; }
-      hide(how, carried.includes(true));
+      hide(how, n === open && questions.some((q) => cardAnswers(q, card)));
       hide(n, carried.every(Boolean) && [...n.children].every((c) => c === how || nodes.includes(c)));
     }
     return changed;
@@ -503,5 +510,5 @@ window.SalaThreadLayer = (() => {
     SalaI18n.onChange(paintOlder);   // every other word of the layer is rewritten by its data-i18n attribute
   }
 
-  return { takes, sync, reset, append, status, refresh, langOf, firstLine, mergePage, onCard };
+  return { takes, sync, reset, append, status, refresh, langOf, firstLine, mergePage, onCard, cardAnswers };
 })();
