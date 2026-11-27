@@ -92,8 +92,9 @@ window.SalaQuote = (() => {
     else placeDesk(rects, viewOf());
   }
 
-  /* a desktop: beside the end of the selection, on its last line; below or left of it only when the spot beside it is
-     off the chat or covers more text. Ties keep that order */
+  /* a desktop: beside the end of the selection. On its last line when nothing follows there; else raised above that line,
+     so the line's following characters and the lines below stay readable; where no spot spares them, the one that covers
+     them least. Left of the last line is a late resort (it is away from the end). Ties keep the order of the spots */
   function placeDesk(rects, v) {
     const end = rects[rects.length - 1];
     if (end.bottom < v.top || end.top > v.bottom) return;
@@ -101,17 +102,27 @@ window.SalaQuote = (() => {
     desk.hidden = false;
     const w = desk.offsetWidth, h = desk.offsetHeight;
     const texts = textRects(pane()).filter((t) => t.bottom > v.top && t.top < v.bottom);
-    const mid = end.top + (end.height - h) / 2;
+    /* 2 px off the top and bottom of each text box: the leading is not text. `after`: what follows the end on its line,
+       and the lines below it */
+    const lines = texts.map((t) => ({ left: t.left, right: t.right, top: t.top + 2, bottom: t.bottom - 2 }));
+    const after = lines.filter((t) => t.bottom > end.top)
+      .map((t) => (t.top < end.bottom ? { ...t, left: Math.max(t.left, end.right) } : t))
+      .filter((t) => t.right > t.left);
+    const edge = Math.min(v.right, vw) - 4;
+    const mid = end.top + (end.height - h) / 2, above = end.top - h - 2;
     const spots = [
       { x: end.right + GAP, y: mid },
+      { x: Math.min(end.right + GAP, edge - w), y: above },
+      { x: end.right - w, y: above },
       { x: end.right - w, y: end.bottom + 2 },
-      { x: end.left - w - GAP, y: mid },
+      { x: end.left - w - GAP, y: mid, away: 1 },
     ];
+    const covered = (b, list) => Math.round(list.reduce((sum, t) => sum + area(b, t), 0));
     let best = null;
     spots.forEach((s) => {
       const b = box(s.x, s.y, w, h);
-      const inside = b.left >= v.left + 4 && b.right <= Math.min(v.right, vw) - 4 && b.top >= v.top + 2 && b.bottom <= v.bottom - 2;
-      const score = [inside ? 0 : 1, texts.reduce((sum, t) => sum + area(b, t), 0)];
+      const inside = b.left >= v.left + 4 && b.right <= edge && b.top >= v.top + 2 && b.bottom <= v.bottom - 2;
+      const score = [inside ? 0 : 1, covered(b, after), s.away || 0, covered(b, lines)];
       if (!best || less(score, best.score)) best = { x: s.x, y: s.y, score };
     });
     desk.style.left = best.x + "px";
@@ -195,12 +206,13 @@ window.SalaQuote = (() => {
     return lines.map((l) => (l.trim() ? "> " + l.replace(/\s+$/, "") : ">")).join("\n") + "\n";
   }
 
-  /* the composer's text with a quote added at its end: after typed text the quote starts on the next line; right after
-     another quote one empty line keeps the two apart; empty lines at the draft's end are collapsed */
+  /* the composer's text with a quote added at its end. What is already there stays byte for byte: the quote starts on a
+     new line, and right under another quote one empty line keeps the two apart */
   function appendTo(cur, block) {
-    if (!cur.trim()) return block;
-    const head = cur.replace(/(\n[ \t]*)+$/, ""), tail = head.slice(head.lastIndexOf("\n") + 1);
-    return head + (QUOTE_LINE.test(tail) ? "\n\n" : "\n") + block;
+    if (!cur) return block;
+    const head = cur.endsWith("\n") ? cur : cur + "\n";
+    const above = head.slice(0, -1);
+    return head + (QUOTE_LINE.test(above.slice(above.lastIndexOf("\n") + 1)) ? "\n" : "") + block;
   }
 
   /* a user's message as nodes: runs of "> " lines become a blockquote, other lines stay outside it; a run of only empty

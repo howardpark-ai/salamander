@@ -413,17 +413,19 @@ paste and a file drop on the editor, the history after a send, and the look at 3
 ### Quoting a reply
 
 `static/chatquote.js` (`window.SalaQuote`) shows a button for a selection inside one assistant reply (`.msg.assistant .md`),
-never for the composer, a user's message or the sidebar. On a desktop it is a button beside the END of the selection, on
-its last line; it moves below or left only when there is no room, and covers as little text as possible. On a touch
-screen it is a chip (about 40 x 28 px drawn, 48 x 44 px to tap) near the end of the selection, kept above the bottom 78 px
-of the viewport and flipped above the selection when needed. A tap captures the text on pointerdown and puts it at the
-END of the composer as lines with "> ", through `app.js` `quoteInto` (`setText`, then the send button, the draft and the
-focus); a quote after typed text starts on the next line, and two quotes with nothing typed between get one empty line.
-Nothing is sent. A send trims the leading empty lines and the trailing whitespace only; the text sent to Claude stays raw.
-A user's message shows its "> " runs as a blockquote (`.msg.user .bubble blockquote`), the lines after it outside it, the
-links kept, with no markdown renderer. `tests/test_chat_quote_ui.py` holds the button's presence and absence, the composer
-text for each case, the draft and the send, the bubble, the links in a quote, the chip above 78 px at 390 x 844, and the
-desktop button beside the end for a single line, several lines and a selection dragged backwards.
+never for the composer, a user's message or the sidebar. On a desktop it is a button beside the END of the selection: on
+its last line when nothing follows there, else raised above that line, so the line's following characters and the lines
+below stay readable where there is room. On a touch screen it is a chip (about 40 x 28 px drawn, 48 x 44 px to tap) near
+the end of the selection, kept above the bottom 78 px of the viewport and flipped above the selection when needed. A tap
+captures the text on pointerdown and puts it at the END of the composer as lines with "> ", through `app.js` `quoteInto`
+(`setText`, then the send button, the draft and the focus). What is already typed stays byte for byte; the quote starts
+on a new line, and two quotes with nothing typed between get one empty line. Nothing is sent. A send carries the box's
+text byte for byte, with one exception: sent with nothing typed after a quote, the newline the quote added is left out
+(held in memory, so a draft restored by a reload is sent with it). A user's message shows its "> " runs as a blockquote
+(`.msg.user .bubble blockquote`), the lines after it outside it, the links kept, with no markdown renderer.
+`tests/test_chat_quote_ui.py` holds the button's presence and absence, the composer text for each case, the draft and the
+send, the bubble, the links in a quote, the chip above 78 px at 390 x 844, and the desktop button's place at the end of
+the selection, off the text that follows it.
 
 ### The placeholder
 

@@ -1,15 +1,15 @@
 """Quoting a reply's selected text into the composer, in a headless Chromium (chatquote.js, the composer hook in app.js, the bubble in renderMessage and pendingNode).
 
 The rule: a button (desktop) or a chip (touch) shows only for a selection inside one assistant reply. A tap puts the selected lines, each with "> ", at the END of
-the composer, as typed text would go: after typed text on the next line, two quotes with nothing typed between separated by one empty line. Nothing is sent by the
-tap, the draft is kept, and the send trims only the leading empty lines and the trailing whitespace. A user's message shows its "> " runs as a blockquote with the
+the composer: what is already typed stays byte for byte, the quote starts on a new line, two quotes with nothing typed between are separated by one empty line.
+Nothing is sent by the tap, the draft is kept, and a send carries the box's text byte for byte, less the quote's own closing newline when nothing was typed after it. A user's message shows its "> " runs as a blockquote with the
 lines after it outside it, the links kept.
 
 Held here: the button and the chip shown for a reply and not for the composer, the user's message or the sidebar; the composer text for a single line, a multi-line
-selection, typed text before a quote and two quotes in a row; the draft kept and nothing sent; the send's trim; the bubble with the line after a quote and the links
+selection, typed text before a quote and two quotes in a row; the draft kept and nothing sent; the send's text, with and without typing after a quote; the bubble with the line after a quote and the links
 inside a quote; on a phone (390 x 844, touch) the chip above the bottom 78 px; on a desktop the button beside the END of the selection for a single line, a multi-line
-selection and a selection dragged backwards. What a wrong answer costs: a quote that lands mid-draft or is sent by the tap, a bubble that swallows the line after the
-quote, a chip under the phone's bottom band where the browser's own bar sits, a button that jumps to the start of the selection. Runs in a headless Chromium when one
+selection and a selection dragged backwards, and above the line when text follows the end. What a wrong answer costs: typed text changed, a quote that lands mid-draft or is sent by the tap, a bubble that swallows the line after the
+quote, a chip under the phone's bottom band where the browser's own bar sits, a button that jumps to the start of the selection or hides the words after it. Runs in a headless Chromium when one
 is installed (conftest.py: `served`, `browser`), else is skipped; GitHub CI runs it. All text is invented."""
 
 from __future__ import annotations
@@ -80,6 +80,12 @@ RECT = "(() => { const b = document.querySelector(%s); if (!b) return null; cons
 END_CHAR = """(() => { const r = getSelection().getRangeAt(0), e = r.endContainer, o = r.endOffset;
   const c = document.createRange(); c.setStart(e, o - 1); c.setEnd(e, o); const q = c.getBoundingClientRect();
   return { left: q.left, right: q.right, top: q.top, bottom: q.bottom }; })()"""
+# how many boxes of the reply after the selection's end the button lies over
+HIDDEN_AFTER = """(() => { const b = document.querySelector('.quote-btn').getBoundingClientRect();
+  const s = getSelection().getRangeAt(0), after = document.createRange();
+  after.setStart(s.endContainer, s.endOffset); after.setEndAfter(document.querySelector('.msg.assistant .md').lastChild);
+  return [...after.getClientRects()].filter((q) => q.width > 0.5 && b.left < q.right && b.right > q.left
+    && b.top < q.bottom && b.bottom > q.top).length; })()"""
 COMPOSER = "getText()"
 
 
@@ -128,6 +134,19 @@ def test_a_quote_after_typed_text_starts_on_the_next_line(served, browser, monke
     assert composer_is(browser, "Hello\n> Alpha line one is here.\n")
 
 
+@pytest.mark.parametrize("draft,kept", [
+    pytest.param("Hello  ", "Hello  \n", id="trailing-spaces"),
+    pytest.param("- q\n- ", "- q\n- \n", id="open-list-marker"),
+    pytest.param("  indented\n\n\n", "  indented\n\n\n", id="empty-lines-at-the-end"),
+])
+def test_a_quote_leaves_the_typed_text_byte_for_byte(served, browser, monkeypatch, draft, kept):
+    open_reply(browser, served, monkeypatch, DESKTOP)
+    browser.evaluate("setText(%s); refreshSendButton();" % json.dumps(draft))
+    select(browser, "Alpha", "is here.")
+    tap(browser)
+    assert composer_is(browser, kept + "> Alpha line one is here.\n"), browser.evaluate(COMPOSER)
+
+
 def test_two_quotes_with_nothing_typed_between_are_one_empty_line_apart(served, browser, monkeypatch):
     open_reply(browser, served, monkeypatch, DESKTOP)
     select(browser, "Alpha", "is here.")
@@ -143,9 +162,9 @@ def test_a_multi_line_selection_quotes_every_selected_line(served, browser, monk
     select(browser, "Alpha", "ends now.")
     tap(browser)
     assert wait_for(browser, "getText().endsWith('> Gamma third line ends now.\\n')", 5.0)
-    lines = browser.evaluate("getText()").split("\n")[:-1]
-    assert lines[0] == "> Alpha line one is here." and "Beta second paragraph text." in lines
-    assert all(line == ">" or line.startswith("> ") for line in lines), lines
+    # one ">" line between paragraphs, so the quote stays one block
+    assert browser.evaluate(COMPOSER) == ("> Alpha line one is here.\n>\n> Beta second paragraph text.\n>\n"
+                                          "> Gamma third line ends now.\n")
 
 
 def test_the_draft_is_kept_after_a_quote(served, browser, monkeypatch):
@@ -157,12 +176,38 @@ def test_the_draft_is_kept_after_a_quote(served, browser, monkeypatch):
     assert browser.evaluate("!document.querySelector('#send').disabled")
 
 
-def test_sending_trims_the_leading_empty_lines_and_the_trailing_whitespace(served, browser, monkeypatch):
+@pytest.mark.parametrize("draft,sent", [
+    pytest.param("", "> Alpha line one is here.", id="a-quote-alone"),
+    pytest.param("  hi ", "  hi \n> Alpha line one is here.", id="typed-before"),
+])
+def test_sending_right_after_a_quote_leaves_out_the_newline_it_added(served, browser, monkeypatch, draft, sent):
     open_reply(browser, served, monkeypatch, DESKTOP)
-    browser.evaluate("setText('\\n\\n  \\n> Alpha line one is here.\\n\\n'); refreshSendButton();")
+    browser.evaluate("setText(%s); refreshSendButton();" % json.dumps(draft))
+    select(browser, "Alpha", "is here.")
+    tap(browser)
+    assert composer_is(browser, sent + "\n"), browser.evaluate(COMPOSER)
     tap(browser, "#send")
     assert wait_for(browser, "(window.__sent || []).length === 1", 8.0)
-    assert browser.evaluate("window.__sent[0].text") == "> Alpha line one is here."
+    assert browser.evaluate("window.__sent[0].text") == sent
+
+
+def test_text_typed_after_a_quote_is_sent_byte_for_byte(served, browser, monkeypatch):
+    open_reply(browser, served, monkeypatch, DESKTOP)
+    select(browser, "Alpha", "is here.")
+    tap(browser)
+    assert composer_is(browser, "> Alpha line one is here.\n")
+    typed(browser, "my answer ")
+    tap(browser, "#send")
+    assert wait_for(browser, "(window.__sent || []).length === 1", 8.0)
+    assert browser.evaluate("window.__sent[0].text") == "> Alpha line one is here.\nmy answer "
+
+
+def test_a_text_the_button_did_not_make_is_sent_byte_for_byte(served, browser, monkeypatch):
+    open_reply(browser, served, monkeypatch, DESKTOP)
+    text = "\n\n  \n> Alpha line one is here.\n\n"
+    send_text(browser, text)
+    assert wait_for(browser, "(window.__sent || []).length === 1", 8.0)
+    assert browser.evaluate("window.__sent[0].text") == text
 
 
 # ── the user's bubble ────────────────────────────────────────────────────────
@@ -211,6 +256,16 @@ def test_on_a_desktop_the_button_is_beside_the_end_of_the_selection(served, brow
     assert 0 <= b["left"] - e["right"] <= 16, (b, e)        # right of the last selected character
     assert b["top"] < e["bottom"] and b["bottom"] > e["top"], (b, e)   # on the same line
     assert 0 <= b["left"] and b["right"] <= b["vw"] and 0 <= b["top"] and b["bottom"] <= b["vh"], b
+
+
+def test_on_a_desktop_the_button_leaves_the_text_after_the_end_readable(served, browser, monkeypatch):
+    open_reply(browser, served, monkeypatch, DESKTOP)
+    select(browser, "Beta", "second")
+    b, e = browser.evaluate(RECT), browser.evaluate(END_CHAR)
+    assert b["cls"] == "quote-btn", b
+    assert b["bottom"] <= e["top"], (b, e)                                          # raised above the selected line
+    assert b["left"] - e["right"] <= 16 and b["right"] >= e["right"] - 1, (b, e)    # still at the end of the selection
+    assert browser.evaluate(HIDDEN_AFTER) == 0, (b, e)
 
 
 def test_on_a_phone_the_chip_stays_above_the_bottom_band(served, browser, monkeypatch):

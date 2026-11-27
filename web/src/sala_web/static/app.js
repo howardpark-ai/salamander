@@ -4093,7 +4093,8 @@ function selectOffsets(start, end, backward = false) {
 }
 function focusEnd() { composer.focus(); const n = getText().length; selectOffsets(n, n); composer.dispatch({ effects: cm6Composer.EditorView.scrollIntoView(n) }); }  // as a textarea's value= leaves the caret
 // a quote from the reply's selection (chatquote.js) goes to the end of the composer, as if typed: its text, the buttons, the draft and the focus
-function quoteInto(block) { setText(SalaQuote.appendTo(getText(), block)); refreshSendButton(); saveDraftSoon(); focusEnd(); }
+let quotedText = null;   // the composer's text as the last quote left it: it ends with the newline the quote added
+function quoteInto(block) { setText(SalaQuote.appendTo(getText(), block)); quotedText = getText(); refreshSendButton(); saveDraftSoon(); focusEnd(); }
 SalaQuote.init({ insert: quoteInto, label: () => tl("chat.quote") });
 let statusFn = null;
 function setStatus(msg, kind) { const n = $("#send-status"); statusFn = typeof msg === "function" ? msg : null; n.textContent = statusFn ? statusFn() : msg; n.className = kind || ""; }
@@ -4363,8 +4364,8 @@ function send() {
   const s = state.current || asleep;
   if (!s) { setStatus(() => tl("app.pickFirst"), "error"); return; }
   if (state.sending || state.uploads.some((u) => u.uploading)) return;
-  // the leading empty lines and the trailing whitespace go (a quote tapped in on an empty composer starts with a blank line); nothing else is trimmed
-  const text = getText().replace(/\r\n?/g, "\n").replace(/^(\s*\n)+/, "").replace(/\s+$/, "");
+  // the box's text, byte for byte; but with nothing typed after a quote, the newline the quote added is not sent
+  const text = getText() === quotedText ? quotedText.slice(0, -1) : getText();
   const ups = state.uploads.filter((u) => u.name);
   if (!text.trim() && !ups.length) return;
   // show it at once, like claude.ai; the composer empties now and the bubble holds the text if sending fails
@@ -4377,6 +4378,7 @@ function send() {
               status: hold ? "held" : "sending", sentAt: Date.now(), ...(hold ? { hold: true } : {}), ...(ob ? { ob: true, cid: SalaWaiting.newCid() } : {}) };
   state.pending.push(p);
   setText("");
+  quotedText = null;
   clearDraft(s.name);   // sent: nothing to come back to
   state.uploads = []; renderChips();
   clearStatus();
