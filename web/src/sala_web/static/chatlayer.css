@@ -29,6 +29,7 @@ body.chat-layer #chat .cl-ask pre.cl-ask-preview { margin: 4px 0 0; font: 12px/1
 body.chat-layer #chat :is(.cl-ask-multi, .cl-ask-how) { font-size: 12px; color: var(--muted); }
 body.chat-layer #chat .cl-ask-how { overflow-wrap: anywhere; }
 body.chat-layer #chat > .msg:has(~ .msg:not(.local)) .cl-ask-how { display: none; }   /* answered, cancelled or moved past */
+body.chat-layer :is(#chat > .msg, .cl-ask, .cl-ask-how)[hidden] { display: none; }   /* the card under the thread shows it (chatlayer.js fitAsks) */
 
 /* what a question was answered with, on the owner's side (style.css .bubble wraps it) */
 body.chat-layer #chat .cl-answer-one + .cl-answer-one { margin-top: 8px; }

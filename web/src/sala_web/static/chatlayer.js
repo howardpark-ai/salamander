@@ -7,8 +7,10 @@
 
    WHAT IS DRAWN is GET api/chat/thread?replies=1 (chatthread.py states the rule: the owner's messages and the replies to them, with a reply's sent files,
    asked questions and their answers, API error, interrupt and command output) and the page's own pending bubbles. No line of the stream is drawn as a
-   message here. The session view has no drawing of a question, its answer or a sent file that is no image, so they are drawn here (OWN). A question is
-   answered as any dialog is, from the composer or the Terminal tab.
+   message here. The session view has no drawing of a question, its answer or a sent file that is no image, so they are drawn here (OWN).
+
+   A WAITING QUESTION is answered on the shared card under the thread (dialogcard.js). What the card carries of the open question is not drawn here a
+   second time (fitAsks, onCard); the thread's own drawing, with a line that says how to answer, stands where no card does or the card cannot answer.
 
    STAYING LIVE needs no stream of its own: the session's stream already says when the transcript or the status changed. Each reset, append and status
    event asks for the newest page again (one read at a time, MIN_GAP_MS apart) and merges it by uuid into what is shown. The newest page is read, and not
@@ -283,13 +285,69 @@ window.SalaThreadLayer = (() => {
     if (own.length) {
       if (!node) node = el("div", { class: "msg " + m.role, "data-uuid": m.uuid });   // renderMessage draws nothing for these alone
       node.append(...own.map((b) => OWN[b.kind](b)));
-      const asked = own.filter((b) => b.kind === "question");
-      // how to answer: chatlayer.css shows it while no message of the thread follows the question
-      if (asked.length) node.append(el("div", { class: "cl-ask-how", ...tx(asked.some((q) => q.multiSelect) ? "chat.ask.howMulti" : "chat.ask.how") }));
+      const questions = own.filter((b) => b.kind === "question");
+      if (questions.length) {
+        // how to answer: chatlayer.css shows it while no message of the thread follows the question; fitAsks words it
+        const how = el("div", { class: "cl-ask-how", ...tx(howKey(questions)) });
+        node.clAsks = { questions, nodes: [...node.querySelectorAll(":scope > .cl-ask")], how };
+        node.append(how);
+      }
     }
     st.nodes.set(m.uuid, { sig, node });
     return node;
   }
+  /* ---------- the open question and the card that answers it ---------- */
+  // words alone: the pane breaks its lines anywhere and shows markdown's marks as styles
+  const bare = (t) => String(t || "").replace(/[\s*`]+/g, "");
+  // true when the shared card (dialogcard.js) shows this question and its buttons can answer it. Every other case keeps the thread's own drawing, so
+  // nothing the owner needs for an answer goes out of sight
+  function onCard(q, card) {
+    if (!card || !bare(q.question) || !bare(card.title).includes(bare(q.question))) return false;
+    const opts = card.options;
+    // the review that ends a call of several questions: it lists each answered question, and its two buttons send or cancel them
+    if (card.kind === "choice" && opts.length === 2 && opts[0].label === "Submit answers") return true;
+    // the card draws no preview, and in the pane's dialog that shows previews a number only moves the focus
+    if (q.options.some((o) => o.preview)) return false;
+    // a question of several answers that is not its call's last is read as one of a single answer, with no button that moves past it
+    if (card.kind !== (q.multiSelect ? "multi" : "choice")) return false;
+    return q.options.every((o, i) => {
+      if (!opts[i]) return false;
+      const shown = bare(opts[i].label + opts[i].description);
+      return shown.startsWith(bare(o.label)) && shown.includes(bare(o.description));
+    });
+  }
+  // the how-to line while the card has said nothing: a number sent from the composer picks an option, except where one number is no answer
+  const howKey = (questions) => (questions.some((q) => q.multiSelect || q.options.some((o) => o.preview)) ? "chat.ask.howMulti" : "chat.ask.how");
+  // The open question (no message of the thread follows it): what the card carries of it is not drawn a second time, and a message with nothing else to
+  // show is hidden whole. Its how-to line shows only while the card carries none of its questions; once the server has said what the pane shows and
+  // that is not this question, the line names the Terminal tab alone. True when anything changed
+  function fitAsks() {
+    const card = window.SalaQuestionCard ? SalaQuestionCard.standing() : undefined;
+    const all = [...$("#chat").querySelectorAll(":scope > .msg:not(.local)")], open = all[all.length - 1];
+    let changed = false;
+    const hide = (n, on) => { if (n.hidden !== on) { n.hidden = on; changed = true; } };
+    for (const n of all) {
+      if (!n.clAsks) continue;
+      const { questions, nodes, how } = n.clAsks;
+      const carried = questions.map((q) => n === open && onCard(q, card));
+      nodes.forEach((node, i) => hide(node, carried[i]));
+      const key = n === open && card !== undefined ? "chat.ask.howTerm" : howKey(questions);
+      if (how.dataset.i18n !== key) { how.dataset.i18n = key; how.textContent = tl(key); changed = true; }
+      hide(how, carried.includes(true));
+      hide(n, carried.every(Boolean) && [...n.children].every((c) => c === how || nodes.includes(c)));
+    }
+    return changed;
+  }
+  // the card came, went or changed: the open question is fitted to it, the view's place kept
+  function cardChanged() {
+    if (st.name === null || !ui) return;
+    const keep = !chatScroll.pinned && state.tab === "chat" ? scrollAnchor() : null;
+    if (!fitAsks()) return;
+    if (chatScroll.pinned) { if (state.tab === "chat") scrollToBottom(); }
+    else if (keep) restoreAnchor(keep);
+    updateJump();
+  }
+
   // #chat holds `want`, in order; only what differs is touched. The session view's own spinner (hidden by chatlayer.css) and its live block of a running
   // "!" command stay, under what is drawn. True when anything moved
   function place(chat, want) {
@@ -329,7 +387,8 @@ window.SalaThreadLayer = (() => {
     const marked = markIn(st.loaded || st.failed);   // before the scroll below, which then counts the strip's height
     paintOlder();
     paintMark();
-    if (place(chat, want) || marked) {
+    const moved = place(chat, want), fitted = fitAsks();
+    if (moved || fitted || marked) {
       if (pinned) { if (state.tab === "chat") scrollToBottom(); }
       else if (keep) restoreAnchor(keep);
     }
@@ -428,6 +487,7 @@ window.SalaThreadLayer = (() => {
       paintMark();
     }).observe(chat, { childList: true });
     new ResizeObserver(fitSoon).observe(chat);
+    document.addEventListener("sala:question-card", cardChanged);
     chat.addEventListener("load", (e) => { const t = e.target.closest && e.target.closest(".md table"); if (t) remeasure([t]); }, true);   // an image in a cell
     if (document.fonts) document.fonts.addEventListener("loadingdone", () => remeasure(chat.querySelectorAll(".md table")));
     // the words of a failed read ask for a scroll: up for older messages, down for newer ones
@@ -439,5 +499,5 @@ window.SalaThreadLayer = (() => {
     SalaI18n.onChange(paintOlder);   // every other word of the layer is rewritten by its data-i18n attribute
   }
 
-  return { takes, sync, reset, append, status, refresh, langOf, firstLine, mergePage };
+  return { takes, sync, reset, append, status, refresh, langOf, firstLine, mergePage, onCard };
 })();

@@ -279,6 +279,7 @@ window.SALA_I18N_EN = {
   "chat.answer.sending": "Sending…",
   "chat.ask.how": "To answer, send an option's number here or use the Terminal tab. To answer in your own words, send esc first, then your message.",
   "chat.ask.howMulti": "To answer, use the Terminal tab. To answer in your own words, send esc first, then your message.",
+  "chat.ask.howTerm": "To answer, use the Terminal tab.",
   "chat.ask.multi": "You can pick more than one.",
   "chat.card.artifact": "Claude artifact",
   "chat.card.mockup": "Mockup {n}",

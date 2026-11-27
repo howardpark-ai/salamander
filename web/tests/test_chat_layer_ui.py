@@ -26,11 +26,13 @@ Held here, against the real server:
     thread, with no sideways scroll at the four widths; the interrupt line takes no pending bubble and sets no language;
   - a "!" or slash command and its output are in the thread, the output taking the live block's place and the command's line its pending bubble's; a command's
     output leaves the open turn's words beside the working mark;
-  - a sent file that is no image shows its name and caption with nothing to tap; a question says whether it takes several answers and how to answer it until a
-    message of the thread follows; the answers show on the owner's side and take no pending bubble; no sideways scroll at the four widths with any of these;
+  - a sent file that is no image shows its name and caption with nothing to tap; a question says whether it takes several answers and, where the page never
+    hears of a card, how to answer it until a message of the thread follows; the answers show on the owner's side and take no pending bubble; no sideways
+    scroll at the four widths with any of these;
   - off, the chat session and another one are drawn by the session view; on, the other session's page is the same, opened directly or from the chat;
-  - the card of a waiting question (dialogcard.js) stands under the layer's thread and its copy of the question, stays last as the thread grows and answers
-    with one tap, with no sideways scroll at the four widths.
+  - while the card of a waiting question (dialogcard.js) shows a question and can answer it, the thread draws no second copy and no line on how to answer;
+    in a call of several questions the ones the card does not show stay; with no card, another dialog's card, previews or a card that cannot answer, the
+    question stays as text and the line names the Terminal tab; the card stays last and answers with one tap; no sideways scroll at the four widths.
 
 What a wrong answer costs: the owner reads the session's own working lines as answers, a reply never arrives or arrives twice, a phone page that scrolls
 sideways, another session's page changed by a setting that is not its own. Runs in a headless Chromium when one is installed (conftest.py: `served`,
@@ -1037,6 +1039,14 @@ def test_a_commands_output_leaves_the_open_turns_words_beside_the_mark(served, b
 HOW = "[...document.querySelectorAll('#chat .cl-ask-how')].map((n) => [n.textContent, n.getClientRects().length > 0])"
 HOW_ONE = "To answer, send an option's number here or use the Terminal tab. To answer in your own words, send esc first, then your message."
 HOW_MANY = "To answer, use the Terminal tab. To answer in your own words, send esc first, then your message."
+HOW_TERM = "To answer, use the Terminal tab."
+
+
+def no_card_route(browser) -> None:
+    """api/s/<pid>/dialog answers 404, as a server without the route does: the page never hears what the pane shows."""
+    browser.send("Page.enable")
+    browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": r"""(() => { const real = window.fetch.bind(window);
+  window.fetch = (url, opts) => (/^api\/s\/\d+\/dialog$/.test(String(url)) ? Promise.resolve(new Response("", { status: 404 })) : real(url, opts)); })()"""})
 SENT_FILE = """[...document.querySelectorAll('#chat > .msg.assistant > .cl-file')].map((f) => [f.querySelector('.sf-name').textContent,
   f.querySelector('.cl-file-cap').textContent, f.querySelectorAll('a, button').length, !!f.querySelector('svg')])"""
 ANSWERS = "[...document.querySelectorAll('#chat > .msg.user > .cl-answer .cl-answer-one')].map((n) => [...n.children].map((c) => c.textContent))"
@@ -1047,6 +1057,7 @@ ANSWERS = "[...document.querySelectorAll('#chat > .msg.user > .cl-answer .cl-ans
 def test_a_sent_file_a_question_and_its_answer_show_and_how_to_answer_stands_until_the_thread_moves_on(served, browser, monkeypatch, size):
     report = call("SendUserFile", {"files": ["/w/demo/report.docx"], "caption": "The figures", "status": "normal"}, 1)
     write(served, human("send it", 1), report, tool_result(1), assistant("Sent.", 2), human("pick one", 3), asked(4))
+    no_card_route(browser)
     open_chat(browser, served, monkeypatch, size)
     assert wait_for(browser, f"{LAYERED} && {HOW}.length === 1", 20.0), browser.evaluate(THREAD)
     assert browser.evaluate(SENT_FILE) == [["report.docx", "The figures", 0, True]]
@@ -1062,9 +1073,14 @@ def test_a_sent_file_a_question_and_its_answer_show_and_how_to_answer_stands_unt
     assert browser.evaluate(ANSWERS) == [["Which colour?", "Blue"], ["Which size?", "Small"]]
     assert browser.evaluate(HOW) == [[HOW_MANY, False]]
     assert browser.evaluate(PENDING) == ["esc"], "the answer's line is no copy of a message on its way"
-    append(served, assistant("Blue it is.", 6), human("and again", 7), asked(8, ASK[:1]))
+    append(served, assistant("Blue it is.", 6), human("and again", 7), asked(8, [one_question("Colour", "Which colour?", ("Red", "warm"), ("Blue", "cool"))]))
     assert wait_for(browser, f"{HOW}.length === 2", 20.0), browser.evaluate(THREAD)
     assert browser.evaluate(HOW) == [[HOW_MANY, False], [HOW_ONE, True]]
+    # a question with previews: a number sent from here would only move the dialog's focus, so the line does not offer one
+    append(served, human("once more", 9), asked(10, ASK[:1]))
+    assert wait_for(browser, f"{HOW}.length === 3", 20.0), browser.evaluate(THREAD)
+    assert browser.evaluate(HOW)[-1] == [HOW_MANY, True]
+    assert browser.evaluate("document.querySelectorAll('#chat > .q-card').length") == 0
 
 
 # a box of a message that ends outside the window or holds more across than itself
@@ -1102,30 +1118,131 @@ def test_no_sideways_scroll_with_commands_their_output_sent_files_and_answers(se
     assert got == {"out": [], "wide": [], "drawn": [1, 1, 2, 1, 1, 2, 2]}, (width, got)
 
 
-@pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
-@pytest.mark.parametrize("width", [1280, 390, 360, 320])
-def test_a_waiting_questions_card_stands_under_the_layers_thread_and_answers_with_a_tap(served, browser, monkeypatch, width):
-    card = choice(3, long=True)
-    write(served, human(EN, 1), asked(2, ASK[:1]))
-    serve_card(browser, card)
+# the questions of the thread (their words, and whether each is on screen), the how-to lines on screen, the card's title, whether the card is the last
+# thing in #chat, and how many of the thread's messages take room
+ASKS = """(() => { const on = (n) => n.getClientRects().length > 0, chat = document.querySelector('#chat'), card = chat.querySelector(':scope > .q-card');
+  return { asks: [...chat.querySelectorAll('.cl-ask')].map((q) => [q.querySelector('.cl-ask-q').textContent, on(q)]),
+    how: [...chat.querySelectorAll('.cl-ask-how')].filter(on).map((n) => n.textContent),
+    card: [...chat.querySelectorAll(':scope > .q-card .q-title')].map((n) => n.textContent),
+    last: !!card && chat.lastElementChild === card, messages: [...chat.querySelectorAll(':scope > .msg')].filter(on).length }; })()"""
+OWN_ROWS = (("Type something.", ""), ("Chat about this", ""))     # the rows Claude Code adds under the options of a question of one answer
+
+
+def one_question(header: str, asking: str, *options: tuple, multi: bool = False) -> dict:
+    """A question of an AskUserQuestion call, as the transcript records it."""
+    return {"header": header, "question": asking, "multiSelect": multi,
+            "options": [{"label": label, "description": desc} for label, desc in options]}
+
+
+def pane_card(title: str, *options: tuple, multi: bool = False) -> dict:
+    """The card the server reads from a pane that shows these words over these options (tmuxio.card)."""
+    rows = [{"n": n, "label": label, "description": desc, "checked": False} for n, (label, desc) in enumerate(options, 1)]
+    return {"kind": "multi" if multi else "choice", "title": title, "focus": None, "options": rows,
+            "text": title + "\n" + "\n".join(f"{o['n']}. {o['label']}" for o in rows)}
+
+
+def open_at(browser, served, monkeypatch, width: int) -> None:
     open_chat(browser, served, monkeypatch, (width, 800 if width > 700 else 844))
     if width < 700:
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
         assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
-    last = "document.querySelector('#chat').lastElementChild === document.querySelector('#chat > .q-card')"
-    assert wait_for(browser, f"{LAYERED} && document.querySelectorAll('#chat .cl-ask').length === 1 && !!document.querySelector('#chat > .q-card') && {last}", 30.0)
+
+
+def change_card(browser, card: dict | None) -> None:
+    """What the stubbed route answers from now on (serve_card), read at once."""
+    browser.evaluate(f"window.__card = {json.dumps(card)}; SalaQuestionCard.poll(); ''")
+
+
+def shows(browser, want: dict) -> None:
+    assert wait_for(browser, f"{LAYERED} && JSON.stringify({ASKS}) === JSON.stringify({json.dumps(want)})", 30.0), (want, browser.evaluate(ASKS))
     browser.settle("document.querySelector('#chat')")
+    assert browser.evaluate(ASKS) == want
+
+
+@pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
+@pytest.mark.parametrize("width", [1280, 390, 360, 320])
+def test_a_waiting_question_shows_as_the_card_alone_and_as_text_where_no_card_answers_it(served, browser, monkeypatch, width):
+    asking = f"Which one for {WORD}?"
+    options = [("Red " + WORD, "It is described at length. " + URL), ("Blue", "cool")]
+    questions = [one_question("Pick", asking, *options)]
+    title = "☐ Pick\n" + asking
+    card = pane_card(title, *options, *OWN_ROWS)
+    write(served, human(EN, 1), asked(2, questions))
+    serve_card(browser, card)
+    open_at(browser, served, monkeypatch, width)
+    # the card alone: no second copy of the question, no line on how to answer, and no empty message in its place
+    alone = {"asks": [[asking, False]], "how": [], "card": [title], "last": True, "messages": 1}
+    shows(browser, alone)
     m = browser.evaluate(CARD_MEASURE)
-    assert m["vw"] == width and m["last"] and (m["buttons"], m["boxes"]) == (3, 0), m
+    assert m["vw"] == width and (m["buttons"], m["boxes"]) == (4, 0), m
     card_check(m, f"{width} px, the card under the layer's thread")
-    append(served, human("Which one is safer?", 3))
-    assert wait_for(browser, f"document.querySelectorAll('#chat > .msg.user').length === 2 && {last}", 20.0)
-    assert browser.evaluate("document.querySelectorAll('#chat > .q-card').length") == 1
     browser.evaluate("document.querySelectorAll('#chat > .q-card button.q-opt')[1].click(); ''")
     assert wait_for(browser, "window.__posts.length === 1", 10.0)
     assert browser.evaluate("window.__posts[0]") == {"expect": card["text"], "key": "2"}
-    assert wait_for(browser, "!document.querySelector('#chat > .q-card')", 10.0)
-    assert browser.evaluate("document.querySelectorAll('#chat .cl-ask').length") == 1, "the thread keeps its copy of the question"
+    # the server reads no card on the pane: the thread's text is back, and the Terminal tab is the way to answer
+    text_only = {"asks": [[asking, True]], "how": [HOW_TERM], "card": [], "last": False, "messages": 2}
+    shows(browser, text_only)
+    rest = browser.evaluate(MESSAGES_WIDE)
+    m = browser.evaluate(MEASURE)
+    check(m, f"{width} px, the question as text")
+    assert rest["out"] == [] and rest["wide"] == [], (width, rest)
+    # another dialog's card is not this question's: the text stays above it
+    change_card(browser, choice(3))
+    shows(browser, {**text_only, "card": ["Which one should it be?"], "last": True})
+    change_card(browser, card)
+    shows(browser, alone)
+    # answered: the question is the thread's record again, under it the answer as before; the card stays last while the wait lasts
+    append(served, answered({asking: "Blue"}, 3, questions))
+    shows(browser, {"asks": [[asking, True]], "how": [], "card": [title], "last": True, "messages": 3})
+    assert browser.evaluate(ANSWERS) == [[asking, "Blue"]]
+
+
+@pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
+@pytest.mark.parametrize("width", [1280, 390, 360, 320])
+def test_a_call_of_several_questions_never_hides_one_the_card_does_not_show(served, browser, monkeypatch, width):
+    colour, size = "Which colour?", f"Which sizes for {WORD}?"
+    colours, sizes = [("Red", "warm"), ("Blue", "cool")], [("Small", ""), ("Large " + WORD, URL)]
+    questions = [one_question("Colour", colour, *colours), one_question("Size", size, *sizes, multi=True)]
+    tabs = "←  ☐ Colour  ☐ Size  ✔ Submit  →\n"
+    first = pane_card(tabs + colour, *colours, *OWN_ROWS)
+    second = pane_card(size, *sizes, multi=True)
+    review = pane_card(f"{tabs}Review your answers\n● {colour}\n→ Blue\n● {size}\n→ Small", ("Submit answers", ""), ("Cancel", ""))
+    write(served, human(EN, 1), asked(2, questions))
+    serve_card(browser, first)
+    open_at(browser, served, monkeypatch, width)
+
+    def fits(want: dict) -> None:
+        shows(browser, want)
+        m, rest = browser.evaluate(MEASURE), browser.evaluate(MESSAGES_WIDE)
+        check(m, f"{width} px, {want['card']}")
+        assert rest["out"] == [] and rest["wide"] == [], (width, rest)
+        if want["card"]:
+            card_check(browser.evaluate(CARD_MEASURE), f"{width} px, {want['card']}")
+
+    # the card shows one question at a time: the other stays in the thread, with no line on how to answer
+    fits({"asks": [[colour, False], [size, True]], "how": [], "card": [first["title"]], "last": True, "messages": 2})
+    change_card(browser, second)
+    fits({"asks": [[colour, True], [size, False]], "how": [], "card": [size], "last": True, "messages": 2})
+    # the review lists both with their answers
+    change_card(browser, review)
+    fits({"asks": [[colour, False], [size, False]], "how": [], "card": [review["title"]], "last": True, "messages": 1})
+    # a question of several answers that is not the last reads from the pane as a card of one answer, which cannot answer it
+    change_card(browser, pane_card(size, *[("[ ] " + label, desc) for label, desc in sizes]))
+    fits({"asks": [[colour, True], [size, True]], "how": [HOW_TERM], "card": [size], "last": True, "messages": 2})
+    change_card(browser, None)
+    fits({"asks": [[colour, True], [size, True]], "how": [HOW_TERM], "card": [], "last": False, "messages": 2})
+
+
+@pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
+@pytest.mark.parametrize("width", [1280, 390, 360, 320])
+def test_a_question_with_previews_stays_in_the_thread_beside_a_card_for_it(served, browser, monkeypatch, width):
+    options = [(o["label"], o["description"]) for o in ASK[0]["options"]]
+    card = pane_card(ASK[0]["question"], *options)
+    write(served, human(EN, 1), asked(2, ASK[:1]))
+    serve_card(browser, card)
+    open_at(browser, served, monkeypatch, width)
+    shows(browser, {"asks": [[ASK[0]["question"], True]], "how": [HOW_TERM], "card": [ASK[0]["question"]], "last": True, "messages": 2})
+    assert browser.evaluate("document.querySelector('#chat .cl-ask-preview').textContent") == "<b>swatch</b>"
 
 
 # ── every other page ─────────────────────────────────────────────────────────

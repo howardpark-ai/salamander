@@ -7,7 +7,8 @@ What is held:
   - no api answer depends on the setting, for the chat session or for another one;
   - app.js hands over in the places web/README.md names and nowhere else;
   - a running "!" command's live block is the session view's own: the event reaches it with the layer on, and the layer holds no copy of it;
-  - the layer's pure functions, run in node: which language a text is in, the first line of a reply, how a newer read joins what is held;
+  - the layer's pure functions, run in node: which language a text is in, the first line of a reply, how a newer read joins what is held, and whether
+    the card read from a pane carries a question of the transcript (what the layer then draws no second time);
   - why the layer reads the newest page and not `after`: `after` leaves out the later reply of a turn that was open at that cursor.
 
 What a wrong answer costs: a page that changes with the setting off, another session's page or answers changing with it on, turn text shown in a language the
@@ -28,10 +29,12 @@ import pytest
 from conftest import NAME, transcript_file
 from sala_web import config as C
 from sala_web import sessions as S
+from sala_web import tmuxio as T
 from sala_web import transcript as TR
 from sala_web.app import STATIC
 from test_chat_thread import get, said, write
 from test_chatturns import assistant, human, peer, tool_result
+from test_question_card import FIX, RULE, multi_screen
 
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(not NODE, reason="node is not installed")
@@ -260,6 +263,67 @@ def test_a_newer_read_joins_what_is_held_by_uuid():
     assert flat == [("ab", 0, True), ("abcd", 10, False), ("bcd", 20, False), ("bcd", 10, False), ("bcd", 0, True), ("xy", 90, False),
                     ("abcd", 10, False), ("ab", 10, False), ("", 0, True)]
     assert [m["v"] for m in got[1]["items"]] == ["held", "page", "page", "page"]     # the newer copy of a message wins
+
+
+# ── a question and the card read from the pane ───────────────────────────────
+CARRIES = r"""
+const fs = require('fs');
+globalThis.window = {};
+eval(fs.readFileSync(process.argv[1], 'utf8'));
+const cases = JSON.parse(fs.readFileSync(0, 'utf8'));
+console.log(JSON.stringify(cases.map(([q, card]) => window.SalaThreadLayer.onCard(q, card))));
+"""
+FOOT = "Enter to select · ↑/↓ to navigate · Esc to cancel"
+
+
+def question(asked: str, *options: tuple, multi: bool = False, preview: str = "") -> dict:
+    """A question block of the thread, as chatthread._questions makes it."""
+    q = {"kind": "question", "header": "Pick", "question": asked,
+         "options": [{"label": label, "description": desc, "preview": preview} for label, desc in options]}
+    return q | {"multiSelect": True} if multi else q
+
+
+def pane(*lines: str) -> str:
+    return "\n".join(["● Asking.", "", RULE, *lines])
+
+
+@needs_node
+def test_the_card_carries_a_question_only_when_it_shows_it_whole_and_its_buttons_answer_it():
+    letters = (("Alpha", "The first letter option"), ("Beta", "The second letter option"), ("Gamma", "The third letter option"))
+    many = question("Which letters?", *letters, multi=True)
+    colours = (("Red", "warm, and it is described at length so that the pane wraps it"), ("Blue", "cool"))
+    one = question("Which `colour` should the **long** demo box have?", *colours)
+    captured = T.card((FIX / "capture-ask-multi.txt").read_text(encoding="utf-8"))
+    choice = T.card(pane(" ☐ Pick", "", "Which colour should the long", "demo box have?", "", "❯ 1. Red", "     warm, and it is described at",
+                         "     length so that the pane wraps it", "  2. Blue", "     cool", "  3. Type something.", RULE, "  4. Chat about this", "", FOOT))
+    review = T.card(pane("←  ☒ Pick  ☒ Colour  ✔ Submit  →", "", "Review your answers", "", " ● Which letters?", "   → Alpha, Gamma", "",
+                         "Ready to submit your answers?", "", "❯ 1. Submit answers", "  2. Cancel", "", FOOT))
+    # a question of several answers that is not the call's last has "Next" where the last one has "Submit"
+    not_last = T.card(multi_screen(set(), 1).replace("     Submit", "     Next"))
+    preview = T.card(pane(" ☐ Pick", "", "Which colour should the long demo box have?", "", "❯ 1. Red                ┌──────┐",
+                          "  2. Blue               │ swatch │", "                        └──────┘", "", RULE, "  Chat about this", "", FOOT))
+    permission = T.card((FIX / "capture-dialog.txt").read_text(encoding="utf-8"))
+    assert [c["kind"] for c in (captured, choice, review, not_last, preview, permission)] == ["multi", "choice", "choice", "choice", "choice", "choice"]
+    cases = [
+        (many, captured, True),
+        (many, T.card(multi_screen({1}, 3)), True),
+        (one, choice, True),                                                                    # wrapped lines and markdown's marks change nothing
+        (many, review, True),                                                                   # the review lists it with its answer
+        (one, review, False),                                                                   # a question the review does not list
+        (many, not_last, False),                                                                # no button moves past it
+        (question(one["question"], *colours, preview="swatch"), preview, False),               # a number only moves the focus there
+        (question(one["question"], *colours, preview="swatch"), choice, False),                # the card draws no preview
+        (one, permission, False),                                                               # another dialog
+        (many, choice, False),                                                                  # another question
+        (question(one["question"], *colours, multi=True), choice, False),                      # several answers, a card of one
+        (question(one["question"], ("Red", "warm"), ("Green", "calm")), choice, False),        # the same words over other options
+        (question(one["question"], *colours, ("Green", ""), ("Grey", ""), ("Gold", "")), choice, False),   # options the screen does not hold
+        (question(one["question"], ("Red", "warm, and a sentence the screen cut off"), colours[1]), choice, False),
+        (many, None, False),
+    ]
+    out = subprocess.run([NODE, "-e", CARRIES, str(LAYER_JS)], input=json.dumps([[q, card] for q, card, _ in cases]),
+                         capture_output=True, text=True, check=True, timeout=60).stdout
+    assert json.loads(out) == [want for _, _, want in cases]
 
 
 # ── why the newest page ──────────────────────────────────────────────────────

@@ -26,7 +26,7 @@ first four only in a turn the owner started (a delivered turn's are kept back, a
     is an image, whose block carries it otherwise). The call itself is not shown;
   - the questions of an AskUserQuestion call: a block {"kind": "question", "header", "question", "options": [{"label", "description", "preview"}]} each, the
     options in the order the session's dialog numbers them, with "multiSelect": true on one that takes several answers. It is read here and answered
-    as every dialog is: from the composer (an option's number, or "esc") or the Terminal tab;
+    as every dialog is: on the page's question card (api/s/<pid>/dialog), from the composer (an option's number, or "esc") or the Terminal tab;
   - the answers such a call got, from its result's record (toolUseResult): a message on the owner's side, marked {"answer": true}, holding a block
     {"kind": "answer", "answers": [{"question", "answer"}]}. A call that was cancelled has none;
   - the line a request that ended in an API error leaves (an assistant line of model <synthetic> with isApiErrorMessage true): its text;
