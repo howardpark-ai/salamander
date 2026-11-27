@@ -277,12 +277,16 @@ def test_the_help_line_is_a_pressed_button_and_a_hidden_box_never_a_line_under_t
     onit = onit[:onit.index("const tab = ")]
     assert "chat.onit.note" not in onit and "wait-cap" not in onit, "no always-visible version under the second list"
     assert 'class: "wait-help", hidden: true, "aria-expanded": "false", "aria-controls": "chat-strip-onit-help"' in build
-    assert 'tx("chat.onit.help", null, "aria-label")' in build
-    assert 'class: "wait-pop", id: "chat-strip-onit-help", role: "note", hidden: true, ...tx("chat.onit.note")' in build
-    assert 'help.addEventListener("click", () => chatHelp(pop.hidden))' in build, "a press on the (?) toggles"
+    assert 'tx("chat.onit.help", null, "aria-label")' in body_of(APP_JS, "function chatHelpText("), "the label is set with the box's text"
+    assert 'class: "wait-pop", id: "chat-strip-onit-help", role: "note", hidden: true });' in build, "the box's text comes from chatHelpText, per list"
+    assert "wait-cap" not in build and 'chat.wait.note' not in build, "the first list's note is behind the (?) too"
+    assert 'help.addEventListener("click", () => chatHelp(pop.hidden || help.dataset.tip === "peek"))' in build, "a press on the (?) toggles, and keeps a box a hover opened"
     assert 'document.addEventListener("click"' in build and 'e.key === "Escape"' in build, "a press elsewhere and Escape shut it"
     assert "tabs, help, chevron, pop" in build, "in the bar, not among the tabs"
-    assert "u.help.hidden = u.onit.hidden;" in body_of(APP_JS, "function paintChatBar(") and "chatHelp(false)" in body_of(APP_JS, "function paintChatBar("), "it goes with its list"
+    paint_bar = body_of(APP_JS, "function paintChatBar(")
+    assert "u.help.hidden = !open;" in paint_bar and "chatHelp(false)" in paint_bar, "it goes with its list"
+    assert 'key = chatView.waitTab === "onit" ? "chat.onit.note" : "chat.wait.note"' in paint_bar and "chatHelpText(key)" in paint_bar, "each list says its own note"
+    assert 'u.pop.getAttribute("data-i18n") !== key' in paint_bar, "another list's box is shut"
     assert '"aria-expanded", String(on)' in body_of(APP_JS, "function chatHelp(")
 
 
@@ -324,9 +328,10 @@ def test_the_open_list_has_no_heading_and_the_panel_is_named_by_its_tab_s_words(
     assert "chat.wait.h" not in APP_JS and "chat.wait.sub" not in APP_JS and "sec-head" not in APP_JS
     assert not re.search(r"\.sec-head\b", STYLE), "no rule of the old heading row stays"
     build = body_of(APP_JS, "function buildChatStrip()")
-    assert '"aria-labelledby": "chat-strip-tab-move" }, waitList, waitNote,' in build, "the panel starts with the list, no heading"
+    assert '"aria-labelledby": "chat-strip-tab-move" }, waitList, waitNote);' in build, "the panel starts with the list, no heading"
     assert 'u.wait.setAttribute("aria-label", u.moveLine.textContent)' in body_of(APP_JS, "function paintChatWait()")
-    assert EN_T["chat.wait.note"] and KO_T["chat.wait.note"], "the footnote stays"
+    assert EN_T["chat.wait.note"] and KO_T["chat.wait.note"], "the note is in both tables"
+    assert '"chat.wait.note"' in body_of(APP_JS, "function paintChatBar("), "the first list's note is behind the (?), not under the list"
 
 
 def test_a_row_hangs_from_its_dot_and_the_box_is_a_clean_cover():

@@ -901,7 +901,7 @@ def test_no_sideways_scroll_with_the_pinned_bar_closed_and_on_each_tab(served, b
             click(browser, node)
         browser.settle(PIN)
         got, where = browser.evaluate(WIDE), f"{width} px, {which}"
-        assert got["vw"] == width and got["parts"] == (4 if which == "On it" else 3) and got["open"] == panels, (where, got)    # the (?) help button joins the tabs and the chevron on On it only
+        assert got["vw"] == width and got["parts"] == (3 if which == "closed" else 4) and got["open"] == panels, (where, got)    # the (?) help button joins the tabs and the chevron on an open list
         assert got["doc"][0] <= got["doc"][1] and got["body"][0] <= got["body"][1] and got["pane"][0] <= got["pane"][1], (where, got)
         assert got["over"] == [] and got["wide"] == [] and got["outRow"] == [] and not got["overlap"], (where, got)
         check_layer(browser, width)

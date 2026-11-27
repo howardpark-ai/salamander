@@ -142,4 +142,5 @@
   #ov-usage .us-t td { padding-top: 12px; padding-bottom: 12px; }
   #ov-usage .us-t td.us-nm { max-width: 56vw; }
   #ov-usage .us-notes summary { display: flex; align-items: center; min-height: 44px; }
+  #ov-usage .exp-help { width: 44px; height: 44px; }
 }

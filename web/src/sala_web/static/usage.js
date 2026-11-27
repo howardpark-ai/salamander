@@ -289,8 +289,8 @@ function renderNotes(d) {
       + `</tbody></table></div></details>` : "";
   const un = (d.unpriced || []).length
     ? `<p>${esc(tl("us.unpriced", { count: SalaI18n.number(d.unpriced.reduce((s, x) => s + x.replies, 0)), models: d.unpriced.map((x) => x.model).join(", ") }))}</p>` : "";
-  $u("#us-notes").innerHTML = `<p>${esc(WORDS.howTo)}</p><p>${esc(WORDS.machines)}</p>`
-    + `<p>${esc(WORDS.prices)}${p.asOf ? " " + esc(tl("us.asOf", { date: p.asOf })) : ""}</p>${un}${table}`;
+  const about = expHtml("us.howTo", "us.machines", "us.prices", ...(p.asOf ? [["us.asOf", { date: p.asOf }]] : []));
+  $u("#us-notes").innerHTML = `<p><span data-i18n="us.about">${esc(tl("us.about"))}</span> ${about}</p>${un}${table}`;
 }
 function showAge() {
   const f = $u("#us-upd"), d = D();
