@@ -10,7 +10,9 @@ in a state it is not in (the page says delivered for a message the session never
 - only the oldest held message is tried, and the page is told the others wait behind it;
 - cancel works on held and failed messages and answers "too late" (nothing changed) for typing, queued and delivered ones;
 - the transcript's user lines, queued_command attachments and a joined line ("T1 T2") mark the right messages delivered, in order, never
-  one that was typed after the line and never one the line does not show;
+  one that was typed after the line and never one the line does not show, and an older one no line matches does not stop the newer ones;
+- a typed message is accounted for only by an enqueue line of its own, and the input box's text is read as the messages it holds and what
+  is left over;
 - a message is "lost" only with an enqueue line that carries exactly it, no line after that took it, in the CLI's first-in-first-out order;
 - for a take-back, the CLI's queue is read from those lines, only sala's own messages are matched in it, and the lines written after the
   Up say which came back, which the session took first and which nothing speaks of; no line is read twice or missed between the two looks;
@@ -175,8 +177,136 @@ def test_messages_the_cli_joined_into_one_line_are_each_delivered_in_order(box):
 def test_a_message_the_lines_do_not_show_stays_queued(box):
     queued = [entry(1, "first", 1000), entry(2, "second", 1100)]
     assert OB.delivered_ids(queued, [row(2000, "something else")]) == []
-    assert OB.delivered_ids(queued, [row(2000, "second")]) == []               # the second is not taken before the first (first in, first out)
     assert OB.delivered_ids(queued, []) == []
+
+
+def test_an_older_message_no_line_matches_does_not_stop_the_newer_ones(box):
+    queued = [entry(1, "lost", 1000), entry(2, "second", 1100), entry(3, "third", 1200)]
+    assert OB.delivered_ids(queued, [row(2000, "second")]) == ["m2"]
+    assert OB.delivered_ids(queued, [row(2000, "second\nthird")]) == ["m2", "m3"]
+    assert OB.delivered_ids(queued, [row(2000, "second"), row(2100, "lost")]) == ["m2", "m1"]
+    # past the unmatched one, only whole words at the start of a line count: not its end, not the start of a longer word
+    assert OB.delivered_ids(queued, [row(2000, "not the second"), row(2100, "secondly")]) == []
+
+
+def test_a_typed_message_is_accounted_for_by_one_enqueue_line_of_its_own(box):
+    def line(op, ts, text):
+        return {"op": op, "ts": ts, "text": text, "raw": text}
+
+    a, again = entry(1, "go on", 10_000), entry(2, "go on", 11_000)
+    assert OB.unaccounted([a, again], []) == [a, again]
+    assert OB.unaccounted([again, a], [line("enqueue", 12_000, "go on")]) == [again]               # one line, the older one's
+    assert OB.unaccounted([a], [line("enqueue", 10_000 - OB.SLACK_MS - 1, "go on")]) == [a]        # written before it was typed
+    assert OB.unaccounted([a], [line("popAll", 12_000, "go on")]) == [a]                           # only an enqueue line speaks
+    # typed again after an Up pulled it: the line written before that Up is the earlier typing's
+    retyped = entry(1, "go on", 20_000)
+    before = [line("enqueue", 18_000, "go on"), line("popAll", 19_000, "go on")]
+    assert OB.unaccounted([retyped], before) == [retyped]
+    assert OB.unaccounted([retyped], [*before, line("enqueue", 21_000, "go on")]) == []
+    up = entry(3, "see", 10_000, ["x.png"])
+    assert OB.unaccounted([up], [line("enqueue", 11_000, "/srv/state/uploads/x.png see")]) == []   # the path comes first
+    assert OB.unaccounted([entry(4, "! ls", 10_000)], [line("enqueue", 11_000, "ls")]) == []
+
+
+def test_the_input_box_is_read_as_the_messages_it_holds_and_what_is_left_over():
+    assert OB.box_parts("A\nB\nC", ["A", "B"]) == ([True, True], ["C"])
+    assert OB.box_parts("A\nB\nC", ["C", "A", "B"]) == ([True, True, True], [])
+    assert OB.box_parts("typed here\nA", ["A", "B"]) == ([True, False], ["typed here"])
+    assert OB.box_parts("one two th\nree\nB", ["one two three", "B"]) == ([True, True], [])        # wrapped at the pane's width
+    assert OB.box_parts("go\ngo", ["go"]) == ([True], ["go"])                                      # each part counts once
+    assert OB.box_parts("let us go", ["go"]) == ([False], ["let us go"])                           # a message stands on lines of its own
+    assert OB.box_parts("line one\n\n  line two", ["line one\n\n  line two"]) == ([True], [])
+    assert OB.box_parts("", ["A"]) == ([False], [])
+
+
+def chip(n, breaks=0):
+    return f"[Pasted text #{n} +{breaks} lines]" if breaks else f"[Pasted text #{n}]"
+
+
+def test_a_paste_is_folded_past_800_characters_or_past_two_line_breaks():
+    fold = OB.fold_count
+    assert fold("w" * 800) is None and fold("w" * 801) == 0
+    assert fold("w" * 400 + "\n" + "y" * 399) is None and fold("w" * 400 + "\n" + "y" * 400) == 1
+    assert fold("a\nb\nc") is None and fold("a\nb\nc\nd") == 3 and fold("a\nb\nc\n") == 3
+    assert fold(chr(0xAC00) * 800) is None and fold(chr(0xAC00) * 801) == 0                   # characters, not bytes
+    assert fold(chr(0x1F600) * 400) is None and fold(chr(0x1F600) * 401) == 0                 # as UTF-16 counts them
+    assert fold("w" * 400 + "\t" + "w" * 396) is None and fold("w" * 400 + "\t" + "w" * 397) == 0   # a tab is four spaces
+    assert fold(" " * 20 + "w" * 790) == 0 and fold("w" * 790 + " " * 20) == 0                # spaces at the ends count
+    assert fold("a\r\nb") is None and fold("a\r\nb\r\nc") == 4                               # pasted, CR LF is two breaks
+
+
+def test_a_box_matches_only_the_named_messages_in_their_order_up_to_its_end():
+    six, other, long = "a\nb\nc\nd\ne\nf", "g\nh\ni\nj\nk\nl", "y" * 801
+    tall = "\n".join("x" * 41)
+    fits = OB.box_matches
+    assert fits(chip(1, 5), [six]) and fits(chip(1), [long])
+    assert fits(f"{chip(1, 5)}\n{chip(2, 40)}", [six, tall]) and not fits(f"{chip(2, 40)}\n{chip(1, 5)}", [six, tall])   # in order
+    assert fits(f"one\n{chip(1)}\n{chip(2, 5)}\ntwo\nshort\n  second line", ["one", long, six, "two", "short\n  second line"])
+    assert fits(f"{six}\n{chip(1, 5)}", [six, other])                                                # one drawn open, one folded
+    assert fits(chip(1, 6), [six + "\n"]) and fits(chip(1, 7), ["\n" + six + "\n"])                   # breaks at the ends count too
+    assert fits(chip(1, 1), ["y" * 801 + "\n" + "z"]) and not fits(chip(1), ["y" * 801 + "\nz"])
+    assert fits("one\ntwo wrapped\nby the pane", ["one", "two wrapped by the pane"])
+    assert fits("a\n\n\nb\nnext", ["a\n\n\nb", "next"]) and fits("ends in a break\n\nnext", ["ends in a break\n", "next"])
+    assert fits("say [Pasted text #1] aloud", ["say [Pasted text #1] aloud"])
+    assert not fits(chip(1, 5), [])                                                              # a chip nothing names
+    assert not fits(chip(1), ["y" * 800]) and not fits(chip(1), ["short"])                       # too short to have been folded
+    assert not fits(chip(1, 2), ["a\nb\nc"])                                                      # as little as is drawn open
+    assert not fits(chip(1, 6), [six]) and not fits(chip(1, 5), [six + "\n"])                     # the count differs
+    assert not fits(chip(1), [six]) and not fits(chip(1, 5), [long])
+    assert not fits(f"{chip(1)}\n{chip(2)}", [long])                                             # one chip more than messages
+    assert not fits(chip(1), [long, "z" * 900])                                                  # a message with no place
+    assert not fits(chip(1), [long, "one"]) and not fits(chip(1), ["one", long])
+    assert not fits(f"typed here\n{chip(1)}", [long]) and not fits(f"{chip(1)}\ntyped here", [long])
+    assert not fits(f"{chip(1)} typed after it", [long]) and not fits(f"typed before it {chip(1)}", [long])
+    assert not fits("one\ntwo typed", ["one", "two"]) and not fits("two\none", ["one", "two"])
+    assert not fits("onetwo", ["one", "two"])                                                    # each on rows of its own
+    assert not fits("[...Truncated text #1 +5 lines...]", [six]) and not fits("[Pasted text #1 +0 lines]", [long])
+    assert not fits("", ["one"]) and fits("", [])
+
+
+def test_a_box_with_rows_out_of_view_above_matches_from_its_end():
+    fits = OB.box_matches
+    long = "y" * 801
+    assert fits("two\nthree", ["one", "two", "three"], True)                   # the view begins at a message
+    assert fits("the end of it\nlast", ["a message, the end of it", "last"], True)
+    assert fits("of it", ["zero", "a message, the end of it"], True)
+    assert fits(f"two\n{chip(3)}\nlast", ["one", "two", long, "last"], True)
+    assert fits(f"{chip(3)}\nlast", [long, long + "z", "last"], True)
+    assert not fits("one\ntwo", ["one", "two"], True)                         # rows out of view, and no message left for them
+    assert not fits("the end of it\nlast typed", ["a message, the end of it", "last"], True)
+    assert not fits("two\nthree\ntyped", ["one", "two", "three"], True)
+    assert not fits("two\nthree", ["one", "two", "three", "four"], True)      # the newest is not at the end
+    assert not fits("typed\nthree", ["one", "two", "three"], True)            # a row in view that is no part of the message there
+    assert not fits("the start of it\nlast", ["the start of it, and more", "last"], True)
+    assert not fits(f"{chip(3, 5)}\nlast", ["one", long, "last"], True)
+    assert not fits("two\nthree", ["one", "two", "three"])                    # nothing out of view: every message has its place
+    # folds alike to the end could as well be one fold more, pasted at the terminal: not read
+    assert not fits(f"{chip(2)}\n{chip(3)}", [long, long, long], True)
+    assert not fits(f"{chip(2, 5)}\n{chip(3, 5)}\n{chip(9, 5)}", ["a\nb\nc\nd\ne\nf"] * 4, True)
+    assert fits(f"{chip(2)}\n{chip(3)}\n{chip(4)}", [long, long, long])        # nothing out of view: the count settles it
+    assert fits(f"two\n{chip(3)}\n{chip(4)}", ["one", "two", long, long], True)
+    assert fits(f"{chip(3)}\n{chip(4, 5)}", ["one", long, "a\nb\nc\nd\ne\nf"], True)
+
+
+def test_rows_at_the_top_that_end_a_folded_message_are_not_that_message():
+    fits = OB.box_matches
+    long, six = "y" * 801 + " the closing words", "a\nb\nc\nd\nthe closing words"
+    # a message the box folds is never shown in part, so open rows that read as its end are other text
+    assert not fits("the closing words", [long], True) and not fits("the closing words", [six], True)
+    assert not fits("d\nthe closing words\nlast", ["zero", six, "last"], True)
+    assert not fits(f"the closing words\n{chip(2)}", [long, "z" * 900], True)
+    # so such a reading does not make an ending fold look like one fold more either
+    assert fits(f"the closing words\n{chip(2)}", ["an open one, the closing words", long], True)
+
+
+def test_the_boxs_order_is_the_order_of_the_popall_lines():
+    def pop(text):
+        return {"op": "popAll", "ts": 1, "text": text, "raw": text}
+
+    named = [("m1", "one"), ("m2", "two"), ("m3", "one")]
+    assert OB.pop_order([pop("two"), pop("one"), {"op": "enqueue", "ts": 1, "text": "x", "raw": "x"}, pop("one")], named) == ["m2", "m1", "m3"]
+    assert OB.pop_order([pop("one"), pop("two")], named) is None                # one of them has no line
+    assert OB.pop_order([pop("one"), pop("two"), pop("one"), pop("other")], named) is None
 
 
 def test_a_file_s_path_before_the_text_and_an_image_chip_do_not_hide_the_message(box):
