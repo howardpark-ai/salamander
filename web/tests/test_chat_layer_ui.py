@@ -7,7 +7,7 @@ Held here, against the real server:
   - only what GET api/chat/thread answers is drawn, on opening and as the transcript grows: no line between tool calls, no tool card, no subagent or task
     notice, no kept-back line;
   - a sent message shows at once and gives way to the transcript's copy, and an older message with the same words does not take its place;
-  - the link cards are the ones the session view draws;
+  - the link cards are the ones the session view draws, and what a reply writes in HTML is cut down to the same markup as there;
   - the working mark: the open turn's words beside it only in the language of the owner's last message, else the bare mark;
   - older messages come as the reader scrolls up, and the place is kept;
   - a failed read, a reconnect, a long absence, a language change, a reload, a session asleep, not running or gone from the list;
@@ -28,7 +28,9 @@ Held here, against the real server:
     output leaves the open turn's words beside the working mark;
   - a sent file that is no image shows its name and caption with nothing to tap; a question says whether it takes several answers and how to answer it until a
     message of the thread follows; the answers show on the owner's side and take no pending bubble; no sideways scroll at the four widths with any of these;
-  - off, the chat session and another one are drawn by the session view; on, the other session's page is the same, opened directly or from the chat.
+  - off, the chat session and another one are drawn by the session view; on, the other session's page is the same, opened directly or from the chat;
+  - the card of a waiting question (dialogcard.js) stands under the layer's thread and its copy of the question, stays last as the thread grows and answers
+    with one tap, with no sideways scroll at the four widths.
 
 What a wrong answer costs: the owner reads the session's own working lines as answers, a reply never arrives or arrives twice, a phone page that scrolls
 sideways, another session's page changed by a setting that is not its own. Runs in a headless Chromium when one is installed (conftest.py: `served`,
@@ -60,6 +62,7 @@ from test_chat_session_view_ui import CODE, DESKTOP, MEASURE, PHONE, SIZES, TABL
 from test_chat_thread import ASK, OVERLOADED, answered, api_error, asked, banged, call, command_output, interrupt, local, task
 from test_chatturns import assistant, human, peer, tool_result
 from test_composer_attach import WAIT_CHIPS, pick
+from test_question_card_ui import MEASURE as CARD_MEASURE, check as card_check, choice, serve_card
 from test_sleeping_sessions import wake  # noqa: F401  (a fixture: the stand-in sala and its sleeping markers)
 
 OWNER = "Rowan"
@@ -228,6 +231,22 @@ def test_the_link_cards_are_the_ones_the_session_view_draws(served, browser, mon
     # a reply that arrives while the page is open has its card too
     append(served, human("one more", 3), assistant("Here: [the page again](/mockup/3).", 4))
     assert wait_for(browser, f"{cards}.length === {len(plain) + 1}", 20.0), browser.evaluate(cards)
+
+
+def test_what_a_reply_writes_in_html_is_cut_down_as_in_the_session_view(served, browser, monkeypatch):
+    written = ('Words first.\n\n<form action="/nowhere"><input name="who"><button>go</button></form>\n\n'
+               '<img src="missing.png" onerror="window.__ran = 1">\n\n<a href="javascript:window.__ran = 1">tap</a>\n\n'
+               '<script>window.__ran = 1</script>\n\nWords last.')
+    write(served, human("show it", 1), assistant(written, 2))
+    reply = "(() => { const m = document.querySelector('#chat .msg.assistant .md'); return m && m.textContent.includes('Words last.') ? m.innerHTML : null; })()"
+    drawn = {}
+    for layer in (None, "on"):
+        open_chat(browser, served, monkeypatch, PHONE, layer=layer)
+        assert wait_for(browser, f"{LAYERED} === {json.dumps(layer == 'on')} && !!{reply}", 20.0)
+        drawn[layer] = browser.evaluate(reply)
+        assert browser.evaluate("document.querySelectorAll('#chat .md :is(form, script, [onerror], a[href^=\"javascript\"])').length") == 0
+        assert browser.evaluate("typeof window.__ran") == "undefined"
+    assert drawn["on"] == drawn[None]
 
 
 # ── a sent message ───────────────────────────────────────────────────────────
@@ -1073,7 +1092,7 @@ def test_no_sideways_scroll_with_commands_their_output_sent_files_and_answers(se
     if width < 700:
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
         assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
-    ready = f"{LAYERED} && document.querySelectorAll('#chat .cl-ask').length === 2 && document.querySelectorAll('#chat-strip-wait .wait-row').length === 2"
+    ready = f"{LAYERED} && document.querySelectorAll('#chat .cl-ask').length === 2 && document.querySelectorAll('#chat-strip-wait-panel .wait-row').length === 2"
     assert wait_for(browser, ready, 30.0), browser.evaluate(MESSAGES_WIDE)
     browser.evaluate("document.querySelectorAll('#chat details').forEach((d) => { d.open = true; }); ''")   # what a fold holds, too
     browser.settle("document.querySelector('#chat')")
@@ -1081,6 +1100,32 @@ def test_no_sideways_scroll_with_commands_their_output_sent_files_and_answers(se
     assert m["vw"] == width, m
     check(m, f"{width} px with commands, files and answers")
     assert got == {"out": [], "wide": [], "drawn": [1, 1, 2, 1, 1, 2, 2]}, (width, got)
+
+
+@pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
+@pytest.mark.parametrize("width", [1280, 390, 360, 320])
+def test_a_waiting_questions_card_stands_under_the_layers_thread_and_answers_with_a_tap(served, browser, monkeypatch, width):
+    card = choice(3, long=True)
+    write(served, human(EN, 1), asked(2))
+    serve_card(browser, card)
+    open_chat(browser, served, monkeypatch, (width, 800 if width > 700 else 844))
+    if width < 700:
+        browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
+    last = "document.querySelector('#chat').lastElementChild === document.querySelector('#chat > .q-card')"
+    assert wait_for(browser, f"{LAYERED} && document.querySelectorAll('#chat .cl-ask').length === 1 && !!document.querySelector('#chat > .q-card') && {last}", 30.0)
+    browser.settle("document.querySelector('#chat')")
+    m = browser.evaluate(CARD_MEASURE)
+    assert m["vw"] == width and m["last"] and (m["buttons"], m["boxes"]) == (3, 0), m
+    card_check(m, f"{width} px, the card under the layer's thread")
+    append(served, human("Which one is safer?", 3))
+    assert wait_for(browser, f"document.querySelectorAll('#chat > .msg.user').length === 2 && {last}", 20.0)
+    assert browser.evaluate("document.querySelectorAll('#chat > .q-card').length") == 1
+    browser.evaluate("document.querySelectorAll('#chat > .q-card button.q-opt')[1].click(); ''")
+    assert wait_for(browser, "window.__posts.length === 1", 10.0)
+    assert browser.evaluate("window.__posts[0]") == {"expect": card["text"], "key": "2"}
+    assert wait_for(browser, "!document.querySelector('#chat > .q-card')", 10.0)
+    assert browser.evaluate("document.querySelectorAll('#chat .cl-ask').length") == 1, "the thread keeps its copy of the question"
 
 
 # ── every other page ─────────────────────────────────────────────────────────

@@ -5417,6 +5417,10 @@ Kept (`test_chat_layer_ui.py`, a headless Chromium, else skipped; GitHub CI runs
 
 Not covered, and why: a real session's dialog, so what the line on how to answer says about the keys the composer sends is read from the server's own rule and not tried on a pane; a change in how Claude Code words or records these lines; Firefox and Safari.
 
+### A waiting question's card under the chat session's own layer: `web/tests/test_chat_layer_ui.py` (browser) changed (Fri Nov 27th 2026)
+
+Kept (a headless Chromium, else skipped; GitHub CI runs it): with the setting on and the session waiting, at 1280, 390, 360 and 320 px the card of the question (`dialogcard.js`) is the last thing under the layer's thread and its copy of the question, with no sideways scroll; it stays last, and single, as the thread grows; one tap posts the option's number with the question's words, the card goes and the thread keeps its copy. The card's own server is `test_question_card.py`. Also: a reply holding a form, a script, an `onerror` image and a `javascript:` link comes out as the same markup with the setting on and off, with none of them in it and nothing run.
+
 ### The chat strip's rows under a finger, and a list cut under the tabs: `web/tests/test_chat_onit_ui.py` (browser) changed; `test_chat_wait_pin_ui.py` (browser) and `test_chat_session_view.py` follow (Thu Nov 26th 2026)
 
 On a touch screen a title link's tap area was about 40 px on the first list and 30 px on the second, where the line under the title lay over its lower part; and under the bar of tabs a list scrolled down was cut right on the selected tab's underline. Under a coarse pointer the link's box is now padded to just over 44 px and lifted above that line, with no row taller; under the bar the list starts 4 px lower and is cut there.
