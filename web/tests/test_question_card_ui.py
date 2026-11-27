@@ -29,7 +29,7 @@ URL = "https://example.com/" + "a-very-long-path-segment/" * 10 + "end"
 def choice(n: int = 3, long: bool = False) -> dict:
     return {"kind": "choice", "text": "Pick one\n" + "\n".join(f"{i}. Option {i}" for i in range(1, n + 1)), "focus": None,
             "title": ("Which one should it be? " + WORD + " " + URL) if long else "Which one should it be?",
-            "options": [{"n": i, "label": f"Option {i} " + (WORD if long else ""), "description": ("It is described at length. " + URL) if long else f"About {i}", "checked": False}
+            "options": [{"n": i, "label": f"Option {i}" + (" " + WORD if long else ""), "description": ("It is described at length. " + URL) if long else f"About {i}", "checked": False}
                         for i in range(1, n + 1)]}
 
 
