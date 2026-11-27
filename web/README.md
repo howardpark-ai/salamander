@@ -757,7 +757,8 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
   web `busy` status: a turn in progress does not hold a message (Claude Code queues it). A pasted message the pane did not submit (`pasted`) is submitted
   only while the box holds exactly its text, else it is `failed`: never typed twice.
 - **Delivered, and lost.** A transcript user line (or a `queued_command` line, or a line that joins several queued messages) with the message's text,
-  stamped no earlier than the message was sent (3 s of slack), marks it `delivered`. A `queued` message that a `popAll` line stamped
+  stamped no earlier than the message was sent (3 s of slack), marks it `delivered`; an older message that no line matches does not stop the
+  ones after it. A `queued` message that a `popAll` line stamped
   after it was sent names (it was pulled back into the input line by an Up that sala-web did not press) is `failed` with its text kept. A `queued` message whose session process has ended before any such
   line is **resent once, only on positive evidence**: an `enqueue` line of the transcript's `queue-operation` rows carrying exactly its text, with no
   `remove`, `dequeue` or `popAll` line that took its place in the queue (first in, first out). An enqueue made during a compaction has no content and is
@@ -768,17 +769,23 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
   joins at the end of the list (it does not keep its place). A `queued` message (typed, not yet read by Claude) is **taken back** first
   (`_take_back` in `app.py`). Once Claude took it the answer is **409 `tooLate`** ("too late: ...; nothing was changed").
 - **Taking a queued message back.** Claude Code cannot drop one queued message: one **Up** pulls its whole queue into the input box. So,
-  with the pane's locks held from the first look to the last resend: the transcript's `queue-operation` lines must show the message in the
+  with the pane's locks held from the first look to the last resend: every message sala-web typed into the pane in the last 120 s
+  (`LINE_PATIENCE`; through the outbox or `api/s/<pid>/send`) must show in the transcript, as its `enqueue` line, a user line or a command
+  record. Claude Code writes that line seconds after the Enter, and an Up pulls a message whose line is not written yet, so the take-back
+  waits up to 5 s (`TAKE_BACK_LINE_WAIT`), then answers busy. The `queue-operation` lines must show the asked message in the
   queue and nothing there that sala-web did not send (Claude Code's own notices, a task's or another session's, are passed over); no queued
   message may have an upload; no permission or question dialog may be open; text in the input line is cleared first (kept as below). The
-  messages about to be pulled are marked `typing`, then Up is pressed. The lines written after it say what happened: the asked message is
-  withdrawn; the others that came back (`popAll`) are cleared out of the box and typed again, in their order; one that Claude took first
-  stays its own (and the answer for it is `tooLate`). Otherwise the answer is **409 `busy`** with why and nothing changed. When no line
-  accounts for a message after the Up, it is `failed` with its text kept and never typed again by sala-web: nothing is typed twice, and
-  nothing is dropped without being told. Taking one of many back types all the others again, so it takes time (30 queued: about 27 s, measured
-  once on 2.1.332), and Claude may read them later than it would have.
+  messages about to be pulled are marked `typing`, then Up is pressed. The lines written after it and the input box say what happened: the
+  asked message is withdrawn; the others that came back (`popAll`, or found in the box) are cleared out of the box and typed again, in their
+  order; one that Claude took first stays its own (and the answer for it is `tooLate`). Otherwise the answer is **409 `busy`** with why and
+  nothing changed. When no line accounts for a message after the Up, it is `failed` with its text kept and never typed again by sala-web.
+  Text in the box that is none of these messages becomes a `failed` message of its own and goes into `outbox-cleared.jsonl` before the box
+  is cleared. A box that cannot be read whole (lines scrolled out of view, a long paste drawn as `[Pasted text #1 +3 lines]`, a box
+  tmux no longer shows) is left as it is: the messages it may hold are `failed` with their text, and the sender types nothing there until
+  the line is empty. Nothing is typed twice, and nothing is dropped without being told. Taking one of many back types all the others again,
+  so it takes time (30 queued: about 27 s, measured once on 2.1.332), and Claude may read them later than it would have.
 - **Text in the terminal's box.** It is never the owner's, so it is cleared and the message goes in, never held behind it (`draft` is held only when the
-  keys could not clear it). What was cleared is appended to `<state dir>/outbox-cleared.jsonl` before the keys go in: one JSON line `{t, session, text}`,
+  keys could not clear it, or when a take-back left the box as it was because it could not read it whole). What was cleared is appended to `<state dir>/outbox-cleared.jsonl` before the keys go in: one JSON line `{t, session, text}`,
   mode 600, the newest half kept when the file passes 256 KB.
 - **On disk.** `<state dir>/outbox/<session name>.json`, one file a session, written whole to a temporary file and renamed into place, the folder mode 700
   and the files 600; an odd name is made a safe file name (never a path) with a short hash; a corrupt file reads as an empty list (the next write replaces it), not a crash. A message left `typing`

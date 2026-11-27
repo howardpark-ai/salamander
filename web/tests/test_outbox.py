@@ -10,7 +10,9 @@ in a state it is not in (the page says delivered for a message the session never
 - only the oldest held message is tried, and the page is told the others wait behind it;
 - cancel works on held and failed messages and answers "too late" (nothing changed) for typing, queued and delivered ones;
 - the transcript's user lines, queued_command attachments and a joined line ("T1 T2") mark the right messages delivered, in order, never
-  one that was typed after the line and never one the line does not show;
+  one that was typed after the line and never one the line does not show, and an older one no line matches does not stop the newer ones;
+- a typed message is accounted for only by an enqueue line of its own, and the input box's text is read as the messages it holds and what
+  is left over;
 - a message is "lost" only with an enqueue line that carries exactly it, no line after that took it, in the CLI's first-in-first-out order;
 - for a take-back, the CLI's queue is read from those lines, only sala's own messages are matched in it, and the lines written after the
   Up say which came back, which the session took first and which nothing speaks of; no line is read twice or missed between the two looks;
@@ -175,8 +177,46 @@ def test_messages_the_cli_joined_into_one_line_are_each_delivered_in_order(box):
 def test_a_message_the_lines_do_not_show_stays_queued(box):
     queued = [entry(1, "first", 1000), entry(2, "second", 1100)]
     assert OB.delivered_ids(queued, [row(2000, "something else")]) == []
-    assert OB.delivered_ids(queued, [row(2000, "second")]) == []               # the second is not taken before the first (first in, first out)
     assert OB.delivered_ids(queued, []) == []
+
+
+def test_an_older_message_no_line_matches_does_not_stop_the_newer_ones(box):
+    queued = [entry(1, "lost", 1000), entry(2, "second", 1100), entry(3, "third", 1200)]
+    assert OB.delivered_ids(queued, [row(2000, "second")]) == ["m2"]
+    assert OB.delivered_ids(queued, [row(2000, "second\nthird")]) == ["m2", "m3"]
+    assert OB.delivered_ids(queued, [row(2000, "second"), row(2100, "lost")]) == ["m2", "m1"]
+    # past the unmatched one, only whole words at the start of a line count: not its end, not the start of a longer word
+    assert OB.delivered_ids(queued, [row(2000, "not the second"), row(2100, "secondly")]) == []
+
+
+def test_a_typed_message_is_accounted_for_by_one_enqueue_line_of_its_own(box):
+    def line(op, ts, text):
+        return {"op": op, "ts": ts, "text": text, "raw": text}
+
+    a, again = entry(1, "go on", 10_000), entry(2, "go on", 11_000)
+    assert OB.unaccounted([a, again], []) == [a, again]
+    assert OB.unaccounted([again, a], [line("enqueue", 12_000, "go on")]) == [again]               # one line, the older one's
+    assert OB.unaccounted([a], [line("enqueue", 10_000 - OB.SLACK_MS - 1, "go on")]) == [a]        # written before it was typed
+    assert OB.unaccounted([a], [line("popAll", 12_000, "go on")]) == [a]                           # only an enqueue line speaks
+    # typed again after an Up pulled it: the line written before that Up is the earlier typing's
+    retyped = entry(1, "go on", 20_000)
+    before = [line("enqueue", 18_000, "go on"), line("popAll", 19_000, "go on")]
+    assert OB.unaccounted([retyped], before) == [retyped]
+    assert OB.unaccounted([retyped], [*before, line("enqueue", 21_000, "go on")]) == []
+    up = entry(3, "see", 10_000, ["x.png"])
+    assert OB.unaccounted([up], [line("enqueue", 11_000, "/srv/state/uploads/x.png see")]) == []   # the path comes first
+    assert OB.unaccounted([entry(4, "! ls", 10_000)], [line("enqueue", 11_000, "ls")]) == []
+
+
+def test_the_input_box_is_read_as_the_messages_it_holds_and_what_is_left_over():
+    assert OB.box_parts("A\nB\nC", ["A", "B"]) == ([True, True], ["C"])
+    assert OB.box_parts("A\nB\nC", ["C", "A", "B"]) == ([True, True, True], [])
+    assert OB.box_parts("typed here\nA", ["A", "B"]) == ([True, False], ["typed here"])
+    assert OB.box_parts("one two th\nree\nB", ["one two three", "B"]) == ([True, True], [])        # wrapped at the pane's width
+    assert OB.box_parts("go\ngo", ["go"]) == ([True], ["go"])                                      # each part counts once
+    assert OB.box_parts("let us go", ["go"]) == ([False], ["let us go"])                           # a message stands on lines of its own
+    assert OB.box_parts("line one\n\n  line two", ["line one\n\n  line two"]) == ([True], [])
+    assert OB.box_parts("", ["A"]) == ([False], [])
 
 
 def test_a_file_s_path_before_the_text_and_an_image_chip_do_not_hide_the_message(box):
