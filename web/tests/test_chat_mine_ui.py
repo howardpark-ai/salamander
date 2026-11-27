@@ -7,6 +7,8 @@ itself (its api/chat, its confirm route and the session's motion file; only the 
   - the jump lights the reply in the thread;
   - a press on confirm posts, the line leaves the file and the row leaves the list, the others staying;
   - a confirm the server refuses says so under the tabs, the row staying, and the next confirm that works takes the line of words away;
+  - the bar's one (?) says what the open list holds: for the first list the note on the moves, the note on the done lines, or both on lines of their own (with
+    nothing in it, the one on the moves), for the second list its own note; a read that changes which notes those are shuts the box, any other leaves it;
   - under a finger the result and the confirm button are at least 44 px each way, no two targets of the list share a point and each of the two answers
     in its middle and at the middle of each edge (the confirm button's corners are rounded off); with a mouse neither has the finger's size.
 
@@ -24,17 +26,19 @@ from conftest import transcript_file
 from sala_web import chatpage as CP
 from test_board_items_ui import wait_for
 from test_chat_motion_done import filler_line, reply_line, write_motion
-from test_chat_onit_ui import MOVE_PANEL, MOVE_TAB, PIN, click, phone, waiting
+from test_chat_onit_ui import HELP_BTN, MOVE_NOTE, MOVE_PANEL, MOVE_TAB, NOTE, ONIT_TAB, PIN, click, phone, waiting
 from test_chat_session_view_ui import DESKTOP, SIZES, open_page
 
 LINKED = "Compare the two venues and say which one holds the whole group, with the reasons for it"
 JUMPED = "Draw slide 4"
 RESULT = "https://example.com/results/4"
 FAILED = "Could not confirm. The list was read again."
+MINE_NOTE = "Lines the assistant has marked done in this chat. Confirm one once you have seen its result; it then leaves this list."
 
 
-def open_mine(browser, served, monkeypatch, size) -> None:
-    """Two moves, a done line with a link, a done line whose result is a reply in the thread, and one line still open; the first list opened."""
+def open_mine(browser, served, monkeypatch, size) -> list[dict]:
+    """Two moves, a done line with a link, a done line whose result is a reply in the thread, and one line still open; the first list opened. The moves
+    the app answers with are the list returned: a test changes it in place."""
     now = int(time.time())
     write_motion(served["settings"].motion_dir, served["name"], [
         {"text": LINKED, "at": now - 900, "done": now - 600, "link": RESULT},
@@ -50,6 +54,7 @@ def open_mine(browser, served, monkeypatch, size) -> None:
     click(browser, MOVE_TAB)
     assert wait_for(browser, f"document.querySelectorAll('#{MOVE_PANEL} .mine-row').length === 2", 15.0)
     browser.settle(PIN)
+    return moves
 
 
 ROWS = f"""(() => {{ const p = document.getElementById('{MOVE_PANEL}'), text = (n) => n ? n.textContent : null;
@@ -150,3 +155,65 @@ def test_with_a_mouse_the_done_row_keeps_its_small_controls(served, browser, mon
         assert t["h"] < 32 and t["pad"] == ("2px 8px 2px 8px" if t["kind"] == "confirm" else "0px 0px 0px 0px"), got
         assert "44px" not in t["min"], got
     assert got["overlap"] == [], got
+
+
+# The (?) and its box as they stand: how many (?) the pinned strip has, whether the box shows, its lines, whether each starts under the one before it, and
+# whether the box stays inside the window with nothing to scroll sideways.
+SAYS = """(() => { const p = document.querySelector('#chat-strip-wait'), b = p.querySelector('.wait-help'), pop = p.querySelector('.wait-pop'), spans = [...pop.children];
+  const r = pop.getBoundingClientRect(), boxes = spans.map((s) => s.getBoundingClientRect());
+  return { buttons: p.querySelectorAll('.wait-help, .exp-help').length, open: !pop.hidden && pop.getClientRects().length > 0, expanded: b.getAttribute('aria-expanded'),
+    lines: spans.map((s) => s.textContent), apart: boxes.every((q, i) => !i || q.top >= boxes[i - 1].bottom + 1),
+    inside: pop.hidden || (r.left >= 0 && r.right <= document.documentElement.clientWidth + 0.5 && pop.scrollWidth <= pop.clientWidth + 1) }; })()"""
+
+
+def pressed(browser, lines: list[str]) -> None:
+    """The (?) is the one button, shut; a press shows these lines, each on its own, inside the window."""
+    got = browser.evaluate(SAYS)
+    assert got["buttons"] == 1 and not got["open"] and got["expanded"] == "false", got
+    click(browser, HELP_BTN)
+    got = browser.evaluate(SAYS)
+    assert got["open"] and got["expanded"] == "true" and got["lines"] == lines and got["apart"] and got["inside"], got
+
+
+@pytest.mark.parametrize("size", SIZES)
+def test_the_one_help_button_says_what_the_open_list_holds(served, browser, monkeypatch, size):
+    moves = open_mine(browser, served, monkeypatch, size)
+    rows = f"document.querySelectorAll('#{MOVE_PANEL} .wait-row').length"
+    motion, name, now = served["settings"].motion_dir, served["name"], int(time.time())
+    still, finished = {"text": "Still open", "at": now - 60}, {"text": JUMPED, "at": now - 800, "done": now - 300}
+
+    def read(count: int) -> dict:
+        browser.evaluate("loadChatMarks(); ''")
+        assert wait_for(browser, f"{rows} === {count}", 15.0), browser.evaluate(ROWS)
+        return browser.evaluate(SAYS)
+
+    # moves and done lines: both notes, the moves' first; a language change words both again, the box staying open
+    pressed(browser, [MOVE_NOTE, MINE_NOTE])
+    browser.evaluate("SalaI18n.setLang('ko'); ''")
+    korean = browser.evaluate("['chat.wait.note', 'chat.mine.note'].map((k) => SalaI18n.tables.ko[k])")
+    got = browser.evaluate(SAYS)
+    assert got["open"] and got["lines"] == korean and got["apart"] and got["inside"], got
+    browser.evaluate("SalaI18n.setLang('en'); ''")
+    # a read that changes the rows but not which notes they need leaves the box open
+    moves.pop()
+    got = read(3)
+    assert got["open"] and got["lines"] == [MOVE_NOTE, MINE_NOTE], got
+    # only done lines: their note alone (the read shuts the box, whose notes are no longer these)
+    moves.clear()
+    assert not read(2)["open"]
+    pressed(browser, [MINE_NOTE])
+    # nothing in the first list, which stays open beside a second list with a line: the note on the moves
+    write_motion(motion, name, [still])
+    assert not read(0)["open"]
+    pressed(browser, [MOVE_NOTE])
+    # only moves: the same note, so the box stays
+    moves.extend(waiting())
+    got = read(2)
+    assert got["open"] and got["lines"] == [MOVE_NOTE], got
+    # the second list: its own note, whatever the first holds, naming the first list
+    write_motion(motion, name, [finished, still])
+    assert not read(3)["open"]
+    click(browser, ONIT_TAB)
+    pressed(browser, [NOTE])
+    click(browser, MOVE_TAB)
+    pressed(browser, [MOVE_NOTE, MINE_NOTE])

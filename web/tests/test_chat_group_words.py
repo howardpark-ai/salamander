@@ -78,7 +78,8 @@ const read = () => ({ line: chatView.ui.moveLine.textContent, aria: chatView.ui.
                       noteVars: (chatView.ui.pop.kids || []).map((k) => k["data-i18n-vars"] || "").join(""), lang: SalaI18n.lang });
 function paint(c) {
   SalaI18n.setLang(c.lang);
-  chatView.data = { session: "demo-one", name: "Demo", waiting: Array.from({ length: c.n }, (_, i) => ({ id: "demo#" + (i + 1) })), group: c.group };
+  chatView.data = { session: "demo-one", name: "Demo", waiting: Array.from({ length: c.n }, (_, i) => ({ id: "demo#" + (i + 1) })), group: c.group,
+                    mine: Array.from({ length: c.mine || 0 }, () => ({})), motion: Array.from({ length: c.motion || 0 }, () => ({})) };
   chatView.waitOpen = !!c.open;
   chatView.waitTab = c.tab || "move";
   paintChatEntry(); paintChatWait();
@@ -95,7 +96,7 @@ def run_cases(cases: list[dict], page_lang: str = "en") -> list:
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
-        "help_text": piece(r"function chatHelpParts\(\) \{.*?function chatHelpText\(parts\) \{.*?\n\}\n"),
+        "help_text": piece(r"function chatHelpParts\(group\) \{.*?function chatHelpText\(parts\) \{.*?\n\}\n"),
         "count": piece(r"const chatMoveCount = .*?;\n"),
         "late": piece(r"// A row of the second list is late.*?function chatBackTone\(m, now\) \{.*?\n\}\n"),
         "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
@@ -127,6 +128,22 @@ def test_the_second_list_s_help_line_names_the_first_list_where_a_done_line_goes
     got = run_cases([{"group": group, "lang": lang, "n": 3, "open": True, "tab": "onit"}])[0]
     assert got["note"] == (KO_T if lang == "ko" else EN_T)["chat.onit.note"].replace("{group}", name) and name in got["note"], got
     assert json.loads(got["noteVars"]) == {"group": name}, got      # the line holds the name, so the static applier never words it with a bare {group}
+
+
+# what the one (?) says, by the open list and what the first one holds: the moves (n), the done lines waiting for a confirm (mine)
+STATES = {"moves": (3, 0, "move", ["chat.wait.note"]), "moves and done lines": (3, 2, "move", ["chat.wait.note", "chat.mine.note"]),
+          "done lines": (0, 2, "move", ["chat.mine.note"]), "an empty first list": (0, 0, "move", ["chat.wait.note"]),
+          "the second list, done lines in the first": (3, 2, "onit", ["chat.onit.note"])}
+
+
+@needs_node
+@pytest.mark.parametrize("lang", ["en", "ko"])
+@pytest.mark.parametrize("state", STATES)
+def test_the_one_help_box_says_the_notes_of_what_the_open_list_holds(state, lang):
+    n, mine, tab, keys = STATES[state]
+    got = run_cases([{"group": None, "lang": lang, "n": n, "mine": mine, "motion": 1, "open": True, "tab": tab}])[0]
+    table, own = (KO_T, OWN_KO) if lang == "ko" else (EN_T, OWN_EN)
+    assert got["note"] == " | ".join(table[k].replace("{group}", own) for k in keys), (state, got)
 
 
 @needs_node
@@ -208,7 +225,7 @@ def test_a_change_of_language_repaints_the_strip_and_the_chip_in_the_other_langu
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
-        "help_text": piece(r"function chatHelpParts\(\) \{.*?function chatHelpText\(parts\) \{.*?\n\}\n"),
+        "help_text": piece(r"function chatHelpParts\(group\) \{.*?function chatHelpText\(parts\) \{.*?\n\}\n"),
         "count": piece(r"const chatMoveCount = .*?;\n"),
         "late": piece(r"// A row of the second list is late.*?function chatBackTone\(m, now\) \{.*?\n\}\n"),
         "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
@@ -232,7 +249,7 @@ def test_before_the_first_answer_and_with_no_chat_session_the_entry_is_hidden_wi
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
-        "help_text": piece(r"function chatHelpParts\(\) \{.*?function chatHelpText\(parts\) \{.*?\n\}\n"),
+        "help_text": piece(r"function chatHelpParts\(group\) \{.*?function chatHelpText\(parts\) \{.*?\n\}\n"),
         "count": piece(r"const chatMoveCount = .*?;\n"),
         "late": piece(r"// A row of the second list is late.*?function chatBackTone\(m, now\) \{.*?\n\}\n"),
         "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),

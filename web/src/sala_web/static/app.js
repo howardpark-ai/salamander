@@ -522,11 +522,12 @@ function chatHelpParts(group) {
   const d = chatView.data || {}, moves = (d.waiting || []).length, done = (d.mine || []).length;
   return [...(moves || !done ? [["chat.wait.note"]] : []), ...(done ? [["chat.mine.note"]] : [])];
 }
-// the box says each line on its own (SalaI18n.apply re-words them on a language change); the (?) has one name for every list
+// the box says each line on its own, built anew only when the lines change, so a read leaves an open box alone (SalaI18n.apply re-words the lines on a
+// language change); the (?) has one name for every list
 function chatHelpText(parts) {
-  const u = chatView.ui, label = tx("chat.onit.help", null, "aria-label");
-  u.pop.replaceChildren(...parts.map(([key, vars]) => el("span", tx(key, vars))));
-  u.pop.setAttribute("data-says", JSON.stringify(parts));
+  const u = chatView.ui, says = JSON.stringify(parts), label = tx("chat.onit.help", null, "aria-label");
+  if (u.pop.getAttribute("data-says") !== says) u.pop.replaceChildren(...parts.map(([key, vars]) => el("span", tx(key, vars))));
+  u.pop.setAttribute("data-says", says);
   for (const [k, v] of Object.entries(label)) u.help.setAttribute(k, v);
 }
 // the (?) of the bar, there only while a list is open: shows that list's note in a small box under the bar, or hides it again
