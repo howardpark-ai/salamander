@@ -65,6 +65,10 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander box SESSION [--json]    read-only: what is in a session's pane input box, as one of three states on the first line: empty · suggestion (dim text,
                                      Claude Code's own suggested prompt that nobody typed; counts as empty; its text follows, labelled) · typed (non-dim text, someone's unsent
                                      words; the text follows). A session reads a pane's box with this command, never with raw capture-pane. Exit 0 read, 2 no live session or pane, 3 no claude in the pane
+  salamander where [--json] | --scan | set BOX [--by SESSION] | clear   read: which fleet machine the owner is working from now (one line, "(stale)" after 12 hours,
+                                     "no record" when none; --json adds age_s). set records a box (a fleet name): a different box replaces the one where notice every live
+                                     session sees once, the same box only refreshes the time; --scan reads the newest ssh-attached tmux client of the last 10 minutes
+                                     (the watch tick runs it too); clear removes both (lib/where.sh)
   salamander machines [--json]       read-only: the fleet's machines, one line each: name, board letter, hostname, ssh alias, the host roles it holds (sala-host, stackshot-host),
                                      retired or not, and which machine files name it; a machine one file names and another does not is listed with the missing parts empty.
                                      Reads the owner's files (SALA_FLEET_NAMES and the files beside it, SALA_MACHINE_FOLLOW_MACHINES); needs no running sala and no sala-web. Exit 0, 2 usage or no files named
@@ -764,5 +768,23 @@ usage: sala host ROLE [--field FIELD | --set HOST]
   Both run the holds script (machine_holds.py, beside the other machine files under the folder of SALA_FLEET_NAMES) and pass its output and exit code through
   unchanged; the script does the locking and the checks. Needs no running sala and no sala-web.
   Exit: the script's own (0 done · 2 refused or unknown role or field), 2 here for a usage error or a missing script.
+
+### sala where --help (exit 0)
+usage: sala where [--json]
+       sala where --scan
+       sala where set <box> [--by <session>]
+       sala where clear
+
+  (no verb)  prints one line: the box the owner is on, who told it or that it was seen over ssh, the time and its age, "(stale)" when the
+             record is older than 12 hours; "no record" when there is none. --json prints the record plus age_s. A plain read runs the scan
+             first. Times are in the zone of TZ.
+  set        records <box>, which must be a fleet machine name (the fleet names file; an unknown name is refused and the known ones listed).
+             When the box differs from the record, the old where notice is dropped and one new `sala notice` is added (12 hours), so every
+             live session learns of the change once; the same box only refreshes the time and adds no notice. --by: your own session name.
+  --scan     the second source: the ssh-attached tmux client with the newest activity in the last 10 minutes, its SSH_CONNECTION address
+             mapped to a fleet box through `tailscale status --json`; a different box than the record, with newer activity, is recorded
+             as above (via ssh). Any failure (no tmux, no tailscale, an unknown address) is silent and changes nothing. The watch tick runs it.
+  clear      removes the record and its notice.
+  The record is $SALA_STATE_DIR/where.json: {"box","at","via":"told"|"ssh","by"}.
 
 ### verbs with no help path of their own (listed, not probed; their usage is the sala --help text above): adopt ci-poll close-shell config feedback follow forget-row heartbeat hook map provision ready reboot rename retire snapshot spawn unpark update watch

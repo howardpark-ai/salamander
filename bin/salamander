@@ -65,6 +65,10 @@
 #   salamander box SESSION [--json]    read-only: what is in a session's pane input box, as one of three states on the first line: empty · suggestion (dim text,
 #                                      Claude Code's own suggested prompt that nobody typed; counts as empty; its text follows, labelled) · typed (non-dim text, someone's unsent
 #                                      words; the text follows). A session reads a pane's box with this command, never with raw capture-pane. Exit 0 read, 2 no live session or pane, 3 no claude in the pane
+#   salamander where [--json] | --scan | set BOX [--by SESSION] | clear   read: which fleet machine the owner is working from now (one line, "(stale)" after 12 hours,
+#                                      "no record" when none; --json adds age_s). set records a box (a fleet name): a different box replaces the one where notice every live
+#                                      session sees once, the same box only refreshes the time; --scan reads the newest ssh-attached tmux client of the last 10 minutes
+#                                      (the watch tick runs it too); clear removes both (lib/where.sh)
 #   salamander machines [--json]       read-only: the fleet's machines, one line each: name, board letter, hostname, ssh alias, the host roles it holds (sala-host, stackshot-host),
 #                                      retired or not, and which machine files name it; a machine one file names and another does not is listed with the missing parts empty.
 #                                      Reads the owner's files (SALA_FLEET_NAMES and the files beside it, SALA_MACHINE_FOLLOW_MACHINES); needs no running sala and no sala-web. Exit 0, 2 usage or no files named
@@ -247,7 +251,7 @@ sub="${1:-}"; shift || true
 case "$sub" in hook) . "$SALA_ROOT/lib/hook.sh"; exit 0 ;; esac
 . "$SALA_ROOT/lib/common.sh"
 case "$sub" in
-    spawn|revive|rc|map|feedback|snapshot|watch|retire|close-shell|forget-row|update|provision|heartbeat|ready|unpark|reboot|note|rename|follow|adopt|restore|sleep|wake|reauth|alert|lane|model|sdk-pane|sessions|side|job|notice). "$SALA_ROOT/lib/$sub.sh" ;;
+    spawn|revive|rc|map|feedback|snapshot|watch|retire|close-shell|forget-row|update|provision|heartbeat|ready|unpark|reboot|note|rename|follow|adopt|restore|sleep|wake|reauth|alert|lane|model|sdk-pane|sessions|side|job|notice|where). "$SALA_ROOT/lib/$sub.sh" ;;
     recycle) case " $* " in *" --when-idle "*) . "$SALA_ROOT/lib/recycle-request.sh"; rr_main "$@" ;;   # a request, from any pane: no guard, no lock
                  *) set -- --all "$@"; . "$SALA_ROOT/lib/revive.sh" ;; esac ;;
     op) . "$SALA_ROOT/lib/op.sh"; op_main "$@" ;;   # the operation queue: queue, plan, list, cancel; --run/--settle inside its unit
