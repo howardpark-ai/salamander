@@ -281,7 +281,7 @@ def test_reason_text_says_the_reason_once_without_its_who_and_day():
     end = JS.index("function dormantLine")
     cap = re.search(r"^const capFirst = .*$", JS, re.M).group(0)
     script = prelude("en") + cap + "\n" + JS[start:end] + f"\nconsole.log(JSON.stringify({json.dumps([r for r, _ in REASONS])}.map(reasonText)));"
-    out = json.loads(subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True, timeout=30).stdout)
+    out = json.loads(subprocess.run([NODE, "-"], input=script, capture_output=True, text=True, check=True, timeout=30).stdout)
     assert out == [want for _, want in REASONS]
 
 
@@ -296,8 +296,8 @@ def test_dormant_line_joins_the_reason_and_the_day():
              {"reason": "", "since": FRI}, {"reason": "usage check refused (hand)", "since": ""}, {"reason": "", "since": ""}]
     script = (prelude("en") + ZONE_JS + cap + "\n" + dayw + "\n" + JS[start:end2] +
               f"\nconsole.log(JSON.stringify({json.dumps(cases)}.map(dormantLine)));")
-    out = json.loads(subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True, timeout=30).stdout)
-    assert out == ["No credit on the API key since Tue Jan 6th", "No credit on the API key since Tue Jan 6th",
+    out = json.loads(subprocess.run([NODE, "-"], input=script, capture_output=True, text=True, check=True, timeout=30).stdout)
+    assert out == ["No credit on the API key since Tue Jan 6th","No credit on the API key since Tue Jan 6th",
                    "Since Tue Jan 6th", "Usage check refused", ""]
 
 
