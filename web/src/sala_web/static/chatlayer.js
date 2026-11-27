@@ -306,9 +306,10 @@ window.SalaThreadLayer = (() => {
     const opts = card.options;
     // the review that ends a call of several questions: it lists each answered question, and its two buttons send or cancel them
     if (card.kind === "choice" && opts.length === 2 && opts[0].label === "Submit answers") return true;
-    // the card draws no preview, and in the pane's dialog that shows previews a number only moves the focus
+    // the card draws no preview: the thread's drawing is where the owner reads them
     if (q.options.some((o) => o.preview)) return false;
-    // a question of several answers that is not its call's last is read as one of a single answer, with no button that moves past it
+    // a question of several answers needs the card of several, whose Send sets the marks and goes on through the pane's row under the options (the card's
+    // `button`: "Next" before the call's last question, "Submit" on it); a card of one answer cannot
     if (card.kind !== (q.multiSelect ? "multi" : "choice")) return false;
     return q.options.every((o, i) => {
       if (!opts[i]) return false;

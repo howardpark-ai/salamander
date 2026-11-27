@@ -298,20 +298,22 @@ def test_the_card_carries_a_question_only_when_it_shows_it_whole_and_its_buttons
                          "     length so that the pane wraps it", "  2. Blue", "     cool", "  3. Type something.", RULE, "  4. Chat about this", "", FOOT))
     review = T.card(pane("←  ☒ Pick  ☒ Colour  ✔ Submit  →", "", "Review your answers", "", " ● Which letters?", "   → Alpha, Gamma", "",
                          "Ready to submit your answers?", "", "❯ 1. Submit answers", "  2. Cancel", "", FOOT))
-    # a question of several answers that is not the call's last has "Next" where the last one has "Submit"
-    not_last = T.card(multi_screen(set(), 1).replace("     Submit", "     Next"))
-    preview = T.card(pane(" ☐ Pick", "", "Which colour should the long demo box have?", "", "❯ 1. Red                ┌──────┐",
-                          "  2. Blue               │ swatch │", "                        └──────┘", "", RULE, "  Chat about this", "", FOOT))
+    # a question of several answers that is not the call's last has "Next" where the last one has "Submit": the card's `button` says which
+    not_last = T.card((FIX / "synthetic-ask-multi-next.txt").read_text(encoding="utf-8"))
+    preview = T.card(pane(" ☐ Pick", "", "Which colour should the long demo box have?", "", "❯ 1. Red                ┌────────┐",
+                          "  2. Blue               │ swatch │", "                        └────────┘", "", RULE, "  Chat about this", "",
+                          FOOT.replace("Esc", "n to add notes · Esc")))
     permission = T.card((FIX / "capture-dialog.txt").read_text(encoding="utf-8"))
-    assert [c["kind"] for c in (captured, choice, review, not_last, preview, permission)] == ["multi", "choice", "choice", "choice", "choice", "choice"]
+    assert [c["kind"] for c in (captured, choice, review, not_last, preview, permission)] == ["multi", "choice", "choice", "multi", "choice", "choice"]
+    assert (captured["button"], not_last["button"], preview["preview"]) == ("Submit", "Next", True)
     cases = [
         (many, captured, True),
         (many, T.card(multi_screen({1}, 3)), True),
         (one, choice, True),                                                                    # wrapped lines and markdown's marks change nothing
         (many, review, True),                                                                   # the review lists it with its answer
         (one, review, False),                                                                   # a question the review does not list
-        (many, not_last, False),                                                                # no button moves past it
-        (question(one["question"], *colours, preview="swatch"), preview, False),               # a number only moves the focus there
+        (many, not_last, True),                                                                 # its Send goes on through the Next row
+        (question(one["question"], *colours, preview="swatch"), preview, False),               # the card draws no preview
         (question(one["question"], *colours, preview="swatch"), choice, False),                # the card draws no preview
         (one, permission, False),                                                               # another dialog
         (many, choice, False),                                                                  # another question
