@@ -494,8 +494,8 @@ def valid_file_ref(ref: str) -> bool:
                 and ".." not in name and "/" not in name)
 
 
-def _err(status: int, msg: str) -> JSONResponse:
-    return JSONResponse({"ok": False, "error": msg}, status_code=status)
+def _err(status: int, msg: str, **more: object) -> JSONResponse:
+    return JSONResponse({"ok": False, "error": msg, **more}, status_code=status)
 
 
 log = logging.getLogger("sala_web")
@@ -1697,6 +1697,99 @@ def create_app(settings: Settings | None = None) -> Starlette:
         done = {"ok": True, "imagesPasted": images, "imagesAttached": max(attached, 0), "filesPasted": len(paths) - images}
         return JSONResponse({**done, "confirmedByMod": True} if by_mod else done)
 
+    async def get_dialog(request: Request) -> Response:
+        """The question or dialog the session's pane shows, as a card the page draws with buttons: {"card": null} or {"card": {kind, text,
+        title, options: [{n, label, description, checked}]}} (T.card). Read from the screen at each request; nothing is sent to the pane."""
+        s = _session(request)
+        if not s:
+            return _err(404, "no live session with that pid")
+        pane = await _own_pane(s)
+        if not pane:
+            return JSONResponse({"card": None}, headers={"Cache-Control": "no-store"})
+        try:
+            got = T.card(await T.capture(settings, pane))
+        except T.TmuxError:
+            got = None
+        return JSONResponse({"card": got}, headers={"Cache-Control": "no-store"})
+
+    async def post_dialog(request: Request) -> Response:
+        """Answer the card: {"expect": the card's `text`, "key": "<option number>" or "esc"} for a choice, or {"expect", "picks": [option numbers]}
+        for a multi-select question. The answer is for the question it was made on: when the pane shows another by now, 409 and nothing is sent.
+        A choice is one keypress. A multi-select question gets the digit of each option whose mark differs from the one asked for, then the screen is
+        read to see the marks are exactly the picks (else nothing more is sent), Down is pressed until the focus is on Submit (read from the screen
+        each time, at most one press per row and a few more), and Enter. The review Claude Code then draws is a numbered dialog, the next card."""
+        if _cross_origin(request):
+            return _err(403, "cross-origin request refused")
+        if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
+            return _err(415, "dialog takes application/json")
+        s = _session(request)
+        if not s:
+            return _err(404, "no live session with that pid")
+        try:
+            body = await request.json()
+        except ValueError:
+            return _err(400, "body must be JSON")
+        body = body if isinstance(body, dict) else {}
+        expect, key, picks = body.get("expect"), body.get("key"), body.get("picks")
+        if not isinstance(expect, str) or not expect:
+            return _err(400, "expect must be the words of the question the answer is for")
+        if key is not None and not isinstance(key, str):
+            return _err(400, "key must be an option number or esc")
+        if picks is not None and not (isinstance(picks, list) and all(isinstance(n, int) and not isinstance(n, bool) for n in picks)):
+            return _err(400, "picks must be a list of option numbers")
+        if (key is None) == (picks is None):
+            return _err(400, "give a key or picks")
+        pane = s.pane_id
+        if not pane:
+            return _err(409, "session has no tmux pane on record")
+        async with send_locks.setdefault(pane, asyncio.Lock()):
+            try:
+                if await _own_pane(s) != pane:
+                    return _err(409, f"pane {pane} does not belong to session {s.name}; nothing sent")
+                got = T.card(await T.capture(settings, pane))
+                if got is None:
+                    return _err(409, "no question is open in the pane; nothing sent")
+                if got["text"] != expect:
+                    return _err(409, "the question changed; nothing sent", changed=True)
+                numbers = [str(o["n"]) for o in got["options"]]
+                if key is not None:
+                    if got["kind"] != "choice" and key.strip().lower() != "esc":
+                        return _err(409, "this question takes several answers; nothing sent")
+                    answer = "Escape" if key.strip().lower() == "esc" else key.strip()
+                    if answer != "Escape" and answer not in numbers:
+                        return _err(409, f"{key} is not one of the options ({', '.join(numbers)}); nothing sent")
+                    await T.send_key(settings, pane, answer)
+                    return JSONResponse({"ok": True, "sent": [answer]})
+                if got["kind"] != "multi":
+                    return _err(409, "this question takes one answer; nothing sent")
+                if len(set(picks)) != len(picks) or any(str(n) not in numbers for n in picks):
+                    return _err(409, f"picks must be among the options ({', '.join(numbers)}); nothing sent")
+                sent: list[str] = []
+                for o in got["options"]:
+                    if (o["n"] in picks) != o["checked"]:
+                        await T.send_key(settings, pane, str(o["n"]))
+                        sent.append(str(o["n"]))
+                multi = None
+                for _ in range(len(got["options"]) + 4):
+                    await asyncio.sleep(T.SETTLE_S)
+                    multi = T.multi_dialog(await T.capture(settings, pane))
+                    if multi is None:
+                        return _err(409, "the question went away while the choices were set; Submit was not pressed", sent=sent)
+                    marks = {r["n"] for r in multi["rows"] if r["checked"]}
+                    if marks != set(picks):
+                        return _err(409, "the choices could not be set as asked; Submit was not pressed", sent=sent)
+                    if multi["focus"] == "submit":
+                        break
+                    await T.send_key(settings, pane, "Down")
+                    sent.append("Down")
+                else:
+                    return _err(409, "the Submit row could not be reached; Submit was not pressed", sent=sent)
+                await T.send_key(settings, pane, "Enter")
+                sent.append("Enter")
+            except T.TmuxError as e:
+                return _err(502, f"tmux failed: {e}")
+        return JSONResponse({"ok": True, "sent": sent})
+
     async def stop_bang(request: Request) -> Response:
         """Stop the `!` command running in the session's pane: Escape, and, if the command still runs STOP_WAIT
         seconds later, Ctrl-C. Only while one runs (the pane shows it: T.bang_pane; a transcript record that says one runs
@@ -2333,6 +2426,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/api/s/{pid:int}/stream", stream),
         Route("/api/s/{pid:int}/send", logged("send", send), methods=["POST"]),
         Route("/api/s/{pid:int}/stop", stop_bang, methods=["POST"]),
+        Route("/api/s/{pid:int}/dialog", get_dialog),
+        Route("/api/s/{pid:int}/dialog", logged("dialog", post_dialog), methods=["POST"]),
         Route("/api/image/{sid}/{uuid}/{i:int}/{j}", image),
         Route("/api/file-image/{sid}/{uuid}/{i:int}/{k:int}", file_image),
         Route("/api/md-image/{sid}/{uuid}/{i:int}/{n:int}", md_image),
