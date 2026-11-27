@@ -131,7 +131,7 @@ same_file "$MAP" "$HOME/map.before" && ok "the pane map is byte for byte as befo
 [ "$(grep -ci sleep "$MAP" "$SALA_SESSIONS_FILE" 2>/dev/null | awk -F: '{n+=$NF} END {print n+0}')" = 0 ] && ok "neither the map nor the registry says 'sleep'" || bad "the word is in a published file"
 
 echo "== 10: display only — sala sessions and sala spawn --list show the state"
-run sessions
+run sessions --full
 a_line=$(grep 'sala-test-a ' <<< "$OUT"); c_line=$(grep 'sala-test-c ' <<< "$OUT")
 has "$a_line" sleeping && ok "sala sessions: a's STATE is 'sleeping'" || bad "sessions a: $a_line"
 has "$c_line" live && ! has "$c_line" sleeping && ok "sala sessions: the control's STATE stays 'live'" || bad "sessions c: $c_line"

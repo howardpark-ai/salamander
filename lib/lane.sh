@@ -86,7 +86,7 @@ usage_short() {
     echo "       salamander lane <lane> --all      [--dry-run]              every session and the default: one recycle --force"
     echo "       salamander lane default <lane>    [--dry-run]              the default alone"
     echo "  also: names, env, exec, pin, unpin, pins, dormant, active, fallback, --migrate"
-    usage | grep -m1 '^  lanes: ' | sed 's/  (.*//'   # the lanes a pick may take, the dormant ones apart, without the explanation
+    usage | awk '/^  lanes: / && !n++ {sub(/  \(.*/, ""); print}'   # the lanes a pick may take, the dormant ones apart, without the explanation
     echo "(sala lane --help --full: every form, the pins, the dormant record, the fallback, Fable, the rescue and the stuck-process end)"
 }
 usage() {

@@ -48,7 +48,7 @@ read for the build, one for the recheck before its verdict counts, and the check
 USAGE
 }
 # the short help: the usage lines alone, up to the first blank line of the long one, and where the rest is
-mq_usage_short() { mq_usage | awk 'NF == 0 {exit} {print}'; echo "(sala mq --help --full: what each verb does, the modes, the rules of the repo, replay and the call budget)"; }
+mq_usage_short() { mq_usage | awk 'NF == 0 {end=1} !end'; echo "(sala mq --help --full: what each verb does, the modes, the rules of the repo, replay and the call budget)"; }
 case "${1:-}" in
     -h|--help|help) case "${2:-}" in --full) mq_usage ;; '') mq_usage_short ;; *) mq_usage_short >&2; exit 2 ;; esac; exit 0 ;;
     '') mq_usage_short >&2; exit 2 ;;
