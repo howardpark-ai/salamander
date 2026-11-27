@@ -12,6 +12,7 @@ import json
 
 from conftest import CHAT_READY, NAME
 from sala_web.app import STATIC
+from send_stub import spy_send
 
 INDEX = (STATIC / "index.html").read_text()
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64  # the server stores bytes; it does not decode them
@@ -122,13 +123,7 @@ def test_paste_reads_clipboard_items_only_when_files_is_empty(served, browser):
     assert got == {"files": 2, "itemsOnly": 1, "imagesOfThem": 0, "none": 0}, json.dumps(got)
 
 
-CAPTURE_SEND = """
-(() => { window.__sent = []; const real = window.fetch;
-  window.fetch = (url, opts) => String(url).includes("/send")
-    ? (window.__sent.push(JSON.parse(opts.body)), Promise.resolve(new Response(JSON.stringify({ ok: true, imagesPasted: 0, imagesAttached: 0, filesPasted: 1 }), { status: 200 })))
-    : real(url, opts);
-  return true; })()
-"""
+CAPTURE_SEND = spy_send()
 
 
 def test_a_non_image_file_shows_as_a_file_chip_and_send_carries_its_path_reference(served, browser):

@@ -53,6 +53,7 @@ import pytest
 
 import test_chat_boot_ui as boot
 from conftest import CHAT_READY, CWD, NAME, SID, transcript_file
+from send_stub import OUTBOX
 from test_bang_live import LIVE_EVENT
 from test_bang_live import STATE as LIVE_BLOCK
 from test_board_items_ui import wait_for
@@ -78,11 +79,17 @@ SPY = """(() => {
   window.__spied = true;
   const real = window.fetch.bind(window);
   window.__reads = []; window.__sent = []; window.__fail = %s;
+  """ + OUTBOX + """
   window.fetch = (url, opts) => {
     const u = String(url);
     if (u.startsWith('api/chat/thread')) {
       window.__reads.push(u);
       if (window.__fail) return Promise.resolve(new Response('{}', { status: 502 }));
+    }
+    const box = __outboxAnswer(u, opts);
+    if (box) {
+      if (opts && opts.method === 'POST') window.__sent.push({ url: u, method: opts.method, headers: opts.headers, body: JSON.parse(opts.body) });
+      return box;
     }
     if (u.endsWith('/send')) {
       window.__sent.push({ url: u, method: opts.method, headers: opts.headers, body: JSON.parse(opts.body) });
@@ -287,12 +294,13 @@ def test_the_composer_sends_the_same_request_with_the_setting_on_and_off(served,
         sent = browser.evaluate("window.__sent[0]")
         assert sent["body"]["uploads"] == chips["names"], sent
         sent["body"]["uploads"] = [n.rsplit("/", 1)[-1] for n in sent["body"]["uploads"]]   # the folder a file is stored in is new each time
-        assert wait_for(browser, "state.pending.length === 1 && state.pending[0].status === 'sent'", 10.0)
+        assert sent["body"].pop("cid"), sent   # the page's own id for the message, new each time
+        assert wait_for(browser, "state.pending.length === 1 && state.pending[0].status === 'waiting'", 10.0)
         bubble = browser.evaluate("(() => { const b = document.querySelector('#chat > .msg.local'); return [b.className, b.querySelector('.bubble').textContent, "
                                   "b.querySelector('.sf-name').textContent]; })()")
         got[layer] = (sent, bubble, browser.evaluate("[document.querySelectorAll('#chips .chip').length, getText()]"))
     assert got["on"] == got[None], got
-    assert got["on"][0]["method"] == "POST" and got["on"][0]["url"] == f"api/s/{os.getpid()}/send", got
+    assert got["on"][0]["method"] == "POST" and got["on"][0]["url"] == f"api/outbox/{NAME}", got
     assert got["on"][0]["body"]["text"] == "Read the notes.\nThen answer." and got["on"][2] == [0, ""], got
 
 

@@ -694,7 +694,14 @@ details.notice { background: transparent; }
 @media (hover: none) { .copy-btn { opacity: .7; } }
 
 /* a message sent from this page that the transcript does not show yet */
-.msg.local.sending .bubble, .msg.local.sent .bubble, .msg.local.sending .thumbs, .msg.local.sent .thumbs { opacity: .6; }
+/* one that waits to be read: a dashed bubble, and under it "Waiting", why when a question is open, and Edit / Cancel (waiting.js) */
+.msg.local.waiting .bubble { background: transparent; border: 1.5px dashed var(--faint); }
+.msg.local .waiting-line { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 8px; margin-top: 4px; max-width: 85%;
+  font-size: 12px; color: var(--muted); }
+.waiting-line .st { display: flex; align-items: flex-start; justify-content: flex-end; gap: 4px; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+.waiting-line .st svg { flex: none; margin-top: 2px; }
+.waiting-line .st b, .waiting-line .st svg { color: var(--busy); }
+.waiting-line .note-actions { margin-top: 0; flex-wrap: wrap; justify-content: flex-end; }
 .msg.local.failed .bubble { outline: 1px solid var(--error); }
 .msg.local .note { font-size: 12px; color: var(--faint); margin-top: 4px; }
 .msg.local .note.err { color: var(--error); max-width: 85%; text-align: right; overflow-wrap: anywhere; }
@@ -796,7 +803,6 @@ details.notice { background: transparent; }
 .sent-file .fc-icon { flex: none; color: var(--muted); }
 .sf-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sf-size { flex: none; font-size: 12px; color: var(--muted); }
-.msg.local.sending .sent-files, .msg.local.sent .sent-files { opacity: .6; }
 #send-status { font-size: 13px; }
 #send-status:not(:empty) { margin-bottom: 8px; padding: 8px 8px; border-radius: 8px; }
 #send-status.error { color: var(--error); background: var(--error-bg); }
@@ -1037,7 +1043,7 @@ body.dragging #drop-hint { display: flex; }
   .top-tools { right: 8px; }
   #chat { padding: 16px 16px 20px; }
   #composer { padding-left: 12px; padding-right: 12px; }
-  .msg.user .bubble { max-width: 92%; }
+  .msg.user .bubble, .msg.local .waiting-line { max-width: 92%; }
 }
 /* a narrow phone (under 400 px): centred, the name got at most the room
    between two equal side tracks (about 129 px on a 360 px phone, which cut a long name by 28 px). Here the

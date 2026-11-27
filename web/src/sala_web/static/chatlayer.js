@@ -415,7 +415,7 @@ window.SalaThreadLayer = (() => {
   const ownWords = (m) => m.role === "user" && !m.interrupt && !m.output && !m.answer;
   // the owner's last message: the one still on its way, else the newest in the thread
   function ownerLast() {
-    const sent = state.pending.filter((p) => p.session === st.name && p.status !== "failed" && p.status !== "held");
+    const sent = state.pending.filter((p) => p.session === st.name && p.status !== "failed" && p.status !== "held" && p.state !== "held");
     if (sent.length) return sent[sent.length - 1].text;
     for (let i = st.items.length - 1; i >= 0; i--) {
       if (ownWords(st.items[i])) return st.items[i].blocks.filter((b) => b.kind === "text").map((b) => b.text).join("\n");

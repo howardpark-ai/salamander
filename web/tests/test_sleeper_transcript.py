@@ -14,7 +14,7 @@ input box yet, and a file read that reaches another session's or an unlisted con
   refusal; a dialog's refusal does not;
 - the page (headless Chromium when installed; `sala` is a stand-in script that records its argv, the send is captured in the page):
   opening a sleeper shows its messages and a band, posts no wake, and leaves the composer on; a missing file shows the note; the first send
-  posts one wake (words: a message), shows the message as waiting, sends nothing to the pane, and when the session is live sends it once,
+  (a "!" command here, which the page holds itself; an ordinary message is the server's to hold: test_waiting_ui.py) posts one wake (words: a message), shows the message as waiting, sends nothing to the pane, and when the session is live sends it once,
   in order with a second one; a refused wake keeps the message with the reason, in the band and in the bubble, and Try again wakes once more and
   delivers once; Edit takes the message back and nothing is sent later; a reload keeps the waiting message, follows the queued operation without
   asking for another wake, and delivers once; a woken session whose pane has no input box yet is asked again until it has one.
@@ -242,7 +242,7 @@ def test_the_first_send_wakes_it_and_the_message_goes_in_once_when_it_is_back(re
     open_sleeper(browser, readable)
     assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length === 2", 15.0)
     browser.evaluate("document.querySelector('#input').focus(); ''")
-    typed(browser, "wake and answer me")
+    typed(browser, "! wake and answer me")
     enter(browser)
     assert wait_for(browser, "document.querySelector('#chat .msg.local.held') !== null", 10.0)
     end = time.time() + 15
@@ -260,7 +260,7 @@ def test_the_first_send_wakes_it_and_the_message_goes_in_once_when_it_is_back(re
     got = wait_sent(browser, 1)
     time.sleep(5)
     got = sent(browser)
-    assert len(got) == 1 and got[0]["body"]["text"] == "wake and answer me" and got[0]["url"].endswith(f"api/s/{pid}/send"), got      # once, to the live pid
+    assert len(got) == 1 and got[0]["body"]["text"] == "! wake and answer me" and got[0]["url"].endswith(f"api/s/{pid}/send"), got      # once, to the live pid
     assert len(wake.wakes()) == 1
     assert wait_for(browser, "document.querySelector('#sleep-band').hidden === true", 10.0)                                   # it is a live session now
     assert browser.evaluate("localStorage.getItem('salaweb.held')") is None                                                  # nothing kept for a reload
@@ -272,11 +272,11 @@ def test_two_messages_while_it_sleeps_wake_it_once_and_go_in_in_order(readable, 
     open_sleeper(browser, readable)
     assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length === 2", 15.0)
     browser.evaluate("document.querySelector('#input').focus(); ''")
-    typed(browser, "first thing")
+    typed(browser, "! first thing")
     enter(browser)
     assert wait_for(browser, "document.querySelectorAll('#chat .msg.local.held').length === 1", 10.0)
     browser.evaluate("document.querySelector('#input').focus(); ''")
-    typed(browser, "second thing")
+    typed(browser, "! second thing")
     enter(browser)
     assert wait_for(browser, "document.querySelectorAll('#chat .msg.local.held').length === 2", 10.0)
     time.sleep(3)
@@ -285,7 +285,7 @@ def test_two_messages_while_it_sleeps_wake_it_once_and_go_in_in_order(readable, 
     got = wait_sent(browser, 2)
     time.sleep(3)
     got = sent(browser)
-    assert [g["body"]["text"] for g in got] == ["first thing", "second thing"]
+    assert [g["body"]["text"] for g in got] == ["! first thing", "! second thing"]
 
 
 def test_a_woken_pane_with_no_input_box_yet_is_asked_again_and_the_message_goes_in_once(readable, wake, woken, browser):
@@ -294,7 +294,7 @@ def test_a_woken_pane_with_no_input_box_yet_is_asked_again_and_the_message_goes_
     open_sleeper(browser, readable)
     assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length === 2", 15.0)
     browser.evaluate("window.__mode = 'notready'; document.querySelector('#input').focus(); ''")
-    typed(browser, "are you up")
+    typed(browser, "! are you up")
     enter(browser)
     assert wait_for(browser, "document.querySelector('#chat .msg.local.held') !== null", 10.0)
     woken(readable)
@@ -304,7 +304,7 @@ def test_a_woken_pane_with_no_input_box_yet_is_asked_again_and_the_message_goes_
     n = len(wait_sent(browser, 3, 40.0))
     time.sleep(5)
     got = sent(browser)
-    assert len(got) == n and all(g["body"]["text"] == "are you up" for g in got)
+    assert len(got) == n and all(g["body"]["text"] == "! are you up" for g in got)
     assert wait_for(browser, "!document.querySelector('#chat .msg.local .note.err')")
 
 
@@ -313,7 +313,7 @@ def test_a_refused_wake_keeps_the_message_and_says_why_and_try_again_delivers_on
     open_sleeper(browser, readable)
     assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length === 2", 15.0)
     browser.evaluate("document.querySelector('#input').focus(); ''")
-    typed(browser, "please wake up")
+    typed(browser, "! please wake up")
     enter(browser)
     assert wait_for(browser, "document.querySelector('#sleep-band').classList.contains('failed')", 15.0)
     b = band(browser)
@@ -321,7 +321,7 @@ def test_a_refused_wake_keeps_the_message_and_says_why_and_try_again_delivers_on
     note = browser.evaluate("document.querySelector('#chat .msg.local.held .note.err').textContent")
     assert "did not wake" in note and "words are not the owner's" in note and "message is kept" in note, note
     assert "please wake up" in chat_text(browser)                                                                            # the message is still there
-    assert browser.evaluate("JSON.parse(localStorage.getItem('salaweb.held'))['demo-sleeper'].msgs[0].text") == "please wake up"
+    assert browser.evaluate("JSON.parse(localStorage.getItem('salaweb.held'))['demo-sleeper'].msgs[0].text") == "! please wake up"
     assert sent(browser) == []
     # Try again, now that the queue takes it
     wake.mode("queued")
@@ -335,7 +335,7 @@ def test_a_refused_wake_keeps_the_message_and_says_why_and_try_again_delivers_on
     wait_sent(browser, 1)
     time.sleep(4)
     got = sent(browser)
-    assert len(got) == 1 and got[0]["body"]["text"] == "please wake up"
+    assert len(got) == 1 and got[0]["body"]["text"] == "! please wake up"
 
 
 def test_edit_takes_a_held_message_back_and_nothing_is_sent_later(readable, wake, woken, browser):
@@ -344,11 +344,11 @@ def test_edit_takes_a_held_message_back_and_nothing_is_sent_later(readable, wake
     open_sleeper(browser, readable)
     assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length === 2", 15.0)
     browser.evaluate("document.querySelector('#input').focus(); ''")
-    typed(browser, "never mind")
+    typed(browser, "! never mind")
     enter(browser)
     assert wait_for(browser, "document.querySelector('#chat .msg.local.held') !== null", 10.0)
     browser.evaluate("[...document.querySelectorAll('#chat .msg.local.held .note-actions button')].find((b) => b.textContent === 'Edit').click()")
-    assert wait_for(browser, "getText() === 'never mind'", 10.0)
+    assert wait_for(browser, "getText() === '! never mind'", 10.0)
     assert browser.evaluate("document.querySelector('#chat .msg.local.held') === null")
     assert browser.evaluate("localStorage.getItem('salaweb.held')") is None
     woken(readable)                                                                                                          # it wakes anyway (the wake was asked)
@@ -381,7 +381,7 @@ def test_a_reload_keeps_the_waiting_message_and_follows_the_wake_it_does_not_ask
     open_sleeper(browser, readable)
     assert wait_for(browser, "document.querySelectorAll('#chat > .msg').length === 2", 15.0)
     browser.evaluate("document.querySelector('#input').focus(); ''")
-    typed(browser, "survive the reload")
+    typed(browser, "! survive the reload")
     enter(browser)
     assert wait_for(browser, "JSON.parse(localStorage.getItem('salaweb.held') || '{}')['demo-sleeper'] && JSON.parse(localStorage.getItem('salaweb.held'))['demo-sleeper'].op === %s" % json.dumps(OP), 20.0)
     assert len(wake.wakes()) == 1
@@ -398,7 +398,7 @@ def test_a_reload_keeps_the_waiting_message_and_follows_the_wake_it_does_not_ask
     wait_sent(browser, 1)
     time.sleep(4)
     got = sent(browser)
-    assert len(got) == 1 and got[0]["body"]["text"] == "survive the reload"
+    assert len(got) == 1 and got[0]["body"]["text"] == "! survive the reload"
     assert browser.evaluate("localStorage.getItem('salaweb.held')") is None
 
 
@@ -424,7 +424,7 @@ def test_opening_a_sleeper_in_the_script_asks_for_no_wake():
 
 def test_a_send_to_a_sleeper_is_held_and_not_delivered_in_the_script():
     body = function_text("send")
-    assert "if (asleep) holdForWake(p); else deliver(p);" in body
-    assert 'status: asleep ? "held" : "sending"' in body
+    assert "if (ob) SalaWaiting.post(p);\n  else if (asleep) holdForWake(p);" in body   # the server's outbox, else (a "!" command) held by the page
+    assert 'const hold = !ob && (!!asleep || behind);' in body and 'status: hold ? "held" : "sending"' in body
     assert "deliver(" not in function_text("holdForWake")
     assert 'x.status === "held"' in function_text("releaseHeld") and "state.sending" in function_text("releaseHeld")

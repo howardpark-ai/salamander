@@ -71,7 +71,7 @@ sala is, *Deploying* below.
   3. the input box is empty. Dim text is the placeholder suggestion and counts as empty, and so does the placeholder's first character, which Claude Code draws reverse-video as the cursor cell just before the dim rest. If the owner (or anything
      else) left text there, the send is refused with 409 "pane input box is not empty; nothing sent", and the answer carries
      what the box holds: `boxText` (the lines as the owner typed them, without Claude Code's two-space indent), `boxHidden`
-     (lines are out of view in the pane) and `boxChanged` (false here). **A send never clears the box by itself.** The page's
+     (lines are out of view in the pane) and `boxChanged` (false here). **A send never clears the box by itself** (the outbox does, below: an ordinary message goes through it). The page's
      failed bubble shows `boxText` and offers *Replace* beside *Retry* and *Edit*; Replace sends the same message again with
      `"replace": "<the text it showed>"`. The server then reads the box again: when it still equals `replace` exactly, it
      empties it and pastes the message into the empty box as any send does; when it differs, the answer is a new 409 with the
@@ -741,7 +741,7 @@ A session sala put to sleep (`sala sleep`: its claude ended on purpose, its tmux
 A message sent from any sala web page goes to the session even while a turn runs (Claude Code queues what is typed mid-turn). What the pane cannot
 take yet is **held on the server**, not in the browser, and typed when the pane can take it, in the order it was sent. A reload, a second tab and a
 phone read the same list. The code is `outbox.py` (the store and the reading of the transcript, no tmux) and the outbox block of `app.py` (the routes,
-the sender and the transcript check); the page does not use it yet: the visible design is not chosen, so the routes below are the API a page will call later.
+the sender and the transcript check); the page's side is `static/waiting.js` (*The page* below).
 
 - **States of a message.** `held` (waiting: `reason` says for what), `typing` (being pasted into the pane now), `queued` (typed and submitted; the
   session has it, in its input queue or taken, and no transcript line shows it yet), `delivered` (a transcript line shows the session took it),
@@ -784,10 +784,19 @@ the sender and the transcript check); the page does not use it yet: the visible 
   and the files 600; an odd name is made a safe file name (never a path) with a short hash; a corrupt file reads as an empty list (the next write replaces it), not a crash. A message left `typing`
   by a stopped server is `failed` (it may or may not have gone in; its text stays). Delivered, withdrawn and failed entries stay 6 hours, at most 200 a
   session. A shutdown lets the sender finish the message it is typing.
-- **The page.** Not built here: no page calls these routes yet, so nothing on a page changes (its own browser-side hold of a message to a sleeper, the
-  60 s *Queued* guess and the dimming stay as they were). `GET /api/outbox/<name>` and the stream's `outbox` event (`{"messages": [...]}`, at open and at
-  each change) carry the list for a page to use later; a message asked for with a `cid` is one message however often it is asked.
-- **Tests.** `tests/test_outbox.py` (the store and the transcript matching), `tests/test_outbox_send.py` (the routes and the sender against a made-up pane).
+- **The page** (`static/waiting.js`). The composer posts a message to `api/outbox/<name>`; a `!` command still goes to `api/s/<pid>/send`, and so
+  does a slash command to a live session with nothing waiting ahead of it. A message the server holds, or has typed and Claude has not read, is drawn
+  one way: a dashed bubble, *Waiting* under it, no time, *Edit* and *Cancel*. While Claude asks something (a question or a
+  permission: the session's `waiting` status) the line adds *answer Claude's question first*, and a message already in the pane offers no button; nor
+  does it while another dialog or menu is open in the pane (no reason is written for that), nor does one in the pane that is a slash command, nor any
+  in the pane while one of them has an upload. Cancel and Edit ask the server to take the message back (Edit puts it in the composer: sent again, it joins at the
+  end), and the status line says when Claude had read it first (that bubble then offers no
+  button while its transcript line is on the way), or when it could not be taken back. A failed one keeps *Retry* and *Edit*, which
+  withdraw it on the server first. The list comes from the stream's `outbox` event (`{"messages": [...]}`, at open and at each change) and, for a
+  sleeper, from `GET /api/outbox/<name>` on each poll, so a reload and a second device draw the same bubbles; a bubble drawn from the list goes to
+  the end of the chat. A bubble goes when the transcript shows its message, 3 s after the list says `delivered` when no such line came, or when the
+  message is withdrawn. A message asked for with a `cid` is one message however often it is asked.
+- **Tests.** `tests/test_outbox.py` (the store and the transcript matching), `tests/test_outbox_send.py` (the routes and the sender against a made-up pane), `tests/test_waiting_ui.py` (the page, in a headless Chromium).
 
 ### Send now: the waiting messages read at once
 
@@ -848,22 +857,25 @@ Every pid-keyed route (`/api/s/<pid>/...`) finds nothing at pid 0, and spend, us
   (below); reading is free. A band above the composer (`#sleep-band`) says *asleep since ... Sending a message wakes it, and the message goes in
   when it is back* with the *Wake it* button, and the composer works as it does for a live session. A sleeper whose file cannot be found (or read)
   shows the old note in the chat and the same band, never an error page.
-- **The first message sent to a sleeper is held, and goes in once when the session is back.** Send shows the message as a bubble that says *Waiting
-  for NAME to wake* (state `held`; a held message is never matched against the transcript) and asks `POST /api/wake` with `how: "send"`, once (a second
-  message asks for no second wake unless the first ask failed). The band then says *Waking ...*, then follows the queued operation
-  (`GET /api/spawn/status?op=`) and the sessions list every 2 s. When the session is listed live (the ordinary poll opens it; a woken session keeps
-  its conversation and its name) the held messages are sent in order, one at a time, each leaving `held` for `sending` before its first request.
+- **A message sent to a sleeper is held by the server, and goes in once when the session is back.** Send posts it to `api/outbox/<name>` (*The
+  page*, above: the bubble says *Waiting*, with *Edit*, *Cancel* and, while no wake is on its way, the wake's button) and asks `POST /api/wake` with
+  `how: "send"`, once (a second message asks for no second wake unless the first ask failed). The band then says *Waking ...*, then follows the queued
+  operation (`GET /api/spawn/status?op=`) and the sessions list every 2 s. When the session is listed live (the ordinary poll opens it; a woken
+  session keeps its conversation and its name) the server types what it holds, in order. A `!` command, which the server never holds, and whatever is
+  sent to that session behind one, is held by the page: a bubble that says *Waiting for NAME to wake* (state `held`; a held message is never matched
+  against the transcript), sent once the server has typed what it holds, one at a time, each leaving `held` for `sending` before its first request.
   A woken pane draws its input box some seconds after its registry file appears, and the server answers a send to a pane with no input box with a 409
-  that carries `noInputBox: true` (nothing was typed); a held message is asked again every 2 s for a minute on that answer alone, and
+  that carries `noInputBox: true` (nothing was typed); a page-held message is asked again every 2 s for a minute on that answer alone, and
   fails with the server's words after that. Every other refusal is the bubble's `Not sent: ...` as for any message, with Retry and Edit. A refused or
-  stuck wake, or four minutes without one, shows the reason in the band (with *Try again*) and in the bubble (*Not sent yet: NAME did not wake (why).
-  The message is kept.*); the message stays held, *Try again* asks for the wake again and the message goes in once it is back, *Edit* puts it back in
-  the composer and nothing is sent. Where the message lives while it waits: the page (`state.pending`) and `localStorage` `salaweb.held`
-  (`{name: {op, msgs: [{text, at, images}]}}`, text and the names of what was uploaded; a pasted image's thumbnail is not kept and shows as a file
-  chip), written when a message is held and removed when its request is answered, dropped or edited back. A reload reads it before the chat is
-  drawn, brings the bubbles back and, with the operation id, follows the queued wake instead of asking for another. A message whose request was
-  in flight at the moment of a reload is held again on the next load; the server's duplicate window (`DUP_WINDOW`, 20 s) refuses a second paste of
-  the same text to the same pane, and the page drops its copy on that answer.
+  stuck wake, or four minutes without one, shows the reason in the band (with *Try again*) and, on a page-held message, in its bubble (*Not sent
+  yet: NAME did not wake (why). The message is kept.*); the message stays held, *Try again* asks for the wake again and the message goes in once it
+  is back, *Edit* puts it back in the composer and nothing is sent. Where a message lives while it waits: the server's outbox, or for a page-held one
+  the page (`state.pending`) and `localStorage` `salaweb.held` (`{name: {op, msgs: [{text, at, images}]}}`, text and the names of what was uploaded;
+  a pasted image's thumbnail is not kept and shows as a file chip), written when a message is held and removed when its request is answered, dropped
+  or edited back. The same key keeps the wake's operation id, with `msgs` empty when only the server holds a message. A reload reads it before the
+  chat is drawn, brings the page's bubbles back and follows the queued wake instead of asking for another. A page-held message whose request was in
+  flight at the moment of a reload is held again on the next load; the server's duplicate window (`DUP_WINDOW`, 20 s) refuses a second paste of the
+  same text to the same pane, and the page drops its copy on that answer.
 - **`GET /api/sleeping/<name>/transcript`**: the same JSON and the same `?n`, `?before`, `?around` and `?after` as `GET /api/s/<pid>/transcript`
   (`session` carries `sleeping` and pid 0), for a name `read_sleeping_sessions` lists: the file is `transcript.transcript_path(<projects dir>,
   <the pane map's directory>, <the marker's conversation id>)` (the directory's project folder, else any project folder holding that id; a name
@@ -2639,7 +2651,8 @@ does not read included, stays a `thinking` fold behind the toggle, and an empty 
 the view stays pinned to the bottom (a `ResizeObserver` re-scrolls as images and markdown settle) until the owner
 scrolls up, which shows a jump-to-bottom button; a sent message shows at once as a pending bubble and is replaced by
 the transcript's copy when it arrives (matched on its text, ignoring `[Image #N]` chips and Claude Code's
-`<pasted_content>` wrapper, else the first new prompt after the send); scope and project headers reorder by dragging
+`<pasted_content>` wrapper, else, for a slash command, the first new prompt after the send; a message in the outbox
+also goes when the server says it was delivered, *The page*); scope and project headers reorder by dragging
 (pointer events, so touch works too) and fold on a click. `marked` 12.0.2 and
 `DOMPurify` 3.5.0 are vendored in `static/vendor/` (DOMPurify's pin, lockfile, license, checksum and how to move it:
 `vendor-src/dompurify/README.md`). `tools/make_icons.py` redraws the app icons (*Install as an
