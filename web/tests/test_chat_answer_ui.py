@@ -3,13 +3,15 @@
 The board's frame is stood in for by a small server of this file's own, on another origin than the page: its page counts its loads, says what a test tells it
 to say, in the board's message shape, and records what the page posts to it.
 
-The rule: a row of the strip that names a board item opens to the item's frame by a tap, and the newest reply that names the item has it under it; an action in
+The rule: a row of the strip that names a board item opens to the item's frame by a tap, and the newest reply that asks for a card of the item (a line
+`[card: <id>]` or `[card: [<label>](<item url>)]`, of an item on the first list) has it under it; a plain mention or link makes no card; an action in
 one place shows in the other; a live frame is never moved or made again; with no word from the frame the plain link is there as before; NO SIDEWAYS SCROLL.
 
 Held here:
   - a row opens and closes, one at a time, its frame made at the first opening and kept; a row without a board address is as before;
   - strip repaints (a re-ordered list, a new row, both tabs, a language change, the list shut and opened) and a growing thread load no frame again;
-  - the newest reply naming an item holds the frame, the older one points to it, and the older frame goes only once the newer one has spoken;
+  - the newest reply with a card line for an item holds the frame, the older one points to it, and the older frame goes only once the newer one has spoken;
+  - a card comes only from a marker line: a plain mention, a link, a marker in code or a quote, and a marked item not on the list make no card, and no marker text shows;
   - a message from another origin, another window or about another item, or not of the board's shape, changes nothing; a height is held to a range;
   - markup a reply writes makes no frame, takes no card's look and does not cover a card;
   - a frame that says nothing leaves the plain link, and a late message brings the frame back;
@@ -278,7 +280,7 @@ def test_a_row_opens_to_its_frame_by_a_tap_one_at_a_time_and_keeps_it(served, br
 
 def test_no_repaint_and_no_growing_thread_moves_or_remakes_a_live_frame(served, browser, monkeypatch, frames):
     rows = [frames.row(1), frames.row(2, "Pick a venue"), frames.row(3, "Name the demo")]
-    open_answer(browser, served, monkeypatch, rows, replies=("item#1 is ready for your pick.",))
+    open_answer(browser, served, monkeypatch, rows, replies=("item#1 is ready for your pick.\n[card: item#1]",))
     ready(frames, "1")
     open_row(browser, frames, 1)
     open_row(browser, frames, 2)
@@ -322,7 +324,7 @@ def test_no_repaint_and_no_growing_thread_moves_or_remakes_a_live_frame(served, 
 
 
 def test_the_newest_reply_holds_the_frame_and_the_older_frame_goes_once_the_newer_one_speaks(served, browser, monkeypatch, frames):
-    open_answer(browser, served, monkeypatch, [], replies=("item#1 is ready for your pick.",))
+    open_answer(browser, served, monkeypatch, [], replies=("item#1 is ready for your pick.\n[card: item#1]",))
     assert browser.evaluate(f"{CARDS}.length") == 0
     change(browser, waiting=[frames.row(1)])   # the list is read after the thread was drawn: the card comes with no new line
     wait(browser, f"{CARDS}.length === 1")
@@ -357,7 +359,7 @@ def plain_looks(browser, n: int) -> list:
 
 def test_a_frames_first_word_of_an_answer_shows_the_item_plain_in_every_place(served, browser, monkeypatch, frames):
     frames.first["1"] = {"state": "answered", "height": 200}
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.", "item#1 again."))
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]", "item#1 again.\n[card: item#1]"))
     ready(frames, "1")
     wait(browser, f"{row(1)}.classList.contains('ans-plain') && {CARDS}.every((c) => c.classList.contains('ans-plain'))")
     got = browser.evaluate(f"""(() => {{ const r = {row(1)}, cs = {CARDS};
@@ -368,7 +370,7 @@ def test_a_frames_first_word_of_an_answer_shows_the_item_plain_in_every_place(se
 
 
 def test_an_item_that_showed_a_question_then_answers_shows_the_answer_in_every_place(served, browser, monkeypatch, frames):
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",))
     ready(frames, "1")
     wait(browser, f"{card_frame(0)}.style.height === '200px'")
     say(browser, card_frame(0), state="answered")
@@ -378,14 +380,14 @@ def test_an_item_that_showed_a_question_then_answers_shows_the_answer_in_every_p
 
 
 def test_a_newer_reply_whose_frame_first_says_answered_is_plain_and_the_older_card_keeps_its_mark(served, browser, monkeypatch, frames):
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",))
     ready(frames, "1")
     wait(browser, f"{card_frame(0)}.style.height === '200px'")
     say(browser, card_frame(0), state="answered")
     wait(browser, f"{card(0)}.classList.contains('ans-done')")
     browser.evaluate(f"window.__old = {card_frame(0)}; ''")
     frames.first["1"] = {"state": "answered", "height": 200}
-    append(served, human("And now?", 3), assistant("item#1 again.", 3))
+    append(served, human("And now?", 3), assistant("item#1 again.\n[card: item#1]", 3))
     wait(browser, f"{CARDS}.length === 2")
     ready(frames, "1", 2)
     wait(browser, "!window.__old.isConnected")
@@ -397,11 +399,11 @@ def test_a_newer_reply_whose_frame_first_says_answered_is_plain_and_the_older_ca
 
 def test_after_a_plain_answer_a_real_question_shows_normally(served, browser, monkeypatch, frames):
     frames.first["1"] = {"state": "answered", "height": 200}
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",))
     ready(frames, "1")
     wait(browser, f"{row(1)}.classList.contains('ans-plain') && {card(0)}.classList.contains('ans-plain')")
     frames.first["1"] = {"state": "open", "height": 200}
-    append(served, human("And now?", 3), assistant("item#1 needs you.", 3))
+    append(served, human("And now?", 3), assistant("item#1 needs you.\n[card: item#1]", 3))
     wait(browser, f"{CARDS}.length === 2")
     ready(frames, "1", 2)
     wait(browser, f"{SHOWN}({card_frame(1)}) && {card_frame(1)}.style.height === '200px' && !{card(1)}.classList.contains('ans-plain')")
@@ -410,7 +412,7 @@ def test_after_a_plain_answer_a_real_question_shows_normally(served, browser, mo
 
 def test_signed_out_then_an_answer_shows_the_item_plain_as_a_fresh_answer_does(served, browser, monkeypatch, frames):
     frames.first["1"] = {"state": "signed_out", "height": 200}
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",))
     ready(frames, "1")
     wait(browser, f"{card_frame(0)}.style.height === '200px'")
     say(browser, card_frame(0), state="answered")
@@ -421,7 +423,7 @@ def test_signed_out_then_an_answer_shows_the_item_plain_as_a_fresh_answer_does(s
 
 def test_a_frame_that_has_not_spoken_is_hidden_until_its_first_word(served, browser, monkeypatch, frames):
     frames.first["1"] = None
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",))
     ready(frames, "1")
     assert browser.evaluate(f"getComputedStyle({card_frame(0)}).visibility") == "hidden"
     say(browser, card_frame(0), state="open", height=200)
@@ -476,7 +478,7 @@ def test_markup_in_a_reply_makes_no_frame_takes_no_look_and_covers_no_card(serve
     fake = (f'<div class="ans-under ans-newest"><div class="ans-card"><div class="ans-slot"><iframe class="ans-frame" src="{other.url(1)}/answer-frame"></iframe>'
             '</div></div></div>')
     cover = '<div style="position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:2147483647;background:#900">cover</div>'
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.", f"Look here.\n\n{fake}\n\n{cover}"), listed=False)
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]", f"Look here.\n\n{fake}\n\n{cover}"), listed=False)
     ready(frames, "1")
     wait(browser, f"{card_frame(0)}.style.height === '200px'")
     browser.evaluate(f"{card_frame(0)}.scrollIntoView({{ block: 'center' }}); ''")
@@ -489,6 +491,25 @@ def test_markup_in_a_reply_makes_no_frame_takes_no_look_and_covers_no_card(serve
     assert other.loads == [], other.loads
 
 
+def test_a_plain_mention_or_link_makes_no_card_and_an_item_off_the_list_makes_none_either(served, browser, monkeypatch, frames):
+    open_answer(browser, served, monkeypatch, [frames.row(1)],
+                replies=(f"item#1 is ready, see {frames.url(1)}.", "Also item#9 is ready.\n[card: item#9]"))
+    browser.settle("document.querySelector('#chat')")
+    got = browser.evaluate(f"""({{ cards: {CARDS}.length, frames: document.querySelectorAll('#chat iframe').length,
+      marks: document.querySelector('#chat').textContent.includes('[card:') }})""")
+    assert got == {"cards": 0, "frames": 0, "marks": False}, got
+
+
+def test_a_card_line_inside_code_makes_no_card_and_a_linked_card_line_does(served, browser, monkeypatch, frames):
+    open_answer(browser, served, monkeypatch, [frames.row(1)],
+                replies=("Form:\n```\n[card: item#1]\n```", f"Ready.\n[card: [item#1]({frames.url(1)})]"))
+    ready(frames, "1")
+    wait(browser, f"{card_frame(0)}.style.height === '200px'")
+    got = browser.evaluate(f"""({{ cards: {CARDS}.length, code: document.querySelectorAll('#chat .md pre').length,
+      marks: document.querySelector('#chat').textContent.includes('[card:') }})""")
+    assert got == {"cards": 1, "code": 1, "marks": True}, got
+
+
 def test_with_no_word_from_a_frame_the_plain_link_is_there_and_a_late_word_brings_the_frame_back(served, browser, monkeypatch, frames):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -496,7 +517,7 @@ def test_with_no_word_from_a_frame_the_plain_link_is_there_and_a_late_word_bring
     dead = nobody + "/items/2"
     frames.first["1"] = None
     rows = [frames.row(1), {"id": "item#2", "subject": "Nobody answers here", "url": dead}]
-    open_answer(browser, served, monkeypatch, rows, replies=("item#1 and item#2 both wait.",), timing={"silent": 700})
+    open_answer(browser, served, monkeypatch, rows, replies=("item#1 and item#2 both wait.\n[card: item#1]\n[card: item#2]",), timing={"silent": 700})
     wait(browser, f"{CARDS}.length === 2 && {CARDS}.every((c) => c.classList.contains('ans-plain'))")
     cards = browser.evaluate(f"{CARDS}.map((c) => [{SHOWN}(c.querySelector('a.wait-link')), c.querySelector('a.wait-link').href, {SHOWN}(c.querySelector('iframe'))])")
     assert cards == [[True, frames.url(1), False], [True, dead, False]], cards
@@ -523,7 +544,7 @@ def test_with_no_word_from_a_frame_the_plain_link_is_there_and_a_late_word_bring
 # ── one action, every place ──────────────────────────────────────────────────
 def test_sending_and_answered_show_in_the_strip_and_under_the_replies_and_a_closed_item_is_its_link(served, browser, monkeypatch, frames):
     open_answer(browser, served, monkeypatch, [frames.row(1), frames.row(2, "Pick a venue")],
-                replies=("item#1 is ready.", "item#1 again, and item#2 too."))
+                replies=("item#1 is ready.\n[card: item#1]", "item#1 again, and item#2 too.\n[card: item#1]\n[card: item#2]"))
     ready(frames, "1")
     ready(frames, "2")
     wait(browser, f"{CARDS}.length === 3")
@@ -573,7 +594,7 @@ def test_a_changed_question_loads_its_frame_once_more_and_not_in_a_loop(served, 
 
 
 def test_the_lists_changes_and_the_theme_are_posted_to_the_frames_at_the_boards_origin(served, browser, monkeypatch, frames):
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",))
     ready(frames, "1")
     open_row(browser, frames, 1)
     wait(browser, f"{card_frame(0)}.style.height === '200px'")
@@ -720,7 +741,7 @@ def test_under_the_bar_of_tabs_every_target_gives_a_finger_44px_and_the_list_is_
 
 
 def test_a_running_commands_live_block_stays_under_the_cards_and_moves_no_frame(served, browser, monkeypatch, frames):
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",))
     ready(frames, "1")
     wait(browser, f"{card_frame(0)}.style.height === '200px'")
     browser.evaluate(f"window.__f = {card_frame(0)}; window.__w = window.__f.contentWindow; window.__moved = 0; new MutationObserver((rs) => {{ for (const r of rs) "
@@ -753,7 +774,7 @@ def test_no_sideways_scroll_with_frames_open(served, browser, monkeypatch, frame
     word = "w" * 200
     rows = [frames.row(n, f"[demo] a subject that keeps going and going {word}") for n in (1, 2, 3)]
     frames.first = {n: {"state": "open", "height": 400} for n in ("1", "2", "3")}
-    open_answer(browser, served, monkeypatch, rows, replies=(f"item#1 and item#2: {word}", f"item#1 again {word}"),
+    open_answer(browser, served, monkeypatch, rows, replies=(f"item#1 and item#2: {word}\n[card: item#1]\n[card: item#2]", f"item#1 again {word}\n[card: item#1]"),
                 size=DESKTOP if width > 700 else (width, 844))
     if width < 700:
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
@@ -777,7 +798,7 @@ def test_no_sideways_scroll_with_frames_open(served, browser, monkeypatch, frame
 
 # ── where nothing of this is ─────────────────────────────────────────────────
 def test_with_the_setting_off_the_rows_and_the_thread_are_as_before(served, browser, monkeypatch, frames):
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",), layer=None)
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",), layer=None)
     time.sleep(0.5)
     got = browser.evaluate(f"[typeof window.SalaAnswerFrame, document.querySelectorAll('iframe, .ans, .ans-under, .ans-list').length, "
                            f"{ROWS}[0].querySelector('a.wait-link').href, {ROWS}[0].children.length]")
@@ -787,7 +808,7 @@ def test_with_the_setting_off_the_rows_and_the_thread_are_as_before(served, brow
 
 def test_another_sessions_page_has_nothing_of_it_also_after_the_chat(served, browser, monkeypatch, frames):
     add_session(served, OTHER, OTHER_SID, [human("What waits?", 1), assistant("item#1 is named here too.", 2)])
-    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.",))
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",))
     ready(frames, "1")
     open_row(browser, frames, 1)
     say(browser, row_frame(1), typing=True)

@@ -5,7 +5,8 @@ What is held:
   - app.js hands the first list over in one place, chatlayer.js asks in one place, and no other file knows the module;
   - the module names no address of a board (the frame's origin comes from the item's own link) and posts to a named origin only;
   - every rule of its sheet is under the chat session's body class;
-  - its pure functions, run in node: which link is a board item's and where its frame is, what in a reply names an item, which messages are the board's.
+  - its pure functions, run in node: which link is a board item's and where its frame is, which lines of a reply are card markers and how the reply
+    reads with them taken out, which messages are the board's.
 
 What a wrong answer costs: a page that changes with the setting off, a frame of a wrong address, a message from another page taken for the board's, an item
 named by another item's number. Names and texts are invented; every temporary folder is removed as the test ends."""
@@ -54,7 +55,8 @@ def test_the_two_files_are_on_the_layers_include_lines_and_off_the_page_names_ne
 
 def test_the_shared_script_and_the_layer_hand_over_in_one_place_each():
     uses = [line for line in code("app.js") if "SalaAnswerFrame" in line]
-    assert uses == ["if (window.SalaAnswerFrame) SalaAnswerFrame.strip(u.waitList, waiting, chatWaitRow);"]
+    assert uses == ["if (window.SalaAnswerFrame) text = SalaAnswerFrame.hideMarks(text);",
+                    "if (window.SalaAnswerFrame) SalaAnswerFrame.strip(u.waitList, waiting, chatWaitRow);"]
     assert [line for line in code("app.js") if "chatWaitRow(w)" in line] == ["else u.waitList.replaceChildren(...waiting.map((w) => chatWaitRow(w)));"]
     assert [line for line in code("chatlayer.js") if "SalaAnswerFrame" in line] == [
         "const under = window.SalaAnswerFrame ? SalaAnswerFrame.thread(drawn.map(([m]) => m), redraw) : null;"]
@@ -93,16 +95,16 @@ PROGRAM = r"""
 const fs = require('fs');
 globalThis.window = {};
 eval(fs.readFileSync(process.argv[1], 'utf8'));
-const { address, namer, read } = window.SalaAnswerFrame;
+const { address, markers, hideMarks, read } = window.SalaAnswerFrame;
 const c = JSON.parse(fs.readFileSync(0, 'utf8'));
-console.log(JSON.stringify({ address: c.address.map(address), named: c.named.map(([id, page, t]) => namer(id, page).test(t)),
+console.log(JSON.stringify({ address: c.address.map(address), markers: c.markers.map((t) => markers(t)), hide: c.hide.map((t) => hideMarks(t)),
   read: c.read.map(([d, item]) => read(d, item)) }));
 """
 
 
-def run(address=(), named=(), read=()) -> dict:
-    out = subprocess.run([NODE, "-e", PROGRAM, str(JS)], input=json.dumps({"address": list(address), "named": list(named), "read": list(read)}),
-                         capture_output=True, text=True, check=True, timeout=60).stdout
+def run(address=(), markers=(), hide=(), read=()) -> dict:
+    payload = {"address": list(address), "markers": list(markers), "hide": list(hide), "read": list(read)}
+    out = subprocess.run([NODE, "-e", PROGRAM, str(JS)], input=json.dumps(payload), capture_output=True, text=True, check=True, timeout=60).stdout
     return json.loads(out)
 
 
@@ -132,17 +134,52 @@ def test_only_the_address_of_a_boards_item_page_gives_a_frame():
 
 
 @needs_node
-def test_a_reply_names_an_item_by_its_id_as_a_word_or_by_its_pages_address():
-    page = BOARD + "/items/42"
+def test_a_card_is_asked_for_by_a_marker_line_of_its_own_outside_code_and_quotes():
+    page = BOARD + "/items/7"
     cases = [
-        ("item#42 is ready.", True), ("See (item#42).", True), ("`item#42`", True), ("[item#42](https://elsewhere.example)", True),
-        ("item#42\uc774 \ub0a8\uc558\uc5b4\uc694", True), (f"Look at {page}.", True), (f"<{page}/>", True),
-        ("item#420 is another.", False), ("item#42-old", False), ("subitem#42", False), ("sub-item#42", False), ("#item#42", False),
-        (page + "0", False), ("item 42", False), ("Nothing here.", False),
+        ("[card: board#7]", [{"i": 0, "url": None, "id": "board#7"}]),
+        ("   [card: board#7]  ", [{"i": 0, "url": None, "id": "board#7"}]),
+        ("Intro.\n[card: board#7]\nOutro.", [{"i": 1, "url": None, "id": "board#7"}]),
+        (f"[card: [board#7]({page})]", [{"i": 0, "url": page, "id": None}]),
+        ("[card: board#7]\n[card: board#8]", [{"i": 0, "url": None, "id": "board#7"}, {"i": 1, "url": None, "id": "board#8"}]),
+        ("[card: board#8]\n[card: board#7]\n[card: board#8]", [{"i": 0, "url": None, "id": "board#8"}, {"i": 1, "url": None, "id": "board#7"},
+                                                               {"i": 2, "url": None, "id": "board#8"}]),
+        ("board#7 is ready.", []),                        # a plain mention is no card
+        (f"Look at {page}.", []),                         # nor a plain link
+        ("item [card: board#7] is ready.", []),           # in a sentence
+        ("    [card: board#7]", []),                      # four spaces: an indented code block
+        ("> [card: board#7]", []),                         # a quote
+        ("- [card: board#7]", []),                         # a list item
+        ("`[card: board#7]`", []),                         # inline code
+        ("[card: board#7`]", []),                          # a backquote is not a character of an id
+        ("[card: board#7", []),                            # still being written
+        ("[card: board#7] and more", []),
+        ("[card: ]", []),
+        ("[card: board 7]", []),
+        ("[card: [board#7](ftp://board.example/items/7)]", []),
+        ("[card: board#7]]", []),
+        ("```\n[card: board#7]\n```", []),                # a fenced block
+        ("~~~\n[card: board#7]\n~~~", []),
+        ("````\n```\n[card: board#7]\n````\n[card: board#8]", [{"i": 4, "url": None, "id": "board#8"}]),   # closes only with its own length
+        ("```\n[card: board#7]", []),                      # a fence that is not closed runs to the end
+        ("```\n```\n[card: board#7]", [{"i": 2, "url": None, "id": "board#7"}]),
     ]
-    got = run(named=[("item#42", page, t) for t, _ in cases])["named"]
+    got = run(markers=[t for t, _ in cases])["markers"]
+    assert got == [w for _, w in cases], [(c[0], g) for c, g in zip(cases, got) if g != c[1]]
+
+
+@needs_node
+def test_a_reply_reads_without_its_marker_lines_and_its_code_and_quotes_keep_theirs():
+    cases = [
+        ("Done.\n[card: board#7]\nNext.", "Done.\nNext."),
+        ("[card: board#7]", ""),
+        ("[card: board#7]\n[card: board#8]\nTwo.", "Two."),
+        ("```\n[card: board#7]\n```", "```\n[card: board#7]\n```"),
+        ("> [card: board#7]\nText [card: board#7]", "> [card: board#7]\nText [card: board#7]"),
+        ("No marker here.", "No marker here."),
+    ]
+    got = run(hide=[t for t, _ in cases])["hide"]
     assert got == [w for _, w in cases], list(zip(cases, got))
-    assert run(named=[("a.b", page, "aXb"), ("a.b", page, "a.b")])["named"] == [False, True]
 
 
 @needs_node

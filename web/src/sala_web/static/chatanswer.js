@@ -1,6 +1,6 @@
 "use strict";
 /* Answering an item that waits on the owner from the chat session's page: the board's own frame, in the strip's row of the item (opened by a tap) and
-   under the newest reply that names it. The page draws the item's id, title and link; the frame draws the question, its choices and Send, and sends them
+   under the reply that marks it (a line `[card: <id>]`, see markers()). The page draws the item's id, title and link; the frame draws the question, its choices and Send, and sends them
    to the board itself. Nothing here writes anything. The server puts this file and chatanswer.css in the page with the chat session's layer
    (SALA_CHAT_LAYER). app.js calls strip() in place of drawing the first list's rows itself; chatlayer.js asks thread() what stands under each reply, and
    hands it the redraw to call when the known items change. Neither part needs the other: with one of them absent the other works as it does.
@@ -11,9 +11,13 @@
 
    A FRAME IS NEVER MOVED OR MADE AGAIN BY A REDRAW (a browser reloads a frame whose element is moved in the page). A row that holds one stays where it is
    in the document: the others are put around it, and the style `order` gives what is seen. A card stands after its message as an element of its own, kept
-   while the message names the item. A strip row's frame is made at the row's first opening and then kept, hidden while the row is closed. When a newer
-   reply names an item, the new card's frame is made first, and the older one goes once the new one has spoken or has been silent too long, so the board's
+   while a reply marks the item. A strip row's frame is made at the row's first opening and then kept, hidden while the row is closed. When a newer
+   reply marks an item, the new card's frame is made first, and the older one goes once the new one has spoken or has been silent too long, so the board's
    two frames can hand their state over.
+
+   CARDS ARE ASKED FOR. A card stands only where an assistant reply has a marker line of its own, `[card: <id>]` or `[card: [<label>](<item url>)]`,
+   outside code and quotes (markers()); the marker lines are then taken out of the reply's text (hideMarks()). Several markers give several cards in the
+   order written. A card shows only for an item on the first list; an item that leaves the list keeps the cards whose frame this page session saw open.
 
    MESSAGES are taken only from the window of a frame made here (held in `frames`, never looked up by a selector a reply's markup could answer) and from
    that frame's origin, and only in the board's own shape (read()). Every message to a frame names its origin.
@@ -39,10 +43,25 @@ window.SalaAnswerFrame = (() => {
     try { item = decodeURIComponent(item); } catch { /* as written */ }
     return { origin: u.origin, item, page: u.origin + m[1] };
   }
-  // what finds an item in a reply's text: its id as a word of its own, or its page's address
-  function namer(id, page) {
-    const as = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp("(?:^|[^\\w#-])" + as(id) + "(?![\\w-])|" + as(page) + "(?![\\w-])");
+  // the marker lines of a reply, in order: {i: the line's index, id} or {i, url}. A marker is a line of its own (up to three spaces in), outside a fenced
+  // block; a line in a quote, a list or an inline code span, or a marker with a letter missing, is not one. A line that is still being written is not one either
+  const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/, MARK = /^ {0,3}\[card: (?:\[[^\]\n]*\]\((https?:\/\/[^\s)]+)\)|([^\s[\]()`]+))\]\s*$/;
+  function markers(text) {
+    const out = [];
+    let fence = null;
+    String(text || "").split("\n").forEach((line, i) => {
+      const f = FENCE.exec(line);
+      if (fence) { if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2].trim()) fence = null; return; }
+      if (f) { fence = f[1]; return; }
+      const m = MARK.exec(line);
+      if (m) out.push({ i, url: m[1] || null, id: m[2] || null });
+    });
+    return out;
+  }
+  // the reply's text with its marker lines taken out (what the page shows; the stored text keeps them)
+  function hideMarks(text) {
+    const gone = new Set(markers(text).map((k) => k.i));
+    return String(text || "").split("\n").filter((_, i) => !gone.has(i)).join("\n");
   }
   // what a message from the frame of `item` says, or null when it is not one
   function read(d, item) {
@@ -52,8 +71,8 @@ window.SalaAnswerFrame = (() => {
   }
 
   /* ---------- state ---------- */
-  const items = new Map();    // id -> {id, subject, url, at, names, listed, state, row}
-  const cards = new Map();    // "<message uuid>\n<id>" -> a card under a reply: {it, node, title, line, slot, newest, box, seq}
+  const items = new Map();    // id -> {id, subject, url, at, listed, state, row}
+  const cards = new Map();    // "<message uuid>\n<id>" -> a card under a reply: {it, node, title, line, slot, newest, box, seq, seen}
   const frames = new Map();   // iframe element -> its box: the only frames that are listened to
   let openId = null, made = 0, redraw = null, ui = null;
 
@@ -252,7 +271,7 @@ window.SalaAnswerFrame = (() => {
       let it = items.get(w.id);
       if (it && it.at.page !== at.page) { forget(it); it = null; }   // another page of the board: nothing of the old frame holds for it
       if (!it) {
-        items.set(w.id, { id: w.id, subject: w.subject || "", url: w.url, at, names: namer(w.id, at.page), listed: true, state: "", row: null });
+        items.set(w.id, { id: w.id, subject: w.subject || "", url: w.url, at, listed: true, state: "", row: null });
         news = true;
       } else if (!it.listed || it.subject !== (w.subject || "") || it.url !== w.url) {
         Object.assign(it, { subject: w.subject || "", url: w.url, listed: true });
@@ -261,7 +280,7 @@ window.SalaAnswerFrame = (() => {
       }
     }
     // an item that left the list: its row goes, as every row does; what stands under a reply stays and is told to read the item again
-    for (const it of items.values()) if (it.listed && !listed.has(it.id)) { it.listed = false; dropRow(it); refresh(it); }
+    for (const it of items.values()) if (it.listed && !listed.has(it.id)) { it.listed = false; dropRow(it); refresh(it); news = true; }
     return news;
   }
   /* app.js hands over the first list (`list`) with what the last read holds (`waiting`) and its own row maker. A row that cannot be answered is that row. */
@@ -291,17 +310,28 @@ window.SalaAnswerFrame = (() => {
   }
 
   /* ---------- under the replies ---------- */
-  /* chatlayer.js draws these messages: for each reply that names an item, the elements that stand after it (uuid -> [element]). The newest reply that names
+  /* chatlayer.js draws these messages: for each reply that marks an item, the elements that stand after it (uuid -> [element]). The newest reply that marks
      an item holds its frame; an older one says where it is. */
+  const markedItem = (k) => {
+    if (!k.url) return items.get(k.id) || null;
+    const at = address(k.url), it = at && items.get(at.item);
+    return it && it.at.page === at.page ? it : null;
+  };
   function thread(messages, again) {
     redraw = again;
     for (const [key, c] of cards) if (!c.node.isConnected) { drop(c.box); cards.delete(key); }   // the thread was taken down (another session, another conversation)
+    for (const c of cards.values()) if (c.box && c.box.reported) c.seen = true;   // its frame has been seen open by this page
     const found = [], newest = new Map();
     for (const m of items.size ? messages : []) {
       if (m.role !== "assistant") continue;
-      const text = m.blocks.filter((b) => b.kind === "text").map((b) => b.text).join("\n");
-      const named = [...items.values()].map((it) => [text.search(it.names), it]).filter(([at]) => at >= 0).sort((a, b) => a[0] - b[0]);
-      for (const [, it] of named) { found.push([m.uuid, it]); newest.set(it, m.uuid); }
+      const text = m.blocks.filter((b) => b.kind === "text").map((b) => b.text).join("\n"), done = new Set();
+      for (const k of markers(text)) {
+        const it = markedItem(k), c = it && cards.get(m.uuid + "\n" + it.id);
+        if (!it || done.has(it) || (!it.listed && !(c && c.seen))) continue;   // only an item on the first list; one that left it keeps a card its frame was seen open for
+        done.add(it);
+        found.push([m.uuid, it]);
+        newest.set(it, m.uuid);
+      }
     }
     const here = new Map(), used = new Set();
     for (const [uuid, it] of found) {
@@ -310,7 +340,7 @@ window.SalaAnswerFrame = (() => {
       let c = cards.get(key);
       if (!c) {
         const title = el("p", { class: "ans-head" }), line = el("p", { class: "ans-line", hidden: true }), slot = el("div", { class: "ans-slot" });
-        c = { it, node: el("div", { class: "ans-under" }, el("div", { class: "ans-card" }, title, line, slot)), title, line, slot, newest: false, box: null, seq: ++made };
+        c = { it, node: el("div", { class: "ans-under" }, el("div", { class: "ans-card" }, title, line, slot)), title, line, slot, newest: false, box: null, seq: ++made, seen: false };
         cards.set(key, c);
       }
       c.newest = newest.get(it) === uuid;
@@ -377,5 +407,5 @@ window.SalaAnswerFrame = (() => {
     measure();
   }
 
-  return { strip, thread, timing, address, namer, read };
+  return { strip, thread, timing, address, markers, hideMarks, read };
 })();

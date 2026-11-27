@@ -381,7 +381,7 @@ window.SalaThreadLayer = (() => {
     const keep = !pinned && state.tab === "chat" ? scrollAnchor() : null;
     const pending = state.pending.filter((p) => p.session === st.name && p.node).map((p) => p.node);
     const drawn = st.items.map((m) => [m, nodeOf(m)]).filter(([, node]) => node);
-    // what the answer frames' part (chatanswer.js) puts under a reply that names a waiting item: elements of their own, after the message's
+    // what the answer frames' part (chatanswer.js) puts under a reply that asks for a card of a waiting item (a card marker line): elements of their own, after the message's
     const under = window.SalaAnswerFrame ? SalaAnswerFrame.thread(drawn.map(([m]) => m), redraw) : null;
     const messages = drawn.flatMap(([m, node]) => [node, ...((under && under.get(m.uuid)) || [])]);
     const paged = st.loaded && st.before !== null && (messages.length > 0 || !st.start);
