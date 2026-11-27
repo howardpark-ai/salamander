@@ -35,7 +35,7 @@ Cleanup (`clean`, run daily by sala-mockup-clean.timer) applies two rules, in th
   1. a page is deleted when it is older than the keep time (its file's mtime, set when it was stored) and no open board item links it;
   2. when the folder (every file in it) still holds more than the cap, pages are deleted oldest first (mtime, then number) until it is under the cap;
      a page an open board item links goes last, and only when every unlinked page is already gone and the folder is still over.
-A page's versions (versions/<n>/) are deleted with the page and count toward the folder's size; they are never served or listed. The
+A page's versions (versions/<n>/) are deleted with the page and count toward the folder's size; they are never listed; sala-web serves one only read-only, through its page (docs/mockup.md, *The history on the page*). The
 versions of a page that is gone are deleted once they are older than the keep time.
 Which pages the board links is read by a command the host names in SALA_MOCKUP_REFERENCES, because no supported read of the board gives a script
 the text of its items without a model call:

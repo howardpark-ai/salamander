@@ -71,12 +71,25 @@ replaces is lost, and a crash between the two writes leaves the old page in its 
 - `sala mockup history N` lists the versions newest first: when each was saved (UTC), its size, and its file name.
 - `sala mockup undo N` restores the newest version over page N and saves what it replaces as a version, so undo is itself undone by the next `undo`. The restored version
   is taken out of the versions, so each undo steps back one version.
-- The versions are never served by sala-web and never listed by `list`; `GET /mockup/<n>` reads only `<n>.html`.
+- The versions are never listed by `list`. sala-web shows them read-only, and only through the page: see *The history on the page* below.
 - `remove N` deletes the page's versions with the page. `clean` deletes them with the page it deletes. The versions of a page that is gone (left by a removal done
   by hand) are deleted by the daily pass once they are older than the keep time (`SALA_MOCKUP_KEEP_DAYS`).
 - A page's versions count toward the folder's size for the size rule below.
 
-There is no web view of the history: the history is read with `sala mockup history N` on the machine.
+## The history on the page
+
+When page N has a saved earlier version, the served page (`/mockup/<n>`) shows one small history icon at the right end of the "Back to sala" row. A
+tap opens the list of earlier versions below that row, newest first. Each reads "Until <time>" in Korea time (for example "Until Wed Oct 28th 14:07
+KST"): the time that version was replaced, not the time it was made. A tap on one opens it at `/mockup/<n>/versions/<id>`, where `<id>` is that time
+in UTC as the file is named, such as `20261127T142709.123456Z`. That view is read-only and has the same sandbox headers as the page. Its bar is one
+44 px row: "Current page" at the left, to go back to `/mockup/<n>`, and the same "Until <time>" at the right (on a screen too narrow for both, the
+time is cut with an ellipsis, never the link). There is no restore button and no diff: `sala mockup undo N` is the only way to put a version back.
+
+- With no saved earlier version there is no icon, and the page is served as before.
+- The list is in the page's flow, never over the page's content, and each of its rows is at least 44 px high.
+- An address is served only when page N exists and `<id>` is the name of a saved version of N, a regular file; anything else (another page's
+  version, a link, a file that is not a version, an id that is not a real time) is a 404 with the same headers.
+- Like the page, a version sits behind the same sign-in (the proxy) as everything else on the site.
 
 ## How it is served
 
@@ -136,4 +149,5 @@ A command that prints nothing readable but exits 0 means nothing is linked. The 
 
 All three are read from `~/.config/salamander/config` (a plain `NAME=value` line) or from the environment; a line in the config wins over the environment, as for every sala setting. The daily `sala-mockup-clean.service` has only `PATH` in its environment, so for it the config file is the one source.
 
-Tests: `tests/mockup.sh` (numbering, atomic counter, refusals, new-window targets on `add` and `update`, `update` and its versions, `history`, `undo`, `remove` with its link refusal and `--force`, both cleanup rules with a stub reader and fake sizes and ages, the unit files) and `web/tests/test_mockup.py` (the route, its headers, a revision served on the next load, a real headless browser).
+Tests: `tests/mockup.sh` (numbering, atomic counter, refusals, new-window targets on `add` and `update`, `update` and its versions, `history`, `undo`, `remove` with its link refusal and `--force`, both cleanup rules with a stub reader and fake sizes and ages, the unit files) and `web/tests/test_mockup.py` (the route, its headers, a revision served on the next load, the history icon and the version view with their
+addresses and refusals, and a real headless browser at a 390 px phone width in light and dark).

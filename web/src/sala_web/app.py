@@ -859,14 +859,24 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return Response("method not allowed", status_code=405, media_type="text/plain",
                             headers={**MK.HEADERS, "Allow": "GET, HEAD"})
         raw = request.path_params.get("n", "")
-        body = await run_in_threadpool(MK.read_page, settings.mockups_dir, raw)
+        # <n>/versions/<id> is a saved version of page n, read-only, with a way back to the current page; anything else is the current page
+        va = MK.VERSION_ADDR_RE.fullmatch(raw)
+        if va:
+            body = await run_in_threadpool(MK.read_version, settings.mockups_dir, va.group(1), va.group(2))
+        else:
+            body = await run_in_threadpool(MK.read_page, settings.mockups_dir, raw)
         if body is None:
             return Response("no such mockup", status_code=404, media_type="text/plain", headers=MK.HEADERS)
         try:
             text = body.decode("utf-8")
         except UnicodeDecodeError:   # the CLI only stores UTF-8; a file put there by hand that is not is not served as if it were
             return Response("this mockup is not UTF-8 text", status_code=415, media_type="text/plain", headers=MK.HEADERS)
-        return HTMLResponse(MK.with_back_link(text), headers=MK.HEADERS)   # text/html; charset=utf-8; the stored file is not changed
+        if va:   # a version: read-only, with a way back to the current page
+            bar = MK.version_block(int(va.group(1)), va.group(2))
+        else:    # the current page: the back link, and the history icon when there is a saved earlier version
+            ids = await run_in_threadpool(MK.list_versions, settings.mockups_dir, raw)
+            bar = MK.history_block(int(raw), ids)
+        return HTMLResponse(MK.with_back_link(text, bar), headers=MK.HEADERS)   # text/html; charset=utf-8; the stored file is not changed
 
     async def op_log_page(request: Request) -> Response:
         # The log of one `sala op` operation (oplog.py), linked from the operation's Slack post. EVERY answer here (a log, a 404, a 405) carries

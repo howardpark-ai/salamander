@@ -6,7 +6,9 @@ and `browser` fixtures of conftest.py; skipped where there is none) and let the 
 
 import os
 import re
+import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,7 @@ from sala_web.config import Settings
 
 STATIC = Path(__file__).resolve().parent.parent / "src" / "sala_web" / "static"
 DOCS = Path(__file__).resolve().parent.parent.parent / "docs"
+SALA = DOCS.parent / "bin" / "salamander"
 
 # the policy, spelled out once more here on purpose: a change to MK.CSP must change this line too, and a reader sees what the sandbox allows
 EXPECTED_CSP = ("sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; "
@@ -121,7 +124,7 @@ def test_the_page_is_read_at_each_request_so_a_cleanup_takes_effect_at_the_next_
 
 def test_a_revision_replaces_the_page_and_the_next_load_shows_it(env):
     # `sala mockup update N` writes the new page over N.html (atomically) and saves the old one as a version under versions/N/: the next
-    # load shows the new one, with the no-cache header, and the versions are never served
+    # load shows the new one, with the no-cache header, and the versions are not listed (they are served only through the page's history)
     store(env["root"], 5, "<p>first</p>")
     assert "first" in env["client"].get("/mockup/5").text
     tmp = env["root"] / ".tmp-5-test"
@@ -241,6 +244,180 @@ def test_the_service_worker_leaves_mockup_pages_alone():
     assert "/mockup/" in src                                        # the worker's comment says why, for whoever adds a handler
 
 
+# -- the history icon and the versions -----------------------------------------------------------------------------------------------------
+
+V_OLD = "20261027T050700.000001Z"      # Tue Oct 27th 14:07 KST
+V_NEW = "20261127T142709.123456Z"      # Fri Nov 27th 23:27 KST
+VERSION_PAGE = PAGE.replace("hello", "earlier")
+
+
+def store_version(root: Path, n: int, vid: str, text: str = VERSION_PAGE) -> None:
+    d = root / "versions" / str(n)
+    d.mkdir(parents=True, mode=0o700, exist_ok=True)
+    (d / f"{vid}.html").write_text(text, encoding="utf-8")
+
+
+def test_one_update_through_the_cli_gives_the_page_its_history_icon(env, tmp_path):
+    # the real writer: `sala mockup update` saves the page it replaces, so one update is one earlier version, named by the time it was replaced
+    def sala(utc: datetime, text: str, *args: str) -> None:
+        run_env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path / "home"), "SALA_CONFIG": "/dev/null",
+                   "XDG_STATE_HOME": str(tmp_path / "xdg"), "SALA_MOCKUP_DIR": str(env["root"]), "SALA_MOCKUP_NOW": str(utc.timestamp())}
+        r = subprocess.run(["bash", str(SALA), "mockup", *args, "-"], input=text, env=run_env, capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0, r.stderr
+
+    sala(datetime(2026, 10, 1, tzinfo=timezone.utc), VERSION_PAGE, "add")
+    assert b"data-sala-versions" not in env["client"].get("/mockup/1").content
+    sala(datetime(2026, 10, 27, 5, 7, tzinfo=timezone.utc), PAGE, "update", "1")
+    text = env["client"].get("/mockup/1").text
+    assert "data-sala-versions" in text and "Until Tue Oct 27th 14:07 KST</a>" in text   # when it was replaced, not when it was made
+    r = env["client"].get("/mockup/1/versions/20261027T050700.000000Z")
+    assert r.status_code == 200 and "earlier" in r.text and "Until Tue Oct 27th 14:07 KST" in r.text
+
+
+def test_the_history_icon_is_shown_exactly_when_there_is_a_saved_earlier_version(env):
+    root = env["root"]
+    store(root, 3)
+    assert env["client"].get("/mockup/3").content == MK.with_back_link(PAGE).encode("utf-8")   # no version: as before
+    (root / "versions" / "3").mkdir(parents=True)
+    assert b"data-sala-versions" not in env["client"].get("/mockup/3").content                 # an empty versions folder is no history
+    for vid, ids in [(V_OLD, [V_OLD]), (V_NEW, [V_NEW, V_OLD])]:
+        store_version(root, 3, vid)
+        r = env["client"].get("/mockup/3")
+        assert r.content == MK.with_back_link(PAGE, MK.history_block(3, ids)).encode("utf-8")  # the icon is sala's, added to the bar only
+        check_sandbox_headers(r)
+
+
+def test_the_icon_is_inside_the_one_bar_and_has_a_name_and_no_other_row(env):
+    block = MK.history_block(3, [V_OLD])
+    assert block.count("<div") == 1 and block.startswith("<div data-sala-back") and block.endswith("</details></div>")
+    assert block.count("<details") == 1 and 'aria-label="Earlier versions" title="Earlier versions"' in block
+    assert "About these versions" not in block
+
+
+def test_the_version_bar_is_one_row_and_only_its_time_may_be_cut():
+    block = MK.version_block(3, V_OLD)
+    assert block.count("<div") == 1 and block.endswith("</span></div>") and 'background:#161617;display:flex">' in block
+    link, when = re.findall(r'<(?:a href="[^"]*"|span data-sala-when) style="([^"]*)"', block)
+    assert link.endswith(";flex:none")                                                  # the link keeps its own width
+    for part in ["flex:1;", "min-width:0;", "height:44px;", "padding:0 16px 0 0;", "text-align:right;", "overflow:hidden;", "text-overflow:ellipsis"]:
+        assert part in when, part
+
+
+def test_the_list_is_newest_first_in_korea_time_and_links_each_version_by_its_id(env):
+    root = env["root"]
+    store(root, 4)
+    store_version(root, 4, V_OLD)
+    store_version(root, 4, V_NEW)
+    text = env["client"].get("/mockup/4").text
+    assert text.index(V_NEW) < text.index(V_OLD)                                        # newest first
+    assert 'href="4/versions/%s"' % V_NEW in text and 'href="4/versions/%s"' % V_OLD in text
+    assert "Until Fri Nov 27th 23:27 KST</a>" in text and "Until Tue Oct 27th 14:07 KST</a>" in text   # Korea time, no UTC
+    assert "2026-11-27" not in text and "UTC" not in text
+
+
+@pytest.mark.parametrize("vid,label", [
+    ("20261101T000000.000000Z", "Sun Nov 1st 09:00 KST"),
+    ("20261102T150000.000000Z", "Tue Nov 3rd 00:00 KST"),
+    ("20261112T000000.000000Z", "Thu Nov 12th 09:00 KST"),
+    ("20261113T000000.000000Z", "Fri Nov 13th 09:00 KST"),
+    ("20261121T000000.000000Z", "Sat Nov 21st 09:00 KST"),
+    ("20261122T000000.000000Z", "Sun Nov 22nd 09:00 KST"),
+    ("20261123T000000.000000Z", "Mon Nov 23rd 09:00 KST"),
+])
+def test_the_korea_time_label_has_the_right_day_name_and_ordinal(vid, label):
+    assert MK.kst_label(vid) == label
+
+
+def test_a_version_is_read_only_with_the_sandbox_and_a_way_back_to_the_current_page(env):
+    root = env["root"]
+    store(root, 5)
+    store_version(root, 5, V_OLD)
+    store_version(root, 5, V_NEW)
+    r = env["client"].get("/mockup/5/versions/" + V_OLD)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "text/html; charset=utf-8"
+    assert r.content == MK.with_back_link(VERSION_PAGE, MK.version_block(5, V_OLD)).encode("utf-8")
+    assert 'href="../../5"' in r.text and "Current page" in r.text
+    assert b"data-sala-versions" not in r.content                                      # no history inside a version
+    assert "Until Tue Oct 27th 14:07 KST</span>" in r.text
+    check_sandbox_headers(r)
+    assert r.headers["cache-control"] == "private, no-cache"
+    assert (root / "versions" / "5" / f"{V_OLD}.html").read_text(encoding="utf-8") == VERSION_PAGE   # the file is not touched
+
+
+@pytest.mark.parametrize("path", [
+    "/mockup/5/versions/" + V_OLD + ".html",          # the file name, not the id
+    "/mockup/5/versions/20261327T000000.000000Z",     # month 13: not a time
+    "/mockup/5/versions/20261027T050700Z",            # no microseconds
+    "/mockup/5/versions/20261027T050700.000001",      # no Z
+    "/mockup/5/versions/..%2F..%2F5",
+    "/mockup/5/versions/%2E%2E",
+    "/mockup/5/versions/" + V_OLD + "/x",
+    "/mockup/5/versions/",
+    "/mockup/5/versions",
+    "/mockup/5/versions/hello",
+    "/mockup/05/versions/" + V_OLD,                   # not a canonical number
+    "/mockup/6/versions/" + V_OLD,                    # page 6 has no such version
+    "/mockup/0/versions/" + V_OLD,
+    "/mockup/5/" + V_OLD + ".html",                   # the old address form stays a 404
+])
+def test_a_version_address_that_is_not_a_saved_version_is_a_404_with_the_headers(env, path):
+    store(env["root"], 5)
+    store_version(env["root"], 5, V_OLD)
+    r = env["client"].get(path)
+    assert r.status_code == 404, path
+    check_sandbox_headers(r)
+
+
+def test_no_other_file_is_readable_through_a_version_address(env, tmp_path):
+    root = env["root"]
+    store(root, 5)
+    store_version(root, 5, V_OLD)
+    (root / "secret.html").write_text("SECRET-PAGE", encoding="utf-8")
+    (root / "counter").write_text("7", encoding="utf-8")
+    outside = tmp_path / "outside.html"
+    outside.write_text("SECRET-OUTSIDE", encoding="utf-8")
+    vdir = root / "versions" / "5"
+    (vdir / f"{V_NEW}.html").symlink_to(outside)                                      # a link in the versions folder
+    (root / "versions" / "9").mkdir(parents=True)
+    (root / "versions" / "9" / f"{V_OLD}.html").write_text("OTHER-PAGE-VERSION", encoding="utf-8")
+    (root / "versions" / "6").symlink_to(tmp_path)                                    # a folder that is a link
+    for path in ["/mockup/5/versions/" + V_NEW, "/mockup/5/versions/secret", "/mockup/5/versions/" + V_OLD + "%2F..%2F..%2F..%2Fsecret",
+                 "/mockup/6/versions/" + V_OLD, "/mockup/9/versions/" + V_OLD]:
+        r = env["client"].get(path)
+        assert r.status_code == 404 and b"SECRET" not in r.content and b"OTHER" not in r.content, path
+        check_sandbox_headers(r)
+    # a dot-dot id never reaches the file system (the HTTP client would resolve "../" before the server sees it)
+    assert MK.read_version(root, "5", V_OLD + "/../../../../secret") is None
+    assert MK.read_version(root, "5", V_NEW) is None   # a link in the versions folder is not followed
+    # the icon's list names only regular files of the CLI's form: a link named like a version is not offered
+    store_version(root, 7, V_OLD)
+    store_version(root, 7, V_NEW)
+    (root / "versions" / "7" / f"{V_NEW}.html").unlink()
+    (root / "versions" / "7" / f"{V_NEW}.html").symlink_to(outside)
+    assert MK.list_versions(root, "7") == [V_OLD]
+    assert b"SECRET-OUTSIDE" not in env["client"].get("/mockup/5").content
+
+
+def test_a_version_is_read_only_nothing_but_get_and_head_is_allowed(env):
+    store(env["root"], 5)
+    store_version(env["root"], 5, V_OLD)
+    for method in ["post", "put", "patch", "delete"]:
+        r = getattr(env["client"], method)("/mockup/5/versions/" + V_OLD)
+        assert r.status_code == 405, method
+        check_sandbox_headers(r)
+    assert (env["root"] / "versions" / "5" / f"{V_OLD}.html").read_text(encoding="utf-8") == VERSION_PAGE
+
+
+def test_a_page_with_versions_still_serves_the_same_bytes_it_always_did_apart_from_the_bar(env):
+    store(env["root"], 8)
+    store_version(env["root"], 8, V_OLD)
+    store_version(env["root"], 8, V_NEW)
+    body = env["client"].get("/mockup/8").text
+    stripped = body.replace(MK.history_block(8, [V_NEW, V_OLD]), "", 1)   # the one bar (back link, icon, list) is the only addition
+    assert stripped == PAGE                                                             # the page itself is unchanged
+
+
 # -- a real browser --------------------------------------------------------------------------------------------------------------------
 
 PROBE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -343,3 +520,61 @@ def test_in_a_real_browser_the_site_itself_is_unaffected_by_the_sandbox(served, 
     wait_for(browser, "document.readyState === 'complete'")
     assert browser.evaluate("self.origin") != "null"
     assert browser.evaluate("(async () => (await fetch('/api/config')).status)()") == 200
+
+
+@pytest.mark.parametrize("dark", [False, True])
+def test_in_a_real_browser_the_history_icon_shares_the_back_row_and_its_list_covers_nothing_at_a_phone_width(served, browser, dark):
+    import json
+
+    root = served["settings"].mockups_dir
+    root.mkdir(parents=True, mode=0o700, exist_ok=True)
+    store(root, 1, PROBE)
+    store_version(root, 1, V_OLD)
+    store_version(root, 1, V_NEW)
+    browser.open(served["url"] + "/mockup/1", dark=dark)
+    wait_for(browser, "document.readyState === 'complete'")
+    assert browser.evaluate("window.innerWidth") == 390
+    geo = "(() => { const r = (s) => document.querySelector(s).getBoundingClientRect(); return JSON.stringify({" \
+          "bar: r('[data-sala-back]'), back: r('[data-sala-back] > a'), icon: r('[data-sala-versions] summary'), body: r('#styled')," \
+          "rows: [...document.querySelectorAll('[data-sala-versions] ol a')].map((a) => a.getBoundingClientRect())," \
+          "sw: document.documentElement.scrollWidth}); })()"
+    hit = "(() => { const r = document.querySelector(%r).getBoundingClientRect();" \
+          "return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2).closest('a, summary') === document.querySelector(%r); })()"
+    before = json.loads(browser.evaluate(geo))
+    bar, back, icon = before["bar"], before["back"], before["icon"]
+    assert abs(bar["height"] - 44) <= 0.5, before                                            # one row
+    assert abs(icon["top"] - bar["top"]) <= 0.5 and abs(back["top"] - bar["top"]) <= 0.5, before
+    assert icon["height"] >= 44 and icon["width"] >= 44 and back["height"] >= 44, before
+    assert back["right"] <= icon["left"] + 0.5 and abs(icon["right"] - bar["right"]) <= 0.5, before   # side by side, the icon at the right end
+    assert icon["right"] <= 390 and before["sw"] <= 390, before
+    for sel in ["[data-sala-back] > a", "[data-sala-versions] summary"]:
+        assert browser.evaluate(hit % (sel, sel)) is True, sel                               # a tap on each reaches it
+    browser.evaluate("document.querySelector('[data-sala-versions] summary').click()")
+    wait_for(browser, "document.querySelector('[data-sala-versions]').open === true")
+    opened = json.loads(browser.evaluate(geo))
+    first, second = opened["rows"]
+    assert first["height"] >= 44 and second["height"] >= 44, opened
+    assert first["top"] >= opened["back"]["bottom"] - 0.5 and first["top"] >= opened["icon"]["bottom"] - 0.5, opened   # below the row
+    assert second["top"] >= first["bottom"] - 0.5, opened
+    assert opened["body"]["top"] >= opened["bar"]["bottom"] - 0.5 and opened["bar"]["bottom"] >= second["bottom"] - 0.5, opened   # in the flow
+    assert max(first["right"], second["right"]) <= 390 and opened["sw"] <= 390, opened
+    texts = browser.evaluate("[...document.querySelectorAll('[data-sala-versions] ol a')].map((a) => a.textContent)")
+    assert texts == ["Until Fri Nov 27th 23:27 KST", "Until Tue Oct 27th 14:07 KST"]
+    assert browser.evaluate("[...document.querySelectorAll('[data-sala-versions] ol a')].every((a) => a.scrollWidth <= a.clientWidth)")   # no label is cut
+    browser.evaluate("document.querySelector('[data-sala-versions] ol a').click()")                  # the newest version
+    wait_for(browser, "location.pathname.endsWith('/versions/" + V_NEW + "') && document.readyState === 'complete'")
+    assert browser.evaluate("document.querySelector('[data-sala-when]').textContent") == "Until Fri Nov 27th 23:27 KST"
+    assert browser.evaluate("document.querySelector('[data-sala-back] a').href") == served["url"] + "/mockup/1"
+    assert browser.evaluate("document.querySelector('[data-sala-versions]')") is None                # no history inside a version
+    row = json.loads(browser.evaluate(
+        "(() => { const q = (s) => document.querySelector(s); const a = q('[data-sala-back] > a'); const r = (el) => el.getBoundingClientRect();"
+        "return JSON.stringify({bar: r(q('[data-sala-back]')), link: r(a), when: r(q('[data-sala-when]')), whole: a.scrollWidth <= a.clientWidth,"
+        "pad: getComputedStyle(q('[data-sala-when]')).paddingRight, sw: document.documentElement.scrollWidth}); })()"))
+    bar, link, when = row["bar"], row["link"], row["when"]
+    assert abs(bar["height"] - 44) <= 0.5 and abs(link["height"] - 44) <= 0.5 and abs(when["height"] - 44) <= 0.5, row   # one row
+    assert abs(link["top"] - bar["top"]) <= 0.5 and abs(when["top"] - bar["top"]) <= 0.5, row
+    assert abs(link["left"] - bar["left"]) <= 0.5 and abs(when["right"] - bar["right"]) <= 0.5 and row["pad"] == "16px", row
+    assert link["right"] <= when["left"] + 0.5 and when["width"] > 0, row                           # side by side, no overlap
+    assert row["whole"] is True and when["right"] <= 390 and row["sw"] <= 390, row                  # the link is never cut, nothing sideways
+    browser.evaluate("document.querySelector('[data-sala-back] a').click()")
+    wait_for(browser, "location.pathname.endsWith('/mockup/1')")
