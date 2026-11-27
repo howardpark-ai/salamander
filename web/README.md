@@ -771,19 +771,29 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
 - **Taking a queued message back.** Claude Code cannot drop one queued message: one **Up** pulls its whole queue into the input box. So,
   with the pane's locks held from the first look to the last resend: every message sala-web typed into the pane in the last 120 s
   (`LINE_PATIENCE`; through the outbox or `api/s/<pid>/send`) must show in the transcript, as its `enqueue` line, a user line or a command
-  record. Claude Code writes that line seconds after the Enter, and an Up pulls a message whose line is not written yet, so the take-back
-  waits up to 5 s (`TAKE_BACK_LINE_WAIT`), then answers busy. The `queue-operation` lines must show the asked message in the
+  record. Claude Code writes that line seconds after the Enter (about 2.5 s as a rule, up to 10.4 s seen on 2.1.332), and an Up pulls a
+  message whose line is not written yet, so the take-back waits up to 12 s (`TAKE_BACK_LINE_WAIT`; a send into that pane waits behind
+  it), then answers busy. The `queue-operation` lines must show the asked message in the
   queue and nothing there that sala-web did not send (Claude Code's own notices, a task's or another session's, are passed over); no queued
-  message may have an upload; no permission or question dialog may be open; text in the input line is cleared first (kept as below). The
+  message may have an upload; no permission or question dialog may be open; text in the input line is cleared first (kept as below), and
+  the Up is pressed only into a line read empty just before it. The
   messages about to be pulled are marked `typing`, then Up is pressed. The lines written after it and the input box say what happened: the
   asked message is withdrawn; the others that came back (`popAll`, or found in the box) are cleared out of the box and typed again, in their
   order; one that Claude took first stays its own (and the answer for it is `tooLate`). Otherwise the answer is **409 `busy`** with why and
   nothing changed. When no line accounts for a message after the Up, it is `failed` with its text kept and never typed again by sala-web.
   Text in the box that is none of these messages becomes a `failed` message of its own and goes into `outbox-cleared.jsonl` before the box
-  is cleared. A box that cannot be read whole (lines scrolled out of view, a long paste drawn as `[Pasted text #1 +3 lines]`, a box
-  tmux no longer shows) is left as it is: the messages it may hold are `failed` with their text, and the sender types nothing there until
-  the line is empty. Nothing is typed twice, and nothing is dropped without being told. Taking one of many back types all the others again,
-  so it takes time (30 queued: about 27 s, measured once on 2.1.332), and Claude may read them later than it would have.
+  is cleared. A long paste is drawn folded, one line `[Pasted text #1 +5 lines]` for a message with 5 line breaks. A folded box counts as
+  read only when every such line pairs one to one with a message the `popAll` lines name that has as many line breaks (counted in the
+  text as sala-web sent it: the transcript line does not tell a break at the end from none), no line is scrolled
+  out of view, and all other text in the box is the other popped messages; then it is cleared and the others are typed again from
+  sala-web's own entries and the transcript's lines, never from the box. A box that cannot be read whole (a fold that does not pair off
+  or has no line count, further text beside a fold, lines scrolled out of view, a box tmux no longer shows) is left as it is: the other
+  messages it may hold are `failed` with their text, one more `failed` entry carries the text of the message taken back and says that
+  it may still be in the line (Enter in the terminal would send it), and the sender types nothing there until the line is empty.
+  Nothing is typed twice, and nothing is dropped without being told. Taking one of many back types all the others again,
+  so it takes time, and Claude may read them later than it would have. Two ordinary queues end as a box that cannot be read whole
+  (drawn so by 2.1.332): one with a message of more than about 800 characters on one line (folded with no line count), and one taller than
+  the box (rows go out of view past about 17 rows in a 45-row pane, 7 in a 24-row one).
 - **Text in the terminal's box.** It is never the owner's, so it is cleared and the message goes in, never held behind it (`draft` is held only when the
   keys could not clear it, or when a take-back left the box as it was because it could not read it whole). What was cleared is appended to `<state dir>/outbox-cleared.jsonl` before the keys go in: one JSON line `{t, session, text}`,
   mode 600, the newest half kept when the file passes 256 KB.

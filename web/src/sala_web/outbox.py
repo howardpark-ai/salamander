@@ -22,9 +22,10 @@ folder, 600 for a file). A message is an entry with a state:
 A held or failed message is taken back by withdrawing it. A queued one that the session has not read yet is first taken out of the
 CLI's own queue (app.py, _take_back): one Up pulls the whole queue into the input box, the transcript's popAll lines and the box itself
 say what came back, and the others are typed again in order. The Up is not pressed while a message just typed has no transcript line
-yet (the CLI writes it seconds after the Enter, and an Up pulls such a message too). Text in the box that is none of the messages is
-kept as a failed entry; a box that can not be read whole is left as it is. Once the session has taken a message from its queue the
-answer is `tooLate`.
+yet (the CLI writes it seconds after the Enter, and an Up pulls such a message too), nor while the box reads anything but empty. Text
+in the box that is none of the messages is kept as a failed entry; a box that can not be read whole is left as it is (a long paste is
+drawn folded: it is read only when every fold pairs with a message the popAll lines name, chips_paired). Once the session has taken a
+message from its queue the answer is `tooLate`.
 
 The matching of what the transcript shows (a user line, a queued_command attachment, a queue-operation line) is here as plain
 functions, so that it is tested on made-up lines. Everything of the store runs on the event loop's thread, never in a worker.
@@ -279,6 +280,11 @@ def public(entries: list[dict]) -> list[dict]:
 # ── what the transcript shows ─────────────────────────────────────────────────────────────────────────────
 _WRAP_RE = re.compile(r"</?pasted_content(?:\s+id=\"[^\"]*\")?\s*>")
 _CHIP_RE = re.compile(r"\[Image #\d+\]")
+# what the input box draws in place of a long paste. Only a whole line "[Pasted text #1 +5 lines]" (5 = the paste's line breaks) can be
+# read (chips_paired); any other form is a part of the box that can not be seen
+PASTE_CHIP_RE = re.compile(r"\[(?:\.\.\.)?(?:Pasted|Truncated) text #\d+")
+_CHIP_LINE_RE = re.compile(r"[^\S\n]*\[Pasted text #\d+ \+(\d+) lines\][^\S\n]*")
+_FOLD = chr(0xE000)      # stands where a chip's line was while the rest of the box is matched, so that no message is found across it
 
 
 def norm_text(text: object) -> str:
@@ -547,6 +553,29 @@ def box_parts(box: str, messages: list[str]) -> tuple[list[bool], list[str]]:
             rest.append(box[at:first].strip())
         at = end
     return found, rest
+
+
+def chips_paired(box: str, popped: list[str]) -> bool:
+    """Whether a box with folded pastes holds exactly `popped`, the messages the popAll lines name, each as it was pasted: every
+    "[Pasted text #N +M lines]" line stands for a message of its own with M line breaks, each of the other messages is there as text,
+    and the box holds nothing else. The count is of the text as pasted (a popAll line's own text does not tell a line break at the
+    end from none). What a chip folds can not be seen: it is known only by this pairing, so any other chip, a count with no message,
+    a message with no place and any further text all answer False. (Which of two messages with as many lines a chip stands for does
+    not matter: what is typed again comes from the entries and the lines, never from the box.)"""
+    counts: list[int] = []
+    lines: list[str] = []
+    for line in box.split("\n"):
+        chip = _CHIP_LINE_RE.fullmatch(line)
+        if chip:
+            counts.append(int(chip[1]))
+        lines.append(_FOLD if chip else line)
+    text = "\n".join(lines)
+    if not counts or PASTE_CHIP_RE.search(text):
+        return False
+    found, rest = box_parts(text, popped)
+    if any(_solid(piece.replace(_FOLD, "")) for piece in rest):
+        return False
+    return sorted(counts) == sorted(t.count("\n") for t, here in zip(popped, found) if not here)
 
 
 def popped_ids(queued: list[dict], ops: list[dict]) -> list[str]:

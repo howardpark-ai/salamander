@@ -219,6 +219,39 @@ def test_the_input_box_is_read_as_the_messages_it_holds_and_what_is_left_over():
     assert OB.box_parts("", ["A"]) == ([False], [])
 
 
+def chip(n, breaks):
+    return f"[Pasted text #{n} +{breaks} lines]"
+
+
+def test_folded_pastes_count_as_read_only_when_each_pairs_with_a_message_the_up_named():
+    six, other_six, long = "a\nb\nc\nd\ne\nf", "g\nh\ni\nj\nk\nl", "\n".join("x" * 41)
+    paired = OB.chips_paired
+    assert paired(chip(1, 5), [six])
+    assert paired(f"{chip(1, 5)}\n{chip(2, 40)}", [six, long])
+    assert paired(f"{chip(7, 40)}\n{chip(8, 5)}", [six, long])                                   # by count, not by place
+    assert paired(f"{chip(1, 5)}\n{chip(2, 5)}", [six, other_six])
+    assert paired(f"one\n{chip(1, 5)}\ntwo\nshort\n  second line", ["one", six, "two", "short\n  second line"])
+    assert paired(f"{six}\n{chip(1, 5)}", [six, other_six])                                       # one drawn open, one folded
+    assert paired(chip(1, 6), [six + "\n"]) and paired(chip(1, 7), ["\n" + six + "\n"])            # breaks at the ends count too
+    assert not paired(chip(1, 5), [])                                                            # a chip nothing names
+    assert not paired(f"{chip(1, 5)}\n{chip(2, 5)}", [six])                                       # one chip more than messages
+    assert not paired(chip(1, 5), [six, other_six])                                              # a message with no place in the box
+    assert not paired(chip(1, 5), [six, "one"])
+    assert not paired(chip(1, 6), [six])                                                         # the count differs
+    assert not paired(chip(1, 5), [six + "\n"])
+    assert not paired(f"{chip(1, 5)}\n{chip(2, 5)}", [six, long])
+    assert not paired(f"typed here\n{chip(1, 5)}", [six])                                         # other text
+    assert paired(f"{chip(1, 5)}\none\ntwo", [six, "one two"])                                    # as the pane's width wraps it
+    assert not paired(f"one\n{chip(1, 5)}\ntwo", ["one two", six])                                # no message is found across a chip
+    assert not paired(f"{chip(1, 5)} typed after it", [six])                                      # a chip is a line of its own
+    assert not paired(f"typed before it {chip(1, 5)}", [six])
+    assert not paired("[Pasted text #1]", ["y" * 900])                                            # no line count: nothing to pair by
+    assert not paired("[...Truncated text #1 +5 lines]", [six])
+    assert not paired(f"{chip(1, 5)}\n[Pasted text #2]", [six, "y" * 900])
+    assert not paired("one", ["one"])                                                             # no chip at all: not this function's case
+    assert not paired("", [])
+
+
 def test_a_file_s_path_before_the_text_and_an_image_chip_do_not_hide_the_message(box):
     f = entry(1, "look at this", 1000, ["abc/clip.mp4"])
     assert OB.delivered_ids([f], [row(2000, "/srv/state/uploads/abc/clip.mp4 look at this")]) == ["m1"]

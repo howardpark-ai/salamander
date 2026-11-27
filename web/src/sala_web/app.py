@@ -241,9 +241,12 @@ none itself):
   POST /api/outbox/<name>/<id>/cancel   take a held or failed message back (409 tooLate once it is typed). A queued one (sent to a
                                   busy pane, not yet read) is taken back too: Up pulls the pane's whole queue into the input box, the
                                   others are cleared out and sent again in order. Text already in the input line is cleared first (and
-                                  kept, as before a send). Text the Up brought that is none of those messages is kept as a failed message;
-                                  a box that can not be read whole is left as it is, its messages failed with their text, and the sender
-                                  waits until the line is empty. 409 busy when the pane can not do that now (a message typed moments ago
+                                  kept, as before a send; the Up is pressed only into a line read empty). Text the Up brought that is
+                                  none of those messages is kept as a failed message. A long paste drawn folded ("[Pasted text #1 +5
+                                  lines]") counts as read only when every fold pairs with a message the popAll lines name, of as many
+                                  line breaks, no line is out of view and nothing else is in the box. A box that can not be read whole is
+                                  left as it is, its messages failed with their text (a notice says the taken-back one may be in it too),
+                                  and the sender waits until the line is empty. 409 busy when the pane can not do that now (a message typed moments ago
                                   that the transcript does not show yet, a dialog, a line that can not be cleared, a queue that does not
                                   read back as sala's, an upload in it, an Up that took nothing back, or an Up that can not be confirmed:
                                   then those messages are failed with their text kept); 409 tooLate when the session already took it
@@ -396,14 +399,15 @@ MOD_ENTER_POLL = 0.15
 OUTBOX_TICK = 1.5             # seconds between two looks of the outbox's sender at the messages it holds (a new message wakes it at once)
 OUTBOX_GAP = 0.4              # seconds after a message went in before the next is tried (the pane clears its box)
 TAKE_BACK_WAIT = 8.0          # seconds the take-back waits for the transcript and the input box to show the Up took the queue (the answer is a busy after it)
-TAKE_BACK_LINE_WAIT = 5.0     # seconds a take-back waits, before its Up, for the transcript line of a message just typed (then busy; the line takes 2 to 11 s)
+TAKE_BACK_LINE_WAIT = 12.0    # seconds a take-back waits, before its Up, for the transcript line of a message just typed (then busy; mostly ~2.5 s, seen up to 10.4)
 TAKE_BACK_LINE_POLL = 0.5     # seconds between two looks for it
-PASTE_CHIP_RE = re.compile(r"\[(?:\.\.\.)?(?:Pasted|Truncated) text #\d+")   # drawn in the input box in place of a long paste: unreadable
 LINE_PATIENCE = 120.0         # seconds a typed message with no line holds a take-back; past it none is expected (a command the CLI runs at once writes none)
 TAKE_BACK_UNCONFIRMED = "taken back into the input line, which could not be confirmed; nothing was sent again; check the terminal"
 PULLED_BACK = "the message was pulled back into the terminal's input line and not sent; check the terminal"
 TAKE_BACK_UNREAD = ("the terminal's input line could not be read whole after the take-back; nothing was sent again and the line was left as it is; "
                     "check the terminal")
+TAKE_BACK_STILL_THERE = ("this was taken back, but it may still be in the terminal's input line, which could not be read whole and was left "
+                         "as it is; Enter there would send it, and no new message goes in until that line is empty; check the terminal")
 TAKE_BACK_STRAY = ("this was in the terminal's input line after the take-back and is none of the messages taken back; it was not sent; "
                    "check it, then Edit to send it")
 OUTBOX_GIVE_UP = 30 * 60      # a held message whose session is not listed, or whose pane is not found, is failed (its text kept) after this long
@@ -2285,8 +2289,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
         that stops now leaves them failed with their text, never sent twice). After the Up the transcript's own lines say which came back
         (popAll) and which the session took first, and the input box says what is in it: the message is withdrawn, the others that came
         back are cleared out of the box and typed again, in their order, and one the session took stays its own. Text in the box that is
-        none of these is kept as a failed message and in the cleared-text log. A box that can not be read whole is left as it is, and the
-        messages it may hold are failed with their text.
+        none of these is kept as a failed message and in the cleared-text log. A folded paste is read by what the popAll lines name
+        (OB.chips_paired). A box that can not be read whole is left as it is, the messages it may hold are failed with their text, and a
+        failed entry says that the message taken back may be in it too.
 
         Returns None when the message is withdrawn (or was never typed). Otherwise the refusal: 409 tooLate for a message the session has
         taken; 409 busy with nothing changed; or, after an Up no line accounts for, 409 busy with the unaccounted messages failed, their text
@@ -2357,6 +2362,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
             try:
                 settle(pulled, OB.TYPING)
                 try:
+                    # the last look, with nothing between it and the key: an Up into a box with text would not bring the queue back whole
+                    if T.input_box(await T.capture(settings, pane))[0] != "empty":
+                        settle(pulled, OB.QUEUED)
+                        return _busy(name, mid, "the pane's input line was not empty just before the take-back")
                     await T.send_take_back_key(settings, pane, "Up")
                 except T.TmuxError as ex:
                     settle(pulled, OB.QUEUED)
@@ -2382,7 +2391,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
                           and outbox.get(name, x["id"])["state"] == OB.QUEUED]
                 back = [i for i in popped if i != mid] + extras      # list order is the order they were typed
                 shown = T.shown_text(box) if state == "text" else ""
-                whole = state == "empty" or (state == "text" and not any(T.box_hidden(captured)) and not PASTE_CHIP_RE.search(shown))
+                seen_all = state == "text" and not any(T.box_hidden(captured))
+                folded = bool(OB.PASTE_CHIP_RE.search(shown))
+                # every fold is a message a popAll line names (popped, extras), its line breaks counted as sala-web pasted it
+                paired = seen_all and folded and OB.chips_paired(shown, [outbox.get(name, i)["text"] for i in popped + extras])
+                whole = state == "empty" or paired or (seen_all and not folded)
                 if not whole:
                     if shown:
                         _log_cleared(s, shown, "leaving")
@@ -2391,12 +2404,16 @@ def create_app(settings: Settings | None = None) -> Starlette:
                         lost = [outbox.add(name, shown, [])[0]["id"]]
                     settle(lost, OB.FAILED, error=TAKE_BACK_UNREAD, keptBox=pane, **unsent)
                     outbox.update(name, mid, keptBox=pane)      # on disk, so that no sender clears this line, even after a restart
+                    if mid in popped:      # the answer says withdrawn, and the message is in that line too: told on the page, with its text
+                        x, _new = outbox.add(name, outbox.get(name, mid)["text"], [])
+                        outbox.update(name, x["id"], state=OB.FAILED, error=TAKE_BACK_STILL_THERE, keptBox=pane)
                     log.warning("outbox: %s: the input box could not be read whole after a take-back; left as it is, %d messages failed, text kept",
                                 name, len(lost))
                 else:
                     cands = ([outbox.get(name, i)["text"] for i in popped] + extra + [outbox.get(name, i)["text"] for i in left]
                              + [x["text"] for x in others])
-                    found, rest = OB.box_parts(shown, cands)
+                    # folds that pair off leave nothing over, and nothing else of sala's can be in the box
+                    found, rest = ([False] * len(cands), []) if paired else OB.box_parts(shown, cands)
                     back += [x["id"] for x, here in zip(others, found[len(cands) - len(others):]) if here]
                     settle(left, OB.FAILED, error=TAKE_BACK_UNCONFIRMED, **unsent)
                     settle(back, OB.HELD, error="", resent=True, **unsent)
