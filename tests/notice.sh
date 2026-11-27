@@ -67,7 +67,8 @@ IFS=$'\t' read -r _ _ _ u2 _ < <(sed -n 2p "$NF")
 "$SALA" notice add "epoch" --from tester --until $((NOW + 100000)) >/dev/null 2>&1; IFS=$'\t' read -r _ _ _ u4 _ < <(sed -n 4p "$NF")
 [ "$u4" = $((NOW + 100000)) ] && ok "--until as an epoch" || bad "epoch: $u4"
 "$SALA" notice drop 3 >/dev/null; "$SALA" notice drop 4 >/dev/null; "$SALA" notice drop 5 >/dev/null
-out=$("$SALA" notice list 2>&1); [[ $out == *"2  from tester"* ]] && [[ $out == *"still due 2"* ]] && ok "list: S1 and S2 still due; S3, started after it, is not" || bad "list: $out"
+out=$("$SALA" notice list 2>&1); [[ $out == *"2  from tester, still due 2: The lane max"* ]] && [ "$(wc -l <<< "$out")" = 1 ] && ok "list: one line, S1 and S2 still due; S3, started after it, is not" || bad "list: $out"
+out=$("$SALA" notice list --full 2>&1); [[ $out == *"2  from tester"* ]] && [[ $out == *"still due 2"* ]] && [[ $out == *"expires"* ]] && [ "$(wc -l <<< "$out")" = 2 ] && ok "list --full: the two lines of each notice, with written and expires" || bad "list --full: $out"
 [ "$("$SALA" notice list --json | python3 -c 'import json, sys; d = json.load(sys.stdin); print(len(d), d[0]["id"], d[0]["due"], d[0]["had"])')" = "1 2 2 0" ] && ok "list --json" || bad "list --json"
 out=$("$SALA" notice drop 99 2>&1); rc=$?; [ "$rc" = 1 ] && ok "drop of an unknown id: refused" || bad "drop 99: rc=$rc"
 
@@ -79,7 +80,7 @@ out=$(hprompt "$S1"); [ -z "$out" ] && ok "and its next prompt: nothing (it had 
 out=$(hprompt "$S2"); [ "$(text_of "$out")" = "UserPromptSubmit|[sala notice 2 from tester] The lane max is now called subscription-1." ] && ok "prompt: UserPromptSubmit additionalContext, for another session" || bad "prompt: $out"
 out=$(hpost "$S2"); [ -z "$out" ] && ok "that session's tool call afterwards: nothing" || bad "S2 post-tool after prompt: $out"
 [ "$(slurp "$SEEN/$S1")" = $'2' ] && ok "the delivery file holds the last notice id" || bad "seen: $(slurp "$SEEN/$S1")"
-out=$("$SALA" notice list); [[ $out == *"had it or started after it 2, still due 0"* ]] && ok "list: both had it, none due" || bad "list after: $out"
+out=$("$SALA" notice list --full); [[ $out == *"had it or started after it 2, still due 0"* ]] && ok "list: both had it, none due" || bad "list after: $out"
 
 echo "== a session that started after the notice"
 out=$(hpost "$S3"); [ -z "$out" ] && [ -e "$SEEN/$S3" ] && ok "registry row started after the notice: nothing shown, marked seen" || bad "S3: out='$out' seen=$(ls "$SEEN")"
@@ -215,6 +216,11 @@ out=$("$SALA" notice add --from tester --until 3h "flags first" 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(count_notices)" = 2 ] && ok "flags in front of the text still work" || bad "flags first: rc=$rc $out"
 out=$("$SALA" notice add "mixed order" --until 30m --from tester 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(count_notices)" = 3 ] && ok "--until before --from after the text still works" || bad "mixed: rc=$rc $out"
+echo "== list: the short line cuts a long text, --full keeps it"
+"$SALA" notice add "$(printf 'x%.0s' $(seq 1 70))" --from tester >/dev/null 2>&1; nid=$("$SALA" notice list --json | python3 -c 'import json, sys; print(json.load(sys.stdin)[-1]["id"])')
+out=$("$SALA" notice list | tail -1); [ "${out#*: }" = "$(printf 'x%.0s' $(seq 1 60))…" ] && ok "list: a long text is cut at 60 characters with an ellipsis" || bad "list long: $out"
+out=$("$SALA" notice list --full | tail -1); [ "${out#    }" = "$(printf 'x%.0s' $(seq 1 70))" ] && ok "list --full: the whole text" || bad "list --full long: $out"
+"$SALA" notice drop "$nid" >/dev/null
 for n in $("$SALA" notice list --json | python3 -c 'import json, sys; print(*[d["id"] for d in json.load(sys.stdin)])'); do "$SALA" notice drop "$n" >/dev/null; done
 [ "$(count_notices)" = 0 ] && ok "cleaned up: no notice left" || bad "left over: $(slurp "$NF")"
 

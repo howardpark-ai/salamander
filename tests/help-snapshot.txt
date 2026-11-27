@@ -117,7 +117,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander reboot --dry-run|--go|--status|--resume   clean reboot: pause inbound, drain, flush + stop services, reboot (docs/reboot-contract.md)
   salamander note "<next step>" | --done [<id>] | --clear | --list [--archived]     leave this pane its next step, handed back after
                                      its next relaunch (reboot, recycle, revive) until `--done <id>` marks it handled (--clear: the same as --done)
-  salamander notice add "<text>" --from NAME [--until WHEN] | list [--json] | drop ID   a one-time line every LIVE session sees at its next tool call or prompt,
+  salamander notice add "<text>" --from NAME [--until WHEN] | list [--full|--json] | drop ID   a one-time line every LIVE session sees at its next tool call or prompt,
                                      with no relaunch (lib/notice.sh; docs/notices-and-hooks.md, "Telling every session something"): one line of at most 400 characters, shown once per
                                      session as "[sala notice <id> from NAME] <text>", several due at once in one block, oldest first; a session that started after
                                      the notice skips it; --until an epoch, a span (90m, 12h, 7d) or an ISO 8601 time (default 7 days; a notice every live session has had or skipped is dropped after a day); add prints the id and how many live
@@ -397,7 +397,7 @@ usage: salamander wake NAME… [--dry-run]
 
 ### sala notice --help (exit 0)
 usage: sala notice add "<text>" --from <sender> [--until <when>]     (-h, --help or help as the first word after add prints this)
-       sala notice list [--json]
+       sala notice list [--full | --json]
        sala notice drop <id>
 
   add     appends a notice: one line of at most 400 characters (no newline or tab). Every live session gets it once, as
@@ -407,7 +407,9 @@ usage: sala notice add "<text>" --from <sender> [--until <when>]     (-h, --help
           epoch, a span (90m, 12h, 7d) or an ISO 8601 time (no zone = UTC); default 7 days. Prints the id and how many live
           sessions it will reach. A text that starts with "-" is refused (exit 2, nothing posted) because it looks like an option
           ("--help", "-5 degrees" and "- a bullet" alike): start the text with another character.
-  list    the active notices, each with how many live sessions have had it (or started after it) and how many are still due.
+  list    the active notices, one line each: id, sender, how many live sessions are still due, and the text cut at 60 characters
+          (with "…"). --full: two lines each as before, with when it was written and expires, how many sessions had it (or started
+          after it) and the whole text. --json: every field, whole.
   drop    withdraws a notice: a session not yet reached never gets it.
   Delivery needs the hooks `hook post-tool` (PostToolUse, already registered) and `hook prompt` (UserPromptSubmit; docs/notices-and-hooks.md,
   "Telling every session something"). Notices live in $SALA_STATE_DIR/notices.tsv;

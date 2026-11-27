@@ -454,7 +454,7 @@ sala lane pins                         # sessions pinned to a lane (held out of 
 sala watch --back-lanes --dry-run      # what the back agents' lane rule (and its front step) would do now; queues and writes nothing
 sala config                            # the effective settings
 sala job list [--unplaced]            # scheduled jobs of ours, with where each runs when the fleet moves (servers, sessions, home or unplaced)
-sala notice list                       # one-time lines waiting for live sessions; sala notice add "<text>" --from NAME shows one to every live session at its next turn (writes)
+sala notice list                       # one line per notice (--full: two lines, whole text) for live sessions; sala notice add "<text>" --from NAME shows one to every live session at its next turn (writes)
 sala where                             # which fleet machine the owner is working from now (one line, the time in KST; "(stale)" after 12 hours; the sources are what a session told it, an ssh client the watch tick saw and a page visit to the web UI, the newest wins and a told record under 12 hours old is kept); a step for his machine goes to that box. A session that learns he moved runs sala where set <box> --by NAME (writes: one notice to every live session); sala where --json reads the record
 sala ci-runs OWNER/REPO                # the CI poller's file for a repo, if the poller runs
 sala mq status --repo OWNER/REPO      # our merge queue's line, entries and driver (modes shadow, which tests and merges nothing, and on, which merges; off is the default; group mode is retired; docs/mq.md); mq add N… / wait N / drop N / pause / resume / doctor
