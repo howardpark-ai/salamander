@@ -4,7 +4,9 @@
 #   add       a line is stored in <state>/motion/<session>.json (folder 700, file 600) and nothing else is left in the folder but the lock; the same line
 #             again changes nothing (not listed twice, and `at` stays the time it was first added); white space is folded to single spaces; an empty line,
 #             a line of 121 characters and a ninth line are refused with a sentence and change nothing; exactly 120 characters and exactly 8 lines are taken
-#   done      by exact text and by number; an unknown line or number is refused; the lines after it move up
+#   done      by exact text and by number; the line stays, marked done (list says so), and the sentence says where it went; a done line is refused
+#             again; --link keeps an https, /path or #anchor address; a bad link is refused (exit 2); an unknown line or number is refused; add of
+#             the same text after done starts a new open line and leaves the done one
 #   clear     empties the list; list says "nothing right now"; --json is an array of {n, text, at}
 #   kept      nothing expires a line (the clock injected): a month later it is listed and a write keeps it with its first time; only done and clear take it off
 #   session   --for NAME names the session; with none and outside a session the command asks for it (exit 1); a name that is not one is refused;
@@ -63,12 +65,25 @@ $S add "line 9" --for chat-test >/dev/null 2>"$T/err"; rc=$?
 [ "$($S list --for chat-test | wc -l)" = 8 ] && ok "eight lines stay eight" || bad "list after a ninth: $($S list --for chat-test | wc -l)"
 
 # -- done ----------------------------------------------------------------------------------------------------------------------------------
-out=$($S done 3 --for chat-test 2>&1); has "$out" "done: line 3" && [ "$($S list --for chat-test | sed -n 3p)" = "3. line 4" ] && ok "done N takes the numbered line off and the rest move up" || bad "done 3: [$out]"
-$S done "line 1" --for chat-test >/dev/null 2>&1 && [ "$($S list --for chat-test | head -1)" = "1. line 2" ] && ok "done takes a line off by its exact text" || bad "done by text"
+$S clear --for chat-test >/dev/null
+for n in 1 2 3 4; do $S add "line $n" --for chat-test >/dev/null 2>&1; done
+out=$($S done 3 --for chat-test 2>&1); has "$out" "done: line 3" && has "$out" "my turn" && [ "$($S list --for chat-test | sed -n 3p)" = "3. line 3  [done, waiting for the owner's confirm]" ] && [ "$($S list --for chat-test | wc -l)" = 4 ] \
+    && ok "done N keeps the line, marked done, and the sentence says where it went" || bad "done 3: [$out] [$($S list --for chat-test)]"
+$S done "line 1" --for chat-test >/dev/null 2>&1 && [ "$($S list --for chat-test | head -1)" = "1. line 1  [done, waiting for the owner's confirm]" ] && ok "done takes a line by its exact text" || bad "done by text: [$($S list --for chat-test)]"
+$S done "line 1" --for chat-test >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 1 ] && has "$(cat "$T/err")" "already done" && ok "done on a done line is refused (exit 1, a sentence)" || bad "done twice: rc=$rc err=[$(cat "$T/err")]"
 $S done "line 9" --for chat-test >/dev/null 2>"$T/err"; rc=$?
 [ "$rc" = 1 ] && [ -s "$T/err" ] && ok "done on a line that is not there is refused" || bad "done unknown: rc=$rc"
 $S done 99 --for chat-test >/dev/null 2>&1; [ $? = 1 ] && ok "done on a number out of range is refused" || bad "done 99"
 $S done "line" --for chat-test >/dev/null 2>&1; [ $? = 1 ] && ok "done does not match part of a line" || bad "done partial"
+out=$($S done 4 --link https://example.com/r --for chat-test 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; r=json.load(sys.stdin)[3]; print(r["link"], r["done"] is not None)')" = "https://example.com/r True" ] \
+    && ok "done --link keeps the address with the line" || bad "done link: rc=$rc [$out]"
+$S done 2 --link "javascript:alert" --for chat-test >/dev/null 2>&1; rc=$?
+[ "$rc" = 2 ] && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; print(json.load(sys.stdin)[1]["done"])')" = None ] && ok "a link that is not https, /path or #anchor is refused (exit 2, nothing done)" || bad "bad link: rc=$rc"
+out=$($S add "line 1" --for chat-test 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; r=json.load(sys.stdin); print(len(r), [x["done"] is None for x in r if x["text"]=="line 1"])')" = "5 [False, True]" ] \
+    && ok "add after done starts a new open line and leaves the done one" || bad "add after done: rc=$rc [$out]"
 
 # -- clear, list ---------------------------------------------------------------------------------------------------------------------------
 $S clear --for chat-test >/dev/null
@@ -87,7 +102,7 @@ SALA_MOTION_NOW=$later $S add "new line" --for chat-test >/dev/null
 python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); n=int(sys.argv[2]); assert [(x["text"], x["at"]) for x in d["lines"]]==[("old line", n), ("new line", n + 30 * 86400)], d' "$D/chat-test.json" "$NOW" \
     && ok "a write keeps the old line with its first time" || bad "old line dropped or moved: $(cat "$D/chat-test.json")"
 SALA_MOTION_NOW=$later $S done "old line" --for chat-test >/dev/null 2>&1
-[ "$(SALA_MOTION_NOW=$later $S list --for chat-test)" = "1. new line" ] && ok "done takes an old line off" || bad "done old: [$($S list --for chat-test)]"
+[ "$(SALA_MOTION_NOW=$later $S list --for chat-test | head -1)" = "1. old line  [done, waiting for the owner's confirm]" ] && ok "done keeps an old line, marked done" || bad "done old: [$($S list --for chat-test)]"
 
 # -- session ---------------------------------------------------------------------------------------------------------------------------------
 $S clear --for chat-test >/dev/null

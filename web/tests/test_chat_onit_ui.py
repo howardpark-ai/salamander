@@ -10,7 +10,8 @@ second list is what the chat session has promised to report back and has not yet
     End move between the tabs and Enter or Space open the one reached;
   - a row: the topic as plain text (no id, no link, no name) and under it since when as "just now", minutes, hours or days (amber past two days, red past five), no "new"
     tag; the late count over the list; with nothing in progress the tab is a quiet 0 and the list says so; with both lists empty nothing is drawn;
-  - a line the session takes off leaves the list, and the count and the dot follow; nothing of the lines is drawn anywhere else in the strip;
+  - a line the session marks done leaves this list (it moves to the "my turn" list, with its confirm button; test_chat_motion_done.py), and the count and the dot
+    follow; nothing of the lines is drawn anywhere else in the strip;
   - the list's help line is behind a (?) in the bar, there only while that list is open: a button with an accessible name and aria-expanded, a press shows the line in a
     small box under the bar and a second press, a press anywhere else, Escape, and the list closing or the other tab opening shut it; a read leaves it as it is; it is
     never drawn on its own, and the box stays inside the window, wraps and adds no sideways scroll (at 1280, 390, 360 and 320 px, in English and in Korean);
@@ -49,7 +50,7 @@ CHEVRON = "document.querySelector('#chat-strip-wait .wait-chev')"
 HELP_BTN = "document.querySelector('#chat-strip-wait .wait-help')"
 MOVE_PANEL, ONIT_PANEL = "chat-strip-wait-panel", "chat-strip-onit-panel"
 NOTHING = "Nothing in progress right now"
-NOTE = "This is what the assistant has said it will report back on in this chat. Once it has, it leaves the list."
+NOTE = "What the assistant has said it will report back on in this chat. When it is done, the line moves to your move list."
 HELP_LABEL = "About this list"
 MOVE_NOTE = "These lines are the board's own. No model writes them or decides whether you see them."
 

@@ -21,8 +21,13 @@ none itself):
                                   {configured, session, name, present: live|sleeping|absent, busy, keptToday, keptTodayFloor, keptLines (how many
                                   kept-back lines the session's own view draws today, which also counts a turn he then spoke into), waiting (his moves:
                                   stackshot's Your move list, else the board feed), motion (the session's own `sala motion` lines, what it has promised to
-                                  report back: [{text, at: when first set}], motion.py)}; with no
+                                  report back: [{text, at: when first set}], motion.py), mine (its done lines, the owner's "my turn" list:
+                                  [{text, at, done: when marked done, link (the result's address, when given), jump (a transcript cursor for
+                                  transcript?around= of the first reply at or after done, when no link)}]); with no
                                   session set just {configured: false} (read-only; it sends nothing, the composer uses /api/s/<pid>/send)
+  POST /api/chat/motion/confirm   {"text", "at"} -> the owner's confirm of a done line in "my turn" (motion.py confirm): the line is removed
+                                  -> {"ok": true}. 409 when no such done line (not done, or already confirmed), 404 with no chat session,
+                                  400 for a bad body, 403 cross-origin, 415 without application/json
   GET  /api/chat/thread           the chat session's own thread (chatthread.py, whose docstring is the rule): the owner's messages and the replies to them and
                                   nothing else, ?n=200 with at most one of ?before=, ?after= and ?around= as the transcript route takes them (400 on a bad one)
                                   -> {session, messages, offset, before, start, busy, cards} (an older, newer or around page carries that read's own paging
@@ -340,6 +345,7 @@ from starlette.staticfiles import StaticFiles
 from . import board as B
 from . import chatkeep as CK
 from . import chatpage as CP
+from . import motion as MO
 from . import chatthread as CTH
 from . import yourmove as YM
 from . import wheresight as WS
@@ -811,6 +817,35 @@ def create_app(settings: Settings | None = None) -> Starlette:
             now_ms=int(time.time() * 1000),
             motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move, group=group))
         return JSONResponse(doc, headers={"Cache-Control": "no-store"})
+
+    async def api_chat_confirm(request: Request) -> Response:
+        # the owner's confirm of a done line in the "my turn" list (motion.py confirm): removes that line. Body {"text", "at"} (the line as GET /api/chat
+        # sent it); the session is the configured one, never named by the body. 404 when the chat session is not set, 409 for a line that is not
+        # done or is already confirmed (or no such line): nothing is written then. Same guards as the other POSTs: the origin check and JSON.
+        if _cross_origin(request):
+            return _err(403, "cross-origin request refused")
+        if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
+            return _err(415, "chat/motion/confirm takes application/json")
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw += chunk
+            if len(raw) > 4096:
+                return _err(413, "body too large")
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return _err(400, "body must be JSON")
+        text = body.get("text") if isinstance(body, dict) else None
+        at = body.get("at") if isinstance(body, dict) else None
+        if not isinstance(text, str) or not text or len(text) > MO.MAX_CHARS or isinstance(at, bool) or not isinstance(at, int):
+            return _err(400, 'body must be {"text": "<line>", "at": <seconds>}')
+        name = chat_session()
+        if not name:
+            return _err(404, "no chat session is set")
+        result = await run_in_threadpool(lambda: MO.confirm(settings.motion_dir, name, text, at))
+        if result != "ok":
+            return _err(409, "no done line to confirm (not done, already confirmed, or no such line)")
+        return JSONResponse({"ok": True})
 
     def _page(name: str, base: str = "./") -> Response:
         # the title bar's text is in the served page (paintBrand only repaints it), so a reload shows no flash of the bare name.
@@ -3200,6 +3235,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/chat", chat_page),
         Route("/api/chat", api_chat),
         Route("/api/chat/thread", api_chat_thread),
+        Route("/api/chat/motion/confirm", api_chat_confirm, methods=["POST"]),
         Route("/manifest.webmanifest", manifest),
         Route("/sw.js", service_worker),
         # everything under /mockup (any method, any depth) is answered by mockup_page, so no answer of this prefix lacks the sandbox headers

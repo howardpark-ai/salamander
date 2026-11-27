@@ -386,6 +386,8 @@ async function saveList(key, compute) {
 const CHAT_MARKS_MS = 25000, CHAT_STRIP_MS = 350;
 const chatView = { data: null, reading: false, again: false, soon: 0, seen: null, fresh: new Set(), ui: null, kept: false, waitOpen: false, waitTab: "move", waitRove: "move" };   // data: the last answer of api/chat; kept: the switch (show the kept-back lines); waitOpen: a pinned list is opened (closed at every page load); waitTab: which one, or the one last opened; waitRove: the tab the Tab key reaches
 const chatEntryOn = () => !!(chatView.data && chatView.data.configured);
+// the owner's count in the first list: his moves (stackshot's list) and the session's done lines waiting for his confirm (api/chat `mine`)
+const chatMoveCount = (d) => (d.waiting || []).length + (d.mine || []).length;
 // the session row the entry stands for: hidden from the list while the entry exists
 const isChatRow = (s) => !!s && s.chat === true && chatEntryOn();
 const chatSelected = () => { const s = state.selected && state.byName.get(state.selected); return !!(s && s.chat === true); };
@@ -448,7 +450,7 @@ function paintChatEntry() {
   const group = chatGroupName(d.group);
   // the tooltip is painted here only: its text takes {group}, and the markup's applier has no served name to fill it with
   a.title = tl("ui.side.chatTip", { group });
-  const waiting = (d.waiting || []).length, busy = d.present === "live" && !!d.busy;
+  const waiting = chatMoveCount(d), busy = d.present === "live" && !!d.busy;
   const dot = a.querySelector(".dot"), chip = a.querySelector(".wchip");
   dot.hidden = !busy;
   dot.title = tl("chat.state.busy");
@@ -513,11 +515,18 @@ function buildChatStrip() {
   $("#chat-strip").replaceChildren(kept);
   chatView.ui = { waitList, waitNote, wait, onit, onitSum, onitList, onitNone, help, pop, moveTab, moveLine, onitTab, onitLine, lateDot, chevron, swText, countEl };
 }
-// the text of the (?) box for the open list, set on the box and the button as the language's words (tx), so a language change words them again
-function chatHelpText(key) {
-  const u = chatView.ui, text = tx(key), label = tx("chat.onit.help", null, "aria-label");
-  u.pop.textContent = text.text;
-  u.pop.setAttribute("data-i18n", key);
+// the lines of the open list's (?), each [key] or [key, vars]: the second list has its own note; the first has the note on the owner's moves, the note
+// on the done lines to confirm, or both, by what the list holds (a list with nothing in it keeps the note on the moves)
+function chatHelpParts() {
+  if (chatView.waitTab === "onit") return [["chat.onit.note"]];
+  const d = chatView.data || {}, moves = (d.waiting || []).length, done = (d.mine || []).length;
+  return [...(moves || !done ? [["chat.wait.note"]] : []), ...(done ? [["chat.mine.note"]] : [])];
+}
+// the box says each line on its own (SalaI18n.apply re-words them on a language change); the (?) has one name for every list
+function chatHelpText(parts) {
+  const u = chatView.ui, label = tx("chat.onit.help", null, "aria-label");
+  u.pop.replaceChildren(...parts.map(([key, vars]) => el("span", tx(key, vars))));
+  u.pop.setAttribute("data-says", JSON.stringify(parts));
   for (const [k, v] of Object.entries(label)) u.help.setAttribute(k, v);
 }
 // the (?) of the bar, there only while a list is open: shows that list's note in a small box under the bar, or hides it again
@@ -548,7 +557,7 @@ function chatTabKeys(e) {
 }
 // the pinned bar and its two lists, the owner's moves and the session's own lines: not drawn with nothing in either; a list shows only while it is opened
 function paintChatWait() {
-  const u = chatView.ui, d = chatView.data || {}, n = (d.waiting || []).length, onIt = d.motion || [];
+  const u = chatView.ui, d = chatView.data || {}, n = chatMoveCount(d), onIt = d.motion || [];
   const shown = n > 0 || onIt.length > 0, open = chatView.waitOpen && shown;
   $("#chat-strip-wait").hidden = !shown;
   u.wait.hidden = !(open && chatView.waitTab === "move");
@@ -559,12 +568,12 @@ function paintChatWait() {
 }
 // the two tabs, their counts, the late dot and the chevron; the second list's own lines
 function paintChatBar(onIt, n, group, open) {
-  const u = chatView.ui, key = chatView.waitTab === "onit" ? "chat.onit.note" : "chat.wait.note";
+  const u = chatView.ui, parts = chatHelpParts();
   u.onit.hidden = !(open && chatView.waitTab === "onit");
   u.help.hidden = !open;
-  // the box follows the list: another list's (?) text, or a list shut, closes it
-  if (u.help.hidden || u.pop.getAttribute("data-i18n") !== key) chatHelp(false);
-  if (!u.help.hidden) chatHelpText(key);
+  // the box follows its text: another list's (?) text, other lines in the open list's, or a list shut, closes it
+  if (u.help.hidden || u.pop.getAttribute("data-says") !== JSON.stringify(parts)) chatHelp(false);
+  if (!u.help.hidden) chatHelpText(parts);
   const now = Date.now(), late = onIt.filter((m) => chatBackTone(m, now)).length, lateTip = late ? tl("chat.onit.late", { n: late }) : "";
   u.onitLine.textContent = tl("chat.onit.line", { n: onIt.length });
   u.onitTab.setAttribute("aria-label", lateTip ? u.onitLine.textContent + ", " + lateTip : u.onitLine.textContent);
@@ -654,6 +663,35 @@ function refreshChatOnit() {
   paintChatWait();
 }
 setInterval(refreshChatOnit, 60000);
+// a done line of the session's own, in the owner's list: its text, "done", the result (the given link, else a jump to the reply's place in the chat) and the confirm button.
+// The link is the server's (lib/motion.py takes only https, a path or an anchor); all of it is set as text or as an attribute value, never as markup.
+function chatMineRow(m, d) {
+  const meta = [el("span", { class: "mine-state", ...tx("chat.mine.done") })];
+  if (m.link) {
+    const web = m.link.startsWith("https://");
+    meta.push(el("a", { class: "wait-link mine-result", href: m.link, text: tl("chat.mine.result"), ...(web ? { target: "_blank", rel: "noopener noreferrer" } : {}) }));
+  } else if (m.jump) {
+    const go = el("button", { type: "button", class: "wait-link mine-result", text: tl("chat.mine.result") });
+    go.addEventListener("click", () => openAt(d.session, m.jump.uuid, { pos: m.jump.pos, session: m.jump.session }));
+    meta.push(go);
+  }
+  const ok = el("button", { type: "button", class: "mine-confirm", ...tx("chat.mine.confirm") });
+  ok.addEventListener("click", () => confirmMine(m));
+  meta.push(ok);
+  const subj = el("span", { class: "wait-subj" }, el("span", { class: "wait-title", text: m.text }), el("span", { class: "wait-meta" }, ...meta));
+  return el("li", { class: "wait-row mine-row" }, subj);
+}
+// the owner's confirm: the server removes the line (POST, the same guard as the other posts). A refusal (already confirmed, no such line) or a failure says so, and the list is read again
+async function confirmMine(m) {
+  const u = chatView.ui;
+  u.waitNote.textContent = "";
+  try {
+    const r = await apiFetch("api/chat/motion/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: m.text, at: m.at }) }, { tries: 1 });
+    if (r.ok) { loadChatMarks(); return; }
+  } catch { /* the failure is said below */ }
+  u.waitNote.textContent = tl("chat.mine.fail");
+  loadChatMarks();
+}
 function chatWaitRow(w, tagNew = true) {
   // the board id (as stackshot wrote it) is a plain label before the title; the whole title is the one link to the item (no url: plain text). A row with no subject
   // shows the id as its title, once.
@@ -671,6 +709,8 @@ function paintChatStrip() {
   // chatanswer.js (in the page only with the setting SALA_CHAT_LAYER) draws these rows itself, so one of them can hold the item's answer frame
   if (window.SalaAnswerFrame) SalaAnswerFrame.strip(u.waitList, waiting, chatWaitRow);
   else u.waitList.replaceChildren(...waiting.map((w) => chatWaitRow(w)));
+  // the done lines follow the owner's moves, in the same list (strip() keeps only the moves' rows, so these are put after it)
+  u.waitList.append(...(d.mine || []).map((m) => chatMineRow(m, d)));
   const now = Date.now();
   u.onitList.replaceChildren(...(d.motion || []).map((m) => chatBackRow(m, now)));
   paintChatWait();

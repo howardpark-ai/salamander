@@ -14,6 +14,7 @@ artifact link's title is the link text or nothing (the page says "Claude artifac
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 import stat
@@ -118,6 +119,69 @@ def waiting(board_doc: dict, your_move: list[dict] | None = None) -> list[dict]:
     return out
 
 
+REPLY_WINDOW_FIRST = 2 << 20     # the first look back from the end of a transcript for a reply at or after a done time
+REPLY_WINDOW_MAX = 32 << 20      # and the most it reads (a done line whose reply is further back links nothing)
+
+
+def reply_pos(path: Path, done_ms: int, strict: bool, cache: dict) -> tuple[int, str] | None:
+    """(the byte offset of the line that starts the first final reply (chatturns.reply_of) at or after `done_ms` in the transcript, the cursor
+    GET transcript?around= takes; its uuid), None when there is none yet, or it lies further back than REPLY_WINDOW_MAX. The read starts at the end and
+    doubles until it reaches a line older than `done_ms` (so the first reply after it is the first one in the file). `cache` (kept by the caller)
+    holds the answer per transcript stamp, so a poll of an unchanged file costs a stat."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    stamp = (st.st_size, st.st_mtime_ns)
+    key = ("reply", str(path), done_ms, strict)
+    hit = cache.get(key)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    size, window, answer = st.st_size, REPLY_WINDOW_FIRST, None
+    while True:
+        start = max(0, size - window)
+        try:
+            with open(path, "rb") as f:
+                f.seek(start)
+                raw = f.read(size - start)
+        except OSError:
+            break
+        pos, lines = start, []
+        for part in raw.split(b"\n"):
+            lines.append((pos, part))
+            pos += len(part) + 1
+        if start > 0:
+            lines = lines[1:]     # the first piece is cut mid-line
+        found, first = None, None
+        for off, part in lines:
+            if not part.strip():
+                continue
+            try:
+                d = json.loads(part)
+            except ValueError:
+                continue
+            if not isinstance(d, dict):
+                continue
+            ts = CT._ms(d.get("timestamp"))
+            if ts is not None and first is None:
+                first = ts
+            if found is None:
+                r = CT.reply_of(d, strict)
+                if r is not None and r["ts"] is not None and r["ts"] >= done_ms:
+                    found = (off, r["uuid"])
+        reached = start == 0 or (first is not None and first < done_ms)
+        if reached:
+            answer = found
+            break
+        if window >= REPLY_WINDOW_MAX:
+            break
+        window *= 2
+    if len(cache) > 64:
+        cache.clear()
+    cache[key] = (stamp, answer)
+    return answer
+
+
 def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, zone, now_ms: int,
              motion_dir: Path, board_doc: dict, cache: dict, your_move: list[dict] | None = None, group: dict | None = None) -> dict:
     """The whole answer of GET /api/chat for the configured session `name` (`sess`: its Session, live or sleeping, or None when sala has no such
@@ -128,6 +192,7 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
     kept_today, kept_lines, floor = 0, 0, False
     present = "absent"
     status = ""
+    path = None
     if sess is not None:
         present = "sleeping" if sess.sleeping is not None else "live"
         status = sess.status
@@ -150,6 +215,18 @@ def assemble(*, name: str, display: str, owner: str, sess, projects_dir: Path, z
                 if len(cache) > 8:
                     cache.clear()
                 cache[str(path)] = (stamp, kept_today, floor, kept_lines)
+    lines = MO.read_lines(motion_dir, name)
+    mine = []
+    for r in (x for x in lines if "done" in x):
+        row = dict(r)
+        if "link" not in row and path is not None:
+            # a done time is epoch seconds (motion.py); the transcript's times are milliseconds (chatturns._ms)
+            hit = reply_pos(path, r["done"] * 1000, status in ("busy", "waiting"), cache)
+            if hit is not None:
+                # the page's own jump (app.js openAt): the transcript cursor (GET transcript?around=), the reply's uuid and the session's id
+                row["jump"] = {"pos": hit[0], "uuid": hit[1], "session": sess.session_id}
+        mine.append(row)
     return {"configured": True, "session": name, "name": display, "present": present, "busy": status in ("busy", "waiting"),
             "keptToday": kept_today, "keptTodayFloor": floor, "keptLines": kept_lines,
-            "waiting": waiting(board_doc, your_move), "group": group, "motion": MO.read_lines(motion_dir, name)}
+            "waiting": waiting(board_doc, your_move), "group": group,
+            "motion": [x for x in lines if "done" not in x], "mine": mine}

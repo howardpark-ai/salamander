@@ -259,7 +259,7 @@ def test_the_strips_strings_are_in_both_languages(key):
 # The second list's help line is behind a (?), not drawn under the list (the browser side is test_chat_onit_ui.py).
 def test_the_second_lists_help_line_is_the_one_the_owner_chose_in_both_languages_as_escapes():
     en = re.search(r'"chat\.onit\.note": "([^"]*)"', EN).group(1)
-    assert en == "This is what the assistant has said it will report back on in this chat. Once it has, it leaves the list."
+    assert en == "What the assistant has said it will report back on in this chat. When it is done, the line moves to your move list."
     assert re.search(r'"chat\.onit\.help": "About this list"', EN)
     ko_note = re.search(r'"chat\.onit\.note": "([^"]*)"', KO).group(1)
     ko_help = re.search(r'"chat\.onit\.help": "([^"]*)"', KO).group(1)
@@ -285,8 +285,12 @@ def test_the_help_line_is_a_pressed_button_and_a_hidden_box_never_a_line_under_t
     assert "tabs, help, chevron, pop" in build, "in the bar, not among the tabs"
     paint_bar = body_of(APP_JS, "function paintChatBar(")
     assert "u.help.hidden = !open;" in paint_bar and "chatHelp(false)" in paint_bar, "it goes with its list"
-    assert 'key = chatView.waitTab === "onit" ? "chat.onit.note" : "chat.wait.note"' in paint_bar and "chatHelpText(key)" in paint_bar, "each list says its own note"
-    assert 'u.pop.getAttribute("data-i18n") !== key' in paint_bar, "another list's box is shut"
+    assert "parts = chatHelpParts()" in paint_bar and "chatHelpText(parts)" in paint_bar, "each list says its own lines"
+    assert 'u.pop.getAttribute("data-says") !== JSON.stringify(parts)' in paint_bar, "a box whose lines are no longer these is shut"
+    pick = body_of(APP_JS, "function chatHelpParts(")
+    assert 'if (chatView.waitTab === "onit") return [["chat.onit.note"]];' in pick, "the second list says its own note"
+    assert 'moves || !done ? [["chat.wait.note"]] : []' in pick and 'done ? [["chat.mine.note"]] : []' in pick, "the first says the moves\' note, the done lines\' or both"
+    assert 'el("span", tx(key, vars))' in body_of(APP_JS, "function chatHelpText("), "worded again on a language change"
     assert '"aria-expanded", String(on)' in body_of(APP_JS, "function chatHelp(")
 
 
@@ -331,7 +335,7 @@ def test_the_open_list_has_no_heading_and_the_panel_is_named_by_its_tab_s_words(
     assert '"aria-labelledby": "chat-strip-tab-move" }, waitList, waitNote);' in build, "the panel starts with the list, no heading"
     assert 'u.wait.setAttribute("aria-label", u.moveLine.textContent)' in body_of(APP_JS, "function paintChatWait()")
     assert EN_T["chat.wait.note"] and KO_T["chat.wait.note"], "the note is in both tables"
-    assert '"chat.wait.note"' in body_of(APP_JS, "function paintChatBar("), "the first list's note is behind the (?), not under the list"
+    assert '"chat.wait.note"' in body_of(APP_JS, "function chatHelpParts("), "the first list's note is behind the (?), not under the list"
 
 
 def test_a_row_hangs_from_its_dot_and_the_box_is_a_clean_cover():

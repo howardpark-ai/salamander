@@ -227,9 +227,10 @@
 #                                      open board item links it, unless --force) · the daily pass (sala-mockup-clean.timer): pages older than SALA_MOCKUP_KEEP_DAYS (7)
 #                                      that no open board item links, then the oldest first until the folder is under SALA_MOCKUP_MAX_BYTES (1 GB), linked pages last
 #                                      (SALA_MOCKUP_REFERENCES says how to tell what is linked; unset keeps all)
-#   salamander motion add "<line>" | done "<line>"|N | clear | list [--json]   [--for NAME]
+#   salamander motion add "<line>" | done "<line>"|N [--link URL] | clear | list [--json]   [--for NAME]
 #                                      the short topics a session has promised to report back and not reported yet (lib/motion.sh, lib/motion.py): add one when work is handed
 #                                      off with that promise, mark it done in the turn the result is reported; at most 8, each at most 120 characters, listed until done or cleared;
+#                                      a done line waits in the owner's "my turn" list on the chat page until he confirms it (--link: its result address, else the first reply after the done time);
 #                                      one small file per session under $SALA_STATE_DIR/motion. sala-web's chat session view shows the chat session's under "On it";
 #                                      the default session is the one the command runs in, --for NAME names another
 #   salamander stackshot-key init | enroll | status

@@ -435,6 +435,8 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
 #chat-strip-wait .wait-pop { position: absolute; z-index: 1; top: 100%; right: 12px; box-sizing: border-box; width: max-content; max-width: min(320px, calc(100% - 24px)); margin-top: 4px; padding: 8px 12px; font-size: 12px; line-height: 1.5;
   color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, .16); overflow-wrap: anywhere; }
 #chat-strip-wait .wait-pop[hidden] { display: none; }
+#chat-strip-wait .wait-pop > span { display: block; }
+#chat-strip-wait .wait-pop > span + span { margin-top: 8px; }
 #chat-strip-wait :is(.wait-tab, .wait-chev, .wait-help):hover { background: var(--hover); }
 #chat-strip-wait :is(.wait-tab, .wait-chev, .wait-help):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 #chat-strip-wait .wait-list[hidden] { display: none; }
@@ -464,6 +466,12 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
 #chat-strip-wait :is(.wait-link, .wait-title):has(+ .new) { margin-inline-end: 8px; }
 #chat-strip-wait .new { display: inline-block; margin-inline-start: 0; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link)); }
 #chat-strip-wait .wait-err { font-size: 12px; color: var(--warn); overflow-wrap: anywhere; }
+/* a done line of the owner's list: its state, its result (a link or a jump) and the confirm button at the end of the row */
+#chat-strip-wait .mine-row .wait-meta { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; font-size: 12px; color: var(--muted); }
+#chat-strip-wait .mine-result { font-size: 12px; background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit; }
+#chat-strip-wait .mine-confirm { margin-inline-start: auto; padding: 2px 10px; font-size: 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--text); cursor: pointer; }
+#chat-strip-wait .mine-confirm:hover { background: var(--hover); }
+#chat-strip-wait .mine-confirm:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #chat-strip-wait .wait-err:empty { display: none; }
 /* A row of the second list: a ring for a dot (amber when late, red past that), and under the title one line of since when and the days of a late one */
 #chat-strip-wait .back-row::before { background: radial-gradient(circle closest-side, transparent 50%, var(--ring, var(--muted)) 58% 96%, transparent 100%); }
