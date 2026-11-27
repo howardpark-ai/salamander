@@ -10,6 +10,7 @@ window.SALA_I18N_KO = {
   "app.bang.text": "\uba85\ub839 \ucd9c\ub825 \ud14d\uc2a4\ud2b8",
   "app.bang.title.other": "\ucd9c\ub825 \u00b7 {n}\uc904",
   "app.composer.label": "\uc138\uc158\uc5d0 \uba54\uc2dc\uc9c0 \ubcf4\ub0b4\uae30",
+  "chat.quote": "\uc778\uc6a9",
   "app.composer.phKeys": "\uc138\uc158\uc5d0 \uba54\uc2dc\uc9c0 \ubcf4\ub0b4\uae30 (Enter\ub294 \uc804\uc1a1, Shift+Enter\ub294 \uc904\ubc14\uafc8)",
   "app.composer.phTouch": "\uc138\uc158\uc5d0 \uba54\uc2dc\uc9c0 \ubcf4\ub0b4\uae30 (Enter\ub294 \uc904\ubc14\uafc8, \ubcf4\ub0b4\ub824\uba74 \ubcf4\ub0b4\uae30\ub97c \ub204\ub974\uc138\uc694)",
   "app.copied": "\ubcf5\uc0ac\ub428",

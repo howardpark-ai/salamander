@@ -534,6 +534,19 @@ body.side-mode #sd-form { display: block; }
 .msg.user .bubble { background: var(--user-bubble); border-radius: 8px; padding: 8px 16px; max-width: 85%;
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.user + .msg.assistant, .msg.assistant + .msg.user { margin-top: 16px; }
+/* a user's quote (chatquote.js): lines that start with ">" as a blockquote; no space above or below it */
+.msg.user .bubble blockquote { margin: 0; padding: 0 0 0 8px; border-left: 3px solid var(--border); color: var(--muted); }
+/* the quote button (desktop) and the quote chip (touch): placed in the viewport by chatquote.js, over the reply text */
+.quote-btn, .quote-chip { position: fixed; z-index: 60; margin: 0; border: 0; background: none; padding: 0; cursor: pointer;
+  font: 13px var(--font); touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+.quote-btn[hidden], .quote-chip[hidden] { display: none; }
+.quote-btn span { display: inline-block; padding: 4px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel); color: var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+.quote-chip { width: 48px; height: 44px; }
+.quote-chip span { display: block; width: 40px; height: 28px; margin: 8px 4px; line-height: 28px; text-align: center;
+  font-size: 12px; white-space: nowrap; overflow: hidden;
+  border-radius: 999px; background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .2); }
 .cmd { font: 13px var(--font); color: var(--muted); background: var(--code-bg); border-radius: 8px; padding: 2px 8px;
   overflow-wrap: anywhere; }
 /* the live block of a running ! command: the pane's text under the command's line, with a Stop button */
