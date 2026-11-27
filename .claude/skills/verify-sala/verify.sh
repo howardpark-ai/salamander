@@ -3,6 +3,7 @@
 # Usage: verify.sh prove                    every journey in journeys/
 #        verify.sh run <journey.sh>...      the named journeys: the skill's own, or a pull request's own file
 # One call does it all: launch the instance, doctor, drive the journeys, keep the evidence, clean up. Nothing stays running.
+# The instance runs in a bwrap sandbox (SKILL.md, Isolation): it has no way to the machine's processes, services, network or home.
 # Exit 0: every check passed. 1: a check or a journey failed, or a process outlived the run. 2: no verdict, because the instance
 # did not come up or the doctor failed (nothing was driven), or the call was wrong.
 # Evidence: <checkout>/verify-evidence/<run>/, or under $VERIFY_SALA_EVIDENCE when that is set. It is kept after cleanup.
@@ -11,6 +12,11 @@ SELF=$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")
 SKILL=$(dirname "$SELF")
 ROOT=$(cd "$SKILL/../../.." && pwd -P)
 SOCK=verify   # the tmux socket's name; its file lives in the scratch folder (TMUX_TMPDIR)
+SYSPATH=/usr/local/bin:/usr/bin:/bin   # where the tools come from: the sandbox shows no other program folder
+SYSDIRS="/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin"
+# commands that act past the instance (rights, power, services, schedules, other machines, containers, GitHub): recorded, not run
+GUARDED="sudo sudo.ws sudoedit doas pkexec su runuser run0 shutdown reboot poweroff halt telinit kexec systemctl systemd-run
+    loginctl busctl dbus-send machinectl crontab at ssh scp sftp rsync mosh tailscale docker podman gh"
 
 usage() { awk 'NR==1{next} /^#/{sub(/^# ?/, ""); print; next} {exit}' "$SELF"; }
 no_verdict() { echo "verify-sala: $*" >&2; exit 2; }   # not `die`: lib/common.sh, sourced inside the instance, has its own
@@ -19,6 +25,14 @@ no_verdict() { echo "verify-sala: $*" >&2; exit 2; }   # not `die`: lib/common.s
 check() { local label="$1"; shift; if "$@"; then ok "$label"; else bad "$label"; fi; return 0; }   # <label> <command…>
 not() { ! "$@"; }
 under() { [[ $1 == "$HOME"/* ]]; }                                                          # <path> → inside the scratch folder
+standins() {  # every guarded command is the stand-in, by name and at each system path; prints what is not
+    local c d p miss=""
+    for c in $GUARDED; do
+        p=$(type -P "$c"); [ "$p" = "$HOME/stubs/$c" ] || miss+=" $c=${p:-none}"
+        for d in $SYSDIRS; do [ ! -e "$d/$c" ] || grep -q '^# verify-sala stand-in' "$d/$c" 2>/dev/null || miss+=" $d/$c"; done
+    done
+    [ -z "$miss" ] || { echo "    not a stand-in:$miss"; return 1; }
+}
 
 sala() {  # <argv…> → runs the checkout's sala; OUT (stdout and stderr) and RC
     echo "\$ sala $*"
@@ -62,15 +76,25 @@ doctor() {  # read only: is this the throwaway instance, is it empty, does it an
     JOURNEY=doctor; echo "== doctor"
     local home; home=$(getent passwd "$EUID" | cut -d: -f6)
     check "HOME is the scratch folder, not the account's home" [ "$HOME" = "$VERIFY_SALA_INSTANCE" -a "$HOME" != "$home" ]
+    check "sandbox: a process list of its own" [ "$(cat /proc/1/comm 2>/dev/null)" = bwrap ]
+    check "sandbox: no network but its own loopback" [ "$(awk -F: 'NR>2 {gsub(/ /, "", $1); print $1}' /proc/net/dev)" = lo ]
+    check "sandbox: no process can gain rights" grep -q $'^NoNewPrivs:\t1$' /proc/self/status
+    check "sandbox: the machine's /run (service managers, message bus) is absent" [ ! -e /run ]
+    local c   # named here as well as in GUARDED, so a name dropped from that list still fails
+    for c in sudo systemctl shutdown reboot ssh; do check "$c resolves inside the instance" under "$(type -P "$c")"; done
+    check "every guarded command is a stand-in, by name and by system path" standins
     check "sala's state folder is inside it" under "$SALA_STATE_DIR"
     check "sala's tmux socket is inside it" under "$(fleet_socket)"
     check "claude on PATH is inside it" under "$(command -v claude)"
     check "claude is the compiled fake" [ "$(claude --version)" = "9.9.9 (Claude Code)" ]
     check "tmux holds only the anchor session (and the web shell, which sala-web makes at start)" \
         [ "$(tmux list-sessions -F '#{session_name}' | grep -vx -e "$SALA_SHELL_SESSION")" = vs-anchor ]
-    check "the registry holds no session" [ -z "$(ls "$HOME/.claude/sessions")" ]
+    check "sala's registry folder is inside it" under "$SALA_REG_DIR"
+    check "the registry holds no session" [ -d "$SALA_REG_DIR" -a -z "$(ls "$SALA_REG_DIR" 2>/dev/null)" ]
     sala spawn --list
-    check "sala lists no Claude session" [ "$RC" = 0 -a "$(grep -c '9\.9\.9' <<< "$OUT")" = 0 ]
+    local other   # every row but the header and the anchor's own (a bare shell), whatever its version or name
+    other=$(awk 'NR==1 && $1=="NAME" {next} $1=="vs-anchor" && $2=="(shell)" {next} {print}' <<< "$OUT")
+    check "sala lists no session but the instance's anchor" [ "$RC" = 0 -a -z "$other" ]
     if [ -n "${WEBPID:-}" ]; then
         web GET /api/config
         check "sala-web answers on its socket" [ "$CODE" = 200 ]
@@ -99,12 +123,6 @@ instance() {  # <checkout> <evidence folder> <0|1 web> <journey…>: runs inside
     touch "$HOME/.claude/salamander-rc.stopped" "$HOME/.hushlogin"      # no Remote Control server here; no login banner in the panes
     cc -o "$HOME/.local/share/claude/versions/9.9.9" "$ROOT/tests/fake-claude.c" || no_verdict "the fake claude did not compile"
     ln -s "$HOME/.local/share/claude/versions/9.9.9" "$HOME/.local/bin/claude"
-    local s rc
-    for s in systemd-run:0 systemctl:0 loginctl:1 ssh:1 gh:1; do   # commands that would reach past the instance: recorded, not run
-        rc=${s#*:}; s=${s%:*}
-        printf '#!/bin/sh\necho "%s $*" >> "$HOME/stubs.log"\nexit %s\n' "$s" "$rc" > "$HOME/.local/bin/$s"
-        chmod +x "$HOME/.local/bin/$s"
-    done
     as_op_unit   # the guarded verbs run here as the queue's runner would run them
     export SALA_TMUX_SOCKET="$TMUX_TMPDIR/tmux-$EUID/$SOCK"
     export FAKE_LOG="$HOME/fake.log" FAKE_TYPED_LOG="$HOME/typed.log"
@@ -118,7 +136,7 @@ instance() {  # <checkout> <evidence folder> <0|1 web> <journey…>: runs inside
     tmux new-session -d -s vs-anchor -x 120 -y 40 -c "$HOME/work" || no_verdict "the private tmux server did not start"
     echo "  instance: HOME, tmux socket and web socket in one scratch folder; fake claude compiled from tests/fake-claude.c"
     if [ "$want_web" = 1 ]; then
-        "$HOME/venv/bin/sala-web" --socket "$HOME/web.sock" --tmux-socket "$SOCK" > "$EVIDENCE/web.log" 2>&1 &
+        "$HOME/venv/bin/python" -m sala_web.app --socket "$HOME/web.sock" --tmux-socket "$SOCK" > "$EVIDENCE/web.log" 2>&1 &
         WEBPID=$!
         waitfor '[ "$(curl -s -m 5 -o /dev/null -w "%{http_code}" --unix-socket "$HOME/web.sock" http://localhost/api/config)" = 200 ]' 60 \
             || { tail -20 "$EVIDENCE/web.log"; no_verdict "sala-web did not answer (web.log)"; }
@@ -156,7 +174,31 @@ stop_instance() {  # keep the instance's own records as evidence, then stop what
 }
 
 # ---------------------------------------------------------------- outside the instance: make it, run it, remove it
-SCRATCH=""; LEFT=0; CLEANED=""
+SCRATCH=""; LEFT=0; CLEANED=""; SANDBOX=()
+sandbox() {  # <scratch> <evidence folder> <journey…> → SANDBOX, the bwrap call the instance runs under
+    local s="$1" ev="$2" c d t seen=" "; shift 2
+    mkdir "$s/stubs" || return 1
+    # one stand-in for every guarded command: it records the call and does nothing
+    printf '%s\n' '#!/bin/sh' '# verify-sala stand-in: records the call, does nothing' "echo \"\${0##*/} \$*\" >> '$s/stubs.log'" \
+        'case ${0##*/} in systemctl|systemd-run) exit 0 ;; *) exit 1 ;; esac' > "$s/stubs/stand-in" && chmod 755 "$s/stubs/stand-in" || return 1
+    for c in $GUARDED; do ln -s stand-in "$s/stubs/$c" || return 1; done
+    # new namespaces (no outside process, no network, no way to gain rights) and a file tree holding only what is named here
+    SANDBOX=("$(command -v bwrap)" --unshare-user --unshare-ipc --unshare-pid --unshare-net --unshare-uts --unshare-cgroup-try
+        --disable-userns --die-with-parent --new-session --ro-bind /usr /usr --ro-bind /etc /etc)
+    for d in /bin /sbin /lib /lib32 /lib64; do
+        if [ -L "$d" ]; then SANDBOX+=(--symlink "$(readlink "$d")" "$d"); elif [ -d "$d" ]; then SANDBOX+=(--ro-bind "$d" "$d"); fi
+    done
+    SANDBOX+=(--proc /proc --dev /dev --tmpfs /tmp --ro-bind "$ROOT" "$ROOT" --bind "$s" "$s" --ro-bind "$s/stubs" "$s/stubs" --bind "$ev" "$ev")
+    for t in "$@"; do [[ $t == "$ROOT"/* ]] || SANDBOX+=(--ro-bind "$t" "$t"); done
+    for c in $GUARDED; do   # over the system's own copy too, so a call by full path is recorded like one by name
+        for d in $SYSDIRS; do
+            [ -e "$d/$c" ] || continue
+            t=$(readlink -f "$d/$c"); [[ $seen != *" $t "* ]] || continue; seen+="$t "
+            SANDBOX+=(--ro-bind "$s/stubs/stand-in" "$t")
+        done
+    done
+    SANDBOX+=(--chdir "$s")
+}
 marked() {  # <scratch> → the processes this run started: the ones whose starting environment names this run's scratch folder
     local e p
     for e in /proc/[0-9]*/environ; do
@@ -168,7 +210,7 @@ cleanup() {
     [ -n "$SCRATCH" ] && [ -z "$CLEANED" ] || return 0
     CLEANED=1
     local s="$SCRATCH" sig p i
-    [ ! -S "$s/tmux-$EUID/$SOCK" ] || env -u TMUX TMUX_TMPDIR="$s" tmux -L "$SOCK" -f /dev/null kill-server 2>/dev/null
+    # nothing here connects to a path in the scratch folder: a journey can leave a link there that leads to a server outside
     for sig in TERM KILL; do
         for p in $(marked "$s"); do kill -"$sig" "$p" 2>/dev/null; done
         for i in 1 2 3 4 5 6 7 8 9 10; do [ -n "$(marked "$s")" ] || break; sleep 0.2; done
@@ -190,7 +232,8 @@ outer() {
         journeys[$j]=$(cd "$(dirname "$t")" && pwd -P)/$(basename "$t")
     done
     [ "$(uname -s)" = Linux ] || no_verdict "the instance needs Linux (/proc)"
-    for t in tmux python3 cc jq curl flock git tee; do command -v "$t" >/dev/null || no_verdict "missing tool: $t"; done
+    for t in bwrap flock tee; do command -v "$t" >/dev/null || no_verdict "missing tool: $t"; done
+    for t in bash tmux python3 cc jq curl git; do PATH=$SYSPATH command -v "$t" >/dev/null || no_verdict "missing system tool: $t (in $SYSPATH)"; done
     local want_web=0; ! grep -q '^# needs: web' "${journeys[@]}" || want_web=1
 
     local base="${VERIFY_SALA_EVIDENCE:-$ROOT/verify-evidence}" evidence
@@ -206,21 +249,22 @@ outer() {
 
     if [ "$want_web" = 1 ]; then   # built before the environment is emptied, so uv keeps its own download cache
         command -v uv >/dev/null || no_verdict "missing tool: uv (a journey needs the web app)"
-        UV_PROJECT_ENVIRONMENT="$SCRATCH/venv" uv sync --frozen --no-dev --project "$ROOT/web" > "$evidence/uv-sync.log" 2>&1 \
+        # the locked dependencies only, as wheels: nothing of the checkout is built or run out here, outside the sandbox
+        UV_PROJECT_ENVIRONMENT="$SCRATCH/venv" UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_COMPILE_BYTECODE=0 uv sync --frozen --no-dev --no-install-project \
+            --no-build --python "$(PATH=$SYSPATH command -v python3)" --project "$ROOT/web" > "$evidence/uv-sync.log" 2>&1 \
             || { tail -20 "$evidence/uv-sync.log" >&2; no_verdict "uv sync of web/ failed (uv-sync.log)"; }
+        local site; for site in "$SCRATCH"/venv/lib/python*/site-packages; do echo "$ROOT/web/src" > "$site/sala_web_src.pth"; done
     fi
 
-    local tools="" d
-    for t in bash tmux python3 cc jq curl git; do
-        d=$(dirname "$(command -v "$t")"); case ":$tools:" in *":$d:"*) ;; *) tools="$tools:$d" ;; esac
-    done
+    sandbox "$SCRATCH" "$evidence" "${journeys[@]}" || no_verdict "cannot prepare the sandbox"
     # an empty environment: no setting, token or tmux server of the machine reaches the instance
-    env -i HOME="$SCRATCH" PATH="$SCRATCH/.local/bin$tools:/usr/bin:/bin" TMPDIR="$SCRATCH/tmp" TMUX_TMPDIR="$SCRATCH" \
+    env -i HOME="$SCRATCH" PATH="$SCRATCH/.local/bin:$SCRATCH/stubs:$SYSPATH" TMPDIR="$SCRATCH/tmp" TMUX_TMPDIR="$SCRATCH" \
         XDG_RUNTIME_DIR="$SCRATCH/run" LANG=C.UTF-8 LC_ALL=C.UTF-8 TERM=xterm-256color SHELL=/bin/bash \
-        VERIFY_SALA_INSTANCE="$SCRATCH" "$(command -v bash)" "$SELF" __instance "$ROOT" "$evidence" "$want_web" "${journeys[@]}" 2>&1 \
+        VERIFY_SALA_INSTANCE="$SCRATCH" "${SANDBOX[@]}" -- "$(PATH=$SYSPATH command -v bash)" "$SELF" __instance "$ROOT" "$evidence" "$want_web" "${journeys[@]}" </dev/null 2>&1 \
         | tee "$evidence/transcript.txt"
     local rc=${PIPESTATUS[0]} gone="not removed" n_ok n_bad verdict
     local s="$SCRATCH"; cleanup
+    find "$evidence" ! -type f ! -type d -delete 2>/dev/null   # a journey writes there: never append through a link it left
     [ -e "$s" ] || gone=removed
     if [ "$LEFT" != 0 ] || [ "$gone" != removed ]; then [ "$rc" != 0 ] || rc=1; fi
     n_ok=$(grep -c '^ok    ' "$evidence/results.txt"); n_bad=$(grep -c '^FAIL  ' "$evidence/results.txt")
