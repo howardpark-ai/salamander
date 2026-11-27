@@ -271,7 +271,7 @@ window.SalaThreadLayer = (() => {
   function place(chat, want) {
     const keep = new Set(want);
     let changed = false;
-    for (const n of [...chat.children]) if (!keep.has(n) && !n.matches(".inflight, .live-bang")) { n.remove(); changed = true; }
+    for (const n of [...chat.children]) if (!keep.has(n) && !n.matches(".inflight, .live-bang, .q-card")) { n.remove(); changed = true; }
     let at = chat.firstElementChild;
     for (const n of want) {
       if (n === at) { at = at.nextElementSibling; continue; }

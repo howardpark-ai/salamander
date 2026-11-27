@@ -1088,6 +1088,7 @@ function updateHeader(s) {
 // in flight: a small spinner under the last message while the session works, as claude.ai shows
 function updateInflight() {
   const chat = $("#chat");
+  if (window.SalaQuestionCard) SalaQuestionCard.sync(ahead.active ? null : state.current);   // the card of a question the session waits on (dialogcard.js)
   let n = chat.querySelector(":scope > .inflight");
   if (!(state.current && state.current.status === "busy") || ahead.active) { if (n) n.remove(); return; }   // far back: it shows at the live end
   if (!n) n = el("div", { class: "inflight", role: "status", title: tl("app.working"), "aria-label": tl("app.working") }, el("span", { class: "spinner" }));
@@ -3417,7 +3418,7 @@ function sentImage(b) {
 const appendToChat = (node, host = null) => {
   if (host) { host.append(node); return; }
   const chat = $("#chat");
-  chat.insertBefore(node, chat.querySelector(":scope > .msg.pending, :scope > .inflight, :scope > .live-bang"));
+  chat.insertBefore(node, chat.querySelector(":scope > .msg.pending, :scope > .inflight, :scope > .live-bang, :scope > .q-card"));
 };
 
 // The live block of a running `!` command. Claude Code writes a `!` command's output to the transcript only when

@@ -38,6 +38,8 @@ MORE_BELOW_RE = re.compile(r"\u2193\s*\d+\s+more\b")
 OPTION_RE = re.compile(r"^(?:" + PROMPT + r"\s*)?([1-9])\.\s+\S")
 BOX_SIDES = "│┃|"  # a dialog drawn inside a box: its side borders are not part of the text
 DIALOG_KEYS = {str(d) for d in range(1, 10)} | {"Escape"}
+MULTI_KEYS = {"Down", "Enter"}  # a multi-select question's own keys (the answer to a card): Down to reach its Submit row, Enter on it
+SETTLE_S = 0.15  # the wait after a key for the pane to draw it, before the screen is read again
 STOP_KEY = "C-c"  # the second key of Stop (Escape is the first): only the Stop endpoint sends it
 # the keys the Shell drawer's key row may send to the shell session (tmux key names): the phone's row (Esc, Tab, Ctrl, the
 # arrows, Ctrl+C) and the Ctrl-letter a sticky Ctrl turns a typed letter into. Never free text: send-keys without -l would read
@@ -194,9 +196,10 @@ async def send_enter(settings: Settings, pane: str) -> None:
 
 async def send_key(settings: Settings, pane: str, key: str) -> None:
     """One keypress into the pane: a digit 1-9 (Claude Code's selection dialogs pick that option at once, no Enter),
-    Escape (cancel), or Ctrl-C (the Stop button's second key). Nothing else is ever sent this way."""
+    Escape (cancel), Down or Enter (a multi-select question's, MULTI_KEYS), or Ctrl-C (the Stop button's second key).
+    Nothing else is ever sent this way."""
     _check_pane(pane)
-    if key not in DIALOG_KEYS and key != STOP_KEY:
+    if key not in DIALOG_KEYS and key not in MULTI_KEYS and key != STOP_KEY:
         raise TmuxError(f"refusing to send key {key!r}")
     await run_tmux(settings, "send-keys", "-t", pane, key)
 
@@ -481,6 +484,75 @@ def dialog(captured: str) -> tuple[list[str], str]:
     return options, text
 
 
+CHECK_ROW_RE = re.compile(r"^(?:" + PROMPT + r"\s*)?([1-9])\.\s+\[([ ✔xX])\]\s*(\S.*)$")   # "1. [ ] Alpha", "2. [✔] Beta"
+SUBMIT_ROW_RE = re.compile(r"^(?:" + PROMPT + r"\s*)?Submit$")
+FREE_TEXT_LABEL = "Type something"   # the multi-select question's last row: the free-text answer, which a button cannot give
+
+
+def multi_dialog(captured: str) -> dict | None:
+    """The multi-select question Claude Code draws in the pane (AskUserQuestion with several answers allowed), or None. Its options are rows
+    "1. [ ] Alpha" ("[✔]" once chosen) with their descriptions under them, the last row being "Type something" (the free-text answer), and a row
+    "Submit" under them; the focus mark sits on one of those rows. A digit toggles that option, Down moves the focus a row, and Enter on Submit goes
+    on to the answers' review (a numbered dialog of its own). Read from panes of Claude Code 2.1.332 (tests/fixtures/capture-ask-multi*.txt).
+
+    Returns {"rows": [{"n", "label", "description", "checked", "focused"}], "focus": the focused row's number, "submit", or None, "title": the
+    words above the rows, "text": the dialog's text}: the rows are the run 1, 2, 3... that ends right above the Submit row, below the last rule
+    above it. None for any other screen."""
+    raw = captured.split("\n")
+    lines = [plain(ln).replace("\u00a0", " ").strip().strip(BOX_SIDES).strip() for ln in raw]
+    submit = next((i for i in range(len(lines) - 1, -1, -1) if SUBMIT_ROW_RE.match(lines[i])), None)
+    if submit is None:
+        return None
+    top = next((i for i in range(submit - 1, -1, -1) if _is_rule(raw[i])), -1) + 1
+    rows: list[dict] = []
+    first = submit
+    for i in range(top, submit):
+        m = CHECK_ROW_RE.match(lines[i])
+        if m:
+            if m.group(1) != str(len(rows) + 1):
+                return None
+            first = min(first, i)
+            rows.append({"n": len(rows) + 1, "label": m.group(3).strip(), "description": "", "checked": m.group(2) != " ",
+                         "focused": lines[i].startswith(PROMPT)})
+        elif rows and lines[i]:
+            rows[-1]["description"] = (rows[-1]["description"] + " " + lines[i]).strip()
+    if len(rows) < 2:      # a real one holds an option and the free-text row at least
+        return None
+    focus = "submit" if lines[submit].startswith(PROMPT) else next((r["n"] for r in rows if r["focused"]), None)
+    return {"rows": rows, "focus": focus, "title": "\n".join(ln for ln in lines[top:first] if ln and ln[0] not in "←→"),   # not the tab bar ("← ☐ Pick ✔ Submit →")
+            "text": "\n".join(ln.replace(PROMPT, " ").strip() for ln in lines[top:submit + 1] if ln)}
+
+
+def card(captured: str) -> dict | None:
+    """What the page draws as a card with buttons for the question or dialog the pane shows, or None (nothing is drawn then).
+    {"kind": "choice" | "multi", "text": the dialog's words (an answer names them to say which dialog it is for), "title": the words above
+    the options, "options": [{"n", "label", "description", "checked"}], "focus"}. Only a screen where overlay() says something sits over the
+    prompt box counts, so a numbered line of the conversation is never a card. The free-text row of a multi-select question is left out:
+    a button cannot type."""
+    if not overlay(captured):
+        return None
+    m = multi_dialog(captured)
+    if m is not None:
+        options = [{k: r[k] for k in ("n", "label", "description", "checked")} for r in m["rows"] if r["label"] != FREE_TEXT_LABEL]
+        return {"kind": "multi", "text": m["text"], "title": m["title"], "options": options, "focus": m["focus"]} if options else None
+    numbers, text = dialog(captured)
+    if not numbers:
+        return None
+    head: list[str] = []
+    options: list[dict] = []
+    for ln in text.split("\n"):
+        found = OPTION_RE.match(ln)
+        if found and found.group(1) == str(len(options) + 1):
+            options.append({"n": len(options) + 1, "label": ln.split(".", 1)[1].strip(), "description": "", "checked": False})
+        elif options:
+            options[-1]["description"] = (options[-1]["description"] + " " + ln).strip()
+        else:
+            head.append(ln)
+    if len(options) != len(numbers):
+        return None
+    return {"kind": "choice", "text": text, "title": "\n".join(head), "options": options, "focus": None}
+
+
 # What Claude Code 2.1.332 draws in the last line of the screen when something sits over the prompt box and a key goes to it, not
 # to the box (a real-pane check): the model picker (Alt+P) "... Enter to save · Esc to cancel", the prompt history search (Ctrl+R)
 # "ctrl+s to change scope · Esc to cancel", the detailed transcript (Ctrl+O) "Showing detailed transcript · ctrl+o to toggle ...".
@@ -499,6 +571,8 @@ def overlay(captured: str) -> bool:
     lines = [plain(ln).replace("\u00a0", " ").strip() for ln in raw]
     tail = [ln for ln in lines if ln][-2:]
     if OVERLAY_FOOTER_RE.search(" ".join(tail)):
+        return True
+    if multi_dialog(captured) is not None:
         return True
     if not dialog(captured)[0]:
         return False

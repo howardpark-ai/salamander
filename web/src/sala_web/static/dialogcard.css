@@ -1,0 +1,21 @@
+/* The card a waiting question is drawn as (dialogcard.js): the last child of #chat. NO SIDEWAYS SCROLL at any width: every box may shrink, every run of
+   text breaks anywhere, and no box scrolls by its own overflow. A tap target is at least 44 px tall. */
+#chat > .q-card { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; margin: 12px 0 0; padding: 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 8px; background: var(--panel); color: var(--text); font-size: 15px; line-height: 22px; overflow-wrap: anywhere; word-break: break-word; }
+#chat > .q-card.q-busy { opacity: .6; }
+#chat > .q-card .q-title { margin: 0 0 8px; font-weight: 600; white-space: pre-wrap; min-width: 0; }
+#chat > .q-card .q-opts { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#chat > .q-card .q-opt { display: flex; align-items: flex-start; gap: 10px; box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; margin: 0; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+#chat > .q-card button.q-opt:hover, #chat > .q-card label.q-opt:hover { background: var(--hover); }
+#chat > .q-card .q-opt:focus-visible, #chat > .q-card .q-opt:has(:focus-visible), #chat > .q-card :is(.q-send, .q-esc):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#chat > .q-card .q-opt input { flex: none; width: 22px; height: 22px; margin: 0; }
+#chat > .q-card .q-words { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+#chat > .q-card .q-label { font-weight: 600; min-width: 0; }
+#chat > .q-card .q-desc { font-size: 13px; line-height: 20px; color: var(--muted); min-width: 0; }
+#chat > .q-card .q-hint { margin: 8px 0 0; font-size: 13px; line-height: 20px; color: var(--muted); }
+#chat > .q-card .q-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; min-width: 0; }
+#chat > .q-card :is(.q-send, .q-esc) { box-sizing: border-box; min-width: 0; max-width: 100%; min-height: 44px; padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; font: inherit; cursor: pointer; }
+#chat > .q-card .q-send { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+#chat > .q-card .q-esc { background: var(--panel); color: var(--text); }
+#chat > .q-card :is(button, input):disabled { cursor: default; }
