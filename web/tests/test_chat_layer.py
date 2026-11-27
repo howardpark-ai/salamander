@@ -6,6 +6,7 @@ What is held:
     sheets and the script before app.js, each with its version;
   - no api answer depends on the setting, for the chat session or for another one;
   - app.js hands over in the places web/README.md names and nowhere else;
+  - a running "!" command's live block is the session view's own: the event reaches it with the layer on, and the layer holds no copy of it;
   - the layer's pure functions, run in node: which language a text is in, the first line of a reply, how a newer read joins what is held;
   - why the layer reads the newest page and not `after`: `after` leaves out the later reply of a turn that was open at that cursor.
 
@@ -145,7 +146,8 @@ def test_no_api_answer_depends_on_the_setting_for_the_chat_session_or_another(se
              peer("Another Claude session sent a message:\nfrom: demo-third\n\nBuilt.", 3), assistant("Noted.", 4)]
     write(transcript_file(served), lines)
     other = add_session(served, OTHER, OTHER_SID, lines)
-    paths = ["/api/sessions", "/api/chat", "/api/chat/thread", f"/api/s/{os.getpid()}/transcript", f"/api/s/{other}/transcript"]
+    paths = ["/api/sessions", "/api/chat", "/api/chat/thread", "/api/chat/thread?replies=1", f"/api/s/{os.getpid()}/transcript",
+             f"/api/s/{other}/transcript"]
     off = {p: get(served["url"] + p)[2] for p in paths}
     monkeypatch.setenv("SALA_CHAT_LAYER", "on")
     assert {p: get(served["url"] + p)[2] for p in paths} == off
@@ -161,12 +163,19 @@ def test_app_js_hands_over_in_the_named_places_and_nowhere_else():
         "const layer = window.SalaThreadLayer && SalaThreadLayer.takes(s) ? SalaThreadLayer : null;",
         "if (layer) { layer.reset(s, d, resumed); chatStripSoon(); return; }",
         "if (layer) { layer.append(s, d); chatStripSoon(); return; }",
-        "if (state.es !== es || layer) return;",
         "if (layer) layer.status(s);",
     ]
     for f in sorted(STATIC.glob("*.js")):
         if f.name not in ("app.js", "chatlayer.js"):
             assert "SalaThreadLayer" not in f.read_text(encoding="utf-8"), f.name
+
+
+def test_a_running_commands_live_block_is_the_session_views_own():
+    """The stream's `live` event reaches applyLive whether or not the layer draws the thread, and the layer holds no part of the block or of its Stop."""
+    listener = APP_JS[APP_JS.index('es.addEventListener("live"'):APP_JS.index('es.addEventListener("status"')]
+    assert "if (state.es !== es) return;" in listener and "applyLive(d);" in listener and "layer" not in listener, listener
+    layer = LAYER_JS.read_text(encoding="utf-8") + (STATIC / "chatlayer.css").read_text(encoding="utf-8")
+    assert not re.findall(r"live-(?:head|label|stop|out)\b|stopLive|app\.live\.|api/s/", layer)
 
 
 # ── the pure functions, in node ──────────────────────────────────────────────

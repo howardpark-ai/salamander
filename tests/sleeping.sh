@@ -208,7 +208,7 @@ run lane team sala-test-c --dry-run
 run model sala-test-a sonnet --effort medium
 [ "$RC" = 0 ] && has "$OUT" sleeping && has "$(model_row sala-test-a)" sonnet && ! hasclaude a && [ "$(n_starts 1)" = "$a0" ] && ok "sala model a sonnet: row written, 'sleeping' said, nothing relaunched" || bad "model a: rc=$RC row=$(model_row sala-test-a) — $OUT"
 run lane
-has "$OUT" "sleeping" && ok "the lane list says sleeping beside a" || bad "lane list: $OUT"
+[ "$(grep -c '^sala-test-a .*sleeping$' <<< "$OUT")" = 1 ] && [ "$(grep -c 'no claude on purpose' <<< "$OUT")" = 1 ] && has "$OUT" "sleeping: no claude on purpose; a wake resumes it on its lane" && ok "the lane list says just 'sleeping' beside a, and the sentence once under the table" || bad "lane list: $OUT"
 
 echo "== 7: adopt and box say 'sleeping' where they said 'no claude'; rename works with no claude"
 run adopt sala-test-a

@@ -37,6 +37,10 @@ does not have.
    live release is also reported to stackshot (`client.py released --pr <PR url> --sha <merge commit>`), which settles the items whose
    step is `release PR #N`; stackshot refuses it until its server accepts this repository (then it is only logged), and a failure of
    it never fails the release.
+   A PR the queue drops because the merge group failed its required checks is put in the queue once more by the same run,
+   when the head is still the queued commit and the PR is still open, ready, mergeable and green (every condition:
+   `docs/merge-queues.md`, *The one retry*). The log and the report name the failed run, so a flaky test stays visible;
+   a second such drop fails the release with both runs. No other failure is retried.
    `release.sh --status [<pr>]` shows a run; logs are under `~/.local/state/salamander/releases/`.
    A PR somebody already merged (by hand) is found at step 1: `release.sh <pr>` skips the merge, waits
    for the check runs on its merge commit on main (a failing one stops it before the deploy), then deploys and reports "merged
@@ -214,7 +218,7 @@ without raising the minimum here, in the README and in that check. On macOS that
 | `tests/stackshotpath.sh` | where sala looks for stackshot's programs (`lib/stackshot-path.sh`, the client function in `lib/unitjob.py`, `lib/pr_watcher_cleanup.py` and `contrib/question-board.py`, the default commands of `lib/side.sh` and `lib/spawn.sh`, `release.sh`'s client) on fake checkouts in four layouts (the package path, the old root path, both, neither); a named file wins over the probe. |
 | `tests/stackshotshape.sh` | contract 12's guard (`docs/stackshot-contracts.md`): the state files stackshot reads, each written by sala's own writer and read back by a copy of stackshot's rule: `lanes.tsv` rows (`<session>\t<lane>`, sorted), `lane-default` (the lane alone on line 1), the fall to the default and to `subscription-1`, a rename moving and a retire dropping the row; `salamander-limit.json` from `watch --limit` against two fake panes (`panes` keyed by transcript uuid with `s`, `lane`, `lim`, `since`, `reset`; a gone pane dropped) | ~15 s |
 | `tests/webinstall.sh` | `install.sh --web` and the web UI's ttyd pieces (`web/contrib/sala-web-ttyd.service`, `web/contrib/sala-web-ttyd-attach`) under a fake HOME: a plain install writes no unit and names `--web`; `--web` writes `sala-web.socket`, `sala-web.service` and `sala-web-ttyd.service` into `$XDG_CONFIG_HOME/systemd/user` (else `~/.config/systemd/user`), mode 644, with `%h/<path>` in `ExecStart` for a checkout under HOME and an absolute path outside it, starting and enabling nothing; a second run changes nothing; a path with a space, a % or a $ is refused with exit 1 and nothing written; a write that fails (a folder the user cannot write to) removes its temporary file, exits 1 with a message and prints no next steps; an unknown option exits 2; the ttyd unit keeps its own runtime directory, a unix socket, `--base-path /tty`, `--url-arg` and `--check-origin`, names no owner value and passes `systemd-analyze verify` (skipped where there is no user manager); the attach script on a private tmux server (`tmux -L`) attaches an existing session and nothing else, and refuses an invalid name before tmux sees it | ~15 s |
-| `tests/trimreport.sh` | the weekly size report `.github/scripts/trim_report.py` on throwaway trees: the counts of both families (the shell suites' `ok` lines and the web files' `assert` lines, a comment and a helper definition not counted), a recorded time and an untimed suite, the suites added and deleted since a prior state, each threshold's `TRIGGER` line and none under the limits, an unknown config key, every bad config (a value of the wrong type, a pipe, `/dev/stdin`) exiting 2, a state file that cannot be written (exit 1), a corrupt previous state started over, `--dry-run` writing nothing, and this checkout's `tests/timings.json` parsing; no network, no tmux | ~8 s |
+| `tests/trimreport.sh` | the weekly size report `.github/scripts/trim_report.py` on throwaway trees: the counts of both families (the shell suites' `ok` lines and the web files' `assert` lines, a comment and a helper definition not counted), a recorded time and an untimed suite, the suites added and deleted since a prior state, each threshold's `TRIGGER` line and none under the limits, an unknown config key, every bad config (a value of the wrong type, a pipe, `/dev/stdin`) exiting 2, a state file that cannot be written (exit 1), a corrupt previous state started over, `--dry-run` writing nothing; `--fresh-timings` with a stand-in `gh` (the runs' medians over the committed numbers, nothing written in the checkout, no numbers means exit 1 and no record); `on_trigger` with a stand-in command (what it reads, when it runs, exit 3 and the triggers owed until one run's command takes them); and this checkout's `tests/timings.json` parsing; no network, no tmux | ~30 s |
 | `tests/webshard.sh` | `.github/scripts/web-shard.sh`, which deals the web app's test files to the shards of `tests.yml`'s `web-shard` job by their recorded times, on a throwaway tree whose file sizes run opposite to their times: the four shards are exactly the expected lists (the time decides, not the size), their union is every `tests/test_*.py` and no file is in two, `conftest.py`, helpers and fixtures are not dealt, ties go by name whatever the locale, the same split on a second call, a new file with no recorded time is dealt at the median, a recorded file that is gone is ignored, no timings file deals evenly, a timings file that is not valid exits 2, a bad or missing argument exits 2 with the usage on stderr and nothing on stdout, a shard with no file (more shards than files, or no test file at all) exits 1; then the same union and disjoint checks on this checkout's real `web/tests` in six shards; no network, no tmux | ~1 s |
 | `tests/deal.sh` | the dealer `.github/scripts/deal.py` and what uses it, which split CI's tests by recorded times (greedy longest-first bin packing): hand-worked shards, a balance bound that holds for any timings, every item in exactly one shard, the same deal on a second call and for any input order, the fallbacks (a new item weighs the median, a gone key is ignored, no timings file deals evenly), the exits; `tests/run.sh --shard K/N` and `--list` on a throwaway tree of stub suites; `.github/scripts/update_timings.py` on saved-log text (the median over runs, a failed suite or a gone file not recorded; through a stub `gh`, only the merge queue's runs read); and this checkout's two timings files (valid, and the real deals cover every suite and web test file once); no network, no tmux | ~8 s |
 | `tests/prwatcher.sh` | the PR-watcher cleanup job (`lib/pr_watcher_cleanup.py`, `systemd/sala-pr-watcher-cleanup.{service,timer}`, `docs/units.md`) as its own command in a locked temporary folder against a fake API (a local http server: the scheduled-task list in two pages, the sessions, the delete), a fake `gh` and a fake message command, the clock injected: a done task (fired and off, a merged or closed pull request, an archived session) of an archived, missing or not-connected creator deleted at once with its log line and no message; of a live creator asked ONCE and deleted 24 h after the ask (never twice, a failed message retried, deletion 24 h after first seen done when it never goes); an active task, a task it cannot place, another account's, a recurring routine and a task with no pull request left alone; API errors (list, session, GitHub, delete) leaving that task and exiting 1; `--dry-run` changing nothing; an expired token touching nothing; the token in no output | ~3 s |
@@ -433,6 +437,11 @@ variables, so a variable is never a place for anything private: the clean-text d
   tested, so a rerun would test the same tree twice.
 - **A release takes the commit the queue tested:** `release.sh` puts the PR in the queue pinned to its head, waits for MERGED and deploys the merge commit the queue made. Its `--merged <pr>` path, for a PR merged some other way, waits
   for the check runs of that commit and judges each check by its newest run: the queue's passes, then the push run's `changes` pass and its skipped `suites` and `web`, which is a pass.
+- **A newer push to a pull request cancels that pull request's run still going, and nothing else is ever cancelled.** `tests.yml` and `clean-text.yml` carry a `concurrency` group keyed by the PR number, with
+  `cancel-in-progress` true for the `pull_request` event only; every other event (`merge_group`, a push to `queue/**`, a push to `main`) gets its own group, the run id, so a queue entry is never cancelled by another run.
+  `release.sh` reads the check runs of the PR's current head commit only, and a cancelled run of an older head sits on that older commit, so it never counts against the new head; on one commit the newest run of a check name decides, so a
+  run cancelled by a newer run of the same commit (a reopened PR, an edited body for `clean-text`) is superseded by it. The one gap is the moment between the two on one commit: a cancelled check with no newer one yet reads as `cancel`, which `release.sh`
+  reports as a failed check, and a release started again a minute later passes. The release also waits while the CI-run poller's file shows any run of the head not completed, which covers it once the newer run is listed there.
 
 Several things keep CI small:
 
@@ -486,8 +495,12 @@ Several things keep CI small:
   count changes, after adding or removing a number of tests that moves a family by a tenth (a new heavy web test file, a suite that
   grew from seconds to minutes), or when a family's slowest shard is clearly longer than the others in a run (the shards of one run
   should end within a minute or two of each other). Commit the two files by themselves, in a pull request of their own; a change to them
-  runs only `tests/deal.sh`, `tests/webshard.sh` and `tests/trimreport.sh`, and the web shards when `web/` changed. It needs no schedule: a stale record
-  costs wall time, never a wrong result.
+  runs only `tests/deal.sh`, `tests/webshard.sh` and `tests/trimreport.sh`, and the web shards when `web/` changed. The updater rewrites both files, so to refresh one family
+  put the other back with `git checkout -- <file>`. From a machine where `gh` is not signed in, save the logs of the runs (`gh run view <id> --log > <name>.txt`, a name that
+  does not end in `.log`, which `.gitignore` skips) and pass them with `--from-logs`. To check a refresh, compare the web estimate of the old record dealt over the new times with the durations of the
+  `web-shard (n)` jobs of a recent queue run: on Nov 26th 2026 the old record predicted 7.6, 6.8, 11.7, 16.9, 8.0 and 15.5 minutes against jobs of 7.2, 6.4, 13.0, 17.4, 8.7 and 15.8, and the refreshed record
+  predicts 11.1 minutes for every shard, which is the mean, so the floor is the mean and not the biggest file (`tests/test_chat_boot_ui.py`, 5.5 minutes, runs alone in a shard and is under it). It needs no schedule: a stale record
+  costs wall time, never a wrong result (the weekly size report reads the queue's logs itself, *Keeping the suites trim*).
 - **`clean-text.yml` is a workflow of its own** (*Clean commit and PR text*, above): a PR's title and body can change with no
   push, and `tests.yml` would run every suite again for each edit. It runs on
   `opened`, `edited`, `synchronize` and `reopened`, and not on a push to `main`. Its job name, `clean-text`, is the check
@@ -508,14 +521,21 @@ Two rules keep the suites from growing without anyone looking:
   `docs/test-coverage.md` go with a deleted suite. The PR text names the tests that went: the suites by name, and the check lines
   removed from shared suites (the suite and what the lines checked).
 - **Size is watched by a weekly report, and a cleanup pass runs only when the report asks for one.** `python3 -I
-  .github/scripts/trim_report.py` (read-only, standard library only; run from a checkout or with `--root`) prints the number of
-  suites (the shell suites `tests/*.sh` that CI runs and the web test files `web/tests/test_*.py`, reported separately and
-  together), the test lines (the `ok` lines of the shell suites, the `assert` lines of the web files), the serial minutes and the
-  slowest eight from the committed `tests/timings.json` and `web/tests/timings.json` (no network), and what changed since its
-  previous run. A weekly timer runs it. Its limits (`max_suites`, `max_serial_minutes`, `max_suite_minutes`,
-  `max_test_line_growth`) are in `${XDG_CONFIG_HOME:-~/.config}/salamander/test-trim.toml` (or `--config FILE`); when a value is above
-  its limit the report ends with a `TRIGGER: <which>` line. **A scan for duplicate or obsolete suites runs only after a `TRIGGER`
-  line, never on a calendar.** The script's docstring says exactly what is counted; `tests/trimreport.sh` checks it.
+  .github/scripts/trim_report.py` (standard library only, it changes nothing in the checkout; run from a checkout or with `--root`)
+  prints the number of suites (the shell suites `tests/*.sh` that CI runs and the web test files `web/tests/test_*.py`, reported
+  separately and together), the test lines (the `ok` lines of the shell suites, the `assert` lines of the web files), the serial
+  minutes and the slowest eight from the committed `tests/timings.json` and `web/tests/timings.json` (no network), and what changed
+  since its previous run. With `--fresh-timings`, which the weekly timer's unit passes, it reads the logs of the last 10 merge-queue
+  runs through `gh` and lays their medians over the committed numbers (`update_timings.py`'s own reading and median, nothing written
+  to either file), so the minutes do not wait for someone to refresh the record; if the logs cannot be read the run fails instead of
+  reporting old numbers. Its limits (`max_suites`, `max_serial_minutes`, `max_suite_minutes`, `max_test_line_growth`) are in
+  `${XDG_CONFIG_HOME:-~/.config}/salamander/test-trim.toml` (or `--config FILE`); when a value is above its limit the report ends
+  with a `TRIGGER: <which>` line. The same file may name an `on_trigger` command: the report hands it the triggers as JSON on stdin
+  (with `item_project` and `item_mover`, strings it only passes on), which is how an instance opens its own follow-up, and a command
+  that does not take them is owed them again at the next run while the job fails (exit 3). **A scan for duplicate or obsolete suites
+  runs only after a `TRIGGER` line, never on a calendar.** The script's docstring says exactly what is counted and what the command
+  reads; `tests/trimreport.sh` checks it.
 
-Why a script of its own: the repository is public and self-contained, its suites are shell and pytest files, and their times are
-committed (`timings.json`), not a CI artifact, so the report reads only the checkout.
+Why a script of its own: the repository is public and self-contained, its suites are shell and pytest files, and their times come
+from two things it already has, the committed record (`timings.json`) and the merge queue's logs; what a trigger opens, and where,
+differs per instance, so that part stays outside the repository, behind `on_trigger`.

@@ -781,8 +781,9 @@ wait_jobs() { wait ${JOBS[@]+"${JOBS[@]}"} 2>/dev/null; JOBS=(); }   # this phas
 # work no longer holds it), 1 otherwise. <why> is what holds the pane (is_idle_reason's words, or the mod's), empty for a pane that is free. THE PAUSE (common.sh):
 # a pane held for a turn or its background work has a clock; every pass starts or refreshes it, holds the pane's inbox while it runs (pause_hold) and
 # fires it once it is SALA_PAUSE_AFTER old. The recycle's first sweep only starts it; the retry worker's passes and watch's (the deferred list) get there.
-# A dry run reads the clock and writes nothing. A refusal (pause_refusal_r) or an interrupt that did not take leaves the pane waiting as before, said once
-# the clock is due.
+# A dry run reads the clock and writes nothing. A refusal (pause_refusal_r) leaves the pane waiting as before, said once the clock is due. An interrupt that did
+# not take (the Escape did not bring the pane out of its turn, or it was not idle once interrupted) keeps the clock and is tried again after SALA_PAUSE_RETRY s
+# (pause_failed), said in the line each try prints; the pane is waited for meanwhile.
 pause_try() {
     local pane="$1" sess="$2" label="$3" cpid="$4" why="${5:-}" a uuid hname held ref pm
     pause_after_r a; [ "$a" -gt 0 ] || return 1
@@ -817,6 +818,7 @@ pause_try() {
     pause_hold "$uuid" "$hname"
     pause_clock_r held "$uuid"
     [ "$held" -ge "$a" ] || return 1
+    pause_retry_in_r ref "$uuid"; [ "$ref" -le 0 ] || return 1   # a try that did not take is tried again SALA_PAUSE_RETRY s later (common.sh, pause_failed), not at every pass
     if pause_pane "$pane" "$sess" "$cpid" "$uuid"; then
         emit ECHO "$label: paused after $(hold_age_words "$held") of holding the relaunch ($why) — its turn was interrupted with one Escape; it is relaunched next and a note leaves it what it was doing"
         set_paused "${SALA_SET:-}" "$sess: paused at $(local_clock "$PAUSE_AT") after $(hold_age_words "$PAUSE_HELD") of holding the relaunch"

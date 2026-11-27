@@ -25,7 +25,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      (a Claude session's pane queues it with `sala op recycle`)
                                      (--update: `claude update` first — the two halves of "recycle")
                                      (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
-                                     (a pane held busy for SALA_PAUSE_AFTER s, default 900, has its turn interrupted with one Escape and is relaunched with a note of what it was doing; SALA_PAUSE_SCOPE=background|all|off (default background: back agents only, a front agent is never paused), 0 = wait as before)
+                                     (a pane held busy for SALA_PAUSE_AFTER s, default 900, has its turn interrupted with one Escape and is relaunched with a note of what it was doing; SALA_PAUSE_SCOPE=background|all|off (default background: back agents only, a front agent is never paused), 0 = wait as before; a pause that does not take is tried again every SALA_PAUSE_RETRY s, default 120)
                                      (every relaunch — recycle, revive, unpark, restore — passes the user settings' permissions.defaultMode as --permission-mode, because a resumed session otherwise keeps the mode its transcript recorded)
   salamander recycle --when-idle [--from NAME] [--change REF] "<reason>" | --list | --cancel [ID]   any session: ask for a recycle; it
                                      only records the request — `watch` runs the recycle at its next run, each busy pane once idle (lib/recycle-request.sh); --change REF (a commit sha or pr<N>) holds it until that change is in the checkout
@@ -105,8 +105,8 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      sleep|wake --only NAME… (--item board#N | --why "<reason>"; no --words) · model <model> [--effort <level>] <session>…|--clear <session>… (several sessions in ONE operation, ONE result notice) or the single-session <session> <model> [--effort <level>]|<session> --clear · provision [--only STEPS] [HOST…] · spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT]
                                      [--lane L] | spawn NAME --side (--fork-of AGENT | --project KEY --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] (a side conversation)
                                      (a TEXT mandate goes to ~/.local/state/salamander/mandates/<id>-NAME.md; a name not
-                                     on the page refuses with exit 3 and the REGISTER: line and command) (a reboot is not queued: the owner runs `sala reboot --go` in the web UI's Shell;
-                                     SALA_OP_REBOOT off by default, unsupported until a confirmation path is built); the verb's dry run first, refused
+                                     on the page refuses with exit 3 and the REGISTER: line and command) (reboot: the clean reboot protocol, the owner's words required, one at a time);
+                                     the verb's dry run first, refused
                                      before anything is queued; one Slack post, one inbox line and one stackshot event (client.py event --kind fleet_op) per result; --stdin: the words on stdin
   salamander op --plan <verb> [args…] | --list | --status <id> | --cancel <id>   the plan alone · the queue · one record · drop a queued one
   salamander watch --ops             only the operation queue (what `op` kicks after a tick already running)
@@ -316,10 +316,10 @@ usage: salamander revive [--dry-run] [--force] [--only NAME] [--lane-default] [-
   salamander op <verb> [args…] --from NAME --stdin                      the words on stdin (a pane on another box, over ssh)
   salamander op retire NAME --from YOU                                  NO words: only for a throwaway (tagged at spawn: any session; untagged: its spawner, or anyone when it has no live spawner and a throwaway's name; never a bypass flag, --keep-web or --id)
   salamander op revive --only NAME… --item board#N --from YOU           NO words: a reason on the record instead (--why "<one line>" for --item; --force allowed): one or more live Claude sessions, never YOU, never a sweep, --rescue or --lane-default
-  salamander op restore --only NAME… --item board#N --from YOU          NO words: a reason on the record (--why "<one line>" for --item): one or more pane-map sessions whose tmux session is gone, never YOU, never --missing or --force
-  salamander op sleep --only NAME… --item board#N --from YOU            NO words: a reason on the record (--why "<one line>" for --item): put idle sessions to sleep, their claude ended, their pane and row kept (never a front agent or YOU)
+  salamander op restore --only NAME… --item board#N --from YOU          NO words: a reason on the record (as for revive): one or more pane-map sessions whose tmux session is gone, never YOU, never --missing or --force
+  salamander op sleep --only NAME… --item board#N --from YOU            NO words: a reason on the record (as for revive): put idle sessions to sleep, their claude ended, their pane and row kept (never a front agent or YOU)
   salamander op sleep --project KEY --from YOU --words "<the owner's words>"   a whole project asleep NOW, front agents with it, with no quiet rule; YOU may be one of its sessions (it sleeps once its turn has ended)
-  salamander op wake --only NAME… --item board#N --from YOU             NO words: a reason on the record (--why "<one line>" for --item): resume sleeping sessions by their conversation id
+  salamander op wake --only NAME… --item board#N --from YOU             NO words: a reason on the record (as for revive): resume sleeping sessions by their conversation id
   salamander op --plan <verb> [args…]                                   the plan alone: the verb's dry run, nothing queued
   salamander op --list                                                  the queue (and what it is doing)
   salamander op --status <id>                                           one operation's record, queued or archived
@@ -329,25 +329,22 @@ usage: salamander revive [--dry-run] [--force] [--only NAME] [--lane-default] [-
 verbs:
   recycle [--update] [--force]              "recycle claude" = recycle --update --force
   update [HOST…|--fleet]                    this box (= recycle --update --force), named fleet hosts, or the fleet then this box
-  revive [--only NAME]… [--force]           bring a session back (--only), or every pane on an older CLI. Needs the owner's words, EXCEPT
-                                            `revive --only NAME [--only NAME]… [--force] --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME is a live Claude session of the registry that is not YOU, and YOU is the session whose pane holds the call by process ancestry
-                                            (not TMUX_PANE; a Claude Code exe, not a name; SALA_OP_REASON_FROM, empty = any session, limits who); never a sweep (no --only), --rescue, --lane-default or any other flag.
-                                            --item is a format check only (board#N): sala does not ask the board whether the item exists. The runner checks it all again before it relaunches anything
-  restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT
-                                            `restore --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME is a pane-map row with no tmux session whose conversation is live nowhere else, is not YOU, and YOU is the session whose pane holds the call by process ancestry
-                                            (as for revive; SALA_OP_REASON_FROM limits who); never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere. The runner checks it all again before it recreates anything
-  sleep --only NAME [--only NAME]…          end the claude of an idle session with nothing in flight and keep its tmux session and pane-map row (a sleeping marker records it; docs/subcommands.md `sleep`); never a front agent. Needs the owner's words, EXCEPT
-                                            `sleep --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME is a live Claude session of the registry that is not YOU, and YOU is the session whose pane holds the call by process ancestry
-                                            (as for revive; SALA_OP_REASON_FROM limits who); never a flag or a sweep. The plan is `sleep --dry-run`: it refuses (nothing queued) a session that is busy, not idle long enough or a front agent. The runner checks it all again before it ends anything
+  reason path                               revive, restore, sleep --only and wake take a reason on the record in place of the owner's words:
+                                            `VERB --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
+                                            every NAME fits its verb row and is not YOU, and YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name;
+                                            SALA_OP_REASON_FROM, empty = any session, limits who). --item is a format check only (board#N): sala does not ask the board whether the item exists.
+                                            The runner checks it all again before it relaunches, recreates or ends anything
+  revive [--only NAME]… [--force]           bring a session back (--only), or every pane on an older CLI. Needs the owner's words, EXCEPT the reason path above: every NAME is a live Claude session of the registry;
+                                            never a sweep (no --only), --rescue, --lane-default or any other flag; --force is allowed
+  restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT the reason path above:
+                                            every NAME is a pane-map row with no tmux session whose conversation is live nowhere else; never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere
+  sleep --only NAME [--only NAME]…          end the claude of an idle session with nothing in flight and keep its tmux session and pane-map row (a sleeping marker records it; docs/subcommands.md `sleep`); never a front agent. Needs the owner's words, EXCEPT the reason path above:
+                                            every NAME is a live Claude session of the registry; never a flag or a sweep. The plan is `sleep --dry-run`: it refuses (nothing queued) a session that is busy, not idle long enough or a front agent
   sleep --project KEY                       every session of one project, front agents with them, asleep together NOW, with no quiet rule (the 2 days) and no settle time: the owner's words (--words "…"), never --item or --why. The project must not be pinned, its activity must be readable,
                                             and every session must be idle with nothing in flight, nothing waiting in its inbox (the plan, `sleep --project KEY --asked --dry-run`, shows the first refusal). YOU may be one of its sessions (or, with `--only YOU --words`, the one session):
                                             the asking session sleeps once idle: the runner waits for its turn to end (SALA_SLEEP_ASKER_WAIT, 90 s), then puts the whole project to sleep with it last; the Slack post carries the result
-  wake --only NAME [--only NAME]…           resume a sleeping session by its conversation id (the marker off, then revive --only resumes it in its pane: lane, model and effort kept). Needs the owner's words, EXCEPT
-                                            `wake --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME is a sleeping session of the pane map that is not YOU (as for restore); never a flag or a sweep. The plan is `wake --dry-run`; a name that is not asleep queues nothing
+  wake --only NAME [--only NAME]…           resume a sleeping session by its conversation id (the marker off, then revive --only resumes it in its pane: lane, model and effort kept). Needs the owner's words, EXCEPT the reason path above:
+                                            every NAME is a sleeping session of the pane map; never a flag or a sweep. The plan is `wake --dry-run`; a name that is not asleep queues nothing
   retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
                                             ends a Claude session for good: NAME is the exact tmux session name, --id names it by conversation id; a side session only after `side done` (--skip-writeup the bypass); --busy retires a pane that is not idle; --self the session this call runs in; --leave-items a session that moves open board items (asked of stackshot first); --force is refused. Needs the owner's words, EXCEPT
                                             a throwaway: `retire NAME --from YOU` with no --words, accepted only when NAME's registry row has no project, no role,
@@ -370,7 +367,7 @@ verbs:
                                             a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd
   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
                                             a side conversation (NAME contains -side-; sala spawn --suggest-name --side … suggests one): a fork of AGENT, or a fresh session about the item; on no agents map
-  reboot                                    not queued: the owner runs `sala reboot --go` in the web UI's Shell (SALA_OP_REBOOT: off by default, unsupported until a confirmation path is built)
+  reboot                                    the clean reboot protocol (reboot --go): needs the owner's words; --plan shows reboot --status
 
 ### sala restore --help (exit 0)
 usage: salamander restore (NAME… | --missing) [--dry-run]
@@ -521,7 +518,7 @@ usage: salamander ci-runs <owner/repo> [--sha SHA] [--max-age SECS] [--text]
 
   ci-runs  the GitHub Actions runs of <owner/repo> from the file the poller keeps (~/.local/state/salamander/ci-runs/<owner>__<repo>.json,
            format in docs/ci-runs.md): the file's JSON on stdout ({"repo","updated","updated_iso","runs":[…]}), the runs cut to those whose head
-           commit starts with SHA (7 or more characters) when --sha is given (none: "runs":[], exit 0), or one tab-separated line a run with --text.
+           commit starts with SHA (7 or more characters) when --sha is given (none: "runs":[], exit 0), or one tab-separated line a run with --text (id, status/conclusion, branch, sha, name; the header holds the run url prefix once: url = prefix + id).
            No GitHub call is made. Exit 0 = the file is fresh; 3 = no file for that repo (the poller does not poll it, or has not run);
            4 = the file is older than --max-age seconds (default 120; 0 = no limit), the poller is not keeping it fresh; 5 = unreadable;
            2 = usage. On 3 and 4 nothing is printed on stdout and the reason on stderr: read GitHub yourself.

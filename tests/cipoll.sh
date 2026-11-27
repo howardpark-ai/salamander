@@ -238,7 +238,13 @@ runs o/r --sha 9999999
 runs o/r --sha 123
 [ "$rrc" = 2 ] && ok "--sha shorter than 7 characters: usage, exit 2" || bad "short sha: rc=$rrc"
 runs o/r --text --sha "${SHA2:0:7}"
-[ "$rrc" = 0 ] && [ "$(wc -l < "$T/runs.out")" = 3 ] && grep -q "^102	in_progress/-	b-102	2222222	tests	https://github.com/x/y/actions/runs/102$" "$T/runs.out" && head -1 "$T/runs.out" | grep -q '^# o/r, updated 20.*2 run(s) of 2222222' && ok "--text: a header and one tab-separated line a run" || bad "text: $(cat "$T/runs.out")"
+[ "$rrc" = 0 ] && [ "$(wc -l < "$T/runs.out")" = 3 ] && grep -q "^102	in_progress/-	b-102	2222222	tests$" "$T/runs.out" && ! grep -q 'https://github.com/x/y/actions/runs/102' <(tail -n +2 "$T/runs.out") && head -1 "$T/runs.out" | grep -q '^# o/r, updated 20.*2 run(s) of 2222222, run url = https://github.com/x/y/actions/runs/<id>$' && ok "--text: a header with the run url prefix once and one tab-separated line a run (id, status/conclusion, branch, sha, name)" || bad "text: $(cat "$T/runs.out")"
+python3 - "$F" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["runs"][0]["html_url"] = "https://github.com/other/name/actions/runs/" + str(d["runs"][0]["id"]); json.dump(d, open(sys.argv[1], "w"))
+PY
+runs o/r --text
+[ "$rrc" = 0 ] && head -1 "$T/runs.out" | grep -qv 'run url =' && [ "$(tail -n +2 "$T/runs.out" | awk -F'\t' 'NF==6' | wc -l)" = "$(tail -n +2 "$T/runs.out" | wc -l)" ] && ok "--text: a url that is not the prefix and the id on some row keeps the url column on every row and no prefix in the header" || bad "text odd url: $(cat "$T/runs.out")"
 runs o/nothing
 [ "$rrc" = 3 ] && [ ! -s "$T/runs.out" ] && grep -q "ci-runs: no file for o/nothing" "$T/runs.err" && ok "no file for the repo: exit 3, nothing on stdout, the reason on stderr" || bad "missing: rc=$rrc $(cat "$T/runs.out" "$T/runs.err")"
 python3 - "$F" <<'PY'

@@ -48,7 +48,7 @@ in `gh`'s error is replaced). The poller starts by removing a `*.tmp` file a kil
 
 ```
 salamander ci-runs example-org/demo-web --sha 0123456        # the file's JSON, runs cut to the commits starting with the sha (7+ characters)
-salamander ci-runs example-org/demo-docs --text              # a header and one tab-separated line a run: id, status/conclusion, branch, sha, name, url
+salamander ci-runs example-org/demo-docs --text              # a header (with the run url prefix once) and one tab-separated line a run: id, status/conclusion, branch, sha, name
 ```
 
 | exit | meaning | stdout |

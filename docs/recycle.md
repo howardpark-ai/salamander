@@ -70,7 +70,15 @@ recycles was counted back in only one and the other set stayed open. Now:
   while a turn runs, and a subagent is one: it is no child process of the claude, no task list of the session may show it, and it can
   write nothing for many minutes. So the idle check also reads the subagents' own transcripts
   (`<projects>/<slug>/<uuid>/subagents/agent-<id>.jsonl`, with a `.meta.json` that says `"finished"` once the subagent ends): one that is
-  not finished, was written since this claude started and not longer ago than `SALA_SUBAGENT_STALE` (6 h) is running. It holds the pane,
+  not finished, was written since this claude started and not longer ago than `SALA_SUBAGENT_STALE` (6 h) **and** that either wrote within the
+  last `SALA_SUBAGENT_QUIET` (30 min) or has a process under the pane that it started (a background shell it waits for; `lib/holders.py`
+  names the subagent that started a process) is **live**, and a live subagent is running. One that is quiet for longer with no such process stopped without saying so (a subagent
+  that crashed or was cut by an interrupt never writes `finished`, and its transcript stays), so it holds nothing: a subagent that last wrote
+  four hours before its session's turn ended no longer holds the recycle for the six hours the old rule gave it. A subagent known to have ended
+  holds nothing however recently it wrote: the session's own transcript carries a `<task-notification>` for it whose status is `completed`,
+  `killed`, `failed` or `stopped` (a killed one never gets `finished`), or its own transcript's last line is an assistant answer that ended its turn.
+  The quiet time is the backstop for a subagent with neither sign. Where this reads a live
+  subagent as stopped, the in-session mod, which reads the CLI's own task list, still refuses the exit for it: the cost is one refused try, never a cut subagent. A live subagent holds the pane,
   also one that said `sala ready` (a ready word covers shells and tasks; a running subagent is never cut), and the skip line, the
   relaunch notice and `sala ready` name it and say it ends with its work. The mod's `busy` probe (the gates of an exit with nothing run)
   is asked before an exit is tried, so a turn it names, or the background work it lists, is said once with its holder, and the pane's inbox is not held and released for an
@@ -124,7 +132,14 @@ recycles was counted back in only one and the other set stayed open. Now:
     cannot be redone). Each waits for idle as before, and the output says why it was not paused.
   - *The interrupt* is one Escape, sent only to a pane whose registry row says busy and that shows no dialog (a second Escape on an idle
     box can open the CLI's rewind menu). The pane must be idle in the registry within `SALA_PAUSE_IDLE_WAIT` (20 s); if it is not, nothing
-    more is sent, no `/exit` is typed into a pane still in its turn, the pane is waited for as before and the clock starts over. Background
+    more is sent, no `/exit` is typed into a pane still in its turn, and the pane is waited for as before. **A pause that did not take is
+    tried again** (the same when the pane was not idle once interrupted): the clock keeps running, so a turn that ends and starts again
+    (a subagent's result starts the next one) does not put the next try a full `SALA_PAUSE_AFTER` away, and `pause/<id>.failed` records the
+    failed tries. The next try is `SALA_PAUSE_RETRY` (120 s) after a failed one, for the first `SALA_PAUSE_TRIES` (5) failed tries, then
+    `SALA_PAUSE_AFTER` apart; each one is one Escape under the same rule and one log line that says which try it was and when the next
+    comes. Nothing is given up: the pane is tried until it is free, paused or relaunched. Subagents and shells the Escape left are stopped
+    the one way a recycle stops them, once the pane is out of its turn (below: the exit dialog's "Exit and stop tasks"); sala has no other
+    way to stop a subagent, and sends nothing to a pane that stays in its turn beyond the one Escape of each try. Background
     work does not hold a paused pane for `SALA_PAUSE_TTL` (15 min): subagents and background shells end with the relaunch (the CLI's
     "Exit and stop tasks" is confirmed, and the note says so); a release that runs in its own systemd unit goes on. **A paused pane is exited
     by keys**: after the Escape the CLI sits in its interrupted-tool state ("Interrupted · What should Claude do instead?"), where the mod's
@@ -140,6 +155,13 @@ recycles was counted back in only one and the other set stayed open. Now:
     never reports an earlier pause**: only the relaunch that paused the pane says so (its row, closure line and posts); a relaunch of the same
     pane within the next 30 minutes that did not pause it (the pane idle and unpaused) says nothing and clears the earlier relaunch's
     `pause/<id>.resumed` marker. `tests/pause.sh` covers it.
+  - *The deferred-pane bullet* (a recycle's first post, its "n deferred" post, its 🔄 follow-ups and `sala op`'s result) is made again from the
+    pane every time it is posted, so its age is the one of that post (a 🔄 follow-up used to repeat the first post's "busy for 33 min" while the
+    log read 39, 46, 57). The age of a busy pane is how long it has **held the relaunch**: the longer of the time since its registry row last
+    changed and the pause's clock, which a turn that restarts does not reset. A pane that may be paused says when: `busy for 6 min (sala
+    pauses it at 15 min held); sala relaunches it once it is free`, and once that time has passed `(past the 15 min pause point, sala is
+    retrying the pause)`. A front agent (scope `background`) is never paused, so its bullet says nothing of it; a pane the pause refuses for
+    its own reason (a person at it, a dialog) is not told apart in the bullet; its log line says why.
 - **Two guards** (the watchdog's auto-recycle, for a board flag and a `--when-idle` request alike; each skip is one line in
   `salamander-watch.log`, `auto-recycle: skipped …`). *The change is not live*: a flag that names its change (`--change REF` on a
   request, `~REF` after a board flag's id) is not served while that change is missing from the production checkout's HEAD, whether

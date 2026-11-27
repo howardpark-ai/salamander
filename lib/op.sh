@@ -7,10 +7,10 @@
 #   salamander op <verb> [args…] --from NAME --stdin                      the words on stdin (a pane on another box, over ssh)
 #   salamander op retire NAME --from YOU                                  NO words: only for a throwaway (tagged at spawn: any session; untagged: its spawner, or anyone when it has no live spawner and a throwaway's name; never a bypass flag, --keep-web or --id)
 #   salamander op revive --only NAME… --item board#N --from YOU           NO words: a reason on the record instead (--why "<one line>" for --item; --force allowed): one or more live Claude sessions, never YOU, never a sweep, --rescue or --lane-default
-#   salamander op restore --only NAME… --item board#N --from YOU          NO words: a reason on the record (--why "<one line>" for --item): one or more pane-map sessions whose tmux session is gone, never YOU, never --missing or --force
-#   salamander op sleep --only NAME… --item board#N --from YOU            NO words: a reason on the record (--why "<one line>" for --item): put idle sessions to sleep, their claude ended, their pane and row kept (never a front agent or YOU)
+#   salamander op restore --only NAME… --item board#N --from YOU          NO words: a reason on the record (as for revive): one or more pane-map sessions whose tmux session is gone, never YOU, never --missing or --force
+#   salamander op sleep --only NAME… --item board#N --from YOU            NO words: a reason on the record (as for revive): put idle sessions to sleep, their claude ended, their pane and row kept (never a front agent or YOU)
 #   salamander op sleep --project KEY --from YOU --words "<the owner's words>"   a whole project asleep NOW, front agents with it, with no quiet rule; YOU may be one of its sessions (it sleeps once its turn has ended)
-#   salamander op wake --only NAME… --item board#N --from YOU             NO words: a reason on the record (--why "<one line>" for --item): resume sleeping sessions by their conversation id
+#   salamander op wake --only NAME… --item board#N --from YOU             NO words: a reason on the record (as for revive): resume sleeping sessions by their conversation id
 #   salamander op --plan <verb> [args…]                                   the plan alone: the verb's dry run, nothing queued
 #   salamander op --list                                                  the queue (and what it is doing)
 #   salamander op --status <id>                                           one operation's record, queued or archived
@@ -93,9 +93,9 @@
 #                                             finds the agent to fork and the project's page. No quiet watch, no auto-retire, no cap: it
 #                                             retires only on the owner's word, through `retire`, which refuses it until `sala side done`
 #                                             wrote its marker (--skip-writeup the one bypass; lib/retire.sh).
-#   reboot                                    not queued: the owner runs `sala reboot --go` directly, in the web UI's Shell. The verb's
-#                                             shape and code path stay, behind SALA_OP_REBOOT (off by default, and unsupported
-#                                             until a confirmation path is built); while it is off, `op reboot` is refused.
+#   reboot                                    the clean reboot protocol (`reboot --go`), with the owner's words (required, no reason door);
+#                                             refused while another reboot is queued or running, or `reboot --status` shows a broken
+#                                             hook; SALA_OP_REBOOT=off is the owner's kill switch.
 #
 # THE MARKER: one file per operation under $SALA_STATE_DIR/ops/<id>.op (<id> = <epoch>-<pid>), key=value lines: id, time, from
 # (who heard the owner), words (the owner's words verbatim, one line), verb, one `arg=` line per argument in order, state (queued ·
@@ -158,7 +158,7 @@
 #   model        owner       changes what a session costs and how it works
 #   provision    owner       changes a machine's configuration
 #   spawn        owner       starts a session (cost, and a new name the owner sees)
-#   reboot       owner       not queued at all (the owner runs `sala reboot --go` directly)
+#   reboot       owner       the whole box goes down: only the owner's own words
 # A new verb is `owner` until a line here says otherwise; a verb moves to `reason` or `throwaway` only with the principle above and its own re-check in op_run.
 # THE REASON DOOR (a session revives sessions with no words): `revive --only NAME [--only NAME]… [--force] (--item board#N | --why "<reason>") --from YOU`, queued when ALL hold:
 #   1. the arguments are one or more `--only NAME` and at most `--force`, nothing else: no sweep (no --only), no --rescue, no --lane-default, no other flag (--force is allowed:
@@ -255,7 +255,7 @@
 
 : "${SALA_OP_REASON_FROM:=}"                                   # who may use the reason door (a revive with no words and a reason): empty = any live Claude session, else a space-separated allow list of session names (THE WORDS POLICY, the header)
 : "${SALA_OP_QUEUE:=on}"                                   # watch: run the queue (off: markers wait, nothing starts)
-: "${SALA_OP_REBOOT:=off}"                                 # reboot is not queued (the owner runs `sala reboot --go`); on is unsupported until a confirmation path is built
+: "${SALA_OP_REBOOT:=on}"                                  # `op reboot` is queued (the owner's words required); off: refused (kill switch)
 : "${SALA_OP_LOCK_WAIT:=600}"                              # seconds the runner waits for a relaunch that holds the recycle lock
 : "${SALA_OP_SWEEP_WAIT:=1800}"                            # seconds the runner gives a relaunch's sweep (the lock to free)
 : "${SALA_OP_SETTLE_WAIT:=$((SALA_RETRY_WINDOW + 900))}"   # seconds the waiter gives a set with panes outstanding
@@ -685,25 +685,22 @@ op_shapes() {
     local _t; IFS= read -r -d '' _t <<'EOF' || :   # (a read, not a cat process)
   recycle [--update] [--force]              "recycle claude" = recycle --update --force
   update [HOST…|--fleet]                    this box (= recycle --update --force), named fleet hosts, or the fleet then this box
-  revive [--only NAME]… [--force]           bring a session back (--only), or every pane on an older CLI. Needs the owner's words, EXCEPT
-                                            `revive --only NAME [--only NAME]… [--force] --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME is a live Claude session of the registry that is not YOU, and YOU is the session whose pane holds the call by process ancestry
-                                            (not TMUX_PANE; a Claude Code exe, not a name; SALA_OP_REASON_FROM, empty = any session, limits who); never a sweep (no --only), --rescue, --lane-default or any other flag.
-                                            --item is a format check only (board#N): sala does not ask the board whether the item exists. The runner checks it all again before it relaunches anything
-  restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT
-                                            `restore --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME is a pane-map row with no tmux session whose conversation is live nowhere else, is not YOU, and YOU is the session whose pane holds the call by process ancestry
-                                            (as for revive; SALA_OP_REASON_FROM limits who); never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere. The runner checks it all again before it recreates anything
-  sleep --only NAME [--only NAME]…          end the claude of an idle session with nothing in flight and keep its tmux session and pane-map row (a sleeping marker records it; docs/subcommands.md `sleep`); never a front agent. Needs the owner's words, EXCEPT
-                                            `sleep --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME is a live Claude session of the registry that is not YOU, and YOU is the session whose pane holds the call by process ancestry
-                                            (as for revive; SALA_OP_REASON_FROM limits who); never a flag or a sweep. The plan is `sleep --dry-run`: it refuses (nothing queued) a session that is busy, not idle long enough or a front agent. The runner checks it all again before it ends anything
+  reason path                               revive, restore, sleep --only and wake take a reason on the record in place of the owner's words:
+                                            `VERB --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
+                                            every NAME fits its verb row and is not YOU, and YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name;
+                                            SALA_OP_REASON_FROM, empty = any session, limits who). --item is a format check only (board#N): sala does not ask the board whether the item exists.
+                                            The runner checks it all again before it relaunches, recreates or ends anything
+  revive [--only NAME]… [--force]           bring a session back (--only), or every pane on an older CLI. Needs the owner's words, EXCEPT the reason path above: every NAME is a live Claude session of the registry;
+                                            never a sweep (no --only), --rescue, --lane-default or any other flag; --force is allowed
+  restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT the reason path above:
+                                            every NAME is a pane-map row with no tmux session whose conversation is live nowhere else; never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere
+  sleep --only NAME [--only NAME]…          end the claude of an idle session with nothing in flight and keep its tmux session and pane-map row (a sleeping marker records it; docs/subcommands.md `sleep`); never a front agent. Needs the owner's words, EXCEPT the reason path above:
+                                            every NAME is a live Claude session of the registry; never a flag or a sweep. The plan is `sleep --dry-run`: it refuses (nothing queued) a session that is busy, not idle long enough or a front agent
   sleep --project KEY                       every session of one project, front agents with them, asleep together NOW, with no quiet rule (the 2 days) and no settle time: the owner's words (--words "…"), never --item or --why. The project must not be pinned, its activity must be readable,
                                             and every session must be idle with nothing in flight, nothing waiting in its inbox (the plan, `sleep --project KEY --asked --dry-run`, shows the first refusal). YOU may be one of its sessions (or, with `--only YOU --words`, the one session):
                                             the asking session sleeps once idle: the runner waits for its turn to end (SALA_SLEEP_ASKER_WAIT, 90 s), then puts the whole project to sleep with it last; the Slack post carries the result
-  wake --only NAME [--only NAME]…           resume a sleeping session by its conversation id (the marker off, then revive --only resumes it in its pane: lane, model and effort kept). Needs the owner's words, EXCEPT
-                                            `wake --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME is a sleeping session of the pane map that is not YOU (as for restore); never a flag or a sweep. The plan is `wake --dry-run`; a name that is not asleep queues nothing
+  wake --only NAME [--only NAME]…           resume a sleeping session by its conversation id (the marker off, then revive --only resumes it in its pane: lane, model and effort kept). Needs the owner's words, EXCEPT the reason path above:
+                                            every NAME is a sleeping session of the pane map; never a flag or a sweep. The plan is `wake --dry-run`; a name that is not asleep queues nothing
   retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
                                             ends a Claude session for good: NAME is the exact tmux session name, --id names it by conversation id; a side session only after `side done` (--skip-writeup the bypass); --busy retires a pane that is not idle; --self the session this call runs in; --leave-items a session that moves open board items (asked of stackshot first); --force is refused. Needs the owner's words, EXCEPT
                                             a throwaway: `retire NAME --from YOU` with no --words, accepted only when NAME's registry row has no project, no role,
@@ -726,7 +723,7 @@ op_shapes() {
                                             a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd
   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
                                             a side conversation (NAME contains -side-; sala spawn --suggest-name --side … suggests one): a fork of AGENT, or a fresh session about the item; on no agents map
-  reboot                                    not queued: the owner runs `sala reboot --go` in the web UI's Shell (SALA_OP_REBOOT: off by default, unsupported until a confirmation path is built)
+  reboot                                    the clean reboot protocol (reboot --go): needs the owner's words; --plan shows reboot --status
 EOF
     printf '%s' "$_t"
 }
@@ -1157,8 +1154,14 @@ op_main() {
             echo "✗ nothing queued: ${_sl[*]} is asleep; queue it in its own call (sala op wake --only ${_sl[0]} …)" >&2; return 1
         fi
     fi
-    if [ "$verb" = reboot ] && [ "$SALA_OP_REBOOT" != on ]; then
-        die "reboot is not queued: ${SALA_OWNER_NAME} runs \`sala reboot --go\` in the web UI's Shell; a session shows \`sala reboot --status\` and waits for the word (SALA_OP_REBOOT is off by default and unsupported until a confirmation path is built)"
+    if [ "$verb" = reboot ] && [ "$SALA_OP_REBOOT" = off ]; then
+        die "reboot is switched off here (SALA_OP_REBOOT=off): ${SALA_OWNER_NAME} runs \`sala reboot --go\` himself"
+    fi
+    if [ "$verb" = reboot ] && [ "$mode" = add ]; then   # one reboot at a time: another still queued, running or waiting refuses this one
+        for f in $(op_files); do
+            c=${f##*/}; c=${c%.op}
+            case "$(op_val "$c" state)" in queued|running|waiting) [ "$(op_val "$c" verb)" = reboot ] && die "refused: op $c is a reboot already $(op_val "$c" state); one reboot at a time (salamander op --status $c)";; esac
+        done
     fi
     if [ "$mode" = add ]; then
         [ "$stdin" = 1 ] && words=$(cat)
@@ -1209,6 +1212,9 @@ op_main() {
             case "$verb:$rc" in spawn:3)   # the web layer reads the marker and the command (lib/spawn.sh): once more, unindented, and the verb's own exit code
                 printf '%s\n' "$out" | sed -n '/^REGISTER: /,$p'; return "$rc" ;; esac
             return 1
+        fi
+        if [ "$verb" = reboot ] && [ "$mode" = add ]; then   # reboot --status exits 0 whatever it finds: a broken hook or no hooks is a blocker
+            case "$out" in *BROKEN*|*"no SALA_REBOOT_HOOKS"*) echo "✗ refused: reboot --status shows a blocker (above) — nothing queued" >&2; return 1;; esac
         fi
     fi
     [ "$mode" = plan ] && { echo "plan only: nothing queued"; return 0; }
@@ -1936,7 +1942,7 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
                 [ -n "$y" ] || continue; s="${y%%[: ]*}"
                 grep -qxF -- "$s" <<< "$ss" || continue
                 grep -qxF -- "back=$s" "$SALA_SET_DIR/$set" && continue
-                printf '%s\n' ${fb[@]+"${fb[@]}"} | grep -q "^$s[: ]" || fb+=("$y")
+                printf '%s\n' ${fb[@]+"${fb[@]}"} | grep -q "^$s[: ]" || fb+=("$(hold_bullet_fresh "$s" "$y")")
             done < <(set_vals "$set" gave; set_vals "$set" skip)
             while IFS= read -r s; do
                 [ -n "$s" ] && grep -qxF -- "$s" <<< "$ss" || continue
@@ -1964,7 +1970,7 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
                 while IFS= read -r y; do
                     [ -n "$y" ] || continue; s="${y%%[: ]*}"
                     grep -qxF -- "back=$s" "$SALA_SET_DIR/$set" && continue
-                    printf '%s\n' ${OP_PF[@]+"${OP_PF[@]}"} | grep -q "^$s[: ]" || OP_PF+=("$y")
+                    printf '%s\n' ${OP_PF[@]+"${OP_PF[@]}"} | grep -q "^$s[: ]" || OP_PF+=("$(hold_bullet_fresh "$s" "$y")")
                 done < <(set_vals "$set" gave; set_vals "$set" skip)
                 while IFS= read -r s; do
                     [ -n "$s" ] || continue

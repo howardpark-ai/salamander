@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""trim_report.py - the weekly size report of salamander's test suites. Read-only, standard library only.
+"""trim_report.py - the weekly size report of salamander's test suites. Standard library only; it changes nothing in the checkout.
 
 Run it from a checkout (or pass --root). It prints a short plain-text report, keeps the run as one JSON record in a state file, and
 compares it with the previous run's record:
 
-    python3 -I .github/scripts/trim_report.py [--root DIR] [--config FILE] [--state-dir DIR] [--dry-run] [--json] [--now ISO]
+    python3 -I .github/scripts/trim_report.py [--root DIR] [--fresh-timings [--github OWNER/NAME]] [--config FILE] [--state-dir DIR]
+                                              [--dry-run] [--json] [--now ISO]
 
 What it measures, per run, for two families that it reports separately and added together:
   * suites       the shell suites tests/<name>.sh that CI runs, which is every tests/*.sh except the four tools that tests/run.sh
@@ -21,10 +22,15 @@ What it measures, per run, for two families that it reports separately and added
                  It is a size measure, not a coverage measure: stable between runs, cheap.
   * serial minutes, slowest   from the committed recorded seconds, tests/timings.json (keys `tests/<suite>.sh`) and
                  web/tests/timings.json (keys `tests/test_<name>.py`, relative to web/): the sum over the suites and files, and the
-                 slowest 8. No network, no gh. A suite or file with no recorded time is counted as untimed (it is not guessed), and a
-                 time that is negative, not a finite number or above a year (31,622,400 seconds) is ignored with a note naming the key.
-                 A timings file that cannot be read leaves its family untimed, with a note; with neither readable the minutes are n/a
-                 and the two minute thresholds are not checked.
+                 slowest 8. Without --fresh-timings there is no network and no gh. A suite or file with no recorded time is counted as
+                 untimed (it is not guessed), and a time that is negative, not a finite number or above a year (31,622,400 seconds) is
+                 ignored with a note naming the key. A timings file that cannot be read leaves its family untimed, with a note; with
+                 neither readable the minutes are n/a and the two minute thresholds are not checked.
+                 With --fresh-timings the newest numbers go on top of the committed ones, in memory only: `gh` reads the logs of the
+                 last 10 successful merge_group runs of tests.yml, update_timings.py's median per suite and file replaces the committed
+                 number, a key no log shows keeps it, and neither timings file is written. The repository is --github, else what
+                 `gh repo view` names for the checkout. A run that cannot list the runs, or whose logs show nothing of a family the
+                 checkout has, fails (status 1) and keeps no record: old numbers are never reported as fresh ones.
   * since the previous run   suites and files added and deleted by name, test lines added and deleted (per suite, the rise or fall of
                  its count; a new suite adds all its lines, a deleted one deletes all).
 
@@ -36,15 +42,29 @@ the top of the file apply to every checkout, and a `[salamander]` table override
     max_suite_minutes     the slowest single suite or file
     max_test_line_growth  test lines gained since the previous run, scaled down to a week when the gap is longer than a week
 
-A key the file names that is none of these four (a mistyped `max_suite`) is not used: a `warning: unknown key <name> in <file>` line
-goes to stderr for each, and the exit status is unchanged. A value that is not a number from 0 to 10**12 (a boolean, a string, nan, inf, a
-negative or a huge one), a file that is not UTF-8 text, a pipe or a terminal in place of a file (`--config /dev/stdin` too: a config
-is a regular file) and one nested too deep are config problems, exit 2. A missing default file is no problem; a missing `--config` file is.
+The same file may say what a trigger is handed to (at the top, or in the [salamander] table):
+
+    on_trigger    a command, as a list of strings (a leading ~ in one is the home folder). It runs once, after the numbers are in, when
+                  there is a trigger to hand over, and never with --dry-run. It reads one JSON object on stdin: repo, commit,
+                  generated, state_file, item_project, item_mover and triggers (each with key, limit, value and line). Exit status 0
+                  says it took them, and what it prints follows the report.
+    item_project, item_mover    two strings passed on to that command (where its work is filed, and who does it); nothing else here
+                  reads them.
+
+When that command cannot start, exits with another status or runs past 15 minutes, the triggers are kept in the state file as
+`open_pending`, the exit status is 3, and every later run hands them over again with its own (one per threshold, the newer line wins),
+also when its numbers are back under the limits, until the command takes them.
+
+A key the file names that is none of these seven (a mistyped `max_suite`) is not used: a `warning: unknown key <name> in <file>` line
+goes to stderr for each, and the exit status is unchanged. A limit that is not a number from 0 to 10**12 (a boolean, a string, nan, inf,
+a negative or a huge one), an `on_trigger` that is not a list of non-empty strings, an item key that is not a string, a file that is not
+UTF-8 text, a pipe or a terminal in place of a file (`--config /dev/stdin` too: a config is a regular file) and one nested too deep are
+config problems, exit 2. A missing default file is no problem; a missing `--config` file is.
 
 The defaults are placeholders that never trigger: set the real values from the measured numbers. When a value is above its limit the
-report ends with one `TRIGGER: <which>` line per threshold (in the order above), the same lines are kept in the state file, and the
-exit status is still 0: this tool opens nothing and cleans nothing up. A TRIGGER line is the only cue for a cleanup pass (a scan for
-duplicate or obsolete suites), which is not part of this report and never runs on a calendar (CONTRIBUTING.md, *Keeping the suites trim*).
+report ends with one `TRIGGER: <which>` line per threshold (in the order above) and the same lines are kept in the state file. This
+tool opens nothing and cleans nothing up itself. A TRIGGER line is the only cue for a cleanup pass (a scan for duplicate or obsolete
+suites), which is not part of this report and never runs on a calendar (CONTRIBUTING.md, *Keeping the suites trim*).
 
 State file: `${XDG_STATE_HOME:-~/.local/state}/salamander/test-trim/state.json` (--state-dir replaces the folder), written
 atomically (a temporary file in the same folder, then a rename). A previous record that cannot be used (not JSON, another format, a
@@ -52,8 +72,9 @@ missing or wrong-typed field, a time without a UTC offset, a count that is not a
 a one-line note, and this run's record replaces it. --dry-run prints the report and writes nothing (not even the state folder);
 --json prints the record instead of the text. `--now ISO` sets the clock, for tests.
 
-Exit status: 0 the report was made (triggers included), 1 the state folder or file cannot be written, 2 a usage, config or checkout
-problem. SIGTERM ends the run cleanly (status 143)."""
+Exit status: 0 the report was made (triggers included, and taken by on_trigger when one is set), 1 the state folder or file cannot be
+written or --fresh-timings got no timings, 2 a usage, config or checkout problem, 3 on_trigger did not take the triggers (the report
+is printed and its record kept). SIGTERM ends the run cleanly (status 143)."""
 from __future__ import annotations
 
 import argparse
@@ -83,6 +104,9 @@ THRESHOLD_MAX = COUNT_MAX     # a limit above this is no limit anyone set; it ke
 # Placeholders that never trigger. They are replaced by the measured numbers in the config file, not by editing this table.
 DEFAULTS = {"max_suites": 1_000_000, "max_serial_minutes": 1_000_000.0, "max_suite_minutes": 1_000_000.0, "max_test_line_growth": 1_000_000}
 FOLLOW_UP = "Follow-up: a scan for duplicate or obsolete suites (not part of this report)."
+HOOK_KEYS = ("on_trigger", "item_project", "item_mover")     # the config keys that say what a trigger is handed to; not thresholds
+HOOK_TIMEOUT = 900        # seconds the on_trigger command may take
+FRESH_RUNS = 10           # the queue runs --fresh-timings reads, update_timings.py's own default
 
 
 class Fail(Exception):
@@ -177,8 +201,17 @@ def read_config(path: str) -> dict:
             os.close(fd)
 
 
-def load_thresholds(path: str, explicit: bool) -> dict:
-    """DEFAULTS, then the file's top-level keys, then its [salamander] table. A missing default file is no error; a bad value is."""
+def check_hook_value(path: str, key: str, v) -> None:
+    if key == "on_trigger":
+        if not (isinstance(v, list) and v and all(isinstance(a, str) and a and "\0" not in a for a in v)):
+            raise Fail(f"config file {path}: on_trigger must be a command as a list of non-empty strings, got {str(v)[:40]!r}")
+    elif not isinstance(v, str):
+        raise Fail(f"config file {path}: {key} must be a string, got {str(v)[:40]!r}")
+
+
+def load_thresholds(path: str, explicit: bool, hook: dict) -> dict:
+    """DEFAULTS, then the file's top-level keys, then its [salamander] table; the HOOK_KEYS the file sets the same way go into `hook`.
+    A missing default file is no error; a bad value is."""
     t: dict = dict(DEFAULTS)
     try:
         data = read_config(path)
@@ -196,12 +229,13 @@ def load_thresholds(path: str, explicit: bool) -> dict:
         raise Fail(f"config file {path} is nested too deeply to read")
     except ValueError as e:                     # tomllib's own limit on a number with thousands of digits
         raise Fail(f"config file {path} cannot be read: {e}")
-    for k, v in data.items():                   # a table is some checkout's; any other key must be one of the four
-        if not isinstance(v, dict) and k not in DEFAULTS:
+    known = (*DEFAULTS, *HOOK_KEYS)
+    for k, v in data.items():                   # a table is some checkout's; any other key must be a known one
+        if not isinstance(v, dict) and k not in known:
             print(f"warning: unknown key {k} in {path}", file=sys.stderr)
         if isinstance(v, dict) and k == NAME:
             for k2 in v:
-                if k2 not in DEFAULTS:
+                if k2 not in known:
                     print(f"warning: unknown key {k2} in {path} (table [{k}])", file=sys.stderr)
     own = data.get(NAME)
     for source in (data, own if isinstance(own, dict) else {}):
@@ -210,6 +244,9 @@ def load_thresholds(path: str, explicit: bool) -> dict:
                 if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= THRESHOLD_MAX:   # false for nan, inf, a negative, a huge int
                     raise Fail(f"config file {path}: {k} must be a number from 0 to {THRESHOLD_MAX}, got {str(v)[:40]!r}")
                 t[k] = v if v != 0 else type(v)(0)       # -0.0 is zero: it would otherwise print as a limit of -0
+            elif k in HOOK_KEYS:
+                check_hook_value(path, k, v)
+                hook[k] = v
     return t
 
 
@@ -347,6 +384,10 @@ def render(rec: dict, prev: dict | None, days: float | None, notes: list[str]) -
         extra = f", {rec['untimed']} untimed" if rec["untimed"] else ""
         L.append(f"serial minutes: {rec['serial_minutes']:.1f} (shell {fam['shell']['minutes']:.1f}, web {fam['web']['minutes']:.1f}; "
                  f"{len(rec['timed'])} of {rec['suite_count']} timed{extra})")
+        src = rec.get("timings_source")
+        if src:
+            L.append(f"timings: the median over the newest queue runs' logs ({len(src['runs'])} read: {src['suites_logs']} show shell suites, "
+                     f"{src['web_logs']} web test files), laid over the committed numbers")
         if rec["slowest"]:
             L.append(f"slowest {len(rec['slowest'])}:")
             L.extend(f"  {i}. {n}  {m:.1f} min" for i, (n, m) in enumerate(rec["slowest"], 1))
@@ -375,29 +416,96 @@ def head_commit(root: str) -> str | None:
     return out if re.fullmatch(r"[0-9a-f]{40}", out) else None
 
 
-def family_times(files: dict[str, int], path: str, prefix: str, label: str, notes: list[str]) -> dict[str, float] | None:
+def queue_logs(root: str, repo: str | None):
+    """(the update_timings module, [(run id, log text)] of the newest queue runs) for --fresh-timings; Fail(.., 1) when gh gives none"""
+    sys.dont_write_bytecode = True      # the import below must not leave a cache folder in the checkout the report runs from
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import update_timings
+    try:
+        if not repo:
+            r = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], cwd=root,
+                               capture_output=True, text=True, timeout=120)
+            repo = r.stdout.strip()
+            if r.returncode != 0 or not repo:
+                raise Fail(f"no fresh timings: gh cannot tell which repository {root} is (pass --github OWNER/NAME): "
+                           f"{' '.join(r.stderr.split())[:300]}", 1)
+        logs = update_timings.run_logs(repo, FRESH_RUNS)
+    except SystemExit as e:
+        if not isinstance(e.code, str):      # a number is a stop (SIGTERM), not run_logs' own message
+            raise
+        raise Fail(f"no fresh timings: {e.code}", 1)
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, AttributeError) as e:
+        raise Fail(f"no fresh timings: {e.__class__.__name__}: {' '.join(str(e).split())[:300]}", 1)
+    return update_timings, logs
+
+
+def family_times(files: dict[str, int], path: str, prefix: str, label: str, notes: list[str], overlay=None) -> dict[str, float] | None:
     """{file: seconds} for the files of one family with a usable recorded time, or None when the timings file cannot be read (noted).
-    prefix turns a file's path into its key in the timings file."""
+    prefix turns a file's path into its key in the timings file. overlay, when given, turns the committed {key: seconds} into the
+    numbers to report (the queue runs' medians on top), and then an unreadable committed file leaves the runs' numbers alone."""
     try:
         secs, bad = read_timings(path)
     except ValueError as e:
-        notes.append(f"no {label} times: {e}")
-        return None
+        if overlay is None:
+            notes.append(f"no {label} times: {e}")
+            return None
+        notes.append(f"no committed {label} times, only the queue runs': {e}")
+        secs, bad = {}, []
+    if overlay is not None:
+        secs = overlay(secs)
     keys = {n[len(prefix):] for n in files}
-    bad = [k for k in bad if k in keys]
+    bad = [k for k in bad if k in keys and k not in secs]
     if bad:
         notes.append(f"{label} times ignored (negative, not a finite number or above a year), counted as untimed: {', '.join(bad[:LIST_MAX])}"
                      + (f", and {len(bad) - LIST_MAX} more" if len(bad) > LIST_MAX else ""))
     return {n: secs[n[len(prefix):]] for n in files if n[len(prefix):] in secs}
 
 
-def build(args, now: dt.datetime) -> tuple[str, dict, str]:
+# ---------------------------------------------------------------- handing a trigger over
+def owed_triggers(prev: dict | None) -> list[dict]:
+    """the triggers an earlier run could not hand over (its `open_pending`), read leniently: an entry that is not a threshold of this tool
+    is dropped; `limit` and `value` are only carried through, never computed with"""
+    pending = (prev or {}).get("open_pending")
+    if not isinstance(pending, list):
+        return []
+    return [{"key": t["key"], "limit": t.get("limit"), "value": t.get("value"), "line": t["line"]} for t in pending
+            if isinstance(t, dict) and isinstance(t.get("key"), str) and t["key"] in DEFAULTS
+            and isinstance(t.get("line"), str) and t["line"].startswith("TRIGGER: ")]
+
+
+def merge_triggers(owed: list[dict], current: list[dict]) -> list[dict]:
+    """owed and current triggers, one per threshold (the current run's line wins), in the order of the thresholds"""
+    by_key = {t["key"]: t for t in owed}
+    by_key.update({t["key"]: t for t in current})
+    return [by_key[k] for k in DEFAULTS if k in by_key]
+
+
+def hand_over(command: list[str], payload: dict) -> str:
+    """run the on_trigger command with the payload as JSON on stdin; what it printed, or Fail(.., 3) when it did not exit 0"""
+    argv = [os.path.expanduser(a) for a in command]
+    failed = "on_trigger did not take the triggers"
+    try:
+        r = subprocess.run(argv, input=json.dumps(payload, sort_keys=True) + "\n", capture_output=True, encoding="utf-8",
+                           errors="replace", timeout=HOOK_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise Fail(f"{failed}: it did not end within {HOOK_TIMEOUT} seconds", 3)
+    except (OSError, ValueError) as e:
+        raise Fail(f"{failed}: cannot run {argv[0]}: {getattr(e, 'strerror', None) or e}", 3)
+    if r.returncode != 0:
+        why = " ".join((r.stderr or r.stdout).split())[-600:] or "it printed nothing"
+        raise Fail(f"{failed}: exit {r.returncode}: {why}", 3)
+    return r.stdout.strip()
+
+
+# ---------------------------------------------------------------- one run
+def build(args, now: dt.datetime) -> tuple[str, dict, str, dict, list[dict]]:
     root = os.path.abspath(args.root)
     shell = measure(root, os.path.join("tests", "*.sh"), count_sh, TOOLS)
     web = measure(root, os.path.join("web", "tests", "test_*.py"), count_py)
     if not shell:
         raise Fail(f"no tests/*.sh suite under {root}: run it from a checkout, or pass --root")
-    th = load_thresholds(config_path(args.config), bool(args.config))
+    hook: dict = {}
+    th = load_thresholds(config_path(args.config), bool(args.config), hook)
     state_dir = args.state_dir or default_state_dir()
     if not args.dry_run:
         check_state_dir(state_dir)
@@ -405,8 +513,20 @@ def build(args, now: dt.datetime) -> tuple[str, dict, str]:
     prev, note = read_previous(state_file)
     notes = [note] if note else []
 
-    t_shell = family_times(shell, os.path.join(root, "tests", "timings.json"), "", "shell suite", notes)
-    t_web = family_times(web, os.path.join(root, "web", "tests", "timings.json"), "web/", "web test file", notes) if web else {}
+    over_shell = over_web = source = None
+    if args.fresh_timings:
+        timer, logs = queue_logs(root, args.github)
+        per = timer.collect(logs)
+        lacking = [label for family, files, label in (("suites", shell, "shell suite"), ("web", web, "web test file"))
+                   if files and not per[family]]
+        if lacking:
+            raise Fail(f"no fresh timings: none of the {len(logs)} queue run logs read shows a {' or a '.join(lacking)} time", 1)
+        over_shell = lambda old: timer.merge(old, per["suites"], "", root)
+        over_web = lambda old: timer.merge(old, per["web"], "web/", root)
+        source = {"runs": [i for i, _ in logs], "suites_logs": len(per["suites"]), "web_logs": len(per["web"])}
+
+    t_shell = family_times(shell, os.path.join(root, "tests", "timings.json"), "", "shell suite", notes, over_shell)
+    t_web = family_times(web, os.path.join(root, "web", "tests", "timings.json"), "web/", "web test file", notes, over_web) if web else {}
     have_times = t_shell is not None or (t_web is not None and bool(web))
     timed_s = sorted(((n, round(s / 60, 2)) for n, s in (t_shell or {}).items()), key=lambda x: (-x[1], x[0]))
     timed_w = sorted(((n, round(s / 60, 2)) for n, s in (t_web or {}).items()), key=lambda x: (-x[1], x[0]))
@@ -419,7 +539,7 @@ def build(args, now: dt.datetime) -> tuple[str, dict, str]:
                         "web": {"suites": len(web), "test_lines": sum(web.values()), "minutes": round(sum(m for _, m in timed_w), 2)}},
            "serial_minutes": round(sum(m for _, m in timed), 2) if have_times else None,
            "untimed": len(suites) - len(timed) if have_times else None,
-           "timed": timed, "slowest": timed[:SLOWEST] if have_times else [], "thresholds": th}
+           "timed": timed, "slowest": timed[:SLOWEST] if have_times else [], "thresholds": th, "timings_source": source}
     rec.update(compare(prev, suites))
     days = growth = None
     if prev is not None:
@@ -428,9 +548,13 @@ def build(args, now: dt.datetime) -> tuple[str, dict, str]:
         growth = net if days <= 7 else net * 7 / days
         rec["growth_per_week"] = round(growth, 1)
     rec["triggers"] = evaluate(th, rec, growth)
+    owed = owed_triggers(prev)
+    if owed:
+        notes.append(f"an earlier run's threshold is still owed to on_trigger ({', '.join(t['key'] for t in owed)})"
+                     + ("" if "on_trigger" in hook else ", and the thresholds file sets no on_trigger"))
     text = render(rec, prev, days, notes)
     rec["notes"] = notes
-    return text, rec, state_file
+    return text, rec, state_file, hook, owed
 
 
 def on_sigterm(signum, _frame) -> None:
@@ -438,11 +562,14 @@ def on_sigterm(signum, _frame) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="trim_report.py", description="The weekly size report of salamander's test suites (read-only).")
+    ap = argparse.ArgumentParser(prog="trim_report.py", description="The weekly size report of salamander's test suites.")
     ap.add_argument("--root", default=".", help="the checkout to measure (default: the current folder)")
+    ap.add_argument("--fresh-timings", action="store_true",
+                    help="time the suites from the newest queue runs' logs (gh), laid over the committed numbers; writes no timings file")
+    ap.add_argument("--github", help="OWNER/NAME for --fresh-timings (default: what gh repo view names for the checkout)")
     ap.add_argument("--config", help="the thresholds file (default: ${XDG_CONFIG_HOME:-~/.config}/salamander/test-trim.toml)")
     ap.add_argument("--state-dir", help="the folder of the state file (default: ${XDG_STATE_HOME:-~/.local/state}/salamander/test-trim)")
-    ap.add_argument("--dry-run", action="store_true", help="print the report and write no state")
+    ap.add_argument("--dry-run", action="store_true", help="print the report, write no state and run no on_trigger")
     ap.add_argument("--json", action="store_true", help="print the record as JSON instead of the text")
     ap.add_argument("--now", help="the clock as an ISO time with an offset, for tests")
     args = ap.parse_args(argv)
@@ -458,13 +585,38 @@ def main(argv: list[str] | None = None) -> int:
             raise Fail(f"--now {args.now!r} is not an ISO time")
         if now.tzinfo is None:
             raise Fail("--now needs an offset, like 2026-01-05T09:00:00+00:00")
-        text, rec, state_file = build(args, now)
+        text, rec, state_file, hook, owed = build(args, now)
+        command = hook.get("on_trigger")
+        due = merge_triggers(owed, rec["triggers"])
+        outcome = failure = None
+        if command and due:
+            if args.dry_run:
+                outcome = f"on_trigger: not run (--dry-run); {len(due)} threshold(s) would go to: {' '.join(command)}"
+            else:
+                payload = {"repo": NAME, "commit": rec["commit"], "generated": rec["generated"], "state_file": state_file,
+                           "item_project": hook.get("item_project", ""), "item_mover": hook.get("item_mover", ""), "triggers": due}
+                try:
+                    said = hand_over(command, payload)
+                    outcome = f"on_trigger: took {len(due)} threshold(s)" + "".join(f"\n  {line}" for line in said.splitlines())
+                except Fail as e:               # the report is still printed and kept, and the status says nothing took the triggers
+                    failure = e
+        if failure:
+            rec["open_pending"] = due           # still owed: the next run hands these over again, whatever its own numbers say
+        elif owed and not command:
+            rec["open_pending"] = owed          # nothing to hand an earlier debt to: keep it, or the new record would drop it
         if not args.dry_run:
             try:
-                write_state(state_file, rec)
+                write_state(state_file, rec)    # after the hand-over: the baseline moves on, with what is still owed recorded in it
             except OSError as e:
                 raise Fail(f"cannot write {state_file}: {e.strerror or e}", 1)
-        print(json.dumps(rec, sort_keys=True) if args.json else text)
+        if args.json:
+            print(json.dumps(dict(rec, on_trigger_output=outcome) if outcome else rec, sort_keys=True))
+        else:
+            print(text)
+            if outcome:
+                print(outcome)
+        if failure:
+            raise failure
         return 0
     except Fail as e:
         print(f"trim_report: {e}", file=sys.stderr)

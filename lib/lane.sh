@@ -293,11 +293,11 @@ if [ "$MODE" = show ]; then
     echo "lanes: ${ready% · }"; for l in ${notready[@]+"${notready[@]}"}; do echo "  $l"; done
     rows=$( { lane_sessions; [ -r "$SALA_LANES" ] && cut -f1 "$SALA_LANES"; } | awk 'NF && !seen[$0]++' | LC_ALL=C sort)
     [ -n "$rows" ] || { echo "(no session: nothing in the pane map, no live claude pane, no lane recorded)"; exit 0; }
-    T_S=(); T_REC=(); T_RUN=(); T_HM=(); T_NOTE=(); anyhome=0   # buffered: the HOME column is there only while some session sits off its home
+    T_S=(); T_REC=(); T_RUN=(); T_HM=(); T_NOTE=(); anyhome=0; anysleep=0   # buffered: the HOME column is there only while some session sits off its home
     while IFS= read -r s; do
         [ -n "$s" ] || continue
         rec=$(lane_row "$s"); eff=$(lane_for_session "$s"); run=$(running_lane "$s"); note=""   # eff: the row, else the default; an sdk row after its window → the lane fallback's pick for sdk
-        if is_sleeping "$s"; then note="sleeping: no claude on purpose, a wake resumes it on $eff"
+        if is_sleeping "$s"; then note="sleeping"; anysleep=1   # the sentence is said once, under the table
         elif no_relaunch "$s"; then note="$(no_relaunch_fix "$s" "managed outside sala (SALA_NO_RELAUNCH): sala never relaunches it")"
         elif ! tmux has-session -t "=$s" 2>/dev/null; then note="no tmux session (a restore brings it back on $eff)"
         elif [ "$run" = "?" ]; then note="its environment cannot be read"
@@ -320,6 +320,7 @@ if [ "$MODE" = show ]; then
         printf '%-30s %-10s %-8s %s\n' SESSION RECORDED RUNNING ''
         for i in "${!T_S[@]}"; do printf '%-30s %-10s %-8s %s\n' "${T_S[$i]}" "${T_REC[$i]}" "${T_RUN[$i]}" "${T_NOTE[$i]}"; done
     fi
+    [ "$anysleep" = 0 ] || echo "sleeping: no claude on purpose; a wake resumes it on its lane (RECORDED; the default lane when that says (default))"
     exit 0
 fi
 

@@ -45,6 +45,13 @@ on:
     types: [checks_requested]
 permissions:   # nothing here writes or calls the API
   contents: read
+# A newer push to a pull request cancels that pull request's run still going (its result is for a head that is gone), and nothing else is ever
+# cancelled: every other event gets its own group (the run id), so a merge-queue entry, a push to `queue/**` and a push to main run to the end whatever
+# else is running. Keyed by the PR number, not the branch name, so two forks' branches of one name never share a group. release.sh judges the check runs of
+# the PR's CURRENT head commit only (a cancelled run of an older head is on another commit), and by their newest run per check name (CONTRIBUTING.md, *CI layout*).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   changes:
     runs-on: ubuntu-latest

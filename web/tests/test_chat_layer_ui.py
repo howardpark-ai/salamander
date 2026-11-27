@@ -20,6 +20,10 @@ Held here, against the real server:
     works while the thread loads, and brings no sideways scroll, closed or on either tab;
   - no sideways scroll at 1280, 390, 360 and 320 px with long words, long addresses, wide tables, wide code and images, and as the width changes;
   - the composer sends the same request with the setting on and off;
+  - a running "!" command has the session view's live block with its Stop button, looking as with the setting off, with no sideways scroll at the four widths;
+    it stays under the thread, and goes with the command's end, a reconnect or another session;
+  - the images a reply sent (drawn as the session view draws them), the questions it asked with their numbered options, an API error and an interrupt are in the
+    thread, with no sideways scroll at the four widths; the interrupt line takes no pending bubble and sets no language;
   - off, the chat session and another one are drawn by the session view; on, the other session's page is the same, opened directly or from the chat.
 
 What a wrong answer costs: the owner reads the session's own working lines as answers, a reply never arrives or arrives twice, a phone page that scrolls
@@ -41,13 +45,15 @@ import pytest
 
 import test_chat_boot_ui as boot
 from conftest import CHAT_READY, CWD, NAME, SID, transcript_file
+from test_bang_live import LIVE_EVENT
+from test_bang_live import STATE as LIVE_BLOCK
 from test_board_items_ui import wait_for
 from test_chat_layer import OTHER, add_session
 from test_chat_link_cards_ui import ART, mockup, reply_text
 from test_chat_onit_ui import CHEVRON, MOVE_PANEL, MOVE_TAB, ONIT_PANEL, ONIT_TAB, PIN, WIDE, click, cp, key, promises, state, waiting
 from test_chat_onit_ui import hostile as onit_hostile
 from test_chat_session_view_ui import CODE, DESKTOP, MEASURE, PHONE, SIZES, TABLE, URL, WORD, api_chat, check, open_page
-from test_chat_thread import task
+from test_chat_thread import OVERLOADED, api_error, asked, call, interrupt, task
 from test_chatturns import assistant, human, peer, tool_result
 from test_composer_attach import WAIT_CHIPS, pick
 from test_sleeping_sessions import wake  # noqa: F401  (a fixture: the stand-in sala and its sleeping markers)
@@ -859,6 +865,113 @@ def test_no_sideways_scroll_with_the_pinned_bar_closed_and_on_each_tab(served, b
         check_layer(browser, width)
 
 
+# ── a running "!" command ────────────────────────────────────────────────────
+# The block is the session view's own (app.js applyLive and stopLive). A `live` event is given to the open stream's own listener, as test_bang_live.py gives it.
+LIVE_TEXT = f"{WORD}\n{URL}\n{CODE}\n\t\t{'-' * 400}\n{'=' * 90}  {'word ' * 80}\n" + "\n".join(f"step {i}" for i in range(60))
+LIVE_RUNNING = {"running": True, "command": f"demo {WORD} {URL}", "uuid": "b-1", "text": LIVE_TEXT}
+WAITING = {"running": True, "command": "sleep 20", "uuid": "b-1", "text": "code: ABCD-1234"}
+LONG_ERROR = "tmux failed: /srv/demo/work/" + "socket" * 60
+# the block as it looks: its markup, and each part's place across, size and paint
+LIVE_LOOK = """(() => { const props = ['display', 'fontFamily', 'fontSize', 'lineHeight', 'color', 'backgroundColor', 'paddingTop', 'paddingLeft', 'marginTop',
+    'marginBottom', 'borderTopWidth', 'borderTopLeftRadius', 'whiteSpace', 'maxHeight', 'overflowX', 'overflowY'];
+  const b = document.querySelector('#live-bang');
+  return { html: b.outerHTML, boxes: [b, ...b.querySelectorAll('*')].map((n) => { const cs = getComputedStyle(n), r = n.getBoundingClientRect();
+    return [n.className, Math.round(r.left), Math.round(r.width), Math.round(r.height), ...props.map((p) => cs[p])].join('|'); }) }; })()"""
+# a part of the block that ends outside the window, or holds more across than its box (cut off, or scrolling sideways)
+LIVE_WIDE = """(() => { const vw = document.documentElement.clientWidth, b = document.querySelector('#live-bang');
+  const all = [b, ...b.querySelectorAll('*')].filter((n) => n.getClientRects().length);
+  return { parts: all.length, out: all.filter((n) => { const r = n.getBoundingClientRect(); return r.right > vw + 0.5 || r.left < -0.5; }).map((n) => n.className),
+           wide: all.filter((n) => n.clientWidth && n.scrollWidth > n.clientWidth + 1).map((n) => n.className + ' ' + n.scrollWidth + '>' + n.clientWidth) }; })()"""
+# one block, and nothing that is shown stands under it
+LIVE_LAST = """(() => { const shown = [...document.querySelector('#chat').children].filter((n) => n.getClientRects().length);
+  return document.querySelectorAll('#live-bang').length === 1 && shown.pop() === document.querySelector('#live-bang'); })()"""
+# Stop is on screen and nothing covers it
+STOP_REACHED = """(() => { const b = document.querySelector('#live-bang .live-stop'), r = b.getBoundingClientRect();
+  return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === b; })()"""
+# Stop's request is noted, and refused with a long word in the reason
+STOP_SPY = """(() => { const real = window.fetch; window.__stops = [];
+  window.fetch = (u, o) => { if (!String(u).endsWith('/stop')) return real(u, o); window.__stops.push([String(u), o.method, o.body]);
+    return Promise.resolve(new Response(JSON.stringify({ ok: false, error: %s }), { status: 502 })); }; return true; })()"""
+
+
+def live(browser, event: dict) -> None:
+    browser.evaluate(LIVE_EVENT % json.dumps(event))
+
+
+@pytest.mark.parametrize("width", [1280, 390, 360, 320])
+def test_a_running_command_has_the_session_views_live_block_and_stop_and_no_sideways_scroll(served, browser, monkeypatch, width):
+    write(served, *long_thread())   # long enough for the pane to scroll in both views, so that a scroll bar takes the same room in each
+    looks = {}
+    for layer in ("off", "on"):
+        open_chat(browser, served, monkeypatch, (width, 800 if width > 700 else 844), layer=layer)
+        if width < 700:
+            browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+            assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
+        assert wait_for(browser, f"{LAYERED} === {json.dumps(layer == 'on')} && document.querySelectorAll('#chat > .msg').length >= 30", 30.0)
+        assert browser.evaluate(LIVE_BLOCK) is None
+        live(browser, LIVE_RUNNING)
+        got = browser.evaluate(LIVE_BLOCK)
+        assert got == {"out": LIVE_TEXT, "stop": "Stop", "last": True, "label": "Running in the terminal", "note": "", "n": 1}, (layer, got)
+        browser.settle("document.querySelector('#live-bang')")
+        looks[layer] = browser.evaluate(LIVE_LOOK)
+    assert looks["on"] == looks["off"]
+    assert browser.evaluate(STOP_REACHED), "a command that starts leaves the reader at the end, with Stop in view"
+    browser.evaluate(STOP_SPY % json.dumps(LONG_ERROR))
+    browser.evaluate("document.querySelector('#live-bang .live-stop').click(); ''")
+    assert wait_for(browser, f"document.querySelector('#live-bang .live-note').textContent === {json.dumps(LONG_ERROR)}", 10.0), browser.evaluate(LIVE_BLOCK)
+    assert browser.evaluate("window.__stops") == [[f"api/s/{os.getpid()}/stop", "POST", "{}"]]
+    browser.settle("document.querySelector('#chat')")
+    m, block = browser.evaluate(MEASURE), browser.evaluate(LIVE_WIDE)
+    assert m["vw"] == width, m
+    check(m, f"{width} px with a running command")
+    assert block["parts"] == 6 and block["out"] == [] and block["wide"] == [], (width, block)
+
+
+def test_the_live_block_stays_under_the_growing_thread_and_goes_with_its_end_a_reconnect_or_another_session(served, browser, monkeypatch):
+    write(served, human("go on", 1), assistant("Done.", 2))
+    add_session(served, OTHER, "22222222-3333-4444-5555-666666666666", other_lines())
+    open_chat(browser, served, monkeypatch)
+    rows = [["me", "go on"], ["reply", "Done."]]
+    thread_is(browser, rows)
+    live(browser, WAITING)
+    assert browser.evaluate(LIVE_LAST)
+    browser.evaluate("window.__block = document.querySelector('#live-bang'); ''")
+    # a message sent, a transcript that grows, a session at work: what the layer draws goes above the block, which is never made again
+    send(browser, "and now?")
+    session_status(served, "busy")
+    append(served, human("typed in the pane", 3), assistant("Noted.", 4), human("one more", 5))
+    thread_is(browser, rows + [["me", "typed in the pane"], ["reply", "Noted."], ["me", "one more"], ["me", "and now?"]])
+    assert wait_for(browser, f"!!document.querySelector('#chat > .cl-mark') && {LIVE_LAST}", 20.0), browser.evaluate(LIVE_BLOCK)
+    live(browser, {**WAITING, "text": "code: ABCD-1234\nwaiting"})
+    got = browser.evaluate(LIVE_BLOCK)
+    assert got["out"] == "code: ABCD-1234\nwaiting" and got["n"] == 1, got
+    assert browser.evaluate("window.__block === document.querySelector('#live-bang')")
+    live(browser, {"running": False})
+    assert browser.evaluate(LIVE_BLOCK) is None
+    # a reconnect takes the block with its reset, as in the session view (the stream sends it again while the command runs), and keeps the thread
+    live(browser, WAITING)
+    browser.evaluate("window.__s = state.current; state.es.close(); openStream(window.__s, { resume: true }); ''")
+    assert wait_for(browser, "!document.querySelector('#live-bang')", 20.0)
+    assert browser.evaluate("document.querySelectorAll('#chat > .msg:not(.local)').length") == 5
+    live(browser, WAITING)
+    assert wait_for(browser, LIVE_LAST, 10.0), browser.evaluate(LIVE_BLOCK)
+    browser.evaluate(f"go('#s={OTHER}'); ''")
+    other_ready(browser)
+    assert browser.evaluate(LIVE_BLOCK) is None
+
+
+def test_a_command_running_while_the_thread_loads_ends_up_under_the_thread_with_stop_in_view(served, browser, monkeypatch):
+    write(served, *long_thread())
+    browser.send("Page.enable")
+    browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": HOLD})
+    open_chat(browser, served, monkeypatch, ready=False)
+    assert wait_for(browser, "window.__held >= 1 && !!document.querySelector('#chat > .empty')", 30.0)
+    live(browser, WAITING)
+    assert browser.evaluate(LIVE_LAST)
+    browser.evaluate("window.__hold = false; ''")
+    assert wait_for(browser, f"document.querySelectorAll('#chat > .msg').length >= 30 && {LIVE_LAST} && {STOP_REACHED}", 30.0), browser.evaluate(LIVE_BLOCK)
+
+
 # ── every other page ─────────────────────────────────────────────────────────
 # the thread, the title bar and the composer: the elements, their boxes and how they are painted
 SNAPSHOT = """(() => { const props = ['display', 'position', 'fontSize', 'lineHeight', 'color', 'backgroundColor', 'paddingTop', 'paddingLeft', 'marginTop',
@@ -920,3 +1033,113 @@ def test_on_another_sessions_page_is_the_page_it_is_with_the_setting_off(served,
     browser.evaluate(f"go('#s={NAME}'); ''")
     assert wait_for(browser, f"{LAYERED} && !!document.querySelector('#chat > .cl-older')", 20.0)
     thread_is(browser, SHOWN)
+
+
+# ── the rest of a reply: sent images, asked questions, an API error, an interrupt ───────────────────────────────
+@pytest.fixture
+def pictures(tmp_path, monkeypatch):
+    """The only folder a sent image may be read from; named before the app is (`served` comes after it in a test's arguments)."""
+    folder = tmp_path / "pictures"
+    folder.mkdir()
+    monkeypatch.setenv("SALA_WEB_IMAGE_ROOTS", str(folder))
+    return folder
+
+
+def picture_call(folder, name: str, caption: str, minute: int, uuid: str) -> dict:
+    line = call("SendUserFile", {"files": [str(folder / name)], "caption": caption, "status": "normal"}, minute)
+    return line | {"uuid": uuid}       # the image route refuses the helpers' short ids
+
+
+FIGURES = """[...document.querySelectorAll('#chat figure.sent')].map((f) => { const i = f.querySelector('img'), m = f.querySelector('.sent-missing');
+  if (i) f.scrollIntoView(); return [f.closest('.msg').className, i ? i.complete && i.naturalWidth : 0, m ? m.textContent : '',
+  (f.querySelector('figcaption') || {}).textContent || '']; })"""
+ASKED_DOM = """[...document.querySelectorAll('#chat > .msg.assistant > .cl-ask')].map((q) => [q.querySelector('.cl-ask-head').textContent,
+  q.querySelector('.cl-ask-q').textContent, [...q.querySelectorAll('ol > li')].map((li) => [...li.children].map((c) => c.textContent))])"""
+
+
+@pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
+@pytest.mark.parametrize("size", SIZES)
+def test_a_replys_images_questions_api_error_and_interrupt_are_in_the_layers_thread(pictures, served, browser, monkeypatch, size):
+    (pictures / "overview.png").write_bytes(png(64, 48))
+    image = picture_call(pictures, "overview.png", "The overview", 1, "33333333-4444-4555-8666-777777777771")
+    write(served, human("draw it", 1), image, tool_result(1), assistant("Drawn.", 2),
+          human("go", 3), api_error(minute=3), human("stop there", 4), interrupt(4),
+          human("pick one", 5), asked(5))
+    figure = "document.querySelector('#chat figure.sent').outerHTML"
+    loaded = f"(() => {{ const f = {FIGURES}; return f.length === 1 && f[0][1] === 64; }})()"
+    open_chat(browser, served, monkeypatch, size, layer=None)
+    assert wait_for(browser, loaded, 30.0), browser.evaluate(FIGURES)
+    plain = browser.evaluate(figure)
+    open_chat(browser, served, monkeypatch, size)
+    assert wait_for(browser, f"{LAYERED} && document.querySelectorAll('#chat .cl-ask').length === 2 && {loaded}", 30.0), browser.evaluate(THREAD)
+    assert browser.evaluate(figure) == plain, "drawn as the session view draws it"
+    assert browser.evaluate(FIGURES) == [["msg assistant", 64, "", "The overview"]]
+    assert browser.evaluate(ASKED_DOM) == [
+        ["Colour", "Which colour?", [["Red", "warm"], ["Blue", "cool", "<b>swatch</b>"]]],
+        ["Size", "Which size?", [["Small"]]]]
+    assert browser.evaluate(THREAD) == [
+        ["me", "draw it"], ["reply", ""], ["reply", "Drawn."], ["me", "go"], ["reply", OVERLOADED], ["me", "stop there"],
+        ["me", "[Request interrupted by user]"], ["me", "pick one"], ["reply", ""]]
+    assert browser.evaluate("document.querySelectorAll('#chat details, #chat .kept, #chat .tool').length") == 0
+    # a read of the newest page leaves what is drawn as it is
+    browser.evaluate("window.__q = document.querySelector('#chat .cl-ask'); SalaThreadLayer.refresh()")
+    append(served, tool_result(5), assistant("Red it is.", 6))
+    assert wait_for(browser, "document.querySelector('#chat').textContent.includes('Red it is.')", 20.0)
+    assert browser.evaluate("window.__q === document.querySelector('#chat .cl-ask') && document.querySelectorAll('#chat .cl-ask').length === 2")
+
+
+@pytest.mark.parametrize("served", [{"status": "busy"}], indirect=True)
+def test_the_interrupt_line_takes_no_pending_bubble_and_says_nothing_of_the_owners_language(served, browser, monkeypatch):
+    write(served, human(KO_OWNER, 1), interrupt(1), assistant(KO_TURN, 2, stop="tool_use", tool=True), tool_result(2))
+    open_chat(browser, served, monkeypatch)
+    assert wait_for(browser, "document.querySelectorAll('#chat > .msg.user').length === 2 && !!document.querySelector('#chat > .cl-mark')", 20.0)
+    assert browser.evaluate(MARK)["turn"] == KO_TURN, "held against the owner's own last message, not the interrupt line"
+    write(served, human("go on", 3))
+    browser.evaluate("SalaThreadLayer.refresh()")
+    thread_is(browser, [["me", "go on"]])
+    send(browser, "one more thing")
+    assert browser.evaluate(PENDING) == ["one more thing"]
+    line = interrupt(4)
+    line["timestamp"] = now()
+    append(served, line)
+    assert wait_for(browser, "[...document.querySelectorAll('#chat > .msg:not(.local)')].some((m) => m.textContent.includes('Request interrupted'))", 20.0)
+    assert browser.evaluate(PENDING) == ["one more thing"] and browser.evaluate("state.pending.length") == 1
+
+
+# every box of what this section draws ends inside the window and holds its own words
+REST_WIDE = """(() => { const vw = document.documentElement.clientWidth, out = [], wide = [];
+  for (const n of document.querySelectorAll('#chat .cl-ask, #chat .cl-ask *, #chat figure.sent, #chat figure.sent *, #chat > .msg .bubble, #chat > .msg .md')) {
+    if (!n.getClientRects().length) continue;
+    const r = n.getBoundingClientRect();
+    if (r.width && (r.right > vw + 0.5 || r.left < -0.5)) out.push(n.tagName + '.' + n.className + ' ' + Math.round(r.left) + '-' + Math.round(r.right));
+    if (n.clientWidth && n.scrollWidth > n.clientWidth + 1) wide.push(n.tagName + '.' + n.className + ' ' + n.scrollWidth + '>' + n.clientWidth);
+  }
+  return { out: out.slice(0, 8), wide: wide.slice(0, 8), asked: document.querySelectorAll('#chat .cl-ask').length,
+           images: document.querySelectorAll('#chat figure.sent img').length, missing: document.querySelectorAll('#chat .sent-missing').length }; })()"""
+
+
+@pytest.mark.parametrize("served", [{"status": "waiting"}], indirect=True)
+@pytest.mark.parametrize("width", [1280, 390, 360, 320])
+def test_no_sideways_scroll_with_sent_images_questions_an_api_error_and_an_interrupt(pictures, served, browser, monkeypatch, width):
+    long_name, gone_name = "n" * 200 + ".png", "g" * 200 + ".png"
+    (pictures / long_name).write_bytes(png(2400, 60))
+    wide_words = f"{WORD} {URL}\n{CODE}"
+    questions = [{"header": WORD, "question": wide_words, "options": [
+        {"label": WORD, "description": wide_words, "preview": f"{CODE}\n{WORD}\n" + "-" * 200},
+        {"label": URL, "description": "a long description " * 20}]}]
+    write(served, human("draw it " + WORD, 1), picture_call(pictures, long_name, WORD, 1, "33333333-4444-4555-8666-777777777772"),
+          picture_call(pictures, gone_name, "a long caption " * 20, 1, "33333333-4444-4555-8666-777777777773"), tool_result(1),
+          api_error('API Error: 400 {"type":"error","detail":"' + WORD + '"} ' + URL, 2),
+          human("stop " + WORD, 3), interrupt(3), human("pick " + WORD, 4), asked(4, questions))
+    open_chat(browser, served, monkeypatch, (width, 800 if width > 700 else 844), doc=strip_doc())
+    if width < 700:
+        browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
+        assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
+    ready = (f"(() => {{ const f = {FIGURES}; return f.length === 2 && f.some((x) => x[1] === 2400) && f.some((x) => !!x[2]) && "
+             "document.querySelectorAll('#chat .cl-ask').length === 1 && document.querySelectorAll('#chat-strip-wait .wait-row').length === 2; })()")
+    assert wait_for(browser, ready, 30.0), browser.evaluate(REST_WIDE)
+    browser.settle("document.querySelector('#chat')")
+    m, rest = browser.evaluate(MEASURE), browser.evaluate(REST_WIDE)
+    assert m["vw"] == width, m
+    check(m, f"{width} px with the rest of the replies")
+    assert rest == {"out": [], "wide": [], "asked": 1, "images": 1, "missing": 1}, (width, rest)

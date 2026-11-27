@@ -363,12 +363,17 @@ dm_echo_off() {
     fi
 }
 
+# dm_await_line: returns once the terminal has something for `read` (a line, or the end of input); each hidden prompt calls it first. Bash only notes
+# a trapped signal when it lands, and runs the trap between two commands: one that landed as `read` was about to block waited there until a line was
+# typed, the command still running with echo off. `read -t 0` takes nothing, and a pending trap runs after each short sleep.
+dm_await_line() { until read -t 0; do sleep 0.1; done; }
+
 dm_cmd_set_token() {   # <app>
     local app=$1 val="" rc
     if [ ! -t 0 ]; then dm_err "--set-token needs a terminal (the token is typed at a hidden prompt, never taken from a pipe or an argument)"; return 2; fi
     dm_echo_off || { dm_err "cannot turn terminal echo off; nothing was asked"; return 2; }
     printf 'Paste the bot token for %s (xoxb-…; nothing is shown as you paste), then Enter: ' "$app" >&2
-    IFS= read -rs val; echo >&2
+    dm_await_line; IFS= read -rs val; echo >&2
     dm_echo_on
     dm_store_one "$app" "$val"; rc=$?; val=""
     [ "$rc" = 0 ] || return "$rc"
@@ -390,6 +395,7 @@ dm_cmd_set_token_all() {
         if [ "$eof" = 1 ]; then out+=("$a: skipped"); continue; fi
         if ! dm_check_app "$a"; then out+=("$a: refused"); bad=1; continue; fi
         printf 'token for %s (Bot User OAuth Token, xoxb-...): ' "$a" >&2
+        dm_await_line
         if IFS= read -rs val; then :; else eof=1; val=""; fi
         echo >&2
         val=${val//[[:space:]]/}
