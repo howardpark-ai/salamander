@@ -141,7 +141,10 @@ recycles was counted back in only one and the other set stayed open. Now:
     still running, or the pane not idle) leaves the session ONE note, text `[escape] …`, handed to its live pid at once by watch (not at a
     relaunch, not behind the inbox hold) and archived when delivered, so it is one-time: it says sala sent the Escape, that a tool call
     rejected or shown "interrupted by user" from that moment was sala's and nobody refused it, and that the call may be run again. A later
-    try replaces an undelivered one; a pause that takes drops it (its `[paused]` note covers the same). Subagents and shells the Escape left are stopped
+    try replaces an undelivered one; a pause that takes with an Escape of its own drops it (its `[paused]` note covers the same). **With no
+    Escape sent, nothing about one is written**: a failed try leaves no note, and the `[paused]` note of a pane that was already out of its
+    turn has no sentence about sala's Escape (an earlier try's undelivered `[escape]` note then stays, and is delivered once the pane is no
+    longer paused). Subagents and shells the Escape left are stopped
     the one way a recycle stops them, once the pane is out of its turn (below: the exit dialog's "Exit and stop tasks"); sala has no other
     way to stop a subagent, and sends nothing to a pane that stays in its turn beyond the one Escape of each try. Background
     work does not hold a paused pane for `SALA_PAUSE_TTL` (15 min): subagents and background shells end with the relaunch (the CLI's

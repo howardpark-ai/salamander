@@ -14,7 +14,8 @@
 #     after SALA_PAUSE_TRIES failed tries every SALA_PAUSE_AFTER s; a pane found free clears the record;
 #   - a try whose Escape went in and did not take leaves ONE note for the live pid ("[escape] ", lib/common.sh pause_escape_note): handed over
 #     through the messaging socket at once (even on the same pid), archived when delivered, replaced by each later try, dropped by a taking
-#     pause; a successful pause leaves only its [paused] note; no Escape, no [escape] note;
+#     pause; a successful pause leaves only its [paused] note; no Escape, no [escape] note and no sentence about sala's Escape in the [paused]
+#     note (a failed or a taking pause of a pane that is out of its turn already, a pane waiting on a dialog, a send that fails);
 #   - the deferred-pane bullet: made again from the pane for every post (its age is the pause clock's when that is longer than the registry's),
 #     and it says when the pause comes (and that it is being retried once that time has passed);
 #   - off keeps the old wait; scope off and background (no back-agent role here) keep a front agent waiting; the dry run says what it would do;
@@ -126,6 +127,8 @@ for w in '[paused] Your turn was paused by a recycle' 'The last line you were wo
     has "$txt" "$w" && ok "the note says: $w" || bad "note lacks '$w': $txt"
 done
 txt=$(pause_note_text "recycle" 1700000000 60 <<< $'inboxkind\tmsg'); has "$txt" 'A msg line was waiting in your inbox' && ok "a server-mode box (no inbox folder): the note says a line waits" || bad "inboxkind: $txt"
+has "$txt" "sala's Escape" && bad "no Escape sent, but the note speaks of one: $txt" || ok "no Escape sent: the note says nothing of sala's Escape"
+txt=$(PAUSE_ESC=1; pause_note_text "recycle" 1700000000 60 <<< ''); has "$txt" "was sala's Escape, not the user's: nobody refused it." && ok "an Escape sent: the note says the interrupted call was sala's" || bad "escape sentence: $txt"
 
 echo "== the panes: a (the pause), d (a draft), n (SALA_NO_PAUSE), i (an Escape that does nothing), e (the switches), w (deferred), r (the retry worker)"
 mk a "$UA" -e FAKE_ESC_IDLE=1 -e FAKE_EXIT_DIALOG='subagent · worker'
@@ -157,6 +160,7 @@ note=$(slurp "$NOTES")
 has "$note" $'\tsala-test-a\t'"$UA"$'\t' && has "$note" '[paused] Your turn was paused by a' && ok "the note is for that conversation and starts [paused]" || bad "note: $note"
 has "$note" 'Build page-creation PR for copy switch' && has "$note" 'Wait for the release unit' && has "$note" 'build the copy switch page' && ok "it names the subagent and call descriptions and the line it was working from" || bad "note text: $note"
 has "$note" 'infra-x: "is the release done?"' && ok "it names the message held for it: sender and first line" || bad "inbox in note: $note"
+has "$note" "was sala's Escape" && ok "it says the interrupted call was sala's Escape (one was sent)" || bad "no Escape sentence: $note"
 has "$note" SECRET && bad "the note carries a command or a result" || ok "no command or result in the note"
 has "$note" hunter2 && bad "a token in the note" || ok "no token in the note"
 grep -qF "$UA" "$HM" 2>/dev/null && bad "the inbox is still held: $(cat "$HM")" || ok "the held inbox was released with the relaunch"
@@ -246,6 +250,34 @@ waitfor '[ "$(nsock "$UF")" -ge 1 ]' 40 && has "$(slurp "$FAKE_SOCK_LOG")" 'sala
 wait_lock; "$SALA" note --deliver >/dev/null 2>&1; sleep 1
 [ "$(nsock "$UF")" = 1 ] && ok "not delivered again on the next pass" || bad "f redelivered: $(nsock "$UF")"
 wait_lock
+
+echo "== g: no Escape sent, nothing written about one (pause_pane called directly, the registry status set by hand)"
+UG=$(uuid 42); mk g "$UG" -e FAKE_ESC_IDLE=1; fake_up sala-test-g; GPID=$(cpid g); GP=$(tmux display -p -t sala-test-g '#{pane_id}')
+grows() { grep -c "$UG" "$NOTES" 2>/dev/null || true; }
+gpause() { ( SALA_IDLE_SETTLE=0; [ -z "${1:-}" ] || is_idle_reason() { echo 'a new turn started'; }; pause_pane "$GP" sala-test-g "$GPID" "$UG"; rc=$?; echo "rc=$rc esc=$PAUSE_ESC $PAUSE_WHY" ); }
+set_reg_status "$GPID" idle; OUT=$(gpause held)
+has "$OUT" 'rc=1 esc=0 the pane was not idle once its turn was interrupted' && ok "an idle pane that is not free: the try fails, no Escape sent" || bad "g not idle: $OUT"
+[ "$(grows)" = 0 ] && [ "$(escs "$UG")" = 0 ] && ok "and no note at all was written" || bad "g not idle: escs $(escs "$UG") notes $(cat "$NOTES")"
+set_reg_status "$GPID" waiting; OUT=$(gpause)
+has "$OUT" 'rc=1 esc=0 ' && [ "$(grows)" = 0 ] && ok "a pane waiting on a dialog: no Escape, no note" || bad "g waiting: $OUT notes $(cat "$NOTES")"
+busy g; OUT=$(tmux() { [ "$1" != send-keys ] && command tmux -L "$SOCK" -f /dev/null "$@"; }; gpause)
+has "$OUT" 'rc=1 esc=0 ' && [ "$(grows)" = 0 ] && [ "$(escs "$UG")" = 0 ] && ok "a send that fails: not counted as sent, no note" || bad "g send fails: $OUT escs $(escs "$UG") notes $(cat "$NOTES")"
+rm -f "$PD/$UG".*; set_reg_status "$GPID" idle
+PAUSE_AT=$(date +%s) pause_escape_note sala-test-g "$UG" "$GPID" recycle >/dev/null   # an earlier try's note, not delivered yet
+OUT=$(gpause)
+has "$OUT" 'rc=0 esc=0' && [ "$(escs "$UG")" = 0 ] && ok "an already idle pane: paused with no Escape" || bad "g idle pause: $OUT"
+gnote=$(grep "$UG" "$NOTES" | grep -F '[paused] ')
+has "$gnote" 'Your turn was paused by a' && ! has "$gnote" "sala's Escape" && ! has "$gnote" 'interrupted by user' && ok "its [paused] note has no sentence about sala's Escape" || bad "g [paused] note: $gnote"
+[ "$(escrows "$UG")" = 1 ] && ok "the earlier try's undelivered [escape] note stays (the [paused] note does not cover it)" || bad "g earlier note: $(cat "$NOTES")"
+"$SALA" note --deliver >/dev/null 2>&1; sleep 1
+[ "$(nsock "$UG")" = 0 ] && [ "$(escrows "$UG")" = 1 ] && ok "and is not delivered into the pane while it is paused" || bad "g delivered while paused: $(nsock "$UG")"
+rm -f "$PD/$UG".*; "$SALA" note --deliver >/dev/null 2>&1
+waitfor '[ "$(nsock "$UG")" -ge 1 ] && [ "$(escrows "$UG")" = 0 ]' 40 && ok "once the pane is no longer paused it is delivered, once" || bad "g not delivered: $(nsock "$UG") $(cat "$NOTES")"
+busy g; PAUSE_AT=$(date +%s) pause_escape_note sala-test-g "$UG" "$GPID" recycle >/dev/null
+OUT=$(gpause)
+gnote=$(grep "$UG" "$NOTES" | grep -F '[paused] ' | tail -1)
+has "$OUT" 'rc=0 esc=1' && [ "$(escs "$UG")" = 1 ] && has "$gnote" "was sala's Escape" && [ "$(escrows "$UG")" = 0 ] && ok "a pause that takes with its Escape: the sentence is in the [paused] note, the earlier [escape] note is dropped" || bad "g sent: $OUT escs $(escs "$UG") $(cat "$NOTES")"
+rm -f "$PD/$UG".*
 
 echo "== i again: watch's deferred list tries a pause that did not take again after SALA_PAUSE_RETRY s, not after 10 min"
 now=$(date +%s)

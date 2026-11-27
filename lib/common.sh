@@ -2710,11 +2710,13 @@ waiting_prune() {  # watch: a flag whose owner is gone (a killed worker, a reboo
 #     under, so it is due the moment the conversation is live on another pid (lib/note.sh delivers it, at once after the resume and at
 #     watch's next tick). It carries the time of the pause, the last line the session was working from, the descriptions of the subagents
 #     and tool calls in flight (lib/pauseinfo.py: descriptions only, never a command or a tool result) and the count of background
-#     processes that had run under the pane.
+#     processes that had run under the pane. The sentence about sala's Escape is in it only when this pause sent one (PAUSE_ESC=1).
 #   · AN ESCAPE THAT DID NOT TAKE (pause_escape_note, pause_escape_drop): a try that sent its Escape and then failed leaves ONE note for the
 #     conversation, text "[escape] …", stored on the live claude pid. lib/note.sh --deliver hands it to that pid at once (not at a relaunch,
 #     and not behind pause_hold: delivery goes through the messaging socket) and archives it when delivered, so it is one-time. Each later
-#     try replaces an undelivered one; a pause that takes drops it, since its [paused] note says the same.
+#     try replaces an undelivered one; a pause that takes with an Escape of its own drops it, since its [paused] note says the same. A pause
+#     that takes with no Escape keeps it (its [paused] note says nothing of one), and it is not delivered into the pane while that is paused.
+#     No Escape sent, nothing written: neither this note nor that sentence.
 SALA_PAUSE_DIR="$SALA_STATE_DIR/pause"
 : "${SALA_STACKSHOT_INBOX:=$HOME/.local/state/stackshot/inbox}"   # stackshot's inbox (hub/ and msg/ under it), read for the note's list of held messages; lib/wrapup.sh sets the same default
 pause_after_r() {  # <var> → SALA_PAUSE_AFTER in seconds; 0 = off (0, off, no, false); anything that is not a number reads as the default
@@ -2827,7 +2829,7 @@ pause_refusal_r() {  # <var> <pane> <tmux session> <claude-pid> → why this pan
 # pane_interrupt <pane> <claude-pid> → 0 when the pane is out of its turn (idle, or held by background work alone) in the registry; 1 when it is
 # not within SALA_PAUSE_IDLE_WAIT seconds. ONE Escape, only into a pane whose row says busy and that shows no dialog (the same care as
 # leave_shell_mode: an Escape is a key like any other); nothing is typed, and nothing more is ever sent to a pane that stays in its turn.
-PAUSE_ESC=0   # set to 1 once pane_interrupt has sent its Escape (pause_pane writes the Escape note only then)
+PAUSE_ESC=0   # 1 once pane_interrupt has sent its Escape: only then is the Escape note written, or the [paused] note's Escape sentence
 pane_interrupt() {
     local st i
     PAUSE_ESC=0
@@ -2835,7 +2837,7 @@ pane_interrupt() {
     if [ "$st" != busy ]; then [ "$st" = idle ] || [ "$st" = shell ]; return; fi
     pane_prompt "$1" && return 1
     unmode "$1"
-    tmux send-keys -t "$1" Escape; PAUSE_ESC=1
+    tmux send-keys -t "$1" Escape && PAUSE_ESC=1
     for ((i = 0; i < SALA_PAUSE_IDLE_WAIT * 2; i++)); do
         _nap 0.5; registry_field_r st "$2" status
         if [ "$st" = idle ] || [ "$st" = shell ]; then return 0; fi
@@ -2870,7 +2872,8 @@ pause_inbox_lines() {
     SALA_SCRUB_PY="$SALA_SCRUB_PY" python3 -I -S "$SALA_ROOT/lib/pauseinfo.py" inbox "$SALA_STACKSHOT_INBOX" "$1" "$2" 2>/dev/null
     return 0
 }
-# pause_note_text <kind words> <epoch paused> <seconds held> <context lines on stdin> → the note's text (lib/note.sh squeezes tabs and newlines itself)
+# pause_note_text <kind words> <epoch paused> <seconds held> <context lines on stdin> → the note's text (lib/note.sh squeezes tabs and newlines
+# itself); reads PAUSE_ESC for the sentence about sala's Escape
 pause_note_text() {
     local what="$1" at="$2" held="$3" k a b trig="" subs="" calls="" bg="" procs="" msgs="" mkind=""
     while IFS=$'\t' read -r k a b; do
@@ -2892,7 +2895,8 @@ pause_note_text() {
     [ -z "$procs" ] || printf ' %s.' "${procs^}"
     [ -z "$msgs" ] || printf ' Messages held for you while the relaunch waited, or sent since (they reach you after the relaunch; sender and first line here): %s.' "$msgs"
     [ -n "$msgs" ] || [ -z "$mkind" ] || printf ' A %s line was waiting in your inbox when you were paused; it reaches you after the relaunch.' "$mkind"
-    printf ' A tool call that was rejected, or shows "interrupted by user", from the pause was sala'"'"'s Escape, not the user'"'"'s: nobody refused it. A release or other job that runs in its own systemd unit goes on without you: look at its result.'
+    [ "$PAUSE_ESC" != 1 ] || printf ' A tool call that was rejected, or shows "interrupted by user", from the pause was sala'"'"'s Escape, not the user'"'"'s: nobody refused it.'
+    printf ' A release or other job that runs in its own systemd unit goes on without you: look at its result.'
 }
 # note_add_for <session> <uuid> <claude-pid> <text> → the id of a note left FOR that conversation (lib/note.sh's store and format; it is due
 # once the conversation is live on a pid other than this one, which any relaunch does)
@@ -2932,7 +2936,7 @@ pause_escape_drop() {
     ( flock -w 30 8 || exit 1; awk -F'\t' -v u="$1" '!($3 == u && substr($8, 1, 9) == "[escape] ")' "$notes" > "$notes.tmp.$$" && mv -f "$notes.tmp.$$" "$notes" ) 8>"$notes.lock"
 }
 # pause_pane <pane> <tmux session> <claude-pid> <uuid> → 0 when the pane is paused (out of its turn, its marker and note written), 1 when it is not
-# (PAUSE_WHY says why; nothing typed, no marker, no note). check_pane calls it for a pane whose clock is due (pause_due) and that
+# (PAUSE_WHY says why; nothing typed, no marker, no [paused] note; the [escape] note when an Escape was sent). check_pane calls it for a pane whose clock is due (pause_due) and that
 # pause_refusal_r lets through.
 PAUSE_WHY=""; PAUSE_AT=0; PAUSE_HELD=0
 pause_pane() {
@@ -2952,10 +2956,10 @@ pause_pane() {
     txt=$(is_idle_reason "$cpid")
     if [ -n "$txt" ]; then
         rm -f "$f"; pause_failed "$uuid"
-        pause_escape_note "$sess" "$uuid" "$cpid" "$kind" >/dev/null   # the Escape went in and the turn is still going
+        [ "$PAUSE_ESC" = 1 ] && pause_escape_note "$sess" "$uuid" "$cpid" "$kind" >/dev/null   # the Escape went in and the turn is still going
         PAUSE_WHY="the pane was not idle once its turn was interrupted ($txt)$(pause_retry_words "$uuid")"; return 1
     fi
-    pause_escape_drop "$uuid"   # the pause took: its [paused] note says the same, so an earlier failed try's Escape note is dropped
+    [ "$PAUSE_ESC" != 1 ] || pause_escape_drop "$uuid"   # the pause took and its [paused] note says the same, so an earlier failed try's Escape note is dropped
     ctx+=$'\n'"$(pause_inbox_lines "$sess" "$uuid")"   # read now: what was held through the wait and arrived while the turn was cut
     txt=$(pause_note_text "$kind" "$PAUSE_AT" "$PAUSE_HELD" <<< "$ctx"; echo x); txt=${txt%x}
     nid=$(note_add_for "$sess" "$uuid" "$cpid" "$txt") || nid=""
