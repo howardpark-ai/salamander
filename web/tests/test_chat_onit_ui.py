@@ -235,7 +235,8 @@ def test_a_row_shows_the_topic_since_when_and_how_late(served, browser, monkeypa
     assert [(m["cls"], m["tone"], m["text"]) for m in red] == [("red", "red", "since 7 days ago")], red
     assert [(m["cls"], m["tone"], m["text"]) for m in hour] == [("", "", "since 1 hour ago")], hour
     assert [(m["cls"], m["tone"]) for m in fresh] == [("", "")] and fresh[0]["text"] in ("just now", "since 1 min ago"), fresh
-    assert all(re.fullmatch(r"(\w{3}, \w{3} \d{1,2}, )?\d\d:\d\d KST", m["tip"]) for m in late + red + hour + fresh), got
+    # the exact time in the zone the server names (SALA_TZ; conftest sets Asia/Dubai, so its label is not KST): the clock, the date on an older day, then the label
+    assert all(re.fullmatch(r"(\w{3}, \w{3} \d{1,2}, )?\d\d:\d\d \S+", m["tip"]) for m in late + red + hour + fresh), got
     # an item new to the first list since the page's first answer is tagged "new" there; a row of the second list never carries the tag
     change(browser, motion=promises() + [line("one more")], waiting=waiting(3))
     assert wait_for(browser, f"{PIN}.querySelectorAll('#{ONIT_PANEL} .wait-row').length === 5", 10.0)
