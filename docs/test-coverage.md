@@ -5528,3 +5528,13 @@ Kept (`test_chat_onit_ui.py`, a headless Chromium at 1280x800 and 390x844, the w
 Changed: the one-line form of the pinned part is gone, so `test_chat_wait_pin_ui.py` presses the first tab and reads the chevron's state and title, `test_chat_boot_ui.py` holds one row above the thread (the kept-back switch) and the bar of two tabs in every case, `test_chat_layer_ui.py` (whose sheet hides that switch) reads the second list's rows where it read the removed block, `test_chat_session_view_ui.py`, `test_chat_retired_ui.py` and `test_chat_answer_ui.py` scope their counts to a list, and `test_chat_session_view.py` and `test_chat_group_words.py` follow the page's text (four `tl()` calls of `app.js` pass the group).
 
 Not covered, and why: whether a session adds and takes off its lines (the help and the guide ask it to; nothing checks a promise made in words); a page of the previous build left open against the new server (it finds no `onIt` and draws `motion` in its block, by reading the old script; not run).
+
+### A notice every live session has had or skipped is dropped after a day: `tests/notice.sh` (Fri Nov 27th 2026)
+
+About a hundred notices piled up because a notice left only when it expired, although nearly all had nothing still due. Pruning now also drops a notice that is at least a day old and that no live session is still due for; one that is younger, or still due for a live session, stays until `--until` (default 7 days). `notices.seq` is never pruned.
+
+Covered, in `tests/notice.sh`: an old notice with nothing due is pruned; a young one with nothing due stays; an old one still due for a live session stays; an old, due notice past its `--until` is pruned; `list` shows the ones that stayed; the next id after a prune is not a reused one.
+
+Changed: `lib/notice.py`, `lib/notice.sh`, `bin/salamander`, `docs/notices-and-hooks.md`, `tests/help-snapshot.txt`, `tests/notice.sh`.
+
+Not covered, and why: a session that comes live late (the grace is the one-day constant, exercised through the young case).

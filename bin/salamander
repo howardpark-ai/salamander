@@ -120,7 +120,7 @@
 #   salamander notice add "<text>" --from NAME [--until WHEN] | list [--json] | drop ID   a one-time line every LIVE session sees at its next tool call or prompt,
 #                                      with no relaunch (lib/notice.sh; docs/notices-and-hooks.md, "Telling every session something"): one line of at most 400 characters, shown once per
 #                                      session as "[sala notice <id> from NAME] <text>", several due at once in one block, oldest first; a session that started after
-#                                      the notice skips it; --until an epoch, a span (90m, 12h, 7d) or an ISO 8601 time (default 7 days); add prints the id and how many live
+#                                      the notice skips it; --until an epoch, a span (90m, 12h, 7d) or an ISO 8601 time (default 7 days; a notice every live session has had or skipped is dropped after a day); add prints the id and how many live
 #                                      sessions it reaches, list how many had it and how many are still due, drop withdraws it for the sessions not yet reached
 #   salamander lane [<lane> <session>…|<lane> --all|default <lane>] [--dry-run] [--rescue]   which account or key each pane's claude runs on
 #                                      (subscription-1 (shown as Ultra; max still works) · api · subscription-2 (shown as Team; team still works) · bedrock (the AWS profile SALA_LANE_BEDROCK_PROFILE names) · aws-platform (Claude Platform on AWS); sdk, an alias of api with client claude-agent-sdk), the switch (recorded, then relaunched on it, resumed; a recycle

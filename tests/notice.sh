@@ -10,7 +10,7 @@
 # paths start no process (no notice file; a notice this session has seen: the hook runs with an empty PATH and says nothing, and under
 # strace, where there is one, only the shell itself is executed); a malformed payload, a bad session id, a broken state folder and a
 # garbage notice file all print nothing and exit 0; prune (expired notices out, the delivery files of gone sessions out, all of them
-# once no notice is left).
+# once no notice is left); a notice every live session has had or skipped is pruned after a day, one younger or still due stays.
 # No tmux, no claude: the hooks read JSON from stdin, the live sessions are registry rows under an isolated HOME naming this suite's
 # own pids. Nothing is killed.
 # Usage: bash tests/notice.sh   (exit 0 = pass; seconds)
@@ -164,6 +164,27 @@ for n in $("$SALA" notice list --json | python3 -c 'import json, sys; print(*[d[
 [ ! -e "$SEEN" ] && [ "$(count_notices)" = 0 ] && ok "no notice left: every delivery file and the folder go" || bad "all dropped: $(ls "$SEEN" 2>&1)"
 out=$("$SALA" notice list); [ "$out" = "no active notices" ] && ok "list: no active notices" || bad "list empty: $out"
 [ "$(slurp "$ST/notices.seq")" -ge 11 ] && ok "the id counter is kept, so an id is never reused" || bad "seq: $(slurp "$ST/notices.seq")"
+
+echo "== prune: a notice no live session is still due for goes after a day; one still due, or younger, stays; ids are not reused"
+D=86400
+row $$ "$S1" $((NOW - 3 * D))                                                     # S1's conversation is older than every notice below, so it is due for any it has not seen
+mkdir -p "$SEEN"; printf '21\n' > "$SEEN/$S1"; printf '22\n' > "$SEEN/$S3"; printf '22\n' > "$SEEN/$S5"
+printf '20\t%s\ttester\t%s\tsettled and old\n'  $((NOW - 2 * D)) $((NOW + D)) >  "$NF"     # every live session has it: due 0, two days old
+printf '21\t%s\ttester\t%s\tsettled and young\n' $((NOW - 3600))  $((NOW + D)) >> "$NF"     # due 0 too, but an hour old
+printf '22\t%s\ttester\t%s\tstill due\n'        $((NOW - 2 * D)) $((NOW + D)) >> "$NF"     # old, and S1 has not had it
+printf '23\t%s\ttester\t%s\texpired and due\n'  $((NOW - 2 * D)) $((NOW - 10)) >> "$NF"     # old, due, but past --until
+printf '22\n' > "$ST/notices.seq"
+"$SALA" notice prune >/dev/null; kept=$(slurp "$NF")
+[[ $kept != *"settled and old"* ]] && ok "due 0 for every live session and over a day old: pruned" || bad "old settled kept: $kept"
+[[ $kept == *"settled and young"* ]] && ok "due 0 but under a day old: stays (the grace)" || bad "young settled gone: $kept"
+[[ $kept == *"still due"* ]] && ok "still due for a live session: stays even when old" || bad "due gone: $kept"
+[[ $kept != *"expired and due"* ]] && ok "past --until: pruned as before, due or not" || bad "expired kept: $kept"
+out=$("$SALA" notice list); [[ $out == *"22  from tester"* ]] && [[ $out == *"still due 1"* ]] && [[ $out != *"settled and old"* ]] && ok "list shows the ones that stayed" || bad "list after prune: $out"
+"$SALA" notice drop 21 >/dev/null; "$SALA" notice drop 22 >/dev/null
+"$SALA" notice add "after the prune" --from tester >/dev/null; IFS=$'\t' read -r id _ < "$NF"
+[ "$id" -gt 22 ] && ok "an id is not reused after a prune (the next is $id)" || bad "id reused: $id"
+"$SALA" notice drop "$id" >/dev/null
+row $$ "$S1" $((NOW - 600))
 
 echo "== add: help words and a dash-first text never post (a real incident: \"sala notice add --help\" posted \"--help\" to every session)"
 before=$(slurp "$NF" 2>/dev/null); seq_before=$(slurp "$ST/notices.seq" 2>/dev/null)

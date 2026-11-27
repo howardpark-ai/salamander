@@ -4,7 +4,7 @@
   notice.py add TEXT --from SENDER [--until WHEN]    append a notice; prints "<id>\t<until epoch>\t<live sessions it reaches>"
   notice.py list [--json]                            the active notices, each with how many live sessions had it and how many are still due
   notice.py drop ID                                  withdraw a notice
-  notice.py prune                                    drop expired notices and the delivery state of sessions that are gone
+  notice.py prune                                    drop expired notices, notices every live session has had or skipped (a day old), and the delivery state of sessions that are gone
   notice.py deliver SESSION_ID EVENT                 the hooks' slow path: print the hook JSON for what is due to this session (and for
                                                      $SALA_NOTICE_PRE, a line the hook already has), record it as delivered
 
@@ -15,7 +15,8 @@ State, all under $SALA_STATE_DIR (default ~/.local/state/salamander):
                      the mtime notices.tsv had when it was read, so the hooks' `[ notices.tsv -nt seen ]` is the whole fast path
   notices.lock       flock for every read-modify-write of the above
 
-A session whose conversation started after a notice was created skips it (it loaded the current rules at its start): the start is
+A notice is removed when it expires (--until, default 7 days) or when no live session is still due for it and it is a day old (the
+day covers a session that resumes an older conversation or comes live late). A session whose conversation started after a notice was created skips it (it loaded the current rules at its start): the start is
 the later of the CLI's registry row (startedAt of the process holding the conversation) and sala's session registry (the first record
 of that conversation). Unknown start: the notice is delivered. A delivery never fails the caller: deliver prints nothing and exits 0
 on any error.
@@ -31,6 +32,7 @@ SEEN = os.path.join(STATE, "notices-seen")
 LOCK = os.path.join(STATE, "notices.lock")
 MAXLEN = 400
 DEFAULT_TTL = 7 * 86400
+SETTLED_AFTER = 86400      # a notice every live session has had or skipped is dropped once it is this old
 SID_RE = re.compile(r"[0-9A-Za-z_-]{8,64}\Z")
 SENDER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 EVENTS = {"PostToolUse", "UserPromptSubmit"}
@@ -176,9 +178,14 @@ def write_seen(sid, value, mtime_ns):
 
 
 def prune_locked(now):
-    """expired notices out; with none left, every delivery file out; else the files of sessions that are gone and a day idle"""
+    """expired notices out, and a notice no live session is still due for once it is a day old; with none left, every delivery file out;
+    else the files of sessions that are gone and a day idle"""
     rows = read_notices()
     keep = [r for r in rows if r[3] > now]
+    old = [r for r in keep if now - r[1] >= SETTLED_AFTER]
+    if old:
+        t = tallies(old)
+        keep = [r for r in keep if r not in old or t[r[0]][1] > 0]
     if len(keep) != len(rows):
         write_notices(keep)
     try:
