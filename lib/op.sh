@@ -1024,6 +1024,8 @@ op_usage() {
     awk '/^#   salamander op /{p=1} p{print} /^#   salamander watch --ops/{exit}' "$SALA_ROOT/lib/op.sh" | sed 's/^# \{0,1\}//'
     echo "verbs:"; op_shapes
 }
+# a call with no verb (a bare `sala op`, or flags alone): one line on stderr, exit 2; the verbs are one `sala op --help` away
+op_bare() { echo "usage: sala op <verb> [args…] --from NAME --words \"<the owner's words>\" (the verbs: sala op --help)"; }
 op_kick() {  # <id> — the watch runs the queue within seconds: the service started now, or a one-off `watch --ops` after a tick already running
     command -v systemctl >/dev/null 2>&1 || { echo "   no systemctl here: the next \`salamander watch\` run starts it"; return 0; }
     local st; st=$(systemctl --user is-active sala-watch.service 2>/dev/null)
@@ -1090,7 +1092,7 @@ op_mandate_to_file() {  # <id> <name> — THE MANDATE'S TRANSPORT (the header): 
 op_main() {
     local verb="" args=() from="" words="" nowords="" ownrow="" item="" why="" stdin=0 auto=0 mode=add id f ep out rc c _na _i _r _sl=() _ot=() a
     OP_REASON_WHY=""; OP_OWN_WHY=""
-    [ $# -gt 0 ] || { op_usage >&2; return 2; }
+    [ $# -gt 0 ] || { op_bare >&2; return 2; }
     case "$1" in
         --list) op_list; return ;; --status) op_status "${2:-}"; return ;; --cancel) op_cancel "${2:-}"; return ;;
         --run) trap op_kick_end EXIT; op_run "${2:-}"; return ;; --settle) trap op_kick_end EXIT; op_settle "${2:-}" "${3:-}"; return ;; --stuck) trap op_kick_end EXIT; op_stuck_main "${2:-}"; return ;;
@@ -1104,7 +1106,7 @@ op_main() {
         --auto) auto=1 ;;
         *) if [ -z "$verb" ]; then verb="$1"; else args+=("$1"); fi ;;
     esac; shift; done
-    [ -n "$verb" ] || { op_usage >&2; return 2; }
+    [ -n "$verb" ] || { op_bare >&2; return 2; }
     if [ "$verb" != spawn ]; then   # --item and --why: the reason a no-words revive carries (THE WORDS POLICY, the header). spawn --side has its own --item (a board item, passed through to the verb)
         _na=()
         for ((_i=0; _i<${#args[@]}; _i++)); do
