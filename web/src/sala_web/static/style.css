@@ -474,6 +474,7 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
 #chat-strip-wait .wait-meta > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 #chat-strip-wait .wait-meta .late { font-weight: 600; color: var(--warn); }
 #chat-strip-wait .wait-meta .red { font-weight: 600; color: var(--waiting); }
+#chat-strip-wait .wait-meta .wait-exact { color: var(--muted); font-variant-numeric: tabular-nums; }
 #chat-strip-wait .wait-sum { padding-top: 4px; font-size: 12px; font-weight: 600; color: var(--warn); overflow-wrap: anywhere; }
 #chat-strip-wait .wait-empty { padding: 16px 0 8px; font-size: 13px; color: var(--faint); overflow-wrap: anywhere; }
 #chat-strip .kept-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 16px; border-bottom: 1px solid var(--border); min-width: 0; }

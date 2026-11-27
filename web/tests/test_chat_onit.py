@@ -102,15 +102,28 @@ APP_JS = (STATIC / "app.js").read_text(encoding="utf-8")
 SHARED_JS = (STATIC / "shared.js").read_text(encoding="utf-8")
 
 HARNESS = r"""
-const zone = { name: %(zone)s, label: "" };
+const zone = { name: %(zone)s, label: "KST" };
 %(zone_format)s
 const el = (tag, attrs = {}, ...kids) => {
-  const n = { tag, cls: attrs.class || "", text: attrs.text, title: attrs.title, href: attrs.href, kids: kids.filter(Boolean) };
-  n.classList = { add: (c) => { n.cls = n.cls ? n.cls + " " + c : c; } };
+  const n = { tag, cls: attrs.class || "", text: attrs.text, title: attrs.title, href: attrs.href, kids: kids.filter(Boolean), listeners: {} };
+  const has = (c) => n.cls.split(" ").includes(c);
+  n.classList = {
+    add: (c) => { if (!has(c)) n.cls = n.cls ? n.cls + " " + c : c; },
+    toggle: (c, on) => { const want = on === undefined ? !has(c) : !!on; if (want) n.classList.add(c); else n.cls = n.cls.split(" ").filter((x) => x && x !== c).join(" "); return want; },
+    contains: (c) => has(c),
+  };
   n.append = (...k) => n.kids.push(...k);
+  n.replaceChildren = (...k) => { n.kids = k.filter(Boolean); };
+  n.addEventListener = (t, f) => { (n.listeners[t] = n.listeners[t] || []).push(f); };
   return n;
 };
 const chatView = { data: { session: "chat-test-ada", name: "Ada" }, fresh: new Set(["demo#1", undefined]) };
+const timers = [], intervals = [];
+const setTimeout = (f) => { timers.push(f); return timers.length; };
+const clearTimeout = () => {};
+const setInterval = (f, ms) => { intervals.push([f, ms]); return 0; };
+const chatEntryOn = () => true;
+const paintChatWait = () => {};
 %(helpers)s
 const at = (iso) => Date.parse(iso) / 1000;
 """
@@ -120,7 +133,9 @@ def helpers(body: str, lang: str = "en", zone: str = "Asia/Seoul"):
     cut = lambda src, pattern: re.search(pattern, src, re.S | re.M).group(0)
     program = prelude(lang) + HARNESS % {
         "zone": json.dumps(zone),
-        "zone_format": cut(SHARED_JS, r"^function zoneFormat\(locale, opts\) \{.*?\n\}\n"),
+        "zone_format": cut(SHARED_JS, r"^function zoneFormat\(locale, opts\) \{.*?\n\}\n")
+        + cut(SHARED_JS, r"^const zoneNameFmt.*?(?=^// the time a session went)")
+        + cut(SHARED_JS, r"^const sleptFmt.*?\n\}\n"),
         "helpers": cut(APP_JS, r"^const CHAT_LATE_DAYS = .*?(?=^function paintChatStrip\(\))"),
     }
     return run_node(program + body)
@@ -138,34 +153,24 @@ console.log(JSON.stringify(rows.map((m) => [chatBackTone(m, now), Math.floor(cha
 
 
 @needs_node
-def test_since_is_a_time_today_a_weekday_and_a_time_within_a_week_and_a_date_before_that():
+def test_since_is_just_now_then_whole_minutes_hours_and_days_rounded_down():
     got = helpers(r"""
-const now = Date.parse("2027-01-08T12:00:00+09:00");
-console.log(JSON.stringify(["2027-01-08T00:00:00+09:00", "2027-01-08T09:05:00+09:00", "2027-01-07T23:59:00+09:00", "2027-01-02T08:00:00+09:00",
-  "2027-01-01T08:00:00+09:00", "2026-12-22T08:00:00+09:00"].map((t) => chatSinceText(at(t), now))));
+const now = Date.parse("2027-01-08T12:00:00+09:00") / 1000;
+console.log(JSON.stringify([0, 59, 60, 3599, 3600, 86399, 86400, 7 * 86400, 40 * 86400 + 3599].map((ago) => chatSinceText(now - ago, now * 1000))));
 """)
-    assert got == ["since 00:00", "since 09:05", "since Thu 23:59", "since Sat 08:00", "since Fri Jan 1st", "since Tue Dec 22nd"]
+    assert got == ["just now", "just now", "since 1 min ago", "since 59 min ago", "since 1 hour ago", "since 23 hours ago",
+                   "since 1 day ago", "since 7 days ago", "since 40 days ago"]
 
 
 @needs_node
-def test_a_date_takes_the_right_ending():
-    got = helpers(r"""
-const now = Date.parse("2027-03-01T12:00:00+09:00");
-console.log(JSON.stringify([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31].map((n) => chatSinceText(at("2027-01-" + String(n).padStart(2, "0") + "T08:00:00+09:00"), now).split(" ").pop())));
-""")
-    assert got == ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "31st"]
-
-
-@needs_node
-def test_a_korean_page_words_the_dates_as_korean_ones_with_no_space_before_the_weekday():
+def test_a_korean_page_words_the_since_text_in_korean_with_the_unit_and_no_count_twice():
     got = helpers(r"""
 const now = Date.parse("2027-01-08T12:00:00+09:00");
-console.log(JSON.stringify([chatSinceText(at("2027-01-08T09:05:00+09:00"), now), chatSinceText(at("2027-01-06T18:30:00+09:00"), now),
-  chatSinceText(at("2027-01-01T08:00:00+09:00"), now)]));
+console.log(JSON.stringify([30, 5 * 60, 3 * 3600, 2 * 86400].map((ago) => chatSinceText(now / 1000 - ago, now))));
 """, lang="ko")
-    month, day, since = cp(0xC6D4), cp(0xC77C), cp(0xBD80, 0xD130)
-    wed, fri = cp(0xC218), cp(0xAE08)
-    assert got == [f"09:05{since}", f"{wed} 18:30{since}", f"1{month} 1{day}({fri}){since}"]
+    bun, jeon, but = cp(0xBD84), cp(0xC804), cp(0xBD80, 0xD130)
+    si, il = cp(0xC2DC, 0xAC04), cp(0xC77C)
+    assert got == [cp(0xBC29, 0xAE08), f"5{bun} {jeon}{but}", f"3{si} {jeon}{but}", f"2{il} {jeon}{but}"]
 
 
 @needs_node
@@ -185,9 +190,50 @@ console.log(JSON.stringify([rows.map(flat), chatWaitRow({ id: "demo#1", subject:
     assert [r["cls"] for r in rows] == ["wait-row back-row red", "wait-row back-row", "wait-row back-row late", "wait-row back-row"]
     subj, meta = rows[0]["kids"]
     assert [(k["tag"], k["cls"], k.get("text")) for k in subj["kids"]] == [("span", "wait-title", "<img src=x onerror=1> https://tracker.example.test/promises/1")]
-    assert [(k["cls"], k.get("text")) for k in meta["kids"]] == [("red", "since Fri Jan 1st"), ("red age", "7 days")]
-    assert [(k["cls"], k.get("text")) for k in rows[1]["kids"][1]["kids"]] == [("", "since 09:05")]
-    assert [(k["cls"], k.get("text")) for k in rows[2]["kids"][1]["kids"]] == [("late", "since Tue 08:00"), ("late age", "3 days")]
+    assert [(k["cls"], k.get("text")) for k in meta["kids"]] == [("red", "since 7 days ago")]          # the count once, in the since text
+    assert [(k["cls"], k.get("text")) for k in rows[1]["kids"][1]["kids"]] == [("", "since 2 hours ago")]
+    assert [(k["cls"], k.get("text")) for k in rows[2]["kids"][1]["kids"]] == [("late", "since 3 days ago")]
     assert rows[3]["kids"][1]["kids"] == []
-    assert not [k for r in rows for part in r["kids"] for k in part["kids"] if k.get("href") or k.get("title")]
+    assert not [k for r in rows for part in r["kids"] for k in part["kids"] if k.get("href")]
+    assert [k["title"] for k in rows[1]["kids"][1]["kids"]] == ["09:05 KST"]                  # the exact time on the title
+    assert [k["title"] for k in rows[0]["kids"][1]["kids"]] == ["Fri, Jan 1, 08:00 KST"]     # the date too, on an older day
     assert first_list == ["wait-id", "wait-title", "new"]                                    # the first list keeps its id and its tag
+
+
+@needs_node
+def test_the_minute_repaints_each_row_in_place_and_the_list_keeps_the_same_rows():
+    got = helpers(r"""
+const m = { text: "t", at: Date.now() / 1000 - 4 * 86400 };
+const row = chatBackRow(m, Date.now());
+const list = { children: [row] };
+chatView.ui = { onitList: list };
+const meta = row.meta, before = row.meta.kids[0].text;
+m.at -= 3 * 86400;                                   // three days on: now a week old, red
+refreshChatOnit();
+console.log(JSON.stringify([before, row.meta.kids[0].text, row.cls, list.children[0] === row, row.meta === meta, intervals.map(([f, ms]) => [f.name, ms])]));
+""")
+    assert got == ["since 4 days ago", "since 7 days ago", "wait-row back-row red", True, True, [["refreshChatOnit", 60000]]]
+
+
+@needs_node
+def test_a_touch_long_press_shows_the_exact_time_and_swallows_the_click_and_a_mouse_press_does_not():
+    got = helpers(r"""
+const now = Date.now();
+const row = chatBackRow({ text: "t", at: now / 1000 - 3 * 3600 }, now);
+row.listeners.pointerdown[0]({ pointerType: "mouse" });
+const mouseTimers = timers.length;
+row.listeners.pointerdown[0]({ pointerType: "touch" });
+timers.pop()();
+const shown = row.meta.kids.map((k) => [k.cls, k.text]);
+let prevented = false;
+row.listeners.pointerup[0]();
+row.listeners.click[0]({ preventDefault() { prevented = true; }, stopPropagation() {} });
+row.listeners.pointerdown[0]({ pointerType: "touch" });
+timers.pop()();
+const hidden = row.meta.kids.length;
+console.log(JSON.stringify([mouseTimers, shown, prevented, hidden]));
+""")
+    mouse_timers, shown, prevented, hidden = got
+    assert mouse_timers == 0 and prevented is True and hidden == 1
+    assert shown[0] == ["", "since 3 hours ago"] and shown[1][0] == "wait-exact"
+    assert re.fullmatch(r"(\w{3}, \w{3} \d{1,2}, )?\d\d:\d\d KST", shown[1][1]), shown

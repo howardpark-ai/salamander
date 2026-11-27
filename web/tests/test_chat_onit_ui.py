@@ -8,7 +8,7 @@ second list is what the chat session has promised to report back and has not yet
   - a tab opens its list and closes it again, the other tab switches, the chevron closes the open list and opens the one last open, a read keeps it open;
   - a tab list for the keyboard and a screen reader: role tablist, tab and tabpanel, aria-selected on the open one, one tab in the Tab order, the arrows, Home and
     End move between the tabs and Enter or Space open the one reached;
-  - a row: the topic as plain text (no id, no link, no name) and under it since when, with the days of a late one (amber past two days, red past five), no "new"
+  - a row: the topic as plain text (no id, no link, no name) and under it since when as "just now", minutes, hours or days (amber past two days, red past five), no "new"
     tag; the late count over the list; with nothing in progress the tab is a quiet 0 and the list says so; with both lists empty nothing is drawn;
   - a line the session takes off leaves the list, and the count and the dot follow; nothing of the lines is drawn anywhere else in the strip;
   - the list's help line is behind a (?) in the bar, there only while that list is open: a button with an accessible name and aria-expanded, a press shows the line in a
@@ -230,12 +230,13 @@ def test_a_row_shows_the_topic_since_when_and_how_late(served, browser, monkeypa
     assert [(r["id"], r["title"], r["href"]) for r in rows] == [(None, f"Promise {n}", None) for n in (11, 12, 13, 14)], rows      # plain text: no id, no link
     assert all(r["under"] and r["tags"] == 0 for r in rows), rows
     late, red, hour, fresh = (r["meta"] for r in rows)
-    assert [(m["cls"], m["tone"]) for m in late] == [("late", "amber"), ("late age", "amber")] and late[1]["text"] == "3 days", late
-    assert re.fullmatch(r"since [A-Z][a-z]{2} \d\d:\d\d", late[0]["text"]), late
-    assert [(m["cls"], m["tone"]) for m in red] == [("red", "red"), ("red age", "red")] and red[1]["text"] == "7 days", red
-    assert re.fullmatch(r"since [A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2}(st|nd|rd|th)", red[0]["text"]), red
-    for meta in (hour, fresh):
-        assert [(m["cls"], m["tone"]) for m in meta] == [("", "")] and re.fullmatch(r"since ([A-Z][a-z]{2} )?\d\d:\d\d", meta[0]["text"]), meta
+    # the since text carries the count once (no separate day badge); the tone sits on it, and the exact time is its title
+    assert [(m["cls"], m["tone"], m["text"]) for m in late] == [("late", "amber", "since 3 days ago")], late
+    assert [(m["cls"], m["tone"], m["text"]) for m in red] == [("red", "red", "since 7 days ago")], red
+    assert [(m["cls"], m["tone"], m["text"]) for m in hour] == [("", "", "since 1 hour ago")], hour
+    assert [(m["cls"], m["tone"]) for m in fresh] == [("", "")] and fresh[0]["text"] in ("just now", "since 1 min ago"), fresh
+    # the exact time in the zone the server names (SALA_TZ; conftest sets Asia/Dubai, so its label is not KST): the clock, the date on an older day, then the label
+    assert all(re.fullmatch(r"(\w{3}, \w{3} \d{1,2}, )?\d\d:\d\d \S+", m["tip"]) for m in late + red + hour + fresh), got
     # an item new to the first list since the page's first answer is tagged "new" there; a row of the second list never carries the tag
     change(browser, motion=promises() + [line("one more")], waiting=waiting(3))
     assert wait_for(browser, f"{PIN}.querySelectorAll('#{ONIT_PANEL} .wait-row').length === 5", 10.0)
