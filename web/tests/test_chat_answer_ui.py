@@ -17,6 +17,8 @@ Held here:
     from stays with its frame as his receipt, as the only card, and a newer reply that marks an item off the list makes no new card;
   - a message from another origin, another window or about another item, or not of the board's shape, changes nothing; a height is held to a range;
   - markup a reply writes makes no frame, takes no card's look and does not cover a card;
+  - where scrollbars take room, a frame stays at its page's full height with no scrollbar inside it, and neither height changes by itself; a page taller than
+    that range scrolls inside its frame;
   - a frame that says nothing leaves the plain link, and a late message brings the frame back;
   - a frame whose first word is "answered" (no question shown before) makes its item plain in every place; an open question after that shows normally; an
     answer after a sign-out is the same as a fresh one; a newer reply's such frame leaves the row's mark; a frame is hidden until its first word;
@@ -45,7 +47,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from conftest import NAME
+from conftest import CDP, NAME, chromium_binary
 from test_board_items_ui import wait_for
 from test_chat_layer import OTHER, OTHER_SID, add_session
 from test_chat_layer_ui import LIVE_LAST, WAITING, append, live, write
@@ -70,12 +72,38 @@ note("/ready", {});
 """
 
 
+# A page that says its own height, as the board's does. A moment after it loads it takes its full size: `tall` px above a row of two words as wide as the
+# frame, which wrap, 20 px taller, where a scrollbar takes room. A frame exactly as tall as the short page is a hair too small for it (the element 1 px
+# below the row), as a browser's rounding of a frame's size can make the board's. `room` is the width a scrollbar takes from the page.
+SIZED = """<!doctype html><meta charset="utf-8"><body style="margin:0;display:flow-root;background:#345">
+<div id="above" style="height:20px"></div><div id="words" style="font-size:0;line-height:0"></div>
+<div id="hair" style="position:absolute;width:1px;height:1px;display:none"></div>
+<script>
+setTimeout(() => {
+  const half = document.documentElement.clientWidth / 2 - 3;
+  above.style.height = "%(tall)dpx";
+  for (let i = 0; i < 2; i++) words.insertAdjacentHTML("beforeend", `<span style="display:inline-block;vertical-align:top;height:20px;width:${half}px"></span>`);
+  Object.assign(hair.style, { top: "%(under)dpx", display: "" });
+}, 400);
+let last = "";
+const post = () => {
+  const m = { source: "stackshot", kind: "answer-frame", v: 1, item: %(item)s, state: "open", typing: false,
+    height: Math.ceil(document.body.getBoundingClientRect().height), room: innerWidth - document.documentElement.clientWidth };
+  if (JSON.stringify(m) !== last) { last = JSON.stringify(m); parent.postMessage(m, "*"); }
+};
+post();                  // at once, as the board's does: the frame is hidden until it hears from it
+setInterval(post, 50);   // a change is said by the clock: a headless Chromium does not always draw, and a ResizeObserver waits for a drawing
+</script>
+"""
+
+
 class Frames:
     """The stand-in board: `loads` (item, query) of every frame page served, `ready` the loads whose script runs, `heard` what the page posted to a frame,
-    `first[item]` what that item's frame says as it loads (None: nothing; unset: open, 200 px high)."""
+    `first[item]` what that item's frame says as it loads (None: nothing; unset: open, 200 px high), `sized[item]` makes its page one that says its own
+    height (SIZED)."""
 
     def __init__(self):
-        self.loads, self.ready, self.heard, self.first = [], [], [], {}
+        self.loads, self.ready, self.heard, self.first, self.sized = [], [], [], {}, {}
         frames = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -90,7 +118,10 @@ class Frames:
                     return
                 item = parts[1]
                 frames.loads.append((item, {k: v[0] for k, v in parse_qs(u.query).items()}))
-                body = (PAGE % {"item": json.dumps(item), "load": frames.count(item), "first": json.dumps(frames.first.get(item, OPEN))}).encode()
+                if item in frames.sized:
+                    body = (SIZED % {"item": json.dumps(item), "tall": frames.sized[item], "under": frames.sized[item] + 20}).encode()
+                else:
+                    body = (PAGE % {"item": json.dumps(item), "load": frames.count(item), "first": json.dumps(frames.first.get(item, OPEN))}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -483,6 +514,58 @@ def test_a_frame_that_has_not_spoken_is_hidden_until_its_first_word(served, brow
     assert browser.evaluate(f"getComputedStyle({card_frame(0)}).visibility") == "hidden"
     say(browser, card_frame(0), state="open", height=200)
     wait(browser, f"getComputedStyle({card_frame(0)}).visibility === 'visible'")
+
+
+# ── a frame's height ─────────────────────────────────────────────────────────
+# every message from a frame from the page's first script on, as [item, height, room]
+SAID = """(() => { if (window.top !== window) return; window.__said = [];
+  addEventListener('message', (e) => { const d = e.data; if (d && d.source === 'stackshot') __said.push([d.item, d.height, d.room]); }); })()"""
+
+
+@pytest.fixture
+def desktop_browser():
+    """A Chromium of its own whose scrollbars are drawn and take room (the shared one hides them)."""
+    binary = chromium_binary()
+    if not binary:
+        pytest.skip("no headless Chromium (chromium / google-chrome on PATH, or playwright's chrome-headless-shell)")
+    try:
+        c = CDP(binary, *DESKTOP, scrollbars=True)
+    except RuntimeError as e:
+        pytest.skip(f"{binary} did not start headless here: {e}")
+    yield c
+    c.close()
+
+
+def open_sized(browser, served, monkeypatch, frames: Frames, height: int) -> None:
+    """A reply that names item 1, whose page says its own height (`height` above its last line), with scrollbars that take room."""
+    frames.sized["1"] = height
+    browser.send("Page.enable")
+    browser.send("Page.addScriptToEvaluateOnNewDocument", {"source": SAID})
+    open_answer(browser, served, monkeypatch, [frames.row(1)], replies=("item#1 is ready.\n[card: item#1]",), size=DESKTOP, listed=False)
+    taken = browser.evaluate("(() => { const d = document.createElement('div'); d.style.cssText = 'width:100px;height:100px;overflow:scroll';"
+                             " document.body.append(d); const n = d.offsetWidth - d.clientWidth; d.remove(); return n; })()")
+    assert taken >= 8, f"this Chromium's scrollbars take {taken} px: the test needs ones that take room"
+    wait(browser, f"{card_frame(0)}.style.visibility === '' && __said.some((m) => m[1] >= {height} + 20)")   # it has taken its full size
+
+
+def test_a_frame_keeps_its_pages_full_height_beside_scrollbars_that_take_room(served, desktop_browser, monkeypatch, frames):
+    browser = desktop_browser
+    open_sized(browser, served, monkeypatch, frames, 340)
+    time.sleep(0.5)   # to settle
+    browser.evaluate(f"""(() => {{ window.__set = []; __said.length = 0;
+      new MutationObserver(() => __set.push({card_frame(0)}.style.height)).observe({card_frame(0)}, {{ attributes: true, attributeFilter: ['style'] }}); }})()""")
+    time.sleep(1.0)   # heights that take turns do so many times in this long
+    got = browser.evaluate(f"({{ height: {card_frame(0)}.style.height, set: __set.slice(0, 8), said: __said.slice(0, 8) }})")
+    assert got == {"height": "360px", "set": [], "said": []}, got
+
+
+def test_a_page_taller_than_a_frame_is_held_to_scrolls_inside_it(served, desktop_browser, monkeypatch, frames):
+    browser = desktop_browser
+    open_sized(browser, served, monkeypatch, frames, 2400)
+    wait(browser, f"{card_frame(0)}.style.height === '2000px' && __said.length > 0 && __said.at(-1)[2] >= 8")   # a scrollbar takes room inside the frame
+    n = browser.evaluate("__said.length")
+    time.sleep(0.5)
+    assert browser.evaluate(f"[{card_frame(0)}.style.height, __said.length]") == ["2000px", n]
 
 
 # ── messages ─────────────────────────────────────────────────────────────────
