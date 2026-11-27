@@ -231,7 +231,10 @@
 # THE RESULT: a verb that exits non-zero is stuck. A relaunch verb's end is the lock freed (the sweep and, from a pane, the
 # self-worker done); its set (common.sh, "recycle sets") then says: closed with nothing given up → done; closed with a pane
 # given up → stuck; panes still outstanding (a retry worker, the deferred list) → `waiting`, and a detached waiter judges
-# the set once it closes (up to the retry window and 15 min). The queue goes on meanwhile: a later operation waits only for
+# the set once it closes (up to the retry window and 15 min). NO ALARM FOR WHAT SALA STILL HANDLES: when every pane that is
+# not back is on the deferred list (still outstanding at the waiter's deadline, or given up only at that list's limit), watch
+# relaunches it once it is free, so the operation ends done (⚠️, those panes named), with no claude -p; stuck is for a pane
+# nothing brings back. The queue goes on meanwhile: a later operation waits only for
 # the lock. Every result is one short post (✅ done: ONE line · 🚨 stuck: the headline, one plain sentence of why, who asked and
 # the log; THE OP POST, above op_finish) and one line into the hearing
 # session's inbox (its messaging socket, as `sala note` delivers; when it is not live, the line goes to <name>-main with
@@ -1399,12 +1402,35 @@ op_find_set() {  # <epoch> → the newest Recycle or Revive set created since th
     echo "$best"
 }
 op_set_words() { echo "$(set_val "$1" kind) $(set_val "$1" label): $(set_val "$1" done)/$(set_val "$1" total) relaunched"; }   # <set>
+# THE PANES A SET HAS NOT BACK: given up (gave=) or still outstanding (out=). A pane that came back is in neither, whatever the
+# set's first post said about it (skip= is that post's wording, kept only as the reason of a pane still out).
+op_set_notback() { { set_vals "$1" gave | sed -E 's/^([^: ]*)[: ].*/\1/'; set_vals "$1" out; } | awk 'NF && !seen[$0]++'; }   # <set> → one session per line
+op_pane_later() {  # <set> <session> → 0 when sala itself still brings that pane back: a row on the deferred list, and the set still waits for it (out=) or gave it up only at that list's limit (later=)
+    grep -qxF -e "out=$2" -e "later=$2" "$SALA_SET_DIR/$1" 2>/dev/null && awk -F'\t' -v s="$2" '$1 == s {f = 1} END {exit !f}' "$SALA_DEFERRED" 2>/dev/null
+}
+op_set_lost() { local s; while IFS= read -r s; do [ -z "$s" ] || op_pane_later "$1" "$s" || echo "$s"; done < <(op_set_notback "$1"); }   # <set> → the panes not back that nothing brings back
+op_set_line() {  # <set> <session> → the post's line for a pane not back: why it was given up, else its newest bullet; one sala still handles says so
+    local b="" y
+    while IFS= read -r y; do case "$y" in "$2: "*|"$2 "*) b="$y";; esac; done < <(set_vals "$1" skip; set_vals "$1" gave)
+    if [ -n "$b" ]; then b=$(hold_bullet_fresh "$2" "$b"); else b="$2: not relaunched yet"; fi
+    if op_pane_later "$1" "$2"; then case "$b" in *"; sala relaunches it "*) ;; *) b="$2: not relaunched yet; sala relaunches it once it is free";; esac; fi
+    echo "$b"
+}
+op_set_lines() {  # <set> → op_set_line of every pane not back, the ones nothing brings back first (the post shows five)
+    local s lost; lost=$(op_set_lost "$1")
+    while IFS= read -r s; do [ -z "$s" ] || op_set_line "$1" "$s"; done < <(printf '%s\n' "$lost"; op_set_notback "$1" | grep -vxF -f <(printf '%s\n' "$lost"))
+}
+op_later() {  # <id> <set> — every pane not back is one sala still relaunches: done, named, no claude -p
+    op_put "$1" later 1
+    op_done "$1" "$(op_set_words "$2"); sala relaunches the rest once free: $(op_set_notback "$2" | paste -sd, - | sed 's/,/, /g')"
+}
 op_judge_set() {  # <id> <set> — done · stuck · waiting (the waiter detached)
     local id="$1" set="$2" left ng
     op_put "$id" set "$set"   # op_finish names the panes it gave up (THE MANY-SESSION POST)
     left=$(set_count "$set" out); ng=$(set_count "$set" gave)
     if [ "$(set_val "$set" closed)" = 1 ] || [ "$left" = 0 ]; then
         if [ "$ng" = 0 ]; then op_done "$id" "$(op_set_words "$set")"
+        elif [ -z "$(op_set_lost "$set")" ]; then op_later "$id" "$set"
         else op_stuck "$id" "$(op_set_words "$set"), $(plural "$ng" pane) given up: $(set_vals "$set" gave | paste -sd';' - | sed 's/;/; /g')"; fi
         return 0
     fi
@@ -1413,7 +1439,7 @@ op_judge_set() {  # <id> <set> — done · stuck · waiting (the waiter detached
     op_say "$id" "$(plural "$left" pane) of set $set outstanding ($(set_vals "$set" out | paste -sd, - | sed 's/,/, /g')): a retry worker or the deferred list has them — waiting for the set to close (up to $(op_dur "$SALA_OP_SETTLE_WAIT"))"
     setsid "$SALA_BIN" op --settle "$id" "$set" </dev/null >> "$(op_oplog "$id")" 2>&1 9>&- &
 }
-op_settle() {  # <id> <set> — the waiter: the set closed → judged; superseded → done (a newer relaunch has its panes); the window out → stuck
+op_settle() {  # <id> <set> — the waiter: the set closed → judged; superseded → done (a newer relaunch has its panes); the window out → done when sala still relaunches every pane not back, else stuck
     local id="$1" set="$2" deadline
     [ -n "$id" ] && [ -n "$set" ] || die "usage: salamander op --settle <id> <set>"
     [ -f "$(op_file "$id")" ] || exit 0
@@ -1424,6 +1450,7 @@ op_settle() {  # <id> <set> — the waiter: the set closed → judged; supersede
         if set_superseded "$set"; then op_done "$id" "$(op_set_words "$set"); a newer relaunch took over the $(plural "$(set_count "$set" out)" pane) still outstanding ($(set_vals "$set" out | paste -sd, - | sed 's/,/, /g'))"; return 0; fi
         sleep "$SALA_OP_POLL"
     done
+    [ -n "$(op_set_lost "$set")" ] || { op_later "$id" "$set"; return 0; }
     op_stuck "$id" "$(op_set_words "$set"); $(plural "$(set_count "$set" out)" pane) still outstanding after $(op_dur "$SALA_OP_SETTLE_WAIT"): $(set_vals "$set" out | paste -sd, - | sed 's/,/, /g')"
 }
 op_run() {  # <id> — the unit's main process
@@ -1529,7 +1556,7 @@ $(tail -n 40 "$(op_oplog "$id")" 2>/dev/null)
 The relaunch log's last 20 lines ($SALA_LOG_DIR/salamander-revive.log):
 $(tail -n 20 "$SALA_LOG_DIR/salamander-revive.log" 2>/dev/null)
 
-Rules. NEVER run \`salamander retire\` (or any verb that ends a session) for an operation queued with no words ("with no words" above): its throwaway checks failed or it already ran, and a retire here would have none of them; end with a SALA-OP: stuck line instead. For a no-words revive (a reason in the note, not a retire), only \`salamander revive [--force] --only <those NAMEs>\`, the sessions its arguments name and nothing else (no sweep, no other session, no --rescue); for a no-words restore, only \`salamander restore <those NAMEs>\`. Finish the operation with sala's own verbs only (salamander recycle, revive, restore, retire, close-shell, forget-row, rename, lane, model, update, provision, spawn; \`salamander revive --only <session> --force --rescue\` when a stale background-task row holds a pane and no child process runs under its claude), with read-only looks (tmux list-panes, tmux capture-pane, tail, cat, ls, ps, grep, Read). Never stop a process, never tmux kill-*, never reboot, never a wider path than the words asked for (no --force the words did not imply). If it needs a decision only ${SALA_OWNER_NAME} can make, or a pane is held by work that must not be interrupted, stop and say so. A permission prompt you cannot answer means stop. Do not post to Slack or message a session: the queue does that from your last line.
+Rules. NEVER run \`salamander retire\` (or any verb that ends a session) for an operation queued with no words ("with no words" above): its throwaway checks failed or it already ran, and a retire here would have none of them; end with a SALA-OP: stuck line instead. For a no-words revive (a reason in the note, not a retire), only \`salamander revive [--force] --only <those NAMEs>\`, the sessions its arguments name and nothing else (no sweep, no other session, no --rescue); for a no-words restore, only \`salamander restore <those NAMEs>\`. Finish the operation with sala's own verbs only (salamander recycle, revive, restore, retire, close-shell, forget-row, rename, lane, model, update, provision, spawn; \`salamander revive --only <session> --force --rescue\` when a stale background-task row holds a pane and no child process runs under its claude), with read-only looks (tmux list-panes, tmux capture-pane, tail, cat, ls, ps, grep, Read). Never stop a process, never tmux kill-*, never reboot, never a wider path than the words asked for (no --force the words did not imply). If it needs a decision only ${SALA_OWNER_NAME} can make, or a pane is held by work that must not be interrupted, stop and say so. A permission prompt you cannot answer means stop. Unsent feedback drafts hold no relaunch (they stay queued on disk): never type /feedback and never ask anyone to send or review them. Do not post to Slack or message a session: the queue does that from your last line.
 End with exactly one line: \`SALA-OP: done <what you did, one line>\` or \`SALA-OP: stuck <why>\`; the stuck line becomes the Slack post's one sentence for ${SALA_OWNER_NAME}, so write it as one plain sentence that says what blocks it and who has to act, with no exit codes, commands or paths.
 EOF
 }
@@ -1617,8 +1644,8 @@ $t" && { op_log "reply: $s has no live pane; sent to $m"; return 0; } ;;
 # THE MANY-SESSION POST (Mon Nov 2nd 2026; its text rebuilt as THE OP POST, below): an operation given several sessions (lane <lane> <session>…, model <model> <session>…,
 # model --clear <session>…, revive --only A --only B…, restore --only A --only B…, lane fallback <lane>) names none of them in its title or its inbox line: the
 # headline carries the count ("✅ *recycled 14 sessions*"; with failures "🚨 *recycled 12 of 14 sessions*"), then a line per failed
-# or skipped session with its reason (a FAILED / NOT moved / stays-on RESULT line; when stuck, a pane its set gave up or deferred and
-# never got back, or one still outstanding), five at most and then "and N more". The sessions that went through are counted, never
+# or skipped session with its reason (a FAILED / NOT moved / stays-on RESULT line; when stuck, or ended with panes sala still
+# relaunches, a pane its set gave up or still waits for), five at most and then "and N more". The sessions that went through are counted, never
 # listed (the marker keeps their lines). One session: named in the headline.
 op_sessions_of() {  # <verb> [args…] → the sessions a many-session shape names, one per line (none for any other verb or shape)
     local verb="${1:-}" a e=""; shift || true
@@ -1650,7 +1677,7 @@ op_run_words() {  # → "salamander <OP_RUN>", the sessions left out and counted
 # stackshot's client (`client.py event --kind fleet_op --verb <verb> --machine <host> --sessions <N> --result ok|partial|failed --text "<one line>"`,
 # stackshot's event_waits.py), so an item waiting on "fleet_op <verb|any|many>" is woken by the op, not by its backstop day. It reuses the
 # counts the many-session post already has (op_finish: n sessions named, nf of them failed or skipped), and the recycle set's own for a
-# relaunch (set total; the panes it gave up, left out or never got back).
+# relaunch (set total, and total - done not back: the numbers of the set's closing post).
 #   --sessions  the sessions the op covered: the ones it names (n, when more than one); else the relaunch set's total (recycle, update,
 #               provision of the whole fleet, revive with no --only); else 1 for a verb on one session (retire, close-shell, forget-row,
 #               rename, spawn, model of one); else 0 (an op over hosts or a lane default, which moves no session).
@@ -1669,11 +1696,7 @@ op_event() {  # <id> <done|stuck> <n named> <nf failed or skipped among them> <l
     if [ "$n" -ge 1 ]; then total=$n; fails=$nf
     elif set_has "$set"; then
         total=$(set_val "$set" total); [[ $total =~ ^[0-9]+$ ]] || total=0
-        if [ "$st" = stuck ]; then   # the panes the set gave up, deferred and never got back, or left outstanding (the post's own list)
-            while IFS= read -r s; do
-                [ -n "$s" ] && ! grep -qxF -- "back=$s" "$SALA_SET_DIR/$set" && fails=$((fails + 1))
-            done < <({ set_vals "$set" gave; set_vals "$set" skip; set_vals "$set" out; } | sed -E 's/^([^: ]*)[: ].*/\1/' | sort -u)
-        fi
+        if [ "$st" = stuck ] || [ -n "$(op_val "$id" later)" ]; then fails=$(op_set_short "$set"); fi   # the post's own number
     else case "$verb" in retire|close-shell|forget-row|rename|spawn|model) total=1;; esac; fi
     [ "$fails" -le "$total" ] || fails=$total
     if [ "$st" = done ]; then if [ "$fails" -gt 0 ]; then result=partial; else result=ok; fi
@@ -1846,6 +1869,10 @@ op_step_of() {  # <id> → the first step a provision's output reports as failed
     grep -o '❌ [A-Za-z0-9_-]*:' "$f" 2>/dev/null | head -1 | sed -E 's/^❌ //; s/:$//'
     return 0
 }
+op_set_short() {  # <set> → how many panes the set has not back: total - done, the closing post's numbers (the panes listed, when a count is unreadable)
+    local t d; t=$(set_val "$1" total); d=$(set_val "$1" done)
+    if [[ $t =~ ^[0-9]+$ && $d =~ ^[0-9]+$ ]] && [ "$t" -ge "$d" ]; then echo $((t - d)); else op_set_notback "$1" | grep -c .; fi
+}
 op_headline() {  # <id> <done|stuck> <sessions counted, 0 = none> <failed or skipped among them> <sessions, one per line> → OPE (emoji), OPH (the bold text)
     local id="$1" st="$2" tot="$3" nf="$4" ss="$5" verb a=() n=0 sub="" nof="" dt nt box name hn="$_SALA_HN" upd=""
     verb=$(op_val "$id" verb); mapfile -t a < <(op_vals "$id" arg)
@@ -1887,7 +1914,7 @@ op_headline() {  # <id> <done|stuck> <sessions counted, 0 = none> <failed or ski
     esac
     if [ "$st" = stuck ]; then
         OPE="🚨"; if [ "$nf" -gt 0 ] && [ "$tot" -gt 1 ]; then OPH=$dt; else OPH="$nt is stuck"; fi
-    elif [ "$nf" -gt 0 ]; then OPE="⚠️"; OPH=$dt
+    elif [ "$nf" -gt 0 ]; then OPE="⚠️"; if [ "$tot" -gt 1 ]; then OPH=$dt; else OPH="$nt is waiting"; fi   # one session, not back: never "revived <name>"
     else OPE="✅"; OPH=$dt; fi
 }
 op_dormant_why() {  # <id> → for a lane fallback, the one plain line that says why the lane is dormant ("reason: monthly usage cap; access returns Tue Dec 1st 09:00"; just "reason: no seat" when there is no regain day); nothing for any other operation
@@ -1946,17 +1973,12 @@ op_finish() {  # <id> done|stuck <result> — the record, one post, the hearing 
             else ot+=("$y"); fi   # a line about no session (the lane fallback's default lane): kept as it was
         done < <(op_vals "$id" detail)
         set=$(op_val "$id" set)
-        if [ "$st" = stuck ] && set_has "$set"; then   # a relaunch's set: the panes it gave up or deferred and never got back, then the ones still outstanding
+        if { [ "$st" = stuck ] || [ -n "$(op_val "$id" later)" ]; } && set_has "$set"; then   # a relaunch's set: the panes it has not back (op_set_notback)
             while IFS= read -r y; do
                 [ -n "$y" ] || continue; s="${y%%[: ]*}"
                 grep -qxF -- "$s" <<< "$ss" || continue
-                grep -qxF -- "back=$s" "$SALA_SET_DIR/$set" && continue
-                printf '%s\n' ${fb[@]+"${fb[@]}"} | grep -q "^$s[: ]" || fb+=("$(hold_bullet_fresh "$s" "$y")")
-            done < <(set_vals "$set" gave; set_vals "$set" skip)
-            while IFS= read -r s; do
-                [ -n "$s" ] && grep -qxF -- "$s" <<< "$ss" || continue
-                printf '%s\n' ${fb[@]+"${fb[@]}"} | grep -q "^$s[: ]" || fb+=("$s: not relaunched yet")
-            done < <(set_vals "$set" out)
+                printf '%s\n' ${fb[@]+"${fb[@]}"} | grep -q "^$s[: ]" || fb+=("$y")
+            done < <(op_set_lines "$set")
         fi
         nf=${#fb[@]}
         line=$(op_short_argv "$ss" "$verb" ${args[@]+"${args[@]}"})
@@ -1975,19 +1997,12 @@ op_finish() {  # <id> done|stuck <result> — the record, one post, the hearing 
         set=$(op_val "$id" set)
         case "$verb" in recycle|revive|restore|wake|lane) if set_has "$set"; then   # a relaunch's set (a lane --all's too) counts the sessions in the post's headline (the hearing session's line stays as it was)
             ptot=$(set_val "$set" total); [[ $ptot =~ ^[0-9]+$ ]] || ptot=0
-            if [ "$st" = stuck ]; then
-                while IFS= read -r y; do
-                    [ -n "$y" ] || continue; s="${y%%[: ]*}"
-                    grep -qxF -- "back=$s" "$SALA_SET_DIR/$set" && continue
-                    printf '%s\n' ${OP_PF[@]+"${OP_PF[@]}"} | grep -q "^$s[: ]" || OP_PF+=("$(hold_bullet_fresh "$s" "$y")")
-                done < <(set_vals "$set" gave; set_vals "$set" skip)
-                while IFS= read -r s; do
-                    [ -n "$s" ] || continue
-                    printf '%s\n' ${OP_PF[@]+"${OP_PF[@]}"} | grep -q "^$s[: ]" || OP_PF+=("$s: not relaunched yet")
-                done < <(set_vals "$set" out)
+            if [ "$st" = stuck ] || [ -n "$(op_val "$id" later)" ]; then
+                while IFS= read -r y; do [ -n "$y" ] && OP_PF+=("$y"); done < <(op_set_lines "$set")
+                pnf=$(op_set_short "$set")
+                [ -z "$(op_val "$id" later)" ] || nf=$pnf   # the end event counts them for a named session too
             fi
         fi ;; esac
-        pnf=${#OP_PF[@]}
     fi
     # THE PAUSE (common.sh): a session whose busy turn the relaunch paused (one Escape; a note tells it what it was doing) is named in the
     # post and in the hearing session's line, a line of its own each, outside the cap and never counted as a failure

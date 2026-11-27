@@ -84,6 +84,12 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `tests/feedbackdrain.sh` new, 31; `tests/op.sh` +6, one check extended (Sat Nov 28th 2026)
+
+The paths guarded: the drain presses keys in a live pane, where a wrong key sends a transcript or deletes an unsent draft; Esc at the exit's drafts gate deletes the drafts; a draft the drain cannot send must not keep a pane from its relaunch. In the queue, an operation judged stuck starts a `claude -p` and raises an alarm.
+Held (`feedbackdrain`; a fake claude that draws the panel with `tests/fake-drafts-panel.py` in panes of a private tmux server, nothing sent anywhere): both review layouts (a choice list; a transcript toggle) send every draft report only and discard none, also with an expired transcript, a review longer than the window and a dropped Enter; a review it does not know and a send that fails leave the draft queued, with exit 2, one attempt, the panel closed and the session alive; `wait_exit` passes the exit gate with the drafts kept; a drain that meets the gate sends and lets the pending exit go on; a revive relaunches a pane whose draft cannot be sent, the draft still queued, and asks nothing of the owner. `op`: a relaunch's stuck result counts the set's done of total and names only the panes not back; a pane on the deferred list at the waiter's deadline, or given up at that list's limit, ends the operation done with no `claude -p`; a pane nothing brings back is still stuck. The helper's brief is also checked for the rule against `/feedback`.
+Not covered, and why: the real CLI's panel (the fake draws it; the CLI 2.1.332 layout was read by hand on a private tmux socket in a sandbox with no network and made-up drafts), and a real send.
+
 ### `web/tests/test_send_now.py` new, 63; `web/tests/test_send_now_ui.py` new, 5 (Fri Nov 27th 2026)
 
 The path guarded: `POST /api/s/<pid>/send-now` presses Claude Code's "send the waiting messages now" chord in a live session's pane (`sendnow.py`; `web/README.md`, *Send now*). The chord submits a draft in the input line, and cancels a call that has not started, a running command with background tasks off, and anything running beside a `!` command.

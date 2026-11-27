@@ -446,7 +446,8 @@ defer_add() {  # <tmux session> <why> [force] [set id] — `watch` relaunches it
 # (the recycle driver has reported through this set: from then on its clear fires the post-recycle hook; below, set_recycled)
 # hookfired (the hook has fired, once) src fscope (the flag, below), and
 # repeated: out=<session> (outstanding) · skip=<bullet> (the first post's left-behind bullets) · gave=<bullet> (given up)
-# · note=<text> (the first post's retry note) · back=<session> (settled before the first post; a guard, it is made at once).
+# · note=<text> (the first post's retry note) · back=<session> (settled before the first post; a guard, it is made at once)
+# · later=<session> (given up only at the later list's limit: watch still relaunches it, set_giveup_pane).
 # FLAGS AND THE JOB: a Recycle or Revive set is a FLAG, what called for a relaunch, with the
 # time it was raised (t0), its source (src: recycle · op-recycle · update · auto · provision · reboot · revive · lane · model) and its
 # scope (fscope: `all` for every live pane, or the one pane, or the --only list, of a revive, lane or model switch). A flag clears when
@@ -822,7 +823,7 @@ _set_sync() {
 # set_giveup_pane <session> <why> — watch's later-list limit (SALA_LATER_LIMIT): a pane held that long no longer holds a flag open.
 # It is given up in every open Recycle or Revive flag still waiting for it; a flag with nothing else out closes "at n/N" (the
 # given-up wording), and fires the post-recycle hook with the pane as skipped: the flag clears PARTLY. The pane stays on the
-# deferred list; watch still relaunches it once it is free.
+# deferred list; watch still relaunches it once it is free (later= says so, so an operation raises no alarm for it).
 set_giveup_pane() { _set_locked _set_giveup_pane "$@"; }
 _set_giveup_pane() {
     local s="$1" why="$2" f id k
@@ -831,6 +832,7 @@ _set_giveup_pane() {
         k=$(set_val "$id" kind); case "$k" in Recycle|Revive) ;; *) continue;; esac
         [ "$(set_val "$id" closed)" != 1 ] && _set_out "$id" "$s" || continue
         _set_sync_log "gave up $s in $k $(set_val "$id" label) ($id): $why"
+        _set_add "$id" later "$s"   # before the settle, which may close the flag: whoever judges a closed flag finds the mark (lib/op.sh, op_pane_later)
         _set_resolve "$id" gave "$s" "$s: $why"
     done
     return 0
@@ -6769,10 +6771,50 @@ scrub_text() {   # text that holds none of the words or shapes the patterns need
         printf '%s' "$t" | python3 -c "$SALA_SCRUB_PY"$'\nimport sys\nsys.stdout.write(scrub(sys.stdin.read()))'
     else printf '%s' "$t"; fi
 }
-# send_feedback_drafts <pane> [uuid] — drain queued Claude-drafted feedback through the /feedback panel;
-# fails when that conversation still has a queued draft afterwards (its /exit would stop at the drafts gate)
-# (transcript = no) BEFORE /exit; see lib/feedback.sh. Drafts are sent, never left as a prompt.
+# send_feedback_drafts <pane> [uuid] — drain queued Claude-drafted feedback through the /feedback panel, report only
+# (no transcript) BEFORE /exit; see lib/feedback.sh. Fails when that conversation still has a queued draft afterwards:
+# the caller says so and goes on (the draft is a file that outlives the relaunch), and its /exit stops at the drafts gate,
+# which drafts_gate_pass passes.
 send_feedback_drafts() { "$SALA_BIN" feedback drain "$1" ${2:+"$2"}; }
+# THE DRAFTS GATE AND PANEL (the CLI's own screens; lib/feedback.sh describes them).
+# drafts_panel_up <pane> → 0 when the /feedback drafts panel is showing, in any state: its header or one of its footers (a
+# long review scrolls the header off, and its first view has no footer)
+SALA_DRAFTS_PANEL_RE='^ *Feedback drafts *$|d to discard · Esc|Enter to write new feedback|Any key to continue'
+drafts_panel_up() { tmux capture-pane -p -t "$1" 2>/dev/null | grep -qE "$SALA_DRAFTS_PANEL_RE"; }
+# drafts_gate_up <pane> → 0 when the exit-time gate is showing: "You have N unsent feedback draft(s)", its footer
+# "Enter to review & send · Esc to discard and exit" among the screen's last lines. Esc THERE DELETES the session's drafts
+drafts_gate_up() { tmux capture-pane -p -t "$1" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 3 | grep -qF 'Esc to discard and exit'; }
+# drafts_gate_pass <pane> → 0 when the gate was showing and was left with every draft kept: Enter opens the drafts list
+# (nothing is sent: only a review's send line sends), Esc closes that list and the pending exit goes on. 1: no gate, or
+# the panel never came or never closed (the caller's exit wait runs on; nothing was discarded). Esc is typed again only
+# when the list is still up 3 s later: a spare one would reach the shell the exit leaves behind, ahead of the resume line
+drafts_gate_pass() {
+    local i escapes=0 last=0
+    drafts_gate_up "$1" || return 1
+    tmux send-keys -t "$1" Enter
+    for ((i=1; i<=30; i++)); do
+        sleep 0.5
+        # at a shell: the exit went through (no key goes into a shell, whatever its screen still shows)
+        case "$(tmux display -p -t "$1" '#{pane_current_command}' 2>/dev/null)" in bash|sh|zsh|fish) [ "$escapes" -gt 0 ]; return;; esac
+        drafts_gate_up "$1" && continue
+        if ! drafts_panel_up "$1"; then [ "$escapes" -gt 0 ] && return 0; continue; fi
+        [ "$escapes" = 0 ] || [ $((i - last)) -ge 6 ] || continue
+        [ "$escapes" -lt 3 ] || break
+        sleep 0.5; drafts_gate_up "$1" && continue
+        tmux send-keys -t "$1" Escape; escapes=$((escapes + 1)); last=$i
+    done
+    return 1
+}
+# wait_exit <pane> <secs> → wait_for shell after an /exit, passing the drafts gate when the exit stops there
+wait_exit() {
+    local t=0
+    while [ "$t" -lt "$2" ]; do
+        wait_for "$1" shell 2 && return 0
+        drafts_gate_pass "$1" || :
+        t=$((t + 2))
+    done
+    wait_for "$1" shell 1
+}
 # prompt_clears <pane> [secs] → 0 once no terminal-only prompt is visible (polls; the /feedback panel
 # the drain just closed, or a modal the user is dismissing, needs a moment). Never a single snapshot.
 # pane_draft <pane> → prints text the user has TYPED BUT NOT SUBMITTED in the composer, if any.
