@@ -297,6 +297,11 @@ answer in a variable you name".
 **What gets a test:** new tests only for paths that can lose a session, a conversation or an
 unsent draft, or corrupt the pane map or the restore point; no tests for wording or cosmetics.
 
+**Proving what a change does:** the main proof of a pull request is the `verify-sala` skill
+(`.claude/skills/verify-sala/`, read its `SKILL.md`), which drives the real `sala` commands and web routes on a throwaway
+instance and keeps the evidence. The pull request's "Done when" names the run and its verdict; no mutation testing is asked
+for. A journey is not a suite and CI does not run it, so the rules above for suites stay.
+
 ## Where work is recorded
 
 The maintainers' own work is recorded as a pull request. Its description is the public record of the change: what changed,
