@@ -307,6 +307,7 @@ from . import chatkeep as CK
 from . import chatpage as CP
 from . import chatthread as CTH
 from . import yourmove as YM
+from . import wheresight as WS
 from . import colors as CLR
 from . import credit as CR
 from . import debuglog as DL
@@ -705,12 +706,14 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # /?arg=<tmux session> was ttyd's own URL before sala-web took the host: keep those links working
         if "arg" in request.query_params:
             return RedirectResponse("/terminal?" + request.url.query, status_code=302)
+        WS.note(request, settings)   # `sala where`: the box this visit came from (wheresight.py); background, throttled, never fails the page
         return _page("index.html")
 
     async def terminal_page(request: Request) -> Response:
         # the full-size terminal (the Shell drawer's "Open full size", the old /?arg= links): ttyd's page in a frame that fills the
         # window, so that the clipboard code (static/termclip.js) is on it; bare /tty/ in a tab has none. Under the same login as
         # "/" (the proxy sends only /tty to ttyd, everything else here), and ?arg=<tmux session> is read by the page, not here.
+        WS.note(request, settings)
         return _page("terminal.html")
 
     async def chat_page(request: Request) -> Response:
