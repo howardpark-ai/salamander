@@ -41,7 +41,7 @@
 #                                             front agent once per session): `model <model> [--effort <level>] <session>…` is ONE
 #                                             operation for all the sessions named, and it ends in ONE result notice with a line per
 #                                             session (RESULT lines of lib/model.sh, THE BATCH: op_run keeps them as `detail=` lines on
-#                                             the marker; the notice and the Slack post count the sessions and the post names
+#                                             the marker; the notice and the post count the sessions and the post names
 #                                             only the failed or skipped ones, with their reason: op_finish, THE OP POST).
 #                                             Which shape: a first word that is a model (opus · sonnet · haiku · fable · claude-…) is
 #                                             the batch; any other first word is the session of the single-session shape below, which
@@ -129,7 +129,7 @@
 # so a session renamed onto a dead throwaway's name is not it); the marker stores the row id (ownrow=) and op_run checks all of it again before it
 # ends anything, going stuck on a mismatch, at once and with no claude -p helper: the helper's tools include salamander retire, which has none
 # of these checks; a process that exits between the listing and the read of its environment is skipped). The marker then carries nowords=words: none
-# (throwaway, <rule>) in place of the words, and the log, the Slack post and the hearer's line say so. Every other case keeps the refusal. A second operation
+# (throwaway, <rule>) in place of the words, and the log, the post and the hearer's line say so. Every other case keeps the refusal. A second operation
 # of ANOTHER verb naming a session already queued, running or waiting is refused (two drivers on one pane); two of one verb
 # are not (two recycles fold, a second retire finds the first's result) — except two spawns of one name, refused too, since
 # the first makes the session and the second can only fail on it (op_conflict_with).
@@ -170,7 +170,7 @@
 #      a plain shell, a detached job and --auto are refused (a human in a plain shell passes --words);
 #   4. every NAME is a live Claude session of the registry under exactly that name and not YOU (a session's own revive stays the owner's).
 # The marker then carries `item=` or `reason=` (not why=: that key is the stuck handler's), one `ownrow=` per NAME (the registry row ids, in the order of the --only), and
-# `nowords=words: none (board#N: revive of one session)` / `words: none (reason: …)`; the log, the Slack post, the hearer's line and `op --list`/`--status` show it. With --words,
+# `nowords=words: none (board#N: revive of one session)` / `words: none (reason: …)`; the log, the post, the hearer's line and `op --list`/`--status` show it. With --words,
 # --item/--why are only recorded. op_run asks again before it relaunches anything (op_reason_run_ok): the marker's reason, only --only and --force, a row id per name, the sender still
 # allowed, every row still the live one it was queued for, not the sender; a mismatch is stuck at once with nothing run and no claude -p helper (as for retire).
 # THE SAME DOOR FOR restore: `restore --only NAME [--only NAME]… (--item board#N | --why "<reason>") --from YOU`, with the same reason, the same placement of YOU by process ancestry and the same
@@ -188,7 +188,7 @@
 # quiet rule and no settle time; it is solo (the sessions are known only when it runs) and holds the recycle lock. And `sleep --only NAME --words …` may name YOU: a reason-door sleep of YOU is
 # still refused (op_sleep_target_ok), a words sleep is not. The asking session being one of the sleepers, the runner (outside every pane, SALA_OP_ID and SALA_OP_FROM set) waits for its turn to end
 # (SALA_SLEEP_ASKER_WAIT, 90 s: the wait of a model switch for its asker), then sleeps everything with the asker last; the plan says "the asking session sleeps once idle". The result line into the asker's inbox is not
-# sent once it sleeps (op_finish): it would wake it; the Slack post stands.
+# sent once it sleeps (op_finish): it would wake it; the post stands.
 #
 # THE PLAN comes first: `op` runs the verb's own dry run (retire --dry-run, rename --dry-run, lane --dry-run, revive --dry-run
 # for a recycle's sweep and a revive) and prints it to the hearer; a dry run that refuses — no such session, an ambiguous
@@ -231,7 +231,7 @@
 # self-worker done); its set (common.sh, "recycle sets") then says: closed with nothing given up → done; closed with a pane
 # given up → stuck; panes still outstanding (a retry worker, the deferred list) → `waiting`, and a detached waiter judges
 # the set once it closes (up to the retry window and 15 min). The queue goes on meanwhile: a later operation waits only for
-# the lock. Every result is one short Slack post (✅ done: ONE line · 🚨 stuck: the headline, one plain sentence of why, who asked and
+# the lock. Every result is one short post (✅ done: ONE line · 🚨 stuck: the headline, one plain sentence of why, who asked and
 # the log; THE OP POST, above op_finish) and one line into the hearing
 # session's inbox (its messaging socket, as `sala note` delivers; when it is not live, the line goes to <name>-main with
 # `[for <owner>]` first and the op log says `reply: … sent to …`; when neither is live, the op log says `reply FAILED` and the post stands), then the archive. The same end is reported once to stackshot (`client.py event --kind fleet_op`, op_event,
@@ -698,7 +698,7 @@ op_shapes() {
                                             every NAME is a live Claude session of the registry; never a flag or a sweep. The plan is `sleep --dry-run`: it refuses (nothing queued) a session that is busy, not idle long enough or a front agent
   sleep --project KEY                       every session of one project, front agents with them, asleep together NOW, with no quiet rule (the 2 days) and no settle time: the owner's words (--words "…"), never --item or --why. The project must not be pinned, its activity must be readable,
                                             and every session must be idle with nothing in flight, nothing waiting in its inbox (the plan, `sleep --project KEY --asked --dry-run`, shows the first refusal). YOU may be one of its sessions (or, with `--only YOU --words`, the one session):
-                                            the asking session sleeps once idle: the runner waits for its turn to end (SALA_SLEEP_ASKER_WAIT, 90 s), then puts the whole project to sleep with it last; the Slack post carries the result
+                                            the asking session sleeps once idle: the runner waits for its turn to end (SALA_SLEEP_ASKER_WAIT, 90 s), then puts the whole project to sleep with it last; the post carries the result
   wake --only NAME [--only NAME]…           resume a sleeping session by its conversation id (the marker off, then revive --only resumes it in its pane: lane, model and effort kept). Needs the owner's words, EXCEPT the reason path above:
                                             every NAME is a sleeping session of the pane map; never a flag or a sweep. The plan is `wake --dry-run`; a name that is not asleep queues nothing
   retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
@@ -1232,10 +1232,10 @@ op_main() {
     op_log "op $id queued by $from: $(op_line "$id")${words:+ — \"$words\"${item:+ [$item]}${why:+ [reason: $why]}}${nowords:+ — $nowords}"
     echo "queued op $id: salamander ${OP_RUN[*]} — from $from${words:+, \"$words\"${item:+ [$item]}${why:+ [reason: $why]}}${nowords:+, $nowords}"
     if [ "$SALA_OP_QUEUE" = on ]; then op_kick "$id"; else echo "   ⚠ SALA_OP_QUEUE is off in $SALA_CONFIG: nothing starts it until it is on"; fi
-    echo "   the result comes as one Slack post and one line into $from's inbox; salamander op --status $id shows its record"
+    echo "   the result comes as one post ($(sala_post_destination)) and one line into $from's inbox; salamander op --status $id shows its record"
     case "$verb" in recycle|update|provision) [ -n "${TMUX_PANE:-}" ] && echo "   this pane ('$from') will be relaunched once it is idle — finish or hand off anything half-done now" ;;
         rename) [ "$OP_RENAME_SELF" = 1 ] && echo "   this pane ('${OP_RUN[1]}') will have /rename ${OP_RUN[2]} typed into it once it is idle, right after this turn ends — nothing for ${SALA_OWNER_NAME} to type" ;;
-        sleep) [ "$OP_ASKER_SLEEPS" = 1 ] && echo "   this pane ('$from') sleeps with it once it is idle (the runner waits up to ${SALA_SLEEP_ASKER_WAIT}s for this turn to end) — finish or hand off anything half-done now; the result is posted in Slack only (a line into its inbox would wake it), and sala wake $from resumes it" ;;
+        sleep) [ "$OP_ASKER_SLEEPS" = 1 ] && echo "   this pane ('$from') sleeps with it once it is idle (the runner waits up to ${SALA_SLEEP_ASKER_WAIT}s for this turn to end) — finish or hand off anything half-done now; the result is posted only to $(sala_post_destination) (a line into its inbox would wake it), and sala wake $from resumes it" ;;
         model) # the asking session names itself (this very pane's session, or the --from it was queued as): a switch relaunches it; --clear relaunches nothing
             # the single shape names it first, the batch anywhere after the model (and its --effort); --clear in either form relaunches nothing
             local _me="" _x; for _x in "${OP_RUN[@]:1}"; do [ "$_x" = "$from" ] && _me="$_x"; [ -n "${TMUX_PANE:-}" ] && [ "$_x" = "$(op_hearer)" ] && _me="$_x"; done
@@ -1569,7 +1569,7 @@ op_helper() {  # <id> <failure> → prints the verdict; 0 = done (checked), 1 = 
             if op_verify "$id"; then echo "$(op_one_line "${line#SALA-OP: done}")"; op_say "$id" "the claude -p says done: ${line#SALA-OP: }"; return 0; fi
             op_put "$id" stuckwhy "a one-off helper said it was done, but the check found it was not"
             echo "the one-off claude -p said done (\"$(op_one_line "${line#SALA-OP: done}")\"), but the check says otherwise: $OP_VERIFY_WHY"; op_say "$id" "the claude -p said done, but: $OP_VERIFY_WHY"; return 1 ;;
-        "SALA-OP: stuck"*) op_put "$id" stuckwhy "$(op_one_line "${line#SALA-OP: stuck}")"   # the helper's own one-line why: the Slack post's sentence (op_post)
+        "SALA-OP: stuck"*) op_put "$id" stuckwhy "$(op_one_line "${line#SALA-OP: stuck}")"   # the helper's own one-line why: the post's sentence (op_post)
             echo "the one-off claude -p could not finish it: $(op_one_line "${line#SALA-OP: stuck}")"; op_say "$id" "the claude -p says stuck: ${line#SALA-OP: }"; return 1 ;;
         *) if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then op_put "$id" stuckwhy "a one-off helper ran out of time before it finished"; echo "the one-off claude -p ran out of time ($(op_dur "$SALA_OP_STUCK_TIME")) without a verdict"
            else op_put "$id" stuckwhy "a one-off helper ended without saying whether it finished"; echo "the one-off claude -p ended (exit $rc) without a SALA-OP verdict line"; fi
@@ -1590,7 +1590,7 @@ op_push() {  # <tmux session> <text> → 0 pushed into that session's inbox · 1
 }
 op_tell() {  # <tmux session> <text> → into that session's inbox when it is live here. A project-name pane that retired
     # is no longer live, so the reply goes to the same project's front agent, <session>-main, with the line [for <owner>] first (a front
-    # agent takes a message only then); neither live → one failure line in the op log (the Slack post stands). Always returns 0.
+    # agent takes a message only then); neither live → one failure line in the op log (the post stands). Always returns 0.
     local s="$1" t="$2" rc m=""
     op_push "$s" "$t"; rc=$?
     [ "$rc" = 0 ] && return 0
@@ -1637,7 +1637,7 @@ op_run_words() {  # → "salamander <OP_RUN>", the sessions left out and counted
     local ss n; ss=$(op_sessions_of "${OP_RUN[@]}"); n=$(grep -c . <<< "$ss")
     if [ "$n" -gt 1 ]; then echo "salamander $(op_short_argv "$ss" "${OP_RUN[@]}") ($n sessions)"; else echo "salamander ${OP_RUN[*]}"; fi
 }
-# THE OP-END EVENT (to stackshot): the last act of op_finish, beside the Slack post and the hearer's line, reports the operation's end with
+# THE OP-END EVENT (to stackshot): the last act of op_finish, beside the post and the hearer's line, reports the operation's end with
 # stackshot's client (`client.py event --kind fleet_op --verb <verb> --machine <host> --sessions <N> --result ok|partial|failed --text "<one line>"`,
 # stackshot's event_waits.py), so an item waiting on "fleet_op <verb|any|many>" is woken by the op, not by its backstop day. It reuses the
 # counts the many-session post already has (op_finish: n sessions named, nf of them failed or skipped), and the recycle set's own for a
@@ -1660,7 +1660,7 @@ op_event() {  # <id> <done|stuck> <n named> <nf failed or skipped among them> <l
     if [ "$n" -ge 1 ]; then total=$n; fails=$nf
     elif set_has "$set"; then
         total=$(set_val "$set" total); [[ $total =~ ^[0-9]+$ ]] || total=0
-        if [ "$st" = stuck ]; then   # the panes the set gave up, deferred and never got back, or left outstanding (the Slack post's own list)
+        if [ "$st" = stuck ]; then   # the panes the set gave up, deferred and never got back, or left outstanding (the post's own list)
             while IFS= read -r s; do
                 [ -n "$s" ] && ! grep -qxF -- "back=$s" "$SALA_SET_DIR/$set" && fails=$((fails + 1))
             done < <({ set_vals "$set" gave; set_vals "$set" skip; set_vals "$set" out; } | sed -E 's/^([^: ]*)[: ].*/\1/' | sort -u)
@@ -1888,7 +1888,7 @@ op_dormant_why() {  # <id> → for a lane fallback, the one plain line that says
     if [ -z "$r" ]; then l=${a[1]:-}; [ -n "$l" ] && r=$(lane_state_field "$l" 3 2>/dev/null); r=$(op_plain "$r"); r=${r%.}; [ -z "$r" ] || r="reason: $r"; fi
     printf '%s\n' "$r"
 }
-op_post() {  # <id> <done|stuck> <sessions counted> <failed or skipped among them> <sessions, one per line> — the one Slack post; OP_PF holds the failed or skipped sessions' lines (the cap counts only these), OP_PL the lines about no session
+op_post() {  # <id> <done|stuck> <sessions counted> <failed or skipped among them> <sessions, one per line> — the one post; OP_PF holds the failed or skipped sessions' lines (the cap counts only these), OP_PL the lines about no session
     local id="$1" st="$2" tot="$3" nf="$4" ss="$5" verb foot text step="" why x i=0 cap=5 logp rsn base
     verb=$(op_val "$id" verb); logp=$(op_oplog "$id"); logp=${logp/#"$HOME"/\~}; base=$(op_web_base "$id")
     op_headline "$id" "$st" "$tot" "$nf" "$ss"
@@ -1914,7 +1914,7 @@ op_post() {  # <id> <done|stuck> <sessions counted> <failed or skipped among the
     [ ${#OP_PF[@]} -gt "$cap" ] && text+=$'\n'"and $(( ${#OP_PF[@]} - cap )) more"
     sala_post "$text"$'\n'"$foot"
 }
-op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the hearing session's line, the archive
+op_finish() {  # <id> done|stuck <result> — the record, one post, the hearing session's line, the archive
     local id="$1" st="$2" res="$3" line from words nowords when x asked verb args=() ss="" n=0 nf=0 cnt="" fb=() ot=() y s set ptot=0 pnf=0
     [ -f "$(op_file "$id")" ] || return 0
     line=$(op_line "$id"); from=$(op_val "$id" from); words=$(op_val "$id" words); nowords=$(op_val "$id" nowords); when=$(local_human "$(op_val "$id" time)")
@@ -1986,14 +1986,14 @@ op_finish() {  # <id> done|stuck <result> — the record, one Slack post, the he
         while IFS= read -r y; do [ -n "$y" ] || continue; OP_PL+=("$y"); dl+="$nl  - $y"; done < <(set_vals "$set" paused)
     fi
     [ "$ptot" -ge "$pnf" ] || ptot=$pnf
-    op_post "$id" "$st" "$ptot" "$pnf" "$ss"   # the one Slack post (THE OP POST, above)
+    op_post "$id" "$st" "$ptot" "$pnf" "$ss"   # the one post (THE OP POST, above)
     op_event "$id" "$st" "$n" "$nf" "$line" "$res"   # stackshot hears the end too (THE OP-END EVENT, above); never changes the outcome
     if [ -n "$nowords" ]; then asked="Queued by $from at $when with no words ($nowords): $(case "$verb" in revive) echo "the session revived the sessions named, for the reason in the note";; restore) echo "the session restored the sessions named, for the reason in the note";; sleep) echo "the session put the sessions named to sleep, for the reason in the note";; wake) echo "the session woke the sessions named, for the reason in the note";; *) echo "the session ended a throwaway (the rule is in the note)";; esac)."
     else asked="Words from ${SALA_OWNER_NAME} (quoted by $from; queued at $when): \"$words\"."; fi
     if [ "$from" = sala-watch ]; then op_log "no reply sent: $id was queued by the watch itself (no session waits on it); the Slack post stands"; op_archive "$id"; op_kick_end; return 0; fi
     # an asker that slept (a sleep asked in the owner's words, THE ASKED SLEEP): the line would be handed to a session that is not there, or reach its front agent as a message about a sleep, and a message line wakes a sleeper
     if [ "$verb" = sleep ] && is_sleeping "$from"; then op_log "no reply sent: $from went to sleep with op $id; the Slack post stands"; op_archive "$id"; op_kick_end; return 0; fi
-    op_tell "$from" "[sala op $id] salamander $line — $st${cnt:+ ($cnt)}: $res.${dl:+$dl$nl}$asked (Automatic salamander message from the operation queue; the result is posted in Slack too; nothing to reply to.)"
+    op_tell "$from" "[sala op $id] salamander $line — $st${cnt:+ ($cnt)}: $res.${dl:+$dl$nl}$asked (Automatic salamander message from the operation queue; the result is also posted: $(sala_post_destination); nothing to reply to.)"
     op_archive "$id"
     op_kick_end   # the marker is archived: the next queued operation need not wait for the timer's tick
 }

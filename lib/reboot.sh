@@ -35,7 +35,7 @@ done; export PATH
 rlog() { echo "[$(date -Is)] $*" >> "$RLOG"; }
 say() { echo "$*"; rlog "$*"; REPORT+=("$*"); }
 REPORT=()
-# tell_owner <headline> [bullet…] — a Slack post in the shared notice shape (sala_post), and a line in the reboot log
+# tell_owner <headline> [bullet…] — a post in the shared notice shape (sala_post), and a line in the reboot log
 tell_owner() {
     local text="[sala reboot] $1"; shift
     sala_post "$(printf '%s' "$text" | head -1 | sed 's/^\[sala reboot\] //')" "$@"; rlog "sent to Slack: ${text%%$'\n'*}"

@@ -1,6 +1,6 @@
 # briefing: the morning posts to Slack
 
-Three daily posts to a Slack briefing channel: two email digests written by a headless
+Three daily posts to the briefing destination (the app that BRIEFING_BOT_APP_<NAME> maps): two email digests written by a headless
 `claude -p` turn, and a release watcher with no LLM in its probes. They live in `contrib/` because they are the wiring of one
 deployment (its Gmail through a claude.ai "Google Workspace <word>" connector, `BRIEFING_GMAIL_CONNECTOR`, its Slack apps), not part of
 sala. sala's core does not depend on them. The one link is the other way round: sala's `SALA_WATCH_NOTIFY_CMD` can
@@ -14,13 +14,13 @@ source `lib.sh` to post its notices through the same Slack apps.
 | `guard.py` | The read guard (below): a PreToolUse hook that refuses, before it runs, any portal call that is not plainly one of the five Gmail reads, and any other Workspace tool that can write. Loaded only by the digests' own runs, through `--settings`. |
 | `lib.sh` | Shared helpers, sourced by the others. `post_slack <text>` posts as a Slack app's direct message (*Slack channels*, below: the channel's app, one retry, then the sala-admin app; no webhook) (turning `**bold**` into Slack's `*bold*`, then linking session names (to sala's own session link (`SALA_SESSION_URL` from the sala config, with the name in place of `{name}`), for every live session in sala's registry, `sala sessions --json`, bridged or not; `sala spawn --list` with a 20 s cap only if the registry is empty or fails), board ids, `<repo>#N`, commits, knowledge-base page slugs (the last three only when `BRIEFING_GITHUB_BASE` names the GitHub account they link into; unset: they stay plain) and the digests' `[gmail:<threadId>]` markers; a linker failure sends the unlinked text; last, on the final text, a zero-width space goes before the closing colon of a colon, one or two digits and a colon (`name:0:`, `04:00:`), so Slack does not draw it as an emoji code (`sala_slack_safe`, the function every sala Slack post runs, `lib/slacksafe.sh`; `lib.sh` carries its own copy of it, the same text, kept identical by `tests/slacksafe.sh`, so a copy of this folder alone, with no `lib/` beside it, escapes its posts too); with `BRIEFING_NO_POST=1` it writes the text to `~/.local/state/sala-briefing/would-post.log` instead). `run_claude` runs one headless turn with only the Gmail read tools (and the portal's two code-mode tools) allowed, the read guard loaded, and keeps its stream-json log. `deliver` posts the result. Sourcing it only defines things and never exits the caller. |
 | `summary.sh` + `summary.prompt.md` | Morning Email Summary. Also carries a "New holds (last 24 hours)" section when stackshot reports any (below). |
-| `summary-lean.sh` + `summary-lean.prompt.md` + `gmail_fetch.py` + `lean-compare.sh` | The lean Morning Email Summary (below): code reads and trims the unread mail, one model call with no tools writes the text. Run with `--post` (the installed unit does) it posts the digest to the briefing channel; without it the script writes `lean/YYYYMMDD.txt` and posts nothing. |
+| `summary-lean.sh` + `summary-lean.prompt.md` + `gmail_fetch.py` + `lean-compare.sh` | The lean Morning Email Summary (below): code reads and trims the unread mail, one model call with no tools writes the text. Run with `--post` (the installed unit does) it posts the digest to the briefing destination (config BRIEFING_BOT_APP_REPORTS); without it the script writes `lean/YYYYMMDD.txt` and posts nothing. |
 | `holds.py` | The new holds of the last 24 hours, for `summary.sh`. Reads stackshot's `GET /client/brief` with the machine token, outside the model, and prints the new-hold lines framed as a data block (nothing when there are none). |
 | `defunct.sh` + `defunct.prompt.md` | Forwarded Address Unsubscribe Queue: the unread mail under the Gmail label `BRIEFING_FORWARD_LABEL`, classified, read only. The job is label-driven and off by default: with no label set it writes one `cron.log` line and exits 0. |
 | `aws-limit.sh` + `aws_limit.py` | The API spend limit (*The API spend limit*, below): reads the newest "Monthly Claude API Spend Exceeding Thresholds" email through `gmail_fetch.py`'s portal client and keeps its limit, tier and pause date in a state file for sala's Overview card. No model call. |
 | `release-alert.sh` | Runs `release-watch.sh` and posts what it prints, unless that is `NO_REPLY`. A failed probe gets a ⚠️ post. |
 | `release-watch.sh` | Probes the Claude Code CLI and the Ubuntu LTS upgrade path. A release not announced before is printed once, and the session that owns the upgrade is pinged. The Claude Code CLI's owner is `RELEASE_WATCH_CLI_OWNER` (the environment, else the sala config's line; unset: nobody is pinged; `release-watch.sh cli-owner` prints it). The Ubuntu LTS path goes to `RELEASE_WATCH_UBUNTU_SESSION` and names the plan's page `RELEASE_WATCH_UBUNTU_PAGE` (unset: posted only, no page named). `release-watch.sh defer <product> [tag]` keeps one release quiet until a newer one appears. |
-| `reply.sh <thread_ts> [text]` | A reply in the thread of a message in the reports app's DM (a fast-lane chat with the briefing session). The text is the argument, or stdin when it is omitted or `-`. It goes through `post_slack` with `BRIEFING_THREAD_TS` set, which sends it as the reports app's DM with `thread_ts` in the payload. Prints `ok` and exits 0 when an app posted; when none could (the tokens missing, Slack refusing) it prints nothing and exits 1, with a line per attempt in `bot-post.log`; a ts that is not digits.digits, or an empty text, is a one-line error and exit 2, and nothing is posted. |
+| `reply.sh <thread_ts> [text]` | A reply in the thread of a message in the `reports` channel's app DM (a fast-lane chat with the briefing session). The text is the argument, or stdin when it is omitted or `-`. It goes through `post_slack` with `BRIEFING_THREAD_TS` set, which sends it as that app's DM with `thread_ts` in the payload. Prints `ok` and exits 0 when an app posted; when none could (the tokens missing, Slack refusing) it prints nothing and exits 1, with a line per attempt in `bot-post.log`; a ts that is not digits.digits, or an empty text, is a one-line error and exit 2, and nothing is posted. |
 
 **The read guard.** The model may only read mail. On the portal route the model writes
 JavaScript for `portal_codemode_execute`, whose `codemode` object can call every tool of every connected server, and
@@ -63,7 +63,7 @@ quiet channel always means the job did not run.
 
 | timer | fires daily at | runs |
 |---|---|---|
-| `sala-briefing-summary-lean.timer` | 06:00 UTC | `summary-lean.sh --post`, which posts the digest to the briefing channel |
+| `sala-briefing-summary-lean.timer` | 06:00 UTC | `summary-lean.sh --post`, which posts the digest to the briefing destination (config BRIEFING_BOT_APP_REPORTS) |
 | `sala-briefing-defunct.timer` | 06:15 UTC | `defunct.sh` (off until `BRIEFING_FORWARD_LABEL` is set) |
 | `sala-briefing-release.timer` | 06:30 UTC | `release-alert.sh` |
 | `sala-briefing-aws-limit.timer` | 02:10, 08:10, 14:10, 20:10 UTC | `aws-limit.sh` (off until `SALA_AWS_LIMIT_ORG` is set) |
@@ -247,8 +247,8 @@ NAME is the channel name in capitals with its dashes turned into underscores):
 ```
 BRIEFING_BOT_APP_REPORTS=reports-app        # the reports channel posts as the Slack app "reports-app"
 BRIEFING_BOT_CHANNEL_REPORTS=D0123ABCDEF    # the DM id the app posts to; unset: the channel's name
-BRIEFING_BOT_APP_STACK_OPS=ops-app          # a channel named stack-ops posts as "ops-app"
-BRIEFING_BOT_APP_SALA_ADMIN=admin-app       # the sala-admin app: the fallback below, and the app of a post that names no channel
+BRIEFING_BOT_APP_STACK_OPS=alerts-app         # a channel named stack-ops posts as "alerts-app"
+BRIEFING_BOT_APP_SALA_ADMIN=sala-admin      # the sala-admin app: the fallback below, and the app of a post that names no channel
 BRIEFING_BOT_CHANNEL_SALA_ADMIN=D0123ABCDEG # the sala-admin app's DM id
 ```
 
@@ -456,7 +456,7 @@ deliver" rule), with the zero count.
 
 ### Side by side, then the switch
 
-The installed unit runs `summary-lean.sh --post` and posts the digest to the briefing channel. The script's own
+The installed unit runs `summary-lean.sh --post` and posts the digest to the briefing destination (config BRIEFING_BOT_APP_REPORTS). The script's own
 default (no flag) is the side-by-side mode: the digest goes to `~/.local/state/sala-briefing/lean/YYYYMMDD.txt`, a usage line (input and output tokens, with
 the cache split, seconds, the mail size) to `lean/YYYYMMDD.usage`, and **nothing is posted** (the mode for a trial run, with the old digest still the one posted). `--post` (or `BRIEFING_LEAN_POST=1`) delivers like `summary.sh`: through `post_slack`, honouring
 `BRIEFING_NO_POST`. The raw model answer is `summary-lean.<YYYYMMDD>.json` and the run's stderr `summary-lean.<YYYYMMDD>.err`
@@ -467,7 +467,7 @@ in `~/.local/state/sala-briefing/`.
 cp ~/salamander/contrib/briefing/systemd/sala-briefing-summary-lean.{service,timer} ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now sala-briefing-summary-lean.timer     # fires at the time set in the unit
-# a run now (the unit posts to the briefing channel; for a run that posts nothing, run summary-lean.sh with no flag):  systemctl --user start sala-briefing-summary-lean.service
+# a run now (the unit posts to the briefing destination; for a run that posts nothing, run summary-lean.sh with no flag):  systemctl --user start sala-briefing-summary-lean.service
 # compare a day (default today): ~/salamander/contrib/briefing/lean-compare.sh 20260105
 ```
 
@@ -532,7 +532,7 @@ The `cp` in "Installing the timers" above copies the lean files too (`sala-brief
   through, the count line from code, nothing posted by default, one post with `--post` / `BRIEFING_LEAN_POST=1`, a fetch
   error / auth error / run without a Gmail read as a loud notice with no digest and no model call, a failing or silent model
   as a failed notice, `lean-compare.sh`, the units (`--post`);
-- `reply.sh`: `thread_ts` in the payload when given (to the reports app's DM), the payload unchanged without it, a bad ts or an empty text
+- `reply.sh`: `thread_ts` in the payload when given (to the `reports` channel's app DM), the payload unchanged without it, a bad ts or an empty text
   refused before anything is posted, the text from stdin, exit 1 with no output when no app can deliver.
 
 The guard test uses a fake `claude` and a posting stub, plus a local listener playing the Slack API for `post_slack`. It

@@ -107,7 +107,7 @@
 #                                      (a TEXT mandate goes to ~/.local/state/salamander/mandates/<id>-NAME.md; a name not
 #                                      on the page refuses with exit 3 and the REGISTER: line and command) (reboot: the clean reboot protocol, the owner's words required, one at a time);
 #                                      the verb's dry run first, refused
-#                                      before anything is queued; one Slack post, one inbox line and one stackshot event (client.py event --kind fleet_op) per result; --stdin: the words on stdin
+#                                      before anything is queued; one post to sala's alert destination (config BRIEFING_BOT_*), one inbox line and one stackshot event (client.py event --kind fleet_op) per result; --stdin: the words on stdin
 #   salamander op --plan <verb> [args…] | --list | --status <id> | --cancel <id>   the plan alone · the queue · one record · drop a queued one
 #   salamander watch --ops             only the operation queue (what `op` kicks after a tick already running)
 #   salamander reboot --dry-run|--go|--status|--resume   clean reboot: pause inbound, drain, flush + stop services, reboot (docs/reboot-contract.md)

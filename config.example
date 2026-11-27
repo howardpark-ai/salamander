@@ -55,7 +55,7 @@
 #SALA_SNAPSHOT_DELAY=4            # seconds `snapshot` waits to coalesce a burst of events into one save
 #SALA_PSET_TARGET=                # optional: a session name (a front agent, e.g. my-project-main) that hears a provision set's items, with
                                  #   `[for <owner name>]` on its first line so a front agent's pane takes it, into its inbox.
-                                 #   Unset, the target not live, or its push failing: the Slack post (the items count as told).
+                                 #   Unset, the target not live, or its push failing: the post to sala's alert destination (config BRIEFING_BOT_*) (the items count as told).
                                  #   Unset (the default) = exactly the behaviour without the knob
 #SALA_WATCH_COOLDOWN=600          # seconds before watch repeats the same heal
 #SALA_MODEL_INPLACE=on           # `sala model`: an idle pane with an empty input box is switched with /model and /effort typed into it (its conversation
@@ -342,7 +342,7 @@
                                  #   X-Model-Lane= or not in git is opened once as a board item (mover: the builder of the repo that owns its script) and closed when fixed. off stops the tick's pass
                                  #   (sala-unit-gaps.path still runs it when a unit file changes)
 #SALA_OP_QUEUE=on                # watch: the operation queue (`sala op <verb> … --from NAME --words "…"`, lib/op.sh): the oldest queued
-                                 #   operation started as its own sala-op-<id> unit, one at a time, under the recycle lock; one Slack post and one
+                                 #   operation started as its own sala-op-<id> unit, one at a time, under the recycle lock; one post to sala's alert destination (config BRIEFING_BOT_*) and one
                                  #   inbox line per result. off: markers are taken and kept, nothing starts them until it is on
 #SALA_OP_REBOOT=on               # `sala op reboot --from NAME --words "…"` queues the clean reboot (= reboot --go) on the owner's words. off: refused, the owner's kill switch
 #SALA_OP_LOCK_WAIT=600           # seconds the runner waits for a relaunch that already holds the recycle lock before the operation is stuck

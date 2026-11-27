@@ -112,6 +112,10 @@ and when. `python3 -I lib/pr_watcher_cleanup.py --dry-run` prints what it would 
 There is no separate `sala-release` timer: `release.sh` is run on demand by the maintainer, not by a timer, and the
 release watcher above is the briefing `sala-briefing-release`. `sala-op-<id>` units are transient (`systemd-run`) and have no file.
 
+Where a unit's result or alert is delivered is not in its name: the `sala-briefing-*` names and the `~/.config/sala-briefing` token folder are
+identifiers only. Every post goes to sala's alert destination, the Slack app's direct message that the config maps (`BRIEFING_BOT_APP_<NAME>` and
+`BRIEFING_BOT_CHANNEL_<NAME>`, `config.example`); `sala op` prints the destination it resolves from the config at that moment.
+
 ## machine-follow
 
 `lib/machine-follow.py` keeps the machines one driving machine looks after level with it. One dispatcher, one path unit, one timer and one template unit

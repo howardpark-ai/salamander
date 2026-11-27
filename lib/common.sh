@@ -1124,7 +1124,7 @@ _inbox_push() {
 }
 # pset_tell <id> — tell SALA_PSET_TARGET (a session name, unset = none: a front agent) about the set's session/owner items
 # not told yet, `[for <owner>]` on the first line of the text. A target that is not live or whose push fails changes
-# nothing: the items go out as one Slack post naming `sala provision --sets`, and count as told (nothing to retry against).
+# nothing: the items go out as one post to sala's alert destination (config BRIEFING_BOT_*) naming `sala provision --sets`, and count as told (nothing to retry against).
 pset_tell() {
     local id="$1" txt tells trc=0
     # the list first, then the text: an item added in between is sent and told again later, never marked told unsent
@@ -1971,6 +1971,19 @@ sala_notify_raw() {   # the message exactly as given (a formatted post that must
     local cmd="${SALA_NOTIFY_CMD:-${SALA_WATCH_NOTIFY_CMD:-}}"
     [ -n "$cmd" ] || return 0
     printf '%s\n' "$*" | sala_send_post "$cmd" >/dev/null 2>&1 || true
+}
+# sala_post_destination — where sala's own posts go, in words, resolved from the config now (never a literal channel name): "Slack: the
+# <app> app's DM" from the same BRIEFING_BOT_* mapping the post path reads (bot_destination in contrib/briefing/lib.sh, run in a
+# subshell: nothing is sent), "Slack: not configured" when no notify command is set or no app is mapped, and a plain line when a
+# notify command of the owner's own does the posting (sala cannot know where that one delivers).
+sala_post_destination() {
+    local cmd="${SALA_NOTIFY_CMD:-${SALA_WATCH_NOTIFY_CMD:-}}" lib="${SALA_ROOT:-}/contrib/briefing/lib.sh" d
+    [ -n "$cmd" ] || { echo "Slack: not configured"; return 0; }
+    case "$cmd" in
+        *post-stdin.sh*) [ -r "$lib" ] && d=$(env -u SALA_NOTIFY_CHANNEL bash -c '. "$1" >/dev/null 2>&1; bot_destination' _ "$lib" 2>/dev/null) && [ -n "$d" ] && { echo "$d"; return 0; }
+            echo "Slack: not configured" ;;
+        *) echo "Slack: posted by the notify command (SALA_NOTIFY_CMD)" ;;
+    esac
 }
 # sala_post <headline> [bullet…] — every Slack notice in one shape: line 1
 # an emoji and a bold headline that says what happened, then one "    • " bullet per host or item — problems and
@@ -4836,7 +4849,7 @@ lane_fallback_model_change() {  # <session> <target lane> → "fable<TAB>opus" w
 # lane_fallback_auto <lane> <signal|hand> → queues the move of everything on a lane that just went dormant. 0 queued (the op's id on
 # stdout), 1 no usable fallback or not queued (why on stdout: the caller's one alert line), 2 nothing on the lane to move, 3 switched off.
 # The queue is the normal path for a fleet operation (`sala op lane fallback`, lib/op.sh): the move runs in a transient sala-op unit
-# (no Claude ancestry: both guards admit it), under the recycle lock, one operation at a time, and ends with ONE Slack post.
+# (no Claude ancestry: both guards admit it), under the recycle lock, one operation at a time, and ends with ONE post to sala's alert destination (config BRIEFING_BOT_*).
 lane_fallback_auto() {
     local l fb out id; [ "${SALA_LANE_FALLBACK_AUTO:-on}" = off ] && return 3
     l=$(lane_state_id "${1:-}") || return 1
@@ -4875,7 +4888,7 @@ lane_fallback_auto() {
 #                             /api/quota (a unix socket path, default sala-web's own socket; or an http(s) base URL; or `off`), at most every _EVERY (120) s,
 #                             then up to _WAIT (10) s for the file to refresh. sala-web holds the token; a failed call leaves the reading stale and nobody moves
 # THE MOVE is `sala op lane <lane> <session>… --from sala-watch --words "$SALA_BACK_LANE_WORDS"`: the queue, the ordinary switch, a busy
-# pane deferred and retried, ONE Slack post by the operation. Who moves: the live back agents (a tmux session; not SALA_NO_RELAUNCH)
+# pane deferred and retried, ONE post to sala's alert destination (config BRIEFING_BOT_*) by the operation. Who moves: the live back agents (a tmux session; not SALA_NO_RELAUNCH)
 # whose lane is in the order and on the wrong side of the target (a step forward moves those before it; the way home those off home);
 # a back agent on another lane (api, subscription-2) is left where it is, as is a Fable session when the target is outside SALA_FABLE_LANES
 # (it would fail there; one notice says so). The target must be active and ready; else nothing moves and one notice says why, once per window.

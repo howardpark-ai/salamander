@@ -107,7 +107,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      (a TEXT mandate goes to ~/.local/state/salamander/mandates/<id>-NAME.md; a name not
                                      on the page refuses with exit 3 and the REGISTER: line and command) (reboot: the clean reboot protocol, the owner's words required, one at a time);
                                      the verb's dry run first, refused
-                                     before anything is queued; one Slack post, one inbox line and one stackshot event (client.py event --kind fleet_op) per result; --stdin: the words on stdin
+                                     before anything is queued; one post to sala's alert destination (config BRIEFING_BOT_*), one inbox line and one stackshot event (client.py event --kind fleet_op) per result; --stdin: the words on stdin
   salamander op --plan <verb> [args…] | --list | --status <id> | --cancel <id>   the plan alone · the queue · one record · drop a queued one
   salamander watch --ops             only the operation queue (what `op` kicks after a tick already running)
   salamander reboot --dry-run|--go|--status|--resume   clean reboot: pause inbound, drain, flush + stop services, reboot (docs/reboot-contract.md)
@@ -342,7 +342,7 @@ verbs:
                                             every NAME is a live Claude session of the registry; never a flag or a sweep. The plan is `sleep --dry-run`: it refuses (nothing queued) a session that is busy, not idle long enough or a front agent
   sleep --project KEY                       every session of one project, front agents with them, asleep together NOW, with no quiet rule (the 2 days) and no settle time: the owner's words (--words "…"), never --item or --why. The project must not be pinned, its activity must be readable,
                                             and every session must be idle with nothing in flight, nothing waiting in its inbox (the plan, `sleep --project KEY --asked --dry-run`, shows the first refusal). YOU may be one of its sessions (or, with `--only YOU --words`, the one session):
-                                            the asking session sleeps once idle: the runner waits for its turn to end (SALA_SLEEP_ASKER_WAIT, 90 s), then puts the whole project to sleep with it last; the Slack post carries the result
+                                            the asking session sleeps once idle: the runner waits for its turn to end (SALA_SLEEP_ASKER_WAIT, 90 s), then puts the whole project to sleep with it last; the post carries the result
   wake --only NAME [--only NAME]…           resume a sleeping session by its conversation id (the marker off, then revive --only resumes it in its pane: lane, model and effort kept). Needs the owner's words, EXCEPT the reason path above:
                                             every NAME is a sleeping session of the pane map; never a flag or a sweep. The plan is `wake --dry-run`; a name that is not asleep queues nothing
   retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
@@ -678,7 +678,7 @@ usage: sala bg-agents [--dry-run]
           (`client.py post project-agent … --role engineer --back`, the label SALA_BGAGENTS_SENDER, sala-web) and starts its pane
           (`sala spawn <name> --project <key> --role back --mandate <line>`), then checks it is live AND placed in its project: the project record, roles.json
           and sala's registry row must all place it there as a back agent (read again until SALA_BGAGENTS_PLACE_WAIT, 360 s); a live session one of them does not
-          place is a failed attempt (the reason names the link; its pane is left running; one Slack post and the board item). One line a decision. Exit 0 = the run finished (a skip and
+          place is a failed attempt (the reason names the link; its pane is left running; one post to sala's alert destination and the board item). One line a decision. Exit 0 = the run finished (a skip and
           a failed project too), 1 = a retire is needed (`retire needed: <name>`: an agent this job listed could not be started and no path takes it off
           without the owner's words) or a report is needed and could not be sent (`report needed: <project>`, below; `board item needed` in ask mode), 2 = usage or a bad setting.
   --dry-run  the whole decision; nothing is posted, started or written (the want list and the load are read).
