@@ -97,6 +97,10 @@ model_drop gamma >/dev/null 2>&1
 sessions_set gamma project=projects/demo role=front >/dev/null 2>&1
 [ "$(q gamma project)" = '"projects/demo"' ] && [ "$(q gamma role)" = '"front"' ] && ok "spawn's --project/--role copy (sessions_set) lands" || bad "project=$(q gamma project) role=$(q gamma role)"
 ledger_write add delta "$U3" delta "$HOME/wd" >/dev/null 2>&1
+out=$("$SALA" sessions 2>&1)
+grep -q "^plain (live, no lane, model, project, role or alias; --full lists every row with its id): delta$" <<< "$out" && ! grep -qE '^[0-9a-f]{8} +delta ' <<< "$out" && grep -qE '^[0-9a-f]{8} +gamma ' <<< "$out" && ok "the listing folds a row with nothing but its name into one plain line; gamma (a lane, a project) keeps its row" || bad "plain fold: $out"
+out=$("$SALA" sessions --full 2>&1); grep -qE '^[0-9a-f]{8} +delta ' <<< "$out" && ! grep -q '^plain (' <<< "$out" && ok "--full: every row, with its id, no plain line" || bad "--full: $out"
+out=$("$SALA" sessions --json 2>&1); python3 -c 'import json,sys; d=json.load(sys.stdin); assert "delta" in [r["name"] for r in d["sessions"]]' <<< "$out" && ok "--json always carries the plain rows" || bad "--json plain: $out"
 python3 - "$REG" <<'PY'   # the registry loses delta's row (it was never recorded, say)
 import json, sys
 d = json.load(open(sys.argv[1]))

@@ -304,8 +304,8 @@ else bad "op wake q: rc=$RC — $OUT"; fi
 sleeping_clear "$UQ"
 
 echo "== the teaching text names the verbs"
-run op --help
-has "$OUT" "op sleep --only NAME" && has "$OUT" "op wake --only NAME" && ok "sala op --help lists sleep and wake" || bad "op --help: $OUT"
+run op --help --full
+has "$OUT" "op sleep --only NAME" && has "$OUT" "op wake --only NAME" && ok "sala op --help --full lists sleep and wake" || bad "op --help: $OUT"
 run sleep --help
 [ "$RC" = 0 ] && has "$OUT" "usage: salamander sleep" && ok "sleep --help" || bad "sleep --help: rc=$RC — $OUT"
 run wake --help

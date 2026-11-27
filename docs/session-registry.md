@@ -51,7 +51,7 @@ pane map's bytes are the same with the registry on, off or broken (`tests/sessio
 
 ## Commands
 
-- `sala sessions [--all] [--json]`: the listing, read-only (`--all` adds retired rows).
+- `sala sessions [--all] [--full] [--json]`: the listing, read-only (`--all` adds retired rows). A live row with nothing recorded but its name (no lane, model, project, role or alias, one conversation, not asleep) is folded into one `plain (…)` line of names; `--full` lists every row with its id, and `--json` always carries every row.
 - `sala sessions record <id|name> --transcript <claude-session-id> --why clear|resume|start [--machine X]`: phase 2, below.
 - `sala sessions tag <id|name> [--project <page key>] [--role front|back] [--project-key <page key>] [--dry-run]`: fills `project` and `role` of an existing live row, below.
 - `sala sessions tag --auto [<id|name>] [--dry-run]`: fills `project` and `role` of every live row with none from stackshot's project record, below.

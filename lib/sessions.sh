@@ -1,6 +1,7 @@
 # lib/sessions.sh — the session registry (phases 1 and 2; docs/session-registry.md; the functions are in common.sh).
 #
-#   salamander sessions [--all] [--json]        the registry, read-only: one line per live session (--all: retired too; --json: the file's rows). A SLEEPING
+#   salamander sessions [--all] [--full] [--json]   the registry, read-only: one line per live session that has something recorded (a lane, model, project, role or alias, a second
+#                                               conversation, or it sleeps); the live rows with nothing but a name are folded into one line (--full: one line each, with the id; --all: retired too; --json: the file's rows, whole). A SLEEPING
 #                                               session (its claude ended on purpose) says `sleeping` in STATE, its time on a line under the table, and in
 #                                               --json a `sleeping` key (the marker's ISO-Z time) on its row alone
 #   salamander sessions --check [--dry-run]     the registry against the pane map: a kill between ledger_write's two writes leaves a row missing,
@@ -122,7 +123,7 @@ if [ "${1:-}" = tag ]; then
     sessions_on || die "SALA_SESSIONS=off: the registry is not maintained here, nothing written (set SALA_SESSIONS=write in the config first)"
     sessions_tag "$target" "${targs[@]}"; exit $?
 fi
-MODE=list; DRY=0; ALL=""; JSON=""
+MODE=list; DRY=0; ALL=""; JSON=""; FULL=""
 for a in "$@"; do
     case "$a" in
         --check) MODE=check ;;
@@ -130,15 +131,16 @@ for a in "$@"; do
         --dry-run) DRY=1 ;;
         --all) ALL=--all ;;
         --json) JSON=--json ;;
-        *) die "usage: salamander sessions [--all] [--json] | --check [--dry-run] | --migrate [--dry-run] | transcript <ref> [--json] | record <id|name> --transcript T --why clear|resume|start | tag <id|name> [--project P] [--role front|back] [--surface slack|sala] | tag --auto [<id|name>] [--dry-run] | resolve <ref> [--live] [--json]" ;;
+        --full) FULL=--full ;;
+        *) die "usage: salamander sessions [--all] [--full] [--json] | --check [--dry-run] | --migrate [--dry-run] | transcript <ref> [--json] | record <id|name> --transcript T --why clear|resume|start | tag <id|name> [--project P] [--role front|back] [--surface slack|sala] | tag --auto [<id|name>] [--dry-run] | resolve <ref> [--live] [--json]" ;;
     esac
 done
-[ "$MODE" = list ] || [ -z "$ALL$JSON" ] || die "--all and --json are for the listing"
+[ "$MODE" = list ] || [ -z "$ALL$JSON$FULL" ] || die "--all, --full and --json are for the listing"
 [ "$MODE" != list ] || [ "$DRY" = 0 ] || die "--dry-run goes with --check or --migrate"
 [ "$MODE" = list ] || [ "$MODE" = migrate ] || [ "$MODE" = check ] || die "usage: salamander sessions"
 
 if [ "$MODE" = list ]; then
-    sessions_py list --sleeping "$SALA_SLEEP_DIR" ${ALL:+$ALL} ${JSON:+$JSON}; exit $?   # --sleeping: the markers' directory, for the STATE column's `sleeping` (display only, never in the JSON)
+    sessions_py list --sleeping "$SALA_SLEEP_DIR" ${ALL:+$ALL} ${FULL:+$FULL} ${JSON:+$JSON}; exit $?   # --sleeping: the markers' directory, for the STATE column's `sleeping` (display only, never in the JSON)
 fi
 
 # a dry run only reads; a repair or the migration writes the registry under the pane map's lock, on the fleet's tmux server only (the map is its)

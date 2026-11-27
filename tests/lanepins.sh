@@ -99,7 +99,7 @@ out=$("$SALA" lane unpin sess-two 2>&1); rc=$?
 out=$("$SALA" lane unpin sess-two 2>&1); rc=$?; [ "$rc" = 0 ] && has "$out" "is not pinned" && ok "unpin of an unpinned session: said, exit 0" || bad "unpin again ($rc): $out"
 grep -q "pin" "$SALA_LANE_LOG" && ok "pin and unpin are in the lane log" || bad "no lane log lines"
 "$SALA" lane unpin sala-test-pin >/dev/null 2>&1; rm -f "$PINS"
-"$SALA" lane --help 2>&1 | grep -q 'lane pin <session> <lane>' && ok "the help names the verbs" || bad "help lacks lane pin"
+"$SALA" lane --help --full 2>&1 | grep -q 'lane pin <session> <lane>' && ok "the help names the verbs" || bad "help lacks lane pin"
 
 echo "== two panes on the fake claude: one unpinned (a), one pinned (pin)"
 mk a "$U1"; mk pin "$U2"; fake_up sala-test-a sala-test-pin
