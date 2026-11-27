@@ -426,6 +426,31 @@ regrl; quota 50 $W1; rec; n=$(ops)
 out=$(tick)
 [ "$(ops)" = "$n" ] && ! has "$out" "catch-up" && ok "the back agents at home (the rule's lane is home): no catch-up" || bad "no catch-up at home: $out"
 
+echo "== the catch-up: not under the threshold, and not over a lane someone else set after the rule's move"
+addback() {  # <name>…: a live back agent at home
+    python3 -I -S - "$SESSIONS" "$@" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for n in sys.argv[2:]: d["sessions"][n] = {"id": n, "name": n, "state": "live", "role": "back", "side": None, "project": "projects/x", "created": "z" + n}
+json.dump(d, open(sys.argv[1], "w"))
+PY
+    for n in "$@"; do echo "$n" >> "$FAKE_LIVE"; printf '%s\tsubscription-1\n' "$n" >> "$FAKE_LANES"; done
+}
+regrl; quota 95 $W1; rec; tick >/dev/null; addback back-late; n=$(ops)
+quota 0 $W1; out=$(tick); [ "$(ops)" = "$n" ] && ! has "$out" "catch-up" && ok "Ultra's figure under the threshold now: the catch-up queues nobody off Ultra" || bad "under threshold: ops=$(ops) $out"
+out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1); ! has "$out" "catch-up" && ok "and the dry run does not offer it" || bad "under threshold dry: $out"
+quota 95 $W1; out=$(tick); [ "$(ops)" = $((n + 1)) ] && has "$out" "moved: catch-up" && ok "the figure back at the threshold: the straggler is queued" || bad "back over: ops=$(ops) $out"
+# a lane set after moved_at: by a shell and by someone's operation it stands; by sala-watch's own operation, or before moved_at, it does not
+regrl; quota 95 $W1; rec; tick >/dev/null; addback sl-shell sl-other sl-watch sl-old; n=$(ops)
+mkdir -p "$ST/ops/done"; printf 'id=1-1\nfrom=some-session\nverb=lane\n' > "$ST/ops/done/1-1.op"; printf 'id=2-2\nfrom=sala-watch\nverb=lane\n' > "$ST/ops/2-2.op"
+MV=$(drv 'back_lane_get moved_at'); at() { date -d "@$1" -Is; }
+{ printf '%s\tset\tsl-old\tbedrock -> subscription-1\top-2-2\n' "$(at $((MV - 120)))"
+  printf '%s\tset\tsl-shell\tbedrock -> subscription-1\ta shell (Linux)\n' "$(at $((MV + 60)))"
+  printf '%s\tset\tsl-other\tbedrock -> subscription-1\top-1-1\n' "$(at $((MV + 60)))"
+  printf '%s\tset\tsl-watch\tbedrock -> subscription-1\top-2-2\n' "$(at $((MV + 60)))"; } >> "$ST/lanes.log"
+out=$(tick); [ "$(ops)" = $((n + 1)) ] && [ "$(tail -1 "$FAKE_OPLOG")" = "op|lane|aws-platform|sl-old|sl-watch|--from|sala-watch|--words|$RULE_WORDS|" ] && ok "a lane set by a shell or by another session's operation after the rule's move is left alone; sala-watch's own and an older one are caught up" || bad "ordered since: ops=$(ops) $(tail -1 "$FAKE_OPLOG") / $out"
+out=$(tick); [ "$(ops)" = $((n + 1)) ] && ok "the skipped names are not queued on a later pass either" || bad "skipped again: ops=$(ops) $out"
+
 echo "== the watch's dry run"
 reg; quota 95 $W1
 out=$(ROOT="$ROOT" T="$T" PATH="$T/fakebin:$PATH" bash "$ROOT/bin/salamander" watch --back-lanes --dry-run 2>&1)
