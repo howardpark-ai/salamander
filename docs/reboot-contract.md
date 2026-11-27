@@ -60,7 +60,8 @@ verified session list. Then it polls every hook's `status` together and runs `re
 one **the moment it exits 0**, so a slow hook holds nobody else. A hook still stopped (exit 3) at 300 s gets one `start`.
 A hook not up by 300 s is reported to Slack at once, as **still coming up** (any exit but 0 and 3) or **down**
 (exit 3 and the start failed), and stays on watch for up to 30 min after boot: if it comes up, sala resumes it and says so
-in Slack; if not, it says it gave up and leaves the marker, so `sala reboot --resume` finishes the run. The summary
+in Slack; if not, it says it gave up and retires the marker (renamed to `<marker>.done-<time>`, so a saved note is not
+held back by `note --deliver`), and `sala reboot --resume` still finishes the run: it starts and resumes the hook once it is up. The summary
 lines go into the one post-boot report, a Slack post, which is sent once every hook is resumed or reported.
 So a hook's `status` should exit 3 only when the service is really stopped, not while it is starting.
 
@@ -68,7 +69,7 @@ So a hook's `status` should exit 3 only when the service is really stopped, not 
 `last run: <mode> · paused at <T> · step <step>`. The shutdown half moves the step through `pause`, `drain`, `flush` and
 `rebooting` (`--resume` writes `resumed`); the boot half ends it. A finished boot half (the marker retired) records
 `booted` with its finish time, shown as `step booted (finished <ISO>)`; a boot half that gave up on a hook (the marker
-kept) records `boot-waiting`, so the run reads as unfinished for a real reason and not as a stale `rebooting`. A state
+retired the same way) records `boot-waiting`, so the run reads as unfinished for a real reason and not as a stale `rebooting`. A state
 written before the boot half recorded `booted_at` prints the plain line, with no finish time. A state whose step is one of
 `pause`, `drain`, `flush`, `dry-resume` or `rebooting`, with **no marker** and a state file last written before this boot, is a
 run that nothing finished (a boot half that never ran, a state file carried over from another host), so the

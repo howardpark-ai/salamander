@@ -120,13 +120,38 @@ EOF2
 chmod +x "$HOME/hook-dead"
 printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"
 printf 'boot_id=not-this-boot\nwritten=%s\npaused_at=2026-01-02T03:04:05Z\npanes=%s\n' "$(date +%s)" "$HOME/.claude/salamander-reboot-panes.tsv" > "$RM"
+NDONE=$(ls "$RM".done-* 2>/dev/null | wc -l)
 out=$(SALA_BOOT_ID=boot-now SALA_REBOOT_BOOT_WAIT=-29 SALA_REBOOT_BOOT_GIVEUP=1 SALA_REBOOT_HOOKS="d=$HOME/hook-dead" "$SALA" reboot --after-boot 2>&1); rc=$?
-[ "$rc" = 0 ] && [ -s "$RM" ] && ok "gave up on a hook that never came up: marker kept" || bad "give-up: rc=$rc marker=$([ -e "$RM" ] && echo kept || echo gone) $out"
+[ "$rc" = 0 ] && [ ! -e "$RM" ] && [ "$(ls "$RM".done-* 2>/dev/null | wc -l)" -gt "$NDONE" ] && ok "gave up on a hook that never came up: marker retired (a .done- file), rc 0" || bad "give-up: rc=$rc marker=$([ -e "$RM" ] && echo kept || echo gone) $out"
 [ "$(_kv_first "$RS" step)" = boot-waiting ] && [ -z "$(_kv_first "$RS" booted_at)" ] && ok "state: step=boot-waiting, no booted_at" || bad "state after give-up: $(<"$RS")"
 sl=$(status_line "d=$HOME/hook-dead")
 [ "$sl" = "last run: --go · paused at 2026-01-02T03:04:05Z · step boot-waiting" ] && ok "status after the give-up: step boot-waiting" || bad "status after the give-up: $sl"
+
+# the give-up does not hold a session note back (note --deliver skips while a marker from an earlier boot exists), and --resume still
+# finishes the run without a marker: a hook that stays down until --resume starts it
+echo "== give-up, then a saved note delivers, then --resume finishes the hook"
+UN=ffffffff-0000-4000-8000-000000000030; SOCKLOG="$HOME/sock.log"; : > "$SOCKLOG"
+printf 'boot_id=not-this-boot\nwritten=%s\npaused_at=2026-01-02T03:04:05Z\npanes=%s\n' "$(date +%s)" "$HOME/.claude/salamander-reboot-panes.tsv" > "$RM"
+printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"; printf 'boot-later\n' > "$HOME/.claude/salamander-boot-revive"
+rm -f "$HOME/late.started"; cat > "$HOME/hook-late" <<'EOF3'
+#!/usr/bin/env bash
+# stays down: its start does nothing (the boot half's start) unless HOOK_LATE_UP is set (the --resume run sets it)
+case "$1" in status) [ -e "$HOME/late.started" ] && { echo running; exit 0; }; echo stopped; exit 3;; start) [ -n "${HOOK_LATE_UP:-}" ] && touch "$HOME/late.started"; echo started; exit 0;; esac; echo "$1"; exit 0
+EOF3
+chmod +x "$HOME/hook-late"
+out=$(SALA_BOOT_ID=boot-later SALA_REBOOT_BOOT_WAIT=-29 SALA_REBOOT_BOOT_GIVEUP=1 SALA_REBOOT_HOOKS="d=$HOME/hook-late" "$SALA" reboot --after-boot 2>&1); rc=$?
+[ "$rc" = 0 ] && [ ! -e "$RM" ] && [ "$(_kv_first "$RS" step)" = boot-waiting ] && [ ! -e "$HOME/late.started" ] && ok "gave up again (the hook never started): no marker, step boot-waiting" || bad "second give-up: rc=$rc step=$(_kv_first "$RS" step) marker=$([ -e "$RM" ] && echo kept || echo gone) $out"
+$T new-session -d -s sala-test-n -c "$HOME" -e FAKE_SESSION_ID="$UN" -e FAKE_NAME=sala-test-n -e FAKE_LOG="$FAKE_LOG" -e FAKE_SOCK_LOG="$SOCKLOG"; $T send-keys -t sala-test-n 'claude' Enter
+fake_up sala-test-n || bad "the session for the note did not come up"
+printf 'rb-giveup-1\tsala-test-n\t%s\t%s\t1\t0\t0\tcheck the hook after the give-up\n' "$UN" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$SALA_LOG_DIR/salamander-notes.tsv"
+"$SALA" note --deliver >/dev/null 2>&1
+[ "$(grep -c "^$UN .*rb-giveup-1" "$SOCKLOG" 2>/dev/null)" -ge 1 ] && ok "the saved note delivered with a normal note --deliver after the give-up" || bad "note not delivered: $(<"$SOCKLOG")"
+out=$(HOOK_LATE_UP=1 SALA_REBOOT_HOOKS="d=$HOME/hook-late" "$SALA" reboot --resume 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
+[ "$rc" = 0 ] && [ -e "$HOME/late.started" ] && [ "$(_kv_first "$RS" step)" = resumed ] && [ ! -e "$RM" ] && ok "--resume after the give-up: the hook started, step resumed (rc 0)" || bad "--resume: rc=$rc step=$(_kv_first "$RS" step) $out"
+kill_wait sala-test-n
+
 # an in-progress step with no marker, last written before this boot, is a run that never finished: --status says so in words and leaves the file alone
-SAVED_RS=$(<"$RS"); SAVED_RM=$(<"$RM"); rm -f "$RM"
+SAVED_RS=$(<"$RS"); rm -f "$RM"
 OLDLINE="last run: --go · paused at 2026-01-02T03:04:05Z · step rebooting (an older run that did not finish; no reboot is waiting)"
 printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"; touch -d '2020-01-01 00:00:00 UTC' "$RS"; before=$(cksum < "$RS"); mt=$(stat -c %Y "$RS")
 [ "$(status_line)" = "$OLDLINE" ] && ok "step rebooting, no marker, state older than this boot: says it did not finish and no reboot is waiting" || bad "old rebooting state: $(status_line)"
@@ -135,7 +160,7 @@ for st in pause drain flush dry-resume; do
     printf 'mode=--dry-run\npaused_at=2026-01-02T03:04:05Z\nstep=%s\n' "$st" > "$RS"; touch -d '2020-01-01 00:00:00 UTC' "$RS"
     [ "$(status_line)" = "last run: --dry-run · paused at 2026-01-02T03:04:05Z · step $st (an older run that did not finish; no reboot is waiting)" ] && ok "step $st, old, no marker: the same words" || bad "old $st state: $(status_line)"
 done
-printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"; touch -d '2020-01-01 00:00:00 UTC' "$RS"; printf '%s\n' "$SAVED_RM" > "$RM"
+printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"; touch -d '2020-01-01 00:00:00 UTC' "$RS"; printf 'boot_id=other-boot\nwritten=%s\npaused_at=2026-01-02T03:04:05Z\npanes=%s\n' "$(date +%s)" "$HOME/.claude/salamander-reboot-panes.tsv" > "$RM"
 [ "$(status_line)" = "last run: --go · paused at 2026-01-02T03:04:05Z · step rebooting" ] && ok "the marker present (a reboot is waiting for its boot half): the line as before" || bad "old state with a marker: $(status_line)"
 rm -f "$RM"; printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=rebooting\n' > "$RS"
 [ "$(status_line)" = "last run: --go · paused at 2026-01-02T03:04:05Z · step rebooting" ] && ok "a state written after this boot (a run in progress now): the line as before" || bad "fresh rebooting state: $(status_line)"
@@ -143,7 +168,7 @@ for st in booted boot-waiting halted done resumed; do
     printf 'mode=--go\npaused_at=2026-01-02T03:04:05Z\nstep=%s\n' "$st" > "$RS"; touch -d '2020-01-01 00:00:00 UTC' "$RS"
     [ "$(status_line)" = "last run: --go · paused at 2026-01-02T03:04:05Z · step $st" ] && ok "step $st, old, no marker: a finished record, the line as before" || bad "old $st state: $(status_line)"
 done
-printf '%s\n' "$SAVED_RS" > "$RS"; printf '%s\n' "$SAVED_RM" > "$RM"   # as the give-up left them, for what follows
+printf '%s\n' "$SAVED_RS" > "$RS"   # the state as the give-up left it (step boot-waiting, then --resume: resumed); no marker, as the boot half leaves it
 
 
 echo "== map gaps (2026-10-08): a rename of a session the map does not have is refused, up front"
