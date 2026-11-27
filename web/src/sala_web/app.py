@@ -15,9 +15,8 @@ none itself):
                                   the path prefix the browser used. GET /api/chat is the data of the session's entry and strip, and of nothing else:
                                   {configured, session, name, present: live|sleeping|absent, busy, keptToday, keptTodayFloor, keptLines (how many
                                   kept-back lines the session's own view draws today, which also counts a turn he then spoke into), waiting (his moves:
-                                  stackshot's Your move list, else the board feed), motion (the session's own `sala motion` lines), onIt (the open items
-                                  the session is contact of or observer on, involved.py, without those `waiting` lists in the same answer;
-                                  the key is left out while that read is unavailable)}; with no
+                                  stackshot's Your move list, else the board feed), motion (the session's own `sala motion` lines, what it has promised to
+                                  report back: [{text, at: when first set}], motion.py)}; with no
                                   session set just {configured: false} (read-only; it sends nothing, the composer uses /api/s/<pid>/send)
   GET  /api/chat/thread           the chat session's own thread (chatthread.py, whose docstring is the rule): the owner's messages and the replies to them and
                                   nothing else, ?n=200 with at most one of ?before=, ?after= and ?around= as the transcript route takes them (400 on a bad one)
@@ -308,7 +307,6 @@ from . import chatkeep as CK
 from . import chatpage as CP
 from . import chatthread as CTH
 from . import yourmove as YM
-from . import involved as IV
 from . import colors as CLR
 from . import credit as CR
 from . import debuglog as DL
@@ -665,8 +663,6 @@ def create_app(settings: Settings | None = None) -> Starlette:
                          settings.state_dir / "board-items.json")
     # the owner's whole Your move list for the chat session's strip (yourmove.py): one background read per 30 s with the same token
     your_move_cache = YM.YourMoveCache(settings.stackshot_token, settings.stackshot_url, settings.state_dir / "your-move.json")
-    # what the chat session is on, for the strip's second tab (involved.py): one background read per 30 s with the same token, asked for by the configured name
-    involved_cache = IV.InvolvedCache(settings.stackshot_token, settings.stackshot_url, settings.state_dir / "involved.json")
     # stackshot's For you list (foryou.py): one read a minute, Seen and Watch / Mute through the same token
     foryou_calls = FY.Calls(settings.stackshot_token, settings.stackshot_url)
     foryou = FY.ForYouCache(foryou_calls)
@@ -737,11 +733,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
         board_doc = await board.get([x.name for x in rows])
         your_move = your_move_cache.items()   # the strip's list: stackshot's whole Your move read, None -> the board feed
         group = your_move_cache.group()       # stackshot's own name for the group ({"en", "ko"}), None -> the page's own words
-        on_it = involved_cache.items(name)    # the second tab's list, asked for by the configured name only; None -> no second tab
         doc = await run_in_threadpool(lambda: CP.assemble(
             name=name, display=chat_name(), owner=owner_name(), sess=sess, projects_dir=settings.projects_dir, zone=TZ.zone(),
             now_ms=int(time.time() * 1000),
-            motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move, group=group, on_it=on_it))
+            motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move, group=group))
         return JSONResponse(doc, headers={"Cache-Control": "no-store"})
 
     def _page(name: str) -> Response:
@@ -2383,7 +2378,6 @@ def create_app(settings: Settings | None = None) -> Starlette:
     app.state.usage = usage
     app.state.board = board
     app.state.your_move = your_move_cache
-    app.state.involved = involved_cache
     app.state.foryou = foryou
     app.state.schedules = schedules
     return app

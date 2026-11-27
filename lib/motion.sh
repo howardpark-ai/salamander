@@ -1,5 +1,5 @@
-# lib/motion.sh — `sala motion`: the short lines a session sets itself to say what is in motion right now; sala-web's chat session view shows them in its strip under
-# "In motion" (web/README.md). Sourced by bin/salamander; the work is lib/motion.py (standard library, no model call).
+# lib/motion.sh — `sala motion`: the short topics a session has promised to report back and has not reported yet; sala-web's chat session view shows the chat
+# session's in its strip under "On it" (web/README.md). Sourced by bin/salamander; the work is lib/motion.py (standard library, no model call).
 motion_usage() {
     cat <<'USAGE'
 usage: sala motion add "<line>" [--for NAME]
@@ -7,15 +7,19 @@ usage: sala motion add "<line>" [--for NAME]
        sala motion clear [--for NAME]
        sala motion list [--json] [--for NAME]
 
+  The list of what a session has promised to report back and has not reported yet; sala-web shows the chat session's in its strip, under "On it".
+  Add a line when you hand work off with a promise to report back in the chat, and mark it done in the same turn you report the result.
+  A line is one short topic in the owner's language, such as "research on X".
+
   add     puts a line on the session's list: one line of text, at most 120 characters (a longer one is refused, never cut). At most 8 lines are
-          kept; a ninth is refused with a sentence. A line already listed only has its 24 hours started again.
+          kept; a ninth is refused with a sentence. Adding a line already listed changes nothing: it keeps the time it was first added.
   done    takes a line off, by its exact text or by its number in `list`.
   clear   takes every line off.
-  list    the lines still in force, numbered ("nothing right now" when there are none); --json: the same as an array of {n, text, at}.
+  list    the lines on the list, numbered ("nothing right now" when there are none); --json: the same as an array of {n, text, at}.
 
-  The session is the one this command runs in; --for NAME says another's (and is required outside a session). A line expires 24 hours after it was
-  set; an expired line is not listed and the next write drops it. The lines are the session's own words: nothing else writes them and no model
-  filters them. Stored as one small file per session under $SALA_STATE_DIR/motion (mode 700, files 600), written whole and renamed into place.
+  The session is the one this command runs in; --for NAME says another's (and is required outside a session). A line stays until it is marked done
+  or cleared: nothing expires it. The lines are the session's own words: nothing else writes them and no model filters them. Stored as one small
+  file per session under $SALA_STATE_DIR/motion (mode 700, files 600), written whole and renamed into place.
 USAGE
 }
 case "${1:-}" in

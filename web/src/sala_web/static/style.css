@@ -367,7 +367,7 @@ body.hide-tools .msg.tools-only { display: none; }
 #chat-pane { overflow-y: auto; overflow-x: hidden; align-items: flex-start; }  /* no stretch: #chat grows with its content, so its bottom padding comes after the last message */
 #chat { width: 100%; max-width: 920px; margin: 0 auto; padding: 20px 16px 48px; }
 /* The chat session's view (the open session has the `chat` flag; app.js "the chat session"): sala's own view with three additions. The class is the body's.
-   1. the strip, above the thread and outside #chat: what waits on the owner (#chat-strip-wait) is pinned at the top of the pane, the rest (#chat-strip) scrolls with the thread; the pane stacks its children in a column instead of a row;
+   1. the strip, above the thread and outside #chat: its two lists (#chat-strip-wait) are pinned at the top of the pane, the rest (#chat-strip) scrolls with the thread; the pane stacks its children in a column instead of a row;
    2. the assistant's messages sit to the left, capped at a 68ch measure, the owner's bubble stays right as sala draws it. */
 body.chat-session #chat-pane { flex-direction: column; }
 body.chat-session #chat-pane > :is(#chat-strip-wait, #chat-strip, #chat) { flex: none; }
@@ -393,29 +393,22 @@ body.chat-kept-on #chat .msg.kept + .msg.kept { margin-top: 0; }
 body.chat-kept-on #chat .msg.kept :is(.src, .what, .did) { min-width: 0; overflow-wrap: anywhere; max-width: 100%; }
 body.chat-kept-on #chat .msg.kept .what { color: var(--muted); }
 body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
-/* The strip (app.js buildChatStrip): the waiting rows, the motion lines and the kept-back switch, all scoped to #chat-strip. NO SIDEWAYS SCROLL at any
+/* The strip (app.js buildChatStrip): the pinned lists (#chat-strip-wait) and the kept-back switch (#chat-strip). NO SIDEWAYS SCROLL at any
    width: every box may shrink (min-width: 0) and every run of text breaks anywhere (overflow-wrap: anywhere). */
 #chat-strip { width: 100%; max-width: 920px; margin: 0 auto; min-width: 0; box-sizing: border-box; }
 #chat-strip[hidden] { display: none; }
 #chat-strip :is(h3, p, ul) { margin: 0; padding: 0; }
 #chat-strip ul { list-style: none; }
-/* What waits on the owner is PINNED: #chat-strip-wait is the pane's first child and sticks to the top of its scroll (right under the header), so a long thread never
-   carries it away. Closed it is one line (the button with the count, or the bar of two tabs); opened it adds one list, and the whole box stays within 40vh, the list
+/* The two lists are PINNED: #chat-strip-wait is the pane's first child and sticks to the top of its scroll (right under the header), so a long thread never
+   carries them away. Closed it is one line (the bar of two tabs); opened it adds one list, and the whole box stays within 40vh, the list
    scrolling inside it (up and down only: the sideways scroll is off). With nothing in either list it is hidden. */
 #chat-strip-wait { position: sticky; top: 0; z-index: 3; display: flex; flex-direction: column; width: 100%; max-height: 40vh; min-width: 0; box-sizing: border-box; background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0, 0, 0, .16); }
 #chat-strip-wait[hidden], #chat-strip-wait .wait[hidden] { display: none; }
 #chat-strip-wait :is(h3, p, ul) { margin: 0; padding: 0; }
 #chat-strip-wait ul { list-style: none; }
-#chat-strip-wait .wait-toggle { flex: none; display: flex; align-items: center; gap: 8px; width: 100%; max-width: 920px; margin: 0 auto; min-width: 0; min-height: 36px; box-sizing: border-box; padding: 8px 16px;
-  background: none; border: 0; border-radius: 0; font: inherit; font-size: 13px; font-weight: 600; color: var(--text); text-align: left; cursor: pointer; }
-#chat-strip-wait .wait-toggle::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--waiting); }
-#chat-strip-wait .wait-toggle:hover { background: var(--hover); }
-#chat-strip-wait .wait-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-#chat-strip-wait .wait-line { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 #chat-strip-wait .chev { flex: none; width: 7px; height: 7px; margin-right: 4px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translateY(-2px) rotate(45deg); }
-#chat-strip-wait .wait-toggle[aria-expanded="true"] .chev { transform: translateY(1px) rotate(-135deg); }
-/* With a second list the bar of two tabs stands in the line's place, as high as it: the owner's moves (the red dot), "On it" (a hollow ring, and an amber dot while
-   a row there is late) and the chevron at the far end. The second tab keeps its own width (a short word and a count); the first, whose name is served, shrinks and wraps. */
+/* The bar of two tabs: the owner's moves (the red dot), "On it" (a hollow ring, and an amber dot while a row there is late) and the chevron at the far end. The second
+   tab keeps its own width (a short word and a count); the first, whose name is served, shrinks and wraps. */
 #chat-strip-wait .wait-bar { flex: none; display: flex; align-items: stretch; width: 100%; max-width: 920px; margin: 0 auto; min-width: 0; }
 #chat-strip-wait .wait-tabs { display: flex; align-items: stretch; min-width: 0; }
 #chat-strip-wait .wait-tab { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; box-sizing: border-box; padding: 4px 16px; background: none; border: 0; border-bottom: 2px solid transparent;
@@ -431,9 +424,20 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
 #chat-strip-wait .wait-chev { flex: none; display: flex; align-items: center; justify-content: center; width: 44px; min-height: 36px; margin-left: auto; padding: 0; background: none; border: 0; border-radius: 0; cursor: pointer; }
 #chat-strip-wait .wait-chev .chev { margin: 0; }
 #chat-strip-wait .wait-chev[aria-expanded="true"] .chev { transform: translateY(1px) rotate(-135deg); }
-#chat-strip-wait :is(.wait-tab, .wait-chev):hover { background: var(--hover); }
-#chat-strip-wait :is(.wait-tab, .wait-chev):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-#chat-strip-wait :is(.wait-toggle, .wait-bar, .wait-list)[hidden] { display: none; }
+/* The (?) of the second list sits beside the chevron while that list is open, and a press on it shows the list's help line in a small box under the bar, inside the bar's
+   width (right edge 12 px in, at most 320 px wide and never wider than the bar less 24 px, its text wrapping), shown by that press alone. */
+#chat-strip-wait .wait-bar { position: relative; }
+#chat-strip-wait .wait-help { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; min-height: 36px; margin-left: auto; padding: 0; background: none; border: 0; border-radius: 0; color: var(--muted); cursor: pointer; }
+#chat-strip-wait .wait-help[hidden] { display: none; }
+#chat-strip-wait .wait-help:not([hidden]) + .wait-chev { margin-left: 0; }
+#chat-strip-wait .wait-help .q { box-sizing: border-box; width: 18px; height: 18px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 12px; font-weight: 600; line-height: 15px; text-align: center; }
+#chat-strip-wait .wait-help[aria-expanded="true"] { color: var(--text); }
+#chat-strip-wait .wait-pop { position: absolute; z-index: 1; top: 100%; right: 12px; box-sizing: border-box; width: max-content; max-width: min(320px, calc(100% - 24px)); margin-top: 4px; padding: 8px 12px; font-size: 12px; line-height: 1.5;
+  color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, .16); overflow-wrap: anywhere; }
+#chat-strip-wait .wait-pop[hidden] { display: none; }
+#chat-strip-wait :is(.wait-tab, .wait-chev, .wait-help):hover { background: var(--hover); }
+#chat-strip-wait :is(.wait-tab, .wait-chev, .wait-help):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#chat-strip-wait .wait-list[hidden] { display: none; }
 #chat-strip-wait .wait { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; width: 100%; max-width: 920px; margin: 0 auto; padding: 4px 16px 12px; min-width: 0; min-height: 0; box-sizing: border-box; overflow-x: hidden; overflow-y: auto;
   /* THE LIST SCROLLS, AND MORE IS BELOW: a soft band of the text colour in the last 24px of what shows (the shadow, fixed to the box's edge), which a cover of the panel colour
      (attached to the content, at its end) wipes out as the end comes in view, so at the end it is gone. Both are background layers of the list itself, painted under its text
@@ -462,25 +466,16 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
 #chat-strip-wait .wait-cap { font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
 #chat-strip-wait .wait-err { font-size: 12px; color: var(--warn); overflow-wrap: anywhere; }
 #chat-strip-wait .wait-err:empty { display: none; }
-/* A row of the second list: a ring for a dot (amber when late, red past that), and under the title one line of who, since when, the days and a held one's day */
+/* A row of the second list: a ring for a dot (amber when late, red past that), and under the title one line of since when and the days of a late one */
 #chat-strip-wait .back-row::before { background: radial-gradient(circle closest-side, transparent 50%, var(--ring, var(--muted)) 58% 96%, transparent 100%); }
 #chat-strip-wait .back-row.late { --ring: var(--warn); }
 #chat-strip-wait .back-row.red { --ring: var(--waiting); }
 #chat-strip-wait .wait-meta { grid-column: 2; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--muted); }
 #chat-strip-wait .wait-meta > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-#chat-strip-wait .wait-meta .who { font-weight: 600; color: var(--text); }
 #chat-strip-wait .wait-meta .late { font-weight: 600; color: var(--warn); }
 #chat-strip-wait .wait-meta .red { font-weight: 600; color: var(--waiting); }
-#chat-strip-wait .wait-meta .park { color: var(--faint); }
 #chat-strip-wait .wait-sum { padding-top: 4px; font-size: 12px; font-weight: 600; color: var(--warn); overflow-wrap: anywhere; }
 #chat-strip-wait .wait-empty { padding: 16px 0 8px; font-size: 13px; color: var(--faint); overflow-wrap: anywhere; }
-#chat-strip .motion { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; padding: 8px 16px; border-bottom: 1px solid var(--border); font-size: 13px; min-width: 0; }
-#chat-strip .motion .lbl { font-size: 12px; color: var(--faint); font-weight: 600; white-space: nowrap; }
-#chat-strip .mo-list { display: flex; flex-wrap: wrap; gap: 2px 16px; min-width: 0; flex: 1 1 200px; }
-#chat-strip .mo { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
-#chat-strip .mo::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; border: 1.5px dashed var(--busy); transform: translateY(-1px); }
-#chat-strip .mo.none { color: var(--faint); }
-#chat-strip .mo.none::before { display: none; }
 #chat-strip .kept-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 16px; border-bottom: 1px solid var(--border); min-width: 0; }
 #chat-strip .kept-toggle { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; font-size: 13px; color: var(--muted); cursor: pointer; min-height: 28px; max-width: 100%; }
 #chat-strip .kept-toggle > span { min-width: 0; overflow-wrap: anywhere; }
@@ -491,9 +486,9 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
 #chat-strip a:focus-visible, #chat-strip-wait a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* A finger's target on a row's title. The link is inline text (it wraps), so its tap area is the font's own box, about 1.15em, plus its padding, which moves nothing on
    the screen: padded to just over 44 px, and under the 45 px from one one-line row to the next, so two links' areas do not meet. Off the 4 px grid for that reason.
-   The link is lifted above the line under the title (.wait-meta), which would otherwise take the taps on its lower part. */
-@media (max-width: 640px) { #chat-strip :is(.motion, .kept-row) { padding-inline: 12px; } #chat-strip-wait :is(.wait, .wait-toggle, .wait-tab) { padding-inline: 12px; } }
-@media (pointer: coarse) { #chat-strip .kept-toggle { min-height: 44px; } #chat-strip-wait .wait-toggle { min-height: 44px; } #chat-strip-wait :is(.wait-tab, .wait-chev) { min-height: 44px; } #chat-strip-wait .wait-row { padding-block: 12px; min-height: 44px; box-sizing: border-box; } #chat-strip-wait .wait-link { position: relative; padding-block: calc((44.5px - 1.15em) / 2); } }
+   The link is lifted (position: relative) above whatever follows its title, which would otherwise take the taps on its lower part. */
+@media (max-width: 640px) { #chat-strip .kept-row { padding-inline: 12px; } #chat-strip-wait :is(.wait, .wait-tab) { padding-inline: 12px; } }
+@media (pointer: coarse) { #chat-strip .kept-toggle { min-height: 44px; } #chat-strip-wait :is(.wait-tab, .wait-chev, .wait-help) { min-height: 44px; } #chat-strip-wait .wait-help { width: 44px; } #chat-strip-wait .wait-row { padding-block: 12px; min-height: 44px; box-sizing: border-box; } #chat-strip-wait .wait-link { position: relative; padding-block: calc((44.5px - 1.15em) / 2); } }
 .top-toggle input { margin: 0; }
 #side-open { height: 32px; display: inline-flex; align-items: center; }
 /* the session is working: a small spinner under the last message */

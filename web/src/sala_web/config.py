@@ -331,7 +331,8 @@ class Settings:
 
     @property
     def motion_dir(self) -> Path:
-        """Where `sala motion` keeps each session's short "in motion" lines (<sala state>/motion/<session>.json); read-only here (motion.py)."""
+        """Where `sala motion` keeps each session's lines, what it has promised to report back (<sala state>/motion/<session>.json); read-only
+        here (motion.py)."""
         return self.sala_state_dir / "motion"
 
     @property

@@ -5,7 +5,7 @@ other, with its strip and its entry. Held here, at 1280 x 800 and 390 x 844 (the
   - opening /chat ends on `/#s=<the session>` with that session selected and its strip showing, not on a page of its own;
   - with no session set, /chat ends on the main page with no strip and no chat session class;
   - a working chat session shows the spinner every session shows (app.js updateInflight, no code of its own for the chat session), under the last message and drawn, and an idle one shows none;
-  - arriving through /chat, no width from 1280 to 320 px scrolls sideways, drawer shut or open, with hostile text in the thread, a waiting subject and a motion line.
+  - arriving through /chat, no width from 1280 to 320 px scrolls sideways, drawer shut or open, with hostile text in the thread, a waiting subject and a promised line.
 
 What a wrong answer costs: a dead /chat link, a redirect that leaves the app's prefix, a second page served beside the view, a chat session that does not show it is working, a phone page that
 scrolls sideways. Runs in a headless Chromium when one is installed (conftest.py: `served`, `browser`), else is skipped; GitHub CI runs it. All names are invented."""
@@ -78,7 +78,8 @@ def test_arriving_through_chat_no_width_scrolls_sideways(served, browser, monkey
                    motion=[{"text": WORD + " " + "m" * 100, "at": int(time.time())} for _ in range(6)])
     size = (width, 800 if width > 700 else 844)
     open_page(browser, served, monkeypatch, size, doc, hash_="chat")
-    assert wait_for(browser, "document.querySelectorAll('#chat-strip-wait .wait-row').length === 3 && document.querySelectorAll('#chat-strip .mo').length === 6", 10.0)
+    assert wait_for(browser, "document.querySelectorAll('#chat-strip-wait-panel .wait-row').length === 3 && document.querySelectorAll('#chat-strip-onit-panel .back-row').length === 6", 10.0)
+    browser.evaluate("document.querySelector('#chat-strip-tab-onit').click(); ''")          # the promised lines' list is the open one while the page is measured
     if width < 700:
         browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": True})
         assert wait_for(browser, f"document.documentElement.clientWidth === {width}", 10.0)
