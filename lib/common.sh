@@ -4899,7 +4899,8 @@ lane_fallback_auto() {
 # A back agent SPAWNED lands on the rule's lane, the home lane while they stand at home (spawn.sh, back_lane_spawn_lane). A failed, missing, stale or
 # expired reading, or a dormant home lane, moves nobody. THE CATCH-UP (`back_lane_catchup`): a step fires once per window, so while the rule
 # has the agents off home a pass that finds one still on the wrong side (it had no role, or no pane, when the step fired) moves it to the rule's
-# lane, once per step (state key `queued`: <lane>|<window>|<names>).
+# lane, once per step (state key `queued`: <lane>|<window>|<names>). It moves nobody while the home lane's CURRENT "This week" figure is under the
+# threshold (or unreadable), and skips a name whose lane was set after the step (moved_at) by anything but sala-watch's own operation (lanes.log).
 # THE FRONT STEP (back_lane_front_tick; SALA_BACK_LANE_FRONT_THRESHOLD, default 95): the live front agents (a registry row with role front, or no role and
 # the project record's top-level agent, or else no role and a front entry of the roles file (stackshot's roles.json, the same answer as the Overview's
 # Role column: it names the project agents (a keeper included) that have no role on their row and are on no agents map; the keeper is a mark on one
@@ -5133,10 +5134,35 @@ back_lane_commit() {  # <step> <target> <window key> <target's place> [<the name
 # a pane spawned or tagged since, a name that was not live when the step fired) is queued onto the rule's lane at the next pass, once per window: the
 # state's `queued` (<lane>|<window key>|<names>) keeps the names already queued in this window, so a pane the move could not close yet (a busy one,
 # retried by the operation itself) is not queued again. A state with no `queued` (written before the catch-up) queues every back agent still home once.
+# Two guards. (a) The catch-up moves nobody off the home lane while the CURRENT reading of its "This week" figure is under SALA_BACK_LANE_THRESHOLD
+# (or there is no usable reading): the window was opened by a figure that may be long gone. (b) It skips a name whose lane was set after the rule's
+# moved_at by anything but sala-watch's own operation (back_lane_ordered_since): a move someone ordered is not undone in the same window.
+# back_lane_ordered_since <session> <epoch> → 0 when lanes.log has a `set` line for the session at or after <epoch> whose last column is not sala-watch's
+# (an `op-<id>` whose queued operation says from sala-watch, or watch itself); an operation that cannot be read counts as not sala-watch's
+back_lane_ordered_since() {
+    local s=$1 since=$2 ts k nm ch who id f fr
+    [ -r "$SALA_LANE_LOG" ] && [ "${since:-0}" -gt 0 ] 2>/dev/null || return 1
+    while IFS=$'\t' read -r ts k nm ch who; do
+        [ "$k" = set ] && [ "$nm" = "$s" ] || continue
+        ts=$(date -d "$ts" +%s 2>/dev/null) && [ "$ts" -ge "$since" ] || continue
+        case "$who" in watch) continue;; op-*) id=${who#op-}; fr=""
+            for f in "$SALA_STATE_DIR/ops/$id.op" "$SALA_STATE_DIR/ops/done/$id.op"; do [ -r "$f" ] && { fr=$(_kv_first "$f" from); break; }; done
+            [ "$fr" = sala-watch ] && continue;;
+        esac
+        return 0
+    done < <(grep -F -- "$(printf '\tset\t%s\t' "$s")" "$SALA_LANE_LOG" | tail -n 50)
+    return 1
+}
 # back_lane_catchup <cur> <dry 0|1> → prints a `moved:` / `would:` line when it queues (or would), nothing otherwise
 back_lane_catchup() {
-    local cur=$1 dry=$2 q ql qw qn w0 n out id late=() tgt sub=""
+    local cur=$1 dry=$2 q ql qw qn w0 n out id late=() tgt sub="" home rd st pct win rst mv0 kept=()
     w0=$(back_lane_get window); [ -n "$w0" ] || return 0
+    home=${BL_ORDER[0]:-}
+    if [ -n "$home" ] && ! lane_dormant "$home"; then   # (a) the home lane's figure now, the same reading the steps use
+        rd=$(back_lane_reading "$home") || return 0
+        IFS=$'\t' read -r st pct win rst <<< "$rd"
+        [ "$pct" -ge "$SALA_BACK_LANE_THRESHOLD" ] 2>/dev/null || return 0
+    fi
     tgt=$cur
     if lane_dormant "$cur"; then   # the rule's lane went dormant after the move: a straggler goes to its fallback, never onto it
         back_lane_movers "$cur" || return 0; [ "${#BL_MOVE[@]}" -gt 0 ] || return 0
@@ -5149,6 +5175,9 @@ back_lane_catchup() {
     back_lane_movers "$tgt" || return 0
     for n in ${BL_MOVE[@]+"${BL_MOVE[@]}"}; do case ",$qn," in *",$n,"*) ;; *) late+=("$n");; esac; done
     [ "${#late[@]}" -gt 0 ] || return 0
+    mv0=$(back_lane_get moved_at)   # (b) a lane someone else set after the rule's move stands
+    for n in "${late[@]}"; do back_lane_ordered_since "$n" "$mv0" || kept+=("$n"); done
+    late=(${kept[@]+"${kept[@]}"}); [ "${#late[@]}" -gt 0 ] || return 0
     if [ "$dry" = 1 ]; then echo "would: catch-up: sala op lane $tgt ${late[*]} --from sala-watch --words \"…\" (the back agent(s) the rule's move has not queued yet$sub; a dry run writes and queues nothing)$(back_lane_sleep_note "$tgt" "${late[@]}")$(back_lane_pinned_note)"; return 0; fi
     out=$("$SALA_BIN" op lane "$tgt" "${late[@]}" --from sala-watch --words "$SALA_BACK_LANE_WORDS" 2>&1) || { echo "blocked: catch-up not queued: $(printf '%s' "$out" | tail -1)"; return 0; }
     id=$(printf '%s\n' "$out" | sed -n 's/^queued op \([0-9-]*\):.*/\1/p' | head -1)

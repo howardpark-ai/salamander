@@ -5538,3 +5538,11 @@ Covered, in `tests/notice.sh`: an old notice with nothing due is pruned; a young
 Changed: `lib/notice.py`, `lib/notice.sh`, `bin/salamander`, `docs/notices-and-hooks.md`, `tests/help-snapshot.txt`, `tests/notice.sh`.
 
 Not covered, and why: a session that comes live late (the grace is the one-day constant, exercised through the young case).
+
+### The back agents' catch-up respects the home lane's figure and a lane someone set: `tests/backlane.sh` +5 (Fri Nov 27th 2026)
+
+The catch-up queued a back agent off Ultra one minute after a lane move to Ultra that the owner had ordered, with Ultra's "This week" figure at 0%. It now reads the home lane's current figure before queuing and moves nobody while it is under `SALA_BACK_LANE_THRESHOLD` (or unreadable), and it skips a name that has a `set` line in `lanes.log` after the rule's `moved_at` whose operation was not sala-watch's.
+
+Covered, in `tests/backlane.sh` (fakes only, in the suite's locked and removed temp folder): with a straggler at home and the figure at 0% the pass queues nothing, and queues it again once the figure is back over the threshold; a straggler with a `set` line from a shell or from a queued operation `from` another session after `moved_at` is skipped while one set by an operation `from sala-watch` and one set before `moved_at` still go.
+
+Not covered, and why: the real `sala op lane` writing the `set` line (the fake only records the move; the line is written into `lanes.log` by the test in the form `lane_log` writes it).
