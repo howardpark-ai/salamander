@@ -131,6 +131,7 @@ cat > "$CO/deploy.sh" <<'FAKE'
 echo "deploy.sh $*" >> "$FAKE_DIR/calls"
 [ "${1:-}" = --check ] && exit "${FAKE_DRIFT:-0}"
 [ -n "${FAKE_DEPLOY_FAIL:-}" ] && { echo "deploy boom"; exit 1; }
+[ -n "${FAKE_DEPLOY_NOCHANGE:-}" ] && { echo "already at origin/main (0123456); nothing to deploy"; echo "changed: nothing"; exit 0; }
 echo "changed: lib/common.sh"
 FAKE
 chmod +x "$CO/deploy.sh" "$CO/release.sh"
@@ -148,7 +149,7 @@ prhead() { echo "{\"head\":{\"sha\":\"$2\"}}" > "$FAKE_DIR/pr.$1.json"; }   # <n
 wruns() { echo "{\"total_count\":$1,\"workflow_runs\":[]}" > "$FAKE_DIR/wr.1.json"; }   # the workflow runs GitHub lists for main's commit
 n200() { grep -c -- "$1" "$FAKE_DIR/c200" 2>/dev/null || true; }
 n304() { grep -c -- "$1" "$FAKE_DIR/c304" 2>/dev/null || true; }
-reset() { rm -f "$FAKE_DIR"/*; : > "$FAKE_DIR/calls"; wruns 0; rm -rf "$HOME/state"; unset FAKE_DRIFT FAKE_DEPLOY_FAIL FAKE_RELEASED_FAIL; }
+reset() { rm -f "$FAKE_DIR"/*; : > "$FAKE_DIR/calls"; wruns 0; rm -rf "$HOME/state"; unset FAKE_DRIFT FAKE_DEPLOY_FAIL FAKE_DEPLOY_NOCHANGE FAKE_RELEASED_FAIL; }
 release() { out=$(bash "$CO/release.sh" "$@" 2>&1); rc=$?; }
 calls() { cat "$FAKE_DIR/calls"; }
 called() { calls | grep -q -- "$1"; }
@@ -163,6 +164,13 @@ release --run 12
     && ok "open: gh pr merge ran, then deploy.sh, one plain 'merged and deployed' message" || bad "open: rc=$rc calls=$(calls) msgs=$(msgs) $out"
 called "gh api repos/o/r/pulls/12 " && called "gh api repos/o/r/commits/$SHA/check-runs" && [ ! -e "$FAKE_DIR/bad" ] \
     && ok "open: the PR's head commit and that commit's check runs are read through gh api (no gh pr checks)" || bad "open: calls=$(calls) bad=$(cat "$FAKE_DIR/bad" 2>/dev/null)"
+
+echo "== a deploy that changed nothing sends no message"
+reset; view OPEN MERGEABLE null; prhead 1 "$SHA"; cruns 1 "${PASS3[@]}"; export FAKE_DEPLOY_NOCHANGE=1
+release --run 12
+[ "$rc" = 0 ] && called "^deploy.sh $" && [ -z "$(msgs)" ] && [[ "$out" == *"no message: the deploy changed nothing"* ]] \
+    && ok "changed: nothing -> exit 0, no message to the project, one log line" || bad "no-change: rc=$rc msgs=$(msgs) $out"
+unset FAKE_DEPLOY_NOCHANGE
 
 echo "== an already merged PR: no merge, the checks on main waited for, then deployed"
 reset; view MERGED "" "$MERGED_C"; cruns 1 "changes:completed:success" "suites:in_progress:-" "web:queued:-"; cruns 2 "${PASS3[@]}"

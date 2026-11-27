@@ -16,7 +16,8 @@
 #                                 pass (waits up to 45 min for a pending one, looking every SALA_RELEASE_POLL s, 60 by default); 4. `gh pr merge --merge --delete-branch --admin`;
 #                                 5. ./deploy.sh (drift check, fast-forward, bash -n, install.sh when needed; waits up to
 #                                 15 min for a recycle that holds the recycle lock); 6. one message to projects/salamander:
-#                                 green with the PR, the commit and what changed, or red with the step that failed and the log.
+#                                 green with the PR, the commit and what changed, or red with the step that failed and the log
+#                                 (no green message when the deploy changed nothing: deploy.sh said "changed: nothing", one log line instead).
 #                                 The live release is also reported to stackshot (`client.py released --pr <PR url> --sha <merge commit>`, just
 #                                 before that message), which settles the items whose step is `release PR #N`; stackshot refuses it until its
 #                                 server accepts this repo (then it is only logged), and it never fails the release.
@@ -521,6 +522,9 @@ except Exception: print("?")')"
         [ -n "$live_sha" ] || live_sha="$(git -C "$HERE" log --first-parent --merges --format=%H --grep "Merge pull request #$pr from" -n1 2>/dev/null)"
     fi
     if [ -n "$live_sha" ]; then report_live "$pr" "$live_sha"; else say "live release not reported to stackshot: neither GitHub nor this checkout names the merge commit of PR #$pr"; fi
+    # a deploy that changed nothing (the production checkout was already at origin/main: deploy.sh printed "changed: nothing") tells the
+    # project nothing that its sessions do not already have: the line goes to the log only
+    if [ "$changed" = nothing ]; then say "no message: the deploy changed nothing (the production checkout was already at main)"; return 0; fi
     tell "[release] PR #$pr merged and deployed$via_note$([ "$mode" = merged ] && echo " (it was already merged; the checks on main passed)") — $title — main at $sha; changed: $changed$twice_note · log $log"
 }
 

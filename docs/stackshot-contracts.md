@@ -568,7 +568,7 @@ the stackshot maintainers before the bump lands, as the heartbeat header already
   Its output lines are logged as `items of PR #N: …`. A failed release never calls it.
 - **Owners**: sala `release.sh` (`tell`, `report_live`, `run`). stackshot `client.py` `message` and `released`; `routing.py` records the message under
   `<state>/routing/salamander.jsonl`.
-- **Absent or changed**: `tell` never fails the run; a missing client logs `message not sent: <text>` in the release log. `report_live` never fails it either:
+- **Absent or changed**: a deploy that changed nothing (`deploy.sh` printed `changed: nothing`) sends no message, only the log line `no message: the deploy changed nothing …`. `tell` never fails the run; a missing client logs `message not sent: <text>` in the release log. `report_live` never fails it either:
   no client logs `stackshot not configured: live release not reported`; a refusal (stackshot does not accept this repo yet) or an unreachable server logs
   `live release not reported to stackshot: <first 300 characters of the output>`; no merge commit found logs the reason and sends nothing. Fail-open.
 - **Test**: `tests/release.sh` (the `released` call, against a fake client; the `message` call is not covered).
