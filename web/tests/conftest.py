@@ -266,9 +266,10 @@ CHAT_READY = "document.querySelectorAll('#chat > .msg').length >= 1"
 
 
 class CDP:
-    """A headless Chromium on --remote-debugging-pipe, one page attached; `send` is a DevTools call on that page."""
+    """A headless Chromium on --remote-debugging-pipe, one page attached; `send` is a DevTools call on that page. Its scrollbars are hidden; `scrollbars`
+    draws them, taking room as on a desktop (a Chromium of its own only: a page in a parent's has the parent's)."""
 
-    def __init__(self, binary: str, width: int, height: int, parent: "CDP | None" = None):
+    def __init__(self, binary: str, width: int, height: int, parent: "CDP | None" = None, scrollbars: bool = False):
         self.parent = parent
         self.context: str | None = None
         self.width, self.height = width, height
@@ -288,7 +289,7 @@ class CDP:
         r_in, w_in = os.pipe()
         r_out, w_out = os.pipe()
         args = [binary, "--headless=new", "--disable-gpu", "--no-sandbox", "--remote-debugging-pipe",
-                "--hide-scrollbars", f"--window-size={width},{height}", "about:blank"]
+                *([] if scrollbars else ["--hide-scrollbars"]), f"--window-size={width},{height}", "about:blank"]
         # A small python puts the pipe ends on 3 and 4 and execs chromium: pass_fds alone leaves them at whatever
         # numbers the parent had free (under pytest, 8 and 11), a sh redirection cannot name a two-digit fd (dash:
         # "Bad fd number"), and os.dup makes non-inheritable fds (PEP 446), so 3 and 4 are made inheritable by hand.

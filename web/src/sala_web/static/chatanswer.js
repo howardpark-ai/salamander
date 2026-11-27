@@ -88,7 +88,9 @@ window.SalaAnswerFrame = (() => {
 
   /* ---------- frames ---------- */
   function make(it) {
-    const frame = el("iframe", { class: "ans-frame", ...tx("chat.answer.frame", { id: it.id }, "title") });
+    // no scrollbar inside the frame: the frame is as tall as its page says. A scrollbar there would take room from the page, whose words then wrap into a
+    // taller page; given that height the bar goes, the page is short again, and where the bar comes back the two heights take turns with no end
+    const frame = el("iframe", { class: "ans-frame", scrolling: "no", ...tx("chat.answer.frame", { id: it.id }, "title") });
     frame.style.height = FIRST + "px";
     frame.setAttribute("src", source(it));
     frame.style.visibility = "hidden";   // until its first report: the board's own content (an old answer, say) is not seen; the frame still loads and runs
@@ -147,7 +149,10 @@ window.SalaAnswerFrame = (() => {
     else if (["", "closed", "signed_out"].includes(box.it.state)) box.it.state = "closed";
     repaint(box.it);
     if (!frames.has(box.frame)) return;   // an earlier card whose send is over: it went in the repaint, with this frame
-    if (m.height) keepPlace(box.frame, () => { box.frame.style.height = m.height + "px"; });
+    if (m.height) keepPlace(box.frame, () => {
+      box.frame.style.height = m.height + "px";
+      box.frame.setAttribute("scrolling", e.data.height > HIGH ? "auto" : "no");   // a page taller than a frame is held to scrolls inside it
+    });
     retheme();
     // a changed question is read again once: not again until the frame has said something else, and never twice in a short time
     if (m.state !== "changed") box.reloaded = false;

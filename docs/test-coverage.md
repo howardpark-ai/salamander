@@ -5495,6 +5495,14 @@ Kept (`test_chat_answer_ui.py`, a headless Chromium against the real server and 
 
 Not covered, and why: the board's real frame and its sign-in (the stand-in speaks the message shape only); a real phone's on-screen keyboard (the viewport is set by the test); two frames of one item sharing their state, which is the board's page's own; Firefox and Safari.
 
+### A frame's height beside scrollbars that take room: `web/tests/test_chat_answer_ui.py` and `conftest.py` (browser) changed (Fri Nov 27th 2026)
+
+A frame is as tall as its page says. With a scrollbar inside it, one that takes room narrows the page, whose words wrap taller; the taller frame drops the bar, and the card flips between two heights, the shorter one cutting off Send. A wrong answer is a card that flickers or stays short with a scrollbar, a page that jumps each time, or a page taller than 2000 px that cannot be scrolled.
+
+Kept (a headless Chromium of its own with its scrollbars drawn, since the shared one hides them; a stand-in page that says its own height and wraps taller when narrowed; GitHub CI runs it): a frame stays at the page's full height with no scrollbar inside it, and for a second no message comes and the height is not set again; a page taller than 2000 px has a 2000 px frame with a scrollbar inside it.
+
+Not covered, and why: the board's real page and typeface (traced by hand once with its frame page rendered from its code); the live page in a desktop Chrome; Firefox and Safari.
+
 ### The "On it" since time: thresholds, the minute refresh and the exact time: `web/tests/test_chat_onit.py` and `test_chat_onit_ui.py` (browser) changed (Fri Nov 27th 2026)
 
 The since text on each "On it" row ("just now", "since N min ago", "since N hours ago", "since N days ago", in Korean with its unit) rounds down to whole units and no longer repeats the day count in a separate badge (`chat.onit.days` is gone). A wrong answer is a row that reads "since 1 hour ago" at 59 minutes, a count shown twice on one row, a list that closes or loses its scroll when the minute repaints, or the exact time missing on hover or a touch press, or a press on a touch that also follows the row's link.
