@@ -19,7 +19,8 @@ from sala_web.config import Settings
 STATIC = Path(__file__).resolve().parent.parent / "src" / "sala_web" / "static"
 DOCS = Path(__file__).resolve().parent.parent.parent / "docs"
 
-# the policy, spelled out once more here on purpose: a change to MK.CSP must change this line too, and a reader sees what the sandbox allows
+# the policy, spelled out once more here on purpose: a change to MK.CSP_BASE must change this line too, and a reader sees what the sandbox allows
+# (no board address configured: frame-ancestors is the site alone; the board's origin is tested below)
 EXPECTED_CSP = ("sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; "
                 "style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; "
                 "img-src data:; media-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; "
@@ -33,6 +34,7 @@ PAGE = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
 
 
 def make_settings(tmp_path, **kw) -> Settings:
+    kw.setdefault("stackshot_web", "")   # the board address is read from the machine's own settings unless a test says otherwise
     claude = tmp_path / "claude"
     (claude / "sessions").mkdir(parents=True, exist_ok=True)
     (claude / "projects").mkdir(exist_ok=True)
@@ -193,10 +195,11 @@ def test_the_route_has_no_sign_in_of_its_own_it_sits_behind_the_proxys_like_ever
 
 
 def test_the_policy_is_the_sandbox_that_keeps_sala_out_of_reach():
-    directives = {d.split(" ", 1)[0]: d.split(" ", 1)[1:] and d.split(" ", 1)[1].split() for d in MK.CSP.split("; ")}
-    assert MK.CSP == EXPECTED_CSP
+    csp = MK.headers()["Content-Security-Policy"]
+    directives = {d.split(" ", 1)[0]: d.split(" ", 1)[1:] and d.split(" ", 1)[1].split() for d in csp.split("; ")}
+    assert csp == EXPECTED_CSP
     assert directives["sandbox"] == ["allow-scripts"]                      # scripts run; no allow-same-origin, forms, popups, modals, navigation
-    assert "allow-same-origin" not in MK.CSP and "allow-top-navigation" not in MK.CSP and "allow-forms" not in MK.CSP
+    assert "allow-same-origin" not in csp and "allow-top-navigation" not in csp and "allow-forms" not in csp
     assert directives["connect-src"] == ["'none'"] and directives["default-src"] == ["'none'"]   # no fetch, XHR, WebSocket, EventSource, beacon
     assert directives["script-src"] == ["'unsafe-inline'"]                 # inline scripts only: no external script, no eval
     assert directives["style-src"] == ["'unsafe-inline'", "https://fonts.googleapis.com"]
@@ -205,6 +208,69 @@ def test_the_policy_is_the_sandbox_that_keeps_sala_out_of_reach():
     for d in ("form-action", "base-uri", "frame-src", "worker-src", "object-src"):
         assert directives[d] == ["'none'"], d
     assert directives["frame-ancestors"] == ["'self'"]
+
+
+# -- framing by the board -------------------------------------------------------------------------------------------------------------
+
+BOARD = "https://board.example.invalid"
+
+
+def client_for(base: Path, board: str) -> TestClient:
+    base.mkdir(parents=True, exist_ok=True)
+    settings = make_settings(base, stackshot_web=board)
+    settings.mockups_dir.mkdir(parents=True, mode=0o700)
+    store(settings.mockups_dir, 1)
+    return TestClient(create_app(settings))
+
+
+@pytest.mark.parametrize("board,origin", [
+    ("", ""),
+    ("https://board.example.invalid/", "https://board.example.invalid"),
+    ("https://board.example.invalid", "https://board.example.invalid"),
+    ("http://localhost:8080/x", "http://localhost:8080"),
+    ("ftp://board.example.invalid", ""),
+    ("https://user@board.example.invalid", ""),
+    ("board.example.invalid", ""),
+])
+def test_the_board_origin_is_the_only_address_added_to_frame_ancestors(board, origin):
+    assert MK.frame_origin(board) == origin
+    csp = MK.headers(board)["Content-Security-Policy"]
+    assert csp.endswith("frame-ancestors 'self'" + (f" {origin}" if origin else ""))
+
+
+def test_the_board_may_frame_a_mockup_and_every_other_header_of_the_route_is_the_same(tmp_path):
+    plain, board = client_for(tmp_path / "plain", ""), client_for(tmp_path / "board", BOARD + "/")
+    for path in ("/mockup/1", "/mockup/7", "/mockup/1/x"):      # a page, a 404, and a 404 that is not a number
+        a, b = plain.get(path), board.get(path)
+        assert a.status_code == b.status_code, path
+        assert b.headers["content-security-policy"] == EXPECTED_CSP.replace("frame-ancestors 'self'", f"frame-ancestors 'self' {BOARD}"), path
+        assert "x-frame-options" not in b.headers                  # none is set on this route, so none is added or removed
+        for k in ("x-content-type-options", "referrer-policy", "cache-control", "content-type"):
+            assert a.headers.get(k) == b.headers.get(k), (path, k)
+    assert plain.head("/mockup/1").headers["content-security-policy"] == EXPECTED_CSP
+    assert board.request("PUT", "/mockup/1", content=b"x").headers["content-security-policy"].endswith(f"frame-ancestors 'self' {BOARD}")
+    assert board.request("PUT", "/mockup/1", content=b"x").headers["allow"] == "GET, HEAD"
+
+
+@pytest.mark.parametrize("path", ["/api/config", "/sw.js", "/manifest.webmanifest", "/static/no-such-file.css"])
+def test_every_other_route_keeps_its_headers_whatever_the_board_address_is(tmp_path, path):
+    plain, board = client_for(tmp_path / "plain", ""), client_for(tmp_path / "board", BOARD)
+    a, b = plain.get(path), board.get(path)
+    assert a.status_code == b.status_code
+    keep = lambda r: {k: v for k, v in r.headers.items() if k not in ("date", "set-cookie")}
+    assert keep(a) == keep(b)
+    assert BOARD not in b.headers.get("content-security-policy", "")
+
+
+def test_a_framed_load_is_the_page_as_stored_with_no_back_link(tmp_path):
+    c = client_for(tmp_path, BOARD)
+    framed = c.get("/mockup/1", headers={"Sec-Fetch-Dest": "iframe"})
+    assert framed.status_code == 200 and framed.text == PAGE         # the viewport meta a phone needs reaches the frame unchanged; nothing of sala is added
+    assert "data-sala-back" not in framed.text and "Back to sala" not in framed.text
+    assert "frame-ancestors 'self' " + BOARD in framed.headers["content-security-policy"]
+    assert "data-sala-back" in c.get("/mockup/1", headers={"Sec-Fetch-Dest": "document"}).text   # a visit (a top-level load) keeps it
+    assert "data-sala-back" in c.get("/mockup/1").text                                            # and so does a request that says nothing
+    assert c.get("/mockup/1", headers={"Sec-Fetch-Dest": "frame"}).text == PAGE
 
 
 # -- the service worker --------------------------------------------------------------------------------------------------------------

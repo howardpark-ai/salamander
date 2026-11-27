@@ -35,7 +35,7 @@ desktop page; `add` prints a note on stderr when the meta is missing, and change
 
 **Back to sala.** When sala-web serves a page it adds one link at the top of the body, "Back to sala" (at least 44 px high, in the page's flow, no sideways scroll at phone width), because the installed phone app opens a link
 to a page of its own site inside its own window, with no address bar and no way back. The stored file is not changed, so a page needs nothing for it, and need not draw a way back to the chat of its own
-(web/README.md, *Mockup pages*).
+(web/README.md, *Mockup pages*). A page the board shows in a frame gets no such link: the frame is the board's own, and the link would sit inside it.
 
 ## Storage
 
@@ -68,6 +68,7 @@ Cache-Control: private, no-cache
 - `sandbox allow-scripts` (no `allow-same-origin`) gives the page an opaque origin: `document.cookie` and `localStorage` throw, and a request the page makes is origin-less and cross-site,
   so sala's API is neither readable nor reachable by it. No forms, popups, modals, navigation of the top page, downloads.
 - `connect-src 'none'` closes `fetch`, XHR, WebSocket, EventSource and beacons; `default-src 'none'` and the other `'none'`s close frames, workers and plugins.
+- `frame-ancestors 'self'` lets the site's own pages frame a page; when the board address is set (`SALA_WEB_STACKSHOT_WEB`, else the `board_url` of stackshot's settings file) the board's origin is added, and nothing else. Only this route changes; no `X-Frame-Options` is sent. A load made by a frame (`Sec-Fetch-Dest` `iframe` or `frame`) is served without the back link.
 - What a mockup needs stays open: inline scripts and styles, `data:` images and fonts, Google Fonts (the stylesheet from `fonts.googleapis.com`, files from `fonts.gstatic.com`).
 - `nosniff` and `no-referrer` keep the type fixed and the page from learning where it was opened from. `private, no-cache` because the page is behind a sign-in and a deleted page should be gone at the next load.
 

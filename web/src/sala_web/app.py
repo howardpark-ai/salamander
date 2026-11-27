@@ -832,19 +832,22 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def mockup_page(request: Request) -> Response:
         # A page `sala mockup add` stored, served at the terminal's own address, so EVERY answer here (a page, a 404, a 405) carries the
-        # sandbox headers of mockup.py. Read-only; the sign-in is the proxy's, as for every route. "n" is the number as written in the address.
+        # sandbox headers of mockup.py, with the board's origin allowed to frame it. Read-only; the sign-in is the proxy's, as for every route.
+        # "n" is the number as written in the address. A load made by a frame (the board's page showing it) gets no back link.
+        hdrs = MK.headers(settings.stackshot_web)
         if request.method not in ("GET", "HEAD"):
             return Response("method not allowed", status_code=405, media_type="text/plain",
-                            headers={**MK.HEADERS, "Allow": "GET, HEAD"})
+                            headers={**hdrs, "Allow": "GET, HEAD"})
         raw = request.path_params.get("n", "")
         body = await run_in_threadpool(MK.read_page, settings.mockups_dir, raw)
         if body is None:
-            return Response("no such mockup", status_code=404, media_type="text/plain", headers=MK.HEADERS)
+            return Response("no such mockup", status_code=404, media_type="text/plain", headers=hdrs)
         try:
             text = body.decode("utf-8")
         except UnicodeDecodeError:   # the CLI only stores UTF-8; a file put there by hand that is not is not served as if it were
-            return Response("this mockup is not UTF-8 text", status_code=415, media_type="text/plain", headers=MK.HEADERS)
-        return HTMLResponse(MK.with_back_link(text), headers=MK.HEADERS)   # text/html; charset=utf-8; the stored file is not changed
+            return Response("this mockup is not UTF-8 text", status_code=415, media_type="text/plain", headers=hdrs)
+        framed = request.headers.get("sec-fetch-dest") in MK.FRAME_DESTS
+        return HTMLResponse(text if framed else MK.with_back_link(text), headers=hdrs)   # text/html; charset=utf-8; the stored file is not changed
 
     async def op_log_page(request: Request) -> Response:
         # The log of one `sala op` operation (oplog.py), linked from the operation's Slack post. EVERY answer here (a log, a 404, a 405) carries

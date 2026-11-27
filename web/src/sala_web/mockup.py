@@ -11,7 +11,8 @@ headers below. They make the page a stranger to the site that serves it:
       pointer lock. The rest of the policy closes every other way out: default-src 'none' and connect-src 'none' (no fetch, XHR, WebSocket,
       EventSource or beacon), form-action 'none', base-uri 'none', frame-src, worker-src and object-src 'none'. What a mockup needs stays open: inline
       scripts and styles ('unsafe-inline'), data: images and fonts, Google Fonts (a stylesheet from fonts.googleapis.com, font files from
-      fonts.gstatic.com). It may be framed by the site's own pages (frame-ancestors 'self') and by nobody else.
+      fonts.gstatic.com). It may be framed by the site's own pages (frame-ancestors 'self') and by the board's origin (headers(), from the
+      board address sala already knows), and by nobody else. A framed page is served without the back link (the frame has its own chrome).
   X-Content-Type-Options: nosniff, Referrer-Policy: no-referrer (a link or request from the page never says which sala page it came from),
   Cache-Control: private, no-cache (it sits behind a login; a shared cache never keeps it, and a page removed by the cleanup is gone at the next load).
 
@@ -25,11 +26,12 @@ import os
 import re
 import stat
 from pathlib import Path
+from urllib.parse import urlsplit
 
 MAX_BYTES = 5 * 1024 * 1024          # the CLI refuses more; a bigger file put there by hand is not served
 NUMBER_RE = re.compile(r"[1-9][0-9]{0,9}")
 
-CSP = "; ".join([
+CSP_BASE = "; ".join([
     "sandbox allow-scripts",
     "default-src 'none'",
     "script-src 'unsafe-inline'",
@@ -43,17 +45,30 @@ CSP = "; ".join([
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
-    "frame-ancestors 'self'",
 ])
 
 METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]   # all answered by the route, so a refusal has the headers too
+FRAME_DESTS = ("iframe", "frame")   # Sec-Fetch-Dest of a load made by a frame element: the board's page showing the mockup, not a visit
 
-HEADERS = {
-    "Content-Security-Policy": CSP,
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
-    "Cache-Control": "private, no-cache",
-}
+
+def frame_origin(board_url: str) -> str:
+    """The board's origin ("https://host[:port]", no path) when `board_url` is an http(s) address, else "" (no extra origin)."""
+    p = urlsplit(board_url or "")
+    if p.scheme not in ("http", "https") or not p.hostname or "@" in p.netloc:
+        return ""
+    return f"{p.scheme}://{p.netloc}"
+
+
+def headers(board_url: str = "") -> dict[str, str]:
+    """The headers of every answer under /mockup/. frame-ancestors is the site itself and, when `board_url` names one, the board's origin:
+    the only pages that may show a mockup in a frame. No other header depends on it."""
+    origin = frame_origin(board_url)
+    return {
+        "Content-Security-Policy": CSP_BASE + "; frame-ancestors 'self'" + (f" {origin}" if origin else ""),
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "Cache-Control": "private, no-cache",
+    }
 
 
 # The link at the top of every served page. A page opened from a reply in the installed app has no address bar, and the page is not sala, so it
