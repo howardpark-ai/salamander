@@ -24,9 +24,11 @@ evidence, a retry), or a Cancel that the page reports as done while the text goe
   box shows and no line names is typed again; other text there is kept as failed and logged; a box that can not be read whole is left
   as it is, every text kept, and nothing is typed or cleared there until the line is empty; an unmatched older message does not stop a
   newer one from being delivered;
-- a long paste drawn folded is read only when every fold pairs with a message the popAll lines name, of as many line breaks, with no
-  line out of view and nothing else in the box: then the others are typed again as they were; any other folded box is left, as above,
-  and a notice with its text says that the message taken back may be in it too; no Up into a box that does not read empty just before;
+- a box with a long paste drawn folded (of many lines, or of one long line), or with rows out of view above, is read when it holds the
+  messages the popAll lines name, in their order, up to its end: then the others are typed again as they were, and what a box with rows
+  out of view showed is logged; with other text in it, a fold that fits no message, rows out of view below, or a message no line speaks
+  of, it is left, as above, and a notice with its text says that the message taken back may be in it too; no Up into a box that does not
+  read empty just before;
 - the list survives a restart; a message half typed at the restart is failed, never typed again;
 - a message the session's process ended without reading, with the CLI's enqueue line as evidence, is sent again; one the transcript
   shows delivered is not; one with no evidence stays queued;
@@ -83,18 +85,22 @@ class Pane:
         self.slow = False           # a message typed now waits in the queue with no enqueue line yet (the CLI writes it seconds later)
         self.unwritten: list[str] = []   # those texts, until their lines are written; an Up pulls one into the box with no popAll line
         self.unreadable = ""        # after an Up the box can not be read whole: above | below (lines out of view) | chip | gone
+        self.up_skip = 0            # the oldest messages an Up pulls with no popAll line
+        self.tall = 0               # rows the box shows at most (0: all): the earlier ones are out of view above
+        self.width = 0              # characters a row holds (0: no wrapping)
         self.cut = ""               # which rule says lines are out of view now
         self.folds = 0              # the pastes drawn folded so far (the number in the chip)
         self.fold_off = 0           # a chip says this many more line breaks than the paste has
-        self.fold_long = False      # a long paste of one line is folded too, with no line count in its chip
         self.after_up = ""          # what is typed or pasted into the box at the terminal just after an Up (no queue line speaks of it)
+        self.after_up_onto = False  # it goes on at the end of the last row, not on a row of its own
         self.submitted: list[str] = []
         self.keys: list[str] = []
         self.edits: list[str] = []
 
     def folded(self, text: str) -> bool:
-        """Claude Code 2.1.332 draws a paste of four lines or more as one chip, and wraps its text in the transcript."""
-        return text.count("\n") >= 3 or (self.fold_long and len(text) > 800)
+        """Claude Code 2.1.332 draws a paste of four lines or more, or of more than 800 characters, as one chip, and wraps its text in
+        the transcript."""
+        return text.count("\n") >= 3 or len(text.replace("\t", "    ").encode("utf-16-le")) // 2 > 800
 
     def drawn(self, text: str) -> str:
         """A message as an Up brings it back into the box."""
@@ -118,9 +124,13 @@ class Pane:
             return (FIX / "capture-empty.txt").read_text()
         if self.mode == "blank":
             return "Loading the conversation\n" * 3
-        first, *more = self.draft.split("\n")
-        body = [f"{PROMPT}{NBSP}{first}"] + [f"  {x}" for x in more]
-        top = f"{RULE} {chr(0x2191)} 3 more {RULE}" if self.cut == "above" else RULE
+        rows = self.draft.split("\n")
+        if self.width:
+            rows = [x[i:i + self.width] for x in rows for i in range(0, max(len(x), 1), self.width)]
+        out = max(0, len(rows) - self.tall) if self.tall else 0      # a box that has scrolled shows no prompt sign
+        above = out or (3 if self.cut == "above" else 0)
+        body = [f"  {x}" for x in rows[out:]] if above else [f"{PROMPT}{NBSP}{rows[0]}"] + [f"  {x}" for x in rows[1:]]
+        top = f"{RULE} {chr(0x2191)} {above} more {RULE}" if above else RULE
         bottom = f"{RULE} {chr(0x2193)} 3 more {RULE}" if self.cut == "below" else RULE
         return "\n".join(["old output", top, *body, bottom]) + "\n"
 
@@ -218,7 +228,7 @@ def env(tmp_path, monkeypatch):
             return
         if not pane.up_silent:
             owed = list(pane.unwritten)
-            for text in pulled:
+            for text in pulled[pane.up_skip:]:
                 if text in owed:
                     owed.remove(text)
                 else:
@@ -233,7 +243,7 @@ def env(tmp_path, monkeypatch):
         else:
             pane.cut = pane.unreadable
         if pane.after_up:
-            pane.draft += "\n" + pane.after_up
+            pane.draft += (" " if pane.after_up_onto else "\n") + pane.after_up
 
     async def no_shell(_settings):
         return None
@@ -620,6 +630,10 @@ FOLDED = {
     "with-one-liners-a-paste": (["one", paste_of("a", 6), "two", "short\n  second line", paste_of("b", 41), "three"], 4),
     "blank-lines-and-tabs": (["a\n\n\n\tb\n  c", "one", "x\ny\n\n\nz"], 1),
     "line-breaks-at-the-ends": (["a\nb\nc\nd\n", "one", "\n\nx\ny\n\n", "p\nq\nr\ns", "two\nlines\n"], 1),
+    "a-long-line-alone": (["y" * 801], 0),
+    "a-long-line-the-long-one": (["one", "y" * 801, "two"], 1),
+    "long-lines-and-others-the-second-long": (["y" * 900, "z" * 800, paste_of("a", 6), "word " * 600, "two\nlines", "last"], 3),
+    "long-lines-and-others-a-short-one": (["y" * 900, "one", paste_of("a", 6) + "w" * 900, "v\t" * 200, "last"], 1),
 }
 
 
@@ -640,20 +654,22 @@ def test_folded_pastes_are_taken_back_and_the_others_are_typed_again_as_they_wer
     assert env.pane.draft == "" and env.pane.ups == 1 and env.pane.submitted == texts + again
 
 
-@pytest.mark.parametrize("how", ["typed-beside", "second-paste", "other-count", "no-count", "rows-hidden", "no-popall-line"])
+@pytest.mark.parametrize("how", ["typed-beside", "typed-onto", "second-paste", "second-long-paste", "other-count", "rows-below",
+                                 "no-popall-line"])
 def test_a_folded_box_that_does_not_pair_off_is_left_as_it_is_and_every_text_is_kept(env, how):
     env.monkeypatch.setattr(AP, "LINE_PATIENCE", 0.0, raising=False)
-    texts = [paste_of("a", 6), paste_of("b", 6), "y" * 900 if how == "no-count" else "one"]
-    env.pane.fold_long = how == "no-count"
+    texts = [paste_of("a", 6), paste_of("b", 6), "y" * 900 if how == "second-long-paste" else "one"]
     ids = busy_queue(env, *texts)
-    if how == "typed-beside":
-        env.pane.after_up = "typed at the terminal"
+    if how in ("typed-beside", "typed-onto"):
+        env.pane.after_up, env.pane.after_up_onto = "typed at the terminal", how == "typed-onto"
     elif how == "second-paste":                 # as many lines as a queued one, and no queue line of its own
         env.pane.after_up = "[Pasted text #9 +5 lines]"
+    elif how == "second-long-paste":            # the same chip as a queued one's, once more
+        env.pane.after_up = "[Pasted text #9]"
     elif how == "other-count":
         env.pane.fold_off = 1
-    elif how == "rows-hidden":
-        env.pane.unreadable = "above"
+    elif how == "rows-below":
+        env.pane.unreadable = "below"
     elif how == "no-popall-line":
         env.pane.slow = True
         texts.append(paste_of("c", 6))
@@ -676,14 +692,93 @@ def test_a_folded_box_that_does_not_pair_off_is_left_as_it_is_and_every_text_is_
 
 
 def test_a_taken_back_message_left_alone_in_the_box_is_told_with_its_text(env):
-    env.pane.fold_long = True
-    long = "y" * 900
+    env.pane.fold_off = 1                       # a chip that fits no message: the box is not read
+    long = paste_of("a", 6)
     (m,) = busy_queue(env, long)
     r = cancel(env, m)
-    assert r.status_code == 200 and env.pane.draft == "[Pasted text #1]" and env.pane.edits == [], r.text
+    assert r.status_code == 200 and env.pane.draft == "[Pasted text #1 +6 lines]" and env.pane.edits == [], r.text
     assert [x[:2] for x in env.states()] == [(long, "withdrawn"), (long, "failed")]
     assert "may still be in the terminal's input line" in env.msgs()[1]["error"]
     assert [x["id"] for x in r.json()["messages"] if x["state"] == "failed"] == [env.msgs()[1]["id"]]   # the cancel's answer has it
+
+
+# queues taller than the input box: (the messages, the rows the box shows, characters a row holds, which one is taken back)
+TALL = {
+    "past-seven-rows-an-old-one": ([f"message {i}" for i in range(12)], 7, 0, 0),
+    "past-seven-rows-the-newest": ([f"message {i}" for i in range(12)], 7, 0, 11),
+    "past-seventeen-rows": ([f"message {i}" for i in range(25)], 17, 0, 12),
+    "one-row-too-many": (["one", "two", "three"], 2, 0, 1),
+    "the-view-begins-inside-a-wrapped-one": (["first", " ".join(f"w{i}" for i in range(90)), "three", "four"], 7, 40, 2),
+    "the-view-begins-inside-a-multi-line-one": (["first", "a\nb\nc", "d\ne\nf", "last"], 3, 0, 3),
+    "one-message-taller-than-the-box": ([" ".join(f"w{i}" for i in range(150))], 7, 40, 0),
+    "with-folds-in-view-and-out-of-it": (["y" * 900, "one", paste_of("a", 6), "two", "z" * 801, "three", paste_of("b", 41), "four"], 3, 0, 1),
+}
+
+
+@pytest.mark.parametrize("act", ["cancel", "edit"])
+@pytest.mark.parametrize("case", list(TALL))
+def test_a_queue_taller_than_the_box_is_taken_back_and_what_it_showed_is_logged(env, case, act):
+    texts, rows, width, gone = TALL[case]
+    env.pane.width = width
+    ids = busy_queue(env, *texts)
+    env.pane.tall = rows
+    shows = []
+    send_edit_key = T.send_edit_key
+
+    async def look_first(settings, pane, key):
+        shows.append(T.shown_text(T.input_box(env.pane.screen())[1]))
+        assert T.box_hidden(env.pane.screen()) == (len(shows) == 1, False)
+        await send_edit_key(settings, pane, key)
+
+    env.monkeypatch.setattr(T, "send_edit_key", look_first)
+    body = {"json": {"text": "the new words"}} if act == "edit" else {}
+    r = env.client.post(f"/api/outbox/{NAME}/{ids[gone]}/{act}", **body)
+    assert r.status_code == 200, r.text
+    new = ["the new words"] if act == "edit" else []
+    again = texts[:gone] + texts[gone + 1:] + new
+    env.pane.tall = 0
+    assert until(lambda: env.pane.queue == again), env.pane.queue
+    want = [(t, "withdrawn" if i == gone else "queued") for i, t in enumerate(texts)] + [(t, "queued") for t in new]
+    assert until(lambda: [x[:2] for x in env.states()] == want), env.states()
+    time.sleep(0.3)
+    assert env.pane.draft == "" and env.pane.ups == 1 and env.pane.submitted == texts + again
+    assert [x["text"] for x in cleared(env)] == shows[:1]                       # what was in view, kept before it was cleared
+
+
+@pytest.mark.parametrize("how", ["typed-below", "typed-onto", "rows-below-too", "oldest-has-no-line", "newest-has-no-line",
+                                 "a-message-not-in-view-whole", "a-fold-pasted-after-folds-alike"])
+def test_a_tall_box_that_does_not_match_is_left_as_it_is_and_every_text_is_kept(env, how):
+    env.monkeypatch.setattr(AP, "LINE_PATIENCE", 0.0, raising=False)
+    texts = [paste_of(f"p{i}", 6) if how == "a-fold-pasted-after-folds-alike" else f"message {i}" for i in range(11)]
+    ids = busy_queue(env, *texts)
+    if how == "newest-has-no-line":
+        env.pane.slow = True
+        texts.append("message 11")
+        ids += busy_queue(env, texts[-1])
+        env.pane.slow = False
+    env.pane.tall = 7
+    if how in ("typed-below", "typed-onto"):
+        env.pane.after_up, env.pane.after_up_onto = "typed at the terminal", how == "typed-onto"
+    elif how == "rows-below-too":
+        env.pane.unreadable = "below"
+    elif how == "a-fold-pasted-after-folds-alike":
+        env.pane.after_up = "[Pasted text #99 +5 lines]"
+    elif how == "oldest-has-no-line":          # out of view, and nothing says it came back
+        env.pane.up_skip = 1
+    elif how == "a-message-not-in-view-whole":  # a row of one in the middle of the view is gone
+        draw = env.pane.drawn
+        env.pane.drawn = lambda t: "message" if t == "message 7" else draw(t)
+    r = cancel(env, ids[5])
+    assert r.status_code == 200 and r.json()["message"]["state"] == "withdrawn", r.text
+    left_there = env.pane.draft
+    assert left_there and env.pane.edits == []                                  # not cleared
+    want = [(t, "withdrawn" if i == 5 else "failed") for i, t in enumerate(texts)]
+    assert [x[:2] for x in env.states()] == want + [(texts[5], "failed")], env.states()
+    assert "may still be in the terminal's input line" in env.msgs()[-1]["error"]
+    assert cleared(env)[-1]["text"].endswith(left_there.split("\n")[-1])        # what was in view is in the log
+    assert env.post("after").json()["message"]["state"] == "held"
+    time.sleep(0.4)
+    assert env.pane.draft == left_there and env.pane.edits == [] and env.pane.submitted == texts
 
 
 def test_the_up_is_pressed_only_into_a_box_read_empty_just_before_it(env):

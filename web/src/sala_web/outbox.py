@@ -23,9 +23,9 @@ A held or failed message is taken back by withdrawing it. A queued one that the 
 CLI's own queue (app.py, _take_back): one Up pulls the whole queue into the input box, the transcript's popAll lines and the box itself
 say what came back, and the others are typed again in order. The Up is not pressed while a message just typed has no transcript line
 yet (the CLI writes it seconds after the Enter, and an Up pulls such a message too), nor while the box reads anything but empty. Text
-in the box that is none of the messages is kept as a failed entry; a box that can not be read whole is left as it is (a long paste is
-drawn folded: it is read only when every fold pairs with a message the popAll lines name, chips_paired). Once the session has taken a
-message from its queue the answer is `tooLate`.
+in the box that is none of the messages is kept as a failed entry; a box that can not be read whole is left as it is. A box that draws a
+long paste folded, or has rows out of view above, is read only when it holds the messages the popAll lines name, in their order, up to
+its end, and nothing else (box_matches). Once the session has taken a message from its queue the answer is `tooLate`.
 
 The matching of what the transcript shows (a user line, a queued_command attachment, a queue-operation line) is here as plain
 functions, so that it is tested on made-up lines. Everything of the store runs on the event loop's thread, never in a worker.
@@ -33,6 +33,7 @@ functions, so that it is tested on made-up lines. Everything of the store runs o
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -280,11 +281,14 @@ def public(entries: list[dict]) -> list[dict]:
 # ── what the transcript shows ─────────────────────────────────────────────────────────────────────────────
 _WRAP_RE = re.compile(r"</?pasted_content(?:\s+id=\"[^\"]*\")?\s*>")
 _CHIP_RE = re.compile(r"\[Image #\d+\]")
-# what the input box draws in place of a long paste. Only a whole line "[Pasted text #1 +5 lines]" (5 = the paste's line breaks) can be
-# read (chips_paired); any other form is a part of the box that can not be seen
+# what the input box draws in place of a long paste. Only a whole row "[Pasted text #1 +5 lines]" (5 = the paste's line breaks) or
+# "[Pasted text #1]" (a long paste with none) can be read (box_matches); any other form is a part of the box that can not be seen
 PASTE_CHIP_RE = re.compile(r"\[(?:\.\.\.)?(?:Pasted|Truncated) text #\d+")
-_CHIP_LINE_RE = re.compile(r"[^\S\n]*\[Pasted text #\d+ \+(\d+) lines\][^\S\n]*")
-_FOLD = chr(0xE000)      # stands where a chip's line was while the rest of the box is matched, so that no message is found across it
+_CHIP_ROW_RE = re.compile(r"\s*\[Pasted text #\d+(?: \+([1-9]\d*) lines)?\]\s*")
+# when Claude Code 2.1.332 folds a paste (measured in a pane): more characters than this, counted as UTF-16 units with a tab as four
+# spaces, or more line breaks than this
+FOLD_PAST_CHARS = 800
+FOLD_PAST_BREAKS = 2
 
 
 def norm_text(text: object) -> str:
@@ -555,27 +559,75 @@ def box_parts(box: str, messages: list[str]) -> tuple[list[bool], list[str]]:
     return found, rest
 
 
-def chips_paired(box: str, popped: list[str]) -> bool:
-    """Whether a box with folded pastes holds exactly `popped`, the messages the popAll lines name, each as it was pasted: every
-    "[Pasted text #N +M lines]" line stands for a message of its own with M line breaks, each of the other messages is there as text,
-    and the box holds nothing else. The count is of the text as pasted (a popAll line's own text does not tell a line break at the
-    end from none). What a chip folds can not be seen: it is known only by this pairing, so any other chip, a count with no message,
-    a message with no place and any further text all answer False. (Which of two messages with as many lines a chip stands for does
-    not matter: what is typed again comes from the entries and the lines, never from the box.)"""
-    counts: list[int] = []
-    lines: list[str] = []
-    for line in box.split("\n"):
-        chip = _CHIP_LINE_RE.fullmatch(line)
-        if chip:
-            counts.append(int(chip[1]))
-        lines.append(_FOLD if chip else line)
-    text = "\n".join(lines)
-    if not counts or PASTE_CHIP_RE.search(text):
+def fold_count(text: str) -> int | None:
+    """How the input box draws `text` pasted into it: None for open, else the line breaks its chip counts (0: a chip with no count).
+    tmux pastes a line break as a carriage return, so a CR LF pair is two of them."""
+    breaks = text.count("\n") + text.count("\r")
+    units = len(text.replace("\t", "    ").encode("utf-16-le", "surrogatepass")) // 2
+    return breaks if units > FOLD_PAST_CHARS or breaks > FOLD_PAST_BREAKS else None
+
+
+def box_matches(box: str, messages: list[str], above: bool = False) -> bool:
+    """Whether the input box holds `messages` (what the popAll lines name, in the lines' order, each as it was pasted) up to its end
+    and nothing else: read from the last row upwards, each message on rows of its own, either open (the same characters, whitespace
+    apart) or as the one chip it is folded into (fold_count). With `above` (the box has rows out of view above) the first row shown
+    may be inside a message, and the messages before that one are out of view; without it every message has its place. What a chip or
+    a row out of view holds can not be seen: it is known only by this fit. (Which of two messages a chip could stand for does not
+    matter: what is typed again comes from the entries and the lines, never from the box.)"""
+    rows = unicodedata.normalize("NFC", box).split("\n")
+    solid = ["".join(c for c, _i in _solid(row)) for row in rows]
+    chips = [_CHIP_ROW_RE.fullmatch(row) for row in rows]
+    wants = ["".join(c for c, _i in _solid(unicodedata.normalize("NFC", _WRAP_RE.sub("", m)))) for m in messages]
+
+    @functools.lru_cache(maxsize=None)
+    def fits(end: int, count: int) -> bool:      # whether the first `end` rows are where the first `count` messages end
+        while end and not solid[end - 1]:
+            end -= 1
+        if not end:
+            return count > 0 if above else count == 0
+        if not count:
+            return False
+        chip = chips[end - 1]
+        if chip and fold_count(messages[count - 1]) == int(chip[1] or 0) and fits(end - 1, count - 1):
+            return True
+        want, got = wants[count - 1], ""
+        for first in range(end - 1, -1, -1):
+            got = solid[first] + got
+            if not want.endswith(got):
+                return False
+            if got == want and fits(first, count - 1):
+                return True
+        return above and got != want      # the rows reach the top: the message begins out of view
+
+    if not fits(len(rows), len(messages)):
         return False
-    found, rest = box_parts(text, popped)
-    if any(_solid(piece.replace(_FOLD, "")) for piece in rest):
-        return False
-    return sorted(counts) == sorted(t.count("\n") for t, here in zip(popped, found) if not here)
+    if above:
+        # a fold pasted at the terminal onto the end would push each fold one message back, out of view, and still fit: not read
+        # when the box fits as well without the folds it ends in
+        end = len(rows)
+        while end and not solid[end - 1]:
+            end -= 1
+        while end > 1 and chips[end - 1]:
+            end -= 1
+            if fits(end, len(messages)):
+                return False
+    return True
+
+
+def pop_order(ops: list[dict], named: list[tuple[str, str]]) -> list[str] | None:
+    """The ids of `named` ((id, normalized text): the messages popAll lines speak of) in the order of those lines, which is the order
+    the input box lists them in. None when a line is none of them, or one of them has no line."""
+    left = list(named)
+    out: list[str] = []
+    for o in ops:
+        if o["op"] != "popAll" or o["text"] is None:
+            continue
+        i = next((i for i, (_id, text) in enumerate(left) if text == o["text"]), None)
+        if i is not None:
+            out.append(left.pop(i)[0])
+        elif not system_item(o["text"]):
+            return None
+    return None if left else out
 
 
 def popped_ids(queued: list[dict], ops: list[dict]) -> list[str]:

@@ -242,11 +242,13 @@ none itself):
                                   busy pane, not yet read) is taken back too: Up pulls the pane's whole queue into the input box, the
                                   others are cleared out and sent again in order. Text already in the input line is cleared first (and
                                   kept, as before a send; the Up is pressed only into a line read empty). Text the Up brought that is
-                                  none of those messages is kept as a failed message. A long paste drawn folded ("[Pasted text #1 +5
-                                  lines]") counts as read only when every fold pairs with a message the popAll lines name, of as many
-                                  line breaks, no line is out of view and nothing else is in the box. A box that can not be read whole is
-                                  left as it is, its messages failed with their text (a notice says the taken-back one may be in it too),
-                                  and the sender waits until the line is empty. 409 busy when the pane can not do that now (a message typed moments ago
+                                  none of those messages is kept as a failed message. A box with a long paste drawn folded ("[Pasted
+                                  text #1 +5 lines]", or "[Pasted text #1]" for one long line), or with rows out of view above, counts as
+                                  read only when it holds the messages the popAll lines name, in their order, up to its end (a fold fits a
+                                  message that is folded that way), and nothing else; with rows out of view, every message typed lately
+                                  must have its line too, and what was in view is logged. A box that can not be read whole is left as it
+                                  is, its messages failed with their text (a notice says the taken-back one may be in it too), and the
+                                  sender waits until the line is empty. 409 busy when the pane can not do that now (a message typed moments ago
                                   that the transcript does not show yet, a dialog, a line that can not be cleared, a queue that does not
                                   read back as sala's, an upload in it, an Up that took nothing back, or an Up that can not be confirmed:
                                   then those messages are failed with their text kept); 409 tooLate when the session already took it
@@ -2234,8 +2236,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def _watch_take_back(path: Path, pane: str, mark: int, wanted: list[tuple[str, str]]) -> tuple:
         """After an Up: read the transcript lines written since `mark` until they speak of every message of `wanted` and, for one popped, the
-        input box shows text, or TAKE_BACK_WAIT s have passed. (popped, taken, left, extra, the pane as captured: "" when tmux could not).
-        Nothing is typed."""
+        input box shows text, or TAKE_BACK_WAIT s have passed. (popped, taken, left, extra, the lines read, the pane as captured: ""
+        when tmux could not). Nothing is typed."""
         end = time.monotonic() + TAKE_BACK_WAIT
         while True:
             await asyncio.sleep(T.SETTLE_S)
@@ -2249,7 +2251,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             except T.TmuxError:
                 captured = ""
             if (not left and (T.input_box(captured)[0] == "text" or not popped)) or time.monotonic() >= end:
-                return popped, taken, left, extra, captured
+                return popped, taken, left, extra, ops, captured
 
     def _same_run(s: S.Session, e: dict) -> bool:
         return e.get("pid") in (None, s.pid) and e.get("sessionId") in ("", None, s.session_id)
@@ -2289,9 +2291,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
         that stops now leaves them failed with their text, never sent twice). After the Up the transcript's own lines say which came back
         (popAll) and which the session took first, and the input box says what is in it: the message is withdrawn, the others that came
         back are cleared out of the box and typed again, in their order, and one the session took stays its own. Text in the box that is
-        none of these is kept as a failed message and in the cleared-text log. A folded paste is read by what the popAll lines name
-        (OB.chips_paired). A box that can not be read whole is left as it is, the messages it may hold are failed with their text, and a
-        failed entry says that the message taken back may be in it too.
+        none of these is kept as a failed message and in the cleared-text log. A box with a folded paste, or with rows out of view
+        above, is read only when it holds the messages the popAll lines name, in their order, up to its end (OB.box_matches), and with
+        rows out of view only when no message typed lately is unaccounted for; what it showed is then logged before it is cleared. Any
+        other box that can not be read whole is left as it is, the messages it may hold are failed with their text, and a failed entry
+        says that the message taken back may be in it too.
 
         Returns None when the message is withdrawn (or was never typed). Otherwise the refusal: 409 tooLate for a message the session has
         taken; 409 busy with nothing changed; or, after an Up no line accounts for, 409 busy with the unaccounted messages failed, their text
@@ -2370,7 +2374,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 except T.TmuxError as ex:
                     settle(pulled, OB.QUEUED)
                     return _busy(name, mid, f"the key could not be sent ({str(ex)[:120]})")
-                popped, taken, left, extra, captured = await _watch_take_back(path, pane, mark, wanted)
+                popped, taken, left, extra, ops, captured = await _watch_take_back(path, pane, mark, wanted)
                 state, box = T.input_box(captured)
                 if not popped and not taken and not extra and state != "text":
                     settle(pulled, OB.QUEUED)
@@ -2391,11 +2395,20 @@ def create_app(settings: Settings | None = None) -> Starlette:
                           and outbox.get(name, x["id"])["state"] == OB.QUEUED]
                 back = [i for i in popped if i != mid] + extras      # list order is the order they were typed
                 shown = T.shown_text(box) if state == "text" else ""
-                seen_all = state == "text" and not any(T.box_hidden(captured))
+                above, below = T.box_hidden(captured) if state == "text" else (False, False)
+                seen_all = state == "text" and not above and not below
                 folded = bool(OB.PASTE_CHIP_RE.search(shown))
-                # every fold is a message a popAll line names (popped, extras), its line breaks counted as sala-web pasted it
-                paired = seen_all and folded and OB.chips_paired(shown, [outbox.get(name, i)["text"] for i in popped + extras])
-                whole = state == "empty" or paired or (seen_all and not folded)
+                # a box with a fold, or with rows out of view above, is read when it holds the messages the popAll lines name, in their
+                # order, up to its end (OB.box_matches, on each text as sala-web pasted it)
+                matched = False
+                if state == "text" and (folded or above) and not below:
+                    named = dict(wanted)
+                    order = OB.pop_order(ops, [(i, named[i]) for i in popped] + [(i, OB.norm_text(t)) for i, t in zip(extras, extra)])
+                    matched = order is not None and OB.box_matches(shown, [outbox.get(name, i)["text"] for i in order], above)
+                    if matched and above:      # rows out of view: only when no message typed lately may be among them unnamed
+                        unshown = await _unshown(path, s, _typed_lately(name, s))
+                        matched = not left and not others and not [x for x in unshown if x["id"] not in extras]
+                whole = state == "empty" or matched or (seen_all and not folded)
                 if not whole:
                     if shown:
                         _log_cleared(s, shown, "leaving")
@@ -2412,8 +2425,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 else:
                     cands = ([outbox.get(name, i)["text"] for i in popped] + extra + [outbox.get(name, i)["text"] for i in left]
                              + [x["text"] for x in others])
-                    # folds that pair off leave nothing over, and nothing else of sala's can be in the box
-                    found, rest = ([False] * len(cands), []) if paired else OB.box_parts(shown, cands)
+                    # a box that matched leaves nothing over, and nothing else of sala's can be in it
+                    found, rest = ([False] * len(cands), []) if matched else OB.box_parts(shown, cands)
                     back += [x["id"] for x, here in zip(others, found[len(cands) - len(others):]) if here]
                     settle(left, OB.FAILED, error=TAKE_BACK_UNCONFIRMED, **unsent)
                     settle(back, OB.HELD, error="", resent=True, **unsent)
@@ -2427,7 +2440,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                             msgs, _cur, _end = await run_in_threadpool(TR.read_tail_page, path, s.session_id, 120)
                             had = {r[1] for r in OB.rows_from_messages(msgs)}
                             rest = [x for x in rest if OB.norm_text(x) not in had]
-                    if shown and (keep or rest):
+                    if shown and (keep or rest or above):      # rows out of view were never read: what could be seen is logged
                         _log_cleared(s, shown)
                     for text in rest:
                         x, _new = outbox.add(name, text, [])

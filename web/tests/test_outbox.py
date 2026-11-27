@@ -219,37 +219,83 @@ def test_the_input_box_is_read_as_the_messages_it_holds_and_what_is_left_over():
     assert OB.box_parts("", ["A"]) == ([False], [])
 
 
-def chip(n, breaks):
-    return f"[Pasted text #{n} +{breaks} lines]"
+def chip(n, breaks=0):
+    return f"[Pasted text #{n} +{breaks} lines]" if breaks else f"[Pasted text #{n}]"
 
 
-def test_folded_pastes_count_as_read_only_when_each_pairs_with_a_message_the_up_named():
-    six, other_six, long = "a\nb\nc\nd\ne\nf", "g\nh\ni\nj\nk\nl", "\n".join("x" * 41)
-    paired = OB.chips_paired
-    assert paired(chip(1, 5), [six])
-    assert paired(f"{chip(1, 5)}\n{chip(2, 40)}", [six, long])
-    assert paired(f"{chip(7, 40)}\n{chip(8, 5)}", [six, long])                                   # by count, not by place
-    assert paired(f"{chip(1, 5)}\n{chip(2, 5)}", [six, other_six])
-    assert paired(f"one\n{chip(1, 5)}\ntwo\nshort\n  second line", ["one", six, "two", "short\n  second line"])
-    assert paired(f"{six}\n{chip(1, 5)}", [six, other_six])                                       # one drawn open, one folded
-    assert paired(chip(1, 6), [six + "\n"]) and paired(chip(1, 7), ["\n" + six + "\n"])            # breaks at the ends count too
-    assert not paired(chip(1, 5), [])                                                            # a chip nothing names
-    assert not paired(f"{chip(1, 5)}\n{chip(2, 5)}", [six])                                       # one chip more than messages
-    assert not paired(chip(1, 5), [six, other_six])                                              # a message with no place in the box
-    assert not paired(chip(1, 5), [six, "one"])
-    assert not paired(chip(1, 6), [six])                                                         # the count differs
-    assert not paired(chip(1, 5), [six + "\n"])
-    assert not paired(f"{chip(1, 5)}\n{chip(2, 5)}", [six, long])
-    assert not paired(f"typed here\n{chip(1, 5)}", [six])                                         # other text
-    assert paired(f"{chip(1, 5)}\none\ntwo", [six, "one two"])                                    # as the pane's width wraps it
-    assert not paired(f"one\n{chip(1, 5)}\ntwo", ["one two", six])                                # no message is found across a chip
-    assert not paired(f"{chip(1, 5)} typed after it", [six])                                      # a chip is a line of its own
-    assert not paired(f"typed before it {chip(1, 5)}", [six])
-    assert not paired("[Pasted text #1]", ["y" * 900])                                            # no line count: nothing to pair by
-    assert not paired("[...Truncated text #1 +5 lines]", [six])
-    assert not paired(f"{chip(1, 5)}\n[Pasted text #2]", [six, "y" * 900])
-    assert not paired("one", ["one"])                                                             # no chip at all: not this function's case
-    assert not paired("", [])
+def test_a_paste_is_folded_past_800_characters_or_past_two_line_breaks():
+    fold = OB.fold_count
+    assert fold("w" * 800) is None and fold("w" * 801) == 0
+    assert fold("w" * 400 + "\n" + "y" * 399) is None and fold("w" * 400 + "\n" + "y" * 400) == 1
+    assert fold("a\nb\nc") is None and fold("a\nb\nc\nd") == 3 and fold("a\nb\nc\n") == 3
+    assert fold(chr(0xAC00) * 800) is None and fold(chr(0xAC00) * 801) == 0                   # characters, not bytes
+    assert fold(chr(0x1F600) * 400) is None and fold(chr(0x1F600) * 401) == 0                 # as UTF-16 counts them
+    assert fold("w" * 400 + "\t" + "w" * 396) is None and fold("w" * 400 + "\t" + "w" * 397) == 0   # a tab is four spaces
+    assert fold(" " * 20 + "w" * 790) == 0 and fold("w" * 790 + " " * 20) == 0                # spaces at the ends count
+    assert fold("a\r\nb") is None and fold("a\r\nb\r\nc") == 4                               # pasted, CR LF is two breaks
+
+
+def test_a_box_matches_only_the_named_messages_in_their_order_up_to_its_end():
+    six, other, long = "a\nb\nc\nd\ne\nf", "g\nh\ni\nj\nk\nl", "y" * 801
+    tall = "\n".join("x" * 41)
+    fits = OB.box_matches
+    assert fits(chip(1, 5), [six]) and fits(chip(1), [long])
+    assert fits(f"{chip(1, 5)}\n{chip(2, 40)}", [six, tall]) and not fits(f"{chip(2, 40)}\n{chip(1, 5)}", [six, tall])   # in order
+    assert fits(f"one\n{chip(1)}\n{chip(2, 5)}\ntwo\nshort\n  second line", ["one", long, six, "two", "short\n  second line"])
+    assert fits(f"{six}\n{chip(1, 5)}", [six, other])                                                # one drawn open, one folded
+    assert fits(chip(1, 6), [six + "\n"]) and fits(chip(1, 7), ["\n" + six + "\n"])                   # breaks at the ends count too
+    assert fits(chip(1, 1), ["y" * 801 + "\n" + "z"]) and not fits(chip(1), ["y" * 801 + "\nz"])
+    assert fits("one\ntwo wrapped\nby the pane", ["one", "two wrapped by the pane"])
+    assert fits("a\n\n\nb\nnext", ["a\n\n\nb", "next"]) and fits("ends in a break\n\nnext", ["ends in a break\n", "next"])
+    assert fits("say [Pasted text #1] aloud", ["say [Pasted text #1] aloud"])
+    assert not fits(chip(1, 5), [])                                                              # a chip nothing names
+    assert not fits(chip(1), ["y" * 800]) and not fits(chip(1), ["short"])                       # too short to have been folded
+    assert not fits(chip(1, 2), ["a\nb\nc"])                                                      # as little as is drawn open
+    assert not fits(chip(1, 6), [six]) and not fits(chip(1, 5), [six + "\n"])                     # the count differs
+    assert not fits(chip(1), [six]) and not fits(chip(1, 5), [long])
+    assert not fits(f"{chip(1)}\n{chip(2)}", [long])                                             # one chip more than messages
+    assert not fits(chip(1), [long, "z" * 900])                                                  # a message with no place
+    assert not fits(chip(1), [long, "one"]) and not fits(chip(1), ["one", long])
+    assert not fits(f"typed here\n{chip(1)}", [long]) and not fits(f"{chip(1)}\ntyped here", [long])
+    assert not fits(f"{chip(1)} typed after it", [long]) and not fits(f"typed before it {chip(1)}", [long])
+    assert not fits("one\ntwo typed", ["one", "two"]) and not fits("two\none", ["one", "two"])
+    assert not fits("onetwo", ["one", "two"])                                                    # each on rows of its own
+    assert not fits("[...Truncated text #1 +5 lines...]", [six]) and not fits("[Pasted text #1 +0 lines]", [long])
+    assert not fits("", ["one"]) and fits("", [])
+
+
+def test_a_box_with_rows_out_of_view_above_matches_from_its_end():
+    fits = OB.box_matches
+    long = "y" * 801
+    assert fits("two\nthree", ["one", "two", "three"], True)                   # the view begins at a message
+    assert fits("the end of it\nlast", ["a message, the end of it", "last"], True)
+    assert fits("of it", ["zero", "a message, the end of it"], True)
+    assert fits(f"two\n{chip(3)}\nlast", ["one", "two", long, "last"], True)
+    assert fits(f"{chip(3)}\nlast", [long, long + "z", "last"], True)
+    assert not fits("one\ntwo", ["one", "two"], True)                         # rows out of view, and no message left for them
+    assert not fits("the end of it\nlast typed", ["a message, the end of it", "last"], True)
+    assert not fits("two\nthree\ntyped", ["one", "two", "three"], True)
+    assert not fits("two\nthree", ["one", "two", "three", "four"], True)      # the newest is not at the end
+    assert not fits("typed\nthree", ["one", "two", "three"], True)            # a row in view that is no part of the message there
+    assert not fits("the start of it\nlast", ["the start of it, and more", "last"], True)
+    assert not fits(f"{chip(3, 5)}\nlast", ["one", long, "last"], True)
+    assert not fits("two\nthree", ["one", "two", "three"])                    # nothing out of view: every message has its place
+    # folds alike to the end could as well be one fold more, pasted at the terminal: not read
+    assert not fits(f"{chip(2)}\n{chip(3)}", [long, long, long], True)
+    assert not fits(f"{chip(2, 5)}\n{chip(3, 5)}\n{chip(9, 5)}", ["a\nb\nc\nd\ne\nf"] * 4, True)
+    assert fits(f"{chip(2)}\n{chip(3)}\n{chip(4)}", [long, long, long])        # nothing out of view: the count settles it
+    assert fits(f"two\n{chip(3)}\n{chip(4)}", ["one", "two", long, long], True)
+    assert fits(f"{chip(3)}\n{chip(4, 5)}", ["one", long, "a\nb\nc\nd\ne\nf"], True)
+
+
+def test_the_boxs_order_is_the_order_of_the_popall_lines():
+    def pop(text):
+        return {"op": "popAll", "ts": 1, "text": text, "raw": text}
+
+    named = [("m1", "one"), ("m2", "two"), ("m3", "one")]
+    assert OB.pop_order([pop("two"), pop("one"), {"op": "enqueue", "ts": 1, "text": "x", "raw": "x"}, pop("one")], named) == ["m2", "m1", "m3"]
+    assert OB.pop_order([pop("one"), pop("two")], named) is None                # one of them has no line
+    assert OB.pop_order([pop("one"), pop("two"), pop("one"), pop("other")], named) is None
 
 
 def test_a_file_s_path_before_the_text_and_an_image_chip_do_not_hide_the_message(box):
