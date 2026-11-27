@@ -260,7 +260,7 @@ sala.example.com {
 				@out status 401
 				handle_response @out {
 					@page header Sec-Fetch-Dest document
-					redir @page /oauth2/sign_in?rd={uri} 302
+					redir @page /oauth2/sign_in?rd={%uri} 302
 					respond 401
 				}
 			}
@@ -272,6 +272,11 @@ sala.example.com {
 	}
 }
 ```
+
+The redirect uses `{%uri}`, the placeholder that percent-encodes the address, so an `&` in the page's own query stays inside `rd` (with
+`{uri}` the `rd` stops at the first `&`). It needs a Caddy that has this placeholder: the example was run with Caddy 2.11.9, and
+Caddy 2.6.2 was reported to render it empty, which sends the sign-in no address at all. After a change, check it with a page whose
+query has an `&` in it: the `rd` in the `Location` must decode to that address.
 
 ```sh
 systemctl --user daemon-reload && systemctl --user enable --now oauth2-proxy.service
