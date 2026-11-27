@@ -93,9 +93,9 @@
 #                                             finds the agent to fork and the project's page. No quiet watch, no auto-retire, no cap: it
 #                                             retires only on the owner's word, through `retire`, which refuses it until `sala side done`
 #                                             wrote its marker (--skip-writeup the one bypass; lib/retire.sh).
-#   reboot                                    not queued: the owner runs `sala reboot --go` directly, in the web UI's Shell. The verb's
-#                                             shape and code path stay, behind SALA_OP_REBOOT (off by default, and unsupported
-#                                             until a confirmation path is built); while it is off, `op reboot` is refused.
+#   reboot                                    the clean reboot protocol (`reboot --go`), with the owner's words (required, no reason door);
+#                                             refused while another reboot is queued or running, or `reboot --status` shows a broken
+#                                             hook; SALA_OP_REBOOT=off is the owner's kill switch.
 #
 # THE MARKER: one file per operation under $SALA_STATE_DIR/ops/<id>.op (<id> = <epoch>-<pid>), key=value lines: id, time, from
 # (who heard the owner), words (the owner's words verbatim, one line), verb, one `arg=` line per argument in order, state (queued ·
@@ -158,7 +158,7 @@
 #   model        owner       changes what a session costs and how it works
 #   provision    owner       changes a machine's configuration
 #   spawn        owner       starts a session (cost, and a new name the owner sees)
-#   reboot       owner       not queued at all (the owner runs `sala reboot --go` directly)
+#   reboot       owner       the whole box goes down: only the owner's own words
 # A new verb is `owner` until a line here says otherwise; a verb moves to `reason` or `throwaway` only with the principle above and its own re-check in op_run.
 # THE REASON DOOR (a session revives sessions with no words): `revive --only NAME [--only NAME]… [--force] (--item board#N | --why "<reason>") --from YOU`, queued when ALL hold:
 #   1. the arguments are one or more `--only NAME` and at most `--force`, nothing else: no sweep (no --only), no --rescue, no --lane-default, no other flag (--force is allowed:
@@ -255,7 +255,7 @@
 
 : "${SALA_OP_REASON_FROM:=}"                                   # who may use the reason door (a revive with no words and a reason): empty = any live Claude session, else a space-separated allow list of session names (THE WORDS POLICY, the header)
 : "${SALA_OP_QUEUE:=on}"                                   # watch: run the queue (off: markers wait, nothing starts)
-: "${SALA_OP_REBOOT:=off}"                                 # reboot is not queued (the owner runs `sala reboot --go`); on is unsupported until a confirmation path is built
+: "${SALA_OP_REBOOT:=on}"                                  # `op reboot` is queued (the owner's words required); off: refused (kill switch)
 : "${SALA_OP_LOCK_WAIT:=600}"                              # seconds the runner waits for a relaunch that holds the recycle lock
 : "${SALA_OP_SWEEP_WAIT:=1800}"                            # seconds the runner gives a relaunch's sweep (the lock to free)
 : "${SALA_OP_SETTLE_WAIT:=$((SALA_RETRY_WINDOW + 900))}"   # seconds the waiter gives a set with panes outstanding
@@ -723,7 +723,7 @@ op_shapes() {
                                             a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd
   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
                                             a side conversation (NAME contains -side-; sala spawn --suggest-name --side … suggests one): a fork of AGENT, or a fresh session about the item; on no agents map
-  reboot                                    not queued: the owner runs `sala reboot --go` in the web UI's Shell (SALA_OP_REBOOT: off by default, unsupported until a confirmation path is built)
+  reboot                                    the clean reboot protocol (reboot --go): needs the owner's words; --plan shows reboot --status
 EOF
     printf '%s' "$_t"
 }
@@ -1154,8 +1154,14 @@ op_main() {
             echo "✗ nothing queued: ${_sl[*]} is asleep; queue it in its own call (sala op wake --only ${_sl[0]} …)" >&2; return 1
         fi
     fi
-    if [ "$verb" = reboot ] && [ "$SALA_OP_REBOOT" != on ]; then
-        die "reboot is not queued: ${SALA_OWNER_NAME} runs \`sala reboot --go\` in the web UI's Shell; a session shows \`sala reboot --status\` and waits for the word (SALA_OP_REBOOT is off by default and unsupported until a confirmation path is built)"
+    if [ "$verb" = reboot ] && [ "$SALA_OP_REBOOT" = off ]; then
+        die "reboot is switched off here (SALA_OP_REBOOT=off): ${SALA_OWNER_NAME} runs \`sala reboot --go\` himself"
+    fi
+    if [ "$verb" = reboot ] && [ "$mode" = add ]; then   # one reboot at a time: another still queued, running or waiting refuses this one
+        for f in $(op_files); do
+            c=${f##*/}; c=${c%.op}
+            case "$(op_val "$c" state)" in queued|running|waiting) [ "$(op_val "$c" verb)" = reboot ] && die "refused: op $c is a reboot already $(op_val "$c" state); one reboot at a time (salamander op --status $c)";; esac
+        done
     fi
     if [ "$mode" = add ]; then
         [ "$stdin" = 1 ] && words=$(cat)
@@ -1206,6 +1212,9 @@ op_main() {
             case "$verb:$rc" in spawn:3)   # the web layer reads the marker and the command (lib/spawn.sh): once more, unindented, and the verb's own exit code
                 printf '%s\n' "$out" | sed -n '/^REGISTER: /,$p'; return "$rc" ;; esac
             return 1
+        fi
+        if [ "$verb" = reboot ] && [ "$mode" = add ]; then   # reboot --status exits 0 whatever it finds: a broken hook or no hooks is a blocker
+            case "$out" in *BROKEN*|*"no SALA_REBOOT_HOOKS"*) echo "✗ refused: reboot --status shows a blocker (above) — nothing queued" >&2; return 1;; esac
         fi
     fi
     [ "$mode" = plan ] && { echo "plan only: nothing queued"; return 0; }

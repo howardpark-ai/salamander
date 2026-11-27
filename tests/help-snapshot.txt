@@ -105,8 +105,8 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
                                      sleep|wake --only NAME… (--item board#N | --why "<reason>"; no --words) · model <model> [--effort <level>] <session>…|--clear <session>… (several sessions in ONE operation, ONE result notice) or the single-session <session> <model> [--effort <level>]|<session> --clear · provision [--only STEPS] [HOST…] · spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT]
                                      [--lane L] | spawn NAME --side (--fork-of AGENT | --project KEY --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] (a side conversation)
                                      (a TEXT mandate goes to ~/.local/state/salamander/mandates/<id>-NAME.md; a name not
-                                     on the page refuses with exit 3 and the REGISTER: line and command) (a reboot is not queued: the owner runs `sala reboot --go` in the web UI's Shell;
-                                     SALA_OP_REBOOT off by default, unsupported until a confirmation path is built); the verb's dry run first, refused
+                                     on the page refuses with exit 3 and the REGISTER: line and command) (reboot: the clean reboot protocol, the owner's words required, one at a time);
+                                     the verb's dry run first, refused
                                      before anything is queued; one Slack post, one inbox line and one stackshot event (client.py event --kind fleet_op) per result; --stdin: the words on stdin
   salamander op --plan <verb> [args…] | --list | --status <id> | --cancel <id>   the plan alone · the queue · one record · drop a queued one
   salamander watch --ops             only the operation queue (what `op` kicks after a tick already running)
@@ -367,7 +367,7 @@ verbs:
                                             a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd
   spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
                                             a side conversation (NAME contains -side-; sala spawn --suggest-name --side … suggests one): a fork of AGENT, or a fresh session about the item; on no agents map
-  reboot                                    not queued: the owner runs `sala reboot --go` in the web UI's Shell (SALA_OP_REBOOT: off by default, unsupported until a confirmation path is built)
+  reboot                                    the clean reboot protocol (reboot --go): needs the owner's words; --plan shows reboot --status
 
 ### sala restore --help (exit 0)
 usage: salamander restore (NAME… | --missing) [--dry-run]

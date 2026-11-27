@@ -40,7 +40,7 @@ leaves only when stackshot's next resume writes the file.
 
 ## What sala does with them
 
-`sala reboot --dry-run` (the acceptance test) and `sala reboot --go` (the real one, only on the owner's word), from the
+`sala reboot --dry-run` (the acceptance test) and `sala reboot --go` (the real one, only on the owner's word; a session queues it with `sala op reboot --from NAME --words "…"`), from the
 pane you run it in:
 
 1. **Pause:** records `T` = now (UTC); runs `pause --at T` on every hook. Any failure → resume all, stop.

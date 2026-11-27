@@ -6382,11 +6382,10 @@ fleet_guard() {
     for a in "$@"; do case "$a" in --dry-run|--check) return 0;; esac; done
     claude_caller || return 0   # a human's shell, systemd, cron, the boot hook: no one-driver rule to hold against them
     here=""; [ -n "${TMUX_PANE:-}" ] && here=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
-    # the verbs the queue takes (lib/op.sh, THE VERBS); adopt has no queue shape yet; a reboot is not
-    # queued (SALA_OP_REBOOT off by default, unsupported until a confirmation path is built): the owner runs it directly
+    # the verbs the queue takes (lib/op.sh, THE VERBS); adopt has no queue shape yet
     case "$verb" in
         reboot)
-            die "reboot is not queued: ${SALA_OWNER_NAME} runs \`sala reboot --go\` in the web UI's Shell; a session shows \`sala reboot --status\` and waits for the word" ;;
+            die "reboot is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op reboot --from ${here:-<you>} --words \"<${SALA_OWNER_NAME}'s words>\" — and sala's watch runs the clean reboot protocol; sala op --plan reboot shows \`reboot --status\` first" ;;
         restore)
             die "restore is a fleet operation, and a session never runs one itself: the operation queue does. Queue it — sala op restore --only NAME --why \"<one line: why it is needed>\" --from ${here:-<you>} (or --item board#N for --why; ${SALA_OWNER_NAME}'s words are needed only for yourself or a sweep) — and sala's watch runs it; sala op --plan restore --only NAME shows what it would do first" ;;
         sleep|wake)

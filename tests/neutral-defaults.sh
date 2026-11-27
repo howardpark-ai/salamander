@@ -338,10 +338,10 @@ case "$out" in *"left for Sam Example"*"apple-id"*) ok "and with the name set it
 mkdir -p "$T/hookhome"; printf 'SALA_OWNER_NAME="Hook Example"\n' > "$T/hookhome/config"
 hk_payload() { python3 -c 'import json,sys; print(json.dumps({"session_id":"u1","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$1"; }
 out=$(hk_payload 'sudo reboot' | env -u SALA_OWNER_NAME SALA_CONFIG="$T/hookhome/config" HOME="$T/hookhome" "$ROOT/bin/salamander" hook pre-tool 2>&1)
-case "$out" in *"Hook Example runs"*"sala reboot --go"*) ok "hook pre-tool: the name comes from the scratch config alone (none in the environment)";; *) bad "hook from config: $out";; esac
+case "$out" in *"sala op reboot"*"<Hook Example's words>"*) ok "hook pre-tool: the name comes from the scratch config alone (none in the environment)";; *) bad "hook from config: $out";; esac
 : > "$T/hookhome/config"
 out=$(hk_payload 'sudo reboot' | env -u SALA_OWNER_NAME SALA_CONFIG="$T/hookhome/config" HOME="$T/hookhome" "$ROOT/bin/salamander" hook pre-tool 2>&1)
-case "$out" in *"the owner runs"*"sala reboot --go"*) ok "hook pre-tool with no name anywhere says 'the owner'";; *) bad "hook with no name: $out";; esac
+case "$out" in *"sala op reboot"*"<the owner's words>"*) ok "hook pre-tool with no name anywhere says 'the owner'";; *) bad "hook with no name: $out";; esac
 printf 'SALA_OWNER_NAME=%q\n' "$HOSTILE" > "$T/hookhome/config"
 out=$(hk_payload 'sudo reboot' | env -u SALA_OWNER_NAME SALA_CONFIG="$T/hookhome/config" HOME="$T/hookhome" "$ROOT/bin/salamander" hook pre-tool 2>&1)
 case "$out" in *'`touch'*|*'$('*) bad "hook: shell characters of the name reached the deny: $out";; *"Eve touch"*) ok "hook pre-tool cleans the name the same way";; *) bad "hook hostile: $out";; esac

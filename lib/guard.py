@@ -25,9 +25,8 @@ A PreToolUse hook on Bash: it denies a command, typed by a session outside sala,
 Exempt: sala's own verbs (`sala …`, `salamander …`: the command word is
 sala, so no rule sees its arguments) · a private tmux server (-L <name> / -S <path> / a $TMUX that is not the fleet's).
 The deny names the queue's verb for the command (`sala op <verb> … --from NAME --words "<the owner's words>"`, lib/op.sh;
-Thu Oct 15th 2026): a session queues the operation, sala's watch runs it. A reboot is the exception: it is not
-queued (SALA_OP_REBOOT is off by default and unsupported until a confirmation path is built), so its deny says the owner runs
-`sala reboot --go` directly and the session shows `sala reboot --status` and waits for the word. The logic is untouched.
+Thu Oct 15th 2026): a session queues the operation, sala's watch runs it. A reboot is queued the same way
+(`sala op reboot`, with the owner's words). The logic is untouched.
 
 TIGHT BY DESIGN: anything that cannot be read off the command passes — a pid in a variable, `$(pgrep …)`, `… | xargs kill`,
 `ssh <host> …` (not looked into), a heredoc body fed to a shell. It never runs another command to decide (the only
@@ -698,13 +697,13 @@ EFFECT = {
     "kill": "stops a Claude session's process (kill -1: every process)",
     "tmuxwin": "puts a window, pane or session group into another session's tmux, where it runs as that session",
 }
-VERB = {   # the queue's verb for each kind (lib/op.sh, THE VERBS); a reboot has none: it is not queued (NOT_QUEUED)
+VERB = {   # the queue's verb for each kind (lib/op.sh, THE VERBS)
+    "reboot": "reboot",
     "update": "update",
     "tmux": "retire <session>",
     "kill": "retire <session> (or revive --only <session> --force, to relaunch it)",
 }
-NOT_QUEUED = {   # kinds the queue does not take (lib/op.sh: SALA_OP_REBOOT off by default, unsupported until a confirmation path is built)
-    "reboot": "A reboot is not queued: %s runs `sala reboot --go` in the web UI's Shell. Show `sala reboot --status` and wait for the word." % OWNER,
+NOT_QUEUED = {   # kinds the queue does not take
     "tmuxwin": "Nothing queues it. Run the command in your own session (`-t <you>:`), in a throwaway you start with a bare `sala spawn NAME` (it is yours to retire), or on a private test server (`tmux -L <name> -f /dev/null`).",
 }
 
