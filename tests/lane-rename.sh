@@ -206,7 +206,7 @@ out=$("$SALA" lane --migrate --all 2>&1); rc=$?; [ "$rc" = 1 ] && ok "--migrate 
 out=$("$SALA" lane --migrate sala-test-a 2>&1); rc=$?; [ "$rc" = 1 ] && ok "--migrate with a session: refused" || bad "--migrate a ($rc): $out"
 rm -f "$SALA_LANES" "$SALA_LANE_DEFAULT_FILE" "$SALA_LANE_STATE" "$SALA_SESSIONS_FILE"
 out=$("$SALA" lane --migrate 2>&1); rc=$?; [ "$rc" = 0 ] && grep -q '^nothing to migrate' <<< "$out" && ok "with no state files at all: nothing to migrate, exit 0" || bad "empty migrate ($rc): $out"
-out=$("$SALA" lane --help 2>&1); grep -q 'lane --migrate' <<< "$out" && ok "lane --help lists --migrate" || bad "help: $out"
+out=$("$SALA" lane --help --full 2>&1); grep -q 'lane --migrate' <<< "$out" && ok "lane --help lists --migrate" || bad "help: $out"
 
 echo "== 7. the registry: an old word in a row is drift"
 printf 'a\t%s\n' $OLD > "$SALA_LANES"

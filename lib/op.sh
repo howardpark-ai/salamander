@@ -2,7 +2,8 @@
 # when one of them is stuck. No session drives the verbs itself: the guards (common.sh, fleet_guard) send a
 # Claude session here, and `watch` revives any mapped pane whose claude died (lib/barepane.sh).
 #
-# THE USAGE: `op --help` (op_usage) prints from its first `salamander op` line through the `watch --ops` line, so keep it contiguous.
+# THE USAGE: `op --help --full` (op_usage) prints from its first `salamander op` line through the `watch --ops` line, so keep it contiguous; `op --help` (op_usage_short)
+# keeps the lines of the two queue forms, --plan, --list, --status and --cancel, the verbs' names and a pointer to --full.
 #   salamander op <verb> [args…] --from NAME --words "<the owner's words>" queue one operation (the verbs below)
 #   salamander op <verb> [args…] --from NAME --stdin                      the words on stdin (a pane on another box, over ssh)
 #   salamander op retire NAME --from YOU                                  NO words: only for a throwaway (tagged at spawn: any session; untagged: its spawner, or anyone when it has no live spawner and a throwaway's name; never a bypass flag, --keep-web or --id)
@@ -1026,6 +1027,12 @@ op_usage() {
 }
 # a call with no verb (a bare `sala op`, or flags alone): one line on stderr, exit 2; the verbs are one `sala op --help` away
 op_bare() { echo "usage: sala op <verb> [args…] --from NAME --words \"<the owner's words>\" (the verbs: sala op --help)"; }
+# the short help (`op --help`): the two queue forms and the plan, list, status and cancel calls, the verbs' names, and where the rest is; `op --help --full` is op_usage
+op_usage_short() {
+    awk '/^#   salamander op /{p=1} p{print} /^#   salamander watch --ops/{exit}' "$SALA_ROOT/lib/op.sh" | sed 's/^# \{0,1\}//' | grep -E 'salamander op (<verb> \[args…\]|--plan|--list|--status|--cancel)'
+    echo "verbs: $SALA_OP_VERBS"
+    echo "(sala op --help --full: each verb's shape, the forms that take no words, the reason path and the internal calls)"
+}
 op_kick() {  # <id> — the watch runs the queue within seconds: the service started now, or a one-off `watch --ops` after a tick already running
     command -v systemctl >/dev/null 2>&1 || { echo "   no systemctl here: the next \`salamander watch\` run starts it"; return 0; }
     local st; st=$(systemctl --user is-active sala-watch.service 2>/dev/null)
@@ -1097,7 +1104,7 @@ op_main() {
         --list) op_list; return ;; --status) op_status "${2:-}"; return ;; --cancel) op_cancel "${2:-}"; return ;;
         --run) trap op_kick_end EXIT; op_run "${2:-}"; return ;; --settle) trap op_kick_end EXIT; op_settle "${2:-}" "${3:-}"; return ;; --stuck) trap op_kick_end EXIT; op_stuck_main "${2:-}"; return ;;
         --plan) mode=plan; shift ;;
-        -h|--help) op_usage; return 0 ;;
+        -h|--help) case "${2:-}" in --full) op_usage ;; '') op_usage_short ;; *) op_usage_short >&2; return 2 ;; esac; return 0 ;;
     esac
     while [ $# -gt 0 ]; do case "$1" in
         --from) from="${2:-}"; [ -n "$from" ] || die "--from needs a session name"; shift ;;

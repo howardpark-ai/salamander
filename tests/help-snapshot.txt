@@ -213,7 +213,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander mq add N… | status [--json] | drop N | pause | resume | wait N [--timeout S] | doctor   [--repo OWNER/NAME]
                                      our own merge queue for a repo without GitHub's (lib/mq.sh, lib/mq/, docs/mq.md): PRs wait in a line, each one is
                                      an entry stacked on the entry ahead, pushed as a queue/main/g<seq> branch and tested at once, a failed one is failed alone. Host file mode = "shadow" tests and writes
-                                     the verdict down, merging nothing; mode = "on" merges; off is the default. `mq --help` has the rest; `mq drive` is internal
+                                     the verdict down, merging nothing; mode = "on" merges; off is the default. `mq --help --full` has the rest; `mq drive` is internal
   salamander mockup add FILE|-       store an HTML file as the next numbered page and print its address, https://<sala's address>/mockup/<n>: sala-web
                                      serves it behind the same sign-in, in a sandbox (the page's scripts and styles run; no sala API, cookies or network); a session
                                      without the Artifact tool hands a reader the link (lib/mockup.sh, lib/mockup.py, docs/mockup.md); `sala mockup FILE` is the same
@@ -235,26 +235,14 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander config            print the effective configuration
 
 ### sala lane --help (exit 0)
-usage: salamander lane [--full]                                  the table (default lane; the lane fields; each session with a lane of its own or something to say: recorded lane, running lane; --full: every session)
-       salamander lane --list | --json                           the lane fields alone: provider, client, org, billing, plan, account, credential, region, status
-       salamander lane names [--json] [--write]                  each lane's code, display name and old words (one line each: code TAB display TAB aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current)
-       salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed
-       salamander lane exec <lane> -- COMMAND [ARG…]             run COMMAND on the lane (a unit's ExecStart): the lane's environment; every other lane's variables are unset, subscription-1 too (never blanked)
-       salamander lane <lane> <session>… [--dry-run] [--rescue]   record + relaunch those sessions on the lane (one already on it: left alone)
-       salamander lane <lane> --all      [--dry-run]   every session and the default: one recycle --force (a pinned session is skipped and listed)
-       salamander lane default <lane>    [--dry-run]   the default alone (applied at each session's next relaunch; a pinned session keeps its pin's lane and is listed)
-       salamander lane pin <session> <lane>   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a move that names it still moves it
-       salamander lane unpin <session>        take the pin off (bulk moves take the session again)
-       salamander lane pins                   the pinned sessions and the lane each is held on (the list: $SALA_LANE_PINS, a TSV: session TAB lane)
-       salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   mark a lane dormant by hand (nothing is moved onto it); its sessions, default and jobs are queued onto its fallback unless --no-fallback or SALA_LANE_FALLBACK_AUTO=off (the watch also marks a lane dormant itself, until the regain time, for a monthly usage cap)
-       salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback (subscription-1=bedrock subscription-2=bedrock aws-platform=bedrock api=bedrock sdk=bedrock bedrock=subscription-1); a pinned session stays and is listed; --dry-run prints the moves; exit 4: no usable fallback
-       salamander lane active <lane>     [--dry-run]                  mark a lane active again (the only way back for api and sdk)
-       salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)
-  Fable runs only on the Ultra lane (subscription-1): a session on Fable moved to any other lane (a switch, --all, or the default it follows) is put on opus first; the dry run says so
-  the background agents' lane rule (SALA_BACK_LANE_RULE=on, the front agents too at SALA_BACK_LANE_FRONT_THRESHOLD) moves them by this switch; a dormant target lane is replaced by its fallback; see: salamander watch --back-lanes --dry-run
-  lanes: subscription-1 api subscription-2 sdk bedrock aws-platform  (subscription-1, shown as Ultra: the login in ~/.claude · api: the key file · subscription-2, shown as Team: a second login in its own config directory · sdk: api's key through the Agent SDK (client claude-agent-sdk), while the key has credit (a refusal switches it off for 6 hours; the pane then goes to the lane fallback's pick for sdk, bedrock by default) · bedrock: Claude on Amazon Bedrock through the AWS profile (none named: SALA_LANE_BEDROCK_PROFILE), not set up yet · aws-platform: Claude Platform on AWS through the AWS profile (none named: SALA_LANE_AWSPLATFORM_PROFILE) and a workspace id, not set up yet)
-  --rescue on a switch: a stale background-task row (the exit dialog, the Stop hook's record, the mod) no longer holds a pane with no child process under its claude
-  a pane whose claude is still running after the /exit wait (SALA_EXIT_WAIT) is ended by its pid, SIGTERM then SIGKILL (SALA_EXIT_END=0: never), and its session resumed on the new lane; the dry run says "will end a stuck process"
+usage: salamander lane [--full]                                  the table (default lane; the lane fields; each session with a lane of its own or something to say)
+       salamander lane --list | --json                           the lane fields alone
+       salamander lane <lane> <session>… [--dry-run] [--rescue]   record + relaunch those sessions on the lane
+       salamander lane <lane> --all      [--dry-run]              every session and the default: one recycle --force
+       salamander lane default <lane>    [--dry-run]              the default alone
+  also: names, env, exec, pin, unpin, pins, dormant, active, fallback, --migrate
+  lanes: subscription-1 api subscription-2 sdk bedrock aws-platform
+(sala lane --help --full: every form, the pins, the dormant record, the fallback, Fable, the rescue and the stuck-process end)
 
 ### sala model --help (exit 0)
 usage: salamander model                                                       the table (each recorded session: record, launched with, last turn)
@@ -319,60 +307,12 @@ usage: salamander revive [--dry-run] [--force] [--only NAME] [--lane-default] [-
 ### sala op --help (exit 0)
   salamander op <verb> [args…] --from NAME --words "<the owner's words>" queue one operation (the verbs below)
   salamander op <verb> [args…] --from NAME --stdin                      the words on stdin (a pane on another box, over ssh)
-  salamander op retire NAME --from YOU                                  NO words: only for a throwaway (tagged at spawn: any session; untagged: its spawner, or anyone when it has no live spawner and a throwaway's name; never a bypass flag, --keep-web or --id)
-  salamander op revive --only NAME… --item board#N --from YOU           NO words: a reason on the record instead (--why "<one line>" for --item; --force allowed): one or more live Claude sessions, never YOU, never a sweep, --rescue or --lane-default
-  salamander op restore --only NAME… --item board#N --from YOU          NO words: a reason on the record (as for revive): one or more pane-map sessions whose tmux session is gone, never YOU, never --missing or --force
-  salamander op sleep --only NAME… --item board#N --from YOU            NO words: a reason on the record (as for revive): put idle sessions to sleep, their claude ended, their pane and row kept (never a front agent or YOU)
-  salamander op sleep --project KEY --from YOU --words "<the owner's words>"   a whole project asleep NOW, front agents with it, with no quiet rule; YOU may be one of its sessions (it sleeps once its turn has ended)
-  salamander op wake --only NAME… --item board#N --from YOU             NO words: a reason on the record (as for revive): resume sleeping sessions by their conversation id
   salamander op --plan <verb> [args…]                                   the plan alone: the verb's dry run, nothing queued
   salamander op --list                                                  the queue (and what it is doing)
   salamander op --status <id>                                           one operation's record, queued or archived
   salamander op --cancel <id>                                           drop a queued one (a running one cannot be dropped)
-  salamander op --run <id> · --settle <id> <set> · --stuck <id>         (internal) the unit's runner; the waiter for a set; the stuck handler
-  salamander watch --ops                                                (lib/watch.sh) the queue alone, what `op` kicks
-verbs:
-  recycle [--update] [--force]              "recycle claude" = recycle --update --force
-  update [HOST…|--fleet]                    this box (= recycle --update --force), named fleet hosts, or the fleet then this box
-  reason path                               revive, restore, sleep --only and wake take a reason on the record in place of the owner's words:
-                                            `VERB --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
-                                            every NAME fits its verb row and is not YOU, and YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name;
-                                            SALA_OP_REASON_FROM, empty = any session, limits who). --item is a format check only (board#N): sala does not ask the board whether the item exists.
-                                            The runner checks it all again before it relaunches, recreates or ends anything
-  revive [--only NAME]… [--force]           bring a session back (--only), or every pane on an older CLI. Needs the owner's words, EXCEPT the reason path above: every NAME is a live Claude session of the registry;
-                                            never a sweep (no --only), --rescue, --lane-default or any other flag; --force is allowed
-  restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT the reason path above:
-                                            every NAME is a pane-map row with no tmux session whose conversation is live nowhere else; never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere
-  sleep --only NAME [--only NAME]…          end the claude of an idle session with nothing in flight and keep its tmux session and pane-map row (a sleeping marker records it; docs/subcommands.md `sleep`); never a front agent. Needs the owner's words, EXCEPT the reason path above:
-                                            every NAME is a live Claude session of the registry; never a flag or a sweep. The plan is `sleep --dry-run`: it refuses (nothing queued) a session that is busy, not idle long enough or a front agent
-  sleep --project KEY                       every session of one project, front agents with them, asleep together NOW, with no quiet rule (the 2 days) and no settle time: the owner's words (--words "…"), never --item or --why. The project must not be pinned, its activity must be readable,
-                                            and every session must be idle with nothing in flight, nothing waiting in its inbox (the plan, `sleep --project KEY --asked --dry-run`, shows the first refusal). YOU may be one of its sessions (or, with `--only YOU --words`, the one session):
-                                            the asking session sleeps once idle: the runner waits for its turn to end (SALA_SLEEP_ASKER_WAIT, 90 s), then puts the whole project to sleep with it last; the post carries the result
-  wake --only NAME [--only NAME]…           resume a sleeping session by its conversation id (the marker off, then revive --only resumes it in its pane: lane, model and effort kept). Needs the owner's words, EXCEPT the reason path above:
-                                            every NAME is a sleeping session of the pane map; never a flag or a sweep. The plan is `wake --dry-run`; a name that is not asleep queues nothing
-  retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
-                                            ends a Claude session for good: NAME is the exact tmux session name, --id names it by conversation id; a side session only after `side done` (--skip-writeup the bypass); --busy retires a pane that is not idle; --self the session this call runs in; --leave-items a session that moves open board items (asked of stackshot first); --force is refused. Needs the owner's words, EXCEPT
-                                            a throwaway: `retire NAME --from YOU` with no --words, accepted only when NAME's registry row has no project, no role,
-                                            no side flag, NAME is on no project's agents map and is not YOU, and the row carries the throwaway tag (a bare
-                                            `sala spawn` writes it): then any session may end it, between turns (a pane mid-turn is refused: retire's own idle check, never --busy).
-                                            A row without the tag (made before it) keeps the older rule: YOU is NAME's spawner, or any session when NAME has no live spawner and a throwaway's name
-                                            (scratch-*, *-check-*, *-test-*, *-probe-*);
-                                            never with a bypass flag, --keep-web or --id (add --words for those); for every door but the spawner's the project record
-                                            must confirm NAME is on no agents map, and with no answer the retire is refused;
-                                            YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name), and every process in NAME's panes carries the row's id (or none does, one is Claude Code, NAME is a throwaway's name and a fresh answer says it is unlisted); the runner checks it again before it ends anything
-  close-shell NAME [--busy]                 ends a tmux session whose panes run no Claude (exact name; refused for the RC session and the caller's own session; --busy for a shell still running something). Needs the owner's words
-  forget-row NAME                           drops a pane-map row (and its lane and model rows) whose tmux session is gone. Needs the owner's words
-  rename OLD NEW
-  lane <lane> <session>… | <lane> --all | default <lane> | fallback <lane>
-                                            fallback <lane>: the dormant lane's sessions, default and jobs move to its fallback lane (SALA_LANE_FALLBACK), ONE notice with a line per session and any model change; the watch queues it by itself the moment a lane turns dormant (a monthly usage cap included, until the regain time; a pane mid-turn on such a lane gets one Escape first); nothing moves back unless a person says so
-  model <model> [--effort <level>] <session>… | --clear <session>… | <session> <model> [--effort <level>] | <session> --clear
-                                            the model (opus|sonnet|haiku|fable|claude-…) and effort (low|medium|high|xhigh|max) the sessions run on from now: each switched in place when idle with an empty input box, else relaunched (the relaunches together, in one sweep); ONE result notice for the lot, a line per session; a first word that is a model = the many-session form, else the session comes first (one session); --clear drops the records. Fable (fable|claude-fable-…) runs only on the Ultra lane (subscription-1): refused at queue time, in the plan, for a session on any other lane (a batch: refused whole). A lane move of a Fable session off Ultra puts it on opus first
-  provision [--only STEP[,STEP…]] [HOST…]
-  spawn NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
-                                            a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd
-  spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
-                                            a side conversation (NAME contains -side-; sala spawn --suggest-name --side … suggests one): a fork of AGENT, or a fresh session about the item; on no agents map
-  reboot                                    the clean reboot protocol (reboot --go): needs the owner's words; --plan shows reboot --status
+verbs: recycle update revive restore sleep wake retire close-shell forget-row rename lane model provision spawn reboot
+(sala op --help --full: each verb's shape, the forms that take no words, the reason path and the internal calls)
 
 ### sala restore --help (exit 0)
 usage: salamander restore (NAME… | --missing) [--dry-run]
@@ -556,41 +496,7 @@ usage: salamander mq add N… [--flag recycle] [--repo OWNER/NAME]
        salamander mq wait N [--timeout SECS] [--repo OWNER/NAME]
        salamander mq doctor [--repo OWNER/NAME]
        salamander mq drive --repo OWNER/NAME        (internal: the driver, started for you)
-
-A queue for the pull requests of a repo that has no GitHub merge queue. It works as GitHub's does: one entry per PR, each stacked on the entry ahead of it (main + PRs 1..k) and
-pushed as queue/main/g<seq>, all tested at once (up to inflight_max, six when the rules do not say) by the required check (default `suites`), merged strictly in line order. An entry that
-fails is failed alone and the entries behind it are rebuilt on the one ahead of it (`status` shows "(on gN)" for a stacked entry). A PR whose own checks failed (`pr_required`, default
-every check on its head) or that conflicts with main is refused when it joins and again before its verdict counts: "refused: a check failed: <name>=fail" / "refused: conflicts with main",
-the wait exit 1. A repo's release script uses it the same way: `mq add N`, then `mq wait N`. The rules keys of the removed group mode are retired: `group_max` and `bisect` are ignored with a
-warning (delete the line), `queue_mode = "group"` blocks the queue until the line is deleted; `queue_mode = "chain"` is accepted. --repo defaults to the
-GitHub origin of the current folder. State: $XDG_STATE_HOME/mergequeue/<owner>__<repo>/ (queue.json, groups/g<seq>.json, events.log).
-
-  Modes (host file $XDG_CONFIG_HOME/mergequeue/<owner>__<repo>.toml, `mode = "off" | "shadow" | "on"`; absent = off). SHADOW builds and tests entries and writes the verdict
-  down, with what it WOULD have merged in the journal (`would_merge`); it merges nothing, sets no status and comments on nothing.
-  `on` merges (a passed entry goes to main as a fast-forward, never forced; a commit status and one comment on a failure) and is open: `mode = "on"` in the host file makes the driver merge. `off` stays the default and the instant fallback.
-  Rules of the repo: .github/mergequeue.toml, read from origin/main (base, required, pr_required, queue_prefix, inflight_max, suites, on_conflict, …).
-
-  add     put PRs in the line, in order (a PR already in it is left where it is); starts the driver, a transient user unit mq-<owner>__<repo>
-          (mq-<owner>__<repo>-<run>-<case> with a replay file; systemd-run --user), when none is running. The driver exits when the line is empty and nothing is in flight.
-  status  the line, the entries in flight (phase, branch, head, members) and the PRs that finished lately; --json is the same as one object.
-          A "REPLAY:" line says a replay file is in use.
-  drop    take a PR out of the line (a PR whose entry is in flight stays in that entry's tree until the driver ends the entry, which is never merged with it; the entries behind it are rebuilt without it).
-  wait    block until PR N is settled, reading the state file (no GitHub call). Exit 0 = merged, 1 = ejected, failed or dropped (the reason on
-          stderr), 2 = gave up (--timeout), not in the line, or the queue is blocked, 3 = tested in shadow mode: its entry passed, nothing was merged,
-          4 = replay with ci = "skip": the entry was built, nothing was pushed or tested (never read it as a pass).
-  pause   no entry starts and nothing is pushed to main; entries in flight finish testing and wait. resume goes on (and starts the driver).
-  doctor  checks the host file, the tools, the state files, the driver and its lock, the repo config as last fetched, queue branches and worktrees
-          that no live entry owns (one git ls-remote, of the queue's own queue_prefix only). Exit 0 = all ok, 1 = a problem, each named with the fix.
-
-  Replay (stackshot's `mq replay`, on practice branches of the same repo). The host key `replay = "/abs/path/replay.json"` makes the queue take its RULES (the keys of
-  .github/mergequeue.toml, same checks) and the facts of each PR (state, draft, head sha, branch, owner, checks) from that file instead of origin/main and GitHub, so a PR that
-  is already merged can join; no GraphQL call. Each head is fetched by its sha. SHADOW ONLY: `mode = "on"` is refused, nothing is merged, set as a status or commented, and no push
-  goes outside queue/practice/. rules.base must start with practice/ and rules.queue_prefix with queue/practice/, else the queue is blocked. The file: {"version": 1, "run": R, "case": C,
-  "ci": "real" | "skip", "rules": {...}, "prs": {"<N>": {"state", "draft", "head", "branch", "owner", "checks": {name: pass|fail|pending|cancel}}}}; an unknown key or a bad value is refused
-  with the message. ci "skip" ends an entry after it is built (no push, no CI): the PRs are "tested (CI not run)", `mq wait` exit 4. docs/mq.md has the schema.
-
-Every GitHub call an entry makes is counted in its record (gh_calls, salamander_calls) and journaled; in the normal case an entry costs one GraphQL
-read for the build, one for the recheck before its verdict counts, and the check-runs reads of its head, none while the CI-run poller's file shows the run going. Git over the remote is not a GitHub API call.
+(sala mq --help --full: what each verb does, the modes, the rules of the repo, replay and the call budget)
 
 ### sala alert --help (exit 0)
 usage: salamander alert [--channel <name>] "<headline>" ["<line>"…]
@@ -791,5 +697,130 @@ usage: sala where [--json]
   The web UI is a third source: a page request that came through the local proxy with the owner's tailnet address records that box (via web;
   `where.py seen <address>`, run by sala-web). A "told" record under 12 hours old wins over a sighting of another box; ssh and web are equals, the newest wins.
   The record is $SALA_STATE_DIR/where.json: {"box","at","via":"told"|"ssh"|"web","by"}.
+
+### sala op --help --full --help (exit 0)
+  salamander op <verb> [args…] --from NAME --words "<the owner's words>" queue one operation (the verbs below)
+  salamander op <verb> [args…] --from NAME --stdin                      the words on stdin (a pane on another box, over ssh)
+  salamander op retire NAME --from YOU                                  NO words: only for a throwaway (tagged at spawn: any session; untagged: its spawner, or anyone when it has no live spawner and a throwaway's name; never a bypass flag, --keep-web or --id)
+  salamander op revive --only NAME… --item board#N --from YOU           NO words: a reason on the record instead (--why "<one line>" for --item; --force allowed): one or more live Claude sessions, never YOU, never a sweep, --rescue or --lane-default
+  salamander op restore --only NAME… --item board#N --from YOU          NO words: a reason on the record (as for revive): one or more pane-map sessions whose tmux session is gone, never YOU, never --missing or --force
+  salamander op sleep --only NAME… --item board#N --from YOU            NO words: a reason on the record (as for revive): put idle sessions to sleep, their claude ended, their pane and row kept (never a front agent or YOU)
+  salamander op sleep --project KEY --from YOU --words "<the owner's words>"   a whole project asleep NOW, front agents with it, with no quiet rule; YOU may be one of its sessions (it sleeps once its turn has ended)
+  salamander op wake --only NAME… --item board#N --from YOU             NO words: a reason on the record (as for revive): resume sleeping sessions by their conversation id
+  salamander op --plan <verb> [args…]                                   the plan alone: the verb's dry run, nothing queued
+  salamander op --list                                                  the queue (and what it is doing)
+  salamander op --status <id>                                           one operation's record, queued or archived
+  salamander op --cancel <id>                                           drop a queued one (a running one cannot be dropped)
+  salamander op --run <id> · --settle <id> <set> · --stuck <id>         (internal) the unit's runner; the waiter for a set; the stuck handler
+  salamander watch --ops                                                (lib/watch.sh) the queue alone, what `op` kicks
+verbs:
+  recycle [--update] [--force]              "recycle claude" = recycle --update --force
+  update [HOST…|--fleet]                    this box (= recycle --update --force), named fleet hosts, or the fleet then this box
+  reason path                               revive, restore, sleep --only and wake take a reason on the record in place of the owner's words:
+                                            `VERB --only NAME [--only NAME]… --item board#N --from YOU` (or --why "<one line, three words or more>" in place of --item): no --words, accepted only when
+                                            every NAME fits its verb row and is not YOU, and YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name;
+                                            SALA_OP_REASON_FROM, empty = any session, limits who). --item is a format check only (board#N): sala does not ask the board whether the item exists.
+                                            The runner checks it all again before it relaunches, recreates or ends anything
+  revive [--only NAME]… [--force]           bring a session back (--only), or every pane on an older CLI. Needs the owner's words, EXCEPT the reason path above: every NAME is a live Claude session of the registry;
+                                            never a sweep (no --only), --rescue, --lane-default or any other flag; --force is allowed
+  restore --only NAME [--only NAME]…        recreate a session whose tmux session is gone from its pane-map row (its tmux session in the row's directory, then its conversation resumed by revive: lane, model and effort kept; docs/subcommands.md `restore`). Needs the owner's words, EXCEPT the reason path above:
+                                            every NAME is a pane-map row with no tmux session whose conversation is live nowhere else; never a sweep (no --missing), --force or any other flag. The plan is `restore --dry-run`: it refuses (nothing queued) a name with no row, a live tmux session (use revive) or a conversation live elsewhere
+  sleep --only NAME [--only NAME]…          end the claude of an idle session with nothing in flight and keep its tmux session and pane-map row (a sleeping marker records it; docs/subcommands.md `sleep`); never a front agent. Needs the owner's words, EXCEPT the reason path above:
+                                            every NAME is a live Claude session of the registry; never a flag or a sweep. The plan is `sleep --dry-run`: it refuses (nothing queued) a session that is busy, not idle long enough or a front agent
+  sleep --project KEY                       every session of one project, front agents with them, asleep together NOW, with no quiet rule (the 2 days) and no settle time: the owner's words (--words "…"), never --item or --why. The project must not be pinned, its activity must be readable,
+                                            and every session must be idle with nothing in flight, nothing waiting in its inbox (the plan, `sleep --project KEY --asked --dry-run`, shows the first refusal). YOU may be one of its sessions (or, with `--only YOU --words`, the one session):
+                                            the asking session sleeps once idle: the runner waits for its turn to end (SALA_SLEEP_ASKER_WAIT, 90 s), then puts the whole project to sleep with it last; the post carries the result
+  wake --only NAME [--only NAME]…           resume a sleeping session by its conversation id (the marker off, then revive --only resumes it in its pane: lane, model and effort kept). Needs the owner's words, EXCEPT the reason path above:
+                                            every NAME is a sleeping session of the pane map; never a flag or a sweep. The plan is `wake --dry-run`; a name that is not asleep queues nothing
+  retire NAME|--id ID [--keep-web] [--busy] [--skip-writeup] [--self] [--leave-items]
+                                            ends a Claude session for good: NAME is the exact tmux session name, --id names it by conversation id; a side session only after `side done` (--skip-writeup the bypass); --busy retires a pane that is not idle; --self the session this call runs in; --leave-items a session that moves open board items (asked of stackshot first); --force is refused. Needs the owner's words, EXCEPT
+                                            a throwaway: `retire NAME --from YOU` with no --words, accepted only when NAME's registry row has no project, no role,
+                                            no side flag, NAME is on no project's agents map and is not YOU, and the row carries the throwaway tag (a bare
+                                            `sala spawn` writes it): then any session may end it, between turns (a pane mid-turn is refused: retire's own idle check, never --busy).
+                                            A row without the tag (made before it) keeps the older rule: YOU is NAME's spawner, or any session when NAME has no live spawner and a throwaway's name
+                                            (scratch-*, *-check-*, *-test-*, *-probe-*);
+                                            never with a bypass flag, --keep-web or --id (add --words for those); for every door but the spawner's the project record
+                                            must confirm NAME is on no agents map, and with no answer the retire is refused;
+                                            YOU is the session whose pane holds the call by process ancestry (not TMUX_PANE; a Claude Code exe, not a name), and every process in NAME's panes carries the row's id (or none does, one is Claude Code, NAME is a throwaway's name and a fresh answer says it is unlisted); the runner checks it again before it ends anything
+  close-shell NAME [--busy]                 ends a tmux session whose panes run no Claude (exact name; refused for the RC session and the caller's own session; --busy for a shell still running something). Needs the owner's words
+  forget-row NAME                           drops a pane-map row (and its lane and model rows) whose tmux session is gone. Needs the owner's words
+  rename OLD NEW
+  lane <lane> <session>… | <lane> --all | default <lane> | fallback <lane>
+                                            fallback <lane>: the dormant lane's sessions, default and jobs move to its fallback lane (SALA_LANE_FALLBACK), ONE notice with a line per session and any model change; the watch queues it by itself the moment a lane turns dormant (a monthly usage cap included, until the regain time; a pane mid-turn on such a lane gets one Escape first); nothing moves back unless a person says so
+  model <model> [--effort <level>] <session>… | --clear <session>… | <session> <model> [--effort <level>] | <session> --clear
+                                            the model (opus|sonnet|haiku|fable|claude-…) and effort (low|medium|high|xhigh|max) the sessions run on from now: each switched in place when idle with an empty input box, else relaunched (the relaunches together, in one sweep); ONE result notice for the lot, a line per session; a first word that is a model = the many-session form, else the session comes first (one session); --clear drops the records. Fable (fable|claude-fable-…) runs only on the Ultra lane (subscription-1): refused at queue time, in the plan, for a session on any other lane (a batch: refused whole). A lane move of a Fable session off Ultra puts it on opus first
+  provision [--only STEP[,STEP…]] [HOST…]
+  spawn NAME --project <page key> --role front|back [--surface sala|slack] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
+                                            a project agent's session; the name must be registered with stackshot, on the project's agents map (the plan checks; exit 3 + REGISTER: with stackshot's register command when not); a back agent starts in the background brief's directory unless --cwd
+  spawn NAME --side (--fork-of AGENT | --project <page key> --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] [--lane L] [--model M] [--effort E] [--cwd DIR] [--no-confirm]
+                                            a side conversation (NAME contains -side-; sala spawn --suggest-name --side … suggests one): a fork of AGENT, or a fresh session about the item; on no agents map
+  reboot                                    the clean reboot protocol (reboot --go): needs the owner's words; --plan shows reboot --status
+
+### sala lane --help --full --help (exit 0)
+usage: salamander lane [--full]                                the table (default lane; the lane fields; each session with a lane of its own or something to say: recorded lane, running lane; --full: every session)
+       salamander lane --list | --json                           the lane fields alone: provider, client, org, billing, plan, account, credential, region, status
+       salamander lane names [--json] [--write]                  each lane's code, display name and old words (one line each: code TAB display TAB aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current)
+       salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed
+       salamander lane exec <lane> -- COMMAND [ARG…]             run COMMAND on the lane (a unit's ExecStart): the lane's environment; every other lane's variables are unset, subscription-1 too (never blanked)
+       salamander lane <lane> <session>… [--dry-run] [--rescue]   record + relaunch those sessions on the lane (one already on it: left alone)
+       salamander lane <lane> --all      [--dry-run]   every session and the default: one recycle --force (a pinned session is skipped and listed)
+       salamander lane default <lane>    [--dry-run]   the default alone (applied at each session's next relaunch; a pinned session keeps its pin's lane and is listed)
+       salamander lane pin <session> <lane>   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a move that names it still moves it
+       salamander lane unpin <session>        take the pin off (bulk moves take the session again)
+       salamander lane pins                   the pinned sessions and the lane each is held on (the list: $SALA_LANE_PINS, a TSV: session TAB lane)
+       salamander lane dormant <lane> [--reason TEXT] [--dry-run] [--no-fallback]   mark a lane dormant by hand (nothing is moved onto it); its sessions, default and jobs are queued onto its fallback unless --no-fallback or SALA_LANE_FALLBACK_AUTO=off (the watch also marks a lane dormant itself, until the regain time, for a monthly usage cap)
+       salamander lane fallback <lane>   [--dry-run]                  move the sessions, the default and (from then on) the jobs of a DORMANT lane to its fallback (subscription-1=bedrock subscription-2=bedrock aws-platform=bedrock api=bedrock sdk=bedrock bedrock=subscription-1); a pinned session stays and is listed; --dry-run prints the moves; exit 4: no usable fallback
+       salamander lane active <lane>     [--dry-run]                  mark a lane active again (the only way back for api and sdk)
+       salamander lane --migrate         [--dry-run]                  rewrite the old name of a renamed lane (awsplatform → aws-platform) in sala's files, once (backups kept)
+  Fable runs only on the Ultra lane (subscription-1): a session on Fable moved to any other lane (a switch, --all, or the default it follows) is put on opus first; the dry run says so
+  the background agents' lane rule (SALA_BACK_LANE_RULE=on, the front agents too at SALA_BACK_LANE_FRONT_THRESHOLD) moves them by this switch; a dormant target lane is replaced by its fallback; see: salamander watch --back-lanes --dry-run
+  lanes: subscription-1 api subscription-2 sdk bedrock aws-platform  (subscription-1, shown as Ultra: the login in ~/.claude · api: the key file · subscription-2, shown as Team: a second login in its own config directory · sdk: api's key through the Agent SDK (client claude-agent-sdk), while the key has credit (a refusal switches it off for 6 hours; the pane then goes to the lane fallback's pick for sdk, bedrock by default) · bedrock: Claude on Amazon Bedrock through the AWS profile (none named: SALA_LANE_BEDROCK_PROFILE), not set up yet · aws-platform: Claude Platform on AWS through the AWS profile (none named: SALA_LANE_AWSPLATFORM_PROFILE) and a workspace id, not set up yet)
+  --rescue on a switch: a stale background-task row (the exit dialog, the Stop hook's record, the mod) no longer holds a pane with no child process under its claude
+  a pane whose claude is still running after the /exit wait (SALA_EXIT_WAIT) is ended by its pid, SIGTERM then SIGKILL (SALA_EXIT_END=0: never), and its session resumed on the new lane; the dry run says "will end a stuck process"
+
+### sala mq --help --full --help (exit 0)
+usage: salamander mq add N… [--flag recycle] [--repo OWNER/NAME]
+       salamander mq status [--json] [--repo OWNER/NAME]
+       salamander mq drop N [--repo OWNER/NAME]
+       salamander mq pause [--reason TEXT] [--repo OWNER/NAME]
+       salamander mq resume [--repo OWNER/NAME]
+       salamander mq wait N [--timeout SECS] [--repo OWNER/NAME]
+       salamander mq doctor [--repo OWNER/NAME]
+       salamander mq drive --repo OWNER/NAME        (internal: the driver, started for you)
+
+A queue for the pull requests of a repo that has no GitHub merge queue. It works as GitHub's does: one entry per PR, each stacked on the entry ahead of it (main + PRs 1..k) and
+pushed as queue/main/g<seq>, all tested at once (up to inflight_max, six when the rules do not say) by the required check (default `suites`), merged strictly in line order. An entry that
+fails is failed alone and the entries behind it are rebuilt on the one ahead of it (`status` shows "(on gN)" for a stacked entry). A PR whose own checks failed (`pr_required`, default
+every check on its head) or that conflicts with main is refused when it joins and again before its verdict counts: "refused: a check failed: <name>=fail" / "refused: conflicts with main",
+the wait exit 1. A repo's release script uses it the same way: `mq add N`, then `mq wait N`. The rules keys of the removed group mode are retired: `group_max` and `bisect` are ignored with a
+warning (delete the line), `queue_mode = "group"` blocks the queue until the line is deleted; `queue_mode = "chain"` is accepted. --repo defaults to the
+GitHub origin of the current folder. State: $XDG_STATE_HOME/mergequeue/<owner>__<repo>/ (queue.json, groups/g<seq>.json, events.log).
+
+  Modes (host file $XDG_CONFIG_HOME/mergequeue/<owner>__<repo>.toml, `mode = "off" | "shadow" | "on"`; absent = off). SHADOW builds and tests entries and writes the verdict
+  down, with what it WOULD have merged in the journal (`would_merge`); it merges nothing, sets no status and comments on nothing.
+  `on` merges (a passed entry goes to main as a fast-forward, never forced; a commit status and one comment on a failure) and is open: `mode = "on"` in the host file makes the driver merge. `off` stays the default and the instant fallback.
+  Rules of the repo: .github/mergequeue.toml, read from origin/main (base, required, pr_required, queue_prefix, inflight_max, suites, on_conflict, …).
+
+  add     put PRs in the line, in order (a PR already in it is left where it is); starts the driver, a transient user unit mq-<owner>__<repo>
+          (mq-<owner>__<repo>-<run>-<case> with a replay file; systemd-run --user), when none is running. The driver exits when the line is empty and nothing is in flight.
+  status  the line, the entries in flight (phase, branch, head, members) and the PRs that finished lately; --json is the same as one object.
+          A "REPLAY:" line says a replay file is in use.
+  drop    take a PR out of the line (a PR whose entry is in flight stays in that entry's tree until the driver ends the entry, which is never merged with it; the entries behind it are rebuilt without it).
+  wait    block until PR N is settled, reading the state file (no GitHub call). Exit 0 = merged, 1 = ejected, failed or dropped (the reason on
+          stderr), 2 = gave up (--timeout), not in the line, or the queue is blocked, 3 = tested in shadow mode: its entry passed, nothing was merged,
+          4 = replay with ci = "skip": the entry was built, nothing was pushed or tested (never read it as a pass).
+  pause   no entry starts and nothing is pushed to main; entries in flight finish testing and wait. resume goes on (and starts the driver).
+  doctor  checks the host file, the tools, the state files, the driver and its lock, the repo config as last fetched, queue branches and worktrees
+          that no live entry owns (one git ls-remote, of the queue's own queue_prefix only). Exit 0 = all ok, 1 = a problem, each named with the fix.
+
+  Replay (stackshot's `mq replay`, on practice branches of the same repo). The host key `replay = "/abs/path/replay.json"` makes the queue take its RULES (the keys of
+  .github/mergequeue.toml, same checks) and the facts of each PR (state, draft, head sha, branch, owner, checks) from that file instead of origin/main and GitHub, so a PR that
+  is already merged can join; no GraphQL call. Each head is fetched by its sha. SHADOW ONLY: `mode = "on"` is refused, nothing is merged, set as a status or commented, and no push
+  goes outside queue/practice/. rules.base must start with practice/ and rules.queue_prefix with queue/practice/, else the queue is blocked. The file: {"version": 1, "run": R, "case": C,
+  "ci": "real" | "skip", "rules": {...}, "prs": {"<N>": {"state", "draft", "head", "branch", "owner", "checks": {name: pass|fail|pending|cancel}}}}; an unknown key or a bad value is refused
+  with the message. ci "skip" ends an entry after it is built (no push, no CI): the PRs are "tested (CI not run)", `mq wait` exit 4. docs/mq.md has the schema.
+
+Every GitHub call an entry makes is counted in its record (gh_calls, salamander_calls) and journaled; in the normal case an entry costs one GraphQL
+read for the build, one for the recheck before its verdict counts, and the check-runs reads of its head, none while the CI-run poller's file shows the run going. Git over the remote is not a GitHub API call.
 
 ### verbs with no help path of their own (listed, not probed; their usage is the sala --help text above): adopt ci-poll close-shell config feedback follow forget-row heartbeat hook map provision ready reboot rename retire snapshot spawn unpark update watch

@@ -225,6 +225,8 @@ grep -q 'lane    : subscription-2' <<< "$out" && ok "spawn's report names the la
 grep -qE '^sala-test-c +\(default\) +subscription-2' <<< "$("$SALA" lane --full)" && ok "lane --full: (default), running subscription-2" || bad "table --full: $("$SALA" lane --full)"
 out=$("$SALA" lane); ! grep -q '^sala-test-c ' <<< "$out" && grep -qE '^[0-9]+ sessions? on the default lane \(subscription-2\) with nothing to say, not listed \(salamander lane --full' <<< "$out" && ok "the table: a session on the default with nothing to say is counted, not listed" || bad "table folds: $out"
 out=$("$SALA" lane --list --full 2>&1); rc=$?; [ "$rc" != 0 ] && ok "--full with --list is refused" || bad "lane --list --full: $out"
+out=$("$SALA" lane --help 2>&1); rc=$?; [ "$rc" = 0 ] && grep -q 'salamander lane default <lane>' <<< "$out" && grep -q 'also: names' <<< "$out" && grep -q 'lane --help --full' <<< "$out" && ! grep -q 'lane dormant <lane> \[--reason' <<< "$out" && [ "$(wc -c <<< "$out")" -lt 1500 ] && ok "lane --help: the short help, a pointer to --full" || bad "lane --help short: rc=$rc $out"
+out=$("$SALA" lane --help --full 2>&1); rc=$?; [ "$rc" = 0 ] && grep -q 'lane dormant <lane> \[--reason' <<< "$out" && grep -q 'lane --migrate' <<< "$out" && ok "lane --help --full: every form" || bad "lane --help --full: rc=$rc"
 "$SALA" lane default subscription-1 >/dev/null 2>&1   # the default back: c keeps running on subscription-2 until relaunched
 grep -qE '^sala-test-c +\(default\) +subscription-2 +← runs on subscription-2' <<< "$("$SALA" lane)" && ok "the default changed under it: the table says a relaunch would move it" || bad "table: $("$SALA" lane)"
 

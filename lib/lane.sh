@@ -78,8 +78,19 @@
 # weekly limit and home when it resets, by queueing the ordinary `sala op lane <lane> <session>… --from sala-watch` (the switch below); a
 # back agent spawned meanwhile launches on the rule's lane; at a second, higher threshold (SALA_BACK_LANE_FRONT_THRESHOLD, default 95) the front agents move onto that lane too, a Fable one with the model change `lane fallback` makes (docs/lanes.md, *The front step*); a step never picks a dormant lane: its fallback takes the agents (or nobody moves). `salamander watch --back-lanes --dry-run` shows a pass. It is not a `lane` verb.
 
+# the short help (`lane --help`): the table, the fields, the three ways to move sessions, and the names of the rest; `lane --help --full` is usage
+usage_short() {
+    echo "usage: salamander lane [--full]                                  the table (default lane; the lane fields; each session with a lane of its own or something to say)"
+    echo "       salamander lane --list | --json                           the lane fields alone"
+    echo "       salamander lane <lane> <session>… [--dry-run] [--rescue]   record + relaunch those sessions on the lane"
+    echo "       salamander lane <lane> --all      [--dry-run]              every session and the default: one recycle --force"
+    echo "       salamander lane default <lane>    [--dry-run]              the default alone"
+    echo "  also: names, env, exec, pin, unpin, pins, dormant, active, fallback, --migrate"
+    usage | grep -m1 '^  lanes: ' | sed 's/  (.*//'   # the lanes a pick may take, the dormant ones apart, without the explanation
+    echo "(sala lane --help --full: every form, the pins, the dormant record, the fallback, Fable, the rescue and the stuck-process end)"
+}
 usage() {
-    echo "usage: salamander lane [--full]                                  the table (default lane; the lane fields; each session with a lane of its own or something to say: recorded lane, running lane; --full: every session)"
+    echo "usage: salamander lane [--full]                                the table (default lane; the lane fields; each session with a lane of its own or something to say: recorded lane, running lane; --full: every session)"
     echo "       salamander lane --list | --json                           the lane fields alone: provider, client, org, billing, plan, account, credential, region, status"
     echo "       salamander lane names [--json] [--write]                  each lane's code, display name and old words (one line each: code TAB display TAB aliases; --json for stackshot; --write keeps \$SALA_STATE_DIR/lane-names.json current)"
     echo "       salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed"
@@ -160,7 +171,7 @@ while [ $# -gt 0 ]; do
         --dry-run) DRY=1 ;; --all) ALL=1 ;; --rescue) RESCUE=1 ;; --list) LIST=1 ;; --json) JSON=1 ;; --migrate) MIGRATE=1 ;; --no-fallback) NOFB=1 ;; --full) FULL=1 ;;
         --reason) [ $# -gt 0 ] || die "--reason needs the words: salamander lane dormant <lane> --reason \"...\""; REASON="$1"; HAVE_REASON=1; shift ;;
         --reason=*) REASON="${a#--reason=}"; HAVE_REASON=1 ;;
-        -h|--help) usage; exit 0 ;;
+        -h|--help) case "${1:-}" in --full) usage ;; "") usage_short ;; *) usage_short >&2; exit 2 ;; esac; exit 0 ;;
         -*) die "unknown option: $a (see: salamander lane --help)" ;;
         *) args+=("$a") ;;
     esac

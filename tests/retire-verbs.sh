@@ -435,7 +435,7 @@ enq retire --id "$U3" --from sala-test-h --words "retire by conversation"
 dropall
 enq retire --id "$U3" --from sala-test-h
 [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && ok "retire --id with no words: refused" || bad "enq retire --id no words: rc=$RC queued=$(queued) — $OUT"
-run op --help
+run op --help --full
 has "$OUT" "close-shell NAME" && has "$OUT" "forget-row NAME" && ok "sala op's help lists the two new verbs" || bad "op help: $OUT"
 
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

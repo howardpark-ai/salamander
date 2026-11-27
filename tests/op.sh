@@ -181,6 +181,8 @@ ID2=$(printf 'from stdin\n' | "$SALA" op retire sala-test-d --from x --stdin 2>/
 "$SALA" op --cancel "$ID2" >/dev/null
 out=$("$SALA" op 2>&1); rc=$?; [ "$rc" = 2 ] && [ "$(wc -l <<< "$out")" = 1 ] && has "$out" "usage: sala op <verb>" && has "$out" "sala op --help" && ok "a bare op: one usage line, exit 2" || bad "bare op: rc=$rc $out"
 out=$("$SALA" op --from t 2>&1); rc=$?; [ "$rc" = 2 ] && [ "$(wc -l <<< "$out")" = 1 ] && ok "flags with no verb: the same one line, exit 2" || bad "no verb: rc=$rc $out"
+out=$("$SALA" op --help 2>&1); rc=$?; [ "$rc" = 0 ] && has "$out" "salamander op --list" && has "$out" "verbs: recycle" && has "$out" "sala op --help --full" && ! has "$out" "NO words" && [ "$(wc -c <<< "$out")" -lt 1500 ] && ok "op --help: the short help (forms, verbs, a pointer), none of the per-verb shapes" || bad "op --help short: rc=$rc $out"
+out=$("$SALA" op --help --full 2>&1); rc=$?; [ "$rc" = 0 ] && has "$out" "NO words" && has "$out" "close-shell NAME" && ok "op --help --full: the whole usage and every verb's shape" || bad "op --help --full: rc=$rc"
 touch "$HOME/active"; : > "$LAUNCHES"
 enq retire sala-test-d --from sala-test-h --words "again"; [ "$RC" = 0 ] && has "$OUT" "a watch tick is running now" && grep -q -- "--on-active=10 --unit=sala-op-kick-$ID .* watch --ops" "$LAUNCHES" && ok "a tick already running: a one-off watch --ops scheduled 10 s on" || bad "active kick: $OUT / $(<"$LAUNCHES")"
 rm -f "$HOME/active"; "$SALA" op --cancel "$ID" >/dev/null

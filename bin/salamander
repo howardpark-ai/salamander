@@ -213,7 +213,7 @@
 #   salamander mq add N… | status [--json] | drop N | pause | resume | wait N [--timeout S] | doctor   [--repo OWNER/NAME]
 #                                      our own merge queue for a repo without GitHub's (lib/mq.sh, lib/mq/, docs/mq.md): PRs wait in a line, each one is
 #                                      an entry stacked on the entry ahead, pushed as a queue/main/g<seq> branch and tested at once, a failed one is failed alone. Host file mode = "shadow" tests and writes
-#                                      the verdict down, merging nothing; mode = "on" merges; off is the default. `mq --help` has the rest; `mq drive` is internal
+#                                      the verdict down, merging nothing; mode = "on" merges; off is the default. `mq --help --full` has the rest; `mq drive` is internal
 #   salamander mockup add FILE|-       store an HTML file as the next numbered page and print its address, https://<sala's address>/mockup/<n>: sala-web
 #                                      serves it behind the same sign-in, in a sandbox (the page's scripts and styles run; no sala API, cookies or network); a session
 #                                      without the Artifact tool hands a reader the link (lib/mockup.sh, lib/mockup.py, docs/mockup.md); `sala mockup FILE` is the same
