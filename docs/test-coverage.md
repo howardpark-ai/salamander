@@ -1141,11 +1141,8 @@ a claude → `sala op retire <session>` with `revive --only … --force` named f
 with no master configured the former master's pane is denied like any other (the exemption is the master's,
 and there is none). The hook's logic is unchanged, so the table above still holds.
 
-Changed on Thu Oct 15th 2026 (a reboot is not queued; 3 checks, 88 → 91): a reboot's deny no longer names `sala op reboot`
-but says the owner runs `sala reboot --go` themselves and the session shows them `sala reboot --status` and waits for their word
-(`SALA_OP_REBOOT` is off by default and unsupported until a confirmation path is built), checked word for word on `sudo
-reboot` and for three more reboot shapes (`reboot`, `systemctl soft-reboot`, `telinit 6`: none may point to the queue),
-and every deny's verdict requires that wording for a reboot and the `sala op … --words` fix for the other kinds; a CLI
+Changed Nov 27th 2026 (a reboot is queued with the owner's words): a reboot's deny names `sala op reboot --from NAME --words`, checked on `sudo
+reboot` and for three more reboot shapes (`reboot`, `systemctl soft-reboot`, `telinit 6`), and every deny's verdict requires the `sala op … --words` fix; a CLI
 update's deny must not say "not queued".
 
 Added on Thu Oct 15th 2026 (1 check, 91 → 92): `sala op spawn … --from --words` passes as sala's own verb (the
@@ -1897,9 +1894,7 @@ the fleet from a wrong one or a session from a lost relaunch: a verb or an argum
 host name that is not one, `lane default` without a lane, `reboot --go` as an argument, are refused with nothing queued (a
 marker is run later by a process that cannot ask); a marker without the owner's words is refused, `--auto` is taken from a
 plain shell (an orphaned call; the suite reads the orphan's ancestry first and, when the shell's orphans still fall under
-a claude — a suite run from a Claude session's pane — asserts the refusal instead) and refused under a `claude` process (a relayed message is never the owner's words); `reboot` is refused while `SALA_OP_REBOOT` is off, its default (a reboot is not
-queued: the refusal says the owner runs `sala reboot --go` themself and a session shows them `sala reboot --status`), and, with
-the switch on (unsupported until a confirmation path is built; the code path stays), queued with `reboot --status` as its plan. The plan: the verb's own dry run runs first and its refusal refuses the operation — a retire of no such
+a claude — a suite run from a Claude session's pane — asserts the refusal instead) and refused under a `claude` process (a relayed message is never the owner's words); `reboot` is queued with the owner's words and `reboot --status` as its plan, and refused with no words, with a reason only, while another reboot is queued, with a broken hook in the status, and with `SALA_OP_REBOOT=off`. The plan: the verb's own dry run runs first and its refusal refuses the operation — a retire of no such
 session, of a busy pane ("would refuse"), a `revive --only` of no such session; `--plan` shows it and queues nothing; `--plan
 recycle --update` runs no `claude update`. The marker's fields (id, time, who heard, the words verbatim and folded to one
 line, `--stdin`, the verb and each argument as its own field, `queued`), the kick (`systemctl --user start --no-block

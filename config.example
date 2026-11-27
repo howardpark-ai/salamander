@@ -344,8 +344,7 @@
 #SALA_OP_QUEUE=on                # watch: the operation queue (`sala op <verb> … --from NAME --words "…"`, lib/op.sh): the oldest queued
                                  #   operation started as its own sala-op-<id> unit, one at a time, under the recycle lock; one Slack post and one
                                  #   inbox line per result. off: markers are taken and kept, nothing starts them until it is on
-#SALA_OP_REBOOT=off              # a reboot is not queued: the owner runs `sala reboot --go` himself. `sala op reboot` (= reboot --go) is refused
-                                 #   while this is off, its default; on is unsupported until a confirmation path is built
+#SALA_OP_REBOOT=on               # `sala op reboot --from NAME --words "…"` queues the clean reboot (= reboot --go) on the owner's words. off: refused, the owner's kill switch
 #SALA_OP_LOCK_WAIT=600           # seconds the runner waits for a relaunch that already holds the recycle lock before the operation is stuck
 #SALA_OP_SWEEP_WAIT=1800         # seconds the runner gives a relaunch verb's sweep (recycle, revive, update's local leg, a lane switch) to free the lock
 #SALA_OP_SETTLE_WAIT=            # seconds the waiter gives a set with panes still outstanding (a retry worker, the deferred list) before the
