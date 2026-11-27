@@ -1106,7 +1106,7 @@ def test_no_sideways_scroll_with_commands_their_output_sent_files_and_answers(se
 @pytest.mark.parametrize("width", [1280, 390, 360, 320])
 def test_a_waiting_questions_card_stands_under_the_layers_thread_and_answers_with_a_tap(served, browser, monkeypatch, width):
     card = choice(3, long=True)
-    write(served, human(EN, 1), asked(2))
+    write(served, human(EN, 1), asked(2, ASK[:1]))
     serve_card(browser, card)
     open_chat(browser, served, monkeypatch, (width, 800 if width > 700 else 844))
     if width < 700:
