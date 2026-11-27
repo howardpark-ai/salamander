@@ -788,8 +788,8 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
   does a slash command to a live session with nothing waiting ahead of it. A message the server holds, or has typed and Claude has not read, is drawn
   one way: a dashed bubble, *Waiting* under it, no time, *Edit* and *Cancel*. While Claude asks something (a question or a
   permission: the session's `waiting` status) the line adds *answer Claude's question first*, and a message already in the pane offers no button; nor
-  does it while another dialog or menu is open in the pane (no reason is written for that), nor does one in the pane that is a slash command, nor any
-  in the pane while one of them has an upload. Cancel and Edit ask the server to take the message back (Edit puts it in the composer: sent again, it joins at the
+  does it while another dialog or menu is open in the pane (no reason is written for that). Otherwise a message in the pane also has *Send now*
+  (below); one that is a slash command, or any in the pane while one of them has an upload, has only that, no *Edit* or *Cancel*. Cancel and Edit ask the server to take the message back (Edit puts it in the composer: sent again, it joins at the
   end), and the status line says when Claude had read it first (that bubble then offers no
   button while its transcript line is on the way), or when it could not be taken back. A failed one keeps *Retry* and *Edit*, which
   withdraw it on the server first. The list comes from the stream's `outbox` event (`{"messages": [...]}`, at open and at each change) and, for a
