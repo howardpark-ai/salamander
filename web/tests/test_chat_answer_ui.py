@@ -398,10 +398,11 @@ def test_markup_in_a_reply_makes_no_frame_takes_no_look_and_covers_no_card(serve
     wait(browser, f"{card_frame(0)}.style.height === '200px'")
     browser.evaluate(f"{card_frame(0)}.scrollIntoView({{ block: 'center' }}); ''")
     browser.settle("document.querySelector('#chat')")
-    got = browser.evaluate(f"""(() => {{ const f = {card_frame(0)}, r = f.getBoundingClientRect(), fakeCard = document.querySelector('#chat .md .ans-card');
+    # a reply keeps no class (the reply box's sanitizer), so the look-alike card has none of the page's classes and no look at all
+    got = browser.evaluate(f"""(() => {{ const f = {card_frame(0)}, r = f.getBoundingClientRect(), fakeCard = document.querySelector('#chat .md [class*="ans-"]');
       return {{ cards: {CARDS}.length, inMd: document.querySelectorAll('#chat .md iframe').length, frames: document.querySelectorAll('#chat iframe').length,
-        fake: !!fakeCard, border: fakeCard && getComputedStyle(fakeCard).borderLeftWidth, top: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === f }}; }})()""")
-    assert got == {"cards": 1, "inMd": 0, "frames": 1, "fake": True, "border": "0px", "top": True}, got
+        fake: !!fakeCard, border: fakeCard && getComputedStyle(fakeCard).borderLeftWidth, plain: document.querySelectorAll('#chat .md .ans-card, #chat .md .ans-slot, #chat .md .ans-under').length, top: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === f }}; }})()""")
+    assert got == {"cards": 1, "inMd": 0, "frames": 1, "fake": False, "border": None, "plain": 0, "top": True}, got
     assert other.loads == [], other.loads
 
 
