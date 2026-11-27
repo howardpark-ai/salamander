@@ -1289,6 +1289,7 @@ notice_tick() {   # `sala notice` housekeeping: one python only while a notice o
     [ -s "$SALA_STATE_DIR/notices.tsv" ] || [ -d "$SALA_STATE_DIR/notices-seen" ] || return 0
     "$SALA_BIN" notice prune >/dev/null 2>&1 || true
 }
+where_tick() { "$SALA_BIN" where --scan >/dev/null 2>&1 || true; }   # the owner's box from the newest ssh-attached tmux client (lib/where.sh); fail-soft
 unit_gaps_tick() {
     case "${SALA_UNIT_GAPS:-on}" in off|no|false|0) return 0;; esac
     local out l
@@ -1962,7 +1963,8 @@ deferred_revive() {
 }
 [ "$CHECK_ONLY" = 1 ] || deferred_revive
 [ "$CHECK_ONLY" = 1 ] || sets_tick   # the flag rule over every open recycle set (common.sh, set_sync), before the prune
-[ "$CHECK_ONLY" = 1 ] || notice_tick   # expired notices and the delivery files of gone sessions out (lib/notice.sh; nothing runs while no notice and no delivery file exists)
+[ "$CHECK_ONLY" = 1 ] || where_tick
+[ "$CHECK_ONLY" = 1 ] || notice_tick  # expired notices and the delivery files of gone sessions out (lib/notice.sh; nothing runs while no notice and no delivery file exists)
 [ "$CHECK_ONLY" = 1 ] || cont_tick   # a pane that moved to a new transcript id keeps its row (lib/continuedin.sh)
 [ "$CHECK_ONLY" = 1 ] || bare_tick   # every mapped pane at a bare shell for SALA_BARE_GRACE is revived (lib/barepane.sh)
 [ "$CHECK_ONLY" = 1 ] || wrapup_tick   # runs only when SALA_IDLE_WRAPUP=on (off by default): a background agent idle for SALA_IDLE_WRAPUP_MIN is asked to wrap up, then cleared (lib/wrapup.sh)
