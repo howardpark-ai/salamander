@@ -68,7 +68,9 @@ none itself):
                                   Admin API's cost and usage reports (GET only): the last answer at once, refreshed in
                                   the background every 15 minutes and kept in state_dir/api-spend.json (swr.py). Asked the
                                   same when the lane is dormant: the answer then also carries "lane": "api" and
-                                  "dormant": {reason, since}, and the card shows the figures beside the reason
+                                  "dormant": {reason, since}, and the card shows the figures beside the reason. With no
+                                  api row in lane-state, a refusal in the shared API-credit record (apicredit.py) gives the
+                                  same lane and dormant (reason "API credit ran out")
   GET  /api/spend                month-to-date spend of the aws-platform and bedrock lanes as an ESTIMATE AT LIST PRICES,
                                   counted from this machine's own Claude Code transcripts (spend.py; no AWS or Anthropic call):
                                   {"month", "since", "lanes": [{"lane", "configured", "monthUsd", "calls", "models": [{model,
@@ -316,6 +318,7 @@ from . import chatthread as CTH
 from . import yourmove as YM
 from . import wheresight as WS
 from . import colors as CLR
+from . import apicredit as AC
 from . import credit as CR
 from . import debuglog as DL
 from . import foryou as FY
@@ -916,7 +919,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # period's spend): the same cache and the same Admin API read, at most every 15 minutes (a read of the org's cost report
         # with the admin key, which is not the inference key whose credit ran out); the dormant record is added beside it
         out = dict(await credit.get())
-        d = dormant_lanes().get("api")
+        # sala's record first; else the shared API-credit record (apicredit.py) that a job's refused key call wrote: the lane's
+        # sign that the key has no credit, which the watch's record does not get when no pane stopped on it
+        d = dormant_lanes().get("api") or AC.refusal()
         if d:
             out.update({"lane": "api", "dormant": d})
         return JSONResponse(out, headers={"Cache-Control": "no-store"})
