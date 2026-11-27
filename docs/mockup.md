@@ -8,13 +8,20 @@ $ sala mockup add login.html
 https://sala.example.com/mockup/7
 ```
 
+**A revision uses `update` on the same number, never a new `add`.** `sala mockup update 7 login-v2.html` replaces page 7 in place, so it keeps its number and its address,
+and the page it replaces is saved as a version first (see *Versions* below). A new `add` makes a new number and a new address, so the reader's link to page 7 would
+keep showing the old design. `update` refuses a number that has no page: a new page is always `add`.
+
 ## Commands
 
 | | |
 |---|---|
-| `sala mockup add FILE\|-` | store an HTML file (a path, or `-` for standard input) and print its address on stdout, nothing else, so `$(sala mockup add page.html)` is the link. `sala mockup FILE` is the same. |
-| `sala mockup list [--json]` | the stored pages: number, size, age, address. |
-| `sala mockup remove N` | delete one page now. Its number stays used. |
+| `sala mockup add FILE\|-` | store an HTML file (a path, or `-` for standard input) and print its address on stdout, nothing else, so `$(sala mockup add page.html)` is the link. `sala mockup FILE` is the same. A new page only. |
+| `sala mockup update N FILE\|-` | a revision: replace stored page N in place (same number, same address), with the same checks and output as `add`. The page it replaces is saved as a version. An unknown N is refused. |
+| `sala mockup history N` | the saved versions of page N, newest first: when each was saved (UTC), its size and its file name. Prints nothing when there are none. |
+| `sala mockup undo N` | restore the newest saved version of page N. The page it replaces is saved as a version too, so undoing again goes back to where it was. |
+| `sala mockup list [--json]` | the stored pages: number, size, age, address. Saved versions are not listed. |
+| `sala mockup remove [--force] N` | delete one page now, with its versions. Its number stays used. Refused when an open board item links the page (`SALA_MOCKUP_REFERENCES`, below), and also when that command fails; `--force` removes it anyway. |
 | `sala mockup clean [--dry-run] [--days N] [--max-bytes N]` | the daily pass (below). |
 
 **The address** is the scheme and host of `SALA_SESSION_URL` (the link template sala already uses for a session's web link, for example
@@ -44,10 +51,27 @@ Under sala's state folder: `$SALA_STATE_DIR/mockups/` (else `$XDG_STATE_HOME/sal
 - `<n>.html`: a page, mode 600. Pages are stored under their number only, never under a name the writer chose.
 - `counter`: the last number given, mode 600.
 - `.lock`: the lock file.
+- `versions/<n>/<UTC time>.html`: the saved versions of page N (below), mode 600 in folders of mode 700. The name is the time the version was saved, to the
+  microsecond, such as `20261127T142709.123456Z.html`; two saves in one microsecond still get two names.
 
 The CLI is the only writer; sala-web only reads. A number is taken under an exclusive `flock` on `.lock`: the counter becomes `max(counter, highest page) + 1` and is
 written (temporary file, `fsync`, rename) before the page is, so a crash leaves a gap and never a number given twice, parallel `add`s get different numbers, and a deleted
 page's number is never given again. A page is written under a temporary name and renamed, so a reader never sees half a page.
+
+## Versions
+
+Every `update` and every `undo` saves the content it replaces as a new version under `versions/<n>/`, before the new content is renamed over `<n>.html`. Nothing an update
+replaces is lost, and a crash between the two writes leaves the old page in its versions, never lost. The commands:
+
+- `sala mockup history N` lists the versions newest first: when each was saved (UTC), its size, and its file name.
+- `sala mockup undo N` restores the newest version over page N and saves what it replaces as a version, so undo is itself undone by the next `undo`. The restored version
+  is taken out of the versions, so each undo steps back one version.
+- The versions are never served by sala-web and never listed by `list`; `GET /mockup/<n>` reads only `<n>.html`.
+- `remove N` deletes the page's versions with the page. `clean` deletes them with the page it deletes. The versions of a page that is gone (left by a removal done
+  by hand) are deleted by the daily pass once they are older than the keep time (`SALA_MOCKUP_KEEP_DAYS`).
+- A page's versions count toward the folder's size for the size rule below.
+
+There is no web view of the history: the history is read with `sala mockup history N` on the machine.
 
 ## How it is served
 
@@ -80,8 +104,8 @@ The service worker (`web/src/sala_web/static/sw.js`) has no fetch handler, so it
 
 `sala-mockup-clean.timer` (daily, `systemd/`) runs `sala mockup clean`, which applies two rules in this order:
 
-1. **Age.** A page older than 7 days (`SALA_MOCKUP_KEEP_DAYS`, `--days N`; the age is the file's modification time, set when the page was stored) is deleted unless an open board item links it.
-2. **Size.** If the folder (every file in it) still holds more than 1 GB (`SALA_MOCKUP_MAX_BYTES`, `--max-bytes N`; default 1073741824), pages are deleted oldest first (equal ages by number) until it is under the cap.
+1. **Age.** A page older than 7 days (`SALA_MOCKUP_KEEP_DAYS`, `--days N`; the age is the file's modification time, set when the page was last updated) is deleted, with its versions, unless an open board item links it.
+2. **Size.** If the folder (every file in it, versions included) still holds more than 1 GB (`SALA_MOCKUP_MAX_BYTES`, `--max-bytes N`; default 1073741824), pages are deleted oldest first (equal ages by number) until it is under the cap.
    A page an open board item links goes last: only when every unlinked page is already gone and the folder is still over.
 
 Each deletion is printed with its reason; `--dry-run` prints what it would delete and deletes none. A half-written page older than a day (a crash's leftover) is removed too.
@@ -107,4 +131,4 @@ A command that prints nothing readable but exits 0 means nothing is linked. The 
 
 All three are read from `~/.config/salamander/config` (a plain `NAME=value` line) or from the environment; a line in the config wins over the environment, as for every sala setting. The daily `sala-mockup-clean.service` has only `PATH` in its environment, so for it the config file is the one source.
 
-Tests: `tests/mockup.sh` (numbering, atomic counter, refusals, both cleanup rules with a stub reader and fake sizes and ages, the unit files) and `web/tests/test_mockup.py` (the route, its headers, a real headless browser).
+Tests: `tests/mockup.sh` (numbering, atomic counter, refusals, `update` and its versions, `history`, `undo`, `remove` with its link refusal and `--force`, both cleanup rules with a stub reader and fake sizes and ages, the unit files) and `web/tests/test_mockup.py` (the route, its headers, a revision served on the next load, a real headless browser).

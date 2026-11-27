@@ -1712,7 +1712,7 @@ size and tap area.
 ## Mockup pages
 
 `GET /mockup/<n>` serves an HTML page that `sala mockup add FILE` stored (salamander's `lib/mockup.py`, [docs/mockup.md](../docs/mockup.md)), so a session that cannot publish an Artifact hands a reader
-a link instead of a picture. The pages are files under `<sala state>/mockups/<n>.html` (mode 600, folder 700); sala-web only reads them (`mockup.py`, `Settings.mockups_dir`), opens a page without following a link,
+a link instead of a picture. The pages are files under `<sala state>/mockups/<n>.html` (mode 600, folder 700); a revision (`sala mockup update N`) replaces the file in place, and the versions it saved under `versions/<n>/` are never served; sala-web only reads them (`mockup.py`, `Settings.mockups_dir`), opens a page without following a link,
 serves a regular file of at most 5 MiB only, and answers 404 for a number with no page, for one that is not written as a plain number, and for a folder that does not exist yet. It is `text/html; charset=utf-8`; a page that is not
 UTF-8 (put there by hand, the CLI refuses it) is a 415, and any method but GET and HEAD a 405 with `Allow`.
 
@@ -2212,7 +2212,7 @@ accepted when its `Origin` matches the Host it came in on. `tests/test_hosts.py`
 | Sleeping sessions | `$SALA_SLEEP_DIR/<conversation id>` (default `<sala state>/sleeping/`; one line, `<ISO-Z time> <name>`) with the pane-map row (`SALA_SIDECAR`, default `<sala state>/pane-map.tsv`) of the same conversation id, read at each list (*Sleeping sessions*); read-only |
 | Roles, projects | `python3 $SALA_STACKSHOT_DIR/stackshot/fleet/client.py get roles` (`~/stackshot` when unset; empty = no stackshot: no command, `rolesError` says so), cached 30 s; on failure the last good answer is kept |
 | Board items | stackshot's client API, `GET <client.url>/client/items?key=<session name>` with the bearer token from `$XDG_CONFIG_HOME/stackshot/client.token`, one read per live session a minute, the last good answer kept per session (*Board items*) |
-| Mockup pages | `$SALA_STATE_DIR/mockups/<n>.html` (default `~/.local/state/salamander/mockups/`), written by `sala mockup add`, read at each request; nothing is cached or listed |
+| Mockup pages | `$SALA_STATE_DIR/mockups/<n>.html` (default `~/.local/state/salamander/mockups/`), written by `sala mockup add` and replaced in place by `sala mockup update N`, read at each request; nothing is cached or listed; `versions/<n>/` (saved by `update` and `undo`) is never read by sala-web |
 | Operation logs | `$SALA_LOG_DIR/salamander-op-<id>.log` (sala's `SALA_LOG_DIR`, read from the environment, else sala's config file; default `~/.claude/`), written by `sala op`, read at each request (the last 256 KB); nothing is cached or listed |
 | Transcript | `~/.claude/projects/<cwd, every non-alphanumeric char as ->/<sessionId>.jsonl`, falling back to a glob on the sessionId |
 | For you (no page reads it now) | stackshot's client API with the same token and address: `GET <client.url>/client/for-you` (the list and the flags, one read a minute), and on a tap `POST /client/for-you/seen` and `POST /client/items/<key>/watch`, always with the label `sala-web`; kept in memory only; `docs/stackshot-contracts.md`, interface 22 (*For you*) |

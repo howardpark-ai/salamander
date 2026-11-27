@@ -7,7 +7,11 @@
 #   lettered  a page whose visible text letters its designs (Variant A, Option B, Design C, Layout D, a non-breaking space, the Korean words built from
 #             escapes) is refused naming the phrases and saying to name the designs; named designs, a design word with no letter, a sentence ending before a
 #             capital, a lowercase letter, and "Variant A" inside script, style, a comment or a class/id attribute are taken
-#   list      table and --json; remove
+#   list      table and --json; the versions folder is not a page
+#   update    replaces page N in place (same number and address, the same output, the same checks) and saves the page it replaces
+#             as a version (versions/N/<UTC time>.html); history lists the versions, newest first; undo restores the newest one and saves
+#             what it replaces; a page with no version is refused; remove and clean delete the versions with the page; the cap counts them
+#   remove    refused for a page a linked item names (SALA_MOCKUP_REFERENCES), also when the reader fails; --force removes it; unset, empty, none as before
 #   clean     the age rule (old and unlinked deleted, old and linked kept, young kept), SALA_MOCKUP_REFERENCES unset = keep everything and say why, `none`,
 #             a failing or silent-unreadable command = keep everything + exit 1, --dry-run, a stale half-written page removed
 #   cap       the 1 GB rule (here a small cap, fake sizes and ages, the clock injected): oldest first, a linked page last, an unlinked young page before a
@@ -260,6 +264,91 @@ svc=$ROOT/systemd/sala-mockup-clean.service; tm=$ROOT/systemd/sala-mockup-clean.
 grep -q '^ExecStart=%h/.local/bin/salamander mockup clean$' "$svc" && ok "sala-mockup-clean.service runs the clean pass" || bad "service ExecStart"
 grep -q '^X-Model-Lane=none$' "$svc" && grep -q '^X-Project=' "$svc" && grep -q '^Description=' "$svc" && ok "the service names its lane (none: no model call) and project" || bad "service headers"
 grep -q '^OnCalendar=\*-\*-\* [0-9:]* UTC$' "$tm" && grep -q '^Persistent=true$' "$tm" && ok "the timer is daily and persistent" || bad "timer schedule"
+
+# -- update, undo, history, remove refusal ------------------------------------------------------------------------------------------------
+# update saves the page it replaces as a version (versions/N/<UTC time>.html); history lists the versions; undo restores the newest one
+# and saves what it replaces; remove refuses a page an open board item links (SALA_MOCKUP_REFERENCES); --force overrides it.
+# The reader here is a stand-in script.
+cat > "$T/rd" <<'SH'
+#!/bin/sh
+# a stand-in for the host's board reader: prints a link for each number listed in $REFS_FILE
+for n in $(cat "$REFS_FILE" 2>/dev/null); do echo "  https://sala.example.com/mockup/$n (the draft)"; done
+SH
+chmod +x "$T/rd"; export REFS_FILE=$T/linked
+unset SALA_SESSION_URL
+M='<meta name="viewport" content="width=device-width, initial-scale=1">'
+V="$D/versions/1"
+reset 0
+printf '%s' "$M<title>t</title><p>first</p>" > "$T/in/v1.html"; printf '%s' "$M<title>t</title><p>second</p>" > "$T/in/v2.html"
+printf '%s' "$M<title>t</title><p>third</p>" > "$T/in/v3.html"
+out=$($S add "$T/in/v1.html" 2>/dev/null); [ "$out" = "/mockup/1" ] && ok "update setup: page 1 added" || bad "update setup: [$out]"
+out=$($S update 1 "$T/in/v2.html" 2>"$T/err"); rc=$?
+[ "$rc" = 0 ] && [ "$out" = "/mockup/1" ] && [ -z "$(grep -v "SALA_SESSION_URL is not set" "$T/err")" ] && ok "update: prints the same address as add (/mockup/1) and no other message" || bad "update out: rc=$rc out=[$out] err=[$(cat "$T/err")]"
+[ "$(cat "$D/1.html")" = "$M<title>t</title><p>second</p>" ] && [ "$(ls "$V" | wc -l)" = 1 ] && [ "$(cat "$V/$(ls "$V")")" = "$M<title>t</title><p>first</p>" ] && ok "update: the page is replaced in place; the one it replaced is saved as its one version" || bad "update files: [$(cat "$D/1.html")] versions=[$(ls "$V" 2>/dev/null)]"
+f=$(ls "$V"); echo "$f" | grep -Eq '^[0-9]{8}T[0-9]{6}\.[0-9]{6}Z\.html$' && [ "$(stat -c %a "$V/$f")" = 600 ] && [ "$(stat -c %a "$V")" = 700 ] && [ "$(stat -c %a "$D/versions")" = 700 ] && ! find "$D" -name '.tmp-*' | grep -q . && ok "update: the version is named by its UTC time, mode 600 in a 700 folder, and no temporary file is left" || bad "update names or modes: f=[$f] file=[$(stat -c %a "$V/$f" 2>/dev/null)] dir=[$(stat -c %a "$V" 2>/dev/null)]"
+out=$($S add "$T/in/v3.html" 2>/dev/null); [ "$out" = "/mockup/2" ] && ok "update takes no number: the next add is 2" || bad "update took a number: [$out]"
+$S update 99 "$T/in/v3.html" >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && [ ! -e "$D/99.html" ] && [ ! -e "$D/versions/99" ] && ok "update of an unknown page exits 1 and writes nothing" || bad "update unknown: rc=$rc"
+$S update 99 "$T/in/v3.html" 2>&1 >/dev/null | grep -q 'no page 99' && $S update 99 "$T/in/v3.html" 2>&1 >/dev/null | grep -q 'add' && ok "update of an unknown page says no page 99 and that a new page is add" || bad "update unknown text"
+before=$(ls "$V" | wc -l)
+$S update 1 "$T/in/empty.html" >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$D/1.html")" = "$M<title>t</title><p>second</p>" ] && [ "$(ls "$V" | wc -l)" = "$before" ] && ok "update refused (unreadable source): the page and its versions are unchanged" || bad "update refused source changed the page: rc=$rc"
+printf '%s' "$M<title>t</title><p>from stdin</p>" | $S update 1 - >/dev/null 2>&1 && [ "$(cat "$D/1.html")" = "$M<title>t</title><p>from stdin</p>" ] && [ "$(ls "$V" | wc -l)" = 2 ] && ok "update -: stdin replaces the page and the one it replaced is a second version" || bad "update stdin"
+$S update abc "$T/in/v1.html" >/dev/null 2>&1; [ "$?" = 2 ] && ok "update with a non-number N is a usage error (exit 2)" || bad "update non-number exit"
+out=$(SALA_SESSION_URL='https://sala.example.com/s/{name}' $S update 1 "$T/in/v1.html" 2>/dev/null); [ "$out" = "https://sala.example.com/mockup/1" ] && [ "$(ls "$V" | wc -l)" = 3 ] && ok "update prints the address from SALA_SESSION_URL as add does, and saves a third version" || bad "update address: [$out] versions=$(ls "$V" | wc -l)"
+
+# history: the versions of page 1, newest first, one line each: when saved (UTC), size, file name
+out=$($S history 1 2>/dev/null); rc=$?
+printf '%s\n' "$out" | python3 -I -c 'import re,sys
+l = sys.stdin.read().splitlines()
+assert len(l) == 3, l
+assert all(re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{6} UTC\t\d+ bytes\t\d{8}T\d{6}\.\d{6}Z\.html", x) for x in l), l' 2>/dev/null && names=$(printf '%s\n' "$out" | cut -f3) && [ "$rc" = 0 ] && [ "$names" = "$(printf '%s\n' "$names" | sort -r)" ] && [ "$(printf '%s\n' "$names" | sort -u | wc -l)" = 3 ] && ok "history: three versions, newest first, each with its UTC time, size and name; the names are unique" || bad "history: rc=$rc out=[$out]"
+out=$($S history 2 2>/dev/null); rc=$?; [ "$rc" = 0 ] && [ -z "$out" ] && ok "history of a page with no versions prints nothing and exits 0" || bad "history empty: rc=$rc out=[$out]"
+$S history abc >/dev/null 2>&1; [ "$?" = 2 ] && ok "history with a non-number N is a usage error (exit 2)" || bad "history non-number exit"
+
+# undo restores the newest version (page 1 now = the SESSION_URL revision, the newest version = the stdin page) and saves what it replaces
+out=$($S undo 1 2>/dev/null); rc=$?
+[ "$rc" = 0 ] && [ "$out" = "/mockup/1" ] && [ "$(cat "$D/1.html")" = "$M<title>t</title><p>from stdin</p>" ] && [ "$(ls "$V" | wc -l)" = 3 ] && [ "$(cat "$V/$(ls "$V" | tail -1)")" = "$M<title>t</title><p>first</p>" ] && ok "undo: page 1 is the newest version (the stdin one), and what it replaced is saved as the newest version" || bad "undo: rc=$rc out=[$out] page=[$(cat "$D/1.html")] versions=$(ls "$V" | wc -l)"
+$S undo 1 >/dev/null 2>&1 && [ "$(cat "$D/1.html")" = "$M<title>t</title><p>first</p>" ] && [ "$(ls "$V" | wc -l)" = 3 ] && [ "$(cat "$V/$(ls "$V" | tail -1)")" = "$M<title>t</title><p>from stdin</p>" ] && ok "undo twice goes back to where it started (and the version list still has three)" || bad "undo twice: page=[$(cat "$D/1.html")]"
+$S undo 99 >/dev/null 2>&1; [ "$?" = 1 ] && ok "undo of an unknown page exits 1" || bad "undo unknown"
+$S undo 2 >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 1 ] && grep -q 'no earlier version' "$T/err" && ok "undo of a page with no version exits 1 and says so" || bad "undo no version: rc=$rc [$(cat "$T/err")]"
+
+# list ignores the versions folder
+$S list --json | python3 -I -c 'import json,sys; r=json.load(sys.stdin); assert [p["n"] for p in r]==[1,2]' 2>/dev/null && ok "list: the versions folder is not listed as a page" || bad "list shows versions"
+
+# clean deletes a page's versions with the page; a version of a page that is gone goes once it is past the keep time
+V_OLD=20200101T000000.000000Z.html; V_NEW=20260101T000000.000000Z.html
+mkver() {       # mkver N NAME BYTES AGE_DAYS: one saved version of page N
+    mkdir -p "$D/versions/$1"; chmod 700 "$D/versions/$1"; head -c "$3" /dev/zero > "$D/versions/$1/$2"; touch -d "@$((NOW - $4 * DAY))" "$D/versions/$1/$2"; }
+reset 0; mkpage 1 100 30; mkver 1 $V_OLD 100 30
+mkpage 2 100 1; mkver 2 $V_OLD 100 1
+mkver 9 $V_OLD 1 30
+SALA_MOCKUP_REFERENCES=none $S clean >/dev/null 2>&1
+[ "$(pages)" = "2 " ] && [ ! -e "$D/versions/1" ] && [ -e "$D/versions/2/$V_OLD" ] && [ ! -e "$D/versions/9" ] && ok "clean: an old page's versions go with it; a young page's versions stay; the versions of a gone page go past the keep time" || bad "clean versions: pages=[$(pages)] $(find "$D" | tr '\n' ' ')"
+
+# the size cap counts versions: page 1 with its 300-byte version is the oldest and goes first, both together
+reset 0; mkpage 1 300 3; mkver 1 $V_OLD 300 3; mkpage 2 300 2; mkpage 3 100 1
+SALA_MOCKUP_REFERENCES=none $S clean --max-bytes 1000 >/dev/null 2>&1
+[ "$(pages)" = "2 3 " ] && [ ! -e "$D/versions/1" ] && ok "cap: versions count toward the folder size and go with their page" || bad "cap versions: pages=[$(pages)] $(find "$D" | tr '\n' ' ')"
+
+# remove: refused for a linked page (its versions stay); --force removes both; unset, empty or none removes as before
+reset 0; $S add "$T/in/v1.html" >/dev/null 2>&1; $S add "$T/in/v2.html" >/dev/null 2>&1; $S update 1 "$T/in/v3.html" >/dev/null 2>&1
+printf '1\n' > "$T/linked"
+out=$(SALA_MOCKUP_REFERENCES="$T/rd" $S remove 1 2>&1); rc=$?
+[ "$rc" = 1 ] && echo "$out" | grep -q 'linked by an open board item' && [ -e "$D/1.html" ] && [ -d "$D/versions/1" ] && ok "remove: a page an open board item links is refused (exit 1); the page and its versions stay" || bad "remove linked: rc=$rc out=[$out]"
+SALA_MOCKUP_REFERENCES="$T/rd" $S remove 2 >/dev/null 2>&1 && [ ! -e "$D/2.html" ] && ok "remove: a page nothing links is removed under a reader" || bad "remove unlinked under reader"
+SALA_MOCKUP_REFERENCES="$T/rd" $S remove --force 1 >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$D/1.html" ] && [ ! -e "$D/versions/1" ] && ok "remove --force: a linked page and its versions are removed" || bad "remove --force: rc=$rc"
+reset 0; $S add "$T/in/v1.html" >/dev/null 2>&1; $S update 1 "$T/in/v2.html" >/dev/null 2>&1; printf '1\n' > "$T/linked"
+SALA_MOCKUP_REFERENCES=none $S remove 1 >/dev/null 2>&1 && [ ! -e "$D/1.html" ] && [ ! -e "$D/versions/1" ] && ok "remove: SALA_MOCKUP_REFERENCES=none removes a linked-looking page and its versions as before" || bad "remove none"
+reset 0; $S add "$T/in/v1.html" >/dev/null 2>&1
+env -u SALA_MOCKUP_REFERENCES $S remove 1 >/dev/null 2>&1 && [ ! -e "$D/1.html" ] && ok "remove: SALA_MOCKUP_REFERENCES unset removes a page as before" || bad "remove unset"
+reset 0; $S add "$T/in/v1.html" >/dev/null 2>&1
+SALA_MOCKUP_REFERENCES="$T/nonexistent-reader" $S remove 1 >"$T/out" 2>"$T/err"; rc=$?
+[ "$rc" = 1 ] && [ -e "$D/1.html" ] && grep -q 'not removed' "$T/err" && ok "remove: a reader that cannot run refuses the removal (exit 1), page stays" || bad "remove failing reader: rc=$rc [$(cat "$T/err")]"
+SALA_MOCKUP_REFERENCES=false $S remove --force 1 >/dev/null 2>&1 && [ ! -e "$D/1.html" ] && ok "remove --force: skips a failing reader and removes the page" || bad "remove --force skips reader"
+reset 0; $S remove 1 >/dev/null 2>&1; [ "$?" = 1 ] && ok "remove of a page that is not there still exits 1" || bad "remove missing"
 
 echo "mockup: $([ $fail = 0 ] && echo pass || echo FAIL)"
 exit $fail
