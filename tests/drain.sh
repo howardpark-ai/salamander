@@ -3,7 +3,7 @@
 # not start work that outlives the turn: a background subagent (Agent or Task with run_in_background true), a Monitor, a Bash call with
 # run_in_background true. The hook denies them (permissionDecision deny, never ask) with the way out in the reason.
 # Checks: each of the five calls denied while the session waits (the JSON shape, the reason says finish the turn / `sala note` / `sala ready` /
-# the refusal ends with the relaunch and names the call and the relaunch's kind, and does not carry the command's text); the same calls allowed with
+# the refusal ends with the relaunch (or the wait's end without one) and names the call and the relaunch's kind, and does not carry the command's text); the same calls allowed with
 # nothing waiting, while ANOTHER session waits, and after the flag is cleared; a call carrying agent_id allowed (each of the three); foreground work allowed
 # (a foreground Agent or Bash, run_in_background false, `sala note`, `sala ready`, TaskStop, Read, and a command that merely quotes the word in its text);
 # SALA_DRAIN=off (environment and config file) allows; garbage allows (empty, not JSON, an array, no session id, a short or unsafe id, a cut input);
@@ -72,7 +72,7 @@ chk deny "background Bash"                  "$(pay "$U1" Bash "$BG_BASH")"
 chk deny "background Bash, pretty-printed JSON" "$(pay "$U1" Bash "$BG_BASH" | python3 -c 'import json, sys; print(json.dumps(json.load(sys.stdin), indent=2))')"
 n=$(lines); [ "$n" = 5 ] && ok "one log line per refusal (5)" || bad "log lines: $n"
 out=$(pay "$U1" Agent "$BG_AGENT" | pre); r=$(reason "$out")
-[[ $r == *"background subagent"* ]] && [[ $r == *"finish"* || $r == *"Finish this turn"* ]] && [[ $r == *'sala note "<next step>"'* ]] && [[ $r == *'`sala ready`'* ]] && [[ $r == *"ends when the relaunch is done"* ]] \
+[[ $r == *"background subagent"* ]] && [[ $r == *"finish"* || $r == *"Finish this turn"* ]] && [[ $r == *'sala note "<next step>"'* ]] && [[ $r == *'`sala ready`'* ]] && [[ $r == *"This refusal ends with the relaunch, or when the wait ends without one"* ]] \
     && ok "the reason names the call, says finish the turn, sala note, sala ready and that it ends with the relaunch" || bad "reason: $r"
 [[ $r == *"recycle is waiting"* || $r == *"recycle"* ]] && ok "the reason names the relaunch's kind (recycle)" || bad "kind missing: $r"
 [[ $out != *"$MARK"* ]] && ok "the reason does not carry the call's text" || bad "the call's text came back: $out"

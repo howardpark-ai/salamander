@@ -1839,7 +1839,7 @@ auto_recycle() {
 # for the hook to speak through), at most SALA_LATER_RETELL_MAX (3) times; held for SALA_LATER_LIMIT (3 h), one post names it,
 # its versions, how long, and the commands holding it. Nothing here relaunches or gives up a pane: the relaunch and the
 # 8-day drop are above and below, as they were. The state lives in the row, so a pane that leaves the list clears it.
-later_clear() { [ "${told_n:-0}" -gt 0 ] && waiting_clear "$uuid"; refusal_clear "$uuid"; return 0; }   # the flag it raised and the refusal memory (common.sh) go with the row
+later_clear() { hold_ended "$uuid" dropped "$1"; refusal_clear "$uuid"; return 0; }   # <why> — the row is dropped: its hold ends (common.sh, hold_ended: silent after a relaunch) and the refusal memory goes
 # held_say: what holds a pane on the list, in the log ONCE per change (the digits left out of the comparison: an age that ticks up is no change)
 # and never again at every tick; the same words are in the retell and the limit post
 held_say() {
@@ -1861,7 +1861,7 @@ later_held() {  # in deferred_revive: the pane is held now; told again when due,
         hnote=""; [ -z "$held" ] || hnote=$'\n'"What holds it, as sala reads it: ${held:0:300}"
         # a session held by shells is idle: no tool call, so the hook never speaks. The line goes in as a message; a turn running
         # now is left to the hook, which says it at the next call
-        if [ "$st" != busy ] && [ -n "$sock" ] && session_push "$sock" "$(relaunch_text "${what:-recycle}" "$c")$hnote" 2>/dev/null; then waiting_told "$uuid"; fi
+        if [ "$st" != busy ] && [ -n "$sock" ] && session_push "$sock" "$(relaunch_text "${what:-recycle}" "$c")$hnote" 2>/dev/null; then waiting_told "$uuid"; hold_told "$uuid" "$c" "$sess"; fi
         told_n=$((told_n + 1)); told_at=$now
         wlog "deferred: $sess held $(later_words "$held_for") — told again ($told_n of $SALA_LATER_RETELL_MAX): $held"
     fi
@@ -1916,17 +1916,21 @@ deferred_revive() {
         # listed since it was deferred (common.sh, no_relaunch): dropped, never relaunched
         # a session that went to sleep since (common.sh, THE SLEEPING SESSIONS): nothing is waiting for it any more; it leaves the list and the set
         # without being counted as given up or left behind
-        if is_sleeping "$sess"; then sleeping_uuid_r uuid "$sess" || uuid=""; later_clear; wlog "deferred: $sess is sleeping — dropped"; dres gone "$sess" "$sess is sleeping, so it no longer counts"; continue; fi
-        no_relaunch "$sess" && { wlog "deferred: $(no_relaunch_line "$sess") — dropped"; dres gave "$sess" "$(no_relaunch_line "$sess")"; continue; }
+        if is_sleeping "$sess"; then sleeping_uuid_r uuid "$sess" || uuid=""; later_clear "it went to sleep"; wlog "deferred: $sess is sleeping — dropped"; dres gone "$sess" "$sess is sleeping, so it no longer counts"; continue; fi
+        if no_relaunch "$sess"; then
+            uuid=""; pp=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_pid}' 2>/dev/null | head -1)
+            [ -z "$pp" ] || ! c=$(claude_pid_under "$pp") || registry_conv_r uuid "$c"
+            later_clear "sala is now set never to relaunch it (SALA_NO_RELAUNCH)"; wlog "deferred: $(no_relaunch_line "$sess") — dropped"; dres gave "$sess" "$(no_relaunch_line "$sess")"; continue
+        fi
         pp=$(tmux list-panes -t "$(tmux_win_t "$sess")" -F '#{pane_pid}' 2>/dev/null | head -1)
         [ -n "$pp" ] || { wlog "deferred: $sess gone — dropped"; dres gave "$sess" "$sess: its tmux session is gone"; continue; }
         c=$(claude_pid_under "$pp") || { wlog "deferred: $sess runs no claude now — dropped"; dres gave "$sess" "$sess: runs no claude any more"; continue; }
         registry_conv_r uuid "$c"
-        [ "${opid:-0}" != 0 ] && [ "$c" != "$opid" ] && { later_clear; wlog "deferred: $sess relaunched meanwhile (pid $opid → $c) — dropped"; dres ok "$sess" "$sess relaunched meanwhile, on $(proc_version "$c"), $(set_after "$dset" 2>/dev/null)"; continue; }
+        [ "${opid:-0}" != 0 ] && relaunched_from "$opid" "$c" && { later_clear "it was relaunched"; wlog "deferred: $sess relaunched meanwhile (pid $opid → $c) — dropped"; dres ok "$sess" "$sess relaunched meanwhile, on $(proc_version "$c"), $(set_after "$dset" 2>/dev/null)"; continue; }
         ver=$(proc_version "$c")
-        [ "$ver" = "$cur" ] && [ "${force:-0}" != 1 ] && { later_clear; wlog "deferred: $sess already on $cur — dropped"; dres ok "$sess" "$sess already on $cur, $(set_after "$dset" 2>/dev/null)"; continue; }
+        [ "$ver" = "$cur" ] && [ "${force:-0}" != 1 ] && { later_clear "it is already on the current version, so there is nothing to relaunch"; wlog "deferred: $sess already on $cur — dropped"; dres ok "$sess" "$sess already on $cur, $(set_after "$dset" 2>/dev/null)"; continue; }
         if [ $((now - ${since:-0})) -gt 691200 ]; then
-            later_clear; wlog "deferred: $sess still held after 8 days — dropped"
+            later_clear "it stayed held for 8 days, so sala stopped waiting; a later recycle tries again"; wlog "deferred: $sess still held after 8 days — dropped"
             dres gave "$sess" "$sess: still held after 8 days (background work or a busy turn), so sala stopped waiting; the next recycle tries again" \
                 || sala_post "⚠️ *$sess not relaunched*" "it was still held after 8 days (background work or a busy turn), so sala stopped waiting; the next recycle tries again"
             continue
@@ -1952,12 +1956,15 @@ deferred_revive() {
         # that is skipped again starts no retry worker of its own (each one used to: a worker every tick for the same pane)
         SALA_DEFERRED_TRY=1 SALA_SET="$dset" "$SALA_BIN" revive --only "$sess" $( [ "${force:-0}" = 1 ] && echo --force ) </dev/null >> "$WLOG" 2>&1   # stdin is the list being read
         nc=$(claude_pid_under "$pp")
-        if [ -n "$nc" ] && [ "$nc" != "$c" ]; then
-            later_clear; wlog "deferred: $sess relaunched"
+        if relaunched_from "$c" "$nc"; then
+            later_clear "it was relaunched"; wlog "deferred: $sess relaunched"
             pw=""; [ -z "$uuid" ] || pw=$(pause_words "$uuid"); pw=${pw:+, $pw}   # a pane whose turn was paused says so
             dres ok "$sess" "$sess relaunched on $(proc_version "$nc") once it was free, $(set_after "$dset" 2>/dev/null)$pw" \
                 || sala_post "✅ *Recycle: $sess relaunched*" "it is free now; it had been deferred since $(local_human "$since")"
-        else keep+=("$row"); fi
+        else
+            keep+=("$row")
+            [ -z "$uuid" ] || [ -e "$SALA_WAITING_DIR/$uuid" ] || hold_ended "$uuid" deferred "a try to relaunch it did not go through"   # the try took the flag down and the pane is still here
+        fi
     done < "$SALA_DEFERRED"
     printf '%s\n' ${keep[@]+"${keep[@]}"} | grep . > "$SALA_DEFERRED.tmp"; mv -f "$SALA_DEFERRED.tmp" "$SALA_DEFERRED"
 }
@@ -1971,7 +1978,7 @@ deferred_revive() {
 [ "$CHECK_ONLY" = 1 ] || wake_tick   # always on: a sleeping session with a stackshot message line waiting is woken (`sala wake`), at most SALA_WAKE_PER_RUN per run (lib/wrapup.sh)
 [ "$CHECK_ONLY" = 1 ] || sleep_tick   # runs only when SALA_IDLE_SLEEP=on (off by default): an inactive project whose sessions sleep_ready accepts is put to sleep (`sala sleep --project`), at most SALA_SLEEP_PER_TICK projects per run (lib/wrapup.sh)
 [ "$CHECK_ONLY" = 1 ] || set_prune   # recycle sets: closed ones after 3 days, any after 9 (common.sh)
-[ "$CHECK_ONLY" = 1 ] || { waiting_prune; busy_prune; refusal_prune; pause_prune; }   # relaunch-waiting flags whose owner is gone; busy records of sessions long gone
+[ "$CHECK_ONLY" = 1 ] || { waiting_prune; hold_prune; busy_prune; refusal_prune; pause_prune; }   # relaunch-waiting flags whose owner is gone; busy records of sessions long gone
 [ "$CHECK_ONLY" = 1 ] || { inbox_release_stale; [ "${#INBOX_ORPHANS_FREED[@]}" -eq 0 ] || wlog "inbox: freed ${#INBOX_ORPHANS_FREED[@]} held key(s) that no hold-ledger row accounts for, seen $SALA_INBOX_ORPHAN_SECS s or more: ${INBOX_ORPHANS_FREED[*]}"; }   # a relaunch that died left its pane's inbox held: free it after 10 min; so is a held key no ledger row accounts for (inbox_release_orphans, common.sh)
 # UNMAPPED SESSIONS (the map is a ledger — common.sh): a live claude in a tmux session the pane map
 # does not know (started by hand, outside spawn, or a spawn whose row write failed) is reported once — a log line and one post per session — and never added from
