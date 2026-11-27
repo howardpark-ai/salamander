@@ -56,6 +56,30 @@ HEADERS = {
 }
 
 
+# The link at the top of every served page. A page opened from a reply in the installed app has no address bar, and the page is not sala, so it
+# would be a dead end: this is a plain in-flow link (not fixed, so it covers nothing of the design), at least 44 px high, as wide as the page and
+# no wider (border-box, no margin), to the chat route. "../chat" is relative to /mockup/<n>, so it works under any path prefix; /chat answers a 302
+# to the chat session (or the main page). Inline style only: the page's own sheet cannot be relied on, and the policy allows inline styles.
+BACK_LINK = ('<div data-sala-back style="all:initial;display:block;box-sizing:border-box;width:100%;max-width:100%;background:#161617;">'
+             '<a href="../chat" style="all:initial;display:block;box-sizing:border-box;min-height:44px;line-height:44px;padding:0 16px;'
+             'font:600 16px/44px system-ui,sans-serif;color:#fff;text-decoration:none;white-space:nowrap;overflow:hidden;'
+             'text-overflow:ellipsis;cursor:pointer">&larr; Back to sala</a></div>')
+_MASK_RE = re.compile(r"<script\b.*?(?:</script\s*>|\Z)|<style\b.*?(?:</style\s*>|\Z)|<!--.*?(?:-->|\Z)", re.I | re.S)
+_BODY_RE = re.compile(r"<body\b[^>]*>", re.I)
+_AFTER_RE = [re.compile(p, re.I) for p in (r"</head\s*>", r"<html\b[^>]*>", r"<!doctype[^>]*>")]
+
+
+def with_back_link(text: str) -> str:
+    """`text` with BACK_LINK put at the top of the body: right after the opening <body> tag; a page with none gets it after </head>, else after <html>,
+    else after the doctype, else first. Script, style and comment bodies are skipped when looking, so a "<body>" in a string is not the tag."""
+    masked = _MASK_RE.sub(lambda m: " " * len(m.group(0)), text)
+    for rx in [_BODY_RE, *_AFTER_RE]:
+        m = rx.search(masked)
+        if m:
+            return text[:m.end()] + BACK_LINK + text[m.end():]
+    return BACK_LINK + text
+
+
 def read_page(root: Path, raw: str) -> bytes | None:
     """The bytes of page `raw` (the number as written in the address), or None when there is no such page: not a canonical number, no file, a
     link or anything but a regular file, or one over the cap. The file is opened without following a link."""
