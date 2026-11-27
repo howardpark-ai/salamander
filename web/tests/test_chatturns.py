@@ -19,6 +19,8 @@ import json
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from sala_web import chatturns as CT
 
 OWNER = "Rowan"
@@ -64,6 +66,16 @@ def assistant(text, minute=0, stop="end_turn", tool=False):
 def tool_result(minute=0):
     return {"type": "user", "uuid": _id(), "timestamp": ts(minute), "toolUseResult": {"stdout": "ok"},
             "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}}
+
+
+def bang(command, minute=0):
+    """A `!` shell command the person typed in the pane: no origin."""
+    return {"type": "user", "uuid": _id(), "timestamp": ts(minute), "message": {"role": "user", "content": f"<bash-input>{command}</bash-input>"}}
+
+
+def bang_result(out="ran", minute=0):
+    return {"type": "user", "uuid": _id(), "timestamp": ts(minute),
+            "message": {"role": "user", "content": f"<bash-stdout>{out}</bash-stdout><bash-stderr></bash-stderr>"}}
 
 
 def entries(lines, owner=OWNER, strict=False):
@@ -136,6 +148,23 @@ def test_a_slash_command_typed_in_the_pane_is_the_owners_and_its_output_is_not_a
     out = {"type": "user", "uuid": _id(), "timestamp": ts(1), "message": {"role": "user", "content": "<local-command-stdout>Set model</local-command-stdout>"}}
     es = entries([cmd, out])
     assert kinds(es) == ["me"] and es[0]["text"] == "/model opus"
+
+
+def test_a_bang_command_after_a_closed_turn_is_the_persons_and_so_is_its_answer():
+    es = entries([human("go", 1), assistant("Done.", 2), bang("ls demo", 3), bang_result("a.txt", 3), assistant("One file.", 4)])
+    assert kinds(es) == ["me", "reply", "me", "reply"] and es[2]["text"] == "! ls demo" and es[3]["text"] == "One file."
+
+
+@pytest.mark.parametrize("lines, shown", [
+    ([bang("ls", 1), bang_result("a", 1), peer("news", 2), assistant("Filed.", 2)], ["me", "kept"]),
+    ([human("go", 1), assistant("On it.", 1, stop="tool_use", tool=True), bang("ls", 2), bang_result("a", 2), peer("news", 3), assistant("Done.", 3)],
+     ["me", "me", "reply"]),
+    ([bang("ls", 1), bang_result("a", 1), assistant("Reading.", 2, stop="tool_use", tool=True), tool_result(2), peer("news", 2), assistant("Read.", 3)],
+     ["me", "reply"]),
+    ([bang("sleep 9", 1), peer("news", 2), assistant("Waited.", 3)], ["me", "reply"]),
+], ids=["nothing-answers-it", "in-an-open-turn", "the-session-answers", "still-running"])
+def test_a_bang_command_that_found_no_turn_open_ends_its_turn_at_its_output(lines, shown):
+    assert kinds(entries(lines)) == shown
 
 
 def test_images_pasted_with_a_message_are_counted_not_shown():

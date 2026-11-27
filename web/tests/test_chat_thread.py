@@ -3,16 +3,18 @@
 Who wrote a line is chatturns.classify_user's decision (test_chatturns.py holds that rule) and the turns are chatkeep.Keeper's; this file holds what the
 thread does with them:
   - shown: every message the owner wrote (typed, typed while busy and queued, an accepted suggestion, no promptSource, a queued_command attachment, a slash
-    command typed in the pane; text and image blocks), the final replies of the turns they started (whatever stop reason, cut off included), and a reply of
-    any other turn only when it opens with the owner's mark, without it;
-  - not shown: tool calls and results, thinking, narration, delivered messages (another session, a task notice, a hook, a line sala typed), command output,
-    sidechain, synthetic and compaction lines, text on the way to a tool call, a line still without a stop reason;
-  - the owner speaking into a delivered turn takes it over; a turn is open until a reply closes it, an interrupt of the owner's turn ends it, or their
-    command turns out to have run locally (which leaves the turn as the command found it), so a later delivered message's reply needs the mark;
+    command or a `!` shell command typed in the pane; text and image blocks), the final replies of the turns they started (whatever stop reason, cut off
+    included), and a reply of any other turn only when it opens with the owner's mark, without it;
+  - not shown: tool calls and results, thinking, narration, delivered messages (another session, a task notice, a hook, a line sala typed), command output
+    (without replies=1), sidechain, synthetic and compaction lines, text on the way to a tool call, a line still without a stop reason;
+  - the owner speaking into a delivered turn takes it over; a turn is open until a reply closes it, an interrupt of the owner's turn ends it, their slash
+    command turns out to have run locally (which leaves the turn as the command found it), or a `!` command that found no turn open gives its output, so a
+    later delivered message's reply needs the mark; the session's answer to a `!` command is the owner's;
   - a page, an older page, a newer page, a page around a line and a tail read followed by appends cut at every line give the same thread; pages hold whole
     turns, every cursor is a line's start, and a long transcript is not read whole for one page;
-  - with replies=1, also, in the owner's turns alone: the images of a SendUserFile call, the questions of an AskUserQuestion call, an API error's line and the
-    interrupt line (marked); no turn starts, ends or reopens at one, and the answer without it holds none;
+  - with replies=1, also: in the owner's turns alone, the files of a SendUserFile call (an image's own block; any other file's name, never its path), the
+    questions of an AskUserQuestion call and the answers they got (marked), an API error's line and the interrupt line (marked); and the output of the owner's
+    `!` or slash command (marked). No turn starts, ends or reopens at one, and the answer without it holds none;
   - the route: nothing with no chat session set, the configured session alone (live or sleeping), 400 for a bad query.
 
 What a wrong answer costs: another session's words or a tool's output in the thread, a message of the owner's or its answer missing, a page that repeats or
@@ -35,7 +37,7 @@ from sala_web import chatthread as T
 from sala_web import sessions as S
 from sala_web import transcript as TR
 from sala_web.app import create_app
-from test_chatturns import OWNER, assistant, human, peer, queued, tool_result, ts
+from test_chatturns import OWNER, assistant, bang, bang_result, human, peer, queued, tool_result, ts
 from test_sleeping_sessions import NAME as SLEEPER, SLEEP_UUID, settings_for, wake  # noqa: F401  (wake is a fixture)
 
 SID = "11111111-2222-3333-4444-555555555555"
@@ -95,6 +97,11 @@ def caveat(minute: int = 0) -> dict:
 def local(name: str, minute: int = 0, output=command_output) -> list[dict]:
     """A command typed in the pane that ran locally, as the transcript holds it."""
     return [caveat(minute), slash(name, "", minute), output("done", minute)]
+
+
+def banged(command: str, minute: int = 0, out: str = "ran") -> list[dict]:
+    """A `!` command typed in the pane and its output, as the transcript holds them."""
+    return [bang(command, minute), bang_result(out, minute)]
 
 
 def skill(name: str, minute: int = 0) -> dict:
@@ -288,6 +295,44 @@ def endings_lines() -> list[dict]:
 ENDINGS_THREAD = [m for _, shown in endings().values() for m in shown]
 
 
+def commands() -> dict[str, tuple[list[dict], list[tuple[str, str]]]]:
+    """Turns a `!` command touches, in the shape of endings()."""
+    news = PEER + "news"
+    return {
+        "after a closed turn, then a delivered message": (
+            [human("List it", 1), assistant("Listed.", 1), *banged("ls one", 2), peer(news, 3), assistant("Filed.", 3)],
+            [("user", "List it"), ("assistant", "Listed."), ("user", "! ls one")]),
+        "answered": (
+            [*banged("ls two", 4), assistant("Two files.", 5)],
+            [("user", "! ls two"), ("assistant", "Two files.")]),
+        "worked on": (
+            [*banged("make three", 6), *work(6), peer(news, 6), assistant("Built.", 7)],
+            [("user", "! make three"), ("assistant", "Built.")]),
+        "in the owner's turn": (
+            [human("Wait here", 8), *work(8), *banged("ls four", 9), peer(news, 9), assistant("Done waiting.", 9)],
+            [("user", "Wait here"), ("user", "! ls four"), ("assistant", "Done waiting.")]),
+        "in a delivered turn": (
+            [peer(news, 10), *work(10), *banged("ls five", 10), assistant("Seen.", 11)],
+            [("user", "! ls five"), ("assistant", "Seen.")]),
+        "two in a row": (
+            [*banged("ls six", 12), *banged("ls seven", 13), peer(news, 13), assistant("Filed.", 14)],
+            [("user", "! ls six"), ("user", "! ls seven")]),
+        "then a follow-up": (
+            [*banged("ls eight", 15), follow_up("a plugin adds", 15), assistant("Added.", 15)],
+            [("user", "! ls eight")]),
+        "then a delivered reply for the owner": (
+            [*banged("ls nine", 16), peer(news, 16), assistant("[for Rowan] The build broke.", 17)],
+            [("user", "! ls nine"), ("assistant", "The build broke.")]),
+    }
+
+
+def commands_lines() -> list[dict]:
+    return [d for lines, _ in commands().values() for d in lines]
+
+
+COMMANDS_THREAD = [m for _, shown in commands().values() for m in shown]
+
+
 def write(path, lines) -> None:
     path.write_text("".join(json.dumps(d) + "\n" for d in lines), encoding="utf-8")
 
@@ -416,6 +461,17 @@ def test_the_endings_read_one_after_another_show_the_same(tmp_path):
     assert said(msgs) == ENDINGS_THREAD
 
 
+@pytest.mark.parametrize("name", list(commands()))
+def test_a_bang_command_and_its_answer_are_the_owners_and_nothing_delivered_after_it_gets_in(tmp_path, name):
+    lines, shown = commands()[name]
+    assert said(thread(tmp_path, lines)[0]) == shown
+
+
+def test_the_commands_read_one_after_another_show_the_same(tmp_path):
+    msgs, _ = thread(tmp_path, commands_lines())
+    assert said(msgs) == COMMANDS_THREAD
+
+
 @pytest.mark.parametrize("lines, is_open", [
     ([human("go", 1), interrupt(2)], False),
     ([human("go", 1), *work(1), interrupt(2, tool=True)], False),
@@ -426,7 +482,12 @@ def test_the_endings_read_one_after_another_show_the_same(tmp_path):
     ([human("go", 1), *local("/effort", 2)], True),
     ([peer(PEER + "news", 1), *local("/effort", 2)], True),
     ([human("go", 1), assistant("Done.", 2), caveat(3)], False),
-], ids=["interrupt", "interrupt-tool", "work-again", "command", "system-output", "command-alone", "in-their-turn", "in-a-delivered-turn", "caveat"])
+    (banged("ls", 1), False),
+    ([bang("sleep 9", 1)], True),
+    ([human("go", 1), *banged("ls", 2)], True),
+    ([*banged("ls", 1), *work(2)], True),
+], ids=["interrupt", "interrupt-tool", "work-again", "command", "system-output", "command-alone", "in-their-turn", "in-a-delivered-turn", "caveat",
+        "bang", "bang-running", "bang-in-their-turn", "bang-worked-on"])
 def test_a_turn_with_no_reply_is_open_only_while_something_is_left_of_it(tmp_path, lines, is_open):
     assert thread(tmp_path, lines)[1].open is is_open
     assert T.is_open(tmp_path / f"{SID}.jsonl", SID, OWNER) is is_open
@@ -479,7 +540,13 @@ def long_endings() -> list[dict]:
     return endings_lines() + quiet + endings_lines() + endings_lines()
 
 
-LONG = {"scenario": long_lines, "endings": long_endings}
+def long_commands() -> list[dict]:
+    """The `!` commands three times over, with stretches that show nothing between them."""
+    quiet = [x for i in range(12) for x in (peer(PEER + f"item {i}", 30), assistant(f"Filed {i}.", 30))]
+    return commands_lines() + quiet + commands_lines() + commands_lines()
+
+
+LONG = {"scenario": long_lines, "endings": long_endings, "commands": long_commands}
 SIZES = [(1 << 20, 256 << 10, 4 << 20), (300, 128, 900), (64, 7, 1 << 20), (2000, 4096, 1)]   # WINDOW_FIRST, STEP, PAGE_BYTES
 
 
@@ -533,6 +600,8 @@ def test_older_pages_add_up_to_the_whole_thread(tmp_path, sizes, n, which):
     assert got == want
     if which == "endings":
         assert said(want) == ENDINGS_THREAD * 3
+    elif which == "commands":
+        assert said(want) == COMMANDS_THREAD * 3
     else:
         assert said(want).count(("user", "Draw slide 4")) == 4
 
@@ -619,7 +688,7 @@ def test_a_stretch_that_shows_nothing_does_not_end_a_page_empty(tmp_path, monkey
     assert said(msgs) == [("user", "first"), ("assistant", "One.")] and cursor == 0
 
 
-@pytest.mark.parametrize("make", [scenario, endings_lines], ids=["scenario", "endings"])
+@pytest.mark.parametrize("make", [scenario, endings_lines, commands_lines], ids=["scenario", "endings", "commands"])
 @pytest.mark.parametrize("n", [1, 3, 10_000])
 def test_a_tail_read_and_appends_equal_the_history_wherever_the_file_is_cut(tmp_path, monkeypatch, n, make):
     monkeypatch.setattr(T, "WINDOW_FIRST", 300)
@@ -637,7 +706,8 @@ def test_a_tail_read_and_appends_equal_the_history_wherever_the_file_is_cut(tmp_
             assert off == p.stat().st_size and got == want[len(want) - len(got):] and (n < 10_000 or got == want), (k, bool(torn))
 
 
-@pytest.mark.parametrize("make, shown", [(scenario, THREAD), (endings_lines, ENDINGS_THREAD)], ids=["scenario", "endings"])
+@pytest.mark.parametrize("make, shown", [(scenario, THREAD), (endings_lines, ENDINGS_THREAD), (commands_lines, COMMANDS_THREAD)],
+                         ids=["scenario", "endings", "commands"])
 def test_appends_one_line_at_a_time_equal_the_history(tmp_path, make, shown):
     p = tmp_path / f"{SID}.jsonl"
     p.write_bytes(b"")
@@ -685,7 +755,8 @@ ASK = [{"header": "Colour", "question": "Which colour?", "multiSelect": False,
        {"header": "Size", "question": "Which size?", "multiSelect": True, "options": [{"label": "Small"}]}]
 ASKED = [{"kind": "question", "header": "Colour", "question": "Which colour?",
           "options": [{"label": "Red", "description": "warm", "preview": ""}, {"label": "Blue", "description": "cool", "preview": "<b>swatch</b>"}]},
-         {"kind": "question", "header": "Size", "question": "Which size?", "options": [{"label": "Small", "description": "", "preview": ""}]}]
+         {"kind": "question", "header": "Size", "question": "Which size?", "options": [{"label": "Small", "description": "", "preview": ""}],
+          "multiSelect": True}]
 OVERLOADED = "API Error: 529 Overloaded"
 
 
@@ -702,6 +773,11 @@ def sent(*names: str, minute: int = 0) -> dict:
 
 def asked(minute: int = 0, questions: object = ASK) -> dict:
     return call("AskUserQuestion", {"questions": questions}, minute)
+
+
+def answered(answers: object, minute: int = 0, questions: object = ASK) -> dict:
+    """The result line of an AskUserQuestion call that was answered."""
+    return tool_result(minute) | {"toolUseResult": {"questions": questions, "answers": answers}}
 
 
 def api_error(text: str = OVERLOADED, minute: int = 0) -> dict:
@@ -725,7 +801,7 @@ def rest_lines() -> list[dict]:
 
 def shape(msgs: list[dict]) -> list[tuple]:
     """(role, each block's kind and what it says) of each message."""
-    word = {"text": "text", "file_image": "name", "question": "question"}
+    word = {"text": "text", "file_image": "name", "file_sent": "name", "question": "question"}
     return [(m["role"], *[(b["kind"], b[word[b["kind"]]]) for b in m["blocks"]]) for m in msgs]
 
 
@@ -741,7 +817,7 @@ def test_the_rest_of_a_reply_shows_in_the_owners_turns_and_only_when_asked_for(t
     msgs, sel = rest(tmp_path, lines)
     assert shape(msgs) == [
         ("user", ("text", "draw it")),
-        ("assistant", ("file_image", "a.png"), ("file_image", "c.jpg")),
+        ("assistant", ("file_image", "a.png"), ("file_image", "c.jpg"), ("file_sent", "b.docx")),
         ("assistant", ("text", "Drawn.")),
         ("user", ("text", "pick one")),
         ("assistant", ("question", "Which colour?"), ("question", "Which size?")),
@@ -755,11 +831,12 @@ def test_the_rest_of_a_reply_shows_in_the_owners_turns_and_only_when_asked_for(t
         ("assistant", ("text", "Done.")),
     ]
     assert [m.get("interrupt", False) for m in msgs] == [False] * 9 + [True] + [False] * 3 and sel.open is False
-    images = msgs[1]["blocks"]
+    images = msgs[1]["blocks"][:2]
+    assert msgs[1]["blocks"][2] == {"kind": "file_sent", "name": "b.docx", "caption": ""}, "the call's caption stands on its images"
     assert [b["caption"] for b in images] == ["The drawings", ""]
     assert images[0]["url"].startswith(f"api/file-image/{SID}/{msgs[1]['uuid']}/0/0") and images[1]["url"].endswith("/0/2")
     assert msgs[4]["blocks"] == ASKED
-    assert "b.docx" not in json.dumps(msgs) and "tool_use" not in json.dumps(msgs) and "hidden.png" not in json.dumps(msgs)
+    assert "/w/demo" not in json.dumps(msgs) and "tool_use" not in json.dumps(msgs) and "hidden.png" not in json.dumps(msgs)
     plain, _ = thread(tmp_path, lines)
     assert said(plain) == [("user", "draw it"), ("assistant", "Drawn."), ("user", "pick one"), ("assistant", "Picked."), ("user", "go"), ("user", "again"),
                            ("assistant", "Filed."), ("user", "last"), ("assistant", "Done.")]
@@ -773,15 +850,16 @@ def test_the_rest_of_a_reply_shows_in_the_owners_turns_and_only_when_asked_for(t
     asked() | {"isSidechain": True},
     api_error() | {"isSidechain": True},
     sent("a.png") | {"isMeta": True},
-    sent("report.docx", "notes.txt"),
+    sent("report.docx") | {"isSidechain": True},
+    call("SendUserFile", {"files": [5, "", {"name": "no path"}]}),
     call("Bash", {"command": "ls", "files": ["/w/demo/a.png"], "questions": ASK}),
     call("SendUserFile", {"files": "a.png"}),
     asked(questions="Which colour?"),
     asked(questions=[None, "x", {"header": "No question", "options": []}, {"question": 7}]),
     call("AskUserQuestion", None),
-], ids=["synthetic", "synthetic-unmarked", "sidechain-sent", "sidechain-asked", "sidechain-error", "meta", "no-image", "another-tool", "files-not-a-list",
-        "questions-not-a-list", "no-question", "no-input"])
-def test_what_is_none_of_the_four_stays_out(tmp_path, line):
+], ids=["synthetic", "synthetic-unmarked", "sidechain-sent", "sidechain-asked", "sidechain-error", "meta", "sidechain-file", "no-path",
+        "another-tool", "files-not-a-list", "questions-not-a-list", "no-question", "no-input"])
+def test_what_is_none_of_the_rest_stays_out(tmp_path, line):
     msgs, _ = rest(tmp_path, [human("go", 1), line])
     assert said(msgs) == [("user", "go")]
 
@@ -791,9 +869,67 @@ def test_a_question_with_odd_options_keeps_the_ones_it_can_number(tmp_path):
     assert [b["options"] for b in msgs[1]["blocks"]] == [[], [{"label": "", "description": "", "preview": ""}]]
 
 
+def test_a_sent_file_that_is_no_image_shows_its_name_and_the_calls_caption_once(tmp_path):
+    long = "n" * 200 + ".csv"
+    files = ["/w/demo/report.docx", {"path": "C:\\w\\demo\\sheet.xlsx"}, "/w/demo/" + long]
+    msgs, _ = rest(tmp_path, [human("go", 1), call("SendUserFile", {"files": files, "caption": "The\n  figures " + "c" * 400, "status": "normal"}, 1)])
+    caption = ("The figures " + "c" * 400)[:300]
+    assert msgs[1]["blocks"] == [{"kind": "file_sent", "name": "report.docx", "caption": caption},
+                                 {"kind": "file_sent", "name": "sheet.xlsx", "caption": ""},
+                                 {"kind": "file_sent", "name": long[:120], "caption": ""}]
+
+
+def test_the_answers_to_a_question_show_on_the_owners_side_in_the_order_asked(tmp_path):
+    lines = [human("pick one", 1), asked(1), answered({"Which size?": ["Small", "Large"], "Which colour?": "Blue"}, 1), assistant("Picked.", 2)]
+    msgs, sel = rest(tmp_path, lines)
+    assert msgs[2] == {"uuid": lines[2]["uuid"], "role": "user", "ts": lines[2]["timestamp"], "answer": True,
+                       "blocks": [{"kind": "answer", "answers": [{"question": "Which colour?", "answer": "Blue"},
+                                                                 {"question": "Which size?", "answer": "Small, Large"}]}]}
+    assert [m["role"] for m in msgs] == ["user", "assistant", "user", "assistant"] and sel.open is False
+    assert said(thread(tmp_path, lines)[0]) == [("user", "pick one"), ("assistant", "Picked.")]
+
+
+@pytest.mark.parametrize("line", [
+    tool_result(1) | {"toolUseResult": "User rejected tool use"},
+    answered({}, 1),
+    answered({"Which colour?": "  ", "Which size?": 4}, 1),
+    answered({"Something else?": "Blue"}, 1),
+    answered(["Blue"], 1),
+    answered({"Which colour?": "Blue"}, 1, questions="Which colour?"),
+    answered({"Which colour?": "Blue"}, 1) | {"isSidechain": True},
+    answered({"Which colour?": "Blue"}, 1) | {"isMeta": True},
+    answered({"Which colour?": "Blue"}, 1) | {"isVisibleInTranscriptOnly": True},
+], ids=["cancelled", "none", "blank", "another-question", "answers-not-a-table", "questions-not-a-list", "sidechain", "meta", "transcript-only"])
+def test_a_result_with_no_answer_to_show_stays_out(tmp_path, line):
+    msgs, _ = rest(tmp_path, [human("go", 1), asked(1), line])
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+
+
+def test_the_output_of_the_owners_commands_shows_only_with_the_rest_of_the_replies(tmp_path):
+    lines = [human("go", 1), assistant("Done.", 2), *banged("ls demo", 3, "a.txt"), assistant("One file.", 4), *local("/model", 5)]
+    msgs, _ = rest(tmp_path, lines)
+    assert [(m["role"], m["blocks"][0]["kind"], m["blocks"][0]["text"], m.get("output", False)) for m in msgs] == [
+        ("user", "text", "go", False), ("assistant", "text", "Done.", False), ("user", "command", "! ls demo", False),
+        ("user", "bang_output", "a.txt", True), ("assistant", "text", "One file.", False), ("user", "command", "/model", False),
+        ("user", "notice", "done", True)]
+    assert msgs[3] == TR.parse_line(lines[3], SID) | {"output": True}, "drawn as the session's page draws it"
+    assert said(thread(tmp_path, lines)[0]) == [("user", "go"), ("assistant", "Done."), ("user", "! ls demo"), ("assistant", "One file."), ("user", "/model")]
+
+
+@pytest.mark.parametrize("lines, shown", [
+    ([bang_result("stray", 1)], []),
+    ([command_output("stray", 1)], []),
+    ([slash("/odd", "", 1), peer(PEER + "news", 1), command_output("late", 1)], ["command"]),
+    ([slash("/status", "", 1), system_output("fine", 1)], ["command"]),
+    ([*banged("ls", 1, "a"), bang_result("again", 1)], ["command", "bang_output"]),
+], ids=["bang-without-command", "slash-without-command", "after-another-message", "system-line", "a-second-record"])
+def test_output_that_is_no_command_of_the_owners_stays_out(tmp_path, lines, shown):
+    assert [b["kind"] for m in rest(tmp_path, lines)[0] for b in m["blocks"]] == shown
+
+
 @pytest.mark.parametrize("lines", [
     [sent("a.png"), asked(), api_error()],
-    [peer(PEER + "news", 1), sent("a.png", minute=1), asked(1), api_error(minute=1), interrupt(1)],
+    [peer(PEER + "news", 1), sent("a.png", "b.docx", minute=1), asked(1), answered({"Which colour?": "Blue"}, 1), api_error(minute=1), interrupt(1)],
     [human("<!-- sala --> wake up", 1), sent("a.png", minute=1), api_error(minute=1)],
 ], ids=["no-turn", "another-session", "sala"])
 def test_the_rest_of_a_turn_the_owner_did_not_start_stays_back(tmp_path, lines):
@@ -812,7 +948,11 @@ def test_an_interrupt_after_the_reply_shows_nothing(tmp_path):
     [human("go", 1), interrupt(1), asked(2)],
     [peer(PEER + "news", 1), sent("a.png", minute=1)],
     [human("go", 1), assistant("Done.", 2), api_error(minute=3)],
-], ids=["sent", "asked", "api-error", "interrupt", "work-again", "delivered", "closed"])
+    [human("go", 1), asked(1), answered({"Which colour?": "Blue"}, 1)],
+    banged("ls", 1),
+    [human("go", 1), *banged("ls", 2)],
+    local("/model", 1),
+], ids=["sent", "asked", "api-error", "interrupt", "work-again", "delivered", "closed", "answered", "bang", "bang-in-their-turn", "command"])
 def test_the_rest_of_a_reply_changes_no_turn(tmp_path, lines):
     p = tmp_path / f"{SID}.jsonl"
     write(p, lines)
@@ -823,7 +963,8 @@ def test_the_rest_of_a_reply_changes_no_turn(tmp_path, lines):
 @pytest.mark.parametrize("n", [1, 3, 500])
 def test_pages_and_appends_with_the_rest_of_the_replies_are_the_whole_read(tmp_path, sizes, n):
     p = tmp_path / f"{SID}.jsonl"
-    raw = [(json.dumps(d) + "\n").encode() for d in rest_lines() + endings_lines() + rest_lines()]
+    answers = [human("pick", 50), asked(50), answered({"Which colour?": "Blue"}, 50), assistant("Picked.", 50)]
+    raw = [(json.dumps(d) + "\n").encode() for d in rest_lines() + endings_lines() + commands_lines() + answers + rest_lines()]
     p.write_bytes(b"".join(raw))
     want = [it["m"] for g in T._scan(p, SID, OWNER, 0, TR.complete_end(p), True)[0] for it in g]
     got, cursor, _, _ = T.read_tail_page(p, SID, OWNER, n, True)

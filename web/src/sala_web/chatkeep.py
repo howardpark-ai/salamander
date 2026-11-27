@@ -14,6 +14,8 @@ recognize counts as delivered):
     is withdrawn: {"uuid", "role": "kept", "gone": true} (the mark is never displayed, in any turn);
   - the owner speaking into a turn something else started makes it his: its kept line stays (the delivered message is on record) with "open"
     false, and everything from there on is shown;
+  - the owner's `!` shell command is their message: it, its output and what the session answers to it are shown. A command that found no turn
+    open ends its turn at the output, so the next delivered line is kept back as any other; a line of the model's takes the turn up again;
   - a background task's notice (a `<task-notification>` line: a subagent or a background command finished) is not drawn at all: not as the pill it is in a
     turn the owner started, and not as a kept line when it starts a turn of its own (that turn's lines stay back, as any hidden turn's, and a reply that
     opens with the owner's mark still shows). Such a turn is not counted either (chatturns.kept_today skips `Turn.task`), so the count stays the number
@@ -95,6 +97,8 @@ class Keeper:
         self.kept: dict | None = None   # the kept line of the open hidden turn, while it stands
         self.owned = False              # a reply of the hidden turn showed: its kept line is withdrawn for good
         self.turn = 0
+        self.bang: bool | None = None   # the owner's `!` command whose output is still to come: whether a turn was open as it was typed
+        self.stopped = False            # the turn ended with no reply: a line of the model's takes it up again
 
     # -- the parts ---------------------------------------------------------
     def _shown(self, d: dict) -> list[dict]:
@@ -109,6 +113,24 @@ class Keeper:
         self.by, self.open, self.replies, self.kept, self.owned = by, True, 0, None, False
         self.turn += 1
 
+    def _stop(self) -> None:
+        """The turn is over without a reply: closed, and no hook's follow-up reopens it, so the next delivered line starts a turn of its own."""
+        self.open, self.replies, self.stopped = False, 0, True
+
+    def _resume(self, d: dict) -> None:
+        """A line of the model's takes up a turn that ended with no reply."""
+        if self.stopped and CT.from_model(d):
+            self.stopped, self.open = False, True
+
+    def _bang_end(self, d: dict) -> bool:
+        """Whether a line is the output of the owner's `!` command. A command that found no turn open ends its turn here."""
+        if self.bang is None or not CT.bang_output(d):
+            return False
+        if not self.bang:
+            self._stop()
+        self.bang = None
+        return True
+
     def _kept_copy(self) -> dict:
         k = self.kept
         return _kept_msg(k["uuid"], k["ts"], k["kept"]["src"], k["kept"]["what"], k["kept"]["did"], k["kept"]["open"])
@@ -118,10 +140,14 @@ class Keeper:
         if not isinstance(d, dict):
             return []
         if d.get("type") == "assistant":
+            self._resume(d)
             return self._assistant(d, strict)
         e = CT.classify_user(d)
         if e is None:     # a tool result, a command's own output, a sidechain or a summary: part of the turn it is in
-            return [] if self.by == "other" else self._shown(d)
+            out = [] if self.by == "other" else self._shown(d)
+            self._bang_end(d)
+            return out
+        self.bang, self.stopped = self.open if e.get("bang") else None, False
         if e["by"] == "human":
             out: list[dict] = []
             if self.open and self.by == "other":      # they spoke into a turn something else started: it is theirs now

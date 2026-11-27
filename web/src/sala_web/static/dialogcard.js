@@ -7,7 +7,7 @@
    NO SIDEWAYS SCROLL: every box shrinks and every run of text breaks anywhere (dialogcard.css). Words are set as text, never as HTML. */
 (function () {
   const POLL_MS = 2000;
-  const cur = { pid: null, timer: null, card: null, sig: "", node: null, picks: new Set(), busy: false, run: 0 };
+  const cur = { pid: null, timer: null, card: null, sig: "", node: null, picks: new Set(), busy: false, run: 0, read: false, told: "" };
 
   const kids = (n, ...c) => { for (const x of c) if (x != null) n.append(x); return n; };
   const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; return n; };
@@ -70,6 +70,17 @@
     return node;
   }
 
+  // What stands under the conversation, for the chat session's own layer (chatlayer.js), which draws no second copy of a question the card shows:
+  // the card drawn; null when the server read no card on the pane; undefined while it has not said (no wait, no answer yet, a server with no such
+  // route). The event "sala:question-card" on the document says that this changed
+  const standing = () => (cur.read ? cur.card : undefined);
+  function tell() {
+    const c = standing(), sig = c === undefined ? "" : c === null ? "none" : c.kind + "\n" + c.text;
+    if (sig === cur.told) return;
+    cur.told = sig;
+    document.dispatchEvent(new Event("sala:question-card"));
+  }
+
   function show(card) {
     const chat = document.getElementById("chat");
     if (!card || !chat) { if (cur.node) { cur.node.remove(); cur.node = null; } cur.card = null; cur.sig = ""; return; }
@@ -94,12 +105,16 @@
       if (r.ok) d = await r.json();
     } catch { /* the next poll tries again */ }
     if (run !== cur.run || cur.busy) return;   // another session was selected, or an answer is on its way
-    if (d) show(d.card);
+    if (!d) return;
+    cur.read = true;
+    show(d.card);
+    tell();
   }
 
   function stop() {
-    clearInterval(cur.timer); cur.timer = null; cur.pid = null; cur.run++;
+    clearInterval(cur.timer); cur.timer = null; cur.pid = null; cur.run++; cur.read = false;
     show(null);
+    tell();
   }
 
   // called with the selected session whenever its status or its chat may have changed: the card exists while it waits
@@ -116,5 +131,5 @@
     poll();
   }
 
-  window.SalaQuestionCard = { sync, poll };
+  window.SalaQuestionCard = { sync, poll, standing };
 })();

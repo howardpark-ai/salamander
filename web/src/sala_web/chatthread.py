@@ -7,8 +7,8 @@ with the two endings below; what a final reply is, chatturns.reply_of's (strict)
 
   1. what the owner wrote: every user or queued_command line classify_user calls the person's ("by": "human"). That is a line with origin human (not meta,
      not a compaction summary, not carrying sala's mark) whatever its promptSource (typed, queued, any other, or none), the queued_command attachment of a
-     message typed while the session was busy, and a slash command typed in the pane. Each is drawn as the session's page draws it (transcript.parse_line:
-     text and image blocks, a slash command's command block);
+     message typed while the session was busy, and a slash command or a `!` shell command typed in the pane. Each is drawn as the session's page draws it
+     (transcript.parse_line: text and image blocks, a command's command block);
   2. the final replies of a turn the owner started: an assistant line reply_of calls final (a text block; a stop reason that is there and is not
      "tool_use", so a reply cut off at max_tokens counts; not a sidechain, not meta, not synthetic), its text blocks only. A leading [for <owner>] mark is
      taken off (a reply that is only the mark keeps its text). A hook that sends such a turn back for one more reply gives two replies, and both show;
@@ -16,22 +16,28 @@ with the two endings below; what a final reply is, chatturns.reply_of's (strict)
      that mark and says something after it; it shows without the mark. A reply that belongs to no turn the read knows of is held to the same rule.
 
 Everything else yields nothing: tool calls and their results, thinking (the kind labelled narration too), text written on the way to a tool call, the
-delivered messages themselves, hook and plugin lines, a command's own output. There are no kept lines.
+delivered messages themselves, hook and plugin lines, and (without `replies=1`) a command's own output. There are no kept lines.
 
-THE REST OF A REPLY (`replies=1` on the route, which the page's layer sends; without it the answer holds the three above alone). Four more things show,
-each only in a turn the owner started (a delivered turn's are kept back, as the chat session's own page keeps them), each read as transcript.parse_line
-reads the line:
+THE REST OF A REPLY (`replies=1` on the route, which the page's layer sends; without it the answer holds the three above alone). These show too, the
+first four only in a turn the owner started (a delivered turn's are kept back, as the chat session's own page keeps them):
 
-  - the images of a SendUserFile call: its file_image blocks alone (neither the call nor a file of any other kind);
+  - the files of a SendUserFile call: an image as the file_image block transcript.parse_line makes, a file of any other kind as a block {"kind":
+    "file_sent", "name", "caption"} (its name and no path; no route serves the file; the call's caption stands on its first file when none of its files
+    is an image, whose block carries it otherwise). The call itself is not shown;
   - the questions of an AskUserQuestion call: a block {"kind": "question", "header", "question", "options": [{"label", "description", "preview"}]} each, the
-    options in the order the session's dialog numbers them. It is read here and answered as every dialog is: the number or "esc" sent as a message;
+    options in the order the session's dialog numbers them, with "multiSelect": true on one that takes several answers. It is read here and answered
+    as every dialog is: on the page's question card (api/s/<pid>/dialog), from the composer (an option's number, or "esc") or the Terminal tab;
+  - the answers such a call got, from its result's record (toolUseResult): a message on the owner's side, marked {"answer": true}, holding a block
+    {"kind": "answer", "answers": [{"question", "answer"}]}. A call that was cancelled has none;
   - the line a request that ended in an API error leaves (an assistant line of model <synthetic> with isApiErrorMessage true): its text;
-  - the interrupt line of the turn (below), on the owner's side of the thread and marked {"interrupt": true}: they did not write its words.
+  - the interrupt line of the turn (below), on the owner's side of the thread and marked {"interrupt": true}: they did not write its words;
+  - the output of the owner's `!` command or slash command: a message marked {"output": true}, as transcript.parse_line reads the line (a `!`
+    command's output box, a slash command's folded notice). Output recorded as a system line is on no page, and not here.
 
 None of them starts, ends or reopens a turn.
 
-A TURN WITH NO REPLY. Two things Claude Code records end a turn without one, so that the next delivered line starts a turn of its own and its reply needs
-the mark. A message the owner types afterwards is theirs as always, and an assistant line with no new message before it takes the ended turn up again.
+A TURN WITH NO REPLY. Three things Claude Code records end a turn without one, so that the next delivered line starts a turn of its own and its reply
+needs the mark. A message the owner types afterwards is theirs as always, and an assistant line with no new message before it takes the ended turn up again.
 
   - an interrupt of the owner's turn: a user line with no origin, not meta, whose whole text is "[Request interrupted by user]" or "[Request interrupted
     by user for tool use]";
@@ -39,6 +45,7 @@ the mark. A message the owner types afterwards is theirs as always, and an assis
     user line with no origin, or a system line of subtype local_command, that opens with <local-command-stdout> or <local-command-stderr>). Such a command
     leaves the turn as it found it: no turn open stays so; a turn of theirs that is still working stays theirs; a delivered one that was open stays
     delivered. The caveat line Claude Code writes ahead of it (meta, no origin, <local-command-caveat>) opens nothing.
+  - a `!` command that found no turn open, at its output (chatkeep.Keeper). One typed into an open turn takes it over, as any message of theirs does.
 
 The transcript does not say that a turn ended when there is no such line (an interrupt that wrote none, a command with neither output nor reply, a turn an
 API error or a restart cut off): it stays open, and the next delivered message's reply counts as that turn's.
@@ -56,6 +63,7 @@ from pathlib import Path
 
 from . import chatkeep as CK
 from . import chatturns as CT
+from . import sentimages as SI
 from . import transcript as TR
 
 WINDOW_FIRST = 1 << 20    # bytes of the first segment of a read; each further one is twice as long
@@ -120,7 +128,40 @@ def _questions(content: object) -> list[dict]:
                 continue
             options = q.get("options") if isinstance(q.get("options"), list) else []
             out.append({"kind": "question", "header": words(q, "header"), "question": words(q, "question"),
-                        "options": [{k: words(o, k) for k in ("label", "description", "preview")} for o in options if isinstance(o, dict)]})
+                        "options": [{k: words(o, k) for k in ("label", "description", "preview")} for o in options if isinstance(o, dict)],
+                        **({"multiSelect": True} if q.get("multiSelect") is True else {})})
+    return out
+
+
+def _answers(result: object) -> list[dict]:
+    """The block of kind "answer" for a tool result's record that holds an AskUserQuestion call's answers, in the order the questions were asked."""
+    if not isinstance(result, dict) or not isinstance(result.get("questions"), list) or not isinstance(result.get("answers"), dict):
+        return []
+    pairs = []
+    for q in result["questions"]:
+        asked = q.get("question") if isinstance(q, dict) else None
+        answer = result["answers"].get(asked) if isinstance(asked, str) else None
+        if isinstance(answer, list):
+            answer = ", ".join(a for a in answer if isinstance(a, str))
+        if isinstance(answer, str) and answer.strip():
+            pairs.append({"question": asked, "answer": answer})
+    return [{"kind": "answer", "answers": pairs}] if pairs else []
+
+
+def _files(content: object) -> list[dict]:
+    """A block of kind "file_sent" for each file that is no image among those the SendUserFile calls of a message's content blocks sent (an image has
+    transcript.parse_line's own block). A call's caption stands on its first file when none of its files is an image."""
+    out = []
+    for call in content if isinstance(content, list) else []:
+        if not isinstance(call, dict) or call.get("type") != "tool_use" or call.get("name") != SI.TOOL_NAME:
+            continue
+        inp = call["input"] if isinstance(call.get("input"), dict) else {}
+        paths = [raw for raw in map(SI.raw_path, inp["files"] if isinstance(inp.get("files"), list) else []) if raw]
+        others = [raw for raw in paths if not SI.is_image_name(raw)]
+        caption = inp.get("caption") if len(others) == len(paths) else None
+        for k, raw in enumerate(others):
+            out.append({"kind": "file_sent", "name": raw.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1][:120],
+                        "caption": " ".join(caption.split())[:300] if isinstance(caption, str) and k == 0 else ""})
     return out
 
 
@@ -132,12 +173,7 @@ class Selector(CK.Keeper):
     def __init__(self, session_id: str, owner: str, rest: bool = False):
         super().__init__(session_id, owner)
         self.rest = rest
-        self.before: tuple | None = None    # (open, by) as the owner's command found them, while its local output may still follow
-        self.stopped = False                # the turn ended with no reply: an assistant line takes it up again
-
-    def _stop(self) -> None:
-        """The turn is over without a reply: closed, and no hook's follow-up reopens it, so the next delivered line starts a turn of its own."""
-        self.open, self.replies, self.stopped = False, 0, True
+        self.before: tuple | None = None    # (open, by) as the owner's slash command found them, while its local output may still follow
 
     def feed(self, d: dict, strict: bool = True) -> list[dict]:
         """`strict` is Keeper.feed's signature: here a reply always needs a stop reason, so a read never depends on whether the session is working."""
@@ -148,15 +184,18 @@ class Selector(CK.Keeper):
         cli = _from_cli(d)
         if cli == "caveat":              # part of the command that follows it, not a message that opens a turn
             return []
+        if self._bang_end(d):            # the output of the owner's `!` command
+            return self._output(d)
         if cli == "output":
-            if self.before is not None:  # the owner's command ran locally: the turn is as the command found it
-                was_open, by = self.before
-                self.before = None
-                if was_open:
-                    self.by = by
-                else:
-                    self._stop()
-            return []
+            if self.before is None:      # not the output of a command of the owner's
+                return []
+            was_open, by = self.before   # the owner's command ran locally: the turn is as the command found it
+            self.before = None
+            if was_open:
+                self.by = by
+            else:
+                self._stop()
+            return self._output(d)
         if cli == "interrupt" and self.open and self.by == "human":
             self.before = None
             self._stop()
@@ -164,9 +203,9 @@ class Selector(CK.Keeper):
             return [{**m, "interrupt": True}] if m else []
         e = CT.classify_user(d)
         if e is None:                    # no turn starts or changes at it
-            return []
+            return self._answered(d)
         found = (self.open, self.by)
-        self.before, self.stopped = None, False
+        self.before = None
         out = super().feed(d, True)
         if e["by"] != "human":
             return []
@@ -181,12 +220,22 @@ class Selector(CK.Keeper):
                 picked.append({**m, "blocks": blocks})
         return picked
 
+    def _output(self, d: dict) -> list[dict]:
+        """The output of a command of the owner's, marked as output (they did not write its words)."""
+        m = TR.parse_line(d, self.sid) if self.rest else None      # None for a system line
+        return [{**m, "output": True}] if m else []
+
+    def _answered(self, d: dict) -> list[dict]:
+        """The answers to a question asked in the owner's turn: a message on their side, marked as an answer."""
+        if not self.rest or self.by != "human" or d.get("type") != "user" or d.get("isMeta") or TR.never_shown(d):
+            return []
+        blocks = _answers(d.get("toolUseResult"))
+        return [{"uuid": d.get("uuid") or "", "role": "user", "ts": d.get("timestamp"), "blocks": blocks, "answer": True}] if blocks else []
+
     def _reply(self, d: dict) -> list[dict]:
-        msg = d.get("message")
-        if not d.get("isSidechain") and isinstance(msg, dict) and msg.get("model") != "<synthetic>":      # the session's model is at work
+        if CT.from_model(d):             # the session's model is at work
             self.before = None
-            if self.stopped:
-                self.stopped, self.open = False, True
+            self._resume(d)
         r = CT.reply_of(d, True)
         if r is None:                    # narration, a tool call, thinking, an API error: the turn goes on
             return self._rest_of(d) if self.rest else []
@@ -197,7 +246,7 @@ class Selector(CK.Keeper):
         return [m for m in out if m["role"] == "assistant"]
 
     def _rest_of(self, d: dict) -> list[dict]:
-        """What a line that is no final reply still shows of a reply to the owner: the images and questions of its calls, or an API error's words."""
+        """What a line that is no final reply still shows of a reply to the owner: the files and questions of its calls, or an API error's words."""
         m = TR.parse_line(d, self.sid) if self.by == "human" else None      # None for a sidechain or a meta line too
         if m is None:
             return []
@@ -205,7 +254,7 @@ class Selector(CK.Keeper):
         if msg.get("model") == "<synthetic>":
             blocks = [b for b in m["blocks"] if b["kind"] == "text"] if d.get("isApiErrorMessage") is True else []
         else:
-            blocks = [b for b in m["blocks"] if b["kind"] == "file_image"] + _questions(msg.get("content"))
+            blocks = [b for b in m["blocks"] if b["kind"] == "file_image"] + _files(msg.get("content")) + _questions(msg.get("content"))
         return [{**m, "blocks": blocks}] if blocks else []
 
 
