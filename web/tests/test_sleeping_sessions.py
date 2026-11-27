@@ -368,3 +368,23 @@ def test_opening_a_sleeper_asks_nothing_and_its_wake_button_asks_once_and_follow
     wake.wake_up()
     browser.evaluate("loadSessions()")
     assert wait_for(browser, "!waking.has(%s)" % json.dumps(NAME), 20.0)
+
+
+def test_a_queued_wake_draws_no_stray_text_in_the_sleep_band(slept_shown, browser):
+    """While a wake is queued or waking, the band has no Wake button, and the button's empty slot must not print the text "null"."""
+    slept = slept_shown
+    open_page(browser, slept)
+    assert wait_for(browser, SIDEBAR_ROW % json.dumps(NAME) + " !== null")
+    browser.evaluate("selectSession(%s, { force: true })" % json.dumps(NAME))
+    assert wait_for(browser, "document.querySelector('#sleep-band .wake-btn') !== null", 15.0)
+    out = browser.evaluate(
+        "(() => { waking.set(%s, { state: 'queued', op: '', error: '', since: Date.now() });"
+        " paintSleeping(state.byName.get(%s));"
+        " const band = document.querySelector('#sleep-band');"
+        " return { text: band.textContent, stray: [...band.childNodes].filter(n => n.nodeType === 3 && n.textContent.trim() !== '').map(n => n.textContent),"
+        " button: band.querySelectorAll('.wake-btn').length, line: band.querySelector('.wake-line') ? band.querySelector('.wake-line').textContent : null }; })()"
+        % (json.dumps(NAME), json.dumps(NAME)))
+    assert "null" not in out["text"], out
+    assert out["stray"] == [], out
+    assert out["button"] == 0, out
+    assert out["line"], out

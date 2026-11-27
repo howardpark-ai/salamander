@@ -2755,9 +2755,9 @@ function paintSleeping(s) {
   const band = $("#sleep-band");
   band.hidden = false;
   band.classList.toggle("failed", !!w && w.state === "failed");
-  band.replaceChildren(el("span", { class: "dot sleeping" }),
+  band.replaceChildren(...[el("span", { class: "dot sleeping" }),
     el("span", { class: "wake-line", text: line }),
-    again ? el("button", { type: "button", class: "wake-btn", text: tl(w ? "app.sleeping.retry" : "app.sleeping.wake"), onclick: () => wakeSleeper(s.name) }) : null);
+    again ? el("button", { type: "button", class: "wake-btn", text: tl(w ? "app.sleeping.retry" : "app.sleeping.wake"), onclick: () => wakeSleeper(s.name) }) : null].filter(Boolean));
 }
 // the chat of a sleeper whose conversation file is not there (or not readable now): the note the page always had, and the held bubbles
 function paintSleepNote(s) {
