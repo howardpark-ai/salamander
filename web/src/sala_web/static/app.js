@@ -664,7 +664,7 @@ function refreshChatOnit() {
 }
 setInterval(refreshChatOnit, 60000);
 // a done line of the session's own, in the owner's list: its text, "done", the result (the given link, else a jump to the reply's place in the chat) and the confirm button.
-// The link is the server's (lib/motion.py takes only https, a path or an anchor); all of it is set as text or as an attribute value, never as markup.
+// The link is the server's (lib/motion.py takes only https, a path or one of this page's anchors); all of it is set as text or as an attribute value, never as markup.
 function chatMineRow(m, d) {
   const meta = [el("span", { class: "mine-state", ...tx("chat.mine.done") })];
   if (m.link) {

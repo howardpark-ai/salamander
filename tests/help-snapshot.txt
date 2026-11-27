@@ -578,8 +578,9 @@ usage: sala motion add "<line>" [--for NAME]
           kept; a ninth is refused with a sentence. Adding a line already open changes nothing: it keeps the time it was first added. After a
           line is done, the same text added again starts a new open line; the done one stays until the owner confirms it.
   done    marks a line done, by its exact text or by its number in `list`. The line is not removed: it waits, with the time it was done and its
-          result link, in the owner's "my turn" list on the chat page until he confirms it there. --link URL: the result's address (https, or an
-          in-app path /... or anchor #...); without it the page links the first chat reply at or after the done time.
+          result link, in the owner's "my turn" list on the chat page until he confirms it there. --link URL: the result's address, one of: https,
+          an in-app path /..., or one of the page's anchors (#s=SESSION, #lane=ID, #sessions, #schedules, #machines, #usage, #new, #search,
+          #search?QUERY, #side=...); anything else is refused. Without --link the page links the first chat reply at or after the done time.
   clear   takes every line off, done ones included.
   list    the lines on the list, numbered ("nothing right now" when there are none); a done line is marked as waiting for the owner's confirm;
           --json: the same as an array of {n, text, at, done, link}.

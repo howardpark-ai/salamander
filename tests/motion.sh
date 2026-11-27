@@ -5,7 +5,7 @@
 #             again changes nothing (not listed twice, and `at` stays the time it was first added); white space is folded to single spaces; an empty line,
 #             a line of 121 characters and a ninth line are refused with a sentence and change nothing; exactly 120 characters and exactly 8 lines are taken
 #   done      by exact text and by number; the line stays, marked done (list says so), and the sentence says where it went; a done line is refused
-#             again; --link keeps an https, /path or #anchor address; a bad link is refused (exit 2); an unknown line or number is refused; add of
+#             again; --link keeps an https, /path or page-anchor address; a bad link is refused (exit 2); an unknown line or number is refused; add of
 #             the same text after done starts a new open line and leaves the done one
 #   clear     empties the list; list says "nothing right now"; --json is an array of {n, text, at}
 #   kept      nothing expires a line (the clock injected): a month later it is listed and a write keeps it with its first time; only done and clear take it off
@@ -80,7 +80,17 @@ out=$($S done 4 --link https://example.com/r --for chat-test 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; r=json.load(sys.stdin)[3]; print(r["link"], r["done"] is not None)')" = "https://example.com/r True" ] \
     && ok "done --link keeps the address with the line" || bad "done link: rc=$rc [$out]"
 $S done 2 --link "javascript:alert" --for chat-test >/dev/null 2>&1; rc=$?
-[ "$rc" = 2 ] && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; print(json.load(sys.stdin)[1]["done"])')" = None ] && ok "a link that is not https, /path or #anchor is refused (exit 2, nothing done)" || bad "bad link: rc=$rc"
+[ "$rc" = 2 ] && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; print(json.load(sys.stdin)[1]["done"])')" = None ] && ok "a link that is not https, /path or a page anchor is refused (exit 2, nothing done)" || bad "bad link: rc=$rc"
+refused=""
+for l in "#nope" "#" "#s=" "#lane=a&b" "//example.com/x" "/\\example.com/x"; do
+    $S done 2 --link "$l" --for chat-test >/dev/null 2>"$T/err"; rc=$?
+    [ "$rc" = 2 ] && has "$(cat "$T/err")" "#s=SESSION" && has "$(cat "$T/err")" "#sessions" && has "$(cat "$T/err")" "https address" || refused="$refused [$l rc=$rc]"
+done
+[ -z "$refused" ] && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; print(json.load(sys.stdin)[1]["done"])')" = None ] \
+    && ok "an anchor that names no view, and another site written as a path, are refused with the forms that are taken (nothing done)" || bad "bad anchors:$refused"
+$S done 2 --link "#s=chat-test" --for chat-test >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; print(json.load(sys.stdin)[1]["link"])')" = "#s=chat-test" ] \
+    && ok "done --link keeps one of the page's own anchors" || bad "anchor link: rc=$rc"
 out=$($S add "line 1" --for chat-test 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$($S list --json --for chat-test | python3 -I -c 'import json,sys; r=json.load(sys.stdin); print(len(r), [x["done"] is None for x in r if x["text"]=="line 1"])')" = "5 [False, True]" ] \
     && ok "add after done starts a new open line and leaves the done one" || bad "add after done: rc=$rc [$out]"

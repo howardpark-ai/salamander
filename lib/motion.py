@@ -8,7 +8,8 @@ off with a promise to report back in the chat, and marks it done in the turn it 
   done "<line>" | N [--link URL]
                         mark one done, by its exact text or its number in `list`. The line is not removed: it is kept, marked done with the time and its
                         result link, in the owner's "my turn" list until he confirms it on the chat page (which removes it). --link: an https address,
-                        an in-app path (/...) or an anchor (#...); without it the page links the first chat reply at or after the done time
+                        an in-app path (/...) or one of the page's own anchors (LINK_FORMS), anything else is refused; without it the page
+                        links the first chat reply at or after the done time
   clear                 take them all off (done or not)
   list [--json]         the lines on the list, numbered; a done line is marked as waiting for the owner's confirm
 
@@ -37,7 +38,10 @@ MAX_LINES = 8
 MAX_CHARS = 120
 LINK_MAX = 500
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
-LINK_RE = re.compile(r"https://\S+|/(?!/)\S*|#\S+")
+LINK_FORMS = "#s=SESSION, #lane=ID, #sessions, #schedules, #machines, #usage, #new, #search, #search?QUERY or #side=..."   # said by the refusal
+# an https address; a path on this site ("//host", and "/\host" which a browser reads the same way, are another site); or one of the page's own "#..." views,
+# the forms static/address.js reads (any other anchor would open the app's root)
+LINK_RE = re.compile(r"https://\S+|/(?![/\\])\S*|#(?:sessions|schedules|machines|usage|new|search(?:\?\S*)?|side=\S*|(?:s|lane)=[^&\s]+)")
 
 
 def die(msg, code=1):
@@ -69,7 +73,7 @@ def clean_text(raw):
 
 
 def link_ok(raw):
-    """A result address: an https address, an in-app path (/...) or an anchor (#...), no white space, at most LINK_MAX characters."""
+    """A result address (LINK_RE): an https address, an in-app path (/...) or one of the page's own anchors, no white space, at most LINK_MAX characters."""
     return len(raw) <= LINK_MAX and LINK_RE.fullmatch(raw) is not None
 
 
@@ -149,7 +153,7 @@ def main(argv):
     if link is not None and verb != "done":
         die("--link is for done", 2)
     if link is not None and not link_ok(link):
-        die("--link must be an https address, an in-app path (/...) or an anchor (#...), without spaces, at most %d characters" % LINK_MAX, 2)
+        die("--link takes an https address, an in-app path (/...) or one of the page's anchors (%s), without spaces, at most %d characters" % (LINK_FORMS, LINK_MAX), 2)
     if not name:
         die("this is not run inside a session, so say whose lines these are: sala motion %s … --for NAME" % verb, 1)
     if not NAME_RE.fullmatch(name):

@@ -497,6 +497,9 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
    The link is lifted (position: relative) above whatever follows its title, which would otherwise take the taps on its lower part. */
 @media (max-width: 640px) { #chat-strip .kept-row { padding-inline: 12px; } #chat-strip-wait :is(.wait, .wait-tab) { padding-inline: 12px; } }
 @media (pointer: coarse) { #chat-strip .kept-toggle { min-height: 44px; } #chat-strip-wait :is(.wait-tab, .wait-chev, .wait-help) { min-height: 44px; } #chat-strip-wait .wait-help { width: 44px; } #chat-strip-wait .wait-row { padding-block: 12px; min-height: 44px; box-sizing: border-box; } #chat-strip-wait .wait-link { position: relative; padding-block: calc((44.5px - 1.15em) / 2); } }
+/* A done row's two targets, the result and the confirm (which cannot be undone): boxes of at least 44 px each way under a finger, both in the row's own flex line,
+   so neither covers the other or the title, and a line that wraps leaves 8px between them. */
+@media (pointer: coarse) { #chat-strip-wait .mine-row .wait-meta { align-items: center; row-gap: 8px; } #chat-strip-wait .mine-row :is(.mine-result, .mine-confirm) { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding-block: 0; box-sizing: border-box; } }
 .top-toggle input { margin: 0; }
 #side-open { height: 32px; display: inline-flex; align-items: center; }
 /* the session is working: a small spinner under the last message */

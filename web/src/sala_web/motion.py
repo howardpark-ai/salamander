@@ -24,11 +24,13 @@ MAX_CHARS = 120
 MAX_FILE = 64 * 1024
 LINK_MAX = 500
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
-LINK_RE = re.compile(r"https://\S+|/(?!/)\S*|#\S+")
+# an https address; a path on this site ("//host", and "/\host" which a browser reads the same way, are another site); or one of the page's own "#..." views,
+# the forms static/address.js reads (any other anchor would open the app's root)
+LINK_RE = re.compile(r"https://\S+|/(?![/\\])\S*|#(?:sessions|schedules|machines|usage|new|search(?:\?\S*)?|side=\S*|(?:s|lane)=[^&\s]+)")
 
 
 def _link_ok(raw: object) -> bool:
-    """The same rule as lib/motion.py: an https address, an in-app path or an anchor, no white space, at most LINK_MAX characters."""
+    """The same rule as lib/motion.py: an https address, an in-app path or one of the page's own anchors, no white space, at most LINK_MAX characters."""
     return isinstance(raw, str) and len(raw) <= LINK_MAX and LINK_RE.fullmatch(raw) is not None
 
 
