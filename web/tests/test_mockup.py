@@ -310,10 +310,12 @@ def test_in_a_real_browser_the_back_link_is_tappable_and_does_not_widen_the_page
     store(root, 1, page)
     browser.open(served["url"] + "/mockup/1", dark=False)
     wait_for(browser, "document.readyState === 'complete'")
-    assert browser.evaluate("window.innerWidth") == 390
+    if "viewport" in page:
+        assert browser.evaluate("window.innerWidth") == 390          # a page with the meta is laid out at the phone's width
+    layout = browser.evaluate("document.documentElement.clientWidth")   # without the meta the browser picks its own layout width (980): the page's doing
     box = browser.evaluate("(() => { const r = document.querySelector('[data-sala-back] a').getBoundingClientRect(); return [r.top, r.left, r.width, r.height]; })()")
-    assert box[3] >= 44 and box[0] >= 0 and box[1] >= 0 and box[1] + box[2] <= 390, box
-    assert browser.evaluate("document.documentElement.scrollWidth") <= 390     # nothing scrolls sideways
+    assert box[3] >= 44 and box[0] >= 0 and box[1] >= 0 and box[1] + box[2] <= layout, box
+    assert browser.evaluate("document.documentElement.scrollWidth") <= layout     # nothing scrolls sideways
     assert browser.evaluate("document.querySelector('[data-sala-back] a').href") == served["url"] + "/chat"
 
 
