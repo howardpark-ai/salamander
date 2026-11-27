@@ -130,23 +130,27 @@ recycles was counted back in only one and the other set stayed open. Now:
     that asked for a relaunch, once its worker has it), a pane running a `sala op` of its own, a pane with unsent text or a dialog showing,
     a pane with a client attached that was active in the last `SALA_PAUSE_QUIET` (120 s), and the sessions in `SALA_NO_PAUSE` (work that
     cannot be redone). Each waits for idle as before, and the output says why it was not paused.
-  - *The interrupt* is one Escape, sent only to a pane whose registry row says busy and that shows no dialog (a second Escape on an idle
-    box can open the CLI's rewind menu). The pane must be idle in the registry within `SALA_PAUSE_IDLE_WAIT` (20 s); if it is not, nothing
-    more is sent, no `/exit` is typed into a pane still in its turn, and the pane is waited for as before. **A pause that did not take is
+  - *The interrupt* is one Escape, sent only to a pane whose registry row says busy, that shows no dialog (a second Escape on an idle
+    box can open the CLI's rewind menu) and whose own turn is seen running: the CLI's "esc to interrupt" hint below the input box, or,
+    for a pane too narrow to show it, the in-session mod naming the main loop. **A busy row alone is no running turn**: it stays busy
+    while only a background subagent runs, and an Escape does not stop one. Such a pane gets no Escape and no note; it is waited for
+    while the row stays busy, so the pause does not cut the subagent. The pane must be idle in the registry within
+    `SALA_PAUSE_IDLE_WAIT` (20 s); if it is not, nothing more is sent, no `/exit` is typed into a pane that is still busy, and the pane
+    is waited for as before. **A pause that did not take is
     tried again** (the same when the pane was not idle once interrupted): the clock keeps running, so a turn that ends and starts again
     (a subagent's result starts the next one) does not put the next try a full `SALA_PAUSE_AFTER` away, and `pause/<id>.failed` records the
     failed tries. The next try is `SALA_PAUSE_RETRY` (120 s) after a failed one, for the first `SALA_PAUSE_TRIES` (5) failed tries, then
     `SALA_PAUSE_AFTER` apart; each one is one Escape under the same rule and one log line that says which try it was and when the next
     comes. Nothing is given up: the pane is tried until it is free, paused or relaunched. **A try whose Escape went in and did not take** (the turn
-    still running, or the pane not idle) leaves the session ONE note, text `[escape] …`, handed to its live pid at once by watch (not at a
+    still running, the pane not idle, or the turn ended with background work still holding the pane: the note says which) leaves the session ONE note, text `[escape] …`, handed to its live pid at once by watch (not at a
     relaunch, not behind the inbox hold) and archived when delivered, so it is one-time: it says sala sent the Escape, that a tool call
     rejected or shown "interrupted by user" from that moment was sala's and nobody refused it, and that the call may be run again. A later
     try replaces an undelivered one; a pause that takes with an Escape of its own drops it (its `[paused]` note covers the same). **With no
     Escape sent, nothing about one is written**: a failed try leaves no note, and the `[paused]` note of a pane that was already out of its
     turn has no sentence about sala's Escape (an earlier try's undelivered `[escape]` note then stays, and is delivered once the pane is no
-    longer paused). Subagents and shells the Escape left are stopped
-    the one way a recycle stops them, once the pane is out of its turn (below: the exit dialog's "Exit and stop tasks"); sala has no other
-    way to stop a subagent, and sends nothing to a pane that stays in its turn beyond the one Escape of each try. Background
+    longer paused). Subagents and shells the Escape left in a pane that
+    is then out of its turn are stopped the one way a recycle stops them (below: the exit dialog's "Exit and stop tasks"); sala has no
+    other way to stop a subagent, and sends nothing to a pane that stays busy beyond the one Escape of each try. Background
     work does not hold a paused pane for `SALA_PAUSE_TTL` (15 min): subagents and background shells end with the relaunch (the CLI's
     "Exit and stop tasks" is confirmed, and the note says so); a release that runs in its own systemd unit goes on. **A paused pane is exited
     by keys**: after the Escape the CLI sits in its interrupted-tool state ("Interrupted · What should Claude do instead?"), where the mod's
