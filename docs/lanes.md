@@ -197,6 +197,8 @@ already makes (no new network call, never a test call to find out whether a lane
 
 A lane set by hand (`sala lane dormant <lane> [--reason …]`) is held until `sala lane active <lane>`.
 
+**The Overview's api card** also reads the shared API-credit record (`$XDG_STATE_HOME/api-credit/state.json`, written by a job whose key call comes back "credit balance is too low"; read by `web/src/sala_web/apicredit.py`). With no api row in `lane-state.tsv`, a refusal there shows the card as dormant (reason "API credit ran out", since = the refusal's time). This is the card only: `lane-state.tsv` is still the one record for `sala lane`, the New session form, the lane details page and the automatic fallback, and a top-up with no key call leaves the card dormant until a key call succeeds.
+
 **A monthly usage cap** is the one stop no retry can end before a known time, so the limit watch treats it as a dormant lane and not as a passing
 rate limit (`lib/watch.sh`, *THE MONTHLY CAP*; fixture `tests/fixtures/limit-monthly.jsonl`; test `tests/monthlycap.sh`). The lane is marked dormant
 until the regain time through the same function every other signal uses, which starts the lane fallback below like any dormant lane. While the
