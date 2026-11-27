@@ -21,6 +21,7 @@ from sala_web.config import Settings
 KNOWN = "198.51.100.2"
 OTHER = "198.51.100.3"
 PUBLIC = "203.0.113.50"
+BROWSER = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 
 
 def make_client(tmp_path, **kw):
@@ -28,7 +29,8 @@ def make_client(tmp_path, **kw):
     (claude / "sessions").mkdir(parents=True, exist_ok=True)
     (claude / "projects").mkdir(exist_ok=True)
     return TestClient(create_app(Settings(socket=tmp_path / "s.sock", state_dir=tmp_path / "state", claude_dir=claude,
-                                          tmux_socket_name="salaweb-pytest-unused", roles_cmd=["false"], **kw)))
+                                          tmux_socket_name="salaweb-pytest-unused", roles_cmd=["false"], **kw)),
+                      headers={"User-Agent": BROWSER})
 
 
 @pytest.fixture(autouse=True)
@@ -99,6 +101,27 @@ def test_a_page_request_hands_over_the_right_most_address_once(tmp_path, calls):
     assert wait_for(lambda: calls == [KNOWN])
     time.sleep(0.2)
     assert calls == [KNOWN]                             # the second visit is inside the minute
+
+
+@pytest.mark.parametrize("agent", ["curl/8.5.0", "", None, "python-requests/2.31.0", "Mozilla/5.0 (compatible; ExampleBot/1.0)",
+                                   "Mozilla/5.0 HealthMonitor", "Mozilla/5.0 route-probe"])
+def test_only_a_browser_counts(tmp_path, calls, agent):
+    c = make_client(tmp_path)
+    h = {"X-Forwarded-For": KNOWN}
+    if agent is None:
+        del c.headers["user-agent"]
+    else:
+        h["User-Agent"] = agent
+    assert c.get("/", headers=h).status_code == 200
+    assert c.get("/terminal", headers=h).status_code == 200
+    time.sleep(0.3)
+    assert calls == []
+
+
+def test_a_browser_agent_records(tmp_path, calls):
+    c = make_client(tmp_path)
+    assert c.get("/", headers={"X-Forwarded-For": KNOWN, "User-Agent": BROWSER}).status_code == 200
+    assert wait_for(lambda: calls == [KNOWN])
 
 
 def test_the_terminal_page_counts(tmp_path, calls):

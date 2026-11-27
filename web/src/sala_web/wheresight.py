@@ -8,6 +8,10 @@ shows a public address, which no machine has, and a local call has no header: bo
 Trust: the header is believed only because the socket is private to the owner (a unix socket in the owner's runtime folder, no TCP port): only the
 local proxy can connect to it, so only it can set the last entry. Nothing here checks a peer address (the socket carries none).
 
+Only a person in a browser counts: a request whose User-Agent does not contain "Mozilla/" (curl, a script, an empty or missing agent), or whose
+agent names a bot, monitor or probe, does nothing, because a script or a health probe that fetches the page is not the owner and would move the
+record to whichever machine ran it.
+
 Cost and safety: only the page itself counts (the main document and the terminal page; never a static file, an API call or a poll); one address
 is handled at most once per 60 seconds in this process; the work (a short `python3 lib/where.py seen <address>` subprocess, 20 s limit) runs in a
 daemon thread, and every error is swallowed, so a request is never slowed or failed. The mapping of an address to a box, and which record wins,
@@ -41,6 +45,17 @@ def address_of(header: str | None) -> str | None:
         return str(ipaddress.ip_address(last))
     except ValueError:
         return None
+
+
+_NOT_A_PERSON = ("curl", "bot", "monitor", "probe")
+
+
+def is_browser(user_agent: str | None) -> bool:
+    """True when USER_AGENT looks like a person's browser: it contains "Mozilla/" and none of curl, bot, monitor, probe (any case)."""
+    if not user_agent:
+        return False
+    ua = user_agent.lower()
+    return "mozilla/" in ua and not any(w in ua for w in _NOT_A_PERSON)
 
 
 def _where_script() -> Path | None:
@@ -99,6 +114,8 @@ def due(addr: str, now: float | None = None) -> bool:
 def note(request, settings) -> None:
     """Called by the handler of a page request: hand the visitor's address to `where seen`, in a background thread, at most once a minute per address."""
     try:
+        if not is_browser(request.headers.get("user-agent")):
+            return
         addr = address_of(request.headers.get("x-forwarded-for"))
         if addr is None or not due(addr):
             return
