@@ -3,9 +3,12 @@
 mockup_usage() {
     cat <<'USAGE'
 usage: sala mockup add FILE|-
-       sala mockup FILE            (the same as add; a file called add, list, remove or clean is written ./add …)
+       sala mockup update N FILE|-
+       sala mockup history N
+       sala mockup undo N
+       sala mockup FILE            (the same as add; a file called add, update, undo, history, list, remove or clean is written ./add …)
        sala mockup list [--json]
-       sala mockup remove N
+       sala mockup remove [--force] N
        sala mockup clean [--dry-run] [--days N] [--max-bytes N]
 
   add     stores an HTML file (a path, or - for stdin) under the next number and prints the page's address, https://<sala's address>/mockup/<n>, on
@@ -18,7 +21,13 @@ usage: sala mockup add FILE|-
           page is deleted. The address is SALA_SESSION_URL's scheme and host; without that setting the path /mockup/<n> is printed and a note says so.
           Pages are stored under $SALA_STATE_DIR/mockups (mode 700), on this machine only.
   list    the stored pages: number, size, age, address (--json: the same as an array).
-  remove  delete one page now (its number stays used).
+  update  a revision: replaces stored page N in place, so it keeps its number and its address (the same checks as add, the same output).
+          The page it replaces is saved as a version first. A new page is add, never update: an unknown N is refused.
+  history the saved versions of page N, newest first: when each was saved (UTC), its size and its file name in versions/<n>/.
+  undo    restores the newest saved version of page N (same number, same address). The page it replaces is saved as a version too, so
+          nothing is lost, and undo again goes back to where it was.
+  remove  delete one page now with its versions (its number stays used). Refused when an open board item links the page
+          (SALA_MOCKUP_REFERENCES, below), and also when that command fails; --force removes it anyway.
   clean   the daily pass (sala-mockup-clean.timer), two rules in this order: delete the pages older than --days (default SALA_MOCKUP_KEEP_DAYS, 7) that
           no open board item links; then, if the folder still holds more than --max-bytes (default SALA_MOCKUP_MAX_BYTES, 1 GB = 1073741824), delete
           the oldest pages first, a page an open board item links last (only when every other page is gone and it is still over).
@@ -29,7 +38,7 @@ USAGE
 }
 case "${1:-}" in
     ''|-h|--help|help) mockup_usage; [ -n "${1:-}" ] || exit 2; exit 0 ;;
-    add|list|remove|clean) ;;
+    add|update|undo|history|list|remove|clean) ;;
     -) set -- add "$@" ;;
     -*) echo "salamander mockup: unknown option '$1'" >&2; mockup_usage >&2; exit 2 ;;
     *) set -- add "$@" ;;

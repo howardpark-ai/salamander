@@ -119,6 +119,24 @@ def test_the_page_is_read_at_each_request_so_a_cleanup_takes_effect_at_the_next_
     assert env["client"].get("/mockup/4").status_code == 404
 
 
+def test_a_revision_replaces_the_page_and_the_next_load_shows_it(env):
+    # `sala mockup update N` writes the new page over N.html (atomically) and saves the old one as a version under versions/N/: the next
+    # load shows the new one, with the no-cache header, and the versions are never served
+    store(env["root"], 5, "<p>first</p>")
+    assert "first" in env["client"].get("/mockup/5").text
+    tmp = env["root"] / ".tmp-5-test"
+    tmp.write_text("<p>second</p>", encoding="utf-8")
+    (env["root"] / "versions" / "5").mkdir(parents=True)
+    (env["root"] / "versions" / "5" / "20260101T000000.000000Z.html").write_text("<p>first</p>", encoding="utf-8")
+    os.replace(tmp, env["root"] / "5.html")
+    r = env["client"].get("/mockup/5")
+    assert r.status_code == 200 and "second" in r.text and "first" not in r.text
+    assert r.headers["cache-control"] == "private, no-cache"
+    check_sandbox_headers(r)
+    for path in ("/mockup/5/versions", "/mockup/versions/5", "/mockup/5/20260101T000000.000000Z.html"):
+        assert env["client"].get(path).status_code == 404, path
+
+
 # -- the 404s ------------------------------------------------------------------------------------------------------------------------
 
 

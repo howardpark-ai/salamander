@@ -75,7 +75,7 @@ assistant is doing the install, give it [docs/sala-guide-for-ai.md](docs/sala-gu
 | [codex-review.md](docs/codex-review.md) | The trial Codex review posted on a PR |
 | [merge-queues.md](docs/merge-queues.md) | The three ways a PR reaches `main` |
 | [mq.md](docs/mq.md) | `sala mq`, our own merge queue |
-| [mockup.md](docs/mockup.md) | Showing a design as a numbered web page |
+| [mockup.md](docs/mockup.md) | Showing a design as a numbered web page; a revision is `sala mockup update N` on the same number (never a new `add`), with saved versions (`history`, `undo`) |
 | [bg-agents.md](docs/bg-agents.md) | The fleet job that starts a project's background engineer agent |
 | [stackshot-contracts.md](docs/stackshot-contracts.md) | Every interface between sala and the stackshot board |
 | [test-coverage.md](docs/test-coverage.md) | What each test suite covers and why |

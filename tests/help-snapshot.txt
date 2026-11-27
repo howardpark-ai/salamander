@@ -217,9 +217,13 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander mockup add FILE|-       store an HTML file as the next numbered page and print its address, https://<sala's address>/mockup/<n>: sala-web
                                      serves it behind the same sign-in, in a sandbox (the page's scripts and styles run; no sala API, cookies or network); a session
                                      without the Artifact tool hands a reader the link (lib/mockup.sh, lib/mockup.py, docs/mockup.md); `sala mockup FILE` is the same
-  salamander mockup list [--json] | remove N | clean [--dry-run] [--days N] [--max-bytes N]   the stored pages · delete one · the daily pass (sala-mockup-clean.timer):
-                                     pages older than SALA_MOCKUP_KEEP_DAYS (7) that no open board item links, then the oldest first until the folder is under
-                                     SALA_MOCKUP_MAX_BYTES (1 GB), linked pages last (SALA_MOCKUP_REFERENCES says how to tell what is linked; unset keeps all)
+  salamander mockup update N FILE|- | history N | undo N   a revision replaces page N in place (same number and address; the page it replaces is
+                                     saved as a version first); history lists the saved versions, newest first; undo restores the newest one (what it
+                                     replaces is saved too, so nothing is lost); a new page is add, never update (docs/mockup.md)
+  salamander mockup list [--json] | remove [--force] N | clean [--dry-run] [--days N] [--max-bytes N]   the stored pages · delete one (refused while an
+                                     open board item links it, unless --force) · the daily pass (sala-mockup-clean.timer): pages older than SALA_MOCKUP_KEEP_DAYS (7)
+                                     that no open board item links, then the oldest first until the folder is under SALA_MOCKUP_MAX_BYTES (1 GB), linked pages last
+                                     (SALA_MOCKUP_REFERENCES says how to tell what is linked; unset keeps all)
   salamander motion add "<line>" | done "<line>"|N | clear | list [--json]   [--for NAME]
                                      the short topics a session has promised to report back and not reported yet (lib/motion.sh, lib/motion.py): add one when work is handed
                                      off with that promise, mark it done in the turn the result is reported; at most 8, each at most 120 characters, listed until done or cleared;
@@ -516,9 +520,12 @@ exit: 0 posted · 1 the notify command failed · 2 usage (a channel name that is
 
 ### sala mockup --help (exit 0)
 usage: sala mockup add FILE|-
-       sala mockup FILE            (the same as add; a file called add, list, remove or clean is written ./add …)
+       sala mockup update N FILE|-
+       sala mockup history N
+       sala mockup undo N
+       sala mockup FILE            (the same as add; a file called add, update, undo, history, list, remove or clean is written ./add …)
        sala mockup list [--json]
-       sala mockup remove N
+       sala mockup remove [--force] N
        sala mockup clean [--dry-run] [--days N] [--max-bytes N]
 
   add     stores an HTML file (a path, or - for stdin) under the next number and prints the page's address, https://<sala's address>/mockup/<n>, on
@@ -531,7 +538,13 @@ usage: sala mockup add FILE|-
           page is deleted. The address is SALA_SESSION_URL's scheme and host; without that setting the path /mockup/<n> is printed and a note says so.
           Pages are stored under $SALA_STATE_DIR/mockups (mode 700), on this machine only.
   list    the stored pages: number, size, age, address (--json: the same as an array).
-  remove  delete one page now (its number stays used).
+  update  a revision: replaces stored page N in place, so it keeps its number and its address (the same checks as add, the same output).
+          The page it replaces is saved as a version first. A new page is add, never update: an unknown N is refused.
+  history the saved versions of page N, newest first: when each was saved (UTC), its size and its file name in versions/<n>/.
+  undo    restores the newest saved version of page N (same number, same address). The page it replaces is saved as a version too, so
+          nothing is lost, and undo again goes back to where it was.
+  remove  delete one page now with its versions (its number stays used). Refused when an open board item links the page
+          (SALA_MOCKUP_REFERENCES, below), and also when that command fails; --force removes it anyway.
   clean   the daily pass (sala-mockup-clean.timer), two rules in this order: delete the pages older than --days (default SALA_MOCKUP_KEEP_DAYS, 7) that
           no open board item links; then, if the folder still holds more than --max-bytes (default SALA_MOCKUP_MAX_BYTES, 1 GB = 1073741824), delete
           the oldest pages first, a page an open board item links last (only when every other page is gone and it is still over).

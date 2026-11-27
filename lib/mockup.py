@@ -6,12 +6,19 @@ next number and prints https://<sala's address>/mockup/<n>; sala-web serves it b
 (web/README.md, *Mockup pages*). The pages are plain files, so nothing here asks a server anything.
 
   add FILE|-        store an HTML file (a path, or - for stdin) under the next number; prints the page's URL (stdout), nothing else
+  update N FILE|-   a revision: replace stored page N in place (same number, same URL). The page it replaces is saved as a version first.
+                    The same checks as add. A new page is `add`, never `update`; an unknown N is refused.
+  history N         the saved versions of page N, newest first: when each was saved, its size
+  undo N            restore the newest saved version of page N. The page it replaces is saved as a version too, so nothing is lost and
+                    undoing again goes back to where it was
   list [--json]     the stored pages: number, size, age, URL
-  remove N          delete one page (its number stays used)
+  remove [--force] N  delete one page with its versions (its number stays used). Refused when an open board item links it
+                    (SALA_MOCKUP_REFERENCES), unless --force
   clean [--dry-run] [--days N] [--max-bytes N]   delete the pages older than N days (default SALA_MOCKUP_KEEP_DAYS, 7) unless an open board item
                     links them, then keep the folder under N bytes (default SALA_MOCKUP_MAX_BYTES, 1 GB = 1073741824): oldest page first, linked pages last
 
-Storage: <state>/mockups/ (state = SALA_STATE_DIR, else $XDG_STATE_HOME/salamander), mode 700; <n>.html and `counter`, mode 600. The CLI is the only
+Storage: <state>/mockups/ (state = SALA_STATE_DIR, else $XDG_STATE_HOME/salamander), mode 700; <n>.html and `counter`, mode 600; and
+versions/<n>/<UTC time>.html, one file for each version an update or an undo replaced (mode 600 in a mode 700 folder). The CLI is the only
 writer; sala-web only reads. A number is taken under an exclusive lock on <dir>/.lock: the counter is raised and saved (write, fsync, rename)
 BEFORE the page is written, so a crash leaves a gap and never a number given twice, and the counter keeps counting after a page is deleted.
 A page is written to a temporary name and renamed, so a reader never sees half a page. A page is refused when it is empty, over 5 MiB, not
@@ -26,6 +33,8 @@ Cleanup (`clean`, run daily by sala-mockup-clean.timer) applies two rules, in th
   1. a page is deleted when it is older than the keep time (its file's mtime, set when it was stored) and no open board item links it;
   2. when the folder (every file in it) still holds more than the cap, pages are deleted oldest first (mtime, then number) until it is under the cap;
      a page an open board item links goes last, and only when every unlinked page is already gone and the folder is still over.
+A page's versions (versions/<n>/) are deleted with the page and count toward the folder's size; they are never served or listed. The
+versions of a page that is gone are deleted once they are older than the keep time.
 Which pages the board links is read by a command the host names in SALA_MOCKUP_REFERENCES, because no supported read of the board gives a script
 the text of its items without a model call:
   unset or empty   nothing is deleted by either rule: the pass keeps every page and says why (a host that has not said how to read the board loses nothing)
@@ -42,6 +51,7 @@ import os
 import re
 import secrets
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -54,6 +64,9 @@ REF_TIMEOUT_S = 60
 REF_MAX_BYTES = 8 * 1024 * 1024
 TMP_MAX_AGE_S = 86400                # a half-written page older than this is a crash's leftover
 PAGE_RE = re.compile(r"([1-9][0-9]*)\.html")
+VERSIONS_DIR = "versions"
+VERSION_RE = re.compile(r"(\d{8}T\d{6})\.(\d{6})Z\.html")   # one saved version: the UTC time it was saved, to the microsecond
+VERSION_NUM_RE = re.compile(r"[1-9][0-9]*")
 REF_RE = re.compile(r"/mockup/([1-9][0-9]{0,17})(?![0-9])")
 VIEWPORT_RE = re.compile(r"<meta[^>]+name\s*=\s*[\"']?viewport", re.I)
 # What a reader sees: script and style bodies, comments and tags are dropped first (an unterminated one runs to the end of the page).
@@ -198,28 +211,133 @@ def url_of(n: int) -> str:
     return "%s/mockup/%d" % (base_url(), n)
 
 
-def add(path: str) -> int:
+def read_source(path: str) -> bytes:
+    """The bytes of FILE (a path, or - for standard input), at most MAX_BYTES + 1 of them (check_page refuses the bigger ones)."""
     if path == "-":
-        data = sys.stdin.buffer.read(MAX_BYTES + 1)
-    else:
-        try:
-            if not os.path.isfile(path):
-                raise Refused("%s is not a file" % path)
-            with open(path, "rb") as f:
-                data = f.read(MAX_BYTES + 1)
-        except OSError as e:
-            raise Refused("cannot read %s: %s" % (path, e.strerror or e))
-    text = check_page(data)
-    d = mockup_dir()
-    with Locked(d):
-        n = take_number(d)
-        write_atomic(os.path.join(d, "%d.html" % n), data)
+        return sys.stdin.buffer.read(MAX_BYTES + 1)
+    try:
+        if not os.path.isfile(path):
+            raise Refused("%s is not a file" % path)
+        with open(path, "rb") as f:
+            return f.read(MAX_BYTES + 1)
+    except OSError as e:
+        raise Refused("cannot read %s: %s" % (path, e.strerror or e))
+
+
+def notes(text: str) -> None:
     if not VIEWPORT_RE.search(text):
         print("sala mockup: note: the page has no <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">; "
               "a phone shows it zoomed out until it has one", file=sys.stderr)
     if not base_url():
         print("sala mockup: note: SALA_SESSION_URL is not set, so this is the path only: put your sala address in front of it", file=sys.stderr)
+
+
+def versions_dir(d: str, n: int) -> str:
+    return os.path.join(d, VERSIONS_DIR, "%d" % n)
+
+
+def version_files(vdir: str) -> list:
+    """The version file names in a page's folder, oldest first (the names sort by time)."""
+    try:
+        names = os.listdir(vdir)
+    except OSError:
+        return []
+    return sorted(n for n in names if VERSION_RE.fullmatch(n))
+
+
+def save_version(d: str, n: int, data: bytes) -> None:
+    """Save `data` as a new version of page n, named by the time now, later than every version already there (two in one
+    microsecond still get two names). The caller holds the lock. Mode 600 in a mode 700 folder, written atomically."""
+    vdir = versions_dir(d, n)
+    ensure_dir(os.path.join(d, VERSIONS_DIR))
+    ensure_dir(vdir)
+    names = set(version_files(vdir))
+    last = max(names, default="")
+    us = int(round(now() * 1000000))
+    while True:
+        name = time.strftime("%Y%m%dT%H%M%S", time.gmtime(us // 1000000)) + ".%06dZ.html" % (us % 1000000)
+        if name not in names and name > last:
+            break
+        us += 1
+    write_atomic(os.path.join(vdir, name), data)
+
+
+def stamp_of(name: str) -> str:
+    m = VERSION_RE.fullmatch(name)
+    t, us = m.group(1), m.group(2)
+    return "%s-%s-%s %s:%s:%s.%s UTC" % (t[0:4], t[4:6], t[6:8], t[9:11], t[11:13], t[13:15], us)
+
+
+def add(path: str) -> int:
+    data = read_source(path)
+    text = check_page(data)
+    d = mockup_dir()
+    with Locked(d):
+        n = take_number(d)
+        write_atomic(os.path.join(d, "%d.html" % n), data)
+    notes(text)
     print(url_of(n))
+    return 0
+
+
+def update(num: str, path: str) -> int:
+    """Replace stored page N in place: the page it replaces is saved as a version first, then the new page is renamed over N.html.
+    Both writes are atomic and under the lock; a crash between them leaves the old page in its versions, never a lost one."""
+    n = int(num)
+    data = read_source(path)
+    text = check_page(data)
+    d = mockup_dir()
+    with Locked(d):
+        cur = os.path.join(d, "%d.html" % n)
+        try:
+            with open(cur, "rb") as f:
+                old = f.read()
+        except FileNotFoundError:
+            raise Refused("no page %d to update: a new page is `add`; `update` only revises a page that exists" % n)
+        except OSError as e:
+            raise Refused("cannot read page %d: %s" % (n, e.strerror or e))
+        save_version(d, n, old)
+        write_atomic(cur, data)
+    notes(text)
+    print(url_of(n))
+    return 0
+
+
+def undo(num: str) -> int:
+    """Restore page N's newest saved version. The page it replaces is saved as a version first, and the restored one is deleted from
+    the versions, so undoing again goes back to where it was and nothing is ever lost."""
+    n = int(num)
+    d = mockup_dir()
+    with Locked(d):
+        cur = os.path.join(d, "%d.html" % n)
+        try:
+            with open(cur, "rb") as f:
+                now_data = f.read()
+        except FileNotFoundError:
+            raise Refused("no page %d" % n)
+        names = version_files(versions_dir(d, n))
+        if not names:
+            raise Refused("page %d has no earlier version to go back to (only an update or an undo keeps one)" % n)
+        newest = os.path.join(versions_dir(d, n), names[-1])
+        with open(newest, "rb") as f:
+            before = f.read()
+        save_version(d, n, now_data)
+        write_atomic(cur, before)
+        os.unlink(newest)
+    print(url_of(n))
+    return 0
+
+
+def cmd_history(args: list) -> int:
+    if len(args) != 1 or not VERSION_NUM_RE.fullmatch(args[0]):
+        raise Usage("history N")
+    vdir = versions_dir(mockup_dir(), int(args[0]))
+    for name in reversed(version_files(vdir)):
+        try:
+            size = os.stat(os.path.join(vdir, name)).st_size
+        except OSError:
+            continue
+        print("%s	%d bytes	%s" % (stamp_of(name), size, name))
     return 0
 
 
@@ -257,21 +375,34 @@ def cmd_list(args: list) -> int:
     return 0
 
 
+class Usage(Exception):
+    pass
+
+
 def cmd_remove(args: list) -> int:
-    if len(args) != 1 or not re.fullmatch(r"[1-9][0-9]*", args[0]):
-        raise Usage("remove N")
+    force = args.count("--force") == 1
+    rest = [a for a in args if a != "--force"]
+    if len(rest) != 1 or not re.fullmatch(r"[1-9][0-9]*", rest[0]) or len(args) != len(rest) + (1 if force else 0):
+        raise Usage("remove [--force] N")
+    n = int(rest[0])
+    spec = os.environ.get("SALA_MOCKUP_REFERENCES", "")
+    if not force and spec.strip():
+        # an open board item links the page: refuse (a command that fails refuses too, since it cannot say); unset or empty removes as before
+        try:
+            linked = referenced(spec)
+        except Refused as e:
+            raise Refused("%s; not removed (remove --force %d removes it without the check)" % (e, n))
+        if n in linked:
+            raise Refused("page %d is linked by an open board item; remove it anyway with `remove --force %d`" % (n, n))
     d = mockup_dir()
     with Locked(d):
         try:
-            os.unlink(os.path.join(d, "%s.html" % args[0]))
+            os.unlink(os.path.join(d, "%d.html" % n))
         except FileNotFoundError:
-            raise Refused("no page %s" % args[0])
-    print("removed %s" % args[0])
+            raise Refused("no page %d" % n)
+        shutil.rmtree(versions_dir(d, n), ignore_errors=True)
+    print("removed %d" % n)
     return 0
-
-
-class Usage(Exception):
-    pass
 
 
 def referenced(spec: str) -> set:
@@ -301,15 +432,22 @@ def referenced(spec: str) -> set:
 
 
 def folder_bytes(d: str) -> int:
-    """What the folder holds: every regular file in it (pages, the counter, a half-written page)."""
+    """What a folder holds: every regular file under it (pages, versions, the counter, a half-written page)."""
     total = 0
-    try:
-        for e in os.scandir(d):
+    for root, _dirs, files in os.walk(d):
+        for name in files:
             try:
-                if e.is_file(follow_symlinks=False):
-                    total += e.stat(follow_symlinks=False).st_size
+                total += os.stat(os.path.join(root, name), follow_symlinks=False).st_size
             except OSError:
                 pass
+    return total
+
+
+def page_bytes(d: str, n: int) -> int:
+    """A page with its versions: what deleting it frees."""
+    total = folder_bytes(versions_dir(d, n))
+    try:
+        total += os.stat(os.path.join(d, "%d.html" % n), follow_symlinks=False).st_size
     except OSError:
         pass
     return total
@@ -319,13 +457,13 @@ def clean(d: str, t: float, keep_days: float, spec: str, cap: int = CAP_BYTES_DE
     """One cleanup pass at time t. Returns the exit status. `spec` is SALA_MOCKUP_REFERENCES's value, `cap` the folder's size limit in bytes
     (see the module text for the two rules and their order)."""
     cutoff = t - keep_days * 86400
-    pages = {}                                   # number -> (mtime, size)
+    pages = {}                                   # number -> (mtime, size of the page and its versions)
     for n in page_numbers(d):
         try:
             st = os.stat(os.path.join(d, "%d.html" % n))
-            pages[n] = (st.st_mtime, st.st_size)
         except OSError:
-            pass
+            continue
+        pages[n] = (st.st_mtime, page_bytes(d, n))
     # a crash's leftovers: a temporary page older than a day
     try:
         for name in os.listdir(d):
@@ -366,11 +504,34 @@ def clean(d: str, t: float, keep_days: float, spec: str, cap: int = CAP_BYTES_DE
             except OSError as e:
                 say("mockup clean: could not delete %d: %s" % (n, e.strerror or e))
                 return
+            shutil.rmtree(versions_dir(d, n), ignore_errors=True)
             say("mockup clean: deleted %d (%s)" % (n, why))
         total -= left.pop(n)[1]
         gone.append(n)
 
     with Locked(d):
+        # the versions of a page that is gone belong to nothing: delete them once they are past the keep time
+        vroot = os.path.join(d, VERSIONS_DIR)
+        orphans = []
+        if not dry_run and os.path.isdir(vroot):
+            orphans = [int(x) for x in os.listdir(vroot) if VERSION_NUM_RE.fullmatch(x)]
+        for n in sorted(orphans):
+            if os.path.exists(os.path.join(d, "%d.html" % n)):
+                continue
+            vdir = versions_dir(d, n)
+            for name in version_files(vdir):
+                p = os.path.join(vdir, name)
+                try:
+                    if t - os.stat(p).st_mtime > keep_days * 86400:
+                        os.unlink(p)
+                        say("mockup clean: deleted a version of %d (its page is gone): %s" % (n, name))
+                except OSError:
+                    pass
+            try:
+                os.rmdir(vdir)
+            except OSError:
+                pass
+        total = folder_bytes(d)
         # rule 1: older than the keep time, unless an open board item links it
         for n in old:
             if n in keep:
@@ -436,8 +597,11 @@ def cmd_clean(args: list) -> int:
 
 USAGE = {
     "add": "add FILE|-",
+    "update": "update N FILE|-",
+    "history": "history N",
+    "undo": "undo N",
     "list": "list [--json]",
-    "remove": "remove N",
+    "remove": "remove [--force] N",
     "clean": "clean [--dry-run] [--days N] [--max-bytes N]",
 }
 
@@ -447,13 +611,21 @@ def main(argv: list) -> int:
         verb = argv[0] if argv else ""
         if verb == "add" and len(argv) == 2 and (argv[1] == "-" or not argv[1].startswith("-")):
             return add(argv[1])
+        if verb == "update" and len(argv) == 3 and re.fullmatch(r"[1-9][0-9]*", argv[1]) and (argv[2] == "-" or not argv[2].startswith("-")):
+            return update(argv[1], argv[2])
+        if verb == "history":
+            return cmd_history(argv[1:])
+        if verb == "undo" and len(argv) == 2 and re.fullmatch(r"[1-9][0-9]*", argv[1]):
+            return undo(argv[1])
         if verb == "list":
             return cmd_list(argv[1:])
         if verb == "remove":
             return cmd_remove(argv[1:])
         if verb == "clean":
             return cmd_clean(argv[1:])
-        raise Usage(USAGE.get(verb, "add FILE|- | list | remove N | clean"))
+        if verb in USAGE:
+            raise Usage(USAGE[verb])
+        raise Usage("add FILE|- | update N FILE|- | history N | undo N | list | remove [--force] N | clean")
     except Usage as e:
         print("usage: sala mockup %s" % e, file=sys.stderr)
         return 2
