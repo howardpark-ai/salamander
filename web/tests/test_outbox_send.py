@@ -781,6 +781,44 @@ def test_a_tall_box_that_does_not_match_is_left_as_it_is_and_every_text_is_kept(
     assert env.pane.draft == left_there and env.pane.edits == [] and env.pane.submitted == texts
 
 
+# queues drawn as folds that look alike: nothing in view tells the queue's last fold from one pasted at the terminal since
+ALIKE = {"long-one-line-messages": ([f"p{i} " + "y" * 900 for i in range(11)], "[Pasted text #99]"),
+         "pastes-of-one-line-count": ([paste_of(f"p{i}", 6) for i in range(11)], "[Pasted text #99 +5 lines]")}
+
+
+@pytest.mark.parametrize("pasted", [False, True], ids=["nothing-pasted", "a-fold-pasted-at-the-terminal"])
+@pytest.mark.parametrize("kind", list(ALIKE))
+def test_a_tall_box_of_folds_alike_is_not_cleared_whether_or_not_a_fold_was_pasted_into_it(env, kind, pasted):
+    texts, fold = ALIKE[kind]
+    ids = busy_queue(env, *texts)
+    env.pane.tall = 7
+    if pasted:
+        env.pane.after_up = fold
+    r = cancel(env, ids[5])
+    assert r.status_code == 200 and r.json()["message"]["state"] == "withdrawn", r.text
+    left_there = env.pane.draft
+    assert len(left_there.split("\n")) == len(texts) + pasted and (fold in left_there) == pasted and env.pane.edits == []
+    want = [(t, "withdrawn" if i == 5 else "failed") for i, t in enumerate(texts)]
+    assert [x[:2] for x in env.states()] == want + [(texts[5], "failed")], env.states()
+    assert env.post("after").json()["message"]["state"] == "held"
+    time.sleep(0.4)
+    assert env.pane.draft == left_there and env.pane.edits == [] and env.pane.submitted == texts
+
+
+def test_text_pasted_at_the_terminal_that_ends_a_folded_message_and_fills_the_view_is_not_cleared(env):
+    tail = " ".join(f"t{i}" for i in range(60))                        # short enough to be drawn open
+    texts = ["one", "two", "word " * 400 + tail]
+    ids = busy_queue(env, *texts)
+    env.pane.width, env.pane.tall, env.pane.after_up = 40, 3, tail     # only rows of the pasted text stay in view
+    r = cancel(env, ids[0])
+    assert r.status_code == 200 and r.json()["message"]["state"] == "withdrawn", r.text
+    assert env.pane.draft.endswith("\n" + tail) and env.pane.edits == []         # not cleared
+    assert [x[:2] for x in env.states()] == [("one", "withdrawn"), ("two", "failed"), (texts[2], "failed"), ("one", "failed")], env.states()
+    assert env.post("after").json()["message"]["state"] == "held"
+    time.sleep(0.4)
+    assert env.pane.draft.endswith("\n" + tail) and env.pane.edits == [] and env.pane.submitted == texts
+
+
 def test_the_up_is_pressed_only_into_a_box_read_empty_just_before_it(env):
     busy = busy_queue(env, "A", "B")
     update = OB.Outbox.update

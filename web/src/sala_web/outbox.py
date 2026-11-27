@@ -597,13 +597,15 @@ def box_matches(box: str, messages: list[str], above: bool = False) -> bool:
                 return False
             if got == want and fits(first, count - 1):
                 return True
-        return above and got != want      # the rows reach the top: the message begins out of view
+        # the rows reach the top: the message begins out of view. Only one drawn open can: a folded one is never shown in part
+        return above and got != want and fold_count(messages[count - 1]) is None
 
     if not fits(len(rows), len(messages)):
         return False
     if above:
         # a fold pasted at the terminal onto the end would push each fold one message back, out of view, and still fit: not read
-        # when the box fits as well without the folds it ends in
+        # when the box fits as well without the folds it ends in. A queue of such folds alone is so never read, pasted into or not:
+        # left as it is, with every text kept, costs less than clearing a paste nobody here has seen
         end = len(rows)
         while end and not solid[end - 1]:
             end -= 1

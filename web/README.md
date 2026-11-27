@@ -788,14 +788,18 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
   rule saying `↑ N more` (past 17 rows in a 45-row pane, 7 in a 24-row one). Such a box counts as read only when, from its last row
   upwards, it holds the messages the `popAll` lines name, in the lines' order, each open or as the one fold its own text (as sala-web
   sent it) makes, and nothing else; with rows out of view above, every message sala-web typed lately must be accounted for too, no rows
-  may be out of view below, and a box ending in folds alike, which would read the same with one fold more pasted at the terminal, does
-  not count. Then it is cleared (what was in view goes into `outbox-cleared.jsonl` when rows were out of view) and the others are typed
-  again from sala-web's own entries and the transcript's lines, never from the box. What a fold or a row out of view holds is not seen:
-  text typed at the terminal inside the rows out of view in the seconds between the Up and the clearing, with the cursor then moved back
-  to the end, would be cleared unnoticed. A box that cannot be read whole (a fold that fits no message, further text, rows out of view
-  below, a message with no line, a `[...Truncated text` row, a box tmux no longer shows) is left as it is: the other messages it may
-  hold are `failed` with their text, one more `failed` entry carries the text of the message taken back and says that it may still be in
-  the line (Enter in the terminal would send it), and the sender types nothing there until the line is empty.
+  may be out of view below, the open rows at the top of the view are never taken as the end of a message that folds, and a box ending
+  in folds alike, which would read the same with one fold more pasted at the terminal, does not count (so a queue taller than the box
+  made only of such folds, long one-line messages or pastes of one line count, is left as it is even when nothing was pasted: that
+  costs a resend by hand, clearing could lose a paste that was never seen). Then it is cleared (what was in view goes into
+  `outbox-cleared.jsonl` when rows were out of view) and the others are typed again from sala-web's own entries and the transcript's
+  lines, never from the box. What a fold or a row out of view holds is not seen: text typed at the terminal inside the rows out of view
+  in the seconds between the Up and the clearing, with the cursor then moved back to the end, would be cleared unnoticed. So would a
+  fold pasted above the last row of a tall box (the cursor moved there) among folds shaped like it that reach the top of the view. A box
+  that cannot be read whole (a fold that fits no message, further text, rows out of view below, a message with no line, a
+  `[...Truncated text` row, a box tmux no longer shows) is left as it is: the other messages it may hold are `failed` with their text,
+  one more `failed` entry carries the text of the message taken back and says that it may still be in the line (Enter in the terminal
+  would send it), and the sender types nothing there until the line is empty.
   Nothing is typed twice, and nothing else is dropped without being told. Taking one of many back types all the others again,
   so it takes time, and Claude may read them later than it would have.
 - **Text in the terminal's box.** It is never the owner's, so it is cleared and the message goes in, never held behind it (`draft` is held only when the

@@ -288,6 +288,17 @@ def test_a_box_with_rows_out_of_view_above_matches_from_its_end():
     assert fits(f"{chip(3)}\n{chip(4, 5)}", ["one", long, "a\nb\nc\nd\ne\nf"], True)
 
 
+def test_rows_at_the_top_that_end_a_folded_message_are_not_that_message():
+    fits = OB.box_matches
+    long, six = "y" * 801 + " the closing words", "a\nb\nc\nd\nthe closing words"
+    # a message the box folds is never shown in part, so open rows that read as its end are other text
+    assert not fits("the closing words", [long], True) and not fits("the closing words", [six], True)
+    assert not fits("d\nthe closing words\nlast", ["zero", six, "last"], True)
+    assert not fits(f"the closing words\n{chip(2)}", [long, "z" * 900], True)
+    # so such a reading does not make an ending fold look like one fold more either
+    assert fits(f"the closing words\n{chip(2)}", ["an open one, the closing words", long], True)
+
+
 def test_the_boxs_order_is_the_order_of_the_popall_lines():
     def pop(text):
         return {"op": "popAll", "ts": 1, "text": text, "raw": text}
