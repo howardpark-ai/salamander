@@ -1,8 +1,9 @@
 # lib/lane.sh — which account or key each pane's claude runs on: the lanes (Tue Oct 13th 2026; common.sh, "lanes").
 #
-#   salamander lane [--full]                                        the table: the default lane, the lane fields, then each session that has a lane of its own or
-#                                                                   something to say — the lane recorded for it and the one its claude runs on now; the sessions on the default with
-#                                                                   nothing to say are counted in one line, not listed (--full lists every session)
+#   salamander lane [--full]                                        the table: the default lane, the lane fields, then each session that differs from the default or
+#                                                                   has something to say — the lane recorded for it and the one its claude runs on now; a session whose recorded
+#                                                                   lane is empty or the default, that runs on the default, with no note and no home, is counted in one line, not listed
+#                                                                   (--full lists every session). The default is read at print time, so a move of the default folds or unfolds rows.
 #   salamander lane --list | --json                                 the lane fields alone: per lane its provider, client, org,
 #                                                                   billing, plan, account, credential, region and status — aligned, or as JSON
 #   salamander lane <lane> <session>… [--dry-run]                      record the lane for those sessions, then relaunch them on it (resumed,
@@ -80,7 +81,7 @@
 
 # the short help (`lane --help`): the table, the fields, the three ways to move sessions, and the names of the rest; `lane --help --full` is usage
 usage_short() {
-    echo "usage: salamander lane [--full]                                  the table (default lane; the lane fields; each session with a lane of its own or something to say)"
+    echo "usage: salamander lane [--full]                                  the table (default lane; the lane fields; each session that differs from the default or has something to say)"
     echo "       salamander lane --list | --json                           the lane fields alone"
     echo "       salamander lane <lane> <session>… [--dry-run] [--rescue]   record + relaunch those sessions on the lane"
     echo "       salamander lane <lane> --all      [--dry-run]              every session and the default: one recycle --force"
@@ -90,7 +91,7 @@ usage_short() {
     echo "(sala lane --help --full: every form, the pins, the dormant record, the fallback, Fable, the rescue and the stuck-process end)"
 }
 usage() {
-    echo "usage: salamander lane [--full]                                the table (default lane; the lane fields; each session with a lane of its own or something to say: recorded lane, running lane; --full: every session)"
+    echo "usage: salamander lane [--full]                                the table (default lane; the lane fields; each session that differs from the default or has something to say: recorded lane, running lane; --full: every session)"
     echo "       salamander lane --list | --json                           the lane fields alone: provider, client, org, billing, plan, account, credential, region, status"
     echo "       salamander lane names [--json] [--write]                  each lane's code, display name and old words (one line each: code TAB display TAB aliases; --json for stackshot; --write keeps \$SALA_STATE_DIR/lane-names.json current)"
     echo "       salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed"
@@ -306,7 +307,7 @@ if [ "$MODE" = show ]; then
     echo "lanes: ${ready% · }"; for l in ${notready[@]+"${notready[@]}"}; do echo "  $l"; done
     rows=$( { lane_sessions; [ -r "$SALA_LANES" ] && cut -f1 "$SALA_LANES"; } | awk 'NF && !seen[$0]++' | LC_ALL=C sort)
     [ -n "$rows" ] || { echo "(no session: nothing in the pane map, no live claude pane, no lane recorded)"; exit 0; }
-    T_S=(); T_REC=(); T_RUN=(); T_HM=(); T_NOTE=(); anyhome=0; anysleep=0; nplain=0   # nplain: sessions on the default with nothing to say, counted, not listed (--full lists them)   # buffered: the HOME column is there only while some session sits off its home
+    T_S=(); T_REC=(); T_RUN=(); T_HM=(); T_NOTE=(); anyhome=0; anysleep=0; nplain=0   # nplain: sessions whose recorded lane is empty or the default, running on the default, with nothing to say: counted, not listed (--full lists them)   # buffered: the HOME column is there only while some session sits off its home
     while IFS= read -r s; do
         [ -n "$s" ] || continue
         rec=$(lane_row "$s"); eff=$(lane_for_session "$s"); run=$(running_lane "$s"); note=""   # eff: the row, else the default; an sdk row after its window → the lane fallback's pick for sdk
@@ -324,7 +325,7 @@ if [ "$MODE" = show ]; then
         hm=$(lane_home "$s"); [ "$hm" = "$(lane_state_id "$eff")" ] || [ "$hm" = "$eff" ] && hm=""   # the home shows only while the session sits elsewhere (the lane fallback moved it; nothing moves it back by itself)
         [ -n "$hm" ] && note="${note:+$note; }moved off $hm by the lane fallback — back: salamander lane $hm $s"
         [ -n "$hm" ] && anyhome=1
-        if [ "$FULL" = 0 ] && [ -z "$rec" ] && [ -z "$note" ] && [ -z "$hm" ]; then nplain=$((nplain+1)); continue; fi   # no lane of its own, runs where the default puts it, nothing to add
+        if [ "$FULL" = 0 ] && { [ -z "$rec" ] || [ "$rec" = "$d" ]; } && [ "$eff" = "$d" ] && [ -z "$note" ] && [ -z "$hm" ]; then nplain=$((nplain+1)); continue; fi   # recorded nothing or the default, runs on the default (no note: no running difference), nothing to add; compared at print time
         T_S+=("$s"); T_REC+=("${rec:-(default)}"); T_RUN+=("$run"); T_HM+=("${hm:--}"); T_NOTE+=("$note")
     done <<< "$rows"
     if [ "${#T_S[@]}" -eq 0 ]; then :   # every session is on the default: the count line below says so

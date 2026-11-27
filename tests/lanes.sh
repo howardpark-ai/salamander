@@ -156,7 +156,7 @@ fake_up sala-test-a
 [ "$(cachelog "$U1")" = "cache1h=1 cache1h_bedrock=-" ] && ok "and with ENABLE_PROMPT_CACHING_1H=1 (the api pane's 1-hour cache), not bedrock's variant" || bad "cache switch of the api pane: $(cachelog "$U1")"
 [ "$(lane_row sala-test-a)" = api ] && ok "recorded: sala-test-a → api" || bad "row: '$(lane_row sala-test-a)'"
 [ "$(starts "$U2")" = 1 ] && [ -z "$(lane_row sala-test-b)" ] && ok "sala-test-b untouched, unrecorded" || bad "b: starts $(starts "$U2"), row '$(lane_row sala-test-b)'"
-grep -qE '^sala-test-a +api +api' <<< "$("$SALA" lane)" && ok "the table: recorded api, running api (read from its environment)" || bad "table: $("$SALA" lane)"
+grep -qE '^sala-test-a +api +api' <<< "$("$SALA" lane --full)" && ok "the table: recorded api, running api (read from its environment)" || bad "table: $("$SALA" lane)"
 ! grep -qF "$DUMMY" <<< "$out" && ! $T capture-pane -p -S - -t sala-test-a | grep -qF "$DUMMY" && ! grep -qsF "$DUMMY" "$RLOG" "$SALA_LANE_LOG" && ! proc_args "$(cpid a)" | grep -qF "$DUMMY" \
     && ok "the key value is in none of: the command's output, the pane's scrollback, the logs, the process's argv" || bad "the key value leaked"
 grep -q 'ANTHROPIC_API_KEY' <<< "$out" && ok "the output names the variable" || bad "output: $out"
@@ -224,6 +224,17 @@ out=$("$SALA" spawn sala-test-c --cwd "$HOME" 2>&1); rc=$?
 grep -q 'lane    : subscription-2' <<< "$out" && ok "spawn's report names the lane" || bad "spawn report: $out"
 grep -qE '^sala-test-c +\(default\) +subscription-2' <<< "$("$SALA" lane --full)" && ok "lane --full: (default), running subscription-2" || bad "table --full: $("$SALA" lane --full)"
 out=$("$SALA" lane); ! grep -q '^sala-test-c ' <<< "$out" && grep -qE '^[0-9]+ sessions? on the default lane \(subscription-2\) with nothing to say, not listed \(salamander lane --full' <<< "$out" && ok "the table: a session on the default with nothing to say is counted, not listed" || bad "table folds: $out"
+echo "== the fold: a session folds when its recorded lane is empty or the default and it runs on the default, with nothing to say"
+lane_write sala-test-c subscription-2   # recorded = default (subscription-2), running = default
+out=$("$SALA" lane); ! grep -q '^sala-test-c ' <<< "$out" && grep -qE '^[0-9]+ sessions? on the default lane \(subscription-2\) with nothing to say' <<< "$out" && ok "recorded = default, running = default: folded" || bad "recorded default: $out"
+out=$("$SALA" lane --full); grep -qE '^sala-test-c +subscription-2 +subscription-2' <<< "$out" && ok "--full: the same session is listed (recorded subscription-2, running subscription-2)" || bad "--full recorded default: $out"
+lane_write sala-test-c subscription-1   # recorded differs from the default
+out=$("$SALA" lane); grep -qE '^sala-test-c +subscription-1 +subscription-2' <<< "$out" && ok "recorded differs from the default: listed" || bad "recorded differs: $out"
+lane_drop sala-test-c
+"$SALA" lane pin sala-test-c subscription-2 >/dev/null 2>&1   # a note: pinned
+out=$("$SALA" lane); grep -q '^sala-test-c .*pinned to subscription-2' <<< "$out" && ok "a note (pinned): listed" || bad "note: $out"
+"$SALA" lane unpin sala-test-c >/dev/null 2>&1
+out=$("$SALA" lane --json 2>&1); rc=$?; [ "$rc" = 0 ] && ! grep -q 'sala-test-c\|SESSION' <<< "$out" && ok "--json: the lane fields alone, unchanged (no session rows)" || bad "--json: rc $rc $out"
 out=$("$SALA" lane --list --full 2>&1); rc=$?; [ "$rc" != 0 ] && ok "--full with --list is refused" || bad "lane --list --full: $out"
 out=$("$SALA" lane --help 2>&1); rc=$?; [ "$rc" = 0 ] && grep -q 'salamander lane default <lane>' <<< "$out" && grep -q 'also: names' <<< "$out" && grep -q 'lane --help --full' <<< "$out" && ! grep -q 'lane dormant <lane> \[--reason' <<< "$out" && [ "$(wc -c <<< "$out")" -lt 1500 ] && ok "lane --help: the short help, a pointer to --full" || bad "lane --help short: rc=$rc $out"
 out=$("$SALA" lane --help --full 2>&1); rc=$?; [ "$rc" = 0 ] && grep -q 'lane dormant <lane> \[--reason' <<< "$out" && grep -q 'lane --migrate' <<< "$out" && ok "lane --help --full: every form" || bad "lane --help --full: rc=$rc"

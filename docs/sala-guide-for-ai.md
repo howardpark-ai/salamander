@@ -450,6 +450,7 @@ sala retire NAME                       # end a Claude session for good (writes);
 sala revive --dry-run                  # what a revive would do
 sala recycle --dry-run                 # what a recycle would do; without --dry-run it relaunches every pane when idle
 sala lane --list                       # the lanes and their state; sala lane names: each lane's code and display name
+sala lane                              # the table: sessions that differ from the default lane or have something to say; the rest are counted in one line (sala lane --full lists every session)
 sala op --help | sala lane --help | sala mq --help   # the short help of each; add --full (sala op --help --full) for every verb's shape and the long text
 sala lane pins                         # sessions pinned to a lane (held out of every bulk lane move); pin <session> <lane> / unpin <session> change the list
 sala watch --back-lanes --dry-run      # what the back agents' lane rule (and its front step) would do now; queues and writes nothing
