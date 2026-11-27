@@ -43,6 +43,9 @@
     if (p.back || p.taken) return out;   // being asked about; or the server said Claude has read it, and its line is on the way
     if (asking(p.session)) out.reason = tl("app.wait.dialog");
     if (!p.ob || !p.mid || !p.state || p.state === "delivered") return out;   // the server has not answered yet, or Claude has read it
+    // a message in the pane (the terminal's queue) is sent now, unless a dialog is open (the line above says why); the server refuses
+    // what it can not send safely and says why, so an upload or a slash command in the way does not hide it
+    if (inPane(p) && !dialog) out.buttons.push([tl("app.sendnow.button"), (ev) => sendNow(p.session, ev.currentTarget), "send-now"]);
     // one in the pane is taken back by pulling the pane's whole queue: not under a dialog, nor with an upload or a slash command in the way
     if (inPane(p) && (dialogOpen(p.session) || isSlash(p.text) || mine(p.session).some((x) => inPane(x) && x.images.length))) return out;
     if (p.state === "held" && isSleeping(state.byName.get(p.session))) {
@@ -65,7 +68,7 @@
     const st = el("span", { class: "st" });
     st.append(svgNode(ICON), el("span", {}, el("b", { text: v.words }), v.reason ? " · " + v.reason : ""));
     return el("div", { class: "waiting-line" }, st,
-      v.buttons.length ? el("div", { class: "note-actions" }, ...v.buttons.map(([text, onclick]) => el("button", { type: "button", text, onclick }))) : null);
+      v.buttons.length ? el("div", { class: "note-actions" }, ...v.buttons.map(([text, onclick, cls]) => el("button", { type: "button", class: cls, text, onclick }))) : null);
   }
 
   // each bubble of `name` drawn again if what it says changed (a button under the owner's finger is not replaced for nothing)

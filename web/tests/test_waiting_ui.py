@@ -1,7 +1,8 @@
 """A message that waits to be read (static/waiting.js, the server's outbox behind it).
 
 It is one state whatever holds it: a dashed bubble with "Waiting" under it, no time, Edit and Cancel. While a question or permission dialog is
-open the line says to answer it first, and a message already in the pane offers nothing (it can not be taken back then). Cancel and Edit ask the
+open the line says to answer it first, and a message already in the pane offers nothing (it can not be taken back then; Send now is also
+held back under a dialog). A message in the pane that can not be taken back offers Send now. Cancel and Edit ask the
 server to take the message back and say what happened: taken back, or too late. A bubble goes when its message is delivered or withdrawn, a
 reload draws the waiting ones again from the server's list, and nothing is wider than a 360 px phone.
 
@@ -114,7 +115,8 @@ def test_a_menu_claude_did_not_open_gives_no_reason(served, browser):
 def test_what_can_not_be_pulled_out_of_the_pane_offers_nothing(served, browser, queued):
     opened(browser, served)
     show(browser, queued, msg(2, "not typed yet", "held", "ahead"))
-    assert [b["buttons"] for b in bubbles(browser)] == [[], ["Edit", "Cancel"]]
+    # the one in the pane can not be taken back, but it can be sent now (test_send_now_ui.py)
+    assert [b["buttons"] for b in bubbles(browser)] == [["Send now"], ["Edit", "Cancel"]]
 
 
 def test_cancel_says_the_others_move_and_then_that_claude_did_not_get_it(served, browser):

@@ -803,8 +803,9 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
 
 `POST /api/s/<pid>/send-now` presses Claude Code's `chat:sendNow` chord, **Ctrl+X Ctrl+S**, in the session's own pane: Claude reads every message
 waiting in the terminal's queue at once, and the one step that is running moves to the background, where it goes on. The page's side is
-`sendNowButton(session)` in `app.js` (the button, and the reason of a refusal in the status line under the composer) for the row of a waiting message
-to call; no row calls it yet. It belongs only on a message that is typed and waiting in the terminal, never on one the server holds.
+`sendNow(session, button)` in `app.js`, called by the button "Send now" that `static/waiting.js` (`view`) puts under a waiting message's bubble.
+It shows only on a message that is typed and waiting in the terminal and not while a dialog is open; never on one the server holds. A refusal
+(409, nothing pressed) shows its reason in the status line under the composer, and the button is disabled while its request is out.
 
 The chord loses work outside one case, so `sendnow.py` allows exactly that case and answers 409 with the reason, nothing pressed, for everything else.
 All of this must hold, checked under the pane's send lock:
