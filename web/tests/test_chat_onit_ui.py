@@ -50,7 +50,8 @@ CHEVRON = "document.querySelector('#chat-strip-wait .wait-chev')"
 HELP_BTN = "document.querySelector('#chat-strip-wait .wait-help')"
 MOVE_PANEL, ONIT_PANEL = "chat-strip-wait-panel", "chat-strip-onit-panel"
 NOTHING = "Nothing in progress right now"
-NOTE = "What the assistant has said it will report back on in this chat. When it is done, the line moves to your move list."
+NOTE_TEXT = "What the assistant has said it will report back on in this chat. When it is done, the line moves to the {group} list."
+NOTE = NOTE_TEXT.replace("{group}", "Your move")   # no group served: sala's own name for the first list
 HELP_LABEL = "About this list"
 MOVE_NOTE = "These lines are the board's own. No model writes them or decides whether you see them."
 
@@ -59,9 +60,10 @@ def cp(*codes) -> str:
     return "".join(chr(c) for c in codes)
 
 
-NOTE_KO = cp(0xC774, 0x20, 0xCC44, 0xD305, 0xC5D0, 0xC11C, 0x20, 0xACB0, 0xACFC, 0xB97C, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xAE30, 0xB85C, 0x20, 0xD55C, 0x20,
-             0xC77C, 0xC785, 0xB2C8, 0xB2E4, 0x2E, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xACE0, 0x20, 0xB098, 0xBA74, 0x20, 0xBAA9, 0xB85D, 0xC5D0, 0xC11C, 0x20,
-             0xBE60, 0xC9D1, 0xB2C8, 0xB2E4, 0x2E)
+NOTE_KO_TEXT = (cp(0xC774, 0x20, 0xCC44, 0xD305, 0xC5D0, 0xC11C, 0x20, 0xACB0, 0xACFC, 0xB97C, 0x20, 0xC54C, 0xB824, 0x20, 0xB4DC, 0xB9AC, 0xAE30, 0xB85C, 0x20, 0xD55C, 0x20,
+                   0xC77C, 0xC785, 0xB2C8, 0xB2E4, 0x2E, 0x20, 0xB05D, 0xB098, 0xBA74, 0x20)
+                + "{group}" + cp(0x20, 0xBAA9, 0xB85D, 0xC73C, 0xB85C, 0x20, 0xC62E, 0xACA8, 0xC9D1, 0xB2C8, 0xB2E4, 0x2E))
+NOTE_KO = NOTE_KO_TEXT.replace("{group}", cp(0xB0B4, 0x20, 0xCC28, 0xB840))
 
 
 def line(text: str, ago: float = 60) -> dict:
@@ -395,7 +397,7 @@ def test_the_help_line_stays_inside_the_window_wraps_and_adds_no_sideways_scroll
     browser.settle(PIN)
     h = helped(browser)
     where = f"{width} px, {lang}: {h}"
-    assert h["pop"] and h["text"] == (NOTE if lang == "en" else NOTE_KO), where
+    assert h["pop"] and h["text"] == (NOTE_TEXT if lang == "en" else NOTE_KO_TEXT).replace("{group}", group[lang]), where
     box = h["box"]
     assert box["left"] >= 0 and box["right"] <= box["vw"] + 0.5 and box["bottom"] <= box["vh"] and box["w"] <= 320.5 and box["below"], where
     assert box["scrollW"] <= box["clientW"] + 1, f"the line scrolls sideways: {where}"

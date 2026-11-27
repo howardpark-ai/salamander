@@ -515,10 +515,10 @@ function buildChatStrip() {
   $("#chat-strip").replaceChildren(kept);
   chatView.ui = { waitList, waitNote, wait, onit, onitSum, onitList, onitNone, help, pop, moveTab, moveLine, onitTab, onitLine, lateDot, chevron, swText, countEl };
 }
-// the lines of the open list's (?), each [key] or [key, vars]: the second list has its own note; the first has the note on the owner's moves, the note
-// on the done lines to confirm, or both, by what the list holds (a list with nothing in it keeps the note on the moves)
-function chatHelpParts() {
-  if (chatView.waitTab === "onit") return [["chat.onit.note"]];
+// the lines of the open list's (?), each [key] or [key, vars]: the second list has its own note, which names the first list (where a done line goes); the
+// first has the note on the owner's moves, the note on the done lines to confirm, or both, by what the list holds (with nothing in it, the one on the moves)
+function chatHelpParts(group) {
+  if (chatView.waitTab === "onit") return [["chat.onit.note", { group }]];
   const d = chatView.data || {}, moves = (d.waiting || []).length, done = (d.mine || []).length;
   return [...(moves || !done ? [["chat.wait.note"]] : []), ...(done ? [["chat.mine.note"]] : [])];
 }
@@ -568,7 +568,7 @@ function paintChatWait() {
 }
 // the two tabs, their counts, the late dot and the chevron; the second list's own lines
 function paintChatBar(onIt, n, group, open) {
-  const u = chatView.ui, parts = chatHelpParts();
+  const u = chatView.ui, parts = chatHelpParts(group);
   u.onit.hidden = !(open && chatView.waitTab === "onit");
   u.help.hidden = !open;
   // the box follows its text: another list's (?) text, other lines in the open list's, or a list shut, closes it
