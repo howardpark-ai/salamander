@@ -797,7 +797,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             text = body.decode("utf-8")
         except UnicodeDecodeError:   # the CLI only stores UTF-8; a file put there by hand that is not is not served as if it were
             return Response("this mockup is not UTF-8 text", status_code=415, media_type="text/plain", headers=MK.HEADERS)
-        return HTMLResponse(text, headers=MK.HEADERS)   # text/html; charset=utf-8
+        return HTMLResponse(MK.with_back_link(text), headers=MK.HEADERS)   # text/html; charset=utf-8; the stored file is not changed
 
     async def op_log_page(request: Request) -> Response:
         # The log of one `sala op` operation (oplog.py), linked from the operation's Slack post. EVERY answer here (a log, a 404, a 405) carries

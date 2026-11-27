@@ -33,6 +33,10 @@ There is no override flag: a name is always possible.
 Put `<meta name="viewport" content="width=device-width, initial-scale=1">` in the page's `<head>` so a phone lays it out at its own width instead of a zoomed-out
 desktop page; `add` prints a note on stderr when the meta is missing, and changes nothing in the file.
 
+**Back to sala.** When sala-web serves a page it adds one link at the top of the body, "Back to sala" (at least 44 px high, in the page's flow, no sideways scroll at phone width), because the installed phone app opens a link
+to a page of its own site inside its own window, with no address bar and no way back. The stored file is not changed, so a page needs nothing for it, and need not draw a way back to the chat of its own
+(web/README.md, *Mockup pages*).
+
 ## Storage
 
 Under sala's state folder: `$SALA_STATE_DIR/mockups/` (else `$XDG_STATE_HOME/salamander/mockups/`, else `~/.local/state/salamander/mockups/`), mode 700.

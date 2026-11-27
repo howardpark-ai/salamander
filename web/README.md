@@ -1619,7 +1619,14 @@ Cache-Control: private, no-cache
 `sandbox allow-scripts` without `allow-same-origin` gives the page an opaque origin (`self.origin` is `"null"`; `document.cookie` and `localStorage` throw `SecurityError`), so a script in the page cannot read or call sala's API;
 `connect-src 'none'` closes `fetch`, XHR, WebSocket and beacons as well. Inline scripts and styles, `data:` images and Google Fonts work. The service worker has no fetch handler, so it never touches `/mockup/`.
 `tests/test_mockup.py` checks the route and the headers and drives a real headless Chromium through a page that tries to reach the API, read the cookie and open a socket, and renders the page at a 390 px phone width.
-A page should carry `<meta name="viewport" content="width=device-width, initial-scale=1">`; the server sends the file as it is and changes nothing in it.
+A page should carry `<meta name="viewport" content="width=device-width, initial-scale=1">`.
+
+**A back link at the top of every page.** The installed app (manifest `start_url` and `scope` are `./`, so the whole origin is the app's scope) keeps a same-origin link inside its own window even when the link is `target=_blank`:
+a tap on `https://<host>/mockup/<n>` in a reply replaces the chat in that window, and a standalone window has no address bar and no Back button of its own to return with. Only a link out of scope opens in a Custom Tab.
+So the server puts one plain link at the top of the body when it serves a page (`mockup.with_back_link`; the stored file is not changed): "Back to sala", an ordinary `<a href="../chat">` (relative, so it works under any path prefix;
+`/chat` answers a 302 to the chat session, or to the main page with none set). It is in the page's flow, not fixed, so it covers nothing; 44 px high at least, as wide as the page and no wider, styled inline (`all:initial`, so the
+page's own sheet does not change it). It goes right after the opening `<body>` tag (a tag inside a script, style or comment does not count); a page without a body gets it after `</head>`, else after `<html>`, else after the
+doctype. A link in a reply is **not** rewritten and the manifest is not changed: a narrower scope or another `start_url` could change how the installed app opens.
 
 ## The chat session
 
