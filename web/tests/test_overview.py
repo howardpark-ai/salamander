@@ -1,4 +1,4 @@
-"""The sessions overview: the #sessions view in the main page (GET /sessions redirects there), GET /api/overview, the model a pane runs now (its launch line, sala's record, the
+"""The sessions overview: the /overview view in the main page (GET /sessions redirects there), GET /api/overview, the model a pane runs now (its launch line, sala's record, the
 transcript's latest reply) and reading that reply from a transcript's tail."""
 
 import json
@@ -683,14 +683,14 @@ def test_overview_session_without_a_transcript(env):
 def test_sessions_overview_is_a_view_of_the_main_page(env):
     # the old page's URL lands on the view, without following the redirect off the test host
     r = env["client"].get("/sessions", follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == "./#sessions"
+    assert r.status_code == 302 and r.headers["location"] == "./overview"
     assert env["client"].get("/static/sessions.html").status_code == 404
     index = env["client"].get("/").text
     assert "{{v}}" not in index and "{{build}}" not in index
     # the overview sits at the top of the sidebar and in the main area; the header's table icon is gone
-    assert 'id="side-ovw"' in index and 'href="#sessions"' in index and 'id="overview-pane"' in index
+    assert 'id="side-ovw"' in index and 'href="overview"' in index and 'id="overview-pane"' in index
     assert 'id="side-table"' not in index and 'href="sessions"' not in index
-    assert 'href="#s=help-session"' in index
+    assert 'href="s/help-session"' in index
     assert 'href="static/sessions.css?v=' in index
     # shared helpers, then the overview, then app.js, which drives it
     assert index.index("static/shared.js") < index.index("static/sessions.js?v=") < index.index("static/app.js")

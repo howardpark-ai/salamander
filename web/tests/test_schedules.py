@@ -941,9 +941,9 @@ def test_the_page_has_the_tabs_and_no_sidebar_entry(client):
     html = client.get("/").text
     # the sidebar's Schedules entry and the page of its own are gone; the Overview holds the two tabs, as links (an old #schedules link lands on the second)
     assert 'id="side-sched"' not in html and 'id="schedules-pane"' not in html
-    assert not re.search(r'<a [^>]*class="[^"]*side[^"]*"[^>]*href="#schedules"', html)
-    assert re.search(r'<a id="ov-tab-sessions"[^>]*href="#sessions"[^>]*aria-selected="true"', html)       # Agents is the default tab
-    assert re.search(r'<a id="ov-tab-schedules"[^>]*href="#schedules"[^>]*aria-selected="false"', html)
+    assert not re.search(r'<a [^>]*class="[^"]*side[^"]*"[^>]*href="schedules"', html)
+    assert re.search(r'<a id="ov-tab-sessions"[^>]*href="overview"[^>]*aria-selected="true"', html)       # Agents is the default tab
+    assert re.search(r'<a id="ov-tab-schedules"[^>]*href="schedules"[^>]*aria-selected="false"', html)
     assert 'id="ov-agents"' in html and 'id="ov-schedules"' in html and "static/schedules.js" in html and "static/schedules.css" in html
     for f in ("schedules.js", "schedules.css"):
         assert client.get(f"/static/{f}").status_code == 200
@@ -1087,10 +1087,10 @@ def test_a_schedules_link_opens_the_overview_on_the_schedules_tab(served, browse
                cards: vis("#q-cards") }; })()""")
     assert m["overview"] and m["tab"] == "schedules" and m["schedules"] and not m["agents"] and m["side"] == 0, m
     assert m["sel"] == [["ov-tab-sessions", "false"], ["ov-tab-schedules", "true"], ["ov-tab-machines", "false"], ["ov-tab-usage", "false"]] and m["cards"], m   # the lane cards stay on top of every tab
-    assert browser.evaluate("location.hash") == "#schedules"
+    assert browser.evaluate("SalaAddress.here()") == "#schedules"
     # the Agents tab is the other link; its panel comes back and the Schedules one goes
     browser.evaluate("document.querySelector('#ov-tab-sessions').click(); ''")
-    m = browser.evaluate("""({ tab: document.querySelector("#overview-pane").dataset.tab, hash: location.hash,
+    m = browser.evaluate("""({ tab: document.querySelector("#overview-pane").dataset.tab, hash: SalaAddress.here(),
       schedules: getComputedStyle(document.querySelector("#ov-schedules")).display, agents: getComputedStyle(document.querySelector("#ov-agents")).display })""")
     assert m == {"tab": "sessions", "hash": "#sessions", "schedules": "none", "agents": "block"}, m
 

@@ -162,9 +162,9 @@ echo "== rename changes exactly its row (the pane already /renamed by hand, so n
 python3 - "$(regfile sala-test-a)" <<'PY'
 import json, sys; p = sys.argv[1]; d = json.load(open(p)); d["name"] = "sala-test-a2"; json.dump(d, open(p, "w"))
 PY
-out=$(SALA_SESSION_URL='https://sala.example.test/#s={name}' "$SALA" rename sala-test-a sala-test-a2 2>&1); echo "$out" | grep -E '^✅|^⚠|^✗' | sed 's/^/    /'
+out=$(SALA_SESSION_URL='https://sala.example.test/s/{name}' "$SALA" rename sala-test-a sala-test-a2 2>&1); echo "$out" | grep -E '^✅|^⚠|^✗' | sed 's/^/    /'
 # Tue Oct 13th 2026: the notice gives the session's web UI link under its new name, the one the heartbeat publishes
-echo "$out" | grep -qx "✅ 'sala-test-a' is now 'sala-test-a2' · https://sala.example.test/#s=sala-test-a2" && ok "the notice prints the web UI's link for the new name" || bad "rename notice: $(echo "$out" | grep -E '^✅|^⚠' | tail -1)"
+echo "$out" | grep -qx "✅ 'sala-test-a' is now 'sala-test-a2' · https://sala.example.test/s/sala-test-a2" && ok "the notice prints the web UI's link for the new name" || bad "rename notice: $(echo "$out" | grep -E '^✅|^⚠' | tail -1)"
 [ "$(row sala-test-a2)" = "sala-test-a2	$UA	sala-test-a2	$HOME/work-a" ] && [ -z "$(row sala-test-a)" ] && ok "row renamed, name column too" || bad "rows: $(<"$MAP")"
 [ "$(logn rename sala-test-a)" = 1 ] && grep -q "	rename	sala-test-a	sala-test-a → sala-test-a2	" "$LOG" && ok "one log line: rename, old → new" || bad "log: $(<"$LOG")"
 [ "$(wc -l < "$MAP")" = 4 ] && [ "$(row sala-test-b)" = "sala-test-b	$UB	sala-test-b	$HOME/work-b" ] && ok "the other rows untouched" || bad "map: $(<"$MAP")"

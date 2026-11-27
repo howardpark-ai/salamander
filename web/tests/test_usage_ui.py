@@ -102,7 +102,7 @@ def open_tab(served, browser, size: dict, hash_: str = "#usage", ready: bool = T
 def shown(browser) -> dict:
     return browser.evaluate("""(() => { const t = (n) => n.textContent.replace(/\\s+/g, " ").trim(), q = (s) => document.querySelector(s);
       return {
-        tab: q("#overview-pane").dataset.tab, hash: location.hash,
+        tab: q("#overview-pane").dataset.tab, hash: SalaAddress.here(),
         views: [...document.querySelectorAll("#us-views button")].map((b) => [t(b), b.getAttribute("aria-selected")]),
         weeks: [...document.querySelectorAll("#us-weeks button")].map((b) => [t(b), b.getAttribute("aria-pressed")]),
         range: t(q("#us-range")), hero: q("#us-hero .us-big").firstChild.textContent.trim(), sub: t(q("#us-hero .us-sub")), flt: !!q("#us-hero .us-flt"),
@@ -145,7 +145,7 @@ def test_the_markup_has_the_tab_after_machines_its_panel_its_files_and_the_hash_
     import re
     from sala_web.app import STATIC
     html = (STATIC / "index.html").read_text()
-    assert re.search(r'<a id="ov-tab-usage"[^>]*href="#usage"[^>]*aria-selected="false"', html)
+    assert re.search(r'<a id="ov-tab-usage"[^>]*href="usage"[^>]*aria-selected="false"', html)
     assert re.findall(r'<a id="ov-tab-(\w+)"', html)[-1] == "usage"
     assert "Usage analysis" in html and 'id="ov-usage"' in html and 'id="us-reload"' in html
     assert 'href="static/usage.css?v={{sv}}"' in html and 'src="static/usage.js?v={{v}}"' in html
@@ -177,7 +177,7 @@ def test_the_tab_reads_when_it_opens_and_on_reload_and_the_other_tabs_never_read
     assert browser.evaluate("window.__usFetches") == 0                                      # not read, not shown
     click(browser, "#ov-tab-usage")
     wait(browser, 'document.querySelectorAll("#us-tbody tr[data-k]").length > 0', "the table after the tab opened")
-    assert browser.evaluate("location.hash") == "#usage" and browser.evaluate("window.__usFetches") == 1
+    assert browser.evaluate("SalaAddress.here()") == "#usage" and browser.evaluate("window.__usFetches") == 1
     click(browser, "#us-reload")
     wait(browser, "window.__usFetches === 2", "Reload reads again")
     click(browser, "#ov-tab-sessions")

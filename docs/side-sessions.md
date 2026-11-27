@@ -113,12 +113,12 @@ machine, at, why}]}`.
 
 ## The web UI
 
-Same page and same queue as the New session form (`web/README.md`, *Quick sessions*): a form of its own under `#side=…`.
+Same page and same queue as the New session form (`web/README.md`, *Quick sessions*): a form of its own at `/side?…`.
 A segmented switch **New session | Quick session** at the very top of the page (the look of the scope selector, the same on both
 forms) moves between the two; there are no loose text links. **The Discuss link of stackshot,
-`https://<the web UI address>/#side=<id>`, opens the form with the item filled in** (the id is everything after `side=`, whatever
-its form, a `#` included; the item's project and owner are looked up from stackshot's `item-facts`). `#side=from:<name>` is a fork
-of that session. **The Fork button is in the "⋯" menu** of a session's row in the sidebar, a link to that `#side=from:<name>`; there is none in the session header, whose fold is measured to the pixel
+`https://<the web UI address>/side?<id>`, opens the form with the item filled in** (the id is everything after `side?` up to the first `&`,
+whatever its form; a `#` in it is written `%23`, and the older link `/#side=<id>` still works; the item's project and owner are looked up from stackshot's `item-facts`). `/side?from:<name>` is a fork
+of that session. **The Fork button is in the "⋯" menu** of a session's row in the sidebar, a link to that `side?from:<name>`; there is none in the session header, whose fold is measured to the pixel
 and has no room. The ⋯ is offered for a session with a tmux pane and not on the sdk lane (nothing to take a conversation from);
 a quick session can be forked too (`lib/spawn.sh` cuts the new name at the earlier `-side-`).
 

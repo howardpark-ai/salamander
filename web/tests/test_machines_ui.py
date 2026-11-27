@@ -148,7 +148,7 @@ def test_the_tab_reads_when_it_opens_and_on_reload_and_never_by_itself(served, b
         assert browser.evaluate("window.__mcFetches") == 0 and browser.evaluate("document.querySelector('#ov-machines').offsetParent") is None   # not read, not shown
         browser.evaluate("document.querySelector('#ov-tab-machines').click(); ''")
         wait(browser, f'document.querySelectorAll("{CARD}").length === 6', "the cards after the tab opened")
-        assert browser.evaluate("location.hash") == "#machines" and browser.evaluate("window.__mcFetches") == 1
+        assert browser.evaluate("SalaAddress.here()") == "#machines" and browser.evaluate("window.__mcFetches") == 1
         browser.evaluate("document.querySelector('#mc-reload').click(); ''")
         wait(browser, "window.__mcFetches === 2", "Reload reads again")
         browser.evaluate("document.querySelector('#ov-tab-sessions').click(); ''")
@@ -165,17 +165,17 @@ def test_the_keyboard_reaches_the_tab_and_back_leaves_it(served, browser, monkey
         wait(browser, '!!document.querySelector("#sp-table")', "the Agents tab")
         for want in ("#schedules", "#machines"):   # Agents → Schedules → Machines
             browser.evaluate("""document.querySelector("#overview-pane .ov-tabs").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); ''""")
-            wait(browser, f'location.hash === "{want}"', f"ArrowRight reaches {want}")
+            wait(browser, f'SalaAddress.here() === "{want}"', f"ArrowRight reaches {want}")
         wait(browser, f'document.querySelectorAll("{CARD}").length === 6', "the cards")
         assert browser.evaluate("document.activeElement && document.activeElement.id") == "ov-tab-machines"
         browser.evaluate("document.querySelector('#overview-pane .ov-tabs').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); ''")
-        wait(browser, 'location.hash === "#usage"', "ArrowRight from Machines reaches Usage analysis, the last tab")
+        wait(browser, 'SalaAddress.here() === "#usage"', "ArrowRight from Machines reaches Usage analysis, the last tab")
         browser.evaluate("document.querySelector('#overview-pane .ov-tabs').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); ''")
-        wait(browser, 'location.hash === "#sessions"', "ArrowRight from the last tab wraps to Agents")
+        wait(browser, 'SalaAddress.here() === "#sessions"', "ArrowRight from the last tab wraps to Agents")
         browser.evaluate("history.back(); ''")
-        wait(browser, 'location.hash === "#usage"', "Back returns to the Usage analysis tab")
+        wait(browser, 'SalaAddress.here() === "#usage"', "Back returns to the Usage analysis tab")
         browser.evaluate("history.back(); ''")
-        wait(browser, 'location.hash === "#machines"', "Back returns to the Machines tab")
+        wait(browser, 'SalaAddress.here() === "#machines"', "Back returns to the Machines tab")
         assert browser.evaluate("document.querySelector('#overview-pane').dataset.tab") == "machines"
 
 

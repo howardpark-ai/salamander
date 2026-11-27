@@ -6,7 +6,7 @@
    The header's name stays hidden until api/chat has answered too, so the session's real name does not show ahead of its label.
 
    It reads the page (a MutationObserver) and writes one attribute on <html> and one <style> of its own; no other script knows of it. index.html names it only when a
-   chat session is configured (app.py _page), and on every other address it does nothing. It never holds the page back: it lets go as soon as the page draws anything
+   chat session is configured (app.py _page), and on every other address it does nothing. The address is read through address.js, loaded before it. It never holds the page back: it lets go as soon as the page draws anything
    else (not running, asleep, another view), on an uncaught error, and after a time limit. */
 (function () {
   // <chat-boot-words> (the tests run what is between these two markers in node)
@@ -34,7 +34,7 @@
   const media = (q) => window.matchMedia(q).matches;
   let last = "";
   try { last = localStorage.getItem("salaweb.lastView") || ""; } catch { /* storage unavailable */ }
-  if (!chatBootWanted(session, location.hash, media("(max-width: 760px)") || media("(display-mode: standalone)"), last)) return;
+  if (!chatBootWanted(session, SalaAddress.here(), media("(max-width: 760px)") || media("(display-mode: standalone)"), last)) return;
 
   const root = document.documentElement, style = document.createElement("style");
   style.textContent = 'html[data-chat-boot] #title .name, html[data-chat-boot] #chat > [data-i18n="ui.chat.pick"] { visibility: hidden; }';

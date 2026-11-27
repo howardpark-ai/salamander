@@ -10,26 +10,19 @@
    - No loop: after a reload nothing reloads again until api/config has answered 2xx since, and REARM_MS has passed. Where that cannot be
      remembered (no storage), nothing reloads.
    - Kept first: the text typed into the page's fields and what app.js hands over (SalaSignin.keeps). The composer's saved draft is app.js's own.
-   - A server never sees the address' fragment (#s=<name>), so a sign-in may lose it: it is noted before the reload and put back if the page
-     comes back without one. A link opened while already signed out runs none of this before the redirect: the proxy's sign-in page carries it.
+   - The view is in the address's path (address.js), so the reload and the proxy's way back keep it. Only a link of before (/#s=<name>) opened
+     while already signed out depends on the proxy's sign-in page to carry the part after "#", which no server sees.
 
-   Loaded in the head, before chatboot.js and app.js read the address. */
+   Loaded in the head, so that it watches the page's fetches from the first one. */
 (function () {
   if (window.SalaSignin) return;   // a second copy: index.html asks again for a file that did not load
-  const RELOADED = "salaweb.signin.reload", HASH = "salaweb.signin.hash", KEPT = "salaweb.signin.kept";
-  const REARM_MS = 60000, HASH_MS = 12 * 3600 * 1000, FRAME_MS = 3000, PROBE_MS = 10000;
+  const RELOADED = "salaweb.signin.reload", KEPT = "salaweb.signin.kept";
+  const REARM_MS = 60000, FRAME_MS = 3000, PROBE_MS = 10000;
   const FIELDS = "input:not([type]), input[type=text], input[type=search], input[type=date], textarea";
   // `store` is "sessionStorage" or "localStorage"; naming either may throw where storage is blocked
   const read = (store, key) => { try { return JSON.parse(window[store].getItem(key)); } catch { return null; } };
   const write = (store, key, value) => { try { window[store].setItem(key, JSON.stringify(value)); return true; } catch { return false; } };
   const drop = (store, key) => { try { window[store].removeItem(key); } catch { /* storage unavailable */ } };
-
-  const noted = read("sessionStorage", HASH);
-  if (noted) {
-    drop("sessionStorage", HASH);   // used once
-    if (!location.hash && noted.page === location.pathname + location.search && Date.now() - noted.at < HASH_MS)
-      history.replaceState(history.state, "", location.href.split("#")[0] + noted.hash);
-  }
 
   const typed = new Set();   // the ids of the fields typed into since this load
   document.addEventListener("input", (e) => { const f = e.target; if (f && f.id && f.matches(FIELDS)) typed.add(f.id); }, true);
@@ -77,7 +70,6 @@
   function reload() {
     if (!mayReload() || !keep() || !write("sessionStorage", RELOADED, { at: Date.now(), back: false })) return;
     leaving = true;
-    if (location.hash) write("sessionStorage", HASH, { at: Date.now(), page: location.pathname + location.search, hash: location.hash });
     for (const frame of document.querySelectorAll("iframe")) frame.remove();   // ttyd asks "leave this page?" while its socket is open
     try { window.top.location.reload(); } catch { location.reload(); }
   }
@@ -94,7 +86,7 @@
       .finally(() => { clearTimeout(timer); probing = false; });
   }
   function seen(input, response) {
-    const at = new URL(input && input.url !== undefined ? input.url : input, location.href), api = new URL("api/", location.href);
+    const at = new URL(input && input.url !== undefined ? input.url : input, document.baseURI), api = new URL("api/", document.baseURI);
     if (at.origin !== api.origin || !at.pathname.startsWith(api.pathname)) return;
     if (response.status === 401) check();
     else if (response.ok && at.pathname === api.pathname + "config") confirmed();

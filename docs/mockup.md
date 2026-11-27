@@ -18,7 +18,7 @@ https://sala.example.com/mockup/7
 | `sala mockup clean [--dry-run] [--days N] [--max-bytes N]` | the daily pass (below). |
 
 **The address** is the scheme and host of `SALA_SESSION_URL` (the link template sala already uses for a session's web link, for example
-`https://sala.example.com/#s={name}`), followed by `/mockup/<n>`. Nothing is hard-coded. With the setting unset the path `/mockup/<n>` is printed and a
+`https://sala.example.com/s/{name}`), followed by `/mockup/<n>`. Nothing is hard-coded. With the setting unset the path `/mockup/<n>` is printed and a
 note on stderr says what to put in front of it.
 
 **What a page may be.** UTF-8 text, not empty, at most 5 MiB, no NUL byte, and no lettered designs; anything else is refused with a sentence and takes no number. UTF-8 is the one

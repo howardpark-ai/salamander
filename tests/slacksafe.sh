@@ -31,7 +31,7 @@ same() { check "$1: left as written" "$2" "$2"; }   # <what> <input>
 
 # escaped
 check "name:0: (a pane after a session name)" 'sess-a:0: not relaunched' "sess-a:0${Z}: not relaunched"
-check ">:0: (a pane after a Slack link)" '<https://sala.example/#s=sess-a|sess-a>:0: not relaunched' "<https://sala.example/#s=sess-a|sess-a>:0${Z}: not relaunched"
+check ">:0: (a pane after a Slack link)" '<https://sala.example/s/sess-a|sess-a>:0: not relaunched' "<https://sala.example/s/sess-a|sess-a>:0${Z}: not relaunched"
 check "04:00: (a time with a colon after it)" '04:00: the weekly run' "04:00${Z}: the weekly run"
 check "a lone :7:" 'tab :7: open' "tab :7${Z}: open"
 check "a :12: with a space each side" 'x :12: y' "x :12${Z}: y"
@@ -109,7 +109,7 @@ done
 rm -f "$POSTS"
 
 # the send paths
-W=https://board.example.com; SESS=https://sala.example/#s=
+W=https://board.example.com; SESS=https://sala.example/s/
 BD=board   # the id is built at run time (${BD}#N): no literal board id sits in this file
 POSTS=$HOME/posts.txt
 (
@@ -168,8 +168,8 @@ rm -rf "$HOME/solo" "$HOME/blog/would-post.log"
 # the briefings' post_slack: the escape is the last step, after slack_text and the links
 mkdir -p "$HOME/blog"
 BRIEFING_LOGDIR=$HOME/blog BRIEFING_NO_POST=1 SALA_STACKSHOT_WEB=$W BRIEFING_SESSIONS_CMD=true BRIEFING_BOARD_DIR= BRIEFING_COMMIT_REPOS= \
-    bash -c '. "$1/contrib/briefing/lib.sh"; post_slack "$2"' _ "$ROOT" $'📬 *Summary*\n• <https://sala.example/#s=sess-e|sess-e>:0: idle; at 04:00: *'"${BD}#9"$'* waits; :100:' >/dev/null 2>&1
+    bash -c '. "$1/contrib/briefing/lib.sh"; post_slack "$2"' _ "$ROOT" $'📬 *Summary*\n• <https://sala.example/s/sess-e|sess-e>:0: idle; at 04:00: *'"${BD}#9"$'* waits; :100:' >/dev/null 2>&1
 got=$(cat "$HOME/blog/would-post.log" 2>/dev/null)
-want=$'📬 *Summary*\n• <https://sala.example/#s=sess-e|sess-e>:0'"$Z"': idle; at 04:00'"$Z"': *<'"$W"'/items/9|'"${BD}#9"'>* waits; :100:'
+want=$'📬 *Summary*\n• <https://sala.example/s/sess-e|sess-e>:0'"$Z"': idle; at 04:00'"$Z"': *<'"$W"'/items/9|'"${BD}#9"'>* waits; :100:'
 [ "$got" = "$want" ] && ok "briefing post_slack: escaped after the links, :100: and the link's URL kept" || bad "post_slack: $(show "$got")"
 exit $fail

@@ -216,7 +216,7 @@ def test_the_get_help_chip_opens_the_session_the_setting_names_and_is_absent_wit
     assert 'id="sp-help"' not in html and "{{help}}" not in html and "<!--help-->" not in html   # nothing set: no chip
     sala_config(tmp_path, monkeypatch, "SALA_HELP_SESSION=ui-helper\n")
     html = client.get("/").text
-    assert 'id="sp-help"' in html and 'href="#s=ui-helper"' in html and "{{help}}" not in html   # read on each load
+    assert 'id="sp-help"' in html and 'href="s/ui-helper"' in html and "{{help}}" not in html   # read on each load
     sala_config(tmp_path, monkeypatch, 'SALA_HELP_SESSION="a b<script>"\n')
     assert 'id="sp-help"' not in client.get("/").text   # not a session name: no chip
 

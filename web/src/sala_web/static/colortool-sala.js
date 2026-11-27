@@ -134,7 +134,7 @@
     '<span class="ucount">3</span>',
     '<span class="pill role-front">front</span>',
     '<span class="sp-tag sp-eff eff-max">max</span>',
-    '<span class="md"><a href="#sessions">a link</a></span>'
+    '<span class="md"><a href="overview">a link</a></span>'
   ].join("");
 
   var cfg = {

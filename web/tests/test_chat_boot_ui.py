@@ -163,14 +163,14 @@ def check_chat_load(seen: list[dict], lang: str) -> None:
 
 
 # ── the chat session's address ───────────────────────────────────────────────
-@pytest.mark.parametrize("path", ["#s=" + NAME, "chat"], ids=["direct", "through-chat"])
+@pytest.mark.parametrize("path", ["s/" + NAME, "#s=" + NAME, "chat"], ids=["direct", "older-link", "through-chat"])
 @pytest.mark.parametrize("size", SIZES)
 @pytest.mark.parametrize("lang", LANGS)
 def test_a_load_of_the_chat_address_shows_nothing_of_another_view(served, browser, monkeypatch, lang, size, path):
     prepare(browser, served, monkeypatch, lang)
     load(browser, served, monkeypatch, size, path)
     until(browser, CHAT_DRAWN)
-    assert browser.evaluate("location.hash") == "#s=" + NAME
+    assert browser.evaluate("SalaAddress.here()") == "#s=" + NAME
     check_chat_load(frames(browser), lang)
 
 
@@ -203,7 +203,7 @@ def test_a_launch_with_no_address_that_reopens_the_chat_shows_nothing_of_another
     prepare(browser, served, monkeypatch, lang, extra=extra)
     load(browser, served, monkeypatch, size, "")
     until(browser, CHAT_DRAWN)
-    assert browser.evaluate("location.hash") == "#s=" + NAME
+    assert browser.evaluate("SalaAddress.here()") == "#s=" + NAME
     check_chat_load(frames(browser), lang)
 
 

@@ -264,7 +264,7 @@ def test_it_goes_as_usual_once_the_new_session_page_is_open_and_the_page_stays(s
     assert wait_for(browser, OPEN, 5.0)
     new = browser.evaluate("(() => { const r = document.getElementById('side-new').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()")
     tap_at(browser, new["x"], new["y"])
-    assert wait_for(browser, "ns.open && location.hash === '#new'", 5.0)
+    assert wait_for(browser, "ns.open && SalaAddress.here() === '#new'", 5.0)
     move(browser, 1000, 500)                                                                  # the pointer leaves for the page
     assert wait_for(browser, CLOSED, 5.0)
     assert browser.evaluate("ns.open && document.body.classList.contains('new-open')")

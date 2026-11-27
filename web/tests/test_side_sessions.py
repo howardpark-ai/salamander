@@ -1,10 +1,10 @@
 """Quick sessions in the web UI (quick side conversations, renamed Quick session in lib/spawn.sh A SIDE SESSION, web/README.md,
 *Quick sessions*). A quick session goes through the New session page's queue (`POST /api/spawn` -> `sala op spawn NAME
---side …`), with its own form under the hash `#side=…`:
-  · the Discuss link of stackshot, https://sala.example.test/#side=<id>, where the id is everything after "side=" in any form the
+--side …`), with its own form at the address `side?…`:
+  · the Discuss link of stackshot, https://sala.example.test/side?<id> (or the older /#side=<id>), where the id is the first part of the query in any form the
     board shows (an older s9, a temporary board-tmp-box#3, which holds a "#" itself): the form opens with the item
     filled in, its project and owner looked up from stackshot (`GET /api/spawn/item`);
-  · the link #side=from:<name>: a fork of that session (no button in the header: its fold is measured to the pixel).
+  · the link side?from:<name>: a fork of that session (no button in the header: its fold is measured to the pixel).
 
 What a wrong answer costs: a session started about another item or project than the link named, a fork of the wrong agent, a role or
 an agents-map line the side session must not have, a blank name that never gets a name, an id with a "#" cut short by the router
@@ -135,7 +135,7 @@ def test_the_markup_and_the_rules_the_code_keeps():
     assert "sd-role" not in INDEX and 'name="sd-role"' not in INDEX                    # a quick session has no role
     form_ns = INDEX[INDEX.index('<form id="ns-form"'):INDEX.index("</form>", INDEX.index('<form id="ns-form"'))]
     form_sd = INDEX[INDEX.index('<form id="sd-form"'):INDEX.index("</form>", INDEX.index('<form id="sd-form"'))]
-    assert 'href="#side="' not in form_ns and 'href="#new"' not in form_sd               # the switch at the top replaced the loose links
+    assert 'href="side"' not in form_ns and 'href="new"' not in form_sd               # the switch at the top replaced the loose links
     assert "Side conversation" not in INDEX and "Side conversation" not in APP_JS         # the name the owner uses is Quick session
     start = APP_JS.index("/* QUICK SESSIONS (")
     section = APP_JS[start:APP_JS.index("sdEl.name.addEventListener", start)]
@@ -150,7 +150,7 @@ FORM = """(() => {
   const q = (s) => document.querySelector(s), v = (s) => q(s).value, vis = (s) => getComputedStyle(q(s)).display !== "none";
   const sw = q("#np-switch").getBoundingClientRect(), pane = q("#new-pane").getBoundingClientRect();
   return { sideMode: document.body.classList.contains("side-mode"), newOpen: document.body.classList.contains("new-open"),
-    sdVisible: vis("#sd-form"), nsVisible: vis("#ns-form"), title: q("#title .name").textContent, hash: location.hash,
+    sdVisible: vis("#sd-form"), nsVisible: vis("#ns-form"), title: q("#title .name").textContent, hash: SalaAddress.here(),
     item: v("#sd-item"), project: v("#sd-project"), agents: v("#sd-agents"),
     fork: v("#sd-fork"), name: v("#sd-name"), nameErr: q("#sd-name-err").textContent, note: q("#sd-note").textContent,
     need: q("#sd-need").textContent, extraVisible: !q("#sd-item-extra").hidden, submitDisabled: q("#sd-submit").disabled,
@@ -209,7 +209,7 @@ def test_the_discuss_link_opens_the_form_with_the_item_whatever_its_form(sala, s
     assert g["item"] == item and g["project"] == project and g["agents"] == owner and g["fork"] == "", g   # the whole id, "#" and all
     assert item in g["itemSummary"] and g["extraVisible"] and not g["submitDisabled"], g
     assert g["name"].endswith("-side-wren42"), g
-    assert g["hash"] == "#side=" + item
+    assert g["hash"] == "#side=" + item.replace("#", "%23")   # the address writes the id's "#" as %23
     assert g["docScroll"] <= g["vw"], g
 
 
@@ -227,7 +227,7 @@ def test_a_submit_queues_the_quick_session_and_the_link_appears(sala, served, br
     # the session appears in the list: the link to it
     browser.evaluate("window.__names.push('demo-side-wren42'); loadSessions(); ''")
     g = settle(browser, "(document.querySelector('#sd-status .ns-state') || {}).textContent?.endsWith('Ready')", 15.0)
-    assert g["link"] == "#s=demo-side-wren42", g
+    assert g["link"] == "s/demo-side-wren42", g
 
 
 def test_the_fork_link_opens_the_form_for_a_fork_of_that_session(sala, served, browser):
@@ -252,7 +252,7 @@ def test_the_switch_is_at_the_top_of_both_forms_and_there_are_no_loose_links(sal
     assert [(c["text"], c["current"]) for c in g["chips"]] == [("New session", "page"), ("Quick session", None)], g
     new_box = g["switchBox"]
     # no loose text link left in either form
-    assert browser.evaluate("document.querySelectorAll('#ns-form a[href=\"#side=\"], #sd-form a[href=\"#new\"]').length") == 0
+    assert browser.evaluate("document.querySelectorAll('#ns-form a[href=\"side\"], #sd-form a[href=\"new\"]').length") == 0
     click(browser, "#np-quick")
     g = settle(browser, "document.body.classList.contains('side-mode')")
     assert g["sdVisible"] and not g["nsVisible"] and g["hash"] == "#side=" and g["submitDisabled"] and g["title"] == "Quick session", g   # a blank form: nothing to submit yet

@@ -337,7 +337,7 @@ _mkparent() { local d; _dir "$1" d; [ -d "$d" ] || mkdir -p "$d" 2>/dev/null; }
 # SESSION LINKS (Tue Oct 13th 2026: term links replace the remote-control links, and the link comes from sala): sala's heartbeat is the one source of session links. The link for a
 # session on THIS box — the url of the heartbeat's own rows (lib/heartbeat.sh) and the rename notice (lib/rename.sh) — is
 # SALA_SESSION_URL with {name} replaced by the session's name, percent-encoded exactly as JavaScript's encodeURIComponent
-# does: sala-web reads its link as #s=<encodeURIComponent(name)> and matches it against the registry name (the /rename label,
+# does: sala-web reads its link as /s/<encodeURIComponent(name)> (and the older #s=<encodeURIComponent(name)>) and matches it against the registry name (the /rename label,
 # which sala keeps equal to the tmux session name and the pane map's first column). sala-web reaches only the panes of the
 # box it runs on, so the link is never given to another box's rows: the heartbeat's swept rows keep their claude.ai link.
 #   unset         SALA_SESSION_URL_DEFAULT on the box that drives the fleet (SALA_FLEET_HOSTS set); that default is empty, so the
@@ -346,7 +346,7 @@ _mkparent() { local d; _dir "$1" d; [ -d "$d" ] || mkdir -p "$d" 2>/dev/null; }
 # A session with no name, under an empty template, gets the claude.ai link ("" while its bridge is down). The Python body
 # is one definition for both callers: session_url below runs it, the heartbeat's Python execs it (HB_URL_PY).
 #   The default names no web UI (empty): set SALA_SESSION_URL to your sala web UI's link, with {name} where the session's name goes (for
-#   example 'https://sala.example.com/#s={name}'). The heartbeat rewrites a row whose url changed, so a change of this setting reaches the
+#   example 'https://sala.example.com/s/{name}'). The heartbeat rewrites a row whose url changed, so a change of this setting reaches the
 #   fleet file at its next run: tell the board's engineer, as the contract in lib/heartbeat.sh says.
 SALA_SESSION_URL_DEFAULT=''
 # The board's web address, for the link a side conversation's mandate carries to its item (<this>/items/<n>). Empty (the default): the

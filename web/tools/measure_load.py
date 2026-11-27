@@ -227,7 +227,7 @@ def main() -> None:
             try:
                 c.send("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
                 c.send("Emulation.setEmulatedMedia", {"features": [{"name": "prefers-color-scheme", "value": "dark"}]})
-                url = f"{served.url}/#s={served.name}"
+                url = f"{served.url}/s/{served.name}"
                 cold = one_load(c, url, "navigate", args.cpu, net, args.timeout, args.top)
                 report(f"run {run + 1}: cold load, throttled", cold)
                 time.sleep(1.0)  # the worker's install settles
@@ -239,7 +239,7 @@ def main() -> None:
         c = CDP(binary, 390, 844)
         try:
             c.send("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
-            floor = one_load(c, f"{served.url}/#s={served.name}", "navigate", 1, None, args.timeout, args.top)
+            floor = one_load(c, f"{served.url}/s/{served.name}", "navigate", 1, None, args.timeout, args.top)
             report("floor: cold load, no throttling", floor)
             raws.append({"run": 0, "how": "floor", **floor})
         finally:

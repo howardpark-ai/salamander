@@ -1,5 +1,5 @@
 "use strict";
-/* The Overview's Schedules tab (#schedules; one table in a tab): every scheduled
+/* The Overview's Schedules tab (/schedules; one table in a tab): every scheduled
    job of ours on this machine (the package-shipped timers are left out by the API) as api/schedules reports it (the server's last
    reading of systemd and cron, at most about 30 s old when the tab opens and read again behind it; nothing stored on disk). It is ONE table, Job | Category | What it does | When | Lane. When holds three
    lines (the schedule in plain words, "next …", "last …") and sorts by the next run; the phone's sort menu also offers "Last run".

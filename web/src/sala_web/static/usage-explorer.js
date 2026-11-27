@@ -1,5 +1,5 @@
 "use strict";
-/* The Usage analysis tab's Explorer view (#usage, the second view next to Report; usage.js has the tab and registers this view): any two things side by side,
+/* The Usage analysis tab's Explorer view (/usage, the second view next to Report; usage.js has the tab and registers this view): any two things side by side,
    down to a single reply. It reads the same data layer as the Report (api/usage, usage.py) and one more route, api/usage/replies, for the replies behind a figure.
    COMPARE picks a dimension (Week, Day, Lane, Model, Project, Agent or Folder) and two of its values, A and B; BREAK DOWN BY splits both by another dimension; WHERE
    narrows both by any other dimension (a select each, the week one of them). The result is two cards side by side (the total at list prices, how much was billed,

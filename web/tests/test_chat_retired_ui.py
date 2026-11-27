@@ -32,7 +32,7 @@ def set_status(served, status: str) -> None:
 @pytest.mark.parametrize("size", SIZES)
 def test_chat_leads_into_the_session_s_own_view(served, browser, monkeypatch, size):
     open_page(browser, served, monkeypatch, size, None, hash_="chat")
-    assert browser.evaluate("location.pathname + location.hash") == "/#s=" + NAME
+    assert browser.evaluate("location.pathname + location.hash") == "/s/" + NAME
     assert wait_for(browser, "!document.querySelector('#chat-strip').hidden && document.body.classList.contains('chat-session')", 10.0)
     assert browser.evaluate("state.selected") == NAME
     assert browser.evaluate("document.querySelectorAll('#composer').length") == 1
@@ -42,7 +42,7 @@ def test_chat_leads_into_the_session_s_own_view(served, browser, monkeypatch, si
 def test_chat_with_no_session_set_ends_on_the_main_page(served, browser, monkeypatch, size):
     open_page(browser, served, monkeypatch, size, None, chat=None, hash_="chat", ready=False)
     assert wait_for(browser, "typeof loadSessions === 'function' && document.readyState === 'complete'", 15.0)
-    assert browser.evaluate("location.pathname") == "/" and not browser.evaluate("location.hash.startsWith('#s=')")
+    assert browser.evaluate("location.pathname") in ("/", "/overview") and not browser.evaluate("location.hash")
     assert browser.evaluate("document.querySelector('#chat-strip').hidden") is True
     assert browser.evaluate("document.body.classList.contains('chat-session')") is False
 

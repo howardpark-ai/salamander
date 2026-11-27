@@ -135,7 +135,7 @@ def test_the_aws_platform_details_page_keeps_the_models_and_the_sessions(world, 
     d = cards(browser, "'#ld-usage .s-card'")[0]
     assert d["models"] == [{"name": "Sonnet 5.5", "usd": "$3.00", "share": "60%", "link": None},
                            {"name": "Opus 5.5", "usd": "$2.00", "share": "40%", "link": None}]
-    assert d["sessions"] == [{"name": "aws-big", "usd": "$3.00", "share": "60%", "link": "#s=aws-big"},   # running: a link to the session
+    assert d["sessions"] == [{"name": "aws-big", "usd": "$3.00", "share": "60%", "link": "s/aws-big"},   # running: a link to the session
                              {"name": "aws-small", "usd": "$2.00", "share": "40%", "link": None}]          # not running: plain
     assert d["more"] is None and d["figure"] == "$5.00"
 

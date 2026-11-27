@@ -232,7 +232,7 @@ def search_and_open(browser, q: str) -> None:
     wait(browser, 'document.body.classList.contains("search-open")', "the Search page")
     wait(browser, 'document.querySelectorAll("#se-hits a.se-link").length === 1', "the result, with a link to the chat")
     browser.evaluate('document.querySelector("#se-hits a.se-link").click()')
-    wait(browser, 'location.hash === "#s=%s"' % NAME, "the session's chat opens")
+    wait(browser, 'SalaAddress.here() === "#s=%s"' % NAME, "the session's chat opens")
 
 
 ORDER = "[...document.querySelectorAll('#chat > .msg')].map((m) => m.dataset.uuid)"

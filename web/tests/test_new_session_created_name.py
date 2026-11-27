@@ -50,7 +50,7 @@ def test_new_session_empties_the_name_after_a_create_and_warns_for_another_runni
     assert browser.evaluate("state.byName.has('gamma-harbor-pink') && state.byName.has(" + json.dumps(OTHER) + ")")   # the session is in the list
     # the finished page: the field is empty, no error text, the result line and the Open link stay, nothing to press
     assert g["name"] == "" and g["nameErr"] == "" and g["submitDisabled"], g
-    assert g["state"] == "gamma-harbor-pink: Ready" and g["link"] == "#s=gamma-harbor-pink" and "Open" in g["status"], g
+    assert g["state"] == "gamma-harbor-pink: Ready" and g["link"] == "s/gamma-harbor-pink" and "Open" in g["status"], g
     assert len(sala.spawns()) == 1
     # the list is read again (as it is when the page is shown again): it does not put a suggestion into the field
     browser.evaluate("nsLoadProjects().then(() => '')")
@@ -64,7 +64,7 @@ def test_new_session_empties_the_name_after_a_create_and_warns_for_another_runni
     set_value(browser, "#ns-name", "gamma-harbor-fresh")
     g = ns(browser)
     assert g["nameErr"] == "" and not g["submitDisabled"], g
-    assert g["state"] == "gamma-harbor-pink: Ready" and g["link"] == "#s=gamma-harbor-pink", g       # the result stays while a new name is typed
+    assert g["state"] == "gamma-harbor-pink: Ready" and g["link"] == "s/gamma-harbor-pink", g       # the result stays while a new name is typed
 
 
 def test_new_session_keeps_the_name_while_queued_and_empties_it_when_the_session_is_in_the_list(sala, served, browser):
@@ -80,7 +80,7 @@ def test_new_session_keeps_the_name_while_queued_and_empties_it_when_the_session
     browser.evaluate("window.__names = ['gamma-harbor-pink']; loadSessions(); ''")
     assert wait_for(browser, "state.byName.has('gamma-harbor-pink') && document.querySelector('#ns-name').value === ''", 10.0), ns(browser)
     g = wait_state(browser, "gamma-harbor-pink: ready")
-    assert g["name"] == "" and g["nameErr"] == "" and g["submitDisabled"] and g["link"] == "#s=gamma-harbor-pink", g
+    assert g["name"] == "" and g["nameErr"] == "" and g["submitDisabled"] and g["link"] == "s/gamma-harbor-pink", g
 
 
 def test_new_session_leaves_a_different_name_the_person_typed_meanwhile(sala, served, browser):
@@ -151,14 +151,14 @@ def test_quick_session_empties_the_name_after_a_start_and_warns_for_another_runn
     assert wait_for(browser, "(document.querySelector('#sd-status .ns-state') || {}).textContent?.endsWith('Ready')", 15.0), browser.evaluate(QUICK)
     g = browser.evaluate(QUICK)
     assert g["name"] == "" and g["err"] == "", g       # a blank name is allowed on this form (sala suggests one), so Start stays available for a new quick session
-    assert g["state"] == f"{name}: Ready" and g["link"] == "#s=" + name and "Open" in g["status"], g
+    assert g["state"] == f"{name}: Ready" and g["link"] == "s/" + name and "Open" in g["status"], g
     assert len(sala.spawns()) == 1
     set_value(browser, "#sd-name", other)
     g = browser.evaluate(QUICK)
     assert g["err"] == f"A session called {other} is running already. Pick another name, or leave it blank." and g["disabled"], g
     set_value(browser, "#sd-name", "demo-side-fresh2")
     g = browser.evaluate(QUICK)
-    assert g["err"] == "" and not g["disabled"] and g["link"] == "#s=" + name, g
+    assert g["err"] == "" and not g["disabled"] and g["link"] == "s/" + name, g
     assert len(sala.spawns()) == 1
 
 

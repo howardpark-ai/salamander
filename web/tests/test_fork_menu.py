@@ -1,6 +1,6 @@
 """Fork, in a session row's ⋯ menu (docs/side-sessions.md). The header has no Fork
 button because its fold is measured to the pixel (test_header_fold.py, test_board_items_ui.py); the entry lives in a ⋯ at the end
-of each sidebar row instead. It is a link to #side=from:<name>, which opens the Quick session form with the fork of that session
+of each sidebar row instead. It is a link to side?from:<name>, which opens the Quick session form with the fork of that session
 filled in (test_side_sessions.py holds the form); nothing is started until Start quick session is pressed there.
 
 What a wrong answer costs: a fork of another session than the row's, a fork offered where it cannot work (a session with no
@@ -89,21 +89,21 @@ def test_the_menu_button_is_on_the_rows_that_can_be_forked_only(sala, served, br
 
 def test_the_menu_offers_fork_and_the_link_opens_the_quick_session_form_for_that_session(sala, served, browser):
     open_list(browser, served)
-    h0 = browser.evaluate("location.hash")
+    h0 = browser.evaluate("SalaAddress.here()")
     hover(browser, "example-alpha-main")
     b = box(browser, row_sel("example-alpha-main", True))
     click_at(browser, b["x"], b["y"])
     assert wait_for(browser, "document.querySelector('.row-menu') !== null", 5.0)
     m = browser.evaluate(MENU)
-    assert m["role"] == "menu" and m["label"] == "Actions for example-alpha-main" and m["items"] == [{"text": "Fork", "href": "#side=from:example-alpha-main"}], m
+    assert m["role"] == "menu" and m["label"] == "Actions for example-alpha-main" and m["items"] == [{"text": "Fork", "href": "side?from:example-alpha-main"}], m
     assert 0 <= m["box"]["left"] and m["box"]["right"] <= m["vw"] and m["box"]["bottom"] <= m["vh"], m   # whole on the screen
     assert browser.evaluate(f"document.querySelector({json.dumps(row_sel('example-alpha-main', True))}).getAttribute('aria-expanded')") == "true"
-    assert browser.evaluate("location.hash") == h0, "opening the menu also followed the row's link"
+    assert browser.evaluate("SalaAddress.here()") == h0, "opening the menu also followed the row's link"
     # the entry: the page goes to the Quick session form with the fork of THAT session in it, and starts nothing
     it = box(browser, ".row-menu-item")
     click_at(browser, it["x"], it["y"])
     assert wait_for(browser, "document.body.classList.contains('side-mode') && document.querySelector('#sd-fork').value !== ''", 8.0)
-    g = browser.evaluate("""({ hash: location.hash, fork: document.querySelector('#sd-fork').value, item: document.querySelector('#sd-item').value,
+    g = browser.evaluate("""({ hash: SalaAddress.here(), fork: document.querySelector('#sd-fork').value, item: document.querySelector('#sd-item').value,
       summary: document.querySelector('#sd-fork-pick .ns-sum').textContent, menu: !!document.querySelector('.row-menu'), title: document.querySelector('#title .name').textContent })""")
     assert g["hash"] == "#side=from:example-alpha-main" and g["fork"] == "example-alpha-main" and g["item"] == "" and not g["menu"], g
     assert "example-alpha-main" in g["summary"] and g["title"] == "Quick session", g
@@ -117,7 +117,7 @@ def test_the_menu_of_a_quick_session_forks_it_too(sala, served, browser):
     b = box(browser, row_sel("example-alpha-main-side-onyx07", True))
     click_at(browser, b["x"], b["y"])
     assert wait_for(browser, "document.querySelector('.row-menu') !== null", 5.0)
-    assert browser.evaluate(MENU)["items"][0]["href"] == "#side=from:example-alpha-main-side-onyx07"
+    assert browser.evaluate(MENU)["items"][0]["href"] == "side?from:example-alpha-main-side-onyx07"
 
 
 def test_escape_a_click_elsewhere_and_a_second_click_close_it_and_the_keyboard_opens_it(sala, served, browser):
@@ -138,7 +138,7 @@ def test_escape_a_click_elsewhere_and_a_second_click_close_it_and_the_keyboard_o
     browser.send("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13, "text": "\r"})
     browser.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13})
     assert wait_for(browser, "document.querySelector('.row-menu') !== null && document.activeElement.classList.contains('row-menu-item')", 5.0)
-    assert browser.evaluate("document.querySelector('.row-menu-item').getAttribute('href')") == "#side=from:example-alpha-api"
+    assert browser.evaluate("document.querySelector('.row-menu-item').getAttribute('href')") == "side?from:example-alpha-api"
     browser.send("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
     browser.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
     assert wait_for(browser, "document.querySelector('.row-menu') === null && document.activeElement.classList.contains('sess-more')", 5.0)
@@ -168,5 +168,5 @@ def test_on_a_touch_screen_the_button_is_only_on_the_open_session(sala, served, 
 def test_the_session_header_has_nothing_added_for_it(sala, served, browser):
     """Fork is not in the header (its fold is measured to the pixel); the header's own ⋯ stays the one for what folded out of the bar."""
     open_list(browser, served)
-    assert browser.evaluate("document.querySelectorAll('#top .sess-more, #top .row-menu, #top [href^=\"#side=\"]').length") == 0
+    assert browser.evaluate("document.querySelectorAll('#top .sess-more, #top .row-menu, #top [href^=\"side\"]').length") == 0
     assert browser.evaluate("[...document.querySelectorAll('#top-tools [href]')].length") == 0

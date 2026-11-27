@@ -498,16 +498,16 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
   border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
-/* the Overview (#sessions, with its Schedules tab #schedules) takes the main area: no session tabs, view options or composer */
+/* the Overview (/overview, with its Schedules tab /schedules) takes the main area: no session tabs, view options or composer */
 #overview-pane { overflow-y: auto; overflow-x: hidden; }
 body.overview-open #chat-pane, body.overview-open #terminal-pane, body.overview-open #composer,
 body.overview-open #menu-reload, body.overview-open #top-tools, body.overview-open #top-menu-btn, body.overview-open #title .dot { display: none; }
 body.overview-open #overview-pane { display: block; }
-/* the New session page (#new) takes the main area the same way; the form inside is its one scroller (.np) */
+/* the New session page (/new) takes the main area the same way; the form inside is its one scroller (.np) */
 body.new-open #chat-pane, body.new-open #terminal-pane, body.new-open #composer, body.new-open #overview-pane,
 body.new-open #menu-reload, body.new-open #top-tools, body.new-open #top-menu-btn, body.new-open #title .dot { display: none; }
 body.new-open #new-pane { display: flex; flex-direction: column; }   /* the switch on top, the form (its own scroller) under it */
-/* a quick session (called a side conversation inside sala): its form takes the page's place under #side=…, the New session form otherwise */
+/* a quick session (called a side conversation inside sala): its form takes the page's place under /side…, the New session form otherwise */
 #sd-form { display: none; }
 body.side-mode #ns-form { display: none; }
 body.side-mode #sd-form { display: block; }

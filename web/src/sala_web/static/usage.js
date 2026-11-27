@@ -1,5 +1,5 @@
 "use strict";
-/* The Overview's Usage analysis tab (#usage): what the Claude Code replies on this machine cost, at list prices, as api/usage reports them (usage.py).
+/* The Overview's Usage analysis tab (/usage): what the Claude Code replies on this machine cost, at list prices, as api/usage reports them (usage.py).
    One data layer, three views: Report (this file), Explorer (usage-explorer.js, which registers itself here) and Digest (usage-digest.js: the week in a few plain sentences).
    Report: a week picker (a week runs from one weekly reset of the subscription lane to the next), the total, one card per lane, a Group by control, the
    filter chips, a stacked chart by day and a sortable table with share bars. A tap on a lane card, a table row, a legend name or a day filters everything

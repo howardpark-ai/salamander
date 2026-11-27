@@ -96,7 +96,7 @@ def test_the_entry_is_the_first_line_of_the_views_above_new_session():
     assert entry.count('class="label"') == 1 and 'class="role"' in entry and 'class="dot busy" hidden' in entry and 'class="wchip" hidden' in entry
     assert 'data-i18n="ui.side.chatRole"' in entry
     assert " title=" not in entry.split(">", 1)[0] and "data-i18n-title" not in entry, "the tooltip takes the served group's name: only paintChatEntry sets it"
-    assert "#chat" not in entry, "its href is the session's own #s=<name>, set from api/chat"
+    assert "#chat" not in entry, "its href is the session's own s/<name>, set from api/chat"
 
 
 def test_the_strip_is_a_sibling_before_chat_and_not_inside_it():
@@ -167,7 +167,7 @@ def test_the_marks_come_from_api_chat_on_a_timer_that_pauses_while_the_page_is_h
 
 def test_the_entry_names_the_session_from_api_chat_and_the_drawer_closes_after_it():
     paint = body_of(APP_JS, "function paintChatEntry()")
-    assert 'a.setAttribute("href", "#s=" + encodeURIComponent(d.session))' in paint
+    assert 'a.setAttribute("href", "s/" + encodeURIComponent(d.session))' in paint
     assert 'a.classList.toggle("selected", here)' in paint and 'a.setAttribute("aria-current", "page")' in paint and 'a.removeAttribute("aria-current")' in paint
     assert "a.hidden = !on" in paint and "dot.hidden = !busy" in paint and "chip.hidden = !waiting" in paint
     assert 'for (const id of ["#side-chat", "#side-ovw", "#side-new"])' in APP_JS

@@ -100,8 +100,8 @@ def open_page(served, browser, hash_: str = "#sessions", width: int = 1280, prep
 
 
 def address(browser) -> dict:
-    """The Search page's address as a dict (the parameters after #search?)."""
-    h = browser.evaluate("location.hash")
+    """The Search page's address as a dict (the parameters after search?)."""
+    h = browser.evaluate("SalaAddress.here()")
     assert h.startswith("#search?"), h
     return {k: v[0] for k, v in parse_qs(h[len("#search?"):], keep_blank_values=True).items()}
 
@@ -140,8 +140,8 @@ def hits(browser) -> list[dict]:
 def test_the_markup_has_the_box_in_the_sidebar_the_page_of_its_own_and_no_overview_tab():
     from sala_web.app import STATIC
     index = (STATIC / "index.html").read_text()
-    tabs = re.findall(r'<a id="ov-tab-(\w+)" class="ov-tab" role="tab" href="#(\w+)"', index)
-    assert tabs == [("sessions", "sessions"), ("schedules", "schedules"), ("machines", "machines"), ("usage", "usage")]                  # the Overview's Search tab is gone
+    tabs = re.findall(r'<a id="ov-tab-(\w+)" class="ov-tab" role="tab" href="(\w+)"', index)
+    assert tabs == [("sessions", "overview"), ("schedules", "schedules"), ("machines", "machines"), ("usage", "usage")]                  # the Overview's Search tab is gone
     assert "ov-search" not in index and "ov-tab-search" not in index and 'id="se-q"' not in index
     side = index[index.index('<aside id="sidebar">'):index.index("</aside>")]
     # the box is at the top of the sidebar: just under its header, before the views and the session list; it has no filters
@@ -184,7 +184,7 @@ def test_enter_opens_the_results_page_with_the_defaults_in_the_address(served, b
     open_page(served, browser)
     box_search(browser, "")
     time.sleep(0.2)
-    assert browser.evaluate("location.hash") == "#sessions" and browser.evaluate("window.__searchCalls.length") == 0   # nothing typed: nothing opens
+    assert browser.evaluate("SalaAddress.here()") == "#sessions" and browser.evaluate("window.__searchCalls.length") == 0   # nothing typed: nothing opens
     box_search(browser, "zebra")
     wait(browser, 'document.body.classList.contains("search-open") && document.querySelectorAll("#se-hits .se-hit").length === 3', "the results page")
     assert address(browser) == {"q": "zebra", **DEFAULTS}
@@ -206,7 +206,7 @@ def test_enter_opens_the_results_page_with_the_defaults_in_the_address(served, b
     # the fake session's three messages (front); its tool call and the headless run (role unknown) are off by default
     assert {r["text"] for r in rows} == {"zebra question", "the zebra answer", XSS} and all(r["role"] == "front" and r["kind"] == "message" for r in rows)
     mine = next(r for r in rows if r["text"] == "the zebra answer")
-    assert (mine["name"], mine["open"], mine["href"], mine["sub"], mine["marks"]) == (NAME, True, "#s=" + NAME, False, ["zebra"])
+    assert (mine["name"], mine["open"], mine["href"], mine["sub"], mine["marks"]) == (NAME, True, "s/" + NAME, False, ["zebra"])
     summary = browser.evaluate('document.querySelector("#se-summary").textContent')
     assert re.match(r"^3 matches for “zebra”, newest first · 6 h to \w{3} \w{3} \d+(st|nd|rd|th) \d\d:\d\d \+04 · searched in \d+(\.\d)? s$", summary), summary
     counts = browser.evaluate("""Object.fromEntries([...document.querySelectorAll("#se-form input[data-box]")].map((b) => [b.dataset.box, b.parentElement.querySelector("small").textContent]))""")
@@ -246,20 +246,20 @@ def tab_wait(browser, session: str, expr: str, what: str, ms: int = 15000):
 def test_enter_in_the_box_opens_the_results_in_a_new_tab_and_the_page_stays_as_it_was(served, browser):
     open_page(served, browser, f"#s={NAME}", popups=True)
     browser.evaluate('document.querySelector("#chat").scrollTop = 7; document.querySelector("#composer [contenteditable=true]").textContent = "half a thought"')
-    start = browser.evaluate("""({ hash: location.hash, href: location.href.split("#")[0], depth: history.length, chat: document.querySelector("#chat").innerHTML.length,
+    start = browser.evaluate("""({ hash: SalaAddress.here(), href: location.href, depth: history.length, chat: document.querySelector("#chat").innerHTML.length,
       scroll: document.querySelector("#chat").scrollTop, composer: document.querySelector("#composer [contenteditable=true]").textContent })""")
     before = set(page_targets(browser))
     box_search(browser, "zebra")
     tab = other_tab(browser, before, "a new tab opens")
     tab_wait(browser, tab, 'document.body.classList.contains("search-open") && document.querySelectorAll("#se-hits .se-hit").length === 3', "the new tab shows the results")
-    got = tab_eval(browser, tab, """({ hash: location.hash, href: location.href.split("#")[0], opener: window.opener, summary: document.querySelector("#se-summary").textContent,
+    got = tab_eval(browser, tab, """({ hash: SalaAddress.here(), href: location.href, opener: window.opener, summary: document.querySelector("#se-summary").textContent,
       query: document.querySelector("#se-query").value })""")
     want = "#search?" + "&".join(f"{k}={v}" for k, v in {"q": "zebra", **DEFAULTS}.items())
-    assert got["hash"] == want and got["href"] == start["href"] and got["opener"] is None and got["query"] == "zebra", got   # the same page, the search in the address
+    assert got["hash"] == want and got["href"].split("?")[0] == served["url"] + "/search" and got["opener"] is None and got["query"] == "zebra", got   # sala's search page, the search in the address
     assert "3 matches for “zebra”" in got["summary"]
     # the tab he was on: the same page, chat, scroll and half-typed message, no search made, one call to window.open
     time.sleep(0.3)
-    now = browser.evaluate("""({ hash: location.hash, href: location.href.split("#")[0], depth: history.length, chat: document.querySelector("#chat").innerHTML.length,
+    now = browser.evaluate("""({ hash: SalaAddress.here(), href: location.href, depth: history.length, chat: document.querySelector("#chat").innerHTML.length,
       scroll: document.querySelector("#chat").scrollTop, composer: document.querySelector("#composer [contenteditable=true]").textContent })""")
     assert now == start, (now, start)
     assert browser.evaluate("[window.__searchCalls.length, document.body.classList.contains('search-open'), window.__opens.length]") == [0, False, 1]
@@ -360,9 +360,9 @@ def test_a_reload_and_a_shared_link_open_the_same_search(served, browser):
     browser.evaluate('document.querySelector("#se-tools").click()')
     browser.evaluate('document.querySelector("#se-range [data-hours=\\"1\\"]").click()')
     wait(browser, 'window.__searchCalls.length === 3 && document.querySelectorAll("#se-hits .se-hit").length === 4', "the search with tool calls over 1 h")
-    want = browser.evaluate("location.hash")
+    want = browser.evaluate("SalaAddress.here()")
     browser.send("Page.reload")
-    wait(browser, READY + ' && location.hash === %s && document.querySelectorAll("#se-hits .se-hit").length === 4' % json.dumps(want), "the reload opens the same search")
+    wait(browser, READY + ' && SalaAddress.here() === %s && document.querySelectorAll("#se-hits .se-hit").length === 4' % json.dumps(want), "the reload opens the same search")
     assert browser.evaluate("window.__searchCalls") and len(browser.evaluate("window.__searchCalls")) == 1   # one search, at load
     got = browser.evaluate("""(() => ({ boxes: Object.fromEntries([...document.querySelectorAll("#se-form input[data-box]")].map((b) => [b.dataset.box, b.checked])),
       range: [...document.querySelectorAll("#se-range .se-chip")].filter((c) => c.getAttribute("aria-pressed") === "true").map((c) => c.textContent),
@@ -379,18 +379,18 @@ def test_a_result_opens_its_chat_at_the_entry_and_back_finds_the_results_again(s
     open_page(served, browser)
     box_search(browser, "zebra answer")
     wait(browser, 'document.querySelectorAll("#se-hits .se-hit").length === 1', "the result")
-    want = browser.evaluate("location.hash")
+    want = browser.evaluate("SalaAddress.here()")
     browser.evaluate('document.querySelector("#se-hits a.se-link").click()')
-    wait(browser, 'location.hash === "#s=%s"' % NAME, "the session's chat opens")
+    wait(browser, 'SalaAddress.here() === "#s=%s"' % NAME, "the session's chat opens")
     wait(browser, '!!document.querySelector("#chat .msg.search-hit")', "the entry is lit")
     assert browser.evaluate('document.querySelector("#chat .msg.search-hit").dataset.uuid') == "a-za"
     assert browser.evaluate('document.querySelector("#chat .msg.search-hit").textContent').count("zebra answer") == 1
     assert browser.evaluate("document.body.classList.contains('search-open')") is False
     browser.evaluate("history.back()")                                                        # a wide browser: every view is an entry
-    wait(browser, 'location.hash === %s && document.querySelectorAll("#se-hits .se-hit").length === 1' % json.dumps(want), "Back finds the results")
+    wait(browser, 'SalaAddress.here() === %s && document.querySelectorAll("#se-hits .se-hit").length === 1' % json.dumps(want), "Back finds the results")
     assert browser.evaluate("window.__searchCalls.length") == 1                               # read from memory, not searched again
     browser.evaluate("history.back()")
-    wait(browser, 'location.hash === "#sessions" && document.body.classList.contains("overview-open")', "and Back again is where the search started")
+    wait(browser, 'SalaAddress.here() === "#sessions" && document.body.classList.contains("overview-open")', "and Back again is where the search started")
 
 
 def test_a_snippet_is_text_never_markup(served, browser):
@@ -408,13 +408,13 @@ def test_the_overview_has_four_tabs_and_an_old_search_link_opens_the_page(served
     open_page(served, browser, "#sessions")
     got = browser.evaluate("""(() => ({ tabs: [...document.querySelectorAll("#overview-pane .ov-tab")].map((t) => t.getAttribute("href")),
       panels: [...document.querySelectorAll("#overview-pane .ov-panel")].map((p) => p.id) }))()""")
-    assert got == {"tabs": ["#sessions", "#schedules", "#machines", "#usage"], "panels": ["ov-agents", "ov-schedules", "ov-machines", "ov-usage"]}, got
+    assert got == {"tabs": ["overview", "schedules", "machines", "usage"], "panels": ["ov-agents", "ov-schedules", "ov-machines", "ov-usage"]}, got
     seen = []
     for _ in range(4):
         browser.evaluate("""document.querySelector('#overview-pane .ov-tab[aria-selected="true"]').dispatchEvent(
           new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))""")
-        wait(browser, 'location.hash !== %s' % json.dumps(seen[-1] if seen else "#sessions"), "the tab changes")
-        seen.append(browser.evaluate("location.hash"))
+        wait(browser, 'SalaAddress.here() !== %s' % json.dumps(seen[-1] if seen else "#sessions"), "the tab changes")
+        seen.append(browser.evaluate("SalaAddress.here()"))
     assert seen == ["#schedules", "#machines", "#usage", "#sessions"]                                      # the arrows walk four tabs and wrap
     # an old #search link (the tab it was) opens the Search page, which asks for a query and searches nothing
     browser.evaluate('go("#search")')
@@ -459,10 +459,10 @@ def test_on_a_phone_a_result_is_an_entry_and_back_finds_the_results_again(served
     pos = lambda: browser.send("Page.getNavigationHistory")["currentIndex"]
     start = pos()
     browser.evaluate('go("#s=%s")' % NAME)                                                     # another move on a phone: replaced
-    wait(browser, 'location.hash === "#s=%s"' % NAME, "the chat")
+    wait(browser, 'SalaAddress.here() === "#s=%s"' % NAME, "the chat")
     assert pos() == start
     browser.evaluate('go("#sessions")')
-    wait(browser, 'location.hash === "#sessions" && document.body.classList.contains("overview-open")', "the Overview")
+    wait(browser, 'SalaAddress.here() === "#sessions" && document.body.classList.contains("overview-open")', "the Overview")
     assert pos() == start
     browser.evaluate('document.querySelector("#side-open").click()')
     wait(browser, 'document.body.classList.contains("side-open")', "the drawer")
@@ -470,20 +470,20 @@ def test_on_a_phone_a_result_is_an_entry_and_back_finds_the_results_again(served
     wait(browser, 'nav.busy === null && nav.pending === null && !document.body.classList.contains("side-open") && document.querySelectorAll("#se-hits .se-hit").length === 3', "the results")
     browser.evaluate('document.querySelector("#se-tools").click()')                           # a filter: the address rewritten in place
     wait(browser, 'window.__searchCalls.length === 2 && document.querySelectorAll("#se-hits .se-hit").length === 4', "the wider search")
-    want = browser.evaluate("location.hash")
+    want = browser.evaluate("SalaAddress.here()")
     assert pos() == start                                                                      # the search page replaced the entry too
     browser.evaluate('document.querySelector("#se-hits a.se-link").click()')
-    wait(browser, 'location.hash === "#s=%s" && !document.body.classList.contains("search-open")' % NAME, "the result's chat opens")
+    wait(browser, 'SalaAddress.here() === "#s=%s" && !document.body.classList.contains("search-open")' % NAME, "the result's chat opens")
     assert pos() == start + 1                                                                  # the result pushed an entry
     browser.evaluate("history.back()")
-    wait(browser, 'location.hash === %s && document.body.classList.contains("search-open") && document.querySelectorAll("#se-hits .se-hit").length === 4' % json.dumps(want),
+    wait(browser, 'SalaAddress.here() === %s && document.body.classList.contains("search-open") && document.querySelectorAll("#se-hits .se-hit").length === 4' % json.dumps(want),
          "Back finds the same results")
     assert pos() == start
     assert address(browser) == {"q": "zebra", **DEFAULTS, "tools": "1"}
     assert browser.evaluate('document.querySelector("#se-tools").checked') is True
     assert browser.evaluate("window.__searchCalls.length") == 2                               # read from memory, not searched again
     browser.evaluate('go("#sessions")')                                                        # and the next move replaces again
-    wait(browser, 'location.hash === "#sessions"', "the Overview")
+    wait(browser, 'SalaAddress.here() === "#sessions"', "the Overview")
     assert pos() == start
 
 
@@ -527,12 +527,12 @@ def test_the_results_page_has_its_own_query_box_that_searches_again_with_the_fil
     browser.evaluate('document.querySelector("#se-output").click()')
     wait(browser, "window.__searchCalls.length === 5", "a switch searches again")
     assert address(browser)["q"] == "answer" and address(browser)["output"] == "1"
-    want = browser.evaluate("location.hash")
+    want = browser.evaluate("SalaAddress.here()")
     browser.send("Page.reload")
-    wait(browser, READY + ' && location.hash === %s && document.querySelector("#se-query").value === "answer"' % json.dumps(want), "the reload fills the box")
+    wait(browser, READY + ' && SalaAddress.here() === %s && document.querySelector("#se-query").value === "answer"' % json.dumps(want), "the reload fills the box")
     # Back leaves the page as for the switches (the entry was rewritten, not added)
     browser.evaluate("history.back()")
-    wait(browser, 'location.hash === "#sessions"', "Back is where the search started")
+    wait(browser, 'SalaAddress.here() === "#sessions"', "Back is where the search started")
 
 
 def test_the_phone_results_box_takes_the_full_width_and_searches_again(served, browser):

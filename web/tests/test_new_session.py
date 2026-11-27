@@ -521,12 +521,12 @@ def test_old_mandate_files_are_pruned_with_the_uploads(tmp_path):
 def test_the_markup_and_the_rules_the_code_keeps():
     top = INDEX[INDEX.index('<nav class="side-top"'):INDEX.index("</nav>", INDEX.index('<nav class="side-top"'))]
     assert top.index('id="side-new"') < top.index('id="side-ovw"')   # New session above the Overview, above the list
-    assert re.search(r'<a id="side-new"[^>]*href="#new"', top) and "aria-haspopup" not in top and "new-sheet" not in INDEX   # a link to a page of its own, no dialog
+    assert re.search(r'<a id="side-new"[^>]*href="new"', top) and "aria-haspopup" not in top and "new-sheet" not in INDEX   # a link to a page of its own, no dialog
     assert re.search(r'<section id="new-pane" class="pane"', INDEX) and 'new-scrim' not in INDEX and 'new-sheet' not in APP_JS
     assert '<form id="ns-form" class="np ns-form" novalidate' in INDEX
     assert '<textarea id="ns-mandate"' in INDEX and '<button id="ns-submit" class="ns-submit" type="submit" disabled data-i18n="ui.ns.create">' in INDEX
     assert re.search(r'<input type="radio" name="ns-role" value="front" checked>', INDEX)
-    section = APP_JS[APP_JS.index("/* ---------- new session"):APP_JS.index("/* ---------- selection, hash")]
+    section = APP_JS[APP_JS.index("/* ---------- new session"):APP_JS.index("/* ---------- selection, address")]
     assert ".innerHTML" not in section and "insertAdjacentHTML" not in section   # the queue's words are shown as text only
     assert 'nsEl.mandate.addEventListener("keydown"' not in section            # Enter and Tab in the mandate stay the browser's
     assert 'nsPost("api/spawn", ' in section and 'fetch(url, { method: "POST"' in section   # every step is a POST that is never repeated on its own
@@ -579,7 +579,7 @@ NS = """(() => {
     steps: [...document.querySelectorAll("#ns-status .ns-step")].map((s) => s.textContent),
     lanes: [...q("#ns-lane").options].map((o) => o.value + "=" + o.textContent), efforts: [...q("#ns-effort").options].map((o) => o.value + "=" + o.textContent),
     models: [...q("#ns-model").options].map((o) => o.value + "=" + o.textContent), modelOtherHidden: q("#ns-model-other").hidden,
-    hash: location.hash, sideOpen: document.body.classList.contains("side-open") };
+    hash: SalaAddress.here(), sideOpen: document.body.classList.contains("side-open") };
 })()"""
 ROWS_LOADED = "document.querySelector('#ns-projects').getAttribute('aria-busy') === 'false'"
 # The lanes, models and efforts (and what "use default" resolves to) come from api/spawn/options, a request of its own that
@@ -660,12 +660,12 @@ def open_more(browser) -> None:
 
 
 def test_the_button_opens_a_page_in_the_main_area_at_phone_and_desktop_widths(sala, served, browser):
-    # a phone: the sidebar's first row, above the Overview, a link to #new; a tap closes the drawer and the page fills the
+    # a phone: the sidebar's first row, above the Overview, a link to /new; a tap closes the drawer and the page fills the
     # main area (under the title bar, the whole width), the chat and the composer gone; no keyboard pops up
     open_page(browser, served)
     g = ns(browser)
     assert g["hidden"] and g["current"] is None and g["newBox"]["bottom"] <= g["ovwBox"]["top"] + 1 and g["newBox"]["height"] >= 30, g
-    assert browser.evaluate("document.querySelector('#side-new').getAttribute('href')") == "#new"
+    assert browser.evaluate("document.querySelector('#side-new').getAttribute('href')") == "new"
     click(browser, "#side-new")
     assert wait_for(browser, "document.body.classList.contains('new-open') && !nav.busy", 5.0), ns(browser)
     g = ns(browser)
@@ -704,16 +704,16 @@ def test_back_returns_from_the_page_and_the_link_opens_it_again(sala, served, br
     h0 = browser.evaluate("history.length")
     click(browser, "#side-new")
     assert wait_for(browser, "document.body.classList.contains('new-open') && !nav.busy", 5.0), ns(browser)
-    assert browser.evaluate("location.hash") == "#new" and browser.evaluate("history.length") == h0 + 1
+    assert browser.evaluate("SalaAddress.here()") == "#new" and browser.evaluate("history.length") == h0 + 1
     assert browser.evaluate("history.state.sala.layers") == []
     browser.evaluate("history.back(); ''")
     assert wait_for(browser, "!document.body.classList.contains('new-open') && !nav.busy", 5.0), ns(browser)
-    assert browser.evaluate("location.hash") == f"#s={FAKE}" and browser.evaluate("state.selected") == FAKE
+    assert browser.evaluate("SalaAddress.here()") == f"#s={FAKE}" and browser.evaluate("state.selected") == FAKE
     # Forward is the page again
     browser.evaluate("history.forward(); ''")
     assert wait_for(browser, "document.body.classList.contains('new-open') && !nav.busy", 5.0), ns(browser)
     # a reload on the link opens the page (nothing else is recorded: no layer to walk back over)
-    browser.reload()   # the link is #new: the page has no chat message to wait for
+    browser.reload()   # the page is /new: the page has no chat message to wait for
     assert wait_for(browser, "document.body.classList.contains('new-open') && !nav.busy && nav.reload === 0", 10.0), ns(browser)
     g = ns(browser)
     assert g["open"] and g["hash"] == "#new" and g["current"] == "page", g
@@ -722,7 +722,7 @@ def test_back_returns_from_the_page_and_the_link_opens_it_again(sala, served, br
     browser.send("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True})
     browser.evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))")
     browser.evaluate(f"location.hash = {json.dumps('#s=' + FAKE)}; ''")
-    assert wait_for(browser, f"location.hash === '#s={FAKE}' && !document.body.classList.contains('new-open') && !nav.busy", 5.0), ns(browser)
+    assert wait_for(browser, f"SalaAddress.here() === '#s={FAKE}' && !document.body.classList.contains('new-open') && !nav.busy", 5.0), ns(browser)
     click(browser, "#side-open")
     wait_side(browser)
     click(browser, "#side-new")
@@ -854,10 +854,10 @@ def test_a_submit_queues_the_spawn_and_the_link_appears_when_the_session_is_in_t
     assert g["link"] is None and "sala is starting the session" in g["status"], g
     browser.evaluate("window.__names = ['gamma-harbor-pink']; ''")
     g = wait_state(browser, "ready")
-    assert g["link"] == "#s=gamma-harbor-pink" and "Open" in g["status"], g
-    # the link opens the session (the hash, through the page's own history rules) and the page gives way to it
+    assert g["link"] == "s/gamma-harbor-pink" and "Open" in g["status"], g
+    # the link opens the session (through the page's own history rules) and the page gives way to it
     click(browser, "#ns-status a.ns-link")
-    assert wait_for(browser, "location.hash === '#s=gamma-harbor-pink' && !document.body.classList.contains('new-open') && !nav.busy", 5.0), ns(browser)
+    assert wait_for(browser, "SalaAddress.here() === '#s=gamma-harbor-pink' && !document.body.classList.contains('new-open') && !nav.busy", 5.0), ns(browser)
     assert wait_for(browser, "document.querySelector('#title .name') && document.querySelector('#title .name').textContent === 'gamma-harbor-pink'", 5.0)
     assert browser.evaluate("history.state.sala.layers.length") == 0
 

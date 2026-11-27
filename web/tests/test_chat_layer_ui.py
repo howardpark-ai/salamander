@@ -430,7 +430,7 @@ def test_a_reload_draws_the_thread_once_and_a_setting_turned_off_gives_the_sessi
 def test_a_session_that_is_not_running_shows_what_sala_shows(served, browser, monkeypatch):
     end_session(served)
     open_chat(browser, served, monkeypatch, ready=False)
-    assert wait_for(browser, "!!document.querySelector('#chat > .empty a[href=\"#sessions\"]')", 20.0)
+    assert wait_for(browser, "!!document.querySelector('#chat > .empty a[href=\"overview\"]')", 20.0)
     assert not browser.evaluate(LAYERED) and browser.evaluate(LAYER_NODES) == 0 and browser.evaluate("window.__reads") == []
 
 

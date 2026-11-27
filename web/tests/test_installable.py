@@ -200,7 +200,7 @@ def test_the_routes_around_them_are_unchanged(client):
     assert client.post("/manifest.webmanifest").status_code == 405
     assert client.post("/sw.js").status_code == 405
     r = client.get("/sessions", follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == "./#sessions"
+    assert r.status_code == 302 and r.headers["location"] == "./overview"
     r = client.get("/?arg=demo", follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == "/terminal?arg=demo"
     assert client.get("/api/config").status_code == 200

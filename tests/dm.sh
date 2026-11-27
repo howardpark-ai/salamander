@@ -105,7 +105,7 @@ mkdir -p "$T/tok"; chmod 700 "$T/tok"
 settoken() { rm -f "$T/tok/slack-bot-token-$1"; printf '%s\n' "${2:-$TOKEN}" > "$T/tok/slack-bot-token-$1"; chmod 600 "$T/tok/slack-bot-token-$1"; }   # <app> [token]
 settoken alpha-app; settoken beta-app "$TOKEN"
 # links: the board's address, sala's session link, and a fake registry (the lookup is this suite's, never the machine's sessions or tmux)
-export SALA_STACKSHOT_WEB=https://board.example.com SALA_SESSION_URL='https://sala.example.com/#s={name}' BRIEFING_LOGDIR=$T/briefing-logs
+export SALA_STACKSHOT_WEB=https://board.example.com SALA_SESSION_URL='https://sala.example.com/s/{name}' BRIEFING_LOGDIR=$T/briefing-logs
 printf '%s\n' '{"sessions":[{"name":"example-session","state":"live"},{"name":"example-side","state":"live"},{"name":"retired-session","state":"retired"}]}' > "$T/registry.json"
 : > "$T/spawnlist"
 export BRIEFING_REGISTRY_CMD="cat $T/registry.json" BRIEFING_SPAWN_LIST_CMD="cat $T/spawnlist"
@@ -385,7 +385,7 @@ reset
 # The id is built at run time (BD#N): no literal board id sits in this file.
 BD=board
 # The registry, the board's address and sala's session link are this suite's own (set with the other settings above); L <name> is a session's link.
-BI=https://board.example.com/items; SU='https://sala.example.com/#s='
+BI=https://board.example.com/items; SU='https://sala.example.com/s/'
 L() { printf '<%s%s|%s>' "$SU" "$1" "$1"; }
 sent() { last '["body"]["text"]'; }
 chk() {   # <what> <text> <expected text as Slack gets it>

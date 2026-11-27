@@ -405,7 +405,7 @@
                                  #   post nothing. A failure (an unknown verb, a 404 while stackshot's route is not live, no network, a non-zero exit) is one line per five minutes in $SALA_LOG_DIR/salamander-machines.log and never fails the heartbeat
 #SALA_MACHINES_POST_TIMEOUT=30   # seconds that command may run before it is stopped
 #SALA_MACHINES_POST_MAX_BODY=900000   # stackshot refuses a body over 1 MB: a list over this many bytes is written and not posted
-#SALA_SESSION_URL='https://sala.example.com/#s={name}'   # the link of a session on THIS box: the heartbeat's url for its own rows and
+#SALA_SESSION_URL='https://sala.example.com/s/{name}'    # the link of a session on THIS box: the heartbeat's url for its own rows and
                                  #   the rename notice. {name} = the session's name, percent-encoded as encodeURIComponent does.
                                  #   Unset or empty (the default): the claude.ai Remote Control link of a bridged session, none for an unbridged one.
                                  #   Set it to the address of a web UI that opens a session by name (sala-web, the web package) to link that instead.

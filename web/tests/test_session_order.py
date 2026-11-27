@@ -166,15 +166,15 @@ def test_a_drag_reorders_inside_its_project_and_sala_keeps_it(served, browser):
 
 def test_a_drag_does_not_open_the_session_and_a_click_still_does(served, browser):
     open_list(browser, served)
-    h0 = browser.evaluate("location.hash")
+    h0 = browser.evaluate("SalaAddress.here()")
     drag(browser, "example-alpha-main", above(browser, "example-alpha-engineer"))
     time.sleep(0.3)
-    assert browser.evaluate("location.hash") == h0, "the drop also followed the row's link"
+    assert browser.evaluate("SalaAddress.here()") == h0, "the drop also followed the row's link"
     # a press that does not move is the link
     x, y = center(browser, "example-beta-x")
     for t in ("mousePressed", "mouseReleased"):
         browser.send("Input.dispatchMouseEvent", {"type": t, "x": x, "y": y, "button": "left", "clickCount": 1})
-    assert wait_for(browser, "location.hash === '#s=example-beta-x'", 5.0), browser.evaluate("location.hash")
+    assert wait_for(browser, "SalaAddress.here() === '#s=example-beta-x'", 5.0), browser.evaluate("SalaAddress.here()")
 
 
 def test_the_saved_order_comes_first_a_new_session_follows_it_and_unknown_names_are_ignored(served, browser):

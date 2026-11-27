@@ -64,14 +64,14 @@ def settle(browser, expr: str, what: str, ms: int = 15000):
     return v
 
 
-# (name, hash, a condition that says the page is drawn, the selector of its content column or None)
+# (name, address, a condition that says the page is drawn, the selector of its content column or None)
 PAGES = [
-    ("agents", "#sessions", "document.querySelectorAll('#sp-table tbody tr').length > 0 && getComputedStyle(document.querySelector('#overview-pane')).display !== 'none'", "#overview-pane .sp"),
-    ("schedules", "#schedules", "document.querySelector('#overview-pane').dataset.tab === 'schedules' && document.querySelector('#sc-reload')", "#overview-pane .sp"),
-    ("machines", "#machines", "document.querySelector('#overview-pane').dataset.tab === 'machines' && document.querySelector('#mc-reload')", "#overview-pane .sp"),
-    ("chat", f"#s={NAME}", "document.querySelectorAll('#chat .msg').length > 0", "#chat"),
-    ("search", "#search?q=zebra&hours=24", "document.querySelectorAll('#se-hits .se-hit').length > 0", "#search-pane .se-page"),
-    ("new", "#new", "getComputedStyle(document.querySelector('#new-pane')).display !== 'none' && document.querySelector('#ns-form')", "#new-pane .np-col"),
+    ("agents", "overview", "document.querySelectorAll('#sp-table tbody tr').length > 0 && getComputedStyle(document.querySelector('#overview-pane')).display !== 'none'", "#overview-pane .sp"),
+    ("schedules", "schedules", "document.querySelector('#overview-pane').dataset.tab === 'schedules' && document.querySelector('#sc-reload')", "#overview-pane .sp"),
+    ("machines", "machines", "document.querySelector('#overview-pane').dataset.tab === 'machines' && document.querySelector('#mc-reload')", "#overview-pane .sp"),
+    ("chat", f"s/{NAME}", "document.querySelectorAll('#chat .msg').length > 0", "#chat"),
+    ("search", "search?q=zebra&hours=24", "document.querySelectorAll('#se-hits .se-hit').length > 0", "#search-pane .se-page"),
+    ("new", "new", "getComputedStyle(document.querySelector('#new-pane')).display !== 'none' && document.querySelector('#ns-form')", "#new-pane .np-col"),
 ]
 
 
@@ -105,9 +105,9 @@ def test_each_page_fits_the_window_draws_its_column_loads_the_code_face_and_logs
     browser.send("Network.setBlockedURLs", {"urls": ["https://cdn.jsdelivr.net/*"]})
     browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": width <= 760})
     seen = []
-    for name, hash_, ready, col in PAGES:
+    for name, address, ready, col in PAGES:
         browser.send("Page.navigate", {"url": "about:blank"})
-        browser.send("Page.navigate", {"url": f"{served['url']}/{hash_}"})
+        browser.send("Page.navigate", {"url": f"{served['url']}/{address}"})
         settle(browser, "typeof state !== 'undefined' && state.byName.has(%s)" % json.dumps(NAME), f"{name}: the app did not start at {width}px")
         settle(browser, ready, f"{name}: the page was not drawn at {width}px")
         facts = browser.evaluate("""(async () => {
@@ -124,7 +124,7 @@ def test_each_page_fits_the_window_draws_its_column_loads_the_code_face_and_logs
           };
         })()""" % json.dumps(col))
         seen.append((name, facts))
-        assert facts["path"] == "/", (name, facts)
+        assert facts["path"] == "/" + address.split("?")[0], (name, facts)
         assert facts["title"] and "v2" not in facts["title"].lower(), (name, facts)   # the app sets the title per view; the page's own is "sala" (test_look_scale.py)
         assert facts["scroll"] <= facts["inner"], f"{name} at {width}px scrolls sideways: {facts}"
         if width >= 1024:
