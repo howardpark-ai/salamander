@@ -19,8 +19,9 @@ folder, 600 for a file). A message is an entry with a state:
   withdrawn  the owner cancelled or edited it before it was typed
   failed     it could not be sent (`error` says why); the text stays, so Edit takes it back
 
-Only held and failed messages can be taken back: once the text is in the session's pane it is the session's (taking it out of the
-CLI's own queue needs a key sala does not send; that is a later step, and the answer is `tooLate` until then).
+A held or failed message is taken back by withdrawing it. A queued one that the session has not read yet is first taken out of the
+CLI's own queue (app.py, _take_back): one Up pulls the whole queue into the input box, the transcript's popAll lines say what came back,
+and the others are typed again in order. Once the session has taken a message from its queue the answer is `tooLate`.
 
 The matching of what the transcript shows (a user line, a queued_command attachment, a queue-operation line) is here as plain
 functions, so that it is tested on made-up lines. Everything of the store runs on the event loop's thread, never in a worker.
@@ -240,7 +241,8 @@ class Outbox:
         return e
 
     def withdraw(self, name: str, mid: str) -> dict:
-        """The owner's cancel or edit: a held or failed message becomes withdrawn. Raises TooLate for one the pane has, NotFound for an unknown id.
+        """The owner's cancel or edit: a held or failed message becomes withdrawn. Raises TooLate for one the pane has (a queued one is taken
+        out of the pane first, by the caller), NotFound for an unknown id.
         A withdrawn one asked for again is returned as it is."""
         e = self.get(name, mid)
         if e is None:
@@ -343,22 +345,7 @@ def delivered_ids(queued: list[dict], rows: list[tuple[int, str, int]]) -> list[
     return out
 
 
-def read_ops(path: Path, since_ms: int, max_bytes: int = 512 * 1024) -> list[dict]:
-    """The queue-operation lines at the end of a transcript that are stamped `since_ms` or later: {"op", "ts", "text"} (text normalized, None when
-    the line carries none: a dequeue, and an enqueue made during a compaction). The CLI writes these when a message is typed while it works
-    (Claude Code 2.1.332; not a documented contract: nothing here acts on a line that is not in this shape)."""
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            f.seek(max(0, size - max_bytes))
-            raw = f.read()
-            cut = size > max_bytes
-    except OSError:
-        return []
-    lines = raw.split(b"\n")
-    if cut:
-        lines = lines[1:]    # the first line is a part
+def _parse_ops(lines: list[bytes], since_ms: int) -> list[dict]:
     out = []
     for ln in lines:
         if b'"queue-operation"' not in ln:
@@ -373,9 +360,46 @@ def read_ops(path: Path, since_ms: int, max_bytes: int = 512 * 1024) -> list[dic
         if t is None or t < since_ms:
             continue
         c = d.get("content")
-        out.append({"op": d["operation"], "ts": t, "text": norm_text(c) if isinstance(c, str) else None})
+        out.append({"op": d["operation"], "ts": t, "text": norm_text(c) if isinstance(c, str) else None,
+                    "raw": _WRAP_RE.sub("", c).strip("\n") if isinstance(c, str) else None})
     out.sort(key=lambda o: o["ts"])
     return out
+
+
+def snapshot_ops(path: Path, since_ms: int, max_bytes: int) -> tuple[int, list[dict]]:
+    """read_ops of the transcript's end, with the offset just past the last whole line it read: a later read_ops from that offset gives the
+    lines written after this look, none twice and none lost. (0, []) when the file can not be read."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            first = max(0, f.tell() - max_bytes)
+            f.seek(first)
+            raw = f.read()
+    except OSError:
+        return 0, []
+    whole = raw[:raw.rfind(b"\n") + 1]
+    lines = whole.split(b"\n")
+    return first + len(whole), _parse_ops(lines[1:] if first else lines, since_ms)
+
+
+def read_ops(path: Path, since_ms: int, max_bytes: int = 512 * 1024, start: int | None = None) -> list[dict]:
+    """The queue-operation lines at the end of a transcript (or from the byte `start` on) that are stamped `since_ms` or later:
+    {"op", "ts", "text", "raw"} (text normalized, raw as typed without Claude Code's paste wrapper; both None when the line carries none: a
+    dequeue, and an enqueue made during a compaction). The CLI writes these when a message is typed while it works
+    (Claude Code 2.1.332; not a documented contract: nothing here acts on a line that is not in this shape)."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - max_bytes) if start is None else start)
+            raw = f.read()
+            cut = start is None and size > max_bytes
+    except OSError:
+        return []
+    lines = raw.split(b"\n")
+    if cut:
+        lines = lines[1:]    # the first line is a part
+    return _parse_ops(lines, since_ms)
 
 
 RESOLVING = ("remove", "dequeue", "popAll")
@@ -404,6 +428,85 @@ def lost_ids(queued: list[dict], ops: list[dict]) -> list[str]:
                     out.append(e["id"])
                 break
     return out
+
+
+TAKE_BACK_MAX_BYTES = 32 * 1024 * 1024  # the most of a transcript's end read to find the CLI's queue for a take-back
+
+# queue items Claude Code adds itself: never the owner's messages, and an Up leaves them where they are
+_SYSTEM_ITEMS = ("<task-notification", "<agent-notification", "<teammate-message", "<cross-session-message", "<system-reminder")
+
+
+def system_item(text: object) -> bool:
+    return isinstance(text, str) and text.startswith(_SYSTEM_ITEMS)
+
+
+def queue_items(ops: list[dict]) -> list[str | None]:
+    """The texts the CLI's queue holds after `ops` (read_ops, in file order), oldest first: an enqueue line adds one; a remove or popAll line
+    takes the item with its text (a line whose text is not there is about an item from before `ops`, and takes nothing); a line with no text
+    (a dequeue) takes the oldest item that is not the CLI's own notice. An enqueue line with no text is None, which matches no message."""
+    q: list[str | None] = []
+    for o in ops:
+        if o["op"] == "enqueue":
+            q.append(o["text"])
+        elif o["op"] in RESOLVING:
+            if o["text"] is not None:
+                if o["text"] in q:
+                    q.remove(o["text"])
+            elif q:
+                del q[next((i for i, t in enumerate(q) if not system_item(t)), 0)]
+    return q
+
+
+def match_queue(items: list[str | None], queued: list[dict]) -> tuple[list[tuple[str, str]], list[str | None]]:
+    """Which of `queued` (the outbox's queued entries, oldest first) are in the queue `items`: ([(id, normalized text)] in the queue's
+    order, the items that are no entry's). The newest item takes the newest entry with its text, so that an old entry the transcript never
+    settled is not taken for a message sent now with the same words. The CLI's own notices are neither."""
+    left = list(queued)
+    owned: list[tuple[str, str]] = []
+    foreign: list[str | None] = []
+    for text in reversed(items):
+        i = next((i for i in range(len(left) - 1, -1, -1) if text and norm_text(left[i]["text"]) == text), None)
+        if i is not None:
+            owned.append((left.pop(i)["id"], text))
+        elif not system_item(text):
+            foreign.append(text)
+    return owned[::-1], foreign[::-1]
+
+
+def popped_ids(queued: list[dict], ops: list[dict]) -> list[str]:
+    """Of `queued` (not shown delivered), the ids a popAll line stamped after they were sent names: the CLI took them out of its queue into
+    the input box. Two equal messages take one line each."""
+    lines = [o for o in ops if o["op"] == "popAll" and o["text"]]
+    out = []
+    for e in queued:
+        want = norm_text(e["text"])
+        i = next((i for i, o in enumerate(lines) if o["text"] == want and o["ts"] >= e["sentAt"]), None)
+        if i is not None:
+            lines.pop(i)
+            out.append(e["id"])
+    return out
+
+
+def settle_take_back(wanted: list[tuple[str, str]], ops: list[dict]) -> tuple[list[str], list[str], list[str], list[str]]:
+    """What the transcript lines written after the Up say of `wanted` (match_queue's first list): (popped: ids the Up pulled into the input
+    box, taken: ids the session took from the queue first, left: ids no line speaks of, extra: texts popped that are none of `wanted`).
+    Lines with a text are read first; a dequeue (no text) then takes the oldest still unspoken for."""
+    left = list(wanted)
+    popped: list[str] = []
+    taken: list[str] = []
+    extra: list[str] = []
+    for o in ops:
+        if o["op"] not in ("popAll", "remove") or o["text"] is None:
+            continue
+        i = next((i for i, (_id, t) in enumerate(left) if t == o["text"]), None)
+        if i is not None:
+            (popped if o["op"] == "popAll" else taken).append(left.pop(i)[0])
+        elif o["op"] == "popAll" and not system_item(o["text"]):
+            extra.append(o.get("raw") or o["text"])
+    for o in ops:
+        if o["op"] == "dequeue" and left:
+            taken.append(left.pop(0)[0])
+    return popped, taken, [i for i, _t in left], extra
 
 
 class ClearedLog:

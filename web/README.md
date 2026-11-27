@@ -745,7 +745,7 @@ the sender and the transcript check); the page does not use it yet: the visible 
 
 - **States of a message.** `held` (waiting: `reason` says for what), `typing` (being pasted into the pane now), `queued` (typed and submitted; the
   session has it, in its input queue or taken, and no transcript line shows it yet), `delivered` (a transcript line shows the session took it),
-  `withdrawn` (the owner cancelled or edited it before it was typed), `failed` (`error` says why; the text stays, so Edit takes it back).
+  `withdrawn` (the owner cancelled or edited it before Claude read it), `failed` (`error` says why; the text stays, so Edit takes it back).
 - **Reasons of a held message** (`REASONS` in `outbox.py`): `asleep` (the session sleeps: the page asks for the wake), `gone` (no session of that name is
   listed now: it may be relaunching), `pane` (its pane is not found, or is not the session's own), `tmux` (tmux did not answer), `noInput` (the pane shows
   no input box: a menu, a screen being drawn, a woken session still loading), `dialog` (a permission or question dialog is open), `draft` (the terminal's
@@ -757,15 +757,26 @@ the sender and the transcript check); the page does not use it yet: the visible 
   web `busy` status: a turn in progress does not hold a message (Claude Code queues it). A pasted message the pane did not submit (`pasted`) is submitted
   only while the box holds exactly its text, else it is `failed`: never typed twice.
 - **Delivered, and lost.** A transcript user line (or a `queued_command` line, or a line that joins several queued messages) with the message's text,
-  stamped no earlier than the message was sent (3 s of slack), marks it `delivered`. A `queued` message whose session process has ended before any such
+  stamped no earlier than the message was sent (3 s of slack), marks it `delivered`. A `queued` message that a `popAll` line stamped
+  after it was sent names (it was pulled back into the input line by an Up that sala-web did not press) is `failed` with its text kept. A `queued` message whose session process has ended before any such
   line is **resent once, only on positive evidence**: an `enqueue` line of the transcript's `queue-operation` rows carrying exactly its text, with no
   `remove`, `dequeue` or `popAll` line that took its place in the queue (first in, first out). An enqueue made during a compaction has no content and is
   no evidence. This reads Claude Code's own bookkeeping (2.1.332), which is not a documented contract: a shape it does not recognise is not acted on.
 - **Answers pass at once.** A message that is a lone option number or `esc` while a dialog shows that option is pressed immediately (`dialogAnswer`) and is
   never kept. A `!` command is never held: `POST /api/outbox/<name>` refuses it (400, `bang: true`) and it goes through `POST /api/s/<pid>/send`.
-- **Edit and Cancel.** Only a `held` or `failed` message can be taken back: the text is not in the pane yet. Edit = withdraw it first, then the new text
-  joins at the end of the list (it does not keep its place). Once the text is typed the answer is **409 `tooLate`** ("too late: ...; nothing was changed"),
-  and nothing is pressed. Taking a message back out of the CLI's own queue (the Up key) is a later step.
+- **Edit and Cancel.** A `held` or `failed` message is not in the pane: it is withdrawn at once. Edit = withdraw it first, then the new text
+  joins at the end of the list (it does not keep its place). A `queued` message (typed, not yet read by Claude) is **taken back** first
+  (`_take_back` in `app.py`). Once Claude took it the answer is **409 `tooLate`** ("too late: ...; nothing was changed").
+- **Taking a queued message back.** Claude Code cannot drop one queued message: one **Up** pulls its whole queue into the input box. So,
+  with the pane's locks held from the first look to the last resend: the transcript's `queue-operation` lines must show the message in the
+  queue and nothing there that sala-web did not send (Claude Code's own notices, a task's or another session's, are passed over); no queued
+  message may have an upload; no permission or question dialog may be open; text in the input line is cleared first (kept as below). The
+  messages about to be pulled are marked `typing`, then Up is pressed. The lines written after it say what happened: the asked message is
+  withdrawn; the others that came back (`popAll`) are cleared out of the box and typed again, in their order; one that Claude took first
+  stays its own (and the answer for it is `tooLate`). Otherwise the answer is **409 `busy`** with why and nothing changed. When no line
+  accounts for a message after the Up, it is `failed` with its text kept and never typed again by sala-web: nothing is typed twice, and
+  nothing is dropped without being told. Taking one of many back types all the others again, so it takes time (30 queued: about 27 s, measured
+  once on 2.1.332), and Claude may read them later than it would have.
 - **Text in the terminal's box.** It is never the owner's, so it is cleared and the message goes in, never held behind it (`draft` is held only when the
   keys could not clear it). What was cleared is appended to `<state dir>/outbox-cleared.jsonl` before the keys go in: one JSON line `{t, session, text}`,
   mode 600, the newest half kept when the file passes 256 KB.
@@ -2484,8 +2495,8 @@ part of `web/`.
 | `POST /api/s/<pid>/send` | `{"text": "...", "uploads": ["<name as /api/upload returned it>"]}` as `application/json`; with a dialog open, `{"text": "2"}` or `{"text": "esc"}` answers it (`dialogAnswer` in the reply); text in the pane's input box is cleared first and kept in `<state dir>/outbox-cleared.jsonl`, and a box the keys cannot empty is a 409 with `boxText` and nothing typed; a refusal (status 400 and up) is logged with its path, status and reason |
 | `GET /api/outbox/<name>` | the messages the server holds for a session (live or sleeping), oldest first: `{ok, messages: [{id, cid, text, uploads, state, reason, detail, error, created, updated, sentAt, attempts, resent}], version}`; the same list is the stream's `outbox` event (*Messages held by the server*) |
 | `POST /api/outbox/<name>` | `{"text", "uploads": [...], "cid"?: "<[A-Za-z0-9_-]{1,64}>"}` as `application/json` -> `{ok, message, messages}`: the message is typed at once when the pane can take it, else held (`message.state`, `message.reason`); a lone option number or `esc` over a dialog is pressed at once (`{ok, dialogAnswer}`, not kept); a `!` command is refused (400, `bang: true`; it goes through `/send`); a `cid` the list has returns that message; 404 for a name that is not a live or sleeping session |
-| `POST /api/outbox/<name>/<id>/cancel` | take back a held or failed message: 200 `{ok, message, messages}` (state `withdrawn`, text and uploads as they were); 409 `{ok: false, tooLate: true, state, error, message}` once it is typed (nothing changed); 404 for an unknown id |
-| `POST /api/outbox/<name>/<id>/edit` | `{"text", "uploads": [...]}` as `application/json`: withdraw the old message first, then the new one joins at the end: 200 `{ok, message, withdrawn, messages}`; 409 `tooLate` as above, nothing changed |
+| `POST /api/outbox/<name>/<id>/cancel` | take back a message: a held or failed one at once, a queued one out of the pane first (*Taking a queued message back*): 200 `{ok, message, messages}` (state `withdrawn`, text and uploads as they were); 409 `{ok: false, tooLate: true, state, error, message}` once Claude took it (nothing changed); 409 `{ok: false, busy: true, state, error, message}` when the pane cannot give it back now; 404 for an unknown id; 502 when tmux fails |
+| `POST /api/outbox/<name>/<id>/edit` | `{"text", "uploads": [...]}` as `application/json`: withdraw the old message first, then the new one joins at the end: 200 `{ok, message, withdrawn, messages}`; 409 `tooLate` or `busy` as above (the new text is then not added) |
 | `POST /api/shell/open` | `{}` as `application/json` → `{ok, session: "<SALA_SHELL_SESSION>", created}`: makes the shell drawer's tmux session (a plain `bash -l` in the home directory) when it is missing, under a lock; `created` is true when it had to (*The shell drawer*, *Where the session is made*: the drawer calls it each time it opens, the full-size page when its `?arg` is the Shell session, and the app itself once at start); 403/415 as every POST, 502 when tmux cannot make it |
 | `POST /api/shell/keys` | `{"key": "<name>"}` as `application/json`, `name` one of `Escape`, `Tab`, `Up`, `Down`, `Left`, `Right`, `Enter`, `BSpace`, `C-a`..`C-z` → `{ok, sent}`: `tmux send-keys -t =<SALA_SHELL_SESSION>: <name>`; any other name 400 and nothing sent, 502 when the session is not there; 403/415 as every POST |
 | `POST /api/shell/keylog` | a JSON list of at most 50 events as `application/json` (32 KB at most), from the Shell's terminal frame: `{t, type: keydown\|keyup, key, code, keyCode, isComposing, shift, ctrl, alt, meta}` or `{t, type: compositionstart\|compositionupdate\|compositionend}` (no other field) → `{ok, n}`, n the events kept, one JSON line each in `<state_dir>/shell-keylog.jsonl` (0600, 256 KB at most, the newest half kept past it; *The shell drawer*). It records which non-character keys were pressed and when and that IME activity happened and when, never which letter keys: a key event is kept only when `key` is on the fixed list (`Alt`, `HangulMode`, `Process`, `Enter`, `F1`..`F24`, ...) and `code` is one of those keys' physical names or empty, never a letter, digit, punctuation or numpad key's; an IME event (`key` `Process`, `Unidentified`, `Dead` or `Compose`, `isComposing`, or `keyCode` 229) is stored with `keyCode` 0 and `shift` false, and its `code` only when it names a non-character key (`Lang1` ...), else `""`, whatever the client sent; a composition event with a `data` field (or any other) is dropped, never written; an event of any other shape is dropped, not an error; a body that is not such a list (or over 50 events or 32 KB, or not JSON) is 400; 403/415 as every POST |

@@ -235,8 +235,14 @@ none itself):
   POST /api/outbox/<name>         {"text", "uploads", "cid"?} -> typed at once when the pane can take it, else HELD and typed when it can,
                                   in order (a dialog is open, the terminal's box holds text, no input box, asleep, no pane); a lone option
                                   number or "esc" over a dialog is pressed at once; a `!` command is refused (400: it goes through /send)
-  POST /api/outbox/<name>/<id>/cancel   take a held or failed message back (409 tooLate once it is typed)
-  POST /api/outbox/<name>/<id>/edit     {"text", "uploads"}: withdraw it, then the new text joins at the end (409 tooLate as above)
+  POST /api/outbox/<name>/<id>/cancel   take a held or failed message back (409 tooLate once it is typed). A queued one (sent to a
+                                  busy pane, not yet read) is taken back too: Up pulls the pane's whole queue into the input box, the
+                                  others are cleared out and sent again in order. Text already in the input line is cleared first (and
+                                  kept, as before a send). 409 busy when the pane can not do that now (a dialog, a line that can not be
+                                  cleared, a queue that does not read back as sala's, an upload in it, an Up that took nothing back, or an
+                                  Up that can not be confirmed: then those messages are failed with their text kept); 409 tooLate when the
+                                  session already took it
+  POST /api/outbox/<name>/<id>/edit     {"text", "uploads"}: withdraw it (a queued one as in cancel), then the new text joins at the end (409 as above)
   GET  /api/prefs                 the page's saved preferences (scopeOrder, groupOrder, sessionOrder, collapsed,
                                   laneOrder, agentsGroup, agentsFolded, showAll, showSleeping, unreadOnly, showTools, shellHeight, lang)
   PUT  /api/prefs                 merge the given keys into them (state_dir/prefs.json, written atomically)
@@ -384,6 +390,7 @@ MOD_ENTER_WAIT = 1.5       # seconds the box is watched after the Enter for it t
 MOD_ENTER_POLL = 0.15
 OUTBOX_TICK = 1.5             # seconds between two looks of the outbox's sender at the messages it holds (a new message wakes it at once)
 OUTBOX_GAP = 0.4              # seconds after a message went in before the next is tried (the pane clears its box)
+TAKE_BACK_WAIT = 8.0          # seconds the take-back waits for the transcript and the input box to show the Up took the queue (the answer is a busy after it)
 OUTBOX_GIVE_UP = 30 * 60      # a held message whose session is not listed, or whose pane is not found, is failed (its text kept) after this long
 PREFS_MAX_BYTES = 64 * 1024
 PREFS_MAX_GROUPS = 500
@@ -1915,15 +1922,18 @@ def create_app(settings: Settings | None = None) -> Starlette:
         e = outbox.get(name, mid)
         if e is None or e["state"] != OB.HELD:
             return
-        if reason in ("gone", "pane", "tmux") and time.time() * 1000 - e["created"] > OUTBOX_GIVE_UP * 1000:
+        now = int(time.time() * 1000)
+        lost = (e.get("lostAt") or now) if reason in ("gone", "pane", "tmux") else None
+        if lost is not None and now - lost > OUTBOX_GIVE_UP * 1000:
             outbox.update(name, mid, state=OB.FAILED, reason=None, detail="",
                           error="the session did not come back, or its pane was not found, for a long while; the message was not sent")
             return
-        outbox.update(name, mid, reason=reason, detail=detail)
+        outbox.update(name, mid, reason=reason, detail=detail, lostAt=lost)
 
-    async def _release(name: str, s: S.Session | None) -> None:
+    async def _release(name: str, s: S.Session | None, locked: bool = False) -> None:
         """Send the held messages of one session, oldest first, for as long as the pane can take the next. The first one it can not send stops the
-        others behind it; a message that fails does not (its text is kept and the owner is told)."""
+        others behind it; a message that fails does not (its text is kept and the owner is told). `locked`: the caller (a take-back) already
+        holds the pane's send lock."""
         while True:
             e = outbox.head(name)
             if e is None:
@@ -1964,7 +1974,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             retry = bool(cur["pasted"])
             outbox.update(name, mid, state=OB.TYPING, reason=None, detail="", attempts=cur["attempts"] + 1)
             try:
-                async with send_locks.setdefault(pane, asyncio.Lock()):
+                async with contextlib.nullcontext() if locked else send_locks.setdefault(pane, asyncio.Lock()):
                     resp, _answered = await _send_locked(s, pane, cur["text"], paths, None, retry, None, clear_stray=True)
             except T.TmuxError as ex:
                 outbox.update(name, mid, state=OB.HELD, reason="tmux", detail="", error=str(ex)[:200])
@@ -2007,9 +2017,19 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return
         track_seen[name] = key
         msgs, _cur, _end = await run_in_threadpool(TR.read_tail_page, path, s.session_id, 120)
-        took = set(OB.delivered_ids(queued, OB.rows_from_messages(msgs)))
+        rows = OB.rows_from_messages(msgs)
+        # a message typed before a /clear (another conversation, the same live process) is matched apart, so that it never stands in the way
+        # of the ones typed after it
+        old = [e for e in queued if e.get("sessionId") not in ("", None, s.session_id) and e["id"] not in dead]
+        took = set(OB.delivered_ids([e for e in queued if e not in old], rows)) | set(OB.delivered_ids(old, rows))
         for mid in took:
             outbox.update(name, mid, state=OB.DELIVERED)
+        waiting = [e for e in queued if e["id"] not in took and e["id"] not in dead and e.get("sentAt")]
+        if waiting:     # one that was pulled back into the input line (an Up nothing here accounted for) is in no queue: told, with its text
+            ops = await run_in_threadpool(OB.read_ops, path, min(e["sentAt"] for e in waiting))
+            for mid in OB.popped_ids(waiting, ops):
+                outbox.update(name, mid, state=OB.FAILED, reason=None, detail="", sentAt=None, pid=None, procStart=None,
+                              error="the message was pulled back into the terminal's input line and not sent; check the terminal")
         gone = [e for e in queued if e["id"] in dead and e["id"] not in took]
         if gone:
             ops = await run_in_threadpool(OB.read_ops, path, min(e["sentAt"] for e in gone if e.get("sentAt")) - OB.SLACK_MS)
@@ -2130,30 +2150,203 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return _err(502, f"tmux failed: {e}")
         return JSONResponse({"ok": True, "message": view, "messages": OB.public(outbox.entries(name))}, headers={"Cache-Control": "no-store"})
 
+    def _forget_sent(pane: str | None, sig: tuple) -> None:
+        """A message taken back may be sent again at once: the pane's double-submit window forgets it."""
+        if pane and (prev := last_sent.get(pane)) and prev[0] == sig:
+            del last_sent[pane]
+
     def _too_late(name: str, e: dict) -> Response:
-        said = ("the session already has that message" if e["state"] == OB.DELIVERED
-                else "that message is already in the session's input, and sala can not take it back from there")
+        said = {OB.DELIVERED: "the session already has that message",
+                OB.QUEUED: "the session has already taken that message from its queue"}.get(
+                    e["state"], "that message is already in the session's input, and sala can not take it back from there")
         return JSONResponse({"ok": False, "tooLate": True, "state": e["state"], "error": f"too late: {said}; nothing was changed",
                              "message": _view(name, e["id"])}, status_code=409)
 
+    def _busy(name: str, mid: str, why: str, changed: bool = False) -> Response:
+        """A queued message that can not be taken back now: 409 busy, with why. nothing was changed unless `changed` says the Up went in."""
+        e = outbox.get(name, mid)
+        tail = "the message is kept as failed; check the terminal" if changed else "nothing was changed"
+        return JSONResponse({"ok": False, "busy": True, "state": e["state"] if e else None, "error": f"busy: {why}; {tail}",
+                             "message": _view(name, mid)}, status_code=409)
+
+    def _pane_busy_why(reason: str) -> str:
+        return {"dialog": "a dialog is open in the pane", "draft": "the pane's input line holds text",
+                "pane": "the session's pane is not there", "tmux": "tmux could not read the pane"}.get(
+                    reason, "the session is not ready to take a message back")
+
+    async def _watch_take_back(path: Path, pane: str, mark: int, wanted: list[tuple[str, str]]) -> tuple:
+        """After an Up: read the transcript lines written since `mark` until they speak of every message of `wanted` and, for one popped, the
+        input box shows text, or TAKE_BACK_WAIT s have passed. (popped, taken, left, extra, the box's state, its text). Nothing is typed."""
+        end = time.monotonic() + TAKE_BACK_WAIT
+        while True:
+            await asyncio.sleep(T.SETTLE_S)
+            ops = await run_in_threadpool(OB.read_ops, path, 0, OB.TAKE_BACK_MAX_BYTES, mark)
+            popped, taken, left, extra = OB.settle_take_back(wanted, ops)
+            try:
+                state, box = T.input_box(await T.capture(settings, pane))
+                if not left and not popped and state != "text":
+                    await asyncio.sleep(T.SETTLE_S)    # all taken first: an old prompt the Up recalled may not be drawn yet
+                    state, box = T.input_box(await T.capture(settings, pane))
+            except T.TmuxError:
+                state, box = "missing", ""
+            if (not left and (state == "text" or not popped)) or time.monotonic() >= end:
+                return popped, taken, left, extra, state, box
+
+    async def _take_back(name: str, s: S.Session, mid: str) -> Response | None:
+        """Take a queued message back out of the pane's queue, so that its owner can cancel or edit it. The CLI can not drop one queued
+        message: one Up pulls its whole queue into the input box. So, with the pane's locks held from the first look to the last resend (no
+        other send of sala-web's can come between): the transcript's queue must hold the message and nothing sala did not send, no queued
+        message may have an upload, and no dialog may be open; text in the input line is cleared first (and kept, as before any outbox
+        send). The messages about to be pulled are marked `typing` before the key (a server that stops now leaves them failed with their
+        text, never sent twice). After the Up the transcript's own lines say which came back (popAll) and which the session took first: the
+        message is withdrawn, the others that came back are cleared out of the box and typed again, in their order, and one the session
+        took stays its own.
+
+        Returns None when the message is withdrawn (or was never typed). Otherwise the refusal: 409 tooLate for a message the session has
+        taken; 409 busy with nothing changed; or, after an Up no line accounts for, 409 busy with the unaccounted messages failed, their text
+        kept and never sent again by sala."""
+        pane = s.pane_id
+        if not pane or s.sleeping or not s.pid:
+            return _busy(name, mid, _pane_busy_why("pane"))
+        async with pump_locks.setdefault(name, asyncio.Lock()), send_locks.setdefault(pane, asyncio.Lock()):
+            await _track(name, s)    # a message the transcript already shows is the session's
+            e = outbox.get(name, mid)
+            if e is None:
+                return _err(404, "no such message")
+            if e["state"] in (OB.HELD, OB.FAILED, OB.WITHDRAWN):
+                return None      # not in the pane (any more): the caller withdraws it
+            if e["state"] != OB.QUEUED:
+                return _too_late(name, e)
+            queued = sorted((x for x in outbox.entries(name) if x["state"] == OB.QUEUED and x.get("pid") in (None, s.pid)
+                             and x.get("sessionId") in ("", None, s.session_id)), key=lambda x: x.get("sentAt") or 0)
+            if mid not in {x["id"] for x in queued}:
+                return _busy(name, mid, "the message went to an earlier run of this session")
+            path = TR.transcript_path(settings.projects_dir, s.cwd, s.session_id)
+            if path is None:
+                return _busy(name, mid, "the session's transcript can not be read to find its queue")
+            # the queue this process holds: every line since it started (else since the oldest queued message), and where the file ends now
+            since = (s.started_at or min(x.get("sentAt") or 0 for x in queued)) - OB.SLACK_MS
+            mark, ops = await run_in_threadpool(OB.snapshot_ops, path, since, OB.TAKE_BACK_MAX_BYTES)
+            uploaded = "a queued message has an upload, which can not be taken back"    # its queue line holds a file path too
+            if e["uploads"]:
+                return _busy(name, mid, uploaded)
+            wanted, foreign = OB.match_queue(OB.queue_items(ops), queued)
+            if mid not in {i for i, _t in wanted}:
+                seen = [o for o in ops if o["text"] == OB.norm_text(e["text"]) and o["ts"] >= (e.get("sentAt") or 0) - OB.SLACK_MS]
+                if any(o["op"] == "enqueue" for o in seen):
+                    return _too_late(name, e)
+                return _busy(name, mid, "the pane's queue does not show the message")
+            if foreign:
+                return _busy(name, mid, uploaded if any(x["uploads"] for x in queued)
+                             else "the pane's queue holds something sala can not take back and send again")
+            pulled = [i for i, _t in wanted]
+            if any(x["uploads"] for x in queued if x["id"] in pulled):
+                return _busy(name, mid, uploaded)
+            reason, detail = await _readiness(s, pane)
+            if reason == "draft":      # text in the input line is not the owner's: kept in the log and cleared, as before a send
+                _log_cleared(s, detail)
+                try:
+                    await T.clear_box(settings, pane)
+                except T.TmuxError:
+                    pass
+                reason, detail = await _readiness(s, pane)
+            if reason is not None:
+                return _busy(name, mid, _pane_busy_why(reason))
+
+            def settle(ids, state: str, **fields) -> None:
+                for i in ids:
+                    outbox.update(name, i, state=state, **fields)
+
+            unsent = {"reason": None, "detail": "", "pasted": False, "sentAt": None, "pid": None, "procStart": None}
+            try:
+                settle(pulled, OB.TYPING)
+                try:
+                    await T.send_take_back_key(settings, pane, "Up")
+                except T.TmuxError as ex:
+                    settle(pulled, OB.QUEUED)
+                    return _busy(name, mid, f"the key could not be sent ({str(ex)[:120]})")
+                popped, taken, left, extra, state, box = await _watch_take_back(path, pane, mark, wanted)
+                if not popped and not taken and not extra and state != "text":
+                    settle(pulled, OB.QUEUED)
+                    return _busy(name, mid, "the Up took nothing back")
+                settle(taken, OB.QUEUED)       # the session's now: the transcript check marks them delivered
+                settle(left, OB.FAILED, error="taken back into the input line, which could not be confirmed; nothing was sent again; check the terminal",
+                       **unsent)
+                settle([i for i in popped if i != mid], OB.HELD, error="", resent=True, **unsent)   # list order is the order they were typed
+                if mid in popped:
+                    settle([mid], OB.WITHDRAWN, reason=None, detail="")
+                for text in extra:      # queued but not in the look's queue: it came back too, so it is typed again
+                    known = next((x["id"] for x in outbox.entries(name) if x["state"] == OB.QUEUED and x["id"] not in pulled
+                                  and OB.norm_text(x["text"]) == OB.norm_text(text)), None)
+                    if known:       # a listed message whose enqueue line was written late: held in its own place
+                        settle([known], OB.HELD, error="", resent=True, **unsent)
+                    else:           # not the list's: it joins at the end, as it was typed
+                        outbox.add(name, text, [])
+                # what the box holds now is what the Up pulled back, or (nothing was queued any more) an old prompt it recalled
+                if state == "text":
+                    if left:
+                        _log_cleared(s, T.shown_text(box))
+                    try:
+                        ok, why = await T.clear_box(settings, pane)
+                    except T.TmuxError as ex:
+                        ok, why = False, str(ex)[:200]
+                    if not ok:
+                        log.warning("outbox: %s: the input box was not cleared after a take-back (%s); the sender clears it before it sends", name, why)
+                if left:
+                    log.warning("outbox: %s: a take-back could not be confirmed for %d messages; failed, text kept", name, len(left))
+                await _release(name, s, locked=True)
+            finally:
+                for i in pulled:      # nothing stays `typing`: that would stop the session's sender
+                    x = outbox.get(name, i)
+                    if x is not None and x["state"] == OB.TYPING:
+                        outbox.update(name, i, state=OB.FAILED, error="the take-back stopped half way; check the terminal before sending this again", **unsent)
+                outbox_kick.set()
+            if mid in popped:
+                return None
+            if mid in taken:
+                return _too_late(name, outbox.get(name, mid))
+            return _busy(name, mid, "the result could not be confirmed", changed=True)
+
     async def outbox_cancel(request: Request) -> Response:
-        """Cancel a held (or failed) message: it is withdrawn and will not be sent. 200 {ok, message} with the text and uploads, which is what an Edit
-        puts back in the composer; 409 tooLate for a message the pane has; 404 for an id the list does not hold."""
+        """Cancel a held, failed or queued message: it is withdrawn and will not be sent. 200 {ok, message, messages} with the text and uploads,
+        which is what an Edit puts back in the composer. A queued one is first taken back out of the pane's queue (_take_back: the other queued
+        messages go back to the held list, in order); 409 busy when the pane can not take it back now, 409 tooLate for a message the session has
+        already taken or is typing; 404 for an id the list does not hold."""
         if _cross_origin(request):
             return _err(403, "cross-origin request refused")
         name = _outbox_name(request)
+        if not name:
+            return _err(404, "no such message")
+        mid = request.path_params["mid"]
+        e = outbox.get(name, mid)
+        if e is None:
+            return _err(404, "no such message")
+        pane = None
+        sig = (e["text"].strip(), tuple(e["uploads"]))
+        if e["state"] in (OB.QUEUED, OB.TYPING):
+            s = await _session_named(name)
+            if s is None:
+                return _busy(name, mid, "the session is not running")
+            pane = s.pane_id
+            try:
+                refusal = await _take_back(name, s, mid)
+            except T.TmuxError as ex:
+                return _err(502, f"tmux failed: {ex}")
+            if refusal is not None:
+                return refusal
         try:
-            e = outbox.withdraw(name or "", request.path_params["mid"])
+            e = outbox.withdraw(name, mid)
         except OB.NotFound:
             return _err(404, "no such message")
         except OB.TooLate as late:
             return _too_late(name, late.entry)
+        _forget_sent(pane, sig)
         return JSONResponse({"ok": True, "message": _view(name, e["id"]), "messages": OB.public(outbox.entries(name))}, headers={"Cache-Control": "no-store"})
 
     async def outbox_edit(request: Request) -> Response:
-        """Edit a held (or failed) message: the old one is withdrawn first, then the new text joins at the end of the list (a message that was
-        ahead of others does not keep its place). 200 {ok, message (the new one), withdrawn (the old id)}; 409 tooLate, nothing changed, when the old
-        one is no longer sala's to take back."""
+        """Edit a held, failed or queued message: the old one is withdrawn first (a queued one is taken back out of the pane's queue, _take_back),
+        then the new text joins at the end of the list (a message that was ahead of others does not keep its place). 200 {ok, message (the new
+        one), withdrawn (the old id)}; 409 busy or tooLate, nothing changed, when the old one can not be taken back now."""
         if _cross_origin(request):
             return _err(403, "cross-origin request refused")
         if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
@@ -2173,6 +2366,13 @@ def create_app(settings: Settings | None = None) -> Starlette:
         old = outbox.get(name, request.path_params["mid"])
         if old is None:
             return _err(404, "no such message")
+        if old["state"] in (OB.QUEUED, OB.TYPING):
+            try:
+                refusal = await _take_back(name, s, old["id"])
+            except T.TmuxError as ex:
+                return _err(502, f"tmux failed: {ex}")
+            if refusal is not None:
+                return refusal
         try:
             outbox.withdraw(name, old["id"])
         except OB.TooLate as late:
