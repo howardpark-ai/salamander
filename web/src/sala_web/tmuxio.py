@@ -501,8 +501,9 @@ def dialog(captured: str) -> tuple[list[str], str]:
 
 
 CHECK_ROW_RE = re.compile(r"^(?:" + PROMPT + r"\s*)?([1-9])\.\s+\[([ ✔xX])\]\s*(\S.*)$")   # "1. [ ] Alpha", "2. [✔] Beta"
-SUBMIT_ROW_RE = re.compile(r"^(?:" + PROMPT + r"\s*)?Submit$")
+SUBMIT_ROW_RE = re.compile(r"^(?:" + PROMPT + r"\s*)?(Submit|Next)$")   # "Next" when the question is not the last one (Claude Code 2.1.332: submitButtonText)
 FREE_TEXT_LABEL = "Type something"   # the multi-select question's last row: the free-text answer, which a button cannot give
+PREVIEW_GAP_RE = re.compile(r"\s{3,}(?=\S)")   # a side-by-side preview is drawn after the option column, with a run of spaces between
 
 
 def multi_dialog(captured: str) -> dict | None:
@@ -535,7 +536,8 @@ def multi_dialog(captured: str) -> dict | None:
     if len(rows) < 2:      # a real one holds an option and the free-text row at least
         return None
     focus = "submit" if lines[submit].startswith(PROMPT) else next((r["n"] for r in rows if r["focused"]), None)
-    return {"rows": rows, "focus": focus, "title": "\n".join(ln for ln in lines[top:first] if ln and ln[0] not in "←→"),   # not the tab bar ("← ☐ Pick ✔ Submit →")
+    button = SUBMIT_ROW_RE.match(lines[submit]).group(1)   # "Submit" on the last question, "Next" before it: the row the picks go on through
+    return {"rows": rows, "focus": focus, "button": button, "title": "\n".join(ln for ln in lines[top:first] if ln and ln[0] not in "←→"),   # not the tab bar ("← ☐ Pick ✔ Submit →")
             "text": "\n".join(ln.replace(PROMPT, " ").strip() for ln in lines[top:submit + 1] if ln)}
 
 
@@ -550,23 +552,47 @@ def card(captured: str) -> dict | None:
     m = multi_dialog(captured)
     if m is not None:
         options = [{k: r[k] for k in ("n", "label", "description", "checked")} for r in m["rows"] if r["label"] != FREE_TEXT_LABEL]
-        return {"kind": "multi", "text": m["text"], "title": m["title"], "options": options, "focus": m["focus"]} if options else None
+        return {"kind": "multi", "text": m["text"], "title": m["title"], "options": options, "focus": m["focus"],
+                "button": m["button"]} if options else None
     numbers, text = dialog(captured)
     if not numbers:
         return None
     head: list[str] = []
     options: list[dict] = []
+    preview = False   # a side-by-side preview of the focused option is drawn beside the option column (only single-select questions have previews)
     for ln in text.split("\n"):
         found = OPTION_RE.match(ln)
         if found and found.group(1) == str(len(options) + 1):
-            options.append({"n": len(options) + 1, "label": ln.split(".", 1)[1].strip(), "description": "", "checked": False})
+            label, cut = _option_column(ln.split(".", 1)[1].strip())
+            preview = preview or cut
+            options.append({"n": len(options) + 1, "label": label, "description": "", "checked": False})
         elif options:
-            options[-1]["description"] = (options[-1]["description"] + " " + ln).strip()
+            words, cut = _option_column(ln)
+            preview = preview or cut
+            options[-1]["description"] = (options[-1]["description"] + " " + words).strip()
         else:
             head.append(ln)
     if len(options) != len(numbers):
         return None
-    return {"kind": "choice", "text": text, "title": "\n".join(head), "options": options, "focus": None}
+    return {"kind": "choice", "text": text, "title": "\n".join(head), "options": options, "focus": focused_option(captured),
+            "preview": preview}
+
+
+def _option_column(words: str) -> tuple[str, bool]:
+    """The option's own words from one line of the dialog: the text before the run of spaces a side-by-side preview starts after, and
+    whether a preview was found there. Unverified on a real pane with a preview drawn (see web/README.md, the card's route)."""
+    found = PREVIEW_GAP_RE.search(words)
+    return (words[:found.start()].strip(), True) if found else (words, False)
+
+
+def focused_option(captured: str) -> int | None:
+    """The number of the option the focus mark sits on in the numbered dialog the screen shows, or None."""
+    for raw in reversed(captured.split("\n")):
+        t = plain(raw).replace(" ", " ").strip().strip(BOX_SIDES).strip()
+        found = OPTION_RE.match(t) if t.startswith(PROMPT) else None
+        if found:
+            return int(found.group(1))
+    return None
 
 
 # What Claude Code 2.1.332 draws in the last line of the screen when something sits over the prompt box and a key goes to it, not

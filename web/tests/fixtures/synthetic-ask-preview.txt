@@ -1,0 +1,13 @@
+● Asking which colour for the probe.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Which colour for the probe?
+
+❯ 1. Red                              Warm swatch
+     The first colour option           #ff0000
+  2. Blue                             Cool swatch
+     The second colour option          #0000ff
+  3. Green                            Leafy swatch
+     The third colour option           #00ff00
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

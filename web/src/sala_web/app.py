@@ -1799,7 +1799,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         """Answer the card: {"expect": the card's `text`, "key": "<option number>" or "esc"} for a choice, or {"expect", "picks": [option numbers]}
         for a multi-select question. The answer is for the question it was made on: when the pane shows another by now, 409 and nothing is sent.
         A choice is one keypress. A multi-select question gets the digit of each option whose mark differs from the one asked for, then the screen is
-        read to see the marks are exactly the picks (else nothing more is sent), Down is pressed until the focus is on Submit (read from the screen
+        read to see the marks are exactly the picks (else nothing more is sent), Down is pressed until the focus is on the row under the options, Submit or Next (read from the screen
         each time, at most one press per row and a few more), and Enter. The review Claude Code then draws is a numbered dialog, the next card."""
         if _cross_origin(request):
             return _err(403, "cross-origin request refused")
@@ -1842,7 +1842,19 @@ def create_app(settings: Settings | None = None) -> Starlette:
                     if answer != "Escape" and answer not in numbers:
                         return _err(409, f"{key} is not one of the options ({', '.join(numbers)}); nothing sent")
                     await T.send_key(settings, pane, answer)
-                    return JSONResponse({"ok": True, "sent": [answer]})
+                    if answer == "Escape" or not got.get("preview"):
+                        return JSONResponse({"ok": True, "sent": [answer]})
+                    # a question with previews: its number only moves the focus to the option, and Enter chooses it. The screen is read
+                    # after the number: a dialog that went away (the number chose it) is answered; one still open must have the focus on
+                    # the number, else Enter is not sent.
+                    await asyncio.sleep(T.SETTLE_S)
+                    left = T.card(await T.capture(settings, pane))
+                    if left is None or left["title"] != got["title"] or [o["n"] for o in left["options"]] != [o["n"] for o in got["options"]]:
+                        return JSONResponse({"ok": True, "sent": [answer]})
+                    if left["focus"] != int(answer):
+                        return _err(409, f"the focus did not move to option {answer}; Enter not pressed", sent=[answer])
+                    await T.send_key(settings, pane, "Enter")
+                    return JSONResponse({"ok": True, "sent": [answer, "Enter"]})
                 if got["kind"] != "multi":
                     return _err(409, "this question takes one answer; nothing sent")
                 if len(set(picks)) != len(picks) or any(str(n) not in numbers for n in picks):
@@ -1853,20 +1865,21 @@ def create_app(settings: Settings | None = None) -> Starlette:
                         await T.send_key(settings, pane, str(o["n"]))
                         sent.append(str(o["n"]))
                 multi = None
+                button = got.get("button", "Submit")   # the row under the options: "Submit", or "Next" before the last question
                 for _ in range(len(got["options"]) + 4):
                     await asyncio.sleep(T.SETTLE_S)
                     multi = T.multi_dialog(await T.capture(settings, pane))
                     if multi is None:
-                        return _err(409, "the question went away while the choices were set; Submit was not pressed", sent=sent)
+                        return _err(409, f"the question went away while the choices were set; {button} was not pressed", sent=sent)
                     marks = {r["n"] for r in multi["rows"] if r["checked"]}
                     if marks != set(picks):
-                        return _err(409, "the choices could not be set as asked; Submit was not pressed", sent=sent)
+                        return _err(409, f"the choices could not be set as asked; {button} was not pressed", sent=sent)
                     if multi["focus"] == "submit":
                         break
                     await T.send_key(settings, pane, "Down")
                     sent.append("Down")
                 else:
-                    return _err(409, "the Submit row could not be reached; Submit was not pressed", sent=sent)
+                    return _err(409, f"the {button} row could not be reached; {button} was not pressed", sent=sent)
                 await T.send_key(settings, pane, "Enter")
                 sent.append("Enter")
             except T.TmuxError as e:

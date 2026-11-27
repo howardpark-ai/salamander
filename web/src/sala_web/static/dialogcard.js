@@ -1,7 +1,7 @@
 /* The question a session waits on, drawn as a card with buttons at the end of the conversation (the session view and the chat session's view alike).
    While the selected session's status is "waiting", the page asks api/s/<pid>/dialog every POLL_MS for what the pane shows (the server reads the
    screen: a question with choices, a permission dialog with its options, or nothing). A question that takes one answer is a button per option, one tap
-   sends it. A question that takes several is a checkbox row per option and one Send: the server sets the marks, moves to Submit and presses it, and
+   sends it. A question that takes several is a checkbox row per option and one Send (labelled Next when the question is not the last one): the server sets the marks, moves to the row under the options (Submit, or Next) and presses it, and
    refuses when the screen does not read as asked. The free-text row of such a question has no button (a button cannot type). Cancel sends Escape.
    Every answer carries the words of the question it was made for, so a card that has gone stale answers nothing.
    NO SIDEWAYS SCROLL: every box shrinks and every run of text breaks anywhere (dialogcard.css). Words are set as text, never as HTML. */
@@ -59,7 +59,8 @@
     const foot = mk("div", "q-foot");
     if (multi) {
       node.append(mk("div", "q-hint", tl("app.st.cardMulti")));
-      const send = mk("button", "q-send", tl("app.st.cardSend")); send.type = "button";
+      // "Next" when the pane's button is Next (a question that is not the last one): the picks go on to the next question
+      const send = mk("button", "q-send", card.button === "Next" ? "Next" : tl("app.st.cardSend")); send.type = "button";
       send.addEventListener("click", () => answer({ picks: [...cur.picks].sort((a, b) => a - b) }));
       foot.append(send);
     }
