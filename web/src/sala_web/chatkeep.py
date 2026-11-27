@@ -265,7 +265,7 @@ def _scan(path: Path, sid: str, owner: str, start: int, end: int, strict: bool, 
         d = _decode(line)
         if d is None:
             continue
-        out = kp.feed(d, strict)
+        out = kp.feed(TR.as_delivered(path, off, d), strict)
         tstart.setdefault(kp.turn, off)       # every message of a turn is at the turn's start: a page's cursor is the start of a turn, never the middle of one
         for m in out:
             _fold(items, by_kept, tstart[kp.turn], kp.turn, m)

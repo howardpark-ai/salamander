@@ -20,8 +20,8 @@ text came from, never its words (the one exception is sala's own mark, below):
     - a `user` line with origin.kind == "human" (not isMeta, not isCompactSummary), whatever its promptSource: "typed" (the composer's paste
       and the pane's keys alike) or "queued" (typed while the session was busy and run later), unless it carries sala's mark (below);
     - an `attachment` line of type queued_command with origin.kind == "human" (typed while the session was busy: its text is the
-      attachment's `prompt`; its own timestamp is when the session took it up, which is why lines are read in FILE order and never sorted
-      by time);
+      attachment's `prompt`; its own timestamp is when it was sent, and the reads put the time Claude read it in its place where the
+      transcript says it, transcript.as_delivered. Lines are read in FILE order and never sorted by time);
     - a `user` line with no origin that is a slash command the person typed in the pane (`<command-name>` / `<command-message>` text, not
       isMeta). Its `<local-command-stdout>` / `<local-command-caveat>` lines are the command's output, not a turn start.
   delivered (something else)
@@ -332,12 +332,15 @@ def _read_window(path: Path, size: int, window: int) -> list[dict]:
         f.seek(start)
         raw = f.read(size - start)
     parts = raw.split(b"\n")
+    pos = start
     if start > 0:
+        pos += len(parts[0]) + 1
         parts = parts[1:]          # cut mid-line
     if parts and parts[-1] and not parts[-1].endswith(b"}"):
         parts = parts[:-1]         # a line still being written
     out = []
     for p in parts:
+        at, pos = pos, pos + len(p) + 1
         if not p or (b'"user"' not in p and b'"assistant"' not in p and b'"queued_command"' not in p):
             continue
         try:
@@ -345,7 +348,7 @@ def _read_window(path: Path, size: int, window: int) -> list[dict]:
         except ValueError:
             continue
         if isinstance(d, dict) and d.get("type") in ("user", "assistant", "attachment"):
-            out.append(d)
+            out.append(TR.as_delivered(path, at, d))
     return out
 
 

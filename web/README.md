@@ -1705,7 +1705,7 @@ and the CLI records them as `origin.kind` `human` / `promptSource` `typed`, the 
 [docs/stackshot-contracts.md](../docs/stackshot-contracts.md)), and that is the only thing that tells them apart: a user line or queued command whose text starts with it (leading whitespace aside) is delivered from sala, whatever its
 origin says, so it starts a hidden turn (the kept-back line says "from sala" and gives the text after the mark; a reply that opens with `[for <owner>]` still shows, without the mark). A mark in the middle of a message does not count, and
 the owner typing into that turn still takes it over. `origin.kind` `peer` (another session, the board's and sala's messages arrive this way), `task-notification`, `plugin`, the meta lines with no origin and an `sdk` prompt are delivered. Tool results, sidechain
-lines and compaction summaries are no turn. An unknown origin kind counts as delivered. Lines are read in file order (a queued line's own timestamp is when it was taken up, so never sort by time); a delivered line joins an open turn
+lines and compaction summaries are no turn. An unknown origin kind counts as delivered. Lines are read in file order, never sorted by time (a queued line's own timestamp is when it was sent; the time Claude read it replaces it where the transcript says it, *Data sources*); a delivered line joins an open turn
 and starts a hidden one only when none is open; a hook's follow-up after a closed turn belongs to that turn.
 
 **Your move.** (The group's name in these words, and on the sidebar chip, is the one stackshot serves with the list: `GET /client/your-move` also carries `"group": {"en", "ko"}`, which `yourmove.py` takes whole or not at all (both words 1 to 40 characters, no control character, no markup) and `GET /api/chat` passes on as `group`; the line, its expand and collapse titles, the panel's label, the chip's title and the sidebar entry's tooltip are written with a `{group}` parameter and the page draws the served word for its language as text, so a rename in stackshot reaches them with no change here. sala's own words, `chat.group` in the two i18n tables, stand only when no group is served, a served one is malformed, or the page is Korean and the served Korean equals the English one, which means stackshot has no Korean catalog: an English word under a Korean page is worse. The entry's tooltip is set by the script alone: its markup has no `title` and no `data-i18n-title`, so `{group}` is never drawn unfilled.) The owner's moves, every item of stackshot's Your move group, read with `GET /client/your-move` (`yourmove.py`): all of them, in the board home page's own order (the longest wait first), with no cap and no re-sort,
@@ -2156,6 +2156,15 @@ The transcript parser shows `user` and `assistant` lines, prompts queued while b
 attachments), and messages from other sessions (as folded notices). It skips meta lines, system reminders,
 sidechains, compact summaries and every other line type. The first load reads backwards from the end of the file
 (transcripts can be very large), then the SSE stream tails it.
+
+**The time of a message read mid-turn.** A message sent while a turn was running, which Claude read before the turn ended, shows the time it reached
+Claude, in the thread and in the chat session's view. Its `queued_command` line is stamped when the message was sent; the time is taken from the CLI's
+`queue-operation` line with `operation` `remove`, `reason` `absorbed_mid_turn` and the same `deliveryId` as the attachment's `delivery_id`, the nearest
+one before the attachment in the same file, looked for up to 4 MB back (`transcript.as_delivered`). The server then sends `ts` (when Claude read it) and
+`sentTs` (when it was sent; the page and the outbox match a message they sent by this one). Without such a line the message keeps the sending time: an
+attachment with no `delivery_id`, one whose record is written after it (seen with CLI 2.1.299) and one further back than the look reaches. A message read
+after a turn ended is an ordinary `user` line, already stamped when it arrived. This reads Claude Code's own bookkeeping, which is not a documented
+contract.
 
 ### The wheel: a turn in progress
 

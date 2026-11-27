@@ -3722,7 +3722,7 @@ const bangCmd = (t) => String(t || "").replace(/^\s*!\s*/, "").replace(/\s+/g, "
 function matchPending(m, live) {
   const bang = m.blocks.find((b) => b.kind === "command" && isBang(b.text));
   if (bang) {
-    const bts = Date.parse(m.ts || "");
+    const bts = Date.parse(m.sentTs || m.ts || "");
     const want = bangCmd(bang.text);
     return state.pending.find((p) => p.session === state.selected && isBang(p.text) && bangCmd(p.text) === want
       && (Number.isNaN(bts) || bts >= p.sentAt - 120000)) || null;
@@ -3731,7 +3731,7 @@ function matchPending(m, live) {
   const t = normText(texts.join("\n"));
   const n = m.blocks.filter((b) => b.kind === "image").length;
   if (!t && !n) return null;
-  const ts = Date.parse(m.ts || "");
+  const ts = Date.parse(m.sentTs || m.ts || "");   // sentTs: a message read mid-turn, whose ts (shown) is when Claude read it
   const cands = state.pending.filter((p) => {
     if (p.session !== state.selected || p.status === "held") return false;   // a held message has not been sent: no transcript line is its copy
     if (!Number.isNaN(ts) && ts < p.sentAt - 120000) return false;  // an older identical prompt is not this one
