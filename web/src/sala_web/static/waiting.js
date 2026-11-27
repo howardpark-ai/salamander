@@ -45,7 +45,7 @@
     if (!p.ob || !p.mid || !p.state || p.state === "delivered") return out;   // the server has not answered yet, or Claude has read it
     // a message in the pane (the terminal's queue) is sent now, unless a dialog is open (the line above says why); the server refuses
     // what it can not send safely and says why, so an upload or a slash command in the way does not hide it
-    if (inPane(p) && !dialog) out.buttons.push([tl("app.sendnow.button"), (ev) => sendNow(p.session, ev.currentTarget), "send-now"]);
+    if (inPane(p) && !dialogOpen(p.session)) out.buttons.push([tl("app.sendnow.button"), (ev) => sendNow(p.session, ev.currentTarget), "send-now"]);
     // one in the pane is taken back by pulling the pane's whole queue: not under a dialog, nor with an upload or a slash command in the way
     if (inPane(p) && (dialogOpen(p.session) || isSlash(p.text) || mine(p.session).some((x) => inPane(x) && x.images.length))) return out;
     if (p.state === "held" && isSleeping(state.byName.get(p.session))) {
