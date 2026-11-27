@@ -45,7 +45,7 @@
 #   salamander close-shell <tmux-session> [--busy] [--dry-run]   close a session whose panes run no Claude (kill · unmap · snapshot)
 #   salamander forget-row <name> [--dry-run]   drop a pane-map row whose tmux session is gone (and its lane and model rows)
 #   salamander rename OLD NEW [--dry-run]           rename a live pane end to end (/rename · tmux · map · notes · heartbeat; a sleeping session without waking it, its tmux session gone or not; renames OLD's entry on its project's page via stackshot if the page does not list NEW)
-#   salamander sessions [--all] [--json] | --check [--dry-run] | --migrate [--dry-run]   the session registry (phases 1 and 2; docs/session-registry.md):
+#   salamander sessions [--all] [--full] [--json] | --check [--dry-run] | --migrate [--dry-run]   the session registry (phases 1 and 2; docs/session-registry.md):
 #                                      one row per session with an id that outlives a rename; read-only listing (a sleeping session's STATE says
 #                                      `sleeping`, with its time under the table and as `sleeping` in --json), --check repairs a kill between the
 #                                      pane map's write and the registry's, --migrate makes the rows of the pane map once (--dry-run first)
@@ -121,10 +121,10 @@
 #                                      with no relaunch (lib/notice.sh; docs/notices-and-hooks.md, "Telling every session something"): one line of at most 400 characters, shown once per
 #                                      session as "[sala notice <id> from NAME] <text>", several due at once in one block, oldest first; a session that started after
 #                                      the notice skips it; --until an epoch, a span (90m, 12h, 7d) or an ISO 8601 time (default 7 days; a notice every live session has had or skipped is dropped after a day); add prints the id and how many live
-#                                      sessions it reaches, list how many had it and how many are still due, drop withdraws it for the sessions not yet reached
+#                                      sessions it reaches, list one short line each (--full: how many had it, the whole text), drop withdraws it for the sessions not yet reached
 #   salamander lane [<lane> <session>…|<lane> --all|default <lane>] [--dry-run] [--rescue]   which account or key each pane's claude runs on
 #                                      (subscription-1 (shown as Ultra; max still works) · api · subscription-2 (shown as Team; team still works) · bedrock (the AWS profile SALA_LANE_BEDROCK_PROFILE names) · aws-platform (Claude Platform on AWS); sdk, an alias of api with client claude-agent-sdk), the switch (recorded, then relaunched on it, resumed; a recycle
-#                                      keeps it) and the default for new sessions; a session on Fable moved off the Ultra lane (a move or the default it follows) is put on opus first; no argument: the table (lib/lane.sh)
+#                                      keeps it) and the default for new sessions; a session on Fable moved off the Ultra lane (a move or the default it follows) is put on opus first; no argument: the table of the sessions with a lane of its own or something to say, --full for every one (lib/lane.sh)
 #   salamander lane pin <session> <lane> | unpin <session> | pins   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a bulk move lists it as skipped, a move that names it still moves it (lib/lane.sh)
 #   salamander lane names [--json] [--write]   each lane's code, display name and old words (one line per lane: code, display, aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current; lib/lane.sh)
 #   salamander lane fallback <lane> [--dry-run]   the dormant lane's sessions, its default and, at run time, its jobs move to the lane's fallback

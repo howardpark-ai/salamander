@@ -222,7 +222,9 @@ $T set-environment -g FAKE_SESSION_ID "$U3"; $T set-environment -g FAKE_NAME sal
 out=$("$SALA" spawn sala-test-c --cwd "$HOME" 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(lanelog "$U3")" = "key=n hdr=n cfg=$HOME/.claude-team" ] && ok "spawn: claude started on team (the default)" || bad "spawn ($rc): $(lanelog "$U3") / $out"
 grep -q 'lane    : subscription-2' <<< "$out" && ok "spawn's report names the lane" || bad "spawn report: $out"
-grep -qE '^sala-test-c +\(default\) +subscription-2' <<< "$("$SALA" lane)" && ok "the table: (default), running subscription-2" || bad "table: $("$SALA" lane)"
+grep -qE '^sala-test-c +\(default\) +subscription-2' <<< "$("$SALA" lane --full)" && ok "lane --full: (default), running subscription-2" || bad "table --full: $("$SALA" lane --full)"
+out=$("$SALA" lane); ! grep -q '^sala-test-c ' <<< "$out" && grep -qE '^[0-9]+ sessions? on the default lane \(subscription-2\) with nothing to say, not listed \(salamander lane --full' <<< "$out" && ok "the table: a session on the default with nothing to say is counted, not listed" || bad "table folds: $out"
+out=$("$SALA" lane --list --full 2>&1); rc=$?; [ "$rc" != 0 ] && ok "--full with --list is refused" || bad "lane --list --full: $out"
 "$SALA" lane default subscription-1 >/dev/null 2>&1   # the default back: c keeps running on subscription-2 until relaunched
 grep -qE '^sala-test-c +\(default\) +subscription-2 +← runs on subscription-2' <<< "$("$SALA" lane)" && ok "the default changed under it: the table says a relaunch would move it" || bad "table: $("$SALA" lane)"
 
