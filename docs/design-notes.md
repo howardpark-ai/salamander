@@ -26,7 +26,11 @@ The failure modes that shaped sala, and what each design choice answers.
   Absence never removes one: a crash, a force-quit, a dead claude or a missing tmux session leaves the row in place.
   The one change an observation may make is the **follow**: the live claude in a mapped session reports a different
   conversation than its row (a `/clear`, a hand `--resume`), and the row follows — `revive --save-map`, wired to
-  resurrect's post-save hook, does only that. Every write goes through one function (`ledger_write`): a lock, a temp
+  resurrect's post-save hook, does only that. sala's own relaunch of a row's conversation into an existing pane
+  (`revive`, so `wake`, a recycle and a lane or model move too) writes one more thing as a follow, once the claude is up:
+  the folder it typed the resume line in (the pane shell's), so a session moved to another folder is later restored
+  there. A deleted or unreadable folder leaves the row's own, `restore` never changes it, and a running claude's folder
+  is not read for this (it may sit in a worktree that is removed later). Every write goes through one function (`ledger_write`): a lock, a temp
   file next to the map, no empty map over a non-empty one, the previous map in `map-history/`, and one line per change
   in the ledger log (`pane-map.log` beside it: time, op, session, old → new, caller). A live session the map does not know
   is reported by `watch`, once, never added silently.

@@ -4,7 +4,7 @@
 # real driver: freeze → sweep → compare → unfreeze) and of a reboot (`reboot --resume` standing in for the boot half); the
 # map gaps of 2026-10-08 (a rename never adds a row, a follow never duplicates a conversation, the fleet's tmux server
 # only, a probe server's claude sharing a fleet pane's id, retire of an orphan row, no archive by a shared conversation
-# id). The setup mirrors where ledger.sh leaves its map: three rows (m, a2, b), each adopted from a session made by hand
+# id); sala's own relaunch recording the pane shell's folder (the sweep, the self-worker, under a freeze). The setup mirrors where ledger.sh leaves its map: three rows (m, a2, b), each adopted from a session made by hand
 # in its own directory. Isolated HOME, a private tmux socket, the compiled fake claude (tests/fake-claude.c); every Slack
 # post lands in a file.
 # Usage: bash tests/ledger-recycle.sh   (exit 0 = pass; ~50 s)
@@ -257,4 +257,27 @@ printf 'sala-test-s\t%s\tsala-test-s\t%s\n' "$UD" "$HOME" >> "$MAP"   # by hand:
 out=$("$SALA" retire sala-test-s 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
 echo "$out" | grep -q "not archiving on claude.ai: conversation $UD (from the pane map) is also the row of sala-test-d" && ! echo "$out" | grep -q session_01SHARED && ok "warned, nothing archived" || bad "shared uuid retire: rc=$rc"
 [ -z "$(row sala-test-s)" ] && [ "$(row sala-test-d | cut -f2)" = "$UD" ] && ! tmux has-session -t =sala-test-s 2>/dev/null && ok "sala-test-s retired (session killed, row gone); sala-test-d's row kept" || bad "after the retire: $(<"$MAP")"
+
+echo "== sala's own relaunch records the pane shell's folder: the sweep, the self-worker, under a freeze (the wake path: sleepverbs.sh)"
+UF=ffffffff-0000-4000-8000-000000000031
+hand sala-test-f "$UF" "$HOME/work-m"; fake_up sala-test-f; "$SALA" adopt sala-test-f >/dev/null 2>&1
+fcwd() { row sala-test-f | cut -f4; }
+by_hand_in() {  # <folder> — /exit the fake in sala-test-f, cd its shell to <folder>, resume the same conversation there by hand
+    local c; c=$(pane_claude sala-test-f); tmux send-keys -t sala-test-f '/exit' Enter; waitfor "! kill -0 $c 2>/dev/null" 20
+    tmux send-keys -t sala-test-f "cd '$1' && claude --resume $UF" Enter
+    waitfor "[ \"\$(registry_field \"\$(pane_claude sala-test-f)\" cwd 2>/dev/null)\" = '$1' ]" 20; }
+by_hand_in "$HOME/work-a"; "$SALA" revive --save-map >/dev/null 2>&1
+[ "$(fcwd)" = "$HOME/work-m" ] && ok "a running claude's folder is not followed by a save (same conversation): the row keeps its own" || bad "row after the save: $(row sala-test-f)"
+n=$(grep -c "^start $UF" "$FAKE_LOG"); out=$("$SALA" revive --only sala-test-f --force 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(grep -c "^start $UF" "$FAKE_LOG")" = $((n+1)) ] && [ "$(row sala-test-f)" = "sala-test-f	$UF	sala-test-f	$HOME/work-a" ] && ok "the sweep's relaunch of a claude pane records it" || bad "sweep: rc=$rc row=$(row sala-test-f) $out"
+by_hand_in "$HOME/work-b"; n=$(grep -c "^start $UF" "$FAKE_LOG")
+out=$("$SALA" revive --self-worker "$(tmux display -p -t sala-test-f '#{pane_id}')" 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(grep -c "^start $UF" "$FAKE_LOG")" = $((n+1)) ] && [ "$(fcwd)" = "$HOME/work-b" ] && ok "the self-worker's relaunch records it" || bad "self-worker: rc=$rc row=$(row sala-test-f) $out"
+ledger_freeze recycle $$ >/dev/null; by_hand_in "$HOME/work-c"; out=$("$SALA" revive --only sala-test-f --force 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(fcwd)" = "$HOME/work-b" ] && grep -qF "sala-test-f	$UF	$HOME/work-c" "$SALA_LEDGER_DEFERRED" 2>/dev/null && ok "under a freeze it is deferred" || bad "frozen: rc=$rc row=$(row sala-test-f) deferred=$(slurp "$SALA_LEDGER_DEFERRED") $out"
+ledger_unfreeze test >/dev/null 2>&1; [ "$(fcwd)" = "$HOME/work-c" ] && ok "and applied at the unfreeze" || bad "after the unfreeze: $(row sala-test-f)"
+ledger_freeze recycle $$ >/dev/null; ledger_relaunched sala-test-f "$UF" "$HOME/work-a"; ledger_relaunched sala-test-f "$UF" "$HOME/work-c"; ledger_unfreeze test >/dev/null 2>&1
+[ "$(fcwd)" = "$HOME/work-c" ] && ok "frozen, moved and then back in the row's own folder: the later relaunch wins" || bad "superseded follow: $(row sala-test-f)"
+nf=$(logn follow sala-test-f); ledger_relaunched sala-test-f "$UF" "$HOME/work-c"; ledger_relaunched sala-test-f "$UM" "$HOME/work-a"; rc=$?
+[ "$rc" = 0 ] && [ "$(row sala-test-f)" = "sala-test-f	$UF	sala-test-f	$HOME/work-c" ] && [ "$(logn follow sala-test-f)" = "$nf" ] && ok "the row's own folder, or another conversation than the row's: nothing written" || bad "no-op: rc=$rc row=$(row sala-test-f)"
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

@@ -737,10 +737,12 @@ if [ "$SELF_WORKER" = 1 ]; then
         echo "[$(date -Is)] self-worker: /exit not landed after ${SALA_EXIT_WAIT}s (a prompt may hold the pane); waiting up to 15 min"
         wait_exit "$SELF_PANE" 900 || wabort "claude did not exit within 15 min — a /exit may still be queued in the pane, check it"
     fi
+    folder=$(pane_folder "$SELF_PANE")   # where the resume line is typed: the row's folder once it is up (ledger_relaunched)
     why=$(resume_send "$SELF_PANE" "$uuid" "$(resume_cmd "$uuid" "$label")") || wabort "$why"   # on the session's lane (common.sh, lanes)
     resume_wait "$SELF_PANE" "$uuid" "$SALA_RESUME_WAIT"; rc=$?   # live, not merely started (once a false "Recycle done")
     [ "$rc" = 2 ] && wabort "the resume started and died within ${SALA_RESUME_WAIT}s — the pane is back at a shell, the error above its prompt; resume it with: claude --resume $uuid"
     [ "$rc" = 0 ] || wabort "resume did not start within ${SALA_RESUME_WAIT}s — the pane is at a shell; resume it with: claude --resume $uuid"
+    ledger_relaunched "$label" "$uuid" "$folder"
     inbox_release "$uuid" "$hname" wait
     [ -n "$DSET" ] && { set_resolve "$DSET" ok "$label" "$label relaunched on $(proc_version "$RESUMED_PID"), $(set_after "$DSET")"; set_report "$DSET"; }
     echo "[$(date -Is)] self-worker: pane $SELF_PANE relaunched on conversation $uuid → $CURRENT_VER$(lane_note "$label") · $LANE_LINE"; exit 0
@@ -1027,11 +1029,12 @@ close_pane() {
     # so does a pane whose row name differs from its session and is not a hand rename (named, above)
     emit CLOSED "$pane|$sess|$label|$cpid|$ver|$uuid|$hname|$(resume_cmd "$uuid" "$sess" ${named:+named})"   # on the session's lane (common.sh, lanes)
 }
-# verify_pane <claude|shell> <pane> <label> <ver> <uuid> <name> — phase 3, after the resume was typed: claude live in the
-# pane within 30 s (resume_wait: registered and still there, or alive at the window's end; one that came up and died is a
-# skip, not an UPDATED row), then (a relaunched claude pane) the inbox released once the new process owns its socket
+# verify_pane <claude|shell> <pane> <label> <ver> <uuid> <name> <folder> — phase 3, after the resume was typed: claude live
+# in the pane within 30 s (resume_wait: registered and still there, or alive at the window's end; one that came up and died
+# is a skip, not an UPDATED row), then the pane-map row's folder set to <folder>, where the line was typed
+# (ledger_relaunched), and (a relaunched claude pane) the inbox released once the new process owns its socket
 verify_pane() {
-    local kind="$1" pane="$2" label="$3" ver="$4" uuid="$5" hname="$6" newver rc
+    local kind="$1" pane="$2" label="$3" ver="$4" uuid="$5" hname="$6" folder="$7" newver rc
     resume_wait "$pane" "$uuid" "$SALA_RESUME_WAIT"; rc=$?
     if [ "$rc" != 0 ]; then
         [ "$kind" = claude ] && inbox_release "$uuid" "$hname"
@@ -1040,6 +1043,7 @@ verify_pane() {
         else SKIPPED+=("$label: resume didn't start within ${SALA_RESUME_WAIT}s — check manually$last"); fi
         return
     fi
+    ledger_relaunched "${label%:*}" "$uuid" "$folder"
     if [ "$kind" = claude ]; then
         inbox_release "$uuid" "$hname" wait
         newver=$(proc_version "$RESUMED_PID"); refusal_clear "$uuid"   # a relaunch ends the refusal memory (common.sh)
@@ -1059,7 +1063,7 @@ verify_pane() {
 
 ROWS=(); NOREL=(); SLEEPING=(); while IFS= read -r line; do [ -n "$line" ] && ROWS+=("$line"); done < <(ordered_panes)
 # phase 1: check
-T0=$(date +%s); D1=0; D2=0; D3=0; N=0; ELIG=(); RESUMED=(); nclaude=0; nshell=0; nwould=0
+T0=$(date +%s); D1=0; D2=0; D3=0; N=0; ELIG=(); RESUMED=(); FOLDER=(); nclaude=0; nshell=0; nwould=0
 for line in ${ROWS[@]+"${ROWS[@]}"}; do
     IFS='|' read -r pane sess win title cmd panepid cwd <<<"$line"; label="$sess:$win"
     [ -n "$ONLY" ] && ! only_has "$sess" && continue
@@ -1137,6 +1141,7 @@ if [ $((nclaude + nshell)) -gt 0 ]; then
             *) continue;;
         esac
         [ "$sent" -gt 0 ] && sleep "$SALA_RESUME_GAP"
+        FOLDER[$i]=$(pane_folder "$pane")   # before the line is typed: afterwards it is the claude's own
         if ! why=$(resume_send "$pane" "$uuid" "$rcmd"); then
             [ "$kind" = claude ] && inbox_release "$uuid" "$hname"
             SKIPPED+=("$label: $why"); continue
@@ -1146,7 +1151,7 @@ if [ $((nclaude + nshell)) -gt 0 ]; then
     for ((i=1; i<=N; i++)); do
         [ -n "${RESUMED[$i]:-}" ] || continue
         IFS='|' read -r kind pane label ver uuid hname <<<"${RESUMED[$i]}"
-        run_job "$TMPD/3.$i" verify_pane "$kind" "$pane" "$label" "$ver" "$uuid" "$hname"
+        run_job "$TMPD/3.$i" verify_pane "$kind" "$pane" "$label" "$ver" "$uuid" "$hname" "${FOLDER[$i]}"
     done
     wait_jobs
     for ((i=1; i<=N; i++)); do [ -n "${RESUMED[$i]:-}" ] && fold_rows "$TMPD/3.$i"; done

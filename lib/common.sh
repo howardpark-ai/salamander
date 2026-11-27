@@ -3624,7 +3624,8 @@ sidecar_uuid_for_session() { local _u; [ -r "$SALA_SIDECAR" ] || return 1; _tsv_
 #   rename  `sala rename` (a row the map has; never adds one)          retire  `sala retire`, `sala close-shell` and `sala forget-row` — the only paths that drop a row
 #   follow  the ONE change an observation may make: the live claude in a mapped session reports a different conversation
 #           than the row (a /clear, a hand --resume); write_sidecar (revive --save-map) applies it from the live registry,
-#           unless another row carries that conversation (refused: one conversation, one row)
+#           unless another row carries that conversation (refused: one conversation, one row). The same op records, at
+#           sala's own relaunch, the folder it launched the row's conversation in (ledger_relaunched, below)
 # and only on the fleet's tmux server (see THE FLEET'S TMUX SERVER below).
 # Every write goes through ledger_write: flock on the map's .lock (fd 6; 8 is the inbox lock, 9 the recycle lock), a temp
 # file next to the map (same filesystem, so the mv is atomic, and no /tmp quota), a failed write aborts without touching
@@ -3768,6 +3769,27 @@ _ledger_unfreeze_locked() {  # <why> — under the lock
     ledger_log unfreeze - "$fl → open${why:+ ($why)}; $n deferred follow(s) applied"
     return 0
 }
+# THE FOLDER OF A RELAUNCH. A session moved to another folder (sleep, a cd in its pane, wake) must be restored there, so
+# sala's own relaunch into an existing pane (revive: the sweep and the self-worker, so wake, recycle and a lane or model
+# move too) records the folder it typed the resume line in: the pane shell's, read BEFORE the line is typed and written
+# once the claude is up. Never the running claude's own folder, which may move into a worktree that is removed later.
+pane_folder() { tmux display -p -t "$1" '#{pane_current_path}' 2>/dev/null; }   # <pane> → the folder of its foreground program: at a shell prompt, the shell's
+# ledger_relaunched <session> <uuid> <folder> — the row's folder follows, when the row carries <uuid> (another conversation
+# is write_sidecar's follow) and <folder> is a readable directory (a deleted one reads "… (deleted)": the row keeps its
+# own). restore sets SALA_KEEP_ROW_CWD on the revive it runs: its pane is in the row's folder, or in $HOME because that
+# one is gone, which must not replace it. Under a freeze the follow is deferred, the last one per session winning, so a
+# deferred follow of this session is superseded even when the folder is the row's own. Never fails the relaunch.
+ledger_relaunched() {
+    local sess="$1" uuid="$2" dir="$3" old
+    [ -z "${SALA_KEEP_ROW_CWD:-}" ] && [ -n "$uuid" ] && [ -d "$dir" ] && [ -r "$dir" ] && [ -x "$dir" ] || return 0
+    case "$dir" in *$'\t'*|*$'\n'*) return 0 ;; esac   # it would break the map's columns
+    [ "$(sidecar_uuid_for_session "$sess")" = "$uuid" ] || return 0
+    old=$(ledger_row "$sess" | cut -f4)
+    if [ -n "$old" ] && [ "$dir" -ef "$old" ]; then
+        awk -F'\t' -v s="$sess" '$1==s {f=1} END {exit !f}' "$SALA_LEDGER_DEFERRED" 2>/dev/null || return 0
+    fi
+    ledger_write follow "$sess" "$uuid" "$dir" || true
+}
 # COMPARE AND RESTORE (a missing session is recreated on its own, then reported). A row whose tmux session does not exist is
 # recreated: the session detached at a shell in the row's cwd, then `revive --only NAME` resumes the row's conversation
 # by uuid through revive's shell-pane branch (the dedupe guard, the effort re-pass, the inbox hold). A row whose session
@@ -3804,7 +3826,7 @@ restore_session() {  # <session> [row] → 0 recreated and resumed · 3 left alo
     uuid=$RS_UUID; cwd=$RS_CWD; note=$RS_NOTE
     tmux new-session -d -s "$sess" -c "$cwd" || { echo "$sess: tmux new-session failed"; return 1; }
     # not the recycle's own sweep (SALA_RECYCLE would re-post and stop retry workers); the guard was this caller's to pass
-    out=$(env -u SALA_RECYCLE -u SALA_SKIP_PANE "$SALA_BIN" revive --only "$sess" 2>&1)
+    out=$(env -u SALA_RECYCLE -u SALA_SKIP_PANE SALA_KEEP_ROW_CWD=1 "$SALA_BIN" revive --only "$sess" 2>&1)   # the row keeps its folder (ledger_relaunched)
     re_escape_r sess_re "$sess"; printf '%s\n' "$out" | grep -E "^ *$sess_re:0: |^✗|^⚠" | sed 's/^ */      /'
     if printf '%s\n' "$out" | grep -q "^ *$sess:0: resumed $uuid"; then echo "$sess: back in $cwd$note, on its conversation"; return 0; fi
     why=$(printf '%s\n' "$out" | grep -F "$sess:0: " | tail -1 | sed "s/^ *$sess:0: //"); [ -n "$why" ] || why=$(printf '%s\n' "$out" | grep . | tail -1)

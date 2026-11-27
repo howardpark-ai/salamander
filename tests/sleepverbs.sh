@@ -9,6 +9,8 @@
 #  - wake --dry-run changes nothing; wake takes the marker off and the fake starts again on the SAME conversation uuid (one more start line, no other uuid);
 #    a name that is not asleep is a message and no action (no start); a sleeper whose claude already runs only loses its marker; a sleeper whose tmux session
 #    is gone is recreated and resumed;
+#  - a wake into a pane moved to another folder records that folder in the pane-map row; a deleted or unreadable one leaves the row's own; restore (and a
+#    wake with the tmux session gone) uses the row's folder and leaves it as it is, the $HOME fallback included;
 #  - the queue: `op sleep|wake --only NAME…` takes only --only, plans with the verb's --dry-run, and with no words needs a reason (--item or --why) and a caller
 #    placed by process ancestry (a plain shell is refused), never the asker itself; a wake of a session that is not asleep queues nothing; the queued marker
 #    carries the reason, one ownrow= per name and no words; the runner (op --run) puts the session to sleep although its own marker names it, and wakes it;
@@ -302,6 +304,35 @@ if [ "$RC" = 0 ] && [ -n "$M" ]; then
     is_sleeping sala-test-q && [ "$(n_starts 16)" = "$q0" ] && grep -q "nothing was woken" "$DONE/$OPID.op" 2>/dev/null && ok "the row replaced since it was queued: stuck, nothing woken, q still asleep" || bad "stuck wake: sleeping=$(is_sleeping sala-test-q && echo y || echo n) $(cat "$DONE/$OPID.op" "$M" 2>/dev/null | tr '\n' ' ')"
 else bad "op wake q: rc=$RC — $OUT"; fi
 sleeping_clear "$UQ"
+
+echo "== wake into a pane moved to another folder: the pane-map row's folder follows the relaunch; restore keeps the row's"
+mkdir -p "$HOME/work-new" "$HOME/work-gone" "$HOME/work-shut"
+mk f 17 -e FAKE_IDLE_AGE=4000; fake_up sala-test-f; "$SALA" adopt sala-test-f >/dev/null 2>&1
+UF=$(uuid 17)
+frow() { printf 'sala-test-f\t%s\tsala-test-f\t%s' "$UF" "$1"; }                      # <folder> → the row f should have
+follows() { grep -c "	follow	sala-test-f	" "$SALA_LEDGER_LOG" 2>/dev/null || true; }
+paneat() { [ "$($T display -p -t sala-test-f '#{pane_current_path}')" = "$1" ]; }   # <folder>
+sleep_f() { stoprec 17; run sleep sala-test-f; [ "$RC" = 0 ] || bad "sleep f: rc=$RC — $OUT"; }
+cd_f() { $T send-keys -t sala-test-f "cd '$1'" Enter; waitfor "paneat '$1'" 20 || bad "the pane of f did not move to $1"; }
+wake_f() { f0=$(n_starts 17); run wake sala-test-f; waitfor 'hasclaude f' 40; [ "$RC" = 0 ] && hasclaude f && [ "$(n_starts 17)" = "$((f0 + 1))" ]; }   # → 0 woken, the conversation started once more
+sleep_f; wake_f && [ "$(row sala-test-f)" = "$(frow "$HOME")" ] && [ "$(follows)" = 0 ] && ok "the same folder: the row as before, no ledger line" || bad "wake, same folder: rc=$RC row='$(row sala-test-f)' follows=$(follows) — $OUT"
+sleep_f; cd_f "$HOME/work-new"
+[ "$(row sala-test-f)" = "$(frow "$HOME")" ] || bad "the row moved before the wake: '$(row sala-test-f)'"
+wake_f && [ "$(row sala-test-f)" = "$(frow "$HOME/work-new")" ] && ok "another folder: the row records it, same conversation and name" || bad "wake, new folder: rc=$RC row='$(row sala-test-f)' — $OUT"
+[ "$(follows)" = 1 ] && grep -qF "	follow	sala-test-f	$UF → $UF (cwd $HOME → $HOME/work-new)	" "$SALA_LEDGER_LOG" && ok "one ledger line: follow, old folder → new" || bad "ledger log: $(grep sala-test-f "$SALA_LEDGER_LOG")"
+sleep_f; cd_f "$HOME/work-gone"; rmdir "$HOME/work-gone"
+wake_f && [ "$(row sala-test-f)" = "$(frow "$HOME/work-new")" ] && [ "$(follows)" = 1 ] && ok "the pane's folder deleted: the row keeps its own" || bad "wake, deleted folder: rc=$RC row='$(row sala-test-f)' — $OUT"
+sleep_f; cd_f "$HOME/work-shut"; chmod 000 "$HOME/work-shut"
+if [ -r "$HOME/work-shut" ]; then echo "  (the unreadable folder case is skipped: this user reads a mode-000 folder)"; else
+    wake_f && [ "$(row sala-test-f)" = "$(frow "$HOME/work-new")" ] && [ "$(follows)" = 1 ] && ok "the pane's folder unreadable: the row keeps its own" || bad "wake, unreadable folder: rc=$RC row='$(row sala-test-f)' — $OUT"
+fi
+chmod 755 "$HOME/work-shut"; is_sleeping sala-test-f || sleep_f
+$T kill-session -t "=sala-test-f"
+run wake sala-test-f; waitfor 'hasclaude f' 40
+[ "$RC" = 0 ] && hasclaude f && paneat "$HOME/work-new" && [ "$(row sala-test-f)" = "$(frow "$HOME/work-new")" ] && ok "tmux session gone: wake recreates it in the row's folder" || bad "wake, session gone: rc=$RC pane=$($T display -p -t sala-test-f '#{pane_current_path}') row='$(row sala-test-f)' — $OUT"
+fpid=$(cpid f); $T kill-session -t "=sala-test-f"; waitfor "! kill -0 $fpid 2>/dev/null" 20; rmdir "$HOME/work-new"
+run restore sala-test-f; waitfor 'hasclaude f' 40
+[ "$RC" = 0 ] && hasclaude f && paneat "$HOME" && [ "$(row sala-test-f)" = "$(frow "$HOME/work-new")" ] && [ "$(follows)" = 1 ] && ok "restore with the row's folder gone: in \$HOME, the row left as it was" || bad "restore, folder gone: rc=$RC row='$(row sala-test-f)' follows=$(follows) — $OUT"
 
 echo "== the teaching text names the verbs"
 run op --help --full
