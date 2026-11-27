@@ -67,7 +67,9 @@ def test_a_stored_page_is_served_as_utf8_html_with_the_sandbox_headers(env):
     r = env["client"].get("/mockup/1")
     assert r.status_code == 200
     assert r.headers["content-type"] == "text/html; charset=utf-8"
-    assert r.content == PAGE.encode("utf-8")        # served as stored: no rewriting, the viewport meta and the Google Fonts link included
+    assert r.content == MK.with_back_link(PAGE).encode("utf-8")   # the stored page plus the back link, nothing else: the viewport meta and the Google Fonts link stay
+    assert r.content.replace(MK.BACK_LINK.encode(), b"", 1) == PAGE.encode("utf-8")
+    assert (env["root"] / "1.html").read_text(encoding="utf-8") == PAGE   # the file itself is not touched
     check_sandbox_headers(r)
     assert r.headers["cache-control"] == "private, no-cache"
 
@@ -77,9 +79,30 @@ def test_the_viewport_meta_a_phone_needs_reaches_the_reader_unchanged(env):
     assert 'name="viewport" content="width=device-width, initial-scale=1"' in env["client"].get("/mockup/2").text
 
 
+def test_every_page_starts_with_a_back_link_to_the_chat_route(env):
+    store(env["root"], 3)
+    body = env["client"].get("/mockup/3").text
+    assert '<a href="../chat"' in body and "Back to sala" in body
+    assert body.index("data-sala-back") < body.index('<h1 id="h">')            # at the top of the body, before the page's own content
+    assert body.index("<body>") < body.index("data-sala-back")
+    assert "min-height:44px" in MK.BACK_LINK and "position:fixed" not in MK.BACK_LINK   # a tap target, and in flow so it covers nothing
+
+
+@pytest.mark.parametrize("page,where", [
+    ('<!doctype html><html><head><title>x</title></head><p>hi</p>', "</head>"),                  # no body tag: after the head
+    ('<!doctype html><p>hi</p>', "<!doctype html>"),                                              # no html: after the doctype
+    ('<p>hi</p>', ""),                                                                            # nothing: first
+    ('<html><head><script>var s="<body>";</script><!-- <body> --></head><body class="a">x</body></html>', '<body class="a">'),   # a tag in a script or comment is not the body
+])
+def test_the_back_link_goes_in_the_right_place(page, where):
+    out = MK.with_back_link(page)
+    assert out.count("data-sala-back") == 1 and out.replace(MK.BACK_LINK, "", 1) == page
+    assert out.index(MK.BACK_LINK) == (out.index(where) + len(where) if where else 0)
+
+
 def test_numbers_are_the_files_and_the_largest_works(env):
     store(env["root"], 9999999999, "<p>big number</p>")
-    assert env["client"].get("/mockup/9999999999").text == "<p>big number</p>"
+    assert env["client"].get("/mockup/9999999999").text == MK.with_back_link("<p>big number</p>")
 
 
 def test_head_answers_with_the_headers_and_no_body(env):
@@ -273,6 +296,27 @@ def test_in_a_real_browser_a_phone_gets_the_pages_own_width(served, browser):
     browser.open(served["url"] + "/mockup/1", dark=False)       # the fixture's viewport is a phone: 390 px, mobile
     wait_for(browser, "document.title === 'done'")
     assert browser.evaluate("window.innerWidth") == 390 and browser.evaluate("document.documentElement.scrollWidth") <= 390
+
+
+@pytest.mark.parametrize("page", [
+    PROBE,
+    '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head>'
+    '<body style="display:flex;margin:0"><div style="flex:1">a page that lays its body out as a flex row</div></body></html>',
+    "<p>a page with no head, no body and no viewport meta</p>",
+])
+def test_in_a_real_browser_the_back_link_is_tappable_and_does_not_widen_the_page(served, browser, page):
+    root = served["settings"].mockups_dir
+    root.mkdir(parents=True, mode=0o700, exist_ok=True)
+    store(root, 1, page)
+    browser.open(served["url"] + "/mockup/1", dark=False)
+    wait_for(browser, "document.readyState === 'complete'")
+    if 'name="viewport"' in page:
+        assert browser.evaluate("window.innerWidth") == 390          # a page with the meta is laid out at the phone's width
+    layout = browser.evaluate("document.documentElement.clientWidth")   # without the meta the browser picks its own layout width (980): the page's doing
+    box = browser.evaluate("(() => { const r = document.querySelector('[data-sala-back] a').getBoundingClientRect(); return [r.top, r.left, r.width, r.height]; })()")
+    assert box[3] >= 44 and box[0] >= 0 and box[1] >= 0 and box[1] + box[2] <= layout, box
+    assert browser.evaluate("document.documentElement.scrollWidth") <= layout     # nothing scrolls sideways
+    assert browser.evaluate("document.querySelector('[data-sala-back] a').href") == served["url"] + "/chat"
 
 
 def test_in_a_real_browser_the_site_itself_is_unaffected_by_the_sandbox(served, browser):

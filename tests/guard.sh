@@ -2,8 +2,7 @@
 # The fleet guard (`salamander hook pre-tool`, lib/guard.py): a table of Bash commands → allow or deny, through the
 # real hook with a PreToolUse payload on stdin. Checks: reboot, CLI update, tmux kill-* on the fleet's server and kill of a
 # claude process are denied with the documented JSON and the `sala op … --words` fix in the reason (Thu Oct 15th
-# 2026: the queue's verb for the kind — update, retire — never `sala cue`; a reboot is not queued, so its
-# reason says the owner runs `sala reboot --go` in person and never names `sala op reboot`); near misses pass, one row
+# 2026: the queue's verb for the kind — update, retire, reboot — never `sala cue`); near misses pass, one row
 # per kind (echo, grep and git words, a heredoc's body, a comment, other installers, private tmux servers, sala's own
 # verbs, $(pgrep …) and xargs forms, ssh); a literal pid is judged by /proc (a process named claude vs not), a process
 # group too; `bash -c` strings are checked; no pane is exempt, a SALA_MASTER line left in the config included; `kill <pid>` of the claude of a throwaway the calling session started itself (registry spawned_by)
@@ -28,8 +27,7 @@ verdict() {  # <command> → "deny" / "allow" / "bad:<why>"
     printf '%s' "$out" | python3 -c 'import json,sys
 d=json.load(sys.stdin)["hookSpecificOutput"]
 r = d["permissionDecisionReason"]
-rb = "A reboot is not queued: Rowan runs `sala reboot --go` in the web UI" in r
-fix = ("sala reboot --status" in r and "sala op " not in r) if rb else ("sala op " in r and "--words" in r)
+fix = "sala op " in r and "--words" in r
 ok = d["hookEventName"]=="PreToolUse" and d["permissionDecision"]=="deny" and fix and "sala cue" not in r
 print("deny" if ok else "bad:"+json.dumps(d))' 2>/dev/null || echo "bad:$out"
 }
@@ -102,9 +100,9 @@ expect deny "pkill -9 -f 'claude --resume'"
 expect deny "killall claude"
 expect deny "pkill -f claude-alt"
 
-echo "== the fix names the queue's verb for the kind: what a session queues in place of the raw command; a reboot is not queued"
-r=$(reason "sudo reboot"); case "$r" in *'sala op'*) bad "reboot's fix names the queue: $r" ;; *'A reboot is not queued: Rowan runs `sala reboot --go` in the web UI'"'"'s Shell. Show `sala reboot --status` and wait for the word.'*) ok "reboot → not queued: Rowan runs sala reboot --go, the session shows the status" ;; *) bad "reboot's fix: $r" ;; esac
-for c in "reboot" "systemctl soft-reboot" "telinit 6"; do r=$(reason "$c"); case "$r" in *'sala op'*|'') bad "$c: $r" ;; *'is not queued'*) ok "$c → not queued" ;; *) bad "$c: $r" ;; esac; done
+echo "== the fix names the queue's verb for the kind: what a session queues in place of the raw command; a reboot is queued by `sala op reboot` with the owner's words"
+r=$(reason "sudo reboot"); case "$r" in *'sala op reboot --from '*'--words "<Rowan'"'"'s words>"'*) ok "reboot -> sala op reboot --from NAME --words, Rowan's words" ;; *) bad "reboot's fix: $r" ;; esac
+for c in "reboot" "systemctl soft-reboot" "telinit 6"; do r=$(reason "$c"); case "$r" in *'sala op reboot'*) ok "$c -> sala op reboot" ;; *) bad "$c: $r" ;; esac; done
 r=$(reason "claude update"); case "$r" in *'not queued'*) bad "update says not queued: $r" ;; esac
 r=$(reason "claude update"); case "$r" in *'sala op update --from <you> --words'*) ok "a CLI update → sala op update" ;; *) bad "update's fix: $r" ;; esac
 r=$(reason "tmux kill-session -t example-x"); case "$r" in *'sala op retire <session> --from <you> --words'*) ok "tmux kill-* → sala op retire <session>" ;; *) bad "tmux's fix: $r" ;; esac

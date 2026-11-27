@@ -191,7 +191,7 @@ fake_up sala-test-a
 [ "$(bedlog "$U1")" = "$WANT" ] && ok "its claude started with exactly the lane's environment (profile, use flag, region, prefix, the three models) and no AWS key in it" || bad "bedrock env: $(bedlog "$U1")"
 [ "$(lane_row sala-test-a)" = bedrock ] && ok "recorded: sala-test-a → bedrock" || bad "row: '$(lane_row sala-test-a)'"
 [ "$(proc_lane "$(cpid a)")" = bedrock ] && ok "proc_lane reads bedrock from the process's environment" || bad "proc_lane: $(proc_lane "$(cpid a)")"
-grep -qE '^sala-test-a +bedrock +bedrock' <<< "$("$SALA" lane)" && ok "the table: recorded bedrock, running bedrock" || bad "table: $("$SALA" lane)"
+grep -qE '^sala-test-a +bedrock +bedrock' <<< "$("$SALA" lane --full)" && ok "the table: recorded bedrock, running bedrock" || bad "table: $("$SALA" lane)"
 [ "$(cachelog "$U2")" = "cache1h=- cache1h_bedrock=-" ] && [ "$(bedlog "$U2")" = "profile=- use=- region=- prefix=- opus=- sonnet=- haiku=- awskey=n" ] && [ "$(starts "$U2")" = 1 ] && [ -z "$(lane_row sala-test-b)" ] && ok "sala-test-b untouched: no variable, no row" || bad "b: $(bedlog "$U2") starts $(starts "$U2")"
 pp=$(tmux display -p -t sala-test-a '#{pane_pid}')
 ! tr '\0' '\n' < "/proc/$pp/environ" 2>/dev/null | grep -qE '^(AWS_|CLAUDE_CODE_USE_BEDROCK|ANTHROPIC_DEFAULT_)' && ok "the pane's shell never held the variables: the env is on the launch line only" || bad "the pane's shell environment carries the lane's variables"

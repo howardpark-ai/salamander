@@ -1,21 +1,22 @@
-"""The chat session's "Your move" line is pinned under the header, in a headless Chromium (the text of the page is test_chat_session_view.py; the rest of the
-strip is test_chat_session_view_ui.py and test_chat_kept_ui.py).
+"""The chat session's "Your move" list is pinned under the header, in a headless Chromium (the text of the page is test_chat_session_view.py; the rest of the
+strip is test_chat_session_view_ui.py and test_chat_kept_ui.py; the second tab is test_chat_onit_ui.py).
 
 The rule: what waits on the owner never scrolls away with the thread. #chat-strip-wait is the first child of #chat-pane and sticks to the top of the pane, right under
-sala's header. Closed it is one line, a real button with the count ("Your move · 3", aria-expanded false); one click, tap or Enter opens the list under it, and
-the whole pinned box stays within 40vh, the list scrolling up and down inside it. With nothing waiting no line is drawn. The motion lines and the kept-back switch
-still scroll with the thread. Held here at 1280 x 800 and 390 x 844 (the width rule also at 360 and 320), with api/chat replaced in the page and a real transcript:
+sala's header. Closed it is the bar of two tabs, the first a real button with the count ("Your move · 3", aria-selected false; the chevron's aria-expanded false);
+one click, tap or Enter opens the list under the bar, and the whole pinned box stays within 40vh, the list scrolling up and down inside it. With both lists empty
+nothing is drawn. The kept-back switch still scrolls with the thread. Held here at 1280 x 800 and 390 x 844 (the width rule also at 360 and 320), with api/chat
+replaced in the page (the second list empty) and a real transcript:
   - closed by default: one line with the count, the list hidden, a button the keyboard can use; a click and Enter open and close it, and a read of the strip does not
-    close it; with nothing waiting no line is drawn;
+    close it; with both lists empty nothing is drawn;
   - on a long thread, scrolled to the bottom and to the top, the pinned box's top is the header's bottom, closed and open; open it is never taller than 40vh, the
     list scrolls inside it, and every row shows its id and its title as the one link to the item (the address it was given, a new tab, no "Answer" link), not covered;
-  - the open list has no heading row of its own (the pinned line is the one heading; the panel's aria-label is the line's text), and each row hangs from its dot: the dot
+  - the open list has no heading row of its own (its tab is the one heading; the panel's aria-label is the tab's words), and each row hangs from its dot: the dot
     is on the title's first line (never alone on a line, also for a 300-character word and a long Korean title with a long address at 1280, 390, 360 and 320), and a
     wrapped line starts at the content's left edge, under the id, never under the dot;
   - the box covers the thread cleanly: opaque panel colour, a 1 px bottom border and a soft shadow, and the list's own scroll ends with 12 px under the last row;
   - each row shows the board id as a plain, selectable label before the title (the id as written; a row with no id shows the title alone, a row with no address shows the
     title as plain text, a row with no subject shows the id once as its title); the title is a keyboard-focusable link with a 44 px touch target on a touch screen;
-  - the header and the composer are where they were with the line there or not, and a session that is not the chat session has no line and a thread that starts
+  - the header and the composer are where they were with the pinned box there or not, and a session that is not the chat session has none and a thread that starts
     at the top of the pane;
   - the open list shows that it scrolls: at 390 px with eight long moves a soft band of the text colour sits on the list's last 24 px at first open (read as a pixel of a
     screenshot, in the gutter beside the rows where no text or line is, against a pixel of the same gutter near the top), and it is gone once the list is scrolled to its end,
@@ -42,7 +43,8 @@ from test_chat_session_view_ui import DESKTOP, MEASURE, SIZES, URL, WORD, api_ch
 
 LINE = "Your move · 3"
 PIN = "document.querySelector('#chat-strip-wait')"
-BTN = "document.querySelector('#chat-strip-wait .wait-toggle')"
+BTN = "document.querySelector('#chat-strip-tab-move')"                 # the first tab
+CHEVRON = "document.querySelector('#chat-strip-wait .wait-chev')"
 WIDTHS = [1280, 390, 360, 320]
 
 
@@ -66,7 +68,7 @@ def long_thread(served, pairs: int = 40) -> None:
 def open_pin(browser, served, monkeypatch, size, waiting=None, thread=True) -> None:
     if thread:
         long_thread(served)
-    open_page(browser, served, monkeypatch, size, api_chat(waiting=moves() if waiting is None else waiting))
+    open_page(browser, served, monkeypatch, size, api_chat(waiting=moves() if waiting is None else waiting, motion=[]))
     assert wait_for(browser, "!document.querySelector('#chat-strip').hidden", 15.0)
     if moves() if waiting is None else waiting:
         assert wait_for(browser, f"!{PIN}.hidden", 15.0)
@@ -77,11 +79,11 @@ def click(browser) -> None:
 
 
 def state(browser) -> dict:
-    return browser.evaluate("""(() => { const p = document.querySelector('#chat-strip-wait'), b = p.querySelector('.wait-toggle'), w = p.querySelector('.wait'),
-      top = document.querySelector('#top').getBoundingClientRect(), pane = document.querySelector('#chat-pane').getBoundingClientRect(), r = p.getBoundingClientRect(),
+    return browser.evaluate("""(() => { const p = document.querySelector('#chat-strip-wait'), b = p.querySelector('#chat-strip-tab-move'), c = p.querySelector('.wait-chev'),
+      w = p.querySelector('#chat-strip-wait-panel'), top = document.querySelector('#top').getBoundingClientRect(), pane = document.querySelector('#chat-pane').getBoundingClientRect(), r = p.getBoundingClientRect(),
       shown = (n) => n.getClientRects().length > 0;
-      return { hidden: p.hidden, pinShown: shown(p), listShown: shown(w), expanded: b.getAttribute('aria-expanded'), tag: b.tagName, type: b.type, text: b.textContent.trim(),
-               title: b.title, pinTop: r.top, pinH: r.height, pinW: r.width, headBottom: top.bottom, paneTop: pane.top, vh: window.innerHeight,
+      return { hidden: p.hidden, pinShown: shown(p), listShown: shown(w), expanded: c.getAttribute('aria-expanded'), selected: b.getAttribute('aria-selected'), tag: b.tagName, type: b.type,
+               text: b.textContent.trim(), title: c.title, pinTop: r.top, pinH: r.height, pinW: r.width, headBottom: top.bottom, paneTop: pane.top, vh: window.innerHeight,
                listScroll: [w.scrollHeight, w.clientHeight], listOverflow: [getComputedStyle(w).overflowY, getComputedStyle(w).overflowX],
                pos: getComputedStyle(p).position, rows: p.querySelectorAll('.wait-row').length }; })()""")
 
@@ -111,10 +113,11 @@ def test_closed_by_default_one_line_with_the_count_and_a_real_button(served, bro
     open_pin(browser, served, monkeypatch, size)
     s = state(browser)
     assert s["pinShown"] and not s["hidden"] and s["pos"] == "sticky", s
-    assert s["tag"] == "BUTTON" and s["type"] == "button" and s["text"] == LINE and s["expanded"] == "false", s
+    assert s["tag"] == "BUTTON" and s["type"] == "button" and s["text"] == LINE and s["expanded"] == "false" and s["selected"] == "false", s
     assert not s["listShown"] and s["pinH"] <= 48, s                    # one line: the list is not drawn, the box is as high as its button
     assert s["title"] == "Show the list: Your move", s
     assert browser.evaluate(BTN + ".getAttribute('aria-controls') === document.querySelector('#chat-strip-wait .wait').id")
+    assert browser.evaluate(CHEVRON + ".getAttribute('aria-controls')") == "chat-strip-wait-panel"
 
 
 @pytest.mark.parametrize("size", SIZES)
@@ -122,14 +125,14 @@ def test_a_click_opens_the_list_and_a_second_closes_it_and_a_read_of_the_strip_l
     open_pin(browser, served, monkeypatch, size)
     click(browser)
     s = state(browser)
-    assert s["expanded"] == "true" and s["listShown"] and s["rows"] == 3 and s["title"] == "Hide the list: Your move", s
+    assert s["expanded"] == "true" and s["selected"] == "true" and s["listShown"] and s["rows"] == 3 and s["title"] == "Hide the list: Your move", s
     browser.evaluate("window.__chat = Object.assign({}, window.__chat, { waiting: window.__chat.waiting.concat([{ id: 'item#9', subject: 'A late move', url: '' }]) }); loadChatMarks(); ''")
     assert wait_for(browser, f"{PIN}.querySelectorAll('.wait-row').length === 4", 10.0)
     s = state(browser)
     assert s["expanded"] == "true" and s["listShown"] and s["text"] == "Your move · 4", s     # a read changes the count and keeps the list open
     click(browser)
     s = state(browser)
-    assert s["expanded"] == "false" and not s["listShown"] and s["pinShown"], s
+    assert s["expanded"] == "false" and s["selected"] == "false" and not s["listShown"] and s["pinShown"], s
 
 
 def test_the_keyboard_reaches_the_button_and_enter_opens_and_closes_it(served, browser, monkeypatch):
@@ -140,12 +143,12 @@ def test_the_keyboard_reaches_the_button_and_enter_opens_and_closes_it(served, b
     for want in ("true", "false"):
         browser.send("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13, "text": "\r"})
         browser.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13})
-        assert wait_for(browser, f"{BTN}.getAttribute('aria-expanded') === '{want}'", 5.0), want
+        assert wait_for(browser, f"{BTN}.getAttribute('aria-selected') === '{want}'", 5.0), want
     assert browser.evaluate("document.activeElement === " + BTN), "the focus stays on the button"
 
 
 @pytest.mark.parametrize("size", SIZES)
-def test_with_nothing_waiting_no_line_is_drawn_and_it_comes_back_with_a_move(served, browser, monkeypatch, size):
+def test_with_both_lists_empty_nothing_is_drawn_and_the_bar_comes_back_with_a_move(served, browser, monkeypatch, size):
     open_pin(browser, served, monkeypatch, size, waiting=[])
     s = state(browser)
     assert s["hidden"] and not s["pinShown"] and s["pinH"] == 0, s
@@ -284,12 +287,12 @@ def test_another_session_has_no_line_and_its_thread_starts_at_the_top_of_the_pan
     s = browser.evaluate("""(() => { const p = document.querySelector('#chat-strip-wait'), pane = document.querySelector('#chat-pane').getBoundingClientRect(),
       chat = document.querySelector('#chat').getBoundingClientRect(), strip = document.querySelector('#chat-strip');
       return { pinHidden: p.hidden, pinRects: p.getClientRects().length, pinH: p.getBoundingClientRect().height, stripHidden: strip.hidden, cls: document.body.classList.contains('chat-session'),
-               gap: Math.round(chat.top - pane.top + document.querySelector('#chat-pane').scrollTop), buttons: document.querySelectorAll('#chat-strip-wait .wait-toggle').length }; })()""")
+               gap: Math.round(chat.top - pane.top + document.querySelector('#chat-pane').scrollTop), buttons: document.querySelectorAll('#chat-strip-wait button').length }; })()""")
     assert s == {"pinHidden": True, "pinRects": 0, "pinH": 0, "stripHidden": True, "cls": False, "gap": 0, "buttons": 0}, s
 
 
 # ── no sideways scroll ───────────────────────────────────────────────────────
-PIN_WIDTHS = """(() => { const root = document.scrollingElement, p = document.querySelector('#chat-strip-wait'), w = p.querySelector('.wait'), b = p.querySelector('.wait-toggle'),
+PIN_WIDTHS = """(() => { const root = document.scrollingElement, p = document.querySelector('#chat-strip-wait'), w = p.querySelector('.wait'), b = p.querySelector('#chat-strip-tab-move'),
   pane = document.querySelector('#chat-pane'), over = [];
   const outRow = [];
   for (const row of p.querySelectorAll('.wait-row')) { const rr = row.getBoundingClientRect(); for (const n of row.querySelectorAll('.wait-id, .wait-link, .wait-title, .new')) { const r = n.getBoundingClientRect(); if (r.right > rr.right + 0.5 || r.left < rr.left - 0.5) outRow.push(n.className + ' ' + Math.round(r.left) + '-' + Math.round(r.right) + ' in ' + Math.round(rr.left) + '-' + Math.round(rr.right)); } }
@@ -382,14 +385,14 @@ def test_the_dot_sits_on_the_first_line_of_the_title_and_wrapped_lines_start_und
 
 
 @pytest.mark.parametrize("size", SIZES)
-def test_the_open_list_has_no_heading_row_and_is_named_by_the_line(served, browser, monkeypatch, size):
+def test_the_open_list_has_no_heading_row_and_is_named_by_its_tab(served, browser, monkeypatch, size):
     open_pin(browser, served, monkeypatch, size)
     click(browser)
     got = browser.evaluate("""(() => { const w = document.querySelector('#chat-strip-wait .wait'), kids = [...w.children].map((n) => n.tagName + '.' + n.className);
       return { kids, headings: w.querySelectorAll('h1, h2, h3, h4, h5, h6, .sec-head').length, text: w.textContent, label: w.getAttribute('aria-label'),
-               line: document.querySelector('#chat-strip-wait .wait-line').textContent, note: !!w.querySelector('.wait-cap') }; })()""")
+               line: document.querySelector('#chat-strip-wait .wait-tab-line').textContent, note: !!w.querySelector('.wait-cap') }; })()""")
     assert got["kids"][0] == "UL.wait-list" and got["headings"] == 0 and "straight from the board" not in got["text"], got
-    assert got["label"] == got["line"] == LINE and got["note"], got           # one heading only: the pinned line; the footnote stays
+    assert got["label"] == got["line"] == LINE and got["note"], got           # one heading only: the tab; the footnote stays
 
 
 @pytest.mark.parametrize("width", WIDTHS)
@@ -529,7 +532,7 @@ def test_a_new_tag_that_wraps_starts_where_the_id_starts_and_one_after_the_title
 
 
 # ── the group's name is the one stackshot serves ──────────────────────────────
-# api/chat carries `group: {en, ko}` (stackshot's own name for the group). The pinned line, its titles, the panel's label and the drawer chip use it in place of sala's own
+# api/chat carries `group: {en, ko}` (stackshot's own name for the group). The first tab, the chevron's titles, the panel's label and the drawer chip use it in place of sala's own
 # words; a Korean page uses the served ko, or sala's own Korean when that equals the served en (no Korean catalog); a bad group is no group. All polled, no fixed sleeps.
 RENAMED = "Decide demo"
 KO_LABEL = "".join(chr(c) for c in (0xACB0, 0xC815, 0x20, 0xB370, 0xBAA8))
@@ -548,7 +551,7 @@ def set_group(browser, group) -> None:
 
 
 def open_group(browser, served, monkeypatch, size, group) -> None:
-    open_page(browser, served, monkeypatch, size, api_chat(waiting=moves(), group=group))
+    open_page(browser, served, monkeypatch, size, api_chat(waiting=moves(), group=group, motion=[]))
     assert wait_for(browser, f"!{PIN}.hidden", 15.0)
 
 
@@ -561,11 +564,11 @@ def test_a_renamed_group_is_the_name_of_the_closed_bar_the_titles_the_label_and_
     assert wait_for(browser, f"{CHIP}.title === {json.dumps('3 items in ' + RENAMED)}", 10.0), browser.evaluate(CHIP + ".title")
     assert browser.evaluate(TIP) == TIP_EN + RENAMED
     click(browser)
-    assert wait_for(browser, f"{BTN}.title === {json.dumps('Hide the list: ' + RENAMED)}", 5.0), state(browser)
+    assert wait_for(browser, f"{CHEVRON}.title === {json.dumps('Hide the list: ' + RENAMED)}", 5.0), state(browser)
     assert browser.evaluate("document.querySelector('#chat-strip-wait .wait').getAttribute('aria-label')") == RENAMED + " · 3"
     click(browser)
-    assert wait_for(browser, f"{BTN}.getAttribute('aria-expanded') === 'false'", 5.0)
-    assert "Your move" not in browser.evaluate("document.querySelector('#chat-strip-wait').textContent + ' ' + " + BTN + ".title + ' ' + " + CHIP + ".title + ' ' + " + TIP)
+    assert wait_for(browser, f"{BTN}.getAttribute('aria-selected') === 'false'", 5.0)
+    assert "Your move" not in browser.evaluate("document.querySelector('#chat-strip-wait').textContent + ' ' + " + CHEVRON + ".title + ' ' + " + CHIP + ".title + ' ' + " + TIP)
     m = browser.evaluate(MEASURE)
     assert m["waiting"] == 3, m
     check(m, f"a renamed group at {size[0]} px")
@@ -576,7 +579,7 @@ def test_a_korean_page_shows_the_served_korean_label_or_sala_s_own_when_it_equal
     assert wait_for(browser, line_is(RENAMED + " · 3"), 10.0)
     browser.evaluate("SalaI18n.setLang('ko'); ''")
     assert wait_for(browser, line_is(KO_LABEL + " · 3"), 10.0), state(browser)          # repainted from what the strip holds, no new read
-    assert wait_for(browser, f"{BTN}.title.startsWith({json.dumps(KO_LABEL)}) && {CHIP}.title.startsWith({json.dumps(KO_LABEL)})", 5.0)
+    assert wait_for(browser, f"{CHEVRON}.title.startsWith({json.dumps(KO_LABEL)}) && {CHIP}.title.startsWith({json.dumps(KO_LABEL)})", 5.0)
     assert wait_for(browser, f"{TIP}.includes({json.dumps(KO_LABEL)}) && !{TIP}.includes('{{group}}')", 5.0), browser.evaluate(TIP)
     set_group(browser, {"en": RENAMED, "ko": RENAMED})                                      # stackshot has no Korean catalog: ko equals en
     assert wait_for(browser, line_is(OWN_KO + " · 3"), 10.0), state(browser)

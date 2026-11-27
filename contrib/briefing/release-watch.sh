@@ -5,7 +5,7 @@
 # zero LLM cost for the probes). Silent by design:
 # prints the NO_REPLY token when nothing is new, which release-alert.sh
 # suppresses; only a genuinely new release produces output, which it posts to
-# the briefing channel on Slack. Lives in salamander at contrib/briefing/release-watch.sh.
+# the briefing destination (config BRIEFING_BOT_APP_REPORTS). Lives in salamander at contrib/briefing/release-watch.sh.
 #
 # Per product:
 #   latest    = what upstream publishes (GitHub "Latest" release / npm dist-tag)

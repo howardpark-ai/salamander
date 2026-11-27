@@ -9,13 +9,13 @@
 # Usage: summary-lean.sh [--post]      (env BRIEFING_LEAN_POST=1 is the same)
 #   default (side by side with summary.sh): the digest goes to $LOGDIR/lean/YYYYMMDD.txt, a usage line to YYYYMMDD.usage,
 #     and NOTHING is posted, so the owner does not get two digests. A failure writes its notice to the same file.
-#   --post: delivers like summary.sh, to the briefing channel through post_slack, a failure as the same kind of 🚨 notice.
+#   --post: delivers like summary.sh, to the briefing destination (config BRIEFING_BOT_APP_REPORTS) through post_slack, a failure as the same kind of 🚨 notice.
 # Lane: nothing here is tied to one plan. The model is $MODEL from lib.sh (SALA_BRIEFING_MODEL, default sonnet); the call inherits the
 # caller's environment, so Bedrock (CLAUDE_CODE_USE_BEDROCK, AWS_*) on the launch line or a drop-in works unchanged.
 # The delivery guard stays: a digest exists only if gmail_fetch.py really read Gmail (its meta file counts the reads); a
 # failed or refused read is a loud notice, never a digest.
 . "$(_s=${BASH_SOURCE[0]}; [ -L "$_s" ] && _s=$(readlink -f "$_s"); [[ $_s == */* ]] || _s=./$_s; cd -P "${_s%/*}" && pwd -P)/lib.sh"   # sets BRIEFING_DIR (no dirname/readlink process unless the script is a symlink)
-BRIEFING_CHANNEL="${BRIEFING_CHANNEL:-reports}"   # this job posts to the reports channel; BRIEFING_CHANNEL in the unit environment names another (README.md, Slack channels)
+BRIEFING_CHANNEL="${BRIEFING_CHANNEL:-reports}"   # this job posts as the `reports` channel key (BRIEFING_BOT_APP_REPORTS); BRIEFING_CHANNEL in the unit environment names another (README.md, Slack channels)
 
 POST=0
 [ "${BRIEFING_LEAN_POST-}" = 1 ] && POST=1

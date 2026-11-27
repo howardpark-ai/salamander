@@ -206,7 +206,7 @@ assert by["api"]["aliases"] == [] and by["bedrock"]["aliases"] == [] and by["aws
 PY
 out=$(SALA_LANE_SUBSCRIPTION1_LABEL=Zeta "$SALA" lane names --json 2>&1); grep -q '"code":"subscription-1","display":"Zeta"' <<< "$out" && ! grep -q Ultra <<< "$out" && ok "the setting shows in --json (Zeta, no Ultra)" || bad "lane names override: $out"
 out=$("$SALA" lane names --bogus 2>&1); rc=$?; [ "$rc" != 0 ] && grep -q 'usage: salamander lane names' <<< "$out" && ok "an unknown flag prints the usage and fails" || bad "lane names --bogus ($rc): $out"
-"$SALA" lane --help 2>&1 | grep -q 'lane names' && ok "lane --help lists the names verb" || bad "lane --help does not list names"
+"$SALA" lane --help --full 2>&1 | grep -q 'lane names' && ok "lane --help lists the names verb" || bad "lane --help does not list names"
 
 echo "== 7. lane-names.json: atomic, and only on change"
 F="$STATE/lane-names.json"; rm -f "$F"

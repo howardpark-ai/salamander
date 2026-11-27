@@ -1,7 +1,9 @@
 # lib/lane.sh — which account or key each pane's claude runs on: the lanes (Tue Oct 13th 2026; common.sh, "lanes").
 #
-#   salamander lane                                                 the table: the default lane, the lane fields, then every session — the
-#                                                                   lane recorded for it and the one its claude runs on now
+#   salamander lane [--full]                                        the table: the default lane, the lane fields, then each session that differs from the default or
+#                                                                   has something to say — the lane recorded for it and the one its claude runs on now; a session whose recorded
+#                                                                   lane is empty or the default, that runs on the default, with no note and no home, is counted in one line, not listed
+#                                                                   (--full lists every session). The default is read at print time, so a move of the default folds or unfolds rows.
 #   salamander lane --list | --json                                 the lane fields alone: per lane its provider, client, org,
 #                                                                   billing, plan, account, credential, region and status — aligned, or as JSON
 #   salamander lane <lane> <session>… [--dry-run]                      record the lane for those sessions, then relaunch them on it (resumed,
@@ -77,8 +79,19 @@
 # weekly limit and home when it resets, by queueing the ordinary `sala op lane <lane> <session>… --from sala-watch` (the switch below); a
 # back agent spawned meanwhile launches on the rule's lane; at a second, higher threshold (SALA_BACK_LANE_FRONT_THRESHOLD, default 95) the front agents move onto that lane too, a Fable one with the model change `lane fallback` makes (docs/lanes.md, *The front step*); a step never picks a dormant lane: its fallback takes the agents (or nobody moves). `salamander watch --back-lanes --dry-run` shows a pass. It is not a `lane` verb.
 
+# the short help (`lane --help`): the table, the fields, the three ways to move sessions, and the names of the rest; `lane --help --full` is usage
+usage_short() {
+    echo "usage: salamander lane [--full]                                  the table (default lane; the lane fields; each session that differs from the default or has something to say)"
+    echo "       salamander lane --list | --json                           the lane fields alone"
+    echo "       salamander lane <lane> <session>… [--dry-run] [--rescue]   record + relaunch those sessions on the lane"
+    echo "       salamander lane <lane> --all      [--dry-run]              every session and the default: one recycle --force"
+    echo "       salamander lane default <lane>    [--dry-run]              the default alone"
+    echo "  also: names, env, exec, pin, unpin, pins, dormant, active, fallback, --migrate"
+    usage | awk '/^  lanes: / && !n++ {sub(/  \(.*/, ""); print}'   # the lanes a pick may take, the dormant ones apart, without the explanation
+    echo "(sala lane --help --full: every form, the pins, the dormant record, the fallback, Fable, the rescue and the stuck-process end)"
+}
 usage() {
-    echo "usage: salamander lane                                         the table (default lane; the lane fields; each session: recorded lane, running lane)"
+    echo "usage: salamander lane [--full]                                the table (default lane; the lane fields; each session that differs from the default or has something to say: recorded lane, running lane; --full: every session)"
     echo "       salamander lane --list | --json                           the lane fields alone: provider, client, org, billing, plan, account, credential, region, status"
     echo "       salamander lane names [--json] [--write]                  each lane's code, display name and old words (one line each: code TAB display TAB aliases; --json for stackshot; --write keeps \$SALA_STATE_DIR/lane-names.json current)"
     echo "       salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed"
@@ -152,14 +165,14 @@ case "${1:-}" in
 esac
 
 export SALA_FLAG_SRC=lane   # the flag a relaunch here raises: one pane or a named few, explicit (common.sh, flag_src)
-DRY=0; ALL=0; LANE=""; SESS=(); MODE=show; args=(); RESCUE=0; LIST=0; JSON=0; REASON=""; HAVE_REASON=0; MIGRATE=0; NOFB=0
+DRY=0; ALL=0; LANE=""; SESS=(); MODE=show; args=(); RESCUE=0; LIST=0; JSON=0; REASON=""; HAVE_REASON=0; MIGRATE=0; NOFB=0; FULL=0
 while [ $# -gt 0 ]; do
     a="$1"; shift
     case "$a" in
-        --dry-run) DRY=1 ;; --all) ALL=1 ;; --rescue) RESCUE=1 ;; --list) LIST=1 ;; --json) JSON=1 ;; --migrate) MIGRATE=1 ;; --no-fallback) NOFB=1 ;;
+        --dry-run) DRY=1 ;; --all) ALL=1 ;; --rescue) RESCUE=1 ;; --list) LIST=1 ;; --json) JSON=1 ;; --migrate) MIGRATE=1 ;; --no-fallback) NOFB=1 ;; --full) FULL=1 ;;
         --reason) [ $# -gt 0 ] || die "--reason needs the words: salamander lane dormant <lane> --reason \"...\""; REASON="$1"; HAVE_REASON=1; shift ;;
         --reason=*) REASON="${a#--reason=}"; HAVE_REASON=1 ;;
-        -h|--help) usage; exit 0 ;;
+        -h|--help) case "${1:-}" in --full) usage ;; "") usage_short ;; *) usage_short >&2; exit 2 ;; esac; exit 0 ;;
         -*) die "unknown option: $a (see: salamander lane --help)" ;;
         *) args+=("$a") ;;
     esac
@@ -187,6 +200,7 @@ case "${1:-}" in
     *) MODE=switch; LANE="$1"; shift; SESS=("$@") ;;
 esac
 [ "$HAVE_REASON" = 0 ] || [ "$MODE" = state ] || die "--reason belongs to lane dormant: salamander lane dormant <lane> --reason \"...\""
+[ "$FULL" = 0 ] || [ "$MODE" = show ] || die "--full belongs to the table: salamander lane --full"
 [ "$NOFB" = 0 ] || { [ "$MODE" = state ] && [ "$STATE_TO" = dormant ]; } || die "--no-fallback belongs to lane dormant: salamander lane dormant <lane> --no-fallback"
 if [ "$RESCUE" = 1 ] && [ "$ALL" = 1 ]; then die "--rescue is for named sessions (salamander lane <lane> <session>… --rescue), never --all"; fi
 if [ "$RESCUE" = 1 ] && [ "$MODE" = switch ] && [ "${#SESS[@]}" -eq 0 ]; then die "--rescue needs the sessions it is for: salamander lane <lane> <session>… --rescue"; fi
@@ -293,11 +307,11 @@ if [ "$MODE" = show ]; then
     echo "lanes: ${ready% · }"; for l in ${notready[@]+"${notready[@]}"}; do echo "  $l"; done
     rows=$( { lane_sessions; [ -r "$SALA_LANES" ] && cut -f1 "$SALA_LANES"; } | awk 'NF && !seen[$0]++' | LC_ALL=C sort)
     [ -n "$rows" ] || { echo "(no session: nothing in the pane map, no live claude pane, no lane recorded)"; exit 0; }
-    T_S=(); T_REC=(); T_RUN=(); T_HM=(); T_NOTE=(); anyhome=0   # buffered: the HOME column is there only while some session sits off its home
+    T_S=(); T_REC=(); T_RUN=(); T_HM=(); T_NOTE=(); anyhome=0; anysleep=0; nplain=0   # nplain: sessions whose recorded lane is empty or the default, running on the default, with nothing to say: counted, not listed (--full lists them)   # buffered: the HOME column is there only while some session sits off its home
     while IFS= read -r s; do
         [ -n "$s" ] || continue
         rec=$(lane_row "$s"); eff=$(lane_for_session "$s"); run=$(running_lane "$s"); note=""   # eff: the row, else the default; an sdk row after its window → the lane fallback's pick for sdk
-        if is_sleeping "$s"; then note="sleeping: no claude on purpose, a wake resumes it on $eff"
+        if is_sleeping "$s"; then note="sleeping"; anysleep=1   # the sentence is said once, under the table
         elif no_relaunch "$s"; then note="$(no_relaunch_fix "$s" "managed outside sala (SALA_NO_RELAUNCH): sala never relaunches it")"
         elif ! tmux has-session -t "=$s" 2>/dev/null; then note="no tmux session (a restore brings it back on $eff)"
         elif [ "$run" = "?" ]; then note="its environment cannot be read"
@@ -311,15 +325,19 @@ if [ "$MODE" = show ]; then
         hm=$(lane_home "$s"); [ "$hm" = "$(lane_state_id "$eff")" ] || [ "$hm" = "$eff" ] && hm=""   # the home shows only while the session sits elsewhere (the lane fallback moved it; nothing moves it back by itself)
         [ -n "$hm" ] && note="${note:+$note; }moved off $hm by the lane fallback — back: salamander lane $hm $s"
         [ -n "$hm" ] && anyhome=1
+        if [ "$FULL" = 0 ] && { [ -z "$rec" ] || [ "$rec" = "$d" ]; } && [ "$eff" = "$d" ] && [ -z "$note" ] && [ -z "$hm" ]; then nplain=$((nplain+1)); continue; fi   # recorded nothing or the default, runs on the default (no note: no running difference), nothing to add; compared at print time
         T_S+=("$s"); T_REC+=("${rec:-(default)}"); T_RUN+=("$run"); T_HM+=("${hm:--}"); T_NOTE+=("$note")
     done <<< "$rows"
-    if [ "$anyhome" = 1 ]; then
+    if [ "${#T_S[@]}" -eq 0 ]; then :   # every session is on the default: the count line below says so
+    elif [ "$anyhome" = 1 ]; then
         printf '%-30s %-10s %-8s %-10s %s\n' SESSION RECORDED RUNNING HOME ''
         for i in "${!T_S[@]}"; do printf '%-30s %-10s %-8s %-10s %s\n' "${T_S[$i]}" "${T_REC[$i]}" "${T_RUN[$i]}" "${T_HM[$i]}" "${T_NOTE[$i]}"; done
     else
         printf '%-30s %-10s %-8s %s\n' SESSION RECORDED RUNNING ''
         for i in "${!T_S[@]}"; do printf '%-30s %-10s %-8s %s\n' "${T_S[$i]}" "${T_REC[$i]}" "${T_RUN[$i]}" "${T_NOTE[$i]}"; done
     fi
+    [ "$nplain" = 0 ] || echo "$(plural "$nplain" session) on the default lane ($d) with nothing to say, not listed (salamander lane --full lists every one)"
+    [ "$anysleep" = 0 ] || echo "sleeping: no claude on purpose; a wake resumes it on its lane (RECORDED; the default lane when that says (default))"
     exit 0
 fi
 

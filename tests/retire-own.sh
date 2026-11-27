@@ -918,7 +918,7 @@ has "$BRIEF" "salamander restore <those NAMEs>" && has "$BRIEF" "NEVER run \`sal
 dropall
 
 echo "== the help says it"
-HELP=$("$SALA" op --help 2>&1)
+HELP=$("$SALA" op --help --full 2>&1)
 has "$HELP" "op revive --only NAME… --item board#N --from YOU" && has "$HELP" "--why" && has "$HELP" "SALA_OP_REASON_FROM" && has "$HELP" "format check only" && ok "op --help describes the reason door (format check only, the allow list)" || bad "op --help (revive): $HELP"
 has "$HELP" "throwaway tag" && has "$HELP" "NO words" && ok "op --help describes the exception" || bad "op --help: $HELP"
 has "$HELP" "never with a bypass flag, --keep-web or --id" && has "$HELP" "must confirm NAME is on no agents map" && has "$HELP" "or any session when NAME has no live spawner" && ! has "$HELP" "SALA_MASTER" && ok "and its rules: no bypass flag, --keep-web or --id, the older rule for an untagged row, the agents-map check fails closed, no SALA_MASTER named" || bad "op --help rules: $HELP"

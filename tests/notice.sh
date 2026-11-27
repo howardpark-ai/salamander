@@ -10,7 +10,7 @@
 # paths start no process (no notice file; a notice this session has seen: the hook runs with an empty PATH and says nothing, and under
 # strace, where there is one, only the shell itself is executed); a malformed payload, a bad session id, a broken state folder and a
 # garbage notice file all print nothing and exit 0; prune (expired notices out, the delivery files of gone sessions out, all of them
-# once no notice is left).
+# once no notice is left); a notice every live session has had or skipped is pruned after a day, one younger or still due stays.
 # No tmux, no claude: the hooks read JSON from stdin, the live sessions are registry rows under an isolated HOME naming this suite's
 # own pids. Nothing is killed.
 # Usage: bash tests/notice.sh   (exit 0 = pass; seconds)
@@ -67,7 +67,8 @@ IFS=$'\t' read -r _ _ _ u2 _ < <(sed -n 2p "$NF")
 "$SALA" notice add "epoch" --from tester --until $((NOW + 100000)) >/dev/null 2>&1; IFS=$'\t' read -r _ _ _ u4 _ < <(sed -n 4p "$NF")
 [ "$u4" = $((NOW + 100000)) ] && ok "--until as an epoch" || bad "epoch: $u4"
 "$SALA" notice drop 3 >/dev/null; "$SALA" notice drop 4 >/dev/null; "$SALA" notice drop 5 >/dev/null
-out=$("$SALA" notice list 2>&1); [[ $out == *"2  from tester"* ]] && [[ $out == *"still due 2"* ]] && ok "list: S1 and S2 still due; S3, started after it, is not" || bad "list: $out"
+out=$("$SALA" notice list 2>&1); [[ $out == *"2  from tester, still due 2: The lane max"* ]] && [ "$(wc -l <<< "$out")" = 1 ] && ok "list: one line, S1 and S2 still due; S3, started after it, is not" || bad "list: $out"
+out=$("$SALA" notice list --full 2>&1); [[ $out == *"2  from tester"* ]] && [[ $out == *"still due 2"* ]] && [[ $out == *"expires"* ]] && [ "$(wc -l <<< "$out")" = 2 ] && ok "list --full: the two lines of each notice, with written and expires" || bad "list --full: $out"
 [ "$("$SALA" notice list --json | python3 -c 'import json, sys; d = json.load(sys.stdin); print(len(d), d[0]["id"], d[0]["due"], d[0]["had"])')" = "1 2 2 0" ] && ok "list --json" || bad "list --json"
 out=$("$SALA" notice drop 99 2>&1); rc=$?; [ "$rc" = 1 ] && ok "drop of an unknown id: refused" || bad "drop 99: rc=$rc"
 
@@ -79,7 +80,7 @@ out=$(hprompt "$S1"); [ -z "$out" ] && ok "and its next prompt: nothing (it had 
 out=$(hprompt "$S2"); [ "$(text_of "$out")" = "UserPromptSubmit|[sala notice 2 from tester] The lane max is now called subscription-1." ] && ok "prompt: UserPromptSubmit additionalContext, for another session" || bad "prompt: $out"
 out=$(hpost "$S2"); [ -z "$out" ] && ok "that session's tool call afterwards: nothing" || bad "S2 post-tool after prompt: $out"
 [ "$(slurp "$SEEN/$S1")" = $'2' ] && ok "the delivery file holds the last notice id" || bad "seen: $(slurp "$SEEN/$S1")"
-out=$("$SALA" notice list); [[ $out == *"had it or started after it 2, still due 0"* ]] && ok "list: both had it, none due" || bad "list after: $out"
+out=$("$SALA" notice list --full); [[ $out == *"had it or started after it 2, still due 0"* ]] && ok "list: both had it, none due" || bad "list after: $out"
 
 echo "== a session that started after the notice"
 out=$(hpost "$S3"); [ -z "$out" ] && [ -e "$SEEN/$S3" ] && ok "registry row started after the notice: nothing shown, marked seen" || bad "S3: out='$out' seen=$(ls "$SEEN")"
@@ -165,6 +166,27 @@ for n in $("$SALA" notice list --json | python3 -c 'import json, sys; print(*[d[
 out=$("$SALA" notice list); [ "$out" = "no active notices" ] && ok "list: no active notices" || bad "list empty: $out"
 [ "$(slurp "$ST/notices.seq")" -ge 11 ] && ok "the id counter is kept, so an id is never reused" || bad "seq: $(slurp "$ST/notices.seq")"
 
+echo "== prune: a notice no live session is still due for goes after a day; one still due, or younger, stays; ids are not reused"
+D=86400
+row $$ "$S1" $((NOW - 3 * D))                                                     # S1's conversation is older than every notice below, so it is due for any it has not seen
+mkdir -p "$SEEN"; printf '21\n' > "$SEEN/$S1"; printf '22\n' > "$SEEN/$S3"; printf '22\n' > "$SEEN/$S5"
+printf '20\t%s\ttester\t%s\tsettled and old\n'  $((NOW - 2 * D)) $((NOW + D)) >  "$NF"     # every live session has it: due 0, two days old
+printf '21\t%s\ttester\t%s\tsettled and young\n' $((NOW - 3600))  $((NOW + D)) >> "$NF"     # due 0 too, but an hour old
+printf '22\t%s\ttester\t%s\tstill due\n'        $((NOW - 2 * D)) $((NOW + D)) >> "$NF"     # old, and S1 has not had it
+printf '23\t%s\ttester\t%s\texpired and due\n'  $((NOW - 2 * D)) $((NOW - 10)) >> "$NF"     # old, due, but past --until
+printf '22\n' > "$ST/notices.seq"
+"$SALA" notice prune >/dev/null; kept=$(slurp "$NF")
+[[ $kept != *"settled and old"* ]] && ok "due 0 for every live session and over a day old: pruned" || bad "old settled kept: $kept"
+[[ $kept == *"settled and young"* ]] && ok "due 0 but under a day old: stays (the grace)" || bad "young settled gone: $kept"
+[[ $kept == *"still due"* ]] && ok "still due for a live session: stays even when old" || bad "due gone: $kept"
+[[ $kept != *"expired and due"* ]] && ok "past --until: pruned as before, due or not" || bad "expired kept: $kept"
+out=$("$SALA" notice list); [[ $out == *"22  from tester"* ]] && [[ $out == *"still due 1"* ]] && [[ $out != *"settled and old"* ]] && ok "list shows the ones that stayed" || bad "list after prune: $out"
+"$SALA" notice drop 21 >/dev/null; "$SALA" notice drop 22 >/dev/null
+"$SALA" notice add "after the prune" --from tester >/dev/null; IFS=$'\t' read -r id _ < "$NF"
+[ "$id" -gt 22 ] && ok "an id is not reused after a prune (the next is $id)" || bad "id reused: $id"
+"$SALA" notice drop "$id" >/dev/null
+row $$ "$S1" $((NOW - 600))
+
 echo "== add: help words and a dash-first text never post (a real incident: \"sala notice add --help\" posted \"--help\" to every session)"
 before=$(slurp "$NF" 2>/dev/null); seq_before=$(slurp "$ST/notices.seq" 2>/dev/null)
 for h in --help -h help; do
@@ -194,6 +216,11 @@ out=$("$SALA" notice add --from tester --until 3h "flags first" 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(count_notices)" = 2 ] && ok "flags in front of the text still work" || bad "flags first: rc=$rc $out"
 out=$("$SALA" notice add "mixed order" --until 30m --from tester 2>&1); rc=$?
 [ "$rc" = 0 ] && [ "$(count_notices)" = 3 ] && ok "--until before --from after the text still works" || bad "mixed: rc=$rc $out"
+echo "== list: the short line cuts a long text, --full keeps it"
+"$SALA" notice add "$(printf 'x%.0s' $(seq 1 70))" --from tester >/dev/null 2>&1; nid=$("$SALA" notice list --json | python3 -c 'import json, sys; print(json.load(sys.stdin)[-1]["id"])')
+out=$("$SALA" notice list | tail -1); [ "${out#*: }" = "$(printf 'x%.0s' $(seq 1 60))…" ] && ok "list: a long text is cut at 60 characters with an ellipsis" || bad "list long: $out"
+out=$("$SALA" notice list --full | tail -1); [ "${out#    }" = "$(printf 'x%.0s' $(seq 1 70))" ] && ok "list --full: the whole text" || bad "list --full long: $out"
+"$SALA" notice drop "$nid" >/dev/null
 for n in $("$SALA" notice list --json | python3 -c 'import json, sys; print(*[d["id"] for d in json.load(sys.stdin)])'); do "$SALA" notice drop "$n" >/dev/null; done
 [ "$(count_notices)" = 0 ] && ok "cleaned up: no notice left" || bad "left over: $(slurp "$NF")"
 

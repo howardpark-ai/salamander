@@ -32,7 +32,8 @@ SNAP=${HELP_SNAPSHOT_FILE:-$HERE/tests/help-snapshot.txt}
 
 # the verbs whose help call is safe (prints text, does nothing else), each as the words before --help
 PROBES=("lane" "model" "reauth" "question" "resume-answer" "recycle" "recycle --when-idle" "revive" "op" "restore" "sleep" "wake"
-        "note" "notice" "sdk-pane" "rc" "settings-apply" "side" "sessions" "job" "ci-runs" "codex-review" "mq" "alert" "mockup" "motion" "dm" "bg-agents" "box" "stackshot-key" "machines" "host")
+        "note" "notice" "sdk-pane" "rc" "settings-apply" "side" "sessions" "job" "ci-runs" "codex-review" "mq" "alert" "mockup" "motion" "dm" "bg-agents" "box" "stackshot-key" "machines" "host" "where"
+        "op --help --full" "lane --help --full" "mq --help --full")
 
 generate() {
     local t home out rc probe verb v seen="" unprobed="" bash_dir

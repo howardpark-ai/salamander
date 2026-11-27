@@ -37,7 +37,7 @@
 #                                most SALA_BARE_MAX (6) panes per tick, one post (lib/barepane.sh). A mass SIGKILL of every claude
 #                                leaves tmux up and every pane a bare shell: this heals it
 #   4. post-boot report          once per boot, after revive's first full sweep has finished (or
-#                                SALA_BOOT_GRACE passed without one): one Slack post (the notify command) with
+#                                SALA_BOOT_GRACE passed without one): one post (the notify command) with
 #                                boot time, kernel and the revive summary
 # Never: type into a busy pane or a prompt; kill anything; act while a resurrect restore or a
 # `salamander revive` is running; act twice on the same failure within SALA_WATCH_COOLDOWN.
@@ -1289,6 +1289,7 @@ notice_tick() {   # `sala notice` housekeeping: one python only while a notice o
     [ -s "$SALA_STATE_DIR/notices.tsv" ] || [ -d "$SALA_STATE_DIR/notices-seen" ] || return 0
     "$SALA_BIN" notice prune >/dev/null 2>&1 || true
 }
+where_tick() { "$SALA_BIN" where --scan >/dev/null 2>&1 || true; }   # the owner's box from the newest ssh-attached tmux client (lib/where.sh); fail-soft
 unit_gaps_tick() {
     case "${SALA_UNIT_GAPS:-on}" in off|no|false|0) return 0;; esac
     local out l
@@ -1884,9 +1885,9 @@ later_held() {  # in deferred_revive: the pane is held now; told again when due,
 }
 # pause_watch_due <session> <uuid> <claude pid> <held words> → 0 when the deferred pane's pause is due and revive --only should be tried for it now (THE PAUSE,
 # common.sh). Every call starts or refreshes the pane's clock and holds its inbox while it runs (the refusals of pause_refusal_r come first: a pane that
-# must not be paused is neither clocked nor held); once due it is let through at most once in 10 min, so a pane the pause was refused for is not tried every tick.
+# must not be paused is neither clocked nor held); once due it is let through at most once in 10 min, so a pane the pause was refused for is not tried every tick; a pause that did not take (pause_failed) is let through again after SALA_PAUSE_RETRY s.
 pause_watch_due() {
-    local sess="$1" u="$2" c="$3" why="$4" a t ref pane f m
+    local sess="$1" u="$2" c="$3" why="$4" a t r ref pane f m
     [ -n "$u" ] || return 1
     pause_after_r a; [ "$a" -gt 0 ] || return 1
     pause_scope_ok "$sess" && pause_reason_ok "$why" || return 1
@@ -1894,8 +1895,9 @@ pause_watch_due() {
     pause_refusal_r ref "$pane" "$sess" "$c"; [ -z "$ref" ] || return 1
     pause_hold "$u" "$(registry_field "$c" name)"
     pause_clock_r t "$u"; [ "$t" -ge "$a" ] || return 1
-    f="$SALA_PAUSE_DIR/$u.tried"
-    if [ -e "$f" ]; then m=$(stat -c %Y "$f" 2>/dev/null || echo 0); [ $(( $(date +%s) - m )) -ge 600 ] || return 1; fi
+    pause_retry_in_r r "$u"; [ "$r" -le 0 ] || return 1   # a pause that did not take (common.sh, pause_failed) waits SALA_PAUSE_RETRY s, then is tried again
+    f="$SALA_PAUSE_DIR/$u.tried"; pause_tries_r r "$u"; r=$(( r > 0 ? ${SALA_PAUSE_RETRY:-120} : 600 ))   # once in 10 min, or once per SALA_PAUSE_RETRY s while the tries are failing
+    if [ -e "$f" ]; then m=$(stat -c %Y "$f" 2>/dev/null || echo 0); [ $(( $(date +%s) - m )) -ge "$r" ] || return 1; fi
     : > "$f"; return 0
 }
 # DEFERRED PANES (lib/revive.sh): a pane a relaunch left because it held scheduled work is relaunched here once that work
@@ -1961,7 +1963,8 @@ deferred_revive() {
 }
 [ "$CHECK_ONLY" = 1 ] || deferred_revive
 [ "$CHECK_ONLY" = 1 ] || sets_tick   # the flag rule over every open recycle set (common.sh, set_sync), before the prune
-[ "$CHECK_ONLY" = 1 ] || notice_tick   # expired notices and the delivery files of gone sessions out (lib/notice.sh; nothing runs while no notice and no delivery file exists)
+[ "$CHECK_ONLY" = 1 ] || where_tick
+[ "$CHECK_ONLY" = 1 ] || notice_tick  # expired notices and the delivery files of gone sessions out (lib/notice.sh; nothing runs while no notice and no delivery file exists)
 [ "$CHECK_ONLY" = 1 ] || cont_tick   # a pane that moved to a new transcript id keeps its row (lib/continuedin.sh)
 [ "$CHECK_ONLY" = 1 ] || bare_tick   # every mapped pane at a bare shell for SALA_BARE_GRACE is revived (lib/barepane.sh)
 [ "$CHECK_ONLY" = 1 ] || wrapup_tick   # runs only when SALA_IDLE_WRAPUP=on (off by default): a background agent idle for SALA_IDLE_WRAPUP_MIN is asked to wrap up, then cleared (lib/wrapup.sh)
@@ -2004,7 +2007,7 @@ unmapped_report() {
 [ "$CHECK_ONLY" = 1 ] || "$SALA_BIN" rename --sync
 rc_served_snapshot   # the served Remote Control sessions right now, so the next boot's revive knows which should come back
 
-# 5. post-boot report: once revive's boot sweep is done, one Slack post per boot (the report of the header)
+# 5. post-boot report: once revive's boot sweep is done, one post per boot (the report of the header)
 # A CLEAN REBOOT (`sala reboot --go` left a marker from the previous boot): its boot half runs first, detached — hooks up
 # in order, panes verified against the snapshot, then resume — and its result lines join this report.
 RMARK="$SALA_LOG_DIR/salamander-reboot.marker"; RRESULT="$SALA_LOG_DIR/salamander-reboot.result"

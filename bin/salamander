@@ -25,7 +25,7 @@
 #                                      (a Claude session's pane queues it with `sala op recycle`)
 #                                      (--update: `claude update` first — the two halves of "recycle")
 #                                      (--force: every idle pane, not only stale-binary ones — also reloads CLAUDE.md/settings)
-#                                      (a pane held busy for SALA_PAUSE_AFTER s, default 900, has its turn interrupted with one Escape and is relaunched with a note of what it was doing; SALA_PAUSE_SCOPE=background|all|off (default background: back agents only, a front agent is never paused), 0 = wait as before)
+#                                      (a pane held busy for SALA_PAUSE_AFTER s, default 900, has its turn interrupted with one Escape and is relaunched with a note of what it was doing; SALA_PAUSE_SCOPE=background|all|off (default background: back agents only, a front agent is never paused), 0 = wait as before; a pause that does not take is tried again every SALA_PAUSE_RETRY s, default 120)
 #                                      (every relaunch — recycle, revive, unpark, restore — passes the user settings' permissions.defaultMode as --permission-mode, because a resumed session otherwise keeps the mode its transcript recorded)
 #   salamander recycle --when-idle [--from NAME] [--change REF] "<reason>" | --list | --cancel [ID]   any session: ask for a recycle; it
 #                                      only records the request — `watch` runs the recycle at its next run, each busy pane once idle (lib/recycle-request.sh); --change REF (a commit sha or pr<N>) holds it until that change is in the checkout
@@ -45,7 +45,7 @@
 #   salamander close-shell <tmux-session> [--busy] [--dry-run]   close a session whose panes run no Claude (kill · unmap · snapshot)
 #   salamander forget-row <name> [--dry-run]   drop a pane-map row whose tmux session is gone (and its lane and model rows)
 #   salamander rename OLD NEW [--dry-run]           rename a live pane end to end (/rename · tmux · map · notes · heartbeat; a sleeping session without waking it, its tmux session gone or not; renames OLD's entry on its project's page via stackshot if the page does not list NEW)
-#   salamander sessions [--all] [--json] | --check [--dry-run] | --migrate [--dry-run]   the session registry (phases 1 and 2; docs/session-registry.md):
+#   salamander sessions [--all] [--full] [--json] | --check [--dry-run] | --migrate [--dry-run]   the session registry (phases 1 and 2; docs/session-registry.md):
 #                                      one row per session with an id that outlives a rename; read-only listing (a sleeping session's STATE says
 #                                      `sleeping`, with its time under the table and as `sleeping` in --json), --check repairs a kill between the
 #                                      pane map's write and the registry's, --migrate makes the rows of the pane map once (--dry-run first)
@@ -65,6 +65,10 @@
 #   salamander box SESSION [--json]    read-only: what is in a session's pane input box, as one of three states on the first line: empty · suggestion (dim text,
 #                                      Claude Code's own suggested prompt that nobody typed; counts as empty; its text follows, labelled) · typed (non-dim text, someone's unsent
 #                                      words; the text follows). A session reads a pane's box with this command, never with raw capture-pane. Exit 0 read, 2 no live session or pane, 3 no claude in the pane
+#   salamander where [--json] | --scan | set BOX [--by SESSION] | clear   read: which fleet machine the owner is working from now (one line, "(stale)" after 12 hours,
+#                                      "no record" when none; --json adds age_s). set records a box (a fleet name): a different box replaces the one where notice every live
+#                                      session sees once, the same box only refreshes the time; --scan reads the newest ssh-attached tmux client of the last 10 minutes
+#                                      (the watch tick runs it too); clear removes both (lib/where.sh)
 #   salamander machines [--json]       read-only: the fleet's machines, one line each: name, board letter, hostname, ssh alias, the host roles it holds (sala-host, stackshot-host),
 #                                      retired or not, and which machine files name it; a machine one file names and another does not is listed with the missing parts empty.
 #                                      Reads the owner's files (SALA_FLEET_NAMES and the files beside it, SALA_MACHINE_FOLLOW_MACHINES); needs no running sala and no sala-web. Exit 0, 2 usage or no files named
@@ -105,22 +109,22 @@
 #                                      sleep|wake --only NAME… (--item board#N | --why "<reason>"; no --words) · model <model> [--effort <level>] <session>…|--clear <session>… (several sessions in ONE operation, ONE result notice) or the single-session <session> <model> [--effort <level>]|<session> --clear · provision [--only STEPS] [HOST…] · spawn NAME --project <page key> --role front|back [--mandate FILE|TEXT]
 #                                      [--lane L] | spawn NAME --side (--fork-of AGENT | --project KEY --item board#N) [--item board#N] [--agents A,B] [--mandate FILE|TEXT] (a side conversation)
 #                                      (a TEXT mandate goes to ~/.local/state/salamander/mandates/<id>-NAME.md; a name not
-#                                      on the page refuses with exit 3 and the REGISTER: line and command) (a reboot is not queued: the owner runs `sala reboot --go` in the web UI's Shell;
-#                                      SALA_OP_REBOOT off by default, unsupported until a confirmation path is built); the verb's dry run first, refused
-#                                      before anything is queued; one Slack post, one inbox line and one stackshot event (client.py event --kind fleet_op) per result; --stdin: the words on stdin
+#                                      on the page refuses with exit 3 and the REGISTER: line and command) (reboot: the clean reboot protocol, the owner's words required, one at a time);
+#                                      the verb's dry run first, refused
+#                                      before anything is queued; one post to sala's alert destination (config BRIEFING_BOT_*), one inbox line and one stackshot event (client.py event --kind fleet_op) per result; --stdin: the words on stdin
 #   salamander op --plan <verb> [args…] | --list | --status <id> | --cancel <id>   the plan alone · the queue · one record · drop a queued one
 #   salamander watch --ops             only the operation queue (what `op` kicks after a tick already running)
 #   salamander reboot --dry-run|--go|--status|--resume   clean reboot: pause inbound, drain, flush + stop services, reboot (docs/reboot-contract.md)
 #   salamander note "<next step>" | --done [<id>] | --clear | --list [--archived]     leave this pane its next step, handed back after
 #                                      its next relaunch (reboot, recycle, revive) until `--done <id>` marks it handled (--clear: the same as --done)
-#   salamander notice add "<text>" --from NAME [--until WHEN] | list [--json] | drop ID   a one-time line every LIVE session sees at its next tool call or prompt,
+#   salamander notice add "<text>" --from NAME [--until WHEN] | list [--full|--json] | drop ID   a one-time line every LIVE session sees at its next tool call or prompt,
 #                                      with no relaunch (lib/notice.sh; docs/notices-and-hooks.md, "Telling every session something"): one line of at most 400 characters, shown once per
 #                                      session as "[sala notice <id> from NAME] <text>", several due at once in one block, oldest first; a session that started after
-#                                      the notice skips it; --until an epoch, a span (90m, 12h, 7d) or an ISO 8601 time (default 7 days); add prints the id and how many live
-#                                      sessions it reaches, list how many had it and how many are still due, drop withdraws it for the sessions not yet reached
+#                                      the notice skips it; --until an epoch, a span (90m, 12h, 7d) or an ISO 8601 time (default 7 days; a notice every live session has had or skipped is dropped after a day); add prints the id and how many live
+#                                      sessions it reaches, list one short line each (--full: how many had it, the whole text), drop withdraws it for the sessions not yet reached
 #   salamander lane [<lane> <session>…|<lane> --all|default <lane>] [--dry-run] [--rescue]   which account or key each pane's claude runs on
 #                                      (subscription-1 (shown as Ultra; max still works) · api · subscription-2 (shown as Team; team still works) · bedrock (the AWS profile SALA_LANE_BEDROCK_PROFILE names) · aws-platform (Claude Platform on AWS); sdk, an alias of api with client claude-agent-sdk), the switch (recorded, then relaunched on it, resumed; a recycle
-#                                      keeps it) and the default for new sessions; a session on Fable moved off the Ultra lane (a move or the default it follows) is put on opus first; no argument: the table (lib/lane.sh)
+#                                      keeps it) and the default for new sessions; a session on Fable moved off the Ultra lane (a move or the default it follows) is put on opus first; no argument: the table of the sessions with a lane of its own or something to say, --full for every one (lib/lane.sh)
 #   salamander lane pin <session> <lane> | unpin <session> | pins   hold a session out of every bulk lane move (--all, default, fallback, the back agents' rule); a bulk move lists it as skipped, a move that names it still moves it (lib/lane.sh)
 #   salamander lane names [--json] [--write]   each lane's code, display name and old words (one line per lane: code, display, aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current; lib/lane.sh)
 #   salamander lane fallback <lane> [--dry-run]   the dormant lane's sessions, its default and, at run time, its jobs move to the lane's fallback
@@ -209,7 +213,7 @@
 #   salamander mq add N… | status [--json] | drop N | pause | resume | wait N [--timeout S] | doctor   [--repo OWNER/NAME]
 #                                      our own merge queue for a repo without GitHub's (lib/mq.sh, lib/mq/, docs/mq.md): PRs wait in a line, each one is
 #                                      an entry stacked on the entry ahead, pushed as a queue/main/g<seq> branch and tested at once, a failed one is failed alone. Host file mode = "shadow" tests and writes
-#                                      the verdict down, merging nothing; mode = "on" merges; off is the default. `mq --help` has the rest; `mq drive` is internal
+#                                      the verdict down, merging nothing; mode = "on" merges; off is the default. `mq --help --full` has the rest; `mq drive` is internal
 #   salamander mockup add FILE|-       store an HTML file as the next numbered page and print its address, https://<sala's address>/mockup/<n>: sala-web
 #                                      serves it behind the same sign-in, in a sandbox (the page's scripts and styles run; no sala API, cookies or network); a session
 #                                      without the Artifact tool hands a reader the link (lib/mockup.sh, lib/mockup.py, docs/mockup.md); `sala mockup FILE` is the same
@@ -217,9 +221,10 @@
 #                                      pages older than SALA_MOCKUP_KEEP_DAYS (7) that no open board item links, then the oldest first until the folder is under
 #                                      SALA_MOCKUP_MAX_BYTES (1 GB), linked pages last (SALA_MOCKUP_REFERENCES says how to tell what is linked; unset keeps all)
 #   salamander motion add "<line>" | done "<line>"|N | clear | list [--json]   [--for NAME]
-#                                      the few short lines a session sets itself to say what is in motion right now (lib/motion.sh, lib/motion.py): at most 8, each at
-#                                      most 120 characters, each gone after 24 hours; one small file per session under $SALA_STATE_DIR/motion. sala-web's chat session view shows
-#                                      them under "In motion"; the default session is the one the command runs in, --for NAME names another
+#                                      the short topics a session has promised to report back and not reported yet (lib/motion.sh, lib/motion.py): add one when work is handed
+#                                      off with that promise, mark it done in the turn the result is reported; at most 8, each at most 120 characters, listed until done or cleared;
+#                                      one small file per session under $SALA_STATE_DIR/motion. sala-web's chat session view shows the chat session's under "On it";
+#                                      the default session is the one the command runs in, --for NAME names another
 #   salamander stackshot-key init | enroll | status
 #                                      sala's own key for stackshot (lib/stackshot-key.sh, lib/stackshot_key.py, docs/stackshot-contracts.md): `enroll` makes an Ed25519 key
 #                                      if there is none (the private half stays in $XDG_STATE_HOME/salamander/stackshot-key, mode 600, never printed) and asks stackshot to trust
@@ -246,7 +251,7 @@ sub="${1:-}"; shift || true
 case "$sub" in hook) . "$SALA_ROOT/lib/hook.sh"; exit 0 ;; esac
 . "$SALA_ROOT/lib/common.sh"
 case "$sub" in
-    spawn|revive|rc|map|feedback|snapshot|watch|retire|close-shell|forget-row|update|provision|heartbeat|ready|unpark|reboot|note|rename|follow|adopt|restore|sleep|wake|reauth|alert|lane|model|sdk-pane|sessions|side|job|notice). "$SALA_ROOT/lib/$sub.sh" ;;
+    spawn|revive|rc|map|feedback|snapshot|watch|retire|close-shell|forget-row|update|provision|heartbeat|ready|unpark|reboot|note|rename|follow|adopt|restore|sleep|wake|reauth|alert|lane|model|sdk-pane|sessions|side|job|notice|where). "$SALA_ROOT/lib/$sub.sh" ;;
     recycle) case " $* " in *" --when-idle "*) . "$SALA_ROOT/lib/recycle-request.sh"; rr_main "$@" ;;   # a request, from any pane: no guard, no lock
                  *) set -- --all "$@"; . "$SALA_ROOT/lib/revive.sh" ;; esac ;;
     op) . "$SALA_ROOT/lib/op.sh"; op_main "$@" ;;   # the operation queue: queue, plan, list, cancel; --run/--settle inside its unit
@@ -262,7 +267,7 @@ case "$sub" in
     machines) . "$SALA_ROOT/lib/machines.sh"; machines_main "$@"; exit $? ;;   # the fleet's machines from the owner's files, read-only (docs/subcommands.md)
     host) . "$SALA_ROOT/lib/machines.sh"; host_main "$@"; exit $? ;;   # which machine hosts sala or stackshot: the holds script's host and set-host (docs/subcommands.md)
     stackshot-key) . "$SALA_ROOT/lib/stackshot-key.sh" ;;   # sala's own key for stackshot and the pass it trades for (docs/stackshot-contracts.md)
-    motion) . "$SALA_ROOT/lib/motion.sh" ;;   # the lines a session sets itself for the chat session's "In motion" (docs/subcommands.md)
+    motion) . "$SALA_ROOT/lib/motion.sh" ;;   # the topics a session has promised to report back, for the chat session's "On it" (docs/subcommands.md)
     mockup) . "$SALA_ROOT/lib/mockup.sh" ;;   # an HTML mockup as a numbered sala-web page (docs/mockup.md)
     config) cs_print_config ;;
     -h|--help|'') sed -n '2,/^#   salamander config/p' "$SALA_BIN" | sed 's/^# \{0,1\}//'; [ -n "$sub" ] || exit 2 ;;

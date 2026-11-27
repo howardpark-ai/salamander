@@ -657,7 +657,7 @@ def attempt(cfg, key, prefix, e, now, log, led):
         placed, reason = read_back(cfg, name, key)
         if placed != 0:
             # live is not registered: the pane is left running and the start is NOT counted; the back-off applies as for any failed attempt, and the miss is told once per attempt
-            # (the Slack post here, the board item after the attempt), never once per poll of the read-back
+            # (the post here, the board item after the attempt), never once per poll of the read-back
             e["awaiting_record"], e["unplaced"] = False, reason
             fail(e, key, reason, cfg, fresh_now(), log, led, plain=reason[0].upper() + reason[1:] + ".")
             alert(cfg, reason, log)

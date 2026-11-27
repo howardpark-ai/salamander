@@ -99,7 +99,7 @@ out=$("$SALA" lane api --all --rescue 2>&1); rc=$?
 [ "$rc" = 1 ] && grep -q 'never --all' <<< "$out" && ok "--rescue with --all: refused" || bad "rescue --all ($rc): $out"
 out=$("$SALA" lane api sala-test-z --force 2>&1); rc=$?
 [ "$rc" = 1 ] && grep -q 'unknown option: --force' <<< "$out" && ok "--force on a switch: an unknown option now" || bad "force on switch ($rc): $out"
-out=$("$SALA" lane --help 2>&1); ! grep -q -- 'lane --rescue <lane>' <<< "$out" && ! grep -q -- 'not-master' <<< "$out" && ok "lane --help: no rescue verb and no --not-master" || bad "lane --help: $out"
+out=$("$SALA" lane --help --full 2>&1); ! grep -q -- 'lane --rescue <lane>' <<< "$out" && ! grep -q -- 'not-master' <<< "$out" && ok "lane --help: no rescue verb and no --not-master" || bad "lane --help: $out"
 [ "$(starts "$UZ")" = 1 ] && [ "$(rescues)" = 0 ] && [ -z "$(lane_row sala-test-z)" ] && ok "after the refusals: no relaunch, no rescue line in lanes.log, no row" || bad "after refusals: starts $(starts "$UZ") rescues $(rescues) row '$(lane_row sala-test-z)'"
 
 echo "== the stale dialog: a plain relaunch leaves the pane (Esc), --rescue reads the dialog and confirms it"

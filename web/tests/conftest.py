@@ -15,6 +15,7 @@ import glob
 import json
 import os
 import re
+from pathlib import Path
 import select
 import shutil
 import socket
@@ -267,7 +268,23 @@ CHAT_READY = "document.querySelectorAll('#chat > .msg').length >= 1"
 class CDP:
     """A headless Chromium on --remote-debugging-pipe, one page attached; `send` is a DevTools call on that page."""
 
-    def __init__(self, binary: str, width: int, height: int):
+    def __init__(self, binary: str, width: int, height: int, parent: "CDP | None" = None):
+        self.parent = parent
+        self.context: str | None = None
+        self.width, self.height = width, height
+        if parent is not None:
+            # a page of its own in a fresh browser context of the parent's Chromium: no cookies, storage, cache or permissions
+            # are shared with any other test, and closing it disposes of the context and so of every page it opened
+            parent.events.clear()
+            self.events = parent.events   # the one list the parent's reads append to: this test sees what its own browser sent
+            self.context = parent.call("Target.createBrowserContext", {"disposeOnDetach": False})["browserContextId"]
+            try:
+                tid = parent.call("Target.createTarget", {"url": "about:blank", "browserContextId": self.context})["targetId"]
+                self.session = parent.call("Target.attachToTarget", {"targetId": tid, "flatten": True})["sessionId"]
+            except BaseException:
+                self.close()
+                raise
+            return
         r_in, w_in = os.pipe()
         r_out, w_out = os.pipe()
         args = [binary, "--headless=new", "--disable-gpu", "--no-sandbox", "--remote-debugging-pipe",
@@ -287,11 +304,20 @@ class CDP:
         self.buf = b""
         self.events: list[dict] = []   # DevTools events (messages with no id), kept for a test that reads them (test_look_browser.py)
         self.session = None
-        self.width, self.height = width, height
         tid = self.call("Target.createTarget", {"url": "about:blank"})["targetId"]
         self.session = self.call("Target.attachToTarget", {"targetId": tid, "flatten": True})["sessionId"]
 
+    def __getattr__(self, name: str):
+        # only reached for a name this object lacks: a page in a shared Chromium reads the connection's own (buf, r, w, _recv, ...)
+        if name != "parent" and self.__dict__.get("parent") is not None:
+            return getattr(self.parent, name)
+        raise AttributeError(name)
+
     def call(self, method: str, params: dict | None = None, session: str | None = None) -> dict:
+        if self.parent is not None:
+            if method == "Browser.grantPermissions" and "browserContextId" not in (params or {}):
+                params = {**(params or {}), "browserContextId": self.context}   # this test's context, not the browser's default one
+            return self.parent.call(method, params, session)
         self.seq += 1
         msg: dict = {"id": self.seq, "method": method, "params": params or {}}
         if session:
@@ -419,6 +445,14 @@ class CDP:
     KILL_WAIT = 10
 
     def close(self) -> None:
+        if self.parent is not None:
+            if self.context is not None:
+                try:
+                    self.parent.call("Target.disposeBrowserContext", {"browserContextId": self.context})
+                except Exception:
+                    pass   # a Chromium that is gone is replaced for the next test (SharedChromium.get)
+                self.context = None
+            return
         try:
             try:
                 self.call("Browser.close")
@@ -434,15 +468,74 @@ class CDP:
             self.r.close()
 
 
+class SharedChromium:
+    """One Chromium for the whole pytest session. Each test gets a browser context of its own in it (CDP(..., parent=...)), which is as
+    clean as a Chromium of its own: no cookies, storage, cache, permissions or open pages carry over. A Chromium that has died (a test
+    crashed it) is replaced by a new one for the next test, so one crash fails one test, as it did when every test had its own."""
+
+    cdp: CDP | None = None
+
+    @classmethod
+    def get(cls, binary: str) -> CDP:
+        if cls.cdp is not None and cls.cdp.p.poll() is not None:
+            cls.stop()
+        if cls.cdp is None:
+            cls.cdp = CDP(binary, 390, 844)
+        return cls.cdp
+
+    @classmethod
+    def stop(cls) -> None:
+        c, cls.cdp = cls.cdp, None
+        if c is not None:
+            try:
+                c.close()
+            except Exception:
+                pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _shared_chromium_at_end():
+    yield
+    SharedChromium.stop()
+
+
+_OWN_LAUNCH: dict[str, bool] = {}
+
+
+def needs_own_chromium(request) -> bool:
+    """A test file that reads the clipboard (it grants clipboardReadWrite) keeps a Chromium of its own per test: the clipboard is one for
+    the whole browser process, not one per browser context, so a text another test copied would be there to read."""
+    path = str(request.module.__file__)
+    if request.node.name == "test_the_marks_the_render_and_the_recorder":
+        return True   # reads the page's resource timings of a first load; in a shared Chromium the app's own files were not in them
+    if path not in _OWN_LAUNCH:
+        _OWN_LAUNCH[path] = "clipboardReadWrite" in Path(path).read_text(encoding="utf-8")
+    return _OWN_LAUNCH[path]
+
+
 @pytest.fixture
-def browser():
-    """A headless Chromium page at a phone's width (390 x 844); skipped when none is installed or it cannot start."""
+def browser(request):
+    """A headless Chromium page at a phone's width (390 x 844), in a browser context of its own in the session's one Chromium; skipped
+    when none is installed or it cannot start. A test file that reads the clipboard gets a Chromium of its own (needs_own_chromium)."""
     binary = chromium_binary()
     if not binary:
         pytest.skip("no headless Chromium (chromium / google-chrome on PATH, or playwright's chrome-headless-shell)")
+    if needs_own_chromium(request):
+        try:
+            c = CDP(binary, 390, 844)
+        except RuntimeError as e:
+            pytest.skip(f"{binary} did not start headless here: {e}")
+        yield c
+        c.close()
+        return
     try:
-        c = CDP(binary, 390, 844)
+        try:
+            c = CDP(binary, 390, 844, parent=SharedChromium.get(binary))
+        except RuntimeError:
+            SharedChromium.stop()   # the one Chromium is not answering: a new one, once
+            c = CDP(binary, 390, 844, parent=SharedChromium.get(binary))
     except RuntimeError as e:
+        SharedChromium.stop()
         pytest.skip(f"{binary} did not start headless here: {e}")
     yield c
     c.close()

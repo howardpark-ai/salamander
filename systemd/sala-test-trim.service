@@ -3,10 +3,13 @@ Description=Weekly report on the size of the test suites (suite count, serial mi
 X-Model-Lane=none
 X-Project=infra/salamander
 X-Runs-With=sessions
-X-Model-Note=weekly, no model call
+X-Model-Note=weekly; no model call unless the thresholds file's on_trigger command makes one
+# X-Model-Lane note: the `on_trigger` key of the thresholds file (test-trim.toml) names a command run on a trigger; a model call it
+# makes runs on the lane that command picks (for example through `salamander lane exec <lane>`), not on one this unit sets.
 OnFailure=sala-job-failed@%n.service
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/uv run --script %h/salamander/.github/scripts/trim_report.py --root %h/salamander
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/uv run --script %h/salamander/.github/scripts/trim_report.py --root %h/salamander --fresh-timings
 ExecStopPost=-%h/salamander/bin/salamander job alert ok %n

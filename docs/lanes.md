@@ -333,6 +333,9 @@ LANE RULE", `back_lane_tick`), `lib/watch.sh` (`back_lane_run`, `watch --back-la
   was not up) would stay on the home lane until the next window. While the rule has the agents off home, every pass that finds one
   of them still on a lane it should have left moves it with the rule's lane (a plain `sala op lane`, like the step) and notes the
   names in the state file (`queued`), so a name is asked once per step.
+  It moves nobody while the home lane's current "This week" figure (read again at that pass) is under the threshold or cannot be read, and it
+  skips a name whose lane was set after the rule's last move by anything but sala-watch's own operation (the `set` lines of `lanes.log`: the
+  last column is the operation, whose `from` is read, or the shell), so a lane move someone ordered is not undone in the same window.
 - **The order.** `SALA_BACK_LANE_ORDER="subscription-1 aws-platform bedrock"`: home, second, third.
 - **Step 1, off home.** The home lane's "This week" limit (sala-web's saved usage answer, `quota-<lane>.json`; the model-scoped weekly
   limits, "Fable this week", are never read) reaches `SALA_BACK_LANE_THRESHOLD` (90) percent: the background agents move to the second lane.

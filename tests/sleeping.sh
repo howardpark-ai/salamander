@@ -131,7 +131,7 @@ same_file "$MAP" "$HOME/map.before" && ok "the pane map is byte for byte as befo
 [ "$(grep -ci sleep "$MAP" "$SALA_SESSIONS_FILE" 2>/dev/null | awk -F: '{n+=$NF} END {print n+0}')" = 0 ] && ok "neither the map nor the registry says 'sleep'" || bad "the word is in a published file"
 
 echo "== 10: display only — sala sessions and sala spawn --list show the state"
-run sessions
+run sessions --full
 a_line=$(grep 'sala-test-a ' <<< "$OUT"); c_line=$(grep 'sala-test-c ' <<< "$OUT")
 has "$a_line" sleeping && ok "sala sessions: a's STATE is 'sleeping'" || bad "sessions a: $a_line"
 has "$c_line" live && ! has "$c_line" sleeping && ok "sala sessions: the control's STATE stays 'live'" || bad "sessions c: $c_line"
@@ -208,7 +208,7 @@ run lane team sala-test-c --dry-run
 run model sala-test-a sonnet --effort medium
 [ "$RC" = 0 ] && has "$OUT" sleeping && has "$(model_row sala-test-a)" sonnet && ! hasclaude a && [ "$(n_starts 1)" = "$a0" ] && ok "sala model a sonnet: row written, 'sleeping' said, nothing relaunched" || bad "model a: rc=$RC row=$(model_row sala-test-a) — $OUT"
 run lane
-has "$OUT" "sleeping" && ok "the lane list says sleeping beside a" || bad "lane list: $OUT"
+[ "$(grep -c '^sala-test-a .*sleeping$' <<< "$OUT")" = 1 ] && [ "$(grep -c 'no claude on purpose' <<< "$OUT")" = 1 ] && has "$OUT" "sleeping: no claude on purpose; a wake resumes it on its lane" && ok "the lane list says just 'sleeping' beside a, and the sentence once under the table" || bad "lane list: $OUT"
 
 echo "== 7: adopt and box say 'sleeping' where they said 'no claude'; rename works with no claude"
 run adopt sala-test-a

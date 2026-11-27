@@ -4,7 +4,7 @@
 # one is stuck. What is checked guards a session or the fleet from a wrong operation, never the wording of a post: a verb
 # that does not fit its shape, an unresolvable or busy target, or a marker without the owner's words is refused before anything
 # is queued (a queued operation runs unattended, so the plan is the last look); `--auto` under a Claude process is refused
-# (a relayed message is never the owner's words); reboot is refused while its switch is off; a recycle about to start absorbs the
+# (a relayed message is never the owner's words); reboot is queued with the owner's words only (one at a time, none with a broken hook, off with SALA_OP_REBOOT=off); a recycle about to start absorbs the
 # queued recycles and this box's updates (two drivers would race the same panes) and their hearers are told; a runner gone
 # without a result is settled, with the one claude -p run once and never again; the end-to-end recycle through the queue on
 # sala-test-* panes: enqueued → the dry-run plan → the unit under the lock (holder op-<id>) → the sweep, a busy pane handed
@@ -141,11 +141,21 @@ printf '#!/bin/bash\n"%s" op retire sala-test-d --from t --auto\n' "$SALA" > "$H
 out=$("$HOME/anc/claude" 2>&1); rc=$?
 [ "$rc" != 0 ] && has "$out" "--auto is for markers sala writes itself" && [ "$(queued)" = 0 ] && ok "--auto under a claude process: refused, nothing queued" || bad "auto under claude: rc=$rc — $out"
 
-echo "== reboot: not queued while SALA_OP_REBOOT is off (the default; on is unsupported until a confirmation path is built, and still works)"
-enq reboot --from t --words "reboot t-host-a"; [ "$RC" != 0 ] && has "$OUT" "reboot is not queued: Rowan runs \`sala reboot --go\` in the web UI's Shell; a session shows \`sala reboot --status\` and waits for the word" && [ "$(queued)" = 0 ] && ok "off: refused as not queued (Rowan runs it), nothing queued" || bad "reboot off: rc=$RC — $OUT"
-SALA_OP_REBOOT=on enq reboot --from t --words "reboot t-host-a"
-[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" verb)" = reboot ] && [ "$(mval "$ID" state)" = queued ] && has "$OUT" "no SALA_REBOOT_HOOKS configured" && ok "on: queued, the plan was reboot --status" || bad "reboot on: rc=$RC — $OUT"
-"$SALA" op --cancel "$ID" >/dev/null 2>&1; [ "$(mval "$ID" state)" = cancelled ] && [ -f "$DONE/$ID.op" ] && ok "cancelled: archived as cancelled" || bad "cancel: $(slurp "$DONE/$ID.op")"
+echo "== reboot: queued with the owner's words (reboot --go in the runner's own unit); refused with no words, with a reason only, with a blocker, while another is queued, and when switched off"
+printf '#!/bin/bash\ncase "$1" in status) echo running;; *) echo ok;; esac\nexit 0\n' > "$HOME/rbhook"; chmod +x "$HOME/rbhook"
+export SALA_REBOOT_HOOKS="t=$HOME/rbhook"
+enq reboot --from t; [ "$RC" != 0 ] && has "$OUT" "no --words" && [ "$(queued)" = 0 ] && ok "reboot with no words: refused" || bad "reboot no words: rc=$RC — $OUT"
+enq reboot --from t --why "the box needs a reboot now"; [ "$RC" != 0 ] && [ "$(queued)" = 0 ] && ok "reboot with a reason only: refused, nothing queued" || bad "reboot why: rc=$RC — $OUT"
+enq --plan reboot; [ "$RC" = 0 ] && has "$OUT" "t: running" && has "$OUT" "plan only: nothing queued" && [ "$(queued)" = 0 ] && ok "--plan reboot: reboot --status shown, nothing queued" || bad "reboot plan: rc=$RC — $OUT"
+enq reboot --from t --words "reboot t-host-a"
+[ "$RC" = 0 ] && [ -n "$ID" ] && [ "$(mval "$ID" verb)" = reboot ] && [ "$(mval "$ID" state)" = queued ] && [ "$(mval "$ID" words)" = "reboot t-host-a" ] && ok "reboot with words: queued, the words verbatim in the marker" || bad "reboot queued: rc=$RC — $OUT"
+RB1=$ID
+enq reboot --from t --words "reboot again"; [ "$RC" != 0 ] && has "$OUT" "one reboot at a time" && [ "$(queued)" = 1 ] && ok "a second reboot while one is queued: refused" || bad "second reboot: rc=$RC — $OUT"
+"$SALA" op --cancel "$RB1" >/dev/null 2>&1; [ "$(mval "$RB1" state)" = cancelled ] && [ -f "$DONE/$RB1.op" ] && ok "cancelled: archived as cancelled" || bad "cancel: $(slurp "$DONE/$RB1.op")"
+printf '#!/bin/bash\ncase "$1" in status) echo broken; exit 1;; *) echo ok;; esac\nexit 0\n' > "$HOME/rbhook"
+enq reboot --from t --words "reboot t-host-a"; [ "$RC" != 0 ] && has "$OUT" "blocker" && [ "$(queued)" = 0 ] && ok "a broken hook in reboot --status: refused, nothing queued" || bad "reboot blocker: rc=$RC — $OUT"
+SALA_OP_REBOOT=off enq reboot --from t --words "reboot t-host-a"; [ "$RC" != 0 ] && has "$OUT" "SALA_OP_REBOOT=off" && [ "$(queued)" = 0 ] && ok "SALA_OP_REBOOT=off: refused (the kill switch)" || bad "reboot off: rc=$RC — $OUT"
+unset SALA_REBOOT_HOOKS
 
 echo "== the plan: the verb's dry run runs first, and its refusal refuses the operation before anything is queued"
 enq retire sala-test-nope --from t --words "retire nope"; [ "$RC" != 0 ] && has "$OUT" "nothing queued" && [ "$(queued)" = 0 ] && ok "retire of no such session: refused" || bad "no such session: rc=$RC — $OUT"
@@ -169,6 +179,10 @@ enq retire sala-test-d --from sala-test-h --words $'  first line\nsecond\tline  
 "$SALA" op --cancel "$ID" >/dev/null
 ID2=$(printf 'from stdin\n' | "$SALA" op retire sala-test-d --from x --stdin 2>/dev/null | sed -n 's/^queued op \([0-9-]*\):.*/\1/p'); [ -n "$ID2" ] && [ "$(mval "$ID2" words)" = "from stdin" ] && ok "--stdin: the words from stdin" || bad "stdin: $ID2 '$(mval "$ID2" words)'"
 "$SALA" op --cancel "$ID2" >/dev/null
+out=$("$SALA" op 2>&1); rc=$?; [ "$rc" = 2 ] && [ "$(wc -l <<< "$out")" = 1 ] && has "$out" "usage: sala op <verb>" && has "$out" "sala op --help" && ok "a bare op: one usage line, exit 2" || bad "bare op: rc=$rc $out"
+out=$("$SALA" op --from t 2>&1); rc=$?; [ "$rc" = 2 ] && [ "$(wc -l <<< "$out")" = 1 ] && ok "flags with no verb: the same one line, exit 2" || bad "no verb: rc=$rc $out"
+out=$("$SALA" op --help 2>&1); rc=$?; [ "$rc" = 0 ] && has "$out" "salamander op --list" && has "$out" "verbs: recycle" && has "$out" "sala op --help --full" && ! has "$out" "NO words" && [ "$(wc -c <<< "$out")" -lt 1500 ] && ok "op --help: the short help (forms, verbs, a pointer), none of the per-verb shapes" || bad "op --help short: rc=$rc $out"
+out=$("$SALA" op --help --full 2>&1); rc=$?; [ "$rc" = 0 ] && has "$out" "NO words" && has "$out" "close-shell NAME" && ok "op --help --full: the whole usage and every verb's shape" || bad "op --help --full: rc=$rc"
 touch "$HOME/active"; : > "$LAUNCHES"
 enq retire sala-test-d --from sala-test-h --words "again"; [ "$RC" = 0 ] && has "$OUT" "a watch tick is running now" && grep -q -- "--on-active=10 --unit=sala-op-kick-$ID .* watch --ops" "$LAUNCHES" && ok "a tick already running: a one-off watch --ops scheduled 10 s on" || bad "active kick: $OUT / $(<"$LAUNCHES")"
 rm -f "$HOME/active"; "$SALA" op --cancel "$ID" >/dev/null
@@ -182,6 +196,9 @@ PA=$(pane a); CG="$HOME/cgroup"
 echo "0::/user.slice/user-1000.slice/user@1000.service/app.slice/sala-op-1760000000-1234.service" > "$CG"
 ( export TMUX_PANE="$PA"; claude_caller() { return 0; }; fleet_guard recycle --force ) >/dev/null 2>&1; [ $? != 0 ] && ok "a Claude session's pane: fleet_guard refuses (as before)" || bad "fleet_guard let a Claude session's pane through"
 ( export TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; claude_caller() { return 0; }; fleet_guard recycle --force ) >/dev/null 2>&1 && ok "inside unit sala-op-<id>: fleet_guard admits it" || bad "fleet_guard refused the unit"
+gout=$( export TMUX_PANE="$PA"; claude_caller() { return 0; }; fleet_guard reboot --go 2>&1 ); grc=$?
+[ "$grc" != 0 ] && has "$gout" "sala op reboot --from" && has "$gout" "--words" && ok "a Claude session's raw reboot --go: fleet_guard refuses and names sala op reboot ... --words" || bad "reboot guard: rc=$grc — $gout"
+( export TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; claude_caller() { return 0; }; fleet_guard reboot --go ) >/dev/null 2>&1 && ok "inside unit sala-op-<id>: fleet_guard admits reboot --go" || bad "reboot guard refused the unit"
 ( export TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; claude_caller() { return 0; }; ops_guard retire example-x ) >/dev/null 2>&1 && ok "inside unit sala-op-<id>: ops_guard admits it" || bad "ops_guard refused the unit"
 echo "0::/user.slice/user-1000.slice/user@1000.service/app.slice/sala-auto-recycle-1760000000.service" > "$CG"
 ( export TMUX_PANE="$PA" SALA_CGROUP_FILE="$CG"; claude_caller() { return 0; }; fleet_guard recycle --force ) >/dev/null 2>&1; [ $? != 0 ] && ok "another unit's cgroup: refused" || bad "fleet_guard admitted a sala-auto-* unit"

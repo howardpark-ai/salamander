@@ -82,10 +82,11 @@ def test_dialog_inside_a_box_and_its_text_tells_two_dialogs_apart():
     assert tmuxio.dialog(a)[1] == tmuxio.dialog(a.replace("❯ 1.", "  1.").replace("  2. No", "❯ 2. No"))[1]
 
 
-def test_send_key_sends_only_a_digit_escape_or_the_stop_keys_second_key():
-    # (Ctrl-C, "C-c", is the one key beyond a digit and Escape: the Stop button's second key; see test_bang_live.py)
+def test_send_key_sends_only_a_digit_escape_down_enter_or_the_stop_keys_second_key():
+    # (Ctrl-C, "C-c", is a key beyond a digit and Escape: the Stop button's second key; see test_bang_live.py. Down and Enter are a multi-select
+    # question's: test_question_card.py)
     s = Settings(socket=FIX / "unused.sock", state_dir=FIX, claude_dir=FIX, tmux_socket_name="salaweb-pytest-unused")
-    for key in ("Enter", "0", "10", "C-d", "C-C", "y"):
+    for key in ("Up", "Tab", "0", "10", "C-d", "C-C", "y", "enter"):
         with pytest.raises(tmuxio.TmuxError, match="refusing"):
             asyncio.run(tmuxio.send_key(s, "%1", key))
 

@@ -93,9 +93,124 @@ async function apiFetch(url, opts = {}, { tries = 5 } = {}) {
 /* ---------- markdown ---------- */
 if (window.marked) noSingleTildeStrike(marked);  // only ~~x~~ strikes; a lone ~ is text (shared.js)
 if (window.DOMPurify) {
-  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-    if (node.tagName === "A") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
+  DOMPurify.addHook("uponSanitizeElement", (node, data) => {
+    if (node.nodeType !== 1) return;
+    // what is not on screen stays off it: a popover is only hidden, a dialog that is not open goes with its words
+    if (node.hasAttribute("popover")) node.setAttribute("hidden", "");
+    if (data.tagName === "dialog" && !node.hasAttribute("open")) node.replaceChildren();
   });
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    // every link opens in a new tab, a drawing's and an image map's too; a formula's element is no link
+    if (node.namespaceURI === "http://www.w3.org/1998/Math/MathML") { node.removeAttribute("href"); node.removeAttribute("xlink:href"); }
+    else if (node.localName === "a" || node.localName === "area") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
+  });
+}
+// marked's HTML as the nodes a reply may show (the rules are MD_PURIFY, mdAttr and mdStyle in shared.js); the sanitized
+// nodes themselves, not their HTML to parse a second time (the same tree; measured as a slice of a long history's render,
+// Wed Oct 14th 2026)
+let mdReplies = 0;   // each one's names get a prefix of their own
+function mdSanitize(html) {
+  const nodes = DOMPurify.sanitize(html, MD_PURIFY);
+  const prefix = `md${++mdReplies}-`;
+  for (const e of nodes.querySelectorAll("*")) {
+    const tag = e.localName.toLowerCase();
+    if (tag === "input" && !mdTaskBox(e.getAttribute("type"), e.hasAttribute("disabled"))) { e.remove(); continue; }
+    for (const name of e.getAttributeNames()) {
+      const was = e.getAttribute(name), kept = mdAttr(tag, name.toLowerCase(), was, prefix);
+      if (kept === null) e.removeAttribute(name);
+      else if (kept !== was) e.setAttribute(name, kept);
+    }
+    if (e.hasAttribute("style")) { if (e.style) mdStyle(e.style); else e.removeAttribute("style"); }   // none to edit: none to keep
+  }
+  return nodes;
+}
+// A reply's box is a formatting context of its own (style.css .md), so a margin inside it no longer merges with the space
+// around the box. Each element down the box's top and bottom edge that has such a margin gives it up (.md-start, .md-end)
+// and the box takes the largest of them (--md-start, --md-end), so the space around a reply is what it was. The box's own
+// children have none there already (.md > :first-child, :last-child). [top, bottom] by class or tag, as style.css and the
+// browser set them.
+const MD_EDGE_MARGINS = Object.freeze({
+  codebox: ["0px", ".7em"], "md-local": ["8px", "8px"], p: ["0px", ".7em"], table: [".5em", ".5em"], blockquote: [".5em", ".5em"],
+  hr: [".5em", ".5em"], ul: ["1em", "1em"], ol: ["1em", "1em"], menu: ["1em", "1em"], dl: ["1em", "1em"], figure: ["1em", "1em"],
+  h1: ["1.34em", "1.34em"], h2: ["1.245em", "1.245em"], h3: ["1.17em", "1.17em"], h4: ["1.33em", "1.33em"], h5: ["1.386em", "1.386em"],
+  h6: ["1.561em", "1.561em"],
+});
+const MD_LISTS = "ul, ol, menu";   // a list inside a list has no margin of its own
+const MD_CLOSED = "table, pre, details, fieldset, svg, math, video";   // what is inside these stays inside
+function mdEdges(box) {
+  for (const [side, first, next, at] of [["start", "firstChild", "nextSibling", 0], ["end", "lastChild", "previousSibling", 1]]) {
+    for (const e of box.querySelectorAll(`.md-${side}`)) e.classList.remove(`md-${side}`);
+    const margins = new Set();
+    for (let parent = box, deeper = false, listed = false; parent; deeper = true) {
+      let n = parent[first];
+      while (n && (n.nodeType === 8 || (n.nodeType === 3 && !n.data.trim()))) n = n[next];
+      if (!n || n.nodeType !== 1) break;
+      const list = n.matches(MD_LISTS);
+      const key = ["codebox", "md-local"].find((c) => n.classList.contains(c)) || n.localName;
+      // a code block keeps its margin as the box's own child too (.md .codebox is above .md > :last-child)
+      if ((deeper || key === "codebox") && Object.hasOwn(MD_EDGE_MARGINS, key) && !(list && listed)) {
+        n.classList.add(`md-${side}`);
+        margins.add(MD_EDGE_MARGINS[key][at]);
+      }
+      listed = listed || list;
+      parent = n.matches(MD_CLOSED) ? null : n;
+    }
+    if (margins.size) box.style.setProperty(`--md-${side}`, `max(${[...margins].join(", ")})`);
+    else box.style.removeProperty(`--md-${side}`);
+  }
+}
+// A list number of four digits or more ("2026. " opens a list in markdown) hangs further left than a list's indent, past the
+// box's edge, where the box would cut it: such a list is indented further (style.css ol.md-hang), .7em for each digit past three.
+function mdHang(box) {
+  for (const list of box.querySelectorAll("ol")) {
+    if (list.parentElement.closest(MD_LISTS)) continue;   // a list inside a list has the outer one's indent too
+    const most = Math.max(list.start + list.childElementCount - 1, ...[...list.children].map((li) => li.value || 0));
+    const over = String(most).length - 3;
+    list.classList.toggle("md-hang", most > 0 && over > 0);
+    if (most > 0 && over > 0) list.style.setProperty("--md-hang", `${over * 7 / 10}em`);
+  }
+}
+// What a reply draws wider than its box comes down to it or wraps, since a reply's box never scrolls sideways (style.css
+// .md, which stops at the box's width what the reply gives a width in its style): inline style that would hold it wide is
+// edited (shared.js mdFitStyle), and a drawing or a video with a width attribute stops at the box's width too, keeping its
+// shape when both sizes are in pixels. One of 200 or less, narrower than any reply's box, is left as it is (an icon in a
+// flex row would otherwise shrink or stretch with the row). Tables and code blocks keep their own ways.
+function mdFit(box) {
+  for (const e of box.querySelectorAll("[style], svg[width], video[width]")) {
+    if (e.closest("table, pre") || e.parentElement.closest("svg, math")) continue;
+    if (e.hasAttribute("style")) mdFitStyle(e.style);
+    if (!e.matches("svg[width], video[width]")) continue;
+    const [w, h] = ["width", "height"].map((a) => (e.getAttribute(a) || "").trim().replace(/px$/i, ""));
+    if (w.endsWith("%") || Number(w) <= 200 || /absolute|fixed/i.test(e.style.position)) continue;
+    e.style.maxWidth ||= "100%";
+    if (!(Number(w) > 0 && Number(h) > 0) || e.style.width || e.style.height) continue;
+    if (e.localName === "svg" && !e.hasAttribute("viewBox")) e.setAttribute("viewBox", `0 0 ${w} ${h}`);   // so it shrinks whole
+    e.style.aspectRatio = `${w} / ${h}`;
+    e.style.height = "auto";
+  }
+}
+// A formula cannot wrap: one wider than the room left in its box is drawn smaller. One that would show whole up to the
+// window's edge is drawn as small as that takes; a wider one at half size at the least, and the box cuts the rest.
+function mdFitFormulas(box) {
+  const edge = box.getBoundingClientRect().right;
+  for (const m of box.querySelectorAll("math")) {
+    if (!m.style || m.parentElement.closest("table, math, svg")) continue;
+    m.style.removeProperty("zoom");   // its own size first
+    const at = m.getBoundingClientRect();
+    if (!at.width) continue;   // not on screen: a closed fold
+    const parts = [at, ...[...m.children].map((c) => c.getBoundingClientRect()).filter((r) => r.width)];
+    const wide = Math.max(...parts.map((r) => r.right)) - Math.min(...parts.map((r) => r.left)), room = edge - at.left;
+    if (wide <= room + 1 || room <= 1) continue;
+    m.style.zoom = Math.max(at.left + wide <= innerWidth ? 0 : 0.5, Math.floor((room - 1) / wide * 1000) / 1000);
+  }
+}
+// Boxes with a formula are fitted once laid out, and again whenever their size changes (the window, a fold opening). A frame
+// later: fitting changes the box's height, which the observer may not do inside its own call.
+let mdFormulaBoxes = null;
+function mdWatchFormulas(box) {
+  if (!box.querySelector("math")) return;
+  mdFormulaBoxes ||= new ResizeObserver((seen) => requestAnimationFrame(() => { for (const s of seen) mdFitFormulas(s.target); }));
+  mdFormulaBoxes.observe(box);
 }
 // A markdown image in a reply that names a file on this machine (![caption](/home/…/mock.png) or ![caption](~/…)): the
 // server hands each such image of a text block a URL (b.localImages: {src as written, url}); the image is drawn inline
@@ -140,9 +255,7 @@ function md(text, offered = null) {
   try {
     const html = marked.parse(mdPrep(text), { gfm: true, breaks: true });  // a single newline is a line break, as claude.ai renders it
     const d = el("div", { class: "md" });
-    // the sanitized nodes themselves, not their HTML to parse a second time (the same tree; measured as a slice of a
-    // long history's render, Wed Oct 14th 2026)
-    d.append(DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true }));
+    d.append(mdSanitize(html));
     localImages(d, offered);
     // a copy button in the top-right corner of each fenced code block (outside the <pre>, so it does not scroll away)
     for (const p of d.querySelectorAll("pre")) {
@@ -151,6 +264,10 @@ function md(text, offered = null) {
       p.replaceWith(box);
       box.append(p, copyButton(raw, "code-copy"));
     }
+    mdEdges(d);
+    mdHang(d);
+    mdFit(d);
+    mdWatchFormulas(d);
     return d;
   } catch {
     return el("div", { class: "md", style: "white-space:pre-wrap", text });
@@ -168,6 +285,9 @@ function replyNodes(text, last, offered = null) {
   if (!notes.length) return [md(text, offered)];
   const footer = el("div", { class: "md footer" + (body ? " ruled" : "") });
   for (const n of notes) footer.append(...md(n, offered).childNodes);
+  mdEdges(footer);
+  mdHang(footer);
+  mdWatchFormulas(footer);
   const out = body ? [md(body, offered), footer] : [footer];
   if (tail) { const t = md(tail, offered); t.classList.add("tail"); out.push(t); }
   return out;
@@ -252,11 +372,11 @@ async function saveList(key, compute) {
      count that matters). The Overview still lists it. The marks are read every CHAT_MARKS_MS while the page is visible, whether or not the session is open;
      while it is open they are also read when the stream says something changed (chatStripSoon) and on open;
    - its strip (#chat-strip-wait and #chat-strip, in #chat-pane before #chat and outside it: showTail replaces #chat's children): what waits on the owner,
-     what is in motion, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the server marks the session in
-     api/sessions, sessions.py). What waits on the owner is PINNED: #chat-strip-wait is sticky at the top of the pane, one line ("<group> · 3", a button; the group's name is the one stackshot serves)
-     that opens the list, height-capped; with nothing waiting it is not drawn. When api/chat also carries `onIt` (the items the session is contact of or
-     observer on), that line is a bar of two tabs, the group's and "On it", with a chevron: one list open at a time, drawn while either list has a row.
-     The motion lines and the switch scroll with the thread. The switch shows and hides the kept-back lines in the thread (below);
+     what the session has promised to report back, and the kept-back switch with its count. It is on screen while the open session has the `chat` flag (the
+     server marks the session in api/sessions, sessions.py). The two lists are PINNED: #chat-strip-wait is sticky at the top of the pane, a bar of two tabs,
+     the owner's moves ("<group> · 3"; the group's name is the one stackshot serves) and "On it" (api/chat `motion`: the lines the session set itself with
+     `sala motion`, each on the list until the session marks it done), with a chevron: one list open at a time, height-capped, and the bar drawn while either
+     list has a row. The switch scrolls with the thread; it shows and hides the kept-back lines in the thread (below);
    - the assistant's messages sit to the left at a 68ch measure (style.css, body.chat-session).
    - the turns the owner did not start are kept back by the SERVER (chatkeep.py: the transcript reads and the stream of this one session carry one "kept" message
      in place of each such turn, and the turns he started whole, as for any session). A kept message is one quiet line in the thread (renderKept); the strip's
@@ -354,18 +474,13 @@ function chatSync() {
 // the strip's pieces are made once; a read changes their text
 function buildChatStrip() {
   const waitList = el("ul", { class: "wait-list" }), waitNote = el("p", { class: "wait-err" });
-  // no heading of its own: the pinned line above already says "<group> · N", and paintChatWait gives the panel that text as its aria-label
-  const wait = el("section", { class: "wait", id: "chat-strip-wait-panel", hidden: true }, waitList, waitNote,
+  // no heading of its own: the tab above already says "<group> · N", and paintChatWait gives the panel that text as its aria-label
+  const wait = el("section", { class: "wait", id: "chat-strip-wait-panel", hidden: true, role: "tabpanel", "aria-labelledby": "chat-strip-tab-move" }, waitList, waitNote,
     el("p", { class: "wait-cap", ...tx("chat.wait.note") }));
-  // the pinned line: one real button with the count; it opens and closes the list under it (aria-expanded), and closed is how every page load starts
-  const waitLine = el("span", { class: "wait-line" });
-  const waitToggle = el("button", { type: "button", class: "wait-toggle", "aria-expanded": "false", "aria-controls": "chat-strip-wait-panel" },
-    waitLine, el("span", { class: "chev", "aria-hidden": "true" }));
-  waitToggle.addEventListener("click", chatToggleList);
-  // the second list and the bar of two tabs that stands in the pinned line's place while api/chat carries it
+  // the second list and the bar of two tabs over both: closed is how every page load starts
   const onitSum = el("p", { class: "wait-sum", hidden: true }), onitList = el("ul", { class: "wait-list" }), onitNone = el("p", { class: "wait-empty", ...tx("chat.onit.none") });
-  const onit = el("section", { class: "wait", id: "chat-strip-onit-panel", hidden: true, role: "tabpanel", "aria-labelledby": "chat-strip-tab-onit" }, onitSum, onitList, onitNone,
-    el("p", { class: "wait-cap", ...tx("chat.onit.note") }));
+  // the help line of this list is not drawn under it: it sits behind a (?) in the bar and shows only while that is pressed (chatHelp)
+  const onit = el("section", { class: "wait", id: "chat-strip-onit-panel", hidden: true, role: "tabpanel", "aria-labelledby": "chat-strip-tab-onit" }, onitSum, onitList, onitNone);
   const tab = (key, panel, ...kids) => {
     const b = el("button", { type: "button", class: "wait-tab", role: "tab", id: "chat-strip-tab-" + key, "data-list": key, "aria-selected": "false", "aria-controls": panel }, ...kids);
     b.addEventListener("click", () => chatPickList(key));
@@ -377,10 +492,15 @@ function buildChatStrip() {
   tabs.addEventListener("keydown", chatTabKeys);
   const chevron = el("button", { type: "button", class: "wait-chev", "aria-expanded": "false" }, el("span", { class: "chev", "aria-hidden": "true" }));
   chevron.addEventListener("click", chatToggleList);
-  const bar = el("div", { class: "wait-bar", hidden: true }, tabs, chevron);
-  $("#chat-strip-wait").replaceChildren(waitToggle, bar, wait, onit);
-  const moList = el("ul", { class: "mo-list" });
-  const motion = el("section", { class: "motion", ...tx("chat.motion.h", null, "aria-label") }, el("span", { class: "lbl", ...tx("chat.motion.h") }), moList);
+  const help = el("button", { type: "button", class: "wait-help", hidden: true, "aria-expanded": "false", "aria-controls": "chat-strip-onit-help", ...tx("chat.onit.help", null, "aria-label") },
+    el("span", { class: "q", "aria-hidden": "true", text: "?" }));
+  const pop = el("div", { class: "wait-pop", id: "chat-strip-onit-help", role: "note", hidden: true, ...tx("chat.onit.note") });
+  help.addEventListener("click", () => chatHelp(pop.hidden));
+  // a press anywhere else (on the line itself too) closes it, and so does Escape; a press on the button is the button's own toggle
+  document.addEventListener("click", (e) => { if (!pop.hidden && !help.contains(e.target)) chatHelp(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.isComposing && !pop.hidden) { chatHelp(false); if (pop.contains(document.activeElement)) help.focus(); } });
+  const bar = el("div", { class: "wait-bar" }, tabs, help, chevron, pop);
+  $("#chat-strip-wait").replaceChildren(bar, wait, onit);
   // the switch: shows or hides the kept-back lines of the thread (a class on the body; the server already holds back the turns the owner did not start)
   const sw = el("input", { type: "checkbox", id: "chat-strip-kept" });
   sw.checked = chatView.kept;
@@ -388,10 +508,16 @@ function buildChatStrip() {
   const swText = el("span"), countEl = el("span", { class: "count" });
   const kept = el("div", { class: "kept-row" },
     el("label", { class: "kept-toggle", for: "chat-strip-kept" }, sw, swText, countEl));
-  $("#chat-strip").replaceChildren(motion, kept);
-  chatView.ui = { waitList, waitNote, waitLine, waitToggle, wait, onit, onitSum, onitList, onitNone, bar, moveTab, moveLine, onitTab, onitLine, lateDot, chevron, moList, swText, countEl };
+  $("#chat-strip").replaceChildren(kept);
+  chatView.ui = { waitList, waitNote, wait, onit, onitSum, onitList, onitNone, help, pop, moveTab, moveLine, onitTab, onitLine, lateDot, chevron, swText, countEl };
 }
-// the pinned line (or the chevron beside the tabs) closes the open list, or opens the one last open
+// the (?) of the second list, in the bar only while that list is open: shows the list's help line in a small box under the bar, or hides it again
+function chatHelp(on) {
+  const u = chatView.ui;
+  u.pop.hidden = !on;
+  u.help.setAttribute("aria-expanded", String(on));
+}
+// the chevron beside the tabs closes the open list, or opens the one last open
 function chatToggleList() { chatView.waitOpen = !chatView.waitOpen; paintChatWait(); }
 // a tab opens its list; a press on the open one's tab closes it
 function chatPickList(key) {
@@ -410,32 +536,24 @@ function chatTabKeys(e) {
   for (const t of tabs) t.setAttribute("tabindex", t === next ? "0" : "-1");
   next.focus();
 }
-// the pinned line and its list: not drawn with nothing in it; a list shows only while it is opened. With no second list (api/chat has no `onIt`) it is the one
-// line and the owner's moves; with one it is the bar of two tabs (paintChatBar), drawn while either list has a row
+// the pinned bar and its two lists, the owner's moves and the session's own lines: not drawn with nothing in either; a list shows only while it is opened
 function paintChatWait() {
-  const u = chatView.ui, d = chatView.data || {}, n = (d.waiting || []).length, onIt = Array.isArray(d.onIt) ? d.onIt : null;
-  if (!onIt) Object.assign(chatView, { waitOpen: chatView.waitOpen && chatView.waitTab === "move", waitTab: "move", waitRove: "move" });   // an open second list closes as it goes
-  const shown = n > 0 || !!(onIt && onIt.length), open = chatView.waitOpen && shown;
+  const u = chatView.ui, d = chatView.data || {}, n = (d.waiting || []).length, onIt = d.motion || [];
+  const shown = n > 0 || onIt.length > 0, open = chatView.waitOpen && shown;
   $("#chat-strip-wait").hidden = !shown;
   u.wait.hidden = !(open && chatView.waitTab === "move");
   const group = chatGroupName(d.group);
-  u.waitLine.textContent = tl("chat.strip.line", { n, group });
-  u.wait.setAttribute("aria-label", u.waitLine.textContent);
-  u.waitToggle.setAttribute("aria-expanded", String(open));
-  u.waitToggle.title = tl(open ? "chat.strip.collapse" : "chat.strip.expand", { group });
+  u.moveLine.textContent = tl("chat.strip.line", { n, group });
+  u.wait.setAttribute("aria-label", u.moveLine.textContent);
   paintChatBar(onIt, n, group, open);
 }
-// the two tabs, their counts, the late dot and the chevron; the second list's own lines. `onIt` null: the bar is away and the first list is no tab's panel
+// the two tabs, their counts, the late dot and the chevron; the second list's own lines
 function paintChatBar(onIt, n, group, open) {
   const u = chatView.ui;
-  u.waitToggle.hidden = !!onIt;
-  u.bar.hidden = !onIt;
-  u.onit.hidden = !(onIt && open && chatView.waitTab === "onit");
-  if (!onIt) { u.wait.removeAttribute("role"); u.wait.removeAttribute("aria-labelledby"); return; }
-  u.wait.setAttribute("role", "tabpanel");
-  u.wait.setAttribute("aria-labelledby", "chat-strip-tab-move");
-  const now = Date.now(), late = onIt.filter((w) => chatBackTone(w, now)).length, lateTip = late ? tl("chat.onit.late", { n: late }) : "";
-  u.moveLine.textContent = u.waitLine.textContent;
+  u.onit.hidden = !(open && chatView.waitTab === "onit");
+  u.help.hidden = u.onit.hidden;
+  if (u.help.hidden) chatHelp(false);
+  const now = Date.now(), late = onIt.filter((m) => chatBackTone(m, now)).length, lateTip = late ? tl("chat.onit.late", { n: late }) : "";
   u.onitLine.textContent = tl("chat.onit.line", { n: onIt.length });
   u.onitTab.setAttribute("aria-label", lateTip ? u.onitLine.textContent + ", " + lateTip : u.onitLine.textContent);
   u.lateDot.hidden = !late;
@@ -455,12 +573,12 @@ function paintChatBar(onIt, n, group, open) {
   u.chevron.title = tl(open ? "chat.strip.collapse" : "chat.strip.expand", { group: listName });
   u.chevron.setAttribute("aria-label", u.chevron.title);
 }
-// A row of the second list is late when its item's state has stood for more than CHAT_LATE_DAYS, red past CHAT_RED_DAYS. A held item waits for its day by
-// design and is never late, and neither is one with no time.
+// A row of the second list is late when its line has been on the list for more than CHAT_LATE_DAYS, red past CHAT_RED_DAYS, so a forgotten one stands out.
+// A row with no time is never late.
 const CHAT_LATE_DAYS = 2, CHAT_RED_DAYS = 5;
-const chatBackAge = (w, now) => (!w.held && w.since ? (now / 1000 - w.since) / 86400 : 0);
-function chatBackTone(w, now) {
-  const days = chatBackAge(w, now);
+const chatBackAge = (m, now) => (m.at ? (now / 1000 - m.at) / 86400 : 0);
+function chatBackTone(m, now) {
+  const days = chatBackAge(m, now);
   return days > CHAT_RED_DAYS ? "red" : days > CHAT_LATE_DAYS ? "late" : "";
 }
 // "Mon Jan 5th"; in Korean the formatter's month, day and weekday, with no space before the bracket. `fmt` formats those three
@@ -480,26 +598,13 @@ function chatSinceText(seconds, now) {
   const t = days <= 0 ? CHAT_HM.format(d) : days < 7 ? CHAT_WEEKDAY.format(d) + " " + CHAT_HM.format(d) : chatDayWords(d, CHAT_DAY);
   return tl("chat.onit.since", { t });
 }
-// the day a held item comes back is a calendar day as sent: it is worded in UTC, so no zone moves it
-const chatDayAsSent = (iso) => chatDayWords(new Date(iso + "T00:00:00Z"), new Intl.DateTimeFormat(SalaI18n.locale(), { ...CHAT_DAY_PARTS, timeZone: "UTC" }));
-// who moves a row, as a person reads it: this session by the name in its header; a builder's or a main agent's session by its project and role, which is a name
-// and no word of the interface, so it reads the same in both languages ("x-demo-engineer" reads "demo builder", "x-demo-main" reads "demo main": of three parts
-// or more the first, the scope, is left out); any other name as sent
-function chatMoverName(mover, d) {
-  if (mover === d.session) return d.name;
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*-(engineer|main)$/.test(mover)) return mover;
-  const parts = mover.split("-"), role = parts.pop() === "engineer" ? "builder" : "main";
-  return [...(parts.length > 1 ? parts.slice(1) : parts), role].join(" ");
-}
-// a row of the second list: the id and the title as the first list draws them, then who moves it (the name as sent is its tooltip), since when, the days of a
-// late one, and the day a held one comes back. All of it is set as text.
-function chatBackRow(w, now) {
-  const d = chatView.data, tone = chatBackTone(w, now), meta = el("span", { class: "wait-meta" });
-  if (w.mover) meta.append(el("span", { class: "who", title: w.mover, text: chatMoverName(w.mover, d) }));
-  if (w.since) meta.append(el("span", { class: tone, text: chatSinceText(w.since, now) }));
-  if (tone) meta.append(el("span", { class: tone + " age", text: tl("chat.onit.days", { n: Math.floor(chatBackAge(w, now)) }) }));
-  if (w.held && w.until) meta.append(el("span", { class: "park", text: tl("chat.onit.parked", { d: chatDayAsSent(w.until) }) }));
-  const row = chatWaitRow(w, false);
+// a row of the second list: one line of the session's own (`at`: when it was first set), the topic as the first list draws a title with no address (plain text),
+// then since when and the days of a late one. All of it is set as text.
+function chatBackRow(m, now) {
+  const tone = chatBackTone(m, now), meta = el("span", { class: "wait-meta" });
+  if (m.at) meta.append(el("span", { class: tone, text: chatSinceText(m.at, now) }));
+  if (tone) meta.append(el("span", { class: tone + " age", text: tl("chat.onit.days", { n: Math.floor(chatBackAge(m, now)) }) }));
+  const row = chatWaitRow({ subject: m.text }, false);
   row.classList.add("back-row");
   if (tone) row.classList.add(tone);
   row.append(meta);
@@ -518,14 +623,13 @@ function paintChatStrip() {
   const d = chatView.data;
   if (!chatEntryOn()) return;
   if (!chatView.ui) buildChatStrip();
-  const u = chatView.ui, waiting = d.waiting || [], motion = d.motion || [];
+  const u = chatView.ui, waiting = d.waiting || [];
   // chatanswer.js (in the page only with the setting SALA_CHAT_LAYER) draws these rows itself, so one of them can hold the item's answer frame
   if (window.SalaAnswerFrame) SalaAnswerFrame.strip(u.waitList, waiting, chatWaitRow);
   else u.waitList.replaceChildren(...waiting.map((w) => chatWaitRow(w)));
   const now = Date.now();
-  u.onitList.replaceChildren(...(Array.isArray(d.onIt) ? d.onIt : []).map((w) => chatBackRow(w, now)));
+  u.onitList.replaceChildren(...(d.motion || []).map((m) => chatBackRow(m, now)));
   paintChatWait();
-  u.moList.replaceChildren(...(motion.length ? motion.map((m) => el("li", { class: "mo", text: m.text })) : [el("li", { class: "mo none", ...tx("chat.motion.none") })]));
   u.swText.textContent = tl("chat.kept.toggle", { name: d.name });
   u.countEl.textContent = tl(d.keptTodayFloor ? "chat.kept.floor" : "chat.kept.count", { n: (d.keptLines ?? d.keptToday) | 0 });
 }
@@ -1088,6 +1192,7 @@ function updateHeader(s) {
 // in flight: a small spinner under the last message while the session works, as claude.ai shows
 function updateInflight() {
   const chat = $("#chat");
+  if (window.SalaQuestionCard) SalaQuestionCard.sync(ahead.active ? null : state.current);   // the card of a question the session waits on (dialogcard.js)
   let n = chat.querySelector(":scope > .inflight");
   if (!(state.current && state.current.status === "busy") || ahead.active) { if (n) n.remove(); return; }   // far back: it shows at the live end
   if (!n) n = el("div", { class: "inflight", role: "status", title: tl("app.working"), "aria-label": tl("app.working") }, el("span", { class: "spinner" }));
@@ -3417,7 +3522,7 @@ function sentImage(b) {
 const appendToChat = (node, host = null) => {
   if (host) { host.append(node); return; }
   const chat = $("#chat");
-  chat.insertBefore(node, chat.querySelector(":scope > .msg.pending, :scope > .inflight, :scope > .live-bang"));
+  chat.insertBefore(node, chat.querySelector(":scope > .msg.pending, :scope > .inflight, :scope > .live-bang, :scope > .q-card"));
 };
 
 // The live block of a running `!` command. Claude Code writes a `!` command's output to the transcript only when

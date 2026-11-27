@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""lib/motion.py — `sala motion`: the few short lines a session sets itself to say what is in motion right now (docs/subcommands.md).
+"""lib/motion.py — `sala motion`: the short topics a session has promised to report back and has not reported yet (docs/subcommands.md).
 
-sala-web's chat session view (web/README.md, *The chat session in sala's own view*) shows them under "In motion". Nobody else writes them and no model filters them: the
-session that sets a line is the session that shows it.
+sala-web's chat session view (web/README.md, *The chat session in sala's own view*) shows the chat session's under "On it". A session adds a line when it hands work
+off with a promise to report back in the chat, and marks it done in the turn it reports the result. Nobody else writes the lines and no model filters them.
 
-  add "<line>"          put a line on the list (one line of text, at most 120 characters; a line already there only has its clock renewed)
+  add "<line>"          put a line on the list (one line of text, at most 120 characters; adding a line already there changes nothing)
   done "<line>" | N     take one off, by its exact text or by its number in `list`
   clear                 take them all off
-  list [--json]         the lines still in force, numbered
+  list [--json]         the lines on the list, numbered
 
   --for NAME            the session whose lines these are (default: the session this command runs in; outside a session it is required)
 
 Storage: <state>/motion/<session>.json (state = SALA_STATE_DIR, else $XDG_STATE_HOME/salamander), folder mode 700, file mode 600, one small JSON
-file per session: {"v": 1, "lines": [{"text": "...", "at": <epoch seconds>}]}. The CLI is the only writer, under an exclusive lock on
+file per session: {"v": 1, "lines": [{"text": "...", "at": <epoch seconds, when the line was first added>}]}. The CLI is the only writer, under an exclusive lock on
 <folder>/.lock; a file is written to a temporary name, flushed and renamed, so a reader (sala-web, which only reads) never sees half of one.
 At most 8 lines, each at most 120 characters: a ninth line and a longer one are refused with a sentence (nothing is cut or dropped silently).
-A line expires 24 hours after it was set (or last renewed): it is left out of `list` and of what sala-web shows, and the next write drops it.
+A line stays until it is marked done or cleared: nothing expires it.
 
 Tests: SALA_MOTION_DIR (the folder), SALA_MOTION_NOW (the clock, epoch seconds), SALA_MOTION_SELF (the caller's own session name, which the shell
 wrapper reads from sala's registry).
@@ -30,7 +30,6 @@ import time
 
 MAX_LINES = 8
 MAX_CHARS = 120
-TTL_S = 24 * 3600
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
@@ -63,7 +62,7 @@ def clean_text(raw):
 
 
 def load(path):
-    """The lines in force (dicts with text and at), oldest first; an unreadable or foreign file reads as none."""
+    """The listed lines (dicts with text and at), oldest first; an unreadable or foreign file reads as none."""
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
@@ -71,11 +70,8 @@ def load(path):
         return []
     rows = doc.get("lines") if isinstance(doc, dict) else None
     out = []
-    t = now()
     for r in rows if isinstance(rows, list) else []:
         if not isinstance(r, dict) or not isinstance(r.get("text"), str) or isinstance(r.get("at"), bool) or not isinstance(r.get("at"), int):
-            continue
-        if t - r["at"] >= TTL_S:
             continue
         out.append({"text": r["text"], "at": r["at"]})
     return out[:MAX_LINES]
@@ -163,12 +159,9 @@ def main(argv):
                 die("the line is empty")
             if len(text) > MAX_CHARS:
                 die("the line is %d characters; at most %d (say it shorter)" % (len(text), MAX_CHARS))
-            for r in lines:
-                if r["text"] == text:
-                    r["at"] = now()
-                    save(d, path, lines)
-                    print("motion: already listed; its 24 hours start again (%d of %d)" % (len(lines), MAX_LINES))
-                    return 0
+            if any(r["text"] == text for r in lines):   # `at` stays the time it was first added: the page says since when the work runs
+                print("motion: already listed, nothing changed (%d of %d)" % (len(lines), MAX_LINES))
+                return 0
             if len(lines) >= MAX_LINES:
                 die("%d lines are already listed for %s (the most there is room for): take one off with `sala motion done N` or start over with `sala motion clear`" % (len(lines), name))
             lines.append({"text": text, "at": now()})

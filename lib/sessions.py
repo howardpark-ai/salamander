@@ -62,7 +62,7 @@ in sessions.log and exit 1, and the shell ignores it (the pane map is the author
                                                                              cannot be used (an empty or null surface, a value sala does not know, a back
                                                                              agent called slack); the reason on stderr. It reads only the project record
                                                                              (never the registry). `spawn` asks it before choosing the start directory
-  list [--all] [--json]                                                      the registry, read-only (a slack row shows [slack] after its role; --json
+  list [--all] [--full] [--json]                                               the registry, read-only; rows with nothing but a name fold into one line unless --full (a slack row shows [slack] after its role; --json
                                                                              carries `surface` only on such a row)
   resolve REF [--live] [--json]                                              phase 3, read-only: REF is a session id (or a unique prefix of 8+
                                                                              characters), a transcript id, a name, an alias or role:<project>/<role>.
@@ -1075,6 +1075,13 @@ def _local_text(iso):
     return "%s %s %d%s %s %s" % (d.strftime("%a"), d.strftime("%b"), n, suf, d.strftime("%H:%M"), d.strftime("%Z"))
 
 
+def is_plain_row(r, sleeping_dir):
+    """A live row that has only its name: no lane, model, effort, project, role, side or slack mark, no alias, at most one conversation, not asleep.
+    The text listing folds such rows into one line (--full keeps one line each)."""
+    return (r.get("state") == "live" and row_sleeping_since(r, sleeping_dir) is None and not norm_lane(r.get("lane")) and not r.get("model") and not r.get("effort")
+            and not r.get("project") and not r.get("role") and not r.get("side") and not row_surface(r) and not r.get("aliases") and len(r.get("transcripts") or []) <= 1)
+
+
 def cmd_list(R, a):
     rows = [r for r in R.rows.values() if a.all or r.get("state") == "live"]
     rows.sort(key=lambda r: (r.get("name") or "", r.get("created") or ""))
@@ -1091,13 +1098,18 @@ def cmd_list(R, a):
     if not rows:
         print("the session registry is empty (%s)" % R.path)
         return
-    out = []
+    out = []; plain = []
     for r in rows:
+        if not a.full and is_plain_row(r, a.sleeping):   # a live row with nothing recorded but its name: one line below, not a line of dashes
+            plain.append(r.get("name") or "-"); continue
         me = "%s%s" % (r.get("model") or "-", "/" + r["effort"] if r.get("effort") else "")
         out.append((r["id"][:8], r.get("name") or "-", row_state_shown(r, a.sleeping), norm_lane(r.get("lane")) or "-", me, r.get("project") or "-",
                     (r.get("role") or ("side" if r.get("side") else "-")) + (" [slack]" if row_surface(r) else ""),   # a side session (spawn --side) has no role: its column says so; a slack agent's mark follows it
                     len(r.get("transcripts") or []), ",".join(r.get("aliases") or []) or "-"))
-    print(table(out, ("ID", "NAME", "STATE", "LANE", "MODEL", "PROJECT", "ROLE", "TRANSCRIPTS", "ALIASES")))
+    if out or not plain:
+        print(table(out, ("ID", "NAME", "STATE", "LANE", "MODEL", "PROJECT", "ROLE", "TRANSCRIPTS", "ALIASES")))
+    if plain:
+        print("plain (live, no lane, model, project, role or alias; --full lists every row with its id): %s" % ", ".join(plain))
     for r in rows:   # a sleeper's STATE says `sleeping`; its time is one line each under the table
         since = row_sleeping_since(r, a.sleeping)
         if since is not None:
@@ -1276,7 +1288,7 @@ def main():
     p.add_argument("args", nargs="*")
     p.add_argument("--lane"); p.add_argument("--model"); p.add_argument("--effort")
     p.add_argument("--transcript"); p.add_argument("--why"); p.add_argument("--tmachine", default="")
-    p.add_argument("--mint"); p.add_argument("--all", action="store_true"); p.add_argument("--json", action="store_true")
+    p.add_argument("--mint"); p.add_argument("--all", action="store_true"); p.add_argument("--json", action="store_true"); p.add_argument("--full", action="store_true")
     p.add_argument("--live", action="store_true"); p.add_argument("--projects", default=""); p.add_argument("--sleeping", default="")
     p.add_argument("--project"); p.add_argument("--role"); p.add_argument("--surface"); p.add_argument("--project-key", dest="project_key")
     p.add_argument("--dry-run", action="store_true", dest="dry_run")

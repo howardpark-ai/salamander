@@ -523,6 +523,27 @@ _bot_log() {
   printf '%s channel=%s app=%s reason=%s\n' "$(date '+%F %T')" "$c" "$a" "$3" >> "$LOGDIR/bot-post.log" 2>/dev/null; return 0
 }
 
+# _bot_resolve  — the post's channel and the app and DM id its settings map it to, in _BOT_CH, _BOT_APP and _BOT_DM (_BOT_SA and _BOT_SA_DM:
+# the sala-admin app and its DM id, where a post no app can deliver falls back to). The one place that reads the BRIEFING_BOT_* settings:
+# _bot_post posts with what it finds, and bot_destination (below) only says it.
+_bot_resolve() {
+  local var
+  _BOT_CH=${BRIEFING_CHANNEL:-${SALA_NOTIFY_CHANNEL:-sala-admin}}; _BOT_APP=""; _BOT_DM=""
+  _bcfg_load BRIEFING_BOT_APP_SALA_ADMIN BRIEFING_BOT_CHANNEL_SALA_ADMIN
+  if [[ $_BOT_CH =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]+$ ]]; then
+    var=${_BOT_CH^^}; var=${var//-/_}
+    _bcfg_load "BRIEFING_BOT_APP_$var" "BRIEFING_BOT_CHANNEL_$var"
+    _BOT_APP=$(_bcfg "BRIEFING_BOT_APP_$var"); _BOT_DM=$(_bcfg "BRIEFING_BOT_CHANNEL_$var")
+  fi
+  _BOT_SA=$(_bcfg BRIEFING_BOT_APP_SALA_ADMIN); _BOT_SA_DM=$(_bcfg BRIEFING_BOT_CHANNEL_SALA_ADMIN)
+}
+# bot_destination  — where a post goes, in words, from the settings alone (nothing is sent): "Slack: the <app> app's DM" for the app the post
+# would use (the channel's own app, else the sala-admin app), "Slack: not configured" when no app is mapped. Never a channel name.
+bot_destination() {
+  local a
+  _bot_resolve; a=${_BOT_APP:-$_BOT_SA}
+  if [[ $a =~ ^[A-Za-z0-9-]{1,64}$ ]]; then printf "Slack: the %s app's DM\n" "$a"; else printf 'Slack: not configured\n'; fi
+}
 # _bot_post <text>  — delivers <text> as a Slack app's direct message to the owner. There is no webhook: a post is delivered by an app or
 # it is not delivered. The post's channel is BRIEFING_CHANNEL, else SALA_NOTIFY_CHANNEL, else sala-admin (where sala's own notices go).
 # The channel names its app: BRIEFING_BOT_APP_<NAME> (NAME = the channel in capitals, dashes as underscores; the environment, else the
@@ -540,16 +561,12 @@ _bot_log() {
 #   4. nothing reachable: returns 1 and prints nothing. No other path exists.
 # Returns 0 and prints "ok" when an app posted (HTTP 200 with ok:true). A post whose answer was lost after Slack took it can come out twice.
 _bot_post() {
-  local ch=${BRIEFING_CHANNEL:-${SALA_NOTIFY_CHANNEL:-sala-admin}} var app="" bch="" r="" sa sbch tokdir base shown note
-  _bcfg_load BRIEFING_BOT_APP_SALA_ADMIN BRIEFING_BOT_CHANNEL_SALA_ADMIN SALA_DM_TOKEN_DIR SALA_DM_API_BASE
-  if [[ $ch =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]+$ ]]; then
-    var=${ch^^}; var=${var//-/_}
-    _bcfg_load "BRIEFING_BOT_APP_$var" "BRIEFING_BOT_CHANNEL_$var"
-    app=$(_bcfg "BRIEFING_BOT_APP_$var"); bch=$(_bcfg "BRIEFING_BOT_CHANNEL_$var")
-  fi
+  local ch app bch r="" sa sbch tokdir base shown note
+  _bot_resolve; ch=$_BOT_CH; app=$_BOT_APP; bch=$_BOT_DM
+  _bcfg_load SALA_DM_TOKEN_DIR SALA_DM_API_BASE
   tokdir=$(SALA_DM_TOKEN_DIR=$(_bhome "$(_bcfg SALA_DM_TOKEN_DIR)") dm_token_dir)
   base=$(SALA_DM_API_BASE=$(_bcfg SALA_DM_API_BASE) dm_api_base)
-  sa=$(_bcfg BRIEFING_BOT_APP_SALA_ADMIN); sbch=$(_bcfg BRIEFING_BOT_CHANNEL_SALA_ADMIN)
+  sa=$_BOT_SA; sbch=$_BOT_SA_DM
   shown=$ch; [[ $ch =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]{1,64}$ ]] || shown=-
   if [ -n "$app" ]; then
     r=$(_bot_try "$1" "$ch" "$app" "$bch" "$tokdir" "$base" "${BRIEFING_THREAD_TS-}") && { echo ok; return 0; }

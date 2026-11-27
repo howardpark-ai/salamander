@@ -2,7 +2,8 @@
 
 Endpoints (all read-only except /api/upload, PUT /api/prefs and POST /api/read, which write to the state dir, /api/s/<pid>/send, whose
 only write to tmux is a paste plus Enter into that session's own pane, or one digit or Escape answering a numbered dialog
-open there, or, when the request carries the text it saw in the pane's input box, Ctrl+U (End, Delete) emptying that box first, POST /api/s/<pid>/stop, whose only write to tmux is Escape (and Ctrl-C) into that session's pane while a `!`
+open there, or, when the request carries the text it saw in the pane's input box, Ctrl+U (End, Delete) emptying that box first (the outbox does the
+same for text it finds in the box, and keeps that text in <state dir>/outbox-cleared.jsonl), POST /api/s/<pid>/stop, whose only write to tmux is Escape (and Ctrl-C) into that session's pane while a `!`
 command runs there, and POST /api/spawn, which queues a new session through sala's operation queue, `sala op spawn`, and makes
 none itself):
 
@@ -15,9 +16,8 @@ none itself):
                                   the path prefix the browser used. GET /api/chat is the data of the session's entry and strip, and of nothing else:
                                   {configured, session, name, present: live|sleeping|absent, busy, keptToday, keptTodayFloor, keptLines (how many
                                   kept-back lines the session's own view draws today, which also counts a turn he then spoke into), waiting (his moves:
-                                  stackshot's Your move list, else the board feed), motion (the session's own `sala motion` lines), onIt (the open items
-                                  the session is contact of or observer on, involved.py, without those `waiting` lists in the same answer;
-                                  the key is left out while that read is unavailable)}; with no
+                                  stackshot's Your move list, else the board feed), motion (the session's own `sala motion` lines, what it has promised to
+                                  report back: [{text, at: when first set}], motion.py)}; with no
                                   session set just {configured: false} (read-only; it sends nothing, the composer uses /api/s/<pid>/send)
   GET  /api/chat/thread           the chat session's own thread (chatthread.py, whose docstring is the rule): the owner's messages and the replies to them and
                                   nothing else, ?n=200 with at most one of ?before=, ?after= and ?around= as the transcript route takes them (400 on a bad one)
@@ -220,6 +220,12 @@ none itself):
   POST /api/s/<pid>/send          {"text", "uploads": [names, as /api/upload returned them]} -> paste the stored paths and
                                   the text into the pane, then Enter (with a dialog
                                   open: an option number or "esc" is sent as that one key)
+  GET  /api/outbox/<name>         the messages the server holds for a session (outbox.py): {"messages": [{id, state, reason, ...}]}
+  POST /api/outbox/<name>         {"text", "uploads", "cid"?} -> typed at once when the pane can take it, else HELD and typed when it can,
+                                  in order (a dialog is open, the terminal's box holds text, no input box, asleep, no pane); a lone option
+                                  number or "esc" over a dialog is pressed at once; a `!` command is refused (400: it goes through /send)
+  POST /api/outbox/<name>/<id>/cancel   take a held or failed message back (409 tooLate once it is typed)
+  POST /api/outbox/<name>/<id>/edit     {"text", "uploads"}: withdraw it, then the new text joins at the end (409 tooLate as above)
   GET  /api/prefs                 the page's saved preferences (scopeOrder, groupOrder, sessionOrder, collapsed,
                                   laneOrder, agentsGroup, agentsFolded, showAll, showSleeping, unreadOnly, showTools, shellHeight, lang)
   PUT  /api/prefs                 merge the given keys into them (state_dir/prefs.json, written atomically)
@@ -308,7 +314,7 @@ from . import chatkeep as CK
 from . import chatpage as CP
 from . import chatthread as CTH
 from . import yourmove as YM
-from . import involved as IV
+from . import wheresight as WS
 from . import colors as CLR
 from . import credit as CR
 from . import debuglog as DL
@@ -321,6 +327,7 @@ from . import machines as MCH
 from . import mockup as MK
 from . import modbox as MB
 from . import oplog as OL
+from . import outbox as OB
 from . import pageversion as PV
 from . import projpick as PP
 from . import quota as Q
@@ -362,6 +369,9 @@ DUP_WINDOW = 20.0  # seconds: an identical send to the same pane inside this is 
 MOD_SEND_MAX = 16_000      # characters a message may have to go in through the pane's mod (measured to 5 KB; a longer one is pasted as before)
 MOD_ENTER_WAIT = 1.5       # seconds the box is watched after the Enter for it to stop holding the message
 MOD_ENTER_POLL = 0.15
+OUTBOX_TICK = 1.5             # seconds between two looks of the outbox's sender at the messages it holds (a new message wakes it at once)
+OUTBOX_GAP = 0.4              # seconds after a message went in before the next is tried (the pane clears its box)
+OUTBOX_GIVE_UP = 30 * 60      # a held message whose session is not listed, or whose pane is not found, is failed (its text kept) after this long
 PREFS_MAX_BYTES = 64 * 1024
 PREFS_MAX_GROUPS = 500
 PREFS_DEFAULTS = {"scopeOrder": [], "groupOrder": [], "sessionOrder": [], "collapsed": [],
@@ -496,8 +506,8 @@ def valid_file_ref(ref: str) -> bool:
                 and ".." not in name and "/" not in name)
 
 
-def _err(status: int, msg: str) -> JSONResponse:
-    return JSONResponse({"ok": False, "error": msg}, status_code=status)
+def _err(status: int, msg: str, **more: object) -> JSONResponse:
+    return JSONResponse({"ok": False, "error": msg, **more}, status_code=status)
 
 
 log = logging.getLogger("sala_web")
@@ -665,8 +675,6 @@ def create_app(settings: Settings | None = None) -> Starlette:
                          settings.state_dir / "board-items.json")
     # the owner's whole Your move list for the chat session's strip (yourmove.py): one background read per 30 s with the same token
     your_move_cache = YM.YourMoveCache(settings.stackshot_token, settings.stackshot_url, settings.state_dir / "your-move.json")
-    # what the chat session is on, for the strip's second tab (involved.py): one background read per 30 s with the same token, asked for by the configured name
-    involved_cache = IV.InvolvedCache(settings.stackshot_token, settings.stackshot_url, settings.state_dir / "involved.json")
     # stackshot's For you list (foryou.py): one read a minute, Seen and Watch / Mute through the same token
     foryou_calls = FY.Calls(settings.stackshot_token, settings.stackshot_url)
     foryou = FY.ForYouCache(foryou_calls)
@@ -674,6 +682,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
     color_calls = CLR.Calls(settings.stackshot_token, settings.stackshot_url)
     send_locks: dict[str, asyncio.Lock] = {}
     last_sent: dict[str, tuple] = {}
+    outbox = OB.Outbox(settings.outbox_dir)       # the messages the pages send, per session, on disk (outbox.py)
+    cleared_log = OB.ClearedLog(settings.state_dir / OB.CLEARED_FILE)   # what was emptied out of a pane's input line before a message was typed
+    pump_locks: dict[str, asyncio.Lock] = {}      # one sender per session at a time
+    outbox_kick = asyncio.Event()                 # set when a message is added: the sender looks now, not at its next tick
+    track_seen: dict[str, tuple] = {}             # what the transcript check last looked at, per session: nothing new, nothing read
     prefs_lock = asyncio.Lock()
     # the New session form (spawn.py): the project pages, cached; one spawn through the queue at a time
     pages = SP.PagesCache(settings.brain_dir, settings.page_dirs)
@@ -709,12 +722,14 @@ def create_app(settings: Settings | None = None) -> Starlette:
         # /?arg=<tmux session> was ttyd's own URL before sala-web took the host: keep those links working
         if "arg" in request.query_params:
             return RedirectResponse("/terminal?" + request.url.query, status_code=302)
+        WS.note(request, settings)   # `sala where`: the box this visit came from (wheresight.py); background, throttled, never fails the page
         return _page("index.html")
 
     async def terminal_page(request: Request) -> Response:
         # the full-size terminal (the Shell drawer's "Open full size", the old /?arg= links): ttyd's page in a frame that fills the
         # window, so that the clipboard code (static/termclip.js) is on it; bare /tty/ in a tab has none. Under the same login as
         # "/" (the proxy sends only /tty to ttyd, everything else here), and ?arg=<tmux session> is read by the page, not here.
+        WS.note(request, settings)
         return _page("terminal.html")
 
     async def chat_page(request: Request) -> Response:
@@ -737,11 +752,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
         board_doc = await board.get([x.name for x in rows])
         your_move = your_move_cache.items()   # the strip's list: stackshot's whole Your move read, None -> the board feed
         group = your_move_cache.group()       # stackshot's own name for the group ({"en", "ko"}), None -> the page's own words
-        on_it = involved_cache.items(name)    # the second tab's list, asked for by the configured name only; None -> no second tab
         doc = await run_in_threadpool(lambda: CP.assemble(
             name=name, display=chat_name(), owner=owner_name(), sess=sess, projects_dir=settings.projects_dir, zone=TZ.zone(),
             now_ms=int(time.time() * 1000),
-            motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move, group=group, on_it=on_it))
+            motion_dir=settings.motion_dir, board_doc=board_doc, cache=chat_cache, your_move=your_move, group=group))
         return JSONResponse(doc, headers={"Cache-Control": "no-store"})
 
     def _page(name: str) -> Response:
@@ -797,7 +811,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             text = body.decode("utf-8")
         except UnicodeDecodeError:   # the CLI only stores UTF-8; a file put there by hand that is not is not served as if it were
             return Response("this mockup is not UTF-8 text", status_code=415, media_type="text/plain", headers=MK.HEADERS)
-        return HTMLResponse(text, headers=MK.HEADERS)   # text/html; charset=utf-8
+        return HTMLResponse(MK.with_back_link(text), headers=MK.HEADERS)   # text/html; charset=utf-8; the stored file is not changed
 
     async def op_log_page(request: Request) -> Response:
         # The log of one `sala op` operation (oplog.py), linked from the operation's Slack post. EVERY answer here (a log, a 404, a 405) carries
@@ -1197,6 +1211,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             last_live = 0.0
             live_every = LIVE_LOOK_EVERY
             idle_looks = 0
+            ob_seen = None   # the outbox version the page was last given
             while True:
                 if shutting_down.is_set() or await request.is_disconnected():
                     return
@@ -1271,6 +1286,11 @@ def create_app(settings: Settings | None = None) -> Starlette:
                         if payload != live_sent:
                             live_sent = payload
                             yield ev("live", payload)
+                # the outbox: the page's own messages for this session and where each is (outbox.py); sent when the list changes, and once at the open
+                ob_ver = outbox.version(s.name)
+                if ob_ver != ob_seen:
+                    ob_seen = ob_ver
+                    yield ev("outbox", {"messages": OB.public(outbox.entries(s.name))})
                 if now - last_ping >= 15:
                     last_ping = now
                     yield ": ping\n\n"
@@ -1485,13 +1505,23 @@ def create_app(settings: Settings | None = None) -> Starlette:
                              "boxText": box_text if exact else T.shown_text(box_text),
                              "boxHidden": any(hidden), "boxChanged": changed}, status_code=409)
 
-    async def _replace_box(pane: str, captured: str, box_text: str, replace: str) -> Response | None:
+    def _log_cleared(s: S.Session, text: str) -> None:
+        """Keep what is about to be emptied out of a pane's input line (outbox-cleared.jsonl), before the keys that empty it: the text there is
+        never the owner's own, but it can be found. A log that cannot be written never stops the send."""
+        try:
+            cleared_log.append(s.name, text)
+        except OSError as e:
+            log.warning("send: could not keep the text cleared from %s's input line: %s", s.name, e)
+        log.info("send: clearing %d characters from %s's input line (kept in %s)", len(text), s.name, OB.CLEARED_FILE)
+
+    async def _replace_box(s: S.Session, pane: str, captured: str, box_text: str, replace: str) -> Response | None:
         """The box holds text and the request asks to replace it: clear it only when it still reads exactly what the page
         saw, else refuse with what it reads now. None when it was cleared (the caller reads the pane again); a response when
-        not, with nothing typed."""
+        not, with nothing typed. The text is kept in the cleared-text log before the keys go in."""
         if T.shown_text(box_text) != replace:
             return _box_refused(box_text, T.box_hidden(captured), changed=True,
                                 why="the pane input box changed since it was shown; nothing cleared or sent")
+        _log_cleared(s, replace)
         ok, why = await T.clear_box(settings, pane)
         if ok:
             return None
@@ -1503,12 +1533,15 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def _send_locked(s: S.Session, pane: str, text: str, paths: list[Path],
                            answered_before: str | None, retry: bool = False,
-                           replace: str | None = None) -> tuple[Response, str | None]:
+                           replace: str | None = None, clear_stray: bool = False) -> tuple[Response, str | None]:
         """Paste and submit, or answer the dialog the pane shows. Returns the response and, for a dialog answer,
         the dialog's text (what a repeat of the same answer is compared with). retry is the page's Retry of a message
         that failed: when the pane's box already holds that very message, it is submitted as it stands, not pasted again.
         replace is the text the page saw in a box it was refused for: the box is emptied first, but only while it still
-        reads exactly that (a box the owner has changed since is refused again with its new text, nothing typed)."""
+        reads exactly that (a box the owner has changed since is refused again with its new text, nothing typed). Text in the box with no
+        `replace` is refused with its text, as it always was, unless clear_stray (only the outbox sets it): then it is cleared the same way
+        (the owner never writes in the terminal, so it is not his), kept in the cleared-text log, and a box the keys cannot empty is refused with its text, nothing typed, as before. A Retry (`retry`) keeps its own rule: a box
+        that holds that very message is submitted, a box with anything else is refused with its text."""
         try:
             ppid = await T.pane_pid(settings, pane)
         except T.TmuxError as e:
@@ -1523,7 +1556,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if not paths and MB.normalize(text) and len(text) <= MOD_SEND_MAX and not text.lstrip().startswith(T.SHELL):
             probe = await MB.fill(settings, s.pid, "", "insert")
         if probe is not None:
-            done = await _send_by_mod(s, pane, captured, probe, text, paths, answered_before, retry, replace)
+            done = await _send_by_mod(s, pane, captured, probe, text, paths, answered_before, retry, replace, clear_stray)
             if done is not None:
                 return done
         state, box_text = T.input_box(captured)
@@ -1537,8 +1570,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if answered_before is not None:
             return _duplicate(), None  # the dialog this answered is gone: a copy now would be typed as a prompt
         hidden = T.box_hidden(captured)
+        if clear_stray and state == "text" and replace is None and not retry:
+            replace = T.shown_text(box_text)      # text in the line is not the owner's: cleared (and logged) below, not refused (a Retry still is)
         if state == "text" and replace is not None and not (retry and not paths and T.retry_matches(box_text, text, *hidden)):
-            refused = await _replace_box(pane, captured, box_text, replace)
+            refused = await _replace_box(s, pane, captured, box_text, replace)
             if refused is not None:
                 return refused, None
             captured = await T.capture(settings, pane)  # read the emptied box afresh: its shell mode may have changed
@@ -1558,7 +1593,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def _send_by_mod(s: S.Session, pane: str, captured: str, probe: MB.Filled, text: str, paths: list[Path],
                            answered_before: str | None, retry: bool,
-                           replace: str | None) -> tuple[Response, str | None] | None:
+                           replace: str | None, clear_stray: bool = False) -> tuple[Response, str | None] | None:
         """The pane's mod answered (`probe` is its answer to an empty insert: what the box holds, and whether a dialog holds
         the keys). The box is judged by the box itself, never by finding it on the screen; the screen only refuses, when it
         positively shows something over the box (T.overlay), and a screen where no box can be found is no reason to refuse.
@@ -1585,9 +1620,14 @@ def create_app(settings: Settings | None = None) -> Starlette:
             # the screen cannot see the draft the mod reports (a scrolled box, a layout it does not know): the mod's text is the box
             if retry and T.retry_matches(draft, text):
                 return await _enter_by_mod(s.pid, pane, MB.normalize(draft), resubmitted=True), None
-            if replace is None or not T.retry_matches(draft, replace):
-                return _box_refused(draft, (False, False), changed=replace is not None, exact=True,
-                                    why="the pane input box changed since it was shown; nothing cleared or sent" if replace is not None else None), None
+            if clear_stray and replace is None and not retry:
+                replace = draft                    # not the owner's text: cleared (and logged) below, not refused (a Retry still is)
+            if replace is None:
+                return _box_refused(draft, (False, False), exact=True), None
+            if not T.retry_matches(draft, replace):
+                return _box_refused(draft, (False, False), changed=True, exact=True,
+                                    why="the pane input box changed since it was shown; nothing cleared or sent"), None
+            _log_cleared(s, draft)
             cleared = await MB.fill(settings, s.pid, "", "replace")
             if cleared is None or not cleared.is_filled or cleared.text.strip():
                 return _box_refused(cleared.text if cleared is not None and cleared.text.strip() else draft, (False, False),
@@ -1701,6 +1741,429 @@ def create_app(settings: Settings | None = None) -> Starlette:
         await T.send_enter(settings, pane)
         done = {"ok": True, "imagesPasted": images, "imagesAttached": max(attached, 0), "filesPasted": len(paths) - images}
         return JSONResponse({**done, "confirmedByMod": True} if by_mod else done)
+
+    async def get_dialog(request: Request) -> Response:
+        """The question or dialog the session's pane shows, as a card the page draws with buttons: {"card": null} or {"card": {kind, text,
+        title, options: [{n, label, description, checked}]}} (T.card). Read from the screen at each request; nothing is sent to the pane."""
+        s = _session(request)
+        if not s:
+            return _err(404, "no live session with that pid")
+        pane = await _own_pane(s)
+        if not pane:
+            return JSONResponse({"card": None}, headers={"Cache-Control": "no-store"})
+        try:
+            got = T.card(await T.capture(settings, pane))
+        except T.TmuxError:
+            got = None
+        return JSONResponse({"card": got}, headers={"Cache-Control": "no-store"})
+
+    async def post_dialog(request: Request) -> Response:
+        """Answer the card: {"expect": the card's `text`, "key": "<option number>" or "esc"} for a choice, or {"expect", "picks": [option numbers]}
+        for a multi-select question. The answer is for the question it was made on: when the pane shows another by now, 409 and nothing is sent.
+        A choice is one keypress. A multi-select question gets the digit of each option whose mark differs from the one asked for, then the screen is
+        read to see the marks are exactly the picks (else nothing more is sent), Down is pressed until the focus is on Submit (read from the screen
+        each time, at most one press per row and a few more), and Enter. The review Claude Code then draws is a numbered dialog, the next card."""
+        if _cross_origin(request):
+            return _err(403, "cross-origin request refused")
+        if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
+            return _err(415, "dialog takes application/json")
+        s = _session(request)
+        if not s:
+            return _err(404, "no live session with that pid")
+        try:
+            body = await request.json()
+        except ValueError:
+            return _err(400, "body must be JSON")
+        body = body if isinstance(body, dict) else {}
+        expect, key, picks = body.get("expect"), body.get("key"), body.get("picks")
+        if not isinstance(expect, str) or not expect:
+            return _err(400, "expect must be the words of the question the answer is for")
+        if key is not None and not isinstance(key, str):
+            return _err(400, "key must be an option number or esc")
+        if picks is not None and not (isinstance(picks, list) and all(isinstance(n, int) and not isinstance(n, bool) for n in picks)):
+            return _err(400, "picks must be a list of option numbers")
+        if (key is None) == (picks is None):
+            return _err(400, "give a key or picks")
+        pane = s.pane_id
+        if not pane:
+            return _err(409, "session has no tmux pane on record")
+        async with send_locks.setdefault(pane, asyncio.Lock()):
+            try:
+                if await _own_pane(s) != pane:
+                    return _err(409, f"pane {pane} does not belong to session {s.name}; nothing sent")
+                got = T.card(await T.capture(settings, pane))
+                if got is None:
+                    return _err(409, "no question is open in the pane; nothing sent")
+                if got["text"] != expect:
+                    return _err(409, "the question changed; nothing sent", changed=True)
+                numbers = [str(o["n"]) for o in got["options"]]
+                if key is not None:
+                    if got["kind"] != "choice" and key.strip().lower() != "esc":
+                        return _err(409, "this question takes several answers; nothing sent")
+                    answer = "Escape" if key.strip().lower() == "esc" else key.strip()
+                    if answer != "Escape" and answer not in numbers:
+                        return _err(409, f"{key} is not one of the options ({', '.join(numbers)}); nothing sent")
+                    await T.send_key(settings, pane, answer)
+                    return JSONResponse({"ok": True, "sent": [answer]})
+                if got["kind"] != "multi":
+                    return _err(409, "this question takes one answer; nothing sent")
+                if len(set(picks)) != len(picks) or any(str(n) not in numbers for n in picks):
+                    return _err(409, f"picks must be among the options ({', '.join(numbers)}); nothing sent")
+                sent: list[str] = []
+                for o in got["options"]:
+                    if (o["n"] in picks) != o["checked"]:
+                        await T.send_key(settings, pane, str(o["n"]))
+                        sent.append(str(o["n"]))
+                multi = None
+                for _ in range(len(got["options"]) + 4):
+                    await asyncio.sleep(T.SETTLE_S)
+                    multi = T.multi_dialog(await T.capture(settings, pane))
+                    if multi is None:
+                        return _err(409, "the question went away while the choices were set; Submit was not pressed", sent=sent)
+                    marks = {r["n"] for r in multi["rows"] if r["checked"]}
+                    if marks != set(picks):
+                        return _err(409, "the choices could not be set as asked; Submit was not pressed", sent=sent)
+                    if multi["focus"] == "submit":
+                        break
+                    await T.send_key(settings, pane, "Down")
+                    sent.append("Down")
+                else:
+                    return _err(409, "the Submit row could not be reached; Submit was not pressed", sent=sent)
+                await T.send_key(settings, pane, "Enter")
+                sent.append("Enter")
+            except T.TmuxError as e:
+                return _err(502, f"tmux failed: {e}")
+        return JSONResponse({"ok": True, "sent": sent})
+
+    # ── the outbox: a message sent from a page is kept here until the session has taken it ─────────────────────────────
+    async def _session_named(name: str) -> S.Session | None:
+        rows = await run_in_threadpool(_live_and_sleeping)
+        return next((x for x in rows if x.name == name), None)
+
+    def _view(name: str, mid: str) -> dict | None:
+        return next((m for m in OB.public(outbox.entries(name)) if m["id"] == mid), None)
+
+    async def _readiness(s: S.Session, pane: str) -> tuple[str | None, str]:
+        """Whether a message can be typed into the pane now, without typing: (None, "") when it can, else (reason, detail) with a reason of
+        OB.REASONS. The same judgments `_send_locked` makes before it types (the pane is the session's own, no dialog or overlay holds the keys, a
+        box is there and empty); this is only the look, so that a message that must wait costs no state change and no keypress. Text in the
+        box is reported as "draft" with its text, but `_release` does not wait on it: that text is never the owner's, so it is cleared (and kept
+        in the cleared-text log) and the message goes in; "draft" stays held only when the keys could not clear it."""
+        try:
+            if await _own_pane(s) != pane:
+                return "pane", ""
+            captured = await T.capture(settings, pane)
+        except T.TmuxError:
+            return "tmux", ""
+        probe = await MB.fill(settings, s.pid, "", "insert")
+        if (probe is not None and probe.refusal == "dialog") or T.overlay(captured):
+            return "dialog", ""
+        state, box_text = T.input_box(captured)
+        if probe is not None and probe.refusal is None and probe.is_filled:
+            return ("draft", probe.text) if probe.text.strip() else (None, "")
+        if state == "missing":
+            return ("dialog", "") if T.dialog(captured)[0] else ("noInput", "")
+        if state == "text":
+            return "draft", T.shown_text(box_text)
+        return None, ""
+
+    def _outcome(resp: Response) -> tuple[str, str | None, str, str]:
+        """What `_send_locked` answered, as (kind, reason, detail, error). kind: ok (typed and submitted), key (a dialog's option was pressed),
+        hold (nothing was typed: wait), pasted (typed, not submitted: the text may sit in the box), fail."""
+        try:
+            body = json.loads(bytes(resp.body))
+        except ValueError:
+            body = {}
+        err = str(body.get("error") or "")
+        if resp.status_code == 200:
+            return ("key" if body.get("dialogAnswer") else "ok"), None, "", ""
+        if isinstance(body.get("boxText"), str):
+            return "hold", "draft", body["boxText"], err
+        if body.get("noInputBox"):
+            return "hold", "noInput", "", err
+        if err.startswith("a dialog is open in the pane"):
+            return "hold", "dialog", "", err
+        if err == NOT_SUBMITTED:
+            return "pasted", "draft", "", err
+        if err.startswith("pane ") or err == "session has no tmux pane on record":
+            return "hold", "pane", "", err
+        if resp.status_code == 502:
+            return "hold", "tmux", "", err
+        return "fail", None, "", err or f"HTTP {resp.status_code}"
+
+    def _hold(name: str, mid: str, reason: str, detail: str = "") -> None:
+        """The message waits for `reason`. A reason that means the session or its pane is not there is given up on after OUTBOX_GIVE_UP s: the
+        message is failed with its text kept (Edit takes it back), never dropped."""
+        e = outbox.get(name, mid)
+        if e is None or e["state"] != OB.HELD:
+            return
+        if reason in ("gone", "pane", "tmux") and time.time() * 1000 - e["created"] > OUTBOX_GIVE_UP * 1000:
+            outbox.update(name, mid, state=OB.FAILED, reason=None, detail="",
+                          error="the session did not come back, or its pane was not found, for a long while; the message was not sent")
+            return
+        outbox.update(name, mid, reason=reason, detail=detail)
+
+    async def _release(name: str, s: S.Session | None) -> None:
+        """Send the held messages of one session, oldest first, for as long as the pane can take the next. The first one it can not send stops the
+        others behind it; a message that fails does not (its text is kept and the owner is told)."""
+        while True:
+            e = outbox.head(name)
+            if e is None:
+                return
+            mid = e["id"]
+            if s is None:
+                _hold(name, mid, "gone")
+                return
+            if s.sleeping or not s.pid:
+                _hold(name, mid, "asleep")
+                return
+            pane = s.pane_id
+            if not pane:
+                _hold(name, mid, "pane")
+                return
+            reason, detail = await _readiness(s, pane)
+            cur = outbox.get(name, mid)
+            if cur is None or cur["state"] != OB.HELD:
+                continue                      # cancelled or edited while the pane was looked at
+            if cur["pasted"]:
+                # a paste of this message landed and its Enter did not: only the box holding exactly it is submitted, and a box that is empty now
+                # says nothing of whether it went in, so it is failed, never pasted again
+                if reason == "draft" and T.retry_matches(detail, cur["text"]):
+                    reason = None
+                elif reason in (None, "draft"):
+                    outbox.update(name, mid, state=OB.FAILED, reason=None, detail="", pasted=False,
+                                  error="the message left the pane's input box and sala can not tell whether it was sent; check the terminal")
+                    continue
+            elif reason == "draft":
+                reason = None     # text in the input line is not the owner's: it is cleared below, never waited for
+            if reason:
+                _hold(name, mid, reason, detail)
+                return
+            paths = [upload_path(n) for n in cur["uploads"]]
+            if any(p is None or not p.is_file() for p in paths):
+                outbox.update(name, mid, state=OB.FAILED, reason=None, detail="", error="an uploaded file is missing")
+                continue
+            retry = bool(cur["pasted"])
+            outbox.update(name, mid, state=OB.TYPING, reason=None, detail="", attempts=cur["attempts"] + 1)
+            try:
+                async with send_locks.setdefault(pane, asyncio.Lock()):
+                    resp, _answered = await _send_locked(s, pane, cur["text"], paths, None, retry, None, clear_stray=True)
+            except T.TmuxError as ex:
+                outbox.update(name, mid, state=OB.HELD, reason="tmux", detail="", error=str(ex)[:200])
+                return
+            kind, why, box, err = _outcome(resp)
+            if kind == "ok":
+                outbox.update(name, mid, state=OB.QUEUED, reason=None, detail="", error="", sentAt=int(time.time() * 1000), pasted=False,
+                              pid=s.pid, procStart=S.proc_start(s.pid), sessionId=s.session_id)
+                last_sent[pane] = ((cur["text"].strip(), tuple(cur["uploads"])), time.monotonic(), None)
+                await asyncio.sleep(OUTBOX_GAP)
+            elif kind == "key":
+                outbox.update(name, mid, state=OB.DELIVERED, reason=None, detail="", sentAt=int(time.time() * 1000))
+            elif kind == "pasted":
+                outbox.update(name, mid, state=OB.HELD, reason="draft", detail="", pasted=True, error=err)
+                return
+            elif kind == "hold":
+                outbox.update(name, mid, state=OB.HELD, error="")
+                _hold(name, mid, why or "noInput", box)
+                return
+            else:
+                outbox.update(name, mid, state=OB.FAILED, reason=None, detail="", error=err)
+
+    async def _track(name: str, s: S.Session | None) -> None:
+        """Messages sent and not yet shown by the transcript: a user line (or a queued_command attachment) that has them makes them delivered. A
+        message the session's process never read (the process ended, and the transcript has the CLI's enqueue line for it and no line that took
+        it) is lost with that process: it is held again and sent again. No other evidence moves it; with none it stays queued."""
+        queued = sorted((e for e in outbox.entries(name) if e["state"] == OB.QUEUED), key=lambda e: e.get("sentAt") or 0)
+        if not queued or s is None:
+            return
+        path = TR.transcript_path(settings.projects_dir, s.cwd, s.session_id)
+        if path is None:
+            return
+        try:
+            st = path.stat()
+        except OSError:
+            return
+        dead = [e["id"] for e in queued if e.get("pid") and not S.pid_alive(e["pid"], e.get("procStart"))]
+        key = ((st.st_size, st.st_mtime_ns), tuple(e["id"] for e in queued), tuple(dead))
+        if track_seen.get(name) == key:
+            return
+        track_seen[name] = key
+        msgs, _cur, _end = await run_in_threadpool(TR.read_tail_page, path, s.session_id, 120)
+        took = set(OB.delivered_ids(queued, OB.rows_from_messages(msgs)))
+        for mid in took:
+            outbox.update(name, mid, state=OB.DELIVERED)
+        gone = [e for e in queued if e["id"] in dead and e["id"] not in took]
+        if gone:
+            ops = await run_in_threadpool(OB.read_ops, path, min(e["sentAt"] for e in gone if e.get("sentAt")) - OB.SLACK_MS)
+            for mid in OB.lost_ids(gone, ops):
+                outbox.update(name, mid, state=OB.HELD, reason=None, detail="", error="", sentAt=None, pid=None, procStart=None, resent=True, pasted=False)
+                log.info("outbox: a message was lost with the session's process; held to be sent again")
+
+    async def _pump_name(name: str, s: S.Session | None) -> None:
+        async with pump_locks.setdefault(name, asyncio.Lock()):
+            await _track(name, s)
+            await _release(name, s)
+
+    async def _pump_all() -> None:
+        names = outbox.names_with_work()
+        if not names:
+            return
+        rows = await run_in_threadpool(_live_and_sleeping)
+        by_name = {x.name: x for x in rows}
+        for name in names:
+            try:
+                await _pump_name(name, by_name.get(name))
+            except Exception as e:   # one session's trouble never stops the others' messages
+                log.warning("outbox: %s: %s: %s", name, type(e).__name__, " ".join(str(e).split())[:200])
+
+    async def outbox_loop() -> None:
+        while not shutting_down.is_set():
+            try:
+                await _pump_all()
+            except Exception as e:
+                log.warning("outbox: %s: %s", type(e).__name__, " ".join(str(e).split())[:200])
+            try:
+                await asyncio.wait_for(outbox_kick.wait(), OUTBOX_TICK)
+            except asyncio.TimeoutError:
+                pass
+            outbox_kick.clear()
+
+    def _outbox_name(request: Request) -> str | None:
+        name = request.path_params.get("name", "")
+        return name if isinstance(name, str) and 0 < len(name) <= 200 else None
+
+    def _text_and_uploads(body: object) -> tuple[str, list[str], list[Path]] | Response:
+        if not isinstance(body, dict):
+            return _err(400, "body must be a JSON object")
+        text = str(body.get("text") or "").replace("\r\n", "\n").replace("\r", "\n")
+        names = body.get("uploads") or []
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            return _err(400, "bad upload names")
+        paths = [upload_path(n) for n in names]
+        if any(p is None for p in paths):
+            return _err(400, "bad upload names")
+        if any(not p.is_file() for p in paths):
+            return _err(400, "an uploaded file is missing")
+        if not text.strip() and not paths:
+            return _err(400, "nothing to send")
+        if text.lstrip().startswith(T.SHELL):
+            return JSONResponse({"ok": False, "bang": True, "error": "a ! command is never held; it goes to the pane now or not at all (api/s/<pid>/send)"}, status_code=400)
+        return text, names, paths
+
+    async def _dialog_pass(s: S.Session, text: str, paths: list[Path]) -> Response | None:
+        """A lone option number or esc, while the pane shows a dialog that has it: one key, at once, whatever is held ahead of it."""
+        answer = text.strip()
+        if paths or not s.pid or not s.pane_id or not ((len(answer) == 1 and answer.isdigit()) or answer.lower() == "esc"):
+            return None
+        pane = s.pane_id
+        async with send_locks.setdefault(pane, asyncio.Lock()):
+            try:
+                if await _own_pane(s) != pane:
+                    return None
+                captured = await T.capture(settings, pane)
+                options, _t = T.dialog(captured)
+                if not options or not (answer in options or answer.lower() == "esc"):
+                    return None
+                resp, _ = await _answer_dialog(pane, captured, text, paths, None)
+                return resp
+            except T.TmuxError:
+                return None
+
+    async def _enqueue(name: str, s: S.Session, text: str, names: list[str], cid: str | None) -> dict | None:
+        e, created = outbox.add(name, text, names, cid)
+        if created:
+            outbox_kick.set()
+            await _pump_name(name, s)   # try it now: the answer says where the message is
+        return _view(name, e["id"])
+
+    async def outbox_get(request: Request) -> Response:
+        name = _outbox_name(request)
+        if not name:
+            return _err(404, "no such session")
+        return JSONResponse({"ok": True, "messages": OB.public(outbox.entries(name)), "version": outbox.version(name)}, headers={"Cache-Control": "no-store"})
+
+    async def outbox_post(request: Request) -> Response:
+        """A message from a page. 200 {ok, message, messages}: `message.state` says where it is (held with its reason, queued, delivered or failed);
+        a lone option number or esc that answers a dialog open now is pressed at once and not kept ({ok, dialogAnswer}); a `!` command is refused
+        here (400, bang: true) and goes through api/s/<pid>/send, which holds nothing."""
+        if _cross_origin(request):
+            return _err(403, "cross-origin request refused")
+        if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
+            return _err(415, "this takes application/json")
+        name = _outbox_name(request)
+        s = await _session_named(name) if name else None
+        if not s:
+            return _err(404, "no session with that name")
+        try:
+            body = await request.json()
+        except ValueError:
+            return _err(400, "body must be JSON")
+        got = _text_and_uploads(body)
+        if isinstance(got, Response):
+            return got
+        text, names, paths = got
+        cid = body.get("cid") if isinstance(body.get("cid"), str) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", body["cid"]) else None
+        try:
+            passed = await _dialog_pass(s, text, paths)
+            if passed is not None:
+                return passed
+            view = await _enqueue(name, s, text, names, cid)
+        except T.TmuxError as e:
+            return _err(502, f"tmux failed: {e}")
+        return JSONResponse({"ok": True, "message": view, "messages": OB.public(outbox.entries(name))}, headers={"Cache-Control": "no-store"})
+
+    def _too_late(name: str, e: dict) -> Response:
+        said = ("the session already has that message" if e["state"] == OB.DELIVERED
+                else "that message is already in the session's input, and sala can not take it back from there")
+        return JSONResponse({"ok": False, "tooLate": True, "state": e["state"], "error": f"too late: {said}; nothing was changed",
+                             "message": _view(name, e["id"])}, status_code=409)
+
+    async def outbox_cancel(request: Request) -> Response:
+        """Cancel a held (or failed) message: it is withdrawn and will not be sent. 200 {ok, message} with the text and uploads, which is what an Edit
+        puts back in the composer; 409 tooLate for a message the pane has; 404 for an id the list does not hold."""
+        if _cross_origin(request):
+            return _err(403, "cross-origin request refused")
+        name = _outbox_name(request)
+        try:
+            e = outbox.withdraw(name or "", request.path_params["mid"])
+        except OB.NotFound:
+            return _err(404, "no such message")
+        except OB.TooLate as late:
+            return _too_late(name, late.entry)
+        return JSONResponse({"ok": True, "message": _view(name, e["id"]), "messages": OB.public(outbox.entries(name))}, headers={"Cache-Control": "no-store"})
+
+    async def outbox_edit(request: Request) -> Response:
+        """Edit a held (or failed) message: the old one is withdrawn first, then the new text joins at the end of the list (a message that was
+        ahead of others does not keep its place). 200 {ok, message (the new one), withdrawn (the old id)}; 409 tooLate, nothing changed, when the old
+        one is no longer sala's to take back."""
+        if _cross_origin(request):
+            return _err(403, "cross-origin request refused")
+        if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
+            return _err(415, "this takes application/json")
+        name = _outbox_name(request)
+        s = await _session_named(name) if name else None
+        if not s:
+            return _err(404, "no session with that name")
+        try:
+            body = await request.json()
+        except ValueError:
+            return _err(400, "body must be JSON")
+        got = _text_and_uploads(body)
+        if isinstance(got, Response):
+            return got
+        text, names, _paths = got
+        old = outbox.get(name, request.path_params["mid"])
+        if old is None:
+            return _err(404, "no such message")
+        try:
+            outbox.withdraw(name, old["id"])
+        except OB.TooLate as late:
+            return _too_late(name, late.entry)
+        try:
+            view = await _enqueue(name, s, text, names, None)
+        except T.TmuxError as e:
+            return _err(502, f"tmux failed: {e}")
+        return JSONResponse({"ok": True, "message": view, "withdrawn": old["id"], "messages": OB.public(outbox.entries(name))}, headers={"Cache-Control": "no-store"})
 
     async def stop_bang(request: Request) -> Response:
         """Stop the `!` command running in the session's pane: Escape, and, if the command still runs STOP_WAIT
@@ -2338,6 +2801,12 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/api/s/{pid:int}/stream", stream),
         Route("/api/s/{pid:int}/send", logged("send", send), methods=["POST"]),
         Route("/api/s/{pid:int}/stop", stop_bang, methods=["POST"]),
+        Route("/api/s/{pid:int}/dialog", get_dialog),
+        Route("/api/s/{pid:int}/dialog", logged("dialog", post_dialog), methods=["POST"]),
+        Route("/api/outbox/{name}", outbox_get),
+        Route("/api/outbox/{name}", logged("outbox", outbox_post), methods=["POST"]),
+        Route("/api/outbox/{name}/{mid}/cancel", logged("outbox", outbox_cancel), methods=["POST"]),
+        Route("/api/outbox/{name}/{mid}/edit", logged("outbox", outbox_edit), methods=["POST"]),
         Route("/api/image/{sid}/{uuid}/{i:int}/{j}", image),
         Route("/api/file-image/{sid}/{uuid}/{i:int}/{k:int}", file_image),
         Route("/api/md-image/{sid}/{uuid}/{i:int}/{n:int}", md_image),
@@ -2369,8 +2838,12 @@ def create_app(settings: Settings | None = None) -> Starlette:
     async def lifespan(app):
         await run_in_threadpool(prune_uploads)
         await bring_up_shell(settings)
+        sender = asyncio.create_task(outbox_loop())   # the outbox's sender: releases what the pages sent, in order, when a pane can take it
         yield
         shutting_down.set()
+        outbox_kick.set()
+        with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+            await asyncio.wait_for(sender, GRACEFUL_SHUTDOWN_S - 1)   # a message being typed is finished; else it is left typing and a restart fails it, never sends it twice
 
     app = Starlette(routes=routes, lifespan=lifespan)
     app.state.settings = settings
@@ -2383,9 +2856,9 @@ def create_app(settings: Settings | None = None) -> Starlette:
     app.state.usage = usage
     app.state.board = board
     app.state.your_move = your_move_cache
-    app.state.involved = involved_cache
     app.state.foryou = foryou
     app.state.schedules = schedules
+    app.state.outbox = outbox
     return app
 
 

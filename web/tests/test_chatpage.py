@@ -1,5 +1,5 @@
 """The chat session's server side: GET /chat (an address that leads into sala's own view), GET /api/chat (the data of the entry and the strip), the settings that
-name the session, the link cards, the board lines, the motion lines.
+name the session, the link cards, the board lines, the motion lines (what the session has promised to report back).
 
 What is held:
   - nothing configured (the default): /api/chat says so and /chat leads to the sessions' own page; the session name is never in the code, only in SALA_CHAT_SESSION;
@@ -9,7 +9,7 @@ What is held:
     the local store);
   - waiting: stackshot's whole Your move list when there is one (every item, none dropped or re-sorted, no cap, an empty list an empty strip), else the
     board's rows with a move for the owner, each item once over every session, the board's words passed through;
-  - motion: the session's own lines, at most 8, each at most 120 characters, an old one gone, a hand-made file that is not the format harmless;
+  - motion: the session's own lines, at most 8, each at most 120 characters, an old one kept until it is taken off, a hand-made file that is not the format harmless;
   - /api/chat for a live session carries what the entry and the strip draw (name, live or not, working, the count of kept-back lines, the board lines, the
     motion lines) in one answer, and nothing the session's own view draws itself (no thread, no pid).
 All names are invented."""
@@ -170,30 +170,29 @@ def write_motion(root: Path, session: str, rows) -> None:
     (root / f"{session}.json").write_text(json.dumps({"v": 1, "lines": rows}))
 
 
-def test_motion_lines_in_force_oldest_first_at_most_eight_and_cut_at_120(tmp_path):
+def test_motion_lines_oldest_first_however_old_at_most_eight_and_cut_at_120(tmp_path):
     now = 1_800_000_000
-    rows = [{"text": f"line {i}", "at": now - 100 + i} for i in range(10)]
-    rows.insert(0, {"text": "too old", "at": now - 90_000})
-    rows.append({"text": "x" * 300, "at": now})
-    write_motion(tmp_path, "chat-a", rows)
-    got = MO.read_lines(tmp_path, "chat-a", now)
-    assert len(got) == MO.MAX_LINES and got[0]["text"] == "line 0"
-    assert all(len(g["text"]) <= MO.MAX_CHARS for g in MO.read_lines(tmp_path, "chat-a", now))
-    assert "too old" not in [g["text"] for g in got]
+    write_motion(tmp_path, "chat-a", [{"text": "a month old", "at": now - 30 * 86400}, {"text": "x" * 300, "at": now}])
+    got = MO.read_lines(tmp_path, "chat-a")
+    assert [g["text"] for g in got] == ["a month old", "x" * (MO.MAX_CHARS - 1) + chr(0x2026)] and got[0]["at"] == now - 30 * 86400
+    write_motion(tmp_path, "chat-a", [{"text": f"line {i}", "at": now - 100 + i} for i in range(10)])
+    got = MO.read_lines(tmp_path, "chat-a")
+    assert len(got) == MO.MAX_LINES and [g["text"] for g in got] == [f"line {i}" for i in range(MO.MAX_LINES)]
 
 
 def test_a_motion_file_that_is_not_the_format_is_harmless(tmp_path):
-    for body in ("not json", "[]", '{"lines": "x"}', '{"lines": [1, {"text": 3, "at": 1}, {"text": "a", "at": "now"}, {"text": "ok", "at": true}]}'):
+    for body in ("not json", "[]", '{"lines": "x"}', '{"lines": [1, {"text": 3, "at": 1}, {"text": "a", "at": "now"}, {"text": "ok", "at": true}]}',
+                 '{"lines": [{"text": "a", "at": 0}, {"text": "b", "at": -5}, {"text": "c", "at": 1e400}, {"text": "d", "at": 100000000000}, {"text": "e", "at": 1.5}]}'):
         (tmp_path / "chat-a.json").write_text(body)
-        assert MO.read_lines(tmp_path, "chat-a", 10**10) == []
-    assert MO.read_lines(tmp_path, "../chat-a", 1) == [] and MO.read_lines(tmp_path, "missing", 1) == []
+        assert MO.read_lines(tmp_path, "chat-a") == [], body
+    assert MO.read_lines(tmp_path, "../chat-a") == [] and MO.read_lines(tmp_path, "missing") == []
 
 
 def test_a_motion_file_that_is_a_link_is_not_followed(tmp_path):
     real = tmp_path / "real.json"
     real.write_text(json.dumps({"v": 1, "lines": [{"text": "x", "at": 1}]}))
     (tmp_path / "chat-a.json").symlink_to(real)
-    assert MO.read_lines(tmp_path, "chat-a", 2) == []
+    assert MO.read_lines(tmp_path, "chat-a") == []
 
 
 # ---------- the page and its data, served ----------

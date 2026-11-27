@@ -35,7 +35,7 @@ done; export PATH
 rlog() { echo "[$(date -Is)] $*" >> "$RLOG"; }
 say() { echo "$*"; rlog "$*"; REPORT+=("$*"); }
 REPORT=()
-# tell_owner <headline> [bullet…] — a Slack post in the shared notice shape (sala_post), and a line in the reboot log
+# tell_owner <headline> [bullet…] — a post in the shared notice shape (sala_post), and a line in the reboot log
 tell_owner() {
     local text="[sala reboot] $1"; shift
     sala_post "$(printf '%s' "$text" | head -1 | sed 's/^\[sala reboot\] //')" "$@"; rlog "sent to Slack: ${text%%$'\n'*}"
@@ -250,8 +250,12 @@ if [ "$MODE" = --after-boot ]; then
             rlog "  ✗ ${NAMES[$k]} never came up — gave up after $((SALA_REBOOT_BOOT_GIVEUP/60)) min"
             tell_owner "🚨 *Reboot: ${NAMES[$k]} never came up*" "still not up $((SALA_REBOOT_BOOT_GIVEUP/60)) min after boot; sala stopped watching it and its inbound stays paused" "fix ${NAMES[$k]}, then \`sala reboot --resume\` resumes it" "Details: ~/.claude/salamander-reboot.log"
         done
+        # the marker is retired as on the success path: left in place it would hold back every session note (note --deliver
+        # skips while a marker from an earlier boot exists) until someone ran --resume. The step says the run is unfinished;
+        # --resume still works without the marker (the boot half already did what its marker block would do)
         st_put step boot-waiting   # --status says why the run is unfinished, not a stale "rebooting"
-        exit 0   # marker kept: --status shows the run unfinished, --resume finishes it
+        mv -f "$RMARK" "$RMARK.done-$(date +%Y%m%dT%H%M%S)"
+        exit 0
     fi
     st_put step booted; st_put booted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"   # the outcome, for --status
     mv -f "$RMARK" "$RMARK.done-$(date +%Y%m%dT%H%M%S)"

@@ -305,7 +305,7 @@ grep -q "put project p-gam to sleep" "$POSTS" && ok "the Slack post stands" || b
 echo "== the teaching text names the verb"
 run sleep --help
 [ "$RC" = 0 ] && has "$OUT" "--project KEY [--asked]" && has "$OUT" "sala op sleep --project KEY --from YOU --words" && ok "sleep --help: --asked, and the queued line with the owner's words" || bad "sleep help: $OUT"
-run op --help
+run op --help --full
 has "$OUT" "op sleep --project KEY --from YOU --words" && has "$OUT" "sleep --project KEY                       every session of one project" && ok "op --help: the project's sleep in the list and in the shapes" || bad "op help: $(grep -n 'sleep' <<< "$OUT" | head -5)"
 run sleep --project p-one --asked --dry-run   # (asleep already) the plan still says why
 [ "$RC" = 1 ] && has "$OUT" "already asleep" && ok "a plan for a project that is asleep says so" || bad "asleep plan: rc=$RC $OUT"

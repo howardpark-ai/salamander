@@ -88,6 +88,7 @@
 <link rel="stylesheet" href="static/usage-explorer.css?v={{sv}}">
 <link rel="stylesheet" href="static/search.css?v={{sv}}">
 <link rel="stylesheet" href="static/termclip.css?v={{sv}}">
+<link rel="stylesheet" href="static/dialogcard.css?v={{sv}}">
 <!--chat-layer--><link rel="stylesheet" href="static/chatlayer.css?v={{sv}}"><link rel="stylesheet" href="static/chatanswer.css?v={{sv}}"><!--/chat-layer-->
 <!-- the color tool: stackshot's shared file, pinned byte for byte (colortool.js, with its sha256 beside it), then sala's own wiring, which applies the stored
      look here in the head so the first paint already has it (no flash). After the stylesheets: it reads their colors. The button is started at the end of the body -->
@@ -270,9 +271,9 @@
       </div>
     </header>
     <section id="chat-pane" class="pane active">
-      <!-- the chat session's strip (app.js "the chat session"): what waits on the owner, what is in motion and the kept-back switch, above the thread and OUTSIDE #chat
-           (showTail replaces #chat's children); shown only while the open session is the chat session. What waits on the owner (#chat-strip-wait) is pinned at the
-           top of the pane, one line that opens the list; the rest of the strip scrolls with the thread -->
+      <!-- the chat session's strip (app.js "the chat session"): what waits on the owner, what the session has promised to report back and the kept-back switch, above
+           the thread and OUTSIDE #chat (showTail replaces #chat's children); shown only while the open session is the chat session. The two lists (#chat-strip-wait)
+           are pinned at the top of the pane, one bar of two tabs that opens them; the rest of the strip scrolls with the thread -->
       <div id="chat-strip-wait" class="cstrip-wait" hidden></div>
       <div id="chat-strip" class="cstrip" hidden></div>
       <div id="chat"><div class="empty" data-i18n="ui.chat.pick">Pick a session on the left.</div></div>
@@ -685,6 +686,7 @@
 <script src="static/usage-digest.js?v={{v}}"></script>
 <script src="static/search.js?v={{v}}"></script>
 <!--chat-layer--><script src="static/chatlayer.js?v={{v}}"></script><script src="static/chatanswer.js?v={{v}}"></script><!--/chat-layer-->
+<script src="static/dialogcard.js?v={{v}}"></script>
 <script src="static/app.js?v={{v}}"></script>
 <!-- the color tool's button, in the side panel (#side-colors): colortool.js and colortool-sala.js are in the head, which applied the stored look before the first paint -->
 <script>if (window.SalaColors) SalaColors.init();</script>

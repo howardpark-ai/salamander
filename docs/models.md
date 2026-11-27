@@ -37,7 +37,7 @@ is queued (an unknown one refuses the whole operation, naming it; the plan is ea
 runs, each session goes through the single switch in turn under ONE recycle lock (in place when idle with an empty input box,
 else recorded for the relaunch), the asking session last, and the panes that need a relaunch are relaunched TOGETHER by one
 `revive --force --only A --only B …` sweep, as `lane <lane> <session>…` does. The result is ONE notice for the batch: one
-Slack post and one line into the asker's inbox, a line per session under the summary (`RESULT` lines printed by `lib/model.sh`,
+post to sala's alert destination (config BRIEFING_BOT_*) and one line into the asker's inbox, a line per session under the summary (`RESULT` lines printed by `lib/model.sh`,
 kept as `detail=` lines on the marker). A failed session does not stop the others; the operation then ends 🚨 stuck, the
 summary naming the failures, without the one-off `claude -p`. For example (three sessions, in place on one, relaunch on two):
 ```
@@ -55,7 +55,7 @@ naming the same session is refused. The asking session may name itself: the queu
 session like any other (in place once it is idle, else `revive --force --only`; a busy pane is handed to the retry worker and
 relaunched once idle), and `op` prints "this pane will have its model switched once it is idle" when the target is the
 asking session. The
-result (✅ done or 🚨 stuck, one Slack post and one line to the asking session's inbox, which arrives after its relaunch)
+result (✅ done or 🚨 stuck, one post to sala's alert destination (config BRIEFING_BOT_*) and one line to the asking session's inbox, which arrives after its relaunch)
 follows the other relaunch verbs; `--clear` relaunches nothing.
 
 **In place first.** A pane that is idle with an empty input box keeps its

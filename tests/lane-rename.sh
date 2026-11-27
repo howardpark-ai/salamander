@@ -99,7 +99,7 @@ lane_dormant $NEW && lane_dormant $OLD && ok "lane_dormant: a record keyed by th
 [ "$(lane_state_field $NEW 3)" = "no workspace" ] && ok "lane_state_field reads its reason" || bad "state field: $(lane_state_field $NEW 3)"
 lane_dormant team && lane_dormant subscription-2 && ok "and a row keyed team is subscription-2's, asked by either word" || bad "team dormant"
 [ "$(lane_sessions_on $NEW | tr '\n' ' ')" = "a c " ] && ok "lane_sessions_on aws-platform: the two old rows" || bad "sessions_on: '$(lane_sessions_on $NEW | tr '\n' ' ')'"
-out=$("$SALA" lane 2>&1); grep -qE "^a +aws-platform " <<< "$out" && ! grep -q "is not a lane" <<< "$out" && ok "the table shows an old row as aws-platform and does not flag it" || bad "table: $out"
+out=$("$SALA" lane --full 2>&1); grep -qE "^a +aws-platform " <<< "$out" && ! grep -q "is not a lane" <<< "$out" && ok "the table shows an old row as aws-platform and does not flag it" || bad "table: $out"
 [ "$(snapf "$SALA_LANES" "$SALA_LANE_DEFAULT_FILE" "$SALA_LANE_STATE")" = "$sums0" ] && ok "none of those reads rewrote a file" || bad "a read rewrote a file"
 out=$(lane_out $NEW 2>&1); grep -q 'dormant' <<< "$out" && ok "lane_out sees the old dormant row" || bad "lane_out: $out"
 # the next write rewrites: lane_write of another session carries every old row along
@@ -206,7 +206,7 @@ out=$("$SALA" lane --migrate --all 2>&1); rc=$?; [ "$rc" = 1 ] && ok "--migrate 
 out=$("$SALA" lane --migrate sala-test-a 2>&1); rc=$?; [ "$rc" = 1 ] && ok "--migrate with a session: refused" || bad "--migrate a ($rc): $out"
 rm -f "$SALA_LANES" "$SALA_LANE_DEFAULT_FILE" "$SALA_LANE_STATE" "$SALA_SESSIONS_FILE"
 out=$("$SALA" lane --migrate 2>&1); rc=$?; [ "$rc" = 0 ] && grep -q '^nothing to migrate' <<< "$out" && ok "with no state files at all: nothing to migrate, exit 0" || bad "empty migrate ($rc): $out"
-out=$("$SALA" lane --help 2>&1); grep -q 'lane --migrate' <<< "$out" && ok "lane --help lists --migrate" || bad "help: $out"
+out=$("$SALA" lane --help --full 2>&1); grep -q 'lane --migrate' <<< "$out" && ok "lane --help lists --migrate" || bad "help: $out"
 
 echo "== 7. the registry: an old word in a row is drift"
 printf 'a\t%s\n' $OLD > "$SALA_LANES"

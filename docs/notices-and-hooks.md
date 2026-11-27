@@ -33,7 +33,9 @@ option): a mistyped `sala notice add --help` once posted a notice reading "--hel
 
 State is under `~/.local/state/salamander`: `notices.tsv` (id, created, sender, until, text; atomic writes under `notices.lock`),
 `notices.seq` (the last id, so an id is never reused) and `notices-seen/<session id>` (the last notice id handled for that session).
-Expired notices are pruned on `add` and by `watch`; with none left every `notices-seen` file goes, and the files of sessions that are
+A notice every live session has had or skipped is dropped after a day (the day covers a session that resumes an older conversation or
+comes live late); otherwise it expires at `--until`, default 7 days. Pruning runs on `add`, `list`, `drop` and by `watch`; `notices.seq` is
+never pruned. With none left, every `notices-seen` file goes, and the files of sessions that are
 gone are pruned after a day. **Cost:** with no notice the hook is a glob test and one `-s` test, no process. With a notice up it reads
 the first 512 bytes of the hook input with the shell's own `read` and compares `notices-seen/<session>` with `notices.tsv` by mtime
 (`-nt`): still no process. Only a session that has not looked since the notices last changed starts one python (`lib/notice.py
