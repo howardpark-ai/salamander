@@ -854,7 +854,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return Response("this mockup is not UTF-8 text", status_code=415, media_type="text/plain", headers=MK.HEADERS)
         if va:   # a version: read-only, with a way back to the current page
             bar = MK.version_block(int(va.group(1)), va.group(2))
-        else:    # the current page: the back link, and the history icon when there is more than one saved version
+        else:    # the current page: the back link, and the history icon when there is a saved earlier version
             ids = await run_in_threadpool(MK.list_versions, settings.mockups_dir, raw)
             bar = MK.history_block(int(raw), ids)
         return HTMLResponse(MK.with_back_link(text, bar), headers=MK.HEADERS)   # text/html; charset=utf-8; the stored file is not changed

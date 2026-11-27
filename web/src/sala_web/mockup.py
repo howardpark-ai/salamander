@@ -31,7 +31,7 @@ from pathlib import Path
 MAX_BYTES = 5 * 1024 * 1024          # the CLI refuses more; a bigger file put there by hand is not served
 NUMBER_RE = re.compile(r"[1-9][0-9]{0,9}")
 VERSIONS_DIR = "versions"            # <mockups>/versions/<n>/<id>.html: the versions `sala mockup update` and `undo` saved (lib/mockup.py)
-VERSION_ID_RE = re.compile(r"(\d{8}T\d{6}\.\d{6}Z)")   # the id of one version: its UTC save time to the microsecond, also its address
+VERSION_ID_RE = re.compile(r"(\d{8}T\d{6}\.\d{6}Z)")   # a version's id, also its address: the UTC time it was replaced, to the microsecond
 VERSION_ADDR_RE = re.compile(r"([^/]+)/versions/([^/]+)")  # the part of /mockup/<rest> after the number: <n>/versions/<id>
 KST = timezone(timedelta(hours=9), "KST")
 _DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -101,51 +101,46 @@ def valid_id(vid: str) -> bool:
 
 
 def kst_label(vid: str) -> str:
-    """A version id as its save time in Korea time, in the words sala uses elsewhere: "Wed Oct 28th 14:07 KST"."""
+    """A version id (the time that version was replaced) in Korea time, in the words sala uses elsewhere: "Wed Oct 28th 14:07 KST"."""
     when = datetime.strptime(vid, "%Y%m%dT%H%M%S.%fZ").replace(tzinfo=timezone.utc).astimezone(KST)
     day = when.day
     suffix = "th" if 11 <= day % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
     return "%s %s %d%s %02d:%02d KST" % (_DAYS[when.weekday()], _MONTHS[when.month - 1], day, suffix, when.hour, when.minute)
 
 
-# The history icon: a clock with a return arrow, drawn in SVG so no image or script is needed. A tap opens the list (a <details>, so no script);
-# the list is in the flow under the bar, never over the page, and each row is 44 px high. The "i" tooltip is another <details>: a tap shows it.
+# The history icon: a clock with a return arrow, drawn in SVG so no image or script is needed. A tap opens the list (a <details>, so no script).
+# It sits at the right end of the back link's row (the link is that much narrower, so neither covers the other); the list is in the flow under
+# that row, never over the page, and each of its rows is 44 px high.
 _ICON = ('<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" '
          'stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>')
 _BAR_STYLE = "all:initial;display:block;box-sizing:border-box;width:100%;max-width:100%;background:#161617;"
 _ROW_STYLE = ("all:initial;display:block;box-sizing:border-box;min-height:44px;line-height:44px;padding:0 16px;"
               "font:600 16px/44px system-ui,sans-serif;color:#fff;text-decoration:none;white-space:nowrap;overflow:hidden;"
               "text-overflow:ellipsis;cursor:pointer")
-_TIP = ("Earlier saved versions of this page. Tap a time to see that version, read-only; "
-        "← Current page brings you back.")
 
 
 def history_block(n: int, ids: list) -> str:
-    """The bar of page n: BACK_LINK, and, when there is more than one saved version (`ids`, newest first), the history icon under it that opens
-    the list of versions by time. Each version links to its own address, /mockup/<n>/versions/<id>."""
-    if len(ids) <= 1:
+    """The bar of page n: BACK_LINK, and, when there is a saved earlier version (`ids`, newest first), the history icon in the same row that opens
+    the list of versions. Each links to its own address, /mockup/<n>/versions/<id>, and reads "Until <time>": its id is when it was replaced."""
+    if not ids:
         return BACK_LINK
-    rows = "".join('<li style="all:initial;display:block"><a href="%d/versions/%s" style="%s">%s</a></li>'
+    rows = "".join('<li style="all:initial;display:block"><a href="%d/versions/%s" style="%s">Until %s</a></li>'
                    % (n, vid, _ROW_STYLE, html.escape(kst_label(vid))) for vid in ids)
-    tip = ('<details data-sala-tip style="all:initial;display:block;box-sizing:border-box;background:#161617;">'
-           '<summary style="all:initial;display:block;box-sizing:border-box;min-height:44px;line-height:44px;padding:0 16px;'
-           'font:400 14px/44px system-ui,sans-serif;color:#bbb;cursor:pointer;list-style:none">About these versions</summary>'
-           '<div style="all:initial;display:block;box-sizing:border-box;padding:0 16px 12px;font:400 14px/20px system-ui,sans-serif;'
-           'color:#ddd">%s</div></details>' % html.escape(_TIP))
-    return (BACK_LINK +
-            '<details data-sala-versions style="all:initial;display:block;box-sizing:border-box;width:100%;background:#161617;">'
-            '<summary aria-label="Earlier versions" title="Earlier versions" style="all:initial;display:flex;box-sizing:border-box;'
-            'justify-content:flex-end;align-items:center;height:44px;padding:0 16px;cursor:pointer;list-style:none">' + _ICON + '</summary>'
-            '<ol style="all:initial;display:block;box-sizing:border-box;margin:0;padding:0;list-style:none">' + rows + '</ol>' + tip +
-            '</details>')
+    return ('<div data-sala-back style="%sposition:relative">'
+            '<a href="../chat" style="%s;width:calc(100%% - 54px)">&larr; Back to sala</a>'
+            '<details data-sala-versions style="all:initial;display:block">'
+            '<summary aria-label="Earlier versions" title="Earlier versions" style="all:initial;display:flex;position:absolute;top:0;right:0;'
+            'box-sizing:border-box;width:54px;height:44px;justify-content:center;align-items:center;cursor:pointer;list-style:none">%s</summary>'
+            '<ol style="all:initial;display:block;box-sizing:border-box;margin:0;padding:0;list-style:none">%s</ol>'
+            '</details></div>' % (_BAR_STYLE, _ROW_STYLE, _ICON, rows))
 
 
 def version_block(n: int, vid: str) -> str:
-    """The bar of a version view: a way back to the current page (`../../<n>` is relative to /mockup/<n>/versions/<id>), and the version's time."""
+    """The bar of a version view: a way back to the current page (`../../<n>` is relative to /mockup/<n>/versions/<id>), and until when the version was the page."""
     return ('<div data-sala-back style="%s">'
             '<a href="../../%d" style="%s">&larr; Current page</a>'
             '<span data-sala-when style="all:initial;display:block;box-sizing:border-box;padding:0 16px 0 0;font:400 14px/44px system-ui,'
-            'sans-serif;color:#bbb;white-space:nowrap">Version: %s</span></div>'
+            'sans-serif;color:#bbb;white-space:nowrap">Until %s</span></div>'
             % (_BAR_STYLE, n, _ROW_STYLE, html.escape(kst_label(vid))))
 
 

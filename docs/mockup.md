@@ -73,14 +73,15 @@ replaces is lost, and a crash between the two writes leaves the old page in its 
 
 ## The history on the page
 
-When page N has more than one saved version, the served page (`/mockup/<n>`) shows one small history icon in its top bar, under the "Back to sala"
-link. A tap opens the list of versions, newest first, each by its save time in Korea time (for example "Wed Oct 28th 14:07 KST"). A tap on a
-version opens it at `/mockup/<n>/versions/<id>`, where `<id>` is the version's UTC save time as the file is named, such as
-`20261127T142709.123456Z`. That view is read-only, has the same sandbox headers as the page, and its bar has "Current page" to go back to
-`/mockup/<n>`. There is no restore button and no diff: `sala mockup undo N` is the only way to put a version back.
+When page N has a saved earlier version, the served page (`/mockup/<n>`) shows one small history icon at the right end of the "Back to sala" row. A
+tap opens the list of earlier versions below that row, newest first. Each reads "Until <time>" in Korea time (for example "Until Wed Oct 28th 14:07
+KST"): the time that version was replaced, not the time it was made. A tap on one opens it at `/mockup/<n>/versions/<id>`, where `<id>` is that time
+in UTC as the file is named, such as `20261127T142709.123456Z`. That view is read-only, has the same sandbox headers as the page, says the same
+"Until <time>", and its bar has "Current page" to go back to `/mockup/<n>`. There is no restore button and no diff: `sala mockup undo N` is the
+only way to put a version back.
 
-- The icon is shown only with two or more saved versions; with none or one, the page is served as before.
-- The list is in the page's flow under the bar, never over the page's content, and an "About these versions" tooltip opens by a tap.
+- With no saved earlier version there is no icon, and the page is served as before.
+- The list is in the page's flow, never over the page's content, and each of its rows is at least 44 px high.
 - An address is served only when page N exists and `<id>` is the name of a saved version of N, a regular file; anything else (another page's
   version, a link, a file that is not a version, an id that is not a real time) is a 404 with the same headers.
 - Like the page, a version sits behind the same sign-in (the proxy) as everything else on the site.
