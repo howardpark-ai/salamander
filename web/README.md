@@ -44,7 +44,7 @@ sala is, *Deploying* below.
   never starts one itself.** The only write to tmux is a paste plus Enter into the selected session's own pane
   (`tmux load-buffer`, `tmux paste-buffer -p`, `tmux send-keys Enter`), the keys that empty that pane's input box when the page's
   *Replace* asks for it (`tmux send-keys` of `C-u`, `End` and `Delete`, nothing else; below), or one keypress answering a dialog open
-  there (below). Everything else is read-only (`display-message`, `capture-pane`). **The one exception is the shell
+  there (below), and Ctrl+X Ctrl+S for *Send now*, in the one case where it loses nothing (below). Everything else is read-only (`display-message`, `capture-pane`). **The one exception is the shell
   drawer's own session, `SALA_SHELL_SESSION` (default `sala-shell`; *The shell drawer*):** the app makes that one tmux session itself
   (`tmux new-session -d -s <SALA_SHELL_SESSION> bash -l`, only when it does not exist) and sends fixed key names to it
   (`tmux send-keys`, an allowlist, never free text). It is a plain bash, never a Claude pane, and nothing here reads or
@@ -774,6 +774,37 @@ the sender and the transcript check); the page does not use it yet: the visible 
   60 s *Queued* guess and the dimming stay as they were). `GET /api/outbox/<name>` and the stream's `outbox` event (`{"messages": [...]}`, at open and at
   each change) carry the list for a page to use later; a message asked for with a `cid` is one message however often it is asked.
 - **Tests.** `tests/test_outbox.py` (the store and the transcript matching), `tests/test_outbox_send.py` (the routes and the sender against a made-up pane).
+
+### Send now: the waiting messages read at once
+
+`POST /api/s/<pid>/send-now` presses Claude Code's `chat:sendNow` chord, **Ctrl+X Ctrl+S**, in the session's own pane: Claude reads every message
+waiting in the terminal's queue at once, and the one step that is running moves to the background, where it goes on. The page's side is
+`sendNowButton(session)` in `app.js` (the button, and the reason of a refusal in the status line under the composer) for the row of a waiting message
+to call; no row calls it yet. It belongs only on a message that is typed and waiting in the terminal, never on one the server holds.
+
+The chord loses work outside one case, so `sendnow.py` allows exactly that case and answers 409 with the reason, nothing pressed, for everything else.
+All of this must hold, checked under the pane's send lock:
+
+| Must hold | Because otherwise (Claude Code 2.1.332) |
+|---|---|
+| the pane is the session's own, no dialog or overlay, an input line that is empty and not in `!` mode | text in the line is submitted |
+| the screen shows `Queued · ctrl+x ctrl+s to send now` once | nothing is waiting, or the chord is bound to another key |
+| `(ctrl+b to run in background)` is the line just above the waiting messages | a call that has not started (a hook runs before it), or a running command with background tasks off, is **cancelled** |
+| no `!` command runs or waits in the queue | the running command is **cancelled** |
+| the screen is not one subagent's own | that subagent's command is lost |
+| the transcript's latest reply is complete (`stop_reason` `tool_use`) with exactly one call unfinished | a later call of the same reply that has not started is **cancelled** |
+
+**While a reply is being written the button is refused.** The chord does cut the reply there (the part written stays, and the waiting messages are
+read at once), but Claude Code writes none of a reply to the transcript until the whole of it has come in, so a call the reply has already finished,
+which may be running, cannot be told apart from the only one: when the reply's next call then finishes, the chord cancels it. A refusal here
+passes by itself once the reply is complete and a step runs. It is also refused while an MCP tool runs: the chord would move that to the background,
+but the screen shows no hint for it, so it looks like a call that has not started.
+
+Measured on Claude Code 2.1.332 in sessions made for it, on a private tmux socket, with a stand-in for the API (not a documented contract; a screen
+or a transcript line in another shape is refused). Two things the chord does that the checks do not stop: a `PostToolUse` hook still running 10 s
+after it is stopped (the step's result is kept without the hook's answer), and a press that comes just as the running step ends can cut the reply
+Claude has just begun. **Tests.** `tests/test_send_now.py` (the screens, the transcript, the route against a made-up pane) and
+`tests/test_send_now_ui.py` (the button, and no sideways scroll at 390 and 320 px).
 
 (`SALA_SIDECAR`, default `<sala state>/pane-map.tsv`) has a row with its conversation id (a marker left by a session that is gone is no
 session), and a conversation or a name a live session already has is not listed twice (a wake in flight). The row is a session with pid `0`,
@@ -2436,6 +2467,7 @@ part of `web/`.
 | `GET /api/s/<pid>/dialog` | what the session's pane shows as a question: `{"card": null}` or `{"card": {kind, text, title, options, focus}}` (*A waiting question*); read from the screen, nothing sent |
 | `POST /api/s/<pid>/dialog` | `{"expect": "<the card's text>", "key": "<option number>" or "esc"}` or `{"expect": ..., "picks": [<option numbers>]}` as `application/json` -> `{ok, sent}`; 409 (`changed: true` when the question is another one by now) sends nothing, or stops before Enter |
 | `POST /api/s/<pid>/stop` | `{}` as `application/json`: Stop for a running `!` command, Escape and then, if it still runs a second later, Ctrl-C, into that session's own pane → `{ok, sent: ["Escape"(, "C-c")]}`; 409 with nothing sent when no `!` command runs there; origin and content-type checked like the other POSTs |
+| `POST /api/s/<pid>/send-now` | `{}` as `application/json`: Claude reads the messages waiting in the terminal's queue now, Ctrl+X Ctrl+S into that session's own pane, which moves the one running step to the background → `{ok: true}`; 409 `{ok: false, error}` with nothing pressed outside that case (*Send now: the waiting messages read at once*); 502 when tmux fails; origin and content-type checked like the other POSTs |
 | `GET /api/image/<sessionId>/<uuid>/<i>/<j>` | an image block from a transcript, when the line's media type is png, jpeg, gif or webp (any other type is the same 404 as no image), with `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox` and private caching for a day |
 | `GET /api/file-image/<sessionId>/<uuid>/<i>/<k>` | the k-th file of the `SendUserFile` call at content block i of that transcript line, when it is a png, jpeg, gif or webp of at most 15 MB under an allowed root and not hidden or secret-named (*What it can and cannot do*, "Images a session sends"); anything else 404 |
 | `GET /api/md-image/<sessionId>/<uuid>/<i>/<n>` | the n-th local image (`![caption](/abs/path.png)` or `~/…`, outside code) in the markdown of the assistant text block i of that transcript line, under the same rules as `file-image`; a refusal is a 404 `{ok: false, error: <reason>}` that the page shows as "image not shown: <reason>"; a place the reply does not name is a 404 too (*What it can and cannot do*, "A markdown image of a file on this machine") |

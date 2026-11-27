@@ -4,7 +4,8 @@ Endpoints (all read-only except /api/upload, PUT /api/prefs and POST /api/read, 
 only write to tmux is a paste plus Enter into that session's own pane, or one digit or Escape answering a numbered dialog
 open there, or, when the request carries the text it saw in the pane's input box, Ctrl+U (End, Delete) emptying that box first (the outbox does the
 same for text it finds in the box, and keeps that text in <state dir>/outbox-cleared.jsonl), POST /api/s/<pid>/stop, whose only write to tmux is Escape (and Ctrl-C) into that session's pane while a `!`
-command runs there, and POST /api/spawn, which queues a new session through sala's operation queue, `sala op spawn`, and makes
+command runs there, POST /api/s/<pid>/send-now, whose only write to tmux is Ctrl+X Ctrl+S into that session's pane while a message waits
+behind one running step, and POST /api/spawn, which queues a new session through sala's operation queue, `sala op spawn`, and makes
 none itself):
 
   GET  /                          the page (/?arg=<tmux session> redirects to /terminal); #s=<name> opens a
@@ -205,6 +206,12 @@ none itself):
                                   and, if the command still runs a second later, Ctrl-C -> {"ok", "sent": ["Escape"[, "C-c"]]}.
                                   409 and nothing sent when no `!` command is running (or the pane is not the session's), 403
                                   cross-origin, 415 without application/json
+  POST /api/s/<pid>/send-now      {} -> Claude reads the messages waiting in the terminal's queue now (all of them): Ctrl+X Ctrl+S
+                                  into that session's own pane, which moves the one running step to the background -> {"ok": true}.
+                                  409 with the reason as "error" and nothing pressed unless the screen and the transcript both show
+                                  that state (sendnow.py: refused with text in the input line, a dialog, no step that can go to the
+                                  background, a reply still being written, a `!` command, a subagent's screen), 403 cross-origin,
+                                  415 without application/json
   GET  /api/image/<sid>/<uuid>/<i>/<j>   an image block from a transcript: png, jpeg, gif or webp by the line's media type
                                   (any other type is the 404 of no image), with nosniff and a Content-Security-Policy of
                                   default-src 'none'; sandbox, as on the two image routes below
@@ -337,6 +344,7 @@ from . import quota as Q
 from . import schedules as SCH
 from . import search as SRC
 from . import scopes as SC
+from . import sendnow as SN
 from . import spend as SPD
 from . import sentimages as SI
 from . import sessions as S
@@ -2209,6 +2217,35 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 return _err(502, f"tmux failed: {e}")
         return JSONResponse({"ok": True, "sent": sent})
 
+    async def send_now(request: Request) -> Response:
+        """Press "send the waiting messages now" in the session's pane, only where it loses nothing (sendnow.py): the outbox's
+        readiness check (own pane, no dialog, an empty input line), then the screen, then, last and next to the key, the transcript."""
+        if _cross_origin(request):
+            return _err(403, "cross-origin request refused")
+        if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
+            return _err(415, "send-now takes application/json")
+        s = _session(request)
+        if not s:
+            return _err(404, "no live session with that pid")
+        pane = s.pane_id
+        if not pane:
+            return _err(409, "session has no tmux pane on record")
+        async with send_locks.setdefault(pane, asyncio.Lock()):
+            try:
+                reason, _detail = await _readiness(s, pane)
+                if reason:
+                    return _err(409, SN.NOT_READY.get(reason, SN.UNREADABLE))
+                why = SN.screen_refusal(await T.capture(settings, pane))
+                if why is None:
+                    path = TR.transcript_path(settings.projects_dir, s.cwd, s.session_id)
+                    why = await run_in_threadpool(SN.transcript_refusal, path)
+                if why:
+                    return _err(409, why)
+                await T.send_now_chord(settings, pane)
+            except T.TmuxError as e:
+                return _err(502, f"tmux failed: {e}")
+        return JSONResponse({"ok": True})
+
     async def shell_open(request: Request) -> Response:
         """Make sure the Shell drawer's tmux session (SALA_SHELL_SESSION) exists; the drawer calls it each time it opens,
         before it loads (or reloads) the ttyd iframe, because ttyd-tmux-attach attaches only to a session that is there.
@@ -2806,6 +2843,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         Route("/api/s/{pid:int}/stream", stream),
         Route("/api/s/{pid:int}/send", logged("send", send), methods=["POST"]),
         Route("/api/s/{pid:int}/stop", stop_bang, methods=["POST"]),
+        Route("/api/s/{pid:int}/send-now", logged("send-now", send_now), methods=["POST"]),
         Route("/api/s/{pid:int}/dialog", get_dialog),
         Route("/api/s/{pid:int}/dialog", logged("dialog", post_dialog), methods=["POST"]),
         Route("/api/outbox/{name}", outbox_get),

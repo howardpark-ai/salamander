@@ -203,6 +203,8 @@ window.SALA_I18N_EN = {
   "app.sd.notStarted": "Not started",
   "app.sd.owner": ", owner {owner}",
   "app.sd.unknown": "unknown",
+  "app.sendnow.button": "Send now",
+  "app.sendnow.failed": "Not sent now: {error}",
   "app.sess.actions": "Actions for {name}",
   "app.sess.bgJob": "in background job {job}",
   "app.sess.fork": "Fork",

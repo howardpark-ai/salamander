@@ -84,6 +84,12 @@ line: measure from a shell outside a Claude session and re-measure it alone.
 
 ## Per suite
 
+### `web/tests/test_send_now.py` new, 58; `web/tests/test_send_now_ui.py` new, 3 (Fri Nov 27th 2026)
+
+The path guarded: `POST /api/s/<pid>/send-now` presses Claude Code's "send the waiting messages now" chord in a live session's pane (`sendnow.py`; `web/README.md`, *Send now*). The chord submits a draft in the input line, and cancels a call that has not started, a running command with background tasks off, and anything running beside a `!` command.
+Held: the chord is exactly Ctrl+X Ctrl+S; it is pressed once, and only, when the screen shows the waiting message under the running step's background hint with an empty input line and no dialog (nine screens: one and several messages, a tmux's own hint words, a subagent, vim mode) and the transcript's latest reply is complete with exactly one call unfinished (five shapes); nineteen other screens and eight other transcripts, a half-written line and a missing file answer with their reason; through the route each refusal presses and types nothing, as do another session's pane, a tmux failure (502), a cross-origin post (403), a body that is not JSON (415) and an unknown pid (404). The page: the button posts to the session's route, shows a refusal's reason in the status line, and at 390 and 320 px nothing scrolls sideways with the longest reason shown.
+Not covered, and why: a real Claude Code taking the chord (measured by hand on 2.1.332 in sessions of their own on a private tmux socket against a stand-in API, with these checks run on each screen and transcript before the press; the tests use screens and records in that shape), and a row that calls the button (none yet).
+
 ### `tests/where.sh`: new, now with `where seen` and KST times (Fri Nov 27th 2026)
 
 `where seen ADDRESS` (the web UI's sighting, via `web`) and the Korean Standard Time rendering were added to this suite and to `web/tests/test_where_sight.py` (below); the paragraphs here describe the suite as a whole.
