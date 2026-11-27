@@ -70,7 +70,7 @@ none itself):
                                   same when the lane is dormant: the answer then also carries "lane": "api" and
                                   "dormant": {reason, since}, and the card shows the figures beside the reason. With no
                                   api row in lane-state, a refusal in the shared API-credit record (apicredit.py) gives the
-                                  same lane and dormant (reason "API credit ran out")
+                                  same lane and dormant (reason "credit used up")
   GET  /api/spend                month-to-date spend of the aws-platform and bedrock lanes as an ESTIMATE AT LIST PRICES,
                                   counted from this machine's own Claude Code transcripts (spend.py; no AWS or Anthropic call):
                                   {"month", "since", "lanes": [{"lane", "configured", "monthUsd", "calls", "models": [{model,
@@ -141,7 +141,9 @@ none itself):
                                   row of sala's lane table (`sala lane --json`, read each time; provider, client, org,
                                   project, billing, payment, plan, account, credential = how it signs in, region), every
                                   value plain text with any file path taken out (lanes.py); state = {"state": "active" |
-                                  "dormant" (with reason and since, from lane-state.tsv) | "not set up" | "unknown"};
+                                  "dormant" (with reason and since, from lane-state.tsv; for the api lane with no row there,
+                                  from a refusal in the shared API-credit record, with "source": "refusal") |
+                                  "not set up" | "unknown"};
                                   a table sala cannot print gives record null and error (a plain sentence), still 200;
                                   404 when the table has no such lane (sdk reads as api), 400 for a malformed id
   GET  /api/board-items           each live session's open stackshot items, from stackshot's client API (the page's reader
@@ -1051,7 +1053,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
         record = LN.record_of(rows, lane) if rows is not None else None
         if rows is not None and record is None:
             return _err(404, "sala's lane table has no such lane")
-        state = LN.state_of(record, dormant_lanes().get(canonical))
+        row = dormant_lanes().get(canonical)
+        # as api/credit: with no api row in sala's record, a refusal in the shared API-credit record shows the api lane dormant
+        refused = AC.refusal() if canonical == "api" and not row else None
+        state = LN.state_of(record, row, refused)
         return JSONResponse({"lane": canonical, "record": record, "state": state, "error": error},
                             headers={"Cache-Control": "no-store"})
 

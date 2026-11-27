@@ -74,11 +74,15 @@ def record_of(rows: list[dict], lane: str) -> dict | None:
     return None
 
 
-def state_of(record: dict | None, dormant: dict | None) -> dict:
-    """The lane's state for the page: dormant (lane-state.tsv, with its reason and since), else "not set up" when the
-    table says so, else active; "unknown" when the table could not be read and the record says nothing."""
+def state_of(record: dict | None, dormant: dict | None, refused: dict | None = None) -> dict:
+    """The lane's state for the page: dormant (lane-state.tsv, with its reason and since), else dormant by the shared
+    API-credit record (`refused`, apicredit.py; the api lane only), marked "source": "refusal" because the New session form
+    still offers a lane that is dormant only by it, else "not set up" when the table says so, else active; "unknown" when
+    the table could not be read and neither record says anything."""
     if dormant:
         return {"state": "dormant", "reason": str(dormant.get("reason") or ""), "since": str(dormant.get("since") or "")}
+    if refused:
+        return {"state": "dormant", "reason": refused["reason"], "since": refused["since"], "source": "refusal"}
     if record is None:
         return {"state": "unknown"}
     if record["status"] == "not set up":
