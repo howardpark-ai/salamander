@@ -5633,3 +5633,13 @@ Covered (`test_question_card.py`, no browser, made-up screens against a simulate
 Covered (the browser files, a stubbed card route; GitHub CI runs them): the Send button of a question that is not the last and the hint above it say Next, not Send, in English and in Korean (and Send, not Next, on the last question); in the chat session's own layer the thread draws no second copy of the question that is not the last, and its tap posts the picks. A question with previews has no line on how to answer beside the card that answers it, and has the line beside a card not read as that layout, or none.
 
 Not covered, and why: a real pane with a preview or a `Next` row drawn (the screens are made up from the layout the CLI 2.1.332 binary draws).
+
+### The recycle's pause sends its Escape only to a pane whose own turn is running: `tests/pause.sh` +24, `tests/fake-claude.c` (Sat Nov 28th 2026)
+
+The registry row reads `busy` while only a background subagent runs, after the turn that started it ended. The pause took that for a running turn: it sent an Escape that did nothing, left the session an `[escape]` note saying the turn was still running (which started a turn of its own), and did so again at every retry. An Escape now goes only to a pane whose "esc to interrupt" hint shows below the input box, or whose mod names the main loop (`pane_turn_running`). A pane without either is waited for.
+
+Covered, in `tests/pause.sh`: the hint below the box, with attributes and cut short; a footer without it, the words above the box, the words in the agent list's rows and a screen with no box are no hint; the mod stubbed (the main loop alone and beside a subagent count, a subagent alone whatever its description says, a background refusal, an idle answer and no mod do not); a busy pane with no hint gets no Escape, no note and no `/exit`, keeps its clock, records the failed try, stays so at the retry, and is relaunched with no Escape once its row reads idle; a pane whose Escape ends the turn while the row stays busy (`FAKE_ESC_IDLE=turn`) gets that one Escape only, its note says the turn ended, and the retry sends nothing more.
+
+Changed: `tests/pause.sh` (the fake panes show the hint under the composer, `FAKE_FOOTER`), `tests/fake-claude.c` (`FAKE_FOOTER`, `FAKE_ESC_IDLE=turn`).
+
+Not covered, and why: a real CLI in the suite (the footer and the registry row were measured by hand on 2.1.332, private socket, main turn and background subagent); a foreground subagent; the one Escape a lane switch sends to a pane held by a monthly usage cap (`pane_cut_turn`, unchanged).

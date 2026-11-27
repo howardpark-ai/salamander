@@ -2692,11 +2692,13 @@ waiting_prune() {  # watch: a flag whose owner is gone (a killed worker, a reboo
 #     and unsent or a dialog showing (the draft and prompt rules are the relaunch's own), a pane with a client attached that was active
 #     in the last SALA_PAUSE_QUIET seconds (a person is at it), a session in SALA_NO_PAUSE (work that cannot be redone). Each waits for
 #     idle as before and says why it was not paused.
-#   · THE INTERRUPT (pane_interrupt): ONE Escape, sent only to a pane whose registry row says busy and that shows no dialog; a second
-#     Escape on an idle box can open the CLI's rewind menu. The pane must be idle in the registry within SALA_PAUSE_IDLE_WAIT seconds;
-#     otherwise nothing more is sent, no /exit is typed into a pane that is still in its turn, and the pane is waited for as before
-#     (the clock keeps running and the next try is SALA_PAUSE_RETRY s later: pause_failed). A pane that is idle already and held only by background work
-#     (a monitor, a shell, a subagent) needs no Escape.
+#   · THE INTERRUPT (pane_interrupt): ONE Escape, sent only to a pane whose registry row says busy, that shows no dialog and whose own turn
+#     is seen running (pane_turn_running); a second Escape on an idle box can open the CLI's rewind menu. The pane must be idle in the
+#     registry within SALA_PAUSE_IDLE_WAIT seconds; otherwise nothing more is sent, no /exit is typed into a pane that is still busy, and
+#     the pane is waited for as before (the clock keeps running and the next try is SALA_PAUSE_RETRY s later: pause_failed). A pane the
+#     registry reads idle or 'shell' needs no Escape. A BACKGROUND SUBAGENT keeps the row 'busy' after the turn that started it ended, and
+#     an Escape does not stop it (measured on 2.1.332, private socket): such a pane gets no Escape and is waited for while the row stays
+#     busy, so the subagent is not cut.
 #   · WHO MAY BE PAUSED (SALA_PAUSE_SCOPE, default `background`): only the back agents (the registry's role, back_lane_names); a front
 #     agent is never paused and waits for its turn to end as before; `all`: every session, front agents included; `off`: nobody
 #     (SALA_PAUSE_AFTER=0 is the same switch).
@@ -2826,23 +2828,53 @@ pause_refusal_r() {  # <var> <pane> <tmux session> <claude-pid> → why this pan
     fi
     printf -v "$1" '%s' "$_r"
 }
-# pane_interrupt <pane> <claude-pid> → 0 when the pane is out of its turn (idle, or held by background work alone) in the registry; 1 when it is
-# not within SALA_PAUSE_IDLE_WAIT seconds. ONE Escape, only into a pane whose row says busy and that shows no dialog (the same care as
-# leave_shell_mode: an Escape is a key like any other); nothing is typed, and nothing more is ever sent to a pane that stays in its turn.
+# pane_turn_hint <pane> → 0 when the CLI's "esc to interrupt" hint shows below the input box (a narrow pane cuts it short, "esc to int…");
+# the rows of the CLI's agent list down there are left out, their text is a subagent's own
+pane_turn_hint() {
+    local cap line i=0
+    cap=$(tmux capture-pane -pe -t "$1" 2>/dev/null); _box_from_capture "$cap"
+    [ "$_BOX_AT" -ge 0 ] || return 1
+    while IFS= read -r line; do
+        if [ "$i" -gt "$_BOX_AT" ]; then
+            _sgr_strip_r line "$line"; _lstrip_r line
+            case "$line" in '●'*|'◯'*) ;; *'esc to int'*) return 0;; esac
+        fi
+        i=$((i + 1))
+    done <<< "$cap"
+    return 1
+}
+# pane_turn_running <pane> <claude-pid> → 0 when the session's OWN turn is running, the one thing an Escape ends. The registry's 'busy' is
+# no such sign: it stays 'busy' while only a background subagent runs. Either of two signs is enough: the screen's hint (pane_turn_hint),
+# or, for a pane too narrow to show it, the in-session mod's `busy` probe naming the main loop among the running turns (it names it first).
+pane_turn_running() {
+    local rc=0
+    pane_turn_hint "$1" && return 0
+    mod_request "$2" busy || rc=$?
+    [ "$rc" = 1 ] && [ "$(mod_reply_field "$MOD_REPLY" reason)" = turn ] || return 1
+    case "$(mod_reply_field "$MOD_REPLY" holders)" in "the main loop"|"the main loop; "*) return 0;; esac
+    return 1
+}
+# pane_interrupt <pane> <claude-pid> → 0 when the pane is out of its turn (idle, or held by background shells and tasks alone) in the
+# registry; 1 when it is not within SALA_PAUSE_IDLE_WAIT seconds. ONE Escape, only into a pane whose row says busy, that shows no dialog
+# (the same care as leave_shell_mode: an Escape is a key like any other) and whose own turn is running; nothing is typed, and nothing more
+# is ever sent to a pane that stays busy.
 PAUSE_ESC=0   # 1 once pane_interrupt has sent its Escape: only then is the Escape note written, or the [paused] note's Escape sentence
+PAUSE_TURN=""   # why a busy pane stayed busy: none = no turn of its own seen, no Escape sent; stopped = the Escape ended the turn
 pane_interrupt() {
     local st i
-    PAUSE_ESC=0
+    PAUSE_ESC=0; PAUSE_TURN=""
     registry_field_r st "$2" status
     if [ "$st" != busy ]; then [ "$st" = idle ] || [ "$st" = shell ]; return; fi
     pane_prompt "$1" && return 1
     unmode "$1"
+    pane_turn_running "$1" "$2" || { PAUSE_TURN=none; return 1; }
     tmux send-keys -t "$1" Escape && PAUSE_ESC=1
     for ((i = 0; i < SALA_PAUSE_IDLE_WAIT * 2; i++)); do
         _nap 0.5; registry_field_r st "$2" status
         if [ "$st" = idle ] || [ "$st" = shell ]; then return 0; fi
         [ "$st" = busy ] || return 1   # waiting (a dialog the interrupt opened), or the row is gone
     done
+    [ "$PAUSE_ESC" != 1 ] || pane_turn_running "$1" "$2" || PAUSE_TURN=stopped
     return 1
 }
 # pause_context <claude-pid> <uuid> → the lines the note is made of, read before the interrupt: trigger / pending / started (lib/pauseinfo.py),
@@ -2916,8 +2948,9 @@ note_add_for() {
 # the one-time kind (its text starts "[escape] "). lib/note.sh --deliver hands it to the live pid at once (the same pid too, the pause did not
 # relaunch it) and archives it when delivered, so it never comes back at a relaunch. A retry that sends another Escape replaces the undelivered one.
 pause_escape_note() {
-    local notes="$SALA_LOG_DIR/salamander-notes.tsv" id txt _t
-    txt="[escape] sala sent one Escape at $(local_human "$PAUSE_AT") to pause your turn for a $4, and the pause did not take: the turn was still running, so sala may try again. Any tool call rejected or shown as \"interrupted by user\" from that moment was sala's Escape, not the user's: nobody refused it. If you still need that call, run it again and carry on."
+    local notes="$SALA_LOG_DIR/salamander-notes.tsv" id txt _t how="the turn was still running"
+    [ "$PAUSE_TURN" != stopped ] || how="your turn ended, but work in the background (such as a running subagent) still holds the pane, so you were not relaunched"
+    txt="[escape] sala sent one Escape at $(local_human "$PAUSE_AT") to pause your turn for a $4, and the pause did not take: $how, so sala may try again. Any tool call rejected or shown as \"interrupted by user\" from that moment was sala's Escape, not the user's: nobody refused it. If you still need that call, run it again and carry on."
     txt=$(printf '%s' "$txt" | tr '\t\r\n' '   ' | sed 's/  */ /g; s/^ //; s/ $//')
     mkdir -p "$SALA_LOG_DIR" 2>/dev/null
     id=$( ( flock -w 30 8 || exit 1
@@ -2950,7 +2983,12 @@ pause_pane() {
         rm -f "$f"; pause_failed "$uuid"   # the clock keeps running (the pane has held the relaunch that long); the next try is SALA_PAUSE_RETRY s away
         [ "$PAUSE_ESC" = 1 ] && pause_escape_note "$sess" "$uuid" "$cpid" "$kind" >/dev/null   # the Escape went in: the session is told, on its live pid
         registry_field_r txt "$cpid" status
-        PAUSE_WHY="one Escape did not bring the pane out of its turn within ${SALA_PAUSE_IDLE_WAIT}s (registry says '$txt'), so nothing more was sent and /exit stays unsent$(pause_retry_words "$uuid")"; return 1
+        case "$PAUSE_TURN" in
+            none) PAUSE_WHY="no running turn of its own is seen (registry says '$txt', as it also does while only a background subagent runs), so no Escape was sent";;
+            stopped) PAUSE_WHY="one Escape ended its turn, but work in the background still holds the pane (registry says '$txt'), so nothing more was sent";;
+            *) PAUSE_WHY="one Escape did not bring the pane out of its turn within ${SALA_PAUSE_IDLE_WAIT}s (registry says '$txt'), so nothing more was sent";;
+        esac
+        PAUSE_WHY+=" and /exit stays unsent$(pause_retry_words "$uuid")"; return 1
     fi
     for ((i = 0; i < SALA_IDLE_SETTLE + 6; i++)); do [ -z "$(is_idle_reason "$cpid")" ] && break; sleep 1; done   # the registry's idle settle
     txt=$(is_idle_reason "$cpid")
