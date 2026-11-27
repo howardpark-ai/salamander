@@ -1,0 +1,19 @@
+● Asking which letters.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+← ☐ Pick ☐ Pay →
+
+Which letters?
+
+❯ 1. [ ] Alpha
+         The first letter option
+  2. [ ] Beta
+         The second letter option
+  3. [ ] Gamma
+         The third letter option
+  4. [ ] Type something
+     Next
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

@@ -271,7 +271,8 @@ const fs = require('fs');
 globalThis.window = {};
 eval(fs.readFileSync(process.argv[1], 'utf8'));
 const cases = JSON.parse(fs.readFileSync(0, 'utf8'));
-console.log(JSON.stringify(cases.map(([q, card]) => window.SalaThreadLayer.onCard(q, card))));
+const layer = window.SalaThreadLayer;
+console.log(JSON.stringify(cases.map(([q, card]) => [layer.onCard(q, card), layer.cardAnswers(q, card)])));
 """
 FOOT = "Enter to select · ↑/↓ to navigate · Esc to cancel"
 
@@ -288,7 +289,7 @@ def pane(*lines: str) -> str:
 
 
 @needs_node
-def test_the_card_carries_a_question_only_when_it_shows_it_whole_and_its_buttons_answer_it():
+def test_the_card_carries_a_question_it_shows_whole_and_answers_one_only_where_its_buttons_can():
     letters = (("Alpha", "The first letter option"), ("Beta", "The second letter option"), ("Gamma", "The third letter option"))
     many = question("Which letters?", *letters, multi=True)
     colours = (("Red", "warm, and it is described at length so that the pane wraps it"), ("Blue", "cool"))
@@ -298,28 +299,38 @@ def test_the_card_carries_a_question_only_when_it_shows_it_whole_and_its_buttons
                          "     length so that the pane wraps it", "  2. Blue", "     cool", "  3. Type something.", RULE, "  4. Chat about this", "", FOOT))
     review = T.card(pane("←  ☒ Pick  ☒ Colour  ✔ Submit  →", "", "Review your answers", "", " ● Which letters?", "   → Alpha, Gamma", "",
                          "Ready to submit your answers?", "", "❯ 1. Submit answers", "  2. Cancel", "", FOOT))
-    # a question of several answers that is not the call's last has "Next" where the last one has "Submit"
-    not_last = T.card(multi_screen(set(), 1).replace("     Submit", "     Next"))
-    preview = T.card(pane(" ☐ Pick", "", "Which colour should the long demo box have?", "", "❯ 1. Red                ┌──────┐",
-                          "  2. Blue               │ swatch │", "                        └──────┘", "", RULE, "  Chat about this", "", FOOT))
+    # a question of several answers that is not the call's last has "Next" where the last one has "Submit": the card's `button` says which
+    not_last = T.card((FIX / "synthetic-ask-multi-next.txt").read_text(encoding="utf-8"))
+    preview = T.card(pane(" ☐ Pick", "", "Which colour should the long demo box have?", "", "❯ 1. Red                ┌────────┐",
+                          "  2. Blue               │ swatch │", "                        └────────┘", "", RULE, "  Chat about this", "",
+                          FOOT.replace("Esc", "n to add notes · Esc")))
     permission = T.card((FIX / "capture-dialog.txt").read_text(encoding="utf-8"))
-    assert [c["kind"] for c in (captured, choice, review, not_last, preview, permission)] == ["multi", "choice", "choice", "choice", "choice", "choice"]
+    assert [c["kind"] for c in (captured, choice, review, not_last, preview, permission)] == ["multi", "choice", "choice", "multi", "choice", "choice"]
+    assert (captured["button"], not_last["button"], preview["preview"]) == ("Submit", "Next", True)
+    # alone: the card shows the question whole and answers it; beside: it answers it and the thread still draws it; none: it cannot answer it
+    alone, beside, none = [True, True], [False, True], [False, False]
+    previewed = question(one["question"], *colours, preview="swatch")
     cases = [
-        (many, captured, True),
-        (many, T.card(multi_screen({1}, 3)), True),
-        (one, choice, True),                                                                    # wrapped lines and markdown's marks change nothing
-        (many, review, True),                                                                   # the review lists it with its answer
-        (one, review, False),                                                                   # a question the review does not list
-        (many, not_last, False),                                                                # no button moves past it
-        (question(one["question"], *colours, preview="swatch"), preview, False),               # a number only moves the focus there
-        (question(one["question"], *colours, preview="swatch"), choice, False),                # the card draws no preview
-        (one, permission, False),                                                               # another dialog
-        (many, choice, False),                                                                  # another question
-        (question(one["question"], *colours, multi=True), choice, False),                      # several answers, a card of one
-        (question(one["question"], ("Red", "warm"), ("Green", "calm")), choice, False),        # the same words over other options
-        (question(one["question"], *colours, ("Green", ""), ("Grey", ""), ("Gold", "")), choice, False),   # options the screen does not hold
-        (question(one["question"], ("Red", "warm, and a sentence the screen cut off"), colours[1]), choice, False),
-        (many, None, False),
+        (many, captured, alone),
+        (many, T.card(multi_screen({1}, 3)), alone),
+        (one, choice, alone),                                                                    # wrapped lines and markdown's marks change nothing
+        (many, review, alone),                                                                   # the review lists it with its answer
+        (one, review, none),                                                                     # a question the review does not list
+        (many, not_last, alone),                                                                 # its Send goes on through the Next row
+        (previewed, preview, beside),                                                            # the card draws no preview, and its buttons answer
+        (question(one["question"], *colours, multi=True, preview="swatch"), preview, none),      # several answers, a card of one
+        (question(many["question"], *letters, multi=True, preview="swatch"), captured, beside),  # several answers: the card of several, as without previews
+        (previewed, choice, none),                                                               # not read as that layout: a number may only move the focus
+        (question(one["question"], ("Red", ""), ("Green", ""), preview="swatch"), preview, none),   # the same words over other options
+        (one, preview, none),                                                                    # a question without previews, whose descriptions it lacks
+        (previewed, None, none),
+        (one, permission, none),                                                                 # another dialog
+        (many, choice, none),                                                                    # another question
+        (question(one["question"], *colours, multi=True), choice, none),                         # several answers, a card of one
+        (question(one["question"], ("Red", "warm"), ("Green", "calm")), choice, none),           # the same words over other options
+        (question(one["question"], *colours, ("Green", ""), ("Grey", ""), ("Gold", "")), choice, none),   # options the screen does not hold
+        (question(one["question"], ("Red", "warm, and a sentence the screen cut off"), colours[1]), choice, none),
+        (many, None, none),
     ]
     out = subprocess.run([NODE, "-e", CARRIES, str(LAYER_JS)], input=json.dumps([[q, card] for q, card, _ in cases]),
                          capture_output=True, text=True, check=True, timeout=60).stdout

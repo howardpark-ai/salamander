@@ -233,6 +233,8 @@ window.SALA_I18N_KO = {
   "app.st.cardDismiss": "\ucde8\uc18c (Esc)",
   "app.st.cardFail": "\uc751\ub2f5\uc744 \ubcf4\ub0b4\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4: {why}",
   "app.st.cardMulti": "\uc5ec\ub7ec \uac1c\ub97c \uace0\ub978 \ub4a4 \ubcf4\ub0b4\uae30\ub97c \ub204\ub974\uc138\uc694.",
+  "app.st.cardMultiNext": "\uc5ec\ub7ec \uac1c\ub97c \uace0\ub978 \ub4a4 \ub2e4\uc74c\uc744 \ub204\ub974\uc138\uc694.",
+  "app.st.cardNext": "\ub2e4\uc74c",
   "app.st.cardSend": "\ubcf4\ub0b4\uae30",
   "app.st.cardSent": "\uc751\ub2f5\uc744 \ubcf4\ub0c8\uc2b5\ub2c8\ub2e4.",
   "app.st.dialogEsc":"\ub300\ud654\uc0c1\uc790\ub97c \ub2eb\uc558\uc2b5\ub2c8\ub2e4 (Esc).",

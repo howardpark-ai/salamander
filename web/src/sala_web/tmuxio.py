@@ -20,6 +20,7 @@ import os
 import re
 import secrets
 import string
+import unicodedata
 import weakref
 
 from .config import SHELL_SESSION, Settings
@@ -501,8 +502,14 @@ def dialog(captured: str) -> tuple[list[str], str]:
 
 
 CHECK_ROW_RE = re.compile(r"^(?:" + PROMPT + r"\s*)?([1-9])\.\s+\[([ ✔xX])\]\s*(\S.*)$")   # "1. [ ] Alpha", "2. [✔] Beta"
-SUBMIT_ROW_RE = re.compile(r"^(?:" + PROMPT + r"\s*)?Submit$")
+SUBMIT_ROW_RE = re.compile(r"^(?:" + PROMPT + r"\s*)?(Submit|Next)$")   # "Next" when the question is not the last one (Claude Code 2.1.332: submitButtonText)
 FREE_TEXT_LABEL = "Type something"   # the multi-select question's last row: the free-text answer, which a button cannot give
+# A question whose options carry previews (AskUserQuestion, one answer only), as Claude Code 2.1.332 draws it: the options in a left
+# column (numbers and labels, no descriptions), a gap, and a framed box with the focused option's preview, its top border on the first
+# option's line; a "Notes:" row under the box; the footer says "n to add notes".
+PREVIEW_TOP_RE = re.compile(r"^(\s*(?:" + PROMPT + r"\s*)?1\.\s+\S.*?\s{3,})\u250c(\u2500+)\u2510$")
+PREVIEW_FOOTER_START = "Enter to select"
+PREVIEW_FOOTER_MARK = "n to add notes"   # no permission dialog and no question without previews offers notes
 
 
 def multi_dialog(captured: str) -> dict | None:
@@ -535,7 +542,8 @@ def multi_dialog(captured: str) -> dict | None:
     if len(rows) < 2:      # a real one holds an option and the free-text row at least
         return None
     focus = "submit" if lines[submit].startswith(PROMPT) else next((r["n"] for r in rows if r["focused"]), None)
-    return {"rows": rows, "focus": focus, "title": "\n".join(ln for ln in lines[top:first] if ln and ln[0] not in "←→"),   # not the tab bar ("← ☐ Pick ✔ Submit →")
+    button = SUBMIT_ROW_RE.match(lines[submit]).group(1)   # "Submit" on the last question, "Next" before it: the row the picks go on through
+    return {"rows": rows, "focus": focus, "button": button, "title": "\n".join(ln for ln in lines[top:first] if ln and ln[0] not in "←→"),   # not the tab bar ("← ☐ Pick ✔ Submit →")
             "text": "\n".join(ln.replace(PROMPT, " ").strip() for ln in lines[top:submit + 1] if ln)}
 
 
@@ -547,10 +555,14 @@ def card(captured: str) -> dict | None:
     a button cannot type."""
     if not overlay(captured):
         return None
+    p = preview_dialog(captured)   # first: a preview may draw anything, numbered rows and a "Submit" included
+    if p is not None:
+        return p
     m = multi_dialog(captured)
     if m is not None:
         options = [{k: r[k] for k in ("n", "label", "description", "checked")} for r in m["rows"] if r["label"] != FREE_TEXT_LABEL]
-        return {"kind": "multi", "text": m["text"], "title": m["title"], "options": options, "focus": m["focus"]} if options else None
+        return {"kind": "multi", "text": m["text"], "title": m["title"], "options": options, "focus": m["focus"],
+                "button": m["button"]} if options else None
     numbers, text = dialog(captured)
     if not numbers:
         return None
@@ -566,7 +578,85 @@ def card(captured: str) -> dict | None:
             head.append(ln)
     if len(options) != len(numbers):
         return None
-    return {"kind": "choice", "text": text, "title": "\n".join(head), "options": options, "focus": None}
+    return {"kind": "choice", "text": text, "title": "\n".join(head), "options": options, "focus": focused_option(captured),
+            "preview": False}
+
+
+def _cells(ch: str) -> int:
+    """The terminal cells one character takes (a Korean or other wide character two, a combining mark none)."""
+    if unicodedata.category(ch) in ("Mn", "Me", "Cf"):
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
+def _left_of(line: str, cells: int) -> str:
+    """The part of a screen line left of cell `cells`."""
+    used = 0
+    for i, ch in enumerate(line):
+        used += _cells(ch)
+        if used > cells:
+            return line[:i]
+    return line
+
+
+def preview_dialog(captured: str) -> dict | None:
+    """The card of a question with a side-by-side preview, or None for any other screen. It counts only when the screen shows all of it:
+    the question's footer (the last block of lines, "Enter to select ... n to add notes ..."), which a permission dialog never draws; the
+    top border of the preview box on option 1's line, after the option column; and the box's bottom border, of the same width, under it.
+    Spacing alone never makes a preview. Everything from the box's left side on is cut away before the options are read, so no word of a
+    preview (a numbered list in it included) is read as an option; "text", which an answer names the question by, holds the question and
+    the option column only, so it stays the same while the focus (and with it the preview) moves."""
+    raw = captured.split("\n")
+    lines = [plain(ln).replace("\u00a0", " ").rstrip() for ln in raw]
+    foot: list[str] = []
+    for ln in reversed(lines):
+        if ln:
+            foot.insert(0, ln)
+        elif foot:
+            break
+    words = " ".join(" ".join(foot).split())
+    if not words.startswith(PREVIEW_FOOTER_START) or PREVIEW_FOOTER_MARK not in words:
+        return None
+    top = next((i for i in range(len(lines) - 1, -1, -1) if PREVIEW_TOP_RE.match(lines[i])), None)
+    if top is None:
+        return None
+    frame = PREVIEW_TOP_RE.match(lines[top])
+    bottom_border = "\u2514" + frame.group(2) + "\u2518"
+    bottom = next((i for i in range(top + 1, len(lines)) if lines[i].endswith(bottom_border)), None)
+    if bottom is None:
+        return None
+    column = sum(map(_cells, frame.group(1)))   # the cell the box starts at; the gap before it is wider than the 2 cells of slack
+    start = next((i for i in range(top - 1, -1, -1) if _is_rule(raw[i])), -1) + 1
+    head = [ln.strip() for ln in lines[start:top] if ln.strip()]
+    options: list[dict] = []
+    column_lines: list[str] = []
+    focus = None
+    for ln in lines[top:]:
+        left = _left_of(ln, column - 2).strip()
+        if not left or _is_rule(left):   # the option column ends at its first empty row
+            break
+        found = OPTION_RE.match(left)
+        if found and found.group(1) == str(len(options) + 1):
+            options.append({"n": len(options) + 1, "label": left.split(".", 1)[1].strip(), "description": "", "checked": False})
+            if left.startswith(PROMPT):
+                focus = len(options)
+        else:   # a long label wraps inside the column (there are no descriptions here)
+            options[-1]["label"] += " " + left
+        column_lines.append(left.replace(PROMPT, " ").strip())
+    if len(options) < 2:
+        return None
+    return {"kind": "choice", "text": "\n".join(head + column_lines), "title": "\n".join(head), "options": options, "focus": focus,
+            "preview": True}
+
+
+def focused_option(captured: str) -> int | None:
+    """The number of the option the focus mark sits on in the numbered dialog the screen shows, or None."""
+    for raw in reversed(captured.split("\n")):
+        t = plain(raw).replace(" ", " ").strip().strip(BOX_SIDES).strip()
+        found = OPTION_RE.match(t) if t.startswith(PROMPT) else None
+        if found:
+            return int(found.group(1))
+    return None
 
 
 # What Claude Code 2.1.332 draws in the last line of the screen when something sits over the prompt box and a key goes to it, not
