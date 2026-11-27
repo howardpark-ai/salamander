@@ -16,7 +16,8 @@ usage: sala notice add "<text>" --from <sender> [--until <when>]     (-h, --help
   list    the active notices, each with how many live sessions have had it (or started after it) and how many are still due.
   drop    withdraws a notice: a session not yet reached never gets it.
   Delivery needs the hooks `hook post-tool` (PostToolUse, already registered) and `hook prompt` (UserPromptSubmit; docs/notices-and-hooks.md,
-  "Telling every session something"). Notices live in $SALA_STATE_DIR/notices.tsv; the expired ones are pruned on add and on a watch tick.
+  "Telling every session something"). Notices live in $SALA_STATE_DIR/notices.tsv;
+  a notice every live session has had or skipped is dropped after a day; otherwise it expires at --until (default 7 days). Pruning runs on add, list, drop and a watch tick.
 USAGE
 }
 _notice_py() { SALA_STATE_DIR="$SALA_STATE_DIR" SALA_REG_DIR="$SALA_REG_DIR" python3 -I -S "$SALA_ROOT/lib/notice.py" "$@"; }
