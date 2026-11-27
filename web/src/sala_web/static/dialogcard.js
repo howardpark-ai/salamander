@@ -60,7 +60,7 @@
     if (multi) {
       node.append(mk("div", "q-hint", tl("app.st.cardMulti")));
       // "Next" when the pane's button is Next (a question that is not the last one): the picks go on to the next question
-      const send = mk("button", "q-send", card.button === "Next" ? "Next" : tl("app.st.cardSend")); send.type = "button";
+      const send = mk("button", "q-send", tl(card.button === "Next" ? "app.st.cardNext" : "app.st.cardSend")); send.type = "button";
       send.addEventListener("click", () => answer({ picks: [...cur.picks].sort((a, b) => a - b) }));
       foot.append(send);
     }

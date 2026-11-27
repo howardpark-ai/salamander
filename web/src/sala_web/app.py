@@ -1844,12 +1844,12 @@ def create_app(settings: Settings | None = None) -> Starlette:
                     await T.send_key(settings, pane, answer)
                     if answer == "Escape" or not got.get("preview"):
                         return JSONResponse({"ok": True, "sent": [answer]})
-                    # a question with previews: its number only moves the focus to the option, and Enter chooses it. The screen is read
-                    # after the number: a dialog that went away (the number chose it) is answered; one still open must have the focus on
-                    # the number, else Enter is not sent.
+                    # a question with previews (never a permission dialog, T.preview_dialog): its number only moves the focus to the option,
+                    # and Enter chooses it. Enter goes only to that same question, still drawn with its preview, with the focus read on
+                    # the number: when the screen shows anything else by now, nothing more is sent.
                     await asyncio.sleep(T.SETTLE_S)
                     left = T.card(await T.capture(settings, pane))
-                    if left is None or left["title"] != got["title"] or [o["n"] for o in left["options"]] != [o["n"] for o in got["options"]]:
+                    if left is None or not left.get("preview") or left["text"] != got["text"]:
                         return JSONResponse({"ok": True, "sent": [answer]})
                     if left["focus"] != int(answer):
                         return _err(409, f"the focus did not move to option {answer}; Enter not pressed", sent=[answer])

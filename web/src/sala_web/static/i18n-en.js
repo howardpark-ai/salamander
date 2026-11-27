@@ -235,6 +235,7 @@ window.SALA_I18N_EN = {
   "app.st.cardDismiss": "Cancel (Esc)",
   "app.st.cardFail": "The answer was not sent: {why}",
   "app.st.cardMulti": "Choose any number, then Send.",
+  "app.st.cardNext": "Next",
   "app.st.cardSend": "Send",
   "app.st.cardSent": "Answer sent.",
   "app.st.dialogEsc":"Closed the dialog (Esc).",
