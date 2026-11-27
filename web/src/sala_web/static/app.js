@@ -581,35 +581,67 @@ function chatBackTone(m, now) {
   const days = chatBackAge(m, now);
   return days > CHAT_RED_DAYS ? "red" : days > CHAT_LATE_DAYS ? "late" : "";
 }
-// "Mon Jan 5th"; in Korean the formatter's month, day and weekday, with no space before the bracket. `fmt` formats those three
-const CHAT_DAY_PARTS = { weekday: "short", month: "short", day: "numeric" };
-function chatDayWords(d, fmt) {
-  if (SalaI18n.lang === "ko") return fmt.format(d).replace(" (", "(");
-  const p = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value])), n = Number(p.day), tens = n % 100;
-  return p.weekday + " " + p.month + " " + n + (tens >= 11 && tens <= 13 ? "th" : { 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th");
+// since when, as the time since the line was first added: "just now" under a minute, then whole minutes, hours or days (rounded down)
+function chatSinceText(seconds, now) {
+  const s = Math.max(0, now / 1000 - seconds);
+  if (s < 60) return tl("chat.onit.sinceNow");
+  if (s < 3600) return tl("chat.onit.sinceMin", { n: Math.floor(s / 60) });
+  if (s < 86400) return tl("chat.onit.sinceHour", { n: Math.floor(s / 3600) });
+  return tl("chat.onit.sinceDay", { n: Math.floor(s / 86400) });
 }
-// since when, in the page's zone: today the time, in the six days before it the weekday and the time, older the date
+// the exact time of a line in the page's zone: the clock and the zone's label on the day of `now`, else the date too (sleptAt, shared.js: "Thu, Oct 22, 09:05 KST")
 const CHAT_YMD = zoneFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" });
 const CHAT_HM = zoneFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-const CHAT_WEEKDAY = zoneFormat(() => SalaI18n.locale(), { weekday: "short" });
-const CHAT_DAY = zoneFormat(() => SalaI18n.locale(), CHAT_DAY_PARTS);
-function chatSinceText(seconds, now) {
-  const d = new Date(seconds * 1000), days = (Date.parse(CHAT_YMD.format(now)) - Date.parse(CHAT_YMD.format(d))) / 86400000;
-  const t = days <= 0 ? CHAT_HM.format(d) : days < 7 ? CHAT_WEEKDAY.format(d) + " " + CHAT_HM.format(d) : chatDayWords(d, CHAT_DAY);
-  return tl("chat.onit.since", { t });
+function chatExactText(seconds, now) {
+  const d = new Date(seconds * 1000);
+  return CHAT_YMD.format(d) === CHAT_YMD.format(new Date(now)) ? CHAT_HM.format(d) + " " + zoneLabel(d) : sleptAt(d.toISOString());
 }
 // a row of the second list: one line of the session's own (`at`: when it was first set), the topic as the first list draws a title with no address (plain text),
-// then since when and the days of a late one. All of it is set as text.
+// then since when, in the tone of its age. The since text carries the days, so a late row shows them once. All of it is set as text.
 function chatBackRow(m, now) {
-  const tone = chatBackTone(m, now), meta = el("span", { class: "wait-meta" });
-  if (m.at) meta.append(el("span", { class: tone, text: chatSinceText(m.at, now) }));
-  if (tone) meta.append(el("span", { class: tone + " age", text: tl("chat.onit.days", { n: Math.floor(chatBackAge(m, now)) }) }));
   const row = chatWaitRow({ subject: m.text }, false);
   row.classList.add("back-row");
-  if (tone) row.classList.add(tone);
-  row.append(meta);
+  row.line = m;
+  row.meta = el("span", { class: "wait-meta" });
+  row.append(row.meta);
+  paintBackRow(row, now);
+  chatExactPress(row);
   return row;
 }
+// a row's tone and its since text, painted again in place (the minute refresh, refreshChatOnit): the same row is kept, so the list keeps its scroll and its open state
+function paintBackRow(row, now) {
+  const m = row.line, tone = chatBackTone(m, now), kids = [];
+  row.classList.toggle("late", tone === "late");
+  row.classList.toggle("red", tone === "red");
+  if (m.at) kids.push(el("span", { class: tone, text: chatSinceText(m.at, now), title: chatExactText(m.at, now) }));
+  if (m.at && row.classList.contains("show-exact")) kids.push(el("span", { class: "wait-exact", text: chatExactText(m.at, now) }));
+  row.meta.replaceChildren(...kids);
+}
+// a long press on a row on touch shows its exact time under the since text (a second long press hides it); the press does not follow the row's link,
+// and a finger's long-press menu is not opened. A mouse has the time as the since text's title instead.
+function chatExactPress(row) {
+  let timer = 0, fired = false;
+  row.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "touch") return;
+    fired = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => { fired = true; row.classList.toggle("show-exact"); paintBackRow(row, Date.now()); }, 500);
+  });
+  row.addEventListener("pointerup", () => { clearTimeout(timer); if (fired) setTimeout(() => { fired = false; }, 300); });
+  row.addEventListener("pointercancel", () => clearTimeout(timer));
+  row.addEventListener("pointerleave", () => clearTimeout(timer));
+  row.addEventListener("contextmenu", (e) => { if (fired) e.preventDefault(); });
+  row.addEventListener("click", (e) => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; } }, true);
+}
+// the minute: each row's since text and tone again, in place, and the tab's late count and dot with them; the list itself is not repainted
+function refreshChatOnit() {
+  const u = chatView.ui;
+  if (!u || !chatEntryOn()) return;
+  const now = Date.now();
+  for (const row of u.onitList.children) paintBackRow(row, now);
+  paintChatWait();
+}
+setInterval(refreshChatOnit, 60000);
 function chatWaitRow(w, tagNew = true) {
   // the board id (as stackshot wrote it) is a plain label before the title; the whole title is the one link to the item (no url: plain text). A row with no subject
   // shows the id as its title, once.

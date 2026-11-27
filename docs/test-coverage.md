@@ -5442,6 +5442,14 @@ Kept (`test_chat_answer_ui.py`, a headless Chromium against the real server and 
 
 Not covered, and why: the board's real frame and its sign-in (the stand-in speaks the message shape only); a real phone's on-screen keyboard (the viewport is set by the test); two frames of one item sharing their state, which is the board's page's own; Firefox and Safari.
 
+### The "On it" since time: thresholds, the minute refresh and the exact time: `web/tests/test_chat_onit.py` and `test_chat_onit_ui.py` (browser) changed (Fri Nov 27th 2026)
+
+The since text on each "On it" row ("just now", "since N min ago", "since N hours ago", "since N days ago", in Korean with its unit) rounds down to whole units and no longer repeats the day count in a separate badge (`chat.onit.days` is gone). A wrong answer is a row that reads "since 1 hour ago" at 59 minutes, a count shown twice on one row, a list that closes or loses its scroll when the minute repaints, or the exact time missing on hover or a touch press, or a press on a touch that also follows the row's link.
+
+Kept (`test_chat_onit.py`, no browser; the helpers run in node): the thresholds (under a minute is "just now", then whole minutes, hours under a day, then days, each rounded down), a row late past two days and red past five; the Korean wording with its unit and the count once; the minute refresh repaints each row in place, so the list keeps the same rows; a touch long-press shows the exact KST time and swallows the click, a mouse press does not.
+
+Kept (`test_chat_onit_ui.py`, a headless Chromium at 1280x800 and 390x844, else skipped; GitHub CI runs it): the row's since text is exactly "since 3 days ago" (late, amber), "since 7 days ago" (red) and "since 1 hour ago"; a fresh row reads "just now" or "since 1 min ago"; each row's exact-time tip matches the KST format. The no-sideways-scroll check of the open list at 1280, 390, 360 and 320 px is the same file's existing test; it does not open the exact-time line, which is not covered at 320 px.
+
 ### The chat strip's second tab lists what was promised: `web/tests/test_chat_onit.py` new, `test_involved.py` removed, `test_chat_onit_ui.py` (browser) rewritten; the strip's other tests and `tests/motion.sh` follow (Thu Nov 26th 2026)
 
 The second tab, "On it", lists the chat session's own `sala motion` lines (what it has promised to report back and has not reported yet) in place of the board items it was contact of or an observer on, the separate block under the tabs that showed those lines is gone, and a line no longer expires after a day. A wrong answer is a promise that drops off the list before it is kept, one whose clock starts again, another session's lines on the page, or a page that scrolls sideways under a long topic.
