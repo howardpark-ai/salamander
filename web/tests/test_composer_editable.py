@@ -21,14 +21,12 @@ import json
 
 from conftest import CHAT_READY, NAME
 from sala_web.app import STATIC
+from send_stub import spy_send
 from test_composer_attach import PNG, WAIT_CHIPS
 
 INDEX = (STATIC / "index.html").read_text()
 # the send is captured in the page: the fake session has no pane, and the payload is what these tests are about
-SPY_SEND = """(() => { window.__sent = []; const real = window.fetch;
-  window.fetch = (u, o) => { if (String(u).includes("/send")) { __sent.push(JSON.parse(o.body));
-    return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } })); }
-    return real(u, o); }; document.querySelector("#input").focus(); return document.activeElement.id; })()"""
+SPY_SEND = spy_send('document.querySelector("#input").focus(); return document.activeElement.id;')
 STATE = """({ text: getText(), empty: !!document.querySelector("#composer-editor .cm-placeholder"),
    sent: window.__sent || [], sendEnabled: !document.querySelector("#send").disabled,
    lines: Math.round((document.querySelector("#input").getBoundingClientRect().height - 8) / 22) })"""

@@ -12,6 +12,8 @@ in a state it is not in (the page says delivered for a message the session never
 - the transcript's user lines, queued_command attachments and a joined line ("T1 T2") mark the right messages delivered, in order, never
   one that was typed after the line and never one the line does not show;
 - a message is "lost" only with an enqueue line that carries exactly it, no line after that took it, in the CLI's first-in-first-out order;
+- for a take-back, the CLI's queue is read from those lines, only sala's own messages are matched in it, and the lines written after the
+  Up say which came back, which the session took first and which nothing speaks of; no line is read twice or missed between the two looks;
 - the cleared-text log (what sala emptied out of a pane's input line before it typed a message) is one JSON line a record, mode 600, with the
   text as it was (a multi-line draft whole, Korean as itself), and past its size keeps the newest whole lines, not a cut one.
 """
@@ -272,3 +274,58 @@ def test_the_cleared_text_log_past_its_size_keeps_the_newest_whole_lines(tmp_pat
     raw = (tmp_path / OB.CLEARED_FILE).read_text(encoding="utf-8")
     assert len(raw.encode("utf-8")) <= 2000 and all(ln.startswith("{") and ln.endswith("}") for ln in raw.splitlines())
     assert [p.name for p in tmp_path.iterdir()] == [OB.CLEARED_FILE]                       # no temporary file left behind
+
+
+def _op(op, text=None, ts=10, raw=None):
+    return {"op": op, "ts": ts, "text": text, "raw": raw}
+
+
+def test_the_queue_is_the_enqueued_texts_less_the_named_ones_and_a_bare_dequeue_takes_the_oldest_message():
+    enq = lambda t: _op("enqueue", t)
+    assert OB.queue_items([enq("A"), enq("B")]) == ["A", "B"]
+    assert OB.queue_items([enq("A"), enq("B"), _op("popAll", "A"), _op("popAll", "B")]) == []
+    assert OB.queue_items([enq("A"), enq("B"), enq("C"), _op("remove", "B")]) == ["A", "C"]
+    assert OB.queue_items([enq("A"), _op("remove", "from before the look")]) == ["A"]
+    note = "<task-notification><task-id>x</task-id></task-notification>"
+    assert OB.queue_items([enq(note), enq("A"), enq("B"), _op("dequeue")]) == [note, "B"]
+    assert OB.queue_items([enq(note), _op("dequeue")]) == []
+    assert OB.queue_items([enq("A"), enq(None)]) == ["A", None]                       # a textless enqueue matches no message
+    assert OB.queue_items([]) == []
+
+
+def test_the_newest_queued_item_takes_the_newest_message_with_its_words_and_the_rest_is_foreign():
+    queued = [{"id": "old", "text": "ok"}, {"id": "b", "text": "two\nlines"}, {"id": "new", "text": "ok"}]
+    note = "<task-notification>n</task-notification>"
+    wanted, foreign = OB.match_queue([note, OB.norm_text("two\nlines"), "ok"], queued)
+    assert [i for i, _t in wanted] == ["b", "new"] and foreign == []
+    wanted, foreign = OB.match_queue(["ok", "who typed this", None], queued)
+    assert [i for i, _t in wanted] == ["new"] and foreign == ["who typed this", None]
+
+
+def test_a_popall_line_names_a_message_only_when_stamped_after_it_was_sent_one_line_each():
+    queued = [{"id": "a", "text": "ok", "sentAt": 100}, {"id": "b", "text": "ok", "sentAt": 100}, {"id": "c", "text": "late", "sentAt": 100}]
+    ops = [_op("popAll", "ok", ts=150), _op("popAll", "late", ts=50), _op("remove", "late", ts=150)]
+    assert OB.popped_ids(queued, ops) == ["a"]
+    assert OB.popped_ids(queued, ops + [_op("popAll", "ok", ts=160)]) == ["a", "b"]
+
+
+def test_the_lines_after_the_up_say_what_came_back_what_the_session_took_and_what_nothing_speaks_of():
+    wanted = [("a", "A"), ("b", "B"), ("c", "C"), ("d", "D")]
+    ops = [_op("remove", "A"), _op("popAll", "C"), _op("popAll", "X", raw="X\n  as typed"), _op("dequeue")]
+    assert OB.settle_take_back(wanted, ops) == (["c"], ["a", "b"], ["d"], ["X\n  as typed"])
+    assert OB.settle_take_back(wanted, []) == ([], [], ["a", "b", "c", "d"], [])
+    assert OB.settle_take_back([], [_op("popAll", "<system-reminder>x")]) == ([], [], [], [])
+
+
+def test_a_look_at_the_queue_and_the_read_after_it_see_every_line_once_even_a_half_written_one(tmp_path):
+    f = tmp_path / "t.jsonl"
+    line = lambda t: json.dumps({"type": "queue-operation", "operation": "enqueue", "timestamp": "2026-11-27T00:00:00.000Z", "content": t})
+    half = line("second")
+    f.write_text(line("first") + "\n" + half[:30], encoding="utf-8")
+    mark, ops = OB.snapshot_ops(f, 0, 1 << 20)
+    assert [o["text"] for o in ops] == ["first"]
+    with f.open("a", encoding="utf-8") as out:
+        out.write(half[30:] + "\n" + line('<pasted_content id="ab12">\nthird\n  indented\n</pasted_content id="ab12">') + "\n")
+    later = OB.read_ops(f, 0, start=mark)
+    assert [o["text"] for o in later] == ["second", OB.norm_text("third indented")] and later[1]["raw"] == "third\n  indented"
+    assert OB.snapshot_ops(tmp_path / "none", 0, 100) == (0, [])

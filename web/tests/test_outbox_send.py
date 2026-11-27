@@ -15,6 +15,11 @@ evidence, a retry), or a Cancel that the page reports as done while the text goe
   keys cannot clear holds the message and nothing is typed into it;
 - a lone option number or esc passes at once while a dialog has it, whatever is held; a `!` command is never held;
 - cancel and edit take a held message back (an edit rejoins at the end), and answer "too late", changing nothing, once it is typed;
+- a message still in the CLI's queue (typed mid-turn, not read yet) is taken back with one Up that pulls the whole queue into the box; the
+  others go back to held and are typed again in order; text already in the input line is cleared (and kept) first; refused (busy, nothing
+  pressed) with a dialog, a line that cannot be cleared, a queue that does not read back as sala's, an upload in the queue; one the session
+  took first is `tooLate` while the others are still typed again; what the Up cannot be confirmed to have pulled is failed with its text
+  kept and never typed again; a message pulled into the box by an Up that was not sala-web's is failed too, so it is not shown as waiting;
 - the list survives a restart; a message half typed at the restart is failed, never typed again;
 - a message the session's process ended without reading, with the CLI's enqueue line as evidence, is sent again; one the transcript
   shows delivered is not; one with no evidence stays queued;
@@ -59,6 +64,14 @@ class Pane:
         self.mode = "idle"          # idle | dialog | blank | suggest (the box shows Claude Code's dim suggestion)
         self.draft = ""
         self.stuck = False          # Ctrl+U changes nothing
+        self.busy = False           # a turn runs: a message typed now waits in the CLI's queue (an enqueue line), it does not run
+        self.queue: list[str] = []  # the CLI's queue, oldest first; an Up pulls all of it into the box (a popAll line per message)
+        self.up_mute = False        # Up does nothing
+        self.up_silent = False      # Up fills the box and no popAll line is written (nothing confirms what came back)
+        self.takes = 0              # how many queued messages the session takes just as the Up is pressed (a turn ending mid take-back)
+        self.late: list[str] = []   # texts that reach the queue between sala-web's look and its Up (typed in the terminal)
+        self.recall = ""            # what an Up recalls into the box when nothing is queued (the last prompt, from history)
+        self.ups = 0
         self.submitted: list[str] = []
         self.keys: list[str] = []
         self.edits: list[str] = []
@@ -70,7 +83,9 @@ class Pane:
             return (FIX / "capture-empty.txt").read_text()
         if self.mode == "blank":
             return "Loading the conversation\n" * 3
-        return f"old output\n{RULE}\n{PROMPT}{NBSP}{self.draft}\n{RULE}\n"
+        first, *more = self.draft.split("\n")
+        body = [f"{PROMPT}{NBSP}{first}"] + [f"  {x}" for x in more]
+        return "\n".join(["old output", RULE, *body, RULE]) + "\n"
 
 
 def until(fn, secs=10.0):
@@ -108,10 +123,29 @@ def env(tmp_path, monkeypatch):
     async def paste(_s, pane_id, text):
         pane.draft += text
 
+    def tr_file() -> Path:
+        d = claude / "projects" / TR.project_slug("/tmp")
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{SID}.jsonl"
+
+    def tr_line(d: dict) -> None:
+        with tr_file().open("a", encoding="utf-8") as f:
+            f.write(json.dumps(d) + "\n")
+
+    def queue_op(op: str, content: str | None = None) -> dict:
+        d = {"type": "queue-operation", "operation": op, "timestamp": iso(int(time.time() * 1000)), "sessionId": SID}
+        if content is not None:
+            d["content"] = content
+        return d
+
     async def send_enter(_s, pane_id):
         if pane.draft:
-            pane.submitted.append(pane.draft)
+            text = pane.draft
+            pane.submitted.append(text)
             pane.draft = ""
+            if pane.busy:
+                pane.queue.append(text)
+                tr_line(queue_op("enqueue", text))
 
     async def send_key(_s, pane_id, key):
         pane.keys.append(key)
@@ -120,6 +154,28 @@ def env(tmp_path, monkeypatch):
         pane.edits.append(key)
         if key == "C-u" and not pane.stuck:
             pane.draft = ""
+
+    async def send_take_back_key(_s, pane_id, key):
+        assert key == "Up", key
+        pane.ups += 1
+        if pane.up_mute:
+            return
+        for text in pane.late:
+            pane.queue.append(text)
+            tr_line(queue_op("enqueue", text))
+        pane.late = []
+        for _ in range(min(pane.takes, len(pane.queue))):
+            tr_line(queue_op("remove", pane.queue.pop(0)))
+        pane.takes = 0
+        pulled = [t for t in pane.queue if not t.startswith("<task-notification")]
+        if not pulled:
+            pane.draft = pane.recall
+            return
+        if not pane.up_silent:
+            for text in pulled:
+                tr_line(queue_op("popAll", text))
+        pane.draft = "\n".join(pulled)
+        pane.queue = [t for t in pane.queue if t.startswith("<task-notification")]
 
     async def no_shell(_settings):
         return None
@@ -130,6 +186,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "send_enter", send_enter)
     monkeypatch.setattr(T, "send_key", send_key)
     monkeypatch.setattr(T, "send_edit_key", send_edit_key)
+    monkeypatch.setattr(T, "send_take_back_key", send_take_back_key)
+    monkeypatch.setattr(AP, "TAKE_BACK_WAIT", 0.4)
     monkeypatch.setattr(T, "CLEAR_SETTLE", 0)
     monkeypatch.setattr(T, "CLEAR_STALL_SETTLE", 0)
     monkeypatch.setattr(S, "live_tmux_names", lambda: {})
@@ -298,11 +356,11 @@ def test_cancel_takes_a_held_message_back_and_it_is_not_sent_later(env):
     assert b["id"] in [m["id"] for m in env.msgs()]
 
 
-def test_cancel_after_it_is_typed_says_too_late_and_changes_nothing(env):
+def test_cancel_of_a_message_typed_at_an_idle_pane_with_no_transcript_line_is_busy_and_changes_nothing(env):
     m = env.post("already in").json()["message"]
     r = env.client.post(f"/api/outbox/{NAME}/{m['id']}/cancel")
-    assert r.status_code == 409 and r.json()["tooLate"] is True and "too late" in r.json()["error"] and r.json()["state"] == "queued"
-    assert env.states() == [("already in", "queued", None)] and env.pane.submitted == ["already in"]
+    assert r.status_code == 409 and r.json()["busy"] is True and "transcript" in r.json()["error"] and r.json()["state"] == "queued"
+    assert env.states() == [("already in", "queued", None)] and env.pane.submitted == ["already in"] and env.pane.ups == 0
     assert env.client.post(f"/api/outbox/{NAME}/nope/cancel").status_code == 404
 
 
@@ -317,8 +375,212 @@ def test_edit_withdraws_the_old_message_and_the_new_one_joins_at_the_end(env):
     assert until(lambda: len(env.pane.submitted) == 2)
     assert env.pane.submitted == ["B", "A edited"]                                       # the edited one went to the end
     typed = env.client.post(f"/api/outbox/{NAME}/{r.json()['message']['id']}/edit", json={"text": "too late now"})
-    assert typed.status_code == 409 and typed.json()["tooLate"] is True
-    assert env.pane.submitted == ["B", "A edited"] and "too late now" not in [m["text"] for m in env.msgs()]
+    assert typed.status_code == 409 and typed.json()["busy"] is True and typed.json()["state"] == "queued"
+    assert env.pane.submitted == ["B", "A edited"] and env.pane.ups == 0 and "too late now" not in [m["text"] for m in env.msgs()]
+
+
+# ── a queued message (the CLI's queue, not yet read): take back, cancel, edit ─────────────────────────────────
+def busy_queue(env, *texts: str) -> list[str]:
+    """The session is mid-turn: each text is typed into the CLI's queue and stays queued there (an enqueue line each)."""
+    env.pane.busy = True
+    return [env.post(t).json()["message"]["id"] for t in texts]
+
+
+def test_cancel_of_a_queued_message_pulls_the_queue_back_and_the_others_go_in_again_in_order(env):
+    ids = busy_queue(env, "A", "B", "C")
+    assert [x[1] for x in env.states()] == ["queued", "queued", "queued"] and env.pane.queue == ["A", "B", "C"]
+    r = env.client.post(f"/api/outbox/{NAME}/{ids[1]}/cancel")
+    assert r.status_code == 200 and r.json()["message"]["state"] == "withdrawn" and r.json()["message"]["text"] == "B", r.text
+    assert env.pane.ups == 1 and env.pane.draft == ""                          # one Up, the box emptied again
+    assert until(lambda: env.pane.queue == ["A", "C"])                          # A and C re-typed in order, not B
+    assert until(lambda: env.states() == [("A", "queued", None), ("B", "withdrawn", None), ("C", "queued", None)])
+    time.sleep(0.3)
+    assert env.pane.submitted == ["A", "B", "C", "A", "C"] and env.pane.ups == 1
+
+
+def test_edit_of_a_queued_message_puts_the_new_text_at_the_end_behind_the_others(env):
+    ids = busy_queue(env, "A", "B")
+    r = env.client.post(f"/api/outbox/{NAME}/{ids[0]}/edit", json={"text": "A2"})
+    assert r.status_code == 200 and r.json()["withdrawn"] == ids[0] and r.json()["message"]["text"] == "A2", r.text
+    assert until(lambda: env.pane.queue == ["B", "A2"])
+    assert env.pane.submitted == ["A", "B", "B", "A2"] and env.pane.ups == 1
+
+
+def cancel(env, mid):
+    return env.client.post(f"/api/outbox/{NAME}/{mid}/cancel")
+
+
+def other_line(env, op: str, content: str | None = None) -> None:
+    """A queue-operation line the pane's session wrote on its own."""
+    d = {"type": "queue-operation", "operation": op, "timestamp": iso(int(time.time() * 1000)), "sessionId": SID}
+    append(transcript(env), [d if content is None else {**d, "content": content}])
+
+
+def test_a_dialog_refuses_the_take_back_and_nothing_is_changed(env):
+    (m,) = busy_queue(env, "A")
+    env.pane.mode = "dialog"
+    r = cancel(env, m)
+    assert r.status_code == 409 and r.json()["busy"] is True and "dialog" in r.json()["error"] and "nothing was changed" in r.json()["error"]
+    assert env.pane.ups == 0 and env.pane.keys == [] and env.pane.edits == [] and env.pane.queue == ["A"]
+    assert env.states() == [("A", "queued", None)]
+    r = env.client.post(f"/api/outbox/{NAME}/{m}/edit", json={"text": "A2"})
+    assert r.status_code == 409 and env.pane.ups == 0 and env.states() == [("A", "queued", None)]
+
+
+def test_text_in_the_input_line_is_cleared_and_kept_before_the_take_back(env):
+    ids = busy_queue(env, "A", "B")
+    env.pane.draft = "leftover text"
+    r = cancel(env, ids[0])
+    assert r.status_code == 200, r.text
+    assert [x["text"] for x in cleared(env)] == ["leftover text"]              # not owner's text, but never lost
+    assert env.pane.ups == 1 and env.pane.queue == ["B"] and env.pane.draft == ""
+    assert env.pane.submitted == ["A", "B", "B"]
+
+
+def test_a_line_that_cannot_be_cleared_refuses_the_take_back_and_presses_no_up(env):
+    (m,) = busy_queue(env, "A")
+    env.pane.draft = "stuck text"
+    env.pane.stuck = True
+    r = cancel(env, m)
+    assert r.status_code == 409 and r.json()["busy"] is True and "input line" in r.json()["error"]
+    assert env.pane.ups == 0 and env.pane.draft == "stuck text" and env.pane.queue == ["A"]
+    assert env.states() == [("A", "queued", None)]
+
+
+def test_a_queue_that_does_not_read_back_as_salas_is_refused_and_nothing_is_pressed(env):
+    (m,) = busy_queue(env, "A")
+    other_line(env, "enqueue", "typed by someone else")
+    r = cancel(env, m)
+    assert r.status_code == 409 and r.json()["busy"] is True and "can not take back" in r.json()["error"]
+    assert env.pane.ups == 0 and env.pane.queue == ["A"] and env.states() == [("A", "queued", None)]
+
+
+def test_the_clis_own_notice_in_the_queue_does_not_stand_in_the_way_and_is_not_typed(env):
+    (m,) = busy_queue(env, "A")
+    note = "<task-notification><task-id>x1</task-id></task-notification>"
+    env.pane.queue.insert(0, note)
+    other_line(env, "enqueue", note)
+    r = cancel(env, m)
+    assert r.status_code == 200, r.text
+    assert env.pane.queue == [note] and env.pane.submitted == ["A"]
+
+
+def test_a_queue_the_session_already_took_is_too_late_and_nothing_is_pressed(env):
+    (m,) = busy_queue(env, "A")
+    env.pane.queue = []                                                        # the CLI took it: a dequeue line, no Up needed
+    other_line(env, "dequeue")
+    r = cancel(env, m)
+    assert r.status_code == 409 and r.json()["tooLate"] is True and "taken" in r.json()["error"] and r.json()["state"] == "queued"
+    assert env.pane.ups == 0 and env.states() == [("A", "queued", None)] and env.pane.submitted == ["A"]
+
+
+@pytest.mark.parametrize("which", [0, 1], ids=["cancel-the-taken-one", "cancel-a-pulled-one"])
+def test_a_turn_that_ends_mid_take_back_loses_nothing_and_types_nothing_twice(env, which):
+    ids = busy_queue(env, "A", "B", "C")
+    env.pane.takes = 1                                                         # the session takes A as the Up is pressed
+    r = cancel(env, ids[which])
+    if which == 0:
+        assert r.status_code == 409 and r.json()["tooLate"] is True, r.text
+        assert env.pane.queue == ["B", "C"] and env.pane.submitted == ["A", "B", "C", "B", "C"]
+        assert [x[1] for x in env.states()] == ["queued", "queued", "queued"]
+    else:
+        assert r.status_code == 200, r.text
+        assert env.pane.queue == ["C"] and env.pane.submitted == ["A", "B", "C", "C"]
+        assert [x[1] for x in env.states()] == ["queued", "withdrawn", "queued"]
+    time.sleep(0.4)
+    assert env.pane.submitted.count("A") == 1 and env.pane.draft == "" and env.pane.ups == 1
+
+
+def test_a_queue_taken_whole_before_the_up_is_too_late_and_the_recalled_prompt_is_cleared(env):
+    ids = busy_queue(env, "A", "B")
+    env.pane.takes = 2
+    env.pane.recall = "B"                                                      # the Up brings the last prompt back from history
+    r = cancel(env, ids[1])
+    assert r.status_code == 409 and r.json()["tooLate"] is True, r.text
+    assert env.pane.draft == "" and cleared(env) == []                          # it is the session's already: not "lost text"
+    time.sleep(0.4)
+    assert env.pane.submitted == ["A", "B"] and [x[1] for x in env.states()] == ["queued", "queued"]
+
+
+def test_a_text_that_reached_the_queue_just_before_the_up_is_typed_again_after_the_others(env):
+    ids = busy_queue(env, "A", "B")
+    env.pane.late = ["typed in the terminal"]
+    r = cancel(env, ids[0])
+    assert r.status_code == 200, r.text
+    assert until(lambda: env.pane.queue == ["B", "typed in the terminal"])
+    assert env.pane.submitted == ["A", "B", "B", "typed in the terminal"]
+
+
+def test_an_up_that_takes_nothing_back_changes_nothing(env):
+    ids = busy_queue(env, "A", "B")
+    env.pane.up_mute = True
+    r = cancel(env, ids[1])
+    assert r.status_code == 409 and r.json()["busy"] is True and "nothing back" in r.json()["error"], r.text
+    assert env.pane.ups == 1 and env.pane.queue == ["A", "B"] and env.pane.edits == []
+    assert [x[1] for x in env.states()] == ["queued", "queued"]
+    time.sleep(0.4)
+    assert env.pane.submitted == ["A", "B"]
+    env.pane.up_mute = False                                                    # asked again, it works
+    assert cancel(env, ids[1]).status_code == 200 and env.pane.queue == ["A"]
+
+
+def test_an_up_that_cannot_be_confirmed_fails_the_queued_messages_with_their_text_kept_and_types_nothing(env):
+    ids = busy_queue(env, "A", "B")
+    env.pane.up_silent = True
+    r = cancel(env, ids[1])
+    assert r.status_code == 409 and r.json()["busy"] is True and "could not be confirmed" in r.json()["error"], r.text
+    assert env.pane.ups == 1 and env.pane.draft == "" and [x["text"] for x in cleared(env)] == ["A\nB"]
+    assert env.states() == [("A", "failed", None), ("B", "failed", None)]
+    assert [m["text"] for m in env.msgs()] == ["A", "B"] and all(m["error"] for m in env.msgs())
+    time.sleep(0.4)
+    assert env.pane.submitted == ["A", "B"]                                  # nothing typed again by the pump
+
+
+def test_a_multi_line_queued_message_is_typed_again_as_it_was(env):
+    two = "line one\n\n  line two, indented"
+    korean = "\ud55c\uae00 \uba54\uc2dc\uc9c0"
+    ids = busy_queue(env, two, "B", korean, "x" * 9000)
+    r = cancel(env, ids[1])
+    assert r.status_code == 200, r.text
+    assert env.pane.queue == [two, korean, "x" * 9000]
+    assert [x[1] for x in env.states()] == ["queued", "withdrawn", "queued", "queued"]
+
+
+def test_a_queued_message_with_an_upload_is_not_taken_back_and_nothing_is_pressed(env):
+    up = env.client.post("/api/upload", content=b"\x89PNG fake", headers={"Content-Type": "image/png"}).json()["name"]
+    env.pane.busy = True
+    m = env.post("see this", uploads=[up]).json()["message"]
+    assert m["state"] == "queued" and m["uploads"] == [up]
+    r = cancel(env, m["id"])
+    assert r.status_code == 409 and r.json()["busy"] is True and "upload" in r.json()["error"]
+    assert env.pane.ups == 0 and env.states()[0][1] == "queued"
+    other = env.post("plain one").json()["message"]                              # another one behind it: refused for the same reason
+    r = cancel(env, other["id"])
+    assert r.status_code == 409 and "upload" in r.json()["error"] and env.pane.ups == 0
+
+
+def test_an_up_that_was_not_sala_webs_fails_the_pulled_message_with_its_text(env):
+    busy_queue(env, "A")
+    other_line(env, "popAll", "A")                                             # someone pressed Up in the terminal
+    env.pane.queue = []
+    assert until(lambda: env.states() == [("A", "failed", None)])
+    assert "pulled back" in env.msgs()[0]["error"]
+    time.sleep(0.4)
+    assert env.pane.submitted == ["A"]
+
+
+def test_a_message_older_than_the_give_up_is_not_failed_the_moment_its_session_is_not_listed(env):
+    env.pane.mode = "dialog"
+    m = env.post("slept long").json()["message"]
+    box = env.app.state.outbox
+    box.update(NAME, m["id"], created=int((time.time() - 2 * AP.OUTBOX_GIVE_UP) * 1000))
+    env.row.unlink()
+    assert until(lambda: env.states() == [("slept long", "held", "gone")])
+    time.sleep(0.4)
+    assert env.states() == [("slept long", "held", "gone")]                      # the long while counts from when it went missing
+    env.register()
+    env.pane.mode = "idle"
+    assert until(lambda: env.pane.submitted == ["slept long"])
 
 
 def test_the_page_asking_twice_with_one_cid_sends_one_message(env):
@@ -457,6 +719,15 @@ def test_a_transcript_line_that_has_the_message_makes_it_delivered(env):
     append(transcript(env), [user_line("did you get this", m["sentAt"] + 400, "00000000-0000-4000-8000-000000000001")])
     assert until(lambda: env.states() == [("did you get this", "delivered", None)])
     assert env.pane.submitted == ["did you get this"]
+
+
+def test_a_message_of_an_earlier_conversation_does_not_stand_in_the_way_of_a_later_one(env):
+    old = queued_before(env, "before the clear", env.pid, S.proc_start(env.pid))
+    env.app.state.outbox.update(NAME, old["id"], sessionId="bbbbbbbb-0000-0000-0000-000000000000")
+    m = env.post("after the clear").json()["message"]
+    append(transcript(env), [user_line("after the clear", m["sentAt"] + 400, "00000000-0000-4000-8000-000000000009")])
+    assert until(lambda: env.states()[1] == ("after the clear", "delivered", None))
+    assert env.states()[0] == ("before the clear", "queued", None) and env.pane.submitted == ["after the clear"]
 
 
 def test_a_message_the_process_ended_without_reading_is_sent_again_once(env):

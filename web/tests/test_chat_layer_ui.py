@@ -53,6 +53,7 @@ import pytest
 
 import test_chat_boot_ui as boot
 from conftest import CHAT_READY, CWD, NAME, SID, transcript_file
+from send_stub import OUTBOX
 from test_bang_live import LIVE_EVENT
 from test_bang_live import STATE as LIVE_BLOCK
 from test_board_items_ui import wait_for
@@ -78,11 +79,17 @@ SPY = """(() => {
   window.__spied = true;
   const real = window.fetch.bind(window);
   window.__reads = []; window.__sent = []; window.__fail = %s;
+  """ + OUTBOX + """
   window.fetch = (url, opts) => {
     const u = String(url);
     if (u.startsWith('api/chat/thread')) {
       window.__reads.push(u);
       if (window.__fail) return Promise.resolve(new Response('{}', { status: 502 }));
+    }
+    const box = __outboxAnswer(u, opts);
+    if (box) {
+      if (opts && opts.method === 'POST') window.__sent.push({ url: u, method: opts.method, headers: opts.headers, body: JSON.parse(opts.body) });
+      return box;
     }
     if (u.endsWith('/send')) {
       window.__sent.push({ url: u, method: opts.method, headers: opts.headers, body: JSON.parse(opts.body) });
@@ -100,6 +107,7 @@ THREAD = """[...document.querySelectorAll('#chat > .msg')].map((m) => [
 MARK = """(() => { const m = document.querySelector('#chat > .cl-mark'); if (!m) return null; const t = m.querySelector('.cl-turn');
   return { spinner: !!m.querySelector('.spinner'), turn: t.hidden ? '' : t.textContent, title: m.title,
            after: [...document.querySelectorAll('#chat > .msg')].every((n) => !!(n.compareDocumentPosition(m) & Node.DOCUMENT_POSITION_FOLLOWING)),
+           over: m.nextElementSibling === document.querySelector('#chat > .msg.waiting'),
            others: [...document.querySelectorAll('#chat > .inflight')].filter((n) => getComputedStyle(n).display !== 'none').length }; })()"""
 
 PENDING = "[...document.querySelectorAll('#chat > .msg.local')].map((n) => n.querySelector('.bubble').textContent)"
@@ -287,12 +295,13 @@ def test_the_composer_sends_the_same_request_with_the_setting_on_and_off(served,
         sent = browser.evaluate("window.__sent[0]")
         assert sent["body"]["uploads"] == chips["names"], sent
         sent["body"]["uploads"] = [n.rsplit("/", 1)[-1] for n in sent["body"]["uploads"]]   # the folder a file is stored in is new each time
-        assert wait_for(browser, "state.pending.length === 1 && state.pending[0].status === 'sent'", 10.0)
+        assert sent["body"].pop("cid"), sent   # the page's own id for the message, new each time
+        assert wait_for(browser, "state.pending.length === 1 && state.pending[0].status === 'waiting'", 10.0)
         bubble = browser.evaluate("(() => { const b = document.querySelector('#chat > .msg.local'); return [b.className, b.querySelector('.bubble').textContent, "
                                   "b.querySelector('.sf-name').textContent]; })()")
         got[layer] = (sent, bubble, browser.evaluate("[document.querySelectorAll('#chips .chip').length, getText()]"))
     assert got["on"] == got[None], got
-    assert got["on"][0]["method"] == "POST" and got["on"][0]["url"] == f"api/s/{os.getpid()}/send", got
+    assert got["on"][0]["method"] == "POST" and got["on"][0]["url"] == f"api/outbox/{NAME}", got
     assert got["on"][0]["body"]["text"] == "Read the notes.\nThen answer." and got["on"][2] == [0, ""], got
 
 
@@ -330,7 +339,15 @@ def test_a_message_just_sent_sets_the_language_the_mark_is_held_against(served, 
     send(browser, "go on in English please")
     assert wait_for(browser, f"document.querySelector('#chat .cl-turn').textContent === {json.dumps(EN_TURN)}", 10.0), browser.evaluate(MARK)
     m = browser.evaluate(MARK)
-    assert m["after"], "the mark stays under the bubble"
+    assert m["over"], "the mark stands above the waiting bubble"
+    # the turn's reply arrives and another turn starts: both are what reached Claude, so both go in above the mark
+    append(served, assistant("A later note.", 2), human("and one more", 3), assistant(EN_TURN, 3, stop="tool_use", tool=True), tool_result(3))
+    assert wait_for(browser, "[...document.querySelectorAll('#chat > .msg:not(.local)')].some((n) => n.textContent.includes('A later note.'))", 20.0)
+    order = ("(() => { const all = [...document.querySelector('#chat').children], at = (f) => all.findIndex(f); "
+             "const arrived = at((n) => n.matches('.msg') && n.textContent.includes('and one more')); "
+             "return arrived >= 0 && arrived < at((n) => n.matches('.cl-mark')) && "
+             "at((n) => n.matches('.cl-mark')) + 1 === at((n) => n.matches('.msg.waiting')); })()")
+    assert wait_for(browser, order, 10.0), browser.evaluate(THREAD)
 
 
 # ── older messages ───────────────────────────────────────────────────────────

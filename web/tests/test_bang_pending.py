@@ -5,7 +5,7 @@ block ("! <command>"), never a text block, so the pending bubble (matched agains
 flipped to "queued" after QUEUED_AFTER_MS. Checked here: the parser's block for a real <bash-input> record (its shape from
 a real transcript: a plain user record, then a separate <bash-stdout> record), a pending `!` bubble merging with that
 block (whitespace-normalised, the "!" with or without a space), a different command or an old one not merging, an
-ordinary message still merging and still turning "queued", the `!` bubble never turning "queued" and offering no Retry,
+ordinary message still merging and a slash command still turning "queued", the `!` bubble never turning "queued" and offering no Retry,
 and a `!` bubble not taken by the "first new prompt" fallback of an ordinary message.
 
 The page parts run in a headless Chromium when one is installed (conftest.py: `served`, `browser`); without one they are
@@ -23,7 +23,7 @@ from test_composer_editable import SPY_SEND, enter, typed
 ARM = """(() => { window.__timers = []; const real = window.setTimeout;
   window.setTimeout = (f, ms, ...a) => { if (ms === QUEUED_AFTER_MS) { __timers.push(f); return 0; } return real(f, ms, ...a); };
   window.__fail = false; const f0 = window.fetch;
-  window.fetch = (u, o) => { if (String(u).includes("/send") && window.__fail) return Promise.reject(new Error("network down")); return f0(u, o); };
+  window.fetch = (u, o) => { if (window.__fail && o && o.method === "POST") return Promise.reject(new Error("network down")); return f0(u, o); };
   return true; })()"""
 SETTLED = """new Promise((res) => { const t0 = Date.now(); (function poll() {
   if (!state.sending || Date.now() - t0 > 5000) res(!state.sending); else setTimeout(poll, 20); })(); })"""
@@ -110,14 +110,20 @@ def test_a_failed_bang_send_offers_edit_but_no_retry(served, browser):
     assert len(got) == 1 and "failed" in got[0]["cls"] and got[0]["buttons"] == ["Edit"], got
 
 
-def test_an_ordinary_message_still_merges_and_still_turns_queued(served, browser):
+def test_an_ordinary_message_waits_and_merges_and_a_slash_command_turns_queued(served, browser):
     opened(browser, served)
     send_text(browser, "hello there")
-    browser.evaluate("__timers.forEach((f) => f())")
     got = browser.evaluate(BUBBLES)
-    assert len(got) == 1 and "queued" in got[0]["cls"] and "Queued: not in the transcript yet" in got[0]["note"], got
+    assert len(got) == 1 and "waiting" in got[0]["cls"] and browser.evaluate("__timers.length") == 0, got   # the server tracks it: no timer
     browser.evaluate('renderMessage({ role: "user", uuid: "o-1", blocks: [{ kind: "text", text: "hello  there" }] }, { live: true })')
     assert browser.evaluate("state.pending.length") == 0 and browser.evaluate(BUBBLES) == []
+    # a slash command goes to the pane at once, and reads as waiting, with nothing to press, until the transcript has it
+    send_text(browser, "/cost")
+    browser.evaluate("__timers.forEach((f) => f())")
+    got = browser.evaluate(BUBBLES)
+    assert len(got) == 1 and "queued" in got[0]["cls"] and got[0]["buttons"] == [], got
+    assert browser.evaluate("document.querySelector('#chat > .msg.local .waiting-line b').textContent") == "Waiting"
+    browser.evaluate("dropPending(state.pending[0]); ''")
     # a failed ordinary message keeps its Retry
     browser.evaluate("window.__fail = true")
     send_text(browser, "again")

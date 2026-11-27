@@ -14,7 +14,7 @@ from test_composer_editable import enter, open_composer, typed
 # JS: the answer of the send endpoint, by mode; every other request goes through
 STUB = """(() => { const real = window.fetch;
   window.fetch = (u, o) => {
-    if (!String(u).includes("/send")) return real(u, o);
+    if (!(o && o.method === "POST" && /\\/send$|^api\\/outbox\\//.test(String(u)))) return real(u, o);
     const m = %s;
     if (m.reject) return Promise.reject(new TypeError("Failed to fetch"));
     return Promise.resolve(new Response(m.body, { status: m.status, statusText: m.statusText || "", headers: m.json ? { "Content-Type": "application/json" } : {} })); };

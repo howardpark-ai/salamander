@@ -34,6 +34,7 @@ from pathlib import Path
 
 import pytest
 
+from send_stub import spy_send
 from test_board_items_ui import BOARD, FAKE, NAMES, PIDS, stub, wait_for, wait_side
 
 A, B, C = FAKE, "demo", "gamma-quiet"
@@ -726,10 +727,7 @@ def drafted(name: str, text: str) -> str:
     return f"localStorage.getItem('salaweb.draft.{name}') === {json.dumps(text)}"
 
 
-SPY_SEND = """(() => { window.__sent = []; const real = window.fetch;
-  window.fetch = (u, o) => { if (String(u).includes("/send")) { __sent.push(JSON.parse(o.body));
-    return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } })); }
-    return real(u, o); }; return true; })()"""
+SPY_SEND = spy_send()
 
 
 def test_unsent_text_is_kept_per_session_and_the_composer_is_emptied_on_a_switch(served, browser):

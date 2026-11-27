@@ -696,8 +696,9 @@ async function loadSessions() {
   perfMark("sessions:rendered", { count: state.byName.size });
   // a reply that arrived while the owner has this session open (and is looking at the page) is read as it lands
   if (state.selected && !document.hidden) markRead(state.selected);
-  for (const [k, w] of waking) { const t = state.byName.get(k); if (!isSleeping(t)) { waking.delete(k); w.state = "woke"; } }   // it is awake (or gone): nothing left to follow
+  for (const [k, w] of waking) { const t = state.byName.get(k); if (!isSleeping(t)) { waking.delete(k); w.state = "woke"; persistHeld(); } }   // it is awake (or gone): nothing left to follow
   settleHeld();   // what was held for a session that is live now goes in
+  SalaWaiting.tick();   // waiting messages: a sleeper's list from the server, and the shown session's buttons by its status now
   // keep the selection in step with the registry (a relaunched session gets a new pid)
   if (state.selected) {
     const s = state.byName.get(state.selected);
@@ -1221,14 +1222,27 @@ function updateHeader(s) {
   layoutHeader();
   updateInflight();
 }
-// in flight: a small spinner under the last message while the session works, as claude.ai shows
+// in flight: a small spinner while the session works, as claude.ai shows: under what has reached Claude, above what still waits
+function placeInflight() {
+  const chat = $("#chat"), n = chat.querySelector(":scope > .inflight");
+  const first = n && chat.querySelector(":scope > .cl-mark, :scope > .msg.waiting");   // .cl-mark: the dedicated chat's own mark, which this hidden one stays above
+  if (n && n.nextElementSibling !== first) chat.insertBefore(n, first);   // neither: at the end
+}
+// a bubble goes to its side of the spinner: a waiting one to the bottom, any other above the spinner. Both stay above a running command's
+// block and the question card
+function placeBubble(node) {
+  const chat = $("#chat");
+  const under = node.classList.contains("waiting") ? ":scope > .live-bang, :scope > .q-card" : ":scope > .inflight, :scope > .live-bang, :scope > .q-card";
+  chat.insertBefore(node, chat.querySelector(under));
+  placeInflight();
+}
 function updateInflight() {
   const chat = $("#chat");
   if (window.SalaQuestionCard) SalaQuestionCard.sync(ahead.active ? null : state.current);   // the card of a question the session waits on (dialogcard.js)
   let n = chat.querySelector(":scope > .inflight");
   if (!(state.current && state.current.status === "busy") || ahead.active) { if (n) n.remove(); return; }   // far back: it shows at the live end
-  if (!n) n = el("div", { class: "inflight", role: "status", title: tl("app.working"), "aria-label": tl("app.working") }, el("span", { class: "spinner" }));
-  if (chat.lastElementChild !== n) chat.append(n);
+  if (!n) chat.append(el("div", { class: "inflight", role: "status", title: tl("app.working"), "aria-label": tl("app.working") }, el("span", { class: "spinner" })));
+  placeInflight();
 }
 
 /* ---------- board items ----------
@@ -2823,8 +2837,9 @@ async function showSleeping(s) {
   if (state.selected !== name || state.sleepView !== name) return;   // another session was opened, or it woke, meanwhile
   const now = state.byName.get(name);
   if (!isSleeping(now)) return;
-  if (!d || !d.path || !Array.isArray(d.messages)) { paintSleepNote(now); return; }
-  showTail(now, d, false);
+  if (!d || !d.path || !Array.isArray(d.messages)) paintSleepNote(now);
+  else showTail(now, d, false);
+  SalaWaiting.refresh(name);   // what waits on the server for it
 }
 // the owner asks for the wake: `how` is "send" for a message that waits for it, else the Wake button. op: the operation a page that was
 // reloaded had already queued, which is followed and not asked again
@@ -2833,7 +2848,7 @@ async function wakeSleeper(name, { how = "button", op = "" } = {}) {
   waking.set(name, w);
   const repaint = () => { redrawHeld(name); const s = state.byName.get(name); if (isSleeping(s)) paintSleeping(s); };
   repaint();
-  if (op) { w.state = "queued"; w.op = op; }
+  if (op) { w.state = "queued"; w.op = op; w.kept = true; }
   else {
     const out = await nsPost("api/wake", { name, how });
     if (waking.get(name) !== w) return;
@@ -2858,11 +2873,13 @@ async function wakeSleeper(name, { how = "button", op = "" } = {}) {
   }
 }
 
-/* ---------- a message held for a sleeper ----------
-   The first send to a sleeping session is a pending bubble in the state "held": nothing is sent to a pane that has no Claude. It waits on the wake
-   (wakeSleeper, "send") and goes through deliver() once the session is listed live, then once the pane draws its input box (the server's
-   noInputBox answer is asked again every HELD_READY_POLL_MS for HELD_READY_MS, nothing typed meanwhile). Sent once: a message leaves "held" for
-   "sending" before its first request, a retry after a refusal is the bubble's own button, and the server's duplicate window refuses a copy. */
+/* ---------- a message the page holds for a sleeper ----------
+   A message for a sleeping session is held by the server's outbox (waiting.js), which types it when the session is back. A "!" command, which the
+   server never holds, and whatever is sent to that session behind one, is a pending bubble in the state "held": nothing is sent to a pane that has
+   no Claude. It waits on the wake (wakeSleeper, "send") and goes through deliver() once the session is listed live and the server has typed what it
+   held, then once the pane draws its input box (the server's noInputBox answer is asked again every HELD_READY_POLL_MS for HELD_READY_MS, nothing
+   typed meanwhile). Sent once: a message leaves "held" for "sending" before its first request, a retry after a refusal is the bubble's own button,
+   and the server's duplicate window refuses a copy. */
 const HELD_KEY = "salaweb.held";
 const releasing = new Set();
 function persistHeld() {
@@ -2871,6 +2888,9 @@ function persistHeld() {
     if (!p.hold || p.merged || (p.status !== "held" && p.status !== "sending")) continue;
     const e = out[p.session] || (out[p.session] = { op: (waking.get(p.session) || {}).op || "", msgs: [] });
     e.msgs.push({ text: p.text, at: p.sentAt, images: p.images.map((im) => ({ name: im.name, fileName: im.file ? im.file.name : "", size: im.file ? im.file.size : 0 })) });
+  }
+  for (const [name, w] of waking) {   // the wake a server-held message waits on
+    if (w.op && !out[name] && (w.kept || SalaWaiting.active(name))) { w.kept = true; out[name] = { op: w.op, msgs: [] }; }
   }
   try { if (Object.keys(out).length) localStorage.setItem(HELD_KEY, JSON.stringify(out)); else localStorage.removeItem(HELD_KEY); } catch { /* storage unavailable */ }
 }
@@ -2890,9 +2910,13 @@ function restoreHeld() {
     }
     if (typeof e.op === "string" && e.op && isSleeping(state.byName.get(name)) && !waking.has(name)) wakeSleeper(name, { op: e.op });
   }
+  persistHeld();   // an operation no one waits on any more is not followed after the next reload
   settleHeld();
 }
-function redrawHeld(name) { for (const p of state.pending) if (p.session === name && p.status === "held") redrawPending(p); }
+function redrawHeld(name) {
+  for (const p of state.pending) if (p.session === name && p.status === "held") redrawPending(p);
+  SalaWaiting.repaint(name);
+}
 // every poll of the list: held messages of a session that is live now go in; of one the list no longer has, they are told as not sent
 function settleHeld() {
   const names = new Set(state.pending.filter((p) => p.status === "held").map((p) => p.session));
@@ -2911,6 +2935,9 @@ async function releaseHeld(name) {
   releasing.add(name);
   try {
     for (;;) {
+      if (!state.pending.some((x) => x.session === name && x.status === "held")) return;
+      // what the server holds was sent before these: it goes first
+      while (state.pending.some((x) => x.session === name && x.status === "held") && await SalaWaiting.unsent(name)) await sleep(HELD_READY_POLL_MS);
       const p = state.pending.find((x) => x.session === name && x.status === "held");   // the oldest first
       if (!p) return;
       p.status = "sending"; p.sentAt = Date.now(); p.ready = Date.now() + HELD_READY_MS; redrawPending(p);
@@ -3007,7 +3034,11 @@ function openStream(s, { resume = false } = {}) {
     if (state.current && state.current.pid === s.pid) { state.current.status = d.status; updateHeader(state.current); }
     const row = state.byName.get(s.name); if (row) { row.status = d.status; renderSidebar(); }
     if (layer) layer.status(s);
+    SalaWaiting.repaint(s.name);   // a dialog opened or closed: the waiting bubbles' reason and buttons
     chatStripSoon();
+  });
+  es.addEventListener("outbox", (e) => {   // the messages the server holds for this session (waiting.js)
+    if (state.es === es) SalaWaiting.sync(s.name, JSON.parse(e.data).messages);
   });
   es.addEventListener("gone", () => {
     perfMark("stream:gone");
@@ -3752,6 +3783,7 @@ const bangCmd = (t) => String(t || "").replace(/^\s*!\s*/, "").replace(/\s+/g, "
 
 // live: m is a new line from the stream (not the replay in a reset), so it may take the fallback below
 function matchPending(m, live) {
+  const first = SalaWaiting.firstSeen(m.uuid);
   const bang = m.blocks.find((b) => b.kind === "command" && isBang(b.text));
   if (bang) {
     const bts = Date.parse(m.sentTs || m.ts || "");
@@ -3765,8 +3797,10 @@ function matchPending(m, live) {
   if (!t && !n) return null;
   const ts = Date.parse(m.sentTs || m.ts || "");   // sentTs: a message read mid-turn, whose ts (shown) is when Claude read it
   const cands = state.pending.filter((p) => {
-    if (p.session !== state.selected || p.status === "held") return false;   // a held message has not been sent: no transcript line is its copy
-    if (!Number.isNaN(ts) && ts < p.sentAt - 120000) return false;  // an older identical prompt is not this one
+    if (p.session !== state.selected || p.status === "held" || p.state === "held") return false;   // a held message has not been sent: no transcript line is its copy
+    if (p.ob && !first) return false;
+    // an older identical prompt is not this one (once the server has the message, its time is the transcript's clock: little slack)
+    if (!Number.isNaN(ts) && ts < p.sentAt - (p.mid ? 5000 : 120000)) return false;
     const pt = normText(p.text);
     if (!pt && !t) return p.images.length === n;
     // a long prompt may come back truncated (TEXT_LIMIT): compare the start
@@ -3777,7 +3811,8 @@ function matchPending(m, live) {
   // Fallback when Claude Code changed the text in a way not foreseen here: the first new prompt of the owner's own
   // (a text block, not a notice) to arrive after a send is that send, so it takes the oldest pending bubble.
   if (!live || !texts.length) return null;
-  return state.pending.find((p) => p.session === state.selected && p.status !== "held" && !isBang(p.text) && (Number.isNaN(ts) || ts >= p.sentAt - 10000)) || null;
+  // not a message the server tracks: it says itself when such a one was delivered
+  return state.pending.find((p) => p.session === state.selected && !p.ob && p.status !== "held" && !isBang(p.text) && (Number.isNaN(ts) || ts >= p.sentAt - 10000)) || null;
 }
 
 function dropPending(p, { keepImages = false } = {}) {
@@ -3787,10 +3822,13 @@ function dropPending(p, { keepImages = false } = {}) {
   p.node.remove();
   if (!keepImages) for (const im of p.images) if (im.url) URL.revokeObjectURL(im.url);
   if (p.hold) { p.hold = false; persistHeld(); }
+  if (p.ob) SalaWaiting.forget(p);
 }
 
 function pendingNode(p) {
-  const box = el("div", { class: "msg user local " + p.status + (p.status === "queued" ? "" : " pending") });
+  const waits = SalaWaiting.waits(p);
+  // "pending" keeps a bubble at the bottom: what the transcript gets meanwhile goes in above it (appendToChat)
+  const box = el("div", { class: "msg user local " + p.status + (waits ? " waiting" : "") + " pending" });
   const t = thumbs(p.images.filter((im) => !im.file).map((im) => im.url));
   if (t) box.append(t);
   const sentFiles = p.images.filter((im) => im.file);
@@ -3798,9 +3836,9 @@ function pendingNode(p) {
     el("div", { class: "sent-file", title: im.file.name }, fileIcon(), el("span", { class: "sf-name", text: im.file.name }),
       im.file.size ? el("span", { class: "sf-size", text: humanSize(im.file.size) }) : null))));
   if (p.text.trim()) box.append(el("div", { class: "bubble" }, ...linkNodes(p.text)));
-  if (p.status === "sending") box.append(el("div", { class: "note", text: tl("app.pend.sending") }));
+  if (waits && p.status !== "held") box.append(SalaWaiting.line(p));
+  else if (p.status === "sending") box.append(el("div", { class: "note", text: tl("app.pend.sending") }));   // a "!" command from here on, until "held"
   else if (p.status === "sent" && p.late) box.append(el("div", { class: "note", text: tl("app.pend.late") }));
-  else if (p.status === "queued") box.append(el("div", { class: "note", text: tl("app.pend.queued") }));
   else if (p.status === "held") {
     // waiting for the session it was sent to, which is asleep: the wake's state is the band's and the bubble's too; Edit takes the message back
     const w = waking.get(p.session);
@@ -3828,7 +3866,7 @@ function pendingNode(p) {
         ...(isBang(p.text) ? [] : [el("button", { type: "button", text: tl("app.pend.retry"), onclick: () => retryPending(p) })]),
         el("button", { type: "button", text: tl("app.pend.edit"), onclick: () => editPending(p) })));
   }
-  box.append(copyBar(p.text, p.sentAt));
+  box.append(copyBar(p.text, waits ? null : p.sentAt));   // a waiting message has no time: the one shown is when it reached Claude
   return box;
 }
 // "Send now", for a message that waits in the terminal's queue and nowhere else (the row that shows such a message adds it): Claude
@@ -3858,6 +3896,7 @@ function redrawPending(p) {
   const n = pendingNode(p);
   if (p.node && p.node.isConnected) p.node.replaceWith(n);
   p.node = n;
+  placeInflight();   // a bubble that began or stopped waiting
 }
 
 async function deliver(p, retry = false, replace = null) {
@@ -3914,6 +3953,7 @@ async function deliver(p, retry = false, replace = null) {
   }
 }
 function retryPending(p) {
+  if (p.ob) { SalaWaiting.retry(p); return; }
   if (state.sending) return;
   p.status = "sending"; p.sentAt = Date.now(); redrawPending(p);
   pinToBottom();
@@ -3927,9 +3967,20 @@ function replacePending(p) {
   deliver(p, false, seen);
 }
 function editPending(p) {
+  if (p.ob) { SalaWaiting.edit(p); return; }
   dropPending(p, { keepImages: true });
+  toComposer(p);
+}
+// a message taken out of the chat goes back into the composer; of a session that is not the one shown, into its saved draft
+function toComposer(p) {
+  if (state.selected !== p.session) {
+    try {
+      const had = localStorage.getItem(draftKey(p.session)) || "";
+      localStorage.setItem(draftKey(p.session), (p.text + (had ? "\n" + had : "")).slice(0, DRAFT_MAX));
+    } catch { /* storage unavailable */ }
+  }
   const cur = getText();
-  setText(p.text + (cur ? "\n" + cur : ""));
+  if (state.selected === p.session) setText(p.text + (cur ? "\n" + cur : ""));
   for (const im of p.images) {
     state.uploads.push(im.file ? { id: ++uploadSeq, kind: "file", name: im.name, fileName: im.file.name, size: im.file.size, uploading: false }
                                : { id: ++uploadSeq, name: im.name, url: im.url, uploading: false });
@@ -4297,8 +4348,13 @@ function send() {
   const ups = state.uploads.filter((u) => u.name);
   if (!text.trim() && !ups.length) return;
   // show it at once, like claude.ai; the composer empties now and the bubble holds the text if sending fails
+  // the server's outbox takes the message, so it can be edited or cancelled while it waits. Not a "!" command; nor, to a live session with
+  // nothing waiting ahead of it, a slash command; nor what follows a message this page holds itself (the order is kept)
+  const behind = state.pending.some((x) => x.session === s.name && x.status === "held");
+  const ob = !behind && !isBang(text) && (!!asleep || !SalaWaiting.isSlash(text) || SalaWaiting.active(s.name));
+  const hold = !ob && (!!asleep || behind);
   const p = { id: ++pendingSeq, session: s.name, text, images: ups.map((u) => ({ name: u.name, url: u.url, file: u.kind === "file" ? { name: u.fileName, size: u.size } : null })),
-              status: asleep ? "held" : "sending", sentAt: Date.now(), ...(asleep ? { hold: true } : {}) };
+              status: hold ? "held" : "sending", sentAt: Date.now(), ...(hold ? { hold: true } : {}), ...(ob ? { ob: true, cid: SalaWaiting.newCid() } : {}) };
   state.pending.push(p);
   setText("");
   clearDraft(s.name);   // sent: nothing to come back to
@@ -4307,9 +4363,12 @@ function send() {
   redrawPending(p);
   const empty = $("#chat > .empty");
   if (empty) empty.remove();
-  $("#chat").insertBefore(p.node, $("#chat > .inflight"));  // above the spinner, if one is showing
+  placeBubble(p.node);
   pinToBottom();
-  if (asleep) holdForWake(p); else deliver(p);
+  if (ob) SalaWaiting.post(p);
+  else if (asleep) holdForWake(p);
+  else if (hold) releaseHeld(s.name);
+  else deliver(p);
 }
 
 // Pasted images are clipboardData.files: it holds one File per item of kind "file", the same objects on every read
@@ -4631,8 +4690,8 @@ function leaveComposer() {
 // attached to the composer, and the rest of a draft longer than DRAFT_MAX. After the sign-in the messages are back as not-sent bubbles (Retry,
 // Edit; one that did arrive merges with the transcript's copy) and the files as chips.
 function keptForSignIn() {
-  const unsent = state.pending.filter((p) => !p.hold && (p.status === "failed" || p.status === "sending")).map((p) => ({
-    session: p.session, text: p.text, at: p.sentAt, error: p.status === "failed" ? p.error : tl("app.pend.noNet"),
+  const unsent = state.pending.filter((p) => !p.hold && !p.mid && (p.status === "failed" || p.status === "sending")).map((p) => ({   // one with a mid is on the server
+    session: p.session, text: p.text, at: p.sentAt, error: p.status === "failed" ? p.error : tl("app.pend.noNet"), ...(p.ob ? { cid: p.cid } : {}),
     images: p.images.map((im) => ({ name: im.name, file: im.file || { name: im.name, size: 0 } })) }));
   const files = state.uploads.filter((u) => u.name).map((u) => ({ name: u.name, fileName: u.fileName || u.name, size: u.size }));
   const text = getText(), long = state.selected && text.length > DRAFT_MAX ? { session: state.selected, text } : null;
@@ -4641,7 +4700,7 @@ function keptForSignIn() {
 function restoreFromSignIn(kept) {
   for (const m of kept.unsent) {
     const p = { id: ++pendingSeq, session: m.session, text: m.text, status: "failed", error: m.error, sentAt: m.at,
-                images: m.images.map((im) => ({ ...im, url: null })) };
+                ...(m.cid ? { ob: true, cid: m.cid } : {}), images: m.images.map((im) => ({ ...im, url: null })) };
     state.pending.push(p);
     redrawPending(p);
     if (p.session === state.selected) $("#chat").append(p.node);

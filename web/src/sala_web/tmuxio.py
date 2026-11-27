@@ -698,6 +698,20 @@ async def send_edit_key(settings: Settings, pane: str, key: str) -> None:
     await run_tmux(settings, "send-keys", "-t", pane, key)
 
 
+# Up with an empty input box and messages queued behind a running turn pulls every queued message into the box (measured on Claude
+# Code 2.1.332: two queued messages, both in the box after one Up, a popAll transcript line each). Only the outbox's take-back sends it,
+# and only once it has read the queue and found the box empty. Up is in no other list: with the box empty and no queue it recalls history.
+TAKE_BACK_KEYS = frozenset({"Up"})
+
+
+async def send_take_back_key(settings: Settings, pane: str, key: str) -> None:
+    """The one key that takes queued messages back into the input box (TAKE_BACK_KEYS). Nothing else is ever sent this way."""
+    _check_pane(pane)
+    if key not in TAKE_BACK_KEYS:
+        raise TmuxError(f"refusing to send key {key!r}")
+    await run_tmux(settings, "send-keys", "-t", pane, key)
+
+
 async def clear_box(settings: Settings, pane: str) -> tuple[bool, str]:
     """Empty the pane's input box with CLEAR_PLAN's keys, reading the box after every key and stopping as soon as it reads
     empty. Returns (True, "") when it is empty, else (False, why): the box went away, no key changed it, or CLEAR_MAX_KEYS were
