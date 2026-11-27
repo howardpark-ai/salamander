@@ -5626,3 +5626,11 @@ Covered (`test_question_card.py`, no browser, made-up screens against a simulate
 Covered (the browser files, a stubbed card route; GitHub CI runs them): the Send button of a question that is not the last and the hint above it say Next, not Send, in English and in Korean (and Send, not Next, on the last question); in the chat session's own layer the thread draws no second copy of the question that is not the last, and its tap posts the picks. A question with previews has no line on how to answer beside the card that answers it, and has the line beside a card not read as that layout, or none.
 
 Not covered, and why: a real pane with a preview or a `Next` row drawn (the screens are made up from the layout the CLI 2.1.332 binary draws).
+
+### The mockup route framed by the board: `web/tests/test_mockup.py` changed (Fri Nov 27th 2026)
+
+The path guarded: a stored page is shown in a frame on the board's page, and that frame must be allowed for the board's origin and for nobody else. The other headers of the route, the 404 and the 405, and every other route stay as they were, and a framed page gets no back link of sala's, so nothing of sala sits in a phone-width frame.
+
+Covered (`test_mockup.py`, no browser): the board's origin is the only address added to `frame-ancestors`, and only for an http(s) address with no user part (a path, an ftp address, a user part and a bare host give none); the board may frame `/mockup/<n>`, and the page, the 404 and the 405 carry the same headers as with no board address; four other routes answer the same status and headers with and without it; a load made by a frame is the page as stored, and a visit keeps the back link.
+
+Not covered, and why: whether the board's frame gets the sign-in cookie (the cookie is the proxy's and the browser's; a cross-domain frame is unverified here); the page's layout inside a real frame at phone width (the headless browser tests of this file run in GitHub CI only and do not frame a page yet).

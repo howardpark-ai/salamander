@@ -1728,6 +1728,8 @@ Referrer-Policy: no-referrer
 Cache-Control: private, no-cache
 ```
 
+`frame-ancestors` is `'self'`, plus the board's origin (scheme and host, no path) when the board address is set: `SALA_WEB_STACKSHOT_WEB`, else the `board_url` of stackshot's settings file (`mockup.headers`, `mockup.frame_origin`). So the board's page can show a mockup in a frame and nothing else can. No other header changes, no `X-Frame-Options` is sent, and every other route keeps its headers. A load made by a frame (`Sec-Fetch-Dest` `iframe` or `frame`) gets the page as stored, without the back link below; a visit (a top-level load) gets the link as before.
+
 `sandbox allow-scripts` without `allow-same-origin` gives the page an opaque origin (`self.origin` is `"null"`; `document.cookie` and `localStorage` throw `SecurityError`), so a script in the page cannot read or call sala's API;
 `connect-src 'none'` closes `fetch`, XHR, WebSocket and beacons as well. Inline scripts and styles, `data:` images and Google Fonts work. The service worker has no fetch handler, so it never touches `/mockup/`.
 `tests/test_mockup.py` checks the route and the headers and drives a real headless Chromium through a page that tries to reach the API, read the cookie and open a socket, and renders the page at a 390 px phone width.
@@ -1738,7 +1740,7 @@ a tap on `https://<host>/mockup/<n>` in a reply replaces the chat in that window
 So the server puts one plain link at the top of the body when it serves a page (`mockup.with_back_link`; the stored file is not changed): "Back to sala", an ordinary `<a href="../chat">` (relative, so it works under any path prefix;
 `/chat` answers a 302 to the chat session, or to the main page with none set). It is in the page's flow, not fixed, so it covers nothing; 44 px high at least, as wide as the page and no wider, styled inline (`all:initial`, so the
 page's own sheet does not change it). It goes right after the opening `<body>` tag (a tag inside a script, style or comment does not count); a page without a body gets it after `</head>`, else after `<html>`, else after the
-doctype. A link in a reply is **not** rewritten and the manifest is not changed: a narrower scope or another `start_url` could change how the installed app opens.
+doctype. A framed load (see the framing paragraph above) gets no link. A link in a reply is **not** rewritten and the manifest is not changed: a narrower scope or another `start_url` could change how the installed app opens.
 
 ## The chat session
 
@@ -1902,7 +1904,7 @@ With the same setting on, the owner answers a waiting item from this page, in th
 
 **With the keyboard up** and a row open, the list takes the chat pane but 72 px, about three lines of the thread; the list scrolls inside and the open row's title stays at its top on one line. The keyboard counts as up when a frame in the strip says a person types in it, or the composer has the focus and either sala's own mark says so (`html.kbd-up`) or, on a touch screen, the visible height is more than 100 px under the tallest seen at that width. Typing in a frame under a reply changes no layout.
 
-**What the board must allow:** framing by this page's origin, and a sign-in its frame can see. A sign-in cookie that is `SameSite=Lax` reaches the frame only when the page is on the same registrable domain as the board; from any other address the frame can only say it is signed out. `tests/test_chat_answer.py` (the page it serves and the pure functions, in node) and `tests/test_chat_answer_ui.py` (a headless Chromium with a stand-in frame on a second origin; 1280, 390, 360 and 320 px) hold this section.
+**What the board must allow:** framing by this page's origin (the board's origin is also the one that may frame `/mockup/<n>`, see *Mockup pages*), and a sign-in its frame can see. A sign-in cookie that is `SameSite=Lax` reaches the frame only when the page is on the same registrable domain as the board; from any other address the frame can only say it is signed out. `tests/test_chat_answer.py` (the page it serves and the pure functions, in node) and `tests/test_chat_answer_ui.py` (a headless Chromium with a stand-in frame on a second origin; 1280, 390, 360 and 320 px) hold this section.
 
 ## A waiting question
 
