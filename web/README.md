@@ -194,8 +194,12 @@ sala is, *Deploying* below.
     box in the pane"), and the terminal tab is the way to type to it.
 - Sending is allowed while the session is busy: Claude Code queues the prompt.
 - Images and files: pasted into the composer, dropped on the page, or picked with the attach button beside it (a file chooser
-  for any file; on a phone it offers the camera, the gallery and files, since a paste or a drop does
-  not reach the composer there). A paste takes its images from `clipboardData.files`, and reads `.items` only when
+  for any file; on Android the attach button opens a two-entry menu instead: "Photos and videos" (`#photo-input`,
+  `accept="image/*,video/*"`, which Chrome shows as the photo picker) and "Files and camera" (`#file-input`, no accept
+  list, the chooser with the camera). The menu (`#attach-menu`, `role="menu"`) is a popup over the composer that closes on an
+  outside tap, Escape or focus leaving it, and does not move the composer. Android is detected by the user agent
+  (`/\bAndroid\b/` on `navigator.userAgent`); every other platform's tap goes straight to the chooser, as before. A paste
+  or a drop does not reach the composer there). A paste takes its images from `clipboardData.files`, and reads `.items` only when
   files is empty: Chromium makes a new `File` for every `getAsFile()` call (`image.png`, `lastModified` = now), so
   reading both attached two chips for one paste. One gesture is one chip whichever
   events deliver it: the paste event, `beforeinput` and the `<img>` the browser inserts are the links of one chain, and
@@ -235,7 +239,7 @@ sala is, *Deploying* below.
   and gave no reason") and a request that got no answer says "the connection to the server was lost before it answered".
   The server's own 413 names the limit ("that image is over the limit of 20 MB for one image") for a body that still arrives
   over it. `tests/test_image_shrink.py` (headless Chromium) pins each of these.
-- **Any file, not only images.** The attach button's chooser takes everything, a drop takes
+- **Any file, not only images.** The attach button's chooser takes everything (on Android the menu's "Files and camera" entry; its "Photos and videos" entry takes only images and videos, and a video it picks is uploaded like any other file, since the server takes any file), a drop takes
   every file, and a paste takes every `File` on the clipboard (`clipboardFiles`; `clipboardImages` is its image subset);
   a png, jpeg, gif or webp keeps the image path above (thumbnail, flat random name, 20 MB). **An on-screen keyboard's
   image** (its clipboard, image suggestions, stickers, GIFs):
@@ -409,6 +413,23 @@ placeholder's place (*The placeholder* below); `tests/test_composer_cm6.py` hold
 against the old glyph, centred on the letters, both themes), the caret rules (at, before and in the marker; Home, the arrows,
 Ctrl+arrows, a tap, a programmatic move), Backspace, a composition in a list item (also from the line's start), an image
 paste and a file drop on the editor, the history after a send, and the look at 320, 390 and 1280 px in both themes.
+
+### Quoting a reply
+
+`static/chatquote.js` (`window.SalaQuote`) shows a button for a selection inside one assistant reply (`.msg.assistant .md`),
+never for the composer, a user's message or the sidebar. On a desktop it is a button beside the END of the selection: on
+its last line when nothing follows there, else raised above that line, so the line's following characters and the lines
+below stay readable where there is room. On a touch screen it is a chip (about 40 x 28 px drawn, 48 x 44 px to tap) near
+the end of the selection, kept above the bottom 78 px of the viewport and flipped above the selection when needed. A tap
+captures the text on pointerdown and puts it at the END of the composer as lines with "> ", through `app.js` `quoteInto`
+(`setText`, then the send button, the draft and the focus). What is already typed stays byte for byte; the quote starts
+on a new line, and two quotes with nothing typed between get one empty line. Nothing is sent. A send carries the box's
+text byte for byte, with one exception: sent with nothing typed after a quote, the newline the quote added is left out
+(held in memory, so a draft restored by a reload is sent with it). A user's message shows its "> " runs as a blockquote
+(`.msg.user .bubble blockquote`), the lines after it outside it, the links kept, with no markdown renderer.
+`tests/test_chat_quote_ui.py` holds the button's presence and absence, the composer text for each case, the draft and the
+send, the bubble, the links in a quote, the chip above 78 px at 390 x 844, and the desktop button's place at the end of
+the selection, off the text that follows it.
 
 ### The placeholder
 
@@ -757,7 +778,8 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
   web `busy` status: a turn in progress does not hold a message (Claude Code queues it). A pasted message the pane did not submit (`pasted`) is submitted
   only while the box holds exactly its text, else it is `failed`: never typed twice.
 - **Delivered, and lost.** A transcript user line (or a `queued_command` line, or a line that joins several queued messages) with the message's text,
-  stamped no earlier than the message was sent (3 s of slack), marks it `delivered`. A `queued` message that a `popAll` line stamped
+  stamped no earlier than the message was sent (3 s of slack), marks it `delivered`; an older message that no line matches does not stop the
+  ones after it. A `queued` message that a `popAll` line stamped
   after it was sent names (it was pulled back into the input line by an Up that sala-web did not press) is `failed` with its text kept. A `queued` message whose session process has ended before any such
   line is **resent once, only on positive evidence**: an `enqueue` line of the transcript's `queue-operation` rows carrying exactly its text, with no
   `remove`, `dequeue` or `popAll` line that took its place in the queue (first in, first out). An enqueue made during a compaction has no content and is
@@ -768,17 +790,41 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
   joins at the end of the list (it does not keep its place). A `queued` message (typed, not yet read by Claude) is **taken back** first
   (`_take_back` in `app.py`). Once Claude took it the answer is **409 `tooLate`** ("too late: ...; nothing was changed").
 - **Taking a queued message back.** Claude Code cannot drop one queued message: one **Up** pulls its whole queue into the input box. So,
-  with the pane's locks held from the first look to the last resend: the transcript's `queue-operation` lines must show the message in the
+  with the pane's locks held from the first look to the last resend: every message sala-web typed into the pane in the last 120 s
+  (`LINE_PATIENCE`; through the outbox or `api/s/<pid>/send`) must show in the transcript, as its `enqueue` line, a user line or a command
+  record. Claude Code writes that line seconds after the Enter (about 2.5 s as a rule, up to 10.4 s seen on 2.1.332), and an Up pulls a
+  message whose line is not written yet, so the take-back waits up to 12 s (`TAKE_BACK_LINE_WAIT`; a send into that pane waits behind
+  it), then answers busy. The `queue-operation` lines must show the asked message in the
   queue and nothing there that sala-web did not send (Claude Code's own notices, a task's or another session's, are passed over); no queued
-  message may have an upload; no permission or question dialog may be open; text in the input line is cleared first (kept as below). The
-  messages about to be pulled are marked `typing`, then Up is pressed. The lines written after it say what happened: the asked message is
-  withdrawn; the others that came back (`popAll`) are cleared out of the box and typed again, in their order; one that Claude took first
-  stays its own (and the answer for it is `tooLate`). Otherwise the answer is **409 `busy`** with why and nothing changed. When no line
-  accounts for a message after the Up, it is `failed` with its text kept and never typed again by sala-web: nothing is typed twice, and
-  nothing is dropped without being told. Taking one of many back types all the others again, so it takes time (30 queued: about 27 s, measured
-  once on 2.1.332), and Claude may read them later than it would have.
+  message may have an upload; no permission or question dialog may be open; text in the input line is cleared first (kept as below), and
+  the Up is pressed only into a line read empty just before it. The
+  messages about to be pulled are marked `typing`, then Up is pressed. The lines written after it and the input box say what happened: the
+  asked message is withdrawn; the others that came back (`popAll`, or found in the box) are cleared out of the box and typed again, in their
+  order; one that Claude took first stays its own (and the answer for it is `tooLate`). Otherwise the answer is **409 `busy`** with why and
+  nothing changed. When no line accounts for a message after the Up, it is `failed` with its text kept and never typed again by sala-web.
+  Text in the box that is none of these messages becomes a `failed` message of its own and goes into `outbox-cleared.jsonl` before the box
+  is cleared. Two things keep the box from showing each message as typed (as drawn by 2.1.332). A long paste is **folded** into one row:
+  `[Pasted text #1 +5 lines]` for 5 line breaks (3 or more, or more than 800 characters in all), `[Pasted text #1]` for more than 800
+  characters with no line break (UTF-16 units, a tab as four spaces). A queue **taller than the box** shows only its last rows, the top
+  rule saying `↑ N more` (past 17 rows in a 45-row pane, 7 in a 24-row one). Such a box counts as read only when, from its last row
+  upwards, it holds the messages the `popAll` lines name, in the lines' order, each open or as the one fold its own text (as sala-web
+  sent it) makes, and nothing else; with rows out of view above, every message sala-web typed lately must be accounted for too, no rows
+  may be out of view below, the open rows at the top of the view are never taken as the end of a message that folds, and a box ending
+  in folds alike, which would read the same with one fold more pasted at the terminal, does not count (so a queue taller than the box
+  made only of such folds, long one-line messages or pastes of one line count, is left as it is even when nothing was pasted: that
+  costs a resend by hand, clearing could lose a paste that was never seen). Then it is cleared (what was in view goes into
+  `outbox-cleared.jsonl` when rows were out of view) and the others are typed again from sala-web's own entries and the transcript's
+  lines, never from the box. What a fold or a row out of view holds is not seen: text typed at the terminal inside the rows out of view
+  in the seconds between the Up and the clearing, with the cursor then moved back to the end, would be cleared unnoticed. So would a
+  fold pasted above the last row of a tall box (the cursor moved there) among folds shaped like it that reach the top of the view. A box
+  that cannot be read whole (a fold that fits no message, further text, rows out of view below, a message with no line, a
+  `[...Truncated text` row, a box tmux no longer shows) is left as it is: the other messages it may hold are `failed` with their text,
+  one more `failed` entry carries the text of the message taken back and says that it may still be in the line (Enter in the terminal
+  would send it), and the sender types nothing there until the line is empty.
+  Nothing is typed twice, and nothing else is dropped without being told. Taking one of many back types all the others again,
+  so it takes time, and Claude may read them later than it would have.
 - **Text in the terminal's box.** It is never the owner's, so it is cleared and the message goes in, never held behind it (`draft` is held only when the
-  keys could not clear it). What was cleared is appended to `<state dir>/outbox-cleared.jsonl` before the keys go in: one JSON line `{t, session, text}`,
+  keys could not clear it, or when a take-back left the box as it was because it could not read it whole). What was cleared is appended to `<state dir>/outbox-cleared.jsonl` before the keys go in: one JSON line `{t, session, text}`,
   mode 600, the newest half kept when the file passes 256 KB.
 - **On disk.** `<state dir>/outbox/<session name>.json`, one file a session, written whole to a temporary file and renamed into place, the folder mode 700
   and the files 600; an odd name is made a safe file name (never a path) with a short hash; a corrupt file reads as an empty list (the next write replaces it), not a crash. A message left `typing`

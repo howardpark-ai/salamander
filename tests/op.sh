@@ -268,7 +268,7 @@ waitfor '[ "$(workers)" = 1 ]' 120 && $T kill-session -t sala-test-b   # b vanis
 waitfor "[ -f '$DONE/$G.op' ]" 240 && [ "$(mval "$G" state)" = stuck ] && ok "stuck once the worker gave b up, archived" || bad "state: $(mval "$G" state) — $(tail -5 "$HOME/.claude/salamander-op-$G.log" 2>/dev/null)"
 R=$(mval "$G" result); has "$R" "given up" && has "$R" "sala-test-b" && has "$R" "— the one-off claude -p could not finish it: the test helper does nothing" && ! has "$R" "[20" && ok "the result: the pane given up, then the claude -p's own verdict, no log lines in it" || bad "result: $R"
 [ "$(runs)" = 1 ] && ok "the claude -p ran once" || bad "runs: $(runs)"
-B=$(<"$HOME/helper-brief.txt"); has "$B" "op $G" && has "$B" "revive --only sala-test-b --force" && has "$B" "\"bring b back\"" && has "$B" "its set $(mval "$G" set)" && has "$B" "given up: sala-test-b" && has "$B" "revive --only <session> --force --rescue" \
+B=$(<"$HOME/helper-brief.txt"); has "$B" "op $G" && has "$B" "revive --only sala-test-b --force" && has "$B" "\"bring b back\"" && has "$B" "its set $(mval "$G" set)" && has "$B" "given up: sala-test-b" && has "$B" "never type /feedback" && has "$B" "revive --only <session> --force --rescue" \
     && ok "the brief: the operation, the words, its set and what it gave up, the rescue allowed" || bad "brief: $B"
 P=$(post " · log ~/.claude/salamander-op-$G.log"); [ -n "$P" ] && [ "$(sed -n 1p <<< "$P")" = "🚨 *revive of sala-test-b is stuck*" ] && has "$P" "• sala-test-b" && plain_post "$P" && [ "$(nops)" = 1 ] && ok "one post: stuck, the pane given up named with its reason" || bad "post: $P / $(<"$POSTS")"
 waitfor "grep -q 'sala op $G\] salamander revive --only sala-test-b --force .*stuck: Revive' '$SOCKLOG'" 20 && ok "h got it in its inbox" || bad "sock log: $(<"$SOCKLOG")"
@@ -838,6 +838,45 @@ printf '%s\n' kind=Recycle label=opevent done=4 total=5 closed=1 "gave=sala-test
 fin "$E7" stuck "Recycle opevent: 4/5 relaunched, 1 pane given up"
 [ "$(( $(evn) - n0 ))" = 1 ] && [ "$(evf sessions)" = 5 ] && [ "$(evf result)" = partial ] && ok "a recycle with one pane given up: sessions 5, partial" || bad "recycle partial event: $(evlast | paste -sd' ')"
 rm -f "$SALA_SET_DIR/$ES"
+# THE STUCK POST'S NUMBERS: the closing post's (done of total). Panes the first post left behind and that came back after it (skip=,
+# no back=) are neither counted nor listed.
+: > "$POSTS"; B1=$(sid 311); n0=$(evn); mkfin "$B1" sala-test-h recycle --force
+printf '%s\n' kind=Recycle label=opstale done=2 total=3 closed=1 reported=1 "skip=sala-test-q1: busy for 26 min; sala relaunches it once it is free" \
+    "skip=sala-test-q2: busy for 2 h; sala relaunches it once it is free" "skip=sala-test-q3: its pane is gone" "gave=sala-test-q3: its pane is gone" > "$SALA_SET_DIR/$ES"; echo "set=$ES" >> "$OPS/$B1.op"
+fin "$B1" stuck "Recycle opstale: 2/3 relaunched, 1 pane given up: sala-test-q3: its pane is gone"
+P=$(post "$LG$B1.log"); has "$(sed -n 1p <<< "$P")" "2 of 3" && has "$P" "sala-test-q3" && ! has "$P" "sala-test-q1" && ! has "$P" "sala-test-q2" \
+    && ok "a stuck recycle whose first-post panes came back: 2 of 3, only the pane given up named" || bad "stale post: $P"
+[ "$(( $(evn) - n0 ))" = 1 ] && [ "$(evf sessions)" = 3 ] && [ "$(evf result)" = partial ] && ok "and its event counts the same one pane: partial" || bad "stale event: $(evlast | paste -sd' ')"
+rm -f "$SALA_SET_DIR/$ES"
+# NO ALARM FOR WHAT SALA STILL HANDLES: a pane on the deferred list at the waiter's deadline, or given up only at that list's limit
+cp "$SALA_DEFERRED" "$HOME/deferred.bak" 2>/dev/null || : > "$HOME/deferred.bak"
+later_row() { printf '%s\t%s\tstill busy\t0\t0\t%s\n' "$1" "$(date +%s)" "$2" >> "$SALA_DEFERRED"; }   # <session> <set id>
+judge() { SALA_OP_STUCK="${3:-on}" bash -c '. "$1/lib/common.sh"; . "$1/lib/op.sh"; op_judge_set "$2" "$3"' _ "$ROOT" "$1" "$2" >/dev/null 2>&1; }   # <op> <set> [helper on|off]
+: > "$POSTS"; : > "$SALA_DEFERRED"; rm -f "$HOME/helper-runs.txt"; n0=$(evn); C1=$(sid 312); CS="$(date +%s)-9312"; mkfin "$C1" sala-test-h recycle --force
+printf '%s\n' kind=Recycle label=oplater done=2 total=3 closed=0 reported=1 out=sala-test-q2 "skip=sala-test-q2: busy for 2 h; sala relaunches it once it is free" > "$SALA_SET_DIR/$CS"; echo "set=$CS" >> "$OPS/$C1.op"
+later_row sala-test-q2 "$CS"; SALA_OP_SETTLE_WAIT=0 "$SALA" op --settle "$C1" "$CS" >/dev/null 2>&1
+P=$(post "$LG$C1.log"); [ "$(mval "$C1" state)" = done ] && [ "$(runs)" = 0 ] && has "$(sed -n 1p <<< "$P")" "2 of 3" && has "$P" "sala-test-q2" && ! grep -q '🚨' "$POSTS" \
+    && [ "$(evf result)" = partial ] && ok "the deadline with the pane on the deferred list: done, the pane named, no alarm, no claude -p" || bad "later at the deadline: state=$(mval "$C1" state) runs=$(runs) $(<"$POSTS")"
+rm -f "$SALA_SET_DIR/$CS"
+D1=$(sid 313); DS="$(date +%s)-9313"; : > "$SALA_DEFERRED"; mkfin "$D1" sala-test-h recycle --force
+printf '%s\n' kind=Recycle label=oplimit done=2 total=3 closed=0 reported=1 out=sala-test-q3 > "$SALA_SET_DIR/$DS"; echo "set=$DS" >> "$OPS/$D1.op"; later_row sala-test-q3 "$DS"
+bash -c '. "$1/lib/common.sh"; set_giveup_pane sala-test-q3 "held for 3 h, so this recycle stopped waiting for it; sala still relaunches it once it is free"' _ "$ROOT" >/dev/null 2>&1
+: > "$POSTS"; judge "$D1" "$DS"
+P=$(post "$LG$D1.log"); grep -qx 'later=sala-test-q3' "$SALA_SET_DIR/$DS" && [ "$(mval "$D1" state)" = done ] && [ "$(runs)" = 0 ] && has "$P" "sala-test-q3" && ! grep -q '🚨' "$POSTS" \
+    && ok "a pane given up at the deferred list's limit: done, no alarm, the pane named" || bad "limit give-up: state=$(mval "$D1" state) set: $(slurp "$SALA_SET_DIR/$DS") $(<"$POSTS")"
+rm -f "$SALA_SET_DIR/$DS"
+# a pane nothing brings back is still stuck: listed first; a row alone (a give-up that was not the limit's) is not a relaunch to come
+: > "$POSTS"; : > "$SALA_DEFERRED"; M1=$(sid 314); MS="$(date +%s)-9314"; mkfin "$M1" sala-test-h recycle --force
+printf '%s\n' kind=Recycle label=opmixed done=1 total=3 closed=0 reported=1 out=sala-test-q2 out=sala-test-q4 > "$SALA_SET_DIR/$MS"; echo "set=$MS" >> "$OPS/$M1.op"; later_row sala-test-q2 "$MS"
+SALA_OP_SETTLE_WAIT=0 SALA_OP_STUCK=off "$SALA" op --settle "$M1" "$MS" >/dev/null 2>&1
+P=$(post "$LG$M1.log"); [ "$(mval "$M1" state)" = stuck ] && has "$(sed -n 1p <<< "$P")" "1 of 3" && has "$(sed -n 2p <<< "$P")" "sala-test-q4" && has "$(sed -n 3p <<< "$P")" "sala-test-q2" \
+    && ok "one pane nothing brings back beside a deferred one: stuck, the first listed first" || bad "mixed: state=$(mval "$M1" state) $(<"$POSTS")"
+rm -f "$SALA_SET_DIR/$MS"
+: > "$POSTS"; : > "$SALA_DEFERRED"; G1=$(sid 315); GS="$(date +%s)-9315"; mkfin "$G1" sala-test-h recycle --force
+printf '%s\n' kind=Recycle label=opgone done=2 total=3 closed=1 reported=1 "gave=sala-test-q5: its tmux session is gone" > "$SALA_SET_DIR/$GS"; echo "set=$GS" >> "$OPS/$G1.op"; later_row sala-test-q5 "$GS"
+judge "$G1" "$GS" off
+[ "$(mval "$G1" state)" = stuck ] && ok "a pane given up for another reason is stuck even while its row is still on the list" || bad "gone with a row: state=$(mval "$G1" state) $(<"$POSTS")"
+rm -f "$SALA_SET_DIR/$GS"; cp "$HOME/deferred.bak" "$SALA_DEFERRED"; rm -f "$HOME/helper-runs.txt"
 # update naming one other host: that host is the machine; no set and no session: sessions 0
 E8="$FK-98"; n0=$(evn); mkfin "$E8" sala-test-h update t-host-b; fin "$E8" done "t-host-b updated"
 [ "$(( $(evn) - n0 ))" = 1 ] && [ "$(evf verb)" = update ] && [ "$(evf machine)" = t-host-b ] && [ "$(evf sessions)" = 0 ] && [ "$(evf result)" = ok ] && ok "update t-host-b: machine t-host-b, sessions 0, ok" || bad "update event: $(evlast | paste -sd' ')"

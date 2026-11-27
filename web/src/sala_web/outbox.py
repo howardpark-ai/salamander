@@ -20,8 +20,12 @@ folder, 600 for a file). A message is an entry with a state:
   failed     it could not be sent (`error` says why); the text stays, so Edit takes it back
 
 A held or failed message is taken back by withdrawing it. A queued one that the session has not read yet is first taken out of the
-CLI's own queue (app.py, _take_back): one Up pulls the whole queue into the input box, the transcript's popAll lines say what came back,
-and the others are typed again in order. Once the session has taken a message from its queue the answer is `tooLate`.
+CLI's own queue (app.py, _take_back): one Up pulls the whole queue into the input box, the transcript's popAll lines and the box itself
+say what came back, and the others are typed again in order. The Up is not pressed while a message just typed has no transcript line
+yet (the CLI writes it seconds after the Enter, and an Up pulls such a message too), nor while the box reads anything but empty. Text
+in the box that is none of the messages is kept as a failed entry; a box that can not be read whole is left as it is. A box that draws a
+long paste folded, or has rows out of view above, is read only when it holds the messages the popAll lines name, in their order, up to
+its end, and nothing else (box_matches). Once the session has taken a message from its queue the answer is `tooLate`.
 
 The matching of what the transcript shows (a user line, a queued_command attachment, a queue-operation line) is here as plain
 functions, so that it is tested on made-up lines. Everything of the store runs on the event loop's thread, never in a worker.
@@ -29,11 +33,13 @@ functions, so that it is tested on made-up lines. Everything of the store runs o
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
 import secrets
 import time
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -275,6 +281,14 @@ def public(entries: list[dict]) -> list[dict]:
 # ── what the transcript shows ─────────────────────────────────────────────────────────────────────────────
 _WRAP_RE = re.compile(r"</?pasted_content(?:\s+id=\"[^\"]*\")?\s*>")
 _CHIP_RE = re.compile(r"\[Image #\d+\]")
+# what the input box draws in place of a long paste. Only a whole row "[Pasted text #1 +5 lines]" (5 = the paste's line breaks) or
+# "[Pasted text #1]" (a long paste with none) can be read (box_matches); any other form is a part of the box that can not be seen
+PASTE_CHIP_RE = re.compile(r"\[(?:\.\.\.)?(?:Pasted|Truncated) text #\d+")
+_CHIP_ROW_RE = re.compile(r"\s*\[Pasted text #\d+(?: \+([1-9]\d*) lines)?\]\s*")
+# when Claude Code 2.1.332 folds a paste (measured in a pane): more characters than this, counted as UTF-16 units with a tab as four
+# spaces, or more line breaks than this
+FOLD_PAST_CHARS = 800
+FOLD_PAST_BREAKS = 2
 
 
 def norm_text(text: object) -> str:
@@ -321,27 +335,32 @@ def delivered_ids(queued: list[dict], rows: list[tuple[int, str, int]]) -> list[
     Claude Code may join messages queued together into one line ("T1 T2"), and a file's path is written before the text, so a row is
     read as the messages that begin it, in the order they were sent: the oldest undelivered message whose text is the start of the row
     (or its end, for a file's path before it) takes that part, and the rest of the row goes to the next. A message of images alone
-    takes a row with no text. Nothing is matched earlier than the message's own time (less SLACK_MS)."""
+    takes a row with no text. Nothing is matched earlier than the message's own time (less SLACK_MS). An older message that matches
+    nothing does not stop the ones after it; one found past it must start the row with whole words (the row's end counts only for a
+    message with an upload)."""
     out: list[str] = []
     todo = [e for e in queued if e.get("sentAt")]
     for t, text, n in rows:
         rest = text
-        while todo:
-            e = todo[0]
+        i = 0
+        while i < len(todo):
+            e = todo[i]
             if t < e["sentAt"] - SLACK_MS:
                 break
             want = norm_text(e["text"])
             if want:
-                if rest.startswith(want):
+                if rest.startswith(want) and (i == 0 or rest == want or rest.startswith(want + " ")):
                     rest = rest[len(want):].strip()
-                elif rest.endswith(want):
+                elif rest.endswith(want) and (i == 0 or e.get("uploads")):
                     rest = rest[:-len(want)].strip()
                 else:
-                    break
+                    i += 1
+                    continue
             elif not (e.get("uploads") and n and not rest):
-                break
+                i += 1
+                continue
             out.append(e["id"])
-            todo.pop(0)
+            todo.pop(i)
             if not rest:
                 break
     return out
@@ -473,6 +492,144 @@ def match_queue(items: list[str | None], queued: list[dict]) -> tuple[list[tuple
         elif not system_item(text):
             foreign.append(text)
     return owned[::-1], foreign[::-1]
+
+
+def unaccounted(typed: list[dict], ops: list[dict]) -> list[dict]:
+    """Of `typed` (what was typed into the pane: {text, uploads, sentAt}), those no enqueue line speaks of, oldest first: the CLI may
+    hold one in its queue without having written its line yet. A line speaks for one message only. A line written before a popAll that
+    pulled the same words out, ahead of this typing, belongs to the earlier typing. A message with an upload is the end of its line (the
+    file's path comes first). A shell command's "!" counts on neither side."""
+    lines = [o for o in ops if o["op"] == "enqueue" and o["text"] is not None]
+    pops = [o for o in ops if o["op"] == "popAll"]
+    used: set[int] = set()
+    out = []
+    for e in sorted(typed, key=lambda e: e["sentAt"]):
+        want = norm_text(e["text"])
+        since = max([e["sentAt"] - SLACK_MS] + [o["ts"] + 1 for o in pops if o["text"] == want and o["ts"] <= e["sentAt"]])
+        i = next((i for i, o in enumerate(lines) if i not in used and o["ts"] >= since
+                  and (o["text"].endswith(want) if e.get("uploads") else o["text"].lstrip("! ") == want.lstrip("! "))), None)
+        if i is None:
+            out.append(e)
+        else:
+            used.add(i)
+    return out
+
+
+def _solid(text: str) -> list[tuple[str, int]]:
+    """The characters of `text` that a pane's wrapping and drawing do not change (no whitespace, nothing drawn as nothing), each with its place."""
+    return [(c, i) for i, c in enumerate(text) if not c.isspace() and unicodedata.category(c) not in ("Cc", "Cf")]
+
+
+def box_parts(box: str, messages: list[str]) -> tuple[list[bool], list[str]]:
+    """What the input box's text holds: (for each of `messages`, whether the box has it on lines of its own, whitespace apart, each part of
+    the box counted once; the pieces of the box that are none of them, as the box has them)."""
+    box = unicodedata.normalize("NFC", box)
+    solid = _solid(box)
+    flat = "".join(c for c, _i in solid)
+    used = [False] * len(flat)
+    spans: list[tuple[int, int]] = []
+    found: list[bool] = []
+    cursor = 0
+
+    def own_lines(first: int, last: int) -> bool:
+        end = box.find("\n", last)
+        return not box[box.rfind("\n", 0, first) + 1:first].strip() and not box[last + 1:len(box) if end < 0 else end].strip()
+
+    for message in messages:
+        want = "".join(c for c, _i in _solid(unicodedata.normalize("NFC", _WRAP_RE.sub("", message))))
+        hit = None
+        for start in (cursor, 0):      # the box lists them in the queue's order: looked for after the last one first
+            at = flat.find(want, start) if want else -1
+            while at >= 0 and hit is None:
+                if not any(used[at:at + len(want)]) and own_lines(solid[at][1], solid[at + len(want) - 1][1]):
+                    hit = at
+                at = flat.find(want, at + 1)
+            if hit is not None:
+                break
+        found.append(hit is not None or not want)
+        if hit is not None:
+            cursor = hit + len(want)
+            used[hit:cursor] = [True] * len(want)
+            spans.append((solid[hit][1], solid[cursor - 1][1] + 1))
+    rest, at = [], 0
+    for first, end in sorted(spans) + [(len(box), len(box))]:
+        if _solid(box[at:first]):
+            rest.append(box[at:first].strip())
+        at = end
+    return found, rest
+
+
+def fold_count(text: str) -> int | None:
+    """How the input box draws `text` pasted into it: None for open, else the line breaks its chip counts (0: a chip with no count).
+    tmux pastes a line break as a carriage return, so a CR LF pair is two of them."""
+    breaks = text.count("\n") + text.count("\r")
+    units = len(text.replace("\t", "    ").encode("utf-16-le", "surrogatepass")) // 2
+    return breaks if units > FOLD_PAST_CHARS or breaks > FOLD_PAST_BREAKS else None
+
+
+def box_matches(box: str, messages: list[str], above: bool = False) -> bool:
+    """Whether the input box holds `messages` (what the popAll lines name, in the lines' order, each as it was pasted) up to its end
+    and nothing else: read from the last row upwards, each message on rows of its own, either open (the same characters, whitespace
+    apart) or as the one chip it is folded into (fold_count). With `above` (the box has rows out of view above) the first row shown
+    may be inside a message, and the messages before that one are out of view; without it every message has its place. What a chip or
+    a row out of view holds can not be seen: it is known only by this fit. (Which of two messages a chip could stand for does not
+    matter: what is typed again comes from the entries and the lines, never from the box.)"""
+    rows = unicodedata.normalize("NFC", box).split("\n")
+    solid = ["".join(c for c, _i in _solid(row)) for row in rows]
+    chips = [_CHIP_ROW_RE.fullmatch(row) for row in rows]
+    wants = ["".join(c for c, _i in _solid(unicodedata.normalize("NFC", _WRAP_RE.sub("", m)))) for m in messages]
+
+    @functools.lru_cache(maxsize=None)
+    def fits(end: int, count: int) -> bool:      # whether the first `end` rows are where the first `count` messages end
+        while end and not solid[end - 1]:
+            end -= 1
+        if not end:
+            return count > 0 if above else count == 0
+        if not count:
+            return False
+        chip = chips[end - 1]
+        if chip and fold_count(messages[count - 1]) == int(chip[1] or 0) and fits(end - 1, count - 1):
+            return True
+        want, got = wants[count - 1], ""
+        for first in range(end - 1, -1, -1):
+            got = solid[first] + got
+            if not want.endswith(got):
+                return False
+            if got == want and fits(first, count - 1):
+                return True
+        # the rows reach the top: the message begins out of view. Only one drawn open can: a folded one is never shown in part
+        return above and got != want and fold_count(messages[count - 1]) is None
+
+    if not fits(len(rows), len(messages)):
+        return False
+    if above:
+        # a fold pasted at the terminal onto the end would push each fold one message back, out of view, and still fit: not read
+        # when the box fits as well without the folds it ends in. A queue of such folds alone is so never read, pasted into or not:
+        # left as it is, with every text kept, costs less than clearing a paste nobody here has seen
+        end = len(rows)
+        while end and not solid[end - 1]:
+            end -= 1
+        while end > 1 and chips[end - 1]:
+            end -= 1
+            if fits(end, len(messages)):
+                return False
+    return True
+
+
+def pop_order(ops: list[dict], named: list[tuple[str, str]]) -> list[str] | None:
+    """The ids of `named` ((id, normalized text): the messages popAll lines speak of) in the order of those lines, which is the order
+    the input box lists them in. None when a line is none of them, or one of them has no line."""
+    left = list(named)
+    out: list[str] = []
+    for o in ops:
+        if o["op"] != "popAll" or o["text"] is None:
+            continue
+        i = next((i for i, (_id, text) in enumerate(left) if text == o["text"]), None)
+        if i is not None:
+            out.append(left.pop(i)[0])
+        elif not system_item(o["text"]):
+            return None
+    return None if left else out
 
 
 def popped_ids(queued: list[dict], ops: list[dict]) -> list[str]:

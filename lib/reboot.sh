@@ -274,7 +274,8 @@ say "sala reboot $MODE — paused at $(local_human "$(date +%s)") ($T); pane map
 halt() {  # <why> <stopped indices…> — no reboot; bring everything back
     local why="$1"; shift
     say "✗ HALTED: $why — no reboot; rolling back"
-    waiting_clear_owner $$   # the drain's relaunch-waiting flags: no reboot is waiting any more
+    local hw="the reboot was halted (${why:0:160}), so this machine was not rebooted"
+    waiting_end_owner $$ "$hw"; hold_end_set "reboot-$t0" "$hw"   # no reboot is waiting any more: the drain's flags, and what they told before it ran through
     start_and_resume "$T" "$(live_sessions_file)" $(all_idx)
     ledger_unfreeze "reboot halted"
     st_put step halted; sala_post "🚨 *$([ "$MODE" = --dry-run ] && echo "Reboot dry run halted" || echo "Reboot halted — $(hostname) was not rebooted")*" "$why" "everything already stopped was started and resumed again" "Details: ~/.claude/salamander-reboot.log"; exit 1
@@ -341,6 +342,7 @@ if [ "$MODE" = --dry-run ]; then
     say "  dry run: steps 1–4 passed in $(( $(date +%s) - t0 ))s — starting and resuming everything"
     start_and_resume "$T" "$(live_sessions_file)" $(all_idx)
     ledger_unfreeze "dry run complete"
+    hold_end_set "reboot-$t0" "it was a reboot dry run, and nothing was rebooted"
     st_put step done; say "✅ dry run complete in $(( $(date +%s) - t0 ))s (no reboot)"
     exit 0
 fi

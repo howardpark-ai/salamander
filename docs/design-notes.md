@@ -77,7 +77,9 @@ The failure modes that shaped sala, and what each design choice answers.
 - **No terminal-only prompts.** Nobody is watching a headless pane. Keys typed into a pane showing a modal
   (feedback-draft review, survey, permission dialog) are queued and fire when it clears — a queued `/exit`
   with no resume behind it. So drafts are sent at turn end by two hooks (`feedback mark`/`stop`) driving the `/feedback` panel
-  with the transcript off; `recycle` drains any leftover before `/exit`, skips a pane still showing a prompt, and
+  with the transcript off; `recycle` drains any leftover before `/exit`. A draft it cannot send stays queued on disk and
+  holds nothing up: the exit's drafts gate is passed with Enter (the list; sends nothing) then Esc (Esc at the gate itself
+  would delete the drafts). `recycle` skips a pane still showing a prompt, and
   keeps waiting for its own pane's `/exit` rather than abandoning it. Keep `feedbackDrafts: quiet` and
   `feedbackSurveyRate: 0` in settings (`install.sh` checks both, and the hooks).
 - **copy-mode swallows `send-keys`.** Every keystroke into a pane is preceded by leaving copy/view mode; text

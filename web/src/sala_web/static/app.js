@@ -3678,7 +3678,7 @@ function renderMessage(m, { live = false, into = null, tools = null, older = fal
   for (const b of m.blocks) {
     switch (b.kind) {
       case "text":
-        if (m.role === "user") box.append(el("div", { class: "bubble" }, ...linkNodes(b.text)));
+        if (m.role === "user") box.append(el("div", { class: "bubble" }, ...SalaQuote.userParts(b.text, linkNodes)));
         else box.append(...replyNodes(b.text, b === lastText, b.localImages));
         texts.push(b.text);
         if (b.truncated) box.append(truncNote(b));
@@ -3852,7 +3852,7 @@ function pendingNode(p) {
   if (sentFiles.length) box.append(el("div", { class: "sent-files" }, ...sentFiles.map((im) =>
     el("div", { class: "sent-file", title: im.file.name }, fileIcon(), el("span", { class: "sf-name", text: im.file.name }),
       im.file.size ? el("span", { class: "sf-size", text: humanSize(im.file.size) }) : null))));
-  if (p.text.trim()) box.append(el("div", { class: "bubble" }, ...linkNodes(p.text)));
+  if (p.text.trim()) box.append(el("div", { class: "bubble" }, ...SalaQuote.userParts(p.text, linkNodes)));
   if (waits && p.status !== "held") box.append(SalaWaiting.line(p));
   else if (p.status === "sending") box.append(el("div", { class: "note", text: tl("app.pend.sending") }));   // a "!" command from here on, until "held"
   else if (p.status === "sent" && p.late) box.append(el("div", { class: "note", text: tl("app.pend.late") }));
@@ -4103,6 +4103,10 @@ function selectOffsets(start, end, backward = false) {
   composer.dispatch({ selection: backward ? { anchor: b, head: a } : { anchor: a, head: b } });
 }
 function focusEnd() { composer.focus(); const n = getText().length; selectOffsets(n, n); composer.dispatch({ effects: cm6Composer.EditorView.scrollIntoView(n) }); }  // as a textarea's value= leaves the caret
+// a quote from the reply's selection (chatquote.js) goes to the end of the composer, as if typed: its text, the buttons, the draft and the focus
+let quotedText = null;   // the composer's text as the last quote left it: it ends with the newline the quote added
+function quoteInto(block) { setText(SalaQuote.appendTo(getText(), block)); quotedText = getText(); refreshSendButton(); saveDraftSoon(); focusEnd(); }
+SalaQuote.init({ insert: quoteInto, label: () => tl("chat.quote") });
 let statusFn = null;
 function setStatus(msg, kind) { const n = $("#send-status"); statusFn = typeof msg === "function" ? msg : null; n.textContent = statusFn ? statusFn() : msg; n.className = kind || ""; }
 function clearStatus() { setStatus("", ""); }
@@ -4371,7 +4375,8 @@ function send() {
   const s = state.current || asleep;
   if (!s) { setStatus(() => tl("app.pickFirst"), "error"); return; }
   if (state.sending || state.uploads.some((u) => u.uploading)) return;
-  const text = getText();
+  // the box's text, byte for byte; but with nothing typed after a quote, the newline the quote added is not sent
+  const text = getText() === quotedText ? quotedText.slice(0, -1) : getText();
   const ups = state.uploads.filter((u) => u.name);
   if (!text.trim() && !ups.length) return;
   // show it at once, like claude.ai; the composer empties now and the bubble holds the text if sending fails
@@ -4384,6 +4389,7 @@ function send() {
               status: hold ? "held" : "sending", sentAt: Date.now(), ...(hold ? { hold: true } : {}), ...(ob ? { ob: true, cid: SalaWaiting.newCid() } : {}) };
   state.pending.push(p);
   setText("");
+  quotedText = null;
   clearDraft(s.name);   // sent: nothing to come back to
   state.uploads = []; renderChips();
   clearStatus();
@@ -4572,13 +4578,53 @@ $("#send").addEventListener("click", send);
 // (no accept: any file, multiple; on Android the chooser offers camera, gallery and files), feeding the same
 // addAttachment path as a paste. The value is cleared after each pick, so the same photo can be chosen
 // again (a "change" would not fire for it otherwise).
+// On Android (its user agent) the button opens a two-entry menu instead: "Photos and videos" opens the photo input (accept image
+// and video, which Android Chrome shows as its photo picker), "Files and camera" opens the chooser above (no accept). Every
+// other platform keeps the single tap straight to the chooser. The menu closes on a tap outside, Escape, or focus leaving it.
 const fileInput = $("#file-input");
-$("#attach").addEventListener("click", () => { if (!state.sending) fileInput.click(); });
-fileInput.addEventListener("change", () => {
-  const files = [...(fileInput.files || [])];
-  fileInput.value = "";
+const photoInput = $("#photo-input");
+const takePicks = (input) => {
+  const files = [...(input.files || [])];
+  input.value = "";
   files.forEach(addAttachment);
-});
+};
+fileInput.addEventListener("change", () => takePicks(fileInput));
+photoInput.addEventListener("change", () => takePicks(photoInput));
+const onAndroid = /\bAndroid\b/.test(navigator.userAgent || "");
+if (!onAndroid) {
+  $("#attach").addEventListener("click", () => { if (!state.sending) fileInput.click(); });
+} else {
+  const attachBtn = $("#attach"), attachMenu = $("#attach-menu");
+  let attachOpen = false;
+  const setAttachMenu = (open) => {
+    attachOpen = open;
+    attachMenu.classList.toggle("on", open);
+    attachBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  const inAttach = (node) => !!node && (attachBtn.contains(node) || attachMenu.contains(node));
+  attachBtn.setAttribute("aria-haspopup", "menu");
+  attachBtn.setAttribute("aria-expanded", "false");
+  attachBtn.addEventListener("click", () => { if (!state.sending) setAttachMenu(!attachOpen); });
+  attachMenu.addEventListener("click", (e) => {
+    const item = e.target.closest('[role="menuitem"]');
+    if (!item) return;
+    (item.id === "attach-photos" ? photoInput : fileInput).click();   // inside the tap: the browser allows the chooser
+    setAttachMenu(false);
+  });
+  attachMenu.addEventListener("keydown", (e) => {
+    const items = [...attachMenu.querySelectorAll('[role="menuitem"]')];
+    const at = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(at + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+    }
+  });
+  document.addEventListener("pointerdown", (e) => { if (attachOpen && !inAttach(e.target)) setAttachMenu(false); });
+  document.addEventListener("focusout", (e) => { if (attachOpen && !inAttach(e.relatedTarget)) setAttachMenu(false); });
+  document.addEventListener("keydown", (e) => {
+    if (attachOpen && e.key === "Escape") { setAttachMenu(false); attachBtn.focus(); }
+  });
+}
 
 let dragDepth = 0;
 window.addEventListener("dragenter", (e) => { if (e.dataTransfer?.types?.includes("Files")) { dragDepth++; document.body.classList.add("dragging"); } });

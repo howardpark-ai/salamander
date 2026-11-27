@@ -2,7 +2,12 @@
 # THE PAUSE (lib/common.sh "THE PAUSE", lib/revive.sh pause_try, lib/watch.sh pause_watch_due, lib/pauseinfo.py, lib/note.sh):
 # a relaunch that has waited SALA_PAUSE_AFTER seconds (default 900) for a busy pane interrupts the turn with ONE Escape, relaunches the
 # session through the ordinary path and leaves it a note, written by the relaunch, saying what it was doing. Checked here with a short
-# SALA_PAUSE_AFTER (6 s) and a fake claude whose Esc turns a busy registry row idle (FAKE_ESC_IDLE):
+# SALA_PAUSE_AFTER (6 s) and a fake claude whose Esc turns a busy registry row idle (FAKE_ESC_IDLE) and that shows the CLI's "esc to
+# interrupt" hint under its composer (FAKE_FOOTER):
+#   - what counts as a running turn: the hint below the input box (cut short in a narrow pane; never the scrollback's or the agent list's
+#     words), or the mod's busy probe naming the main loop; a busy row alone does not. A row held busy by a background subagent gets no
+#     Escape, no note and no /exit, and is relaunched once the row is free; a turn that ends while background work keeps the row busy
+#     gets that one Escape only, and its note says so;
 #   - the knobs: SALA_PAUSE_AFTER (seconds; 0/off/no = the old wait; junk = the default 900), SALA_PAUSE_SCOPE (all | background | off), the
 #     clock (starts on the first pass, restarts when the pane was last seen held longer ago than SALA_PAUSE_GAP, stops when the pane is free);
 #   - before the deadline: nothing is sent, the pane waits as before, its stackshot inbox is held; at the deadline: one Escape, the pane
@@ -15,7 +20,7 @@
 #   - a try whose Escape went in and did not take leaves ONE note for the live pid ("[escape] ", lib/common.sh pause_escape_note): handed over
 #     through the messaging socket at once (even on the same pid), archived when delivered, replaced by each later try, dropped by a taking
 #     pause; a successful pause leaves only its [paused] note; no Escape, no [escape] note and no sentence about sala's Escape in the [paused]
-#     note (a failed or a taking pause of a pane that is out of its turn already, a pane waiting on a dialog, a send that fails);
+#     note (a failed or a taking pause of a pane the registry reads out of its turn already, a pane waiting on a dialog, a send that fails);
 #   - the deferred-pane bullet: made again from the pane for every post (its age is the pause clock's when that is longer than the registry's),
 #     and it says when the pause comes (and that it is being retried once that time has passed);
 #   - off keeps the old wait; scope off and background (no back-agent role here) keep a front agent waiting; the dry run says what it would do;
@@ -54,7 +59,7 @@ eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux
 . "$ROOT/lib/common.sh"
 PD="$SALA_STATE_DIR/pause"; NOTES="$SALA_LOG_DIR/salamander-notes.tsv"; HM="$SALA_INBOX_HOLD_DIR/held-msg.txt"
 wait_lock() { lock_wait "$SALA_RECYCLE_LOCK" 80; }
-mk() { local n="$1" u="$2"; shift 2; $T new-session -d -s "sala-test-$n" -c "$HOME" -e FAKE_SESSION_ID="$u" -e FAKE_NAME="sala-test-$n" -e FAKE_LOG="$FAKE_LOG" -e FAKE_SOCK_LOG="$FAKE_SOCK_LOG" -e FAKE_TYPED_LOG="$FAKE_TYPED_LOG" "$@"; $T send-keys -t "sala-test-$n" 'claude' Enter; }
+mk() { local n="$1" u="$2"; shift 2; $T new-session -d -s "sala-test-$n" -c "$HOME" -e FAKE_SESSION_ID="$u" -e FAKE_NAME="sala-test-$n" -e FAKE_LOG="$FAKE_LOG" -e FAKE_SOCK_LOG="$FAKE_SOCK_LOG" -e FAKE_TYPED_LOG="$FAKE_TYPED_LOG" -e FAKE_FOOTER="${FOOT-  esc to interrupt}" "$@"; $T send-keys -t "sala-test-$n" 'claude' Enter; }   # FOOT=<rows> mk …: other rows under the composer
 busy() { set_reg_status "$(cpid "$1")" busy; }
 escs() { local n; n=$(grep -c "^esc $1 " "$FAKE_LOG" 2>/dev/null); echo "${n:-0}"; }       # <uuid> → the Escapes the fake took while busy
 typed() { local n; n=$(grep -c "^$1 $2\$" "$FAKE_TYPED_LOG" 2>/dev/null); echo "${n:-0}"; }   # <uuid> <line> → times that line was typed
@@ -129,6 +134,26 @@ done
 txt=$(pause_note_text "recycle" 1700000000 60 <<< $'inboxkind\tmsg'); has "$txt" 'A msg line was waiting in your inbox' && ok "a server-mode box (no inbox folder): the note says a line waits" || bad "inboxkind: $txt"
 has "$txt" "sala's Escape" && bad "no Escape sent, but the note speaks of one: $txt" || ok "no Escape sent: the note says nothing of sala's Escape"
 txt=$(PAUSE_ESC=1; pause_note_text "recycle" 1700000000 60 <<< ''); has "$txt" "was sala's Escape, not the user's: nobody refused it." && ok "an Escape sent: the note says the interrupted call was sala's" || bad "escape sentence: $txt"
+
+echo "== t: what counts as a running turn (the screen and the mod stubbed)"
+RULE='──────────────────────'
+hint() { ( CAP=$1; tmux() { printf '%s\n' "$CAP"; }; pane_turn_hint x ); }   # <capture text>
+box() { printf '%s\n' "${2:-older output}" "$RULE" '❯ ' "$RULE" "$1"; }          # <rows under the box> [scrollback]
+hint "$(box '  accept edits on · esc to interrupt')" && ok "the hint under the input box: a turn is running" || bad "hint missed"
+hint "$(box $'  \e[2mesc to interrupt\e[0m')" && ok "the hint with its attributes" || bad "dim hint missed"
+hint "$(box '  accept edits on · esc to int…')" && ok "the hint a narrow pane cuts short" || bad "cut hint missed"
+hint "$(box '  accept edits on (shift+tab to cycle)')" && bad "a footer without the hint read as a turn" || ok "a footer without the hint: no turn seen"
+hint "$(box '  shift+tab to cycle' 'the footer says esc to interrupt')" && bad "words above the input box read as the hint" || ok "the words above the input box are not the hint"
+hint "$(box $'  shift+tab to cycle\n  ● main\n  ◯ builder  mend the esc to interrupt check')" && bad "the agent list's words read as the hint" || ok "the words in the agent list's rows are not the hint"
+hint 'esc to interrupt' && bad "a screen with no input box read as a turn" || ok "no input box: no hint"
+running() { ( CAP=$(box "$1"); MRC=$2; REPLY_JSON=$3; tmux() { printf '%s\n' "$CAP"; }; mod_request() { MOD_REPLY=$REPLY_JSON; return "$MRC"; }; pane_turn_running x 1 ); }   # <footer> <mod rc> <mod reply>
+running '  esc to interrupt' 3 '' && ok "the hint alone is enough (no mod in the pane)" || bad "hint, no mod"
+running '' 1 '{"ok":false,"reason":"turn","holders":"the main loop"}' && ok "no hint, the mod names the main loop: running" || bad "mod main loop"
+running '' 1 '{"ok":false,"reason":"turn","holders":"the main loop; subagent builder: mend it"}' && ok "the main loop beside a subagent: running" || bad "mod main loop and a subagent"
+running '' 1 '{"ok":false,"reason":"turn","holders":"subagent builder: watch the main loop"}' && bad "a subagent alone read as the session's turn" || ok "the mod names a subagent alone (whatever its description says): no turn of the session's own"
+running '' 1 '{"ok":false,"reason":"background","holders":"the main loop"}' && bad "a background refusal read as a turn" || ok "the mod's background refusal: no turn"
+running '' 0 '{"ok":true}' && bad "an idle answer read as a turn" || ok "the mod answers idle: no turn"
+running '' 3 '' && bad "no hint and no mod read as a turn" || ok "no hint and no mod: no turn seen"
 
 echo "== the panes: a (the pause), d (a draft), n (SALA_NO_PAUSE), i (an Escape that does nothing), e (the switches), w (deferred), r (the retry worker)"
 mk a "$UA" -e FAKE_ESC_IDLE=1 -e FAKE_EXIT_DIALOG='subagent · worker'
@@ -278,6 +303,30 @@ OUT=$(gpause)
 gnote=$(grep "$UG" "$NOTES" | grep -F '[paused] ' | tail -1)
 has "$OUT" 'rc=0 esc=1' && [ "$(escs "$UG")" = 1 ] && has "$gnote" "was sala's Escape" && [ "$(escrows "$UG")" = 0 ] && ok "a pause that takes with its Escape: the sentence is in the [paused] note, the earlier [escape] note is dropped" || bad "g sent: $OUT escs $(escs "$UG") $(cat "$NOTES")"
 rm -f "$PD/$UG".*
+
+echo "== j: a row held busy by a background subagent alone: no Escape, no note, no /exit; relaunched once the row is free"
+UJ=$(uuid 43); FOOT=$'  shift+tab to cycle\n  ● main\n  ◯ builder  mend the esc to interrupt check' mk j "$UJ" -e FAKE_ESC_IDLE=stay; fake_up sala-test-j; busy j
+age_clock "$UJ" 100; revive_only sala-test-j
+has "$OUT" 'not paused — no running turn of its own is seen' && has "$OUT" 'so no Escape was sent and /exit stays unsent' && ok "at the deadline: not paused, and the line says why" || bad "j try 1: $OUT"
+[ "$(escs "$UJ")" = 0 ] && [ "$(typed "$UJ" /exit)" = 0 ] && [ "$(starts "$UJ")" = 1 ] && [ ! -e "$PD/$UJ.paused" ] && ok "no Escape, no /exit, not relaunched, no pause marker" || bad "j: escs $(escs "$UJ") /exit $(typed "$UJ" /exit) starts $(starts "$UJ")"
+[ "$(grep -c "$UJ" "$NOTES")" = 0 ] && ok "no note of any kind" || bad "j notes: $(grep "$UJ" "$NOTES")"
+read -r ft fc < "$PD/$UJ.failed"; pause_clock_age_r v "$UJ"; [ "$fc" = 1 ] && [ "$v" -ge 100 ] && ok "the try is recorded and the clock keeps running" || bad "j record $fc clock $v"
+printf '%s %s\n' "$(( $(date +%s) - 20 ))" 1 > "$PD/$UJ.failed"; wait_lock; revive_only sala-test-j
+has "$OUT" '(failed try 2)' && [ "$(escs "$UJ")" = 0 ] && [ "$(grep -c "$UJ" "$NOTES")" = 0 ] && ok "the retry sends nothing either" || bad "j try 2: escs $(escs "$UJ") $OUT"
+set_reg_status "$(cpid j)" idle; wait_lock; revive_only sala-test-j
+waitfor '[ "$(starts "$UJ")" = 2 ]' 40 && fake_up sala-test-j && [ "$(escs "$UJ")" = 0 ] && [ "$(typed "$UJ" /exit)" = 1 ] && ok "the row free (the subagent ended): relaunched the ordinary way, no Escape" || bad "j free: starts $(starts "$UJ") escs $(escs "$UJ") $OUT"
+[ "$(grep -c "$UJ" "$NOTES")" = 0 ] && [ ! -e "$PD/$UJ.failed" ] && ok "no note about a pause, the failed tries forgotten" || bad "j after: $(grep "$UJ" "$NOTES") $(ls "$PD")"
+wait_lock
+
+echo "== k: the Escape ends the turn and background work keeps the row busy: that one Escape only, and the note says so"
+UK=$(uuid 44); mk k "$UK" -e FAKE_ESC_IDLE=turn; fake_up sala-test-k; busy k; KP=$(cpid k)
+age_clock "$UK" 100; revive_only sala-test-k
+has "$OUT" 'not paused — one Escape ended its turn, but work in the background still holds the pane' && [ "$(escs "$UK")" = 1 ] && [ "$(typed "$UK" /exit)" = 0 ] && ok "one Escape, the turn gone, the row still busy: said, nothing more sent" || bad "k try 1: escs $(escs "$UK") $OUT"
+knote=$(grep "$UK" "$NOTES")
+[ "$(escrows "$UK" "$KP")" = 1 ] && has "$knote" 'your turn ended, but work in the background' && ! has "$knote" 'the turn was still running' && ok "its [escape] note says the turn ended and the background work holds the pane" || bad "k note: $knote"
+printf '%s %s\n' "$(( $(date +%s) - 20 ))" 1 > "$PD/$UK.failed"; wait_lock; revive_only sala-test-k
+has "$OUT" 'no running turn of its own is seen' && [ "$(escs "$UK")" = 1 ] && [ "$(grep -c "$UK" "$NOTES")" = 1 ] && ok "the retry sends no second Escape and writes no new note" || bad "k try 2: escs $(escs "$UK") $OUT"
+rm -f "$PD/$UK".*; wait_lock
 
 echo "== i again: watch's deferred list tries a pause that did not take again after SALA_PAUSE_RETRY s, not after 10 min"
 now=$(date +%s)

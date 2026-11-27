@@ -17,10 +17,15 @@
  * permission dialog, a menu, as the test wrote it — and waits for ONE key, as the CLI's dialogs hold the pane; any key clears
  * the screen and the loop looks at the file again: rewritten, the new dialog shows; removed, the ❯ prompt is back) ·
  * FAKE_ESC_IDLE=1 (the composer reads raw keys, as under FAKE_MODEL_MODE, and an Esc turns a busy registry row idle with a fresh stamp,
- * as the CLI's Esc ends a running turn; one "esc <uuid> <epoch.micros>" line in FAKE_LOG; FAKE_ESC_IDLE=stay takes and logs the Esc and the turn goes on, the row stays busy) · FAKE_IDLE_AGE=<secs> (the registry row's statusUpdatedAt is that old at start; default 60) · FAKE_TURN_MS=<ms> (a typed
+ * as the CLI's Esc ends a running turn; one "esc <uuid> <epoch.micros>" line in FAKE_LOG; FAKE_ESC_IDLE=stay takes and logs the Esc and the turn goes on, the row stays busy;
+ * FAKE_ESC_IDLE=turn: the Esc ends the turn and the rows under the composer go, but the row stays busy, as while a background subagent
+ * runs) · FAKE_FOOTER=<rows, newline-separated> (drawn under the composer, as the CLI's footer and agent list are; its "esc to
+ * interrupt" hint shows there only while a turn of its own runs) · FAKE_IDLE_AGE=<secs> (the registry row's statusUpdatedAt is that old at start; default 60) · FAKE_TURN_MS=<ms> (a typed
  * message that is not a slash command is a turn: the row says busy for that long, then idle with a fresh stamp; unset, a message changes
  * nothing, as before) · FAKE_NO_CLEAR=1 (a /clear is typed and logged and nothing changes) · `/clear` (probed on 2.1.312: the SAME registry row, same pid, name and nameSource kept, gets a NEW
- * sessionId and a fresh idle stamp; the screen is cleared; one "clear <new uuid> <epoch.micros>" line in FAKE_LOG). */
+ * sessionId and a fresh idle stamp; the screen is cleared; one "clear <new uuid> <epoch.micros>" line in FAKE_LOG) ·
+ * FAKE_DRAFTS_PANEL=<tests/fake-drafts-panel.py> (the feedback drafts: /feedback runs its panel in the pane, and a /exit with a
+ * queued draft of this conversation stops at its exit gate; the script's header names its own knobs). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,6 +46,11 @@
 #include <sys/prctl.h>
 #endif
 static pid_t child = 0;
+static int drafts_panel(const char *mode, const char *sid) {   /* FAKE_DRAFTS_PANEL: 0 = go on (the exit proceeds), 1 = stay; unset: 0 */
+    const char *py = getenv("FAKE_DRAFTS_PANEL"); char cmd[2048]; if (!py || !*py) return 0;
+    snprintf(cmd, sizeof cmd, "python3 -I '%s' %s '%s'", py, mode, sid);
+    fflush(stdout); return system(cmd) != 0;
+}
 static void child_start(void) {   /* FAKE_CHILD: a live child process under the fake (Linux: named, and gone with its parent) */
 #ifdef __linux__
     if (!getenv("FAKE_CHILD")) return;
@@ -112,6 +122,7 @@ static int composer_line(char *buf, size_t sz) {
                 const char *el = getenv("FAKE_LOG"); FILE *f = el ? fopen(el, "a") : NULL;
                 if (f) { struct timeval tv; gettimeofday(&tv, NULL); fprintf(f, "esc %s %ld.%06ld\n", g_cursid, (long)tv.tv_sec, (long)tv.tv_usec); fclose(f); }
                 const char *ei = getenv("FAKE_ESC_IDLE");
+                if (strcmp(ei, "turn") == 0) { fputs("\0337\n\r\033[J\0338", stdout); fflush(stdout); continue; }   /* FAKE_ESC_IDLE=turn: the footer goes, the row stays busy */
                 if (strcmp(ei, "stay") != 0) write_row(g_cursid, "idle", (long)time(NULL));   /* FAKE_ESC_IDLE=stay: the Esc is taken and logged, the turn goes on (the row stays busy) */
             }
             continue;
@@ -182,6 +193,11 @@ static void *sock_logger(void *unused) {   /* FAKE_SOCK_LOG: every connection's 
     }
     return NULL;
 }
+static void footer(void) {   /* FAKE_FOOTER: its rows under the composer's row, the cursor back up on that row */
+    const char *p = getenv("FAKE_FOOTER"); int rows = 0; if (!p || !*p) return;
+    for (;;) { size_t n = strcspn(p, "\n"); printf("\n\r\033[K%.*s", (int)n, p); rows++; if (!p[n]) break; p += n + 1; }
+    printf("\033[%dA", rows);
+}
 static char g_path[1024], g_sock[1024], g_sess[256], g_cwd[1024], g_sidbuf[64]; static const char *g_name, *g_tmux; static long g_started_s;
 static void write_row(const char *sid, const char *status, long stamp_s) {   /* the registry row again (a /clear, a turn): temp file and rename, so a reader never sees half a row */
     char tmp[1100]; snprintf(tmp, sizeof tmp, "%s.tmp", g_path);
@@ -247,7 +263,7 @@ int main(int argc, char **argv) {
          * line's length and the prompt's together a whole number of 80-column rows: the CI box's runners 2 and 4) the ❯ lands
          * on the echo's last row, "❯ /salamander/salamander/mod" /tmp/…/claude", which tui_send reads as someone's unsent draft and
          * refuses to type onto. The real CLI draws its own box; it never shares a row with what the shell left. */
-        fputs("\r\033[K\xe2\x9d\xaf ", stdout); fflush(stdout);
+        fputs("\r\033[K", stdout); footer(); fputs("\r\xe2\x9d\xaf ", stdout); fflush(stdout);
         g_cursid = sid;
         if (getenv("FAKE_MODEL_MODE") || getenv("FAKE_ESC_IDLE")) { if (!composer_line(line, sizeof line)) { for (;;) pause(); } }   /* a composer of its own (above) */
         else if (!fgets(line, sizeof line, stdin)) { stdin_gone("fgets"); for (;;) pause(); }   /* no tty: idle forever, as before (saying why on stderr) */
@@ -270,7 +286,9 @@ int main(int argc, char **argv) {
               write_row(sid, "busy", (long)time(NULL)); nanosleep(&ts, NULL); write_row(sid, "idle", (long)time(NULL));
               continue;
           } }
+        if (!strcmp(line, "/feedback\n") && getenv("FAKE_DRAFTS_PANEL")) { drafts_panel("panel", sid); continue; }
         if (!strcmp(line, "/exit\n") && !getenv("FAKE_IGNORE_EXIT")) {
+            if (drafts_panel("gate", sid)) continue;
             if (!exit_dialog()) continue;                                      /* the dialog dismissed: the session stays */
             note("exit", sid); fputs("\033[2J\033[H", stdout); fflush(stdout);
             child_stop(); unlink(path); if (sock[0]) unlink(sock); return 0;

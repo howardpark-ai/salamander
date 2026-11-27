@@ -95,7 +95,8 @@ _row_check() {
 _drain_deny() {
     . "$SALA_ROOT/lib/common.sh" >/dev/null 2>&1 || return 0
     case "${SALA_DRAIN:-on}" in 0|off|no|false) return 0;; esac
-    waiting_for "$1" || return 0                                       # the flag went down since the glob test: the relaunch is done
+    waiting_for "$1" || return 0                                       # the flag went down since the glob test: the wait is over
+    hold_told "$1" "$(own_claude_pid 2>/dev/null)"                     # a refused session has been told it is held (common.sh, hold_ended)
     local _what _t; _what=$(waiting_what "$1"); [ -n "$_what" ] || _what=recycle
     _t="${SALA_DRAIN_DENY_TEXT//<what>/$_what}"; _t="${_t//<call>/$3}"
     printf '[%s] drain: refused %s (%s) for session %s; a %s waits for it\n' "$(date +%Y-%m-%dT%H:%M:%S%z)" "$2" "$3" "$1" "$_what" >> "$SALA_LOG_DIR/salamander-drain.log" 2>/dev/null || :
@@ -212,7 +213,8 @@ case "${1:-}" in
             . "$SALA_ROOT/lib/common.sh"
             if waiting_told "$_sid"; then                              # two tool calls at once: the first tells
                 _what=$(waiting_what "$_sid"); [ -n "$_what" ] || _what=recycle
-                _wtext=$(relaunch_text "$_what" "$(own_claude_pid 2>/dev/null)")
+                _cp=$(own_claude_pid 2>/dev/null); hold_told "$_sid" "$_cp"
+                _wtext=$(relaunch_text "$_what" "$_cp")
             fi
         fi
         _due=""; _skip=""

@@ -376,8 +376,8 @@ elif [ "$SELF" = 1 ] && [ "$caller" = "$name" ]; then
     trap '' HUP PIPE; mkdir -p "$SALA_LOG_DIR"; exec >> "$SALA_LOG_DIR/salamander-retire.log" 2>&1
     echo "[$(date '+%F %T')] retire --self '$name': no /exit typed into its own pane, the tmux session is killed next"
 elif [ -z "$(pane_draft "$pane")" ] && ! pane_prompt "$pane"; then
-    echo "'$name': /exit ..."; unmode "$pane"; send_feedback_drafts "$pane" "$uuid" || echo "⚠ feedback draft(s) still queued — /exit will stop at the drafts gate; retire kills the tmux session anyway (drafts stay on disk)"
-    tui_send "$pane" "/exit"; wait_for "$pane" shell 30 || echo "⚠ claude did not exit within 30s; killing the tmux session anyway"
+    echo "'$name': /exit ..."; unmode "$pane"; send_feedback_drafts "$pane" "$uuid" || echo "⚠ feedback draft(s) not sent — they stay queued on disk"
+    tui_send "$pane" "/exit"; wait_exit "$pane" 30 || echo "⚠ claude did not exit within 30s; killing the tmux session anyway"
 else
     echo "⚠ a prompt or unsubmitted text is showing; killing the tmux session without a clean /exit"
 fi

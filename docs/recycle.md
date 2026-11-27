@@ -105,14 +105,30 @@ recycles was counted back in only one and the other set stayed open. Now:
   under `waiting/`, the file the waiting line is raised from), the session's **own** turn may not start work that outlives the turn: a
   background subagent (the Agent or Task tool with `run_in_background` true), a Monitor, a Bash call with `run_in_background` true. The PreToolUse hook (`salamander hook pre-tool`, matcher
   `Bash|Agent|Task|Monitor`) **denies** them (never asks) with a reason that says what to do: finish this turn without starting it, leave
-  `sala note "<next step>"` for anything that must continue after the relaunch, run `sala ready` as the turn's last call, and that the refusal ends when the
-  relaunch is done. Everything else stays allowed: foreground work, `sala note`, `sala ready`, TaskStop, Bash without `run_in_background`, a foreground
+  `sala note "<next step>"` for anything that must continue after the relaunch, run `sala ready` as the turn's last call, and that the refusal ends with the
+  relaunch, or when the wait ends without one (*The end of a hold*, below). Everything else stays allowed: foreground work, `sala note`, `sala ready`, TaskStop, Bash without `run_in_background`, a foreground
   subagent. A call made inside a subagent (its hook input carries `agent_id`) is the subagent's own and is never denied. The check allows on any doubt (an
   unreadable input, a session id that is not an id, a failing helper). The waiting line the session is told once (`SALA_RELAUNCH_WAITING_TEXT`) says that a new
-  background subagent, monitor or background shell is refused until the relaunch. `SALA_DRAIN=off` in the config turns it off with no code change (the waiting line
+  background subagent, monitor or background shell is refused until the relaunch, or until sala tells the session the wait ended without one. `SALA_DRAIN=off` in the config turns it off with no code change (the waiting line
   then asks again instead of saying it is refused); `SALA_DRAIN_DENY_TEXT` is the reason's wording. Each refusal is one line in `~/.claude/salamander-drain.log`: the time, the tool,
   the session and the relaunch's kind, never the call's text. It needs the PreToolUse entry in `settings.json` (`install.sh` says when it is missing); the
   cost with nothing waiting is one glob test. A background subagent whose definition itself says it runs in the background, with no `run_in_background` in the call, is not seen by it.
+- **The end of a hold** (a session told to wait is told when the wait is over without a relaunch). A session counts as told once the waiting
+  line reached it (the `post-tool` hook, or watch's message to an idle one) or a call of its was refused; `held/<uuid>` under the state
+  directory remembers the process. Every ending without a relaunch goes through one function (`hold_ended`, `lib/common.sh`): the flag comes
+  down, the pause's clock and marker are cleared (a deferred pane keeps its clock), and that process gets **one** note, handed to its
+  messaging socket by `sala note --deliver` (watch, within a tick) and retired at once. A deferred pane's note says new background work is
+  allowed now, that sala still relaunches it later, and that a raised flag will say so again; any other ending says the wait ended without a
+  relaunch and why. The endings: the retry worker defers the pane, gives it up, finds nothing to relaunch, runs out of its window or stops; a
+  sweep leaves the pane with no worker to come back for it; the invoking pane's relaunch fails; a try from the deferred list does not go
+  through; watch drops the row (sleeping, `SALA_NO_RELAUNCH`, already current, 8 days); the flag's owner is gone. **No note** while a relaunch is still coming (a newer recycle taking the pane over, a retry worker or watch about to try again
+  under a flag that stands) and none after a relaunch that worked. A flag watch raises again for a pane
+  still held on the deferred list stands until that row ends.
+- **The pane's claude, and "relaunched".** The pane's claude is the one nearest the pane's own process (that process itself, or the fewest
+  parent steps below it), so a claude it started (a nested `claude -p`, a fork before its exec) is never taken for it, whatever its pid (pids
+  wrap, so the younger one can be the lower number). Two at the same depth: the one whose process started first, then the lower pid (the only
+  tie rule on a system with no `/proc`). Every lookup of a pane's claude reads it this way (`claude_pid_under`). The retry worker and the
+  deferred list call a pane relaunched only when the pid they recorded no longer runs.
 - **The pause** (a relaunch does not wait for ever for a busy pane;): drain mode cannot help a turn that is already running, and a
   builder whose turn ran 28 minutes with a subagent waiting on a release held a recycle for three hours. A relaunch (a recycle, a revive, a
   lane or model move, a CLI-update recycle: every path through `revive`) now waits `SALA_PAUSE_AFTER` seconds (**default 900, 15 min**; `0`
@@ -130,23 +146,27 @@ recycles was counted back in only one and the other set stayed open. Now:
     that asked for a relaunch, once its worker has it), a pane running a `sala op` of its own, a pane with unsent text or a dialog showing,
     a pane with a client attached that was active in the last `SALA_PAUSE_QUIET` (120 s), and the sessions in `SALA_NO_PAUSE` (work that
     cannot be redone). Each waits for idle as before, and the output says why it was not paused.
-  - *The interrupt* is one Escape, sent only to a pane whose registry row says busy and that shows no dialog (a second Escape on an idle
-    box can open the CLI's rewind menu). The pane must be idle in the registry within `SALA_PAUSE_IDLE_WAIT` (20 s); if it is not, nothing
-    more is sent, no `/exit` is typed into a pane still in its turn, and the pane is waited for as before. **A pause that did not take is
+  - *The interrupt* is one Escape, sent only to a pane whose registry row says busy, that shows no dialog (a second Escape on an idle
+    box can open the CLI's rewind menu) and whose own turn is seen running: the CLI's "esc to interrupt" hint below the input box, or,
+    for a pane too narrow to show it, the in-session mod naming the main loop. **A busy row alone is no running turn**: it stays busy
+    while only a background subagent runs, and an Escape does not stop one. Such a pane gets no Escape and no note; it is waited for
+    while the row stays busy, so the pause does not cut the subagent. The pane must be idle in the registry within
+    `SALA_PAUSE_IDLE_WAIT` (20 s); if it is not, nothing more is sent, no `/exit` is typed into a pane that is still busy, and the pane
+    is waited for as before. **A pause that did not take is
     tried again** (the same when the pane was not idle once interrupted): the clock keeps running, so a turn that ends and starts again
     (a subagent's result starts the next one) does not put the next try a full `SALA_PAUSE_AFTER` away, and `pause/<id>.failed` records the
     failed tries. The next try is `SALA_PAUSE_RETRY` (120 s) after a failed one, for the first `SALA_PAUSE_TRIES` (5) failed tries, then
     `SALA_PAUSE_AFTER` apart; each one is one Escape under the same rule and one log line that says which try it was and when the next
     comes. Nothing is given up: the pane is tried until it is free, paused or relaunched. **A try whose Escape went in and did not take** (the turn
-    still running, or the pane not idle) leaves the session ONE note, text `[escape] …`, handed to its live pid at once by watch (not at a
+    still running, the pane not idle, or the turn ended with background work still holding the pane: the note says which) leaves the session ONE note, text `[escape] …`, handed to its live pid at once by watch (not at a
     relaunch, not behind the inbox hold) and archived when delivered, so it is one-time: it says sala sent the Escape, that a tool call
     rejected or shown "interrupted by user" from that moment was sala's and nobody refused it, and that the call may be run again. A later
     try replaces an undelivered one; a pause that takes with an Escape of its own drops it (its `[paused]` note covers the same). **With no
     Escape sent, nothing about one is written**: a failed try leaves no note, and the `[paused]` note of a pane that was already out of its
     turn has no sentence about sala's Escape (an earlier try's undelivered `[escape]` note then stays, and is delivered once the pane is no
-    longer paused). Subagents and shells the Escape left are stopped
-    the one way a recycle stops them, once the pane is out of its turn (below: the exit dialog's "Exit and stop tasks"); sala has no other
-    way to stop a subagent, and sends nothing to a pane that stays in its turn beyond the one Escape of each try. Background
+    longer paused). Subagents and shells the Escape left in a pane that
+    is then out of its turn are stopped the one way a recycle stops them (below: the exit dialog's "Exit and stop tasks"); sala has no
+    other way to stop a subagent, and sends nothing to a pane that stays busy beyond the one Escape of each try. Background
     work does not hold a paused pane for `SALA_PAUSE_TTL` (15 min): subagents and background shells end with the relaunch (the CLI's
     "Exit and stop tasks" is confirmed, and the note says so); a release that runs in its own systemd unit goes on. **A paused pane is exited
     by keys**: after the Escape the CLI sits in its interrupted-tool state ("Interrupted · What should Claude do instead?"), where the mod's

@@ -641,7 +641,13 @@
       <div class="compose-row">
         <!-- attach: a phone has no paste or drop for files; the input takes any file, an image stays a thumbnail -->
         <button id="attach" class="attach-btn" type="button" aria-label="Attach files" data-i18n-aria-label="ui.cmp.attach" title="Attach files" data-i18n-title="ui.cmp.attach"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 8l-7 7a2 2 0 0 0 3 3l7.5-7.5a4 4 0 0 0-6-6L6 12a6 6 0 0 0 8.5 8.5l6-6"/></svg></button>
+        <!-- Android only (app.js): a two-entry menu over the button; the photo input takes the photo picker (image and video) -->
+        <div id="attach-menu" class="attach-menu" role="menu" aria-label="Attach menu" data-i18n-aria-label="ui.cmp.menu">
+          <button type="button" role="menuitem" id="attach-photos" data-i18n="ui.cmp.photos">Photos and videos</button>
+          <button type="button" role="menuitem" id="attach-files" data-i18n="ui.cmp.files">Files and camera</button>
+        </div>
         <input id="file-input" type="file" multiple hidden>
+        <input id="photo-input" type="file" accept="image/*,video/*" multiple hidden>
         <!-- the composer is CodeMirror 6 (vendor/cm6-composer.min.js), mounted here by app.js: its editable is a
              contenteditable="true" with id="input", which is what a phone keyboard offers its image insertion to (it inserts
              an image only into an editor that declares image types; Chrome on Android does that for a contenteditable, not
@@ -692,6 +698,7 @@
 <!--chat-layer--><script src="static/chatlayer.js?v={{v}}"></script><script src="static/chatanswer.js?v={{v}}"></script><!--/chat-layer-->
 <script src="static/dialogcard.js?v={{v}}"></script>
 <script src="static/waiting.js?v={{v}}"></script>
+<script src="static/chatquote.js?v={{v}}"></script>
 <script src="static/app.js?v={{v}}"></script>
 <!-- the color tool's button, in the side panel (#side-colors): colortool.js and colortool-sala.js are in the head, which applied the stored look before the first paint -->
 <script>if (window.SalaColors) SalaColors.init();</script>

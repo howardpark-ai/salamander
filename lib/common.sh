@@ -99,16 +99,17 @@ SALA_BOOT_REC="$SALA_LOG_DIR/salamander-boot-revive" # the first full revive of 
 # settings hooks give the busy check an exact answer and give a session word of a relaunch waiting for it. Their state:
 SALA_BUSY_DIR="$SALA_STATE_DIR/busy"         # busy/<uuid>: what the Stop hook found in flight when the session's last turn ended
 SALA_WAITING_DIR="$SALA_STATE_DIR/waiting"   # waiting/<uuid>: a relaunch sala started waits for this pane (+ <uuid>.told once its hook said so)
+SALA_HELD_DIR="$SALA_STATE_DIR/held"         # held/<uuid>: this session was told it is held; kept until that hold ends (hold_ended)
 # the line the PostToolUse hook adds to a waiting session's context, once per relaunch;
 # <what> becomes the relaunch's kind in words (relaunch_what below). One place for the text: here, or the config's override.
 # DRAIN MODE (SALA_DRAIN, default on; docs/recycle.md): while the flag stands, the session's own PreToolUse hook (`hook pre-tool`) refuses a new
 # background subagent, monitor or background shell, so the line says so; with SALA_DRAIN=off nothing is refused and it keeps the older request.
 : "${SALA_DRAIN:=on}"   # set, so `sala config` (which prints it under set -u) finds a value
-case "$SALA_DRAIN" in 0|off|no|false) _sala_drain_words="start no new subagent, monitor or background task until you are relaunched";; *) _sala_drain_words="from now on a new background subagent, monitor or background shell is refused until the relaunch";; esac
+case "$SALA_DRAIN" in 0|off|no|false) _sala_drain_words="start no new subagent, monitor or background task until you are relaunched, or sala tells you the wait ended without a relaunch";; *) _sala_drain_words="from now on a new background subagent, monitor or background shell is refused until the relaunch, or until sala tells you the wait ended without one";; esac
 [ -n "${SALA_RELAUNCH_WAITING_TEXT:-}" ] || SALA_RELAUNCH_WAITING_TEXT='[sala] A <what> is waiting for this session. Bring your work to a checkpoint: finish this turn; '"$_sala_drain_words"' (each one still running holds the relaunch up). Stop your own background watches (TaskStop) and put what they were waiting for in a `sala note "<step>"` before `sala ready`. If a step must wait until after the relaunch, or work is half done, leave it with `sala note "<step>"` (or set the board item'\''s recycle flag), then run `sala ready` as the turn'\''s last call.'
 unset _sala_drain_words
 # the reason a drained session's PreToolUse hook gives for a refused call: <call> = a background subagent | a monitor | a background shell command, <what> = the relaunch's kind in words
-[ -n "${SALA_DRAIN_DENY_TEXT:-}" ] || SALA_DRAIN_DENY_TEXT='[sala] Refused: <call> would outlive this turn, and a <what> is waiting for this session (anything still running holds the relaunch up). Finish this turn without starting it. Leave `sala note "<next step>"` for anything that must continue after the relaunch, and run `sala ready` as the turn'\''s last call. This refusal ends when the relaunch is done.'
+[ -n "${SALA_DRAIN_DENY_TEXT:-}" ] || SALA_DRAIN_DENY_TEXT='[sala] Refused: <call> would outlive this turn, and a <what> is waiting for this session (anything still running holds the relaunch up). Finish this turn without starting it. Leave `sala note "<next step>"` for anything that must continue after the relaunch, and run `sala ready` as the turn'\''s last call. This refusal ends with the relaunch, or when the wait ends without one (sala then tells you).'
 
 cs_print_config() {
     for v in SALA_CONFIG SALA_RC_SESSION SALA_SHELL_SESSION SALA_RC_NAME SALA_RC_CAPACITY SALA_RC_RESTART_DELAY SALA_TZ SALA_BACK_CWD SALA_SLACK_CWD SALA_SCOPES SALA_DEFAULT_SCOPE SALA_BRAND_SUFFIX SALA_HELP_SESSION SALA_CHAT_SESSION SALA_CHAT_NAME SALA_CHAT_LAYER SALA_OWNER_NAME SALA_LOG_DIR \
@@ -446,7 +447,8 @@ defer_add() {  # <tmux session> <why> [force] [set id] — `watch` relaunches it
 # (the recycle driver has reported through this set: from then on its clear fires the post-recycle hook; below, set_recycled)
 # hookfired (the hook has fired, once) src fscope (the flag, below), and
 # repeated: out=<session> (outstanding) · skip=<bullet> (the first post's left-behind bullets) · gave=<bullet> (given up)
-# · note=<text> (the first post's retry note) · back=<session> (settled before the first post; a guard, it is made at once).
+# · note=<text> (the first post's retry note) · back=<session> (settled before the first post; a guard, it is made at once)
+# · later=<session> (given up only at the later list's limit: watch still relaunches it, set_giveup_pane).
 # FLAGS AND THE JOB: a Recycle or Revive set is a FLAG, what called for a relaunch, with the
 # time it was raised (t0), its source (src: recycle · op-recycle · update · auto · provision · reboot · revive · lane · model) and its
 # scope (fscope: `all` for every live pane, or the one pane, or the --only list, of a revive, lane or model switch). A flag clears when
@@ -822,7 +824,7 @@ _set_sync() {
 # set_giveup_pane <session> <why> — watch's later-list limit (SALA_LATER_LIMIT): a pane held that long no longer holds a flag open.
 # It is given up in every open Recycle or Revive flag still waiting for it; a flag with nothing else out closes "at n/N" (the
 # given-up wording), and fires the post-recycle hook with the pane as skipped: the flag clears PARTLY. The pane stays on the
-# deferred list; watch still relaunches it once it is free.
+# deferred list; watch still relaunches it once it is free (later= says so, so an operation raises no alarm for it).
 set_giveup_pane() { _set_locked _set_giveup_pane "$@"; }
 _set_giveup_pane() {
     local s="$1" why="$2" f id k
@@ -831,6 +833,7 @@ _set_giveup_pane() {
         k=$(set_val "$id" kind); case "$k" in Recycle|Revive) ;; *) continue;; esac
         [ "$(set_val "$id" closed)" != 1 ] && _set_out "$id" "$s" || continue
         _set_sync_log "gave up $s in $k $(set_val "$id" label) ($id): $why"
+        _set_add "$id" later "$s"   # before the settle, which may close the flag: whoever judges a closed flag finds the mark (lib/op.sh, op_pane_later)
         _set_resolve "$id" gave "$s" "$s: $why"
     done
     return 0
@@ -2439,7 +2442,7 @@ is_under() {
     done
     return 1
 }
-# claude_pid_under <root-pid> → pid of a `claude` process under that root (direct or nested)
+# claude_pid_under <root-pid> → pid of the pane's own `claude` process: the one nearest that root (the root itself or below a shell; _own_claude_under)
 # pids_under <root-pid> <pid>… → those pids (in the order given) that root is an ancestor of (or is): is_under for many
 # pids against ONE process-table snapshot. claude_pid_under used to walk each `pgrep -x claude` pid up with one `ps` per
 # step; with many claude processes on a machine that was hundreds of ps calls, 5–20 s a lookup.
@@ -2451,7 +2454,7 @@ pids_under() {
         for w in "$@"; do
             q=$w; d=0
             while [ -n "$q" ] && [ "$q" != 1 ] && [ "$q" != 0 ] && [ "$d" -lt 4096 ]; do
-                if [ "$q" = "$root" ]; then printf '%s\n' "$w" 2>/dev/null; hit=0; break; fi   # (silent when the reader — claude_pid_under's `read` — has left)
+                if [ "$q" = "$root" ]; then printf '%s\n' "$w" 2>/dev/null; hit=0; break; fi   # (silent when the reader has left)
                 line=""; { read -r line < "/proc/$q/stat"; } 2>/dev/null || break
                 line=${line##*) }; q=""; read -r _ q _ <<< "$line"   # "<state> <ppid> …" after the command name
                 d=$((d + 1))
@@ -2482,8 +2485,53 @@ _claude_pids_r() {
 }
 claude_pid_under() {
     local pids; _claude_pids_r pids || return 1
-    pids_under "$1" $pids | { local first=""; read -r first; [ -n "$first" ] && printf '%s\n' "$first"; }   # the first line, as head -1 | grep . (two fewer processes per call)
+    _own_claude_under "$1" $pids
 }
+# _own_claude_under <root-pid> <claude pid>… → THE PANE'S OWN claude: of those pids under root, the one the fewest parent steps from it
+# (root itself, when it is one of them, before any other). So a claude that a claude started (a fork before its exec, a nested `claude -p`) is never chosen over its
+# parent, whatever its number: pids wrap, so a younger one can be the lowest. Two at the same depth: the one whose process started first
+# (/proc/<pid>/stat's start time), then the lower pid (the only tie rule where there is no /proc).
+_own_claude_under() {
+    local root="$1"; shift; [ $# -gt 0 ] || return 1
+    if [ -r /proc/self/stat ]; then
+        local w q d s line best="" bd=0 bs=0; local -a f
+        for w in "$@"; do
+            q=$w; d=0; s=0
+            while [ -n "$q" ] && [ "$q" != 1 ] && [ "$q" != 0 ] && [ "$d" -lt 4096 ]; do
+                [ "$q" != "$root" ] || break
+                line=""; { read -r line < "/proc/$q/stat"; } 2>/dev/null || break
+                line=${line##*) }; read -r -a f <<< "$line"   # "<state> <ppid> …" after the command name; the start time is the 20th
+                [ "$d" != 0 ] || s=${f[19]:-0}
+                q=${f[1]:-}; d=$((d + 1))
+            done
+            [ "$q" = "$root" ] || continue
+            [ "$d" != 0 ] || { printf '%s\n' "$w"; return 0; }
+            if [ -z "$best" ] || [ "$d" -lt "$bd" ] || { [ "$d" = "$bd" ] && { [ "$s" -lt "$bs" ] || { [ "$s" = "$bs" ] && [ "$w" -lt "$best" ]; }; }; }; then
+                best=$w; bd=$d; bs=$s
+            fi
+        done
+        [ -n "$best" ] && printf '%s\n' "$best"
+        return
+    fi
+    proc_table | awk -v root="$root" -v want="$*" '{ pp[$1] = $2 }
+        END { n = split(want, w, " "); best = ""
+              for (i = 1; i <= n; i++) { q = w[i]; d = 0
+                  while (q != "" && q != 1 && q != 0 && d < 4096) {
+                      if (q == root) { if (best == "" || d < bd || (d == bd && w[i] + 0 < best + 0)) { best = w[i]; bd = d }; break }
+                      q = pp[q]; d++ } }
+              if (best == "") exit 1
+              print best }'
+}
+claude_alive() {  # <pid> → 0 while that pid is a process named claude (a number reused by another program is not)
+    local _c=""
+    [ -n "${1:-}" ] || return 1
+    if [ -r /proc/self/stat ]; then { read -r _c < "/proc/$1/comm"; } 2>/dev/null || return 1
+    else _c=$(ps -o comm= -p "$1" 2>/dev/null); _c=${_c##*/}; fi
+    [ "$_c" = claude ]
+}
+# relaunched_from <old claude pid> <the pane's claude now> → 0 only when the pane has another claude AND the old one is gone: a different
+# number alone proves nothing
+relaunched_from() { [ -n "${2:-}" ] && [ "$2" != "$1" ] && ! claude_alive "$1"; }
 # rc_server_pid_under <root-pid> → pid of a `claude remote-control` process under that root.
 # The server runs from a non-interactive bash loop, so the pane's #{pane_current_command}
 # reads "bash" even while the server is up — never key the server pane on that.
@@ -2671,11 +2719,11 @@ waiting_clear_owner() {  # <pid> — every flag that owner raised (a worker at i
     local f; for f in "$SALA_WAITING_DIR"/*; do [ -f "$f" ] || continue; case "$f" in *.told|*.t.*) continue;; esac
         [ "$(awk -F= '$1=="owner" {print substr($0, 7); exit}' "$f" 2>/dev/null)" = "$1" ] && waiting_clear "${f##*/}"; done; return 0
 }
-waiting_clear_all() { rm -f "$SALA_WAITING_DIR"/* 2>/dev/null; return 0; }   # a new recycle: its sweep covers every pane again
+waiting_clear_all() { rm -f "$SALA_WAITING_DIR"/* 2>/dev/null; return 0; }   # a new recycle: its sweep covers every pane again (no note: held/ stays)
 waiting_prune() {  # watch: a flag whose owner is gone (a killed worker, a reboot that happened), a .told with no flag, a temp
     local f u; for f in "$SALA_WAITING_DIR"/*; do [ -f "$f" ] || continue; u="${f##*/}"
         case "$u" in *.t.*) rm -f "$f"; continue;; *.told) [ -e "${f%.told}" ] || rm -f "$f"; continue;; esac
-        if [ "$(awk -F= '$1=="boot" {print substr($0, 6); exit}' "$f")" != "$(boot_id 2>/dev/null)" ] || ! kill -0 "$(awk -F= '$1=="owner" {print substr($0, 7); exit}' "$f")" 2>/dev/null; then waiting_clear "$u"; fi
+        if [ "$(awk -F= '$1=="boot" {print substr($0, 6); exit}' "$f")" != "$(boot_id 2>/dev/null)" ] || ! kill -0 "$(awk -F= '$1=="owner" {print substr($0, 7); exit}' "$f")" 2>/dev/null; then hold_ended "$u" ended "the sala process that was waiting to relaunch it is gone"; fi
     done; return 0
 }
 # ── THE PAUSE ───────────────────────────────────────────────────────
@@ -2692,11 +2740,13 @@ waiting_prune() {  # watch: a flag whose owner is gone (a killed worker, a reboo
 #     and unsent or a dialog showing (the draft and prompt rules are the relaunch's own), a pane with a client attached that was active
 #     in the last SALA_PAUSE_QUIET seconds (a person is at it), a session in SALA_NO_PAUSE (work that cannot be redone). Each waits for
 #     idle as before and says why it was not paused.
-#   · THE INTERRUPT (pane_interrupt): ONE Escape, sent only to a pane whose registry row says busy and that shows no dialog; a second
-#     Escape on an idle box can open the CLI's rewind menu. The pane must be idle in the registry within SALA_PAUSE_IDLE_WAIT seconds;
-#     otherwise nothing more is sent, no /exit is typed into a pane that is still in its turn, and the pane is waited for as before
-#     (the clock keeps running and the next try is SALA_PAUSE_RETRY s later: pause_failed). A pane that is idle already and held only by background work
-#     (a monitor, a shell, a subagent) needs no Escape.
+#   · THE INTERRUPT (pane_interrupt): ONE Escape, sent only to a pane whose registry row says busy, that shows no dialog and whose own turn
+#     is seen running (pane_turn_running); a second Escape on an idle box can open the CLI's rewind menu. The pane must be idle in the
+#     registry within SALA_PAUSE_IDLE_WAIT seconds; otherwise nothing more is sent, no /exit is typed into a pane that is still busy, and
+#     the pane is waited for as before (the clock keeps running and the next try is SALA_PAUSE_RETRY s later: pause_failed). A pane the
+#     registry reads idle or 'shell' needs no Escape. A BACKGROUND SUBAGENT keeps the row 'busy' after the turn that started it ended, and
+#     an Escape does not stop it (measured on 2.1.332, private socket): such a pane gets no Escape and is waited for while the row stays
+#     busy, so the subagent is not cut.
 #   · WHO MAY BE PAUSED (SALA_PAUSE_SCOPE, default `background`): only the back agents (the registry's role, back_lane_names); a front
 #     agent is never paused and waits for its turn to end as before; `all`: every session, front agents included; `off`: nobody
 #     (SALA_PAUSE_AFTER=0 is the same switch).
@@ -2718,6 +2768,78 @@ waiting_prune() {  # watch: a flag whose owner is gone (a killed worker, a reboo
 #     that takes with no Escape keeps it (its [paused] note says nothing of one), and it is not delivered into the pane while that is paused.
 #     No Escape sent, nothing written: neither this note nor that sentence.
 SALA_PAUSE_DIR="$SALA_STATE_DIR/pause"
+# ── THE END OF A HOLD ───────────────────────────────────────────────
+# A session told it is held (the waiting line, or a refused call) starts no background work. A relaunch ends that by itself; every ending
+# WITHOUT one goes through hold_ended: the flag comes down, the pause clock of a wait that is over is cleared, and the session that was
+# told gets one note ("[hold] ", handed over once by lib/note.sh --deliver, to that very process only). Two endings stay silent on
+# purpose, because a relaunch is still coming: a newer recycle taking over (waiting_clear_all, a superseded worker), and a reboot's
+# drain that ran through. A success writes nothing: the process that was told is gone.
+# hold_told <uuid> <claude pid> [tmux session] → remembers who was told
+hold_told() {
+    [ -n "${1:-}" ] || return 0; local f="$SALA_HELD_DIR/$1" t="$SALA_HELD_DIR/$1.t.${BASHPID:-$$}" s="${3:-}" what set
+    [ -n "$s" ] || [ -z "${TMUX_PANE:-}" ] || s=$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || s=""
+    _kv_first_r what "$SALA_WAITING_DIR/$1" what; _kv_first_r set "$SALA_WAITING_DIR/$1" set
+    mkdir -p "$SALA_HELD_DIR" 2>/dev/null || return 0
+    printf 'pid=%s\nboot=%s\nset=%s\nwhat=%s\nsession=%s\n' "${2:-0}" "$(boot_id 2>/dev/null)" "$set" "${what:-recycle}" "$s" > "$t" 2>/dev/null && mv -f "$t" "$f"
+    return 0
+}
+# hold_ended <uuid> <ended|deferred|dropped> <why> — THE ONE PLACE a wait for a session ends without its relaunch.
+#   ended     the caller will not relaunch it; a session the deferred list still names counts as `deferred`
+#   deferred  the pane is on the deferred list: watch relaunches it later, and the note says so
+#   dropped   the caller is taking the pane off the deferred list: ended, whatever the list still says
+# Nothing happens while another sala process (a newer recycle's worker, a reboot) holds the flag: that relaunch is still coming.
+hold_ended() {
+    local u="${1:-}" mode="${2:-ended}" o b s
+    [ -n "$u" ] || return 0
+    _kv_first_r o "$SALA_WAITING_DIR/$u" owner; _kv_first_r b "$SALA_WAITING_DIR/$u" boot
+    if [ -n "$o" ] && [ "$o" != "$$" ] && [ "$b" = "$(boot_id 2>/dev/null)" ] && proc_alive "$o" && ! claude_alive "$o"; then   # (a claude as owner: watch's own retell)
+        _kv_first_r s "$SALA_WAITING_DIR/$u" set
+        [ -n "$s" ] && set_superseded "$s" || return 0   # a worker whose set a newer one replaced holds nothing: it stops, silently, at its next pass
+        s=""
+    fi
+    if [ "$mode" = ended ]; then
+        _kv_first_r s "$SALA_HELD_DIR/$u" session
+        [ -z "$s" ] || ! awk -F'\t' -v s="$s" '$1 == s {f = 1} END {exit !f}' "$SALA_DEFERRED" 2>/dev/null || mode=deferred
+    fi
+    waiting_clear "$u"
+    [ "$mode" = deferred ] || { pause_clock_clear "$u"; rm -f "$SALA_PAUSE_DIR/$u.tried" 2>/dev/null; }   # (a deferred pane's clock is watch's to use)
+    _hold_note "$u" "$mode" "${3:-}"
+    return 0
+}
+_hold_note() {  # <uuid> <mode> <why> — the one note; whoever takes the record writes it
+    local f="$SALA_HELD_DIR/$1" t="$SALA_HELD_DIR/$1.t.${BASHPID:-$$}" pid boot what s txt why="${3:-}"
+    [ -f "$f" ] && mv "$f" "$t" 2>/dev/null || return 0
+    _kv_first_r pid "$t" pid; _kv_first_r boot "$t" boot; _kv_first_r what "$t" what; _kv_first_r s "$t" session; rm -f "$t"
+    [ "$boot" = "$(boot_id 2>/dev/null)" ] && hold_pid_is "$pid" "$1" || return 0
+    rm -f "$SALA_PAUSE_DIR/$1.paused" 2>/dev/null   # a pause marker left up would let the next relaunch cut what the session starts now
+    [ ${#why} -le 240 ] || why="${why:0:237}..."
+    if [ "$2" = deferred ]; then
+        txt="[hold] The ${what:-recycle} that was waiting for this session is deferred: ${why}. This session has not been relaunched. You may start background subagents, monitors and background shells again now. sala still relaunches this session later, once it is free; if the waiting flag is raised again, sala says so."
+    else
+        txt="[hold] The ${what:-recycle} that was waiting for this session ended without relaunching it: ${why}. The hold is over: you may start background subagents, monitors and background shells again."
+    fi
+    note_add_for "${s:-?}" "$1" "$pid" "$txt" "a relaunch hold ended" >/dev/null || true
+}
+hold_pid_is() {  # <claude pid> <uuid> → 0 while that process is a live claude hosting this conversation (its own row's id, or the parked job's it stands for)
+    local _hs=""
+    claude_alive "${1:-}" || return 1
+    registry_field_r _hs "$1" sessionId; [ "$_hs" != "$2" ] || return 0
+    registry_conv_r _hs "$1"; [ "$_hs" = "$2" ]
+}
+waiting_end_owner() {  # <owner pid> [why] — a relauncher stops while these flags are still its own: each such hold ends
+    local f; for f in "$SALA_WAITING_DIR"/*; do [ -f "$f" ] || continue; case "$f" in *.told|*.t.*) continue;; esac
+        [ "$(_kv_first "$f" owner)" != "$1" ] || hold_ended "${f##*/}" ended "${2:-the sala process that was waiting to relaunch it stopped first}"; done; return 0
+}
+hold_end_set() {  # <set id> <why> — every session still remembered as told under that set (a reboot's, whose flags came down with its drain)
+    local f s; for f in "$SALA_HELD_DIR"/*; do [ -f "$f" ] || continue; case "$f" in *.t.*) continue;; esac
+        _kv_first_r s "$f" set; [ "$s" != "$1" ] || hold_ended "${f##*/}" ended "$2"; done; return 0
+}
+hold_prune() {  # watch: the memory of sessions that were relaunched or are gone, and temps
+    local f p b; for f in "$SALA_HELD_DIR"/*; do [ -f "$f" ] || continue; case "$f" in *.t.*) rm -f "$f"; continue;; esac
+        _kv_first_r p "$f" pid; _kv_first_r b "$f" boot
+        [ "$b" = "$(boot_id 2>/dev/null)" ] && claude_alive "$p" || rm -f "$f"
+    done; return 0
+}
 : "${SALA_STACKSHOT_INBOX:=$HOME/.local/state/stackshot/inbox}"   # stackshot's inbox (hub/ and msg/ under it), read for the note's list of held messages; lib/wrapup.sh sets the same default
 pause_after_r() {  # <var> → SALA_PAUSE_AFTER in seconds; 0 = off (0, off, no, false); anything that is not a number reads as the default
     local _v="${SALA_PAUSE_AFTER:-900}"
@@ -2826,23 +2948,53 @@ pause_refusal_r() {  # <var> <pane> <tmux session> <claude-pid> → why this pan
     fi
     printf -v "$1" '%s' "$_r"
 }
-# pane_interrupt <pane> <claude-pid> → 0 when the pane is out of its turn (idle, or held by background work alone) in the registry; 1 when it is
-# not within SALA_PAUSE_IDLE_WAIT seconds. ONE Escape, only into a pane whose row says busy and that shows no dialog (the same care as
-# leave_shell_mode: an Escape is a key like any other); nothing is typed, and nothing more is ever sent to a pane that stays in its turn.
+# pane_turn_hint <pane> → 0 when the CLI's "esc to interrupt" hint shows below the input box (a narrow pane cuts it short, "esc to int…");
+# the rows of the CLI's agent list down there are left out, their text is a subagent's own
+pane_turn_hint() {
+    local cap line i=0
+    cap=$(tmux capture-pane -pe -t "$1" 2>/dev/null); _box_from_capture "$cap"
+    [ "$_BOX_AT" -ge 0 ] || return 1
+    while IFS= read -r line; do
+        if [ "$i" -gt "$_BOX_AT" ]; then
+            _sgr_strip_r line "$line"; _lstrip_r line
+            case "$line" in '●'*|'◯'*) ;; *'esc to int'*) return 0;; esac
+        fi
+        i=$((i + 1))
+    done <<< "$cap"
+    return 1
+}
+# pane_turn_running <pane> <claude-pid> → 0 when the session's OWN turn is running, the one thing an Escape ends. The registry's 'busy' is
+# no such sign: it stays 'busy' while only a background subagent runs. Either of two signs is enough: the screen's hint (pane_turn_hint),
+# or, for a pane too narrow to show it, the in-session mod's `busy` probe naming the main loop among the running turns (it names it first).
+pane_turn_running() {
+    local rc=0
+    pane_turn_hint "$1" && return 0
+    mod_request "$2" busy || rc=$?
+    [ "$rc" = 1 ] && [ "$(mod_reply_field "$MOD_REPLY" reason)" = turn ] || return 1
+    case "$(mod_reply_field "$MOD_REPLY" holders)" in "the main loop"|"the main loop; "*) return 0;; esac
+    return 1
+}
+# pane_interrupt <pane> <claude-pid> → 0 when the pane is out of its turn (idle, or held by background shells and tasks alone) in the
+# registry; 1 when it is not within SALA_PAUSE_IDLE_WAIT seconds. ONE Escape, only into a pane whose row says busy, that shows no dialog
+# (the same care as leave_shell_mode: an Escape is a key like any other) and whose own turn is running; nothing is typed, and nothing more
+# is ever sent to a pane that stays busy.
 PAUSE_ESC=0   # 1 once pane_interrupt has sent its Escape: only then is the Escape note written, or the [paused] note's Escape sentence
+PAUSE_TURN=""   # why a busy pane stayed busy: none = no turn of its own seen, no Escape sent; stopped = the Escape ended the turn
 pane_interrupt() {
     local st i
-    PAUSE_ESC=0
+    PAUSE_ESC=0; PAUSE_TURN=""
     registry_field_r st "$2" status
     if [ "$st" != busy ]; then [ "$st" = idle ] || [ "$st" = shell ]; return; fi
     pane_prompt "$1" && return 1
     unmode "$1"
+    pane_turn_running "$1" "$2" || { PAUSE_TURN=none; return 1; }
     tmux send-keys -t "$1" Escape && PAUSE_ESC=1
     for ((i = 0; i < SALA_PAUSE_IDLE_WAIT * 2; i++)); do
         _nap 0.5; registry_field_r st "$2" status
         if [ "$st" = idle ] || [ "$st" = shell ]; then return 0; fi
         [ "$st" = busy ] || return 1   # waiting (a dialog the interrupt opened), or the row is gone
     done
+    [ "$PAUSE_ESC" != 1 ] || pane_turn_running "$1" "$2" || PAUSE_TURN=stopped
     return 1
 }
 # pause_context <claude-pid> <uuid> → the lines the note is made of, read before the interrupt: trigger / pending / started (lib/pauseinfo.py),
@@ -2898,7 +3050,7 @@ pause_note_text() {
     [ "$PAUSE_ESC" != 1 ] || printf ' A tool call that was rejected, or shows "interrupted by user", from the pause was sala'"'"'s Escape, not the user'"'"'s: nobody refused it.'
     printf ' A release or other job that runs in its own systemd unit goes on without you: look at its result.'
 }
-# note_add_for <session> <uuid> <claude-pid> <text> → the id of a note left FOR that conversation (lib/note.sh's store and format; it is due
+# note_add_for <session> <uuid> <claude-pid> <text> [log words] → the id of a note left FOR that conversation (lib/note.sh's store and format; it is due
 # once the conversation is live on a pid other than this one, which any relaunch does)
 note_add_for() {
     local notes="$SALA_LOG_DIR/salamander-notes.tsv" id txt _t
@@ -2909,15 +3061,16 @@ note_add_for() {
         i=$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n'); while grep -q "^$i"$'\t' "$notes"; do i=$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n'); done
         printf '%s\t%s\t%s\t%s\t%s\t0\t0\t%s\n' "$i" "$1" "$2" "$(date +%s)" "$3" "$txt" >> "$notes" && echo "$i" ) 8>"$notes.lock" ) || return 1
     [ -n "$id" ] || return 1
-    _iso_now_r _t; echo "[$_t] left: $1 $id (a relaunch paused its turn): ${txt:0:200}" >> "$SALA_LOG_DIR/salamander-notes.log"
+    _iso_now_r _t; echo "[$_t] left: $1 $id (${5:-a relaunch paused its turn}): ${txt:0:200}" >> "$SALA_LOG_DIR/salamander-notes.log"
     printf '%s\n' "$id"
 }
 # pause_escape_note <session> <uuid> <claude-pid> <kind words> → a pause that did not take, with its Escape sent: ONE note for that conversation,
 # the one-time kind (its text starts "[escape] "). lib/note.sh --deliver hands it to the live pid at once (the same pid too, the pause did not
 # relaunch it) and archives it when delivered, so it never comes back at a relaunch. A retry that sends another Escape replaces the undelivered one.
 pause_escape_note() {
-    local notes="$SALA_LOG_DIR/salamander-notes.tsv" id txt _t
-    txt="[escape] sala sent one Escape at $(local_human "$PAUSE_AT") to pause your turn for a $4, and the pause did not take: the turn was still running, so sala may try again. Any tool call rejected or shown as \"interrupted by user\" from that moment was sala's Escape, not the user's: nobody refused it. If you still need that call, run it again and carry on."
+    local notes="$SALA_LOG_DIR/salamander-notes.tsv" id txt _t how="the turn was still running"
+    [ "$PAUSE_TURN" != stopped ] || how="your turn ended, but work in the background (such as a running subagent) still holds the pane, so you were not relaunched"
+    txt="[escape] sala sent one Escape at $(local_human "$PAUSE_AT") to pause your turn for a $4, and the pause did not take: $how, so sala may try again. Any tool call rejected or shown as \"interrupted by user\" from that moment was sala's Escape, not the user's: nobody refused it. If you still need that call, run it again and carry on."
     txt=$(printf '%s' "$txt" | tr '\t\r\n' '   ' | sed 's/  */ /g; s/^ //; s/ $//')
     mkdir -p "$SALA_LOG_DIR" 2>/dev/null
     id=$( ( flock -w 30 8 || exit 1
@@ -2950,7 +3103,12 @@ pause_pane() {
         rm -f "$f"; pause_failed "$uuid"   # the clock keeps running (the pane has held the relaunch that long); the next try is SALA_PAUSE_RETRY s away
         [ "$PAUSE_ESC" = 1 ] && pause_escape_note "$sess" "$uuid" "$cpid" "$kind" >/dev/null   # the Escape went in: the session is told, on its live pid
         registry_field_r txt "$cpid" status
-        PAUSE_WHY="one Escape did not bring the pane out of its turn within ${SALA_PAUSE_IDLE_WAIT}s (registry says '$txt'), so nothing more was sent and /exit stays unsent$(pause_retry_words "$uuid")"; return 1
+        case "$PAUSE_TURN" in
+            none) PAUSE_WHY="no running turn of its own is seen (registry says '$txt', as it also does while only a background subagent runs), so no Escape was sent";;
+            stopped) PAUSE_WHY="one Escape ended its turn, but work in the background still holds the pane (registry says '$txt'), so nothing more was sent";;
+            *) PAUSE_WHY="one Escape did not bring the pane out of its turn within ${SALA_PAUSE_IDLE_WAIT}s (registry says '$txt'), so nothing more was sent";;
+        esac
+        PAUSE_WHY+=" and /exit stays unsent$(pause_retry_words "$uuid")"; return 1
     fi
     for ((i = 0; i < SALA_IDLE_SETTLE + 6; i++)); do [ -z "$(is_idle_reason "$cpid")" ] && break; sleep 1; done   # the registry's idle settle
     txt=$(is_idle_reason "$cpid")
@@ -6731,10 +6889,50 @@ scrub_text() {   # text that holds none of the words or shapes the patterns need
         printf '%s' "$t" | python3 -c "$SALA_SCRUB_PY"$'\nimport sys\nsys.stdout.write(scrub(sys.stdin.read()))'
     else printf '%s' "$t"; fi
 }
-# send_feedback_drafts <pane> [uuid] — drain queued Claude-drafted feedback through the /feedback panel;
-# fails when that conversation still has a queued draft afterwards (its /exit would stop at the drafts gate)
-# (transcript = no) BEFORE /exit; see lib/feedback.sh. Drafts are sent, never left as a prompt.
+# send_feedback_drafts <pane> [uuid] — drain queued Claude-drafted feedback through the /feedback panel, report only
+# (no transcript) BEFORE /exit; see lib/feedback.sh. Fails when that conversation still has a queued draft afterwards:
+# the caller says so and goes on (the draft is a file that outlives the relaunch), and its /exit stops at the drafts gate,
+# which drafts_gate_pass passes.
 send_feedback_drafts() { "$SALA_BIN" feedback drain "$1" ${2:+"$2"}; }
+# THE DRAFTS GATE AND PANEL (the CLI's own screens; lib/feedback.sh describes them).
+# drafts_panel_up <pane> → 0 when the /feedback drafts panel is showing, in any state: its header or one of its footers (a
+# long review scrolls the header off, and its first view has no footer)
+SALA_DRAFTS_PANEL_RE='^ *Feedback drafts *$|d to discard · Esc|Enter to write new feedback|Any key to continue'
+drafts_panel_up() { tmux capture-pane -p -t "$1" 2>/dev/null | grep -qE "$SALA_DRAFTS_PANEL_RE"; }
+# drafts_gate_up <pane> → 0 when the exit-time gate is showing: "You have N unsent feedback draft(s)", its footer
+# "Enter to review & send · Esc to discard and exit" among the screen's last lines. Esc THERE DELETES the session's drafts
+drafts_gate_up() { tmux capture-pane -p -t "$1" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 3 | grep -qF 'Esc to discard and exit'; }
+# drafts_gate_pass <pane> → 0 when the gate was showing and was left with every draft kept: Enter opens the drafts list
+# (nothing is sent: only a review's send line sends), Esc closes that list and the pending exit goes on. 1: no gate, or
+# the panel never came or never closed (the caller's exit wait runs on; nothing was discarded). Esc is typed again only
+# when the list is still up 3 s later: a spare one would reach the shell the exit leaves behind, ahead of the resume line
+drafts_gate_pass() {
+    local i escapes=0 last=0
+    drafts_gate_up "$1" || return 1
+    tmux send-keys -t "$1" Enter
+    for ((i=1; i<=30; i++)); do
+        sleep 0.5
+        # at a shell: the exit went through (no key goes into a shell, whatever its screen still shows)
+        case "$(tmux display -p -t "$1" '#{pane_current_command}' 2>/dev/null)" in bash|sh|zsh|fish) [ "$escapes" -gt 0 ]; return;; esac
+        drafts_gate_up "$1" && continue
+        if ! drafts_panel_up "$1"; then [ "$escapes" -gt 0 ] && return 0; continue; fi
+        [ "$escapes" = 0 ] || [ $((i - last)) -ge 6 ] || continue
+        [ "$escapes" -lt 3 ] || break
+        sleep 0.5; drafts_gate_up "$1" && continue
+        tmux send-keys -t "$1" Escape; escapes=$((escapes + 1)); last=$i
+    done
+    return 1
+}
+# wait_exit <pane> <secs> → wait_for shell after an /exit, passing the drafts gate when the exit stops there
+wait_exit() {
+    local t=0
+    while [ "$t" -lt "$2" ]; do
+        wait_for "$1" shell 2 && return 0
+        drafts_gate_pass "$1" || :
+        t=$((t + 2))
+    done
+    wait_for "$1" shell 1
+}
 # prompt_clears <pane> [secs] → 0 once no terminal-only prompt is visible (polls; the /feedback panel
 # the drain just closed, or a modal the user is dismissing, needs a moment). Never a single snapshot.
 # pane_draft <pane> → prints text the user has TYPED BUT NOT SUBMITTED in the composer, if any.

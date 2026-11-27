@@ -242,10 +242,17 @@ none itself):
   POST /api/outbox/<name>/<id>/cancel   take a held or failed message back (409 tooLate once it is typed). A queued one (sent to a
                                   busy pane, not yet read) is taken back too: Up pulls the pane's whole queue into the input box, the
                                   others are cleared out and sent again in order. Text already in the input line is cleared first (and
-                                  kept, as before a send). 409 busy when the pane can not do that now (a dialog, a line that can not be
-                                  cleared, a queue that does not read back as sala's, an upload in it, an Up that took nothing back, or an
-                                  Up that can not be confirmed: then those messages are failed with their text kept); 409 tooLate when the
-                                  session already took it
+                                  kept, as before a send; the Up is pressed only into a line read empty). Text the Up brought that is
+                                  none of those messages is kept as a failed message. A box with a long paste drawn folded ("[Pasted
+                                  text #1 +5 lines]", or "[Pasted text #1]" for one long line), or with rows out of view above, counts as
+                                  read only when it holds the messages the popAll lines name, in their order, up to its end (a fold fits a
+                                  message that is folded that way), and nothing else; with rows out of view, every message typed lately
+                                  must have its line too, and what was in view is logged. A box that can not be read whole is left as it
+                                  is, its messages failed with their text (a notice says the taken-back one may be in it too), and the
+                                  sender waits until the line is empty. 409 busy when the pane can not do that now (a message typed moments ago
+                                  that the transcript does not show yet, a dialog, a line that can not be cleared, a queue that does not
+                                  read back as sala's, an upload in it, an Up that took nothing back, or an Up that can not be confirmed:
+                                  then those messages are failed with their text kept); 409 tooLate when the session already took it
   POST /api/outbox/<name>/<id>/edit     {"text", "uploads"}: withdraw it (a queued one as in cancel), then the new text joins at the end (409 as above)
   GET  /api/prefs                 the page's saved preferences (scopeOrder, groupOrder, sessionOrder, collapsed,
                                   laneOrder, agentsGroup, agentsFolded, showAll, showSleeping, unreadOnly, showTools, shellHeight, lang)
@@ -396,6 +403,17 @@ MOD_ENTER_POLL = 0.15
 OUTBOX_TICK = 1.5             # seconds between two looks of the outbox's sender at the messages it holds (a new message wakes it at once)
 OUTBOX_GAP = 0.4              # seconds after a message went in before the next is tried (the pane clears its box)
 TAKE_BACK_WAIT = 8.0          # seconds the take-back waits for the transcript and the input box to show the Up took the queue (the answer is a busy after it)
+TAKE_BACK_LINE_WAIT = 12.0    # seconds a take-back waits, before its Up, for the transcript line of a message just typed (then busy; mostly ~2.5 s, seen up to 10.4)
+TAKE_BACK_LINE_POLL = 0.5     # seconds between two looks for it
+LINE_PATIENCE = 120.0         # seconds a typed message with no line holds a take-back; past it none is expected (a command the CLI runs at once writes none)
+TAKE_BACK_UNCONFIRMED = "taken back into the input line, which could not be confirmed; nothing was sent again; check the terminal"
+PULLED_BACK = "the message was pulled back into the terminal's input line and not sent; check the terminal"
+TAKE_BACK_UNREAD = ("the terminal's input line could not be read whole after the take-back; nothing was sent again and the line was left as it is; "
+                    "check the terminal")
+TAKE_BACK_STILL_THERE = ("this was taken back, but it may still be in the terminal's input line, which could not be read whole and was left "
+                         "as it is; Enter there would send it, and no new message goes in until that line is empty; check the terminal")
+TAKE_BACK_STRAY = ("this was in the terminal's input line after the take-back and is none of the messages taken back; it was not sent; "
+                   "check it, then Edit to send it")
 OUTBOX_GIVE_UP = 30 * 60      # a held message whose session is not listed, or whose pane is not found, is failed (its text kept) after this long
 PREFS_MAX_BYTES = 64 * 1024
 PREFS_MAX_GROUPS = 500
@@ -713,6 +731,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
     pump_locks: dict[str, asyncio.Lock] = {}      # one sender per session at a time
     outbox_kick = asyncio.Event()                 # set when a message is added: the sender looks now, not at its next tick
     track_seen: dict[str, tuple] = {}             # what the transcript check last looked at, per session: nothing new, nothing read
+    typed_direct: dict[str, list[dict]] = {}      # per pane: what api/s/<pid>/send typed in the last LINE_PATIENCE s (a take-back waits for its line too)
     prefs_lock = asyncio.Lock()
     # the New session form (spawn.py): the project pages, cached; one spawn through the queue at a time
     pages = SP.PagesCache(settings.brain_dir, settings.page_dirs)
@@ -1540,6 +1559,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
                                                     body.get("retry") is True, replace)
                 if resp.status_code == 200:
                     last_sent[pane] = (sig, time.monotonic(), answered)
+                    if answered is None:      # typed, not a dialog's key
+                        now = int(time.time() * 1000)
+                        typed_direct[pane] = [d for d in typed_direct.get(pane, []) if now - d["sentAt"] < LINE_PATIENCE * 1000]
+                        typed_direct[pane].append({"text": text, "uploads": names, "sentAt": now, "sessionId": s.session_id})
                 return resp
             except T.TmuxError as e:
                 return _err(502, f"tmux failed: {e}")
@@ -1556,14 +1579,15 @@ def create_app(settings: Settings | None = None) -> Starlette:
                              "boxText": box_text if exact else T.shown_text(box_text),
                              "boxHidden": any(hidden), "boxChanged": changed}, status_code=409)
 
-    def _log_cleared(s: S.Session, text: str) -> None:
+    def _log_cleared(s: S.Session, text: str, doing: str = "clearing") -> None:
         """Keep what is about to be emptied out of a pane's input line (outbox-cleared.jsonl), before the keys that empty it: the text there is
-        never the owner's own, but it can be found. A log that cannot be written never stops the send."""
+        never the owner's own, but it can be found. A log that cannot be written never stops the send. `doing` is the log line's word
+        (a take-back also keeps text it leaves where it is)."""
         try:
             cleared_log.append(s.name, text)
         except OSError as e:
             log.warning("send: could not keep the text cleared from %s's input line: %s", s.name, e)
-        log.info("send: clearing %d characters from %s's input line (kept in %s)", len(text), s.name, OB.CLEARED_FILE)
+        log.info("send: %s %d characters from %s's input line (kept in %s)", doing, len(text), s.name, OB.CLEARED_FILE)
 
     async def _replace_box(s: S.Session, pane: str, captured: str, box_text: str, replace: str) -> Response | None:
         """The box holds text and the request asks to replace it: clear it only when it still reads exactly what the page
@@ -1969,6 +1993,15 @@ def create_app(settings: Settings | None = None) -> Starlette:
             return
         outbox.update(name, mid, reason=reason, detail=detail, lostAt=lost)
 
+    def _box_kept(name: str, pane: str) -> list[str]:
+        """The entries that say a take-back left this pane's input line as it was (`keptBox`, on disk with them): while any does, the
+        line's text is not cleared by the sender."""
+        return [x["id"] for x in outbox.entries(name) if x.get("keptBox") == pane]
+
+    def _box_emptied(name: str, pane: str) -> None:
+        for i in _box_kept(name, pane):
+            outbox.update(name, i, keptBox=None)
+
     async def _release(name: str, s: S.Session | None, locked: bool = False) -> None:
         """Send the held messages of one session, oldest first, for as long as the pane can take the next. The first one it can not send stops the
         others behind it; a message that fails does not (its text is kept and the owner is told). `locked`: the caller (a take-back) already
@@ -1989,6 +2022,8 @@ def create_app(settings: Settings | None = None) -> Starlette:
                 _hold(name, mid, "pane")
                 return
             reason, detail = await _readiness(s, pane)
+            if reason is None:
+                _box_emptied(name, pane)
             cur = outbox.get(name, mid)
             if cur is None or cur["state"] != OB.HELD:
                 continue                      # cancelled or edited while the pane was looked at
@@ -2001,7 +2036,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
                     outbox.update(name, mid, state=OB.FAILED, reason=None, detail="", pasted=False,
                                   error="the message left the pane's input box and sala can not tell whether it was sent; check the terminal")
                     continue
-            elif reason == "draft":
+            elif reason == "draft" and not _box_kept(name, pane):
                 reason = None     # text in the input line is not the owner's: it is cleared below, never waited for
             if reason:
                 _hold(name, mid, reason, detail)
@@ -2067,8 +2102,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if waiting:     # one that was pulled back into the input line (an Up nothing here accounted for) is in no queue: told, with its text
             ops = await run_in_threadpool(OB.read_ops, path, min(e["sentAt"] for e in waiting))
             for mid in OB.popped_ids(waiting, ops):
-                outbox.update(name, mid, state=OB.FAILED, reason=None, detail="", sentAt=None, pid=None, procStart=None,
-                              error="the message was pulled back into the terminal's input line and not sent; check the terminal")
+                outbox.update(name, mid, state=OB.FAILED, reason=None, detail="", sentAt=None, pid=None, procStart=None, error=PULLED_BACK)
         gone = [e for e in queued if e["id"] in dead and e["id"] not in took]
         if gone:
             ops = await run_in_threadpool(OB.read_ops, path, min(e["sentAt"] for e in gone if e.get("sentAt")) - OB.SLACK_MS)
@@ -2215,31 +2249,66 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def _watch_take_back(path: Path, pane: str, mark: int, wanted: list[tuple[str, str]]) -> tuple:
         """After an Up: read the transcript lines written since `mark` until they speak of every message of `wanted` and, for one popped, the
-        input box shows text, or TAKE_BACK_WAIT s have passed. (popped, taken, left, extra, the box's state, its text). Nothing is typed."""
+        input box shows text, or TAKE_BACK_WAIT s have passed. (popped, taken, left, extra, the lines read, the pane as captured: ""
+        when tmux could not). Nothing is typed."""
         end = time.monotonic() + TAKE_BACK_WAIT
         while True:
             await asyncio.sleep(T.SETTLE_S)
             ops = await run_in_threadpool(OB.read_ops, path, 0, OB.TAKE_BACK_MAX_BYTES, mark)
             popped, taken, left, extra = OB.settle_take_back(wanted, ops)
             try:
-                state, box = T.input_box(await T.capture(settings, pane))
-                if not left and not popped and state != "text":
+                captured = await T.capture(settings, pane)
+                if not left and not popped and T.input_box(captured)[0] != "text":
                     await asyncio.sleep(T.SETTLE_S)    # all taken first: an old prompt the Up recalled may not be drawn yet
-                    state, box = T.input_box(await T.capture(settings, pane))
+                    captured = await T.capture(settings, pane)
             except T.TmuxError:
-                state, box = "missing", ""
-            if (not left and (state == "text" or not popped)) or time.monotonic() >= end:
-                return popped, taken, left, extra, state, box
+                captured = ""
+            if (not left and (T.input_box(captured)[0] == "text" or not popped)) or time.monotonic() >= end:
+                return popped, taken, left, extra, ops, captured
+
+    def _same_run(s: S.Session, e: dict) -> bool:
+        return e.get("pid") in (None, s.pid) and e.get("sessionId") in ("", None, s.session_id)
+
+    def _typed_lately(name: str, s: S.Session) -> list[dict]:
+        """What sala typed into this session's pane in the last LINE_PATIENCE s: outbox messages (a delivered one too, so that its line
+        is not taken for a later one with the same words) and what api/s/<pid>/send typed."""
+        since = int(time.time() * 1000) - int(LINE_PATIENCE * 1000)
+        typed = [e for e in outbox.entries(name) if e["state"] in (OB.QUEUED, OB.DELIVERED) and _same_run(s, e)]
+        typed += [{**d, "id": f"direct-{i}", "state": None} for i, d in enumerate(typed_direct.get(s.pane_id, []))
+                  if d["sessionId"] == s.session_id]
+        return [e for e in typed if (e.get("sentAt") or 0) > since]
+
+    async def _unshown(path: Path, s: S.Session, typed: list[dict]) -> list[dict]:
+        """Of `typed`, those not marked delivered that no transcript line shows: no enqueue line (OB.unaccounted), and no user line or
+        command record that has them (a message typed at an idle pane is never queued)."""
+        if not typed:
+            return []
+        ops = await run_in_threadpool(OB.read_ops, path, min(e["sentAt"] for e in typed) - OB.SLACK_MS, OB.TAKE_BACK_MAX_BYTES)
+        left = [e for e in OB.unaccounted(typed, ops) if e["state"] != OB.DELIVERED]
+        if not left:
+            return []
+        msgs, _cur, _end = await run_in_threadpool(TR.read_tail_page, path, s.session_id, 120)
+        shown = set(OB.delivered_ids(left, OB.rows_from_messages(msgs)))
+        commands = [(OB.ts_ms(m.get("ts")) or 0, OB.norm_text(b.get("text")).lstrip("! "))
+                    for m in msgs for b in m.get("blocks") or [] if b.get("kind") == "command"]
+        return [e for e in left if e["id"] not in shown
+                and not any(t >= e["sentAt"] - OB.SLACK_MS and c == OB.norm_text(e["text"]).lstrip("! ") for t, c in commands)]
 
     async def _take_back(name: str, s: S.Session, mid: str) -> Response | None:
         """Take a queued message back out of the pane's queue, so that its owner can cancel or edit it. The CLI can not drop one queued
         message: one Up pulls its whole queue into the input box. So, with the pane's locks held from the first look to the last resend (no
-        other send of sala-web's can come between): the transcript's queue must hold the message and nothing sala did not send, no queued
-        message may have an upload, and no dialog may be open; text in the input line is cleared first (and kept, as before any outbox
-        send). The messages about to be pulled are marked `typing` before the key (a server that stops now leaves them failed with their
-        text, never sent twice). After the Up the transcript's own lines say which came back (popAll) and which the session took first: the
-        message is withdrawn, the others that came back are cleared out of the box and typed again, in their order, and one the session
-        took stays its own.
+        other send of sala-web's can come between): every message sala typed lately must show in the transcript (the CLI may hold one whose
+        line it has not written, which the Up would pull too: waited for TAKE_BACK_LINE_WAIT s), the transcript's queue must hold the
+        message and nothing sala did not send, no queued message may have an upload, and no dialog may be open; text in the input line is
+        cleared first (and kept, as before any outbox send). The messages about to be pulled are marked `typing` before the key (a server
+        that stops now leaves them failed with their text, never sent twice). After the Up the transcript's own lines say which came back
+        (popAll) and which the session took first, and the input box says what is in it: the message is withdrawn, the others that came
+        back are cleared out of the box and typed again, in their order, and one the session took stays its own. Text in the box that is
+        none of these is kept as a failed message and in the cleared-text log. A box with a folded paste, or with rows out of view
+        above, is read only when it holds the messages the popAll lines name, in their order, up to its end (OB.box_matches), and with
+        rows out of view only when no message typed lately is unaccounted for; what it showed is then logged before it is cleared. Any
+        other box that can not be read whole is left as it is, the messages it may hold are failed with their text, and a failed entry
+        says that the message taken back may be in it too.
 
         Returns None when the message is withdrawn (or was never typed). Otherwise the refusal: 409 tooLate for a message the session has
         taken; 409 busy with nothing changed; or, after an Up no line accounts for, 409 busy with the unaccounted messages failed, their text
@@ -2248,27 +2317,33 @@ def create_app(settings: Settings | None = None) -> Starlette:
         if not pane or s.sleeping or not s.pid:
             return _busy(name, mid, _pane_busy_why("pane"))
         async with pump_locks.setdefault(name, asyncio.Lock()), send_locks.setdefault(pane, asyncio.Lock()):
-            await _track(name, s)    # a message the transcript already shows is the session's
-            e = outbox.get(name, mid)
-            if e is None:
-                return _err(404, "no such message")
-            if e["state"] in (OB.HELD, OB.FAILED, OB.WITHDRAWN):
-                return None      # not in the pane (any more): the caller withdraws it
-            if e["state"] != OB.QUEUED:
-                return _too_late(name, e)
-            queued = sorted((x for x in outbox.entries(name) if x["state"] == OB.QUEUED and x.get("pid") in (None, s.pid)
-                             and x.get("sessionId") in ("", None, s.session_id)), key=lambda x: x.get("sentAt") or 0)
-            if mid not in {x["id"] for x in queued}:
-                return _busy(name, mid, "the message went to an earlier run of this session")
-            path = TR.transcript_path(settings.projects_dir, s.cwd, s.session_id)
-            if path is None:
-                return _busy(name, mid, "the session's transcript can not be read to find its queue")
+            deadline = time.monotonic() + TAKE_BACK_LINE_WAIT
+            while True:
+                await _track(name, s)    # a message the transcript already shows is the session's
+                e = outbox.get(name, mid)
+                if e is None:
+                    return _err(404, "no such message")
+                if e["state"] in (OB.HELD, OB.FAILED, OB.WITHDRAWN):
+                    return None      # not in the pane (any more): the caller withdraws it
+                if e["state"] != OB.QUEUED:
+                    return _too_late(name, e)
+                queued = sorted((x for x in outbox.entries(name) if x["state"] == OB.QUEUED and _same_run(s, x)), key=lambda x: x.get("sentAt") or 0)
+                if mid not in {x["id"] for x in queued}:
+                    return _busy(name, mid, "the message went to an earlier run of this session")
+                path = TR.transcript_path(settings.projects_dir, s.cwd, s.session_id)
+                if path is None:
+                    return _busy(name, mid, "the session's transcript can not be read to find its queue")
+                uploaded = "a queued message has an upload, which can not be taken back"    # its queue line holds a file path too
+                if e["uploads"]:
+                    return _busy(name, mid, uploaded)
+                if not await _unshown(path, s, _typed_lately(name, s)):
+                    break
+                if time.monotonic() >= deadline:      # an Up now could pull a message nothing here knows to be in the queue
+                    return _busy(name, mid, "a message just typed into the pane is not in the transcript yet; try again in a few seconds")
+                await asyncio.sleep(TAKE_BACK_LINE_POLL)
             # the queue this process holds: every line since it started (else since the oldest queued message), and where the file ends now
             since = (s.started_at or min(x.get("sentAt") or 0 for x in queued)) - OB.SLACK_MS
             mark, ops = await run_in_threadpool(OB.snapshot_ops, path, since, OB.TAKE_BACK_MAX_BYTES)
-            uploaded = "a queued message has an upload, which can not be taken back"    # its queue line holds a file path too
-            if e["uploads"]:
-                return _busy(name, mid, uploaded)
             wanted, foreign = OB.match_queue(OB.queue_items(ops), queued)
             if mid not in {i for i, _t in wanted}:
                 seen = [o for o in ops if o["text"] == OB.norm_text(e["text"]) and o["ts"] >= (e.get("sentAt") or 0) - OB.SLACK_MS]
@@ -2282,6 +2357,10 @@ def create_app(settings: Settings | None = None) -> Starlette:
             if any(x["uploads"] for x in queued if x["id"] in pulled):
                 return _busy(name, mid, uploaded)
             reason, detail = await _readiness(s, pane)
+            if reason is None:
+                _box_emptied(name, pane)
+            elif reason == "draft" and _box_kept(name, pane):
+                return _busy(name, mid, "the pane's input line holds text an earlier take-back left there; check the terminal")
             if reason == "draft":      # text in the input line is not the owner's: kept in the log and cleared, as before a send
                 _log_cleared(s, detail)
                 try:
@@ -2300,37 +2379,96 @@ def create_app(settings: Settings | None = None) -> Starlette:
             try:
                 settle(pulled, OB.TYPING)
                 try:
+                    # the last look, with nothing between it and the key: an Up into a box with text would not bring the queue back whole
+                    if T.input_box(await T.capture(settings, pane))[0] != "empty":
+                        settle(pulled, OB.QUEUED)
+                        return _busy(name, mid, "the pane's input line was not empty just before the take-back")
                     await T.send_take_back_key(settings, pane, "Up")
                 except T.TmuxError as ex:
                     settle(pulled, OB.QUEUED)
                     return _busy(name, mid, f"the key could not be sent ({str(ex)[:120]})")
-                popped, taken, left, extra, state, box = await _watch_take_back(path, pane, mark, wanted)
+                popped, taken, left, extra, ops, captured = await _watch_take_back(path, pane, mark, wanted)
+                state, box = T.input_box(captured)
                 if not popped and not taken and not extra and state != "text":
                     settle(pulled, OB.QUEUED)
+                    if state != "empty":      # a box that can not be seen may hold them: the sender does not clear what it finds there
+                        outbox.update(name, mid, keptBox=pane)
                     return _busy(name, mid, "the Up took nothing back")
                 settle(taken, OB.QUEUED)       # the session's now: the transcript check marks them delivered
-                settle(left, OB.FAILED, error="taken back into the input line, which could not be confirmed; nothing was sent again; check the terminal",
-                       **unsent)
-                settle([i for i in popped if i != mid], OB.HELD, error="", resent=True, **unsent)   # list order is the order they were typed
                 if mid in popped:
                     settle([mid], OB.WITHDRAWN, reason=None, detail="")
+                extras: list[str] = []
                 for text in extra:      # queued but not in the look's queue: it came back too, so it is typed again
-                    known = next((x["id"] for x in outbox.entries(name) if x["state"] == OB.QUEUED and x["id"] not in pulled
+                    known = next((x["id"] for x in outbox.entries(name) if x["state"] == OB.QUEUED and x["id"] not in pulled + extras
                                   and OB.norm_text(x["text"]) == OB.norm_text(text)), None)
-                    if known:       # a listed message whose enqueue line was written late: held in its own place
-                        settle([known], OB.HELD, error="", resent=True, **unsent)
-                    else:           # not the list's: it joins at the end, as it was typed
-                        outbox.add(name, text, [])
-                # what the box holds now is what the Up pulled back, or (nothing was queued any more) an old prompt it recalled
-                if state == "text":
-                    if left:
-                        _log_cleared(s, T.shown_text(box))
-                    try:
-                        ok, why = await T.clear_box(settings, pane)
-                    except T.TmuxError as ex:
-                        ok, why = False, str(ex)[:200]
-                    if not ok:
-                        log.warning("outbox: %s: the input box was not cleared after a take-back (%s); the sender clears it before it sends", name, why)
+                    # a listed message whose enqueue line was written late is held in its own place; another joins at the end, as it was typed
+                    extras.append(known or outbox.add(name, text, [])[0]["id"])
+                # sala's other messages that no line speaks of: the Up may have pulled them too
+                others = [x for x in await _unshown(path, s, queued) if x["id"] not in pulled + extras
+                          and outbox.get(name, x["id"])["state"] == OB.QUEUED]
+                back = [i for i in popped if i != mid] + extras      # list order is the order they were typed
+                shown = T.shown_text(box) if state == "text" else ""
+                above, below = T.box_hidden(captured) if state == "text" else (False, False)
+                seen_all = state == "text" and not above and not below
+                folded = bool(OB.PASTE_CHIP_RE.search(shown))
+                # a box with a fold, or with rows out of view above, is read when it holds the messages the popAll lines name, in their
+                # order, up to its end (OB.box_matches, on each text as sala-web pasted it)
+                matched = False
+                if state == "text" and (folded or above) and not below:
+                    named = dict(wanted)
+                    order = OB.pop_order(ops, [(i, named[i]) for i in popped] + [(i, OB.norm_text(t)) for i, t in zip(extras, extra)])
+                    matched = order is not None and OB.box_matches(shown, [outbox.get(name, i)["text"] for i in order], above)
+                    if matched and above:      # rows out of view: only when no message typed lately may be among them unnamed
+                        unshown = await _unshown(path, s, _typed_lately(name, s))
+                        matched = not left and not others and not [x for x in unshown if x["id"] not in extras]
+                whole = state == "empty" or matched or (seen_all and not folded)
+                if not whole:
+                    if shown:
+                        _log_cleared(s, shown, "leaving")
+                    lost = back + left + [x["id"] for x in others]
+                    if not lost and mid not in popped and shown:      # nothing of sala's to hang it on: what can be seen is kept
+                        lost = [outbox.add(name, shown, [])[0]["id"]]
+                    settle(lost, OB.FAILED, error=TAKE_BACK_UNREAD, keptBox=pane, **unsent)
+                    outbox.update(name, mid, keptBox=pane)      # on disk, so that no sender clears this line, even after a restart
+                    if mid in popped:      # the answer says withdrawn, and the message is in that line too: told on the page, with its text
+                        x, _new = outbox.add(name, outbox.get(name, mid)["text"], [])
+                        outbox.update(name, x["id"], state=OB.FAILED, error=TAKE_BACK_STILL_THERE, keptBox=pane)
+                    log.warning("outbox: %s: the input box could not be read whole after a take-back; left as it is, %d messages failed, text kept",
+                                name, len(lost))
+                else:
+                    cands = ([outbox.get(name, i)["text"] for i in popped] + extra + [outbox.get(name, i)["text"] for i in left]
+                             + [x["text"] for x in others])
+                    # a box that matched leaves nothing over, and nothing else of sala's can be in it
+                    found, rest = ([False] * len(cands), []) if matched else OB.box_parts(shown, cands)
+                    back += [x["id"] for x, here in zip(others, found[len(cands) - len(others):]) if here]
+                    settle(left, OB.FAILED, error=TAKE_BACK_UNCONFIRMED, **unsent)
+                    settle(back, OB.HELD, error="", resent=True, **unsent)
+                    keep = bool(left)      # whether the box's text goes into the cleared-text log before it is cleared
+                    # nothing was queued any more: the Up recalls an old prompt, which is no lost text when the session has it
+                    if rest and not (popped or extra or left or any(found)):
+                        had = {OB.norm_text(outbox.get(name, i)["text"]) for i in taken}
+                        rest = [x for x in rest if OB.norm_text(x) not in had]
+                        if rest:
+                            keep = True
+                            msgs, _cur, _end = await run_in_threadpool(TR.read_tail_page, path, s.session_id, 120)
+                            had = {r[1] for r in OB.rows_from_messages(msgs)}
+                            rest = [x for x in rest if OB.norm_text(x) not in had]
+                    if shown and (keep or rest or above):      # rows out of view were never read: what could be seen is logged
+                        _log_cleared(s, shown)
+                    for text in rest:
+                        x, _new = outbox.add(name, text, [])
+                        outbox.update(name, x["id"], state=OB.FAILED, error=TAKE_BACK_STRAY)
+                    if rest:
+                        log.warning("outbox: %s: %d pieces of text in the input box after a take-back are no message taken back; kept as failed",
+                                    name, len(rest))
+                    # all the box holds is accounted for: typed again below, kept as failed, or the session's already
+                    if state == "text":
+                        try:
+                            ok, why = await T.clear_box(settings, pane)
+                        except T.TmuxError as ex:
+                            ok, why = False, str(ex)[:200]
+                        if not ok:
+                            log.warning("outbox: %s: the input box was not cleared after a take-back (%s); the sender clears it before it sends", name, why)
                 if left:
                     log.warning("outbox: %s: a take-back could not be confirmed for %d messages; failed, text kept", name, len(left))
                 await _release(name, s, locked=True)

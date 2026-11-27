@@ -22,9 +22,11 @@ versions/<n>/<UTC time>.html, one file for each version an update or an undo rep
 writer; sala-web only reads. A number is taken under an exclusive lock on <dir>/.lock: the counter is raised and saved (write, fsync, rename)
 BEFORE the page is written, so a crash leaves a gap and never a number given twice, and the counter keeps counting after a page is deleted.
 A page is written to a temporary name and renamed, so a reader never sees half a page. A page is refused when it is empty, over 5 MiB, not
-UTF-8 or holds a NUL byte (a mockup is text; the response says charset=utf-8, so another encoding would show as garbage), or when its visible text
-letters its designs ("Variant A", "Option B": a design word and one capital letter; scripts, styles, comments and attributes do not count): name each
-design instead, the same words as the board's options, so a letter here never meets a different letter there. There is no override: a name is always possible.
+UTF-8 or holds a NUL byte (a mockup is text; the response says charset=utf-8, so another encoding would show as garbage), or when a link, area, form,
+base or button/input names a new window in its target or formtarget (anything but _self, _top, _parent or nothing; a sala mockup page cannot open a
+new window, so the link must open in the same one), or when its visible text letters its designs ("Variant A", "Option B": a design word and one
+capital letter; scripts, styles, comments and attributes do not count): name each design instead, the same words as the board's options, so a letter
+here never meets a different letter there. There is no override: a name is always possible.
 
 Address: the origin (scheme and host) of SALA_SESSION_URL, the link template sala already uses for a session's web link. Without it the path
 (/mockup/<n>) is printed and a note on stderr says what to prefix it with.
@@ -47,6 +49,7 @@ Exit: 0 done (also a pass that kept pages for want of a way to read the board), 
 import fcntl
 import html
 import json
+from html.parser import HTMLParser
 import os
 import re
 import secrets
@@ -166,7 +169,7 @@ def take_number(d: str) -> int:
 
 
 def check_page(data: bytes) -> str:
-    """The page's text, or a Refused. Over MAX_BYTES, empty, a NUL byte, not UTF-8 or lettering its designs is refused."""
+    """The page's text, or a Refused. Over MAX_BYTES, empty, a NUL byte, not UTF-8, a window-opening target or lettering its designs is refused."""
     if not data.strip():
         raise Refused("the file is empty")
     if len(data) > MAX_BYTES:
@@ -177,11 +180,45 @@ def check_page(data: bytes) -> str:
         text = data.decode("utf-8")
     except UnicodeDecodeError as e:
         raise Refused("the file is not UTF-8 (byte %d): save it as UTF-8, the page is served as text/html; charset=utf-8" % e.start)
+    window = new_window_target(text)
+    if window:
+        tag, attr, value = window
+        raise Refused('the page has <%s %s="%s">: a sala mockup page cannot open a new window; remove the %s attribute so the link opens '
+                      'in the same window' % (tag, attr, value, attr))
     found = lettered_designs(text)
     if found:
         raise Refused("the page letters its designs (%s): name each design instead (One-line strip, Fuller panel), the same words as the board's options, "
                       "so a letter here never meets a different letter there" % ", ".join('"%s"' % f for f in found))
     return text
+
+
+TARGET_ATTR = {"a": "target", "area": "target", "form": "target", "base": "target", "button": "formtarget", "input": "formtarget"}
+SAME_WINDOW_TARGETS = ("", "_self", "_top", "_parent")
+
+
+class _Targets(HTMLParser):
+    """The first element whose target (a, area, form, base) or formtarget (button, input) names a window other than this one.
+    The parser skips script and style bodies and comments, so text there does not count."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.found = None
+
+    def handle_starttag(self, tag, attrs):
+        attr = TARGET_ATTR.get(tag)
+        if self.found is None and attr:
+            for name, value in attrs:
+                if name == attr and (value or "").strip().lower() not in SAME_WINDOW_TARGETS:
+                    self.found = (tag, attr, " ".join((value or "").split()))
+                    return
+
+
+def new_window_target(text: str):
+    """(tag, attribute, value) of the first link, form or button that opens a new window, or None."""
+    p = _Targets()
+    p.feed(text)
+    p.close()
+    return p.found
 
 
 def lettered_designs(text: str) -> list:

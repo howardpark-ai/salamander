@@ -20,6 +20,15 @@ evidence, a retry), or a Cancel that the page reports as done while the text goe
   pressed) with a dialog, a line that cannot be cleared, a queue that does not read back as sala's, an upload in the queue; one the session
   took first is `tooLate` while the others are still typed again; what the Up cannot be confirmed to have pulled is failed with its text
   kept and never typed again; a message pulled into the box by an Up that was not sala-web's is failed too, so it is not shown as waiting;
+- the CLI writes a queued message's line late: no Up while a message sala typed has none (waited for briefly, else busy); a message the
+  box shows and no line names is typed again; other text there is kept as failed and logged; a box that can not be read whole is left
+  as it is, every text kept, and nothing is typed or cleared there until the line is empty; an unmatched older message does not stop a
+  newer one from being delivered;
+- a box with a long paste drawn folded (of many lines, or of one long line), or with rows out of view above, is read when it holds the
+  messages the popAll lines name, in their order, up to its end: then the others are typed again as they were, and what a box with rows
+  out of view showed is logged; with other text in it, a fold that fits no message, rows out of view below, or a message no line speaks
+  of, it is left, as above, and a notice with its text says that the message taken back may be in it too; no Up into a box that does not
+  read empty just before;
 - the list survives a restart; a message half typed at the restart is failed, never typed again;
 - a message the session's process ended without reading, with the CLI's enqueue line as evidence, is sent again; one the transcript
   shows delivered is not; one with no evidence stays queued;
@@ -33,6 +42,7 @@ import os
 import stat
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -72,9 +82,40 @@ class Pane:
         self.late: list[str] = []   # texts that reach the queue between sala-web's look and its Up (typed in the terminal)
         self.recall = ""            # what an Up recalls into the box when nothing is queued (the last prompt, from history)
         self.ups = 0
+        self.slow = False           # a message typed now waits in the queue with no enqueue line yet (the CLI writes it seconds later)
+        self.unwritten: list[str] = []   # those texts, until their lines are written; an Up pulls one into the box with no popAll line
+        self.unreadable = ""        # after an Up the box can not be read whole: above | below (lines out of view) | chip | gone
+        self.up_skip = 0            # the oldest messages an Up pulls with no popAll line
+        self.tall = 0               # rows the box shows at most (0: all): the earlier ones are out of view above
+        self.width = 0              # characters a row holds (0: no wrapping)
+        self.cut = ""               # which rule says lines are out of view now
+        self.folds = 0              # the pastes drawn folded so far (the number in the chip)
+        self.fold_off = 0           # a chip says this many more line breaks than the paste has
+        self.after_up = ""          # what is typed or pasted into the box at the terminal just after an Up (no queue line speaks of it)
+        self.after_up_onto = False  # it goes on at the end of the last row, not on a row of its own
         self.submitted: list[str] = []
         self.keys: list[str] = []
         self.edits: list[str] = []
+
+    def folded(self, text: str) -> bool:
+        """Claude Code 2.1.332 draws a paste of four lines or more, or of more than 800 characters, as one chip, and wraps its text in
+        the transcript."""
+        return text.count("\n") >= 3 or len(text.replace("\t", "    ").encode("utf-16-le")) // 2 > 800
+
+    def drawn(self, text: str) -> str:
+        """A message as an Up brings it back into the box."""
+        if not self.folded(text):
+            return text
+        self.folds += 1
+        breaks = text.count("\n")
+        return f"[Pasted text #{self.folds}" + (f" +{breaks + self.fold_off} lines]" if breaks else "]")
+
+    def written(self, text: str) -> str:
+        """A message as its transcript lines carry it: tabs as spaces, and no further line break before the closing tag of a paste that
+        ends in one (so the line does not tell that break from the wrapper's own)."""
+        text = text.replace("\t", "    ")
+        end = "" if text.endswith("\n") else "\n"
+        return f'<pasted_content id="c7ce">\n{text}{end}</pasted_content id="c7ce">' if self.folded(text) else text
 
     def screen(self) -> str:
         if self.mode == "dialog":
@@ -83,9 +124,15 @@ class Pane:
             return (FIX / "capture-empty.txt").read_text()
         if self.mode == "blank":
             return "Loading the conversation\n" * 3
-        first, *more = self.draft.split("\n")
-        body = [f"{PROMPT}{NBSP}{first}"] + [f"  {x}" for x in more]
-        return "\n".join(["old output", RULE, *body, RULE]) + "\n"
+        rows = self.draft.split("\n")
+        if self.width:
+            rows = [x[i:i + self.width] for x in rows for i in range(0, max(len(x), 1), self.width)]
+        out = max(0, len(rows) - self.tall) if self.tall else 0      # a box that has scrolled shows no prompt sign
+        above = out or (3 if self.cut == "above" else 0)
+        body = [f"  {x}" for x in rows[out:]] if above else [f"{PROMPT}{NBSP}{rows[0]}"] + [f"  {x}" for x in rows[1:]]
+        top = f"{RULE} {chr(0x2191)} {above} more {RULE}" if above else RULE
+        bottom = f"{RULE} {chr(0x2193)} 3 more {RULE}" if self.cut == "below" else RULE
+        return "\n".join(["old output", top, *body, bottom]) + "\n"
 
 
 def until(fn, secs=10.0):
@@ -145,7 +192,15 @@ def env(tmp_path, monkeypatch):
             pane.draft = ""
             if pane.busy:
                 pane.queue.append(text)
-                tr_line(queue_op("enqueue", text))
+                if pane.slow:
+                    pane.unwritten.append(text)
+                else:
+                    tr_line(queue_op("enqueue", pane.written(text)))
+
+    def write_lines():
+        """The CLI writes the enqueue lines it owes."""
+        while pane.unwritten:
+            tr_line(queue_op("enqueue", pane.written(pane.unwritten.pop(0))))
 
     async def send_key(_s, pane_id, key):
         pane.keys.append(key)
@@ -172,10 +227,23 @@ def env(tmp_path, monkeypatch):
             pane.draft = pane.recall
             return
         if not pane.up_silent:
-            for text in pulled:
-                tr_line(queue_op("popAll", text))
-        pane.draft = "\n".join(pulled)
+            owed = list(pane.unwritten)
+            for text in pulled[pane.up_skip:]:
+                if text in owed:
+                    owed.remove(text)
+                else:
+                    tr_line(queue_op("popAll", pane.written(text)))
+        pane.unwritten = []
+        pane.draft = "\n".join(pane.drawn(t) for t in pulled)
         pane.queue = [t for t in pane.queue if t.startswith("<task-notification")]
+        if pane.unreadable == "chip":
+            pane.draft = "[Pasted text #1 +3 lines]"
+        elif pane.unreadable == "gone":
+            pane.mode = "blank"
+        else:
+            pane.cut = pane.unreadable
+        if pane.after_up:
+            pane.draft += (" " if pane.after_up_onto else "\n") + pane.after_up
 
     async def no_shell(_settings):
         return None
@@ -188,6 +256,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "send_edit_key", send_edit_key)
     monkeypatch.setattr(T, "send_take_back_key", send_take_back_key)
     monkeypatch.setattr(AP, "TAKE_BACK_WAIT", 0.4)
+    monkeypatch.setattr(AP, "TAKE_BACK_LINE_WAIT", 0.3, raising=False)
+    monkeypatch.setattr(AP, "TAKE_BACK_LINE_POLL", 0.05, raising=False)
     monkeypatch.setattr(T, "CLEAR_SETTLE", 0)
     monkeypatch.setattr(T, "CLEAR_STALL_SETTLE", 0)
     monkeypatch.setattr(S, "live_tmux_names", lambda: {})
@@ -198,7 +268,7 @@ def env(tmp_path, monkeypatch):
     app = create_app(settings)
     with TestClient(app) as client:
         e = SimpleNamespace(client=client, pane=pane, settings=settings, register=register, row=row, pid=pid, app=app, claude=claude,
-                            monkeypatch=monkeypatch)
+                            monkeypatch=monkeypatch, write_lines=write_lines)
         e.post = lambda text, **kw: client.post(f"/api/outbox/{NAME}", json={"text": text, **kw})
         e.msgs = lambda: client.get(f"/api/outbox/{NAME}").json()["messages"]
         e.states = lambda: [(m["text"], m["state"], m["reason"]) for m in e.msgs()]
@@ -546,6 +616,226 @@ def test_a_multi_line_queued_message_is_typed_again_as_it_was(env):
     assert [x[1] for x in env.states()] == ["queued", "withdrawn", "queued", "queued"]
 
 
+def paste_of(tag: str, count: int) -> str:
+    return "\n".join(f"{tag} line {i}" for i in range(1, count + 1))
+
+
+# queues with messages Claude Code draws folded, and which one is taken back
+FOLDED = {
+    "6-and-41-the-6": ([paste_of("a", 6), paste_of("b", 41)], 0),
+    "6-and-41-the-41": ([paste_of("a", 6), paste_of("b", 41)], 1),
+    "alone": ([paste_of("a", 6)], 0),
+    "as-many-lines-each": ([paste_of("a", 6), paste_of("b", 6), paste_of("c", 6)], 1),
+    "with-one-liners-a-one-liner": (["one", paste_of("a", 6), "two", "short\n  second line", paste_of("b", 41), "three"], 2),
+    "with-one-liners-a-paste": (["one", paste_of("a", 6), "two", "short\n  second line", paste_of("b", 41), "three"], 4),
+    "blank-lines-and-tabs": (["a\n\n\n\tb\n  c", "one", "x\ny\n\n\nz"], 1),
+    "line-breaks-at-the-ends": (["a\nb\nc\nd\n", "one", "\n\nx\ny\n\n", "p\nq\nr\ns", "two\nlines\n"], 1),
+    "a-long-line-alone": (["y" * 801], 0),
+    "a-long-line-the-long-one": (["one", "y" * 801, "two"], 1),
+    "long-lines-and-others-the-second-long": (["y" * 900, "z" * 800, paste_of("a", 6), "word " * 600, "two\nlines", "last"], 3),
+    "long-lines-and-others-a-short-one": (["y" * 900, "one", paste_of("a", 6) + "w" * 900, "v\t" * 200, "last"], 1),
+}
+
+
+@pytest.mark.parametrize("act", ["cancel", "edit"])
+@pytest.mark.parametrize("case", list(FOLDED))
+def test_folded_pastes_are_taken_back_and_the_others_are_typed_again_as_they_were(env, case, act):
+    texts, gone = FOLDED[case]
+    ids = busy_queue(env, *texts)
+    body = {"json": {"text": "the new words"}} if act == "edit" else {}
+    r = env.client.post(f"/api/outbox/{NAME}/{ids[gone]}/{act}", **body)
+    assert r.status_code == 200, r.text
+    new = ["the new words"] if act == "edit" else []
+    again = texts[:gone] + texts[gone + 1:] + new
+    assert until(lambda: env.pane.queue == again), env.pane.queue           # each as it was typed, in order, the taken one not
+    want = [(t, "withdrawn" if i == gone else "queued") for i, t in enumerate(texts)] + [(t, "queued") for t in new]
+    assert until(lambda: [x[:2] for x in env.states()] == want), env.states()
+    time.sleep(0.3)
+    assert env.pane.draft == "" and env.pane.ups == 1 and env.pane.submitted == texts + again
+
+
+@pytest.mark.parametrize("how", ["typed-beside", "typed-onto", "second-paste", "second-long-paste", "other-count", "rows-below",
+                                 "no-popall-line"])
+def test_a_folded_box_that_does_not_pair_off_is_left_as_it_is_and_every_text_is_kept(env, how):
+    env.monkeypatch.setattr(AP, "LINE_PATIENCE", 0.0, raising=False)
+    texts = [paste_of("a", 6), paste_of("b", 6), "y" * 900 if how == "second-long-paste" else "one"]
+    ids = busy_queue(env, *texts)
+    if how in ("typed-beside", "typed-onto"):
+        env.pane.after_up, env.pane.after_up_onto = "typed at the terminal", how == "typed-onto"
+    elif how == "second-paste":                 # as many lines as a queued one, and no queue line of its own
+        env.pane.after_up = "[Pasted text #9 +5 lines]"
+    elif how == "second-long-paste":            # the same chip as a queued one's, once more
+        env.pane.after_up = "[Pasted text #9]"
+    elif how == "other-count":
+        env.pane.fold_off = 1
+    elif how == "rows-below":
+        env.pane.unreadable = "below"
+    elif how == "no-popall-line":
+        env.pane.slow = True
+        texts.append(paste_of("c", 6))
+        ids += busy_queue(env, texts[-1])
+        env.pane.slow = False
+    r = cancel(env, ids[1])
+    assert r.status_code == 200 and r.json()["message"]["state"] == "withdrawn", r.text
+    left_there = env.pane.draft
+    assert "[Pasted text #" in left_there and env.pane.edits == []              # not cleared
+    others = [(t, "failed") for t in texts]
+    others[1] = (texts[1], "withdrawn")
+    assert [x[:2] for x in env.states()] == others + [(texts[1], "failed")], env.states()
+    *kept, notice = [m for m in env.msgs() if m["state"] == "failed"]
+    assert all("could not be read whole" in m["error"] and "may still be" not in m["error"] for m in kept)
+    assert "may still be in the terminal's input line" in notice["error"] and "Enter there would send it" in notice["error"]
+    assert cleared(env)[-1]["text"].count("[Pasted text #") == left_there.count("[Pasted text #")
+    assert env.post("after").json()["message"]["state"] == "held"
+    time.sleep(0.4)
+    assert env.pane.draft == left_there and env.pane.edits == [] and env.pane.submitted == texts
+
+
+def test_a_taken_back_message_left_alone_in_the_box_is_told_with_its_text(env):
+    env.pane.fold_off = 1                       # a chip that fits no message: the box is not read
+    long = paste_of("a", 6)
+    (m,) = busy_queue(env, long)
+    r = cancel(env, m)
+    assert r.status_code == 200 and env.pane.draft == "[Pasted text #1 +6 lines]" and env.pane.edits == [], r.text
+    assert [x[:2] for x in env.states()] == [(long, "withdrawn"), (long, "failed")]
+    assert "may still be in the terminal's input line" in env.msgs()[1]["error"]
+    assert [x["id"] for x in r.json()["messages"] if x["state"] == "failed"] == [env.msgs()[1]["id"]]   # the cancel's answer has it
+
+
+# queues taller than the input box: (the messages, the rows the box shows, characters a row holds, which one is taken back)
+TALL = {
+    "past-seven-rows-an-old-one": ([f"message {i}" for i in range(12)], 7, 0, 0),
+    "past-seven-rows-the-newest": ([f"message {i}" for i in range(12)], 7, 0, 11),
+    "past-seventeen-rows": ([f"message {i}" for i in range(25)], 17, 0, 12),
+    "one-row-too-many": (["one", "two", "three"], 2, 0, 1),
+    "the-view-begins-inside-a-wrapped-one": (["first", " ".join(f"w{i}" for i in range(90)), "three", "four"], 7, 40, 2),
+    "the-view-begins-inside-a-multi-line-one": (["first", "a\nb\nc", "d\ne\nf", "last"], 3, 0, 3),
+    "one-message-taller-than-the-box": ([" ".join(f"w{i}" for i in range(150))], 7, 40, 0),
+    "with-folds-in-view-and-out-of-it": (["y" * 900, "one", paste_of("a", 6), "two", "z" * 801, "three", paste_of("b", 41), "four"], 3, 0, 1),
+}
+
+
+@pytest.mark.parametrize("act", ["cancel", "edit"])
+@pytest.mark.parametrize("case", list(TALL))
+def test_a_queue_taller_than_the_box_is_taken_back_and_what_it_showed_is_logged(env, case, act):
+    texts, rows, width, gone = TALL[case]
+    env.pane.width = width
+    ids = busy_queue(env, *texts)
+    env.pane.tall = rows
+    shows = []
+    send_edit_key = T.send_edit_key
+
+    async def look_first(settings, pane, key):
+        shows.append(T.shown_text(T.input_box(env.pane.screen())[1]))
+        assert T.box_hidden(env.pane.screen()) == (len(shows) == 1, False)
+        await send_edit_key(settings, pane, key)
+
+    env.monkeypatch.setattr(T, "send_edit_key", look_first)
+    body = {"json": {"text": "the new words"}} if act == "edit" else {}
+    r = env.client.post(f"/api/outbox/{NAME}/{ids[gone]}/{act}", **body)
+    assert r.status_code == 200, r.text
+    new = ["the new words"] if act == "edit" else []
+    again = texts[:gone] + texts[gone + 1:] + new
+    env.pane.tall = 0
+    assert until(lambda: env.pane.queue == again), env.pane.queue
+    want = [(t, "withdrawn" if i == gone else "queued") for i, t in enumerate(texts)] + [(t, "queued") for t in new]
+    assert until(lambda: [x[:2] for x in env.states()] == want), env.states()
+    time.sleep(0.3)
+    assert env.pane.draft == "" and env.pane.ups == 1 and env.pane.submitted == texts + again
+    assert [x["text"] for x in cleared(env)] == shows[:1]                       # what was in view, kept before it was cleared
+
+
+@pytest.mark.parametrize("how", ["typed-below", "typed-onto", "rows-below-too", "oldest-has-no-line", "newest-has-no-line",
+                                 "a-message-not-in-view-whole", "a-fold-pasted-after-folds-alike"])
+def test_a_tall_box_that_does_not_match_is_left_as_it_is_and_every_text_is_kept(env, how):
+    env.monkeypatch.setattr(AP, "LINE_PATIENCE", 0.0, raising=False)
+    texts = [paste_of(f"p{i}", 6) if how == "a-fold-pasted-after-folds-alike" else f"message {i}" for i in range(11)]
+    ids = busy_queue(env, *texts)
+    if how == "newest-has-no-line":
+        env.pane.slow = True
+        texts.append("message 11")
+        ids += busy_queue(env, texts[-1])
+        env.pane.slow = False
+    env.pane.tall = 7
+    if how in ("typed-below", "typed-onto"):
+        env.pane.after_up, env.pane.after_up_onto = "typed at the terminal", how == "typed-onto"
+    elif how == "rows-below-too":
+        env.pane.unreadable = "below"
+    elif how == "a-fold-pasted-after-folds-alike":
+        env.pane.after_up = "[Pasted text #99 +5 lines]"
+    elif how == "oldest-has-no-line":          # out of view, and nothing says it came back
+        env.pane.up_skip = 1
+    elif how == "a-message-not-in-view-whole":  # a row of one in the middle of the view is gone
+        draw = env.pane.drawn
+        env.pane.drawn = lambda t: "message" if t == "message 7" else draw(t)
+    r = cancel(env, ids[5])
+    assert r.status_code == 200 and r.json()["message"]["state"] == "withdrawn", r.text
+    left_there = env.pane.draft
+    assert left_there and env.pane.edits == []                                  # not cleared
+    want = [(t, "withdrawn" if i == 5 else "failed") for i, t in enumerate(texts)]
+    assert [x[:2] for x in env.states()] == want + [(texts[5], "failed")], env.states()
+    assert "may still be in the terminal's input line" in env.msgs()[-1]["error"]
+    assert cleared(env)[-1]["text"].endswith(left_there.split("\n")[-1])        # what was in view is in the log
+    assert env.post("after").json()["message"]["state"] == "held"
+    time.sleep(0.4)
+    assert env.pane.draft == left_there and env.pane.edits == [] and env.pane.submitted == texts
+
+
+# queues drawn as folds that look alike: nothing in view tells the queue's last fold from one pasted at the terminal since
+ALIKE = {"long-one-line-messages": ([f"p{i} " + "y" * 900 for i in range(11)], "[Pasted text #99]"),
+         "pastes-of-one-line-count": ([paste_of(f"p{i}", 6) for i in range(11)], "[Pasted text #99 +5 lines]")}
+
+
+@pytest.mark.parametrize("pasted", [False, True], ids=["nothing-pasted", "a-fold-pasted-at-the-terminal"])
+@pytest.mark.parametrize("kind", list(ALIKE))
+def test_a_tall_box_of_folds_alike_is_not_cleared_whether_or_not_a_fold_was_pasted_into_it(env, kind, pasted):
+    texts, fold = ALIKE[kind]
+    ids = busy_queue(env, *texts)
+    env.pane.tall = 7
+    if pasted:
+        env.pane.after_up = fold
+    r = cancel(env, ids[5])
+    assert r.status_code == 200 and r.json()["message"]["state"] == "withdrawn", r.text
+    left_there = env.pane.draft
+    assert len(left_there.split("\n")) == len(texts) + pasted and (fold in left_there) == pasted and env.pane.edits == []
+    want = [(t, "withdrawn" if i == 5 else "failed") for i, t in enumerate(texts)]
+    assert [x[:2] for x in env.states()] == want + [(texts[5], "failed")], env.states()
+    assert env.post("after").json()["message"]["state"] == "held"
+    time.sleep(0.4)
+    assert env.pane.draft == left_there and env.pane.edits == [] and env.pane.submitted == texts
+
+
+def test_text_pasted_at_the_terminal_that_ends_a_folded_message_and_fills_the_view_is_not_cleared(env):
+    tail = " ".join(f"t{i}" for i in range(60))                        # short enough to be drawn open
+    texts = ["one", "two", "word " * 400 + tail]
+    ids = busy_queue(env, *texts)
+    env.pane.width, env.pane.tall, env.pane.after_up = 40, 3, tail     # only rows of the pasted text stay in view
+    r = cancel(env, ids[0])
+    assert r.status_code == 200 and r.json()["message"]["state"] == "withdrawn", r.text
+    assert env.pane.draft.endswith("\n" + tail) and env.pane.edits == []         # not cleared
+    assert [x[:2] for x in env.states()] == [("one", "withdrawn"), ("two", "failed"), (texts[2], "failed"), ("one", "failed")], env.states()
+    assert env.post("after").json()["message"]["state"] == "held"
+    time.sleep(0.4)
+    assert env.pane.draft.endswith("\n" + tail) and env.pane.edits == [] and env.pane.submitted == texts
+
+
+def test_the_up_is_pressed_only_into_a_box_read_empty_just_before_it(env):
+    busy = busy_queue(env, "A", "B")
+    update = OB.Outbox.update
+
+    def typed_at_the_last_moment(self, name, mid, **fields):
+        if fields.get("state") == OB.TYPING:
+            env.pane.draft = "typed just now"
+        return update(self, name, mid, **fields)
+
+    env.monkeypatch.setattr(OB.Outbox, "update", typed_at_the_last_moment)
+    r = cancel(env, busy[0])
+    assert r.status_code == 409 and r.json()["busy"] is True, r.text
+    assert "not empty just before the take-back" in r.json()["error"] and "nothing was changed" in r.json()["error"]
+    assert env.pane.ups == 0 and env.pane.edits == [] and env.pane.draft == "typed just now" and env.pane.queue == ["A", "B"]
+    assert env.states() == [("A", "queued", None), ("B", "queued", None)]
+
+
 def test_a_queued_message_with_an_upload_is_not_taken_back_and_nothing_is_pressed(env):
     up = env.client.post("/api/upload", content=b"\x89PNG fake", headers={"Content-Type": "image/png"}).json()["name"]
     env.pane.busy = True
@@ -557,6 +847,170 @@ def test_a_queued_message_with_an_upload_is_not_taken_back_and_nothing_is_presse
     other = env.post("plain one").json()["message"]                              # another one behind it: refused for the same reason
     r = cancel(env, other["id"])
     assert r.status_code == 409 and "upload" in r.json()["error"] and env.pane.ups == 0
+
+
+# ── a queued message whose line the CLI has not written yet: an Up pulls it too ───────────────────────────────
+def late_c(env) -> list[str]:
+    """A and B are queued with their lines; C was just typed and has none yet."""
+    ids = busy_queue(env, "A", "B")
+    env.pane.slow = True
+    ids += busy_queue(env, "C")
+    env.pane.slow = False
+    return ids
+
+
+NOT_YET = "not in the transcript yet"
+
+
+@pytest.mark.parametrize("act", ["cancel", "edit"])
+def test_no_up_while_a_message_just_typed_has_no_line_and_nothing_is_changed(env, act):
+    ids = late_c(env)
+    body = {"json": {"text": "B2"}} if act == "edit" else {}
+    r = env.client.post(f"/api/outbox/{NAME}/{ids[1]}/{act}", **body)
+    assert r.status_code == 409 and r.json()["busy"] is True and NOT_YET in r.json()["error"] and "nothing was changed" in r.json()["error"], r.text
+    assert env.pane.ups == 0 and env.pane.edits == [] and env.pane.queue == ["A", "B", "C"]
+    assert env.states() == [("A", "queued", None), ("B", "queued", None), ("C", "queued", None)]
+    env.write_lines()
+    assert env.client.post(f"/api/outbox/{NAME}/{ids[1]}/{act}", **body).status_code == 200
+    want = ["A", "C", "B2"] if act == "edit" else ["A", "C"]
+    assert until(lambda: env.pane.queue == want)
+    assert env.pane.submitted == ["A", "B", "C", *want] and env.pane.ups == 1
+
+
+def test_a_take_back_waits_briefly_for_the_line_and_then_types_that_message_again_too(env):
+    ids = late_c(env)
+    env.monkeypatch.setattr(AP, "TAKE_BACK_LINE_WAIT", 10.0, raising=False)
+    timer = threading.Timer(0.3, env.write_lines)
+    timer.start()
+    try:
+        r = cancel(env, ids[1])
+    finally:
+        timer.join()
+    assert r.status_code == 200, r.text
+    assert env.pane.queue == ["A", "C"] and env.pane.submitted == ["A", "B", "C", "A", "C"]
+    assert env.states() == [("A", "queued", None), ("B", "withdrawn", None), ("C", "queued", None)]
+
+
+def test_a_second_cancel_before_the_retyped_messages_have_their_lines_presses_no_up(env):
+    ids = busy_queue(env, "A", "B", "C")
+    env.pane.slow = True                                                       # what is typed again gets its line later
+    assert cancel(env, ids[1]).status_code == 200 and env.pane.queue == ["A", "C"]
+    r = cancel(env, ids[2])
+    assert r.status_code == 409 and r.json()["busy"] is True and NOT_YET in r.json()["error"], r.text
+    assert env.pane.ups == 1 and env.pane.queue == ["A", "C"]
+    assert env.states() == [("A", "queued", None), ("B", "withdrawn", None), ("C", "queued", None)]
+    env.write_lines()
+    env.pane.slow = False
+    assert cancel(env, ids[2]).status_code == 200
+    assert env.pane.queue == ["A"] and env.pane.ups == 2 and env.pane.submitted == ["A", "B", "C", "A", "C", "A"]
+
+
+def direct(env, text: str):
+    return env.client.post(f"/api/s/{env.pid}/send", json={"text": text})
+
+
+def test_a_message_the_plain_send_typed_is_waited_for_too(env):
+    ids = busy_queue(env, "A")
+    env.pane.slow = True
+    assert direct(env, "sent straight in").status_code == 200
+    r = cancel(env, ids[0])
+    assert r.status_code == 409 and NOT_YET in r.json()["error"] and env.pane.ups == 0, r.text
+    assert env.pane.queue == ["A", "sent straight in"]
+
+
+@pytest.mark.parametrize("sent,line", [("ran at once", "ran at once"), ("! ls", "<bash-input>ls</bash-input>"),
+                                       ("/cost", "<command-name>/cost</command-name>")], ids=["prompt", "bang", "slash"])
+def test_a_plain_send_the_session_ran_at_once_does_not_stand_in_the_way(env, sent, line):
+    assert direct(env, sent).status_code == 200                                # idle: no queue line is ever written for it
+    append(transcript(env), [user_line(line, int(time.time() * 1000), "00000000-0000-4000-8000-000000000011")])
+    (m,) = busy_queue(env, "A")
+    r = cancel(env, m)
+    assert r.status_code == 200, r.text
+
+
+def test_a_message_in_the_box_that_no_line_names_is_typed_again_not_cleared_away(env):
+    env.monkeypatch.setattr(AP, "LINE_PATIENCE", 0.0, raising=False)           # its line never comes: nothing waits for it any more
+    ids = late_c(env)
+    r = cancel(env, ids[1])
+    assert r.status_code == 200, r.text
+    assert until(lambda: env.pane.queue == ["A", "C"])
+    assert env.pane.submitted == ["A", "B", "C", "A", "C"] and env.pane.draft == "" and cleared(env) == []
+    assert env.states() == [("A", "queued", None), ("B", "withdrawn", None), ("C", "queued", None)]
+
+
+@pytest.mark.parametrize("alone", [False, True], ids=["with-a-queue", "the-queue-taken-first"])
+def test_text_in_the_box_that_is_no_message_of_salas_is_kept_as_failed_and_logged(env, alone):
+    ids = busy_queue(env, "A", "B")
+    env.pane.queue.append("typed in the terminal")                             # not sala's, and its line is not written
+    env.pane.unwritten.append("typed in the terminal")
+    env.pane.takes = 2 if alone else 0
+    r = cancel(env, ids[1])
+    assert r.status_code == (409 if alone else 200), r.text
+    assert env.pane.draft == "" and [x["text"] for x in cleared(env)] == ["typed in the terminal" if alone else "A\nB\ntyped in the terminal"]
+    (kept,) = [m for m in env.msgs() if m["text"] == "typed in the terminal"]
+    assert kept["state"] == "failed" and "was not sent" in kept["error"]
+    time.sleep(0.4)
+    assert "typed in the terminal" not in env.pane.submitted
+
+
+def test_an_old_prompt_the_up_recalls_is_cleared_and_logged_and_makes_no_message(env):
+    append(transcript(env), [user_line("an old prompt", int(time.time() * 1000) - 60_000, "00000000-0000-4000-8000-000000000012")])
+    ids = busy_queue(env, "A")
+    env.pane.takes = 1
+    env.pane.recall = "an old prompt"
+    r = cancel(env, ids[0])
+    assert r.status_code == 409 and r.json()["tooLate"] is True, r.text
+    assert env.pane.draft == "" and [x["text"] for x in cleared(env)] == ["an old prompt"] and len(env.msgs()) == 1
+
+
+@pytest.mark.parametrize("how", ["above", "below", "chip", "gone"])
+def test_a_box_that_can_not_be_read_whole_is_left_as_it_is_and_every_text_is_kept(env, how):
+    env.monkeypatch.setattr(AP, "LINE_PATIENCE", 0.0, raising=False)
+    ids = late_c(env)
+    env.pane.unreadable = how
+    r = cancel(env, ids[1])
+    assert r.status_code == 200 and r.json()["message"]["text"] == "B", r.text
+    left_there = env.pane.draft
+    assert left_there and env.pane.edits == []                                  # not cleared
+    assert env.states()[:3] == [("A", "failed", None), ("B", "withdrawn", None), ("C", "failed", None)]
+    assert env.states()[3:] == [("B", "failed", None)]                        # a notice: B may be in that line too
+    assert "may still be in the terminal's input line" in env.msgs()[3]["error"]
+    assert all("could not be read whole" in m["error"] for m in env.msgs() if m["state"] == "failed")
+    env.pane.mode = "idle"
+    d = env.post("D").json()["message"]
+    time.sleep(0.4)                                                              # several ticks of the sender
+    assert env.pane.draft == left_there and env.pane.edits == [] and env.pane.submitted == ["A", "B", "C"]
+    assert env.states()[-1][:2] == ("D", "held")
+    r = cancel(env, d["id"])
+    assert r.status_code == 200 and env.pane.draft == left_there
+    env.post("E")
+    env.pane.draft, env.pane.cut = "", ""                                        # the owner empties the line in the terminal
+    assert until(lambda: env.pane.submitted == ["A", "B", "C", "E"])
+    env.pane.draft = "later leftover"                                            # from here on a line with text is cleared as before
+    env.post("F")
+    assert until(lambda: env.pane.submitted[-1] == "F") and cleared(env)[-1]["text"] == "later leftover"
+
+
+def test_a_take_back_does_not_clear_a_box_an_earlier_one_left(env):
+    ids = busy_queue(env, "A", "B")
+    env.pane.unreadable = "above"
+    assert cancel(env, ids[1]).status_code == 200
+    env.pane.unreadable = ""
+    left_there = env.pane.draft
+    env.pane.cut = ""
+    env.app.state.outbox.update(NAME, ids[0], state=OB.QUEUED, sentAt=int(time.time() * 1000))
+    other_line(env, "enqueue", "A")
+    r = cancel(env, ids[0])
+    assert r.status_code == 409 and r.json()["busy"] is True and "earlier take-back" in r.json()["error"], r.text
+    assert env.pane.draft == left_there and env.pane.edits == [] and env.pane.ups == 1
+
+
+def test_an_unmatched_older_message_does_not_keep_a_newer_one_from_being_delivered(env):
+    old = queued_before(env, "never shown", env.pid, S.proc_start(env.pid))
+    m = env.post("shown").json()["message"]
+    append(transcript(env), [user_line("shown", m["sentAt"] + 400, "00000000-0000-4000-8000-000000000013")])
+    assert until(lambda: env.states() == [("never shown", "queued", None), ("shown", "delivered", None)]), env.states()
+    assert old["id"] != m["id"]
 
 
 def test_an_up_that_was_not_sala_webs_fails_the_pulled_message_with_its_text(env):
