@@ -259,7 +259,7 @@ def test_the_strips_strings_are_in_both_languages(key):
 # The second list's help line is behind a (?), not drawn under the list (the browser side is test_chat_onit_ui.py).
 def test_the_second_lists_help_line_is_the_one_the_owner_chose_in_both_languages_as_escapes():
     en = re.search(r'"chat\.onit\.note": "([^"]*)"', EN).group(1)
-    assert en == "What the assistant has said it will report back on in this chat. When it is done, the line moves to your move list."
+    assert en == "What the assistant has said it will report back on in this chat. When it is done, the line moves to the move list."
     assert re.search(r'"chat\.onit\.help": "About this list"', EN)
     ko_note = re.search(r'"chat\.onit\.note": "([^"]*)"', KO).group(1)
     ko_help = re.search(r'"chat\.onit\.help": "([^"]*)"', KO).group(1)
