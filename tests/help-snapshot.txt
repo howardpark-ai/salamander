@@ -235,7 +235,7 @@ and CLI updates, resumed by transcript UUID, reachable from Remote Control.
   salamander config            print the effective configuration
 
 ### sala lane --help (exit 0)
-usage: salamander lane [--full]                                  the table (default lane; the lane fields; each session with a lane of its own or something to say)
+usage: salamander lane [--full]                                  the table (default lane; the lane fields; each session that differs from the default or has something to say)
        salamander lane --list | --json                           the lane fields alone
        salamander lane <lane> <session>… [--dry-run] [--rescue]   record + relaunch those sessions on the lane
        salamander lane <lane> --all      [--dry-run]              every session and the default: one recycle --force
@@ -758,7 +758,7 @@ verbs:
   reboot                                    the clean reboot protocol (reboot --go): needs the owner's words; --plan shows reboot --status
 
 ### sala lane --help --full --help (exit 0)
-usage: salamander lane [--full]                                the table (default lane; the lane fields; each session with a lane of its own or something to say: recorded lane, running lane; --full: every session)
+usage: salamander lane [--full]                                the table (default lane; the lane fields; each session that differs from the default or has something to say: recorded lane, running lane; --full: every session)
        salamander lane --list | --json                           the lane fields alone: provider, client, org, billing, plan, account, credential, region, status
        salamander lane names [--json] [--write]                  each lane's code, display name and old words (one line each: code TAB display TAB aliases; --json for stackshot; --write keeps $SALA_STATE_DIR/lane-names.json current)
        salamander lane env <lane>                                the NAME=value lines a session on the lane gets, bar the pane-only cache switch (no secret), for a job; subscription-1 sets none: nothing is printed

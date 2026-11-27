@@ -233,7 +233,7 @@ fake_up sala-test-a
 [ "$(cachelog "$U1")" = "cache1h=1 cache1h_bedrock=-" ] && ok "and with ENABLE_PROMPT_CACHING_1H=1 (the 1-hour prompt cache), not bedrock's variant" || bad "cache switch after the lane move: $(cachelog "$U1")"
 [ "$(lane_row sala-test-a)" = aws-platform ] && ok "recorded: sala-test-a → aws-platform" || bad "row: '$(lane_row sala-test-a)'"
 [ "$(proc_lane "$(cpid a)")" = aws-platform ] && ok "proc_lane reads aws-platform from the process's environment" || bad "proc_lane: $(proc_lane "$(cpid a)")"
-grep -qE '^sala-test-a +aws-platform +aws-platform' <<< "$("$SALA" lane)" && ok "the table: recorded aws-platform, running aws-platform" || bad "table: $("$SALA" lane)"
+grep -qE '^sala-test-a +aws-platform +aws-platform' <<< "$("$SALA" lane --full)" && ok "the table: recorded aws-platform, running aws-platform" || bad "table: $("$SALA" lane)"
 [ "$(cachelog "$U2")" = "cache1h=- cache1h_bedrock=-" ] && [ "$(awsplog "$U2")" = "$NONE" ] && [ "$(starts "$U2")" = 1 ] && [ -z "$(lane_row sala-test-b)" ] && ok "sala-test-b untouched: no variable, no row" || bad "b: $(awsplog "$U2") starts $(starts "$U2")"
 pp=$(tmux display -p -t sala-test-a '#{pane_pid}')
 ! tr '\0' '\n' < "/proc/$pp/environ" 2>/dev/null | grep -qE '^(AWS_|CLAUDE_CODE_USE_|ANTHROPIC_AWS_|ANTHROPIC_DEFAULT_)' && ok "the pane's shell never held the variables: the env is on the launch line only" || bad "the pane's shell environment carries the lane's variables"
@@ -292,7 +292,7 @@ fake_up sala-test-a
 grep -qP '^sala-test-a\taws-platform$' "$SALA_LANES" && ! grep -q awsplatform "$SALA_LANES" && ok "recorded as aws-platform: the old word is never written" || bad "lanes.tsv: $(<"$SALA_LANES")"
 printf 'sala-test-b\tawsplatform\n' >> "$SALA_LANES"; sum0=$(md5sum < "$SALA_LANES")
 [ "$(lane_row sala-test-b)" = aws-platform ] && [ "$(lane_for_session sala-test-b)" = aws-platform ] && ok "a row written before the rename reads as aws-platform" || bad "old row: $(lane_row sala-test-b) / $(lane_for_session sala-test-b)"
-grep -qE '^sala-test-b +aws-platform +subscription-1' <<< "$("$SALA" lane 2>&1)" && ok "the table shows it as aws-platform (recorded) beside subscription-1 (running), no 'not a lane' flag" || bad "table: $("$SALA" lane 2>&1 | grep sala-test-b)"
+grep -qE '^sala-test-b +aws-platform +subscription-1' <<< "$("$SALA" lane --full 2>&1)" && ok "the table shows it as aws-platform (recorded) beside subscription-1 (running), no 'not a lane' flag" || bad "table: $("$SALA" lane 2>&1 | grep sala-test-b)"
 [ "$(md5sum < "$SALA_LANES")" = "$sum0" ] && ok "reading it rewrote nothing (the migration and the next write do)" || bad "a read changed lanes.tsv"
 "$SALA" revive --force --only sala-test-b >/dev/null 2>&1; waitfor '[ "$(starts "$U2")" = 3 ]' 40
 wait_lock; fake_up sala-test-b

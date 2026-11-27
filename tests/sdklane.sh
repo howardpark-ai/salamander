@@ -153,7 +153,7 @@ waitfor '[ "$(starts "$U1")" = 2 ]' 40 && fake_up sala-test-a && ok "a relaunche
 waitfor '[ "$(pcmd a)" = sala-sdk ]' 10 && ok "the pane's program reads sala-sdk (never a shell's name, never claude)" || bad "pane_current_command: $(pcmd a)"
 [ "$(lanelog "$U1")" = "key=y hdr=y cfg=-" ] && ok "its CLI started with the key and the header in its environment, by the SDK's route" || bad "lane log: $(lanelog "$U1")"
 [ "$(proc_lane "$(cpid a)")" = sdk ] && ok "proc_lane: sdk (CLAUDE_CODE_ENTRYPOINT=sdk-py beside the key)" || bad "proc_lane: $(proc_lane "$(cpid a)")"
-grep -qE '^sala-test-a +sdk +sdk' <<< "$("$SALA" lane)" && ok "the table: recorded sdk, running sdk" || bad "table: $("$SALA" lane)"
+grep -qE '^sala-test-a +sdk +sdk' <<< "$("$SALA" lane --full)" && ok "the table: recorded sdk, running sdk" || bad "table: $("$SALA" lane)"
 argv=$(sdk_argv)
 case "$argv" in "$HOME/.local/bin/claude --output-format stream-json --verbose --resume $U1 --mcp-config $MCPF --setting-sources=user,project,local --name sala-test-a") ok "the SDK spawned sala's own launcher: --resume <uuid>, the api lane's --mcp-config, the user settings (hooks, the mod), --name <session>" ;; *) bad "the CLI's argv: $argv" ;; esac
 tail -1 "$FAKE_SDK_LOG" | grep -q '"env_names": \["ANTHROPIC_API_KEY", "ANTHROPIC_CUSTOM_HEADERS"\]' && grep -q '"can_use_tool": true' "$FAKE_SDK_LOG" && grep -q '"preset": "claude_code"' "$FAKE_SDK_LOG" && ok "the driver handed the SDK the key and the header (names counted), a permission callback and Claude Code's own system prompt" || bad "sdk log: $(tail -1 "$FAKE_SDK_LOG")"
@@ -208,7 +208,7 @@ grep -q $'\tfallback\tsala-test-b\tsdk → bedrock (the credit refused a turn)' 
 python3 -I -c 'import json,sys,time; d=json.load(open(sys.argv[1])); assert d["by"]=="sdk-pane sala-test-b" and abs(d["refused_at"]-time.time())<600 and ("billing_error" in d["detail"].lower() or "credit balance" in d["detail"].lower()), d' "$CREC" \
     && ok "the credit record: written by the driver (by sdk-pane sala-test-b, now, the refusal as detail)" || bad "credit record after the refusal: $(cat "$CREC" 2>/dev/null)"
 rec_at $REFAT
-grep -qE '^sala-test-b +bedrock +bedrock' <<< "$("$SALA" lane)" && ok "the table: recorded bedrock, running bedrock" || bad "table: $("$SALA" lane)"
+grep -qE '^sala-test-b +bedrock +bedrock' <<< "$("$SALA" lane --full)" && ok "the table: recorded bedrock, running bedrock" || bad "table: $("$SALA" lane)"
 [ "$(model_row sala-test-b | cut -f1)" = opus ] && grep -q 'changed from fable to opus' "$POSTS" && ok "the Fable session's model recorded as opus (bedrock cannot run Fable), and the post says so" || bad "b's model: $(model_row sala-test-b) / $(tail -c 400 "$POSTS")"
 model_drop sala-test-b
 screen b | grep -q 'the API refused the turn (billing_error)' || $T capture-pane -p -S - -t sala-test-b | grep -q 'the API refused the turn (billing_error)' && ok "the refusal was printed in the pane before the switch" || bad "scrollback: $($T capture-pane -p -S - -t sala-test-b | tail -12)"
@@ -296,7 +296,7 @@ waitfor '[ "$(pcmd a)" = claude ]' 10 && [ "$(lanelog "$U1")" = "key=n hdr=n cfg
 ! kill -0 "$old" 2>/dev/null && [ ! -e "$HOME/.claude/sessions/$old.json" ] && ok "the SDK's CLI is gone, its registry row with it" || bad "old CLI $old: alive=$(kill -0 "$old" 2>/dev/null && echo y || echo n) row=$([ -e "$HOME/.claude/sessions/$old.json" ] && echo y || echo n)"
 [ "$(heard exit)" = 2 ] && grep -q "exit sala-test-a via mod (ok) then keys (an SDK-driven CLI" "$SALA_MOD_LOG" && [ "$(grep -cF "$U1 /exit" "$FAKE_TYPED_LOG")" = $((typed0 + 1)) ] \
     && ok "the sweep asked the mod (its gates), took the ok, and typed /exit into the box: the driver's disconnect left the CLI by /exit" || bad "heard $(heard exit) / mod log: $(<"$SALA_MOD_LOG") / typed: $(grep -cF "$U1 /exit" "$FAKE_TYPED_LOG") vs $typed0"
-grep -qF "sala-test-a:0: 9.9.9 → 9.9.9" <<< "$out" && grep -qE '^sala-test-a +subscription-1 +subscription-1' <<< "$("$SALA" lane)" && ok "the summary row; the table: recorded subscription-1, running subscription-1" || bad "summary/table: $out / $("$SALA" lane)"
+grep -qF "sala-test-a:0: 9.9.9 → 9.9.9" <<< "$out" && grep -qE '^sala-test-a +subscription-1 +subscription-1' <<< "$("$SALA" lane --full)" && ok "the summary row; the table: recorded subscription-1, running subscription-1" || bad "summary/table: $out / $("$SALA" lane)"
 
 echo "== pane_exit's own keys on an sdk pane with the mod: refused over a draft (the gate kept), else /exit typed into the box; the pane at its shell, the CLI gone"
 "$SALA" lane sdk sala-test-a >/dev/null 2>&1; waitfor '[ "$(starts "$U1")" = 6 ]' 40 && fake_up sala-test-a && waitfor '[ "$(pcmd a)" = sala-sdk ]' 10 && ok "a back on sdk" || bad "a back on sdk: starts $(starts "$U1") $(pcmd a)"
