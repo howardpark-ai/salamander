@@ -3,6 +3,9 @@
 static/shared.js and the page scripts word their text through `tl()` (static/i18n.js). A test that cuts a function out of one of
 them and runs it in node puts `prelude()` first: the English table, the Korean table, the lookup, and just enough of `document` for
 the lookup to start in the language given. Nothing else of the page is faked here.
+
+Give node the program on stdin (`node -`, `input=`), never with `-e`: the two tables make it longer than the 128 KB one argument of a
+command line may hold.
 """
 
 from __future__ import annotations

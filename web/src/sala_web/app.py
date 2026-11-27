@@ -215,8 +215,9 @@ none itself):
                                   into that session's own pane, which moves the one running step to the background -> {"ok": true}.
                                   409 with the reason as "error" and nothing pressed unless the screen and the transcript both show
                                   that state (sendnow.py: refused with text in the input line, a dialog, no step that can go to the
-                                  background, a reply still being written, a `!` command, a subagent's screen), 403 cross-origin,
-                                  415 without application/json
+                                  background, a reply still being written, a `!` command, a subagent's screen) or when the chord was
+                                  pressed in that pane less than SEND_NOW_WINDOW ago, 403 cross-origin, 415 without
+                                  application/json; every refusal also has a "code", by which the page words it in its language
   GET  /api/image/<sid>/<uuid>/<i>/<j>   an image block from a transcript: png, jpeg, gif or webp by the line's media type
                                   (any other type is the 404 of no image), with nosniff and a Content-Security-Policy of
                                   default-src 'none'; sandbox, as on the two image routes below
@@ -388,6 +389,7 @@ TAIL_N = 200
 SEARCH_PARALLEL = 2           # transcript searches that may run at once (each reads a lot; a third is refused with a sentence)
 SEARCH_DEFAULT_HOURS = 24
 DUP_WINDOW = 20.0  # seconds: an identical send to the same pane inside this is a double submit
+SEND_NOW_WINDOW = 5.0  # seconds: a send-now for a pane inside this of the last press there (another page's) is refused
 MOD_SEND_MAX = 16_000      # characters a message may have to go in through the pane's mod (measured to 5 KB; a longer one is pasted as before)
 MOD_ENTER_WAIT = 1.5       # seconds the box is watched after the Enter for it to stop holding the message
 MOD_ENTER_POLL = 0.15
@@ -705,6 +707,7 @@ def create_app(settings: Settings | None = None) -> Starlette:
     color_calls = CLR.Calls(settings.stackshot_token, settings.stackshot_url)
     send_locks: dict[str, asyncio.Lock] = {}
     last_sent: dict[str, tuple] = {}
+    sent_now: dict[str, float] = {}               # when send-now last pressed its chord in each pane (SEND_NOW_WINDOW)
     outbox = OB.Outbox(settings.outbox_dir)       # the messages the pages send, per session, on disk (outbox.py)
     cleared_log = OB.ClearedLog(settings.state_dir / OB.CLEARED_FILE)   # what was emptied out of a pane's input line before a message was typed
     pump_locks: dict[str, asyncio.Lock] = {}      # one sender per session at a time
@@ -2460,31 +2463,39 @@ def create_app(settings: Settings | None = None) -> Starlette:
 
     async def send_now(request: Request) -> Response:
         """Press "send the waiting messages now" in the session's pane, only where it loses nothing (sendnow.py): the outbox's
-        readiness check (own pane, no dialog, an empty input line), then the screen, then, last and next to the key, the transcript."""
+        readiness check (own pane, no dialog, an empty input line), then the screen, then, last and next to the key, the transcript.
+        A pane that had the chord less than SEND_NOW_WINDOW ago is refused first: its screen may not show the first press yet.
+        Every refusal carries its code (SN.CODES), by which the page words it in its own language."""
+        def no(status: int, why: str) -> Response:
+            return _err(status, why, code=SN.CODES[why])
+
         if _cross_origin(request):
-            return _err(403, "cross-origin request refused")
+            return no(403, SN.CROSS_ORIGIN)
         if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
-            return _err(415, "send-now takes application/json")
+            return no(415, SN.NOT_JSON)
         s = _session(request)
         if not s:
-            return _err(404, "no live session with that pid")
+            return no(404, SN.NOT_LIVE)
         pane = s.pane_id
         if not pane:
-            return _err(409, "session has no tmux pane on record")
+            return no(409, SN.NO_PANE)
         async with send_locks.setdefault(pane, asyncio.Lock()):
+            if time.monotonic() - sent_now.get(pane, float("-inf")) < SEND_NOW_WINDOW:
+                return no(409, SN.JUST_PRESSED)
             try:
                 reason, _detail = await _readiness(s, pane)
                 if reason:
-                    return _err(409, SN.NOT_READY.get(reason, SN.UNREADABLE))
+                    return no(409, SN.NOT_READY.get(reason, SN.UNREADABLE))
                 why = SN.screen_refusal(await T.capture(settings, pane))
                 if why is None:
                     path = TR.transcript_path(settings.projects_dir, s.cwd, s.session_id)
                     why = await run_in_threadpool(SN.transcript_refusal, path)
                 if why:
-                    return _err(409, why)
+                    return no(409, why)
+                sent_now[pane] = time.monotonic()   # before the keys: a press that failed or was cut off may still have reached the pane
                 await T.send_now_chord(settings, pane)
             except T.TmuxError as e:
-                return _err(502, f"tmux failed: {e}")
+                return _err(502, SN.TMUX_FAILED.format(detail=e), code=SN.CODES[SN.TMUX_FAILED], detail=str(e))
         return JSONResponse({"ok": True})
 
     async def shell_open(request: Request) -> Response:

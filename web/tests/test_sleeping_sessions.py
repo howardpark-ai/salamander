@@ -284,7 +284,7 @@ console.log(JSON.stringify(out));
 """
     script = prelude("en") + "\n" + zone_js + "\n" + body
     env = {"PATH": "/usr/bin:/bin:/usr/local/bin", "TZ": "America/Los_Angeles"}
-    out = json.loads(subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True, timeout=30, env=env).stdout)
+    out = json.loads(subprocess.run([NODE, "-"], input=script, capture_output=True, text=True, check=True, timeout=30, env=env).stdout)
     assert "15:10" in out["kst"] and out["kst"].endswith("KST") and "Sun" in out["kst"] and "Nov 22" in out["kst"], out
     assert "10:10" in out["dubai"] and out["dubai"].endswith("+04"), out
     assert out["bad"] == "" and out["empty"] == ""

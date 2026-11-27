@@ -788,8 +788,8 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
   does a slash command to a live session with nothing waiting ahead of it. A message the server holds, or has typed and Claude has not read, is drawn
   one way: a dashed bubble, *Waiting* under it, no time, *Edit* and *Cancel*. While Claude asks something (a question or a
   permission: the session's `waiting` status) the line adds *answer Claude's question first*, and a message already in the pane offers no button; nor
-  does it while another dialog or menu is open in the pane (no reason is written for that), nor does one in the pane that is a slash command, nor any
-  in the pane while one of them has an upload. Cancel and Edit ask the server to take the message back (Edit puts it in the composer: sent again, it joins at the
+  does it while another dialog or menu is open in the pane (no reason is written for that). Otherwise a message in the pane also has *Send now*
+  (below); one that is a slash command, or any in the pane while one of them has an upload, has only that, no *Edit* or *Cancel*. Cancel and Edit ask the server to take the message back (Edit puts it in the composer: sent again, it joins at the
   end), and the status line says when Claude had read it first (that bubble then offers no
   button while its transcript line is on the way), or when it could not be taken back. A failed one keeps *Retry* and *Edit*, which
   withdraw it on the server first. The list comes from the stream's `outbox` event (`{"messages": [...]}`, at open and at each change) and, for a
@@ -803,8 +803,19 @@ the sender and the transcript check); the page's side is `static/waiting.js` (*T
 
 `POST /api/s/<pid>/send-now` presses Claude Code's `chat:sendNow` chord, **Ctrl+X Ctrl+S**, in the session's own pane: Claude reads every message
 waiting in the terminal's queue at once, and the one step that is running moves to the background, where it goes on. The page's side is
-`sendNowButton(session)` in `app.js` (the button, and the reason of a refusal in the status line under the composer) for the row of a waiting message
-to call; no row calls it yet. It belongs only on a message that is typed and waiting in the terminal, never on one the server holds.
+`sendNow(session, button)` in `app.js`, called by the button "Send now" that `static/waiting.js` (`view`) puts under a waiting message's bubble.
+It shows only on a message that is typed and waiting in the terminal and not while a dialog is open; never on one the server holds. A refusal
+(409, nothing pressed) shows its reason in the status line under the composer, and the button is disabled while its request is out. What the
+button does is in its tooltip (`app.sendnow.tip`: all waiting messages are sent at once, the running step goes on in the background); where
+nothing hovers (a phone) a (?) beside the button shows the same words on a tap, and sends nothing.
+
+The reason is in the page's language: the route sends a `code` beside each refusal's sentence (`sendnow.py` `CODES`), and the page words that
+code from its own tables (`app.js` `SEND_NOW_WHY`, the keys `app.sendnow.why.<code>`); a code the page does not know shows the server's
+sentence.
+
+**A repeat press.** Once the chord has been pressed in a pane, another send-now for that pane within `SEND_NOW_WINDOW` (5 s), from this page or
+another, answers 409 (`again`) and presses nothing: the screen may not yet show what the first press did. A press that tmux reports as failed
+counts too, since the keys may have arrived; a refused one starts no window.
 
 The chord loses work outside one case, so `sendnow.py` allows exactly that case and answers 409 with the reason, nothing pressed, for everything else.
 All of this must hold, checked under the pane's send lock:
@@ -827,8 +838,9 @@ but the screen shows no hint for it, so it looks like a call that has not starte
 Measured on Claude Code 2.1.332 in sessions made for it, on a private tmux socket, with a stand-in for the API (not a documented contract; a screen
 or a transcript line in another shape is refused). Two things the chord does that the checks do not stop: a `PostToolUse` hook still running 10 s
 after it is stopped (the step's result is kept without the hook's answer), and a press that comes just as the running step ends can cut the reply
-Claude has just begun. **Tests.** `tests/test_send_now.py` (the screens, the transcript, the route against a made-up pane) and
-`tests/test_send_now_ui.py` (the button, and no sideways scroll at 390 and 320 px).
+Claude has just begun. **Tests.** `tests/test_send_now.py` (the screens, the transcript, the route against a made-up pane, the repeat press,
+each refusal's words in both tables) and `tests/test_send_now_ui.py` (the button, its reason in each language, the tooltip, and no sideways
+scroll at 390 and 320 px).
 
 (`SALA_SIDECAR`, default `<sala state>/pane-map.tsv`) has a row with its conversation id (a marker left by a session that is gone is no
 session), and a conversation or a name a live session already has is not listed twice (a wake in flight). The row is a session with pid `0`,
@@ -2530,7 +2542,7 @@ part of `web/`.
 | `GET /api/s/<pid>/dialog` | what the session's pane shows as a question: `{"card": null}` or `{"card": {kind, text, title, options, focus}}` (*A waiting question*); read from the screen, nothing sent |
 | `POST /api/s/<pid>/dialog` | `{"expect": "<the card's text>", "key": "<option number>" or "esc"}` or `{"expect": ..., "picks": [<option numbers>]}` as `application/json` -> `{ok, sent}`; 409 (`changed: true` when the question is another one by now) sends nothing, or stops before Enter |
 | `POST /api/s/<pid>/stop` | `{}` as `application/json`: Stop for a running `!` command, Escape and then, if it still runs a second later, Ctrl-C, into that session's own pane → `{ok, sent: ["Escape"(, "C-c")]}`; 409 with nothing sent when no `!` command runs there; origin and content-type checked like the other POSTs |
-| `POST /api/s/<pid>/send-now` | `{}` as `application/json`: Claude reads the messages waiting in the terminal's queue now, Ctrl+X Ctrl+S into that session's own pane, which moves the one running step to the background → `{ok: true}`; 409 `{ok: false, error}` with nothing pressed outside that case (*Send now: the waiting messages read at once*); 502 when tmux fails; origin and content-type checked like the other POSTs |
+| `POST /api/s/<pid>/send-now` | `{}` as `application/json`: Claude reads the messages waiting in the terminal's queue now, Ctrl+X Ctrl+S into that session's own pane, which moves the one running step to the background → `{ok: true}`; 409 with nothing pressed outside that case or on a repeat press (*Send now: the waiting messages read at once*); 502 when tmux fails (with `detail`); origin and content-type checked like the other POSTs. Every refusal is `{ok: false, error, code}` |
 | `GET /api/image/<sessionId>/<uuid>/<i>/<j>` | an image block from a transcript, when the line's media type is png, jpeg, gif or webp (any other type is the same 404 as no image), with `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox` and private caching for a day |
 | `GET /api/file-image/<sessionId>/<uuid>/<i>/<k>` | the k-th file of the `SendUserFile` call at content block i of that transcript line, when it is a png, jpeg, gif or webp of at most 15 MB under an allowed root and not hidden or secret-named (*What it can and cannot do*, "Images a session sends"); anything else 404 |
 | `GET /api/md-image/<sessionId>/<uuid>/<i>/<n>` | the n-th local image (`![caption](/abs/path.png)` or `~/…`, outside code) in the markdown of the assistant text block i of that transcript line, under the same rules as `file-image`; a refusal is a 404 `{ok: false, error: <reason>}` that the page shows as "image not shown: <reason>"; a place the reply does not name is a 404 too (*What it can and cannot do*, "A markdown image of a file on this machine") |

@@ -3886,28 +3886,38 @@ function pendingNode(p) {
   box.append(copyBar(p.text, waits ? null : p.sentAt));   // a waiting message has no time: the one shown is when it reached Claude
   return box;
 }
-// "Send now", for a message that waits in the terminal's queue and nowhere else (the row that shows such a message adds it): Claude
-// reads every waiting message at once and the running step moves to the background. The server decides whether that is safe at this
-// moment; a refusal presses nothing, and its reason shows in the status line under the composer.
-function sendNowButton(session) {
-  const button = el("button", { type: "button", class: "send-now", text: tl("app.sendnow.button") });
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    clearStatus();
-    try {
-      const s = state.byName.get(session);
-      if (!s) throw new Error(tl("app.pend.notLive"));
-      const r = await fetch(`api/s/${s.pid}/send-now`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
-        .catch(() => { throw new Error(tl("app.pend.noNet")); });
+// "Send now", for a message that waits in the session's terminal queue (the waiting bubble of static/waiting.js offers it, and only
+// for those): Claude reads every waiting message at once and the running step moves to the background. The server decides whether
+// that is safe at this moment; a refusal presses nothing, and its reason shows in the status line under the composer, in the page's
+// language. `button` (the one pressed, if any) is held disabled while the request is out.
+// The reason's words by the "code" of the route's answer (sendnow.py CODES); an answer with a code not listed here shows its own text.
+const SEND_NOW_WHY = {
+  crossOrigin: "app.sendnow.why.crossOrigin", notJson: "app.sendnow.why.notJson", notLive: "app.sendnow.why.notLive",
+  noPane: "app.sendnow.why.noPane", tmux: "app.sendnow.why.tmux", again: "app.sendnow.why.again", dialog: "app.sendnow.why.dialog",
+  draft: "app.sendnow.why.draft", noInput: "app.sendnow.why.noInput", unreadable: "app.sendnow.why.unreadable",
+  bangMode: "app.sendnow.why.bangMode", agentScreen: "app.sendnow.why.agentScreen", noQueued: "app.sendnow.why.noQueued",
+  noStep: "app.sendnow.why.noStep", bang: "app.sendnow.why.bang", notOneStep: "app.sendnow.why.notOneStep",
+  noTranscript: "app.sendnow.why.noTranscript", writing: "app.sendnow.why.writing",
+};
+async function sendNow(session, button) {
+  if (button) button.disabled = true;
+  clearStatus();
+  let why = null;   // why it was not sent, worded each time the status line is drawn (a language change draws it again)
+  try {
+    const s = state.byName.get(session);
+    if (!s) why = () => tl("app.pend.notLive");
+    else {
+      const r = await fetch(`api/s/${s.pid}/send-now`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.ok) throw new Error(d.error || tl("app.pend.noReason", { status: `${r.status} ${r.statusText}`.trim() }));
-    } catch (e) {
-      setStatus(() => tl("app.sendnow.failed", { error: e.message }), "error");
-    } finally {
-      button.disabled = false;
+      if (!r.ok || !d.ok) why = () => (Object.hasOwn(SEND_NOW_WHY, d.code) ? tl(SEND_NOW_WHY[d.code], { detail: d.detail })
+        : d.error || tl("app.pend.noReason", { status: `${r.status} ${r.statusText}`.trim() }));
     }
-  });
-  return button;
+  } catch {   // the request got no answer
+    why = () => tl("app.pend.noNet");
+  } finally {
+    if (button) button.disabled = false;
+  }
+  if (why) setStatus(() => tl("app.sendnow.failed", { error: why() }), "error");
 }
 function redrawPending(p) {
   const n = pendingNode(p);
