@@ -92,3 +92,21 @@ const SalaI18n = (() => {
   return { get lang() { return lang; }, t, attrs, apply, setLang, onChange, locale, number, norm, tables };
 })();
 const tl = SalaI18n.t, tx = SalaI18n.attrs;
+// the (?) beside a text that explains: the same markup as index.html's .exp-help / .exp-pop pair; app.js opens and shuts it. expHtml(...parts) is for a
+// string-built view, expEl(...parts) for a built node. The box says each part on its own line; a part is a key, or [key, vars]. SalaI18n.apply re-words
+// the lines on a language change
+let expSeq = 0;
+function expHtml(...parts) {
+  const id = "exp-k-" + (++expSeq), esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const lines = parts.map((part) => {
+    const [key, vars] = [].concat(part);
+    return `<span data-i18n="${key}"${vars ? ` data-i18n-vars="${esc(JSON.stringify(vars))}"` : ""}>${esc(tl(key, vars))}</span>`;
+  });
+  return `<span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="${id}" aria-label="${esc(tl("ui.explain"))}" data-i18n-aria-label="ui.explain"><span class="q" aria-hidden="true">?</span></button>`
+    + `<span class="exp-pop" id="${id}" role="note" hidden>${lines.join(" ")}</span></span>`;
+}
+function expEl(...parts) {
+  const t = document.createElement("template");
+  t.innerHTML = expHtml(...parts);
+  return t.content.firstChild;
+}

@@ -156,8 +156,8 @@ function render() {
   const list = sortJobs(d.timers.filter((t) => !sc.flaggedOnly || t.flags.length), sc.key, sc.dir);
   const parts = [tl("sch.count.jobs", { n: c.timers }), tl("sch.count.cron", { n: c.cron }), tl("sch.count.flagged", { n: c.flagged })];
   const why = Object.entries(c.byReason).map(([k, n]) => tl("sch.count.reason", { n, reason: flagWord(k) }));
-  $in("#sc-count").textContent = parts.join(" · ") + (why.length ? " (" + why.join(", ") + ")" : "") + (d.generated ? " · " + tl("sch.count.read", { when: d.generated.text }) : "")
-    + " · " + tl("sch.count.hint");
+  // the sort tip sits behind a (?) after the count: it only says how the table sorts
+  $in("#sc-count").replaceChildren(parts.join(" · ") + (why.length ? " (" + why.join(", ") + ")" : "") + (d.generated ? " · " + tl("sch.count.read", { when: d.generated.text }) : "") + " ", expEl("sch.count.hint"));
   const notes = [];
   if (c.packaged) notes.push(tl("sch.note.packaged", { n: c.packaged }));
   if (d.scopes && d.scopes.system === false) notes.push(tl("sch.note.system"));

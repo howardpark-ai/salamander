@@ -432,7 +432,7 @@
             <div class="us-wk"><div id="us-dg-weeks" class="us-seg" role="group" aria-label="Week" data-i18n-aria-label="ui.us.week"></div><div id="us-dg-range" class="us-range"></div></div>
             <div id="us-dg-body" hidden>
               <div class="us-card us-dg-card"><div id="us-dg-title" class="us-lbl"></div><div id="us-dg-text" class="us-dg-text"></div></div>
-              <p id="us-dg-scope" class="us-dg-scope"></p>
+              <p id="us-dg-scope" class="us-dg-scope"><span data-i18n="us.about">About these figures</span> <span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-us-dg-machines" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-us-dg-machines" role="note" hidden data-i18n="us.machines">Other machines are not counted: only this machine's sessions.</span></span></p>
               <div id="us-dg-upd" class="us-upd"></div>
             </div>
           </div>
@@ -501,9 +501,8 @@
             <label><input type="checkbox" id="se-messages" data-box="messages" checked> <span data-i18n="ui.se.messages">Messages</span> <small></small></label>
             <label><input type="checkbox" id="se-tools" data-box="tools"> <span data-i18n="ui.se.tools">Tool calls</span> <small></small></label>
             <label><input type="checkbox" id="se-output" data-box="output"> <span data-i18n="ui.se.output">Tool output</span> <small></small></label>
-            <label><input type="checkbox" id="se-thinking" data-box="thinking"> <span data-i18n="ui.se.thinking">Thinking</span> <small></small></label>
+            <span class="se-pair"><label><input type="checkbox" id="se-thinking" data-box="thinking"> <span data-i18n="ui.se.thinking">Thinking</span> <small></small></label><span class="exp" id="se-think-note" hidden><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-se-thinkNote" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-se-thinkNote" role="note" hidden data-i18n="ui.se.thinkNote">Claude Code saves the text of only about 6% of thinking blocks; the rest are stored without it. This box can only find what was saved.</span></span></span>
           </div>
-          <div id="se-think-note" class="se-note" hidden data-i18n="ui.se.thinkNote">Claude Code saves the text of only about 6% of thinking blocks; the rest are stored without it. This box can only find what was saved.</div>
         </form>
         <div id="se-summary" class="se-summary" role="status"></div>
         <ol id="se-hits" class="se-hits"></ol>
@@ -545,18 +544,18 @@
             <button id="ns-summary" class="ns-sum" type="button" aria-expanded="true" aria-controls="ns-projpanel" title="Show the project list" hidden></button>
             <div id="ns-projpanel" class="ns-panel">
               <input id="ns-filter" type="search" placeholder="Type to filter, or the name of a new project" data-i18n-placeholder="ui.ns.filterPh" aria-controls="ns-projects" autocapitalize="off" spellcheck="false">
-              <div id="ns-head" class="ns-head"><span class="ns-hk" data-i18n="ui.ns.colProject">Project</span><span class="ns-ht"><span data-i18n="ui.ns.description">Description</span> <span class="ns-hint only-wide" data-i18n="ui.ns.dragHint">drag the list's lower right corner to make it taller</span></span></div>
+              <div id="ns-head" class="ns-head"><span class="ns-hk" data-i18n="ui.ns.colProject">Project</span><span class="ns-ht"><span data-i18n="ui.ns.description">Description</span> <span class="exp only-wide"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-ns-dragHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-ns-dragHint" role="note" hidden data-i18n="ui.ns.dragHint">drag the list's lower right corner to make it taller</span></span></span></div>
               <div id="ns-projects" class="ns-list" role="listbox" aria-label="Projects" data-i18n-aria-label="ui.ns.projectsLabel" aria-busy="true" tabindex="-1"></div>
             </div>
             <div id="ns-picked" class="ns-note" role="status"></div>
           </div>
           <fieldset class="ns-field ns-role">
             <legend data-i18n="common.role">Role</legend>
-            <label class="ns-radio"><input type="radio" name="ns-role" value="front" checked> front <span class="ns-hint" data-i18n="ui.ns.frontHint" data-i18n-arg="{{owner}}">a session {{owner}} talks to</span></label>
-            <label class="ns-radio"><input type="radio" name="ns-role" value="back"> back <span class="ns-hint" data-i18n="ui.ns.backHint">a background agent, unattended</span></label>
+            <span class="ns-choice"><label class="ns-radio"><input type="radio" name="ns-role" value="front" checked> front</label><span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-ns-frontHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-ns-frontHint" role="note" hidden data-i18n="ui.ns.frontHint" data-i18n-arg="{{owner}}">a session {{owner}} talks to</span></span></span>
+            <span class="ns-choice"><label class="ns-radio"><input type="radio" name="ns-role" value="back"> back</label><span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-ns-backHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-ns-backHint" role="note" hidden data-i18n="ui.ns.backHint">a background agent, unattended</span></span></span>
           </fieldset>
           <div class="ns-field">
-            <label for="ns-name"><span data-i18n="ui.ns.name">Name</span> <span id="ns-name-hint" class="ns-hint" data-i18n="ui.ns.nameHint">suggested by sala, never one that exists; lowercase letters, digits and dashes</span></label>
+            <div class="ns-label"><label for="ns-name"><span data-i18n="ui.ns.name">Name</span></label> <span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="ns-name-hint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="ns-name-hint" role="note" hidden data-i18n="ui.ns.nameHint">suggested by sala, never one that exists; lowercase letters, digits and dashes</span></span></div>
             <input id="ns-name" type="text" autocapitalize="off" spellcheck="false" maxlength="48" aria-describedby="ns-name-hint ns-name-err">
             <div id="ns-name-err" class="ns-err" role="alert"></div>
           </div>
@@ -566,7 +565,7 @@
             <div id="ns-mandate-err" class="ns-err" role="alert"></div>
           </div>
           <details class="ns-more">
-            <summary><span data-i18n="ui.ns.more">Lane, model, effort</span> <span class="ns-hint" data-i18n="ui.ns.defaultHint">use default = what a new session follows now</span></summary>
+            <summary><span data-i18n="ui.ns.more">Lane, model, effort</span> <span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-ns-defaultHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-ns-defaultHint" role="note" hidden data-i18n="ui.ns.defaultHint">use default = what a new session follows now</span></span></summary>
             <div class="ns-grid">
               <label><span data-i18n="common.lane">Lane</span> <select id="ns-lane"><option value="" data-i18n="ui.ns.useDefault">use default</option></select></label>
               <label><span data-i18n="common.model">Model</span> <select id="ns-model"><option value="" data-i18n="ui.ns.useDefault">use default</option></select>
@@ -592,35 +591,35 @@
         <div class="np-col">
           <p class="ns-hint sd-lead" data-i18n="ui.sd.lead">A short talk, started in one step. Pick a board item, a running session to fork, or both.</p>
           <div class="ns-field">
-            <label id="sd-item-label"><span data-i18n="ui.sd.item">Board item</span> <span class="ns-hint" data-i18n="ui.sd.itemHint">optional: a fresh session about the item, on its project's page</span></label>
+            <div class="ns-label"><span id="sd-item-label" data-i18n="ui.sd.item">Board item</span> <span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-sd-itemHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-sd-itemHint" role="note" hidden data-i18n="ui.sd.itemHint">optional: a fresh session about the item, on its project's page</span></span></div>
             <div id="sd-item-pick" class="ns-pick" aria-labelledby="sd-item-label"></div>
             <input id="sd-item" type="hidden">
           </div>
           <div id="sd-item-extra" class="sd-block" hidden>
             <div class="ns-field">
-              <label for="sd-project"><span data-i18n="ui.col.project">Project</span> <span class="ns-hint" data-i18n="ui.sd.projectHint">the item's project page; filled in from the item</span></label>
+              <div class="ns-label"><label for="sd-project"><span data-i18n="ui.col.project">Project</span></label> <span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-sd-projectHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-sd-projectHint" role="note" hidden data-i18n="ui.sd.projectHint">the item's project page; filled in from the item</span></span></div>
               <input id="sd-project" type="text" list="sd-projects" autocapitalize="off" spellcheck="false" maxlength="120" placeholder="projects/&lt;slug&gt;">
               <datalist id="sd-projects"></datalist>
             </div>
             <div class="ns-field">
-              <label for="sd-agents"><span data-i18n="ui.sd.agents">Agents involved</span> <span class="ns-hint" data-i18n="ui.sd.agentsHint">optional, comma-separated; the session reads only the transcript excerpts it needs from them</span></label>
+              <div class="ns-label"><label for="sd-agents"><span data-i18n="ui.sd.agents">Agents involved</span></label> <span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-sd-agentsHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-sd-agentsHint" role="note" hidden data-i18n="ui.sd.agentsHint">optional, comma-separated; the session reads only the transcript excerpts it needs from them</span></span></div>
               <input id="sd-agents" type="text" autocapitalize="off" spellcheck="false" maxlength="300">
             </div>
           </div>
           <div class="ns-field">
-            <label id="sd-fork-label"><span data-i18n="ui.sd.fork">Session to fork</span> <span class="ns-hint" data-i18n="ui.sd.forkHint">optional: continues that running session's conversation</span></label>
+            <div class="ns-label"><span id="sd-fork-label" data-i18n="ui.sd.fork">Session to fork</span> <span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-sd-forkHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-sd-forkHint" role="note" hidden data-i18n="ui.sd.forkHint">optional: continues that running session's conversation</span></span></div>
             <div id="sd-fork-pick" class="ns-pick" aria-labelledby="sd-fork-label"></div>
             <input id="sd-fork" type="hidden">
           </div>
           <div id="sd-note" class="ns-note" role="status"></div>
           <div id="sd-need" class="ns-hint" role="status"></div>
           <div class="ns-field">
-            <label for="sd-name"><span data-i18n="ui.ns.name">Name</span> <span class="ns-hint" data-i18n="ui.sd.nameHint">blank = suggested by sala (&lt;prefix&gt;-side-&lt;word&gt;&lt;nn&gt;)</span></label>
+            <div class="ns-label"><label for="sd-name"><span data-i18n="ui.ns.name">Name</span></label> <span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-sd-nameHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-sd-nameHint" role="note" hidden data-i18n="ui.sd.nameHint">blank = suggested by sala (&lt;prefix&gt;-side-&lt;word&gt;&lt;nn&gt;)</span></span></div>
             <input id="sd-name" type="text" autocapitalize="off" spellcheck="false" maxlength="48" aria-describedby="sd-name-err">
             <div id="sd-name-err" class="ns-err" role="alert"></div>
           </div>
           <div class="ns-field">
-            <label for="sd-mandate"><span data-i18n="ui.sd.topic">What to talk about</span> <span class="ns-hint" data-i18n="ui.sd.topicHint">optional; appended to the session's own brief</span></label>
+            <div class="ns-label"><label for="sd-mandate"><span data-i18n="ui.sd.topic">What to talk about</span></label> <span class="exp"><button type="button" class="exp-help" aria-expanded="false" aria-controls="exp-ui-sd-topicHint" data-i18n-aria-label="ui.explain" aria-label="More about this"><span class="q" aria-hidden="true">?</span></button><span class="exp-pop" id="exp-ui-sd-topicHint" role="note" hidden data-i18n="ui.sd.topicHint">optional; appended to the session's own brief</span></span></div>
             <textarea id="sd-mandate" rows="3"></textarea>
           </div>
           <div class="ns-foot">

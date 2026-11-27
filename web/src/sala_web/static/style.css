@@ -463,7 +463,6 @@ body.chat-kept-on #chat .msg.kept .did::before { content: "\2192\00a0"; }
    under the id and the wrapped title lines, with no margin of its own pushing it right. */
 #chat-strip-wait :is(.wait-link, .wait-title):has(+ .new) { margin-inline-end: 8px; }
 #chat-strip-wait .new { display: inline-block; margin-inline-start: 0; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 8px; border-radius: 999px; background: var(--label-bg, color-mix(in srgb, var(--accent) 16%, var(--panel))); color: var(--label-fg, var(--link)); }
-#chat-strip-wait .wait-cap { font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
 #chat-strip-wait .wait-err { font-size: 12px; color: var(--warn); overflow-wrap: anywhere; }
 #chat-strip-wait .wait-err:empty { display: none; }
 /* A row of the second list: a ring for a dot (amber when late, red past that), and under the title one line of since when and the days of a late one */
@@ -825,6 +824,18 @@ details.notice { background: transparent; }
 .ns-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ns-field > label, .ns-field > .ns-label, .ns-role legend, .ns-grid > label, .ns-more > summary { font-size: 13px; font-weight: 600; color: var(--text); }
 .ns-hint { font-size: 12px; font-weight: 400; color: var(--muted); }
+/* the (?) beside a text that explains, and its box (opened and placed by app.js): the same ring as the chat bar's (?) */
+.exp { position: relative; display: inline-block; vertical-align: middle; }
+.exp[hidden] { display: none; }
+.exp-help { box-sizing: border-box; flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin: 0 0 0 4px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); font-family: inherit; cursor: pointer; }
+.exp-help .q { box-sizing: border-box; width: 18px; height: 18px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 12px; font-style: normal; font-weight: 600; line-height: 15px; text-align: center; }
+.exp-help[aria-expanded="true"] { color: var(--text); }
+.exp-help:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.exp-pop { position: absolute; z-index: 5; left: 0; top: 100%; box-sizing: border-box; width: max-content; max-width: min(320px, 80vw); margin-top: 4px; padding: 8px 12px; font-size: 12px; font-style: normal; font-weight: 400; line-height: 1.5; text-align: left; white-space: normal; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, .16); overflow-wrap: anywhere; cursor: auto; }
+.exp-pop[hidden] { display: none; }
+.exp-pop > span { display: block; }
+.exp-pop > span + span { margin-top: 8px; }
+@media (pointer: coarse) { .exp-help { width: 44px; height: 44px; } }
 .ns-form input[type="text"], .ns-form input[type="search"], .ns-form textarea, .ns-form select {
   font-family: inherit; line-height: 1.4; color: var(--text); background: var(--bg); border: 1px solid var(--border);
   border-radius: 8px; padding: 8px 8px; min-height: 40px; width: 100%; min-width: 0; box-sizing: border-box; margin: 0; }
@@ -848,7 +859,8 @@ details.notice { background: transparent; }
 .ns-opt .ns-scope-tag { flex: 0 0 auto; font-size: 12px; color: var(--muted); }   /* which scope the row is in, under the all chip */
 .ns-opt[aria-selected="true"] .ns-scope-tag { color: var(--text); }
 .ns-role { display: block; border: 0; padding: 0; margin: 0; min-width: 0; }   /* the two radios side by side, the legend above */
-.ns-role .ns-radio { display: inline-flex; margin-right: 24px; }
+.ns-role .ns-choice { display: inline-flex; align-items: center; margin-right: 24px; }   /* a radio and the (?) beside it */
+.ns-role .ns-radio { display: inline-flex; }
 .ns-role legend { padding: 0; margin-bottom: 4px; }
 .ns-radio { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 15px; color: var(--text); cursor: pointer; }
 .ns-radio input { margin: 0; width: 18px; height: 18px; flex: none; }
@@ -874,7 +886,6 @@ a.ns-chip { display: inline-flex; align-items: center; text-decoration: none; }
 .ns-head { display: flex; gap: 4px 12px; padding: 0 16px; margin-top: 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .ns-head .ns-hk { flex: 0 0 var(--ns-name-w); min-width: 0; }
 .ns-head .ns-ht { flex: 1 1 0; min-width: 0; }
-.ns-head .ns-ht .ns-hint { font-weight: 400; margin-left: 8px; }
 .ns-panel { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ns-panel[hidden], .ns-sum[hidden] { display: none; }
 .ns-sum { display: flex; align-items: center; gap: 4px 12px; width: 100%; box-sizing: border-box; min-height: 40px; padding: 8px 8px; border: 1px solid var(--border); border-radius: 8px;

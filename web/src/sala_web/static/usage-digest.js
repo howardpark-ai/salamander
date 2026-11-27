@@ -4,8 +4,8 @@
    and shows them under the same week picker the Report has. It shows dollars as the server wrote them and never reads a token count.
    usage.js mounts it: it calls show(ctx) whenever the Digest view is the one on screen (every render, so it must be cheap and must only ask the server when
    the week changed or the view was just opened), hide() when another view or tab takes over, and reload() from the Reload button. `ctx` carries what
-   the Report already has so the wording lives in one place: `week`, `onWeek(n)`, `setNote(text, isError)`, `words` (usage.js's WORDS: the week names, the
-   machines note, the pending note, "resets in"), `fmtDay`, `untilText`, `agoText`. `el` and `apiFetch` come from app.js (used at call time). */
+   the Report already has so the wording lives in one place: `week`, `onWeek(n)`, `setNote(text, isError)`, `words` (usage.js's WORDS: the week names,
+   the pending note, "resets in"), `fmtDay`, `untilText`, `agoText`. `el` and `apiFetch` come from app.js (used at call time). */
 const usageDigest = (() => {
 const POLL_MS = 3000, POLL_MAX = 40;
 const WORDS = { get title() { return tl("usd.title"); }, get none() { return tl("usd.none"); } };
@@ -44,7 +44,6 @@ function render() {
   if (!d) return;
   $d("#us-dg-title").textContent = WORDS.title;
   $d("#us-dg-text").innerHTML = d.sentences && d.sentences.length ? d.sentences.map(sentence).join("") : `<p class="us-faint">${esc(WORDS.none)}</p>`;
-  $d("#us-dg-scope").textContent = w.machines;
   showAge();
 }
 

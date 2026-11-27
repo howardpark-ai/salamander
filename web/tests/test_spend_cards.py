@@ -51,7 +51,7 @@ SCARDS = """(() => [...document.querySelectorAll(%s)].map((c) => { const t = (s)
       share: r.querySelector('.s-share').textContent, link: (r.querySelector('.s-name a') || {}).getAttribute ? r.querySelector('.s-name a').getAttribute('href') : null })) : null; };
   const more = c.querySelector('.s-more');
   return { cls: c.className, pills: [...c.querySelectorAll('.q-head .sp-pill:not(.lane-chip)')].map((p) => p.textContent), chips: [...c.querySelectorAll('.q-head .lane-chip')].map((x) => x.textContent),
-    chipCls: (c.querySelector('.q-head .lane-chip') || {}).className || null, figure: t('.c-v'), key: t('.c-k'), est: t('.s-est'), estTitle: (c.querySelector('.s-est') || {}).title || null,
+    chipCls: (c.querySelector('.q-head .lane-chip') || {}).className || null, figure: t('.c-v'), key: t('.c-k'), est: t('.s-est'), about: t('.s-est-row .exp-pop'),estTitle: (c.querySelector('.s-est') || {}).title || null,
     models: list('By model'), sessions: list('Sessions'), more: more ? { text: more.textContent, href: more.getAttribute('href') } : null,
     warns: [...c.querySelectorAll('.c-warn')].map((x) => x.textContent), err: t('.q-err'), dormant: t('.q-dormant-line'),
     plain: [...c.querySelectorAll('.c-line:not(.c-warn):not(.c-foot)')].map((x) => x.textContent), foot: [...c.querySelectorAll('.c-foot:not(.s-est)')].map((x) => x.textContent),
@@ -184,7 +184,12 @@ def test_the_overview_lists_no_sessions_and_the_details_page_lists_all_of_them(w
     d = cards(browser, "'#ld-usage .s-card'")[0]
     assert [s["name"] for s in d["sessions"]] == [f"bed-{i}" for i in range(1, 8)] and d["more"] is None and not d["details"], d
     assert [s["usd"] for s in d["sessions"]][:3] == ["$7.00", "$6.00", "$5.00"] and d["models"][0]["share"] == "100%"
-    assert any("real bill and can differ" in x for x in d["plain"]), d["plain"]
+    assert "real bill and can differ" in d["about"] and not any("real bill and can differ" in x for x in d["plain"]), d   # behind the estimate line's (?)
+    box = browser.evaluate("""(() => { const e = document.querySelector('#ld-usage .s-card .s-est-row'), p = e.querySelector('.exp-pop'); e.querySelector('.exp-help').click();
+      p.scrollIntoView({ block: 'center' }); const r = p.getBoundingClientRect(), hit = document.elementFromPoint(r.left + r.width / 2, r.bottom - 4);
+      return { hidden: p.hidden, left: r.left, right: r.right, vw: document.documentElement.clientWidth, whole: p.contains(hit), tip: !!p.closest('[title]') }; })()""")
+    assert not box["hidden"] and box["whole"] and not box["tip"], box                    # nothing cuts the box, and the line's tooltip is not over it
+    assert box["left"] >= 0 and box["right"] <= box["vw"] + 0.5, box
     assert d["chips"] == [] and d["figure"] == "$28.00" and d["pills"] == ["bedrock"]   # no status pill in the details-page card
 
 
