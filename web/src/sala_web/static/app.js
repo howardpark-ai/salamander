@@ -3799,6 +3799,29 @@ function pendingNode(p) {
   box.append(copyBar(p.text, p.sentAt));
   return box;
 }
+// "Send now", for a message that waits in the terminal's queue and nowhere else (the row that shows such a message adds it): Claude
+// reads every waiting message at once and the running step moves to the background. The server decides whether that is safe at this
+// moment; a refusal presses nothing, and its reason shows in the status line under the composer.
+function sendNowButton(session) {
+  const button = el("button", { type: "button", class: "send-now", text: tl("app.sendnow.button") });
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    clearStatus();
+    try {
+      const s = state.byName.get(session);
+      if (!s) throw new Error(tl("app.pend.notLive"));
+      const r = await fetch(`api/s/${s.pid}/send-now`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+        .catch(() => { throw new Error(tl("app.pend.noNet")); });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.error || tl("app.pend.noReason", { status: `${r.status} ${r.statusText}`.trim() }));
+    } catch (e) {
+      setStatus(() => tl("app.sendnow.failed", { error: e.message }), "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  return button;
+}
 function redrawPending(p) {
   const n = pendingNode(p);
   if (p.node && p.node.isConnected) p.node.replaceWith(n);

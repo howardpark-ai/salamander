@@ -7,6 +7,8 @@ Nothing here kills, renames or restarts a session, window or pane. The one thing
 session, `sala-shell` (sala's SALA_SHELL_SESSION) (ensure_shell_session): a plain login bash, never a Claude pane, and the one place
 send_shell_key sends keys to (from a fixed list of key names, never text).
 
+One more write into a session's pane: Ctrl+X Ctrl+S (send_now_chord), the page's "send now" for waiting messages (sendnow.py).
+
 Image paths go in by bracketed paste (paste-buffer -p): the step-0 probe showed Claude Code turns a pasted image
 path into an "[Image #N]" chip, while the same path typed with send-keys -l stays raw text.
 """
@@ -202,6 +204,20 @@ async def send_key(settings: Settings, pane: str, key: str) -> None:
     if key not in DIALOG_KEYS and key not in MULTI_KEYS and key != STOP_KEY:
         raise TmuxError(f"refusing to send key {key!r}")
     await run_tmux(settings, "send-keys", "-t", pane, key)
+
+
+async def send_now_chord(settings: Settings, pane: str) -> None:
+    """Ctrl+X Ctrl+S into the pane, Claude Code's "send the waiting messages now". Only the send-now route presses it, and only after
+    sendnow.py's checks of the screen and the transcript (elsewhere the chord can submit a draft or cancel a call)."""
+    _check_pane(pane)
+    await run_tmux(settings, "send-keys", "-t", pane, "C-x", "C-s")
+
+
+def above_box(captured: str) -> list[str]:
+    """The captured lines above the input box's top rule (escape sequences kept); [] when there is no box."""
+    lines = captured.split("\n")
+    used = _used_box(lines)
+    return lines[:max(used[0] - 1, 0)] if used else []
 
 
 def _visible_runs(line: str) -> list[tuple[str, bool]]:

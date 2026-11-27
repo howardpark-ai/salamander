@@ -201,6 +201,8 @@ window.SALA_I18N_KO = {
   "app.sd.notStarted": "\uc2dc\uc791\ub418\uc9c0 \uc54a\uc74c",
   "app.sd.owner": ", \ub2f4\ub2f9 {owner}",
   "app.sd.unknown": "\uc54c \uc218 \uc5c6\uc74c",
+  "app.sendnow.button": "\uc9c0\uae08 \ubcf4\ub0b4\uae30",
+  "app.sendnow.failed": "\uc9c0\uae08 \ubcf4\ub0b4\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4: {error}",
   "app.sess.actions": "{name} \uba54\ub274",
   "app.sess.bgJob": "\ubc31\uadf8\ub77c\uc6b4\ub4dc \uc791\uc5c5 {job}\uc5d0\uc11c \uc2e4\ud589 \uc911",
   "app.sess.fork": "\ud3ec\ud06c",
