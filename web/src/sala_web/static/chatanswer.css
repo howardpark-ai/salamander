@@ -1,4 +1,4 @@
-/* Answering a waiting item from the chat session's page (chatanswer.js): a card in the strip's row of the item and under the newest reply that names it,
+/* Answering a waiting item from the chat session's page (chatanswer.js): a card in the strip's row of the item and under the newest reply that marks it,
    holding the board's frame. In the page only with the setting SALA_CHAT_LAYER, and every rule is under the chat session's body class, so no other
    session's page is touched. A card's rules name where it stands (a row of the strip, or a direct child of #chat), so a class written into a reply's own
    HTML matches none of them. NO SIDEWAYS SCROLL at any width: every box may shrink and every run of text breaks anywhere. */
@@ -30,14 +30,15 @@ body.chat-session #chat-strip-wait .ans-list > .wait-row.ans:not(.ans-plain)::be
 body.chat-session #chat-strip-wait .wait-row.ans:not(.ans-plain) > .wait-subj { display: none; }
 body.chat-session #chat-strip-wait .wait-row .ans-head > .chev { margin-top: 4px; }
 body.chat-session #chat-strip-wait .wait-row .ans-head[aria-expanded="true"] > .chev { margin-top: 8px; transform: translateY(1px) rotate(-135deg); }
-/* a frame that is not shown keeps its width and goes on loading, out of the way: the card of a silent or closed item's row, the frame of such a card under a
-   reply, and an older reply's frame while the newer one starts */
-body.chat-session :is(#chat-strip-wait .wait-row.ans-plain > .ans-card, #chat > .ans-under.ans-plain .ans-slot, #chat > .ans-under:not(.ans-newest) .ans-slot) {
+/* a frame that is not shown keeps its width and goes on running, out of the way: the card of a silent or closed item's row, the frame of such a card under a
+   reply, and an earlier card kept until its send is over */
+body.chat-session :is(#chat-strip-wait .wait-row.ans-plain > .ans-card, #chat > .ans-under.ans-plain .ans-slot, #chat > .ans-under:not(.ans-newest) > .ans-card) {
   position: absolute; left: 0; right: 0; height: 0; min-height: 0; margin: 0; padding: 0; border: 0; overflow: hidden; visibility: hidden; }
 
 /* under a reply. A reply's own markup (an inline style can place an element anywhere) stays under the cards: each message is painted as a layer of its own */
 body.chat-session #chat > .msg { isolation: isolate; }
 body.chat-session #chat > .ans-under { position: relative; z-index: 1; box-sizing: border-box; width: 100%; max-width: 560px; min-width: 0; margin: 8px 0 0; }
+body.chat-session #chat > .ans-under:not(.ans-newest) { margin: 0; }
 body.chat-session #chat > .ans-under + .msg.user { margin-top: 16px; }
 
 @media (pointer: coarse) {

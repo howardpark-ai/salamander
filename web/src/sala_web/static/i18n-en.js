@@ -288,7 +288,6 @@ window.SALA_I18N_EN = {
   "chat.answer.changed": "The question changed. Open the item to read it again.",
   "chat.answer.frame": "Answer {id}",
   "chat.answer.open": "Open on the board",
-  "chat.answer.pointer": "The buttons are on the newest reply about this item ↓",
   "chat.answer.sending": "Sending…",
   "chat.ask.how": "To answer, send an option's number here or use the Terminal tab. To answer in your own words, send esc first, then your message.",
   "chat.ask.howMulti": "To answer, use the Terminal tab. To answer in your own words, send esc first, then your message.",
