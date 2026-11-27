@@ -20,6 +20,9 @@
 # full: the shared code and harness every suite runs through (bin/salamander, lib/common.sh and lib/boardlinks.sh and lib/slacksafe.sh, which it sources, lib/api-credit.sh and lib/stackshot-path.sh, which common.sh sources, tests/lib.sh, tests/run.sh,
 # tests/fake-claude.c) and the tool that reads this file (tests/suitemap.sh).
 full bin/salamander lib/common.sh lib/api-credit.sh lib/stackshot-path.sh lib/boardlinks.sh lib/slacksafe.sh tests/lib.sh tests/run.sh tests/fake-claude.c tests/suitemap.sh
+# The verify-sala skill's scripts are a second harness over tests/lib.sh and the fake claude. No suite runs them: a change to one
+# runs every suite, which also has syntax.sh parse it.
+full .claude/skills/verify-sala/*.sh
 # none: prose and repository housekeeping that no suite parses, named file by file. NOT `*.md`: the briefing's model prompts
 # (contrib/briefing/*.prompt.md) are text the briefing suite feeds a fake claude, so they are measured. The launchd plists are
 # XML for macOS boxes that only launchd reads (syntax.sh opens their first line to look for a shebang, which a firstline
@@ -29,6 +32,8 @@ full bin/salamander lib/common.sh lib/api-credit.sh lib/stackshot-path.sh lib/bo
 # unmapped until it is listed here or a suite opens it, so --check makes its author decide.
 # tests/destination.sh scans every docs page and CONTRIBUTING.md for a stale channel name, so those pages are measured on its line, not none.
 none docs/test-coverage.md LICENSE .gitignore */.gitignore launchd/*
+# The verify-sala skill's pages: prose that an agent reads and no suite parses.
+none .claude/skills/verify-sala/*.md
 # text: the suites that read most of the repo as data.
 text syntax lanefields
 # firstline: opens every tracked file for line 1 only.
