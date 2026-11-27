@@ -1,7 +1,7 @@
 """The only tmux access sala-web has: read a pane (display, capture-pane), paste into it (load-buffer,
 paste-buffer -p, send-keys Enter), answer a numbered dialog in it (send-keys of one digit, or Escape), and stop a running
-`!` command (send-keys of Escape, then Ctrl-C), and, only when the page's Replace asks for it, empty the input box of text
-the owner left there (send-keys of Ctrl+U, End and Delete: clear_box).
+`!` command (send-keys of Escape, then Ctrl-C), and, only when the page's Replace asks for it or the outbox finds text in the box, empty the input box of text
+that is there (send-keys of Ctrl+U, End and Delete: clear_box).
 
 Nothing here kills, renames or restarts a session, window or pane. The one thing it creates is the Shell drawer's own tmux
 session, `sala-shell` (sala's SALA_SHELL_SESSION) (ensure_shell_session): a plain login bash, never a Claude pane, and the one place
@@ -658,7 +658,7 @@ def live_text(captured: str, command: str = "", max_lines: int = LIVE_LINES) -> 
 
 
 # --- clearing the input box (the page's Replace) ----------------------------------------------------------------------------
-# Measured on Claude Code 2.1.330 in a pane of its own (private tmux socket, isolated HOME, nothing submitted): Ctrl+U deletes
+# Measured on Claude Code 2.1.330 and again on 2.1.332 (a one-, two- and three-line paste emptied by clear_box) in a pane of its own (private tmux socket, isolated HOME, nothing submitted): Ctrl+U deletes
 # from the cursor to the start of its line, and at a line's start it deletes the newline before it, so it clears a box of N
 # lines from the end in 2N-1 presses and Backspace adds nothing; End moves the cursor to the end of its line, and Delete
 # removes what lies after the cursor. A paste of four lines or more is one "[Pasted text #1 +3 lines]" chip, which one Ctrl+U
@@ -674,8 +674,8 @@ CLEAR_PLAN = (("C-u",), ("End", "C-u"), ("Delete",))
 
 
 async def send_edit_key(settings: Settings, pane: str, key: str) -> None:
-    """One editing key into the pane's input box, from EDIT_KEYS only (Ctrl+U, End, Delete). Only the page's Replace sends
-    them, and only to clear the box. Nothing else is ever sent this way."""
+    """One editing key into the pane's input box, from EDIT_KEYS only (Ctrl+U, End, Delete). Only the page's Replace and the outbox's
+    clearing of text in the box send them, and only to clear the box. Nothing else is ever sent this way."""
     _check_pane(pane)
     if key not in EDIT_KEYS:
         raise TmuxError(f"refusing to send key {key!r}")
