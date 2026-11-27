@@ -61,7 +61,7 @@
 # pass-over is said in the sweep's output (the revive log), and the row's note names it. Never for a recycle: a whole
 # fleet confirmed blind is not a rescue.
 
-DRY=0; FORCE=0; SELF_WORKER=0; SELF_PANE=""; ONLY=""; ONLY_LIST=(); RESCUE=0; RESCUE_NOTE=""; PAUSE_NOTE=""
+DRY=0; FORCE=0; SELF_WORKER=0; SELF_PANE=""; ONLY=""; ONLY_LIST=(); RESCUE=0; RESCUE_NOTE=""; PAUSE_NOTE=""; DRAFTS_NOTE=""
 # read ahead of the flag loop: `--self` acts the moment the loop reaches it, before a `--rescue` that
 # follows it on the line would have been seen (lib/lane.sh writes `revive --self $RESCUEFLAG`)
 for a in "$@"; do case "$a" in --rescue) RESCUE=1; export SALA_RESCUE=1;; esac; done
@@ -110,10 +110,13 @@ rest_applies() {
 # no child process runs under that claude — the rows are the registry's leftovers — and RESCUE_NOTE says so for the row.
 # The dialog's text, read from the 2.1.299 binary (its exit prompt): the title, "The following will stop when you exit:",
 # one row per task (its label, " · " and a detail), then the choices, "Exit and stop tasks" selected first, "Stay" last.
+# THE DRAFTS GATE (lib/feedback.sh): a /exit that stops at the unsent-feedback prompt, drafts the drain could not send, is
+# passed keeping them all (common.sh, drafts_gate_pass), and DRAFTS_NOTE says so.
 exit_wait() {
     local t=0 scr list
     while [ "$t" -lt "$2" ]; do
         wait_for "$1" shell 2 && return 0
+        if drafts_gate_pass "$1"; then DRAFTS_NOTE="the exit stopped at the unsent feedback drafts prompt: passed, the drafts stay queued"; t=$((t+2)); continue; fi
         scr=$(tmux capture-pane -p -t "$1" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -14)
         if grep -q 'Background work is running' <<< "$scr" && grep -q 'Esc to cancel' <<< "$scr"; then
             list=$(sed -n '/will stop when you exit/,/❯ 1\./p' <<< "$scr" | sed '1d;$d')
@@ -715,14 +718,15 @@ if [ "$SELF_WORKER" = 1 ]; then
     [ "$rc" = 2 ] && wabort "background work is running (${draft:-a shell, monitor or subagent}), which /exit would stop — /exit not sent, the session stays on its version"
     [ "$rc" = 3 ] && wabort "unsubmitted text is sitting at the prompt: \"$draft\" — /exit not sent, the session stays on its version"
     [ "$rc" = 0 ] || wabort "the pane did not take /exit (composer not empty, or the Enter was dropped twice)"
-    RESCUE_NOTE=""; exit_wait "$SELF_PANE" "$SALA_EXIT_WAIT" "$cpid"; rc=$?   # the pid: the rescue's child-process test (the header)
+    RESCUE_NOTE=""; DRAFTS_NOTE=""; exit_wait "$SELF_PANE" "$SALA_EXIT_WAIT" "$cpid"; rc=$?   # the pid: the rescue's child-process test (the header)
     [ "$rc" = 2 ] && { wabort "background work is running (a shell, monitor or subagent), which /exit would stop — /exit cancelled, the session stays on its version"; }
     [ -n "$RESCUE_NOTE" ] && echo "[$(date -Is)] self-worker: $label: rescue — $RESCUE_NOTE"
+    [ -n "$DRAFTS_NOTE" ] && echo "[$(date -Is)] self-worker: $label: feedback — $DRAFTS_NOTE"
     if [ "$rc" != 0 ]; then
         # the /exit is typed and fires whenever whatever holds the pane clears; abandoning now would
         # leave an unattended exit with no resume — keep waiting so the resume follows it
         echo "[$(date -Is)] self-worker: /exit not landed after ${SALA_EXIT_WAIT}s (a prompt may hold the pane); waiting up to 15 min"
-        wait_for "$SELF_PANE" shell 900 || wabort "claude did not exit within 15 min — a /exit may still be queued in the pane, check it"
+        wait_exit "$SELF_PANE" 900 || wabort "claude did not exit within 15 min — a /exit may still be queued in the pane, check it"
     fi
     why=$(resume_send "$SELF_PANE" "$uuid" "$(resume_cmd "$uuid" "$label")") || wabort "$why"   # on the session's lane (common.sh, lanes)
     resume_wait "$SELF_PANE" "$uuid" "$SALA_RESUME_WAIT"; rc=$?   # live, not merely started (once a false "Recycle done")
@@ -940,7 +944,8 @@ check_pane() {
 # is released after its resume (verify_pane).
 close_pane() {
     local pane="$1" sess="$2" label="$3" cpid="$4" ver="$5" uuid="$6" hname="$7" rc draft jpid why
-    unmode "$pane"; send_feedback_drafts "$pane" "$uuid" || { inbox_release "$uuid" "$hname"; skip "$label: feedback draft(s) still queued after the drain — /exit would stop at the drafts gate; see $SALA_LOG_DIR/salamander-feedback.log, send them by hand (/feedback) and rerun"; return; }
+    # a draft the drain cannot send holds nothing up: it stays queued on disk through the relaunch, and exit_wait passes the gate (lib/feedback.sh)
+    unmode "$pane"; send_feedback_drafts "$pane" "$uuid" || emit ECHO "$label: feedback draft(s) not sent (see $SALA_LOG_DIR/salamander-feedback.log) — they stay queued through the relaunch"
     if ! prompt_clears "$pane" 10; then inbox_release "$uuid" "$hname"; SKIPPED+=("$label: a terminal prompt is showing — dismiss it (attach) and rerun"); return; fi
     # THE RE-CHECK, just before the /exit: phase 1 read the pane some seconds before its
     # inbox was held. A line the puller handed out in between has started a turn by now (or the registry's idle stamp is fresh), and an
@@ -986,7 +991,7 @@ close_pane() {
         *) inbox_release "$uuid" "$hname"; skip "$label: the pane did not take /exit (composer not empty, or the Enter was dropped twice)"; return ;;
     esac
     ready_clear "$uuid"; waiting_clear "$uuid"   # the relaunch consumes the ready marker and takes the waiting flag down
-    RESCUE_NOTE=""; PAUSE_NOTE=""; exit_wait "$pane" "$SALA_EXIT_WAIT" "$cpid"; rc=$?   # the pid: the rescue's child-process test (the header)
+    RESCUE_NOTE=""; PAUSE_NOTE=""; DRAFTS_NOTE=""; exit_wait "$pane" "$SALA_EXIT_WAIT" "$cpid"; rc=$?   # the pid: the rescue's child-process test (the header)
     [ "$rc" = 2 ] && { inbox_release "$uuid" "$hname"; SKIPPED+=("$label: background work is running (a shell, monitor or subagent), which /exit would stop — /exit cancelled, left on $ver; sala relaunches it once that work is done"); return; }
     if [ "$rc" = 1 ]; then
         # THE STUCK CLAUDE (common.sh, end_stuck_claude): the /exit was typed and the claude is still running after the wait. That one
@@ -1007,6 +1012,7 @@ close_pane() {
     [ "$rc" = 0 ] || { inbox_release "$uuid" "$hname"; SKIPPED+=("$label: claude didn't exit within ${SALA_EXIT_WAIT}s — a /exit may be queued behind a prompt; attach and check before rerunning"); return; }
     [ -n "$RESCUE_NOTE" ] && emit ECHO "$label: rescue — $RESCUE_NOTE"
     [ -n "$PAUSE_NOTE" ] && emit ECHO "$label: pause — $PAUSE_NOTE"
+    [ -n "$DRAFTS_NOTE" ] && emit ECHO "$label: feedback — $DRAFTS_NOTE"
     dedupe_ok "$uuid" "$label" || { inbox_release "$uuid" "$hname"; return; }
     # a parked pane resumes with --name <session>: the job's conversation carries the job's own title, which would become the pane's registry name;
     # so does a pane whose row name differs from its session and is not a hand rename (named, above)

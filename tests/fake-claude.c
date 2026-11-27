@@ -20,7 +20,9 @@
  * as the CLI's Esc ends a running turn; one "esc <uuid> <epoch.micros>" line in FAKE_LOG; FAKE_ESC_IDLE=stay takes and logs the Esc and the turn goes on, the row stays busy) · FAKE_IDLE_AGE=<secs> (the registry row's statusUpdatedAt is that old at start; default 60) · FAKE_TURN_MS=<ms> (a typed
  * message that is not a slash command is a turn: the row says busy for that long, then idle with a fresh stamp; unset, a message changes
  * nothing, as before) · FAKE_NO_CLEAR=1 (a /clear is typed and logged and nothing changes) · `/clear` (probed on 2.1.312: the SAME registry row, same pid, name and nameSource kept, gets a NEW
- * sessionId and a fresh idle stamp; the screen is cleared; one "clear <new uuid> <epoch.micros>" line in FAKE_LOG). */
+ * sessionId and a fresh idle stamp; the screen is cleared; one "clear <new uuid> <epoch.micros>" line in FAKE_LOG) ·
+ * FAKE_DRAFTS_PANEL=<tests/fake-drafts-panel.py> (the feedback drafts: /feedback runs its panel in the pane, and a /exit with a
+ * queued draft of this conversation stops at its exit gate; the script's header names its own knobs). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,6 +43,11 @@
 #include <sys/prctl.h>
 #endif
 static pid_t child = 0;
+static int drafts_panel(const char *mode, const char *sid) {   /* FAKE_DRAFTS_PANEL: 0 = go on (the exit proceeds), 1 = stay; unset: 0 */
+    const char *py = getenv("FAKE_DRAFTS_PANEL"); char cmd[2048]; if (!py || !*py) return 0;
+    snprintf(cmd, sizeof cmd, "python3 -I '%s' %s '%s'", py, mode, sid);
+    fflush(stdout); return system(cmd) != 0;
+}
 static void child_start(void) {   /* FAKE_CHILD: a live child process under the fake (Linux: named, and gone with its parent) */
 #ifdef __linux__
     if (!getenv("FAKE_CHILD")) return;
@@ -270,7 +277,9 @@ int main(int argc, char **argv) {
               write_row(sid, "busy", (long)time(NULL)); nanosleep(&ts, NULL); write_row(sid, "idle", (long)time(NULL));
               continue;
           } }
+        if (!strcmp(line, "/feedback\n") && getenv("FAKE_DRAFTS_PANEL")) { drafts_panel("panel", sid); continue; }
         if (!strcmp(line, "/exit\n") && !getenv("FAKE_IGNORE_EXIT")) {
+            if (drafts_panel("gate", sid)) continue;
             if (!exit_dialog()) continue;                                      /* the dialog dismissed: the session stays */
             note("exit", sid); fputs("\033[2J\033[H", stdout); fflush(stdout);
             child_stop(); unlink(path); if (sock[0]) unlink(sock); return 0;

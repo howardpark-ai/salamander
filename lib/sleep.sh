@@ -21,7 +21,7 @@
 # The whole project is checked first and nothing is touched when any member refuses; each session is then put to sleep as below, with its own checks again.
 # Run raw from a Claude session it is refused like the rest (a project sleep is the watch's own routine, never queued); its --dry-run passes.
 #
-# HOW IT ENDS THE CLAUDE (as retire and revive do, never by name, never a kill): the stackshot inbox is held for the pane, queued feedback drafts are sent, the
+# HOW IT ENDS THE CLAUDE (as retire and revive do, never by name, never a kill): the stackshot inbox is held for the pane, queued feedback drafts are sent (one that cannot be sent stays queued), the
 # idle check and sleep_ready are made again with the hold in place, the sleeping marker is written (so the bare-pane heal never revives the pane in the
 # gap), and /exit is typed (common.sh pane_exit: the mod first, else the keys). The pane must be back at its shell within SALA_EXIT_WAIT seconds; if it is
 # not, the marker is taken off again, the claude is left as it is and the command says so (nothing is ever signalled: a claude that ignores /exit is not
@@ -239,7 +239,7 @@ sleep_one() {
     # a hold that was not made (server mode, the stackshot server not answering) is no hold: a sleep with its inbox open would lose the line the puller hands the ended claude, so it is refused (a relaunch may go on after its idle re-check; a sleep may not)
     if ! inbox_hold "$uuid" "$n" 2>/dev/null; then inbox_release "$uuid" "$n" 2>/dev/null; echo "✗ $n: not put to sleep — its stackshot inbox could not be held: $INBOX_WHY"; return 1; fi
     unmode "$pane"
-    if ! send_feedback_drafts "$pane" "$uuid"; then inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — feedback draft(s) are still queued: /exit would stop at the drafts gate (send them by hand, then ask again)"; return 1; fi
+    send_feedback_drafts "$pane" "$uuid" || echo "• $n: feedback draft(s) not sent — they stay queued while it sleeps"   # a file on disk; the wait below passes the drafts gate
     if ! prompt_clears "$pane" 10; then inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — a terminal prompt is showing"; return 1; fi
     # THE RE-CHECK, with the hold in place: a line handed out before it started a turn, and an /exit typed by keys would end that turn
     if ! sleep_ready "$n" "$SMODE" >/dev/null; then inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — it was not ready once its inbox was held: $SLEEP_WHY"; return 1; fi
@@ -254,7 +254,7 @@ sleep_one() {
         *) why="the pane did not take /exit (composer not empty, or the Enter was dropped twice)" ;;
     esac
     if [ "$rc" != 0 ]; then sleeping_clear "$uuid"; inbox_release "$uuid" "$n"; echo "✗ $n: not put to sleep — $why; its claude is left as it is"; return 1; fi
-    if ! wait_for "$pane" shell "$SALA_EXIT_WAIT"; then
+    if ! wait_exit "$pane" "$SALA_EXIT_WAIT"; then
         sleeping_clear "$uuid"; inbox_release "$uuid" "$n"
         echo "✗ $n: not put to sleep — its claude was still running ${SALA_EXIT_WAIT}s after /exit (a dialog may hold it: attach and look); nothing was signalled and its marker is off again"; return 1
     fi
