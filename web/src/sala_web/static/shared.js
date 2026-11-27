@@ -189,6 +189,87 @@ function noSingleTildeStrike(markedLib) {
   markedLib.use({ tokenizer: { del(src) { return src.startsWith("~~") ? false : undefined; } } });  // false = marked's own rule
 }
 
+// <md-rules> (the tests run what is between these two markers in node)
+// What a reply may not do. A reply keeps what DOMPurify keeps by default, drawings, video, audio, formulas and its own
+// inline style included, and its box holds whatever it paints (.md in style.css: layout and paint containment). md() in
+// app.js hands MD_PURIFY, mdAttr and mdStyle to what takes out the rest: what no box can hold, what would act or pass for a
+// control of the page, and what would answer to one of the page's own names. A new case goes into tests/test_md_rules.py
+// and tests/test_md_rules_ui.py. The one thing drawn past the box: a video's full screen and picture in picture, which its
+// controls offer and the reader starts; autopictureinpicture, which asks for the second by itself, goes.
+const MD_PURIFY = Object.freeze({
+  RETURN_DOM_FRAGMENT: true,
+  ALLOW_DATA_ATTR: false,   // the page's scripts find their own elements by data-*
+  // a style sheet restyles the whole page; a form and its controls act, or pass for the page's own; a dialog opens over it
+  FORBID_TAGS: Object.freeze("style link meta base form button select textarea dialog".split(" ")),
+  // what opens over the page or presses something outside the reply, and what takes the keyboard from the page
+  FORBID_ATTR: Object.freeze(("popover popovertarget popovertargetaction command commandfor interestfor interesttarget " +
+    "anchor autofocus accesskey contenteditable for form autopictureinpicture").split(" ")),
+});
+const MD_ID_LISTS = Object.freeze(("aria-activedescendant aria-controls aria-describedby aria-details aria-errormessage " +
+  "aria-flowto aria-labelledby aria-owns headers").split(" "));
+const MD_URL_ATTRS = Object.freeze("style fill stroke filter clip-path mask marker marker-start marker-mid marker-end".split(" "));
+// a pointer picture is drawn past the box: only a keyword stays
+const mdCursor = (value) => /^[a-z-]*$/i.test(String(value).trim());
+// The value an attribute keeps, or null when it goes (tag and name in lower case). Every name a reply gives, and every
+// pointer at one, gets the reply's own prefix: neither can answer for, or reach, anything outside the reply. The only class
+// is a code block's language, since the page's styles and scripts find their elements by class.
+function mdAttr(tag, name, value, prefix) {
+  if (name === "class") {
+    const kept = value.split(/\s+/).filter((c) => c.startsWith("language-"));
+    return kept.length ? kept.join(" ") : null;
+  }
+  if (name === "id" || name === "name") return prefix + value;
+  if (MD_ID_LISTS.includes(name)) return value.split(/\s+/).filter(Boolean).map((v) => prefix + v).join(" ");
+  if (name === "usemap") return value.replace("#", "#" + prefix);
+  if (name === "href" || name === "xlink:href") {
+    if (tag === "a" || tag === "area") return value;   // a link: it opens in a new tab (app.js)
+    if (value.trim().startsWith("#")) return value.replace("#", "#" + prefix);
+    return /^(animate|set$|mpath$)/.test(tag) ? null : value;   // an animation moves what it names
+  }
+  // an animation that waits on an element's event, "id.click"
+  if (name === "begin" || name === "end") return value.replace(/(^|;)(\s*)(?=[A-Za-z_][^.;+\s]*\.[A-Za-z])/g, `$1$2${prefix}`);
+  if (name === "cursor") return mdCursor(value) ? value : null;
+  if (name === "tabindex") return Number.parseInt(value, 10) > 0 ? "0" : value;   // no place ahead of the page's controls
+  if (MD_URL_ATTRS.includes(name)) return value.replace(/(url|element)\(\s*(["']?)#/gi, `$1($2#${prefix}`);
+  return value;
+}
+// inline style the box cannot hold (a pointer picture), a field to type in, and names the page's own styles could take up
+const MD_STYLE_OFF = Object.freeze(["-webkit-user-modify", "anchor-name", "view-transition-name"]);
+function mdStyle(style) {   // an element's own style declaration, edited in place
+  for (const p of MD_STYLE_OFF) if (style.getPropertyValue(p)) style.removeProperty(p);
+  if (!mdCursor(style.getPropertyValue("cursor"))) style.removeProperty("cursor");
+}
+// Inline style that would hold content wider than the box, which never scrolls sideways (app.js mdFit, which leaves tables
+// and code blocks out): a least width stops at the box's, a line kept from wrapping wraps, and a scroll box of the reply's
+// own does not scroll sideways. An element that cuts its own line off (overflow hidden or clip, as with an ellipsis) keeps
+// the line.
+function mdFitStyle(style) {   // an element's own style declaration, edited in place
+  const get = (p) => style.getPropertyValue(p).trim().toLowerCase();
+  const least = get("min-width"), x = get("overflow-x");
+  // 200px or less fits any reply's box and stays; a value min() cannot take (auto, max-content) stays off
+  if (least && !(least.endsWith("px") && parseFloat(least) <= 200)) {
+    style.removeProperty("min-width");
+    style.setProperty("min-width", `min(${least}, 100%)`);
+  }
+  if (x === "hidden" || x === "clip") return;
+  // any of these makes the element one that can scroll sideways: that is cut off, and up and down stays as it was
+  const y = get("overflow-y");
+  if ([x, y].some((v) => ["auto", "scroll", "hidden"].includes(v))) {
+    if ((x === "auto" || x === "scroll") && (y === "" || y === "visible")) style.setProperty("overflow-y", "auto");
+    style.setProperty("overflow-x", "clip");
+  }
+  const space = get("white-space");
+  if (space === "nowrap" || space === "pre") style.setProperty("white-space", space === "pre" ? "pre-wrap" : "normal");
+  if (get("text-wrap") === "nowrap" || get("text-wrap-mode") === "nowrap") {
+    style.removeProperty("text-wrap");
+    style.removeProperty("text-wrap-mode");
+  }
+  if (get("overflow-wrap")) style.removeProperty("overflow-wrap");   // the box's own: anywhere
+}
+// the one input a reply keeps: a task list's box as marked writes it, a checkbox nobody can tick
+const mdTaskBox = (type, disabled) => !!disabled && String(type || "").toLowerCase() === "checkbox";
+// </md-rules>
+
 // "Opus 5.5" from "claude-opus-5-5", and from the same model as a cloud provider names it: Bedrock's
 // "global.anthropic.claude-opus-5-5" / "us.anthropic.claude-sonnet-4-5-20250929-v1:0" / "anthropic.claude-opus-5-5", an
 // inference-profile ARN ("arn:aws:bedrock:…:inference-profile/global.anthropic.claude-…": what follows the last "/"), and

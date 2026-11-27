@@ -547,8 +547,23 @@ body.side-mode #sd-form { display: block; }
 .live-out { font: 12px/1.45 var(--font); margin: 8px 0 0; max-height: 40vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .live-note { font-size: 12px; color: var(--faint); margin-top: 4px; }
 .live-note.err { color: var(--error); }
-.md { overflow-wrap: anywhere; }
+/* a reply's box holds what the reply draws: with layout and paint containment nothing in it (positioned, fixed, moved,
+   scaled, raised, shadowed or pulled by a negative margin) paints, takes a click or stretches the page outside the box.
+   The box never scrolls, sideways or down: what is wider comes down to it or wraps (the max-width and nobr rules below,
+   app.js mdFit and mdFitFormulas), and what still does not fit is cut at its edge. A video the reader opens full screen or
+   in picture in picture is drawn by the browser over the page all the same. The margins at its edges: app.js mdEdges */
+.md { overflow-wrap: anywhere; contain: content; overflow: clip; margin: var(--md-start, 0px) 0 var(--md-end, 0px); }
+.md.md:not(.ruled) .md-start { margin-top: 0; }   /* .md twice: above every .md rule that gives a margin */
+.md.md .md-end { margin-bottom: 0; }
+.md ol.md-hang { padding-inline-start: calc(40px + var(--md-hang)); }   /* long list numbers (app.js mdHang); 40px: the browser's own */
+.md:has(math) { padding-block: .5em; }   /* a formula's strokes reach a few pixels past its height: room for them in the box */
+/* a focus ring inside the element's own edges, where the box does not cut it */
+.md :is(a, area, summary, video, audio):focus-visible { outline-offset: -2px; }
 .md th, .md td { overflow-wrap: normal; word-break: keep-all; }  /* 'anywhere' let tables squeeze a column to one letter */
+/* media, and anything the reply gives a width in its style, stops at the box's width (a drawing's width attribute: app.js
+   mdFit); what it places out of the flow is only cut. Tables and code blocks keep their own ways */
+.md :is(video, audio, canvas, marquee, hr, [style^="width" i], [style*=";width" i], [style*=" width" i]):not(table, table *, pre, pre *, .codebox *, [style*="absolute" i], [style*="fixed" i]) { max-width: 100%; }
+.md nobr:not(table *, pre *) { white-space: normal; }
 .msg.assistant .md { font-size: 15px; line-height: 1.65; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
@@ -605,7 +620,7 @@ body.side-mode #sd-form { display: block; }
 .md.footer a[href]::after { content: ""; position: absolute; inset: -3px 0; }
 .md.footer a[href].wrapped::after { display: none; }
 /* the closing paragraph after a footer (the ask the rulebook puts last; replyNodes' tail): body text, a gap, no rule */
-.msg.assistant .md.tail { margin-top: 8px; }
+.msg.assistant .md.tail { margin-top: max(8px, var(--md-start, 0px)); }
 
 details.fold { margin: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
 details.fold > summary { cursor: pointer; list-style: none; padding: 4px 8px; font-size: 13px; color: var(--muted);

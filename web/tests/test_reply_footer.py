@@ -249,11 +249,13 @@ new Promise((res0) => requestAnimationFrame(() => requestAnimationFrame(res0))).
   const onLink = (a, x, y) => { const e = document.elementFromPoint(x, y); return !!e && (e === a || a.contains(e)); };
   const lineRects = (a) => { const rg = document.createRange(); rg.selectNodeContents(a);
     return [...rg.getClientRects()].filter((f) => f.width > 0 && f.height > 0); };
-  const tap = (a) => { const fr = lineRects(a), mid = (f) => f.left + f.width / 2;
+  const tap = (a) => { const fr = lineRects(a), mid = (f) => f.left + f.width / 2, box = a.closest(".md").getBoundingClientRect();
     if (!fr.length) return { frags: [] };
     const first = fr[0], last = fr[fr.length - 1];
+    // a point past the reply's own box is not the link's: the box cuts it there (only a font taller than its line gets there)
     return { frags: fr.map((f) => ({ w: f.width, inside: onLink(a, mid(f), f.top + f.height / 2),
-                                     above2: onLink(a, mid(f), f.top - 2), below2: onLink(a, mid(f), f.bottom + 2) })),
+                                     above2: f.top - 2 < box.top || onLink(a, mid(f), f.top - 2),
+                                     below2: f.bottom + 2 > box.bottom || onLink(a, mid(f), f.bottom + 2) })),
              farAbove: onLink(a, mid(first), first.top - 8), farBelow: onLink(a, mid(last), last.bottom + 8) }; };
   const r2 = (r) => ({ top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height, width: r.width });
   const out = [...msgs].map((m) => {
@@ -543,7 +545,7 @@ def test_a_footer_link_sits_level_with_the_footer_text_at_fractional_zoom(served
     inline-block, which moves a long link and the words around it onto rows of their own, fails here. The tap target: a link
     on one line reaches 2px above and below its text (::after); a link on two lines or more has no ::after (.wrapped) and
     each line still hits the link inside its text; the element 8px past the first and last line is never the link; all
-    probed in each line's own x-range. Nothing between the link and the pane clips it."""
+    probed in each line's own x-range. Nothing between the link and the pane but the footer's own box clips it."""
     transcript_file(served).write_text(TRANSCRIPT)
     browser.open(f"{served['url']}/#s={NAME}")
     browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": 844, "deviceScaleFactor": scale, "mobile": False})
@@ -568,7 +570,8 @@ def test_a_footer_link_sits_level_with_the_footer_text_at_fractional_zoom(served
             for mine, plain in zip(link["own"]["lines"], link["plain"]["lines"]):
                 assert all(abs(x - y) < 0.01 for x, y in zip(mine, plain)), (name, k, "a line of the link is off the place a plain inline link's is", link)
             assert abs(link["own"]["h"] - link["plain"]["h"]) < 0.01, (name, k, "the link changes its paragraph's height", link)
-        assert lvl["clips"] == [], (name, "something between the link and the pane clips its tap target", lvl)
+        # the footer's own box holds what a reply draws (style.css .md); nothing else between the link and the pane clips
+        assert [c for c in lvl["clips"] if c.split()[:2] != ["md", "footer"]] == [], (name, "something between the link and the pane clips its tap target", lvl)
 
 
 def test_a_footer_link_gains_and_loses_its_wrapped_mark_as_the_chat_width_changes(served, browser):
