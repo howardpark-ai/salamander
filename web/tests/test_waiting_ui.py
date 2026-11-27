@@ -1,8 +1,8 @@
 """A message that waits to be read (static/waiting.js, the server's outbox behind it).
 
 It is one state whatever holds it: a dashed bubble with "Waiting" under it, no time, Edit and Cancel. While a question or permission dialog is
-open the line says to answer it first, and a message already in the pane offers nothing (it can not be taken back then; Send now is also
-held back under a dialog). A message in the pane that can not be taken back offers Send now. Cancel and Edit ask the
+open the line says to answer it first, and a message already in the pane offers no button (Edit and Cancel can not take it back then, and
+Send now waits for the dialog). Otherwise a message in the terminal's queue offers Send now beside Edit and Cancel. Cancel and Edit ask the
 server to take the message back and say what happened: taken back, or too late. A bubble goes when its message is delivered or withdrawn, a
 reload draws the waiting ones again from the server's list, and nothing is wider than a 360 px phone.
 
@@ -86,7 +86,9 @@ def test_held_and_queued_messages_are_one_dashed_state_with_edit_and_cancel_and_
     got = bubbles(browser)
     assert [b["text"] for b in got] == ["first", "second", "third", "fourth"], got
     for b in got:
-        assert "waiting" in b["cls"] and b["line"] == "Waiting" and b["buttons"] == ["Edit", "Cancel"], b
+        # the two in the terminal's queue also offer Send now (test_send_now_ui.py); the two held by the server do not
+        want = ["Send now", "Edit", "Cancel"] if b["text"] in ("first", "second") else ["Edit", "Cancel"]
+        assert "waiting" in b["cls"] and b["line"] == "Waiting" and b["buttons"] == want, b
         assert b["border"] == "dashed" and not b["time"] and b["copy"], b
     # the same list again draws nothing anew (a button under a finger stays)
     browser.evaluate("window.__node = document.querySelector('#chat > .msg.local'); SalaWaiting.sync(%s, __box, true); ''" % json.dumps(NAME))
@@ -132,7 +134,7 @@ def test_cancel_says_the_others_move_and_then_that_claude_did_not_get_it(served,
     browser.evaluate(f"__answer(200, {json.dumps({'ok': True, 'message': gone, 'messages': [gone, two]})}); ''")
     assert wait_for(browser, "document.querySelectorAll('#chat > .msg.local').length === 1", 5.0), bubbles(browser)
     assert browser.evaluate(STATUS) == "Cancelled. Claude did not get it."
-    assert bubbles(browser)[0]["line"] == "Waiting" and bubbles(browser)[0]["buttons"] == ["Edit", "Cancel"]
+    assert bubbles(browser)[0]["line"] == "Waiting" and bubbles(browser)[0]["buttons"] == ["Send now", "Edit", "Cancel"]
     show(browser, one, two)   # an older list that still has it brings nothing back
     assert [b["text"] for b in bubbles(browser)] == ["two"]
 
@@ -150,7 +152,7 @@ def test_edit_puts_the_taken_back_message_in_the_composer(served, browser):
 @pytest.mark.parametrize("button, answer, words, left", [
     ("Cancel", {"tooLate": True}, "Claude had already read it, so it was not cancelled.", []),
     ("Edit", {"tooLate": True}, "Claude had already read it, so it was not changed.", []),
-    ("Cancel", {"busy": True}, "It could not be taken back just now. Try again in a moment.", ["Edit", "Cancel"]),
+    ("Cancel", {"busy": True}, "It could not be taken back just now. Try again in a moment.", ["Send now", "Edit", "Cancel"]),
 ])
 def test_a_refused_take_back_says_so_and_a_read_message_loses_its_buttons(served, browser, button, answer, words, left):
     opened(browser, served)
