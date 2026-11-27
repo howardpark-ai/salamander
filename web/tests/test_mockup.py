@@ -310,7 +310,7 @@ def test_in_a_real_browser_the_back_link_is_tappable_and_does_not_widen_the_page
     store(root, 1, page)
     browser.open(served["url"] + "/mockup/1", dark=False)
     wait_for(browser, "document.readyState === 'complete'")
-    if "viewport" in page:
+    if 'name="viewport"' in page:
         assert browser.evaluate("window.innerWidth") == 390          # a page with the meta is laid out at the phone's width
     layout = browser.evaluate("document.documentElement.clientWidth")   # without the meta the browser picks its own layout width (980): the page's doing
     box = browser.evaluate("(() => { const r = document.querySelector('[data-sala-back] a').getBoundingClientRect(); return [r.top, r.left, r.width, r.height]; })()")
