@@ -53,7 +53,7 @@ NOTHING = "Nothing in progress right now"
 NOTE_TEXT = "What the assistant has said it will report back on in this chat. When it is done, the line moves to the {group} list."
 NOTE = NOTE_TEXT.replace("{group}", "Your move")   # no group served: sala's own name for the first list
 HELP_LABEL = "About this list"
-MOVE_NOTE = "These lines are the board's own. No model writes them or decides whether you see them."
+MOVE_NOTE = "Lines not marked Done are the board's own. No model writes them or decides whether you see them."
 
 
 def cp(*codes) -> str:

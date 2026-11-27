@@ -351,7 +351,7 @@ window.SALA_I18N_EN = {
   "chat.strip.expand": "Show the list: {group}",
   "chat.strip.line": "{group} · {n}",
   "chat.wait.new": "new",
-  "chat.wait.note": "These lines are the board's own. No model writes them or decides whether you see them.",
+  "chat.wait.note": "Lines not marked Done are the board's own. No model writes them or decides whether you see them.",
   "common.close": "Close",
   "common.copy": "Copy",
   "common.effort": "Effort",
