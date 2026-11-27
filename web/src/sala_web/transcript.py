@@ -2,7 +2,8 @@
 
 A transcript line is one JSON object. Only `user` and `assistant` lines with a `message` are shown; meta lines
 (isMeta), sidechains, compact summaries and every other type (attachment, system, summary, file-history-snapshot,
-...) are skipped. System reminders are cut out of user text.
+...) are skipped. System reminders are cut out of user text. One attachment is shown: a message sent while the session was
+busy (queued_command), with the time Claude read it where the transcript says it (as_delivered).
 
 Transcripts reach 100+ MB, so the initial load reads backwards from the end.
 """
@@ -46,6 +47,8 @@ def _bash_output(text: str) -> str:
 TEXT_LIMIT = 20_000
 INPUT_LIMIT = 4_000
 CHUNK = 1 << 20
+REMOVE_BACK = 4 << 20      # how far before a queued message's line the record of its delivery is looked for (it stands a few lines back)
+SENT_AT = "salaSentAt"     # not the CLI's key: the sending stamp of a line as_delivered gave another "timestamp"
 
 
 def project_slug(cwd: str) -> str:
@@ -208,6 +211,55 @@ def never_shown(d: dict, subagent: bool = False) -> bool:
     return bool((d.get("isSidechain") and not subagent) or d.get("isCompactSummary") or d.get("isVisibleInTranscriptOnly"))
 
 
+def _delivered_at(path: Path, at: int, delivery_id: str) -> str | None:
+    """The stamp of the nearest `queue-operation` line before byte `at` that says Claude took the message `delivery_id` into the running
+    turn (operation "remove", reason "absorbed_mid_turn"); None when the REMOVE_BACK bytes before `at` hold none."""
+    needle = delivery_id.encode("utf-8", "replace")
+    window = 64 << 10
+    try:
+        with path.open("rb") as f:
+            while True:
+                start = max(0, at - window)
+                f.seek(start)
+                lines = f.read(at - start).split(b"\n")
+                if start > 0:
+                    lines = lines[1:]  # cut mid-line
+                for line in reversed(lines):
+                    if needle not in line or b'"queue-operation"' not in line:
+                        continue
+                    try:
+                        d = json.loads(line)
+                    except ValueError:
+                        continue
+                    if (isinstance(d, dict) and d.get("type") == "queue-operation" and d.get("operation") == "remove"
+                            and d.get("reason") == "absorbed_mid_turn" and d.get("deliveryId") == delivery_id):
+                        ts = d.get("timestamp")
+                        return ts if isinstance(ts, str) and ts else None
+                if start == 0 or window >= REMOVE_BACK:
+                    return None
+                window = min(window * 8, REMOVE_BACK)
+    except OSError:
+        return None
+
+
+def as_delivered(path: Path, at: int, d: dict) -> dict:
+    """The line `d`, which starts at byte `at` of `path`, stamped with the time its message reached Claude. A message Claude read in the
+    middle of a turn is a queued_command attachment stamped when it was sent; the CLI's record of taking it into the turn, which names
+    the attachment's delivery_id and stands before it in the file, is stamped when Claude read it. That stamp becomes d's "timestamp" and
+    the sending one stays under SENT_AT. Every other line, and an attachment with no such record before it, is left as it is. The record
+    is looked for in the file, so a read that starts between the two lines (a page's cursor, the stream's offset) gives the same time.
+    Changes `d` itself and returns it."""
+    a = d.get("attachment") if d.get("type") == "attachment" else None
+    if not isinstance(a, dict) or a.get("type") != "queued_command":
+        return d
+    delivery_id = a.get("delivery_id")
+    if isinstance(delivery_id, str) and delivery_id:
+        ts = _delivered_at(path, at, delivery_id)
+        if ts is not None:
+            d[SENT_AT], d["timestamp"] = d.get("timestamp"), ts
+    return d
+
+
 def parse_line(d: dict, session_id: str) -> dict | None:
     """One transcript line -> one display message, or None to skip it."""
     t = d.get("type")
@@ -229,7 +281,10 @@ def parse_line(d: dict, session_id: str) -> dict | None:
                     b.update(kind="notice", label="task notification")
         else:
             blocks = _content_blocks("user", prompt, session_id, uuid)
-        return {"uuid": uuid, "role": "user", "ts": d.get("timestamp"), "blocks": blocks} if blocks else None
+        if not blocks:
+            return None
+        sent = {"sentTs": d[SENT_AT]} if SENT_AT in d else {}   # "ts" is when Claude read it; matching a message sent needs this one
+        return {"uuid": uuid, "role": "user", "ts": d.get("timestamp"), "blocks": blocks, **sent}
     if t not in ("user", "assistant"):
         return None
     msg = d.get("message")
@@ -395,14 +450,15 @@ def _content_blocks(t: str, content: object, session_id: str, uuid: str) -> list
     return blocks
 
 
-def _parse_raw(line: bytes, session_id: str) -> dict | None:
+def _parse_raw(line: bytes, session_id: str, path: Path, at: int) -> dict | None:
+    """parse_line of the line that starts at byte `at` of `path`, a queued message with its delivery time (as_delivered)."""
     if b'"message"' not in line and b'"queued_command"' not in line:
         return None
     try:
         d = json.loads(line)
     except ValueError:
         return None
-    return parse_line(d, session_id) if isinstance(d, dict) else None
+    return parse_line(as_delivered(path, at, d), session_id) if isinstance(d, dict) else None
 
 
 def complete_end(path: Path) -> int:
@@ -448,7 +504,7 @@ def _read_back(path: Path, session_id: str, end: int, n: int, max_bytes: int) ->
                 cursor = line_start
                 if not line.strip():
                     continue
-                m = _parse_raw(line, session_id)
+                m = _parse_raw(line, session_id, path, line_start)
                 if m:
                     out_rev.append(m)
                     if len(out_rev) >= n:
@@ -524,7 +580,7 @@ def _read_fwd(path: Path, session_id: str, start: int, n: int, max_bytes: int) -
             for line in lines:
                 cursor += len(line) + 1
                 if line.strip():
-                    m = _parse_raw(line, session_id)
+                    m = _parse_raw(line, session_id, path, cursor - len(line) - 1)
                     if m:
                         out.append(m)
                         if len(out) >= n:
@@ -566,9 +622,11 @@ def read_from(path: Path, session_id: str, offset: int) -> tuple[list[dict], int
     k = data.rfind(b"\n")
     if k < 0:
         return out, offset
+    pos = offset
     for line in data[: k + 1].split(b"\n"):
+        at, pos = pos, pos + len(line) + 1
         if line.strip():
-            m = _parse_raw(line, session_id)
+            m = _parse_raw(line, session_id, path, at)
             if m:
                 out.append(m)
     return out, offset + k + 1

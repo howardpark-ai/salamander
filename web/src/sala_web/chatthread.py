@@ -328,7 +328,7 @@ def _items(path: Path, start: int, end: int, sel: Selector) -> list[dict]:
         d = _decode(line)
         if d is None:
             continue
-        out = sel.feed(d)
+        out = sel.feed(TR.as_delivered(path, off, d))
         if d.get("type") != "system":     # a system line adds no message and starts no turn
             starts.setdefault(sel.turn, off)
         items.extend({"off": starts[sel.turn], "turn": sel.turn, "m": m} for m in out)

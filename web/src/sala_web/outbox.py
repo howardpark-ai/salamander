@@ -294,12 +294,14 @@ def ts_ms(ts: object) -> int | None:
 
 def rows_from_messages(msgs: list[dict]) -> list[tuple[int, str, int]]:
     """(time ms, normalized text, image count) of the owner's lines among the transcript messages sala reads (user lines and queued_command
-    attachments both come as role user; a notice, a task notification and a command output are not text blocks)."""
+    attachments both come as role user; a notice, a task notification and a command output are not text blocks). A message Claude read
+    mid-turn is taken at the time it was sent (`sentTs`): its `ts`, when Claude read it, can follow the send of a later message with the
+    same words, which that line must not mark delivered."""
     rows = []
     for m in msgs:
         if m.get("role") != "user":
             continue
-        t = ts_ms(m.get("ts"))
+        t = ts_ms(m.get("sentTs") or m.get("ts"))
         if t is None:
             continue
         blocks = m.get("blocks") or []
