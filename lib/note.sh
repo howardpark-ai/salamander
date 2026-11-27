@@ -12,6 +12,8 @@
 # as a turn, showing when the note was written so the session can judge whether it still holds. Delivery does not retire
 # a note: the session marks it done itself (`--done <id>`) once handled, and until then it comes back at every relaunch,
 # so a session that crashes before acting on it still gets it — nothing expires and nothing is dropped silently.
+# The one exception is the Escape note of a pause that did not take (text "[escape] ", lib/common.sh pause_escape_note): it is
+# handed to the live pid at once, even on the same pid (the pause did not relaunch it), and archived when delivered: one-time.
 # While a clean reboot's boot half is pending, watch holds off and the boot half delivers once the services
 # are resumed (`--reboot`, which also reports notes whose session is not back).
 # A handled note is archived, never deleted: one JSON line per note in salamander-notes-archive.jsonl with
@@ -102,6 +104,16 @@ PYL
         else
             intro="This session was just relaunched (recycle, revive or reboot). At $(local_human "$at") ($(ago "$at")) it left itself this note: \"$text\" — judge whether it still holds and carry on with it; nobody needs to cue you. Once it is handled, run \`sala note --done $id\`; until then it comes back after every relaunch."
             tail_="(Automatic salamander message; the note is this session's own words, not ${SALA_OWNER_NAME}'s.)"
+        fi
+        if [ "${text:0:9}" = "[escape] " ]; then   # the one-time note of a pause whose Escape did not take (lib/common.sh pause_escape_note): handed to the live pid, then retired
+            tail_="(Automatic salamander message: sala wrote this when it sent the pause Escape, not ${SALA_OWNER_NAME}. It is delivered once.)"
+            if [ -n "$cpid" ] && sock=$(session_socket "$cpid") && [ -n "$sock" ] \
+               && session_push "$sock" "[sala note $id] ${text:9} $tail_"; then
+                archive "$row" "sala (delivered once)" || continue
+                lock; awk -F'\t' -v i="$id" '$1!=i' "$NOTES" > "$NOTES.tmp.$$" && mv -f "$NOTES.tmp.$$" "$NOTES"; unlock
+                nlog "delivered once and retired: $sess $id"; sent+=("$sess")
+            fi
+            continue
         fi
         if [ -n "$cpid" ] && [ "$cpid" != "$pid" ] && sock=$(session_socket "$cpid") && [ -n "$sock" ] \
            && session_push "$sock" "[sala note $id] $intro$( [ "$n" -gt 0 ] && echo " (Delivered ${n}× before.)") $tail_"; then

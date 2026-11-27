@@ -12,6 +12,9 @@
 #   - a pause that does not take (the Escape does not bring the pane out of its turn): nothing more is typed, no /exit, the clock KEEPS running,
 #     the failed try is recorded (pause/<id>.failed) and the pause is tried again after SALA_PAUSE_RETRY s, by the sweep and by watch alike, and
 #     after SALA_PAUSE_TRIES failed tries every SALA_PAUSE_AFTER s; a pane found free clears the record;
+#   - a try whose Escape went in and did not take leaves ONE note for the live pid ("[escape] ", lib/common.sh pause_escape_note): handed over
+#     through the messaging socket at once (even on the same pid), archived when delivered, replaced by each later try, dropped by a taking
+#     pause; a successful pause leaves only its [paused] note; no Escape, no [escape] note;
 #   - the deferred-pane bullet: made again from the pane for every post (its age is the pause clock's when that is longer than the registry's),
 #     and it says when the pause comes (and that it is being retried once that time has passed);
 #   - off keeps the old wait; scope off and background (no back-agent role here) keep a front agent waiting; the dry run says what it would do;
@@ -43,7 +46,7 @@ unset TMUX; export SALA_TMUX_SOCKET="${TMUX_TMPDIR:-/tmp}/tmux-$EUID/$SOCK"
 cleanup() {
     local p f; for f in "$HOME"/.claude/salamander-retry*.pid; do [ -s "$f" ] && kill "$(<"$f")" 2>/dev/null; done   # a retry worker this suite started, by its pid file
     $T kill-server 2>/dev/null; tmux_socket_rm; sleep 1
-    for p in $(pgrep -x claude); do [ "$HOME/.local/share/claude/versions/9.9.9" -ef "/proc/$p/exe" ] && kill -9 "$p" 2>/dev/null; done   # by pid, and only our own fake binary
+    for e in /proc/[0-9]*/exe; do [ "$HOME/.local/share/claude/versions/9.9.9" -ef "$e" ] 2>/dev/null && { p=${e#/proc/}; kill -9 "${p%/exe}" 2>/dev/null; }; done   # by pid, found by exe: only our own fake binary, never by name
     rm -rf "$HOME" 2>/dev/null; true
 }; trap cleanup EXIT
 eval "tmux() { command tmux -L $SOCK -f /dev/null \"\$@\"; }"; export -f tmux
@@ -57,6 +60,7 @@ typed() { local n; n=$(grep -c "^$1 $2\$" "$FAKE_TYPED_LOG" 2>/dev/null); echo "
 age_clock() { mkdir -p "$PD"; printf '%s %s\n' "$(( $(date +%s) - ${2:-100} ))" "$(date +%s)" > "$PD/$1.wait"; }   # <uuid> [secs] → its clock has run that long
 revive_only() { OUT=$("$SALA" revive --force --only "$1" 2>&1); RC=$?; }
 nsock() { grep -c "^$1 .*sala note" "$FAKE_SOCK_LOG" 2>/dev/null || true; }
+escrows() { awk -F'\t' -v u="$1" -v p="${2:-}" 'substr($8,1,9)=="[escape] " && $3==u && (p=="" || $5==p)' "$NOTES" 2>/dev/null | grep -c '^'; }   # <uuid> [pid] → its [escape] note rows (on that pid)
 UA=$(uuid 31); UD=$(uuid 32); UN=$(uuid 33); UI=$(uuid 34); UW=$(uuid 35); UE=$(uuid 36); UR=$(uuid 37); UH=$(uuid 40)
 
 echo "== the knobs"
@@ -148,6 +152,7 @@ waitfor '[ "$(starts "$UA")" = 2 ]' 40 && fake_up sala-test-a && has "$OUT" 'sal
 [ "$(typed "$UA" /exit)" = 1 ] && ok "/exit typed once, after the Escape" || bad "/exit typed $(typed "$UA" /exit)"
 has "$OUT" 'paused at ' && has "$OUT" 'resumes on relaunch' && ok "the row says it was paused" || bad "row: $OUT"
 nl=$(grep -c '^' "$NOTES" 2>/dev/null); [ "${nl:-0}" = 1 ] && ok "one note was left" || bad "notes: $(cat "$NOTES" 2>/dev/null)"
+[ "$(escrows "$UA")" = 0 ] && [ "$(grep -c "$UA" "$NOTES")" = 1 ] && ok "a successful pause leaves exactly its [paused] note, no [escape] note" || bad "successful pause notes: $(cat "$NOTES")"
 note=$(slurp "$NOTES")
 has "$note" $'\tsala-test-a\t'"$UA"$'\t' && has "$note" '[paused] Your turn was paused by a' && ok "the note is for that conversation and starts [paused]" || bad "note: $note"
 has "$note" 'Build page-creation PR for copy switch' && has "$note" 'Wait for the release unit' && has "$note" 'build the copy switch page' && ok "it names the subagent and call descriptions and the line it was working from" || bad "note text: $note"
@@ -185,6 +190,7 @@ $T send-keys -t sala-test-d -l 'half typed sentence'; sleep 1
 age_clock "$UD" 100; revive_only sala-test-d
 has "$OUT" 'not paused — unsent text is sitting at its prompt' && [ "$(escs "$UD")" = 0 ] && [ "$(starts "$UD")" = 1 ] && ok "a draft: not paused, no Escape, said why" || bad "draft: escs $(escs "$UD") $OUT"
 grep -qF "$UD" "$HM" 2>/dev/null && bad "a pane that is never paused had its inbox held" || ok "and its inbox was not held for a pause that cannot come"
+[ "$(escrows "$UD")" = 0 ] && ok "no Escape was sent, so no [escape] note (the draft pane)" || bad "draft pane got an [escape] note: $(escrows "$UD")"
 wait_lock
 
 echo "== n: a session in SALA_NO_PAUSE waits as before"
@@ -193,6 +199,7 @@ has "$OUT" 'not paused — it is in SALA_NO_PAUSE' && [ "$(escs "$UN")" = 0 ] &&
 wait_lock
 age_clock "$UN" 100; OUT=$(SALA_SKIP_PANE="$(tmux display -p -t sala-test-n '#{pane_id}')" "$SALA" revive --force --only sala-test-n 2>&1)
 [ "$(escs "$UN")" = 0 ] && ok "the pane the recycle runs from: never interrupted" || bad "own pane: escs $(escs "$UN") $OUT"
+[ "$(escrows "$UN")" = 0 ] && [ "$(escs "$UN")" = 0 ] && ok "SALA_NO_PAUSE and the own pane: no Escape, no [escape] note" || bad "n: [escape] rows $(escrows "$UN")"
 pause_refusal_r v "$(tmux display -p -t sala-test-n '#{pane_id}')" sala-test-n "$(cpid n)"; [ -z "$v" ] && ok "(control: no refusal for it without the switches)" || bad "control refusal: $v"
 SALA_SKIP_PANE="$(tmux display -p -t sala-test-n '#{pane_id}')" pause_refusal_r v "$(tmux display -p -t sala-test-n '#{pane_id}')" sala-test-n "$(cpid n)"; has "$v" 'pane this recycle runs from' && ok "pause_refusal_r names SALA_SKIP_PANE" || bad "skip-pane refusal: $v"
 SALA_NO_PAUSE_PANE="$(tmux display -p -t sala-test-n '#{pane_id}')" pause_refusal_r v "$(tmux display -p -t sala-test-n '#{pane_id}')" sala-test-n "$(cpid n)"; has "$v" 'pane that asked for this relaunch' && ok "and SALA_NO_PAUSE_PANE (the self-worker's hand-off)" || bad "no-pause-pane refusal: $v"
@@ -222,6 +229,22 @@ printf '%s %s\n' "$(( $(date +%s) - 2 ))" 2 > "$PD/$UI.failed"; pause_retry_in_r
 age_clock "$UI" 100; pause_clock_r v "$UI"; [ -e "$PD/$UI.failed" ] && ok "a pass that refreshes the running clock keeps the record" || bad "record gone on a refresh"
 printf '%s %s\n' "$(( $(date +%s) - 4000 ))" "$(( $(date +%s) - 3000 ))" > "$PD/$UI.wait"; pause_clock_r v "$UI"; [ ! -e "$PD/$UI.failed" ] && ok "a clock that starts over (last seen held over SALA_PAUSE_GAP ago) forgets the failed tries of the old stretch" || bad "record kept across a restart"
 age_clock "$UI" 100; pause_failed "$UI"; pause_clock_clear "$UI"; [ ! -e "$PD/$UI.failed" ] && [ ! -e "$PD/$UI.wait" ] && ok "a pane found free (clock cleared) clears the record too" || bad "clear: $(ls "$PD")"
+wait_lock
+
+echo "== f: a pause that does not take leaves ONE [escape] note for the live pid; a retry replaces it; it is delivered once, then retired"
+UF=$(uuid 41); mk f "$UF" -e FAKE_ESC_IDLE=stay; fake_up sala-test-f; busy f; FP=$(cpid f)
+age_clock "$UF" 100; revive_only sala-test-f
+has "$OUT" '(failed try 1)' && ok "try 1: the Escape did not take" || bad "f try 1: $OUT"
+[ "$(escrows "$UF" "$FP")" = 1 ] && [ "$(grep -c "$UF" "$NOTES")" = 1 ] && ok "one [escape] note, for the live pid, left at once" || bad "f notes after try 1: $(cat "$NOTES" 2>/dev/null)"
+has "$(slurp "$NOTES")" 'nobody refused it' && has "$(slurp "$NOTES")" 'so sala may try again' && ok "its text says the Escape was sala's and the call may be run again" || bad "f text: $(slurp "$NOTES")"
+printf '%s %s\n' "$(( $(date +%s) - 20 ))" 1 > "$PD/$UF.failed"; wait_lock; revive_only sala-test-f
+has "$OUT" '(failed try 2)' && ok "try 2 (after the retry wait)" || bad "f try 2: $OUT"
+[ "$(escs "$UF")" = 2 ] && [ "$(escrows "$UF" "$FP")" = 1 ] && [ "$(grep -c "$UF" "$NOTES")" = 1 ] && ok "the retry replaced the undelivered note: still one row, no duplicate" || bad "f after try 2: escs $(escs "$UF") notes $(grep -c "$UF" "$NOTES")"
+wait_lock; "$SALA" note --deliver >/dev/null 2>&1
+waitfor '[ "$(nsock "$UF")" -ge 1 ]' 40 && has "$(slurp "$FAKE_SOCK_LOG")" 'sala sent one Escape at' && ok "delivered at once to the live pid (messaging socket)" || bad "f not delivered: $(tail -2 "$FAKE_SOCK_LOG" 2>/dev/null)"
+[ "$(escrows "$UF")" = 0 ] && grep -q "$UF" "$SALA_LOG_DIR/salamander-notes-archive.jsonl" && ok "delivered once: the row is archived and gone from the live list" || bad "f retire: rows $(escrows "$UF") $(cat "$NOTES" 2>/dev/null)"
+wait_lock; "$SALA" note --deliver >/dev/null 2>&1; sleep 1
+[ "$(nsock "$UF")" = 1 ] && ok "not delivered again on the next pass" || bad "f redelivered: $(nsock "$UF")"
 wait_lock
 
 echo "== i again: watch's deferred list tries a pause that did not take again after SALA_PAUSE_RETRY s, not after 10 min"

@@ -137,7 +137,11 @@ recycles was counted back in only one and the other set stayed open. Now:
     (a subagent's result starts the next one) does not put the next try a full `SALA_PAUSE_AFTER` away, and `pause/<id>.failed` records the
     failed tries. The next try is `SALA_PAUSE_RETRY` (120 s) after a failed one, for the first `SALA_PAUSE_TRIES` (5) failed tries, then
     `SALA_PAUSE_AFTER` apart; each one is one Escape under the same rule and one log line that says which try it was and when the next
-    comes. Nothing is given up: the pane is tried until it is free, paused or relaunched. Subagents and shells the Escape left are stopped
+    comes. Nothing is given up: the pane is tried until it is free, paused or relaunched. **A try whose Escape went in and did not take** (the turn
+    still running, or the pane not idle) leaves the session ONE note, text `[escape] …`, handed to its live pid at once by watch (not at a
+    relaunch, not behind the inbox hold) and archived when delivered, so it is one-time: it says sala sent the Escape, that a tool call
+    rejected or shown "interrupted by user" from that moment was sala's and nobody refused it, and that the call may be run again. A later
+    try replaces an undelivered one; a pause that takes drops it (its `[paused]` note covers the same). Subagents and shells the Escape left are stopped
     the one way a recycle stops them, once the pane is out of its turn (below: the exit dialog's "Exit and stop tasks"); sala has no other
     way to stop a subagent, and sends nothing to a pane that stays in its turn beyond the one Escape of each try. Background
     work does not hold a paused pane for `SALA_PAUSE_TTL` (15 min): subagents and background shells end with the relaunch (the CLI's
