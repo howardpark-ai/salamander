@@ -750,6 +750,14 @@ details.notice { background: transparent; }
 .attach-btn:focus-visible { outline: none; }
 .attach-btn:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 0; }
 .attach-btn:disabled { opacity: .45; cursor: default; }
+/* the Android attach menu: out of the row's flow (absolute over the chat), so opening it moves nothing; shown by app.js (.on) on Android only */
+.compose-row { position: relative; }
+.attach-menu { display: none; position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 31; min-width: 200px; flex-direction: column;
+  padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 6px 20px rgba(0,0,0,.2); }
+.attach-menu.on { display: flex; }
+.attach-menu [role="menuitem"] { min-height: 48px; border: 0; border-radius: 8px; background: none; padding: 0 16px; text-align: left;
+  font-size: 15px; color: var(--text); cursor: pointer; }
+.attach-menu [role="menuitem"]:hover, .attach-menu [role="menuitem"]:focus-visible { background: var(--hover); outline: none; }
 .attach-btn.busy { color: var(--accent); animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .attach-btn.busy { animation: none; } }

@@ -194,8 +194,12 @@ sala is, *Deploying* below.
     box in the pane"), and the terminal tab is the way to type to it.
 - Sending is allowed while the session is busy: Claude Code queues the prompt.
 - Images and files: pasted into the composer, dropped on the page, or picked with the attach button beside it (a file chooser
-  for any file; on a phone it offers the camera, the gallery and files, since a paste or a drop does
-  not reach the composer there). A paste takes its images from `clipboardData.files`, and reads `.items` only when
+  for any file; on Android the attach button opens a two-entry menu instead: "Photos and videos" (`#photo-input`,
+  `accept="image/*,video/*"`, which Chrome shows as the photo picker) and "Files and camera" (`#file-input`, no accept
+  list, the chooser with the camera). The menu (`#attach-menu`, `role="menu"`) is a popup over the composer that closes on an
+  outside tap, Escape or focus leaving it, and does not move the composer. Android is detected by the user agent
+  (`/\bAndroid\b/` on `navigator.userAgent`); every other platform's tap goes straight to the chooser, as before. A paste
+  or a drop does not reach the composer there). A paste takes its images from `clipboardData.files`, and reads `.items` only when
   files is empty: Chromium makes a new `File` for every `getAsFile()` call (`image.png`, `lastModified` = now), so
   reading both attached two chips for one paste. One gesture is one chip whichever
   events deliver it: the paste event, `beforeinput` and the `<img>` the browser inserts are the links of one chain, and
@@ -235,7 +239,7 @@ sala is, *Deploying* below.
   and gave no reason") and a request that got no answer says "the connection to the server was lost before it answered".
   The server's own 413 names the limit ("that image is over the limit of 20 MB for one image") for a body that still arrives
   over it. `tests/test_image_shrink.py` (headless Chromium) pins each of these.
-- **Any file, not only images.** The attach button's chooser takes everything, a drop takes
+- **Any file, not only images.** The attach button's chooser takes everything (on Android the menu's "Files and camera" entry; its "Photos and videos" entry takes only images and videos, and a video it picks is uploaded like any other file, since the server takes any file), a drop takes
   every file, and a paste takes every `File` on the clipboard (`clipboardFiles`; `clipboardImages` is its image subset);
   a png, jpeg, gif or webp keeps the image path above (thumbnail, flat random name, 20 MB). **An on-screen keyboard's
   image** (its clipboard, image suggestions, stickers, GIFs):
