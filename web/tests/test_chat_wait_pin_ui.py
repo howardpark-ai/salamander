@@ -390,9 +390,9 @@ def test_the_open_list_has_no_heading_row_and_is_named_by_its_tab(served, browse
     click(browser)
     got = browser.evaluate("""(() => { const w = document.querySelector('#chat-strip-wait .wait'), kids = [...w.children].map((n) => n.tagName + '.' + n.className);
       return { kids, headings: w.querySelectorAll('h1, h2, h3, h4, h5, h6, .sec-head').length, text: w.textContent, label: w.getAttribute('aria-label'),
-               line: document.querySelector('#chat-strip-wait .wait-tab-line').textContent, note: !!w.querySelector('.wait-cap') }; })()""")
+               line: document.querySelector('#chat-strip-wait .wait-tab-line').textContent, note: w.querySelector('.wait-cap') === null }; })()""")
     assert got["kids"][0] == "UL.wait-list" and got["headings"] == 0 and "straight from the board" not in got["text"], got
-    assert got["label"] == got["line"] == LINE and got["note"], got           # one heading only: the tab; the footnote stays
+    assert got["label"] == got["line"] == LINE and got["note"], got           # one heading only: the tab; the note is not under the list (the (?) has it)
 
 
 @pytest.mark.parametrize("width", WIDTHS)
@@ -478,8 +478,9 @@ def test_a_list_that_scrolls_shows_a_band_at_its_bottom_edge_until_its_end_is_in
     assert end["rest"] <= 1, end
     gone = poll(lambda: band(browser), lambda v: v <= 6)
     assert gone <= 6, ("at the end of the list the band is gone", gone, browser.evaluate(BAND))
-    # the footnote stays, and at the end nothing covers the last row's title link (the band is a background, painted under the rows)
-    assert browser.evaluate(PIN + ".querySelectorAll('#chat-strip-wait-panel .wait-cap').length") == 1
+    # the note is behind the (?) in the bar, and at the end nothing covers the last row's title link (the band is a background, painted under the rows)
+    assert browser.evaluate(PIN + ".querySelectorAll('#chat-strip-wait-panel .wait-cap').length") == 0
+    assert browser.evaluate(PIN + ".querySelectorAll('#chat-strip-wait .wait-help:not([hidden])').length") == 1
     last = poll(lambda: browser.evaluate(LINK_AT.replace("__INDEX__", "7")), lambda g: g["seen"])
     assert last["seen"] and last["covered"] is False and last["id"] == "demo#8", last
     assert browser.evaluate("getComputedStyle(document.querySelector('#chat-strip-wait .wait'), '::after').content") in ("none", "normal")

@@ -50,7 +50,7 @@ def digest(browser) -> dict:
       return {
         sentences: [...document.querySelectorAll("#us-dg-text p")].map(t), bold: [...document.querySelectorAll("#us-dg-text b")].map(t),
         weeks: [...document.querySelectorAll("#us-dg-weeks button")].map((b) => [t(b), b.getAttribute("aria-pressed")]),
-        range: t(q("#us-dg-range")), title: t(q("#us-dg-title")), scope: t(q("#us-dg-scope")), upd: t(q("#us-dg-upd")), note: t(q("#us-note")),
+        range: t(q("#us-dg-range")), title: t(q("#us-dg-title")), scope: t(q("#us-dg-scope > span")), more: t(q("#us-dg-scope .exp-pop")), moreHidden: q("#us-dg-scope .exp-pop").hidden, upd: t(q("#us-dg-upd")), note: t(q("#us-note")),
         noteError: q("#us-note").classList.contains("error"), bodyHidden: q("#us-dg-body").hidden,
         views: [...document.querySelectorAll("#us-views button")].map((b) => [t(b), b.getAttribute("aria-selected")]),
         panel: t(q("#us-v-digest")), urls: window.__dgUrls,
@@ -78,7 +78,8 @@ def test_the_digest_shows_the_weeks_sentences_in_dollars_with_the_week_picker_an
     assert 4 <= len(m["sentences"]) <= 7
     assert "$20.00" in m["bold"] and all(b.startswith("$") for b in m["bold"]), m["bold"]                     # the amounts are bold, nothing else is
     assert m["weeks"] == [["This week", "true"], ["Previous week", "false"], ["2 weeks ago", "false"]]
-    assert "the last seven days" in m["range"] and m["scope"] == "Other machines are not counted: only this machine's sessions."
+    assert "the last seven days" in m["range"] and m["scope"] == "About these figures" and m["moreHidden"]
+    assert m["more"] == "Other machines are not counted: only this machine's sessions."                       # behind the line's (?)
     assert m["upd"].startswith("counted ") and m["note"] == "" and not m["bodyHidden"]
     assert "coming next" not in m["panel"] and "token" not in m["panel"].lower() and "undefined" not in m["panel"] and "NaN" not in m["panel"]
     assert errors(browser) == []

@@ -51,6 +51,7 @@ MOVE_PANEL, ONIT_PANEL = "chat-strip-wait-panel", "chat-strip-onit-panel"
 NOTHING = "Nothing in progress right now"
 NOTE = "This is what the assistant has said it will report back on in this chat. Once it has, it leaves the list."
 HELP_LABEL = "About this list"
+MOVE_NOTE = "These lines are the board's own. No model writes them or decides whether you see them."
 
 
 def cp(*codes) -> str:
@@ -302,7 +303,8 @@ HELP = """(() => { const p = document.querySelector('#chat-strip-wait'), b = p.q
   return { btn: shown(b), expanded: b.getAttribute('aria-expanded'), label: b.getAttribute('aria-label'), controls: b.getAttribute('aria-controls'), type: b.type, tag: b.tagName,
     inTabs: !!b.closest('[role=tablist]'), inBar: !!b.closest('.wait-bar'), pop: shown(pop), popId: pop.id, text: pop.textContent, role: pop.getAttribute('role'),
     box: shown(pop) ? { left: r.left, right: r.right, bottom: r.bottom, w: r.width, vw, vh: innerHeight, below: r.top >= bar.bottom - 0.5, scrollW: pop.scrollWidth, clientW: pop.clientWidth } : null,
-    elsewhere: document.body.innerText.includes(__NOTE__), caps: [...p.querySelectorAll('.wait-cap')].map((c) => c.closest('.wait').id) }; })()""".replace("__NOTE__", json.dumps(NOTE))
+    elsewhere: [__NOTE__, __MOVE__].some((n) => document.body.innerText.includes(n) && !shown(pop)), caps: p.querySelectorAll('.wait-cap').length }; })()""".replace(
+    "__NOTE__", json.dumps(NOTE)).replace("__MOVE__", json.dumps(MOVE_NOTE))
 
 
 def helped(browser) -> dict:
@@ -318,26 +320,24 @@ def on_second_list(browser) -> None:
 @pytest.mark.parametrize("size", SIZES)
 def test_the_help_line_is_behind_a_question_mark_that_shows_it_on_a_press_and_not_on_its_own(served, browser, monkeypatch, size):
     open_strip(browser, served, monkeypatch, size)
-    # closed, or on the first list: no (?), no line, and the line is nowhere on the page
+    # with no list open: no (?), no note, and neither note is anywhere on the page
     h = helped(browser)
-    assert not h["btn"] and not h["pop"] and not h["elsewhere"] and h["expanded"] == "false", h
-    click(browser, MOVE_TAB)
-    h = helped(browser)
-    assert not h["btn"] and not h["pop"] and not h["elsewhere"] and h["caps"] == [MOVE_PANEL], h              # the first list's own footnote is another line
-    # the second list: the (?) is in the bar (not among the tabs), named by its words, shut, and the line is not drawn
-    click(browser, ONIT_TAB)
-    browser.settle(PIN)
-    h = helped(browser)
-    assert h["btn"] and (h["tag"], h["type"]) == ("BUTTON", "button") and h["inBar"] and not h["inTabs"], h
-    assert h["label"] == HELP_LABEL and h["controls"] == h["popId"] == "chat-strip-onit-help" and h["role"] == "note", h
-    assert h["expanded"] == "false" and not h["pop"] and not h["elsewhere"] and h["caps"] == [MOVE_PANEL], h
-    # a press shows exactly the line, under the bar; a second press shuts it
-    click(browser, HELP_BTN)
-    h = helped(browser)
-    assert h["expanded"] == "true" and h["pop"] and h["text"] == NOTE and h["box"]["below"], h
-    click(browser, HELP_BTN)
-    h = helped(browser)
-    assert h["expanded"] == "false" and not h["pop"] and not h["elsewhere"], h
+    assert not h["btn"] and not h["pop"] and not h["elsewhere"] and h["expanded"] == "false" and h["caps"] == 0, h
+    # each list has the one (?), in the bar (not among the tabs), named by its words, shut, and no note drawn under the list
+    for tab, note in ((MOVE_TAB, MOVE_NOTE), (ONIT_TAB, NOTE)):
+        click(browser, tab)
+        browser.settle(PIN)
+        h = helped(browser)
+        assert h["btn"] and (h["tag"], h["type"]) == ("BUTTON", "button") and h["inBar"] and not h["inTabs"], h
+        assert h["label"] == HELP_LABEL and h["controls"] == h["popId"] == "chat-strip-onit-help" and h["role"] == "note", h
+        assert h["expanded"] == "false" and not h["pop"] and not h["elsewhere"] and h["caps"] == 0, h
+        # a press shows exactly that list's note, under the bar; a second press shuts it
+        click(browser, HELP_BTN)
+        h = helped(browser)
+        assert h["expanded"] == "true" and h["pop"] and h["text"] == note and h["box"]["below"], h
+        click(browser, HELP_BTN)
+        h = helped(browser)
+        assert h["expanded"] == "false" and not h["pop"] and not h["elsewhere"], h
 
 
 @pytest.mark.parametrize("size", SIZES)
@@ -362,7 +362,7 @@ def test_the_help_line_shuts_on_a_press_elsewhere_on_escape_and_with_its_list(se
     assert h["expanded"] == "false" and browser.evaluate("document.activeElement.className") == "wait-help", h
     key(browser, "Escape", "Escape", 27)
     assert state(browser)["open"] == [ONIT_PANEL]
-    # a read leaves it shown; it goes with its list (the other tab, the chevron, a press on the open tab) and the (?) goes too
+    # a read leaves it shown; it shuts with its list (the other tab, the chevron, a press on the open tab), and with no list open the (?) goes too
     for leave in (MOVE_TAB, CHEVRON, ONIT_TAB):
         on_second_list(browser)
         click(browser, HELP_BTN)
@@ -373,7 +373,7 @@ def test_the_help_line_shuts_on_a_press_elsewhere_on_escape_and_with_its_list(se
         assert wait_for(browser, f"{ONIT_TAB}.textContent.trim() === 'On it · 4'", 10.0)
         click(browser, leave)
         h = helped(browser)
-        assert not h["pop"] and h["expanded"] == "false" and not h["btn"] and not h["elsewhere"], (leave, h)
+        assert not h["pop"] and h["expanded"] == "false" and h["btn"] == (leave == MOVE_TAB) and not h["elsewhere"], (leave, h)   # the other list has its own
     # and it does not come back by itself when the list is opened again
     on_second_list(browser)
     h = helped(browser)
@@ -508,7 +508,7 @@ def test_no_sideways_scroll_with_the_bar_closed_and_on_each_tab_and_hostile_text
     browser.settle(PIN)
     where = f"{width} px, drawer {'open' if drawer else 'shut'}, {which}"
     got = browser.evaluate(WIDE)
-    assert got["vw"] == width and got["parts"] == (4 if which == "onit" else 3) and got["open"] == {"closed": [], "move": [MOVE_PANEL], "onit": [ONIT_PANEL]}[which], (where, got)
+    assert got["vw"] == width and got["parts"] == (3 if which == "closed" else 4) and got["open"] == {"closed": [], "move": [MOVE_PANEL], "onit": [ONIT_PANEL]}[which], (where, got)
     assert got["doc"][0] <= got["doc"][1] and got["body"][0] <= got["body"][1] and got["pane"][0] <= got["pane"][1], f"{where}: the page or the pane scrolls sideways: {got}"
     assert got["over"] == [] and got["wide"] == [] and got["outRow"] == [] and not got["overlap"], f"{where}: something of the strip is wider than its place: {got}"
     check(browser.evaluate(MEASURE), where)
@@ -548,8 +548,8 @@ def test_on_a_touch_screen_the_tabs_the_chevron_and_every_row_give_a_44px_target
         got = browser.evaluate(read)
         assert len(got["tabs"]) == 2 and all(h >= 43.9 for h in got["tabs"] + got["chev"] + got["rows"]), got
         assert len(got["rows"]) == rows and len(got["links"]) == links and all(h >= 44 for h in got["links"]), got
-        # the (?) is on the second tab only, and gives a finger 44 px too
-        assert (got["help"] is not None) == (tab == ONIT_TAB) and all(v >= 43.9 for v in (got["help"] or [44])), got
+        # the (?) is there on either list, and gives a finger 44 px too
+        assert got["help"] is not None and all(v >= 43.9 for v in got["help"]), got
 
 
 # The first list's title links as a finger meets them (the second list has none). Each link is scrolled to the middle of the list; at five places along each of its

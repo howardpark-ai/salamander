@@ -660,7 +660,8 @@ function unratedCard(c) {
   const h = document.createElement("h3");
   h.className = "ur-h";
   h.textContent = tl("ov.unrated.title");
-  card.append(h, div("c-line ur-note", tl("ov.unrated.note")));
+  h.append(" ", expEl("ov.unrated.note"));   // the explainer behind the (?) beside the heading
+  card.append(h);
   const table = document.createElement("table");
   table.className = "ur-table";
   const cell = (tag, text, cls) => { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; return e; };
@@ -766,7 +767,11 @@ function spendCardBody(lane, a, opts = {}) {
     card.append(...notes(), pendingFoot());
     return card;
   }
-  if (opts.all) card.append(div("c-line", tl("ov.s.counted")));
+  if (opts.all) {   // the explainer behind a (?) beside the estimate line, outside it: the line stays one line with its own tooltip, and its cut does not cut the box
+    const row = div("s-est-row");
+    est.replaceWith(row);
+    row.append(est, expEl("ov.s.counted"));
+  }
   if (!brief && !(a.calls > 0) && !(a.unpriced || []).length) card.append(div("c-line", tl("ov.s.noSessionsUsed")));
   const total = a.monthUsd || 0;
   if (!brief && (a.models || []).length) {

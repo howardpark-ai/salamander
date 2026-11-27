@@ -48,7 +48,7 @@ def piece(pattern: str) -> str:
 
 
 MODEL = r"""
-const mkEl = () => ({ hidden: false, textContent: "", title: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; },
+const mkEl = () => ({ hidden: false, textContent: "", title: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k] ?? null; }, removeAttribute(k) { delete this.attrs[k]; },
   classList: { toggle() {}, remove() {} } });
 const parts = { ".label": mkEl(), ".dot": mkEl(), ".wchip": mkEl() };
 const side = mkEl(); side.querySelector = (s) => parts[s];
@@ -65,6 +65,7 @@ const chatHelp = () => {};   // the (?) of the second list: not under test here
 %(group_name)s
 %(entry)s
 %(wait)s
+%(help_text)s
 %(bar)s
 // what app.js wires on a language change: the entry and the strip are painted again from what they already hold
 SalaI18n.onChange(() => { paintChatEntry(); paintChatWait(); });
@@ -88,6 +89,7 @@ def run_cases(cases: list[dict], page_lang: str = "en") -> list:
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
+        "help_text": piece(r"function chatHelpText\(key\) \{.*?\n\}\n"),
         "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
         "cases": json.dumps(cases),
     }
@@ -190,6 +192,7 @@ def test_a_change_of_language_repaints_the_strip_and_the_chip_in_the_other_langu
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
+        "help_text": piece(r"function chatHelpText\(key\) \{.*?\n\}\n"),
         "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
     } + """
 const out = [paint({ group: %s, lang: "en", n: 3 })];
@@ -211,6 +214,7 @@ def test_before_the_first_answer_and_with_no_chat_session_the_entry_is_hidden_wi
         "group_name": piece(r"function chatGroupName\(group\) \{.*?\n\}\n"),
         "entry": piece(r"function paintChatEntry\(\) \{.*?\n\}\n"),
         "wait": piece(r"function paintChatWait\(\) \{.*?\n\}\n"),
+        "help_text": piece(r"function chatHelpText\(key\) \{.*?\n\}\n"),
         "bar": piece(r"function paintChatBar\(onIt, n, group, open\) \{.*?\n\}\n"),
     } + """
 const out = [], keep = () => out.push({ hidden: side.hidden, tip: side.title });

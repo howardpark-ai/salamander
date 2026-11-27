@@ -33,6 +33,7 @@ body.search-open #search-pane { display: block; }
 #search-pane .se-row label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 #search-pane .se-row label small { color: var(--faint); font-size: 12px; font-variant-numeric: proportional-nums; }
 #search-pane .se-row label small:empty { display: none; }
+#search-pane .se-pair { display: inline-flex; align-items: center; }   /* a box and the (?) beside it */
 #search-pane .se-chip { font: inherit; font-size: 13px; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px; background: transparent;
   color: var(--muted); cursor: pointer; }
 #search-pane .se-chip:hover { background: var(--hover); }
@@ -41,7 +42,6 @@ body.search-open #search-pane { display: block; }
 #search-pane .se-dates input { height: 32px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
   color: var(--text); font-family: inherit; }
 #search-pane .se-zone { color: var(--faint); font-size: 12px; }
-#search-pane .se-note { font-size: 12px; color: var(--muted); }
 #search-pane .se-summary { padding: 8px 2px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--border); }
 #search-pane .se-summary:empty { display: none; }
 #search-pane .se-summary.error { color: var(--error); }

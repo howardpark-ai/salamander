@@ -48,7 +48,7 @@ CARD = """(() => { const c = document.querySelector("#q-cards .c-card.lane-api")
 TABLE = """(() => { const card = document.querySelector("#ld-usage .ur-card"); if (!card) return null;
   const rows = [...card.querySelectorAll("tbody tr")].map((r) => [...r.children].map((e) => e.textContent));
   const t = card.querySelector("table"), box = card.getBoundingClientRect();
-  return { title: card.querySelector(".ur-h").textContent, note: card.querySelector(".ur-note").textContent,
+  return { title: card.querySelector(".ur-h").firstChild.textContent, note: card.querySelector(".ur-h .exp-pop").textContent,
            head: [...card.querySelectorAll("thead th")].map((e) => e.textContent), rows,
            sumClass: card.querySelector("tbody tr:last-child").className,
            cardRight: box.right, tableRight: t.getBoundingClientRect().right, scroll: t.scrollWidth, client: t.clientWidth,
@@ -143,7 +143,7 @@ def test_the_korean_words(world, page, browser):
     assert t["rows"][0][2] == "270.9\ub9cc", t["rows"][0]                   # the page's own number formatter: the tens of thousands
     # and back to English: the table is worded again from the answer it holds
     browser.evaluate("SalaI18n.setLang('en')")
-    assert wait_for(browser, "document.querySelector('#ld-usage .ur-h').textContent === 'Usage without a confirmed rate yet'")
+    assert wait_for(browser, "document.querySelector('#ld-usage .ur-h').firstChild.textContent === 'Usage without a confirmed rate yet'")
 
 
 @pytest.mark.parametrize("lang", ["en", "ko"])

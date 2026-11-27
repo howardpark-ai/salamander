@@ -250,7 +250,8 @@ function renderReplies() {
 function renderNotes(d) {
   const p = d.prices || {};
   const un = (d.unpriced || []).length ? `<p>${esc(tl("us.unpriced", { count: SalaI18n.number(d.unpriced.reduce((s, x) => s + x.replies, 0)), models: d.unpriced.map((x) => x.model).join(", ") }))}</p>` : "";
-  $x("#ex-notes").innerHTML = `<p>${esc(X.howTo)}</p><p>${esc(W.machines)}</p><p>${esc(W.prices)}${p.asOf ? " " + esc(tl("us.asOf", { date: p.asOf })) : ""}</p>${un}`;
+  const about = expHtml("usx.howTo", "us.machines", "us.prices", ...(p.asOf ? [["us.asOf", { date: p.asOf }]] : []));
+  $x("#ex-notes").innerHTML = `<p><span data-i18n="us.about">${esc(tl("us.about"))}</span> ${about}</p>${un}`;
 }
 function showAge() {
   const f = $x("#ex-upd"), d = firstData();

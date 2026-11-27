@@ -475,8 +475,8 @@ function chatSync() {
 function buildChatStrip() {
   const waitList = el("ul", { class: "wait-list" }), waitNote = el("p", { class: "wait-err" });
   // no heading of its own: the tab above already says "<group> · N", and paintChatWait gives the panel that text as its aria-label
-  const wait = el("section", { class: "wait", id: "chat-strip-wait-panel", hidden: true, role: "tabpanel", "aria-labelledby": "chat-strip-tab-move" }, waitList, waitNote,
-    el("p", { class: "wait-cap", ...tx("chat.wait.note") }));
+  // the note on what these lines are is not drawn under the list either: it sits behind the (?) in the bar, with the second list's (see chatHelpText)
+  const wait = el("section", { class: "wait", id: "chat-strip-wait-panel", hidden: true, role: "tabpanel", "aria-labelledby": "chat-strip-tab-move" }, waitList, waitNote);
   // the second list and the bar of two tabs over both: closed is how every page load starts
   const onitSum = el("p", { class: "wait-sum", hidden: true }), onitList = el("ul", { class: "wait-list" }), onitNone = el("p", { class: "wait-empty", ...tx("chat.onit.none") });
   // the help line of this list is not drawn under it: it sits behind a (?) in the bar and shows only while that is pressed (chatHelp)
@@ -492,10 +492,11 @@ function buildChatStrip() {
   tabs.addEventListener("keydown", chatTabKeys);
   const chevron = el("button", { type: "button", class: "wait-chev", "aria-expanded": "false" }, el("span", { class: "chev", "aria-hidden": "true" }));
   chevron.addEventListener("click", chatToggleList);
-  const help = el("button", { type: "button", class: "wait-help", hidden: true, "aria-expanded": "false", "aria-controls": "chat-strip-onit-help", ...tx("chat.onit.help", null, "aria-label") },
+  // one (?) for both lists: its box says what the open list is (chatHelpText), and its label is the same for both
+  const help = el("button", { type: "button", class: "wait-help", hidden: true, "aria-expanded": "false", "aria-controls": "chat-strip-onit-help" },
     el("span", { class: "q", "aria-hidden": "true", text: "?" }));
-  const pop = el("div", { class: "wait-pop", id: "chat-strip-onit-help", role: "note", hidden: true, ...tx("chat.onit.note") });
-  help.addEventListener("click", () => chatHelp(pop.hidden));
+  const pop = el("div", { class: "wait-pop", id: "chat-strip-onit-help", role: "note", hidden: true });
+  help.addEventListener("click", () => chatHelp(pop.hidden || help.dataset.tip === "peek"));   // a press keeps a box the mouse or the focus opened
   // a press anywhere else (on the line itself too) closes it, and so does Escape; a press on the button is the button's own toggle
   document.addEventListener("click", (e) => { if (!pop.hidden && !help.contains(e.target)) chatHelp(false); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.isComposing && !pop.hidden) { chatHelp(false); if (pop.contains(document.activeElement)) help.focus(); } });
@@ -511,11 +512,19 @@ function buildChatStrip() {
   $("#chat-strip").replaceChildren(kept);
   chatView.ui = { waitList, waitNote, wait, onit, onitSum, onitList, onitNone, help, pop, moveTab, moveLine, onitTab, onitLine, lateDot, chevron, swText, countEl };
 }
-// the (?) of the second list, in the bar only while that list is open: shows the list's help line in a small box under the bar, or hides it again
-function chatHelp(on) {
+// the text of the (?) box for the open list, set on the box and the button as the language's words (tx), so a language change words them again
+function chatHelpText(key) {
+  const u = chatView.ui, text = tx(key), label = tx("chat.onit.help", null, "aria-label");
+  u.pop.textContent = text.text;
+  u.pop.setAttribute("data-i18n", key);
+  for (const [k, v] of Object.entries(label)) u.help.setAttribute(k, v);
+}
+// the (?) of the bar, there only while a list is open: shows that list's note in a small box under the bar, or hides it again
+function chatHelp(on, how = "pin") {
   const u = chatView.ui;
   u.pop.hidden = !on;
   u.help.setAttribute("aria-expanded", String(on));
+  u.help.dataset.tip = on ? how : "";
 }
 // the chevron beside the tabs closes the open list, or opens the one last open
 function chatToggleList() { chatView.waitOpen = !chatView.waitOpen; paintChatWait(); }
@@ -549,10 +558,12 @@ function paintChatWait() {
 }
 // the two tabs, their counts, the late dot and the chevron; the second list's own lines
 function paintChatBar(onIt, n, group, open) {
-  const u = chatView.ui;
+  const u = chatView.ui, key = chatView.waitTab === "onit" ? "chat.onit.note" : "chat.wait.note";
   u.onit.hidden = !(open && chatView.waitTab === "onit");
-  u.help.hidden = u.onit.hidden;
-  if (u.help.hidden) chatHelp(false);
+  u.help.hidden = !open;
+  // the box follows the list: another list's (?) text, or a list shut, closes it
+  if (u.help.hidden || u.pop.getAttribute("data-i18n") !== key) chatHelp(false);
+  if (!u.help.hidden) chatHelpText(key);
   const now = Date.now(), late = onIt.filter((m) => chatBackTone(m, now)).length, lateTip = late ? tl("chat.onit.late", { n: late }) : "";
   u.onitLine.textContent = tl("chat.onit.line", { n: onIt.length });
   u.onitTab.setAttribute("aria-label", lateTip ? u.onitLine.textContent + ", " + lateTip : u.onitLine.textContent);
@@ -4767,6 +4778,80 @@ $("#show-sleeping").addEventListener("change", (e) => { savePrefs({ showSleeping
 // tool calls (and their results) are hidden by default; the class keeps them in the page, so the toggle needs no re-render
 function applyShowTools() { document.body.classList.toggle("hide-tools", !state.prefs.showTools); $("#show-tools").checked = !!state.prefs.showTools; }
 $("#show-tools").addEventListener("change", (e) => { savePrefs({ showTools: e.target.checked }); applyShowTools(); });
+/* ---------- the (?) beside a text that explains ----------
+   A (?) is a button and the box it names (aria-controls): .exp-help beside a label (index.html, expHtml in i18n.js) and the chat bar's .wait-help. The box
+   opens under a mouse and under the keyboard's focus ("peek": it goes when they leave) and on a press, a tap or Enter ("pin": until another press, a press
+   elsewhere, Escape or the focus moving on). */
+const TIP_BTN = ".exp-help, .wait-help";
+const TIP_LEAVE_MS = 200;   // the way from a (?) to its box crosses a small gap
+let tipLeave = 0;
+function explainSet(btn, on, how = "pin") {
+  const pop = document.getElementById(btn.getAttribute("aria-controls"));
+  if (!pop) return;
+  pop.hidden = !on;
+  btn.setAttribute("aria-expanded", String(on));
+  btn.dataset.tip = on ? how : "";
+  if (on) explainPlace(pop);
+}
+// a box that would leave the window, or the pane that cuts it off, is moved back inside (sideways only)
+function explainPlace(pop) {
+  pop.style.left = "0px";
+  let min = 0, max = document.documentElement.clientWidth;
+  for (let n = pop.parentElement; n && n !== document.body; n = n.parentElement) {
+    if (getComputedStyle(n).overflowX === "visible") continue;
+    const r = n.getBoundingClientRect();
+    min = Math.max(min, r.left); max = Math.min(max, r.right);
+  }
+  const r = pop.getBoundingClientRect(), shift = Math.max(min + 8 - r.left, Math.min(0, max - 8 - r.right));
+  if (shift) pop.style.left = shift + "px";
+}
+const tipSet = (btn, on, how) => (btn.classList.contains("wait-help") ? chatHelp(on, how) : explainSet(btn, on, how));
+const explainOpen = () => [...document.querySelectorAll('.exp-help[aria-expanded="true"]')];
+// the (?) a node belongs to: the button, or the one whose box the node is in
+function tipOf(node) {
+  if (!node || !node.closest) return null;
+  const box = node.closest(".exp-pop, .wait-pop");
+  return box ? document.querySelector('[aria-controls="' + box.id + '"]') : node.closest(TIP_BTN);
+}
+function tipPeek(btn) {
+  if (btn.getAttribute("aria-expanded") === "true") return;
+  for (const b of explainOpen()) explainSet(b, false);
+  tipSet(btn, true, "peek");
+}
+document.addEventListener("pointerover", (e) => {
+  const b = e.pointerType === "touch" ? null : tipOf(e.target);   // a finger has no hover: its tap is the press
+  if (!b) return;
+  clearTimeout(tipLeave);
+  if (tipOf(e.relatedTarget) !== b) tipPeek(b);
+});
+document.addEventListener("pointerout", (e) => {
+  const b = e.pointerType === "touch" ? null : tipOf(e.target);
+  if (!b || b.dataset.tip !== "peek" || tipOf(e.relatedTarget) === b) return;
+  clearTimeout(tipLeave);
+  tipLeave = setTimeout(() => { if (b.dataset.tip === "peek") tipSet(b, false); }, TIP_LEAVE_MS);
+});
+document.addEventListener("focusin", (e) => {
+  const b = e.target.closest ? e.target.closest(TIP_BTN) : null;
+  if (b && b.matches(":focus-visible")) tipPeek(b);
+});
+document.addEventListener("focusout", (e) => {
+  const b = e.target.closest ? e.target.closest(TIP_BTN) : null;
+  if (b && b.getAttribute("aria-expanded") === "true" && (e.relatedTarget || b.dataset.tip === "peek")) tipSet(b, false);
+});
+// the chat bar's (?) has its own press and Escape (buildChatStrip); these are the others'
+document.addEventListener("click", (e) => {
+  const at = e.target.closest ? e.target : null;
+  if (at && at.closest(".exp")) e.preventDefault();   // inside a label or a summary: a press on a (?) or its box ticks, focuses and unfolds nothing
+  const btn = at ? at.closest(".exp-help") : null;
+  for (const b of explainOpen()) if (b !== btn) explainSet(b, false);
+  if (btn) explainSet(btn, btn.getAttribute("aria-expanded") !== "true" || btn.dataset.tip === "peek");
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || e.isComposing) return;
+  const open = explainOpen(), seen = open.some((b) => b.getClientRects().length > 0);
+  for (const b of open) explainSet(b, false);
+  if (seen) { e.preventDefault(); e.stopPropagation(); }   // this press shuts the box and nothing under it
+}, true);
 /* ---------- the sidebar on a wide screen ----------
    It is closed on every load; nothing of it is kept (no pref, no storage). The pointer on the
    strip along the left edge (#side-edge) or on the toggle (#side-open) peeks it open, and leaving the three (the strip, the
