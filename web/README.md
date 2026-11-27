@@ -410,6 +410,21 @@ against the old glyph, centred on the letters, both themes), the caret rules (at
 Ctrl+arrows, a tap, a programmatic move), Backspace, a composition in a list item (also from the line's start), an image
 paste and a file drop on the editor, the history after a send, and the look at 320, 390 and 1280 px in both themes.
 
+### Quoting a reply
+
+`static/chatquote.js` (`window.SalaQuote`) shows a button for a selection inside one assistant reply (`.msg.assistant .md`),
+never for the composer, a user's message or the sidebar. On a desktop it is a button beside the END of the selection, on
+its last line; it moves below or left only when there is no room, and covers as little text as possible. On a touch
+screen it is a chip (about 40 x 28 px drawn, 48 x 44 px to tap) near the end of the selection, kept above the bottom 78 px
+of the viewport and flipped above the selection when needed. A tap captures the text on pointerdown and puts it at the
+END of the composer as lines with "> ", through `app.js` `quoteInto` (`setText`, then the send button, the draft and the
+focus); a quote after typed text starts on the next line, and two quotes with nothing typed between get one empty line.
+Nothing is sent. A send trims the leading empty lines and the trailing whitespace only; the text sent to Claude stays raw.
+A user's message shows its "> " runs as a blockquote (`.msg.user .bubble blockquote`), the lines after it outside it, the
+links kept, with no markdown renderer. `tests/test_chat_quote_ui.py` holds the button's presence and absence, the composer
+text for each case, the draft and the send, the bubble, the links in a quote, the chip above 78 px at 390 x 844, and the
+desktop button beside the end for a single line, several lines and a selection dragged backwards.
+
 ### The placeholder
 
 The empty composer's placeholder is a `<div class="cm-placeholder">` of the bundle's own (`placeholderPlugin` in `entry.js`),

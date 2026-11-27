@@ -12,6 +12,7 @@ window.SALA_I18N_EN = {
   "app.bang.title.one": "Output · {n} line",
   "app.bang.title.other": "Output · {n} lines",
   "app.composer.label": "Message the session",
+  "chat.quote": "Quote",
   "app.composer.phKeys": "Message the session (Enter sends, Shift+Enter for a new line)",
   "app.composer.phTouch": "Message the session (Enter adds a line, tap Send)",
   "app.copied": "Copied",

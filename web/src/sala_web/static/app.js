@@ -3677,7 +3677,7 @@ function renderMessage(m, { live = false, into = null, tools = null, older = fal
   for (const b of m.blocks) {
     switch (b.kind) {
       case "text":
-        if (m.role === "user") box.append(el("div", { class: "bubble" }, ...linkNodes(b.text)));
+        if (m.role === "user") box.append(el("div", { class: "bubble" }, ...SalaQuote.userParts(b.text, linkNodes)));
         else box.append(...replyNodes(b.text, b === lastText, b.localImages));
         texts.push(b.text);
         if (b.truncated) box.append(truncNote(b));
@@ -3851,7 +3851,7 @@ function pendingNode(p) {
   if (sentFiles.length) box.append(el("div", { class: "sent-files" }, ...sentFiles.map((im) =>
     el("div", { class: "sent-file", title: im.file.name }, fileIcon(), el("span", { class: "sf-name", text: im.file.name }),
       im.file.size ? el("span", { class: "sf-size", text: humanSize(im.file.size) }) : null))));
-  if (p.text.trim()) box.append(el("div", { class: "bubble" }, ...linkNodes(p.text)));
+  if (p.text.trim()) box.append(el("div", { class: "bubble" }, ...SalaQuote.userParts(p.text, linkNodes)));
   if (waits && p.status !== "held") box.append(SalaWaiting.line(p));
   else if (p.status === "sending") box.append(el("div", { class: "note", text: tl("app.pend.sending") }));   // a "!" command from here on, until "held"
   else if (p.status === "sent" && p.late) box.append(el("div", { class: "note", text: tl("app.pend.late") }));
@@ -4092,6 +4092,9 @@ function selectOffsets(start, end, backward = false) {
   composer.dispatch({ selection: backward ? { anchor: b, head: a } : { anchor: a, head: b } });
 }
 function focusEnd() { composer.focus(); const n = getText().length; selectOffsets(n, n); composer.dispatch({ effects: cm6Composer.EditorView.scrollIntoView(n) }); }  // as a textarea's value= leaves the caret
+// a quote from the reply's selection (chatquote.js) goes to the end of the composer, as if typed: its text, the buttons, the draft and the focus
+function quoteInto(block) { setText(SalaQuote.appendTo(getText(), block)); refreshSendButton(); saveDraftSoon(); focusEnd(); }
+SalaQuote.init({ insert: quoteInto, label: () => tl("chat.quote") });
 let statusFn = null;
 function setStatus(msg, kind) { const n = $("#send-status"); statusFn = typeof msg === "function" ? msg : null; n.textContent = statusFn ? statusFn() : msg; n.className = kind || ""; }
 function clearStatus() { setStatus("", ""); }
@@ -4360,7 +4363,8 @@ function send() {
   const s = state.current || asleep;
   if (!s) { setStatus(() => tl("app.pickFirst"), "error"); return; }
   if (state.sending || state.uploads.some((u) => u.uploading)) return;
-  const text = getText();
+  // the leading empty lines and the trailing whitespace go (a quote tapped in on an empty composer starts with a blank line); nothing else is trimmed
+  const text = getText().replace(/\r\n?/g, "\n").replace(/^(\s*\n)+/, "").replace(/\s+$/, "");
   const ups = state.uploads.filter((u) => u.name);
   if (!text.trim() && !ups.length) return;
   // show it at once, like claude.ai; the composer empties now and the bubble holds the text if sending fails
