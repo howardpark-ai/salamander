@@ -55,6 +55,7 @@ def world(tmp_path, monkeypatch):
     creds(team, sub="team", tier="tier_b")
     monkeypatch.setattr(S, "LANE_DIRS", {"subscription-2": team})
     monkeypatch.setattr(S, "live_tmux_names", lambda: {})
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))   # this machine's API-credit record (apicredit.py) is never read
     sala_state = tmp_path / "sala-state"
     sala_state.mkdir()
     # sala's names for the lanes (`sala lane names --json` writes the same table to this file): the pills read them

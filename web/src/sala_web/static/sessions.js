@@ -999,7 +999,7 @@ async function loadCards(which = { quota: true, credit: true, spend: true }, fol
 /* A LANE'S DETAILS PAGE (#lane=<id>, a view of the same pane as the overview, so it polls what the overview polls
    and draws its usage and its sessions from the same answers with the same helpers). Its own part is the lane's record
    and state, from api/lanes/<id> (sala's lane table; the server takes every file path out of it), asked when the page
-   opens and with the quota check after that. It shows: the state (a pill in the head, and a line under it unless the lane is active), the record, the
+   opens and with the quota check after that. It shows: the state (a pill in the head, and a line under it unless there is nothing true to add: laneHead), the record, the
    usage as the lane's card shows it (limits for the subscription lanes, spend and the billing link for the API lane), and the
    sessions on the lane, each linked. */
 const RECORD_ROWS = [["provider", "ov.rec.provider"], ["client", "ov.rec.client"], ["org", "ov.rec.org"], ["project", "ov.rec.project"],
@@ -1017,13 +1017,16 @@ function recordValue(key, v) {
 // the lane's name in the details page's title: the lane word the labels use (LANE_LABEL, lower case: "bedrock", "aws-platform"), never the
 // record's own capitalised label ("Bedrock", "Claude Platform on AWS"); a lane LANE_LABEL does not know falls back to its record's label in lower case
 const laneName = (id, rec) => laneLabelOr(id, ((rec && rec.label) || id).toLowerCase());
+// the api lane by either of its words: #lane=sdk draws the API card and says of its state what #lane=api says
+const isApiLane = (id) => id === "api" || id === "sdk";
 // the sessions that run on this lane: the api lane's page also lists the sdk ones (one lane, two clients)
 const onLane = (r, id) => laneNorm(r.lane) === id || (id === "api" && r.lane === "sdk");
 
 // the lane's state in the page head: the status pill the Overview card wears (laneChip: active
 // green, dormant grey, not configured a grey outline) right after the lane's name, and, for a lane that is not active, one plain
-// line under the head saying what that means. An active lane has no line. While the record is loading, or sala could not read it, there
-// is no pill: it would say a state nobody has told the page.
+// line under the head saying what that means. An active lane has no line, nor has one that is dormant only by the shared API-credit
+// record (state.source "refusal"): the New session form still offers it, so the line would be false. While the record is loading, or
+// sala could not read it, there is no pill: it would say a state nobody has told the page.
 function laneHead(l) {
   const s = l.state;
   if (!l.loaded) return { chip: null, line: "" };
@@ -1031,7 +1034,7 @@ function laneHead(l) {
   if (!s || s.state === "unknown") return { chip: null, line: tl("ov.lane.unavailable") };
   // the reason and the day are on the card's line under its head, just below: not said twice
   // a per-use lane (api, aws-platform, bedrock) keeps its spend while dormant: only the account lanes are asked nothing
-  if (s.state === "dormant") return { chip: laneChip("dormant"), line: tl(l.id === "api" || SPEND_LANES.includes(l.id) ? "ov.lane.dormantPerUse" : "ov.lane.dormantAccount") };
+  if (s.state === "dormant") return { chip: laneChip("dormant"), line: s.source === "refusal" ? "" : tl(isApiLane(l.id) || SPEND_LANES.includes(l.id) ?"ov.lane.dormantPerUse" : "ov.lane.dormantAccount") };
   if (s.state === "not set up") return { chip: laneChip("unconfigured"), line: tl("ov.lane.notSetUp") };
   return { chip: laneChip("active"), line: "" };
 }
@@ -1056,7 +1059,7 @@ function laneRecord(l) {
 // the lane's usage, drawn by the card's own helpers from the card's own answers
 function laneUsage(l) {
   const id = l.id;
-  if (id === "api") {   // the card, then the table of the usage priced at list prices for want of a rate (when there is any)
+  if (isApiLane(id)) {   // the card, then the table of the usage priced at list prices for want of a rate (when there is any)
     const c = sp.credit || { pending: true };
     return [creditCard(c, { billing: true, known: l.state, plan: true, page: true }), unratedCard(c)].filter(Boolean);
   }

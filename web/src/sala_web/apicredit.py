@@ -4,8 +4,10 @@ A job that spends the API key's credit (sala's briefings, the sdk lane, sdk-pane
 comes back "credit balance is too low": {"refused_at": <epoch seconds>, "by": "<job>", "detail": "<text>"}. A successful key
 call removes it. There is no balance API, so the refusal is the only sign that the key has no credit left. sala's lane
 record (lane-state.tsv, lanestate.py) does not get this sign: the watch writes it only when a pane stops on the credit error,
-so the Overview could show the api lane active while the shared record holds a refusal. This module reads that record for
-the Overview card only. It never writes it, never retries the key, and returns no detail text (only the time).
+so the pages could show the api lane active while the shared record holds a refusal. This module reads that record for
+display only: the Overview's api card (api/credit) and the api lane's details page (api/lanes/<id>). The New session form,
+`sala lane` and the automatic fallback do not read it through here. It never writes it, never retries the key, and returns
+no detail text (only the time).
 """
 
 from __future__ import annotations
@@ -15,7 +17,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-REASON = "API credit ran out"
+# sala's own word for it (lib/watch.sh ld_limit_tick), which the page words in its language (sessions.js REASON_WORDS)
+REASON = "credit used up"
 
 
 def state_file() -> Path:
