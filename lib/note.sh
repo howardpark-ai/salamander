@@ -98,6 +98,21 @@ PYL
         IFS=$'\t' read -r id sess uuid at pid n dat text <<< "$row"
         [ -n "$id" ] || continue
         cpid=$(printf '%s\n' "$live" | awk -F'|' -v u="$uuid" '$1==u {print $2; exit}')
+        # the one-time note of a relaunch hold that ended (lib/common.sh hold_ended, text "[hold] "): for the very process that was told it
+        # is held, at once; retired undelivered once that process is gone. It waits while that process is paused (a message starts a turn).
+        if [ "${text:0:7}" = "[hold] " ]; then
+            by=""
+            if ! hold_pid_is "$pid" "$uuid"; then by="sala (that process is gone; not delivered)"
+            elif ! pause_active "$pid" && sock=$(session_socket "$pid") && [ -n "$sock" ] \
+               && session_push "$sock" "[sala note $id] ${text:7} (Automatic salamander message: sala wrote this when a relaunch's wait ended, not ${SALA_OWNER_NAME}. It is delivered once.)"; then
+                by="sala (delivered once)"; sent+=("$sess")
+            fi
+            if [ -n "$by" ] && archive "$row" "$by"; then
+                lock; awk -F'\t' -v i="$id" '$1!=i' "$NOTES" > "$NOTES.tmp.$$" && mv -f "$NOTES.tmp.$$" "$NOTES"; unlock
+                nlog "retired: $sess $id, $by"
+            fi
+            continue
+        fi
         # a note the RELAUNCH wrote for the session (a pause: the text starts "[paused] ") says so; any other is the session's own
         if [ "${text:0:9}" = "[paused] " ]; then
             intro="This session was just relaunched (recycle, revive or reboot). At $(local_human "$at") ($(ago "$at")) the relaunch paused its turn and left it this note, written by the relaunch from what it could read: \"${text:9}\" — judge what still holds and carry on; nobody needs to cue you. Once it is handled, run \`sala note --done $id\`; until then it comes back after every relaunch."

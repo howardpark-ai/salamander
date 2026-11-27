@@ -156,13 +156,16 @@ retry_worker() {
     # the flag's source goes to every re-run (rest_applies): a recycle's pane rests like the sweep's, an op recycle's and a revive's do not
     local fsrc; fsrc=$(set_val "$SET" src); [ -n "$fsrc" ] || { [ "$kind" = revive ] && fsrc=revive || fsrc=$(relaunch_kind); }; export SALA_FLAG_SRC="$fsrc"
     # the path goes into the trap as text: pidf is a local, gone under set -u by the time the EXIT trap runs
-    echo $$ > "$pidf"; trap "rm -f $(printf %q "$pidf"); waiting_clear_owner $$" EXIT
+    echo $$ > "$pidf"; trap "rm -f $(printf %q "$pidf"); waiting_end_owner $$" EXIT
     # THE FLAG (common.sh, "the relaunch-waiting flag"): every pane this worker waits for gets waiting/<uuid>, naming the
     # relaunch (SALA_RELAUNCH_KIND from the starter, else the set's `why`): its session's PostToolUse hook tells it once, and
     # its Stop hook, ending a turn with nothing in flight, wakes this worker as `sala ready` does. Cleared as each pane leaves
     # the list (relaunched, given up, deferred to watch), and at the worker's end.
+    # A pane that leaves the list without a relaunch, and one still waited for when the worker stops, ends its hold (common.sh,
+    # hold_ended); a newer recycle taking over does not.
     local rk; rk=$(relaunch_kind "${SALA_RELAUNCH_KIND:-$(set_val "$SET" why)}")
-    for e in "${pending[@]}"; do IFS='|' read -r _ _ _ oldpid _ <<< "$e"; registry_conv_r _cv "$oldpid"; waiting_raise "$_cv" "$rk" "$SET" $$; done
+    local -A conv=() ends=()   # pane → its conversation (read now: a relaunched pid's row is gone) · pane → "mode|why" when it leaves with no relaunch
+    for e in "${pending[@]}"; do IFS='|' read -r pane _ _ oldpid _ <<< "$e"; registry_conv_r _cv "$oldpid"; conv[$pane]=$_cv; waiting_raise "$_cv" "$rk" "$SET" $$; done
     rlog "watching ${#pending[@]} skipped pane(s) of the $kind set $(set_val "$SET" label) ($SET): every $((SALA_RETRY_EVERY/60)) min, or at once when a pane says \`sala ready\` (or its Stop hook sees nothing in flight), for up to $((SALA_RETRY_WINDOW/60)) min (flags: ${flags[*]:-none}; told as: $(relaunch_what "$rk"))"
     local now uuid due woke=0 sp
     dforce=0; [[ " ${flags[*]-} " == *" --force "* ]] && dforce=1   # what a deferred pane's row carries (defer_add)
@@ -172,17 +175,17 @@ retry_worker() {
         nap=$SALA_RETRY_EVERY; pus=(); for e in "${pending[@]}"; do IFS='|' read -r _ _ _ oldpid _ <<< "$e"; registry_conv_r _cv "$oldpid"; pus+=("$_cv"); done
         pause_next_in_r pn ${pus[@]+"${pus[@]}"}; if [ "$pn" -ge 0 ] && [ "$pn" -lt "$nap" ]; then nap=$(( pn < 30 ? 30 : pn )); fi
         woke=0; sleep "$nap" & sp=$!; wait "$sp" 2>/dev/null; sp=""
-        still=(); res=(); dl=(); now=$(date +%s); [ "$woke" = 1 ] && rlog "woken (a pending pane said \`sala ready\`, or its Stop hook saw nothing in flight)"
-        set_superseded "$SET" && { rlog "a newer $kind took over ($(cat "$(_set_scope_file "$(set_val "$SET" scope)")" 2>/dev/null)) — stopping"; exit 0; }
+        still=(); res=(); dl=(); ends=(); now=$(date +%s); [ "$woke" = 1 ] && rlog "woken (a pending pane said \`sala ready\`, or its Stop hook saw nothing in flight)"
+        set_superseded "$SET" && { rlog "a newer $kind took over ($(cat "$(_set_scope_file "$(set_val "$SET" scope)")" 2>/dev/null)) — stopping"; waiting_clear_owner $$; exit 0; }
         for e in "${pending[@]}"; do
             IFS='|' read -r pane sess label oldpid last tries lastwhy <<<"$e"; : "${last:=0}" "${tries:=0}"
             pane_exists "$pane" || { res+=(gave "$sess" "$sess: its pane is gone"); continue; }
             # the flag closed one short with this pane as the straggler (common.sh, _set_short_close): it is on the deferred list now, watch relaunches it
-            if [ "$(set_val "$SET" closed)" = 1 ] && set_vals "$SET" short | grep -q "^$sess[: ]"; then rlog "$label: the flag closed one short — on the deferred list, watch relaunches it once it is free"; continue; fi
+            if [ "$(set_val "$SET" closed)" = 1 ] && set_vals "$SET" short | grep -q "^$sess[: ]"; then ends[$pane]="deferred|the recycle closed without it"; rlog "$label: the flag closed one short — on the deferred list, watch relaunches it once it is free"; continue; fi
             # listed after this worker started (common.sh, no_relaunch): never relaunched; given up so the set can close
             # a session that went to sleep since: nothing to relaunch, and it no longer counts in the set (not "given up": it is not left behind)
-            is_sleeping "$sess" && { res+=(gone "$sess" "$sess is sleeping, so it no longer counts"); rlog "$(sleeping_line "$sess")"; continue; }
-            no_relaunch "$sess" && { res+=(gave "$sess" "$(no_relaunch_line "$sess")"); rlog "$(no_relaunch_line "$sess")"; continue; }
+            is_sleeping "$sess" && { ends[$pane]="ended|it went to sleep"; res+=(gone "$sess" "$sess is sleeping, so it no longer counts"); rlog "$(sleeping_line "$sess")"; continue; }
+            no_relaunch "$sess" && { ends[$pane]="dropped|sala is now set never to relaunch it (SALA_NO_RELAUNCH)"; res+=(gave "$sess" "$(no_relaunch_line "$sess")"); rlog "$(no_relaunch_line "$sess")"; continue; }
             # a pane that said `ready`, or whose last turn ended with nothing in flight (the Stop hook's record, busy_hook_idle),
             # is tried now (once its turn has ended and settled); the others every SALA_RETRY_EVERY
             registry_conv_r uuid "$oldpid"; due=0
@@ -195,7 +198,7 @@ retry_worker() {
                     local hl; hl=$(holders_inline "$oldpid")   # the processes holding it, named
                     defer_add "$sess" "said ready, but background shell(s) are still running (registry state 'shell')${hl:+: $hl}" "$dforce" "$SET"
                     # the post says it in the one short form (common.sh, hold_bullet: no pids, uptimes or commands); the log keeps the holders
-                    dl+=("$(hold_bullet "$sess" "$oldpid" "registry says 'shell'")")
+                    dl+=("$(hold_bullet "$sess" "$oldpid" "registry says 'shell'")"); ends[$pane]="deferred|background shells are still running in it"
                     rlog "$label: said ready, held only by background shells (registry 'shell')${hl:+ ($hl)} — on the deferred list, watch relaunches it once they are done"; continue
                 fi
                 [ "$w" -ge "$SALA_READY_WAIT" ] && rlog "$label: ready by its own word but still not idle after ${SALA_READY_WAIT}s — $(is_idle_reason "$oldpid")"
@@ -207,23 +210,26 @@ retry_worker() {
             round=$((round+1)); tries=$((tries+1))
             panepid=$(tmux display -p -t "$pane" '#{pane_pid}' 2>/dev/null); npid=$(claude_pid_under "$panepid")
             pw=""; [ -z "$uuid" ] || pw=$(pause_words "$uuid"); pw=${pw:+, $pw}   # THE PAUSE: a pane whose turn was paused says so in its closure line
-            if [ -n "$npid" ] && [ "$npid" != "$oldpid" ]; then res+=(ok "$sess" "$sess relaunched meanwhile, on $(proc_version "$npid"), $(set_after "$SET")$pw"); rlog "$label: already relaunched (pid $oldpid → $npid)"; continue; fi
+            if relaunched_from "$oldpid" "$npid"; then res+=(ok "$sess" "$sess relaunched meanwhile, on $(proc_version "$npid"), $(set_after "$SET")$pw"); rlog "$label: already relaunched (pid $oldpid → $npid)"; continue; fi
             out=$(SALA_RETRY_WORKER=1 "$SALA_BIN" revive --only "$sess" ${flags[@]+"${flags[@]}"} 2>&1); printf '%s\n' "$out" | grep -F "$label" | sed 's/^ */    /'
             npid=$(claude_pid_under "$(tmux display -p -t "$pane" '#{pane_pid}' 2>/dev/null)")
-            if [ -n "$npid" ] && [ "$npid" != "$oldpid" ]; then
+            if relaunched_from "$oldpid" "$npid"; then
                 nv=$(proc_version "$npid"); pw=""; [ -z "$uuid" ] || pw=$(pause_words "$uuid"); pw=${pw:+, $pw}
                 res+=(ok "$sess" "$sess relaunched on $nv, retry $tries, $(set_after "$SET")$pw"); rlog "$label: relaunched on $nv${pw}"; continue
             fi
             why=$(printf '%s\n' "$out" | grep -F "$label: " | tail -1 | sed 's/^ *//')
-            case "$why" in *": already "*|*"own session"*) res+=(ok "$sess" "$sess already on $(proc_version "$oldpid"), $(set_after "$SET")"); rlog "$label: already current"; continue;; esac
+            case "$why" in *": already "*|*"own session"*) ends[$pane]="ended|it is already on the current version, so there is nothing to relaunch"; res+=(ok "$sess" "$sess already on $(proc_version "$oldpid"), $(set_after "$SET")"); rlog "$label: already current"; continue;; esac
             case "$why" in *"background work is running"*)   # work /exit would stop: watch relaunches it once that work is done; still outstanding in the set
-                defer_add "$sess" "${why#*: }" "$dforce" "$SET"; rlog "$label: holds background work (${why#*: }) — on the deferred list, watch relaunches it once that work is done"; continue;; esac
-            if [ -n "$why" ] && ! transient_skip "$why"; then res+=(gave "$sess" "$(set_bullet "$why")"); rlog "not transient, giving up — $why"; continue; fi
+                defer_add "$sess" "${why#*: }" "$dforce" "$SET"; ends[$pane]="deferred|${why#*: }"; rlog "$label: holds background work (${why#*: }) — on the deferred list, watch relaunches it once that work is done"; continue;; esac
+            if [ -n "$why" ] && ! transient_skip "$why"; then ends[$pane]="ended|${why#*: }"; res+=(gave "$sess" "$(set_bullet "$why")"); rlog "not transient, giving up — $why"; continue; fi
             rlog "$label: still skipped (retry $tries) — ${why:-no verdict}"; still+=("$pane|$sess|$label|$oldpid|$now|$tries|${why#*: }")
         done
-        # the flag comes down for every pane that left the list this pass (back, given up, or watch's now)
-        for e in "${pending[@]}"; do IFS='|' read -r pane _ _ oldpid _ <<<"$e"
-            case " $(printf '%s ' ${still[@]+"${still[@]}"})" in *" $pane|"*) ;; *) registry_conv_r _cv "$oldpid"; waiting_clear "$_cv";; esac; done
+        # the flag comes down for every pane that left the list this pass: back or gone (silently), or with no relaunch (given up,
+        # watch's now: hold_ended)
+        for e in "${pending[@]}"; do IFS='|' read -r pane _ _ _ <<<"$e"
+            case " $(printf '%s ' ${still[@]+"${still[@]}"})" in *" $pane|"*) continue;; esac
+            if [ -n "${ends[$pane]:-}" ]; then hold_ended "${conv[$pane]:-}" "${ends[$pane]%%|*}" "${ends[$pane]#*|}"; else waiting_clear "${conv[$pane]:-}"; fi
+        done
         pending=(${still[@]+"${still[@]}"})
         # CLOSURE (a follow-up report on the retry, when the retry actually passes through): the panes back in this pass in ONE post, one bullet each, the set's count in the headline
         [ ${#res[@]} -gt 0 ] && set_resolve "$SET" "${res[@]}"
@@ -237,6 +243,7 @@ retry_worker() {
     for e in ${pending[@]+"${pending[@]}"}; do
         IFS='|' read -r pane sess label oldpid _ _ lastwhy <<<"$e"
         defer_add "$sess" "${lastwhy:-still busy when the retry window ended}" "$dforce" "$SET"
+        hold_ended "${conv[$pane]:-}" deferred "the retry window ended with it still held (${lastwhy:-no verdict})"
         # the same words as the first post and the 🔄 follow-ups (common.sh, hold_bullet); a reason of neither kind (a draft, a prompt) keeps its own text
         b=$(hold_bullet "$sess" "$oldpid" "${lastwhy:-}") || b="$sess: ${lastwhy:-no verdict}; sala relaunches it once it is free"
         dl+=("$b")
@@ -457,11 +464,11 @@ done
 # pane was never retried — the board's main session waited 25 min after the 03:17 recycle). Never a dry run (Wed Oct 14th 2026:
 # `recycle --dry-run` stopped a live recycle's worker and cleared its waiting flags).
 if [ "$DRY" = 0 ] && [ -n "${SALA_RECYCLE:-}" ] && [ -z "${SALA_RETRY_WORKER:-}" ] && [ "$SELF_WORKER" = 0 ]; then
+    waiting_clear_all   # their relaunch-waiting flags go first, so a stopped worker ends no hold: this sweep covers every pane and raises its own
     for f in "$SALA_LOG_DIR"/salamander-retry*.pid; do
         [ -s "$f" ] || continue
         rp=$(cat "$f"); kill -0 "$rp" 2>/dev/null && { echo "stopping an earlier retry worker (pid $rp)"; kill "$rp" 2>/dev/null; }; rm -f "$f"
     done
-    waiting_clear_all   # their relaunch-waiting flags with them: this sweep raises its own for the panes it leaves behind
 fi
 CURRENT_BIN=$(readlink -f "$SALA_CLAUDE" 2>/dev/null)
 [ -n "$CURRENT_BIN" ] && [ -x "$CURRENT_BIN" ] || die "claude launcher not found at $SALA_CLAUDE"
@@ -644,6 +651,8 @@ if [ "$SELF_WORKER" = 1 ]; then
         if [ -n "${uuid:-}" ]; then inbox_release "$uuid" "${hname:-}"; fi; echo "[$(date -Is)] self-worker: $1"
         if [ -n "$DSET" ]; then set_resolve "$DSET" gave "$label" "$label: $1"; set_report "$DSET"
         else sala_post "🚨 *Recycle didn't finish for $label*" "$1" "Details: ~/.claude/salamander-revive.log"; fi
+        local hu="${uuid:-}"; [ -n "$hu" ] || [ -z "${cpid:-}" ] || registry_conv_r hu "$cpid"
+        hold_ended "$hu" ended "$1"   # silent when the pane's claude is gone (common.sh)
         exit 1
     }
     pane_exists "$SELF_PANE" || wabort "pane $SELF_PANE not found"
@@ -1224,6 +1233,25 @@ fi
 if [ "$DRY" = 0 ] && [ -n "${SALA_RECYCLE_SKIPPED_FILE:-}" ] && [ -z "${SALA_RETRY_WORKER:-}" ] && [ "$SELF_WORKER" = 0 ]; then
     for l in ${SKIPPED[@]+"${SKIPPED[@]}"}; do echo "${l%%:*}"; done >> "$SALA_RECYCLE_SKIPPED_FILE" 2>/dev/null || true
 fi
+# THE HOLDS THIS SWEEP ENDS (common.sh, hold_ended): a session told it is held that this sweep neither relaunched nor leaves to its retry
+# worker or the self-worker. A worker's re-run of one pane and watch's deferred try end nothing here: their caller decides.
+hold_sweep_end() {
+    local f u s l why mode own=""
+    [ -z "${SALA_SKIP_PANE:-}" ] || own=$(tmux display -p -t "$SALA_SKIP_PANE" '#{session_name}' 2>/dev/null)
+    for f in "$SALA_HELD_DIR"/*; do
+        [ -f "$f" ] || continue; u=${f##*/}; case "$u" in *.t.*) continue;; esac
+        _kv_first_r s "$f" session; [ -n "$s" ] && [ "$s" != "$own" ] || continue
+        if [ "$START_WORKER" = 1 ]; then case " ${RETRY[*]-} " in *"|$s|"*) continue;; esac; fi
+        case " ${DEFS[*]-} " in *" $s "*) hold_ended "$u" deferred "it holds background work"; continue;; esac
+        why=""; mode=ended
+        for l in ${NOREL[@]+"${NOREL[@]}"}; do [ "${l%%:*}" != "$s" ] || { why="sala is set never to relaunch it (SALA_NO_RELAUNCH)"; mode=dropped; break; }; done
+        [ -n "$why" ] || for l in ${SKIPPED[@]+"${SKIPPED[@]}"}; do [ "${l%%:*}" != "$s" ] || { why=${l#*: }; break; }; done
+        [ -n "$why" ] || for l in ${OK[@]+"${OK[@]}"}; do [ "${l%%:*}" != "$s" ] || { why="it is already on the current version, so there is nothing to relaunch"; break; }; done
+        [ -z "$why" ] || hold_ended "$u" "$mode" "$why"
+    done
+    return 0
+}
+[ "$DRY" = 1 ] || [ -n "${SALA_RETRY_WORKER:-}" ] || [ -n "${SALA_DEFERRED_TRY:-}" ] || [ "$SELF_WORKER" = 1 ] || hold_sweep_end
 # BOOT RECORD: the first full sweep of each boot — the resurrect
 # post-restore hook's — leaves its summary for `watch`, which posts the post-boot report once
 # revive is done. A hook's stdout goes nowhere, so this is also its only record.
