@@ -4,7 +4,7 @@
 # real driver: freeze → sweep → compare → unfreeze) and of a reboot (`reboot --resume` standing in for the boot half); the
 # map gaps of 2026-10-08 (a rename never adds a row, a follow never duplicates a conversation, the fleet's tmux server
 # only, a probe server's claude sharing a fleet pane's id, retire of an orphan row, no archive by a shared conversation
-# id). The setup mirrors where ledger.sh leaves its map: three rows (m, a2, b), each adopted from a session made by hand
+# id); no relaunch writing a folder unless --cwd names it (a recreated pane, a restore after each, a freeze, the refusals). The setup mirrors where ledger.sh leaves its map: three rows (m, a2, b), each adopted from a session made by hand
 # in its own directory. Isolated HOME, a private tmux socket, the compiled fake claude (tests/fake-claude.c); every Slack
 # post lands in a file.
 # Usage: bash tests/ledger-recycle.sh   (exit 0 = pass; ~50 s)
@@ -257,4 +257,73 @@ printf 'sala-test-s\t%s\tsala-test-s\t%s\n' "$UD" "$HOME" >> "$MAP"   # by hand:
 out=$("$SALA" retire sala-test-s 2>&1); rc=$?; echo "$out" | sed 's/^/    /'
 echo "$out" | grep -q "not archiving on claude.ai: conversation $UD (from the pane map) is also the row of sala-test-d" && ! echo "$out" | grep -q session_01SHARED && ok "warned, nothing archived" || bad "shared uuid retire: rc=$rc"
 [ -z "$(row sala-test-s)" ] && [ "$(row sala-test-d | cut -f2)" = "$UD" ] && ! tmux has-session -t =sala-test-s 2>/dev/null && ok "sala-test-s retired (session killed, row gone); sala-test-d's row kept" || bad "after the retire: $(<"$MAP")"
+
+echo "== a relaunch writes a folder only when --cwd names it (common.sh, THE FOLDER OF A RELAUNCH; the wake and the queue: sleepverbs.sh)"
+UF=ffffffff-0000-4000-8000-000000000031
+NEW="$HOME/new role's \$HOME; (a) & \"b\" c\\d"; NEW2="$HOME/second role"; mkdir -p "$HOME/saved" "$HOME/wt" "$NEW" "$NEW2"
+hand sala-test-f "$UF" "$HOME/saved"; fake_up sala-test-f; "$SALA" adopt sala-test-f >/dev/null 2>&1
+frow() { printf 'sala-test-f\t%s\tsala-test-f\t%s' "$UF" "$1"; }                      # <folder> → the row f should have
+rowis() { [ "$(row sala-test-f)" = "$(frow "$1")" ]; }                                # <folder>
+fpane() { tmux display -p -t sala-test-f '#{pane_current_path}'; }
+fcwd() { readlink "/proc/$(pane_claude sala-test-f)/cwd" 2>/dev/null; }               # the folder the claude of f runs in
+fstarts() { grep -c "^start $UF " "$FAKE_LOG"; }
+recreate_f() {  # <folder> [tmux -e options…] → f as tmux-resurrect leaves it after a reboot: a bare shell in <folder>
+    local d=$1; shift; kill_wait sala-test-f 2>/dev/null
+    $T new-session -d -s sala-test-f -c "$d" -e FAKE_SESSION_ID="$UF" -e FAKE_NAME=sala-test-f -e FAKE_LOG="$FAKE_LOG" "$@"
+    waitfor '[ -n "$(fpane)" ]' 20; }
+revf() { f0=$(fstarts); out=$("$SALA" revive "$@" 2>&1); rc=$?; }                     # <revive arguments…> → out, rc, f0
+back() { [ "$rc" = 0 ] && [ "$(fstarts)" = $((f0 + 1)) ]; }                           # → the last revive started the conversation once
+untouched() { rowis "$1" && [ "$(fstarts)" = "$f0" ]; }                               # <folder> → the row as it was and no start
+rowis "$HOME/saved" || bad "setup: row $(row sala-test-f)"
+
+nf=$(logn follow sala-test-f)
+rmdir "$HOME/saved"; recreate_f "$HOME"; revf --only sala-test-f
+back && [ "$(fcwd)" = "$HOME" ] && rowis "$HOME/saved" && ok "(A) saved folder gone, the pane recreated in \$HOME: a plain revive leaves the row" || bad "(A): rc=$rc row=$(row sala-test-f) $out"
+mkdir -p "$HOME/saved"; recreate_f "$HOME/wt"; revf --only sala-test-f
+back && [ "$(fcwd)" = "$HOME/wt" ] && rowis "$HOME/saved" && ok "(B) the pane recreated in a worktree: a plain revive leaves the row" || bad "(B): rc=$rc row=$(row sala-test-f) $out"
+kill_wait sala-test-f; rmdir "$HOME/wt"; "$SALA" restore sala-test-f >/dev/null 2>&1; waitfor '[ -n "$(pane_claude sala-test-f)" ]' 40
+[ "$(fpane)" = "$HOME/saved" ] && rowis "$HOME/saved" && ok "(B) the worktree removed later: restore starts in the saved folder" || bad "(B) restore: pane=$(fpane) row=$(row sala-test-f)"
+c=$(pane_claude sala-test-f); tmux send-keys -t sala-test-f '/exit' Enter; waitfor "! kill -0 $c 2>/dev/null" 20
+tmux send-keys -t sala-test-f "cd '$HOME/work-a' && claude --resume $UF" Enter; waitfor '[ "$(fcwd)" = "$HOME/work-a" ]' 20
+revf --only sala-test-f --force; back && rowis "$HOME/saved" && [ "$(logn follow sala-test-f)" = "$nf" ] && ok "a claude moved by hand and relaunched without --cwd: no folder written, no ledger line" || bad "plain --force: rc=$rc row=$(row sala-test-f) $out"
+
+revf --only sala-test-f --force --cwd "$NEW" --dry-run
+[ "$rc" = 0 ] && has "$out" "pane-map folder $HOME/saved → $NEW" && untouched "$HOME/saved" && ok "--cwd --dry-run: the plan shows old → new, nothing relaunched or written" || bad "dry: rc=$rc row=$(row sala-test-f) $out"
+revf --only sala-test-f --force --cwd "$NEW"
+back && [ "$(fcwd)" = "$NEW" ] && rowis "$NEW" && has "$out" "pane-map folder $HOME/saved → $NEW" && [ "$(logn follow sala-test-f)" = $((nf + 1)) ] && ok "--force --cwd: relaunched in that folder (spaces, quotes, a backslash, \$ ; & in its name), the row carries it, one ledger line" || bad "--cwd: rc=$rc cwd=$(fcwd) row=$(row sala-test-f) $out"
+kill_wait sala-test-f; "$SALA" restore sala-test-f >/dev/null 2>&1; waitfor '[ -n "$(pane_claude sala-test-f)" ]' 40
+[ "$(fpane)" = "$NEW" ] && [ "$(fcwd)" = "$NEW" ] && rowis "$NEW" && ok "a later restore starts there" || bad "restore after --cwd: pane=$(fpane) row=$(row sala-test-f)"
+recreate_f "$HOME"; revf --only sala-test-f --cwd "$NEW2"
+back && [ "$(fcwd)" = "$NEW2" ] && rowis "$NEW2" && ok "--cwd on a pane at a shell: resumed in the folder and written" || bad "shell pane: rc=$rc cwd=$(fcwd) row=$(row sala-test-f) $out"
+kill_wait sala-test-f; revf --only sala-test-f --cwd "$NEW" --dry-run
+[ "$rc" = 0 ] && has "$out" "would create it" && has "$out" "pane-map folder $NEW2 → $NEW" && ! tmux has-session -t =sala-test-f 2>/dev/null && untouched "$NEW2" && ok "tmux session gone, dry run: old → new, nothing created" || bad "gone dry: rc=$rc $out"
+revf --only sala-test-f --cwd "$NEW"
+back && [ "$(fpane)" = "$NEW" ] && [ "$(fcwd)" = "$NEW" ] && rowis "$NEW" && ok "tmux session gone: created in the folder, resumed and written" || bad "gone: rc=$rc pane=$(fpane) row=$(row sala-test-f) $out"
+recreate_f "$HOME" -e FAKE_RESUME_FAIL=1; revf --only sala-test-f --cwd "$NEW2"
+[ "$rc" = 1 ] && has "$out" "not relaunched, so the pane-map folder is unchanged" && rowis "$NEW" && ok "a resume that fails writes nothing and says so" || bad "failed resume: rc=$rc row=$(row sala-test-f) $out"
+recreate_f "$HOME"; ledger_freeze recycle $$ >/dev/null; revf --only sala-test-f --cwd "$NEW2"
+back && rowis "$NEW" && grep -qF "sala-test-f	$UF	$NEW2" "$SALA_LEDGER_DEFERRED" 2>/dev/null && has "$out" "recorded when the freeze lifts" && ok "under a freeze the folder is deferred" || bad "frozen: rc=$rc row=$(row sala-test-f) deferred=$(slurp "$SALA_LEDGER_DEFERRED") $out"
+ledger_unfreeze test >/dev/null 2>&1; rowis "$NEW2" && ok "and written at the unfreeze, the name unchanged" || bad "after the unfreeze: $(row sala-test-f)"
+ledger_freeze recycle $$ >/dev/null; ledger_cwd sala-test-f "$UF" "$NEW"; ledger_cwd sala-test-f "$UF" "$NEW2"; ledger_unfreeze test >/dev/null 2>&1
+rowis "$NEW2" && ok "frozen, moved and then back in the row's own folder: the later one wins" || bad "superseded: $(row sala-test-f)"
+
+revf --only sala-test-f --dry-run
+refused() {  # <what the refusal says> <revive arguments…> → refused, nothing started, the row as it was
+    local want=$1; shift; revf "$@"
+    [ "$rc" != 0 ] && has "$out" "$want" && untouched "$NEW2" && ok "refused: $* → $want" || bad "$*: rc=$rc row=$(row sala-test-f) $out"; }
+refused "exactly one --only" --cwd "$NEW"
+refused "exactly one --only" --force --cwd "$NEW"
+refused "exactly one --only" --only sala-test-f --only sala-test-m --cwd "$NEW"
+refused "needs an absolute path" --only sala-test-f --cwd saved
+refused "not an existing directory" --only sala-test-f --cwd "$HOME/no-such-folder"
+refused "not an existing directory" --only sala-test-f --cwd "$FAKE_LOG"
+refused "needs a directory" --only sala-test-f --cwd
+refused "control character" --only sala-test-f --cwd "$HOME/a"$'\t'"b"
+refused "--cwd is given once" --only sala-test-f --cwd "$NEW" --cwd "$NEW2"
+refused "does not go with --self" --cwd "$NEW" --self
+mkdir -p "$HOME/shut"; chmod 000 "$HOME/shut"
+if [ -r "$HOME/shut" ]; then echo "  (the unreadable folder case is skipped: this user reads a mode-000 folder)"; else refused "cannot be read and entered" --only sala-test-f --cwd "$HOME/shut"; fi
+chmod 755 "$HOME/shut"
+refused "not in the pane map" --only sala-test-nosuch --cwd "$NEW"
+tmux has-session -t =sala-test-nosuch 2>/dev/null && bad "a session with no row was created" || ok "a name with no row: no tmux session is created for it"
 [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }

@@ -230,7 +230,8 @@ int main(int argc, char **argv) {
         if (bind(s, (struct sockaddr *)&a, sizeof a) == 0 && listen(s, 1) == 0) snprintf(sock, sizeof g_sock, "%s", a.sun_path);
         if (sock[0] && getenv("FAKE_SOCK_LOG")) { pthread_t t; sock_fd = s; sock_sid = sid; pthread_create(&t, NULL, sock_logger, NULL); }
     }
-    char *cwd = g_cwd; if (!getcwd(cwd, sizeof g_cwd)) cwd[0] = 0;        /* the real registry row carries cwd (2026-10-06: the pane map's 4th column) */
+    char *cwd = g_cwd, raw[sizeof g_cwd / 2]; if (!getcwd(raw, sizeof raw)) raw[0] = 0;   /* the real registry row carries cwd (2026-10-06: the pane map's 4th column) */
+    { size_t i, o = 0; for (i = 0; raw[i]; i++) { if (raw[i] == '"' || raw[i] == '\\') cwd[o++] = '\\'; cwd[o++] = raw[i]; } cwd[o] = 0; }   /* escaped, as in the real row's JSON */
     FILE *f = fopen(path, "w"); if (!f) return 1;
     /* startedAt, as the CLI's row carries it (the process's start, epoch ms); FAKE_STARTED_AT=<epoch s> places it elsewhere (the flag rule's suites) */
     long started_s = (long)time(NULL); { const char *fs = getenv("FAKE_STARTED_AT"); if (fs && *fs) started_s = atol(fs); }

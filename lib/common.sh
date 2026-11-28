@@ -3624,7 +3624,8 @@ sidecar_uuid_for_session() { local _u; [ -r "$SALA_SIDECAR" ] || return 1; _tsv_
 #   rename  `sala rename` (a row the map has; never adds one)          retire  `sala retire`, `sala close-shell` and `sala forget-row` — the only paths that drop a row
 #   follow  the ONE change an observation may make: the live claude in a mapped session reports a different conversation
 #           than the row (a /clear, a hand --resume); write_sidecar (revive --save-map) applies it from the live registry,
-#           unless another row carries that conversation (refused: one conversation, one row)
+#           unless another row carries that conversation (refused: one conversation, one row). The same op writes the
+#           folder a caller named for a relaunch (`revive --cwd DIR`, `wake --cwd DIR`; ledger_cwd below)
 # and only on the fleet's tmux server (see THE FLEET'S TMUX SERVER below).
 # Every write goes through ledger_write: flock on the map's .lock (fd 6; 8 is the inbox lock, 9 the recycle lock), a temp
 # file next to the map (same filesystem, so the mv is atomic, and no /tmp quota), a failed write aborts without touching
@@ -3768,6 +3769,45 @@ _ledger_unfreeze_locked() {  # <why> — under the lock
     ledger_log unfreeze - "$fl → open${why:+ ($why)}; $n deferred follow(s) applied"
     return 0
 }
+# THE FOLDER OF A RELAUNCH (`revive --only NAME --cwd DIR`, `wake --only NAME --cwd DIR`; lib/revive.sh, lib/wake.sh). A session moved into
+# another folder must be restored there. The folder is the caller's word and nothing else: sala never reads it from a pane or a process (a pane
+# tmux-resurrect recreated may stand anywhere: in $HOME because its saved folder is gone, or in a worktree that is removed later). The relaunch is
+# typed as `cd DIR && <the resume line>`, and once the claude is up the session's row is written with the conversation it resumed and DIR
+# (ledger_cwd). Without the flag no relaunch writes a folder.
+relaunch_dir_ok() {  # <dir> → 0 when a relaunch can be put in it and a row can carry it; 1 with the reason in RD_WHY
+    RD_WHY=""
+    case "$1" in
+        '') RD_WHY="--cwd needs a directory"; return 1 ;;
+        *[[:cntrl:]]*) RD_WHY="--cwd: the folder's name holds a control character (a tab or a newline would break the pane map and the typed line)"; return 1 ;;
+        /*) ;;
+        *) RD_WHY="--cwd needs an absolute path, not '$1'"; return 1 ;;
+    esac
+    [ -d "$1" ] || { RD_WHY="--cwd '$1' is not an existing directory"; return 1; }
+    { [ -r "$1" ] && [ -x "$1" ]; } || { RD_WHY="--cwd '$1' cannot be read and entered"; return 1; }
+}
+cwd_quote() {  # <dir> → it as one word of a typed shell line, read the same by bash, zsh, sh and fish: single quotes, each ' and \ outside them behind a \
+    local s=$1 out="'" i c
+    for ((i=0; i<${#s}; i++)); do
+        c=${s:i:1}
+        case "$c" in
+            \') out+="'\\''" ;;
+            \\) out+="'\\\\'" ;;
+            *) out+=$c ;;
+        esac
+    done
+    printf '%s' "$out'"
+}
+# ledger_cwd <session> <uuid> <dir> → 0 the row carries <dir> (written, or deferred under a freeze, the last follow of a session winning) · 1 not
+# written (no row; the follow refused or failed). Either way CWD_SAID is the line to show. Only a relaunch given --cwd calls it.
+ledger_cwd() {
+    local sess="$1" uuid="$2" dir="$3" row old
+    row=$(ledger_row "$sess")
+    [ -n "$row" ] || { CWD_SAID="pane-map folder NOT written: $sess has no row"; return 1; }
+    old=$(cut -f4 <<< "$row")
+    ledger_write follow "$sess" "$uuid" "$dir" || { CWD_SAID="pane-map folder NOT written, still ${old:-none} (see $SALA_LEDGER_LOG)"; return 1; }
+    CWD_SAID="pane-map folder ${old:-none} → $dir"
+    ! ledger_frozen || CWD_SAID="$CWD_SAID (recorded when the freeze lifts)"
+}
 # COMPARE AND RESTORE (a missing session is recreated on its own, then reported). A row whose tmux session does not exist is
 # recreated: the session detached at a shell in the row's cwd, then `revive --only NAME` resumes the row's conversation
 # by uuid through revive's shell-pane branch (the dedupe guard, the effort re-pass, the inbox hold). A row whose session
@@ -3881,7 +3921,8 @@ _ledger_apply() {  # the write itself; only ledger_write calls it (under the loc
                 [ "$(tail -n 300 "$SALA_LEDGER_LOG" 2>/dev/null | awk -F'\t' -v s="$sess" '$2=="refused(follow)" && $3==s {d=$4} END {print d}')" = "$to" ] || ledger_log "refused(follow)" "$sess" "$to"
                 echo "pane map not written: follow of '$sess' refused — conversation $uuid is already the row of $dup" >&2; return 2
             fi
-            awk -F'\t' -v OFS='\t' -v s="$sess" -v u="$uuid" -v c="$cwd" '$1==s {$2=u; if (c!="") $4=c} {print}' "$f" > "$tmp" || wok=0
+            # the folder goes in through the environment: `-v` reads backslashes in it as escapes
+            C="$cwd" awk -F'\t' -v OFS='\t' -v s="$sess" -v u="$uuid" '$1==s {$2=u; if (ENVIRON["C"]!="") $4=ENVIRON["C"]} {print}' "$f" > "$tmp" || wok=0
             from=$(cut -f2 <<< "$old"); new="$uuid"; [ -n "$cwd" ] && [ "$cwd" != "$(cut -f4 <<< "$old")" ] && note=" (cwd $(cut -f4 <<< "$old") → $cwd)" ;;
         retire)
             [ -n "$old" ] || { rm -f "$tmp"; return 0; }
