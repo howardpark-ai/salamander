@@ -460,10 +460,42 @@ function paintChatEntry() {
   chip.textContent = waiting > 99 ? "99+" : String(waiting);
   chip.title = tl("ui.side.chatWait", { n: waiting, group });
   chip.setAttribute("aria-label", chip.title);
+  // the same unread count every other row wears (unreadOf: the open session shows none), right of the waiting chip
+  const uchip = a.querySelector(".ucount"), me = state.byName.get(d.session), unread = me ? unreadOf(me) : 0;
+  uchip.hidden = !unread;
+  uchip.textContent = unread > UNREAD_SHOWN_MAX ? UNREAD_SHOWN_MAX + "+" : String(unread);
+  uchip.title = unreadLabel(unread);
+  uchip.setAttribute("aria-label", uchip.title);
   const here = state.selected === d.session;
   a.classList.toggle("selected", here);
   if (here) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
 }
+// A phone has no hover, so a tap on one of the entry's two counts shows its tooltip as a bubble under it (and does not open the session; the rest of
+// the row does). A mouse click on a count is the row's own. The bubble goes on the next tap anywhere, a scroll, or after CHIP_TIP_MS.
+const CHIP_TIP_MS = 4000;
+let chipTip = null, chipTipTimer = 0;
+function chipTipHide() {
+  clearTimeout(chipTipTimer);
+  if (chipTip) { chipTip.remove(); chipTip = null; }
+}
+function chipTipShow(chip) {
+  chipTipHide();
+  const r = chip.getBoundingClientRect();
+  chipTip = el("div", { class: "chip-tip", role: "status", text: chip.title });
+  document.body.append(chipTip);
+  const w = chipTip.offsetWidth;
+  chipTip.style.top = r.bottom + 6 + "px";
+  chipTip.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + "px";
+  chipTipTimer = setTimeout(chipTipHide, CHIP_TIP_MS);
+}
+for (const sel of ["#side-chat .wchip", "#side-chat .ucount"]) $(sel).addEventListener("click", (e) => {
+  if (e.pointerType !== "touch" && !matchMedia("(hover: none)").matches) return;
+  e.preventDefault(); e.stopPropagation();
+  const chip = e.currentTarget;
+  if (chipTip && chipTip.dataset.for === chip.className) chipTipHide(); else { chipTipShow(chip); chipTip.dataset.for = chip.className; }
+});
+document.addEventListener("click", (e) => { if (chipTip && !e.target.closest("#side-chat .wchip, #side-chat .ucount")) chipTipHide(); }, true);
+$("#sidebar").addEventListener("scroll", chipTipHide, true);
 // the strip and the body's class follow the open session: on for a session with the flag. The class (left cap, the pane's column) needs only the
 // flag; the strip also needs what api/chat said. It is read at once when the strip comes on.
 function chatSync() {

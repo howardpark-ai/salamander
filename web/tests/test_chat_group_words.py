@@ -52,12 +52,13 @@ MODEL = r"""
 const el = (tag, attrs) => ({ tag, ...attrs });
 const mkEl = () => ({ hidden: false, textContent: "", title: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k] ?? null; }, removeAttribute(k) { delete this.attrs[k]; }, replaceChildren(...kids) { this.kids = kids; },
   classList: { toggle() {}, remove() {} } });
-const parts = { ".label": mkEl(), ".dot": mkEl(), ".wchip": mkEl() };
+const parts = { ".label": mkEl(), ".dot": mkEl(), ".wchip": mkEl(), ".ucount": mkEl() };
 const side = mkEl(); side.querySelector = (s) => parts[s];
 const pin = mkEl();
 const nodes = { "#side-chat": side, "#chat-strip-wait": pin };
 const $ = (s) => nodes[s];
-const state = { selected: "" };
+const state = { selected: "", byName: new Map() };
+const UNREAD_SHOWN_MAX = 9, unreadOf = () => 0, unreadLabel = (n) => tl("app.unread.count", { n });   // the unread chip: not under test here (test_chat_session_view_ui.py)
 let entryOn = true;
 const chatEntryOn = () => entryOn;
 const chatView = { data: null, waitOpen: false, waitTab: "move", waitRove: "move", ui: Object.fromEntries(

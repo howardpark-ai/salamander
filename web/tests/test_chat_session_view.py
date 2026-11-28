@@ -94,6 +94,7 @@ def test_the_entry_is_the_first_line_of_the_views_above_new_session():
     assert 'class="sess side-ovw side-chat"' in entry and entry.split(">", 1)[0].endswith(" hidden"), "a row like the others, hidden until api/chat says a session is set"
     assert re.search(r'<svg width="18" height="18" viewBox="0 0 24 24"[^>]*stroke-width="2" stroke-linecap="round" stroke-linejoin="round"', entry)
     assert entry.count('class="label"') == 1 and 'class="role"' in entry and 'class="dot busy" hidden' in entry and 'class="wchip" hidden' in entry
+    assert entry.index('class="wchip"') < entry.index('class="ucount" hidden'), "the waiting count sits left of the unread count, which is the row's far right"
     assert 'data-i18n="ui.side.chatRole"' in entry
     assert " title=" not in entry.split(">", 1)[0] and "data-i18n-title" not in entry, "the tooltip takes the served group's name: only paintChatEntry sets it"
     assert "#chat" not in entry, "its href is the session's own s/<name>, set from api/chat"
@@ -229,6 +230,7 @@ def test_the_strip_s_rules_are_scoped_to_it_and_the_entry_has_a_floor_for_its_na
     assert "min-width: 48px" in entry, "a long name gives way to its ellipsis, never to nothing"
     chip = " ".join(b for s, b in rules(STYLE) if s.startswith(".wchip") and "hidden" not in s)
     assert "var(--waiting)" in chip and "var(--waiting-text)" in chip, "the red of what waits on the owner, not the orange unread count"
+    assert any(s.startswith(".chip-tip") for s, _ in rules(STYLE)) and any(".side-chat .ucount[hidden]" in s for s, _ in rules(STYLE))
 
 
 def test_nothing_the_chat_session_adds_scrolls_sideways():
