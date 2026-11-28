@@ -143,7 +143,7 @@ def on_it(lines: list[dict], board_doc: dict, your_move: list[dict] | None = Non
     return out
 
 
-REPLY_WINDOW_FIRST =2 << 20     # the first look back from the end of a transcript for a reply at or after a done time
+REPLY_WINDOW_FIRST = 2 << 20     # the first look back from the end of a transcript for a reply at or after a done time
 REPLY_WINDOW_MAX = 32 << 20      # and the most it reads (a done line whose reply is further back links nothing)
 
 
