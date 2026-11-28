@@ -24,6 +24,14 @@
 //                                     and reads the box and its refusal: a probe. A request with no readable payload is
 //                                     answered ok: false, reason "payload". A mod older than this verb answers "unknown"
 //                                     (or not at all), which the caller reads as no answer.
+//   [sala-mod] reload <reqid>         answered ok ("accepted") at once, then /reload-plugins run with no argument (never
+//                                     --force). The command waits behind a running turn or an open dialog and leaves the
+//                                     prompt box alone, so there are no gates. What it answered is written to
+//                                     <sessionId>.reload.json, under the session id the request came in on: {begun, ok, text},
+//                                     `begun` the clock (ms) when the request was taken, `ok` true only for an answer that
+//                                     starts "Reloaded:", `text` that answer, or why the command was rejected (it is, right
+//                                     after a person's interrupt, until the next input). sala reads and removes the file
+//                                     (lib/plugin-reload.sh). A mod older than this verb answers "unknown".
 //
 // The request is one line on the session's messaging socket (lib/common.sh session_push), which arrives here as a
 // session.receive delivery from a peer; it is consumed, so it never reaches the transcript or the model. Anything not
@@ -34,6 +42,10 @@
 //   <sessionId>.json                    the presence stamp {present, version, sessionId, at}: written at session start,
 //                                       again after a /clear (a new session id) and on a reload; removed at exit
 //   <sessionId>.<reqid>.reply.json      one reply per request {reqid, ok, reason?, text?}; sala reads and removes it
+//   <sessionId>.reload.json             what the last requested /reload-plugins answered {begun, ok, text}
+//   <sessionId>.reload.json.begun       {begun} while that command runs. A reload that loads a changed copy of this mod
+//                                       ends the old copy before it can write the answer; the new copy finds this file at
+//                                       its session.start and writes the answer, ok
 // Every file is written whole to a temp name and renamed into place, so a reader never sees half of one.
 import type { EngineInterface, Register } from 'claude-code'
 
@@ -159,6 +171,36 @@ async function gate($: EngineInterface, reqid: string): Promise<Reply | undefine
   return undefined
 }
 
+// what a requested reload came to, written for sala under `base` (the run folder and the session id), and the mark of
+// the running one taken away
+async function answerReload($: EngineInterface, base: string, begun: number, ok: boolean, text: string): Promise<void> {
+  await put($, `${base}.reload.json`, { begun, ok, text })
+  await $.process.run(['rm', '-f', `${base}.reload.json.begun`], { timeoutMs: 1000 }).catch(() => undefined)
+}
+
+// /reload-plugins run as the `reload` request asks: a reload that ran answers "Reloaded: …", anything else (another
+// answer, a rejection) did not renew the plugins
+async function reloadPlugins($: EngineInterface, base: string, begun: number): Promise<void> {
+  let result: { ok: boolean; text: string }
+  try {
+    const { text = '' } = await $.command.run({ command: 'reload-plugins' })
+    result = { ok: text.startsWith('Reloaded:'), text }
+  } catch (e) {
+    result = { ok: false, text: e instanceof Error ? e.message : String(e) }
+  }
+  await answerReload($, base, begun, result.ok, result.text)
+}
+
+// a session.start with a reload still marked as running: this copy of the mod was loaded by that very reload, which
+// ended the copy that asked for it, so the answer is this one's to write
+async function answerReplaced($: EngineInterface): Promise<void> {
+  const base = `${await runDir($)}/${await $.session.id()}`
+  const mark = await $.fs.read(`${base}.reload.json.begun`).catch(() => undefined)
+  if (mark === undefined) return
+  const { begun } = JSON.parse(mark) as { begun?: unknown }
+  if (typeof begun === 'number') await answerReload($, base, begun, true, 'Reloaded: the reload replaced the sala mod itself')
+}
+
 async function handle($: EngineInterface, verb: string, reqid: string, arg: string): Promise<void> {
   switch (verb) {
     case 'exit': {
@@ -183,6 +225,15 @@ async function handle($: EngineInterface, verb: string, reqid: string, arg: stri
         return reply($, { reqid, ok: false, reason: 'error' })
       }
       return reply($, { reqid, ok: true })
+    }
+    case 'reload': {
+      // answered before the command runs: it may wait behind a turn or a dialog far longer than sala waits for a reply
+      const base = `${await runDir($)}/${await $.session.id()}`
+      const begun = await $.clock.now()
+      await put($, `${base}.reload.json.begun`, { begun })
+      await reply($, { reqid, ok: true })
+      void reloadPlugins($, base, begun).catch(() => undefined)
+      return
     }
     case 'draft': {
       const { text } = await $.prompt.read()
@@ -222,6 +273,7 @@ export const register: Register = on => {
     const started = await next(e)
     await $.state.set(TURNS, []).catch(() => undefined)   // a new process runs no turn, whatever a crashed one left
     void stamp($).catch(() => undefined)
+    void answerReplaced($).catch(() => undefined)
     return started
   })
 

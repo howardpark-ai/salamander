@@ -40,6 +40,7 @@ assistant is doing the install, give it [docs/sala-guide-for-ai.md](docs/sala-gu
 - **Lanes**: the account or key a session runs on, and what happens when one runs out. See [docs/lanes.md](docs/lanes.md).
 - **Models**: choose and record the model and effort of each session. See [docs/models.md](docs/models.md).
 - **Watchdog**: a timer that revives dead panes and runs queued operations (`watch`). See [docs/subcommands.md](docs/subcommands.md).
+- **Plugin updates**: with `SALA_PLUGIN_RELOAD=on` the watchdog asks the pane of each background agent to run `/reload-plugins` after an update of a plugin you name, so it gets the new hooks and skill text with nobody doing anything; every other pane loads them at its next start. Off by default. See [docs/subcommands.md](docs/subcommands.md).
 - **Fleet**: update Claude Code on your other machines and read their live sessions over ssh. See [docs/subcommands.md](docs/subcommands.md) and [docs/heartbeat-store.md](docs/heartbeat-store.md).
 - **Notices and hooks**: tell every session something once, and run your own command after an update. See [docs/notices-and-hooks.md](docs/notices-and-hooks.md).
 - **Merge queue**: `sala mq` for a repository that cannot use GitHub's own queue. See [docs/mq.md](docs/mq.md).

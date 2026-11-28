@@ -14,6 +14,8 @@
 #   salamander watch --sets [--dry-run]   only the flag rule over the open recycle sets (sets_tick, below); --dry-run prints what it would settle and writes nothing
 #   salamander watch --continued    only the continued-in follow (cont_tick, lib/continuedin.sh): a pane that moved to a new transcript id keeps its row
 #   salamander watch --back-lanes [--dry-run]   only the back agents' lane rule (back_lane_run, below; SALA_BACK_LANE_RULE=on; common.sh "THE BACK AGENTS' LANE RULE"); --dry-run prints what it would queue (the lane it would really use: a dormant target is replaced by its fallback lane, with the reason), and queues and writes nothing
+#   salamander watch --plugins [--dry-run] [--only <session>]   only the plugin reload (reload_tick, lib/plugin-reload.sh; OFF by default, needs SALA_PLUGIN_RELOAD=on): a background agent's pane is asked, through its sala mod, to run
+#                                /reload-plugins after a watched plugin's update; every other pane is left alone and loads it at its next start; --dry-run prints and changes nothing; --only asks one pane now, on or off
 #   salamander watch --wrapup [--dry-run]   only the idle wrap-up and clear of background agents (wrapup_tick, lib/wrapup.sh; OFF by default, needs SALA_IDLE_WRAPUP=on); --dry-run prints, per background pane, what it would do or why not, and changes nothing
 #   salamander watch --sleep [--dry-run]   only the idle sleep tick (sleep_tick, lib/wrapup.sh; OFF by default, needs SALA_IDLE_SLEEP=on); --dry-run prints which projects it would put to sleep, on or off, and changes nothing
 #   salamander watch --wake [--dry-run]   only the wake of sleepers with a stackshot message line waiting (wake_tick, lib/wrapup.sh; always on); --dry-run prints whom it would wake
@@ -81,6 +83,8 @@ UNREG_ONLY=0; [ "${1:-}" = --unregistered ] && UNREG_ONLY=1   # `sala watch --un
 . "$SALA_ROOT/lib/continuedin.sh"
 . "$SALA_ROOT/lib/barepane.sh"
 . "$SALA_ROOT/lib/wrapup.sh"
+. "$SALA_ROOT/lib/plugin-reload.sh"
+PLUGINS_ONLY=0; [ "${1:-}" = --plugins ] && PLUGINS_ONLY=1   # `sala watch --plugins [--dry-run] [--only <session>]`: the plugin reload of background agents' panes alone (lib/plugin-reload.sh)
 [ -d "$SALA_LOG_DIR" ] || mkdir -p "$SALA_LOG_DIR"; [ -e "$WSTATE" ] || >> "$WSTATE"   # (touch and mkdir -p each tick: two processes; nothing reads the state file's mtime)
 wlog() { local _wt; _iso_now_r _wt; echo "[$_wt] $*" >> "$WLOG"; }
 st_get() { _kv_first "$WSTATE" "$1"; }
@@ -1329,6 +1333,7 @@ back_lane_run() {  # [--dry-run]
 }
 [ "$BACKLANES_ONLY" = 1 ] && { [ "${2:-}" = --dry-run ] || sessions_fill_roles; back_lane_run "${2:-}"; exit 0; }   # `sala watch --back-lanes [--dry-run]` (a real pass tags the rows with no role first; a dry run writes nothing, the rule reads the record for those rows itself)
 [ "$WRAPUP_ONLY" = 1 ] && { [ "${2:-}" = --dry-run ] && WRAP_DRY=1; wrapup_tick; exit 0; }   # `sala watch --wrapup [--dry-run]`
+[ "$PLUGINS_ONLY" = 1 ] && { [ $# -gt 1 ] || reload_on || echo "idle: SALA_PLUGIN_RELOAD is not on: nothing is asked (--dry-run shows what a pass would do)"; reload_tick "${@:2}"; exit; }   # `sala watch --plugins [--dry-run] [--only <session>]`
 [ "$SLEEP_ONLY" = 1 ] && { [ "${2:-}" = --dry-run ] && SLEEP_DRY=1; sleep_tick; exit 0; }   # `sala watch --sleep [--dry-run]`
 [ "$WAKE_ONLY" = 1 ] && { [ "${2:-}" = --dry-run ] && SLEEP_DRY=1; wake_tick; exit 0; }   # `sala watch --wake [--dry-run]`
 [ "$SETS_ONLY" = 1 ] && { sets_tick "${2:-}"; exit 0; }   # `sala watch --sets [--dry-run]`
@@ -1978,6 +1983,7 @@ deferred_revive() {
 [ "$CHECK_ONLY" = 1 ] || cont_tick   # a pane that moved to a new transcript id keeps its row (lib/continuedin.sh)
 [ "$CHECK_ONLY" = 1 ] || bare_tick   # every mapped pane at a bare shell for SALA_BARE_GRACE is revived (lib/barepane.sh)
 [ "$CHECK_ONLY" = 1 ] || wrapup_tick   # runs only when SALA_IDLE_WRAPUP=on (off by default): a background agent idle for SALA_IDLE_WRAPUP_MIN is asked to wrap up, then cleared (lib/wrapup.sh)
+[ "$CHECK_ONLY" = 1 ] || ! reload_on || reload_tick   # only with SALA_PLUGIN_RELOAD=on (off by default): a background agent's pane behind a watched plugin's update is asked to run /reload-plugins (lib/plugin-reload.sh)
 [ "$CHECK_ONLY" = 1 ] || wake_tick   # always on: a sleeping session with a stackshot message line waiting is woken (`sala wake`), at most SALA_WAKE_PER_RUN per run (lib/wrapup.sh)
 [ "$CHECK_ONLY" = 1 ] || sleep_tick   # runs only when SALA_IDLE_SLEEP=on (off by default): an inactive project whose sessions sleep_ready accepts is put to sleep (`sala sleep --project`), at most SALA_SLEEP_PER_TICK projects per run (lib/wrapup.sh)
 [ "$CHECK_ONLY" = 1 ] || set_prune   # recycle sets: closed ones after 3 days, any after 9 (common.sh)

@@ -110,6 +110,7 @@ suite pause lib/barepane.sh lib/continuedin.sh lib/feedback.sh lib/holders.py li
 suite permissions lib/hook.sh lib/permissions.py
 suite permmode lib/feedback.sh lib/revive.sh lib/sessions.py lib/spawn.sh lib/stackshot_record.py
 suite phases lib/feedback.sh lib/revive.sh
+suite plugin-reload lib/barepane.sh lib/continuedin.sh lib/lanewords.py lib/note.sh lib/op.sh lib/plugin-reload.sh lib/recycle-request.sh lib/rename.sh lib/sessions.py lib/settings-apply.sh lib/stackshot_record.py lib/stuck.sh lib/watch.sh lib/where.py lib/where.sh lib/wrapup.sh
 suite prwatcher lib/pr_watcher_cleanup.py tests/prwatcher_scenario.py
 suite pset-target
 suite psets lib/heartbeat.sh lib/provision.sh lib/step-words.tsv
