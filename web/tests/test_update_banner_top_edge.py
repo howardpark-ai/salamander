@@ -41,7 +41,8 @@ def settle(browser, want: str) -> dict:
     deadline = time.monotonic() + 5
     while True:
         s = browser.evaluate(STATE)
-        if s["visibility"] == want or time.monotonic() > deadline:
+        arrived = s["visibility"] == want and (want == "hidden" or s["left"] >= 0)  # opening flips visibility first, the slide follows
+        if arrived or time.monotonic() > deadline:
             return s
         time.sleep(0.05)
 
