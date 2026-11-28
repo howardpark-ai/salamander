@@ -544,7 +544,7 @@ body.side-mode #sd-form { display: block; }
   background: var(--accent); color: var(--accent-text); font-weight: 600; white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, .28); }
 .quote-btn svg, .quote-chip svg { width: 14px; height: 14px; flex: none; fill: currentColor; }
-.quote-btn > span { padding: 6px 14px; border-radius: 8px; }
+.quote-btn > span { padding: 8px 16px; border-radius: 8px; }
 .quote-chip { width: 88px; height: 44px; }
 .quote-chip > span { display: flex; width: 80px; height: 28px; margin: 8px 4px; font-size: 12px; overflow: hidden;
   border-radius: 999px; }
